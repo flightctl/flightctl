@@ -207,7 +207,7 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 	if device.Metadata.Owner == nil || *device.Metadata.Owner == "" {
 		status = t.deviceSvc.OverwriteDeviceRepositoryRefs(ctx, t.orgId, *device.Metadata.Name, referencedRepos...)
 		if status.Code != http.StatusOK {
-			return t.setStatus(ctx, fmt.Errorf("setting repository references: %s", status.Message))
+			return t.setErrorStatus(ctx, fmt.Errorf("setting repository references: %s", status.Message))
 		}
 	}
 
@@ -215,7 +215,7 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		if isPermanentRenderError(renderErr) {
 			t.markPermanentRenderFailure(ctx, specHash)
 		}
-		return t.setStatus(ctx, renderErr)
+		return t.setErrorStatus(ctx, renderErr)
 	}
 
 	renderedApplications, err := t.renderApplications(ctx)
@@ -223,7 +223,7 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		if isPermanentRenderError(err) {
 			t.markPermanentRenderFailure(ctx, specHash)
 		}
-		return t.setStatus(ctx, err)
+		return t.setErrorStatus(ctx, err)
 	}
 
 	var syncRefs []domain.DependencySyncConfigRefStatus
@@ -237,8 +237,13 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 
 	// forceUpdate tells the store layer to persist this render and bump the rendered version
 	// even though specHash is unchanged (see bypassHashCheck above).
+	// On success, UpdateRenderedDevice persists SpecValid=Valid (and derived status when the
+	// rendered version advances). setErrorStatus is only needed for failure paths.
 	status = t.deviceSvc.UpdateRenderedDevice(ctx, t.orgId, t.event.InvolvedObject.Name, string(renderedConfig), string(renderedApplications), specHash, syncRefs, bypassHashCheck)
-	return t.setStatus(ctx, common.ApiStatusToErr(status))
+	if err := common.ApiStatusToErr(status); err != nil {
+		return t.setErrorStatus(ctx, err)
+	}
+	return nil
 }
 
 func (t *DeviceRenderLogic) markPermanentRenderFailure(ctx context.Context, specHash string) {
@@ -255,16 +260,14 @@ func (t *DeviceRenderLogic) markPermanentRenderFailure(ctx context.Context, spec
 	}
 }
 
-func (t *DeviceRenderLogic) setStatus(ctx context.Context, renderErr error) error {
-	condition := domain.Condition{Type: domain.ConditionTypeDeviceSpecValid}
-
-	if renderErr == nil {
-		condition.Status = domain.ConditionStatusTrue
-		condition.Reason = "Valid"
-	} else {
-		condition.Status = domain.ConditionStatusFalse
-		condition.Reason = "Invalid"
-		condition.Message = renderErr.Error()
+// setErrorStatus records a render failure as SpecValid=False. All call sites already gate
+// on a non-nil error, so renderErr is always expected to be set.
+func (t *DeviceRenderLogic) setErrorStatus(ctx context.Context, renderErr error) error {
+	condition := domain.Condition{
+		Type:    domain.ConditionTypeDeviceSpecValid,
+		Status:  domain.ConditionStatusFalse,
+		Reason:  "Invalid",
+		Message: renderErr.Error(),
 	}
 
 	status := t.deviceSvc.SetDeviceServiceConditions(ctx, t.orgId, t.event.InvolvedObject.Name, []domain.Condition{condition})

@@ -61,7 +61,9 @@ type Store interface {
 	List(ctx context.Context, orgId uuid.UUID, listParams DeviceListParams) (*domain.DeviceList, error)
 	Labels(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (domain.LabelList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback store.EventCallback) (bool, error)
-	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, eventCallback store.EventCallback) (*domain.Device, error)
+	// UpdateStatus persists device status. When previous is non-nil it is used as the
+	// pre-update snapshot for event callbacks and the store does not re-fetch the device.
+	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, eventCallback store.EventCallback, previous *domain.Device) (*domain.Device, error)
 	GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*domain.Device, error)
 	Healthcheck(ctx context.Context, orgId uuid.UUID, names []string) error
 	ProcessAwaitingReconnectAnnotation(ctx context.Context, orgId uuid.UUID, deviceName string, deviceReportedVersion *string) (bool, error)
@@ -70,7 +72,7 @@ type Store interface {
 	// Used internally
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
 	MutateAnnotation(ctx context.Context, orgId uuid.UUID, name string, key string, mutate func(current string) (string, error)) error
-	UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool) (string, error)
+	UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, mutateStatus RenderedStatusMutator) (string, error)
 	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, callback ServiceConditionsCallback) error
 	DecommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission, eventCallback store.EventCallback) (*domain.Device, error)
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
@@ -103,6 +105,11 @@ type DeviceStore struct {
 
 type DeviceStoreValidationCallback func(ctx context.Context, before *domain.Device, after *domain.Device) error
 type ServiceConditionsCallback func(ctx context.Context, orgId uuid.UUID, device *domain.Device, oldConditions, newConditions []domain.Condition)
+
+// RenderedStatusMutator recomputes server-side status on a device that already has the
+// next rendered-version annotations applied. It returns true when status should be
+// persisted in the same CAS UPDATE as the rendered fields. Invoked on every retry.
+type RenderedStatusMutator func(device *domain.Device) bool
 
 // Make sure we conform to the Store interface
 var _ Store = (*DeviceStore)(nil)
@@ -830,20 +837,21 @@ func (s *DeviceStore) Summary(ctx context.Context, orgId uuid.UUID, listParams s
 	}, nil
 }
 
-func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Device, eventCallback store.EventCallback) (*domain.Device, error) {
+func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Device, eventCallback store.EventCallback, previous *domain.Device) (*domain.Device, error) {
 	var oldDevice domain.Device
 	name := lo.FromPtr(resource.Metadata.Name)
-	device, err := s.Get(ctx, orgId, name)
-	if err != nil {
-		s.log.Errorf("error fetching device %s/%s for update status event processing", orgId, name)
-	} else if device != nil {
-		// Capture old device with deep copy
-		var devices []domain.Device
-		devices = append(devices, *device)
-		oldDevice = devices[0]
+	if previous != nil {
+		oldDevice = *previous
+	} else {
+		device, err := s.Get(ctx, orgId, name)
+		if err != nil {
+			s.log.Errorf("error fetching device %s/%s for update status event processing", orgId, name)
+		} else if device != nil {
+			oldDevice = *device
+		}
 	}
 
-	device, err = s.genericStore.UpdateStatus(ctx, orgId, resource)
+	device, err := s.genericStore.UpdateStatus(ctx, orgId, resource)
 	s.callEventCallback(ctx, eventCallback, orgId, name, &oldDevice, device, false, err)
 	return device, err
 }
@@ -1119,7 +1127,7 @@ func (s *DeviceStore) SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner s
 	})
 }
 
-func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool) (retry bool, renderedVersion string, err error) {
+func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, mutateStatus RenderedStatusMutator) (retry bool, renderedVersion string, err error) {
 	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
 	result := s.getDB(ctx).Take(&existingRecord)
 	if result.Error != nil {
@@ -1175,9 +1183,28 @@ func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name,
 		"resource_version":      gorm.Expr("resource_version + 1"),
 		"render_timestamp":      time.Now(),
 	}
-	if updatedServiceConditions != nil {
-		updates["service_conditions"] = updatedServiceConditions
+
+	if mutateStatus != nil {
+		existingRecord.Annotations = model.MakeJSONMap(existingAnnotations)
+		apiDevice, convertErr := existingRecord.ToApiResource()
+		if convertErr != nil {
+			return false, "", convertErr
+		}
+		if mutateStatus(apiDevice) && apiDevice.Status != nil {
+			// apiDevice.Status.Conditions/DependencySync were merged in by ToApiResource above
+			// for the mutator's benefit (e.g. diffing SpecValid). Round-trip back through
+			// NewDeviceFromApiResource to split them back out into service_conditions before
+			// writing the status column, the same way every other device write does.
+			deviceOnlyRecord, convertErr := model.NewDeviceFromApiResource(apiDevice)
+			if convertErr != nil {
+				return false, "", convertErr
+			}
+			updates["status"] = deviceOnlyRecord.Status
+		}
 	}
+
+	// SpecValid=Valid is part of a successful render write (same CAS UPDATE).
+	updates["service_conditions"] = withSpecValidCondition(updatedServiceConditions, existingRecord.ServiceConditions)
 
 	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(updates)
 
@@ -1189,6 +1216,30 @@ func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name,
 		return true, "", flterrors.ErrNoRowsUpdated
 	}
 	return false, nextRenderedVersion, nil
+}
+
+// withSpecValidCondition returns service conditions for a successful render write,
+// starting from fingerprint updates when present, otherwise the existing row, and
+// setting SpecValid=Valid in the same payload.
+func withSpecValidCondition(fromFingerprints, existing *model.JSONField[model.ServiceConditions]) *model.JSONField[model.ServiceConditions] {
+	var sc model.ServiceConditions
+	switch {
+	case fromFingerprints != nil:
+		sc = fromFingerprints.Data
+	case existing != nil:
+		sc = existing.Data
+	}
+	var conditions []domain.Condition
+	if sc.Conditions != nil {
+		conditions = append(conditions, *sc.Conditions...)
+	}
+	domain.SetStatusCondition(&conditions, domain.Condition{
+		Type:   domain.ConditionTypeDeviceSpecValid,
+		Status: domain.ConditionStatusTrue,
+		Reason: "Valid",
+	})
+	sc.Conditions = &conditions
+	return model.MakeJSONField(sc)
 }
 
 // buildDependencySyncStatus merges new fingerprints with existing service conditions,
@@ -1235,13 +1286,13 @@ func buildDependencySyncStatus(existing *model.JSONField[model.ServiceConditions
 	return model.MakeJSONField(sc)
 }
 
-func (s *DeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool) (string, error) {
+func (s *DeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, mutateStatus RenderedStatusMutator) (string, error) {
 	var rv string
 
 	wrapper := func() (bool, error) {
 		var retry bool
 		var err error
-		retry, rv, err = s.updateRendered(ctx, orgId, name, renderedConfig, renderedApplications, specHash, configFingerprints, forceUpdate)
+		retry, rv, err = s.updateRendered(ctx, orgId, name, renderedConfig, renderedApplications, specHash, configFingerprints, forceUpdate, mutateStatus)
 		return retry, err
 	}
 
@@ -1295,9 +1346,14 @@ func (s *DeviceStore) setServiceConditions(ctx context.Context, orgId uuid.UUID,
 		existingRecord.ServiceConditions.Data.Conditions = &[]domain.Condition{}
 	}
 
-	// Set new conditions
+	changed := false
 	for _, condition := range conditions {
-		domain.SetStatusCondition(existingRecord.ServiceConditions.Data.Conditions, condition)
+		if domain.SetStatusCondition(existingRecord.ServiceConditions.Data.Conditions, condition) {
+			changed = true
+		}
+	}
+	if !changed {
+		return false, nil
 	}
 
 	// Update using the original pattern with specific field updates and optimistic locking

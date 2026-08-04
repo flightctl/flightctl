@@ -339,7 +339,7 @@ func (h *DeviceServiceHandler) ReplaceDeviceStatus(ctx context.Context, orgId uu
 	deviceToStore.Status = incomingDevice.Status
 	_ = common.UpdateServiceSideStatus(ctx, orgId, deviceToStore, h.fleetStore, h.log)
 
-	result, err := h.deviceStore.UpdateStatus(ctx, orgId, deviceToStore, h.callbackDeviceUpdated)
+	result, err := h.deviceStore.UpdateStatus(ctx, orgId, deviceToStore, h.callbackDeviceUpdated, originalDevice)
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
@@ -502,8 +502,9 @@ func (h *DeviceServiceHandler) UpdateServerSideDeviceStatus(ctx context.Context,
 	if err != nil {
 		return err
 	}
+	previous := snapshotDeviceForStatusUpdate(device)
 	if changed := common.UpdateServiceSideStatus(ctx, orgId, device, h.fleetStore, h.log); changed {
-		_, err = h.deviceStore.UpdateStatus(ctx, orgId, device, h.callbackDeviceUpdated)
+		_, err = h.deviceStore.UpdateStatus(ctx, orgId, device, h.callbackDeviceUpdated, previous)
 		if err != nil {
 			h.log.WithError(err).Errorf("failed to update status for device %s/%s", orgId, name)
 			return err
@@ -517,13 +518,28 @@ func (h *DeviceServiceHandler) ForceUpdateServerSideDeviceStatus(ctx context.Con
 	if err != nil {
 		return err
 	}
+	previous := snapshotDeviceForStatusUpdate(device)
 	common.UpdateServiceSideStatus(ctx, orgId, device, h.fleetStore, h.log)
-	_, err = h.deviceStore.UpdateStatus(ctx, orgId, device, h.callbackDeviceUpdated)
+	_, err = h.deviceStore.UpdateStatus(ctx, orgId, device, h.callbackDeviceUpdated, previous)
 	if err != nil {
 		h.log.WithError(err).Errorf("failed to update status for device %s/%s", orgId, name)
 		return err
 	}
 	return nil
+}
+
+// snapshotDeviceForStatusUpdate copies the device enough that in-place status mutations
+// in UpdateServiceSideStatus do not alter the pre-update snapshot used for events.
+func snapshotDeviceForStatusUpdate(device *domain.Device) *domain.Device {
+	if device == nil {
+		return nil
+	}
+	previous := *device
+	if device.Status != nil {
+		status := *device.Status
+		previous.Status = &status
+	}
+	return &previous
 }
 
 func (h *DeviceServiceHandler) DecommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission) (*domain.Device, domain.Status) {
@@ -537,26 +553,63 @@ func (h *DeviceServiceHandler) UpdateDeviceAnnotations(ctx context.Context, orgI
 }
 
 func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool) domain.Status {
-	renderedVersion, err := h.deviceStore.UpdateRendered(ctx, orgId, name, renderedConfig, renderedApplications, specHash, configFingerprints, forceUpdate)
+	specValid := domain.Condition{
+		Type:   domain.ConditionTypeDeviceSpecValid,
+		Status: domain.ConditionStatusTrue,
+		Reason: "Valid",
+	}
+	var previous, updated *domain.Device
+	var oldConditions []domain.Condition
+	renderedVersion, err := h.deviceStore.UpdateRendered(ctx, orgId, name, renderedConfig, renderedApplications, specHash, configFingerprints, forceUpdate,
+		func(device *domain.Device) bool {
+			previous = snapshotDeviceForStatusUpdate(device)
+			oldConditions = nil
+			updated = nil
+			if device.Status != nil {
+				oldConditions = append([]domain.Condition(nil), device.Status.Conditions...)
+				// Apply the SpecValid this render is about to commit before computing derived status.
+				domain.SetStatusCondition(&device.Status.Conditions, specValid)
+			}
+			if !common.UpdateServiceSideStatus(ctx, orgId, device, h.fleetStore, h.log) {
+				return false
+			}
+			updated = device
+			return true
+		})
 	if err != nil {
 		h.log.Errorf("Failed to update rendered device %s/%s: %v", orgId, name, err)
 		return common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 	}
 	if renderedVersion == "" {
 		h.log.Debugf("Rendered device %s/%s: no change in rendered version", orgId, name)
-		return domain.StatusOK()
+		// No rendered write; still ensure SpecValid=Valid and refresh derived status.
+		status := h.SetDeviceServiceConditions(ctx, orgId, name, []domain.Condition{specValid})
+		if status.Code != http.StatusOK {
+			return status
+		}
+		if err := h.UpdateServerSideDeviceStatus(ctx, orgId, name); err != nil {
+			h.log.Errorf("Failed updating device status for device %s/%s: %v", orgId, name, err)
+		}
+		return status
 	}
-	err = h.UpdateServerSideDeviceStatus(ctx, orgId, name)
-	if err != nil {
-		return common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
+	if updated != nil {
+		h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, previous, updated, false, nil)
+	}
+	deviceForEvents := updated
+	if deviceForEvents == nil {
+		deviceForEvents = previous
+	}
+	if deviceForEvents != nil {
+		newConditions := append([]domain.Condition(nil), oldConditions...)
+		domain.SetStatusCondition(&newConditions, specValid)
+		h.diffAndEmitConditionEvents(ctx, orgId, deviceForEvents, oldConditions, newConditions)
 	}
 
-	err = rendered.Bus.Instance().StoreAndNotify(ctx, orgId, name, renderedVersion)
-	if err != nil {
+	// Best-effort: StoreAndNotify only wakes up already-polling agents, it's not the source of truth.
+	if err := rendered.Bus.Instance().StoreAndNotify(ctx, orgId, name, renderedVersion); err != nil {
 		h.log.Errorf("Failed to publish rendered device %s/%s: %v", orgId, name, err)
-		return domain.StatusInternalServerError(fmt.Sprintf("failed to publish rendered device: %v", err))
 	}
-	return common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
+	return domain.StatusOK()
 }
 
 func (h *DeviceServiceHandler) SetDeviceServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) domain.Status {

@@ -150,9 +150,12 @@ func (s *fakeDeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name stri
 	return true, nil
 }
 
-func (s *fakeDeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, eventCallback store.EventCallback) (*domain.Device, error) {
+func (s *fakeDeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, eventCallback store.EventCallback, previous *domain.Device) (*domain.Device, error) {
 	name := lo.FromPtr(device.Metadata.Name)
-	old := s.devices[name]
+	old := previous
+	if old == nil {
+		old = s.devices[name]
+	}
 	d := deepCopyDevice(device)
 	s.devices[name] = d
 	if eventCallback != nil {
@@ -265,7 +268,7 @@ func (s *fakeDeviceStore) MutateAnnotation(ctx context.Context, orgId uuid.UUID,
 	return nil
 }
 
-func (s *fakeDeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool) (string, error) {
+func (s *fakeDeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, mutateStatus devicestore.RenderedStatusMutator) (string, error) {
 	if _, ok := s.devices[name]; !ok {
 		return "", flterrors.ErrResourceNotFound
 	}
@@ -312,13 +315,26 @@ func (s *fakeDeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.U
 	if !ok {
 		return flterrors.ErrResourceNotFound
 	}
+	var oldConditions []domain.Condition
+	if d.Status != nil {
+		oldConditions = append([]domain.Condition(nil), d.Status.Conditions...)
+	}
+	newConditions := append([]domain.Condition(nil), oldConditions...)
+	changed := false
+	for _, condition := range conditions {
+		if domain.SetStatusCondition(&newConditions, condition) {
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
 	if d.Status == nil {
 		d.Status = lo.ToPtr(domain.NewDeviceStatus())
 	}
-	oldConditions := d.Status.Conditions
-	d.Status.Conditions = conditions
+	d.Status.Conditions = newConditions
 	if callback != nil {
-		callback(ctx, orgId, d, oldConditions, conditions)
+		callback(ctx, orgId, d, oldConditions, newConditions)
 	}
 	return nil
 }

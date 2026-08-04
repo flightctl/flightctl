@@ -232,7 +232,7 @@ var _ = Describe("DeviceStore create", func() {
 					d.Status.Capabilities = nil
 					expectedOsModeMap[model.CapabilityCountUnknown]++
 				}
-				_, err = devStore.UpdateStatus(ctx, orgId, d, nil)
+				_, err = devStore.UpdateStatus(ctx, orgId, d, nil, nil)
 				Expect(err).ToNot(HaveOccurred())
 			}
 			allDevices, err = devStore.List(ctx, orgId, devicestore.DeviceListParams{})
@@ -338,7 +338,7 @@ var _ = Describe("DeviceStore create", func() {
 					Metadata: api.ObjectMeta{Name: lo.ToPtr(name)},
 					Status:   &status,
 				}
-				_, err := devStore.UpdateStatus(ctx, orgId, &device, nil)
+				_, err := devStore.UpdateStatus(ctx, orgId, &device, nil, nil)
 				Expect(err).ToNot(HaveOccurred())
 			}
 
@@ -499,7 +499,7 @@ var _ = Describe("DeviceStore create", func() {
 			enrolled, err := devStore.Get(ctx, orgId, "device-cve-fs-enrolled")
 			Expect(err).ToNot(HaveOccurred())
 			enrolled.Status.Lifecycle.Status = api.DeviceLifecycleStatusEnrolled
-			_, err = devStore.UpdateStatus(ctx, orgId, enrolled, nil)
+			_, err = devStore.UpdateStatus(ctx, orgId, enrolled, nil, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			notEnrolledDev, err := devStore.Get(ctx, orgId, "device-cve-fs-not-enrolled")
@@ -814,7 +814,7 @@ var _ = Describe("DeviceStore create", func() {
 				Status: &status,
 			}
 			api.SetStatusCondition(&device.Status.Conditions, condition)
-			_, err := devStore.UpdateStatus(ctx, orgId, &device, nil)
+			_, err := devStore.UpdateStatus(ctx, orgId, &device, nil, nil)
 			Expect(err).ToNot(HaveOccurred())
 			dev, err := devStore.Get(ctx, orgId, "mydevice-1")
 			Expect(err).ToNot(HaveOccurred())
@@ -1170,7 +1170,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Set first rendered config
-			_, err = devStore.UpdateRendered(ctx, orgId, "dev", firstConfig, "", "hash1", nil, false)
+			_, err = devStore.UpdateRendered(ctx, orgId, "dev", firstConfig, "", "hash1", nil, false, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Verify rendered config is encrypted at rest
@@ -1208,7 +1208,7 @@ var _ = Describe("DeviceStore create", func() {
 			// Set second rendered config
 			secondConfig, err := createTestConfigProvider("this is the second config")
 			Expect(err).ToNot(HaveOccurred())
-			_, err = devStore.UpdateRendered(ctx, orgId, "dev", secondConfig, "", "hash2", nil, false)
+			_, err = devStore.UpdateRendered(ctx, orgId, "dev", secondConfig, "", "hash2", nil, false, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Passing previous renderedVersion
@@ -1231,22 +1231,114 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Establish an initial rendered version for a given specHash.
-			firstVersion, err := devStore.UpdateRendered(ctx, orgId, "dev-force-update", config, "", "samehash", nil, false)
+			firstVersion, err := devStore.UpdateRendered(ctx, orgId, "dev-force-update", config, "", "samehash", nil, false, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(firstVersion).ToNot(BeEmpty())
 
 			// Same specHash, no config fingerprints, forceUpdate=false: short-circuits as a no-op.
-			noopVersion, err := devStore.UpdateRendered(ctx, orgId, "dev-force-update", config, "", "samehash", nil, false)
+			noopVersion, err := devStore.UpdateRendered(ctx, orgId, "dev-force-update", config, "", "samehash", nil, false, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(noopVersion).To(BeEmpty())
 
 			// Same specHash, no config fingerprints, forceUpdate=true: must still persist and
 			// advance the rendered version, e.g. to reflect a device-level application lifecycle
 			// annotation change that isn't captured by specHash at all.
-			forcedVersion, err := devStore.UpdateRendered(ctx, orgId, "dev-force-update", config, "", "samehash", nil, true)
+			forcedVersion, err := devStore.UpdateRendered(ctx, orgId, "dev-force-update", config, "", "samehash", nil, true, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(forcedVersion).ToNot(BeEmpty())
 			Expect(forcedVersion).ToNot(Equal(firstVersion))
+		})
+
+		It("SetServiceConditions skips write and callback when conditions are unchanged", func() {
+			testutil.CreateTestDevice(ctx, devStore, orgId, "dev-svc-conditions-noop", nil, nil, nil)
+
+			condition := domain.Condition{
+				Type:    domain.ConditionTypeDeviceSpecValid,
+				Status:  domain.ConditionStatusTrue,
+				Reason:  "Valid",
+				Message: "Valid",
+			}
+			callbackCalls := 0
+			callback := func(ctx context.Context, orgId uuid.UUID, device *domain.Device, oldConditions, newConditions []domain.Condition) {
+				callbackCalls++
+			}
+
+			err := devStore.SetServiceConditions(ctx, orgId, "dev-svc-conditions-noop", []domain.Condition{condition}, callback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(callbackCalls).To(Equal(1))
+
+			afterWrite, err := devStore.Get(ctx, orgId, "dev-svc-conditions-noop")
+			Expect(err).ToNot(HaveOccurred())
+			resourceVersion := lo.FromPtr(afterWrite.Metadata.ResourceVersion)
+
+			err = devStore.SetServiceConditions(ctx, orgId, "dev-svc-conditions-noop", []domain.Condition{condition}, callback)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(callbackCalls).To(Equal(1))
+
+			afterNoop, err := devStore.Get(ctx, orgId, "dev-svc-conditions-noop")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(lo.FromPtr(afterNoop.Metadata.ResourceVersion)).To(Equal(resourceVersion))
+		})
+
+		It("UpdateRendered persists status in the same resource_version bump", func() {
+			testutil.CreateTestDevice(ctx, devStore, orgId, "dev-render-status", nil, nil, nil)
+
+			before, err := devStore.Get(ctx, orgId, "dev-render-status")
+			Expect(err).ToNot(HaveOccurred())
+			beforeRV := lo.FromPtr(before.Metadata.ResourceVersion)
+			beforeConditionCount := len(before.Status.Conditions)
+
+			config, err := createTestConfigProvider("rendered with status")
+			Expect(err).ToNot(HaveOccurred())
+
+			mutatorCalls := 0
+			version, err := devStore.UpdateRendered(ctx, orgId, "dev-render-status", config, "", "hash-status", nil, false,
+				func(device *domain.Device) bool {
+					mutatorCalls++
+					Expect(device.Version()).ToNot(BeEmpty())
+					if device.Status == nil {
+						device.Status = lo.ToPtr(domain.NewDeviceStatus())
+					}
+					device.Status.Updated.Status = domain.DeviceUpdatedStatusOutOfDate
+					device.Status.Updated.Info = lo.ToPtr("rendered ahead of agent")
+					return true
+				})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(version).ToNot(BeEmpty())
+			Expect(mutatorCalls).To(Equal(1))
+
+			after, err := devStore.Get(ctx, orgId, "dev-render-status")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(lo.FromPtr(after.Metadata.ResourceVersion)).ToNot(Equal(beforeRV))
+			Expect(after.Status.Updated.Status).To(Equal(domain.DeviceUpdatedStatusOutOfDate))
+			Expect(lo.FromPtr(after.Status.Updated.Info)).To(Equal("rendered ahead of agent"))
+			specValid := domain.FindStatusCondition(after.Status.Conditions, domain.ConditionTypeDeviceSpecValid)
+			Expect(specValid).ToNot(BeNil())
+			Expect(specValid.Status).To(Equal(domain.ConditionStatusTrue))
+			Expect(specValid.Reason).To(Equal("Valid"))
+			// SpecValid is newly added on top of whatever device-owned conditions already
+			// existed; it must not also duplicate itself (or any other service-managed
+			// condition) into the status column alongside service_conditions.
+			Expect(after.Status.Conditions).To(HaveLen(beforeConditionCount+1),
+				"the service-managed SpecValid condition must live only in service_conditions, not duplicated into status")
+
+			// A second render that also mutates status must not duplicate service-managed
+			// conditions (or DependencySync) into the status column on top of the first render.
+			config2, err := createTestConfigProvider("rendered with status, second render")
+			Expect(err).ToNot(HaveOccurred())
+			version2, err := devStore.UpdateRendered(ctx, orgId, "dev-render-status", config2, "", "hash-status-2", nil, false,
+				func(device *domain.Device) bool {
+					device.Status.Updated.Status = domain.DeviceUpdatedStatusUpdating
+					return true
+				})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(version2).ToNot(BeEmpty())
+
+			afterSecond, err := devStore.Get(ctx, orgId, "dev-render-status")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(afterSecond.Status.Conditions).To(HaveLen(beforeConditionCount+1),
+				"repeated renders must not accumulate duplicate service-managed conditions in status")
+			Expect(afterSecond.Status.DependencySync).To(BeNil())
 		})
 
 		It("OverwriteRepositoryRefs", func() {
