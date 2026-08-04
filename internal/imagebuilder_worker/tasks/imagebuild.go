@@ -401,6 +401,7 @@ type containerfileBuildArgs struct {
 	AgentConfigDestPath string
 	Username            string
 	HasUserConfig       bool
+	InstallOnboarding   bool
 	RPMRepoAdd          bool
 	RPMRepoAddURL       string
 	RPMRepoEnable       string
@@ -550,6 +551,7 @@ func (c *Consumer) generateContainerfileWithGenerator(
 
 	isEarlyBinding := bindingType == string(domain.BindingTypeEarly)
 	hasUserConfig := spec.UserConfiguration != nil
+	installOnboarding := spec.Onboarding != nil && *spec.Onboarding
 
 	// Prepare build arguments (passed via --build-arg to podman build)
 	buildArgs := containerfileBuildArgs{
@@ -559,6 +561,7 @@ func (c *Consumer) generateContainerfileWithGenerator(
 		EarlyBinding:        isEarlyBinding,
 		AgentConfigDestPath: agentConfigPath,
 		HasUserConfig:       hasUserConfig,
+		InstallOnboarding:   installOnboarding,
 		RPMRepoAdd:          c.getRPMRepoAdd(),
 		RPMRepoAddURL:       c.getRPMRepoAddURL(),
 		RPMRepoEnable:       c.getRPMRepoEnable(),
@@ -1128,6 +1131,7 @@ func (c *Consumer) buildImageWithPodman(
 		"--build-arg", fmt.Sprintf("HAS_USER_CONFIG=%t", args.HasUserConfig),
 		"--build-arg", fmt.Sprintf("USERNAME=%s", args.Username),
 		"--build-arg", fmt.Sprintf("AGENT_CONFIG_DEST_PATH=%s", args.AgentConfigDestPath),
+		"--build-arg", fmt.Sprintf("INSTALL_ONBOARDING=%t", args.InstallOnboarding),
 		"--build-arg", fmt.Sprintf("RPM_REPO_ADD=%t", args.RPMRepoAdd),
 		"--build-arg", fmt.Sprintf("RPM_REPO_ADD_URL=%s", args.RPMRepoAddURL),
 		"--build-arg", fmt.Sprintf("RPM_REPO_ENABLE=%s", args.RPMRepoEnable),
