@@ -136,7 +136,7 @@ PKG_CACHE_DIR=$(mktemp -d)
 
 CONTAINER_CMD='
   set -euo pipefail
-  dnf install -y epel-release epel-next-release
+  dnf install -y epel-release epel-next-release dnf-plugins-core
   dnf download --resolve --destdir=/output \
     epel-release epel-next-release \
     cloud-init dnf-plugins-core firewalld openssh-server \
@@ -156,8 +156,13 @@ else
   resolve_rpm_source_dir "${RPM_DIR}"
 fi
 
-podman run --rm -v "${PKG_CACHE_DIR}:/output:Z" quay.io/centos/centos:stream9 \
+# Use rootful podman (same as qcow2.sh / BIB). Rootless podman hits
+# crun seccomp.bpf linkat Permission denied on GitHub-hosted runners.
+sudo podman run --rm \
+  -v "${PKG_CACHE_DIR}:/output:Z" \
+  quay.io/centos/centos:stream9 \
   bash -c "${CONTAINER_CMD}"
+sudo chown -R "${USER}:$(id -gn "${USER}")" "${PKG_CACHE_DIR}"
 
 if [ -z "${RPM_COPR_REPO}" ]; then
   cp "${RPM_SOURCE_DIR}"/flightctl-agent-*.rpm "${RPM_SOURCE_DIR}"/flightctl-selinux-*.rpm \
