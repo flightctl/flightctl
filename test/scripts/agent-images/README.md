@@ -167,9 +167,10 @@ GenericCloud image (kernel/bootloader). The OCI image is a container rootfs and 
 exported as the disk.
 
 `qcow2_regular.sh` mounts that cloud disk on the host (`guestmount`) and installs the same
-package set via `dnf --installroot` inside a CentOS Stream 9 container (host networking).
-It does **not** run guest `dnf` inside a `virt-customize` appliance — libguestfs guest
-networking is unreliable on GitHub-hosted runners.
+package set via `dnf --installroot` inside a CentOS Stream 9 container. The container
+resolves packages over the runner network stack, not through a libguestfs appliance.
+It does **not** run guest `dnf` inside `virt-customize` — libguestfs guest networking is
+unreliable on GitHub-hosted runners.
 
 Agent config, certificates, and registry remapping are expected to be injected into the
 qcow2 after build via the existing e2e injection flow.

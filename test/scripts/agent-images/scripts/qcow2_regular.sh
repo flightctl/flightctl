@@ -124,7 +124,14 @@ if [ -n "${RPM_COPR_REPO}" ]; then
   dnf --installroot="${root}" copr -y enable "${RPM_COPR_REPO}"
   dnf --installroot="${root}" -y install "${RPM_COPR_PACKAGE}"
 else
-  dnf --installroot="${root}" -y install /rpms/flightctl-agent-*.rpm /rpms/flightctl-selinux-*.rpm
+  shopt -s nullglob
+  rpms=(/rpms/flightctl-agent-*.rpm /rpms/flightctl-selinux-*.rpm)
+  shopt -u nullglob
+  if [ "${#rpms[@]}" -eq 0 ]; then
+    echo "No flightctl-agent/flightctl-selinux RPMs found in /rpms" >&2
+    exit 1
+  fi
+  dnf --installroot="${root}" -y install "${rpms[@]}"
 fi
 
 systemctl --root="${root}" enable firewalld.service
@@ -162,9 +169,10 @@ EOS
   fi
 
   # Rootful podman matches the BIB path and avoids rootless crun issues on GHA.
-  sudo podman "${podman_args[@]}" \
+  # Feed the script on stdin (static heredoc) rather than bash -c with a variable.
+  printf '%s' "${container_cmd}" | sudo podman "${podman_args[@]}" -i \
     quay.io/centos/centos:stream9 \
-    bash -c "${container_cmd}"
+    bash -s
 }
 
 if [ "${OS_ID}" != "cs9-regular" ]; then
@@ -217,7 +225,10 @@ echo "Installing packages into qcow2 via host-side dnf --installroot"
 install_into_root "${GUEST_MOUNT}"
 
 echo "Unmounting qcow2"
-sudo guestunmount "${GUEST_MOUNT}"
+sudo guestunmount --retry=5 "${GUEST_MOUNT}" || sudo umount -l "${GUEST_MOUNT}"
+while mountpoint -q "${GUEST_MOUNT}" 2>/dev/null; do
+  sleep 1
+done
 rmdir "${GUEST_MOUNT}" 2>/dev/null || true
 GUEST_MOUNT=""
 
