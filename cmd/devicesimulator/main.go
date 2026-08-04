@@ -557,6 +557,7 @@ func createOneAgent(agentCfg createAgentsConfig, createMu *sync.Mutex, i int) (*
 	cfg.SpecFetchErrorBaseDelay = agentCfg.agentConfigTemplate.SpecFetchErrorBaseDelay
 	cfg.SpecFetchErrorMaxDelay = agentCfg.agentConfigTemplate.SpecFetchErrorMaxDelay
 	cfg.StatusUpdateInterval = agentCfg.agentConfigTemplate.StatusUpdateInterval
+	cfg.StatusUpdateJitter = agentCfg.agentConfigTemplate.StatusUpdateJitter
 	cfg.TPM = agentCfg.agentConfigTemplate.TPM
 	cfg.LogPrefix = agentName
 
