@@ -74,7 +74,7 @@ For example:
 ```bash
 flightctl get devices --field-selector='text'
 
-Error: listing devices: 400, message: unknown or unsupported selector: unable to resolve selector name "text". Supported selectors are: [metadata.alias metadata.creationTimestamp metadata.name metadata.nameOrAlias metadata.owner status.applicationsSummary.status lastSeen status.summary.status status.updated.status]
+Error: listing devices: 400, message: unknown or unsupported selector: unable to resolve selector name "text". Supported selectors are: [metadata.alias metadata.creationTimestamp metadata.name metadata.nameOrAlias metadata.owner status.applicationsSummary.status lastSeen status.capabilities.osMode status.lifecycle.status status.summary.status status.updated.status]
 ```
 
 In this example, the field `text` is not a valid field for filtering. The error message provides a list of supported fields that can be used with `--field-selector` for the `device` resource.

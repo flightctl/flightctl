@@ -110,7 +110,7 @@ EOF
 
 Replace `<flightctl_service_host>` with the hostname or IP address of the Flight Control
 service. For full configuration options including TPM, labels, and audit settings, see
-[Configuring the Flight Control Agent](installing-agent.md).
+[Installing and configuring the Flight Control Agent](installing-agent.md).
 
 The CA certificate and enrollment credentials must be distributed to the device through
 your provisioning pipeline before the agent can connect.
@@ -248,7 +248,7 @@ references them), then follow the standard enrollment procedure:
 
 ## Next steps
 
-- [Configuring the Flight Control Agent](installing-agent.md) — full configuration
+- [Installing and configuring the Flight Control Agent](installing-agent.md) — full configuration
   reference for `config.yaml`
 - [Air-gapped fleet operations](air-gapped-operations.md) — managing devices and
   applying OS image updates in an air-gapped environment

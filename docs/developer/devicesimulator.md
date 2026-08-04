@@ -19,7 +19,7 @@ Changes to the configuration of all launched agents can be made in `~/.flightctl
 Some key options available for tuning:
 - `status-update-interval` - How often the agent reports its status to the API. Higher intervals reduce server load.
 
-See [Installing the Agent](../user/installing/installing-agent.md) for all available options.
+See [Installing and configuring the Flight Control Agent](../user/installing/installing-agent.md) for all available options.
 
 ## CLI Reference
 

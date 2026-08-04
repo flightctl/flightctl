@@ -158,7 +158,7 @@ For backup and restore procedures, see [Backup and Restore](../installing/backup
 ## See Also
 
 * [Security Guidelines](security-guidelines.md)
-* [Installing the Agent](../installing/installing-agent.md)
+* [Installing and configuring the Flight Control Agent](../installing/installing-agent.md)
 * [Installing on Kubernetes](../installing/installing-service-on-kubernetes.md)
 * [Installing on Linux](../installing/installing-service-on-linux.md)
 * [Deploying the Observability Stack on Linux](../installing/deploying-observability-linux.md)
