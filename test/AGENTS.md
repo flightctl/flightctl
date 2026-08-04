@@ -20,7 +20,7 @@ Defined in **test/test.mk** (included from root Makefile). Coverage reports go t
   - **Full flow (deploy + e2e):** `make e2e-test` – deploys cluster, builds e2e agent images, prepares qcow2, runs e2e.  
   - **Cluster already up:** `make in-cluster-e2e-test` – skips deploy, runs e2e.  
   - **Filter:** `GO_E2E_DIRS=test/e2e/agent`, `GINKGO_FOCUS="description"`, `GINKGO_PROCS=N`.  
-  - **Package-mode CI/local scope:** `GO_E2E_DIRS=./test/e2e/package_mode` runs the dedicated package-mode suite. Mixed-fleet coverage also needs `E2E_PACKAGE_MODE_QCOW` and `E2E_IMAGE_MODE_QCOW` to point at injected package-mode and image-mode qcows.
+  - **Package-mode CI/local scope:** `GO_E2E_DIRS=./test/e2e/package_mode` runs the dedicated package-mode suite against a `cs9-regular` testcontainer (requires the agent config under `bin/agent/etc/flightctl` and the `cs9-regular` OCI image loaded locally).
   - Some e2e suites (e.g. quadlets) need a quadlet-capable VM; see `test/e2e/quadlets/README.md` and `test/e2e/tpm/README.md`. Rollout tests use multiple VMs and have higher RAM requirements; see `test/e2e/rollout/README.md`.
 
 ## E2E layout and harness

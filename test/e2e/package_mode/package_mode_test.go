@@ -99,7 +99,9 @@ var _ = Describe("Package-mode device scenarios", Ordered, func() {
 
 		AfterAll(func() {
 			if CurrentSpecReport().Failed() && packageModeAgent != nil {
-				logs, err := packageModeAgent.GetAgentLogs(context.Background())
+				logCtx, logCancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer logCancel()
+				logs, err := packageModeAgent.GetAgentLogs(logCtx)
 				if err == nil {
 					GinkgoWriter.Printf("=== flightctl-agent logs (normal context) ===\n%s\n", logs)
 				}
@@ -169,7 +171,9 @@ var _ = Describe("Package-mode device scenarios", Ordered, func() {
 
 		It("does not emit the mixed-fleet os.image reject message during normal package-mode operation", Label("90150", "sanity"), func() {
 			Consistently(func(g Gomega) {
-				logs, err := packageModeAgent.GetAgentLogs(context.Background())
+				logCtx, logCancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer logCancel()
+				logs, err := packageModeAgent.GetAgentLogs(logCtx)
 				g.Expect(err).ToNot(HaveOccurred())
 				g.Expect(logs).ToNot(ContainSubstring(packageModeExpectedRejectText))
 			}, packageModeLogObservationTime, packageModePollInterval).Should(Succeed())
@@ -230,7 +234,9 @@ var _ = Describe("Package-mode device scenarios", Ordered, func() {
 
 		AfterAll(func() {
 			if CurrentSpecReport().Failed() && packageModeAgent != nil {
-				logs, err := packageModeAgent.GetAgentLogs(context.Background())
+				logCtx, logCancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer logCancel()
+				logs, err := packageModeAgent.GetAgentLogs(logCtx)
 				if err == nil {
 					GinkgoWriter.Printf("=== flightctl-agent logs (reject context) ===\n%s\n", logs)
 				}
@@ -266,7 +272,9 @@ var _ = Describe("Package-mode device scenarios", Ordered, func() {
 			}, testutil.LONG_TIMEOUT, packageModePollInterval).Should(Succeed())
 
 			Eventually(func(g Gomega) {
-				logs, err := packageModeAgent.GetAgentLogs(context.Background())
+				logCtx, logCancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer logCancel()
+				logs, err := packageModeAgent.GetAgentLogs(logCtx)
 				g.Expect(err).ToNot(HaveOccurred())
 				g.Expect(logs).To(ContainSubstring(packageModeExpectedRejectText))
 			}, testutil.LONG_TIMEOUT, packageModePollInterval).Should(Succeed())

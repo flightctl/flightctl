@@ -164,6 +164,7 @@ jobs:
           OS_ID: ${{ inputs.os_id }}
           RUN_ID: ${{ github.run_id }}
           UPLOAD_BUNDLE: ${{ inputs.upload_bundle }}
+          SKIP_QCOW_BUILD: ${{ inputs.skip_qcow_build }}
           IMAGES: ${{ steps.list-agent-images.outputs.images }}
         run: |
           set -euo pipefail
@@ -189,11 +190,17 @@ jobs:
             echo ""
             echo '```bash'
             echo "# Download artifacts"
-            echo "mkdir -p bin/agent-artifacts bin/output/qcow2"
+            if [ "${SKIP_QCOW_BUILD}" = "true" ]; then
+              echo "mkdir -p bin/agent-artifacts"
+            else
+              echo "mkdir -p bin/agent-artifacts bin/output/qcow2"
+            fi
             if [ "${UPLOAD_BUNDLE}" = "true" ]; then
               echo "gh run download ${RUN_ID} -n agent-images-bundle-${OS_ID}-${TAG} -D bin/agent-artifacts"
             fi
-            echo "gh run download ${RUN_ID} -n agent-qcow2-image-${OS_ID}-${TAG} -D bin/output/qcow2"
+            if [ "${SKIP_QCOW_BUILD}" != "true" ]; then
+              echo "gh run download ${RUN_ID} -n agent-qcow2-image-${OS_ID}-${TAG} -D bin/output/qcow2"
+            fi
             echo ""
             echo "# Run e2e tests"
             if [ "${UPLOAD_BUNDLE}" = "true" ]; then

@@ -14,6 +14,7 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/flightctl/flightctl/test/harness/containers"
+	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/sirupsen/logrus"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -105,16 +106,21 @@ func StartPackageModeAgent(ctx context.Context, agentConfigDir string) (*Package
 		return nil, fmt.Errorf("get container host: %w", err)
 	}
 
-	mappedPort, err := c.MappedPort(ctx, "22")
-	if err != nil {
-		_ = c.Terminate(ctx)
-		return nil, fmt.Errorf("get SSH port: %w", err)
+	// Host network mode discards published ports; SSH is on the host's :22.
+	sshPort := 22
+	if network != "host" {
+		mappedPort, err := c.MappedPort(ctx, "22")
+		if err != nil {
+			_ = c.Terminate(ctx)
+			return nil, fmt.Errorf("get SSH port: %w", err)
+		}
+		sshPort = mappedPort.Int()
 	}
 
 	agent := &PackageModeAgent{
 		Container: c,
 		Host:      host,
-		SSHPort:   mappedPort.Int(),
+		SSHPort:   sshPort,
 	}
 
 	if err := agent.setupFlightctlUser(ctx); err != nil {
@@ -127,7 +133,7 @@ func StartPackageModeAgent(ctx context.Context, agentConfigDir string) (*Package
 		return nil, fmt.Errorf("wait for agent service: %w", err)
 	}
 
-	logrus.Infof("Package-mode agent container started: %s:%d", host, mappedPort.Int())
+	logrus.Infof("Package-mode agent container started: %s:%d", host, sshPort)
 	return agent, nil
 }
 
@@ -192,19 +198,23 @@ func (a *PackageModeAgent) RunSSH(ctx context.Context, args []string) (string, e
 	return string(out), nil
 }
 
-// GetEnrollmentID waits for and returns the agent's enrollment ID.
+// GetEnrollmentID waits for and returns the agent's enrollment ID by parsing the agent logs.
+// The enrollment ID appears in the agent logs as part of the enrollment URL (e.g. /enroll/<id>).
 func (a *PackageModeAgent) GetEnrollmentID(ctx context.Context, timeout time.Duration) (string, error) {
 	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	for {
-		out, err := a.RunSSH(timeoutCtx, []string{"cat", "/var/lib/flightctl/enrollment-id", "2>/dev/null"})
-		if err == nil && strings.TrimSpace(out) != "" {
-			return strings.TrimSpace(out), nil
+		logs, err := a.GetAgentLogs(timeoutCtx)
+		if err == nil {
+			enrollmentID := testutil.GetEnrollmentIdFromText(logs)
+			if enrollmentID != "" {
+				return enrollmentID, nil
+			}
 		}
 		select {
 		case <-timeoutCtx.Done():
-			return "", fmt.Errorf("timeout waiting for enrollment ID: %w", timeoutCtx.Err())
+			return "", fmt.Errorf("timeout waiting for enrollment ID in agent logs: %w", timeoutCtx.Err())
 		case <-time.After(2 * time.Second):
 		}
 	}

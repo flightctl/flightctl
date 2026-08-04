@@ -283,7 +283,9 @@ build_variants_and_qcow2() {
 # resulting qcow into the shared output location and record its OS flavor.
 build_regular_qcow2() {
     echo "Building package-mode base and qcow2 for OS_ID=${OS_ID}"
-    SKIP_VARIANTS_BUILD=true SKIP_QCOW_BUILD="${SKIP_QCOW_BUILD:-false}" "${SCRIPT_DIR}/scripts/build_and_qcow2.sh" --os-id "${OS_ID}"
+    # Regular (package-mode) builds no longer produce QCOW2 by default; callers
+    # that still need a qcow must set SKIP_QCOW_BUILD=false explicitly.
+    SKIP_VARIANTS_BUILD=true SKIP_QCOW_BUILD="${SKIP_QCOW_BUILD:-true}" "${SCRIPT_DIR}/scripts/build_and_qcow2.sh" --os-id "${OS_ID}"
 
     sudo chown -R "${USER}:$(id -gn "${USER}")" "${ROOT_DIR}/artifacts" || true
 
