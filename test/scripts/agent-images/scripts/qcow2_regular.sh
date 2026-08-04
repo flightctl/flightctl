@@ -16,6 +16,7 @@ RPM_COPR_PACKAGE="${RPM_COPR_PACKAGE:-}"
 TMP_CLOUD_IMAGE_PATH=""
 RPM_SOURCE_DIR=""
 GUEST_MOUNT=""
+POST_CONFIG_SCRIPT=""
 
 cleanup() {
   if [ -n "${GUEST_MOUNT}" ] && mountpoint -q "${GUEST_MOUNT}" 2>/dev/null; then
@@ -26,6 +27,9 @@ cleanup() {
   fi
   if [ -n "${TMP_CLOUD_IMAGE_PATH}" ] && [ -f "${TMP_CLOUD_IMAGE_PATH}" ]; then
     rm -f "${TMP_CLOUD_IMAGE_PATH}"
+  fi
+  if [ -n "${POST_CONFIG_SCRIPT}" ] && [ -f "${POST_CONFIG_SCRIPT}" ]; then
+    rm -f "${POST_CONFIG_SCRIPT}"
   fi
 }
 
@@ -160,38 +164,19 @@ if ! chroot "${root}" semodule -l | grep -q '^flightctl_agent'; then
 fi
 
 # Finish agent %post work that may have failed without a full systemd environment.
+# User/home/custom-info setup runs later via virt-customize: creating
+# /home/flightctl through the guestmount FUSE bind from the container hits
+# EACCES on GHA even though package installs to the same mount succeed.
 mkdir -p "${root}/var/lib/flightctl"
 chmod 0755 "${root}/var/lib/flightctl"
-if ! grep -q '^flightctl:' "${root}/etc/passwd"; then
-  chroot "${root}" useradd --create-home --user-group flightctl
-fi
 mkdir -p "${root}/var/lib/systemd/linger"
 touch "${root}/var/lib/systemd/linger/flightctl"
-flightctl_home="$(chroot "${root}" getent passwd flightctl | cut -d: -f6)"
-mkdir -p "${root}${flightctl_home}/.config/containers/systemd" \
-  "${root}${flightctl_home}/.config/systemd/user" \
-  "${root}${flightctl_home}/.local"
-chroot "${root}" chown -R flightctl:flightctl "${flightctl_home}/.config" "${flightctl_home}/.local"
 
 # centos:stream9 has no systemctl; enable units via the mounted root (has systemd).
 chroot "${root}" systemctl enable firewalld.service
 chroot "${root}" systemctl enable podman.service
 chroot "${root}" systemctl enable sshd.service
 chroot "${root}" systemctl enable flightctl-agent.service
-
-if ! grep -q '^user:' "${root}/etc/passwd"; then
-  chroot "${root}" useradd -ms /bin/bash user
-fi
-echo 'user:user' | chroot "${root}" chpasswd
-if ! grep -q '^user ALL=(ALL) NOPASSWD: ALL' "${root}/etc/sudoers"; then
-  echo 'user ALL=(ALL) NOPASSWD: ALL' >> "${root}/etc/sudoers"
-fi
-
-mkdir -p "${root}/usr/lib/flightctl/custom-info.d"
-printf '#!/bin/bash\necho "my site"\n' > "${root}/usr/lib/flightctl/custom-info.d/siteName"
-printf '#!/bin/bash\necho ""\n' > "${root}/usr/lib/flightctl/custom-info.d/emptyValue"
-printf '#!/bin/bash\necho "no-show"\n' > "${root}/usr/lib/flightctl/custom-info.d/keyNotShown"
-chmod 755 "${root}/usr/lib/flightctl/custom-info.d" "${root}/usr/lib/flightctl/custom-info.d/"*
 
 dnf --installroot="${root}" clean all
 EOS
@@ -201,7 +186,9 @@ EOS
     run --rm --privileged
     -e "RPM_COPR_REPO=${RPM_COPR_REPO}"
     -e "RPM_COPR_PACKAGE=${RPM_COPR_PACKAGE:-flightctl-agent}"
-    -v "${install_root}:/installroot:Z"
+    # No :Z — guestmount is FUSE; SELinux relabel of the mount is useless on
+    # Ubuntu runners and can interfere with subsequent creates.
+    -v "${install_root}:/installroot:rw"
   )
 
   if [ -z "${RPM_COPR_REPO}" ]; then
@@ -272,9 +259,36 @@ done
 rmdir "${GUEST_MOUNT}" 2>/dev/null || true
 GUEST_MOUNT=""
 
-# Relabel without enabling appliance networking.
-echo "SELinux relabel"
-sudo env LIBGUESTFS_BACKEND=direct virt-customize -a "${OUTPUT_QCOW_PATH}" --no-network --selinux-relabel
+# Configure users/homedirs and relabel in the libguestfs appliance (not via FUSE).
+echo "Configuring e2e users and SELinux relabel"
+POST_CONFIG_SCRIPT="$(mktemp "${TMPDIR:-/tmp}/cs9-regular-post.XXXXXX.sh")"
+cat >"${POST_CONFIG_SCRIPT}" <<'EOF'
+#!/bin/bash
+set -euo pipefail
+id -u flightctl >/dev/null 2>&1 || useradd --create-home --user-group flightctl
+flightctl_home="$(getent passwd flightctl | cut -d: -f6)"
+mkdir -p \
+  "${flightctl_home}/.config/containers/systemd" \
+  "${flightctl_home}/.config/systemd/user" \
+  "${flightctl_home}/.local"
+chown -R flightctl:flightctl "${flightctl_home}/.config" "${flightctl_home}/.local"
+id -u user >/dev/null 2>&1 || useradd -ms /bin/bash user
+echo 'user:user' | chpasswd
+if ! grep -q '^user ALL=(ALL) NOPASSWD: ALL' /etc/sudoers; then
+  echo 'user ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers
+fi
+mkdir -p /usr/lib/flightctl/custom-info.d
+printf '#!/bin/bash\necho "my site"\n' > /usr/lib/flightctl/custom-info.d/siteName
+printf '#!/bin/bash\necho ""\n' > /usr/lib/flightctl/custom-info.d/emptyValue
+printf '#!/bin/bash\necho "no-show"\n' > /usr/lib/flightctl/custom-info.d/keyNotShown
+chmod 755 /usr/lib/flightctl/custom-info.d /usr/lib/flightctl/custom-info.d/*
+EOF
+chmod 755 "${POST_CONFIG_SCRIPT}"
+sudo env LIBGUESTFS_BACKEND=direct virt-customize -a "${OUTPUT_QCOW_PATH}" --no-network \
+  --run "${POST_CONFIG_SCRIPT}" \
+  --selinux-relabel
+rm -f "${POST_CONFIG_SCRIPT}"
+POST_CONFIG_SCRIPT=""
 
 sudo chown "${USER}:$(id -gn "${USER}")" "${OUTPUT_QCOW_PATH}"
 
