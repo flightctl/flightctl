@@ -929,6 +929,7 @@ func TestSyncDeviceSpecPackageModeRejection(t *testing.T) {
 
 		upgradeFailed := false
 		rollbackCalled := false
+		var lastStatusDevice *v1beta1.Device
 
 		mockSpecManager.EXPECT().GetDesired(ctx).Return(desired, false, nil)
 		mockSpecManager.EXPECT().Read(spec.Current).Return(current, nil)
@@ -946,7 +947,12 @@ func TestSyncDeviceSpecPackageModeRejection(t *testing.T) {
 				return nil
 			},
 		)
-		mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil).AnyTimes()
+		mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).DoAndReturn(
+			func(_ context.Context, _ string, device v1beta1.Device, _ ...interface{}) error {
+				lastStatusDevice = &device
+				return nil
+			},
+		).AnyTimes()
 
 		// rollback calls a.sync(ctx, desired, current) which goes through beforeUpdate → syncDevice → afterUpdate
 		mockSpecManager.EXPECT().IsUpgrading().Return(false).AnyTimes()
@@ -996,6 +1002,12 @@ func TestSyncDeviceSpecPackageModeRejection(t *testing.T) {
 
 		require.True(t, upgradeFailed, "SetUpgradeFailed should have been called")
 		require.True(t, rollbackCalled, "Rollback should have been called")
+		require.NotNil(t, lastStatusDevice, "expected status update after package-mode reject")
+		require.NotNil(t, lastStatusDevice.Status)
+		cond := v1beta1.FindStatusCondition(lastStatusDevice.Status.Conditions, v1beta1.ConditionTypeDeviceUpdating)
+		require.NotNil(t, cond)
+		require.Equal(t, string(v1beta1.UpdateStateError), cond.Reason)
+		require.Contains(t, cond.Message, "package-mode device cannot satisfy spec with os.image")
 	})
 
 	t.Run("When package-mode and not upgrading with os.image it should reject without rollback", func(t *testing.T) {

@@ -80,7 +80,7 @@ var _ = Describe("Package-mode device scenarios", Ordered, func() {
 			containerApp, err := e2e.NewContainerApplicationSpecWithRunAs(
 				packageModeContainerAppName,
 				appImage,
-				nil,
+				[]v1beta1.ApplicationPort{},
 				nil,
 				nil,
 				nil,
@@ -100,6 +100,19 @@ var _ = Describe("Package-mode device scenarios", Ordered, func() {
 				packageModeFleetLabelKey: fleetName,
 			})
 			Expect(err).ToNot(HaveOccurred())
+
+			// Fleet association + template render can lag Online; wait until the rendered
+			// device spec actually carries the package-mode application.
+			Eventually(func(g Gomega) {
+				device, err := harness.GetDevice(deviceID)
+				g.Expect(err).ToNot(HaveOccurred())
+				g.Expect(device).ToNot(BeNil())
+				g.Expect(device.Metadata.Owner).ToNot(BeNil())
+				g.Expect(*device.Metadata.Owner).To(Equal("Fleet/" + fleetName))
+				g.Expect(device.Spec).ToNot(BeNil())
+				g.Expect(device.Spec.Applications).ToNot(BeNil())
+				g.Expect(deviceHasNamedApplicationSpec(*device.Spec.Applications, packageModeContainerAppName)).To(BeTrue())
+			}, packageModeEnrollTimeout, packageModePollInterval).Should(Succeed())
 		})
 
 		AfterAll(func() {
@@ -269,7 +282,10 @@ var _ = Describe("Package-mode device scenarios", Ordered, func() {
 				g.Expect(device.Status).ToNot(BeNil())
 				g.Expect(device.Status.Updated.Status).To(Equal(v1beta1.DeviceUpdatedStatusOutOfDate))
 				g.Expect(device.Status.Config.RenderedVersion).To(Equal(strconv.Itoa(initialVersion)))
-				g.Expect(deviceRejectsMixedFleetUpdate(device, packageModeExpectedRejectText)).To(BeTrue())
+				g.Expect(e2e.ConditionExists(device, v1beta1.ConditionTypeDeviceUpdating, v1beta1.ConditionStatusFalse, string(v1beta1.UpdateStateError))).To(BeTrue())
+				cond := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceUpdating)
+				g.Expect(cond).ToNot(BeNil())
+				g.Expect(cond.Message).To(ContainSubstring(packageModeExpectedRejectText))
 			}, testutil.LONG_TIMEOUT, packageModePollInterval).Should(Succeed())
 
 			Eventually(func(g Gomega) {
@@ -364,19 +380,14 @@ func findDeviceApplicationStatusByName(applications []v1beta1.DeviceApplicationS
 	return nil
 }
 
-func deviceRejectsMixedFleetUpdate(device *v1beta1.Device, rejectText string) bool {
-	if device == nil || device.Status == nil {
-		return false
-	}
-
-	if e2e.ConditionExists(device, v1beta1.ConditionTypeDeviceUpdating, v1beta1.ConditionStatusFalse, string(v1beta1.UpdateStateError)) {
-		cond := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceUpdating)
-		if cond != nil && strings.Contains(cond.Message, rejectText) {
+func deviceHasNamedApplicationSpec(applications []v1beta1.ApplicationProviderSpec, applicationName string) bool {
+	for _, app := range applications {
+		name, err := app.GetName()
+		if err == nil && name != nil && *name == applicationName {
 			return true
 		}
 	}
-
-	return device.Status.Updated.Info != nil && strings.Contains(*device.Status.Updated.Info, rejectText)
+	return false
 }
 
 func dumpPackageModeFailureDiagnostics(harness *e2e.Harness, agent *e2e.PackageModeAgent, deviceID, label string) {
@@ -385,13 +396,29 @@ func dumpPackageModeFailureDiagnostics(harness *e2e.Harness, agent *e2e.PackageM
 		device, err := harness.GetDevice(deviceID)
 		if err != nil {
 			GinkgoWriter.Printf("=== device status (%s): get failed: %v ===\n", label, err)
-		} else if device != nil && device.Status != nil {
-			GinkgoWriter.Printf("=== device status (%s) updated=%s appsSummary=%v apps=%v ===\n",
-				label,
-				device.Status.Updated.Status,
-				device.Status.ApplicationsSummary,
-				device.Status.Applications,
-			)
+		} else if device != nil {
+			owner := ""
+			if device.Metadata.Owner != nil {
+				owner = *device.Metadata.Owner
+			}
+			var specApps any
+			if device.Spec != nil && device.Spec.Applications != nil {
+				specApps = *device.Spec.Applications
+			}
+			if device.Status != nil {
+				GinkgoWriter.Printf("=== device (%s) owner=%s updated=%s rendered=%s appsSummary=%v statusApps=%v specApps=%v conditions=%v ===\n",
+					label,
+					owner,
+					device.Status.Updated.Status,
+					device.Status.Config.RenderedVersion,
+					device.Status.ApplicationsSummary,
+					device.Status.Applications,
+					specApps,
+					device.Status.Conditions,
+				)
+			} else {
+				GinkgoWriter.Printf("=== device (%s) owner=%s status=nil specApps=%v ===\n", label, owner, specApps)
+			}
 		}
 	}
 	if agent == nil {

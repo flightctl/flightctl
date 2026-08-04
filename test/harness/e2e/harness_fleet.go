@@ -119,8 +119,32 @@ func (h *Harness) CreateOrUpdateTestFleet(testFleetName string, fleetSpecOrSelec
 		return fmt.Errorf("first parameter must be either FleetSpec or LabelSelector")
 	}
 
-	_, err := h.Client.ReplaceFleetWithResponse(h.Context, testFleetName, testFleet)
-	return err
+	resp, err := h.Client.ReplaceFleetWithResponse(h.Context, testFleetName, testFleet)
+	if err != nil {
+		return err
+	}
+	// Replace creates with 201 or updates with 200; anything else is a failed apply.
+	if resp.StatusCode() != 200 && resp.StatusCode() != 201 {
+		statusMessage := string(resp.Body)
+		switch {
+		case resp.JSON400 != nil:
+			statusMessage = resp.JSON400.Message
+		case resp.JSON401 != nil:
+			statusMessage = resp.JSON401.Message
+		case resp.JSON403 != nil:
+			statusMessage = resp.JSON403.Message
+		case resp.JSON404 != nil:
+			statusMessage = resp.JSON404.Message
+		case resp.JSON409 != nil:
+			statusMessage = resp.JSON409.Message
+		case resp.JSON429 != nil:
+			statusMessage = resp.JSON429.Message
+		case resp.JSON503 != nil:
+			statusMessage = resp.JSON503.Message
+		}
+		return fmt.Errorf("unexpected status creating/updating fleet %s: %d: %s", testFleetName, resp.StatusCode(), statusMessage)
+	}
+	return nil
 }
 
 // CreateFleetWithSelector creates a fleet with the specified label selector and empty device spec.
