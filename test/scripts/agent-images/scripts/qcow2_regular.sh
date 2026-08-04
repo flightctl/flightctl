@@ -105,6 +105,19 @@ install_into_root() {
 set -euo pipefail
 root=/installroot
 
+cleanup_mounts() {
+  umount -l "${root}/dev" 2>/dev/null || true
+  umount -l "${root}/sys" 2>/dev/null || true
+  umount -l "${root}/proc" 2>/dev/null || true
+}
+trap cleanup_mounts EXIT
+
+# RPM %post (systemd-tmpfiles, semodule, useradd) needs a live-ish root.
+mkdir -p "${root}/proc" "${root}/sys" "${root}/dev"
+mount -t proc proc "${root}/proc"
+mount -t sysfs sysfs "${root}/sys"
+mount --bind /dev "${root}/dev"
+
 dnf --installroot="${root}" -y install epel-release epel-next-release
 # dnf resolves file:/// GPG key URLs against the running system, not installroot.
 mkdir -p /etc/pki/rpm-gpg
@@ -120,6 +133,9 @@ dnf --installroot="${root}" -y install \
   python-dotenv \
   sudo
 
+# Stale semodule sandbox breaks flightctl-selinux %post under installroot.
+rm -rf "${root}/var/lib/selinux/targeted/tmp"
+
 if [ -n "${RPM_COPR_REPO}" ]; then
   dnf --installroot="${root}" copr -y enable "${RPM_COPR_REPO}"
   dnf --installroot="${root}" -y install "${RPM_COPR_PACKAGE}"
@@ -133,6 +149,26 @@ else
   fi
   dnf --installroot="${root}" -y install "${rpms[@]}"
 fi
+
+# Ensure the SELinux module is loaded even if %post hit a transient sandbox error.
+if ! chroot "${root}" semodule -l | grep -q '^flightctl_agent'; then
+  rm -rf "${root}/var/lib/selinux/targeted/tmp"
+  chroot "${root}" semodule -s targeted -i /usr/share/selinux/packages/targeted/flightctl_agent.pp.bz2
+fi
+
+# Finish agent %post work that may have failed without a full systemd environment.
+mkdir -p "${root}/var/lib/flightctl"
+chmod 0755 "${root}/var/lib/flightctl"
+if ! grep -q '^flightctl:' "${root}/etc/passwd"; then
+  chroot "${root}" useradd --create-home --user-group flightctl
+fi
+mkdir -p "${root}/var/lib/systemd/linger"
+touch "${root}/var/lib/systemd/linger/flightctl"
+flightctl_home="$(chroot "${root}" getent passwd flightctl | cut -d: -f6)"
+mkdir -p "${root}${flightctl_home}/.config/containers/systemd" \
+  "${root}${flightctl_home}/.config/systemd/user" \
+  "${root}${flightctl_home}/.local"
+chroot "${root}" chown -R flightctl:flightctl "${flightctl_home}/.config" "${flightctl_home}/.local"
 
 # centos:stream9 has no systemctl; enable units via the mounted root (has systemd).
 chroot "${root}" systemctl enable firewalld.service
@@ -159,7 +195,7 @@ EOS
 )
 
   local -a podman_args=(
-    run --rm
+    run --rm --privileged
     -e "RPM_COPR_REPO=${RPM_COPR_REPO}"
     -e "RPM_COPR_PACKAGE=${RPM_COPR_PACKAGE:-flightctl-agent}"
     -v "${install_root}:/installroot:Z"
