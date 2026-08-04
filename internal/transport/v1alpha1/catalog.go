@@ -179,7 +179,9 @@ func (h *TransportHandler) DeleteCatalogItem(w http.ResponseWriter, r *http.Requ
 	h.SetResponse(w, nil, status)
 }
 
-func (h *TransportHandler) GetCatalogItemDeployments(w http.ResponseWriter, r *http.Request, catalog string, item string) {
-	body, status := h.catalog.GetCatalogItemDeployments(r.Context(), transport.OrgIDFromContext(r.Context()), catalog, item)
-	h.SetResponse(w, body, status)
+func (h *TransportHandler) GetCatalogItemDeployments(w http.ResponseWriter, r *http.Request, catalog string, item string, params apiv1alpha1.GetCatalogItemDeploymentsParams) {
+	domainParams := h.converter.Catalog().ListDeploymentParamsToDomain(params)
+	body, status := h.catalog.GetCatalogItemDeployments(r.Context(), transport.OrgIDFromContext(r.Context()), catalog, item, domainParams)
+	apiResult := h.converter.Catalog().DeploymentListFromDomain(body)
+	h.SetResponse(w, apiResult, status)
 }

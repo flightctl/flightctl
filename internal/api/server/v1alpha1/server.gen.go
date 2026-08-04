@@ -46,7 +46,7 @@ type ServerInterface interface {
 	ReplaceCatalogItem(w http.ResponseWriter, r *http.Request, catalog string, name string)
 
 	// (GET /catalogs/{catalog}/items/{name}/deployments)
-	GetCatalogItemDeployments(w http.ResponseWriter, r *http.Request, catalog string, name string)
+	GetCatalogItemDeployments(w http.ResponseWriter, r *http.Request, catalog string, name string, params GetCatalogItemDeploymentsParams)
 
 	// (DELETE /catalogs/{name})
 	DeleteCatalog(w http.ResponseWriter, r *http.Request, name string)
@@ -141,7 +141,7 @@ func (_ Unimplemented) ReplaceCatalogItem(w http.ResponseWriter, r *http.Request
 }
 
 // (GET /catalogs/{catalog}/items/{name}/deployments)
-func (_ Unimplemented) GetCatalogItemDeployments(w http.ResponseWriter, r *http.Request, catalog string, name string) {
+func (_ Unimplemented) GetCatalogItemDeployments(w http.ResponseWriter, r *http.Request, catalog string, name string, params GetCatalogItemDeploymentsParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -576,8 +576,27 @@ func (siw *ServerInterfaceWrapper) GetCatalogItemDeployments(w http.ResponseWrit
 		return
 	}
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetCatalogItemDeploymentsParams
+
+	// ------------- Optional query parameter "continue" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "continue", r.URL.Query(), &params.Continue)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "continue", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "limit", r.URL.Query(), &params.Limit)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetCatalogItemDeployments(w, r, catalog, name)
+		siw.Handler.GetCatalogItemDeployments(w, r, catalog, name, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {

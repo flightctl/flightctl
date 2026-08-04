@@ -837,6 +837,15 @@ type ListCatalogItemsParams struct {
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// GetCatalogItemDeploymentsParams defines parameters for GetCatalogItemDeployments.
+type GetCatalogItemDeploymentsParams struct {
+	// Continue An optional parameter to query more results from the server. The value of the parameter must match the value of the 'continue' field in the previous list response.
+	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
+
+	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
+	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // ListVulnerabilitiesParams defines parameters for ListVulnerabilities.
 type ListVulnerabilitiesParams struct {
 	// Continue An optional parameter to query more results from the server. The value of the parameter must match the value of the 'continue' field in the previous list response.

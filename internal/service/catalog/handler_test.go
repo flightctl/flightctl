@@ -94,7 +94,7 @@ func (f *fakeDeviceStore) Labels(context.Context, uuid.UUID, store.ListParams) (
 func (f *fakeDeviceStore) Delete(context.Context, uuid.UUID, string, store.EventCallback) (bool, error) {
 	panic("not implemented")
 }
-func (f *fakeDeviceStore) UpdateStatus(context.Context, uuid.UUID, *domain.Device, store.EventCallback) (*domain.Device, error) {
+func (f *fakeDeviceStore) UpdateStatus(context.Context, uuid.UUID, *domain.Device, store.EventCallback, *domain.Device) (*domain.Device, error) {
 	panic("not implemented")
 }
 func (f *fakeDeviceStore) GetRendered(context.Context, uuid.UUID, string, *string, string) (*domain.Device, error) {
@@ -115,7 +115,7 @@ func (f *fakeDeviceStore) UpdateAnnotations(context.Context, uuid.UUID, string, 
 func (f *fakeDeviceStore) MutateAnnotation(context.Context, uuid.UUID, string, string, func(string) (string, error)) error {
 	panic("not implemented")
 }
-func (f *fakeDeviceStore) UpdateRendered(context.Context, uuid.UUID, string, string, string, string, string, []domain.DependencySyncConfigRefStatus, bool) (string, error) {
+func (f *fakeDeviceStore) UpdateRendered(context.Context, uuid.UUID, string, string, string, string, string, []domain.DependencySyncConfigRefStatus, bool, devicestore.RenderedStatusMutator) (string, error) {
 	panic("not implemented")
 }
 func (f *fakeDeviceStore) SetServiceConditions(context.Context, uuid.UUID, string, []domain.Condition, devicestore.ServiceConditionsCallback) error {
@@ -2083,7 +2083,7 @@ func TestGetCatalogItemDeployments(t *testing.T) {
 			}
 
 			h, _, _ := newTestHandlerWithStores(ds, fs)
-			result, status := h.GetCatalogItemDeployments(context.Background(), uuid.New(), tt.catalogName, tt.itemName)
+			result, status := h.GetCatalogItemDeployments(context.Background(), uuid.New(), tt.catalogName, tt.itemName, domain.GetCatalogItemDeploymentsParams{})
 
 			require.Equal(t, tt.expectStatusCode, status.Code)
 
@@ -2136,4 +2136,97 @@ func TestGetCatalogItemDeployments(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGetCatalogItemDeploymentsPagination(t *testing.T) {
+	ds := newFakeDeviceStore()
+	fs := newFakeFleetStore()
+
+	catalogName := "my-catalog"
+	itemName := "my-item"
+
+	ds.osDevices[catalogName+"/"+itemName] = &domain.DeviceList{
+		Items: []domain.Device{
+			makeDeviceWithOsRef("dev-a", catalogName, itemName, "1.0.0", nil),
+			makeDeviceWithOsRef("dev-b", catalogName, itemName, "1.0.0", nil),
+			makeDeviceWithOsRef("dev-c", catalogName, itemName, "1.0.0", nil),
+		},
+	}
+	fs.osFleets[catalogName+"/"+itemName] = &domain.FleetList{
+		Items: []domain.Fleet{
+			makeFleetWithOsRef("fleet-a", catalogName, itemName, "1.0.0", nil),
+			makeFleetWithOsRef("fleet-b", catalogName, itemName, "1.0.0", nil),
+		},
+	}
+
+	h, _, _ := newTestHandlerWithStores(ds, fs)
+
+	t.Run("When limit is set it should return at most limit items with a continue token", func(t *testing.T) {
+		limit := int32(2)
+		result, status := h.GetCatalogItemDeployments(context.Background(), uuid.New(), catalogName, itemName, domain.GetCatalogItemDeploymentsParams{
+			Limit: &limit,
+		})
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.Len(t, result.Items, 2)
+		require.NotNil(t, result.Metadata.Continue)
+		require.NotNil(t, result.Metadata.RemainingItemCount)
+		require.Equal(t, int64(3), *result.Metadata.RemainingItemCount)
+	})
+
+	t.Run("When continue token is provided it should return the next page", func(t *testing.T) {
+		limit := int32(2)
+		result1, status := h.GetCatalogItemDeployments(context.Background(), uuid.New(), catalogName, itemName, domain.GetCatalogItemDeploymentsParams{
+			Limit: &limit,
+		})
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.NotNil(t, result1.Metadata.Continue)
+
+		result2, status := h.GetCatalogItemDeployments(context.Background(), uuid.New(), catalogName, itemName, domain.GetCatalogItemDeploymentsParams{
+			Limit:    &limit,
+			Continue: result1.Metadata.Continue,
+		})
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.Len(t, result2.Items, 2)
+		require.NotNil(t, result2.Metadata.Continue)
+		require.Equal(t, int64(1), *result2.Metadata.RemainingItemCount)
+
+		result3, status := h.GetCatalogItemDeployments(context.Background(), uuid.New(), catalogName, itemName, domain.GetCatalogItemDeploymentsParams{
+			Limit:    &limit,
+			Continue: result2.Metadata.Continue,
+		})
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.Len(t, result3.Items, 1)
+		require.Nil(t, result3.Metadata.Continue)
+	})
+
+	t.Run("When no limit is set it should return all items without a continue token", func(t *testing.T) {
+		result, status := h.GetCatalogItemDeployments(context.Background(), uuid.New(), catalogName, itemName, domain.GetCatalogItemDeploymentsParams{})
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.Len(t, result.Items, 5)
+		require.Nil(t, result.Metadata.Continue)
+	})
+
+	t.Run("When paginating it should return all items across pages without duplicates", func(t *testing.T) {
+		limit := int32(2)
+		var allItems []domain.CatalogItemDeployment
+		params := domain.GetCatalogItemDeploymentsParams{Limit: &limit}
+
+		for {
+			result, status := h.GetCatalogItemDeployments(context.Background(), uuid.New(), catalogName, itemName, params)
+			require.Equal(t, int32(http.StatusOK), status.Code)
+			allItems = append(allItems, result.Items...)
+			if result.Metadata.Continue == nil {
+				break
+			}
+			params.Continue = result.Metadata.Continue
+		}
+
+		require.Len(t, allItems, 5)
+		seen := make(map[string]bool)
+		for _, dep := range allItems {
+			key := *dep.DeployedTo.ResourceKind + "/" + *dep.DeployedTo.ResourceName
+			require.False(t, seen[key], "duplicate deployment: %s", key)
+			seen[key] = true
+		}
+	})
 }

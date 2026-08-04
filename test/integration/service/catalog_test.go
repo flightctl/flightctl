@@ -1,6 +1,7 @@
 package service_test
 
 import (
+	"fmt"
 	"net/http"
 
 	api "github.com/flightctl/flightctl/api/core/v1alpha1"
@@ -705,20 +706,62 @@ var _ = Describe("Catalog Integration Tests", func() {
 			_, status := suite.Catalog.CreateCatalog(suite.Ctx, suite.OrgID, catalog)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 
+			// OS-type items (referenced via spec.Os.CatalogItemRef)
 			for _, itemDef := range []struct {
 				name     string
 				versions []string
 			}{
 				{"os-image", []string{"9.4.0"}},
-				{"web-server", []string{"2.1.0"}},
-				{"multi-item", []string{"1.0.0"}},
-				{"data-image", []string{"1.2.0"}},
-				{"mount-data", []string{"3.0.0"}},
-				{"triple-item", []string{"1.0.0", "2.0.0", "3.0.0"}},
-				{"other-vol-item", []string{"1.0.0"}},
+				{"multi-os-item", []string{"1.0.0"}},
+				{"triple-os-item", []string{"1.0.0"}},
 				{"different-item", []string{"1.0.0"}},
 			} {
+				item := createValidOSCatalogItem(itemDef.name)
+				item.Spec.Versions = nil
+				for _, v := range itemDef.versions {
+					item.Spec.Versions = append(item.Spec.Versions, api.CatalogItemVersion{
+						Version:    v,
+						References: map[api.CatalogItemArtifactType]string{"qcow2": "v" + v},
+						Channels:   []string{"stable"},
+					})
+				}
+				_, itemStatus := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+				Expect(itemStatus.Code).To(BeEquivalentTo(http.StatusCreated))
+			}
+
+			// Application-type items (referenced via app spec.Applications)
+			for _, itemDef := range []struct {
+				name     string
+				versions []string
+			}{
+				{"web-server", []string{"2.1.0"}},
+				{"multi-app-item", []string{"1.0.0"}},
+				{"triple-app-item", []string{"2.0.0"}},
+			} {
 				item := createValidCatalogItem(itemDef.name)
+				item.Spec.Versions = nil
+				for _, v := range itemDef.versions {
+					item.Spec.Versions = append(item.Spec.Versions, api.CatalogItemVersion{
+						Version:    v,
+						References: map[api.CatalogItemArtifactType]string{"container": "v" + v},
+						Channels:   []string{"stable"},
+					})
+				}
+				_, itemStatus := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
+				Expect(itemStatus.Code).To(BeEquivalentTo(http.StatusCreated))
+			}
+
+			// Data-type items (referenced via volume catalog item refs)
+			for _, itemDef := range []struct {
+				name     string
+				versions []string
+			}{
+				{"data-image", []string{"1.2.0"}},
+				{"mount-data", []string{"3.0.0"}},
+				{"other-vol-item", []string{"1.0.0"}},
+				{"triple-vol-item", []string{"3.0.0"}},
+			} {
+				item := createValidDataCatalogItem(itemDef.name)
 				item.Spec.Versions = nil
 				for _, v := range itemDef.versions {
 					item.Spec.Versions = append(item.Spec.Versions, api.CatalogItemVersion{
@@ -733,7 +776,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 		})
 
 		It("should return an empty list when no devices reference the catalog item", func() {
-			result, status := suite.Catalog.GetCatalogItemDeployments(suite.Ctx, suite.OrgID, catalogName, "nonexistent-item")
+			result, status := suite.Catalog.GetCatalogItemDeployments(suite.Ctx, suite.OrgID, catalogName, "nonexistent-item", api.GetCatalogItemDeploymentsParams{})
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(result).ToNot(BeNil())
 			Expect(result.ApiVersion).To(Equal(apiversioning.QualifiedV1Alpha1))
@@ -760,7 +803,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 			_, devStatus := suite.Device.CreateDevice(suite.Ctx, suite.OrgID, device)
 			Expect(devStatus.Code).To(BeEquivalentTo(http.StatusCreated))
 
-			result, status := suite.Catalog.GetCatalogItemDeployments(suite.Ctx, suite.OrgID, catalogName, "os-image")
+			result, status := suite.Catalog.GetCatalogItemDeployments(suite.Ctx, suite.OrgID, catalogName, "os-image", api.GetCatalogItemDeploymentsParams{})
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(result.Items).To(HaveLen(1))
 			Expect(result.Items[0].Catalog).To(Equal(catalogName))
@@ -799,7 +842,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 			_, devStatus := suite.Device.CreateDevice(suite.Ctx, suite.OrgID, device)
 			Expect(devStatus.Code).To(BeEquivalentTo(http.StatusCreated))
 
-			result, status := suite.Catalog.GetCatalogItemDeployments(suite.Ctx, suite.OrgID, catalogName, "web-server")
+			result, status := suite.Catalog.GetCatalogItemDeployments(suite.Ctx, suite.OrgID, catalogName, "web-server", api.GetCatalogItemDeploymentsParams{})
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(result.Items).To(HaveLen(1))
 			Expect(result.Items[0].Catalog).To(Equal(catalogName))
@@ -818,7 +861,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 					Os: &apiv1beta1.DeviceOsSpec{
 						CatalogItemRef: &apiv1beta1.CatalogItemRefSpec{
 							Catalog: catalogName,
-							Item:    "multi-item",
+							Item:    "multi-os-item",
 							Version: "1.0.0",
 						},
 					},
@@ -827,7 +870,14 @@ var _ = Describe("Catalog Integration Tests", func() {
 			_, devStatus := suite.Device.CreateDevice(suite.Ctx, suite.OrgID, osDevice)
 			Expect(devStatus.Code).To(BeEquivalentTo(http.StatusCreated))
 
-			// Device 2: app catalog ref to the same item
+			result, status := suite.Catalog.GetCatalogItemDeployments(suite.Ctx, suite.OrgID, catalogName, "multi-os-item", api.GetCatalogItemDeploymentsParams{})
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+			Expect(result.Items).To(HaveLen(1))
+			Expect(result.Items[0].Catalog).To(Equal(catalogName))
+			Expect(result.Items[0].CatalogItem).To(Equal("multi-os-item"))
+			Expect(result.Items[0].ApplicationName).To(BeNil())
+
+			// Device 2: app catalog ref to a different item
 			container := apiv1beta1.ContainerApplication{
 				AppType: apiv1beta1.AppTypeContainer,
 				Name:    lo.ToPtr("sidecar"),
@@ -835,7 +885,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 			err := container.FromCatalogItemRefApplicationProviderSpec(apiv1beta1.CatalogItemRefApplicationProviderSpec{
 				CatalogItemRef: apiv1beta1.CatalogItemRefSpec{
 					Catalog: catalogName,
-					Item:    "multi-item",
+					Item:    "multi-app-item",
 					Version: "1.0.0",
 				},
 			})
@@ -855,23 +905,12 @@ var _ = Describe("Catalog Integration Tests", func() {
 			_, devStatus = suite.Device.CreateDevice(suite.Ctx, suite.OrgID, appDevice)
 			Expect(devStatus.Code).To(BeEquivalentTo(http.StatusCreated))
 
-			result, status := suite.Catalog.GetCatalogItemDeployments(suite.Ctx, suite.OrgID, catalogName, "multi-item")
+			result, status = suite.Catalog.GetCatalogItemDeployments(suite.Ctx, suite.OrgID, catalogName, "multi-app-item", api.GetCatalogItemDeploymentsParams{})
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
-			Expect(result.Items).To(HaveLen(2))
-
-			var hasOsDep, hasAppDep bool
-			for _, dep := range result.Items {
-				Expect(dep.Catalog).To(Equal(catalogName))
-				Expect(dep.CatalogItem).To(Equal("multi-item"))
-				if dep.ApplicationName == nil {
-					hasOsDep = true
-				} else {
-					hasAppDep = true
-					Expect(*dep.ApplicationName).To(Equal("sidecar"))
-				}
-			}
-			Expect(hasOsDep).To(BeTrue())
-			Expect(hasAppDep).To(BeTrue())
+			Expect(result.Items).To(HaveLen(1))
+			Expect(result.Items[0].Catalog).To(Equal(catalogName))
+			Expect(result.Items[0].CatalogItem).To(Equal("multi-app-item"))
+			Expect(result.Items[0].ApplicationName).To(HaveValue(Equal("sidecar")))
 		})
 
 		It("should return a deployment when a device has a volume catalog item ref (image type)", func() {
@@ -913,7 +952,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 			_, devStatus := suite.Device.CreateDevice(suite.Ctx, suite.OrgID, device)
 			Expect(devStatus.Code).To(BeEquivalentTo(http.StatusCreated))
 
-			result, status := suite.Catalog.GetCatalogItemDeployments(suite.Ctx, suite.OrgID, catalogName, "data-image")
+			result, status := suite.Catalog.GetCatalogItemDeployments(suite.Ctx, suite.OrgID, catalogName, "data-image", api.GetCatalogItemDeploymentsParams{})
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(result.Items).To(HaveLen(1))
 			Expect(result.Items[0].Catalog).To(Equal(catalogName))
@@ -964,7 +1003,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 			_, devStatus := suite.Device.CreateDevice(suite.Ctx, suite.OrgID, device)
 			Expect(devStatus.Code).To(BeEquivalentTo(http.StatusCreated))
 
-			result, status := suite.Catalog.GetCatalogItemDeployments(suite.Ctx, suite.OrgID, catalogName, "mount-data")
+			result, status := suite.Catalog.GetCatalogItemDeployments(suite.Ctx, suite.OrgID, catalogName, "mount-data", api.GetCatalogItemDeploymentsParams{})
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(result.Items).To(HaveLen(1))
 			Expect(result.Items[0].Catalog).To(Equal(catalogName))
@@ -983,7 +1022,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 					Os: &apiv1beta1.DeviceOsSpec{
 						CatalogItemRef: &apiv1beta1.CatalogItemRefSpec{
 							Catalog: catalogName,
-							Item:    "triple-item",
+							Item:    "triple-os-item",
 							Version: "1.0.0",
 						},
 					},
@@ -1000,7 +1039,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 			err := container.FromCatalogItemRefApplicationProviderSpec(apiv1beta1.CatalogItemRefApplicationProviderSpec{
 				CatalogItemRef: apiv1beta1.CatalogItemRefSpec{
 					Catalog: catalogName,
-					Item:    "triple-item",
+					Item:    "triple-app-item",
 					Version: "2.0.0",
 				},
 			})
@@ -1026,7 +1065,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 				Image: apiv1beta1.ImageVolumeSource{
 					CatalogItemRef: &apiv1beta1.CatalogItemRefSpec{
 						Catalog: catalogName,
-						Item:    "triple-item",
+						Item:    "triple-vol-item",
 						Version: "3.0.0",
 					},
 				},
@@ -1057,25 +1096,20 @@ var _ = Describe("Catalog Integration Tests", func() {
 			_, devStatus = suite.Device.CreateDevice(suite.Ctx, suite.OrgID, volDevice)
 			Expect(devStatus.Code).To(BeEquivalentTo(http.StatusCreated))
 
-			result, status := suite.Catalog.GetCatalogItemDeployments(suite.Ctx, suite.OrgID, catalogName, "triple-item")
+			result, status := suite.Catalog.GetCatalogItemDeployments(suite.Ctx, suite.OrgID, catalogName, "triple-os-item", api.GetCatalogItemDeploymentsParams{})
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
-			Expect(result.Items).To(HaveLen(3))
+			Expect(result.Items).To(HaveLen(1))
+			Expect(result.Items[0].ApplicationName).To(BeNil())
 
-			var hasOsDep, hasAppDep, hasVolDep bool
-			for _, dep := range result.Items {
-				Expect(dep.Catalog).To(Equal(catalogName))
-				Expect(dep.CatalogItem).To(Equal("triple-item"))
-				if dep.ApplicationName == nil {
-					hasOsDep = true
-				} else if *dep.ApplicationName == "triple-app" {
-					hasAppDep = true
-				} else if *dep.ApplicationName == "triple-vol-app" {
-					hasVolDep = true
-				}
-			}
-			Expect(hasOsDep).To(BeTrue())
-			Expect(hasAppDep).To(BeTrue())
-			Expect(hasVolDep).To(BeTrue())
+			result, status = suite.Catalog.GetCatalogItemDeployments(suite.Ctx, suite.OrgID, catalogName, "triple-app-item", api.GetCatalogItemDeploymentsParams{})
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+			Expect(result.Items).To(HaveLen(1))
+			Expect(result.Items[0].ApplicationName).To(HaveValue(Equal("triple-app")))
+
+			result, status = suite.Catalog.GetCatalogItemDeployments(suite.Ctx, suite.OrgID, catalogName, "triple-vol-item", api.GetCatalogItemDeploymentsParams{})
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+			Expect(result.Items).To(HaveLen(1))
+			Expect(result.Items[0].ApplicationName).To(HaveValue(Equal("triple-vol-app")))
 		})
 
 		It("should not return devices whose volumes reference a different catalog item", func() {
@@ -1116,7 +1150,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 			_, devStatus := suite.Device.CreateDevice(suite.Ctx, suite.OrgID, device)
 			Expect(devStatus.Code).To(BeEquivalentTo(http.StatusCreated))
 
-			result, status := suite.Catalog.GetCatalogItemDeployments(suite.Ctx, suite.OrgID, catalogName, "target-vol-item")
+			result, status := suite.Catalog.GetCatalogItemDeployments(suite.Ctx, suite.OrgID, catalogName, "target-vol-item", api.GetCatalogItemDeploymentsParams{})
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(result.Items).To(BeEmpty())
 		})
@@ -1139,9 +1173,48 @@ var _ = Describe("Catalog Integration Tests", func() {
 			_, devStatus := suite.Device.CreateDevice(suite.Ctx, suite.OrgID, device)
 			Expect(devStatus.Code).To(BeEquivalentTo(http.StatusCreated))
 
-			result, status := suite.Catalog.GetCatalogItemDeployments(suite.Ctx, suite.OrgID, catalogName, "target-item")
+			result, status := suite.Catalog.GetCatalogItemDeployments(suite.Ctx, suite.OrgID, catalogName, "target-item", api.GetCatalogItemDeploymentsParams{})
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(result.Items).To(BeEmpty())
+		})
+
+		It("should paginate deployments when limit is set", func() {
+			for i := 0; i < 3; i++ {
+				device := apiv1beta1.Device{
+					Metadata: apiv1beta1.ObjectMeta{
+						Name: lo.ToPtr(fmt.Sprintf("paginate-dev-%d", i)),
+					},
+					Spec: &apiv1beta1.DeviceSpec{
+						Os: &apiv1beta1.DeviceOsSpec{
+							CatalogItemRef: &apiv1beta1.CatalogItemRefSpec{
+								Catalog: catalogName,
+								Item:    "os-image",
+								Version: "9.4.0",
+								Channel: lo.ToPtr("stable"),
+							},
+						},
+					},
+				}
+				_, devStatus := suite.Device.CreateDevice(suite.Ctx, suite.OrgID, device)
+				Expect(devStatus.Code).To(BeEquivalentTo(http.StatusCreated))
+			}
+
+			limit := int32(2)
+			result, status := suite.Catalog.GetCatalogItemDeployments(suite.Ctx, suite.OrgID, catalogName, "os-image", api.GetCatalogItemDeploymentsParams{
+				Limit: &limit,
+			})
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+			Expect(result.Items).To(HaveLen(2))
+			Expect(result.Metadata.Continue).ToNot(BeNil())
+			Expect(result.Metadata.RemainingItemCount).ToNot(BeNil())
+
+			result2, status := suite.Catalog.GetCatalogItemDeployments(suite.Ctx, suite.OrgID, catalogName, "os-image", api.GetCatalogItemDeploymentsParams{
+				Limit:    &limit,
+				Continue: result.Metadata.Continue,
+			})
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+			Expect(result2.Items).To(HaveLen(1))
+			Expect(result2.Metadata.Continue).To(BeNil())
 		})
 	})
 
@@ -1203,7 +1276,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 		})
 
 		It("should prevent deletion of a catalog item with versions in use by devices", func() {
-			item := createValidCatalogItem("inuse-item")
+			item := createValidOSCatalogItem("inuse-item")
 			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 
@@ -1230,7 +1303,7 @@ var _ = Describe("Catalog Integration Tests", func() {
 		})
 
 		It("should prevent replacing a catalog item when an in-use version is removed", func() {
-			item := createValidCatalogItem("replace-inuse-item")
+			item := createValidOSCatalogItem("replace-inuse-item")
 			_, status := suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, catalogName, item)
 			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
 
@@ -1251,11 +1324,11 @@ var _ = Describe("Catalog Integration Tests", func() {
 			_, devStatus := suite.Device.CreateDevice(suite.Ctx, suite.OrgID, device)
 			Expect(devStatus.Code).To(BeEquivalentTo(http.StatusCreated))
 
-			updated := createValidCatalogItem("replace-inuse-item")
+			updated := createValidOSCatalogItem("replace-inuse-item")
 			updated.Spec.Versions = []api.CatalogItemVersion{
 				{
 					Version:    "2.0.0",
-					References: map[api.CatalogItemArtifactType]string{"container": "v2.0.0"},
+					References: map[api.CatalogItemArtifactType]string{"qcow2": "v2.0.0"},
 					Channels:   []string{"stable"},
 				},
 			}
@@ -1656,6 +1729,52 @@ func createValidCatalogItem(name string) api.CatalogItem {
 			Type:        api.CatalogItemTypeContainer,
 			Artifacts: []api.CatalogItemArtifact{
 				{Type: api.CatalogItemArtifactTypeContainer, Uri: "quay.io/test/image"},
+			},
+			Versions: []api.CatalogItemVersion{
+				{
+					Version:    "1.0.0",
+					References: map[api.CatalogItemArtifactType]string{"container": "v1.0.0"},
+					Channels:   []string{"stable"},
+				},
+			},
+		},
+	}
+}
+
+func createValidOSCatalogItem(name string) api.CatalogItem {
+	return api.CatalogItem{
+		Metadata: api.CatalogItemMeta{
+			Name: lo.ToPtr(name),
+		},
+		Spec: api.CatalogItemSpec{
+			DisplayName: lo.ToPtr("Test OS Item"),
+			Category:    lo.ToPtr(api.CatalogItemCategorySystem),
+			Type:        api.CatalogItemTypeOS,
+			Artifacts: []api.CatalogItemArtifact{
+				{Type: api.CatalogItemArtifactTypeQcow2, Uri: "quay.io/test/os-image"},
+			},
+			Versions: []api.CatalogItemVersion{
+				{
+					Version:    "1.0.0",
+					References: map[api.CatalogItemArtifactType]string{"qcow2": "v1.0.0"},
+					Channels:   []string{"stable"},
+				},
+			},
+		},
+	}
+}
+
+func createValidDataCatalogItem(name string) api.CatalogItem {
+	return api.CatalogItem{
+		Metadata: api.CatalogItemMeta{
+			Name: lo.ToPtr(name),
+		},
+		Spec: api.CatalogItemSpec{
+			DisplayName: lo.ToPtr("Test Data Item"),
+			Category:    lo.ToPtr(api.CatalogItemCategoryApplication),
+			Type:        api.CatalogItemTypeData,
+			Artifacts: []api.CatalogItemArtifact{
+				{Type: api.CatalogItemArtifactTypeContainer, Uri: "quay.io/test/data-image"},
 			},
 			Versions: []api.CatalogItemVersion{
 				{

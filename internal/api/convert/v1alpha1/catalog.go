@@ -16,10 +16,14 @@ type CatalogConverter interface {
 	ItemFromDomain(*domain.CatalogItem) *apiv1alpha1.CatalogItem
 	ItemListFromDomain(*domain.CatalogItemList) *apiv1alpha1.CatalogItemList
 
+	// Deployment conversions
+	DeploymentListFromDomain(*domain.CatalogItemDeploymentList) *apiv1alpha1.CatalogItemDeploymentList
+
 	// Params conversions
 	ListParamsToDomain(apiv1alpha1.ListCatalogsParams) domain.ListCatalogsParams
 	ListAllItemsParamsToDomain(apiv1alpha1.ListAllCatalogItemsParams) domain.ListAllCatalogItemsParams
 	ListItemsParamsToDomain(apiv1alpha1.ListCatalogItemsParams) domain.ListCatalogItemsParams
+	ListDeploymentParamsToDomain(apiv1alpha1.GetCatalogItemDeploymentsParams) domain.GetCatalogItemDeploymentsParams
 }
 
 type catalogConverter struct{}
@@ -62,5 +66,13 @@ func (c *catalogConverter) ListAllItemsParamsToDomain(p apiv1alpha1.ListAllCatal
 }
 
 func (c *catalogConverter) ListItemsParamsToDomain(p apiv1alpha1.ListCatalogItemsParams) domain.ListCatalogItemsParams {
+	return p
+}
+
+func (c *catalogConverter) DeploymentListFromDomain(l *domain.CatalogItemDeploymentList) *apiv1alpha1.CatalogItemDeploymentList {
+	return l
+}
+
+func (c *catalogConverter) ListDeploymentParamsToDomain(p apiv1alpha1.GetCatalogItemDeploymentsParams) domain.GetCatalogItemDeploymentsParams {
 	return p
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -439,50 +440,95 @@ func (h *ServiceHandler) collectDeviceVersions(ctx context.Context, orgId uuid.U
 		return nil
 	}
 
-	osDevices, err := h.deviceStore.ListDevicesByOsCatalogItemRef(ctx, orgId, catalogName, itemName, listParams)
-	if err != nil {
+	if err := h.collectDeviceOsVersions(ctx, orgId, catalogName, itemName, listParams, versions); err != nil {
 		return err
 	}
-	for _, dev := range osDevices.Items {
-		if dev.Spec != nil && dev.Spec.Os != nil && dev.Spec.Os.CatalogItemRef != nil {
-			versions[dev.Spec.Os.CatalogItemRef.Version] = true
-		}
+	if err := h.collectDeviceAppVersions(ctx, orgId, catalogName, itemName, listParams, versions); err != nil {
+		return err
 	}
+	return h.collectDeviceVolVersions(ctx, orgId, catalogName, itemName, listParams, versions)
+}
 
-	appDevices, err := h.deviceStore.ListDevicesByAppCatalogItemRef(ctx, orgId, catalogName, itemName, listParams)
-	if err != nil {
-		return err
-	}
-	for _, dev := range appDevices.Items {
-		if dev.Spec == nil || dev.Spec.Applications == nil {
-			continue
+func (h *ServiceHandler) collectDeviceOsVersions(ctx context.Context, orgId uuid.UUID, catalogName, itemName string, listParams store.ListParams, versions map[string]bool) error {
+	for lp := listParams; ; {
+		osDevices, err := h.deviceStore.ListDevicesByOsCatalogItemRef(ctx, orgId, catalogName, itemName, lp)
+		if err != nil {
+			return err
 		}
-		for _, app := range *dev.Spec.Applications {
-			ref, _ := common.ExtractAppCatalogItemRef(&app)
-			if ref != nil && ref.Catalog == catalogName && ref.Item == itemName {
-				versions[ref.Version] = true
+		for _, dev := range osDevices.Items {
+			if dev.Spec != nil && dev.Spec.Os != nil && dev.Spec.Os.CatalogItemRef != nil {
+				versions[dev.Spec.Os.CatalogItemRef.Version] = true
 			}
 		}
-	}
-
-	volDevices, err := h.deviceStore.ListDevicesByVolumeCatalogItemRef(ctx, orgId, catalogName, itemName, listParams)
-	if err != nil {
-		return err
-	}
-	for _, dev := range volDevices.Items {
-		if dev.Spec == nil || dev.Spec.Applications == nil {
-			continue
+		if osDevices.Metadata.Continue == nil {
+			break
 		}
-		for _, app := range *dev.Spec.Applications {
-			refs, _ := common.ExtractVolumeCatalogItemRefs(&app)
-			for _, ref := range refs {
-				if ref.Catalog == catalogName && ref.Item == itemName {
+		cont, err := store.ParseContinueString(osDevices.Metadata.Continue)
+		if err != nil {
+			return err
+		}
+		lp.Continue = cont
+	}
+	return nil
+}
+
+func (h *ServiceHandler) collectDeviceAppVersions(ctx context.Context, orgId uuid.UUID, catalogName, itemName string, listParams store.ListParams, versions map[string]bool) error {
+	for lp := listParams; ; {
+		appDevices, err := h.deviceStore.ListDevicesByAppCatalogItemRef(ctx, orgId, catalogName, itemName, lp)
+		if err != nil {
+			return err
+		}
+		for _, dev := range appDevices.Items {
+			if dev.Spec == nil || dev.Spec.Applications == nil {
+				continue
+			}
+			for _, app := range *dev.Spec.Applications {
+				ref, _ := common.ExtractAppCatalogItemRef(&app)
+				if ref != nil && ref.Catalog == catalogName && ref.Item == itemName {
 					versions[ref.Version] = true
 				}
 			}
 		}
+		if appDevices.Metadata.Continue == nil {
+			break
+		}
+		cont, err := store.ParseContinueString(appDevices.Metadata.Continue)
+		if err != nil {
+			return err
+		}
+		lp.Continue = cont
 	}
+	return nil
+}
 
+func (h *ServiceHandler) collectDeviceVolVersions(ctx context.Context, orgId uuid.UUID, catalogName, itemName string, listParams store.ListParams, versions map[string]bool) error {
+	for lp := listParams; ; {
+		volDevices, err := h.deviceStore.ListDevicesByVolumeCatalogItemRef(ctx, orgId, catalogName, itemName, lp)
+		if err != nil {
+			return err
+		}
+		for _, dev := range volDevices.Items {
+			if dev.Spec == nil || dev.Spec.Applications == nil {
+				continue
+			}
+			for _, app := range *dev.Spec.Applications {
+				refs, _ := common.ExtractVolumeCatalogItemRefs(&app)
+				for _, ref := range refs {
+					if ref.Catalog == catalogName && ref.Item == itemName {
+						versions[ref.Version] = true
+					}
+				}
+			}
+		}
+		if volDevices.Metadata.Continue == nil {
+			break
+		}
+		cont, err := store.ParseContinueString(volDevices.Metadata.Continue)
+		if err != nil {
+			return err
+		}
+		lp.Continue = cont
+	}
 	return nil
 }
 
@@ -491,51 +537,81 @@ func (h *ServiceHandler) collectFleetVersions(ctx context.Context, orgId uuid.UU
 		return nil
 	}
 
-	osFleets, err := h.fleetStore.ListFleetsByOsCatalogItemRef(ctx, orgId, catalogName, itemName, listParams)
-	if err != nil {
-		return err
-	}
-	for _, fleet := range osFleets.Items {
-		spec := fleet.Spec.Template.Spec
-		if spec.Os != nil && spec.Os.CatalogItemRef != nil {
-			versions[spec.Os.CatalogItemRef.Version] = true
+	for lp := listParams; ; {
+		osFleets, err := h.fleetStore.ListFleetsByOsCatalogItemRef(ctx, orgId, catalogName, itemName, lp)
+		if err != nil {
+			return err
 		}
-	}
-
-	appFleets, err := h.fleetStore.ListFleetsByAppCatalogItemRef(ctx, orgId, catalogName, itemName, listParams)
-	if err != nil {
-		return err
-	}
-	for _, fleet := range appFleets.Items {
-		spec := fleet.Spec.Template.Spec
-		if spec.Applications == nil {
-			continue
-		}
-		for _, app := range *spec.Applications {
-			ref, _ := common.ExtractAppCatalogItemRef(&app)
-			if ref != nil && ref.Catalog == catalogName && ref.Item == itemName {
-				versions[ref.Version] = true
+		for _, fleet := range osFleets.Items {
+			spec := fleet.Spec.Template.Spec
+			if spec.Os != nil && spec.Os.CatalogItemRef != nil {
+				versions[spec.Os.CatalogItemRef.Version] = true
 			}
 		}
+		if osFleets.Metadata.Continue == nil {
+			break
+		}
+		cont, err := store.ParseContinueString(osFleets.Metadata.Continue)
+		if err != nil {
+			return err
+		}
+		lp.Continue = cont
 	}
 
-	volFleets, err := h.fleetStore.ListFleetsByVolumeCatalogItemRef(ctx, orgId, catalogName, itemName, listParams)
-	if err != nil {
-		return err
-	}
-	for _, fleet := range volFleets.Items {
-		spec := fleet.Spec.Template.Spec
-		if spec.Applications == nil {
-			continue
+	for lp := listParams; ; {
+		appFleets, err := h.fleetStore.ListFleetsByAppCatalogItemRef(ctx, orgId, catalogName, itemName, lp)
+		if err != nil {
+			return err
 		}
-		for _, app := range *spec.Applications {
-			refs, _ := common.ExtractVolumeCatalogItemRefs(&app)
-			for _, ref := range refs {
-				if ref.Catalog == catalogName && ref.Item == itemName {
+		for _, fleet := range appFleets.Items {
+			spec := fleet.Spec.Template.Spec
+			if spec.Applications == nil {
+				continue
+			}
+			for _, app := range *spec.Applications {
+				ref, _ := common.ExtractAppCatalogItemRef(&app)
+				if ref != nil && ref.Catalog == catalogName && ref.Item == itemName {
 					versions[ref.Version] = true
 				}
 			}
 		}
+		if appFleets.Metadata.Continue == nil {
+			break
+		}
+		cont, err := store.ParseContinueString(appFleets.Metadata.Continue)
+		if err != nil {
+			return err
+		}
+		lp.Continue = cont
+	}
+
+	for lp := listParams; ; {
+		volFleets, err := h.fleetStore.ListFleetsByVolumeCatalogItemRef(ctx, orgId, catalogName, itemName, lp)
+		if err != nil {
+			return err
+		}
+		for _, fleet := range volFleets.Items {
+			spec := fleet.Spec.Template.Spec
+			if spec.Applications == nil {
+				continue
+			}
+			for _, app := range *spec.Applications {
+				refs, _ := common.ExtractVolumeCatalogItemRefs(&app)
+				for _, ref := range refs {
+					if ref.Catalog == catalogName && ref.Item == itemName {
+						versions[ref.Version] = true
+					}
+				}
+			}
+		}
+		if volFleets.Metadata.Continue == nil {
+			break
+		}
+		cont, err := store.ParseContinueString(volFleets.Metadata.Continue)
+		if err != nil {
+			return err
+		}
+		lp.Continue = cont
 	}
 
 	return nil
@@ -585,13 +661,16 @@ func (h *ServiceHandler) validateInUseVersions(ctx context.Context, orgId uuid.U
 	return domain.StatusOK()
 }
 
-func (h *ServiceHandler) GetCatalogItemDeployments(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string) (*domain.CatalogItemDeploymentList, domain.Status) {
-	listParams := store.ListParams{Limit: common.MaxRecordsPerListRequest}
+func (h *ServiceHandler) GetCatalogItemDeployments(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string, params domain.GetCatalogItemDeploymentsParams) (*domain.CatalogItemDeploymentList, domain.Status) {
+	listParams, status := common.PrepareListParams(params.Continue, nil, nil, params.Limit)
+	if status != domain.StatusOK() {
+		return nil, status
+	}
 
 	var deployments []domain.CatalogItemDeployment
 
 	if h.deviceStore != nil {
-		devDeps, err := h.collectDeviceDeployments(ctx, orgId, catalogName, itemName, listParams)
+		devDeps, err := h.collectDeviceDeployments(ctx, orgId, catalogName, itemName)
 		if err != nil {
 			return nil, domain.StatusInternalServerError(err.Error())
 		}
@@ -599,7 +678,7 @@ func (h *ServiceHandler) GetCatalogItemDeployments(ctx context.Context, orgId uu
 	}
 
 	if h.fleetStore != nil {
-		fleetDeps, err := h.collectFleetDeployments(ctx, orgId, catalogName, itemName, listParams)
+		fleetDeps, err := h.collectFleetDeployments(ctx, orgId, catalogName, itemName)
 		if err != nil {
 			return nil, domain.StatusInternalServerError(err.Error())
 		}
@@ -610,86 +689,200 @@ func (h *ServiceHandler) GetCatalogItemDeployments(ctx context.Context, orgId uu
 		deployments = []domain.CatalogItemDeployment{}
 	}
 
-	return &domain.CatalogItemDeploymentList{
-		ApiVersion: domain.QualifiedV1Alpha1,
-		Kind:       domain.CatalogItemDeploymentListKind,
-		Items:      deployments,
-	}, domain.StatusOK()
+	sort.Slice(deployments, func(i, j int) bool {
+		return deploymentSortKey(&deployments[i]) < deploymentSortKey(&deployments[j])
+	})
+
+	return paginateDeployments(deployments, listParams), domain.StatusOK()
 }
 
-func (h *ServiceHandler) collectDeviceDeployments(ctx context.Context, orgId uuid.UUID, catalogName, itemName string, listParams store.ListParams) ([]domain.CatalogItemDeployment, error) {
-	var deployments []domain.CatalogItemDeployment
-
-	osDevices, err := h.deviceStore.ListDevicesByOsCatalogItemRef(ctx, orgId, catalogName, itemName, listParams)
-	if err != nil {
-		return nil, err
-	}
-	for _, dev := range osDevices.Items {
-		if dev.Spec == nil || dev.Spec.Os == nil || dev.Spec.Os.CatalogItemRef == nil {
-			continue
+func deploymentSortKey(d *domain.CatalogItemDeployment) string {
+	kind := ""
+	name := ""
+	app := ""
+	if d.DeployedTo != nil {
+		if d.DeployedTo.ResourceKind != nil {
+			kind = *d.DeployedTo.ResourceKind
 		}
-		ref := dev.Spec.Os.CatalogItemRef
-		deployments = append(deployments, domain.CatalogItemDeployment{
-			ApiVersion:  domain.QualifiedV1Alpha1,
-			Kind:        domain.CatalogItemDeploymentKind,
-			Catalog:     ref.Catalog,
-			CatalogItem: ref.Item,
-			Version:     ref.Version,
-			Channel:     ref.Channel,
-			DeployedTo:  deployedTo(domain.DeviceKind, dev.Metadata.Name),
-		})
+		if d.DeployedTo.ResourceName != nil {
+			name = *d.DeployedTo.ResourceName
+		}
+	}
+	if d.ApplicationName != nil {
+		app = *d.ApplicationName
+	}
+	return kind + "/" + name + "/" + app
+}
+
+func paginateDeployments(deployments []domain.CatalogItemDeployment, listParams *store.ListParams) *domain.CatalogItemDeploymentList {
+	offset := 0
+	if listParams.Continue != nil && len(listParams.Continue.Names) > 0 {
+		if v, err := strconv.Atoi(listParams.Continue.Names[0]); err == nil {
+			offset = v
+		}
 	}
 
-	appDevices, err := h.deviceStore.ListDevicesByAppCatalogItemRef(ctx, orgId, catalogName, itemName, listParams)
-	if err != nil {
-		return nil, err
+	if offset > len(deployments) {
+		offset = len(deployments)
 	}
-	deviceAppDeployments(appDevices.Items, catalogName, itemName, &deployments)
 
-	volDevices, err := h.deviceStore.ListDevicesByVolumeCatalogItemRef(ctx, orgId, catalogName, itemName, listParams)
-	if err != nil {
-		return nil, err
+	end := offset + listParams.Limit
+	if end > len(deployments) {
+		end = len(deployments)
 	}
-	deviceVolumeDeployments(volDevices.Items, catalogName, itemName, &deployments)
+
+	page := deployments[offset:end]
+
+	result := &domain.CatalogItemDeploymentList{
+		ApiVersion: domain.QualifiedV1Alpha1,
+		Kind:       domain.CatalogItemDeploymentListKind,
+		Items:      page,
+	}
+
+	if end < len(deployments) {
+		remaining := int64(len(deployments) - end)
+		result.Metadata.Continue = store.BuildContinueString([]string{fmt.Sprintf("%d", end)}, remaining)
+		result.Metadata.RemainingItemCount = &remaining
+	}
+
+	return result
+}
+
+func (h *ServiceHandler) collectDeviceDeployments(ctx context.Context, orgId uuid.UUID, catalogName, itemName string) ([]domain.CatalogItemDeployment, error) {
+	var deployments []domain.CatalogItemDeployment
+	lp := store.ListParams{Limit: common.MaxRecordsPerListRequest}
+
+	for osLp := lp; ; {
+		osDevices, err := h.deviceStore.ListDevicesByOsCatalogItemRef(ctx, orgId, catalogName, itemName, osLp)
+		if err != nil {
+			return nil, err
+		}
+		for _, dev := range osDevices.Items {
+			if dev.Spec == nil || dev.Spec.Os == nil || dev.Spec.Os.CatalogItemRef == nil {
+				continue
+			}
+			ref := dev.Spec.Os.CatalogItemRef
+			deployments = append(deployments, domain.CatalogItemDeployment{
+				ApiVersion:  domain.QualifiedV1Alpha1,
+				Kind:        domain.CatalogItemDeploymentKind,
+				Catalog:     ref.Catalog,
+				CatalogItem: ref.Item,
+				Version:     ref.Version,
+				Channel:     ref.Channel,
+				DeployedTo:  deployedTo(domain.DeviceKind, dev.Metadata.Name),
+			})
+		}
+		if osDevices.Metadata.Continue == nil {
+			break
+		}
+		cont, err := store.ParseContinueString(osDevices.Metadata.Continue)
+		if err != nil {
+			return nil, err
+		}
+		osLp.Continue = cont
+	}
+
+	for appLp := lp; ; {
+		appDevices, err := h.deviceStore.ListDevicesByAppCatalogItemRef(ctx, orgId, catalogName, itemName, appLp)
+		if err != nil {
+			return nil, err
+		}
+		deviceAppDeployments(appDevices.Items, catalogName, itemName, &deployments)
+		if appDevices.Metadata.Continue == nil {
+			break
+		}
+		cont, err := store.ParseContinueString(appDevices.Metadata.Continue)
+		if err != nil {
+			return nil, err
+		}
+		appLp.Continue = cont
+	}
+
+	for volLp := lp; ; {
+		volDevices, err := h.deviceStore.ListDevicesByVolumeCatalogItemRef(ctx, orgId, catalogName, itemName, volLp)
+		if err != nil {
+			return nil, err
+		}
+		deviceVolumeDeployments(volDevices.Items, catalogName, itemName, &deployments)
+		if volDevices.Metadata.Continue == nil {
+			break
+		}
+		cont, err := store.ParseContinueString(volDevices.Metadata.Continue)
+		if err != nil {
+			return nil, err
+		}
+		volLp.Continue = cont
+	}
 
 	return deployments, nil
 }
 
-func (h *ServiceHandler) collectFleetDeployments(ctx context.Context, orgId uuid.UUID, catalogName, itemName string, listParams store.ListParams) ([]domain.CatalogItemDeployment, error) {
+func (h *ServiceHandler) collectFleetDeployments(ctx context.Context, orgId uuid.UUID, catalogName, itemName string) ([]domain.CatalogItemDeployment, error) {
 	var deployments []domain.CatalogItemDeployment
+	lp := store.ListParams{Limit: common.MaxRecordsPerListRequest}
 
-	osFleets, err := h.fleetStore.ListFleetsByOsCatalogItemRef(ctx, orgId, catalogName, itemName, listParams)
-	if err != nil {
-		return nil, err
-	}
-	for _, fleet := range osFleets.Items {
-		spec := fleet.Spec.Template.Spec
-		if spec.Os == nil || spec.Os.CatalogItemRef == nil {
-			continue
+	for osLp := lp; ; {
+		osFleets, err := h.fleetStore.ListFleetsByOsCatalogItemRef(ctx, orgId, catalogName, itemName, osLp)
+		if err != nil {
+			return nil, err
 		}
-		ref := spec.Os.CatalogItemRef
-		deployments = append(deployments, domain.CatalogItemDeployment{
-			ApiVersion:  domain.QualifiedV1Alpha1,
-			Kind:        domain.CatalogItemDeploymentKind,
-			Catalog:     ref.Catalog,
-			CatalogItem: ref.Item,
-			Version:     ref.Version,
-			Channel:     ref.Channel,
-			DeployedTo:  deployedTo(domain.FleetKind, fleet.Metadata.Name),
-		})
+		for _, fleet := range osFleets.Items {
+			spec := fleet.Spec.Template.Spec
+			if spec.Os == nil || spec.Os.CatalogItemRef == nil {
+				continue
+			}
+			ref := spec.Os.CatalogItemRef
+			deployments = append(deployments, domain.CatalogItemDeployment{
+				ApiVersion:  domain.QualifiedV1Alpha1,
+				Kind:        domain.CatalogItemDeploymentKind,
+				Catalog:     ref.Catalog,
+				CatalogItem: ref.Item,
+				Version:     ref.Version,
+				Channel:     ref.Channel,
+				DeployedTo:  deployedTo(domain.FleetKind, fleet.Metadata.Name),
+			})
+		}
+		if osFleets.Metadata.Continue == nil {
+			break
+		}
+		cont, err := store.ParseContinueString(osFleets.Metadata.Continue)
+		if err != nil {
+			return nil, err
+		}
+		osLp.Continue = cont
 	}
 
-	appFleets, err := h.fleetStore.ListFleetsByAppCatalogItemRef(ctx, orgId, catalogName, itemName, listParams)
-	if err != nil {
-		return nil, err
+	for appLp := lp; ; {
+		appFleets, err := h.fleetStore.ListFleetsByAppCatalogItemRef(ctx, orgId, catalogName, itemName, appLp)
+		if err != nil {
+			return nil, err
+		}
+		fleetAppDeployments(appFleets.Items, catalogName, itemName, &deployments)
+		if appFleets.Metadata.Continue == nil {
+			break
+		}
+		cont, err := store.ParseContinueString(appFleets.Metadata.Continue)
+		if err != nil {
+			return nil, err
+		}
+		appLp.Continue = cont
 	}
-	fleetAppDeployments(appFleets.Items, catalogName, itemName, &deployments)
 
-	volFleets, err := h.fleetStore.ListFleetsByVolumeCatalogItemRef(ctx, orgId, catalogName, itemName, listParams)
-	if err != nil {
-		return nil, err
+	for volLp := lp; ; {
+		volFleets, err := h.fleetStore.ListFleetsByVolumeCatalogItemRef(ctx, orgId, catalogName, itemName, volLp)
+		if err != nil {
+			return nil, err
+		}
+		fleetVolumeDeployments(volFleets.Items, catalogName, itemName, &deployments)
+		if volFleets.Metadata.Continue == nil {
+			break
+		}
+		cont, err := store.ParseContinueString(volFleets.Metadata.Continue)
+		if err != nil {
+			return nil, err
+		}
+		volLp.Continue = cont
 	}
-	fleetVolumeDeployments(volFleets.Items, catalogName, itemName, &deployments)
 
 	return deployments, nil
 }

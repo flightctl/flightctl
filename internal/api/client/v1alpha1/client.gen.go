@@ -129,7 +129,7 @@ type ClientInterface interface {
 	ReplaceCatalogItem(ctx context.Context, catalog string, name string, body ReplaceCatalogItemJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetCatalogItemDeployments request
-	GetCatalogItemDeployments(ctx context.Context, catalog string, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	GetCatalogItemDeployments(ctx context.Context, catalog string, name string, params *GetCatalogItemDeploymentsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DeleteCatalog request
 	DeleteCatalog(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -338,8 +338,8 @@ func (c *Client) ReplaceCatalogItem(ctx context.Context, catalog string, name st
 	return c.Client.Do(req)
 }
 
-func (c *Client) GetCatalogItemDeployments(ctx context.Context, catalog string, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetCatalogItemDeploymentsRequest(c.Server, catalog, name)
+func (c *Client) GetCatalogItemDeployments(ctx context.Context, catalog string, name string, params *GetCatalogItemDeploymentsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetCatalogItemDeploymentsRequest(c.Server, catalog, name, params)
 	if err != nil {
 		return nil, err
 	}
@@ -1126,7 +1126,7 @@ func NewReplaceCatalogItemRequestWithBody(server string, catalog string, name st
 }
 
 // NewGetCatalogItemDeploymentsRequest generates requests for GetCatalogItemDeployments
-func NewGetCatalogItemDeploymentsRequest(server string, catalog string, name string) (*http.Request, error) {
+func NewGetCatalogItemDeploymentsRequest(server string, catalog string, name string, params *GetCatalogItemDeploymentsParams) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -1156,6 +1156,44 @@ func NewGetCatalogItemDeploymentsRequest(server string, catalog string, name str
 	queryURL, err := serverURL.Parse(operationPath)
 	if err != nil {
 		return nil, err
+	}
+
+	if params != nil {
+		queryValues := queryURL.Query()
+
+		if params.Continue != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "continue", runtime.ParamLocationQuery, *params.Continue); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithLocation("form", true, "limit", runtime.ParamLocationQuery, *params.Limit); err != nil {
+				return nil, err
+			} else if parsed, err := url.ParseQuery(queryFrag); err != nil {
+				return nil, err
+			} else {
+				for k, v := range parsed {
+					for _, v2 := range v {
+						queryValues.Add(k, v2)
+					}
+				}
+			}
+
+		}
+
+		queryURL.RawQuery = queryValues.Encode()
 	}
 
 	req, err := http.NewRequest("GET", queryURL.String(), nil)
@@ -2147,7 +2185,7 @@ type ClientWithResponsesInterface interface {
 	ReplaceCatalogItemWithResponse(ctx context.Context, catalog string, name string, body ReplaceCatalogItemJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceCatalogItemResponse, error)
 
 	// GetCatalogItemDeploymentsWithResponse request
-	GetCatalogItemDeploymentsWithResponse(ctx context.Context, catalog string, name string, reqEditors ...RequestEditorFn) (*GetCatalogItemDeploymentsResponse, error)
+	GetCatalogItemDeploymentsWithResponse(ctx context.Context, catalog string, name string, params *GetCatalogItemDeploymentsParams, reqEditors ...RequestEditorFn) (*GetCatalogItemDeploymentsResponse, error)
 
 	// DeleteCatalogWithResponse request
 	DeleteCatalogWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteCatalogResponse, error)
@@ -2985,8 +3023,8 @@ func (c *ClientWithResponses) ReplaceCatalogItemWithResponse(ctx context.Context
 }
 
 // GetCatalogItemDeploymentsWithResponse request returning *GetCatalogItemDeploymentsResponse
-func (c *ClientWithResponses) GetCatalogItemDeploymentsWithResponse(ctx context.Context, catalog string, name string, reqEditors ...RequestEditorFn) (*GetCatalogItemDeploymentsResponse, error) {
-	rsp, err := c.GetCatalogItemDeployments(ctx, catalog, name, reqEditors...)
+func (c *ClientWithResponses) GetCatalogItemDeploymentsWithResponse(ctx context.Context, catalog string, name string, params *GetCatalogItemDeploymentsParams, reqEditors ...RequestEditorFn) (*GetCatalogItemDeploymentsResponse, error) {
+	rsp, err := c.GetCatalogItemDeployments(ctx, catalog, name, params, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
