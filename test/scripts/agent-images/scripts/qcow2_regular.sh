@@ -106,6 +106,10 @@ set -euo pipefail
 root=/installroot
 
 dnf --installroot="${root}" -y install epel-release epel-next-release
+# dnf resolves file:/// GPG key URLs against the running system, not installroot.
+mkdir -p /etc/pki/rpm-gpg
+cp -f "${root}"/etc/pki/rpm-gpg/RPM-GPG-KEY-* /etc/pki/rpm-gpg/
+
 dnf --installroot="${root}" -y install \
   cloud-init \
   dnf-plugins-core \
