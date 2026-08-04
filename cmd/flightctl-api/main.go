@@ -77,6 +77,15 @@ func main() {
 		log.Fatalf("initializing encryption: %v", err)
 	}
 
+	var encCollector prometheus.Collector
+	if cfg.Metrics != nil && cfg.Metrics.Enabled {
+		if encMgr := encryption.GlobalManager(); encMgr != nil {
+			ec := encmetrics.NewEncryptionCollector(encMgr)
+			encMgr.SetMetricsRecorder(ec)
+			encCollector = ec
+		}
+	}
+
 	log.Println("Initializing data store")
 	db, err := store.InitDB(cfg, log)
 	if err != nil {
@@ -199,9 +208,7 @@ func main() {
 			}
 		}
 
-		if encMgr := encryption.GlobalManager(); encMgr != nil {
-			encCollector := encmetrics.NewEncryptionCollector(encMgr)
-			encMgr.SetMetricsRecorder(encCollector)
+		if encCollector != nil {
 			collectors = append(collectors, encCollector)
 		}
 
