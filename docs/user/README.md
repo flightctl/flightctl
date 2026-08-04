@@ -79,6 +79,7 @@ Welcome to the Flight Control user documentation.
   * [Understanding Fleets](using/managing-fleets.md#understanding-fleets)
   * [Selecting Devices into a Fleet](using/managing-fleets.md#selecting-devices-into-a-fleet)
   * [Defining Device Templates](using/managing-fleets.md#defining-device-templates)
+  * [Mixed image-mode and package-mode fleets](using/managing-fleets.md#mixed-image-mode-and-package-mode-fleets)
   * [Defining Rollout Policies](using/managing-fleets.md#defining-rollout-policies)
 * **[Auto-syncing External Dependencies](using/auto-syncing-dependencies.md)** - How Flight Control automatically detects and applies upstream changes to device configurations.
 * **[Viewing Vulnerabilities](using/viewing-vulnerabilities.md)** - How to view vulnerability data for devices and fleets.
