@@ -461,6 +461,8 @@ func TestContainerfileTemplate_OnboardingARG(t *testing.T) {
 	require.Contains(t, containerfileTemplate, "ARG INSTALL_ONBOARDING", "Template should declare INSTALL_ONBOARDING ARG")
 	require.Contains(t, containerfileTemplate, `if [ "${INSTALL_ONBOARDING}" = "true" ]`, "Template should have conditional for onboarding")
 	require.Contains(t, containerfileTemplate, "flightctl-onboarding", "Template should reference flightctl-onboarding package")
+	require.Contains(t, containerfileTemplate, "flightctl-onboarding-setup.service", "Template should enable flightctl-onboarding-setup.service")
+	require.Contains(t, containerfileTemplate, "$PACKAGES", "Template should use $PACKAGES variable for install")
 }
 
 func TestInstallCACertInWorker_NilCaCrt(t *testing.T) {

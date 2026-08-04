@@ -1661,6 +1661,8 @@ func TestCreateImageBuildWithOnboardingFalse(t *testing.T) {
 
 	require.Equal(int32(http.StatusCreated), statusCode(status))
 	require.NotNil(result)
+	require.NotNil(result.Spec.Onboarding)
+	require.False(*result.Spec.Onboarding)
 }
 
 func TestCreateImageBuildWithOnboardingNil(t *testing.T) {

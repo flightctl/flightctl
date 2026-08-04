@@ -67,6 +67,32 @@ spec:
 * `type: early`: Embeds enrollment certificate and configuration directly in the image. Devices using this image can automatically connect to Flight Control without additional provisioning.
 * `type: late`: Builds the image without enrollment certificate. The certificate must be injected at provisioning time using cloud-init, Ignition, or similar mechanisms.
 
+**Onboarding Configuration (optional):**
+
+* `onboarding`: When set to `true`, the built image includes the `flightctl-onboarding` RPM and enables `flightctl-onboarding-setup.service`. This provides a Cockpit-based first-boot wizard that guides device operators through initial configuration such as network settings, hostname, and labels. Defaults to `false`.
+* Onboarding is compatible with both early and late binding.
+
+Example with onboarding enabled:
+
+```yaml
+apiVersion: flightctl.io/v1alpha1
+kind: ImageBuild
+metadata:
+  name: my-image-build-with-onboarding
+spec:
+  source:
+    repository: quay-io
+    imageName: centos-bootc/centos-bootc
+    imageTag: stream9
+  destination:
+    repository: my-registry
+    imageName: my-user/centos-bootc-custom
+    imageTag: v1.0.0
+  binding:
+    type: late
+  onboarding: true
+```
+
 ### Creating an ImageBuild
 
 Create an ImageBuild resource using the Flight Control CLI:

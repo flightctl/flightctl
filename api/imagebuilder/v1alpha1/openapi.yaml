@@ -1449,7 +1449,11 @@ components:
           $ref: '#/components/schemas/ImageBuildUserConfiguration'
         onboarding:
           type: boolean
-          description: Whether to install the flightctl-onboarding RPM for first-boot device configuration via Cockpit wizard.
+          description: >-
+            When true, installs the flightctl-onboarding RPM and enables
+            flightctl-onboarding-setup.service for first-boot device
+            configuration via a Cockpit-based onboarding wizard. Compatible
+            with both early and late binding. Defaults to false.
       required:
         - source
         - destination
