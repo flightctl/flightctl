@@ -16,11 +16,13 @@ RPM_COPR_PACKAGE="${RPM_COPR_PACKAGE:-}"
 TMP_CLOUD_IMAGE_PATH=""
 RPM_SOURCE_DIR=""
 
-# Remove any partially downloaded cloud image if the script exits before the
-# download is committed into the shared cache path.
-cleanup_temp_cloud_image() {
+DISABLED_PASST_BIN=""
+cleanup() {
   if [ -n "${TMP_CLOUD_IMAGE_PATH}" ] && [ -f "${TMP_CLOUD_IMAGE_PATH}" ]; then
     rm -f "${TMP_CLOUD_IMAGE_PATH}"
+  fi
+  if [ -n "${DISABLED_PASST_BIN}" ] && [ -f "${DISABLED_PASST_BIN}" ]; then
+    sudo mv "${DISABLED_PASST_BIN}" "${DISABLED_PASST_BIN%.disabled}" 2>/dev/null || true
   fi
 }
 
@@ -109,7 +111,7 @@ OUTPUT_QCOW_DIR="${OUTPUT_DIR}/qcow2"
 OUTPUT_QCOW_PATH="${OUTPUT_QCOW_DIR}/disk.qcow2"
 
 mkdir -p "${CLOUD_IMAGE_CACHE_DIR}" "${OUTPUT_QCOW_DIR}"
-trap cleanup_temp_cloud_image EXIT
+trap cleanup EXIT
 
 if [ ! -f "${BASE_CLOUD_IMAGE_PATH}" ]; then
   echo "Downloading CentOS Stream 9 cloud image from ${BASE_CLOUD_IMAGE_URL}"
@@ -125,6 +127,10 @@ qemu-img resize "${OUTPUT_QCOW_PATH}" +5G
 
 VIRT_CUSTOMIZE_ARGS=(
   -a "${OUTPUT_QCOW_PATH}"
+  # QEMU SLIRP networking provides a DNS forwarder at 10.0.2.3.  The cloud
+  # image's /etc/resolv.conf may point to an unreachable nameserver, so
+  # inject the SLIRP DNS before any dnf commands.
+  --run-command "echo 'nameserver 10.0.2.3' > /etc/resolv.conf"
   --run-command "dnf install -y epel-release epel-next-release"
   --run-command "dnf install -y cloud-init dnf-plugins-core firewalld openssh-server podman podman-compose python-dotenv sudo"
   --run-command "systemctl enable firewalld.service"
@@ -165,7 +171,17 @@ VIRT_CUSTOMIZE_ARGS+=(
 )
 
 echo "Customizing regular package-mode qcow2"
-sudo virt-customize "${VIRT_CUSTOMIZE_ARGS[@]}"
+# libguestfs on QEMU ≥ 7.2 prefers passt for appliance networking (even with
+# LIBGUESTFS_BACKEND=direct).  passt needs user-namespace creation which is
+# denied on GitHub-hosted runners.  Temporarily hiding the passt binary forces
+# libguestfs to fall back to QEMU's built-in SLIRP networking, which works
+# without extra privileges.  The cleanup trap restores passt on exit.
+PASST_BIN="$(command -v passt 2>/dev/null || true)"
+if [[ -n "${PASST_BIN}" ]]; then
+  sudo mv "${PASST_BIN}" "${PASST_BIN}.disabled"
+  DISABLED_PASST_BIN="${PASST_BIN}.disabled"
+fi
+sudo env LIBGUESTFS_BACKEND=direct virt-customize "${VIRT_CUSTOMIZE_ARGS[@]}"
 
 sudo chown "${USER}:$(id -gn "${USER}")" "${OUTPUT_QCOW_PATH}"
 
