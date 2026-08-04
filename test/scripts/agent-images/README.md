@@ -165,6 +165,11 @@ That means the package-mode OCI base and package-mode qcow2 are parallel build p
 They are intentionally parallel because the qcow2 is built from a cloud image, not converted from the OCI base image.
 Agent config, certificates, and registry remapping are expected to be injected into the qcow2 after build via the existing e2e injection flow.
 
+> **CI constraint:** On GitHub-hosted runners, `libguestfs` guest networking is unavailable
+> (`passt` requires user-namespace creation). `qcow2_regular.sh` works around this by
+> downloading all RPMs on the host via `podman` and installing them offline inside the guest
+> with `virt-customize --no-network`.
+
 ### Local Usage and Registry Remapping
 
 Images are built locally with the default repository prefix `quay.io/flightctl/flightctl-device`

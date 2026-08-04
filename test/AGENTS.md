@@ -32,6 +32,33 @@ Defined in **test/test.mk** (included from root Makefile). Coverage reports go t
 - **test/scripts/** – Environment setup, kind, certs (`create_e2e_certs.sh`), agent images, git-server, VM creation, redeploy. E2E certs/SSH under `bin/e2e-certs/`, `bin/.ssh/`.
 - **test/integration/** – Integration test packages (store, service, tasks, imagebuilder_worker, etc.); no kind; DB/KV/Alertmanager endpoints are resolved from **`podman port`** when integration containers exist (`test/util/testdb/integration_ports.go`, `test/util/integration_net.go` for Redis helpers).
 
+## Package-mode CI
+
+The CI matrix includes a `cs9-regular` flavor that builds a package-mode QCOW2 image
+(RPM-based, non-bootc). This flavor is built by `build-agent-images-unified` with
+`build_type: regular` and `upload_bundle: false` (QCOW2 only, no OCI bundle).
+
+**Local build:**
+
+```bash
+BUILD_TYPE=regular AGENT_OS_ID=cs9-regular make e2e-agent-images
+```
+
+**GHA constraint:** Guest networking inside `virt-customize` is unavailable on
+GitHub-hosted runners (`libguestfs` `passt` requires user-namespace creation).
+`qcow2_regular.sh` downloads RPMs on the host via `sudo podman` and installs them
+offline with `virt-customize --no-network`.
+
+**E2E suite activation** is deferred to EDM-4768 / PR #3323 (`./test/e2e/package_mode`).
+The current bootc e2e rows exclude `./test/e2e/package_mode` via `excluded_go_e2e_dirs`.
+
+**Reserved env vars for mixed-fleet runs** (staging inputs already in `run-e2e-tests.yaml`):
+
+| Variable | Purpose |
+|----------|---------|
+| `E2E_PACKAGE_MODE_QCOW` | Path to the package-mode QCOW2 disk image |
+| `E2E_IMAGE_MODE_QCOW` | Path to the image-mode (bootc) QCOW2 for mixed-fleet tests |
+
 ## Conventions
 
 - **Unit/integration:** Prefer table-driven tests; use `testify/require`; for agent code use gomock with `defer ctrl.Finish()`. See [internal/agent/AGENTS.md](../internal/agent/AGENTS.md) for agent-specific testing standards.

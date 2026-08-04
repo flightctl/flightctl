@@ -16,11 +16,13 @@ RPM_COPR_PACKAGE="${RPM_COPR_PACKAGE:-}"
 TMP_CLOUD_IMAGE_PATH=""
 RPM_SOURCE_DIR=""
 
-# Remove any partially downloaded cloud image if the script exits before the
-# download is committed into the shared cache path.
-cleanup_temp_cloud_image() {
+PKG_CACHE_DIR=""
+cleanup() {
   if [ -n "${TMP_CLOUD_IMAGE_PATH}" ] && [ -f "${TMP_CLOUD_IMAGE_PATH}" ]; then
     rm -f "${TMP_CLOUD_IMAGE_PATH}"
+  fi
+  if [ -n "${PKG_CACHE_DIR}" ] && [ -d "${PKG_CACHE_DIR}" ]; then
+    rm -rf "${PKG_CACHE_DIR}"
   fi
 }
 
@@ -103,13 +105,14 @@ fi
 require_command curl
 require_command qemu-img
 require_command virt-customize
+require_command podman
 
 resolve_output_dir "${OUTPUT_DIR}"
 OUTPUT_QCOW_DIR="${OUTPUT_DIR}/qcow2"
 OUTPUT_QCOW_PATH="${OUTPUT_QCOW_DIR}/disk.qcow2"
 
 mkdir -p "${CLOUD_IMAGE_CACHE_DIR}" "${OUTPUT_QCOW_DIR}"
-trap cleanup_temp_cloud_image EXIT
+trap cleanup EXIT
 
 if [ ! -f "${BASE_CLOUD_IMAGE_PATH}" ]; then
   echo "Downloading CentOS Stream 9 cloud image from ${BASE_CLOUD_IMAGE_URL}"
@@ -123,10 +126,57 @@ echo "Preparing package-mode qcow2 at ${OUTPUT_QCOW_PATH}"
 qemu-img convert -O qcow2 "${BASE_CLOUD_IMAGE_PATH}" "${OUTPUT_QCOW_PATH}"
 qemu-img resize "${OUTPUT_QCOW_PATH}" +5G
 
+# Guest networking is unavailable on GitHub-hosted runners (libguestfs passt
+# requires user-namespace creation).  Download all required packages on the
+# host via a CentOS 9 container, then install them offline inside the guest.
+echo "Downloading required packages for offline guest installation"
+PKG_CACHE_DIR=$(mktemp -d)
+
+CONTAINER_CMD='
+  set -euo pipefail
+  dnf install -y epel-release epel-next-release dnf-plugins-core
+  dnf download --resolve --destdir=/output \
+    epel-release epel-next-release \
+    cloud-init dnf-plugins-core firewalld openssh-server \
+    podman podman-compose python-dotenv sudo
+'
+
+if [ -n "${RPM_COPR_REPO}" ]; then
+  package_name="${RPM_COPR_PACKAGE:-flightctl-agent}"
+  validate_copr_repo "${RPM_COPR_REPO}"
+  validate_copr_package "${package_name}"
+  CONTAINER_CMD+="
+    dnf copr -y enable ${RPM_COPR_REPO}
+    dnf download --resolve --destdir=/output ${package_name}
+  "
+else
+  validate_rpm_dir "${RPM_DIR}"
+  resolve_rpm_source_dir "${RPM_DIR}"
+fi
+
+sudo podman run --rm \
+  -v "${PKG_CACHE_DIR}:/output:Z" \
+  quay.io/centos/centos:stream9 \
+  bash -c "${CONTAINER_CMD}"
+sudo chown -R "${USER}:$(id -gn "${USER}")" "${PKG_CACHE_DIR}"
+
+if [ -z "${RPM_COPR_REPO}" ]; then
+  cp "${RPM_SOURCE_DIR}"/flightctl-agent-*.rpm "${RPM_SOURCE_DIR}"/flightctl-selinux-*.rpm \
+    "${PKG_CACHE_DIR}/"
+fi
+
+if ! ls "${PKG_CACHE_DIR}"/*.rpm >/dev/null 2>&1; then
+  echo "No RPMs found in package cache after download" >&2
+  exit 1
+fi
+
 VIRT_CUSTOMIZE_ARGS=(
   -a "${OUTPUT_QCOW_PATH}"
-  --run-command "dnf install -y epel-release epel-next-release"
-  --run-command "dnf install -y cloud-init dnf-plugins-core firewalld openssh-server podman podman-compose python-dotenv sudo"
+  --no-network
+  --mkdir /tmp/pkg-cache
+  --copy-in "${PKG_CACHE_DIR}:/tmp/pkg-cache"
+  --run-command "dnf install -y /tmp/pkg-cache/*.rpm"
+  --run-command "rm -rf /tmp/pkg-cache"
   --run-command "systemctl enable firewalld.service"
   --run-command "systemctl enable podman.service"
   --run-command "systemctl enable sshd.service"
@@ -138,34 +188,13 @@ VIRT_CUSTOMIZE_ARGS=(
   --run-command "printf '#!/bin/bash\necho \"\"\n' > /usr/lib/flightctl/custom-info.d/emptyValue"
   --run-command "printf '#!/bin/bash\necho \"no-show\"\n' > /usr/lib/flightctl/custom-info.d/keyNotShown"
   --run-command "chmod 755 /usr/lib/flightctl/custom-info.d/*"
-)
-
-if [ -n "${RPM_COPR_REPO}" ]; then
-  package_name="${RPM_COPR_PACKAGE:-flightctl-agent}"
-  validate_copr_repo "${RPM_COPR_REPO}"
-  validate_copr_package "${package_name}"
-  VIRT_CUSTOMIZE_ARGS+=(
-    --run-command "dnf copr -y enable ${RPM_COPR_REPO}"
-    --run-command "dnf install -y ${package_name}"
-  )
-else
-  validate_rpm_dir "${RPM_DIR}"
-  resolve_rpm_source_dir "${RPM_DIR}"
-  VIRT_CUSTOMIZE_ARGS+=(
-    --copy-in "${RPM_SOURCE_DIR}:/tmp"
-    --run-command "dnf install -y /tmp/${RPM_DIR}/flightctl-agent-*.rpm /tmp/${RPM_DIR}/flightctl-selinux-*.rpm"
-    --run-command "rm -rf /tmp/${RPM_DIR}"
-  )
-fi
-
-VIRT_CUSTOMIZE_ARGS+=(
   --run-command "systemctl enable flightctl-agent.service"
   --run-command "dnf clean all"
   --selinux-relabel
 )
 
 echo "Customizing regular package-mode qcow2"
-sudo virt-customize "${VIRT_CUSTOMIZE_ARGS[@]}"
+sudo env LIBGUESTFS_BACKEND=direct virt-customize "${VIRT_CUSTOMIZE_ARGS[@]}"
 
 sudo chown "${USER}:$(id -gn "${USER}")" "${OUTPUT_QCOW_PATH}"
 
