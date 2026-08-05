@@ -131,6 +131,7 @@ func TestEngineStatusStartupJitter(t *testing.T) {
 }
 
 type mockClock struct {
+	mu     sync.Mutex
 	now    time.Time
 	ticks  map[time.Duration]*mockTicker
 	afters []mockAfter
@@ -148,6 +149,11 @@ type mockTicker struct {
 	clock      *mockClock
 }
 
+type mockFire struct {
+	ch chan time.Time
+	t  time.Time
+}
+
 func newMockClock(start time.Time) *mockClock {
 	return &mockClock{
 		now:   start,
@@ -156,11 +162,15 @@ func newMockClock(start time.Time) *mockClock {
 }
 
 func (m *mockClock) Now() time.Time {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return m.now
 }
 
 // NewTicker creates a a mock ticker, storing its nextTickAt as now + duration.
 func (m *mockClock) NewTicker(d time.Duration) Ticker {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	t := &mockTicker{
 		c:          make(chan time.Time, 1),
 		d:          d,
@@ -172,6 +182,8 @@ func (m *mockClock) NewTicker(d time.Duration) Ticker {
 }
 
 func (m *mockClock) After(d time.Duration) <-chan time.Time {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	ch := make(chan time.Time, 1)
 	at := m.now.Add(d)
 	if !at.After(m.now) {
@@ -191,24 +203,26 @@ func (m *mockTicker) Stop() {
 }
 
 func (m *mockClock) Advance(d time.Duration) {
+	m.mu.Lock()
 	m.now = m.now.Add(d)
+	var fires []mockFire
 	remaining := m.afters[:0]
 	for _, a := range m.afters {
 		if !a.at.After(m.now) {
-			a.ch <- a.at
+			fires = append(fires, mockFire{ch: a.ch, t: a.at})
 			continue
 		}
 		remaining = append(remaining, a)
 	}
 	m.afters = remaining
-	// check how many intervals (dur) we crossed,
-	// send ticks for each crossing.
 	for dur, t := range m.ticks {
 		for !t.nextTickAt.After(m.now) {
-			// send a tick
-			t.c <- t.nextTickAt
-			// move forward by its interval.
+			fires = append(fires, mockFire{ch: t.c, t: t.nextTickAt})
 			t.nextTickAt = t.nextTickAt.Add(dur)
 		}
+	}
+	m.mu.Unlock()
+	for _, f := range fires {
+		f.ch <- f.t
 	}
 }
