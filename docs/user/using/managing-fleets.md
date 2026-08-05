@@ -263,9 +263,12 @@ limits on OS image targets.
 ### Rollout batch behavior with package-mode devices
 
 If package-mode devices are included in a rollout batch for a fleet whose
-template sets `spec.os.image`, the batch can stall until the rollout times
-out. An `OutOfDate` status does not distinguish devices that are still
-rolling out from devices that cannot converge on the OS image target.
+template sets `spec.os.image`, the batch can stall until the batch update
+times out. The default timeout is 24 hours
+(`rolloutPolicy.defaultUpdateTimeout`; see
+[Defining Rollout Policies](#defining-rollout-policies)). An `OutOfDate`
+status does not distinguish devices that are still rolling out from devices
+that cannot converge on the OS image target.
 
 ### Options when a mixed fleet includes an OS image
 

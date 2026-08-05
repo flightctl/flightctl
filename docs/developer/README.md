@@ -38,8 +38,8 @@ To generate API code and mocks, use `make generate`  This requires installing mo
 
 For the agent RPM subpackage split (`flightctl-agent` /
 `flightctl-greenboot`) and package-mode e2e (`cs9-regular` OCI image +
-testcontainer suite; suite merge tracked separately), see
-[Package-mode development notes](package-mode.md).
+testcontainer suite; suite in [#3345](https://github.com/flightctl/flightctl/pull/3345)),
+see [Package-mode development notes](package-mode.md).
 
 ### Container image building
 

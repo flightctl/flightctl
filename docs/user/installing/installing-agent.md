@@ -75,8 +75,10 @@ Verify that the service is running:
 systemctl status flightctl-agent
 ```
 
-Configure enrollment and other agent settings before or after starting the
-service. See the configuration sections below.
+Configure enrollment and other agent settings **before** starting the
+service so the agent has a server to connect to. If you start the agent
+first, it keeps retrying until configuration is available. See the
+configuration sections below.
 
 ## Configuring the agent
 
