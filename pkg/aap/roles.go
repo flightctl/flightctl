@@ -71,11 +71,15 @@ type AAPRoleTeamAssignment struct {
 	Team           int                                `json:"team"`
 }
 
-// GET /api/controller/v2/role_user_assignments/?user__id={user_id}
-func (a *AAPGatewayClient) ListUserRoleAssignments(ctx context.Context, token string, userID string) ([]*AAPRoleUserAssignment, error) {
-	// Build query parameters using url.Values
+// GET /api/controller/v2/role_user_assignments/?user__resource__ansible_id={ansible_id}
+//
+// Filters by ansible_id rather than the Gateway numeric user ID: a user's numeric ID is not
+// guaranteed to be the same between the Gateway and Controller components, but ansible_id is.
+// Custom role definitions (e.g. flightctl-org-admin) are only visible through the Controller
+// API today, not the Gateway's role_user_assignments endpoint.
+func (a *AAPGatewayClient) ListUserRoleAssignments(ctx context.Context, token string, ansibleID string) ([]*AAPRoleUserAssignment, error) {
 	query := url.Values{}
-	query.Set("user__id", userID)
+	query.Set("user__resource__ansible_id", ansibleID)
 	if a.maxPageSize != nil {
 		query.Set("page_size", strconv.Itoa(*a.maxPageSize))
 	}
@@ -84,10 +88,12 @@ func (a *AAPGatewayClient) ListUserRoleAssignments(ctx context.Context, token st
 	return getWithPagination[AAPRoleUserAssignment](a, ctx, endpoint, token)
 }
 
-// GET /api/controller/v2/role_team_assignments/?team__id={team_id}
-func (a *AAPGatewayClient) ListTeamRoleAssignments(ctx context.Context, token string, teamID string) ([]*AAPRoleTeamAssignment, error) {
+// GET /api/controller/v2/role_team_assignments/?team__resource__ansible_id={ansible_id}
+//
+// See ListUserRoleAssignments for why this filters by ansible_id and uses the Controller API.
+func (a *AAPGatewayClient) ListTeamRoleAssignments(ctx context.Context, token string, ansibleID string) ([]*AAPRoleTeamAssignment, error) {
 	query := url.Values{}
-	query.Set("team__id", teamID)
+	query.Set("team__resource__ansible_id", ansibleID)
 	if a.maxPageSize != nil {
 		query.Set("page_size", strconv.Itoa(*a.maxPageSize))
 	}
