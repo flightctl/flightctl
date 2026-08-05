@@ -346,11 +346,7 @@ func dumpPackageModeFailureDiagnostics(harness *e2e.Harness, agent *e2e.PackageM
 	if agent == nil {
 		return
 	}
-	ctx := context.Background()
-	if harness != nil {
-		ctx = harness.GetTestContext()
-	}
-	logCtx, logCancel := context.WithTimeout(ctx, 30*time.Second)
+	logCtx, logCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer logCancel()
 	logs, err := agent.GetAgentLogs(logCtx)
 	if err != nil {
