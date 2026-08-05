@@ -136,7 +136,6 @@ func migrateDevices(ctx context.Context, tx *gorm.DB, cache map[catalogItemCache
 
 		deviceLog := log.WithField("device", ref.DeviceName)
 		changed := migrateDeviceSpec(&spec.Data, labels, ref.OrgID, cache, deviceLog)
-		removeCatalogLabels(labels)
 
 		if changed {
 			if status := common.ValidateCatalogItemRefs(ctx, ref.OrgID, catStore, &spec.Data); status != v1beta1.StatusOK() {
@@ -145,16 +144,18 @@ func migrateDevices(ctx context.Context, tx *gorm.DB, cache map[catalogItemCache
 			}
 		}
 
-		updates := map[string]any{
-			"labels": labels,
+		if !changed {
+			continue
 		}
-		if changed {
-			updates["spec"] = spec
-		}
+
+		removeCatalogLabels(labels)
 
 		if err := tx.Model(&model.Device{}).
 			Where("org_id = ? AND name = ?", ref.OrgID, ref.DeviceName).
-			Updates(updates).Error; err != nil {
+			Updates(map[string]any{
+				"labels": labels,
+				"spec":   spec,
+			}).Error; err != nil {
 			return fmt.Errorf("update device %s/%s: %w", ref.OrgID, ref.DeviceName, err)
 		}
 	}
@@ -186,8 +187,6 @@ func migrateFleets(ctx context.Context, tx *gorm.DB, cache map[catalogItemCacheK
 			deviceSpec := &fleet.Spec.Data.Template.Spec
 			changed = migrateDeviceSpec(deviceSpec, labels, fleet.OrgID, cache, fleetLog)
 		}
-		removeCatalogLabels(labels)
-
 		if changed {
 			if status := common.ValidateCatalogItemRefs(ctx, fleet.OrgID, catStore, &fleet.Spec.Data.Template.Spec); status != v1beta1.StatusOK() {
 				fleetLog.Warnf("migrated spec failed validation, skipping spec update: %s", status.Message)
@@ -195,16 +194,18 @@ func migrateFleets(ctx context.Context, tx *gorm.DB, cache map[catalogItemCacheK
 			}
 		}
 
-		updates := map[string]any{
-			"labels": labels,
+		if !changed {
+			continue
 		}
-		if changed {
-			updates["spec"] = fleet.Spec
-		}
+
+		removeCatalogLabels(labels)
 
 		if err := tx.Model(&model.Fleet{}).
 			Where("org_id = ? AND name = ?", fleet.OrgID, fleet.Name).
-			Updates(updates).Error; err != nil {
+			Updates(map[string]any{
+				"labels": labels,
+				"spec":   fleet.Spec,
+			}).Error; err != nil {
 			return fmt.Errorf("update fleet %s/%s: %w", fleet.OrgID, fleet.Name, err)
 		}
 	}
