@@ -30,7 +30,7 @@ const (
 )
 
 func GetPackageModeAgentImage() string {
-	return "quay.io/flightctl/flightctl-device:package"
+	return testutil.NewDeviceImageReference(testutil.DeviceTags.Package).String()
 }
 
 type PackageModeAgent struct {
