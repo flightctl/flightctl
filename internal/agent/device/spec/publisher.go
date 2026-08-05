@@ -20,7 +20,7 @@ import (
 const (
 	longPollTimeout = 4 * time.Minute
 	// defaultMinPollDelay is used when errorBackoff.BaseDelay is unset (tests).
-	defaultMinPollDelay = 5 * time.Second
+	defaultMinPollDelay       = 5 * time.Second
 	defaultErrorBackoffFactor = 2.0
 	defaultMaxErrorPollDelay  = 5 * time.Minute
 	defaultErrorJitterFactor  = 0.2

@@ -39,7 +39,7 @@ func NewEngine(
 ) *Engine {
 	var startupDelay time.Duration
 	if statusJitterMax > 0 {
-		startupDelay = time.Duration(rand.Int64N(int64(statusJitterMax)))
+		startupDelay = time.Duration(rand.Int64N(int64(statusJitterMax))) //nolint:gosec // G404: status-push jitter
 	}
 	return &Engine{
 		syncSpecFn:         syncSpecFn,

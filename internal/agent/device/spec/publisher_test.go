@@ -157,7 +157,7 @@ func TestDevicePublisher_pollAndNotify(t *testing.T) {
 		v := setup(tt)
 		defer v.finish()
 		v.mockClient.EXPECT().GetRenderedDevice(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, http.StatusServiceUnavailable, specErr)
-		v.notifier.pollAndPublish(v.ctx)
+		_ = v.notifier.pollAndPublish(v.ctx)
 		_, popped, err := v.watcher.TryPop()
 		require.NoError(t, err)
 		require.False(t, popped)
@@ -166,7 +166,7 @@ func TestDevicePublisher_pollAndNotify(t *testing.T) {
 		v := setup(tt)
 		defer v.finish()
 		v.mockClient.EXPECT().GetRenderedDevice(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, http.StatusNoContent, nil)
-		v.notifier.pollAndPublish(v.ctx)
+		require.NoError(tt, v.notifier.pollAndPublish(v.ctx))
 		_, popped, err := v.watcher.TryPop()
 		require.NoError(t, err)
 		require.False(t, popped)
@@ -176,7 +176,7 @@ func TestDevicePublisher_pollAndNotify(t *testing.T) {
 		defer v.finish()
 		renderedDesiredSpec := createTestRenderedDevice("flightctl-device:v2")
 		v.mockClient.EXPECT().GetRenderedDevice(gomock.Any(), gomock.Any(), gomock.Any()).Return(renderedDesiredSpec, 200, nil)
-		v.notifier.pollAndPublish(v.ctx)
+		require.NoError(tt, v.notifier.pollAndPublish(v.ctx))
 		result, popped, err := v.watcher.TryPop()
 		require.NoError(t, err)
 		require.True(t, popped)
@@ -305,7 +305,7 @@ func TestDevicePublisher_DeviceNotFoundHandling(t *testing.T) {
 			v.mockClient.EXPECT().GetRenderedDevice(gomock.Any(), v.deviceName, gomock.Any()).Return(nil, http.StatusNotFound, tt.mockReturnError)
 
 			// Call pollAndPublish
-			publisher.pollAndPublish(v.ctx)
+			_ = publisher.pollAndPublish(v.ctx)
 
 			// Verify the handler behavior
 			v.assertions.Equal(tt.expectedHandlerCalled, handlerCalled, tt.description)
@@ -339,7 +339,7 @@ func TestDevicePublisher_ConflictPausedCallback(t *testing.T) {
 
 		invalidator := &fakeLastStatusInvalidator{}
 		v.notifier.SetOnConflictPausedInvalidator(invalidator)
-		v.notifier.pollAndPublish(v.ctx)
+		require.NoError(tt, v.notifier.pollAndPublish(v.ctx))
 
 		v.assertions.True(invalidator.invalidated, "InvalidateLastStatus should be called when device has ConflictPaused annotation")
 	})
@@ -353,7 +353,7 @@ func TestDevicePublisher_ConflictPausedCallback(t *testing.T) {
 
 		invalidator := &fakeLastStatusInvalidator{}
 		v.notifier.SetOnConflictPausedInvalidator(invalidator)
-		v.notifier.pollAndPublish(v.ctx)
+		require.NoError(tt, v.notifier.pollAndPublish(v.ctx))
 
 		v.assertions.False(invalidator.invalidated, "InvalidateLastStatus should not be called when device has no ConflictPaused annotation")
 	})
@@ -473,7 +473,7 @@ func TestVersionComparison(t *testing.T) {
 			initialVersion := v.notifier.lastKnownVersion
 
 			// Call pollAndPublish
-			v.notifier.pollAndPublish(v.ctx)
+			require.NoError(t, v.notifier.pollAndPublish(v.ctx))
 
 			// Check if the version was updated
 			if tt.expectedUpdate {
@@ -501,7 +501,7 @@ func TestVersionComparisonWithRealAPI(t *testing.T) {
 		v.mockClient.EXPECT().GetRenderedDevice(gomock.Any(), v.deviceName, gomock.Any()).Return(newDevice, http.StatusOK, nil)
 
 		// Call pollAndPublish
-		v.notifier.pollAndPublish(v.ctx)
+		require.NoError(t, v.notifier.pollAndPublish(v.ctx))
 
 		// Verify version was updated
 		v.assertions.Equal("7", v.notifier.lastKnownVersion)
@@ -522,7 +522,7 @@ func TestVersionComparisonWithRealAPI(t *testing.T) {
 		v.mockClient.EXPECT().GetRenderedDevice(gomock.Any(), v.deviceName, gomock.Any()).Return(newDevice, http.StatusOK, nil)
 
 		// Call pollAndPublish
-		v.notifier.pollAndPublish(v.ctx)
+		require.NoError(t, v.notifier.pollAndPublish(v.ctx))
 
 		// Verify version was NOT updated
 		v.assertions.Equal("10", v.notifier.lastKnownVersion)
