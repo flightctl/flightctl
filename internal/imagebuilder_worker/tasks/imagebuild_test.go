@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	api "github.com/flightctl/flightctl/api/imagebuilder/v1alpha1"
 	"github.com/flightctl/flightctl/internal/crypto"
+	coredomain "github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -489,4 +490,88 @@ func TestInstallCACertInWorker_ValidBase64FailsWithoutContainer(t *testing.T) {
 	err := installCACertInWorker(context.Background(), &encoded, "nonexistent-container", "registry.example.com", log.InitLogs())
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "failed to create cert dir in container")
+}
+
+func TestBuildLoginArgs(t *testing.T) {
+	httpScheme := coredomain.OciRepoSchemeHttp
+	skipVerify := true
+
+	tests := []struct {
+		name          string
+		containerName string
+		username      string
+		registry      string
+		ociSpec       *coredomain.OciRepoSpec
+		wantContains  []string
+		wantAbsent    []string
+	}{
+		{
+			name:          "When HTTPS registry it omits tls-verify flag",
+			containerName: "worker-container",
+			username:      "user1",
+			registry:      "registry.example.com",
+			ociSpec:       &coredomain.OciRepoSpec{},
+			wantContains:  []string{"exec", "-i", "worker-container", "podman", "login", "--authfile", containerAuthFile, "-u", "user1", "--password-stdin", "registry.example.com"},
+			wantAbsent:    []string{"--tls-verify=false"},
+		},
+		{
+			name:          "When HTTP registry it includes tls-verify=false",
+			containerName: "worker-container",
+			username:      "user1",
+			registry:      "registry.example.com",
+			ociSpec:       &coredomain.OciRepoSpec{Scheme: &httpScheme},
+			wantContains:  []string{"--tls-verify=false", "registry.example.com"},
+			wantAbsent:    nil,
+		},
+		{
+			name:          "When SkipServerVerification it includes tls-verify=false",
+			containerName: "worker-container",
+			username:      "user1",
+			registry:      "registry.example.com",
+			ociSpec:       &coredomain.OciRepoSpec{SkipServerVerification: &skipVerify},
+			wantContains:  []string{"--tls-verify=false", "registry.example.com"},
+			wantAbsent:    nil,
+		},
+		{
+			name:          "When nil ociSpec it omits tls-verify flag",
+			containerName: "worker-container",
+			username:      "user1",
+			registry:      "registry.example.com",
+			ociSpec:       nil,
+			wantContains:  []string{"exec", "-i", "worker-container", "registry.example.com"},
+			wantAbsent:    []string{"--tls-verify=false"},
+		},
+		{
+			name:          "When registry ends up last in args",
+			containerName: "c1",
+			username:      "admin",
+			registry:      "quay.io",
+			ociSpec:       &coredomain.OciRepoSpec{},
+			wantContains:  []string{"quay.io"},
+			wantAbsent:    nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			args := buildLoginArgs(tc.containerName, tc.username, tc.registry, tc.ociSpec)
+
+			for _, want := range tc.wantContains {
+				require.Contains(t, args, want)
+			}
+			for _, absent := range tc.wantAbsent {
+				require.NotContains(t, args, absent)
+			}
+
+			// Registry hostname must always be the last argument.
+			require.Equal(t, tc.registry, args[len(args)-1])
+		})
+	}
+}
+
+func TestAuthFileEnv(t *testing.T) {
+	env := authFileEnv()
+	require.Equal(t, containerAuthFile, env["REGISTRY_AUTH_FILE"],
+		"build and push execs must set REGISTRY_AUTH_FILE to the shared auth file path")
+	require.Len(t, env, 1, "authFileEnv should contain exactly one key")
 }
