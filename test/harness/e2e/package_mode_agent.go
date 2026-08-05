@@ -27,6 +27,13 @@ const (
 	PackageModeFlightctlUser      = "flightctl"
 	packageModeRegistriesConfPath = "/etc/containers/registries.conf.d/flightctl-e2e.conf"
 	packageModeRegistryCAPath     = "/etc/pki/ca-trust/source/anchors/flightctl-e2e-registry.crt"
+
+	nestedPodmanStorageConf = `[storage]
+driver = "overlay"
+
+[storage.options.overlay]
+mount_program = "/usr/bin/fuse-overlayfs"
+`
 )
 
 func GetPackageModeAgentImage() string {
@@ -54,6 +61,11 @@ func StartPackageModeAgent(ctx context.Context, agentConfigDir, registryHost, re
 	}
 
 	files := []testcontainers.ContainerFile{
+		{
+			ContainerFilePath: "/etc/containers/storage.conf",
+			FileMode:          0644,
+			Reader:            strings.NewReader(nestedPodmanStorageConf),
+		},
 		{HostFilePath: agentConfigPath, ContainerFilePath: "/etc/flightctl/config.yaml", FileMode: 0644},
 	}
 	caPath := filepath.Join(testutil.GetTopLevelDir(), "bin", "e2e-certs", "pki", "CA", "ca.crt")
@@ -140,6 +152,9 @@ func StartPackageModeAgent(ctx context.Context, agentConfigDir, registryHost, re
 }
 
 func (a *PackageModeAgent) setupContainerEnvironment(ctx context.Context, registryHost, registryPort string) error {
+	if err := a.execOK(ctx, "mount --make-rshared /"); err != nil {
+		return fmt.Errorf("make root mount shared: %w", err)
+	}
 	if err := a.setupFlightctlUser(ctx); err != nil {
 		return fmt.Errorf("setup flightctl user: %w", err)
 	}

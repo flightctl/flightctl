@@ -6,6 +6,10 @@ ARG BASE_IMAGE=quay.io/flightctl/flightctl-device:base
 
 FROM ${BASE_IMAGE}
 
+RUN --mount=type=cache,target=/var/cache/dnf \
+    --mount=type=cache,target=/var/lib/dnf \
+    dnf install -y fuse-overlayfs
+
 RUN if [ ! -e /usr/bin/bootc ]; then \
       echo "bootc binary required at /usr/bin/bootc to build package variant" >&2; \
       exit 1; \
