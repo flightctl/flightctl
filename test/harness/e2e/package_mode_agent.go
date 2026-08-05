@@ -185,7 +185,6 @@ func (a *PackageModeAgent) setupFlightctlUser(ctx context.Context) error {
 		"grep -q '^flightctl:' /etc/subuid || echo 'flightctl:100000:65536' >> /etc/subuid",
 		"grep -q '^flightctl:' /etc/subgid || echo 'flightctl:100000:65536' >> /etc/subgid",
 		"uid=$(id -u flightctl) && mkdir -p /run/user/$uid && chown flightctl:flightctl /run/user/$uid && chmod 700 /run/user/$uid",
-		"systemctl start user@$(id -u flightctl).service",
 		"mkdir -p /home/flightctl/.config/containers/systemd",
 		"mkdir -p /home/flightctl/.config/systemd/user",
 		"mkdir -p /home/flightctl/.local",
