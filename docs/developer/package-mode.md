@@ -26,9 +26,9 @@ Image-mode installs use the default weak-dependency behavior and pull in
 ## Package-mode e2e
 
 Package-mode e2e uses a `cs9-regular` **OCI** agent image and a dedicated
-Ginkgo suite under [`test/e2e/package_mode`](../../test/e2e/package_mode).
-Tests run the agent in a **testcontainer** (systemd as init, nested Podman
-for apps), not a package-mode QCOW2 VM.
+Ginkgo suite under `test/e2e/package_mode`. Tests run the agent in a
+**testcontainer** (systemd as init, nested Podman for apps), not a
+package-mode QCOW2 VM.
 
 ### Build the cs9-regular image
 
@@ -63,9 +63,9 @@ Prerequisites:
 * The `cs9-regular` OCI image loaded locally (from the build or CI bundle)
 
 The harness helper `StartPackageModeAgent` (in
-[`test/harness/e2e/package_mode_agent.go`](../../test/harness/e2e/package_mode_agent.go))
-starts a privileged testcontainer with `/sbin/init`, mounts agent config and
-certs, and waits for `flightctl-agent` to become active.
+`test/harness/e2e/package_mode_agent.go`) starts a privileged testcontainer
+with `/sbin/init`, mounts agent config and certs, and waits for
+`flightctl-agent` to become active.
 
 ### What the suite covers
 
