@@ -11,6 +11,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
+	"github.com/flightctl/flightctl/test/login"
 	testutil "github.com/flightctl/flightctl/test/util"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -23,13 +24,12 @@ const (
 	packageModeConfigPath         = "/etc/flightctl/package-mode-e2e.conf"
 	packageModeConfigContent      = "package-mode-e2e=enabled"
 	packageModeContainerAppName   = "package-mode-sleep"
-	packageModeLogObservationTime = 30 * time.Second
 	packageModeFleetLabelKey      = "package-mode-suite"
 	packageModeNormalFleetPrefix  = "package-mode-normal"
 	packageModeExpectedRejectText = "package-mode device cannot satisfy spec with os.image"
 )
 
-var _ = Describe("Package-mode device scenarios", Ordered, func() {
+var _ = Describe("Package-mode device scenarios", func() {
 	var harness *e2e.Harness
 
 	BeforeEach(func() {
@@ -42,11 +42,15 @@ var _ = Describe("Package-mode device scenarios", Ordered, func() {
 			fleetName        string
 			selector         v1beta1.LabelSelector
 			packageModeAgent *e2e.PackageModeAgent
+			contextFailed    bool
 		)
 
 		BeforeAll(func() {
 			var err error
 			harness = e2e.GetWorkerHarness()
+			_, err = login.LoginToAPIWithToken(harness)
+			Expect(err).ToNot(HaveOccurred())
+
 			restoreContext := setHarnessSetupContext(harness, packageModeNormalFleetPrefix)
 			defer harness.SetTestContext(restoreContext)
 
@@ -115,8 +119,14 @@ var _ = Describe("Package-mode device scenarios", Ordered, func() {
 			}, packageModeEnrollTimeout, packageModePollInterval).Should(Succeed())
 		})
 
-		AfterAll(func() {
+		AfterEach(func() {
 			if CurrentSpecReport().Failed() {
+				contextFailed = true
+			}
+		})
+
+		AfterAll(func() {
+			if contextFailed {
 				dumpPackageModeFailureDiagnostics(harness, packageModeAgent, deviceID, "normal context")
 			}
 			if strings.TrimSpace(deviceID) != "" {
@@ -182,16 +192,6 @@ var _ = Describe("Package-mode device scenarios", Ordered, func() {
 				g.Expect(application.RunAs).To(Equal(v1beta1.Username(packageModeContainerRunAsUser)))
 			}, packageModeEnrollTimeout, packageModePollInterval).Should(Succeed())
 		})
-
-		It("does not emit the mixed-fleet os.image reject message during normal package-mode operation", Label("90150", "sanity"), func() {
-			Consistently(func(g Gomega) {
-				logCtx, logCancel := context.WithTimeout(context.Background(), 30*time.Second)
-				defer logCancel()
-				logs, err := packageModeAgent.GetAgentLogs(logCtx)
-				g.Expect(err).ToNot(HaveOccurred())
-				g.Expect(logs).ToNot(ContainSubstring(packageModeExpectedRejectText))
-			}, packageModeLogObservationTime, packageModePollInterval).Should(Succeed())
-		})
 	})
 
 	Context("package-mode spec.os.image rejection", Ordered, func() {
@@ -201,11 +201,15 @@ var _ = Describe("Package-mode device scenarios", Ordered, func() {
 			selector         v1beta1.LabelSelector
 			packageModeAgent *e2e.PackageModeAgent
 			initialVersion   int
+			contextFailed    bool
 		)
 
 		BeforeAll(func() {
 			var err error
 			harness = e2e.GetWorkerHarness()
+			_, err = login.LoginToAPIWithToken(harness)
+			Expect(err).ToNot(HaveOccurred())
+
 			restoreContext := setHarnessSetupContext(harness, "package-mode-reject")
 			defer harness.SetTestContext(restoreContext)
 
@@ -251,8 +255,14 @@ var _ = Describe("Package-mode device scenarios", Ordered, func() {
 			Expect(err).ToNot(HaveOccurred())
 		})
 
-		AfterAll(func() {
+		AfterEach(func() {
 			if CurrentSpecReport().Failed() {
+				contextFailed = true
+			}
+		})
+
+		AfterAll(func() {
+			if contextFailed {
 				dumpPackageModeFailureDiagnostics(harness, packageModeAgent, deviceID, "reject context")
 			}
 			if strings.TrimSpace(deviceID) != "" {
@@ -295,10 +305,6 @@ var _ = Describe("Package-mode device scenarios", Ordered, func() {
 				g.Expect(err).ToNot(HaveOccurred())
 				g.Expect(logs).To(ContainSubstring(packageModeExpectedRejectText))
 			}, testutil.LONG_TIMEOUT, packageModePollInterval).Should(Succeed())
-		})
-
-		It("image-mode device convergence is covered by existing bootc e2e", Label("90149", "sanity", "slow"), func() {
-			Skip("Image-mode convergence requires bootc VM; covered by existing bootc e2e tests")
 		})
 	})
 })

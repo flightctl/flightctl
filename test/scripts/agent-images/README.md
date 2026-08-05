@@ -26,7 +26,7 @@ AGENT_OS_ID=cs10-bootc make e2e-agent-images
 The script is a wrapper that delegates to the modular build system:
 1. **Base image**: Built using `scripts/build.sh --base`
 2. **Bootc path**: `scripts/build_and_qcow2.sh` builds variants and a bootc qcow2
-3. **Package-mode path**: `BUILD_TYPE=regular AGENT_OS_ID=cs9-regular` builds the package-mode base OCI image (qcow2 is optional via `SKIP_QCOW_BUILD=true`)
+3. **Package-mode path**: `BUILD_TYPE=regular AGENT_OS_ID=cs9-regular` builds the package-mode base OCI image only (`SKIP_QCOW_BUILD=true` by default; package-mode qcow2 is unsupported)
 
 The build process automatically handles different OS flavors (cs9-bootc, cs9-regular, cs10-bootc)
 and RPM source detection (local, COPR, or Brew registry).

@@ -75,9 +75,10 @@ func StartPackageModeAgent(ctx context.Context, agentConfigDir, registryHost, re
 		logrus.Warnf("e2e registry CA not found at %s; nested podman pulls may fail TLS verification", caPath)
 	}
 
+	containerName := fmt.Sprintf("%s-%d-%d", PackageModeAgentContainerName, os.Getpid(), time.Now().UnixNano())
 	req := testcontainers.ContainerRequest{
 		Image:        GetPackageModeAgentImage(),
-		Name:         PackageModeAgentContainerName,
+		Name:         containerName,
 		ExposedPorts: []string{"22/tcp"},
 		Privileged:   true,
 		Cmd:          []string{"/sbin/init"},
@@ -96,7 +97,6 @@ func StartPackageModeAgent(ctx context.Context, agentConfigDir, registryHost, re
 				hc.ExtraHosts = append(hc.ExtraHosts, "host.containers.internal:host-gateway")
 			}
 		},
-		WaitingFor: wait.ForListeningPort("22/tcp").WithStartupTimeout(120 * time.Second),
 	}
 
 	if network != "" && network != "host" {
@@ -104,6 +104,11 @@ func StartPackageModeAgent(ctx context.Context, agentConfigDir, registryHost, re
 	}
 	if network == "host" {
 		req.NetworkMode = "host"
+		// Host network has no published port mapping; ForListeningPort uses MappedPort.
+		req.WaitingFor = wait.ForExec([]string{"sh", "-c", "ss -ltn | grep -q ':22 '"}).
+			WithStartupTimeout(120 * time.Second)
+	} else {
+		req.WaitingFor = wait.ForListeningPort("22/tcp").WithStartupTimeout(120 * time.Second)
 	}
 
 	c, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
@@ -221,8 +226,8 @@ func (a *PackageModeAgent) execOK(ctx context.Context, cmd string) error {
 	if err != nil {
 		return fmt.Errorf("exec %q: %w", cmd, err)
 	}
+	out, _ := io.ReadAll(reader)
 	if exitCode != 0 {
-		out, _ := io.ReadAll(reader)
 		return fmt.Errorf("exec %q: exit code %d: %s", cmd, exitCode, string(out))
 	}
 	return nil

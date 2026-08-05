@@ -26,6 +26,7 @@ RUN --mount=type=cache,target=/var/cache/dnf \
       openssh-server \
       podman \
       podman-compose \
+      skopeo \
       sudo && \
     systemctl enable firewalld.service && \
     systemctl enable podman.service && \

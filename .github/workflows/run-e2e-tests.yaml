@@ -137,8 +137,12 @@ jobs:
           mv "test-artifacts/agent-images-bundle-${OS_ID}.tar" bin/agent-artifacts/
           echo "Agent bundle: bin/agent-artifacts/agent-images-bundle-${OS_ID}.tar"
 
-          # Stage cs9-regular bundle for package-mode testcontainers if available
-          if [ -d "test-artifacts-cs9-regular" ] && [ -f "test-artifacts-cs9-regular/agent-images-bundle-cs9-regular.tar" ]; then
+          # Stage cs9-regular bundle for package-mode testcontainers (required on cs9-bootc)
+          if [ "${OS_ID}" = "cs9-bootc" ]; then
+            if [ ! -f "test-artifacts-cs9-regular/agent-images-bundle-cs9-regular.tar" ]; then
+              echo "ERROR: cs9-regular agent bundle not found (required for package-mode e2e)"
+              exit 1
+            fi
             mv "test-artifacts-cs9-regular/agent-images-bundle-cs9-regular.tar" bin/agent-artifacts/
             echo "✓ Package-mode image bundle: bin/agent-artifacts/agent-images-bundle-cs9-regular.tar"
             rm -rf test-artifacts-cs9-regular
@@ -165,21 +169,21 @@ jobs:
         run: |
           set -euo pipefail
           BUNDLE="bin/agent-artifacts/agent-images-bundle-cs9-regular.tar"
-          if [ -f "${BUNDLE}" ]; then
-            echo "Loading cs9-regular images for package-mode testcontainers..."
-            # testcontainers-go uses Docker (not Podman) on GHA runners because
-            # /var/run/docker.sock exists; load into the matching runtime.
-            if [ -S /var/run/docker.sock ]; then
-              docker load -i "${BUNDLE}"
-              docker images | grep cs9-regular || true
-            else
-              podman load -i "${BUNDLE}"
-              podman images | grep cs9-regular || true
-            fi
-            echo "✓ cs9-regular images loaded"
-          else
-            echo "::warning::No cs9-regular bundle found; package-mode tests will use whatever image is available"
+          if [ ! -f "${BUNDLE}" ]; then
+            echo "ERROR: No cs9-regular bundle found at ${BUNDLE}"
+            exit 1
           fi
+          echo "Loading cs9-regular images for package-mode testcontainers..."
+          # testcontainers-go uses Docker (not Podman) on GHA runners because
+          # /var/run/docker.sock exists; load into the matching runtime.
+          if [ -S /var/run/docker.sock ]; then
+            docker load -i "${BUNDLE}"
+            docker images | grep cs9-regular || true
+          else
+            podman load -i "${BUNDLE}"
+            podman images | grep cs9-regular || true
+          fi
+          echo "✓ cs9-regular images loaded"
 
       # ========== PREP E2E ENV ==========
       - name: Wait for API readiness
