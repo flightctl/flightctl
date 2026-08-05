@@ -14,10 +14,12 @@ import (
 	"time"
 
 	config_latest_types "github.com/coreos/ignition/v2/config/v3_4/types"
+	v1alpha1 "github.com/flightctl/flightctl/api/core/v1alpha1"
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
@@ -161,7 +163,7 @@ func newFleetOwnedLogic(
 	event domain.Event,
 	fleet, templateVersion string,
 ) DeviceRenderLogic {
-	l := NewDeviceRenderLogic(logrus.New(), nil, repositorySvc, k8s, kv, &config.Config{}, orgId, event)
+	l := NewDeviceRenderLogic(logrus.New(), nil, repositorySvc, nil, k8s, kv, &config.Config{}, orgId, event)
 	l.ownerFleet = &fleet
 	l.templateVersion = &templateVersion
 	return l
@@ -669,10 +671,10 @@ func makeContainerApp(t *testing.T, name string, desiredState *domain.Applicatio
 	containerApp := domain.ContainerApplication{
 		AppType:           domain.AppTypeContainer,
 		Name:              lo.ToPtr(name),
-		Image:             "quay.io/test/app:v1",
 		DesiredState:      desiredState,
 		RestartGeneration: restartGeneration,
 	}
+	require.NoError(t, containerApp.FromImageApplicationProviderSpec(domain.ImageApplicationProviderSpec{Image: "quay.io/test/app:v1"}))
 	var app domain.ApplicationProviderSpec
 	require.NoError(t, app.FromContainerApplication(containerApp))
 	return app
@@ -682,7 +684,7 @@ func TestRenderApplication_PreservesLifecycleFields(t *testing.T) {
 	t.Run("When rendering a container application it should preserve lifecycle fields", func(t *testing.T) {
 		app := makeContainerApp(t, "my-app", lo.ToPtr(domain.ApplicationDesiredStateStopped), lo.ToPtr(2))
 
-		name, rendered, err := renderApplication(context.Background(), &app, nil, DefaultVmRenderOptions(), nil)
+		name, rendered, err := renderApplication(context.Background(), &app, nil, DefaultVmRenderOptions(), nil, uuid.New(), nil)
 		require.NoError(t, err)
 		require.NotNil(t, name)
 		assert.Equal(t, "my-app", *name)
@@ -742,7 +744,7 @@ func TestRenderDevice_PermanentError(t *testing.T) {
 	mockSvc.EXPECT().UpdateServerSideDeviceStatus(gomock.Any(), orgId, deviceName).Return(nil)
 
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonFleetRolloutDeviceSelected, deviceName)
-	logic := NewDeviceRenderLogic(logrus.New(), mockSvc, nil, nil, newTestKVStore(), &config.Config{}, orgId, event)
+	logic := NewDeviceRenderLogic(logrus.New(), mockSvc, nil, nil, nil, newTestKVStore(), &config.Config{}, orgId, event)
 
 	err := logic.RenderDevice(context.Background())
 	require.Error(t, err)
@@ -782,7 +784,7 @@ func TestRenderDevice_RetryableError(t *testing.T) {
 	mockK8S.EXPECT().GetSecret(gomock.Any(), namespace, secretName).Return(nil, fmt.Errorf("connection to apiserver: %w", io.EOF))
 
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
-	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, mockK8S, newTestKVStore(), &config.Config{}, orgId, event)
+	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, nil, mockK8S, newTestKVStore(), &config.Config{}, orgId, event)
 
 	err := logic.RenderDevice(context.Background())
 	require.Error(t, err)
@@ -822,7 +824,7 @@ func TestRenderDevice_PermanentError_StandaloneDevice(t *testing.T) {
 	mockSvc.EXPECT().UpdateServerSideDeviceStatus(gomock.Any(), orgId, deviceName).Return(nil)
 
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
-	logic := NewDeviceRenderLogic(logrus.New(), mockSvc, nil, nil, newTestKVStore(), &config.Config{}, orgId, event)
+	logic := NewDeviceRenderLogic(logrus.New(), mockSvc, nil, nil, nil, newTestKVStore(), &config.Config{}, orgId, event)
 
 	err := logic.RenderDevice(context.Background())
 	require.Error(t, err)
@@ -871,7 +873,7 @@ func TestRenderDevice_ExternalError_FleetOwned_NoAnnotations(t *testing.T) {
 	mockSvc.EXPECT().UpdateServerSideDeviceStatus(gomock.Any(), orgId, deviceName).Return(nil)
 
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonFleetRolloutDeviceSelected, deviceName)
-	logic := NewDeviceRenderLogic(logrus.New(), mockSvc, nil, nil, newTestKVStore(), &config.Config{}, orgId, event)
+	logic := NewDeviceRenderLogic(logrus.New(), mockSvc, nil, nil, nil, newTestKVStore(), &config.Config{}, orgId, event)
 
 	err := logic.RenderDevice(context.Background())
 	require.Error(t, err)
@@ -911,7 +913,7 @@ func TestRenderDevice_PermanentAppError(t *testing.T) {
 	mockSvc.EXPECT().UpdateServerSideDeviceStatus(gomock.Any(), orgId, deviceName).Return(nil)
 
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
-	logic := NewDeviceRenderLogic(logrus.New(), mockSvc, nil, nil, newTestKVStore(), &config.Config{}, orgId, event)
+	logic := NewDeviceRenderLogic(logrus.New(), mockSvc, nil, nil, nil, newTestKVStore(), &config.Config{}, orgId, event)
 
 	err := logic.RenderDevice(context.Background())
 	require.Error(t, err)
@@ -935,4 +937,449 @@ func makeK8sSecretConfigItem(configName, namespace, name, mountPath string) doma
 		},
 	})
 	return item
+}
+
+// makeCatalogItem builds a CatalogItem with a single container artifact and one version.
+func makeCatalogItem(catalogItemType v1alpha1.CatalogItemType, uri, version, containerRef string) *v1alpha1.CatalogItem {
+	return &v1alpha1.CatalogItem{
+		Spec: v1alpha1.CatalogItemSpec{
+			Type: catalogItemType,
+			Artifacts: []v1alpha1.CatalogItemArtifact{
+				{Type: v1alpha1.CatalogItemArtifactTypeContainer, Uri: uri},
+			},
+			Versions: []v1alpha1.CatalogItemVersion{
+				{
+					Version:    version,
+					References: map[v1alpha1.CatalogItemArtifactType]string{v1alpha1.CatalogItemArtifactTypeContainer: containerRef},
+					Channels:   []string{"stable"},
+				},
+			},
+		},
+	}
+}
+
+// makeDeviceWithCatalogRef builds a standalone device whose OS spec uses a catalog item ref.
+func makeDeviceWithCatalogRef(name, catalog, item, version string) *domain.Device {
+	return &domain.Device{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+		Spec: &domain.DeviceSpec{
+			Os: &domain.DeviceOsSpec{
+				CatalogItemRef: &api.CatalogItemRefSpec{
+					Catalog: catalog,
+					Item:    item,
+					Version: version,
+				},
+			},
+		},
+	}
+}
+
+// TestRenderDevice_CatalogItemRef_ResolvesOsImage verifies that RenderDevice
+// resolves a catalog item ref into the correct OS image and passes it to
+// UpdateRenderedDevice.
+func TestRenderDevice_CatalogItemRef_ResolvesOsImage(t *testing.T) {
+	const (
+		deviceName   = "device-with-catalog-ref"
+		catalogName  = "my-catalog"
+		itemName     = "rhel-edge"
+		version      = "9.4.0"
+		containerRef = "v9.4.0"
+		artifactUri  = "quay.io/redhat/rhel-edge"
+	)
+
+	orgId := uuid.New()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	device := makeDeviceWithCatalogRef(deviceName, catalogName, itemName, version)
+	catalogItem := makeCatalogItem(v1alpha1.CatalogItemTypeOS, artifactUri, version, containerRef)
+
+	mockDeviceSvc := deviceservice.NewMockService(ctrl)
+	mockCatalogSvc := catalogservice.NewMockService(ctrl)
+	mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, statusOK)
+	mockDeviceSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK)
+	mockCatalogSvc.EXPECT().GetCatalogItem(gomock.Any(), orgId, catalogName, itemName).Return(catalogItem, statusOK)
+
+	expectedOsImage := artifactUri + ":" + containerRef
+	mockDeviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), expectedOsImage, gomock.Any(), gomock.Any()).Return(statusOK)
+
+	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
+	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, mockCatalogSvc, nil, newTestKVStore(), &config.Config{}, orgId, event)
+
+	err := logic.RenderDevice(context.Background())
+	require.NoError(t, err)
+}
+
+// TestRenderDevice_NoCatalogItemRef_PassesPlainOsImage verifies that when the
+// device has a plain OS image (no catalog item ref), the image value is passed
+// through to UpdateRenderedDevice as-is.
+func TestRenderDevice_NoCatalogItemRef_PassesPlainOsImage(t *testing.T) {
+	const (
+		deviceName = "device-plain-os"
+		plainImage = "quay.io/org/image:v1.0"
+	)
+
+	orgId := uuid.New()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	device := &domain.Device{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr(deviceName)},
+		Spec: &domain.DeviceSpec{
+			Os: &domain.DeviceOsSpec{
+				Image: plainImage,
+			},
+		},
+	}
+
+	mockDeviceSvc := deviceservice.NewMockService(ctrl)
+	mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, statusOK)
+	mockDeviceSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK)
+
+	mockDeviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), plainImage, gomock.Any(), gomock.Any()).Return(statusOK)
+
+	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
+	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, nil, nil, newTestKVStore(), &config.Config{}, orgId, event)
+
+	err := logic.RenderDevice(context.Background())
+	require.NoError(t, err)
+}
+
+// TestRenderDevice_CatalogRefAndPlainImage_ResolveIndependently verifies that
+// a catalog-item-ref OS spec resolves to the catalog artifact image and a
+// plain-image OS spec passes the image through directly. Each render uses a
+// fresh DeviceRenderLogic so no persisted state carries between them.
+func TestRenderDevice_CatalogRefAndPlainImage_ResolveIndependently(t *testing.T) {
+	const (
+		deviceName   = "device-catalog-to-plain"
+		catalogName  = "my-catalog"
+		itemName     = "rhel-edge"
+		version      = "9.4.0"
+		containerRef = "v9.4.0"
+		artifactUri  = "quay.io/redhat/rhel-edge"
+		plainImage   = "quay.io/org/new-os:v2.0"
+	)
+
+	orgId := uuid.New()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Catalog-ref spec: resolves to the catalog artifact image.
+	catalogDevice := makeDeviceWithCatalogRef(deviceName, catalogName, itemName, version)
+	catalogItem := makeCatalogItem(v1alpha1.CatalogItemTypeOS, artifactUri, version, containerRef)
+
+	mockDeviceSvc := deviceservice.NewMockService(ctrl)
+	mockCatalogSvc := catalogservice.NewMockService(ctrl)
+
+	expectedCatalogOsImage := artifactUri + ":" + containerRef
+	gomock.InOrder(
+		mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(catalogDevice, statusOK),
+		mockDeviceSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK),
+		mockCatalogSvc.EXPECT().GetCatalogItem(gomock.Any(), orgId, catalogName, itemName).Return(catalogItem, statusOK),
+		mockDeviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), expectedCatalogOsImage, gomock.Any(), gomock.Any()).Return(statusOK),
+	)
+
+	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
+	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, mockCatalogSvc, nil, newTestKVStore(), &config.Config{}, orgId, event)
+	require.NoError(t, logic.RenderDevice(context.Background()))
+
+	// Plain-image spec: passes the image through directly.
+	plainDevice := &domain.Device{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr(deviceName)},
+		Spec: &domain.DeviceSpec{
+			Os: &domain.DeviceOsSpec{
+				Image: plainImage,
+			},
+		},
+	}
+
+	gomock.InOrder(
+		mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(plainDevice, statusOK),
+		mockDeviceSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK),
+		mockDeviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), plainImage, gomock.Any(), gomock.Any()).Return(statusOK),
+	)
+
+	event2 := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
+	logic2 := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, mockCatalogSvc, nil, newTestKVStore(), &config.Config{}, orgId, event2)
+	require.NoError(t, logic2.RenderDevice(context.Background()))
+}
+
+// TestRenderDevice_CatalogItemRef_WrongType verifies that a catalog item ref
+// pointing to a non-OS catalog item produces an error.
+func TestRenderDevice_CatalogItemRef_WrongType(t *testing.T) {
+	const (
+		deviceName  = "device-wrong-type"
+		catalogName = "my-catalog"
+		itemName    = "my-app"
+		version     = "1.0.0"
+	)
+
+	orgId := uuid.New()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	device := makeDeviceWithCatalogRef(deviceName, catalogName, itemName, version)
+	catalogItem := makeCatalogItem(v1alpha1.CatalogItemTypeContainer, "quay.io/app", version, "v1.0.0")
+
+	mockDeviceSvc := deviceservice.NewMockService(ctrl)
+	mockCatalogSvc := catalogservice.NewMockService(ctrl)
+	mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, statusOK)
+	mockDeviceSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK)
+	mockCatalogSvc.EXPECT().GetCatalogItem(gomock.Any(), orgId, catalogName, itemName).Return(catalogItem, statusOK)
+	mockDeviceSvc.EXPECT().SetDeviceServiceConditions(gomock.Any(), orgId, deviceName, gomock.Any()).Return(statusOK)
+	mockDeviceSvc.EXPECT().UpdateServerSideDeviceStatus(gomock.Any(), orgId, deviceName).Return(nil)
+
+	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
+	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, mockCatalogSvc, nil, newTestKVStore(), &config.Config{}, orgId, event)
+
+	err := logic.RenderDevice(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot use catalog item of type")
+}
+
+// TestRenderDevice_CatalogItemRef_UnknownVersion verifies that referencing a
+// version that does not exist in the catalog item produces an error.
+func TestRenderDevice_CatalogItemRef_UnknownVersion(t *testing.T) {
+	const (
+		deviceName  = "device-unknown-version"
+		catalogName = "my-catalog"
+		itemName    = "rhel-edge"
+	)
+
+	orgId := uuid.New()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	device := makeDeviceWithCatalogRef(deviceName, catalogName, itemName, "99.0.0")
+	catalogItem := makeCatalogItem(v1alpha1.CatalogItemTypeOS, "quay.io/redhat/rhel-edge", "9.4.0", "v9.4.0")
+
+	mockDeviceSvc := deviceservice.NewMockService(ctrl)
+	mockCatalogSvc := catalogservice.NewMockService(ctrl)
+	mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, statusOK)
+	mockDeviceSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK)
+	mockCatalogSvc.EXPECT().GetCatalogItem(gomock.Any(), orgId, catalogName, itemName).Return(catalogItem, statusOK)
+	mockDeviceSvc.EXPECT().SetDeviceServiceConditions(gomock.Any(), orgId, deviceName, gomock.Any()).Return(statusOK)
+	mockDeviceSvc.EXPECT().UpdateServerSideDeviceStatus(gomock.Any(), orgId, deviceName).Return(nil)
+
+	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
+	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, mockCatalogSvc, nil, newTestKVStore(), &config.Config{}, orgId, event)
+
+	err := logic.RenderDevice(context.Background())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown version 99.0.0")
+}
+
+func makeComposeAppWithCatalogRefVolume(t *testing.T, appName, catalog, item, version string) domain.ApplicationProviderSpec {
+	t.Helper()
+	vol := makeCatalogRefImageVolume(t, "data-vol", catalog, item, version)
+	composeApp := domain.ComposeApplication{
+		AppType: domain.AppTypeCompose,
+		Name:    lo.ToPtr(appName),
+		Volumes: &[]domain.ApplicationVolume{vol},
+	}
+	require.NoError(t, composeApp.FromImageApplicationProviderSpec(domain.ImageApplicationProviderSpec{Image: "quay.io/test/compose-app:v1"}))
+	var app domain.ApplicationProviderSpec
+	require.NoError(t, app.FromComposeApplication(composeApp))
+	return app
+}
+
+func makeCatalogRefImageVolume(t *testing.T, name, catalog, item, version string) domain.ApplicationVolume {
+	t.Helper()
+	var vol domain.ApplicationVolume
+	vol.Name = name
+	require.NoError(t, vol.FromImageVolumeProviderSpec(domain.ImageVolumeProviderSpec{
+		Image: domain.ImageVolumeSource{
+			CatalogItemRef: &api.CatalogItemRefSpec{
+				Catalog: catalog,
+				Item:    item,
+				Version: version,
+			},
+			PullPolicy: lo.ToPtr(api.PullIfNotPresent),
+		},
+	}))
+	return vol
+}
+
+func TestRenderApplication_VolumeCatalogRef_ResolvesToImage(t *testing.T) {
+	t.Run("When a compose app volume has a catalog item ref it should resolve to the image reference", func(t *testing.T) {
+		const (
+			catalogName  = "data-catalog"
+			itemName     = "config-data"
+			version      = "2.0.0"
+			artifactUri  = "quay.io/data/config"
+			containerRef = "v2.0.0"
+		)
+
+		orgId := uuid.New()
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		app := makeComposeAppWithCatalogRefVolume(t, "my-compose-app", catalogName, itemName, version)
+		catalogItem := makeCatalogItem(v1alpha1.CatalogItemTypeData, artifactUri, version, containerRef)
+
+		mockCatalogSvc := catalogservice.NewMockService(ctrl)
+		mockCatalogSvc.EXPECT().GetCatalogItem(gomock.Any(), orgId, catalogName, itemName).Return(catalogItem, statusOK)
+
+		name, rendered, err := renderApplication(context.Background(), &app, nil, DefaultVmRenderOptions(), nil, orgId, mockCatalogSvc)
+		require.NoError(t, err)
+		require.NotNil(t, name)
+		assert.Equal(t, "my-compose-app", *name)
+		require.NotNil(t, rendered)
+
+		compose, err := rendered.AsComposeApplication()
+		require.NoError(t, err)
+		require.NotNil(t, compose.Volumes)
+		require.Len(t, *compose.Volumes, 1)
+
+		vol := (*compose.Volumes)[0]
+		imgProvider, err := vol.AsImageVolumeProviderSpec()
+		require.NoError(t, err)
+		assert.Equal(t, artifactUri+":"+containerRef, imgProvider.Image.Reference)
+		assert.Nil(t, imgProvider.Image.CatalogItemRef)
+	})
+}
+
+func TestRenderApplication_VolumePlainReference_PassesThrough(t *testing.T) {
+	t.Run("When a compose app volume has a plain reference it should pass through unchanged", func(t *testing.T) {
+		const imageRef = "quay.io/test/data:v1"
+
+		vol := domain.ApplicationVolume{}
+		vol.Name = "data-vol"
+		require.NoError(t, vol.FromImageVolumeProviderSpec(domain.ImageVolumeProviderSpec{
+			Image: domain.ImageVolumeSource{
+				Reference: imageRef,
+			},
+		}))
+
+		composeApp := domain.ComposeApplication{
+			AppType: domain.AppTypeCompose,
+			Name:    lo.ToPtr("my-app"),
+			Volumes: &[]domain.ApplicationVolume{vol},
+		}
+		require.NoError(t, composeApp.FromImageApplicationProviderSpec(domain.ImageApplicationProviderSpec{Image: "quay.io/test/app:v1"}))
+		var app domain.ApplicationProviderSpec
+		require.NoError(t, app.FromComposeApplication(composeApp))
+
+		name, rendered, err := renderApplication(context.Background(), &app, nil, DefaultVmRenderOptions(), nil, uuid.New(), nil)
+		require.NoError(t, err)
+		require.NotNil(t, name)
+		require.NotNil(t, rendered)
+
+		compose, err := rendered.AsComposeApplication()
+		require.NoError(t, err)
+		require.NotNil(t, compose.Volumes)
+		require.Len(t, *compose.Volumes, 1)
+
+		imgProvider, err := (*compose.Volumes)[0].AsImageVolumeProviderSpec()
+		require.NoError(t, err)
+		assert.Equal(t, imageRef, imgProvider.Image.Reference)
+	})
+}
+
+func TestRenderApplication_VolumeCatalogRef_WrongType(t *testing.T) {
+	t.Run("When a volume catalog item ref has wrong type it should return an error", func(t *testing.T) {
+		const (
+			catalogName = "wrong-type-catalog"
+			itemName    = "wrong-item"
+			version     = "1.0.0"
+		)
+
+		orgId := uuid.New()
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		app := makeComposeAppWithCatalogRefVolume(t, "my-app", catalogName, itemName, version)
+		catalogItem := makeCatalogItem(v1alpha1.CatalogItemTypeContainer, "quay.io/test/image", version, "v1.0.0")
+
+		mockCatalogSvc := catalogservice.NewMockService(ctrl)
+		mockCatalogSvc.EXPECT().GetCatalogItem(gomock.Any(), orgId, catalogName, itemName).Return(catalogItem, statusOK)
+
+		_, _, err := renderApplication(context.Background(), &app, nil, DefaultVmRenderOptions(), nil, orgId, mockCatalogSvc)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "cannot use catalog item of type")
+	})
+}
+
+func TestRenderApplication_VolumeCatalogRef_UnknownVersion(t *testing.T) {
+	t.Run("When a volume catalog item ref has unknown version it should return an error", func(t *testing.T) {
+		const (
+			catalogName = "version-catalog"
+			itemName    = "my-item"
+		)
+
+		orgId := uuid.New()
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		app := makeComposeAppWithCatalogRefVolume(t, "my-app", catalogName, itemName, "99.0.0")
+		catalogItem := makeCatalogItem(v1alpha1.CatalogItemTypeData, "quay.io/data/item", "1.0.0", "v1.0.0")
+
+		mockCatalogSvc := catalogservice.NewMockService(ctrl)
+		mockCatalogSvc.EXPECT().GetCatalogItem(gomock.Any(), orgId, catalogName, itemName).Return(catalogItem, statusOK)
+
+		_, _, err := renderApplication(context.Background(), &app, nil, DefaultVmRenderOptions(), nil, orgId, mockCatalogSvc)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "unknown version 99.0.0")
+	})
+}
+
+func TestRenderApplication_ImageMountVolumeCatalogRef_ResolvesToImage(t *testing.T) {
+	t.Run("When a container app image-mount volume has a catalog item ref it should resolve to the image reference", func(t *testing.T) {
+		const (
+			catalogName  = "data-catalog"
+			itemName     = "mount-data"
+			version      = "3.0.0"
+			artifactUri  = "quay.io/data/mount-config"
+			containerRef = "v3.0.0"
+		)
+
+		orgId := uuid.New()
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		var vol domain.ApplicationVolume
+		vol.Name = "mount-vol"
+		require.NoError(t, vol.FromImageMountVolumeProviderSpec(domain.ImageMountVolumeProviderSpec{
+			Image: domain.ImageVolumeSource{
+				CatalogItemRef: &api.CatalogItemRefSpec{
+					Catalog: catalogName,
+					Item:    itemName,
+					Version: version,
+				},
+			},
+			Mount: domain.VolumeMount{Path: "/data"},
+		}))
+
+		containerApp := domain.ContainerApplication{
+			AppType: domain.AppTypeContainer,
+			Name:    lo.ToPtr("my-container-app"),
+			Volumes: &[]domain.ApplicationVolume{vol},
+		}
+		require.NoError(t, containerApp.FromImageApplicationProviderSpec(domain.ImageApplicationProviderSpec{Image: "quay.io/test/app:v1"}))
+		var app domain.ApplicationProviderSpec
+		require.NoError(t, app.FromContainerApplication(containerApp))
+
+		catalogItem := makeCatalogItem(v1alpha1.CatalogItemTypeData, artifactUri, version, containerRef)
+
+		mockCatalogSvc := catalogservice.NewMockService(ctrl)
+		mockCatalogSvc.EXPECT().GetCatalogItem(gomock.Any(), orgId, catalogName, itemName).Return(catalogItem, statusOK)
+
+		name, rendered, err := renderApplication(context.Background(), &app, nil, DefaultVmRenderOptions(), nil, orgId, mockCatalogSvc)
+		require.NoError(t, err)
+		require.NotNil(t, name)
+		assert.Equal(t, "my-container-app", *name)
+		require.NotNil(t, rendered)
+
+		container, err := rendered.AsContainerApplication()
+		require.NoError(t, err)
+		require.NotNil(t, container.Volumes)
+		require.Len(t, *container.Volumes, 1)
+
+		vol = (*container.Volumes)[0]
+		imgMountProvider, err := vol.AsImageMountVolumeProviderSpec()
+		require.NoError(t, err)
+		assert.Equal(t, artifactUri+":"+containerRef, imgMountProvider.Image.Reference)
+		assert.Nil(t, imgMountProvider.Image.CatalogItemRef)
+		assert.Equal(t, "/data", imgMountProvider.Mount.Path)
+	})
 }

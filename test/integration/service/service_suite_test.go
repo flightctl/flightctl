@@ -163,11 +163,11 @@ func (s *ServiceTestSuite) Setup() {
 
 	eventsSvc := events.NewServiceHandler(s.EventStore, s.workerClient, s.Log)
 	s.AuthProvider = authproviderservice.NewServiceHandler(s.AuthProviderStore, eventsSvc, s.Log)
-	s.Catalog = catalogservice.NewServiceHandler(catalogStore, eventsSvc, s.Log)
+	s.Catalog = catalogservice.NewServiceHandler(catalogStore, s.DeviceStore, fleetStore, eventsSvc, s.Log)
 	s.CertificateSigningRequest = certificatesigningrequestservice.NewServiceHandler(csrStore, enrollmentRequestStore, s.caClient, eventsSvc, s.Log, "", "")
-	s.Device = deviceservice.NewDeviceServiceHandler(s.DeviceStore, fleetStore, eventsSvc, kvStore, "", s.Log)
+	s.Device = deviceservice.NewDeviceServiceHandler(s.DeviceStore, catalogStore, fleetStore, eventsSvc, kvStore, "", s.Log)
 	s.EnrollmentRequest = enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, s.DeviceStore, csrStore, s.caClient, kvStore, eventsSvc, s.Log, []string{}, "", "")
-	s.Fleet = fleetservice.NewServiceHandler(fleetStore, eventsSvc, s.Log)
+	s.Fleet = fleetservice.NewServiceHandler(fleetStore, catalogStore, eventsSvc, s.Log)
 	s.Repository = repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, s.Log)
 
 	// Default org for integration tests

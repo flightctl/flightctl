@@ -92,6 +92,14 @@ func (_d *TracedService) GetCatalogItem(ctx context.Context, orgId uuid.UUID, ca
 	return cp1, s1
 }
 
+func (_d *TracedService) GetCatalogItemDeployments(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string, params domain.GetCatalogItemDeploymentsParams) (cp1 *domain.CatalogItemDeploymentList, s1 domain.Status) {
+	ctx, span := startSpan(ctx, "GetCatalogItemDeployments")
+
+	cp1, s1 = _d.inner.GetCatalogItemDeployments(ctx, orgId, catalogName, itemName, params)
+	endSpan(span, s1)
+	return cp1, s1
+}
+
 func (_d *TracedService) GetCatalogStatus(ctx context.Context, orgId uuid.UUID, name string) (cp1 *domain.Catalog, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "GetCatalogStatus")
 

@@ -1481,12 +1481,15 @@ func newTestApplicationWithVolume(require *require.Assertions, name string, appT
 
 	switch appType {
 	case AppTypeContainer:
+		imageSpec := ImageApplicationProviderSpec{
+			Image: appImage,
+		}
 		containerApp := ContainerApplication{
 			Name:    lo.ToPtr(name),
 			AppType: appType,
-			Image:   appImage,
 			Volumes: &volumes,
 		}
+		require.NoError(containerApp.FromImageApplicationProviderSpec(imageSpec))
 		require.NoError(app.FromContainerApplication(containerApp))
 	case AppTypeCompose:
 		imageSpec := ImageApplicationProviderSpec{
@@ -1525,13 +1528,16 @@ func newTestApplicationWithPortsAndResources(require *require.Assertions, name s
 		appPorts = &ports
 	}
 
+	imageSpec := ImageApplicationProviderSpec{
+		Image: appImage,
+	}
 	containerApp := ContainerApplication{
 		Name:      lo.ToPtr(name),
 		AppType:   AppTypeContainer,
-		Image:     appImage,
 		Ports:     appPorts,
 		Resources: resources,
 	}
+	require.NoError(containerApp.FromImageApplicationProviderSpec(imageSpec))
 	require.NoError(app.FromContainerApplication(containerApp))
 
 	return app
@@ -1670,6 +1676,105 @@ func TestValidateVolumeReclaimPolicy(t *testing.T) {
 		require.Len(errs, 1)
 		require.Contains(errs[0].Error(), "reclaimPolicy")
 	})
+}
+
+func TestValidateVolumeCatalogItemRef(t *testing.T) {
+	tests := []struct {
+		name        string
+		appType     AppType
+		volume      func(t *testing.T) ApplicationVolume
+		expectErr   bool
+		errorSubstr string
+	}{
+		{
+			name:    "When image volume has catalog item ref it should be valid",
+			appType: AppTypeCompose,
+			volume: func(t *testing.T) ApplicationVolume {
+				return createCatalogRefImageVolume(t, "vol1", "my-catalog", "my-item", "1.0.0")
+			},
+			expectErr: false,
+		},
+		{
+			name:    "When image-mount volume has catalog item ref it should be valid",
+			appType: AppTypeContainer,
+			volume: func(t *testing.T) ApplicationVolume {
+				return createCatalogRefImageMountVolume(t, "vol1", "my-catalog", "my-item", "1.0.0", "/data:ro")
+			},
+			expectErr: false,
+		},
+		{
+			name:    "When image volume has both reference and catalog item ref it should be invalid",
+			appType: AppTypeCompose,
+			volume: func(t *testing.T) ApplicationVolume {
+				t.Helper()
+				var volume ApplicationVolume
+				volume.Name = "vol1"
+				err := volume.FromImageVolumeProviderSpec(ImageVolumeProviderSpec{
+					Image: ImageVolumeSource{
+						Reference: "quay.io/test/image:v1",
+						CatalogItemRef: &CatalogItemRefSpec{
+							Catalog: "my-catalog",
+							Item:    "my-item",
+							Version: "1.0.0",
+						},
+					},
+				})
+				require.NoError(t, err)
+				return volume
+			},
+			expectErr:   true,
+			errorSubstr: "cannot have both reference and catalogItemRef",
+		},
+		{
+			name:    "When image volume has neither reference nor catalog item ref it should be invalid",
+			appType: AppTypeCompose,
+			volume: func(t *testing.T) ApplicationVolume {
+				t.Helper()
+				var volume ApplicationVolume
+				volume.Name = "vol1"
+				err := volume.FromImageVolumeProviderSpec(ImageVolumeProviderSpec{
+					Image: ImageVolumeSource{},
+				})
+				require.NoError(t, err)
+				return volume
+			},
+			expectErr:   true,
+			errorSubstr: "must have either reference or catalogItemRef",
+		},
+		{
+			name:    "When catalog item ref has empty fields it should be invalid",
+			appType: AppTypeCompose,
+			volume: func(t *testing.T) ApplicationVolume {
+				return createCatalogRefImageVolume(t, "vol1", "", "my-item", "1.0.0")
+			},
+			expectErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			vol := tt.volume(t)
+			path := "spec.applications[test].volumes[0]"
+			errs := validateVolume(vol, path, false, tt.appType)
+
+			if tt.expectErr {
+				require.NotEmpty(errs, "expected errors but got none")
+				if tt.errorSubstr != "" {
+					found := false
+					for _, err := range errs {
+						if strings.Contains(err.Error(), tt.errorSubstr) {
+							found = true
+							break
+						}
+					}
+					require.True(found, "expected error containing %q, got errors: %v", tt.errorSubstr, errs)
+				}
+			} else {
+				require.Empty(errs, "expected no errors but got: %v", errs)
+			}
+		})
+	}
 }
 
 func TestValidateResourceMonitor(t *testing.T) {
@@ -2009,6 +2114,49 @@ func createImageMountVolume(t *testing.T, name, imageRef, path string) Applicati
 	err := volume.FromImageMountVolumeProviderSpec(imageMountVolumeProvider)
 	if err != nil {
 		t.Fatalf("Failed to create image-mount volume: %v", err)
+	}
+	return volume
+}
+
+func createCatalogRefImageVolume(t *testing.T, name, catalog, item, version string) ApplicationVolume {
+	t.Helper()
+	var volume ApplicationVolume
+	volume.Name = name
+	err := volume.FromImageVolumeProviderSpec(ImageVolumeProviderSpec{
+		Image: ImageVolumeSource{
+			CatalogItemRef: &CatalogItemRefSpec{
+				Catalog: catalog,
+				Item:    item,
+				Version: version,
+			},
+			PullPolicy: lo.ToPtr(PullIfNotPresent),
+		},
+	})
+	if err != nil {
+		t.Fatalf("Failed to create catalog ref image volume: %v", err)
+	}
+	return volume
+}
+
+func createCatalogRefImageMountVolume(t *testing.T, name, catalog, item, version, path string) ApplicationVolume {
+	t.Helper()
+	var volume ApplicationVolume
+	volume.Name = name
+	err := volume.FromImageMountVolumeProviderSpec(ImageMountVolumeProviderSpec{
+		Image: ImageVolumeSource{
+			CatalogItemRef: &CatalogItemRefSpec{
+				Catalog: catalog,
+				Item:    item,
+				Version: version,
+			},
+			PullPolicy: lo.ToPtr(PullIfNotPresent),
+		},
+		Mount: VolumeMount{
+			Path: path,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Failed to create catalog ref image-mount volume: %v", err)
 	}
 	return volume
 }
@@ -3139,6 +3287,106 @@ func TestDisruptionBudgetValidateGroupBy(t *testing.T) {
 				require.NotEmpty(errs, "expected validation error for groupBy %v", tt.groupBy)
 			} else {
 				require.Empty(errs, "unexpected validation error for groupBy %v: %v", tt.groupBy, errs)
+			}
+		})
+	}
+}
+
+func TestDeviceSpecValidate_OsSpec(t *testing.T) {
+	validCatalogItemRef := &CatalogItemRefSpec{
+		Catalog: "my-catalog",
+		Item:    "my-item",
+		Version: "1.0.0",
+	}
+
+	tests := []struct {
+		name         string
+		os           *DeviceOsSpec
+		wantErr      bool
+		errorStrings []string
+	}{
+		{
+			name:    "When os is nil it should pass",
+			os:      nil,
+			wantErr: false,
+		},
+		{
+			name:    "When os has only a valid image it should pass",
+			os:      &DeviceOsSpec{Image: "quay.io/org/image:latest"},
+			wantErr: false,
+		},
+		{
+			name:    "When os has only a valid catalog item ref it should pass",
+			os:      &DeviceOsSpec{CatalogItemRef: validCatalogItemRef},
+			wantErr: false,
+		},
+		{
+			name:    "When os has neither image nor catalog item ref it should pass",
+			os:      &DeviceOsSpec{},
+			wantErr: false,
+		},
+		{
+			name: "When os has both image and catalog item ref it should fail",
+			os: &DeviceOsSpec{
+				Image:          "quay.io/org/image:latest",
+				CatalogItemRef: validCatalogItemRef,
+			},
+			wantErr:      true,
+			errorStrings: []string{"cannot have both image and catalog item ref for device OS"},
+		},
+		{
+			name:         "When os has an invalid image it should fail",
+			os:           &DeviceOsSpec{Image: "invalid image!!!"},
+			wantErr:      true,
+			errorStrings: []string{"spec.os.image"},
+		},
+		{
+			name: "When os has a catalog item ref with missing fields it should fail",
+			os: &DeviceOsSpec{
+				CatalogItemRef: &CatalogItemRefSpec{
+					Catalog: "",
+					Item:    "",
+					Version: "",
+				},
+			},
+			wantErr:      true,
+			errorStrings: []string{"catalog, item, and version are all required fields"},
+		},
+		{
+			name: "When os has a catalog item ref with whitespace-padded fields it should fail",
+			os: &DeviceOsSpec{
+				CatalogItemRef: &CatalogItemRefSpec{
+					Catalog: " my-catalog ",
+					Item:    "my-item",
+					Version: "1.0.0",
+				},
+			},
+			wantErr:      true,
+			errorStrings: []string{"must not contain leading or trailing whitespace"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			spec := DeviceSpec{
+				Os: tt.os,
+			}
+			errs := spec.Validate(false)
+			if tt.wantErr {
+				require.NotEmpty(errs, "expected errors but got none")
+				for _, errStr := range tt.errorStrings {
+					found := false
+					for _, err := range errs {
+						if strings.Contains(err.Error(), errStr) {
+							found = true
+							break
+						}
+					}
+					require.True(found, "expected error containing %q, got: %v", errStr, errs)
+				}
+			} else {
+				require.Empty(errs, "expected no errors but got: %v", errs)
 			}
 		})
 	}

@@ -122,10 +122,10 @@ func (s *Server) Run(ctx context.Context) error {
 	eventsSvc := events.NewServiceHandler(eventStore, workerClient, s.log)
 
 	repositorySvc := repositoryservice.WrapWithTracing(repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, s.log))
-	fleetSvc := fleetservice.WrapWithTracing(fleetservice.NewServiceHandler(fleetStore, eventsSvc, s.log))
+	fleetSvc := fleetservice.WrapWithTracing(fleetservice.NewServiceHandler(fleetStore, catalogStore, eventsSvc, s.log))
 	resourceSyncSvc := resourcesyncservice.WrapWithTracing(resourcesyncservice.NewServiceHandler(resourceSyncStore, catalogStore, fleetStore, eventsSvc, s.log))
-	catalogSvc := catalogservice.WrapWithTracing(catalogservice.NewServiceHandler(catalogStore, eventsSvc, s.log))
-	deviceSvc := deviceservice.WrapWithTracing(deviceservice.NewDeviceServiceHandler(deviceStore, fleetStore, eventsSvc, kvStore, "", s.log))
+	catalogSvc := catalogservice.WrapWithTracing(catalogservice.NewServiceHandler(catalogStore, deviceStore, fleetStore, eventsSvc, s.log))
+	deviceSvc := deviceservice.WrapWithTracing(deviceservice.NewDeviceServiceHandler(deviceStore, catalogStore, fleetStore, eventsSvc, kvStore, "", s.log))
 	eventSvc := eventservice.WrapWithTracing(eventservice.NewServiceHandler(eventStore, eventsSvc))
 	checkpointSvc := checkpointservice.WrapWithTracing(checkpointservice.NewServiceHandler(checkpointStore))
 	organizationSvc := organizationservice.WrapWithTracing(organizationservice.NewServiceHandler(organizationStore))

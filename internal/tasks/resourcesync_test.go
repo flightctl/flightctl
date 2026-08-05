@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/flightctl/flightctl/api/core/v1alpha1"
 	"github.com/flightctl/flightctl/internal/domain"
 	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	"github.com/google/uuid"
@@ -490,7 +491,7 @@ func TestParseCatalogItems_Valid(t *testing.T) {
 					{Type: domain.CatalogItemArtifactTypeContainer, Uri: "quay.io/prometheus/node-exporter"},
 				},
 				Versions: []domain.CatalogItemVersion{
-					{Version: "1.8.2", References: map[string]string{"container": "v1.8.2"}, Channels: []string{"stable"}},
+					{Version: "1.8.2", References: map[v1alpha1.CatalogItemArtifactType]string{"container": "v1.8.2"}, Channels: []string{"stable"}},
 				},
 			}),
 		},
@@ -607,7 +608,7 @@ func catalogItemSpecFixture() domain.CatalogItemSpec {
 			{Type: domain.CatalogItemArtifactTypeContainer, Uri: "quay.io/test/app"},
 		},
 		Versions: []domain.CatalogItemVersion{
-			{Version: "1.0.0", References: map[string]string{"container": "v1.0.0"}, Channels: []string{"stable"}},
+			{Version: "1.0.0", References: map[v1alpha1.CatalogItemArtifactType]string{"container": "v1.0.0"}, Channels: []string{"stable"}},
 		},
 	}
 }

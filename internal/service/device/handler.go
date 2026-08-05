@@ -17,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
+	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/flightctl/flightctl/internal/store/model"
@@ -31,6 +32,7 @@ import (
 // DeviceServiceHandler implements Service.
 type DeviceServiceHandler struct {
 	deviceStore   devicestore.Store
+	catalogStore  catalogstore.Store
 	fleetStore    fleetstore.Store
 	events        events.Service
 	kvStore       kvstore.KVStore
@@ -40,8 +42,10 @@ type DeviceServiceHandler struct {
 }
 
 // NewDeviceServiceHandler creates a new DeviceServiceHandler instance.
+// catalogStore is optional — when nil, catalog item ref validation is skipped.
 func NewDeviceServiceHandler(
 	deviceStore devicestore.Store,
+	catalogStore catalogstore.Store,
 	fleetStore fleetstore.Store,
 	events events.Service,
 	kvStore kvstore.KVStore,
@@ -50,6 +54,7 @@ func NewDeviceServiceHandler(
 ) Service {
 	return &DeviceServiceHandler{
 		deviceStore:   deviceStore,
+		catalogStore:  catalogStore,
 		fleetStore:    fleetStore,
 		events:        events,
 		kvStore:       kvStore,
@@ -91,6 +96,10 @@ func (h *DeviceServiceHandler) CreateDevice(ctx context.Context, orgId uuid.UUID
 
 	if errs := device.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
+	}
+
+	if status := common.ValidateCatalogItemRefs(ctx, orgId, h.catalogStore, device.Spec); status != domain.StatusOK() {
+		return nil, status
 	}
 
 	_ = common.UpdateServiceSideStatus(ctx, orgId, &device, h.fleetStore, h.log)
@@ -233,6 +242,10 @@ func (h *DeviceServiceHandler) ReplaceDevice(ctx context.Context, orgId uuid.UUI
 	}
 	if name != *device.Metadata.Name {
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
+	}
+
+	if status := common.ValidateCatalogItemRefs(ctx, orgId, h.catalogStore, device.Spec); status != domain.StatusOK() {
+		return nil, status
 	}
 
 	if enforceOwnership || enforceCapabilities {
@@ -461,7 +474,7 @@ func (h *DeviceServiceHandler) PatchDevice(ctx context.Context, orgId uuid.UUID,
 	// Status.LastSeen and Status.SystemInfo.AdditionalProperties are not marshaled into newObj by ApplyJSONPatch
 	// and will always be set to nil as they have "-" json tags and will not be copied into newObj.  For now, set the fields manually
 	// so later validation passes
-	if currentObj.Status != nil {
+	if currentObj.Status != nil && newObj.Status != nil {
 		newObj.Status.LastSeen = currentObj.Status.LastSeen
 		newObj.Status.SystemInfo.AdditionalProperties = currentObj.Status.SystemInfo.AdditionalProperties
 	}
@@ -475,6 +488,10 @@ func (h *DeviceServiceHandler) PatchDevice(ctx context.Context, orgId uuid.UUID,
 	}
 	if newObj.Spec != nil && newObj.Spec.Decommissioning != nil {
 		return nil, domain.StatusBadRequest("spec.decommissioning cannot be changed via patch request")
+	}
+
+	if status := common.ValidateCatalogItemRefs(ctx, orgId, h.catalogStore, newObj.Spec); status != domain.StatusOK() {
+		return nil, status
 	}
 
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
@@ -552,7 +569,7 @@ func (h *DeviceServiceHandler) UpdateDeviceAnnotations(ctx context.Context, orgI
 	return common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
-func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool) domain.Status {
+func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash, osImage string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool) domain.Status {
 	specValid := domain.Condition{
 		Type:   domain.ConditionTypeDeviceSpecValid,
 		Status: domain.ConditionStatusTrue,
@@ -560,14 +577,13 @@ func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId u
 	}
 	var previous, updated *domain.Device
 	var oldConditions []domain.Condition
-	renderedVersion, err := h.deviceStore.UpdateRendered(ctx, orgId, name, renderedConfig, renderedApplications, specHash, configFingerprints, forceUpdate,
+	renderedVersion, err := h.deviceStore.UpdateRendered(ctx, orgId, name, renderedConfig, renderedApplications, specHash, osImage, configFingerprints, forceUpdate,
 		func(device *domain.Device) bool {
 			previous = snapshotDeviceForStatusUpdate(device)
 			oldConditions = nil
 			updated = nil
 			if device.Status != nil {
 				oldConditions = append([]domain.Condition(nil), device.Status.Conditions...)
-				// Apply the SpecValid this render is about to commit before computing derived status.
 				domain.SetStatusCondition(&device.Status.Conditions, specValid)
 			}
 			if !common.UpdateServiceSideStatus(ctx, orgId, device, h.fleetStore, h.log) {

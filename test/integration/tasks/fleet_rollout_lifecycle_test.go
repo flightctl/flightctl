@@ -94,9 +94,9 @@ var _ = Describe("Application lifecycle overlay at render time", func() {
 		kvStoreInst, err = kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
 		Expect(err).ToNot(HaveOccurred())
 		eventsSvc := events.NewServiceHandler(eventStore, workerClient, log)
-		fleetSvc = fleetservice.NewServiceHandler(newFleetStore, eventsSvc, log)
+		fleetSvc = fleetservice.NewServiceHandler(newFleetStore, nil, eventsSvc, log)
 		templateVersionSvc = templateversionservice.NewServiceHandler(newTvStore, kvStoreInst, eventsSvc, log)
-		deviceSvc = deviceservice.NewDeviceServiceHandler(newDeviceStore, newFleetStore, eventsSvc, kvStoreInst, "", log)
+		deviceSvc = deviceservice.NewDeviceServiceHandler(newDeviceStore, nil, newFleetStore, eventsSvc, kvStoreInst, "", log)
 		dependencyrefSvc = dependencyrefservice.NewServiceHandler(dependencyrefStore, log)
 		repositorySvc = repositoryservice.NewServiceHandler(newRepoStore, eventsSvc, log)
 		eventSvc = eventservice.NewServiceHandler(eventStore, eventsSvc)
@@ -121,8 +121,8 @@ var _ = Describe("Application lifecycle overlay at render time", func() {
 		containerApp := api.ContainerApplication{
 			AppType: api.AppTypeContainer,
 			Name:    lo.ToPtr(name),
-			Image:   "quay.io/test/app:v1",
 		}
+		Expect(containerApp.FromImageApplicationProviderSpec(api.ImageApplicationProviderSpec{Image: "quay.io/test/app:v1"})).To(Succeed())
 		var app api.ApplicationProviderSpec
 		Expect(app.FromContainerApplication(containerApp)).To(Succeed())
 		return app
@@ -147,7 +147,7 @@ var _ = Describe("Application lifecycle overlay at render time", func() {
 		Expect(rolloutLogic.RolloutDevice(ctx)).To(Succeed())
 
 		By("rendering the device for the first time with no lifecycle override")
-		renderLogic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, &mockK8sClient{}, kvStoreInst, nil, orgId, event)
+		renderLogic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil, orgId, event)
 		Expect(renderLogic.RenderDevice(ctx)).To(Succeed())
 
 		renderedDevice, status := deviceSvc.GetRenderedDevice(ctx, orgId, deviceName, api.GetRenderedDeviceParams{})
@@ -174,7 +174,7 @@ var _ = Describe("Application lifecycle overlay at render time", func() {
 				Name: deviceName,
 			},
 		}
-		renderLogic = tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, &mockK8sClient{}, kvStoreInst, nil, orgId, lifecycleEvent)
+		renderLogic = tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil, orgId, lifecycleEvent)
 		Expect(renderLogic.RenderDevice(ctx)).To(Succeed())
 
 		renderedDevice, status = deviceSvc.GetRenderedDevice(ctx, orgId, deviceName, api.GetRenderedDeviceParams{})
@@ -192,7 +192,7 @@ var _ = Describe("Application lifecycle overlay at render time", func() {
 		_, restartStatus := deviceSvc.RestartDeviceApplication(ctx, orgId, deviceName, "app-1")
 		Expect(restartStatus.Code).To(Equal(int32(200)))
 
-		renderLogic = tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, &mockK8sClient{}, kvStoreInst, nil, orgId, lifecycleEvent)
+		renderLogic = tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil, orgId, lifecycleEvent)
 		Expect(renderLogic.RenderDevice(ctx)).To(Succeed())
 
 		renderedDevice, status = deviceSvc.GetRenderedDevice(ctx, orgId, deviceName, api.GetRenderedDeviceParams{})
@@ -205,7 +205,7 @@ var _ = Describe("Application lifecycle overlay at render time", func() {
 		_, startStatus := deviceSvc.StartDeviceApplication(ctx, orgId, deviceName, "app-1")
 		Expect(startStatus.Code).To(Equal(int32(200)))
 
-		renderLogic = tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, &mockK8sClient{}, kvStoreInst, nil, orgId, lifecycleEvent)
+		renderLogic = tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil, orgId, lifecycleEvent)
 		Expect(renderLogic.RenderDevice(ctx)).To(Succeed())
 
 		renderedDevice, status = deviceSvc.GetRenderedDevice(ctx, orgId, deviceName, api.GetRenderedDeviceParams{})
@@ -218,7 +218,7 @@ var _ = Describe("Application lifecycle overlay at render time", func() {
 		_, restartStatus = deviceSvc.RestartDeviceApplication(ctx, orgId, deviceName, "app-1")
 		Expect(restartStatus.Code).To(Equal(int32(200)))
 
-		renderLogic = tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, &mockK8sClient{}, kvStoreInst, nil, orgId, lifecycleEvent)
+		renderLogic = tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil, orgId, lifecycleEvent)
 		Expect(renderLogic.RenderDevice(ctx)).To(Succeed())
 
 		renderedDevice, status = deviceSvc.GetRenderedDevice(ctx, orgId, deviceName, api.GetRenderedDeviceParams{})
@@ -258,7 +258,7 @@ var _ = Describe("Application lifecycle overlay at render time", func() {
 			}
 		}
 		renderDevice := func(event api.Event) {
-			renderLogic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, &mockK8sClient{}, kvStoreInst, nil, orgId, event)
+			renderLogic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil, orgId, event)
 			Expect(renderLogic.RenderDevice(ctx)).To(Succeed())
 		}
 		rolloutAndRender := func(name string, event api.Event) {

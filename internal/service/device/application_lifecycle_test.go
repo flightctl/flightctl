@@ -33,8 +33,8 @@ func newLifecycleTestDevice(t *testing.T, appName string) (h Service, st *fakeSt
 	containerApp := domain.ContainerApplication{
 		AppType: domain.AppTypeContainer,
 		Name:    lo.ToPtr(appName),
-		Image:   "quay.io/test/app:v1",
 	}
+	require.NoError(containerApp.FromImageApplicationProviderSpec(domain.ImageApplicationProviderSpec{Image: "quay.io/test/app:v1"}))
 	var app domain.ApplicationProviderSpec
 	require.NoError(app.FromContainerApplication(containerApp))
 
@@ -50,7 +50,7 @@ func newLifecycleTestDevice(t *testing.T, appName string) (h Service, st *fakeSt
 
 	st = newFakeStore()
 	ev = &fakeEvents{}
-	h = NewDeviceServiceHandler(st.device, st.fleet, ev, nil, "agent.example.com", logrus.New())
+	h = NewDeviceServiceHandler(st.device, st.catalog, st.fleet, ev, nil, "agent.example.com", logrus.New())
 	orgId = uuid.New()
 	_, err := st.device.Create(context.Background(), orgId, &device, nil)
 	require.NoError(err)

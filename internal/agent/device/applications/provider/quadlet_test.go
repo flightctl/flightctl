@@ -1838,11 +1838,12 @@ func makeImageMountVolume(name, imageRef, path string) v1beta1.ApplicationVolume
 
 func newContainerAppSpec(t *testing.T, image string, ports *[]v1beta1.ApplicationPort, resources *v1beta1.ApplicationResources) *v1beta1.ContainerApplication {
 	t.Helper()
-	return &v1beta1.ContainerApplication{
-		Image:     image,
+	app := &v1beta1.ContainerApplication{
 		Ports:     ports,
 		Resources: resources,
 	}
+	require.NoError(t, app.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: image}))
+	return app
 }
 
 func TestGenerateQuadlet(t *testing.T) {
@@ -2154,7 +2155,9 @@ func TestGenerateQuadlet(t *testing.T) {
 			podman := client.NewPodman(log.NewPrefixLogger("test"), mockExec, rw, testutil.NewPollConfig())
 
 			ctx := context.Background()
-			err := generateQuadlet(ctx, podman, rw, "/", tt.spec)
+			imageSpec, err := tt.spec.AsImageApplicationProviderSpec()
+			require.NoError(t, err)
+			err = generateQuadlet(ctx, podman, rw, "/", imageSpec.Image, tt.spec)
 			require.NoError(t, err)
 
 			expectedFiles := tt.expectedFiles

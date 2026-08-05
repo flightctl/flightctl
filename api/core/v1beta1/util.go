@@ -41,8 +41,10 @@ const (
 type ApplicationProviderType string
 
 const (
-	ImageApplicationProviderType  ApplicationProviderType = "image"
-	InlineApplicationProviderType ApplicationProviderType = "inline"
+	UnknownApplicationProviderType        ApplicationProviderType = ""
+	ImageApplicationProviderType          ApplicationProviderType = "image"
+	CatalogItemRefApplicationProviderType ApplicationProviderType = "catalogItemRef"
+	InlineApplicationProviderType         ApplicationProviderType = "inline"
 )
 
 type ApplicationVolumeProviderType string
@@ -124,35 +126,47 @@ func (c ConfigProviderSpec) Type() (ConfigProviderType, error) {
 }
 
 // Type returns the provider type (image or inline) for compose applications.
-func (c ComposeApplication) Type() (ApplicationProviderType, error) {
+func (c ComposeApplication) Type() ApplicationProviderType {
 	return getApplicationProviderType(c.union)
 }
 
 // Type returns the provider type (image or inline) for quadlet applications.
-func (q QuadletApplication) Type() (ApplicationProviderType, error) {
+func (q QuadletApplication) Type() ApplicationProviderType {
 	return getApplicationProviderType(q.union)
 }
 
+func (h HelmApplication) Type() ApplicationProviderType {
+	return getApplicationProviderType(h.union)
+}
+
+func (c ContainerApplication) Type() ApplicationProviderType {
+	return getApplicationProviderType(c.union)
+}
+
 // Type returns the provider type (image or inline) for vm applications.
-func (v VmApplication) Type() (ApplicationProviderType, error) {
+func (v VmApplication) Type() ApplicationProviderType {
 	return getApplicationProviderType(v.union)
 }
 
-func getApplicationProviderType(union json.RawMessage) (ApplicationProviderType, error) {
-	var data map[ApplicationProviderType]interface{}
+func getApplicationProviderType(union json.RawMessage) ApplicationProviderType {
+	var data map[ApplicationProviderType]any
 	if err := json.Unmarshal(union, &data); err != nil {
-		return "", err
+		return UnknownApplicationProviderType
 	}
 
 	if _, exists := data[ImageApplicationProviderType]; exists {
-		return ImageApplicationProviderType, nil
+		return ImageApplicationProviderType
+	}
+
+	if _, exists := data[CatalogItemRefApplicationProviderType]; exists {
+		return CatalogItemRefApplicationProviderType
 	}
 
 	if _, exists := data[InlineApplicationProviderType]; exists {
-		return InlineApplicationProviderType, nil
+		return InlineApplicationProviderType
 	}
 
-	return "", fmt.Errorf("unable to determine application provider type: %+v", data)
+	return UnknownApplicationProviderType
 }
 
 // getLifecycleFields returns the desiredState/restartGeneration pointers declared on the

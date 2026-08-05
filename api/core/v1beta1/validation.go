@@ -94,7 +94,14 @@ func (r DeviceSpec) Validate(fleetTemplate bool) []error {
 		allErrs = append(allErrs, fmt.Errorf("consoles are not supported through this api"))
 	}
 	if r.Os != nil {
-		allErrs = append(allErrs, validateOciImageReference(&r.Os.Image, "spec.os.image", fleetTemplate)...)
+		if len(r.Os.Image) > 0 {
+			allErrs = append(allErrs, validateOciImageReference(&r.Os.Image, "spec.os.image", fleetTemplate)...)
+		} else if r.Os.CatalogItemRef != nil {
+			allErrs = append(allErrs, r.Os.CatalogItemRef.Validate()...)
+		}
+		if len(r.Os.Image) > 0 && r.Os.CatalogItemRef != nil {
+			allErrs = append(allErrs, errors.New("cannot have both image and catalog item ref for device OS"))
+		}
 	}
 	if r.Config != nil {
 		allErrs = append(allErrs, validateConfigs(*r.Config, fleetTemplate)...)
@@ -1028,6 +1035,13 @@ func validateApplicationLifecycleFieldsReadOnly(desiredState *ApplicationDesired
 	return allErrs
 }
 
+func validateExclusiveAppSource(image string, catalogItemRef CatalogItemRefSpec) []error {
+	if image != "" && (catalogItemRef != CatalogItemRefSpec{}) {
+		return []error{errors.New("cannot have both image and catalogItemRef on application")}
+	}
+	return nil
+}
+
 func validateContainerApplication(app ApplicationProviderSpec, appName string, fleetTemplate bool) []error {
 	allErrs := []error{}
 	pathPrefix := fmt.Sprintf("spec.applications[%s]", appName)
@@ -1038,7 +1052,30 @@ func validateContainerApplication(app ApplicationProviderSpec, appName string, f
 	}
 
 	allErrs = append(allErrs, validateApplicationLifecycleFieldsReadOnly(container.DesiredState, container.RestartGeneration, pathPrefix)...)
-	allErrs = append(allErrs, validateOciImageReference(&container.Image, pathPrefix+".image", fleetTemplate)...)
+
+	switch container.Type() {
+	case ImageApplicationProviderType:
+		spec, err := container.AsImageApplicationProviderSpec()
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("invalid container image provider: %w", err))
+		} else {
+			allErrs = append(allErrs, validateOciImageReference(&spec.Image, pathPrefix+".image", fleetTemplate)...)
+		}
+		catalogItemRefSpec, _ := container.AsCatalogItemRefApplicationProviderSpec()
+		allErrs = append(allErrs, validateExclusiveAppSource(spec.Image, catalogItemRefSpec.CatalogItemRef)...)
+	case CatalogItemRefApplicationProviderType:
+		spec, err := container.AsCatalogItemRefApplicationProviderSpec()
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("invalid container catalog item ref provider: %w", err))
+		} else {
+			allErrs = append(allErrs, spec.Validate()...)
+		}
+		imageSpec, _ := container.AsImageApplicationProviderSpec()
+		allErrs = append(allErrs, validateExclusiveAppSource(imageSpec.Image, spec.CatalogItemRef)...)
+	default:
+		allErrs = append(allErrs, fmt.Errorf("unknown container provider type: %s", container.Type()))
+	}
+
 	allErrs = append(allErrs, validateContainerPorts(container.Ports, pathPrefix+".ports")...)
 
 	if container.Resources != nil && container.Resources.Limits != nil {
@@ -1062,7 +1099,29 @@ func ValidateHelmApplication(app ApplicationProviderSpec, appName string, fleetT
 	}
 
 	allErrs = append(allErrs, validateApplicationLifecycleFieldsReadOnly(helm.DesiredState, helm.RestartGeneration, pathPrefix)...)
-	allErrs = append(allErrs, validateOciImageReference(&helm.Image, pathPrefix+".image", fleetTemplate)...)
+
+	switch helm.Type() {
+	case ImageApplicationProviderType:
+		spec, err := helm.AsImageApplicationProviderSpec()
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("invalid helm image provider: %w", err))
+		} else {
+			allErrs = append(allErrs, validateOciImageReference(&spec.Image, pathPrefix+".image", fleetTemplate)...)
+		}
+		catalogItemRefSpec, _ := helm.AsCatalogItemRefApplicationProviderSpec()
+		allErrs = append(allErrs, validateExclusiveAppSource(spec.Image, catalogItemRefSpec.CatalogItemRef)...)
+	case CatalogItemRefApplicationProviderType:
+		spec, err := helm.AsCatalogItemRefApplicationProviderSpec()
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("invalid helm catalog item ref provider: %w", err))
+		} else {
+			allErrs = append(allErrs, spec.Validate()...)
+		}
+		imageSpec, _ := helm.AsImageApplicationProviderSpec()
+		allErrs = append(allErrs, validateExclusiveAppSource(imageSpec.Image, spec.CatalogItemRef)...)
+	default:
+		allErrs = append(allErrs, fmt.Errorf("unknown helm provider type: %s", helm.Type()))
+	}
 
 	if helm.Namespace != nil && *helm.Namespace != "" {
 		allErrs = append(allErrs, validation.ValidateGenericName(helm.Namespace, pathPrefix+".namespace")...)
@@ -1088,12 +1147,7 @@ func validateComposeApplication(app ApplicationProviderSpec, appName string, fle
 
 	allErrs = append(allErrs, validateApplicationLifecycleFieldsReadOnly(compose.DesiredState, compose.RestartGeneration, pathPrefix)...)
 
-	providerType, err := compose.Type()
-	if err != nil {
-		return []error{fmt.Errorf("invalid compose application provider type: %w", err)}
-	}
-
-	switch providerType {
+	switch compose.Type() {
 	case ImageApplicationProviderType:
 		imageSpec, err := compose.AsImageApplicationProviderSpec()
 		if err != nil {
@@ -1101,6 +1155,17 @@ func validateComposeApplication(app ApplicationProviderSpec, appName string, fle
 		} else {
 			allErrs = append(allErrs, validateOciImageReference(&imageSpec.Image, pathPrefix+".image", fleetTemplate)...)
 		}
+		catalogItemRefSpec, _ := compose.AsCatalogItemRefApplicationProviderSpec()
+		allErrs = append(allErrs, validateExclusiveAppSource(imageSpec.Image, catalogItemRefSpec.CatalogItemRef)...)
+	case CatalogItemRefApplicationProviderType:
+		spec, err := compose.AsCatalogItemRefApplicationProviderSpec()
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("invalid compose catalog item ref provider: %w", err))
+		} else {
+			allErrs = append(allErrs, spec.Validate()...)
+		}
+		imageSpec, _ := compose.AsImageApplicationProviderSpec()
+		allErrs = append(allErrs, validateExclusiveAppSource(imageSpec.Image, spec.CatalogItemRef)...)
 	case InlineApplicationProviderType:
 		inlineSpec, err := compose.AsInlineApplicationProviderSpec()
 		if err != nil {
@@ -1109,7 +1174,7 @@ func validateComposeApplication(app ApplicationProviderSpec, appName string, fle
 			allErrs = append(allErrs, inlineSpec.Validate(AppTypeCompose, fleetTemplate)...)
 		}
 	default:
-		allErrs = append(allErrs, fmt.Errorf("unknown compose provider type: %s", providerType))
+		allErrs = append(allErrs, errors.New("unknown compose provider type"))
 	}
 
 	allErrs = append(allErrs, validateEnvVars(compose.EnvVars, pathPrefix)...)
@@ -1129,11 +1194,7 @@ func validateQuadletApplication(app ApplicationProviderSpec, appName string, fle
 
 	allErrs = append(allErrs, validateApplicationLifecycleFieldsReadOnly(quadlet.DesiredState, quadlet.RestartGeneration, pathPrefix)...)
 
-	providerType, err := quadlet.Type()
-	if err != nil {
-		return []error{fmt.Errorf("invalid quadlet application provider type: %w", err)}
-	}
-
+	providerType := quadlet.Type()
 	switch providerType {
 	case ImageApplicationProviderType:
 		imageSpec, err := quadlet.AsImageApplicationProviderSpec()
@@ -1142,6 +1203,17 @@ func validateQuadletApplication(app ApplicationProviderSpec, appName string, fle
 		} else {
 			allErrs = append(allErrs, validateOciImageReference(&imageSpec.Image, pathPrefix+".image", fleetTemplate)...)
 		}
+		catalogItemRefSpec, _ := quadlet.AsCatalogItemRefApplicationProviderSpec()
+		allErrs = append(allErrs, validateExclusiveAppSource(imageSpec.Image, catalogItemRefSpec.CatalogItemRef)...)
+	case CatalogItemRefApplicationProviderType:
+		spec, err := quadlet.AsCatalogItemRefApplicationProviderSpec()
+		if err != nil {
+			allErrs = append(allErrs, fmt.Errorf("invalid quadlet catalog item ref provider: %w", err))
+		} else {
+			allErrs = append(allErrs, spec.Validate()...)
+		}
+		imageSpec, _ := quadlet.AsImageApplicationProviderSpec()
+		allErrs = append(allErrs, validateExclusiveAppSource(imageSpec.Image, spec.CatalogItemRef)...)
 	case InlineApplicationProviderType:
 		inlineSpec, err := quadlet.AsInlineApplicationProviderSpec()
 		if err != nil {
@@ -1261,12 +1333,7 @@ func validateVmApplication(app ApplicationProviderSpec, appName string, fleetTem
 	allErrs = append(allErrs, validateApplicationLifecycleFieldsReadOnly(vm.DesiredState, vm.RestartGeneration, pathPrefix)...)
 	allErrs = append(allErrs, validateContainerPorts(vm.PublishPorts, pathPrefix+".publishPorts")...)
 
-	providerType, err := vm.Type()
-	if err != nil {
-		return []error{fmt.Errorf("%s: invalid vm application provider type: %w", pathPrefix, err)}
-	}
-
-	switch providerType {
+	switch vm.Type() {
 	case ImageApplicationProviderType:
 		imageSpec, err := vm.AsImageApplicationProviderSpec()
 		if err != nil {
@@ -1293,7 +1360,7 @@ func validateVmApplication(app ApplicationProviderSpec, appName string, fleetTem
 			allErrs = append(allErrs, v.Validate()...)
 		}
 	default:
-		allErrs = append(allErrs, fmt.Errorf("%s: unknown vm provider type: %s", pathPrefix, providerType))
+		allErrs = append(allErrs, fmt.Errorf("%s: unknown vm provider type", pathPrefix))
 	}
 
 	return allErrs
@@ -1344,7 +1411,7 @@ func validateVolume(vol ApplicationVolume, path string, fleetTemplate bool, appT
 		if err != nil {
 			errs = append(errs, fmt.Errorf("invalid image application volume provider: %w", err))
 		} else {
-			errs = append(errs, validateOciImageReference(&imgProvider.Image.Reference, path+".image.reference", fleetTemplate)...)
+			errs = append(errs, validateImageVolumeSource(imgProvider.Image, path+".image", fleetTemplate)...)
 		}
 		if appType == AppTypeContainer {
 			errs = append(errs, fmt.Errorf("image application volume provider invalid for app type: %s", appType))
@@ -1367,7 +1434,7 @@ func validateVolume(vol ApplicationVolume, path string, fleetTemplate bool, appT
 		} else {
 			pathParts := strings.Split(provider.Mount.Path, ":")
 			errs = append(errs, validation.ValidateFilePath(&pathParts[0], path+".mount.path")...)
-			errs = append(errs, validateOciImageReference(&provider.Image.Reference, path+".image.reference", fleetTemplate)...)
+			errs = append(errs, validateImageVolumeSource(provider.Image, path+".image", fleetTemplate)...)
 		}
 		if appType != AppTypeContainer {
 			errs = append(errs, fmt.Errorf("image mount application volume provider invalid for app type: %s", appType))
@@ -1375,6 +1442,29 @@ func validateVolume(vol ApplicationVolume, path string, fleetTemplate bool, appT
 
 	default:
 		errs = append(errs, fmt.Errorf("unknown application volume provider type: %s", providerType))
+	}
+
+	return errs
+}
+
+func validateImageVolumeSource(source ImageVolumeSource, path string, fleetTemplate bool) []error {
+	var errs []error
+
+	hasRef := source.Reference != ""
+	hasCatalogRef := source.CatalogItemRef != nil
+
+	if hasRef && hasCatalogRef {
+		errs = append(errs, fmt.Errorf("%s: cannot have both reference and catalogItemRef", path))
+	}
+	if !hasRef && !hasCatalogRef {
+		errs = append(errs, fmt.Errorf("%s: must have either reference or catalogItemRef", path))
+	}
+
+	if hasRef {
+		errs = append(errs, validateOciImageReference(&source.Reference, path+".reference", fleetTemplate)...)
+	}
+	if hasCatalogRef {
+		errs = append(errs, source.CatalogItemRef.Validate()...)
 	}
 
 	return errs
@@ -1463,28 +1553,35 @@ func ensureAppName(app ApplicationProviderSpec) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("invalid container application: %w", err)
 		}
-		if container.Image == "" {
-			return "", fmt.Errorf("container image cannot be empty when application name is not provided")
+		if container.Type() == ImageApplicationProviderType {
+			spec, err := container.AsImageApplicationProviderSpec()
+			if err == nil {
+				if spec.Image != "" {
+					return spec.Image, nil
+				}
+			}
 		}
-		return container.Image, nil
+		return "", fmt.Errorf("container image cannot be empty when application name is not provided")
 	case AppTypeHelm:
 		helm, err := app.AsHelmApplication()
 		if err != nil {
 			return "", fmt.Errorf("invalid helm application: %w", err)
 		}
-		if helm.Image == "" {
-			return "", fmt.Errorf("helm image cannot be empty when application name is not provided")
+		if helm.Type() == ImageApplicationProviderType {
+			spec, err := helm.AsImageApplicationProviderSpec()
+			if err == nil {
+				if spec.Image != "" {
+					return spec.Image, nil
+				}
+			}
 		}
-		return helm.Image, nil
+		return "", fmt.Errorf("helm image cannot be empty when application name is not provided")
 	case AppTypeCompose:
 		compose, err := app.AsComposeApplication()
 		if err != nil {
 			return "", fmt.Errorf("invalid compose application: %w", err)
 		}
-		providerType, err := compose.Type()
-		if err != nil {
-			return "", fmt.Errorf("invalid compose application provider type: %w", err)
-		}
+		providerType := compose.Type()
 		if providerType == ImageApplicationProviderType {
 			imageSpec, err := compose.AsImageApplicationProviderSpec()
 			if err != nil {
@@ -1501,10 +1598,7 @@ func ensureAppName(app ApplicationProviderSpec) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("invalid quadlet application: %w", err)
 		}
-		providerType, err := quadlet.Type()
-		if err != nil {
-			return "", fmt.Errorf("invalid quadlet application provider type: %w", err)
-		}
+		providerType := quadlet.Type()
 		if providerType == ImageApplicationProviderType {
 			imageSpec, err := quadlet.AsImageApplicationProviderSpec()
 			if err != nil {
@@ -1521,10 +1615,7 @@ func ensureAppName(app ApplicationProviderSpec) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("invalid vm application: %w", err)
 		}
-		providerType, err := vm.Type()
-		if err != nil {
-			return "", fmt.Errorf("invalid vm application provider type: %w", err)
-		}
+		providerType := vm.Type()
 		if providerType == ImageApplicationProviderType {
 			imageSpec, err := vm.AsImageApplicationProviderSpec()
 			if err != nil {
@@ -2334,4 +2425,19 @@ func (s SystemdLoadStateType) Validate() error {
 		return fmt.Errorf("invalid systemd load state: %s", s)
 	}
 	return nil
+}
+
+func (s CatalogItemRefApplicationProviderSpec) Validate() []error {
+	return s.CatalogItemRef.Validate()
+}
+
+func (s CatalogItemRefSpec) Validate() []error {
+	var allErrs []error
+	if len(s.Catalog) == 0 || len(s.Item) == 0 || len(s.Version) == 0 {
+		allErrs = append(allErrs, errors.New("catalog, item, and version are all required fields in a catalogItemRef"))
+	}
+	if s.Catalog != strings.TrimSpace(s.Catalog) || s.Item != strings.TrimSpace(s.Item) || s.Version != strings.TrimSpace(s.Version) {
+		allErrs = append(allErrs, errors.New("catalog, item, and version must not contain leading or trailing whitespace"))
+	}
+	return allErrs
 }

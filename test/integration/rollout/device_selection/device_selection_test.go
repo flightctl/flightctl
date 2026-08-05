@@ -385,8 +385,8 @@ var _ = Describe("Rollout batch sequence test", func() {
 		kvStore, err := kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
 		Expect(err).ToNot(HaveOccurred())
 		eventsSvc := events.NewServiceHandler(eventStore, mockWorkerClient, log)
-		deviceSvc = deviceservice.NewDeviceServiceHandler(newDeviceStore, newFleetStore, eventsSvc, kvStore, "", log)
-		fleetSvc = fleetservice.NewServiceHandler(newFleetStore, eventsSvc, log)
+		deviceSvc = deviceservice.NewDeviceServiceHandler(newDeviceStore, nil, newFleetStore, eventsSvc, kvStore, "", log)
+		fleetSvc = fleetservice.NewServiceHandler(newFleetStore, nil, eventsSvc, log)
 		eventSvc = eventservice.NewServiceHandler(eventStore, eventsSvc)
 	})
 	AfterEach(func() {

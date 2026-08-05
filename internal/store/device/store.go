@@ -2,6 +2,7 @@ package device
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -72,7 +73,7 @@ type Store interface {
 	// Used internally
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
 	MutateAnnotation(ctx context.Context, orgId uuid.UUID, name string, key string, mutate func(current string) (string, error)) error
-	UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, mutateStatus RenderedStatusMutator) (string, error)
+	UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash, osImage string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, mutateStatus RenderedStatusMutator) (string, error)
 	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, callback ServiceConditionsCallback) error
 	DecommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission, eventCallback store.EventCallback) (*domain.Device, error)
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
@@ -92,6 +93,11 @@ type Store interface {
 
 	// Used by fleet selector
 	ListDevicesByServiceCondition(ctx context.Context, orgId uuid.UUID, conditionType string, conditionStatus string, listParams store.ListParams) (*domain.DeviceList, error)
+
+	// Used by catalog
+	ListDevicesByOsCatalogItemRef(ctx context.Context, orgId uuid.UUID, catalog string, item string, listParams store.ListParams) (*domain.DeviceList, error)
+	ListDevicesByAppCatalogItemRef(ctx context.Context, orgId uuid.UUID, catalog string, item string, listParams store.ListParams) (*domain.DeviceList, error)
+	ListDevicesByVolumeCatalogItemRef(ctx context.Context, orgId uuid.UUID, catalog string, item string, listParams store.ListParams) (*domain.DeviceList, error)
 
 	// Used by tests
 	SetIntegrationTestCreateOrUpdateCallback(store.IntegrationTestCallback)
@@ -195,6 +201,18 @@ func (s *DeviceStore) InitialMigration(ctx context.Context) error {
 	}
 
 	if err := s.createDeviceOsImageDigestIndex(db); err != nil {
+		return err
+	}
+
+	if err := s.createDeviceOsCatalogRefIndex(db); err != nil {
+		return err
+	}
+
+	if err := s.createDeviceAppCatalogRefIndex(db); err != nil {
+		return err
+	}
+
+	if err := s.createDeviceVolumeCatalogRefIndex(db); err != nil {
 		return err
 	}
 
@@ -305,6 +323,33 @@ func (s *DeviceStore) createDeviceOsImageDigestIndex(db *gorm.DB) error {
 		WHERE deleted_at IS NULL
 		  AND status->'os'->>'imageDigest' IS NOT NULL
 		  AND status->'os'->>'imageDigest' <> ''`).Error
+}
+
+func (s *DeviceStore) createDeviceOsCatalogRefIndex(db *gorm.DB) error {
+	if db.Dialector.Name() != "postgres" {
+		return nil
+	}
+	return db.Exec(`CREATE INDEX IF NOT EXISTS idx_devices_os_catalog_ref
+		ON devices ((spec->'os'->'catalogItemRef'->>'catalog'), (spec->'os'->'catalogItemRef'->>'item'))
+		WHERE deleted_at IS NULL`).Error
+}
+
+func (s *DeviceStore) createDeviceAppCatalogRefIndex(db *gorm.DB) error {
+	if db.Dialector.Name() != "postgres" {
+		return nil
+	}
+	return db.Exec(`CREATE INDEX IF NOT EXISTS idx_devices_app_catalog_refs
+		ON devices USING GIN ((jsonb_path_query_array(spec, '$.applications[*].catalogItemRef')) jsonb_path_ops)
+		WHERE deleted_at IS NULL`).Error
+}
+
+func (s *DeviceStore) createDeviceVolumeCatalogRefIndex(db *gorm.DB) error {
+	if db.Dialector.Name() != "postgres" {
+		return nil
+	}
+	return db.Exec(`CREATE INDEX IF NOT EXISTS idx_devices_volume_catalog_refs
+		ON devices USING GIN ((jsonb_path_query_array(spec, '$.applications[*].volumes[*].image.catalogItemRef')) jsonb_path_ops)
+		WHERE deleted_at IS NULL`).Error
 }
 
 func (s *DeviceStore) createDeviceLabelsTrigger(db *gorm.DB) error {
@@ -1127,7 +1172,7 @@ func (s *DeviceStore) SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner s
 	})
 }
 
-func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, mutateStatus RenderedStatusMutator) (retry bool, renderedVersion string, err error) {
+func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash, osImage string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, mutateStatus RenderedStatusMutator) (retry bool, renderedVersion string, err error) {
 	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
 	result := s.getDB(ctx).Take(&existingRecord)
 	if result.Error != nil {
@@ -1184,6 +1229,8 @@ func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name,
 		"render_timestamp":      time.Now(),
 	}
 
+	updates["rendered_os"] = model.MakeJSONField(domain.DeviceOsSpec{Image: osImage})
+
 	if mutateStatus != nil {
 		existingRecord.Annotations = model.MakeJSONMap(existingAnnotations)
 		apiDevice, convertErr := existingRecord.ToApiResource()
@@ -1191,10 +1238,6 @@ func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name,
 			return false, "", convertErr
 		}
 		if mutateStatus(apiDevice) && apiDevice.Status != nil {
-			// apiDevice.Status.Conditions/DependencySync were merged in by ToApiResource above
-			// for the mutator's benefit (e.g. diffing SpecValid). Round-trip back through
-			// NewDeviceFromApiResource to split them back out into service_conditions before
-			// writing the status column, the same way every other device write does.
 			deviceOnlyRecord, convertErr := model.NewDeviceFromApiResource(apiDevice)
 			if convertErr != nil {
 				return false, "", convertErr
@@ -1286,13 +1329,13 @@ func buildDependencySyncStatus(existing *model.JSONField[model.ServiceConditions
 	return model.MakeJSONField(sc)
 }
 
-func (s *DeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, mutateStatus RenderedStatusMutator) (string, error) {
+func (s *DeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash, osImage string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, mutateStatus RenderedStatusMutator) (string, error) {
 	var rv string
 
 	wrapper := func() (bool, error) {
 		var retry bool
 		var err error
-		retry, rv, err = s.updateRendered(ctx, orgId, name, renderedConfig, renderedApplications, specHash, configFingerprints, forceUpdate, mutateStatus)
+		retry, rv, err = s.updateRendered(ctx, orgId, name, renderedConfig, renderedApplications, specHash, osImage, configFingerprints, forceUpdate, mutateStatus)
 		return retry, err
 	}
 
@@ -1573,6 +1616,165 @@ func (s *DeviceStore) ListDevicesByServiceCondition(ctx context.Context, orgId u
 			nextContinue = store.BuildContinueString([]string{devices[len(devices)-1].Name}, count)
 			numRemaining = &count
 		}
+	}
+
+	result, err := model.DevicesToApiResource(devices, nextContinue, numRemaining)
+	return &result, err
+}
+
+func (s *DeviceStore) ListDevicesByOsCatalogItemRef(ctx context.Context, orgId uuid.UUID, catalog string, item string, listParams store.ListParams) (*domain.DeviceList, error) {
+	var devices []model.Device
+	var nextContinue *string
+	var numRemaining *int64
+
+	querySQL := `
+		SELECT * FROM devices
+		WHERE org_id = ?
+			AND deleted_at IS NULL
+			AND spec->'os'->'catalogItemRef'->>'catalog' = ?
+			AND spec->'os'->'catalogItemRef'->>'item' = ?`
+
+	args := []interface{}{orgId, catalog, item}
+
+	if listParams.Continue != nil && len(listParams.Continue.Names) > 0 {
+		querySQL += " AND name > ?"
+		args = append(args, listParams.Continue.Names[0])
+	}
+
+	querySQL += " ORDER BY name ASC"
+
+	if listParams.Limit > 0 {
+		querySQL += " LIMIT ?"
+		args = append(args, listParams.Limit+1)
+	}
+
+	if err := s.getDB(ctx).Raw(querySQL, args...).Scan(&devices).Error; err != nil {
+		return nil, store.ErrorFromGormError(err)
+	}
+
+	if listParams.Limit > 0 && len(devices) > listParams.Limit {
+		devices = devices[:listParams.Limit]
+
+		var numRemainingVal int64
+		if listParams.Continue != nil {
+			numRemainingVal = listParams.Continue.Count - int64(listParams.Limit)
+			if numRemainingVal < 1 {
+				numRemainingVal = 1
+			}
+		} else {
+			numRemainingVal = 1
+		}
+
+		nextContinue = store.BuildContinueString([]string{devices[len(devices)-1].Name}, numRemainingVal)
+		numRemaining = &numRemainingVal
+	}
+
+	result, err := model.DevicesToApiResource(devices, nextContinue, numRemaining)
+	return &result, err
+}
+
+func (s *DeviceStore) ListDevicesByAppCatalogItemRef(ctx context.Context, orgId uuid.UUID, catalog string, item string, listParams store.ListParams) (*domain.DeviceList, error) {
+	var devices []model.Device
+	var nextContinue *string
+	var numRemaining *int64
+
+	querySQL := `
+		SELECT * FROM devices
+		WHERE org_id = ?
+			AND deleted_at IS NULL
+			AND jsonb_path_query_array(spec, '$.applications[*].catalogItemRef') @> ?::jsonb`
+
+	catalogRef, err := json.Marshal([]map[string]string{{"catalog": catalog, "item": item}})
+	if err != nil {
+		return nil, err
+	}
+	args := []interface{}{orgId, string(catalogRef)}
+
+	if listParams.Continue != nil && len(listParams.Continue.Names) > 0 {
+		querySQL += " AND name > ?"
+		args = append(args, listParams.Continue.Names[0])
+	}
+
+	querySQL += " ORDER BY name ASC"
+
+	if listParams.Limit > 0 {
+		querySQL += " LIMIT ?"
+		args = append(args, listParams.Limit+1)
+	}
+
+	if err := s.getDB(ctx).Raw(querySQL, args...).Scan(&devices).Error; err != nil {
+		return nil, store.ErrorFromGormError(err)
+	}
+
+	if listParams.Limit > 0 && len(devices) > listParams.Limit {
+		devices = devices[:listParams.Limit]
+
+		var numRemainingVal int64
+		if listParams.Continue != nil {
+			numRemainingVal = listParams.Continue.Count - int64(listParams.Limit)
+			if numRemainingVal < 1 {
+				numRemainingVal = 1
+			}
+		} else {
+			numRemainingVal = 1
+		}
+
+		nextContinue = store.BuildContinueString([]string{devices[len(devices)-1].Name}, numRemainingVal)
+		numRemaining = &numRemainingVal
+	}
+
+	result, err := model.DevicesToApiResource(devices, nextContinue, numRemaining)
+	return &result, err
+}
+
+func (s *DeviceStore) ListDevicesByVolumeCatalogItemRef(ctx context.Context, orgId uuid.UUID, catalog string, item string, listParams store.ListParams) (*domain.DeviceList, error) {
+	var devices []model.Device
+	var nextContinue *string
+	var numRemaining *int64
+
+	querySQL := `
+		SELECT * FROM devices
+		WHERE org_id = ?
+			AND deleted_at IS NULL
+			AND jsonb_path_query_array(spec, '$.applications[*].volumes[*].image.catalogItemRef') @> ?::jsonb`
+
+	catalogRef, err := json.Marshal([]map[string]string{{"catalog": catalog, "item": item}})
+	if err != nil {
+		return nil, err
+	}
+	args := []interface{}{orgId, string(catalogRef)}
+
+	if listParams.Continue != nil && len(listParams.Continue.Names) > 0 {
+		querySQL += " AND name > ?"
+		args = append(args, listParams.Continue.Names[0])
+	}
+
+	querySQL += " ORDER BY name ASC"
+
+	if listParams.Limit > 0 {
+		querySQL += " LIMIT ?"
+		args = append(args, listParams.Limit+1)
+	}
+
+	if err := s.getDB(ctx).Raw(querySQL, args...).Scan(&devices).Error; err != nil {
+		return nil, store.ErrorFromGormError(err)
+	}
+
+	if listParams.Limit > 0 && len(devices) > listParams.Limit {
+		devices = devices[:listParams.Limit]
+
+		var numRemainingVal int64
+		if listParams.Continue != nil {
+			numRemainingVal = listParams.Continue.Count - int64(listParams.Limit)
+			if numRemainingVal < 1 {
+				numRemainingVal = 1
+			}
+		} else {
+			numRemainingVal = 1
+		}
+
+		nextContinue = store.BuildContinueString([]string{devices[len(devices)-1].Name}, numRemainingVal)
+		numRemaining = &numRemainingVal
 	}
 
 	result, err := model.DevicesToApiResource(devices, nextContinue, numRemaining)

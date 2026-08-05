@@ -39,9 +39,14 @@ func newContainerProvider(
 		return nil, fmt.Errorf("getting container application: %w", err)
 	}
 
+	imageSpec, err := containerApp.AsImageApplicationProviderSpec()
+	if err != nil {
+		return nil, fmt.Errorf("getting container image spec: %w", err)
+	}
+
 	appName := lo.FromPtr(containerApp.Name)
 	if appName == "" {
-		appName = containerApp.Image
+		appName = imageSpec.Image
 	}
 
 	user := containerApp.RunAsWithDefault()
@@ -78,6 +83,7 @@ func newContainerProvider(
 			AppType:           v1beta1.AppTypeContainer,
 			User:              user,
 			Path:              appPath,
+			Image:             imageSpec.Image,
 			EnvVars:           lo.FromPtr(containerApp.EnvVars),
 			Embedded:          false,
 			ContainerApp:      &containerApp,
@@ -148,7 +154,7 @@ func (p *containerProvider) Install(ctx context.Context) error {
 		return fmt.Errorf("writing env file: %w", err)
 	}
 
-	if err := generateQuadlet(ctx, p.podman, p.readWriter, p.spec.Path, p.spec.ContainerApp); err != nil {
+	if err := generateQuadlet(ctx, p.podman, p.readWriter, p.spec.Path, p.spec.Image, p.spec.ContainerApp); err != nil {
 		return fmt.Errorf("generating quadlet: %w", err)
 	}
 
@@ -186,7 +192,7 @@ func (p *containerProvider) collectOCITargets(ctx context.Context, configProvide
 	var targets dependency.OCIPullTargetsByUser
 	targets = targets.Add(p.spec.User, dependency.OCIPullTarget{
 		Type:         dependency.OCITypePodmanImage,
-		Reference:    p.spec.ContainerApp.Image,
+		Reference:    p.spec.Image,
 		PullPolicy:   v1beta1.PullIfNotPresent,
 		ClientOptsFn: containerPullOptions(configProvider, p.spec.User),
 	})
@@ -204,7 +210,7 @@ func (p *containerProvider) extractNestedTargets(_ context.Context, _ dependency
 
 func (p *containerProvider) parentIsAvailable(_ context.Context) (string, string, bool, error) {
 	// Container apps don't have nested targets, so parent availability doesn't matter
-	return p.spec.ContainerApp.Image, "", true, nil
+	return p.spec.Image, "", true, nil
 }
 
 func createVolumeQuadlet(rw fileio.ReadWriter, dir string, volumeName string, imageRef string) error {
@@ -225,9 +231,9 @@ func createVolumeQuadlet(rw fileio.ReadWriter, dir string, volumeName string, im
 	return nil
 }
 
-func generateQuadlet(ctx context.Context, podman *client.Podman, rw fileio.ReadWriter, dir string, spec *v1beta1.ContainerApplication) error {
+func generateQuadlet(ctx context.Context, podman *client.Podman, rw fileio.ReadWriter, dir string, imageRef string, spec *v1beta1.ContainerApplication) error {
 	unit := quadlet.NewEmptyUnit()
-	unit.Add(quadlet.ContainerGroup, quadlet.ImageKey, spec.Image)
+	unit.Add(quadlet.ContainerGroup, quadlet.ImageKey, imageRef)
 
 	if spec.Resources != nil && spec.Resources.Limits != nil {
 		lims := spec.Resources.Limits

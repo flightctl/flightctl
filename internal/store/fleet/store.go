@@ -40,6 +40,11 @@ type Store interface {
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, error)
 
+	// Used by catalog
+	ListFleetsByOsCatalogItemRef(ctx context.Context, orgId uuid.UUID, catalog string, item string, listParams store.ListParams) (*domain.FleetList, error)
+	ListFleetsByAppCatalogItemRef(ctx context.Context, orgId uuid.UUID, catalog string, item string, listParams store.ListParams) (*domain.FleetList, error)
+	ListFleetsByVolumeCatalogItemRef(ctx context.Context, orgId uuid.UUID, catalog string, item string, listParams store.ListParams) (*domain.FleetList, error)
+
 	// Used by domain metrics
 	CountByRolloutStatus(ctx context.Context, orgId *uuid.UUID, _ *string) ([]CountByRolloutStatusResult, error)
 }
@@ -110,7 +115,46 @@ func (s *FleetStore) InitialMigration(ctx context.Context) error {
 		}
 	}
 
+	if err := s.createFleetOsCatalogRefIndex(db); err != nil {
+		return err
+	}
+
+	if err := s.createFleetAppCatalogRefIndex(db); err != nil {
+		return err
+	}
+
+	if err := s.createFleetVolumeCatalogRefIndex(db); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+func (s *FleetStore) createFleetOsCatalogRefIndex(db *gorm.DB) error {
+	if db.Dialector.Name() != "postgres" {
+		return nil
+	}
+	return db.Exec(`CREATE INDEX IF NOT EXISTS idx_fleets_os_catalog_ref
+		ON fleets ((spec->'template'->'spec'->'os'->'catalogItemRef'->>'catalog'), (spec->'template'->'spec'->'os'->'catalogItemRef'->>'item'))
+		WHERE deleted_at IS NULL`).Error
+}
+
+func (s *FleetStore) createFleetAppCatalogRefIndex(db *gorm.DB) error {
+	if db.Dialector.Name() != "postgres" {
+		return nil
+	}
+	return db.Exec(`CREATE INDEX IF NOT EXISTS idx_fleets_app_catalog_refs
+		ON fleets USING GIN ((jsonb_path_query_array(spec, '$.template.spec.applications[*].catalogItemRef')) jsonb_path_ops)
+		WHERE deleted_at IS NULL`).Error
+}
+
+func (s *FleetStore) createFleetVolumeCatalogRefIndex(db *gorm.DB) error {
+	if db.Dialector.Name() != "postgres" {
+		return nil
+	}
+	return db.Exec(`CREATE INDEX IF NOT EXISTS idx_fleets_volume_catalog_refs
+		ON fleets USING GIN ((jsonb_path_query_array(spec, '$.template.spec.applications[*].volumes[*].image.catalogItemRef')) jsonb_path_ops)
+		WHERE deleted_at IS NULL`).Error
 }
 
 func (s *FleetStore) Create(ctx context.Context, orgId uuid.UUID, resource *domain.Fleet, eventCallback store.EventCallback) (*domain.Fleet, error) {
@@ -558,6 +602,165 @@ func (s *FleetStore) GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, nam
 		return nil, err
 	}
 	return &repositories, nil
+}
+
+func (s *FleetStore) ListFleetsByOsCatalogItemRef(ctx context.Context, orgId uuid.UUID, catalog string, item string, listParams store.ListParams) (*domain.FleetList, error) {
+	var fleets []model.Fleet
+	var nextContinue *string
+	var numRemaining *int64
+
+	querySQL := `
+		SELECT * FROM fleets
+		WHERE org_id = ?
+			AND deleted_at IS NULL
+			AND spec->'template'->'spec'->'os'->'catalogItemRef'->>'catalog' = ?
+			AND spec->'template'->'spec'->'os'->'catalogItemRef'->>'item' = ?`
+
+	args := []interface{}{orgId, catalog, item}
+
+	if listParams.Continue != nil && len(listParams.Continue.Names) > 0 {
+		querySQL += " AND name > ?"
+		args = append(args, listParams.Continue.Names[0])
+	}
+
+	querySQL += " ORDER BY name ASC"
+
+	if listParams.Limit > 0 {
+		querySQL += " LIMIT ?"
+		args = append(args, listParams.Limit+1)
+	}
+
+	if err := s.getDB(ctx).Raw(querySQL, args...).Scan(&fleets).Error; err != nil {
+		return nil, store.ErrorFromGormError(err)
+	}
+
+	if listParams.Limit > 0 && len(fleets) > listParams.Limit {
+		fleets = fleets[:listParams.Limit]
+
+		var numRemainingVal int64
+		if listParams.Continue != nil {
+			numRemainingVal = listParams.Continue.Count - int64(listParams.Limit)
+			if numRemainingVal < 1 {
+				numRemainingVal = 1
+			}
+		} else {
+			numRemainingVal = 1
+		}
+
+		nextContinue = store.BuildContinueString([]string{fleets[len(fleets)-1].Name}, numRemainingVal)
+		numRemaining = &numRemainingVal
+	}
+
+	result, err := model.FleetsToApiResource(fleets, nextContinue, numRemaining)
+	return &result, err
+}
+
+func (s *FleetStore) ListFleetsByAppCatalogItemRef(ctx context.Context, orgId uuid.UUID, catalog string, item string, listParams store.ListParams) (*domain.FleetList, error) {
+	var fleets []model.Fleet
+	var nextContinue *string
+	var numRemaining *int64
+
+	querySQL := `
+		SELECT * FROM fleets
+		WHERE org_id = ?
+			AND deleted_at IS NULL
+			AND jsonb_path_query_array(spec, '$.template.spec.applications[*].catalogItemRef') @> ?::jsonb`
+
+	catalogRef, err := json.Marshal([]map[string]string{{"catalog": catalog, "item": item}})
+	if err != nil {
+		return nil, err
+	}
+	args := []interface{}{orgId, string(catalogRef)}
+
+	if listParams.Continue != nil && len(listParams.Continue.Names) > 0 {
+		querySQL += " AND name > ?"
+		args = append(args, listParams.Continue.Names[0])
+	}
+
+	querySQL += " ORDER BY name ASC"
+
+	if listParams.Limit > 0 {
+		querySQL += " LIMIT ?"
+		args = append(args, listParams.Limit+1)
+	}
+
+	if err := s.getDB(ctx).Raw(querySQL, args...).Scan(&fleets).Error; err != nil {
+		return nil, store.ErrorFromGormError(err)
+	}
+
+	if listParams.Limit > 0 && len(fleets) > listParams.Limit {
+		fleets = fleets[:listParams.Limit]
+
+		var numRemainingVal int64
+		if listParams.Continue != nil {
+			numRemainingVal = listParams.Continue.Count - int64(listParams.Limit)
+			if numRemainingVal < 1 {
+				numRemainingVal = 1
+			}
+		} else {
+			numRemainingVal = 1
+		}
+
+		nextContinue = store.BuildContinueString([]string{fleets[len(fleets)-1].Name}, numRemainingVal)
+		numRemaining = &numRemainingVal
+	}
+
+	result, err := model.FleetsToApiResource(fleets, nextContinue, numRemaining)
+	return &result, err
+}
+
+func (s *FleetStore) ListFleetsByVolumeCatalogItemRef(ctx context.Context, orgId uuid.UUID, catalog string, item string, listParams store.ListParams) (*domain.FleetList, error) {
+	var fleets []model.Fleet
+	var nextContinue *string
+	var numRemaining *int64
+
+	querySQL := `
+		SELECT * FROM fleets
+		WHERE org_id = ?
+			AND deleted_at IS NULL
+			AND jsonb_path_query_array(spec, '$.template.spec.applications[*].volumes[*].image.catalogItemRef') @> ?::jsonb`
+
+	catalogRef, err := json.Marshal([]map[string]string{{"catalog": catalog, "item": item}})
+	if err != nil {
+		return nil, err
+	}
+	args := []interface{}{orgId, string(catalogRef)}
+
+	if listParams.Continue != nil && len(listParams.Continue.Names) > 0 {
+		querySQL += " AND name > ?"
+		args = append(args, listParams.Continue.Names[0])
+	}
+
+	querySQL += " ORDER BY name ASC"
+
+	if listParams.Limit > 0 {
+		querySQL += " LIMIT ?"
+		args = append(args, listParams.Limit+1)
+	}
+
+	if err := s.getDB(ctx).Raw(querySQL, args...).Scan(&fleets).Error; err != nil {
+		return nil, store.ErrorFromGormError(err)
+	}
+
+	if listParams.Limit > 0 && len(fleets) > listParams.Limit {
+		fleets = fleets[:listParams.Limit]
+
+		var numRemainingVal int64
+		if listParams.Continue != nil {
+			numRemainingVal = listParams.Continue.Count - int64(listParams.Limit)
+			if numRemainingVal < 1 {
+				numRemainingVal = 1
+			}
+		} else {
+			numRemainingVal = 1
+		}
+
+		nextContinue = store.BuildContinueString([]string{fleets[len(fleets)-1].Name}, numRemainingVal)
+		numRemaining = &numRemainingVal
+	}
+
+	result, err := model.FleetsToApiResource(fleets, nextContinue, numRemaining)
+	return &result, err
 }
 
 // CountByRolloutStatusResult holds the result of the group by query

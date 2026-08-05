@@ -38,6 +38,7 @@ rules:
       - authproviders
       - catalogitems
       - catalogs
+      - catalogs/deployments
       - catalogs/items
       - certificatesigningrequests
       - certificatesigningrequests/approval
@@ -125,6 +126,7 @@ rules:
       - authproviders
       - catalogitems
       - catalogs
+      - catalogs/deployments
       - catalogs/items
       - certificatesigningrequests
       - certificatesigningrequests/approval

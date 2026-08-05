@@ -3,11 +3,13 @@ package v1alpha1
 const (
 	StatusKind = "Status"
 
-	CatalogAPIVersion   = "v1alpha1"
-	CatalogKind         = "Catalog"
-	CatalogListKind     = "CatalogList"
-	CatalogItemKind     = "CatalogItem"
-	CatalogItemListKind = "CatalogItemList"
+	CatalogAPIVersion             = "v1alpha1"
+	CatalogKind                   = "Catalog"
+	CatalogListKind               = "CatalogList"
+	CatalogItemKind               = "CatalogItem"
+	CatalogItemListKind           = "CatalogItemList"
+	CatalogItemDeploymentKind     = "CatalogItemDeployment"
+	CatalogItemDeploymentListKind = "CatalogItemDeploymentList"
 
 	VulnerabilityKind              = "Vulnerability"
 	VulnerabilityListKind          = "VulnerabilityList"

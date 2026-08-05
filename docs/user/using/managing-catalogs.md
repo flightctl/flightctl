@@ -423,3 +423,116 @@ Because Git is the source of truth, you update catalogs by committing changes to
 
 > [!NOTE]
 > Flight Control checks for updates periodically. Changes in the Git repository are not reflected immediately but on the next synchronization cycle.
+
+## Referencing catalog items in device specifications
+
+Instead of specifying OCI image references directly in a device or fleet specification, you can reference a catalog item version using a `catalogItemRef` field. Flight Control resolves the reference to the corresponding OCI image at render time, before delivering the specification to the agent. This centralizes image management in the catalog while keeping device specifications declarative.
+
+A `catalogItemRef` has the following fields:
+
+| Field | Required | Description |
+| --------- | -------- | ----------- |
+| `catalog` | Yes | The name of the catalog that contains the item. |
+| `item` | Yes | The name of the catalog item. |
+| `version` | Yes | A version that exists in the catalog item. |
+| `channel` | No | An update channel used to provide update cues when available. |
+
+You can use catalog item references in three places within a device specification: the OS image, application sources, and application volume sources.
+
+### OS image
+
+Use a `catalogItemRef` in `spec.os` instead of a direct `image` reference. The referenced catalog item must have type `os`.
+
+Using a direct image reference:
+
+```yaml
+spec:
+  os:
+    image: quay.io/flightctl/rhel:9.5
+```
+
+Using a catalog item reference:
+
+```yaml
+spec:
+  os:
+    catalogItemRef:
+      catalog: infrastructure
+      item: rhel
+      version: "9.5"
+      channel: stable
+```
+
+> [!NOTE]
+> You must specify either `image` or `catalogItemRef` in `spec.os`, not both.
+
+### Applications
+
+Use a `catalogItemRef` instead of an `image` field to specify the source of an application. The referenced catalog item type must match the application type (`container`, `quadlet`, `compose`, or `helm`).
+
+Using a direct image reference:
+
+```yaml
+spec:
+  applications:
+    - name: wordpress
+      appType: container
+      image: quay.io/flightctl-demos/wordpress-app:v1.2.3
+```
+
+Using a catalog item reference:
+
+```yaml
+spec:
+  applications:
+    - name: wordpress
+      appType: container
+      catalogItemRef:
+        catalog: platform-apps
+        item: wordpress
+        version: "1.2.3"
+        channel: stable
+```
+
+> [!NOTE]
+> You must specify exactly one of `image`, `catalogItemRef`, or `inline` for each application, not a combination.
+
+### Application volumes
+
+Use a `catalogItemRef` instead of a `reference` field in a volume's `image` source. The referenced catalog item must have type `data`.
+
+Using a direct image reference:
+
+```yaml
+spec:
+  applications:
+    - name: my-app
+      appType: compose
+      image: quay.io/myorg/my-app:v1.0
+      volumes:
+        - name: ml-models
+          image:
+            reference: quay.io/myorg/models:v2.0
+            pullPolicy: IfNotPresent
+```
+
+Using a catalog item reference:
+
+```yaml
+spec:
+  applications:
+    - name: my-app
+      appType: compose
+      image: quay.io/myorg/my-app:v1.0
+      volumes:
+        - name: ml-models
+          image:
+            catalogItemRef:
+              catalog: platform-apps
+              item: ml-models
+              version: "2.0"
+            pullPolicy: IfNotPresent
+```
+
+> [!NOTE]
+> You must specify either `reference` or `catalogItemRef` in a volume's `image` source, not both.

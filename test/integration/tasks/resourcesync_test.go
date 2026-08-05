@@ -16,6 +16,7 @@ import (
 	resourcesyncservice "github.com/flightctl/flightctl/internal/service/resourcesync"
 	"github.com/flightctl/flightctl/internal/store"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
+	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
@@ -65,6 +66,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 		fleetStore := fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
 		resourcesyncStore := resourcesyncstore.NewResourceSyncStore(db, log.WithField("pkg", "resourcesync-store"))
 		catalogStore := catalogstore.NewCatalogStore(db, log.WithField("pkg", "catalog-store"))
+		deviceStore := devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
 		eventStore = eventstore.NewEventStore(db, log.WithField("pkg", "event-store"))
 		ctrl = gomock.NewController(GinkgoT())
 		mockQueueProducer = queues.NewMockQueueProducer(ctrl)
@@ -73,9 +75,9 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 		Expect(err).ToNot(HaveOccurred())
 		eventsSvc := events.NewServiceHandler(eventStore, workerClient, log)
 		repositorySvc = repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, log)
-		fleetSvc = fleetservice.NewServiceHandler(fleetStore, eventsSvc, log)
+		fleetSvc = fleetservice.NewServiceHandler(fleetStore, catalogStore, eventsSvc, log)
 		resourcesyncSvc = resourcesyncservice.NewServiceHandler(resourcesyncStore, catalogStore, fleetStore, eventsSvc, log)
-		catalogSvc = catalogservice.NewServiceHandler(catalogStore, eventsSvc, log)
+		catalogSvc = catalogservice.NewServiceHandler(catalogStore, deviceStore, fleetStore, eventsSvc, log)
 		resourceSync = tasks.NewResourceSync(repositorySvc, fleetSvc, resourcesyncSvc, catalogSvc, log, nil, nil)
 
 		// Set up mock expectations for the publisher
@@ -1046,7 +1048,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 							{Type: domain.CatalogItemArtifactTypeContainer, Uri: "docker.io/library/caddy"},
 						},
 						Versions: []domain.CatalogItemVersion{
-							{Version: "2.7.6", References: map[string]string{"container": "v2.7.6"}, Channels: []string{"stable"}},
+							{Version: "2.7.6", References: map[domain.CatalogItemArtifactType]string{"container": "v2.7.6"}, Channels: []string{"stable"}},
 						},
 					},
 				},
@@ -1060,8 +1062,8 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 							{Type: domain.CatalogItemArtifactTypeContainer, Uri: "quay.io/prometheus/node-exporter"},
 						},
 						Versions: []domain.CatalogItemVersion{
-							{Version: "1.7.0", References: map[string]string{"container": "v1.7.0"}, Channels: []string{"stable"}},
-							{Version: "1.8.0", References: map[string]string{"container": "v1.8.0"}, Channels: []string{"stable", "candidate"}, Replaces: lo.ToPtr("1.7.0")},
+							{Version: "1.7.0", References: map[domain.CatalogItemArtifactType]string{"container": "v1.7.0"}, Channels: []string{"stable"}},
+							{Version: "1.8.0", References: map[domain.CatalogItemArtifactType]string{"container": "v1.8.0"}, Channels: []string{"stable", "candidate"}, Replaces: lo.ToPtr("1.7.0")},
 						},
 					},
 				},
@@ -1166,7 +1168,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 					Spec: domain.CatalogItemSpec{
 						Type:      domain.CatalogItemTypeContainer,
 						Artifacts: []domain.CatalogItemArtifact{{Type: domain.CatalogItemArtifactTypeContainer, Uri: "quay.io/test/a"}},
-						Versions:  []domain.CatalogItemVersion{{Version: "1.0.0", References: map[string]string{"container": "v1.0.0"}, Channels: []string{"stable"}}},
+						Versions:  []domain.CatalogItemVersion{{Version: "1.0.0", References: map[domain.CatalogItemArtifactType]string{"container": "v1.0.0"}, Channels: []string{"stable"}}},
 					},
 				},
 				{
@@ -1176,7 +1178,7 @@ var _ = Describe("ResourceSync Task Integration Tests", func() {
 					Spec: domain.CatalogItemSpec{
 						Type:      domain.CatalogItemTypeContainer,
 						Artifacts: []domain.CatalogItemArtifact{{Type: domain.CatalogItemArtifactTypeContainer, Uri: "quay.io/test/b"}},
-						Versions:  []domain.CatalogItemVersion{{Version: "1.0.0", References: map[string]string{"container": "v1.0.0"}, Channels: []string{"stable"}}},
+						Versions:  []domain.CatalogItemVersion{{Version: "1.0.0", References: map[domain.CatalogItemArtifactType]string{"container": "v1.0.0"}, Channels: []string{"stable"}}},
 					},
 				},
 			}

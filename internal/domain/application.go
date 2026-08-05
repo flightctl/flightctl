@@ -12,13 +12,17 @@ type ContainerApplication = v1beta1.ContainerApplication
 type HelmApplication = v1beta1.HelmApplication
 type ImageApplicationProviderSpec = v1beta1.ImageApplicationProviderSpec
 type InlineApplicationProviderSpec = v1beta1.InlineApplicationProviderSpec
+type CatalogItemRefApplicationProviderSpec = v1beta1.CatalogItemRefApplicationProviderSpec
+type CatalogItemRefSpec = v1beta1.CatalogItemRefSpec
+type CatalogItemRefSource = v1beta1.CatalogItemRefSource
 
 // ApplicationProviderType discriminator type
 type ApplicationProviderType = v1beta1.ApplicationProviderType
 
 const (
-	ImageApplicationProviderType  = v1beta1.ImageApplicationProviderType
-	InlineApplicationProviderType = v1beta1.InlineApplicationProviderType
+	ImageApplicationProviderType          = v1beta1.ImageApplicationProviderType
+	InlineApplicationProviderType         = v1beta1.InlineApplicationProviderType
+	CatalogItemRefApplicationProviderType = v1beta1.CatalogItemRefApplicationProviderType
 )
 
 // ========== Application Content ==========

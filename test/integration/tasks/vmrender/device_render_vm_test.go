@@ -101,7 +101,7 @@ var _ = Describe("VmApplicationRender", func() {
 		kvStoreInst, err = kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
 		Expect(err).ToNot(HaveOccurred())
 		eventsSvc := events.NewServiceHandler(eventStore, workerClient, log)
-		deviceSvc = deviceservice.NewDeviceServiceHandler(newDeviceStore, newFleetStore, eventsSvc, kvStoreInst, "", log)
+		deviceSvc = deviceservice.NewDeviceServiceHandler(newDeviceStore, nil, newFleetStore, eventsSvc, kvStoreInst, "", log)
 		repositorySvc = repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, log)
 
 		if queuesProvider == nil {
@@ -139,7 +139,7 @@ var _ = Describe("VmApplicationRender", func() {
 			InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: deviceName},
 		}
 
-		logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, &mockK8sClient{}, kvStoreInst, nil, orgId, event).
+		logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil, orgId, event).
 			WithVmConverter(vmConverter)
 		Expect(logic.RenderDevice(ctx)).To(Succeed())
 

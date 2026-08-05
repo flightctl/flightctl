@@ -216,6 +216,54 @@ type CatalogItemConfigurable struct {
 	Readme *string `json:"readme,omitempty"`
 }
 
+// CatalogItemDeployment CatalogItemDeployment represents a specific deployment of a catalog item to a fleet or device. A catalog item associated to a fleet that has no devices is still considered a deployment. A deployment is only associated with the fleet and not the individual devices in cases where a device is using a catalog item deployment that came from a device spec template on a fleet.
+type CatalogItemDeployment struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion ApiVersion `json:"apiVersion"`
+
+	// ApplicationName For catalog items in the 'application' category, the name of the application on the device that the deployment is associated with. Required for application catalog items.
+	ApplicationName *string `json:"applicationName,omitempty"`
+
+	// Catalog The catalog of the catalogItem.
+	Catalog string `json:"catalog"`
+
+	// CatalogItem The catalogItem that this deployment corresponds to.
+	CatalogItem string `json:"catalogItem"`
+
+	// Channel The channel, if any, that is intended to be tracked for the catalog item.
+	Channel *string `json:"channel,omitempty"`
+
+	// DeployedTo The device or fleet that this deployment pertains to.
+	DeployedTo *struct {
+		// ResourceKind Either a Device or Fleet.
+		ResourceKind *string `json:"resourceKind,omitempty"`
+
+		// ResourceName The name of the device or fleet.
+		ResourceName *string `json:"resourceName,omitempty"`
+	} `json:"deployedTo,omitempty"`
+
+	// Kind Kind is a string value representing the REST resource this object represents.
+	Kind string `json:"kind"`
+
+	// Version The version of the catalog item that is deployed.
+	Version string `json:"version"`
+}
+
+// CatalogItemDeploymentList CatalogItemDeploymentList is a list of CatalogItemDeployments.
+type CatalogItemDeploymentList struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion ApiVersion `json:"apiVersion"`
+
+	// Items List of CatalogItemDeployments.
+	Items []CatalogItemDeployment `json:"items"`
+
+	// Kind Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.
+	Kind string `json:"kind"`
+
+	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
+	Metadata externalRef0.ListMeta `json:"metadata"`
+}
+
 // CatalogItemDeprecation Deprecation information for a catalog item or version. Presence indicates deprecated status.
 type CatalogItemDeprecation struct {
 	// Message Required message explaining why this is deprecated and what to do instead.
@@ -333,7 +381,7 @@ type CatalogItemVersion struct {
 	Readme *string `json:"readme,omitempty"`
 
 	// References Map of artifact type to image tag or digest. Keys must match a type in spec.artifacts. Only keyed artifacts are available for this version.
-	References map[string]string `json:"references"`
+	References map[CatalogItemArtifactType]string `json:"references"`
 
 	// Replaces The single version this one replaces, defining the primary upgrade edge.
 	Replaces *SemVer `json:"replaces,omitempty"`
@@ -786,6 +834,15 @@ type ListCatalogItemsParams struct {
 	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
 
 	// Limit The maximum number of results returned in the list response.
+	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// GetCatalogItemDeploymentsParams defines parameters for GetCatalogItemDeployments.
+type GetCatalogItemDeploymentsParams struct {
+	// Continue An optional parameter to query more results from the server. The value of the parameter must match the value of the 'continue' field in the previous list response.
+	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
+
+	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 }
 

@@ -24,4 +24,5 @@ type Service interface {
 	ReplaceCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string, item domain.CatalogItem, enforceOwnership bool) (*domain.CatalogItem, domain.Status)
 	PatchCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string, patch domain.PatchRequest, enforceOwnership bool) (*domain.CatalogItem, domain.Status)
 	DeleteCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string, enforceOwnership bool) domain.Status
+	GetCatalogItemDeployments(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string, params domain.GetCatalogItemDeploymentsParams) (*domain.CatalogItemDeploymentList, domain.Status)
 }

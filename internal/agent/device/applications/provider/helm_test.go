@@ -118,11 +118,12 @@ func TestHelmEnsureDependencies(t *testing.T) {
 			helmApp := v1beta1.HelmApplication{
 				AppType: v1beta1.AppTypeHelm,
 				Name:    lo.ToPtr(tt.appName),
-				Image:   "oci://registry.example.com/charts/myapp:1.0.0",
 			}
+			err := helmApp.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: "oci://registry.example.com/charts/myapp:1.0.0"})
+			require.NoError(err)
 
 			var appSpec v1beta1.ApplicationProviderSpec
-			err := appSpec.FromHelmApplication(helmApp)
+			err = appSpec.FromHelmApplication(helmApp)
 			require.NoError(err)
 
 			ctx, cancel := context.WithCancel(context.Background())

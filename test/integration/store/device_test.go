@@ -1170,7 +1170,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Set first rendered config
-			_, err = devStore.UpdateRendered(ctx, orgId, "dev", firstConfig, "", "hash1", nil, false, nil)
+			_, err = devStore.UpdateRendered(ctx, orgId, "dev", firstConfig, "", "hash1", "", nil, false, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Verify rendered config is encrypted at rest
@@ -1208,7 +1208,7 @@ var _ = Describe("DeviceStore create", func() {
 			// Set second rendered config
 			secondConfig, err := createTestConfigProvider("this is the second config")
 			Expect(err).ToNot(HaveOccurred())
-			_, err = devStore.UpdateRendered(ctx, orgId, "dev", secondConfig, "", "hash2", nil, false, nil)
+			_, err = devStore.UpdateRendered(ctx, orgId, "dev", secondConfig, "", "hash2", "", nil, false, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Passing previous renderedVersion
@@ -1230,23 +1230,39 @@ var _ = Describe("DeviceStore create", func() {
 			config, err := createTestConfigProvider("initial config")
 			Expect(err).ToNot(HaveOccurred())
 
-			// Establish an initial rendered version for a given specHash.
-			firstVersion, err := devStore.UpdateRendered(ctx, orgId, "dev-force-update", config, "", "samehash", nil, false, nil)
+			firstVersion, err := devStore.UpdateRendered(ctx, orgId, "dev-force-update", config, "", "samehash", "quay.io/org/os:v1", nil, false, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(firstVersion).ToNot(BeEmpty())
 
+			// Verify the osImage round-trips through GetRendered.
+			renderedDevice, err := devStore.GetRendered(ctx, orgId, "dev-force-update", nil, "")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(renderedDevice.Spec.Os).ToNot(BeNil())
+			Expect(renderedDevice.Spec.Os.Image).To(Equal("quay.io/org/os:v1"))
+
 			// Same specHash, no config fingerprints, forceUpdate=false: short-circuits as a no-op.
-			noopVersion, err := devStore.UpdateRendered(ctx, orgId, "dev-force-update", config, "", "samehash", nil, false, nil)
+			noopVersion, err := devStore.UpdateRendered(ctx, orgId, "dev-force-update", config, "", "samehash", "quay.io/org/os:v1", nil, false, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(noopVersion).To(BeEmpty())
 
 			// Same specHash, no config fingerprints, forceUpdate=true: must still persist and
 			// advance the rendered version, e.g. to reflect a device-level application lifecycle
 			// annotation change that isn't captured by specHash at all.
-			forcedVersion, err := devStore.UpdateRendered(ctx, orgId, "dev-force-update", config, "", "samehash", nil, true, nil)
+			forcedVersion, err := devStore.UpdateRendered(ctx, orgId, "dev-force-update", config, "", "samehash", "quay.io/org/os:v1", nil, true, nil)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(forcedVersion).ToNot(BeEmpty())
 			Expect(forcedVersion).ToNot(Equal(firstVersion))
+
+			// Update with an empty osImage to clear the previously stored rendered OS.
+			clearedVersion, err := devStore.UpdateRendered(ctx, orgId, "dev-force-update", config, "", "clearhash", "", nil, false, nil)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(clearedVersion).ToNot(BeEmpty())
+
+			// When rendered osImage is empty, GetRendered falls back to the declarative spec's OS image.
+			renderedDevice, err = devStore.GetRendered(ctx, orgId, "dev-force-update", nil, "")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(renderedDevice.Spec.Os).ToNot(BeNil())
+			Expect(renderedDevice.Spec.Os.Image).To(Equal("os"))
 		})
 
 		It("SetServiceConditions skips write and callback when conditions are unchanged", func() {
@@ -1292,7 +1308,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			mutatorCalls := 0
-			version, err := devStore.UpdateRendered(ctx, orgId, "dev-render-status", config, "", "hash-status", nil, false,
+			version, err := devStore.UpdateRendered(ctx, orgId, "dev-render-status", config, "", "hash-status", "", nil, false,
 				func(device *domain.Device) bool {
 					mutatorCalls++
 					Expect(device.Version()).ToNot(BeEmpty())
@@ -1326,7 +1342,7 @@ var _ = Describe("DeviceStore create", func() {
 			// conditions (or DependencySync) into the status column on top of the first render.
 			config2, err := createTestConfigProvider("rendered with status, second render")
 			Expect(err).ToNot(HaveOccurred())
-			version2, err := devStore.UpdateRendered(ctx, orgId, "dev-render-status", config2, "", "hash-status-2", nil, false,
+			version2, err := devStore.UpdateRendered(ctx, orgId, "dev-render-status", config2, "", "hash-status-2", "", nil, false,
 				func(device *domain.Device) bool {
 					device.Status.Updated.Status = domain.DeviceUpdatedStatusUpdating
 					return true

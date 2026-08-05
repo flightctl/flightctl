@@ -303,7 +303,9 @@ func BuildAppSpec(appName string, appType v1beta1.AppType, provider any) (v1beta
 		app := v1beta1.ContainerApplication{
 			AppType: appType,
 			Name:    &appName,
-			Image:   imageSpec.Image,
+		}
+		if err := app.FromImageApplicationProviderSpec(imageSpec); err != nil {
+			return v1beta1.ApplicationProviderSpec{}, err
 		}
 		var appSpec v1beta1.ApplicationProviderSpec
 		if err := appSpec.FromContainerApplication(app); err != nil {
@@ -318,7 +320,9 @@ func BuildAppSpec(appName string, appType v1beta1.AppType, provider any) (v1beta
 		app := v1beta1.HelmApplication{
 			AppType: appType,
 			Name:    &appName,
-			Image:   imageSpec.Image,
+		}
+		if err := app.FromImageApplicationProviderSpec(imageSpec); err != nil {
+			return v1beta1.ApplicationProviderSpec{}, err
 		}
 		var appSpec v1beta1.ApplicationProviderSpec
 		if err := appSpec.FromHelmApplication(app); err != nil {

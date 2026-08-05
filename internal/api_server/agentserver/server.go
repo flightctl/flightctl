@@ -121,7 +121,7 @@ func (s *AgentServer) init(ctx context.Context) error {
 	eventsSvc := events.NewServiceHandler(eventStore, workerClient, s.log)
 
 	s.deviceSvc = deviceservice.WrapWithTracing(
-		deviceservice.NewDeviceServiceHandler(deviceStore, fleetStore, eventsSvc, s.kvStore, s.cfg.Service.AgentEndpointAddress, s.log))
+		deviceservice.NewDeviceServiceHandler(deviceStore, nil, fleetStore, eventsSvc, s.kvStore, s.cfg.Service.AgentEndpointAddress, s.log))
 	s.enrollmentRequestSvc = enrollmentrequestservice.WrapWithTracing(
 		enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, deviceStore, csrStore, s.ca, s.kvStore, eventsSvc, s.log, s.cfg.Service.TPMCAPaths, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl))
 	s.csrSvc = certificatesigningrequestservice.WrapWithTracing(

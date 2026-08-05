@@ -1101,6 +1101,79 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+  /catalogs/{catalog}/items/{name}/deployments:
+    x-resource: catalogs/deployments
+    get:
+      tags:
+        - catalog
+      description: Get the CatalogItemDeployments for a particular Catalog Item
+      operationId: getCatalogItemDeployments
+      parameters:
+        - name: catalog
+          in: path
+          description: The name of the Catalog resource.
+          required: true
+          schema:
+            type: string
+          example: edge-apps
+        - name: name
+          in: path
+          description: The name of the CatalogItem resource.
+          required: true
+          schema:
+            type: string
+        - name: continue
+          in: query
+          description: An optional parameter to query more results from the server. The value of the parameter must match the value of the 'continue' field in the previous list response.
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
+          required: false
+          schema:
+            type: integer
+            format: int32
+            minimum: 0
+            maximum: 1000
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CatalogItemDeploymentList'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /vulnerabilities/summary:
     x-resource: vulnerabilities
     get:
@@ -1925,6 +1998,7 @@ components:
               example: "2.45.0"
             references:
               type: object
+              x-go-type: 'map[CatalogItemArtifactType]string'
               minProperties: 1
               additionalProperties:
                 type: string
@@ -1976,6 +2050,71 @@ components:
           description: 'List of CatalogItems.'
           items:
             $ref: '#/components/schemas/CatalogItem'
+      required:
+        - apiVersion
+        - kind
+        - metadata
+        - items
+      additionalProperties: false
+    CatalogItemDeployment:
+      type: object
+      description: CatalogItemDeployment represents a specific deployment of a catalog item to a fleet or device. A catalog item associated to a fleet that has no devices is still considered a deployment. A deployment is only associated with the fleet and not the individual devices in cases where a device is using a catalog item deployment that came from a device spec template on a fleet.
+      properties:
+        apiVersion:
+          $ref: '#/components/schemas/ApiVersion'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents.'
+        deployedTo:
+          type: object
+          description: 'The device or fleet that this deployment pertains to.'
+          properties:
+            resourceKind:
+              type: string
+              description: 'Either a Device or Fleet.'
+            resourceName:
+              type: string
+              description: 'The name of the device or fleet.'
+        catalog:
+          type: string
+          description: 'The catalog of the catalogItem.'
+          example: edge-apps
+        catalogItem:
+          type: string
+          description: 'The catalogItem that this deployment corresponds to.'
+          example: nginx
+        version:
+          type: string
+          description: 'The version of the catalog item that is deployed.'
+        channel:
+          type: string
+          description: The channel, if any, that is intended to be tracked for the catalog item.
+        applicationName:
+          type: string
+          description: For catalog items in the 'application' category, the name of the application on the device that the deployment is associated with. Required for application catalog items.
+      required:
+        - apiVersion
+        - kind
+        - catalog
+        - catalogItem
+        - version
+      additionalProperties: false
+    CatalogItemDeploymentList:
+      type: object
+      description: CatalogItemDeploymentList is a list of CatalogItemDeployments.
+      properties:
+        apiVersion:
+          $ref: '#/components/schemas/ApiVersion'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents. Servers may infer this from the endpoint the client submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds.'
+        metadata:
+          $ref: '../v1beta1/openapi.yaml#/components/schemas/ListMeta'
+        items:
+          type: array
+          description: 'List of CatalogItemDeployments.'
+          items:
+            $ref: '#/components/schemas/CatalogItemDeployment'
       required:
         - apiVersion
         - kind

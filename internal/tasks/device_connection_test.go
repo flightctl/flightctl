@@ -62,7 +62,7 @@ func BenchmarkDeviceConnectionPoll(b *testing.B) {
 		kvStore, err := kvstore.NewKVStore(ctx, log, "localhost", 6379, "adminpass")
 		require.NoError(err)
 		eventsSvc := events.NewServiceHandler(eventStore, workerClient, log)
-		serviceHandler := deviceservice.NewDeviceServiceHandler(deviceStore, fleetStore, eventsSvc, kvStore, "", log)
+		serviceHandler := deviceservice.NewDeviceServiceHandler(deviceStore, nil, fleetStore, eventsSvc, kvStore, "", log)
 
 		devices := generateMockDevices(deviceCount)
 		err = batchCreateDevices(ctx, db, devices, deviceCount)

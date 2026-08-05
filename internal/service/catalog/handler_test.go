@@ -3,19 +3,280 @@ package catalog
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
+	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
+
+// fakeDeviceStore is a minimal in-memory implementation of devicestore.Store.
+// Only ListDevicesByOsCatalogItemRef and ListDevicesByAppCatalogItemRef have
+// meaningful implementations; everything else panics.
+type fakeDeviceStore struct {
+	osDevices  map[string]*domain.DeviceList // key: catalog/item
+	appDevices map[string]*domain.DeviceList // key: catalog/item
+	volDevices map[string]*domain.DeviceList // key: catalog/item
+	err        error
+}
+
+func newFakeDeviceStore() *fakeDeviceStore {
+	return &fakeDeviceStore{
+		osDevices:  make(map[string]*domain.DeviceList),
+		appDevices: make(map[string]*domain.DeviceList),
+		volDevices: make(map[string]*domain.DeviceList),
+	}
+}
+
+func (f *fakeDeviceStore) ListDevicesByOsCatalogItemRef(_ context.Context, _ uuid.UUID, catalog string, item string, _ store.ListParams) (*domain.DeviceList, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	key := catalog + "/" + item
+	if dl, ok := f.osDevices[key]; ok {
+		return dl, nil
+	}
+	return &domain.DeviceList{}, nil
+}
+
+func (f *fakeDeviceStore) ListDevicesByAppCatalogItemRef(_ context.Context, _ uuid.UUID, catalog string, item string, _ store.ListParams) (*domain.DeviceList, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	key := catalog + "/" + item
+	if dl, ok := f.appDevices[key]; ok {
+		return dl, nil
+	}
+	return &domain.DeviceList{}, nil
+}
+
+func (f *fakeDeviceStore) ListDevicesByVolumeCatalogItemRef(_ context.Context, _ uuid.UUID, catalog string, item string, _ store.ListParams) (*domain.DeviceList, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	key := catalog + "/" + item
+	if dl, ok := f.volDevices[key]; ok {
+		return dl, nil
+	}
+	return &domain.DeviceList{}, nil
+}
+
+func (f *fakeDeviceStore) InitialMigration(context.Context) error { panic("not implemented") }
+func (f *fakeDeviceStore) Create(context.Context, uuid.UUID, *domain.Device, store.EventCallback) (*domain.Device, error) {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) Update(context.Context, uuid.UUID, *domain.Device, []string, devicestore.DeviceStoreValidationCallback, store.EventCallback) (*domain.Device, error) {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) CreateOrUpdate(context.Context, uuid.UUID, *domain.Device, []string, devicestore.DeviceStoreValidationCallback, store.EventCallback) (*domain.Device, bool, error) {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) Get(context.Context, uuid.UUID, string) (*domain.Device, error) {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) List(context.Context, uuid.UUID, devicestore.DeviceListParams) (*domain.DeviceList, error) {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) Labels(context.Context, uuid.UUID, store.ListParams) (domain.LabelList, error) {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) Delete(context.Context, uuid.UUID, string, store.EventCallback) (bool, error) {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) UpdateStatus(context.Context, uuid.UUID, *domain.Device, store.EventCallback, *domain.Device) (*domain.Device, error) {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) GetRendered(context.Context, uuid.UUID, string, *string, string) (*domain.Device, error) {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) Healthcheck(context.Context, uuid.UUID, []string) error {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) ProcessAwaitingReconnectAnnotation(context.Context, uuid.UUID, string, *string) (bool, error) {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) GetLastSeen(context.Context, uuid.UUID, string) (*time.Time, error) {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) UpdateAnnotations(context.Context, uuid.UUID, string, map[string]string, []string) error {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) MutateAnnotation(context.Context, uuid.UUID, string, string, func(string) (string, error)) error {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) UpdateRendered(context.Context, uuid.UUID, string, string, string, string, string, []domain.DependencySyncConfigRefStatus, bool, devicestore.RenderedStatusMutator) (string, error) {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) SetServiceConditions(context.Context, uuid.UUID, string, []domain.Condition, devicestore.ServiceConditionsCallback) error {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) DecommissionDevice(context.Context, uuid.UUID, string, domain.DeviceDecommission, store.EventCallback) (*domain.Device, error) {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) OverwriteRepositoryRefs(context.Context, uuid.UUID, string, ...string) error {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) GetRepositoryRefs(context.Context, uuid.UUID, string) (*domain.RepositoryList, error) {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) RemoveConflictPausedAnnotation(context.Context, uuid.UUID, store.ListParams) (int64, []string, error) {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) SetOutOfDate(context.Context, uuid.UUID, string) error {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) ListConnectivityChanged(context.Context, uuid.UUID, store.ListParams, time.Time) (*domain.DeviceList, error) {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) GetWithTimestamp(context.Context, uuid.UUID, string) (*domain.Device, error) {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) Count(context.Context, uuid.UUID, store.ListParams) (int64, error) {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) UnmarkRolloutSelection(context.Context, uuid.UUID, string) error {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) MarkRolloutSelection(context.Context, uuid.UUID, store.ListParams, *int) error {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) CompletionCounts(context.Context, uuid.UUID, string, string, *time.Duration) ([]domain.DeviceCompletionCount, error) {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) CountByLabels(context.Context, uuid.UUID, store.ListParams, []string) ([]map[string]any, error) {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) Summary(context.Context, uuid.UUID, store.ListParams) (*domain.DevicesSummary, error) {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) ListDevicesByServiceCondition(context.Context, uuid.UUID, string, string, store.ListParams) (*domain.DeviceList, error) {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) SetIntegrationTestCreateOrUpdateCallback(store.IntegrationTestCallback) {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) CountByOrgAndStatus(context.Context, *uuid.UUID, devicestore.DeviceStatusType, bool) ([]devicestore.CountByOrgAndStatusResult, error) {
+	panic("not implemented")
+}
+
+var _ devicestore.Store = (*fakeDeviceStore)(nil)
+
+// fakeFleetStore is a minimal in-memory implementation of fleetstore.Store.
+// Only the ListFleetsByXxxCatalogItemRef methods have meaningful implementations;
+// everything else panics.
+type fakeFleetStore struct {
+	osFleets  map[string]*domain.FleetList // key: catalog/item
+	appFleets map[string]*domain.FleetList // key: catalog/item
+	volFleets map[string]*domain.FleetList // key: catalog/item
+	err       error
+}
+
+func newFakeFleetStore() *fakeFleetStore {
+	return &fakeFleetStore{
+		osFleets:  make(map[string]*domain.FleetList),
+		appFleets: make(map[string]*domain.FleetList),
+		volFleets: make(map[string]*domain.FleetList),
+	}
+}
+
+func (f *fakeFleetStore) ListFleetsByOsCatalogItemRef(_ context.Context, _ uuid.UUID, catalog string, item string, _ store.ListParams) (*domain.FleetList, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	key := catalog + "/" + item
+	if fl, ok := f.osFleets[key]; ok {
+		return fl, nil
+	}
+	return &domain.FleetList{}, nil
+}
+
+func (f *fakeFleetStore) ListFleetsByAppCatalogItemRef(_ context.Context, _ uuid.UUID, catalog string, item string, _ store.ListParams) (*domain.FleetList, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	key := catalog + "/" + item
+	if fl, ok := f.appFleets[key]; ok {
+		return fl, nil
+	}
+	return &domain.FleetList{}, nil
+}
+
+func (f *fakeFleetStore) ListFleetsByVolumeCatalogItemRef(_ context.Context, _ uuid.UUID, catalog string, item string, _ store.ListParams) (*domain.FleetList, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	key := catalog + "/" + item
+	if fl, ok := f.volFleets[key]; ok {
+		return fl, nil
+	}
+	return &domain.FleetList{}, nil
+}
+
+func (f *fakeFleetStore) InitialMigration(context.Context) error { panic("not implemented") }
+func (f *fakeFleetStore) Create(context.Context, uuid.UUID, *domain.Fleet, store.EventCallback) (*domain.Fleet, error) {
+	panic("not implemented")
+}
+func (f *fakeFleetStore) Update(context.Context, uuid.UUID, *domain.Fleet, []string, store.EventCallback) (*domain.Fleet, error) {
+	panic("not implemented")
+}
+func (f *fakeFleetStore) CreateOrUpdate(context.Context, uuid.UUID, *domain.Fleet, []string, store.EventCallback) (*domain.Fleet, bool, error) {
+	panic("not implemented")
+}
+func (f *fakeFleetStore) Get(context.Context, uuid.UUID, string, ...fleetstore.GetOption) (*domain.Fleet, error) {
+	panic("not implemented")
+}
+func (f *fakeFleetStore) List(context.Context, uuid.UUID, store.ListParams, ...fleetstore.ListOption) (*domain.FleetList, error) {
+	panic("not implemented")
+}
+func (f *fakeFleetStore) Delete(context.Context, uuid.UUID, string, store.EventCallback) error {
+	panic("not implemented")
+}
+func (f *fakeFleetStore) UpdateStatus(context.Context, uuid.UUID, *domain.Fleet) (*domain.Fleet, error) {
+	panic("not implemented")
+}
+func (f *fakeFleetStore) ListRolloutDeviceSelection(context.Context, uuid.UUID) (*domain.FleetList, error) {
+	panic("not implemented")
+}
+func (f *fakeFleetStore) ListDisruptionBudgetFleets(context.Context, uuid.UUID) (*domain.FleetList, error) {
+	panic("not implemented")
+}
+func (f *fakeFleetStore) UnsetOwner(context.Context, *gorm.DB, uuid.UUID, string) error {
+	panic("not implemented")
+}
+func (f *fakeFleetStore) UnsetOwnerByKind(context.Context, *gorm.DB, uuid.UUID, string) error {
+	panic("not implemented")
+}
+func (f *fakeFleetStore) UpdateConditions(context.Context, uuid.UUID, string, []domain.Condition, store.EventCallback) error {
+	panic("not implemented")
+}
+func (f *fakeFleetStore) UpdateAnnotations(context.Context, uuid.UUID, string, map[string]string, []string, store.EventCallback) error {
+	panic("not implemented")
+}
+func (f *fakeFleetStore) MutateAnnotation(context.Context, uuid.UUID, string, string, func(string) (string, error)) error {
+	panic("not implemented")
+}
+func (f *fakeFleetStore) OverwriteRepositoryRefs(context.Context, uuid.UUID, string, ...string) error {
+	panic("not implemented")
+}
+func (f *fakeFleetStore) GetRepositoryRefs(context.Context, uuid.UUID, string) (*domain.RepositoryList, error) {
+	panic("not implemented")
+}
+func (f *fakeFleetStore) CountByRolloutStatus(context.Context, *uuid.UUID, *string) ([]fleetstore.CountByRolloutStatusResult, error) {
+	panic("not implemented")
+}
+
+var _ fleetstore.Store = (*fakeFleetStore)(nil)
 
 // fakeCatalogStore is a small in-memory implementation of internal/store/catalog.Store,
 // adapted from the CRUD-over-a-slice / callback-invocation behavior of
@@ -264,7 +525,19 @@ func (f *fakeEventsService) HandleGenericResourceDeletedEvents(ctx context.Conte
 func newTestHandler() (*ServiceHandler, *fakeCatalogStore, *fakeEventsService) {
 	fakeStore := newFakeCatalogStore()
 	fakeEvents := &fakeEventsService{}
-	return NewServiceHandler(fakeStore, fakeEvents, logrus.New()), fakeStore, fakeEvents
+	return NewServiceHandler(fakeStore, nil, nil, fakeEvents, logrus.New()), fakeStore, fakeEvents
+}
+
+func newTestHandlerWithDeviceStore(ds devicestore.Store) (*ServiceHandler, *fakeCatalogStore, *fakeEventsService) {
+	fakeStore := newFakeCatalogStore()
+	fakeEvents := &fakeEventsService{}
+	return NewServiceHandler(fakeStore, ds, nil, fakeEvents, logrus.New()), fakeStore, fakeEvents
+}
+
+func newTestHandlerWithStores(ds devicestore.Store, fs fleetstore.Store) (*ServiceHandler, *fakeCatalogStore, *fakeEventsService) {
+	fakeStore := newFakeCatalogStore()
+	fakeEvents := &fakeEventsService{}
+	return NewServiceHandler(fakeStore, ds, fs, fakeEvents, logrus.New()), fakeStore, fakeEvents
 }
 
 func createTestCatalog(name string, owner *string) domain.Catalog {
@@ -300,7 +573,7 @@ func createTestCatalogItem(catalogName, itemName string, owner *string) domain.C
 				{
 					Version:    "1.0.0",
 					Channels:   []string{"stable"},
-					References: map[string]string{"container": "v1.0.0"},
+					References: map[domain.CatalogItemArtifactType]string{"container": "v1.0.0"},
 				},
 			},
 		},
@@ -1079,4 +1352,881 @@ func TestDeleteCatalogItem(t *testing.T) {
 			require.Equal(t, !tt.expectItemDeleted, ok)
 		})
 	}
+}
+
+func TestDeleteCatalogItemInUse(t *testing.T) {
+	t.Run("When a device references the item via OS spec it should return conflict", func(t *testing.T) {
+		ds := newFakeDeviceStore()
+		h, fakeStore, _ := newTestHandlerWithDeviceStore(ds)
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+		item := createTestCatalogItem("c1", "item1", nil)
+		fakeStore.items[itemKey("c1", "item1")] = &item
+
+		ds.osDevices["c1/item1"] = &domain.DeviceList{
+			Items: []domain.Device{makeDeviceWithOsRef("dev1", "c1", "item1", "1.0.0", nil)},
+		}
+
+		status := h.DeleteCatalogItem(context.Background(), uuid.New(), "c1", "item1", true)
+		require.Equal(t, int32(http.StatusConflict), status.Code)
+		require.Contains(t, status.Message, "in use by devices or fleets")
+		require.Contains(t, status.Message, "1.0.0")
+		_, ok := fakeStore.items[itemKey("c1", "item1")]
+		require.True(t, ok)
+	})
+
+	t.Run("When a device references the item via application spec it should return conflict", func(t *testing.T) {
+		ds := newFakeDeviceStore()
+		h, fakeStore, _ := newTestHandlerWithDeviceStore(ds)
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+		item := createTestCatalogItem("c1", "item1", nil)
+		fakeStore.items[itemKey("c1", "item1")] = &item
+
+		apps := []domain.ApplicationProviderSpec{
+			makeContainerAppSpec(t, "c1", "item1", "1.0.0", nil, lo.ToPtr("myapp")),
+		}
+		ds.appDevices["c1/item1"] = &domain.DeviceList{
+			Items: []domain.Device{{
+				Metadata: domain.ObjectMeta{Name: lo.ToPtr("dev1")},
+				Spec:     &domain.DeviceSpec{Applications: &apps},
+			}},
+		}
+
+		status := h.DeleteCatalogItem(context.Background(), uuid.New(), "c1", "item1", true)
+		require.Equal(t, int32(http.StatusConflict), status.Code)
+		require.Contains(t, status.Message, "in use by devices or fleets")
+	})
+
+	t.Run("When a device references the item via volume spec it should return conflict", func(t *testing.T) {
+		ds := newFakeDeviceStore()
+		h, fakeStore, _ := newTestHandlerWithDeviceStore(ds)
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+		item := createTestCatalogItem("c1", "item1", nil)
+		fakeStore.items[itemKey("c1", "item1")] = &item
+
+		apps := []domain.ApplicationProviderSpec{
+			makeContainerAppWithVolumeRef(t, "c1", "item1", "1.0.0", nil, lo.ToPtr("myapp")),
+		}
+		ds.volDevices["c1/item1"] = &domain.DeviceList{
+			Items: []domain.Device{{
+				Metadata: domain.ObjectMeta{Name: lo.ToPtr("dev1")},
+				Spec:     &domain.DeviceSpec{Applications: &apps},
+			}},
+		}
+
+		status := h.DeleteCatalogItem(context.Background(), uuid.New(), "c1", "item1", true)
+		require.Equal(t, int32(http.StatusConflict), status.Code)
+		require.Contains(t, status.Message, "in use by devices or fleets")
+	})
+
+	t.Run("When no devices reference the item it should delete successfully", func(t *testing.T) {
+		ds := newFakeDeviceStore()
+		h, fakeStore, _ := newTestHandlerWithDeviceStore(ds)
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+		item := createTestCatalogItem("c1", "item1", nil)
+		fakeStore.items[itemKey("c1", "item1")] = &item
+
+		status := h.DeleteCatalogItem(context.Background(), uuid.New(), "c1", "item1", true)
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		_, ok := fakeStore.items[itemKey("c1", "item1")]
+		require.False(t, ok)
+	})
+}
+
+func TestDeleteCatalogItemInUseByFleet(t *testing.T) {
+	t.Run("When a fleet references the item via OS spec it should return conflict", func(t *testing.T) {
+		fs := newFakeFleetStore()
+		h, fakeStore, _ := newTestHandlerWithStores(nil, fs)
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+		item := createTestCatalogItem("c1", "item1", nil)
+		fakeStore.items[itemKey("c1", "item1")] = &item
+
+		fs.osFleets["c1/item1"] = &domain.FleetList{
+			Items: []domain.Fleet{makeFleetWithOsRef("fleet1", "c1", "item1", "1.0.0", nil)},
+		}
+
+		status := h.DeleteCatalogItem(context.Background(), uuid.New(), "c1", "item1", true)
+		require.Equal(t, int32(http.StatusConflict), status.Code)
+		require.Contains(t, status.Message, "in use by devices or fleets")
+		require.Contains(t, status.Message, "1.0.0")
+		_, ok := fakeStore.items[itemKey("c1", "item1")]
+		require.True(t, ok)
+	})
+
+	t.Run("When a fleet references the item via application spec it should return conflict", func(t *testing.T) {
+		fs := newFakeFleetStore()
+		h, fakeStore, _ := newTestHandlerWithStores(nil, fs)
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+		item := createTestCatalogItem("c1", "item1", nil)
+		fakeStore.items[itemKey("c1", "item1")] = &item
+
+		apps := []domain.ApplicationProviderSpec{
+			makeContainerAppSpec(t, "c1", "item1", "1.0.0", nil, lo.ToPtr("myapp")),
+		}
+		fs.appFleets["c1/item1"] = &domain.FleetList{
+			Items: []domain.Fleet{{
+				Metadata: domain.ObjectMeta{Name: lo.ToPtr("fleet1")},
+				Spec: domain.FleetSpec{
+					Template: struct {
+						Metadata *domain.ObjectMeta `json:"metadata,omitempty"`
+						Spec     domain.DeviceSpec  `json:"spec"`
+					}{
+						Spec: domain.DeviceSpec{Applications: &apps},
+					},
+				},
+			}},
+		}
+
+		status := h.DeleteCatalogItem(context.Background(), uuid.New(), "c1", "item1", true)
+		require.Equal(t, int32(http.StatusConflict), status.Code)
+		require.Contains(t, status.Message, "in use by devices or fleets")
+	})
+
+	t.Run("When a fleet references the item via volume spec it should return conflict", func(t *testing.T) {
+		fs := newFakeFleetStore()
+		h, fakeStore, _ := newTestHandlerWithStores(nil, fs)
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+		item := createTestCatalogItem("c1", "item1", nil)
+		fakeStore.items[itemKey("c1", "item1")] = &item
+
+		apps := []domain.ApplicationProviderSpec{
+			makeContainerAppWithVolumeRef(t, "c1", "item1", "1.0.0", nil, lo.ToPtr("myapp")),
+		}
+		fs.volFleets["c1/item1"] = &domain.FleetList{
+			Items: []domain.Fleet{{
+				Metadata: domain.ObjectMeta{Name: lo.ToPtr("fleet1")},
+				Spec: domain.FleetSpec{
+					Template: struct {
+						Metadata *domain.ObjectMeta `json:"metadata,omitempty"`
+						Spec     domain.DeviceSpec  `json:"spec"`
+					}{
+						Spec: domain.DeviceSpec{Applications: &apps},
+					},
+				},
+			}},
+		}
+
+		status := h.DeleteCatalogItem(context.Background(), uuid.New(), "c1", "item1", true)
+		require.Equal(t, int32(http.StatusConflict), status.Code)
+		require.Contains(t, status.Message, "in use by devices or fleets")
+	})
+
+	t.Run("When no fleets reference the item it should delete successfully", func(t *testing.T) {
+		fs := newFakeFleetStore()
+		h, fakeStore, _ := newTestHandlerWithStores(nil, fs)
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+		item := createTestCatalogItem("c1", "item1", nil)
+		fakeStore.items[itemKey("c1", "item1")] = &item
+
+		status := h.DeleteCatalogItem(context.Background(), uuid.New(), "c1", "item1", true)
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		_, ok := fakeStore.items[itemKey("c1", "item1")]
+		require.False(t, ok)
+	})
+}
+
+func TestReplaceCatalogItemInUseByFleet(t *testing.T) {
+	t.Run("When removing a version used by a fleet it should return conflict", func(t *testing.T) {
+		fs := newFakeFleetStore()
+		h, fakeStore, _ := newTestHandlerWithStores(nil, fs)
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+		existing := createTestCatalogItem("c1", "item1", nil)
+		fakeStore.items[itemKey("c1", "item1")] = &existing
+
+		fs.osFleets["c1/item1"] = &domain.FleetList{
+			Items: []domain.Fleet{makeFleetWithOsRef("fleet1", "c1", "item1", "1.0.0", nil)},
+		}
+
+		updated := createTestCatalogItem("c1", "item1", nil)
+		updated.Spec.Versions = []domain.CatalogItemVersion{
+			{
+				Version:    "2.0.0",
+				Channels:   []string{"stable"},
+				References: map[domain.CatalogItemArtifactType]string{"container": "v2.0.0"},
+			},
+		}
+
+		_, status := h.ReplaceCatalogItem(context.Background(), uuid.New(), "c1", "item1", updated, true)
+		require.Equal(t, int32(http.StatusConflict), status.Code)
+		require.Contains(t, status.Message, "1.0.0")
+		require.Contains(t, status.Message, "in use by devices or fleets")
+	})
+
+	t.Run("When adding a new version while keeping fleet-used versions unchanged it should succeed", func(t *testing.T) {
+		fs := newFakeFleetStore()
+		h, fakeStore, _ := newTestHandlerWithStores(nil, fs)
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+		existing := createTestCatalogItem("c1", "item1", nil)
+		fakeStore.items[itemKey("c1", "item1")] = &existing
+
+		fs.osFleets["c1/item1"] = &domain.FleetList{
+			Items: []domain.Fleet{makeFleetWithOsRef("fleet1", "c1", "item1", "1.0.0", nil)},
+		}
+
+		updated := createTestCatalogItem("c1", "item1", nil)
+		updated.Spec.Versions = append(updated.Spec.Versions, domain.CatalogItemVersion{
+			Version:    "2.0.0",
+			Channels:   []string{"stable"},
+			References: map[domain.CatalogItemArtifactType]string{"container": "v2.0.0"},
+		})
+
+		_, status := h.ReplaceCatalogItem(context.Background(), uuid.New(), "c1", "item1", updated, true)
+		require.Equal(t, int32(http.StatusOK), status.Code)
+	})
+}
+
+func TestReplaceCatalogItemInUse(t *testing.T) {
+	t.Run("When removing an in-use version it should return conflict", func(t *testing.T) {
+		ds := newFakeDeviceStore()
+		h, fakeStore, _ := newTestHandlerWithDeviceStore(ds)
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+		existing := createTestCatalogItem("c1", "item1", nil)
+		fakeStore.items[itemKey("c1", "item1")] = &existing
+
+		ds.osDevices["c1/item1"] = &domain.DeviceList{
+			Items: []domain.Device{makeDeviceWithOsRef("dev1", "c1", "item1", "1.0.0", nil)},
+		}
+
+		updated := createTestCatalogItem("c1", "item1", nil)
+		updated.Spec.Versions = []domain.CatalogItemVersion{
+			{
+				Version:    "2.0.0",
+				Channels:   []string{"stable"},
+				References: map[domain.CatalogItemArtifactType]string{"container": "v2.0.0"},
+			},
+		}
+
+		_, status := h.ReplaceCatalogItem(context.Background(), uuid.New(), "c1", "item1", updated, true)
+		require.Equal(t, int32(http.StatusConflict), status.Code)
+		require.Contains(t, status.Message, "1.0.0")
+		require.Contains(t, status.Message, "in use by devices or fleets")
+	})
+
+	t.Run("When modifying an in-use version it should return conflict", func(t *testing.T) {
+		ds := newFakeDeviceStore()
+		h, fakeStore, _ := newTestHandlerWithDeviceStore(ds)
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+		existing := createTestCatalogItem("c1", "item1", nil)
+		fakeStore.items[itemKey("c1", "item1")] = &existing
+
+		ds.osDevices["c1/item1"] = &domain.DeviceList{
+			Items: []domain.Device{makeDeviceWithOsRef("dev1", "c1", "item1", "1.0.0", nil)},
+		}
+
+		updated := createTestCatalogItem("c1", "item1", nil)
+		updated.Spec.Versions[0].References["container"] = "v1.0.0-changed"
+
+		_, status := h.ReplaceCatalogItem(context.Background(), uuid.New(), "c1", "item1", updated, true)
+		require.Equal(t, int32(http.StatusConflict), status.Code)
+		require.Contains(t, status.Message, "1.0.0")
+	})
+
+	t.Run("When adding a new version while keeping in-use versions unchanged it should succeed", func(t *testing.T) {
+		ds := newFakeDeviceStore()
+		h, fakeStore, _ := newTestHandlerWithDeviceStore(ds)
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+		existing := createTestCatalogItem("c1", "item1", nil)
+		fakeStore.items[itemKey("c1", "item1")] = &existing
+
+		ds.osDevices["c1/item1"] = &domain.DeviceList{
+			Items: []domain.Device{makeDeviceWithOsRef("dev1", "c1", "item1", "1.0.0", nil)},
+		}
+
+		updated := createTestCatalogItem("c1", "item1", nil)
+		updated.Spec.Versions = append(updated.Spec.Versions, domain.CatalogItemVersion{
+			Version:    "2.0.0",
+			Channels:   []string{"stable"},
+			References: map[domain.CatalogItemArtifactType]string{"container": "v2.0.0"},
+		})
+
+		_, status := h.ReplaceCatalogItem(context.Background(), uuid.New(), "c1", "item1", updated, true)
+		require.Equal(t, int32(http.StatusOK), status.Code)
+	})
+
+	t.Run("When modifying a non-deployed version it should succeed", func(t *testing.T) {
+		ds := newFakeDeviceStore()
+		h, fakeStore, _ := newTestHandlerWithDeviceStore(ds)
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+		existing := createTestCatalogItem("c1", "item1", nil)
+		existing.Spec.Versions = append(existing.Spec.Versions, domain.CatalogItemVersion{
+			Version:    "2.0.0",
+			Channels:   []string{"fast"},
+			References: map[domain.CatalogItemArtifactType]string{"container": "v2.0.0"},
+		})
+		fakeStore.items[itemKey("c1", "item1")] = &existing
+
+		ds.osDevices["c1/item1"] = &domain.DeviceList{
+			Items: []domain.Device{makeDeviceWithOsRef("dev1", "c1", "item1", "1.0.0", nil)},
+		}
+
+		updated := createTestCatalogItem("c1", "item1", nil)
+		updated.Spec.Versions = append(updated.Spec.Versions, domain.CatalogItemVersion{
+			Version:    "2.0.0",
+			Channels:   []string{"stable"},
+			References: map[domain.CatalogItemArtifactType]string{"container": "v2.0.0-patched"},
+		})
+
+		_, status := h.ReplaceCatalogItem(context.Background(), uuid.New(), "c1", "item1", updated, true)
+		require.Equal(t, int32(http.StatusOK), status.Code)
+	})
+
+	t.Run("When a deployed version is absent from both old and new specs it should not block the update", func(t *testing.T) {
+		ds := newFakeDeviceStore()
+		h, fakeStore, _ := newTestHandlerWithDeviceStore(ds)
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+
+		existing := createTestCatalogItem("c1", "item1", nil)
+		existing.Spec.Versions = []domain.CatalogItemVersion{
+			{
+				Version:    "2.0.0",
+				Channels:   []string{"stable"},
+				References: map[domain.CatalogItemArtifactType]string{"container": "v2.0.0"},
+			},
+		}
+		fakeStore.items[itemKey("c1", "item1")] = &existing
+
+		ds.osDevices["c1/item1"] = &domain.DeviceList{
+			Items: []domain.Device{makeDeviceWithOsRef("dev1", "c1", "item1", "1.0.0", nil)},
+		}
+
+		updated := createTestCatalogItem("c1", "item1", nil)
+		updated.Spec.Versions = []domain.CatalogItemVersion{
+			{
+				Version:    "2.0.0",
+				Channels:   []string{"fast"},
+				References: map[domain.CatalogItemArtifactType]string{"container": "v2.0.0-patched"},
+			},
+		}
+
+		_, status := h.ReplaceCatalogItem(context.Background(), uuid.New(), "c1", "item1", updated, true)
+		require.Equal(t, int32(http.StatusOK), status.Code)
+	})
+
+	t.Run("When the item does not exist yet it should create it without in-use check", func(t *testing.T) {
+		ds := newFakeDeviceStore()
+		h, fakeStore, _ := newTestHandlerWithDeviceStore(ds)
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+
+		item := createTestCatalogItem("c1", "new-item", nil)
+		_, status := h.ReplaceCatalogItem(context.Background(), uuid.New(), "c1", "new-item", item, true)
+		require.Equal(t, int32(http.StatusCreated), status.Code)
+	})
+}
+
+func TestPatchCatalogItemInUse(t *testing.T) {
+	t.Run("When a patch removes an in-use version it should return conflict", func(t *testing.T) {
+		ds := newFakeDeviceStore()
+		h, fakeStore, _ := newTestHandlerWithDeviceStore(ds)
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+		existing := createTestCatalogItem("c1", "item1", nil)
+		existing.Spec.Versions = append(existing.Spec.Versions, domain.CatalogItemVersion{
+			Version:    "2.0.0",
+			Channels:   []string{"stable"},
+			References: map[domain.CatalogItemArtifactType]string{"container": "v2.0.0"},
+		})
+		fakeStore.items[itemKey("c1", "item1")] = &existing
+
+		ds.osDevices["c1/item1"] = &domain.DeviceList{
+			Items: []domain.Device{makeDeviceWithOsRef("dev1", "c1", "item1", "1.0.0", nil)},
+		}
+
+		var value interface{} = []domain.CatalogItemVersion{
+			{
+				Version:    "2.0.0",
+				Channels:   []string{"stable"},
+				References: map[domain.CatalogItemArtifactType]string{"container": "v2.0.0"},
+			},
+		}
+		patch := domain.PatchRequest{{Op: "replace", Path: "/spec/versions", Value: &value}}
+
+		_, status := h.PatchCatalogItem(context.Background(), uuid.New(), "c1", "item1", patch, true)
+		require.Equal(t, int32(http.StatusConflict), status.Code)
+		require.Contains(t, status.Message, "1.0.0")
+		require.Contains(t, status.Message, "in use by devices or fleets")
+	})
+
+	t.Run("When a patch modifies an in-use version it should return conflict", func(t *testing.T) {
+		ds := newFakeDeviceStore()
+		h, fakeStore, _ := newTestHandlerWithDeviceStore(ds)
+		catalog := createTestCatalog("c1", nil)
+		fakeStore.catalogs["c1"] = &catalog
+		existing := createTestCatalogItem("c1", "item1", nil)
+		fakeStore.items[itemKey("c1", "item1")] = &existing
+
+		ds.osDevices["c1/item1"] = &domain.DeviceList{
+			Items: []domain.Device{makeDeviceWithOsRef("dev1", "c1", "item1", "1.0.0", nil)},
+		}
+
+		var value interface{} = "v1.0.0-changed"
+		patch := domain.PatchRequest{{Op: "replace", Path: "/spec/versions/0/references/container", Value: &value}}
+
+		_, status := h.PatchCatalogItem(context.Background(), uuid.New(), "c1", "item1", patch, true)
+		require.Equal(t, int32(http.StatusConflict), status.Code)
+		require.Contains(t, status.Message, "1.0.0")
+	})
+}
+
+func makeFleetWithOsRef(name, catalog, item, version string, channel *string) domain.Fleet {
+	return domain.Fleet{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+		Spec: domain.FleetSpec{
+			Template: struct {
+				Metadata *domain.ObjectMeta `json:"metadata,omitempty"`
+				Spec     domain.DeviceSpec  `json:"spec"`
+			}{
+				Spec: domain.DeviceSpec{
+					Os: &domain.DeviceOsSpec{
+						CatalogItemRef: &domain.CatalogItemRefSpec{
+							Catalog: catalog,
+							Item:    item,
+							Version: version,
+							Channel: channel,
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func makeContainerAppSpec(t *testing.T, catalog, item, version string, channel *string, appName *string) domain.ApplicationProviderSpec {
+	t.Helper()
+	container := domain.ContainerApplication{
+		AppType: domain.AppTypeContainer,
+		Name:    appName,
+	}
+	err := container.FromCatalogItemRefApplicationProviderSpec(domain.CatalogItemRefApplicationProviderSpec{
+		CatalogItemRef: domain.CatalogItemRefSpec{
+			Catalog: catalog,
+			Item:    item,
+			Version: version,
+			Channel: channel,
+		},
+	})
+	require.NoError(t, err)
+	var spec domain.ApplicationProviderSpec
+	err = spec.FromContainerApplication(container)
+	require.NoError(t, err)
+	return spec
+}
+
+func makeDeviceWithOsRef(name, catalog, item, version string, channel *string) domain.Device {
+	return domain.Device{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+		Spec: &domain.DeviceSpec{
+			Os: &domain.DeviceOsSpec{
+				CatalogItemRef: &domain.CatalogItemRefSpec{
+					Catalog: catalog,
+					Item:    item,
+					Version: version,
+					Channel: channel,
+				},
+			},
+		},
+	}
+}
+
+func makeContainerAppWithVolumeRef(t *testing.T, catalog, item, version string, channel *string, appName *string) domain.ApplicationProviderSpec {
+	t.Helper()
+	vol := domain.ApplicationVolume{Name: "data-vol"}
+	err := vol.FromImageVolumeProviderSpec(domain.ImageVolumeProviderSpec{
+		Image: domain.ImageVolumeSource{
+			CatalogItemRef: &domain.CatalogItemRefSpec{
+				Catalog: catalog,
+				Item:    item,
+				Version: version,
+				Channel: channel,
+			},
+		},
+	})
+	require.NoError(t, err)
+	container := domain.ContainerApplication{
+		AppType: domain.AppTypeContainer,
+		Name:    appName,
+		Volumes: &[]domain.ApplicationVolume{vol},
+	}
+	err = container.FromImageApplicationProviderSpec(domain.ImageApplicationProviderSpec{
+		Image: "quay.io/example/app:latest",
+	})
+	require.NoError(t, err)
+	var spec domain.ApplicationProviderSpec
+	err = spec.FromContainerApplication(container)
+	require.NoError(t, err)
+	return spec
+}
+
+func TestGetCatalogItemDeployments(t *testing.T) {
+	type expectedDeployedTo struct {
+		resourceKind string
+		resourceName string
+	}
+
+	tests := []struct {
+		name              string
+		catalogName       string
+		itemName          string
+		osDevices         []domain.Device
+		appDevices        []domain.Device
+		volDevices        []domain.Device
+		osFleets          []domain.Fleet
+		appFleets         []domain.Fleet
+		volFleets         []domain.Fleet
+		deviceStoreErr    error
+		fleetStoreErr     error
+		expectStatusCode  int32
+		expectDeployments int
+		expectAppNames    []string
+		expectVersions    []string
+		expectDeployedTo  []expectedDeployedTo
+	}{
+		{
+			name:              "When no devices or fleets reference the catalog item it should return an empty list",
+			catalogName:       "my-catalog",
+			itemName:          "my-item",
+			expectStatusCode:  http.StatusOK,
+			expectDeployments: 0,
+		},
+		{
+			name:        "When a device has an OS catalog item ref it should return one deployment with DeployedTo Device",
+			catalogName: "my-catalog",
+			itemName:    "my-item",
+			osDevices: []domain.Device{
+				makeDeviceWithOsRef("dev1", "my-catalog", "my-item", "1.0.0", nil),
+			},
+			expectStatusCode:  http.StatusOK,
+			expectDeployments: 1,
+			expectVersions:    []string{"1.0.0"},
+			expectDeployedTo:  []expectedDeployedTo{{resourceKind: domain.DeviceKind, resourceName: "dev1"}},
+		},
+		{
+			name:        "When a device has an app catalog item ref it should return one deployment with the app name",
+			catalogName: "my-catalog",
+			itemName:    "my-item",
+			appDevices: []domain.Device{
+				{
+					Metadata: domain.ObjectMeta{Name: lo.ToPtr("dev1")},
+				},
+			},
+			expectStatusCode:  http.StatusOK,
+			expectDeployments: 1,
+			expectAppNames:    []string{"web-app"},
+			expectVersions:    []string{"2.0.0"},
+			expectDeployedTo:  []expectedDeployedTo{{resourceKind: domain.DeviceKind, resourceName: "dev1"}},
+		},
+		{
+			name:        "When devices have both OS and app catalog item refs it should return all deployments",
+			catalogName: "my-catalog",
+			itemName:    "my-item",
+			osDevices: []domain.Device{
+				makeDeviceWithOsRef("dev1", "my-catalog", "my-item", "1.0.0", lo.ToPtr("stable")),
+			},
+			appDevices: []domain.Device{
+				{
+					Metadata: domain.ObjectMeta{Name: lo.ToPtr("dev2")},
+				},
+			},
+			expectStatusCode:  http.StatusOK,
+			expectDeployments: 2,
+			expectDeployedTo: []expectedDeployedTo{
+				{resourceKind: domain.DeviceKind, resourceName: "dev1"},
+				{resourceKind: domain.DeviceKind, resourceName: "dev2"},
+			},
+		},
+		{
+			name:        "When a device has a volume catalog item ref it should return one deployment with the app name",
+			catalogName: "my-catalog",
+			itemName:    "my-item",
+			volDevices: []domain.Device{
+				{
+					Metadata: domain.ObjectMeta{Name: lo.ToPtr("dev1")},
+				},
+			},
+			expectStatusCode:  http.StatusOK,
+			expectDeployments: 1,
+			expectAppNames:    []string{"data-app"},
+			expectVersions:    []string{"3.0.0"},
+			expectDeployedTo:  []expectedDeployedTo{{resourceKind: domain.DeviceKind, resourceName: "dev1"}},
+		},
+		{
+			name:        "When devices have OS, app, and volume catalog item refs it should return all deployments",
+			catalogName: "my-catalog",
+			itemName:    "my-item",
+			osDevices: []domain.Device{
+				makeDeviceWithOsRef("dev1", "my-catalog", "my-item", "1.0.0", nil),
+			},
+			appDevices: []domain.Device{
+				{
+					Metadata: domain.ObjectMeta{Name: lo.ToPtr("dev2")},
+				},
+			},
+			volDevices: []domain.Device{
+				{
+					Metadata: domain.ObjectMeta{Name: lo.ToPtr("dev3")},
+				},
+			},
+			expectStatusCode:  http.StatusOK,
+			expectDeployments: 3,
+			expectDeployedTo: []expectedDeployedTo{
+				{resourceKind: domain.DeviceKind, resourceName: "dev1"},
+				{resourceKind: domain.DeviceKind, resourceName: "dev2"},
+				{resourceKind: domain.DeviceKind, resourceName: "dev3"},
+			},
+		},
+		{
+			name:        "When a fleet has an OS catalog item ref it should return one deployment with DeployedTo Fleet",
+			catalogName: "my-catalog",
+			itemName:    "my-item",
+			osFleets: []domain.Fleet{
+				makeFleetWithOsRef("fleet1", "my-catalog", "my-item", "1.0.0", nil),
+			},
+			expectStatusCode:  http.StatusOK,
+			expectDeployments: 1,
+			expectVersions:    []string{"1.0.0"},
+			expectDeployedTo:  []expectedDeployedTo{{resourceKind: domain.FleetKind, resourceName: "fleet1"}},
+		},
+		{
+			name:        "When both devices and fleets reference the catalog item it should return all deployments",
+			catalogName: "my-catalog",
+			itemName:    "my-item",
+			osDevices: []domain.Device{
+				makeDeviceWithOsRef("dev1", "my-catalog", "my-item", "1.0.0", nil),
+			},
+			osFleets: []domain.Fleet{
+				makeFleetWithOsRef("fleet1", "my-catalog", "my-item", "2.0.0", nil),
+			},
+			expectStatusCode:  http.StatusOK,
+			expectDeployments: 2,
+			expectDeployedTo: []expectedDeployedTo{
+				{resourceKind: domain.DeviceKind, resourceName: "dev1"},
+				{resourceKind: domain.FleetKind, resourceName: "fleet1"},
+			},
+		},
+		{
+			name:             "When the device store returns an error it should return an internal server error",
+			catalogName:      "my-catalog",
+			itemName:         "my-item",
+			deviceStoreErr:   fmt.Errorf("db connection lost"),
+			expectStatusCode: http.StatusInternalServerError,
+		},
+		{
+			name:             "When the fleet store returns an error it should return an internal server error",
+			catalogName:      "my-catalog",
+			itemName:         "my-item",
+			fleetStoreErr:    fmt.Errorf("db connection lost"),
+			expectStatusCode: http.StatusInternalServerError,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ds := newFakeDeviceStore()
+			ds.err = tt.deviceStoreErr
+			fs := newFakeFleetStore()
+			fs.err = tt.fleetStoreErr
+
+			if tt.osDevices != nil {
+				ds.osDevices[tt.catalogName+"/"+tt.itemName] = &domain.DeviceList{Items: tt.osDevices}
+			}
+
+			if tt.appDevices != nil {
+				for i := range tt.appDevices {
+					if tt.appDevices[i].Spec == nil {
+						appName := "web-app"
+						appSpec := makeContainerAppSpec(t, tt.catalogName, tt.itemName, "2.0.0", nil, &appName)
+						tt.appDevices[i].Spec = &domain.DeviceSpec{
+							Applications: &[]domain.ApplicationProviderSpec{appSpec},
+						}
+					}
+				}
+				ds.appDevices[tt.catalogName+"/"+tt.itemName] = &domain.DeviceList{Items: tt.appDevices}
+			}
+
+			if tt.volDevices != nil {
+				for i := range tt.volDevices {
+					if tt.volDevices[i].Spec == nil {
+						appName := "data-app"
+						appSpec := makeContainerAppWithVolumeRef(t, tt.catalogName, tt.itemName, "3.0.0", nil, &appName)
+						tt.volDevices[i].Spec = &domain.DeviceSpec{
+							Applications: &[]domain.ApplicationProviderSpec{appSpec},
+						}
+					}
+				}
+				ds.volDevices[tt.catalogName+"/"+tt.itemName] = &domain.DeviceList{Items: tt.volDevices}
+			}
+
+			if tt.osFleets != nil {
+				fs.osFleets[tt.catalogName+"/"+tt.itemName] = &domain.FleetList{Items: tt.osFleets}
+			}
+
+			if tt.appFleets != nil {
+				fs.appFleets[tt.catalogName+"/"+tt.itemName] = &domain.FleetList{Items: tt.appFleets}
+			}
+
+			if tt.volFleets != nil {
+				fs.volFleets[tt.catalogName+"/"+tt.itemName] = &domain.FleetList{Items: tt.volFleets}
+			}
+
+			h, _, _ := newTestHandlerWithStores(ds, fs)
+			result, status := h.GetCatalogItemDeployments(context.Background(), uuid.New(), tt.catalogName, tt.itemName, domain.GetCatalogItemDeploymentsParams{})
+
+			require.Equal(t, tt.expectStatusCode, status.Code)
+
+			if tt.expectStatusCode != http.StatusOK {
+				return
+			}
+
+			require.NotNil(t, result)
+			require.Equal(t, domain.QualifiedV1Alpha1, result.ApiVersion)
+			require.Equal(t, domain.CatalogItemDeploymentListKind, result.Kind)
+			require.Len(t, result.Items, tt.expectDeployments)
+
+			for _, dep := range result.Items {
+				require.Equal(t, tt.catalogName, dep.Catalog)
+				require.Equal(t, tt.itemName, dep.CatalogItem)
+				require.Equal(t, domain.QualifiedV1Alpha1, dep.ApiVersion)
+				require.Equal(t, domain.CatalogItemDeploymentKind, dep.Kind)
+				require.NotNil(t, dep.DeployedTo)
+				require.NotNil(t, dep.DeployedTo.ResourceKind)
+				require.NotNil(t, dep.DeployedTo.ResourceName)
+			}
+
+			if tt.expectAppNames != nil {
+				var appNames []string
+				for _, dep := range result.Items {
+					if dep.ApplicationName != nil {
+						appNames = append(appNames, *dep.ApplicationName)
+					}
+				}
+				require.ElementsMatch(t, tt.expectAppNames, appNames)
+			}
+
+			if tt.expectVersions != nil {
+				var versions []string
+				for _, dep := range result.Items {
+					versions = append(versions, dep.Version)
+				}
+				require.ElementsMatch(t, tt.expectVersions, versions)
+			}
+
+			if tt.expectDeployedTo != nil {
+				var actual []expectedDeployedTo
+				for _, dep := range result.Items {
+					actual = append(actual, expectedDeployedTo{
+						resourceKind: *dep.DeployedTo.ResourceKind,
+						resourceName: *dep.DeployedTo.ResourceName,
+					})
+				}
+				require.ElementsMatch(t, tt.expectDeployedTo, actual)
+			}
+		})
+	}
+}
+
+func TestGetCatalogItemDeploymentsPagination(t *testing.T) {
+	ds := newFakeDeviceStore()
+	fs := newFakeFleetStore()
+
+	catalogName := "my-catalog"
+	itemName := "my-item"
+
+	ds.osDevices[catalogName+"/"+itemName] = &domain.DeviceList{
+		Items: []domain.Device{
+			makeDeviceWithOsRef("dev-a", catalogName, itemName, "1.0.0", nil),
+			makeDeviceWithOsRef("dev-b", catalogName, itemName, "1.0.0", nil),
+			makeDeviceWithOsRef("dev-c", catalogName, itemName, "1.0.0", nil),
+		},
+	}
+	fs.osFleets[catalogName+"/"+itemName] = &domain.FleetList{
+		Items: []domain.Fleet{
+			makeFleetWithOsRef("fleet-a", catalogName, itemName, "1.0.0", nil),
+			makeFleetWithOsRef("fleet-b", catalogName, itemName, "1.0.0", nil),
+		},
+	}
+
+	h, _, _ := newTestHandlerWithStores(ds, fs)
+
+	t.Run("When limit is set it should return at most limit items with a continue token", func(t *testing.T) {
+		limit := int32(2)
+		result, status := h.GetCatalogItemDeployments(context.Background(), uuid.New(), catalogName, itemName, domain.GetCatalogItemDeploymentsParams{
+			Limit: &limit,
+		})
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.Len(t, result.Items, 2)
+		require.NotNil(t, result.Metadata.Continue)
+		require.NotNil(t, result.Metadata.RemainingItemCount)
+		require.Equal(t, int64(3), *result.Metadata.RemainingItemCount)
+	})
+
+	t.Run("When continue token is provided it should return the next page", func(t *testing.T) {
+		limit := int32(2)
+		result1, status := h.GetCatalogItemDeployments(context.Background(), uuid.New(), catalogName, itemName, domain.GetCatalogItemDeploymentsParams{
+			Limit: &limit,
+		})
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.NotNil(t, result1.Metadata.Continue)
+
+		result2, status := h.GetCatalogItemDeployments(context.Background(), uuid.New(), catalogName, itemName, domain.GetCatalogItemDeploymentsParams{
+			Limit:    &limit,
+			Continue: result1.Metadata.Continue,
+		})
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.Len(t, result2.Items, 2)
+		require.NotNil(t, result2.Metadata.Continue)
+		require.Equal(t, int64(1), *result2.Metadata.RemainingItemCount)
+
+		result3, status := h.GetCatalogItemDeployments(context.Background(), uuid.New(), catalogName, itemName, domain.GetCatalogItemDeploymentsParams{
+			Limit:    &limit,
+			Continue: result2.Metadata.Continue,
+		})
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.Len(t, result3.Items, 1)
+		require.Nil(t, result3.Metadata.Continue)
+	})
+
+	t.Run("When no limit is set it should return all items without a continue token", func(t *testing.T) {
+		result, status := h.GetCatalogItemDeployments(context.Background(), uuid.New(), catalogName, itemName, domain.GetCatalogItemDeploymentsParams{})
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.Len(t, result.Items, 5)
+		require.Nil(t, result.Metadata.Continue)
+	})
+
+	t.Run("When paginating it should return all items across pages without duplicates", func(t *testing.T) {
+		limit := int32(2)
+		var allItems []domain.CatalogItemDeployment
+		params := domain.GetCatalogItemDeploymentsParams{Limit: &limit}
+
+		for {
+			result, status := h.GetCatalogItemDeployments(context.Background(), uuid.New(), catalogName, itemName, params)
+			require.Equal(t, int32(http.StatusOK), status.Code)
+			allItems = append(allItems, result.Items...)
+			if result.Metadata.Continue == nil {
+				break
+			}
+			params.Continue = result.Metadata.Continue
+		}
+
+		require.Len(t, allItems, 5)
+		seen := make(map[string]bool)
+		for _, dep := range allItems {
+			key := *dep.DeployedTo.ResourceKind + "/" + *dep.DeployedTo.ResourceName
+			require.False(t, seen[key], "duplicate deployment: %s", key)
+			seen[key] = true
+		}
+	})
 }

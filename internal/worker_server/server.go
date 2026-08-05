@@ -15,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/internal/org/cache"
 	"github.com/flightctl/flightctl/internal/rendered"
 	canaryservice "github.com/flightctl/flightctl/internal/service/canary"
+	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	dependencyrefservice "github.com/flightctl/flightctl/internal/service/dependencyref"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	eventservice "github.com/flightctl/flightctl/internal/service/event"
@@ -23,6 +24,7 @@ import (
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
 	canarystore "github.com/flightctl/flightctl/internal/store/canary"
+	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	checkpointstore "github.com/flightctl/flightctl/internal/store/checkpoint"
 	dependencyrefstore "github.com/flightctl/flightctl/internal/store/dependencyref"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
@@ -100,14 +102,16 @@ func (s *Server) Run(ctx context.Context) error {
 	checkpointStore := checkpointstore.NewCheckpointStore(s.db, s.log.WithField("pkg", "checkpoint-store"))
 	canaryStore := canarystore.NewCanaryStore(s.db, s.log.WithField("pkg", "canary-store"))
 	canarySvc := canaryservice.WrapWithTracing(canaryservice.NewServiceHandler(canaryStore))
+	catStore := catalogstore.NewCatalogStore(s.db, s.log.WithField("pkg", "catalog-store"))
 
 	eventsSvc := events.NewServiceHandler(eventStore, workerClient, s.log)
 
-	fleetSvc := fleetservice.WrapWithTracing(fleetservice.NewServiceHandler(fleetStore, eventsSvc, s.log))
+	fleetSvc := fleetservice.WrapWithTracing(fleetservice.NewServiceHandler(fleetStore, catStore, eventsSvc, s.log))
 	templateVersionSvc := templateversionservice.WrapWithTracing(templateversionservice.NewServiceHandler(templateVersionStore, kvStore, eventsSvc, s.log))
-	deviceSvc := deviceservice.WrapWithTracing(deviceservice.NewDeviceServiceHandler(deviceStore, fleetStore, eventsSvc, kvStore, "", s.log))
+	deviceSvc := deviceservice.WrapWithTracing(deviceservice.NewDeviceServiceHandler(deviceStore, catStore, fleetStore, eventsSvc, kvStore, "", s.log))
 	dependencyrefSvc := dependencyrefservice.WrapWithTracing(dependencyrefservice.NewServiceHandler(dependencyRefStore, s.log))
 	repositorySvc := repositoryservice.WrapWithTracing(repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, s.log))
+	catalogSvc := catalogservice.WrapWithTracing(catalogservice.NewServiceHandler(catStore, deviceStore, fleetStore, eventsSvc, s.log))
 	eventSvc := eventservice.WrapWithTracing(eventservice.NewServiceHandler(eventStore, eventsSvc))
 
 	encryptionMigrator := tasks.NewEncryptionMigrator(
@@ -121,7 +125,7 @@ func (s *Server) Run(ctx context.Context) error {
 		s.log.WithField("pkg", "encryption-migration"),
 	)
 
-	if err = tasks.LaunchConsumers(ctx, s.queuesProvider, fleetSvc, templateVersionSvc, deviceSvc, dependencyrefSvc, repositorySvc, eventSvc, s.k8sClient, kvStore, s.cfg, 1, 1, s.workerMetrics, encryptionMigrator, publisher); err != nil {
+	if err = tasks.LaunchConsumers(ctx, s.queuesProvider, fleetSvc, templateVersionSvc, deviceSvc, dependencyrefSvc, repositorySvc, catalogSvc, eventSvc, s.k8sClient, kvStore, s.cfg, 1, 1, s.workerMetrics, encryptionMigrator, publisher); err != nil {
 		s.log.WithError(err).Error("failed to launch consumers")
 		return err
 	}

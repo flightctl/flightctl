@@ -82,7 +82,7 @@ func (m *MockDevice) MutateAnnotation(ctx context.Context, orgId uuid.UUID, name
 	_, err := mutate("")
 	return err
 }
-func (m *MockDevice) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, mutateStatus devicestore.RenderedStatusMutator) (string, error) {
+func (m *MockDevice) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash, renderedOS string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, mutateStatus devicestore.RenderedStatusMutator) (string, error) {
 	return "", nil
 }
 func (m *MockDevice) SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, callback devicestore.ServiceConditionsCallback) error {
@@ -126,6 +126,18 @@ func (m *MockDevice) ProcessAwaitingReconnectAnnotation(ctx context.Context, org
 }
 
 func (m *MockDevice) DecommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission, eventCallback store.EventCallback) (*domain.Device, error) {
+	return nil, nil
+}
+
+func (m *MockDevice) ListDevicesByOsCatalogItemRef(ctx context.Context, orgId uuid.UUID, catalog string, item string, listParams store.ListParams) (*domain.DeviceList, error) {
+	return nil, nil
+}
+
+func (m *MockDevice) ListDevicesByAppCatalogItemRef(ctx context.Context, orgId uuid.UUID, catalog string, item string, listParams store.ListParams) (*domain.DeviceList, error) {
+	return nil, nil
+}
+
+func (m *MockDevice) ListDevicesByVolumeCatalogItemRef(ctx context.Context, orgId uuid.UUID, catalog string, item string, listParams store.ListParams) (*domain.DeviceList, error) {
 	return nil, nil
 }
 

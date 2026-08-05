@@ -13,6 +13,7 @@ var (
 	ErrUpdatingResourceWithOwnerNotAllowed = errors.New("updating the resource is not allowed because it has an owner")
 	ErrDeletingResourceWithOwnerNotAllowed = errors.New("deleting the resource is not allowed because it has an owner")
 	ErrResourceNotEmpty                    = errors.New("resource cannot be deleted because it contains child resources")
+	ErrResourceInUse                       = errors.New("resource cannot be modified or deleted because it is in use by devices")
 	ErrDuplicateName                       = errors.New("a resource with this name already exists")
 	ErrResourceVersionConflict             = errors.New("the object has been modified; please apply your changes to the latest version and try again")
 	ErrIllegalResourceVersionFormat        = errors.New("resource version does not match the required integer format")

@@ -19,7 +19,7 @@ import (
 func newTestHandler() (*fakeStore, *fakeEvents, Service) {
 	st := newFakeStore()
 	ev := &fakeEvents{}
-	svc := NewDeviceServiceHandler(st.device, st.fleet, ev, nil, "agent.example.com", logrus.New())
+	svc := NewDeviceServiceHandler(st.device, st.catalog, st.fleet, ev, nil, "agent.example.com", logrus.New())
 	return st, ev, svc
 }
 
@@ -514,7 +514,7 @@ func TestResumeDevices(t *testing.T) {
 
 	t.Run("When events is nil it should not panic", func(t *testing.T) {
 		st := newFakeStore()
-		svc := NewDeviceServiceHandler(st.device, st.fleet, nil, nil, "agent.example.com", logrus.New())
+		svc := NewDeviceServiceHandler(st.device, st.catalog, st.fleet, nil, nil, "agent.example.com", logrus.New())
 		ctx := context.Background()
 		orgId := uuid.New()
 		annotations := map[string]string{domain.DeviceAnnotationConflictPaused: "true"}
@@ -815,7 +815,7 @@ func TestUpdateRenderedDevice(t *testing.T) {
 		Status:   lo.ToPtr(domain.NewDeviceStatus()),
 	}, nil)
 	require.NoError(t, err)
-	status := svc.UpdateRenderedDevice(ctx, orgId, "foo", "config", "apps", "hash", nil, false)
+	status := svc.UpdateRenderedDevice(ctx, orgId, "foo", "config", "apps", "hash", "", nil, false)
 	require.Equal(t, int32(http.StatusOK), status.Code)
 }
 
@@ -1186,4 +1186,332 @@ func patchAddOsImage(image string) domain.PatchRequest {
 func patchAddLabel(key, value string) domain.PatchRequest {
 	var v interface{} = value
 	return domain.PatchRequest{{Op: "replace", Path: "/metadata/labels/" + key, Value: &v}}
+}
+
+func makeCatalogItem(itemType domain.CatalogItemType, versions ...string) *domain.CatalogItem {
+	var versionList []domain.CatalogItemVersion
+	for _, v := range versions {
+		versionList = append(versionList, domain.CatalogItemVersion{Version: v})
+	}
+	return &domain.CatalogItem{
+		Spec: domain.CatalogItemSpec{
+			Type:     itemType,
+			Versions: versionList,
+		},
+	}
+}
+
+func makeAppSpec(t *testing.T, catalog, item, version string) domain.ApplicationProviderSpec {
+	t.Helper()
+	container := domain.ContainerApplication{
+		AppType: domain.AppTypeContainer,
+		Name:    lo.ToPtr("myapp"),
+	}
+	err := container.FromCatalogItemRefApplicationProviderSpec(domain.CatalogItemRefApplicationProviderSpec{
+		CatalogItemRef: domain.CatalogItemRefSpec{
+			Catalog: catalog,
+			Item:    item,
+			Version: version,
+		},
+	})
+	require.NoError(t, err)
+	var spec domain.ApplicationProviderSpec
+	err = spec.FromContainerApplication(container)
+	require.NoError(t, err)
+	return spec
+}
+
+func TestCreateDevice_CatalogItemRefValidation(t *testing.T) {
+	t.Run("When OS refs a valid catalog item version it should succeed", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		st.catalog.items["mycat/myitem"] = makeCatalogItem(domain.CatalogItemTypeOS, "1.0.0", "2.0.0")
+		ctx := context.Background()
+		orgId := uuid.New()
+		device := domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("dev1")},
+			Spec: &domain.DeviceSpec{
+				Os: &domain.DeviceOsSpec{
+					CatalogItemRef: &domain.CatalogItemRefSpec{
+						Catalog: "mycat",
+						Item:    "myitem",
+						Version: "1.0.0",
+					},
+				},
+			},
+		}
+		_, status := svc.CreateDevice(ctx, orgId, device)
+		require.Equal(t, int32(http.StatusCreated), status.Code)
+	})
+
+	t.Run("When OS refs a nonexistent catalog item it should return bad request", func(t *testing.T) {
+		_, _, svc := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		device := domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("dev1")},
+			Spec: &domain.DeviceSpec{
+				Os: &domain.DeviceOsSpec{
+					CatalogItemRef: &domain.CatalogItemRefSpec{
+						Catalog: "mycat",
+						Item:    "missing",
+						Version: "1.0.0",
+					},
+				},
+			},
+		}
+		_, status := svc.CreateDevice(ctx, orgId, device)
+		require.Equal(t, int32(http.StatusBadRequest), status.Code)
+		require.Contains(t, status.Message, "mycat/missing")
+	})
+
+	t.Run("When OS refs a nonexistent version it should return bad request", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		st.catalog.items["mycat/myitem"] = makeCatalogItem(domain.CatalogItemTypeOS, "1.0.0")
+		ctx := context.Background()
+		orgId := uuid.New()
+		device := domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("dev1")},
+			Spec: &domain.DeviceSpec{
+				Os: &domain.DeviceOsSpec{
+					CatalogItemRef: &domain.CatalogItemRefSpec{
+						Catalog: "mycat",
+						Item:    "myitem",
+						Version: "9.9.9",
+					},
+				},
+			},
+		}
+		_, status := svc.CreateDevice(ctx, orgId, device)
+		require.Equal(t, int32(http.StatusBadRequest), status.Code)
+		require.Contains(t, status.Message, "9.9.9")
+	})
+
+	t.Run("When app refs a valid catalog item version it should succeed", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		st.catalog.items["mycat/myapp"] = makeCatalogItem(domain.CatalogItemTypeContainer, "1.0.0")
+		ctx := context.Background()
+		orgId := uuid.New()
+		app := makeAppSpec(t, "mycat", "myapp", "1.0.0")
+		device := domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("dev1")},
+			Spec: &domain.DeviceSpec{
+				Applications: &[]domain.ApplicationProviderSpec{app},
+			},
+		}
+		_, status := svc.CreateDevice(ctx, orgId, device)
+		require.Equal(t, int32(http.StatusCreated), status.Code)
+	})
+
+	t.Run("When app refs a nonexistent catalog item it should return bad request", func(t *testing.T) {
+		_, _, svc := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		app := makeAppSpec(t, "mycat", "badapp", "1.0.0")
+		device := domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("dev1")},
+			Spec: &domain.DeviceSpec{
+				Applications: &[]domain.ApplicationProviderSpec{app},
+			},
+		}
+		_, status := svc.CreateDevice(ctx, orgId, device)
+		require.Equal(t, int32(http.StatusBadRequest), status.Code)
+		require.Contains(t, status.Message, "mycat/badapp")
+	})
+
+	t.Run("When device has no catalog refs it should succeed without catalog lookup", func(t *testing.T) {
+		_, _, svc := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		device := domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("dev1")},
+			Spec:     &domain.DeviceSpec{},
+		}
+		_, status := svc.CreateDevice(ctx, orgId, device)
+		require.Equal(t, int32(http.StatusCreated), status.Code)
+	})
+
+	t.Run("When catalog store is nil it should skip validation", func(t *testing.T) {
+		st := newFakeStore()
+		ev := &fakeEvents{}
+		svc := NewDeviceServiceHandler(st.device, nil, st.fleet, ev, nil, "agent.example.com", logrus.New())
+		ctx := context.Background()
+		orgId := uuid.New()
+		device := domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("dev1")},
+			Spec: &domain.DeviceSpec{
+				Os: &domain.DeviceOsSpec{
+					CatalogItemRef: &domain.CatalogItemRefSpec{
+						Catalog: "missing",
+						Item:    "missing",
+						Version: "1.0.0",
+					},
+				},
+			},
+		}
+		_, status := svc.CreateDevice(ctx, orgId, device)
+		require.Equal(t, int32(http.StatusCreated), status.Code)
+	})
+}
+
+func makeCatalogItemWithSchema(itemType domain.CatalogItemType, version string, configSchema *map[string]interface{}) *domain.CatalogItem {
+	return &domain.CatalogItem{
+		Spec: domain.CatalogItemSpec{
+			Type: itemType,
+			Versions: []domain.CatalogItemVersion{
+				{
+					Version:      version,
+					ConfigSchema: configSchema,
+					Channels:     []string{"stable"},
+					References:   map[domain.CatalogItemArtifactType]string{},
+				},
+			},
+		},
+	}
+}
+
+func makeAppSpecWithEnvVars(t *testing.T, catalog, item, version string, envVars *map[string]string) domain.ApplicationProviderSpec {
+	t.Helper()
+	container := domain.ContainerApplication{
+		AppType: domain.AppTypeContainer,
+		Name:    lo.ToPtr("myapp"),
+		EnvVars: envVars,
+	}
+	err := container.FromCatalogItemRefApplicationProviderSpec(domain.CatalogItemRefApplicationProviderSpec{
+		CatalogItemRef: domain.CatalogItemRefSpec{
+			Catalog: catalog,
+			Item:    item,
+			Version: version,
+		},
+	})
+	require.NoError(t, err)
+	var spec domain.ApplicationProviderSpec
+	err = spec.FromContainerApplication(container)
+	require.NoError(t, err)
+	return spec
+}
+
+func TestCreateDevice_ConfigSchemaValidation(t *testing.T) {
+	requireEnvVarsSchema := &map[string]interface{}{
+		"type":     "object",
+		"required": []interface{}{"envVars"},
+		"properties": map[string]interface{}{
+			"envVars": map[string]interface{}{"type": "object"},
+		},
+	}
+
+	t.Run("When app conforms to configSchema it should succeed", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		st.catalog.items["mycat/myitem"] = makeCatalogItemWithSchema(domain.CatalogItemTypeContainer, "1.0.0", requireEnvVarsSchema)
+		ctx := context.Background()
+		orgId := uuid.New()
+		app := makeAppSpecWithEnvVars(t, "mycat", "myitem", "1.0.0", &map[string]string{"KEY": "val"})
+		device := domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("dev1")},
+			Spec:     &domain.DeviceSpec{Applications: &[]domain.ApplicationProviderSpec{app}},
+		}
+		_, status := svc.CreateDevice(ctx, orgId, device)
+		require.Equal(t, int32(http.StatusCreated), status.Code)
+	})
+
+	t.Run("When app violates configSchema it should return bad request", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		st.catalog.items["mycat/myitem"] = makeCatalogItemWithSchema(domain.CatalogItemTypeContainer, "1.0.0", requireEnvVarsSchema)
+		ctx := context.Background()
+		orgId := uuid.New()
+		app := makeAppSpecWithEnvVars(t, "mycat", "myitem", "1.0.0", nil)
+		device := domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("dev1")},
+			Spec:     &domain.DeviceSpec{Applications: &[]domain.ApplicationProviderSpec{app}},
+		}
+		_, status := svc.CreateDevice(ctx, orgId, device)
+		require.Equal(t, int32(http.StatusBadRequest), status.Code)
+		require.Contains(t, status.Message, "configSchema")
+	})
+
+	t.Run("When catalog item has no configSchema it should succeed", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		st.catalog.items["mycat/myitem"] = makeCatalogItem(domain.CatalogItemTypeContainer, "1.0.0")
+		ctx := context.Background()
+		orgId := uuid.New()
+		app := makeAppSpecWithEnvVars(t, "mycat", "myitem", "1.0.0", nil)
+		device := domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("dev1")},
+			Spec:     &domain.DeviceSpec{Applications: &[]domain.ApplicationProviderSpec{app}},
+		}
+		_, status := svc.CreateDevice(ctx, orgId, device)
+		require.Equal(t, int32(http.StatusCreated), status.Code)
+	})
+}
+
+func TestReplaceDevice_CatalogItemRefValidation(t *testing.T) {
+	t.Run("When replacing with a valid catalog ref it should succeed", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		st.catalog.items["mycat/myitem"] = makeCatalogItem(domain.CatalogItemTypeOS, "1.0.0")
+		ctx := context.Background()
+		orgId := uuid.New()
+		device := domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("dev1")},
+			Spec: &domain.DeviceSpec{
+				Os: &domain.DeviceOsSpec{
+					CatalogItemRef: &domain.CatalogItemRefSpec{
+						Catalog: "mycat",
+						Item:    "myitem",
+						Version: "1.0.0",
+					},
+				},
+			},
+		}
+		_, status := svc.ReplaceDevice(ctx, orgId, "dev1", device, nil, false, false)
+		require.True(t, status.Code == http.StatusOK || status.Code == http.StatusCreated)
+	})
+
+	t.Run("When replacing with a nonexistent catalog item it should return bad request", func(t *testing.T) {
+		_, _, svc := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		device := domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("dev1")},
+			Spec: &domain.DeviceSpec{
+				Os: &domain.DeviceOsSpec{
+					CatalogItemRef: &domain.CatalogItemRefSpec{
+						Catalog: "mycat",
+						Item:    "missing",
+						Version: "1.0.0",
+					},
+				},
+			},
+		}
+		_, status := svc.ReplaceDevice(ctx, orgId, "dev1", device, nil, false, false)
+		require.Equal(t, int32(http.StatusBadRequest), status.Code)
+	})
+}
+
+func TestPatchDevice_CatalogItemRefValidation(t *testing.T) {
+	t.Run("When patching to add an invalid catalog ref it should return bad request", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+
+		existing := &domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("dev1")},
+			Spec:     &domain.DeviceSpec{},
+			Status:   lo.ToPtr(domain.NewDeviceStatus()),
+		}
+		_, err := st.device.Create(ctx, orgId, existing, nil)
+		require.NoError(t, err)
+
+		var value interface{} = map[string]any{
+			"catalogItemRef": map[string]any{
+				"catalog": "mycat",
+				"item":    "noexist",
+				"version": "1.0.0",
+			},
+		}
+		patch := domain.PatchRequest{
+			{Op: "add", Path: "/spec/os", Value: &value},
+		}
+		_, status := svc.PatchDevice(ctx, orgId, "dev1", patch, false, false)
+		require.Equal(t, int32(http.StatusBadRequest), status.Code)
+		require.Contains(t, status.Message, "mycat/noexist")
+	})
 }
