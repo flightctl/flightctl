@@ -25,31 +25,42 @@ Image-mode installs use the default weak-dependency behavior and pull in
 
 ## Package-mode e2e
 
-Package-mode e2e uses a `cs9-regular` **OCI** agent image and a dedicated
-Ginkgo suite under `test/e2e/package_mode`. Tests run the agent in a
-**testcontainer** (systemd as init, nested Podman for apps), not a
+Package-mode e2e uses the `package` **agent-image variant** (bootc base with
+`bootc`/`rpm-ostree` removed from PATH so `DetectMode` reports package mode)
+and a dedicated Ginkgo suite under `test/e2e/package_mode`. Tests run the
+agent in a **testcontainer** (systemd as init, nested Podman for apps), not a
 package-mode QCOW2 VM.
 
-### Build the cs9-regular image
+### Build the package variant
 
 ```bash
-BUILD_TYPE=regular AGENT_OS_ID=cs9-regular SKIP_QCOW_BUILD=true make e2e-agent-images
+make e2e-agent-images
 ```
 
-With `SKIP_QCOW_BUILD=true` (the CI default for package-mode), the path builds
-the package-mode OCI base and bundle only. Do not rely on a package-mode
-QCOW2 disk for e2e.
+This builds the bootc base, all default variants (including `package`), and
+the agent bundle for `AGENT_OS_ID` (default `cs9-bootc`). The harness image
+reference is:
 
-CI builds `cs9-regular` with `build_type: regular`, `upload_bundle: true`, and
-`skip_qcow_build: true`, then loads `agent-images-bundle-cs9-regular.tar` into
-local container storage before e2e.
+`quay.io/flightctl/flightctl-device:package`
 
-Image reference used by the harness:
+(`DeviceTags.Package` via `NewDeviceImageReference`, same tagging scheme as
+`v2`/`v3`/…).
 
-`quay.io/flightctl/flightctl-device:base-cs9-regular`
-
-For OS flavors, tagging, and bundling, see
+CI loads that tag from the agent bundle into local Docker/Podman storage
+before e2e. For OS flavors, tagging, and bundling, see
 [test/scripts/agent-images/README.md](../../test/scripts/agent-images/README.md).
+
+### Start a package-mode agent container locally
+
+For a quick local container (host network, no e2e harness setup):
+
+```bash
+make agent-container
+make clean-agent-container
+```
+
+Override the image with `PACKAGE_MODE_AGENT_IMAGE` if needed. See
+[`deploy/agent-vm.mk`](../../deploy/agent-vm.mk).
 
 ### Run the package-mode suite
 
@@ -60,12 +71,12 @@ make in-cluster-e2e-test GO_E2E_DIRS=test/e2e/package_mode
 Prerequisites:
 
 * Agent config under `bin/agent/etc/flightctl` (from a normal deploy / e2e setup)
-* The `cs9-regular` OCI image loaded locally (from the build or CI bundle)
+* The `package` OCI image loaded locally (from `make e2e-agent-images` or the CI bundle)
 
 The harness helper `StartPackageModeAgent` (in
 `test/harness/e2e/package_mode_agent.go`) starts a privileged testcontainer
-with `/sbin/init`, mounts agent config and certs, and waits for
-`flightctl-agent` to become active.
+with `/sbin/init`, mounts agent config and certs, configures registry access,
+and waits for `flightctl-agent` to become active.
 
 ### What the suite covers
 

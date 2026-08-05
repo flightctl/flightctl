@@ -331,9 +331,7 @@ func packageModeAgentLogLineUseful(line string) bool {
 		strings.Contains(line, "Starting Flight"),
 		strings.Contains(line, "Spec reconciliation"),
 		strings.Contains(line, "application"),
-		strings.Contains(line, "pull"),
-		strings.Contains(line, "error"),
-		strings.Contains(line, "Error"):
+		strings.Contains(line, "pull"):
 		return true
 	default:
 		return false

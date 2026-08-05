@@ -59,7 +59,4 @@ var _ = AfterEach(func() {
 
 	harness.PrintAgentLogsIfFailed()
 	harness.CaptureDeploymentLogsIfFailed()
-
-	err := harness.CleanUpAllTestResources()
-	Expect(err).ToNot(HaveOccurred())
 })

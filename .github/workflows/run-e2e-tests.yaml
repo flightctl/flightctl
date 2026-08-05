@@ -202,6 +202,7 @@ jobs:
           ASSIGNMENTS_PATH: assignments.json
           RUNNER_DEBUG: ${{ runner.debug }}
         run: |
+          set -euo pipefail
           if [[ "${RUNNER_DEBUG}" == "1" ]]; then
             echo "Debug mode enabled"
             export DEBUG_VM_CONSOLE=1
