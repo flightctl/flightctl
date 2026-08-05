@@ -84,10 +84,10 @@ func StartPackageModeAgent(ctx context.Context, agentConfigDir, registryHost, re
 		Image:        GetPackageModeAgentImage(),
 		Name:         containerName,
 		ExposedPorts: []string{"22/tcp"},
-		Privileged:   true,
 		Cmd:          []string{"/sbin/init"},
 		Files:        files,
 		HostConfigModifier: func(hc *container.HostConfig) {
+			hc.Privileged = true
 			hc.Tmpfs = map[string]string{
 				"/run":      "rw",
 				"/run/lock": "rw",
