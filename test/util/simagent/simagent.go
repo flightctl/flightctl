@@ -1,4 +1,4 @@
-package util
+package simagent
 
 import (
 	"context"
@@ -14,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	apiClient "github.com/flightctl/flightctl/internal/api/client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/test/util"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
@@ -57,7 +58,7 @@ func WaitForEnrollmentID(ctx context.Context, agentDir string, pollInterval, tim
 		if err != nil {
 			return false, nil
 		}
-		enrollmentID = GetEnrollmentIdFromText(bannerFileData)
+		enrollmentID = util.GetEnrollmentIdFromText(bannerFileData)
 		return enrollmentID != "", nil
 	})
 	return enrollmentID, err
@@ -74,7 +75,7 @@ func ApproveEnrollment(ctx context.Context, serviceClient *apiClient.ClientWithR
 			if err != nil {
 				return false, nil
 			}
-			enrollmentID = GetEnrollmentIdFromText(bannerFileData)
+			enrollmentID = util.GetEnrollmentIdFromText(bannerFileData)
 			if enrollmentID == "" {
 				return false, nil
 			}
@@ -93,7 +94,6 @@ func ApproveEnrollment(ctx context.Context, serviceClient *apiClient.ClientWithR
 		}
 		code := resp.StatusCode()
 		if code == http.StatusNotFound {
-			// no error, but don't treat as exceptional: there can be a race between posting and approving
 			return false, nil
 		}
 		if code < http.StatusOK || code >= http.StatusMultipleChoices {

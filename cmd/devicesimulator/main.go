@@ -30,7 +30,7 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/version"
-	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/simagent"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 	"golang.org/x/sync/semaphore"
@@ -358,7 +358,7 @@ func launchAgent(ctx context.Context, i int, params agentLaunchParams) {
 
 func waitForEnrollmentRequest(ctx context.Context, log *logrus.Logger, agentDir string) {
 	log.Debugf("Waiting for enrollment request for agent %s", filepath.Base(agentDir))
-	enrollmentID, err := testutil.WaitForEnrollmentID(ctx, agentDir, enrollmentPollInterval, enrollmentTimeout)
+	enrollmentID, err := simagent.WaitForEnrollmentID(ctx, agentDir, enrollmentPollInterval, enrollmentTimeout)
 	recordEnrollmentOutcome(ctx, err)
 	if err != nil {
 		if ctx.Err() == nil {
@@ -586,7 +586,7 @@ func createOneAgent(agentCfg createAgentsConfig, createMu *sync.Mutex, i int) (*
 	)
 
 	cfg.LogLevel = agentCfg.agentConfigTemplate.LogLevel
-	agentInstance, err := testutil.NewSimulatedAgent(cfg, agentName, agent.WithExecuter(newSimulatorExecuter()))
+	agentInstance, err := simagent.NewSimulatedAgent(cfg, agentName, agent.WithExecuter(newSimulatorExecuter()))
 	if err != nil {
 		return nil, "", nil, false, fmt.Errorf("agent config %d: %w", i, err)
 	}
@@ -595,7 +595,7 @@ func createOneAgent(agentCfg createAgentsConfig, createMu *sync.Mutex, i int) (*
 
 func approveAgent(ctx context.Context, log *logrus.Logger, serviceClient *apiClient.ClientWithResponses, agentDir string, labels *map[string]string) {
 	log.Debugf("Approving device enrollment if exists for agent %s", filepath.Base(agentDir))
-	enrollmentID, err := testutil.ApproveEnrollment(ctx, serviceClient, agentDir, labels, enrollmentPollInterval, enrollmentTimeout)
+	enrollmentID, err := simagent.ApproveEnrollment(ctx, serviceClient, agentDir, labels, enrollmentPollInterval, enrollmentTimeout)
 	recordEnrollmentOutcome(ctx, err)
 	if err != nil {
 		if ctx.Err() == nil {

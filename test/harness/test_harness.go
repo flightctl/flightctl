@@ -44,6 +44,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/test/integration/integrationstack"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/simagent"
 	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
@@ -458,7 +459,7 @@ func (h *TestHarness) StopAgent() {
 func (h *TestHarness) StartAgent() {
 	// Use SafeExecuter in tests to prevent dangerous commands like systemctl reboot
 	safeExec := testutil.NewDefaultSafeExecuter()
-	agentInstance, err := testutil.NewSimulatedAgent(h.agentConfig, "", agent.WithExecuter(safeExec))
+	agentInstance, err := simagent.NewSimulatedAgent(h.agentConfig, "", agent.WithExecuter(safeExec))
 	if err != nil {
 		h.goRoutineErrorHandler(fmt.Errorf("error constructing agent: %w", err))
 		return
