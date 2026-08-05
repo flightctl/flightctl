@@ -227,7 +227,7 @@ service:
 
 ## Enabling TPM in Agent Configuration
 
-To enable TPM authentication, configure the `tpm` section in the agent's `/etc/flightctl/config.yaml` file. See [Installing the Flight Control Agent - TPM Configuration](installing-agent.md#tpm-configuration) for detailed configuration parameters and examples.
+To enable TPM authentication, configure the `tpm` section in the agent's `/etc/flightctl/config.yaml` file. See [Installing and configuring the Flight Control Agent - TPM Configuration](installing-agent.md#tpm-configuration) for detailed configuration parameters and examples.
 
 ## Enrollment Process
 
@@ -294,7 +294,7 @@ Upon successful validation and approval:
 
 ## Troubleshooting
 
-For agent-specific TPM troubleshooting and debugging, see [Installing the Flight Control Agent - TPM Troubleshooting](installing-agent.md#tpm-troubleshooting).
+For agent-specific TPM troubleshooting and debugging, see [Installing and configuring the Flight Control Agent - TPM Troubleshooting](installing-agent.md#tpm-troubleshooting).
 
 ## Security Considerations
 

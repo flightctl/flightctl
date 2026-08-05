@@ -65,15 +65,46 @@ Flight Control automatically gathers system information from each device to help
 
 Here are key considerations when using this feature:
 
-* **What's Collected**: By default, the agent collects basic system information such as hostname, kernel version, OS distribution, product identifiers, and default network interface details. Additional fields such as BIOS data, GPU info, memory, and CPU details can be enabled through configuration. See [Installing the Agent](../installing/installing-agent.md) for a full list of supported fields and how to customize collection.
+* **What's Collected**: By default, the agent collects basic system information such as hostname, kernel version, OS distribution, product identifiers, and default network interface details. Additional fields such as BIOS data, GPU info, memory, and CPU details can be enabled through configuration. See [Installing and configuring the Flight Control Agent](../installing/installing-agent.md) for a full list of supported fields and how to customize collection.
 
-* **Custom Fields**: You can configure the agent to collect additional custom attributes specific to your environment. These are displayed under `systemInfo.customInfo` and can be used for labeling or grouping devices. See [Installing the Agent](../installing/installing-agent.md) for example usage.
+* **Custom Fields**: You can configure the agent to collect additional custom attributes specific to your environment. These are displayed under `systemInfo.customInfo` and can be used for labeling or grouping devices. See [Installing and configuring the Flight Control Agent](../installing/installing-agent.md) for example usage.
 
 * **Collection Timing**: System info is collected during process bootstrap and then cached. It refreshes only if the agent restarts or receives a reload signal (SIGHUP). This avoids unnecessary overhead during regular status updates.
 
 * **Reboot Awareness**: The agent tracks boot time and boot ID, allowing Flight Control to detect whether the device has rebooted. This is useful for update coordination and lifecycle monitoring.
 
 * **Partial Data**: Not all fields may be available on every device or on every process start. Collection is best-effort missing values errors or timeouts will result in empty values.
+
+### OS mode
+
+Devices report an OS management mode in `status.capabilities.osMode`:
+
+| Value | Meaning |
+| ----- | ------- |
+| `image` | The device manages the OS with `bootc` or `rpm-ostree` image updates. |
+| `package` | The device has no image-based OS management. The agent manages configuration and applications only. |
+
+Package-mode devices report `status.os.image` and `status.os.imageDigest` as
+empty strings (`""`) — there is no image-based OS reference. The running
+distribution and version remain available under `status.systemInfo` (for
+example `distroName` and `distroVersion`).
+
+To list package-mode devices:
+
+```bash
+flightctl get devices --field-selector 'status.capabilities.osMode=package'
+```
+
+To inspect OS mode on a single device, view the device YAML and look for
+`status.capabilities.osMode`:
+
+```bash
+flightctl get device/<device_name> -o yaml
+```
+
+See [Field Selectors](field-selectors.md) for more filter examples. For fleets
+that mix image-mode and package-mode devices, see
+[Mixed image-mode and package-mode fleets](managing-fleets.md#mixed-image-mode-and-package-mode-fleets).
 
 ### Viewing using the Web UI
 
@@ -276,6 +307,24 @@ hnsu33339f8m5pjqrbh5ak704jjp92r95a83sd5ja8cjnsl7qnrg  <none>   <none>  Online  U
 ## Updating the OS
 
 You can update a device's OS by updating the target OS image name or version in the device's specification. The next time the agent checks in, it learns of the requested update and automatically starts downloading and verifying the new OS version in the background. It then schedules the actual system update to be performed according to the update policy. When the time has come to update, it installs the new version in parallel and performs a reboot into the new version.
+
+Package-mode devices cannot apply `spec.os.image`. When a package-mode device
+receives a desired specification that sets `spec.os.image`, the agent rejects
+the entire specification before applying configuration or applications. The
+device stays on its previously committed specification.
+
+For a device that already reports `status.capabilities.osMode=package`, a
+direct replace or patch that newly assigns or changes `spec.os.image` returns
+HTTP 400 (`OS image is not supported on package-mode devices`). Devices that
+have not reported OS mode yet (including create, before enrollment status is
+known) are not rejected by that API check; the agent still rejects
+`spec.os.image` once the device is package-mode.
+
+OS catalog items that set an OS image target are not usable on package-mode
+devices: the device cannot apply the image (same agent reject / `OutOfDate`
+behavior as a fleet or device with `spec.os.image`). For fleets that include
+both modes and set an OS image in the template, see
+[Mixed image-mode and package-mode fleets](managing-fleets.md#mixed-image-mode-and-package-mode-fleets).
 
 Flight Control currently supports the following image types and image references formats:
 

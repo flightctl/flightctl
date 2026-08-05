@@ -34,6 +34,13 @@ To generate API code and mocks, use `make generate`  This requires installing mo
 
 `go install go.uber.org/mock/mockgen@v0.4.0`
 
+### Package-mode
+
+For the agent RPM subpackage split (`flightctl-agent` /
+`flightctl-greenboot`) and package-mode e2e (`cs9-regular` OCI image +
+testcontainer suite), see
+[Package-mode development notes](package-mode.md).
+
 ### Container image building
 
 Flight Control supports building containers for multiple Enterprise Linux versions using OS-qualified image naming. The build system uses an `OS` variable to specify the target Enterprise Linux version:

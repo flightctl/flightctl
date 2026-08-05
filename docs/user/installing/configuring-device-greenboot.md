@@ -8,11 +8,20 @@ To mitigate these problems, Flight Control integrates with [greenboot](https://g
 
 This reduces the risk of being locked out of an edge device when upgrades fail.
 
+Greenboot integration ships in the optional `flightctl-greenboot` RPM
+subpackage. Image-mode installs of `flightctl-agent` pull it in through a
+`Recommends` dependency. Package-mode installs that use
+`--setopt=install_weak_deps=False` do not install it; see
+[Installing and configuring the Flight Control Agent](installing-agent.md#package-mode-installation).
+
 ## How It Works
 
 ### Greenboot Configuration
 
-Flight Control includes the `20_check_flightctl_agent.sh` health check script to validate that the agent service is running properly. The script is installed into `/usr/lib/greenboot/check/required.d` and calls `flightctl-agent health` to perform the checks.
+The `flightctl-greenboot` package includes the `20_check_flightctl_agent.sh`
+health check script to validate that the agent service is running properly.
+The script is installed into `/usr/lib/greenboot/check/required.d` and calls
+`flightctl-agent health` to perform the checks.
 
 The `40_flightctl_agent_pre_rollback.sh` pre-rollback script is installed into `/usr/lib/greenboot/red.d`, to be executed right before system rollback. It collects diagnostic information (service status, recent journal entries) for post-mortem analysis.
 
@@ -32,7 +41,10 @@ Exiting the health check with a non-zero status declares the boot as failed. The
 | Wait for service to become active (up to 150s) | Next | exit 1 |
 | Monitor service stability for 60 seconds | Next | exit 1 |
 
-> If the system is not booted using `bootc`, the health check still runs, but no rollback is possible.
+> If the system is not booted using `bootc`, the health check still runs, but
+> no rollback is possible. On package-mode hosts, installing
+> `flightctl-greenboot` is optional; health checks can still run, but there is
+> no image-based OS rollback.
 
 ### Third-Party Health Check Management
 

@@ -236,6 +236,52 @@ Note: Both the Role/ClusterRole and its corresponding RoleBinding/ClusterRoleBin
 
 Flight Control can automatically detect changes in referenced git repositories, HTTP endpoints, and Kubernetes secrets and create new template versions without manual intervention. For details on configuration, secret labeling, and troubleshooting, see [Auto-syncing External Dependencies](auto-syncing-dependencies.md).
 
+## Mixed image-mode and package-mode fleets
+
+Image-mode and package-mode devices can belong to the same fleet. Fleet
+assignment uses label selectors only; OS mode does not restrict which fleet a
+device can join. See [OS mode](managing-devices.md#os-mode) for how devices
+report `status.capabilities.osMode`.
+
+When a fleet device template does **not** set `spec.os.image`, both modes
+receive the same configuration and application targets. Package-mode and
+image-mode devices converge on those targets the same way.
+
+When a fleet device template **does** set `spec.os.image`, the service renders
+the full template — including the OS image — to every member device:
+
+* Image-mode devices apply the OS image update and converge on the new
+  template version.
+* Package-mode devices reject the entire desired specification before
+  applying configuration or applications. They stay on the previously
+  committed specification and appear `OutOfDate` while the fleet template
+  still includes `spec.os.image`.
+
+See [Updating the OS](managing-devices.md#updating-the-os) for package-mode
+limits on OS image targets.
+
+### Rollout batch behavior with package-mode devices
+
+If package-mode devices are included in a rollout batch for a fleet whose
+template sets `spec.os.image`, the batch can stall until the batch update
+times out. The default timeout is 24 hours
+(`rolloutPolicy.defaultUpdateTimeout`; see
+[Defining Rollout Policies](#defining-rollout-policies)). An `OutOfDate`
+status does not distinguish devices that are still rolling out from devices
+that cannot converge on the OS image target.
+
+### Options when a mixed fleet includes an OS image
+
+Operators can use any of the following actions so package-mode devices can
+advance again:
+
+* Keep OS image rollouts in fleets that contain only image-mode devices, and
+  use a separate fleet without `spec.os.image` for shared configuration and
+  applications across both modes.
+* Remove `spec.os.image` from the fleet device template.
+* Move package-mode devices to a fleet whose template does not set an OS
+  image target.
+
 ## Defining Rollout Policies
 
 You can define policies that govern how a change to a fleet's device template gets rolled out across devices of the fleet. This gives you control over
