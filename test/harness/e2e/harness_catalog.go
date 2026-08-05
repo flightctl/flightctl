@@ -17,6 +17,8 @@ func (h *Harness) CreateCatalog(name, displayName string) (*v1alpha1.Catalog, er
 	}
 
 	catalog := v1alpha1.Catalog{
+		ApiVersion: v1alpha1.CatalogAPIVersion,
+		Kind:       v1alpha1.CatalogKind,
 		Metadata: v1beta1.ObjectMeta{
 			Name: lo.ToPtr(name),
 		},
@@ -44,6 +46,8 @@ func (h *Harness) CreateCatalogItem(catalogName, itemName string, spec v1alpha1.
 	}
 
 	item := v1alpha1.CatalogItem{
+		ApiVersion: v1alpha1.CatalogAPIVersion,
+		Kind:       v1alpha1.CatalogItemKind,
 		Metadata: v1alpha1.CatalogItemMeta{
 			Name: lo.ToPtr(itemName),
 		},
