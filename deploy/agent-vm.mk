@@ -3,8 +3,6 @@ VMRAM     ?= 2048
 VMSSHPORT ?= 2222
 INJECT_CONFIG ?= true
 
-BUILD_TYPE := bootc
-
 ifeq ($(INJECT_CONFIG),true)
 agent-vm: bin/flightctl-dev-vm bin/output/qcow2/disk.qcow2 prepare-e2e-qcow-config
 else
@@ -31,15 +29,14 @@ clean-agent-vm: bin/flightctl-dev-vm
 
 .PHONY: clean-agent-vm
 
-agent-container: BUILD_TYPE := regular
-agent-container: bin/output/qcow2/disk.qcow2
-	@echo "Starting Agent Container flightctl-agent from $(CONTAINER_NAME)"
-	sudo podman run -d --network host --name flightctl-agent localhost:5000/$(CONTAINER_NAME)
+PACKAGE_MODE_AGENT_IMAGE ?= quay.io/flightctl/flightctl-device:package
 
-CONTAINER_NAME ?= flightctl-device-no-bootc:base
+agent-container:
+	@echo "Starting package-mode agent container from $(PACKAGE_MODE_AGENT_IMAGE)"
+	sudo podman run -d --network host --name flightctl-agent "$(PACKAGE_MODE_AGENT_IMAGE)"
 
 run-agent-container:
-	sudo podman run -d --network host -v ./bin/flightctl-agent:/usr/bin/flightctl-agent:Z --name flightctl-agent localhost:5000/$(CONTAINER_NAME)
+	sudo podman run -d --network host -v ./bin/flightctl-agent:/usr/bin/flightctl-agent:Z --name flightctl-agent "$(PACKAGE_MODE_AGENT_IMAGE)"
 
 clean-agent-container:
 	sudo podman stop flightctl-agent || true

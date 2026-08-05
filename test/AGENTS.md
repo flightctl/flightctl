@@ -20,6 +20,7 @@ Defined in **test/test.mk** (included from root Makefile). Coverage reports go t
   - **Full flow (deploy + e2e):** `make e2e-test` – deploys cluster, builds e2e agent images, prepares qcow2, runs e2e.  
   - **Cluster already up:** `make in-cluster-e2e-test` – skips deploy, runs e2e.  
   - **Filter:** `GO_E2E_DIRS=test/e2e/agent`, `GINKGO_FOCUS="description"`, `GINKGO_PROCS=N`.  
+  - **Package-mode CI/local scope:** `GO_E2E_DIRS=./test/e2e/package_mode` runs the dedicated package-mode suite against the `package` variant testcontainer (requires the agent config under `bin/agent/etc/flightctl` and the `package` OCI image loaded locally).
   - Some e2e suites (e.g. quadlets) need a quadlet-capable VM; see `test/e2e/quadlets/README.md` and `test/e2e/tpm/README.md`. Rollout tests use multiple VMs and have higher RAM requirements; see `test/e2e/rollout/README.md`.
 
 ## E2E layout and harness
@@ -31,6 +32,45 @@ Defined in **test/test.mk** (included from root Makefile). Coverage reports go t
 - **test/util/** – Common test utilities (e.g. Redis, constants, create helpers).
 - **test/scripts/** – Environment setup, kind, certs (`create_e2e_certs.sh`), agent images, git-server, VM creation, redeploy. E2E certs/SSH under `bin/e2e-certs/`, `bin/.ssh/`.
 - **test/integration/** – Integration test packages (store, service, tasks, imagebuilder_worker, etc.); no kind; DB/KV/Alertmanager endpoints are resolved from **`podman port`** when integration containers exist (`test/util/testdb/integration_ports.go`, `test/util/integration_net.go` for Redis helpers).
+
+## Package-mode E2E
+
+Package-mode E2E tests (`./test/e2e/package_mode`) verify device behavior when the agent
+cannot switch OS image (`osMode=package`). The tests use a **testcontainer** running the
+`package` agent-image variant (bootc base with `bootc`/`rpm-ostree` removed from PATH) with
+systemd as init, allowing nested Podman for application deployment.
+
+**CI integration:**
+
+- `make e2e-agent-images` builds the `package` variant with other variants and includes it
+  in the agent bundle for that `AGENT_OS_ID`.
+- E2E jobs load that agent bundle into local Docker/Podman for the testcontainer.
+- Package-mode tests run alongside other e2e tests (no dedicated matrix row); the suite
+  starts a testcontainer instead of a VM.
+
+**Local build:**
+
+```bash
+make e2e-agent-images
+```
+
+**Test architecture:**
+
+- `test/harness/e2e/package_mode_agent.go` provides `StartPackageModeAgent()` which:
+  - Starts a privileged testcontainer with `/sbin/init` (systemd)
+  - Mounts agent config and certs from the local harness
+  - Creates the `flightctl` user with linger/subuids for rootless Podman
+  - Configures e2e registry CA + insecure registries.conf (same role as qcow injection for VMs)
+  - Disables firewalld (interferes with nested Podman)
+  - Waits for the `flightctl-agent` systemd service to be active
+- The container uses the `quay.io/flightctl/flightctl-device:package` image
+- Tests verify osMode=package capability, config deployment, and podman application lifecycle
+
+**Mixed-fleet tests:**
+
+Mixed-fleet scenarios (package-mode + image-mode devices in the same fleet) are skipped
+pending VM infrastructure for image-mode devices. The testcontainer approach covers the
+primary package-mode scenarios without the overhead of VM-based tests.
 
 ## Conventions
 

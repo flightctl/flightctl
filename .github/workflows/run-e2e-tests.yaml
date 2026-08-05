@@ -118,7 +118,8 @@ jobs:
             exit 1
           fi
           mv "test-artifacts/agent-images-bundle-${OS_ID}.tar" bin/agent-artifacts/
-          echo "Agent bundle: bin/agent-artifacts/agent-images-bundle-${OS_ID}.tar"
+          BUNDLE="bin/agent-artifacts/agent-images-bundle-${OS_ID}.tar"
+          echo "Agent bundle: ${BUNDLE}"
 
           # Stage qcow2
           mkdir -p bin/output/qcow2
@@ -126,8 +127,15 @@ jobs:
             echo "ERROR: QCOW2 image not found"
             exit 1
           fi
-          mv "test-artifacts/disk.qcow2" bin/output/qcow2/
+          mv "test-artifacts/disk.qcow2" bin/output/qcow2/disk.qcow2
           echo "✓ QCOW2 image: bin/output/qcow2/disk.qcow2"
+
+          PACKAGE_REF="quay.io/flightctl/flightctl-device:package"
+          if [ -S /var/run/docker.sock ]; then
+            skopeo copy "docker-archive:${BUNDLE}:${PACKAGE_REF}" "docker-daemon:${PACKAGE_REF}"
+          else
+            skopeo copy "docker-archive:${BUNDLE}:${PACKAGE_REF}" "containers-storage:${PACKAGE_REF}"
+          fi
 
           # Cleanup
           rm -rf test-artifacts
@@ -189,6 +197,7 @@ jobs:
           GINKGO_LABEL_FILTER: ${{ inputs.ginkgo_label_filter }}
           GINKGO_TOTAL_NODES: ${{ inputs.ginkgo_total_nodes }}
           GINKGO_NODE: ${{ matrix.ginkgo_node }}
+          GINKGO_KEEP_GOING: "true"
           DISCOVERY_PATH: discovery.json
           ASSIGNMENTS_PATH: assignments.json
           RUNNER_DEBUG: ${{ runner.debug }}
