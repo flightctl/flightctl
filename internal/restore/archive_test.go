@@ -451,6 +451,98 @@ func TestReadMetadata(t *testing.T) {
 	}
 }
 
+// TestValidateVersion validates the behavioral contract of ValidateVersion.
+func TestValidateVersion(t *testing.T) {
+	tests := []struct {
+		name           string
+		archiveVersion string
+		currentVersion string
+		wantErr        bool
+		errContains    string
+	}{
+		{
+			name:           "When versions are identical it should return nil",
+			archiveVersion: "v1.2.3",
+			currentVersion: "v1.2.3",
+		},
+		{
+			name:           "When only patch differs it should return nil",
+			archiveVersion: "v1.2.0",
+			currentVersion: "v1.2.3",
+		},
+		{
+			name:           "When minor differs it should return version mismatch error",
+			archiveVersion: "v1.1.0",
+			currentVersion: "v1.2.0",
+			wantErr:        true,
+			errContains:    "version mismatch",
+		},
+		{
+			name:           "When major differs it should return version mismatch error",
+			archiveVersion: "v2.0.0",
+			currentVersion: "v1.0.0",
+			wantErr:        true,
+			errContains:    "version mismatch",
+		},
+		{
+			name:           "When archive version has dirty suffix it should compare correctly",
+			archiveVersion: "v1.2.3-dirty",
+			currentVersion: "v1.2.0",
+		},
+		{
+			name:           "When current version has dirty suffix it should compare correctly",
+			archiveVersion: "v1.2.0",
+			currentVersion: "v1.2.3-dirty",
+		},
+		{
+			name:           "When archive version has rc suffix it should compare correctly",
+			archiveVersion: "v1.2.0-rc1",
+			currentVersion: "v1.2.3",
+		},
+		{
+			name:           "When archive version is unparseable it should return error",
+			archiveVersion: "not-a-version",
+			currentVersion: "v1.2.0",
+			wantErr:        true,
+			errContains:    "version",
+		},
+		{
+			name:           "When current version is unparseable it should return error",
+			archiveVersion: "v1.2.0",
+			currentVersion: "unknown",
+			wantErr:        true,
+			errContains:    "version",
+		},
+		{
+			name:           "When versions have no v prefix it should compare correctly",
+			archiveVersion: "1.2.0",
+			currentVersion: "1.2.3",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			metadata := &backup.BackupMetadata{
+				Timestamp:      time.Now(),
+				Version:        tt.archiveVersion,
+				DeploymentType: backup.DeploymentTypePodman,
+			}
+
+			err := ValidateVersion(metadata, tt.currentVersion)
+
+			if tt.wantErr {
+				require.Error(t, err)
+				if tt.errContains != "" {
+					require.ErrorContains(t, err, tt.errContains)
+				}
+				return
+			}
+
+			require.NoError(t, err)
+		})
+	}
+}
+
 // TestValidateDeploymentType validates the behavioral contract of ValidateDeploymentType.
 func TestValidateDeploymentType(t *testing.T) {
 	tests := []struct {
