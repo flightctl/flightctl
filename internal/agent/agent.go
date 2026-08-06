@@ -457,7 +457,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		applicationsManager,
 		rootSystemdManager,
 		a.config.StatusUpdateInterval,
-		a.config.StatusUpdateJitter,
+		*a.config.StatusUpdateJitter,
 		hookManager,
 		osManager,
 		policyManager,

@@ -157,7 +157,7 @@ func TestDevicePublisher_pollAndNotify(t *testing.T) {
 		v := setup(tt)
 		defer v.finish()
 		v.mockClient.EXPECT().GetRenderedDevice(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, http.StatusServiceUnavailable, specErr)
-		_ = v.notifier.pollAndPublish(v.ctx)
+		require.ErrorIs(tt, v.notifier.pollAndPublish(v.ctx), errors.ErrGettingDeviceSpec)
 		_, popped, err := v.watcher.TryPop()
 		require.NoError(t, err)
 		require.False(t, popped)

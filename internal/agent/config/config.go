@@ -34,8 +34,6 @@ const (
 	DefaultSpecFetchInterval = util.Duration(60 * time.Second)
 	// DefaultStatusUpdateInterval is the default interval between two status updates
 	DefaultStatusUpdateInterval = util.Duration(60 * time.Second)
-	// DefaultStatusUpdateJitter is the default max random delay before the first status push
-	DefaultStatusUpdateJitter = DefaultStatusUpdateInterval
 	// DefaultSpecFetchErrorBaseDelay is the initial backoff after a failed /rendered poll
 	DefaultSpecFetchErrorBaseDelay = util.Duration(5 * time.Second)
 	// DefaultSpecFetchErrorMaxDelay caps exponential backoff after failed /rendered polls
@@ -124,8 +122,9 @@ type Config struct {
 	StatusUpdateInterval util.Duration `json:"status-update-interval,omitempty"`
 	// StatusUpdateJitter is the maximum random delay before the first status push after
 	// agent start. The delay is chosen uniformly in [0, StatusUpdateJitter). Zero disables
-	// jitter (immediate first push). Defaults to StatusUpdateInterval.
-	StatusUpdateJitter util.Duration `json:"status-update-jitter,omitempty"`
+	// jitter (immediate first push). Nil means omitted; Complete() sets it from
+	// StatusUpdateInterval. A pointer preserves explicit zero through drop-in merges.
+	StatusUpdateJitter *util.Duration `json:"status-update-jitter,omitempty"`
 	// EnrollmentVerifyInterval is the initial interval between checks for enrollment
 	// approval. Retries back off from this value (see agent.go's enrollment backoff).
 	EnrollmentVerifyInterval util.Duration `json:"enrollment-verify-interval,omitempty"`
@@ -245,7 +244,6 @@ func NewDefault() *Config {
 		ConfigDir:                DefaultConfigDir,
 		DataDir:                  DefaultDataDir,
 		StatusUpdateInterval:     DefaultStatusUpdateInterval,
-		StatusUpdateJitter:       DefaultStatusUpdateJitter,
 		SpecFetchInterval:        DefaultSpecFetchInterval,
 		SpecFetchErrorBaseDelay:  DefaultSpecFetchErrorBaseDelay,
 		SpecFetchErrorMaxDelay:   DefaultSpecFetchErrorMaxDelay,
@@ -363,6 +361,10 @@ func (cfg *Config) Complete() error {
 		cfg.RemoteAccessService.Config = *cfg.EnrollmentService.Config.DeepCopy()
 		cfg.RemoteAccessService.Config.AuthInfo = baseclient.AuthInfo{}
 		cfg.RemoteAccessService.Config.Service.Server = remoteAccessServer
+	}
+	if cfg.StatusUpdateJitter == nil {
+		jitter := cfg.StatusUpdateInterval
+		cfg.StatusUpdateJitter = &jitter
 	}
 	return nil
 }
@@ -516,8 +518,8 @@ func (cfg *Config) validateSyncIntervals() error {
 	if cfg.StatusUpdateInterval < MinSyncInterval {
 		return fmt.Errorf("minimum status update interval is %s have %s", MinSyncInterval, cfg.StatusUpdateInterval)
 	}
-	if cfg.StatusUpdateJitter < 0 {
-		return fmt.Errorf("status update jitter must be >= 0 have %s", cfg.StatusUpdateJitter)
+	if cfg.StatusUpdateJitter != nil && *cfg.StatusUpdateJitter < 0 {
+		return fmt.Errorf("status update jitter must be >= 0 have %s", *cfg.StatusUpdateJitter)
 	}
 	if cfg.SpecFetchErrorBaseDelay < MinSyncInterval {
 		return fmt.Errorf("minimum spec fetch error base delay is %s have %s", MinSyncInterval, cfg.SpecFetchErrorBaseDelay)
@@ -597,7 +599,9 @@ func mergeConfigs(base, override *Config) {
 
 	overrideIfNotEmpty(&base.SpecFetchErrorBaseDelay, override.SpecFetchErrorBaseDelay)
 	overrideIfNotEmpty(&base.SpecFetchErrorMaxDelay, override.SpecFetchErrorMaxDelay)
-	overrideIfNotEmpty(&base.StatusUpdateJitter, override.StatusUpdateJitter)
+	if override.StatusUpdateJitter != nil {
+		base.StatusUpdateJitter = override.StatusUpdateJitter
+	}
 
 	// system info
 	overrideSliceIfNotNil(&base.SystemInfo, override.SystemInfo)

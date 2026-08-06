@@ -19,7 +19,8 @@ import (
 
 const (
 	longPollTimeout = 4 * time.Minute
-	// defaultMinPollDelay is used when errorBackoff.BaseDelay is unset (tests).
+	// defaultMinPollDelay paces successful / no-content polls so a fast response
+	// does not immediately hammer /rendered. Error backoff uses a separate config.
 	defaultMinPollDelay       = 5 * time.Second
 	defaultErrorBackoffFactor = 2.0
 	defaultMaxErrorPollDelay  = 5 * time.Minute
@@ -252,7 +253,6 @@ func (n *publisher) Run(ctx context.Context) {
 	defer n.stop()
 	n.log.Debug("Starting publisher with continuous long-polling")
 
-	minDelay := n.errorBackoff.BaseDelay
 	errorTries := 0
 	backoffCfg := n.errorBackoff
 
@@ -273,8 +273,8 @@ func (n *publisher) Run(ctx context.Context) {
 			n.log.Debugf("Poll failed, backing off %v before next poll (attempt %d)", delay, errorTries)
 		} else {
 			errorTries = 0
-			if elapsed < minDelay {
-				delay = minDelay - elapsed
+			if elapsed < defaultMinPollDelay {
+				delay = defaultMinPollDelay - elapsed
 				n.log.Debugf("Poll completed quickly, waiting %v before next poll", delay)
 			}
 		}

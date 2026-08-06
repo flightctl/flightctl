@@ -88,17 +88,12 @@ func TestEngineStatusStartupJitter(t *testing.T) {
 	startTime := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	mockClock := newMockClock(startTime)
 
-	var (
-		mu          sync.Mutex
-		statusCount int
-	)
+	pushed := make(chan struct{}, 8)
 	engine := Engine{
 		syncSpecFn:         func(context.Context) {},
 		pushStatusInterval: util.Duration(60 * time.Second),
 		pushStatusFn: func(context.Context) {
-			mu.Lock()
-			defer mu.Unlock()
-			statusCount++
+			pushed <- struct{}{}
 		},
 		statusStartupDelay: 30 * time.Second,
 		clock:              mockClock,
@@ -112,22 +107,25 @@ func TestEngineStatusStartupJitter(t *testing.T) {
 	}()
 	<-engine.startedCh
 
-	time.Sleep(10 * time.Millisecond)
-	mu.Lock()
-	require.Equal(0, statusCount, "status should wait for startup jitter")
-	mu.Unlock()
+	select {
+	case <-pushed:
+		t.Fatal("status should wait for startup jitter")
+	case <-time.After(20 * time.Millisecond):
+	}
 
 	mockClock.Advance(30 * time.Second)
-	time.Sleep(20 * time.Millisecond)
-	mu.Lock()
-	require.Equal(1, statusCount, "status should push after jitter")
-	mu.Unlock()
+	select {
+	case <-pushed:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for status push after jitter")
+	}
 
 	mockClock.Advance(60 * time.Second)
-	time.Sleep(20 * time.Millisecond)
-	mu.Lock()
-	require.Equal(2, statusCount, "status ticker should start after first push")
-	mu.Unlock()
+	select {
+	case <-pushed:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for status ticker push")
+	}
 }
 
 type mockClock struct {
@@ -199,7 +197,11 @@ func (m *mockTicker) C() <-chan time.Time {
 }
 
 func (m *mockTicker) Stop() {
-	close(m.c)
+	m.clock.mu.Lock()
+	defer m.clock.mu.Unlock()
+	if m.clock.ticks[m.d] == m {
+		delete(m.clock.ticks, m.d)
+	}
 }
 
 func (m *mockClock) Advance(d time.Duration) {
