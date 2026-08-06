@@ -1,4 +1,4 @@
-{{- /* Determine whether to render the pre-upgrade scale job */ -}}
+{{- /* Determine whether to render the scale-down job */ -}}
 {{- $allDeployments := default (list) .Values.upgradeHooks.scaleDown.deployments -}}
 {{- $condition := default "chart" .Values.upgradeHooks.scaleDown.condition -}}
 {{- $deploymentsToScale := list -}}
@@ -9,14 +9,16 @@
   {{- else if eq $condition "never" -}}
     {{- /* leave empty */ -}}
   {{- else -}}
-    {{- /* Default: "chart" — scale only when helm.sh/chart changed */ -}}
+    {{- /* Default: "chart" — scale only when Deployment exists and helm.sh/chart changed */ -}}
     {{- $ns := default .Release.Namespace .Values.global.internalNamespace -}}
     {{- $currentChart := printf "%s-%s" .Chart.Name (.Chart.Version | replace "+" "_") -}}
     {{- range $d := $allDeployments -}}
       {{- $depObj := lookup "apps/v1" "Deployment" $ns $d -}}
-      {{- $existingChart := dig "metadata" "labels" "helm.sh/chart" "" $depObj -}}
-      {{- if ne $existingChart $currentChart -}}
-        {{- $deploymentsToScale = append $deploymentsToScale $d -}}
+      {{- if $depObj -}}
+        {{- $existingChart := dig "metadata" "labels" "helm.sh/chart" "" $depObj -}}
+        {{- if ne $existingChart $currentChart -}}
+          {{- $deploymentsToScale = append $deploymentsToScale $d -}}
+        {{- end -}}
       {{- end -}}
     {{- end -}}
   {{- end -}}
@@ -24,7 +26,7 @@
 
 {{- if gt (len $deploymentsToScale) 0 }}
 ---
-# ServiceAccount and RBAC for pre-upgrade scaling
+# ServiceAccount and RBAC for scale-down
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -33,7 +35,7 @@ metadata:
   labels:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
   annotations:
-    "helm.sh/hook": pre-upgrade
+    "helm.sh/hook": pre-install,pre-upgrade
     "helm.sh/hook-weight": "-25"
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 
@@ -46,7 +48,7 @@ metadata:
   labels:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
   annotations:
-    "helm.sh/hook": pre-upgrade
+    "helm.sh/hook": pre-install,pre-upgrade
     "helm.sh/hook-weight": "-24"
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 rules:
@@ -63,7 +65,7 @@ metadata:
   labels:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
   annotations:
-    "helm.sh/hook": pre-upgrade
+    "helm.sh/hook": pre-install,pre-upgrade
     "helm.sh/hook-weight": "-23"
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 subjects:
@@ -84,7 +86,7 @@ metadata:
   labels:
     {{- include "flightctl.standardLabels" . | nindent 4 }}
   annotations:
-    "helm.sh/hook": pre-upgrade
+    "helm.sh/hook": pre-install,pre-upgrade
     "helm.sh/hook-weight": "-20"
     "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
 spec:
