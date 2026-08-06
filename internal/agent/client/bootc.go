@@ -62,6 +62,8 @@ func (b *bootc) Switch(ctx context.Context, image string) error {
 	go func() {
 		args := []string{
 			"switch",
+			"--soft-reboot",
+			"auto",
 			"--transport",
 			"containers-storage",
 			"--retain",
@@ -97,7 +99,7 @@ func (b *bootc) Switch(ctx context.Context, image string) error {
 // Rollback stages the previous deployment and reboots into it.
 func (b *bootc) Rollback(ctx context.Context) error {
 	b.log.Info("Rolling back to previous deployment")
-	args := []string{"rollback", "--apply"}
+	args := []string{"rollback", "--apply", "--soft-reboot", "auto"}
 	_, stderr, exitCode := b.executer.ExecuteWithContext(ctx, BootcCmd, args...)
 	if exitCode != 0 && exitCode != 137 {
 		return fmt.Errorf("bootc rollback: %w", errors.FromStderr(stderr, exitCode))
@@ -107,7 +109,7 @@ func (b *bootc) Rollback(ctx context.Context) error {
 
 // Apply restart or reboot into the new target image.
 func (b *bootc) Apply(ctx context.Context) error {
-	args := []string{"upgrade", "--apply"}
+	args := []string{"upgrade", "--apply", "--soft-reboot", "auto"}
 	_, stderr, exitCode := b.executer.ExecuteWithContext(ctx, BootcCmd, args...)
 	if exitCode != 0 && exitCode != 137 { // 137 is the exit code for SIGKILL and is expected during reboot 128 + SIGKILL (9)
 		return fmt.Errorf("%w: %w", errors.ErrApplyImage, errors.FromStderr(stderr, exitCode))
