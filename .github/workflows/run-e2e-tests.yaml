@@ -114,6 +114,8 @@ jobs:
           echo "Computed base domain: ${IP}.nip.io"
 
       # ========== DEPLOY BACKEND WITH HELM ==========
+      # May run while build-rpms / build-agent-images-unified are still in flight
+      # (parent e2e-tests no longer needs those). Agent artifacts gated next.
       - name: Deploy backend with Helm
         uses: ./.github/actions/deploy-backend-with-helm
         with:
@@ -126,6 +128,35 @@ jobs:
           wait: false
 
       # ========== DOWNLOAD E2E TEST ARTIFACTS ==========
+      # Parent starts this job before agent images finish. Wait until both agent
+      # artifacts for this OS/tag are uploaded, then download once.
+      - name: Wait for agent image artifacts
+        env:
+          OS_ID: ${{ inputs.os_id }}
+          TAG: ${{ inputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.run_id }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          echo "Waiting for agent-*${OS_ID}-${TAG} artifacts on run ${RUN_ID}..."
+          for attempt in $(seq 1 90); do
+            names=$(gh api --paginate "repos/${REPO}/actions/runs/${RUN_ID}/artifacts" \
+              --jq "[.artifacts[] | select(.name | contains(\"${OS_ID}-${TAG}\")) | .name] | unique | .[]" \
+              || true)
+            count=$(printf '%s\n' "${names}" | sed '/^$/d' | wc -l)
+            # bundle + qcow2 uploads from build-agent-images.yaml
+            if [[ "${count}" -ge 2 ]]; then
+              echo "Agent artifacts ready (attempt ${attempt}):"
+              printf '%s\n' "${names}"
+              exit 0
+            fi
+            echo "not ready yet (attempt ${attempt}/90); sleeping 10s"
+            sleep 10
+          done
+          echo "ERROR: timed out waiting for agent artifacts matching ${OS_ID}-${TAG}"
+          exit 1
+
       - name: Download test artifacts
         uses: actions/download-artifact@v4
         with:
