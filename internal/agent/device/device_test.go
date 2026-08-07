@@ -539,6 +539,7 @@ func TestRollbackDevice(t *testing.T) {
 				mockOSClient,
 				v1beta1.OsModeImage,
 				poll.NewConfig(time.Second, 1.5),
+				poll.Config{BaseDelay: 5 * time.Second, Factor: 2, MaxDelay: 5 * time.Minute, JitterFactor: 0.2},
 				func() error { return nil },
 				mockAuditLogger,
 				log,

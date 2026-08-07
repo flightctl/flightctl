@@ -64,6 +64,7 @@ func NewManager(
 	osClient os.Client,
 	osMode v1beta1.OsModeType,
 	pollConfig poll.Config,
+	errorBackoff poll.Config,
 	deviceNotFoundHandler func() error,
 	auditLogger audit.Logger,
 	log *log.PrefixLogger,
@@ -98,7 +99,7 @@ func NewManager(
 		lastKnownVersion = desired.Version()
 	}
 
-	pub := newPublisher(deviceName, pollConfig, lastKnownVersion, deviceNotFoundHandler, log)
+	pub := newPublisher(deviceName, pollConfig, errorBackoff, lastKnownVersion, deviceNotFoundHandler, log)
 	m.publisher = pub
 	m.watcher = pub.Watch()
 
