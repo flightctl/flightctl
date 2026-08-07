@@ -30,6 +30,21 @@ const (
 	fleetLabelKey    = "fleet"
 )
 
+func newCatalogRefAppSpec(catalogName, itemName, version string) v1beta1.ApplicationProviderSpec {
+	containerApp := v1beta1.ContainerApplication{
+		Name:    lo.ToPtr(containerAppName),
+		AppType: v1beta1.AppTypeContainer,
+		Ports:   &[]v1beta1.ApplicationPort{v1beta1.ApplicationPort(hostPort + ":" + containerPort)},
+	}
+	Expect(containerApp.FromCatalogItemRefApplicationProviderSpec(v1beta1.CatalogItemRefApplicationProviderSpec{
+		CatalogItemRef: v1beta1.CatalogItemRefSpec{Catalog: catalogName, Item: itemName, Version: version},
+	})).To(Succeed())
+
+	var appSpec v1beta1.ApplicationProviderSpec
+	Expect(appSpec.FromContainerApplication(containerApp)).To(Succeed())
+	return appSpec
+}
+
 var _ = Describe("Catalog item references", Ordered, Label("EDM-4813", "catalog-refs", "sanity"), func() {
 	var (
 		harness *e2e.Harness
@@ -51,8 +66,8 @@ var _ = Describe("Catalog item references", Ordered, Label("EDM-4813", "catalog-
 		appImageURI = fmt.Sprintf("%s:%s/%s", svc.Registry.Host, svc.Registry.Port, testutil.SleepAppRegistryPath)
 
 		osVersions = []e2e.CatalogVersionRef{
-			{Version: osVersion1, ImageRef: fmt.Sprintf("%s:%s", osImageURI, testutil.DeviceTags.V1)},
-			{Version: osVersion2, ImageRef: fmt.Sprintf("%s:%s", osImageURI, testutil.DeviceTags.V2)},
+			{Version: osVersion1, ImageRef: testutil.DeviceTags.V1},
+			{Version: osVersion2, ImageRef: testutil.DeviceTags.V2},
 		}
 
 		By("Creating test catalog")
@@ -67,7 +82,7 @@ var _ = Describe("Catalog item references", Ordered, Label("EDM-4813", "catalog-
 		DeferCleanup(func() { _ = harness.DeleteCatalogItemIgnoreNotFound(catalogName, osItemName) })
 
 		By("Creating application catalog item")
-		appVR := e2e.CatalogVersionRef{Version: appVersion1, ImageRef: fmt.Sprintf("%s:%s", appImageURI, testutil.SleepAppTags.V1)}
+		appVR := e2e.CatalogVersionRef{Version: appVersion1, ImageRef: testutil.SleepAppTags.V1}
 		appSpec := e2e.NewAppCatalogItemSpec(appImageURI, appVR, channel)
 		_, err = harness.CreateCatalogItem(catalogName, appItemName, appSpec)
 		Expect(err).ToNot(HaveOccurred())
@@ -150,26 +165,10 @@ var _ = Describe("Catalog item references", Ordered, Label("EDM-4813", "catalog-
 		deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
 
 		By("Building container application with catalog item ref")
-		containerApp := v1beta1.ContainerApplication{
-			Name:    lo.ToPtr(containerAppName),
-			AppType: v1beta1.AppTypeContainer,
-			Ports:   &[]v1beta1.ApplicationPort{v1beta1.ApplicationPort(hostPort + ":" + containerPort)},
-		}
-		err := containerApp.FromCatalogItemRefApplicationProviderSpec(v1beta1.CatalogItemRefApplicationProviderSpec{
-			CatalogItemRef: v1beta1.CatalogItemRefSpec{
-				Catalog: catalogName,
-				Item:    appItemName,
-				Version: appVersion1,
-			},
-		})
-		Expect(err).ToNot(HaveOccurred())
-
-		var appSpec v1beta1.ApplicationProviderSpec
-		err = appSpec.FromContainerApplication(containerApp)
-		Expect(err).ToNot(HaveOccurred())
+		appSpec := newCatalogRefAppSpec(catalogName, appItemName, appVersion1)
 
 		By("Updating device spec with the application")
-		err = harness.UpdateDeviceAndWaitForVersion(deviceId, func(device *v1beta1.Device) {
+		err := harness.UpdateDeviceAndWaitForVersion(deviceId, func(device *v1beta1.Device) {
 			device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{appSpec}
 		})
 		Expect(err).ToNot(HaveOccurred())
@@ -194,23 +193,7 @@ var _ = Describe("Catalog item references", Ordered, Label("EDM-4813", "catalog-
 		fleetName := fmt.Sprintf("catalog-fleet-%s", testID)
 
 		By("Creating fleet with catalog refs in device template")
-		containerApp := v1beta1.ContainerApplication{
-			Name:    lo.ToPtr(containerAppName),
-			AppType: v1beta1.AppTypeContainer,
-			Ports:   &[]v1beta1.ApplicationPort{v1beta1.ApplicationPort(hostPort + ":" + containerPort)},
-		}
-		err := containerApp.FromCatalogItemRefApplicationProviderSpec(v1beta1.CatalogItemRefApplicationProviderSpec{
-			CatalogItemRef: v1beta1.CatalogItemRefSpec{
-				Catalog: catalogName,
-				Item:    appItemName,
-				Version: appVersion1,
-			},
-		})
-		Expect(err).ToNot(HaveOccurred())
-
-		var appSpec v1beta1.ApplicationProviderSpec
-		err = appSpec.FromContainerApplication(containerApp)
-		Expect(err).ToNot(HaveOccurred())
+		appSpec := newCatalogRefAppSpec(catalogName, appItemName, appVersion1)
 
 		deviceSpec := v1beta1.DeviceSpec{
 			Os: &v1beta1.DeviceOsSpec{
@@ -223,7 +206,7 @@ var _ = Describe("Catalog item references", Ordered, Label("EDM-4813", "catalog-
 			Applications: &[]v1beta1.ApplicationProviderSpec{appSpec},
 		}
 		selector := v1beta1.LabelSelector{MatchLabels: &map[string]string{fleetLabelKey: fleetName}}
-		err = harness.CreateOrUpdateTestFleet(fleetName, selector, deviceSpec)
+		err := harness.CreateOrUpdateTestFleet(fleetName, selector, deviceSpec)
 		Expect(err).ToNot(HaveOccurred())
 		DeferCleanup(func() { _ = harness.DeleteFleetIgnoreNotFound(fleetName) })
 
@@ -277,8 +260,8 @@ var _ = Describe("Catalog item references", Ordered, Label("EDM-4813", "catalog-
 		resp, err := client.DeleteCatalogItemWithResponse(harness.Context, catalogName, osItemName)
 		Expect(err).ToNot(HaveOccurred())
 
-		By("Verifying API rejects deletion (non-200 status)")
-		if resp.StatusCode() == http.StatusOK {
+		By("Verifying API rejects deletion (non-2xx status)")
+		if resp.StatusCode() >= 200 && resp.StatusCode() < 300 {
 			// Restore item for subsequent ordered tests before skipping
 			osSpec := e2e.NewOSCatalogItemSpecMultiVersion(osImageURI, osVersions, channel)
 			_, restoreErr := harness.CreateCatalogItem(catalogName, osItemName, osSpec)
@@ -313,6 +296,7 @@ var _ = Describe("Catalog item references", Ordered, Label("EDM-4813", "catalog-
 		Expect(err).ToNot(HaveOccurred())
 
 		By("Verifying device reports render error (SpecValid=False with meaningful message)")
+		var lastCondMessage string
 		harness.WaitForDeviceContents(deviceId, "SpecValid=False with type mismatch error message",
 			func(device *v1beta1.Device) bool {
 				if device.Status == nil {
@@ -325,8 +309,11 @@ var _ = Describe("Catalog item references", Ordered, Label("EDM-4813", "catalog-
 				if cond.Status != v1beta1.ConditionStatusFalse {
 					return false
 				}
+				lastCondMessage = cond.Message
 				msg := strings.ToLower(cond.Message)
-				return strings.Contains(msg, "catalog") || strings.Contains(msg, "type") || strings.Contains(msg, "mismatch") || strings.Contains(msg, "not found")
+				return strings.Contains(msg, "catalog") &&
+					(strings.Contains(msg, "type") || strings.Contains(msg, "mismatch"))
 			}, e2e.TIMEOUT)
+		GinkgoWriter.Printf("SpecValid condition message: %s\n", lastCondMessage)
 	})
 })

@@ -155,31 +155,17 @@ func (h *Harness) DeleteCatalogItemIgnoreNotFound(catalogName, itemName string) 
 	return nil
 }
 
-// CatalogVersionRef pairs a semver version identifier with the full image reference
-// that the catalog resolver returns for that version.
+// CatalogVersionRef pairs a semver version identifier with the tag or digest
+// that the catalog resolver appends to the artifact URI for that version.
 type CatalogVersionRef struct {
 	Version  string // semver version (e.g. "1.0.0")
-	ImageRef string // resolved image reference (e.g. "registry:5000/org/image:v1")
+	ImageRef string // tag or digest suffix (e.g. "v1", "sha256:abc..."); NOT a full URI
 }
 
 // NewOSCatalogItemSpec builds a CatalogItemSpec for an OS-type catalog item with a single version.
 // The artifact type must be "container" because resolveCatalogItemRef always looks up that type.
 func NewOSCatalogItemSpec(imageURI string, vr CatalogVersionRef, channel string) v1alpha1.CatalogItemSpec {
-	return v1alpha1.CatalogItemSpec{
-		DisplayName: lo.ToPtr("Test OS Item"),
-		Category:    lo.ToPtr(v1alpha1.CatalogItemCategorySystem),
-		Type:        v1alpha1.CatalogItemTypeOS,
-		Artifacts: []v1alpha1.CatalogItemArtifact{
-			{Type: v1alpha1.CatalogItemArtifactTypeContainer, Uri: imageURI},
-		},
-		Versions: []v1alpha1.CatalogItemVersion{
-			{
-				Version:    vr.Version,
-				References: map[v1alpha1.CatalogItemArtifactType]string{v1alpha1.CatalogItemArtifactTypeContainer: vr.ImageRef},
-				Channels:   []string{channel},
-			},
-		},
-	}
+	return NewOSCatalogItemSpecMultiVersion(imageURI, []CatalogVersionRef{vr}, channel)
 }
 
 // NewAppCatalogItemSpec builds a CatalogItemSpec for an application-type catalog item with a single version.
