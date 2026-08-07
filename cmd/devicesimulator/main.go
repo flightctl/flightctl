@@ -4,23 +4,24 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"math/rand/v2"
 	"net"
-	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent"
 	agent_config "github.com/flightctl/flightctl/internal/agent/config"
-	"github.com/flightctl/flightctl/internal/agent/device/lifecycle"
 	apiClient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/client"
 	baseclient "github.com/flightctl/flightctl/internal/client"
@@ -29,7 +30,7 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/version"
-	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/simagent"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/pflag"
 	"golang.org/x/sync/semaphore"
@@ -43,6 +44,9 @@ const (
 	jsonFormat      = "json"
 	yamlFormat      = "yaml"
 	cliVersionTitle = "flightctl simulator version"
+
+	enrollmentPollInterval = 500 * time.Millisecond
+	enrollmentTimeout      = 5 * time.Minute
 )
 
 var (
@@ -74,12 +78,26 @@ func main() {
 	initialDeviceIndex := pflag.Int("initial-device-index", 0, "starting index for device name suffix, (e.g., device-0000 for 0, device-0200 for 200))")
 	metricsAddr := pflag.String("metrics", "localhost:9093", "address for the metrics endpoint")
 	stopAfter := pflag.Duration("stop-after", 0, "stop the simulator after the specified duration")
-	sourceIPs := pflag.StringSlice("source-ips", []string{}, "comma-separated list of source IP addresses for device management HTTP connections")
-	maxConcurrency := pflag.Int("max-concurrency", 100, "maximum number of concurrent agent operations")
-	agentStartupJitter := pflag.Duration("agent-startup-jitter", -1*time.Second, "maximum random delay when starting agents (negative = use status-update-interval, 0 = no jitter, positive = custom duration)")
+	sourceIPs := pflag.StringSlice("source-ips", []string{}, "comma-separated list of existing source IP addresses for device management HTTP connections (mutually exclusive with --source-ip-base/--source-ip-count)")
+	setupSourceIPsFlag := pflag.Bool("setup-source-ips", false, "standalone root-capable mode: create source IP aliases on an interface, then exit")
+	teardownSourceIPsFlag := pflag.Bool("teardown-source-ips", false, "standalone root-capable mode: remove source IP aliases created for scale tests, then exit")
+	sourceIPIface := pflag.String("source-ip-iface", "", "interface for --setup-source-ips/--teardown-source-ips (optional on normal runs)")
+	sourceIPBase := pflag.String("source-ip-base", "", "first IPv4 in a consecutive source-IP range (used by setup/teardown and non-root runs)")
+	sourceIPCount := pflag.Int("source-ip-count", 0, "number of consecutive IPv4 addresses in the source-IP range")
+	sourceIPPrefix := pflag.Int("source-ip-prefix", 24, "prefix length for --setup-source-ips/--teardown-source-ips")
+	maxConcurrency := pflag.Int("max-concurrency", 200, "maximum number of concurrent agent create/enroll operations")
+	agentStartupJitter := pflag.Duration("agent-startup-jitter", 0, "maximum random delay when starting agents (negative = use status-update-interval, 0 = no jitter, positive = custom duration)")
 	skipAutoApprove := pflag.Bool("skip-auto-approve", false, "do not auto-approve enrollment requests (agents wait for manual approval)")
+	clean := pflag.Bool("clean", false, "wipe local simulator state and delete simulator-created devices/enrollment requests before starting")
+	cleanOnly := pflag.Bool("clean-only", false, "wipe local simulator state and delete simulator-created devices/enrollment requests, then exit")
+	fleetCount := pflag.Int("fleet-count", 0, "number of scale fleets to create and distribute devices across (0 disables)")
+	fleetPrefix := pflag.String("fleet-prefix", "scale-fleet", "prefix for scale fleet names (<prefix>-NN)")
+	rollout := pflag.Bool("rollout", false, "standalone mode: update fleet templates and measure rollout convergence, then exit")
+	rolloutTemplate := pflag.String("rollout-template", "", "path to a Fleet YAML whose .spec.template is applied during --rollout")
+	rolloutTimeout := pflag.Duration("rollout-timeout", 15*time.Minute, "how long --rollout waits for devices to become UpToDate")
 	versionFormat := pflag.StringP("output", "o", "", fmt.Sprintf("Output format. One of: (%s). Default: text format", strings.Join(outputTypes, ", ")))
-	logLevel := pflag.StringP("log-level", "v", "debug", "logger verbosity level (one of \"fatal\", \"error\", \"warn\", \"warning\", \"info\", \"debug\")")
+	logLevel := pflag.StringP("log-level", "v", "error", "log level for simulated device agents only (one of \"fatal\", \"error\", \"warn\", \"warning\", \"info\", \"debug\")")
+	orchestratorLogLevel := pflag.String("orchestrator-log-level", "info", "log level for devicesimulator orchestration (cleanup, fleets, enrollment progress)")
 
 	pflag.Usage = printUsage
 
@@ -106,27 +124,36 @@ func main() {
 		}
 	}
 
-	log := flightlog.InitLogs(*logLevel)
-	if log == nil {
-		fmt.Fprintf(os.Stderr, "Invalid log level: %s\n\n", *logLevel)
+	if _, err := logrus.ParseLevel(*logLevel); err != nil {
+		fmt.Fprintf(os.Stderr, "Invalid device log level: %s\n\n", *logLevel)
+		printUsage()
+		os.Exit(1)
+	}
+	if _, err := logrus.ParseLevel(*orchestratorLogLevel); err != nil {
+		fmt.Fprintf(os.Stderr, "Invalid orchestrator log level: %s\n\n", *orchestratorLogLevel)
 		printUsage()
 		os.Exit(1)
 	}
 
-	// Disable console banner for all simulated agents
-	if err := os.Setenv("FLIGHTCTL_DISABLE_CONSOLE_BANNER", "true"); err != nil {
-		log.Fatalf("Error setting banner disable environment variable: %v", err)
-	}
+	log := flightlog.InitLogs(*orchestratorLogLevel)
 
-	// Parse and validate source IPs
-	var parsedSourceIPs []net.IP
-	for _, ipStr := range *sourceIPs {
-		if ip := net.ParseIP(ipStr); ip != nil {
-			parsedSourceIPs = append(parsedSourceIPs, ip)
-			log.Infof("Using source IP: %s", ip.String())
-		} else {
-			log.Fatalf("Invalid source IP address: %s", ipStr)
-		}
+	if *setupSourceIPsFlag && *teardownSourceIPsFlag {
+		log.Fatalf("--setup-source-ips and --teardown-source-ips are mutually exclusive")
+	}
+	if (*setupSourceIPsFlag || *teardownSourceIPsFlag) && len(*sourceIPs) > 0 {
+		log.Fatalf("--source-ips is mutually exclusive with --setup-source-ips/--teardown-source-ips")
+	}
+	if (*setupSourceIPsFlag || *teardownSourceIPsFlag) && (*clean || *cleanOnly || *rollout) {
+		log.Fatalf("--setup-source-ips/--teardown-source-ips are mutually exclusive with --clean/--clean-only/--rollout")
+	}
+	if *rollout && (*clean || *cleanOnly) {
+		log.Fatalf("--rollout is mutually exclusive with --clean/--clean-only")
+	}
+	if *rollout && *rolloutTemplate == "" {
+		log.Fatalf("--rollout requires --rollout-template")
+	}
+	if *rollout && *fleetCount <= 0 {
+		log.Fatalf("--rollout requires --fleet-count > 0")
 	}
 
 	log.Infoln("command line flags:")
@@ -134,9 +161,32 @@ func main() {
 		log.Infof("  %s=%s", flg.Name, flg.Value)
 	})
 
-	formattedLables := formatLabels(labels)
+	if *setupSourceIPsFlag {
+		ips, err := setupSourceIPs(log, *sourceIPIface, *sourceIPBase, *sourceIPCount, *sourceIPPrefix)
+		if err != nil {
+			log.Fatalf("source IP setup failed: %v", err)
+		}
+		log.Infof("source IPs ready; run the simulator as a non-root user with the same --source-ip-base/--source-ip-count (or --source-ips=%s)", sourceIPsFlagValue(ips))
+		return
+	}
+	if *teardownSourceIPsFlag {
+		if err := teardownSourceIPs(log, *sourceIPIface, *sourceIPBase, *sourceIPCount, *sourceIPPrefix); err != nil {
+			log.Fatalf("source IP teardown failed: %v", err)
+		}
+		log.Infoln("source IP teardown complete")
+		return
+	}
 
-	agentConfigTemplate := createAgentConfigTemplate(*dataDir, *configFile, *logLevel)
+	// Disable console banner for all simulated agents
+	if err := os.Setenv("FLIGHTCTL_DISABLE_CONSOLE_BANNER", "true"); err != nil {
+		log.Fatalf("Error setting banner disable environment variable: %v", err)
+	}
+
+	// Bind to existing addresses only; no privileges required. Missing IPs fail at dial/bind time.
+	parsedSourceIPs, err := resolveRuntimeSourceIPs(log, *sourceIPs, *sourceIPIface, *sourceIPBase, *sourceIPCount, *sourceIPPrefix)
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
 
 	log.Infoln("starting device simulator")
 	defer log.Infoln("device simulator stopped")
@@ -150,7 +200,15 @@ func main() {
 	}
 	cfg, err := client.ParseConfigFile(baseDir)
 	if err != nil {
-		log.Fatalf("could not parse config file: %v", err)
+		if errors.Is(err, os.ErrNotExist) {
+			log.Fatalf("no client config found at %s — run 'flightctl login' first", baseDir)
+		}
+		log.Fatalf("could not parse config file %s: %v", baseDir, err)
+	}
+	if cfg.Organization != "" {
+		log.Infof("using organization %s from client config", cfg.Organization)
+	} else {
+		log.Infoln("no organization set in client config")
 	}
 	// allow many idle conns to prevent tearing down connections we may need again
 	cfg.AddHTTPOptions(client.WithMaxIdleConnsPerHost(*maxConcurrency))
@@ -159,27 +217,43 @@ func main() {
 		log.Fatalf("Error creating service client: %v", err)
 	}
 
-	log.Infoln("creating agents")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	serviceClient.Start(ctx)
 	defer serviceClient.Stop()
 
-	// Create simulator fleet configuration
-	if err := createSimulatorFleet(ctx, serviceClient.ClientWithResponses, log); err != nil {
-		log.Warnf("Failed to create simulator fleet: %v", err)
+	if *clean || *cleanOnly {
+		if err := cleanSimulatorState(ctx, log, serviceClient.ClientWithResponses, *dataDir); err != nil {
+			log.Fatalf("cleanup failed: %v", err)
+		}
+		if *cleanOnly {
+			log.Infoln("clean-only complete, exiting")
+			return
+		}
 	}
 
-	agents, agentsFolders := createAgents(createAgentsConfig{
-		log:                 log,
-		numDevices:          *numDevices,
-		initialDeviceIndex:  *initialDeviceIndex,
-		agentConfigTemplate: agentConfigTemplate,
-		parsedSourceIPs:     parsedSourceIPs,
-		maxConcurrency:      *maxConcurrency,
-		simulatorLabels:     formattedLables,
-	})
+	if *rollout {
+		if err := runRollout(ctx, log, serviceClient.ClientWithResponses, *fleetPrefix, *fleetCount, *rolloutTemplate, *rolloutTimeout); err != nil {
+			log.Fatalf("rollout failed: %v", err)
+		}
+		return
+	}
+
+	formattedLables := formatLabels(labels)
+	agentConfigTemplate := createAgentConfigTemplate(*dataDir, *configFile, *logLevel)
+
+	var fleetNames []string
+	if *fleetCount > 0 {
+		log.Infof("skipping default simulator-disk-monitoring fleet because --fleet-count=%d", *fleetCount)
+		var err error
+		fleetNames, err = createScaleFleets(ctx, log, serviceClient.ClientWithResponses, *fleetPrefix, *fleetCount)
+		if err != nil {
+			log.Fatalf("Failed to create scale fleets: %v", err)
+		}
+	} else if err := createSimulatorFleet(ctx, serviceClient.ClientWithResponses, log); err != nil {
+		log.Warnf("Failed to create simulator fleet: %v", err)
+	}
 
 	sigShutdown := make(chan os.Signal, 1)
 	signal.Notify(sigShutdown, syscall.SIGINT, syscall.SIGTERM)
@@ -190,25 +264,40 @@ func main() {
 		cancel()
 	}()
 
-	log.Infoln("running agents")
-	// limit the maximum number of devices that are being approved.
+	log.Infof("starting %d agents (concurrency=%d, jitter=%s)", *numDevices, *maxConcurrency, agentStartupJitter.String())
 	sem := semaphore.NewWeighted(int64(*maxConcurrency))
 
-	// default to using the agent configuration's StatusUpdateInterval
 	jitterDuration := *agentStartupJitter
 	if *agentStartupJitter < 0 {
 		jitterDuration = time.Duration(agentConfigTemplate.StatusUpdateInterval)
 	}
 
+	createCfg := createAgentsConfig{
+		log:                 log,
+		numDevices:          *numDevices,
+		initialDeviceIndex:  *initialDeviceIndex,
+		agentConfigTemplate: agentConfigTemplate,
+		parsedSourceIPs:     parsedSourceIPs,
+		maxConcurrency:      *maxConcurrency,
+		simulatorLabels:     formattedLables,
+		fleetNames:          fleetNames,
+		enrollmentTransport: client.WithCachedTransport(),
+	}
+	var createMu sync.Mutex
+	var enrolled atomic.Int64
+	started := time.Now()
+
 	launchParams := agentLaunchParams{
-		agents:          agents,
-		agentFolders:    agentsFolders,
+		createCfg:       createCfg,
+		createMu:        &createMu,
 		log:             log,
 		serviceClient:   serviceClient.ClientWithResponses,
-		formattedLabels: formattedLables,
 		sem:             sem,
 		jitterDuration:  jitterDuration,
 		skipAutoApprove: *skipAutoApprove,
+		enrolled:        &enrolled,
+		total:           *numDevices,
+		started:         started,
 	}
 	for i := range *numDevices {
 		if err := sem.Acquire(ctx, 1); err != nil {
@@ -219,6 +308,7 @@ func main() {
 	// block until we can acquire all entries. This is an indication that all devices have been
 	// enrolled, and it's safe to start the "stopAfter" function.
 	_ = sem.Acquire(ctx, int64(*maxConcurrency))
+	log.Infof("all %d agents enrolled in %s (%.1f devices/s)", *numDevices, time.Since(started).Round(time.Second), float64(*numDevices)/time.Since(started).Seconds())
 	if stopAfter != nil && *stopAfter > 0 {
 		time.AfterFunc(*stopAfter, func() {
 			log.Infoln("stopping simulator after duration")
@@ -232,39 +322,51 @@ func main() {
 
 func launchAgent(ctx context.Context, i int, params agentLaunchParams) {
 	defer params.sem.Release(1)
-	select {
-	case <-ctx.Done():
+	if params.jitterDuration > 0 {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(time.Duration(rand.Float64() * float64(params.jitterDuration))): //nolint:gosec
+		}
+	}
+	agentInstance, agentDir, labels, alreadyEnrolled, err := createOneAgent(params.createCfg, params.createMu, i)
+	if err != nil {
+		params.log.Errorf("creating agent %d: %v", i, err)
+		recordEnrollmentOutcome(ctx, err)
 		return
-	case <-time.After(time.Duration(rand.Float64() * float64(params.jitterDuration))): //nolint:gosec
 	}
 	// leave the agent process running in the background
 	// when the agent is approved, we return and release the semaphore to allow other agents to onboard
-	go startAgent(ctx, params.agents[i], params.log, i)
-	if params.skipAutoApprove {
-		waitForEnrollmentRequest(ctx, params.log, params.agentFolders[i])
-		return
+	go startAgent(ctx, agentInstance, params.log, i)
+	switch {
+	case params.skipAutoApprove:
+		waitForEnrollmentRequest(ctx, params.log, agentDir)
+	case alreadyEnrolled:
+		// Resume path: management cert exists; approve would 404-poll for up to enrollmentTimeout.
+		params.log.Debugf("agent %s already enrolled, skipping approve", filepath.Base(agentDir))
+		recordEnrollmentOutcome(ctx, nil)
+	default:
+		approveAgent(ctx, params.log, params.serviceClient, agentDir, labels)
 	}
-	approveAgent(ctx, params.log, params.serviceClient, params.agentFolders[i], params.formattedLabels)
+	done := params.enrolled.Add(1)
+	if done%100 == 0 || done == int64(params.total) {
+		elapsed := time.Since(params.started).Seconds()
+		rate := float64(done) / elapsed
+		params.log.Infof("enrollment progress: %d/%d (%.1f devices/s)", done, params.total, rate)
+	}
 }
 
 func waitForEnrollmentRequest(ctx context.Context, log *logrus.Logger, agentDir string) {
-	err := wait.PollUntilContextTimeout(ctx, 5*time.Second, 5*time.Minute, false, func(ctx context.Context) (bool, error) {
-		log.Infof("Waiting for enrollment request for agent %s", filepath.Base(agentDir))
-		bannerFileData, err := readBannerFile(agentDir)
-		if err != nil {
-			return false, nil
+	log.Debugf("Waiting for enrollment request for agent %s", filepath.Base(agentDir))
+	enrollmentID, err := simagent.WaitForEnrollmentID(ctx, agentDir, enrollmentPollInterval, enrollmentTimeout)
+	recordEnrollmentOutcome(ctx, err)
+	if err != nil {
+		if ctx.Err() == nil {
+			log.Errorf("Error waiting for enrollment request: %v", err)
 		}
-		enrollmentID := testutil.GetEnrollmentIdFromText(bannerFileData)
-		if enrollmentID == "" {
-			log.Warnf("No enrollment id found in banner file %s", bannerFileData)
-			return false, nil
-		}
-		log.Infof("Enrollment request visible for agent %s (id: %s)", filepath.Base(agentDir), enrollmentID)
-		return true, nil
-	})
-	if err != nil && ctx.Err() == nil {
-		log.Errorf("Error waiting for enrollment request: %v", err)
+		return
 	}
+	log.Debugf("Enrollment request visible for agent %s (id: %s)", filepath.Base(agentDir), enrollmentID)
 }
 
 func reportVersion(versionFormat *string) error {
@@ -348,12 +450,13 @@ func createAgentConfigTemplate(dataDir string, configFile string, logLevelOverri
 	return agentConfigTemplate
 }
 
-func copyAgentFiles(log *logrus.Logger, certDir, agentDir string) {
+func copyAgentFiles(certDir, agentDir string) error {
 	for _, filename := range []string{"ca.crt", "client-enrollment.crt", "client-enrollment.key"} {
 		if err := copyFile(filepath.Join(certDir, filename), filepath.Join(agentDir, agent_config.DefaultConfigDir, filename)); err != nil {
-			log.Fatalf("copying %s: %v", filename, err)
+			return fmt.Errorf("copying %s: %w", filename, err)
 		}
 	}
+	return nil
 }
 
 type createAgentsConfig struct {
@@ -364,187 +467,143 @@ type createAgentsConfig struct {
 	parsedSourceIPs     []net.IP
 	maxConcurrency      int
 	simulatorLabels     *map[string]string
+	fleetNames          []string
+	enrollmentTransport baseclient.HTTPClientOption
 }
 
 type agentLaunchParams struct {
-	agents          []*agent.Agent
-	agentFolders    []string
+	createCfg       createAgentsConfig
+	createMu        *sync.Mutex
 	log             *logrus.Logger
 	serviceClient   *apiClient.ClientWithResponses
-	formattedLabels *map[string]string
 	sem             *semaphore.Weighted
 	jitterDuration  time.Duration
 	skipAutoApprove bool
+	enrolled        *atomic.Int64
+	total           int
+	started         time.Time
 }
 
-func createAgents(agentCfg createAgentsConfig) ([]*agent.Agent, []string) {
+func managementCertPath(agentDir string) string {
+	return filepath.Join(agentDir, agent_config.DefaultConfigDir, agent_config.DefaultCertsDirName, agent_config.GeneratedCertFile)
+}
+
+func createOneAgent(agentCfg createAgentsConfig, createMu *sync.Mutex, i int) (*agent.Agent, string, *map[string]string, bool, error) {
 	logger := agentCfg.log
-	logger.Infoln("creating agents")
-	agents := make([]*agent.Agent, agentCfg.numDevices)
-	agentsFolders := make([]string, agentCfg.numDevices)
-	ex := experimental.NewFeatures()
-	if ex.IsEnabled() && agentCfg.numDevices > 1 {
-		logger.Warnf("Using experimental features with more than one device could cause unexpected issues.")
-	}
+	agentName := fmt.Sprintf("device-%05d", agentCfg.initialDeviceIndex+i)
+	certDir := filepath.Join(agentCfg.agentConfigTemplate.ConfigDir, "certs")
+	agentDir := filepath.Join(agentCfg.agentConfigTemplate.DataDir, agentName)
 
-	enrollmentTransport := client.WithCachedTransport()
-
-	for i := 0; i < agentCfg.numDevices; i++ {
-		agentName := fmt.Sprintf("device-%05d", agentCfg.initialDeviceIndex+i)
-		certDir := filepath.Join(agentCfg.agentConfigTemplate.ConfigDir, "certs")
-		agentDir := filepath.Join(agentCfg.agentConfigTemplate.DataDir, agentName)
-		// Cleanup if exists and initialize the agent's expected
-		os.RemoveAll(agentDir)
+	_, err := os.Stat(agentDir)
+	resuming := err == nil
+	if resuming {
+		logger.Debugf("resuming existing state for agent %s", agentName)
+	} else {
 		if err := os.MkdirAll(filepath.Join(agentDir, agent_config.DefaultConfigDir), 0700); err != nil {
-			logger.Fatalf("Error creating directory: %v", err)
+			return nil, "", nil, false, fmt.Errorf("creating directory: %w", err)
 		}
-
-		if ex.IsEnabled() {
+		if experimental.NewFeatures().IsEnabled() {
 			setupTPMLinks(agentDir, logger)
 		}
-
-		err := os.Setenv(client.TestRootDirEnvKey, agentDir)
-		if err != nil {
-			logger.Fatalf("Error setting environment variable: %v", err)
+		if err := copyAgentFiles(certDir, agentDir); err != nil {
+			return nil, "", nil, false, err
 		}
-
-		copyAgentFiles(logger, certDir, agentDir)
-
-		cfg := agent_config.NewDefault()
-		if agentCfg.simulatorLabels != nil {
-			for k, v := range *agentCfg.simulatorLabels {
-				cfg.DefaultLabels[k] = v
-			}
-		}
-		cfg.DefaultLabels["alias"] = agentName
-		cfg.ConfigDir = agent_config.DefaultConfigDir
-		cfg.DataDir = agent_config.DefaultConfigDir
-		cfg.EnrollmentService = config.EnrollmentService{}
-		cfg.EnrollmentService.Config = *client.NewDefault()
-		cfg.EnrollmentService.Config.Service = client.Service{
-			Server:               agentCfg.agentConfigTemplate.EnrollmentService.Config.Service.Server,
-			CertificateAuthority: filepath.Join(cfg.ConfigDir, agent_config.CacertFile),
-		}
-		cfg.EnrollmentService.Config.AuthInfo = client.AuthInfo{
-			ClientCertificate: filepath.Join(cfg.ConfigDir, agent_config.EnrollmentCertFile),
-			ClientKey:         filepath.Join(cfg.ConfigDir, agent_config.EnrollmentKeyFile),
-		}
-		cfg.SpecFetchInterval = agentCfg.agentConfigTemplate.SpecFetchInterval
-		cfg.StatusUpdateInterval = agentCfg.agentConfigTemplate.StatusUpdateInterval
-		cfg.TPM = agentCfg.agentConfigTemplate.TPM
-		cfg.LogPrefix = agentName
-
-		// create managementService config
-		cfg.ManagementService = config.ManagementService{}
-		cfg.ManagementService.Config = *client.NewDefault()
-		cfg.ManagementService.Service = client.Service{
-			Server:               agentCfg.agentConfigTemplate.ManagementService.Config.Service.Server,
-			CertificateAuthority: filepath.Join(cfg.ConfigDir, agent_config.CacertFile),
-		}
-		cfg.SystemInfo = []string{}
-
-		cfg.SetEnrollmentMetricsCallback(rpcMetricsCallback)
-
-		// Device management currently requires setting up individual mTLS connections. This makes HTTP connection reuse
-		// effectively impossible across agents. When a device is onboarded, a new http connection must be generated.
-		// To avoid ephemeral port exhaustion, we allow the management client to bind to specific IPs.
-		if len(agentCfg.parsedSourceIPs) > 0 {
-			// Assign source IP if provided (round-robin distribution)
-			sourceIP := agentCfg.parsedSourceIPs[i%len(agentCfg.parsedSourceIPs)]
-			// Create dialer with source IP, using same defaults as the default http dialer (30s timeout/keepalive)
-			cfg.ManagementService.Config.AddHTTPOptions(baseclient.WithDialer(&net.Dialer{
-				LocalAddr: &net.TCPAddr{IP: sourceIP},
-				Timeout:   30 * time.Second,
-				KeepAlive: 30 * time.Second,
-			}))
-			logger.Infof("Agent %s assigned source IP: %s", agentName, sourceIP.String())
-		}
-		// The enrollment client configuration is the same for all agents and thus no need to create a new connection for
-		// each agent. By using the CachedTransport option, we let the agents setup their enrollment clients (and
-		// individual transports), and then swap out the transport such that all HTTP clients are using the same transport.
-		// This allows for connection reuse across all agents during the enrollment phase.
-		// Additionally, the number of connections required is limited to the concurrency level defined.
-		// As the expected concurrency level is relatively low (compared to the total number of running agents), we're
-		// not as concerned with ephemeral port exhaustion and can just use the default option of letting the OS choose.
-		cfg.EnrollmentService.Config.AddHTTPOptions(
-			baseclient.WithMaxIdleConnsPerHost(agentCfg.maxConcurrency),
-			enrollmentTransport,
-		)
-
-		if err := cfg.Complete(); err != nil {
-			logger.Fatalf("agent config %d: %v", i, err)
-		}
-		if err := cfg.Validate(); err != nil {
-			logger.Fatalf("agent config %d: %v", i, err)
-		}
-
-		logWithPrefix := flightlog.NewPrefixLogger(agentName)
-		logWithPrefix.Level(agentCfg.agentConfigTemplate.LogLevel)
-		agents[i] = agent.New(logWithPrefix, cfg, "")
-		agentsFolders[i] = agentDir
 	}
-	return agents, agentsFolders
+	alreadyEnrolled := false
+	if resuming {
+		if _, err := os.Stat(managementCertPath(agentDir)); err == nil {
+			alreadyEnrolled = true
+		}
+	}
+
+	labels := map[string]string{}
+	if agentCfg.simulatorLabels != nil {
+		for k, v := range *agentCfg.simulatorLabels {
+			labels[k] = v
+		}
+	}
+	if len(agentCfg.fleetNames) > 0 {
+		labels["fleet"] = agentCfg.fleetNames[i%len(agentCfg.fleetNames)]
+	}
+
+	// FLIGHTCTL_TEST_ROOT_DIR is process-global; only Setenv + NewDefault must be serialized.
+	createMu.Lock()
+	if err := os.Setenv(client.TestRootDirEnvKey, agentDir); err != nil {
+		createMu.Unlock()
+		return nil, "", nil, false, fmt.Errorf("setting %s: %w", client.TestRootDirEnvKey, err)
+	}
+	cfg := agent_config.NewDefault()
+	enrollmentCfg := client.NewDefault()
+	managementCfg := client.NewDefault()
+	createMu.Unlock()
+
+	for k, v := range labels {
+		cfg.DefaultLabels[k] = v
+	}
+	cfg.DefaultLabels["alias"] = agentName
+	cfg.ConfigDir = agent_config.DefaultConfigDir
+	cfg.DataDir = agent_config.DefaultConfigDir
+	cfg.EnrollmentService = config.EnrollmentService{}
+	cfg.EnrollmentService.Config = *enrollmentCfg
+	cfg.EnrollmentService.Config.Service = client.Service{
+		Server:               agentCfg.agentConfigTemplate.EnrollmentService.Config.Service.Server,
+		CertificateAuthority: filepath.Join(cfg.ConfigDir, agent_config.CacertFile),
+	}
+	cfg.EnrollmentService.Config.AuthInfo = client.AuthInfo{
+		ClientCertificate: filepath.Join(cfg.ConfigDir, agent_config.EnrollmentCertFile),
+		ClientKey:         filepath.Join(cfg.ConfigDir, agent_config.EnrollmentKeyFile),
+	}
+	cfg.SpecFetchInterval = agentCfg.agentConfigTemplate.SpecFetchInterval
+	cfg.SpecFetchErrorBaseDelay = agentCfg.agentConfigTemplate.SpecFetchErrorBaseDelay
+	cfg.SpecFetchErrorMaxDelay = agentCfg.agentConfigTemplate.SpecFetchErrorMaxDelay
+	cfg.StatusUpdateInterval = agentCfg.agentConfigTemplate.StatusUpdateInterval
+	cfg.StatusUpdateJitter = agentCfg.agentConfigTemplate.StatusUpdateJitter
+	cfg.TPM = agentCfg.agentConfigTemplate.TPM
+	cfg.LogPrefix = agentName
+
+	cfg.ManagementService = config.ManagementService{}
+	cfg.ManagementService.Config = *managementCfg
+	cfg.ManagementService.Service = client.Service{
+		Server:               agentCfg.agentConfigTemplate.ManagementService.Config.Service.Server,
+		CertificateAuthority: filepath.Join(cfg.ConfigDir, agent_config.CacertFile),
+	}
+	cfg.SystemInfo = []string{}
+
+	cfg.SetEnrollmentMetricsCallback(rpcMetricsCallback)
+
+	if len(agentCfg.parsedSourceIPs) > 0 {
+		sourceIP := agentCfg.parsedSourceIPs[i%len(agentCfg.parsedSourceIPs)]
+		cfg.ManagementService.Config.AddHTTPOptions(baseclient.WithDialer(&net.Dialer{
+			LocalAddr: &net.TCPAddr{IP: sourceIP},
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}))
+		logger.Debugf("Agent %s assigned source IP: %s", agentName, sourceIP.String())
+	}
+	cfg.EnrollmentService.Config.AddHTTPOptions(
+		baseclient.WithMaxIdleConnsPerHost(agentCfg.maxConcurrency),
+		agentCfg.enrollmentTransport,
+	)
+
+	cfg.LogLevel = agentCfg.agentConfigTemplate.LogLevel
+	agentInstance, err := simagent.NewSimulatedAgent(cfg, agentName, agent.WithExecuter(newSimulatorExecuter()))
+	if err != nil {
+		return nil, "", nil, false, fmt.Errorf("agent config %d: %w", i, err)
+	}
+	return agentInstance, agentDir, &labels, alreadyEnrolled, nil
 }
 
 func approveAgent(ctx context.Context, log *logrus.Logger, serviceClient *apiClient.ClientWithResponses, agentDir string, labels *map[string]string) {
-	enrollmentId := ""
-	err := wait.PollUntilContextTimeout(ctx, 5*time.Second, 5*time.Minute, false, func(ctx context.Context) (bool, error) {
-		log.Infof("Approving device enrollment if exists for agent %s", filepath.Base(agentDir))
-		if enrollmentId == "" {
-			bannerFileData, err := readBannerFile(agentDir)
-			if err != nil {
-				log.Warnf("Error reading banner file: %v", err)
-				return false, nil
-			}
-			enrollmentId = testutil.GetEnrollmentIdFromText(bannerFileData)
-			if enrollmentId == "" {
-				log.Warnf("No enrollment id found in banner file %s", bannerFileData)
-				return false, nil
-			}
-		}
-		// timeout after 30s and retry
-		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		defer cancel()
-		resp, err := serviceClient.ApproveEnrollmentRequestWithResponse(
-			ctx,
-			enrollmentId,
-			v1beta1.EnrollmentRequestApproval{
-				Approved: true,
-				Labels:   labels,
-			})
-		if err != nil {
-			log.Errorf("Error approving device %s enrollment: %v", enrollmentId, err)
-			return false, nil
-		}
-		responseCode := resp.StatusCode()
-		if responseCode == http.StatusNotFound {
-			// no error, but don't log this. There could be a race condition in posting vs approving and is not exceptional
-			return false, nil
-		}
-		if responseCode < http.StatusOK || responseCode >= http.StatusMultipleChoices {
-			log.Warnf("Failed approving device %s enrollment: %d", enrollmentId, responseCode)
-			return false, nil
-		}
-		log.Infof("Approved device enrollment %s", enrollmentId)
-		return true, nil
-	})
-	if err != nil && ctx.Err() == nil {
-		log.Errorf("Error approving device enrollment: %v", err)
-	}
-}
-
-func readBannerFile(agentDir string) (string, error) {
-	var data []byte
-	var err error
-	bannerFile := filepath.Join(agentDir, lifecycle.BannerFile)
-	if _, err = os.Stat(bannerFile); err != nil {
-		return "", err
-	}
-	data, err = os.ReadFile(bannerFile)
+	log.Debugf("Approving device enrollment if exists for agent %s", filepath.Base(agentDir))
+	enrollmentID, err := simagent.ApproveEnrollment(ctx, serviceClient, agentDir, labels, enrollmentPollInterval, enrollmentTimeout)
+	recordEnrollmentOutcome(ctx, err)
 	if err != nil {
-		return "", err
+		if ctx.Err() == nil {
+			log.Errorf("Error approving device enrollment: %v", err)
+		}
+		return
 	}
-	return string(data), nil
+	log.Debugf("Approved device enrollment %s", enrollmentID)
 }
 
 func copyFile(from, to string) error {
@@ -575,7 +634,7 @@ func formatLabels(lableArgs *[]string) *map[string]string {
 		formattedLabels = util.LabelArrayToMap(*lableArgs)
 	}
 
-	formattedLabels["created_by"] = "device-simulator"
+	formattedLabels["created_by"] = simulatorCreatedByValue
 	return &formattedLabels
 }
 

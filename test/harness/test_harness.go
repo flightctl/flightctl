@@ -44,6 +44,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/test/integration/integrationstack"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/flightctl/flightctl/test/util/simagent"
 	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
@@ -347,6 +348,10 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 	}
 	cfg.SpecFetchInterval = fetchSpecInterval
 	cfg.StatusUpdateInterval = statusUpdateInterval
+	// Disable startup status jitter so integration tests that wait on first status
+	// are not delayed by up to StatusUpdateInterval.
+	zeroJitter := util.Duration(0)
+	cfg.StatusUpdateJitter = &zeroJitter
 	if err := cfg.Complete(); err != nil {
 		cancel()
 		return nil, fmt.Errorf("NewTestHarness: %w", err)
@@ -452,11 +457,13 @@ func (h *TestHarness) StopAgent() {
 }
 
 func (h *TestHarness) StartAgent() {
-	agentLog := log.NewPrefixLogger("")
-
 	// Use SafeExecuter in tests to prevent dangerous commands like systemctl reboot
 	safeExec := testutil.NewDefaultSafeExecuter()
-	agentInstance := agent.New(agentLog, h.agentConfig, "", agent.WithExecuter(safeExec))
+	agentInstance, err := simagent.NewSimulatedAgent(h.agentConfig, "", agent.WithExecuter(safeExec))
+	if err != nil {
+		h.goRoutineErrorHandler(fmt.Errorf("error constructing agent: %w", err))
+		return
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	h.agentFinished = make(chan struct{})

@@ -19,8 +19,12 @@ import (
 
 const (
 	longPollTimeout = 4 * time.Minute
-	// minPollDelay is the minimum delay between polls to prevent hot-looping
-	minPollDelay = 5 * time.Second
+	// defaultMinPollDelay paces successful / no-content polls so a fast response
+	// does not immediately hammer /rendered. Error backoff uses a separate config.
+	defaultMinPollDelay       = 5 * time.Second
+	defaultErrorBackoffFactor = 2.0
+	defaultMaxErrorPollDelay  = 5 * time.Minute
+	defaultErrorJitterFactor  = 0.2
 )
 
 // watcher wraps a ring buffer to implement the Watcher interface
@@ -64,20 +68,31 @@ type publisher struct {
 	stopped                     atomic.Bool
 	log                         *log.PrefixLogger
 	pollConfig                  poll.Config
+	errorBackoff                poll.Config
 	deviceNotFoundHandler       func() error
 	onConflictPausedInvalidator LastStatusInvalidator
-	minDelay                    time.Duration
 	mu                          sync.Mutex
+}
+
+func defaultErrorBackoff() poll.Config {
+	return poll.Config{
+		BaseDelay:    defaultMinPollDelay,
+		Factor:       defaultErrorBackoffFactor,
+		MaxDelay:     defaultMaxErrorPollDelay,
+		JitterFactor: defaultErrorJitterFactor,
+	}
 }
 
 func newPublisher(deviceName string,
 	pollConfig poll.Config,
+	errorBackoff poll.Config,
 	lastKnownVersion string,
 	deviceNotFoundHandler func() error,
 	log *log.PrefixLogger) Publisher {
 	return &publisher{
 		deviceName:            deviceName,
 		pollConfig:            pollConfig,
+		errorBackoff:          errorBackoff,
 		lastKnownVersion:      lastKnownVersion,
 		deviceNotFoundHandler: deviceNotFoundHandler,
 		log:                   log,
@@ -146,10 +161,13 @@ func (n *publisher) SetOnConflictPausedInvalidator(invalidator LastStatusInvalid
 	n.onConflictPausedInvalidator = invalidator
 }
 
-func (n *publisher) pollAndPublish(ctx context.Context) {
+// pollAndPublish fetches the rendered spec once. Returns a non-nil error for
+// failures that should trigger exponential backoff before the next poll.
+// 204/timeout and successful 200 return nil (normal pacing).
+func (n *publisher) pollAndPublish(ctx context.Context) error {
 	if n.stopped.Load() {
 		n.log.Debug("Publisher is stopped, skipping poll")
-		return
+		return nil
 	}
 
 	n.log.Debugf("Polling management service for new rendered device spec: last known version: %s", n.lastKnownVersion)
@@ -164,31 +182,30 @@ func (n *publisher) pollAndPublish(ctx context.Context) {
 		return n.getRenderedFromManagementAPIWithRetry(ctx, n.lastKnownVersion, newDesired)
 	})
 
-	// log slow calls
 	duration := time.Since(startTime)
 	if duration >= longPollTimeout {
 		n.log.Debugf("Dialing management API took: %v", duration)
 	}
 	if err != nil {
-		// Check for device not found error - handle certificate wiping and restart
 		if errors.Is(err, client.ErrDeviceNotFound) {
 			n.log.Warn("Device not found on management server")
-			if n.deviceNotFoundHandler != nil {
-				if handlerErr := n.deviceNotFoundHandler(); handlerErr != nil {
-					n.log.Warnf("Failed to handle device not found: %v", handlerErr)
-					return
-				}
-				n.log.Info("Successfully handled device not found - certificate wiped and agent restarted")
+			if n.deviceNotFoundHandler == nil {
+				return err
 			}
-			return
+			if handlerErr := n.deviceNotFoundHandler(); handlerErr != nil {
+				n.log.Warnf("Failed to handle device not found: %v", handlerErr)
+				return handlerErr
+			}
+			n.log.Info("Successfully handled device not found - certificate wiped and agent restarted")
+			return err
 		}
 
 		if errors.Is(err, errors.ErrNoContent) || errors.IsTimeoutError(err) {
 			n.log.Debug("No new template version from management service")
-			return
+			return nil
 		}
 		n.log.Errorf("Received non-retryable error from management service: %v", err)
-		return
+		return err
 	}
 
 	n.mu.Lock()
@@ -203,7 +220,6 @@ func (n *publisher) pollAndPublish(ctx context.Context) {
 	newVersion := newDesired.Version()
 	n.log.Debugf("Received rendered device with version: '%s'", newVersion)
 
-	// Parse versions with defaults
 	newVersionInt := int64(0)
 	if newVersion != "" {
 		if parsed, err := strconv.ParseInt(newVersion, 10, 64); err == nil {
@@ -218,7 +234,6 @@ func (n *publisher) pollAndPublish(ctx context.Context) {
 		}
 	}
 
-	// Update if new version is greater, or if either version is empty/invalid
 	if newVersionInt > lastVersionInt {
 		n.log.Infof("New spec version received: %s -> %s", n.lastKnownVersion, newVersion)
 		n.lastKnownVersion = newVersion
@@ -226,22 +241,20 @@ func (n *publisher) pollAndPublish(ctx context.Context) {
 		n.log.Debugf("Received rendered device with unchanged version %s (last known: %s)", newVersion, n.lastKnownVersion)
 	}
 
-	// notify all watchers of the new device spec
 	for _, w := range n.watchers {
 		if err := w.buffer.Push(newDesired); err != nil {
 			n.log.Errorf("Failed to notify watcher: %v", err)
 		}
 	}
+	return nil
 }
 
 func (n *publisher) Run(ctx context.Context) {
 	defer n.stop()
 	n.log.Debug("Starting publisher with continuous long-polling")
 
-	minDelay := n.minDelay
-	if minDelay == 0 {
-		minDelay = minPollDelay
-	}
+	errorTries := 0
+	backoffCfg := n.errorBackoff
 
 	for {
 		if ctx.Err() != nil {
@@ -250,18 +263,30 @@ func (n *publisher) Run(ctx context.Context) {
 		}
 
 		startTime := time.Now()
-		n.pollAndPublish(ctx)
-
+		err := n.pollAndPublish(ctx)
 		elapsed := time.Since(startTime)
-		if elapsed < minDelay {
-			delay := minDelay - elapsed
-			n.log.Debugf("Poll completed quickly, waiting %v before next poll", delay)
-			select {
-			case <-ctx.Done():
-				n.log.Debug("Publisher context done during delay")
-				return
-			case <-time.After(delay):
+
+		var delay time.Duration
+		if err != nil {
+			errorTries++
+			delay = poll.CalculateBackoffDelay(&backoffCfg, errorTries)
+			n.log.Debugf("Poll failed, backing off %v before next poll (attempt %d)", delay, errorTries)
+		} else {
+			errorTries = 0
+			if elapsed < defaultMinPollDelay {
+				delay = defaultMinPollDelay - elapsed
+				n.log.Debugf("Poll completed quickly, waiting %v before next poll", delay)
 			}
+		}
+		if delay <= 0 {
+			continue
+		}
+
+		select {
+		case <-ctx.Done():
+			n.log.Debug("Publisher context done during delay")
+			return
+		case <-time.After(delay):
 		}
 	}
 }

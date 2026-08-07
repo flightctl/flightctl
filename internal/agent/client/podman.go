@@ -104,16 +104,19 @@ type Podman struct {
 // PodmanFactory creates a podman client. A blank username means to use the process user.
 type PodmanFactory func(user v1beta1.Username) (*Podman, error)
 
-func NewPodmanFactory(log *log.PrefixLogger, backoff poll.Config, rwFactory fileio.ReadWriterFactory) PodmanFactory {
+func NewPodmanFactory(log *log.PrefixLogger, backoff poll.Config, rwFactory fileio.ReadWriterFactory, baseExec executer.Executer) PodmanFactory {
 	return func(username v1beta1.Username) (*Podman, error) {
 		readWriter, err := rwFactory(username)
 		if err != nil {
 			return nil, err
 		}
 
-		exec, err := ExecuterForUser(username)
-		if err != nil {
-			return nil, err
+		exec := baseExec
+		if !username.IsCurrentProcessUser() {
+			exec, err = ExecuterForUser(username)
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		log.Debugf("Creating podman client for user %s", username)
