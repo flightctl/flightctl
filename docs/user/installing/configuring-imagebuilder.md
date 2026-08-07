@@ -41,7 +41,9 @@ imagebuilderWorker:
 
 ## RHEL Configuration
 
-When running with a RHEL subscription, you can install the `flightctl-agent` package directly from a subscription-managed repository instead of adding an external repo URL.
+When building RHEL-based images, the build container needs access to RHEL subscription data so that `dnf` can resolve packages from subscription-managed repositories. The steps below mount the host's subscription credentials into the build environment.
+
+> **Note:** Mounting subscription data does not change where the `flightctl-agent` package is installed from. By default, the worker uses the public RPM repository (`rpm.flightctl.io`). If you want to install `flightctl-agent` from a subscription-managed repository instead, see the optional RPM repository settings in each section below.
 
 ### Kubernetes (Helm)
 
@@ -98,12 +100,20 @@ oc create secret generic rhel-rhsm-ca -n ${NAMESPACE} \
 
 ##### Step 2: Configure the Helm chart
 
+Mount the subscription secrets:
+
 ```yaml
 imageBuilderWorker:
   entitlementCertsSecretName: "etc-pki-entitlement"
   yumReposSecretName: "rhel-yum-repos"
   rhsmSecretName: "rhel-rhsm"
   rhsmCaSecretName: "rhel-rhsm-ca"
+```
+
+Optionally, if you want to install `flightctl-agent` from a subscription-managed repository instead of the public RPM repository, also add:
+
+```yaml
+imageBuilderWorker:
   rpmRepoAdd: false
   rpmRepoEnable: "edge-manager-1.0-for-rhel-9-x86_64-rpms"
 ```
@@ -132,12 +142,20 @@ kubectl create secret generic rhel-rhsm-ca \
 
 ##### Step 2: Configure the Helm chart
 
+Mount the subscription secrets:
+
 ```yaml
 imageBuilderWorker:
   entitlementCertsSecretName: "rhel-entitlement"
   yumReposSecretName: "rhel-yum-repos"
   rhsmSecretName: "rhel-rhsm"
   rhsmCaSecretName: "rhel-rhsm-ca"
+```
+
+Optionally, if you want to install `flightctl-agent` from a subscription-managed repository instead of the public RPM repository, also add:
+
+```yaml
+imageBuilderWorker:
   rpmRepoAdd: false
   rpmRepoEnable: "edge-manager-1.0-for-rhel-9-x86_64-rpms"
 ```
@@ -149,19 +167,27 @@ imageBuilderWorker:
 
 #### Step 1: Mount host subscription data
 
-Edit `/usr/share/containers/systemd/flightctl-imagebuilder-worker.container` and add the following volume mounts:
+Do **not** edit the packaged unit at
+`/usr/share/containers/systemd/flightctl-imagebuilder-worker.container`
+directly — that file is vendor-owned and edits will be lost on package upgrade.
+Use a Quadlet drop-in instead:
+
+```bash
+sudo mkdir -p /etc/containers/systemd/flightctl-imagebuilder-worker.container.d
+```
+
+Create `/etc/containers/systemd/flightctl-imagebuilder-worker.container.d/rhel-subscription.conf`:
 
 ```ini
 [Container]
-# ... other settings ...
 Volume=/etc/pki/entitlement:/etc/pki/entitlement:ro,z
 Volume=/etc/yum.repos.d:/etc/yum.repos.d:ro,z
 Volume=/etc/rhsm/:/etc/rhsm/:ro,z
 ```
 
-#### Step 2: Configure RPM repository settings
+#### Step 2 (optional): Use a subscription-managed repo for flightctl-agent
 
-Edit `/etc/flightctl/service-config.yaml`:
+By default, the worker installs `flightctl-agent` from the public RPM repository. If you want to install it from a subscription-managed repository instead, edit `/etc/flightctl/service-config.yaml`:
 
 ```yaml
 imagebuilderWorker:
