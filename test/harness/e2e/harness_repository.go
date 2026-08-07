@@ -45,6 +45,17 @@ func (h *Harness) GetInternalGitRepoURL(internalHost string, internalPort int, r
 // CreateRepositoryWithSSHCredentials creates a Repository resource with SSH credentials.
 // keyContent must be the raw SSH private key (e.g. from auxiliary.Get(ctx).GetGitSSHPrivateKey()).
 func (h *Harness) CreateRepositoryWithSSHCredentials(repoName, repoURL string, keyContent util.SSHPrivateKeyContent) error {
+	return h.createRepositoryWithSSHCredentials(repoName, repoURL, keyContent, true)
+}
+
+// CreateSharedRepositoryWithSSHCredentials creates a Repository resource with SSH credentials
+// without adding a per-test test-id label. Use this for resources shared across multiple It blocks
+// (e.g. created in BeforeAll) where per-test AfterEach cleanup must not delete the resource.
+func (h *Harness) CreateSharedRepositoryWithSSHCredentials(repoName, repoURL string, keyContent util.SSHPrivateKeyContent) error {
+	return h.createRepositoryWithSSHCredentials(repoName, repoURL, keyContent, false)
+}
+
+func (h *Harness) createRepositoryWithSSHCredentials(repoName, repoURL string, keyContent util.SSHPrivateKeyContent, addTestLabel bool) error {
 	sshPrivateKeyBase64 := base64.StdEncoding.EncodeToString([]byte(keyContent))
 
 	repoSpec := v1beta1.RepositorySpec{}
@@ -69,7 +80,9 @@ func (h *Harness) CreateRepositoryWithSSHCredentials(repoName, repoURL string, k
 		Spec: repoSpec,
 	}
 
-	h.addTestLabelToRepositoryMetadata(&repository.Metadata)
+	if addTestLabel {
+		h.addTestLabelToRepositoryMetadata(&repository.Metadata)
+	}
 
 	resp, err := h.Client.CreateRepositoryWithResponse(h.Context, repository)
 	if err != nil {

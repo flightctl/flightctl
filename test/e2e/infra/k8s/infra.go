@@ -486,6 +486,114 @@ func (p *InfraProvider) GetAPILoginToken() (string, error) {
 	}
 }
 
+// encryptionKeySecretName is the K8s Secret that holds the encryption key files.
+const encryptionKeySecretName = "flightctl-encryption-key"
+
+// SetEncryptionKey patches the flightctl-encryption-key Secret to add/update a key entry,
+// then triggers a rollout restart of the service's deployment so pods mount the updated Secret.
+func (p *InfraProvider) SetEncryptionKey(service infra.ServiceName, keyFileName string, keyBytes []byte) error {
+	if keyFileName == "" {
+		return fmt.Errorf("SetEncryptionKey: keyFileName is required")
+	}
+	if strings.ContainsAny(keyFileName, "/\\.") {
+		return fmt.Errorf("SetEncryptionKey: keyFileName must be a plain basename, got %q", keyFileName)
+	}
+	if len(keyBytes) == 0 {
+		return fmt.Errorf("SetEncryptionKey: keyBytes is empty")
+	}
+
+	_, ns, err := p.getServiceInfo(service)
+	if err != nil {
+		return fmt.Errorf("SetEncryptionKey: resolve service %s: %w", service, err)
+	}
+
+	// Patch the Secret via stringData so the mounted file contains the base64-encoded key string,
+	// matching the format produced by generate-encryption-key.sh (openssl rand -base64 32).
+	// DecodeAES256Key expects a base64-encoded string; if we patched via data with raw bytes,
+	// K8s would decode them on mount and the file would contain raw binary that DecodeAES256Key
+	// cannot parse.
+	encodedKey := base64.StdEncoding.EncodeToString(keyBytes)
+	patch := map[string]interface{}{
+		"stringData": map[string]string{keyFileName: encodedKey},
+	}
+	patchBytes, err := json.Marshal(patch)
+	if err != nil {
+		return fmt.Errorf("SetEncryptionKey: marshal patch: %w", err)
+	}
+	tmp, err := os.CreateTemp("", "infra-secret-patch-*.json")
+	if err != nil {
+		return fmt.Errorf("SetEncryptionKey: create temp file: %w", err)
+	}
+	defer os.Remove(tmp.Name())
+	defer tmp.Close() //nolint:errcheck
+	if _, err := tmp.Write(patchBytes); err != nil {
+		return fmt.Errorf("SetEncryptionKey: write patch: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("SetEncryptionKey: close temp file: %w", err)
+	}
+	args := p.kubectlArgs("patch", "secret", encryptionKeySecretName, "-n", ns, "--patch-file", tmp.Name(), "--type", "merge")
+	cmd := exec.Command("kubectl", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("SetEncryptionKey: patch secret %s/%s: %w: %s", ns, encryptionKeySecretName, err, strings.TrimSpace(string(output)))
+	}
+	logrus.Infof("K8s: patched secret %s/%s with key %q", ns, encryptionKeySecretName, keyFileName)
+	// The caller (rotateEncryptionKey) restarts services via restartServicesAndWait after all
+	// key files and config are updated. No rollout restart here to avoid racing with that restart.
+	return nil
+}
+
+// ResetEncryptionKeys replaces the flightctl-encryption-key Secret with only the original
+// "key" entry, removing any additional keys added during tests (e.g. after key rotation).
+// After calling this, restart services so pods mount the updated Secret.
+func (p *InfraProvider) ResetEncryptionKeys() error {
+	_, ns, err := p.getServiceInfo(infra.ServiceAPI)
+	if err != nil {
+		return fmt.Errorf("ResetEncryptionKeys: resolve namespace: %w", err)
+	}
+
+	// Read the current Secret to get the original "key" value.
+	args := p.kubectlArgs("get", "secret", encryptionKeySecretName, "-n", ns, "-o", "jsonpath={.data.key}")
+	cmd := exec.Command("kubectl", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("ResetEncryptionKeys: read secret %s/%s: %w: %s", ns, encryptionKeySecretName, err, strings.TrimSpace(string(output)))
+	}
+	originalKeyData := strings.TrimSpace(string(output))
+	if originalKeyData == "" {
+		logrus.Warnf("ResetEncryptionKeys: 'key' entry not found in %s/%s — Secret may not have been set up yet; skipping reset", ns, encryptionKeySecretName)
+		return nil
+	}
+
+	// Use kubectl replace with a minimal Secret manifest so K8s removes all extra data keys.
+	// Strategic merge patch cannot remove keys (null values are ignored), so replace is required.
+	secretYAML := fmt.Sprintf("apiVersion: v1\nkind: Secret\nmetadata:\n  name: %s\n  namespace: %s\ndata:\n  key: %s\n",
+		encryptionKeySecretName, ns, originalKeyData)
+
+	tmpYAML, err := os.CreateTemp("", "infra-secret-reset-*.yaml")
+	if err != nil {
+		return fmt.Errorf("ResetEncryptionKeys: create yaml temp file: %w", err)
+	}
+	defer os.Remove(tmpYAML.Name())
+	defer tmpYAML.Close() //nolint:errcheck
+	if _, err := tmpYAML.WriteString(secretYAML); err != nil {
+		return fmt.Errorf("ResetEncryptionKeys: write yaml: %w", err)
+	}
+	if err := tmpYAML.Close(); err != nil {
+		return fmt.Errorf("ResetEncryptionKeys: close yaml: %w", err)
+	}
+
+	replaceArgs := p.kubectlArgs("replace", "-f", tmpYAML.Name())
+	replaceCmd := exec.Command("kubectl", replaceArgs...)
+	replaceOut, err := replaceCmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("ResetEncryptionKeys: replace secret: %w: %s", err, strings.TrimSpace(string(replaceOut)))
+	}
+	logrus.Infof("K8s: reset secret %s/%s to only the default 'key' entry", ns, encryptionKeySecretName)
+	return nil
+}
+
 // SetServiceConfig updates a service's ConfigMap data key with the given content.
 func (p *InfraProvider) SetServiceConfig(service infra.ServiceName, configKey, content string) error {
 	info, ns, err := p.getServiceInfo(service)

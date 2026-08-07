@@ -3,8 +3,11 @@ package login
 import (
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/client"
 	"github.com/flightctl/flightctl/test/e2e/infra"
@@ -213,7 +216,7 @@ func LoginToFlightctl(harness *e2e.Harness, token string) error {
 	loginArgs := append(baseLoginArgs(), "--token", token)
 	out, err := harness.CLI(loginArgs...)
 	if err != nil {
-		return fmt.Errorf("flightctl login: %w", err)
+		return fmt.Errorf("flightctl login: %w; output: %s", err, out)
 	}
 	if !isLoginSuccessful(out) {
 		return fmt.Errorf("flightctl login did not succeed: %s", out)
@@ -235,6 +238,58 @@ func LoginToAPIWithToken(harness *e2e.Harness) (AuthMethod, error) {
 		return 0, fmt.Errorf("login to flightctl: %w", err)
 	}
 	return method, nil
+}
+
+// isTransientLoginError returns true for network errors that indicate the API is
+// mid-restart and not yet accepting connections (EOF, connection refused, reset).
+func isTransientLoginError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, io.EOF) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "EOF") ||
+		strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "connection reset")
+}
+
+// LoginToAPIWithTokenWithRetry retries LoginToAPIWithToken on transient network errors
+// (EOF, connection refused) for up to the given timeout with exponential backoff.
+// Use this after a service restart where the pod may be "Ready" in K8s before the
+// API process is actually accepting TLS connections.
+func LoginToAPIWithTokenWithRetry(harness *e2e.Harness, timeout time.Duration) (AuthMethod, error) {
+	deadline := time.Now().Add(timeout)
+	backoff := 2 * time.Second
+	const maxBackoff = 15 * time.Second
+	// Always attempt at least once, even if timeout is zero or already elapsed,
+	// so lastErr is always set and the error message is never "<nil>".
+	var lastErr error
+	for {
+		method, err := LoginToAPIWithToken(harness)
+		if err == nil {
+			return method, nil
+		}
+		if !isTransientLoginError(err) {
+			return 0, err
+		}
+		lastErr = err
+		if time.Now().After(deadline) {
+			break
+		}
+		logrus.Infof("LoginToAPIWithTokenWithRetry: transient error (%v), retrying in %s", err, backoff)
+		time.Sleep(backoff)
+		backoff *= 2
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+	}
+	return 0, fmt.Errorf("login did not succeed within %s: %w", timeout, lastErr)
 }
 
 // Login logs in to the cluster and flightctl API as the given user.
