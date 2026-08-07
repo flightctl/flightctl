@@ -66,8 +66,8 @@ var _ = Describe("Catalog item references", Ordered, Label("EDM-4813", "catalog-
 		appImageURI = fmt.Sprintf("%s:%s/%s", svc.Registry.Host, svc.Registry.Port, testutil.SleepAppRegistryPath)
 
 		osVersions = []e2e.CatalogVersionRef{
-			{Version: osVersion1, ImageRef: testutil.DeviceTags.V1},
-			{Version: osVersion2, ImageRef: testutil.DeviceTags.V2},
+			{Version: osVersion1, ImageRef: testutil.DeviceTags.V2},
+			{Version: osVersion2, ImageRef: testutil.DeviceTags.V3},
 		}
 
 		By("Creating test catalog")
