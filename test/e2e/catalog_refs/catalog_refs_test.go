@@ -283,8 +283,8 @@ var _ = Describe("Catalog item references", Ordered, Label("EDM-4813", "catalog-
 		harness = e2e.GetWorkerHarness()
 		deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
 
-		By("Setting device OS spec to reference app-type catalog item (type mismatch)")
-		err := harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
+		By("Attempting to set device OS spec to reference app-type catalog item (type mismatch)")
+		err := harness.UpdateDevice(deviceId, func(device *v1beta1.Device) {
 			device.Spec.Os = &v1beta1.DeviceOsSpec{
 				CatalogItemRef: &v1beta1.CatalogItemRefSpec{
 					Catalog: catalogName,
@@ -293,27 +293,15 @@ var _ = Describe("Catalog item references", Ordered, Label("EDM-4813", "catalog-
 				},
 			}
 		})
-		Expect(err).ToNot(HaveOccurred())
 
-		By("Verifying device reports render error (SpecValid=False with meaningful message)")
-		var lastCondMessage string
-		harness.WaitForDeviceContents(deviceId, "SpecValid=False with type mismatch error message",
-			func(device *v1beta1.Device) bool {
-				if device.Status == nil {
-					return false
-				}
-				cond := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceSpecValid)
-				if cond == nil {
-					return false
-				}
-				if cond.Status != v1beta1.ConditionStatusFalse {
-					return false
-				}
-				lastCondMessage = cond.Message
-				msg := strings.ToLower(cond.Message)
-				return strings.Contains(msg, "catalog") &&
-					(strings.Contains(msg, "type") || strings.Contains(msg, "mismatch"))
-			}, e2e.TIMEOUT)
-		GinkgoWriter.Printf("SpecValid condition message: %s\n", lastCondMessage)
+		By("Verifying API rejects the update with a type mismatch error")
+		Expect(err).To(HaveOccurred())
+		errMsg := strings.ToLower(err.Error())
+		GinkgoWriter.Printf("API rejection error: %s\n", err.Error())
+		Expect(errMsg).To(SatisfyAll(
+			ContainSubstring("400"),
+			ContainSubstring("has type"),
+			ContainSubstring("expected"),
+		))
 	})
 })
