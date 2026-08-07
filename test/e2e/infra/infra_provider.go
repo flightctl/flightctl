@@ -111,6 +111,20 @@ type InfraProvider interface {
 	// ServiceExists reports whether the deployment-specific resource for a logical service is present.
 	// For K8s: checks the Service object exists. For Quadlet: checks the systemd unit is active.
 	ServiceExists(ctx context.Context, service ServiceName) (bool, error)
+
+	// SetEncryptionKey writes a named encryption key so it is available to the given service.
+	// For K8s: patches the flightctl-encryption-key Secret to add/update the key entry, then
+	// triggers a rollout restart of the service's deployment so the new Secret is mounted.
+	// For Quadlet: writes the key file directly to the host filesystem at the encryption key directory.
+	// keyFileName is the base name of the key file (e.g. "key-rotated-key").
+	// keyBytes is the raw key material to store.
+	SetEncryptionKey(service ServiceName, keyFileName string, keyBytes []byte) error
+
+	// ResetEncryptionKeys removes all non-default encryption key files, leaving only the
+	// original "key" file (the deployment default). Used by test recovery to undo key rotation.
+	// For K8s: replaces the flightctl-encryption-key Secret's data with only the "key" entry.
+	// For Quadlet: removes all key-* files from the encryption key directory.
+	ResetEncryptionKeys() error
 }
 
 // DeploymentServiceNames maps deployment/service names (same in K8s and Quadlet) to ServiceName.

@@ -556,4 +556,14 @@ func (f fakeInfraProvider) ServiceExists(context.Context, infra.ServiceName) (bo
 	return false, nil
 }
 
+// SetEncryptionKey is unused by these tests and satisfies infra.InfraProvider.
+func (f fakeInfraProvider) SetEncryptionKey(infra.ServiceName, string, []byte) error {
+	return errors.New("not implemented")
+}
+
+// ResetEncryptionKeys is unused by these tests and satisfies infra.InfraProvider.
+func (f fakeInfraProvider) ResetEncryptionKeys() error {
+	return errors.New("not implemented")
+}
+
 var _ infra.InfraProvider = fakeInfraProvider{}
