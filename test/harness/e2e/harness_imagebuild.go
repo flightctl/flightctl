@@ -621,28 +621,43 @@ func (h *Harness) ImageBuildExists(name string) bool {
 	return err == nil
 }
 
+// newRegistryClient builds an auth.Client for the e2e registry. When username
+// and password are both non-empty, the client sends HTTP Basic credentials for
+// any host (e2e registries use self-signed certs with TLS skip verification).
+func newRegistryClient(username, password string) *auth.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{
+		InsecureSkipVerify: true, //nolint:gosec
+	}
+	c := &auth.Client{
+		Client: &http.Client{Transport: transport},
+	}
+	if username != "" && password != "" {
+		cred := auth.Credential{Username: username, Password: password}
+		c.Credential = func(_ context.Context, _ string) (auth.Credential, error) {
+			return cred, nil
+		}
+	}
+	return c
+}
+
 // ResolveImage resolves an image reference in an OCI registry and returns its descriptor.
 // registry: the registry host (e.g., "localhost:5000")
 // imageName: the image name (e.g., "myimage" or "namespace/myimage")
 // tag: the image tag (e.g., "latest" or "v1.0")
 func (h *Harness) ResolveImage(registry, imageName, tag string) (ocispec.Descriptor, error) {
+	return h.ResolveImageWithCredentials(registry, imageName, tag, "", "")
+}
+
+// ResolveImageWithCredentials is like ResolveImage but authenticates with the given credentials.
+func (h *Harness) ResolveImageWithCredentials(registry, imageName, tag, username, password string) (ocispec.Descriptor, error) {
 	ref := fmt.Sprintf("%s/%s", registry, imageName)
 
 	repoRef, err := remote.NewRepository(ref)
 	if err != nil {
 		return ocispec.Descriptor{}, fmt.Errorf("failed to create repository reference for %s: %w", ref, err)
 	}
-
-	// Use HTTPS with InsecureSkipVerify for e2e registry (may have cert SAN mismatch)
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.TLSClientConfig = &tls.Config{
-		InsecureSkipVerify: true, //nolint:gosec
-	}
-	repoRef.Client = &auth.Client{
-		Client: &http.Client{
-			Transport: transport,
-		},
-	}
+	repoRef.Client = newRegistryClient(username, password)
 
 	ctx, cancel := context.WithTimeout(h.Context, 30*time.Second)
 	defer cancel()
@@ -664,22 +679,18 @@ const cycloneDXMediaType = "application/vnd.cyclonedx+json"
 // digest: the image digest (e.g., "sha256:...")
 // Returns the list of referrer descriptors.
 func (h *Harness) FetchReferrers(registry, imageName, digest string) ([]ocispec.Descriptor, error) {
+	return h.FetchReferrersWithCredentials(registry, imageName, digest, "", "")
+}
+
+// FetchReferrersWithCredentials is like FetchReferrers but authenticates with the given credentials.
+func (h *Harness) FetchReferrersWithCredentials(registry, imageName, digest, username, password string) ([]ocispec.Descriptor, error) {
 	ref := fmt.Sprintf("%s/%s", registry, imageName)
 
 	repoRef, err := remote.NewRepository(ref)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create repository reference for %s: %w", ref, err)
 	}
-
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.TLSClientConfig = &tls.Config{
-		InsecureSkipVerify: true, //nolint:gosec
-	}
-	repoRef.Client = &auth.Client{
-		Client: &http.Client{
-			Transport: transport,
-		},
-	}
+	repoRef.Client = newRegistryClient(username, password)
 
 	ctx, cancel := context.WithTimeout(h.Context, 30*time.Second)
 	defer cancel()
@@ -702,22 +713,18 @@ func (h *Harness) FetchReferrers(registry, imageName, digest string) ([]ocispec.
 // referrerDesc: the descriptor of the SBOM referrer manifest
 // Returns the raw SBOM JSON content.
 func (h *Harness) FetchSBOMContent(registry, imageName string, referrerDesc ocispec.Descriptor) ([]byte, error) {
+	return h.FetchSBOMContentWithCredentials(registry, imageName, referrerDesc, "", "")
+}
+
+// FetchSBOMContentWithCredentials is like FetchSBOMContent but authenticates with the given credentials.
+func (h *Harness) FetchSBOMContentWithCredentials(registry, imageName string, referrerDesc ocispec.Descriptor, username, password string) ([]byte, error) {
 	ref := fmt.Sprintf("%s/%s", registry, imageName)
 
 	repoRef, err := remote.NewRepository(ref)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create repository reference for %s: %w", ref, err)
 	}
-
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.TLSClientConfig = &tls.Config{
-		InsecureSkipVerify: true, //nolint:gosec
-	}
-	repoRef.Client = &auth.Client{
-		Client: &http.Client{
-			Transport: transport,
-		},
-	}
+	repoRef.Client = newRegistryClient(username, password)
 
 	ctx, cancel := context.WithTimeout(h.Context, 30*time.Second)
 	defer cancel()
@@ -774,9 +781,14 @@ type SBOMValidationResult struct {
 // imageDigest: the expected image digest (e.g., "sha256:...")
 // Returns the validation result with details about the SBOM.
 func (h *Harness) ValidateImageSBOM(registry, imageName, imageDigest string) (*SBOMValidationResult, error) {
+	return h.ValidateImageSBOMWithCredentials(registry, imageName, imageDigest, "", "")
+}
+
+// ValidateImageSBOMWithCredentials is like ValidateImageSBOM but authenticates with the given credentials.
+func (h *Harness) ValidateImageSBOMWithCredentials(registry, imageName, imageDigest, username, password string) (*SBOMValidationResult, error) {
 	result := &SBOMValidationResult{}
 
-	referrers, err := h.FetchReferrers(registry, imageName, imageDigest)
+	referrers, err := h.FetchReferrersWithCredentials(registry, imageName, imageDigest, username, password)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch referrers: %w", err)
 	}
@@ -798,7 +810,7 @@ func (h *Harness) ValidateImageSBOM(registry, imageName, imageDigest string) (*S
 	result.ReferrerDigest = sbomReferrer.Digest.String()
 
 	// Fetch and parse the SBOM content
-	sbomContent, err := h.FetchSBOMContent(registry, imageName, *sbomReferrer)
+	sbomContent, err := h.FetchSBOMContentWithCredentials(registry, imageName, *sbomReferrer, username, password)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch SBOM content: %w", err)
 	}
