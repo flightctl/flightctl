@@ -63,7 +63,7 @@ var _ = Describe("Catalog item references", Ordered, Label("EDM-4813", "catalog-
 		svc := auxiliary.Get(harness.Context)
 		Expect(svc).ToNot(BeNil(), "auxiliary services must be initialized")
 		osImageURI = fmt.Sprintf("%s:%s/%s", svc.Registry.Host, svc.Registry.Port, testutil.DeviceImageRegistryPath)
-		appImageURI = fmt.Sprintf("%s:%s/%s", svc.Registry.Host, svc.Registry.Port, testutil.SleepAppRegistryPath)
+		appImageURI = fmt.Sprintf("%s:%s/flightctl-tests/nginx", svc.Registry.Host, svc.Registry.Port)
 
 		osVersions = []e2e.CatalogVersionRef{
 			{Version: osVersion1, ImageRef: testutil.DeviceTags.V2},
@@ -82,7 +82,7 @@ var _ = Describe("Catalog item references", Ordered, Label("EDM-4813", "catalog-
 		DeferCleanup(func() { _ = harness.DeleteCatalogItemIgnoreNotFound(catalogName, osItemName) })
 
 		By("Creating application catalog item")
-		appVR := e2e.CatalogVersionRef{Version: appVersion1, ImageRef: testutil.SleepAppTags.V1}
+		appVR := e2e.CatalogVersionRef{Version: appVersion1, ImageRef: "v1"}
 		appSpec := e2e.NewAppCatalogItemSpec(appImageURI, appVR, channel)
 		_, err = harness.CreateCatalogItem(catalogName, appItemName, appSpec)
 		Expect(err).ToNot(HaveOccurred())
