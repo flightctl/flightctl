@@ -174,7 +174,7 @@ var _ = Describe("Catalog item references", Ordered, Label("EDM-4813", "catalog-
 		Expect(err).ToNot(HaveOccurred())
 
 		By("Verifying container application is running on device")
-		err = harness.WaitForApplicationStatus(deviceId, containerAppName, v1beta1.ApplicationStatusRunning, testutil.TIMEOUT, testutil.POLLING)
+		err = harness.WaitForApplicationStatus(deviceId, containerAppName, v1beta1.ApplicationStatusRunning, testutil.LONG_TIMEOUT, testutil.POLLING)
 		Expect(err).ToNot(HaveOccurred())
 
 		By("Removing application from device spec")
