@@ -131,6 +131,48 @@ func TestPodmanRestoreDeployer_RestoreDatabase(t *testing.T) {
 	}
 }
 
+// TestQuoteIdentifier validates that quoteIdentifier produces correctly escaped
+// PostgreSQL identifiers per the SQL standard.
+func TestQuoteIdentifier(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "When name has no special characters it should wrap in double-quotes",
+			input: "flightctl",
+			want:  `"flightctl"`,
+		},
+		{
+			name:  "When name contains an embedded double-quote it should double it",
+			input: `foo"bar`,
+			want:  `"foo""bar"`,
+		},
+		{
+			name:  "When name contains multiple embedded double-quotes it should double all",
+			input: `a"b"c`,
+			want:  `"a""b""c"`,
+		},
+		{
+			name:  "When name contains SQL-injection-looking content it should produce a valid quoted identifier",
+			input: `"; DROP DATABASE postgres; --`,
+			want:  `"""; DROP DATABASE postgres; --"`,
+		},
+		{
+			name:  "When name is empty it should produce an empty quoted identifier",
+			input: "",
+			want:  `""`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, quoteIdentifier(tt.input))
+		})
+	}
+}
+
 // TestPodmanRestoreDeployer_GetConfig_MissingFile validates that GetConfig returns
 // an error when the service config file is absent.
 func TestPodmanRestoreDeployer_GetConfig_MissingFile(t *testing.T) {

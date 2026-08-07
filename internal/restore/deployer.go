@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -427,12 +429,12 @@ func (p *PodmanRestoreDeployer) RestoreDatabase(ctx context.Context, extractDir 
 	if p.dbName != "" {
 		dbName = p.dbName
 	}
-	restoreID := time.Now().UnixNano()
-	tempDBName := fmt.Sprintf("%s_restore_%d", dbName, restoreID)
-	oldDBName := fmt.Sprintf("%s_old_%d", dbName, restoreID)
+	sid := restoreShortID()
+	tempDBName := dbName + "_restore_" + sid
+	oldDBName := dbName + "_old_" + sid
 
 	p.log.Infof("Creating temporary restore database %q in container %s", tempDBName, p.containerName)
-	if err := p.execDBCommand(ctx, "postgres", fmt.Sprintf(`CREATE DATABASE "%s"`, tempDBName)); err != nil {
+	if err := p.execDBCommand(ctx, "postgres", "CREATE DATABASE "+quoteIdentifier(tempDBName)); err != nil {
 		return fmt.Errorf("failed to create temporary database: %w", err)
 	}
 
@@ -443,15 +445,19 @@ func (p *PodmanRestoreDeployer) RestoreDatabase(ctx context.Context, extractDir 
 		if restoreSucceeded {
 			return
 		}
+		// Use a fresh bounded context for cleanup: the caller's ctx may already be
+		// cancelled, which would prevent DROP/RENAME from running.
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cleanupCancel()
 		if liveDBRenamed && !swapCompleted {
 			p.log.Infof("Restoring original database name %q after failed restore", dbName)
-			if err := p.execDBCommand(ctx, "postgres", fmt.Sprintf(`ALTER DATABASE "%s" RENAME TO "%s"`, oldDBName, dbName)); err != nil {
+			if err := p.execDBCommand(cleanupCtx, "postgres", "ALTER DATABASE "+quoteIdentifier(oldDBName)+" RENAME TO "+quoteIdentifier(dbName)); err != nil {
 				p.log.Errorf("CRITICAL: could not restore original database name — live data is in %q, rename it manually to %q: %v", oldDBName, dbName, err)
 			}
 		}
 		if !swapCompleted {
 			p.log.Infof("Cleaning up temporary database %q after failed restore", tempDBName)
-			if err := p.execDBCommand(ctx, "postgres", fmt.Sprintf(`DROP DATABASE IF EXISTS "%s"`, tempDBName)); err != nil {
+			if err := p.execDBCommand(cleanupCtx, "postgres", "DROP DATABASE IF EXISTS "+quoteIdentifier(tempDBName)); err != nil {
 				p.log.Warnf("Failed to drop temporary database %q: %v", tempDBName, err)
 			}
 		}
@@ -462,21 +468,69 @@ func (p *PodmanRestoreDeployer) RestoreDatabase(ctx context.Context, extractDir 
 		return fmt.Errorf("failed to restore dump into %q: %w", tempDBName, err)
 	}
 
-	// Terminate active connections to the target database (use $1 placeholder to prevent SQL injection)
-	if err := p.execDBCommand(ctx, "postgres",
-		fmt.Sprintf(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '%s' AND pid <> pg_backend_pid()`, strings.ReplaceAll(dbName, "'", "''")),
-	); err != nil {
-		p.log.Warnf("Failed to terminate connections to %q (continuing): %v", dbName, err)
+	// Terminate active connections and rename the live database. ALTER DATABASE
+	// RENAME fails if any session is connected, so we retry: terminate stragglers,
+	// then attempt the rename, until it succeeds or we time out. Stale connections
+	// from just-stopped services can linger briefly after StopServices returns.
+	p.log.Infof("Renaming %q → %q (will terminate stale connections and retry)", dbName, oldDBName)
+	renameDeadlinePodman := time.Now().Add(renameTimeout)
+	var lastRenameErr error
+	timeoutRenameErr := func() error {
+		if lastRenameErr != nil {
+			return fmt.Errorf("timed out after %s waiting to rename %q to %q: %w", renameTimeout, dbName, oldDBName, lastRenameErr)
+		}
+		return fmt.Errorf("timed out after %s waiting to rename %q to %q", renameTimeout, dbName, oldDBName)
 	}
+	for {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("context cancelled waiting to rename %q: %w", dbName, err)
+		}
+		remaining := time.Until(renameDeadlinePodman)
+		if remaining <= 0 {
+			return timeoutRenameErr()
+		}
 
-	p.log.Infof("Renaming %q → %q", dbName, oldDBName)
-	if err := p.execDBCommand(ctx, "postgres", fmt.Sprintf(`ALTER DATABASE "%s" RENAME TO "%s"`, dbName, oldDBName)); err != nil {
-		return fmt.Errorf("failed to rename %q to %q: %w", dbName, oldDBName, err)
+		// Use a per-attempt context so a stuck podman exec cannot outlast the overall deadline.
+		attemptCtx, cancel := context.WithTimeout(ctx, remaining)
+		termErr := p.execDBCommand(attemptCtx, "postgres",
+			fmt.Sprintf(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '%s' AND pid <> pg_backend_pid()`,
+				strings.ReplaceAll(dbName, "'", "''")),
+		)
+		cancel()
+		if termErr != nil {
+			p.log.Warnf("Failed to terminate connections to %q (continuing): %v", dbName, termErr)
+			lastRenameErr = termErr
+		}
+
+		remaining = time.Until(renameDeadlinePodman)
+		if remaining <= 0 {
+			return timeoutRenameErr()
+		}
+		attemptCtx, cancel = context.WithTimeout(ctx, remaining)
+		renameErr := p.execDBCommand(attemptCtx, "postgres", "ALTER DATABASE "+quoteIdentifier(dbName)+" RENAME TO "+quoteIdentifier(oldDBName))
+		cancel()
+		if renameErr == nil {
+			break
+		}
+		if !strings.Contains(renameErr.Error(), "being accessed by other users") {
+			return fmt.Errorf("failed to rename %q to %q: %w", dbName, oldDBName, renameErr)
+		}
+		lastRenameErr = renameErr
+		p.log.Debugf("Rename of %q still blocked by active connections, retrying...", dbName)
+		retryWait := renameRetryInterval
+		if rem := time.Until(renameDeadlinePodman); rem < retryWait {
+			retryWait = rem
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("context cancelled waiting to rename %q: %w", dbName, ctx.Err())
+		case <-time.After(retryWait):
+		}
 	}
 	liveDBRenamed = true
 
 	p.log.Infof("Renaming %q → %q", tempDBName, dbName)
-	if err := p.execDBCommand(ctx, "postgres", fmt.Sprintf(`ALTER DATABASE "%s" RENAME TO "%s"`, tempDBName, dbName)); err != nil {
+	if err := p.execDBCommand(ctx, "postgres", "ALTER DATABASE "+quoteIdentifier(tempDBName)+" RENAME TO "+quoteIdentifier(dbName)); err != nil {
 		return fmt.Errorf("failed to rename %q to %q: %w", tempDBName, dbName, err)
 	}
 	swapCompleted = true
@@ -492,7 +546,7 @@ func (p *PodmanRestoreDeployer) RestoreDatabase(ctx context.Context, extractDir 
 		p.log.Infof("Database restore completed. Pre-restore database preserved as %q", oldDBName)
 	} else {
 		p.log.Infof("Dropping pre-restore database %q", oldDBName)
-		if err := p.execDBCommand(ctx, "postgres", fmt.Sprintf(`DROP DATABASE IF EXISTS "%s"`, oldDBName)); err != nil {
+		if err := p.execDBCommand(ctx, "postgres", "DROP DATABASE IF EXISTS "+quoteIdentifier(oldDBName)); err != nil {
 			p.log.Warnf("Failed to drop pre-restore database %q (manual cleanup may be required): %v", oldDBName, err)
 		}
 	}
@@ -544,6 +598,26 @@ func (p *PodmanRestoreDeployer) readSecret(ctx context.Context, secretName strin
 		return "", fmt.Errorf("failed to decode secret %s: %w", secretName, err)
 	}
 	return string(decoded), nil
+}
+
+// quoteIdentifier safely quotes a PostgreSQL identifier by wrapping it in
+// double-quotes and doubling any embedded double-quote characters, per the SQL standard.
+func quoteIdentifier(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+}
+
+// restoreShortID returns an 8-hex-character random suffix (4 bytes of entropy).
+// Using a short suffix rather than a full nanosecond timestamp keeps derived
+// database names (_restore_XXXXXXXX, _old_XXXXXXXX) well under PostgreSQL's
+// 63-byte identifier limit even for long base names.
+func restoreShortID() string {
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		// Fall back to a fixed string; the CREATE DATABASE will fail if the name
+		// already exists, which is the right behaviour.
+		return "00000000"
+	}
+	return hex.EncodeToString(b)
 }
 
 // execDBCommand runs a single SQL command inside the DB container as the postgres OS user.
@@ -1299,12 +1373,12 @@ func (k *KubernetesRestoreDeployer) RestoreDatabase(ctx context.Context, extract
 	}
 
 	dbName := cfg.Database.Name
-	restoreID := time.Now().UnixNano()
-	tempDBName := fmt.Sprintf("%s_restore_%d", dbName, restoreID)
-	oldDBName := fmt.Sprintf("%s_old_%d", dbName, restoreID)
+	sid := restoreShortID()
+	tempDBName := dbName + "_restore_" + sid
+	oldDBName := dbName + "_old_" + sid
 
 	k.log.Infof("Creating temporary restore database %q in deploy/flightctl-db (namespace %s)", tempDBName, k.internalNamespace)
-	if err := k.execDBCommand(ctx, "postgres", fmt.Sprintf(`CREATE DATABASE "%s"`, tempDBName)); err != nil {
+	if err := k.execDBCommand(ctx, "postgres", "CREATE DATABASE "+quoteIdentifier(tempDBName)); err != nil {
 		return fmt.Errorf("failed to create temporary database: %w", err)
 	}
 
@@ -1315,15 +1389,19 @@ func (k *KubernetesRestoreDeployer) RestoreDatabase(ctx context.Context, extract
 		if restoreSucceeded {
 			return
 		}
+		// Use a fresh bounded context for cleanup: the caller's ctx may already be
+		// cancelled, which would prevent DROP/RENAME from running.
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cleanupCancel()
 		if liveDBRenamed && !swapCompleted {
 			k.log.Infof("Restoring original database name %q after failed restore", dbName)
-			if err := k.execDBCommand(ctx, "postgres", fmt.Sprintf(`ALTER DATABASE "%s" RENAME TO "%s"`, oldDBName, dbName)); err != nil {
+			if err := k.execDBCommand(cleanupCtx, "postgres", "ALTER DATABASE "+quoteIdentifier(oldDBName)+" RENAME TO "+quoteIdentifier(dbName)); err != nil {
 				k.log.Errorf("CRITICAL: could not restore original database name — live data is in %q, rename it manually to %q: %v", oldDBName, dbName, err)
 			}
 		}
 		if !swapCompleted {
 			k.log.Infof("Cleaning up temporary database %q after failed restore", tempDBName)
-			if err := k.execDBCommand(ctx, "postgres", fmt.Sprintf(`DROP DATABASE IF EXISTS "%s"`, tempDBName)); err != nil {
+			if err := k.execDBCommand(cleanupCtx, "postgres", "DROP DATABASE IF EXISTS "+quoteIdentifier(tempDBName)); err != nil {
 				k.log.Warnf("Failed to drop temporary database %q: %v", tempDBName, err)
 			}
 		}
@@ -1359,7 +1437,8 @@ func (k *KubernetesRestoreDeployer) RestoreDatabase(ctx context.Context, extract
 		// Use a per-attempt context so a stuck kubectl exec cannot outlast the overall deadline.
 		attemptCtx, cancel := context.WithTimeout(ctx, remaining)
 		termErr := k.execDBCommand(attemptCtx, "postgres",
-			fmt.Sprintf(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '%s' AND pid <> pg_backend_pid()`, strings.ReplaceAll(dbName, "'", "''")),
+			fmt.Sprintf(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '%s' AND pid <> pg_backend_pid()`,
+				strings.ReplaceAll(dbName, "'", "''")),
 		)
 		cancel()
 		if termErr != nil {
@@ -1372,7 +1451,7 @@ func (k *KubernetesRestoreDeployer) RestoreDatabase(ctx context.Context, extract
 			return timeoutErr()
 		}
 		attemptCtx, cancel = context.WithTimeout(ctx, remaining)
-		renameErr := k.execDBCommand(attemptCtx, "postgres", fmt.Sprintf(`ALTER DATABASE "%s" RENAME TO "%s"`, dbName, oldDBName))
+		renameErr := k.execDBCommand(attemptCtx, "postgres", "ALTER DATABASE "+quoteIdentifier(dbName)+" RENAME TO "+quoteIdentifier(oldDBName))
 		cancel()
 		if renameErr == nil {
 			break
@@ -1397,7 +1476,7 @@ func (k *KubernetesRestoreDeployer) RestoreDatabase(ctx context.Context, extract
 	liveDBRenamed = true
 
 	k.log.Infof("Renaming %q → %q", tempDBName, dbName)
-	if err := k.execDBCommand(ctx, "postgres", fmt.Sprintf(`ALTER DATABASE "%s" RENAME TO "%s"`, tempDBName, dbName)); err != nil {
+	if err := k.execDBCommand(ctx, "postgres", "ALTER DATABASE "+quoteIdentifier(tempDBName)+" RENAME TO "+quoteIdentifier(dbName)); err != nil {
 		return fmt.Errorf("failed to rename %q to %q: %w", tempDBName, dbName, err)
 	}
 	swapCompleted = true
@@ -1407,7 +1486,7 @@ func (k *KubernetesRestoreDeployer) RestoreDatabase(ctx context.Context, extract
 		k.log.Infof("Database restore completed. Pre-restore database preserved as %q", oldDBName)
 	} else {
 		k.log.Infof("Dropping pre-restore database %q", oldDBName)
-		if err := k.execDBCommand(ctx, "postgres", fmt.Sprintf(`DROP DATABASE IF EXISTS "%s"`, oldDBName)); err != nil {
+		if err := k.execDBCommand(ctx, "postgres", "DROP DATABASE IF EXISTS "+quoteIdentifier(oldDBName)); err != nil {
 			k.log.Warnf("Failed to drop pre-restore database %q (manual cleanup may be required): %v", oldDBName, err)
 		}
 	}
