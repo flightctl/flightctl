@@ -25,5 +25,4 @@ override_dh_auto_install:
 
 	dh_install
 
-	install -D -m 644 debian/flightctl-agent.service debian/flightctl-agent/lib/systemd/system/flightctl-agent.service
 	install -d -m 755 debian/flightctl-agent/etc/issues.d
