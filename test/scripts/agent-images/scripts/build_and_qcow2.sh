@@ -54,20 +54,11 @@ fi
 export OS_ID="${OS_ID_ENV}"
 export AGENT_OS_ID="${OS_ID}"
 
-if [[ "${OS_ID}" == *-regular ]]; then
-  SKIP_VARIANTS_BUILD="${SKIP_VARIANTS_BUILD:-true}"
-else
-  SKIP_VARIANTS_BUILD="${SKIP_VARIANTS_BUILD:-false}"
-fi
-
 # Handle v7/v12 variant exclusion for CS10 (no MicroShift support)
 if [ -z "${EXCLUDE_VARIANTS+x}" ]; then
     if [ "${AGENT_OS_ID}" = "cs10-bootc" ]; then
         export EXCLUDE_VARIANTS="v7 v12"
         echo "cs10: v7,v12 excluded (no MicroShift for cs10)"
-    elif [ "${AGENT_OS_ID}" = "cs9-regular" ]; then
-        export EXCLUDE_VARIANTS="v7 v11 v12"
-        echo "cs9-regular: v7, v11, v12 excluded (bootc-specific variants)"
     fi
 fi
 
@@ -79,55 +70,87 @@ mkdir -p "${LOG_DIR}"
 variants_log="${LOG_DIR}/variants.log"
 qcow2_log="${LOG_DIR}/qcow2.log"
 
-# Keep the top-level banner generic because *-regular defaults to a qcow-only
-# flow here, while bootc flavors still build variants, a bundle, and qcow2.
-echo "Building artifacts for ${OS_ID}"
+echo "Building variants, bundle, and qcow2 for ${OS_ID}"
 echo "Variants log: ${variants_log}"
 echo "QCOW2 log: ${qcow2_log}"
 
 sudo rm -f "${variants_log}" "${qcow2_log}"
 
-VARIANTS_PID=""
-if [ "${SKIP_VARIANTS_BUILD}" != "true" ]; then
-  (
-    set -euo pipefail
-    echo "Building variants and creating bundle for ${OS_ID}"
-    sudo -E "${SCRIPT_DIR}/build.sh" --variants 2>&1 | tee "${variants_log}"
+(
+  set -euo pipefail
+  echo "Building variants for ${OS_ID}"
+  sudo -E "${SCRIPT_DIR}/build.sh" --variants 2>&1 | tee "${variants_log}"
+  sudo chown -R "$(id -un)":"$(id -gn)" "${ARTIFACTS_OUTPUT_DIR}" || true
+) &
+VARIANTS_PID=$!
 
-    printf '%s\n' "----------" "Bundle variants" "----------"
+create_bundle() {
+  local bundle_tar="${ARTIFACTS_OUTPUT_DIR}/agent-images-bundle-${OS_ID}.tar"
+  local listing
+  local -a refs=()
+  printf '%s\n' "----------" "Creating bundle" "----------"
 
-    sudo -E "${SCRIPT_DIR}/bundle.sh" \
-      --filter "label=io.flightctl.e2e.component" \
-      --filter "reference=${IMAGE_REPO}:*-${OS_ID}-*" \
-      --output-path "${ARTIFACTS_OUTPUT_DIR}/agent-images-bundle-${OS_ID}.tar" 2>&1 | tee -a "${variants_log}"
-    sudo chown -R "$(id -un)":"$(id -gn)" "${ARTIFACTS_OUTPUT_DIR}" || true
+  list_device_refs() {
+    local filter="$1"
+    listing="$(sudo podman images --format '{{.Repository}}:{{.Tag}}' \
+      --filter "label=io.flightctl.e2e.component=device" \
+      --filter "reference=${filter}")" || {
+      echo "::error::Failed to list device images for ${filter}" | tee -a "${variants_log}"
+      exit 1
+    }
+    while IFS= read -r line; do
+      [ -n "${line}" ] || continue
+      [ "${line}" = "<none>:<none>" ] && continue
+      refs+=("${line}")
+    done <<< "${listing}"
+  }
 
-    # Push images if requested
-    if [ "${DO_PUSH}" = "true" ]; then
-      BUNDLE_TAR="${ARTIFACTS_OUTPUT_DIR}/agent-images-bundle-${OS_ID}.tar"
-      if [ -f "${BUNDLE_TAR}" ]; then
-        echo "Pushing images from bundle..."
-        "${SCRIPT_DIR}/upload-images.sh" "${BUNDLE_TAR}" 2>&1 | tee -a "${variants_log}"
-      else
-        echo "Warning: Bundle not found at ${BUNDLE_TAR}, skipping push"
-      fi
+  list_device_refs "${IMAGE_REPO}:*-${OS_ID}-*"
+  list_device_refs "${IMAGE_REPO}:package"
+  list_device_refs "${IMAGE_REPO}:package-${OS_ID}"
+
+  mapfile -t refs < <(printf '%s\n' "${refs[@]}" | sort -u)
+  if [ "${#refs[@]}" -eq 0 ] || [ -z "${refs[0]:-}" ]; then
+    echo "::error::No ${OS_ID}/package device images found to bundle" | tee -a "${variants_log}"
+    exit 1
+  fi
+  {
+    echo "Bundling ${#refs[@]} images:"
+    for ref in "${refs[@]}"; do
+      printf '\t- %s\n' "${ref}"
+    done
+  } | tee -a "${variants_log}"
+  rm -f "${bundle_tar}"
+  sudo podman save --multi-image-archive -o "${bundle_tar}" "${refs[@]}" 2>&1 | tee -a "${variants_log}"
+  sudo chown -R "$(id -un)":"$(id -gn)" "${ARTIFACTS_OUTPUT_DIR}" || true
+
+  if [ "${DO_PUSH}" = "true" ]; then
+    if [ -f "${bundle_tar}" ]; then
+      echo "Pushing images from bundle..."
+      "${SCRIPT_DIR}/upload-images.sh" "${bundle_tar}" 2>&1 | tee -a "${variants_log}"
+    else
+      echo "Warning: Bundle not found at ${bundle_tar}, skipping push"
     fi
-  ) &
-  VARIANTS_PID=$!
-else
-  echo "Skipping variants and bundle for ${OS_ID}"
-fi
+  fi
+}
 
 QCOW2_PID=""
+cleanup_background_builds() {
+  local pid
+  for pid in "${QCOW2_PID}" "${VARIANTS_PID}"; do
+    if [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null; then
+      kill "${pid}" 2>/dev/null || true
+      wait "${pid}" 2>/dev/null || true
+    fi
+  done
+}
+trap cleanup_background_builds EXIT
+
 if [ "${SKIP_QCOW_BUILD}" != "true" ]; then
   (
     set -euo pipefail
     echo "Building qcow2 for ${OS_ID}"
-    if [[ "${OS_ID}" == *-regular ]]; then
-      OUTPUT_DIR="${QCOW2_OUTPUT_DIR}" "${SCRIPT_DIR}/qcow2_regular.sh" 2>&1 | tee "${qcow2_log}"
-    else
-      OUTPUT_DIR="${QCOW2_OUTPUT_DIR}" "${SCRIPT_DIR}/qcow2.sh" 2>&1 | tee "${qcow2_log}"
-    fi
+    OUTPUT_DIR="${QCOW2_OUTPUT_DIR}" "${SCRIPT_DIR}/qcow2.sh" 2>&1 | tee "${qcow2_log}"
     sudo chown -R "$(id -un)":"$(id -gn)" "${QCOW2_OUTPUT_DIR}" || true
     echo "endgroup"
   ) &
@@ -140,20 +163,29 @@ variants_exit=0
 qcow2_exit=0
 if [ -n "${VARIANTS_PID}" ]; then
   wait "${VARIANTS_PID}" || variants_exit=$?
-fi
-if [ -n "${QCOW2_PID}" ]; then
-  wait "${QCOW2_PID}" || qcow2_exit=$?
+  VARIANTS_PID=""
 fi
 
 if [ "${variants_exit}" -ne 0 ]; then
-  echo "::error::Variants+bundle build failed with exit code ${variants_exit}"
+  echo "::error::Variants build failed with exit code ${variants_exit}"
   echo "The logs for the variants build are saved to ${variants_log}"
+  cleanup_background_builds
+  QCOW2_PID=""
+  trap - EXIT
   exit "${variants_exit}"
 fi
-if [ -n "${QCOW2_PID}" ] && [ "${qcow2_exit}" -ne 0 ]; then
+
+create_bundle
+
+if [ -n "${QCOW2_PID}" ]; then
+  wait "${QCOW2_PID}" || qcow2_exit=$?
+  QCOW2_PID=""
+fi
+if [ "${qcow2_exit}" -ne 0 ]; then
   echo "::error::QCOW2 build failed with exit code ${qcow2_exit}"
   echo "The logs for the qcow2 build are saved to ${qcow2_log}"
   exit "${qcow2_exit}"
 fi
 
+trap - EXIT
 echo "Build and qcow2 for ${OS_ID} completed successfully."

@@ -246,12 +246,16 @@ func NewContainerApplicationSpecWithRunAs(
 	containerApp := v1beta1.ContainerApplication{
 		Name:      lo.ToPtr(name),
 		AppType:   v1beta1.AppTypeContainer,
-		Ports:     &ports,
 		Resources: resources,
 		Volumes:   volumes,
 	}
 	if err := containerApp.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: image}); err != nil {
 		return v1beta1.ApplicationProviderSpec{}, err
+	}
+	// Only set Ports when non-nil. A non-nil pointer to a nil slice marshals as
+	// "ports": null, which OpenAPI validation rejects.
+	if ports != nil {
+		containerApp.Ports = &ports
 	}
 	if runAs != "" {
 		containerApp.RunAs = v1beta1.Username(runAs)
