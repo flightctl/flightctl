@@ -603,14 +603,21 @@ func checkAPIEndpointReady(ctx context.Context, apiEndpoint string) error {
 				MinVersion:         tls.VersionTLS12,
 			},
 		},
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
 		Timeout: authConfigHTTPTimeout,
 	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("GET %s/readyz: %w", strings.TrimRight(apiEndpoint, "/"), err)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= http.StatusBadRequest {
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			logrus.Warnf("[authprovider] failed to close API readiness response body: %v", err)
+		}
+	}()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return fmt.Errorf("GET %s/readyz returned %d", strings.TrimRight(apiEndpoint, "/"), resp.StatusCode)
 	}
 	return nil
