@@ -3,7 +3,7 @@
 # pins k8s.io at a different version than flightctl.
 FROM registry.access.redhat.com/ubi10/go-toolset:1.25.9-1778675803 as vm-to-quadlet-build
 USER 0
-ARG VM_TO_QUADLET_COMMIT=982eacb71ce62755a9dfd347933f27e0d12cd845
+ARG VM_TO_QUADLET_COMMIT=1acc159843578adad2a27c55f6887c879f68d0c5
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/root/go/pkg/mod \
     git clone https://github.com/flightctl/vm-to-quadlet /src && \

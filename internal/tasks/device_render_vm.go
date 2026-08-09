@@ -72,10 +72,12 @@ func (lw *limitedWriter) Write(p []byte) (int, error) {
 	return lw.buf.Write(p)
 }
 
-// truncateStderr trims and caps subprocess stderr to avoid embedding large or
-// sensitive tool output directly in error messages.
+// truncateStderr trims a redundant leading "Error: " prefix (vm-to-quadlet
+// prints its own error to stderr before exiting) and caps subprocess stderr to
+// avoid embedding large or sensitive tool output directly in error messages.
 func truncateStderr(s string) string {
 	s = strings.TrimSpace(s)
+	s = strings.TrimPrefix(s, "Error: ")
 	if len(s) > maxStderrLen {
 		return s[:maxStderrLen] + "... (truncated)"
 	}
@@ -321,7 +323,10 @@ func convertVmYAML(ctx context.Context, vmYAML []byte, converter VmConverterFn, 
 
 	files, stderr, err := converter(ctx, vmYAML)
 	if err != nil {
-		return nil, fmt.Errorf("vm-to-quadlet: %s: %w", truncateStderr(stderr), err)
+		if cleaned := truncateStderr(stderr); cleaned != "" {
+			return nil, fmt.Errorf("vm-to-quadlet: %s", cleaned)
+		}
+		return nil, fmt.Errorf("vm-to-quadlet: %w", err)
 	}
 	if len(files) == 0 {
 		return nil, fmt.Errorf("vm-to-quadlet produced no output files")
