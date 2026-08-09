@@ -141,6 +141,9 @@ prometheus:
 #     bootcImageBuilder:
 #       image: ""           # Override bootc-image-builder image (optional)
 #       skipTlsVerify: false  # Set to true to skip TLS verification
+#     rhelBootcImageBuilder:
+#       image: ""           # Override RHEL bootc-image-builder (auto-used for RHEL 10+)
+#       skipTlsVerify: false  # Set to true to skip TLS verification
 #     syft:
 #       image: ""           # Override Syft image for SBOM generation (optional)
 #       skipTlsVerify: false

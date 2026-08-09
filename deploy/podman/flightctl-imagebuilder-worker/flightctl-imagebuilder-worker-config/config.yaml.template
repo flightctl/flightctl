@@ -60,6 +60,11 @@ imageBuilderWorker:
       image: {{.imagebuilderWorker.serviceImages.bootcImageBuilder.image}}
       skipTlsVerify: {{.imagebuilderWorker.serviceImages.bootcImageBuilder.skipTlsVerify}}
   {{- end}}
+  {{- if .imagebuilderWorker.serviceImages.rhelBootcImageBuilder}}
+    rhelBootcImageBuilder:
+      image: {{.imagebuilderWorker.serviceImages.rhelBootcImageBuilder.image}}
+      skipTlsVerify: {{.imagebuilderWorker.serviceImages.rhelBootcImageBuilder.skipTlsVerify}}
+  {{- end}}
   {{- if .imagebuilderWorker.serviceImages.syft}}
     syft:
       image: {{.imagebuilderWorker.serviceImages.syft.image}}

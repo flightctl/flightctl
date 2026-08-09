@@ -222,15 +222,17 @@ type serviceImageConfig struct {
 
 // serviceImagesConfig holds per-service builder image overrides.
 type serviceImagesConfig struct {
-	Podman            *serviceImageConfig `json:"podman,omitempty"`
-	BootcImageBuilder *serviceImageConfig `json:"bootcImageBuilder,omitempty"`
-	Syft              *serviceImageConfig `json:"syft,omitempty"`
+	Podman                *serviceImageConfig `json:"podman,omitempty"`
+	BootcImageBuilder     *serviceImageConfig `json:"bootcImageBuilder,omitempty"`
+	RhelBootcImageBuilder *serviceImageConfig `json:"rhelBootcImageBuilder,omitempty"`
+	Syft                  *serviceImageConfig `json:"syft,omitempty"`
 }
 
 const (
-	defaultPodmanImage            = "quay.io/podman/stable:v5.7.1"
-	defaultBootcImageBuilderImage = "quay.io/centos-bootc/bootc-image-builder@sha256:773019f6b11766ca48170a4a7bf898be4268f3c2acfd0ec1db612408b3092a90"
-	defaultSyftImage              = "docker.io/anchore/syft:v1.44.0"
+	defaultPodmanImage                = "quay.io/podman/stable:v5.7.1"
+	defaultBootcImageBuilderImage     = "quay.io/centos-bootc/bootc-image-builder@sha256:773019f6b11766ca48170a4a7bf898be4268f3c2acfd0ec1db612408b3092a90"
+	defaultRhelBootcImageBuilderImage = "registry.redhat.io/rhel10/bootc-image-builder:latest"
+	defaultSyftImage                  = "docker.io/anchore/syft:v1.44.0"
 )
 
 type imageBuilderWorkerConfig struct {
@@ -351,9 +353,10 @@ func NewDefaultImageBuilderWorkerConfig() *imageBuilderWorkerConfig {
 		MaxConcurrentBuilds: 2,
 		DefaultTTL:          util.Duration(7 * 24 * time.Hour),
 		ServiceImages: &serviceImagesConfig{
-			Podman:            &serviceImageConfig{Image: defaultPodmanImage},
-			BootcImageBuilder: &serviceImageConfig{Image: defaultBootcImageBuilderImage},
-			Syft:              &serviceImageConfig{Image: defaultSyftImage},
+			Podman:                &serviceImageConfig{Image: defaultPodmanImage},
+			BootcImageBuilder:     &serviceImageConfig{Image: defaultBootcImageBuilderImage},
+			RhelBootcImageBuilder: &serviceImageConfig{Image: defaultRhelBootcImageBuilderImage},
+			Syft:                  &serviceImageConfig{Image: defaultSyftImage},
 		},
 		LastSeenUpdateInterval:   util.Duration(30 * time.Second),
 		ImageBuilderTimeout:      util.Duration(3 * time.Minute),
@@ -390,6 +393,19 @@ func (c *imageBuilderWorkerConfig) EffectiveBootcImageBuilderImage() string {
 // EffectiveBootcImageBuilderSkipTLSVerify returns whether to skip TLS verification when pulling the bootc-image-builder image.
 func (c *imageBuilderWorkerConfig) EffectiveBootcImageBuilderSkipTLSVerify() bool {
 	return c != nil && c.ServiceImages != nil && c.ServiceImages.BootcImageBuilder != nil && c.ServiceImages.BootcImageBuilder.SkipTLSVerify
+}
+
+// EffectiveRhelBootcImageBuilderImage returns the RHEL-specific bootc-image-builder image (config override or default).
+func (c *imageBuilderWorkerConfig) EffectiveRhelBootcImageBuilderImage() string {
+	if c != nil && c.ServiceImages != nil && c.ServiceImages.RhelBootcImageBuilder != nil && c.ServiceImages.RhelBootcImageBuilder.Image != "" {
+		return c.ServiceImages.RhelBootcImageBuilder.Image
+	}
+	return defaultRhelBootcImageBuilderImage
+}
+
+// EffectiveRhelBootcImageBuilderSkipTLSVerify returns whether to skip TLS verification when pulling the RHEL bootc-image-builder image.
+func (c *imageBuilderWorkerConfig) EffectiveRhelBootcImageBuilderSkipTLSVerify() bool {
+	return c != nil && c.ServiceImages != nil && c.ServiceImages.RhelBootcImageBuilder != nil && c.ServiceImages.RhelBootcImageBuilder.SkipTLSVerify
 }
 
 // EffectiveSyftImage returns the Syft image to use (config override or default).

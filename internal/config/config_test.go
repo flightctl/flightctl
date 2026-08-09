@@ -200,3 +200,69 @@ func TestConfig_String_HandlesEmptyClientSecrets(t *testing.T) {
 		t.Error("Should handle empty client secrets gracefully")
 	}
 }
+
+func TestEffectiveRhelBootcImageBuilderImage(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   *imageBuilderWorkerConfig
+		expected string
+	}{
+		{
+			name:     "When config is nil it should return default",
+			config:   nil,
+			expected: defaultRhelBootcImageBuilderImage,
+		},
+		{
+			name: "When RHEL BIB image is configured it should return the override",
+			config: &imageBuilderWorkerConfig{
+				ServiceImages: &serviceImagesConfig{
+					RhelBootcImageBuilder: &serviceImageConfig{
+						Image: "custom.registry.io/rhel10/bootc-image-builder:v1.0",
+					},
+				},
+			},
+			expected: "custom.registry.io/rhel10/bootc-image-builder:v1.0",
+		},
+		{
+			name: "When RHEL BIB image is empty it should return default",
+			config: &imageBuilderWorkerConfig{
+				ServiceImages: &serviceImagesConfig{
+					RhelBootcImageBuilder: &serviceImageConfig{
+						Image: "",
+					},
+				},
+			},
+			expected: defaultRhelBootcImageBuilderImage,
+		},
+		{
+			name: "When RhelBootcImageBuilder is nil it should return default",
+			config: &imageBuilderWorkerConfig{
+				ServiceImages: &serviceImagesConfig{},
+			},
+			expected: defaultRhelBootcImageBuilderImage,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.config.EffectiveRhelBootcImageBuilderImage()
+			if result != tt.expected {
+				t.Errorf("EffectiveRhelBootcImageBuilderImage() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestNewDefaultImageBuilderWorkerConfig_IncludesRhelBIB(t *testing.T) {
+	cfg := NewDefaultImageBuilderWorkerConfig()
+	if cfg.ServiceImages == nil {
+		t.Fatal("ServiceImages should not be nil")
+	}
+	if cfg.ServiceImages.RhelBootcImageBuilder == nil {
+		t.Fatal("RhelBootcImageBuilder should not be nil")
+	}
+	if cfg.ServiceImages.RhelBootcImageBuilder.Image != defaultRhelBootcImageBuilderImage {
+		t.Errorf("RhelBootcImageBuilder.Image = %q, want %q",
+			cfg.ServiceImages.RhelBootcImageBuilder.Image, defaultRhelBootcImageBuilderImage)
+	}
+}

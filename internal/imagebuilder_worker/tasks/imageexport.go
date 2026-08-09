@@ -50,9 +50,10 @@ var (
 
 // exportSource contains the information needed to reference a bootc image for export
 type exportSource struct {
-	OciRepoSpec *coredomain.OciRepoSpec
-	ImageName   string
-	ImageTag    string
+	OciRepoSpec     *coredomain.OciRepoSpec
+	ImageName       string
+	ImageTag        string
+	SourceImageName string
 }
 
 // processImageExport processes an imageExport event by loading the ImageExport resource
@@ -377,7 +378,7 @@ func (c *Consumer) executeExport(
 	log.WithField("bootcImage", bootcImageRef).Info("Resolved bootc image reference")
 
 	// Step 2: Start bootc-image-builder container
-	worker, err := c.startBootcImageBuilderContainer(ctx, orgID, imageExport, statusUpdater, log)
+	worker, err := c.startBootcImageBuilderContainer(ctx, orgID, imageExport, exportSource, statusUpdater, log)
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to start bootc-image-builder container: %w", err)
 	}
@@ -459,11 +460,17 @@ func (c *Consumer) executeExport(
 	return outputFilePath, cleanup, nil
 }
 
+// isRHEL10Image checks whether the source image name indicates a RHEL 10+ base.
+func isRHEL10Image(sourceImageName string) bool {
+	return strings.Contains(strings.ToLower(sourceImageName), "rhel10")
+}
+
 // startBootcImageBuilderContainer starts the bootc-image-builder container directly with sleep infinity
 func (c *Consumer) startBootcImageBuilderContainer(
 	ctx context.Context,
 	orgID uuid.UUID,
 	imageExport *domain.ImageExport,
+	exportSource *exportSource,
 	statusUpdater *imageExportStatusUpdater,
 	log logrus.FieldLogger,
 ) (*privilegedPodmanWorker, error) {
@@ -475,7 +482,14 @@ func (c *Consumer) startBootcImageBuilderContainer(
 	if c.cfg == nil || c.cfg.ImageBuilderWorker == nil {
 		return nil, fmt.Errorf("config or ImageBuilderWorker config is nil")
 	}
+
 	bootcImageBuilderImage := c.cfg.ImageBuilderWorker.EffectiveBootcImageBuilderImage()
+	skipTLSVerify := c.cfg.ImageBuilderWorker.EffectiveBootcImageBuilderSkipTLSVerify()
+	if isRHEL10Image(exportSource.SourceImageName) {
+		bootcImageBuilderImage = c.cfg.ImageBuilderWorker.EffectiveRhelBootcImageBuilderImage()
+		skipTLSVerify = c.cfg.ImageBuilderWorker.EffectiveRhelBootcImageBuilderSkipTLSVerify()
+		log.WithField("sourceImage", exportSource.SourceImageName).Info("Detected RHEL 10+ source image, using RHEL bootc-image-builder")
+	}
 
 	// Create temporary directories
 	tmpDir, err := os.MkdirTemp("", "imageexport-*")
@@ -515,7 +529,7 @@ func (c *Consumer) startBootcImageBuilderContainer(
 		"-v", fmt.Sprintf("%s:%s:Z", tmpOutDir, containerOutDir),
 		"-v", fmt.Sprintf("%s:%s:Z", tmpContainerStorage, containerStorageDir),
 	}
-	if c.cfg.ImageBuilderWorker.EffectiveBootcImageBuilderSkipTLSVerify() {
+	if skipTLSVerify {
 		startArgs = append(startArgs, "--tls-verify=false")
 	}
 	startArgs = append(startArgs, bootcImageBuilderImage, "infinity")
@@ -937,6 +951,7 @@ func (c *Consumer) validateAndNormalizeSource(ctx context.Context, orgID uuid.UU
 	var repoName string
 	var imageName string
 	var imageTag string
+	var sourceImageName string
 
 	switch sourceType {
 	case string(domain.ImageExportSourceTypeImageBuild):
@@ -958,6 +973,7 @@ func (c *Consumer) validateAndNormalizeSource(ctx context.Context, orgID uuid.UU
 		repoName = imageBuild.Spec.Destination.Repository
 		imageName = imageBuild.Spec.Destination.ImageName
 		imageTag = imageBuild.Spec.Destination.ImageTag
+		sourceImageName = imageBuild.Spec.Source.ImageName
 
 		log.Infof("ImageBuild %q is ready, proceeding with export", source.ImageBuildRef)
 
@@ -977,9 +993,10 @@ func (c *Consumer) validateAndNormalizeSource(ctx context.Context, orgID uuid.UU
 	}
 
 	return &exportSource{
-		OciRepoSpec: &ociSpec,
-		ImageName:   imageName,
-		ImageTag:    imageTag,
+		OciRepoSpec:     &ociSpec,
+		ImageName:       imageName,
+		ImageTag:        imageTag,
+		SourceImageName: sourceImageName,
 	}, nil
 }
 
