@@ -141,6 +141,9 @@ type Workload struct {
 	Name     string
 	Status   StatusType
 	Restarts int
+	// RequiresHealth is set when a VM workload has emitted health_status events.
+	// Gated workloads stay Degraded on start/starting until healthy.
+	RequiresHealth bool
 }
 
 type application struct {
