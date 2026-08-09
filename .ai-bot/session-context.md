@@ -38,3 +38,21 @@ and uses a RHEL-specific BIB (`registry.redhat.io/rhel10/bootc-image-builder:lat
 - `implementation-notes.md` — Detailed file changes and rationale
 - `verification.md` — Test results and coverage
 - `review.md` — Self-review findings
+
+## Feedback Round 1
+**PR:** flightctl/flightctl#3350
+**Comments addressed**: None (no reviewer comments found on PR)
+**CI failure investigated**: integration-tests job (exit code 2)
+**Changes made**: None — the CI failure is not caused by this PR's changes.
+**Analysis**:
+- All code compiles cleanly (`go build ./...`, `go test -c ./test/integration/...`)
+- Unit tests pass for changed packages (`internal/config/`, `internal/imagebuilder_worker/tasks/`)
+- Lint passes for changed packages (golangci-lint v2.12.2, 0 issues)
+- Import ordering correct (gci reports no diff)
+- `go vet` clean on all changed packages
+- The CI integration test log shows infrastructure starting normally (server, auth, enrollment) before failing — no compilation or test assertion errors visible in the available log output
+- The failure appears to be environmental or flaky, not related to the config/imageexport changes in this PR
+- No integration tests directly reference `startBootcImageBuilderContainer`, `exportSource.SourceImageName`, or `RhelBootcImageBuilder`
+**Verification**: `go build ./...` pass, `go vet ./...` pass, unit tests pass, lint pass
+**Suggestions declined**: None
+**Tests updated**: None needed
