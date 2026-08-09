@@ -1649,23 +1649,43 @@ func TestPodmanMonitorLifecycleDispatch(t *testing.T) {
 		wantErr    bool
 	}{
 		{
-			name:    "When StopApp is called for a quadlet app it should stop the target",
+			name:    "When StopApp is called for a quadlet app it should stop the target and reset failed services",
 			appType: v1beta1.AppTypeQuadlet,
 			operation: func(m *PodmanMonitor, appID string) error {
 				return m.StopApp(context.Background(), appID)
 			},
 			setupMocks: func(m *systemd.MockManager) {
+				svc := appID + "-app.service"
+				m.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{targetName}).Return(
+					[]client.SystemDUnitListEntry{{Unit: targetName, LoadState: "loaded"}}, nil)
+				m.EXPECT().ListDependencies(gomock.Any(), targetName).Return([]string{svc}, nil)
 				m.EXPECT().Stop(gomock.Any(), targetName).Return(nil)
+				units := []client.SystemDUnitListEntry{
+					{Unit: svc, LoadState: "loaded", ActiveState: string(v1beta1.SystemdActiveStateInactive), SubState: "dead"},
+				}
+				m.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{svc}).Return(units, nil)
+				m.EXPECT().Stop(gomock.Any(), svc).Return(nil)
+				m.EXPECT().ResetFailed(gomock.Any(), svc).Return(nil)
 			},
 		},
 		{
-			name:    "When StopApp is called for a container app it should stop the target via quadlet handler",
+			name:    "When StopApp is called for a container app it should stop via quadlet handler and reset failed services",
 			appType: v1beta1.AppTypeContainer,
 			operation: func(m *PodmanMonitor, appID string) error {
 				return m.StopApp(context.Background(), appID)
 			},
 			setupMocks: func(m *systemd.MockManager) {
+				svc := appID + "-app.service"
+				m.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{targetName}).Return(
+					[]client.SystemDUnitListEntry{{Unit: targetName, LoadState: "loaded"}}, nil)
+				m.EXPECT().ListDependencies(gomock.Any(), targetName).Return([]string{svc}, nil)
 				m.EXPECT().Stop(gomock.Any(), targetName).Return(nil)
+				units := []client.SystemDUnitListEntry{
+					{Unit: svc, LoadState: "loaded", ActiveState: string(v1beta1.SystemdActiveStateInactive), SubState: "dead"},
+				}
+				m.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{svc}).Return(units, nil)
+				m.EXPECT().Stop(gomock.Any(), svc).Return(nil)
+				m.EXPECT().ResetFailed(gomock.Any(), svc).Return(nil)
 			},
 		},
 		{
@@ -1689,13 +1709,23 @@ func TestPodmanMonitorLifecycleDispatch(t *testing.T) {
 			},
 		},
 		{
-			name:    "When StopApp is called for a VM app it should stop the target via quadlet handler",
+			name:    "When StopApp is called for a VM app it should stop via quadlet handler and reset failed services",
 			appType: v1beta1.AppTypeVm,
 			operation: func(m *PodmanMonitor, appID string) error {
 				return m.StopApp(context.Background(), appID)
 			},
 			setupMocks: func(m *systemd.MockManager) {
+				svc := appID + "-virt-launcher-compute.service"
+				m.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{targetName}).Return(
+					[]client.SystemDUnitListEntry{{Unit: targetName, LoadState: "loaded"}}, nil)
+				m.EXPECT().ListDependencies(gomock.Any(), targetName).Return([]string{svc}, nil)
 				m.EXPECT().Stop(gomock.Any(), targetName).Return(nil)
+				units := []client.SystemDUnitListEntry{
+					{Unit: svc, LoadState: "loaded", ActiveState: string(v1beta1.SystemdActiveStateFailed), SubState: "failed"},
+				}
+				m.EXPECT().ListUnitsByMatchPattern(gomock.Any(), []string{svc}).Return(units, nil)
+				m.EXPECT().Stop(gomock.Any(), svc).Return(nil)
+				m.EXPECT().ResetFailed(gomock.Any(), svc).Return(nil)
 			},
 		},
 	}
