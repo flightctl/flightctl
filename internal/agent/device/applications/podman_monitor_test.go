@@ -1683,7 +1683,24 @@ func TestPodmanMonitorResolveConsole(t *testing.T) {
 		require.NoError(err)
 		_, err = m.resolveConsole("my-vm", "serial")
 		require.Error(err)
-		require.Contains(err.Error(), "no active compute container found")
+		require.ErrorIs(err, appconsole.ErrAppNotReady)
+		require.Contains(err.Error(), "may not be ready yet")
+	})
+
+	t.Run("When the app is VM serial with only an exited compute workload it should return ErrAppNotReady", func(t *testing.T) {
+		require := require.New(t)
+		m, _, ctrl := newMonitor(t)
+		defer ctrl.Finish()
+		app := createTestVMApplication(require, "my-vm", v1beta1.ApplicationStatusRunning, v1beta1.CurrentProcessUsername)
+		err := m.Ensure(t.Context(), app)
+		require.NoError(err)
+		app.AddWorkload(&Workload{Name: "systemd-my-vm-compute", Status: StatusExited})
+		app.AddWorkload(&Workload{Name: "systemd-my-vm-infra", Status: StatusRunning})
+
+		_, err = m.resolveConsole("my-vm", "serial")
+		require.Error(err)
+		require.ErrorIs(err, appconsole.ErrAppNotReady)
+		require.Contains(err.Error(), `app "my-vm"`)
 	})
 
 	t.Run("When the app is VM vnc with a running workload it should return a session that execs into the VNC socket", func(t *testing.T) {
@@ -1725,7 +1742,8 @@ func TestPodmanMonitorResolveConsole(t *testing.T) {
 		require.NoError(err)
 		_, err = m.resolveConsole("my-vm", "vnc")
 		require.Error(err)
-		require.Contains(err.Error(), "no active compute container found")
+		require.ErrorIs(err, appconsole.ErrAppNotReady)
+		require.Contains(err.Error(), "may not be ready yet")
 	})
 }
 
