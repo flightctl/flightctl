@@ -218,18 +218,18 @@ kv:
     image: quay.io/sclorg/valkey-8-c10s
     # -- Valkey image tag
     tag: "20260121"
-    # -- Image pull policy for Redis container
+    # -- Image pull policy for Valkey container
     pullPolicy: ""
-  # -- Secret containing password for Redis password (leave empty for auto-generation)
+  # -- Secret containing password for Valkey (leave empty for auto-generation)
   passwordSecretName: ""
-  # -- Redis log level (debug, verbose, notice, warning)
+  # -- Valkey log level (debug, verbose, notice, warning)
   loglevel: warning
-  # -- File system group ID for Redis pod security context
+  # -- File system group ID for Valkey pod security context
   fsGroup: ""
-  # Memory management for in-memory Redis
-  # -- Maximum memory usage for Redis
+  # Memory management for in-memory Valkey
+  # -- Maximum memory usage for Valkey
   maxmemory: "1gb"
-  # -- Redis memory eviction policy
+  # -- Valkey memory eviction policy
   maxmemoryPolicy: "allkeys-lru"
 
 # -- Alertmanager Configuration

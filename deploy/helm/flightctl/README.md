@@ -384,14 +384,14 @@ For more detailed configuration options, see the [Values](#values) section below
 | imageBuilderWorker.serviceImages.syft.skipTlsVerify | bool | `false` | Set to true to skip TLS verification when pulling the Syft image. |
 | imageBuilderWorker.yumReposSecretName | string | `""` | Secret name containing yum repository configuration files, mounted at /etc/yum.repos.d |
 | kv | object | `{"fsGroup":"","image":{"image":"quay.io/sclorg/valkey-8-c10s","pullPolicy":"","tag":"20260121"},"loglevel":"warning","maxmemory":"1gb","maxmemoryPolicy":"allkeys-lru","passwordSecretName":""}` | Key-Value Store Configuration |
-| kv.fsGroup | string | `""` | File system group ID for Redis pod security context |
-| kv.image.image | string | `"quay.io/sclorg/valkey-8-c10s"` | Redis container image |
-| kv.image.pullPolicy | string | `""` | Image pull policy for Redis container |
-| kv.image.tag | string | `"20260121"` | Redis image tag |
-| kv.loglevel | string | `"warning"` | Redis log level (debug, verbose, notice, warning) |
-| kv.maxmemory | string | `"1gb"` | Maximum memory usage for Redis |
-| kv.maxmemoryPolicy | string | `"allkeys-lru"` | Redis memory eviction policy |
-| kv.passwordSecretName | string | `""` | Secret containing password for Redis password (leave empty for auto-generation) |
+| kv.fsGroup | string | `""` | File system group ID for Valkey pod security context |
+| kv.image.image | string | `"quay.io/sclorg/valkey-8-c10s"` | Valkey container image |
+| kv.image.pullPolicy | string | `""` | Image pull policy for Valkey container |
+| kv.image.tag | string | `"20260121"` | Valkey image tag |
+| kv.loglevel | string | `"warning"` | Valkey log level (debug, verbose, notice, warning) |
+| kv.maxmemory | string | `"1gb"` | Maximum memory usage for Valkey |
+| kv.maxmemoryPolicy | string | `"allkeys-lru"` | Valkey memory eviction policy |
+| kv.passwordSecretName | string | `""` | Secret containing password for Valkey (leave empty for auto-generation) |
 | periodic | object | `{"clusterLevelSecretAccess":false,"consumers":5,"image":{"image":"quay.io/flightctl/flightctl-periodic-el9","pullPolicy":"","tag":""},"metrics":{"address":":15690","enabled":true}}` | Periodic Configuration |
 | periodic.clusterLevelSecretAccess | bool | `false` | Allow flightctl-periodic to list/watch secrets at the cluster level for change detection |
 | periodic.consumers | int | `5` | Number of periodic consumers |
