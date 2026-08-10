@@ -289,6 +289,53 @@ func TestKubernetesMonitor_StopApp_PropagatesHandlerError(t *testing.T) {
 	require.Contains(err.Error(), "scale workloads")
 }
 
+// TestKubernetesMonitor_StopApp_UsesHelmSpecNamespace guards the QE regression where
+// lifecycleDispatch omitted ActionSpec, so Stop scaled in flightctl-<name> instead of
+// the chart namespace (e.g. test-app) and kubectl reported "no objects passed to scale".
+func TestKubernetesMonitor_StopApp_UsesHelmSpecNamespace(t *testing.T) {
+	const appName = "helm-demo"
+	const namespace = "test-app"
+	const kubeconfigPath = "/tmp/kubeconfig"
+
+	require := require.New(t)
+	ctx := context.Background()
+	testLog := log.NewPrefixLogger("test")
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockExec := executer.NewMockExecuter(ctrl)
+	mockRW := fileio.NewMockReadWriter(ctrl)
+	monitor := newTestKubernetesMonitor(testLog, mockExec, mockRW, kubeconfigPath)
+
+	appID := fmt.Sprintf("%s_%s", namespace, appName)
+	volumeManager, err := provider.NewVolumeManager(testLog, appName, v1beta1.AppTypeHelm, v1beta1.CurrentProcessUsername, nil)
+	require.NoError(err)
+
+	monitor.apps[appID] = &application{
+		id:   appID,
+		path: fmt.Sprintf("/var/lib/flightctl/helm/charts/%s", appName),
+		status: &v1beta1.DeviceApplicationStatus{
+			Name:    appName,
+			AppType: v1beta1.AppTypeHelm,
+		},
+		volume:       volumeManager,
+		desiredState: v1beta1.ApplicationDesiredStateRunning,
+		actionSpec: lifecycle.HelmSpec{
+			Namespace: namespace,
+		},
+	}
+
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "kubectl", []string{
+		"scale", "deployment,statefulset",
+		"-l", fmt.Sprintf("%s=%s", helm.AppLabelKey, appID),
+		"--replicas=0",
+		"-n", namespace,
+		"--kubeconfig", kubeconfigPath,
+	}).Return("", "", 0)
+
+	require.NoError(monitor.StopApp(ctx, appID))
+}
+
 func TestKubernetesMonitor_StartApp_PropagatesHandlerError(t *testing.T) {
 	const appName = "my-helm-app"
 	const kubeconfigPath = "/tmp/kubeconfig"

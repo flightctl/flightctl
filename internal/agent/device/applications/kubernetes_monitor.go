@@ -168,6 +168,7 @@ func (m *KubernetesMonitor) QueueLifecycle(appID string, desiredState v1beta1.Ap
 		Path:              app.Path(),
 		Type:              actionType,
 		RestartGeneration: restartGeneration,
+		Spec:              app.ActionSpec(),
 	})
 }
 
@@ -236,6 +237,7 @@ func (m *KubernetesMonitor) lifecycleDispatch(appID string) (lifecycle.Lifecycle
 		Name:    app.Name(),
 		AppType: app.AppType(),
 		Path:    app.Path(),
+		Spec:    app.ActionSpec(),
 	}
 	return handler, action, app, nil
 }
