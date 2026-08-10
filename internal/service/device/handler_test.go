@@ -1145,9 +1145,9 @@ func TestReplaceDevicePackageModeOsReject(t *testing.T) {
 
 func TestPatchDevicePackageModeOsReject(t *testing.T) {
 	tests := []struct {
-		name                string
-		capabilities        *domain.DeviceCapabilities
-		existingOs          *domain.DeviceOsSpec
+		name         string
+		capabilities *domain.DeviceCapabilities
+		existingOs   *domain.DeviceOsSpec
 		// patchOs seeds catalog items required for patch validation when the
 		// patch introduces a catalogItemRef (typed; not reverse-parsed from the patch).
 		patchOs             *domain.DeviceOsSpec
