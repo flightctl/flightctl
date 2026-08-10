@@ -243,44 +243,45 @@ assignment uses label selectors only; OS mode does not restrict which fleet a
 device can join. See [OS mode](managing-devices.md#os-mode) for how devices
 report `status.capabilities.osMode`.
 
-When a fleet device template does **not** set `spec.os.image`, both modes
-receive the same configuration and application targets. Package-mode and
-image-mode devices converge on those targets the same way.
+When a fleet device template does **not** set an OS target (`spec.os.image` or
+`spec.os.catalogItemRef`), both modes receive the same configuration and
+application targets. Package-mode and image-mode devices converge on those
+targets the same way.
 
-When a fleet device template **does** set `spec.os.image`, the service renders
-the full template — including the OS image — to every member device:
+When a fleet device template **does** set an OS target, the service renders
+the full template — including the OS target — to every member device:
 
-* Image-mode devices apply the OS image update and converge on the new
-  template version.
+* Image-mode devices apply the OS update and converge on the new template
+  version.
 * Package-mode devices reject the entire desired specification before
   applying configuration or applications. They stay on the previously
   committed specification and appear `OutOfDate` while the fleet template
-  still includes `spec.os.image`.
+  still includes an OS target.
 
 See [Updating the OS](managing-devices.md#updating-the-os) for package-mode
-limits on OS image targets.
+limits on OS targets.
 
 ### Rollout batch behavior with package-mode devices
 
 If package-mode devices are included in a rollout batch for a fleet whose
-template sets `spec.os.image`, the batch can stall until the batch update
+template sets an OS target, the batch can stall until the batch update
 times out. The default timeout is 24 hours
 (`rolloutPolicy.defaultUpdateTimeout`; see
 [Defining Rollout Policies](#defining-rollout-policies)). An `OutOfDate`
 status does not distinguish devices that are still rolling out from devices
-that cannot converge on the OS image target.
+that cannot converge on the OS target.
 
-### Options when a mixed fleet includes an OS image
+### Options when a mixed fleet includes an OS target
 
 Operators can use any of the following actions so package-mode devices can
 advance again:
 
-* Keep OS image rollouts in fleets that contain only image-mode devices, and
-  use a separate fleet without `spec.os.image` for shared configuration and
+* Keep OS target rollouts in fleets that contain only image-mode devices, and
+  use a separate fleet without an OS target for shared configuration and
   applications across both modes.
-* Remove `spec.os.image` from the fleet device template.
+* Remove the OS target from the fleet device template.
 * Move package-mode devices to a fleet whose template does not set an OS
-  image target.
+  target.
 
 ## Defining Rollout Policies
 

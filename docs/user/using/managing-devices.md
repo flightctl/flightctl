@@ -308,22 +308,24 @@ hnsu33339f8m5pjqrbh5ak704jjp92r95a83sd5ja8cjnsl7qnrg  <none>   <none>  Online  U
 
 You can update a device's OS by updating the target OS image name or version in the device's specification. The next time the agent checks in, it learns of the requested update and automatically starts downloading and verifying the new OS version in the background. It then schedules the actual system update to be performed according to the update policy. When the time has come to update, it installs the new version in parallel and performs a reboot into the new version.
 
-Package-mode devices cannot apply `spec.os.image`. When a package-mode device
-receives a desired specification that sets `spec.os.image`, the agent rejects
-the entire specification before applying configuration or applications. The
-device stays on its previously committed specification.
+Package-mode devices cannot apply an OS target (`spec.os.image` or
+`spec.os.catalogItemRef`). When a package-mode device receives a desired
+specification that sets either field, the agent rejects the entire
+specification before applying configuration or applications. The device stays
+on its previously committed specification.
 
 For a device that already reports `status.capabilities.osMode=package`, a
-direct replace or patch that newly assigns or changes `spec.os.image` returns
-HTTP 400 (`OS image is not supported on package-mode devices`). Devices that
-have not reported OS mode yet (including create, before enrollment status is
-known) are not rejected by that API check; the agent still rejects
-`spec.os.image` once the device is package-mode.
+direct replace or patch that newly assigns or changes either OS target field
+returns HTTP 400 (`OS target is not supported on package-mode devices`).
+Devices that have not reported OS mode yet (including create, before
+enrollment status is known) are not rejected by that API check; the agent
+still rejects an OS target once the device is package-mode.
 
-OS catalog items that set an OS image target are not usable on package-mode
-devices: the device cannot apply the image (same agent reject / `OutOfDate`
-behavior as a fleet or device with `spec.os.image`). For fleets that include
-both modes and set an OS image in the template, see
+OS catalog references are not usable on package-mode devices. The agent
+rejects a desired specification that contains `spec.os.catalogItemRef`.
+For fleet or device targets, the device remains `OutOfDate` until the target
+is removed. For fleets that include both modes and set an OS target in the
+template, see
 [Mixed image-mode and package-mode fleets](managing-fleets.md#mixed-image-mode-and-package-mode-fleets).
 
 Flight Control currently supports the following image types and image references formats:
