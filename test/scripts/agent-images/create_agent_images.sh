@@ -6,7 +6,6 @@ set -ex
 # Note: all images are built as root, to use in a non-root context, import with podman load -i bin/agent-images/agent-images-bundle-cs9-bootc.tar
 
 
-BUILD_TYPE=${BUILD_TYPE:-bootc}
 PARALLEL_JOBS="${PARALLEL_JOBS:-4}"
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
@@ -31,25 +30,12 @@ fi
 
 export JOBS="${PARALLEL_JOBS}"
 
-if [ "${BUILD_TYPE}" = "regular" ]; then
-    if [ -z "${AGENT_OS_ID:-}" ]; then
-        AGENT_OS_ID="cs9-regular"
-        echo "BUILD_TYPE=regular defaults AGENT_OS_ID to cs9-regular"
-    elif [ "${AGENT_OS_ID}" != "cs9-regular" ]; then
-        echo "BUILD_TYPE=regular supports only AGENT_OS_ID=cs9-regular, got ${AGENT_OS_ID}" >&2
-        exit 1
-    fi
-fi
-
 # Handle v7 variant based on OS and RHOCP access
 # Only auto-detect if user hasn't explicitly set EXCLUDE_VARIANTS
 if [ -z "${EXCLUDE_VARIANTS+x}" ]; then
     if [ "${AGENT_OS_ID:-cs9-bootc}" = "cs10-bootc" ]; then
         export EXCLUDE_VARIANTS="v7"
         echo "cs10: v7 excluded (no RHOCP MicroShift for cs10)"
-    elif [ "${AGENT_OS_ID:-cs9-bootc}" = "cs9-regular" ]; then
-        export EXCLUDE_VARIANTS="v7 v11 v12"
-        echo "cs9-regular: v7, v11, v12 excluded (bootc-specific variants)"
     elif has_rhocp_access; then
         export EXCLUDE_VARIANTS=""
         echo "RHOCP access available, enabling v7"
@@ -106,7 +92,7 @@ qcow_is_up_to_date() {
 }
 
 # Record which OS flavor produced the shared qcow path so later runs do not
-# mistake a bootc artifact for a regular one, or vice versa.
+# reuse a different flavor's disk.
 write_qcow_os_id_sidecar() {
     local os_id="$1"
     local qcow_dir="${ROOT_DIR}/bin/output/qcow2"
@@ -116,8 +102,6 @@ write_qcow_os_id_sidecar() {
 }
 
 # Build extra flags for RPM source.
-# Keep these source selectors initialized here so the OCI build path and the
-# regular qcow path consume the same RPM-source inputs when this wrapper is used.
 BUILD_ARGS=""
 RPM_DIR="${RPM_DIR:-rpm}"
 RPM_COPR_REPO="${RPM_COPR_REPO:-}"
@@ -218,10 +202,9 @@ export REGISTRY_ENDPOINT
 # Determine OS_ID strictly from AGENT_OS_ID (single source of truth)
 AGENT_OS_ID="${AGENT_OS_ID:-cs9-bootc}"
 case "${AGENT_OS_ID}" in
-    cs9-bootc)   OS_ID="cs9-bootc" ;;
-    cs9-regular) OS_ID="cs9-regular" ;;
-    cs10*) OS_ID="cs10-bootc" ;;
-    *)     OS_ID="${AGENT_OS_ID}" ;;
+    cs9-bootc) OS_ID="cs9-bootc" ;;
+    cs10*)     OS_ID="cs10-bootc" ;;
+    *)         OS_ID="${AGENT_OS_ID}" ;;
 esac
 
 # Export so downstream scripts see the selected flavor
@@ -279,37 +262,5 @@ build_variants_and_qcow2() {
     fi
 }
 
-# Build the package-mode path: regular base image plus qcow2 only, then move the
-# resulting qcow into the shared output location and record its OS flavor.
-build_regular_qcow2() {
-    echo "Building package-mode base and qcow2 for OS_ID=${OS_ID}"
-    SKIP_VARIANTS_BUILD=true SKIP_QCOW_BUILD=false "${SCRIPT_DIR}/scripts/build_and_qcow2.sh" --os-id "${OS_ID}"
-
-    sudo chown -R "${USER}:$(id -gn "${USER}")" "${ROOT_DIR}/artifacts" || true
-
-    OUTPUT_DIR="${OUTPUT_DIR:-${ROOT_DIR}/bin/output/agent-qcow2-${OS_ID}}"
-    QCOW_SRC="${ROOT_DIR}/bin/output/agent-qcow2-${OS_ID}/qcow2/disk.qcow2"
-    QCOW_DST="${ROOT_DIR}/bin/output/qcow2/disk.qcow2"
-    if [ -f "${QCOW_SRC}" ]; then
-        mkdir -p "${ROOT_DIR}/bin/output/qcow2"
-        mv "${QCOW_SRC}" "${QCOW_DST}"
-        write_qcow_os_id_sidecar "${OS_ID}"
-        echo "Moved qcow2 to ${QCOW_DST}"
-        sudo chown -R "${USER}:$(id -gn "${USER}")" "${ROOT_DIR}/bin/output" || true
-    fi
-}
-
-case "$BUILD_TYPE" in
-    regular)
-        build_base
-        build_regular_qcow2
-        ;;
-    bootc)
-        build_base
-        build_variants_and_qcow2
-        ;;
-    *)
-        echo "Unknown BUILD_TYPE: $BUILD_TYPE"
-        exit 1
-        ;;
-esac
+build_base
+build_variants_and_qcow2

@@ -1,0 +1,36 @@
+# quay.io/flightctl/flightctl-device:package
+#
+# Bootc base with bootc/rpm-ostree removed from PATH (osMode=package).
+
+ARG BASE_IMAGE=quay.io/flightctl/flightctl-device:base
+
+FROM ${BASE_IMAGE}
+
+RUN --mount=type=cache,target=/var/cache/dnf \
+    --mount=type=cache,target=/var/lib/dnf \
+    dnf install -y fuse-overlayfs
+
+RUN if [ ! -e /usr/bin/bootc ]; then \
+      echo "bootc binary required at /usr/bin/bootc to build package variant" >&2; \
+      exit 1; \
+    fi && \
+    mv /usr/bin/bootc /usr/bin/bootc.disabled && \
+    if [ -e /usr/bin/rpm-ostree ]; then \
+      mv /usr/bin/rpm-ostree /usr/bin/rpm-ostree.disabled; \
+    fi && \
+    mkdir -p /etc/systemd/system && \
+    for unit in \
+      bootc-fetch-apply-updates.timer \
+      bootc-fetch-apply-updates.service \
+      bootc-destructive-cleanup.service \
+      greenboot-healthcheck.service \
+      greenboot-status.service \
+      greenboot-task-runner.service \
+      greenboot-loader-entry.service \
+      greenboot-grub2-set-counter.service \
+      greenboot-grub2-set-success.service \
+      greenboot-rpm-ostree-grub2-check-fallback.service \
+      flightctl-configure-greenboot.service \
+    ; do \
+      ln -sf /dev/null "/etc/systemd/system/${unit}"; \
+    done
