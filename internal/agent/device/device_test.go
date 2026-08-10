@@ -861,6 +861,43 @@ func TestCheckPackageModeSpecCompat(t *testing.T) {
 			}(),
 			expectErr: false,
 		},
+		{
+			name:   "When package-mode and spec has catalogItemRef it should return error",
+			osMode: v1beta1.OsModePackage,
+			desired: func() *v1beta1.Device {
+				d := newVersionedDevice("2")
+				d.Spec.Os = &v1beta1.DeviceOsSpec{
+					CatalogItemRef: &v1beta1.CatalogItemRefSpec{Catalog: "cat", Item: "os", Version: "v1"},
+				}
+				return d
+			}(),
+			expectErr: true,
+		},
+		{
+			name:   "When image-mode and spec has catalogItemRef it should return nil",
+			osMode: v1beta1.OsModeImage,
+			desired: func() *v1beta1.Device {
+				d := newVersionedDevice("2")
+				d.Spec.Os = &v1beta1.DeviceOsSpec{
+					CatalogItemRef: &v1beta1.CatalogItemRefSpec{Catalog: "cat", Item: "os", Version: "v1"},
+				}
+				return d
+			}(),
+			expectErr: false,
+		},
+		{
+			name:   "When package-mode and spec has catalogItemRef with empty image it should return error",
+			osMode: v1beta1.OsModePackage,
+			desired: func() *v1beta1.Device {
+				d := newVersionedDevice("2")
+				d.Spec.Os = &v1beta1.DeviceOsSpec{
+					Image:          "",
+					CatalogItemRef: &v1beta1.CatalogItemRefSpec{Catalog: "cat", Item: "os", Version: "v1"},
+				}
+				return d
+			}(),
+			expectErr: true,
+		},
 	}
 
 	for _, tc := range testCases {
