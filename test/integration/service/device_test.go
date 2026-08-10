@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	v1alpha1 "github.com/flightctl/flightctl/api/core/v1alpha1"
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
@@ -886,6 +887,97 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			Expect(stored.Spec.Os).ToNot(BeNil())
 			Expect(stored.Spec.Os.Image).To(Equal("quay.io/fleet-img:latest"))
 			Expect(lo.FromPtr(stored.Metadata.Labels)["env"]).To(Equal("prod"))
+		})
+
+		seedCatalog := func() {
+			GinkgoHelper()
+			catalog := v1alpha1.Catalog{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr("testcat")},
+				Spec:     v1alpha1.CatalogSpec{},
+			}
+			_, status := suite.Catalog.CreateCatalog(suite.Ctx, suite.OrgID, catalog)
+			Expect(status.Code).To(Equal(int32(201)))
+
+			item := v1alpha1.CatalogItem{
+				Metadata: v1alpha1.CatalogItemMeta{Name: lo.ToPtr("ositem")},
+				Spec: v1alpha1.CatalogItemSpec{
+					DisplayName: lo.ToPtr("OS Item"),
+					Category:    lo.ToPtr(v1alpha1.CatalogItemCategorySystem),
+					Type:        v1alpha1.CatalogItemTypeOS,
+					Artifacts:   []v1alpha1.CatalogItemArtifact{{Type: v1alpha1.CatalogItemArtifactTypeContainer, Uri: "quay.io/test/os"}},
+					Versions: []v1alpha1.CatalogItemVersion{{
+						Version:    "1.0.0",
+						References: map[v1alpha1.CatalogItemArtifactType]string{"container": "v1.0.0"},
+						Channels:   []string{"stable"},
+					}},
+				},
+			}
+			_, status = suite.Catalog.CreateCatalogItem(suite.Ctx, suite.OrgID, "testcat", item)
+			Expect(status.Code).To(Equal(int32(201)))
+		}
+
+		It("denies PUT with spec.os.catalogItemRef on a package-mode device", func() {
+			seedCatalog()
+			deviceName := "pkg-catref-put-deny"
+			seedDeviceWithOsMode(deviceName, lo.ToPtr(api.OsModePackage))
+
+			updated := api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec: &api.DeviceSpec{Os: &api.DeviceOsSpec{
+					CatalogItemRef: &api.CatalogItemRefSpec{Catalog: "testcat", Item: "ositem", Version: "1.0.0"},
+				}},
+			}
+			_, status := suite.Device.ReplaceDevice(suite.Ctx, suite.OrgID, deviceName, updated, nil, true, true)
+			Expect(status.Code).To(Equal(int32(400)))
+			Expect(status.Message).To(Equal(flterrors.ErrOsTargetNotSupportedOnPackageMode.Error()))
+		})
+
+		It("denies PATCH adding spec.os.catalogItemRef on a package-mode device", func() {
+			seedCatalog()
+			deviceName := "pkg-catref-patch-deny"
+			seedDeviceWithOsMode(deviceName, lo.ToPtr(api.OsModePackage))
+
+			var value interface{} = map[string]interface{}{
+				"catalogItemRef": map[string]interface{}{
+					"catalog": "testcat",
+					"item":    "ositem",
+					"version": "1.0.0",
+				},
+			}
+			patch := api.PatchRequest{{Op: "add", Path: "/spec/os", Value: &value}}
+			_, status := suite.Device.PatchDevice(suite.Ctx, suite.OrgID, deviceName, patch, true, true)
+			Expect(status.Code).To(Equal(int32(400)))
+			Expect(status.Message).To(Equal(flterrors.ErrOsTargetNotSupportedOnPackageMode.Error()))
+		})
+
+		It("allows PUT with spec.os.catalogItemRef on an image-mode device", func() {
+			seedCatalog()
+			deviceName := "img-catref-put-allow"
+			seedDeviceWithOsMode(deviceName, lo.ToPtr(api.OsModeImage))
+
+			updated := api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec: &api.DeviceSpec{Os: &api.DeviceOsSpec{
+					CatalogItemRef: &api.CatalogItemRefSpec{Catalog: "testcat", Item: "ositem", Version: "1.0.0"},
+				}},
+			}
+			_, status := suite.Device.ReplaceDevice(suite.Ctx, suite.OrgID, deviceName, updated, nil, true, true)
+			Expect(status.Code).To(Equal(int32(200)))
+		})
+
+		It("allows PUT with spec.os.catalogItemRef on a device with no capabilities", func() {
+			seedCatalog()
+			deviceName := "nocaps-catref-put-allow"
+			seedDeviceWithOsMode(deviceName, nil)
+
+			updated := api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec: &api.DeviceSpec{Os: &api.DeviceOsSpec{
+					CatalogItemRef: &api.CatalogItemRefSpec{Catalog: "testcat", Item: "ositem", Version: "1.0.0"},
+				}},
+			}
+			_, status := suite.Device.ReplaceDevice(suite.Ctx, suite.OrgID, deviceName, updated, nil, true, true)
+			Expect(status.Code).To(Equal(int32(200)))
 		})
 	})
 
