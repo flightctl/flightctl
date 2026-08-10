@@ -287,8 +287,37 @@ func TestAppConsoleManager(t *testing.T) {
 
 		require.Equal("app is not a VM workload", v.sentMetadataValue(consts.GrpcSessionErrorKey),
 			"expected the resolver error to be sent via session-error metadata so the server can fail before protocol selection")
+		require.Empty(v.sentMetadataValue(consts.GrpcSessionErrorCodeKey),
+			"session-error-code must be absent for generic resolver failures")
 		require.Empty(v.sentMetadataValue(consts.GrpcSelectedProtocolKey),
 			"selected-protocol metadata must not be sent when resolution failed")
+	})
+
+	t.Run("When the resolver returns ErrAppNotReady it should include session-error-code metadata", func(t *testing.T) {
+		require := require.New(t)
+
+		resolver := &mockResolver{
+			err: map[string]error{"my-app": fmt.Errorf("app %q %w", "my-app", ErrAppNotReady)},
+		}
+		v := setupTestVars(t, resolver)
+
+		v.mockStream()
+		v.mockCloseSend()
+
+		sessionID := uuid.New().String()
+		device := makeDevice([]v1beta1.DeviceRemoteSession{serialSession(sessionID, "my-app")})
+		v.manager.Sync(v.ctx, device)
+		v.waitSessions(t)
+
+		require.Eventually(func() bool {
+			v.mu.Lock()
+			defer v.mu.Unlock()
+			return v.closeSendCalled
+		}, 2*time.Second, 20*time.Millisecond, "expected CloseSend to be called")
+
+		require.Contains(v.sentMetadataValue(consts.GrpcSessionErrorKey), "may not be ready yet")
+		require.Equal(consts.AppConsoleErrorCodeNotReady, v.sentMetadataValue(consts.GrpcSessionErrorCodeKey))
+		require.Empty(v.sentMetadataValue(consts.GrpcSelectedProtocolKey))
 	})
 
 	t.Run("When the gRPC Stream call fails it should skip the session without panicking", func(t *testing.T) {

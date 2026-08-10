@@ -246,7 +246,7 @@ func TestHandleApplicationConsole_AgentError_ClosesWithCustomCode(t *testing.T) 
 	// Simulate the agent reporting a session-level failure (e.g. app not found).
 	const agentErr = "app is not a VM workload"
 	select {
-	case session.ErrCh <- agentErr:
+	case session.ErrCh <- console.SessionFailure{Message: agentErr}:
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out sending agent error")
 	}
@@ -258,6 +258,78 @@ func TestHandleApplicationConsole_AgentError_ClosesWithCustomCode(t *testing.T) 
 	closeErr, ok := err.(*websocket.CloseError)
 	require.True(t, ok, "expected a *websocket.CloseError, got %T: %v", err, err)
 	require.Equal(t, consts.AppConsoleErrorCloseCode, closeErr.Code)
+	require.Equal(t, agentErr, closeErr.Text)
+}
+
+// TestHandleApplicationConsole_AgentNotReady_AfterUpgrade_ClosesWithNotReadyCode verifies
+// that a post-upgrade app-not-ready failure uses close code 4002 rather than the generic 4001.
+func TestHandleApplicationConsole_AgentNotReady_AfterUpgrade_ClosesWithNotReadyCode(t *testing.T) {
+	t.Parallel()
+
+	startedCh := make(chan *console.AppConsoleSession, 1)
+	mgr := console.NewAppConsoleSessionManager(
+		&fakeAppDeviceService{},
+		logrus.NewEntry(logrus.New()),
+		&fakeAppSessionRegistration{startedCh: startedCh},
+		&fakeConsoleEventNotifier{},
+	)
+	handler := NewAppConsoleHandler(logrus.New(), mgr)
+
+	router := chi.NewRouter()
+	handler.RegisterRoutes(router)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/v1/devices/device1/applications/app1/console?consoleType=serial"
+
+	type dialResult struct {
+		conn *websocket.Conn
+		err  error
+	}
+	dialDone := make(chan dialResult, 1)
+	dialer := websocket.Dialer{Subprotocols: []string{"serial"}}
+	go func() {
+		conn, _, err := dialer.Dial(wsURL, nil)
+		dialDone <- dialResult{conn: conn, err: err}
+	}()
+
+	var session *console.AppConsoleSession
+	select {
+	case session = <-startedCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected StartSession to be called")
+	}
+
+	select {
+	case session.ProtocolCh <- "serial":
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out sending selected protocol")
+	}
+
+	var res dialResult
+	select {
+	case res = <-dialDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for websocket handshake")
+	}
+	require.NoError(t, res.err)
+	conn := res.conn
+	defer conn.Close()
+
+	const agentErr = `app "app1" may not be ready yet, please try again later or check the device logs`
+	select {
+	case session.ErrCh <- console.SessionFailure{Code: consts.AppConsoleErrorCodeNotReady, Message: agentErr}:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out sending agent error")
+	}
+
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
+	_, _, err := conn.ReadMessage()
+	require.Error(t, err, "expected the connection to be closed by the server")
+
+	closeErr, ok := err.(*websocket.CloseError)
+	require.True(t, ok, "expected a *websocket.CloseError, got %T: %v", err, err)
+	require.Equal(t, consts.AppConsoleNotReadyCloseCode, closeErr.Code)
 	require.Equal(t, agentErr, closeErr.Text)
 }
 
@@ -307,7 +379,7 @@ func TestHandleApplicationConsole_AgentError_BeforeProtocolSelection_ReturnsNotF
 	// requested app does not exist.
 	const agentErr = "app is not a VM workload"
 	select {
-	case session.ErrCh <- agentErr:
+	case session.ErrCh <- console.SessionFailure{Message: agentErr}:
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out sending agent error")
 	}
@@ -322,6 +394,72 @@ func TestHandleApplicationConsole_AgentError_BeforeProtocolSelection_ReturnsNotF
 	require.Nil(t, res.conn)
 	require.NotNil(t, res.resp)
 	require.Equal(t, http.StatusNotFound, res.resp.StatusCode)
+	require.Empty(t, res.resp.Header.Get(consts.AppConsoleErrorCodeHeader))
+
+	body, readErr := io.ReadAll(res.resp.Body)
+	require.NoError(t, readErr)
+	require.Equal(t, agentErr+"\n", string(body))
+}
+
+// TestHandleApplicationConsole_AgentNotReady_BeforeProtocolSelection_ReturnsServiceUnavailable
+// covers the app-not-ready resolve failure: HTTP 503 with a machine-readable error header
+// so UI clients can distinguish "retry later" from "app not found" without parsing the body.
+func TestHandleApplicationConsole_AgentNotReady_BeforeProtocolSelection_ReturnsServiceUnavailable(t *testing.T) {
+	t.Parallel()
+
+	startedCh := make(chan *console.AppConsoleSession, 1)
+	mgr := console.NewAppConsoleSessionManager(
+		&fakeAppDeviceService{},
+		logrus.NewEntry(logrus.New()),
+		&fakeAppSessionRegistration{startedCh: startedCh},
+		&fakeConsoleEventNotifier{},
+	)
+	handler := NewAppConsoleHandler(logrus.New(), mgr)
+
+	router := chi.NewRouter()
+	handler.RegisterRoutes(router)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws/v1/devices/device1/applications/app1/console?consoleType=serial"
+
+	type dialResult struct {
+		conn *websocket.Conn
+		resp *http.Response
+		err  error
+	}
+	dialDone := make(chan dialResult, 1)
+	dialer := websocket.Dialer{Subprotocols: []string{"serial"}}
+	go func() {
+		conn, resp, err := dialer.Dial(wsURL, nil)
+		dialDone <- dialResult{conn: conn, resp: resp, err: err}
+	}()
+
+	var session *console.AppConsoleSession
+	select {
+	case session = <-startedCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("expected StartSession to be called")
+	}
+
+	const agentErr = `app "app1" may not be ready yet, please try again later or check the device logs`
+	select {
+	case session.ErrCh <- console.SessionFailure{Code: consts.AppConsoleErrorCodeNotReady, Message: agentErr}:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out sending agent error")
+	}
+
+	var res dialResult
+	select {
+	case res = <-dialDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for the dial to fail")
+	}
+	require.Error(t, res.err, "expected the WebSocket handshake to fail rather than upgrade")
+	require.Nil(t, res.conn)
+	require.NotNil(t, res.resp)
+	require.Equal(t, http.StatusServiceUnavailable, res.resp.StatusCode)
+	require.Equal(t, consts.AppConsoleErrorCodeNotReady, res.resp.Header.Get(consts.AppConsoleErrorCodeHeader))
 
 	body, readErr := io.ReadAll(res.resp.Body)
 	require.NoError(t, readErr)
