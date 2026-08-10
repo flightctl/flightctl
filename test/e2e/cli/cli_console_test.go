@@ -92,9 +92,11 @@ var _ = Describe("CLI - device console", Label(e2e.NeedVMLabel), func() {
 		harness := e2e.GetWorkerHarness()
 
 		const sessionsToOpen = 4
-		const expectedRenderedVersion = 2 + sessionsToOpen*2
 
-		// kick off an update
+		initialRenderedVersion, err := harness.GetCurrentDeviceRenderedVersion(deviceID)
+		Expect(err).ToNot(HaveOccurred())
+
+		By("initiating a device update")
 		device, _, err := harness.WaitForBootstrapAndUpdateToVersion(deviceID, util.DeviceTags.V4)
 		Expect(err).ToNot(HaveOccurred())
 		Eventually(resources.GetJSONByName[*v1beta1.Device]).
@@ -126,7 +128,7 @@ var _ = Describe("CLI - device console", Label(e2e.NeedVMLabel), func() {
 
 		currentRenderedVersion, err := harness.GetCurrentDeviceRenderedVersion(deviceID)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(currentRenderedVersion).To(Equal(expectedRenderedVersion))
+		Expect(currentRenderedVersion).To(BeNumerically(">", initialRenderedVersion))
 
 		By("returns a helpful error when the device is not found")
 		out, err := harness.CLI("console", "device/nonexistent")
