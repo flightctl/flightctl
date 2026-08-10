@@ -17,13 +17,17 @@ import (
 // is copied as-is (use when structure is 1:1, with key normalization).
 //
 // Key behavior:
-//   - Key missing from config: left unchanged in service-config.yaml
+//   - Key missing from config: left unchanged in service-config.yaml (or deleted if DeleteOnAbsent=true)
 //   - Key present with value: merged into service-config.yaml
 //   - Key present with null: deleted from service-config.yaml
 type SectionMapping struct {
 	RenderedKey      string
 	ServiceConfigKey string
 	Transform        func(renderedSubtree interface{}) (interface{}, error)
+	// DeleteOnAbsent, when true, deletes ServiceConfigKey from service-config.yaml when
+	// RenderedKey is absent from the per-service config. Use for keys that must be fully
+	// removed when the caller restores a config that never had the key (e.g. encryption).
+	DeleteOnAbsent bool
 }
 
 // serviceConfigSectionMappings defines, per service, how to map rendered
@@ -36,6 +40,12 @@ var serviceConfigSectionMappings = map[infra.ServiceName][]SectionMapping{
 			RenderedKey:      "worker",
 			ServiceConfigKey: "worker",
 			Transform:        nil,
+		},
+		{
+			RenderedKey:      "encryption",
+			ServiceConfigKey: "encryption",
+			Transform:        nil,
+			DeleteOnAbsent:   true,
 		},
 	},
 	infra.ServiceImageBuilderWorker: {
@@ -64,6 +74,12 @@ var serviceConfigSectionMappings = map[infra.ServiceName][]SectionMapping{
 			ServiceConfigKey: "vulnerabilityReporting",
 			Transform:        nil,
 		},
+		{
+			RenderedKey:      "encryption",
+			ServiceConfigKey: "encryption",
+			Transform:        nil,
+			DeleteOnAbsent:   true,
+		},
 	},
 	infra.ServicePeriodic: {
 		{
@@ -75,6 +91,12 @@ var serviceConfigSectionMappings = map[infra.ServiceName][]SectionMapping{
 			RenderedKey:      "dependenciesSync",
 			ServiceConfigKey: "dependenciesSync",
 			Transform:        nil,
+		},
+		{
+			RenderedKey:      "encryption",
+			ServiceConfigKey: "encryption",
+			Transform:        nil,
+			DeleteOnAbsent:   true,
 		},
 	},
 }
@@ -112,7 +134,11 @@ func applyServiceConfigMappings(service infra.ServiceName, perServiceContent str
 	for _, m := range mappings {
 		subtree, found := getSubtreeWithKeyNormalization(perService, m.RenderedKey)
 		if !found {
-			// Key not present in config - leave existing value unchanged
+			if m.DeleteOnAbsent {
+				// Key absent and DeleteOnAbsent set: remove it from service-config.yaml.
+				updates[m.ServiceConfigKey] = nil
+			}
+			// else: key not present - leave existing value unchanged
 			continue
 		}
 		if subtree == nil {
