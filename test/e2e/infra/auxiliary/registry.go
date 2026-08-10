@@ -62,6 +62,8 @@ type Registry struct {
 	container testcontainers.Container
 }
 
+// getContainerLogs fetches combined stdout/stderr logs for a container by name,
+// trying podman first and falling back to docker.
 func getContainerLogs(name string) (string, error) {
 	cmd := exec.Command("podman", "logs", name)
 	out, err := cmd.CombinedOutput()
@@ -130,6 +132,8 @@ func (r *Registry) Start(ctx context.Context, network string, reuse bool) error 
 	return nil
 }
 
+// startAuthenticatedEndpoint starts an nginx container that wraps the TLS registry
+// with HTTP Basic Auth on privateRegistryPort, populating r.Authenticated on success.
 func (r *Registry) startAuthenticatedEndpoint(ctx context.Context, certDir, network string, reuse bool) error {
 	logrus.Info("Starting authenticated registry endpoint (nginx + basic auth)")
 	logrus.Infof("Authenticated endpoint upstream: %s:%s (network: %s)", r.Host, r.Port, network)
@@ -190,6 +194,9 @@ func (r *Registry) startAuthenticatedEndpoint(ctx context.Context, certDir, netw
 	return nil
 }
 
+// generateNginxConf returns an nginx configuration that proxies HTTPS requests
+// on port 5002 to the upstream TLS registry at registryHost:registryPort,
+// requiring HTTP Basic Auth via /auth/htpasswd.
 func generateNginxConf(registryHost, registryPort string) string {
 	upstreamAddr := net.JoinHostPort(registryHost, registryPort)
 	return fmt.Sprintf(`error_log /dev/stderr warn;
@@ -217,7 +224,7 @@ http {
       auth_basic_user_file /auth/htpasswd;
       proxy_pass https://registry;
       proxy_ssl_verify off;
-      proxy_set_header Host $host;
+      proxy_set_header Host $http_host;
       proxy_set_header X-Real-IP $remote_addr;
       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
       proxy_set_header X-Forwarded-Proto $scheme;
@@ -234,6 +241,8 @@ func generateHtpasswd(username, password string) string {
 	return fmt.Sprintf("%s:{SHA}%s\n", username, encoded)
 }
 
+// ensureRegistryCerts generates a TLS leaf certificate for the registry signed by
+// the e2e CA (created by prepare-e2e-test). Returns the cert directory path.
 func ensureRegistryCerts() (string, error) {
 	projectRoot, err := getProjectRoot()
 	if err != nil {
@@ -318,6 +327,9 @@ func ensureRegistryCerts() (string, error) {
 	return certDir, nil
 }
 
+// configureInsecureRegistry writes a registries.conf.d snippet marking registryURL
+// as insecure so that the local podman/docker daemon can push and pull without TLS
+// verification. It is idempotent: if the file already exists and is non-empty it does nothing.
 func configureInsecureRegistry(registryURL string) error {
 	if existingConfig, err := os.ReadFile(registriesConfPath); err == nil && string(existingConfig) != "" {
 		return nil
