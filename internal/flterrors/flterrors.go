@@ -33,7 +33,7 @@ var (
 	ErrDecommission                     = errors.New("decommissioned device cannot be created or updated")
 	ErrDeviceAwaitingReconnect          = errors.New("device is awaiting reconnection after restore")
 	ErrDeviceConflictPaused             = errors.New("device is paused due to conflicts")
-	ErrOsImageNotSupportedOnPackageMode = errors.New("OS image is not supported on package-mode devices")
+	ErrOsTargetNotSupportedOnPackageMode = errors.New("OS target is not supported on package-mode devices")
 
 	// csr
 	ErrInvalidPEMBlock = errors.New("not a valid PEM block")

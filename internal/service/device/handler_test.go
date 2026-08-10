@@ -968,7 +968,7 @@ func TestReplaceDevicePackageModeOsReject(t *testing.T) {
 			enforceOwnership:    true,
 			enforceCapabilities: true,
 			wantCode:            http.StatusBadRequest,
-			wantMessage:         flterrors.ErrOsImageNotSupportedOnPackageMode.Error(),
+			wantMessage:         flterrors.ErrOsTargetNotSupportedOnPackageMode.Error(),
 		},
 		{
 			name:                "When package-mode device gets os.image with enforceCapabilities=false it should allow",
@@ -985,7 +985,7 @@ func TestReplaceDevicePackageModeOsReject(t *testing.T) {
 			enforceOwnership:    false,
 			enforceCapabilities: true,
 			wantCode:            http.StatusBadRequest,
-			wantMessage:         flterrors.ErrOsImageNotSupportedOnPackageMode.Error(),
+			wantMessage:         flterrors.ErrOsTargetNotSupportedOnPackageMode.Error(),
 		},
 		{
 			name:                "When owned package-mode device gets os.image with enforceOwnership=true and enforceCapabilities=false it should return ownership conflict",
@@ -1047,7 +1047,51 @@ func TestReplaceDevicePackageModeOsReject(t *testing.T) {
 			enforceOwnership:    true,
 			enforceCapabilities: true,
 			wantCode:            http.StatusBadRequest,
-			wantMessage:         flterrors.ErrOsImageNotSupportedOnPackageMode.Error(),
+			wantMessage:         flterrors.ErrOsTargetNotSupportedOnPackageMode.Error(),
+		},
+		{
+			name:                "When package-mode device gets catalogItemRef it should return 400",
+			capabilities:        &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
+			incomingOs:          &domain.DeviceOsSpec{CatalogItemRef: &domain.CatalogItemRefSpec{Catalog: "cat", Item: "os", Version: "v1"}},
+			enforceOwnership:    true,
+			enforceCapabilities: true,
+			wantCode:            http.StatusBadRequest,
+			wantMessage:         flterrors.ErrOsTargetNotSupportedOnPackageMode.Error(),
+		},
+		{
+			name:                "When image-mode device gets catalogItemRef it should allow",
+			capabilities:        &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModeImage)},
+			incomingOs:          &domain.DeviceOsSpec{CatalogItemRef: &domain.CatalogItemRefSpec{Catalog: "cat", Item: "os", Version: "v1"}},
+			enforceOwnership:    true,
+			enforceCapabilities: true,
+			wantCode:            http.StatusOK,
+		},
+		{
+			name:                "When device has nil capabilities and gets catalogItemRef it should allow",
+			capabilities:        nil,
+			incomingOs:          &domain.DeviceOsSpec{CatalogItemRef: &domain.CatalogItemRefSpec{Catalog: "cat", Item: "os", Version: "v1"}},
+			enforceOwnership:    true,
+			enforceCapabilities: true,
+			wantCode:            http.StatusOK,
+		},
+		{
+			name:         "When package-mode device retains the same catalogItemRef it should allow",
+			capabilities: &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
+			existingOs:   &domain.DeviceOsSpec{CatalogItemRef: &domain.CatalogItemRefSpec{Catalog: "cat", Item: "os", Version: "v1"}},
+			incomingOs:   &domain.DeviceOsSpec{CatalogItemRef: &domain.CatalogItemRefSpec{Catalog: "cat", Item: "os", Version: "v1"}},
+			enforceOwnership:    true,
+			enforceCapabilities: true,
+			wantCode:            http.StatusOK,
+		},
+		{
+			name:         "When package-mode device changes catalogItemRef version it should return 400",
+			capabilities: &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
+			existingOs:   &domain.DeviceOsSpec{CatalogItemRef: &domain.CatalogItemRefSpec{Catalog: "cat", Item: "os", Version: "v1"}},
+			incomingOs:   &domain.DeviceOsSpec{CatalogItemRef: &domain.CatalogItemRefSpec{Catalog: "cat", Item: "os", Version: "v2"}},
+			enforceOwnership:    true,
+			enforceCapabilities: true,
+			wantCode:            http.StatusBadRequest,
+			wantMessage:         flterrors.ErrOsTargetNotSupportedOnPackageMode.Error(),
 		},
 	}
 
@@ -1056,6 +1100,9 @@ func TestReplaceDevicePackageModeOsReject(t *testing.T) {
 			st, _, svc := newTestHandler()
 			ctx := context.Background()
 			orgId := uuid.New()
+
+			seedCatalogItemsForOs(st, tt.existingOs)
+			seedCatalogItemsForOs(st, tt.incomingOs)
 
 			existing := domain.Device{
 				Metadata: domain.ObjectMeta{Name: lo.ToPtr("pkg-dev"), Owner: tt.owner},
@@ -1097,7 +1144,7 @@ func TestPatchDevicePackageModeOsReject(t *testing.T) {
 			enforceOwnership:    true,
 			enforceCapabilities: true,
 			wantCode:            http.StatusBadRequest,
-			wantMessage:         flterrors.ErrOsImageNotSupportedOnPackageMode.Error(),
+			wantMessage:         flterrors.ErrOsTargetNotSupportedOnPackageMode.Error(),
 		},
 		{
 			name:                "When package-mode device gets non-OS patch it should allow",
@@ -1131,7 +1178,7 @@ func TestPatchDevicePackageModeOsReject(t *testing.T) {
 			enforceOwnership:    false,
 			enforceCapabilities: true,
 			wantCode:            http.StatusBadRequest,
-			wantMessage:         flterrors.ErrOsImageNotSupportedOnPackageMode.Error(),
+			wantMessage:         flterrors.ErrOsTargetNotSupportedOnPackageMode.Error(),
 		},
 		{
 			name:         "When owned package-mode device gets OS patch with enforceOwnership=true and enforceCapabilities=false it should return ownership conflict",
@@ -1147,6 +1194,24 @@ func TestPatchDevicePackageModeOsReject(t *testing.T) {
 			wantCode:            http.StatusConflict,
 			wantMessage:         flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error(),
 		},
+		{
+			name:                "When package-mode device gets patch adding catalogItemRef it should return 400",
+			capabilities:        &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
+			patch:               patchAddCatalogItemRef("cat", "os", "v1"),
+			enforceOwnership:    true,
+			enforceCapabilities: true,
+			wantCode:            http.StatusBadRequest,
+			wantMessage:         flterrors.ErrOsTargetNotSupportedOnPackageMode.Error(),
+		},
+		{
+			name:                "When package-mode device already has catalogItemRef and gets non-OS patch it should allow",
+			capabilities:        &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
+			existingOs:          &domain.DeviceOsSpec{CatalogItemRef: &domain.CatalogItemRefSpec{Catalog: "cat", Item: "os", Version: "v1"}},
+			patch:               patchAddLabel("env", "prod"),
+			enforceOwnership:    true,
+			enforceCapabilities: true,
+			wantCode:            http.StatusOK,
+		},
 	}
 
 	for _, tt := range tests {
@@ -1154,6 +1219,9 @@ func TestPatchDevicePackageModeOsReject(t *testing.T) {
 			st, _, svc := newTestHandler()
 			ctx := context.Background()
 			orgId := uuid.New()
+
+			seedCatalogItemsForOs(st, tt.existingOs)
+			seedCatalogItemForPatch(st, tt.patch)
 
 			status := domain.NewDeviceStatus()
 			status.Capabilities = tt.capabilities
@@ -1183,9 +1251,68 @@ func patchAddOsImage(image string) domain.PatchRequest {
 	return domain.PatchRequest{{Op: "add", Path: "/spec/os", Value: &value}}
 }
 
+func patchAddCatalogItemRef(catalog, item, version string) domain.PatchRequest {
+	var value interface{} = map[string]interface{}{
+		"catalogItemRef": map[string]interface{}{
+			"catalog": catalog,
+			"item":    item,
+			"version": version,
+		},
+	}
+	return domain.PatchRequest{{Op: "add", Path: "/spec/os", Value: &value}}
+}
+
+func seedCatalogItemForPatch(st *fakeStore, patch domain.PatchRequest) {
+	for _, op := range patch {
+		if op.Path != "/spec/os" {
+			continue
+		}
+		val := op.Value
+		if ptr, ok := val.(*interface{}); ok && ptr != nil {
+			val = *ptr
+		}
+		m, ok := val.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		refMap, ok := m["catalogItemRef"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		cat, _ := refMap["catalog"].(string)
+		item, _ := refMap["item"].(string)
+		ver, _ := refMap["version"].(string)
+		if cat != "" && item != "" && ver != "" {
+			key := cat + "/" + item
+			if _, exists := st.catalog.items[key]; !exists {
+				st.catalog.items[key] = makeCatalogItem(domain.CatalogItemTypeOS, ver)
+			}
+		}
+	}
+}
+
 func patchAddLabel(key, value string) domain.PatchRequest {
 	var v interface{} = value
 	return domain.PatchRequest{{Op: "replace", Path: "/metadata/labels/" + key, Value: &v}}
+}
+
+func seedCatalogItemsForOs(st *fakeStore, os *domain.DeviceOsSpec) {
+	if os == nil || os.CatalogItemRef == nil {
+		return
+	}
+	ref := os.CatalogItemRef
+	key := ref.Catalog + "/" + ref.Item
+	existing, ok := st.catalog.items[key]
+	if !ok {
+		st.catalog.items[key] = makeCatalogItem(domain.CatalogItemTypeOS, ref.Version)
+		return
+	}
+	for _, v := range existing.Spec.Versions {
+		if v.Version == ref.Version {
+			return
+		}
+	}
+	existing.Spec.Versions = append(existing.Spec.Versions, domain.CatalogItemVersion{Version: ref.Version})
 }
 
 func makeCatalogItem(itemType domain.CatalogItemType, versions ...string) *domain.CatalogItem {

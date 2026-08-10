@@ -824,7 +824,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 			_, status := suite.Device.ReplaceDevice(suite.Ctx, suite.OrgID, deviceName, updated, nil, true, true)
 			Expect(status.Code).To(Equal(int32(400)))
-			Expect(status.Message).To(Equal(flterrors.ErrOsImageNotSupportedOnPackageMode.Error()))
+			Expect(status.Message).To(Equal(flterrors.ErrOsTargetNotSupportedOnPackageMode.Error()))
 		})
 
 		It("denies PATCH adding spec.os.image on a package-mode device", func() {
@@ -835,7 +835,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			patch := api.PatchRequest{{Op: "add", Path: "/spec/os", Value: &value}}
 			_, status := suite.Device.PatchDevice(suite.Ctx, suite.OrgID, deviceName, patch, true, true)
 			Expect(status.Code).To(Equal(int32(400)))
-			Expect(status.Message).To(Equal(flterrors.ErrOsImageNotSupportedOnPackageMode.Error()))
+			Expect(status.Message).To(Equal(flterrors.ErrOsTargetNotSupportedOnPackageMode.Error()))
 		})
 
 		It("allows PUT with spec.os.image on an image-mode device", func() {
