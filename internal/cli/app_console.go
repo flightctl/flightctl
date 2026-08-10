@@ -71,14 +71,36 @@ func deliverVNCData(ctx context.Context, wsRecvCh chan<- []byte, clientAttached 
 }
 
 // ConsoleSessionError indicates the server or agent reported a session-level failure
-// (e.g. the requested application does not exist) over an already-established
-// WebSocket connection, as opposed to a transport/handshake-level error.
+// (e.g. the requested application does not exist, or is not ready yet), as opposed to
+// a transport-level error.
 type ConsoleSessionError struct {
+	// Code is an optional machine-readable code (e.g. consts.AppConsoleErrorCodeNotReady).
+	Code    string
 	Message string
 }
 
 func (e *ConsoleSessionError) Error() string {
 	return e.Message
+}
+
+func consoleSessionErrorFromWSClose(closeErr *websocket.CloseError) *ConsoleSessionError {
+	err := &ConsoleSessionError{Message: closeErr.Text}
+	if closeErr.Code == consts.AppConsoleNotReadyCloseCode {
+		err.Code = consts.AppConsoleErrorCodeNotReady
+	}
+	return err
+}
+
+// consoleErrorFromHandshake maps a failed WebSocket upgrade response to either a
+// typed ConsoleSessionError (when the server supplied a machine-readable code) or a
+// generic UpgradeFailureError.
+func consoleErrorFromHandshake(resp *http.Response, body string) error {
+	if code := resp.Header.Get(consts.AppConsoleErrorCodeHeader); code != "" {
+		return &ConsoleSessionError{Code: code, Message: body}
+	}
+	return &httpstream.UpgradeFailureError{
+		Cause: fmt.Errorf("websocket: bad handshake (%d %s): %s", resp.StatusCode, http.StatusText(resp.StatusCode), body),
+	}
 }
 
 // AppConsoleOptions holds the options for the "app console" command, which connects to the
@@ -307,10 +329,7 @@ func (o *AppConsoleOptions) connectAppViaWS(ctx context.Context, config *client.
 		if resp != nil {
 			defer resp.Body.Close()
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, maxAppConsoleWSMessageSize))
-			msg := strings.TrimSpace(string(body))
-			return &httpstream.UpgradeFailureError{
-				Cause: fmt.Errorf("websocket: bad handshake (%d %s): %s", resp.StatusCode, http.StatusText(resp.StatusCode), msg),
-			}
+			return consoleErrorFromHandshake(resp, strings.TrimSpace(string(body)))
 		}
 		return err
 	}
@@ -382,13 +401,14 @@ func (o *AppConsoleOptions) connectAppViaWS(ctx context.Context, config *client.
 		for {
 			msgType, msg, err := conn.ReadMessage()
 			if err != nil {
-				// The server closes with consts.AppConsoleErrorCloseCode (instead of a
-				// normal closure) when the session failed server- or agent-side (e.g. the
-				// requested application does not exist) — surface that as a real error
-				// rather than a silent, successful exit.
+				// The server closes with AppConsoleErrorCloseCode / AppConsoleNotReadyCloseCode
+				// (instead of a normal closure) when the session failed server- or agent-side
+				// (e.g. the requested application does not exist, or is not ready yet) —
+				// surface that as a real error rather than a silent, successful exit.
 				var closeErr *websocket.CloseError
-				if errors.As(err, &closeErr) && closeErr.Code == consts.AppConsoleErrorCloseCode {
-					sessionErr.Store(error(&ConsoleSessionError{Message: closeErr.Text}))
+				if errors.As(err, &closeErr) &&
+					(closeErr.Code == consts.AppConsoleErrorCloseCode || closeErr.Code == consts.AppConsoleNotReadyCloseCode) {
+					sessionErr.Store(error(consoleSessionErrorFromWSClose(closeErr)))
 					cancel()
 					return
 				}
@@ -453,10 +473,7 @@ func (o *AppConsoleOptions) connectVNCViaWS(ctx context.Context, config *client.
 		if resp != nil {
 			defer resp.Body.Close()
 			body, _ := io.ReadAll(io.LimitReader(resp.Body, maxAppConsoleWSMessageSize))
-			msg := strings.TrimSpace(string(body))
-			return &httpstream.UpgradeFailureError{
-				Cause: fmt.Errorf("websocket: bad handshake (%d %s): %s", resp.StatusCode, http.StatusText(resp.StatusCode), msg),
-			}
+			return consoleErrorFromHandshake(resp, strings.TrimSpace(string(body)))
 		}
 		return err
 	}
@@ -496,13 +513,15 @@ func (o *AppConsoleOptions) connectVNCViaWS(ctx context.Context, config *client.
 			_, data, err := wsConn.ReadMessage()
 			if err != nil {
 				if ctx.Err() == nil {
-					// The server closes with consts.AppConsoleErrorCloseCode (instead of a
-					// normal closure) when the session failed server- or agent-side (e.g. the
-					// requested application does not exist) — surface that as a clean,
-					// recognizable error rather than a generic "tunnel connection lost".
+					// The server closes with AppConsoleErrorCloseCode / AppConsoleNotReadyCloseCode
+					// (instead of a normal closure) when the session failed server- or agent-side
+					// (e.g. the requested application does not exist, or is not ready yet) —
+					// surface that as a clean, recognizable error rather than a generic
+					// "tunnel connection lost".
 					var closeErr *websocket.CloseError
-					if errors.As(err, &closeErr) && closeErr.Code == consts.AppConsoleErrorCloseCode {
-						tunnelErr.Store(error(&ConsoleSessionError{Message: closeErr.Text}))
+					if errors.As(err, &closeErr) &&
+						(closeErr.Code == consts.AppConsoleErrorCloseCode || closeErr.Code == consts.AppConsoleNotReadyCloseCode) {
+						tunnelErr.Store(error(consoleSessionErrorFromWSClose(closeErr)))
 					} else {
 						tunnelErr.Store(err)
 					}

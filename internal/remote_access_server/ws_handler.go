@@ -31,6 +31,27 @@ func truncateWSCloseReason(msg string) string {
 	return strings.ToValidUTF8(msg[:maxWSCloseReasonBytes], "")
 }
 
+func httpStatusForSessionFailure(f console.SessionFailure) int {
+	if f.Code == consts.AppConsoleErrorCodeNotReady {
+		return http.StatusServiceUnavailable
+	}
+	return http.StatusNotFound
+}
+
+func wsCloseCodeForSessionFailure(f console.SessionFailure) int {
+	if f.Code == consts.AppConsoleErrorCodeNotReady {
+		return consts.AppConsoleNotReadyCloseCode
+	}
+	return consts.AppConsoleErrorCloseCode
+}
+
+func writeSessionFailure(w http.ResponseWriter, f console.SessionFailure) {
+	if f.Code != "" {
+		w.Header().Set(consts.AppConsoleErrorCodeHeader, f.Code)
+	}
+	http.Error(w, truncateWSCloseReason(f.Message), httpStatusForSessionFailure(f))
+}
+
 // AppConsoleHandler handles WebSocket connections for application-level console sessions.
 type AppConsoleHandler struct {
 	log                      logrus.FieldLogger
@@ -122,8 +143,8 @@ func (h *AppConsoleHandler) HandleApplicationConsole(w http.ResponseWriter, r *h
 		// client never sees a false "connected" state for a session that never started.
 		close(session.SendCh)
 		h.log.Infof("app console session for device %s app %s failed before protocol selection with an agent-reported error", deviceName, appName)
-		h.log.Debugf("app console session %s failure detail: %s", session.UUID, agentErr)
-		http.Error(w, truncateWSCloseReason(agentErr), http.StatusNotFound)
+		h.log.Debugf("app console session %s failure detail: code=%q msg=%s", session.UUID, agentErr.Code, agentErr.Message)
+		writeSessionFailure(w, agentErr)
 		return
 	case <-timer.C:
 		close(session.SendCh)
@@ -214,9 +235,9 @@ func (h *AppConsoleHandler) HandleApplicationConsole(w http.ResponseWriter, r *h
 				// agentErr is agent/session-supplied and not sanitized; keep it (and the
 				// session ID) out of the info-level log and only surface it at debug level.
 				h.log.Infof("app console session for device %s app %s failed with an agent-reported error", deviceName, appName)
-				h.log.Debugf("app console session %s failure detail: %s", session.UUID, agentErr)
-				closeCode = consts.AppConsoleErrorCloseCode
-				closeReason = truncateWSCloseReason(agentErr)
+				h.log.Debugf("app console session %s failure detail: code=%q msg=%s", session.UUID, agentErr.Code, agentErr.Message)
+				closeCode = wsCloseCodeForSessionFailure(agentErr)
+				closeReason = truncateWSCloseReason(agentErr.Message)
 				return
 			case message, ok := <-session.RecvCh:
 				if !ok {
