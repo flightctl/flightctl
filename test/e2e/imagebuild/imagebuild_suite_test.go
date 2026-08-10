@@ -33,15 +33,15 @@ var _ = BeforeEach(func() {
 	workerHarness = e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
 
-	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test\n", workerID)
+	GinkgoWriter.Printf("[BeforeEach] Worker %d: Setting up test\n", workerID)
 
-	// Create test-specific context for proper tracing
+	Expect(workerHarness).ToNot(BeNil(), "worker harness must be initialized")
+	Expect(workerHarness.ImageBuilderClient).ToNot(BeNil(), "ImageBuilderClient must be available")
+
 	ctx := testutil.StartSpecTracerForGinkgo(suiteCtx)
-
-	// Set the test context in the harness
 	workerHarness.SetTestContext(ctx)
 
-	GinkgoWriter.Printf("✅ [BeforeEach] Worker %d: Test setup completed\n", workerID)
+	GinkgoWriter.Printf("[BeforeEach] Worker %d: Test setup completed\n", workerID)
 })
 
 var _ = AfterEach(func() {
