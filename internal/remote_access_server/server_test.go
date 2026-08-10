@@ -10,6 +10,8 @@ import (
 	"time"
 
 	pb "github.com/flightctl/flightctl/api/grpc/v1"
+	"github.com/flightctl/flightctl/internal/console"
+	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -111,6 +113,73 @@ func TestServerStream_MissingSessionID(t *testing.T) {
 	}
 }
 
+func TestServerStream_SessionErrorMetadata_RoutesToErrCh(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		errorCode    string
+		wantFailure  console.SessionFailure
+		wantGRPCCode codes.Code
+	}{
+		{
+			name:      "When session-error has no code it should forward message only",
+			errorCode: "",
+			wantFailure: console.SessionFailure{
+				Message: "app is not a VM workload",
+			},
+			wantGRPCCode: codes.FailedPrecondition,
+		},
+		{
+			name:      "When session-error-code is app-not-ready it should forward code and message",
+			errorCode: consts.AppConsoleErrorCodeNotReady,
+			wantFailure: console.SessionFailure{
+				Code:    consts.AppConsoleErrorCodeNotReady,
+				Message: `app "my-vm" may not be ready yet, please try again later or check the device logs`,
+			},
+			wantGRPCCode: codes.FailedPrecondition,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			session := &console.AppConsoleSession{
+				UUID:       "session-1",
+				DeviceName: "device-1",
+				AppName:    "my-vm",
+				ProtocolCh: make(chan string, 1),
+				ErrCh:      make(chan console.SessionFailure, 1),
+			}
+			srv := &Server{
+				log:            logrus.New(),
+				pendingStreams: &sync.Map{},
+			}
+			require.NoError(t, srv.StartSession(session))
+
+			md := metadata.Pairs(
+				consts.GrpcSessionIDKey, session.UUID,
+				consts.GrpcSessionErrorKey, tt.wantFailure.Message,
+			)
+			if tt.errorCode != "" {
+				md.Append(consts.GrpcSessionErrorCodeKey, tt.errorCode)
+			}
+			ctx := metadata.NewIncomingContext(context.Background(), md)
+			err := srv.Stream(&stubStreamServer{ctx: ctx})
+			require.Error(t, err)
+			require.Equal(t, tt.wantGRPCCode, status.Code(err))
+
+			select {
+			case got := <-session.ErrCh:
+				assert.Equal(t, tt.wantFailure, got)
+			case <-time.After(time.Second):
+				t.Fatal("expected session failure on ErrCh")
+			}
+		})
+	}
+}
+
 // scriptedStreamServer is a stubStreamServer whose Recv() replays a fixed
 // sequence of StreamRequest messages, then blocks until the test's context
 // is cancelled (mimicking a live gRPC stream that has nothing left to say).
@@ -150,7 +219,7 @@ func TestPipeStreamToChannel_AgentError_RoutesToErrChNotPayloadCh(t *testing.T) 
 
 	srv := &Server{log: logrus.New()}
 	ch := make(chan []byte, 4)
-	errCh := make(chan string, 1)
+	errCh := make(chan console.SessionFailure, 1)
 
 	done := make(chan struct{})
 	go func() {
@@ -168,7 +237,7 @@ func TestPipeStreamToChannel_AgentError_RoutesToErrChNotPayloadCh(t *testing.T) 
 
 	select {
 	case agentErr := <-errCh:
-		assert.Equal(t, "app is not a VM workload", agentErr)
+		assert.Equal(t, console.SessionFailure{Message: "app is not a VM workload"}, agentErr)
 	case <-time.After(time.Second):
 		t.Fatal("expected the agent error to be forwarded on errCh")
 	}

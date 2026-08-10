@@ -3,6 +3,7 @@ package console
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -15,6 +16,10 @@ import (
 	"github.com/samber/lo"
 	"google.golang.org/grpc/metadata"
 )
+
+// ErrAppNotReady is returned by ResolveConsole when the VM application is tracked
+// but has no active compute workload (e.g. stopped or still starting). Clients may retry.
+var ErrAppNotReady = errors.New("may not be ready yet, please try again later or check the device logs")
 
 // sanitizeGrpcMetadataValue replaces every byte outside the printable ASCII range
 // (0x20-0x7E) with '?'. gRPC-Go rejects outgoing metadata values containing such bytes
@@ -209,6 +214,9 @@ func (m *Manager) Start(ctx context.Context, entry v1beta1.DeviceRemoteSession) 
 	// before the client's connection is upgraded instead of only after.
 	if resolveErr != nil {
 		metadataPairs = append(metadataPairs, consts.GrpcSessionErrorKey, sanitizeGrpcMetadataValue(resolveErr.Error()))
+		if errors.Is(resolveErr, ErrAppNotReady) {
+			metadataPairs = append(metadataPairs, consts.GrpcSessionErrorCodeKey, consts.AppConsoleErrorCodeNotReady)
+		}
 	} else {
 		metadataPairs = append(metadataPairs, consts.GrpcSelectedProtocolKey, entry.ConsoleType)
 	}

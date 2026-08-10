@@ -61,8 +61,12 @@ func (s *Server) Stream(stream pb.RouterService_StreamServer) error {
 		if agentErrs := md.Get(consts.GrpcSessionErrorKey); len(agentErrs) == 1 && agentErrs[0] != "" {
 			s.log.Infof("agent reported session-level failure before protocol selection for session %s device %s app %s",
 				sessionID, session.DeviceName, session.AppName)
+			failure := console.SessionFailure{Message: agentErrs[0]}
+			if errCodes := md.Get(consts.GrpcSessionErrorCodeKey); len(errCodes) == 1 {
+				failure.Code = errCodes[0]
+			}
 			select {
-			case session.ErrCh <- agentErrs[0]:
+			case session.ErrCh <- failure:
 			default:
 			}
 			return status.Error(codes.FailedPrecondition, agentErrs[0])
@@ -96,7 +100,7 @@ func (s *Server) forwardChannels(ctx context.Context, stream pb.RouterService_St
 // race and observe the close before (or instead of) the error, silently losing it. Since
 // the consumer is expected to stop reading from ch as soon as it observes errCh, leaving
 // ch open here is harmless — it is simply never read from again.
-func (s *Server) pipeStreamToChannel(ctx context.Context, stream pb.RouterService_StreamServer, ch chan []byte, errCh chan string) {
+func (s *Server) pipeStreamToChannel(ctx context.Context, stream pb.RouterService_StreamServer, ch chan []byte, errCh chan console.SessionFailure) {
 	for {
 		msg, err := stream.Recv()
 		if err != nil {
@@ -111,7 +115,7 @@ func (s *Server) pipeStreamToChannel(ctx context.Context, stream pb.RouterServic
 		if agentErr := msg.GetError(); agentErr != "" {
 			s.log.Debugf("app console stream reported session error: %s", agentErr)
 			select {
-			case errCh <- agentErr:
+			case errCh <- console.SessionFailure{Message: agentErr}:
 			case <-ctx.Done():
 			}
 			return

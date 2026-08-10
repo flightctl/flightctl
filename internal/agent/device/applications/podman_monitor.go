@@ -977,7 +977,7 @@ func (m *PodmanMonitor) resolveConsole(appName, consoleType string) (appconsole.
 		}
 	}
 	if containerName == "" {
-		return nil, fmt.Errorf("app %q: no active compute container found (workload with \"-compute\" suffix required)", appName)
+		return nil, fmt.Errorf("app %q %w", appName, appconsole.ErrAppNotReady)
 	}
 
 	m.log.Infof("console: selected container %q for app %q (type=%s)", containerName, appName, ct)

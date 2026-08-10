@@ -17,6 +17,15 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// SessionFailure is a session-level failure reported by the agent.
+type SessionFailure struct {
+	// Code is an optional machine-readable code (e.g. consts.AppConsoleErrorCodeNotReady).
+	// Empty for generic failures.
+	Code string
+	// Message is the human-readable failure detail.
+	Message string
+}
+
 // AppConsoleSession is the server-side session object bridging the WebSocket handler
 // and the gRPC stream from the agent.
 type AppConsoleSession struct {
@@ -31,7 +40,7 @@ type AppConsoleSession struct {
 	// application does not exist). The WebSocket handler must close the client
 	// connection with a distinguishable close code/reason instead of relaying this as
 	// console payload data.
-	ErrCh chan string
+	ErrCh chan SessionFailure
 }
 
 // AppConsoleDeviceService is the narrow interface AppConsoleSessionManager needs,
@@ -311,7 +320,7 @@ func (m *AppConsoleSessionManager) StartSession(ctx context.Context, orgId uuid.
 		SendCh:     make(chan []byte, ChannelSize),
 		RecvCh:     make(chan []byte, ChannelSize),
 		ProtocolCh: make(chan string, 1),
-		ErrCh:      make(chan string, 1),
+		ErrCh:      make(chan SessionFailure, 1),
 	}
 
 	var replacedSessionID string

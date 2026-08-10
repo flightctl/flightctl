@@ -209,6 +209,12 @@ func TestConnectAppViaWS_HTTPErrors(t *testing.T) {
 			body:        "timed out waiting for agent",
 			errContains: "504",
 		},
+		{
+			name:        "When server returns 503 without error code header it should surface status and message",
+			statusCode:  http.StatusServiceUnavailable,
+			body:        `app "myvm" may not be ready yet, please try again later or check the device logs`,
+			errContains: "503",
+		},
 	}
 
 	for _, tt := range tests {
@@ -235,36 +241,12 @@ func TestConnectAppViaWS_HTTPErrors(t *testing.T) {
 	}
 }
 
-// TestConnectAppViaWS_SessionError_ReturnsConsoleSessionError verifies that when the
-// server closes an already-upgraded WebSocket with consts.AppConsoleErrorCloseCode
-// (signalling a session-level failure reported by the agent, e.g. app not found),
-// connectAppViaWS surfaces it as a *ConsoleSessionError rather than treating the
-// close as a normal, successful end of session.
-func TestConnectAppViaWS_SessionError_ReturnsConsoleSessionError(t *testing.T) {
-	const agentErr = "app is not a VM workload"
+func TestConnectAppViaWS_AppNotReadyHandshake_ReturnsConsoleSessionError(t *testing.T) {
+	const agentErr = `app "myvm" may not be ready yet, please try again later or check the device logs`
 
-	// clientDone is closed once connectAppViaWS returns, so the server handler below can
-	// wait for the client to actually finish processing the close frame instead of relying
-	// on a fixed sleep that would be flaky under load.
-	clientDone := make(chan struct{})
-	upgrader := websocket.Upgrader{}
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			return
-		}
-		defer conn.Close()
-		_ = conn.WriteControl(
-			websocket.CloseMessage,
-			websocket.FormatCloseMessage(consts.AppConsoleErrorCloseCode, agentErr),
-			time.Now().Add(5*time.Second),
-		)
-		// Wait for the client to finish reading the close frame before the handler
-		// returns and the test server tears down the connection.
-		select {
-		case <-clientDone:
-		case <-time.After(5 * time.Second):
-		}
+		w.Header().Set(consts.AppConsoleErrorCodeHeader, consts.AppConsoleErrorCodeNotReady)
+		http.Error(w, agentErr, http.StatusServiceUnavailable)
 	}))
 	defer srv.Close()
 
@@ -275,29 +257,98 @@ func TestConnectAppViaWS_SessionError_ReturnsConsoleSessionError(t *testing.T) {
 		},
 	}
 
-	// connectAppViaWS reads from the real os.Stdin when not attached to a terminal.
-	// Swap in a pipe that blocks until closed, so the stdin-forwarding goroutine
-	// cannot race ahead and return via `done` before the recv goroutine observes
-	// the session error close frame (a real, non-piped stdin may EOF immediately
-	// in CI, which would make that race non-deterministic).
-	stdinR, stdinW, err := os.Pipe()
-	require.NoError(t, err)
-	defer stdinW.Close()
-	defer stdinR.Close()
-	oldStdin := os.Stdin
-	os.Stdin = stdinR
-	defer func() { os.Stdin = oldStdin }()
-
 	o := DefaultAppConsoleOptions()
 	o.consoleType = "serial"
-	o.noTTY = true
 
-	err = o.connectAppViaWS(t.Context(), cfg, "dev1", "myvm", "")
-	close(clientDone)
-
+	err := o.connectAppViaWS(t.Context(), cfg, "dev1", "myvm", "")
 	var sessionErr *ConsoleSessionError
 	require.ErrorAs(t, err, &sessionErr)
+	assert.Equal(t, consts.AppConsoleErrorCodeNotReady, sessionErr.Code)
 	assert.Equal(t, agentErr, sessionErr.Message)
+}
+
+// TestConnectAppViaWS_SessionError_ReturnsConsoleSessionError verifies that when the
+// server closes an already-upgraded WebSocket with a session-failure close code
+// (4001 generic or 4002 app-not-ready), connectAppViaWS surfaces it as a
+// *ConsoleSessionError rather than treating the close as a normal, successful end of session.
+func TestConnectAppViaWS_SessionError_ReturnsConsoleSessionError(t *testing.T) {
+	tests := []struct {
+		name      string
+		closeCode int
+		agentErr  string
+		wantCode  string
+	}{
+		{
+			name:      "When close code is AppConsoleErrorCloseCode it should return ConsoleSessionError",
+			closeCode: consts.AppConsoleErrorCloseCode,
+			agentErr:  "app is not a VM workload",
+		},
+		{
+			name:      "When close code is AppConsoleNotReadyCloseCode it should return ConsoleSessionError with app-not-ready code",
+			closeCode: consts.AppConsoleNotReadyCloseCode,
+			agentErr:  `app "myvm" may not be ready yet, please try again later or check the device logs`,
+			wantCode:  consts.AppConsoleErrorCodeNotReady,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// clientDone is closed once connectAppViaWS returns, so the server handler below can
+			// wait for the client to actually finish processing the close frame instead of relying
+			// on a fixed sleep that would be flaky under load.
+			clientDone := make(chan struct{})
+			upgrader := websocket.Upgrader{}
+			srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				conn, err := upgrader.Upgrade(w, r, nil)
+				if err != nil {
+					return
+				}
+				defer conn.Close()
+				_ = conn.WriteControl(
+					websocket.CloseMessage,
+					websocket.FormatCloseMessage(tt.closeCode, tt.agentErr),
+					time.Now().Add(5*time.Second),
+				)
+				select {
+				case <-clientDone:
+				case <-time.After(5 * time.Second):
+				}
+			}))
+			defer srv.Close()
+
+			cfg := &client.Config{
+				RemoteAccessService: &client.Service{
+					Server:             srv.URL,
+					InsecureSkipVerify: true,
+				},
+			}
+
+			// connectAppViaWS reads from the real os.Stdin when not attached to a terminal.
+			// Swap in a pipe that blocks until closed, so the stdin-forwarding goroutine
+			// cannot race ahead and return via `done` before the recv goroutine observes
+			// the session error close frame (a real, non-piped stdin may EOF immediately
+			// in CI, which would make that race non-deterministic).
+			stdinR, stdinW, err := os.Pipe()
+			require.NoError(t, err)
+			defer stdinW.Close()
+			defer stdinR.Close()
+			oldStdin := os.Stdin
+			os.Stdin = stdinR
+			defer func() { os.Stdin = oldStdin }()
+
+			o := DefaultAppConsoleOptions()
+			o.consoleType = "serial"
+			o.noTTY = true
+
+			err = o.connectAppViaWS(t.Context(), cfg, "dev1", "myvm", "")
+			close(clientDone)
+
+			var sessionErr *ConsoleSessionError
+			require.ErrorAs(t, err, &sessionErr)
+			assert.Equal(t, tt.agentErr, sessionErr.Message)
+			assert.Equal(t, tt.wantCode, sessionErr.Code)
+		})
+	}
 }
 
 func TestBuildTLSConfigForConsole(t *testing.T) {
@@ -444,51 +495,70 @@ func TestConnectVNCViaWS_HTTPError(t *testing.T) {
 }
 
 // TestConnectVNCViaWS_SessionError_ReturnsConsoleSessionError verifies that connectVNCViaWS
-// mirrors connectAppViaWS's handling of consts.AppConsoleErrorCloseCode: a session-level
-// failure reported by the agent (e.g. app not found) must surface as a *ConsoleSessionError,
-// not a generic "VNC tunnel connection lost" error.
+// mirrors connectAppViaWS's handling of session-failure close codes: a session-level
+// failure reported by the agent must surface as a *ConsoleSessionError, not a generic
+// "VNC tunnel connection lost" error.
 func TestConnectVNCViaWS_SessionError_ReturnsConsoleSessionError(t *testing.T) {
-	const agentErr = "app is not a VM workload"
-
-	// clientDone is closed once connectVNCViaWS returns, so the server handler below can
-	// wait for the client to actually finish processing the close frame instead of relying
-	// on a fixed sleep that would be flaky under load.
-	clientDone := make(chan struct{})
-	upgrader := websocket.Upgrader{}
-	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			return
-		}
-		defer conn.Close()
-		_ = conn.WriteControl(
-			websocket.CloseMessage,
-			websocket.FormatCloseMessage(consts.AppConsoleErrorCloseCode, agentErr),
-			time.Now().Add(5*time.Second),
-		)
-		select {
-		case <-clientDone:
-		case <-time.After(5 * time.Second):
-		}
-	}))
-	defer srv.Close()
-
-	o := DefaultAppConsoleOptions()
-	o.consoleType = "vnc"
-
-	cfg := &client.Config{
-		RemoteAccessService: &client.Service{
-			Server:             srv.URL,
-			InsecureSkipVerify: true,
+	tests := []struct {
+		name      string
+		closeCode int
+		agentErr  string
+		wantCode  string
+	}{
+		{
+			name:      "When close code is AppConsoleErrorCloseCode it should return ConsoleSessionError",
+			closeCode: consts.AppConsoleErrorCloseCode,
+			agentErr:  "app is not a VM workload",
+		},
+		{
+			name:      "When close code is AppConsoleNotReadyCloseCode it should return ConsoleSessionError with app-not-ready code",
+			closeCode: consts.AppConsoleNotReadyCloseCode,
+			agentErr:  `app "myvm" may not be ready yet, please try again later or check the device logs`,
+			wantCode:  consts.AppConsoleErrorCodeNotReady,
 		},
 	}
 
-	err := o.connectVNCViaWS(t.Context(), cfg, "dev1", "myvm", "")
-	close(clientDone)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clientDone := make(chan struct{})
+			upgrader := websocket.Upgrader{}
+			srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				conn, err := upgrader.Upgrade(w, r, nil)
+				if err != nil {
+					return
+				}
+				defer conn.Close()
+				_ = conn.WriteControl(
+					websocket.CloseMessage,
+					websocket.FormatCloseMessage(tt.closeCode, tt.agentErr),
+					time.Now().Add(5*time.Second),
+				)
+				select {
+				case <-clientDone:
+				case <-time.After(5 * time.Second):
+				}
+			}))
+			defer srv.Close()
 
-	var sessionErr *ConsoleSessionError
-	require.ErrorAs(t, err, &sessionErr)
-	assert.Equal(t, agentErr, sessionErr.Message)
+			o := DefaultAppConsoleOptions()
+			o.consoleType = "vnc"
+
+			cfg := &client.Config{
+				RemoteAccessService: &client.Service{
+					Server:             srv.URL,
+					InsecureSkipVerify: true,
+				},
+			}
+
+			err := o.connectVNCViaWS(t.Context(), cfg, "dev1", "myvm", "")
+			close(clientDone)
+
+			var sessionErr *ConsoleSessionError
+			require.ErrorAs(t, err, &sessionErr)
+			assert.Equal(t, tt.agentErr, sessionErr.Message)
+			assert.Equal(t, tt.wantCode, sessionErr.Code)
+		})
+	}
 }
 
 func TestBridgeVNCClient_ClientDisconnectDoesNotCloseWebSocket(t *testing.T) {
