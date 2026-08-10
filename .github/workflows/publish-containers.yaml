@@ -236,37 +236,31 @@ jobs:
           go install github.com/flightctl/fips-validator@latest
           podman unshare -- $HOME/go/bin/fips-validator image "${BUILD_IMAGE}:_build"
 
-      - name: Push to Quay.io
-        id: push
-        uses: redhat-actions/push-to-registry@v2.7
-        with:
-          image: ${{ steps.build.outputs.image }}
-          tags: _build
-          registry: ${{ env.QUAY_ORG }}
-          username: ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_USERNAME }}
-          password: ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_PASSWORD }}
-
-      - name: Save digest
+      - name: Save image as OCI archive
+        env:
+          BUILD_IMAGE: ${{ steps.build.outputs.image }}
         run: |
-          mkdir -p /tmp/digests
-          echo "${{ steps.push.outputs.digest }}" > "/tmp/digests/${{ matrix.os }}-${{ matrix.image }}-${{ matrix.arch }}"
+          mkdir -p /tmp/image-archives
+          buildah push "${BUILD_IMAGE}:_build" \
+            "oci-archive:/tmp/image-archives/${{ matrix.os }}-${{ matrix.image }}-${{ matrix.arch }}.tar"
 
-      - name: Upload digest
+      - name: Upload image archive
         uses: actions/upload-artifact@v4
         with:
-          name: digest-${{ matrix.os }}-${{ matrix.image }}-${{ matrix.arch }}
-          path: /tmp/digests/${{ matrix.os }}-${{ matrix.image }}-${{ matrix.arch }}
+          name: image-${{ matrix.os }}-${{ matrix.image }}-${{ matrix.arch }}
+          path: /tmp/image-archives/${{ matrix.os }}-${{ matrix.image }}-${{ matrix.arch }}.tar
           retention-days: 1
+          compression-level: 0
 
   create-manifest-lists:
     needs: [publish-flightctl-containers, generate-tags]
     runs-on: "ubuntu-24.04"
     steps:
-      - name: Download all digests
+      - name: Download all image archives
         uses: actions/download-artifact@v4
         with:
-          path: /tmp/digests
-          pattern: digest-*
+          path: /tmp/image-archives
+          pattern: image-*
           merge-multiple: true
 
       - name: Login to Quay.io
@@ -274,7 +268,7 @@ jobs:
           buildah login -u ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_USERNAME }} \
             -p ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_PASSWORD }} quay.io
 
-      - name: Create and push manifest lists
+      - name: Load images and create manifest lists
         env:
           IMAGE_TAGS: ${{ needs.generate-tags.outputs.image_tags }}
         run: |
@@ -282,15 +276,18 @@ jobs:
             for image in ${SUPPORTED_IMAGES}; do
               FULL_IMAGE="${QUAY_ORG}/flightctl-${image}-${os}"
 
-              SOURCES=""
               for arch in ${SUPPORTED_ARCHES}; do
-                digest=$(cat "/tmp/digests/${os}-${image}-${arch}")
-                SOURCES="${SOURCES} docker://${FULL_IMAGE}@${digest}"
+                echo "Loading ${os}-${image}-${arch}"
+                buildah pull "oci-archive:/tmp/image-archives/${os}-${image}-${arch}.tar"
               done
 
               for tag in ${IMAGE_TAGS}; do
                 echo "Creating manifest list for ${FULL_IMAGE}:${tag}"
-                buildah manifest create "${FULL_IMAGE}:${tag}" ${SOURCES}
+                buildah manifest create "${FULL_IMAGE}:${tag}"
+                for arch in ${SUPPORTED_ARCHES}; do
+                  buildah manifest add "${FULL_IMAGE}:${tag}" \
+                    "oci-archive:/tmp/image-archives/${os}-${image}-${arch}.tar"
+                done
                 buildah manifest push --all "${FULL_IMAGE}:${tag}" "docker://${FULL_IMAGE}:${tag}"
                 buildah manifest rm "${FULL_IMAGE}:${tag}"
               done

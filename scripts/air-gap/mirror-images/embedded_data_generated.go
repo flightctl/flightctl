@@ -90,6 +90,10 @@ var embeddedBuildManifest = []byte(`
           "tag": "v0.28.1"
         },
         {
+          "ref": "quay.io/sclorg/postgresql-16-c10s",
+          "tag": "20250214"
+        },
+        {
           "ref": "quay.io/sclorg/postgresql-16-c9s",
           "tag": "20250214"
         },
