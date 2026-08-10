@@ -52,19 +52,54 @@ func EmitDeviceUpdatedEvent(ctx context.Context, eventsService events.Service, l
 	// Generate resource creation/update events
 	if created {
 		eventsService.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, true, domain.DeviceKind, name, nil, log, nil))
-	} else {
-		updateDetails := common.ComputeResourceUpdatedDetails(oldDevice.Metadata, newDevice.Metadata)
-		// Generate ResourceUpdated event if there are spec changes or status changes
-		if updateDetails != nil {
-			annotations := map[string]string{}
-			delayDeviceRender, ok := ctx.Value(consts.DelayDeviceRenderCtxKey).(bool)
-			if ok && delayDeviceRender {
-				annotations[domain.EventAnnotationDelayDeviceRender] = "true"
-			}
+		return
+	}
+	if oldDevice == nil || newDevice == nil {
+		return
+	}
 
-			eventsService.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, false, domain.DeviceKind, name, updateDetails, log, annotations))
+	updateDetails := common.ComputeResourceUpdatedDetails(oldDevice.Metadata, newDevice.Metadata)
+	// Spec changes must trigger ResourceUpdated even when Generation is missing/unchanged
+	// on the before/after snapshots (render tasks key off UpdatedFields=Spec).
+	updateDetails = ensureSpecUpdatedField(updateDetails, oldDevice, newDevice)
+	if updateDetails == nil {
+		return
+	}
+
+	annotations := map[string]string{}
+	delayDeviceRender, ok := ctx.Value(consts.DelayDeviceRenderCtxKey).(bool)
+	if ok && delayDeviceRender {
+		annotations[domain.EventAnnotationDelayDeviceRender] = "true"
+	}
+	eventsService.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, false, domain.DeviceKind, name, updateDetails, log, annotations))
+}
+
+func ensureSpecUpdatedField(details *domain.ResourceUpdatedDetails, oldDevice, newDevice *domain.Device) *domain.ResourceUpdatedDetails {
+	if !deviceSpecsChanged(oldDevice, newDevice) {
+		return details
+	}
+	if details == nil {
+		details = &domain.ResourceUpdatedDetails{}
+	}
+	for _, field := range details.UpdatedFields {
+		if field == domain.Spec {
+			return details
 		}
 	}
+	details.UpdatedFields = append(details.UpdatedFields, domain.Spec)
+	return details
+}
+
+func deviceSpecsChanged(oldDevice, newDevice *domain.Device) bool {
+	oldSpec := oldDevice.Spec
+	newSpec := newDevice.Spec
+	if oldSpec == nil && newSpec == nil {
+		return false
+	}
+	if oldSpec == nil || newSpec == nil {
+		return true
+	}
+	return !domain.DeviceSpecsAreEqual(*oldSpec, *newSpec)
 }
 
 // EmitDeviceDecommissionEvent handles device decommission event emission logic.

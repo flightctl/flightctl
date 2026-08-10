@@ -102,9 +102,7 @@ func ReturnTestDevice(orgId uuid.UUID, name string, owner *string, tv *string, l
 
 func CreateTestDevice(ctx context.Context, deviceStore devicestore.Store, orgId uuid.UUID, name string, owner *string, tv *string, labels *map[string]string) {
 	resource := ReturnTestDevice(orgId, name, owner, tv, labels)
-	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-	_, err := deviceStore.Create(ctx, orgId, &resource, callback)
-	if err != nil {
+	if _, err := deviceStore.Create(ctx, orgId, &resource, nil); err != nil {
 		log.Fatalf("creating device: %v", err)
 	}
 }
@@ -138,9 +136,7 @@ func CreateTestFleet(ctx context.Context, fleetStore fleetstore.Store, orgId uui
 	if selector != nil {
 		resource.Spec.Selector = &api.LabelSelector{MatchLabels: selector}
 	}
-	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-	_, err := fleetStore.Create(ctx, orgId, &resource, callback)
-	if err != nil {
+	if _, err := fleetStore.Create(ctx, orgId, &resource); err != nil {
 		log.Fatalf("creating fleet: %v", err)
 	}
 }

@@ -73,13 +73,16 @@ func (f *fakeDeviceStore) ListDevicesByVolumeCatalogItemRef(_ context.Context, _
 }
 
 func (f *fakeDeviceStore) InitialMigration(context.Context) error { panic("not implemented") }
-func (f *fakeDeviceStore) Create(context.Context, uuid.UUID, *domain.Device, store.EventCallback) (*domain.Device, error) {
+func (f *fakeDeviceStore) Create(context.Context, uuid.UUID, *domain.Device, *devicestore.DeviceRendered) (*domain.Device, error) {
 	panic("not implemented")
 }
-func (f *fakeDeviceStore) Update(context.Context, uuid.UUID, *domain.Device, []string, devicestore.DeviceStoreValidationCallback, store.EventCallback) (*domain.Device, error) {
+func (f *fakeDeviceStore) Mutate(context.Context, uuid.UUID, string, *domain.Device, devicestore.DeviceApplyFunc) (*domain.Device, *domain.Device, bool, error) {
 	panic("not implemented")
 }
-func (f *fakeDeviceStore) CreateOrUpdate(context.Context, uuid.UUID, *domain.Device, []string, devicestore.DeviceStoreValidationCallback, store.EventCallback) (*domain.Device, bool, error) {
+func (f *fakeDeviceStore) UpdateStatus(context.Context, uuid.UUID, *domain.Device, *domain.Device) (*domain.Device, *domain.Device, error) {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) UpdateAnnotations(context.Context, uuid.UUID, string, map[string]string, []string) error {
 	panic("not implemented")
 }
 func (f *fakeDeviceStore) Get(context.Context, uuid.UUID, string) (*domain.Device, error) {
@@ -94,9 +97,6 @@ func (f *fakeDeviceStore) Labels(context.Context, uuid.UUID, store.ListParams) (
 func (f *fakeDeviceStore) Delete(context.Context, uuid.UUID, string, store.EventCallback) (bool, error) {
 	panic("not implemented")
 }
-func (f *fakeDeviceStore) UpdateStatus(context.Context, uuid.UUID, *domain.Device, store.EventCallback, *domain.Device) (*domain.Device, error) {
-	panic("not implemented")
-}
 func (f *fakeDeviceStore) GetRendered(context.Context, uuid.UUID, string, *string, string) (*domain.Device, error) {
 	panic("not implemented")
 }
@@ -107,15 +107,6 @@ func (f *fakeDeviceStore) ProcessAwaitingReconnectAnnotation(context.Context, uu
 	panic("not implemented")
 }
 func (f *fakeDeviceStore) GetLastSeen(context.Context, uuid.UUID, string) (*time.Time, error) {
-	panic("not implemented")
-}
-func (f *fakeDeviceStore) UpdateAnnotations(context.Context, uuid.UUID, string, map[string]string, []string) error {
-	panic("not implemented")
-}
-func (f *fakeDeviceStore) MutateAnnotation(context.Context, uuid.UUID, string, string, func(string) (string, error)) error {
-	panic("not implemented")
-}
-func (f *fakeDeviceStore) UpdateRendered(context.Context, uuid.UUID, string, string, string, string, string, []domain.DependencySyncConfigRefStatus, bool, devicestore.RenderedStatusMutator) (string, error) {
 	panic("not implemented")
 }
 func (f *fakeDeviceStore) SetServiceConditions(context.Context, uuid.UUID, string, []domain.Condition, devicestore.ServiceConditionsCallback) error {
@@ -224,13 +215,16 @@ func (f *fakeFleetStore) ListFleetsByVolumeCatalogItemRef(_ context.Context, _ u
 }
 
 func (f *fakeFleetStore) InitialMigration(context.Context) error { panic("not implemented") }
-func (f *fakeFleetStore) Create(context.Context, uuid.UUID, *domain.Fleet, store.EventCallback) (*domain.Fleet, error) {
+func (f *fakeFleetStore) Create(context.Context, uuid.UUID, *domain.Fleet) (*domain.Fleet, error) {
 	panic("not implemented")
 }
-func (f *fakeFleetStore) Update(context.Context, uuid.UUID, *domain.Fleet, []string, store.EventCallback) (*domain.Fleet, error) {
+func (f *fakeFleetStore) Mutate(context.Context, uuid.UUID, string, *domain.Fleet, fleetstore.FleetApplyFunc) (*domain.Fleet, *domain.Fleet, bool, error) {
 	panic("not implemented")
 }
-func (f *fakeFleetStore) CreateOrUpdate(context.Context, uuid.UUID, *domain.Fleet, []string, store.EventCallback) (*domain.Fleet, bool, error) {
+func (f *fakeFleetStore) UpdateStatus(context.Context, uuid.UUID, *domain.Fleet) (*domain.Fleet, *domain.Fleet, error) {
+	panic("not implemented")
+}
+func (f *fakeFleetStore) UpdateAnnotations(context.Context, uuid.UUID, string, map[string]string, []string) (*domain.Fleet, *domain.Fleet, error) {
 	panic("not implemented")
 }
 func (f *fakeFleetStore) Get(context.Context, uuid.UUID, string, ...fleetstore.GetOption) (*domain.Fleet, error) {
@@ -240,9 +234,6 @@ func (f *fakeFleetStore) List(context.Context, uuid.UUID, store.ListParams, ...f
 	panic("not implemented")
 }
 func (f *fakeFleetStore) Delete(context.Context, uuid.UUID, string, store.EventCallback) error {
-	panic("not implemented")
-}
-func (f *fakeFleetStore) UpdateStatus(context.Context, uuid.UUID, *domain.Fleet) (*domain.Fleet, error) {
 	panic("not implemented")
 }
 func (f *fakeFleetStore) ListRolloutDeviceSelection(context.Context, uuid.UUID) (*domain.FleetList, error) {
@@ -255,15 +246,6 @@ func (f *fakeFleetStore) UnsetOwner(context.Context, *gorm.DB, uuid.UUID, string
 	panic("not implemented")
 }
 func (f *fakeFleetStore) UnsetOwnerByKind(context.Context, *gorm.DB, uuid.UUID, string) error {
-	panic("not implemented")
-}
-func (f *fakeFleetStore) UpdateConditions(context.Context, uuid.UUID, string, []domain.Condition, store.EventCallback) error {
-	panic("not implemented")
-}
-func (f *fakeFleetStore) UpdateAnnotations(context.Context, uuid.UUID, string, map[string]string, []string, store.EventCallback) error {
-	panic("not implemented")
-}
-func (f *fakeFleetStore) MutateAnnotation(context.Context, uuid.UUID, string, string, func(string) (string, error)) error {
 	panic("not implemented")
 }
 func (f *fakeFleetStore) OverwriteRepositoryRefs(context.Context, uuid.UUID, string, ...string) error {

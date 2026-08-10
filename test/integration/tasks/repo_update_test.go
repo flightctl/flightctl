@@ -112,11 +112,11 @@ var _ = Describe("RepoUpdate", func() {
 		}
 		fleet2.Spec.Template.Spec = api.DeviceSpec{Config: &config2}
 
-		_, err = fleetStore.Create(ctx, orgId, &fleet1, nil)
+		_, err = fleetStore.Create(ctx, orgId, &fleet1)
 		Expect(err).ToNot(HaveOccurred())
 		err = fleetStore.OverwriteRepositoryRefs(ctx, orgId, "fleet1", "myrepository-1")
 		Expect(err).ToNot(HaveOccurred())
-		_, err = fleetStore.Create(ctx, orgId, &fleet2, nil)
+		_, err = fleetStore.Create(ctx, orgId, &fleet2)
 		Expect(err).ToNot(HaveOccurred())
 		err = fleetStore.OverwriteRepositoryRefs(ctx, orgId, "fleet2", "myrepository-2")
 		Expect(err).ToNot(HaveOccurred())

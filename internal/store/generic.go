@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -68,6 +69,129 @@ func NewGenericStore[P extInt[M], M any, A any, AL any](
 
 func (s *GenericStore[P, M, A, AL]) getDB(ctx context.Context) *gorm.DB {
 	return s.dbHandler.WithContext(ctx)
+}
+
+// Mutate runs the shared read-modify-write loop: load (or use previous once),
+// Wrap into ResourceMutation, Clone on update, apply, then PersistCreate or PersistUpdate.
+// Handlers should call type-store Mutate wrappers, not this method directly.
+func (s *GenericStore[P, M, A, AL]) Mutate(
+	ctx context.Context,
+	orgId uuid.UUID,
+	name string,
+	previous *A,
+	hooks MutateHooks[A],
+	apply ApplyFunc[A],
+) (updated *A, before *A, created bool, err error) {
+	if apply == nil {
+		return nil, nil, false, fmt.Errorf("mutate apply is required")
+	}
+	if hooks.Wrap == nil {
+		return nil, nil, false, fmt.Errorf("mutate Wrap hook is required")
+	}
+	if hooks.PersistUpdate == nil {
+		return nil, nil, false, fmt.Errorf("mutate PersistUpdate hook is required")
+	}
+	persistCreate := hooks.PersistCreate
+	if persistCreate == nil {
+		persistCreate = func(ctx context.Context, orgId uuid.UUID, m ResourceMutation[A]) (*A, error) {
+			return s.Create(ctx, orgId, m.Resource())
+		}
+	}
+
+	attempt := 0
+	err = RetryUpdate(func() (bool, error) {
+		usePrevious := attempt == 0 && previous != nil
+		attempt++
+		created = false
+
+		var current *A
+		creating := false
+		if usePrevious {
+			current = previous
+		} else {
+			existing, getErr := s.loadByName(ctx, orgId, name)
+			if getErr != nil {
+				return false, getErr
+			}
+			if existing == nil {
+				creating = true
+				before = nil
+				current = nil
+			} else {
+				apiResource, loadErr := s.modelPtrToAPI(existing)
+				if loadErr != nil {
+					return false, loadErr
+				}
+				current = apiResource
+			}
+		}
+
+		mutation := hooks.Wrap(current)
+		if mutation == nil {
+			return false, fmt.Errorf("mutate Wrap returned nil")
+		}
+		if !creating {
+			// Snapshot before independently of the working copy so PersistUpdate /
+			// event callbacks never observe a shared pointer with the mutation.
+			beforeSnapshot, snapErr := CloneJSON(current)
+			if snapErr != nil {
+				return false, snapErr
+			}
+			before = beforeSnapshot
+
+			cloned, cloneErr := mutation.Clone()
+			if cloneErr != nil {
+				return false, cloneErr
+			}
+			mutation = cloned
+		}
+
+		if applyErr := apply(mutation); applyErr != nil {
+			if errors.Is(applyErr, ErrMutateSkipWrite) {
+				updated = mutation.Resource()
+				return false, nil
+			}
+			return false, applyErr
+		}
+
+		s.IntegrationTestCreateOrUpdateCallback()
+
+		if creating {
+			if mutation.Resource() == nil {
+				return false, flterrors.ErrResourceIsNil
+			}
+			createdResource, createErr := persistCreate(ctx, orgId, mutation)
+			if createErr != nil {
+				if errors.Is(createErr, flterrors.ErrDuplicateName) {
+					return true, createErr
+				}
+				return false, createErr
+			}
+			updated = createdResource
+			created = true
+			return false, nil
+		}
+
+		retry, persistErr := hooks.PersistUpdate(ctx, orgId, name, before, mutation)
+		if persistErr != nil {
+			return retry, persistErr
+		}
+		updated = mutation.Resource()
+		return false, nil
+	})
+	return updated, before, created, err
+}
+
+func (s *GenericStore[P, M, A, AL]) loadByName(ctx context.Context, orgId uuid.UUID, name string) (P, error) {
+	var existing M
+	result := s.getDB(ctx).Where("org_id = ? AND name = ?", orgId, name).Take(&existing)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, ErrorFromGormError(result.Error)
+	}
+	return &existing, nil
 }
 
 func (s *GenericStore[P, M, A, AL]) Create(ctx context.Context, orgId uuid.UUID, resource *A) (*A, error) {

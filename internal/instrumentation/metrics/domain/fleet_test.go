@@ -31,16 +31,17 @@ func (m *MockFleetStore) InitialMigration(ctx context.Context) error {
 	return nil
 }
 
-func (m *MockFleetStore) Create(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, callback store.EventCallback) (*domain.Fleet, error) {
+func (m *MockFleetStore) Create(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet) (*domain.Fleet, error) {
 	return nil, nil
 }
-
-func (m *MockFleetStore) Update(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, fieldsToUnset []string, callback store.EventCallback) (*domain.Fleet, error) {
-	return nil, nil
+func (m *MockFleetStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet) (*domain.Fleet, *domain.Fleet, error) {
+	return nil, nil, nil
 }
-
-func (m *MockFleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, fieldsToUnset []string, callback store.EventCallback) (*domain.Fleet, bool, error) {
-	return nil, false, nil
+func (m *MockFleetStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) (*domain.Fleet, *domain.Fleet, error) {
+	return nil, nil, nil
+}
+func (m *MockFleetStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.Fleet, apply fleetstore.FleetApplyFunc) (*domain.Fleet, *domain.Fleet, bool, error) {
+	return nil, nil, false, nil
 }
 
 func (m *MockFleetStore) Get(ctx context.Context, orgId uuid.UUID, name string, opts ...fleetstore.GetOption) (*domain.Fleet, error) {
@@ -75,10 +76,6 @@ func (m *MockFleetStore) Delete(ctx context.Context, orgId uuid.UUID, name strin
 	return nil
 }
 
-func (m *MockFleetStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet) (*domain.Fleet, error) {
-	return nil, nil
-}
-
 func (m *MockFleetStore) ListRolloutDeviceSelection(ctx context.Context, orgId uuid.UUID) (*domain.FleetList, error) {
 	return nil, nil
 }
@@ -92,18 +89,6 @@ func (m *MockFleetStore) UnsetOwner(ctx context.Context, tx *gorm.DB, orgId uuid
 }
 
 func (m *MockFleetStore) UnsetOwnerByKind(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, resourceKind string) error {
-	return nil
-}
-
-func (m *MockFleetStore) UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, eventCallback store.EventCallback) error {
-	return nil
-}
-
-func (m *MockFleetStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string, callbackEvent store.EventCallback) error {
-	return nil
-}
-
-func (m *MockFleetStore) MutateAnnotation(ctx context.Context, orgId uuid.UUID, name string, key string, mutate func(current string) (string, error)) error {
 	return nil
 }
 

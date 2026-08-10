@@ -7,6 +7,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
@@ -115,34 +116,34 @@ var _ = Describe("FleetStore create", func() {
 					Capabilities: &api.DeviceCapabilities{OsMode: lo.ToPtr(api.OsModeImage)},
 				},
 			}
-			_, err := deviceStore.UpdateStatus(ctx, orgId, &device, nil, nil)
+			_, _, err := deviceStore.UpdateStatus(ctx, orgId, &device, nil)
 			Expect(err).ToNot(HaveOccurred())
 			device.Metadata.Name = lo.ToPtr("mydevice-2")
 			device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusDegraded
 			device.Status.Summary.Status = api.DeviceSummaryStatusDegraded
 			device.Status.Capabilities = &api.DeviceCapabilities{OsMode: lo.ToPtr(api.OsModePackage)}
-			_, err = deviceStore.UpdateStatus(ctx, orgId, &device, nil, nil)
+			_, _, err = deviceStore.UpdateStatus(ctx, orgId, &device, nil)
 			Expect(err).ToNot(HaveOccurred())
 			device.Metadata.Name = lo.ToPtr("mydevice-3")
 			device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
 			device.Status.Summary.Status = api.DeviceSummaryStatusOnline
 			device.Status.Updated.Status = api.DeviceUpdatedStatusUpdating
 			device.Status.Capabilities = &api.DeviceCapabilities{OsMode: lo.ToPtr(api.OsModeImage)}
-			_, err = deviceStore.UpdateStatus(ctx, orgId, &device, nil, nil)
+			_, _, err = deviceStore.UpdateStatus(ctx, orgId, &device, nil)
 			Expect(err).ToNot(HaveOccurred())
 			device.Metadata.Name = lo.ToPtr("mydevice-4")
 			device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
 			device.Status.Summary.Status = api.DeviceSummaryStatusRebooting
 			device.Status.Updated.Status = api.DeviceUpdatedStatusUpdating
 			device.Status.Capabilities = nil
-			_, err = deviceStore.UpdateStatus(ctx, orgId, &device, nil, nil)
+			_, _, err = deviceStore.UpdateStatus(ctx, orgId, &device, nil)
 			Expect(err).ToNot(HaveOccurred())
 			device.Metadata.Name = lo.ToPtr("mydevice-5")
 			device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusError
 			device.Status.Summary.Status = api.DeviceSummaryStatusError
 			device.Status.Updated.Status = api.DeviceUpdatedStatusUnknown
 			device.Status.Capabilities = &api.DeviceCapabilities{OsMode: lo.ToPtr(api.OsModePackage)}
-			_, err = deviceStore.UpdateStatus(ctx, orgId, &device, nil, nil)
+			_, _, err = deviceStore.UpdateStatus(ctx, orgId, &device, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			otherOrgId := uuid.New()
@@ -370,7 +371,7 @@ var _ = Describe("FleetStore create", func() {
 			}
 		})
 
-		It("CreateOrUpdate create mode", func() {
+		It("Mutate fleet create mode", func() {
 			fleet := api.Fleet{
 				Metadata: api.ObjectMeta{
 					Name: lo.ToPtr("newresourcename"),
@@ -382,7 +383,21 @@ var _ = Describe("FleetStore create", func() {
 				},
 				Status: nil,
 			}
-			_, created, err := fleetStore.CreateOrUpdate(ctx, orgId, &fleet, nil, callback)
+			_, before, created, err := fleetStore.Mutate(ctx, orgId, lo.FromPtr(fleet.Metadata.Name), nil, func(m *fleetstore.FleetMutation) error {
+				if m.Fleet == nil {
+					m.Fleet = &fleet
+					return nil
+				}
+				m.Fleet.Spec = fleet.Spec
+				if fleet.Status != nil {
+					m.Fleet.Status = fleet.Status
+				}
+				store.ApplyObjectMetaUpdate(&m.Fleet.Metadata, &fleet.Metadata, nil)
+				return nil
+			})
+			if callback != nil {
+				callback(ctx, domain.FleetKind, orgId, lo.FromPtr(fleet.Metadata.Name), before, nil, created, err)
+			}
 			Expect(called).To(BeTrue())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(true))
@@ -397,7 +412,7 @@ var _ = Describe("FleetStore create", func() {
 			Expect(*createdFleet.Metadata.Generation).To(Equal(int64(1)))
 		})
 
-		It("CreateOrUpdate update mode same template", func() {
+		It("Mutate fleet update mode same template", func() {
 			fleet, err := fleetStore.Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(*fleet.Metadata.Generation).To(Equal(int64(1)))
@@ -410,7 +425,7 @@ var _ = Describe("FleetStore create", func() {
 				Message:            "message",
 			}
 			fleet.Status = &api.FleetStatus{Conditions: []api.Condition{condition}}
-			_, err = fleetStore.UpdateStatus(ctx, orgId, fleet)
+			_, _, err = fleetStore.UpdateStatus(ctx, orgId, fleet)
 			Expect(err).ToNot(HaveOccurred())
 			updatedFleet, err := fleetStore.Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
@@ -421,7 +436,35 @@ var _ = Describe("FleetStore create", func() {
 			updatedFleet.Metadata.Labels = nil
 			updatedFleet.Metadata.Annotations = nil
 
-			returnedFleet, created, err := fleetStore.CreateOrUpdate(ctx, orgId, updatedFleet, nil, callback)
+			returnedFleet, before, created, err := fleetStore.Mutate(ctx, orgId, lo.FromPtr(updatedFleet.Metadata.Name), nil, func(m *fleetstore.FleetMutation) error {
+
+				if m.Fleet == nil {
+
+					m.Fleet = updatedFleet
+
+					return nil
+
+				}
+
+				m.Fleet.Spec = updatedFleet.Spec
+
+				if updatedFleet.Status != nil {
+
+					m.Fleet.Status = updatedFleet.Status
+
+				}
+
+				store.ApplyObjectMetaUpdate(&m.Fleet.Metadata, &updatedFleet.Metadata, nil)
+
+				return nil
+
+			})
+
+			if callback != nil {
+
+				callback(ctx, domain.FleetKind, orgId, lo.FromPtr(updatedFleet.Metadata.Name), before, returnedFleet, created, err)
+
+			}
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeFalse())
 			Expect(called).To(BeTrue())
@@ -438,13 +481,41 @@ var _ = Describe("FleetStore create", func() {
 			Expect(*updatedFleet.Metadata.Generation).To(Equal(int64(2)))
 		})
 
-		It("CreateOrUpdate update mode updated spec", func() {
+		It("Mutate fleet update mode updated spec", func() {
 			fleet, err := fleetStore.Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
 			fleet.Spec.Template.Spec.Os = &api.DeviceOsSpec{Image: "my new OS"}
 			fleet.Status = nil
 
-			_, created, err := fleetStore.CreateOrUpdate(ctx, orgId, fleet, nil, callback)
+			_, before, created, err := fleetStore.Mutate(ctx, orgId, lo.FromPtr(fleet.Metadata.Name), nil, func(m *fleetstore.FleetMutation) error {
+
+				if m.Fleet == nil {
+
+					m.Fleet = fleet
+
+					return nil
+
+				}
+
+				m.Fleet.Spec = fleet.Spec
+
+				if fleet.Status != nil {
+
+					m.Fleet.Status = fleet.Status
+
+				}
+
+				store.ApplyObjectMetaUpdate(&m.Fleet.Metadata, &fleet.Metadata, nil)
+
+				return nil
+
+			})
+
+			if callback != nil {
+
+				callback(ctx, domain.FleetKind, orgId, lo.FromPtr(fleet.Metadata.Name), before, nil, created, err)
+
+			}
 			Expect(called).To(BeTrue())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeFalse())
@@ -478,7 +549,7 @@ var _ = Describe("FleetStore create", func() {
 				Status: &api.FleetStatus{Conditions: []api.Condition{condition}},
 			}
 
-			returnedFleet, err := fleetStore.UpdateStatus(ctx, orgId, &fleet)
+			returnedFleet, _, err := fleetStore.UpdateStatus(ctx, orgId, &fleet)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(returnedFleet.ApiVersion).To(Equal(model.FleetAPIVersion()))
 			Expect(returnedFleet.Kind).To(Equal(api.FleetKind))
@@ -547,7 +618,43 @@ var _ = Describe("FleetStore create", func() {
 				},
 			}
 
-			err := fleetStore.UpdateConditions(ctx, orgId, "myfleet-1", conditions, nil)
+			_, _, _, err := fleetStore.Mutate(ctx, orgId, "myfleet-1", nil, func(m *fleetstore.FleetMutation) error {
+
+				if err := m.RequireExisting(); err != nil {
+
+					return err
+
+				}
+
+				current := m.Fleet
+
+				if current.Status == nil {
+
+					current.Status = &domain.FleetStatus{}
+
+				}
+
+				changed := false
+
+				for _, condition := range conditions {
+
+					if domain.SetStatusCondition(&current.Status.Conditions, condition) {
+
+						changed = true
+
+					}
+
+				}
+
+				if !changed {
+
+					return store.ErrMutateSkipWrite
+
+				}
+
+				return nil
+
+			})
 			Expect(err).ToNot(HaveOccurred())
 			updatedFleet, err := fleetStore.Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
@@ -650,11 +757,11 @@ var _ = Describe("FleetStore create", func() {
 				},
 			}
 
-			_, err := fleetStore.Create(ctx, orgId, &fleet1, nil)
+			_, err := fleetStore.Create(ctx, orgId, &fleet1)
 			Expect(err).ToNot(HaveOccurred())
-			_, err = fleetStore.Create(ctx, orgId, &fleet2, nil)
+			_, err = fleetStore.Create(ctx, orgId, &fleet2)
 			Expect(err).ToNot(HaveOccurred())
-			_, err = fleetStore.Create(ctx, orgId, &fleet3, nil)
+			_, err = fleetStore.Create(ctx, orgId, &fleet3)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Test with specific orgId
@@ -700,7 +807,7 @@ var _ = Describe("FleetStore create", func() {
 					},
 				},
 			}
-			_, err = fleetStore.Create(ctx, otherOrgId, &fleet, nil)
+			_, err = fleetStore.Create(ctx, otherOrgId, &fleet)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Test with nil orgId (should get all orgs)
@@ -743,7 +850,7 @@ var _ = Describe("FleetStore create", func() {
 					},
 				},
 			}
-			_, err = fleetStore.Create(ctx, orgId, &fleet, nil)
+			_, err = fleetStore.Create(ctx, orgId, &fleet)
 			Expect(err).ToNot(HaveOccurred())
 
 			createdFleet, err := fleetStore.Get(ctx, orgId, "owned-fleet")
@@ -755,13 +862,35 @@ var _ = Describe("FleetStore create", func() {
 			updatedFleet.Spec.Selector = &api.LabelSelector{
 				MatchLabels: &map[string]string{"key": "updated"},
 			}
-			_, err = fleetStore.Update(ctx, orgId, &updatedFleet, nil, nil)
+			_, _, _, err = fleetStore.Mutate(ctx, orgId, lo.FromPtr(updatedFleet.Metadata.Name), nil, func(m *fleetstore.FleetMutation) error {
+				if err := m.RequireExisting(); err != nil {
+					return err
+				}
+				current := m.Fleet
+				current.Spec = updatedFleet.Spec
+				if updatedFleet.Status != nil {
+					current.Status = updatedFleet.Status
+				}
+				store.ApplyObjectMetaUpdate(&current.Metadata, &updatedFleet.Metadata, nil)
+				return nil
+			})
 			Expect(err).ToNot(HaveOccurred())
 
 			refetched, err := fleetStore.Get(ctx, orgId, "owned-fleet")
 			Expect(err).ToNot(HaveOccurred())
 			refetched.Metadata.Labels = &map[string]string{"updated": "label"}
-			_, err = fleetStore.Update(ctx, orgId, refetched, nil, nil)
+			_, _, _, err = fleetStore.Mutate(ctx, orgId, lo.FromPtr(refetched.Metadata.Name), nil, func(m *fleetstore.FleetMutation) error {
+				if err := m.RequireExisting(); err != nil {
+					return err
+				}
+				current := m.Fleet
+				current.Spec = refetched.Spec
+				if refetched.Status != nil {
+					current.Status = refetched.Status
+				}
+				store.ApplyObjectMetaUpdate(&current.Metadata, &refetched.Metadata, nil)
+				return nil
+			})
 			Expect(err).ToNot(HaveOccurred())
 
 			got, err := fleetStore.Get(ctx, orgId, "owned-fleet")
@@ -770,32 +899,44 @@ var _ = Describe("FleetStore create", func() {
 			Expect(got.Metadata.Labels).To(Equal(&map[string]string{"updated": "label"}))
 		})
 
-		It("MutateAnnotation sets the key from an initial empty value and preserves other annotations", func() {
-			err := fleetStore.UpdateAnnotations(ctx, orgId, "myfleet-1", map[string]string{"unrelated": "kept"}, nil, nil)
+		It("Mutate sets an annotation from an initial empty value and preserves other annotations", func() {
+			_, _, err := fleetStore.UpdateAnnotations(ctx, orgId, "myfleet-1", map[string]string{"unrelated": "kept"}, nil)
 			Expect(err).ToNot(HaveOccurred())
 
-			err = fleetStore.MutateAnnotation(ctx, orgId, "myfleet-1", "counter", func(current string) (string, error) {
-				Expect(current).To(Equal(""), "mutate should observe the empty string when the key is unset")
-				return "1", nil
+			_, _, _, err = fleetStore.Mutate(ctx, orgId, "myfleet-1", nil, func(m *fleetstore.FleetMutation) error {
+				if err := m.RequireExisting(); err != nil {
+					return err
+				}
+				ann := util.EnsureMap(lo.FromPtr(m.Fleet.Metadata.Annotations))
+				Expect(ann["counter"]).To(Equal(""), "mutate should observe the empty string when the key is unset")
+				ann["counter"] = "1"
+				m.Fleet.Metadata.Annotations = &ann
+				return nil
 			})
 			Expect(err).ToNot(HaveOccurred())
 
 			fleet, err := fleetStore.Get(ctx, orgId, "myfleet-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect((*fleet.Metadata.Annotations)["counter"]).To(Equal("1"))
-			Expect((*fleet.Metadata.Annotations)["unrelated"]).To(Equal("kept"), "MutateAnnotation must not clobber unrelated annotation keys")
+			Expect((*fleet.Metadata.Annotations)["unrelated"]).To(Equal("kept"), "annotation updates must not clobber unrelated keys")
 		})
 
-		It("MutateAnnotation re-invokes mutate with the freshly-read value on every call", func() {
+		It("Mutate reloads annotations on every attempt so sequential updates observe prior values", func() {
 			for i := 1; i <= 3; i++ {
 				expected := i
-				err := fleetStore.MutateAnnotation(ctx, orgId, "myfleet-1", "counter", func(current string) (string, error) {
+				_, _, _, err := fleetStore.Mutate(ctx, orgId, "myfleet-1", nil, func(m *fleetstore.FleetMutation) error {
+					if err := m.RequireExisting(); err != nil {
+						return err
+					}
+					ann := util.EnsureMap(lo.FromPtr(m.Fleet.Metadata.Annotations))
 					n := 0
-					if current != "" {
-						_, err := fmt.Sscanf(current, "%d", &n)
+					if ann["counter"] != "" {
+						_, err := fmt.Sscanf(ann["counter"], "%d", &n)
 						Expect(err).ToNot(HaveOccurred())
 					}
-					return fmt.Sprintf("%d", n+1), nil
+					ann["counter"] = fmt.Sprintf("%d", n+1)
+					m.Fleet.Metadata.Annotations = &ann
+					return nil
 				})
 				Expect(err).ToNot(HaveOccurred())
 
@@ -805,21 +946,29 @@ var _ = Describe("FleetStore create", func() {
 			}
 		})
 
-		It("MutateAnnotation is safe against concurrent read-modify-write races (no lost updates)", func() {
+		It("Mutate is safe against concurrent annotation read-modify-write races (no lost updates)", func() {
 			const numWriters = 8
 			errCh := make(chan error, numWriters)
 			for i := 0; i < numWriters; i++ {
 				go func() {
-					errCh <- fleetStore.MutateAnnotation(ctx, orgId, "myfleet-1", "counter", func(current string) (string, error) {
-						n := 0
-						if current != "" {
-							_, err := fmt.Sscanf(current, "%d", &n)
-							if err != nil {
-								return "", err
+					errCh <- func() error {
+						_, _, _, err := fleetStore.Mutate(ctx, orgId, "myfleet-1", nil, func(m *fleetstore.FleetMutation) error {
+							if err := m.RequireExisting(); err != nil {
+								return err
 							}
-						}
-						return fmt.Sprintf("%d", n+1), nil
-					})
+							ann := util.EnsureMap(lo.FromPtr(m.Fleet.Metadata.Annotations))
+							n := 0
+							if ann["counter"] != "" {
+								if _, err := fmt.Sscanf(ann["counter"], "%d", &n); err != nil {
+									return err
+								}
+							}
+							ann["counter"] = fmt.Sprintf("%d", n+1)
+							m.Fleet.Metadata.Annotations = &ann
+							return nil
+						})
+						return err
+					}()
 				}()
 			}
 			for i := 0; i < numWriters; i++ {

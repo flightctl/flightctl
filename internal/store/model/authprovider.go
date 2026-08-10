@@ -44,10 +44,10 @@ func NewAuthProviderFromApiResource(resource *domain.AuthProvider) (*AuthProvide
 	return &AuthProvider{
 		Resource: Resource{
 			Name:            lo.FromPtr(resource.Metadata.Name),
-			Owner:           resource.Metadata.Owner,
+			Owner:           clonePtr(resource.Metadata.Owner),
 			Labels:          lo.FromPtrOr(resource.Metadata.Labels, make(map[string]string)),
 			Annotations:     lo.FromPtr(resource.Metadata.Annotations),
-			Generation:      resource.Metadata.Generation,
+			Generation:      clonePtr(resource.Metadata.Generation),
 			ResourceVersion: resourceVersion,
 		},
 		Spec: MakeJSONField(resource.Spec),
@@ -76,7 +76,7 @@ func (a *AuthProvider) ToApiResource(opts ...APIResourceOption) (*domain.AuthPro
 			CreationTimestamp: lo.ToPtr(a.CreatedAt.UTC()),
 			Labels:            lo.ToPtr(util.EnsureMap(a.Resource.Labels)),
 			Annotations:       lo.ToPtr(util.EnsureMap(a.Resource.Annotations)),
-			Generation:        a.Generation,
+			Generation:        clonePtr(a.Generation),
 			ResourceVersion:   lo.Ternary(a.ResourceVersion != nil, lo.ToPtr(strconv.FormatInt(lo.FromPtr(a.ResourceVersion), 10)), nil),
 		},
 		Spec: spec,

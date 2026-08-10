@@ -382,7 +382,7 @@ var _ = Describe("DeviceRender", func() {
 					},
 				},
 			}
-			_, err = fleetStore.Create(ctx, orgId, fleet, nil)
+			_, err = fleetStore.Create(ctx, orgId, fleet)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Create template version with the fleet spec
@@ -446,7 +446,19 @@ var _ = Describe("DeviceRender", func() {
 				"device": "camera",
 				"size":   "big",
 			}
-			_, err = deviceStore.Update(ctx, orgId, device, nil, nil, nil)
+			_, _, _, err = deviceStore.Mutate(ctx, orgId, lo.FromPtr(device.Metadata.Name), nil, func(m *devicestore.DeviceMutation) error {
+				if err := m.RequireExisting(); err != nil {
+					return err
+				}
+				if device.Spec != nil {
+					m.Device.Spec = device.Spec
+				}
+				if device.Status != nil {
+					m.Device.Status = device.Status
+				}
+				store.ApplyObjectMetaUpdate(&m.Device.Metadata, &device.Metadata, nil)
+				return nil
+			})
 			Expect(err).ToNot(HaveOccurred())
 
 			// Trigger fleet rollout again to update device spec
@@ -522,7 +534,7 @@ var _ = Describe("DeviceRender", func() {
 					},
 				},
 			}
-			_, err = fleetStore.Create(ctx, orgId, fleet, nil)
+			_, err = fleetStore.Create(ctx, orgId, fleet)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Create template version with the fleet spec
@@ -1092,7 +1104,7 @@ var _ = Describe("DeviceRender", func() {
 					},
 				},
 			}
-			_, err = fleetStore.Create(ctx, orgId, fleet, nil)
+			_, err = fleetStore.Create(ctx, orgId, fleet)
 			Expect(err).ToNot(HaveOccurred())
 
 			tvStatus := api.TemplateVersionStatus{Config: &[]api.ConfigProviderSpec{configProvider}}

@@ -810,9 +810,15 @@ func TestUpdateRenderedDevice(t *testing.T) {
 	ctx := context.Background()
 	orgId := uuid.New()
 	_, err := st.device.Create(ctx, orgId, &domain.Device{
-		Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")},
-		Spec:     &domain.DeviceSpec{},
-		Status:   lo.ToPtr(domain.NewDeviceStatus()),
+		Metadata: domain.ObjectMeta{
+			Name: lo.ToPtr("foo"),
+			Annotations: &map[string]string{
+				domain.DeviceAnnotationRenderedSpecHash: "hash",
+				domain.DeviceAnnotationRenderedVersion:  "1",
+			},
+		},
+		Spec:   &domain.DeviceSpec{},
+		Status: lo.ToPtr(domain.NewDeviceStatus()),
 	}, nil)
 	require.NoError(t, err)
 	status := svc.UpdateRenderedDevice(ctx, orgId, "foo", "config", "apps", "hash", "", nil, false)

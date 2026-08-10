@@ -17,6 +17,19 @@ type Service interface {
 	UpdateDevice(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string) (*domain.Device, error)
 	GetDevice(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, domain.Status)
 	ReplaceDevice(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string, enforceOwnership bool, enforceCapabilities bool) (*domain.Device, domain.Status)
+	// ReplaceDeviceSpec overwrites Spec and merges the given annotation changes for an
+	// internal reconciler that already owns this device (fleet rollout). It does not
+	// require the caller's resourceVersion to match, and never touches Labels or Owner,
+	// so it cannot race with agent status heartbeats or clobber concurrent label/owner
+	// writes. expectedOwner is checked against the freshly loaded owner on every retry
+	// attempt; a mismatch returns a conflict so callers can detect it exactly as they
+	// would a resourceVersion conflict today.
+	ReplaceDeviceSpec(ctx context.Context, orgId uuid.UUID, name string, expectedOwner *string, spec domain.DeviceSpec, setAnnotations map[string]string, deleteAnnotations []string) (*domain.Device, domain.Status)
+	// SetDeviceOwner sets (or clears, when newOwner is nil) only the Owner field.
+	// Like ReplaceDeviceSpec, it skips resourceVersion matching and never touches
+	// Spec/Labels/Annotations, so fleet-selector reassignment can't race with heartbeats
+	// or silently overwrite a concurrently-rendered spec.
+	SetDeviceOwner(ctx context.Context, orgId uuid.UUID, name string, expectedOwner *string, newOwner *string) (*domain.Device, domain.Status)
 	DeleteDevice(ctx context.Context, orgId uuid.UUID, name string) domain.Status
 	GetDeviceStatus(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, domain.Status)
 	GetDeviceLastSeen(ctx context.Context, orgId uuid.UUID, name string) (*domain.DeviceLastSeen, domain.Status)

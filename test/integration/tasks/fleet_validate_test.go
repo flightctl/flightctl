@@ -201,7 +201,7 @@ var _ = Describe("FleetValidate", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(tvList.Items).To(HaveLen(0))
 
-			_, err = fleetStore.Create(ctx, orgId, fleet, nil)
+			_, err = fleetStore.Create(ctx, orgId, fleet)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)
@@ -260,7 +260,7 @@ var _ = Describe("FleetValidate", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(tvList.Items).To(HaveLen(0))
 
-			_, err = fleetStore.Create(ctx, orgId, fleet, nil)
+			_, err = fleetStore.Create(ctx, orgId, fleet)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)
@@ -317,7 +317,7 @@ var _ = Describe("FleetValidate", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(tvList.Items).To(HaveLen(0))
 
-			_, err = fleetStore.Create(ctx, orgId, fleet, nil)
+			_, err = fleetStore.Create(ctx, orgId, fleet)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)
@@ -371,7 +371,7 @@ var _ = Describe("FleetValidate", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(tvList.Items).To(HaveLen(0))
 
-			_, err = fleetStore.Create(ctx, orgId, fleet, nil)
+			_, err = fleetStore.Create(ctx, orgId, fleet)
 			Expect(err).ToNot(HaveOccurred())
 
 			err = logic.CreateNewTemplateVersionIfFleetValid(ctx)

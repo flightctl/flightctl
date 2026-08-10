@@ -227,6 +227,14 @@ func (_d *TracedDeviceService) ReplaceDevice(ctx context.Context, orgId uuid.UUI
 	return dp1, s1
 }
 
+func (_d *TracedDeviceService) ReplaceDeviceSpec(ctx context.Context, orgId uuid.UUID, name string, expectedOwner *string, spec domain.DeviceSpec, setAnnotations map[string]string, deleteAnnotations []string) (dp1 *domain.Device, s1 domain.Status) {
+	ctx, span := startSpan(ctx, "ReplaceDeviceSpec")
+
+	dp1, s1 = _d.inner.ReplaceDeviceSpec(ctx, orgId, name, expectedOwner, spec, setAnnotations, deleteAnnotations)
+	endSpan(span, s1)
+	return dp1, s1
+}
+
 func (_d *TracedDeviceService) ReplaceDeviceStatus(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, refreshLastSeen bool) (dp1 *domain.Device, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "ReplaceDeviceStatus")
 
@@ -249,6 +257,14 @@ func (_d *TracedDeviceService) ResumeDevices(ctx context.Context, orgId uuid.UUI
 	d1, s1 = _d.inner.ResumeDevices(ctx, orgId, request)
 	endSpan(span, s1)
 	return d1, s1
+}
+
+func (_d *TracedDeviceService) SetDeviceOwner(ctx context.Context, orgId uuid.UUID, name string, expectedOwner *string, newOwner *string) (dp1 *domain.Device, s1 domain.Status) {
+	ctx, span := startSpan(ctx, "SetDeviceOwner")
+
+	dp1, s1 = _d.inner.SetDeviceOwner(ctx, orgId, name, expectedOwner, newOwner)
+	endSpan(span, s1)
+	return dp1, s1
 }
 
 func (_d *TracedDeviceService) SetDeviceServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) (s1 domain.Status) {
