@@ -774,6 +774,12 @@ func (h *Harness) CLIWithStdin(stdin string, args ...string) (string, error) {
 	return h.SHWithStdin(stdin, flightctlPath(), false, args...)
 }
 
+// CLIWithStdinRedacted runs the flightctl CLI with the given stdin, suppressing stdin from logs.
+// Use this when stdin contains credentials or other sensitive data.
+func (h *Harness) CLIWithStdinRedacted(stdin string, args ...string) (string, error) {
+	return h.SHWithStdin(stdin, flightctlPath(), true, args...)
+}
+
 // SHWithStdin runs a command with stdin. Set redactStdin to true to suppress stdin from logs (e.g. secrets).
 func (h *Harness) SHWithStdin(stdin, command string, redactStdin bool, args ...string) (string, error) {
 	stdinLog := stdin

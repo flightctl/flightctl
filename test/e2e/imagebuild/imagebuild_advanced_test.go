@@ -22,9 +22,6 @@ const maxConcurrent = 3
 var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 	Context("ImageBuild parallel builds and exports", func() {
 		It("should run builds and exports in parallel and handle selective cancellation", Label("87341", "imagebuild", "slow"), func() {
-			Expect(workerHarness).ToNot(BeNil())
-			Expect(workerHarness.ImageBuilderClient).ToNot(BeNil(), "ImageBuilderClient must be available")
-
 			testID := workerHarness.GetTestIDFromContext()
 			registryAddress := auxSvcs.Registry.Host + ":" + auxSvcs.Registry.Port
 
