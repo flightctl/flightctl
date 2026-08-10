@@ -214,10 +214,10 @@ db:
 # -- Key-Value Store Configuration
 kv:
   image:
-    # -- Redis container image
-    image: quay.io/sclorg/redis-7-c9s
-    # -- Redis image tag
-    tag: "20250108"
+    # -- Valkey container image
+    image: quay.io/sclorg/valkey-8-c10s
+    # -- Valkey image tag
+    tag: "20260121"
     # -- Image pull policy for Redis container
     pullPolicy: ""
   # -- Secret containing password for Redis password (leave empty for auto-generation)

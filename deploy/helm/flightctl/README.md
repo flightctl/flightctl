@@ -383,11 +383,11 @@ For more detailed configuration options, see the [Values](#values) section below
 | imageBuilderWorker.serviceImages.syft.image | string | `""` | Syft image for SBOM generation. If empty, defaults to `docker.io/anchore/syft:v1.44.0`. |
 | imageBuilderWorker.serviceImages.syft.skipTlsVerify | bool | `false` | Set to true to skip TLS verification when pulling the Syft image. |
 | imageBuilderWorker.yumReposSecretName | string | `""` | Secret name containing yum repository configuration files, mounted at /etc/yum.repos.d |
-| kv | object | `{"fsGroup":"","image":{"image":"quay.io/sclorg/redis-7-c9s","pullPolicy":"","tag":"20250108"},"loglevel":"warning","maxmemory":"1gb","maxmemoryPolicy":"allkeys-lru","passwordSecretName":""}` | Key-Value Store Configuration |
+| kv | object | `{"fsGroup":"","image":{"image":"quay.io/sclorg/valkey-8-c10s","pullPolicy":"","tag":"20260121"},"loglevel":"warning","maxmemory":"1gb","maxmemoryPolicy":"allkeys-lru","passwordSecretName":""}` | Key-Value Store Configuration |
 | kv.fsGroup | string | `""` | File system group ID for Redis pod security context |
-| kv.image.image | string | `"quay.io/sclorg/redis-7-c9s"` | Redis container image |
+| kv.image.image | string | `"quay.io/sclorg/valkey-8-c10s"` | Redis container image |
 | kv.image.pullPolicy | string | `""` | Image pull policy for Redis container |
-| kv.image.tag | string | `"20250108"` | Redis image tag |
+| kv.image.tag | string | `"20260121"` | Redis image tag |
 | kv.loglevel | string | `"warning"` | Redis log level (debug, verbose, notice, warning) |
 | kv.maxmemory | string | `"1gb"` | Maximum memory usage for Redis |
 | kv.maxmemoryPolicy | string | `"allkeys-lru"` | Redis memory eviction policy |
