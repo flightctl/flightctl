@@ -873,8 +873,10 @@ func (h *DeviceServiceHandler) processAwaitingReconnectIfNeeded(ctx context.Cont
 }
 
 // isPackageModeOsTargetConflict reports whether the incoming device spec newly assigns
-// or changes an OS target (image or catalogItemRef) on a package-mode device. Unrelated
-// updates that retain the existing OS target are not conflicts.
+// or changes an OS target (image or catalogItemRef) on a package-mode device.
+// Clearing an OS target (nil/empty incoming) is not a conflict — that is the
+// remediation path for a stuck package-mode device. Unrelated updates that retain
+// the existing OS target are also not conflicts.
 func isPackageModeOsTargetConflict(existing *domain.Device, incoming *domain.Device) bool {
 	if existing.Status == nil || existing.Status.Capabilities == nil || existing.Status.Capabilities.OsMode == nil {
 		return false

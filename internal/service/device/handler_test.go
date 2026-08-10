@@ -1093,6 +1093,24 @@ func TestReplaceDevicePackageModeOsReject(t *testing.T) {
 			wantCode:            http.StatusBadRequest,
 			wantMessage:         flterrors.ErrOsTargetNotSupportedOnPackageMode.Error(),
 		},
+		{
+			name:                "When package-mode device clears existing os.image it should allow",
+			capabilities:        &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
+			existingOs:          &domain.DeviceOsSpec{Image: "quay.io/fleet-img:latest"},
+			incomingOs:          nil,
+			enforceOwnership:    true,
+			enforceCapabilities: true,
+			wantCode:            http.StatusOK,
+		},
+		{
+			name:                "When package-mode device clears existing catalogItemRef it should allow",
+			capabilities:        &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
+			existingOs:          &domain.DeviceOsSpec{CatalogItemRef: &domain.CatalogItemRefSpec{Catalog: "cat", Item: "os", Version: "v1"}},
+			incomingOs:          nil,
+			enforceOwnership:    true,
+			enforceCapabilities: true,
+			wantCode:            http.StatusOK,
+		},
 	}
 
 	for _, tt := range tests {
@@ -1130,6 +1148,9 @@ func TestPatchDevicePackageModeOsReject(t *testing.T) {
 		name                string
 		capabilities        *domain.DeviceCapabilities
 		existingOs          *domain.DeviceOsSpec
+		// patchOs seeds catalog items required for patch validation when the
+		// patch introduces a catalogItemRef (typed; not reverse-parsed from the patch).
+		patchOs             *domain.DeviceOsSpec
 		owner               *string
 		patch               domain.PatchRequest
 		enforceOwnership    bool
@@ -1195,8 +1216,11 @@ func TestPatchDevicePackageModeOsReject(t *testing.T) {
 			wantMessage:         flterrors.ErrUpdatingResourceWithOwnerNotAllowed.Error(),
 		},
 		{
-			name:                "When package-mode device gets patch adding catalogItemRef it should return 400",
-			capabilities:        &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
+			name:         "When package-mode device gets patch adding catalogItemRef it should return 400",
+			capabilities: &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
+			patchOs: &domain.DeviceOsSpec{
+				CatalogItemRef: &domain.CatalogItemRefSpec{Catalog: "cat", Item: "os", Version: "v1"},
+			},
 			patch:               patchAddCatalogItemRef("cat", "os", "v1"),
 			enforceOwnership:    true,
 			enforceCapabilities: true,
@@ -1212,6 +1236,15 @@ func TestPatchDevicePackageModeOsReject(t *testing.T) {
 			enforceCapabilities: true,
 			wantCode:            http.StatusOK,
 		},
+		{
+			name:                "When package-mode device gets patch removing existing os it should allow",
+			capabilities:        &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
+			existingOs:          &domain.DeviceOsSpec{Image: "quay.io/fleet-img:latest"},
+			patch:               domain.PatchRequest{{Op: "remove", Path: "/spec/os"}},
+			enforceOwnership:    true,
+			enforceCapabilities: true,
+			wantCode:            http.StatusOK,
+		},
 	}
 
 	for _, tt := range tests {
@@ -1221,7 +1254,7 @@ func TestPatchDevicePackageModeOsReject(t *testing.T) {
 			orgId := uuid.New()
 
 			seedCatalogItemsForOs(st, tt.existingOs)
-			seedCatalogItemForPatch(st, tt.patch)
+			seedCatalogItemsForOs(st, tt.patchOs)
 
 			status := domain.NewDeviceStatus()
 			status.Capabilities = tt.capabilities
@@ -1260,35 +1293,6 @@ func patchAddCatalogItemRef(catalog, item, version string) domain.PatchRequest {
 		},
 	}
 	return domain.PatchRequest{{Op: "add", Path: "/spec/os", Value: &value}}
-}
-
-func seedCatalogItemForPatch(st *fakeStore, patch domain.PatchRequest) {
-	for _, op := range patch {
-		if op.Path != "/spec/os" {
-			continue
-		}
-		val := op.Value
-		if ptr, ok := val.(*interface{}); ok && ptr != nil {
-			val = *ptr
-		}
-		m, ok := val.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		refMap, ok := m["catalogItemRef"].(map[string]interface{})
-		if !ok {
-			continue
-		}
-		cat, _ := refMap["catalog"].(string)
-		item, _ := refMap["item"].(string)
-		ver, _ := refMap["version"].(string)
-		if cat != "" && item != "" && ver != "" {
-			key := cat + "/" + item
-			if _, exists := st.catalog.items[key]; !exists {
-				st.catalog.items[key] = makeCatalogItem(domain.CatalogItemTypeOS, ver)
-			}
-		}
-	}
 }
 
 func patchAddLabel(key, value string) domain.PatchRequest {

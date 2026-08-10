@@ -321,10 +321,11 @@ Devices that have not reported OS mode yet (including create, before
 enrollment status is known) are not rejected by that API check; the agent
 still rejects an OS target once the device is package-mode.
 
-OS catalog items that set an OS image target are not usable on package-mode
-devices: the device cannot apply the image (same agent reject / `OutOfDate`
-behavior as a fleet or device with `spec.os.image`). For fleets that include
-both modes and set an OS image in the template, see
+OS catalog references are not usable on package-mode devices. The agent
+rejects a desired specification that contains `spec.os.catalogItemRef`.
+For fleet or device targets, the device remains `OutOfDate` until the target
+is removed. For fleets that include both modes and set an OS target in the
+template, see
 [Mixed image-mode and package-mode fleets](managing-fleets.md#mixed-image-mode-and-package-mode-fleets).
 
 Flight Control currently supports the following image types and image references formats:
