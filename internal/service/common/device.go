@@ -261,7 +261,8 @@ func updateServerSideDeviceUpdatedStatus(device *domain.Device, ctx context.Cont
 			if device.Spec.Os.Image != "" && device.Status.Os.Image != device.Spec.Os.Image {
 				device.Status.Updated.Status = domain.DeviceUpdatedStatusOutOfDate
 				device.Status.Updated.Info = lo.ToPtr(fmt.Sprintf("Device OS image mismatch: running %q, expected %q.", device.Status.Os.Image, device.Spec.Os.Image))
-			} else if device.Spec.Os.CatalogItemRef != nil && device.Spec.Os.Image == "" {
+			} else if *device.Status.Capabilities.OsMode == domain.OsModePackage &&
+				device.Spec.Os.CatalogItemRef != nil && device.Spec.Os.Image == "" {
 				device.Status.Updated.Status = domain.DeviceUpdatedStatusOutOfDate
 				device.Status.Updated.Info = lo.ToPtr("Device has a catalog OS target that cannot be satisfied.")
 			}

@@ -483,11 +483,10 @@ func TestUpdateServerSideDeviceUpdatedStatus_OsImageMismatch(t *testing.T) {
 			expectInfoContains: "catalog OS target",
 		},
 		{
-			name:               "When image-mode device has catalogItemRef only it should override to OutOfDate",
+			name:               "When image-mode device has catalogItemRef only it should remain UpToDate",
 			specCatalogItemRef: &domain.CatalogItemRefSpec{Catalog: "cat", Item: "os", Version: "v1"},
 			capabilities:       &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModeImage)},
-			expectedStatus:     domain.DeviceUpdatedStatusOutOfDate,
-			expectInfoContains: "catalog OS target",
+			expectedStatus:     domain.DeviceUpdatedStatusUpToDate,
 		},
 		{
 			name:               "When legacy device without capabilities has catalogItemRef it should remain UpToDate",
