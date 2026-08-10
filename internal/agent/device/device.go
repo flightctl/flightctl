@@ -281,14 +281,21 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 }
 
 // checkPackageModeSpecCompat validates that a package-mode device can satisfy
-// the desired spec. Returns a non-retryable error if the spec contains
-// spec.os.image, which package-mode devices cannot fulfill.
+// the desired spec. Returns a non-retryable error if the spec contains an OS
+// target (image or catalogItemRef) that package-mode devices cannot fulfill.
 func (a *Agent) checkPackageModeSpecCompat(desired *v1beta1.Device) error {
 	if a.osMode != v1beta1.OsModePackage {
 		return nil
 	}
-	if desired.Spec != nil && desired.Spec.Os != nil && desired.Spec.Os.Image != "" {
+	if desired.Spec == nil || desired.Spec.Os == nil {
+		return nil
+	}
+	if desired.Spec.Os.Image != "" {
 		return fmt.Errorf("package-mode device cannot satisfy spec with os.image %q: %w", desired.Spec.Os.Image, errors.ErrNoRetry)
+	}
+	if desired.Spec.Os.CatalogItemRef != nil {
+		return fmt.Errorf("package-mode device cannot satisfy spec with OS catalog reference %s/%s: %w",
+			desired.Spec.Os.CatalogItemRef.Catalog, desired.Spec.Os.CatalogItemRef.Item, errors.ErrNoRetry)
 	}
 	return nil
 }
