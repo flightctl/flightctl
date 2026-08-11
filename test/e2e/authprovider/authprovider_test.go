@@ -30,6 +30,7 @@ import (
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/quadlet/renderer"
+	authproviderhelpers "github.com/flightctl/flightctl/test/e2e/authprovider/helpers"
 	"github.com/flightctl/flightctl/test/e2e/infra"
 	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
 	quadletinfra "github.com/flightctl/flightctl/test/e2e/infra/quadlet"
@@ -602,21 +603,14 @@ func checkAPIEndpointReady(ctx context.Context, apiEndpoint string) error {
 				MinVersion:         tls.VersionTLS12,
 			},
 		},
-		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
 		Timeout: authConfigHTTPTimeout,
 	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("GET %s/readyz: %w", strings.TrimRight(apiEndpoint, "/"), err)
 	}
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			logrus.Warnf("[authprovider] failed to close API readiness response body: %v", err)
-		}
-	}()
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+	defer resp.Body.Close()
+	if resp.StatusCode >= http.StatusBadRequest {
 		return fmt.Errorf("GET %s/readyz returned %d", strings.TrimRight(apiEndpoint, "/"), resp.StatusCode)
 	}
 	return nil
@@ -938,6 +932,7 @@ func writeAndApplyAuthProviderManifest(harness *e2e.Harness, providerPath, provi
 }
 
 // deleteAuthProviderByName deletes a dynamic authprovider through the harness resource API.
+// It restores admin login before deletion to handle cases where an OIDC provider is currently active.
 func deleteAuthProviderByName(harness *e2e.Harness, providerName string) (string, error) {
 	if harness == nil {
 		return "", fmt.Errorf("worker harness is required")
@@ -948,7 +943,7 @@ func deleteAuthProviderByName(harness *e2e.Harness, providerName string) (string
 	if err := restoreAdminLoginForResourceManagement(harness); err != nil {
 		return "", err
 	}
-	return harness.ManageResource("delete", "authprovider", providerName)
+	return authproviderhelpers.DeleteAuthProvider(harness, providerName)
 }
 
 // restoreAdminLoginForResourceManagement resets the CLI session to an admin user before authprovider mutations.
@@ -1800,31 +1795,7 @@ func authProviderPackageDir() string {
 
 // buildOIDCAuthProviderYAML renders a dynamic OIDC authprovider manifest for this suite.
 func buildOIDCAuthProviderYAML(name, issuerURL, clientID, clientSecret string, enabled bool) string {
-	return fmt.Sprintf(`apiVersion: flightctl.io/v1beta1
-kind: AuthProvider
-metadata:
-  name: %s
-spec:
-  providerType: oidc
-  displayName: %s
-  issuer: %s
-  clientId: %s
-  clientSecret: %s
-  enabled: %t
-  scopes:
-    - openid
-    - profile
-    - email
-  usernameClaim:
-    - preferred_username
-  organizationAssignment:
-    type: static
-    organizationName: %s
-  roleAssignment:
-    type: static
-    roles:
-      - %s
-`, name, name, issuerURL, clientID, clientSecret, enabled, defaultOrganizationName, defaultAdminRole)
+	return authproviderhelpers.BuildOIDCAuthProviderYAML(name, issuerURL, clientID, clientSecret, enabled)
 }
 
 // buildKeycloakOAuth2AuthProviderYAML renders a Keycloak-backed dynamic OAuth2 authprovider manifest for this suite.

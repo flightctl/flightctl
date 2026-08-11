@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	internalconfig "github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/test/e2e/infra"
 	"github.com/stretchr/testify/require"
 	"sigs.k8s.io/yaml"
@@ -554,6 +555,26 @@ func (f fakeInfraProvider) BuiltinDatabaseWorkloadAvailable() bool {
 // ServiceExists is unused by these tests and satisfies infra.InfraProvider.
 func (f fakeInfraProvider) ServiceExists(context.Context, infra.ServiceName) (bool, error) {
 	return false, nil
+}
+
+// SetEncryptionKey is unused by these tests and satisfies infra.InfraProvider.
+func (f fakeInfraProvider) SetEncryptionKey(infra.ServiceName, string, []byte) error {
+	return errors.New("not implemented")
+}
+
+// ResetEncryptionKeys is unused by these tests and satisfies infra.InfraProvider.
+func (f fakeInfraProvider) ResetEncryptionKeys() error {
+	return errors.New("not implemented")
+}
+
+// GetEncryptionConfig is unused by these tests and satisfies infra.InfraProvider.
+func (f fakeInfraProvider) GetEncryptionConfig(infra.ServiceName) (*internalconfig.EncryptionConfig, error) {
+	return nil, errors.New("not implemented")
+}
+
+// SetEncryptionConfig is unused by these tests and satisfies infra.InfraProvider.
+func (f fakeInfraProvider) SetEncryptionConfig(infra.ServiceName, *internalconfig.EncryptionConfig) error {
+	return errors.New("not implemented")
 }
 
 var _ infra.InfraProvider = fakeInfraProvider{}
