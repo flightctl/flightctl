@@ -27,8 +27,6 @@ BuildRequires:  git
 BuildRequires:  openssl-devel
 BuildRequires:  systemd-rpm-macros
 
-Requires: openssl
-
 %global flightctl_target flightctl.target
 
 
@@ -77,6 +75,7 @@ The flightctl-selinux package provides the SELinux policy modules required by th
 %package services
 Summary: Flight Control services
 Requires: bash
+Requires: openssl
 Requires: podman
 Requires: python3-pyyaml
 BuildRequires: systemd-rpm-macros
