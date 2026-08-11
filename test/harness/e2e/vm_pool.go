@@ -13,9 +13,19 @@ import (
 )
 
 const (
-	greenbootTimeout      = 2 * time.Minute
-	greenbootPollInterval = 1 * time.Second
+	greenbootTimeoutDefault      = 2 * time.Minute
+	greenbootTimeoutDisconnected = 5 * time.Minute
+	greenbootPollInterval        = 1 * time.Second
 )
+
+func getGreenbootTimeout() time.Duration {
+	if os.Getenv("E2E_DISCONNECTED") == "true" {
+		fmt.Printf("📡 [VMPool] E2E_DISCONNECTED=true → greenboot timeout %s\n", greenbootTimeoutDisconnected)
+		return greenbootTimeoutDisconnected
+	}
+	fmt.Printf("📡 [VMPool] greenboot timeout %s (default)\n", greenbootTimeoutDefault)
+	return greenbootTimeoutDefault
+}
 
 // VMPool manages VMs across all test suites
 type VMPool struct {
@@ -269,7 +279,8 @@ func (p *VMPool) createVMForWorker(workerID int) (vm.TestVMInterface, error) {
 // successfully or is not installed, and an error if the service failed,
 // timed out, or could not be queried.
 func waitForGreenbootHealthcheck(testVM vm.TestVMInterface) error {
-	deadline := time.Now().Add(greenbootTimeout)
+	timeout := getGreenbootTimeout()
+	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		stdout, err := testVM.RunSSH([]string{"systemctl", "show", "-p", "ActiveState", "--value", "greenboot-healthcheck.service"}, nil)
 		if err != nil {
@@ -296,7 +307,7 @@ func waitForGreenbootHealthcheck(testVM vm.TestVMInterface) error {
 
 		return fmt.Errorf("greenboot-healthcheck completed with state=%q result=%q", state, result)
 	}
-	return fmt.Errorf("timed out after %s waiting for greenboot-healthcheck", greenbootTimeout)
+	return fmt.Errorf("timed out after %s waiting for greenboot-healthcheck", timeout)
 }
 
 // createFreshVMBase creates a fresh VM with an overlay disk, starts it, waits for SSH,
