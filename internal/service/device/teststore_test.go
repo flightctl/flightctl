@@ -3,6 +3,7 @@ package device
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -54,7 +55,7 @@ type fakeStore struct {
 
 func newFakeStore() *fakeStore {
 	return &fakeStore{
-		device:  &fakeDeviceStore{devices: map[string]*domain.Device{}, repoRefs: map[string][]string{}},
+		device:  &fakeDeviceStore{devices: map[string]*domain.Device{}, rendered: map[string]*devicestore.DeviceRendered{}, repoRefs: map[string][]string{}},
 		catalog: &fakeCatalogStore{items: map[string]*domain.CatalogItem{}},
 		fleet:   &fakeFleetStore{fleets: map[string]*domain.Fleet{}},
 	}
@@ -65,18 +66,23 @@ func newFakeStore() *fakeStore {
 type fakeDeviceStore struct {
 	devicestore.Store
 	devices  map[string]*domain.Device
+	rendered map[string]*devicestore.DeviceRendered
 	repoRefs map[string][]string
 }
 
-func (s *fakeDeviceStore) Create(ctx context.Context, orgId uuid.UUID, device *domain.Device, eventCallback store.EventCallback) (*domain.Device, error) {
+func (s *fakeDeviceStore) Create(ctx context.Context, orgId uuid.UUID, device *domain.Device, rendered *devicestore.DeviceRendered) (*domain.Device, error) {
 	name := lo.FromPtr(device.Metadata.Name)
 	if _, exists := s.devices[name]; exists {
 		return nil, flterrors.ErrDuplicateName
 	}
 	d := deepCopyDevice(device)
 	s.devices[name] = d
-	if eventCallback != nil {
-		eventCallback(ctx, domain.DeviceKind, orgId, name, nil, d, true, nil)
+	if rendered != nil {
+		if s.rendered == nil {
+			s.rendered = map[string]*devicestore.DeviceRendered{}
+		}
+		cp := *rendered
+		s.rendered[name] = &cp
 	}
 	return deepCopyDevice(d), nil
 }
@@ -93,54 +99,66 @@ func (s *fakeDeviceStore) GetWithTimestamp(ctx context.Context, orgId uuid.UUID,
 	return s.Get(ctx, orgId, name)
 }
 
-func preserveNilMetadata(device, existing *domain.Device, fieldsToUnset []string) {
-	if device.Metadata.Owner == nil && !lo.Contains(fieldsToUnset, "owner") {
-		device.Metadata.Owner = existing.Metadata.Owner
-	}
-	if device.Metadata.Annotations == nil && !lo.Contains(fieldsToUnset, "annotations") {
-		device.Metadata.Annotations = existing.Metadata.Annotations
-	}
-}
-
-func (s *fakeDeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, validationCallback devicestore.DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, bool, error) {
-	name := lo.FromPtr(device.Metadata.Name)
-	old, existed := s.devices[name]
-	if existed && validationCallback != nil {
-		if err := validationCallback(ctx, old, device); err != nil {
-			return nil, false, err
-		}
-	}
-	if existed {
-		preserveNilMetadata(device, old, fieldsToUnset)
-	}
-	d := deepCopyDevice(device)
-	s.devices[name] = d
-	created := !existed
-	if eventCallback != nil {
-		eventCallback(ctx, domain.DeviceKind, orgId, name, old, d, created, nil)
-	}
-	return deepCopyDevice(d), created, nil
-}
-
-func (s *fakeDeviceStore) Update(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, validationCallback devicestore.DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, error) {
-	name := lo.FromPtr(device.Metadata.Name)
+func (s *fakeDeviceStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.Device, apply devicestore.DeviceApplyFunc) (*domain.Device, *domain.Device, bool, error) {
 	old, ok := s.devices[name]
-	if !ok {
-		return nil, flterrors.ErrResourceNotFound
+	creating := !ok
+	var before *domain.Device
+	var current *domain.Device
+	if !creating {
+		before = deepCopyDevice(old)
+		current = deepCopyDevice(old)
 	}
-	if validationCallback != nil {
-		if err := validationCallback(ctx, old, device); err != nil {
-			return nil, err
+	mutation := &devicestore.DeviceMutation{Device: current}
+	if apply != nil {
+		if err := apply(mutation); err != nil {
+			if errors.Is(err, store.ErrMutateSkipWrite) {
+				if mutation.Device == nil {
+					return nil, before, false, nil
+				}
+				return deepCopyDevice(mutation.Device), before, false, nil
+			}
+			return nil, nil, false, err
 		}
 	}
-	preserveNilMetadata(device, old, fieldsToUnset)
-	d := deepCopyDevice(device)
-	s.devices[name] = d
-	if eventCallback != nil {
-		eventCallback(ctx, domain.DeviceKind, orgId, name, old, d, false, nil)
+	if mutation.Device == nil {
+		return nil, nil, false, flterrors.ErrResourceIsNil
 	}
-	return deepCopyDevice(d), nil
+	d := deepCopyDevice(mutation.Device)
+	s.devices[name] = d
+	if mutation.Rendered != nil {
+		if s.rendered == nil {
+			s.rendered = map[string]*devicestore.DeviceRendered{}
+		}
+		cp := *mutation.Rendered
+		s.rendered[name] = &cp
+	}
+	return deepCopyDevice(d), before, creating, nil
 }
+
+func (s *fakeDeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, previous *domain.Device) (*domain.Device, *domain.Device, error) {
+	name := lo.FromPtr(device.Metadata.Name)
+	updated, before, _, err := s.Mutate(ctx, orgId, name, previous, func(m *devicestore.DeviceMutation) error {
+		if err := m.RequireExisting(); err != nil {
+			return err
+		}
+		m.Device.Status = device.Status
+		return nil
+	})
+	return updated, before, err
+}
+
+func (s *fakeDeviceStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error {
+	_, _, _, err := s.Mutate(ctx, orgId, name, nil, func(m *devicestore.DeviceMutation) error {
+		if err := m.RequireExisting(); err != nil {
+			return err
+		}
+		merged := store.MergeAnnotations(m.Device.Metadata.Annotations, annotations, deleteKeys)
+		m.Device.Metadata.Annotations = &merged
+		return nil
+	})
+	return err
+}
+
 func (s *fakeDeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback store.EventCallback) (bool, error) {
 	old, ok := s.devices[name]
 	if !ok {
@@ -151,20 +169,6 @@ func (s *fakeDeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name stri
 		eventCallback(ctx, domain.DeviceKind, orgId, name, old, nil, false, nil)
 	}
 	return true, nil
-}
-
-func (s *fakeDeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, eventCallback store.EventCallback, previous *domain.Device) (*domain.Device, error) {
-	name := lo.FromPtr(device.Metadata.Name)
-	old := previous
-	if old == nil {
-		old = s.devices[name]
-	}
-	d := deepCopyDevice(device)
-	s.devices[name] = d
-	if eventCallback != nil {
-		eventCallback(ctx, domain.DeviceKind, orgId, name, old, d, false, nil)
-	}
-	return deepCopyDevice(d), nil
 }
 
 func (s *fakeDeviceStore) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error {
@@ -228,58 +232,6 @@ func (s *fakeDeviceStore) UnmarkRolloutSelection(ctx context.Context, orgId uuid
 
 func (s *fakeDeviceStore) MarkRolloutSelection(ctx context.Context, orgId uuid.UUID, listParams store.ListParams, limit *int) error {
 	return nil
-}
-
-func (s *fakeDeviceStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error {
-	d, ok := s.devices[name]
-	if !ok {
-		return flterrors.ErrResourceNotFound
-	}
-	current := map[string]string{}
-	if d.Metadata.Annotations != nil {
-		for k, v := range *d.Metadata.Annotations {
-			current[k] = v
-		}
-	}
-	for _, k := range deleteKeys {
-		delete(current, k)
-	}
-	for k, v := range annotations {
-		current[k] = v
-	}
-	d.Metadata.Annotations = &current
-	return nil
-}
-
-func (s *fakeDeviceStore) MutateAnnotation(ctx context.Context, orgId uuid.UUID, name string, key string, mutate func(current string) (string, error)) error {
-	d, ok := s.devices[name]
-	if !ok {
-		return flterrors.ErrResourceNotFound
-	}
-	current := map[string]string{}
-	if d.Metadata.Annotations != nil {
-		for k, v := range *d.Metadata.Annotations {
-			current[k] = v
-		}
-	}
-	newValue, err := mutate(current[key])
-	if err != nil {
-		return err
-	}
-	current[key] = newValue
-	d.Metadata.Annotations = &current
-	return nil
-}
-
-func (s *fakeDeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash, osImage string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, mutateStatus devicestore.RenderedStatusMutator) (string, error) {
-	if _, ok := s.devices[name]; !ok {
-		return "", flterrors.ErrResourceNotFound
-	}
-	// Always report "no change in rendered version" so DeviceServiceHandler.UpdateRenderedDevice
-	// takes its early-return path and never reaches the rendered.Bus process-global singleton,
-	// which requires integration-level initialization (see test/integration/service) and is
-	// out of scope for this package's hermetic unit tests.
-	return "", nil
 }
 
 func (s *fakeDeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*domain.Device, error) {

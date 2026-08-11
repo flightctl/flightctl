@@ -520,16 +520,16 @@ func (f FleetSelectorMatchingLogic) updateDeviceOwner(ctx context.Context, devic
 		return nil
 	}
 
-	fieldsToNil := []string{}
-	newOwnerRef := util.SetResourceOwner(domain.FleetKind, newOwnerFleet)
-	if len(newOwnerFleet) == 0 {
-		newOwnerRef = nil
-		fieldsToNil = append(fieldsToNil, "owner")
+	var newOwnerRef *string
+	if len(newOwnerFleet) != 0 {
+		newOwnerRef = util.SetResourceOwner(domain.FleetKind, newOwnerFleet)
 	}
 
 	f.log.Infof("Updating fleet of device %s from %s to %s", *device.Metadata.Name, util.DefaultIfNil(device.Metadata.Owner, "<none>"), util.DefaultIfNil(newOwnerRef, "<none>"))
-	device.Metadata.Owner = newOwnerRef
-	_, status := f.deviceSvc.ReplaceDevice(ctx, f.orgId, *device.Metadata.Name, lo.FromPtr(device), fieldsToNil, false, false)
+	// SetDeviceOwner (unlike ReplaceDevice) doesn't require our resourceVersion to match and
+	// never touches Spec/Labels/Annotations, so it can't race with agent status heartbeats
+	// or clobber a spec that's being concurrently rendered/rolled out for this device.
+	_, status := f.deviceSvc.SetDeviceOwner(ctx, f.orgId, *device.Metadata.Name, device.Metadata.Owner, newOwnerRef)
 
 	if err := common.ApiStatusToErr(status); err != nil {
 		return err

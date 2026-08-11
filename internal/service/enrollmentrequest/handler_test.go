@@ -120,8 +120,8 @@ func (f *fakeEnrollmentRequestStore) UpdateStatus(ctx context.Context, orgId uui
 	return req, nil
 }
 
-// fakeDeviceStore embeds devicestore.Store (nil) and overrides only Get and CreateOrUpdate,
-// the two methods this handler's allowCreationOrUpdate/deviceExists/createDeviceFromEnrollmentRequest
+// fakeDeviceStore embeds devicestore.Store (nil) and overrides only Get and Create,
+// the methods this handler's allowCreationOrUpdate/deviceExists/createDeviceFromEnrollmentRequest
 // call sites use.
 type fakeDeviceStore struct {
 	devicestore.Store
@@ -140,20 +140,13 @@ func (f *fakeDeviceStore) Get(ctx context.Context, orgId uuid.UUID, name string)
 	return d, nil
 }
 
-func (f *fakeDeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, validationCallback devicestore.DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, bool, error) {
+func (f *fakeDeviceStore) Create(ctx context.Context, orgId uuid.UUID, device *domain.Device, rendered *devicestore.DeviceRendered) (*domain.Device, error) {
 	name := lo.FromPtr(device.Metadata.Name)
-	existing := f.items[name]
-	if validationCallback != nil {
-		if err := validationCallback(ctx, existing, device); err != nil {
-			return nil, false, err
-		}
+	if _, exists := f.items[name]; exists {
+		return nil, flterrors.ErrDuplicateName
 	}
-	created := existing == nil
 	f.items[name] = device
-	if eventCallback != nil {
-		eventCallback(ctx, domain.DeviceKind, orgId, name, existing, device, created, nil)
-	}
-	return device, created, nil
+	return device, nil
 }
 
 // fakeKVStore embeds kvstore.KVStore (nil) and overrides only SetNX, the sole method

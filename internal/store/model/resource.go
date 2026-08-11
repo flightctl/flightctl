@@ -43,6 +43,20 @@ type Resource struct {
 	DeletedAt       gorm.DeletedAt `gorm:"index"`
 }
 
+// clonePtr copies the pointed-to value into a new allocation instead of
+// aliasing the caller's pointer. Model<->API conversions (NewXFromApiResource,
+// ToApiResource) must use this for Generation/Owner: GORM's map-based Updates()
+// writes new column values back into the model struct's fields in place, so an
+// aliased pointer would let that write silently mutate the caller's object too
+// (e.g. corrupting a pre-mutation "before" snapshot used for event diffing).
+func clonePtr[T any](p *T) *T {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
+}
+
 func (r *Resource) BeforeCreate(tx *gorm.DB) error {
 	if len(r.Name) == 0 {
 		r.Name = uuid.New().String()
