@@ -63,7 +63,7 @@ func NewTemplateVersionFromApiResource(resource *domain.TemplateVersion) (*Templ
 	}
 	return &TemplateVersion{
 		Name:            *resource.Metadata.Name,
-		Generation:      resource.Metadata.Generation,
+		Generation:      clonePtr(resource.Metadata.Generation),
 		FleetName:       ownerName,
 		Labels:          lo.FromPtrOr(resource.Metadata.Labels, make(map[string]string)),
 		Annotations:     lo.FromPtrOr(resource.Metadata.Annotations, make(map[string]string)),
@@ -104,7 +104,7 @@ func (tv *TemplateVersion) ToApiResource(opts ...APIResourceOption) (*domain.Tem
 			CreationTimestamp: lo.ToPtr(tv.CreatedAt.UTC()),
 			Labels:            lo.ToPtr(util.EnsureMap(tv.Labels)),
 			Annotations:       lo.ToPtr(util.EnsureMap(tv.Annotations)),
-			Generation:        tv.Generation,
+			Generation:        clonePtr(tv.Generation),
 			Owner:             util.SetResourceOwner(domain.FleetKind, tv.FleetName),
 			ResourceVersion:   lo.Ternary(tv.ResourceVersion != nil, lo.ToPtr(strconv.FormatInt(lo.FromPtr(tv.ResourceVersion), 10)), nil),
 		},

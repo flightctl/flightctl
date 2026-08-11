@@ -359,17 +359,12 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 	}
 
 	f.log.Infof("Rolling out device %s/%s to templateVersion %s", f.orgId, *device.Metadata.Name, *templateVersion.Metadata.Name)
-	err := f.updateDeviceInStore(ctx, device, &newDeviceSpec, delayDeviceRender)
+	// Write Spec and templateVersion in the same Replace so a Spec ResourceUpdated
+	// render already sees the annotation, and RV-race owner checks still run on
+	// the Spec Mutate (a prior annotation-only write would consume the race hook).
+	err := f.updateDeviceInStore(ctx, device, &newDeviceSpec, *templateVersion.Metadata.Name, delayDeviceRender)
 	if err != nil {
 		return nil, fmt.Errorf("failed updating device spec: %w", err)
-	}
-
-	annotations := map[string]string{
-		domain.DeviceAnnotationTemplateVersion: *templateVersion.Metadata.Name,
-	}
-	status := f.deviceSvc.UpdateDeviceAnnotations(ctx, f.orgId, *device.Metadata.Name, annotations, []string{domain.DeviceAnnotationLastRolloutError})
-	if status.Code != http.StatusOK {
-		return nil, fmt.Errorf("failed updating templateVersion annotation: %s", status.Message)
 	}
 
 	return depRefs, nil
@@ -1076,15 +1071,19 @@ func (f FleetRolloutsLogic) replaceHTTPConfigParameters(device *domain.Device, c
 	return &newConfigItem, refs, nil
 }
 
-func (f FleetRolloutsLogic) updateDeviceInStore(ctx context.Context, device *domain.Device, newDeviceSpec *domain.DeviceSpec, delayDeviceRender bool) error {
+func (f FleetRolloutsLogic) updateDeviceInStore(ctx context.Context, device *domain.Device, newDeviceSpec *domain.DeviceSpec, templateVersionName string, delayDeviceRender bool) error {
 	var status domain.Status
+	setAnnotations := map[string]string{domain.DeviceAnnotationTemplateVersion: templateVersionName}
+	deleteAnnotations := []string{domain.DeviceAnnotationLastRolloutError}
 	for i := 0; i < 10; i++ {
 		if device.Metadata.Owner == nil || *device.Metadata.Owner != f.owner {
 			return fmt.Errorf("device owner changed, skipping rollout")
 		}
-		device.Spec = newDeviceSpec
 		newCtx := context.WithValue(ctx, consts.DelayDeviceRenderCtxKey, delayDeviceRender)
-		_, status = f.deviceSvc.ReplaceDevice(newCtx, f.orgId, *device.Metadata.Name, *device, nil, false, false)
+		// ReplaceDeviceSpec (unlike ReplaceDevice) doesn't require our resourceVersion to
+		// match, so it can't be blocked by agent status heartbeats bumping resource_version
+		// out from under us. Owner is re-verified against the store's fresh read below.
+		_, status = f.deviceSvc.ReplaceDeviceSpec(newCtx, f.orgId, *device.Metadata.Name, &f.owner, *newDeviceSpec, setAnnotations, deleteAnnotations)
 		if status.Code != http.StatusOK {
 			if status.Code == http.StatusConflict {
 				device, status = f.deviceSvc.GetDevice(ctx, f.orgId, *device.Metadata.Name)

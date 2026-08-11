@@ -55,25 +55,32 @@ type Store interface {
 	InitialMigration(ctx context.Context) error
 
 	// Exposed to users
-	Create(ctx context.Context, orgId uuid.UUID, device *domain.Device, eventCallback store.EventCallback) (*domain.Device, error)
-	Update(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, validationCallback DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, validationCallback DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, bool, error)
+	// Create inserts a device. Duplicate names return ErrDuplicateName.
+	// rendered is optional storage-only column data (nil on normal creates).
+	// No events; the caller fires its own callback.
+	Create(ctx context.Context, orgId uuid.UUID, device *domain.Device, rendered *DeviceRendered) (*domain.Device, error)
+	// Mutate loads (or uses previous once), runs apply, and persists via Create / Update.
+	// If the device does not exist, m.Device is nil and apply must assign it (create);
+	// otherwise apply mutates a clone. Returns created and the pre-mutation snapshot so
+	// the caller can fire its own event callback; Mutate itself never calls one.
+	// Create-only API callers should use Create instead. Update-only callers should call
+	// m.RequireExisting() in apply.
+	Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.Device, apply DeviceApplyFunc) (updated *domain.Device, before *domain.Device, created bool, err error)
+	// UpdateStatus writes status + resource_version only (service_conditions unchanged).
+	// previous is optional (first attempt only). No events; caller uses before/updated.
+	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, previous *domain.Device) (updated *domain.Device, before *domain.Device, err error)
+	// UpdateAnnotations merges annotations (and applies deleteKeys) via Mutate.
+	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams DeviceListParams) (*domain.DeviceList, error)
 	Labels(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (domain.LabelList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback store.EventCallback) (bool, error)
-	// UpdateStatus persists device status. When previous is non-nil it is used as the
-	// pre-update snapshot for event callbacks and the store does not re-fetch the device.
-	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, eventCallback store.EventCallback, previous *domain.Device) (*domain.Device, error)
 	GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*domain.Device, error)
 	Healthcheck(ctx context.Context, orgId uuid.UUID, names []string) error
 	ProcessAwaitingReconnectAnnotation(ctx context.Context, orgId uuid.UUID, deviceName string, deviceReportedVersion *string) (bool, error)
 	GetLastSeen(ctx context.Context, orgId uuid.UUID, name string) (*time.Time, error)
 
 	// Used internally
-	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
-	MutateAnnotation(ctx context.Context, orgId uuid.UUID, name string, key string, mutate func(current string) (string, error)) error
-	UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash, osImage string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, mutateStatus RenderedStatusMutator) (string, error)
 	SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, callback ServiceConditionsCallback) error
 	DecommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission, eventCallback store.EventCallback) (*domain.Device, error)
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
@@ -109,13 +116,60 @@ type DeviceStore struct {
 	genericStore *store.GenericStore[*model.Device, model.Device, domain.Device, domain.DeviceList]
 }
 
-type DeviceStoreValidationCallback func(ctx context.Context, before *domain.Device, after *domain.Device) error
 type ServiceConditionsCallback func(ctx context.Context, orgId uuid.UUID, device *domain.Device, oldConditions, newConditions []domain.Condition)
 
-// RenderedStatusMutator recomputes server-side status on a device that already has the
-// next rendered-version annotations applied. It returns true when status should be
-// persisted in the same CAS UPDATE as the rendered fields. Invoked on every retry.
-type RenderedStatusMutator func(device *domain.Device) bool
+// DeviceRendered holds rendered_* column values not represented on domain.Device.
+// When set on DeviceMutation, Mutate persists them and bumps render_timestamp.
+type DeviceRendered struct {
+	Config       string
+	Applications string
+	OsImage      string
+}
+
+// DeviceMutation is the unit apply mutates. Handlers decide all field changes.
+// Device is nil on the create path until apply assigns it.
+type DeviceMutation struct {
+	Device   *domain.Device
+	Rendered *DeviceRendered
+}
+
+func (m *DeviceMutation) Resource() *domain.Device { return m.Device }
+
+func (m *DeviceMutation) SetResource(device *domain.Device) { m.Device = device }
+
+func (m *DeviceMutation) Clone() (store.ResourceMutation[domain.Device], error) {
+	out := &DeviceMutation{}
+	if m.Device != nil {
+		cloned, err := store.CloneJSON(m.Device)
+		if err != nil {
+			return nil, err
+		}
+		// Status.LastSeen is tagged json:"-" and does not survive JSON clone.
+		if m.Device.Status != nil && cloned.Status != nil {
+			cloned.Status.LastSeen = m.Device.Status.LastSeen
+		}
+		out.Device = cloned
+	}
+	if m.Rendered != nil {
+		rendered := *m.Rendered
+		out.Rendered = &rendered
+	}
+	return out, nil
+}
+
+// RequireExisting returns ErrResourceNotFound when Device is nil (create path).
+// Update-only callers should invoke this at the start of apply.
+func (m *DeviceMutation) RequireExisting() error {
+	if m.Device == nil {
+		return flterrors.ErrResourceNotFound
+	}
+	return nil
+}
+
+// DeviceApplyFunc mutates m in place on every Mutate attempt.
+type DeviceApplyFunc func(m *DeviceMutation) error
+
+var _ store.ResourceMutation[domain.Device] = (*DeviceMutation)(nil)
 
 // Make sure we conform to the Store interface
 var _ Store = (*DeviceStore)(nil)
@@ -432,25 +486,205 @@ func (s *DeviceStore) dropLastSeenColumnIfExists(db *gorm.DB) error {
 	return nil
 }
 
-func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, resource *domain.Device, eventCallback store.EventCallback) (*domain.Device, error) {
-	device, err := s.genericStore.Create(ctx, orgId, resource)
-	name := lo.FromPtr(resource.Metadata.Name)
-	s.callEventCallback(ctx, eventCallback, orgId, name, nil, device, true, err)
-	return device, err
+// Mutate loads the named device (or uses previous on the first attempt), runs apply,
+// and persists via GenericStore.Mutate using Create / Update.
+// Missing devices are created (apply must set Device); existing ones are updated.
+// The caller is responsible for firing any event callback using the returned
+// before/updated/created values.
+func (s *DeviceStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.Device, apply DeviceApplyFunc) (*domain.Device, *domain.Device, bool, error) {
+	if previous != nil && lo.FromPtr(previous.Metadata.Name) != name {
+		previous = nil
+	}
+	return s.genericStore.Mutate(ctx, orgId, name, previous, store.MutateHooks[domain.Device]{
+		Wrap: func(device *domain.Device) store.ResourceMutation[domain.Device] {
+			return &DeviceMutation{Device: device}
+		},
+		PersistCreate: func(ctx context.Context, orgId uuid.UUID, m store.ResourceMutation[domain.Device]) (*domain.Device, error) {
+			dm := m.(*DeviceMutation)
+			return s.Create(ctx, orgId, dm.Device, dm.Rendered)
+		},
+		PersistUpdate: func(ctx context.Context, orgId uuid.UUID, _ string, before *domain.Device, m store.ResourceMutation[domain.Device]) (bool, error) {
+			dm := m.(*DeviceMutation)
+			return s.Update(ctx, orgId, before, dm.Device, dm.Rendered)
+		},
+	}, func(m store.ResourceMutation[domain.Device]) error {
+		return apply(m.(*DeviceMutation))
+	})
 }
 
-func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.Device, fieldsToUnset []string, validationCallback DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, error) {
-	device, oldDevice, err := s.genericStore.Update(ctx, orgId, resource, fieldsToUnset, validationCallback)
-	name := lo.FromPtr(resource.Metadata.Name)
-	s.callEventCallback(ctx, eventCallback, orgId, name, oldDevice, device, false, err)
-	return device, err
+// UpdateStatus writes only status + resource_version so service_conditions
+// (SpecValid, DependencySync, …) are left intact. previous is optional (first attempt).
+func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, previous *domain.Device) (*domain.Device, *domain.Device, error) {
+	if device == nil {
+		return nil, nil, flterrors.ErrResourceIsNil
+	}
+	name := lo.FromPtr(device.Metadata.Name)
+	var before, updated *domain.Device
+	attempt := 0
+	err := store.RetryUpdate(func() (bool, error) {
+		var current *domain.Device
+		if attempt == 0 && previous != nil && lo.FromPtr(previous.Metadata.Name) == name {
+			current = previous
+		} else {
+			loaded, getErr := s.Get(ctx, orgId, name)
+			if getErr != nil {
+				return false, getErr
+			}
+			current = loaded
+		}
+		attempt++
+		beforeSnapshot, snapErr := store.CloneJSON(current)
+		if snapErr != nil {
+			return false, snapErr
+		}
+		before = beforeSnapshot
+
+		existing, err := model.NewDeviceFromApiResource(current)
+		if err != nil {
+			return false, err
+		}
+		existing.OrgID = orgId
+
+		fromAPI, err := model.NewDeviceFromApiResource(device)
+		if err != nil {
+			return false, err
+		}
+
+		result := s.getDB(ctx).Model(existing).Where("resource_version = ?", lo.FromPtr(existing.ResourceVersion)).Updates(map[string]interface{}{
+			"status":           fromAPI.Status,
+			"resource_version": gorm.Expr("resource_version + 1"),
+		})
+		if result.Error != nil {
+			err := store.ErrorFromGormError(result.Error)
+			return strings.Contains(err.Error(), "deadlock"), err
+		}
+		if result.RowsAffected == 0 {
+			return true, flterrors.ErrNoRowsUpdated
+		}
+		next, cloneErr := store.CloneJSON(current)
+		if cloneErr != nil {
+			return false, cloneErr
+		}
+		next.Status = device.Status
+		next.Metadata.ResourceVersion = lo.ToPtr(strconv.FormatInt(lo.FromPtr(existing.ResourceVersion)+1, 10))
+		updated = next
+		return false, nil
+	})
+	return updated, before, err
 }
 
-func (s *DeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.Device, fieldsToUnset []string, validationCallback DeviceStoreValidationCallback, eventCallback store.EventCallback) (*domain.Device, bool, error) {
-	device, oldDevice, created, err := s.genericStore.CreateOrUpdate(ctx, orgId, resource, fieldsToUnset, validationCallback)
-	name := lo.FromPtr(resource.Metadata.Name)
-	s.callEventCallback(ctx, eventCallback, orgId, name, oldDevice, device, created, err)
-	return device, created, err
+// UpdateAnnotations merges annotations via Mutate.
+func (s *DeviceStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error {
+	_, _, _, err := s.Mutate(ctx, orgId, name, nil, func(m *DeviceMutation) error {
+		if err := m.RequireExisting(); err != nil {
+			return err
+		}
+		merged := store.MergeAnnotations(m.Device.Metadata.Annotations, annotations, deleteKeys)
+		m.Device.Metadata.Annotations = &merged
+		return nil
+	})
+	return err
+}
+
+// Create inserts a device. No events; callers fire their own callbacks.
+// rendered is optional storage-only column data (nil on normal creates).
+func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, device *domain.Device, rendered *DeviceRendered) (*domain.Device, error) {
+	if device == nil {
+		return nil, flterrors.ErrResourceIsNil
+	}
+	deviceModel, err := model.NewDeviceFromApiResource(device)
+	if err != nil {
+		return nil, err
+	}
+	deviceModel.OrgID = orgId
+	deviceModel.Generation = lo.ToPtr(int64(1))
+	deviceModel.ResourceVersion = lo.ToPtr(int64(1))
+	if rendered != nil {
+		cfg := rendered.Config
+		if strings.TrimSpace(cfg) == "" {
+			cfg = "[]"
+		}
+		deviceModel.RenderedConfig = model.MakeJSONField(json.RawMessage(cfg))
+		apps := rendered.Applications
+		if strings.TrimSpace(apps) == "" {
+			apps = "[]"
+		}
+		deviceModel.RenderedApplications = model.MakeJSONField(json.RawMessage(apps))
+		deviceModel.RenderedOs = model.MakeJSONField(domain.DeviceOsSpec{Image: rendered.OsImage})
+		deviceModel.RenderTimestamp = time.Now()
+	}
+
+	result := s.getDB(ctx).Create(deviceModel)
+	if result.Error != nil {
+		return nil, store.ErrorFromGormError(result.Error)
+	}
+	return deviceModel.ToApiResource()
+}
+
+// Update writes a device update. Returns retry=true on lost optimistic lock / deadlock.
+// rendered is optional; when nil, rendered_* columns are left unchanged.
+func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, before, device *domain.Device, rendered *DeviceRendered) (bool, error) {
+	existing, err := model.NewDeviceFromApiResource(before)
+	if err != nil {
+		return false, err
+	}
+	existing.OrgID = orgId
+
+	fromAPI, err := model.NewDeviceFromApiResource(device)
+	if err != nil {
+		return false, err
+	}
+	fromAPI.OrgID = orgId
+
+	// Prefer API-level Spec comparison so generation tracks the same Spec delta
+	// that event emission uses (HasSameSpecAs alone can miss union/ref changes
+	// if model conversion ever loses fields).
+	generation := lo.FromPtr(existing.Generation)
+	apiSpecChanged := before != nil && device != nil &&
+		!domain.DeviceSpecsAreEqual(lo.FromPtr(before.Spec), lo.FromPtr(device.Spec))
+	if apiSpecChanged || !fromAPI.HasSameSpecAs(existing) {
+		generation++
+	}
+
+	updates := map[string]interface{}{
+		"spec":               fromAPI.Spec,
+		"alias":              fromAPI.Alias,
+		"labels":             model.MakeJSONMap(fromAPI.Labels),
+		"annotations":        model.MakeJSONMap(fromAPI.Annotations),
+		"owner":              fromAPI.Owner,
+		"generation":         generation,
+		"status":             fromAPI.Status,
+		"service_conditions": fromAPI.ServiceConditions,
+		"resource_version":   gorm.Expr("resource_version + 1"),
+	}
+	if rendered != nil {
+		// *string so encryptMap treats rendered blobs as opaque JSON (arrays), not nested maps.
+		cfg := rendered.Config
+		if strings.TrimSpace(cfg) == "" {
+			cfg = "[]"
+		}
+		apps := rendered.Applications
+		if strings.TrimSpace(apps) == "" {
+			apps = "[]"
+		}
+		updates["rendered_config"] = &cfg
+		updates["rendered_applications"] = &apps
+		updates["rendered_os"] = model.MakeJSONField(domain.DeviceOsSpec{Image: rendered.OsImage})
+		updates["render_timestamp"] = time.Now()
+	}
+
+	result := s.getDB(ctx).Model(existing).Where("resource_version = ?", lo.FromPtr(existing.ResourceVersion)).Updates(updates)
+	if result.Error != nil {
+		err := store.ErrorFromGormError(result.Error)
+		return strings.Contains(err.Error(), "deadlock"), err
+	}
+	if result.RowsAffected == 0 {
+		return true, flterrors.ErrNoRowsUpdated
+	}
+
+	device.Metadata.Generation = lo.ToPtr(generation)
+	device.Metadata.ResourceVersion = lo.ToPtr(strconv.FormatInt(lo.FromPtr(existing.ResourceVersion)+1, 10))
+	return false, nil
 }
 
 func (s *DeviceStore) getWithTimestamp(ctx context.Context, orgId uuid.UUID, name string, opts ...model.APIResourceOption) (*domain.Device, error) {
@@ -752,7 +986,7 @@ func (s *DeviceStore) unmarkRolloutSelection(ctx context.Context, orgId uuid.UUI
 
 // UnmarkRolloutSelection unmarks all previously marked devices for rollout in a fleet
 func (s *DeviceStore) UnmarkRolloutSelection(ctx context.Context, orgId uuid.UUID, fleetName string) error {
-	return retryUpdate(func() (bool, error) {
+	return store.RetryUpdate(func() (bool, error) {
 		return s.unmarkRolloutSelection(ctx, orgId, fleetName)
 	})
 }
@@ -780,7 +1014,7 @@ func (s *DeviceStore) markRolloutSelection(ctx context.Context, orgId uuid.UUID,
 // MarkRolloutSelection marks all devices that can be filtered by the list params.  If limit is provided then the number of marked devices
 // will not be greater than the provided limit.
 func (s *DeviceStore) MarkRolloutSelection(ctx context.Context, orgId uuid.UUID, listParams store.ListParams, limit *int) error {
-	return retryUpdate(func() (bool, error) {
+	return store.RetryUpdate(func() (bool, error) {
 		return s.markRolloutSelection(ctx, orgId, listParams, limit)
 	})
 }
@@ -882,96 +1116,6 @@ func (s *DeviceStore) Summary(ctx context.Context, orgId uuid.UUID, listParams s
 	}, nil
 }
 
-func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Device, eventCallback store.EventCallback, previous *domain.Device) (*domain.Device, error) {
-	var oldDevice domain.Device
-	name := lo.FromPtr(resource.Metadata.Name)
-	if previous != nil {
-		oldDevice = *previous
-	} else {
-		device, err := s.Get(ctx, orgId, name)
-		if err != nil {
-			s.log.Errorf("error fetching device %s/%s for update status event processing", orgId, name)
-		} else if device != nil {
-			oldDevice = *device
-		}
-	}
-
-	device, err := s.genericStore.UpdateStatus(ctx, orgId, resource)
-	s.callEventCallback(ctx, eventCallback, orgId, name, &oldDevice, device, false, err)
-	return device, err
-}
-
-// updateAnnotationsCAS loads the device's current annotations, applies transform to compute the
-// new annotations map, and writes it back guarded by the resource_version optimistic-lock clause,
-// shared by updateAnnotations and mutateAnnotation so their read/update/retry semantics (deadlock
-// detection, ErrNoRowsUpdated on a lost race) can't drift between the two.
-func (s *DeviceStore) updateAnnotationsCAS(ctx context.Context, orgId uuid.UUID, name string, transform func(map[string]string) (map[string]string, error)) (bool, error) {
-	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
-	result := s.getDB(ctx).Take(&existingRecord)
-	if result.Error != nil {
-		return false, store.ErrorFromGormError(result.Error)
-	}
-	existingAnnotations := util.EnsureMap(existingRecord.Annotations)
-
-	newAnnotations, err := transform(existingAnnotations)
-	if err != nil {
-		return false, err
-	}
-
-	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(map[string]interface{}{
-		"annotations":      model.MakeJSONMap(newAnnotations),
-		"resource_version": gorm.Expr("resource_version + 1"),
-	})
-
-	updateErr := store.ErrorFromGormError(result.Error)
-	if updateErr != nil {
-		return strings.Contains(updateErr.Error(), "deadlock"), updateErr
-	}
-	if result.RowsAffected == 0 {
-		return true, flterrors.ErrNoRowsUpdated
-	}
-	return false, nil
-}
-
-func (s *DeviceStore) updateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) (bool, error) {
-	return s.updateAnnotationsCAS(ctx, orgId, name, func(existingAnnotations map[string]string) (map[string]string, error) {
-		existingAnnotations = util.MergeLabels(existingAnnotations, annotations)
-		for _, deleteKey := range deleteKeys {
-			delete(existingAnnotations, deleteKey)
-		}
-		return existingAnnotations, nil
-	})
-}
-
-func (s *DeviceStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error {
-	return retryUpdate(func() (bool, error) {
-		return s.updateAnnotations(ctx, orgId, name, annotations, deleteKeys)
-	})
-}
-
-// mutateAnnotation freshly reads the device's current annotations on every attempt and calls
-// mutate with the current value of key (the empty string if unset), storing the returned value
-// back under that same key. Unlike updateAnnotations/UpdateAnnotations, which apply a value
-// computed once outside the retry loop, this re-invokes mutate against the freshly-read value
-// on every retry, making it safe for atomic read-modify-write updates (e.g. incrementing a
-// counter) under concurrent writers.
-func (s *DeviceStore) mutateAnnotation(ctx context.Context, orgId uuid.UUID, name string, key string, mutate func(current string) (string, error)) (bool, error) {
-	return s.updateAnnotationsCAS(ctx, orgId, name, func(existingAnnotations map[string]string) (map[string]string, error) {
-		newValue, err := mutate(existingAnnotations[key])
-		if err != nil {
-			return nil, err
-		}
-		existingAnnotations[key] = newValue
-		return existingAnnotations, nil
-	})
-}
-
-func (s *DeviceStore) MutateAnnotation(ctx context.Context, orgId uuid.UUID, name string, key string, mutate func(current string) (string, error)) error {
-	return retryUpdate(func() (bool, error) {
-		return s.mutateAnnotation(ctx, orgId, name, key, mutate)
-	})
-}
-
 func (s *DeviceStore) healthcheck(ctx context.Context, orgId uuid.UUID, names []string) (bool, error) {
 	// Handle empty device list gracefully
 	if len(names) == 0 {
@@ -989,7 +1133,7 @@ func (s *DeviceStore) healthcheck(ctx context.Context, orgId uuid.UUID, names []
 }
 
 func (s *DeviceStore) Healthcheck(ctx context.Context, orgId uuid.UUID, names []string) error {
-	return retryUpdate(func() (bool, error) {
+	return store.RetryUpdate(func() (bool, error) {
 		return s.healthcheck(ctx, orgId, names)
 	})
 }
@@ -999,7 +1143,7 @@ func (s *DeviceStore) Healthcheck(ctx context.Context, orgId uuid.UUID, names []
 // Returns true if the device was moved to conflict paused state, false otherwise
 func (s *DeviceStore) ProcessAwaitingReconnectAnnotation(ctx context.Context, orgId uuid.UUID, deviceName string, deviceReportedVersion *string) (bool, error) {
 	var wasConflictPaused bool
-	err := retryUpdate(func() (bool, error) {
+	err := store.RetryUpdate(func() (bool, error) {
 		var retry bool
 		var err error
 		retry, wasConflictPaused, err = s.processAwaitingReconnectAnnotation(ctx, orgId, deviceName, deviceReportedVersion)
@@ -1167,180 +1311,9 @@ func (s *DeviceStore) setOutOfDate(ctx context.Context, orgId uuid.UUID, owner s
 }
 
 func (s *DeviceStore) SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner string) error {
-	return retryUpdate(func() (bool, error) {
+	return store.RetryUpdate(func() (bool, error) {
 		return s.setOutOfDate(ctx, orgId, owner)
 	})
-}
-
-func (s *DeviceStore) updateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash, osImage string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, mutateStatus RenderedStatusMutator) (retry bool, renderedVersion string, err error) {
-	existingRecord := model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
-	result := s.getDB(ctx).Take(&existingRecord)
-	if result.Error != nil {
-		return false, "", store.ErrorFromGormError(result.Error)
-	}
-	existingAnnotations := util.EnsureMap(existingRecord.Annotations)
-
-	var deviceStatus *domain.DeviceStatus
-	if existingRecord.Status != nil {
-		deviceStatus = &existingRecord.Status.Data
-	}
-
-	nextRenderedVersion, err := domain.GetNextDeviceRenderedVersion(existingAnnotations, deviceStatus)
-	if err != nil {
-		return false, "", err
-	}
-
-	hash := specHash
-
-	existingAnnotations[domain.DeviceAnnotationRenderedVersion] = nextRenderedVersion
-	if lo.HasKey(existingAnnotations, domain.DeviceAnnotationTemplateVersion) {
-		existingAnnotations[domain.DeviceAnnotationRenderedTemplateVersion] = existingAnnotations[domain.DeviceAnnotationTemplateVersion]
-	}
-
-	specUnchanged := false
-	if lo.HasKey(existingAnnotations, domain.DeviceAnnotationRenderedSpecHash) {
-		if existingAnnotations[domain.DeviceAnnotationRenderedSpecHash] == hash {
-			specUnchanged = true
-		}
-	}
-
-	// Build dependency sync status from fingerprints, preserving lastUpdatedAt for unchanged entries
-	updatedServiceConditions := buildDependencySyncStatus(existingRecord.ServiceConditions, configFingerprints)
-
-	// forceUpdate bypasses the specUnchanged short-circuit for callers that already determined
-	// (using fresher or additional context than specHash alone, e.g. a device-level application
-	// lifecycle annotation change) that this render must be persisted regardless of hash equality.
-	if specUnchanged && len(configFingerprints) == 0 && !forceUpdate {
-		return false, "", nil
-	}
-
-	existingAnnotations[domain.DeviceAnnotationRenderedSpecHash] = hash
-
-	renderedApplicationsJSON := renderedApplications
-	if strings.TrimSpace(renderedApplications) == "" {
-		renderedApplicationsJSON = "[]"
-	}
-
-	updates := map[string]interface{}{
-		"annotations":           model.MakeJSONMap(existingAnnotations),
-		"rendered_config":       &renderedConfig,
-		"rendered_applications": &renderedApplicationsJSON,
-		"resource_version":      gorm.Expr("resource_version + 1"),
-		"render_timestamp":      time.Now(),
-	}
-
-	updates["rendered_os"] = model.MakeJSONField(domain.DeviceOsSpec{Image: osImage})
-
-	if mutateStatus != nil {
-		existingRecord.Annotations = model.MakeJSONMap(existingAnnotations)
-		apiDevice, convertErr := existingRecord.ToApiResource()
-		if convertErr != nil {
-			return false, "", convertErr
-		}
-		if mutateStatus(apiDevice) && apiDevice.Status != nil {
-			deviceOnlyRecord, convertErr := model.NewDeviceFromApiResource(apiDevice)
-			if convertErr != nil {
-				return false, "", convertErr
-			}
-			updates["status"] = deviceOnlyRecord.Status
-		}
-	}
-
-	// SpecValid=Valid is part of a successful render write (same CAS UPDATE).
-	updates["service_conditions"] = withSpecValidCondition(updatedServiceConditions, existingRecord.ServiceConditions)
-
-	result = s.getDB(ctx).Model(existingRecord).Where("resource_version = ?", lo.FromPtr(existingRecord.ResourceVersion)).Updates(updates)
-
-	err = store.ErrorFromGormError(result.Error)
-	if err != nil {
-		return strings.Contains(err.Error(), "deadlock"), "", err
-	}
-	if result.RowsAffected == 0 {
-		return true, "", flterrors.ErrNoRowsUpdated
-	}
-	return false, nextRenderedVersion, nil
-}
-
-// withSpecValidCondition returns service conditions for a successful render write,
-// starting from fingerprint updates when present, otherwise the existing row, and
-// setting SpecValid=Valid in the same payload.
-func withSpecValidCondition(fromFingerprints, existing *model.JSONField[model.ServiceConditions]) *model.JSONField[model.ServiceConditions] {
-	var sc model.ServiceConditions
-	switch {
-	case fromFingerprints != nil:
-		sc = fromFingerprints.Data
-	case existing != nil:
-		sc = existing.Data
-	}
-	var conditions []domain.Condition
-	if sc.Conditions != nil {
-		conditions = append(conditions, *sc.Conditions...)
-	}
-	domain.SetStatusCondition(&conditions, domain.Condition{
-		Type:   domain.ConditionTypeDeviceSpecValid,
-		Status: domain.ConditionStatusTrue,
-		Reason: "Valid",
-	})
-	sc.Conditions = &conditions
-	return model.MakeJSONField(sc)
-}
-
-// buildDependencySyncStatus merges new fingerprints with existing service conditions,
-// preserving lastUpdatedAt for entries whose fingerprint hasn't changed.
-func buildDependencySyncStatus(existing *model.JSONField[model.ServiceConditions], fingerprints []domain.DependencySyncConfigRefStatus) *model.JSONField[model.ServiceConditions] {
-	if len(fingerprints) == 0 {
-		return nil
-	}
-
-	now := time.Now()
-
-	// Build lookup of previous fingerprints by config provider name
-	prevByName := map[string]domain.DependencySyncConfigRefStatus{}
-	if existing != nil && existing.Data.DependencySync != nil && existing.Data.DependencySync.ConfigRefs != nil {
-		for _, ref := range *existing.Data.DependencySync.ConfigRefs {
-			prevByName[ref.ConfigProviderName] = ref
-		}
-	}
-
-	refs := make([]domain.DependencySyncConfigRefStatus, 0, len(fingerprints))
-	for _, fp := range fingerprints {
-		ref := domain.DependencySyncConfigRefStatus{
-			ConfigProviderName: fp.ConfigProviderName,
-			Fingerprint:        fp.Fingerprint,
-		}
-		if prev, ok := prevByName[fp.ConfigProviderName]; ok && prev.Fingerprint != nil && *prev.Fingerprint == lo.FromPtr(fp.Fingerprint) {
-			ref.LastUpdatedAt = prev.LastUpdatedAt
-		} else {
-			ref.LastUpdatedAt = &now
-		}
-		refs = append(refs, ref)
-	}
-
-	sc := model.ServiceConditions{
-		DependencySync: &domain.DependencySyncStatus{
-			ConfigRefs: &refs,
-		},
-	}
-	// Preserve existing conditions
-	if existing != nil {
-		sc.Conditions = existing.Data.Conditions
-	}
-
-	return model.MakeJSONField(sc)
-}
-
-func (s *DeviceStore) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash, osImage string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, mutateStatus RenderedStatusMutator) (string, error) {
-	var rv string
-
-	wrapper := func() (bool, error) {
-		var retry bool
-		var err error
-		retry, rv, err = s.updateRendered(ctx, orgId, name, renderedConfig, renderedApplications, specHash, osImage, configFingerprints, forceUpdate, mutateStatus)
-		return retry, err
-	}
-
-	err := retryUpdate(wrapper)
-	return rv, err
 }
 
 func (s *DeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*domain.Device, error) {
@@ -1443,7 +1416,7 @@ func (s *DeviceStore) setServiceConditions(ctx context.Context, orgId uuid.UUID,
 }
 
 func (s *DeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, callback ServiceConditionsCallback) error {
-	return retryUpdate(func() (bool, error) {
+	return store.RetryUpdate(func() (bool, error) {
 		return s.setServiceConditions(ctx, orgId, name, conditions, callback)
 	})
 }
@@ -1518,7 +1491,7 @@ func (s *DeviceStore) decommissionDevice(ctx context.Context, orgId uuid.UUID, n
 
 func (s *DeviceStore) DecommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission, eventCallback store.EventCallback) (*domain.Device, error) {
 	var device *domain.Device
-	err := retryUpdate(func() (bool, error) {
+	err := store.RetryUpdate(func() (bool, error) {
 		retry, dev, err := s.decommissionDevice(ctx, orgId, name, decom, eventCallback)
 		device = dev
 		return retry, err
@@ -1853,7 +1826,7 @@ func (s *DeviceStore) RemoveConflictPausedAnnotation(ctx context.Context, orgId 
 	var affectedRows int64
 	var deviceIDs []string
 
-	err := retryUpdate(func() (bool, error) {
+	err := store.RetryUpdate(func() (bool, error) {
 		// Use RETURNING clause to get the names of actually updated devices
 		var updatedDevices []model.Device
 
@@ -1890,11 +1863,6 @@ func (s *DeviceStore) RemoveConflictPausedAnnotation(ctx context.Context, orgId 
 	return affectedRows, deviceIDs, err
 }
 
-// getSortColumns and retryIterations/retryUpdate mirror the unexported
-// helpers of the same name in internal/store (internal/store/common.go),
-// which are not exported for cross-package reuse. Duplicated here since
-// List and several Update* methods need identical sort-column resolution
-// and optimistic-concurrency retry behavior within this package.
 func getSortColumns(listParams store.ListParams) ([]store.SortColumn, store.SortOrder, string) {
 	order := store.SortAsc
 	if listParams.SortOrder != nil {
@@ -1908,18 +1876,4 @@ func getSortColumns(listParams store.ListParams) ([]store.SortColumn, store.Sort
 	}
 
 	return columns, order, op
-}
-
-const retryIterations = 10
-
-func retryUpdate(fn func() (bool, error)) error {
-	var (
-		retry bool
-		err   error
-	)
-	i := 0
-	for retry, err = fn(); retry && i < retryIterations; retry, err = fn() {
-		i++
-	}
-	return err
 }

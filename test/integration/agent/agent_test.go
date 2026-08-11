@@ -298,8 +298,7 @@ var _ = Describe("Device Agent behavior", func() {
 				serviceVersion := strconv.FormatInt(ver-1, 10)
 
 				err = h.DeviceStore.UpdateAnnotations(h.Context, orgID, deviceName, map[string]string{
-					v1beta1.DeviceAnnotationAwaitingReconnect: "true",
-					v1beta1.DeviceAnnotationRenderedVersion:   serviceVersion,
+					v1beta1.DeviceAnnotationAwaitingReconnect: "true", v1beta1.DeviceAnnotationRenderedVersion: serviceVersion,
 				}, nil)
 				Expect(err).ToNot(HaveOccurred())
 

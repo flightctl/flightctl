@@ -45,6 +45,23 @@ func NilOutManagedObjectMetaProperties(om *domain.ObjectMeta) {
 	om.DeletionTimestamp = nil
 }
 
+// CheckResourceVersionConflict rejects a client-supplied resourceVersion that does not match
+// the current stored value. A nil incoming resourceVersion skips the check (server-side CAS
+// still applies on persist). When the client supplies a value (including "0") and the current
+// resourceVersion is unset, the request conflicts — do not treat nil current as matching "0".
+func CheckResourceVersionConflict(current, incoming *domain.ObjectMeta) error {
+	if current == nil || incoming == nil || incoming.ResourceVersion == nil {
+		return nil
+	}
+	if current.ResourceVersion == nil {
+		return flterrors.ErrResourceVersionConflict
+	}
+	if *current.ResourceVersion != *incoming.ResourceVersion {
+		return flterrors.ErrResourceVersionConflict
+	}
+	return nil
+}
+
 // SwaggerGetter is a function that returns a parsed OpenAPI spec.
 type SwaggerGetter func() (*openapi3.T, error)
 
@@ -134,17 +151,18 @@ func ApplyJSONPatch[T any](ctx context.Context, obj T, newObj T, patchRequest do
 }
 
 var badRequestErrors = map[error]bool{
-	flterrors.ErrResourceIsNil:                 true,
-	flterrors.ErrResourceNameIsNil:             true,
-	flterrors.ErrIllegalResourceVersionFormat:  true,
-	flterrors.ErrFieldSelectorSyntax:           true,
-	flterrors.ErrFieldSelectorParseFailed:      true,
-	flterrors.ErrFieldSelectorUnknownSelector:  true,
-	flterrors.ErrLabelSelectorSyntax:           true,
-	flterrors.ErrLabelSelectorParseFailed:      true,
-	flterrors.ErrAnnotationSelectorSyntax:      true,
-	flterrors.ErrAnnotationSelectorParseFailed: true,
-	flterrors.ErrUnsupportedUnicode:            true,
+	flterrors.ErrResourceIsNil:                     true,
+	flterrors.ErrResourceNameIsNil:                 true,
+	flterrors.ErrIllegalResourceVersionFormat:      true,
+	flterrors.ErrFieldSelectorSyntax:               true,
+	flterrors.ErrFieldSelectorParseFailed:          true,
+	flterrors.ErrFieldSelectorUnknownSelector:      true,
+	flterrors.ErrLabelSelectorSyntax:               true,
+	flterrors.ErrLabelSelectorParseFailed:          true,
+	flterrors.ErrAnnotationSelectorSyntax:          true,
+	flterrors.ErrAnnotationSelectorParseFailed:     true,
+	flterrors.ErrUnsupportedUnicode:                true,
+	flterrors.ErrOsTargetNotSupportedOnPackageMode: true,
 }
 
 var conflictErrors = map[error]bool{
