@@ -27,8 +27,6 @@ BuildRequires:  git
 BuildRequires:  openssl-devel
 BuildRequires:  systemd-rpm-macros
 
-Requires: openssl
-
 %global flightctl_target flightctl.target
 
 
