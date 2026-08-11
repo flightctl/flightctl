@@ -30,3 +30,17 @@ None. The change is minimal and only removes dead code.
 **Commit:** No new commit — no code changes needed.
 **Replies posted:** 0 (responses written to .ai-session/comment-responses.json for orchestration system)
 **Tests updated**: No test changes needed — RPM spec file change only.
+
+## Feedback Round 2
+**PR:** flightctl/flightctl#3364
+**Comments addressed**: [@kkyrazis on packaging/rpm/flightctl.spec:30 (comment_id 3758505173)]
+**Changes made**:
+- Reverted the spec file change so `packaging/rpm/flightctl.spec` matches main exactly — this PR now has zero code diff.
+**Suggestions declined**:
+- None declined — the reviewer's request to target release-1.2 is acknowledged as the correct approach.
+**Out-of-scope**:
+- Retargeting this PR to release-1.2 or creating a new PR against release-1.2 is outside the allowed operations for this automated system (cannot use `gh pr edit` or `gh pr create`). A maintainer needs to open a PR against release-1.2 adding `Requires: openssl` to `%package services`.
+**Verification**: `make lint` cannot run (podman unavailable). Zero code changes on this branch vs main — nothing to lint.
+**Commit:** Pending (system handles commits).
+**Replies posted:** 0 (responses written to .ai-session/comment-responses.json for orchestration system)
+**Tests updated**: No test changes needed.
