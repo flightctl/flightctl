@@ -399,12 +399,65 @@ EOF
   log "Hosts entry added successfully"
 }
 
+# IPV6_ONLY: never install an IPv4 default route. Lab DNS often returns
+# unreachable A records for *.apps; an IPv4 default (e.g. libvirt NAT
+# 10.0.2.2) blackholes those dials until systemd TimeoutStartSec. With no
+# IPv4 default, A lookups fail fast (ENETUNREACH) and the agent uses AAAA.
+inject_ipv4_never_default() {
+  local base="$1"
+
+  if [[ "${IPV6_ONLY:-false}" != "true" ]]; then
+    return
+  fi
+
+  local nm_dir="$base/NetworkManager/conf.d"
+  local nm_conf="$nm_dir/99-flightctl-e2e-ipv6-only.conf"
+  local unit_dir="$base/systemd/system"
+  local unit="$unit_dir/flightctl-e2e-no-ipv4-default.service"
+  local wants_dir="$base/systemd/system/multi-user.target.wants"
+
+  log "IPv6 mode: Configuring ipv4.never-default + oneshot to drop IPv4 default route"
+
+  sudo mkdir -p "$nm_dir" "$unit_dir" "$wants_dir"
+
+  sudo tee "$nm_conf" >/dev/null <<'EOF'
+# flightctl e2e IPV6_ONLY: do not install an IPv4 default route on any connection.
+[connection]
+ipv4.never-default=true
+EOF
+  sudo chown root:root "$nm_conf"
+  sudo chmod 0644 "$nm_conf"
+
+  sudo tee "$unit" >/dev/null <<'EOF'
+[Unit]
+Description=FlightCtl e2e IPV6_ONLY: remove IPv4 default route
+Documentation=https://github.com/flightctl/flightctl
+After=NetworkManager.service network-online.target
+Before=flightctl-agent.service
+DefaultDependencies=yes
+
+[Service]
+Type=oneshot
+# DHCP/NM may install more than one; delete until gone.
+ExecStart=/usr/bin/bash -c 'while ip -4 route show default 2>/dev/null | grep -q .; do ip -4 route del default || exit 0; done'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  sudo chown root:root "$unit"
+  sudo chmod 0644 "$unit"
+
+  sudo ln -sfn ../flightctl-e2e-no-ipv4-default.service "$wants_dir/flightctl-e2e-no-ipv4-default.service"
+}
+
 # Write to deployment etc so it appears at guest /etc
 copy_into "$DEPLOY_ETC"
 inject_registry_ca "$DEPLOY_ETC"
 write_registry_remap "$DEPLOY_ETC"
 write_mirror_registry "$DEPLOY_ETC"
 inject_hosts_entry "$DEPLOY_ETC"
+inject_ipv4_never_default "$DEPLOY_ETC"
 
 # Also mirror to on-disk etc so it shows under guest /sysroot/etc
 if [[ "$SYSROOT_ETC" != "$DEPLOY_ETC" ]]; then
@@ -413,6 +466,7 @@ if [[ "$SYSROOT_ETC" != "$DEPLOY_ETC" ]]; then
   write_registry_remap "$SYSROOT_ETC"
   write_mirror_registry "$SYSROOT_ETC"
   inject_hosts_entry "$SYSROOT_ETC"
+  inject_ipv4_never_default "$SYSROOT_ETC"
 fi
 
 sync
