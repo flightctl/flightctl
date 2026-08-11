@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -571,4 +572,74 @@ func TestGetDiff_DeterministicOrdering_Consistency(t *testing.T) {
 		require.Equal([]string{"a", "f", "m", "z"}, removedIDs,
 			"ordering should be consistent on iteration %d", i)
 	}
+}
+
+// Guards the QE regression where a restartGeneration-only bump was classified as
+// Changed (helm upgrade) instead of Ensure (QueueLifecycle scale-to-0 + re-apply).
+func TestGetDiff_WhenOnlyHelmRestartGenerationDiffers_ItShouldEnsureNotChange(t *testing.T) {
+	require := require.New(t)
+
+	base := helmAppWithLifecycle(t, "helm-demo", "test-app", "oci://registry.example.com/charts/test-app:0.1.0", nil, nil)
+	withRestart := helmAppWithLifecycle(t, "helm-demo", "test-app", "oci://registry.example.com/charts/test-app:0.1.0", nil, lo.ToPtr(1))
+
+	const appID = "test-app_helm-demo"
+	current := []Provider{
+		&mockProvider{
+			id:   appID,
+			name: "helm-demo",
+			spec: &ApplicationSpec{
+				ID:                appID,
+				Name:              "helm-demo",
+				AppType:           v1beta1.AppTypeHelm,
+				Image:             "oci://registry.example.com/charts/test-app:0.1.0",
+				Path:              "/var/lib/flightctl/helm/charts/test-app",
+				HelmApp:           &base,
+				DesiredState:      v1beta1.ApplicationDesiredStateRunning,
+				RestartGeneration: 0,
+			},
+		},
+	}
+	desired := []Provider{
+		&mockProvider{
+			id:   appID,
+			name: "helm-demo",
+			spec: &ApplicationSpec{
+				ID:                appID,
+				Name:              "helm-demo",
+				AppType:           v1beta1.AppTypeHelm,
+				Image:             "oci://registry.example.com/charts/test-app:0.1.0",
+				Path:              "/var/lib/flightctl/helm/charts/test-app",
+				HelmApp:           &withRestart,
+				DesiredState:      v1beta1.ApplicationDesiredStateRunning,
+				RestartGeneration: 1,
+			},
+		},
+	}
+
+	diff, err := GetDiff(current, desired)
+	require.NoError(err)
+	require.Empty(diff.Changed, "lifecycle-only restartGeneration bump must not trigger Update")
+	require.Len(diff.Ensure, 1)
+	require.Equal(appID, diff.Ensure[0].ID())
+}
+
+func helmAppWithLifecycle(t *testing.T, name, namespace, image string, desiredState *v1beta1.ApplicationDesiredState, restartGeneration *int) v1beta1.HelmApplication {
+	t.Helper()
+	require := require.New(t)
+
+	var app v1beta1.HelmApplication
+	err := app.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: image})
+	require.NoError(err)
+	app.AppType = v1beta1.AppTypeHelm
+	app.Name = lo.ToPtr(name)
+	app.Namespace = lo.ToPtr(namespace)
+	app.DesiredState = desiredState
+	app.RestartGeneration = restartGeneration
+
+	// Round-trip so lifecycle keys land in the union blob the way rendered specs do.
+	raw, err := json.Marshal(app)
+	require.NoError(err)
+	var roundTripped v1beta1.HelmApplication
+	require.NoError(json.Unmarshal(raw, &roundTripped))
+	return roundTripped
 }

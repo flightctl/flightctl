@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"os"
@@ -869,38 +870,57 @@ func isEqual(a, b Provider) bool {
 	return reflect.DeepEqual(as, bs)
 }
 
-// clearLifecycleFields zeroes the lifecycle intent fields (DesiredState, RestartGeneration)
-// on an ApplicationSpec. The render pipeline bakes these onto the top-level spec as well as
-// into a copy on the app-type-specific struct (ContainerApp/ComposeApp/QuadletApp/HelmApp),
-// so both copies must be cleared for isEqual to correctly ignore lifecycle-only changes.
+// clearLifecycleFields zeroes DesiredState/RestartGeneration on the top-level spec and
+// nested app structs (including openapi union blobs) so lifecycle-only diffs stay on Ensure.
 func clearLifecycleFields(s *ApplicationSpec) {
 	s.DesiredState = ""
 	s.RestartGeneration = 0
 
 	if s.ContainerApp != nil {
 		app := *s.ContainerApp
-		app.DesiredState = nil
-		app.RestartGeneration = nil
+		stripLifecycleFromUnionApp(&app)
 		s.ContainerApp = &app
 	}
 	if s.ComposeApp != nil {
 		app := *s.ComposeApp
-		app.DesiredState = nil
-		app.RestartGeneration = nil
+		stripLifecycleFromUnionApp(&app)
 		s.ComposeApp = &app
 	}
 	if s.QuadletApp != nil {
 		app := *s.QuadletApp
-		app.DesiredState = nil
-		app.RestartGeneration = nil
+		stripLifecycleFromUnionApp(&app)
 		s.QuadletApp = &app
 	}
 	if s.HelmApp != nil {
 		app := *s.HelmApp
-		app.DesiredState = nil
-		app.RestartGeneration = nil
+		stripLifecycleFromUnionApp(&app)
 		s.HelmApp = &app
 	}
+}
+
+func stripLifecycleFromUnionApp[T any](app *T) {
+	if app == nil {
+		return
+	}
+	raw, err := json.Marshal(app)
+	if err != nil {
+		return
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return
+	}
+	delete(obj, "desiredState")
+	delete(obj, "restartGeneration")
+	raw, err = json.Marshal(obj)
+	if err != nil {
+		return
+	}
+	var cleaned T
+	if err := json.Unmarshal(raw, &cleaned); err != nil {
+		return
+	}
+	*app = cleaned
 }
 
 // AppData holds the extracted application data and cleanup function
