@@ -18,3 +18,15 @@ None. The change is minimal and only removes dead code.
 - `verification.md` — Test results and coverage
 - `review.md` — Self-review findings
 - `pr.md` — PR description
+
+## Feedback Round 1
+**PR:** flightctl/flightctl#3364
+**Comments addressed**: [@kkyrazis on packaging/rpm/flightctl.spec:30]
+**Changes made**:
+- None — the reviewer's feedback is a process/targeting question, not a code change request for this branch.
+**Suggestions declined**:
+- [@kkyrazis on packaging/rpm/flightctl.spec:30]: The reviewer asked whether the openssl fix can be applied directly to release-1.2. Verified that on release-1.2, `%package services` is indeed missing `Requires: openssl` (while on main it's already present at line 89). The current PR on main is just dead-code cleanup. A separate PR targeting release-1.2 is needed to add `Requires: openssl` to `%package services` — this is out of scope for the current PR.
+**Verification**: `make lint` could not run (podman unavailable in CI environment). No Go code changes in this PR — only RPM spec file cleanup.
+**Commit:** No new commit — no code changes needed.
+**Replies posted:** 0 (responses written to .ai-session/comment-responses.json for orchestration system)
+**Tests updated**: No test changes needed — RPM spec file change only.
