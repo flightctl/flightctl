@@ -42,14 +42,17 @@ func (m *MockDevice) CountByOrgAndStatus(ctx context.Context, orgId *uuid.UUID, 
 
 // Implement other required methods with empty implementations
 func (m *MockDevice) InitialMigration(ctx context.Context) error { return nil }
-func (m *MockDevice) Create(ctx context.Context, orgId uuid.UUID, device *domain.Device, callback store.EventCallback) (*domain.Device, error) {
+func (m *MockDevice) Create(ctx context.Context, orgId uuid.UUID, device *domain.Device, rendered *devicestore.DeviceRendered) (*domain.Device, error) {
 	return nil, nil
 }
-func (m *MockDevice) Update(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, validationCallback devicestore.DeviceStoreValidationCallback, callback store.EventCallback) (*domain.Device, error) {
-	return nil, nil
+func (m *MockDevice) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.Device, apply devicestore.DeviceApplyFunc) (*domain.Device, *domain.Device, bool, error) {
+	return nil, nil, false, nil
 }
-func (m *MockDevice) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string, validationCallback devicestore.DeviceStoreValidationCallback, callback store.EventCallback) (*domain.Device, bool, error) {
-	return nil, false, nil
+func (m *MockDevice) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, previous *domain.Device) (*domain.Device, *domain.Device, error) {
+	return nil, nil, nil
+}
+func (m *MockDevice) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error {
+	return nil
 }
 func (m *MockDevice) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error) {
 	return nil, nil
@@ -69,21 +72,8 @@ func (m *MockDevice) Labels(ctx context.Context, orgId uuid.UUID, listParams sto
 func (m *MockDevice) Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.EventCallback) (bool, error) {
 	return true, nil
 }
-func (m *MockDevice) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, callbackEvent store.EventCallback, previous *domain.Device) (*domain.Device, error) {
-	return nil, nil
-}
 func (m *MockDevice) GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*domain.Device, error) {
 	return nil, nil
-}
-func (m *MockDevice) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error {
-	return nil
-}
-func (m *MockDevice) MutateAnnotation(ctx context.Context, orgId uuid.UUID, name string, key string, mutate func(current string) (string, error)) error {
-	_, err := mutate("")
-	return err
-}
-func (m *MockDevice) UpdateRendered(ctx context.Context, orgId uuid.UUID, name, renderedConfig, renderedApplications, specHash, renderedOS string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, mutateStatus devicestore.RenderedStatusMutator) (string, error) {
-	return "", nil
 }
 func (m *MockDevice) SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, callback devicestore.ServiceConditionsCallback) error {
 	return nil

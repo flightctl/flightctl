@@ -185,3 +185,51 @@ func TestStopStartRestartDeviceApplication(t *testing.T) {
 		require.Equal(domain.EventReasonApplicationLifecycleChanged, ev.created[0].Reason)
 	})
 }
+
+func TestReplaceDevicePrunesStaleApplicationLifecycleOverride(t *testing.T) {
+	ctx := context.Background()
+	require := require.New(t)
+	h, _, _, orgId, deviceName := newLifecycleTestDevice(t, "app-1")
+
+	_, status := h.StopDeviceApplication(ctx, orgId, deviceName, "app-1")
+	require.Equal(int32(http.StatusOK), status.Code)
+
+	// Remove the app from the device spec while leaving annotations nil so the store
+	// preserves the existing lifecycle annotation (the bug path).
+	withoutApp := domain.Device{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr(deviceName)},
+		Spec:     &domain.DeviceSpec{},
+	}
+	dev, status := h.ReplaceDevice(ctx, orgId, deviceName, withoutApp, nil, false, false)
+	require.Equal(int32(http.StatusOK), status.Code)
+	_, hasLifecycle := lo.FromPtr(dev.Metadata.Annotations)[domain.DeviceAnnotationApplicationLifecycle]
+	require.False(hasLifecycle, "lifecycle override for removed app must be pruned")
+
+	// Re-add the same app name/config; render overlay must not apply desiredState=stopped.
+	containerApp := domain.ContainerApplication{
+		AppType: domain.AppTypeContainer,
+		Name:    lo.ToPtr("app-1"),
+	}
+	require.NoError(containerApp.FromImageApplicationProviderSpec(domain.ImageApplicationProviderSpec{Image: "quay.io/test/app:v1"}))
+	var app domain.ApplicationProviderSpec
+	require.NoError(app.FromContainerApplication(containerApp))
+	withApp := domain.Device{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr(deviceName)},
+		Spec: &domain.DeviceSpec{
+			Applications: &[]domain.ApplicationProviderSpec{app},
+		},
+	}
+	dev, status = h.ReplaceDevice(ctx, orgId, deviceName, withApp, nil, false, false)
+	require.Equal(int32(http.StatusOK), status.Code)
+	annotations := lo.FromPtr(dev.Metadata.Annotations)
+	_, hasLifecycle = annotations[domain.DeviceAnnotationApplicationLifecycle]
+	require.False(hasLifecycle)
+
+	apps := *dev.Spec.Applications
+	require.NoError(domain.OverlayApplicationLifecycle(
+		&apps,
+		annotations[domain.DeviceAnnotationApplicationLifecycle],
+		annotations[domain.DeviceAnnotationFleetApplicationLifecycle],
+	))
+	require.Equal(domain.ApplicationDesiredStateRunning, apps[0].GetDesiredState())
+}

@@ -235,8 +235,7 @@ var _ = Describe("Application lifecycle overlay at render time", func() {
 		// device.Spec.Applications), not against the TemplateVersion.
 		fleet := api.Fleet{Metadata: api.ObjectMeta{Name: lo.ToPtr(fleetName)}}
 		fleet.Spec.Template.Spec.Applications = &[]api.ApplicationProviderSpec{fleetApp}
-		noopCallback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-		_, err := fleetStore.Create(ctx, orgId, &fleet, noopCallback)
+		_, err := fleetStore.Create(ctx, orgId, &fleet)
 		Expect(err).ToNot(HaveOccurred())
 
 		tvStatus := api.TemplateVersionStatus{

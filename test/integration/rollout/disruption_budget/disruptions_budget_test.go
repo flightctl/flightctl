@@ -103,7 +103,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 			},
 		}
 
-		f, err := fleetStore.Create(ctx, store.NullOrgId, fleet, nil)
+		f, err := fleetStore.Create(ctx, store.NullOrgId, fleet)
 		Expect(err).ToNot(HaveOccurred())
 		return f
 	}
@@ -123,7 +123,8 @@ var _ = Describe("Rollout disruption budget test", func() {
 		annotations := map[string]string{
 			api.FleetAnnotationTemplateVersion: *tv.Metadata.Name,
 		}
-		Expect(fleetStore.UpdateAnnotations(ctx, store.NullOrgId, FleetName, annotations, nil, nil)).ToNot(HaveOccurred())
+		_, _, err = fleetStore.UpdateAnnotations(ctx, store.NullOrgId, FleetName, annotations, nil)
+		Expect(err).ToNot(HaveOccurred())
 	}
 	var (
 		labels1 = map[string]string{
@@ -137,7 +138,19 @@ var _ = Describe("Rollout disruption budget test", func() {
 	)
 	updateDeviceLabels := func(device *api.Device, labels map[string]string) {
 		device.Metadata.Labels = &labels
-		_, err := deviceStore.Update(ctx, store.NullOrgId, device, nil, nil, nil)
+		_, _, _, err := deviceStore.Mutate(ctx, store.NullOrgId, lo.FromPtr(device.Metadata.Name), nil, func(m *devicestore.DeviceMutation) error {
+			if err := m.RequireExisting(); err != nil {
+				return err
+			}
+			if device.Spec != nil {
+				m.Device.Spec = device.Spec
+			}
+			if device.Status != nil {
+				m.Device.Status = device.Status
+			}
+			store.ApplyObjectMetaUpdate(&m.Device.Metadata, &device.Metadata, nil)
+			return nil
+		})
 		Expect(err).ToNot(HaveOccurred())
 	}
 
@@ -263,7 +276,7 @@ var _ = Describe("Rollout disruption budget test", func() {
 				for i := range devices.Items {
 					d := devices.Items[i]
 					d.Status.Summary.Status = "Online"
-					_, err = deviceStore.UpdateStatus(ctx, store.NullOrgId, &d, nil, nil)
+					_, _, err = deviceStore.UpdateStatus(ctx, store.NullOrgId, &d, nil)
 					Expect(err).ToNot(HaveOccurred())
 					annotations := make(map[string]string)
 					if annotateTv {
@@ -273,9 +286,10 @@ var _ = Describe("Rollout disruption budget test", func() {
 						annotations[api.DeviceAnnotationRenderedTemplateVersion] = tvName
 					}
 					annotations[api.DeviceAnnotationRenderedVersion] = "5"
-					Expect(deviceStore.UpdateAnnotations(ctx, store.NullOrgId, lo.FromPtr(d.Metadata.Name), annotations, nil)).ToNot(HaveOccurred())
+					err = deviceStore.UpdateAnnotations(ctx, store.NullOrgId, lo.FromPtr(d.Metadata.Name), annotations, nil)
+					Expect(err).ToNot(HaveOccurred())
 					d.Status.Config.RenderedVersion = "5"
-					_, err = deviceStore.UpdateStatus(ctx, store.NullOrgId, &d, nil, nil)
+					_, _, err = deviceStore.UpdateStatus(ctx, store.NullOrgId, &d, nil)
 					Expect(err).ToNot(HaveOccurred())
 				}
 			}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"reflect"
 	"time"
@@ -22,6 +23,7 @@ import (
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/store/selector"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -31,14 +33,15 @@ import (
 
 // DeviceServiceHandler implements Service.
 type DeviceServiceHandler struct {
-	deviceStore   devicestore.Store
-	catalogStore  catalogstore.Store
-	fleetStore    fleetstore.Store
-	events        events.Service
-	kvStore       kvstore.KVStore
-	agentGate     *semaphore.Weighted
-	agentEndpoint string
-	log           logrus.FieldLogger
+	deviceStore       devicestore.Store
+	catalogStore      catalogstore.Store
+	fleetStore        fleetstore.Store
+	events            events.Service
+	kvStore           kvstore.KVStore
+	agentGate         *semaphore.Weighted
+	agentEndpoint     string
+	log               logrus.FieldLogger
+	callEventCallback store.EventCallbackCaller
 }
 
 // NewDeviceServiceHandler creates a new DeviceServiceHandler instance.
@@ -53,14 +56,15 @@ func NewDeviceServiceHandler(
 	log logrus.FieldLogger,
 ) Service {
 	return &DeviceServiceHandler{
-		deviceStore:   deviceStore,
-		catalogStore:  catalogStore,
-		fleetStore:    fleetStore,
-		events:        events,
-		kvStore:       kvStore,
-		agentGate:     semaphore.NewWeighted(common.MaxConcurrentAgents),
-		agentEndpoint: agentEndpoint,
-		log:           log,
+		deviceStore:       deviceStore,
+		catalogStore:      catalogStore,
+		fleetStore:        fleetStore,
+		events:            events,
+		kvStore:           kvStore,
+		agentGate:         semaphore.NewWeighted(common.MaxConcurrentAgents),
+		agentEndpoint:     agentEndpoint,
+		log:               log,
+		callEventCallback: store.CallEventCallback(domain.DeviceKind, log),
 	}
 }
 
@@ -104,7 +108,9 @@ func (h *DeviceServiceHandler) CreateDevice(ctx context.Context, orgId uuid.UUID
 
 	_ = common.UpdateServiceSideStatus(ctx, orgId, &device, h.fleetStore, h.log)
 
-	result, err := h.deviceStore.Create(ctx, orgId, &device, h.callbackDeviceUpdated)
+	name := lo.FromPtr(device.Metadata.Name)
+	result, err := h.deviceStore.Create(ctx, orgId, &device, nil)
+	h.callEventCallback(ctx, h.callbackDeviceUpdated, orgId, name, nil, result, true, err)
 	return result, common.StoreErrorToApiStatus(err, true, domain.DeviceKind, device.Metadata.Name)
 }
 
@@ -223,14 +229,6 @@ func (h *DeviceServiceHandler) GetDevice(ctx context.Context, orgId uuid.UUID, n
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
-// DeviceVerificationCallback ensures the device wasn't decommissioned before an update proceeds.
-func DeviceVerificationCallback(ctx context.Context, before, after *domain.Device) error {
-	if before != nil && before.Spec != nil && before.Spec.Decommissioning != nil {
-		return flterrors.ErrDecommission
-	}
-	return nil
-}
-
 func (h *DeviceServiceHandler) ReplaceDevice(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string, enforceOwnership bool, enforceCapabilities bool) (*domain.Device, domain.Status) {
 	if device.Spec != nil && device.Spec.Decommissioning != nil {
 		h.log.WithError(flterrors.ErrDecommission).Error("attempt to set decommissioned status when replacing device, or to replace decommissioned device")
@@ -248,23 +246,107 @@ func (h *DeviceServiceHandler) ReplaceDevice(ctx context.Context, orgId uuid.UUI
 		return nil, status
 	}
 
-	if enforceOwnership || enforceCapabilities {
-		existing, getErr := h.deviceStore.Get(ctx, orgId, name)
-		if getErr != nil && !errors.Is(getErr, flterrors.ErrResourceNotFound) {
-			return nil, common.StoreErrorToApiStatus(getErr, false, domain.DeviceKind, &name)
+	result, before, created, err := h.deviceStore.Mutate(ctx, orgId, name, nil, func(m *devicestore.DeviceMutation) error {
+		creating := m.Device == nil
+		if creating {
+			status := domain.NewDeviceStatus()
+			m.Device = &domain.Device{
+				ApiVersion: domain.DeviceAPIVersion,
+				Kind:       domain.DeviceKind,
+				Metadata:   device.Metadata,
+				Spec:       device.Spec,
+				Status:     &status,
+			}
+			m.Device.Metadata.Name = lo.ToPtr(name)
+			_ = common.UpdateServiceSideStatus(ctx, orgId, m.Device, h.fleetStore, h.log)
+			return pruneLifecycleOnCurrent(h.log, m.Device)
 		}
-		if existing != nil && enforceOwnership && len(lo.FromPtr(existing.Metadata.Owner)) != 0 && !domain.DeviceSpecsAreEqual(lo.FromPtr(existing.Spec), lo.FromPtr(device.Spec)) {
-			return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.DeviceKind, &name)
+		current := m.Device
+		if err := rejectDecommissionedDevice(current); err != nil {
+			return err
 		}
-		if existing != nil && enforceCapabilities && isPackageModeOsTargetConflict(existing, &device) {
-			return nil, domain.StatusBadRequest(flterrors.ErrOsTargetNotSupportedOnPackageMode.Error())
+		if err := common.CheckResourceVersionConflict(&current.Metadata, &device.Metadata); err != nil {
+			return err
 		}
-	}
-
-	_ = common.UpdateServiceSideStatus(ctx, orgId, &device, h.fleetStore, h.log)
-
-	result, created, err := h.deviceStore.CreateOrUpdate(ctx, orgId, &device, fieldsToUnset, DeviceVerificationCallback, h.callbackDeviceUpdated)
+		if enforceOwnership && len(lo.FromPtr(current.Metadata.Owner)) != 0 && !domain.DeviceSpecsAreEqual(lo.FromPtr(current.Spec), lo.FromPtr(device.Spec)) {
+			return flterrors.ErrUpdatingResourceWithOwnerNotAllowed
+		}
+		if enforceCapabilities && isPackageModeOsTargetConflict(current, &device) {
+			return flterrors.ErrOsTargetNotSupportedOnPackageMode
+		}
+		if device.Spec != nil {
+			current.Spec = device.Spec
+		}
+		if device.Metadata.Labels != nil || lo.Contains(fieldsToUnset, "labels") {
+			current.Metadata.Labels = device.Metadata.Labels
+		}
+		if device.Metadata.Annotations != nil || lo.Contains(fieldsToUnset, "annotations") {
+			current.Metadata.Annotations = device.Metadata.Annotations
+		}
+		if device.Metadata.Owner != nil || lo.Contains(fieldsToUnset, "owner") {
+			current.Metadata.Owner = device.Metadata.Owner
+		}
+		_ = common.UpdateServiceSideStatus(ctx, orgId, current, h.fleetStore, h.log)
+		return pruneLifecycleOnCurrent(h.log, current)
+	})
+	h.callEventCallback(ctx, h.callbackDeviceUpdated, orgId, name, before, result, created, err)
 	return result, common.StoreErrorToApiStatus(err, created, domain.DeviceKind, &name)
+}
+
+// ReplaceDeviceSpec is the internal-reconciler counterpart to ReplaceDevice: it overwrites
+// Spec and merges setAnnotations/deleteAnnotations into the existing annotation map, without
+// requiring the caller's resourceVersion to match. Ownership is re-verified against the
+// freshly-loaded device on every retry attempt (not a stale caller-held snapshot), so a
+// concurrent owner change is still caught. Labels are never touched.
+func (h *DeviceServiceHandler) ReplaceDeviceSpec(ctx context.Context, orgId uuid.UUID, name string, expectedOwner *string, spec domain.DeviceSpec, setAnnotations map[string]string, deleteAnnotations []string) (*domain.Device, domain.Status) {
+	result, before, _, err := h.deviceStore.Mutate(ctx, orgId, name, nil, func(m *devicestore.DeviceMutation) error {
+		if err := m.RequireExisting(); err != nil {
+			return err
+		}
+		current := m.Device
+		if err := rejectDecommissionedDevice(current); err != nil {
+			return err
+		}
+		if util.DefaultIfNil(current.Metadata.Owner, "") != util.DefaultIfNil(expectedOwner, "") {
+			return flterrors.ErrUpdatingResourceWithOwnerNotAllowed
+		}
+		current.Spec = &spec
+		ann := util.EnsureMap(lo.FromPtr(current.Metadata.Annotations))
+		for k, v := range setAnnotations {
+			ann[k] = v
+		}
+		for _, k := range deleteAnnotations {
+			delete(ann, k)
+		}
+		current.Metadata.Annotations = &ann
+		_ = common.UpdateServiceSideStatus(ctx, orgId, current, h.fleetStore, h.log)
+		return pruneLifecycleOnCurrent(h.log, current)
+	})
+	h.callEventCallback(ctx, h.callbackDeviceUpdated, orgId, name, before, result, false, err)
+	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
+}
+
+// SetDeviceOwner sets (newOwner non-nil) or clears (newOwner nil) only Owner, re-verified
+// against the freshly-loaded device's owner on every retry attempt. Spec/Labels/Annotations
+// are never part of the write payload, so this cannot race with heartbeats or clobber a
+// concurrently-rendered spec the way a full ReplaceDevice call would.
+func (h *DeviceServiceHandler) SetDeviceOwner(ctx context.Context, orgId uuid.UUID, name string, expectedOwner *string, newOwner *string) (*domain.Device, domain.Status) {
+	result, before, _, err := h.deviceStore.Mutate(ctx, orgId, name, nil, func(m *devicestore.DeviceMutation) error {
+		if err := m.RequireExisting(); err != nil {
+			return err
+		}
+		current := m.Device
+		if err := rejectDecommissionedDevice(current); err != nil {
+			return err
+		}
+		if util.DefaultIfNil(current.Metadata.Owner, "") != util.DefaultIfNil(expectedOwner, "") {
+			return flterrors.ErrUpdatingResourceWithOwnerNotAllowed
+		}
+		current.Metadata.Owner = newOwner
+		return nil
+	})
+	h.callEventCallback(ctx, h.callbackDeviceUpdated, orgId, name, before, result, false, err)
+	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
 func (h *DeviceServiceHandler) UpdateDevice(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string) (*domain.Device, error) {
@@ -280,10 +362,32 @@ func (h *DeviceServiceHandler) UpdateDevice(ctx context.Context, orgId uuid.UUID
 		return nil, fmt.Errorf("resource name specified in metadata does not match name in path")
 	}
 
-	_ = common.UpdateServiceSideStatus(ctx, orgId, &device, h.fleetStore, h.log)
-
 	// Ownership is never enforced on UpdateDevice (agent/console trusted path).
-	return h.deviceStore.Update(ctx, orgId, &device, fieldsToUnset, DeviceVerificationCallback, h.callbackDeviceUpdated)
+	result, before, _, err := h.deviceStore.Mutate(ctx, orgId, name, nil, func(m *devicestore.DeviceMutation) error {
+		if err := m.RequireExisting(); err != nil {
+			return err
+		}
+		current := m.Device
+		if err := rejectDecommissionedDevice(current); err != nil {
+			return err
+		}
+		if device.Spec != nil {
+			current.Spec = device.Spec
+		}
+		if device.Metadata.Labels != nil || lo.Contains(fieldsToUnset, "labels") {
+			current.Metadata.Labels = device.Metadata.Labels
+		}
+		if device.Metadata.Annotations != nil || lo.Contains(fieldsToUnset, "annotations") {
+			current.Metadata.Annotations = device.Metadata.Annotations
+		}
+		if device.Metadata.Owner != nil || lo.Contains(fieldsToUnset, "owner") {
+			current.Metadata.Owner = device.Metadata.Owner
+		}
+		_ = common.UpdateServiceSideStatus(ctx, orgId, current, h.fleetStore, h.log)
+		return pruneLifecycleOnCurrent(h.log, current)
+	})
+	h.callEventCallback(ctx, h.callbackDeviceUpdated, orgId, name, before, result, false, err)
+	return result, err
 }
 
 func (h *DeviceServiceHandler) DeleteDevice(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
@@ -352,7 +456,8 @@ func (h *DeviceServiceHandler) ReplaceDeviceStatus(ctx context.Context, orgId uu
 	deviceToStore.Status = incomingDevice.Status
 	_ = common.UpdateServiceSideStatus(ctx, orgId, deviceToStore, h.fleetStore, h.log)
 
-	result, err := h.deviceStore.UpdateStatus(ctx, orgId, deviceToStore, h.callbackDeviceUpdated, originalDevice)
+	result, before, err := h.deviceStore.UpdateStatus(ctx, orgId, deviceToStore, originalDevice)
+	h.callEventCallback(ctx, h.callbackDeviceUpdated, orgId, name, before, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
@@ -362,39 +467,70 @@ func (h *DeviceServiceHandler) PatchDeviceStatus(ctx context.Context, orgId uuid
 		return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 	}
 
-	newObj := &domain.Device{}
-	err = common.ApplyJSONPatch(ctx, currentObj, newObj, patch, "/devices/"+name)
-	if err != nil {
-		return nil, domain.StatusBadRequest(err.Error())
+	// Fast-fail validation against the pre-mutate snapshot (400s). The Mutate callback
+	// reapplies the patch against the CAS-fresh current on every attempt.
+	if status := validateDeviceStatusPatch(ctx, currentObj, patch, name); status.Code != http.StatusOK {
+		return nil, status
 	}
 
-	if errs := validateDeviceStatus(newObj); len(errs) > 0 {
-		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
+	var callbackStatus domain.Status
+	result, before, _, err := h.deviceStore.Mutate(ctx, orgId, name, currentObj, func(m *devicestore.DeviceMutation) error {
+		if err := m.RequireExisting(); err != nil {
+			return err
+		}
+		if err := rejectDecommissionedDevice(m.Device); err != nil {
+			return err
+		}
+		patched, err := applyDeviceStatusPatch(ctx, m.Device, patch, name)
+		if err != nil {
+			callbackStatus = domain.StatusBadRequest(err.Error())
+			return err
+		}
+		m.Device.Status = patched.Status
+		_ = common.UpdateServiceSideStatus(ctx, orgId, m.Device, h.fleetStore, h.log)
+		return nil
+	})
+	h.callEventCallback(ctx, h.callbackDeviceUpdated, orgId, name, before, result, false, err)
+	if err != nil && callbackStatus.Code != 0 {
+		return result, callbackStatus
 	}
-
-	if errs := newObj.Validate(); len(errs) > 0 {
-		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
-	}
-	if !reflect.DeepEqual(newObj.Metadata, currentObj.Metadata) {
-		return nil, domain.StatusBadRequest("metadata is immutable")
-	}
-	if currentObj.ApiVersion != newObj.ApiVersion {
-		return nil, domain.StatusBadRequest("apiVersion is immutable")
-	}
-	if currentObj.Kind != newObj.Kind {
-		return nil, domain.StatusBadRequest("kind is immutable")
-	}
-	if !reflect.DeepEqual(currentObj.Spec, newObj.Spec) {
-		return nil, domain.StatusBadRequest("spec is immutable")
-	}
-
-	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
-	newObj.Metadata.ResourceVersion = nil
-
-	_ = common.UpdateServiceSideStatus(ctx, orgId, newObj, h.fleetStore, h.log)
-
-	result, err := h.deviceStore.Update(ctx, orgId, newObj, nil, DeviceVerificationCallback, h.callbackDeviceUpdated)
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
+}
+
+func validateDeviceStatusPatch(ctx context.Context, current *domain.Device, patch domain.PatchRequest, name string) domain.Status {
+	_, err := applyDeviceStatusPatch(ctx, current, patch, name)
+	if err != nil {
+		return domain.StatusBadRequest(err.Error())
+	}
+	return domain.StatusOK()
+}
+
+func applyDeviceStatusPatch(ctx context.Context, current *domain.Device, patch domain.PatchRequest, name string) (*domain.Device, error) {
+	patched := &domain.Device{}
+	if err := common.ApplyJSONPatch(ctx, current, patched, patch, "/devices/"+name); err != nil {
+		return nil, err
+	}
+	if errs := validateDeviceStatus(patched); len(errs) > 0 {
+		return nil, errors.Join(errs...)
+	}
+	if errs := patched.Validate(); len(errs) > 0 {
+		return nil, errors.Join(errs...)
+	}
+	if !reflect.DeepEqual(patched.Metadata, current.Metadata) {
+		return nil, errors.New("metadata is immutable")
+	}
+	if current.ApiVersion != patched.ApiVersion {
+		return nil, errors.New("apiVersion is immutable")
+	}
+	if current.Kind != patched.Kind {
+		return nil, errors.New("kind is immutable")
+	}
+	if !reflect.DeepEqual(current.Spec, patched.Spec) {
+		return nil, errors.New("spec is immutable")
+	}
+	common.NilOutManagedObjectMetaProperties(&patched.Metadata)
+	patched.Metadata.ResourceVersion = nil
+	return patched, nil
 }
 
 func (h *DeviceServiceHandler) GetRenderedDevice(ctx context.Context, orgId uuid.UUID, name string, params domain.GetRenderedDeviceParams) (*domain.Device, domain.Status) {
@@ -465,49 +601,81 @@ func (h *DeviceServiceHandler) PatchDevice(ctx context.Context, orgId uuid.UUID,
 		return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 	}
 
-	newObj := &domain.Device{}
-	err = common.ApplyJSONPatch(ctx, currentObj, newObj, patch, "/devices/"+name)
-	if err != nil {
-		return nil, domain.StatusBadRequest(err.Error())
-	}
-
-	// Status.LastSeen and Status.SystemInfo.AdditionalProperties are not marshaled into newObj by ApplyJSONPatch
-	// and will always be set to nil as they have "-" json tags and will not be copied into newObj.  For now, set the fields manually
-	// so later validation passes
-	if currentObj.Status != nil && newObj.Status != nil {
-		newObj.Status.LastSeen = currentObj.Status.LastSeen
-		newObj.Status.SystemInfo.AdditionalProperties = currentObj.Status.SystemInfo.AdditionalProperties
-	}
-
-	if errs := newObj.Validate(); len(errs) > 0 {
-		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
-	}
-
-	if errs := currentObj.ValidateUpdate(newObj); len(errs) > 0 {
-		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
-	}
-	if newObj.Spec != nil && newObj.Spec.Decommissioning != nil {
-		return nil, domain.StatusBadRequest("spec.decommissioning cannot be changed via patch request")
-	}
-
-	if status := common.ValidateCatalogItemRefs(ctx, orgId, h.catalogStore, newObj.Spec); status != domain.StatusOK() {
+	// Fast-fail validation against the pre-mutate snapshot (400s). The Mutate callback reapplies
+	// the patch against the CAS-fresh current on every attempt so ownership/spec checks stay correct.
+	if status := validateDevicePatch(ctx, orgId, h.catalogStore, currentObj, patch, name); status.Code != http.StatusOK {
 		return nil, status
 	}
 
-	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
-	newObj.Metadata.ResourceVersion = nil
+	var callbackStatus domain.Status
+	result, before, _, err := h.deviceStore.Mutate(ctx, orgId, name, currentObj, func(m *devicestore.DeviceMutation) error {
+		if err := m.RequireExisting(); err != nil {
+			return err
+		}
+		current := m.Device
+		if err := rejectDecommissionedDevice(current); err != nil {
+			return err
+		}
+		patched, err := applyDevicePatch(ctx, current, patch, name)
+		if err != nil {
+			callbackStatus = domain.StatusBadRequest(err.Error())
+			return err
+		}
+		if status := common.ValidateCatalogItemRefs(ctx, orgId, h.catalogStore, patched.Spec); status != domain.StatusOK() {
+			callbackStatus = status
+			return common.ApiStatusToErr(status)
+		}
+		if enforceOwnership && len(lo.FromPtr(current.Metadata.Owner)) != 0 && !domain.DeviceSpecsAreEqual(lo.FromPtr(current.Spec), lo.FromPtr(patched.Spec)) {
+			return flterrors.ErrUpdatingResourceWithOwnerNotAllowed
+		}
+		if enforceCapabilities && isPackageModeOsTargetConflict(current, patched) {
+			return flterrors.ErrOsTargetNotSupportedOnPackageMode
+		}
 
-	if enforceOwnership && len(lo.FromPtr(currentObj.Metadata.Owner)) != 0 && !domain.DeviceSpecsAreEqual(lo.FromPtr(currentObj.Spec), lo.FromPtr(newObj.Spec)) {
-		return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.DeviceKind, &name)
+		current.Spec = patched.Spec
+		current.Metadata.Labels = patched.Metadata.Labels
+		if patched.Status != nil {
+			current.Status = patched.Status
+		}
+		_ = common.UpdateServiceSideStatus(ctx, orgId, current, h.fleetStore, h.log)
+		return pruneLifecycleOnCurrent(h.log, current)
+	})
+	h.callEventCallback(ctx, h.callbackDeviceUpdated, orgId, name, before, result, false, err)
+	if err != nil && callbackStatus.Code != 0 {
+		return result, callbackStatus
 	}
-	if enforceCapabilities && isPackageModeOsTargetConflict(currentObj, newObj) {
-		return nil, domain.StatusBadRequest(flterrors.ErrOsTargetNotSupportedOnPackageMode.Error())
-	}
-
-	_ = common.UpdateServiceSideStatus(ctx, orgId, newObj, h.fleetStore, h.log)
-
-	result, err := h.deviceStore.Update(ctx, orgId, newObj, nil, DeviceVerificationCallback, h.callbackDeviceUpdated)
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
+}
+
+func validateDevicePatch(ctx context.Context, orgId uuid.UUID, catalogStore catalogstore.Store, current *domain.Device, patch domain.PatchRequest, name string) domain.Status {
+	patched, err := applyDevicePatch(ctx, current, patch, name)
+	if err != nil {
+		return domain.StatusBadRequest(err.Error())
+	}
+	return common.ValidateCatalogItemRefs(ctx, orgId, catalogStore, patched.Spec)
+}
+
+func applyDevicePatch(ctx context.Context, current *domain.Device, patch domain.PatchRequest, name string) (*domain.Device, error) {
+	patched := &domain.Device{}
+	if err := common.ApplyJSONPatch(ctx, current, patched, patch, "/devices/"+name); err != nil {
+		return nil, err
+	}
+	if current.Status != nil && patched.Status != nil {
+		patched.Status.LastSeen = current.Status.LastSeen
+		patched.Status.SystemInfo.AdditionalProperties = current.Status.SystemInfo.AdditionalProperties
+	}
+	if errs := patched.Validate(); len(errs) > 0 {
+		return nil, errors.Join(errs...)
+	}
+	if errs := current.ValidateUpdate(patched); len(errs) > 0 {
+		return nil, errors.Join(errs...)
+	}
+	if patched.Spec != nil && patched.Spec.Decommissioning != nil {
+		return nil, errors.New("spec.decommissioning cannot be changed via patch request")
+	}
+	common.NilOutManagedObjectMetaProperties(&patched.Metadata)
+	patched.Metadata.ResourceVersion = nil
+	return patched, nil
 }
 
 func (h *DeviceServiceHandler) SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner string) error {
@@ -521,7 +689,8 @@ func (h *DeviceServiceHandler) UpdateServerSideDeviceStatus(ctx context.Context,
 	}
 	previous := snapshotDeviceForStatusUpdate(device)
 	if changed := common.UpdateServiceSideStatus(ctx, orgId, device, h.fleetStore, h.log); changed {
-		_, err = h.deviceStore.UpdateStatus(ctx, orgId, device, h.callbackDeviceUpdated, previous)
+		result, before, err := h.deviceStore.UpdateStatus(ctx, orgId, device, previous)
+		h.callEventCallback(ctx, h.callbackDeviceUpdated, orgId, name, before, result, false, err)
 		if err != nil {
 			h.log.WithError(err).Errorf("failed to update status for device %s/%s", orgId, name)
 			return err
@@ -537,7 +706,8 @@ func (h *DeviceServiceHandler) ForceUpdateServerSideDeviceStatus(ctx context.Con
 	}
 	previous := snapshotDeviceForStatusUpdate(device)
 	common.UpdateServiceSideStatus(ctx, orgId, device, h.fleetStore, h.log)
-	_, err = h.deviceStore.UpdateStatus(ctx, orgId, device, h.callbackDeviceUpdated, previous)
+	result, before, err := h.deviceStore.UpdateStatus(ctx, orgId, device, previous)
+	h.callEventCallback(ctx, h.callbackDeviceUpdated, orgId, name, before, result, false, err)
 	if err != nil {
 		h.log.WithError(err).Errorf("failed to update status for device %s/%s", orgId, name)
 		return err
@@ -545,15 +715,26 @@ func (h *DeviceServiceHandler) ForceUpdateServerSideDeviceStatus(ctx context.Con
 	return nil
 }
 
-// snapshotDeviceForStatusUpdate copies the device enough that in-place status mutations
-// in UpdateServiceSideStatus do not alter the pre-update snapshot used for events.
+// snapshotDeviceForStatusUpdate deep-copies metadata maps and status so later
+// in-place mutations (annotations, conditions, USSS) do not alter event baselines.
 func snapshotDeviceForStatusUpdate(device *domain.Device) *domain.Device {
 	if device == nil {
 		return nil
 	}
 	previous := *device
+	if device.Metadata.Annotations != nil {
+		ann := maps.Clone(*device.Metadata.Annotations)
+		previous.Metadata.Annotations = &ann
+	}
+	if device.Metadata.Labels != nil {
+		labels := maps.Clone(*device.Metadata.Labels)
+		previous.Metadata.Labels = &labels
+	}
 	if device.Status != nil {
 		status := *device.Status
+		if device.Status.Conditions != nil {
+			status.Conditions = append([]domain.Condition(nil), device.Status.Conditions...)
+		}
 		previous.Status = &status
 	}
 	return &previous
@@ -577,28 +758,44 @@ func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId u
 	}
 	var previous, updated *domain.Device
 	var oldConditions []domain.Condition
-	renderedVersion, err := h.deviceStore.UpdateRendered(ctx, orgId, name, renderedConfig, renderedApplications, specHash, osImage, configFingerprints, forceUpdate,
-		func(device *domain.Device) bool {
-			previous = snapshotDeviceForStatusUpdate(device)
-			oldConditions = nil
-			updated = nil
-			if device.Status != nil {
-				oldConditions = append([]domain.Condition(nil), device.Status.Conditions...)
-				domain.SetStatusCondition(&device.Status.Conditions, specValid)
+	var renderedVersion string
+	_, _, _, err := h.deviceStore.Mutate(ctx, orgId, name, nil, func(m *devicestore.DeviceMutation) error {
+		if err := m.RequireExisting(); err != nil {
+			return err
+		}
+		// Capture pre-render conditions before applyRenderedUpdate sets SpecValid.
+		previous = snapshotDeviceForStatusUpdate(m.Device)
+		oldConditions = nil
+		updated = nil
+		if m.Device.Status != nil {
+			oldConditions = append([]domain.Condition(nil), m.Device.Status.Conditions...)
+		}
+		version, err := applyRenderedUpdate(m, renderedConfig, renderedApplications, specHash, osImage, configFingerprints, forceUpdate)
+		if err != nil {
+			return err
+		}
+		renderedVersion = version
+		var statusBefore *domain.DeviceStatus
+		if m.Device.Status != nil {
+			st := *m.Device.Status
+			if m.Device.Status.Conditions != nil {
+				st.Conditions = append([]domain.Condition(nil), m.Device.Status.Conditions...)
 			}
-			if !common.UpdateServiceSideStatus(ctx, orgId, device, h.fleetStore, h.log) {
-				return false
-			}
-			updated = device
-			return true
-		})
+			statusBefore = &st
+		}
+		if !common.UpdateServiceSideStatus(ctx, orgId, m.Device, h.fleetStore, h.log) {
+			m.Device.Status = statusBefore
+		}
+		// Always emit the update when renderedVersion advanced, even if USSS made no status change.
+		updated = m.Device
+		return nil
+	})
 	if err != nil {
 		h.log.Errorf("Failed to update rendered device %s/%s: %v", orgId, name, err)
 		return common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 	}
 	if renderedVersion == "" {
 		h.log.Debugf("Rendered device %s/%s: no change in rendered version", orgId, name)
-		// No rendered write; still ensure SpecValid=Valid and refresh derived status.
 		status := h.SetDeviceServiceConditions(ctx, orgId, name, []domain.Condition{specValid})
 		if status.Code != http.StatusOK {
 			return status
@@ -621,7 +818,6 @@ func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId u
 		h.diffAndEmitConditionEvents(ctx, orgId, deviceForEvents, oldConditions, newConditions)
 	}
 
-	// Best-effort: StoreAndNotify only wakes up already-polling agents, it's not the source of truth.
 	if err := rendered.Bus.Instance().StoreAndNotify(ctx, orgId, name, renderedVersion); err != nil {
 		h.log.Errorf("Failed to publish rendered device %s/%s: %v", orgId, name, err)
 	}

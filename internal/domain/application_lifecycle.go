@@ -109,10 +109,27 @@ func desiredStateIsAtLeastAsRecent(src, dst ApplicationLifecycleOverride) bool {
 	return *src.DesiredStateVersion >= *dst.DesiredStateVersion
 }
 
-// MergeApplicationLifecycleOverrides decodes the existing lifecycle annotation value, merges
-// the given per-application overrides on top (per field, so a stop call never drops a
-// previously-stored restartGeneration and vice versa), and re-encodes the result.
-func MergeApplicationLifecycleOverrides(raw string, overrides map[string]ApplicationLifecycleOverride) (string, error) {
+// MergeApplicationLifecycleOverrides merges overrides into annotations[key].
+// Per-field merge keeps stop/start from dropping a stored restartGeneration and vice versa.
+// Empty merged values remove the key. The returned map is always a copy.
+func MergeApplicationLifecycleOverrides(annotations map[string]string, key string, overrides map[string]ApplicationLifecycleOverride) (map[string]string, error) {
+	next := make(map[string]string, len(annotations)+1)
+	for k, v := range annotations {
+		next[k] = v
+	}
+	merged, err := mergeApplicationLifecycleOverridesRaw(next[key], overrides)
+	if err != nil {
+		return nil, err
+	}
+	if merged == "" {
+		delete(next, key)
+	} else {
+		next[key] = merged
+	}
+	return next, nil
+}
+
+func mergeApplicationLifecycleOverridesRaw(raw string, overrides map[string]ApplicationLifecycleOverride) (string, error) {
 	existing, err := decodeApplicationLifecycleOverrides(raw)
 	if err != nil {
 		return "", err
@@ -123,6 +140,76 @@ func MergeApplicationLifecycleOverrides(raw string, overrides map[string]Applica
 		return "", fmt.Errorf("failed to marshal application lifecycle annotation: %w", err)
 	}
 	return string(encoded), nil
+}
+
+// PruneApplicationLifecycleOverrides drops override entries for apps no longer in apps.
+// deleteAnnotation is true when no overrides remain (caller should remove the annotation key).
+// changed is false when the annotation is already consistent with apps.
+func PruneApplicationLifecycleOverrides(raw string, apps *[]ApplicationProviderSpec) (encoded string, deleteAnnotation bool, changed bool, err error) {
+	overrides, err := decodeApplicationLifecycleOverrides(raw)
+	if err != nil {
+		return "", false, false, err
+	}
+	if len(overrides) == 0 {
+		return "", raw != "", raw != "", nil
+	}
+
+	kept := make(map[string]ApplicationLifecycleOverride, len(overrides))
+	for name, override := range overrides {
+		if ApplicationsContainName(apps, name) {
+			kept[name] = override
+		}
+	}
+	if len(kept) == len(overrides) {
+		return raw, false, false, nil
+	}
+	if len(kept) == 0 {
+		return "", true, true, nil
+	}
+	encodedBytes, err := json.Marshal(kept)
+	if err != nil {
+		return "", false, false, fmt.Errorf("failed to marshal application lifecycle annotation: %w", err)
+	}
+	return string(encodedBytes), false, true, nil
+}
+
+// PruneApplicationLifecycleAnnotationMap prunes the given lifecycle annotation keys against apps.
+// When changed is false, annotations is returned unchanged (same map reference).
+// When changed is true, a new map is returned with stale keys removed or rewritten.
+func PruneApplicationLifecycleAnnotationMap(annotations map[string]string, apps *[]ApplicationProviderSpec, keys ...string) (map[string]string, bool, error) {
+	if len(annotations) == 0 || len(keys) == 0 {
+		return annotations, false, nil
+	}
+	next := annotations
+	copied := false
+	changed := false
+	for _, key := range keys {
+		raw, ok := next[key]
+		if !ok {
+			continue
+		}
+		encoded, deleteAnnotation, didChange, err := PruneApplicationLifecycleOverrides(raw, apps)
+		if err != nil {
+			return nil, false, fmt.Errorf("prune lifecycle annotation %q: %w", key, err)
+		}
+		if !didChange {
+			continue
+		}
+		if !copied {
+			next = make(map[string]string, len(annotations))
+			for k, v := range annotations {
+				next[k] = v
+			}
+			copied = true
+		}
+		changed = true
+		if deleteAnnotation {
+			delete(next, key)
+			continue
+		}
+		next[key] = encoded
+	}
+	return next, changed, nil
 }
 
 func ApplicationsContainName(apps *[]ApplicationProviderSpec, appName string) bool {

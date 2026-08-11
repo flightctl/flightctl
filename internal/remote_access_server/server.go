@@ -21,6 +21,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service"
 	authproviderservice "github.com/flightctl/flightctl/internal/service/authprovider"
+	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
 	authproviderstore "github.com/flightctl/flightctl/internal/store/authprovider"
@@ -63,7 +64,23 @@ func (s *storeAppConsoleService) GetDevice(ctx context.Context, orgId uuid.UUID,
 }
 
 func (s *storeAppConsoleService) UpdateDevice(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string) (*domain.Device, error) {
-	return s.deviceStore.Update(ctx, orgId, &device, fieldsToUnset, nil, nil)
+	result, _, _, err := s.deviceStore.Mutate(ctx, orgId, name, nil, func(m *devicestore.DeviceMutation) error {
+		if err := m.RequireExisting(); err != nil {
+			return err
+		}
+		if err := common.CheckResourceVersionConflict(&m.Device.Metadata, &device.Metadata); err != nil {
+			return err
+		}
+		if device.Spec != nil {
+			m.Device.Spec = device.Spec
+		}
+		if device.Status != nil {
+			m.Device.Status = device.Status
+		}
+		store.ApplyObjectMetaUpdate(&m.Device.Metadata, &device.Metadata, fieldsToUnset)
+		return nil
+	})
+	return result, err
 }
 
 // New returns a new Server. All initialisation requiring a context (listeners,

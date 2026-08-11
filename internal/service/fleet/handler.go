@@ -3,12 +3,14 @@ package fleet
 import (
 	"context"
 	"errors"
+	"net/http"
 	"reflect"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
+	"github.com/flightctl/flightctl/internal/store"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/flightctl/flightctl/internal/store/selector"
@@ -19,16 +21,23 @@ import (
 )
 
 type ServiceHandler struct {
-	store        fleetstore.Store
-	catalogStore catalogstore.Store
-	events       events.Service
-	log          logrus.FieldLogger
+	store             fleetstore.Store
+	catalogStore      catalogstore.Store
+	events            events.Service
+	log               logrus.FieldLogger
+	callEventCallback store.EventCallbackCaller
 }
 
 // NewServiceHandler creates a new fleet ServiceHandler instance.
 // catalogStore is optional — when nil, catalog item ref validation is skipped.
-func NewServiceHandler(store fleetstore.Store, catalogStore catalogstore.Store, events events.Service, log logrus.FieldLogger) *ServiceHandler {
-	return &ServiceHandler{store: store, catalogStore: catalogStore, events: events, log: log}
+func NewServiceHandler(fleetStore fleetstore.Store, catalogStore catalogstore.Store, events events.Service, log logrus.FieldLogger) *ServiceHandler {
+	return &ServiceHandler{
+		store:             fleetStore,
+		catalogStore:      catalogStore,
+		events:            events,
+		log:               log,
+		callEventCallback: store.CallEventCallback(domain.FleetKind, log),
+	}
 }
 
 var _ Service = (*ServiceHandler)(nil)
@@ -67,7 +76,9 @@ func (h *ServiceHandler) CreateFleet(ctx context.Context, orgId uuid.UUID, fleet
 		return nil, status
 	}
 
-	result, err := h.store.Create(ctx, orgId, &fleet, h.callbackFleetUpdated)
+	name := lo.FromPtr(fleet.Metadata.Name)
+	result, err := h.store.Create(ctx, orgId, &fleet)
+	h.callEventCallback(ctx, h.callbackFleetUpdated, orgId, name, nil, result, err == nil, err)
 	return result, common.StoreErrorToApiStatus(err, true, domain.FleetKind, fleet.Metadata.Name)
 }
 
@@ -109,18 +120,39 @@ func (h *ServiceHandler) ReplaceFleet(ctx context.Context, orgId uuid.UUID, name
 		return nil, status
 	}
 
-	if enforceOwnership {
-		existing, getErr := h.store.Get(ctx, orgId, name)
-		if getErr != nil {
-			if !errors.Is(getErr, flterrors.ErrResourceNotFound) {
-				return nil, common.StoreErrorToApiStatus(getErr, false, domain.FleetKind, &name)
+	result, before, created, err := h.store.Mutate(ctx, orgId, name, nil, func(m *fleetstore.FleetMutation) error {
+		creating := m.Fleet == nil
+		if creating {
+			m.Fleet = &domain.Fleet{
+				ApiVersion: domain.FleetAPIVersion,
+				Kind:       domain.FleetKind,
+				Metadata:   fleet.Metadata,
+				Spec:       fleet.Spec,
+				Status:     &domain.FleetStatus{Conditions: []domain.Condition{}},
 			}
-		} else if fleetOwnershipConflict(existing, &fleet) {
-			return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.FleetKind, &name)
+			m.Fleet.Metadata.Name = lo.ToPtr(name)
+			return pruneFleetLifecycleOnCurrent(h.log, m.Fleet)
 		}
-	}
-
-	result, created, err := h.store.CreateOrUpdate(ctx, orgId, &fleet, nil, h.callbackFleetUpdated)
+		current := m.Fleet
+		if err := common.CheckResourceVersionConflict(&current.Metadata, &fleet.Metadata); err != nil {
+			return err
+		}
+		if enforceOwnership && fleetOwnershipConflict(current, &fleet) {
+			return flterrors.ErrUpdatingResourceWithOwnerNotAllowed
+		}
+		current.Spec = fleet.Spec
+		if fleet.Metadata.Labels != nil {
+			current.Metadata.Labels = fleet.Metadata.Labels
+		}
+		if fleet.Metadata.Annotations != nil {
+			current.Metadata.Annotations = fleet.Metadata.Annotations
+		}
+		if fleet.Metadata.Owner != nil {
+			current.Metadata.Owner = fleet.Metadata.Owner
+		}
+		return pruneFleetLifecycleOnCurrent(h.log, current)
+	})
+	h.callEventCallback(ctx, h.callbackFleetUpdated, orgId, name, before, result, created, err)
 	return result, common.StoreErrorToApiStatus(err, created, domain.FleetKind, &name)
 }
 
@@ -159,7 +191,7 @@ func (h *ServiceHandler) GetFleetStatus(ctx context.Context, orgId uuid.UUID, na
 }
 
 func (h *ServiceHandler) ReplaceFleetStatus(ctx context.Context, orgId uuid.UUID, name string, fleet domain.Fleet) (*domain.Fleet, domain.Status) {
-	result, err := h.store.UpdateStatus(ctx, orgId, &fleet)
+	result, _, err := h.store.UpdateStatus(ctx, orgId, &fleet)
 	return result, common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
 }
 
@@ -170,33 +202,56 @@ func (h *ServiceHandler) PatchFleet(ctx context.Context, orgId uuid.UUID, name s
 		return nil, common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
 	}
 
-	newObj := &domain.Fleet{}
-	err = common.ApplyJSONPatch(ctx, currentObj, newObj, patch, "/fleets/"+name)
-	if err != nil {
-		return nil, domain.StatusBadRequest(err.Error())
-	}
-
-	if errs := newObj.Validate(); len(errs) > 0 {
-		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
-	}
-
-	if errs := currentObj.ValidateUpdate(newObj); len(errs) > 0 {
-		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
-	}
-
-	if status := common.ValidateCatalogItemRefs(ctx, orgId, h.catalogStore, &newObj.Spec.Template.Spec); status != domain.StatusOK() {
+	if status := validateFleetPatch(ctx, orgId, h.catalogStore, currentObj, patch, name); status.Code != http.StatusOK {
 		return nil, status
 	}
 
-	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
-	newObj.Metadata.ResourceVersion = nil
-
-	if enforceOwnership && fleetOwnershipConflict(currentObj, newObj) {
-		return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.FleetKind, &name)
-	}
-
-	result, err := h.store.Update(ctx, orgId, newObj, nil, h.callbackFleetUpdated)
+	result, before, _, err := h.store.Mutate(ctx, orgId, name, currentObj, func(m *fleetstore.FleetMutation) error {
+		if err := m.RequireExisting(); err != nil {
+			return err
+		}
+		current := m.Fleet
+		patched, err := applyFleetPatch(ctx, current, patch, name)
+		if err != nil {
+			return err
+		}
+		if status := common.ValidateCatalogItemRefs(ctx, orgId, h.catalogStore, &patched.Spec.Template.Spec); status != domain.StatusOK() {
+			return common.ApiStatusToErr(status)
+		}
+		if enforceOwnership && fleetOwnershipConflict(current, patched) {
+			return flterrors.ErrUpdatingResourceWithOwnerNotAllowed
+		}
+		// Annotations/owner were nil'd as managed fields; keep current's then prune lifecycle.
+		current.Spec = patched.Spec
+		current.Metadata.Labels = patched.Metadata.Labels
+		return pruneFleetLifecycleOnCurrent(h.log, current)
+	})
+	h.callEventCallback(ctx, h.callbackFleetUpdated, orgId, name, before, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
+}
+
+func validateFleetPatch(ctx context.Context, orgId uuid.UUID, catalogStore catalogstore.Store, current *domain.Fleet, patch domain.PatchRequest, name string) domain.Status {
+	patched, err := applyFleetPatch(ctx, current, patch, name)
+	if err != nil {
+		return domain.StatusBadRequest(err.Error())
+	}
+	return common.ValidateCatalogItemRefs(ctx, orgId, catalogStore, &patched.Spec.Template.Spec)
+}
+
+func applyFleetPatch(ctx context.Context, current *domain.Fleet, patch domain.PatchRequest, name string) (*domain.Fleet, error) {
+	patched := &domain.Fleet{}
+	if err := common.ApplyJSONPatch(ctx, current, patched, patch, "/fleets/"+name); err != nil {
+		return nil, err
+	}
+	if errs := patched.Validate(); len(errs) > 0 {
+		return nil, errors.Join(errs...)
+	}
+	if errs := current.ValidateUpdate(patched); len(errs) > 0 {
+		return nil, errors.Join(errs...)
+	}
+	common.NilOutManagedObjectMetaProperties(&patched.Metadata)
+	patched.Metadata.ResourceVersion = nil
+	return patched, nil
 }
 
 func (h *ServiceHandler) ListFleetRolloutDeviceSelection(ctx context.Context, orgId uuid.UUID) (*domain.FleetList, domain.Status) {
@@ -210,12 +265,35 @@ func (h *ServiceHandler) ListDisruptionBudgetFleets(ctx context.Context, orgId u
 }
 
 func (h *ServiceHandler) UpdateFleetConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) domain.Status {
-	err := h.store.UpdateConditions(ctx, orgId, name, conditions, h.callbackFleetUpdated)
+	result, before, _, err := h.store.Mutate(ctx, orgId, name, nil, func(m *fleetstore.FleetMutation) error {
+		if err := m.RequireExisting(); err != nil {
+			return err
+		}
+		current := m.Fleet
+		if current.Status == nil {
+			current.Status = &domain.FleetStatus{}
+		}
+		if current.Status.Conditions == nil {
+			current.Status.Conditions = []domain.Condition{}
+		}
+		changed := false
+		for _, condition := range conditions {
+			if domain.SetStatusCondition(&current.Status.Conditions, condition) {
+				changed = true
+			}
+		}
+		if !changed {
+			return store.ErrMutateSkipWrite
+		}
+		return nil
+	})
+	h.callEventCallback(ctx, h.callbackFleetUpdated, orgId, name, before, result, false, err)
 	return common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
 }
 
 func (h *ServiceHandler) UpdateFleetAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) domain.Status {
-	err := h.store.UpdateAnnotations(ctx, orgId, name, annotations, deleteKeys, h.callbackFleetUpdated)
+	result, before, err := h.store.UpdateAnnotations(ctx, orgId, name, annotations, deleteKeys)
+	h.callEventCallback(ctx, h.callbackFleetUpdated, orgId, name, before, result, false, err)
 	return common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
 }
 

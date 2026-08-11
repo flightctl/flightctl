@@ -375,6 +375,21 @@ func (mr *MockServiceMockRecorder) ReplaceDevice(ctx, orgId, name, device, field
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceDevice", reflect.TypeOf((*MockService)(nil).ReplaceDevice), ctx, orgId, name, device, fieldsToUnset, enforceOwnership, enforceCapabilities)
 }
 
+// ReplaceDeviceSpec mocks base method.
+func (m *MockService) ReplaceDeviceSpec(ctx context.Context, orgId uuid.UUID, name string, expectedOwner *string, spec domain.DeviceSpec, setAnnotations map[string]string, deleteAnnotations []string) (*domain.Device, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReplaceDeviceSpec", ctx, orgId, name, expectedOwner, spec, setAnnotations, deleteAnnotations)
+	ret0, _ := ret[0].(*domain.Device)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// ReplaceDeviceSpec indicates an expected call of ReplaceDeviceSpec.
+func (mr *MockServiceMockRecorder) ReplaceDeviceSpec(ctx, orgId, name, expectedOwner, spec, setAnnotations, deleteAnnotations any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceDeviceSpec", reflect.TypeOf((*MockService)(nil).ReplaceDeviceSpec), ctx, orgId, name, expectedOwner, spec, setAnnotations, deleteAnnotations)
+}
+
 // ReplaceDeviceStatus mocks base method.
 func (m *MockService) ReplaceDeviceStatus(ctx context.Context, orgId uuid.UUID, name string, device domain.Device, refreshLastSeen bool) (*domain.Device, domain.Status) {
 	m.ctrl.T.Helper()
@@ -418,6 +433,21 @@ func (m *MockService) ResumeDevices(ctx context.Context, orgId uuid.UUID, reques
 func (mr *MockServiceMockRecorder) ResumeDevices(ctx, orgId, request any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResumeDevices", reflect.TypeOf((*MockService)(nil).ResumeDevices), ctx, orgId, request)
+}
+
+// SetDeviceOwner mocks base method.
+func (m *MockService) SetDeviceOwner(ctx context.Context, orgId uuid.UUID, name string, expectedOwner, newOwner *string) (*domain.Device, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetDeviceOwner", ctx, orgId, name, expectedOwner, newOwner)
+	ret0, _ := ret[0].(*domain.Device)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// SetDeviceOwner indicates an expected call of SetDeviceOwner.
+func (mr *MockServiceMockRecorder) SetDeviceOwner(ctx, orgId, name, expectedOwner, newOwner any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetDeviceOwner", reflect.TypeOf((*MockService)(nil).SetDeviceOwner), ctx, orgId, name, expectedOwner, newOwner)
 }
 
 // SetDeviceServiceConditions mocks base method.

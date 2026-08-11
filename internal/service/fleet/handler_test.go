@@ -2,7 +2,9 @@ package fleet
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -18,6 +20,21 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
+
+func deepCopyFleet(src *domain.Fleet) *domain.Fleet {
+	if src == nil {
+		return nil
+	}
+	b, err := json.Marshal(src)
+	if err != nil {
+		panic(fmt.Sprintf("deepCopyFleet failed in test: %v", err))
+	}
+	var dst domain.Fleet
+	if err := json.Unmarshal(b, &dst); err != nil {
+		panic(fmt.Sprintf("deepCopyFleet failed in test: %v", err))
+	}
+	return &dst
+}
 
 const (
 	statusSuccessCode     = int32(200)
@@ -60,7 +77,7 @@ func newFakeFleetStore() *fakeFleetStore {
 
 func (f *fakeFleetStore) InitialMigration(ctx context.Context) error { return f.err }
 
-func (f *fakeFleetStore) Create(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, eventCallback store.EventCallback) (*domain.Fleet, error) {
+func (f *fakeFleetStore) Create(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet) (*domain.Fleet, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -68,42 +85,64 @@ func (f *fakeFleetStore) Create(ctx context.Context, orgId uuid.UUID, fleet *dom
 	if _, exists := f.fleets[name]; exists {
 		return nil, flterrors.ErrDuplicateName
 	}
-	f.fleets[name] = fleet
-	if eventCallback != nil {
-		eventCallback(ctx, domain.FleetKind, orgId, name, nil, fleet, true, nil)
-	}
-	return fleet, nil
+	f.fleets[name] = deepCopyFleet(fleet)
+	return deepCopyFleet(fleet), nil
 }
 
-func (f *fakeFleetStore) Update(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, fieldsToUnset []string, eventCallback store.EventCallback) (*domain.Fleet, error) {
+func (f *fakeFleetStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.Fleet, apply fleetstore.FleetApplyFunc) (*domain.Fleet, *domain.Fleet, bool, error) {
 	if f.err != nil {
-		return nil, f.err
+		return nil, nil, false, f.err
 	}
-	name := lo.FromPtr(fleet.Metadata.Name)
 	old, exists := f.fleets[name]
-	if !exists {
-		return nil, flterrors.ErrResourceNotFound
+	creating := !exists
+	var before *domain.Fleet
+	var current *domain.Fleet
+	if !creating {
+		before = deepCopyFleet(old)
+		current = deepCopyFleet(old)
 	}
-	// Mirrors the real generic store: fields left nil by the caller are preserved
-	// from the existing resource rather than wiped on update.
-	if fleet.Metadata.Owner == nil {
-		fleet.Metadata.Owner = old.Metadata.Owner
+	mutation := &fleetstore.FleetMutation{Fleet: current}
+	if apply != nil {
+		if err := apply(mutation); err != nil {
+			if errors.Is(err, store.ErrMutateSkipWrite) {
+				if mutation.Fleet == nil {
+					return nil, before, false, nil
+				}
+				return deepCopyFleet(mutation.Fleet), before, false, nil
+			}
+			return nil, nil, false, err
+		}
 	}
-	f.fleets[name] = fleet
-	if eventCallback != nil {
-		eventCallback(ctx, domain.FleetKind, orgId, name, old, fleet, false, nil)
+	if mutation.Fleet == nil {
+		return nil, nil, false, flterrors.ErrResourceIsNil
 	}
-	return fleet, nil
+	f.fleets[name] = deepCopyFleet(mutation.Fleet)
+	return deepCopyFleet(mutation.Fleet), before, creating, nil
 }
 
-func (f *fakeFleetStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, fieldsToUnset []string, eventCallback store.EventCallback) (*domain.Fleet, bool, error) {
+func (f *fakeFleetStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet) (*domain.Fleet, *domain.Fleet, error) {
 	name := lo.FromPtr(fleet.Metadata.Name)
-	if _, exists := f.fleets[name]; exists {
-		result, err := f.Update(ctx, orgId, fleet, fieldsToUnset, eventCallback)
-		return result, false, err
-	}
-	result, err := f.Create(ctx, orgId, fleet, eventCallback)
-	return result, true, err
+	updated, before, _, err := f.Mutate(ctx, orgId, name, nil, func(m *fleetstore.FleetMutation) error {
+		if err := m.RequireExisting(); err != nil {
+			return err
+		}
+		copied := deepCopyFleet(fleet)
+		m.Fleet.Status = copied.Status
+		return nil
+	})
+	return updated, before, err
+}
+
+func (f *fakeFleetStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) (*domain.Fleet, *domain.Fleet, error) {
+	updated, before, _, err := f.Mutate(ctx, orgId, name, nil, func(m *fleetstore.FleetMutation) error {
+		if err := m.RequireExisting(); err != nil {
+			return err
+		}
+		merged := store.MergeAnnotations(m.Fleet.Metadata.Annotations, annotations, deleteKeys)
+		m.Fleet.Metadata.Annotations = &merged
+		return nil
+	})
+	return updated, before, err
 }
 
 func (f *fakeFleetStore) Get(ctx context.Context, orgId uuid.UUID, name string, opts ...fleetstore.GetOption) (*domain.Fleet, error) {
@@ -114,7 +153,7 @@ func (f *fakeFleetStore) Get(ctx context.Context, orgId uuid.UUID, name string, 
 	if !ok {
 		return nil, flterrors.ErrResourceNotFound
 	}
-	return fleet, nil
+	return deepCopyFleet(fleet), nil
 }
 
 func (f *fakeFleetStore) List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams, opts ...fleetstore.ListOption) (*domain.FleetList, error) {
@@ -138,18 +177,6 @@ func (f *fakeFleetStore) Delete(ctx context.Context, orgId uuid.UUID, name strin
 		eventCallback(ctx, domain.FleetKind, orgId, name, old, nil, false, nil)
 	}
 	return nil
-}
-
-func (f *fakeFleetStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet) (*domain.Fleet, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-	name := lo.FromPtr(fleet.Metadata.Name)
-	if _, exists := f.fleets[name]; !exists {
-		return nil, flterrors.ErrResourceNotFound
-	}
-	f.fleets[name] = fleet
-	return fleet, nil
 }
 
 func (f *fakeFleetStore) ListRolloutDeviceSelection(ctx context.Context, orgId uuid.UUID) (*domain.FleetList, error) {
@@ -178,69 +205,6 @@ func (f *fakeFleetStore) UnsetOwner(ctx context.Context, tx *gorm.DB, orgId uuid
 
 func (f *fakeFleetStore) UnsetOwnerByKind(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, resourceKind string) error {
 	return f.err
-}
-
-func (f *fakeFleetStore) UpdateConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, eventCallback store.EventCallback) error {
-	fleet, ok := f.fleets[name]
-	if !ok {
-		return flterrors.ErrResourceNotFound
-	}
-	if fleet.Status == nil {
-		fleet.Status = &domain.FleetStatus{}
-	}
-	old := *fleet
-	for _, c := range conditions {
-		domain.SetStatusCondition(&fleet.Status.Conditions, c)
-	}
-	if eventCallback != nil {
-		eventCallback(ctx, domain.FleetKind, orgId, name, &old, fleet, false, nil)
-	}
-	return nil
-}
-
-func (f *fakeFleetStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string, eventCallback store.EventCallback) error {
-	fleet, ok := f.fleets[name]
-	if !ok {
-		return flterrors.ErrResourceNotFound
-	}
-	old := *fleet
-	existing := map[string]string{}
-	if fleet.Metadata.Annotations != nil {
-		for k, v := range *fleet.Metadata.Annotations {
-			existing[k] = v
-		}
-	}
-	for k, v := range annotations {
-		existing[k] = v
-	}
-	for _, k := range deleteKeys {
-		delete(existing, k)
-	}
-	fleet.Metadata.Annotations = &existing
-	if eventCallback != nil {
-		eventCallback(ctx, domain.FleetKind, orgId, name, &old, fleet, false, nil)
-	}
-	return nil
-}
-
-func (f *fakeFleetStore) MutateAnnotation(ctx context.Context, orgId uuid.UUID, name string, key string, mutate func(current string) (string, error)) error {
-	fleet, ok := f.fleets[name]
-	if !ok {
-		return flterrors.ErrResourceNotFound
-	}
-	existing := map[string]string{}
-	if fleet.Metadata.Annotations != nil {
-		for k, v := range *fleet.Metadata.Annotations {
-			existing[k] = v
-		}
-	}
-	newValue, err := mutate(existing[key])
-	if err != nil {
-		return err
-	}
-	existing[key] = newValue
-	fleet.Metadata.Annotations = &existing
-	return nil
 }
 
 func (f *fakeFleetStore) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error {

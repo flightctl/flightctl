@@ -495,15 +495,40 @@ var _ = Describe("FleetSelector", func() {
 			device, err := deviceStore.Get(ctx, orgId, "decommissioning-device")
 			Expect(err).ToNot(HaveOccurred())
 			device.Spec.Decommissioning = &api.DeviceDecommission{}
-			callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-			_, _, err = deviceStore.CreateOrUpdate(ctx, orgId, device, nil, nil, callback)
+			name := lo.FromPtr(device.Metadata.Name)
+			_, _, _, err = deviceStore.Mutate(ctx, orgId, name, nil, func(m *devicestore.DeviceMutation) error {
+				if m.Device == nil {
+					m.Device = device
+					return nil
+				}
+				if device.Spec != nil {
+					m.Device.Spec = device.Spec
+				}
+				if device.Status != nil {
+					m.Device.Status = device.Status
+				}
+				store.ApplyObjectMetaUpdate(&m.Device.Metadata, &device.Metadata, nil)
+				return nil
+			})
 			Expect(err).ToNot(HaveOccurred())
 
 			// Change fleet selector so device no longer matches
 			fleet, err := fleetStore.Get(ctx, orgId, "fleet")
 			Expect(err).ToNot(HaveOccurred())
 			fleet.Spec.Selector.MatchLabels = &map[string]string{"different": "value"}
-			_, _, err = fleetStore.CreateOrUpdate(ctx, orgId, fleet, nil, nil)
+			fleetName := lo.FromPtr(fleet.Metadata.Name)
+			_, _, _, err = fleetStore.Mutate(ctx, orgId, fleetName, nil, func(m *fleetstore.FleetMutation) error {
+				if m.Fleet == nil {
+					m.Fleet = fleet
+					return nil
+				}
+				m.Fleet.Spec = fleet.Spec
+				if fleet.Status != nil {
+					m.Fleet.Status = fleet.Status
+				}
+				store.ApplyObjectMetaUpdate(&m.Fleet.Metadata, &fleet.Metadata, nil)
+				return nil
+			})
 			Expect(err).ToNot(HaveOccurred())
 
 			err = logic.FleetSelectorUpdated(ctx)

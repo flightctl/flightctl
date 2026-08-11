@@ -20,6 +20,7 @@ import (
 	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	vulnerabilityfindingstore "github.com/flightctl/flightctl/internal/store/vulnerabilityfinding"
+	"github.com/flightctl/flightctl/internal/util"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/test/integration/integrationstack"
 	testutil "github.com/flightctl/flightctl/test/util"
@@ -45,6 +46,24 @@ var _ = BeforeSuite(func() {
 	suiteCtx = testutil.InitSuiteTracerForGinkgo("Store Suite")
 	Expect(integrationstack.EnsureRunning(suiteCtx)).To(Succeed())
 })
+
+func mutateCreateOrReplace(ctx context.Context, s devicestore.Store, orgId uuid.UUID, device *api.Device) (*api.Device, *api.Device, bool, error) {
+	name := lo.FromPtr(device.Metadata.Name)
+	return s.Mutate(ctx, orgId, name, nil, func(m *devicestore.DeviceMutation) error {
+		if m.Device == nil {
+			m.Device = device
+			return nil
+		}
+		if device.Spec != nil {
+			m.Device.Spec = device.Spec
+		}
+		if device.Status != nil {
+			m.Device.Status = device.Status
+		}
+		store.ApplyObjectMetaUpdate(&m.Device.Metadata, &device.Metadata, nil)
+		return nil
+	})
+}
 
 var _ = Describe("DeviceStore create", func() {
 	var (
@@ -86,7 +105,7 @@ var _ = Describe("DeviceStore create", func() {
 		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 	})
 
-	It("CreateOrUpdateDevice create mode race", func() {
+	It("Mutate device create mode race", func() {
 		imageName := "tv"
 		device := api.Device{
 			Metadata: api.ObjectMeta{
@@ -109,12 +128,18 @@ var _ = Describe("DeviceStore create", func() {
 		}
 		devStore.SetIntegrationTestCreateOrUpdateCallback(race)
 
-		_, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, nil, callback)
+		_, before, created, err := mutateCreateOrReplace(ctx, devStore, orgId, &device)
+
+		if callback != nil {
+
+			callback(ctx, domain.DeviceKind, orgId, lo.FromPtr(device.Metadata.Name), before, nil, created, err)
+
+		}
 		Expect(err).ToNot(HaveOccurred())
 		Expect(created).To(BeFalse())
 	})
 
-	It("CreateOrUpdateDevice update mode race", func() {
+	It("Mutate device update mode race", func() {
 		status := api.NewDeviceStatus()
 		device := api.Device{
 			Metadata: api.ObjectMeta{
@@ -143,7 +168,13 @@ var _ = Describe("DeviceStore create", func() {
 		}
 		devStore.SetIntegrationTestCreateOrUpdateCallback(race)
 
-		dev, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, nil, callback)
+		dev, before, created, err := mutateCreateOrReplace(ctx, devStore, orgId, &device)
+
+		if callback != nil {
+
+			callback(ctx, domain.DeviceKind, orgId, lo.FromPtr(device.Metadata.Name), before, dev, created, err)
+
+		}
 		Expect(err).ToNot(HaveOccurred())
 		Expect(created).To(Equal(false))
 		Expect(dev.ApiVersion).To(Equal(model.DeviceAPIVersion()))
@@ -153,17 +184,23 @@ var _ = Describe("DeviceStore create", func() {
 		Expect(*dev.Metadata.ResourceVersion).To(Equal("6"))
 	})
 
-	It("CreateOrUpdateDevice updates owned device (ownership enforced in service)", func() {
+	It("Mutate updates owned device (ownership enforced in service)", func() {
 		dev, err := devStore.Get(ctx, orgId, "mydevice-1")
 		Expect(err).ToNot(HaveOccurred())
 		dev.Metadata.Owner = lo.ToPtr("newowner")
 		dev.Spec.Os.Image = "oldos"
-		dev, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, nil, callback)
+		dev, before, _, err := mutateCreateOrReplace(ctx, devStore, orgId, dev)
+		if callback != nil {
+			callback(ctx, domain.DeviceKind, orgId, lo.FromPtr(dev.Metadata.Name), before, dev, false, err)
+		}
 		Expect(err).ToNot(HaveOccurred())
 		Expect(called).To(BeTrue())
 
 		dev.Spec.Os.Image = "newos"
-		updated, _, err := devStore.CreateOrUpdate(ctx, orgId, dev, nil, nil, callback)
+		updated, before, _, err := mutateCreateOrReplace(ctx, devStore, orgId, dev)
+		if callback != nil {
+			callback(ctx, domain.DeviceKind, orgId, lo.FromPtr(dev.Metadata.Name), before, updated, false, err)
+		}
 		Expect(err).ToNot(HaveOccurred())
 		Expect(updated.Spec.Os.Image).To(Equal("newos"))
 	})
@@ -232,7 +269,7 @@ var _ = Describe("DeviceStore create", func() {
 					d.Status.Capabilities = nil
 					expectedOsModeMap[model.CapabilityCountUnknown]++
 				}
-				_, err = devStore.UpdateStatus(ctx, orgId, d, nil, nil)
+				_, _, err = devStore.UpdateStatus(ctx, orgId, d, nil)
 				Expect(err).ToNot(HaveOccurred())
 			}
 			allDevices, err = devStore.List(ctx, orgId, devicestore.DeviceListParams{})
@@ -338,7 +375,7 @@ var _ = Describe("DeviceStore create", func() {
 					Metadata: api.ObjectMeta{Name: lo.ToPtr(name)},
 					Status:   &status,
 				}
-				_, err := devStore.UpdateStatus(ctx, orgId, &device, nil, nil)
+				_, _, err := devStore.UpdateStatus(ctx, orgId, &device, nil)
 				Expect(err).ToNot(HaveOccurred())
 			}
 
@@ -499,7 +536,7 @@ var _ = Describe("DeviceStore create", func() {
 			enrolled, err := devStore.Get(ctx, orgId, "device-cve-fs-enrolled")
 			Expect(err).ToNot(HaveOccurred())
 			enrolled.Status.Lifecycle.Status = api.DeviceLifecycleStatusEnrolled
-			_, err = devStore.UpdateStatus(ctx, orgId, enrolled, nil, nil)
+			_, _, err = devStore.UpdateStatus(ctx, orgId, enrolled, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			notEnrolledDev, err := devStore.Get(ctx, orgId, "device-cve-fs-not-enrolled")
@@ -534,7 +571,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(*devices.Items[0].Metadata.Name).To(Equal("device-cve-fs-enrolled"))
 		})
 
-		It("CreateOrUpdateDevice create mode", func() {
+		It("Mutate device create mode", func() {
 			imageName := "tv"
 			device := api.Device{
 				Metadata: api.ObjectMeta{
@@ -545,7 +582,10 @@ var _ = Describe("DeviceStore create", func() {
 				},
 				Status: nil,
 			}
-			dev, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, nil, callback)
+			dev, before, created, err := mutateCreateOrReplace(ctx, devStore, orgId, &device)
+			if callback != nil {
+				callback(ctx, domain.DeviceKind, orgId, lo.FromPtr(device.Metadata.Name), before, dev, created, err)
+			}
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(true))
 			Expect(dev.ApiVersion).To(Equal(model.DeviceAPIVersion()))
@@ -553,7 +593,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(dev.Spec.Os.Image).To(Equal(imageName))
 		})
 
-		It("CreateOrUpdateDevice update mode", func() {
+		It("Mutate device update mode", func() {
 			status := api.NewDeviceStatus()
 			device := api.Device{
 				Metadata: api.ObjectMeta{
@@ -566,7 +606,10 @@ var _ = Describe("DeviceStore create", func() {
 				},
 				Status: &status,
 			}
-			dev, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, nil, callback)
+			dev, before, created, err := mutateCreateOrReplace(ctx, devStore, orgId, &device)
+			if callback != nil {
+				callback(ctx, domain.DeviceKind, orgId, lo.FromPtr(device.Metadata.Name), before, dev, created, err)
+			}
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(false))
 			Expect(dev.ApiVersion).To(Equal(model.DeviceAPIVersion()))
@@ -574,22 +617,28 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(dev.Spec.Os.Image).To(Equal("newos"))
 		})
 
-		It("CreateOrUpdateDevice update owned from API succeeds at store layer", func() {
+		It("Mutate update owned from API succeeds at store layer", func() {
 			dev, err := devStore.Get(ctx, orgId, "mydevice-1")
 			Expect(err).ToNot(HaveOccurred())
 			dev.Metadata.Owner = lo.ToPtr("newowner")
 			dev.Spec.Os.Image = "oldos"
-			dev, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, nil, callback)
+			dev, before, _, err := mutateCreateOrReplace(ctx, devStore, orgId, dev)
+			if callback != nil {
+				callback(ctx, domain.DeviceKind, orgId, lo.FromPtr(dev.Metadata.Name), before, dev, false, err)
+			}
 			Expect(err).ToNot(HaveOccurred())
 			Expect(called).To(BeTrue())
 
 			dev.Spec.Os.Image = "newos"
-			updated, _, err := devStore.CreateOrUpdate(ctx, orgId, dev, nil, nil, callback)
+			updated, before, _, err := mutateCreateOrReplace(ctx, devStore, orgId, dev)
+			if callback != nil {
+				callback(ctx, domain.DeviceKind, orgId, lo.FromPtr(dev.Metadata.Name), before, updated, false, err)
+			}
 			Expect(err).ToNot(HaveOccurred())
 			Expect(updated.Spec.Os.Image).To(Equal("newos"))
 		})
 
-		It("CreateOrUpdateDevice update labels owned from API", func() {
+		It("Mutate update labels owned from API", func() {
 			// Create a comprehensive DeviceSpec with all possible fields to test our comparison logic
 			createComprehensiveTestDevice := func(orgId uuid.UUID, name string, owner *string, labels *map[string]string) api.Device {
 				// Create OS spec
@@ -776,7 +825,10 @@ var _ = Describe("DeviceStore create", func() {
 
 			// Create the first device with comprehensive spec
 			device1 := createComprehensiveTestDevice(orgId, "owned-device", lo.ToPtr("ownerfleet"), nil)
-			_, _, err := devStore.CreateOrUpdate(ctx, orgId, &device1, nil, nil, callback)
+			_, before, _, err := mutateCreateOrReplace(ctx, devStore, orgId, &device1)
+			if callback != nil {
+				callback(ctx, domain.DeviceKind, orgId, lo.FromPtr(device1.Metadata.Name), before, nil, false, err)
+			}
 			Expect(err).ToNot(HaveOccurred())
 
 			// Get the device from the store
@@ -788,8 +840,10 @@ var _ = Describe("DeviceStore create", func() {
 			newDev.Metadata.ResourceVersion = dev.Metadata.ResourceVersion
 
 			// This should succeed because only labels (metadata) are different, not the spec
-			_, _, err = devStore.CreateOrUpdate(ctx, orgId, &newDev, nil, nil, callback)
-
+			_, before, _, err = mutateCreateOrReplace(ctx, devStore, orgId, &newDev)
+			if callback != nil {
+				callback(ctx, domain.DeviceKind, orgId, lo.FromPtr(newDev.Metadata.Name), before, nil, false, err)
+			}
 			Expect(err).ToNot(HaveOccurred())
 			Expect(called).To(BeTrue())
 		})
@@ -814,7 +868,7 @@ var _ = Describe("DeviceStore create", func() {
 				Status: &status,
 			}
 			api.SetStatusCondition(&device.Status.Conditions, condition)
-			_, err := devStore.UpdateStatus(ctx, orgId, &device, nil, nil)
+			_, _, err := devStore.UpdateStatus(ctx, orgId, &device, nil)
 			Expect(err).ToNot(HaveOccurred())
 			dev, err := devStore.Get(ctx, orgId, "mydevice-1")
 			Expect(err).ToNot(HaveOccurred())
@@ -830,7 +884,10 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			dev.Metadata.Owner = lo.ToPtr("newowner")
-			_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, nil, nil, callback)
+			_, before, _, err := mutateCreateOrReplace(ctx, devStore, orgId, dev)
+			if callback != nil {
+				callback(ctx, domain.DeviceKind, orgId, lo.FromPtr(dev.Metadata.Name), before, nil, false, err)
+			}
 			Expect(err).ToNot(HaveOccurred())
 			Expect(called).To(BeTrue())
 
@@ -841,7 +898,23 @@ var _ = Describe("DeviceStore create", func() {
 
 			called = false
 			dev.Metadata.Owner = nil
-			_, _, err = devStore.CreateOrUpdate(ctx, orgId, dev, []string{"owner"}, nil, callback)
+			_, before, _, err = devStore.Mutate(ctx, orgId, lo.FromPtr(dev.Metadata.Name), nil, func(m *devicestore.DeviceMutation) error {
+				if m.Device == nil {
+					m.Device = dev
+					return nil
+				}
+				if dev.Spec != nil {
+					m.Device.Spec = dev.Spec
+				}
+				if dev.Status != nil {
+					m.Device.Status = dev.Status
+				}
+				store.ApplyObjectMetaUpdate(&m.Device.Metadata, &dev.Metadata, []string{"owner"})
+				return nil
+			})
+			if callback != nil {
+				callback(ctx, domain.DeviceKind, orgId, lo.FromPtr(dev.Metadata.Name), before, nil, false, err)
+			}
 			Expect(err).ToNot(HaveOccurred())
 			Expect(called).To(BeTrue())
 
@@ -877,32 +950,44 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(*dev.Metadata.Annotations).To(HaveLen(0))
 		})
 
-		It("MutateAnnotation sets the key from an initial empty value and preserves other annotations", func() {
+		It("Mutate sets an annotation from an initial empty value and preserves other annotations", func() {
 			err := devStore.UpdateAnnotations(ctx, orgId, "mydevice-1", map[string]string{"unrelated": "kept"}, nil)
 			Expect(err).ToNot(HaveOccurred())
 
-			err = devStore.MutateAnnotation(ctx, orgId, "mydevice-1", "counter", func(current string) (string, error) {
-				Expect(current).To(Equal(""), "mutate should observe the empty string when the key is unset")
-				return "1", nil
+			_, _, _, err = devStore.Mutate(ctx, orgId, "mydevice-1", nil, func(m *devicestore.DeviceMutation) error {
+				if err := m.RequireExisting(); err != nil {
+					return err
+				}
+				ann := util.EnsureMap(lo.FromPtr(m.Device.Metadata.Annotations))
+				Expect(ann["counter"]).To(Equal(""), "mutate should observe the empty string when the key is unset")
+				ann["counter"] = "1"
+				m.Device.Metadata.Annotations = &ann
+				return nil
 			})
 			Expect(err).ToNot(HaveOccurred())
 
 			dev, err := devStore.Get(ctx, orgId, "mydevice-1")
 			Expect(err).ToNot(HaveOccurred())
 			Expect((*dev.Metadata.Annotations)["counter"]).To(Equal("1"))
-			Expect((*dev.Metadata.Annotations)["unrelated"]).To(Equal("kept"), "MutateAnnotation must not clobber unrelated annotation keys")
+			Expect((*dev.Metadata.Annotations)["unrelated"]).To(Equal("kept"), "annotation updates must not clobber unrelated keys")
 		})
 
-		It("MutateAnnotation re-invokes mutate with the freshly-read value on every call", func() {
+		It("Mutate reloads annotations on every attempt so sequential updates observe prior values", func() {
 			for i := 1; i <= 3; i++ {
 				expected := i
-				err := devStore.MutateAnnotation(ctx, orgId, "mydevice-1", "counter", func(current string) (string, error) {
+				_, _, _, err := devStore.Mutate(ctx, orgId, "mydevice-1", nil, func(m *devicestore.DeviceMutation) error {
+					if err := m.RequireExisting(); err != nil {
+						return err
+					}
+					ann := util.EnsureMap(lo.FromPtr(m.Device.Metadata.Annotations))
 					n := 0
-					if current != "" {
-						_, err := fmt.Sscanf(current, "%d", &n)
+					if ann["counter"] != "" {
+						_, err := fmt.Sscanf(ann["counter"], "%d", &n)
 						Expect(err).ToNot(HaveOccurred())
 					}
-					return fmt.Sprintf("%d", n+1), nil
+					ann["counter"] = fmt.Sprintf("%d", n+1)
+					m.Device.Metadata.Annotations = &ann
+					return nil
 				})
 				Expect(err).ToNot(HaveOccurred())
 
@@ -912,21 +997,29 @@ var _ = Describe("DeviceStore create", func() {
 			}
 		})
 
-		It("MutateAnnotation is safe against concurrent read-modify-write races (no lost updates)", func() {
+		It("Mutate is safe against concurrent annotation read-modify-write races (no lost updates)", func() {
 			const numWriters = 8
 			errCh := make(chan error, numWriters)
 			for i := 0; i < numWriters; i++ {
 				go func() {
-					errCh <- devStore.MutateAnnotation(ctx, orgId, "mydevice-1", "counter", func(current string) (string, error) {
-						n := 0
-						if current != "" {
-							_, err := fmt.Sscanf(current, "%d", &n)
-							if err != nil {
-								return "", err
+					errCh <- func() error {
+						_, _, _, err := devStore.Mutate(ctx, orgId, "mydevice-1", nil, func(m *devicestore.DeviceMutation) error {
+							if err := m.RequireExisting(); err != nil {
+								return err
 							}
-						}
-						return fmt.Sprintf("%d", n+1), nil
-					})
+							ann := util.EnsureMap(lo.FromPtr(m.Device.Metadata.Annotations))
+							n := 0
+							if ann["counter"] != "" {
+								if _, err := fmt.Sscanf(ann["counter"], "%d", &n); err != nil {
+									return err
+								}
+							}
+							ann["counter"] = fmt.Sprintf("%d", n+1)
+							m.Device.Metadata.Annotations = &ann
+							return nil
+						})
+						return err
+					}()
 				}()
 			}
 			for i := 0; i < numWriters; i++ {
@@ -981,12 +1074,17 @@ var _ = Describe("DeviceStore create", func() {
 							},
 						}
 
-						_, _, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, nil, callback)
+						_, before, _, err := mutateCreateOrReplace(ctx, devStore, orgId, &device)
+
+						if callback != nil {
+
+							callback(ctx, domain.DeviceKind, orgId, lo.FromPtr(device.Metadata.Name), before, nil, false, err)
+
+						}
 						Expect(err).ToNot(HaveOccurred())
 
 						if d.hasConflict {
-							err = devStore.UpdateAnnotations(ctx, orgId, d.name,
-								map[string]string{api.DeviceAnnotationConflictPaused: "true"}, nil)
+							err = devStore.UpdateAnnotations(ctx, orgId, d.name, map[string]string{api.DeviceAnnotationConflictPaused: "true"}, nil)
 							Expect(err).ToNot(HaveOccurred())
 						}
 					}
@@ -1170,7 +1268,35 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Set first rendered config
-			_, err = devStore.UpdateRendered(ctx, orgId, "dev", firstConfig, "", "hash1", "", nil, false, nil)
+			_, _, _, err = devStore.Mutate(ctx, orgId, "dev", nil, func(m *devicestore.DeviceMutation) error {
+				if err := m.RequireExisting(); err != nil {
+					return err
+				}
+				ann := util.EnsureMap(lo.FromPtr(m.Device.Metadata.Annotations))
+				var status *domain.DeviceStatus
+				if m.Device.Status != nil {
+					status = m.Device.Status
+				}
+				next, err := domain.GetNextDeviceRenderedVersion(ann, status)
+				if err != nil {
+					return err
+				}
+				if lo.HasKey(ann, domain.DeviceAnnotationRenderedSpecHash) && ann[domain.DeviceAnnotationRenderedSpecHash] == "hash1" && len(([]domain.DependencySyncConfigRefStatus)(nil)) == 0 && !false {
+					return store.ErrMutateSkipWrite
+				}
+				ann[domain.DeviceAnnotationRenderedVersion] = next
+				ann[domain.DeviceAnnotationRenderedSpecHash] = "hash1"
+				if lo.HasKey(ann, domain.DeviceAnnotationTemplateVersion) {
+					ann[domain.DeviceAnnotationRenderedTemplateVersion] = ann[domain.DeviceAnnotationTemplateVersion]
+				}
+				m.Device.Metadata.Annotations = &ann
+				m.Rendered = &devicestore.DeviceRendered{
+					Config:       firstConfig,
+					Applications: "",
+					OsImage:      "",
+				}
+				return nil
+			})
 			Expect(err).ToNot(HaveOccurred())
 
 			// Verify rendered config is encrypted at rest
@@ -1208,7 +1334,35 @@ var _ = Describe("DeviceStore create", func() {
 			// Set second rendered config
 			secondConfig, err := createTestConfigProvider("this is the second config")
 			Expect(err).ToNot(HaveOccurred())
-			_, err = devStore.UpdateRendered(ctx, orgId, "dev", secondConfig, "", "hash2", "", nil, false, nil)
+			_, _, _, err = devStore.Mutate(ctx, orgId, "dev", nil, func(m *devicestore.DeviceMutation) error {
+				if err := m.RequireExisting(); err != nil {
+					return err
+				}
+				ann := util.EnsureMap(lo.FromPtr(m.Device.Metadata.Annotations))
+				var status *domain.DeviceStatus
+				if m.Device.Status != nil {
+					status = m.Device.Status
+				}
+				next, err := domain.GetNextDeviceRenderedVersion(ann, status)
+				if err != nil {
+					return err
+				}
+				if lo.HasKey(ann, domain.DeviceAnnotationRenderedSpecHash) && ann[domain.DeviceAnnotationRenderedSpecHash] == "hash2" && len(([]domain.DependencySyncConfigRefStatus)(nil)) == 0 && !false {
+					return store.ErrMutateSkipWrite
+				}
+				ann[domain.DeviceAnnotationRenderedVersion] = next
+				ann[domain.DeviceAnnotationRenderedSpecHash] = "hash2"
+				if lo.HasKey(ann, domain.DeviceAnnotationTemplateVersion) {
+					ann[domain.DeviceAnnotationRenderedTemplateVersion] = ann[domain.DeviceAnnotationTemplateVersion]
+				}
+				m.Device.Metadata.Annotations = &ann
+				m.Rendered = &devicestore.DeviceRendered{
+					Config:       secondConfig,
+					Applications: "",
+					OsImage:      "",
+				}
+				return nil
+			})
 			Expect(err).ToNot(HaveOccurred())
 
 			// Passing previous renderedVersion
@@ -1230,7 +1384,66 @@ var _ = Describe("DeviceStore create", func() {
 			config, err := createTestConfigProvider("initial config")
 			Expect(err).ToNot(HaveOccurred())
 
-			firstVersion, err := devStore.UpdateRendered(ctx, orgId, "dev-force-update", config, "", "samehash", "quay.io/org/os:v1", nil, false, nil)
+			var firstVersion string
+
+			_, _, _, err = devStore.Mutate(ctx, orgId, "dev-force-update", nil, func(m *devicestore.DeviceMutation) error {
+
+				if err := m.RequireExisting(); err != nil {
+
+					return err
+
+				}
+
+				ann := util.EnsureMap(lo.FromPtr(m.Device.Metadata.Annotations))
+
+				var status *domain.DeviceStatus
+
+				if m.Device.Status != nil {
+
+					status = m.Device.Status
+
+				}
+
+				next, err := domain.GetNextDeviceRenderedVersion(ann, status)
+
+				if err != nil {
+
+					return err
+
+				}
+
+				if lo.HasKey(ann, domain.DeviceAnnotationRenderedSpecHash) && ann[domain.DeviceAnnotationRenderedSpecHash] == "samehash" && len(([]domain.DependencySyncConfigRefStatus)(nil)) == 0 && !false {
+
+					return store.ErrMutateSkipWrite
+
+				}
+
+				ann[domain.DeviceAnnotationRenderedVersion] = next
+
+				ann[domain.DeviceAnnotationRenderedSpecHash] = "samehash"
+
+				if lo.HasKey(ann, domain.DeviceAnnotationTemplateVersion) {
+
+					ann[domain.DeviceAnnotationRenderedTemplateVersion] = ann[domain.DeviceAnnotationTemplateVersion]
+
+				}
+
+				m.Device.Metadata.Annotations = &ann
+
+				m.Rendered = &devicestore.DeviceRendered{
+
+					Config: config,
+
+					Applications: "",
+
+					OsImage: "quay.io/org/os:v1",
+				}
+
+				firstVersion = next
+
+				return nil
+
+			})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(firstVersion).ToNot(BeEmpty())
 
@@ -1241,20 +1454,110 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(renderedDevice.Spec.Os.Image).To(Equal("quay.io/org/os:v1"))
 
 			// Same specHash, no config fingerprints, forceUpdate=false: short-circuits as a no-op.
-			noopVersion, err := devStore.UpdateRendered(ctx, orgId, "dev-force-update", config, "", "samehash", "quay.io/org/os:v1", nil, false, nil)
+			var noopVersion string
+			_, _, _, err = devStore.Mutate(ctx, orgId, "dev-force-update", nil, func(m *devicestore.DeviceMutation) error {
+				if err := m.RequireExisting(); err != nil {
+					return err
+				}
+				ann := util.EnsureMap(lo.FromPtr(m.Device.Metadata.Annotations))
+				var status *domain.DeviceStatus
+				if m.Device.Status != nil {
+					status = m.Device.Status
+				}
+				next, err := domain.GetNextDeviceRenderedVersion(ann, status)
+				if err != nil {
+					return err
+				}
+				if lo.HasKey(ann, domain.DeviceAnnotationRenderedSpecHash) && ann[domain.DeviceAnnotationRenderedSpecHash] == "samehash" && len(([]domain.DependencySyncConfigRefStatus)(nil)) == 0 && !false {
+					return store.ErrMutateSkipWrite
+				}
+				ann[domain.DeviceAnnotationRenderedVersion] = next
+				ann[domain.DeviceAnnotationRenderedSpecHash] = "samehash"
+				if lo.HasKey(ann, domain.DeviceAnnotationTemplateVersion) {
+					ann[domain.DeviceAnnotationRenderedTemplateVersion] = ann[domain.DeviceAnnotationTemplateVersion]
+				}
+				m.Device.Metadata.Annotations = &ann
+				m.Rendered = &devicestore.DeviceRendered{
+					Config:       config,
+					Applications: "",
+					OsImage:      "quay.io/org/os:v1",
+				}
+				noopVersion = next
+				return nil
+			})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(noopVersion).To(BeEmpty())
 
 			// Same specHash, no config fingerprints, forceUpdate=true: must still persist and
 			// advance the rendered version, e.g. to reflect a device-level application lifecycle
 			// annotation change that isn't captured by specHash at all.
-			forcedVersion, err := devStore.UpdateRendered(ctx, orgId, "dev-force-update", config, "", "samehash", "quay.io/org/os:v1", nil, true, nil)
+			var forcedVersion string
+			_, _, _, err = devStore.Mutate(ctx, orgId, "dev-force-update", nil, func(m *devicestore.DeviceMutation) error {
+				if err := m.RequireExisting(); err != nil {
+					return err
+				}
+				ann := util.EnsureMap(lo.FromPtr(m.Device.Metadata.Annotations))
+				var status *domain.DeviceStatus
+				if m.Device.Status != nil {
+					status = m.Device.Status
+				}
+				next, err := domain.GetNextDeviceRenderedVersion(ann, status)
+				if err != nil {
+					return err
+				}
+				if lo.HasKey(ann, domain.DeviceAnnotationRenderedSpecHash) && ann[domain.DeviceAnnotationRenderedSpecHash] == "samehash" && len(([]domain.DependencySyncConfigRefStatus)(nil)) == 0 && !true {
+					return store.ErrMutateSkipWrite
+				}
+				ann[domain.DeviceAnnotationRenderedVersion] = next
+				ann[domain.DeviceAnnotationRenderedSpecHash] = "samehash"
+				if lo.HasKey(ann, domain.DeviceAnnotationTemplateVersion) {
+					ann[domain.DeviceAnnotationRenderedTemplateVersion] = ann[domain.DeviceAnnotationTemplateVersion]
+				}
+				m.Device.Metadata.Annotations = &ann
+				m.Rendered = &devicestore.DeviceRendered{
+					Config:       config,
+					Applications: "",
+					OsImage:      "quay.io/org/os:v1",
+				}
+				forcedVersion = next
+				return nil
+			})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(forcedVersion).ToNot(BeEmpty())
 			Expect(forcedVersion).ToNot(Equal(firstVersion))
 
 			// Update with an empty osImage to clear the previously stored rendered OS.
-			clearedVersion, err := devStore.UpdateRendered(ctx, orgId, "dev-force-update", config, "", "clearhash", "", nil, false, nil)
+			var clearedVersion string
+			_, _, _, err = devStore.Mutate(ctx, orgId, "dev-force-update", nil, func(m *devicestore.DeviceMutation) error {
+				if err := m.RequireExisting(); err != nil {
+					return err
+				}
+				ann := util.EnsureMap(lo.FromPtr(m.Device.Metadata.Annotations))
+				var status *domain.DeviceStatus
+				if m.Device.Status != nil {
+					status = m.Device.Status
+				}
+				next, err := domain.GetNextDeviceRenderedVersion(ann, status)
+				if err != nil {
+					return err
+				}
+				if lo.HasKey(ann, domain.DeviceAnnotationRenderedSpecHash) && ann[domain.DeviceAnnotationRenderedSpecHash] == "clearhash" && len(([]domain.DependencySyncConfigRefStatus)(nil)) == 0 && !false {
+					return store.ErrMutateSkipWrite
+				}
+				ann[domain.DeviceAnnotationRenderedVersion] = next
+				ann[domain.DeviceAnnotationRenderedSpecHash] = "clearhash"
+				if lo.HasKey(ann, domain.DeviceAnnotationTemplateVersion) {
+					ann[domain.DeviceAnnotationRenderedTemplateVersion] = ann[domain.DeviceAnnotationTemplateVersion]
+				}
+				m.Device.Metadata.Annotations = &ann
+				m.Rendered = &devicestore.DeviceRendered{
+					Config:       config,
+					Applications: "",
+					OsImage:      "",
+				}
+				clearedVersion = next
+				return nil
+			})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(clearedVersion).ToNot(BeEmpty())
 
@@ -1308,7 +1611,34 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			mutatorCalls := 0
-			version, err := devStore.UpdateRendered(ctx, orgId, "dev-render-status", config, "", "hash-status", "", nil, false,
+			var version string
+			_, _, _, err = devStore.Mutate(ctx, orgId, "dev-render-status", nil, func(m *devicestore.DeviceMutation) error {
+				if err := m.RequireExisting(); err != nil {
+					return err
+				}
+				ann := util.EnsureMap(lo.FromPtr(m.Device.Metadata.Annotations))
+				var status *domain.DeviceStatus
+				if m.Device.Status != nil {
+					status = m.Device.Status
+				}
+				next, err := domain.GetNextDeviceRenderedVersion(ann, status)
+				if err != nil {
+					return err
+				}
+				if lo.HasKey(ann, domain.DeviceAnnotationRenderedSpecHash) && ann[domain.DeviceAnnotationRenderedSpecHash] == "hash-status" && len(([]domain.DependencySyncConfigRefStatus)(nil)) == 0 && !false {
+					return store.ErrMutateSkipWrite
+				}
+				ann[domain.DeviceAnnotationRenderedVersion] = next
+				ann[domain.DeviceAnnotationRenderedSpecHash] = "hash-status"
+				if lo.HasKey(ann, domain.DeviceAnnotationTemplateVersion) {
+					ann[domain.DeviceAnnotationRenderedTemplateVersion] = ann[domain.DeviceAnnotationTemplateVersion]
+				}
+				m.Device.Metadata.Annotations = &ann
+				m.Rendered = &devicestore.DeviceRendered{
+					Config:       config,
+					Applications: "",
+					OsImage:      "",
+				}
 				func(device *domain.Device) bool {
 					mutatorCalls++
 					Expect(device.Version()).ToNot(BeEmpty())
@@ -1318,7 +1648,15 @@ var _ = Describe("DeviceStore create", func() {
 					device.Status.Updated.Status = domain.DeviceUpdatedStatusOutOfDate
 					device.Status.Updated.Info = lo.ToPtr("rendered ahead of agent")
 					return true
+				}(m.Device)
+				domain.SetStatusCondition(&m.Device.Status.Conditions, domain.Condition{
+					Type:   domain.ConditionTypeDeviceSpecValid,
+					Status: domain.ConditionStatusTrue,
+					Reason: "Valid",
 				})
+				version = next
+				return nil
+			})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(version).ToNot(BeEmpty())
 			Expect(mutatorCalls).To(Equal(1))
@@ -1342,11 +1680,46 @@ var _ = Describe("DeviceStore create", func() {
 			// conditions (or DependencySync) into the status column on top of the first render.
 			config2, err := createTestConfigProvider("rendered with status, second render")
 			Expect(err).ToNot(HaveOccurred())
-			version2, err := devStore.UpdateRendered(ctx, orgId, "dev-render-status", config2, "", "hash-status-2", "", nil, false,
+			var version2 string
+			_, _, _, err = devStore.Mutate(ctx, orgId, "dev-render-status", nil, func(m *devicestore.DeviceMutation) error {
+				if err := m.RequireExisting(); err != nil {
+					return err
+				}
+				ann := util.EnsureMap(lo.FromPtr(m.Device.Metadata.Annotations))
+				var status *domain.DeviceStatus
+				if m.Device.Status != nil {
+					status = m.Device.Status
+				}
+				next, err := domain.GetNextDeviceRenderedVersion(ann, status)
+				if err != nil {
+					return err
+				}
+				if lo.HasKey(ann, domain.DeviceAnnotationRenderedSpecHash) && ann[domain.DeviceAnnotationRenderedSpecHash] == "hash-status-2" && len(([]domain.DependencySyncConfigRefStatus)(nil)) == 0 && !false {
+					return store.ErrMutateSkipWrite
+				}
+				ann[domain.DeviceAnnotationRenderedVersion] = next
+				ann[domain.DeviceAnnotationRenderedSpecHash] = "hash-status-2"
+				if lo.HasKey(ann, domain.DeviceAnnotationTemplateVersion) {
+					ann[domain.DeviceAnnotationRenderedTemplateVersion] = ann[domain.DeviceAnnotationTemplateVersion]
+				}
+				m.Device.Metadata.Annotations = &ann
+				m.Rendered = &devicestore.DeviceRendered{
+					Config:       config2,
+					Applications: "",
+					OsImage:      "",
+				}
 				func(device *domain.Device) bool {
 					device.Status.Updated.Status = domain.DeviceUpdatedStatusUpdating
 					return true
+				}(m.Device)
+				domain.SetStatusCondition(&m.Device.Status.Conditions, domain.Condition{
+					Type:   domain.ConditionTypeDeviceSpecValid,
+					Status: domain.ConditionStatusTrue,
+					Reason: "Valid",
 				})
+				version2 = next
+				return nil
+			})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(version2).ToNot(BeEmpty())
 
@@ -1481,7 +1854,10 @@ var _ = Describe("DeviceStore create", func() {
 			}
 
 			// Store the device in database
-			_, created, err := devStore.CreateOrUpdate(ctx, orgId, &device, nil, nil, callback)
+			_, before, created, err := mutateCreateOrReplace(ctx, devStore, orgId, &device)
+			if callback != nil {
+				callback(ctx, domain.DeviceKind, orgId, lo.FromPtr(device.Metadata.Name), before, nil, created, err)
+			}
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeTrue())
 
@@ -1615,7 +1991,7 @@ var _ = Describe("DeviceStore create", func() {
 			}
 
 			// Store fleet in database
-			_, err := fleetStore.Create(ctx, orgId, &fleet, nil)
+			_, err := fleetStore.Create(ctx, orgId, &fleet)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Retrieve fleet from database
@@ -1767,7 +2143,10 @@ var _ = Describe("DeviceStore create", func() {
 
 			// Create the devices
 			for _, device := range devices {
-				_, created, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, nil, callback)
+				_, before, created, err := mutateCreateOrReplace(ctx, devStore, orgId, device)
+				if callback != nil {
+					callback(ctx, domain.DeviceKind, orgId, lo.FromPtr(device.Metadata.Name), before, nil, created, err)
+				}
 				Expect(err).ToNot(HaveOccurred())
 				Expect(created).To(BeTrue())
 				setLastSeen(db, orgId, *device.Metadata.Name, *device.Status.LastSeen)
@@ -1831,7 +2210,10 @@ var _ = Describe("DeviceStore create", func() {
 			}
 
 			// Create the device
-			createdDevice, created, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, nil, callback)
+			createdDevice, before, created, err := mutateCreateOrReplace(ctx, devStore, orgId, device)
+			if callback != nil {
+				callback(ctx, domain.DeviceKind, orgId, lo.FromPtr(device.Metadata.Name), before, createdDevice, created, err)
+			}
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeTrue())
 
@@ -1876,7 +2258,10 @@ var _ = Describe("DeviceStore create", func() {
 			}
 
 			// Create the device
-			_, created, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, nil, callback)
+			_, before, created, err := mutateCreateOrReplace(ctx, devStore, orgId, device)
+			if callback != nil {
+				callback(ctx, domain.DeviceKind, orgId, lo.FromPtr(device.Metadata.Name), before, nil, created, err)
+			}
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeTrue())
 			initialLastSeen := time.Now().Add(-1 * time.Hour)
@@ -1911,7 +2296,13 @@ var _ = Describe("DeviceStore create", func() {
 				},
 			}
 
-			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, nil, callback)
+			_, before, _, err := mutateCreateOrReplace(ctx, devStore, orgId, device)
+
+			if callback != nil {
+
+				callback(ctx, domain.DeviceKind, orgId, lo.FromPtr(device.Metadata.Name), before, nil, false, err)
+
+			}
 			Expect(err).ToNot(HaveOccurred())
 
 			// Process awaiting reconnect annotation - should return false
@@ -1941,7 +2332,13 @@ var _ = Describe("DeviceStore create", func() {
 				},
 			}
 
-			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, nil, callback)
+			_, before, _, err := mutateCreateOrReplace(ctx, devStore, orgId, device)
+
+			if callback != nil {
+
+				callback(ctx, domain.DeviceKind, orgId, lo.FromPtr(device.Metadata.Name), before, nil, false, err)
+
+			}
 			Expect(err).ToNot(HaveOccurred())
 
 			// Process awaiting reconnect annotation - should return false
@@ -1977,7 +2374,13 @@ var _ = Describe("DeviceStore create", func() {
 				},
 			}
 
-			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, nil, callback)
+			_, before, _, err := mutateCreateOrReplace(ctx, devStore, orgId, device)
+
+			if callback != nil {
+
+				callback(ctx, domain.DeviceKind, orgId, lo.FromPtr(device.Metadata.Name), before, nil, false, err)
+
+			}
 			Expect(err).ToNot(HaveOccurred())
 
 			// Process awaiting reconnect annotation with device version <= service version
@@ -2033,7 +2436,13 @@ var _ = Describe("DeviceStore create", func() {
 				},
 			}
 
-			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, nil, callback)
+			_, before, _, err := mutateCreateOrReplace(ctx, devStore, orgId, device)
+
+			if callback != nil {
+
+				callback(ctx, domain.DeviceKind, orgId, lo.FromPtr(device.Metadata.Name), before, nil, false, err)
+
+			}
 			Expect(err).ToNot(HaveOccurred())
 
 			// Process awaiting reconnect annotation with device version > service version
@@ -2091,7 +2500,13 @@ var _ = Describe("DeviceStore create", func() {
 				},
 			}
 
-			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, nil, callback)
+			_, before, _, err := mutateCreateOrReplace(ctx, devStore, orgId, device)
+
+			if callback != nil {
+
+				callback(ctx, domain.DeviceKind, orgId, lo.FromPtr(device.Metadata.Name), before, nil, false, err)
+
+			}
 			Expect(err).ToNot(HaveOccurred())
 
 			// Process awaiting reconnect annotation with nil device reported version
@@ -2137,7 +2552,13 @@ var _ = Describe("DeviceStore create", func() {
 				},
 			}
 
-			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, nil, callback)
+			_, before, _, err := mutateCreateOrReplace(ctx, devStore, orgId, device)
+
+			if callback != nil {
+
+				callback(ctx, domain.DeviceKind, orgId, lo.FromPtr(device.Metadata.Name), before, nil, false, err)
+
+			}
 			Expect(err).ToNot(HaveOccurred())
 
 			// Process awaiting reconnect annotation with empty device reported version
@@ -2184,7 +2605,13 @@ var _ = Describe("DeviceStore create", func() {
 				},
 			}
 
-			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, nil, callback)
+			_, before, _, err := mutateCreateOrReplace(ctx, devStore, orgId, device)
+
+			if callback != nil {
+
+				callback(ctx, domain.DeviceKind, orgId, lo.FromPtr(device.Metadata.Name), before, nil, false, err)
+
+			}
 			Expect(err).ToNot(HaveOccurred())
 
 			// Process awaiting reconnect annotation with invalid device reported version
@@ -2231,7 +2658,13 @@ var _ = Describe("DeviceStore create", func() {
 				},
 			}
 
-			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, nil, callback)
+			_, before, _, err := mutateCreateOrReplace(ctx, devStore, orgId, device)
+
+			if callback != nil {
+
+				callback(ctx, domain.DeviceKind, orgId, lo.FromPtr(device.Metadata.Name), before, nil, false, err)
+
+			}
 			Expect(err).ToNot(HaveOccurred())
 
 			// Process awaiting reconnect annotation
@@ -2281,7 +2714,13 @@ var _ = Describe("DeviceStore create", func() {
 				},
 			}
 
-			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, nil, callback)
+			_, before, _, err := mutateCreateOrReplace(ctx, devStore, orgId, device)
+
+			if callback != nil {
+
+				callback(ctx, domain.DeviceKind, orgId, lo.FromPtr(device.Metadata.Name), before, nil, false, err)
+
+			}
 			Expect(err).ToNot(HaveOccurred())
 
 			// Process awaiting reconnect annotation
@@ -2342,7 +2781,13 @@ var _ = Describe("DeviceStore create", func() {
 				},
 			}
 
-			_, _, err := devStore.CreateOrUpdate(ctx, orgId, device, nil, nil, callback)
+			_, before, _, err := mutateCreateOrReplace(ctx, devStore, orgId, device)
+
+			if callback != nil {
+
+				callback(ctx, domain.DeviceKind, orgId, lo.FromPtr(device.Metadata.Name), before, nil, false, err)
+
+			}
 			Expect(err).ToNot(HaveOccurred())
 
 			// Process awaiting reconnect annotation
