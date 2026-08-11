@@ -22,3 +22,11 @@ Added lifecycle status transition guardrails to `updateServerSideLifecycleStatus
 - `implementation-notes.md` — Detailed file changes and rationale
 - `verification.md` — Test results and coverage
 - `review.md` — Self-review findings
+
+## Feedback Round 1
+**PR:** flightctl/flightctl#3361
+**Comments addressed**: None — no review comments on the PR
+**CI failures reviewed**: All 3 CI checks (build-flightctl-cli, compute-tag, discover-e2e-tests) were cancelled due to CI scheduling ("higher priority waiting request"), not code issues
+**Changes made**: None — code is correct as-is
+**Verification**: go build ./... (pass), go test ./internal/service/common/ (10/10 pass), golangci-lint v2 (0 issues), go vet (pass)
+**Tests updated**: No test changes needed
