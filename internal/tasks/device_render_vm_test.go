@@ -242,6 +242,24 @@ func TestRenderVmApplication(t *testing.T) {
 			wantErr:   "unsupported vm feature",
 		},
 		{
+			name:      "When converter stderr has a leading Error prefix it should be stripped",
+			vmName:    "my-vm",
+			files:     map[string]string{"vm.yaml": minimalVmYAML("my-vm")},
+			converter: failingConverter("Error: unable to parse quantity's suffix"),
+			kvStore:   newFakeKVStore(),
+			wantErr:   "vm-to-quadlet: unable to parse quantity's suffix",
+		},
+		{
+			name:   "When converter fails with empty stderr it should fall back to the exec error",
+			vmName: "my-vm",
+			files:  map[string]string{"vm.yaml": minimalVmYAML("my-vm")},
+			converter: func(_ context.Context, _ []byte) (map[string]string, string, error) {
+				return nil, "", errors.New("exit status 1")
+			},
+			kvStore: newFakeKVStore(),
+			wantErr: "vm-to-quadlet: exit status 1",
+		},
+		{
 			name:      "When converter returns no files it should return an error",
 			vmName:    "my-vm",
 			files:     map[string]string{"vm.yaml": minimalVmYAML("my-vm")},
@@ -477,6 +495,63 @@ func TestRenderVmApplication_ImageProviderUnsupported(t *testing.T) {
 
 	_, err = renderVmApplication(ctx, vmApp, stubbedConverter(fakeQuadletFiles), DefaultVmRenderOptions(), newFakeKVStore())
 	require.ErrorContains(t, err, "not yet supported")
+}
+
+// ─── truncateStderr ───────────────────────────────────────────────────────────
+
+func TestTruncateStderr(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "When stderr has no Error prefix it should be returned unchanged",
+			input: "failed to unmarshal VM: bad quantity",
+			want:  "failed to unmarshal VM: bad quantity",
+		},
+		{
+			name:  "When stderr has a leading Error prefix it should be stripped",
+			input: "Error: failed to unmarshal VM: bad quantity",
+			want:  "failed to unmarshal VM: bad quantity",
+		},
+		{
+			name:  "When stderr exceeds the max length it should be truncated with a marker",
+			input: "Error: " + strings.Repeat("x", maxStderrLen+10),
+			want:  strings.Repeat("x", maxStderrLen) + "... (truncated)",
+		},
+		{
+			name:  "When stderr is empty it should remain empty",
+			input: "  ",
+			want:  "",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tc.want, truncateStderr(tc.input))
+		})
+	}
+}
+
+// TestRenderVmApplication_StderrErrorPrefixNotDoubled verifies vm-to-quadlet's
+// own "Error: " stderr prefix is stripped rather than doubled up with the
+// wrapper's own "Error:" text added one level up in renderApplications, and
+// that the redundant exec exit-status text is dropped when stderr already
+// explains the failure.
+func TestRenderVmApplication_StderrErrorPrefixNotDoubled(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	appSpec := newTestVmInlineApp(t, "my-vm", map[string]string{"vm.yaml": minimalVmYAML("my-vm")}, nil)
+	vmApp, err := appSpec.AsVmApplication()
+	require.NoError(t, err)
+
+	_, err = renderVmApplication(ctx, vmApp, failingConverter("Error: unable to parse quantity's suffix"), DefaultVmRenderOptions(), newFakeKVStore())
+	require.Error(t, err)
+	assert.Equal(t, `vm-to-quadlet: unable to parse quantity's suffix`, err.Error())
+	assert.NotContains(t, err.Error(), "exit status")
 }
 
 // ─── parseTarFiles ────────────────────────────────────────────────────────────

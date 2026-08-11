@@ -256,8 +256,8 @@ func (h *DeviceServiceHandler) ReplaceDevice(ctx context.Context, orgId uuid.UUI
 		if existing != nil && enforceOwnership && len(lo.FromPtr(existing.Metadata.Owner)) != 0 && !domain.DeviceSpecsAreEqual(lo.FromPtr(existing.Spec), lo.FromPtr(device.Spec)) {
 			return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.DeviceKind, &name)
 		}
-		if existing != nil && enforceCapabilities && isPackageModeOsImageConflict(existing, &device) {
-			return nil, domain.StatusBadRequest(flterrors.ErrOsImageNotSupportedOnPackageMode.Error())
+		if existing != nil && enforceCapabilities && isPackageModeOsTargetConflict(existing, &device) {
+			return nil, domain.StatusBadRequest(flterrors.ErrOsTargetNotSupportedOnPackageMode.Error())
 		}
 	}
 
@@ -500,8 +500,8 @@ func (h *DeviceServiceHandler) PatchDevice(ctx context.Context, orgId uuid.UUID,
 	if enforceOwnership && len(lo.FromPtr(currentObj.Metadata.Owner)) != 0 && !domain.DeviceSpecsAreEqual(lo.FromPtr(currentObj.Spec), lo.FromPtr(newObj.Spec)) {
 		return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.DeviceKind, &name)
 	}
-	if enforceCapabilities && isPackageModeOsImageConflict(currentObj, newObj) {
-		return nil, domain.StatusBadRequest(flterrors.ErrOsImageNotSupportedOnPackageMode.Error())
+	if enforceCapabilities && isPackageModeOsTargetConflict(currentObj, newObj) {
+		return nil, domain.StatusBadRequest(flterrors.ErrOsTargetNotSupportedOnPackageMode.Error())
 	}
 
 	_ = common.UpdateServiceSideStatus(ctx, orgId, newObj, h.fleetStore, h.log)
@@ -872,26 +872,40 @@ func (h *DeviceServiceHandler) processAwaitingReconnectIfNeeded(ctx context.Cont
 	return false
 }
 
-// isPackageModeOsImageConflict reports whether the incoming device spec newly assigns
-// or changes a non-empty OS image on a package-mode device. Unrelated updates that
-// retain an existing image (e.g. a label PATCH after fleet rollout) are not conflicts.
-func isPackageModeOsImageConflict(existing *domain.Device, incoming *domain.Device) bool {
+// isPackageModeOsTargetConflict reports whether the incoming device spec newly assigns
+// or changes an OS target (image or catalogItemRef) on a package-mode device.
+// Clearing an OS target (nil/empty incoming) is not a conflict — that is the
+// remediation path for a stuck package-mode device. Unrelated updates that retain
+// the existing OS target are also not conflicts.
+func isPackageModeOsTargetConflict(existing *domain.Device, incoming *domain.Device) bool {
 	if existing.Status == nil || existing.Status.Capabilities == nil || existing.Status.Capabilities.OsMode == nil {
 		return false
 	}
 	if *existing.Status.Capabilities.OsMode != domain.OsModePackage {
 		return false
 	}
-	incomingImage := ""
-	if incoming.Spec != nil && incoming.Spec.Os != nil {
-		incomingImage = incoming.Spec.Os.Image
-	}
-	if incomingImage == "" {
+
+	if incoming.Spec == nil || incoming.Spec.Os == nil {
 		return false
 	}
-	existingImage := ""
-	if existing.Spec != nil && existing.Spec.Os != nil {
-		existingImage = existing.Spec.Os.Image
+	incomingHasTarget := incoming.Spec.Os.Image != "" || incoming.Spec.Os.CatalogItemRef != nil
+	if !incomingHasTarget {
+		return false
 	}
-	return incomingImage != existingImage
+
+	var existingOs *domain.DeviceOsSpec
+	if existing.Spec != nil {
+		existingOs = existing.Spec.Os
+	}
+	if existingOs == nil {
+		return true
+	}
+
+	if incoming.Spec.Os.Image != existingOs.Image {
+		return true
+	}
+	if !reflect.DeepEqual(incoming.Spec.Os.CatalogItemRef, existingOs.CatalogItemRef) {
+		return true
+	}
+	return false
 }

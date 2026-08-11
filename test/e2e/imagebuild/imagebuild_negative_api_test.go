@@ -46,12 +46,14 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 
 		It("should fail ImageBuild after creation when destination push cannot authenticate", Label("88399", "imagebuild", "slow"), func() {
 			testID := workerHarness.GetTestIDFromContext()
-			src := createQuaySourceRepository(workerHarness, testID, &negCleanup)
-			dst := createAuthenticatedRegistryDestRepository(workerHarness, testID, &negCleanup, "wrong-password-"+testID)
+			src, err := createUnauthenticatedSourceRepository(workerHarness, testID, &negCleanup)
+			Expect(err).ToNot(HaveOccurred())
+			dst, err := createAuthenticatedRegistryDestRepository(workerHarness, testID, &negCleanup, "wrong-password-"+testID)
+			Expect(err).ToNot(HaveOccurred())
 			ib := negImageBuildName(testID)
 
 			spec := e2e.NewImageBuildSpec(src, sourceImageName, sourceImageTag, dst, destImageName, testID, imagebuilderapi.BindingTypeLate)
-			_, err := workerHarness.CreateImageBuild(ib, spec)
+			_, err = workerHarness.CreateImageBuild(ib, spec)
 			Expect(err).ToNot(HaveOccurred())
 			negCleanup.imageBuild = ib
 
@@ -77,11 +79,12 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 
 		It("should reject ImageExport download before export reaches Completed", Label("88401", "imagebuild"), func() {
 			testID := workerHarness.GetTestIDFromContext()
-			src, dst := createStandardImageBuildRepositories(workerHarness, testID, &negCleanup)
+			src, dst, err := createStandardImageBuildRepositories(workerHarness, testID, &negCleanup)
+			Expect(err).ToNot(HaveOccurred())
 			ib, ie := negImageBuildName(testID), negImageExportName(testID)
 
 			spec := e2e.NewImageBuildSpec(src, sourceImageName, sourceImageTag, dst, destImageName, testID, imagebuilderapi.BindingTypeLate)
-			_, err := workerHarness.CreateImageBuild(ib, spec)
+			_, err = workerHarness.CreateImageBuild(ib, spec)
 			Expect(err).ToNot(HaveOccurred())
 			negCleanup.imageBuild = ib
 
@@ -104,11 +107,12 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 
 		It("should reject cancel when ImageBuild is Failed", Label("88402", "imagebuild"), func() {
 			testID := workerHarness.GetTestIDFromContext()
-			src, dst := createStandardImageBuildRepositories(workerHarness, testID, &negCleanup)
+			src, dst, err := createStandardImageBuildRepositories(workerHarness, testID, &negCleanup)
+			Expect(err).ToNot(HaveOccurred())
 			ib := negImageBuildName(testID)
 
 			spec := e2e.NewImageBuildSpec(src, "this-image-does-not-exist/invalid-image", "nonexistent-tag", dst, destImageName, testID, imagebuilderapi.BindingTypeLate)
-			_, err := workerHarness.CreateImageBuild(ib, spec)
+			_, err = workerHarness.CreateImageBuild(ib, spec)
 			Expect(err).ToNot(HaveOccurred())
 			negCleanup.imageBuild = ib
 
@@ -122,11 +126,12 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 
 		It("should reject cancel when ImageBuild is Canceled", Label("imagebuild"), func() {
 			testID := workerHarness.GetTestIDFromContext()
-			src, dst := createStandardImageBuildRepositories(workerHarness, testID, &negCleanup)
+			src, dst, err := createStandardImageBuildRepositories(workerHarness, testID, &negCleanup)
+			Expect(err).ToNot(HaveOccurred())
 			ib := negImageBuildName(testID)
 
 			spec := e2e.NewImageBuildSpec(src, sourceImageName, sourceImageTag, dst, destImageName, testID, imagebuilderapi.BindingTypeLate)
-			_, err := workerHarness.CreateImageBuild(ib, spec)
+			_, err = workerHarness.CreateImageBuild(ib, spec)
 			Expect(err).ToNot(HaveOccurred())
 			negCleanup.imageBuild = ib
 
@@ -142,11 +147,12 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 
 		It("should reject cancel when ImageBuild is Completed", Label("88404", "imagebuild", "slow"), func() {
 			testID := workerHarness.GetTestIDFromContext()
-			src, dst := createStandardImageBuildRepositories(workerHarness, testID, &negCleanup)
+			src, dst, err := createStandardImageBuildRepositories(workerHarness, testID, &negCleanup)
+			Expect(err).ToNot(HaveOccurred())
 			ib := negImageBuildName(testID)
 
 			spec := e2e.NewImageBuildSpec(src, sourceImageName, sourceImageTag, dst, destImageName, testID, imagebuilderapi.BindingTypeLate)
-			_, err := workerHarness.CreateImageBuild(ib, spec)
+			_, err = workerHarness.CreateImageBuild(ib, spec)
 			Expect(err).ToNot(HaveOccurred())
 			negCleanup.imageBuild = ib
 
@@ -165,11 +171,12 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 
 		It("should reject second cancel when ImageExport is already Canceled", Label("88403", "imagebuild"), func() {
 			testID := workerHarness.GetTestIDFromContext()
-			src, dst := createStandardImageBuildRepositories(workerHarness, testID, &negCleanup)
+			src, dst, err := createStandardImageBuildRepositories(workerHarness, testID, &negCleanup)
+			Expect(err).ToNot(HaveOccurred())
 			ib, ie := negImageBuildName(testID), negImageExportName(testID)
 
 			spec := e2e.NewImageBuildSpec(src, sourceImageName, sourceImageTag, dst, destImageName, testID, imagebuilderapi.BindingTypeLate)
-			_, err := workerHarness.CreateImageBuild(ib, spec)
+			_, err = workerHarness.CreateImageBuild(ib, spec)
 			Expect(err).ToNot(HaveOccurred())
 			negCleanup.imageBuild = ib
 
@@ -190,11 +197,12 @@ var _ = Describe("ImageBuild", Label("imagebuild"), func() {
 
 		It("should reject cancel when ImageExport is Failed", Label("88405", "imagebuild"), func() {
 			testID := workerHarness.GetTestIDFromContext()
-			src, dst := createStandardImageBuildRepositories(workerHarness, testID, &negCleanup)
+			src, dst, err := createStandardImageBuildRepositories(workerHarness, testID, &negCleanup)
+			Expect(err).ToNot(HaveOccurred())
 			ib, ie := negImageBuildName(testID), negImageExportName(testID)
 
 			spec := e2e.NewImageBuildSpec(src, sourceImageName, sourceImageTag, dst, destImageName, testID, imagebuilderapi.BindingTypeLate)
-			_, err := workerHarness.CreateImageBuild(ib, spec)
+			_, err = workerHarness.CreateImageBuild(ib, spec)
 			Expect(err).ToNot(HaveOccurred())
 			negCleanup.imageBuild = ib
 
@@ -231,42 +239,70 @@ func negImageExportName(testID string) string {
 	return fmt.Sprintf("ie-%s", testID)
 }
 
-func createStandardImageBuildRepositories(h *e2e.Harness, testID string, c *negAPIResourceCleanup) (sourceRepoName, destRepoName string) {
-	sourceRepoName = createQuaySourceRepository(h, testID, c)
+// createStandardImageBuildRepositories creates an unauthenticated source (quay.io or OCP mirror)
+// and an unauthenticated destination OCI repository, registering both for cleanup.
+// Returns an error if either repository cannot be created.
+func createStandardImageBuildRepositories(h *e2e.Harness, testID string, c *negAPIResourceCleanup) (sourceRepoName, destRepoName string, err error) {
+	sourceRepoName, err = createUnauthenticatedSourceRepository(h, testID, c)
+	if err != nil {
+		return "", "", fmt.Errorf("createStandardImageBuildRepositories: source repo: %w", err)
+	}
 	destRepoName = fmt.Sprintf("repo-dst-%s", testID)
 	registryAddress := auxSvcs.Registry.Host + ":" + auxSvcs.Registry.Port
-	_, err := resources.CreateOCIRepository(h, destRepoName, registryAddress,
+	GinkgoWriter.Printf("createStandardImageBuildRepositories: creating dest repo %q at %s\n", destRepoName, registryAddress)
+	_, err = resources.CreateOCIRepository(h, destRepoName, registryAddress,
 		lo.ToPtr(api.Https), lo.ToPtr(api.ReadWrite), true, nil)
-	Expect(err).ToNot(HaveOccurred())
+	if err != nil {
+		return "", "", fmt.Errorf("createStandardImageBuildRepositories: dest repo: %w", err)
+	}
 	c.destRepo = destRepoName
-	return sourceRepoName, destRepoName
+	return sourceRepoName, destRepoName, nil
 }
 
-func createQuaySourceRepository(h *e2e.Harness, testID string, c *negAPIResourceCleanup) string {
+// createUnauthenticatedSourceRepository creates a read-only OCI repository pointing at quay.io (or the OCP mirror),
+// registering it for cleanup.
+// Returns an error if the repository cannot be created.
+func createUnauthenticatedSourceRepository(h *e2e.Harness, testID string, c *negAPIResourceCleanup) (string, error) {
+	if h == nil {
+		return "", fmt.Errorf("createUnauthenticatedSourceRepository: harness is nil")
+	}
 	resolveSourceRegistry(h)
 	name := fmt.Sprintf("repo-src-%s", testID)
+	GinkgoWriter.Printf("createUnauthenticatedSourceRepository: creating source repo %q at %s\n", name, sourceRegistry)
 	_, err := resources.CreateOCIRepository(h, name, sourceRegistry,
 		lo.ToPtr(api.Https), lo.ToPtr(api.Read), isLocalSourceRegistry(), nil)
-	Expect(err).ToNot(HaveOccurred())
+	if err != nil {
+		return "", fmt.Errorf("createUnauthenticatedSourceRepository %q: %w", name, err)
+	}
 	c.sourceRepo = name
-	return name
+	return name, nil
 }
 
-func createAuthenticatedRegistryDestRepository(h *e2e.Harness, testID string, c *negAPIResourceCleanup, password string) string {
+// createAuthenticatedRegistryDestRepository creates a read-write OCI repository in the basic-auth registry,
+// using the given password (may be wrong, for negative tests). Registers it for cleanup.
+// Returns an error if the repository cannot be created.
+func createAuthenticatedRegistryDestRepository(h *e2e.Harness, testID string, c *negAPIResourceCleanup, password string) (string, error) {
+	if h == nil {
+		return "", fmt.Errorf("createAuthenticatedRegistryDestRepository: harness is nil")
+	}
 	name := fmt.Sprintf("repo-dst-auth-%s", testID)
+	registryAddress := auxSvcs.Registry.Authenticated.HostPort
+	GinkgoWriter.Printf("createAuthenticatedRegistryDestRepository: creating auth dest repo %q at %s\n", name, registryAddress)
 	err := applyOCIRepositoryWithDockerAuth(
 		h,
 		name,
-		auxSvcs.Registry.Authenticated.HostPort,
+		registryAddress,
 		lo.ToPtr(api.Https),
 		lo.ToPtr(api.ReadWrite),
 		true,
 		auxSvcs.Registry.Authenticated.Username,
 		password,
 	)
-	Expect(err).ToNot(HaveOccurred())
+	if err != nil {
+		return "", fmt.Errorf("createAuthenticatedRegistryDestRepository %q: %w", name, err)
+	}
 	c.destRepo = name
-	return name
+	return name, nil
 }
 
 func applyOCIRepositoryWithDockerAuth(
@@ -312,7 +348,7 @@ func applyOCIRepositoryWithDockerAuth(
 	if err != nil {
 		return fmt.Errorf("marshal repository: %w", err)
 	}
-	_, err = h.CLIWithStdin(string(yamlStr), "apply", "-f", "-")
+	_, err = h.CLIWithStdinRedacted(string(yamlStr), "apply", "-f", "-")
 	return err
 }
 

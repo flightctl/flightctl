@@ -641,9 +641,12 @@ func (m *PodmanMonitor) updateContainerHealthStatus(app Application, event *clie
 	}
 
 	switch event.HealthStatus {
-	case "unhealthy":
+	case "starting", "unhealthy":
+		// starting/unhealthy keep the app Degraded; only healthy clears it.
+		container.RequiresHealth = true
 		container.Status = StatusUnhealthy
 	case "healthy":
+		container.RequiresHealth = true
 		container.Status = StatusRunning
 	default:
 		m.log.Debugf("Ignoring health_status=%s for container %s", event.HealthStatus, event.Name)
@@ -667,6 +670,10 @@ func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.P
 
 	container, exists := app.Workload(event.Name)
 	if exists {
+		// Health-gated workloads stay Degraded on bare start until healthy.
+		if status == StatusRunning && container.RequiresHealth {
+			status = StatusUnhealthy
+		}
 		container.Status = status
 		if event.ID != "" {
 			container.ID = event.ID
@@ -977,7 +984,7 @@ func (m *PodmanMonitor) resolveConsole(appName, consoleType string) (appconsole.
 		}
 	}
 	if containerName == "" {
-		return nil, fmt.Errorf("app %q: no active compute container found (workload with \"-compute\" suffix required)", appName)
+		return nil, fmt.Errorf("app %q %w", appName, appconsole.ErrAppNotReady)
 	}
 
 	m.log.Infof("console: selected container %q for app %q (type=%s)", containerName, appName, ct)
