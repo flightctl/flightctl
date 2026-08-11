@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	internalconfig "github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/test/e2e/infra"
 	"github.com/sirupsen/logrus"
 	"sigs.k8s.io/yaml"
@@ -689,6 +690,53 @@ func quadletServiceConfigDBType(serviceConfigYAML []byte) string {
 	return strings.ToLower(strings.TrimSpace(fmt.Sprintf("%v", tRaw)))
 }
 
+// quadletEncryptionKeyDir is the host-side directory where Quadlet mounts encryption key files.
+// This matches the Volume source in the .container files: /etc/flightctl/encryption:/root/.flightctl/encryption:ro,z
+const quadletEncryptionKeyDir = "/etc/flightctl/encryption"
+
+// SetEncryptionKey writes a named encryption key file to the host filesystem at
+// /etc/flightctl/encryption/<keyFileName> so it becomes available to the service container.
+// For Quadlet the volume is bind-mounted from the host, so a host-side write is sufficient;
+// there is no need to restart the container for the file to appear inside it.
+func (p *InfraProvider) SetEncryptionKey(_ infra.ServiceName, keyFileName string, keyBytes []byte) error {
+	if keyFileName == "" {
+		return fmt.Errorf("SetEncryptionKey: keyFileName is required")
+	}
+	if strings.ContainsAny(keyFileName, "/\\.") {
+		return fmt.Errorf("SetEncryptionKey: keyFileName must be a plain basename, got %q", keyFileName)
+	}
+	if len(keyBytes) == 0 {
+		return fmt.Errorf("SetEncryptionKey: keyBytes is empty")
+	}
+	// Write the base64-encoded key so the file format matches generate-encryption-key.sh output
+	// (openssl rand -base64 32). DecodeAES256Key expects a base64-encoded string on disk.
+	hostPath := filepath.Join(quadletEncryptionKeyDir, keyFileName)
+	encoded := []byte(base64.StdEncoding.EncodeToString(keyBytes))
+	if err := p.writeHostFile(hostPath, encoded); err != nil {
+		return fmt.Errorf("SetEncryptionKey: write %s: %w", hostPath, err)
+	}
+	return nil
+}
+
+// ResetEncryptionKeys removes all key-* files from the Quadlet encryption key directory,
+// leaving only the original "key" file. Used by test recovery to undo key rotation.
+func (p *InfraProvider) ResetEncryptionKeys() error {
+	out, err := p.runCommand("ls", quadletEncryptionKeyDir)
+	if err != nil {
+		return fmt.Errorf("ResetEncryptionKeys: list %s: %w", quadletEncryptionKeyDir, err)
+	}
+	for _, name := range strings.Fields(out) {
+		if name != "key" && strings.HasPrefix(name, "key-") {
+			hostPath := filepath.Join(quadletEncryptionKeyDir, name)
+			if err := p.RemoveHostFile(hostPath); err != nil {
+				return fmt.Errorf("ResetEncryptionKeys: remove %s: %w", hostPath, err)
+			}
+			logrus.Infof("Quadlet: removed extra encryption key file %s", hostPath)
+		}
+	}
+	return nil
+}
+
 // SetServiceConfig writes the config content to the service's config file on the host.
 // Quadlet has a single config file per service; configKey is ignored (callers may pass
 // "" or "config.yaml" for API compatibility). For services with a section mapping
@@ -916,4 +964,30 @@ func isLoopbackPublishedHost(host string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+// GetEncryptionConfig reads the current encryption block from the service's config file
+// and returns a typed EncryptionConfig. If no encryption block is present (e.g. Quadlet
+// with defaults baked in), a synthesized default is returned (activeKeyID=default,
+// path=EncryptionKeyDir/key).
+func (p *InfraProvider) GetEncryptionConfig(service infra.ServiceName) (*internalconfig.EncryptionConfig, error) {
+	raw, err := p.GetServiceConfig(service)
+	if err != nil {
+		return nil, fmt.Errorf("GetEncryptionConfig: read service config for %s: %w", service, err)
+	}
+	return infra.ParseEncryptionConfig(raw)
+}
+
+// SetEncryptionConfig writes the given encryption block into the service's config file,
+// preserving all other top-level keys.
+func (p *InfraProvider) SetEncryptionConfig(service infra.ServiceName, enc *internalconfig.EncryptionConfig) error {
+	raw, err := p.GetServiceConfig(service)
+	if err != nil {
+		return fmt.Errorf("SetEncryptionConfig: read service config for %s: %w", service, err)
+	}
+	updated, err := infra.MarshalEncryptionConfigIntoYAML(raw, enc)
+	if err != nil {
+		return fmt.Errorf("SetEncryptionConfig: merge encryption config for %s: %w", service, err)
+	}
+	return p.SetServiceConfig(service, "config.yaml", updated)
 }
