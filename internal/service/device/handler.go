@@ -258,6 +258,8 @@ func (h *DeviceServiceHandler) ReplaceDevice(ctx context.Context, orgId uuid.UUI
 				Status:     &status,
 			}
 			m.Device.Metadata.Name = lo.ToPtr(name)
+			// Intentional: brand-new devices have no LastSeen yet, so USSS leaves
+			// summary/applications as Unknown until the agent first reports in.
 			_ = common.UpdateServiceSideStatus(ctx, orgId, m.Device, h.fleetStore, h.log)
 			return pruneLifecycleOnCurrent(h.log, m.Device)
 		}
@@ -288,7 +290,7 @@ func (h *DeviceServiceHandler) ReplaceDevice(ctx context.Context, orgId uuid.UUI
 		}
 		_ = common.UpdateServiceSideStatus(ctx, orgId, current, h.fleetStore, h.log)
 		return pruneLifecycleOnCurrent(h.log, current)
-	})
+	}, devicestore.WithTimestamp())
 	h.callEventCallback(ctx, h.callbackDeviceUpdated, orgId, name, before, result, created, err)
 	return result, common.StoreErrorToApiStatus(err, created, domain.DeviceKind, &name)
 }
@@ -321,7 +323,7 @@ func (h *DeviceServiceHandler) ReplaceDeviceSpec(ctx context.Context, orgId uuid
 		current.Metadata.Annotations = &ann
 		_ = common.UpdateServiceSideStatus(ctx, orgId, current, h.fleetStore, h.log)
 		return pruneLifecycleOnCurrent(h.log, current)
-	})
+	}, devicestore.WithTimestamp())
 	h.callEventCallback(ctx, h.callbackDeviceUpdated, orgId, name, before, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
@@ -385,7 +387,7 @@ func (h *DeviceServiceHandler) UpdateDevice(ctx context.Context, orgId uuid.UUID
 		}
 		_ = common.UpdateServiceSideStatus(ctx, orgId, current, h.fleetStore, h.log)
 		return pruneLifecycleOnCurrent(h.log, current)
-	})
+	}, devicestore.WithTimestamp())
 	h.callEventCallback(ctx, h.callbackDeviceUpdated, orgId, name, before, result, false, err)
 	return result, err
 }
@@ -489,7 +491,7 @@ func (h *DeviceServiceHandler) PatchDeviceStatus(ctx context.Context, orgId uuid
 		m.Device.Status = patched.Status
 		_ = common.UpdateServiceSideStatus(ctx, orgId, m.Device, h.fleetStore, h.log)
 		return nil
-	})
+	}, devicestore.WithTimestamp())
 	h.callEventCallback(ctx, h.callbackDeviceUpdated, orgId, name, before, result, false, err)
 	if err != nil && callbackStatus.Code != 0 {
 		return result, callbackStatus
@@ -639,7 +641,7 @@ func (h *DeviceServiceHandler) PatchDevice(ctx context.Context, orgId uuid.UUID,
 		}
 		_ = common.UpdateServiceSideStatus(ctx, orgId, current, h.fleetStore, h.log)
 		return pruneLifecycleOnCurrent(h.log, current)
-	})
+	}, devicestore.WithTimestamp())
 	h.callEventCallback(ctx, h.callbackDeviceUpdated, orgId, name, before, result, false, err)
 	if err != nil && callbackStatus.Code != 0 {
 		return result, callbackStatus
@@ -735,6 +737,12 @@ func snapshotDeviceForStatusUpdate(device *domain.Device) *domain.Device {
 		if device.Status.Conditions != nil {
 			status.Conditions = append([]domain.Condition(nil), device.Status.Conditions...)
 		}
+		// LastSeen is a pointer; copy the value so later writes to Status.LastSeen
+		// on the live device do not mutate the event baseline snapshot.
+		if device.Status.LastSeen != nil {
+			ls := *device.Status.LastSeen
+			status.LastSeen = &ls
+		}
 		previous.Status = &status
 	}
 	return &previous
@@ -789,7 +797,7 @@ func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId u
 		// Always emit the update when renderedVersion advanced, even if USSS made no status change.
 		updated = m.Device
 		return nil
-	})
+	}, devicestore.WithTimestamp())
 	if err != nil {
 		h.log.Errorf("Failed to update rendered device %s/%s: %v", orgId, name, err)
 		return common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)

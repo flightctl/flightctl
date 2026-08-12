@@ -55,7 +55,12 @@ type fakeStore struct {
 
 func newFakeStore() *fakeStore {
 	return &fakeStore{
-		device:  &fakeDeviceStore{devices: map[string]*domain.Device{}, rendered: map[string]*devicestore.DeviceRendered{}, repoRefs: map[string][]string{}},
+		device: &fakeDeviceStore{
+			devices:  map[string]*domain.Device{},
+			rendered: map[string]*devicestore.DeviceRendered{},
+			repoRefs: map[string][]string{},
+			lastSeen: map[string]*time.Time{},
+		},
 		catalog: &fakeCatalogStore{items: map[string]*domain.CatalogItem{}},
 		fleet:   &fakeFleetStore{fleets: map[string]*domain.Fleet{}},
 	}
@@ -68,6 +73,27 @@ type fakeDeviceStore struct {
 	devices  map[string]*domain.Device
 	rendered map[string]*devicestore.DeviceRendered
 	repoRefs map[string][]string
+	lastSeen map[string]*time.Time
+}
+
+func (s *fakeDeviceStore) rememberLastSeen(name string, device *domain.Device) {
+	if s.lastSeen == nil {
+		s.lastSeen = map[string]*time.Time{}
+	}
+	if device != nil && device.Status != nil && device.Status.LastSeen != nil {
+		ls := *device.Status.LastSeen
+		s.lastSeen[name] = &ls
+	}
+}
+
+func (s *fakeDeviceStore) attachLastSeen(name string, device *domain.Device) {
+	if device == nil || device.Status == nil {
+		return
+	}
+	if ls, ok := s.lastSeen[name]; ok && ls != nil {
+		cp := *ls
+		device.Status.LastSeen = &cp
+	}
 }
 
 func (s *fakeDeviceStore) Create(ctx context.Context, orgId uuid.UUID, device *domain.Device, rendered *devicestore.DeviceRendered) (*domain.Device, error) {
@@ -77,6 +103,7 @@ func (s *fakeDeviceStore) Create(ctx context.Context, orgId uuid.UUID, device *d
 	}
 	d := deepCopyDevice(device)
 	s.devices[name] = d
+	s.rememberLastSeen(name, d)
 	if rendered != nil {
 		if s.rendered == nil {
 			s.rendered = map[string]*devicestore.DeviceRendered{}
@@ -96,10 +123,15 @@ func (s *fakeDeviceStore) Get(ctx context.Context, orgId uuid.UUID, name string)
 }
 
 func (s *fakeDeviceStore) GetWithTimestamp(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error) {
-	return s.Get(ctx, orgId, name)
+	d, err := s.Get(ctx, orgId, name)
+	if err != nil {
+		return nil, err
+	}
+	s.attachLastSeen(name, d)
+	return d, nil
 }
 
-func (s *fakeDeviceStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.Device, apply devicestore.DeviceApplyFunc) (*domain.Device, *domain.Device, bool, error) {
+func (s *fakeDeviceStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.Device, apply devicestore.DeviceApplyFunc, opts ...devicestore.MutateOption) (*domain.Device, *domain.Device, bool, error) {
 	old, ok := s.devices[name]
 	creating := !ok
 	var before *domain.Device
@@ -107,6 +139,10 @@ func (s *fakeDeviceStore) Mutate(ctx context.Context, orgId uuid.UUID, name stri
 	if !creating {
 		before = deepCopyDevice(old)
 		current = deepCopyDevice(old)
+		if devicestore.HasWithTimestamp(opts...) {
+			s.attachLastSeen(name, before)
+			s.attachLastSeen(name, current)
+		}
 	}
 	mutation := &devicestore.DeviceMutation{Device: current}
 	if apply != nil {
@@ -125,6 +161,7 @@ func (s *fakeDeviceStore) Mutate(ctx context.Context, orgId uuid.UUID, name stri
 	}
 	d := deepCopyDevice(mutation.Device)
 	s.devices[name] = d
+	s.rememberLastSeen(name, d)
 	if mutation.Rendered != nil {
 		if s.rendered == nil {
 			s.rendered = map[string]*devicestore.DeviceRendered{}
@@ -144,6 +181,9 @@ func (s *fakeDeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, dev
 		m.Device.Status = device.Status
 		return nil
 	})
+	if err == nil {
+		s.rememberLastSeen(name, device)
+	}
 	return updated, before, err
 }
 
@@ -241,6 +281,10 @@ func (s *fakeDeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name
 func (s *fakeDeviceStore) GetLastSeen(ctx context.Context, orgId uuid.UUID, name string) (*time.Time, error) {
 	if _, ok := s.devices[name]; !ok {
 		return nil, flterrors.ErrResourceNotFound
+	}
+	if ls, ok := s.lastSeen[name]; ok && ls != nil {
+		cp := *ls
+		return &cp, nil
 	}
 	return nil, nil
 }

@@ -70,6 +70,9 @@ type MutateHooks[A any] struct {
 	// Wrap turns a loaded API object into the typed mutation. Wrap(nil) is the create path.
 	// Required.
 	Wrap func(*A) ResourceMutation[A]
+	// Load fetches the current resource when previous is unset / on retry.
+	// Return (nil, nil) when not found (create path). When nil, GenericStore uses loadByName.
+	Load func(ctx context.Context, orgId uuid.UUID, name string) (*A, error)
 	// PersistCreate inserts after apply on the create path.
 	// Defaults to GenericStore.Create on m.Resource().
 	PersistCreate func(ctx context.Context, orgId uuid.UUID, m ResourceMutation[A]) (*A, error)
