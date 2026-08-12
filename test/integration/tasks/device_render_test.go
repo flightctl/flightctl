@@ -1222,7 +1222,7 @@ var _ = Describe("DeviceRender", func() {
 					},
 				},
 			}
-			_, err = fleetStore.Create(ctx, orgId, fleet, nil)
+			_, err = fleetStore.Create(ctx, orgId, fleet)
 			Expect(err).ToNot(HaveOccurred())
 
 			tvStatus := api.TemplateVersionStatus{Config: &[]api.ConfigProviderSpec{configProvider}}
