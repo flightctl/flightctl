@@ -9,7 +9,7 @@ IMAGE_REPO="${IMAGE_REPO:-quay.io/flightctl/flightctl-device}"
 CACHE_IMAGE_REPO="${CACHE_IMAGE_REPO:-quay.io/flightctl-tests/flightctl-device-cache}"
 APP_REPO="${APP_REPO:-quay.io/flightctl}"
 AGENT_OS_ID="${AGENT_OS_ID:-cs9-bootc}"
-VARIANTS="${VARIANTS:-v2 v3 v4 v5 v6 v7 v8 v9 v10 v11 v12}"
+VARIANTS="${VARIANTS:-v2 v3 v4 v5 v6 v7 v8 v9 v10 v11 v12 package}"
 
 current_tree_state() {
   (cd "${ROOT_DIR}" && {
@@ -120,19 +120,10 @@ if [ "${DISTRO:-}" = "redhat" ] || [ -n "${RHEM:-}" ]; then
   DISTRO_SUFFIX="-redhat"
 fi
 
-if [ "${AGENT_OS_ID}" = "cs9-regular" ] && [ -n "${DISTRO_SUFFIX}" ]; then
-  echo "[ERROR] AGENT_OS_ID=cs9-regular does not support DISTRO=redhat/RHEM package-mode builds" >&2
-  exit 1
-fi
-
 case "${AGENT_OS_ID}" in
   cs9-bootc)
     CONTAINERFILE_DIR="${BASE_DIR}/containerfiles/cs9-bootc${DISTRO_SUFFIX}"
     OS_ID="cs9-bootc"
-    ;;
-  cs9-regular)
-    CONTAINERFILE_DIR="${BASE_DIR}/containerfiles/cs9-regular${DISTRO_SUFFIX}"
-    OS_ID="cs9-regular"
     ;;
   cs10-bootc)
     CONTAINERFILE_DIR="${BASE_DIR}/containerfiles/cs10-bootc${DISTRO_SUFFIX}"
@@ -140,7 +131,7 @@ case "${AGENT_OS_ID}" in
     ;;
   *)
     echo "[ERROR] Unsupported AGENT_OS_ID: ${AGENT_OS_ID}" >&2
-    echo "Supported values: cs9-bootc, cs9-regular, cs10-bootc" >&2
+    echo "Supported values: cs9-bootc, cs10-bootc" >&2
     exit 1
     ;;
 esac

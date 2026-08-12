@@ -12,8 +12,9 @@ import (
 // The suite name is used to add per-suite BeforeSuite overhead the first
 // time a spec from that suite is assigned to a shard.
 type SpecInfo struct {
-	Name  string
-	Suite string
+	Name         string
+	Suite        string
+	OrderedGroup string
 }
 
 // nodeState tracks accumulated estimated duration and assigned specs for one
@@ -41,6 +42,11 @@ func (h *nodeHeap) Pop() interface{} {
 
 type weighted struct {
 	spec     SpecInfo
+	duration float64
+}
+
+type weightedGroup struct {
+	specs    []SpecInfo
 	duration float64
 }
 
@@ -117,9 +123,10 @@ func LPTAssign(specs []SpecInfo, specTimings, suiteTimings map[string]SpecTiming
 		} else {
 			dur = defDuration
 		}
-		ws[i] = weighted{s, dur}
+		ws[i] = weighted{spec: s, duration: dur}
 	}
-	sort.Slice(ws, func(i, j int) bool { return ws[i].duration > ws[j].duration })
+	groups := buildWeightedGroups(ws)
+	sort.Slice(groups, func(i, j int) bool { return groups[i].duration > groups[j].duration })
 
 	h := make(nodeHeap, nNodes)
 	for i := range h {
@@ -127,18 +134,19 @@ func LPTAssign(specs []SpecInfo, specTimings, suiteTimings map[string]SpecTiming
 	}
 	heap.Init(&h)
 
-	for _, w := range ws {
+	for _, group := range groups {
 		// Pick the node whose projected total (current + BeforeSuite if new + spec) is
 		// lowest. This avoids the classic greedy mistake of choosing the currently
 		// lightest node when it would trigger an expensive BeforeSuite that a slightly
 		// heavier node (which already ran that suite) would not incur.
 		bestIdx := 0
 		bestProjected := math.Inf(1)
+		groupSuites := groupSuites(group)
 		for i := range h {
-			projected := h[i].total + w.duration
-			if w.spec.Suite != "" {
-				if _, started := h[i].suites[w.spec.Suite]; !started {
-					if overhead, ok := suiteTimings[w.spec.Suite]; ok {
+			projected := h[i].total + group.duration
+			for _, suite := range groupSuites {
+				if _, started := h[i].suites[suite]; !started {
+					if overhead, ok := suiteTimings[suite]; ok {
 						projected += EffectiveWeight(overhead, sigma)
 					}
 				}
@@ -149,16 +157,18 @@ func LPTAssign(specs []SpecInfo, specTimings, suiteTimings map[string]SpecTiming
 			}
 		}
 		n := heap.Remove(&h, bestIdx).(nodeState)
-		if w.spec.Suite != "" {
-			if _, started := n.suites[w.spec.Suite]; !started {
-				if overhead, ok := suiteTimings[w.spec.Suite]; ok {
+		for _, suite := range groupSuites {
+			if _, started := n.suites[suite]; !started {
+				if overhead, ok := suiteTimings[suite]; ok {
 					n.total += EffectiveWeight(overhead, sigma)
 				}
-				n.suites[w.spec.Suite] = struct{}{}
+				n.suites[suite] = struct{}{}
 			}
 		}
-		n.specs = append(n.specs, w.spec.Name)
-		n.total += w.duration
+		for _, spec := range group.specs {
+			n.specs = append(n.specs, spec.Name)
+		}
+		n.total += group.duration
 		heap.Push(&h, n)
 	}
 
@@ -170,4 +180,44 @@ func LPTAssign(specs []SpecInfo, specTimings, suiteTimings map[string]SpecTiming
 		}
 	}
 	return
+}
+
+func buildWeightedGroups(specs []weighted) []weightedGroup {
+	groups := make([]weightedGroup, 0, len(specs))
+	orderedGroups := make(map[string]int)
+	for _, spec := range specs {
+		if spec.spec.OrderedGroup == "" {
+			groups = append(groups, weightedGroup{
+				specs:    []SpecInfo{spec.spec},
+				duration: spec.duration,
+			})
+			continue
+		}
+
+		groupIdx, exists := orderedGroups[spec.spec.OrderedGroup]
+		if !exists {
+			groupIdx = len(groups)
+			orderedGroups[spec.spec.OrderedGroup] = groupIdx
+			groups = append(groups, weightedGroup{})
+		}
+		groups[groupIdx].specs = append(groups[groupIdx].specs, spec.spec)
+		groups[groupIdx].duration += spec.duration
+	}
+	return groups
+}
+
+func groupSuites(group weightedGroup) []string {
+	seen := make(map[string]struct{}, len(group.specs))
+	suites := make([]string, 0, len(group.specs))
+	for _, spec := range group.specs {
+		if spec.Suite == "" {
+			continue
+		}
+		if _, exists := seen[spec.Suite]; exists {
+			continue
+		}
+		seen[spec.Suite] = struct{}{}
+		suites = append(suites, spec.Suite)
+	}
+	return suites
 }

@@ -37,35 +37,37 @@ const DeviceImageRegistryPath = "flightctl/flightctl-device"
 const SleepAppRegistryPath = "flightctl/sleep-app"
 
 type versionTags struct {
-	V1   string
-	V2   string
-	V3   string
-	V4   string
-	V5   string
-	V6   string
-	V7   string
-	V8   string
-	V9   string
-	V10  string
-	V11  string
-	V12  string
-	Base string
+	V1      string
+	V2      string
+	V3      string
+	V4      string
+	V5      string
+	V6      string
+	V7      string
+	V8      string
+	V9      string
+	V10     string
+	V11     string
+	V12     string
+	Base    string
+	Package string
 }
 
 var DeviceTags = versionTags{
-	V1:   "v1",
-	V2:   "v2",
-	V3:   "v3",
-	V4:   "v4",
-	V5:   "v5",
-	V6:   "v6",
-	V7:   "v7",
-	V8:   "v8",
-	V9:   "v9",
-	V10:  "v10",
-	V11:  "v11",
-	V12:  "v12",
-	Base: "base",
+	V1:      "v1",
+	V2:      "v2",
+	V3:      "v3",
+	V4:      "v4",
+	V5:      "v5",
+	V6:      "v6",
+	V7:      "v7",
+	V8:      "v8",
+	V9:      "v9",
+	V10:     "v10",
+	V11:     "v11",
+	V12:     "v12",
+	Base:    "base",
+	Package: "package",
 }
 
 type sleepAppTags struct {
