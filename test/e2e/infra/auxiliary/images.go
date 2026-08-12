@@ -42,6 +42,13 @@ const (
 	// down every e2e shard sharing it.
 	externalCopyRetries   = 3
 	externalCopyRetryWait = 5 * time.Second
+
+	// bundleCopyRetries bounds retries for copying images out of the local app/agent
+	// bundles into the local registry. CI has seen one-off local-registry 500s while
+	// checking or writing blobs; retrying keeps those transient startup blips from
+	// failing an entire shard before any spec code runs.
+	bundleCopyRetries   = 3
+	bundleCopyRetryWait = 5 * time.Second
 )
 
 // externalTestImages are quay.io/flightctl-tests fixture images that e2e specs
@@ -220,8 +227,9 @@ func (s *Services) uploadBundle(ctx context.Context, bundlePath string) error {
 }
 
 // copyImageFromBundle copies a single image reference out of a multi-image
-// docker-archive bundle directly to the registry. Bounded by perCopyTimeout so a
-// hung skopeo process can't block the uploadConcurrency semaphore indefinitely.
+// docker-archive bundle directly to the registry. It retries transient local
+// registry failures and keeps each skopeo invocation bounded by perCopyTimeout
+// so a hung copy can't block the uploadConcurrency semaphore indefinitely.
 func (s *Services) copyImageFromBundle(ctx context.Context, bundlePath, ref string) error {
 	path := ref
 	if idx := strings.Index(ref, "/"); idx != -1 {
@@ -230,17 +238,32 @@ func (s *Services) copyImageFromBundle(ctx context.Context, bundlePath, ref stri
 	src := fmt.Sprintf("docker-archive:%s:%s", bundlePath, ref)
 	dst := fmt.Sprintf("docker://%s/%s", s.Registry.URL, path)
 
-	copyCtx, cancel := context.WithTimeout(ctx, perCopyTimeout)
-	defer cancel()
-	copyCmd := exec.CommandContext(copyCtx, "skopeo", "copy", "--dest-tls-verify=false", src, dst)
-	output, err := copyCmd.CombinedOutput()
-	if copyCtx.Err() != nil {
-		return fmt.Errorf("skopeo copy for %s did not complete within %s: %w", ref, perCopyTimeout, copyCtx.Err())
+	var lastErr error
+	for attempt := 1; attempt <= bundleCopyRetries; attempt++ {
+		copyCtx, cancel := context.WithTimeout(ctx, perCopyTimeout)
+		copyCmd := exec.CommandContext(copyCtx, "skopeo", "copy", "--dest-tls-verify=false", src, dst)
+		output, err := copyCmd.CombinedOutput()
+		timedOut := copyCtx.Err() != nil
+		cancel()
+
+		if timedOut {
+			lastErr = fmt.Errorf("skopeo copy for %s did not complete within %s: %w", ref, perCopyTimeout, copyCtx.Err())
+		} else if err != nil {
+			lastErr = fmt.Errorf("skopeo copy failed for %s: %w, output: %s", ref, err, string(output))
+		} else {
+			return nil
+		}
+
+		if attempt < bundleCopyRetries {
+			logrus.Warnf("Retrying bundle image upload for %s (attempt %d/%d): %v", ref, attempt, bundleCopyRetries, lastErr)
+			select {
+			case <-ctx.Done():
+				return lastErr
+			case <-time.After(bundleCopyRetryWait):
+			}
+		}
 	}
-	if err != nil {
-		return fmt.Errorf("skopeo copy failed for %s: %w, output: %s", ref, err, string(output))
-	}
-	return nil
+	return lastErr
 }
 
 func extractImageRefs(bundlePath string) ([]string, error) {
