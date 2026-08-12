@@ -336,6 +336,59 @@ func TestKubernetesMonitor_StopApp_UsesHelmSpecNamespace(t *testing.T) {
 	require.NoError(monitor.StopApp(ctx, appID))
 }
 
+// Execute must use the Spec captured at QueueLifecycle time, even if the tracked
+// app's ActionSpec changes before ExecuteActions runs.
+func TestKubernetesMonitor_QueueLifecycle_ExecuteUsesQueuedSpec(t *testing.T) {
+	const appName = "helm-demo"
+	const queuedNamespace = "test-app"
+	const mutatedNamespace = "wrong-ns"
+	const kubeconfigPath = "/tmp/kubeconfig"
+
+	require := require.New(t)
+	ctx := context.Background()
+	testLog := log.NewPrefixLogger("test")
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockExec := executer.NewMockExecuter(ctrl)
+	mockRW := fileio.NewMockReadWriter(ctrl)
+	monitor := newTestKubernetesMonitor(testLog, mockExec, mockRW, kubeconfigPath)
+
+	appID := fmt.Sprintf("%s_%s", queuedNamespace, appName)
+	volumeManager, err := provider.NewVolumeManager(testLog, appName, v1beta1.AppTypeHelm, v1beta1.CurrentProcessUsername, nil)
+	require.NoError(err)
+
+	app := &application{
+		id:   appID,
+		path: fmt.Sprintf("/var/lib/flightctl/helm/charts/%s", appName),
+		status: &v1beta1.DeviceApplicationStatus{
+			Name:    appName,
+			AppType: v1beta1.AppTypeHelm,
+		},
+		volume:       volumeManager,
+		desiredState: v1beta1.ApplicationDesiredStateRunning,
+		actionSpec: lifecycle.HelmSpec{
+			Namespace: queuedNamespace,
+		},
+	}
+	monitor.apps[appID] = app
+
+	monitor.QueueLifecycle(appID, v1beta1.ApplicationDesiredStateStopped, 0)
+
+	app.actionSpec = lifecycle.HelmSpec{Namespace: mutatedNamespace}
+
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "kubectl", []string{
+		"scale", "deployment,statefulset",
+		"-l", fmt.Sprintf("%s=%s", helm.AppLabelKey, appID),
+		"--replicas=0",
+		"-n", queuedNamespace,
+		"--kubeconfig", kubeconfigPath,
+	}).Return("", "", 0)
+
+	require.NoError(monitor.ExecuteActions(ctx))
+	require.Equal(v1beta1.ApplicationDesiredStateStopped, app.DesiredState())
+}
+
 func TestKubernetesMonitor_StartApp_PropagatesHandlerError(t *testing.T) {
 	const appName = "my-helm-app"
 	const kubeconfigPath = "/tmp/kubeconfig"

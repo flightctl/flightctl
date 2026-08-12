@@ -174,50 +174,36 @@ func (m *KubernetesMonitor) QueueLifecycle(appID string, desiredState v1beta1.Ap
 
 // StopApp stops the Helm application identified by appID by scaling its workloads to 0.
 func (m *KubernetesMonitor) StopApp(ctx context.Context, appID string) error {
-	handler, action, app, err := m.lifecycleDispatch(appID)
+	_, action, _, err := m.lifecycleDispatch(appID)
 	if err != nil {
 		return err
 	}
-	if err := handler.Stop(ctx, action); err != nil {
-		return err
-	}
-	m.mu.Lock()
-	app.SetDesiredState(v1beta1.ApplicationDesiredStateStopped)
-	m.mu.Unlock()
-	return nil
+	action.Type = lifecycle.ActionStop
+	return m.applyLifecycleAction(ctx, action)
 }
 
 // StartApp re-applies the Helm chart for the application identified by appID.
 func (m *KubernetesMonitor) StartApp(ctx context.Context, appID string) error {
-	handler, action, app, err := m.lifecycleDispatch(appID)
+	_, action, _, err := m.lifecycleDispatch(appID)
 	if err != nil {
 		return err
 	}
-	if err := handler.Start(ctx, action); err != nil {
-		return err
-	}
-	m.mu.Lock()
-	app.SetDesiredState(v1beta1.ApplicationDesiredStateRunning)
-	m.mu.Unlock()
-	return nil
+	action.Type = lifecycle.ActionStart
+	return m.applyLifecycleAction(ctx, action)
 }
 
 // RestartApp scales workloads to 0 then re-applies the chart for the application identified by appID.
 func (m *KubernetesMonitor) RestartApp(ctx context.Context, appID string, restartGeneration int) error {
-	handler, action, app, err := m.lifecycleDispatch(appID)
+	_, action, _, err := m.lifecycleDispatch(appID)
 	if err != nil {
 		return err
 	}
-	if err := handler.Restart(ctx, action); err != nil {
-		return err
-	}
-	m.mu.Lock()
-	app.SetRestartGeneration(restartGeneration)
-	m.mu.Unlock()
-	return nil
+	action.Type = lifecycle.ActionRestart
+	action.RestartGeneration = restartGeneration
+	return m.applyLifecycleAction(ctx, action)
 }
 
-// lifecycleDispatch looks up the application and resolves its LifecycleHandler.
+// lifecycleDispatch looks up the application and builds a lifecycle.Action from its current fields.
 func (m *KubernetesMonitor) lifecycleDispatch(appID string) (lifecycle.LifecycleHandler, lifecycle.Action, Application, error) {
 	m.mu.Lock()
 	app, ok := m.apps[appID]
@@ -240,6 +226,48 @@ func (m *KubernetesMonitor) lifecycleDispatch(appID string) (lifecycle.Lifecycle
 		Spec:    app.ActionSpec(),
 	}
 	return handler, action, app, nil
+}
+
+// applyLifecycleAction runs Stop/Start/Restart using the provided action (including Spec).
+func (m *KubernetesMonitor) applyLifecycleAction(ctx context.Context, action lifecycle.Action) error {
+	m.mu.Lock()
+	app, ok := m.apps[action.ID]
+	m.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("%w: %s", errors.ErrAppNotFound, action.ID)
+	}
+
+	handler, ok := m.handlers[action.AppType].(lifecycle.LifecycleHandler)
+	if !ok {
+		return fmt.Errorf("%w: no lifecycle handler for app type %s", errors.ErrUnsupportedAppType, action.AppType)
+	}
+
+	switch action.Type {
+	case lifecycle.ActionStop:
+		if err := handler.Stop(ctx, action); err != nil {
+			return err
+		}
+		m.mu.Lock()
+		app.SetDesiredState(v1beta1.ApplicationDesiredStateStopped)
+		m.mu.Unlock()
+	case lifecycle.ActionStart:
+		if err := handler.Start(ctx, action); err != nil {
+			return err
+		}
+		m.mu.Lock()
+		app.SetDesiredState(v1beta1.ApplicationDesiredStateRunning)
+		m.mu.Unlock()
+	case lifecycle.ActionRestart:
+		if err := handler.Restart(ctx, action); err != nil {
+			return err
+		}
+		m.mu.Lock()
+		app.SetRestartGeneration(action.RestartGeneration)
+		m.mu.Unlock()
+	default:
+		return fmt.Errorf("unsupported lifecycle action type: %s", action.Type)
+	}
+	return nil
 }
 
 // ExecuteActions executes all queued actions.
@@ -283,7 +311,9 @@ func (m *KubernetesMonitor) executeActions(ctx context.Context) error {
 			continue
 		}
 		m.log.Infof("Stopping application %s (desiredState: stopped, post-install)", a.Name)
-		if err := m.StopApp(ctx, a.ID); err != nil {
+		stopAction := a
+		stopAction.Type = lifecycle.ActionStop
+		if err := m.applyLifecycleAction(ctx, stopAction); err != nil {
 			m.log.Warnf("Failed to stop application %s after install: %v", a.Name, err)
 		}
 	}
@@ -293,17 +323,17 @@ func (m *KubernetesMonitor) executeActions(ctx context.Context) error {
 		switch a.Type {
 		case lifecycle.ActionStop:
 			m.log.Infof("Stopping application %s", a.Name)
-			if err := m.StopApp(ctx, a.ID); err != nil {
+			if err := m.applyLifecycleAction(ctx, a); err != nil {
 				m.log.Warnf("Failed to stop application %s: %v", a.Name, err)
 			}
 		case lifecycle.ActionStart:
 			m.log.Infof("Starting application %s", a.Name)
-			if err := m.StartApp(ctx, a.ID); err != nil {
+			if err := m.applyLifecycleAction(ctx, a); err != nil {
 				m.log.Warnf("Failed to start application %s: %v", a.Name, err)
 			}
 		case lifecycle.ActionRestart:
 			m.log.Infof("Restarting application %s", a.Name)
-			if err := m.RestartApp(ctx, a.ID, a.RestartGeneration); err != nil {
+			if err := m.applyLifecycleAction(ctx, a); err != nil {
 				m.log.Warnf("Failed to restart application %s: %v", a.Name, err)
 			}
 		}
