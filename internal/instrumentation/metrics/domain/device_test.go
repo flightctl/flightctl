@@ -45,7 +45,7 @@ func (m *MockDevice) InitialMigration(ctx context.Context) error { return nil }
 func (m *MockDevice) Create(ctx context.Context, orgId uuid.UUID, device *domain.Device, rendered *devicestore.DeviceRendered) (*domain.Device, error) {
 	return nil, nil
 }
-func (m *MockDevice) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.Device, apply devicestore.DeviceApplyFunc) (*domain.Device, *domain.Device, bool, error) {
+func (m *MockDevice) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.Device, apply devicestore.DeviceApplyFunc, _ ...devicestore.MutateOption) (*domain.Device, *domain.Device, bool, error) {
 	return nil, nil, false, nil
 }
 func (m *MockDevice) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, previous *domain.Device) (*domain.Device, *domain.Device, error) {
