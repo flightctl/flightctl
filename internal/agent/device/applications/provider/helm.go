@@ -190,7 +190,7 @@ func (p *helmProvider) Verify(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("validating application spec: %w", err)
 	}
-	if errs := v1beta1.ValidateHelmApplication(apiSpec, p.spec.Name, false); len(errs) > 0 {
+	if errs := v1beta1.ValidateHelmApplicationForAgent(apiSpec, p.spec.Name, false); len(errs) > 0 {
 		return fmt.Errorf("validating helm application: %w", errors.Join(errs...))
 	}
 
