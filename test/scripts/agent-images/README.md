@@ -38,6 +38,14 @@ with `BUILD_TYPE=regular` fails fast.
 For the `make e2e-agent-images` entrypoint, pass `AGENT_OS_ID=cs9-regular`
 explicitly. Make still defaults `AGENT_OS_ID` to `cs9-bootc`.
 
+Variant images are built in parallel after the base image. Control concurrency with
+`PARALLEL_JOBS` (default: `4`). Values above `8` print a warning because they may
+overwhelm the host.
+
+```bash
+PARALLEL_JOBS=8 make e2e-agent-images
+```
+
 ## OS Flavors and Tagging
 
 The build system supports multiple OS flavors with dedicated Containerfiles:
@@ -73,6 +81,7 @@ Images are tagged with OS flavor identifiers for easy selection:
 
 **Base Images:**
 - `quay.io/flightctl/flightctl-device:base-cs9-bootc-${TAG}` (canonical)
+- `quay.io/flightctl/flightctl-device:base-cs9-regular-${TAG}` (canonical, package-mode)
 - `quay.io/flightctl/flightctl-device:base-cs10-bootc-${TAG}` (canonical)
 - `quay.io/flightctl/flightctl-device:base` (latest flavor)
 - `quay.io/flightctl/flightctl-device:base-cs9-bootc`
@@ -105,16 +114,22 @@ agent-images/
 │   └── cs10-bootc-redhat/ # RHEL 10 bootc
 │       └── Containerfile
 ├── variants/              # Variant-specific files
-│   ├── v2/, v3/, ..., v10/   # Each contains Containerfile and variant-specific files
+│   ├── v2/, v3/, ..., v12/  # Each contains Containerfile and variant-specific files
 ├── apps/                  # Application images (Containerfile.<app-name>.<version>)
+├── charts/                # Helm charts for e2e (e.g. test-app)
+├── quadlets/              # Quadlet app bundles and volume artifacts
 ├── common/                # Shared files used by variants/apps
 ├── scripts/               # Build automation scripts
 │   ├── build.sh           # Main build script (base, variants, apps)
 │   ├── build_and_qcow2.sh # Orchestrates parallel builds
 │   ├── bundle.sh          # Create image bundles
 │   ├── qcow2.sh           # Generate QCOW2 disk images
-│   └── upload-images.sh   # Upload images to registry
-└── create_agent_images.sh # Main wrapper script
+│   ├── qcow2_regular.sh   # Generate package-mode QCOW2 disk images
+│   ├── upload-images.sh   # Upload images to registry
+│   ├── upload-charts.sh   # Upload Helm charts to registry
+│   └── upload-quadlets.sh # Upload quadlet artifacts to registry
+├── create_agent_images.sh # Device image wrapper script
+└── create_application_image.sh # App image wrapper script
 ```
 
 The images are built using the `Containerfile` files in the respective directories. For functionality or service deployment changes, update the appropriate `containerfiles/*/Containerfile`, `variants/vX/Containerfile`, or create new variants as needed.
@@ -129,6 +144,8 @@ The `scripts/` directory contains modular build automation:
 - **`qcow2.sh`** - Generates bootable QCOW2 disk images using bootc-image-builder
 - **`qcow2_regular.sh`** - Generates package-mode QCOW2 images from a bootable cloud image via host-side `dnf --installroot` plus `virt-customize` post-config
 - **`upload-images.sh`** - Uploads image bundles to container registries
+- **`upload-charts.sh`** - Uploads Helm charts to an OCI registry
+- **`upload-quadlets.sh`** - Uploads quadlet app bundles and volume artifacts to a registry
 
 Use `./scripts/build.sh --help` for detailed usage and options.
 
@@ -147,11 +164,12 @@ Where `<name>` is `base`, `v2`, `v3`, etc.
 
 ### Build Outputs
 
-| Name   | QCOW2 Image                      | Container Image Tags                        |
-|--------|----------------------------------|---------------------------------------------|
-| base   | `bin/output/qcow2/disk.qcow2`    | `base`, `base-${OS_ID}`, `base-${TAG}`, `base-${OS_ID}-${TAG}` |
-| v2     | N/A                              | `v2`, `v2-${OS_ID}`, `v2-${TAG}`, `v2-${OS_ID}-${TAG}` |
-| v3     | N/A                              | `v3`, `v3-${OS_ID}`, `v3-${TAG}`, `v3-${OS_ID}-${TAG}` |
+| Name        | QCOW2 Image                      | Container Image Tags                        |
+|-------------|----------------------------------|---------------------------------------------|
+| base        | `bin/output/qcow2/disk.qcow2`    | `base`, `base-${OS_ID}`, `base-${TAG}`, `base-${OS_ID}-${TAG}` |
+| v2–v12      | N/A                              | `<name>`, `<name>-${OS_ID}`, `<name>-${TAG}`, `<name>-${OS_ID}-${TAG}` |
+
+Where `<name>` is the variant name (`v2`, `v3`, …, `v12`). Only `base` produces a QCOW2 disk image.
 
 > **Note:** `qcow2.sh` writes the disk image to `bin/output/agent-qcow2-${OS_ID}/qcow2/disk.qcow2`.
 > When using `create_agent_images.sh`, the image is moved to `bin/output/qcow2/disk.qcow2`.
@@ -206,8 +224,29 @@ All images are built with the following credentials:
 - user: `user`
 - password: `user`
 
+## Variant exclusions
+
+By default, `create_agent_images.sh` builds variants `v2` through `v12`. Some variants
+are excluded automatically based on OS flavor or environment:
+
+| OS flavor / condition | Excluded variants | Reason |
+|-----------------------|-------------------|--------|
+| `cs9-regular` | v7, v11, v12 | Bootc-specific variants (MicroShift, greenboot rollback) |
+| `cs10-bootc` | v7, v12 | No RHOCP MicroShift for cs10 |
+| `cs9-bootc` without RHOCP access | v7 | MicroShift requires RHOCP registry credentials |
+
+Set `EXCLUDE_VARIANTS` explicitly to override the defaults (for example,
+`EXCLUDE_VARIANTS=v7 v11`).
+
 ## Image descriptions
-### base
+
+### Device images
+
+Device images are built by `create_agent_images.sh` (via `make e2e-agent-images`).
+All variants build on top of `base`.
+
+#### base
+
 This image is the base image for all other images. It contains the following services:
 - `flightctl-agent` - The agent service that connects to the flightctl service configured
    with the `test/script/prepare_agent_config.sh` script to be connected to our local
@@ -218,12 +257,105 @@ rpm based on the `FLIGHTCTL_RPM` variable, please see [test-docs](../../README.m
 
 It is configured to trust our locally generated CA created in `test/scripts/create_e2e_certs.sh`
 
-### v2
+#### v2
+
 This image builds on top of the base image, and adds the following services, useful
 to test agent reporting of systemd services:
- * test-e2e-dummy which just runs a sleep 3600 for 1h
- * test-e2e-crashing which runs /bin/false and attempts restart every few minutes
+- `test-e2e-dummy` which just runs a sleep 3600 for 1h
+- `test-e2e-crashing` which runs `/bin/false` and attempts restart every few minutes
 
-### v3
-This image builds on top of the base image, and adds the following services, useful
- * test-e2e-another-dummy which just runs a sleep 3600 for 1h
+#### v3
+
+This image builds on top of the base image, and adds the following services:
+- `test-e2e-another-dummy` which just runs a sleep 3600 for 1h
+
+#### v4
+
+Embedded compose application with three sleep containers (`test-podman-compose-sleep.yaml`).
+Used to test OS updates that include an embedded compose application.
+
+#### v5
+
+Embedded compose application with a working sleep compose manifest
+(`test-podman-compose-sleep-work.yaml`). Similar to v4 but uses the shared working
+compose file from `common/`.
+
+#### v6
+
+Adds an `afterupdating` hook (`sshd-hook.yaml`) that triggers an sshd reload after each
+configuration update. Used to test agent hook execution.
+
+#### v7
+
+Installs MicroShift and Helm from RHOCP repositories. Requires RHOCP registry access to
+build. The QCOW2 disk is resized by +5G when this variant is included. Used for
+MicroShift and ACM enrollment tests.
+
+#### v8
+
+Embedded compose application with an invalid compose manifest
+(`test-podman-compose-invalid.yaml`). Used to test application launch failures and
+device rollback behavior.
+
+#### v9
+
+Adds a custom system-info script (`infinite.sh`) and a drop-in agent configuration file
+(`10-system-info.yaml`). Used to test custom system-info collection and agent
+configuration drop-ins.
+
+#### v10
+
+Installs the OpenTelemetry Collector (`otelcol`) with system metrics scraping,
+certificate-manager mapping, and a minimal collector config. Used by observability
+e2e tests.
+
+#### v11
+
+Broken bootc image for testing greenboot rollback. Uses a systemd drop-in
+(`99-break-agent.conf`) to override `flightctl-agent` `ExecStart` with `/bin/false`,
+causing the agent to fail on boot and triggering greenboot OS rollback.
+
+#### v12
+
+Installs upstream MicroShift (OKD) from GitHub release artifacts instead of RHOCP
+repositories. Used for Helm application tests that need MicroShift without RHOCP
+credentials.
+
+### Application images
+
+Application images are built by `create_application_image.sh` (also triggered by
+`make e2e-agent-images`) using `scripts/build.sh --apps`. Containerfiles follow the
+pattern `apps/Containerfile.<app-name>.<version>`.
+
+Images are tagged as `quay.io/flightctl/<app-name>:<version>` and
+`quay.io/flightctl/<app-name>:<version>-${TAG}` (configurable via `APP_REPO`).
+
+| Image | Description |
+|-------|-------------|
+| `quay.io/flightctl/sleep-app:v1` | Compose application bundle with three sleep containers |
+| `quay.io/flightctl/sleep-app:v2` | Compose application bundle (upgraded manifest in `common/`) |
+| `quay.io/flightctl/sleep-app:v3` | Compose application bundle with volume specifications |
+| `quay.io/flightctl/dummy-volume:latest` | Minimal image with three text files for quadlet volume testing |
+
+### Helm charts
+
+Helm charts live under `charts/` and are uploaded by `scripts/upload-charts.sh` (or at
+e2e runtime by testcontainers in `test/e2e/infra/auxiliary/charts.go`).
+
+| Chart | Versions | Description |
+|-------|----------|-------------|
+| `charts/test-app` | `0.1.0`, `0.2.0` | Configurable test deployment; version `0.1.0` prints "hello v1", `0.2.0` prints "hello v2" |
+
+Charts are pushed to `oci://<registry>/flightctl/charts/<chart-name>:<version>`.
+
+### Quadlet artifacts
+
+Quadlet artifacts live under `quadlets/` and are uploaded by `scripts/upload-quadlets.sh`
+(or at e2e runtime by testcontainers).
+
+| Artifact | Registry path | Description |
+|----------|---------------|-------------|
+| `quadlets/apps/quadlet-app/` | `quadlets/quadlet-app:latest` | Multi-unit quadlet app (pod, containers, network, volumes) |
+| `quadlets/volumes/model-data/` | `quadlets/model-data:latest` | Volume data file (`model.txt`) referenced by quadlet apps |
+
+App bundles are packaged as tarballs; volume artifacts are pushed as raw files.
