@@ -258,6 +258,8 @@ func (h *DeviceServiceHandler) ReplaceDevice(ctx context.Context, orgId uuid.UUI
 				Status:     &status,
 			}
 			m.Device.Metadata.Name = lo.ToPtr(name)
+			// Intentional: brand-new devices have no LastSeen yet, so USSS leaves
+			// summary/applications as Unknown until the agent first reports in.
 			_ = common.UpdateServiceSideStatus(ctx, orgId, m.Device, h.fleetStore, h.log)
 			return pruneLifecycleOnCurrent(h.log, m.Device)
 		}
@@ -734,6 +736,12 @@ func snapshotDeviceForStatusUpdate(device *domain.Device) *domain.Device {
 		status := *device.Status
 		if device.Status.Conditions != nil {
 			status.Conditions = append([]domain.Condition(nil), device.Status.Conditions...)
+		}
+		// LastSeen is a pointer; copy the value so later writes to Status.LastSeen
+		// on the live device do not mutate the event baseline snapshot.
+		if device.Status.LastSeen != nil {
+			ls := *device.Status.LastSeen
+			status.LastSeen = &ls
 		}
 		previous.Status = &status
 	}

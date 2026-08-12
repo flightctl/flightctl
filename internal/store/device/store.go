@@ -178,12 +178,21 @@ type mutateConfig struct {
 // MutateOption configures DeviceStore.Mutate.
 type MutateOption func(*mutateConfig)
 
-// WithTimestamp loads the device via GetWithTimestamp (devices ⨝ device_timestamps) so
+// WithTimestamp loads the device via GetWithTimestamp (devices ⟕ device_timestamps) so
 // Status.LastSeen is populated. Use when apply will call UpdateServiceSideStatus.
 func WithTimestamp() MutateOption {
 	return func(c *mutateConfig) {
 		c.withTimestamp = true
 	}
+}
+
+// HasWithTimestamp reports whether opts include WithTimestamp (for tests/fakes).
+func HasWithTimestamp(opts ...MutateOption) bool {
+	cfg := &mutateConfig{}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+	return cfg.withTimestamp
 }
 
 var _ store.ResourceMutation[domain.Device] = (*DeviceMutation)(nil)
@@ -508,7 +517,7 @@ func (s *DeviceStore) dropLastSeenColumnIfExists(db *gorm.DB) error {
 // Missing devices are created (apply must set Device); existing ones are updated.
 // The caller is responsible for firing any event callback using the returned
 // before/updated/created values.
-// WithTimestamp() makes loads use a single devices⨝device_timestamps query so
+// WithTimestamp() makes loads use a single devices⟕device_timestamps query so
 // Status.LastSeen is set (required before UpdateServiceSideStatus).
 func (s *DeviceStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.Device, apply DeviceApplyFunc, opts ...MutateOption) (*domain.Device, *domain.Device, bool, error) {
 	cfg := &mutateConfig{}
@@ -572,7 +581,7 @@ func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, device 
 		if attempt == 0 && previous != nil && lo.FromPtr(previous.Metadata.Name) == name {
 			current = previous
 		} else {
-			loaded, getErr := s.Get(ctx, orgId, name)
+			loaded, getErr := s.getWithTimestamp(ctx, orgId, name)
 			if getErr != nil {
 				return false, getErr
 			}
@@ -731,10 +740,12 @@ func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, before, devic
 
 func (s *DeviceStore) getWithTimestamp(ctx context.Context, orgId uuid.UUID, name string, opts ...model.APIResourceOption) (*domain.Device, error) {
 	var deviceModel model.DeviceWithTimestamp
+	// LEFT JOIN so a devices row without a device_timestamps row still loads
+	// (LastSeen nil → disconnected), instead of masquerading as not-found/create.
 	device := s.getDB(ctx).Raw(`SELECT d.*, dt.last_seen
-          FROM devices d, device_timestamps dt
-          WHERE d.org_id = ? AND d.name = ? AND d.deleted_at is NULL AND
-          d.org_id = dt.org_id AND d.name = dt.name`, orgId, name).Scan(&deviceModel)
+          FROM devices d
+          LEFT JOIN device_timestamps dt ON d.org_id = dt.org_id AND d.name = dt.name
+          WHERE d.org_id = ? AND d.name = ? AND d.deleted_at is NULL`, orgId, name).Scan(&deviceModel)
 	if device.Error != nil {
 		return nil, store.ErrorFromGormError(device.Error)
 	}

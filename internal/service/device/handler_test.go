@@ -282,6 +282,35 @@ func TestReplaceDeviceOwnership(t *testing.T) {
 	})
 }
 
+func TestReplaceDeviceSpec_PreservesOnlineWhenRecentlySeen(t *testing.T) {
+	st, _, svc := newTestHandler()
+	ctx := context.Background()
+	orgId := uuid.New()
+	lastSeen := time.Now().UTC().Add(-time.Minute)
+	status := domain.NewDeviceStatus()
+	status.Summary.Status = domain.DeviceSummaryStatusOnline
+	status.Summary.Info = lo.ToPtr("Device's system resources are healthy.")
+	status.ApplicationsSummary.Status = domain.ApplicationsSummaryStatusHealthy
+	status.Applications = []domain.DeviceApplicationStatus{{
+		Name:   "app1",
+		Status: domain.ApplicationStatusRunning,
+	}}
+	status.LastSeen = lo.ToPtr(lastSeen)
+	_, err := st.device.Create(ctx, orgId, &domain.Device{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr("live")},
+		Spec:     &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "old"}},
+		Status:   &status,
+	}, nil)
+	require.NoError(t, err)
+
+	result, apiStatus := svc.ReplaceDeviceSpec(ctx, orgId, "live", nil, domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "new"}}, nil, nil)
+	require.Equal(t, int32(http.StatusOK), apiStatus.Code)
+	require.Equal(t, domain.DeviceSummaryStatusOnline, result.Status.Summary.Status)
+	require.Equal(t, domain.ApplicationsSummaryStatusHealthy, result.Status.ApplicationsSummary.Status)
+	require.NotNil(t, result.Status.LastSeen)
+	require.Equal(t, "new", result.Spec.Os.Image)
+}
+
 func TestDeleteDevice(t *testing.T) {
 	t.Run("When the device does not exist it should return not found", func(t *testing.T) {
 		_, _, svc := newTestHandler()
