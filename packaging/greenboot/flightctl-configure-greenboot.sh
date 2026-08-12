@@ -1,6 +1,7 @@
 #!/bin/bash
 #
-# Configure greenboot to only allow flightctl health checks to trigger rollback.
+# Disable known bundled vendor greenboot health checks (e.g. MicroShift) so they
+# do not gate OS rollback. Customer scripts in /etc or /usr/lib are preserved.
 # Runs before greenboot-healthcheck.service on every boot.
 #
 # Installed to: /usr/libexec/flightctl/configure-greenboot.sh
@@ -9,13 +10,13 @@ set -x -euo pipefail
 
 source /usr/share/flightctl/functions/greenboot.sh
 
-disabled_scripts=$(find_third_party_scripts)
+disabled_scripts=$(find_blocked_vendor_healthchecks)
 
 if [ -z "$disabled_scripts" ]; then
-    log_info "No third-party greenboot health checks found"
-    exit 0
+    log_info "No bundled vendor greenboot health checks to disable"
+else
+    log_info "Disabling bundled vendor greenboot health checks:$disabled_scripts"
 fi
 
-log_info "Disabling third-party greenboot health checks:$disabled_scripts"
 set_disabled_healthchecks "$disabled_scripts"
 log_info "Updated $GREENBOOT_CONF"

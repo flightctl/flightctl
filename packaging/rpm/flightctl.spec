@@ -549,7 +549,7 @@ chown -R flightctl:flightctl ~flightctl/{.config,.local}
 # See: https://github.com/openshift/microshift/pull/5530
 systemctl enable --quiet greenboot-healthcheck 2>/dev/null || :
 # Enable the greenboot configuration service (runs before greenboot-healthcheck.service)
-# This ensures only flightctl health checks can trigger OS rollback
+# Disables known bundled vendor required.d checks (e.g. MicroShift); customer scripts preserved
 systemctl enable flightctl-configure-greenboot.service >/dev/null 2>&1 || :
 # Mask bootc auto-update timer on first boot (bootc/composefs); the script
 # is also run directly below for immediate effect during RPM install.
