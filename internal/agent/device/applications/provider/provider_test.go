@@ -574,53 +574,86 @@ func TestGetDiff_DeterministicOrdering_Consistency(t *testing.T) {
 	}
 }
 
-// Guards the QE regression where a restartGeneration-only bump was classified as
-// Changed (helm upgrade) instead of Ensure (QueueLifecycle scale-to-0 + re-apply).
-func TestGetDiff_WhenOnlyHelmRestartGenerationDiffers_ItShouldEnsureNotChange(t *testing.T) {
-	require := require.New(t)
-
-	base := helmAppWithLifecycle(t, "helm-demo", "test-app", "oci://registry.example.com/charts/test-app:0.1.0", nil, nil)
-	withRestart := helmAppWithLifecycle(t, "helm-demo", "test-app", "oci://registry.example.com/charts/test-app:0.1.0", nil, lo.ToPtr(1))
-
+// Guards QE regressions where lifecycle-only overlays in the HelmApplication union
+// blob were classified as Changed (helm upgrade) instead of Ensure (QueueLifecycle).
+func TestGetDiff_WhenOnlyHelmLifecycleFieldsDiffer_ItShouldEnsureNotChange(t *testing.T) {
 	const appID = "test-app_helm-demo"
-	current := []Provider{
-		&mockProvider{
-			id:   appID,
-			name: "helm-demo",
-			spec: &ApplicationSpec{
-				ID:                appID,
-				Name:              "helm-demo",
-				AppType:           v1beta1.AppTypeHelm,
-				Image:             "oci://registry.example.com/charts/test-app:0.1.0",
-				Path:              "/var/lib/flightctl/helm/charts/test-app",
-				HelmApp:           &base,
-				DesiredState:      v1beta1.ApplicationDesiredStateRunning,
-				RestartGeneration: 0,
-			},
+	const image = "oci://registry.example.com/charts/test-app:0.1.0"
+	const path = "/var/lib/flightctl/helm/charts/test-app"
+
+	tests := []struct {
+		name     string
+		current  v1beta1.HelmApplication
+		desired  v1beta1.HelmApplication
+		curState v1beta1.ApplicationDesiredState
+		desState v1beta1.ApplicationDesiredState
+		curGen   int
+		desGen   int
+	}{
+		{
+			name:     "When only restartGeneration differs it should Ensure not Change",
+			current:  helmAppWithLifecycle(t, "helm-demo", "test-app", image, nil, nil),
+			desired:  helmAppWithLifecycle(t, "helm-demo", "test-app", image, nil, lo.ToPtr(1)),
+			curState: v1beta1.ApplicationDesiredStateRunning,
+			desState: v1beta1.ApplicationDesiredStateRunning,
+			curGen:   0,
+			desGen:   1,
 		},
-	}
-	desired := []Provider{
-		&mockProvider{
-			id:   appID,
-			name: "helm-demo",
-			spec: &ApplicationSpec{
-				ID:                appID,
-				Name:              "helm-demo",
-				AppType:           v1beta1.AppTypeHelm,
-				Image:             "oci://registry.example.com/charts/test-app:0.1.0",
-				Path:              "/var/lib/flightctl/helm/charts/test-app",
-				HelmApp:           &withRestart,
-				DesiredState:      v1beta1.ApplicationDesiredStateRunning,
-				RestartGeneration: 1,
-			},
+		{
+			name:     "When only desiredState differs it should Ensure not Change",
+			current:  helmAppWithLifecycle(t, "helm-demo", "test-app", image, lo.ToPtr(v1beta1.ApplicationDesiredStateRunning), nil),
+			desired:  helmAppWithLifecycle(t, "helm-demo", "test-app", image, lo.ToPtr(v1beta1.ApplicationDesiredStateStopped), nil),
+			curState: v1beta1.ApplicationDesiredStateRunning,
+			desState: v1beta1.ApplicationDesiredStateStopped,
+			curGen:   0,
+			desGen:   0,
 		},
 	}
 
-	diff, err := GetDiff(current, desired)
-	require.NoError(err)
-	require.Empty(diff.Changed, "lifecycle-only restartGeneration bump must not trigger Update")
-	require.Len(diff.Ensure, 1)
-	require.Equal(appID, diff.Ensure[0].ID())
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			curApp, desApp := tc.current, tc.desired
+			current := []Provider{
+				&mockProvider{
+					id:   appID,
+					name: "helm-demo",
+					spec: &ApplicationSpec{
+						ID:                appID,
+						Name:              "helm-demo",
+						AppType:           v1beta1.AppTypeHelm,
+						Image:             image,
+						Path:              path,
+						HelmApp:           &curApp,
+						DesiredState:      tc.curState,
+						RestartGeneration: tc.curGen,
+					},
+				},
+			}
+			desired := []Provider{
+				&mockProvider{
+					id:   appID,
+					name: "helm-demo",
+					spec: &ApplicationSpec{
+						ID:                appID,
+						Name:              "helm-demo",
+						AppType:           v1beta1.AppTypeHelm,
+						Image:             image,
+						Path:              path,
+						HelmApp:           &desApp,
+						DesiredState:      tc.desState,
+						RestartGeneration: tc.desGen,
+					},
+				},
+			}
+
+			diff, err := GetDiff(current, desired)
+			require.NoError(err)
+			require.Empty(diff.Changed, "lifecycle-only diff must not trigger Update")
+			require.Len(diff.Ensure, 1)
+			require.Equal(appID, diff.Ensure[0].ID())
+		})
+	}
 }
 
 func helmAppWithLifecycle(t *testing.T, name, namespace, image string, desiredState *v1beta1.ApplicationDesiredState, restartGeneration *int) v1beta1.HelmApplication {
