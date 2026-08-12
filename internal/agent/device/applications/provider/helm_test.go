@@ -150,3 +150,75 @@ func TestHelmEnsureDependencies(t *testing.T) {
 		})
 	}
 }
+
+// TestHelmVerify_WhenRenderedLifecycleFieldsPresent_ItShouldNotRejectAsReadOnly
+// guards the QE regression where stop overlays desiredState into RenderedApplications
+// and Helm Verify reused API apply validation, rejecting the update before stop ran.
+func TestHelmVerify_WhenRenderedLifecycleFieldsPresent_ItShouldNotRejectAsReadOnly(t *testing.T) {
+	require := require.New(t)
+	log := log.NewPrefixLogger("test")
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockExec := executer.NewMockExecuter(ctrl)
+
+	tmpDir := t.TempDir()
+	rw := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+	)
+
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "helm", []string{"version", "--short"}).
+		Return("v3.15.0+gc4e7498\n", "", 0)
+
+	helmClient := client.NewHelm(log, mockExec, rw, tmpDir, testBackoffConfig)
+	kubeClient := client.NewKube(log, mockExec, rw, client.WithBinary("kubectl"))
+	cliClients := client.NewCLIClients(
+		client.WithHelmClient(helmClient),
+		client.WithKubeClient(kubeClient),
+	)
+
+	helmApp := v1beta1.HelmApplication{
+		AppType:           v1beta1.AppTypeHelm,
+		Name:              lo.ToPtr("helm-demo"),
+		DesiredState:      lo.ToPtr(v1beta1.ApplicationDesiredStateStopped),
+		RestartGeneration: lo.ToPtr(1),
+	}
+	err := helmApp.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{
+		Image: "registry.example.com/charts/myapp:1.0.0",
+	})
+	require.NoError(err)
+
+	var appSpec v1beta1.ApplicationProviderSpec
+	require.NoError(appSpec.FromHelmApplication(helmApp))
+
+	// API apply validation still rejects these fields — that guard must remain.
+	errs := v1beta1.ValidateHelmApplication(appSpec, "helm-demo", false)
+	require.NotEmpty(errs)
+	require.Contains(errs[0].Error(), "desiredState is read-only")
+	require.Empty(v1beta1.ValidateHelmApplicationForAgent(appSpec, "helm-demo", false))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var rwFactory fileio.ReadWriterFactory = func(user v1beta1.Username) (fileio.ReadWriter, error) {
+		return rw, nil
+	}
+
+	helmProvider, err := newHelmProvider(ctx, log, cliClients, &appSpec, rwFactory)
+	require.NoError(err)
+	helmProvider.commandChecker = func(cmd string) bool {
+		return cmd == "helm" || cmd == "kubectl" || cmd == "crictl"
+	}
+
+	// Chart is intentionally unresolved so Verify fails after validation. Without
+	// ForAgent validation, Verify would fail earlier with the read-only desiredState error.
+	err = helmProvider.Verify(ctx)
+	require.Error(err)
+	require.NotContains(err.Error(), "desiredState is read-only")
+	require.NotContains(err.Error(), "restartGeneration is read-only")
+	require.Contains(err.Error(), "not resolved")
+
+	require.Equal(v1beta1.ApplicationDesiredStateStopped, helmProvider.Spec().DesiredState)
+	require.Equal(1, helmProvider.Spec().RestartGeneration)
+}

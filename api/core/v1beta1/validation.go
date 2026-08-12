@@ -1089,7 +1089,17 @@ func validateContainerApplication(app ApplicationProviderSpec, appName string, f
 	return allErrs
 }
 
+// ValidateHelmApplication validates a Helm application for API apply; lifecycle fields are rejected.
 func ValidateHelmApplication(app ApplicationProviderSpec, appName string, fleetTemplate bool) []error {
+	return validateHelmApplication(app, appName, fleetTemplate, false)
+}
+
+// ValidateHelmApplicationForAgent allows desiredState/restartGeneration from rendered agent specs.
+func ValidateHelmApplicationForAgent(app ApplicationProviderSpec, appName string, fleetTemplate bool) []error {
+	return validateHelmApplication(app, appName, fleetTemplate, true)
+}
+
+func validateHelmApplication(app ApplicationProviderSpec, appName string, fleetTemplate bool, allowLifecycleFields bool) []error {
 	allErrs := []error{}
 	pathPrefix := fmt.Sprintf("spec.applications[%s]", appName)
 
@@ -1098,7 +1108,9 @@ func ValidateHelmApplication(app ApplicationProviderSpec, appName string, fleetT
 		return []error{fmt.Errorf("invalid helm application: %w", err)}
 	}
 
-	allErrs = append(allErrs, validateApplicationLifecycleFieldsReadOnly(helm.DesiredState, helm.RestartGeneration, pathPrefix)...)
+	if !allowLifecycleFields {
+		allErrs = append(allErrs, validateApplicationLifecycleFieldsReadOnly(helm.DesiredState, helm.RestartGeneration, pathPrefix)...)
+	}
 
 	switch helm.Type() {
 	case ImageApplicationProviderType:
