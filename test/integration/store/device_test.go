@@ -2927,4 +2927,3 @@ var _ = Describe("DeviceStore Mutate WithTimestamp status integrity", func() {
 		Expect(got.Status.LastSeen).To(BeNil())
 	})
 })
-
