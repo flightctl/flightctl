@@ -76,7 +76,7 @@ func (f *fakeDeviceStore) InitialMigration(context.Context) error { panic("not i
 func (f *fakeDeviceStore) Create(context.Context, uuid.UUID, *domain.Device, *devicestore.DeviceRendered) (*domain.Device, error) {
 	panic("not implemented")
 }
-func (f *fakeDeviceStore) Mutate(context.Context, uuid.UUID, string, *domain.Device, devicestore.DeviceApplyFunc) (*domain.Device, *domain.Device, bool, error) {
+func (f *fakeDeviceStore) Mutate(context.Context, uuid.UUID, string, *domain.Device, devicestore.DeviceApplyFunc, ...devicestore.MutateOption) (*domain.Device, *domain.Device, bool, error) {
 	panic("not implemented")
 }
 func (f *fakeDeviceStore) UpdateStatus(context.Context, uuid.UUID, *domain.Device, *domain.Device) (*domain.Device, *domain.Device, error) {

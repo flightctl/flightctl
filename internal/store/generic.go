@@ -108,6 +108,18 @@ func (s *GenericStore[P, M, A, AL]) Mutate(
 		creating := false
 		if usePrevious {
 			current = previous
+		} else if hooks.Load != nil {
+			apiResource, loadErr := hooks.Load(ctx, orgId, name)
+			if loadErr != nil {
+				return false, loadErr
+			}
+			if apiResource == nil {
+				creating = true
+				before = nil
+				current = nil
+			} else {
+				current = apiResource
+			}
 		} else {
 			existing, getErr := s.loadByName(ctx, orgId, name)
 			if getErr != nil {
