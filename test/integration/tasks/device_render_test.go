@@ -1193,5 +1193,87 @@ var _ = Describe("DeviceRender", func() {
 			Expect(ref.Fingerprint).ToNot(BeNil())
 			Expect(*ref.Fingerprint).To(Equal("42"))
 		})
+
+		// Companion to the re-render case above: after a successful render,
+		// templateVersion == renderedTemplateVersion. A redundant
+		// FleetRolloutDeviceSelected (as the disruption-budget reconciler emits
+		// on every tick for mid-rollout devices) must be a no-op — otherwise
+		// forceUpdate bumps renderedVersion for unchanged content and wakes the
+		// agent into a phantom update cycle.
+		It("When a fleet-owned device receives redundant FleetRolloutDeviceSelected after catching up it should not re-render", func() {
+			k8sConfig := &api.KubernetesSecretProviderSpec{Name: "fleet-secret"}
+			k8sConfig.SecretRef.Name = "my-secret"
+			k8sConfig.SecretRef.Namespace = "default"
+			k8sConfig.SecretRef.MountPath = "/etc/secrets"
+
+			configProvider := api.ConfigProviderSpec{}
+			err := configProvider.FromKubernetesSecretProviderSpec(*k8sConfig)
+			Expect(err).ToNot(HaveOccurred())
+
+			fleet := &api.Fleet{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(fleetName)},
+				Spec: api.FleetSpec{
+					Selector: &api.LabelSelector{MatchLabels: &map[string]string{"fleet": fleetName}},
+					Template: struct {
+						Metadata *api.ObjectMeta `json:"metadata,omitempty"`
+						Spec     api.DeviceSpec  `json:"spec"`
+					}{
+						Spec: api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
+					},
+				},
+			}
+			_, err = fleetStore.Create(ctx, orgId, fleet, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			tvStatus := api.TemplateVersionStatus{Config: &[]api.ConfigProviderSpec{configProvider}}
+			err = testutil.CreateTestTemplateVersion(ctx, tvStore, orgId, fleetName, "v1", &tvStatus)
+			Expect(err).ToNot(HaveOccurred())
+
+			testDeviceName := deviceName + "-fleet-rollout-skip-" + uuid.New().String()[:8]
+			device := &api.Device{
+				Metadata: api.ObjectMeta{
+					Name:  lo.ToPtr(testDeviceName),
+					Owner: lo.ToPtr("Fleet/" + fleetName),
+				},
+				Spec: &api.DeviceSpec{Config: &[]api.ConfigProviderSpec{configProvider}},
+			}
+			_, err = deviceStore.Create(ctx, orgId, device, nil)
+			Expect(err).ToNot(HaveOccurred())
+			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil) }()
+
+			annotations := map[string]string{
+				api.DeviceAnnotationTemplateVersion: "v1",
+			}
+			status := deviceSvc.UpdateDeviceAnnotations(ctx, orgId, testDeviceName, annotations, nil)
+			Expect(status.Code).To(Equal(int32(200)))
+
+			firstEvent := api.Event{
+				Reason:         api.EventReasonResourceCreated,
+				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
+			}
+			logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil, orgId, firstEvent)
+			err = logic.RenderDevice(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			device, err = deviceStore.Get(ctx, orgId, testDeviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect((*device.Metadata.Annotations)[api.DeviceAnnotationRenderedVersion]).To(Equal("1"))
+			Expect((*device.Metadata.Annotations)[api.DeviceAnnotationRenderedTemplateVersion]).To(Equal("v1"))
+			Expect((*device.Metadata.Annotations)[api.DeviceAnnotationTemplateVersion]).To(Equal("v1"))
+
+			// Redundant selection: templateVersion already equals renderedTemplateVersion.
+			redundantEvent := api.Event{
+				Reason:         api.EventReasonFleetRolloutDeviceSelected,
+				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
+			}
+			logic = tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil, orgId, redundantEvent)
+			err = logic.RenderDevice(ctx)
+			Expect(err).ToNot(HaveOccurred())
+
+			device, err = deviceStore.Get(ctx, orgId, testDeviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect((*device.Metadata.Annotations)[api.DeviceAnnotationRenderedVersion]).To(Equal("1"),
+				"redundant FleetRolloutDeviceSelected must not bump renderedVersion when already caught up")
+		})
 	})
 })
