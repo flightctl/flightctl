@@ -1102,7 +1102,7 @@ func (f FleetRolloutsLogic) updateDeviceInStore(ctx context.Context, device *dom
 }
 
 func ReplaceParametersInString(s string, device *domain.Device) (string, error) {
-	t, err := template.New("t").Option("missingkey=error").Funcs(domain.GetGoTemplateFuncMap()).Parse(s)
+	t, err := template.New("t").Option("missingkey=zero").Funcs(domain.GetGoTemplateFuncMap()).Parse(s)
 	if err != nil {
 		return "", fmt.Errorf("invalid parameter syntax: %v", err)
 	}

@@ -1990,3 +1990,70 @@ func TestFleetRolloutIterationContext(t *testing.T) {
 		assert.True(t, errors.Is(iterCtx.Err(), context.Canceled))
 	})
 }
+
+func TestReplaceParametersInString_MissingLabelsInConditionals(t *testing.T) {
+	tests := []struct {
+		name     string
+		template string
+		labels   map[string]string
+		expected string
+	}{
+		{
+			name:     "When if guards a missing label it should take the else branch",
+			template: `{{ if .metadata.labels.env }}env={{ .metadata.labels.env }}{{ else }}env=default{{ end }}`,
+			labels:   map[string]string{},
+			expected: `env=default`,
+		},
+		{
+			name:     "When if guards a present label it should render the value",
+			template: `{{ if .metadata.labels.env }}env={{ .metadata.labels.env }}{{ else }}env=default{{ end }}`,
+			labels:   map[string]string{"env": "prod"},
+			expected: `env=prod`,
+		},
+		{
+			name:     "When if eq references a missing label it should take the else branch",
+			template: `{{ if eq .metadata.labels.env "prod" }}production{{ else }}development{{ end }}`,
+			labels:   map[string]string{},
+			expected: `development`,
+		},
+		{
+			name:     "When with guards a missing label it should take the else branch",
+			template: `{{ with .metadata.labels.region }}region={{ . }}{{ else }}region=default{{ end }}`,
+			labels:   map[string]string{},
+			expected: `region=default`,
+		},
+		{
+			name:     "When with guards a present label it should render the value",
+			template: `{{ with .metadata.labels.region }}region={{ . }}{{ else }}region=default{{ end }}`,
+			labels:   map[string]string{"region": "us-east-1"},
+			expected: `region=us-east-1`,
+		},
+		{
+			name:     "When nested if guards missing labels it should take outer else branch",
+			template: `{{ if .metadata.labels.env }}{{ if eq .metadata.labels.env "prod" }}CRITICAL=true{{ else }}CRITICAL=false{{ end }}{{ else }}NO_ENV{{ end }}`,
+			labels:   map[string]string{},
+			expected: `NO_ENV`,
+		},
+		{
+			name:     "When deeply nested conditionals reference present labels it should resolve correctly",
+			template: `{{ if .metadata.labels.env }}{{ if eq .metadata.labels.env "prod" }}{{ if .metadata.labels.region }}{{ .metadata.labels.region }}{{ else }}no-region{{ end }}{{ end }}{{ end }}`,
+			labels:   map[string]string{"env": "prod", "region": "eu-west-1"},
+			expected: `eu-west-1`,
+		},
+		{
+			name:     "When bare label access references a missing label it should produce an empty string",
+			template: `tag={{ .metadata.labels.version }}`,
+			labels:   map[string]string{},
+			expected: `tag=`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			device := createTestDeviceWithLabels("test-device", "fleet/test", tt.labels)
+			result, err := ReplaceParametersInString(tt.template, device)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
