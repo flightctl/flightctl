@@ -3,6 +3,7 @@ package device
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -65,7 +66,8 @@ type Store interface {
 	// the caller can fire its own event callback; Mutate itself never calls one.
 	// Create-only API callers should use Create instead. Update-only callers should call
 	// m.RequireExisting() in apply.
-	Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.Device, apply DeviceApplyFunc) (updated *domain.Device, before *domain.Device, created bool, err error)
+	// Pass WithTimestamp() when apply will run UpdateServiceSideStatus (needs LastSeen).
+	Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.Device, apply DeviceApplyFunc, opts ...MutateOption) (updated *domain.Device, before *domain.Device, created bool, err error)
 	// UpdateStatus writes status + resource_version only (service_conditions unchanged).
 	// previous is optional (first attempt only). No events; caller uses before/updated.
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, previous *domain.Device) (updated *domain.Device, before *domain.Device, err error)
@@ -168,6 +170,30 @@ func (m *DeviceMutation) RequireExisting() error {
 
 // DeviceApplyFunc mutates m in place on every Mutate attempt.
 type DeviceApplyFunc func(m *DeviceMutation) error
+
+type mutateConfig struct {
+	withTimestamp bool
+}
+
+// MutateOption configures DeviceStore.Mutate.
+type MutateOption func(*mutateConfig)
+
+// WithTimestamp loads the device via GetWithTimestamp (devices ⟕ device_timestamps) so
+// Status.LastSeen is populated. Use when apply will call UpdateServiceSideStatus.
+func WithTimestamp() MutateOption {
+	return func(c *mutateConfig) {
+		c.withTimestamp = true
+	}
+}
+
+// HasWithTimestamp reports whether opts include WithTimestamp (for tests/fakes).
+func HasWithTimestamp(opts ...MutateOption) bool {
+	cfg := &mutateConfig{}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+	return cfg.withTimestamp
+}
 
 var _ store.ResourceMutation[domain.Device] = (*DeviceMutation)(nil)
 
@@ -491,11 +517,23 @@ func (s *DeviceStore) dropLastSeenColumnIfExists(db *gorm.DB) error {
 // Missing devices are created (apply must set Device); existing ones are updated.
 // The caller is responsible for firing any event callback using the returned
 // before/updated/created values.
-func (s *DeviceStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.Device, apply DeviceApplyFunc) (*domain.Device, *domain.Device, bool, error) {
+// WithTimestamp() makes loads use a single devices⟕device_timestamps query so
+// Status.LastSeen is set (required before UpdateServiceSideStatus).
+func (s *DeviceStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.Device, apply DeviceApplyFunc, opts ...MutateOption) (*domain.Device, *domain.Device, bool, error) {
+	cfg := &mutateConfig{}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
 	if previous != nil && lo.FromPtr(previous.Metadata.Name) != name {
 		previous = nil
 	}
-	return s.genericStore.Mutate(ctx, orgId, name, previous, store.MutateHooks[domain.Device]{
+	// previous without LastSeen would defeat WithTimestamp on attempt 0; force a joined load.
+	if cfg.withTimestamp && previous != nil && (previous.Status == nil || previous.Status.LastSeen == nil) {
+		previous = nil
+	}
+
+	hooks := store.MutateHooks[domain.Device]{
 		Wrap: func(device *domain.Device) store.ResourceMutation[domain.Device] {
 			return &DeviceMutation{Device: device}
 		},
@@ -507,7 +545,18 @@ func (s *DeviceStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, 
 			dm := m.(*DeviceMutation)
 			return s.Update(ctx, orgId, before, dm.Device, dm.Rendered)
 		},
-	}, func(m store.ResourceMutation[domain.Device]) error {
+	}
+	if cfg.withTimestamp {
+		hooks.Load = func(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error) {
+			device, err := s.getWithTimestamp(ctx, orgId, name)
+			if errors.Is(err, flterrors.ErrResourceNotFound) {
+				return nil, nil
+			}
+			return device, err
+		}
+	}
+
+	return s.genericStore.Mutate(ctx, orgId, name, previous, hooks, func(m store.ResourceMutation[domain.Device]) error {
 		return apply(m.(*DeviceMutation))
 	})
 }
@@ -519,38 +568,40 @@ func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, device 
 		return nil, nil, flterrors.ErrResourceIsNil
 	}
 	name := lo.FromPtr(device.Metadata.Name)
+	// device doesn't change across retries, so convert it once instead of on every attempt.
+	fromAPI, err := model.NewDeviceFromApiResource(device)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	var before, updated *domain.Device
 	attempt := 0
-	err := store.RetryUpdate(func() (bool, error) {
+	err = store.RetryUpdate(func() (bool, error) {
 		var current *domain.Device
 		if attempt == 0 && previous != nil && lo.FromPtr(previous.Metadata.Name) == name {
 			current = previous
 		} else {
-			loaded, getErr := s.Get(ctx, orgId, name)
+			loaded, getErr := s.getWithTimestamp(ctx, orgId, name)
 			if getErr != nil {
 				return false, getErr
 			}
 			current = loaded
 		}
 		attempt++
-		beforeSnapshot, snapErr := store.CloneJSON(current)
-		if snapErr != nil {
-			return false, snapErr
-		}
-		before = beforeSnapshot
+		// current is only read below, never mutated, so it's safe to return directly as
+		// "before" instead of paying for a full JSON round-trip clone (which would also
+		// silently drop Status.LastSeen, since it's tagged json:"-").
+		before = current
 
-		existing, err := model.NewDeviceFromApiResource(current)
-		if err != nil {
-			return false, err
+		rv, rvErr := strconv.ParseInt(lo.FromPtr(current.Metadata.ResourceVersion), 10, 64)
+		if rvErr != nil {
+			return false, flterrors.ErrIllegalResourceVersionFormat
 		}
-		existing.OrgID = orgId
+		// Only OrgID/Name are needed for GORM to target the row by primary key; no need to
+		// convert the rest of current (spec, labels, annotations, ...).
+		existing := &model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
 
-		fromAPI, err := model.NewDeviceFromApiResource(device)
-		if err != nil {
-			return false, err
-		}
-
-		result := s.getDB(ctx).Model(existing).Where("resource_version = ?", lo.FromPtr(existing.ResourceVersion)).Updates(map[string]interface{}{
+		result := s.getDB(ctx).Model(existing).Where("resource_version = ?", rv).Updates(map[string]interface{}{
 			"status":           fromAPI.Status,
 			"resource_version": gorm.Expr("resource_version + 1"),
 		})
@@ -561,13 +612,13 @@ func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, device 
 		if result.RowsAffected == 0 {
 			return true, flterrors.ErrNoRowsUpdated
 		}
-		next, cloneErr := store.CloneJSON(current)
-		if cloneErr != nil {
-			return false, cloneErr
-		}
+		// Shallow copy: Metadata is a value type, so reassigning next.Metadata.ResourceVersion
+		// below doesn't touch before.Metadata.ResourceVersion; Status is fully replaced, not
+		// mutated in place.
+		next := *current
 		next.Status = device.Status
-		next.Metadata.ResourceVersion = lo.ToPtr(strconv.FormatInt(lo.FromPtr(existing.ResourceVersion)+1, 10))
-		updated = next
+		next.Metadata.ResourceVersion = lo.ToPtr(strconv.FormatInt(rv+1, 10))
+		updated = &next
 		return false, nil
 	})
 	return updated, before, err
@@ -689,10 +740,12 @@ func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, before, devic
 
 func (s *DeviceStore) getWithTimestamp(ctx context.Context, orgId uuid.UUID, name string, opts ...model.APIResourceOption) (*domain.Device, error) {
 	var deviceModel model.DeviceWithTimestamp
+	// LEFT JOIN so a devices row without a device_timestamps row still loads
+	// (LastSeen nil → disconnected), instead of masquerading as not-found/create.
 	device := s.getDB(ctx).Raw(`SELECT d.*, dt.last_seen
-          FROM devices d, device_timestamps dt
-          WHERE d.org_id = ? AND d.name = ? AND d.deleted_at is NULL AND
-          d.org_id = dt.org_id AND d.name = dt.name`, orgId, name).Scan(&deviceModel)
+          FROM devices d
+          LEFT JOIN device_timestamps dt ON d.org_id = dt.org_id AND d.name = dt.name
+          WHERE d.org_id = ? AND d.name = ? AND d.deleted_at is NULL`, orgId, name).Scan(&deviceModel)
 	if device.Error != nil {
 		return nil, store.ErrorFromGormError(device.Error)
 	}

@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
+	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
@@ -2843,3 +2844,86 @@ func setLastSeen(db *gorm.DB, orgId uuid.UUID, name string, lastSeen time.Time) 
 	Expect(db.Model(&model.DeviceTimestamp{}).Where("org_id = ? AND name = ?", orgId, name).
 		Update("last_seen", lastSeen).Error).ToNot(HaveOccurred())
 }
+
+var _ = Describe("DeviceStore Mutate WithTimestamp status integrity", func() {
+	var (
+		log      *logrus.Logger
+		ctx      context.Context
+		orgId    uuid.UUID
+		devStore devicestore.Store
+		cfg      *config.Config
+		db       *gorm.DB
+		dbName   string
+	)
+
+	BeforeEach(func() {
+		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
+		log = flightlog.InitLogs()
+		var err error
+		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		Expect(err).NotTo(HaveOccurred())
+		devStore = devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
+		organizationStore := organizationstore.NewOrganizationStore(db)
+		orgId = uuid.New()
+		Expect(testutil.CreateTestOrganization(ctx, organizationStore, orgId)).To(Succeed())
+	})
+
+	AfterEach(func() {
+		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
+	})
+
+	It("When Mutate WithTimestamp runs UpdateServiceSideStatus it should keep Online summaries for a recently-seen device", func() {
+		name := "live-device"
+		status := api.NewDeviceStatus()
+		status.Summary.Status = api.DeviceSummaryStatusOnline
+		status.Summary.Info = lo.ToPtr("Device's system resources are healthy.")
+		status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
+		status.ApplicationsSummary.Info = lo.ToPtr("All application workloads are healthy.")
+		status.Applications = []api.DeviceApplicationStatus{{
+			Name:   "app1",
+			Status: api.ApplicationStatusRunning,
+		}}
+		device := &api.Device{
+			Metadata: api.ObjectMeta{Name: lo.ToPtr(name)},
+			Spec:     &api.DeviceSpec{},
+			Status:   &status,
+		}
+		_, err := devStore.Create(ctx, orgId, device, nil)
+		Expect(err).ToNot(HaveOccurred())
+		setLastSeen(db, orgId, name, time.Now().UTC().Add(-time.Minute))
+
+		_, _, _, err = devStore.Mutate(ctx, orgId, name, nil, func(m *devicestore.DeviceMutation) error {
+			Expect(m.RequireExisting()).To(Succeed())
+			Expect(m.Device.Status).ToNot(BeNil())
+			Expect(m.Device.Status.LastSeen).ToNot(BeNil())
+			m.Device.Spec = &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "new-image"}}
+			_ = common.UpdateServiceSideStatus(ctx, orgId, m.Device, nil, log)
+			return nil
+		}, devicestore.WithTimestamp())
+		Expect(err).ToNot(HaveOccurred())
+
+		got, err := devStore.GetWithTimestamp(ctx, orgId, name)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(got.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusOnline))
+		Expect(got.Status.ApplicationsSummary.Status).To(Equal(api.ApplicationsSummaryStatusHealthy))
+		Expect(got.Status.LastSeen).ToNot(BeNil())
+	})
+
+	It("When device_timestamps row is missing GetWithTimestamp should still return the device", func() {
+		name := "orphan-ts-device"
+		device := &api.Device{
+			Metadata: api.ObjectMeta{Name: lo.ToPtr(name)},
+			Spec:     &api.DeviceSpec{},
+			Status:   lo.ToPtr(api.NewDeviceStatus()),
+		}
+		_, err := devStore.Create(ctx, orgId, device, nil)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(db.Where("org_id = ? AND name = ?", orgId, name).Delete(&model.DeviceTimestamp{}).Error).ToNot(HaveOccurred())
+
+		got, err := devStore.GetWithTimestamp(ctx, orgId, name)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(got).ToNot(BeNil())
+		Expect(lo.FromPtr(got.Metadata.Name)).To(Equal(name))
+		Expect(got.Status.LastSeen).To(BeNil())
+	})
+})
