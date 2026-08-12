@@ -155,6 +155,21 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 			}
 		}
 
+		// FleetRolloutDeviceSelected is re-emitted by the disruption-budget reconciler on every
+		// reconcile tick for any device still mid-rollout, without knowing whether an earlier
+		// event (or an earlier duplicate of itself, still queued behind it) already rendered the
+		// device for the current template version. Skip redundant duplicates here rather than
+		// falling through to bypassHashCheck, which would otherwise force a phantom re-render,
+		// rendered-version bump, and agent update cycle for a device that already caught up.
+		if t.event.Reason == domain.EventReasonFleetRolloutDeviceSelected {
+			templateVersion, hasTemplateVersion := annotations[domain.DeviceAnnotationTemplateVersion]
+			renderedTemplateVersion, hasRenderedTemplateVersion := annotations[domain.DeviceAnnotationRenderedTemplateVersion]
+			if hasTemplateVersion && hasRenderedTemplateVersion && templateVersion == renderedTemplateVersion {
+				t.log.Infof("Device %s already rendered for template version %s, skipping redundant rollout selection event", t.event.InvolvedObject.Name, templateVersion)
+				return nil
+			}
+		}
+
 		// Don't render if the device spec hash hasn't changed since the last render, unless
 		// bypassHashCheck says this event must always produce a fresh render.
 		if !bypassHashCheck {
