@@ -143,13 +143,14 @@ func (s *GenericStore[P, M, A, AL]) Mutate(
 			return false, fmt.Errorf("mutate Wrap returned nil")
 		}
 		if !creating {
-			// Snapshot before independently of the working copy so PersistUpdate /
-			// event callbacks never observe a shared pointer with the mutation.
-			beforeSnapshot, snapErr := CloneJSON(current)
+			// Snapshot before via typed Clone so fields tagged json:"-" (e.g. Device
+			// Status.LastSeen) survive; CloneJSON alone would drop them and event
+			// callbacks would see a poisoned pre-mutation snapshot.
+			beforeMutation, snapErr := mutation.Clone()
 			if snapErr != nil {
 				return false, snapErr
 			}
-			before = beforeSnapshot
+			before = beforeMutation.Resource()
 
 			cloned, cloneErr := mutation.Clone()
 			if cloneErr != nil {
