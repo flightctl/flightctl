@@ -3,7 +3,9 @@ package telemetrygateway
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
+	"regexp"
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/telemetry_gateway/deviceattrs"
@@ -18,6 +20,7 @@ import (
 	"go.opentelemetry.io/collector/confmap/provider/envprovider"
 	"go.opentelemetry.io/collector/exporter"
 	"go.opentelemetry.io/collector/exporter/otlpexporter"
+	"go.opentelemetry.io/collector/exporter/otlphttpexporter"
 	"go.opentelemetry.io/collector/extension"
 	"go.opentelemetry.io/collector/otelcol"
 	"go.opentelemetry.io/collector/processor"
@@ -136,6 +139,7 @@ func Run(ctx context.Context, cfg *config.Config, opts ...Option) error {
 				},
 				Exporters: map[component.Type]exporter.Factory{
 					component.MustNewType("otlp"):                  otlpexporter.NewFactory(),
+					component.MustNewType("otlphttp"):              otlphttpexporter.NewFactory(),
 					component.MustNewType("prometheus"):            prometheusexporter.NewFactory(),
 					component.MustNewType("prometheusremotewrite"): prometheusremotewriteexporter.NewFactory(),
 				},
@@ -163,6 +167,50 @@ func Run(ctx context.Context, cfg *config.Config, opts ...Option) error {
 	return nil
 }
 
+func isHTTPEndpoint(endpoint string) bool {
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return false
+	}
+	return u.Scheme == "http" || u.Scheme == "https"
+}
+
+func validateHTTPEndpoint(endpoint string) error {
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("missing host in endpoint %q", endpoint)
+	}
+	if u.RawQuery != "" {
+		return fmt.Errorf("query strings are not supported in endpoint %q", endpoint)
+	}
+	if u.Fragment != "" {
+		return fmt.Errorf("fragments are not supported in endpoint %q", endpoint)
+	}
+	return nil
+}
+
+var envVarRe = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
+
+func expandEnvStrict(s string) (string, error) {
+	var missing []string
+	result := envVarRe.ReplaceAllStringFunc(s, func(match string) string {
+		varName := envVarRe.FindStringSubmatch(match)[1]
+		val, ok := os.LookupEnv(varName)
+		if !ok {
+			missing = append(missing, varName)
+			return match
+		}
+		return val
+	})
+	if len(missing) > 0 {
+		return "", fmt.Errorf("undefined environment variable(s) in header value: %v", missing)
+	}
+	return result, nil
+}
+
 // buildOTelConfigMap builds the OTEL collector config.
 func buildOTelConfigMap(cfg *config.Config) (map[string]any, error) {
 	exporterNames := []string{}
@@ -175,29 +223,48 @@ func buildOTelConfigMap(cfg *config.Config) (map[string]any, error) {
 		exporterNames = append(exporterNames, "prometheus")
 	}
 	if cfg.TelemetryGateway.Forward != nil && cfg.TelemetryGateway.Forward.Endpoint != "" {
-		otlp := map[string]any{
-			"endpoint": cfg.TelemetryGateway.Forward.Endpoint,
+		fwd := cfg.TelemetryGateway.Forward
+		exporterCfg := map[string]any{
+			"endpoint": fwd.Endpoint,
 		}
-		if cfg.TelemetryGateway.Forward.TLS != nil {
+		if fwd.TLS != nil {
 			tls := map[string]any{}
-			if cfg.TelemetryGateway.Forward.TLS.InsecureSkipTlsVerify {
+			if fwd.TLS.InsecureSkipTlsVerify {
 				tls["insecure_skip_verify"] = true
 			}
-			if v := cfg.TelemetryGateway.Forward.TLS.CertFile; v != "" {
+			if v := fwd.TLS.CertFile; v != "" {
 				tls["cert_file"] = v
 			}
-			if v := cfg.TelemetryGateway.Forward.TLS.KeyFile; v != "" {
+			if v := fwd.TLS.KeyFile; v != "" {
 				tls["key_file"] = v
 			}
-			if v := cfg.TelemetryGateway.Forward.TLS.CAFile; v != "" {
+			if v := fwd.TLS.CAFile; v != "" {
 				tls["ca_file"] = v
 			}
 			if len(tls) > 0 {
-				otlp["tls"] = tls
+				exporterCfg["tls"] = tls
 			}
 		}
-		exporters["otlp"] = otlp
-		exporterNames = append(exporterNames, "otlp")
+		exporterKey := "otlp"
+		if isHTTPEndpoint(fwd.Endpoint) {
+			exporterKey = "otlphttp"
+			if err := validateHTTPEndpoint(fwd.Endpoint); err != nil {
+				return nil, fmt.Errorf("forward endpoint: %w", err)
+			}
+			if len(fwd.Headers) > 0 {
+				headers := make(map[string]string, len(fwd.Headers))
+				for k, v := range fwd.Headers {
+					expanded, err := expandEnvStrict(v.Value())
+					if err != nil {
+						return nil, fmt.Errorf("forward header %q: %w", k, err)
+					}
+					headers[k] = expanded
+				}
+				exporterCfg["headers"] = headers
+			}
+		}
+		exporters[exporterKey] = exporterCfg
+		exporterNames = append(exporterNames, exporterKey)
 	}
 	if len(exporterNames) == 0 {
 		return nil, fmt.Errorf("no exporters configured")

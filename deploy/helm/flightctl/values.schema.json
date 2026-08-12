@@ -824,6 +824,48 @@
           "type": ["object", "null"],
           "description": "Additional labels for Telemetry gateway routes.",
           "additionalProperties": { "type": "string" }
+        },
+        "extraEnvs": {
+          "type": "array",
+          "description": "Extra environment variables for the telemetry gateway container. Use to inject secrets for forward header values via ${VAR} expansion.",
+          "items": { "type": "object" }
+        },
+        "extraVolumeMounts": {
+          "type": "array",
+          "description": "Extra volume mounts for the telemetry gateway container. Use to mount TLS certificates for mTLS forward connections.",
+          "items": { "type": "object" }
+        },
+        "extraVolumes": {
+          "type": "array",
+          "description": "Extra volumes for the telemetry gateway pod.",
+          "items": { "type": "object" }
+        },
+        "forward": {
+          "type": "object",
+          "description": "Forward telemetry to an upstream OTLP collector.",
+          "additionalProperties": false,
+          "properties": {
+            "endpoint": {
+              "type": "string",
+              "description": "Upstream OTLP endpoint. Use host:port for gRPC, http(s):// URL for OTLP/HTTP."
+            },
+            "headers": {
+              "type": "object",
+              "description": "Custom HTTP headers for authentication (OTLP/HTTP only).",
+              "additionalProperties": { "type": "string" }
+            },
+            "tls": {
+              "type": "object",
+              "description": "TLS configuration for the forward connection.",
+              "additionalProperties": false,
+              "properties": {
+                "insecureSkipTlsVerify": { "type": "boolean", "description": "Skip TLS certificate verification." },
+                "caFile": { "type": "string", "description": "Path to CA certificate file." },
+                "certFile": { "type": "string", "description": "Path to client certificate file (mTLS)." },
+                "keyFile": { "type": "string", "description": "Path to client key file (mTLS)." }
+              }
+            }
+          }
         }
       }
     },

@@ -122,6 +122,7 @@ require (
 	github.com/spf13/viper v1.20.1
 	github.com/testcontainers/testcontainers-go v0.39.0
 	go.opentelemetry.io/collector/consumer/consumererror v0.130.1
+	go.opentelemetry.io/collector/exporter/otlphttpexporter v0.130.1
 	go.opentelemetry.io/otel/exporters/prometheus v0.59.1
 	go.opentelemetry.io/otel/sdk/metric v1.39.0
 	go.uber.org/zap v1.27.0

@@ -1,0 +1,11 @@
+telemetryGateway:
+  extraEnvs:
+    - name: FORWARD_TOKEN
+      valueFrom:
+        secretKeyRef:
+          name: telemetry-gateway-forward-token
+          key: token
+  forward:
+    endpoint: "https://aju32950.live.dynatrace.com/api/v2/otlp"
+    headers:
+      Authorization: "Api-Token ${FORWARD_TOKEN}"

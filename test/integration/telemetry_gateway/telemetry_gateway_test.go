@@ -1,18 +1,21 @@
 package telemetry_gateway_test
 
 import (
+	"compress/gzip"
 	"context"
 	"crypto"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -32,6 +35,7 @@ import (
 	resourcepb "go.opentelemetry.io/proto/otlp/resource/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/protobuf/proto"
 	"sigs.k8s.io/yaml"
 )
 
@@ -328,6 +332,163 @@ service:
 		})
 	})
 
+	Context("HTTP forwarding", func() {
+		var (
+			httpStop func()
+			httpMC   *mockHTTPOTLPCollector
+		)
+
+		BeforeEach(func() {
+			dsPriv, dsCert, err := makeKeyPairAndCSR(ctx, caClient, caClient.Cfg.ServerSvcSignerName, "svc-http-collector", 365)
+			Expect(err).ToNot(HaveOccurred())
+
+			endpoint, stop, mc, startErr := startMockHTTPCollector(dsCert, dsPriv)
+			Expect(startErr).ToNot(HaveOccurred())
+			httpStop, httpMC = stop, mc
+
+			cfgMutators = append(cfgMutators, func(c *config.Config) {
+				snippet := fmt.Appendf(nil,
+					"telemetrygateway:\n  export: null\n  forward:\n    endpoint: %q\n    headers:\n      Authorization: \"Api-Token test-token-123\"\n      X-Custom-Header: \"custom-value\"\n    tls:\n      insecureSkipTlsVerify: true\n",
+					endpoint,
+				)
+				_ = yaml.Unmarshal(snippet, c)
+			})
+		})
+
+		AfterEach(func() {
+			if httpStop != nil {
+				httpStop()
+			}
+		})
+
+		It("forwards metrics via OTLP/HTTP with custom headers", func() {
+			clientPrivateKey, clientCert, err := makeKeyPairAndCSR(ctx, caClient, caClient.Cfg.DeviceSvcClientSignerName, "client-testdevice", 365)
+			Expect(err).ToNot(HaveOccurred())
+
+			caPool := x509.NewCertPool()
+			for _, cert := range caClient.GetCABundleX509() {
+				caPool.AddCert(cert)
+			}
+
+			tlsCfg := &tls.Config{
+				MinVersion: tls.VersionTLS12,
+				RootCAs:    caPool,
+				Certificates: []tls.Certificate{{
+					Certificate: [][]byte{clientCert.Raw},
+					PrivateKey:  clientPrivateKey,
+				}},
+				ServerName: "localhost",
+			}
+
+			creds := credentials.NewTLS(tlsCfg)
+			cc, err := grpc.NewClient(otlpAddr, grpc.WithTransportCredentials(creds))
+			Expect(err).ToNot(HaveOccurred())
+			defer cc.Close()
+
+			rpcCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			Expect(exportTestMetrics(rpcCtx, cc)).To(Succeed())
+
+			Eventually(func() bool {
+				req := httpMC.lastRequest()
+				if req == nil {
+					return false
+				}
+				for _, rm := range req.metrics.ResourceMetrics {
+					for _, sm := range rm.ScopeMetrics {
+						for _, m := range sm.Metrics {
+							if m.GetName() == "test_tg_metric" {
+								return true
+							}
+						}
+					}
+				}
+				return false
+			}, timeout, polling).Should(BeTrue(), "HTTP collector did not receive forwarded metric")
+
+			req := httpMC.lastRequest()
+			Expect(req).ToNot(BeNil())
+			Expect(req.headers.Get("Authorization")).To(Equal("Api-Token test-token-123"))
+			Expect(req.headers.Get("X-Custom-Header")).To(Equal("custom-value"))
+		})
+	})
+
+	Context("HTTP forwarding without custom headers", func() {
+		var (
+			httpStop func()
+			httpMC   *mockHTTPOTLPCollector
+		)
+
+		BeforeEach(func() {
+			dsPriv, dsCert, err := makeKeyPairAndCSR(ctx, caClient, caClient.Cfg.ServerSvcSignerName, "svc-http-collector", 365)
+			Expect(err).ToNot(HaveOccurred())
+
+			endpoint, stop, mc, startErr := startMockHTTPCollector(dsCert, dsPriv)
+			Expect(startErr).ToNot(HaveOccurred())
+			httpStop, httpMC = stop, mc
+
+			cfgMutators = append(cfgMutators, func(c *config.Config) {
+				snippet := fmt.Appendf(nil,
+					"telemetrygateway:\n  export: null\n  forward:\n    endpoint: %q\n    tls:\n      insecureSkipTlsVerify: true\n",
+					endpoint,
+				)
+				_ = yaml.Unmarshal(snippet, c)
+			})
+		})
+
+		AfterEach(func() {
+			if httpStop != nil {
+				httpStop()
+			}
+		})
+
+		It("forwards metrics via OTLP/HTTP without headers", func() {
+			clientPrivateKey, clientCert, err := makeKeyPairAndCSR(ctx, caClient, caClient.Cfg.DeviceSvcClientSignerName, "client-testdevice", 365)
+			Expect(err).ToNot(HaveOccurred())
+
+			caPool := x509.NewCertPool()
+			for _, cert := range caClient.GetCABundleX509() {
+				caPool.AddCert(cert)
+			}
+
+			tlsCfg := &tls.Config{
+				MinVersion: tls.VersionTLS12,
+				RootCAs:    caPool,
+				Certificates: []tls.Certificate{{
+					Certificate: [][]byte{clientCert.Raw},
+					PrivateKey:  clientPrivateKey,
+				}},
+				ServerName: "localhost",
+			}
+
+			creds := credentials.NewTLS(tlsCfg)
+			cc, err := grpc.NewClient(otlpAddr, grpc.WithTransportCredentials(creds))
+			Expect(err).ToNot(HaveOccurred())
+			defer cc.Close()
+
+			rpcCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			Expect(exportTestMetrics(rpcCtx, cc)).To(Succeed())
+
+			Eventually(func() bool {
+				req := httpMC.lastRequest()
+				if req == nil {
+					return false
+				}
+				for _, rm := range req.metrics.ResourceMetrics {
+					for _, sm := range rm.ScopeMetrics {
+						for _, m := range sm.Metrics {
+							if m.GetName() == "test_tg_metric" {
+								return true
+							}
+						}
+					}
+				}
+				return false
+			}, timeout, polling).Should(BeTrue(), "HTTP collector did not receive forwarded metric")
+		})
+	})
+
 	Context("OTel config mutation via overlay", func() {
 		var (
 			forwardStop func()
@@ -601,6 +762,92 @@ func localAddr() string {
 	Expect(err).ToNot(HaveOccurred())
 	defer l.Close()
 	return l.Addr().String()
+}
+
+// ---- Mock downstream OTLP HTTP collector (TLS, no client certs) ----
+
+type httpOTLPRequest struct {
+	metrics *collectormetrics.ExportMetricsServiceRequest
+	headers http.Header
+}
+
+type mockHTTPOTLPCollector struct {
+	mu   sync.Mutex
+	reqs []httpOTLPRequest
+}
+
+func (m *mockHTTPOTLPCollector) lastRequest() *httpOTLPRequest {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.reqs) == 0 {
+		return nil
+	}
+	return &m.reqs[len(m.reqs)-1]
+}
+
+func (m *mockHTTPOTLPCollector) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	var reader io.Reader = r.Body
+	if r.Header.Get("Content-Encoding") == "gzip" {
+		gz, err := gzip.NewReader(r.Body)
+		if err != nil {
+			http.Error(w, "gzip reader", http.StatusBadRequest)
+			return
+		}
+		defer gz.Close()
+		reader = gz
+	}
+	body, err := io.ReadAll(reader)
+	if err != nil {
+		http.Error(w, "read body", http.StatusBadRequest)
+		return
+	}
+
+	var req collectormetrics.ExportMetricsServiceRequest
+	if err := proto.Unmarshal(body, &req); err != nil {
+		http.Error(w, "unmarshal proto", http.StatusBadRequest)
+		return
+	}
+
+	m.mu.Lock()
+	m.reqs = append(m.reqs, httpOTLPRequest{metrics: &req, headers: r.Header.Clone()})
+	m.mu.Unlock()
+
+	resp := &collectormetrics.ExportMetricsServiceResponse{}
+	out, _ := proto.Marshal(resp)
+	w.Header().Set("Content-Type", "application/x-protobuf")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(out)
+}
+
+func startMockHTTPCollector(serverCert *x509.Certificate, serverKey crypto.PrivateKey) (endpoint string, stop func(), mc *mockHTTPOTLPCollector, err error) {
+	mc = &mockHTTPOTLPCollector{}
+
+	tlsCert := tls.Certificate{
+		Certificate: [][]byte{serverCert.Raw},
+		PrivateKey:  serverKey,
+	}
+	tcfg := &tls.Config{
+		MinVersion:   tls.VersionTLS12,
+		Certificates: []tls.Certificate{tlsCert},
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle("/v1/metrics", mc)
+
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "", nil, nil, err
+	}
+	tlsLis := tls.NewListener(lis, tcfg)
+	_, portStr, _ := net.SplitHostPort(lis.Addr().String())
+	endpoint = fmt.Sprintf("https://localhost:%s", portStr)
+
+	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	go func() { _ = srv.Serve(tlsLis) }()
+	stop = func() {
+		_ = srv.Close()
+	}
+	return endpoint, stop, mc, nil
 }
 
 // ---- Mock downstream OTLP gRPC collector (TLS + mTLS) ----

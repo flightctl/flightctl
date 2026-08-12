@@ -39,6 +39,9 @@ spec:
             secretKeyRef:
               name: {{ include "flightctl.dbAppUserSecret" . }}
               key: user
+        {{- with .Values.telemetryGateway.extraEnvs }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
         image: "{{ include "flightctl.ensureOsQualifiedImage" (dict "root" . "imageName" .Values.telemetryGateway.image.image) }}:{{ default .Chart.AppVersion .Values.telemetryGateway.image.tag }}"
         imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.telemetryGateway.image.pullPolicy }}
         name: telemetry-gateway
@@ -73,6 +76,9 @@ spec:
           name: telemetry-gateway-tls
           readOnly: true
           subPath: tls.key
+        {{- with .Values.telemetryGateway.extraVolumeMounts }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       dnsPolicy: ClusterFirst
       restartPolicy: Always
       volumes:
@@ -85,3 +91,6 @@ spec:
       - name: flightctl-ca-bundle
         secret:
           secretName: flightctl-ca-bundle
+      {{- with .Values.telemetryGateway.extraVolumes }}
+      {{- toYaml . | nindent 6 }}
+      {{- end }}
