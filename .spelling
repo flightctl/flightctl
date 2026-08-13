@@ -13,6 +13,7 @@ APIs
 apiVersion
 arm64
 base64
+backoff
 boolean
 bootable
 bootc
