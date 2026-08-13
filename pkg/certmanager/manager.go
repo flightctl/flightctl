@@ -448,8 +448,9 @@ func (cm *CertManager) shouldProvisionCertificate(b *bundleRegistry, pk string, 
 	// Bundle-wide kill switch for time-based renewal.
 	if b != nil && b.disableRenewal {
 		cm.log.Infof(
-			"Certificate %q for providerKey %q: renewal window reached but disabled by bundle %q (policy=%s renewBefore=%s notAfter=%s)",
-			cert.Name, pk, b.name, policySource, renewBefore, notAfter.UTC().Format(time.RFC3339),
+			"Certificate %q for providerKey %q: renewal window reached but disabled by bundle %q (policy=%s renewBefore=%s lifetime=%s renewAt=%s notAfter=%s expiresIn=%s)",
+			cert.Name, pk, b.name, policySource, renewBefore, lifetime,
+			renewAt.UTC().Format(time.RFC3339), notAfter.UTC().Format(time.RFC3339), expiresIn,
 		)
 		return false
 	}
