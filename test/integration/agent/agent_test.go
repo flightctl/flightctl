@@ -336,11 +336,11 @@ var _ = Describe("Device Agent behavior", func() {
 					// Keep the test fast:
 					// - cert lifetime: 10m
 					// - renewBefore: 10m-1s => renewAt ≈ issuance+1s (CA NotBefore is now-1s)
-					// - sync every 10s so a first Sync that lands before renewAt still retries
-					//   inside TIMEOUT (default sync is 1h)
+					// - sync every 2s (same as e2e cert rotation) so a first Sync that lands
+					//   before renewAt still retries inside TIMEOUT (default sync is 1h)
 					testCertTTLSeconds          = 10 * 60
 					testRenewBeforeSeconds      = testCertTTLSeconds - 1
-					testCertManagerSyncInterval = "10s"
+					testCertManagerSyncInterval = "2s"
 
 					expectedRenewalSignerName = "flightctl.io/device-management-renewal"
 

@@ -36,15 +36,11 @@ const (
 // ---- ConfigProvider ----
 
 type managementConfigProvider struct {
-	log                         certmanager.Logger
 	renewBeforeExpiryPercentage int32
 }
 
-func NewManagementConfigProvider(log certmanager.Logger, renewBeforeExpiryPercentage int32) *managementConfigProvider {
-	return &managementConfigProvider{
-		log:                         log,
-		renewBeforeExpiryPercentage: renewBeforeExpiryPercentage,
-	}
+func NewManagementConfigProvider(renewBeforeExpiryPercentage int32) *managementConfigProvider {
+	return &managementConfigProvider{renewBeforeExpiryPercentage: renewBeforeExpiryPercentage}
 }
 
 func (p *managementConfigProvider) Name() string { return configProviderName }
@@ -60,23 +56,14 @@ func (p *managementConfigProvider) GetCertificateConfigs() ([]certmanager.Certif
 		},
 	}
 
+	// Apply env overrides (can set both, precedence handled by certmanager)
 	renewBefore, renewBeforePercent := renewPolicyFromEnv()
 	cfg.RenewBefore = renewBefore
 	cfg.RenewBeforePercentage = renewBeforePercent
 
+	// Fall back to provider default only if neither override is set
 	if cfg.RenewBefore == nil && cfg.RenewBeforePercentage == nil {
 		cfg.RenewBeforePercentage = &p.renewBeforeExpiryPercentage
-	}
-
-	switch {
-	case cfg.RenewBefore != nil:
-		p.log.Infof("Management cert renew policy: renewBefore=%s (from env)", *cfg.RenewBefore)
-	case cfg.RenewBeforePercentage != nil:
-		source := "provider default"
-		if renewBeforePercent != nil {
-			source = "env"
-		}
-		p.log.Infof("Management cert renew policy: renewBeforePercentage=%d (from %s)", *cfg.RenewBeforePercentage, source)
 	}
 
 	return []certmanager.CertificateConfig{cfg}, nil
@@ -170,7 +157,7 @@ func (p *managementProvisioner) Provision(ctx context.Context, req certmanager.P
 		}
 
 		p.csrName = csrName
-		p.log.Infof("Created management certificate CSR %q (signer=%s)", p.csrName, managementSignerName)
+		p.log.Debugf("Created management certificate CSR %q", p.csrName)
 
 		return p.poll(ctx, req)
 	}
