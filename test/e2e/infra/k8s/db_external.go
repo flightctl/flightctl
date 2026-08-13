@@ -334,6 +334,8 @@ func (p *InfraProvider) queryDBViaJob(sql string) (string, error) {
 	// Job connects to the DB with the same TLS settings (PGSSLMODE, client cert/key,
 	// CA cert) without duplicating Helm chart logic.
 	migSpec := p.resolveMigrationJobSpec()
+	logrus.Infof("queryDBViaJob: image=%s sslEnv=%v sslVolumes=%d sslMounts=%d",
+		migSpec.image, migSpec.sslEnv, len(migSpec.sslVolumes), len(migSpec.sslVolumeMounts))
 
 	env := []corev1.EnvVar{
 		{
@@ -410,13 +412,17 @@ func (p *InfraProvider) queryDBViaJob(sql string) (string, error) {
 
 	if completionErr := waitForJobCompletion(ctx, p, ns, jobName); completionErr != nil {
 		// Collect pod logs before the deferred Job deletion removes the pod.
-		// Logged via Warnf — not embedded in the returned error — to keep the
-		// error clean and avoid exposing query output in CI error reports.
+		// Include the pod output in the returned error so it appears in the
+		// Ginkgo test report (Ginkgo shows error strings; logrus output is not
+		// captured in the Ginkgo output section visible in CI test reports).
 		logs, logErr := collectJobPodLogs(ctx, p, ns, jobName)
 		if logErr != nil {
 			logrus.Warnf("queryDBViaJob: collect pod logs for failed Job %s: %v", jobName, logErr)
-		} else if logs != "" {
-			logrus.Warnf("queryDBViaJob: Job %s failed; pod output: %s", jobName, strings.TrimSpace(logs))
+			return "", fmt.Errorf("queryDBViaJob: %w", completionErr)
+		}
+		podOutput := strings.TrimSpace(logs)
+		if podOutput != "" {
+			return "", fmt.Errorf("queryDBViaJob: %w; pod output: %s", completionErr, podOutput)
 		}
 		return "", fmt.Errorf("queryDBViaJob: %w", completionErr)
 	}
