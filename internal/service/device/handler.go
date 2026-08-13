@@ -754,10 +754,13 @@ func (h *DeviceServiceHandler) DecommissionDevice(ctx context.Context, orgId uui
 			return err
 		}
 		// Product rule: refuse a second decommission without emitting a success event.
-		if m.Device.Spec != nil && m.Device.Spec.Decommissioning != nil {
+		// Map ErrDecommission → ErrResourceVersionConflict to preserve the historical API.
+		if err := rejectDecommissionedDevice(m.Device); err != nil {
 			return flterrors.ErrResourceVersionConflict
 		}
 		applyDeviceDecommission(m.Device, decom)
+		// Former store DecommissionDevice did not bump generation; keep that contract.
+		m.PreserveGeneration = true
 		return nil
 	})
 	if err != nil {

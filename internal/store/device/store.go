@@ -132,6 +132,9 @@ type DeviceRendered struct {
 type DeviceMutation struct {
 	Device   *domain.Device
 	Rendered *DeviceRendered
+	// PreserveGeneration keeps metadata.generation unchanged on PersistUpdate
+	// even when Spec changes (e.g. decommission historically did not bump it).
+	PreserveGeneration bool
 }
 
 func (m *DeviceMutation) Resource() *domain.Device { return m.Device }
@@ -139,7 +142,7 @@ func (m *DeviceMutation) Resource() *domain.Device { return m.Device }
 func (m *DeviceMutation) SetResource(device *domain.Device) { m.Device = device }
 
 func (m *DeviceMutation) Clone() (store.ResourceMutation[domain.Device], error) {
-	out := &DeviceMutation{}
+	out := &DeviceMutation{PreserveGeneration: m.PreserveGeneration}
 	if m.Device != nil {
 		cloned, err := store.CloneJSON(m.Device)
 		if err != nil {
@@ -542,7 +545,7 @@ func (s *DeviceStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, 
 		},
 		PersistUpdate: func(ctx context.Context, orgId uuid.UUID, _ string, before *domain.Device, m store.ResourceMutation[domain.Device]) (bool, error) {
 			dm := m.(*DeviceMutation)
-			return s.Update(ctx, orgId, before, dm.Device, dm.Rendered)
+			return s.Update(ctx, orgId, before, dm.Device, dm.Rendered, dm.PreserveGeneration)
 		},
 	}
 	if cfg.withTimestamp {
@@ -673,7 +676,7 @@ func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, device *domai
 
 // Update writes a device update. Returns retry=true on lost optimistic lock / deadlock.
 // rendered is optional; when nil, rendered_* columns are left unchanged.
-func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, before, device *domain.Device, rendered *DeviceRendered) (bool, error) {
+func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, before, device *domain.Device, rendered *DeviceRendered, preserveGeneration bool) (bool, error) {
 	existing, err := model.NewDeviceFromApiResource(before)
 	if err != nil {
 		return false, err
@@ -690,10 +693,12 @@ func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, before, devic
 	// that event emission uses (HasSameSpecAs alone can miss union/ref changes
 	// if model conversion ever loses fields).
 	generation := lo.FromPtr(existing.Generation)
-	apiSpecChanged := before != nil && device != nil &&
-		!domain.DeviceSpecsAreEqual(lo.FromPtr(before.Spec), lo.FromPtr(device.Spec))
-	if apiSpecChanged || !fromAPI.HasSameSpecAs(existing) {
-		generation++
+	if !preserveGeneration {
+		apiSpecChanged := before != nil && device != nil &&
+			!domain.DeviceSpecsAreEqual(lo.FromPtr(before.Spec), lo.FromPtr(device.Spec))
+		if apiSpecChanged || !fromAPI.HasSameSpecAs(existing) {
+			generation++
+		}
 	}
 
 	updates := map[string]interface{}{
