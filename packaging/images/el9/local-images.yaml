@@ -23,8 +23,8 @@ db-setup:
   image: flightctl-db-setup-el9
   tag: latest
 gateway:
-  image: quay.io/sclorg/nginx-124-c9s
-  tag: "20260422"
+  image: registry.access.redhat.com/ubi9/nginx-124
+  tag: "9.8-1785993104"
 ui:
   # UI images are built from flightctl-ui repo
   image: quay.io/flightctl/flightctl-ui-el9
