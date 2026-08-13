@@ -199,7 +199,7 @@ func (n *publisher) pollAndPublish(ctx context.Context) error {
 				return handlerErr
 			}
 			n.log.Info("Successfully handled device not found - certificate wiped and agent restarted")
-			return err
+			return nil
 		}
 
 		if errors.Is(err, errors.ErrNoContent) || errors.IsTimeoutError(err) {

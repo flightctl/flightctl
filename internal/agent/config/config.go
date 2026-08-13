@@ -521,6 +521,9 @@ func (cfg *Config) validateSyncIntervals() error {
 	if cfg.StatusUpdateJitter != nil && *cfg.StatusUpdateJitter < 0 {
 		return fmt.Errorf("status update jitter must be >= 0 have %s", *cfg.StatusUpdateJitter)
 	}
+	if cfg.StatusUpdateJitter != nil && *cfg.StatusUpdateJitter > cfg.StatusUpdateInterval {
+		return fmt.Errorf("status update jitter %s must be <= status update interval %s", *cfg.StatusUpdateJitter, cfg.StatusUpdateInterval)
+	}
 	if cfg.SpecFetchErrorBaseDelay < MinSyncInterval {
 		return fmt.Errorf("minimum spec fetch error base delay is %s have %s", MinSyncInterval, cfg.SpecFetchErrorBaseDelay)
 	}
