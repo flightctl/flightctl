@@ -17,6 +17,9 @@ import (
 const (
 	vmAppName                    = "test-vm"
 	defaultVMImage               = "quay.io/containerdisks/fedora:40"
+	vmGuestUser                  = "fedora"
+	vmGuestPassword              = "fedora"
+	vmPublishedSSHPort           = 2222
 	systemdSubStateActive        = "active"
 	systemdSubStateRunning       = "running"
 	systemdLoadStateLoadedString = string(v1beta1.SystemdLoadStateLoaded)
@@ -51,7 +54,7 @@ var _ = Describe("VM Applications", Ordered, func() {
 		deviceID, _ = harness.EnrollAndWaitForOnlineStatus()
 	})
 
-	It("deploys a VM application and reports Running status", Label("vm"), func() {
+	It("deploys a VM application and reports Running status", Label("vm", "90228"), func() {
 		By("Adding the VM application to the device")
 		err := harness.UpdateDeviceAndWaitForVersion(deviceID, func(device *v1beta1.Device) {
 			device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{vmAppSpec}
@@ -71,6 +74,26 @@ var _ = Describe("VM Applications", Ordered, func() {
 			logVMApplicationUnitStatus(harness, vmAppName)
 		}
 		Expect(err).ToNot(HaveOccurred())
+
+		By("Waiting for the VM serial console login prompt")
+		cs := harness.NewAppConsoleSessionWaitingForLogin(deviceID, vmAppName, testutil.LONG_TIMEOUT, testutil.POLLING)
+		DeferCleanup(cs.Close)
+		cs.MustSend(vmGuestUser)
+		cs.MustExpectWithin(`(?i)password:`, testutil.DURATION_TIMEOUT, testutil.POLLING)
+		cs.MustSend(vmGuestPassword)
+		cs.MustExpectWithin(fmt.Sprintf(`.*%s@.*\$`, vmGuestUser), testutil.DURATION_TIMEOUT, testutil.POLLING)
+		cs.MustSend(fmt.Sprintf("printf '<<whoami>>%%s<<whoami>>\\n' \"$(whoami)\""))
+		cs.MustExpectWithin(fmt.Sprintf("<<whoami>>%s<<whoami>>", vmGuestUser), testutil.DURATION_TIMEOUT, testutil.POLLING)
+
+		By("Disconnecting the serial console with ~.")
+		cs.Disconnect()
+
+		By("Verifying SSH via the published host port works")
+		Eventually(func(g Gomega) {
+			out, sshErr := harness.RunSSHOnDeviceLocalPort(vmPublishedSSHPort, vmGuestUser, vmGuestPassword, "hostname")
+			g.Expect(sshErr).NotTo(HaveOccurred(), "SSH to published port %d failed", vmPublishedSSHPort)
+			g.Expect(strings.TrimSpace(out)).NotTo(BeEmpty())
+		}, testutil.LONG_TIMEOUT, testutil.POLLING).Should(Succeed())
 	})
 })
 
