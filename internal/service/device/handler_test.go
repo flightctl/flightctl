@@ -827,9 +827,10 @@ func TestDecommissionDevice(t *testing.T) {
 		labels := map[string]string{"fleet": "f1"}
 		_, err := st.device.Create(ctx, orgId, &domain.Device{
 			Metadata: domain.ObjectMeta{
-				Name:   lo.ToPtr("foo"),
-				Owner:  lo.ToPtr("Fleet/f1"),
-				Labels: &labels,
+				Name:       lo.ToPtr("foo"),
+				Owner:      lo.ToPtr("Fleet/f1"),
+				Labels:     &labels,
+				Generation: lo.ToPtr(int64(3)),
 			},
 			Spec:   &domain.DeviceSpec{},
 			Status: lo.ToPtr(domain.NewDeviceStatus()),
@@ -843,12 +844,14 @@ func TestDecommissionDevice(t *testing.T) {
 		require.Equal(t, domain.DeviceLifecycleStatusDecommissioning, result.Status.Lifecycle.Status)
 		require.Nil(t, result.Metadata.Owner)
 		require.Nil(t, result.Metadata.Labels)
+		require.Equal(t, int64(3), lo.FromPtr(result.Metadata.Generation))
 
 		stored := st.device.devices["foo"]
 		require.NotNil(t, stored.Spec.Decommissioning)
 		require.Equal(t, domain.DeviceLifecycleStatusDecommissioning, stored.Status.Lifecycle.Status)
 		require.Nil(t, stored.Metadata.Owner)
 		require.Nil(t, stored.Metadata.Labels)
+		require.Equal(t, int64(3), lo.FromPtr(stored.Metadata.Generation))
 
 		require.Len(t, ev.created, 1)
 		require.Equal(t, domain.EventReasonDeviceDecommissioned, ev.created[0].Reason)

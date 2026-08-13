@@ -809,6 +809,10 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			_, status := suite.Device.CreateDevice(suite.Ctx, suite.OrgID, device)
 			Expect(status.Code).To(Equal(int32(201)))
 
+			before, status := suite.Device.GetDevice(suite.Ctx, suite.OrgID, deviceName)
+			Expect(status.Code).To(Equal(int32(200)))
+			generationBefore := lo.FromPtr(before.Metadata.Generation)
+
 			result, status := suite.Device.DecommissionDevice(suite.Ctx, suite.OrgID, deviceName, api.DeviceDecommission{
 				Target: api.DeviceDecommissionTargetTypeUnenroll,
 			})
@@ -819,6 +823,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			Expect(result.Status.Lifecycle.Status).To(Equal(api.DeviceLifecycleStatusDecommissioning))
 			Expect(result.Metadata.Owner).To(BeNil())
 			Expect(lo.FromPtr(result.Metadata.Labels)).To(BeEmpty())
+			Expect(lo.FromPtr(result.Metadata.Generation)).To(Equal(generationBefore))
 
 			stored, err := suite.DeviceStore.Get(suite.Ctx, suite.OrgID, deviceName)
 			Expect(err).ToNot(HaveOccurred())
@@ -828,6 +833,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			Expect(stored.Metadata.Owner).To(BeNil())
 			Expect(lo.FromPtr(stored.Metadata.Labels)).To(BeEmpty())
 			Expect(result.Metadata.ResourceVersion).To(Equal(stored.Metadata.ResourceVersion))
+			Expect(lo.FromPtr(stored.Metadata.Generation)).To(Equal(generationBefore))
 		})
 
 		It("returns conflict when decommissioning an already-decommissioning device", func() {
