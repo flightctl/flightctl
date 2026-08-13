@@ -749,8 +749,42 @@ func snapshotDeviceForStatusUpdate(device *domain.Device) *domain.Device {
 }
 
 func (h *DeviceServiceHandler) DecommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission) (*domain.Device, domain.Status) {
-	result, err := h.deviceStore.DecommissionDevice(ctx, orgId, name, decom, h.callbackDeviceDecommission)
-	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
+	result, before, _, err := h.deviceStore.Mutate(ctx, orgId, name, nil, func(m *devicestore.DeviceMutation) error {
+		if err := m.RequireExisting(); err != nil {
+			return err
+		}
+		// Product rule: refuse a second decommission without emitting a success event.
+		if m.Device.Spec != nil && m.Device.Spec.Decommissioning != nil {
+			return flterrors.ErrResourceVersionConflict
+		}
+		applyDeviceDecommission(m.Device, decom)
+		return nil
+	})
+	if err != nil {
+		return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
+	}
+	h.callEventCallback(ctx, h.callbackDeviceDecommission, orgId, name, before, result, false, nil)
+	return result, common.StoreErrorToApiStatus(nil, false, domain.DeviceKind, &name)
+}
+
+// applyDeviceDecommission sets Spec.Decommissioning, Lifecycle Decommissioning, and clears Owner/Labels.
+func applyDeviceDecommission(device *domain.Device, decom domain.DeviceDecommission) {
+	spec := domain.DeviceSpec{}
+	if device.Spec != nil {
+		spec = *device.Spec
+	}
+	spec.Decommissioning = &decom
+	device.Spec = &spec
+
+	status := domain.NewDeviceStatus()
+	if device.Status != nil {
+		status = *device.Status
+	}
+	status.Lifecycle.Status = domain.DeviceLifecycleStatusDecommissioning
+	device.Status = &status
+
+	device.Metadata.Owner = nil
+	device.Metadata.Labels = nil
 }
 
 func (h *DeviceServiceHandler) UpdateDeviceAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) domain.Status {
