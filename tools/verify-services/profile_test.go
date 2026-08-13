@@ -64,7 +64,10 @@ func TestExpandService_WhenBackendInternal_itShouldNotRequireRoute(t *testing.T)
 	if exp.RequireRoute || exp.RequireNginx || exp.NeedsTLS {
 		t.Fatalf("internal should not require route/nginx/tls: %+v", exp)
 	}
-	if !exp.RequireServiceAccount || exp.HelmNamespace != "internal" {
+	if exp.RequireServiceAccount {
+		t.Fatalf("ServiceAccount must be opt-in, not profile default: %+v", exp)
+	}
+	if exp.HelmNamespace != "internal" {
 		t.Fatalf("unexpected: %+v", exp)
 	}
 }

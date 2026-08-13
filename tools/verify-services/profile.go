@@ -28,7 +28,6 @@ func expandService(e serviceEntry) (ExpandedService, error) {
 		exp.NeedsTLS = false
 		exp.InImagesYaml = true
 		exp.HelmNamespace = "internal"
-		exp.RequireServiceAccount = true
 		exp.InFlightctlTarget = true
 	case profileBackendExternal:
 		exp.Publish = true
@@ -41,7 +40,6 @@ func expandService(e serviceEntry) (ExpandedService, error) {
 		exp.NeedsTLS = true
 		exp.InImagesYaml = true
 		exp.HelmNamespace = "external"
-		exp.RequireServiceAccount = true
 		exp.RequireRoute = true
 		exp.RequireService = true
 		exp.RequireNginx = true
