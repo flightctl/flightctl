@@ -901,30 +901,80 @@ func TestUpdateRenderedDevice(t *testing.T) {
 	require.Equal(t, int32(http.StatusOK), status.Code)
 }
 
+func TestServiceConditionsFromDevice(t *testing.T) {
+	t.Run("When status is nil it should return nil", func(t *testing.T) {
+		require.Nil(t, serviceConditionsFromDevice(&domain.Device{}))
+	})
+
+	t.Run("When status mixes agent and service conditions it should return only service types", func(t *testing.T) {
+		device := &domain.Device{
+			Status: &domain.DeviceStatus{
+				Conditions: []domain.Condition{
+					{Type: domain.ConditionTypeDeviceUpdating, Status: domain.ConditionStatusTrue},
+					{Type: domain.ConditionTypeDeviceSpecValid, Status: domain.ConditionStatusFalse},
+					{Type: domain.ConditionTypeDeviceMultipleOwners, Status: domain.ConditionStatusTrue},
+				},
+			},
+		}
+		got := serviceConditionsFromDevice(device)
+		require.Len(t, got, 2)
+		require.Equal(t, domain.ConditionTypeDeviceSpecValid, got[0].Type)
+		require.Equal(t, domain.ConditionTypeDeviceMultipleOwners, got[1].Type)
+	})
+}
+
 func TestSetDeviceServiceConditions(t *testing.T) {
-	st, ev, svc := newTestHandler()
-	ctx := context.Background()
-	orgId := uuid.New()
-	_, err := st.device.Create(ctx, orgId, &domain.Device{
-		Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")},
-		Status:   lo.ToPtr(domain.NewDeviceStatus()),
-	}, nil)
-	require.NoError(t, err)
+	t.Run("When a service condition changes it should persist and emit events", func(t *testing.T) {
+		st, ev, svc := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		_, err := st.device.Create(ctx, orgId, &domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")},
+			Status:   lo.ToPtr(domain.NewDeviceStatus()),
+		}, nil)
+		require.NoError(t, err)
 
-	condition := domain.Condition{
-		Type:    domain.ConditionTypeDeviceSpecValid,
-		Status:  domain.ConditionStatusFalse,
-		Message: "bad spec",
-	}
-	status := svc.SetDeviceServiceConditions(ctx, orgId, "foo", []domain.Condition{condition})
-	require.Equal(t, int32(http.StatusOK), status.Code)
-	// SpecValid transitioning from absent to invalid emits a DeviceSpecInvalid event.
-	require.Len(t, ev.created, 1)
+		status := svc.SetDeviceServiceConditions(ctx, orgId, "foo", []domain.Condition{
+			{Type: domain.ConditionTypeDeviceSpecValid, Status: domain.ConditionStatusFalse, Message: "bad spec"},
+		})
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		stored := st.device.devices["foo"]
+		require.NotNil(t, domain.FindStatusCondition(stored.Status.Conditions, domain.ConditionTypeDeviceSpecValid))
+		require.Len(t, ev.created, 1)
+	})
 
-	status = svc.SetDeviceServiceConditions(ctx, orgId, "foo", []domain.Condition{condition})
-	require.Equal(t, int32(http.StatusOK), status.Code)
-	// Unchanged conditions must not write or emit another event.
-	require.Len(t, ev.created, 1)
+	t.Run("When merge changes nothing it should skip write and not emit events", func(t *testing.T) {
+		st, ev, svc := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		cond := domain.Condition{
+			Type:    domain.ConditionTypeDeviceSpecValid,
+			Status:  domain.ConditionStatusTrue,
+			Reason:  "ok",
+			Message: "ok",
+		}
+		_, err := st.device.Create(ctx, orgId, &domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")},
+			Status: &domain.DeviceStatus{
+				Conditions: []domain.Condition{cond},
+			},
+		}, nil)
+		require.NoError(t, err)
+		beforeRV := lo.FromPtr(st.device.devices["foo"].Metadata.ResourceVersion)
+
+		status := svc.SetDeviceServiceConditions(ctx, orgId, "foo", []domain.Condition{cond})
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.Equal(t, beforeRV, lo.FromPtr(st.device.devices["foo"].Metadata.ResourceVersion))
+		require.Empty(t, ev.created)
+	})
+
+	t.Run("When the device does not exist it should return a not-found status", func(t *testing.T) {
+		_, _, svc := newTestHandler()
+		status := svc.SetDeviceServiceConditions(context.Background(), uuid.New(), "missing", []domain.Condition{
+			{Type: domain.ConditionTypeDeviceSpecValid, Status: domain.ConditionStatusTrue},
+		})
+		require.Equal(t, int32(http.StatusNotFound), status.Code)
+	})
 }
 
 func TestUpdateServiceSideDeviceStatus(t *testing.T) {
