@@ -5,15 +5,19 @@ version: 1
 
 services:
   # --- backend-external ---
+  # requireServiceAccount is opt-in: only list it when the service already ships a Helm SA.
   - name: api
     profile: backend-external
+    requireServiceAccount: true
 
   - name: remote-access
     profile: backend-external
+    requireServiceAccount: true
 
   - name: imagebuilder-api
     profile: backend-external
     helmValuesKey: imageBuilderApi
+    requireServiceAccount: true
     # generate-certificates uses --imagebuilder-api-san (matches name)
 
   - name: telemetry-gateway
@@ -24,10 +28,12 @@ services:
     profile: backend-external
     helmDir: alertmanager
     helmValuesKey: alertmanagerProxy
+    requireServiceAccount: true
 
   # --- backend-internal ---
   - name: worker
     profile: backend-internal
+    requireServiceAccount: true
 
   - name: periodic
     profile: backend-internal
@@ -35,6 +41,7 @@ services:
   - name: imagebuilder-worker
     profile: backend-internal
     helmValuesKey: imageBuilderWorker
+    requireServiceAccount: true
 
   - name: alert-exporter
     profile: backend-internal
