@@ -108,6 +108,7 @@ help:
 	@echo "    clean-quadlets:  clean up all systemd services and quadlet files"
 	@echo "    rpm/deb:         generate rpm or debian packages"
 	@echo "    verify-rpm-install: verify package-mode and image-mode RPM install paths (requires podman, bin/rpm)"
+	@echo "    verify-services: verify service registry membership (hack/services.yaml) against Make/CI/Helm/quadlets"
 	@echo ""
 	@echo "CI/CD Targets:"
 	@echo "    login:           login to container registry (requires REGISTRY_USER env var)"
@@ -148,6 +149,8 @@ build: bin build-cli build-pam-issuer
 		./cmd/flightctl-backup \
 		./cmd/flightctl-restore \
 		./cmd/flightctl-telemetry-gateway \
+		./cmd/flightctl-imagebuilder-api \
+		./cmd/flightctl-imagebuilder-worker \
 		./cmd/flightctl-standalone
 
 bin/flightctl-agent: bin $(GO_FILES)
@@ -496,6 +499,11 @@ check-rpmlint:
 .PHONY: verify-rpm-install
 verify-rpm-install: bin/.rpm
 	go test -v -count=1 -timeout 15m ./test/packaging/...
+
+.PHONY: verify-services
+verify-services:
+	cd tools/verify-services && go test ./...
+	cd tools/verify-services && go run . -repo-root $(CURDIR)
 
 .output/stamps/lint-openapi: api/core/v1beta1/openapi.yaml api/core/v1alpha1/openapi.yaml api/imagebuilder/v1alpha1/openapi.yaml .spectral.yaml
 	@mkdir -p .output/stamps
