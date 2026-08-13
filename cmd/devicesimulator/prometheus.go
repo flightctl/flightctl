@@ -1,11 +1,16 @@
 package main
 
 import (
+	"context"
+	"errors"
+	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
 )
 
@@ -51,6 +56,24 @@ var (
 		},
 		[]string{"operation", "result"},
 	)
+	enrollmentOutcomes = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: metricNamespace,
+			Subsystem: metricSubsystem,
+			Name:      "enrollment_outcomes_total",
+			Help:      "Total enrollment wait/approve outcomes, partitioned by result",
+		},
+		[]string{"result"},
+	)
+	rolloutDevicesByStatus = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: metricNamespace,
+			Subsystem: metricSubsystem,
+			Name:      "rollout_devices_by_status",
+			Help:      "Current device counts during rollout, partitioned by fleet and updated status",
+		},
+		[]string{"fleet", "status"},
+	)
 )
 
 func setupMetricsEndpoint(metricsAddress string) {
@@ -66,6 +89,8 @@ func setupMetricsEndpoint(metricsAddress string) {
 	prometheus.MustRegister(apiRequests)
 	prometheus.MustRegister(apiErrors)
 	prometheus.MustRegister(apiRequestDurations)
+	prometheus.MustRegister(enrollmentOutcomes)
+	prometheus.MustRegister(rolloutDevicesByStatus)
 }
 
 func rpcMetricsCallback(operation string, duractionSeconds float64, err error) {
@@ -80,6 +105,48 @@ func rpcMetricsCallback(operation string, duractionSeconds float64, err error) {
 }
 
 func reasonFromAPIError(err error) string {
-	errorType := "unknown"
-	return errorType
+	if err == nil {
+		return "unknown"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	if errors.Is(err, context.Canceled) {
+		return "canceled"
+	}
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		msg := opErr.Error()
+		if strings.Contains(msg, "cannot assign requested address") {
+			return "bind"
+		}
+		if opErr.Op == "dial" {
+			return "dial"
+		}
+		return "connection"
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "cannot assign requested address") {
+		return "bind"
+	}
+	if strings.Contains(msg, "connection refused") || strings.Contains(msg, "connection reset") {
+		return "connection"
+	}
+	if strings.Contains(msg, "dial ") {
+		return "dial"
+	}
+	return "unknown"
+}
+
+func recordEnrollmentOutcome(ctx context.Context, err error) {
+	switch {
+	case err == nil:
+		enrollmentOutcomes.WithLabelValues("approved").Inc()
+	case ctx.Err() != nil && errors.Is(ctx.Err(), context.Canceled):
+		enrollmentOutcomes.WithLabelValues("cancelled").Inc()
+	case wait.Interrupted(err) || errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded):
+		enrollmentOutcomes.WithLabelValues("timeout").Inc()
+	default:
+		enrollmentOutcomes.WithLabelValues("error").Inc()
+	}
 }

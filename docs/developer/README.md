@@ -175,11 +175,13 @@ make agent-container
 make clean-agent-container
 ```
 
-Use the **[devicesimulator](devicesimulator.md)** to simulate load from devices
+Use the **[devicesimulator](devicesimulator.md)** to simulate load from devices. Preferred entrypoint:
 
 ```
-bin/devicesimulator --count=100
+make simulate-devices ARGS='--count=100 --log-level=error'
 ```
+
+For large-scale runs (source IP setup/teardown, fleets, clean, rollout), see [Scale testing with make simulate-devices](devicesimulator.md#scale-testing-with-make-simulate-devices).
 
 ## Backup and restore
 

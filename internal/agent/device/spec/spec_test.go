@@ -233,7 +233,7 @@ func TestEnsure(t *testing.T) {
 			deviceReadWriter: mockReadWriter,
 			queue:            mockPriorityQueue,
 			cache:            newCache(log),
-			publisher:        newPublisher("test", poll.NewConfig(time.Second, 1.5), "1", nil, log),
+			publisher:        newPublisher("test", poll.NewConfig(time.Second, 1.5), defaultErrorBackoff(), "1", nil, log),
 		}
 
 		// single loop: current exists, desired exists, rollback missing (allMissing=false, anyMissing=true)
@@ -852,7 +852,7 @@ func TestRollback(t *testing.T) {
 			)
 			log := log.NewPrefixLogger("test")
 			mockPolicyManager := policy.NewMockManager(ctrl)
-			pub := newPublisher("testDevice", poll.NewConfig(10*time.Millisecond, 1.5), "0", nil, log)
+			pub := newPublisher("testDevice", poll.NewConfig(10*time.Millisecond, 1.5), defaultErrorBackoff(), "0", nil, log)
 			cache := newCache(log)
 			queue := newQueueManager(
 				defaultSpecQueueMaxSize,

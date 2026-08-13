@@ -166,14 +166,21 @@ func (a *Agent) Run(ctx context.Context) error {
 		JitterFactor: 0.1,
 	}
 
+	specFetchErrorBackoff := poll.Config{
+		BaseDelay:    time.Duration(a.config.SpecFetchErrorBaseDelay),
+		MaxDelay:     time.Duration(a.config.SpecFetchErrorMaxDelay),
+		Factor:       2.0,
+		JitterFactor: 0.2,
+	}
+
 	// create os client
 	osClient := os.NewClient(a.log, exec)
 
 	osMode := os.DetectMode(stdexec.LookPath)
 	a.log.Infof("OS mode detected: %s", osMode)
 
-	// create podman client
-	podmanClientFactory := client.NewPodmanFactory(a.log, pollBackoff, rwFactory)
+	// create podman client (honors Agent.WithExecuter for the current-process user)
+	podmanClientFactory := client.NewPodmanFactory(a.log, pollBackoff, rwFactory, exec)
 	rootPodmanClient, err := podmanClientFactory("")
 	if err != nil {
 		return err
@@ -261,6 +268,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		osClient,
 		osMode,
 		pollBackoff,
+		specFetchErrorBackoff,
 		deviceNotFoundHandler,
 		auditLogger,
 		a.log,
@@ -449,6 +457,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		applicationsManager,
 		rootSystemdManager,
 		a.config.StatusUpdateInterval,
+		*a.config.StatusUpdateJitter,
 		hookManager,
 		osManager,
 		policyManager,
