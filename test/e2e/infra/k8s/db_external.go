@@ -174,8 +174,12 @@ func (p *InfraProvider) resolveMigrationJobSpec() dbMigrationJobSpec {
 
 		// Copy the postgres-ssl-certs volume and its mount (present only when
 		// db.external.tlsConfigMapName or db.external.tlsSecretName is set).
+		// Override mode on the client-key.pem source to 0444 — the Helm chart uses 0400
+		// (owner-read-only), but OCP restricted-v2 SCC assigns a random UID that does not
+		// own the projected file, causing "permission denied" when psql reads the key.
 		for _, v := range job.Spec.Template.Spec.Volumes {
 			if v.Name == "postgres-ssl-certs" {
+				v = makeSSLVolumeWorldReadable(v)
 				spec.sslVolumes = append(spec.sslVolumes, v)
 			}
 		}
@@ -246,8 +250,12 @@ func (p *InfraProvider) resolveDBSetupImageFromAPI() dbMigrationJobSpec {
 
 	// Copy the postgres-ssl-certs volume from the API pod spec (present when
 	// db.external.tlsConfigMapName or db.external.tlsSecretName is set).
+	// Override mode on the client-key.pem source to 0444 — the Helm chart uses 0400
+	// (owner-read-only), but OCP restricted-v2 SCC assigns a random UID that does not
+	// own the projected file, causing "permission denied" when psql reads the key.
 	for _, v := range deployment.Spec.Template.Spec.Volumes {
 		if v.Name == "postgres-ssl-certs" {
+			v = makeSSLVolumeWorldReadable(v)
 			spec.sslVolumes = append(spec.sslVolumes, v)
 		}
 	}
@@ -481,6 +489,28 @@ func collectJobPodLogs(ctx context.Context, p *InfraProvider, ns, jobName string
 		sb.Write(data)
 	}
 	return sb.String(), nil
+}
+
+// makeSSLVolumeWorldReadable returns a copy of v with all Secret sources in the
+// postgres-ssl-certs projected volume having mode 0444 instead of the Helm-default
+// 0400. OCP restricted-v2 SCC assigns a random UID to the pod that does not own the
+// projected Secret files; a 0400 client-key.pem causes psql to fail with "permission
+// denied" before it can open the TLS connection.
+func makeSSLVolumeWorldReadable(v corev1.Volume) corev1.Volume {
+	if v.Projected == nil {
+		return v
+	}
+	mode444 := int32(0o444)
+	for i := range v.Projected.Sources {
+		s := &v.Projected.Sources[i]
+		if s.Secret == nil {
+			continue
+		}
+		for j := range s.Secret.Items {
+			s.Secret.Items[j].Mode = &mode444
+		}
+	}
+	return v
 }
 
 func boolPtr(b bool) *bool { return &b }
