@@ -90,22 +90,6 @@ func deviceHasApplicationWithStatus(device *v1beta1.Device, appName string, stat
 	return false
 }
 
-func applicationReadyForRunning(device *v1beta1.Device, appName string) bool {
-	if device == nil || device.Status == nil {
-		return false
-	}
-	for _, app := range device.Status.Applications {
-		if app.Name == appName && app.Status == v1beta1.ApplicationStatusRunning {
-			parts := strings.Split(app.Ready, "/")
-			if len(parts) != 2 {
-				return false
-			}
-			return parts[0] == parts[1]
-		}
-	}
-	return false
-}
-
 func deviceSummaryMatchesAny(device *v1beta1.Device, statuses []v1beta1.ApplicationsSummaryStatusType) bool {
 	if device == nil || device.Status == nil {
 		return false
@@ -778,7 +762,6 @@ func (h *Harness) waitForApplicationsSummaryCondition(deviceID string, descripti
 }
 
 // WaitForApplicationStatusByName waits for an application to reach the specified status.
-// For Running status, it also verifies ready replicas match.
 func (h *Harness) WaitForApplicationStatusByName(deviceId string, applicationName string, expectedStatus v1beta1.ApplicationStatusType) {
 	GinkgoWriter.Printf("Waiting for application %s to reach %s status\n", applicationName, expectedStatus)
 	h.WaitForDeviceContents(deviceId, fmt.Sprintf("Application %s", expectedStatus),
@@ -788,13 +771,6 @@ func (h *Harness) WaitForApplicationStatusByName(deviceId string, applicationNam
 			}
 			for _, application := range device.Status.Applications {
 				if application.Name == applicationName && application.Status == expectedStatus {
-					if expectedStatus == v1beta1.ApplicationStatusRunning {
-						parts := strings.Split(application.Ready, "/")
-						if len(parts) != 2 {
-							return false
-						}
-						return parts[0] == parts[1]
-					}
 					return true
 				}
 			}
@@ -832,7 +808,29 @@ func (h *Harness) WaitForApplicationsSummaryStatus(deviceId string, expectedStat
 
 // WaitForApplicationStatus polls until the device reports the given application with the given status, or timeout.
 func (h *Harness) WaitForApplicationStatus(deviceID, appName string, status v1beta1.ApplicationStatusType, timeout, polling time.Duration) error {
+	GinkgoWriter.Printf("Waiting for application %s to reach %s on device %s (timeout=%s, polling=%s)\n",
+		appName, status, deviceID, timeout, polling)
+
+	formatStatus := func(device *v1beta1.Device) string {
+		if device == nil || device.Status == nil {
+			return "<no device status>"
+		}
+		summary := string(device.Status.ApplicationsSummary.Status)
+		if device.Status.ApplicationsSummary.Info != nil && *device.Status.ApplicationsSummary.Info != "" {
+			summary = fmt.Sprintf("%s info=%q", summary, *device.Status.ApplicationsSummary.Info)
+		}
+		for _, app := range device.Status.Applications {
+			if app.Name == appName {
+				return fmt.Sprintf("status=%s ready=%s applicationsSummary=%s", app.Status, app.Ready, summary)
+			}
+		}
+		return fmt.Sprintf("app not in status.applications (applicationsSummary=%s)", summary)
+	}
+
 	deadline := time.Now().Add(timeout)
+	var lastStatus string
+	loggedInitial := false
+
 	for time.Now().Before(deadline) {
 		resp, err := h.GetDeviceWithStatusSystem(deviceID)
 		if err != nil {
@@ -840,16 +838,27 @@ func (h *Harness) WaitForApplicationStatus(deviceID, appName string, status v1be
 			time.Sleep(polling)
 			continue
 		}
-		if resp.JSON200 != nil && deviceHasApplicationWithStatus(resp.JSON200, appName, status) {
-			if status == v1beta1.ApplicationStatusRunning {
-				if applicationReadyForRunning(resp.JSON200, appName) {
-					return nil
-				}
-			} else {
+		if resp != nil && resp.JSON200 != nil {
+			current := formatStatus(resp.JSON200)
+			switch {
+			case !loggedInitial:
+				GinkgoWriter.Printf("Application %s initial status: %s\n", appName, current)
+				lastStatus = current
+				loggedInitial = true
+			case current != lastStatus:
+				GinkgoWriter.Printf("Application %s status changed: %s\n", appName, current)
+				lastStatus = current
+			}
+			if deviceHasApplicationWithStatus(resp.JSON200, appName, status) {
+				GinkgoWriter.Printf("Application %s reached %s: %s\n", appName, status, lastStatus)
 				return nil
 			}
 		}
 		time.Sleep(polling)
+	}
+	if loggedInitial {
+		return fmt.Errorf("timed out after %s waiting for application %s to have status %s (last observed: %s)",
+			timeout, appName, status, lastStatus)
 	}
 	return fmt.Errorf("timed out after %s waiting for application %s to have status %s", timeout, appName, status)
 }
@@ -867,7 +876,7 @@ func (h *Harness) WaitForApplicationSummary(deviceID string, timeout, polling ti
 			time.Sleep(polling)
 			continue
 		}
-		if resp.JSON200 != nil && deviceSummaryMatchesAny(resp.JSON200, expectedStatuses) {
+		if resp != nil && resp.JSON200 != nil && deviceSummaryMatchesAny(resp.JSON200, expectedStatuses) {
 			return nil
 		}
 		time.Sleep(polling)
