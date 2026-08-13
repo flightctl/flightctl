@@ -23,6 +23,7 @@ func runAllChecks(repoRoot string, services []ExpandedService) []Issue {
 	var issues []Issue
 	issues = append(issues, checkPublishMatrix(repoRoot, services)...)
 	issues = append(issues, checkLegacyPublishScript(repoRoot, services)...)
+	issues = append(issues, checkAirGapObservability(repoRoot, services)...)
 	issues = append(issues, checkImagesYAML(repoRoot, services)...)
 	issues = append(issues, checkLocalImagesYAML(repoRoot, services)...)
 	issues = append(issues, checkContainerfiles(repoRoot, services)...)
@@ -101,6 +102,34 @@ func checkLegacyPublishScript(repoRoot string, services []ExpandedService) []Iss
 		return nil
 	}
 	return []Issue{{Check: check, Message: strings.TrimSpace(d.Format("publish_containers.sh mismatch"))}}
+}
+
+func checkAirGapObservability(repoRoot string, services []ExpandedService) []Issue {
+	const check = "air-gap-observability"
+	want := toSet(namesWhere(services, func(s ExpandedService) bool { return s.ObservabilityOnly }))
+	data, err := os.ReadFile(filepath.Join(repoRoot, "scripts/air-gap/generate-embed/main.go"))
+	if err != nil {
+		return []Issue{{Check: check, Message: err.Error()}}
+	}
+	src := string(data)
+	idx := strings.Index(src, "var observabilityOnlyImages")
+	if idx < 0 {
+		return []Issue{{Check: check, Message: "could not find observabilityOnlyImages in generate-embed/main.go"}}
+	}
+	block := src[idx:]
+	if end := strings.Index(block, "}"); end >= 0 {
+		block = block[:end]
+	}
+	re := regexp.MustCompile(`"([a-z0-9-]+)"\s*:\s*true`)
+	got := map[string]struct{}{}
+	for _, m := range re.FindAllStringSubmatch(block, -1) {
+		got[m[1]] = struct{}{}
+	}
+	d := DiffSets(want, got)
+	if d.Empty() {
+		return nil
+	}
+	return []Issue{{Check: check, Message: strings.TrimSpace(d.Format("observabilityOnlyImages mismatch vs registry observabilityOnly"))}}
 }
 
 func checkImagesYAML(repoRoot string, services []ExpandedService) []Issue {

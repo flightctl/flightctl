@@ -2,8 +2,14 @@ package main
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"unicode"
+)
+
+var (
+	kebabIdent = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+	camelIdent = regexp.MustCompile(`^[a-z][a-zA-Z0-9]*$`)
 )
 
 const (
@@ -14,6 +20,10 @@ const (
 )
 
 func expandService(e serviceEntry) (ExpandedService, error) {
+	if err := validateKebabIdent("name", e.Name); err != nil {
+		return ExpandedService{}, err
+	}
+
 	exp := ExpandedService{Name: e.Name}
 
 	switch e.Profile {
@@ -92,22 +102,58 @@ func expandService(e serviceEntry) (ExpandedService, error) {
 	applyBoolOverride(&exp.RequireService, e.RequireService)
 
 	if e.MakeContainerTarget != nil {
+		if err := validateKebabIdent("makeContainerTarget", *e.MakeContainerTarget); err != nil {
+			return ExpandedService{}, err
+		}
 		exp.MakeContainerTarget = "flightctl-" + *e.MakeContainerTarget + "-container"
 	}
 	if e.HelmDir != nil {
+		if err := validatePathSegment("helmDir", *e.HelmDir); err != nil {
+			return ExpandedService{}, err
+		}
 		exp.HelmDir = *e.HelmDir
 	}
 	if e.HelmValuesKey != nil {
+		if err := validateCamelIdent("helmValuesKey", *e.HelmValuesKey); err != nil {
+			return ExpandedService{}, err
+		}
 		exp.HelmValuesKey = *e.HelmValuesKey
 	}
 	if e.HelmNamespace != nil {
+		if err := validateKebabIdent("helmNamespace", *e.HelmNamespace); err != nil {
+			return ExpandedService{}, err
+		}
 		exp.HelmNamespace = *e.HelmNamespace
 	}
 	if e.CertSanFlag != nil {
+		if err := validateKebabIdent("certSanFlag", *e.CertSanFlag); err != nil {
+			return ExpandedService{}, err
+		}
 		exp.CertSanFlag = *e.CertSanFlag
 	}
 
 	return exp, nil
+}
+
+func validateKebabIdent(field, value string) error {
+	if !kebabIdent.MatchString(value) {
+		return fmt.Errorf("%s %q must match %s", field, value, kebabIdent.String())
+	}
+	return nil
+}
+
+func validateCamelIdent(field, value string) error {
+	if !camelIdent.MatchString(value) {
+		return fmt.Errorf("%s %q must match %s", field, value, camelIdent.String())
+	}
+	return nil
+}
+
+func validatePathSegment(field, value string) error {
+	if value == "" || strings.ContainsAny(value, `/\`) || value == "." || value == ".." || strings.Contains(value, "..") {
+		return fmt.Errorf("%s %q is not a safe path segment", field, value)
+	}
+	return validateKebabIdent(field, value)
 }
 
 func applyBoolOverride(dst *bool, src *bool) {

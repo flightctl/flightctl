@@ -29,7 +29,7 @@ Implement as needed for the profile:
 - `cmd/flightctl-<name>/`
 - Containerfiles under `packaging/images/el9/` and `el10/`
 - Helm under `deploy/helm/flightctl/templates/<name>/` (Deployment; ServiceAccount only when needed; for external also Route + Service)
-- Quadlet under `deploy/podman/flightctl-<name>/`
+- Quadlet under `deploy/podman/flightctl-<name>/`, plus register assets in `internal/quadlet/renderer/manifest.go` and add `Wants=flightctl-<name>.service` in `deploy/podman/flightctl.target` when the service should start with the stack (see [service-quadlets.md](service-quadlets.md))
 - For external services: nginx upstream in `deploy/podman/flightctl-gateway/.../nginx.conf.template`, and TLS SAN wiring in cert generators
 
 ## 3. Run verification
