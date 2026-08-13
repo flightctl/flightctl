@@ -354,6 +354,10 @@ var _ = Describe("Device Agent behavior", func() {
 					certManagerSyncIntervalEnv, testCertManagerSyncInterval,
 				)()
 
+				// Harness auto-starts the agent in BeforeEach. Restart after TestTempEnv so
+				// cert manager Run() reads FLIGHTCTL_TEST_CERT_MANAGER_SYNC_INTERVAL (once).
+				h.RestartAgent()
+
 				// Enroll device and wait until the agent fetches its initial cert.
 				dev := enrollAndWaitForDevice(h, testutil.TestEnrollmentApproval())
 				deviceName := lo.FromPtr(dev.Metadata.Name)
