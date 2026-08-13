@@ -108,6 +108,10 @@ jobs:
           OS_ID: ${{ inputs.os_id }}
         run: |
           set -euo pipefail
+          # Keep runtime detection aligned with test/harness/containers/docker_host.go.
+          . ./test/scripts/detect_container_runtime.sh
+          configure_testcontainers_docker_host
+
           echo "Downloaded test artifacts:"
           tree test-artifacts
 
@@ -131,11 +135,15 @@ jobs:
           echo "✓ QCOW2 image: bin/output/qcow2/disk.qcow2"
 
           PACKAGE_REF="quay.io/flightctl/flightctl-device:package"
-          if [[ "${DOCKER_HOST:-}" == *podman* ]]; then
-            echo "Loading package-mode image into Podman containers-storage (DOCKER_HOST=${DOCKER_HOST})"
-            skopeo copy "docker-archive:${BUNDLE}:${PACKAGE_REF}" "containers-storage:${PACKAGE_REF}"
+          CONTAINER_RUNTIME="$(detect_testcontainers_runtime)"
+          echo "Detected testcontainers runtime: ${CONTAINER_RUNTIME} (DOCKER_HOST=${DOCKER_HOST:-unset})"
+          if [[ "${CONTAINER_RUNTIME}" == "podman" ]]; then
+            echo "Loading package-mode image into Podman image storage"
+            export CONTAINER_HOST="${DOCKER_HOST}"
+            podman load -i "${BUNDLE}"
+            podman image exists "${PACKAGE_REF}"
           else
-            echo "Loading package-mode image into Docker daemon (DOCKER_HOST=${DOCKER_HOST:-unset})"
+            echo "Loading package-mode image into Docker daemon"
             skopeo copy "docker-archive:${BUNDLE}:${PACKAGE_REF}" "docker-daemon:${PACKAGE_REF}"
           fi
 
