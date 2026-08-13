@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -76,7 +77,9 @@ func loadRegistry(repoRoot string) ([]ExpandedService, error) {
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
 	var reg registryFile
-	if err := yaml.Unmarshal(data, &reg); err != nil {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&reg); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 	if reg.Version != 1 {

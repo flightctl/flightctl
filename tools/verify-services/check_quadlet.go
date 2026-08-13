@@ -21,7 +21,7 @@ func checkQuadlet(repoRoot string, services []ExpandedService) []Issue {
 	if err != nil {
 		return []Issue{{Check: check, Message: err.Error()}}
 	}
-	target := string(targetData)
+	wants := unitWants(string(targetData))
 
 	for _, s := range services {
 		if !s.Quadlet {
@@ -44,17 +44,37 @@ func checkQuadlet(repoRoot string, services []ExpandedService) []Issue {
 			issues = append(issues, Issue{Check: check, Message: fmt.Sprintf("%s: no .container file under %s", s.Name, dir)})
 		}
 
-		needle := "deploy/podman/flightctl-" + s.Name + "/"
-		if !strings.Contains(manifest, needle) {
-			issues = append(issues, Issue{Check: check, Message: fmt.Sprintf("%s: manifest.go does not reference %s", s.Name, needle)})
+		sourcePrefix := `Source: "deploy/podman/flightctl-` + s.Name + `/`
+		if !strings.Contains(manifest, sourcePrefix) {
+			issues = append(issues, Issue{Check: check, Message: fmt.Sprintf("%s: manifest.go has no Source asset under deploy/podman/flightctl-%s/", s.Name, s.Name)})
 		}
 
 		if s.InFlightctlTarget {
 			want := "flightctl-" + s.Name + ".service"
-			if !strings.Contains(target, "Wants="+want) {
-				issues = append(issues, Issue{Check: check, Message: fmt.Sprintf("%s: flightctl.target missing Wants=%s", s.Name, want)})
+			if _, ok := wants[want]; !ok {
+				issues = append(issues, Issue{Check: check, Message: fmt.Sprintf("%s: flightctl.target [Unit] missing Wants=%s", s.Name, want)})
 			}
 		}
 	}
 	return issues
+}
+
+// unitWants returns active Wants= values from the [Unit] section.
+func unitWants(content string) map[string]struct{} {
+	out := map[string]struct{}{}
+	inUnit := false
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+			inUnit = trimmed == "[Unit]"
+			continue
+		}
+		if !inUnit || trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "Wants=") {
+			out[strings.TrimPrefix(trimmed, "Wants=")] = struct{}{}
+		}
+	}
+	return out
 }

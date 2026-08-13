@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -42,8 +43,15 @@ func checkHelmService(repoRoot string, s ExpandedService) []Issue {
 	schemaData, err := os.ReadFile(schemaPath)
 	if err != nil {
 		issues = append(issues, Issue{Check: check, Message: err.Error()})
-	} else if !strings.Contains(string(schemaData), `"`+s.HelmValuesKey+`"`) {
-		issues = append(issues, Issue{Check: check, Message: fmt.Sprintf("%s: missing values.schema.json property %q", s.Name, s.HelmValuesKey)})
+	} else {
+		var schema struct {
+			Properties map[string]json.RawMessage `json:"properties"`
+		}
+		if err := json.Unmarshal(schemaData, &schema); err != nil {
+			issues = append(issues, Issue{Check: check, Message: fmt.Sprintf("parse values.schema.json: %v", err)})
+		} else if _, ok := schema.Properties[s.HelmValuesKey]; !ok {
+			issues = append(issues, Issue{Check: check, Message: fmt.Sprintf("%s: missing values.schema.json property %q", s.Name, s.HelmValuesKey)})
+		}
 	}
 
 	dir := filepath.Join(repoRoot, "deploy/helm/flightctl/templates", s.HelmDir)
@@ -70,7 +78,11 @@ func checkHelmService(repoRoot string, s ExpandedService) []Issue {
 		}
 		if strings.Contains(name, "route") {
 			content, err := os.ReadFile(filepath.Join(dir, e.Name()))
-			if err == nil && isOpenShiftRouteManifest(string(content)) {
+			if err != nil {
+				issues = append(issues, Issue{Check: check, Message: fmt.Sprintf("%s: read route template %s: %v", s.Name, e.Name(), err)})
+				continue
+			}
+			if isOpenShiftRouteManifest(string(content)) {
 				hasRoute = true
 			}
 		}
