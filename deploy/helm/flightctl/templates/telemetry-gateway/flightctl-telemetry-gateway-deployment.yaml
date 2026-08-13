@@ -20,6 +20,7 @@ spec:
       imagePullSecrets:
         - name: {{ .Values.global.imagePullSecretName }}
       {{- end }}
+      serviceAccountName: flightctl-telemetry-gateway
       containers:
       - env:
         - name: HOME

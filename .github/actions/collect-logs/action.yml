@@ -38,10 +38,10 @@ runs:
         kubectl get all,configmaps,secrets --all-namespaces
         echo "::endgroup::"
 
-        for deployment in flightctl-api flightctl-db flightctl-periodic flightctl-worker flightctl-alert-exporter flightctl-imagebuilder-api flightctl-kv; do
+        for deployment in flightctl-api flightctl-db flightctl-periodic flightctl-worker flightctl-alert-exporter flightctl-imagebuilder-api flightctl-imagebuilder-worker flightctl-kv flightctl-remote-access flightctl-telemetry-gateway flightctl-alertmanager-proxy; do
           echo "Collecting logs for $deployment..."
           namespace=""
-          if [[ "$deployment" == "flightctl-api" || "$deployment" == "flightctl-imagebuilder-api" ]]; then
+          if [[ "$deployment" == "flightctl-api" || "$deployment" == "flightctl-imagebuilder-api" || "$deployment" == "flightctl-remote-access" || "$deployment" == "flightctl-telemetry-gateway" || "$deployment" == "flightctl-alertmanager-proxy" ]]; then
             namespace="${NAMESPACE_EXTERNAL}"
           else
             namespace="${NAMESPACE_INTERNAL}"

@@ -1,0 +1,90 @@
+# Canonical membership registry for Flight Control first-party and related images.
+# Verified by: make verify-services (tools/verify-services).
+# Profiles expand to the wiring checks; only rare overrides belong here.
+version: 1
+
+services:
+  # --- backend-external ---
+  - name: api
+    profile: backend-external
+
+  - name: remote-access
+    profile: backend-external
+
+  - name: imagebuilder-api
+    profile: backend-external
+    helmValuesKey: imageBuilderApi
+    # generate-certificates uses --imagebuilder-api-san (matches name)
+
+  - name: telemetry-gateway
+    profile: backend-external
+    certSanFlag: telemetry
+
+  - name: alertmanager-proxy
+    profile: backend-external
+    helmDir: alertmanager
+    helmValuesKey: alertmanagerProxy
+
+  # --- backend-internal ---
+  - name: worker
+    profile: backend-internal
+
+  - name: periodic
+    profile: backend-internal
+
+  - name: imagebuilder-worker
+    profile: backend-internal
+    helmValuesKey: imageBuilderWorker
+
+  - name: alert-exporter
+    profile: backend-internal
+    helmValuesKey: alertExporter
+
+  # --- published images (not full backends) ---
+  - name: cli-artifacts
+    profile: image
+    makeContainerTarget: multiarch-cli
+    quadlet: true
+    inFlightctlTarget: true
+
+  - name: db-setup
+    profile: image
+
+  - name: pam-issuer
+    profile: image
+    quadlet: true
+    inFlightctlTarget: false
+    requireNginx: true
+    needsTLS: true
+    certSanFlag: pam-issuer
+
+  - name: userinfo-proxy
+    profile: image
+    buildBinary: true
+    quadlet: true
+    inFlightctlTarget: false
+
+  # --- images.yaml only ---
+  - name: ui
+    profile: images-yaml-only
+    tagOverride: true
+
+  - name: gateway
+    profile: images-yaml-only
+
+  - name: db
+    profile: images-yaml-only
+
+  - name: kv
+    profile: images-yaml-only
+
+  - name: alertmanager
+    profile: images-yaml-only
+
+  - name: grafana
+    profile: images-yaml-only
+    observabilityOnly: true
+
+  - name: prometheus
+    profile: images-yaml-only
+    observabilityOnly: true
