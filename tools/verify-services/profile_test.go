@@ -135,6 +135,20 @@ func TestExpandService(t *testing.T) {
 			entry:   serviceEntry{Name: "x", Profile: "nope"},
 			wantErr: true,
 		},
+		{
+			name:    "When name has path traversal it should error",
+			entry:   serviceEntry{Name: "../etc", Profile: profileBackendInternal},
+			wantErr: true,
+		},
+		{
+			name: "When helmDir has slash it should error",
+			entry: serviceEntry{
+				Name:    "worker",
+				Profile: profileBackendInternal,
+				HelmDir: strPtr("../escape"),
+			},
+			wantErr: true,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -152,3 +166,5 @@ func TestExpandService(t *testing.T) {
 		})
 	}
 }
+
+func strPtr(s string) *string { return &s }
