@@ -90,16 +90,16 @@ var embeddedBuildManifest = []byte(`
           "tag": "v0.28.1"
         },
         {
-          "ref": "quay.io/sclorg/nginx-126-c10s",
-          "tag": "20260421"
-        },
-        {
-          "ref": "quay.io/sclorg/postgresql-16-c10s",
+          "ref": "quay.io/sclorg/postgresql-16-c9s",
           "tag": "20250214"
         },
         {
           "ref": "quay.io/sclorg/valkey-8-c10s",
           "tag": "20260121"
+        },
+        {
+          "ref": "registry.access.redhat.com/ubi10/nginx-126",
+          "tag": "1785834652"
         },
         {
           "ref": "registry.access.redhat.com/ubi10/ubi-minimal",
@@ -196,16 +196,16 @@ var embeddedBuildManifest = []byte(`
           "tag": "v0.28.1"
         },
         {
-          "ref": "quay.io/sclorg/nginx-124-c9s",
-          "tag": "20260422"
-        },
-        {
           "ref": "quay.io/sclorg/postgresql-16-c9s",
           "tag": "20250214"
         },
         {
-          "ref": "quay.io/sclorg/redis-7-c9s",
-          "tag": "20250108"
+          "ref": "quay.io/sclorg/valkey-8-c10s",
+          "tag": "20260121"
+        },
+        {
+          "ref": "registry.access.redhat.com/ubi9/nginx-124",
+          "tag": "9.8-1785993104"
         },
         {
           "ref": "registry.access.redhat.com/ubi9/ubi-minimal",

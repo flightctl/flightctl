@@ -42,10 +42,10 @@ runs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ env.APT_CACHE_DIR }}
-          key: ${{ runner.os }}-apt-${{ inputs.setup_kvm != '' && 'kvm' || 'base' }}-${{ hashFiles('.github/actions/setup-dependencies/action.yaml') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-apt-${{ inputs.setup_kvm != '' && 'kvm' || 'base' }}-${{ hashFiles('.github/actions/setup-dependencies/action.yaml') }}
           restore-keys: |
-            ${{ runner.os }}-apt-${{ inputs.setup_kvm != '' && 'kvm' || 'base' }}-
-            ${{ runner.os }}-apt-
+            ${{ runner.os }}-${{ runner.arch }}-apt-${{ inputs.setup_kvm != '' && 'kvm' || 'base' }}-
+            ${{ runner.os }}-${{ runner.arch }}-apt-
 
       - name: Enable KVM group perms
         shell: bash
@@ -77,9 +77,18 @@ runs:
           # its OCI runtime config, so /usr/local/bin alone does not take effect.
           # See: https://github.com/containers/crun/issues/1485
           CRUN_VERSION=1.14.3
-          # sha256 of crun-${CRUN_VERSION}-linux-amd64 from GitHub Releases
-          CRUN_SHA256=80c5ab9422d4672f650f2bad3da933568349b64117d055486abc3534517be2af
-          curl -fsSL -o /tmp/crun "https://github.com/containers/crun/releases/download/${CRUN_VERSION}/crun-${CRUN_VERSION}-linux-amd64"
+          ARCH=$(uname -m)
+          if [ "${ARCH}" = "x86_64" ]; then
+            CRUN_ARCH=amd64
+            CRUN_SHA256=80c5ab9422d4672f650f2bad3da933568349b64117d055486abc3534517be2af
+          elif [ "${ARCH}" = "aarch64" ]; then
+            CRUN_ARCH=arm64
+            CRUN_SHA256=0486629e1599c3bccded279f6555ff22691958cde56203ceca099af6f2407263
+          else
+            echo "Unsupported architecture: ${ARCH}" >&2
+            exit 1
+          fi
+          curl -fsSL -o /tmp/crun "https://github.com/containers/crun/releases/download/${CRUN_VERSION}/crun-${CRUN_VERSION}-linux-${CRUN_ARCH}"
           echo "${CRUN_SHA256}  /tmp/crun" | sha256sum -c -
           sudo install -m 0755 /tmp/crun /usr/bin/crun
           rm -f /tmp/crun
@@ -91,7 +100,12 @@ runs:
           podman --version
           /usr/bin/crun --version
 
-          curl -Lo protoc.zip "https://github.com/protocolbuffers/protobuf/releases/download/v3.14.0/protoc-3.14.0-linux-x86_64.zip"
+          if [ "$(uname -m)" = "x86_64" ]; then
+            PROTOC_ARCH=x86_64
+          else
+            PROTOC_ARCH=aarch_64
+          fi
+          curl -Lo protoc.zip "https://github.com/protocolbuffers/protobuf/releases/download/v3.14.0/protoc-3.14.0-linux-${PROTOC_ARCH}.zip"
           sudo unzip -q -o protoc.zip bin/protoc -d /usr/local
           sudo chmod a+x /usr/local/bin/protoc
           protoc --version
@@ -150,7 +164,7 @@ runs:
         shell: bash
         run: |
           # Fix storage driver so it can be used with BIB (see https://github.com/osbuild/bootc-image-builder/issues/446)
-          sudo rm -rf /var/lib/containers/storage
+          sudo rm -rf /var/lib/containers/storage || true
           sudo mkdir -p /etc/containers
           echo -e "[storage]\ndriver = \"overlay\"\nrunroot = \"/run/containers/storage\"\ngraphroot = \"/var/lib/containers/storage\"" | sudo tee /etc/containers/storage.conf
 
@@ -159,4 +173,4 @@ runs:
         uses: actions/cache/save@v4
         with:
           path: ${{ env.APT_CACHE_DIR }}
-          key: ${{ runner.os }}-apt-${{ inputs.setup_kvm != '' && 'kvm' || 'base' }}-${{ hashFiles('.github/actions/setup-dependencies/action.yaml') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-apt-${{ inputs.setup_kvm != '' && 'kvm' || 'base' }}-${{ hashFiles('.github/actions/setup-dependencies/action.yaml') }}
