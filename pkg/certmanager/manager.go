@@ -338,8 +338,15 @@ func (cm *CertManager) syncCertificate(ctx context.Context, b *bundleRegistry, p
 
 			// We found an existing cert; treat current desired cfg as the baseline for this process.
 			cert.Config = cfg
+			cm.log.Infof(
+				"Loaded existing certificate %q for providerKey %q (notBefore=%s notAfter=%s expiresIn=%s)",
+				certName, pk,
+				parsed.NotBefore.UTC().Format(time.RFC3339),
+				parsed.NotAfter.UTC().Format(time.RFC3339),
+				time.Until(parsed.NotAfter),
+			)
 		} else if loadErr != nil {
-			cm.log.Debugf("no existing cert loaded for %q/%q: %v", pk, certName, loadErr)
+			cm.log.Infof("no existing cert loaded for %q/%q: %v", pk, certName, loadErr)
 		}
 	}
 
@@ -365,7 +372,7 @@ func (cm *CertManager) syncCertificate(ctx context.Context, b *bundleRegistry, p
 		return fmt.Errorf("failed to provision certificate %q from providerKey %q: %w", cert.Name, pk, err)
 	}
 
-	cm.log.Debugf("Provision triggered for certificate %q of providerKey %q", certName, pk)
+	cm.log.Infof("Provision triggered for certificate %q of providerKey %q", certName, pk)
 	return nil
 }
 
@@ -373,7 +380,7 @@ func (cm *CertManager) syncCertificate(ctx context.Context, b *bundleRegistry, p
 func (cm *CertManager) shouldProvisionCertificate(b *bundleRegistry, pk string, cert *certificate, cfg CertificateConfig) bool {
 	// Initial provisioning.
 	if cert.Info.NotAfter == nil || cert.Info.NotBefore == nil {
-		cm.log.Debugf("Certificate %q for providerKey %q: missing NotBefore/NotAfter — provisioning", cert.Name, pk)
+		cm.log.Infof("Certificate %q for providerKey %q: missing NotBefore/NotAfter — provisioning", cert.Name, pk)
 		return true
 	}
 
@@ -401,34 +408,57 @@ func (cm *CertManager) shouldProvisionCertificate(b *bundleRegistry, pk string, 
 	// 1) RenewBefore (if valid) wins.
 	// 2) else RenewBeforePercentage (if valid).
 	// 3) else default to renewing at 2/3 lifetime => renewBefore = lifetime/3.
+	policySource := "default(lifetime/3)"
 	var renewBefore time.Duration
 	switch {
 	case cfg.RenewBefore != nil && *cfg.RenewBefore > 0 && *cfg.RenewBefore < lifetime:
 		renewBefore = *cfg.RenewBefore
+		policySource = "renewBefore"
 	case cfg.RenewBeforePercentage != nil && *cfg.RenewBeforePercentage > 0 && *cfg.RenewBeforePercentage < 100:
-		// Note: percentage-based calculation uses float64 to avoid int64 overflow for long-lived certificates.
+		if cfg.RenewBefore != nil && *cfg.RenewBefore > 0 {
+			cm.log.Infof(
+				"Certificate %q for providerKey %q: ignoring renewBefore=%s (must be >0 and < lifetime=%s); using renewBeforePercentage=%d",
+				cert.Name, pk, *cfg.RenewBefore, lifetime, *cfg.RenewBeforePercentage,
+			)
+		}
 		renewBefore = time.Duration(float64(lifetime) * float64(*cfg.RenewBeforePercentage) / 100.0)
+		policySource = fmt.Sprintf("renewBeforePercentage=%d", *cfg.RenewBeforePercentage)
 	default:
+		if cfg.RenewBefore != nil && *cfg.RenewBefore > 0 {
+			cm.log.Infof(
+				"Certificate %q for providerKey %q: ignoring renewBefore=%s (must be >0 and < lifetime=%s); using default policy",
+				cert.Name, pk, *cfg.RenewBefore, lifetime,
+			)
+		}
 		renewBefore = lifetime / 3
 	}
 
 	renewAt := notAfter.Add(-renewBefore)
+	expiresIn := notAfter.Sub(now)
 	if now.Before(renewAt) {
+		cm.log.Infof(
+			"Certificate %q for providerKey %q: not yet due for renewal (policy=%s renewBefore=%s lifetime=%s notBefore=%s notAfter=%s renewAt=%s expiresIn=%s)",
+			cert.Name, pk, policySource, renewBefore, lifetime,
+			notBefore.UTC().Format(time.RFC3339), notAfter.UTC().Format(time.RFC3339),
+			renewAt.UTC().Format(time.RFC3339), expiresIn,
+		)
 		return false
 	}
 
 	// Bundle-wide kill switch for time-based renewal.
 	if b != nil && b.disableRenewal {
-		cm.log.Debugf(
-			"Certificate %q for providerKey %q: renewal window reached but disabled by bundle %q (renewBefore=%s, notAfter=%s)",
-			cert.Name, pk, b.name, renewBefore, notAfter.Format(time.RFC3339),
+		cm.log.Infof(
+			"Certificate %q for providerKey %q: renewal window reached but disabled by bundle %q (policy=%s renewBefore=%s notAfter=%s)",
+			cert.Name, pk, b.name, policySource, renewBefore, notAfter.UTC().Format(time.RFC3339),
 		)
 		return false
 	}
 
-	cm.log.Debugf(
-		"Certificate %q for providerKey %q: within renewal window (%s before expiry) — provisioning",
-		cert.Name, pk, renewBefore,
+	cm.log.Infof(
+		"Certificate %q for providerKey %q: within renewal window (policy=%s renewBefore=%s lifetime=%s notBefore=%s notAfter=%s renewAt=%s expiresIn=%s) — provisioning",
+		cert.Name, pk, policySource, renewBefore, lifetime,
+		notBefore.UTC().Format(time.RFC3339), notAfter.UTC().Format(time.RFC3339),
+		renewAt.UTC().Format(time.RFC3339), expiresIn,
 	)
 	return true
 }
