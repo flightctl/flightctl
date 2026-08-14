@@ -174,12 +174,12 @@ func (p *InfraProvider) resolveMigrationJobSpec() dbMigrationJobSpec {
 
 		// Copy the postgres-ssl-certs volume and its mount (present only when
 		// db.external.tlsConfigMapName or db.external.tlsSecretName is set).
-		// Override mode on the client-key.pem source to 0444 — the Helm chart uses 0400
-		// (owner-read-only), but OCP restricted-v2 SCC assigns a random UID that does not
-		// own the projected file, causing "permission denied" when psql reads the key.
+		// cert/CA items get mode 0444; client-key.pem stays at 0400 (the init container
+		// copies it to a writable emptyDir and chmods it to 0600 — psql rejects keys
+		// with world-readable permissions).
 		for _, v := range job.Spec.Template.Spec.Volumes {
 			if v.Name == "postgres-ssl-certs" {
-				v = makeSSLVolumeWorldReadable(v)
+				v = makeSSLVolumeCertReadable(v)
 				spec.sslVolumes = append(spec.sslVolumes, v)
 			}
 		}
@@ -250,12 +250,12 @@ func (p *InfraProvider) resolveDBSetupImageFromAPI() dbMigrationJobSpec {
 
 	// Copy the postgres-ssl-certs volume from the API pod spec (present when
 	// db.external.tlsConfigMapName or db.external.tlsSecretName is set).
-	// Override mode on the client-key.pem source to 0444 — the Helm chart uses 0400
-	// (owner-read-only), but OCP restricted-v2 SCC assigns a random UID that does not
-	// own the projected file, causing "permission denied" when psql reads the key.
+	// cert/CA items get mode 0444; client-key.pem stays at 0400 (the init container
+	// copies it to a writable emptyDir and chmods it to 0600 — psql rejects keys
+	// with world-readable permissions).
 	for _, v := range deployment.Spec.Template.Spec.Volumes {
 		if v.Name == "postgres-ssl-certs" {
-			v = makeSSLVolumeWorldReadable(v)
+			v = makeSSLVolumeCertReadable(v)
 			spec.sslVolumes = append(spec.sslVolumes, v)
 		}
 	}
@@ -337,11 +337,16 @@ func (p *InfraProvider) queryDBViaJob(sql string) (string, error) {
 	logrus.Infof("queryDBViaJob: image=%s sslEnv=%v sslVolumes=%d sslMounts=%d",
 		migSpec.image, migSpec.sslEnv, len(migSpec.sslVolumes), len(migSpec.sslVolumeMounts))
 
+	// Build env: start with PGPASSWORD + timeout, then add SSL env vars from the
+	// migration Job. If PGSSLKEY is present, redirect it to the writable emptyDir copy
+	// (the init container will chmod it 0600 there — psql rejects keys with group/world
+	// access, but OCP restricted-v2 SCC assigns a random UID so we cannot rely on the
+	// projected Secret file being owned by the running UID).
+	const sslKeyEmptyDir = "postgres-ssl-key"
+	const sslKeyDest = "/ssl-key/client-key.pem"
+
 	env := []corev1.EnvVar{
-		{
-			Name:  "PGPASSWORD",
-			Value: params.Password,
-		},
+		{Name: "PGPASSWORD", Value: params.Password},
 		{
 			// PGCONNECT_TIMEOUT is the portable way to set a connection timeout;
 			// the --connect-timeout CLI flag is not recognised by older psql versions.
@@ -349,7 +354,51 @@ func (p *InfraProvider) queryDBViaJob(sql string) (string, error) {
 			Value: "15",
 		},
 	}
-	env = append(env, migSpec.sslEnv...)
+	hasPGSSLKEY := false
+	var sslKeySourcePath string
+	for _, e := range migSpec.sslEnv {
+		if e.Name == "PGSSLKEY" {
+			hasPGSSLKEY = true
+			sslKeySourcePath = e.Value
+			env = append(env, corev1.EnvVar{Name: "PGSSLKEY", Value: sslKeyDest})
+		} else {
+			env = append(env, e)
+		}
+	}
+
+	// When a client key is present, add an emptyDir volume and an init container
+	// that copies the projected (read-only) key file to the emptyDir and sets 0600.
+	// This satisfies both OCP (readable by any UID) and psql (not world-accessible).
+	volumes := append([]corev1.Volume(nil), migSpec.sslVolumes...)
+	volumeMounts := append([]corev1.VolumeMount(nil), migSpec.sslVolumeMounts...)
+	var initContainers []corev1.Container
+	if hasPGSSLKEY && sslKeySourcePath != "" {
+		volumes = append(volumes, corev1.Volume{
+			Name:         sslKeyEmptyDir,
+			VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}},
+		})
+		volumeMounts = append(volumeMounts, corev1.VolumeMount{
+			Name:      sslKeyEmptyDir,
+			MountPath: "/ssl-key",
+			ReadOnly:  false,
+		})
+		initContainers = []corev1.Container{
+			{
+				Name:            "fix-ssl-key-perms",
+				Image:           migSpec.image,
+				ImagePullPolicy: corev1.PullIfNotPresent,
+				Command:         []string{"sh", "-c", fmt.Sprintf("cp %s %s && chmod 0600 %s", sslKeySourcePath, sslKeyDest, sslKeyDest)},
+				VolumeMounts: append(
+					append([]corev1.VolumeMount(nil), migSpec.sslVolumeMounts...),
+					corev1.VolumeMount{Name: sslKeyEmptyDir, MountPath: "/ssl-key"},
+				),
+				SecurityContext: &corev1.SecurityContext{
+					RunAsNonRoot:             boolPtr(true),
+					AllowPrivilegeEscalation: boolPtr(false),
+				},
+			},
+		}
+	}
 
 	ttl := int32(300)
 	deadline := int64(dbQueryJobTimeout / time.Second)
@@ -368,7 +417,8 @@ func (p *InfraProvider) queryDBViaJob(sql string) (string, error) {
 				Spec: corev1.PodSpec{
 					RestartPolicy:    corev1.RestartPolicyNever,
 					ImagePullSecrets: migSpec.imagePullSecrets,
-					Volumes:          migSpec.sslVolumes,
+					InitContainers:   initContainers,
+					Volumes:          volumes,
 					Containers: []corev1.Container{
 						{
 							Name:            "psql",
@@ -385,7 +435,7 @@ func (p *InfraProvider) queryDBViaJob(sql string) (string, error) {
 								"-c", sql,
 							},
 							Env:          env,
-							VolumeMounts: migSpec.sslVolumeMounts,
+							VolumeMounts: volumeMounts,
 							// Do not set RunAsUser — OCP restricted-v2 SCC rejects UIDs outside
 							// the namespace-allocated range. Let the platform assign the UID.
 							SecurityContext: &corev1.SecurityContext{
@@ -502,12 +552,11 @@ func collectJobPodLogs(ctx context.Context, p *InfraProvider, ns, jobName string
 	return sb.String(), nil
 }
 
-// makeSSLVolumeWorldReadable returns a copy of v with all Secret sources in the
-// postgres-ssl-certs projected volume having mode 0444 instead of the Helm-default
-// 0400. OCP restricted-v2 SCC assigns a random UID to the pod that does not own the
-// projected Secret files; a 0400 client-key.pem causes psql to fail with "permission
-// denied" before it can open the TLS connection.
-func makeSSLVolumeWorldReadable(v corev1.Volume) corev1.Volume {
+// makeSSLVolumeCertReadable returns a copy of v with all non-key Secret sources in the
+// postgres-ssl-certs projected volume having mode 0444. The client-key.pem item is left
+// at the Helm default (0400) so that the init container can copy and chmod it to 0600
+// in a writable emptyDir — psql rejects keys with world-readable permissions (> 0640).
+func makeSSLVolumeCertReadable(v corev1.Volume) corev1.Volume {
 	if v.Projected == nil {
 		return v
 	}
@@ -518,7 +567,9 @@ func makeSSLVolumeWorldReadable(v corev1.Volume) corev1.Volume {
 			continue
 		}
 		for j := range s.Secret.Items {
-			s.Secret.Items[j].Mode = &mode444
+			if s.Secret.Items[j].Path != "client-key.pem" {
+				s.Secret.Items[j].Mode = &mode444
+			}
 		}
 	}
 	return v
