@@ -552,10 +552,12 @@ func collectJobPodLogs(ctx context.Context, p *InfraProvider, ns, jobName string
 	return sb.String(), nil
 }
 
-// makeSSLVolumeCertReadable returns a copy of v with all non-key Secret sources in the
-// postgres-ssl-certs projected volume having mode 0444. The client-key.pem item is left
-// at the Helm default (0400) so that the init container can copy and chmod it to 0600
-// in a writable emptyDir — psql rejects keys with world-readable permissions (> 0640).
+// makeSSLVolumeCertReadable returns a copy of v with all Secret sources in the
+// postgres-ssl-certs projected volume having mode 0444. OCP restricted-v2 SCC assigns
+// a random UID that does not own the projected files; 0400 causes "permission denied".
+// client-key.pem is also set to 0444 here so the init container can copy it to a
+// writable emptyDir and chmod it 0600 — psql reads only the emptyDir copy (PGSSLKEY
+// is redirected there), so it never sees the 0444 projected key.
 func makeSSLVolumeCertReadable(v corev1.Volume) corev1.Volume {
 	if v.Projected == nil {
 		return v
@@ -567,9 +569,7 @@ func makeSSLVolumeCertReadable(v corev1.Volume) corev1.Volume {
 			continue
 		}
 		for j := range s.Secret.Items {
-			if s.Secret.Items[j].Path != "client-key.pem" {
-				s.Secret.Items[j].Mode = &mode444
-			}
+			s.Secret.Items[j].Mode = &mode444
 		}
 	}
 	return v
