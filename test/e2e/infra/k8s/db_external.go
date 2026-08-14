@@ -342,6 +342,12 @@ func (p *InfraProvider) queryDBViaJob(sql string) (string, error) {
 			Name:  "PGPASSWORD",
 			Value: params.Password,
 		},
+		{
+			// PGCONNECT_TIMEOUT is the portable way to set a connection timeout;
+			// the --connect-timeout CLI flag is not recognised by older psql versions.
+			Name:  "PGCONNECT_TIMEOUT",
+			Value: "15",
+		},
 	}
 	env = append(env, migSpec.sslEnv...)
 
@@ -375,7 +381,6 @@ func (p *InfraProvider) queryDBViaJob(sql string) (string, error) {
 								"-U", params.User,
 								"-d", params.DBName,
 								"-t", "-A",
-								"--connect-timeout=15",
 								"-w", // never prompt for password; fail immediately if password required
 								"-c", sql,
 							},
