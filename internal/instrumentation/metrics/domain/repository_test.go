@@ -8,6 +8,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/store"
+	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -31,14 +32,11 @@ func (m *MockRepository) CountByOrg(ctx context.Context, orgId *uuid.UUID) ([]st
 
 // Implement other required methods with empty implementations
 func (m *MockRepository) InitialMigration(context.Context) error { return nil }
+func (m *MockRepository) Mutate(context.Context, uuid.UUID, string, *domain.Repository, repositorystore.RepositoryApplyFunc) (*domain.Repository, *domain.Repository, bool, error) {
+	return nil, nil, false, nil
+}
 func (m *MockRepository) Create(context.Context, uuid.UUID, *domain.Repository) (*domain.Repository, error) {
 	return nil, nil
-}
-func (m *MockRepository) Update(context.Context, uuid.UUID, *domain.Repository) (*domain.Repository, *domain.Repository, error) {
-	return nil, nil, nil
-}
-func (m *MockRepository) CreateOrUpdate(context.Context, uuid.UUID, *domain.Repository) (*domain.Repository, *domain.Repository, bool, error) {
-	return nil, nil, false, nil
 }
 func (m *MockRepository) Get(context.Context, uuid.UUID, string) (*domain.Repository, error) {
 	return nil, nil

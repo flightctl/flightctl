@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"testing"
 
 	cacfg "github.com/flightctl/flightctl/internal/config/ca"
@@ -20,6 +21,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/service/tpmcsr"
 	"github.com/flightctl/flightctl/internal/store"
+	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -46,6 +48,35 @@ func newFakeCertificateSigningRequestStore() *fakeCertificateSigningRequestStore
 
 func (f *fakeCertificateSigningRequestStore) InitialMigration(ctx context.Context) error { return nil }
 
+func (f *fakeCertificateSigningRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.CertificateSigningRequest, apply certificatesigningrequeststore.CertificateSigningRequestApplyFunc) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error) {
+	old, exists := f.items[name]
+	creating := !exists
+	var before *domain.CertificateSigningRequest
+	var current *domain.CertificateSigningRequest
+	if !creating {
+		before = old
+		cp := *old
+		current = &cp
+	}
+	mutation := &certificatesigningrequeststore.CertificateSigningRequestMutation{CertificateSigningRequest: current}
+	if apply != nil {
+		if err := apply(mutation); err != nil {
+			if errors.Is(err, store.ErrMutateSkipWrite) {
+				return mutation.CertificateSigningRequest, before, false, nil
+			}
+			return nil, nil, false, err
+		}
+	}
+	if mutation.CertificateSigningRequest == nil {
+		return nil, nil, false, flterrors.ErrResourceIsNil
+	}
+	if mutation.CertificateSigningRequest.Status == nil {
+		mutation.CertificateSigningRequest.Status = &domain.CertificateSigningRequestStatus{Conditions: []domain.Condition{}}
+	}
+	f.items[name] = mutation.CertificateSigningRequest
+	return mutation.CertificateSigningRequest, before, creating, nil
+}
+
 func (f *fakeCertificateSigningRequestStore) Create(ctx context.Context, orgId uuid.UUID, req *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, error) {
 	name := lo.FromPtr(req.Metadata.Name)
 	if _, exists := f.items[name]; exists {
@@ -58,31 +89,6 @@ func (f *fakeCertificateSigningRequestStore) Create(ctx context.Context, orgId u
 	}
 	f.items[name] = req
 	return req, nil
-}
-
-func (f *fakeCertificateSigningRequestStore) Update(ctx context.Context, orgId uuid.UUID, req *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, error) {
-	name := lo.FromPtr(req.Metadata.Name)
-	old, exists := f.items[name]
-	if !exists {
-		return nil, nil, flterrors.ErrResourceNotFound
-	}
-	// Mirror internal/store/model.NewCertificateSigningRequestFromApiResource, which always
-	// defaults Status to a non-nil, empty-conditions struct regardless of the caller's input.
-	if req.Status == nil {
-		req.Status = &domain.CertificateSigningRequestStatus{Conditions: []domain.Condition{}}
-	}
-	f.items[name] = req
-	return req, old, nil
-}
-
-func (f *fakeCertificateSigningRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, req *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error) {
-	name := lo.FromPtr(req.Metadata.Name)
-	if _, exists := f.items[name]; exists {
-		result, old, err := f.Update(ctx, orgId, req)
-		return result, old, false, err
-	}
-	result, err := f.Create(ctx, orgId, req)
-	return result, nil, true, err
 }
 
 func (f *fakeCertificateSigningRequestStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.CertificateSigningRequest, error) {

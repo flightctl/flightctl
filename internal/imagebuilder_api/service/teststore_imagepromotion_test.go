@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service/catalog"
 	"github.com/flightctl/flightctl/internal/service/common"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
+	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 )
@@ -248,10 +249,7 @@ func (s *DummyCatalogStore) CreateOrUpdateItem(ctx context.Context, orgId uuid.U
 func (s *DummyCatalogStore) Create(ctx context.Context, orgId uuid.UUID, catalog *coredomain.Catalog) (*coredomain.Catalog, error) {
 	return nil, nil
 }
-func (s *DummyCatalogStore) Update(ctx context.Context, orgId uuid.UUID, catalog *coredomain.Catalog) (*coredomain.Catalog, *coredomain.Catalog, error) {
-	return nil, nil, nil
-}
-func (s *DummyCatalogStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, catalog *coredomain.Catalog) (*coredomain.Catalog, *coredomain.Catalog, bool, error) {
+func (s *DummyCatalogStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *coredomain.Catalog, apply catalogstore.CatalogApplyFunc) (*coredomain.Catalog, *coredomain.Catalog, bool, error) {
 	return nil, nil, false, nil
 }
 func (s *DummyCatalogStore) List(ctx context.Context, orgId uuid.UUID, listParams flightctlstore.ListParams) (*coredomain.CatalogList, error) {

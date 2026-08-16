@@ -15,8 +15,7 @@ type Store interface {
 	InitialMigration(ctx context.Context) error
 
 	Create(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest) (*domain.EnrollmentRequest, error)
-	Update(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, enrollmentrequest *domain.EnrollmentRequest) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error)
+	Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.EnrollmentRequest, apply EnrollmentRequestApplyFunc) (updated *domain.EnrollmentRequest, before *domain.EnrollmentRequest, created bool, err error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.EnrollmentRequest, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.EnrollmentRequestList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error)
@@ -81,18 +80,6 @@ func (s *EnrollmentRequestStore) InitialMigration(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-func (s *EnrollmentRequestStore) Create(ctx context.Context, orgId uuid.UUID, resource *domain.EnrollmentRequest) (*domain.EnrollmentRequest, error) {
-	return s.genericStore.Create(ctx, orgId, resource)
-}
-
-func (s *EnrollmentRequestStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.EnrollmentRequest) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, error) {
-	return s.genericStore.Update(ctx, orgId, resource, nil, nil)
-}
-
-func (s *EnrollmentRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.EnrollmentRequest) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error) {
-	return s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, nil)
 }
 
 func (s *EnrollmentRequestStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.EnrollmentRequest, error) {
