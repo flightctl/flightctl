@@ -284,11 +284,8 @@ var _ = Describe("CLI - device console", Label(e2e.NeedVMLabel), func() {
 
 		By("verifying that the ~. sequence exits the shell")
 		cs := harness.NewConsoleSession(deviceID)
-		cs.SkipGracefulExitOnClose()
 		DeferCleanup(cs.Close)
-
-		Expect(cs.Stdin.Write([]byte("\n~.\n"))).To(BeNumerically(">", 0))
-		Eventually(cs.Stdout.Closed).Should(BeTrue())
+		cs.Disconnect()
 
 		By("running a command without opening a shell")
 		out, err = harness.RunConsoleCommand(deviceID, nil, "flightctl-agent", "system-info")
