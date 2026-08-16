@@ -28,6 +28,7 @@ import (
 	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/service/events"
 	organizationservice "github.com/flightctl/flightctl/internal/service/organization"
+	"github.com/flightctl/flightctl/internal/service/tpmcsr"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
@@ -108,9 +109,7 @@ func (s *AgentServer) init(ctx context.Context) error {
 	catalogStore := catalogstore.NewCatalogStore(s.db, s.log.WithField("pkg", "catalog-store"))
 	organizationStore := organizationstore.NewOrganizationStore(s.db)
 
-	healthchecker.HealthChecks.Initialize(ctx, deviceStore, s.log)
 	publisher, err := worker_client.QueuePublisher(ctx, s.queuesProvider)
-
 	if err != nil {
 		return err
 	}
@@ -124,12 +123,13 @@ func (s *AgentServer) init(ctx context.Context) error {
 
 	s.deviceSvc = deviceservice.WrapWithTracing(
 		deviceservice.NewDeviceServiceHandler(deviceStore, nil, fleetStore, eventsSvc, s.kvStore, s.cfg.Service.AgentEndpointAddress, s.log))
+	healthchecker.HealthChecks.Initialize(ctx, s.deviceSvc, s.log)
 	s.enrollmentRequestSvc = enrollmentrequestservice.WrapWithTracing(
 		enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, deviceStore, csrStore, s.ca, s.kvStore, eventsSvc, s.log, s.cfg.Service.TPMCAPaths, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl))
 	s.csrSvc = certificatesigningrequestservice.WrapWithTracing(
-		certificatesigningrequestservice.NewServiceHandler(csrStore, enrollmentRequestStore, s.ca, eventsSvc, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl))
+		certificatesigningrequestservice.NewServiceHandler(csrStore, tpmcsr.NewVerifier(s.enrollmentRequestSvc), s.ca, eventsSvc, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl))
 	s.catalogSvc = catalogservice.WrapWithTracing(
-		catalogservice.NewServiceHandler(catalogStore, eventsSvc, s.log))
+		catalogservice.NewServiceHandler(catalogStore, deviceStore, fleetStore, eventsSvc, s.log))
 	s.organizationSvc = organizationservice.WrapWithTracing(
 		organizationservice.NewServiceHandler(organizationStore))
 

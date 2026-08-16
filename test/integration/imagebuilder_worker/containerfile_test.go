@@ -171,7 +171,7 @@ var _ = Describe("Containerfile Generation", func() {
 		// Create service handler for enrollment credential generation
 		csrStore := certificatesigningrequeststore.NewCertificateSigningRequestStore(db, log.WithField("pkg", "certificatesigningrequest-store"))
 		enrollmentRequestStore := enrollmentrequeststore.NewEnrollmentRequestStore(db, log.WithField("pkg", "enrollmentrequest-store"))
-		erHandler := enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, nil, caClient, nil, eventsSvc, log, nil)
+		erHandler := enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, nil, nil, caClient, nil, eventsSvc, log, nil, "", "")
 		serviceHandler = certificatesigningrequestservice.NewServiceHandler(csrStore, tpmcsr.NewVerifier(erHandler), caClient, eventsSvc, log, "https://api.example.com", "https://ui.example.com")
 	})
 

@@ -94,7 +94,7 @@ func New(
 	eventsSvc := events.NewServiceHandler(eventStore, nil, log)
 	organizationStore := organizationstore.NewOrganizationStore(db)
 	authProviderStore := authproviderstore.NewAuthProviderStore(db, log.WithField("pkg", "authprovider-store"))
-	catalogSvc := catalogservice.WrapWithTracing(catalogservice.NewServiceHandler(catalogStore, eventsSvc, log))
+	catalogSvc := catalogservice.WrapWithTracing(catalogservice.NewServiceHandler(catalogStore, nil, nil, eventsSvc, log))
 	repositorySvc := repositoryservice.WrapWithTracing(repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, log))
 	organizationSvc := organizationservice.WrapWithTracing(organizationservice.NewServiceHandler(organizationStore))
 
