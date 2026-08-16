@@ -129,7 +129,7 @@ var _ = Describe("AuthProviderStore", func() {
 
 		It("should store clientSecret encrypted at rest", func() {
 			provider := createTestAuthProvider("encrypted-provider")
-			_, err := authStore.Create(ctx, orgId, &provider, callback)
+			_, err := authStore.Create(ctx, orgId, &provider)
 			Expect(err).ToNot(HaveOccurred())
 
 			result, err := authStore.Get(ctx, orgId, "encrypted-provider")

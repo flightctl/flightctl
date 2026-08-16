@@ -1777,7 +1777,7 @@ func TestDownloadImageExportWithBasicAuth(t *testing.T) {
 
 	repoStore := NewDummyRepositoryStore()
 	destRepo := newOciRepositoryWithRegistryAndAuth(t, "output-registry", v1beta1.ReadWrite, registryHostname, &scheme, true, username, password)
-	_, err = repoStore.Create(ctx, orgId, destRepo, nil)
+	_, err = repoStore.Create(ctx, orgId, destRepo)
 	require.NoError(err)
 
 	imageBuildStore := NewDummyImageBuildStore()
@@ -1872,7 +1872,7 @@ func TestDownloadImageExportWithBasicAuthWrongCredentials(t *testing.T) {
 
 	repoStore := NewDummyRepositoryStore()
 	destRepo := newOciRepositoryWithRegistryAndAuth(t, "output-registry", v1beta1.ReadWrite, registryHostname, &scheme, true, "wronguser", "wrongpass")
-	_, cerr := repoStore.Create(ctx, orgId, destRepo, nil)
+	_, cerr := repoStore.Create(ctx, orgId, destRepo)
 	require.NoError(cerr)
 
 	imageBuildStore := NewDummyImageBuildStore()
@@ -1992,7 +1992,7 @@ func TestDownloadImageExportWithBearerAuth(t *testing.T) {
 
 	repoStore := NewDummyRepositoryStore()
 	destRepo := newOciRepositoryWithRegistryAndAuth(t, "output-registry", v1beta1.ReadWrite, registryHostname, &scheme, true, username, password)
-	_, err = repoStore.Create(ctx, orgId, destRepo, nil)
+	_, err = repoStore.Create(ctx, orgId, destRepo)
 	require.NoError(err)
 
 	imageBuildStore := NewDummyImageBuildStore()

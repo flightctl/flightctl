@@ -350,6 +350,7 @@ func (f *fakeCatalogStore) Delete(ctx context.Context, orgId uuid.UUID, name str
 	}
 	delete(f.catalogs, name)
 	return true, nil
+}
 
 func (f *fakeCatalogStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Catalog) (*domain.Catalog, *domain.Catalog, error) {
 	name := lo.FromPtr(resource.Metadata.Name)
