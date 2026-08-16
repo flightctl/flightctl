@@ -25,6 +25,7 @@ Wants=flightctl-certs-init.service
 Wants=flightctl-telemetry-gateway.service
 Wants=flightctl-imagebuilder-api.service
 Wants=flightctl-imagebuilder-worker.service
+Wants=flightctl-remote-access.service
 Wants=flightctl-gateway.service
 
 After=network.target
@@ -47,6 +48,7 @@ After=flightctl-certs-init.service
 After=flightctl-telemetry-gateway.service
 After=flightctl-imagebuilder-api.service
 After=flightctl-imagebuilder-worker.service
+After=flightctl-remote-access.service
 After=flightctl-gateway.service
 
 [Install]
