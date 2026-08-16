@@ -136,11 +136,11 @@ var _ = Describe("RepoUpdate", func() {
 			},
 		}
 
-		_, err = deviceStore.Create(ctx, orgId, &device1)
+		_, err = deviceStore.Create(ctx, orgId, &device1, nil)
 		Expect(err).ToNot(HaveOccurred())
 		err = deviceStore.OverwriteRepositoryRefs(ctx, orgId, "device1", "myrepository-1")
 		Expect(err).ToNot(HaveOccurred())
-		_, err = deviceStore.Create(ctx, orgId, &device2)
+		_, err = deviceStore.Create(ctx, orgId, &device2, nil)
 		Expect(err).ToNot(HaveOccurred())
 		err = deviceStore.OverwriteRepositoryRefs(ctx, orgId, "device2", "myrepository-2")
 		Expect(err).ToNot(HaveOccurred())
