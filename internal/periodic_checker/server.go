@@ -27,6 +27,7 @@ import (
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	resourcesyncservice "github.com/flightctl/flightctl/internal/service/resourcesync"
 	syncstateservice "github.com/flightctl/flightctl/internal/service/syncstate"
+	vulnerabilityfindingservice "github.com/flightctl/flightctl/internal/service/vulnerabilityfinding"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	checkpointstore "github.com/flightctl/flightctl/internal/store/checkpoint"
 	dependencyrefstore "github.com/flightctl/flightctl/internal/store/dependencyref"
@@ -123,8 +124,8 @@ func (s *Server) Run(ctx context.Context) error {
 
 	repositorySvc := repositoryservice.WrapWithTracing(repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, s.log))
 	fleetSvc := fleetservice.WrapWithTracing(fleetservice.NewServiceHandler(fleetStore, catalogStore, eventsSvc, s.log))
-	resourceSyncSvc := resourcesyncservice.WrapWithTracing(resourcesyncservice.NewServiceHandler(resourceSyncStore, catalogStore, fleetStore, eventsSvc, s.log))
 	catalogSvc := catalogservice.WrapWithTracing(catalogservice.NewServiceHandler(catalogStore, deviceStore, fleetStore, eventsSvc, s.log))
+	resourceSyncSvc := resourcesyncservice.WrapWithTracing(resourcesyncservice.NewServiceHandler(resourceSyncStore, catalogSvc, fleetSvc, eventsSvc, s.log))
 	deviceSvc := deviceservice.WrapWithTracing(deviceservice.NewDeviceServiceHandler(deviceStore, catalogStore, fleetStore, eventsSvc, kvStore, "", s.log))
 	eventSvc := eventservice.WrapWithTracing(eventservice.NewServiceHandler(eventStore, eventsSvc))
 	checkpointSvc := checkpointservice.WrapWithTracing(checkpointservice.NewServiceHandler(checkpointStore))
@@ -165,11 +166,14 @@ func (s *Server) Run(ctx context.Context) error {
 
 	depSyncMetrics := periodicmetrics.NewDependencySyncCollector()
 
+	findingSvc := vulnerabilityfindingservice.WrapWithTracing(
+		vulnerabilityfindingservice.NewServiceHandler(vulnerabilityFindingStore, deviceSvc, fleetSvc, eventsSvc, s.cfg.VulnerabilityReporting != nil && s.cfg.VulnerabilityReporting.Enabled, s.log))
+
 	// Initialize the task executors.
 	periodicTaskExecutors := InitializeTaskExecutors(s.log,
 		repositorySvc, fleetSvc, resourceSyncSvc, catalogSvc, deviceSvc, eventSvc,
 		checkpointSvc, organizationSvc, dependencyrefSvc, syncstateSvc,
-		s.cfg, queuesProvider, workerClient, nil, vulnerabilityFindingStore, vulnClient, depSyncMetrics)
+		s.cfg, queuesProvider, workerClient, nil, findingSvc, vulnClient, depSyncMetrics)
 
 	// Create channel manager for task distribution
 	channelManagerConfig := ChannelManagerConfig{

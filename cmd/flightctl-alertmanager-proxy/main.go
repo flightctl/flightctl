@@ -238,7 +238,7 @@ func main() {
 	authProviderStore := authproviderstore.NewAuthProviderStore(db, logger.WithField("pkg", "authprovider-store"))
 	eventStore := eventstore.NewEventStore(db, logger.WithField("pkg", "event-store"))
 	eventsSvc := events.NewServiceHandler(eventStore, nil, logger)
-	catalogSvc := catalogservice.WrapWithTracing(catalogservice.NewServiceHandler(catalogStore, eventsSvc, logger))
+	catalogSvc := catalogservice.WrapWithTracing(catalogservice.NewServiceHandler(catalogStore, nil, nil, eventsSvc, logger))
 	organizationSvc := organizationservice.WrapWithTracing(organizationservice.NewServiceHandler(organizationStore))
 
 	// Create service handler for auth provider access

@@ -1091,7 +1091,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			suite.Setup()
 
 			// GetRenderedDevice with agent context calls healthchecker.HealthChecks.Instance().Add()
-			healthchecker.HealthChecks.Initialize(suite.Ctx, devicestore.NewDeviceStore(suite.DB, suite.Log.WithField("pkg", "device-store")), suite.Log)
+			healthchecker.HealthChecks.Initialize(suite.Ctx, suite.Device, suite.Log)
 
 			var err error
 			// Reuse one KV store for the whole context so rendered.Bus (initialized once) and tests share the same instance.
@@ -2102,7 +2102,7 @@ var _ = Describe("Device LastSeen Integration Tests", func() {
 			suite = NewServiceTestSuite()
 			suite.Setup()
 
-			healthchecker.HealthChecks.Initialize(suite.Ctx, suite.DeviceStore, suite.Log)
+			healthchecker.HealthChecks.Initialize(suite.Ctx, suite.Device, suite.Log)
 
 			var err error
 			if testKvStore == nil {

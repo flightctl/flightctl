@@ -17,9 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/kvstore"
-	"github.com/flightctl/flightctl/internal/service/device"
 	"github.com/flightctl/flightctl/internal/service/events"
-	"github.com/flightctl/flightctl/internal/service/fleet"
 	"github.com/flightctl/flightctl/internal/store"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	"github.com/google/uuid"
@@ -191,10 +189,6 @@ func (f *fakeEventsService) createdWithReason(reason domain.EventReason) []*doma
 	return matched
 }
 
-type fakeFleetService struct {
-	fleet.Service
-}
-
 func newTestCA(t *testing.T) *crypto.CAClient {
 	cfg := cacfg.NewDefault(t.TempDir())
 	caClient, _, err := crypto.EnsureCA(cfg)
@@ -202,19 +196,14 @@ func newTestCA(t *testing.T) *crypto.CAClient {
 	return caClient
 }
 
-func newTestDeviceService(ev events.Service) (device.Service, *fakeDeviceStore) {
-	devStore := newFakeDeviceStore()
-	return device.NewDeviceServiceHandler(devStore, &fakeFleetService{}, ev, nil, "", logrus.New()), devStore
-}
-
 func newTestHandler(t *testing.T) (*ServiceHandler, *fakeEnrollmentRequestStore, *fakeDeviceStore, *fakeKVStore, *fakeEventsService) {
 	erStore := newFakeEnrollmentRequestStore()
+	devStore := newFakeDeviceStore()
 	kv := &fakeKVStore{}
 	ev := &fakeEventsService{}
 	caClient := newTestCA(t)
 	logger := logrus.New()
-	deviceSvc, devStore := newTestDeviceService(ev)
-	return NewServiceHandler(erStore, deviceSvc, caClient, kv, ev, logger, nil), erStore, devStore, kv, ev
+	return NewServiceHandler(erStore, devStore, nil, caClient, kv, ev, logger, nil, "", ""), erStore, devStore, kv, ev
 }
 
 func adminContext() context.Context {

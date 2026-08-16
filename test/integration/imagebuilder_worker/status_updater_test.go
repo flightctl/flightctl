@@ -73,7 +73,7 @@ var _ = Describe("Status Updater Integration Tests", func() {
 		catalogStore = catalogstore.NewCatalogStore(db, log.WithField("pkg", "catalog-store"))
 		eventStore = eventstore.NewEventStore(db, log.WithField("pkg", "event-store"))
 		eventsSvc := events.NewServiceHandler(eventStore, nil, log)
-		catalogSvc := catalogservice.WrapWithTracing(catalogservice.NewServiceHandler(catalogStore, eventsSvc, log))
+		catalogSvc := catalogservice.WrapWithTracing(catalogservice.NewServiceHandler(catalogStore, nil, nil, eventsSvc, log))
 		repositorySvc := repositoryservice.WrapWithTracing(repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, log))
 
 		// Create imagebuilder store on the same db connection
