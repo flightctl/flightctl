@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"errors"
 	"testing"
 
 	cacfg "github.com/flightctl/flightctl/internal/config/ca"
@@ -20,6 +21,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -55,24 +57,30 @@ func (f *fakeEnrollmentRequestStore) Create(ctx context.Context, orgId uuid.UUID
 	return req, nil
 }
 
-func (f *fakeEnrollmentRequestStore) Update(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, error) {
-	name := lo.FromPtr(req.Metadata.Name)
+func (f *fakeEnrollmentRequestStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.EnrollmentRequest, apply enrollmentrequeststore.EnrollmentRequestApplyFunc) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error) {
 	old, exists := f.items[name]
-	if !exists {
-		return nil, nil, flterrors.ErrResourceNotFound
+	creating := !exists
+	var before *domain.EnrollmentRequest
+	var current *domain.EnrollmentRequest
+	if !creating {
+		before = old
+		cp := *old
+		current = &cp
 	}
-	f.items[name] = req
-	return req, old, nil
-}
-
-func (f *fakeEnrollmentRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error) {
-	name := lo.FromPtr(req.Metadata.Name)
-	if _, exists := f.items[name]; exists {
-		result, old, err := f.Update(ctx, orgId, req)
-		return result, old, false, err
+	mutation := &enrollmentrequeststore.EnrollmentRequestMutation{EnrollmentRequest: current}
+	if apply != nil {
+		if err := apply(mutation); err != nil {
+			if errors.Is(err, store.ErrMutateSkipWrite) {
+				return mutation.EnrollmentRequest, before, false, nil
+			}
+			return nil, nil, false, err
+		}
 	}
-	result, err := f.Create(ctx, orgId, req)
-	return result, nil, true, err
+	if mutation.EnrollmentRequest == nil {
+		return nil, nil, false, flterrors.ErrResourceIsNil
+	}
+	f.items[name] = mutation.EnrollmentRequest
+	return mutation.EnrollmentRequest, before, creating, nil
 }
 
 func (f *fakeEnrollmentRequestStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.EnrollmentRequest, error) {

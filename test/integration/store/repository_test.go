@@ -34,6 +34,24 @@ func decryptString(val string) string {
 	return string(plaintext)
 }
 
+func mutateRepository(ctx context.Context, repositoryStore repositorystore.Store, orgId uuid.UUID, repository *api.Repository) (*api.Repository, bool, error) {
+	name := lo.FromPtr(repository.Metadata.Name)
+	updated, _, created, err := repositoryStore.Mutate(ctx, orgId, name, nil, func(m *repositorystore.RepositoryMutation) error {
+		if m.Repository == nil {
+			next := *repository
+			m.Repository = &next
+			return nil
+		}
+		m.Repository.Spec = repository.Spec
+		if repository.Status != nil {
+			m.Repository.Status = repository.Status
+		}
+		store.ApplyObjectMetaUpdate(&m.Repository.Metadata, &repository.Metadata, nil)
+		return nil
+	})
+	return updated, created, err
+}
+
 func newOciAuth(username, password string) *api.OciAuth {
 	auth := &api.OciAuth{}
 	_ = auth.FromDockerAuth(api.DockerAuth{
@@ -184,7 +202,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(*repositories.Items[0].Metadata.Name).To(Equal("myrepository-1"))
 		})
 
-		It("CreateOrUpdateRepository create mode", func() {
+		It("Mutate repository create mode", func() {
 			spec := api.RepositorySpec{}
 			err := spec.FromGitRepoSpec(api.GitRepoSpec{
 				Url:  "myrepo",
@@ -198,7 +216,7 @@ var _ = Describe("RepositoryStore create", func() {
 				Spec:   spec,
 				Status: nil,
 			}
-			repo, _, created, err := repositoryStore.CreateOrUpdate(ctx, orgId, &repository)
+			repo, created, err := mutateRepository(ctx, repositoryStore, orgId, &repository)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(true))
 			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPIVersion()))
@@ -210,7 +228,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(repo.Status.Conditions).To(BeEmpty())
 		})
 
-		It("CreateOrUpdateRepository update mode", func() {
+		It("Mutate repository update mode", func() {
 			spec := api.RepositorySpec{}
 			err := spec.FromGitRepoSpec(api.GitRepoSpec{
 				Url:  "myotherrepo",
@@ -224,7 +242,7 @@ var _ = Describe("RepositoryStore create", func() {
 				Spec:   spec,
 				Status: nil,
 			}
-			repo, _, created, err := repositoryStore.CreateOrUpdate(ctx, orgId, &repository)
+			repo, created, err := mutateRepository(ctx, repositoryStore, orgId, &repository)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(false))
 			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPIVersion()))
@@ -236,7 +254,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(repo.Status.Conditions).To(BeEmpty())
 		})
 
-		It("CreateOrUpdateRepository create nilspec", func() {
+		It("Mutate repository create nilspec", func() {
 			spec := api.RepositorySpec{}
 			err := spec.FromGitRepoSpec(api.GitRepoSpec{
 				Url:  "myotherrepo",
@@ -250,7 +268,7 @@ var _ = Describe("RepositoryStore create", func() {
 				Spec:   spec,
 				Status: nil,
 			}
-			repo, _, created, err := repositoryStore.CreateOrUpdate(ctx, orgId, &repository)
+			repo, created, err := mutateRepository(ctx, repositoryStore, orgId, &repository)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(true))
 			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPIVersion()))
@@ -755,7 +773,7 @@ var _ = Describe("RepositoryStore create", func() {
 				},
 				Spec: spec,
 			}
-			_, _, created, err := repositoryStore.CreateOrUpdate(ctx, orgId, &repository)
+			_, created, err := mutateRepository(ctx, repositoryStore, orgId, &repository)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeTrue())
 
@@ -773,7 +791,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			repository.Spec = spec
-			repo, _, created, err := repositoryStore.CreateOrUpdate(ctx, orgId, &repository)
+			repo, created, err := mutateRepository(ctx, repositoryStore, orgId, &repository)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeFalse())
 
@@ -1031,7 +1049,7 @@ var _ = Describe("RepositoryStore create", func() {
 				},
 				Spec: spec,
 			}
-			_, _, created, err := repositoryStore.CreateOrUpdate(ctx, orgId, &repository)
+			_, created, err := mutateRepository(ctx, repositoryStore, orgId, &repository)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeTrue())
 
@@ -1047,7 +1065,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			repository.Spec = spec
-			repo, _, created, err := repositoryStore.CreateOrUpdate(ctx, orgId, &repository)
+			repo, created, err := mutateRepository(ctx, repositoryStore, orgId, &repository)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeFalse())
 

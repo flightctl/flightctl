@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
+	authproviderstore "github.com/flightctl/flightctl/internal/store/authprovider"
 	"github.com/flightctl/flightctl/internal/store/model"
 	testutil "github.com/flightctl/flightctl/test/util/testdata"
 	"github.com/google/uuid"
@@ -49,6 +50,35 @@ func newFakeAuthProviderStore() *fakeAuthProviderStore {
 
 func (f *fakeAuthProviderStore) InitialMigration(ctx context.Context) error { return f.err }
 
+func (f *fakeAuthProviderStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.AuthProvider, apply authproviderstore.AuthProviderApplyFunc) (*domain.AuthProvider, *domain.AuthProvider, bool, error) {
+	if f.err != nil {
+		return nil, nil, false, f.err
+	}
+	old, exists := f.providers[name]
+	creating := !exists
+	var before *domain.AuthProvider
+	var current *domain.AuthProvider
+	if !creating {
+		before = old
+		cp := *old
+		current = &cp
+	}
+	mutation := &authproviderstore.AuthProviderMutation{AuthProvider: current}
+	if apply != nil {
+		if err := apply(mutation); err != nil {
+			if errors.Is(err, store.ErrMutateSkipWrite) {
+				return mutation.AuthProvider, before, false, nil
+			}
+			return nil, nil, false, err
+		}
+	}
+	if mutation.AuthProvider == nil {
+		return nil, nil, false, flterrors.ErrResourceIsNil
+	}
+	f.providers[name] = mutation.AuthProvider
+	return mutation.AuthProvider, before, creating, nil
+}
+
 func (f *fakeAuthProviderStore) Create(ctx context.Context, orgId uuid.UUID, authProvider *domain.AuthProvider) (*domain.AuthProvider, error) {
 	if f.err != nil {
 		return nil, f.err
@@ -59,29 +89,6 @@ func (f *fakeAuthProviderStore) Create(ctx context.Context, orgId uuid.UUID, aut
 	}
 	f.providers[name] = authProvider
 	return authProvider, nil
-}
-
-func (f *fakeAuthProviderStore) Update(ctx context.Context, orgId uuid.UUID, authProvider *domain.AuthProvider) (*domain.AuthProvider, *domain.AuthProvider, error) {
-	if f.err != nil {
-		return nil, nil, f.err
-	}
-	name := lo.FromPtr(authProvider.Metadata.Name)
-	old, exists := f.providers[name]
-	if !exists {
-		return nil, nil, flterrors.ErrResourceNotFound
-	}
-	f.providers[name] = authProvider
-	return authProvider, old, nil
-}
-
-func (f *fakeAuthProviderStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, authProvider *domain.AuthProvider) (*domain.AuthProvider, *domain.AuthProvider, bool, error) {
-	name := lo.FromPtr(authProvider.Metadata.Name)
-	if _, exists := f.providers[name]; exists {
-		result, old, err := f.Update(ctx, orgId, authProvider)
-		return result, old, false, err
-	}
-	result, err := f.Create(ctx, orgId, authProvider)
-	return result, nil, true, err
 }
 
 func (f *fakeAuthProviderStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.AuthProvider, error) {

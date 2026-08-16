@@ -246,7 +246,17 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, org
 		}
 	}
 
-	result, oldCSR, err := h.store.Update(ctx, orgId, newObj)
+	result, oldCSR, _, err := h.store.Mutate(ctx, orgId, name, currentObj, func(m *certificatesigningrequeststore.CertificateSigningRequestMutation) error {
+		if err := m.RequireExisting(); err != nil {
+			return err
+		}
+		if certificateSigningRequestOwnershipConflict(m.CertificateSigningRequest, newObj) {
+			return flterrors.ErrUpdatingResourceWithOwnerNotAllowed
+		}
+		m.CertificateSigningRequest.Spec = newObj.Spec
+		m.CertificateSigningRequest.Metadata.Labels = newObj.Metadata.Labels
+		return nil
+	})
 	h.callbackCertificateSigningRequestUpdated(ctx, domain.CertificateSigningRequestKind, orgId, name, oldCSR, result, false, err)
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, &name)
@@ -314,7 +324,29 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, o
 		}
 	}
 
-	result, oldCSR, created, err := h.store.CreateOrUpdate(ctx, orgId, &csr)
+	result, oldCSR, created, err := h.store.Mutate(ctx, orgId, name, existing, func(m *certificatesigningrequeststore.CertificateSigningRequestMutation) error {
+		if m.CertificateSigningRequest == nil {
+			next := csr
+			next.Metadata.Name = lo.ToPtr(name)
+			m.CertificateSigningRequest = &next
+			return nil
+		}
+		current := m.CertificateSigningRequest
+		if certificateSigningRequestOwnershipConflict(current, &csr) {
+			return flterrors.ErrUpdatingResourceWithOwnerNotAllowed
+		}
+		current.Spec = csr.Spec
+		if csr.Metadata.Labels != nil {
+			current.Metadata.Labels = csr.Metadata.Labels
+		}
+		if csr.Metadata.Annotations != nil {
+			current.Metadata.Annotations = csr.Metadata.Annotations
+		}
+		if csr.Metadata.Owner != nil {
+			current.Metadata.Owner = csr.Metadata.Owner
+		}
+		return nil
+	})
 	h.callbackCertificateSigningRequestUpdated(ctx, domain.CertificateSigningRequestKind, orgId, name, oldCSR, result, created, err)
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, created, domain.CertificateSigningRequestKind, &name)
