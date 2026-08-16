@@ -754,6 +754,13 @@
                 "skipTlsVerify": { "type": "boolean", "description": "Set to true to skip TLS verification when pulling the bootc-image-builder image" }
               }
             },
+            "rhelBootcImageBuilder": {
+              "type": "object",
+              "properties": {
+                "image": { "type": "string", "description": "RHEL-specific bootc-image-builder image, used automatically for RHEL 10+ source images (leave empty to use default)" },
+                "skipTlsVerify": { "type": "boolean", "description": "Set to true to skip TLS verification when pulling the RHEL bootc-image-builder image" }
+              }
+            },
             "syft": {
               "type": "object",
               "properties": {
