@@ -32,11 +32,12 @@ type serviceEntry struct {
 	CollectLogs           *bool   `yaml:"collectLogs"`
 	Helm                  *bool   `yaml:"helm"`
 	InFlightctlTarget     *bool   `yaml:"inFlightctlTarget"`
-	RequireNginx          *bool   `yaml:"requireNginx"`
+	RequireGateway        *bool   `yaml:"requireGateway"`
 	NeedsTLS              *bool   `yaml:"needsTLS"`
 	Publish               *bool   `yaml:"publish"`
 	BuildContainer        *bool   `yaml:"buildContainer"`
 	InImagesYaml          *bool   `yaml:"inImagesYaml"`
+	InHelmChartOpts       *bool   `yaml:"inHelmChartOpts"`
 	RequireServiceAccount *bool   `yaml:"requireServiceAccount"`
 	RequireRoute          *bool   `yaml:"requireRoute"`
 	RequireService        *bool   `yaml:"requireService"`
@@ -66,7 +67,8 @@ type ExpandedService struct {
 	RequireServiceAccount bool
 	RequireRoute          bool
 	RequireService        bool
-	RequireNginx          bool
+	RequireGateway        bool
+	InHelmChartOpts       bool
 	InFlightctlTarget     bool
 }
 

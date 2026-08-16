@@ -52,7 +52,7 @@ func expandService(e serviceEntry) (ExpandedService, error) {
 		exp.HelmNamespace = "external"
 		exp.RequireRoute = true
 		exp.RequireService = true
-		exp.RequireNginx = true
+		exp.RequireGateway = true
 		exp.InFlightctlTarget = true
 	case profileImage:
 		exp.Publish = true
@@ -84,6 +84,7 @@ func expandService(e serviceEntry) (ExpandedService, error) {
 	exp.HelmValuesKey = toCamelCase(e.Name)
 	exp.CertSanFlag = e.Name
 	exp.MakeContainerTarget = "flightctl-" + e.Name + "-container"
+	exp.InHelmChartOpts = exp.Helm
 
 	applyBoolOverride(&exp.Publish, e.Publish)
 	applyBoolOverride(&exp.BuildContainer, e.BuildContainer)
@@ -96,10 +97,11 @@ func expandService(e serviceEntry) (ExpandedService, error) {
 	applyBoolOverride(&exp.InImagesYaml, e.InImagesYaml)
 	applyBoolOverride(&exp.ObservabilityOnly, e.ObservabilityOnly)
 	applyBoolOverride(&exp.InFlightctlTarget, e.InFlightctlTarget)
-	applyBoolOverride(&exp.RequireNginx, e.RequireNginx)
+	applyBoolOverride(&exp.RequireGateway, e.RequireGateway)
 	applyBoolOverride(&exp.RequireServiceAccount, e.RequireServiceAccount)
 	applyBoolOverride(&exp.RequireRoute, e.RequireRoute)
 	applyBoolOverride(&exp.RequireService, e.RequireService)
+	applyBoolOverride(&exp.InHelmChartOpts, e.InHelmChartOpts)
 
 	if e.MakeContainerTarget != nil {
 		if err := validateKebabIdent("makeContainerTarget", *e.MakeContainerTarget); err != nil {
