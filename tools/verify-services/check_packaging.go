@@ -55,24 +55,39 @@ func checkPublishMatrix(repoRoot string, services []ExpandedService) []Issue {
 	if err != nil {
 		return []Issue{{Check: check, Message: err.Error()}}
 	}
-	re := regexp.MustCompile(`image:\s*\[([^\]]+)\]`)
-	m := re.FindSubmatch(data)
-	if m == nil {
-		return []Issue{{Check: check, Message: "could not find matrix.image list in publish-containers.yaml"}}
-	}
-	got := map[string]struct{}{}
-	for _, part := range strings.Split(string(m[1]), ",") {
-		part = strings.TrimSpace(part)
-		part = strings.Trim(part, "'\"")
-		if part != "" {
-			got[part] = struct{}{}
-		}
+	got, err := parsePublishImages(string(data))
+	if err != nil {
+		return []Issue{{Check: check, Message: err.Error()}}
 	}
 	d := DiffSets(want, got)
 	if d.Empty() {
 		return nil
 	}
 	return []Issue{{Check: check, Message: strings.TrimSpace(d.Format("publish set mismatch"))}}
+}
+
+func parsePublishImages(content string) (map[string]struct{}, error) {
+	// Current layout: top-level env SUPPORTED_IMAGES: "api worker ..."
+	if m := regexp.MustCompile(`(?m)^\s*SUPPORTED_IMAGES:\s*"([^"]+)"`).FindStringSubmatch(content); m != nil {
+		got := map[string]struct{}{}
+		for _, part := range strings.Fields(m[1]) {
+			got[part] = struct{}{}
+		}
+		return got, nil
+	}
+	// Older layout: strategy.matrix.image: ['api', 'worker', ...]
+	if m := regexp.MustCompile(`(?m)^\s*image:\s*\[([^\]]+)\]`).FindStringSubmatch(content); m != nil {
+		got := map[string]struct{}{}
+		for _, part := range strings.Split(m[1], ",") {
+			part = strings.TrimSpace(part)
+			part = strings.Trim(part, "'\"")
+			if part != "" {
+				got[part] = struct{}{}
+			}
+		}
+		return got, nil
+	}
+	return nil, fmt.Errorf("could not find SUPPORTED_IMAGES or matrix.image list in publish-containers.yaml")
 }
 
 func checkAirGapObservability(repoRoot string, services []ExpandedService) []Issue {
