@@ -82,9 +82,62 @@ func TestEngineRun(t *testing.T) {
 	cancel()
 }
 
+func TestEngineStatusStartupJitter(t *testing.T) {
+	require := require.New(t)
+
+	startTime := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	mockClock := newMockClock(startTime)
+
+	pushed := make(chan struct{}, 8)
+	engine := Engine{
+		syncSpecFn:         func(context.Context) {},
+		pushStatusInterval: util.Duration(60 * time.Second),
+		pushStatusFn: func(context.Context) {
+			pushed <- struct{}{}
+		},
+		statusStartupDelay: 30 * time.Second,
+		clock:              mockClock,
+		startedCh:          make(chan struct{}),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		require.NoError(engine.Run(ctx))
+	}()
+	<-engine.startedCh
+
+	select {
+	case <-pushed:
+		t.Fatal("status should wait for startup jitter")
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	mockClock.Advance(30 * time.Second)
+	select {
+	case <-pushed:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for status push after jitter")
+	}
+
+	mockClock.Advance(60 * time.Second)
+	select {
+	case <-pushed:
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for status ticker push")
+	}
+}
+
 type mockClock struct {
-	now   time.Time
-	ticks map[time.Duration]*mockTicker
+	mu     sync.Mutex
+	now    time.Time
+	ticks  map[time.Duration]*mockTicker
+	afters []mockAfter
+}
+
+type mockAfter struct {
+	at time.Time
+	ch chan time.Time
 }
 
 type mockTicker struct {
@@ -92,6 +145,11 @@ type mockTicker struct {
 	d          time.Duration
 	nextTickAt time.Time // next time to send into c channel.
 	clock      *mockClock
+}
+
+type mockFire struct {
+	ch chan time.Time
+	t  time.Time
 }
 
 func newMockClock(start time.Time) *mockClock {
@@ -102,11 +160,15 @@ func newMockClock(start time.Time) *mockClock {
 }
 
 func (m *mockClock) Now() time.Time {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return m.now
 }
 
 // NewTicker creates a a mock ticker, storing its nextTickAt as now + duration.
 func (m *mockClock) NewTicker(d time.Duration) Ticker {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	t := &mockTicker{
 		c:          make(chan time.Time, 1),
 		d:          d,
@@ -117,24 +179,52 @@ func (m *mockClock) NewTicker(d time.Duration) Ticker {
 	return t
 }
 
+func (m *mockClock) After(d time.Duration) <-chan time.Time {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ch := make(chan time.Time, 1)
+	at := m.now.Add(d)
+	if !at.After(m.now) {
+		ch <- m.now
+		return ch
+	}
+	m.afters = append(m.afters, mockAfter{at: at, ch: ch})
+	return ch
+}
+
 func (m *mockTicker) C() <-chan time.Time {
 	return m.c
 }
 
 func (m *mockTicker) Stop() {
-	close(m.c)
+	m.clock.mu.Lock()
+	defer m.clock.mu.Unlock()
+	if m.clock.ticks[m.d] == m {
+		delete(m.clock.ticks, m.d)
+	}
 }
 
 func (m *mockClock) Advance(d time.Duration) {
+	m.mu.Lock()
 	m.now = m.now.Add(d)
-	// check how many intervals (dur) we crossed,
-	// send ticks for each crossing.
+	var fires []mockFire
+	remaining := m.afters[:0]
+	for _, a := range m.afters {
+		if !a.at.After(m.now) {
+			fires = append(fires, mockFire{ch: a.ch, t: a.at})
+			continue
+		}
+		remaining = append(remaining, a)
+	}
+	m.afters = remaining
 	for dur, t := range m.ticks {
 		for !t.nextTickAt.After(m.now) {
-			// send a tick
-			t.c <- t.nextTickAt
-			// move forward by its interval.
+			fires = append(fires, mockFire{ch: t.c, t: t.nextTickAt})
 			t.nextTickAt = t.nextTickAt.Add(dur)
 		}
+	}
+	m.mu.Unlock()
+	for _, f := range fires {
+		f.ch <- f.t
 	}
 }
