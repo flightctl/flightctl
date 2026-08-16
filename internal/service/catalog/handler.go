@@ -1005,6 +1005,14 @@ func fleetVolumeDeployments(fleets []domain.Fleet, catalogName, itemName string,
 	}
 }
 
+func (h *ServiceHandler) UnsetOwner(ctx context.Context, orgId uuid.UUID, owner string) error {
+	return h.store.UnsetOwner(ctx, store.DB(ctx, nil), orgId, owner)
+}
+
+func (h *ServiceHandler) UnsetItemOwner(ctx context.Context, orgId uuid.UUID, owner string) error {
+	return h.store.UnsetItemOwner(ctx, store.DB(ctx, nil), orgId, owner)
+}
+
 // callbackCatalogUpdated is the catalog-specific callback that handles catalog events
 func (h *ServiceHandler) callbackCatalogUpdated(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
 	common.SafeEventCallback(h.log, func() {
