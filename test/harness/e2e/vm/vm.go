@@ -137,6 +137,10 @@ func (v *TestVM) sshCommandWithUserContext(ctx context.Context, inputArgs []stri
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "LogLevel=ERROR",
 		"-o", "SetEnv=LC_ALL="}
+	if len(inputArgs) > 0 {
+		// Non-interactive remote commands: no TTY so motd/profile noise stays off stdout.
+		sshArgs = append(sshArgs, "-T")
+	}
 
 	var cmd *exec.Cmd
 	if v.SSHPrivateKeyPath != "" {
