@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -37,23 +38,21 @@ func (d Diff) Format(label string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s:\n", label)
 	if len(d.Missing) > 0 {
-		fmt.Fprintf(&b, "  missing: %s\n", strings.Join(sorted(d.Missing), ", "))
+		missing := slices.Clone(d.Missing)
+		slices.Sort(missing)
+		fmt.Fprintf(&b, "  missing: %s\n", strings.Join(missing, ", "))
 	}
 	if len(d.Unexpected) > 0 {
-		fmt.Fprintf(&b, "  unexpected: %s\n", strings.Join(sorted(d.Unexpected), ", "))
+		unexpected := slices.Clone(d.Unexpected)
+		slices.Sort(unexpected)
+		fmt.Fprintf(&b, "  unexpected: %s\n", strings.Join(unexpected, ", "))
 	}
 	return b.String()
 }
 
 func sorted(in []string) []string {
-	out := append([]string(nil), in...)
-	for i := 0; i < len(out); i++ {
-		for j := i + 1; j < len(out); j++ {
-			if out[j] < out[i] {
-				out[i], out[j] = out[j], out[i]
-			}
-		}
-	}
+	out := slices.Clone(in)
+	slices.Sort(out)
 	return out
 }
 

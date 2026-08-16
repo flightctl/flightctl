@@ -22,7 +22,6 @@ func (i Issue) String() string {
 func runAllChecks(repoRoot string, services []ExpandedService) []Issue {
 	var issues []Issue
 	issues = append(issues, checkPublishMatrix(repoRoot, services)...)
-	issues = append(issues, checkLegacyPublishScript(repoRoot, services)...)
 	issues = append(issues, checkAirGapObservability(repoRoot, services)...)
 	issues = append(issues, checkImagesYAML(repoRoot, services)...)
 	issues = append(issues, checkLocalImagesYAML(repoRoot, services)...)
@@ -74,34 +73,6 @@ func checkPublishMatrix(repoRoot string, services []ExpandedService) []Issue {
 		return nil
 	}
 	return []Issue{{Check: check, Message: strings.TrimSpace(d.Format("publish set mismatch"))}}
-}
-
-func checkLegacyPublishScript(repoRoot string, services []ExpandedService) []Issue {
-	const check = "legacy-publish-script"
-	want := map[string]struct{}{}
-	for _, s := range services {
-		if s.Publish {
-			want["flightctl-"+s.Name] = struct{}{}
-		}
-	}
-	data, err := os.ReadFile(filepath.Join(repoRoot, "hack/publish_containers.sh"))
-	if err != nil {
-		return []Issue{{Check: check, Message: err.Error()}}
-	}
-	re := regexp.MustCompile(`(?m)^CONTAINER_IMAGES="([^"]+)"`)
-	m := re.FindSubmatch(data)
-	if m == nil {
-		return []Issue{{Check: check, Message: "could not find CONTAINER_IMAGES in publish_containers.sh"}}
-	}
-	got := map[string]struct{}{}
-	for _, part := range strings.Fields(string(m[1])) {
-		got[part] = struct{}{}
-	}
-	d := DiffSets(want, got)
-	if d.Empty() {
-		return nil
-	}
-	return []Issue{{Check: check, Message: strings.TrimSpace(d.Format("publish_containers.sh mismatch"))}}
 }
 
 func checkAirGapObservability(repoRoot string, services []ExpandedService) []Issue {
@@ -313,15 +284,11 @@ func checkCollectLogs(repoRoot string, services []ExpandedService) []Issue {
 		got[part] = struct{}{}
 	}
 	want := toSet(namesWhere(services, func(s ExpandedService) bool { return s.CollectLogs }))
-	// collect-logs also includes infra deps (db, kv) not in backend registry collectLogs
-	for _, infra := range []string{"db", "kv"} {
-		delete(got, infra)
-	}
 	d := DiffSets(want, got)
 	if d.Empty() {
 		return nil
 	}
-	return []Issue{{Check: check, Message: strings.TrimSpace(d.Format("collect-logs deployments mismatch (infra db/kv ignored)"))}}
+	return []Issue{{Check: check, Message: strings.TrimSpace(d.Format("collect-logs deployments mismatch"))}}
 }
 
 func checkTagOverride(repoRoot string, services []ExpandedService) []Issue {

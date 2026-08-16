@@ -115,10 +115,7 @@ help:
 	@echo "    REGISTRY_OWNER_TESTS:  test registry owner/organization (default: flightctl-tests)"
 	@echo "    REGISTRY_USER:   registry username for login"
 
-.PHONY: publish
-publish: build-containers
-	hack/publish_containers.sh
-
+.PHONY: generate
 generate: generate-mirror-embed
 	go generate -v $(shell go list ./... | grep -v -e api/grpc)
 

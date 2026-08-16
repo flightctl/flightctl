@@ -16,11 +16,11 @@ Profiles expand to the membership checks below. Use overrides only when somethin
 | Profile | Typical use |
 |---|---|
 | `backend-internal` | Worker-style services (Helm + quadlet, internal namespace) |
-| `backend-external` | API-style services (also OpenShift Route, Service, nginx hostname, TLS cert wiring) |
+| `backend-external` | API-style services (also OpenShift Route, Service, gateway nginx hostname, TLS cert wiring) |
 | `image` | Published container without a full backend stack |
 | `images-yaml-only` | Third-party or out-of-repo images listed in `images.yaml` |
 
-ServiceAccounts are **not** required by profile. If a service needs one, add `requireServiceAccount: true` and ship the Helm template. Missing SAs are treated as intentional unless that override is set.
+ServiceAccounts are **not** required by profile. If a service needs one, add `requireServiceAccount: true` and ship the Helm template. Missing SAs are treated as intentional unless that override is set. Use `inHelmChartOpts: true` for published images that appear in `helm-chart-opts.yaml` without a full Helm backend profile. Use `collectLogs: true` for deployments that should appear in the collect-logs action (including infra like `db` / `kv`).
 
 ## 2. Hand-write the service
 
@@ -30,7 +30,7 @@ Implement as needed for the profile:
 - Containerfiles under `packaging/images/el9/` and `el10/`
 - Helm under `deploy/helm/flightctl/templates/<name>/` (Deployment; ServiceAccount only when needed; for external also Route + Service)
 - Quadlet under `deploy/podman/flightctl-<name>/`, plus register assets in `internal/quadlet/renderer/manifest.go` and add `Wants=flightctl-<name>.service` in `deploy/podman/flightctl.target` when the service should start with the stack (see [service-quadlets.md](service-quadlets.md))
-- For external services: nginx upstream in `deploy/podman/flightctl-gateway/.../nginx.conf.template`, and TLS SAN wiring in cert generators
+- For external / gateway-fronted services: nginx upstream in `deploy/podman/flightctl-gateway/.../nginx.conf.template` (`requireGateway: true`), and TLS SAN wiring in cert generators
 
 ## 3. Run verification
 
@@ -43,9 +43,9 @@ This runs unit tests for [`tools/verify-services`](../../tools/verify-services) 
 ### What CI verifies (membership / existence)
 
 - Publish matrix, `images.yaml` / `local-images.yaml` (el9 + el10), Containerfiles, Make build/container lists, quadlet `podman save`, collect-logs, tag override
-- Helm values/schema/templates dir/deployment; ServiceAccount when `requireServiceAccount: true`; for external also Route + Service; `helm-chart-opts` image keys
+- Helm values/schema/templates dir/deployment; ServiceAccount when `requireServiceAccount: true`; for external also Route + Service; `helm-chart-opts` image keys when `inHelmChartOpts` (default for Helm backends)
 - Quadlet directory, `manifest.go`, `flightctl.target` Wants=
-- For external: `flightctl-<name>` mentioned in nginx.conf.template
+- When `requireGateway`: `flightctl-<name>` in an active nginx `proxy_pass`/`server` directive
 - For TLS: `--*-san` in `generate-certificates.sh`; Helm openssl/cert-manager when Helm-enabled; `init_certs.sh` only when the quadlet unit mounts `pki/flightctl-<name>/server.crt` (gateway-terminated HTTP upstreams like imagebuilder-api do not need this)
 
 ### What you still finish by hand

@@ -84,7 +84,7 @@ func TestExpandService(t *testing.T) {
 			entry: serviceEntry{Name: "remote-access", Profile: profileBackendExternal},
 			check: func(t *testing.T, exp ExpandedService) {
 				t.Helper()
-				if !exp.RequireRoute || !exp.RequireNginx || !exp.NeedsTLS || exp.HelmNamespace != "external" {
+				if !exp.RequireRoute || !exp.RequireGateway || !exp.NeedsTLS || exp.HelmNamespace != "external" {
 					t.Fatalf("unexpected expansion: %+v", exp)
 				}
 				if exp.HelmValuesKey != "remoteAccess" {
@@ -100,7 +100,7 @@ func TestExpandService(t *testing.T) {
 			entry: serviceEntry{Name: "worker", Profile: profileBackendInternal},
 			check: func(t *testing.T, exp ExpandedService) {
 				t.Helper()
-				if exp.RequireRoute || exp.RequireNginx || exp.NeedsTLS {
+				if exp.RequireRoute || exp.RequireGateway || exp.NeedsTLS {
 					t.Fatalf("internal should not require route/nginx/tls: %+v", exp)
 				}
 				if exp.RequireServiceAccount {

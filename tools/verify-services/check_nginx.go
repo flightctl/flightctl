@@ -16,7 +16,7 @@ func checkNginx(repoRoot string, services []ExpandedService) []Issue {
 	content := string(data)
 	var issues []Issue
 	for _, s := range services {
-		if !s.RequireNginx {
+		if !s.RequireGateway {
 			continue
 		}
 		host := "flightctl-" + s.Name

@@ -38,8 +38,8 @@ func TestCheckNginx(t *testing.T) {
 			name:  "When hostname missing it should report",
 			nginx: "proxy_pass http://flightctl-api:3080;\n",
 			services: []ExpandedService{
-				{Name: "api", RequireNginx: true},
-				{Name: "remote-access", RequireNginx: true},
+				{Name: "api", RequireGateway: true},
+				{Name: "remote-access", RequireGateway: true},
 			},
 			wantCount: 1,
 		},
@@ -47,7 +47,7 @@ func TestCheckNginx(t *testing.T) {
 			name:  "When only commented it should report",
 			nginx: "# proxy_pass http://flightctl-remote-access:3444/;\nproxy_pass http://flightctl-api:3080;\n",
 			services: []ExpandedService{
-				{Name: "remote-access", RequireNginx: true},
+				{Name: "remote-access", RequireGateway: true},
 			},
 			wantCount: 1,
 		},
@@ -55,7 +55,7 @@ func TestCheckNginx(t *testing.T) {
 			name:  "When proxy_pass present it should pass",
 			nginx: "proxy_pass http://flightctl-remote-access:3444/;\n",
 			services: []ExpandedService{
-				{Name: "remote-access", RequireNginx: true},
+				{Name: "remote-access", RequireGateway: true},
 			},
 			wantCount: 0,
 		},
@@ -97,50 +97,6 @@ func TestCheckPublishMatrix(t *testing.T) {
 			t.Fatalf("unexpected issues: %v", issues)
 		}
 	})
-}
-
-func TestCheckLegacyPublishScript(t *testing.T) {
-	cases := []struct {
-		name      string
-		script    string
-		services  []ExpandedService
-		wantCount int
-	}{
-		{
-			name:   "When list matches it should pass",
-			script: "CONTAINER_IMAGES=\"flightctl-api flightctl-worker\"\n",
-			services: []ExpandedService{
-				{Name: "api", Publish: true},
-				{Name: "worker", Publish: true},
-			},
-			wantCount: 0,
-		},
-		{
-			name:   "When image missing it should report",
-			script: "CONTAINER_IMAGES=\"flightctl-api\"\n",
-			services: []ExpandedService{
-				{Name: "api", Publish: true},
-				{Name: "worker", Publish: true},
-			},
-			wantCount: 1,
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			root := t.TempDir()
-			dir := filepath.Join(root, "hack")
-			if err := os.MkdirAll(dir, 0o755); err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(filepath.Join(dir, "publish_containers.sh"), []byte(tc.script), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			issues := checkLegacyPublishScript(root, tc.services)
-			if len(issues) != tc.wantCount {
-				t.Fatalf("issues=%v want %d", issues, tc.wantCount)
-			}
-		})
-	}
 }
 
 func TestUnitWants(t *testing.T) {

@@ -115,23 +115,10 @@ func isOpenShiftRouteManifest(content string) bool {
 }
 
 func chartOptsImageKey(s ExpandedService) string {
-	if s.Helm {
+	if s.HelmValuesKey != "" {
 		return s.HelmValuesKey
 	}
 	return toCamelCase(s.Name)
-}
-
-func inHelmChartOpts(s ExpandedService) bool {
-	if s.Helm {
-		return true
-	}
-	// Published images that ship in helm-chart-opts but are not full backends.
-	switch s.Name {
-	case "cli-artifacts", "db-setup":
-		return true
-	default:
-		return false
-	}
 }
 
 func checkHelmChartOpts(repoRoot string, services []ExpandedService) []Issue {
@@ -159,7 +146,7 @@ func checkHelmChartOpts(repoRoot string, services []ExpandedService) []Issue {
 			continue
 		}
 		for _, s := range services {
-			if !inHelmChartOpts(s) {
+			if !s.InHelmChartOpts {
 				continue
 			}
 			key := chartOptsImageKey(s)

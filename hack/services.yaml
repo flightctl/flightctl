@@ -53,15 +53,17 @@ services:
     makeContainerTarget: multiarch-cli
     quadlet: true
     inFlightctlTarget: true
+    inHelmChartOpts: true
 
   - name: db-setup
     profile: image
+    inHelmChartOpts: true
 
   - name: pam-issuer
     profile: image
     quadlet: true
     inFlightctlTarget: false
-    requireNginx: true
+    requireGateway: true
     needsTLS: true
     certSanFlag: pam-issuer
 
@@ -81,9 +83,11 @@ services:
 
   - name: db
     profile: images-yaml-only
+    collectLogs: true
 
   - name: kv
     profile: images-yaml-only
+    collectLogs: true
 
   - name: alertmanager
     profile: images-yaml-only
