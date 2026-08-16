@@ -212,7 +212,7 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, org
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
 
-	if certificateSigningRequestOwnershipConflict(currentObj, newObj) {
+	if h.certificateSigningRequestOwnershipConflict(currentObj, newObj) {
 		return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.CertificateSigningRequestKind, &name)
 	}
 
@@ -250,7 +250,7 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, org
 		if err := m.RequireExisting(); err != nil {
 			return err
 		}
-		if certificateSigningRequestOwnershipConflict(m.CertificateSigningRequest, newObj) {
+		if h.certificateSigningRequestOwnershipConflict(m.CertificateSigningRequest, newObj) {
 			return flterrors.ErrUpdatingResourceWithOwnerNotAllowed
 		}
 		m.CertificateSigningRequest.Spec = newObj.Spec
@@ -272,14 +272,23 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, org
 	return result, domain.StatusOK()
 }
 
+func (h *ServiceHandler) expandEnrollmentSignerName(spec domain.CertificateSigningRequestSpec) domain.CertificateSigningRequestSpec {
+	if spec.SignerName == "enrollment" {
+		spec.SignerName = h.ca.Cfg.DeviceEnrollmentSignerName
+	}
+	return spec
+}
+
 // certificateSigningRequestOwnershipConflict reports whether replacing/patching an owned
-// CSR's spec would let a caller other than its owner (e.g. the enrolling device) swap in a
-// different certificate request under the same name.
-func certificateSigningRequestOwnershipConflict(existing, incoming *domain.CertificateSigningRequest) bool {
+// CSR's spec would let a caller other than its owner swap in a different request.
+func (h *ServiceHandler) certificateSigningRequestOwnershipConflict(existing, incoming *domain.CertificateSigningRequest) bool {
 	if len(lo.FromPtr(existing.Metadata.Owner)) == 0 {
 		return false
 	}
-	return !domain.CertificateSigningRequestSpecsAreEqual(existing.Spec, incoming.Spec)
+	return !domain.CertificateSigningRequestSpecsAreEqual(
+		h.expandEnrollmentSignerName(existing.Spec),
+		h.expandEnrollmentSignerName(incoming.Spec),
+	)
 }
 
 func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string, csr domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, domain.Status) {
@@ -292,7 +301,7 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, o
 		if !errors.Is(getErr, flterrors.ErrResourceNotFound) {
 			return nil, common.StoreErrorToApiStatus(getErr, false, domain.CertificateSigningRequestKind, &name)
 		}
-	} else if certificateSigningRequestOwnershipConflict(existing, &csr) {
+	} else if h.certificateSigningRequestOwnershipConflict(existing, &csr) {
 		return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.CertificateSigningRequestKind, &name)
 	}
 
@@ -332,7 +341,7 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, o
 			return nil
 		}
 		current := m.CertificateSigningRequest
-		if certificateSigningRequestOwnershipConflict(current, &csr) {
+		if h.certificateSigningRequestOwnershipConflict(current, &csr) {
 			return flterrors.ErrUpdatingResourceWithOwnerNotAllowed
 		}
 		current.Spec = csr.Spec
@@ -342,9 +351,8 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, o
 		if csr.Metadata.Annotations != nil {
 			current.Metadata.Annotations = csr.Metadata.Annotations
 		}
-		if csr.Metadata.Owner != nil {
-			current.Metadata.Owner = csr.Metadata.Owner
-		}
+		current.Metadata.Owner = csr.Metadata.Owner
+		current.Metadata.Generation = csr.Metadata.Generation
 		return nil
 	})
 	h.callbackCertificateSigningRequestUpdated(ctx, domain.CertificateSigningRequestKind, orgId, name, oldCSR, result, created, err)
