@@ -137,19 +137,30 @@ func (h *ServiceHandler) ReplaceCatalog(ctx context.Context, orgId uuid.UUID, na
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	if enforceOwnership {
-		existing, getErr := h.store.Get(ctx, orgId, name)
-		if getErr != nil {
-			if !errors.Is(getErr, flterrors.ErrResourceNotFound) {
-				return nil, common.StoreErrorToApiStatus(getErr, false, domain.CatalogKind, &name)
-			}
-		} else if len(lo.FromPtr(existing.Metadata.Owner)) != 0 &&
-			!domain.CatalogSpecsAreEqual(existing.Spec, catalog.Spec) {
-			return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.CatalogKind, &name)
+	result, oldCatalog, created, err := h.store.Mutate(ctx, orgId, name, nil, func(m *catalogstore.CatalogMutation) error {
+		if m.Catalog == nil {
+			next := catalog
+			next.Metadata.Name = lo.ToPtr(name)
+			m.Catalog = &next
+			return nil
 		}
-	}
-
-	result, oldCatalog, created, err := h.store.CreateOrUpdate(ctx, orgId, &catalog)
+		current := m.Catalog
+		if enforceOwnership && len(lo.FromPtr(current.Metadata.Owner)) != 0 &&
+			!domain.CatalogSpecsAreEqual(current.Spec, catalog.Spec) {
+			return flterrors.ErrUpdatingResourceWithOwnerNotAllowed
+		}
+		current.Spec = catalog.Spec
+		if catalog.Metadata.Labels != nil {
+			current.Metadata.Labels = catalog.Metadata.Labels
+		}
+		if catalog.Metadata.Annotations != nil {
+			current.Metadata.Annotations = catalog.Metadata.Annotations
+		}
+		if catalog.Metadata.Owner != nil {
+			current.Metadata.Owner = catalog.Metadata.Owner
+		}
+		return nil
+	})
 	h.callbackCatalogUpdated(ctx, domain.CatalogKind, orgId, name, oldCatalog, result, created, err)
 	return result, common.StoreErrorToApiStatus(err, created, domain.CatalogKind, &name)
 }
@@ -205,7 +216,19 @@ func (h *ServiceHandler) PatchCatalog(ctx context.Context, orgId uuid.UUID, name
 		return nil, common.StoreErrorToApiStatus(flterrors.ErrUpdatingResourceWithOwnerNotAllowed, false, domain.CatalogKind, &name)
 	}
 
-	result, oldCatalog, err := h.store.Update(ctx, orgId, newObj)
+	result, oldCatalog, _, err := h.store.Mutate(ctx, orgId, name, currentObj, func(m *catalogstore.CatalogMutation) error {
+		if err := m.RequireExisting(); err != nil {
+			return err
+		}
+		current := m.Catalog
+		if enforceOwnership && len(lo.FromPtr(current.Metadata.Owner)) != 0 &&
+			!domain.CatalogSpecsAreEqual(current.Spec, newObj.Spec) {
+			return flterrors.ErrUpdatingResourceWithOwnerNotAllowed
+		}
+		current.Spec = newObj.Spec
+		current.Metadata.Labels = newObj.Metadata.Labels
+		return nil
+	})
 	h.callbackCatalogUpdated(ctx, domain.CatalogKind, orgId, name, oldCatalog, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.CatalogKind, &name)
 }

@@ -16,8 +16,7 @@ type Store interface {
 	InitialMigration(ctx context.Context) error
 
 	Create(ctx context.Context, orgId uuid.UUID, repository *domain.Repository) (*domain.Repository, error)
-	Update(ctx context.Context, orgId uuid.UUID, repository *domain.Repository) (*domain.Repository, *domain.Repository, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *domain.Repository) (*domain.Repository, *domain.Repository, bool, error)
+	Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.Repository, apply RepositoryApplyFunc) (updated *domain.Repository, before *domain.Repository, created bool, err error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Repository, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.RepositoryList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error)
@@ -89,18 +88,6 @@ func (s *RepositoryStore) InitialMigration(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-func (s *RepositoryStore) Create(ctx context.Context, orgId uuid.UUID, resource *domain.Repository) (*domain.Repository, error) {
-	return s.genericStore.Create(ctx, orgId, resource)
-}
-
-func (s *RepositoryStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.Repository) (*domain.Repository, *domain.Repository, error) {
-	return s.genericStore.Update(ctx, orgId, resource, nil, nil)
-}
-
-func (s *RepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.Repository) (*domain.Repository, *domain.Repository, bool, error) {
-	return s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, nil)
 }
 
 func (s *RepositoryStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Repository, error) {

@@ -18,8 +18,7 @@ type Store interface {
 	InitialMigration(ctx context.Context) error
 
 	Create(ctx context.Context, orgId uuid.UUID, resourceSync *domain.ResourceSync) (*domain.ResourceSync, error)
-	Update(ctx context.Context, orgId uuid.UUID, resourceSync *domain.ResourceSync) (*domain.ResourceSync, *domain.ResourceSync, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resourceSync *domain.ResourceSync) (*domain.ResourceSync, *domain.ResourceSync, bool, error)
+	Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.ResourceSync, apply ResourceSyncApplyFunc) (updated *domain.ResourceSync, before *domain.ResourceSync, created bool, err error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.ResourceSync, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.ResourceSyncList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error)
@@ -94,18 +93,6 @@ func (s *ResourceSyncStore) InitialMigration(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-func (s *ResourceSyncStore) Create(ctx context.Context, orgId uuid.UUID, resource *domain.ResourceSync) (*domain.ResourceSync, error) {
-	return s.genericStore.Create(ctx, orgId, resource)
-}
-
-func (s *ResourceSyncStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.ResourceSync) (*domain.ResourceSync, *domain.ResourceSync, error) {
-	return s.genericStore.Update(ctx, orgId, resource, nil, nil)
-}
-
-func (s *ResourceSyncStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.ResourceSync) (*domain.ResourceSync, *domain.ResourceSync, bool, error) {
-	return s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, nil)
 }
 
 func (s *ResourceSyncStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.ResourceSync, error) {
