@@ -42,8 +42,6 @@ spec:
           interfaces:
           - masquerade: {}
             name: default
-            ports:
-            - port: 2222
           rng: {}
         memory:
           guest: 1024M
@@ -271,7 +269,7 @@ func NewMountVolume(name, mountPath string) (v1beta1.ApplicationVolume, error) {
 // generated .pod unit.
 func NewVmApplicationSpec(name, image string) (v1beta1.ApplicationProviderSpec, error) {
 	vmYAML := fmt.Sprintf(vmYAMLTemplate, name, image)
-	publishPorts := []string{"2222:2222"}
+	publishPorts := []string{"2222:22"}
 
 	vmApp := v1beta1.VmApplication{
 		AppType:      v1beta1.AppTypeVm,
@@ -1153,6 +1151,63 @@ func (h *Harness) GetContainerPorts() (string, error) {
 // =============================================================================
 // VM operations
 // =============================================================================
+
+// RunSSHOnDeviceLocalPort runs ssh on the device host to localhost:port using password auth.
+// This exercises VM publishPorts mappings (e.g. host 2222 to guest 22).
+func (h *Harness) RunSSHOnDeviceLocalPort(port int, user, password string, remoteArgs ...string) (string, error) {
+	if h.VM == nil {
+		return "", fmt.Errorf("device VM is not configured")
+	}
+	if port <= 0 || port > 65535 {
+		return "", fmt.Errorf("port must be between 1 and 65535, got %d", port)
+	}
+	if user == "" {
+		return "", fmt.Errorf("ssh user is required")
+	}
+	if password == "" {
+		return "", fmt.Errorf("ssh password is required")
+	}
+	if len(remoteArgs) == 0 {
+		return "", fmt.Errorf("remote command is required")
+	}
+
+	quotedRemoteArgs := make([]string, len(remoteArgs))
+	for i, arg := range remoteArgs {
+		quotedRemoteArgs[i] = shellQuote(arg)
+	}
+	quotedPassword := shellQuote(password)
+	script := fmt.Sprintf(`set -euo pipefail
+ssh_common=(ssh -p %d \
+  -o ConnectTimeout=10 \
+  -o PubkeyAuthentication=no \
+  -o UserKnownHostsFile=/dev/null \
+  -o StrictHostKeyChecking=no \
+  -o LogLevel=ERROR \
+  %s %s)
+if command -v sshpass >/dev/null 2>&1; then
+  sshpass -p %s "${ssh_common[@]}"
+else
+  askpass=$(mktemp)
+  trap 'rm -f "$askpass"' EXIT
+  printf '#!/bin/sh\necho %%s\n' %s >"$askpass"
+  chmod 700 "$askpass"
+  SSH_ASKPASS="$askpass" SSH_ASKPASS_REQUIRE=force DISPLAY=:0 setsid "${ssh_common[@]}"
+fi`,
+		port,
+		shellQuote(user+"@127.0.0.1"),
+		strings.Join(quotedRemoteArgs, " "),
+		quotedPassword,
+		quotedPassword,
+	)
+	out, err := h.VM.RunSSH([]string{"bash", "-lc", script}, nil)
+	if err != nil {
+		return "", fmt.Errorf(
+			"running bash -lc ssh script on device VM (localhost:%d user=%s remote=%s): %w",
+			port, user, strings.Join(remoteArgs, " "), err,
+		)
+	}
+	return out.String(), nil
+}
 
 // RebootVMAndWaitForSSH triggers a reboot on the VM and waits for SSH to become ready again.
 func (h *Harness) RebootVMAndWaitForSSH(waitInterval time.Duration, maxAttempts int) error {
