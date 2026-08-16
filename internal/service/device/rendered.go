@@ -28,9 +28,7 @@ func applyRenderedUpdate(
 	if err != nil {
 		return "", err
 	}
-	specUnchanged := lo.HasKey(ann, domain.DeviceAnnotationRenderedSpecHash) &&
-		ann[domain.DeviceAnnotationRenderedSpecHash] == specHash
-	if specUnchanged && len(configFingerprints) == 0 && !forceUpdate {
+	if !shouldPersistRenderedUpdate(ann, specHash, configFingerprints, forceUpdate) {
 		return "", store.ErrMutateSkipWrite
 	}
 	ann[domain.DeviceAnnotationRenderedVersion] = next
@@ -57,6 +55,15 @@ func applyRenderedUpdate(
 		OsImage:      osImage,
 	}
 	return next, nil
+}
+
+func shouldPersistRenderedUpdate(ann map[string]string, specHash string, fingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool) bool {
+	specUnchanged := lo.HasKey(ann, domain.DeviceAnnotationRenderedSpecHash) &&
+		ann[domain.DeviceAnnotationRenderedSpecHash] == specHash
+	if specUnchanged && len(fingerprints) == 0 && !forceUpdate {
+		return false
+	}
+	return true
 }
 
 func applyDependencySyncFingerprints(device *domain.Device, fingerprints []domain.DependencySyncConfigRefStatus) {
