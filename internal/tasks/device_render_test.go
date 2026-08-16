@@ -918,6 +918,8 @@ func TestRenderDevice_PermanentAppError(t *testing.T) {
 	err := logic.RenderDevice(context.Background())
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrUnknownApplicationType)
+}
+
 func TestShouldPersistRenderedUpdate(t *testing.T) {
 	const hash = "abc123"
 	fingerprint := []domain.DependencySyncConfigRefStatus{{
