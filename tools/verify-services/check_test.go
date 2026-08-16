@@ -79,24 +79,38 @@ func TestCheckNginx(t *testing.T) {
 }
 
 func TestCheckPublishMatrix(t *testing.T) {
-	t.Run("When matrix matches it should pass", func(t *testing.T) {
-		root := t.TempDir()
-		dir := filepath.Join(root, ".github/workflows")
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		content := "jobs:\n  build:\n    strategy:\n      matrix:\n        image: ['api', 'worker']\n"
-		if err := os.WriteFile(filepath.Join(dir, "publish-containers.yaml"), []byte(content), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		services := []ExpandedService{
-			{Name: "api", Publish: true},
-			{Name: "worker", Publish: true},
-		}
-		if issues := checkPublishMatrix(root, services); len(issues) != 0 {
-			t.Fatalf("unexpected issues: %v", issues)
-		}
-	})
+	cases := []struct {
+		name    string
+		content string
+	}{
+		{
+			name:    "When matrix image list matches it should pass",
+			content: "jobs:\n  build:\n    strategy:\n      matrix:\n        image: ['api', 'worker']\n",
+		},
+		{
+			name:    "When SUPPORTED_IMAGES matches it should pass",
+			content: "env:\n  SUPPORTED_IMAGES: \"api worker\"\n",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			dir := filepath.Join(root, ".github/workflows")
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "publish-containers.yaml"), []byte(tc.content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			services := []ExpandedService{
+				{Name: "api", Publish: true},
+				{Name: "worker", Publish: true},
+			}
+			if issues := checkPublishMatrix(root, services); len(issues) != 0 {
+				t.Fatalf("unexpected issues: %v", issues)
+			}
+		})
+	}
 }
 
 func TestUnitWants(t *testing.T) {
