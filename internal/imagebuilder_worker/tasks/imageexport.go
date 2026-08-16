@@ -509,6 +509,7 @@ func (c *Consumer) startBootcImageBuilderContainer(
 		"run", "-d", "--rm",
 		"--name", containerName,
 		"--privileged",
+		"--net=host",
 		"--pull=newer",
 		"--entrypoint", "sleep",
 		"--security-opt", "label=type:unconfined_t",
