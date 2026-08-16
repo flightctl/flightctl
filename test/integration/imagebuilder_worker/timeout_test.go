@@ -105,7 +105,9 @@ var _ = Describe("Timeout Check Integration Tests", func() {
 		ociSpec.AccessMode = lo.ToPtr(v1beta1.ReadWrite)
 		err = outputRepo.Spec.FromOciRepoSpec(ociSpec)
 		Expect(err).ToNot(HaveOccurred())
-		_, _, err = repositoryStore.Update(ctx, orgID, outputRepo)
+		_, _, _, err = repositoryStore.Mutate(ctx, orgID, outputRepoName, outputRepo, func(m *repositorystore.RepositoryMutation) error {
+			return nil
+		})
 		Expect(err).ToNot(HaveOccurred())
 
 		// Create kvStore for Redis operations
