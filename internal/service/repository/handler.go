@@ -103,15 +103,29 @@ func (h *ServiceHandler) ReplaceRepository(ctx context.Context, orgId uuid.UUID,
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	// Preserve sensitive data from existing repository if the new one contains masked placeholders
-	existingRepo, err := h.store.Get(ctx, orgId, name)
-	if err == nil {
-		if preserveErr := repository.PreserveSensitiveData(existingRepo); preserveErr != nil {
-			return nil, domain.StatusInternalServerError(preserveErr.Error())
+	result, oldRepo, created, err := h.store.Mutate(ctx, orgId, name, nil, func(m *repositorystore.RepositoryMutation) error {
+		if m.Repository == nil {
+			next := repository
+			next.Metadata.Name = lo.ToPtr(name)
+			m.Repository = &next
+			return nil
 		}
-	}
-
-	result, oldRepo, created, err := h.store.CreateOrUpdate(ctx, orgId, &repository)
+		current := m.Repository
+		if preserveErr := repository.PreserveSensitiveData(current); preserveErr != nil {
+			return preserveErr
+		}
+		current.Spec = repository.Spec
+		if repository.Metadata.Labels != nil {
+			current.Metadata.Labels = repository.Metadata.Labels
+		}
+		if repository.Metadata.Annotations != nil {
+			current.Metadata.Annotations = repository.Metadata.Annotations
+		}
+		if repository.Metadata.Owner != nil {
+			current.Metadata.Owner = repository.Metadata.Owner
+		}
+		return nil
+	})
 	h.callbackRepositoryUpdated(ctx, domain.RepositoryKind, orgId, name, oldRepo, result, created, err)
 	return result, common.StoreErrorToApiStatus(err, created, domain.RepositoryKind, &name)
 }
@@ -152,7 +166,17 @@ func (h *ServiceHandler) PatchRepository(ctx context.Context, orgId uuid.UUID, n
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	result, oldRepo, err := h.store.Update(ctx, orgId, newObj)
+	result, oldRepo, _, err := h.store.Mutate(ctx, orgId, name, currentObj, func(m *repositorystore.RepositoryMutation) error {
+		if err := m.RequireExisting(); err != nil {
+			return err
+		}
+		if preserveErr := newObj.PreserveSensitiveData(m.Repository); preserveErr != nil {
+			return preserveErr
+		}
+		m.Repository.Spec = newObj.Spec
+		m.Repository.Metadata.Labels = newObj.Metadata.Labels
+		return nil
+	})
 	h.callbackRepositoryUpdated(ctx, domain.RepositoryKind, orgId, name, oldRepo, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.RepositoryKind, &name)
 }

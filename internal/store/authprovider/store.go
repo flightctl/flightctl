@@ -20,8 +20,7 @@ type Store interface {
 	InitialMigration(ctx context.Context) error
 
 	Create(ctx context.Context, orgId uuid.UUID, authProvider *domain.AuthProvider) (*domain.AuthProvider, error)
-	Update(ctx context.Context, orgId uuid.UUID, authProvider *domain.AuthProvider) (*domain.AuthProvider, *domain.AuthProvider, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, authProvider *domain.AuthProvider) (*domain.AuthProvider, *domain.AuthProvider, bool, error)
+	Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.AuthProvider, apply AuthProviderApplyFunc) (updated *domain.AuthProvider, before *domain.AuthProvider, created bool, err error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.AuthProvider, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.AuthProviderList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error)
@@ -112,18 +111,6 @@ func (s *AuthProviderStore) createOAuth2UniqueIndex(db *gorm.DB) error {
 		}
 	}
 	return nil
-}
-
-func (s *AuthProviderStore) Create(ctx context.Context, orgId uuid.UUID, resource *domain.AuthProvider) (*domain.AuthProvider, error) {
-	return s.genericStore.Create(ctx, orgId, resource)
-}
-
-func (s *AuthProviderStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.AuthProvider) (*domain.AuthProvider, *domain.AuthProvider, error) {
-	return s.genericStore.Update(ctx, orgId, resource, nil, nil)
-}
-
-func (s *AuthProviderStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.AuthProvider) (*domain.AuthProvider, *domain.AuthProvider, bool, error) {
-	return s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, nil)
 }
 
 func (s *AuthProviderStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.AuthProvider, error) {

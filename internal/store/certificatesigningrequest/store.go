@@ -18,8 +18,7 @@ type Store interface {
 	InitialMigration(ctx context.Context) error
 
 	Create(ctx context.Context, orgId uuid.UUID, req *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, error)
-	Update(ctx context.Context, orgId uuid.UUID, req *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, certificatesigningrequest *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error)
+	Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.CertificateSigningRequest, apply CertificateSigningRequestApplyFunc) (updated *domain.CertificateSigningRequest, before *domain.CertificateSigningRequest, created bool, err error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.CertificateSigningRequest, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.CertificateSigningRequestList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error)
@@ -86,20 +85,6 @@ func (s *CertificateSigningRequestStore) InitialMigration(ctx context.Context) e
 	}
 
 	return nil
-}
-
-// Warning: this is a user-facing function and will set the Status to nil
-func (s *CertificateSigningRequestStore) Create(ctx context.Context, orgId uuid.UUID, resource *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, error) {
-	return s.genericStore.Create(ctx, orgId, resource)
-}
-
-// Warning: this is a user-facing function and will set the Status to nil
-func (s *CertificateSigningRequestStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, error) {
-	return s.genericStore.Update(ctx, orgId, resource, nil, nil)
-}
-
-func (s *CertificateSigningRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error) {
-	return s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, nil)
 }
 
 func (s *CertificateSigningRequestStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.CertificateSigningRequest, error) {

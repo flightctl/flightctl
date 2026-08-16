@@ -2,6 +2,7 @@ package resourcesync
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -35,6 +36,32 @@ func newFakeResourceSyncStore() *fakeResourceSyncStore {
 
 func (f *fakeResourceSyncStore) InitialMigration(ctx context.Context) error { return nil }
 
+func (f *fakeResourceSyncStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.ResourceSync, apply resourcesyncstore.ResourceSyncApplyFunc) (*domain.ResourceSync, *domain.ResourceSync, bool, error) {
+	old, exists := f.items[name]
+	creating := !exists
+	var before *domain.ResourceSync
+	var current *domain.ResourceSync
+	if !creating {
+		before = old
+		cp := *old
+		current = &cp
+	}
+	mutation := &resourcesyncstore.ResourceSyncMutation{ResourceSync: current}
+	if apply != nil {
+		if err := apply(mutation); err != nil {
+			if errors.Is(err, store.ErrMutateSkipWrite) {
+				return mutation.ResourceSync, before, false, nil
+			}
+			return nil, nil, false, err
+		}
+	}
+	if mutation.ResourceSync == nil {
+		return nil, nil, false, flterrors.ErrResourceIsNil
+	}
+	f.items[name] = mutation.ResourceSync
+	return mutation.ResourceSync, before, creating, nil
+}
+
 func (f *fakeResourceSyncStore) Create(ctx context.Context, orgId uuid.UUID, rs *domain.ResourceSync) (*domain.ResourceSync, error) {
 	name := lo.FromPtr(rs.Metadata.Name)
 	if _, exists := f.items[name]; exists {
@@ -42,26 +69,6 @@ func (f *fakeResourceSyncStore) Create(ctx context.Context, orgId uuid.UUID, rs 
 	}
 	f.items[name] = rs
 	return rs, nil
-}
-
-func (f *fakeResourceSyncStore) Update(ctx context.Context, orgId uuid.UUID, rs *domain.ResourceSync) (*domain.ResourceSync, *domain.ResourceSync, error) {
-	name := lo.FromPtr(rs.Metadata.Name)
-	old, exists := f.items[name]
-	if !exists {
-		return nil, nil, flterrors.ErrResourceNotFound
-	}
-	f.items[name] = rs
-	return rs, old, nil
-}
-
-func (f *fakeResourceSyncStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, rs *domain.ResourceSync) (*domain.ResourceSync, *domain.ResourceSync, bool, error) {
-	name := lo.FromPtr(rs.Metadata.Name)
-	if _, exists := f.items[name]; exists {
-		result, old, err := f.Update(ctx, orgId, rs)
-		return result, old, false, err
-	}
-	result, err := f.Create(ctx, orgId, rs)
-	return result, nil, true, err
 }
 
 func (f *fakeResourceSyncStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.ResourceSync, error) {
