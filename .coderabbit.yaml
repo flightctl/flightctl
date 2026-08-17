@@ -65,10 +65,11 @@ reviews:
 
         Eligible file categories:
         - Documentation (*.md, docs/**)
-        - CI configuration — modifications to existing files under
-          .github/workflows/** and .github/actions/** that do NOT
-          modify build inputs, test matrix, secrets, or permissions
-          (new workflow files are not Ship)
+        - CI configuration — comment, formatting, or non-executable
+          metadata changes to existing files under .github/workflows/**
+          and .github/actions/** (changes to run, uses, on, if,
+          environment, artifacts, build inputs, test matrix, secrets,
+          or permissions are not Ship; new workflow files are not Ship)
         - Dependency version bumps in go.mod and matching checksum
           updates in go.sum with no API surface change (patch or minor
           only; major version bumps are not Ship)
@@ -79,10 +80,12 @@ reviews:
           lint config additions or formatting (not rule removals or
           disablement)
 
-        Never Ship: any change to Go source under api/, internal/,
-        pkg/, cmd/, or test/; Helm value or template changes; OpenAPI
-        spec changes; Containerfile changes; packaging/ changes;
-        hack/ scripts; .coderabbit.yaml changes.
+        Never Ship: any change to hand-maintained Go source under
+        api/, internal/, pkg/, cmd/, or test/ (generated files matching
+        the patterns above — *.gen.go, *.pb.go, zz_generated.deepcopy.go
+        — are exempt from this exclusion); Helm value or template
+        changes; OpenAPI spec changes; Containerfile changes;
+        packaging/ changes; hack/ scripts; .coderabbit.yaml changes.
 
         When uncertain, do not apply this label.
 
@@ -98,7 +101,9 @@ reviews:
         2. The blast radius is contained to one subsystem (e.g., one
            CLI subcommand, one helper function, one test file, one
            Helm value with a clear default).
-        3. The change does NOT touch any of these high-risk areas:
+        3. The PR does NOT introduce a new dependency, remove an
+           existing one, or bump a major version.
+        4. The change does NOT touch any of these high-risk areas:
            - API surface (api/**/types.go, api/**/*.yaml, **/*.proto)
            - Auth or crypto (internal/auth/**, internal/crypto/**,
              pkg/crypto/**, pkg/certmanager/**)
