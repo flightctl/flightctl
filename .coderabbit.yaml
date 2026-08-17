@@ -51,6 +51,93 @@ reviews:
       - "[skip-review]"
       - "WIP"
 
+  # ── Risk classification (Ship/Show/Ask) ───────────────────────
+  # Informational labels only — no automation. Builds trust in the
+  # classification before any merge-path changes.
+  auto_apply_labels: true
+  labeling_instructions:
+    - label: "risk:ship"
+      instructions: >
+        Apply when the PR makes ONLY trivial, mechanical changes with
+        near-zero risk of runtime impact. ALL changed files must fall
+        into one or more of these categories — if ANY file falls outside,
+        do not apply this label.
+
+        Eligible file categories:
+        - Documentation (*.md, docs/**)
+        - CI configuration — modifications to existing files under
+          .github/workflows/** and .github/actions/** that do NOT
+          modify build inputs, test matrix, secrets, or permissions
+          (new workflow files are not Ship)
+        - Dependency version bumps in go.mod with no API surface change
+          (patch or minor only; major version bumps are not Ship)
+        - Generated code regeneration with no hand-edited changes
+          (**/*.gen.go, **/*.pb.go, **/zz_generated.deepcopy.go)
+        - .gitignore, .editorconfig, Makefile comment-only or
+          whitespace-only changes with no effect on targets or recipes,
+          lint config additions or formatting (not rule removals or
+          disablement)
+
+        Never Ship: any change to Go source under api/, internal/,
+        pkg/, cmd/, or test/; Helm value or template changes; OpenAPI
+        spec changes; Containerfile changes; packaging/ changes;
+        hack/ scripts; .coderabbit.yaml changes.
+
+        When uncertain, do not apply this label.
+
+    - label: "risk:show"
+      instructions: >
+        Apply when the PR is low-to-medium risk — it changes functional
+        code but is well-scoped and unlikely to cause incidents if the
+        AI review is the only review. Apply ONLY if risk:ship does not
+        fit and ALL of the following are true:
+
+        1. The change is additive or isolated — no removal of existing
+           behavior, no cross-cutting refactors.
+        2. The blast radius is contained to one subsystem (e.g., one
+           CLI subcommand, one helper function, one test file, one
+           Helm value with a clear default).
+        3. The change does NOT touch any of these high-risk areas:
+           - API surface (api/**/types.go, api/**/*.yaml, **/*.proto)
+           - Auth or crypto (internal/auth/**, internal/crypto/**,
+             pkg/crypto/**, pkg/certmanager/**)
+           - Database schema or migrations (internal/store/**,
+             internal/migration/**)
+           - Device agent reconciliation loops (internal/agent/**)
+           - Rollout logic (internal/rollout/**)
+           - Secrets, credentials, or certificate handling anywhere
+
+        Typical Show changes: test additions or fixes, CLI help text,
+        logging improvements, Helm chart doc annotations, single-
+        function bug fixes in non-critical paths, new utility functions
+        with tests.
+
+        When uncertain, do not apply this label.
+
+    - label: "risk:ask"
+      instructions: >
+        Apply when the PR does not qualify for risk:ship or risk:show.
+        This is the default — if neither of the other labels fits,
+        apply this one. Also apply when:
+
+        - The change touches the API surface, auth, crypto, database
+          store or migrations, device agent, or rollout logic
+        - The change modifies security-sensitive configuration
+        - The change is a cross-cutting refactor affecting multiple
+          packages
+        - The PR introduces a new dependency or removes an existing one
+        - The change modifies Containerfiles or deployment manifests
+          in ways that affect runtime behavior
+        - The change modifies hack/ scripts (build, packaging, release)
+        - The change modifies .coderabbit.yaml (review policy)
+        - You are uncertain about the appropriate risk level
+
+  mutually_exclusive_groups:
+    risk:
+      - "risk:ship"
+      - "risk:show"
+      - "risk:ask"
+
   path_instructions:
 
     # ── Go: design, correctness & security ───────────────────────
