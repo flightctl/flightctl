@@ -23,15 +23,14 @@ db-setup:
   image: flightctl-db-setup-el10
   tag: latest
 gateway:
-  image: quay.io/sclorg/nginx-126-c10s
-  tag: "20260421"
+  image: registry.access.redhat.com/ubi10/nginx-126
+  tag: "1785834652"
 ui:
   # UI images are built from flightctl-ui repo
   image: quay.io/flightctl/flightctl-ui-el10
   tag: latest
 db:
-  # Using CentOS Stream 10 PostgreSQL for EL10 flavor
-  image: quay.io/sclorg/postgresql-16-c10s
+  image: quay.io/sclorg/postgresql-16-c9s
   tag: "20250214"
 kv:
   # Using Valkey (Redis replacement) for EL10 flavor

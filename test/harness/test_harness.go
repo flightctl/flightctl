@@ -347,6 +347,10 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 	}
 	cfg.SpecFetchInterval = fetchSpecInterval
 	cfg.StatusUpdateInterval = statusUpdateInterval
+	// Disable startup status jitter so integration tests that wait on first status
+	// are not delayed by up to StatusUpdateInterval.
+	zeroJitter := util.Duration(0)
+	cfg.StatusUpdateJitter = &zeroJitter
 	if err := cfg.Complete(); err != nil {
 		cancel()
 		return nil, fmt.Errorf("NewTestHarness: %w", err)

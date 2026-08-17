@@ -20,9 +20,19 @@ const (
 	// QuadletUnitPath is the quadlet unit path on device (rootful)
 	QuadletUnitPath = "/etc/containers/systemd"
 
-	// vmYAMLTemplate is a KubeVirt VirtualMachine manifest template for e2e VM tests.
-	// Placeholders: 1=name, 2=containerdisk image.
-	vmYAMLTemplate = `apiVersion: kubevirt.io/v1
+	// VMGuestMemoryDefault is the guest RAM for e2e KubeVirt VM manifests.
+	VMGuestMemoryDefault = "1024M"
+)
+
+const vmFedoraNoCloudUserData = `#cloud-config
+ssh_pwauth: true
+password: fedora
+chpasswd: { expire: False }`
+
+// VMYAML builds a KubeVirt VirtualMachine manifest for e2e tests. cloudInitVolumeYAML
+// is the cloudinitdisk volume entry (including list-item indentation under volumes)
+func VMYAML(name, guestMemory, image, cloudInitVolumeYAML string) string {
+	return fmt.Sprintf(`apiVersion: kubevirt.io/v1
 kind: VirtualMachine
 metadata:
   name: %s
@@ -42,11 +52,9 @@ spec:
           interfaces:
           - masquerade: {}
             name: default
-            ports:
-            - port: 2222
           rng: {}
         memory:
-          guest: 1024M
+          guest: %s
         resources: {}
       networks:
       - name: default
@@ -55,15 +63,36 @@ spec:
       - containerdisk:
           image: %s
         name: containerdisk
-      - cloudInitNoCloud:
+%s`, name, guestMemory, image, cloudInitVolumeYAML)
+}
+
+// VMYAMLWithConfigDrive builds a VM manifest using cloudInitConfigDrive userDataBase64.
+func VMYAMLWithConfigDrive(name, guestMemory, image, userDataBase64 string) string {
+	return VMYAML(name, guestMemory, image, vmCloudInitConfigDriveVolume(userDataBase64))
+}
+
+// VMCloudInitNoCloudVolume returns the cloudinitdisk volume using cloudInitNoCloud.
+func VMCloudInitNoCloudVolume(userData string) string {
+	return fmt.Sprintf(`      - cloudInitNoCloud:
           userData: |-
-            #cloud-config
-            ssh_pwauth: true
-            password: fedora
-            chpasswd: { expire: False }
-        name: cloudinitdisk
-`
-)
+%s
+        name: cloudinitdisk`, vmIndentCloudInitUserData(userData, 12))
+}
+
+func vmCloudInitConfigDriveVolume(userDataBase64 string) string {
+	return fmt.Sprintf(`      - cloudInitConfigDrive:
+          userDataBase64: %s
+        name: cloudinitdisk`, userDataBase64)
+}
+
+func vmIndentCloudInitUserData(userData string, spaces int) string {
+	prefix := strings.Repeat(" ", spaces)
+	lines := strings.Split(strings.TrimSuffix(userData, "\n"), "\n")
+	for i, line := range lines {
+		lines[i] = prefix + line
+	}
+	return strings.Join(lines, "\n")
+}
 
 // QuadletPathForUser returns the quadlet systemd path for the given user.
 // Empty or "root" returns the root path; any other user returns the user's config path.
@@ -270,9 +299,13 @@ func NewMountVolume(name, mountPath string) (v1beta1.ApplicationVolume, error) {
 // publishPorts so that the server-side renderer can inject it into the
 // generated .pod unit.
 func NewVmApplicationSpec(name, image string) (v1beta1.ApplicationProviderSpec, error) {
-	vmYAML := fmt.Sprintf(vmYAMLTemplate, name, image)
-	publishPorts := []string{"2222:2222"}
+	vmYAML := VMYAML(name, VMGuestMemoryDefault, image, VMCloudInitNoCloudVolume(vmFedoraNoCloudUserData))
+	return NewVmApplicationSpecFromYAML(name, []string{"2222:22"}, vmYAML)
+}
 
+// NewVmApplicationSpecFromYAML creates an inline VmApplication spec from a pre-built
+// KubeVirt VirtualMachine manifest and publishPorts list.
+func NewVmApplicationSpecFromYAML(name string, publishPorts []string, vmYAML string) (v1beta1.ApplicationProviderSpec, error) {
 	vmApp := v1beta1.VmApplication{
 		AppType:      v1beta1.AppTypeVm,
 		Name:         lo.ToPtr(name),
@@ -1153,6 +1186,149 @@ func (h *Harness) GetContainerPorts() (string, error) {
 // =============================================================================
 // VM operations
 // =============================================================================
+
+// RunSSHOnDeviceLocalPort runs ssh on the device host to localhost:port using password auth.
+// This exercises VM publishPorts mappings (e.g. host 2222 to guest 22).
+func (h *Harness) RunSSHOnDeviceLocalPort(port int, user, password string, remoteArgs ...string) (string, error) {
+	if h.VM == nil {
+		return "", fmt.Errorf("device VM is not configured")
+	}
+	if port <= 0 || port > 65535 {
+		return "", fmt.Errorf("port must be between 1 and 65535, got %d", port)
+	}
+	if user == "" {
+		return "", fmt.Errorf("ssh user is required")
+	}
+	if password == "" {
+		return "", fmt.Errorf("ssh password is required")
+	}
+	if len(remoteArgs) == 0 {
+		return "", fmt.Errorf("remote command is required")
+	}
+
+	quotedRemoteArgs := make([]string, len(remoteArgs))
+	for i, arg := range remoteArgs {
+		quotedRemoteArgs[i] = shellQuote(arg)
+	}
+	quotedPassword := shellQuote(password)
+	remoteCommand := strings.Join(quotedRemoteArgs, " ")
+	sshCommand := fmt.Sprintf(
+		`ssh -T -p %d -o ConnectTimeout=10 -o RequestTTY=no -o PubkeyAuthentication=no -o UserKnownHostsFile=/dev/null -o GlobalKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o LogLevel=ERROR %s %s`,
+		port,
+		shellQuote(user+"@127.0.0.1"),
+		remoteCommand,
+	)
+	// Run via /bin/sh on the device. Inline the ssh command (not a shell function) because
+	// sshpass/setsid execute a binary and cannot invoke shell functions.
+	script := fmt.Sprintf(`set -eu
+ssh_home=$(mktemp -d)
+trap 'rm -rf "$ssh_home"' EXIT
+export HOME="$ssh_home"
+export PATH=/usr/local/bin:/usr/bin:/bin
+if command -v sshpass >/dev/null 2>&1; then
+  sshpass -p %s %s
+else
+  askpass="$ssh_home/askpass"
+  {
+    printf '%%s\n' '#!/bin/sh'
+    printf '%%s\n' "printf '%%s\n' %s"
+  } >"$askpass"
+  chmod 700 "$askpass"
+  SSH_ASKPASS="$askpass" SSH_ASKPASS_REQUIRE=force DISPLAY=:0 setsid %s
+fi`,
+		quotedPassword,
+		sshCommand,
+		quotedPassword,
+		sshCommand,
+	)
+	out, err := h.VM.RunSSH([]string{"/bin/sh", "-c", script}, nil)
+	if err != nil {
+		return "", fmt.Errorf(
+			"running /bin/sh -c ssh script on device VM (localhost:%d user=%s remote=%s): %w",
+			port, user, strings.Join(remoteArgs, " "), err,
+		)
+	}
+	return trimSSHCommandOutput(out.String()), nil
+}
+
+// trimSSHCommandOutput returns the last non-empty line from nested SSH output. Device-side
+// shell profiles can print environment noise before the guest command result on stdout.
+func trimSSHCommandOutput(stdout string) string {
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if line := strings.TrimSpace(lines[i]); line != "" {
+			return line
+		}
+	}
+	return ""
+}
+
+// UDPProbePythonCommand returns a remote shell command that sends a UDP datagram with
+// payload "ping" to 127.0.0.1:port and prints the trimmed reply. Intended for nested
+// SSH (device host -> guest published TCP port); uses a single-quoted python -c string.
+func UDPProbePythonCommand(port int) string {
+	return fmt.Sprintf(
+		`python3 -c 'import socket; port=%d; s=socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(2); s.sendto(b"ping", ("127.0.0.1", port)); print(s.recv(1024).decode().strip())'`,
+		port,
+	)
+}
+
+// udpProbeDeviceHostScript returns a shell script that probes localhost:port over UDP
+// using socat when available, otherwise python3 via a heredoc (avoids fragile -c quoting).
+func udpProbeDeviceHostScript(port int) string {
+	return fmt.Sprintf(`set -eu
+export PATH=/usr/local/bin:/usr/bin:/bin
+port=%d
+if command -v socat >/dev/null 2>&1; then
+  printf 'ping\n' | socat -t2 - UDP4:127.0.0.1:${port}
+elif command -v python3 >/dev/null 2>&1; then
+  python3 - "$port" <<'PY'
+import socket
+import sys
+port = int(sys.argv[1])
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+s.settimeout(2)
+s.sendto(b"ping", ("127.0.0.1", port))
+print(s.recv(1024).decode().strip())
+PY
+else
+  echo "UDP probe requires socat or python3" >&2
+  exit 127
+fi`, port)
+}
+
+// lastNonEmptyLine returns the last non-empty line from command output.
+func lastNonEmptyLine(stdout string) string {
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if line := strings.TrimSpace(lines[i]); line != "" {
+			return line
+		}
+	}
+	return ""
+}
+
+// RunUDPProbeOnDeviceLocalPort sends a UDP "ping" datagram to localhost:port on the device host
+// and returns the response. This exercises VM publishPorts UDP mappings.
+func (h *Harness) RunUDPProbeOnDeviceLocalPort(port int) (string, error) {
+	if h.VM == nil {
+		return "", fmt.Errorf("device VM is not configured")
+	}
+	if port <= 0 || port > 65535 {
+		return "", fmt.Errorf("port must be between 1 and 65535, got %d", port)
+	}
+
+	out, err := h.VM.RunSSH([]string{"/bin/sh", "-c", udpProbeDeviceHostScript(port)}, nil)
+	if err != nil {
+		return "", fmt.Errorf("running UDP probe on device host localhost:%d: %w", port, err)
+	}
+	raw := out.String()
+	reply := lastNonEmptyLine(raw)
+	if reply == "" {
+		return "", fmt.Errorf("UDP probe on localhost:%d returned empty output (raw stdout=%q)", port, raw)
+	}
+	return reply, nil
+}
 
 // RebootVMAndWaitForSSH triggers a reboot on the VM and waits for SSH to become ready again.
 func (h *Harness) RebootVMAndWaitForSSH(waitInterval time.Duration, maxAttempts int) error {

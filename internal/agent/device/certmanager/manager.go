@@ -101,7 +101,7 @@ func NewAgentCertManager(
 	managementBundle, err := pkgcertmanager.NewBundle(
 		managementBundleName,
 		pkgcertmanager.WithConfigProvider(
-			management.NewManagementConfigProvider(renewBeforeExpiryPercentage),
+			management.NewManagementConfigProvider(log, renewBeforeExpiryPercentage),
 		),
 		pkgcertmanager.WithProvisionerFactory(managementProvisionerFactory),
 		pkgcertmanager.WithStorageFactory(managementStorageFactory),
@@ -148,13 +148,12 @@ func (a *AgentCertManager) Sync(ctx context.Context, _ *config.Config) error {
 
 // Run periodically calls Sync until ctx is canceled.
 func (a *AgentCertManager) Run(ctx context.Context) {
-	// First sync immediately.
+	interval := certManagerSyncInterval()
+	a.log.Infof("Certificate manager starting (sync interval=%s)", interval)
+
 	if err := a.cm.Sync(ctx); err != nil {
 		a.log.Errorf("Initial certificate sync failed: %v", err)
 	}
-
-	interval := certManagerSyncInterval()
-	a.log.Debugf("Certificate manager sync interval: %s", interval)
 
 	t := time.NewTicker(interval)
 	defer t.Stop()

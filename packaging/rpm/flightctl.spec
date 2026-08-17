@@ -637,11 +637,7 @@ fi
     %{_datadir}/flightctl/flightctl-api/config.yaml.template
     %{_datadir}/flightctl/flightctl-api/env.template
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db/enable-superuser.sh
-    %if 0%{?rhel} == 10
     %{_datadir}/flightctl/flightctl-kv/valkey.conf
-    %else
-    %{_datadir}/flightctl/flightctl-kv/redis.conf
-    %endif
     %{_datadir}/flightctl/flightctl-ui/env.template
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-ui/init.sh
     %attr(0755,root,root) %{_datadir}/flightctl/init_utils.sh
@@ -734,11 +730,11 @@ if [ "$1" -eq 2 ]; then
         DB_SETUP_IMAGE="%{db_setup_image}" \
         CONFIG_PATH="%{_sysconfdir}/flightctl/flightctl-api/config.yaml" \
         bash "$SCRIPT" "$IMAGE_TAG" "%{_sysconfdir}/flightctl/flightctl-api/config.yaml" || {
-            [ -n "${TMPSCRIPT:-}" ] && rm -f "$TMPSCRIPT"
+            [ -z "${TMPSCRIPT:-}" ] || rm -f "$TMPSCRIPT"
             echo "flightctl: dry-run failed; aborting upgrade." >&2
             exit 1
         }
-        [ -n "${TMPSCRIPT:-}" ] && rm -f "$TMPSCRIPT"
+        [ -z "${TMPSCRIPT:-}" ] || rm -f "$TMPSCRIPT"
     else
         echo "flightctl: pre-upgrade-dry-run.sh not found at %{_libexecdir}/flightctl; skipping."
     fi

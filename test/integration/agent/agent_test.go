@@ -330,13 +330,17 @@ var _ = Describe("Device Agent behavior", func() {
 				const (
 					mgmtCertTTLSecondsEnv         = "FLIGHTCTL_TEST_MGMT_CERT_EXPIRY_SECONDS"
 					mgmtCertRenewBeforeSecondsEnv = "FLIGHTCTL_TEST_MGMT_CERT_RENEW_BEFORE_SECONDS"
+					certManagerSyncIntervalEnv    = "FLIGHTCTL_TEST_CERT_MANAGER_SYNC_INTERVAL"
 					agentCertRelPath              = "var/lib/flightctl/certs/agent.crt"
 
 					// Keep the test fast:
 					// - cert lifetime: 10m
-					// - renewBefore: 10m-1s => renewal condition becomes true almost immediately
-					testCertTTLSeconds     = 10 * 60
-					testRenewBeforeSeconds = testCertTTLSeconds - 1
+					// - renewBefore: 10m-1s => renewAt ≈ issuance+1s (CA NotBefore is now-1s)
+					// - sync every 2s (same as e2e cert rotation) so a first Sync that lands
+					//   before renewAt still retries inside TIMEOUT (default sync is 1h)
+					testCertTTLSeconds          = 10 * 60
+					testRenewBeforeSeconds      = testCertTTLSeconds - 1
+					testCertManagerSyncInterval = "2s"
 
 					expectedRenewalSignerName = "flightctl.io/device-management-renewal"
 
@@ -347,7 +351,12 @@ var _ = Describe("Device Agent behavior", func() {
 				defer testutil.TestTempEnv(
 					mgmtCertTTLSecondsEnv, strconv.Itoa(testCertTTLSeconds),
 					mgmtCertRenewBeforeSecondsEnv, strconv.Itoa(testRenewBeforeSeconds),
+					certManagerSyncIntervalEnv, testCertManagerSyncInterval,
 				)()
+
+				// Harness auto-starts the agent in BeforeEach. Restart after TestTempEnv so
+				// cert manager Run() reads FLIGHTCTL_TEST_CERT_MANAGER_SYNC_INTERVAL (once).
+				h.RestartAgent()
 
 				// Enroll device and wait until the agent fetches its initial cert.
 				dev := enrollAndWaitForDevice(h, testutil.TestEnrollmentApproval())

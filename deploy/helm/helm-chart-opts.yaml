@@ -12,8 +12,8 @@ community-el9:
       image: quay.io/sclorg/postgresql-16-c9s
       tag: "20250214"
     kv:
-      image: quay.io/sclorg/redis-7-c9s
-      tag: "20250108"
+      image: quay.io/sclorg/valkey-8-c10s
+      tag: "20260121"
     alertmanager:
       image: quay.io/prometheus/alertmanager
       tag: "v0.28.1"
@@ -114,7 +114,7 @@ community-el10:
     supportURL: https://github.com/flightctl/flightctl
   images:
     db:
-      image: quay.io/sclorg/postgresql-16-c10s
+      image: quay.io/sclorg/postgresql-16-c9s
       tag: "20250214"
     kv:
       image: quay.io/sclorg/valkey-8-c10s
