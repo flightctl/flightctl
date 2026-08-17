@@ -65,11 +65,13 @@ reviews:
 
         Eligible file categories:
         - Documentation (*.md, docs/**)
-        - CI configuration — comment, formatting, or non-executable
-          metadata changes to existing files under .github/workflows/**
-          and .github/actions/** (changes to run, uses, on, if,
-          environment, artifacts, build inputs, test matrix, secrets,
-          or permissions are not Ship; new workflow files are not Ship)
+        - CI configuration — comment and formatting changes only to
+          existing files under .github/workflows/** and
+          .github/actions/** (any semantic change — including run,
+          uses, on, if, needs, runs-on, concurrency, timeout-minutes,
+          continue-on-error, defaults, environment, artifacts, build
+          inputs, test matrix, secrets, or permissions — is not Ship;
+          new workflow files are not Ship)
         - Dependency version bumps in go.mod and matching checksum
           updates in go.sum with no API surface change (patch or minor
           only; major version bumps are not Ship)
@@ -136,6 +138,8 @@ reviews:
           in ways that affect runtime behavior
         - The change modifies hack/ scripts (build, packaging, release)
         - The change modifies .coderabbit.yaml (review policy)
+        - The change hand-edits generated files (*.gen.go, *.pb.go,
+          zz_generated.deepcopy.go) rather than pure regeneration
         - You are uncertain about the appropriate risk level
 
   mutually_exclusive_groups:
