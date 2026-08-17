@@ -730,11 +730,11 @@ if [ "$1" -eq 2 ]; then
         DB_SETUP_IMAGE="%{db_setup_image}" \
         CONFIG_PATH="%{_sysconfdir}/flightctl/flightctl-api/config.yaml" \
         bash "$SCRIPT" "$IMAGE_TAG" "%{_sysconfdir}/flightctl/flightctl-api/config.yaml" || {
-            [ -n "${TMPSCRIPT:-}" ] && rm -f "$TMPSCRIPT"
+            [ -z "${TMPSCRIPT:-}" ] || rm -f "$TMPSCRIPT"
             echo "flightctl: dry-run failed; aborting upgrade." >&2
             exit 1
         }
-        [ -n "${TMPSCRIPT:-}" ] && rm -f "$TMPSCRIPT"
+        [ -z "${TMPSCRIPT:-}" ] || rm -f "$TMPSCRIPT"
     else
         echo "flightctl: pre-upgrade-dry-run.sh not found at %{_libexecdir}/flightctl; skipping."
     fi
