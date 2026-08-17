@@ -1,0 +1,29 @@
+# quay.io/flightctl/flightctl-device:onboarding
+#
+# Bootc base with cockpit and flightctl-onboarding installed.
+# Used by the onboarding e2e suite to test the first-boot wizard flow.
+
+ARG BASE_IMAGE=quay.io/flightctl/flightctl-device:base
+
+FROM ${BASE_IMAGE}
+
+# COPR repo that provides the flightctl-onboarding RPM.
+# Defaults to the same repo used for flightctl-agent.
+ARG ONBOARDING_COPR_REPO=@redhat-et/flightctl-dev
+
+RUN --mount=type=cache,target=/var/cache/dnf \
+    --mount=type=cache,target=/var/lib/dnf \
+    dnf install -y \
+        cockpit \
+        cockpit-ws \
+        cockpit-bridge && \
+    systemctl enable cockpit.socket
+
+RUN --mount=type=cache,target=/var/cache/dnf \
+    --mount=type=cache,target=/var/lib/dnf \
+    sh -exc '\
+      if [ -n "${ONBOARDING_COPR_REPO}" ]; then \
+        echo "Installing flightctl-agent and flightctl-onboarding from COPR: ${ONBOARDING_COPR_REPO}"; \
+        dnf copr -y enable ${ONBOARDING_COPR_REPO}; \
+      fi; \
+      dnf install -y flightctl-agent flightctl-onboarding'
