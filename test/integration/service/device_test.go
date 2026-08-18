@@ -794,6 +794,70 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 		})
 	})
 
+	Context("Device decommission", func() {
+		It("decommissions a device and clears owner and labels", func() {
+			deviceName := "decom-device-success"
+			labels := map[string]string{"fleet": "f1"}
+			device := api.Device{
+				Metadata: api.ObjectMeta{
+					Name:   lo.ToPtr(deviceName),
+					Owner:  lo.ToPtr("Fleet/f1"),
+					Labels: &labels,
+				},
+				Spec: &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "img"}},
+			}
+			_, status := suite.Device.CreateDevice(suite.Ctx, suite.OrgID, device)
+			Expect(status.Code).To(Equal(int32(201)))
+
+			before, status := suite.Device.GetDevice(suite.Ctx, suite.OrgID, deviceName)
+			Expect(status.Code).To(Equal(int32(200)))
+			generationBefore := lo.FromPtr(before.Metadata.Generation)
+
+			result, status := suite.Device.DecommissionDevice(suite.Ctx, suite.OrgID, deviceName, api.DeviceDecommission{
+				Target: api.DeviceDecommissionTargetTypeUnenroll,
+			})
+			Expect(status.Code).To(Equal(int32(200)))
+			Expect(result.Spec).ToNot(BeNil())
+			Expect(result.Spec.Decommissioning).ToNot(BeNil())
+			Expect(result.Spec.Decommissioning.Target).To(Equal(api.DeviceDecommissionTargetTypeUnenroll))
+			Expect(result.Status.Lifecycle.Status).To(Equal(api.DeviceLifecycleStatusDecommissioning))
+			Expect(result.Metadata.Owner).To(BeNil())
+			Expect(lo.FromPtr(result.Metadata.Labels)).To(BeEmpty())
+			Expect(lo.FromPtr(result.Metadata.Generation)).To(Equal(generationBefore))
+
+			stored, err := suite.DeviceStore.Get(suite.Ctx, suite.OrgID, deviceName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(stored.Spec.Decommissioning).ToNot(BeNil())
+			Expect(stored.Spec.Decommissioning.Target).To(Equal(api.DeviceDecommissionTargetTypeUnenroll))
+			Expect(stored.Status.Lifecycle.Status).To(Equal(api.DeviceLifecycleStatusDecommissioning))
+			Expect(stored.Metadata.Owner).To(BeNil())
+			Expect(lo.FromPtr(stored.Metadata.Labels)).To(BeEmpty())
+			Expect(result.Metadata.ResourceVersion).To(Equal(stored.Metadata.ResourceVersion))
+			Expect(lo.FromPtr(stored.Metadata.Generation)).To(Equal(generationBefore))
+		})
+
+		It("returns conflict when decommissioning an already-decommissioning device", func() {
+			deviceName := "decom-device-conflict"
+			device := api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "img"}},
+			}
+			_, status := suite.Device.CreateDevice(suite.Ctx, suite.OrgID, device)
+			Expect(status.Code).To(Equal(int32(201)))
+
+			_, status = suite.Device.DecommissionDevice(suite.Ctx, suite.OrgID, deviceName, api.DeviceDecommission{
+				Target: api.DeviceDecommissionTargetTypeUnenroll,
+			})
+			Expect(status.Code).To(Equal(int32(200)))
+
+			_, status = suite.Device.DecommissionDevice(suite.Ctx, suite.OrgID, deviceName, api.DeviceDecommission{
+				Target: api.DeviceDecommissionTargetTypeUnenroll,
+			})
+			Expect(status.Code).To(Equal(int32(409)))
+			Expect(status.Message).To(Equal(flterrors.ErrResourceVersionConflict.Error()))
+		})
+	})
+
 	Context("Package-mode OS image rejection", func() {
 		seedDeviceWithOsMode := func(deviceName string, osMode *api.OsModeType) {
 			GinkgoHelper()

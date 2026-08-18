@@ -112,9 +112,6 @@ func (f *fakeDeviceStore) GetLastSeen(context.Context, uuid.UUID, string) (*time
 func (f *fakeDeviceStore) SetServiceConditions(context.Context, uuid.UUID, string, []domain.Condition, devicestore.ServiceConditionsCallback) error {
 	panic("not implemented")
 }
-func (f *fakeDeviceStore) DecommissionDevice(context.Context, uuid.UUID, string, domain.DeviceDecommission, store.EventCallback) (*domain.Device, error) {
-	panic("not implemented")
-}
 func (f *fakeDeviceStore) OverwriteRepositoryRefs(context.Context, uuid.UUID, string, ...string) error {
 	panic("not implemented")
 }

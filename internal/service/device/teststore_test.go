@@ -293,22 +293,6 @@ func (s *fakeDeviceStore) SetOutOfDate(ctx context.Context, orgId uuid.UUID, own
 	return nil
 }
 
-func (s *fakeDeviceStore) DecommissionDevice(ctx context.Context, orgId uuid.UUID, name string, decom domain.DeviceDecommission, eventCallback store.EventCallback) (*domain.Device, error) {
-	d, ok := s.devices[name]
-	if !ok {
-		return nil, flterrors.ErrResourceNotFound
-	}
-	old := deepCopyDevice(d)
-	if d.Spec == nil {
-		d.Spec = &domain.DeviceSpec{}
-	}
-	d.Spec.Decommissioning = &decom
-	if eventCallback != nil {
-		eventCallback(ctx, domain.DeviceKind, orgId, name, old, d, false, nil)
-	}
-	return deepCopyDevice(d), nil
-}
-
 func (s *fakeDeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, callback devicestore.ServiceConditionsCallback) error {
 	d, ok := s.devices[name]
 	if !ok {
