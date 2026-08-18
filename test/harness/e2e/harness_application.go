@@ -810,6 +810,12 @@ func (h *Harness) waitForApplicationsSummaryCondition(deviceID string, descripti
 	}, TIMEOUT, POLLING).Should(BeTrue())
 }
 
+// RunAppLifecycleCommand runs `flightctl app <action>` for an application on a device
+// and skips the confirmation prompt.
+func (h *Harness) RunAppLifecycleCommand(deviceID, action, appName string) (string, error) {
+	return h.CLI("app", action, fmt.Sprintf("device/%s", deviceID), "--name", appName, "-y")
+}
+
 // WaitForApplicationStatusByName waits for an application to reach the specified status.
 func (h *Harness) WaitForApplicationStatusByName(deviceId string, applicationName string, expectedStatus v1beta1.ApplicationStatusType) {
 	GinkgoWriter.Printf("Waiting for application %s to reach %s status\n", applicationName, expectedStatus)

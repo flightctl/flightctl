@@ -41,6 +41,12 @@ const (
 	vmBPublishedUDPPort              = 9090
 	vmGuestSSHPort                   = 22
 	vmGuestMemory                    = "1024M"
+	nginxAppName                     = "nginx"
+	nginxImage                       = "quay.io/flightctl-tests/nginx:1.28-alpine-slim"
+	nginxHostPort                    = 8080
+	nginxContainerPort               = 80
+	nginxHTTPURL                     = "http://127.0.0.1:8080/"
+	flightctlUser                    = "flightctl"
 	configDriveIndexHTMLContent      = "Hello from ConfigDrive"
 	systemdSubStateActive            = "active"
 	systemdSubStateRunning           = "running"
@@ -83,7 +89,11 @@ var _ = Describe("VM Applications", Ordered, func() {
 		deviceID, _ = harness.EnrollAndWaitForOnlineStatus()
 	})
 
-	It("deploys a VM application and reports Running status", Label("vm", "90228"), func() {
+	// Deploy test-vm, then add a rootless nginx container on the same device.
+	// VM access after deploy is SSH-only (no VNC). stop/start/restart of nginx
+	// must leave the VM running; removing nginx leaves the VM intact; clearing
+	// applications cleans leftover VM systemd units.
+	It("deploys a VM application and reports Running status", Label("vm", "90228", "90241"), func() {
 		By("Adding the VM application to the device")
 		err := harness.UpdateDeviceAndWaitForVersion(deviceID, func(device *v1beta1.Device) {
 			device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{vmAppSpec}
@@ -110,6 +120,73 @@ var _ = Describe("VM Applications", Ordered, func() {
 			g.Expect(sshErr).NotTo(HaveOccurred(), "SSH to published port %d failed", vmPublishedSSHPort)
 			g.Expect(strings.TrimSpace(out)).NotTo(BeEmpty())
 		}, testutil.LONG_TIMEOUT, testutil.POLLING).Should(Succeed())
+
+		nginxAppSpec, err := e2e.NewContainerApplicationSpecWithRunAs(
+			nginxAppName,
+			nginxImage,
+			[]v1beta1.ApplicationPort{v1beta1.ApplicationPort(fmt.Sprintf("%d:%d", nginxHostPort, nginxContainerPort))},
+			nil, nil, nil,
+			flightctlUser,
+		)
+		Expect(err).ToNot(HaveOccurred())
+
+		By("Adding a container application alongside the VM")
+		err = harness.UpdateDeviceAndWaitForVersion(deviceID, func(device *v1beta1.Device) {
+			device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{nginxAppSpec, vmAppSpec}
+		})
+		Expect(err).ToNot(HaveOccurred())
+
+		By("Waiting for nginx and the VM to reach Running")
+		err = harness.WaitForApplicationStatus(deviceID, nginxAppName, v1beta1.ApplicationStatusRunning, testutil.LONG_TIMEOUT, testutil.POLLING)
+		Expect(err).ToNot(HaveOccurred())
+		waitForVMAppRunningHealthy(harness, deviceID, vmAppName)
+
+		By("Verifying nginx HTTP on the device host")
+		expectNginxHTTPOK(harness)
+
+		By("Verifying VM SSH remains reachable with nginx running")
+		expectSSHWhoamiWithPassword(harness, vmPublishedSSHPort, vmAppName, vmGuestUser, vmGuestPassword)
+
+		By("Stopping nginx and verifying the VM is unaffected")
+		_, err = harness.RunAppLifecycleCommand(deviceID, "stop", nginxAppName)
+		Expect(err).ToNot(HaveOccurred())
+		err = harness.WaitForApplicationStatus(deviceID, nginxAppName, v1beta1.ApplicationStatusStopped, testutil.LONG_TIMEOUT, testutil.POLLING)
+		Expect(err).ToNot(HaveOccurred())
+		err = harness.WaitForApplicationStatus(deviceID, vmAppName, v1beta1.ApplicationStatusRunning, testutil.LONG_TIMEOUT, testutil.POLLING)
+		if err != nil {
+			logVMApplicationUnitStatus(harness, vmAppName)
+		}
+		Expect(err).ToNot(HaveOccurred())
+		expectNginxHTTPUnavailable(harness)
+		expectSSHWhoamiWithPassword(harness, vmPublishedSSHPort, vmAppName, vmGuestUser, vmGuestPassword)
+
+		By("Removing nginx from the device spec")
+		err = harness.UpdateDeviceAndWaitForVersion(deviceID, func(device *v1beta1.Device) {
+			device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{vmAppSpec}
+		})
+		Expect(err).ToNot(HaveOccurred())
+		waitForVMAppRunningHealthy(harness, deviceID, vmAppName)
+		harness.WaitForApplicationsCount(deviceID, 1, v1beta1.ApplicationStatusRunning)
+		expectSSHWhoamiWithPassword(harness, vmPublishedSSHPort, vmAppName, vmGuestUser, vmGuestPassword)
+
+		By("Removing all remaining applications")
+		err = harness.UpdateDeviceAndWaitForVersion(deviceID, func(device *v1beta1.Device) {
+			device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{}
+		})
+		Expect(err).ToNot(HaveOccurred())
+		harness.WaitForNoApplications(deviceID)
+		err = harness.WaitForApplicationSummary(deviceID, testutil.LONG_TIMEOUT, testutil.POLLING, v1beta1.ApplicationsSummaryStatusNoApplications)
+		Expect(err).ToNot(HaveOccurred())
+		expectSSHUnavailableOnPort(harness, vmPublishedSSHPort, vmAppName, vmGuestUser, vmGuestPassword)
+		Eventually(func(g Gomega) {
+			units, unitErr := vmApplicationUnitStatus(harness, vmAppName)
+			g.Expect(unitErr).NotTo(HaveOccurred())
+			g.Expect(units).To(BeEmpty(), "leftover VM systemd units: %s", vmApplicationFormatUnits(units))
+		}, testutil.LONG_TIMEOUT, testutil.POLLING).Should(Succeed())
+		harness.VerifyQuadletApplicationFolderDeleted(vmAppName)
+		nginxQuadletPath, pathErr := harness.QuadletPathForUserOnVM(flightctlUser)
+		Expect(pathErr).ToNot(HaveOccurred())
+		harness.VerifyQuadletApplicationFolderDeletedAt(nginxAppName, nginxQuadletPath)
 	})
 
 	// Unexpected virt-launcher compute death (not flightctl app stop) should restart via
@@ -270,7 +347,7 @@ var _ = Describe("VM Applications", Ordered, func() {
 		expectPublishedUDPHello(harness, vmBPublishedUDPPort, vmAppBName, "hello")
 
 		By(fmt.Sprintf("Stopping %s and verifying %s remains reachable", vmAppAName, vmAppBName))
-		_, err = harness.CLI("app", "stop", fmt.Sprintf("device/%s", deviceID), "--name", vmAppAName, "-y")
+		_, err = harness.RunAppLifecycleCommand(deviceID, "stop", vmAppAName)
 		Expect(err).ToNot(HaveOccurred())
 
 		err = harness.WaitForApplicationStatus(deviceID, vmAppAName, v1beta1.ApplicationStatusStopped, testutil.LONG_TIMEOUT, testutil.POLLING)
@@ -393,6 +470,27 @@ func expectSSHUnavailableOnPort(h *e2e.Harness, port int, appName, user, passwor
 		_, sshErr := h.RunSSHOnDeviceLocalPort(port, user, password, remoteCmd)
 		g.Expect(sshErr).To(HaveOccurred(), "SSH to %s on published port %d should remain unavailable", appName, port)
 	}, vmPublishedPortUnavailableWindow, testutil.POLLING).Should(Succeed())
+}
+
+func curlNginxHTTPStatus(h *e2e.Harness) (string, error) {
+	out, err := h.VM.RunSSH([]string{"curl", "-sS", "-o", "/dev/null", "-w", "%{http_code}", "--connect-timeout", "2", nginxHTTPURL}, nil)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out.String()), nil
+}
+
+func expectNginxHTTPOK(h *e2e.Harness) {
+	GinkgoHelper()
+	Eventually(func() (string, error) { return curlNginxHTTPStatus(h) }, testutil.LONG_TIMEOUT, testutil.POLLING).Should(Equal("200"))
+}
+
+func expectNginxHTTPUnavailable(h *e2e.Harness) {
+	GinkgoHelper()
+	Eventually(func() bool {
+		code, err := curlNginxHTTPStatus(h)
+		return err != nil || code != "200"
+	}, testutil.LONG_TIMEOUT, testutil.POLLING).Should(BeTrue())
 }
 
 // runningVMComputeContainerName finds the running virt-launcher compute container name for appName.
