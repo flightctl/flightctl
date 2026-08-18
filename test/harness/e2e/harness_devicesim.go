@@ -330,6 +330,7 @@ func (h *Harness) StartLabeledSimulatorWithOptions(ctx context.Context, testID, 
 		"--initial-device-index", fmt.Sprintf("%d", initialIndex),
 		"--label", fmt.Sprintf("test-id=%s", testID),
 		"--label", fmt.Sprintf("user=%s", userPrefix),
+		"--label", fmt.Sprintf("alias=%s", DeviceSimulatorAgentAlias(initialIndex)),
 	}
 	if opts.SkipAutoApprove {
 		args = append(args, "--skip-auto-approve")
@@ -487,13 +488,13 @@ func (h *Harness) CountDevicesByLabel(testID string) int {
 	return len(lines)
 }
 
-// WaitForLabeledSimulatorDevice polls until a device labeled with test-id exists.
+// WaitForLabeledSimulatorDevice polls until a device labeled with test-id and alias exists.
 func (h *Harness) WaitForLabeledSimulatorDevice(testID string, initialDeviceIndex int, timeout, polling time.Duration) (string, error) {
 	alias := DeviceSimulatorAgentAlias(initialDeviceIndex)
 	return pollUntil(timeout.String(), polling.String(),
 		fmt.Sprintf("simulator device with test-id=%s and alias=%s", testID, alias),
 		func() (string, bool, error) {
-			name, found := h.findDeviceNameByTestID(testID)
+			name, found := h.findDeviceNameByTestIDAndAlias(testID, alias)
 			if !found {
 				return "", false, nil
 			}
@@ -501,11 +502,11 @@ func (h *Harness) WaitForLabeledSimulatorDevice(testID string, initialDeviceInde
 		})
 }
 
-func (h *Harness) findDeviceNameByTestID(testID string) (string, bool) {
-	if testID == "" {
+func (h *Harness) findDeviceNameByTestIDAndAlias(testID, alias string) (string, bool) {
+	if testID == "" || alias == "" {
 		return "", false
 	}
-	out, err := h.CLI("get", "devices", "-l", fmt.Sprintf("test-id=%s", testID), "-o", "name")
+	out, err := h.CLI("get", "devices", "-l", fmt.Sprintf("test-id=%s,alias=%s", testID, alias), "-o", "name")
 	if err != nil {
 		return "", false
 	}

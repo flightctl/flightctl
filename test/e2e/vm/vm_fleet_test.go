@@ -144,7 +144,7 @@ func waitForAppStatus(h *e2e.Harness, deviceID, appName string, status v1beta1.A
 }
 
 func curlNginxHTTPStatus(h *e2e.Harness) (string, error) {
-	out, err := h.VM.RunSSH([]string{"curl", "-sS", "-o", "/dev/null", "-w", "%{http_code}", "--connect-timeout", "2", "http://127.0.0.1:" + nginxHostPort + "/"}, nil)
+	out, err := h.VM.RunSSH([]string{"curl", "-sS", "-o", "/dev/null", "-w", "%{http_code}", "--connect-timeout", "2", "--max-time", "5", "http://127.0.0.1:" + nginxHostPort + "/"}, nil)
 	if err != nil {
 		return "", err
 	}

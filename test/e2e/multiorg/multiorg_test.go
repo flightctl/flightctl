@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -374,6 +375,10 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			deviceName, err := harness.WaitForLabeledSimulatorDevice(testID, 0, deviceEnrollTimeout, deviceEnrollPolling)
 			Expect(err).ToNot(HaveOccurred())
 			GinkgoWriter.Printf("Device for lifecycle and console RBAC test: %s\n", deviceName)
+			DeferCleanup(func() {
+				_ = loginAndSetOrg(harness, users.admin.name, users.admin.password)
+				_ = harness.DeleteDeviceIgnoreNotFound(deviceName)
+			})
 
 			appSpec, err := e2e.NewContainerApplicationSpecWithRunAs(
 				rbacAppName,
@@ -416,6 +421,10 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 				Applications: &[]v1beta1.ApplicationProviderSpec{appSpec},
 			})
 			Expect(err).ToNot(HaveOccurred())
+			DeferCleanup(func() {
+				_ = loginAndSetOrg(harness, users.admin.name, users.admin.password)
+				_ = harness.DeleteFleetIgnoreNotFound(fleetName)
+			})
 
 			fleetTarget := "fleet/" + fleetName
 			By("Rejecting fleet-scoped app restart as admin")
@@ -874,7 +883,11 @@ func assertAppConsoleAccess(harness *e2e.Harness, deviceName, appName string, al
 	if res.err == nil {
 		return
 	}
-	if ctx.Err() != nil {
+	if ctx.Err() != context.Canceled {
+		Fail(fmt.Sprintf("authorized app console failed unexpectedly: %v\n%s", res.err, res.out))
+	}
+	errText := res.err.Error()
+	if strings.Contains(errText, "signal: killed") || strings.Contains(errText, "killed") || strings.Contains(errText, "context canceled") {
 		return
 	}
 	Fail(fmt.Sprintf("authorized app console failed unexpectedly: %v\n%s", res.err, res.out))
@@ -896,6 +909,7 @@ func assertSimulatorConsoleAccess(harness *e2e.Harness, deviceName string, allow
 		ContainSubstring(http403Substring),
 		ContainSubstring(forbiddenSubstring),
 	), "authorized role must not receive 403 for console")
+	Expect(err).To(HaveOccurred(), "authorized simulator console cannot run as flightctl-console")
 	Expect(out).To(ContainSubstring("unknown user flightctl-console"), "authorized console should reach the agent")
 }
 
