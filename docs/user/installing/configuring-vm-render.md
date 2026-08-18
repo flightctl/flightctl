@@ -82,7 +82,36 @@ worker:
     passtWorkarounds: false
 ```
 
-There is currently no separate Red Hat product virt-launcher image in the Flight Control packaging set. Use the upstream `quay.io/kubevirt/virt-launcher` reference, or another virt-launcher image you supply, and point `launcherImage` at the mirrored location.
+## Red Hat product image
+
+For Red Hat product deployments, use this virt-launcher image:
+
+`registry.redhat.io/container-native-virtualization/virt-launcher:v4.12-1785837377`
+
+This image is not in the Flight Control packaging set. Set `worker.vmRender.launcherImage` to the reference, or to a mirrored copy:
+
+```yaml
+worker:
+  vmRender:
+    launcherImage: "registry.redhat.io/container-native-virtualization/virt-launcher:v4.12-1785837377"
+    passtWorkarounds: false
+```
+
+> [!IMPORTANT]
+> Devices pull this image from `registry.redhat.io`, which requires authentication. Place Red Hat registry credentials in the Podman `auth.json` on each device before the device starts a VM application.
+
+For Quadlet units that run as root, the file is `/root/.config/containers/auth.json`. See [Using image pull secrets](../using/managing-devices.md#using-image-pull-secrets).
+
+In an air-gapped deployment, authenticate to `registry.redhat.io` on the host that runs the copy, then mirror the image:
+
+```bash
+INTERNAL=registry.example.com:5000
+skopeo copy --all \
+  docker://registry.redhat.io/container-native-virtualization/virt-launcher:v4.12-1785837377 \
+  docker://${INTERNAL}/container-native-virtualization/virt-launcher:v4.12-1785837377
+```
+
+Set `launcherImage` to the mirrored reference. Devices then need credentials only for that registry, if the registry requires authentication.
 
 ## After changing settings
 
@@ -91,4 +120,5 @@ Conversion results are cached by `vm.yaml` content and these render options. Cha
 ## Related information
 
 - [VM applications](../using/managing-devices.md#vm-applications)
+- [Using image pull secrets](../using/managing-devices.md#using-image-pull-secrets)
 - [Air-gapped installation](air-gapped-installation.md)
