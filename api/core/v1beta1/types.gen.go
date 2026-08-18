@@ -1286,6 +1286,9 @@ type DeviceApplicationsSummaryStatus struct {
 
 // DeviceCapabilities Capabilities reported by the device agent.
 type DeviceCapabilities struct {
+	// DeltaEligible Whether this device can apply OS deltas. True only when bootc is 1.15.0 or newer and the oci-delta binary is present. False when this agent cannot apply deltas. Omitted when an older agent does not report the field.
+	DeltaEligible *bool `json:"deltaEligible,omitempty"`
+
 	// OsMode OS management mode. "image" indicates the OS is managed via bootc or rpm-ostree image updates. "package" indicates no image-based OS management is available.
 	OsMode *OsModeType `json:"osMode,omitempty"`
 }
@@ -1419,8 +1422,17 @@ type DeviceMultipleOwnersResolvedDetailsDetailType string
 // DeviceMultipleOwnersResolvedDetailsResolutionType How the conflict was resolved.
 type DeviceMultipleOwnersResolvedDetailsResolutionType string
 
-// DeviceOsSpec Either a specific OCI image reference, or a reference to a catalog item version that can be resolved to an OCI image ref.
-type DeviceOsSpec = ImageOrCatalogItemRefSpec
+// DeviceOsSpec defines model for DeviceOsSpec.
+type DeviceOsSpec struct {
+	// CatalogItemRef A reference to a catalog item, along with its configuration.
+	CatalogItemRef *CatalogItemRefSpec `json:"catalogItemRef,omitempty"`
+
+	// DeltaImage Optional hint: a reference to a delta artifact the control plane's generation records indicate may be applicable to reach `image` from this device's current image. Absent does not imply no delta exists — the device independently discovers candidate delta artifacts (e.g. deltas published by a customer's own CI) regardless of this field, and falls back to a full pull only if none is usable.
+	DeltaImage *string `json:"deltaImage,omitempty"`
+
+	// Image Reference to an OCI image or artifact with tag.
+	Image string `json:"image,omitempty"`
+}
 
 // DeviceOsStatus Current status of the device OS.
 type DeviceOsStatus struct {
@@ -1429,6 +1441,9 @@ type DeviceOsStatus struct {
 
 	// ImageDigest The digest of the OS image (e.g. sha256:a0...).
 	ImageDigest string `json:"imageDigest"`
+
+	// LastUpdateFallbackReason Set when the most recent update attempt fell back from a delta to a full image pull. Absent if no delta was attempted or the delta succeeded. Cleared when the next update attempt starts.
+	LastUpdateFallbackReason *string `json:"lastUpdateFallbackReason,omitempty"`
 }
 
 // DeviceOwnershipChangedDetails defines model for DeviceOwnershipChangedDetails.
@@ -1605,6 +1620,9 @@ type DeviceUpdatePolicySpec struct {
 type DeviceUpdatedStatus struct {
 	// Info Human readable information about the last device update transition.
 	Info *string `json:"info,omitempty"`
+
+	// Size Expected OS update size in IEC units (KiB, MiB, GiB, or TiB). Absent when the size is not yet known.
+	Size *string `json:"size,omitempty"`
 
 	// Status Status type of the device update.
 	Status DeviceUpdatedStatusType `json:"status"`

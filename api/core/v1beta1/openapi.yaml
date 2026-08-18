@@ -6289,7 +6289,21 @@ components:
         - metadata
         - items
     DeviceOsSpec:
-      $ref: '#/components/schemas/ImageOrCatalogItemRefSpec'
+      description: Either a specific OCI image reference, or a reference to a catalog item version that can be resolved to an OCI image ref.
+      allOf:
+        - $ref: '#/components/schemas/ImageOrCatalogItemRefSpec'
+        - type: object
+          properties:
+            deltaImage:
+              type: string
+              description: >-
+                Optional hint: a reference to a delta artifact the control
+                plane's generation records indicate may be applicable to reach
+                `image` from this device's current image. Absent does not imply
+                no delta exists — the device independently discovers candidate
+                delta artifacts (e.g. deltas published by a customer's own CI)
+                regardless of this field, and falls back to a full pull only if
+                none is usable.
     DeviceStatus:
       type: object
       description: DeviceStatus represents information about the status of a device. Status may trail the actual state of a device.
@@ -6617,6 +6631,13 @@ components:
       properties:
         osMode:
           $ref: '#/components/schemas/OsModeType'
+        deltaEligible:
+          type: boolean
+          description: >-
+            Whether this device can apply OS deltas. True only when bootc is
+            1.15.0 or newer and the oci-delta binary is present. False when
+            this agent cannot apply deltas. Omitted when an older agent does
+            not report the field.
       additionalProperties: false
     DeviceOsStatus:
       type: object
@@ -6631,6 +6652,12 @@ components:
         imageDigest:
           type: string
           description: The digest of the OS image (e.g. sha256:a0...).
+        lastUpdateFallbackReason:
+          type: string
+          description: >-
+            Set when the most recent update attempt fell back from a delta to a
+            full image pull. Absent if no delta was attempted or the delta
+            succeeded. Cleared when the next update attempt starts.
     DeviceConfigStatus:
       type: object
       description: Current status of the device config.
@@ -6683,6 +6710,11 @@ components:
         info:
           type: string
           description: Human readable information about the last device update transition.
+        size:
+          type: string
+          description: >-
+            Expected OS update size in IEC units (KiB, MiB, GiB, or TiB).
+            Absent when the size is not yet known.
     DeviceUpdatedStatusType:
       type: string
       description: Status type of the device update.
