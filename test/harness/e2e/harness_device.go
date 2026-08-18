@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -984,14 +985,19 @@ func (h *Harness) GetSelectedDevicesForBatch(fleetName string) ([]*v1beta1.Devic
 }
 
 func (h *Harness) GetUnavailableDevicesPerGroup(fleetName string, groupBy []string) (map[string][]*v1beta1.Device, error) {
+	return h.GetUnavailableDevicesPerGroupWithContext(h.Context, fleetName, groupBy)
+}
+
+// GetUnavailableDevicesPerGroupWithContext returns unavailable fleet devices grouped by label values.
+func (h *Harness) GetUnavailableDevicesPerGroupWithContext(ctx context.Context, fleetName string, groupBy []string) (map[string][]*v1beta1.Device, error) {
 	labelSelector := fmt.Sprintf("fleet=%s", fleetName)
 	listDeviceParams := &v1beta1.ListDevicesParams{
 		LabelSelector: &labelSelector,
 	}
 
-	response, err := h.Client.ListDevicesWithResponse(h.Context, listDeviceParams)
+	response, err := h.Client.ListDevicesWithResponse(ctx, listDeviceParams)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list devices: %s", err)
+		return nil, fmt.Errorf("failed to list devices: %w", err)
 	}
 	if response == nil {
 		return nil, fmt.Errorf("device response is nil")
