@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sync"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -83,6 +84,7 @@ type manager struct {
 	skopeo             *client.Skopeo
 	log                *log.PrefixLogger
 
+	mu                 sync.Mutex
 	fallbackReason     *string
 	lastAttemptedImage string
 }
@@ -95,7 +97,9 @@ func (m *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, _ ..
 
 	status.Os.Image = bootcInfo.GetBootedImage()
 	status.Os.ImageDigest = bootcInfo.GetBootedImageDigest()
+	m.mu.Lock()
 	status.Os.LastUpdateFallbackReason = m.fallbackReason
+	m.mu.Unlock()
 	osMode := m.caps.OsMode
 	deltaEligible := m.caps.DeltaEligible
 	status.Capabilities = &v1beta1.DeviceCapabilities{
@@ -182,6 +186,8 @@ func (m *manager) fullImageCollection(osImage string, optsFn dependency.ClientOp
 }
 
 func (m *manager) startImageAttempt(osImage string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.lastAttemptedImage == osImage {
 		return
 	}
@@ -239,7 +245,9 @@ func (m *manager) failApply(ctx context.Context, candidate string, err error) er
 
 func (m *manager) setFallbackReason(reason string) {
 	r := reason
+	m.mu.Lock()
 	m.fallbackReason = &r
+	m.mu.Unlock()
 }
 
 func (m *manager) removeArtifactBestEffort(ctx context.Context, candidate string) {
