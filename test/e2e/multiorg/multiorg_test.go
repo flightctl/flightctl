@@ -375,10 +375,11 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			Expect(err).ToNot(HaveOccurred())
 			GinkgoWriter.Printf("Device for lifecycle and console RBAC test: %s\n", deviceName)
 
-			appSpec, err := e2e.NewContainerApplicationSpec(
+			appSpec, err := e2e.NewContainerApplicationSpecWithRunAs(
 				rbacAppName,
 				"quay.io/flightctl-tests/nginx:1.28-alpine-slim",
 				nil, nil, nil, nil,
+				"flightctl",
 			)
 			Expect(err).ToNot(HaveOccurred())
 			err = harness.UpdateDeviceWithRetries(deviceName, func(device *v1beta1.Device) {
@@ -416,6 +417,11 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			fleetTarget := "fleet/" + fleetName
+			By("Rejecting fleet-scoped app restart as admin")
+			out, restartErr := harness.CLI("app", "restart", fleetTarget, "--name", rbacAppName, "-y")
+			Expect(restartErr).To(HaveOccurred(), "fleet-scoped restart should be rejected as unsupported")
+			Expect(out).To(ContainSubstring("kind must be Device"))
+
 			for _, tc := range rbacRoleCases(users) {
 				By(fmt.Sprintf("Testing fleet lifecycle as %s", tc.role))
 				err = loginAndSetOrg(harness, tc.user.name, tc.user.password)
@@ -858,7 +864,18 @@ func assertAppConsoleAccess(harness *e2e.Harness, deviceName, appName string, al
 		return after != "" && after != before
 	}, 15*time.Second, time.Second).Should(BeTrue(), "authorized role should start an app console session")
 	cancel()
-	<-resultCh
+	res := <-resultCh
+	Expect(string(res.out)).ToNot(Or(
+		ContainSubstring(http403Substring),
+		ContainSubstring(forbiddenSubstring),
+	), "authorized role must not receive 403 for app console")
+	if res.err == nil {
+		return
+	}
+	if ctx.Err() != nil {
+		return
+	}
+	Fail(fmt.Sprintf("authorized app console failed unexpectedly: %v\n%s", res.err, res.out))
 }
 
 // assertConsoleAccess verifies devices/console RBAC via flightctl console.

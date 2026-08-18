@@ -156,6 +156,8 @@ func expectNginxReachable(h *e2e.Harness) {
 
 func expectSSHInaccessible(h *e2e.Harness, port int, appName string) {
 	GinkgoHelper()
-	_, sshErr := h.RunSSHOnDeviceLocalPort(port, vmGuestUser, vmGuestPassword, "/usr/bin/whoami")
-	Expect(sshErr).To(HaveOccurred(), "expected SSH to %s on port %d to fail after stop", appName, port)
+	Eventually(func(g Gomega) {
+		_, sshErr := h.RunSSHOnDeviceLocalPort(port, vmGuestUser, vmGuestPassword, "/usr/bin/whoami")
+		g.Expect(sshErr).To(HaveOccurred(), "expected SSH to %s on port %d to fail after stop", appName, port)
+	}, testutil.LONG_TIMEOUT, testutil.POLLING).Should(Succeed())
 }
