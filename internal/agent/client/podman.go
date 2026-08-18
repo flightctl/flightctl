@@ -293,6 +293,42 @@ func (p *Podman) ImageDigest(ctx context.Context, image string) (string, error) 
 	return digest, nil
 }
 
+// LoadArchive loads an OCI archive into local container storage and returns the loaded image reference.
+func (p *Podman) LoadArchive(ctx context.Context, archivePath string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	args := []string{"load", "-i", archivePath}
+	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	if exitCode != 0 {
+		return "", fmt.Errorf("load archive: %w", deviceerrors.FromStderr(stderr, exitCode))
+	}
+	return loadedImageRef(stdout), nil
+}
+
+// Tag adds target as a new name for source in local container storage.
+func (p *Podman) Tag(ctx context.Context, source, target string) error {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	args := []string{"tag", source, target}
+	_, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	if exitCode != 0 {
+		return fmt.Errorf("tag image: %w", deviceerrors.FromStderr(stderr, exitCode))
+	}
+	return nil
+}
+
+func loadedImageRef(stdout string) string {
+	s := strings.TrimSpace(stdout)
+	for _, prefix := range []string{"Loaded image(s):", "Loaded image:"} {
+		if i := strings.LastIndex(s, prefix); i >= 0 {
+			return strings.TrimSpace(s[i+len(prefix):])
+		}
+	}
+	return s
+}
+
 // ArtifactExists returns true if the artifact exists in storage otherwise false.
 func (p *Podman) ArtifactExists(ctx context.Context, artifact string) bool {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
