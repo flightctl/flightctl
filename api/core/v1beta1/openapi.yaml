@@ -6627,7 +6627,9 @@ components:
         - OsModePackage
     DeviceCapabilities:
       type: object
-      description: Capabilities reported by the device agent.
+      description: >
+        Capabilities reported by the device agent. Present on
+        Device.status.capabilities and EnrollmentRequest.spec.capabilities.
       properties:
         osMode:
           $ref: '#/components/schemas/OsModeType'
@@ -6995,8 +6997,8 @@ components:
         knownRenderedVersion:
           type: string
           description: 'The rendered version of the device from desired.json (optional).'
-        osMode:
-          $ref: '#/components/schemas/OsModeType'
+        capabilities:
+          $ref: '#/components/schemas/DeviceCapabilities'
       description: EnrollmentRequestSpec is a description of a EnrollmentRequest's target state.
     EnrollmentRequestStatus:
       type: object

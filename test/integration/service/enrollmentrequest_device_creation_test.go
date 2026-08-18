@@ -191,7 +191,7 @@ var _ = Describe("EnrollmentRequest Device Creation Unit Tests", func() {
 		It("When osMode is package it should set device capabilities.osMode to package", func() {
 			er := CreateTestER()
 			erName := lo.FromPtr(er.Metadata.Name)
-			er.Spec.OsMode = lo.ToPtr(api.OsModePackage)
+			er.Spec.Capabilities = &api.DeviceCapabilities{OsMode: lo.ToPtr(api.OsModePackage)}
 
 			By("creating enrollment request with osMode=package")
 			created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
@@ -217,7 +217,7 @@ var _ = Describe("EnrollmentRequest Device Creation Unit Tests", func() {
 		It("When osMode is image it should set device capabilities.osMode to image", func() {
 			er := CreateTestER()
 			erName := lo.FromPtr(er.Metadata.Name)
-			er.Spec.OsMode = lo.ToPtr(api.OsModeImage)
+			er.Spec.Capabilities = &api.DeviceCapabilities{OsMode: lo.ToPtr(api.OsModeImage), DeltaEligible: lo.ToPtr(true)}
 
 			By("creating enrollment request with osMode=image")
 			created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
@@ -238,6 +238,8 @@ var _ = Describe("EnrollmentRequest Device Creation Unit Tests", func() {
 			Expect(device.Status.Capabilities).ToNot(BeNil())
 			Expect(device.Status.Capabilities.OsMode).ToNot(BeNil())
 			Expect(*device.Status.Capabilities.OsMode).To(Equal(api.OsModeImage))
+			Expect(device.Status.Capabilities.DeltaEligible).ToNot(BeNil())
+			Expect(*device.Status.Capabilities.DeltaEligible).To(BeTrue())
 		})
 
 		It("When osMode is absent it should leave device capabilities nil", func() {

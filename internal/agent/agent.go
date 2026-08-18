@@ -348,6 +348,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.config.DefaultLabels,
 		a.config.LabelFromSystemInfo,
 		osMode,
+		deltaEligible,
 		statusManager,
 		rootSystemdClient,
 		identityProvider,

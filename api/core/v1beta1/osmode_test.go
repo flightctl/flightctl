@@ -83,26 +83,39 @@ func TestDeviceStatusCapabilitiesJSON(t *testing.T) {
 	}
 }
 
-func TestEnrollmentRequestSpecOsModeJSON(t *testing.T) {
+func TestEnrollmentRequestSpecCapabilitiesJSON(t *testing.T) {
 	tests := []struct {
-		name       string
-		jsonInput  string
-		wantOsMode *OsModeType
+		name              string
+		jsonInput         string
+		wantOsMode        *OsModeType
+		wantDeltaEligible *bool
 	}{
 		{
-			name:       "When osMode is absent it should leave OsMode nil",
+			name:       "When capabilities is absent it should leave Capabilities nil",
 			jsonInput:  `{"csr":"pem-data"}`,
 			wantOsMode: nil,
 		},
 		{
-			name:       "When osMode is image it should unmarshal OsModeImage",
-			jsonInput:  `{"csr":"pem-data","osMode":"image"}`,
+			name:       "When capabilities.osMode is image it should unmarshal OsModeImage",
+			jsonInput:  `{"csr":"pem-data","capabilities":{"osMode":"image"}}`,
 			wantOsMode: lo.ToPtr(OsModeImage),
 		},
 		{
-			name:       "When osMode is package it should unmarshal OsModePackage",
-			jsonInput:  `{"csr":"pem-data","osMode":"package"}`,
+			name:       "When capabilities.osMode is package it should unmarshal OsModePackage",
+			jsonInput:  `{"csr":"pem-data","capabilities":{"osMode":"package"}}`,
 			wantOsMode: lo.ToPtr(OsModePackage),
+		},
+		{
+			name:              "When capabilities.deltaEligible is true it should unmarshal true",
+			jsonInput:         `{"csr":"pem-data","capabilities":{"osMode":"image","deltaEligible":true}}`,
+			wantOsMode:        lo.ToPtr(OsModeImage),
+			wantDeltaEligible: lo.ToPtr(true),
+		},
+		{
+			name:              "When capabilities.deltaEligible is false it should unmarshal false",
+			jsonInput:         `{"csr":"pem-data","capabilities":{"osMode":"image","deltaEligible":false}}`,
+			wantOsMode:        lo.ToPtr(OsModeImage),
+			wantDeltaEligible: lo.ToPtr(false),
 		},
 	}
 
@@ -110,12 +123,18 @@ func TestEnrollmentRequestSpecOsModeJSON(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var spec EnrollmentRequestSpec
 			require.NoError(t, json.Unmarshal([]byte(tt.jsonInput), &spec))
-			if tt.wantOsMode == nil {
-				assert.Nil(t, spec.OsMode)
+			if tt.wantOsMode == nil && tt.wantDeltaEligible == nil {
+				assert.Nil(t, spec.Capabilities)
 				return
 			}
-			require.NotNil(t, spec.OsMode)
-			assert.Equal(t, *tt.wantOsMode, *spec.OsMode)
+			require.NotNil(t, spec.Capabilities)
+			if tt.wantOsMode == nil {
+				assert.Nil(t, spec.Capabilities.OsMode)
+			} else {
+				require.NotNil(t, spec.Capabilities.OsMode)
+				assert.Equal(t, *tt.wantOsMode, *spec.Capabilities.OsMode)
+			}
+			assert.Equal(t, tt.wantDeltaEligible, spec.Capabilities.DeltaEligible)
 		})
 	}
 }
@@ -127,14 +146,18 @@ type enrollmentRequestValidateOsModeCase struct {
 }
 
 func enrollmentRequestWithOsMode(mode *OsModeType) EnrollmentRequest {
-	return EnrollmentRequest{
+	er := EnrollmentRequest{
 		Metadata: ObjectMeta{Name: lo.ToPtr("test-er")},
-		Spec:     EnrollmentRequestSpec{Csr: "pem-data", OsMode: mode},
+		Spec:     EnrollmentRequestSpec{Csr: "pem-data"},
 	}
+	if mode != nil {
+		er.Spec.Capabilities = &DeviceCapabilities{OsMode: mode}
+	}
+	return er
 }
 
 // TestEnrollmentRequestValidateOsMode verifies EnrollmentRequest.Validate accepts
-// nil/image/package osMode and rejects other values with a spec.osMode error.
+// nil/image/package capabilities.osMode and rejects other values with a spec.capabilities.osMode error.
 func TestEnrollmentRequestValidateOsMode(t *testing.T) {
 	tests := []enrollmentRequestValidateOsModeCase{
 		{
@@ -164,15 +187,15 @@ func TestEnrollmentRequestValidateOsMode(t *testing.T) {
 				require.NotEmpty(t, errs)
 				found := false
 				for _, e := range errs {
-					if strings.Contains(e.Error(), "spec.osMode") {
+					if strings.Contains(e.Error(), "spec.capabilities.osMode") {
 						found = true
 						break
 					}
 				}
-				assert.True(t, found, "expected an error mentioning spec.osMode, got: %v", errs)
+				assert.True(t, found, "expected an error mentioning spec.capabilities.osMode, got: %v", errs)
 			} else {
 				for _, e := range errs {
-					if strings.Contains(e.Error(), "spec.osMode") {
+					if strings.Contains(e.Error(), "spec.capabilities.osMode") {
 						t.Errorf("unexpected osMode error: %v", e)
 					}
 				}

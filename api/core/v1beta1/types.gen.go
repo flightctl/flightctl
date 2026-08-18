@@ -1284,7 +1284,7 @@ type DeviceApplicationsSummaryStatus struct {
 	Status ApplicationsSummaryStatusType `json:"status"`
 }
 
-// DeviceCapabilities Capabilities reported by the device agent.
+// DeviceCapabilities Capabilities reported by the device agent. Present on Device.status.capabilities and EnrollmentRequest.spec.capabilities.
 type DeviceCapabilities struct {
 	// DeltaEligible Whether this device can apply OS deltas. True only when bootc is 1.15.0 or newer and the oci-delta binary is present. False when this agent cannot apply deltas. Omitted when an older agent does not report the field.
 	DeltaEligible *bool `json:"deltaEligible,omitempty"`
@@ -1536,7 +1536,7 @@ type DeviceStatus struct {
 	// ApplicationsSummary A summary of the health of applications on the device.
 	ApplicationsSummary DeviceApplicationsSummaryStatus `json:"applicationsSummary"`
 
-	// Capabilities Capabilities reported by the device agent.
+	// Capabilities Capabilities reported by the device agent. Present on Device.status.capabilities and EnrollmentRequest.spec.capabilities.
 	Capabilities *DeviceCapabilities `json:"capabilities,omitempty"`
 
 	// Conditions Conditions represent the observations of a the current state of a device.
@@ -1789,6 +1789,9 @@ type EnrollmentRequestList struct {
 
 // EnrollmentRequestSpec EnrollmentRequestSpec is a description of a EnrollmentRequest's target state.
 type EnrollmentRequestSpec struct {
+	// Capabilities Capabilities reported by the device agent. Present on Device.status.capabilities and EnrollmentRequest.spec.capabilities.
+	Capabilities *DeviceCapabilities `json:"capabilities,omitempty"`
+
 	// Csr The PEM-encoded PKCS#10 certificate signing request.
 	Csr string `json:"csr"`
 
@@ -1800,9 +1803,6 @@ type EnrollmentRequestSpec struct {
 
 	// Labels A set of labels that the service will apply to this device when its enrollment is approved.
 	Labels *map[string]string `json:"labels,omitempty"`
-
-	// OsMode OS management mode. "image" indicates the OS is managed via bootc or rpm-ostree image updates. "package" indicates no image-based OS management is available.
-	OsMode *OsModeType `json:"osMode,omitempty"`
 }
 
 // EnrollmentRequestStatus EnrollmentRequestStatus represents information about the status of a EnrollmentRequest.

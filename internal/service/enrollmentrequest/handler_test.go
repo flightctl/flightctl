@@ -526,28 +526,30 @@ func TestReplaceEnrollmentRequestStatus(t *testing.T) {
 	require.Equal(t, statusNotFoundCode, status.Code)
 }
 
-func TestCreateDeviceFromEnrollmentRequestOsMode(t *testing.T) {
+func TestCreateDeviceFromEnrollmentRequestCapabilities(t *testing.T) {
 	tests := []struct {
-		name       string
-		osMode     *domain.OsModeType
-		wantCaps   bool
-		wantOsMode *domain.OsModeType
+		name              string
+		caps              *domain.DeviceCapabilities
+		wantCaps          bool
+		wantOsMode        *domain.OsModeType
+		wantDeltaEligible *bool
 	}{
 		{
-			name:       "When osMode is package it should set capabilities.osMode to package",
-			osMode:     lo.ToPtr(domain.OsModePackage),
+			name:       "When capabilities.osMode is package it should copy osMode onto the device",
+			caps:       &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
 			wantCaps:   true,
 			wantOsMode: lo.ToPtr(domain.OsModePackage),
 		},
 		{
-			name:       "When osMode is image it should set capabilities.osMode to image",
-			osMode:     lo.ToPtr(domain.OsModeImage),
-			wantCaps:   true,
-			wantOsMode: lo.ToPtr(domain.OsModeImage),
+			name:              "When capabilities include deltaEligible it should copy both fields onto the device",
+			caps:              &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModeImage), DeltaEligible: lo.ToPtr(true)},
+			wantCaps:          true,
+			wantOsMode:        lo.ToPtr(domain.OsModeImage),
+			wantDeltaEligible: lo.ToPtr(true),
 		},
 		{
-			name:     "When osMode is absent it should leave capabilities nil",
-			osMode:   nil,
+			name:     "When capabilities is absent it should leave device capabilities nil",
+			caps:     nil,
 			wantCaps: false,
 		},
 	}
@@ -561,7 +563,7 @@ func TestCreateDeviceFromEnrollmentRequestOsMode(t *testing.T) {
 
 			er := &domain.EnrollmentRequest{
 				Metadata: domain.ObjectMeta{Name: lo.ToPtr(deviceName)},
-				Spec:     domain.EnrollmentRequestSpec{Csr: "TestCSR", OsMode: tt.osMode, DeviceStatus: lo.ToPtr(domain.NewDeviceStatus())},
+				Spec:     domain.EnrollmentRequestSpec{Csr: "TestCSR", Capabilities: tt.caps, DeviceStatus: lo.ToPtr(domain.NewDeviceStatus())},
 			}
 
 			err := h.createDeviceFromEnrollmentRequest(ctx, orgId, er)
@@ -572,12 +574,17 @@ func TestCreateDeviceFromEnrollmentRequestOsMode(t *testing.T) {
 			require.NotNil(t, device.Status)
 
 			if !tt.wantCaps {
-				require.Nil(t, device.Status.Capabilities, "expected nil Capabilities for absent osMode")
+				require.Nil(t, device.Status.Capabilities, "expected nil Capabilities for absent enrollment capabilities")
+				return
+			}
+			require.NotNil(t, device.Status.Capabilities, "expected non-nil Capabilities")
+			if tt.wantOsMode == nil {
+				require.Nil(t, device.Status.Capabilities.OsMode)
 			} else {
-				require.NotNil(t, device.Status.Capabilities, "expected non-nil Capabilities")
 				require.NotNil(t, device.Status.Capabilities.OsMode, "expected non-nil OsMode in Capabilities")
 				require.Equal(t, *tt.wantOsMode, *device.Status.Capabilities.OsMode)
 			}
+			require.Equal(t, tt.wantDeltaEligible, device.Status.Capabilities.DeltaEligible)
 		})
 	}
 }

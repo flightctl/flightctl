@@ -272,10 +272,9 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 		}
 	}
 
-	if enrollmentRequest.Spec.OsMode != nil {
-		deviceStatus.Capabilities = &domain.DeviceCapabilities{
-			OsMode: enrollmentRequest.Spec.OsMode,
-		}
+	if enrollmentRequest.Spec.Capabilities != nil {
+		caps := *enrollmentRequest.Spec.Capabilities
+		deviceStatus.Capabilities = &caps
 	}
 
 	name := lo.FromPtr(enrollmentRequest.Metadata.Name)
