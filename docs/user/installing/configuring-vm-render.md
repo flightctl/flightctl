@@ -86,14 +86,14 @@ worker:
 
 For Red Hat product deployments, use this virt-launcher image:
 
-`registry.redhat.io/container-native-virtualization/virt-launcher:v4.12-1785837377`
+`registry.redhat.io/container-native-virtualization/virt-launcher-rhel9:v4.22-1784929080`
 
 This image is not in the Flight Control packaging set. Set `worker.vmRender.launcherImage` to the reference, or to a mirrored copy:
 
 ```yaml
 worker:
   vmRender:
-    launcherImage: "registry.redhat.io/container-native-virtualization/virt-launcher:v4.12-1785837377"
+    launcherImage: "registry.redhat.io/container-native-virtualization/virt-launcher-rhel9:v4.22-1784929080"
     passtWorkarounds: false
 ```
 
@@ -107,8 +107,8 @@ In an air-gapped deployment, authenticate to `registry.redhat.io` on the host th
 ```bash
 INTERNAL=registry.example.com:5000
 skopeo copy --all \
-  docker://registry.redhat.io/container-native-virtualization/virt-launcher:v4.12-1785837377 \
-  docker://${INTERNAL}/container-native-virtualization/virt-launcher:v4.12-1785837377
+  docker://registry.redhat.io/container-native-virtualization/virt-launcher-rhel9:v4.22-1784929080 \
+  docker://${INTERNAL}/container-native-virtualization/virt-launcher-rhel9:v4.22-1784929080
 ```
 
 Set `launcherImage` to the mirrored reference. Devices then need credentials only for that registry, if the registry requires authentication.
