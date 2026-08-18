@@ -1,8 +1,7 @@
-# RPM-only images for the redhat-el10 (RHEM) variant.
+# RPM-only extras for the redhat-el10 (RHEM) variant.
 #
-# These images are pulled by flightctl RPMs and are NOT listed in
-# deploy/helm/helm-chart-opts.yaml.  They must be mirrored separately
-# for an air-gapped redhat-el10 installation.
+# These images are NOT listed in deploy/helm/helm-chart-opts.yaml. They must be
+# mirrored for an air-gapped redhat-el10 installation.
 #
 # Images that ARE in helm-chart-opts.yaml (api, worker, db, kv, etc.)
 # must NOT be duplicated here — the mirror tool reads both sources and
@@ -13,6 +12,11 @@ pam-issuer:
 
 userinfo-proxy:
   image: registry.redhat.io/rhem/flightctl-userinfo-proxy-rhel10
+
+# Device-side VM runtime (not a control-plane service). Mirrored by flightctl-mirror-images.
+virt-launcher:
+  image: registry.redhat.io/container-native-virtualization/virt-launcher
+  tag: v4.12-1785837377
 
 # grafana and prometheus are intentionally omitted.
 # They belong to the optional flightctl-observability stack and must be mirrored

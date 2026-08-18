@@ -82,6 +82,10 @@ var embeddedBuildManifest = []byte(`
           "tag": ""
         },
         {
+          "ref": "quay.io/kubevirt/virt-launcher",
+          "tag": "v1.9.0"
+        },
+        {
           "ref": "quay.io/openshift/origin-cli",
           "tag": "4.20.0"
         },
@@ -188,6 +192,10 @@ var embeddedBuildManifest = []byte(`
           "tag": ""
         },
         {
+          "ref": "quay.io/kubevirt/virt-launcher",
+          "tag": "v1.9.0"
+        },
+        {
           "ref": "quay.io/openshift/origin-cli",
           "tag": "4.20.0"
         },
@@ -233,6 +241,10 @@ var embeddedBuildManifest = []byte(`
     },
     "rhem-el10": {
       "images": [
+        {
+          "ref": "registry.redhat.io/container-native-virtualization/virt-launcher",
+          "tag": "v4.12-1785837377"
+        },
         {
           "ref": "registry.redhat.io/openshift4/ose-cli-rhel9",
           "tag": "v4.20.0"
@@ -335,6 +347,10 @@ var embeddedBuildManifest = []byte(`
     },
     "rhem-el9": {
       "images": [
+        {
+          "ref": "registry.redhat.io/container-native-virtualization/virt-launcher",
+          "tag": "v4.12-1785837377"
+        },
         {
           "ref": "registry.redhat.io/openshift4/ose-cli-rhel9",
           "tag": "v4.20.0"

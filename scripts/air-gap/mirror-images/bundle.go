@@ -288,6 +288,8 @@ skopeo copy $DEST_TLS_FLAG "dir:$IMAGES_DIR/%s" "docker://$REGISTRY/%s"
 echo "Import complete: $TOTAL images imported to $REGISTRY"
 `)
 
+	writeVirtLauncherHint(f, pairs)
+
 	if err := os.Chmod(scriptPath, 0o755); err != nil {
 		return fmt.Errorf("chmod import script: %w", err)
 	}
