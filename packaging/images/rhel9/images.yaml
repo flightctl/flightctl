@@ -15,8 +15,8 @@ userinfo-proxy:
 
 # Device-side VM runtime (not a control-plane service). Mirrored by flightctl-mirror-images.
 virt-launcher:
-  image: registry.redhat.io/container-native-virtualization/virt-launcher
-  tag: v4.12-1785837377
+  image: registry.redhat.io/container-native-virtualization/virt-launcher-rhel9
+  tag: v4.22-1784929080
 
 # grafana and prometheus are intentionally omitted.
 # They belong to the optional flightctl-observability stack and must be mirrored

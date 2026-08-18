@@ -242,8 +242,8 @@ var embeddedBuildManifest = []byte(`
     "rhem-el10": {
       "images": [
         {
-          "ref": "registry.redhat.io/container-native-virtualization/virt-launcher",
-          "tag": "v4.12-1785837377"
+          "ref": "registry.redhat.io/container-native-virtualization/virt-launcher-rhel9",
+          "tag": "v4.22-1784929080"
         },
         {
           "ref": "registry.redhat.io/openshift4/ose-cli-rhel9",
@@ -348,8 +348,8 @@ var embeddedBuildManifest = []byte(`
     "rhem-el9": {
       "images": [
         {
-          "ref": "registry.redhat.io/container-native-virtualization/virt-launcher",
-          "tag": "v4.12-1785837377"
+          "ref": "registry.redhat.io/container-native-virtualization/virt-launcher-rhel9",
+          "tag": "v4.22-1784929080"
         },
         {
           "ref": "registry.redhat.io/openshift4/ose-cli-rhel9",

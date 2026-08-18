@@ -63,7 +63,7 @@ The virt-launcher image is pulled by devices when they run VM applications. `fli
 | Variant | Image |
 | ------- | ----- |
 | Community (`community-el9`, `community-el10`) | `quay.io/kubevirt/virt-launcher:v1.9.0` |
-| Red Hat product (`rhem-el9`, `rhem-el10`) | `registry.redhat.io/container-native-virtualization/virt-launcher:v4.12-1785837377` |
+| Red Hat product (`rhem-el9`, `rhem-el10`) | `registry.redhat.io/container-native-virtualization/virt-launcher-rhel9:v4.22-1784929080` |
 
 The worker still writes the original image reference into rendered Quadlet units. After mirroring, set `worker.vmRender.launcherImage` to the destination reference so devices pull from the mirror. Guest OS and other workload images still need separate mirroring.
 
@@ -87,7 +87,7 @@ Example (Red Hat product):
 ```yaml
 worker:
   vmRender:
-    launcherImage: "registry.example.com:5000/container-native-virtualization/virt-launcher:v4.12-1785837377"
+    launcherImage: "registry.example.com:5000/container-native-virtualization/virt-launcher-rhel9:v4.22-1784929080"
     passtWorkarounds: false
 ```
 
