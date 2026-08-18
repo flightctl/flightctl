@@ -6627,7 +6627,7 @@ components:
         - OsModePackage
     DeviceCapabilities:
       type: object
-      description: >
+      description: >-
         Capabilities reported by the device agent. Present on
         Device.status.capabilities and EnrollmentRequest.spec.capabilities.
       properties:
