@@ -212,6 +212,35 @@ var _ = Describe("EnrollmentRequest Device Creation Unit Tests", func() {
 			Expect(device.Status.Capabilities).ToNot(BeNil())
 			Expect(device.Status.Capabilities.OsMode).ToNot(BeNil())
 			Expect(*device.Status.Capabilities.OsMode).To(Equal(api.OsModePackage))
+			Expect(device.Status.Capabilities.DeltaEligible).To(BeNil())
+		})
+
+		It("When deltaEligible is false it should copy false onto the device", func() {
+			er := CreateTestER()
+			erName := lo.FromPtr(er.Metadata.Name)
+			er.Spec.Capabilities = &api.DeviceCapabilities{OsMode: lo.ToPtr(api.OsModeImage), DeltaEligible: lo.ToPtr(false)}
+
+			By("creating enrollment request with deltaEligible=false")
+			created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+			Expect(created).ToNot(BeNil())
+
+			By("approving the enrollment request")
+			approval := api.EnrollmentRequestApproval{
+				Approved: true,
+				Labels:   &map[string]string{"approved": "true"},
+			}
+			_, st := suite.EnrollmentRequest.ApproveEnrollmentRequest(suite.Ctx, suite.OrgID, erName, approval)
+			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
+
+			By("verifying device capabilities")
+			device, status := suite.Device.GetDevice(suite.Ctx, suite.OrgID, erName)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+			Expect(device.Status.Capabilities).ToNot(BeNil())
+			Expect(device.Status.Capabilities.OsMode).ToNot(BeNil())
+			Expect(*device.Status.Capabilities.OsMode).To(Equal(api.OsModeImage))
+			Expect(device.Status.Capabilities.DeltaEligible).ToNot(BeNil())
+			Expect(*device.Status.Capabilities.DeltaEligible).To(BeFalse())
 		})
 
 		It("When osMode is image it should set device capabilities.osMode to image", func() {

@@ -548,6 +548,13 @@ func TestCreateDeviceFromEnrollmentRequestCapabilities(t *testing.T) {
 			wantDeltaEligible: lo.ToPtr(true),
 		},
 		{
+			name:              "When capabilities.deltaEligible is false it should copy false onto the device",
+			caps:              &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModeImage), DeltaEligible: lo.ToPtr(false)},
+			wantCaps:          true,
+			wantOsMode:        lo.ToPtr(domain.OsModeImage),
+			wantDeltaEligible: lo.ToPtr(false),
+		},
+		{
 			name:     "When capabilities is absent it should leave device capabilities nil",
 			caps:     nil,
 			wantCaps: false,

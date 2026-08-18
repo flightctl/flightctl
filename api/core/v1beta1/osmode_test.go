@@ -117,6 +117,11 @@ func TestEnrollmentRequestSpecCapabilitiesJSON(t *testing.T) {
 			wantOsMode:        lo.ToPtr(OsModeImage),
 			wantDeltaEligible: lo.ToPtr(false),
 		},
+		{
+			name:       "When top-level osMode is present it should leave Capabilities nil",
+			jsonInput:  `{"csr":"pem-data","osMode":"image"}`,
+			wantOsMode: nil,
+		},
 	}
 
 	for _, tt := range tests {
@@ -137,6 +142,24 @@ func TestEnrollmentRequestSpecCapabilitiesJSON(t *testing.T) {
 			assert.Equal(t, tt.wantDeltaEligible, spec.Capabilities.DeltaEligible)
 		})
 	}
+}
+
+func TestEnrollmentRequestSpecMarshalCapabilities(t *testing.T) {
+	spec := EnrollmentRequestSpec{
+		Csr: "pem-data",
+		Capabilities: &DeviceCapabilities{
+			OsMode:        lo.ToPtr(OsModeImage),
+			DeltaEligible: lo.ToPtr(true),
+		},
+	}
+	data, err := json.Marshal(spec)
+	require.NoError(t, err)
+
+	var raw map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(data, &raw))
+	_, hasTopLevelOsMode := raw["osMode"]
+	assert.False(t, hasTopLevelOsMode)
+	require.Contains(t, raw, "capabilities")
 }
 
 type enrollmentRequestValidateOsModeCase struct {
