@@ -247,3 +247,211 @@ func TestSkopeoInspectManifest(t *testing.T) {
 		})
 	}
 }
+
+func TestSkopeoInspectDigest(t *testing.T) {
+	tests := []struct {
+		name          string
+		image         string
+		setupMocks    func(*executer.MockExecuter)
+		want          string
+		expectedError bool
+	}{
+		{
+			name:  "When inspect succeeds it should return the digest",
+			image: "quay.io/acme/os:latest",
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().
+					ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--format", "{{.Digest}}", "docker://quay.io/acme/os:latest", "--no-creds").
+					Return("sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789\n", "", 0)
+			},
+			want: "sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+		},
+		{
+			name:  "When inspect fails it should return an error",
+			image: "quay.io/acme/os:missing",
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().
+					ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--format", "{{.Digest}}", "docker://quay.io/acme/os:missing", "--no-creds").
+					Return("", "Error: manifest unknown", 1)
+			},
+			expectedError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockExec := executer.NewMockExecuter(ctrl)
+			logger := log.NewPrefixLogger("test")
+			logger.SetLevel(logrus.ErrorLevel)
+			tt.setupMocks(mockExec)
+
+			skopeo := NewSkopeo(logger, mockExec, fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter()))
+			got, err := skopeo.InspectDigest(context.Background(), tt.image)
+			if tt.expectedError {
+				require.Error(t, err)
+				require.Empty(t, got)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestSkopeoListReferrers(t *testing.T) {
+	const (
+		targetHex    = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		targetImage  = "quay.io/acme/os@sha256:" + targetHex
+		tagSchemaRef = "docker://quay.io/acme/os:sha256-" + targetHex
+		dockerTarget = "docker://" + targetImage
+		deltaDigest  = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	)
+	indexJSON := `{
+		"schemaVersion": 2,
+		"mediaType": "application/vnd.oci.image.index.v1+json",
+		"manifests": [
+			{
+				"mediaType": "application/vnd.oci.image.manifest.v1+json",
+				"digest": "` + deltaDigest + `",
+				"size": 100,
+				"artifactType": "application/vnd.io.github.containers.oci-delta.v1",
+				"annotations": {
+					"io.github.containers.delta.source": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+				}
+			}
+		]
+	}`
+
+	tests := []struct {
+		name          string
+		image         string
+		withAuth      bool
+		setupMocks    func(*executer.MockExecuter)
+		wantDigest    string
+		expectedError bool
+	}{
+		{
+			name:  "When list-referrers succeeds it should return the index",
+			image: targetImage,
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().
+					ExecuteWithContext(gomock.Any(), "skopeo", "list-referrers", dockerTarget, "--no-creds").
+					Return(indexJSON, "", 0)
+			},
+			wantDigest: deltaDigest,
+		},
+		{
+			name:  "When list-referrers returns 404 it should use the Tag Schema tag",
+			image: targetImage,
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().
+					ExecuteWithContext(gomock.Any(), "skopeo", "list-referrers", dockerTarget, "--no-creds").
+					Return("", "Error: requesting referrers: 404 Not Found", 1)
+				mockExec.EXPECT().
+					ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", tagSchemaRef, "--no-creds").
+					Return(indexJSON, "", 0)
+			},
+			wantDigest: deltaDigest,
+		},
+		{
+			name:  "When list-referrers is missing it should use the Tag Schema tag",
+			image: targetImage,
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().
+					ExecuteWithContext(gomock.Any(), "skopeo", "list-referrers", dockerTarget, "--no-creds").
+					Return("", `Error: unknown command "list-referrers" for "skopeo"`, 1)
+				mockExec.EXPECT().
+					ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", tagSchemaRef, "--no-creds").
+					Return(indexJSON, "", 0)
+			},
+			wantDigest: deltaDigest,
+		},
+		{
+			name:  "When Referrers 404 and image is a tag it should resolve digest then use Tag Schema",
+			image: "quay.io/acme/os:latest",
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().
+					ExecuteWithContext(gomock.Any(), "skopeo", "list-referrers", "docker://quay.io/acme/os:latest", "--no-creds").
+					Return("", "Error: manifest unknown", 1)
+				mockExec.EXPECT().
+					ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--format", "{{.Digest}}", "docker://quay.io/acme/os:latest", "--no-creds").
+					Return("sha256:"+targetHex, "", 0)
+				mockExec.EXPECT().
+					ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", tagSchemaRef, "--no-creds").
+					Return(indexJSON, "", 0)
+			},
+			wantDigest: deltaDigest,
+		},
+		{
+			name:  "When Tag Schema also misses it should return an error",
+			image: targetImage,
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().
+					ExecuteWithContext(gomock.Any(), "skopeo", "list-referrers", dockerTarget, "--no-creds").
+					Return("", "Error: manifest unknown", 1)
+				mockExec.EXPECT().
+					ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", tagSchemaRef, "--no-creds").
+					Return("", "Error: manifest unknown", 1)
+			},
+			expectedError: true,
+		},
+		{
+			name:  "When list-referrers fails for another reason it should not use Tag Schema",
+			image: targetImage,
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().
+					ExecuteWithContext(gomock.Any(), "skopeo", "list-referrers", dockerTarget, "--no-creds").
+					Return("", "Error: connection refused", 1)
+			},
+			expectedError: true,
+		},
+		{
+			name:     "When a pull secret is set it should pass --authfile",
+			image:    targetImage,
+			withAuth: true,
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().
+					ExecuteWithContext(gomock.Any(), "skopeo", "list-referrers", dockerTarget, "--authfile", "/tmp/test-auth.json").
+					Return(indexJSON, "", 0)
+			},
+			wantDigest: deltaDigest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockExec := executer.NewMockExecuter(ctrl)
+			logger := log.NewPrefixLogger("test")
+			logger.SetLevel(logrus.ErrorLevel)
+			tt.setupMocks(mockExec)
+
+			readWriter := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
+			skopeo := NewSkopeo(logger, mockExec, readWriter)
+
+			var opts []ClientOption
+			if tt.withAuth {
+				tmpFile := "/tmp/test-auth.json"
+				require.NoError(t, readWriter.WriteFile(tmpFile, []byte(`{"auths":{}}`), 0600))
+				defer func() { _ = readWriter.RemoveAll(tmpFile) }()
+				opts = append(opts, WithPullSecret(tmpFile))
+			}
+
+			result, err := skopeo.ListReferrers(context.Background(), tt.image, opts...)
+			if tt.expectedError {
+				require.Error(t, err)
+				require.Nil(t, result)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Len(t, result.Manifests, 1)
+			require.Equal(t, tt.wantDigest, result.Manifests[0].Digest)
+		})
+	}
+}
