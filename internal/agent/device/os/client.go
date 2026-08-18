@@ -3,6 +3,8 @@ package os
 import (
 	"context"
 	"os/exec"
+	"regexp"
+	"strconv"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -30,6 +32,73 @@ func DetectMode(lookPath func(string) (string, error)) v1beta1.OsModeType {
 		return v1beta1.OsModeImage
 	}
 	return v1beta1.OsModePackage
+}
+
+const (
+	minDeltaBootcMajor = 1
+	minDeltaBootcMinor = 15
+	minDeltaBootcPatch = 0
+)
+
+var bootcVersionRE = regexp.MustCompile(`(\d+)\.(\d+)(?:\.(\d+))?`)
+
+// DetectDeltaEligible reports whether this agent can apply OS deltas.
+// It is true only when lookPath finds both oci-delta and bootc and
+// bootcVersion parses as 1.15.0 or newer. Missing binaries, version
+// errors, and unparsable output return false.
+//
+// lookPath should be exec.LookPath in production. bootcVersion should
+// run `bootc --version`. Both are injected so tests do not need PATH
+// or a bootc binary.
+func DetectDeltaEligible(lookPath func(string) (string, error), bootcVersion func() (string, error)) bool {
+	if _, err := lookPath("oci-delta"); err != nil {
+		return false
+	}
+	if _, err := lookPath("bootc"); err != nil {
+		return false
+	}
+	out, err := bootcVersion()
+	if err != nil {
+		return false
+	}
+	major, minor, patch, ok := parseBootcVersion(out)
+	if !ok {
+		return false
+	}
+	return versionAtLeast(major, minor, patch, minDeltaBootcMajor, minDeltaBootcMinor, minDeltaBootcPatch)
+}
+
+func parseBootcVersion(output string) (major, minor, patch int, ok bool) {
+	match := bootcVersionRE.FindStringSubmatch(output)
+	if match == nil {
+		return 0, 0, 0, false
+	}
+	major, err := strconv.Atoi(match[1])
+	if err != nil {
+		return 0, 0, 0, false
+	}
+	minor, err = strconv.Atoi(match[2])
+	if err != nil {
+		return 0, 0, 0, false
+	}
+	if match[3] == "" {
+		return major, minor, 0, true
+	}
+	patch, err = strconv.Atoi(match[3])
+	if err != nil {
+		return 0, 0, 0, false
+	}
+	return major, minor, patch, true
+}
+
+func versionAtLeast(major, minor, patch, minMajor, minMinor, minPatch int) bool {
+	if major != minMajor {
+		return major > minMajor
+	}
+	if minor != minMinor {
+		return minor > minMinor
+	}
+	return patch >= minPatch
 }
 
 func NewClient(log *log.PrefixLogger, exec executer.Executer) Client {
