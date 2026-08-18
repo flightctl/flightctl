@@ -1,12 +1,14 @@
 package multiorg_test
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
 	"time"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/test/e2e/infra"
 	"github.com/flightctl/flightctl/test/harness/e2e"
@@ -355,6 +357,98 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			Expect(status).To(Equal(http.StatusForbidden), "Expected 403 Forbidden for viewer enrollment approval")
 		})
 
+		It("should enforce application lifecycle and console access by role for standalone and fleet-owned devices", Label("agent"), func() {
+			testID := harness.GetTestIDFromContext()
+			deferOrgSimulatorConfig(harness, users)
+			const rbacAppName = "rbac-app"
+
+			By("Creating a device via simulator as admin")
+			err := loginAndSetOrg(harness, users.admin.name, users.admin.password)
+			Expect(err).ToNot(HaveOccurred())
+			setupSharedOrgSimulatorConfig(harness)
+
+			simCmd, simErr := harness.StartLabeledSimulator(harness.Context, testID, "lifecycle-console-rbac", 0, 1)
+			Expect(simErr).ToNot(HaveOccurred())
+			simulatorCmds = append(simulatorCmds, simCmd)
+
+			deviceName, err := harness.WaitForLabeledSimulatorDevice(testID, 0, deviceEnrollTimeout, deviceEnrollPolling)
+			Expect(err).ToNot(HaveOccurred())
+			GinkgoWriter.Printf("Device for lifecycle and console RBAC test: %s\n", deviceName)
+
+			appSpec, err := e2e.NewContainerApplicationSpec(
+				rbacAppName,
+				"quay.io/flightctl-tests/nginx:1.28-alpine-slim",
+				nil, nil, nil, nil,
+			)
+			Expect(err).ToNot(HaveOccurred())
+			err = harness.UpdateDeviceWithRetries(deviceName, func(device *v1beta1.Device) {
+				if device.Spec == nil {
+					device.Spec = &v1beta1.DeviceSpec{}
+				}
+				device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{appSpec}
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			standaloneTarget := "device/" + deviceName
+			for _, tc := range rbacRoleCases(users) {
+				By(fmt.Sprintf("Testing standalone device lifecycle as %s", tc.role))
+				err = loginAndSetOrg(harness, tc.user.name, tc.user.password)
+				Expect(err).ToNot(HaveOccurred())
+				assertLifecycleAccess(harness, standaloneTarget, rbacAppName, []string{"stop", "start", "restart"}, tc.allowed)
+
+				By(fmt.Sprintf("Testing standalone device console as %s", tc.role))
+				assertConsoleAccess(harness, deviceName, tc.allowed)
+
+				By(fmt.Sprintf("Testing standalone application console as %s", tc.role))
+				assertAppConsoleAccess(harness, deviceName, rbacAppName, tc.allowed)
+			}
+
+			By("Creating a fleet with the same application as admin")
+			err = loginAndSetOrg(harness, users.admin.name, users.admin.password)
+			Expect(err).ToNot(HaveOccurred())
+			fleetName := fmt.Sprintf("lifecycle-rbac-%s", testID)
+			fleetSelector := v1beta1.LabelSelector{
+				MatchLabels: &map[string]string{"fleet": fleetName},
+			}
+			err = harness.CreateOrUpdateTestFleet(fleetName, fleetSelector, v1beta1.DeviceSpec{
+				Applications: &[]v1beta1.ApplicationProviderSpec{appSpec},
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			fleetTarget := "fleet/" + fleetName
+			for _, tc := range rbacRoleCases(users) {
+				By(fmt.Sprintf("Testing fleet lifecycle as %s", tc.role))
+				err = loginAndSetOrg(harness, tc.user.name, tc.user.password)
+				Expect(err).ToNot(HaveOccurred())
+				assertLifecycleAccess(harness, fleetTarget, rbacAppName, []string{"stop", "start"}, tc.allowed)
+			}
+
+			By("Labeling the device into the fleet")
+			err = loginAndSetOrg(harness, users.admin.name, users.admin.password)
+			Expect(err).ToNot(HaveOccurred())
+			err = harness.SetLabelsForDevice(deviceName, map[string]string{"fleet": fleetName})
+			Expect(err).ToNot(HaveOccurred())
+			harness.WaitForDeviceContents(deviceName, "device owned by fleet", func(device *v1beta1.Device) bool {
+				return device.Metadata.Owner != nil && *device.Metadata.Owner == "Fleet/"+fleetName
+			}, e2e.TIMEOUT)
+			harness.WaitForDeviceContents(deviceName, "fleet application rolled out", func(device *v1beta1.Device) bool {
+				return deviceHasNamedApp(device, rbacAppName)
+			}, e2e.TIMEOUT)
+
+			for _, tc := range rbacRoleCases(users) {
+				By(fmt.Sprintf("Testing fleet-owned device lifecycle as %s", tc.role))
+				err = loginAndSetOrg(harness, tc.user.name, tc.user.password)
+				Expect(err).ToNot(HaveOccurred())
+				assertLifecycleAccess(harness, standaloneTarget, rbacAppName, []string{"stop", "start", "restart"}, tc.allowed)
+
+				By(fmt.Sprintf("Testing fleet-owned device console as %s", tc.role))
+				assertConsoleAccess(harness, deviceName, tc.allowed)
+
+				By(fmt.Sprintf("Testing fleet-owned application console as %s", tc.role))
+				assertAppConsoleAccess(harness, deviceName, rbacAppName, tc.allowed)
+			}
+		})
+
 		It("should enforce device console access by role", Label("89607", "agent"), func() {
 			testID := harness.GetTestIDFromContext()
 			deferOrgSimulatorConfig(harness, users)
@@ -672,6 +766,99 @@ func loginAndGetOrgID(harness *e2e.Harness, user, password string) (string, erro
 		return "", fmt.Errorf("getting org for %s: %w", user, err)
 	}
 	return orgID, nil
+}
+
+func rbacRoleCases(users testUserSet) []struct {
+	role    string
+	user    userCred
+	allowed bool
+} {
+	return []struct {
+		role    string
+		user    userCred
+		allowed bool
+	}{
+		{"admin", users.admin, true},
+		{"operator", users.operator, true},
+		{"viewer", users.viewer, false},
+		{"installer", users.installer, false},
+	}
+}
+
+func deviceHasNamedApp(device *v1beta1.Device, appName string) bool {
+	if device == nil || device.Spec == nil || device.Spec.Applications == nil {
+		return false
+	}
+	for _, app := range *device.Spec.Applications {
+		name, err := app.GetName()
+		if err != nil || name == nil {
+			continue
+		}
+		if *name == appName {
+			return true
+		}
+	}
+	return false
+}
+
+func remoteSessionAnnotation(harness *e2e.Harness, deviceName string) string {
+	device, err := harness.GetDevice(deviceName)
+	if err != nil || device.Metadata.Annotations == nil {
+		return ""
+	}
+	return (*device.Metadata.Annotations)[v1beta1.DeviceAnnotationRemoteSession]
+}
+
+func assertLifecycleAccess(harness *e2e.Harness, target, appName string, actions []string, allowed bool) {
+	GinkgoHelper()
+	for _, action := range actions {
+		out, err := harness.CLI("app", action, target, "--name", appName, "-y")
+		if !allowed {
+			Expect(err).To(HaveOccurred(), "%s %s should fail for unauthorized role", action, target)
+			Expect(out).To(Or(
+				ContainSubstring(http403Substring),
+				ContainSubstring(forbiddenSubstring),
+			), "Expected 403 Forbidden for %s %s", action, target)
+			continue
+		}
+		Expect(err).ToNot(HaveOccurred(), "%s %s should succeed for authorized role", action, target)
+	}
+}
+
+func assertAppConsoleAccess(harness *e2e.Harness, deviceName, appName string, allowed bool) {
+	GinkgoHelper()
+	before := remoteSessionAnnotation(harness, deviceName)
+	ctx, cancel := context.WithTimeout(harness.GetTestContext(), 20*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, harness.GetFlightctlPath(), //nolint:gosec // GetFlightctlPath is the in-tree test binary
+		"app", "console", "device/"+deviceName, "--name", appName, "--type", "serial", "--notty", "--force")
+	type consoleResult struct {
+		out []byte
+		err error
+	}
+	resultCh := make(chan consoleResult, 1)
+	go func() {
+		out, err := cmd.CombinedOutput()
+		resultCh <- consoleResult{out, err}
+	}()
+
+	if !allowed {
+		res := <-resultCh
+		Expect(res.err).To(HaveOccurred(), "App console should fail for unauthorized role")
+		Expect(string(res.out)).To(Or(
+			ContainSubstring(http403Substring),
+			ContainSubstring(forbiddenSubstring),
+		), "Expected 403 Forbidden for app console access")
+		return
+	}
+
+	Eventually(func() bool {
+		after := remoteSessionAnnotation(harness, deviceName)
+		return after != "" && after != before
+	}, 15*time.Second, time.Second).Should(BeTrue(), "authorized role should start an app console session")
+	cancel()
+	<-resultCh
 }
 
 // assertConsoleAccess verifies devices/console RBAC via flightctl console.
