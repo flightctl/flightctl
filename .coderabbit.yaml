@@ -64,7 +64,9 @@ reviews:
         do not apply this label.
 
         Eligible file categories:
-        - Documentation (*.md, docs/**)
+        - Documentation (*.md, docs/**) excluding review-policy files
+          (AGENTS.md, CLAUDE.md, CONTRIBUTING.md — these govern review
+          behavior and are not trivial)
         - CI configuration — comment and formatting changes only to
           existing files under .github/workflows/** and
           .github/actions/** (any semantic change — including run,
@@ -114,6 +116,11 @@ reviews:
            - Device agent reconciliation loops (internal/agent/**)
            - Rollout logic (internal/rollout/**)
            - Secrets, credentials, or certificate handling anywhere
+           - Containerfiles or deployment manifests
+           - hack/ scripts
+           - .coderabbit.yaml
+           - Hand-edited generated files (*.gen.go, *.pb.go,
+             zz_generated.deepcopy.go)
 
         Typical Show changes: test additions or fixes, CLI help text,
         logging improvements, Helm chart doc annotations, single-
