@@ -389,6 +389,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 				device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{appSpec}
 			})
 			Expect(err).ToNot(HaveOccurred())
+			waitForAgentReportedApp(harness, deviceName, rbacAppName)
 
 			standaloneTarget := "device/" + deviceName
 			for _, tc := range rbacRoleCases(users) {
@@ -437,9 +438,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			harness.WaitForDeviceContents(deviceName, "device owned by fleet", func(device *v1beta1.Device) bool {
 				return device.Metadata.Owner != nil && *device.Metadata.Owner == "Fleet/"+fleetName
 			}, e2e.TIMEOUT)
-			harness.WaitForDeviceContents(deviceName, "fleet application rolled out", func(device *v1beta1.Device) bool {
-				return deviceHasNamedApp(device, rbacAppName)
-			}, e2e.TIMEOUT)
+			waitForAgentReportedApp(harness, deviceName, rbacAppName)
 
 			for _, tc := range rbacRoleCases(users) {
 				By(fmt.Sprintf("Testing fleet-owned device lifecycle as %s", tc.role))
@@ -791,16 +790,19 @@ func rbacRoleCases(users testUserSet) []struct {
 	}
 }
 
-func deviceHasNamedApp(device *v1beta1.Device, appName string) bool {
-	if device == nil || device.Spec == nil || device.Spec.Applications == nil {
+func waitForAgentReportedApp(harness *e2e.Harness, deviceName, appName string) {
+	GinkgoHelper()
+	harness.WaitForDeviceContents(deviceName, "agent reported application "+appName, func(device *v1beta1.Device) bool {
+		return deviceHasNamedAppStatus(device, appName)
+	}, e2e.TIMEOUT)
+}
+
+func deviceHasNamedAppStatus(device *v1beta1.Device, appName string) bool {
+	if device == nil || device.Status == nil {
 		return false
 	}
-	for _, app := range *device.Spec.Applications {
-		name, err := app.GetName()
-		if err != nil || name == nil {
-			continue
-		}
-		if *name == appName {
+	for _, app := range device.Status.Applications {
+		if app.Name == appName && app.Status != "" {
 			return true
 		}
 	}

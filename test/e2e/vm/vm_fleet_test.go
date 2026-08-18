@@ -42,10 +42,12 @@ var _ = Describe("VM Applications on a Fleet", func() {
 		})
 		Expect(harness2.SetupVMFromPoolAndStartAgent(workerID2)).To(Succeed())
 
-		device1ID, _ := harness.EnrollAndWaitForOnlineStatus()
+		device1ID, device1 := harness.EnrollAndWaitForOnlineStatus()
 		Expect(device1ID).NotTo(BeEmpty())
-		device2ID, _ := harness2.EnrollAndWaitForOnlineStatus()
+		Expect(device1).NotTo(BeNil())
+		device2ID, device2 := harness2.EnrollAndWaitForOnlineStatus()
 		Expect(device2ID).NotTo(BeEmpty())
+		Expect(device2).NotTo(BeNil())
 
 		By("Creating a fleet with NGINX and a VM application")
 		nginxSpec, err := e2e.NewContainerApplicationSpecWithRunAs(
