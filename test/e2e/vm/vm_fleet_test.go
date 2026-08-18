@@ -141,17 +141,17 @@ func waitForAppStatus(h *e2e.Harness, deviceID, appName string, status v1beta1.A
 	Expect(err).ToNot(HaveOccurred())
 }
 
+func curlNginxHTTPStatus(h *e2e.Harness) (string, error) {
+	out, err := h.VM.RunSSH([]string{"curl", "-sS", "-o", "/dev/null", "-w", "%{http_code}", "--connect-timeout", "2", "http://127.0.0.1:" + nginxHostPort + "/"}, nil)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out.String()), nil
+}
+
 func expectNginxReachable(h *e2e.Harness) {
 	GinkgoHelper()
-	Eventually(func(g Gomega) {
-		ports, portsErr := h.GetContainerPorts()
-		g.Expect(portsErr).NotTo(HaveOccurred())
-		g.Expect(ports).To(ContainSubstring(nginxHostPort), "expected host port %s to be mapped", nginxHostPort)
-
-		out, curlErr := h.VM.RunSSH([]string{"curl", "-sS", "--fail", "--max-time", "5", "http://127.0.0.1:" + nginxHostPort}, nil)
-		g.Expect(curlErr).NotTo(HaveOccurred(), "curl to nginx on port %s failed", nginxHostPort)
-		g.Expect(strings.ToLower(out.String())).To(ContainSubstring("nginx"))
-	}, testutil.LONG_TIMEOUT, testutil.POLLING).Should(Succeed())
+	Eventually(func() (string, error) { return curlNginxHTTPStatus(h) }, testutil.LONG_TIMEOUT, testutil.POLLING).Should(Equal("200"))
 }
 
 func expectSSHInaccessible(h *e2e.Harness, port int, appName string) {

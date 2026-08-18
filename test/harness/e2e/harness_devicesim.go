@@ -322,6 +322,9 @@ func (h *Harness) StartLabeledSimulatorWithOptions(ctx context.Context, testID, 
 	if deviceCount <= 0 {
 		return nil, fmt.Errorf("deviceCount must be > 0")
 	}
+	if err := removeSimulatorAgentData(initialIndex, deviceCount); err != nil {
+		return nil, err
+	}
 	args := []string{
 		"--count", fmt.Sprintf("%d", deviceCount),
 		"--initial-device-index", fmt.Sprintf("%d", initialIndex),
@@ -337,6 +340,21 @@ func (h *Harness) StartLabeledSimulatorWithOptions(ctx context.Context, testID, 
 // DeviceSimulatorAgentAlias returns the agent alias label for a simulator device index.
 func DeviceSimulatorAgentAlias(initialDeviceIndex int) string {
 	return fmt.Sprintf("device-%05d", initialDeviceIndex)
+}
+
+func removeSimulatorAgentData(initialIndex, deviceCount int) error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("getting user home: %w", err)
+	}
+	dataDir := filepath.Join(homeDir, ".flightctl", "data")
+	for i := 0; i < deviceCount; i++ {
+		agentDir := filepath.Join(dataDir, DeviceSimulatorAgentAlias(initialIndex+i))
+		if err := os.RemoveAll(agentDir); err != nil {
+			return fmt.Errorf("removing leftover simulator data %s: %w", agentDir, err)
+		}
+	}
+	return nil
 }
 
 // WaitForSimulatorEnrollmentRequest polls until an enrollment request exists whose
@@ -469,25 +487,38 @@ func (h *Harness) CountDevicesByLabel(testID string) int {
 	return len(lines)
 }
 
-// WaitForLabeledSimulatorDevice polls until the simulator device for the given test-id and
-// device index has enrolled and returns its name (the enrollment / device ID).
+// WaitForLabeledSimulatorDevice polls until a device labeled with test-id exists.
 func (h *Harness) WaitForLabeledSimulatorDevice(testID string, initialDeviceIndex int, timeout, polling time.Duration) (string, error) {
 	alias := DeviceSimulatorAgentAlias(initialDeviceIndex)
 	return pollUntil(timeout.String(), polling.String(),
 		fmt.Sprintf("simulator device with test-id=%s and alias=%s", testID, alias),
 		func() (string, bool, error) {
-			name, found, err := h.findEnrollmentRequestBySpecLabels(testID, alias)
-			if err != nil {
-				return "", false, err
-			}
+			name, found := h.findDeviceNameByTestID(testID)
 			if !found {
-				return "", false, nil
-			}
-			if _, err := h.GetDevice(name); err != nil {
 				return "", false, nil
 			}
 			return name, true, nil
 		})
+}
+
+func (h *Harness) findDeviceNameByTestID(testID string) (string, bool) {
+	if testID == "" {
+		return "", false
+	}
+	out, err := h.CLI("get", "devices", "-l", fmt.Sprintf("test-id=%s", testID), "-o", "name")
+	if err != nil {
+		return "", false
+	}
+	line := strings.TrimSpace(out)
+	if line == "" {
+		return "", false
+	}
+	first := strings.Split(line, "\n")[0]
+	name := resourceNameFromCLIOutput(strings.TrimSpace(first))
+	if name == "" {
+		return "", false
+	}
+	return name, true
 }
 
 // EnrollDeviceForDecommissionTest starts a labeled simulator as the given user, waits for

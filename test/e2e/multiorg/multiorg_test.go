@@ -398,7 +398,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 				assertLifecycleAccess(harness, standaloneTarget, rbacAppName, []string{"stop", "start", "restart"}, tc.allowed)
 
 				By(fmt.Sprintf("Testing standalone device console as %s", tc.role))
-				assertConsoleAccess(harness, deviceName, tc.allowed)
+				assertSimulatorConsoleAccess(harness, deviceName, tc.allowed)
 
 				By(fmt.Sprintf("Testing standalone application console as %s", tc.role))
 				assertAppConsoleAccess(harness, deviceName, rbacAppName, tc.allowed)
@@ -448,7 +448,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 				assertLifecycleAccess(harness, standaloneTarget, rbacAppName, []string{"stop", "start", "restart"}, tc.allowed)
 
 				By(fmt.Sprintf("Testing fleet-owned device console as %s", tc.role))
-				assertConsoleAccess(harness, deviceName, tc.allowed)
+				assertSimulatorConsoleAccess(harness, deviceName, tc.allowed)
 
 				By(fmt.Sprintf("Testing fleet-owned application console as %s", tc.role))
 				assertAppConsoleAccess(harness, deviceName, rbacAppName, tc.allowed)
@@ -876,6 +876,25 @@ func assertAppConsoleAccess(harness *e2e.Harness, deviceName, appName string, al
 		return
 	}
 	Fail(fmt.Sprintf("authorized app console failed unexpectedly: %v\n%s", res.err, res.out))
+}
+
+// assertSimulatorConsoleAccess verifies devices/console RBAC on a simulator device.
+func assertSimulatorConsoleAccess(harness *e2e.Harness, deviceName string, allowed bool) {
+	GinkgoHelper()
+	out, err := harness.RunConsoleCommand(deviceName, []string{"--notty"}, "true")
+	if !allowed {
+		Expect(err).To(HaveOccurred(), "Console should fail for unauthorized role")
+		Expect(out).To(Or(
+			ContainSubstring(http403Substring),
+			ContainSubstring(forbiddenSubstring),
+		), "Expected 403 Forbidden for console access")
+		return
+	}
+	Expect(out).ToNot(Or(
+		ContainSubstring(http403Substring),
+		ContainSubstring(forbiddenSubstring),
+	), "authorized role must not receive 403 for console")
+	Expect(out).To(ContainSubstring("unknown user flightctl-console"), "authorized console should reach the agent")
 }
 
 // assertConsoleAccess verifies devices/console RBAC via flightctl console.

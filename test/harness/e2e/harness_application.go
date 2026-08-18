@@ -1258,7 +1258,7 @@ fi`,
 		quotedPassword,
 		sshCommand,
 	)
-	out, err := h.VM.RunSSH([]string{"/bin/sh", "-c", script}, nil)
+	out, err := h.VM.RunSSH([]string{"/bin/sh -c " + shellQuote(script)}, nil)
 	if err != nil {
 		return "", classifyDeviceLocalSSHError(fmt.Errorf(
 			"running /bin/sh -c ssh script on device VM (localhost:%d user=%s remote=%s): %w",
@@ -1358,7 +1358,7 @@ func (h *Harness) RunUDPProbeOnDeviceLocalPort(port int) (string, error) {
 		return "", fmt.Errorf("port must be between 1 and 65535, got %d", port)
 	}
 
-	out, err := h.VM.RunSSH([]string{"/bin/sh", "-c", udpProbeDeviceHostScript(port)}, nil)
+	out, err := h.VM.RunSSH([]string{"/bin/sh -c " + shellQuote(udpProbeDeviceHostScript(port))}, nil)
 	if err != nil {
 		return "", fmt.Errorf("running UDP probe on device host localhost:%d: %w", port, err)
 	}
