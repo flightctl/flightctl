@@ -530,6 +530,7 @@ func TestCreateDeviceFromEnrollmentRequestCapabilities(t *testing.T) {
 	tests := []struct {
 		name              string
 		caps              *domain.DeviceCapabilities
+		topLevelOsMode    *domain.OsModeType
 		wantCaps          bool
 		wantOsMode        *domain.OsModeType
 		wantDeltaEligible *bool
@@ -559,6 +560,27 @@ func TestCreateDeviceFromEnrollmentRequestCapabilities(t *testing.T) {
 			caps:     nil,
 			wantCaps: false,
 		},
+		{
+			name:           "When only top-level osMode is set it should copy it onto device capabilities.osMode",
+			topLevelOsMode: lo.ToPtr(domain.OsModePackage),
+			wantCaps:       true,
+			wantOsMode:     lo.ToPtr(domain.OsModePackage),
+		},
+		{
+			name:           "When capabilities.osMode is set it should ignore top-level osMode",
+			caps:           &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModeImage)},
+			topLevelOsMode: lo.ToPtr(domain.OsModePackage),
+			wantCaps:       true,
+			wantOsMode:     lo.ToPtr(domain.OsModeImage),
+		},
+		{
+			name:              "When capabilities.osMode is missing it should take top-level osMode",
+			caps:              &domain.DeviceCapabilities{DeltaEligible: lo.ToPtr(true)},
+			topLevelOsMode:    lo.ToPtr(domain.OsModePackage),
+			wantCaps:          true,
+			wantOsMode:        lo.ToPtr(domain.OsModePackage),
+			wantDeltaEligible: lo.ToPtr(true),
+		},
 	}
 
 	for _, tt := range tests {
@@ -570,7 +592,7 @@ func TestCreateDeviceFromEnrollmentRequestCapabilities(t *testing.T) {
 
 			er := &domain.EnrollmentRequest{
 				Metadata: domain.ObjectMeta{Name: lo.ToPtr(deviceName)},
-				Spec:     domain.EnrollmentRequestSpec{Csr: "TestCSR", Capabilities: tt.caps, DeviceStatus: lo.ToPtr(domain.NewDeviceStatus())},
+				Spec:     domain.EnrollmentRequestSpec{Csr: "TestCSR", Capabilities: tt.caps, OsMode: tt.topLevelOsMode, DeviceStatus: lo.ToPtr(domain.NewDeviceStatus())},
 			}
 
 			err := h.createDeviceFromEnrollmentRequest(ctx, orgId, er)

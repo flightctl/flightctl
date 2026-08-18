@@ -187,6 +187,23 @@ func addStatusIfNeeded(enrollmentRequest *domain.EnrollmentRequest) {
 	}
 }
 
+func applyEnrollmentCapabilities(enrollmentRequest *domain.EnrollmentRequest, deviceStatus *domain.DeviceStatus) {
+	if enrollmentRequest.Spec.Capabilities != nil {
+		caps := *enrollmentRequest.Spec.Capabilities
+		deviceStatus.Capabilities = &caps
+	}
+	if deviceStatus.Capabilities != nil && deviceStatus.Capabilities.OsMode != nil {
+		return
+	}
+	if enrollmentRequest.Spec.OsMode == nil {
+		return
+	}
+	if deviceStatus.Capabilities == nil {
+		deviceStatus.Capabilities = &domain.DeviceCapabilities{}
+	}
+	deviceStatus.Capabilities.OsMode = enrollmentRequest.Spec.OsMode
+}
+
 func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, orgId uuid.UUID, enrollmentRequest *domain.EnrollmentRequest) error {
 	deviceStatus := domain.NewDeviceStatus()
 	deviceStatus.Lifecycle = domain.DeviceLifecycleStatus{Status: "Enrolled"}
@@ -272,10 +289,7 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 		}
 	}
 
-	if enrollmentRequest.Spec.Capabilities != nil {
-		caps := *enrollmentRequest.Spec.Capabilities
-		deviceStatus.Capabilities = &caps
-	}
+	applyEnrollmentCapabilities(enrollmentRequest, &deviceStatus)
 
 	name := lo.FromPtr(enrollmentRequest.Metadata.Name)
 	apiResource := &domain.Device{

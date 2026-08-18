@@ -293,6 +293,33 @@ var _ = Describe("EnrollmentRequest Device Creation Unit Tests", func() {
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
 			Expect(device.Status.Capabilities).To(BeNil())
 		})
+
+		It("When only top-level spec.osMode is set it should copy it onto device capabilities.osMode", func() {
+			er := CreateTestER()
+			erName := lo.FromPtr(er.Metadata.Name)
+			er.Spec.OsMode = lo.ToPtr(api.OsModePackage)
+
+			By("creating enrollment request with top-level osMode=package")
+			created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+			Expect(created).ToNot(BeNil())
+
+			By("approving the enrollment request")
+			approval := api.EnrollmentRequestApproval{
+				Approved: true,
+				Labels:   &map[string]string{"approved": "true"},
+			}
+			_, st := suite.EnrollmentRequest.ApproveEnrollmentRequest(suite.Ctx, suite.OrgID, erName, approval)
+			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
+
+			By("verifying device capabilities")
+			device, status := suite.Device.GetDevice(suite.Ctx, suite.OrgID, erName)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+			Expect(device.Status.Capabilities).ToNot(BeNil())
+			Expect(device.Status.Capabilities.OsMode).ToNot(BeNil())
+			Expect(*device.Status.Capabilities.OsMode).To(Equal(api.OsModePackage))
+			Expect(device.Status.Capabilities.DeltaEligible).To(BeNil())
+		})
 	})
 
 	Context("createDeviceFromEnrollmentRequest with replaceLabels", func() {

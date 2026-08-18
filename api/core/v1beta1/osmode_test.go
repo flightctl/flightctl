@@ -89,6 +89,7 @@ func TestEnrollmentRequestSpecCapabilitiesJSON(t *testing.T) {
 		jsonInput         string
 		wantOsMode        *OsModeType
 		wantDeltaEligible *bool
+		wantTopOsMode     *OsModeType
 	}{
 		{
 			name:       "When capabilities is absent it should leave Capabilities nil",
@@ -118,9 +119,9 @@ func TestEnrollmentRequestSpecCapabilitiesJSON(t *testing.T) {
 			wantDeltaEligible: lo.ToPtr(false),
 		},
 		{
-			name:       "When top-level osMode is present it should leave Capabilities nil",
-			jsonInput:  `{"csr":"pem-data","osMode":"image"}`,
-			wantOsMode: nil,
+			name:          "When top-level osMode is present it should unmarshal spec.osMode and leave Capabilities nil",
+			jsonInput:     `{"csr":"pem-data","osMode":"image"}`,
+			wantTopOsMode: lo.ToPtr(OsModeImage),
 		},
 	}
 
@@ -128,6 +129,12 @@ func TestEnrollmentRequestSpecCapabilitiesJSON(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var spec EnrollmentRequestSpec
 			require.NoError(t, json.Unmarshal([]byte(tt.jsonInput), &spec))
+			if tt.wantTopOsMode != nil {
+				require.NotNil(t, spec.OsMode)
+				assert.Equal(t, *tt.wantTopOsMode, *spec.OsMode)
+			} else {
+				assert.Nil(t, spec.OsMode)
+			}
 			if tt.wantOsMode == nil && tt.wantDeltaEligible == nil {
 				assert.Nil(t, spec.Capabilities)
 				return
@@ -160,6 +167,21 @@ func TestEnrollmentRequestSpecMarshalCapabilities(t *testing.T) {
 	_, hasTopLevelOsMode := raw["osMode"]
 	assert.False(t, hasTopLevelOsMode)
 	require.Contains(t, raw, "capabilities")
+}
+
+func TestEnrollmentRequestSpecMarshalTopLevelOsMode(t *testing.T) {
+	spec := EnrollmentRequestSpec{
+		Csr:    "pem-data",
+		OsMode: lo.ToPtr(OsModeImage),
+	}
+	data, err := json.Marshal(spec)
+	require.NoError(t, err)
+
+	var raw map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(data, &raw))
+	require.Contains(t, raw, "osMode")
+	_, hasCapabilities := raw["capabilities"]
+	assert.False(t, hasCapabilities)
 }
 
 type enrollmentRequestValidateOsModeCase struct {
@@ -221,6 +243,51 @@ func TestEnrollmentRequestValidateOsMode(t *testing.T) {
 					if strings.Contains(e.Error(), "spec.capabilities.osMode") {
 						t.Errorf("unexpected osMode error: %v", e)
 					}
+				}
+			}
+		})
+	}
+}
+
+func TestEnrollmentRequestValidateTopLevelOsMode(t *testing.T) {
+	tests := []struct {
+		name      string
+		osMode    *OsModeType
+		wantError bool
+	}{
+		{
+			name:   "When spec.osMode is image it should pass validation",
+			osMode: lo.ToPtr(OsModeImage),
+		},
+		{
+			name:      "When spec.osMode is invalid it should return an error",
+			osMode:    lo.ToPtr(OsModeType("foo")),
+			wantError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			er := EnrollmentRequest{
+				Metadata: ObjectMeta{Name: lo.ToPtr("test-er")},
+				Spec:     EnrollmentRequestSpec{Csr: "pem-data", OsMode: tt.osMode},
+			}
+			errs := er.Validate()
+			if tt.wantError {
+				require.NotEmpty(t, errs)
+				found := false
+				for _, e := range errs {
+					if strings.Contains(e.Error(), "spec.osMode") {
+						found = true
+						break
+					}
+				}
+				assert.True(t, found, "expected an error mentioning spec.osMode, got: %v", errs)
+				return
+			}
+			for _, e := range errs {
+				if strings.Contains(e.Error(), "spec.osMode") {
+					t.Errorf("unexpected osMode error: %v", e)
 				}
 			}
 		})

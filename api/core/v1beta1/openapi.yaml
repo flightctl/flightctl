@@ -6997,6 +6997,15 @@ components:
         knownRenderedVersion:
           type: string
           description: 'The rendered version of the device from desired.json (optional).'
+        osMode:
+          allOf:
+            - $ref: '#/components/schemas/OsModeType'
+          deprecated: true
+          x-deprecated-reason: Use spec.capabilities.osMode.
+          description: >-
+            Deprecated: use spec.capabilities.osMode. Retained so older agents
+            that still send top-level osMode continue to enroll. Ignored when
+            spec.capabilities.osMode is set.
         capabilities:
           $ref: '#/components/schemas/DeviceCapabilities'
       description: EnrollmentRequestSpec is a description of a EnrollmentRequest's target state.

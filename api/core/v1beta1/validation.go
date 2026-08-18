@@ -483,6 +483,12 @@ func (r EnrollmentRequest) Validate() []error {
 			allErrs = append(allErrs, fmt.Errorf("spec.capabilities.osMode: invalid value %q (must be %q or %q)", osMode, OsModeImage, OsModePackage))
 		}
 	}
+	if r.Spec.OsMode != nil {
+		osMode := *r.Spec.OsMode
+		if osMode != OsModeImage && osMode != OsModePackage {
+			allErrs = append(allErrs, fmt.Errorf("spec.osMode: invalid value %q (must be %q or %q)", osMode, OsModeImage, OsModePackage))
+		}
+	}
 
 	return allErrs
 }

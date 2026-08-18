@@ -1803,6 +1803,10 @@ type EnrollmentRequestSpec struct {
 
 	// Labels A set of labels that the service will apply to this device when its enrollment is approved.
 	Labels *map[string]string `json:"labels,omitempty"`
+
+	// OsMode Deprecated: use spec.capabilities.osMode. Retained so older agents that still send top-level osMode continue to enroll. Ignored when spec.capabilities.osMode is set.
+	// Deprecated: Use spec.capabilities.osMode.
+	OsMode *OsModeType `json:"osMode,omitempty"`
 }
 
 // EnrollmentRequestStatus EnrollmentRequestStatus represents information about the status of a EnrollmentRequest.
