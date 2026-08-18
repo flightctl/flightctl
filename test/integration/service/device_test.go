@@ -982,6 +982,65 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 		})
 	})
 
+	Context("DeltaEligible status persist and GET", func() {
+		seedDeviceWithDeltaEligible := func(deviceName string, deltaEligible *bool) {
+			GinkgoHelper()
+			device := api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec:     &api.DeviceSpec{},
+			}
+			_, status := suite.Device.CreateDevice(suite.Ctx, suite.OrgID, device)
+			Expect(status.Code).To(Equal(int32(201)))
+
+			deviceStatus := api.NewDeviceStatus()
+			deviceStatus.Capabilities = &api.DeviceCapabilities{
+				OsMode:        lo.ToPtr(api.OsModeImage),
+				DeltaEligible: deltaEligible,
+			}
+			statusDevice := api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Status:   &deviceStatus,
+			}
+			_, status = suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, statusDevice, false)
+			Expect(status.Code).To(Equal(int32(200)))
+		}
+
+		It("When status has OsMode but no DeltaEligible it should leave deltaEligible unset on GET", func() {
+			deviceName := "delta-eligible-omitted"
+			seedDeviceWithDeltaEligible(deviceName, nil)
+
+			got, status := suite.Device.GetDevice(suite.Ctx, suite.OrgID, deviceName)
+			Expect(status.Code).To(Equal(int32(200)))
+			Expect(got.Status).ToNot(BeNil())
+			Expect(got.Status.Capabilities).ToNot(BeNil())
+			Expect(got.Status.Capabilities.DeltaEligible).To(BeNil())
+		})
+
+		It("When DeltaEligible is true it should return true on GET", func() {
+			deviceName := "delta-eligible-true"
+			seedDeviceWithDeltaEligible(deviceName, lo.ToPtr(true))
+
+			got, status := suite.Device.GetDevice(suite.Ctx, suite.OrgID, deviceName)
+			Expect(status.Code).To(Equal(int32(200)))
+			Expect(got.Status).ToNot(BeNil())
+			Expect(got.Status.Capabilities).ToNot(BeNil())
+			Expect(got.Status.Capabilities.DeltaEligible).ToNot(BeNil())
+			Expect(*got.Status.Capabilities.DeltaEligible).To(BeTrue())
+		})
+
+		It("When DeltaEligible is false it should return false on GET", func() {
+			deviceName := "delta-eligible-false"
+			seedDeviceWithDeltaEligible(deviceName, lo.ToPtr(false))
+
+			got, status := suite.Device.GetDevice(suite.Ctx, suite.OrgID, deviceName)
+			Expect(status.Code).To(Equal(int32(200)))
+			Expect(got.Status).ToNot(BeNil())
+			Expect(got.Status.Capabilities).ToNot(BeNil())
+			Expect(got.Status.Capabilities.DeltaEligible).ToNot(BeNil())
+			Expect(*got.Status.Capabilities.DeltaEligible).To(BeFalse())
+		})
+	})
+
 	Context("GetRenderedDevice when AwaitingReconnect moves to ConflictPaused", func() {
 		var (
 			suite           *ServiceTestSuite
