@@ -45,19 +45,17 @@ func newOciAuth(username, password string) *api.OciAuth {
 
 var _ = Describe("RepositoryStore create", func() {
 	var (
-		log                 *logrus.Logger
-		ctx                 context.Context
-		orgId               uuid.UUID
-		repositoryStore     repositorystore.Store
-		deviceStore         devicestore.Store
-		fleetStore          fleetstore.Store
-		organizationStore   organizationstore.Store
-		cfg                 *config.Config
-		dbName              string
-		db                  *gorm.DB
-		numRepositories     int
-		eventCallbackCalled bool
-		eventCallback       store.EventCallback
+		log               *logrus.Logger
+		ctx               context.Context
+		orgId             uuid.UUID
+		repositoryStore   repositorystore.Store
+		deviceStore       devicestore.Store
+		fleetStore        fleetstore.Store
+		organizationStore organizationstore.Store
+		cfg               *config.Config
+		dbName            string
+		db                *gorm.DB
+		numRepositories   int
 	)
 
 	BeforeEach(func() {
@@ -71,10 +69,6 @@ var _ = Describe("RepositoryStore create", func() {
 		deviceStore = devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
 		fleetStore = fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
 		organizationStore = organizationstore.NewOrganizationStore(db)
-		eventCallbackCalled = false
-		eventCallback = store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {
-			eventCallbackCalled = true
-		})
 
 		orgId = uuid.New()
 		err = testutil.CreateTestOrganization(ctx, organizationStore, orgId)
@@ -119,21 +113,18 @@ var _ = Describe("RepositoryStore create", func() {
 		})
 
 		It("Delete repository success", func() {
-			err := repositoryStore.Delete(ctx, orgId, "myrepository-1", eventCallback)
+			_, err := repositoryStore.Delete(ctx, orgId, "myrepository-1")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(eventCallbackCalled).To(BeTrue())
 		})
 
 		It("Delete repository success when not found", func() {
-			err := repositoryStore.Delete(ctx, orgId, "nonexistent", eventCallback)
+			_, err := repositoryStore.Delete(ctx, orgId, "nonexistent")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(eventCallbackCalled).To(BeFalse())
 		})
 
 		It("Delete repository success when nil spec", func() {
-			err := repositoryStore.Delete(ctx, orgId, "nilspec", eventCallback)
+			_, err := repositoryStore.Delete(ctx, orgId, "nilspec")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(eventCallbackCalled).To(BeFalse())
 		})
 
 		It("List with paging", func() {
@@ -207,9 +198,8 @@ var _ = Describe("RepositoryStore create", func() {
 				Spec:   spec,
 				Status: nil,
 			}
-			repo, created, err := repositoryStore.CreateOrUpdate(ctx, orgId, &repository, eventCallback)
+			repo, _, created, err := repositoryStore.CreateOrUpdate(ctx, orgId, &repository)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(eventCallbackCalled).To(BeTrue())
 			Expect(created).To(Equal(true))
 			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPIVersion()))
 			Expect(repo.Kind).To(Equal(api.RepositoryKind))
@@ -234,9 +224,8 @@ var _ = Describe("RepositoryStore create", func() {
 				Spec:   spec,
 				Status: nil,
 			}
-			repo, created, err := repositoryStore.CreateOrUpdate(ctx, orgId, &repository, eventCallback)
+			repo, _, created, err := repositoryStore.CreateOrUpdate(ctx, orgId, &repository)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(eventCallbackCalled).To(BeTrue())
 			Expect(created).To(Equal(false))
 			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPIVersion()))
 			Expect(repo.Kind).To(Equal(api.RepositoryKind))
@@ -261,9 +250,8 @@ var _ = Describe("RepositoryStore create", func() {
 				Spec:   spec,
 				Status: nil,
 			}
-			repo, created, err := repositoryStore.CreateOrUpdate(ctx, orgId, &repository, eventCallback)
+			repo, _, created, err := repositoryStore.CreateOrUpdate(ctx, orgId, &repository)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(eventCallbackCalled).To(BeTrue())
 			Expect(created).To(Equal(true))
 			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPIVersion()))
 			Expect(repo.Kind).To(Equal(api.RepositoryKind))
@@ -284,9 +272,8 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(repos.Items).To(HaveLen(1))
 			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-1"))
 
-			err = repositoryStore.Delete(ctx, orgId, "myrepository-1", eventCallback)
+			_, err = repositoryStore.Delete(ctx, orgId, "myrepository-1")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(eventCallbackCalled).To(BeTrue())
 		})
 
 		It("Delete repo with device association", func() {
@@ -299,9 +286,8 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(repos.Items).To(HaveLen(1))
 			Expect(*(repos.Items[0]).Metadata.Name).To(Equal("myrepository-1"))
 
-			err = repositoryStore.Delete(ctx, orgId, "myrepository-1", eventCallback)
+			_, err = repositoryStore.Delete(ctx, orgId, "myrepository-1")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(eventCallbackCalled).To(BeTrue())
 		})
 
 		It("CountByOrg - with specific orgId", func() {
@@ -328,7 +314,7 @@ var _ = Describe("RepositoryStore create", func() {
 					},
 					Spec: spec,
 				}
-				_, err = repositoryStore.Create(ctx, orgId, &resource, eventCallback)
+				_, err = repositoryStore.Create(ctx, orgId, &resource)
 				Expect(err).ToNot(HaveOccurred())
 			}
 
@@ -383,9 +369,8 @@ var _ = Describe("RepositoryStore create", func() {
 				Status: nil,
 			}
 
-			repo, err := repositoryStore.Create(ctx, orgId, &repository, eventCallback)
+			repo, err := repositoryStore.Create(ctx, orgId, &repository)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(eventCallbackCalled).To(BeTrue())
 			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPIVersion()))
 			Expect(repo.Kind).To(Equal(api.RepositoryKind))
 
@@ -421,9 +406,8 @@ var _ = Describe("RepositoryStore create", func() {
 				Status: nil,
 			}
 
-			repo, err := repositoryStore.Create(ctx, orgId, &repository, eventCallback)
+			repo, err := repositoryStore.Create(ctx, orgId, &repository)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(eventCallbackCalled).To(BeTrue())
 
 			// Verify OCI spec without credentials
 			ociSpec, err := repo.Spec.AsOciRepoSpec()
@@ -450,7 +434,7 @@ var _ = Describe("RepositoryStore create", func() {
 				},
 				Spec: specRw,
 			}
-			_, err = repositoryStore.Create(ctx, orgId, &repoRw, eventCallback)
+			_, err = repositoryStore.Create(ctx, orgId, &repoRw)
 			Expect(err).ToNot(HaveOccurred())
 
 			specR := api.RepositorySpec{}
@@ -468,7 +452,7 @@ var _ = Describe("RepositoryStore create", func() {
 				},
 				Spec: specR,
 			}
-			_, err = repositoryStore.Create(ctx, orgId, &repoR, eventCallback)
+			_, err = repositoryStore.Create(ctx, orgId, &repoR)
 			Expect(err).ToNot(HaveOccurred())
 
 			// List only read-write repositories
@@ -521,7 +505,7 @@ var _ = Describe("RepositoryStore create", func() {
 				},
 				Spec: spec,
 			}
-			_, err = repositoryStore.Create(ctx, orgId, &repository, eventCallback)
+			_, err = repositoryStore.Create(ctx, orgId, &repository)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Get the repository by name
@@ -559,7 +543,7 @@ var _ = Describe("RepositoryStore create", func() {
 				},
 				Spec: specOciRead,
 			}
-			_, err = repositoryStore.Create(ctx, orgId, &repoOciRead, eventCallback)
+			_, err = repositoryStore.Create(ctx, orgId, &repoOciRead)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Create an OCI repository with ReadWrite access
@@ -578,7 +562,7 @@ var _ = Describe("RepositoryStore create", func() {
 				},
 				Spec: specOciRw,
 			}
-			_, err = repositoryStore.Create(ctx, orgId, &repoOciRw, eventCallback)
+			_, err = repositoryStore.Create(ctx, orgId, &repoOciRw)
 			Expect(err).ToNot(HaveOccurred())
 
 			// List with combined filter: type=oci AND accessMode=ReadWrite
@@ -620,7 +604,7 @@ var _ = Describe("RepositoryStore create", func() {
 				},
 				Spec: spec,
 			}
-			_, err = repositoryStore.Create(ctx, orgId, &repository, eventCallback)
+			_, err = repositoryStore.Create(ctx, orgId, &repository)
 			Expect(err).ToNot(HaveOccurred())
 
 			// List only OCI type repositories
@@ -664,9 +648,8 @@ var _ = Describe("RepositoryStore create", func() {
 				Status: nil,
 			}
 
-			repo, err := repositoryStore.Create(ctx, orgId, &repository, eventCallback)
+			repo, err := repositoryStore.Create(ctx, orgId, &repository)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(eventCallbackCalled).To(BeTrue())
 			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPIVersion()))
 			Expect(repo.Kind).To(Equal(api.RepositoryKind))
 
@@ -702,9 +685,8 @@ var _ = Describe("RepositoryStore create", func() {
 				Status: nil,
 			}
 
-			repo, err := repositoryStore.Create(ctx, orgId, &repository, eventCallback)
+			repo, err := repositoryStore.Create(ctx, orgId, &repository)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(eventCallbackCalled).To(BeTrue())
 
 			// Verify SSH spec without passphrase
 			gitSpec, err := repo.Spec.AsGitRepoSpec()
@@ -735,7 +717,7 @@ var _ = Describe("RepositoryStore create", func() {
 				},
 				Spec: spec,
 			}
-			_, err = repositoryStore.Create(ctx, orgId, &repository, eventCallback)
+			_, err = repositoryStore.Create(ctx, orgId, &repository)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Get the repository by name
@@ -773,7 +755,7 @@ var _ = Describe("RepositoryStore create", func() {
 				},
 				Spec: spec,
 			}
-			_, created, err := repositoryStore.CreateOrUpdate(ctx, orgId, &repository, eventCallback)
+			_, _, created, err := repositoryStore.CreateOrUpdate(ctx, orgId, &repository)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeTrue())
 
@@ -791,7 +773,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			repository.Spec = spec
-			repo, created, err := repositoryStore.CreateOrUpdate(ctx, orgId, &repository, eventCallback)
+			repo, _, created, err := repositoryStore.CreateOrUpdate(ctx, orgId, &repository)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeFalse())
 
@@ -824,7 +806,7 @@ var _ = Describe("RepositoryStore create", func() {
 				},
 				Spec: spec,
 			}
-			_, err = repositoryStore.Create(ctx, orgId, &repository, eventCallback)
+			_, err = repositoryStore.Create(ctx, orgId, &repository)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Verify it exists
@@ -832,10 +814,8 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Delete the repository
-			eventCallbackCalled = false
-			err = repositoryStore.Delete(ctx, orgId, "ssh-delete-test", eventCallback)
+			_, err = repositoryStore.Delete(ctx, orgId, "ssh-delete-test")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(eventCallbackCalled).To(BeTrue())
 
 			// Verify it no longer exists
 			_, err = repositoryStore.Get(ctx, orgId, "ssh-delete-test")
@@ -867,9 +847,8 @@ var _ = Describe("RepositoryStore create", func() {
 				Status: nil,
 			}
 
-			repo, err := repositoryStore.Create(ctx, orgId, &repository, eventCallback)
+			repo, err := repositoryStore.Create(ctx, orgId, &repository)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(eventCallbackCalled).To(BeTrue())
 			Expect(repo.ApiVersion).To(Equal(model.RepositoryAPIVersion()))
 			Expect(repo.Kind).To(Equal(api.RepositoryKind))
 
@@ -905,9 +884,8 @@ var _ = Describe("RepositoryStore create", func() {
 				Status: nil,
 			}
 
-			repo, err := repositoryStore.Create(ctx, orgId, &repository, eventCallback)
+			repo, err := repositoryStore.Create(ctx, orgId, &repository)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(eventCallbackCalled).To(BeTrue())
 
 			// Verify HTTP spec with token
 			httpSpec, err := repo.Spec.AsHttpRepoSpec()
@@ -944,9 +922,8 @@ var _ = Describe("RepositoryStore create", func() {
 				Status: nil,
 			}
 
-			repo, err := repositoryStore.Create(ctx, orgId, &repository, eventCallback)
+			repo, err := repositoryStore.Create(ctx, orgId, &repository)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(eventCallbackCalled).To(BeTrue())
 
 			// Verify HTTP spec with TLS config
 			httpSpec, err := repo.Spec.AsHttpRepoSpec()
@@ -981,9 +958,8 @@ var _ = Describe("RepositoryStore create", func() {
 				Status: nil,
 			}
 
-			repo, err := repositoryStore.Create(ctx, orgId, &repository, eventCallback)
+			repo, err := repositoryStore.Create(ctx, orgId, &repository)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(eventCallbackCalled).To(BeTrue())
 
 			// Verify HTTP spec with skipServerVerification
 			httpSpec, err := repo.Spec.AsHttpRepoSpec()
@@ -1015,7 +991,7 @@ var _ = Describe("RepositoryStore create", func() {
 				},
 				Spec: spec,
 			}
-			_, err = repositoryStore.Create(ctx, orgId, &repository, eventCallback)
+			_, err = repositoryStore.Create(ctx, orgId, &repository)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Get the repository by name
@@ -1055,7 +1031,7 @@ var _ = Describe("RepositoryStore create", func() {
 				},
 				Spec: spec,
 			}
-			_, created, err := repositoryStore.CreateOrUpdate(ctx, orgId, &repository, eventCallback)
+			_, _, created, err := repositoryStore.CreateOrUpdate(ctx, orgId, &repository)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeTrue())
 
@@ -1071,7 +1047,7 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			repository.Spec = spec
-			repo, created, err := repositoryStore.CreateOrUpdate(ctx, orgId, &repository, eventCallback)
+			repo, _, created, err := repositoryStore.CreateOrUpdate(ctx, orgId, &repository)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeFalse())
 
@@ -1102,7 +1078,7 @@ var _ = Describe("RepositoryStore create", func() {
 				},
 				Spec: spec,
 			}
-			_, err = repositoryStore.Create(ctx, orgId, &repository, eventCallback)
+			_, err = repositoryStore.Create(ctx, orgId, &repository)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Verify it exists
@@ -1110,10 +1086,8 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Delete the repository
-			eventCallbackCalled = false
-			err = repositoryStore.Delete(ctx, orgId, "http-delete-test", eventCallback)
+			_, err = repositoryStore.Delete(ctx, orgId, "http-delete-test")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(eventCallbackCalled).To(BeTrue())
 
 			// Verify it no longer exists
 			_, err = repositoryStore.Get(ctx, orgId, "http-delete-test")
@@ -1140,7 +1114,7 @@ var _ = Describe("RepositoryStore create", func() {
 				},
 				Spec: spec,
 			}
-			_, err = repositoryStore.Create(ctx, orgId, &repository, eventCallback)
+			_, err = repositoryStore.Create(ctx, orgId, &repository)
 			Expect(err).ToNot(HaveOccurred())
 
 			// List only HTTP type repositories

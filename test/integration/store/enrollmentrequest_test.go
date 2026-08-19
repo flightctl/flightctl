@@ -78,12 +78,12 @@ var _ = Describe("enrollmentRequestStore create", func() {
 		})
 
 		It("Delete enrollmentrequest success", func() {
-			err := enrollmentRequestStore.Delete(ctx, orgId, "myenrollmentrequest-1", nil)
+			_, err := enrollmentRequestStore.Delete(ctx, orgId, "myenrollmentrequest-1")
 			Expect(err).ToNot(HaveOccurred())
 		})
 
 		It("Delete enrollmentrequest success when not found", func() {
-			err := enrollmentRequestStore.Delete(ctx, orgId, "nonexistent", nil)
+			_, err := enrollmentRequestStore.Delete(ctx, orgId, "nonexistent")
 			Expect(err).ToNot(HaveOccurred())
 		})
 
@@ -149,7 +149,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 				},
 				Status: nil,
 			}
-			er, created, err := enrollmentRequestStore.CreateOrUpdate(ctx, orgId, &enrollmentrequest, nil)
+			er, _, created, err := enrollmentRequestStore.CreateOrUpdate(ctx, orgId, &enrollmentrequest)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(true))
 			Expect(er.ApiVersion).To(Equal(model.EnrollmentRequestAPIVersion()))
@@ -171,7 +171,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 					Certificate: lo.ToPtr("bogus-cert"),
 				},
 			}
-			er, created, err := enrollmentRequestStore.CreateOrUpdate(ctx, orgId, &enrollmentrequest, nil)
+			er, _, created, err := enrollmentRequestStore.CreateOrUpdate(ctx, orgId, &enrollmentrequest)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(false))
 			Expect(er.ApiVersion).To(Equal(model.EnrollmentRequestAPIVersion()))
@@ -206,7 +206,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 					Conditions: []api.Condition{condition},
 				},
 			}
-			_, err := enrollmentRequestStore.UpdateStatus(ctx, orgId, &enrollmentrequest, nil)
+			_, _, err := enrollmentRequestStore.UpdateStatus(ctx, orgId, &enrollmentrequest)
 			Expect(err).ToNot(HaveOccurred())
 			dev, err := enrollmentRequestStore.Get(ctx, orgId, "myenrollmentrequest-1")
 			Expect(err).ToNot(HaveOccurred())
