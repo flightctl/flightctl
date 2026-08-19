@@ -1422,17 +1422,17 @@ func TestValidateArtifactURIHasNoVersionQualifier(t *testing.T) {
 		name        string
 		uri         string
 		wantErr     bool
-		errContains string
+		errContains []string
 	}{
 		{name: "bare OCI reference", uri: "quay.io/acme/app", wantErr: false},
 		{name: "bare OCI with port", uri: "registry.example.com:5000/myapp", wantErr: false},
 		{name: "bare OCI deep path", uri: "quay.io/org/sub/image", wantErr: false},
 		{name: "oci:// bare reference", uri: "oci://quay.io/acme/app", wantErr: false},
-		{name: "When URI contains a tag it should reject", uri: "quay.io/org/image:latest", wantErr: true, errContains: "must not contain a tag"},
-		{name: "When URI contains a version tag it should reject", uri: "quay.io/org/image:v1.0", wantErr: true, errContains: "must not contain a tag"},
-		{name: "When oci:// URI contains a tag it should reject", uri: "oci://quay.io/org/image:latest", wantErr: true, errContains: "must not contain a tag"},
-		{name: "When URI contains a digest it should reject", uri: "quay.io/org/image@sha256:abc123", wantErr: true, errContains: "must not contain a digest"},
-		{name: "When URI contains both tag and digest it should report both", uri: "quay.io/org/image:v1@sha256:abc", wantErr: true, errContains: "must not contain a digest"},
+		{name: "When URI contains a tag it should reject", uri: "quay.io/org/image:latest", wantErr: true, errContains: []string{"must not contain a tag"}},
+		{name: "When URI contains a version tag it should reject", uri: "quay.io/org/image:v1.0", wantErr: true, errContains: []string{"must not contain a tag"}},
+		{name: "When oci:// URI contains a tag it should reject", uri: "oci://quay.io/org/image:latest", wantErr: true, errContains: []string{"must not contain a tag"}},
+		{name: "When URI contains a digest it should reject", uri: "quay.io/org/image@sha256:abc123", wantErr: true, errContains: []string{"must not contain a digest"}},
+		{name: "When URI contains both tag and digest it should report both", uri: "quay.io/org/image:v1@sha256:abc", wantErr: true, errContains: []string{"must not contain a digest", "must not contain a tag"}},
 		{name: "HTTPS URL is skipped", uri: "https://cdn.example.com/images/rhel:v1", wantErr: false},
 		{name: "S3 URI is skipped", uri: "s3://bucket/key:something", wantErr: false},
 		{name: "custom scheme is skipped", uri: "mycdn://acme/artifacts:v1", wantErr: false},
@@ -1443,7 +1443,14 @@ func TestValidateArtifactURIHasNoVersionQualifier(t *testing.T) {
 			errs := validateArtifactURIHasNoVersionQualifier(tt.uri, "test.uri")
 			if tt.wantErr {
 				require.NotEmpty(t, errs, "expected error for URI %q", tt.uri)
-				require.Contains(t, errs[0].Error(), tt.errContains)
+				errStrs := make([]string, len(errs))
+				for i, e := range errs {
+					errStrs[i] = e.Error()
+				}
+				allErrs := strings.Join(errStrs, "; ")
+				for _, substr := range tt.errContains {
+					require.Contains(t, allErrs, substr, "expected error containing %q for URI %q", substr, tt.uri)
+				}
 			} else {
 				require.Empty(t, errs, "unexpected error for URI %q: %v", tt.uri, errs)
 			}
