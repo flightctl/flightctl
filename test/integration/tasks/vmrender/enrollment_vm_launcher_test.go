@@ -103,6 +103,7 @@ var _ = Describe("Enrollment VM launcher image selection", func() {
 		repositorySvc      repositoryservice.Service
 		enrollmentSvc      enrollmentrequestservice.Service
 		origPath           string
+		origPathSet        bool
 	)
 
 	BeforeEach(func() {
@@ -159,7 +160,7 @@ var _ = Describe("Enrollment VM launcher image selection", func() {
 		Expect(err).ToNot(HaveOccurred())
 		Expect(rendered.Bus.Initialize(ctx, kvStoreInst, queuesProvider, 10*time.Second, log)).To(Succeed())
 
-		origPath = os.Getenv("PATH")
+		origPath, origPathSet = os.LookupEnv("PATH")
 		Expect(os.Setenv("PATH", filepath.Dir(vmBinaryPath)+string(os.PathListSeparator)+origPath)).To(Succeed())
 
 		testutil.CreateTestFleet(ctx, fleetStore, orgId, "vm-launcher-fleet", &map[string]string{testFleetLabelKey: testFleetLabelValue}, nil)
@@ -171,9 +172,7 @@ var _ = Describe("Enrollment VM launcher image selection", func() {
 	})
 
 	AfterEach(func() {
-		if origPath != "" {
-			_ = os.Setenv("PATH", origPath)
-		}
+		restoreOrigPath(origPath, origPathSet)
 		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 		ctrl.Finish()
 	})
@@ -233,6 +232,15 @@ var _ = Describe("Enrollment VM launcher image selection", func() {
 		Entry("When distro is fedora it should use launcherImage", "fedora", "42 (Adams)", defaultLauncherImage),
 	)
 })
+
+func restoreOrigPath(origPath string, origPathSet bool) {
+	GinkgoHelper()
+	if origPathSet {
+		Expect(os.Setenv("PATH", origPath)).To(Succeed())
+		return
+	}
+	Expect(os.Unsetenv("PATH")).To(Succeed())
+}
 
 func inlineTestVmApp() api.VmApplication {
 	GinkgoHelper()

@@ -10,7 +10,7 @@ The Flight Control worker converts `VmApplication` manifests into Quadlet units 
 | `launcherImages` | empty (no per-OS pins) |
 | `passtWorkarounds` | `false` |
 
-`passtWorkarounds` enables startup patches for known networking issues in older virt-launcher passt builds (for example guest network instability and related passt failures). The default virt-launcher image does not need this. Enable it only when you override `launcherImage` to an older image that still requires the workaround.
+`passtWorkarounds` enables startup patches for known networking issues in older virt-launcher passt builds (for example guest network instability and related passt failures). The default virt-launcher image does not need this. Enable it only when the selected `launcherImage` or `launcherImages` entry is an older image that still requires the workaround.
 
 ## How the worker selects an image
 
