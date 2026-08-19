@@ -982,18 +982,25 @@ func waitForResourceContents[T any](id string, description string, fetch func(st
 }
 
 func (h *Harness) WaitForOnlineStatus(deviceId string) *v1beta1.Device {
-	Eventually(h.GetDeviceWithStatusSummary, TIMEOUT, POLLING).WithArguments(
-		deviceId).Should(Equal(v1beta1.DeviceSummaryStatusOnline))
+	var device *v1beta1.Device
+	Eventually(func() error {
+		response, err := h.GetDeviceWithStatusSystem(deviceId)
+		if err != nil {
+			return err
+		}
+		if response == nil || response.JSON200 == nil || response.JSON200.Status == nil {
+			return fmt.Errorf("device %s status not ready", deviceId)
+		}
+		device = response.JSON200
+		if device.Status.Summary.Status != v1beta1.DeviceSummaryStatusOnline {
+			return fmt.Errorf("device %s summary status is %s", deviceId, device.Status.Summary.Status)
+		}
+		if device.Status.Summary.Info == nil || *device.Status.Summary.Info != service.DeviceStatusInfoHealthy {
+			return fmt.Errorf("device %s is not healthy", deviceId)
+		}
+		return nil
+	}, TIMEOUT, POLLING).Should(Succeed())
 	logrus.Infof("The device %s is online", deviceId)
-
-	response, err := h.GetDeviceWithStatusSystem(deviceId)
-	Expect(err).NotTo(HaveOccurred())
-	Expect(response).NotTo(BeNil())
-	Expect(response.JSON200).NotTo(BeNil())
-	device := response.JSON200
-	Expect(device.Status).NotTo(BeNil())
-	Expect(device.Status.Summary.Info).NotTo(BeNil())
-	Expect(*device.Status.Summary.Info).To(Equal(service.DeviceStatusInfoHealthy))
 	return device
 }
 
