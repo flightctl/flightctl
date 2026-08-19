@@ -287,6 +287,45 @@ var _ = Describe("DeltaStore", func() {
 			Expect(listed[0].Name).To(Equal("expired"))
 			Expect(listed[0].Status).To(Equal(model.DeltaPrepareWaiting))
 		})
+
+		It("should return expired waiting rows from every org", func() {
+			otherOrg := uuid.New()
+			Expect(testutil.CreateTestOrganization(ctx, organizationStore, otherOrg)).To(Succeed())
+			past := time.Now().Add(-time.Hour)
+			Expect(deltaStore.InsertPrepare(ctx, fleetPrepare("org-a", &past))).To(Succeed())
+			otherPrep := &model.DeltaPrepare{
+				OrgID:    otherOrg,
+				Kind:     domain.FleetKind,
+				Name:     "org-b",
+				Deadline: &past,
+			}
+			Expect(deltaStore.InsertPrepare(ctx, otherPrep)).To(Succeed())
+
+			listed, err := deltaStore.ListWaitingPastDeadline(ctx)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(listed).To(HaveLen(2))
+			names := []string{listed[0].Name, listed[1].Name}
+			Expect(names).To(ConsistOf("org-a", "org-b"))
+		})
+	})
+
+	Context("When joining a prepare to a missing parent", func() {
+		It("should return ErrResourceNotFound if the prepare does not exist", func() {
+			g := generation(orgId, "quay.io/team-a/os")
+			_, err := deltaStore.InsertGeneration(ctx, g)
+			Expect(err).ToNot(HaveOccurred())
+
+			err = deltaStore.JoinPrepareGeneration(ctx, uuid.New(), keyOf(g))
+			Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
+		})
+
+		It("should return ErrResourceNotFound if the generation does not exist", func() {
+			prep := fleetPrepare("myfleet", nil)
+			Expect(deltaStore.InsertPrepare(ctx, prep)).To(Succeed())
+
+			err := deltaStore.JoinPrepareGeneration(ctx, prep.ID, keyOf(generation(orgId, "quay.io/missing/os")))
+			Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
+		})
 	})
 
 	Context("When getting a missing prepare", func() {
