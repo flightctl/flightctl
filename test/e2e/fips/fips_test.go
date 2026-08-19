@@ -114,6 +114,6 @@ var _ = Describe("FIPS verification", Label("fips"), func() {
 		Expect(enrollmentID).NotTo(BeEmpty())
 		_ = harness.WaitForEnrollmentRequest(enrollmentID)
 		harness.ApproveEnrollment(enrollmentID, harness.TestEnrollmentApproval())
-		Eventually(harness.GetDeviceWithStatusSystem, fipsTestTimeout, fipsTestPolling).WithArguments(enrollmentID).ShouldNot(BeNil())
+		harness.WaitForOnlineStatus(enrollmentID)
 	})
 })
