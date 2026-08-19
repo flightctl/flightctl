@@ -1169,6 +1169,104 @@ func TestRenderDevice_CatalogItemRef_UnknownVersion(t *testing.T) {
 	assert.Contains(t, err.Error(), "unknown version 99.0.0")
 }
 
+// TestRenderDevice_CatalogItemRef_StripsExistingTag verifies that when a
+// catalog item artifact URI already contains a tag, the resolution strips it
+// before appending the version reference (defense-in-depth for EDM-5261).
+func TestRenderDevice_CatalogItemRef_StripsExistingTag(t *testing.T) {
+	const (
+		deviceName   = "device-tagged-uri"
+		catalogName  = "my-catalog"
+		itemName     = "rhel-edge"
+		version      = "9.4.0"
+		containerRef = "v9.4.0"
+		artifactUri  = "quay.io/redhat/rhel-edge:latest"
+	)
+
+	orgId := uuid.New()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	device := makeDeviceWithCatalogRef(deviceName, catalogName, itemName, version)
+	catalogItem := makeCatalogItem(v1alpha1.CatalogItemTypeOS, artifactUri, version, containerRef)
+
+	mockDeviceSvc := deviceservice.NewMockService(ctrl)
+	mockCatalogSvc := catalogservice.NewMockService(ctrl)
+	mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, statusOK)
+	mockDeviceSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK)
+	mockCatalogSvc.EXPECT().GetCatalogItem(gomock.Any(), orgId, catalogName, itemName).Return(catalogItem, statusOK)
+
+	expectedOsImage := "quay.io/redhat/rhel-edge:" + containerRef
+	mockDeviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), expectedOsImage, gomock.Any(), gomock.Any()).Return(statusOK)
+
+	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
+	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, mockCatalogSvc, nil, newTestKVStore(), &config.Config{}, orgId, event)
+
+	err := logic.RenderDevice(context.Background())
+	require.NoError(t, err)
+}
+
+// TestRenderDevice_CatalogItemRef_StripsExistingDigest verifies that when a
+// catalog item artifact URI contains a digest, it is stripped before appending
+// the version reference.
+func TestRenderDevice_CatalogItemRef_StripsExistingDigest(t *testing.T) {
+	const (
+		deviceName   = "device-digest-uri"
+		catalogName  = "my-catalog"
+		itemName     = "rhel-edge"
+		version      = "9.4.0"
+		containerRef = "v9.4.0"
+		artifactUri  = "quay.io/redhat/rhel-edge@sha256:abc123"
+	)
+
+	orgId := uuid.New()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	device := makeDeviceWithCatalogRef(deviceName, catalogName, itemName, version)
+	catalogItem := makeCatalogItem(v1alpha1.CatalogItemTypeOS, artifactUri, version, containerRef)
+
+	mockDeviceSvc := deviceservice.NewMockService(ctrl)
+	mockCatalogSvc := catalogservice.NewMockService(ctrl)
+	mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, statusOK)
+	mockDeviceSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK)
+	mockCatalogSvc.EXPECT().GetCatalogItem(gomock.Any(), orgId, catalogName, itemName).Return(catalogItem, statusOK)
+
+	expectedOsImage := "quay.io/redhat/rhel-edge:" + containerRef
+	mockDeviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), expectedOsImage, gomock.Any(), gomock.Any()).Return(statusOK)
+
+	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
+	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, mockCatalogSvc, nil, newTestKVStore(), &config.Config{}, orgId, event)
+
+	err := logic.RenderDevice(context.Background())
+	require.NoError(t, err)
+}
+
+func TestStripImageVersionQualifier(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{name: "bare reference unchanged", input: "quay.io/org/image", expected: "quay.io/org/image"},
+		{name: "strips tag", input: "quay.io/org/image:latest", expected: "quay.io/org/image"},
+		{name: "strips version tag", input: "quay.io/org/image:v1.0", expected: "quay.io/org/image"},
+		{name: "strips digest", input: "quay.io/org/image@sha256:abc123", expected: "quay.io/org/image"},
+		{name: "strips tag and digest", input: "quay.io/org/image:v1@sha256:abc123", expected: "quay.io/org/image"},
+		{name: "preserves registry port", input: "registry.example.com:5000/org/image", expected: "registry.example.com:5000/org/image"},
+		{name: "strips tag with registry port", input: "registry.example.com:5000/org/image:latest", expected: "registry.example.com:5000/org/image"},
+		{name: "oci scheme bare unchanged", input: "oci://quay.io/org/image", expected: "oci://quay.io/org/image"},
+		{name: "oci scheme strips tag", input: "oci://quay.io/org/image:latest", expected: "oci://quay.io/org/image"},
+		{name: "http URL unchanged", input: "https://cdn.example.com/image:v1", expected: "https://cdn.example.com/image:v1"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := stripImageVersionQualifier(tt.input)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 func makeComposeAppWithCatalogRefVolume(t *testing.T, appName, catalog, item, version string) domain.ApplicationProviderSpec {
 	t.Helper()
 	vol := makeCatalogRefImageVolume(t, "data-vol", catalog, item, version)

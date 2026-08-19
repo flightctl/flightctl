@@ -1417,6 +1417,100 @@ func TestValidateArtifactURI(t *testing.T) {
 	}
 }
 
+func TestValidateArtifactURIHasNoVersionQualifier(t *testing.T) {
+	tests := []struct {
+		name        string
+		uri         string
+		wantErr     bool
+		errContains string
+	}{
+		{name: "bare OCI reference", uri: "quay.io/acme/app", wantErr: false},
+		{name: "bare OCI with port", uri: "registry.example.com:5000/myapp", wantErr: false},
+		{name: "bare OCI deep path", uri: "quay.io/org/sub/image", wantErr: false},
+		{name: "oci:// bare reference", uri: "oci://quay.io/acme/app", wantErr: false},
+		{name: "When URI contains a tag it should reject", uri: "quay.io/org/image:latest", wantErr: true, errContains: "must not contain a tag"},
+		{name: "When URI contains a version tag it should reject", uri: "quay.io/org/image:v1.0", wantErr: true, errContains: "must not contain a tag"},
+		{name: "When oci:// URI contains a tag it should reject", uri: "oci://quay.io/org/image:latest", wantErr: true, errContains: "must not contain a tag"},
+		{name: "When URI contains a digest it should reject", uri: "quay.io/org/image@sha256:abc123", wantErr: true, errContains: "must not contain a digest"},
+		{name: "When URI contains both tag and digest it should report both", uri: "quay.io/org/image:v1@sha256:abc", wantErr: true, errContains: "must not contain a digest"},
+		{name: "HTTPS URL is skipped", uri: "https://cdn.example.com/images/rhel:v1", wantErr: false},
+		{name: "S3 URI is skipped", uri: "s3://bucket/key:something", wantErr: false},
+		{name: "custom scheme is skipped", uri: "mycdn://acme/artifacts:v1", wantErr: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := validateArtifactURIHasNoVersionQualifier(tt.uri, "test.uri")
+			if tt.wantErr {
+				require.NotEmpty(t, errs, "expected error for URI %q", tt.uri)
+				require.Contains(t, errs[0].Error(), tt.errContains)
+			} else {
+				require.Empty(t, errs, "unexpected error for URI %q: %v", tt.uri, errs)
+			}
+		})
+	}
+}
+
+func TestCatalogItemArtifactValidation_RejectsTaggedURI(t *testing.T) {
+	tests := []struct {
+		name        string
+		artifacts   []CatalogItemArtifact
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name: "When container artifact URI has a tag it should reject",
+			artifacts: []CatalogItemArtifact{
+				{Type: CatalogItemArtifactTypeContainer, Uri: "quay.io/org/image:latest"},
+			},
+			wantErr:     true,
+			errContains: "must not contain a tag",
+		},
+		{
+			name: "When container artifact URI has a digest it should reject",
+			artifacts: []CatalogItemArtifact{
+				{Type: CatalogItemArtifactTypeContainer, Uri: "quay.io/org/image@sha256:abc123"},
+			},
+			wantErr:     true,
+			errContains: "must not contain a digest",
+		},
+		{
+			name: "When container artifact URI is bare it should accept",
+			artifacts: []CatalogItemArtifact{
+				{Type: CatalogItemArtifactTypeContainer, Uri: "quay.io/org/image"},
+			},
+			wantErr: false,
+		},
+		{
+			name: "When qcow2 artifact URI has a tag it should still reject",
+			artifacts: []CatalogItemArtifact{
+				{Type: CatalogItemArtifactTypeQcow2, Uri: "quay.io/org/image:latest"},
+			},
+			wantErr:     true,
+			errContains: "must not contain a tag",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := validateArtifacts(tt.artifacts, "spec")
+			if tt.wantErr {
+				require.NotEmpty(t, errs)
+				found := false
+				for _, err := range errs {
+					if strings.Contains(err.Error(), tt.errContains) {
+						found = true
+						break
+					}
+				}
+				require.True(t, found, "expected error containing %q in %v", tt.errContains, errs)
+			} else {
+				require.Empty(t, errs)
+			}
+		})
+	}
+}
+
 func TestValidateConfigSchemaExternalRefs(t *testing.T) {
 	require := require.New(t)
 
