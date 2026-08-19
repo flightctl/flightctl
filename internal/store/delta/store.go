@@ -2,10 +2,14 @@ package delta
 
 import (
 	"context"
+	"fmt"
 
+	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 const waitingPrepareIndex = "idx_delta_prepares_one_waiting"
@@ -17,6 +21,15 @@ const (
 
 type Store interface {
 	InitialMigration(ctx context.Context) error
+	InsertGeneration(ctx context.Context, gen *model.DeltaGeneration) (changed bool, err error)
+	GetGeneration(ctx context.Context, key GenerationKey) (*model.DeltaGeneration, error)
+}
+
+type GenerationKey struct {
+	OrgID           uuid.UUID
+	ImageRepository string
+	SourceDigest    string
+	TargetDigest    string
 }
 
 type DeltaStore struct {
@@ -87,4 +100,44 @@ func (s *DeltaStore) createJoinForeignKeys(db *gorm.DB) error {
 		}
 	}
 	return nil
+}
+
+func (s *DeltaStore) InsertGeneration(ctx context.Context, gen *model.DeltaGeneration) (bool, error) {
+	if gen == nil {
+		return false, fmt.Errorf("cannot insert nil DeltaGeneration")
+	}
+	if gen.Status == "" {
+		gen.Status = model.DeltaGenerationPending
+	}
+	result := s.getDB(ctx).Clauses(clause.OnConflict{
+		Columns: []clause.Column{
+			{Name: "org_id"},
+			{Name: "image_repository"},
+			{Name: "source_digest"},
+			{Name: "target_digest"},
+		},
+		DoUpdates: clause.Assignments(map[string]interface{}{
+			"status":           model.DeltaGenerationPending,
+			"resource_version": gorm.Expr("delta_generations.resource_version + 1"),
+		}),
+		Where: clause.Where{Exprs: []clause.Expression{
+			clause.Eq{Column: clause.Column{Table: "delta_generations", Name: "status"}, Value: model.DeltaGenerationFailed},
+		}},
+	}).Create(gen)
+	if result.Error != nil {
+		return false, store.ErrorFromGormError(result.Error)
+	}
+	return result.RowsAffected == 1, nil
+}
+
+func (s *DeltaStore) GetGeneration(ctx context.Context, key GenerationKey) (*model.DeltaGeneration, error) {
+	var gen model.DeltaGeneration
+	result := s.getDB(ctx).Where(
+		"org_id = ? AND image_repository = ? AND source_digest = ? AND target_digest = ?",
+		key.OrgID, key.ImageRepository, key.SourceDigest, key.TargetDigest,
+	).Take(&gen)
+	if result.Error != nil {
+		return nil, store.ErrorFromGormError(result.Error)
+	}
+	return &gen, nil
 }
