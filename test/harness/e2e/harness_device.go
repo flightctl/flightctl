@@ -386,16 +386,9 @@ func (h *Harness) EnsureDeviceContents(deviceId string, description string, cond
 
 func (h *Harness) WaitForBootstrapAndUpdateToVersion(deviceId string, version string) (*v1beta1.Device, util.ImageReference, error) {
 	var imageReference = util.ImageReference{}
-	// Check the device status right after bootstrap
-	response, err := h.GetDeviceWithStatusSystem(deviceId)
-	if err != nil {
-		return nil, imageReference, err
-	}
-	device := response.JSON200
-	if device.Status.Summary.Status != v1beta1.DeviceSummaryStatusOnline {
-		return nil, imageReference, fmt.Errorf("device: %q is not online", deviceId)
-	}
+	device := h.WaitForOnlineStatus(deviceId)
 
+	var err error
 	err = h.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 		currentImage := device.Status.Os.Image
 		logrus.Infof("current image for %s is %s", deviceId, currentImage)
