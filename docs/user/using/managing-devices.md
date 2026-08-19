@@ -819,7 +819,7 @@ To deploy a VM application, add an entry to the `applications` section of the de
 | `publishPorts` | Optional. List of host-to-guest port mappings. Each entry must use the format `"hostPort:guestPort"` or `"hostPort:guestPort/protocol"` (for example, `"8080:80"` or `"8080:80/tcp"`). |
 
 > [!NOTE]
-> The control plane converts the `vm.yaml` manifest into Quadlet units before the agent deploys it. The agent does not run the KubeVirt manifest directly. You can configure the virt-launcher image and passt workarounds used for that conversion; see [Configuring VM application rendering](../installing/configuring-vm-render.md).
+> The control plane converts the `vm.yaml` manifest into Quadlet units before the agent deploys it. The agent does not run the KubeVirt manifest directly. You can configure a default virt-launcher image, optional per-OS images, and passt workarounds used for that conversion; see [Configuring VM application rendering](../installing/configuring-vm-render.md).
 
 > [!NOTE]
 > The `spec.running` field in `vm.yaml` is ignored. Use [application lifecycle](#managing-application-lifecycle) commands (`flightctl app start` / `stop` / `restart`) to control whether the VM is running.

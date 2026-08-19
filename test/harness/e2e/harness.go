@@ -698,18 +698,8 @@ func (h *Harness) StartVMAndEnroll() string {
 	err := h.VM.RunAndWaitForSSH()
 	Expect(err).ToNot(HaveOccurred())
 
-	enrollmentID := h.GetEnrollmentIDFromServiceLogs("flightctl-agent")
-	logrus.Infof("Enrollment ID found in flightctl-agent service logs: %s", enrollmentID)
-
-	_ = h.WaitForEnrollmentRequest(enrollmentID)
-	h.ApproveEnrollment(enrollmentID, h.TestEnrollmentApproval())
-	logrus.Infof("Waiting for device %s to report status", enrollmentID)
-
-	// wait for the device to pickup enrollment and report measurements on device status
-	Eventually(h.GetDeviceWithStatusSystem, TIMEOUT, POLLING).WithArguments(
-		enrollmentID).ShouldNot(BeNil())
-
-	return enrollmentID
+	deviceId, _ := h.EnrollAndWaitForOnlineStatus()
+	return deviceId
 }
 
 func (h *Harness) ApiEndpoint() string {
@@ -991,32 +981,39 @@ func waitForResourceContents[T any](id string, description string, fetch func(st
 	}, timeout, pollingRate).Should(BeNil())
 }
 
+func (h *Harness) WaitForOnlineStatus(deviceId string) *v1beta1.Device {
+	var device *v1beta1.Device
+	Eventually(func() error {
+		response, err := h.GetDeviceWithStatusSystem(deviceId)
+		if err != nil {
+			return err
+		}
+		if response == nil || response.JSON200 == nil || response.JSON200.Status == nil {
+			return fmt.Errorf("device %s status not ready", deviceId)
+		}
+		device = response.JSON200
+		if device.Status.Summary.Status != v1beta1.DeviceSummaryStatusOnline {
+			return fmt.Errorf("device %s summary status is %s", deviceId, device.Status.Summary.Status)
+		}
+		if device.Status.Summary.Info == nil || *device.Status.Summary.Info != service.DeviceStatusInfoHealthy {
+			return fmt.Errorf("device %s is not healthy", deviceId)
+		}
+		return nil
+	}, TIMEOUT, POLLING).Should(Succeed())
+	logrus.Infof("The device %s is online", deviceId)
+	return device
+}
+
 func (h *Harness) EnrollAndWaitForOnlineStatus(labels ...map[string]string) (string, *v1beta1.Device) {
 	deviceId := h.GetEnrollmentIDFromServiceLogs("flightctl-agent")
 	logrus.Infof("Enrollment ID found in flightctl-agent service logs: %s", deviceId)
 	Expect(deviceId).NotTo(BeNil())
 
-	// Wait for the approve enrollment request response to not be nil
 	h.WaitForEnrollmentRequest(deviceId)
-
-	// Approve the enrollment and wait for the device details to be populated by the agent.
 	h.ApproveEnrollment(deviceId, h.TestEnrollmentApproval(labels...))
-
-	Eventually(h.GetDeviceWithStatusSummary, TIMEOUT, POLLING).WithArguments(
-		deviceId).ShouldNot(BeEmpty())
 	logrus.Infof("The device %s was approved", deviceId)
 
-	// Wait for the device to pickup enrollment and report measurements on device status.
-	Eventually(h.GetDeviceWithStatusSystem, TIMEOUT, POLLING).WithArguments(
-		deviceId).ShouldNot(BeNil())
-	logrus.Infof("The device %s is reporting its status", deviceId)
-
-	// Check the device status.
-	response, err := h.GetDeviceWithStatusSystem(deviceId)
-	Expect(err).NotTo(HaveOccurred())
-	device := response.JSON200
-	Expect(device.Status.Summary.Status).To(Equal(v1beta1.DeviceSummaryStatusOnline))
-	Expect(*device.Status.Summary.Info).To(Equal(service.DeviceStatusInfoHealthy))
+	device := h.WaitForOnlineStatus(deviceId)
 	return deviceId, device
 }
 

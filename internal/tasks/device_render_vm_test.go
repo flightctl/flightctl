@@ -478,6 +478,114 @@ func TestVmRenderOptionsFromConfig(t *testing.T) {
 	assert.False(t, defaults.vmRenderOptions.PasstWorkarounds)
 }
 
+func TestParseDistroMajor(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		version string
+		want    string
+	}{
+		{name: "When VERSION is RHEL 9 pretty string it should return 9", version: "9.5 (Plow)", want: "9"},
+		{name: "When VERSION is RHEL 10 pretty string it should return 10", version: "10.0 (Coughlan)", want: "10"},
+		{name: "When VERSION is a bare major it should return it", version: "9", want: "9"},
+		{name: "When VERSION has leading space it should trim", version: " 10.1", want: "10"},
+		{name: "When VERSION is empty it should return empty", version: "", want: ""},
+		{name: "When VERSION has no leading digits it should return empty", version: "Plow", want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, parseDistroMajor(tt.version))
+		})
+	}
+}
+
+func TestOsKeyFromDevice(t *testing.T) {
+	t.Parallel()
+
+	t.Run("When status is missing it should return empty", func(t *testing.T) {
+		t.Parallel()
+		assert.Empty(t, osKeyFromDevice(&domain.Device{}))
+	})
+
+	t.Run("When distroId and distroVersion are reported it should return id-major", func(t *testing.T) {
+		t.Parallel()
+		device := &domain.Device{Status: &domain.DeviceStatus{}}
+		device.Status.SystemInfo.Set(deviceDistroIdKey, "rhel")
+		device.Status.SystemInfo.Set(deviceDistroVersionKey, "9.5 (Plow)")
+		assert.Equal(t, "rhel-9", osKeyFromDevice(device))
+	})
+
+	t.Run("When distroId is fedora it should not look like rhel", func(t *testing.T) {
+		t.Parallel()
+		device := &domain.Device{Status: &domain.DeviceStatus{}}
+		device.Status.SystemInfo.Set(deviceDistroIdKey, "fedora")
+		device.Status.SystemInfo.Set(deviceDistroVersionKey, "42 (Adams)")
+		assert.Equal(t, "fedora-42", osKeyFromDevice(device))
+	})
+
+	t.Run("When distroId is missing it should return empty", func(t *testing.T) {
+		t.Parallel()
+		device := &domain.Device{Status: &domain.DeviceStatus{}}
+		device.Status.SystemInfo.Set(deviceDistroVersionKey, "9.5 (Plow)")
+		assert.Empty(t, osKeyFromDevice(device))
+	})
+}
+
+func TestBindVmLauncher_SelectsPerOSImage(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{}
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"worker": {
+			"vmRender": {
+				"launcherImages": {
+					"rhel-9": "registry.example.com/virt-launcher-rhel9:v1",
+					"rhel-10": "registry.example.com/virt-launcher-rhel10:v1"
+				}
+			}
+		}
+	}`), cfg))
+
+	logic := NewDeviceRenderLogic(logrus.New(), nil, nil, nil, nil, nil, cfg, [16]byte{}, domain.Event{})
+	device := &domain.Device{Status: &domain.DeviceStatus{}}
+	device.Status.SystemInfo.Set(deviceDistroIdKey, "rhel")
+	device.Status.SystemInfo.Set(deviceDistroVersionKey, "10.0 (Coughlan)")
+	logic.bindVmLauncher(device)
+	assert.Equal(t, "registry.example.com/virt-launcher-rhel10:v1", logic.vmRenderOptions.LauncherImage)
+}
+
+func TestBindVmLauncher_UnknownOSUsesDefault(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{}
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"worker": {
+			"vmRender": {
+				"launcherImages": {
+					"rhel-9": "registry.example.com/virt-launcher-rhel9:v1"
+				}
+			}
+		}
+	}`), cfg))
+
+	logic := NewDeviceRenderLogic(logrus.New(), nil, nil, nil, nil, nil, cfg, [16]byte{}, domain.Event{})
+	device := &domain.Device{Status: &domain.DeviceStatus{}}
+	device.Status.SystemInfo.Set(deviceDistroIdKey, "fedora")
+	device.Status.SystemInfo.Set(deviceDistroVersionKey, "42 (Adams)")
+	logic.bindVmLauncher(device)
+	assert.Equal(t, config.DefaultVirtLauncherImage, logic.vmRenderOptions.LauncherImage)
+}
+
+func TestHashRenderedWithSpec_IncludesLauncherImage(t *testing.T) {
+	t.Parallel()
+	spec := &domain.DeviceSpec{}
+	hash9 := hashRenderedWithSpec(spec, "image-rhel9")
+	hash10 := hashRenderedWithSpec(spec, "image-rhel10")
+	assert.NotEmpty(t, hash9)
+	assert.NotEqual(t, hash9, hash10)
+}
+
 // TestRenderVmApplication_ImageProviderUnsupported verifies that a VmApplication
 // using the image: provider returns a clear error.
 func TestRenderVmApplication_ImageProviderUnsupported(t *testing.T) {

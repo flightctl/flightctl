@@ -415,8 +415,9 @@ type workerConfig struct {
 // vmRenderConfig holds options for converting VmApplications to Quadlet units
 // via vm-to-quadlet.
 type vmRenderConfig struct {
-	LauncherImage    string `json:"launcherImage,omitempty"`
-	PasstWorkarounds *bool  `json:"passtWorkarounds,omitempty"`
+	LauncherImage    string            `json:"launcherImage,omitempty"`
+	LauncherImages   map[string]string `json:"launcherImages,omitempty"`
+	PasstWorkarounds *bool             `json:"passtWorkarounds,omitempty"`
 }
 
 // NewDefaultWorkerConfig returns the default flightctl-worker configuration.
@@ -431,11 +432,13 @@ func NewDefaultWorkerConfig() *workerConfig {
 }
 
 // EffectiveVmLauncherImage returns the virt-launcher image used for VM render.
-func (c *Config) EffectiveVmLauncherImage() string {
+// osKey is "{os-release ID}-{major}" from status.systemInfo (e.g. "rhel-9").
+// An empty osKey skips per-OS lookup.
+func (c *Config) EffectiveVmLauncherImage(osKey string) string {
 	if c == nil || c.Worker == nil {
 		return DefaultVirtLauncherImage
 	}
-	return c.Worker.EffectiveLauncherImage()
+	return c.Worker.EffectiveLauncherImage(osKey)
 }
 
 // EffectiveVmPasstWorkarounds returns whether passt workarounds are enabled for VM render.
@@ -446,9 +449,17 @@ func (c *Config) EffectiveVmPasstWorkarounds() bool {
 	return c.Worker.EffectivePasstWorkarounds()
 }
 
-// EffectiveLauncherImage returns the virt-launcher image (config override or default).
-func (c *workerConfig) EffectiveLauncherImage() string {
-	if c != nil && c.VmRender != nil && c.VmRender.LauncherImage != "" {
+// EffectiveLauncherImage returns the virt-launcher image for osKey.
+func (c *workerConfig) EffectiveLauncherImage(osKey string) string {
+	if c == nil || c.VmRender == nil {
+		return DefaultVirtLauncherImage
+	}
+	if osKey != "" && c.VmRender.LauncherImages != nil {
+		if img := c.VmRender.LauncherImages[osKey]; img != "" {
+			return img
+		}
+	}
+	if c.VmRender.LauncherImage != "" {
 		return c.VmRender.LauncherImage
 	}
 	return DefaultVirtLauncherImage
