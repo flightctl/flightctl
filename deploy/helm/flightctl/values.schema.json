@@ -505,6 +505,11 @@
               "type": "string",
               "description": "virt-launcher image used when converting VmApplications to Quadlet units (leave empty to use the worker default)"
             },
+            "launcherImages": {
+              "type": "object",
+              "description": "virt-launcher images keyed by OS major version from status.systemInfo.distroVersion (e.g. \"9\", \"10\")",
+              "additionalProperties": { "type": "string" }
+            },
             "passtWorkarounds": {
               "type": "boolean",
               "description": "Enable passt networking workarounds for older virt-launcher images"

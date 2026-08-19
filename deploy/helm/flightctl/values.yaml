@@ -316,8 +316,10 @@ worker:
   clusterLevelSecretAccess: false
   # -- VM application render options passed to vm-to-quadlet
   vmRender:
-    # -- virt-launcher image used when converting VmApplications to Quadlet units (leave empty to use the worker default)
+	# -- virt-launcher image used when converting VmApplications to Quadlet units (leave empty to use the worker default)
     launcherImage: ""
+    # -- virt-launcher images keyed by OS major version from status.systemInfo.distroVersion (e.g. "9", "10")
+    launcherImages: {}
     # -- Enable passt networking workarounds for older virt-launcher images (default false; enable only for older images)
     passtWorkarounds: false
 
