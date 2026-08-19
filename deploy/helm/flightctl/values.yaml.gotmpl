@@ -318,6 +318,8 @@ worker:
   vmRender:
     # -- virt-launcher image used when converting VmApplications to Quadlet units (leave empty to use the worker default)
     launcherImage: ""
+    # -- virt-launcher images keyed by os-release ID and major from status.systemInfo (e.g. "rhel-9", "rhel-10")
+    launcherImages: {}
     # -- Enable passt networking workarounds for older virt-launcher images (default false; enable only for older images)
     passtWorkarounds: false
 

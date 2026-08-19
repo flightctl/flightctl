@@ -74,6 +74,9 @@ Kubernetes
 kustomize
 KVM
 launcherImage
+launcherImages
+distroId
+distroVersion
 lifecycle
 lifecycle-bound
 linux
