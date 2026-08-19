@@ -29,6 +29,12 @@ worker:
     {{- if and .worker .worker.vmRender .worker.vmRender.launcherImage }}
     launcherImage: {{.worker.vmRender.launcherImage}}
     {{- end }}
+    {{- if and .worker .worker.vmRender .worker.vmRender.launcherImages }}
+    launcherImages:
+    {{- range $major, $image := .worker.vmRender.launcherImages }}
+      {{ printf "%q" $major }}: {{ $image }}
+    {{- end }}
+    {{- end }}
     passtWorkarounds: {{if and .worker .worker.vmRender}}{{if eq (printf "%v" .worker.vmRender.passtWorkarounds) "true"}}true{{else}}false{{end}}{{else}}false{{end}}
 
 
