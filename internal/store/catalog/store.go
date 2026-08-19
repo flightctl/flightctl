@@ -3,6 +3,8 @@ package catalog
 import (
 	"context"
 	"errors"
+	"strconv"
+	"strings"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -15,12 +17,44 @@ import (
 	"gorm.io/gorm"
 )
 
+// CatalogMutation is the unit apply mutates. Handlers decide all field changes.
+// Catalog is nil on the create path until apply assigns it.
+type CatalogMutation struct {
+	Catalog *domain.Catalog
+}
+
+func (m *CatalogMutation) Resource() *domain.Catalog { return m.Catalog }
+
+func (m *CatalogMutation) SetResource(catalog *domain.Catalog) { m.Catalog = catalog }
+
+func (m *CatalogMutation) Clone() (store.ResourceMutation[domain.Catalog], error) {
+	out := &CatalogMutation{}
+	if m.Catalog != nil {
+		cloned, err := store.CloneJSON(m.Catalog)
+		if err != nil {
+			return nil, err
+		}
+		out.Catalog = cloned
+	}
+	return out, nil
+}
+
+func (m *CatalogMutation) RequireExisting() error {
+	if m.Catalog == nil {
+		return flterrors.ErrResourceNotFound
+	}
+	return nil
+}
+
+type CatalogApplyFunc func(m *CatalogMutation) error
+
+var _ store.ResourceMutation[domain.Catalog] = (*CatalogMutation)(nil)
+
 type Store interface {
 	InitialMigration(ctx context.Context) error
 
 	Create(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog) (*domain.Catalog, error)
-	Update(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog) (*domain.Catalog, *domain.Catalog, error)
-	CreateOrUpdate(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog) (*domain.Catalog, *domain.Catalog, bool, error)
+	Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.Catalog, apply CatalogApplyFunc) (updated *domain.Catalog, before *domain.Catalog, created bool, err error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Catalog, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.CatalogList, error)
 	Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error)
@@ -117,16 +151,86 @@ func (s *CatalogStore) InitialMigration(ctx context.Context) error {
 	return nil
 }
 
-func (s *CatalogStore) Create(ctx context.Context, orgId uuid.UUID, resource *domain.Catalog) (*domain.Catalog, error) {
-	return s.genericStore.Create(ctx, orgId, resource)
+func (s *CatalogStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.Catalog, apply CatalogApplyFunc) (*domain.Catalog, *domain.Catalog, bool, error) {
+	if previous != nil && lo.FromPtr(previous.Metadata.Name) != name {
+		previous = nil
+	}
+	return s.genericStore.Mutate(ctx, orgId, name, previous, store.MutateHooks[domain.Catalog]{
+		Wrap: func(catalog *domain.Catalog) store.ResourceMutation[domain.Catalog] {
+			return &CatalogMutation{Catalog: catalog}
+		},
+		PersistCreate: func(ctx context.Context, orgId uuid.UUID, m store.ResourceMutation[domain.Catalog]) (*domain.Catalog, error) {
+			return s.Create(ctx, orgId, m.Resource())
+		},
+		PersistUpdate: func(ctx context.Context, orgId uuid.UUID, _ string, before *domain.Catalog, m store.ResourceMutation[domain.Catalog]) (bool, error) {
+			return s.Update(ctx, orgId, before, m.Resource())
+		},
+	}, func(m store.ResourceMutation[domain.Catalog]) error {
+		return apply(m.(*CatalogMutation))
+	})
 }
 
-func (s *CatalogStore) Update(ctx context.Context, orgId uuid.UUID, resource *domain.Catalog) (*domain.Catalog, *domain.Catalog, error) {
-	return s.genericStore.Update(ctx, orgId, resource, nil, nil)
+func (s *CatalogStore) Create(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog) (*domain.Catalog, error) {
+	if catalog == nil {
+		return nil, flterrors.ErrResourceIsNil
+	}
+	catalogModel, err := model.NewCatalogFromApiResource(catalog)
+	if err != nil {
+		return nil, err
+	}
+	catalogModel.OrgID = orgId
+	catalogModel.Generation = lo.ToPtr(int64(1))
+	catalogModel.ResourceVersion = lo.ToPtr(int64(1))
+
+	result := s.getDB(ctx).Create(catalogModel)
+	if result.Error != nil {
+		return nil, store.ErrorFromGormError(result.Error)
+	}
+	return catalogModel.ToApiResource()
 }
 
-func (s *CatalogStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resource *domain.Catalog) (*domain.Catalog, *domain.Catalog, bool, error) {
-	return s.genericStore.CreateOrUpdate(ctx, orgId, resource, nil, nil)
+func (s *CatalogStore) Update(ctx context.Context, orgId uuid.UUID, before, catalog *domain.Catalog) (bool, error) {
+	existing, err := model.NewCatalogFromApiResource(before)
+	if err != nil {
+		return false, err
+	}
+	existing.OrgID = orgId
+
+	fromAPI, err := model.NewCatalogFromApiResource(catalog)
+	if err != nil {
+		return false, err
+	}
+	fromAPI.OrgID = orgId
+
+	generation := lo.FromPtr(existing.Generation)
+	apiSpecChanged := before != nil && catalog != nil &&
+		!domain.CatalogSpecsAreEqual(before.Spec, catalog.Spec)
+	if apiSpecChanged || !fromAPI.HasSameSpecAs(existing) {
+		generation++
+	}
+
+	updates := map[string]interface{}{
+		"spec":             fromAPI.Spec,
+		"labels":           model.MakeJSONMap(fromAPI.Labels),
+		"annotations":      model.MakeJSONMap(fromAPI.Annotations),
+		"owner":            fromAPI.Owner,
+		"generation":       generation,
+		"status":           fromAPI.Status,
+		"resource_version": gorm.Expr("resource_version + 1"),
+	}
+
+	result := s.getDB(ctx).Model(existing).Where("resource_version = ?", lo.FromPtr(existing.ResourceVersion)).Updates(updates)
+	if result.Error != nil {
+		err := store.ErrorFromGormError(result.Error)
+		return strings.Contains(err.Error(), "deadlock"), err
+	}
+	if result.RowsAffected == 0 {
+		return true, flterrors.ErrNoRowsUpdated
+	}
+
+	catalog.Metadata.Generation = lo.ToPtr(generation)
+	catalog.Metadata.ResourceVersion = lo.ToPtr(strconv.FormatInt(lo.FromPtr(existing.ResourceVersion)+1, 10))
+	return false, nil
 }
 
 func (s *CatalogStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Catalog, error) {

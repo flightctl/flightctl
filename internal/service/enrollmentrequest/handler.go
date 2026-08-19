@@ -429,8 +429,24 @@ func (h *ServiceHandler) ReplaceEnrollmentRequest(ctx context.Context, orgId uui
 		}
 	}
 
-	result, oldER, created, err := h.store.CreateOrUpdate(ctx, orgId, &er)
-	h.callbackEnrollmentRequestUpdated(ctx, domain.EnrollmentRequestKind, orgId, name, oldER, result, created, err)
+	result, before, created, err := h.store.Mutate(ctx, orgId, name, nil, func(m *enrollmentrequeststore.EnrollmentRequestMutation) error {
+		if m.EnrollmentRequest == nil {
+			next := er
+			next.Metadata.Name = lo.ToPtr(name)
+			m.EnrollmentRequest = &next
+			return nil
+		}
+		current := m.EnrollmentRequest
+		current.Spec = er.Spec
+		if er.Metadata.Labels != nil {
+			current.Metadata.Labels = er.Metadata.Labels
+		}
+		if er.Metadata.Annotations != nil {
+			current.Metadata.Annotations = er.Metadata.Annotations
+		}
+		return nil
+	})
+	h.callbackEnrollmentRequestUpdated(ctx, domain.EnrollmentRequestKind, orgId, name, before, result, created, err)
 	return result, common.StoreErrorToApiStatus(err, created, domain.EnrollmentRequestKind, &name)
 }
 
@@ -470,8 +486,15 @@ func (h *ServiceHandler) PatchEnrollmentRequest(ctx context.Context, orgId uuid.
 		}
 	}
 
-	result, oldER, err := h.store.Update(ctx, orgId, newObj)
-	h.callbackEnrollmentRequestUpdated(ctx, domain.EnrollmentRequestKind, orgId, name, oldER, result, false, err)
+	result, before, _, err := h.store.Mutate(ctx, orgId, name, currentObj, func(m *enrollmentrequeststore.EnrollmentRequestMutation) error {
+		if err := m.RequireExisting(); err != nil {
+			return err
+		}
+		m.EnrollmentRequest.Spec = newObj.Spec
+		m.EnrollmentRequest.Metadata.Labels = newObj.Metadata.Labels
+		return nil
+	})
+	h.callbackEnrollmentRequestUpdated(ctx, domain.EnrollmentRequestKind, orgId, name, before, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
 }
 
@@ -559,8 +582,8 @@ func (h *ServiceHandler) ApproveEnrollmentRequest(ctx context.Context, orgId uui
 func (h *ServiceHandler) ReplaceEnrollmentRequestStatus(ctx context.Context, orgId uuid.UUID, name string, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {
 	addStatusIfNeeded(&er)
 
-	result, oldER, err := h.store.UpdateStatus(ctx, orgId, &er)
-	h.callbackEnrollmentRequestUpdated(ctx, domain.EnrollmentRequestKind, orgId, name, oldER, result, false, err)
+	result, before, err := h.store.UpdateStatus(ctx, orgId, &er)
+	h.callbackEnrollmentRequestUpdated(ctx, domain.EnrollmentRequestKind, orgId, name, before, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.EnrollmentRequestKind, &name)
 }
 

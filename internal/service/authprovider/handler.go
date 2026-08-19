@@ -258,7 +258,26 @@ func (h *ServiceHandler) ReplaceAuthProvider(ctx context.Context, orgId uuid.UUI
 		return h.CreateAuthProvider(ctx, orgId, authProvider)
 	}
 
-	result, oldAuthProvider, created, err := h.store.CreateOrUpdate(ctx, orgId, &authProvider)
+	result, oldAuthProvider, created, err := h.store.Mutate(ctx, orgId, name, currentObj, func(m *authproviderstore.AuthProviderMutation) error {
+		if err := m.RequireExisting(); err != nil {
+			return err
+		}
+		if preserveErr := authProvider.PreserveSensitiveData(m.AuthProvider); preserveErr != nil {
+			return preserveErr
+		}
+		current := m.AuthProvider
+		current.Spec = authProvider.Spec
+		if authProvider.Metadata.Labels != nil {
+			current.Metadata.Labels = authProvider.Metadata.Labels
+		}
+		if authProvider.Metadata.Annotations != nil {
+			current.Metadata.Annotations = authProvider.Metadata.Annotations
+		}
+		if authProvider.Metadata.Owner != nil {
+			current.Metadata.Owner = authProvider.Metadata.Owner
+		}
+		return nil
+	})
 	h.callbackAuthProviderUpdated(ctx, domain.AuthProviderKind, orgId, name, oldAuthProvider, result, created, err)
 	return result, common.StoreErrorToApiStatus(err, created, domain.AuthProviderKind, &name)
 }
@@ -299,7 +318,17 @@ func (h *ServiceHandler) PatchAuthProvider(ctx context.Context, orgId uuid.UUID,
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
 
-	result, oldAuthProvider, err := h.store.Update(ctx, orgId, newObj)
+	result, oldAuthProvider, _, err := h.store.Mutate(ctx, orgId, name, currentObj, func(m *authproviderstore.AuthProviderMutation) error {
+		if err := m.RequireExisting(); err != nil {
+			return err
+		}
+		if preserveErr := newObj.PreserveSensitiveData(m.AuthProvider); preserveErr != nil {
+			return preserveErr
+		}
+		m.AuthProvider.Spec = newObj.Spec
+		m.AuthProvider.Metadata.Labels = newObj.Metadata.Labels
+		return nil
+	})
 	h.callbackAuthProviderUpdated(ctx, domain.AuthProviderKind, orgId, name, oldAuthProvider, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.AuthProviderKind, &name)
 }
