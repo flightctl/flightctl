@@ -316,7 +316,7 @@ worker:
   clusterLevelSecretAccess: false
   # -- VM application render options passed to vm-to-quadlet
   vmRender:
-	# -- virt-launcher image used when converting VmApplications to Quadlet units (leave empty to use the worker default)
+    # -- virt-launcher image used when converting VmApplications to Quadlet units (leave empty to use the worker default)
     launcherImage: ""
     # -- virt-launcher images keyed by os-release ID and major from status.systemInfo (e.g. "rhel-9", "rhel-10")
     launcherImages: {}
