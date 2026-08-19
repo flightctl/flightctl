@@ -2,8 +2,10 @@ package store_test
 
 import (
 	"context"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	deltastore "github.com/flightctl/flightctl/internal/store/delta"
@@ -176,6 +178,117 @@ var _ = Describe("DeltaStore", func() {
 	Context("When getting a missing generation", func() {
 		It("should return ErrResourceNotFound", func() {
 			_, err := deltaStore.GetGeneration(ctx, keyOf(generation(orgId, "quay.io/missing/os")))
+			Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
+		})
+	})
+
+	fleetPrepare := func(name string, deadline *time.Time) *model.DeltaPrepare {
+		tv := "tv-1"
+		return &model.DeltaPrepare{
+			OrgID:           orgId,
+			Kind:            domain.FleetKind,
+			Name:            name,
+			TemplateVersion: &tv,
+			Deadline:        deadline,
+		}
+	}
+
+	Context("When inserting a waiting fleet prepare and joining a generation", func() {
+		It("should persist the join without an FK from generations to prepares", func() {
+			g := generation(orgId, "quay.io/team-a/os")
+			_, err := deltaStore.InsertGeneration(ctx, g)
+			Expect(err).ToNot(HaveOccurred())
+
+			deadline := time.Now().Add(-time.Hour)
+			prep := fleetPrepare("myfleet", &deadline)
+			Expect(deltaStore.InsertPrepare(ctx, prep)).To(Succeed())
+			Expect(prep.ID).ToNot(Equal(uuid.Nil))
+			Expect(prep.Status).To(Equal(model.DeltaPrepareWaiting))
+
+			Expect(deltaStore.JoinPrepareGeneration(ctx, prep.ID, keyOf(g))).To(Succeed())
+			Expect(deltaStore.JoinPrepareGeneration(ctx, prep.ID, keyOf(g))).To(Succeed())
+
+			got, err := deltaStore.GetPrepare(ctx, prep.ID)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got.Kind).To(Equal(domain.FleetKind))
+			Expect(got.Name).To(Equal("myfleet"))
+
+			var join model.DeltaPrepareGeneration
+			Expect(db.Where(
+				"prepare_id = ? AND org_id = ? AND image_repository = ? AND source_digest = ? AND target_digest = ?",
+				prep.ID, g.OrgID, g.ImageRepository, g.SourceDigest, g.TargetDigest,
+			).Take(&join).Error).ToNot(HaveOccurred())
+
+			var fkCount int64
+			Expect(db.Raw(`
+				SELECT COUNT(*)
+				FROM pg_constraint
+				WHERE conrelid = 'delta_generations'::regclass
+				  AND confrelid = 'delta_prepares'::regclass
+			`).Scan(&fkCount).Error).ToNot(HaveOccurred())
+			Expect(fkCount).To(Equal(int64(0)))
+		})
+	})
+
+	Context("When inserting a second waiting prepare for the same fleet", func() {
+		It("should return ErrDuplicateName", func() {
+			Expect(deltaStore.InsertPrepare(ctx, fleetPrepare("myfleet", nil))).To(Succeed())
+			err := deltaStore.InsertPrepare(ctx, fleetPrepare("myfleet", nil))
+			Expect(err).To(MatchError(flterrors.ErrDuplicateName))
+		})
+	})
+
+	Context("When inserting waiting prepares for a fleet and a device with the same name", func() {
+		It("should keep both rows", func() {
+			fleetPrep := fleetPrepare("shared", nil)
+			Expect(deltaStore.InsertPrepare(ctx, fleetPrep)).To(Succeed())
+			specRV := int64(7)
+			devicePrep := &model.DeltaPrepare{
+				OrgID:               orgId,
+				Kind:                domain.DeviceKind,
+				Name:                "shared",
+				SpecResourceVersion: &specRV,
+			}
+			Expect(deltaStore.InsertPrepare(ctx, devicePrep)).To(Succeed())
+
+			gotFleet, err := deltaStore.GetPrepare(ctx, fleetPrep.ID)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(gotFleet.Kind).To(Equal(domain.FleetKind))
+
+			gotDevice, err := deltaStore.GetPrepare(ctx, devicePrep.ID)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(gotDevice.Kind).To(Equal(domain.DeviceKind))
+		})
+	})
+
+	Context("When a waiting prepare is complete, then a new waiting prepare for that fleet", func() {
+		It("should allow the second insert", func() {
+			complete := fleetPrepare("myfleet", nil)
+			complete.Status = model.DeltaPrepareComplete
+			Expect(deltaStore.InsertPrepare(ctx, complete)).To(Succeed())
+			Expect(deltaStore.InsertPrepare(ctx, fleetPrepare("myfleet", nil))).To(Succeed())
+		})
+	})
+
+	Context("When listing waiting prepares past deadline", func() {
+		It("should return only expired waiting rows", func() {
+			past := time.Now().Add(-time.Hour)
+			future := time.Now().Add(time.Hour)
+			Expect(deltaStore.InsertPrepare(ctx, fleetPrepare("expired", &past))).To(Succeed())
+			Expect(deltaStore.InsertPrepare(ctx, fleetPrepare("future", &future))).To(Succeed())
+			Expect(deltaStore.InsertPrepare(ctx, fleetPrepare("none", nil))).To(Succeed())
+
+			listed, err := deltaStore.ListWaitingPastDeadline(ctx)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(listed).To(HaveLen(1))
+			Expect(listed[0].Name).To(Equal("expired"))
+			Expect(listed[0].Status).To(Equal(model.DeltaPrepareWaiting))
+		})
+	})
+
+	Context("When getting a missing prepare", func() {
+		It("should return ErrResourceNotFound", func() {
+			_, err := deltaStore.GetPrepare(ctx, uuid.New())
 			Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
 		})
 	})

@@ -23,6 +23,10 @@ type Store interface {
 	InitialMigration(ctx context.Context) error
 	InsertGeneration(ctx context.Context, gen *model.DeltaGeneration) (changed bool, err error)
 	GetGeneration(ctx context.Context, key GenerationKey) (*model.DeltaGeneration, error)
+	InsertPrepare(ctx context.Context, prep *model.DeltaPrepare) error
+	GetPrepare(ctx context.Context, id uuid.UUID) (*model.DeltaPrepare, error)
+	ListWaitingPastDeadline(ctx context.Context) ([]model.DeltaPrepare, error)
+	JoinPrepareGeneration(ctx context.Context, prepareID uuid.UUID, key GenerationKey) error
 }
 
 type GenerationKey struct {
@@ -140,4 +144,49 @@ func (s *DeltaStore) GetGeneration(ctx context.Context, key GenerationKey) (*mod
 		return nil, store.ErrorFromGormError(result.Error)
 	}
 	return &gen, nil
+}
+
+func (s *DeltaStore) InsertPrepare(ctx context.Context, prep *model.DeltaPrepare) error {
+	if prep == nil {
+		return fmt.Errorf("cannot insert nil DeltaPrepare")
+	}
+	if prep.ID == uuid.Nil {
+		prep.ID = uuid.New()
+	}
+	if prep.Status == "" {
+		prep.Status = model.DeltaPrepareWaiting
+	}
+	return store.ErrorFromGormError(s.getDB(ctx).Create(prep).Error)
+}
+
+func (s *DeltaStore) GetPrepare(ctx context.Context, id uuid.UUID) (*model.DeltaPrepare, error) {
+	var prep model.DeltaPrepare
+	result := s.getDB(ctx).Where("id = ?", id).Take(&prep)
+	if result.Error != nil {
+		return nil, store.ErrorFromGormError(result.Error)
+	}
+	return &prep, nil
+}
+
+func (s *DeltaStore) JoinPrepareGeneration(ctx context.Context, prepareID uuid.UUID, key GenerationKey) error {
+	join := &model.DeltaPrepareGeneration{
+		PrepareID:       prepareID,
+		OrgID:           key.OrgID,
+		ImageRepository: key.ImageRepository,
+		SourceDigest:    key.SourceDigest,
+		TargetDigest:    key.TargetDigest,
+	}
+	return store.ErrorFromGormError(s.getDB(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(join).Error)
+}
+
+func (s *DeltaStore) ListWaitingPastDeadline(ctx context.Context) ([]model.DeltaPrepare, error) {
+	var rows []model.DeltaPrepare
+	result := s.getDB(ctx).Where(
+		"status = ? AND deadline IS NOT NULL AND deadline < NOW()",
+		model.DeltaPrepareWaiting,
+	).Find(&rows)
+	if result.Error != nil {
+		return nil, store.ErrorFromGormError(result.Error)
+	}
+	return rows, nil
 }
