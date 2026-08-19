@@ -776,12 +776,23 @@ func (c *Config) GetDependenciesSyncPollInterval() time.Duration {
 	return DefaultDependenciesSyncPollInterval
 }
 
+// VulnerabilityBackend selects which vulnerability scanning backend is active.
+type VulnerabilityBackend string
+
+const (
+	// VulnerabilityBackendTrustify selects the Trustify (TPA) backend.
+	VulnerabilityBackendTrustify VulnerabilityBackend = "trustify"
+)
+
 // VulnerabilityConfig holds configuration for the vulnerability integration feature.
 type VulnerabilityConfig struct {
 	// Enabled enables vulnerability integration (sync task + API endpoints).
 	Enabled bool `json:"enabled,omitempty"`
-	// SyncInterval is the interval between Trustify sync runs (e.g. "15m", "1h").
+	// SyncInterval is the interval between backend sync runs (e.g. "15m", "1h").
 	SyncInterval util.Duration `json:"syncInterval,omitempty"`
+	// Backend selects the vulnerability scanning backend. When empty, the sync
+	// task defaults to Trustify if a Trustify config is present.
+	Backend VulnerabilityBackend `json:"backend,omitempty"`
 	// Trustify holds the Trustify connection details (periodic service only).
 	Trustify *TrustifyConfig `json:"trustify,omitempty"`
 }
@@ -1191,19 +1202,24 @@ func applyEnvVarOverrides(c *Config) {
 func applyVulnerabilityReportingEnvVarOverrides(c *Config) {
 	enabled := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_ENABLED")
 	syncInterval := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_SYNC_INTERVAL")
+	backend := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_BACKEND")
 	trustifyEndpoint := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_ENDPOINT")
 	trustifyAuthMode := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_AUTH_MODE")
 	trustifyOIDCIssuerURL := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_OIDC_ISSUER_URL")
 	trustifyClientID := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_CLIENT_ID")
 	trustifyClientSecret := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_CLIENT_SECRET")
 
-	if enabled == "" && syncInterval == "" && trustifyEndpoint == "" && trustifyAuthMode == "" &&
+	if enabled == "" && syncInterval == "" && backend == "" && trustifyEndpoint == "" && trustifyAuthMode == "" &&
 		trustifyOIDCIssuerURL == "" && trustifyClientID == "" && trustifyClientSecret == "" {
 		return
 	}
 
 	if c.VulnerabilityReporting == nil {
 		c.VulnerabilityReporting = &VulnerabilityConfig{}
+	}
+
+	if backend != "" {
+		c.VulnerabilityReporting.Backend = VulnerabilityBackend(backend)
 	}
 
 	switch enabled {
