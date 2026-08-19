@@ -581,8 +581,8 @@ func TestCreateDeviceFromEnrollmentRequestOsMode(t *testing.T) {
 // TestCreateDeviceFromEnrollmentRequestNeverManaged is a regression guard for the deviceOnlyStore
 // adapter's safety invariant: createDeviceFromEnrollmentRequest must never set Metadata.Owner on
 // the device it builds. deviceOnlyStore only overrides Device() on its embedded nil store.Store;
-// every other accessor (including Fleet()) panics if called. common.UpdateServiceSideStatus only
-// calls st.Fleet() when the device IsManaged() (i.e. has a non-nil Owner), so if this invariant
+// every other accessor panics if called. UpdateServiceSideStatus only calls fleet.Service.GetFleet
+// when the device IsManaged() (i.e. has a non-nil Owner), so if this invariant
 // were ever broken, this test would fail with a panic instead of a production nil-pointer panic.
 func TestCreateDeviceFromEnrollmentRequestNeverManaged(t *testing.T) {
 	h, _, fakeDevices, _, _ := newTestHandler(t)

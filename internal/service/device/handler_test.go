@@ -2,6 +2,7 @@ package device
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
@@ -111,6 +112,24 @@ func TestGetDevice(t *testing.T) {
 		result, status := svc.GetDevice(ctx, orgId, "foo")
 		require.Equal(t, int32(http.StatusOK), status.Code)
 		require.Equal(t, "foo", lo.FromPtr(result.Metadata.Name))
+	})
+}
+
+func TestHealthcheckDevices(t *testing.T) {
+	t.Run("When the store succeeds it should delegate names to the store", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		names := []string{"d1", "d2"}
+		require.NoError(t, svc.HealthcheckDevices(ctx, orgId, names))
+		require.Equal(t, [][]string{names}, st.device.healthcheckCalls)
+	})
+
+	t.Run("When the store fails it should return the error", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		st.device.healthcheckErr = errors.New("db down")
+		err := svc.HealthcheckDevices(context.Background(), uuid.New(), []string{"d1"})
+		require.ErrorContains(t, err, "db down")
 	})
 }
 
@@ -561,7 +580,7 @@ func TestResumeDevices(t *testing.T) {
 }
 
 // TestUpdateServerSideDeviceStatus_ManagedDevice verifies status computation for a managed
-// (fleet-owned) device, which requires looking up the owning fleet via fleetStore.
+// (fleet-owned) device, which requires looking up the owning fleet via fleet.Service.
 func TestUpdateServerSideDeviceStatus_ManagedDevice(t *testing.T) {
 	st, _, svc := newTestHandler()
 	ctx := context.Background()
@@ -585,7 +604,7 @@ func TestUpdateServerSideDeviceStatus_ManagedDevice(t *testing.T) {
 
 	err = svc.UpdateServerSideDeviceStatus(ctx, orgId, "foo")
 	require.NoError(t, err)
-	require.Equal(t, 1, st.fleet.getCalls, "expected common.UpdateServiceSideStatus to reach store.Store.Fleet().Get() for a managed device")
+	require.Equal(t, 1, st.fleet.getCalls, "expected UpdateServiceSideStatus to reach fleet.Service.GetFleet() for a managed device")
 }
 
 func TestUpdateServerSideDeviceStatus_UnmanagedDevice(t *testing.T) {

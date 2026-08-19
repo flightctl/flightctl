@@ -260,9 +260,11 @@ var _ fleetstore.Store = (*fakeFleetStore)(nil)
 // internal/service/teststore_framework_test.go's DummyCatalog (which cannot be imported
 // directly since it lives in a _test.go file in a different package).
 type fakeCatalogStore struct {
-	catalogs map[string]*domain.Catalog
-	items    map[string]*domain.CatalogItem // key: itemKey(catalogName, itemName)
-	err      error
+	catalogs           map[string]*domain.Catalog
+	items              map[string]*domain.CatalogItem // key: itemKey(catalogName, itemName)
+	err                error
+	lastUnsetOwner     string
+	lastUnsetItemOwner string
 }
 
 func newFakeCatalogStore() *fakeCatalogStore {
@@ -367,10 +369,12 @@ func (f *fakeCatalogStore) Count(ctx context.Context, orgId uuid.UUID, listParam
 }
 
 func (f *fakeCatalogStore) UnsetOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
+	f.lastUnsetOwner = owner
 	return f.err
 }
 
 func (f *fakeCatalogStore) UnsetItemOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
+	f.lastUnsetItemOwner = owner
 	return f.err
 }
 
@@ -2196,5 +2200,42 @@ func TestGetCatalogItemDeploymentsPagination(t *testing.T) {
 			require.False(t, seen[key], "duplicate deployment: %s", key)
 			seen[key] = true
 		}
+	})
+}
+
+func TestUnsetOwner(t *testing.T) {
+	t.Run("When the store succeeds it should clear ownership for the owner", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
+
+		err := h.UnsetOwner(context.Background(), orgId, "ResourceSync/rs1")
+		require.NoError(t, err)
+		require.Equal(t, "ResourceSync/rs1", fakeStore.lastUnsetOwner)
+	})
+
+	t.Run("When the store fails it should return the error", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		fakeStore.err = flterrors.ErrResourceNotFound
+
+		err := h.UnsetOwner(context.Background(), uuid.New(), "ResourceSync/rs1")
+		require.ErrorIs(t, err, flterrors.ErrResourceNotFound)
+	})
+}
+
+func TestUnsetItemOwner(t *testing.T) {
+	t.Run("When the store succeeds it should clear item ownership for the owner", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+
+		err := h.UnsetItemOwner(context.Background(), uuid.New(), "ResourceSync/rs1")
+		require.NoError(t, err)
+		require.Equal(t, "ResourceSync/rs1", fakeStore.lastUnsetItemOwner)
+	})
+
+	t.Run("When the store fails it should return the error", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		fakeStore.err = errors.New("unset failed")
+
+		err := h.UnsetItemOwner(context.Background(), uuid.New(), "ResourceSync/rs1")
+		require.EqualError(t, err, "unset failed")
 	})
 }

@@ -22,10 +22,13 @@ import (
 	"github.com/flightctl/flightctl/internal/healthchecker"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service"
+	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	certificatesigningrequestservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/service/events"
+	organizationservice "github.com/flightctl/flightctl/internal/service/organization"
+	"github.com/flightctl/flightctl/internal/service/tpmcsr"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
@@ -57,8 +60,8 @@ type AgentServer struct {
 	deviceSvc                deviceservice.Service
 	enrollmentRequestSvc     enrollmentrequestservice.Service
 	csrSvc                   certificatesigningrequestservice.Service
-	catalogStore             catalogstore.Store
-	organizationStore        organizationstore.Store
+	catalogSvc               catalogservice.Service
+	organizationSvc          organizationservice.Service
 	kvStore                  kvstore.KVStore
 	identityMapper           *service.IdentityMapper
 	agentAuthMiddleware      *fcmiddleware.AgentAuthMiddleware
@@ -103,12 +106,10 @@ func (s *AgentServer) init(ctx context.Context) error {
 	enrollmentRequestStore := enrollmentrequeststore.NewEnrollmentRequestStore(s.db, s.log.WithField("pkg", "enrollmentrequest-store"))
 	csrStore := certificatesigningrequeststore.NewCertificateSigningRequestStore(s.db, s.log.WithField("pkg", "csr-store"))
 	eventStore := eventstore.NewEventStore(s.db, s.log.WithField("pkg", "event-store"))
-	s.catalogStore = catalogstore.NewCatalogStore(s.db, s.log.WithField("pkg", "catalog-store"))
-	s.organizationStore = organizationstore.NewOrganizationStore(s.db)
+	catalogStore := catalogstore.NewCatalogStore(s.db, s.log.WithField("pkg", "catalog-store"))
+	organizationStore := organizationstore.NewOrganizationStore(s.db)
 
-	healthchecker.HealthChecks.Initialize(ctx, deviceStore, s.log)
 	publisher, err := worker_client.QueuePublisher(ctx, s.queuesProvider)
-
 	if err != nil {
 		return err
 	}
@@ -122,10 +123,15 @@ func (s *AgentServer) init(ctx context.Context) error {
 
 	s.deviceSvc = deviceservice.WrapWithTracing(
 		deviceservice.NewDeviceServiceHandler(deviceStore, nil, fleetStore, eventsSvc, s.kvStore, s.cfg.Service.AgentEndpointAddress, s.log))
+	healthchecker.HealthChecks.Initialize(ctx, s.deviceSvc, s.log)
 	s.enrollmentRequestSvc = enrollmentrequestservice.WrapWithTracing(
 		enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, deviceStore, csrStore, s.ca, s.kvStore, eventsSvc, s.log, s.cfg.Service.TPMCAPaths, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl))
 	s.csrSvc = certificatesigningrequestservice.WrapWithTracing(
-		certificatesigningrequestservice.NewServiceHandler(csrStore, enrollmentRequestStore, s.ca, eventsSvc, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl))
+		certificatesigningrequestservice.NewServiceHandler(csrStore, tpmcsr.NewVerifier(s.enrollmentRequestSvc), s.ca, eventsSvc, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl))
+	s.catalogSvc = catalogservice.WrapWithTracing(
+		catalogservice.NewServiceHandler(catalogStore, deviceStore, fleetStore, eventsSvc, s.log))
+	s.organizationSvc = organizationservice.WrapWithTracing(
+		organizationservice.NewServiceHandler(organizationStore))
 
 	s.agentGrpcServer = NewAgentGrpcServer(s.log, s.cfg, s.enrollmentRequestSvc)
 	return nil
@@ -255,8 +261,8 @@ func (s *AgentServer) prepareHTTPHandler(ctx context.Context) (http.Handler, err
 	go s.enrollmentAuthMiddleware.Start()
 
 	// Create identity mapping middleware (handles both user and agent identities)
-	orgProvisioner := service.NewOrgProvisioner(s.catalogStore, s.log)
-	s.identityMapper = service.NewIdentityMapper(s.organizationStore, orgProvisioner, s.log)
+	orgProvisioner := service.NewOrgProvisioner(s.catalogSvc, s.log)
+	s.identityMapper = service.NewIdentityMapper(s.organizationSvc, orgProvisioner, s.log)
 	s.identityMapper.Start()
 	identityMappingMiddleware := fcmiddleware.NewIdentityMappingMiddleware(s.identityMapper, s.log)
 

@@ -70,10 +70,12 @@ func newFakeStore() *fakeStore {
 // methods this package's handler_test.go exercises.
 type fakeDeviceStore struct {
 	devicestore.Store
-	devices  map[string]*domain.Device
-	rendered map[string]*devicestore.DeviceRendered
-	repoRefs map[string][]string
-	lastSeen map[string]*time.Time
+	devices          map[string]*domain.Device
+	rendered         map[string]*devicestore.DeviceRendered
+	repoRefs         map[string][]string
+	lastSeen         map[string]*time.Time
+	healthcheckCalls [][]string
+	healthcheckErr   error
 }
 
 func (s *fakeDeviceStore) rememberLastSeen(name string, device *domain.Device) {
@@ -276,6 +278,11 @@ func (s *fakeDeviceStore) MarkRolloutSelection(ctx context.Context, orgId uuid.U
 
 func (s *fakeDeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*domain.Device, error) {
 	return s.Get(ctx, orgId, name)
+}
+
+func (s *fakeDeviceStore) Healthcheck(ctx context.Context, orgId uuid.UUID, names []string) error {
+	s.healthcheckCalls = append(s.healthcheckCalls, names)
+	return s.healthcheckErr
 }
 
 func (s *fakeDeviceStore) GetLastSeen(ctx context.Context, orgId uuid.UUID, name string) (*time.Time, error) {
