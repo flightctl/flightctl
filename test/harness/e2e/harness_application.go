@@ -1291,6 +1291,25 @@ func classifyDeviceLocalSSHError(err error) error {
 	}
 }
 
+func (h *Harness) ExpectSSHUnavailableOnPort(port int, appName, user, password string) {
+	GinkgoHelper()
+	const remoteCmd = "/usr/bin/whoami"
+	const unavailableWindow = "10s"
+	Eventually(func(g Gomega) {
+		_, sshErr := h.RunSSHOnDeviceLocalPort(port, user, password, remoteCmd)
+		g.Expect(sshErr).To(HaveOccurred(), "SSH to %s on published port %d should be unavailable", appName, port)
+		g.Expect(errors.Is(sshErr, ErrSSHConnectionRefused) || errors.Is(sshErr, ErrSSHTimeout)).
+			To(BeTrue(), "SSH to %s on port %d failed with %v, want connection refused or timeout", appName, port, sshErr)
+	}, LONGTIMEOUT, POLLING).Should(Succeed())
+
+	Consistently(func(g Gomega) {
+		_, sshErr := h.RunSSHOnDeviceLocalPort(port, user, password, remoteCmd)
+		g.Expect(sshErr).To(HaveOccurred(), "SSH to %s on published port %d should remain unavailable", appName, port)
+		g.Expect(errors.Is(sshErr, ErrSSHConnectionRefused) || errors.Is(sshErr, ErrSSHTimeout)).
+			To(BeTrue(), "SSH to %s on port %d failed with %v, want connection refused or timeout", appName, port, sshErr)
+	}, unavailableWindow, POLLING).Should(Succeed())
+}
+
 // trimSSHCommandOutput returns the last non-empty line from nested SSH output. Device-side
 // shell profiles can print environment noise before the guest command result on stdout.
 func trimSSHCommandOutput(stdout string) string {

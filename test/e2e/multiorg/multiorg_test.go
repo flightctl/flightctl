@@ -397,17 +397,17 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			waitForAgentReportedApp(harness, deviceName, rbacAppName)
 
 			standaloneTarget := "device/" + deviceName
-			for _, tc := range rbacRoleCases(users) {
+			for _, tc := range rbacAppAccessCases(users) {
 				By(fmt.Sprintf("Testing standalone device lifecycle as %s", tc.role))
 				err = loginAndSetOrg(harness, tc.user.name, tc.user.password)
 				Expect(err).ToNot(HaveOccurred())
-				assertLifecycleAccess(harness, standaloneTarget, rbacAppName, []string{"stop", "start", "restart"}, tc.allowed)
+				assertLifecycleAccess(harness, standaloneTarget, rbacAppName, []string{"stop", "start", "restart"}, tc.lifecycleAllowed)
 
 				By(fmt.Sprintf("Testing standalone device console as %s", tc.role))
-				assertSimulatorConsoleAccess(harness, deviceName, tc.allowed)
+				assertSimulatorConsoleAccess(harness, deviceName, tc.consoleAllowed)
 
 				By(fmt.Sprintf("Testing standalone application console as %s", tc.role))
-				assertAppConsoleAccess(harness, deviceName, rbacAppName, tc.allowed)
+				assertAppConsoleAccess(harness, deviceName, rbacAppName, tc.consoleAllowed)
 			}
 
 			By("Creating a fleet with the same application as admin")
@@ -432,11 +432,11 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			Expect(restartErr).To(HaveOccurred(), "fleet-scoped restart should be rejected as unsupported")
 			Expect(out).To(ContainSubstring("kind must be Device"))
 
-			for _, tc := range rbacRoleCases(users) {
+			for _, tc := range rbacAppAccessCases(users) {
 				By(fmt.Sprintf("Testing fleet lifecycle as %s", tc.role))
 				err = loginAndSetOrg(harness, tc.user.name, tc.user.password)
 				Expect(err).ToNot(HaveOccurred())
-				assertLifecycleAccess(harness, fleetTarget, rbacAppName, []string{"stop", "start"}, tc.allowed)
+				assertLifecycleAccess(harness, fleetTarget, rbacAppName, []string{"stop", "start"}, tc.lifecycleAllowed)
 			}
 
 			By("Labeling the device into the fleet")
@@ -449,17 +449,17 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			}, e2e.TIMEOUT)
 			waitForAgentReportedApp(harness, deviceName, rbacAppName)
 
-			for _, tc := range rbacRoleCases(users) {
+			for _, tc := range rbacAppAccessCases(users) {
 				By(fmt.Sprintf("Testing fleet-owned device lifecycle as %s", tc.role))
 				err = loginAndSetOrg(harness, tc.user.name, tc.user.password)
 				Expect(err).ToNot(HaveOccurred())
-				assertLifecycleAccess(harness, standaloneTarget, rbacAppName, []string{"stop", "start", "restart"}, tc.allowed)
+				assertLifecycleAccess(harness, standaloneTarget, rbacAppName, []string{"stop", "start", "restart"}, tc.lifecycleAllowed)
 
 				By(fmt.Sprintf("Testing fleet-owned device console as %s", tc.role))
-				assertSimulatorConsoleAccess(harness, deviceName, tc.allowed)
+				assertSimulatorConsoleAccess(harness, deviceName, tc.consoleAllowed)
 
 				By(fmt.Sprintf("Testing fleet-owned application console as %s", tc.role))
-				assertAppConsoleAccess(harness, deviceName, rbacAppName, tc.allowed)
+				assertAppConsoleAccess(harness, deviceName, rbacAppName, tc.consoleAllowed)
 			}
 		})
 
@@ -782,20 +782,19 @@ func loginAndGetOrgID(harness *e2e.Harness, user, password string) (string, erro
 	return orgID, nil
 }
 
-func rbacRoleCases(users testUserSet) []struct {
-	role    string
-	user    userCred
-	allowed bool
-} {
-	return []struct {
-		role    string
-		user    userCred
-		allowed bool
-	}{
-		{"admin", users.admin, true},
-		{"operator", users.operator, true},
-		{"viewer", users.viewer, false},
-		{"installer", users.installer, false},
+type rbacAppAccessCase struct {
+	role             string
+	user             userCred
+	lifecycleAllowed bool
+	consoleAllowed   bool
+}
+
+func rbacAppAccessCases(users testUserSet) []rbacAppAccessCase {
+	return []rbacAppAccessCase{
+		{"admin", users.admin, true, true},
+		{"operator", users.operator, true, true},
+		{"viewer", users.viewer, false, false},
+		{"installer", users.installer, false, false},
 	}
 }
 

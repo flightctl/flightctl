@@ -67,11 +67,11 @@ var _ = Describe("VM Applications on a Fleet", func() {
 		})).To(Succeed())
 
 		By("Labeling device 1 into the fleet")
-		labelDeviceIntoFleet(harness, device1ID, fleetName)
+		harness.LabelDeviceIntoFleet(device1ID, fleetLabelKey, fleetName)
 
 		By("Waiting for both apps to run on device 1")
-		waitForAppStatus(harness, device1ID, nginxAppName, v1beta1.ApplicationStatusRunning)
-		waitForAppStatus(harness, device1ID, vmAppName, v1beta1.ApplicationStatusRunning)
+		Expect(harness.WaitForApplicationStatus(device1ID, nginxAppName, v1beta1.ApplicationStatusRunning, testutil.LONG_TIMEOUT, testutil.POLLING)).To(Succeed())
+		Expect(harness.WaitForApplicationStatus(device1ID, vmAppName, v1beta1.ApplicationStatusRunning, testutil.LONG_TIMEOUT, testutil.POLLING)).To(Succeed())
 		err = harness.WaitForApplicationSummary(device1ID, testutil.LONG_TIMEOUT, testutil.POLLING, v1beta1.ApplicationsSummaryStatusHealthy)
 		if err != nil {
 			logVMApplicationUnitStatus(harness, vmAppName)
@@ -83,39 +83,39 @@ var _ = Describe("VM Applications on a Fleet", func() {
 		By("Stopping the VM application on the fleet")
 		_, err = harness.CLI("app", "stop", "fleet/"+fleetName, "--name", vmAppName, "-y")
 		Expect(err).ToNot(HaveOccurred())
-		waitForAppStatus(harness, device1ID, vmAppName, v1beta1.ApplicationStatusStopped)
-		expectSSHInaccessible(harness, vmPublishedSSHPort, vmAppName)
-		waitForAppStatus(harness, device1ID, nginxAppName, v1beta1.ApplicationStatusRunning)
+		Expect(harness.WaitForApplicationStatus(device1ID, vmAppName, v1beta1.ApplicationStatusStopped, testutil.LONG_TIMEOUT, testutil.POLLING)).To(Succeed())
+		harness.ExpectSSHUnavailableOnPort(vmPublishedSSHPort, vmAppName, vmGuestUser, vmGuestPassword)
+		Expect(harness.WaitForApplicationStatus(device1ID, nginxAppName, v1beta1.ApplicationStatusRunning, testutil.LONG_TIMEOUT, testutil.POLLING)).To(Succeed())
 		expectNginxReachable(harness)
 
 		By("Labeling device 2 into the fleet so it inherits the fleet stop default")
-		labelDeviceIntoFleet(harness, device2ID, fleetName)
-		waitForAppStatus(harness2, device2ID, nginxAppName, v1beta1.ApplicationStatusRunning)
-		waitForAppStatus(harness2, device2ID, vmAppName, v1beta1.ApplicationStatusStopped)
-		waitForAppStatus(harness, device1ID, nginxAppName, v1beta1.ApplicationStatusRunning)
-		waitForAppStatus(harness, device1ID, vmAppName, v1beta1.ApplicationStatusStopped)
+		harness.LabelDeviceIntoFleet(device2ID, fleetLabelKey, fleetName)
+		Expect(harness2.WaitForApplicationStatus(device2ID, nginxAppName, v1beta1.ApplicationStatusRunning, testutil.LONG_TIMEOUT, testutil.POLLING)).To(Succeed())
+		Expect(harness2.WaitForApplicationStatus(device2ID, vmAppName, v1beta1.ApplicationStatusStopped, testutil.LONG_TIMEOUT, testutil.POLLING)).To(Succeed())
+		Expect(harness.WaitForApplicationStatus(device1ID, nginxAppName, v1beta1.ApplicationStatusRunning, testutil.LONG_TIMEOUT, testutil.POLLING)).To(Succeed())
+		Expect(harness.WaitForApplicationStatus(device1ID, vmAppName, v1beta1.ApplicationStatusStopped, testutil.LONG_TIMEOUT, testutil.POLLING)).To(Succeed())
 
 		By("Starting the VM application on the fleet")
 		_, err = harness.CLI("app", "start", "fleet/"+fleetName, "--name", vmAppName, "-y")
 		Expect(err).ToNot(HaveOccurred())
-		waitForAppStatus(harness, device1ID, vmAppName, v1beta1.ApplicationStatusRunning)
-		waitForAppStatus(harness2, device2ID, vmAppName, v1beta1.ApplicationStatusRunning)
+		Expect(harness.WaitForApplicationStatus(device1ID, vmAppName, v1beta1.ApplicationStatusRunning, testutil.LONG_TIMEOUT, testutil.POLLING)).To(Succeed())
+		Expect(harness2.WaitForApplicationStatus(device2ID, vmAppName, v1beta1.ApplicationStatusRunning, testutil.LONG_TIMEOUT, testutil.POLLING)).To(Succeed())
 		expectSSHWhoamiWithPassword(harness, vmPublishedSSHPort, vmAppName, vmGuestUser, vmGuestPassword)
 		expectSSHWhoamiWithPassword(harness2, vmPublishedSSHPort, vmAppName, vmGuestUser, vmGuestPassword)
 
 		By("Stopping the VM application on device 1 only")
 		_, err = harness.CLI("app", "stop", "device/"+device1ID, "--name", vmAppName, "-y")
 		Expect(err).ToNot(HaveOccurred())
-		waitForAppStatus(harness, device1ID, vmAppName, v1beta1.ApplicationStatusStopped)
-		expectSSHInaccessible(harness, vmPublishedSSHPort, vmAppName)
-		waitForAppStatus(harness2, device2ID, vmAppName, v1beta1.ApplicationStatusRunning)
+		Expect(harness.WaitForApplicationStatus(device1ID, vmAppName, v1beta1.ApplicationStatusStopped, testutil.LONG_TIMEOUT, testutil.POLLING)).To(Succeed())
+		harness.ExpectSSHUnavailableOnPort(vmPublishedSSHPort, vmAppName, vmGuestUser, vmGuestPassword)
+		Expect(harness2.WaitForApplicationStatus(device2ID, vmAppName, v1beta1.ApplicationStatusRunning, testutil.LONG_TIMEOUT, testutil.POLLING)).To(Succeed())
 		expectSSHWhoamiWithPassword(harness2, vmPublishedSSHPort, vmAppName, vmGuestUser, vmGuestPassword)
 
 		By("Starting the VM application on the fleet again so the newer fleet action wins")
 		_, err = harness.CLI("app", "start", "fleet/"+fleetName, "--name", vmAppName, "-y")
 		Expect(err).ToNot(HaveOccurred())
-		waitForAppStatus(harness, device1ID, vmAppName, v1beta1.ApplicationStatusRunning)
-		waitForAppStatus(harness2, device2ID, vmAppName, v1beta1.ApplicationStatusRunning)
+		Expect(harness.WaitForApplicationStatus(device1ID, vmAppName, v1beta1.ApplicationStatusRunning, testutil.LONG_TIMEOUT, testutil.POLLING)).To(Succeed())
+		Expect(harness2.WaitForApplicationStatus(device2ID, vmAppName, v1beta1.ApplicationStatusRunning, testutil.LONG_TIMEOUT, testutil.POLLING)).To(Succeed())
 		expectSSHWhoamiWithPassword(harness, vmPublishedSSHPort, vmAppName, vmGuestUser, vmGuestPassword)
 		expectSSHWhoamiWithPassword(harness2, vmPublishedSSHPort, vmAppName, vmGuestUser, vmGuestPassword)
 
@@ -125,23 +125,6 @@ var _ = Describe("VM Applications on a Fleet", func() {
 		Expect(out).To(ContainSubstring("kind must be Device"))
 	})
 })
-
-func labelDeviceIntoFleet(h *e2e.Harness, deviceID, fleetName string) {
-	GinkgoHelper()
-	nextRenderedVersion, err := h.PrepareNextDeviceVersion(deviceID)
-	Expect(err).ToNot(HaveOccurred())
-	Expect(h.SetLabelsForDevice(deviceID, map[string]string{fleetLabelKey: fleetName})).To(Succeed())
-	Expect(h.WaitForDeviceNewRenderedVersion(deviceID, nextRenderedVersion)).To(Succeed())
-}
-
-func waitForAppStatus(h *e2e.Harness, deviceID, appName string, status v1beta1.ApplicationStatusType) {
-	GinkgoHelper()
-	err := h.WaitForApplicationStatus(deviceID, appName, status, testutil.LONG_TIMEOUT, testutil.POLLING)
-	if err != nil && appName == vmAppName {
-		logVMApplicationUnitStatus(h, appName)
-	}
-	Expect(err).ToNot(HaveOccurred())
-}
 
 func curlNginxHTTPStatus(h *e2e.Harness) (string, error) {
 	out, err := h.VM.RunSSH([]string{"curl", "-sS", "-o", "/dev/null", "-w", "%{http_code}", "--connect-timeout", "2", "--max-time", "5", "http://127.0.0.1:" + nginxHostPort + "/"}, nil)
@@ -154,12 +137,4 @@ func curlNginxHTTPStatus(h *e2e.Harness) (string, error) {
 func expectNginxReachable(h *e2e.Harness) {
 	GinkgoHelper()
 	Eventually(func() (string, error) { return curlNginxHTTPStatus(h) }, testutil.LONG_TIMEOUT, testutil.POLLING).Should(Equal("200"))
-}
-
-func expectSSHInaccessible(h *e2e.Harness, port int, appName string) {
-	GinkgoHelper()
-	Eventually(func(g Gomega) {
-		_, sshErr := h.RunSSHOnDeviceLocalPort(port, vmGuestUser, vmGuestPassword, "/usr/bin/whoami")
-		g.Expect(sshErr).To(HaveOccurred(), "expected SSH to %s on port %d to fail after stop", appName, port)
-	}, testutil.LONG_TIMEOUT, testutil.POLLING).Should(Succeed())
 }
