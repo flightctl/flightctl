@@ -108,10 +108,6 @@ func (m *MockDevice) SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner st
 	return nil
 }
 
-func (m *MockDevice) ProcessAwaitingReconnectAnnotation(ctx context.Context, orgId uuid.UUID, deviceName string, deviceReportedVersion *string) (bool, error) {
-	return false, nil
-}
-
 func (m *MockDevice) ListDevicesByOsCatalogItemRef(ctx context.Context, orgId uuid.UUID, catalog string, item string, listParams store.ListParams) (*domain.DeviceList, error) {
 	return nil, nil
 }
