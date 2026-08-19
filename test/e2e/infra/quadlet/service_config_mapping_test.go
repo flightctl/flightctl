@@ -162,8 +162,8 @@ vulnerabilityReporting:
 					assert.Equal(t, false, vmRender["passtWorkarounds"])
 					images, ok := vmRender["launcherImages"].(map[string]interface{})
 					require.True(t, ok)
-					assert.Equal(t, "registry.example.com/virt-launcher-rhel9:v1", images["9"])
-					assert.Equal(t, "registry.example.com/virt-launcher-rhel10:v1", images["10"])
+					assert.Equal(t, "registry.example.com/virt-launcher-rhel9:v1", images["rhel-9"])
+					assert.Equal(t, "registry.example.com/virt-launcher-rhel10:v1", images["rhel-10"])
 				}
 			case infra.ServiceImageBuilderWorker:
 				sectionKey = "imageBuilderWorker"
@@ -228,8 +228,8 @@ vulnerabilityReporting:
 				vmRender["launcherImage"] = setValue
 				vmRender["passtWorkarounds"] = false
 				vmRender["launcherImages"] = map[string]interface{}{
-					"9":  "registry.example.com/virt-launcher-rhel9:v1",
-					"10": "registry.example.com/virt-launcher-rhel10:v1",
+					"rhel-9":  "registry.example.com/virt-launcher-rhel9:v1",
+					"rhel-10": "registry.example.com/virt-launcher-rhel10:v1",
 				}
 			case infra.ServiceImageBuilderWorker:
 				section["maxConcurrentBuilds"] = setValue

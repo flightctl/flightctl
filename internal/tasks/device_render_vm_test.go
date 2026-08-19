@@ -500,19 +500,35 @@ func TestParseDistroMajor(t *testing.T) {
 	}
 }
 
-func TestDistroMajorFromDevice(t *testing.T) {
+func TestOsKeyFromDevice(t *testing.T) {
 	t.Parallel()
 
 	t.Run("When status is missing it should return empty", func(t *testing.T) {
 		t.Parallel()
-		assert.Empty(t, distroMajorFromDevice(&domain.Device{}))
+		assert.Empty(t, osKeyFromDevice(&domain.Device{}))
 	})
 
-	t.Run("When distroVersion is reported it should return the major", func(t *testing.T) {
+	t.Run("When distroId and distroVersion are reported it should return id-major", func(t *testing.T) {
+		t.Parallel()
+		device := &domain.Device{Status: &domain.DeviceStatus{}}
+		device.Status.SystemInfo.Set(deviceDistroIdKey, "rhel")
+		device.Status.SystemInfo.Set(deviceDistroVersionKey, "9.5 (Plow)")
+		assert.Equal(t, "rhel-9", osKeyFromDevice(device))
+	})
+
+	t.Run("When distroId is fedora it should not look like rhel", func(t *testing.T) {
+		t.Parallel()
+		device := &domain.Device{Status: &domain.DeviceStatus{}}
+		device.Status.SystemInfo.Set(deviceDistroIdKey, "fedora")
+		device.Status.SystemInfo.Set(deviceDistroVersionKey, "42 (Adams)")
+		assert.Equal(t, "fedora-42", osKeyFromDevice(device))
+	})
+
+	t.Run("When distroId is missing it should return empty", func(t *testing.T) {
 		t.Parallel()
 		device := &domain.Device{Status: &domain.DeviceStatus{}}
 		device.Status.SystemInfo.Set(deviceDistroVersionKey, "9.5 (Plow)")
-		assert.Equal(t, "9", distroMajorFromDevice(device))
+		assert.Empty(t, osKeyFromDevice(device))
 	})
 }
 
@@ -524,8 +540,8 @@ func TestBindVmLauncher_SelectsPerOSImage(t *testing.T) {
 		"worker": {
 			"vmRender": {
 				"launcherImages": {
-					"9": "registry.example.com/virt-launcher-rhel9:v1",
-					"10": "registry.example.com/virt-launcher-rhel10:v1"
+					"rhel-9": "registry.example.com/virt-launcher-rhel9:v1",
+					"rhel-10": "registry.example.com/virt-launcher-rhel10:v1"
 				}
 			}
 		}
@@ -533,9 +549,32 @@ func TestBindVmLauncher_SelectsPerOSImage(t *testing.T) {
 
 	logic := NewDeviceRenderLogic(logrus.New(), nil, nil, nil, nil, nil, cfg, [16]byte{}, domain.Event{})
 	device := &domain.Device{Status: &domain.DeviceStatus{}}
+	device.Status.SystemInfo.Set(deviceDistroIdKey, "rhel")
 	device.Status.SystemInfo.Set(deviceDistroVersionKey, "10.0 (Coughlan)")
 	logic.bindVmLauncher(device)
 	assert.Equal(t, "registry.example.com/virt-launcher-rhel10:v1", logic.vmRenderOptions.LauncherImage)
+}
+
+func TestBindVmLauncher_UnknownOSUsesDefault(t *testing.T) {
+	t.Parallel()
+
+	cfg := &config.Config{}
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"worker": {
+			"vmRender": {
+				"launcherImages": {
+					"rhel-9": "registry.example.com/virt-launcher-rhel9:v1"
+				}
+			}
+		}
+	}`), cfg))
+
+	logic := NewDeviceRenderLogic(logrus.New(), nil, nil, nil, nil, nil, cfg, [16]byte{}, domain.Event{})
+	device := &domain.Device{Status: &domain.DeviceStatus{}}
+	device.Status.SystemInfo.Set(deviceDistroIdKey, "fedora")
+	device.Status.SystemInfo.Set(deviceDistroVersionKey, "42 (Adams)")
+	logic.bindVmLauncher(device)
+	assert.Equal(t, config.DefaultVirtLauncherImage, logic.vmRenderOptions.LauncherImage)
 }
 
 func TestHashRenderedWithSpec_IncludesLauncherImage(t *testing.T) {

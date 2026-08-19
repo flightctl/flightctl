@@ -16,56 +16,56 @@ func TestEffectiveVmLauncherImage(t *testing.T) {
 	pinned := "registry.example.com/virt-launcher:pinned"
 
 	tests := []struct {
-		name    string
-		json    string
-		osMajor string
-		want    string
+		name  string
+		json  string
+		osKey string
+		want  string
 	}{
 		{
-			name:    "When config is empty it should use the built-in default",
-			json:    `{}`,
-			osMajor: "9",
-			want:    DefaultVirtLauncherImage,
+			name:  "When config is empty it should use the built-in default",
+			json:  `{}`,
+			osKey: "rhel-9",
+			want:  DefaultVirtLauncherImage,
 		},
 		{
 			name: "When launcherImage is set and no per-OS map it should use launcherImage",
 			json: `{
 				"worker": {"vmRender": {"launcherImage": "` + pinned + `"}}
 			}`,
-			osMajor: "10",
-			want:    pinned,
+			osKey: "rhel-10",
+			want:  pinned,
 		},
 		{
-			name: "When launcherImages has the device major it should use that image",
+			name: "When launcherImages has the device OS key it should use that image",
 			json: `{
 				"worker": {"vmRender": {
-					"launcherImages": {"9": "` + rhel9 + `", "10": "` + rhel10 + `"}
+					"launcherImages": {"rhel-9": "` + rhel9 + `", "rhel-10": "` + rhel10 + `"}
 				}}
 			}`,
-			osMajor: "10",
-			want:    rhel10,
+			osKey: "rhel-10",
+			want:  rhel10,
 		},
 		{
-			name: "When launcherImages has no entry for the major it should use launcherImage",
-			json: `{
-				"worker": {"vmRender": {
-					"launcherImage": "` + pinned + `",
-					"launcherImages": {"9": "` + rhel9 + `"}
-				}}
-			}`,
-			osMajor: "10",
-			want:    pinned,
-		},
-		{
-			name: "When osMajor is empty it should ignore launcherImages",
+			name: "When the OS is not in launcherImages it should use launcherImage",
 			json: `{
 				"worker": {"vmRender": {
 					"launcherImage": "` + pinned + `",
-					"launcherImages": {"9": "` + rhel9 + `"}
+					"launcherImages": {"rhel-9": "` + rhel9 + `"}
 				}}
 			}`,
-			osMajor: "",
-			want:    pinned,
+			osKey: "fedora-42",
+			want:  pinned,
+		},
+		{
+			name: "When osKey is empty it should ignore launcherImages",
+			json: `{
+				"worker": {"vmRender": {
+					"launcherImage": "` + pinned + `",
+					"launcherImages": {"rhel-9": "` + rhel9 + `"}
+				}}
+			}`,
+			osKey: "",
+			want:  pinned,
 		},
 	}
 
@@ -74,7 +74,7 @@ func TestEffectiveVmLauncherImage(t *testing.T) {
 			t.Parallel()
 			cfg := &Config{}
 			require.NoError(t, json.Unmarshal([]byte(tt.json), cfg))
-			assert.Equal(t, tt.want, cfg.EffectiveVmLauncherImage(tt.osMajor))
+			assert.Equal(t, tt.want, cfg.EffectiveVmLauncherImage(tt.osKey))
 		})
 	}
 }

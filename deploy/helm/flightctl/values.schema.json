@@ -507,7 +507,7 @@
             },
             "launcherImages": {
               "type": "object",
-              "description": "virt-launcher images keyed by OS major version from status.systemInfo.distroVersion (e.g. \"9\", \"10\")",
+              "description": "virt-launcher images keyed by os-release ID and major from status.systemInfo (e.g. \"rhel-9\", \"rhel-10\")",
               "additionalProperties": { "type": "string" }
             },
             "passtWorkarounds": {

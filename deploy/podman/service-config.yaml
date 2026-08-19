@@ -115,8 +115,9 @@ prometheus:
 
 # Worker VM render options (optional). Uncomment to override defaults.
 # Leave launcherImage unset to use the worker built-in default
-# (quay.io/kubevirt/virt-launcher:v1.9.0). launcherImages selects by OS major
-# from device status.systemInfo.distroVersion (e.g. "9.5 (Plow)" -> "9").
+# (quay.io/kubevirt/virt-launcher:v1.9.0). launcherImages selects by os-release
+# ID and major from status.systemInfo (e.g. rhel + "9.5 (Plow)" -> "rhel-9").
+# Other OS keys (fedora-42, ubuntu-24) are only used if you add them.
 # In air-gapped environments, mirror virt-launcher and set these references
 # to the mirrored location.
 # Enable passtWorkarounds only when using older virt-launcher images that need it.
@@ -124,8 +125,8 @@ prometheus:
 #   vmRender:
 #     launcherImage: ""
 #     launcherImages:
-#       "9": ""
-#       "10": ""
+#       "rhel-9": ""
+#       "rhel-10": ""
 #     passtWorkarounds: false
 
 # ImageBuilder Worker (optional). Uncomment and set when using custom builder images, SBOM, or skip-TLS.

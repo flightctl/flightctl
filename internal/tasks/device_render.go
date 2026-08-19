@@ -111,7 +111,7 @@ func (t DeviceRenderLogic) WithVmConverter(fn VmConverterFn) DeviceRenderLogic {
 }
 
 func (t *DeviceRenderLogic) bindVmLauncher(device *domain.Device) {
-	opts := vmRenderOptionsFromConfig(t.cfg, distroMajorFromDevice(device))
+	opts := vmRenderOptionsFromConfig(t.cfg, osKeyFromDevice(device))
 	t.vmRenderOptions = opts
 	if t.customVmConverter {
 		return

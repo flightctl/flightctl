@@ -44,24 +44,33 @@ func DefaultVmRenderOptions() VmRenderOptions {
 	}
 }
 
-func vmRenderOptionsFromConfig(cfg *config.Config, osMajor string) VmRenderOptions {
+func vmRenderOptionsFromConfig(cfg *config.Config, osKey string) VmRenderOptions {
 	return VmRenderOptions{
-		LauncherImage:    cfg.EffectiveVmLauncherImage(osMajor),
+		LauncherImage:    cfg.EffectiveVmLauncherImage(osKey),
 		PasstWorkarounds: cfg.EffectiveVmPasstWorkarounds(),
 	}
 }
 
-const deviceDistroVersionKey = "distroVersion"
+const (
+	deviceDistroVersionKey = "distroVersion"
+	deviceDistroIdKey      = "distroId"
+)
 
-func distroMajorFromDevice(device *domain.Device) string {
+func osKeyFromDevice(device *domain.Device) string {
 	if device == nil || device.Status == nil {
 		return ""
 	}
-	version, ok := device.Status.SystemInfo.Get(deviceDistroVersionKey)
-	if !ok {
+	id, _ := device.Status.SystemInfo.Get(deviceDistroIdKey)
+	id = strings.ToLower(strings.TrimSpace(id))
+	if id == "" {
 		return ""
 	}
-	return parseDistroMajor(version)
+	version, _ := device.Status.SystemInfo.Get(deviceDistroVersionKey)
+	major := parseDistroMajor(version)
+	if major == "" {
+		return ""
+	}
+	return id + "-" + major
 }
 
 func parseDistroMajor(version string) string {

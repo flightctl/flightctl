@@ -446,7 +446,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | worker.image.tag | string | `""` | Worker image tag |
 | worker.vmRender | object | `{"launcherImage":"","launcherImages":{},"passtWorkarounds":false}` | VM application render options passed to vm-to-quadlet |
 | worker.vmRender.launcherImage | string | `""` | virt-launcher image used when converting VmApplications to Quadlet units (leave empty to use the worker default) |
-| worker.vmRender.launcherImages | object | `{}` | virt-launcher images keyed by OS major version from status.systemInfo.distroVersion (e.g. "9", "10") |
+| worker.vmRender.launcherImages | object | `{}` | virt-launcher images keyed by os-release ID and major from status.systemInfo (e.g. "rhel-9", "rhel-10") |
 | worker.vmRender.passtWorkarounds | bool | `false` | Enable passt networking workarounds for older virt-launcher images (default false; enable only for older images) |
 
 ## Environment-Specific Values Files

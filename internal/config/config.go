@@ -432,13 +432,13 @@ func NewDefaultWorkerConfig() *workerConfig {
 }
 
 // EffectiveVmLauncherImage returns the virt-launcher image used for VM render.
-// osMajor is the device OS major version (e.g. "9", "10") from
-// status.systemInfo.distroVersion. An empty osMajor skips per-OS lookup.
-func (c *Config) EffectiveVmLauncherImage(osMajor string) string {
+// osKey is "{os-release ID}-{major}" from status.systemInfo (e.g. "rhel-9").
+// An empty osKey skips per-OS lookup.
+func (c *Config) EffectiveVmLauncherImage(osKey string) string {
 	if c == nil || c.Worker == nil {
 		return DefaultVirtLauncherImage
 	}
-	return c.Worker.EffectiveLauncherImage(osMajor)
+	return c.Worker.EffectiveLauncherImage(osKey)
 }
 
 // EffectiveVmPasstWorkarounds returns whether passt workarounds are enabled for VM render.
@@ -449,13 +449,13 @@ func (c *Config) EffectiveVmPasstWorkarounds() bool {
 	return c.Worker.EffectivePasstWorkarounds()
 }
 
-// EffectiveLauncherImage returns the virt-launcher image for osMajor.
-func (c *workerConfig) EffectiveLauncherImage(osMajor string) string {
+// EffectiveLauncherImage returns the virt-launcher image for osKey.
+func (c *workerConfig) EffectiveLauncherImage(osKey string) string {
 	if c == nil || c.VmRender == nil {
 		return DefaultVirtLauncherImage
 	}
-	if osMajor != "" && c.VmRender.LauncherImages != nil {
-		if img := c.VmRender.LauncherImages[osMajor]; img != "" {
+	if osKey != "" && c.VmRender.LauncherImages != nil {
+		if img := c.VmRender.LauncherImages[osKey]; img != "" {
 			return img
 		}
 	}
