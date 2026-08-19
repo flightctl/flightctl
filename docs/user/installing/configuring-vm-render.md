@@ -35,6 +35,8 @@ The worker then chooses an image in this order:
 
 Keys are exact. A Fedora 42 device does not use a `rhel-9` pin. Devices that do not report `distroId` (or whose OS is not in the map) use `launcherImage` or the built-in default.
 
+Selection runs only when the worker renders a device (fleet rollout, spec change, and similar). A status-only `distroId` / `distroVersion` update does not trigger a new render. After an in-place OS major upgrade, trigger a re-render (for example by bumping the fleet template). An agent status PUT is not enough.
+
 ## Prerequisites
 
 - Flight Control deployed with the worker service (`flightctl-worker`)
@@ -148,7 +150,7 @@ There is currently no separate Red Hat product virt-launcher image in the Flight
 
 ## After changing settings
 
-Conversion results are cached by `vm.yaml` content and these render options. Changing `launcherImage`, `launcherImages`, or `passtWorkarounds` affects newly rendered devices. Re-render existing devices (for example by updating the device or fleet) if they must pick up the new settings.
+Conversion results are cached by `vm.yaml` content and these render options. Changing `launcherImage`, `launcherImages`, or `passtWorkarounds` affects newly rendered devices. Re-render existing devices (for example by updating the device or fleet) if they must pick up the new settings. The same applies after an OS major change: the new `launcherImages` key is used on the next render, not when the agent reports the new `distroId` / `distroVersion`.
 
 ## Related information
 
