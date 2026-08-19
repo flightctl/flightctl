@@ -85,7 +85,6 @@ var DefaultSystemInfo = []string{
 	"kernel",
 	"distroName",
 	"distroVersion",
-	"distroId",
 	"productName",
 	"productUuid",
 	"productSerial",
