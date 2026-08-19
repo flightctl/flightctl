@@ -422,6 +422,7 @@ Examples:
 			if err != nil {
 				return err
 			}
+			logVMRuntimeHints(unique)
 
 			ctx := context.Background()
 			exec := executer.NewCommonExecuter()

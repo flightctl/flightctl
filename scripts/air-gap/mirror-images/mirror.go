@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -111,6 +112,45 @@ func GenerateCommands(ctx context.Context, pairs []ImagePair, execute, insecure 
 		return fmt.Errorf("%d image(s) failed to copy: %s", len(failed), strings.Join(failed, ", "))
 	}
 	return nil
+}
+
+func virtLauncherDestPaths(pairs []ImagePair) []string {
+	var dests []string
+	for _, p := range pairs {
+		if !strings.Contains(p.Source, "virt-launcher") {
+			continue
+		}
+		dests = append(dests, p.Dest)
+	}
+	return dests
+}
+
+func logVMRuntimeHints(pairs []ImagePair) {
+	dests := virtLauncherDestPaths(pairs)
+	if len(dests) == 0 {
+		return
+	}
+	logInfo("VM applications: set worker.vmRender.launcherImage to the mirrored virt-launcher image:")
+	for _, dest := range dests {
+		logInfo("  %s", dest)
+	}
+}
+
+func writeVirtLauncherHint(w io.Writer, pairs []ImagePair) {
+	for _, p := range pairs {
+		if !strings.Contains(p.Source, "virt-launcher") {
+			continue
+		}
+		parts := strings.SplitN(p.Source, "/", 2)
+		if len(parts) < 2 {
+			continue
+		}
+		fmt.Fprintf(w, `
+echo ""
+echo "VM applications: set worker.vmRender.launcherImage to:"
+echo "  $REGISTRY/%s"
+`, parts[1])
+	}
 }
 
 // logInfo writes an [INFO] prefixed message to stderr.

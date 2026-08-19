@@ -68,3 +68,8 @@ userinfo-proxy:
 remote-access:
   image: quay.io/flightctl/flightctl-remote-access-el9
   tag: latest
+# Device-side VM runtime (not a control-plane service). Mirrored by
+# flightctl-mirror-images. Keep the tag in sync with DefaultVirtLauncherImage.
+virt-launcher:
+  image: quay.io/kubevirt/virt-launcher
+  tag: v1.9.0

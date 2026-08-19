@@ -135,8 +135,9 @@ The tool reads from two sources and deduplicates:
 
 The `el9`/`el10` files are also consumed by `packaging/rpm/flightctl.spec` to
 drive `flightctl-standalone render quadlets --config`; they must remain
-complete. The `rhel9`/`rhel10` files contain only the downstream
-`registry.redhat.io` equivalents for grafana and prometheus.
+complete. The `rhel9`/`rhel10` files contain RPM-only extras not listed in
+`helm-chart-opts.yaml` (for example PAM issuer, userinfo-proxy, and the
+device-side virt-launcher image).
 
 ---
 
