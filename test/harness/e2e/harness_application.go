@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -24,14 +25,30 @@ const (
 	VMGuestMemoryDefault = "1024M"
 )
 
-const vmFedoraNoCloudUserData = `#cloud-config
-ssh_pwauth: true
-password: fedora
-chpasswd: { expire: False }`
-
 // VMYAML builds a KubeVirt VirtualMachine manifest for e2e tests. cloudInitVolumeYAML
 // is the cloudinitdisk volume entry (including list-item indentation under volumes)
 func VMYAML(name, guestMemory, image, cloudInitVolumeYAML string) string {
+	return vmYAMLManifest(name, guestMemory, image, 0, cloudInitVolumeYAML)
+}
+
+// VMFedoraNoCloudUserData returns cloud-init userData that enables password SSH for the fedora user.
+func VMFedoraNoCloudUserData(password string) string {
+	return fmt.Sprintf(`#cloud-config
+ssh_pwauth: true
+password: %s
+chpasswd: { expire: False }`, password)
+}
+
+// VMYAMLWithCPU builds a KubeVirt VirtualMachine manifest. cpuCores <= 0 omits the cpu block.
+func VMYAMLWithCPU(name, guestMemory, image string, cpuCores int, cloudInitUserData string) string {
+	return vmYAMLManifest(name, guestMemory, image, cpuCores, VMCloudInitNoCloudVolume(cloudInitUserData))
+}
+
+func vmYAMLManifest(name, guestMemory, image string, cpuCores int, cloudInitVolumeYAML string) string {
+	cpuBlock := ""
+	if cpuCores > 0 {
+		cpuBlock = fmt.Sprintf("        cpu:\n          cores: %d\n", cpuCores)
+	}
 	return fmt.Sprintf(`apiVersion: kubevirt.io/v1
 kind: VirtualMachine
 metadata:
@@ -41,7 +58,7 @@ spec:
   template:
     spec:
       domain:
-        devices:
+%s        devices:
           disks:
           - disk:
               bus: virtio
@@ -63,7 +80,7 @@ spec:
       - containerdisk:
           image: %s
         name: containerdisk
-%s`, name, guestMemory, image, cloudInitVolumeYAML)
+%s`, name, cpuBlock, guestMemory, image, cloudInitVolumeYAML)
 }
 
 // VMYAMLWithConfigDrive builds a VM manifest using cloudInitConfigDrive userDataBase64.
@@ -299,7 +316,7 @@ func NewMountVolume(name, mountPath string) (v1beta1.ApplicationVolume, error) {
 // publishPorts so that the server-side renderer can inject it into the
 // generated .pod unit.
 func NewVmApplicationSpec(name, image string) (v1beta1.ApplicationProviderSpec, error) {
-	vmYAML := VMYAML(name, VMGuestMemoryDefault, image, VMCloudInitNoCloudVolume(vmFedoraNoCloudUserData))
+	vmYAML := VMYAML(name, VMGuestMemoryDefault, image, VMCloudInitNoCloudVolume(VMFedoraNoCloudUserData("fedora")))
 	return NewVmApplicationSpecFromYAML(name, []string{"2222:22"}, vmYAML)
 }
 
@@ -1243,12 +1260,35 @@ fi`,
 	)
 	out, err := h.VM.RunSSH([]string{"/bin/sh", "-c", script}, nil)
 	if err != nil {
-		return "", fmt.Errorf(
+		return "", classifyDeviceLocalSSHError(fmt.Errorf(
 			"running /bin/sh -c ssh script on device VM (localhost:%d user=%s remote=%s): %w",
 			port, user, strings.Join(remoteArgs, " "), err,
-		)
+		))
 	}
 	return trimSSHCommandOutput(out.String()), nil
+}
+
+var (
+	ErrSSHConnectionRefused = errors.New("ssh connection refused")
+	ErrSSHAuthFailed        = errors.New("ssh authentication failed")
+	ErrSSHTimeout           = errors.New("ssh connection timed out")
+)
+
+func classifyDeviceLocalSSHError(err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "connection refused"):
+		return fmt.Errorf("%w: %s", ErrSSHConnectionRefused, err.Error())
+	case strings.Contains(msg, "permission denied"), strings.Contains(msg, "authentication failed"):
+		return fmt.Errorf("%w: %s", ErrSSHAuthFailed, err.Error())
+	case strings.Contains(msg, "connection timed out"), strings.Contains(msg, "operation timed out"):
+		return fmt.Errorf("%w: %s", ErrSSHTimeout, err.Error())
+	default:
+		return err
+	}
 }
 
 // trimSSHCommandOutput returns the last non-empty line from nested SSH output. Device-side
