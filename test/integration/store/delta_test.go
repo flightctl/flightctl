@@ -126,6 +126,12 @@ var _ = Describe("DeltaStore", func() {
 			_, err := deltaStore.InsertGeneration(ctx, g)
 			Expect(err).ToNot(HaveOccurred())
 
+			stale := time.Now().Add(-time.Hour).UTC().Truncate(time.Microsecond)
+			Expect(db.Model(&model.DeltaGeneration{}).Where(
+				"org_id = ? AND image_repository = ? AND source_digest = ? AND target_digest = ?",
+				g.OrgID, g.ImageRepository, g.SourceDigest, g.TargetDigest,
+			).Update("updated_at", stale).Error).ToNot(HaveOccurred())
+
 			changed, err := deltaStore.InsertGeneration(ctx, generation(orgId, "quay.io/team-a/os"))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(changed).To(BeTrue())
@@ -138,6 +144,7 @@ var _ = Describe("DeltaStore", func() {
 			Expect(*got.DeltaRef).To(Equal(ref))
 			Expect(got.SizeBytes).ToNot(BeNil())
 			Expect(*got.SizeBytes).To(Equal(size))
+			Expect(got.UpdatedAt).To(BeTemporally(">", stale))
 		})
 	})
 

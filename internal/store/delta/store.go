@@ -135,6 +135,7 @@ func (s *DeltaStore) InsertGeneration(ctx context.Context, gen *model.DeltaGener
 		DoUpdates: clause.Assignments(map[string]interface{}{
 			"status":           model.DeltaGenerationPending,
 			"resource_version": gorm.Expr("delta_generations.resource_version + 1"),
+			"updated_at":       gorm.Expr("NOW()"),
 		}),
 		Where: clause.Where{Exprs: []clause.Expression{
 			clause.Eq{Column: clause.Column{Table: "delta_generations", Name: "status"}, Value: model.DeltaGenerationFailed},
