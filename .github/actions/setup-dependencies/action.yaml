@@ -31,6 +31,16 @@ runs:
           echo "APT_OPTS=-o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20" >> "$GITHUB_ENV"
           mkdir -p "${HOME}/.cache/apt-archives"
 
+      # GitHub-hosted images list azure.archive.ubuntu.com first. When that
+      # host hangs, apt retries it for every index file.
+      - name: Pin Ubuntu apt mirrors
+        if: ${{ inputs.skip_package_install != 'true' }}
+        shell: bash
+        run: |
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            printf 'https://archive.ubuntu.com/ubuntu/\tpriority:1\nhttps://security.ubuntu.com/ubuntu/\tpriority:2\n' | sudo tee /etc/apt/apt-mirrors.txt
+          fi
+
       # apt's default archive dir (/var/cache/apt/archives) is root-owned, so
       # actions/cache — which runs as the unprivileged runner user — can't
       # write restored .deb files back into it. Redirecting to a
