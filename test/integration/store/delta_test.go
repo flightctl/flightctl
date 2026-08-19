@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
@@ -9,6 +10,8 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	deltastore "github.com/flightctl/flightctl/internal/store/delta"
+	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/flightctl/flightctl/internal/store/model"
 	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -290,6 +293,118 @@ var _ = Describe("DeltaStore", func() {
 		It("should return ErrResourceNotFound", func() {
 			_, err := deltaStore.GetPrepare(ctx, uuid.New())
 			Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
+		})
+	})
+
+	Context("When CAS-ing a waiting prepare to complete", func() {
+		It("should update once and reject a second CAS", func() {
+			prep := fleetPrepare("myfleet", nil)
+			Expect(deltaStore.InsertPrepare(ctx, prep)).To(Succeed())
+
+			Expect(deltaStore.CASPrepareStatus(ctx, prep.ID, model.DeltaPrepareComplete)).To(Succeed())
+
+			got, err := deltaStore.GetPrepare(ctx, prep.ID)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got.Status).To(Equal(model.DeltaPrepareComplete))
+
+			err = deltaStore.CASPrepareStatus(ctx, prep.ID, model.DeltaPrepareFailed)
+			Expect(err).To(MatchError(flterrors.ErrNoRowsUpdated))
+		})
+	})
+
+	Context("When CAS-ing a generation with a stale resource_version", func() {
+		It("should leave the row unchanged", func() {
+			g := generation(orgId, "quay.io/team-a/os")
+			g.Status = model.DeltaGenerationInProgress
+			g.ResourceVersion = 1
+			_, err := deltaStore.InsertGeneration(ctx, g)
+			Expect(err).ToNot(HaveOccurred())
+
+			ref := "oci://delta"
+			size := int64(9)
+			err = deltaStore.CASGeneration(ctx, keyOf(g), 0, deltastore.GenerationCAS{
+				Status:    model.DeltaGenerationSucceeded,
+				DeltaRef:  &ref,
+				SizeBytes: &size,
+			})
+			Expect(err).To(MatchError(flterrors.ErrNoRowsUpdated))
+
+			got, err := deltaStore.GetGeneration(ctx, keyOf(g))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got.Status).To(Equal(model.DeltaGenerationInProgress))
+			Expect(got.ResourceVersion).To(Equal(int64(1)))
+			Expect(got.DeltaRef).To(BeNil())
+		})
+	})
+
+	Context("When CAS-ing a generation with the current resource_version", func() {
+		It("should write fields and bump resource_version", func() {
+			g := generation(orgId, "quay.io/team-a/os")
+			g.Status = model.DeltaGenerationInProgress
+			g.ResourceVersion = 1
+			_, err := deltaStore.InsertGeneration(ctx, g)
+			Expect(err).ToNot(HaveOccurred())
+
+			ref := "oci://delta"
+			size := int64(9)
+			Expect(deltaStore.CASGeneration(ctx, keyOf(g), 1, deltastore.GenerationCAS{
+				Status:    model.DeltaGenerationSucceeded,
+				DeltaRef:  &ref,
+				SizeBytes: &size,
+			})).To(Succeed())
+
+			got, err := deltaStore.GetGeneration(ctx, keyOf(g))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got.Status).To(Equal(model.DeltaGenerationSucceeded))
+			Expect(got.ResourceVersion).To(Equal(int64(2)))
+			Expect(got.DeltaRef).ToNot(BeNil())
+			Expect(*got.DeltaRef).To(Equal(ref))
+			Expect(got.SizeBytes).ToNot(BeNil())
+			Expect(*got.SizeBytes).To(Equal(size))
+		})
+	})
+
+	Context("When Device and Fleet rows exist and delta tables are written", func() {
+		It("should leave Device and Fleet JSON unchanged", func() {
+			deviceStore := devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
+			fleetStore := fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, "mydevice", nil, nil, nil)
+			testutil.CreateTestFleet(ctx, fleetStore, orgId, "myfleet", nil, nil)
+
+			beforeDevice, err := deviceStore.Get(ctx, orgId, "mydevice")
+			Expect(err).ToNot(HaveOccurred())
+			beforeFleet, err := fleetStore.Get(ctx, orgId, "myfleet")
+			Expect(err).ToNot(HaveOccurred())
+			beforeDeviceJSON, err := json.Marshal(beforeDevice)
+			Expect(err).ToNot(HaveOccurred())
+			beforeFleetJSON, err := json.Marshal(beforeFleet)
+			Expect(err).ToNot(HaveOccurred())
+
+			g := generation(orgId, "quay.io/team-a/os")
+			_, err = deltaStore.InsertGeneration(ctx, g)
+			Expect(err).ToNot(HaveOccurred())
+			prep := fleetPrepare("myfleet", nil)
+			Expect(deltaStore.InsertPrepare(ctx, prep)).To(Succeed())
+			Expect(deltaStore.JoinPrepareGeneration(ctx, prep.ID, keyOf(g))).To(Succeed())
+
+			afterDevice, err := deviceStore.Get(ctx, orgId, "mydevice")
+			Expect(err).ToNot(HaveOccurred())
+			afterFleet, err := fleetStore.Get(ctx, orgId, "myfleet")
+			Expect(err).ToNot(HaveOccurred())
+			afterDeviceJSON, err := json.Marshal(afterDevice)
+			Expect(err).ToNot(HaveOccurred())
+			afterFleetJSON, err := json.Marshal(afterFleet)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(afterDeviceJSON).To(Equal(beforeDeviceJSON))
+			Expect(afterFleetJSON).To(Equal(beforeFleetJSON))
+
+			var genCount, prepCount, joinCount int64
+			Expect(db.Model(&model.DeltaGeneration{}).Count(&genCount).Error).ToNot(HaveOccurred())
+			Expect(db.Model(&model.DeltaPrepare{}).Count(&prepCount).Error).ToNot(HaveOccurred())
+			Expect(db.Model(&model.DeltaPrepareGeneration{}).Count(&joinCount).Error).ToNot(HaveOccurred())
+			Expect(genCount).To(Equal(int64(1)))
+			Expect(prepCount).To(Equal(int64(1)))
+			Expect(joinCount).To(Equal(int64(1)))
 		})
 	})
 })

@@ -3,7 +3,9 @@ package delta
 import (
 	"context"
 	"fmt"
+	"time"
 
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
@@ -23,8 +25,10 @@ type Store interface {
 	InitialMigration(ctx context.Context) error
 	InsertGeneration(ctx context.Context, gen *model.DeltaGeneration) (changed bool, err error)
 	GetGeneration(ctx context.Context, key GenerationKey) (*model.DeltaGeneration, error)
+	CASGeneration(ctx context.Context, key GenerationKey, expectedRV int64, update GenerationCAS) error
 	InsertPrepare(ctx context.Context, prep *model.DeltaPrepare) error
 	GetPrepare(ctx context.Context, id uuid.UUID) (*model.DeltaPrepare, error)
+	CASPrepareStatus(ctx context.Context, id uuid.UUID, to string) error
 	ListWaitingPastDeadline(ctx context.Context) ([]model.DeltaPrepare, error)
 	JoinPrepareGeneration(ctx context.Context, prepareID uuid.UUID, key GenerationKey) error
 }
@@ -34,6 +38,14 @@ type GenerationKey struct {
 	ImageRepository string
 	SourceDigest    string
 	TargetDigest    string
+}
+
+type GenerationCAS struct {
+	Status         string
+	DeltaRef       *string
+	SizeBytes      *int64
+	LastVerifiedAt *time.Time
+	GeneratedAt    *time.Time
 }
 
 type DeltaStore struct {
@@ -189,4 +201,40 @@ func (s *DeltaStore) ListWaitingPastDeadline(ctx context.Context) ([]model.Delta
 		return nil, store.ErrorFromGormError(result.Error)
 	}
 	return rows, nil
+}
+
+func (s *DeltaStore) CASPrepareStatus(ctx context.Context, id uuid.UUID, to string) error {
+	result := s.getDB(ctx).Model(&model.DeltaPrepare{}).
+		Where("id = ? AND status = ?", id, model.DeltaPrepareWaiting).
+		Update("status", to)
+	if result.Error != nil {
+		return store.ErrorFromGormError(result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return flterrors.ErrNoRowsUpdated
+	}
+	return nil
+}
+
+func (s *DeltaStore) CASGeneration(ctx context.Context, key GenerationKey, expectedRV int64, update GenerationCAS) error {
+	updates := map[string]interface{}{
+		"status":           update.Status,
+		"delta_ref":        update.DeltaRef,
+		"size_bytes":       update.SizeBytes,
+		"last_verified_at": update.LastVerifiedAt,
+		"generated_at":     update.GeneratedAt,
+		"resource_version": gorm.Expr("resource_version + 1"),
+	}
+	result := s.getDB(ctx).Model(&model.DeltaGeneration{}).
+		Where(
+			"org_id = ? AND image_repository = ? AND source_digest = ? AND target_digest = ? AND resource_version = ?",
+			key.OrgID, key.ImageRepository, key.SourceDigest, key.TargetDigest, expectedRV,
+		).Updates(updates)
+	if result.Error != nil {
+		return store.ErrorFromGormError(result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return flterrors.ErrNoRowsUpdated
+	}
+	return nil
 }
