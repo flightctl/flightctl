@@ -20,7 +20,7 @@ const (
 )
 
 var _ = Describe("VM Applications on a Fleet", func() {
-	It("rolls out VM and container apps and applies fleet vs device lifecycle", Label("vm", "slow"), func() {
+	It("rolls out VM and container apps and applies fleet vs device lifecycle", Label("vm", "slow", "90242"), func() {
 		harness := e2e.GetWorkerHarness()
 		ctx := harness.GetTestContext()
 		testID := harness.GetTestIDFromContext()

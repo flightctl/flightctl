@@ -358,7 +358,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			Expect(status).To(Equal(http.StatusForbidden), "Expected 403 Forbidden for viewer enrollment approval")
 		})
 
-		It("should enforce application lifecycle and console access by role for standalone and fleet-owned devices", Label("agent"), func() {
+		It("should enforce application lifecycle and console access by role for standalone and fleet-owned devices", Label("90251", "agent"), func() {
 			testID := harness.GetTestIDFromContext()
 			deferOrgSimulatorConfig(harness, users)
 			const rbacAppName = "rbac-app"
