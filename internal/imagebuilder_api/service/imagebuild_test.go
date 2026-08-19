@@ -124,6 +124,8 @@ func TestCreateImageBuild(t *testing.T) {
 	require.Equal(int32(http.StatusCreated), statusCode(status))
 	require.NotNil(result)
 	require.Equal("test-build", lo.FromPtr(result.Metadata.Name))
+	require.NotNil(result.Metadata.Generation)
+	require.Equal(int64(1), lo.FromPtr(result.Metadata.Generation))
 }
 
 func TestCreateImageBuildDuplicate(t *testing.T) {
