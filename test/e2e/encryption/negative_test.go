@@ -11,6 +11,13 @@ import (
 	. "github.com/onsi/gomega"
 )
 
+const (
+	// invalidCiphertext is a syntactically valid enc:v1: prefixed value whose GCM
+	// authentication tag will not verify against any real AES key. Used in N2 (DB
+	// corruption) and N4 (fake-ciphertext rejection) tests.
+	invalidCiphertext = "enc:v1:default:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+)
+
 var _ = Describe("Encryption at rest — Negative", Label("encryption", "negative"), func() {
 	var (
 		harness   *e2e.Harness
@@ -21,6 +28,8 @@ var _ = Describe("Encryption at rest — Negative", Label("encryption", "negativ
 		harness = e2e.GetWorkerHarness()
 		providers = setup.GetDefaultProviders()
 		Expect(auxSvcs).ToNot(BeNil(), "auxiliary services must be initialized")
+		Expect(auxSvcs.Keycloak).ToNot(BeNil(), "Keycloak must be started")
+		Expect(auxSvcs.GitServer).ToNot(BeNil(), "git server must be started")
 	})
 
 	// N3: Sensitive fields are redacted in LIST responses, not just GET-by-name.
@@ -56,7 +65,6 @@ var _ = Describe("Encryption at rest — Negative", Label("encryption", "negativ
 				})
 
 				By("creating an SSH Repository with a known private key")
-				Expect(auxSvcs.GitServer).ToNot(BeNil(), "git server must be started")
 				repoName := "enc-neg-repo-" + testID
 				keyContent, err := auxSvcs.GetGitSSHPrivateKey()
 				Expect(err).ToNot(HaveOccurred(), "get git SSH key")
@@ -98,10 +106,8 @@ var _ = Describe("Encryption at rest — Negative", Label("encryption", "negativ
 	// Manager.Decrypt is backward-compatible; ProcessEncryption re-encrypts on save.
 	Context("When a sensitive field stored as plaintext in the DB is updated via the API", func() {
 		It("N1: should store the field encrypted after the update", Label("90113"), func() {
-			skipIfNoBuiltinDB()
 			ctx := harness.GetTestContext()
 			testID := harness.GetTestIDFromContext()
-			Expect(auxSvcs.Keycloak).ToNot(BeNil(), "Keycloak must be started")
 
 			authProviderName := "enc-neg-n1-" + testID
 			clientID := "enc-neg-n1-c-" + testID
@@ -173,18 +179,11 @@ var _ = Describe("Encryption at rest — Negative", Label("encryption", "negativ
 	// aborts the DB write. The resource must not be created.
 	Context("When a client submits a pre-formed enc:v1: value as a credential", func() {
 		It("N4: should reject the request — not store the fake ciphertext", Label("90110"), func() {
-			skipIfNoBuiltinDB()
 			testID := harness.GetTestIDFromContext()
-			Expect(auxSvcs.Keycloak).ToNot(BeNil(), "Keycloak must be started")
 
 			authProviderName := "enc-neg-n4-" + testID
 			clientID := "enc-neg-n4-c-" + testID
 			issuerURL := auxSvcs.Keycloak.IssuerURL()
-
-			// Syntactically valid enc:v1: prefix with base64-decodable payload that
-			// is long enough to contain a nonce (≥28 bytes decoded) but whose GCM
-			// authentication tag will not verify against the server's real AES key.
-			fakeSecret := "enc:v1:default:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
 
 			DeferCleanup(func() {
 				// Best-effort: resource should not exist, but clean up in case of partial success.
@@ -192,7 +191,7 @@ var _ = Describe("Encryption at rest — Negative", Label("encryption", "negativ
 			})
 
 			By("[N4] attempting to create an AuthProvider with a fake enc:v1: clientSecret")
-			manifest := buildOIDCAuthProviderYAML(authProviderName, issuerURL, clientID, fakeSecret)
+			manifest := buildOIDCAuthProviderYAML(authProviderName, issuerURL, clientID, invalidCiphertext)
 			_, err := applyManifest(harness, manifest)
 			Expect(err).To(HaveOccurred(),
 				"[N4] apply with fake enc:v1: secret must return an error")
@@ -214,9 +213,7 @@ var _ = Describe("Encryption at rest — Negative", Label("encryption", "negativ
 	Context("When a Repository's encrypted credential is corrupted in the DB", func() {
 		It("N2: should mark the Repository Accessible=False and recover when the value is restored",
 			Label("90112"), func() {
-				skipIfNoBuiltinDB()
 				testID := harness.GetTestIDFromContext()
-				Expect(auxSvcs.GitServer).ToNot(BeNil(), "git server must be started")
 
 				// Use a unique repo name derived from the test ID so concurrent test runs don't collide.
 				gitRepoName := "n2-" + testID
@@ -284,15 +281,10 @@ var _ = Describe("Encryption at rest — Negative", Label("encryption", "negativ
 				Expect(err).ToNot(HaveOccurred())
 				Expect(savedCipherN2).To(HavePrefix("enc:v1:"), "saved value must be an encrypted ciphertext")
 
-				// Structurally valid enc:v1: prefix; base64 payload decodes to >32 bytes
-				// (satisfies nonce length check) but the GCM authentication tag will not
-				// verify, causing DecryptParsed to return ErrDecryptionFailed.
-				brokenCipher := "enc:v1:default:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
-
 				By("corrupting the DB ciphertext directly")
 				_, err = queryDB(providers, fmt.Sprintf(
 					`UPDATE repositories SET spec = jsonb_set(spec, '{sshConfig,sshPrivateKey}', '"%s"') WHERE name = '%s'`,
-					brokenCipher, repoName,
+					invalidCiphertext, repoName,
 				))
 				Expect(err).ToNot(HaveOccurred(), "corrupt ciphertext in DB")
 

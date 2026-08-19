@@ -15,6 +15,20 @@ import (
 	internalconfig "github.com/flightctl/flightctl/internal/config"
 )
 
+// DBConnectionParams holds the parameters needed to connect to the flightctl PostgreSQL database.
+// Used by QueryDBExternal to reach an external DB when the built-in flightctl-db pod is unavailable.
+type DBConnectionParams struct {
+	Hostname    string
+	Port        string
+	DBName      string
+	User        string
+	Password    string
+	SSLMode     string
+	SSLRootCert string // path to the CA cert file on the deployment host (may be remote)
+	SSLCert     string // path to the client cert file on the deployment host
+	SSLKey      string // path to the client key file on the deployment host
+}
+
 // ServiceName is a type-safe identifier for flightctl services.
 type ServiceName string
 
@@ -139,6 +153,19 @@ type InfraProvider interface {
 	// merging it with any existing top-level keys so unrelated settings are preserved.
 	// For K8s: updates ConfigMap data["config.yaml"]. For Quadlet: writes per-service config.
 	SetEncryptionConfig(service ServiceName, enc *internalconfig.EncryptionConfig) error
+
+	// GetDBConnectionParams returns the parameters needed to connect to the flightctl database.
+	// For K8s: reads hostname/port/name from the API ConfigMap and user/password from the
+	// flightctl-db-app-secret Secret. For Quadlet: reads from the API service config file
+	// and from secret files or environment variables.
+	// Used by QueryDBExternal to reach an external DB when the built-in pod is unavailable.
+	GetDBConnectionParams() (DBConnectionParams, error)
+
+	// QueryDBExternal executes a SQL query against the flightctl database without relying on
+	// the built-in flightctl-db pod. Used when BuiltinDatabaseWorkloadAvailable() is false.
+	// For K8s: spawns a short-lived batch/v1 Job running psql in the cluster.
+	// For Quadlet: connects directly via pgx using TCP to the database host.
+	QueryDBExternal(sql string) (string, error)
 }
 
 // DeploymentServiceNames maps deployment/service names (same in K8s and Quadlet) to ServiceName.

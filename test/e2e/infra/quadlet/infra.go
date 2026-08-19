@@ -3,11 +3,15 @@ package quadlet
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,6 +22,7 @@ import (
 
 	internalconfig "github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/test/e2e/infra"
+	"github.com/jackc/pgx/v5"
 	"github.com/sirupsen/logrus"
 	"sigs.k8s.io/yaml"
 )
@@ -990,4 +995,176 @@ func (p *InfraProvider) SetEncryptionConfig(service infra.ServiceName, enc *inte
 		return fmt.Errorf("SetEncryptionConfig: merge encryption config for %s: %w", service, err)
 	}
 	return p.SetServiceConfig(service, "config.yaml", updated)
+}
+
+// GetDBConnectionParams reads DB connection parameters from the API service config and
+// Podman secrets. Hostname/port/name are parsed from GetServiceConfig(ServiceAPI);
+// the username defaults to "flightctl_app" and the password is read from Podman secret
+// "flightctl-postgresql-user-password" via `podman secret inspect --showsecret`.
+func (p *InfraProvider) GetDBConnectionParams() (infra.DBConnectionParams, error) {
+	raw, err := p.GetServiceConfig(infra.ServiceAPI)
+	if err != nil {
+		return infra.DBConnectionParams{}, fmt.Errorf("GetDBConnectionParams: read API service config: %w", err)
+	}
+
+	params, err := infra.ParseDBParamsFromAPIConfig(raw)
+	if err != nil {
+		return infra.DBConnectionParams{}, fmt.Errorf("GetDBConnectionParams: %w", err)
+	}
+
+	// The API service config stores cert paths as they appear inside the container
+	// (/root/.flightctl/certs/db/...), but ReadHostFile reads from the host filesystem.
+	// The container volume mount is: /etc/flightctl/pki/db -> /root/.flightctl/certs/db
+	// Translate the container path to the host path so ReadHostFile can access the cert.
+	const containerCertPrefix = "/root/.flightctl/certs/db/"
+	const hostCertPrefix = "/etc/flightctl/pki/db/"
+	if strings.HasPrefix(params.SSLRootCert, containerCertPrefix) {
+		params.SSLRootCert = hostCertPrefix + params.SSLRootCert[len(containerCertPrefix):]
+	}
+	if strings.HasPrefix(params.SSLCert, containerCertPrefix) {
+		params.SSLCert = hostCertPrefix + params.SSLCert[len(containerCertPrefix):]
+	}
+	if strings.HasPrefix(params.SSLKey, containerCertPrefix) {
+		params.SSLKey = hostCertPrefix + params.SSLKey[len(containerCertPrefix):]
+	}
+
+	// Apply Quadlet-specific default username if not set in config.
+	if params.User == "" {
+		params.User = "flightctl_app"
+	}
+
+	if params.Password == "" {
+		// Password is not in the config file; read it from the Podman secret.
+		out, err := p.runCommand("podman", "secret", "inspect", "--showsecret", "flightctl-postgresql-user-password")
+		if err != nil {
+			return infra.DBConnectionParams{}, fmt.Errorf("GetDBConnectionParams: podman secret inspect: %w", err)
+		}
+		var parsed []struct {
+			SecretData string `json:"SecretData"`
+		}
+		if jsonErr := json.Unmarshal([]byte(out), &parsed); jsonErr != nil {
+			return infra.DBConnectionParams{}, fmt.Errorf("GetDBConnectionParams: parse podman secret JSON: %w", jsonErr)
+		}
+		if len(parsed) == 0 || parsed[0].SecretData == "" {
+			return infra.DBConnectionParams{}, fmt.Errorf("GetDBConnectionParams: podman secret inspect returned empty SecretData")
+		}
+		params.Password = strings.TrimSpace(parsed[0].SecretData)
+	}
+
+	return params, nil
+}
+
+// QueryDBExternal connects to the external PostgreSQL database via pgx and executes the
+// given SQL, returning the trimmed text output. Uses a 30-second context timeout.
+func (p *InfraProvider) QueryDBExternal(sql string) (string, error) {
+	params, err := p.GetDBConnectionParams()
+	if err != nil {
+		return "", fmt.Errorf("QueryDBExternal: get DB connection params: %w", err)
+	}
+
+	sslMode := params.SSLMode
+	if sslMode == "" {
+		sslMode = "disable"
+	}
+	// Use postgres:// URL so special characters in credentials are safely percent-encoded.
+	u := &url.URL{
+		Scheme: "postgres",
+		User:   url.UserPassword(params.User, params.Password),
+		Host:   net.JoinHostPort(params.Hostname, params.Port),
+		Path:   "/" + params.DBName,
+	}
+	q := url.Values{}
+	q.Set("sslmode", sslMode)
+	u.RawQuery = q.Encode()
+	dsn := u.String()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	connConfig, err := pgx.ParseConfig(dsn)
+	if err != nil {
+		return "", fmt.Errorf("QueryDBExternal: parse DSN: %w", err)
+	}
+
+	// When a CA cert path is present in the config (verify-ca/verify-full deployments),
+	// read the PEM from the deployment host and inject it into the TLS root pool so the
+	// test binary can verify the server certificate without needing system-wide trust.
+	if params.SSLRootCert != "" && connConfig.TLSConfig != nil {
+		caPEM, readErr := p.ReadHostFile(params.SSLRootCert)
+		if readErr != nil {
+			return "", fmt.Errorf("QueryDBExternal: read CA cert %s: %w", params.SSLRootCert, readErr)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM([]byte(caPEM)) {
+			return "", fmt.Errorf("QueryDBExternal: no valid certificates found in %s", params.SSLRootCert)
+		}
+		connConfig.TLSConfig.RootCAs = pool
+	}
+
+	// When the deployment requires mutual TLS (clientcert=require on the DB server),
+	// load the client cert and key from the host filesystem and inject them so pgx
+	// presents them during the TLS handshake.
+	if params.SSLCert != "" && params.SSLKey != "" && connConfig.TLSConfig != nil {
+		certPEM, readErr := p.ReadHostFile(params.SSLCert)
+		if readErr != nil {
+			return "", fmt.Errorf("QueryDBExternal: read client cert %s: %w", params.SSLCert, readErr)
+		}
+		keyPEM, readErr := p.ReadHostFile(params.SSLKey)
+		if readErr != nil {
+			return "", fmt.Errorf("QueryDBExternal: read client key %s: %w", params.SSLKey, readErr)
+		}
+		clientCert, parseErr := tls.X509KeyPair([]byte(certPEM), []byte(keyPEM))
+		if parseErr != nil {
+			return "", fmt.Errorf("QueryDBExternal: parse client cert/key: %w", parseErr)
+		}
+		connConfig.TLSConfig.Certificates = []tls.Certificate{clientCert}
+	}
+
+	conn, err := pgx.ConnectConfig(ctx, connConfig)
+	if err != nil {
+		return "", fmt.Errorf("QueryDBExternal: connect to DB: %w", err)
+	}
+	defer func() {
+		if closeErr := conn.Close(ctx); closeErr != nil {
+			logrus.Warnf("QueryDBExternal: close DB connection: %v", closeErr)
+		}
+	}()
+
+	rows, err := conn.Query(ctx, sql)
+	if err != nil {
+		return "", fmt.Errorf("QueryDBExternal: execute query: %w", err)
+	}
+	defer rows.Close()
+
+	// maxQueryOutputBytes caps accumulated row data to match the K8s Job log limit,
+	// preventing a large result set from exhausting the test process.
+	const maxQueryOutputBytes = 64 * 1024
+
+	var sb strings.Builder
+	for rows.Next() {
+		vals, err := rows.Values()
+		if err != nil {
+			return "", fmt.Errorf("QueryDBExternal: scan row: %w", err)
+		}
+		parts := make([]string, len(vals))
+		for i, v := range vals {
+			if v == nil {
+				parts[i] = ""
+			} else {
+				parts[i] = fmt.Sprintf("%v", v)
+			}
+		}
+		if sb.Len() > 0 {
+			sb.WriteByte('\n')
+		}
+		sb.WriteString(strings.Join(parts, "|"))
+		if sb.Len() >= maxQueryOutputBytes {
+			sb.WriteString("\n[... truncated at 64 KiB ...]")
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return "", fmt.Errorf("QueryDBExternal: row iteration: %w", err)
+	}
+	return strings.TrimSpace(sb.String()), nil
 }
