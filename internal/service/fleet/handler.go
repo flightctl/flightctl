@@ -273,18 +273,15 @@ func (h *ServiceHandler) UpdateFleetConditions(ctx context.Context, orgId uuid.U
 		if current.Status == nil {
 			current.Status = &domain.FleetStatus{}
 		}
-		if current.Status.Conditions == nil {
-			current.Status.Conditions = []domain.Condition{}
+		var existing []domain.Condition
+		if current.Status.Conditions != nil {
+			existing = current.Status.Conditions
 		}
-		changed := false
-		for _, condition := range conditions {
-			if domain.SetStatusCondition(&current.Status.Conditions, condition) {
-				changed = true
-			}
-		}
+		merged, changed := common.MergeStatusConditions(existing, conditions)
 		if !changed {
 			return store.ErrMutateSkipWrite
 		}
+		current.Status.Conditions = merged
 		return nil
 	})
 	h.callEventCallback(ctx, h.callbackFleetUpdated, orgId, name, before, result, false, err)
