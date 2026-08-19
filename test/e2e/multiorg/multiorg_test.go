@@ -376,8 +376,8 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			Expect(err).ToNot(HaveOccurred())
 			GinkgoWriter.Printf("Device for lifecycle and console RBAC test: %s\n", deviceName)
 			DeferCleanup(func() {
-				_ = loginAndSetOrg(harness, users.admin.name, users.admin.password)
-				_ = harness.DeleteDeviceIgnoreNotFound(deviceName)
+				Expect(loginAndSetOrg(harness, users.admin.name, users.admin.password)).To(Succeed())
+				Expect(harness.DeleteDeviceIgnoreNotFound(deviceName)).To(Succeed())
 			})
 
 			appSpec, err := e2e.NewContainerApplicationSpecWithRunAs(
@@ -422,8 +422,8 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			})
 			Expect(err).ToNot(HaveOccurred())
 			DeferCleanup(func() {
-				_ = loginAndSetOrg(harness, users.admin.name, users.admin.password)
-				_ = harness.DeleteFleetIgnoreNotFound(fleetName)
+				Expect(loginAndSetOrg(harness, users.admin.name, users.admin.password)).To(Succeed())
+				Expect(harness.DeleteFleetIgnoreNotFound(fleetName)).To(Succeed())
 			})
 
 			fleetTarget := "fleet/" + fleetName
