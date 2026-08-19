@@ -28,6 +28,7 @@ runs:
         shell: bash
         run: |
           echo "APT_CACHE_DIR=${HOME}/.cache/apt-archives" >> "$GITHUB_ENV"
+          echo "APT_OPTS=-o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20" >> "$GITHUB_ENV"
           mkdir -p "${HOME}/.cache/apt-archives"
 
       # apt's default archive dir (/var/cache/apt/archives) is root-owned, so
@@ -55,8 +56,8 @@ runs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-          sudo apt update -y 
-          sudo apt -o Dir::Cache::Archives="${APT_CACHE_DIR}" install -y libvirt-clients libvirt-daemon-system libvirt-daemon \
+          sudo apt-get ${APT_OPTS} update -y
+          sudo apt-get ${APT_OPTS} -o Dir::Cache::Archives="${APT_CACHE_DIR}" install -y libvirt-clients libvirt-daemon-system libvirt-daemon \
                               virtinst bridge-utils qemu-system-x86 qemu-kvm \
                               swtpm apparmor-utils libguestfs-tools
           sudo usermod -a -G kvm,libvirt,swtpm $USER
@@ -67,8 +68,8 @@ runs:
         shell: bash
         run: |
           echo "::group::Installing general dependencies"
-          sudo apt update -y # fix broken repo cache
-          sudo apt -o Dir::Cache::Archives="${APT_CACHE_DIR}" install -y make python3-pip podman podman-compose libvirt-dev libpam0g-dev
+          sudo apt-get ${APT_OPTS} update -y
+          sudo apt-get ${APT_OPTS} -o Dir::Cache::Archives="${APT_CACHE_DIR}" install -y make python3-pip podman podman-compose libvirt-dev libpam0g-dev
 
           # Ubuntu noble ships crun 1.14.1 which rejects OCI runtime spec v1.2.1
           # version strings emitted by Podman 4.9+, causing "unknown version specified"
@@ -156,7 +157,7 @@ runs:
         shell: bash
         if: ${{ inputs.unit_tests == 'true' && inputs.skip_package_install != 'true' }}
         run: |
-          sudo apt -o Dir::Cache::Archives="${APT_CACHE_DIR}" install -y bubblewrap apparmor-profiles
+          sudo apt-get ${APT_OPTS} -o Dir::Cache::Archives="${APT_CACHE_DIR}" install -y bubblewrap apparmor-profiles
           sudo ln -s /usr/share/apparmor/extra-profiles/bwrap-userns-restrict /etc/apparmor.d/bwrap || true
           sudo apparmor_parser /etc/apparmor.d/bwrap
 
