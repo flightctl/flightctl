@@ -6,6 +6,7 @@ export PATH="/usr/local/bin:${PATH}"
 
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "${SCRIPT_DIR}"/functions
+source "${SCRIPT_DIR}"/detect_container_runtime.sh
 
 REPORTS=${1}
 GO_E2E_DIRS=("${@:2}")
@@ -38,6 +39,101 @@ GOBIN=$(go env GOBIN)
 if [ -z "$GOBIN" ]; then
     GOBIN=$(go env GOPATH)/bin
 fi
+
+should_preload_package_mode_image() {
+    local suite_dir
+    for suite_dir in "${GO_E2E_DIRS[@]}"; do
+        if [[ "${suite_dir}" == *"/package_mode" || "${suite_dir}" == *"/package_mode/"* ]]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+find_package_mode_bundle() {
+    local preferred_bundle fallback_bundle bundle_dir bundle_path
+    bundle_dir="$(readlink -f bin/agent-artifacts)"
+
+    if [[ -n "${AGENT_OS_ID:-}" ]]; then
+        preferred_bundle="bin/agent-artifacts/agent-images-bundle-${AGENT_OS_ID}.tar"
+        if [[ -f "${preferred_bundle}" ]]; then
+            bundle_path="$(readlink -f "${preferred_bundle}")"
+            if [[ "${bundle_path}" == "${bundle_dir}/"* ]]; then
+                printf '%s\n' "${bundle_path}"
+                return 0
+            fi
+            echo "ERROR: package-mode bundle resolved outside bin/agent-artifacts: ${bundle_path}"
+            return 1
+        fi
+    fi
+
+    fallback_bundle="$(find bin/agent-artifacts -maxdepth 1 -type f -name 'agent-images-bundle-*.tar' | LC_ALL=C sort | head -n1 || true)"
+    if [[ -n "${fallback_bundle}" ]]; then
+        bundle_path="$(readlink -f "${fallback_bundle}")"
+        if [[ "${bundle_path}" == "${bundle_dir}/"* ]]; then
+            printf '%s\n' "${bundle_path}"
+            return 0
+        fi
+        echo "ERROR: package-mode bundle resolved outside bin/agent-artifacts: ${bundle_path}"
+        return 1
+    fi
+
+    return 1
+}
+
+preload_package_mode_image() {
+    local bundle package_ref runtime source_package_ref
+
+    if ! should_preload_package_mode_image; then
+        return 0
+    fi
+
+    configure_testcontainers_docker_host
+    runtime="$(detect_testcontainers_runtime)"
+    source_package_ref="quay.io/flightctl/flightctl-device:package"
+    package_ref="${E2E_PACKAGE_MODE_IMAGE:-quay.io/flightctl/flightctl-device:package}"
+
+    if [[ "${runtime}" == "podman" && -n "${DOCKER_HOST:-}" ]]; then
+        if podman --url "${DOCKER_HOST}" image exists "${package_ref}" >/dev/null 2>&1; then
+            echo "Package-mode helper image already present in Podman runtime: ${package_ref}"
+            export E2E_PACKAGE_MODE_IMAGE="${package_ref}"
+            return 0
+        fi
+    elif [[ "${runtime}" == "docker" ]]; then
+        if docker image inspect "${package_ref}" >/dev/null 2>&1; then
+            echo "Package-mode helper image already present in Docker daemon: ${package_ref}"
+            export E2E_PACKAGE_MODE_IMAGE="${package_ref}"
+            return 0
+        fi
+    fi
+
+    if ! bundle="$(find_package_mode_bundle)"; then
+        echo "ERROR: package-mode suite requires an agent image bundle under bin/agent-artifacts/"
+        return 1
+    fi
+
+    echo "Preloading package-mode helper image from ${bundle}"
+    echo "Package-mode helper image ref: ${package_ref}"
+    echo "Package-mode bundle source ref: ${source_package_ref}"
+    echo "Detected testcontainers runtime: ${runtime} (DOCKER_HOST=${DOCKER_HOST:-unset})"
+
+    if [[ "${runtime}" == "podman" ]]; then
+        if [[ -z "${DOCKER_HOST:-}" ]]; then
+            echo "ERROR: package-mode preload requires DOCKER_HOST for Podman runtime"
+            return 1
+        fi
+        podman --url "${DOCKER_HOST}" load -i "${bundle}"
+        podman --url "${DOCKER_HOST}" image exists "${source_package_ref}"
+        if [[ "${package_ref}" != "${source_package_ref}" ]]; then
+            podman --url "${DOCKER_HOST}" tag "${source_package_ref}" "${package_ref}"
+        fi
+        podman --url "${DOCKER_HOST}" image exists "${package_ref}"
+    else
+        skopeo copy "docker-archive:${bundle}:${source_package_ref}" "docker-daemon:${package_ref}"
+    fi
+
+    export E2E_PACKAGE_MODE_IMAGE="${package_ref}"
+}
 
 # Run discovery and save to file
 run_discovery() {
@@ -238,6 +334,8 @@ CMD+=("${GO_E2E_DIRS[@]}")
 echo "Running e2e tests with ${GINKGO_PROCS} parallel processes (timeout: ${GINKGO_TIMEOUT})..."
 echo "Output interceptor mode: ${GINKGO_OUTPUT_INTERCEPTOR_MODE} (dup=show all output, swap=clean output)"
 echo "Reports will be saved to: ${REPORTS}"
+
+preload_package_mode_image
 
 # Step 1: Run startup
 echo "🔄 [Test Execution] Step 1: Running startup..."
