@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/vulnerability"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -209,4 +210,13 @@ func TestNewScanner_NilConfigReturnsNil(t *testing.T) {
 	s, err := NewScanner(nil)
 	req.NoError(err)
 	req.Nil(s)
+}
+
+func TestNewScanner_ValidConfigReturnsScanner(t *testing.T) {
+	req := require.New(t)
+	s, err := NewScanner(&config.TrustifyConfig{Endpoint: "https://trustify.example"})
+	req.NoError(err)
+	req.NotNil(s)
+	// The client is built lazily, so no client exists until the first scan.
+	req.Nil(s.(*trustifyScanner).client)
 }
