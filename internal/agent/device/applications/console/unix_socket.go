@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/pkg/log"
@@ -12,8 +13,14 @@ import (
 
 const (
 	killSocketHoldersTimeout = 5 * time.Second
+	ncProbeTimeout           = 5 * time.Second
 	maxDialAttempts          = 3
-	ncProbeScript            = "command -v nc >/dev/null"
+	ncAbsentExitCode         = 42
+)
+
+var (
+	ncProbeScript      = fmt.Sprintf("command -v nc >/dev/null && exit 0; exit %d", ncAbsentExitCode)
+	ncAbsentExitMarker = fmt.Sprintf("code: %d:", ncAbsentExitCode)
 )
 
 // dialRetryDelay is the pause between failed dial attempts. Mutable for tests.
@@ -27,7 +34,11 @@ func dialVMUnixSocket(ctx context.Context, exec ExecStreamer, containerName, soc
 		return nil, fmt.Errorf("dial VM Unix socket %q: no exec streamer", socketPath)
 	}
 
-	args := unixSocketDialArgs(socketPath, containerHasNC(ctx, exec, containerName))
+	useNC, err := containerHasNC(ctx, exec, containerName)
+	if err != nil {
+		return nil, fmt.Errorf("dial VM Unix socket %q in container %q: probe nc: %w", socketPath, containerName, err)
+	}
+	args := unixSocketDialArgs(socketPath, useNC)
 
 	var lastErr error
 	for attempt := 1; attempt <= maxDialAttempts; attempt++ {
@@ -53,8 +64,21 @@ func dialVMUnixSocket(ctx context.Context, exec ExecStreamer, containerName, soc
 	return nil, fmt.Errorf("dial VM Unix socket %q in container %q after %d attempts: %w", socketPath, containerName, maxDialAttempts, lastErr)
 }
 
-func containerHasNC(ctx context.Context, exec ExecStreamer, containerName string) bool {
-	return exec.Exec(ctx, containerName, "sh", "-c", ncProbeScript) == nil
+func containerHasNC(ctx context.Context, exec ExecStreamer, containerName string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, ncProbeTimeout)
+	defer cancel()
+	err := exec.Exec(ctx, containerName, "sh", "-c", ncProbeScript)
+	if err == nil {
+		return true, nil
+	}
+	if isNCAbsent(err) {
+		return false, nil
+	}
+	return false, err
+}
+
+func isNCAbsent(err error) bool {
+	return err != nil && strings.Contains(err.Error(), ncAbsentExitMarker)
 }
 
 func unixSocketDialArgs(socketPath string, useNC bool) []string {

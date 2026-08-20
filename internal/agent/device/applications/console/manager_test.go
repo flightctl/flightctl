@@ -32,6 +32,7 @@ type mockExecStreamer struct {
 	streamCmds [][]string
 	streamN    int
 	ncMissing  bool
+	probeErr   error
 	mu         sync.Mutex
 }
 
@@ -56,8 +57,13 @@ func (m *mockExecStreamer) Exec(_ context.Context, _ string, cmd ...string) erro
 	defer m.mu.Unlock()
 	cp := append([]string(nil), cmd...)
 	m.execCalls = append(m.execCalls, cp)
-	if m.ncMissing && strings.Contains(strings.Join(cmd, " "), "command -v nc") {
-		return fmt.Errorf("nc not found")
+	if strings.Contains(strings.Join(cmd, " "), "command -v nc") {
+		if m.probeErr != nil {
+			return m.probeErr
+		}
+		if m.ncMissing {
+			return fmt.Errorf("podman exec compute: %s ", ncAbsentExitMarker)
+		}
 	}
 	return nil
 }

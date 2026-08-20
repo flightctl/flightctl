@@ -68,6 +68,23 @@ func TestDialVMUnixSocket_WhenNCIsMissingItShouldDialWithSocat(t *testing.T) {
 	require.Equal([]string{"socat", "-", "UNIX-CONNECT:" + vmSerialSocketPath}, exec.streamCmds[0])
 }
 
+func TestDialVMUnixSocket_WhenNCProbeFailsItShouldNotFallBackToSocat(t *testing.T) {
+	require := require.New(t)
+	exec := &mockExecStreamer{
+		conn:     &recordingCloser{},
+		probeErr: fmt.Errorf("podman exec compute: no such container"),
+	}
+	logger := log.NewPrefixLogger("test")
+
+	conn, err := dialVMUnixSocket(context.Background(), exec, "compute", vmSerialSocketPath, logger)
+	require.Error(err)
+	require.Nil(conn)
+	require.Contains(err.Error(), "probe nc")
+	require.Contains(err.Error(), "no such container")
+	require.Equal(0, exec.streamN)
+	require.Empty(pkillScripts(exec))
+}
+
 func TestDialVMUnixSocket_WhenOpeningItShouldReapLeftoverClientsBeforeDial(t *testing.T) {
 	require := require.New(t)
 	closer := &recordingCloser{}
