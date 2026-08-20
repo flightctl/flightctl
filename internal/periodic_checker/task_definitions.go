@@ -25,8 +25,8 @@ import (
 	syncstateservice "github.com/flightctl/flightctl/internal/service/syncstate"
 	vulnerabilityfindingstore "github.com/flightctl/flightctl/internal/store/vulnerabilityfinding"
 	"github.com/flightctl/flightctl/internal/tasks"
-	trustifyv2 "github.com/flightctl/flightctl/internal/trustify/v2"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/internal/vulnerability"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/flightctl/flightctl/pkg/reqid"
@@ -243,7 +243,7 @@ func (e *QueueMaintenanceExecutor) Execute(ctx context.Context, log logrus.Field
 
 type VulnerabilitySyncExecutor struct {
 	log           logrus.FieldLogger
-	vulnClient    trustifyv2.VulnerabilityClient
+	scanner       vulnerability.Scanner
 	findingStore  vulnerabilityfindingstore.Store
 	checkpointSvc checkpointservice.Service
 	eventSvc      eventservice.Service
@@ -252,7 +252,7 @@ type VulnerabilitySyncExecutor struct {
 func (e *VulnerabilitySyncExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
 	taskCtx := createTaskContext(ctx, PeriodicTaskTypeVulnerabilitySync)
 	checkpoint := &serviceCheckpointAdapter{svc: e.checkpointSvc}
-	vulnSync := tasks.NewVulnerabilitySync(e.log, e.vulnClient, e.findingStore, checkpoint, e.eventSvc)
+	vulnSync := tasks.NewVulnerabilitySync(e.log, e.scanner, e.findingStore, checkpoint, e.eventSvc)
 	vulnSync.Poll(taskCtx)
 }
 
@@ -334,7 +334,7 @@ func InitializeTaskExecutors(
 	workerClient worker_client.WorkerClient,
 	workerMetrics *worker.WorkerCollector,
 	findingStore vulnerabilityfindingstore.Store,
-	vulnClient trustifyv2.VulnerabilityClient,
+	scanner vulnerability.Scanner,
 	depSyncMetrics *periodicmetrics.DependencySyncCollector,
 ) map[PeriodicTaskType]PeriodicTaskExecutor {
 	executors := map[PeriodicTaskType]PeriodicTaskExecutor{
@@ -382,10 +382,10 @@ func InitializeTaskExecutors(
 		},
 	}
 
-	if cfg.VulnerabilityReporting != nil && cfg.VulnerabilityReporting.Enabled && vulnClient != nil && findingStore != nil {
+	if cfg.VulnerabilityReporting != nil && cfg.VulnerabilityReporting.Enabled && scanner != nil && findingStore != nil {
 		executors[PeriodicTaskTypeVulnerabilitySync] = &VulnerabilitySyncExecutor{
 			log:           log.WithField("pkg", "vulnerability-sync"),
-			vulnClient:    vulnClient,
+			scanner:       scanner,
 			findingStore:  findingStore,
 			checkpointSvc: checkpointSvc,
 			eventSvc:      eventSvc,
