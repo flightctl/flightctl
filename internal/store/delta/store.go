@@ -137,15 +137,55 @@ func generationConflict() clause.OnConflict {
 	}
 }
 
+func generationKeyOf(gen *model.DeltaGeneration) GenerationKey {
+	return GenerationKey{
+		OrgID:           gen.OrgID,
+		ImageRepository: gen.ImageRepository,
+		SourceDigest:    gen.SourceDigest,
+		TargetDigest:    gen.TargetDigest,
+	}
+}
+
+func uniqueGenerations(gens []*model.DeltaGeneration) ([]*model.DeltaGeneration, error) {
+	out := make([]*model.DeltaGeneration, 0, len(gens))
+	seen := make(map[GenerationKey]struct{}, len(gens))
+	for _, gen := range gens {
+		if gen == nil {
+			return nil, fmt.Errorf("cannot insert nil DeltaGeneration")
+		}
+		key := generationKeyOf(gen)
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, gen)
+	}
+	return out, nil
+}
+
+func uniqueGenerationKeys(keys []GenerationKey) []GenerationKey {
+	out := make([]GenerationKey, 0, len(keys))
+	seen := make(map[GenerationKey]struct{}, len(keys))
+	for _, key := range keys {
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, key)
+	}
+	return out
+}
+
 func (s *DeltaStore) InsertGenerations(ctx context.Context, gens []*model.DeltaGeneration) ([]GenerationKey, error) {
+	gens, err := uniqueGenerations(gens)
+	if err != nil {
+		return nil, err
+	}
 	if len(gens) == 0 {
 		return nil, nil
 	}
 	rows := make([]model.DeltaGeneration, len(gens))
 	for i, gen := range gens {
-		if gen == nil {
-			return nil, fmt.Errorf("cannot insert nil DeltaGeneration")
-		}
 		if gen.Status == "" {
 			gen.Status = model.DeltaGenerationPending
 		}
@@ -205,6 +245,7 @@ func (s *DeltaStore) GetPrepare(ctx context.Context, id uuid.UUID) (*model.Delta
 }
 
 func (s *DeltaStore) InsertPrepareGenerations(ctx context.Context, prepareID uuid.UUID, keys []GenerationKey) error {
+	keys = uniqueGenerationKeys(keys)
 	if len(keys) == 0 {
 		return nil
 	}

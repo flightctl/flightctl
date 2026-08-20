@@ -145,6 +145,19 @@ var _ = Describe("DeltaStore", func() {
 		})
 	})
 
+	Context("When inserting the same generation key twice in one batch", func() {
+		It("should insert the key once", func() {
+			g := generation(orgId, "quay.io/team-a/os")
+			dup := generation(orgId, "quay.io/team-a/os")
+			changed := insertGens(g, dup)
+			Expect(changed).To(ConsistOf(keyOf(g)))
+
+			var count int64
+			Expect(db.Model(&model.DeltaGeneration{}).Count(&count).Error).ToNot(HaveOccurred())
+			Expect(count).To(Equal(int64(1)))
+		})
+	})
+
 	Context("When inserting a mixed batch of new, failed, and pending generations", func() {
 		It("should return only the new and failed keys", func() {
 			pending := generation(orgId, "quay.io/team-a/os")
@@ -240,6 +253,22 @@ var _ = Describe("DeltaStore", func() {
 				  AND confrelid = 'delta_prepares'::regclass
 			`).Scan(&fkCount).Error).ToNot(HaveOccurred())
 			Expect(fkCount).To(Equal(int64(0)))
+		})
+	})
+
+	Context("When inserting the same prepare-generation key twice in one batch", func() {
+		It("should keep one join row", func() {
+			g := generation(orgId, "quay.io/team-a/os")
+			insertGens(g)
+			prep := fleetPrepare("myfleet", nil)
+			Expect(deltaStore.InsertPrepare(ctx, prep)).To(Succeed())
+
+			key := keyOf(g)
+			Expect(deltaStore.InsertPrepareGenerations(ctx, prep.ID, []deltastore.GenerationKey{key, key})).To(Succeed())
+
+			var joinCount int64
+			Expect(db.Model(&model.DeltaPrepareGeneration{}).Where("prepare_id = ?", prep.ID).Count(&joinCount).Error).ToNot(HaveOccurred())
+			Expect(joinCount).To(Equal(int64(1)))
 		})
 	})
 
