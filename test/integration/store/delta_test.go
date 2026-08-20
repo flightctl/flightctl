@@ -72,18 +72,19 @@ var _ = Describe("DeltaStore", func() {
 		}
 	}
 
+	insertGens := func(gens ...*model.DeltaGeneration) []deltastore.GenerationKey {
+		changed, err := deltaStore.InsertGenerations(ctx, gens)
+		Expect(err).ToNot(HaveOccurred())
+		return changed
+	}
+
 	Context("When inserting generations for two image repositories with the same digests", func() {
 		It("should keep both rows", func() {
 			a := generation(orgId, "quay.io/team-a/os")
 			b := generation(orgId, "quay.io/team-b/os")
 
-			changedA, err := deltaStore.InsertGeneration(ctx, a)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(changedA).To(BeTrue())
-
-			changedB, err := deltaStore.InsertGeneration(ctx, b)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(changedB).To(BeTrue())
+			changed := insertGens(a, b)
+			Expect(changed).To(ConsistOf(keyOf(a), keyOf(b)))
 
 			gotA, err := deltaStore.GetGeneration(ctx, keyOf(a))
 			Expect(err).ToNot(HaveOccurred())
@@ -100,12 +101,10 @@ var _ = Describe("DeltaStore", func() {
 	Context("When inserting the same generation key twice", func() {
 		It("should no-op when the existing row is pending", func() {
 			g := generation(orgId, "quay.io/team-a/os")
-			_, err := deltaStore.InsertGeneration(ctx, g)
-			Expect(err).ToNot(HaveOccurred())
+			insertGens(g)
 
-			changed, err := deltaStore.InsertGeneration(ctx, generation(orgId, "quay.io/team-a/os"))
-			Expect(err).ToNot(HaveOccurred())
-			Expect(changed).To(BeFalse())
+			changed := insertGens(generation(orgId, "quay.io/team-a/os"))
+			Expect(changed).To(BeEmpty())
 
 			got, err := deltaStore.GetGeneration(ctx, keyOf(g))
 			Expect(err).ToNot(HaveOccurred())
@@ -123,8 +122,7 @@ var _ = Describe("DeltaStore", func() {
 			g.ResourceVersion = 3
 			g.DeltaRef = &ref
 			g.SizeBytes = &size
-			_, err := deltaStore.InsertGeneration(ctx, g)
-			Expect(err).ToNot(HaveOccurred())
+			insertGens(g)
 
 			stale := time.Now().Add(-time.Hour).UTC().Truncate(time.Microsecond)
 			Expect(db.Model(&model.DeltaGeneration{}).Where(
@@ -132,9 +130,8 @@ var _ = Describe("DeltaStore", func() {
 				g.OrgID, g.ImageRepository, g.SourceDigest, g.TargetDigest,
 			).Update("updated_at", stale).Error).ToNot(HaveOccurred())
 
-			changed, err := deltaStore.InsertGeneration(ctx, generation(orgId, "quay.io/team-a/os"))
-			Expect(err).ToNot(HaveOccurred())
-			Expect(changed).To(BeTrue())
+			changed := insertGens(generation(orgId, "quay.io/team-a/os"))
+			Expect(changed).To(ConsistOf(keyOf(g)))
 
 			got, err := deltaStore.GetGeneration(ctx, keyOf(g))
 			Expect(err).ToNot(HaveOccurred())
@@ -148,17 +145,28 @@ var _ = Describe("DeltaStore", func() {
 		})
 	})
 
+	Context("When inserting a mixed batch of new, failed, and pending generations", func() {
+		It("should return only the new and failed keys", func() {
+			pending := generation(orgId, "quay.io/team-a/os")
+			failed := generation(orgId, "quay.io/team-b/os")
+			failed.Status = model.DeltaGenerationFailed
+			insertGens(pending, failed)
+
+			fresh := generation(orgId, "quay.io/team-c/os")
+			changed := insertGens(pending, failed, fresh)
+			Expect(changed).To(ConsistOf(keyOf(failed), keyOf(fresh)))
+		})
+	})
+
 	DescribeTable("When inserting over a terminal or in-progress generation",
 		func(status string) {
 			g := generation(orgId, "quay.io/team-a/os")
 			g.Status = status
 			g.ResourceVersion = 2
-			_, err := deltaStore.InsertGeneration(ctx, g)
-			Expect(err).ToNot(HaveOccurred())
+			insertGens(g)
 
-			changed, err := deltaStore.InsertGeneration(ctx, generation(orgId, "quay.io/team-a/os"))
-			Expect(err).ToNot(HaveOccurred())
-			Expect(changed).To(BeFalse())
+			changed := insertGens(generation(orgId, "quay.io/team-a/os"))
+			Expect(changed).To(BeEmpty())
 
 			got, err := deltaStore.GetGeneration(ctx, keyOf(g))
 			Expect(err).ToNot(HaveOccurred())
@@ -175,13 +183,10 @@ var _ = Describe("DeltaStore", func() {
 			otherOrg := uuid.New()
 			Expect(testutil.CreateTestOrganization(ctx, organizationStore, otherOrg)).To(Succeed())
 
-			changedA, err := deltaStore.InsertGeneration(ctx, generation(orgId, "quay.io/team-a/os"))
-			Expect(err).ToNot(HaveOccurred())
-			Expect(changedA).To(BeTrue())
-
-			changedB, err := deltaStore.InsertGeneration(ctx, generation(otherOrg, "quay.io/team-a/os"))
-			Expect(err).ToNot(HaveOccurred())
-			Expect(changedB).To(BeTrue())
+			a := generation(orgId, "quay.io/team-a/os")
+			b := generation(otherOrg, "quay.io/team-a/os")
+			changed := insertGens(a, b)
+			Expect(changed).To(ConsistOf(keyOf(a), keyOf(b)))
 		})
 	})
 
@@ -203,31 +208,29 @@ var _ = Describe("DeltaStore", func() {
 		}
 	}
 
-	Context("When inserting a waiting fleet prepare and joining a generation", func() {
-		It("should persist the join without an FK from generations to prepares", func() {
-			g := generation(orgId, "quay.io/team-a/os")
-			_, err := deltaStore.InsertGeneration(ctx, g)
-			Expect(err).ToNot(HaveOccurred())
-
+	Context("When inserting a waiting fleet prepare and joining generations", func() {
+		It("should persist the joins without an FK from generations to prepares", func() {
+			a := generation(orgId, "quay.io/team-a/os")
+			b := generation(orgId, "quay.io/team-b/os")
 			deadline := time.Now().Add(-time.Hour)
 			prep := fleetPrepare("myfleet", &deadline)
 			Expect(deltaStore.InsertPrepare(ctx, prep)).To(Succeed())
 			Expect(prep.ID).ToNot(Equal(uuid.Nil))
 			Expect(prep.Status).To(Equal(model.DeltaPrepareWaiting))
 
-			Expect(deltaStore.JoinPrepareGeneration(ctx, prep.ID, keyOf(g))).To(Succeed())
-			Expect(deltaStore.JoinPrepareGeneration(ctx, prep.ID, keyOf(g))).To(Succeed())
+			insertGens(a, b)
+			keys := []deltastore.GenerationKey{keyOf(a), keyOf(b)}
+			Expect(deltaStore.InsertPrepareGenerations(ctx, prep.ID, keys)).To(Succeed())
+			Expect(deltaStore.InsertPrepareGenerations(ctx, prep.ID, keys)).To(Succeed())
 
 			got, err := deltaStore.GetPrepare(ctx, prep.ID)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(got.Kind).To(Equal(domain.FleetKind))
 			Expect(got.Name).To(Equal("myfleet"))
 
-			var join model.DeltaPrepareGeneration
-			Expect(db.Where(
-				"prepare_id = ? AND org_id = ? AND image_repository = ? AND source_digest = ? AND target_digest = ?",
-				prep.ID, g.OrgID, g.ImageRepository, g.SourceDigest, g.TargetDigest,
-			).Take(&join).Error).ToNot(HaveOccurred())
+			var joinCount int64
+			Expect(db.Model(&model.DeltaPrepareGeneration{}).Where("prepare_id = ?", prep.ID).Count(&joinCount).Error).ToNot(HaveOccurred())
+			Expect(joinCount).To(Equal(int64(2)))
 
 			var fkCount int64
 			Expect(db.Raw(`
@@ -319,10 +322,9 @@ var _ = Describe("DeltaStore", func() {
 	Context("When joining a prepare to a missing parent", func() {
 		It("should return ErrResourceNotFound if the prepare does not exist", func() {
 			g := generation(orgId, "quay.io/team-a/os")
-			_, err := deltaStore.InsertGeneration(ctx, g)
-			Expect(err).ToNot(HaveOccurred())
+			insertGens(g)
 
-			err = deltaStore.JoinPrepareGeneration(ctx, uuid.New(), keyOf(g))
+			err := deltaStore.InsertPrepareGenerations(ctx, uuid.New(), []deltastore.GenerationKey{keyOf(g)})
 			Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
 		})
 
@@ -330,7 +332,7 @@ var _ = Describe("DeltaStore", func() {
 			prep := fleetPrepare("myfleet", nil)
 			Expect(deltaStore.InsertPrepare(ctx, prep)).To(Succeed())
 
-			err := deltaStore.JoinPrepareGeneration(ctx, prep.ID, keyOf(generation(orgId, "quay.io/missing/os")))
+			err := deltaStore.InsertPrepareGenerations(ctx, prep.ID, []deltastore.GenerationKey{keyOf(generation(orgId, "quay.io/missing/os"))})
 			Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
 		})
 	})
@@ -363,12 +365,11 @@ var _ = Describe("DeltaStore", func() {
 			g := generation(orgId, "quay.io/team-a/os")
 			g.Status = model.DeltaGenerationInProgress
 			g.ResourceVersion = 1
-			_, err := deltaStore.InsertGeneration(ctx, g)
-			Expect(err).ToNot(HaveOccurred())
+			insertGens(g)
 
 			ref := "oci://delta"
 			size := int64(9)
-			err = deltaStore.CASGeneration(ctx, keyOf(g), 0, deltastore.GenerationCAS{
+			err := deltaStore.CASGeneration(ctx, keyOf(g), 0, deltastore.GenerationCAS{
 				Status:    model.DeltaGenerationSucceeded,
 				DeltaRef:  &ref,
 				SizeBytes: &size,
@@ -388,8 +389,7 @@ var _ = Describe("DeltaStore", func() {
 			g := generation(orgId, "quay.io/team-a/os")
 			g.Status = model.DeltaGenerationInProgress
 			g.ResourceVersion = 1
-			_, err := deltaStore.InsertGeneration(ctx, g)
-			Expect(err).ToNot(HaveOccurred())
+			insertGens(g)
 
 			ref := "oci://delta"
 			size := int64(9)
@@ -427,11 +427,10 @@ var _ = Describe("DeltaStore", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			g := generation(orgId, "quay.io/team-a/os")
-			_, err = deltaStore.InsertGeneration(ctx, g)
-			Expect(err).ToNot(HaveOccurred())
+			insertGens(g)
 			prep := fleetPrepare("myfleet", nil)
 			Expect(deltaStore.InsertPrepare(ctx, prep)).To(Succeed())
-			Expect(deltaStore.JoinPrepareGeneration(ctx, prep.ID, keyOf(g))).To(Succeed())
+			Expect(deltaStore.InsertPrepareGenerations(ctx, prep.ID, []deltastore.GenerationKey{keyOf(g)})).To(Succeed())
 
 			afterDevice, err := deviceStore.Get(ctx, orgId, "mydevice")
 			Expect(err).ToNot(HaveOccurred())

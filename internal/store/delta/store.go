@@ -23,14 +23,14 @@ const (
 
 type Store interface {
 	InitialMigration(ctx context.Context) error
-	InsertGeneration(ctx context.Context, gen *model.DeltaGeneration) (changed bool, err error)
+	InsertGenerations(ctx context.Context, gens []*model.DeltaGeneration) (changed []GenerationKey, err error)
 	GetGeneration(ctx context.Context, key GenerationKey) (*model.DeltaGeneration, error)
 	CASGeneration(ctx context.Context, key GenerationKey, expectedRV int64, update GenerationCAS) error
 	InsertPrepare(ctx context.Context, prep *model.DeltaPrepare) error
 	GetPrepare(ctx context.Context, id uuid.UUID) (*model.DeltaPrepare, error)
 	CASPrepareStatus(ctx context.Context, id uuid.UUID, to string) error
 	ListWaitingPastDeadline(ctx context.Context) ([]model.DeltaPrepare, error)
-	JoinPrepareGeneration(ctx context.Context, prepareID uuid.UUID, key GenerationKey) error
+	InsertPrepareGenerations(ctx context.Context, prepareID uuid.UUID, keys []GenerationKey) error
 }
 
 type GenerationKey struct {
@@ -118,14 +118,8 @@ func (s *DeltaStore) createJoinForeignKeys(db *gorm.DB) error {
 	return nil
 }
 
-func (s *DeltaStore) InsertGeneration(ctx context.Context, gen *model.DeltaGeneration) (bool, error) {
-	if gen == nil {
-		return false, fmt.Errorf("cannot insert nil DeltaGeneration")
-	}
-	if gen.Status == "" {
-		gen.Status = model.DeltaGenerationPending
-	}
-	result := s.getDB(ctx).Clauses(clause.OnConflict{
+func generationConflict() clause.OnConflict {
+	return clause.OnConflict{
 		Columns: []clause.Column{
 			{Name: "org_id"},
 			{Name: "image_repository"},
@@ -140,11 +134,40 @@ func (s *DeltaStore) InsertGeneration(ctx context.Context, gen *model.DeltaGener
 		Where: clause.Where{Exprs: []clause.Expression{
 			clause.Eq{Column: clause.Column{Table: "delta_generations", Name: "status"}, Value: model.DeltaGenerationFailed},
 		}},
-	}).Create(gen)
-	if result.Error != nil {
-		return false, store.ErrorFromGormError(result.Error)
 	}
-	return result.RowsAffected == 1, nil
+}
+
+func (s *DeltaStore) InsertGenerations(ctx context.Context, gens []*model.DeltaGeneration) ([]GenerationKey, error) {
+	if len(gens) == 0 {
+		return nil, nil
+	}
+	rows := make([]model.DeltaGeneration, len(gens))
+	for i, gen := range gens {
+		if gen == nil {
+			return nil, fmt.Errorf("cannot insert nil DeltaGeneration")
+		}
+		if gen.Status == "" {
+			gen.Status = model.DeltaGenerationPending
+		}
+		rows[i] = *gen
+	}
+	returning := clause.Returning{
+		Columns: []clause.Column{
+			{Name: "org_id"},
+			{Name: "image_repository"},
+			{Name: "source_digest"},
+			{Name: "target_digest"},
+		},
+	}
+	dry := s.getDB(ctx).Session(&gorm.Session{DryRun: true}).Clauses(generationConflict(), returning).Create(&rows)
+	if dry.Error != nil {
+		return nil, store.ErrorFromGormError(dry.Error)
+	}
+	var changed []GenerationKey
+	if err := s.getDB(ctx).Raw(dry.Statement.SQL.String(), dry.Statement.Vars...).Scan(&changed).Error; err != nil {
+		return nil, store.ErrorFromGormError(err)
+	}
+	return changed, nil
 }
 
 func (s *DeltaStore) GetGeneration(ctx context.Context, key GenerationKey) (*model.DeltaGeneration, error) {
@@ -181,15 +204,21 @@ func (s *DeltaStore) GetPrepare(ctx context.Context, id uuid.UUID) (*model.Delta
 	return &prep, nil
 }
 
-func (s *DeltaStore) JoinPrepareGeneration(ctx context.Context, prepareID uuid.UUID, key GenerationKey) error {
-	join := &model.DeltaPrepareGeneration{
-		PrepareID:       prepareID,
-		OrgID:           key.OrgID,
-		ImageRepository: key.ImageRepository,
-		SourceDigest:    key.SourceDigest,
-		TargetDigest:    key.TargetDigest,
+func (s *DeltaStore) InsertPrepareGenerations(ctx context.Context, prepareID uuid.UUID, keys []GenerationKey) error {
+	if len(keys) == 0 {
+		return nil
 	}
-	return store.ErrorFromGormError(s.getDB(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(join).Error)
+	joins := make([]model.DeltaPrepareGeneration, len(keys))
+	for i, key := range keys {
+		joins[i] = model.DeltaPrepareGeneration{
+			PrepareID:       prepareID,
+			OrgID:           key.OrgID,
+			ImageRepository: key.ImageRepository,
+			SourceDigest:    key.SourceDigest,
+			TargetDigest:    key.TargetDigest,
+		}
+	}
+	return store.ErrorFromGormError(s.getDB(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&joins).Error)
 }
 
 func (s *DeltaStore) ListWaitingPastDeadline(ctx context.Context) ([]model.DeltaPrepare, error) {
