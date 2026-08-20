@@ -978,6 +978,11 @@
       "properties": {
         "enabled": { "type": "boolean", "description": "Enable vulnerability integration (sync task + API endpoints)" },
         "syncInterval": { "type": "string", "description": "Sync interval for periodic Trustify fetch (e.g. \"15m\", \"1h\")" },
+        "backend": {
+          "type": "string",
+          "description": "Vulnerability scanning backend. Currently only 'trustify' is supported; leave empty to default to Trustify when a trustify config is present.",
+          "enum": ["", "trustify"]
+        },
         "trustify": {
           "type": "object",
           "description": "Trustify API connection details",
