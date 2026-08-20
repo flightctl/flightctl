@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -28,14 +29,17 @@ type mockExecStreamer struct {
 	err        error
 	streamErrs []error // if non-empty, each ExecStream pops the next error (nil means success with conn)
 	execCalls  [][]string
+	streamCmds [][]string
 	streamN    int
+	ncMissing  bool
 	mu         sync.Mutex
 }
 
-func (m *mockExecStreamer) ExecStream(_ context.Context, _ string, _ ...string) (io.ReadWriteCloser, error) {
+func (m *mockExecStreamer) ExecStream(_ context.Context, _ string, cmd ...string) (io.ReadWriteCloser, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.streamN++
+	m.streamCmds = append(m.streamCmds, append([]string(nil), cmd...))
 	if len(m.streamErrs) > 0 {
 		err := m.streamErrs[0]
 		m.streamErrs = m.streamErrs[1:]
@@ -52,6 +56,9 @@ func (m *mockExecStreamer) Exec(_ context.Context, _ string, cmd ...string) erro
 	defer m.mu.Unlock()
 	cp := append([]string(nil), cmd...)
 	m.execCalls = append(m.execCalls, cp)
+	if m.ncMissing && strings.Contains(strings.Join(cmd, " "), "command -v nc") {
+		return fmt.Errorf("nc not found")
+	}
 	return nil
 }
 
