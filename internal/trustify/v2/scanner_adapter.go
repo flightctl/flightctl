@@ -120,7 +120,7 @@ func toVulnFinding(f Finding) (vulnerability.Finding, error) {
 	return vf, nil
 }
 
-// normalizeTrustifyStatus maps a Trustify status onto the canonical RHEM status
+// normalizeTrustifyStatus maps a Trustify status onto the canonical status
 // string. The returned values must match model.VulnerabilityStatus so the sync
 // task can convert them without re-validating.
 func normalizeTrustifyStatus(status string) (string, error) {
@@ -138,7 +138,7 @@ func normalizeTrustifyStatus(status string) (string, error) {
 	}
 }
 
-// normalizeTrustifySeverity maps a Trustify severity onto the canonical RHEM
+// normalizeTrustifySeverity maps a Trustify severity onto the canonical
 // severity string. The returned values must match model.VulnerabilitySeverity
 // so the sync task can convert them without re-validating.
 func normalizeTrustifySeverity(severity string) (string, error) {
