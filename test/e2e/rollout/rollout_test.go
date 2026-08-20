@@ -141,7 +141,7 @@ var _ = Describe("Rollout Policies", Label("rollout"), func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			fleetSpec := createFleetSpecWithoutDeviceSelection(lo.ToPtr(api.Percentage(SuccessThreshold)), deviceSpec)
-			fleetSpec.RolloutPolicy.DisruptionBudget = createDisruptionBudget(2, 2, []string{})
+			fleetSpec.RolloutPolicy.DisruptionBudget = createDisruptionBudget(2, lo.ToPtr(2), []string{})
 
 			err = tc.harness.CreateOrUpdateTestFleet(fleetName, fleetSpec)
 			Expect(err).ToNot(HaveOccurred())
@@ -172,7 +172,7 @@ var _ = Describe("Rollout Policies", Label("rollout"), func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			fleetSpec = createFleetSpecWithoutDeviceSelection(lo.ToPtr(api.Percentage(SuccessThreshold)), deviceSpec)
-			fleetSpec.RolloutPolicy.DisruptionBudget = createDisruptionBudget(2, 0, []string{labelSite})
+			fleetSpec.RolloutPolicy.DisruptionBudget = createDisruptionBudget(2, nil, []string{labelSite})
 
 			err = tc.harness.CreateOrUpdateTestFleet(fleetName, fleetSpec)
 			Expect(err).ToNot(HaveOccurred())
@@ -543,11 +543,11 @@ func createFleetSpecWithoutDeviceSelection(threshold *api.Percentage, testFleetS
 	}
 }
 
-func createDisruptionBudget(maxUnavailable, minAvailable int, groupBy []string) *api.DisruptionBudget {
+func createDisruptionBudget(maxUnavailable int, minAvailable *int, groupBy []string) *api.DisruptionBudget {
 	return &api.DisruptionBudget{
 		GroupBy:        &groupBy,
 		MaxUnavailable: lo.ToPtr(maxUnavailable),
-		MinAvailable:   lo.ToPtr(minAvailable),
+		MinAvailable:   minAvailable,
 	}
 }
 
