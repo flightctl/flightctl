@@ -1258,7 +1258,7 @@ fi`,
 		quotedPassword,
 		sshCommand,
 	)
-	out, err := h.VM.RunSSH([]string{"/bin/sh", "-c", script}, nil)
+	out, err := h.VM.RunSSH([]string{"/bin/sh -c " + shellQuote(script)}, nil)
 	if err != nil {
 		return "", classifyDeviceLocalSSHError(fmt.Errorf(
 			"running /bin/sh -c ssh script on device VM (localhost:%d user=%s remote=%s): %w",
@@ -1289,6 +1289,25 @@ func classifyDeviceLocalSSHError(err error) error {
 	default:
 		return err
 	}
+}
+
+func (h *Harness) ExpectSSHUnavailableOnPort(port int, appName, user, password string) {
+	GinkgoHelper()
+	const remoteCmd = "/usr/bin/whoami"
+	const unavailableWindow = "10s"
+	Eventually(func(g Gomega) {
+		_, sshErr := h.RunSSHOnDeviceLocalPort(port, user, password, remoteCmd)
+		g.Expect(sshErr).To(HaveOccurred(), "SSH to %s on published port %d should be unavailable", appName, port)
+		g.Expect(errors.Is(sshErr, ErrSSHConnectionRefused) || errors.Is(sshErr, ErrSSHTimeout)).
+			To(BeTrue(), "SSH to %s on port %d failed with %v, want connection refused or timeout", appName, port, sshErr)
+	}, LONGTIMEOUT, POLLING).Should(Succeed())
+
+	Consistently(func(g Gomega) {
+		_, sshErr := h.RunSSHOnDeviceLocalPort(port, user, password, remoteCmd)
+		g.Expect(sshErr).To(HaveOccurred(), "SSH to %s on published port %d should remain unavailable", appName, port)
+		g.Expect(errors.Is(sshErr, ErrSSHConnectionRefused) || errors.Is(sshErr, ErrSSHTimeout)).
+			To(BeTrue(), "SSH to %s on port %d failed with %v, want connection refused or timeout", appName, port, sshErr)
+	}, unavailableWindow, POLLING).Should(Succeed())
 }
 
 // trimSSHCommandOutput returns the last non-empty line from nested SSH output. Device-side
@@ -1358,7 +1377,7 @@ func (h *Harness) RunUDPProbeOnDeviceLocalPort(port int) (string, error) {
 		return "", fmt.Errorf("port must be between 1 and 65535, got %d", port)
 	}
 
-	out, err := h.VM.RunSSH([]string{"/bin/sh", "-c", udpProbeDeviceHostScript(port)}, nil)
+	out, err := h.VM.RunSSH([]string{"/bin/sh -c " + shellQuote(udpProbeDeviceHostScript(port))}, nil)
 	if err != nil {
 		return "", fmt.Errorf("running UDP probe on device host localhost:%d: %w", port, err)
 	}
