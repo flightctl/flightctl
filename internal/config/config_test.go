@@ -1,11 +1,14 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/samber/lo"
+	"github.com/stretchr/testify/require"
 )
 
 func TestConfig_String_ObfuscatesSensitiveData(t *testing.T) {
@@ -199,4 +202,89 @@ func TestConfig_String_HandlesEmptyClientSecrets(t *testing.T) {
 	if !strings.Contains(result, "test-client-id") {
 		t.Error("Should handle empty client secrets gracefully")
 	}
+}
+
+func writeTempConfig(t *testing.T, contents string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(contents), 0600))
+	return path
+}
+
+func TestLoadDeltaGenerationDefaultRepository(t *testing.T) {
+	t.Run("When YAML has registry and repository it should load them and ignore username and password", func(t *testing.T) {
+		path := writeTempConfig(t, `
+deltaGeneration:
+  defaultRepository:
+    registry: my-registry.com
+    repository: my-org/diffs
+    scheme: https
+    skipServerVerification: true
+    username: from-yaml
+    password: from-yaml-secret
+`)
+		cfg, err := Load(path)
+		require.NoError(t, err)
+		require.NotNil(t, cfg.DeltaGeneration)
+		require.NotNil(t, cfg.DeltaGeneration.DefaultRepository)
+		dr := cfg.DeltaGeneration.DefaultRepository
+		require.Equal(t, "my-registry.com", dr.Registry)
+		require.Equal(t, "my-org/diffs", lo.FromPtr(dr.Repository))
+		require.Equal(t, "https", lo.FromPtr(dr.Scheme))
+		require.True(t, lo.FromPtr(dr.SkipServerVerification))
+		require.Empty(t, dr.Username)
+		require.Empty(t, string(dr.Password))
+	})
+
+	t.Run("When YAML has namespace it should load it", func(t *testing.T) {
+		path := writeTempConfig(t, `
+deltaGeneration:
+  defaultRepository:
+    registry: my-registry.com
+    namespace: my-org
+`)
+		cfg, err := Load(path)
+		require.NoError(t, err)
+		require.Equal(t, "my-org", lo.FromPtr(cfg.DeltaGeneration.DefaultRepository.Namespace))
+	})
+
+	t.Run("When env vars are set it should populate username and password", func(t *testing.T) {
+		t.Setenv("DELTA_GENERATION_DEFAULT_REPOSITORY_USERNAME", "delta-user")
+		t.Setenv("DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD", "delta-pass")
+		path := writeTempConfig(t, `
+deltaGeneration:
+  defaultRepository:
+    registry: my-registry.com
+    repository: my-org/diffs
+`)
+		cfg, err := Load(path)
+		require.NoError(t, err)
+		dr := cfg.DeltaGeneration.DefaultRepository
+		require.Equal(t, "delta-user", dr.Username)
+		require.Equal(t, "delta-pass", string(dr.Password))
+	})
+}
+
+func TestDefaultRepositoryConfigOciRepoSpec(t *testing.T) {
+	t.Run("When registry is empty it should return nil", func(t *testing.T) {
+		require.Nil(t, (&DefaultRepositoryConfig{}).OciRepoSpec())
+		require.Nil(t, (*DefaultRepositoryConfig)(nil).OciRepoSpec())
+	})
+
+	t.Run("When username and password are set it should carry Docker auth", func(t *testing.T) {
+		spec := (&DefaultRepositoryConfig{
+			Registry:   "my-registry.com",
+			Repository: lo.ToPtr("my-org/diffs"),
+			Username:   "delta-user",
+			Password:   "delta-pass",
+		}).OciRepoSpec()
+		require.NotNil(t, spec)
+		require.Equal(t, "my-registry.com", spec.Registry)
+		require.Equal(t, "my-org/diffs", lo.FromPtr(spec.Repository))
+		require.NotNil(t, spec.OciAuth)
+		docker, err := spec.OciAuth.AsDockerAuth()
+		require.NoError(t, err)
+		require.Equal(t, "delta-user", docker.Username)
+		require.Equal(t, "delta-pass", docker.Password)
+	})
 }

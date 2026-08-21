@@ -997,6 +997,30 @@
         }
       }
     },
+    "deltaGeneration": {
+      "type": "object",
+      "description": "Default OCI write target for generated deltas when an organization has no deltaStorageTarget Repository",
+      "additionalProperties": false,
+      "properties": {
+        "defaultRepository": {
+          "type": "object",
+          "description": "Default repository used when the org has no deltaStorageTarget",
+          "additionalProperties": false,
+          "properties": {
+            "registry": { "type": "string", "description": "Registry hostname used as the login/CA host and as the prefix of the push path" },
+            "repository": { "type": "string", "description": "Optional repository path under registry (e.g. my-org/diffs). Mutually exclusive with namespace" },
+            "namespace": { "type": "string", "description": "Optional namespace under registry (e.g. my-org). Mutually exclusive with repository" },
+            "scheme": {
+              "type": "string",
+              "description": "URL scheme for connecting to the registry",
+              "enum": ["", "http", "https"]
+            },
+            "skipServerVerification": { "type": "boolean", "description": "Skip TLS verification when connecting to the registry" },
+            "secretName": { "type": "string", "description": "Name of the Kubernetes Secret containing 'username' and 'password' keys" }
+          }
+        }
+      }
+    },
     "dev": {
       "type": "object",
       "description": "Development overrides",

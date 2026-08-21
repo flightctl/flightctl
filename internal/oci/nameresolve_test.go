@@ -3,6 +3,7 @@ package oci
 import (
 	"testing"
 
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
@@ -150,4 +151,26 @@ func TestImageDestRef(t *testing.T) {
 
 func TestRepoDestRef(t *testing.T) {
 	require.Equal(t, "my-registry.com/nginx/nginx", RepoDestRef("my-registry.com", "nginx/nginx"))
+}
+
+func TestSelectWriteTargetUsesDefaultRepository(t *testing.T) {
+	spec := (&config.DefaultRepositoryConfig{
+		Registry:   "my-registry.com",
+		Repository: lo.ToPtr("my-org/diffs"),
+		Username:   "delta-user",
+		Password:   "delta-pass",
+	}).OciRepoSpec()
+	require.NotNil(t, spec)
+
+	selected := SelectWriteTarget(nil, spec)
+	require.Equal(t, spec, selected)
+
+	path, err := ResolveDeltaPushPath(selected, "quay.io/nginx/nginx")
+	require.NoError(t, err)
+	require.Equal(t, "my-registry.com/my-org/diffs", path)
+
+	docker, err := selected.OciAuth.AsDockerAuth()
+	require.NoError(t, err)
+	require.Equal(t, "delta-user", docker.Username)
+	require.Equal(t, "delta-pass", docker.Password)
 }

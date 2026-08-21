@@ -123,6 +123,27 @@ auth:
 vulnerabilityReporting:
   enabled: true
 {{- end}}
+{{- with .deltaGeneration }}
+{{- with .defaultRepository }}
+{{- if .registry }}
+deltaGeneration:
+  defaultRepository:
+    registry: {{ .registry }}
+    {{- if .repository }}
+    repository: {{ .repository }}
+    {{- end }}
+    {{- if .namespace }}
+    namespace: {{ .namespace }}
+    {{- end }}
+    {{- if .scheme }}
+    scheme: {{ .scheme }}
+    {{- end }}
+    {{- if .skipServerVerification }}
+    skipServerVerification: true
+    {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
 
 {{- with .profiling }}
 {{- $pprof := .pprof }}
