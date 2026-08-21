@@ -1085,11 +1085,43 @@ func resolveCatalogItemRef(ctx context.Context, ref v1beta1.CatalogItemRefSpec, 
 		return "", fmt.Errorf("catalog item version %s for %s/%s lacks container version ref", ref.Version, ref.Catalog, ref.Item)
 	}
 
+	baseURI := stripImageVersionQualifier(artifact.Uri)
+
 	sep := ":"
 	if strings.Contains(tag, ":") {
 		sep = "@"
 	}
-	return artifact.Uri + sep + tag, nil
+	return baseURI + sep + tag, nil
+}
+
+// stripImageVersionQualifier removes any tag (":tag") or digest ("@sha256:...")
+// from an OCI image reference, returning the bare repository path.
+func stripImageVersionQualifier(uri string) string {
+	ref := uri
+	prefix := ""
+	for _, p := range []string{"oci://", "docker://"} {
+		if strings.HasPrefix(ref, p) {
+			prefix = p
+			ref = ref[len(p):]
+			break
+		}
+	}
+	if strings.Contains(ref, "://") {
+		return uri
+	}
+
+	if idx := strings.LastIndex(ref, "@"); idx > 0 {
+		ref = ref[:idx]
+	}
+	lastSlash := strings.LastIndex(ref, "/")
+	imagePart := ref
+	if lastSlash >= 0 {
+		imagePart = ref[lastSlash+1:]
+	}
+	if colonIdx := strings.Index(imagePart, ":"); colonIdx >= 0 {
+		ref = ref[:len(ref)-len(imagePart)+colonIdx]
+	}
+	return prefix + ref
 }
 
 func resolveApplicationCatalogItemRefIfExists(ctx context.Context, appType v1beta1.AppType, ref v1beta1.CatalogItemRefSource, orgId uuid.UUID, catalogSvc catalogservice.Service) error {
