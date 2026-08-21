@@ -23,6 +23,7 @@ const (
 	statusCreatedCode    = int32(201)
 	statusBadRequestCode = int32(400)
 	statusNotFoundCode   = int32(404)
+	statusConflictCode   = int32(409)
 )
 
 // fakeRepositoryStore is a small in-memory implementation of internal/store/repository.Store.
@@ -140,6 +141,16 @@ func (f *fakeRepositoryStore) CountByOrg(_ context.Context, _ *uuid.UUID) ([]sto
 	return nil, nil
 }
 
+func (f *fakeRepositoryStore) GetDeltaStorageTarget(_ context.Context, _ uuid.UUID) (*domain.Repository, error) {
+	for _, r := range f.items {
+		if !isDeltaStorageTarget(r) {
+			continue
+		}
+		return r, nil
+	}
+	return nil, nil
+}
+
 // fakeEventsService is a recording fake for events.Service. Repository's own event decision
 // logic (in handler.go's callbackRepositoryUpdated) now calls CreateEvent directly, so tests
 // assert on the actual emitted events rather than intercepting a resource-specific callback.
@@ -195,6 +206,37 @@ func newOciRepository(name, registry string) domain.Repository {
 	}
 }
 
+func newDeltaStorageRepository(name, registry, repository string) domain.Repository {
+	spec := domain.RepositorySpec{}
+	_ = spec.FromOciRepoSpec(domain.OciRepoSpec{
+		Registry:           registry,
+		Type:               domain.OciRepoSpecTypeOci,
+		Repository:         lo.ToPtr(repository),
+		DeltaStorageTarget: lo.ToPtr(true),
+	})
+	return domain.Repository{
+		ApiVersion: "v1beta1",
+		Kind:       "Repository",
+		Metadata:   domain.ObjectMeta{Name: lo.ToPtr(name)},
+		Spec:       spec,
+	}
+}
+
+func isDeltaStorageTarget(repo *domain.Repository) bool {
+	if repo == nil {
+		return false
+	}
+	specType, err := repo.Spec.Discriminator()
+	if err != nil || specType != string(domain.RepoSpecTypeOci) {
+		return false
+	}
+	ociSpec, err := repo.Spec.AsOciRepoSpec()
+	if err != nil || ociSpec.DeltaStorageTarget == nil {
+		return false
+	}
+	return *ociSpec.DeltaStorageTarget
+}
+
 // ── CreateRepository ─────────────────────────────────────────────────────
 
 func TestCreateRepository(t *testing.T) {
@@ -239,6 +281,28 @@ func TestCreateRepository(t *testing.T) {
 		require.Equal(t, statusCreatedCode, status.Code)
 		require.Equal(t, "someone", lo.FromPtr(repoStore.items["trusted-repo"].Metadata.Owner))
 		require.Equal(t, int64(5), lo.FromPtr(repoStore.items["trusted-repo"].Metadata.Generation))
+	})
+}
+
+func TestCreateRepositoryDeltaStorageTarget(t *testing.T) {
+	t.Run("When the first deltaStorageTarget is created it should succeed", func(t *testing.T) {
+		h, _, _ := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		_, status := h.CreateRepository(ctx, orgId, newDeltaStorageRepository("diffs", "my-registry.com", "my-org/diffs"))
+		require.Equal(t, statusCreatedCode, status.Code)
+	})
+
+	t.Run("When a second deltaStorageTarget is created it should return 409", func(t *testing.T) {
+		h, _, _ := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		_, status := h.CreateRepository(ctx, orgId, newDeltaStorageRepository("diffs", "my-registry.com", "my-org/diffs"))
+		require.Equal(t, statusCreatedCode, status.Code)
+
+		_, status = h.CreateRepository(ctx, orgId, newDeltaStorageRepository("other-diffs", "my-registry.com", "my-org/other"))
+		require.Equal(t, statusConflictCode, status.Code)
+		require.Contains(t, status.Message, "deltaStorageTarget")
 	})
 }
 
@@ -330,6 +394,49 @@ func TestReplaceRepository(t *testing.T) {
 		require.Equal(t, statusCreatedCode, status.Code)
 		require.Equal(t, "someone", lo.FromPtr(repoStore.items["replace-trusted"].Metadata.Owner))
 		require.Equal(t, int64(5), lo.FromPtr(repoStore.items["replace-trusted"].Metadata.Generation))
+	})
+}
+
+func TestReplaceRepositoryDeltaStorageTarget(t *testing.T) {
+	t.Run("When replacing the same deltaStorageTarget repository it should succeed", func(t *testing.T) {
+		h, _, _ := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		_, status := h.CreateRepository(ctx, orgId, newDeltaStorageRepository("diffs", "my-registry.com", "my-org/diffs"))
+		require.Equal(t, statusCreatedCode, status.Code)
+
+		replaced := newDeltaStorageRepository("diffs", "my-registry.com", "my-org/diffs-v2")
+		_, status = h.ReplaceRepository(ctx, orgId, "diffs", replaced)
+		require.Equal(t, statusSuccessCode, status.Code)
+	})
+
+	t.Run("When a different repository is replaced with deltaStorageTarget it should return 409", func(t *testing.T) {
+		h, _, _ := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		_, status := h.CreateRepository(ctx, orgId, newDeltaStorageRepository("diffs", "my-registry.com", "my-org/diffs"))
+		require.Equal(t, statusCreatedCode, status.Code)
+
+		_, status = h.CreateRepository(ctx, orgId, newOciRepository("other", "my-registry.com"))
+		require.Equal(t, statusCreatedCode, status.Code)
+
+		_, status = h.ReplaceRepository(ctx, orgId, "other", newDeltaStorageRepository("other", "my-registry.com", "my-org/other"))
+		require.Equal(t, statusConflictCode, status.Code)
+	})
+
+	t.Run("When the flag is cleared then set on another name it should succeed", func(t *testing.T) {
+		h, _, _ := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		_, status := h.CreateRepository(ctx, orgId, newDeltaStorageRepository("diffs", "my-registry.com", "my-org/diffs"))
+		require.Equal(t, statusCreatedCode, status.Code)
+
+		cleared := newOciRepository("diffs", "my-registry.com")
+		_, status = h.ReplaceRepository(ctx, orgId, "diffs", cleared)
+		require.Equal(t, statusSuccessCode, status.Code)
+
+		_, status = h.CreateRepository(ctx, orgId, newDeltaStorageRepository("other-diffs", "my-registry.com", "my-org/other"))
+		require.Equal(t, statusCreatedCode, status.Code)
 	})
 }
 
@@ -439,6 +546,24 @@ func TestPatchRepositoryNotFound(t *testing.T) {
 	}
 	_, status = h.PatchRepository(ctx, orgId, "bar", pr)
 	require.Equal(t, statusNotFoundCode, status.Code)
+}
+
+func TestPatchRepositoryDeltaStorageTarget(t *testing.T) {
+	t.Run("When a different repository is patched to deltaStorageTarget it should return 409", func(t *testing.T) {
+		h, _, _ := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		_, status := h.CreateRepository(ctx, orgId, newDeltaStorageRepository("diffs", "my-registry.com", "my-org/diffs"))
+		require.Equal(t, statusCreatedCode, status.Code)
+
+		_, status = h.CreateRepository(ctx, orgId, newOciRepository("other", "my-registry.com"))
+		require.Equal(t, statusCreatedCode, status.Code)
+
+		_, status = h.PatchRepository(ctx, orgId, "other", domain.PatchRequest{
+			{Op: "add", Path: "/spec/deltaStorageTarget", Value: lo.ToPtr[interface{}](true)},
+		})
+		require.Equal(t, statusConflictCode, status.Code)
+	})
 }
 
 // ── ReplaceRepositoryStatusByError ──────────────────────────────────────────

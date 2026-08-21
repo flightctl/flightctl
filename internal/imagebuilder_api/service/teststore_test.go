@@ -462,6 +462,10 @@ func (s *DummyRepositoryStore) CountByOrg(ctx context.Context, orgId *uuid.UUID)
 	return nil, nil
 }
 
+func (s *DummyRepositoryStore) GetDeltaStorageTarget(ctx context.Context, orgId uuid.UUID) (*domain.Repository, error) {
+	return nil, nil
+}
+
 // newOciRepository creates a test OCI repository with the specified access mode
 func newOciRepository(name string, accessMode v1beta1.OciRepoSpecAccessMode) *v1beta1.Repository {
 	spec := v1beta1.RepositorySpec{}

@@ -1154,5 +1154,42 @@ var _ = Describe("RepositoryStore create", func() {
 			Expect(*repositories.Items[0].Metadata.Name).To(Equal("http-list-test"))
 		})
 
+		It("Create second deltaStorageTarget repository should return duplicate error", func() {
+			spec := api.RepositorySpec{}
+			err := spec.FromOciRepoSpec(api.OciRepoSpec{
+				Registry:           "my-registry.com",
+				Type:               api.OciRepoSpecTypeOci,
+				Repository:         lo.ToPtr("my-org/diffs"),
+				DeltaStorageTarget: lo.ToPtr(true),
+			})
+			Expect(err).ToNot(HaveOccurred())
+			first := api.Repository{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr("diffs")},
+				Spec:     spec,
+			}
+			_, err = repositoryStore.Create(ctx, orgId, &first, eventCallback)
+			Expect(err).ToNot(HaveOccurred())
+
+			secondSpec := api.RepositorySpec{}
+			err = secondSpec.FromOciRepoSpec(api.OciRepoSpec{
+				Registry:           "my-registry.com",
+				Type:               api.OciRepoSpecTypeOci,
+				Repository:         lo.ToPtr("my-org/other"),
+				DeltaStorageTarget: lo.ToPtr(true),
+			})
+			Expect(err).ToNot(HaveOccurred())
+			second := api.Repository{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr("other-diffs")},
+				Spec:     secondSpec,
+			}
+			_, err = repositoryStore.Create(ctx, orgId, &second, eventCallback)
+			Expect(err).To(MatchError(flterrors.ErrDuplicateDeltaStorageTarget))
+		})
+
+		It("GetDeltaStorageTarget should return nil when none exists", func() {
+			repo, err := repositoryStore.GetDeltaStorageTarget(ctx, orgId)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(repo).To(BeNil())
+		})
 	})
 })

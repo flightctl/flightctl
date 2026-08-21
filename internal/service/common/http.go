@@ -170,6 +170,7 @@ var conflictErrors = map[error]bool{
 	flterrors.ErrDuplicateName:                       true,
 	flterrors.ErrDuplicateOIDCProvider:               true,
 	flterrors.ErrDuplicateOAuth2Provider:             true,
+	flterrors.ErrDuplicateDeltaStorageTarget:         true,
 	flterrors.ErrNoRowsUpdated:                       true,
 	flterrors.ErrResourceVersionConflict:             true,
 	flterrors.ErrResourceOwnerIsNil:                  true,
