@@ -22,6 +22,7 @@ import (
 	imagebuilderapi "github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	imagebuilderservice "github.com/flightctl/flightctl/internal/imagebuilder_api/service"
 	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
+	"github.com/flightctl/flightctl/internal/oci"
 	"github.com/flightctl/flightctl/internal/service"
 	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
 	trustifyv2 "github.com/flightctl/flightctl/internal/trustify/v2"
@@ -1072,7 +1073,7 @@ func (c *Consumer) buildImageWithPodman(
 
 	// ociSpec.Registry is already the hostname (no scheme)
 	destRegistryHostname := destOciSpec.Registry
-	imageRef := fmt.Sprintf("%s/%s:%s", destRegistryHostname, spec.Destination.ImageName, spec.Destination.ImageTag)
+	imageRef := oci.ImageDestRef(destRegistryHostname, spec.Destination.ImageName, spec.Destination.ImageTag)
 
 	// Determine platform from ImageBuild status architecture, default to linux/amd64
 	platform := "linux/amd64"
@@ -1221,7 +1222,7 @@ func (c *Consumer) pushImageWithPodman(
 
 	// ociSpec.Registry is already the hostname (no scheme)
 	destRegistryHostname := ociSpec.Registry
-	imageRef := fmt.Sprintf("%s/%s:%s", destRegistryHostname, spec.Destination.ImageName, spec.Destination.ImageTag)
+	imageRef := oci.ImageDestRef(destRegistryHostname, spec.Destination.ImageName, spec.Destination.ImageTag)
 
 	// Login to registry using podman login with stdin
 	// This is more reliable than authfile for push operations

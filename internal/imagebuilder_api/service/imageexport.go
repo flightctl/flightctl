@@ -20,6 +20,7 @@ import (
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/oci"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
 	mainstore "github.com/flightctl/flightctl/internal/store"
@@ -551,7 +552,7 @@ func (s *imageExportService) setupRepositoryReference(ctx context.Context, ociSp
 		scheme = string(*ociSpec.Scheme)
 	}
 	registryHostname := ociSpec.Registry
-	destRef := fmt.Sprintf("%s/%s", registryHostname, imageName)
+	destRef := oci.RepoDestRef(registryHostname, imageName)
 
 	log.WithFields(logrus.Fields{
 		"destRef": destRef, "scheme": scheme, "registryHostname": registryHostname,
