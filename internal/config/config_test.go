@@ -263,6 +263,18 @@ deltaGeneration:
 		require.Equal(t, "delta-user", dr.Username)
 		require.Equal(t, "delta-pass", string(dr.Password))
 	})
+
+	t.Run("When env vars are set without YAML deltaGeneration it should still populate credentials", func(t *testing.T) {
+		t.Setenv("DELTA_GENERATION_DEFAULT_REPOSITORY_USERNAME", "delta-user")
+		t.Setenv("DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD", "delta-pass")
+		path := writeTempConfig(t, "{}\n")
+		cfg, err := Load(path)
+		require.NoError(t, err)
+		require.NotNil(t, cfg.DeltaGeneration)
+		require.NotNil(t, cfg.DeltaGeneration.DefaultRepository)
+		require.Equal(t, "delta-user", cfg.DeltaGeneration.DefaultRepository.Username)
+		require.Equal(t, "delta-pass", string(cfg.DeltaGeneration.DefaultRepository.Password))
+	})
 }
 
 func TestDefaultRepositoryConfigOciRepoSpec(t *testing.T) {
@@ -286,5 +298,24 @@ func TestDefaultRepositoryConfigOciRepoSpec(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "delta-user", docker.Username)
 		require.Equal(t, "delta-pass", docker.Password)
+	})
+
+	t.Run("When scheme is set it should copy it onto the OCI spec", func(t *testing.T) {
+		spec := (&DefaultRepositoryConfig{
+			Registry: "my-registry.com",
+			Scheme:   lo.ToPtr("http"),
+		}).OciRepoSpec()
+		require.NotNil(t, spec)
+		require.Equal(t, domain.OciRepoSpecScheme("http"), lo.FromPtr(spec.Scheme))
+		require.Nil(t, spec.OciAuth)
+	})
+
+	t.Run("When only username is set it should omit OCI auth", func(t *testing.T) {
+		spec := (&DefaultRepositoryConfig{
+			Registry: "my-registry.com",
+			Username: "delta-user",
+		}).OciRepoSpec()
+		require.NotNil(t, spec)
+		require.Nil(t, spec.OciAuth)
 	})
 }

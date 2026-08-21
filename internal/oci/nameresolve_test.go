@@ -100,6 +100,15 @@ func TestResolveDeltaPushPath(t *testing.T) {
 			wantErr:         true,
 		},
 		{
+			name: "When imageRepository has no slash it should return an error",
+			spec: &domain.OciRepoSpec{
+				Registry: "my-registry.com",
+				Type:     domain.OciRepoSpecTypeOci,
+			},
+			imageRepository: "nginx",
+			wantErr:         true,
+		},
+		{
 			name: "When imageRepository is unparseable it should return an error",
 			spec: &domain.OciRepoSpec{
 				Registry: "my-registry.com",
