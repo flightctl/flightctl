@@ -49,6 +49,7 @@ var (
 	ErrInvalidManifestDigest             = errors.New("invalid manifest digest")
 	ErrInvalidManifestLayerCount         = errors.New("invalid manifest layer count")
 	ErrRepositoryNotFound                = errors.New("repository not found")
+	ErrInvalidImageDest                  = errors.New("invalid image destination repository")
 
 	// External service errors (5xx - Service Unavailable)
 	ErrExternalServiceUnavailable = errors.New("external service unavailable")
@@ -552,6 +553,9 @@ func (s *imageExportService) setupRepositoryReference(ctx context.Context, ociSp
 		scheme = string(*ociSpec.Scheme)
 	}
 	registryHostname := ociSpec.Registry
+	if destErrs := ValidateImageDestOciSpec(ociSpec, imageName, "spec.destination.repository"); len(destErrs) > 0 {
+		return nil, nil, "", "", fmt.Errorf("%w: %w", ErrInvalidImageDest, errors.Join(destErrs...))
+	}
 	destRef := oci.RepoDestRef(registryHostname, imageName)
 
 	log.WithFields(logrus.Fields{

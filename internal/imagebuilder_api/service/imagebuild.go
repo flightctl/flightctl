@@ -648,6 +648,7 @@ func (s *imageBuildService) validate(ctx context.Context, orgId uuid.UUID, image
 				if accessMode != domain.ReadWrite {
 					errs = append(errs, fmt.Errorf("spec.destination.repository: Repository %q must have 'ReadWrite' access mode, got %q", imageBuild.Spec.Destination.Repository, accessMode))
 				}
+				errs = append(errs, ValidateImageDestOciSpec(&ociSpec, imageBuild.Spec.Destination.ImageName, "spec.destination.repository")...)
 			}
 		}
 	}

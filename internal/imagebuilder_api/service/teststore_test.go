@@ -484,6 +484,25 @@ func newOciRepository(name string, accessMode v1beta1.OciRepoSpecAccessMode) *v1
 	}
 }
 
+func newOciRepositoryCustom(name string, accessMode v1beta1.OciRepoSpecAccessMode, repository, namespace *string) *v1beta1.Repository {
+	spec := v1beta1.RepositorySpec{}
+	_ = spec.FromOciRepoSpec(v1beta1.OciRepoSpec{
+		Registry:   "quay.io",
+		Type:       v1beta1.OciRepoSpecTypeOci,
+		AccessMode: &accessMode,
+		Repository: repository,
+		Namespace:  namespace,
+	})
+	return &v1beta1.Repository{
+		ApiVersion: "flightctl.io/v1beta1",
+		Kind:       string(v1beta1.ResourceKindRepository),
+		Metadata: v1beta1.ObjectMeta{
+			Name: lo.ToPtr(name),
+		},
+		Spec: spec,
+	}
+}
+
 // deepCopy performs a deep copy using JSON marshaling
 func deepCopy(src, dst interface{}) {
 	data, err := json.Marshal(src)
