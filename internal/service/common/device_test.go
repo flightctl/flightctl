@@ -549,6 +549,176 @@ func TestUpdateServerSideDeviceUpdatedStatus_OsImageMismatch(t *testing.T) {
 	}
 }
 
+func TestUpdateServerSideLifecycleStatus(t *testing.T) {
+	tests := []struct {
+		name           string
+		currentStatus  domain.DeviceLifecycleStatusType
+		currentInfo    string
+		condition      *domain.Condition
+		expectedStatus domain.DeviceLifecycleStatusType
+		expectedInfo   string
+		expectedChange bool
+	}{
+		{
+			name:           "When no decommissioning condition exists it should not change status",
+			currentStatus:  domain.DeviceLifecycleStatusEnrolled,
+			condition:      nil,
+			expectedStatus: domain.DeviceLifecycleStatusEnrolled,
+			expectedChange: false,
+		},
+		{
+			name:          "When device is Enrolled and agent reports DecomStarted it should transition to Decommissioning",
+			currentStatus: domain.DeviceLifecycleStatusEnrolled,
+			condition: &domain.Condition{
+				Type:   domain.ConditionTypeDeviceDecommissioning,
+				Status: domain.ConditionStatusTrue,
+				Reason: string(domain.DecommissionStateStarted),
+			},
+			expectedStatus: domain.DeviceLifecycleStatusDecommissioning,
+			expectedInfo:   "Device has acknowledged decommissioning request",
+			expectedChange: true,
+		},
+		{
+			name:          "When device is Decommissioning and agent reports DecomComplete it should transition to Decommissioned",
+			currentStatus: domain.DeviceLifecycleStatusDecommissioning,
+			currentInfo:   "Device has acknowledged decommissioning request",
+			condition: &domain.Condition{
+				Type:   domain.ConditionTypeDeviceDecommissioning,
+				Status: domain.ConditionStatusTrue,
+				Reason: string(domain.DecommissionStateComplete),
+			},
+			expectedStatus: domain.DeviceLifecycleStatusDecommissioned,
+			expectedInfo:   "Device has completed decommissioning",
+			expectedChange: true,
+		},
+		{
+			name:          "When device is Decommissioning and agent reports DecomError it should transition to Decommissioned",
+			currentStatus: domain.DeviceLifecycleStatusDecommissioning,
+			currentInfo:   "Device has acknowledged decommissioning request",
+			condition: &domain.Condition{
+				Type:   domain.ConditionTypeDeviceDecommissioning,
+				Status: domain.ConditionStatusTrue,
+				Reason: string(domain.DecommissionStateError),
+			},
+			expectedStatus: domain.DeviceLifecycleStatusDecommissioned,
+			expectedInfo:   "Device has errored while decommissioning",
+			expectedChange: true,
+		},
+		{
+			name:          "When device is Decommissioned and agent reports DecomStarted it should not transition back to Decommissioning",
+			currentStatus: domain.DeviceLifecycleStatusDecommissioned,
+			currentInfo:   "Device has completed decommissioning",
+			condition: &domain.Condition{
+				Type:   domain.ConditionTypeDeviceDecommissioning,
+				Status: domain.ConditionStatusTrue,
+				Reason: string(domain.DecommissionStateStarted),
+			},
+			expectedStatus: domain.DeviceLifecycleStatusDecommissioned,
+			expectedInfo:   "Device has completed decommissioning",
+			expectedChange: false,
+		},
+		{
+			name:          "When device is Decommissioned and agent reports DecomComplete it should remain Decommissioned",
+			currentStatus: domain.DeviceLifecycleStatusDecommissioned,
+			currentInfo:   "Device has errored while decommissioning",
+			condition: &domain.Condition{
+				Type:   domain.ConditionTypeDeviceDecommissioning,
+				Status: domain.ConditionStatusTrue,
+				Reason: string(domain.DecommissionStateComplete),
+			},
+			expectedStatus: domain.DeviceLifecycleStatusDecommissioned,
+			expectedInfo:   "Device has errored while decommissioning",
+			expectedChange: false,
+		},
+		{
+			name:          "When device is Decommissioned and agent reports DecomError it should remain Decommissioned",
+			currentStatus: domain.DeviceLifecycleStatusDecommissioned,
+			currentInfo:   "Device has completed decommissioning",
+			condition: &domain.Condition{
+				Type:   domain.ConditionTypeDeviceDecommissioning,
+				Status: domain.ConditionStatusTrue,
+				Reason: string(domain.DecommissionStateError),
+			},
+			expectedStatus: domain.DeviceLifecycleStatusDecommissioned,
+			expectedInfo:   "Device has completed decommissioning",
+			expectedChange: false,
+		},
+		{
+			name:          "When device is Decommissioning and agent resends DecomStarted it should not change",
+			currentStatus: domain.DeviceLifecycleStatusDecommissioning,
+			currentInfo:   "Device has acknowledged decommissioning request",
+			condition: &domain.Condition{
+				Type:   domain.ConditionTypeDeviceDecommissioning,
+				Status: domain.ConditionStatusTrue,
+				Reason: string(domain.DecommissionStateStarted),
+			},
+			expectedStatus: domain.DeviceLifecycleStatusDecommissioning,
+			expectedInfo:   "Device has acknowledged decommissioning request",
+			expectedChange: false,
+		},
+		{
+			name:          "When device is Unknown and agent reports DecomStarted it should transition to Decommissioning",
+			currentStatus: domain.DeviceLifecycleStatusUnknown,
+			condition: &domain.Condition{
+				Type:   domain.ConditionTypeDeviceDecommissioning,
+				Status: domain.ConditionStatusTrue,
+				Reason: string(domain.DecommissionStateStarted),
+			},
+			expectedStatus: domain.DeviceLifecycleStatusDecommissioning,
+			expectedInfo:   "Device has acknowledged decommissioning request",
+			expectedChange: true,
+		},
+		{
+			name:          "When device is Enrolled and agent reports DecomComplete it should transition to Decommissioned",
+			currentStatus: domain.DeviceLifecycleStatusEnrolled,
+			condition: &domain.Condition{
+				Type:   domain.ConditionTypeDeviceDecommissioning,
+				Status: domain.ConditionStatusTrue,
+				Reason: string(domain.DecommissionStateComplete),
+			},
+			expectedStatus: domain.DeviceLifecycleStatusDecommissioned,
+			expectedInfo:   "Device has completed decommissioning",
+			expectedChange: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			conditions := []domain.Condition{}
+			if tt.condition != nil {
+				conditions = append(conditions, *tt.condition)
+			}
+
+			device := &domain.Device{
+				Metadata: domain.ObjectMeta{
+					Name: lo.ToPtr("test-device"),
+				},
+				Status: &domain.DeviceStatus{
+					Lifecycle: domain.DeviceLifecycleStatus{
+						Status: tt.currentStatus,
+						Info: func() *string {
+							if tt.currentInfo != "" {
+								return lo.ToPtr(tt.currentInfo)
+							}
+							return nil
+						}(),
+					},
+					Conditions: conditions,
+				},
+			}
+
+			changed := updateServerSideLifecycleStatus(device)
+
+			assert.Equal(t, tt.expectedStatus, device.Status.Lifecycle.Status, "lifecycle status")
+			if tt.expectedInfo != "" {
+				assert.NotNil(t, device.Status.Lifecycle.Info)
+				assert.Equal(t, tt.expectedInfo, *device.Status.Lifecycle.Info, "lifecycle info")
+			}
+			assert.Equal(t, tt.expectedChange, changed, "changed flag")
+		})
+	}
+}
+
 func TestUpdateServerSideDeviceUpdatedStatus_ManagedDeviceErrorPriority(t *testing.T) {
 	ctx := context.Background()
 	orgId := uuid.New()
