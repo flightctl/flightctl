@@ -457,6 +457,13 @@ imageBuilderWorker:
       image: ""
       # -- Set to true to skip TLS verification when pulling the bootc-image-builder image.
       skipTlsVerify: false
+    rhelBootcImageBuilder:
+      # -- RHEL-specific bootc-image-builder image, used automatically for RHEL 10+ source images.
+      # Leave empty to use the default (registry.redhat.io/rhel10/bootc-image-builder:latest).
+      # Requires registry.redhat.io credentials via pullSecretName.
+      image: ""
+      # -- Set to true to skip TLS verification when pulling the RHEL bootc-image-builder image.
+      skipTlsVerify: false
     syft:
       # -- Syft image for SBOM generation. If empty, defaults to `docker.io/anchore/syft:v1.44.0`.
       image: ""
