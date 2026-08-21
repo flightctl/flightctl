@@ -2685,11 +2685,20 @@ type OciRepoSpec struct {
 	// CaCrt Base64 encoded root CA.
 	CaCrt *string `json:"ca.crt,omitempty"`
 
+	// DeltaStorageTarget When true, generated deltas are pushed to this object (at most one per org). Auth is the existing ociAuth / accessMode. Placement follows repository / namespace / registry-only as above.
+	DeltaStorageTarget *bool `json:"deltaStorageTarget,omitempty"`
+
+	// Namespace Optional org/subpath under spec.registry (e.g. my-org). Concrete names are spec.registry/namespace/<name>. Mutually exclusive with repository. Used by delta push (`{registry}/{namespace}/{imageName}`). Invalid on an ImageBuild or ImageExport destination Repository.
+	Namespace *string `json:"namespace,omitempty"`
+
 	// OciAuth Authentication for OCI registries.
 	OciAuth *OciAuth `json:"ociAuth,omitempty"`
 
 	// Registry The OCI registry hostname, FQDN, or IP address with optional port (e.g., quay.io, registry.redhat.io, myregistry.com:5000, 192.168.1.1:5000, [::1]:5000).
 	Registry string `json:"registry"`
+
+	// Repository Optional OCI repository path under spec.registry (e.g. my-org/diffs). When set, this object is that repo (`my-registry.com/my-org/diffs`), not only a registry. Mutually exclusive with namespace. ImageBuild destination imageName must equal this value.
+	Repository *string `json:"repository,omitempty"`
 
 	// Scheme URL scheme for connecting to the registry.
 	Scheme *OciRepoSpecScheme `json:"scheme,omitempty"`
