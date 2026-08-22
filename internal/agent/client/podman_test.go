@@ -367,3 +367,113 @@ func TestPodman_RemoveArtifact(t *testing.T) {
 		})
 	}
 }
+
+func TestPodman_LoadArchive(t *testing.T) {
+	tests := []struct {
+		name          string
+		archivePath   string
+		setupMock     func(*executer.MockExecuter)
+		want          string
+		expectedError bool
+	}{
+		{
+			name:        "When load succeeds it should return the loaded image reference",
+			archivePath: "/tmp/os-delta/image.tar",
+			setupMock: func(mock *executer.MockExecuter) {
+				mock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"load", "-i", "/tmp/os-delta/image.tar"}).
+					Return("Loaded image: quay.io/acme/os:v2\n", "", 0)
+			},
+			want: "quay.io/acme/os:v2",
+		},
+		{
+			name:        "When load succeeds with an image ID it should return the ID",
+			archivePath: "/tmp/os-delta/image.tar",
+			setupMock: func(mock *executer.MockExecuter) {
+				mock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"load", "-i", "/tmp/os-delta/image.tar"}).
+					Return("Loaded image(s): sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n", "", 0)
+			},
+			want: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		},
+		{
+			name:        "When load fails it should return an error",
+			archivePath: "/tmp/os-delta/missing.tar",
+			setupMock: func(mock *executer.MockExecuter) {
+				mock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"load", "-i", "/tmp/os-delta/missing.tar"}).
+					Return("", "Error: open /tmp/os-delta/missing.tar: no such file", 1)
+			},
+			expectedError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockExec := executer.NewMockExecuter(ctrl)
+			logger := log.NewPrefixLogger("test")
+			readWriter := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
+			tt.setupMock(mockExec)
+
+			podman := NewPodman(logger, mockExec, readWriter, poll.Config{})
+			got, err := podman.LoadArchive(context.Background(), tt.archivePath)
+			if tt.expectedError {
+				require.Error(t, err)
+				require.Empty(t, got)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestPodman_Tag(t *testing.T) {
+	tests := []struct {
+		name          string
+		source        string
+		target        string
+		setupMock     func(*executer.MockExecuter)
+		expectedError bool
+	}{
+		{
+			name:   "When tag succeeds it should run podman tag",
+			source: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+			target: "quay.io/acme/os:v2",
+			setupMock: func(mock *executer.MockExecuter) {
+				mock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"tag", "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "quay.io/acme/os:v2"}).
+					Return("", "", 0)
+			},
+		},
+		{
+			name:   "When tag fails it should return an error",
+			source: "missing",
+			target: "quay.io/acme/os:v2",
+			setupMock: func(mock *executer.MockExecuter) {
+				mock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"tag", "missing", "quay.io/acme/os:v2"}).
+					Return("", "Error: no such image", 1)
+			},
+			expectedError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockExec := executer.NewMockExecuter(ctrl)
+			logger := log.NewPrefixLogger("test")
+			readWriter := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
+			tt.setupMock(mockExec)
+
+			podman := NewPodman(logger, mockExec, readWriter, poll.Config{})
+			err := podman.Tag(context.Background(), tt.source, tt.target)
+			if tt.expectedError {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}

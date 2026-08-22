@@ -3,6 +3,8 @@ package os
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"sync"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -14,8 +16,17 @@ import (
 )
 
 const (
-	authPath = "/etc/ostree/auth.json"
+	authPath            = "/etc/ostree/auth.json"
+	fallbackReasonPull  = "delta pull failed"
+	fallbackReasonApply = "delta apply failed"
+	osDeltaTempPrefix   = "os-delta"
+	osDeltaArchiveName  = "image.tar"
 )
+
+type Capabilities struct {
+	OsMode        v1beta1.OsModeType
+	DeltaEligible bool
+}
 
 type Client interface {
 	// Status retrieves the current OS status
@@ -44,31 +55,38 @@ type Manager interface {
 func NewManager(
 	log *log.PrefixLogger,
 	client Client,
-	osMode v1beta1.OsModeType,
-	deltaEligible bool,
+	caps Capabilities,
 	readWriter fileio.ReadWriter,
 	podmanClient *client.Podman,
 	pullConfigResolver dependency.PullConfigResolver,
+	ociDelta *client.OCIDelta,
+	skopeo *client.Skopeo,
 ) Manager {
 	return &manager{
 		client:             client,
-		osMode:             osMode,
-		deltaEligible:      deltaEligible,
+		caps:               caps,
 		podmanClient:       podmanClient,
 		readWriter:         readWriter,
 		pullConfigResolver: pullConfigResolver,
+		ociDelta:           ociDelta,
+		skopeo:             skopeo,
 		log:                log,
 	}
 }
 
 type manager struct {
 	client             Client
-	osMode             v1beta1.OsModeType
-	deltaEligible      bool
+	caps               Capabilities
 	podmanClient       *client.Podman
 	readWriter         fileio.ReadWriter
 	pullConfigResolver dependency.PullConfigResolver
+	ociDelta           *client.OCIDelta
+	skopeo             *client.Skopeo
 	log                *log.PrefixLogger
+
+	mu                 sync.Mutex
+	fallbackReason     *string
+	lastAttemptedImage string
 }
 
 func (m *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, _ ...status.CollectorOpt) error {
@@ -79,8 +97,11 @@ func (m *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, _ ..
 
 	status.Os.Image = bootcInfo.GetBootedImage()
 	status.Os.ImageDigest = bootcInfo.GetBootedImageDigest()
-	osMode := m.osMode
-	deltaEligible := m.deltaEligible
+	m.mu.Lock()
+	status.Os.LastUpdateFallbackReason = m.fallbackReason
+	m.mu.Unlock()
+	osMode := m.caps.OsMode
+	deltaEligible := m.caps.DeltaEligible
 	status.Capabilities = &v1beta1.DeviceCapabilities{
 		OsMode:        &osMode,
 		DeltaEligible: &deltaEligible,
@@ -92,7 +113,6 @@ func (m *manager) BeforeUpdate(ctx context.Context, current, desired *v1beta1.De
 	if desired.Os == nil {
 		return nil
 	}
-	// The prefetch manager now handles scheduling
 	m.log.Debugf("OS image %s will be scheduled for prefetching", desired.Os.Image)
 	return nil
 }
@@ -105,17 +125,15 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1bet
 
 	osImage := desired.Os.Image
 
-	// check if the image is already booted or exists in container storage
-	status, err := m.client.Status(ctx)
+	bootcStatus, err := m.client.Status(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("getting OS status: %w", err)
 	}
-	isDesiredImageRunning, err := container.IsOsImageReconciled(&status.BootcHost, desired)
+	isDesiredImageRunning, err := container.IsOsImageReconciled(&bootcStatus.BootcHost, desired)
 	if err != nil {
 		return nil, fmt.Errorf("checking if OS image is reconciled: %w", err)
 	}
 	if isDesiredImageRunning {
-		// desired OS image is already booted, no need to pull it
 		m.log.Debugf("Desired OS image is currently booted: %s", osImage)
 		return &dependency.OCICollection{}, nil
 	}
@@ -125,22 +143,117 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1bet
 		return &dependency.OCICollection{}, nil
 	}
 
-	target := dependency.OCIPullTarget{
-		Type:       dependency.OCITypePodmanImage,
-		Reference:  osImage,
-		PullPolicy: v1beta1.PullIfNotPresent,
-		ClientOptsFn: m.pullConfigResolver.Options(dependency.PullConfigSpec{
-			Paths:    []string{authPath},
-			OptionFn: client.WithPullSecret,
-		}),
+	m.startImageAttempt(osImage)
+	optsFn := m.osPullOptsFn()
+	if !m.caps.DeltaEligible {
+		return m.fullImageCollection(osImage, optsFn), nil
 	}
 
+	candidate := m.discoverOSDelta(ctx, desired, bootcStatus.GetBootedImageDigest(), optsFn)
+	if candidate == "" {
+		return m.fullImageCollection(osImage, optsFn), nil
+	}
+
+	if err := m.pullAndApplyOSDelta(ctx, candidate, osImage, optsFn); err != nil {
+		m.log.Errorf("OS delta failed, falling back to full pull: %v", err)
+		return m.fullImageCollection(osImage, optsFn), nil
+	}
+
+	return &dependency.OCICollection{}, nil
+}
+
+func (m *manager) osPullOptsFn() dependency.ClientOptsFn {
+	return m.pullConfigResolver.Options(dependency.PullConfigSpec{
+		Paths:    []string{authPath},
+		OptionFn: client.WithPullSecret,
+	})
+}
+
+func (m *manager) fullImageCollection(osImage string, optsFn dependency.ClientOptsFn) *dependency.OCICollection {
 	m.log.Debugf("Collected 1 OCI target from OS spec: %s", osImage)
 	return &dependency.OCICollection{
 		Targets: dependency.OCIPullTargetsByUser{
-			v1beta1.CurrentProcessUsername: []dependency.OCIPullTarget{target},
+			v1beta1.CurrentProcessUsername: []dependency.OCIPullTarget{
+				{
+					Type:         dependency.OCITypePodmanImage,
+					Reference:    osImage,
+					PullPolicy:   v1beta1.PullIfNotPresent,
+					ClientOptsFn: optsFn,
+				},
+			},
 		},
-	}, nil
+	}
+}
+
+func (m *manager) startImageAttempt(osImage string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.lastAttemptedImage == osImage {
+		return
+	}
+	m.lastAttemptedImage = osImage
+	m.fallbackReason = nil
+}
+
+func (m *manager) discoverOSDelta(ctx context.Context, desired *v1beta1.DeviceSpec, sourceDigest string, optsFn dependency.ClientOptsFn) string {
+	if desired.Os.DeltaImage != nil && *desired.Os.DeltaImage != "" {
+		return *desired.Os.DeltaImage
+	}
+
+	index, err := m.skopeo.ListReferrers(ctx, desired.Os.Image, optsFn()...)
+	if err != nil {
+		m.log.Debugf("OS delta referrers unavailable: %v", err)
+		return ""
+	}
+	return selectOSDeltaCandidate(nil, desired.Os.Image, sourceDigest, index)
+}
+
+func (m *manager) pullAndApplyOSDelta(ctx context.Context, candidate, osImage string, optsFn dependency.ClientOptsFn) error {
+	if _, err := m.podmanClient.PullArtifact(ctx, candidate, optsFn()...); err != nil {
+		m.setFallbackReason(fallbackReasonPull)
+		return err
+	}
+
+	tmpDir, err := m.readWriter.MkdirTemp(osDeltaTempPrefix)
+	if err != nil {
+		return m.failApply(ctx, candidate, err)
+	}
+	defer func() { _ = m.readWriter.RemoveAll(tmpDir) }()
+
+	archivePath := filepath.Join(tmpDir, osDeltaArchiveName)
+	if err := m.ociDelta.Apply(ctx, candidate, archivePath); err != nil {
+		return m.failApply(ctx, candidate, err)
+	}
+
+	loaded, err := m.podmanClient.LoadArchive(ctx, archivePath)
+	if err != nil {
+		return m.failApply(ctx, candidate, err)
+	}
+	if err := m.podmanClient.Tag(ctx, loaded, osImage); err != nil {
+		return m.failApply(ctx, candidate, err)
+	}
+
+	m.removeArtifactBestEffort(ctx, candidate)
+	return nil
+}
+
+func (m *manager) failApply(ctx context.Context, candidate string, err error) error {
+	m.setFallbackReason(fallbackReasonApply)
+	m.removeArtifactBestEffort(ctx, candidate)
+	return err
+}
+
+func (m *manager) setFallbackReason(reason string) {
+	r := reason
+	m.mu.Lock()
+	m.fallbackReason = &r
+	m.mu.Unlock()
+}
+
+func (m *manager) removeArtifactBestEffort(ctx context.Context, candidate string) {
+	if err := m.podmanClient.RemoveArtifact(ctx, candidate); err != nil {
+		m.log.Warnf("Failed to remove OS delta artifact %s: %v", candidate, err)
+	}
 }
 
 func (m *manager) AfterUpdate(ctx context.Context, desired *v1beta1.DeviceSpec) error {

@@ -315,7 +315,21 @@ func (a *Agent) Run(ctx context.Context) error {
 	shutdownManager.Register("applications", applicationsManager.Shutdown)
 
 	// create os manager
-	osManager := os.NewManager(a.log, osClient, osMode, deltaEligible, rootReadWriter, rootPodmanClient, pullConfigResolver)
+	rootSkopeoClient, err := skopeoClientFactory("")
+	if err != nil {
+		return err
+	}
+
+	osManager := os.NewManager(
+		a.log,
+		osClient,
+		os.Capabilities{OsMode: osMode, DeltaEligible: deltaEligible},
+		rootReadWriter,
+		rootPodmanClient,
+		pullConfigResolver,
+		client.NewOCIDelta(a.log, exec),
+		rootSkopeoClient,
+	)
 
 	// create prefetch manager
 	prefetchManager := dependency.NewPrefetchManager(
