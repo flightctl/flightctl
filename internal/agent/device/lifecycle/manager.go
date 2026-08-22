@@ -51,6 +51,7 @@ type LifecycleManager struct {
 	defaultLabels       map[string]string
 	labelFromSystemInfo map[string]string
 	osMode              v1beta1.OsModeType
+	deltaEligible       bool
 	enrollmentCSR       []byte
 	statusManager       status.Manager
 	systemdClient       *client.Systemd
@@ -73,6 +74,7 @@ func NewManager(
 	defaultLabels map[string]string,
 	labelFromSystemInfo map[string]string,
 	osMode v1beta1.OsModeType,
+	deltaEligible bool,
 	statusManager status.Manager,
 	systemdClient *client.Systemd,
 	identityProvider identity.Provider,
@@ -92,6 +94,7 @@ func NewManager(
 		defaultLabels:        defaultLabels,
 		labelFromSystemInfo:  labelFromSystemInfo,
 		osMode:               osMode,
+		deltaEligible:        deltaEligible,
 		backoff:              backoff,
 		statusManager:        statusManager,
 		systemdClient:        systemdClient,
@@ -443,7 +446,10 @@ func (m *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *
 			DeviceStatus:         deviceStatus,
 			Labels:               &enrollmentLabels,
 			KnownRenderedVersion: knownRenderedVersion,
-			OsMode:               &m.osMode,
+			Capabilities: &v1beta1.DeviceCapabilities{
+				OsMode:        &m.osMode,
+				DeltaEligible: &m.deltaEligible,
+			},
 		},
 	}
 

@@ -1284,8 +1284,11 @@ type DeviceApplicationsSummaryStatus struct {
 	Status ApplicationsSummaryStatusType `json:"status"`
 }
 
-// DeviceCapabilities Capabilities reported by the device agent.
+// DeviceCapabilities Capabilities reported by the device agent. Present on Device.status.capabilities and EnrollmentRequest.spec.capabilities.
 type DeviceCapabilities struct {
+	// DeltaEligible Whether this device can apply OS deltas. True only when bootc is 1.15.0 or newer and the oci-delta binary is present. False when this agent cannot apply deltas. Omitted when an older agent does not report the field.
+	DeltaEligible *bool `json:"deltaEligible,omitempty"`
+
 	// OsMode OS management mode. "image" indicates the OS is managed via bootc or rpm-ostree image updates. "package" indicates no image-based OS management is available.
 	OsMode *OsModeType `json:"osMode,omitempty"`
 }
@@ -1419,8 +1422,17 @@ type DeviceMultipleOwnersResolvedDetailsDetailType string
 // DeviceMultipleOwnersResolvedDetailsResolutionType How the conflict was resolved.
 type DeviceMultipleOwnersResolvedDetailsResolutionType string
 
-// DeviceOsSpec Either a specific OCI image reference, or a reference to a catalog item version that can be resolved to an OCI image ref.
-type DeviceOsSpec = ImageOrCatalogItemRefSpec
+// DeviceOsSpec defines model for DeviceOsSpec.
+type DeviceOsSpec struct {
+	// CatalogItemRef A reference to a catalog item, along with its configuration.
+	CatalogItemRef *CatalogItemRefSpec `json:"catalogItemRef,omitempty"`
+
+	// DeltaImage Optional hint: a reference to a delta artifact the control plane's generation records indicate may be applicable to reach `image` from this device's current image. Absent does not imply no delta exists — the device independently discovers candidate delta artifacts (e.g. deltas published by a customer's own CI) regardless of this field, and falls back to a full pull only if none is usable.
+	DeltaImage *string `json:"deltaImage,omitempty"`
+
+	// Image Reference to an OCI image or artifact with tag.
+	Image string `json:"image,omitempty"`
+}
 
 // DeviceOsStatus Current status of the device OS.
 type DeviceOsStatus struct {
@@ -1429,6 +1441,9 @@ type DeviceOsStatus struct {
 
 	// ImageDigest The digest of the OS image (e.g. sha256:a0...).
 	ImageDigest string `json:"imageDigest"`
+
+	// LastUpdateFallbackReason Set when the most recent update attempt fell back from a delta to a full image pull. Absent if no delta was attempted or the delta succeeded. Cleared when the next update attempt starts.
+	LastUpdateFallbackReason *string `json:"lastUpdateFallbackReason,omitempty"`
 }
 
 // DeviceOwnershipChangedDetails defines model for DeviceOwnershipChangedDetails.
@@ -1521,7 +1536,7 @@ type DeviceStatus struct {
 	// ApplicationsSummary A summary of the health of applications on the device.
 	ApplicationsSummary DeviceApplicationsSummaryStatus `json:"applicationsSummary"`
 
-	// Capabilities Capabilities reported by the device agent.
+	// Capabilities Capabilities reported by the device agent. Present on Device.status.capabilities and EnrollmentRequest.spec.capabilities.
 	Capabilities *DeviceCapabilities `json:"capabilities,omitempty"`
 
 	// Conditions Conditions represent the observations of a the current state of a device.
@@ -1605,6 +1620,9 @@ type DeviceUpdatePolicySpec struct {
 type DeviceUpdatedStatus struct {
 	// Info Human readable information about the last device update transition.
 	Info *string `json:"info,omitempty"`
+
+	// Size Expected OS update size in IEC units (KiB, MiB, GiB, or TiB). Absent when the size is not yet known.
+	Size *string `json:"size,omitempty"`
 
 	// Status Status type of the device update.
 	Status DeviceUpdatedStatusType `json:"status"`
@@ -1771,6 +1789,9 @@ type EnrollmentRequestList struct {
 
 // EnrollmentRequestSpec EnrollmentRequestSpec is a description of a EnrollmentRequest's target state.
 type EnrollmentRequestSpec struct {
+	// Capabilities Capabilities reported by the device agent. Present on Device.status.capabilities and EnrollmentRequest.spec.capabilities.
+	Capabilities *DeviceCapabilities `json:"capabilities,omitempty"`
+
 	// Csr The PEM-encoded PKCS#10 certificate signing request.
 	Csr string `json:"csr"`
 
@@ -1783,7 +1804,8 @@ type EnrollmentRequestSpec struct {
 	// Labels A set of labels that the service will apply to this device when its enrollment is approved.
 	Labels *map[string]string `json:"labels,omitempty"`
 
-	// OsMode OS management mode. "image" indicates the OS is managed via bootc or rpm-ostree image updates. "package" indicates no image-based OS management is available.
+	// OsMode Deprecated: use spec.capabilities.osMode. Retained so older agents that still send top-level osMode continue to enroll. Ignored when spec.capabilities.osMode is set.
+	// Deprecated: Use spec.capabilities.osMode.
 	OsMode *OsModeType `json:"osMode,omitempty"`
 }
 

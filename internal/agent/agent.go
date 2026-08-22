@@ -178,6 +178,14 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	osMode := os.DetectMode(stdexec.LookPath)
 	a.log.Infof("OS mode detected: %s", osMode)
+	deltaEligible := os.DetectDeltaEligible(stdexec.LookPath, func() (string, error) {
+		stdout, stderr, exitCode := exec.Execute("bootc", "--version")
+		if exitCode != 0 {
+			return "", fmt.Errorf("bootc --version: %s", stderr)
+		}
+		return stdout, nil
+	})
+	a.log.Infof("OS delta eligible: %t", deltaEligible)
 
 	// create podman client
 	podmanClientFactory := client.NewPodmanFactory(a.log, pollBackoff, rwFactory)
@@ -307,7 +315,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	shutdownManager.Register("applications", applicationsManager.Shutdown)
 
 	// create os manager
-	osManager := os.NewManager(a.log, osClient, osMode, rootReadWriter, rootPodmanClient, pullConfigResolver)
+	osManager := os.NewManager(a.log, osClient, osMode, deltaEligible, rootReadWriter, rootPodmanClient, pullConfigResolver)
 
 	// create prefetch manager
 	prefetchManager := dependency.NewPrefetchManager(
@@ -340,6 +348,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.config.DefaultLabels,
 		a.config.LabelFromSystemInfo,
 		osMode,
+		deltaEligible,
 		statusManager,
 		rootSystemdClient,
 		identityProvider,

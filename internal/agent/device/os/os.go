@@ -45,6 +45,7 @@ func NewManager(
 	log *log.PrefixLogger,
 	client Client,
 	osMode v1beta1.OsModeType,
+	deltaEligible bool,
 	readWriter fileio.ReadWriter,
 	podmanClient *client.Podman,
 	pullConfigResolver dependency.PullConfigResolver,
@@ -52,6 +53,7 @@ func NewManager(
 	return &manager{
 		client:             client,
 		osMode:             osMode,
+		deltaEligible:      deltaEligible,
 		podmanClient:       podmanClient,
 		readWriter:         readWriter,
 		pullConfigResolver: pullConfigResolver,
@@ -62,6 +64,7 @@ func NewManager(
 type manager struct {
 	client             Client
 	osMode             v1beta1.OsModeType
+	deltaEligible      bool
 	podmanClient       *client.Podman
 	readWriter         fileio.ReadWriter
 	pullConfigResolver dependency.PullConfigResolver
@@ -77,7 +80,11 @@ func (m *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, _ ..
 	status.Os.Image = bootcInfo.GetBootedImage()
 	status.Os.ImageDigest = bootcInfo.GetBootedImageDigest()
 	osMode := m.osMode
-	status.Capabilities = &v1beta1.DeviceCapabilities{OsMode: &osMode}
+	deltaEligible := m.deltaEligible
+	status.Capabilities = &v1beta1.DeviceCapabilities{
+		OsMode:        &osMode,
+		DeltaEligible: &deltaEligible,
+	}
 	return nil
 }
 

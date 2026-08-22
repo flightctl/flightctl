@@ -296,21 +296,27 @@ func TestLifecycleManager_Initialize_NoBannerOnEnrollmentFailure(t *testing.T) {
 	}
 }
 
-func TestLifecycleManager_enrollmentRequest_osMode(t *testing.T) {
+func TestLifecycleManager_enrollmentRequest_capabilities(t *testing.T) {
 	tests := []struct {
-		name           string
-		osMode         v1beta1.OsModeType
-		expectedOsMode *v1beta1.OsModeType
+		name             string
+		osMode           v1beta1.OsModeType
+		deltaEligible    bool
+		expectedOsMode   *v1beta1.OsModeType
+		expectedEligible bool
 	}{
 		{
-			name:           "When osMode is image it should include osMode in enrollment request",
-			osMode:         v1beta1.OsModeImage,
-			expectedOsMode: ptr(v1beta1.OsModeImage),
+			name:             "When osMode is image and delta eligible it should include both on enrollment capabilities",
+			osMode:           v1beta1.OsModeImage,
+			deltaEligible:    true,
+			expectedOsMode:   ptr(v1beta1.OsModeImage),
+			expectedEligible: true,
 		},
 		{
-			name:           "When osMode is package it should include osMode in enrollment request",
-			osMode:         v1beta1.OsModePackage,
-			expectedOsMode: ptr(v1beta1.OsModePackage),
+			name:             "When osMode is package it should include osMode and deltaEligible false",
+			osMode:           v1beta1.OsModePackage,
+			deltaEligible:    false,
+			expectedOsMode:   ptr(v1beta1.OsModePackage),
+			expectedEligible: false,
 		},
 	}
 
@@ -328,6 +334,7 @@ func TestLifecycleManager_enrollmentRequest_osMode(t *testing.T) {
 				enrollmentClient: mockEnrollment,
 				deviceReadWriter: mockReadWriter,
 				osMode:           tt.osMode,
+				deltaEligible:    tt.deltaEligible,
 				backoff: wait.Backoff{
 					Steps:    1,
 					Duration: time.Millisecond,
@@ -347,7 +354,10 @@ func TestLifecycleManager_enrollmentRequest_osMode(t *testing.T) {
 			err := manager.enrollmentRequest(ctx, &v1beta1.DeviceStatus{})
 
 			require.NoError(t, err)
-			require.Equal(t, tt.expectedOsMode, capturedReq.Spec.OsMode)
+			require.NotNil(t, capturedReq.Spec.Capabilities)
+			require.Equal(t, tt.expectedOsMode, capturedReq.Spec.Capabilities.OsMode)
+			require.NotNil(t, capturedReq.Spec.Capabilities.DeltaEligible)
+			require.Equal(t, tt.expectedEligible, *capturedReq.Spec.Capabilities.DeltaEligible)
 		})
 	}
 }
