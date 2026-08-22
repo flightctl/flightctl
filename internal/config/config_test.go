@@ -277,6 +277,32 @@ deltaGeneration:
 	})
 }
 
+func TestEffectiveMaxConcurrentDeltaGenerations(t *testing.T) {
+	t.Run("When config is omitted it should default to 2", func(t *testing.T) {
+		require.Equal(t, 2, (*DeltaGenerationConfig)(nil).EffectiveMaxConcurrentDeltaGenerations())
+		require.Equal(t, 2, (&DeltaGenerationConfig{}).EffectiveMaxConcurrentDeltaGenerations())
+	})
+
+	t.Run("When value is 0 or negative it should default to 2", func(t *testing.T) {
+		require.Equal(t, 2, (&DeltaGenerationConfig{MaxConcurrentDeltaGenerations: 0}).EffectiveMaxConcurrentDeltaGenerations())
+		require.Equal(t, 2, (&DeltaGenerationConfig{MaxConcurrentDeltaGenerations: -1}).EffectiveMaxConcurrentDeltaGenerations())
+	})
+
+	t.Run("When YAML sets maxConcurrentDeltaGenerations to 4 it should be 4", func(t *testing.T) {
+		path := writeTempConfig(t, `
+deltaGeneration:
+  maxConcurrentDeltaGenerations: 4
+`)
+		cfg, err := Load(path)
+		require.NoError(t, err)
+		require.Equal(t, 4, cfg.DeltaGeneration.EffectiveMaxConcurrentDeltaGenerations())
+	})
+
+	t.Run("When NewDefault it should Effective 2", func(t *testing.T) {
+		require.Equal(t, 2, NewDefault().DeltaGeneration.EffectiveMaxConcurrentDeltaGenerations())
+	})
+}
+
 func TestDefaultRepositoryConfigOciRepoSpec(t *testing.T) {
 	t.Run("When registry is empty it should return nil", func(t *testing.T) {
 		require.Nil(t, (&DefaultRepositoryConfig{}).OciRepoSpec())

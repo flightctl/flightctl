@@ -789,7 +789,15 @@ type VulnerabilityConfig struct {
 }
 
 type DeltaGenerationConfig struct {
-	DefaultRepository *DefaultRepositoryConfig `json:"defaultRepository,omitempty"`
+	DefaultRepository             *DefaultRepositoryConfig `json:"defaultRepository,omitempty"`
+	MaxConcurrentDeltaGenerations int                      `json:"maxConcurrentDeltaGenerations,omitempty"`
+}
+
+func (c *DeltaGenerationConfig) EffectiveMaxConcurrentDeltaGenerations() int {
+	if c == nil || c.MaxConcurrentDeltaGenerations <= 0 {
+		return 2
+	}
+	return c.MaxConcurrentDeltaGenerations
 }
 
 type DefaultRepositoryConfig struct {
