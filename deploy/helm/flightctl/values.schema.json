@@ -513,6 +513,26 @@
         }
       }
     },
+    "deltaWorker": {
+      "type": "object",
+      "description": "Delta-worker configuration",
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "image": { "type": "string", "description": "Delta-worker container image" },
+            "tag": { "type": "string", "description": "Delta-worker image tag" },
+            "pullPolicy": { "type": "string", "description": "Image pull policy for delta-worker container" }
+          }
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    },
     "periodic": {
       "type": "object",
       "description": "Periodic job configuration",
@@ -1018,6 +1038,10 @@
             "skipServerVerification": { "type": "boolean", "description": "Skip TLS verification when connecting to the registry" },
             "secretName": { "type": "string", "description": "Name of the Kubernetes Secret containing 'username' and 'password' keys" }
           }
+        },
+        "maxConcurrentDeltaGenerations": {
+          "type": "integer",
+          "description": "Maximum number of concurrent delta generation jobs. Defaults to 2 when omitted or <= 0"
         }
       }
     },

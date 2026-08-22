@@ -31,6 +31,9 @@ redeploy-api: flightctl-api-container
 redeploy-worker: flightctl-worker-container
 	test/scripts/redeploy.sh worker
 
+redeploy-delta-worker: flightctl-delta-worker-container
+	test/scripts/redeploy.sh delta-worker
+
 redeploy-periodic: flightctl-periodic-container
 	test/scripts/redeploy.sh periodic
 
@@ -53,7 +56,7 @@ redeploy-remote-access: flightctl-remote-access-container
 	test/scripts/redeploy.sh remote-access
 
 ifndef SKIP_BUILD
-deploy-helm: flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-imagebuilder-api-container flightctl-imagebuilder-worker-container flightctl-multiarch-cli-container flightctl-telemetry-gateway-container flightctl-remote-access-container
+deploy-helm: flightctl-api-container flightctl-db-setup-container flightctl-worker-container flightctl-delta-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-imagebuilder-api-container flightctl-imagebuilder-worker-container flightctl-multiarch-cli-container flightctl-telemetry-gateway-container flightctl-remote-access-container
 endif
 deploy-helm:
 	kubectl config set-context kind-kind
