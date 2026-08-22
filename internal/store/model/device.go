@@ -308,6 +308,7 @@ func DevicesToApiResource[D DeviceType](devices []D, cont *string, numRemaining 
 	summaryStatuses := make(map[string]int64)
 	updateStatuses := make(map[string]int64)
 	osModeStatuses := make(map[string]int64)
+	deltaEligibleStatuses := make(map[string]int64)
 	for i, device := range devices {
 		dptr, ok := any(&device).(DeviceTypePtr)
 		if !ok {
@@ -322,6 +323,7 @@ func DevicesToApiResource[D DeviceType](devices []D, cont *string, numRemaining 
 		updateStatus := string(deviceList[i].Status.Updated.Status)
 		updateStatuses[updateStatus] = updateStatuses[updateStatus] + 1
 		osModeStatuses[deviceOsModeCountKey(deviceList[i].Status)]++
+		deltaEligibleStatuses[deviceDeltaEligibleCountKey(deviceList[i].Status)]++
 	}
 	ret := domain.DeviceList{
 		ApiVersion: DeviceAPIVersion(),
@@ -332,7 +334,7 @@ func DevicesToApiResource[D DeviceType](devices []D, cont *string, numRemaining 
 			ApplicationStatus: applicationStatuses,
 			SummaryStatus:     summaryStatuses,
 			UpdateStatus:      updateStatuses,
-			Capabilities:      NewDevicesSummaryCapabilities(osModeStatuses),
+			Capabilities:      NewDevicesSummaryCapabilities(osModeStatuses, deltaEligibleStatuses),
 			Total:             int64(len(devices)),
 		},
 	}

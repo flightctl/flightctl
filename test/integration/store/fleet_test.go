@@ -113,7 +113,7 @@ var _ = Describe("FleetStore create", func() {
 					Updated: api.DeviceUpdatedStatus{
 						Status: api.DeviceUpdatedStatusUpToDate,
 					},
-					Capabilities: &api.DeviceCapabilities{OsMode: lo.ToPtr(api.OsModeImage)},
+					Capabilities: &api.DeviceCapabilities{OsMode: lo.ToPtr(api.OsModeImage), DeltaEligible: lo.ToPtr(true)},
 				},
 			}
 			_, _, err := deviceStore.UpdateStatus(ctx, orgId, &device, nil)
@@ -121,14 +121,14 @@ var _ = Describe("FleetStore create", func() {
 			device.Metadata.Name = lo.ToPtr("mydevice-2")
 			device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusDegraded
 			device.Status.Summary.Status = api.DeviceSummaryStatusDegraded
-			device.Status.Capabilities = &api.DeviceCapabilities{OsMode: lo.ToPtr(api.OsModePackage)}
+			device.Status.Capabilities = &api.DeviceCapabilities{OsMode: lo.ToPtr(api.OsModePackage), DeltaEligible: lo.ToPtr(false)}
 			_, _, err = deviceStore.UpdateStatus(ctx, orgId, &device, nil)
 			Expect(err).ToNot(HaveOccurred())
 			device.Metadata.Name = lo.ToPtr("mydevice-3")
 			device.Status.ApplicationsSummary.Status = api.ApplicationsSummaryStatusHealthy
 			device.Status.Summary.Status = api.DeviceSummaryStatusOnline
 			device.Status.Updated.Status = api.DeviceUpdatedStatusUpdating
-			device.Status.Capabilities = &api.DeviceCapabilities{OsMode: lo.ToPtr(api.OsModeImage)}
+			device.Status.Capabilities = &api.DeviceCapabilities{OsMode: lo.ToPtr(api.OsModeImage), DeltaEligible: lo.ToPtr(true)}
 			_, _, err = deviceStore.UpdateStatus(ctx, orgId, &device, nil)
 			Expect(err).ToNot(HaveOccurred())
 			device.Metadata.Name = lo.ToPtr("mydevice-4")
@@ -153,12 +153,12 @@ var _ = Describe("FleetStore create", func() {
 			// A device in another org that shouldn't be included
 			testutil.CreateTestDevice(ctx, deviceStore, otherOrgId, "other-org-dev", util.SetResourceOwner(api.FleetKind, "myfleet-1"), nil, nil)
 
-			//				App:        Device:     updated:   osMode:
-			// mydevice-1 | Healthy   | Online    | UpToDate | image
-			// mydevice-2 | Degraded  | Degraded  | UpToDate | package
-			// mydevice-3 | Healthy   | Online    | Updating | image
-			// mydevice-4 | Healthy   | Rebooting | Updating | unknown
-			// mydevice-5 | Error     | Error     | Unknown  | package
+			//				App:        Device:     updated:   osMode:  deltaEligible:
+			// mydevice-1 | Healthy   | Online    | UpToDate | image    | true
+			// mydevice-2 | Degraded  | Degraded  | UpToDate | package  | false
+			// mydevice-3 | Healthy   | Online    | Updating | image    | true
+			// mydevice-4 | Healthy   | Rebooting | Updating | unknown  | unknown
+			// mydevice-5 | Error     | Error     | Unknown  | package  | unknown
 			fleet, err := fleetStore.Get(ctx, orgId, "myfleet-1", fleetstore.GetWithDeviceSummary(true))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(fleet.Status.DevicesSummary).ToNot(BeNil())
@@ -185,6 +185,11 @@ var _ = Describe("FleetStore create", func() {
 			Expect(osModeStatus[string(api.OsModeImage)]).To(Equal(int64(2)))
 			Expect(osModeStatus[string(api.OsModePackage)]).To(Equal(int64(2)))
 			Expect(osModeStatus[model.CapabilityCountUnknown]).To(Equal(int64(1)))
+			Expect(fleet.Status.DevicesSummary.Capabilities.DeltaEligible).ToNot(BeNil())
+			deltaEligibleStatus := *fleet.Status.DevicesSummary.Capabilities.DeltaEligible
+			Expect(deltaEligibleStatus["true"]).To(Equal(int64(2)))
+			Expect(deltaEligibleStatus["false"]).To(Equal(int64(1)))
+			Expect(deltaEligibleStatus[model.CapabilityCountUnknown]).To(Equal(int64(2)))
 		})
 
 		It("Delete fleet success", func() {

@@ -7424,6 +7424,13 @@ components:
             type: integer
             format: int64
           description: Counts by status.capabilities.osMode (e.g. image, package). The key "unknown" counts devices that have not reported the capability.
+        deltaEligible:
+          type: object
+          default: {}
+          additionalProperties:
+            type: integer
+            format: int64
+          description: Counts by status.capabilities.deltaEligible (true, false). The key "unknown" counts devices that have not reported the capability.
       additionalProperties: false
     TemplateVersion:
       type: object

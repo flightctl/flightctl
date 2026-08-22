@@ -227,6 +227,66 @@ func TestDeviceUpdatedStatusSizeJSON(t *testing.T) {
 	}
 }
 
+func TestDevicesSummaryCapabilitiesDeltaEligibleJSON(t *testing.T) {
+	tests := []struct {
+		name            string
+		jsonInput       string
+		wantNil         bool
+		wantCounts      map[string]int64
+		marshalSource   DevicesSummaryCapabilities
+		wantMarshalOmit bool
+	}{
+		{
+			name:      "When deltaEligible is absent it should leave DeltaEligible nil",
+			jsonInput: `{"osMode":{"image":2}}`,
+			wantNil:   true,
+		},
+		{
+			name:       "When deltaEligible is set it should unmarshal true false and unknown counts",
+			jsonInput:  `{"deltaEligible":{"true":1,"false":2,"unknown":3}}`,
+			wantCounts: map[string]int64{"true": 1, "false": 2, "unknown": 3},
+		},
+		{
+			name:            "When DeltaEligible is nil it should omit deltaEligible from JSON",
+			marshalSource:   DevicesSummaryCapabilities{},
+			wantMarshalOmit: true,
+		},
+		{
+			name:          "When DeltaEligible is set it should include the counts in JSON",
+			marshalSource: DevicesSummaryCapabilities{DeltaEligible: &map[string]int64{"true": 4, "false": 1}},
+			wantCounts:    map[string]int64{"true": 4, "false": 1},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.jsonInput != "" {
+				var caps DevicesSummaryCapabilities
+				require.NoError(t, json.Unmarshal([]byte(tt.jsonInput), &caps))
+				if tt.wantNil {
+					assert.Nil(t, caps.DeltaEligible)
+					return
+				}
+				require.NotNil(t, caps.DeltaEligible)
+				assert.Equal(t, tt.wantCounts, *caps.DeltaEligible)
+				return
+			}
+
+			data, err := json.Marshal(tt.marshalSource)
+			require.NoError(t, err)
+			raw := string(data)
+			if tt.wantMarshalOmit {
+				assert.NotContains(t, raw, `"deltaEligible"`)
+				return
+			}
+			var caps DevicesSummaryCapabilities
+			require.NoError(t, json.Unmarshal(data, &caps))
+			require.NotNil(t, caps.DeltaEligible)
+			assert.Equal(t, tt.wantCounts, *caps.DeltaEligible)
+		})
+	}
+}
+
 func TestNewDeviceStatusDoesNotInventDeltaFields(t *testing.T) {
 	status := NewDeviceStatus()
 	assert.Nil(t, status.Capabilities)

@@ -1669,6 +1669,9 @@ type DevicesSummary struct {
 
 // DevicesSummaryCapabilities Breakdowns of devices by status.capabilities fields.
 type DevicesSummaryCapabilities struct {
+	// DeltaEligible Counts by status.capabilities.deltaEligible (true, false). The key "unknown" counts devices that have not reported the capability.
+	DeltaEligible *map[string]int64 `json:"deltaEligible,omitempty"`
+
 	// OsMode Counts by status.capabilities.osMode (e.g. image, package). The key "unknown" counts devices that have not reported the capability.
 	OsMode *map[string]int64 `json:"osMode,omitempty"`
 }
