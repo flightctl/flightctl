@@ -56,6 +56,7 @@ var k8sServiceRegistry = map[infra.ServiceName]k8sServiceInfo{
 	infra.ServiceRedis:              {ServiceName: "flightctl-kv", ConfigMapName: "flightctl-kv-config", Label: "flightctl.service=flightctl-kv", Port: 6379, NSType: nsInternal},
 	infra.ServiceAPI:                {ServiceName: "flightctl-api", ConfigMapName: "flightctl-api-config", Label: "flightctl.service=flightctl-api", Port: 3443, NSType: nsExternal},
 	infra.ServiceWorker:             {ServiceName: "flightctl-worker", ConfigMapName: "flightctl-worker-config", Label: "flightctl.service=flightctl-worker", Port: 7443, NSType: nsInternal},
+	infra.ServiceDeltaWorker:        {ServiceName: "flightctl-delta-worker", ConfigMapName: "flightctl-delta-worker-config", Label: "flightctl.service=flightctl-delta-worker", Port: 8080, NSType: nsInternal},
 	infra.ServicePeriodic:           {ServiceName: "flightctl-periodic", ConfigMapName: "flightctl-periodic-config", Label: "flightctl.service=flightctl-periodic", Port: 0, NSType: nsInternal},
 	infra.ServiceTelemetryGateway:   {ServiceName: "flightctl-telemetry-gateway", ConfigMapName: "flightctl-telemetry-gateway-config", Label: "flightctl.service=flightctl-telemetry-gateway", Port: 9464, NSType: nsExternal},
 	infra.ServiceDB:                 {ServiceName: "flightctl-db", ConfigMapName: "flightctl-db-config", Label: "flightctl.service=flightctl-db", Port: 5432, NSType: nsInternal},

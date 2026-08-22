@@ -262,6 +262,13 @@ flightctl-worker-container: packaging/images/$(OS)/Containerfile.worker go.mod g
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
 		-f packaging/images/$(OS)/Containerfile.worker -t flightctl-worker-$(OS):latest -t quay.io/flightctl/flightctl-worker-$(OS):$(SOURCE_GIT_TAG) .
 
+flightctl-delta-worker-container: packaging/images/$(OS)/Containerfile.delta-worker go.mod go.sum $(GO_FILES)
+	podman build \
+		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
+		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
+		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
+		-f packaging/images/$(OS)/Containerfile.delta-worker -t flightctl-delta-worker-$(OS):latest -t quay.io/flightctl/flightctl-delta-worker-$(OS):$(SOURCE_GIT_TAG) .
+
 flightctl-periodic-container: packaging/images/$(OS)/Containerfile.periodic go.mod go.sum $(GO_FILES)
 	podman build \
 		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
@@ -325,7 +332,7 @@ flightctl-remote-access-container: packaging/images/$(OS)/Containerfile.remote-a
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
 		-f packaging/images/$(OS)/Containerfile.remote-access -t flightctl-remote-access-$(OS):latest -t quay.io/flightctl/flightctl-remote-access-$(OS):$(SOURCE_GIT_TAG) .
 
-.PHONY: flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container flightctl-imagebuilder-api-container flightctl-imagebuilder-worker-container flightctl-remote-access-container
+.PHONY: flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-delta-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container flightctl-imagebuilder-api-container flightctl-imagebuilder-worker-container flightctl-remote-access-container
 
 # --- Registry Operations ---
 # The login target expects REGISTRY_USER via environment variable and
@@ -367,7 +374,7 @@ rebuild-containers: clean-containers build-containers
 clean-containers:
 	- podman images --filter "reference=flightctl-*-$(OS):latest" --format "{{.Repository}}:{{.Tag}}" | xargs -r podman rmi || true
 
-build-containers: flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container flightctl-imagebuilder-api-container flightctl-imagebuilder-worker-container flightctl-remote-access-container
+build-containers: flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-delta-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container flightctl-imagebuilder-api-container flightctl-imagebuilder-worker-container flightctl-remote-access-container
 
 bundle-containers:
 	test/scripts/agent-images/scripts/bundle.sh \
@@ -445,7 +452,7 @@ clean-quadlets:
 	sudo deploy/scripts/clean_quadlets.sh
 
 
-.PHONY: tools flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container flightctl-remote-access-container
+.PHONY: tools flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-delta-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container flightctl-remote-access-container
 
 # Use custom golangci-lint container with libvirt support
 LINT_IMAGE := flightctl-lint:latest

@@ -89,6 +89,7 @@ ifndef SKIP_BUILD
 	podman save flightctl-api-$(OS):latest | sudo podman load
 	podman save flightctl-db-setup-$(OS):latest | sudo podman load
 	podman save flightctl-worker-$(OS):latest | sudo podman load
+	podman save flightctl-delta-worker-$(OS):latest | sudo podman load
 	podman save flightctl-periodic-$(OS):latest | sudo podman load
 	podman save flightctl-alert-exporter-$(OS):latest | sudo podman load
 	podman save flightctl-cli-artifacts-$(OS):latest | sudo podman load

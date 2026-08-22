@@ -605,6 +605,7 @@ fi
     %dir %{_sysconfdir}/flightctl/flightctl-periodic
     %dir %{_sysconfdir}/flightctl/flightctl-ui
     %dir %{_sysconfdir}/flightctl/flightctl-worker
+    %dir %{_sysconfdir}/flightctl/flightctl-delta-worker
     %dir %{_sysconfdir}/flightctl/flightctl-telemetry-gateway
     %dir %{_sysconfdir}/flightctl/flightctl-telemetry-gateway/forward
     %dir %{_sysconfdir}/flightctl/ssh
@@ -627,6 +628,7 @@ fi
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alert-exporter
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-periodic
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-worker
+    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-delta-worker
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db-migrate
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-imagebuilder-api
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-imagebuilder-worker
@@ -650,6 +652,7 @@ fi
     %{_datadir}/flightctl/flightctl-alert-exporter/config.yaml.template
     %{_datadir}/flightctl/flightctl-periodic/config.yaml.template
     %{_datadir}/flightctl/flightctl-worker/config.yaml.template
+    %{_datadir}/flightctl/flightctl-delta-worker/config.yaml.template
     %{_datadir}/flightctl/flightctl-db-migrate/config.yaml.template
     %{_datadir}/flightctl/flightctl-imagebuilder-api/config.yaml.template
     %{_datadir}/flightctl/flightctl-imagebuilder-worker/config.yaml.template
@@ -660,6 +663,7 @@ fi
     # Quadlet files (excluding observability components which are in separate packages)
     %{_datadir}/containers/systemd/flightctl-api.container
     %{_datadir}/containers/systemd/flightctl-worker.container
+    %{_datadir}/containers/systemd/flightctl-delta-worker.container
     %{_datadir}/containers/systemd/flightctl-periodic.container
     %{_datadir}/containers/systemd/flightctl-alert*.container
     %{_datadir}/containers/systemd/flightctl-cli-artifacts*.container
