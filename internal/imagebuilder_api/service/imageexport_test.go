@@ -21,6 +21,7 @@ import (
 	coredomain "github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
+	"github.com/flightctl/flightctl/internal/oci"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
@@ -913,6 +914,69 @@ func TestDownloadImageExportDestinationRepositoryNotFound(t *testing.T) {
 	_, err = svc.Download(ctx, orgId, "test-export")
 	require.Error(err)
 	require.True(errors.Is(err, ErrRepositoryNotFound))
+}
+
+func TestDownloadImageExportDestinationNamespaceRejected(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	repoStore := NewDummyRepositoryStore()
+	sourceRepo := newOciRepository("input-registry", v1beta1.Read)
+	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
+	destRepo := newOciRepositoryCustom("output-registry", v1beta1.ReadWrite, nil, lo.ToPtr("my-org"))
+	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
+
+	imageBuildStore := NewDummyImageBuildStore()
+	imageBuild := newValidImageBuild("test-image-build")
+	_, err := imageBuildStore.Create(ctx, orgId, &imageBuild)
+	require.NoError(err)
+
+	imageExportStore := NewDummyImageExportStore()
+	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, nil, config.NewDefaultImageBuilderServiceConfig(), log.InitLogs())
+
+	imageExport := newReadyImageExport("test-export", "sha256:abc123")
+	_, err = imageExportStore.Create(ctx, orgId, &imageExport)
+	require.NoError(err)
+
+	_, err = svc.Download(ctx, orgId, "test-export")
+	require.Error(err)
+	require.ErrorIs(err, ErrInvalidImageDest)
+	require.Contains(err.Error(), "namespace")
+}
+
+func TestDownloadImageExportDestinationRepositoryMismatchRejected(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	repoStore := NewDummyRepositoryStore()
+	sourceRepo := newOciRepository("input-registry", v1beta1.Read)
+	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
+	destRepo := newOciRepositoryCustom("output-registry", v1beta1.ReadWrite, lo.ToPtr("my-org/diffs"), nil)
+	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
+
+	imageBuildStore := NewDummyImageBuildStore()
+	imageBuild := newValidImageBuild("test-image-build")
+	_, err := imageBuildStore.Create(ctx, orgId, &imageBuild)
+	require.NoError(err)
+
+	imageExportStore := NewDummyImageExportStore()
+	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, nil, config.NewDefaultImageBuilderServiceConfig(), log.InitLogs())
+
+	imageExport := newReadyImageExport("test-export", "sha256:abc123")
+	_, err = imageExportStore.Create(ctx, orgId, &imageExport)
+	require.NoError(err)
+
+	_, err = svc.Download(ctx, orgId, "test-export")
+	require.Error(err)
+	require.ErrorIs(err, ErrInvalidImageDest)
+	require.Contains(err.Error(), "imageName")
+}
+
+func TestImageExportRegistryOnlyDestRef(t *testing.T) {
+	require := require.New(t)
+	require.Equal("quay.io/output-image", oci.RepoDestRef("quay.io", "output-image"))
 }
 
 func TestDownloadImageExportInvalidManifestDigest(t *testing.T) {

@@ -462,6 +462,10 @@ func (s *DummyRepositoryStore) CountByOrg(ctx context.Context, orgId *uuid.UUID)
 	return nil, nil
 }
 
+func (s *DummyRepositoryStore) GetDeltaStorageTarget(ctx context.Context, orgId uuid.UUID) (*domain.Repository, error) {
+	return nil, nil
+}
+
 // newOciRepository creates a test OCI repository with the specified access mode
 func newOciRepository(name string, accessMode v1beta1.OciRepoSpecAccessMode) *v1beta1.Repository {
 	spec := v1beta1.RepositorySpec{}
@@ -469,6 +473,25 @@ func newOciRepository(name string, accessMode v1beta1.OciRepoSpecAccessMode) *v1
 		Registry:   "quay.io",
 		Type:       v1beta1.OciRepoSpecTypeOci,
 		AccessMode: &accessMode,
+	})
+	return &v1beta1.Repository{
+		ApiVersion: "flightctl.io/v1beta1",
+		Kind:       string(v1beta1.ResourceKindRepository),
+		Metadata: v1beta1.ObjectMeta{
+			Name: lo.ToPtr(name),
+		},
+		Spec: spec,
+	}
+}
+
+func newOciRepositoryCustom(name string, accessMode v1beta1.OciRepoSpecAccessMode, repository, namespace *string) *v1beta1.Repository {
+	spec := v1beta1.RepositorySpec{}
+	_ = spec.FromOciRepoSpec(v1beta1.OciRepoSpec{
+		Registry:   "quay.io",
+		Type:       v1beta1.OciRepoSpecTypeOci,
+		AccessMode: &accessMode,
+		Repository: repository,
+		Namespace:  namespace,
 	})
 	return &v1beta1.Repository{
 		ApiVersion: "flightctl.io/v1beta1",

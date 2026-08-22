@@ -564,6 +564,23 @@ vulnerabilityReporting:
       # -- Name of the Kubernetes Secret containing 'client_id' and 'client_secret' keys.
       secretName: ""
 
+# -- Default OCI write target for generated deltas when an organization has no deltaStorageTarget Repository.
+# Username and password must come from the Secret named in secretName (keys: username, password); they are not written to config.yaml.
+deltaGeneration:
+  defaultRepository:
+    # -- Registry hostname used as the login/CA host and as the prefix of the push path.
+    registry: ""
+    # -- Optional repository path under registry (e.g. my-org/diffs). Mutually exclusive with namespace.
+    repository: ""
+    # -- Optional namespace under registry (e.g. my-org). Mutually exclusive with repository.
+    namespace: ""
+    # -- URL scheme for connecting to the registry. Allowed values: http, https.
+    scheme: ""
+    # -- Skip TLS verification when connecting to the registry.
+    skipServerVerification: false
+    # -- Name of the Kubernetes Secret containing 'username' and 'password' keys.
+    secretName: ""
+
 # -- Upgrade hooks
 upgradeHooks:
   scaleDown:

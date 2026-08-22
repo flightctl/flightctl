@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
@@ -257,6 +259,67 @@ var _ = Describe("Repository OCI check endpoints", func() {
 				Expect(result.ErrorCode).To(Equal(0))
 				Expect(result.ErrorMessage).ToNot(BeEmpty())
 			})
+		})
+	})
+})
+
+var _ = Describe("Repository deltaStorageTarget", func() {
+	var suite *ServiceTestSuite
+
+	BeforeEach(func() {
+		suite = NewServiceTestSuite()
+		suite.Setup()
+	})
+
+	AfterEach(func() {
+		suite.Teardown()
+	})
+
+	createDeltaStorageTarget := func(name string, orgId uuid.UUID) api.Status {
+		spec := api.RepositorySpec{}
+		err := spec.FromOciRepoSpec(api.OciRepoSpec{
+			Registry:           "my-registry.com",
+			Type:               "oci",
+			Repository:         lo.ToPtr("my-org/diffs"),
+			DeltaStorageTarget: lo.ToPtr(true),
+		})
+		Expect(err).ToNot(HaveOccurred())
+		_, status := suite.Repository.CreateRepository(suite.Ctx, orgId, api.Repository{
+			ApiVersion: "v1beta1",
+			Kind:       "Repository",
+			Metadata:   api.ObjectMeta{Name: lo.ToPtr(name)},
+			Spec:       spec,
+		})
+		return status
+	}
+
+	When("creating the first deltaStorageTarget in an organization", func() {
+		It("should succeed", func() {
+			status := createDeltaStorageTarget("diffs", suite.OrgID)
+			Expect(status.Code).To(Equal(int32(http.StatusCreated)))
+		})
+	})
+
+	When("creating a second deltaStorageTarget in the same organization", func() {
+		It("should return 409", func() {
+			status := createDeltaStorageTarget("diffs", suite.OrgID)
+			Expect(status.Code).To(Equal(int32(http.StatusCreated)))
+
+			status = createDeltaStorageTarget("other-diffs", suite.OrgID)
+			Expect(status.Code).To(Equal(int32(http.StatusConflict)))
+			Expect(status.Message).To(ContainSubstring("deltaStorageTarget"))
+		})
+	})
+
+	When("another organization creates its own deltaStorageTarget", func() {
+		It("should succeed", func() {
+			status := createDeltaStorageTarget("diffs", suite.OrgID)
+			Expect(status.Code).To(Equal(int32(http.StatusCreated)))
+
+			otherOrg := uuid.New()
+			Expect(testutil.CreateTestOrganization(suite.Ctx, suite.OrganizationStore, otherOrg)).To(Succeed())
+			status = createDeltaStorageTarget("other-org-diffs", otherOrg)
+			Expect(status.Code).To(Equal(int32(http.StatusCreated)))
 		})
 	})
 })
