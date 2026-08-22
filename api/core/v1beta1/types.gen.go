@@ -235,6 +235,7 @@ const (
 // Defines values for EventReason.
 const (
 	EventReasonApplicationLifecycleChanged     EventReason = "ApplicationLifecycleChanged"
+	EventReasonDeltaGenerationCompleted        EventReason = "DeltaGenerationCompleted"
 	EventReasonDependencyChangeDetected        EventReason = "DependencyChangeDetected"
 	EventReasonDependencySyncProbeFailed       EventReason = "DependencySyncProbeFailed"
 	EventReasonDeviceApplicationDegraded       EventReason = "DeviceApplicationDegraded"
@@ -283,6 +284,7 @@ const (
 	EventReasonFleetValid                      EventReason = "FleetValid"
 	EventReasonInternalTaskFailed              EventReason = "InternalTaskFailed"
 	EventReasonInternalTaskPermanentlyFailed   EventReason = "InternalTaskPermanentlyFailed"
+	EventReasonPrepareDeltas                   EventReason = "PrepareDeltas"
 	EventReasonReferencedRepositoryUpdated     EventReason = "ReferencedRepositoryUpdated"
 	EventReasonRepositoryAccessible            EventReason = "RepositoryAccessible"
 	EventReasonRepositoryInaccessible          EventReason = "RepositoryInaccessible"
@@ -450,6 +452,11 @@ const (
 	Remove  PatchRequestOp = "remove"
 	Replace PatchRequestOp = "replace"
 	Test    PatchRequestOp = "test"
+)
+
+// Defines values for PrepareDeltasDetailsDetailType.
+const (
+	PrepareDeltas PrepareDeltasDetailsDetailType = "PrepareDeltas"
 )
 
 // Defines values for ReferencedRepositoryUpdatedDetailsDetailType.
@@ -2838,6 +2845,18 @@ type PermissionList struct {
 	// Permissions List of permissions available to the user.
 	Permissions []Permission `json:"permissions"`
 }
+
+// PrepareDeltasDetails Structured details for PrepareDeltas events.
+type PrepareDeltasDetails struct {
+	// DetailType The type of detail for discriminator purposes.
+	DetailType PrepareDeltasDetailsDetailType `json:"detailType"`
+
+	// TemplateVersion Fleet only. The TemplateVersion this prepare is for. Required when involvedObject.kind is Fleet; omitted for Device.
+	TemplateVersion *string `json:"templateVersion,omitempty"`
+}
+
+// PrepareDeltasDetailsDetailType The type of detail for discriminator purposes.
+type PrepareDeltasDetailsDetailType string
 
 // QuadletApplication defines model for QuadletApplication.
 type QuadletApplication struct {
@@ -5710,6 +5729,34 @@ func (t *EventDetails) MergeApplicationLifecycleChangedDetails(v ApplicationLife
 	return err
 }
 
+// AsPrepareDeltasDetails returns the union data inside the EventDetails as a PrepareDeltasDetails
+func (t EventDetails) AsPrepareDeltasDetails() (PrepareDeltasDetails, error) {
+	var body PrepareDeltasDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromPrepareDeltasDetails overwrites any union data inside the EventDetails as the provided PrepareDeltasDetails
+func (t *EventDetails) FromPrepareDeltasDetails(v PrepareDeltasDetails) error {
+	v.DetailType = "PrepareDeltas"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergePrepareDeltasDetails performs a merge with any union data inside the EventDetails, using the provided PrepareDeltasDetails
+func (t *EventDetails) MergePrepareDeltasDetails(v PrepareDeltasDetails) error {
+	v.DetailType = "PrepareDeltas"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 func (t EventDetails) Discriminator() (string, error) {
 	var discriminator struct {
 		Discriminator string `json:"detailType"`
@@ -5754,6 +5801,8 @@ func (t EventDetails) ValueByDiscriminator() (interface{}, error) {
 		return t.AsInternalTaskFailedDetails()
 	case "InternalTaskPermanentlyFailed":
 		return t.AsInternalTaskPermanentlyFailedDetails()
+	case "PrepareDeltas":
+		return t.AsPrepareDeltasDetails()
 	case "ReferencedRepositoryUpdated":
 		return t.AsReferencedRepositoryUpdatedDetails()
 	case "ResourceSyncCompleted":
