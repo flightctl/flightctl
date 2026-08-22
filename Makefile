@@ -135,6 +135,7 @@ build: bin build-cli build-pam-issuer
 		./cmd/flightctl-periodic \
 		./cmd/flightctl-remote-access \
 		./cmd/flightctl-worker \
+		./cmd/flightctl-delta-worker \
 		./cmd/flightctl-alert-exporter \
 		./cmd/flightctl-alertmanager-proxy \
 		./cmd/flightctl-userinfo-proxy \
@@ -178,6 +179,9 @@ build-backup: bin
 
 build-worker: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-worker
+
+build-delta-worker: bin
+	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-delta-worker
 
 build-periodic: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-periodic
@@ -392,7 +396,7 @@ bin/.rpm: $(shell find $(ROOT_DIR)/ -name "*.go" -not -path "$(ROOT_DIR)/packagi
 
 rpm: bin/.rpm
 
-.PHONY: rpm build build-api build-pam-issuer build-periodic build-worker build-alert-exporter build-alertmanager-proxy build-userinfo-proxy build-standalone build-imagebuilder-api build-imagebuilder-worker build-remote-access generate-mirror-embed build-mirror-images
+.PHONY: rpm build build-api build-pam-issuer build-periodic build-worker build-delta-worker build-alert-exporter build-alertmanager-proxy build-userinfo-proxy build-standalone build-imagebuilder-api build-imagebuilder-worker build-remote-access generate-mirror-embed build-mirror-images
 
 # cross-building for deb pkg
 bin/amd64:
