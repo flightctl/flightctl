@@ -293,3 +293,118 @@ func TestNewDeviceStatusDoesNotInventDeltaFields(t *testing.T) {
 	assert.Nil(t, status.Os.LastUpdateFallbackReason)
 	assert.Nil(t, status.Updated.Size)
 }
+
+func TestPrepareDeltasDetailsJSON(t *testing.T) {
+	tests := []struct {
+		name            string
+		jsonInput       string
+		wantTV          *string
+		marshalSource   PrepareDeltasDetails
+		wantMarshalOmit bool
+		wantMarshalTV   string
+	}{
+		{
+			name:      "When templateVersion is set it should round-trip for a fleet prepare",
+			jsonInput: `{"detailType":"PrepareDeltas","templateVersion":"tv-1"}`,
+			wantTV:    lo.ToPtr("tv-1"),
+		},
+		{
+			name:      "When templateVersion is omitted it should round-trip for a device prepare",
+			jsonInput: `{"detailType":"PrepareDeltas"}`,
+			wantTV:    nil,
+		},
+		{
+			name:            "When TemplateVersion is nil it should omit templateVersion from JSON",
+			marshalSource:   PrepareDeltasDetails{DetailType: PrepareDeltas},
+			wantMarshalOmit: true,
+		},
+		{
+			name:          "When TemplateVersion is set it should include templateVersion in JSON",
+			marshalSource: PrepareDeltasDetails{DetailType: PrepareDeltas, TemplateVersion: lo.ToPtr("tv-2")},
+			wantMarshalTV: "tv-2",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.jsonInput != "" {
+				var details PrepareDeltasDetails
+				require.NoError(t, json.Unmarshal([]byte(tt.jsonInput), &details))
+				assert.Equal(t, tt.wantTV, details.TemplateVersion)
+				assert.NotContains(t, tt.jsonInput, `"rolloutStrategy"`)
+				return
+			}
+
+			data, err := json.Marshal(tt.marshalSource)
+			require.NoError(t, err)
+			raw := string(data)
+			assert.NotContains(t, raw, `"rolloutStrategy"`)
+			if tt.wantMarshalOmit {
+				assert.NotContains(t, raw, `"templateVersion"`)
+				return
+			}
+			assert.Contains(t, raw, `"templateVersion":"`+tt.wantMarshalTV+`"`)
+		})
+	}
+}
+
+func TestRolloutPolicyGenerateDeltaJSON(t *testing.T) {
+	tests := []struct {
+		name            string
+		jsonInput       string
+		want            *bool
+		marshalSource   RolloutPolicy
+		wantMarshalOmit bool
+		wantMarshalVal  bool
+	}{
+		{
+			name:      "When generateDelta is absent it should leave GenerateDelta nil",
+			jsonInput: `{}`,
+			want:      nil,
+		},
+		{
+			name:      "When generateDelta is false it should unmarshal false",
+			jsonInput: `{"generateDelta":false}`,
+			want:      lo.ToPtr(false),
+		},
+		{
+			name:      "When generateDelta is true it should unmarshal true",
+			jsonInput: `{"generateDelta":true}`,
+			want:      lo.ToPtr(true),
+		},
+		{
+			name:            "When GenerateDelta is nil it should omit generateDelta from JSON",
+			marshalSource:   RolloutPolicy{},
+			wantMarshalOmit: true,
+		},
+		{
+			name:           "When GenerateDelta is false it should include generateDelta in JSON",
+			marshalSource:  RolloutPolicy{GenerateDelta: lo.ToPtr(false)},
+			wantMarshalVal: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.jsonInput != "" {
+				var policy RolloutPolicy
+				require.NoError(t, json.Unmarshal([]byte(tt.jsonInput), &policy))
+				assert.Equal(t, tt.want, policy.GenerateDelta)
+				return
+			}
+
+			data, err := json.Marshal(tt.marshalSource)
+			require.NoError(t, err)
+			raw := string(data)
+			if tt.wantMarshalOmit {
+				assert.NotContains(t, raw, `"generateDelta"`)
+				return
+			}
+			if tt.wantMarshalVal {
+				assert.Contains(t, raw, `"generateDelta":true`)
+				return
+			}
+			assert.Contains(t, raw, `"generateDelta":false`)
+		})
+	}
+}
