@@ -42,8 +42,8 @@ func TestTrustifyScanner_ScanImages_PassesDigestsOnly(t *testing.T) {
 	s := &trustifyScanner{client: client}
 
 	_, err := s.ScanImages(context.Background(), []vulnerability.ImageRef{
-		{Digest: "sha256:aaaa", ImageRef: "quay.io/org/repo:tag"},
-		{Digest: "sha256:bbbb", ImageRef: ""},
+		{Digest: "sha256:aaaa", Image: "quay.io/org/repo:tag"},
+		{Digest: "sha256:bbbb", Image: ""},
 	})
 	req.NoError(err)
 
