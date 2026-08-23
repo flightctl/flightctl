@@ -142,14 +142,14 @@ func TestReadLayoutPayloadSize_WhenManifestHasConfigAndLayersItShouldSumSizes(t 
 	req.NoError(err)
 	sum := sha256.Sum256(manifestBytes)
 	hex := hex.EncodeToString(sum[:])
-	req.NoError(os.WriteFile(filepath.Join(blobDir, hex), manifestBytes, 0o644))
+	req.NoError(os.WriteFile(filepath.Join(blobDir, hex), manifestBytes, 0o600))
 
 	index := ocispec.Index{Manifests: []ocispec.Descriptor{{
 		Digest: digest.NewDigestFromEncoded(digest.SHA256, hex),
 	}}}
 	indexBytes, err := json.Marshal(index)
 	req.NoError(err)
-	req.NoError(os.WriteFile(filepath.Join(dir, "index.json"), indexBytes, 0o644))
+	req.NoError(os.WriteFile(filepath.Join(dir, "index.json"), indexBytes, 0o600))
 
 	size, err := readLayoutPayloadSize(dir)
 	req.NoError(err)
