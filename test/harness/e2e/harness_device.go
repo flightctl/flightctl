@@ -910,10 +910,6 @@ func (h *Harness) GetDevice(deviceId string) (*v1beta1.Device, error) {
 
 func (h *Harness) SetLabelsForDevice(deviceId string, labels map[string]string) error {
 	return h.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
-		if len(labels) == 0 {
-			device.Metadata.Labels = nil
-			return
-		}
 		devLabels := make(map[string]string, len(labels)+1)
 		devLabels["test-id"] = h.GetTestIDFromContext()
 		for key, value := range labels {
