@@ -4,6 +4,18 @@ metadata:
   name: {{.Name}}
 spec:
   running: true
+{{- if .ExtraDataSize }}
+  dataVolumeTemplates:
+  - metadata:
+      name: extradata
+    spec:
+      source:
+        blank: {}
+      storage:
+        resources:
+          requests:
+            storage: {{.ExtraDataSize}}
+{{- end }}
   template:
     spec:
       domain:
@@ -19,6 +31,16 @@ spec:
           - disk:
               bus: virtio
             name: cloudinitdisk
+{{- if .HostDiskPath }}
+          - disk:
+              bus: virtio
+            name: host-data
+{{- end }}
+{{- if .ExtraDataSize }}
+          - disk:
+              bus: virtio
+            name: extradata
+{{- end }}
           interfaces:
           - masquerade: {}
             name: default
@@ -42,4 +64,15 @@ spec:
           userData: |-
 {{ indent 12 .UserData }}
         name: cloudinitdisk
+{{- end }}
+{{- if .HostDiskPath }}
+      - hostDisk:
+          path: {{.HostDiskPath}}
+          type: DiskOrFail
+        name: host-data
+{{- end }}
+{{- if .ExtraDataSize }}
+      - dataVolume:
+          name: extradata
+        name: extradata
 {{- end }}
