@@ -307,24 +307,7 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 			currentRenderedVersion = v
 		}
 	}
-	errs := []error{}
-
-	var osSpec *domain.DeviceOsSpec
-	if templateVersion.Status.Os != nil {
-		img, err := ReplaceParametersInString(templateVersion.Status.Os.Image, device)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("failed replacing parameters in OS image: %w", err))
-		} else {
-			osSpec = &domain.DeviceOsSpec{Image: img}
-		}
-	}
-
-	deviceConfig, depRefs, configErrs := f.getDeviceConfig(device, templateVersion)
-	errs = append(errs, configErrs...)
-
-	deviceApps, appErrs := f.getDeviceApps(device, templateVersion)
-	errs = append(errs, appErrs...)
-
+	newDeviceSpec, depRefs, errs := assembleDesiredSpec(device, templateVersion)
 	if len(errs) > 0 {
 		annotations := map[string]string{
 			domain.DeviceAnnotationLastRolloutError: errors.Join(errs...).Error(),
@@ -339,21 +322,11 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 		return nil, fmt.Errorf("failed generating device spec for %s/%s: %w", f.orgId, *device.Metadata.Name, errors.Join(errs...))
 	}
 
-	newDeviceSpec := domain.DeviceSpec{
-		Config:       deviceConfig,
-		Os:           osSpec,
-		Systemd:      templateVersion.Status.Systemd,
-		Resources:    templateVersion.Status.Resources,
-		Applications: deviceApps,
-		UpdatePolicy: templateVersion.Status.UpdatePolicy,
+	if verrs := newDeviceSpec.Validate(false); len(verrs) > 0 {
+		return nil, fmt.Errorf("failed validating device spec for %s/%s: %w", f.orgId, *device.Metadata.Name, errors.Join(verrs...))
 	}
 
-	errs = newDeviceSpec.Validate(false)
-	if len(errs) > 0 {
-		return nil, fmt.Errorf("failed validating device spec for %s/%s: %w", f.orgId, *device.Metadata.Name, errors.Join(errs...))
-	}
-
-	if currentVersion == *templateVersion.Metadata.Name && currentRenderedVersion == *templateVersion.Metadata.Name && domain.DeviceSpecsAreEqual(newDeviceSpec, *device.Spec) {
+	if currentVersion == *templateVersion.Metadata.Name && currentRenderedVersion == *templateVersion.Metadata.Name && domain.DeviceSpecsAreEqual(*newDeviceSpec, *device.Spec) {
 		f.log.Debugf("Not rolling out device %s/%s because it is already at templateVersion %s", f.orgId, *device.Metadata.Name, *templateVersion.Metadata.Name)
 		return depRefs, nil
 	}
@@ -362,7 +335,7 @@ func (f FleetRolloutsLogic) updateDeviceToFleetTemplate(ctx context.Context, dev
 	// Write Spec and templateVersion in the same Replace so a Spec ResourceUpdated
 	// render already sees the annotation, and RV-race owner checks still run on
 	// the Spec Mutate (a prior annotation-only write would consume the race hook).
-	err := f.updateDeviceInStore(ctx, device, &newDeviceSpec, *templateVersion.Metadata.Name, delayDeviceRender)
+	err := f.updateDeviceInStore(ctx, device, newDeviceSpec, *templateVersion.Metadata.Name, delayDeviceRender)
 	if err != nil {
 		return nil, fmt.Errorf("failed updating device spec: %w", err)
 	}
