@@ -294,6 +294,18 @@ For more detailed configuration options, see the [Values](#values) section below
 | dbSetup.migration.backoffLimit | int | `2147483647` | Number of retries for the migration Job on failure  |
 | dbSetup.wait.sleep | int | `2` | Seconds to sleep between database connection attempts Default sleep interval between connection attempts |
 | dbSetup.wait.timeout | int | `60` | Seconds to wait for database readiness before failing Default timeout for database wait (can be overridden per deployment) |
+| deltaGeneration | object | `{"defaultRepository":{"namespace":"","registry":"","repository":"","scheme":"","secretName":"","skipServerVerification":false},"maxConcurrentDeltaGenerations":2}` | Default OCI write target for generated deltas when an organization has no deltaStorageTarget Repository. Username and password must come from the Secret named in secretName (keys: username, password); they are not written to config.yaml. |
+| deltaGeneration.defaultRepository.namespace | string | `""` | Optional namespace under registry (e.g. my-org). Mutually exclusive with repository. |
+| deltaGeneration.defaultRepository.registry | string | `""` | Registry hostname used as the login/CA host and as the prefix of the push path. |
+| deltaGeneration.defaultRepository.repository | string | `""` | Optional repository path under registry (e.g. my-org/diffs). Mutually exclusive with namespace. |
+| deltaGeneration.defaultRepository.scheme | string | `""` | URL scheme for connecting to the registry. Allowed values: http, https. |
+| deltaGeneration.defaultRepository.secretName | string | `""` | Name of the Kubernetes Secret containing 'username' and 'password' keys. |
+| deltaGeneration.defaultRepository.skipServerVerification | bool | `false` | Skip TLS verification when connecting to the registry. |
+| deltaGeneration.maxConcurrentDeltaGenerations | int | `2` | Maximum number of concurrent delta generation jobs. Defaults to 2 when omitted or <= 0. |
+| deltaWorker | object | `{"image":{"image":"quay.io/flightctl/flightctl-delta-worker-el9","pullPolicy":"","tag":""}}` | Delta-worker Configuration |
+| deltaWorker.image.image | string | `"quay.io/flightctl/flightctl-delta-worker-el9"` | Delta-worker container image |
+| deltaWorker.image.pullPolicy | string | `""` | Image pull policy for delta-worker container |
+| deltaWorker.image.tag | string | `""` | Delta-worker image tag |
 | encryption | object | `{"activeKeyID":"default","keys":[{"file":"key","id":"default"}]}` | Encryption-at-rest key configuration. The flightctl-encryption-key Secret is mounted at /root/.flightctl/encryption/ in all services. Each key entry maps a logical key ID to a filename within that Secret. For key rotation: add a new key file to the Secret, add it here, then change activeKeyID. |
 | encryption.activeKeyID | string | `"default"` | Key ID used for new encryptions. Must match one of the IDs in the keys list. |
 | encryption.keys | list | `[{"file":"key","id":"default"}]` | List of available encryption keys. Old keys remain available for decryption during rotation. |
@@ -427,10 +439,10 @@ For more detailed configuration options, see the [Values](#values) section below
 | ui.image.tag | string | `""` | UI container image tag |
 | ui.trustXForwardedHeaders | bool | `true` | When true, the UI proxy uses X-Forwarded-Proto and X-Forwarded-Host for OAuth redirect validation (required when TLS terminates at an ingress). Disable if the UI is reached directly without a trusted reverse proxy. Optional trustedProxyCidrs restricts this to listed CIDRs. |
 | ui.trustedProxyCidrs | string | `""` | Comma-separated CIDRs for immediate clients that may set forwarded headers (e.g. ingress pod network). Empty means any client when trustXForwardedHeaders is true. |
-| upgradeHooks | object | `{"databaseMigrationDryRun":true,"scaleDown":{"condition":"chart","deployments":["flightctl-periodic","flightctl-worker"],"timeoutSeconds":120}}` | Upgrade hooks |
+| upgradeHooks | object | `{"databaseMigrationDryRun":true,"scaleDown":{"condition":"chart","deployments":["flightctl-periodic","flightctl-worker","flightctl-delta-worker"],"timeoutSeconds":120}}` | Upgrade hooks |
 | upgradeHooks.databaseMigrationDryRun | bool | `true` | Enable pre-upgrade DB migration dry-run as a hook |
 | upgradeHooks.scaleDown.condition | string | `"chart"` | When to run pre-upgrade scale down job: "always", "never", or "chart" (default). "chart" runs only if helm.sh/chart changed. |
-| upgradeHooks.scaleDown.deployments | list | `["flightctl-periodic","flightctl-worker"]` | List of Deployments to scale down in order |
+| upgradeHooks.scaleDown.deployments | list | `["flightctl-periodic","flightctl-worker","flightctl-delta-worker"]` | List of Deployments to scale down in order |
 | upgradeHooks.scaleDown.timeoutSeconds | int | `120` | Timeout in seconds to wait for rollout per Deployment |
 | vulnerabilityReporting | object | `{"enabled":false,"syncInterval":"15m","trustify":{"auth":{"mode":"none","oidcIssuerUrl":"","secretName":""},"endpoint":""}}` | Vulnerability Integration Configuration |
 | vulnerabilityReporting.enabled | bool | `false` | Enable vulnerability integration (sync task + API endpoints). |
