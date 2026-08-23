@@ -590,6 +590,8 @@ deltaGeneration:
     secretName: ""
   # -- Maximum number of concurrent delta generation jobs. Defaults to 2 when omitted or <= 0.
   maxConcurrentDeltaGenerations: 2
+  # -- Per-job timeout for skopeo/oci-delta/ORAS. Defaults to 30m when omitted or <= 0.
+  timeout: 30m
 
 # -- Upgrade hooks
 upgradeHooks:

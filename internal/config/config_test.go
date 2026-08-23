@@ -5,8 +5,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 )
@@ -300,6 +302,28 @@ deltaGeneration:
 
 	t.Run("When NewDefault it should Effective 2", func(t *testing.T) {
 		require.Equal(t, 2, NewDefault().DeltaGeneration.EffectiveMaxConcurrentDeltaGenerations())
+	})
+}
+
+func TestEffectiveTimeout(t *testing.T) {
+	t.Run("When config is omitted it should default to 30m", func(t *testing.T) {
+		require.Equal(t, 30*time.Minute, (*DeltaGenerationConfig)(nil).EffectiveTimeout())
+		require.Equal(t, 30*time.Minute, (&DeltaGenerationConfig{}).EffectiveTimeout())
+	})
+
+	t.Run("When timeout is zero or negative it should default to 30m", func(t *testing.T) {
+		require.Equal(t, 30*time.Minute, (&DeltaGenerationConfig{Timeout: 0}).EffectiveTimeout())
+		require.Equal(t, 30*time.Minute, (&DeltaGenerationConfig{Timeout: util.Duration(-1)}).EffectiveTimeout())
+	})
+
+	t.Run("When YAML sets timeout to 15m it should be 15m", func(t *testing.T) {
+		path := writeTempConfig(t, `
+deltaGeneration:
+  timeout: 15m
+`)
+		cfg, err := Load(path)
+		require.NoError(t, err)
+		require.Equal(t, 15*time.Minute, cfg.DeltaGeneration.EffectiveTimeout())
 	})
 }
 

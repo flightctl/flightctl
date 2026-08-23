@@ -34,6 +34,7 @@ metrics:
     enabled: true
 deltaGeneration:
   maxConcurrentDeltaGenerations: {{if and .deltaGeneration .deltaGeneration.maxConcurrentDeltaGenerations}}{{.deltaGeneration.maxConcurrentDeltaGenerations}}{{else}}2{{end}}
+  timeout: {{if and .deltaGeneration .deltaGeneration.timeout}}{{.deltaGeneration.timeout}}{{else}}30m{{end}}
 {{- with .profiling }}
 {{- $pprof := .pprof }}
 {{- $pyroscope := .pyroscope }}

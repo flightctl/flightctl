@@ -40,6 +40,7 @@ data:
     {{- $delta := default dict .Values.deltaGeneration }}
     deltaGeneration:
         maxConcurrentDeltaGenerations: {{ default 2 $delta.maxConcurrentDeltaGenerations }}
+        timeout: {{ default "30m" $delta.timeout }}
     {{ if (default dict .Values.dev).tracing }}
     tracing:
         enabled: true
