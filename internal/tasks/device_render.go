@@ -213,24 +213,20 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		}
 	}
 
-	// TODO: remove ignition
-	ignitionConfig, referencedRepos, configFingerprints, renderErr := t.renderConfig(ctx)
-	renderedConfig, err := ignitionConfigToRenderedConfig(ignitionConfig)
-	if err != nil {
-		return fmt.Errorf("failed converting ignition config to rendered config: %w", err)
+	spec := device.Spec
+	if spec != nil {
+		specCopy := *spec
+		specCopy.Applications = t.applications
+		spec = &specCopy
 	}
 
-	// Set the many-to-many relationship with the repos (we do this even if the render failed so that we will
-	// render the device again if the repository is updated, and then it might be fixed).
-	// This only applies to devices that don't belong to a fleet, because otherwise the fleet will be
-	// notified about changes to the repository.
+	rendered, renderErr := t.renderSpec(ctx, spec)
 	if device.Metadata.Owner == nil || *device.Metadata.Owner == "" {
-		status = t.deviceSvc.OverwriteDeviceRepositoryRefs(ctx, t.orgId, *device.Metadata.Name, referencedRepos...)
+		status = t.deviceSvc.OverwriteDeviceRepositoryRefs(ctx, t.orgId, *device.Metadata.Name, rendered.referencedRepos...)
 		if status.Code != http.StatusOK {
 			return t.setErrorStatus(ctx, fmt.Errorf("setting repository references: %s", status.Message))
 		}
 	}
-
 	if renderErr != nil {
 		if isPermanentRenderError(renderErr) {
 			t.markPermanentRenderFailure(ctx, specHash)
@@ -238,28 +234,8 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		return t.setErrorStatus(ctx, renderErr)
 	}
 
-	var osImage string
-	if device.Spec != nil && device.Spec.Os != nil {
-		if device.Spec.Os.CatalogItemRef != nil {
-			osImage, err = resolveCatalogItemRef(ctx, *device.Spec.Os.CatalogItemRef, t.orgId, t.catalogSvc, v1alpha1.CatalogItemTypeOS)
-			if err != nil {
-				return t.setErrorStatus(ctx, err)
-			}
-		} else {
-			osImage = device.Spec.Os.Image
-		}
-	}
-
-	renderedApplications, err := t.renderApplications(ctx)
-	if err != nil {
-		if isPermanentRenderError(err) {
-			t.markPermanentRenderFailure(ctx, specHash)
-		}
-		return t.setErrorStatus(ctx, err)
-	}
-
 	var syncRefs []domain.DependencySyncConfigRefStatus
-	for _, fp := range configFingerprints {
+	for _, fp := range rendered.configFingerprints {
 		ref := domain.DependencySyncConfigRefStatus{
 			ConfigProviderName: fp.ConfigProviderName,
 			Fingerprint:        lo.ToPtr(fp.Fingerprint),
@@ -267,11 +243,72 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		syncRefs = append(syncRefs, ref)
 	}
 
-	status = t.deviceSvc.UpdateRenderedDevice(ctx, t.orgId, t.event.InvolvedObject.Name, string(renderedConfig), string(renderedApplications), specHash, osImage, syncRefs, bypassHashCheck)
+	status = t.deviceSvc.UpdateRenderedDevice(ctx, t.orgId, t.event.InvolvedObject.Name, string(rendered.Config), string(rendered.Applications), specHash, rendered.OsImage, syncRefs, bypassHashCheck)
 	if err := common.ApiStatusToErr(status); err != nil {
 		return t.setErrorStatus(ctx, err)
 	}
 	return nil
+}
+
+type RenderedSpec struct {
+	OsImage      string
+	Config       []byte
+	Applications []byte
+
+	referencedRepos    []string
+	configFingerprints []ConfigRefFingerprint
+}
+
+func (t *DeviceRenderLogic) RenderSpec(ctx context.Context, spec *domain.DeviceSpec) (RenderedSpec, error) {
+	return t.renderSpec(ctx, spec)
+}
+
+func (t *DeviceRenderLogic) renderSpec(ctx context.Context, spec *domain.DeviceSpec) (RenderedSpec, error) {
+	if spec != nil {
+		t.deviceConfig = spec.Config
+		if spec.Applications != nil {
+			appsCopy := append([]domain.ApplicationProviderSpec(nil), (*spec.Applications)...)
+			t.applications = &appsCopy
+		} else {
+			t.applications = nil
+		}
+	} else {
+		t.deviceConfig = nil
+		t.applications = nil
+	}
+
+	ignitionConfig, referencedRepos, configFingerprints, renderErr := t.renderConfig(ctx)
+	renderedConfig, err := ignitionConfigToRenderedConfig(ignitionConfig)
+	if err != nil {
+		return RenderedSpec{referencedRepos: referencedRepos, configFingerprints: configFingerprints}, fmt.Errorf("failed converting ignition config to rendered config: %w", err)
+	}
+	result := RenderedSpec{
+		Config:             renderedConfig,
+		referencedRepos:    referencedRepos,
+		configFingerprints: configFingerprints,
+	}
+	if renderErr != nil {
+		return result, renderErr
+	}
+
+	if spec != nil && spec.Os != nil {
+		if spec.Os.CatalogItemRef != nil {
+			osImage, err := resolveCatalogItemRef(ctx, *spec.Os.CatalogItemRef, t.orgId, t.catalogSvc, v1alpha1.CatalogItemTypeOS)
+			if err != nil {
+				return result, err
+			}
+			result.OsImage = osImage
+		} else {
+			result.OsImage = spec.Os.Image
+		}
+	}
+
+	renderedApplications, err := t.renderApplications(ctx)
+	if err != nil {
+		return result, err
+	}
+	result.Applications = renderedApplications
+	return result, nil
 }
 
 func (t *DeviceRenderLogic) markPermanentRenderFailure(ctx context.Context, specHash string) {
