@@ -413,6 +413,180 @@ var _ = Describe("DeltaStore", func() {
 		})
 	})
 
+	Context("When inserting a rejected generation for a new key", func() {
+		It("should persist rejected status and size_bytes", func() {
+			size := int64(128)
+			g := generation(orgId, "quay.io/team-a/os")
+			g.SizeBytes = &size
+			Expect(deltaStore.InsertRejectedGeneration(ctx, g)).To(Succeed())
+
+			got, err := deltaStore.GetGeneration(ctx, keyOf(g))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got.Status).To(Equal(model.DeltaGenerationRejected))
+			Expect(got.SizeBytes).ToNot(BeNil())
+			Expect(*got.SizeBytes).To(Equal(size))
+		})
+	})
+
+	Context("When inserting a rejected generation over a failed row", func() {
+		It("should set rejected, refresh size_bytes, and bump resource_version", func() {
+			oldSize := int64(10)
+			g := generation(orgId, "quay.io/team-a/os")
+			g.Status = model.DeltaGenerationFailed
+			g.ResourceVersion = 3
+			g.SizeBytes = &oldSize
+			insertGens(g)
+
+			newSize := int64(99)
+			incoming := generation(orgId, "quay.io/team-a/os")
+			incoming.SizeBytes = &newSize
+			Expect(deltaStore.InsertRejectedGeneration(ctx, incoming)).To(Succeed())
+
+			got, err := deltaStore.GetGeneration(ctx, keyOf(g))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got.Status).To(Equal(model.DeltaGenerationRejected))
+			Expect(got.ResourceVersion).To(Equal(int64(4)))
+			Expect(got.SizeBytes).ToNot(BeNil())
+			Expect(*got.SizeBytes).To(Equal(newSize))
+		})
+	})
+
+	Context("When inserting a rejected generation over a pending row", func() {
+		It("should set rejected and refresh size_bytes", func() {
+			g := generation(orgId, "quay.io/team-a/os")
+			insertGens(g)
+
+			newSize := int64(55)
+			incoming := generation(orgId, "quay.io/team-a/os")
+			incoming.SizeBytes = &newSize
+			Expect(deltaStore.InsertRejectedGeneration(ctx, incoming)).To(Succeed())
+
+			got, err := deltaStore.GetGeneration(ctx, keyOf(g))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got.Status).To(Equal(model.DeltaGenerationRejected))
+			Expect(got.SizeBytes).ToNot(BeNil())
+			Expect(*got.SizeBytes).To(Equal(newSize))
+		})
+	})
+
+	Context("When inserting a rejected generation over an existing rejected row", func() {
+		It("should refresh size_bytes and leave status rejected", func() {
+			oldSize := int64(10)
+			g := generation(orgId, "quay.io/team-a/os")
+			g.Status = model.DeltaGenerationRejected
+			g.SizeBytes = &oldSize
+			insertGens(g)
+
+			newSize := int64(44)
+			incoming := generation(orgId, "quay.io/team-a/os")
+			incoming.SizeBytes = &newSize
+			Expect(deltaStore.InsertRejectedGeneration(ctx, incoming)).To(Succeed())
+
+			got, err := deltaStore.GetGeneration(ctx, keyOf(g))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got.Status).To(Equal(model.DeltaGenerationRejected))
+			Expect(got.SizeBytes).ToNot(BeNil())
+			Expect(*got.SizeBytes).To(Equal(newSize))
+		})
+	})
+
+	DescribeTable("When inserting a rejected generation over a protected status",
+		func(status string) {
+			size := int64(7)
+			g := generation(orgId, "quay.io/team-a/os")
+			g.Status = status
+			g.ResourceVersion = 5
+			g.SizeBytes = &size
+			insertGens(g)
+
+			incoming := generation(orgId, "quay.io/team-a/os")
+			newSize := int64(100)
+			incoming.SizeBytes = &newSize
+			Expect(deltaStore.InsertRejectedGeneration(ctx, incoming)).To(Succeed())
+
+			got, err := deltaStore.GetGeneration(ctx, keyOf(g))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got.Status).To(Equal(status))
+			Expect(got.ResourceVersion).To(Equal(int64(5)))
+			Expect(got.SizeBytes).ToNot(BeNil())
+			Expect(*got.SizeBytes).To(Equal(size))
+		},
+		Entry("succeeded", model.DeltaGenerationSucceeded),
+		Entry("in_progress", model.DeltaGenerationInProgress),
+	)
+
+	Context("When claiming a pending generation", func() {
+		It("should set in_progress, bump resource_version, and return the row", func() {
+			g := generation(orgId, "quay.io/team-a/os")
+			insertGens(g)
+
+			claimed, err := deltaStore.ClaimGeneration(ctx, keyOf(g))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(claimed.Status).To(Equal(model.DeltaGenerationInProgress))
+			Expect(claimed.ResourceVersion).To(Equal(int64(1)))
+
+			got, err := deltaStore.GetGeneration(ctx, keyOf(g))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got.Status).To(Equal(model.DeltaGenerationInProgress))
+			Expect(got.ResourceVersion).To(Equal(int64(1)))
+		})
+	})
+
+	DescribeTable("When claiming a generation that is not pending",
+		func(status string) {
+			g := generation(orgId, "quay.io/team-a/os")
+			g.Status = status
+			g.ResourceVersion = 2
+			insertGens(g)
+
+			_, err := deltaStore.ClaimGeneration(ctx, keyOf(g))
+			Expect(err).To(MatchError(flterrors.ErrNoRowsUpdated))
+
+			got, err := deltaStore.GetGeneration(ctx, keyOf(g))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got.Status).To(Equal(status))
+			Expect(got.ResourceVersion).To(Equal(int64(2)))
+		},
+		Entry("in_progress", model.DeltaGenerationInProgress),
+		Entry("succeeded", model.DeltaGenerationSucceeded),
+		Entry("failed", model.DeltaGenerationFailed),
+		Entry("rejected", model.DeltaGenerationRejected),
+	)
+
+	Context("When claiming a missing generation", func() {
+		It("should return ErrNoRowsUpdated", func() {
+			_, err := deltaStore.ClaimGeneration(ctx, keyOf(generation(orgId, "quay.io/missing/os")))
+			Expect(err).To(MatchError(flterrors.ErrNoRowsUpdated))
+		})
+	})
+
+	Context("When listing waiting prepares by generation", func() {
+		It("should return only waiting prepares joined to that key", func() {
+			g := generation(orgId, "quay.io/team-a/os")
+			other := generation(orgId, "quay.io/team-b/os")
+			insertGens(g, other)
+
+			waiting := fleetPrepare("waiting-fleet", nil)
+			Expect(deltaStore.InsertPrepare(ctx, waiting)).To(Succeed())
+			Expect(deltaStore.InsertPrepareGenerations(ctx, waiting.ID, []deltastore.GenerationKey{keyOf(g)})).To(Succeed())
+
+			complete := fleetPrepare("complete-fleet", nil)
+			complete.Status = model.DeltaPrepareComplete
+			Expect(deltaStore.InsertPrepare(ctx, complete)).To(Succeed())
+			Expect(deltaStore.InsertPrepareGenerations(ctx, complete.ID, []deltastore.GenerationKey{keyOf(g)})).To(Succeed())
+
+			otherWaiting := fleetPrepare("other-fleet", nil)
+			Expect(deltaStore.InsertPrepare(ctx, otherWaiting)).To(Succeed())
+			Expect(deltaStore.InsertPrepareGenerations(ctx, otherWaiting.ID, []deltastore.GenerationKey{keyOf(other)})).To(Succeed())
+
+			listed, err := deltaStore.ListWaitingPreparesByGeneration(ctx, keyOf(g))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(listed).To(HaveLen(1))
+			Expect(listed[0].ID).To(Equal(waiting.ID))
+			Expect(listed[0].Status).To(Equal(model.DeltaPrepareWaiting))
+		})
+	})
+
 	Context("When CAS-ing a generation with the current resource_version", func() {
 		It("should write fields and bump resource_version", func() {
 			g := generation(orgId, "quay.io/team-a/os")
