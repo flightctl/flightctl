@@ -323,6 +323,16 @@ worker:
     # -- Enable passt networking workarounds for older virt-launcher images (default false; enable only for older images)
     passtWorkarounds: false
 
+# -- Delta-worker Configuration
+deltaWorker:
+  image:
+    # -- Delta-worker container image
+    image: quay.io/flightctl/flightctl-delta-worker-el9
+    # -- Delta-worker image tag
+    tag: ""
+    # -- Image pull policy for delta-worker container
+    pullPolicy: ""
+
 # -- Periodic Configuration
 periodic:
   image:
@@ -630,6 +640,8 @@ deltaGeneration:
     caCrt: ""
     # -- Name of the Kubernetes Secret containing 'username' and 'password' keys.
     secretName: ""
+  # -- Maximum number of concurrent delta generation jobs. Defaults to 2 when omitted or <= 0.
+  maxConcurrentDeltaGenerations: 2
 
 # -- Upgrade hooks
 upgradeHooks:
@@ -640,6 +652,7 @@ upgradeHooks:
     deployments:
       - flightctl-periodic
       - flightctl-worker
+      - flightctl-delta-worker
     # -- Timeout in seconds to wait for rollout per Deployment
     timeoutSeconds: 120
   # -- Enable pre-upgrade DB migration dry-run as a hook

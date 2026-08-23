@@ -16,7 +16,7 @@ env:
   DOCKER_BUILDKIT: 1
   BUILDKIT_PROGRESS: plain
   SUPPORTED_OS: "el9 el10"
-  SUPPORTED_IMAGES: "api pam-issuer periodic worker cli-artifacts alert-exporter alertmanager-proxy userinfo-proxy db-setup telemetry-gateway imagebuilder-api imagebuilder-worker remote-access"
+  SUPPORTED_IMAGES: "api pam-issuer periodic worker delta-worker cli-artifacts alert-exporter alertmanager-proxy userinfo-proxy db-setup telemetry-gateway imagebuilder-api imagebuilder-worker remote-access"
   SUPPORTED_ARCHES: "amd64 arm64"
 
 jobs:
