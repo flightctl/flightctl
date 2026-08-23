@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/containers/image/v5/docker/reference"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/util"
@@ -75,7 +76,24 @@ func (r *Resolver) fleetCandidates(ctx context.Context, ev worker_client.EventWi
 	if !hasEligibleDevice(devices) {
 		return DeltaCandidateResult{Skip: true}, nil
 	}
-	return DeltaCandidateResult{Skip: true}, nil
+
+	tv, err := r.templateVersionFromEvent(ctx, ev)
+	if err != nil {
+		return DeltaCandidateResult{}, err
+	}
+
+	var candidates []DeltaCandidate
+	for _, device := range devices {
+		deviceCands, err := r.candidatesForDevice(ctx, device, tv)
+		if err != nil {
+			return DeltaCandidateResult{}, err
+		}
+		candidates = append(candidates, deviceCands...)
+	}
+	if len(candidates) == 0 {
+		return DeltaCandidateResult{Skip: true}, nil
+	}
+	return DeltaCandidateResult{Candidates: candidates}, nil
 }
 
 func (r *Resolver) deviceCandidates(ctx context.Context, ev worker_client.EventWithOrgId) (DeltaCandidateResult, error) {
@@ -89,7 +107,110 @@ func (r *Resolver) deviceCandidates(ctx context.Context, ev worker_client.EventW
 	if !deviceEligible(device) {
 		return DeltaCandidateResult{Skip: true}, nil
 	}
-	return DeltaCandidateResult{Skip: true}, nil
+
+	candidates, err := r.candidatesForDevice(ctx, device, nil)
+	if err != nil {
+		return DeltaCandidateResult{}, err
+	}
+	if len(candidates) == 0 {
+		return DeltaCandidateResult{Skip: true}, nil
+	}
+	return DeltaCandidateResult{Candidates: candidates}, nil
+}
+
+func (r *Resolver) templateVersionFromEvent(ctx context.Context, ev worker_client.EventWithOrgId) (*domain.TemplateVersion, error) {
+	if r.TemplateVersion == nil {
+		return nil, fmt.Errorf("template version loader is required")
+	}
+	if ev.Event.Details == nil {
+		return nil, fmt.Errorf("prepare deltas event is missing details")
+	}
+	details, err := ev.Event.Details.AsPrepareDeltasDetails()
+	if err != nil {
+		return nil, fmt.Errorf("prepare deltas details: %w", err)
+	}
+	if details.TemplateVersion == nil || *details.TemplateVersion == "" {
+		return nil, fmt.Errorf("fleet prepare deltas event requires templateVersion")
+	}
+	return r.TemplateVersion(ctx, ev.OrgId, ev.Event.InvolvedObject.Name, *details.TemplateVersion)
+}
+
+func (r *Resolver) candidatesForDevice(ctx context.Context, device *domain.Device, tv *domain.TemplateVersion) ([]DeltaCandidate, error) {
+	if !deviceEligible(device) {
+		return nil, nil
+	}
+	if currentDigest(device) == "" && r.Expand == nil {
+		return nil, nil
+	}
+
+	spec, err := r.desiredSpec(device, tv)
+	if err != nil {
+		return nil, nil
+	}
+	if spec == nil {
+		return nil, nil
+	}
+
+	if r.Render == nil {
+		return nil, fmt.Errorf("render is required")
+	}
+	rendered, err := r.Render(ctx, spec)
+	if err != nil {
+		return nil, nil
+	}
+
+	var candidates []DeltaCandidate
+	if cand, ok, err := r.osCandidate(ctx, device, rendered); err != nil {
+		return nil, err
+	} else if ok {
+		candidates = append(candidates, cand)
+	}
+	if r.Expand != nil {
+		candidates = r.Expand(rendered, candidates)
+	}
+	return candidates, nil
+}
+
+func (r *Resolver) desiredSpec(device *domain.Device, tv *domain.TemplateVersion) (*domain.DeviceSpec, error) {
+	if tv == nil {
+		return device.Spec, nil
+	}
+	desired := r.DesiredSpec
+	if desired == nil {
+		desired = tasks.DesiredSpecFromTemplate
+	}
+	return desired(device, tv)
+}
+
+func (r *Resolver) osCandidate(ctx context.Context, device *domain.Device, rendered tasks.RenderedSpec) (DeltaCandidate, bool, error) {
+	current := currentDigest(device)
+	if current == "" || rendered.OsImage == "" {
+		return DeltaCandidate{}, false, nil
+	}
+	if r.Inspect == nil {
+		return DeltaCandidate{}, false, fmt.Errorf("inspect is required")
+	}
+	newDigest, err := r.Inspect(ctx, rendered.OsImage)
+	if err != nil {
+		return DeltaCandidate{}, false, err
+	}
+	repo, err := imageRepository(rendered.OsImage)
+	if err != nil {
+		return DeltaCandidate{}, false, err
+	}
+	return DeltaCandidate{
+		ImageRepository: repo,
+		CurrentDigest:   current,
+		NewDigest:       newDigest,
+	}, true, nil
+}
+
+func imageRepository(osImage string) (string, error) {
+	named, err := reference.ParseNormalizedNamed(osImage)
+	if err != nil {
+		return "", fmt.Errorf("parse os image %q: %w", osImage, err)
+	}
+	return named.Name(), nil
 }
 
 func (r *Resolver) listFleetDevices(ctx context.Context, orgId uuid.UUID, fleetName string) ([]*domain.Device, error) {
@@ -102,7 +223,7 @@ func (r *Resolver) listFleetDevices(ctx context.Context, orgId uuid.UUID, fleetN
 
 func hasEligibleDevice(devices []*domain.Device) bool {
 	for _, d := range devices {
-		if deviceEligible(d) && currentDigest(d) != "" {
+		if deviceEligible(d) {
 			return true
 		}
 	}
