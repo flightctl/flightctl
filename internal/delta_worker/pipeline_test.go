@@ -24,6 +24,7 @@ type fakeGenerationStore struct {
 	claimErr     error
 	cas          []deltastore.GenerationCAS
 	casErr       error
+	casFailN     int
 	waiting      []model.DeltaPrepare
 	claimedRV    int64
 	listWaitingN int
@@ -50,6 +51,10 @@ func (f *fakeGenerationStore) ClaimGeneration(_ context.Context, _ deltastore.Ge
 func (f *fakeGenerationStore) CASGeneration(_ context.Context, _ deltastore.GenerationKey, _ int64, update deltastore.GenerationCAS) error {
 	if f.casErr != nil {
 		return f.casErr
+	}
+	if f.casFailN > 0 {
+		f.casFailN--
+		return errors.New("persist failed")
 	}
 	f.cas = append(f.cas, update)
 	return nil
@@ -199,6 +204,45 @@ func TestPipelineProcess(t *testing.T) {
 		}
 		req.NoError(p.process(context.Background(), generateEvent(org, repo, src, tgt), log))
 		req.Empty(store.cas)
+	})
+
+	t.Run("When persist succeeded fails it should mark failed and resume", func(t *testing.T) {
+		req := require.New(t)
+		store := &fakeGenerationStore{casFailN: 1}
+		p := &pipeline{
+			store:   store,
+			timeout: time.Minute,
+			check: func(context.Context, string, string, string) (existenceResult, error) {
+				return existenceResult{Status: existenceNotFound}, nil
+			},
+			generate: func(context.Context, string, string, string) (string, int64, error) {
+				return "ref", 1, nil
+			},
+		}
+		req.NoError(p.process(context.Background(), generateEvent(org, repo, src, tgt), log))
+		req.Len(store.cas, 1)
+		req.Equal(model.DeltaGenerationFailed, store.cas[0].Status)
+		req.Equal(1, store.listWaitingN)
+	})
+
+	t.Run("When generate context times out it should CAS failed", func(t *testing.T) {
+		req := require.New(t)
+		store := &fakeGenerationStore{}
+		p := &pipeline{
+			store:   store,
+			timeout: time.Nanosecond,
+			check: func(context.Context, string, string, string) (existenceResult, error) {
+				return existenceResult{Status: existenceNotFound}, nil
+			},
+			generate: func(ctx context.Context, _, _, _ string) (string, int64, error) {
+				<-ctx.Done()
+				return "", 0, ctx.Err()
+			},
+		}
+		req.NoError(p.process(context.Background(), generateEvent(org, repo, src, tgt), log))
+		req.Len(store.cas, 1)
+		req.Equal(model.DeltaGenerationFailed, store.cas[0].Status)
+		req.Equal(1, store.listWaitingN)
 	})
 
 	t.Run("When CAS is stale it should not overwrite", func(t *testing.T) {

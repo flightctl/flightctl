@@ -66,6 +66,9 @@ func parseGenerationJob(ev worker_client.EventWithOrgId) (generationJob, bool) {
 }
 
 func (p *pipeline) process(ctx context.Context, ev worker_client.EventWithOrgId, log logrus.FieldLogger) error {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
 	job, ok := parseGenerationJob(ev)
 	if !ok {
 		return nil
@@ -124,11 +127,9 @@ func (p *pipeline) process(ctx context.Context, ev worker_client.EventWithOrgId,
 		}
 	}
 
-	genCtx, cancel := context.WithTimeout(ctx, p.timeout)
-	defer cancel()
 	sourceRef := key.ImageRepository + "@" + key.SourceDigest
 	targetRef := key.ImageRepository + "@" + key.TargetDigest
-	deltaRef, sizeBytes, genErr := p.generate(genCtx, sourceRef, targetRef, pushPath)
+	deltaRef, sizeBytes, genErr := p.generate(ctx, sourceRef, targetRef, pushPath)
 	if genErr != nil {
 		return p.failGeneration(ctx, key, claimed.ResourceVersion, genErr)
 	}
@@ -143,7 +144,7 @@ func (p *pipeline) process(ctx context.Context, ev worker_client.EventWithOrgId,
 			log.Infof("stale resource_version; not completing %s", key.ImageRepository)
 			return nil
 		}
-		return casErr
+		return p.failGeneration(ctx, key, claimed.ResourceVersion, casErr)
 	}
 	return p.runResume(ctx, key)
 }
