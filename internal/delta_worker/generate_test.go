@@ -1,6 +1,7 @@
 package delta_worker
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -13,6 +14,8 @@ import (
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/stretchr/testify/require"
+	"oras.land/oras-go/v2"
+	ocistore "oras.land/oras-go/v2/content/oci"
 )
 
 type recordingRunner struct {
@@ -30,11 +33,17 @@ func (r *recordingRunner) Run(_ context.Context, name string, args ...string) er
 	return nil
 }
 
-func TestCreateAndPushDelta_WhenToolsSucceedItShouldPushReferrerSubjectTarget(t *testing.T) {
+func TestCreateAndPushDelta_WhenToolsSucceedItShouldPushLayoutNotOrasCLI(t *testing.T) {
 	req := require.New(t)
 	runner := &recordingRunner{}
+	var pushedDir, pushedDest string
 	g := generator{
 		run: runner,
+		pushLayout: func(_ context.Context, layoutDir, destRef string) error {
+			pushedDir = layoutDir
+			pushedDest = destRef
+			return nil
+		},
 		layoutPayloadSize: func(string) (int64, error) {
 			return 42, nil
 		},
@@ -45,8 +54,10 @@ func TestCreateAndPushDelta_WhenToolsSucceedItShouldPushReferrerSubjectTarget(t 
 	req.NoError(err)
 	req.Equal(int64(42), size)
 	req.Equal("registry.example.com/deltas/os", deltaRef)
+	req.Equal("registry.example.com/deltas/os", pushedDest)
+	req.Equal(filepath.Join(g.workDir, "delta"), pushedDir)
 
-	req.GreaterOrEqual(len(runner.calls), 4)
+	req.Len(runner.calls, 3)
 	req.Equal("skopeo", runner.calls[0][0])
 	req.Equal("copy", runner.calls[0][1])
 	req.Contains(runner.calls[0], "docker://quay.io/team-a/os@sha256:src")
@@ -54,18 +65,16 @@ func TestCreateAndPushDelta_WhenToolsSucceedItShouldPushReferrerSubjectTarget(t 
 	req.Contains(runner.calls[1], "docker://quay.io/team-a/os@sha256:tgt")
 	req.Equal("oci-delta", runner.calls[2][0])
 	req.Equal("create", runner.calls[2][1])
-	req.Equal("oras", runner.calls[3][0])
-	req.Equal("push", runner.calls[3][1])
-	req.Contains(runner.calls[3], "--subject")
-	req.Contains(runner.calls[3], "quay.io/team-a/os@sha256:tgt")
-	req.Contains(runner.calls[3], ociDeltaArtifactType)
-	req.NotContains(runner.calls[3], "apply")
+	req.NotEqual("oras", runner.calls[0][0])
 }
 
 func TestCreateAndPushDelta_WhenLayerDoesNotShrinkItShouldStillSucceed(t *testing.T) {
 	req := require.New(t)
 	g := generator{
 		run: &recordingRunner{},
+		pushLayout: func(context.Context, string, string) error {
+			return nil
+		},
 		layoutPayloadSize: func(string) (int64, error) {
 			return 1 << 40, nil
 		},
@@ -79,12 +88,33 @@ func TestCreateAndPushDelta_WhenLayerDoesNotShrinkItShouldStillSucceed(t *testin
 
 func TestCreateAndPushDelta_WhenOciDeltaFailsItShouldReturnError(t *testing.T) {
 	req := require.New(t)
+	var pushed bool
 	g := generator{
 		run: &recordingRunner{errAt: map[string]error{"oci-delta": errors.New("create failed")}},
+		pushLayout: func(context.Context, string, string) error {
+			pushed = true
+			return nil
+		},
 		layoutPayloadSize: func(string) (int64, error) {
 			return 0, nil
 		},
 		workDir: t.TempDir(),
+	}
+
+	_, _, err := g.createAndPushDelta(context.Background(), "quay.io/a@sha256:s", "quay.io/a@sha256:t", "reg.example/delta")
+	req.Error(err)
+	req.False(pushed)
+}
+
+func TestCreateAndPushDelta_WhenPushLayoutFailsItShouldReturnError(t *testing.T) {
+	req := require.New(t)
+	g := generator{
+		run: &recordingRunner{},
+		pushLayout: func(context.Context, string, string) error {
+			return errors.New("copy failed")
+		},
+		layoutPayloadSize: func(string) (int64, error) { return 1, nil },
+		workDir:           t.TempDir(),
 	}
 
 	_, _, err := g.createAndPushDelta(context.Background(), "quay.io/a@sha256:s", "quay.io/a@sha256:t", "reg.example/delta")
@@ -112,7 +142,10 @@ func TestCreateAndPushDelta_WhenDeltaDirItShouldUseWorkSubdir(t *testing.T) {
 	runner := &recordingRunner{}
 	work := t.TempDir()
 	g := generator{
-		run:               runner,
+		run: runner,
+		pushLayout: func(context.Context, string, string) error {
+			return nil
+		},
 		layoutPayloadSize: func(dir string) (int64, error) { return 1, nil },
 		workDir:           work,
 	}
@@ -126,6 +159,41 @@ type runnerFunc func(ctx context.Context, name string, args ...string) error
 
 func (f runnerFunc) Run(ctx context.Context, name string, args ...string) error {
 	return f(ctx, name, args...)
+}
+
+func TestCopyOCILayout_WhenLayoutHasTaggedManifestItShouldCopyToDestination(t *testing.T) {
+	req := require.New(t)
+	ctx := context.Background()
+	srcDir := t.TempDir()
+	dstDir := t.TempDir()
+
+	src, err := ocistore.New(srcDir)
+	req.NoError(err)
+	payload := []byte("delta-layer")
+	layerDesc := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageLayer,
+		Digest:    digest.FromBytes(payload),
+		Size:      int64(len(payload)),
+	}
+	req.NoError(src.Push(ctx, layerDesc, bytes.NewReader(payload)))
+	manifestDesc, err := oras.PackManifest(ctx, src, oras.PackManifestVersion1_1, ociDeltaArtifactType, oras.PackManifestOptions{
+		Layers: []ocispec.Descriptor{layerDesc},
+	})
+	req.NoError(err)
+	req.NoError(src.Tag(ctx, manifestDesc, layoutTag))
+
+	dst, err := ocistore.New(dstDir)
+	req.NoError(err)
+	req.NoError(copyOCILayout(ctx, srcDir, dst))
+	ok, err := dst.Exists(ctx, manifestDesc)
+	req.NoError(err)
+	req.True(ok)
+}
+
+func TestPushOCILayout_WhenWriteSpecIsMissingItShouldReturnError(t *testing.T) {
+	req := require.New(t)
+	err := pushOCILayout(context.Background(), nil, t.TempDir(), "registry.example.com/os")
+	req.Error(err)
 }
 
 func TestReadLayoutPayloadSize_WhenManifestHasConfigAndLayersItShouldSumSizes(t *testing.T) {

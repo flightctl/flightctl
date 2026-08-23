@@ -37,8 +37,7 @@ ENV SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT}
 RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
     make build-delta-worker && \
-    GOBIN=/app/bin go install github.com/containers/oci-delta/cmd/oci-delta@v0.3.0 && \
-    GOBIN=/app/bin go install github.com/oras-project/oras/cmd/oras@v1.2.3
+    GOBIN=/app/bin go install github.com/containers/oci-delta/cmd/oci-delta@v0.3.0
 
 FROM quay.io/flightctl/flightctl-base:10.1-1769518576
 USER 0
@@ -53,5 +52,4 @@ LABEL \
   summary="Flight Control Edge management service, OS delta generation worker"
 COPY --from=build /app/bin/flightctl-delta-worker .
 COPY --from=build /app/bin/oci-delta /usr/local/bin/oci-delta
-COPY --from=build /app/bin/oras /usr/local/bin/oras
 CMD ["./flightctl-delta-worker"]

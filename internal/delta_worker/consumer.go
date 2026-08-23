@@ -8,6 +8,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
 	"github.com/flightctl/flightctl/internal/oci"
 	deltastore "github.com/flightctl/flightctl/internal/store/delta"
@@ -54,19 +55,26 @@ func newPipeline(cfg *config.Config, store deltastore.Store) *pipeline {
 			return checkExistingDelta(ctx, imageRepository, sourceDigest, targetDigest, existenceConfig{Scheme: "https"})
 		},
 		generate: func(ctx context.Context, sourceRef, targetRef, pushPath string) (string, int64, error) {
-			g := generator{run: execRunner{}}
+			g := generator{run: execRunner{}, writeSpec: writeSpecFromConfig(cfg)}
 			return g.createAndPushDelta(ctx, sourceRef, targetRef, pushPath)
 		},
 		pushPath: pushPathFromConfig(cfg),
 	}
 }
 
+func writeSpecFromConfig(cfg *config.Config) *domain.OciRepoSpec {
+	if cfg == nil || cfg.DeltaGeneration == nil || cfg.DeltaGeneration.DefaultRepository == nil {
+		return nil
+	}
+	return oci.SelectWriteTarget(nil, cfg.DeltaGeneration.DefaultRepository.OciRepoSpec())
+}
+
 func pushPathFromConfig(cfg *config.Config) func(string) (string, error) {
 	return func(imageRepository string) (string, error) {
-		if cfg == nil || cfg.DeltaGeneration == nil || cfg.DeltaGeneration.DefaultRepository == nil {
+		spec := writeSpecFromConfig(cfg)
+		if spec == nil {
 			return "", fmt.Errorf("deltaGeneration.defaultRepository is required to push")
 		}
-		spec := oci.SelectWriteTarget(nil, cfg.DeltaGeneration.DefaultRepository.OciRepoSpec())
 		return oci.ResolveDeltaPushPath(spec, imageRepository)
 	}
 }

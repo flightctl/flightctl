@@ -8,8 +8,14 @@ import (
 	"os/exec"
 	"path/filepath"
 
+	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/oci"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"oras.land/oras-go/v2"
+	ocistore "oras.land/oras-go/v2/content/oci"
 )
+
+const layoutTag = "img"
 
 type runner interface {
 	Run(ctx context.Context, name string, args ...string) error
@@ -28,6 +34,8 @@ func (execRunner) Run(ctx context.Context, name string, args ...string) error {
 
 type generator struct {
 	run               runner
+	writeSpec         *domain.OciRepoSpec
+	pushLayout        func(ctx context.Context, layoutDir, destRef string) error
 	layoutPayloadSize func(layoutDir string) (int64, error)
 	workDir           string
 }
@@ -53,9 +61,9 @@ func (g generator) createAndPushDelta(ctx context.Context, sourceRef, targetRef,
 	sourceDir := filepath.Join(workDir, "source")
 	targetDir := filepath.Join(workDir, "target")
 	deltaDir := filepath.Join(workDir, "delta")
-	sourceOCI := "oci:" + sourceDir + ":img"
-	targetOCI := "oci:" + targetDir + ":img"
-	deltaOCI := "oci:" + deltaDir + ":img"
+	sourceOCI := "oci:" + sourceDir + ":" + layoutTag
+	targetOCI := "oci:" + targetDir + ":" + layoutTag
+	deltaOCI := "oci:" + deltaDir + ":" + layoutTag
 
 	if err := run.Run(ctx, "skopeo", "copy", "docker://"+sourceRef, sourceOCI); err != nil {
 		return "", 0, fmt.Errorf("pull source: %w", err)
@@ -66,11 +74,14 @@ func (g generator) createAndPushDelta(ctx context.Context, sourceRef, targetRef,
 	if err := run.Run(ctx, "oci-delta", "create", sourceOCI, targetOCI, deltaOCI); err != nil {
 		return "", 0, fmt.Errorf("create delta: %w", err)
 	}
-	if err := run.Run(ctx, "oras", "push", pushPath,
-		"--oci-layout", deltaDir+":img",
-		"--artifact-type", ociDeltaArtifactType,
-		"--subject", targetRef,
-	); err != nil {
+
+	push := g.pushLayout
+	if push == nil {
+		push = func(ctx context.Context, layoutDir, destRef string) error {
+			return pushOCILayout(ctx, g.writeSpec, layoutDir, destRef)
+		}
+	}
+	if err := push(ctx, deltaDir, pushPath); err != nil {
 		return "", 0, fmt.Errorf("push delta: %w", err)
 	}
 
@@ -83,6 +94,32 @@ func (g generator) createAndPushDelta(ctx context.Context, sourceRef, targetRef,
 		return "", 0, err
 	}
 	return pushPath, sizeBytes, nil
+}
+
+func pushOCILayout(ctx context.Context, spec *domain.OciRepoSpec, layoutDir, destRef string) error {
+	if spec == nil {
+		return fmt.Errorf("OCI write target is required to push")
+	}
+	if destRef == "" {
+		return fmt.Errorf("push destination is required")
+	}
+	dst, err := oci.BuildOciRepoRef(ctx, spec, destRef)
+	if err != nil {
+		return fmt.Errorf("configure destination repository: %w", err)
+	}
+	dst.SkipReferrersGC = true
+	return copyOCILayout(ctx, layoutDir, dst)
+}
+
+func copyOCILayout(ctx context.Context, layoutDir string, dst oras.Target) error {
+	src, err := ocistore.NewWithContext(ctx, layoutDir)
+	if err != nil {
+		return fmt.Errorf("open oci layout: %w", err)
+	}
+	if _, err := oras.Copy(ctx, src, layoutTag, dst, "", oras.DefaultCopyOptions); err != nil {
+		return fmt.Errorf("copy oci layout: %w", err)
+	}
+	return nil
 }
 
 func readLayoutPayloadSize(layoutDir string) (int64, error) {
