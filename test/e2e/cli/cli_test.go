@@ -523,15 +523,14 @@ var _ = Describe("cli operation", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(clientVersion).ToNot(BeEmpty(), "client version should be found")
 			Expect(serverVersion).ToNot(BeEmpty(), "server version should be found")
-			Expect(agentVersion).ToNot(BeEmpty(), "agent version should be found")
+			Expect(agentVersion).To(BeEmpty(), "agent version lookup should be skipped when the VM is not initialized")
 
 			GinkgoWriter.Printf("Client version: %s\n", clientVersion)
 			GinkgoWriter.Printf("Server version: %s\n", serverVersion)
 			GinkgoWriter.Printf("Agent version: %s\n", agentVersion)
 
 			By("Comparing versions")
-			// Expect(clientVersion).To(Equal(serverVersion), "client and server versions should match")
-			Expect(agentVersion).To(Equal(serverVersion), "agent and server versions should match")
+			Expect(clientVersion).To(Equal(serverVersion), "client and server versions should match")
 		})
 
 		It("should show FIPS runtime compliance", Label("rpm-sanity", "84648", "client"), func() {
