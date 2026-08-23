@@ -73,8 +73,9 @@ const (
 	AppConsoleNotReadyCloseCode = 4002
 
 	// Tasks
-	TaskQueue           = "task-queue"
-	ImageBuildTaskQueue = "imagebuild-queue"
+	TaskQueue                = "task-queue"
+	ImageBuildTaskQueue      = "imagebuild-queue"
+	DeltaGenerationTaskQueue = "delta-generation-queue"
 
 	// Checkpoints
 	CheckpointConsumerEventProcessor = "event_processor"

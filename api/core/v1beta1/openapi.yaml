@@ -8042,6 +8042,8 @@ components:
             - EncryptionMigrationStarted
             - EncryptionMigrationCompleted
             - ApplicationLifecycleChanged
+            - PrepareDeltas
+            - DeltaGenerationCompleted
         message:
           type: string
           description: A human-readable description of the status of this operation.
@@ -8127,6 +8129,7 @@ components:
           DependencyChangeDetected: "#/components/schemas/DependencyChangeDetectedDetails"
           DependencySyncProbeFailed: "#/components/schemas/DependencySyncProbeFailedDetails"
           ApplicationLifecycleChanged: "#/components/schemas/ApplicationLifecycleChangedDetails"
+          PrepareDeltas: "#/components/schemas/PrepareDeltasDetails"
       oneOf:
         - $ref: "#/components/schemas/ResourceUpdatedDetails"
         - $ref: "#/components/schemas/DeviceOwnershipChangedDetails"
@@ -8146,6 +8149,7 @@ components:
         - $ref: "#/components/schemas/DependencyChangeDetectedDetails"
         - $ref: "#/components/schemas/DependencySyncProbeFailedDetails"
         - $ref: "#/components/schemas/ApplicationLifecycleChangedDetails"
+        - $ref: "#/components/schemas/PrepareDeltasDetails"
     DeviceVulnerabilityCveDetails:
       type: object
       description: Structured details for per-device CVE vulnerability events.
@@ -8308,6 +8312,19 @@ components:
         errorCount:
           type: integer
           description: Number of errors encountered by this ResourceSync update.
+    PrepareDeltasDetails:
+      type: object
+      description: Structured details for PrepareDeltas events.
+      required:
+        - detailType
+      properties:
+        detailType:
+          type: string
+          enum: [PrepareDeltas]
+          description: The type of detail for discriminator purposes.
+        templateVersion:
+          type: string
+          description: Fleet only. The TemplateVersion this prepare is for. Required when involvedObject.kind is Fleet; omitted for Device.
     FleetRolloutStartedDetails:
       type: object
       required:

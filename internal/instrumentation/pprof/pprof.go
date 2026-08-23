@@ -28,6 +28,7 @@ const (
 	DefaultPortImageBuilderWorker = 15698
 	DefaultPortTelemetryGateway   = 15699
 	DefaultPortPAMIssuer          = 15700
+	DefaultPortDeltaWorker        = 15701
 
 	// /debug/pprof/profile
 	pprofCPUCapDefault = 30 * time.Second

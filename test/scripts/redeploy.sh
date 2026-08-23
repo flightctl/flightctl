@@ -14,6 +14,9 @@ case $IMAGE in
     worker)
         NAMESPACE=flightctl-internal
         ;;
+    delta-worker)
+        NAMESPACE=flightctl-internal
+        ;;
     periodic)
         NAMESPACE=flightctl-internal
         ;;
@@ -36,7 +39,7 @@ case $IMAGE in
         NAMESPACE=flightctl-external
         ;;
 
-    *) echo "Usage: $0 <api|worker|periodic|alert-exporter|alertmanager-proxy|telemetry-gateway|imagebuilder-worker|imagebuilder-api|remote-access>"
+    *) echo "Usage: $0 <api|worker|delta-worker|periodic|alert-exporter|alertmanager-proxy|telemetry-gateway|imagebuilder-worker|imagebuilder-api|remote-access>"
        exit 1
 esac
 

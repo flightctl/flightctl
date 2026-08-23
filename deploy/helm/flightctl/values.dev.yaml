@@ -24,6 +24,13 @@ worker:
   env:
     GORM_TRACE_ENFORCE_FATAL: "true"
     GORM_TRACE_INCLUDE_QUERY_VARIABLES: "true"
+deltaWorker:
+  image:
+    image: localhost/flightctl-delta-worker
+    tag: latest
+  env:
+    GORM_TRACE_ENFORCE_FATAL: "true"
+    GORM_TRACE_INCLUDE_QUERY_VARIABLES: "true"
 periodic:
   image:
     image: localhost/flightctl-periodic
