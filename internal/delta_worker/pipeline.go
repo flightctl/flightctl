@@ -16,6 +16,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+const persistTimeout = 5 * time.Second
+
 type generationJob struct {
 	Key deltastore.GenerationKey
 }
@@ -134,7 +136,9 @@ func (p *pipeline) process(ctx context.Context, ev worker_client.EventWithOrgId,
 		return p.failGeneration(ctx, key, claimed.ResourceVersion, genErr)
 	}
 
-	casErr := p.store.CASGeneration(ctx, key, claimed.ResourceVersion, deltastore.GenerationCAS{
+	writeCtx, writeCancel := persistContext(ctx)
+	defer writeCancel()
+	casErr := p.store.CASGeneration(writeCtx, key, claimed.ResourceVersion, deltastore.GenerationCAS{
 		Status:    model.DeltaGenerationSucceeded,
 		DeltaRef:  &deltaRef,
 		SizeBytes: &sizeBytes,
@@ -146,10 +150,16 @@ func (p *pipeline) process(ctx context.Context, ev worker_client.EventWithOrgId,
 		}
 		return p.failGeneration(ctx, key, claimed.ResourceVersion, casErr)
 	}
-	return p.runResume(ctx, key)
+	return p.runResume(writeCtx, key)
+}
+
+func persistContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), persistTimeout)
 }
 
 func (p *pipeline) failGeneration(ctx context.Context, key deltastore.GenerationKey, rv int64, cause error) error {
+	ctx, cancel := persistContext(ctx)
+	defer cancel()
 	casErr := p.store.CASGeneration(ctx, key, rv, deltastore.GenerationCAS{Status: model.DeltaGenerationFailed})
 	if casErr != nil && !errors.Is(casErr, flterrors.ErrNoRowsUpdated) {
 		return fmt.Errorf("generate: %w; persist failed status: %v", cause, casErr)

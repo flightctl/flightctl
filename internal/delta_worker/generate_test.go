@@ -39,10 +39,10 @@ func TestCreateAndPushDelta_WhenToolsSucceedItShouldPushLayoutNotOrasCLI(t *test
 	var pushedDir, pushedDest string
 	g := generator{
 		run: runner,
-		pushLayout: func(_ context.Context, layoutDir, destRef string) error {
+		pushLayout: func(_ context.Context, layoutDir, destRef string) (string, error) {
 			pushedDir = layoutDir
 			pushedDest = destRef
-			return nil
+			return destRef, nil
 		},
 		layoutPayloadSize: func(string) (int64, error) {
 			return 42, nil
@@ -72,8 +72,8 @@ func TestCreateAndPushDelta_WhenLayerDoesNotShrinkItShouldStillSucceed(t *testin
 	req := require.New(t)
 	g := generator{
 		run: &recordingRunner{},
-		pushLayout: func(context.Context, string, string) error {
-			return nil
+		pushLayout: func(_ context.Context, _, destRef string) (string, error) {
+			return destRef, nil
 		},
 		layoutPayloadSize: func(string) (int64, error) {
 			return 1 << 40, nil
@@ -91,9 +91,9 @@ func TestCreateAndPushDelta_WhenOciDeltaFailsItShouldReturnError(t *testing.T) {
 	var pushed bool
 	g := generator{
 		run: &recordingRunner{errAt: map[string]error{"oci-delta": errors.New("create failed")}},
-		pushLayout: func(context.Context, string, string) error {
+		pushLayout: func(_ context.Context, _, destRef string) (string, error) {
 			pushed = true
-			return nil
+			return destRef, nil
 		},
 		layoutPayloadSize: func(string) (int64, error) {
 			return 0, nil
@@ -110,8 +110,8 @@ func TestCreateAndPushDelta_WhenPushLayoutFailsItShouldReturnError(t *testing.T)
 	req := require.New(t)
 	g := generator{
 		run: &recordingRunner{},
-		pushLayout: func(context.Context, string, string) error {
-			return errors.New("copy failed")
+		pushLayout: func(context.Context, string, string) (string, error) {
+			return "", errors.New("copy failed")
 		},
 		layoutPayloadSize: func(string) (int64, error) { return 1, nil },
 		workDir:           t.TempDir(),
@@ -143,8 +143,8 @@ func TestCreateAndPushDelta_WhenDeltaDirItShouldUseWorkSubdir(t *testing.T) {
 	work := t.TempDir()
 	g := generator{
 		run: runner,
-		pushLayout: func(context.Context, string, string) error {
-			return nil
+		pushLayout: func(_ context.Context, _, destRef string) (string, error) {
+			return destRef, nil
 		},
 		layoutPayloadSize: func(dir string) (int64, error) { return 1, nil },
 		workDir:           work,
@@ -184,7 +184,9 @@ func TestCopyOCILayout_WhenLayoutHasTaggedManifestItShouldCopyToDestination(t *t
 
 	dst, err := ocistore.New(dstDir)
 	req.NoError(err)
-	req.NoError(copyOCILayout(ctx, srcDir, dst))
+	desc, err := copyOCILayout(ctx, srcDir, dst)
+	req.NoError(err)
+	req.Equal(manifestDesc.Digest, desc.Digest)
 	ok, err := dst.Exists(ctx, manifestDesc)
 	req.NoError(err)
 	req.True(ok)
@@ -192,7 +194,7 @@ func TestCopyOCILayout_WhenLayoutHasTaggedManifestItShouldCopyToDestination(t *t
 
 func TestPushOCILayout_WhenWriteSpecIsMissingItShouldReturnError(t *testing.T) {
 	req := require.New(t)
-	err := pushOCILayout(context.Background(), nil, t.TempDir(), "registry.example.com/os")
+	_, err := pushOCILayout(context.Background(), nil, t.TempDir(), "registry.example.com/os")
 	req.Error(err)
 }
 

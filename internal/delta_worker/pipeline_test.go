@@ -48,7 +48,10 @@ func (f *fakeGenerationStore) ClaimGeneration(_ context.Context, _ deltastore.Ge
 	return &model.DeltaGeneration{Status: model.DeltaGenerationInProgress, ResourceVersion: f.claimedRV}, nil
 }
 
-func (f *fakeGenerationStore) CASGeneration(_ context.Context, _ deltastore.GenerationKey, _ int64, update deltastore.GenerationCAS) error {
+func (f *fakeGenerationStore) CASGeneration(ctx context.Context, _ deltastore.GenerationKey, _ int64, update deltastore.GenerationCAS) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if f.casErr != nil {
 		return f.casErr
 	}

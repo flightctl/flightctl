@@ -35,7 +35,7 @@ func (execRunner) Run(ctx context.Context, name string, args ...string) error {
 type generator struct {
 	run               runner
 	writeSpec         *domain.OciRepoSpec
-	pushLayout        func(ctx context.Context, layoutDir, destRef string) error
+	pushLayout        func(ctx context.Context, layoutDir, destRef string) (deltaRef string, err error)
 	layoutPayloadSize func(layoutDir string) (int64, error)
 	workDir           string
 }
@@ -77,11 +77,12 @@ func (g generator) createAndPushDelta(ctx context.Context, sourceRef, targetRef,
 
 	push := g.pushLayout
 	if push == nil {
-		push = func(ctx context.Context, layoutDir, destRef string) error {
+		push = func(ctx context.Context, layoutDir, destRef string) (string, error) {
 			return pushOCILayout(ctx, g.writeSpec, layoutDir, destRef)
 		}
 	}
-	if err := push(ctx, deltaDir, pushPath); err != nil {
+	deltaRef, err = push(ctx, deltaDir, pushPath)
+	if err != nil {
 		return "", 0, fmt.Errorf("push delta: %w", err)
 	}
 
@@ -93,33 +94,38 @@ func (g generator) createAndPushDelta(ctx context.Context, sourceRef, targetRef,
 	if err != nil {
 		return "", 0, err
 	}
-	return pushPath, sizeBytes, nil
+	return deltaRef, sizeBytes, nil
 }
 
-func pushOCILayout(ctx context.Context, spec *domain.OciRepoSpec, layoutDir, destRef string) error {
+func pushOCILayout(ctx context.Context, spec *domain.OciRepoSpec, layoutDir, destRef string) (string, error) {
 	if spec == nil {
-		return fmt.Errorf("OCI write target is required to push")
+		return "", fmt.Errorf("OCI write target is required to push")
 	}
 	if destRef == "" {
-		return fmt.Errorf("push destination is required")
+		return "", fmt.Errorf("push destination is required")
 	}
 	dst, err := oci.BuildOciRepoRef(ctx, spec, destRef)
 	if err != nil {
-		return fmt.Errorf("configure destination repository: %w", err)
+		return "", fmt.Errorf("configure destination repository: %w", err)
 	}
 	dst.SkipReferrersGC = true
-	return copyOCILayout(ctx, layoutDir, dst)
+	desc, err := copyOCILayout(ctx, layoutDir, dst)
+	if err != nil {
+		return "", err
+	}
+	return destRef + "@" + desc.Digest.String(), nil
 }
 
-func copyOCILayout(ctx context.Context, layoutDir string, dst oras.Target) error {
+func copyOCILayout(ctx context.Context, layoutDir string, dst oras.Target) (ocispec.Descriptor, error) {
 	src, err := ocistore.NewWithContext(ctx, layoutDir)
 	if err != nil {
-		return fmt.Errorf("open oci layout: %w", err)
+		return ocispec.Descriptor{}, fmt.Errorf("open oci layout: %w", err)
 	}
-	if _, err := oras.Copy(ctx, src, layoutTag, dst, "", oras.DefaultCopyOptions); err != nil {
-		return fmt.Errorf("copy oci layout: %w", err)
+	desc, err := oras.Copy(ctx, src, layoutTag, dst, "", oras.DefaultCopyOptions)
+	if err != nil {
+		return ocispec.Descriptor{}, fmt.Errorf("copy oci layout: %w", err)
 	}
-	return nil
+	return desc, nil
 }
 
 func readLayoutPayloadSize(layoutDir string) (int64, error) {
