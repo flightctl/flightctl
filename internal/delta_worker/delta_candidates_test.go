@@ -269,6 +269,48 @@ func TestDeltaCandidates_ResolveOSFromUnsavedRender(t *testing.T) {
 	})
 }
 
+func TestDeltaCandidates_DedupInOrg(t *testing.T) {
+	orgId := uuid.New()
+	const (
+		newImage   = "quay.io/acme/os:v2"
+		currentDig = "sha256:aaa"
+		newDig     = "sha256:bbb"
+	)
+	r := Resolver{
+		Fleet: func(_ context.Context, _ uuid.UUID, _ string) (*domain.Fleet, error) {
+			return &domain.Fleet{Spec: domain.FleetSpec{}}, nil
+		},
+		TemplateVersion: func(_ context.Context, _ uuid.UUID, _, _ string) (*domain.TemplateVersion, error) {
+			return &domain.TemplateVersion{Metadata: domain.ObjectMeta{Name: lo.ToPtr("tv-1")}}, nil
+		},
+		Devices: func(_ context.Context, _ uuid.UUID, _ string) ([]*domain.Device, error) {
+			return []*domain.Device{
+				deviceWithOS("d1", true, currentDig),
+				deviceWithOS("d2", true, currentDig),
+			}, nil
+		},
+		WriteTarget: func(_ context.Context, _ uuid.UUID) (*domain.OciRepoSpec, error) {
+			return &domain.OciRepoSpec{Registry: "quay.io"}, nil
+		},
+		DesiredSpec: func(_ *domain.Device, _ *domain.TemplateVersion) (*domain.DeviceSpec, error) {
+			return &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: newImage}}, nil
+		},
+		Render: func(_ context.Context, spec *domain.DeviceSpec) (tasks.RenderedSpec, error) {
+			return tasks.RenderedSpec{OsImage: spec.Os.Image}, nil
+		},
+		Inspect: func(_ context.Context, _ string) (string, error) {
+			return newDig, nil
+		},
+	}
+
+	result, err := r.DeltaCandidates(context.Background(), fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
+	require.NoError(t, err)
+	require.Len(t, result.Candidates, 1)
+	assert.Equal(t, "quay.io/acme/os", result.Candidates[0].ImageRepository)
+	assert.Equal(t, currentDig, result.Candidates[0].CurrentDigest)
+	assert.Equal(t, newDig, result.Candidates[0].NewDigest)
+}
+
 func devicePrepareEvent(orgId uuid.UUID, name string) worker_client.EventWithOrgId {
 	details := domain.PrepareDeltasDetails{DetailType: v1beta1.PrepareDeltas}
 	var eventDetails domain.EventDetails

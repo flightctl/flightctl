@@ -93,7 +93,7 @@ func (r *Resolver) fleetCandidates(ctx context.Context, ev worker_client.EventWi
 	if len(candidates) == 0 {
 		return DeltaCandidateResult{Skip: true}, nil
 	}
-	return DeltaCandidateResult{Candidates: candidates}, nil
+	return DeltaCandidateResult{Candidates: dedupCandidates(candidates)}, nil
 }
 
 func (r *Resolver) deviceCandidates(ctx context.Context, ev worker_client.EventWithOrgId) (DeltaCandidateResult, error) {
@@ -115,7 +115,7 @@ func (r *Resolver) deviceCandidates(ctx context.Context, ev worker_client.EventW
 	if len(candidates) == 0 {
 		return DeltaCandidateResult{Skip: true}, nil
 	}
-	return DeltaCandidateResult{Candidates: candidates}, nil
+	return DeltaCandidateResult{Candidates: dedupCandidates(candidates)}, nil
 }
 
 func (r *Resolver) templateVersionFromEvent(ctx context.Context, ev worker_client.EventWithOrgId) (*domain.TemplateVersion, error) {
@@ -240,4 +240,18 @@ func currentDigest(d *domain.Device) string {
 		return ""
 	}
 	return d.Status.Os.ImageDigest
+}
+
+func dedupCandidates(cands []DeltaCandidate) []DeltaCandidate {
+	seen := make(map[string]struct{}, len(cands))
+	out := make([]DeltaCandidate, 0, len(cands))
+	for _, c := range cands {
+		key := c.ImageRepository + "\x00" + c.CurrentDigest + "\x00" + c.NewDigest
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, c)
+	}
+	return out
 }
