@@ -178,11 +178,12 @@ type prepareEmitSpy struct {
 	events []*domain.Event
 }
 
-func (s *prepareEmitSpy) emit(_ context.Context, _ uuid.UUID, event *domain.Event) {
+func (s *prepareEmitSpy) emit(_ context.Context, _ uuid.UUID, event *domain.Event) error {
 	if event == nil {
-		return
+		return nil
 	}
 	s.events = append(s.events, event)
+	return nil
 }
 
 func (s *prepareEmitSpy) reasons() []domain.EventReason {
