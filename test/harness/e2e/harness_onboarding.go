@@ -194,6 +194,71 @@ func (b *OnboardingBrowser) WizardDisableEnrollment() error {
 	)
 }
 
+// WizardEnableEnrollment turns the Flight Control enrollment switch on WITHOUT
+// forcing the "Request new" credential-provisioning path. When the device already
+// has an agent config carrying a client certificate (detected by
+// read-flightctl-config.sh), the wizard auto-selects "Use existing" and hides the
+// credential fields. Specs that need to observe that auto-detection must use this
+// helper rather than WizardConfigureEnrollment, which clicks
+// #configure-new-flightctl and would override the detected state.
+func (b *OnboardingBrowser) WizardEnableEnrollment() error {
+	return chromedp.Run(b.ctx,
+		b.iframeWaitVisible(`#flightctl-enrollment`, 5*time.Second),
+		b.iframeEnsureSwitchOn(`flightctl-enrollment`),
+	)
+}
+
+// WizardSetTLSInsecure turns off the enrollment step's "Verify TLS certificates"
+// switch (#tls-verification), which sets the wizard's tlsMode to "insecure" so the
+// generated `flightctl login` runs with -k. Test deployments present a self-signed
+// certificate the VM does not trust, so enrollment specs must disable verification
+// (or supply a custom CA) for the login inside flightctl-enroll.sh to succeed. Call
+// it after WizardConfigureEnrollment, which selects the "Request new" body where
+// this switch lives.
+func (b *OnboardingBrowser) WizardSetTLSInsecure() error {
+	return chromedp.Run(b.ctx,
+		b.iframeWaitVisible(`#tls-verification`, 5*time.Second),
+		b.iframeEnsureSwitchOff(`tls-verification`),
+	)
+}
+
+// WizardEnrollmentUsesExisting reports whether the enrollment step's "Use existing"
+// radio (#use-existing-flightctl) is selected. The wizard enables and auto-selects
+// it only when it detects a pre-provisioned agent config carrying a client
+// certificate.
+func (b *OnboardingBrowser) WizardEnrollmentUsesExisting() (bool, error) {
+	var checked bool
+	js := fmt.Sprintf(`
+		(function() {
+			var doc = %s;
+			if (!doc) return false;
+			var el = doc.querySelector('#use-existing-flightctl');
+			return !!(el && el.checked);
+		})()
+	`, b.iframeDoc())
+	err := chromedp.Run(b.ctx, chromedp.Evaluate(js, &checked))
+	return checked, err
+}
+
+// WizardEnrollmentCredentialFieldVisible reports whether the enrollment step's
+// credential-token field (#credential-token) is present and visible. It is used to
+// assert that the "Use existing" path hides the credential-provisioning UI.
+func (b *OnboardingBrowser) WizardEnrollmentCredentialFieldVisible() (bool, error) {
+	var visible bool
+	js := fmt.Sprintf(`
+		(function() {
+			var doc = %s;
+			if (!doc) return false;
+			var el = doc.querySelector('#credential-token');
+			if (!el) return false;
+			var rect = el.getBoundingClientRect();
+			return rect.width > 0 && rect.height > 0;
+		})()
+	`, b.iframeDoc())
+	err := chromedp.Run(b.ctx, chromedp.Evaluate(js, &visible))
+	return visible, err
+}
+
 // WizardSetHostname sets the hostname on the Labels page.
 func (b *OnboardingBrowser) WizardSetHostname(hostname string) error {
 	return chromedp.Run(b.ctx,
