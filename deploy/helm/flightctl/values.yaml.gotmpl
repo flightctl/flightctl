@@ -592,6 +592,8 @@ deltaGeneration:
   maxConcurrentDeltaGenerations: 2
   # -- Per-job timeout for skopeo/oci-delta/ORAS. Defaults to 30m when omitted or <= 0.
   timeout: 30m
+  # -- Optional prepare wait cap (Go duration, e.g. 10m). Omitted means no deadline. 0s generates then resumes immediately.
+  # maxWaitForDelta: 10m
 
 # -- Upgrade hooks
 upgradeHooks:
