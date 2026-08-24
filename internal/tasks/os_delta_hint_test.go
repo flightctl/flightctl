@@ -46,6 +46,67 @@ func testGenerationKey() delta.GenerationKey {
 	}
 }
 
+func TestImageRepositoryFromRef(t *testing.T) {
+	tests := []struct {
+		name    string
+		ref     string
+		want    string
+		wantErr bool
+	}{
+		{name: "When the ref is a tag it should strip the tag", ref: "quay.io/acme/os:latest", want: "quay.io/acme/os"},
+		{name: "When the ref is digested it should strip the digest", ref: "quay.io/acme/os@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", want: "quay.io/acme/os"},
+		{name: "When the ref is empty it should return an error", ref: "", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ImageRepositoryFromRef(tt.ref)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestHintFromGeneration(t *testing.T) {
+	deltaRef := "quay.io/acme/os@sha256:delta"
+	size := int64(47185920)
+	full := int64(1 << 30)
+
+	t.Run("When generation succeeded it should hint deltaRef and IEC size_bytes", func(t *testing.T) {
+		img, sz := hintFromGeneration(&model.DeltaGeneration{
+			Status:    model.DeltaGenerationSucceeded,
+			DeltaRef:  &deltaRef,
+			SizeBytes: &size,
+		}, nil)
+		require.Equal(t, &deltaRef, img)
+		require.Equal(t, lo.ToPtr("45 MiB"), sz)
+	})
+
+	t.Run("When generation is rejected it should not hint and should use size_bytes", func(t *testing.T) {
+		img, sz := hintFromGeneration(&model.DeltaGeneration{
+			Status:    model.DeltaGenerationRejected,
+			SizeBytes: &size,
+		}, nil)
+		require.Nil(t, img)
+		require.Equal(t, lo.ToPtr("45 MiB"), sz)
+	})
+
+	t.Run("When generation is missing it should not hint and should use fallback size", func(t *testing.T) {
+		img, sz := hintFromGeneration(nil, &full)
+		require.Nil(t, img)
+		require.Equal(t, lo.ToPtr("1 GiB"), sz)
+	})
+
+	t.Run("When generation failed without size_bytes it should use fallback size", func(t *testing.T) {
+		img, sz := hintFromGeneration(&model.DeltaGeneration{Status: model.DeltaGenerationFailed}, &full)
+		require.Nil(t, img)
+		require.Equal(t, lo.ToPtr("1 GiB"), sz)
+	})
+}
+
 func TestFormatIECBytes(t *testing.T) {
 	tests := []struct {
 		name string

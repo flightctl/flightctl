@@ -22,6 +22,7 @@ import (
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -1001,7 +1002,7 @@ func TestRenderDevice_CatalogItemRef_ResolvesOsImage(t *testing.T) {
 	mockCatalogSvc.EXPECT().GetCatalogItem(gomock.Any(), orgId, catalogName, itemName).Return(catalogItem, statusOK)
 
 	expectedOsImage := artifactUri + ":" + containerRef
-	mockDeviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), expectedOsImage, gomock.Any(), gomock.Any()).Return(statusOK)
+	mockDeviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), expectedOsImage, gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK)
 
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
 	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, mockCatalogSvc, nil, newTestKVStore(), &config.Config{}, orgId, event)
@@ -1036,7 +1037,7 @@ func TestRenderDevice_NoCatalogItemRef_PassesPlainOsImage(t *testing.T) {
 	mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, statusOK)
 	mockDeviceSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK)
 
-	mockDeviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), plainImage, gomock.Any(), gomock.Any()).Return(statusOK)
+	mockDeviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), plainImage, gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK)
 
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
 	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, nil, nil, newTestKVStore(), &config.Config{}, orgId, event)
@@ -1075,7 +1076,7 @@ func TestRenderDevice_CatalogRefAndPlainImage_ResolveIndependently(t *testing.T)
 	mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(catalogDevice, statusOK)
 	mockDeviceSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK)
 	mockCatalogSvc.EXPECT().GetCatalogItem(gomock.Any(), orgId, catalogName, itemName).Return(catalogItem, statusOK)
-	mockDeviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), expectedCatalogOsImage, gomock.Any(), gomock.Any()).Return(statusOK)
+	mockDeviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), expectedCatalogOsImage, gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK)
 
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
 	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, mockCatalogSvc, nil, newTestKVStore(), &config.Config{}, orgId, event)
@@ -1094,7 +1095,7 @@ func TestRenderDevice_CatalogRefAndPlainImage_ResolveIndependently(t *testing.T)
 	gomock.InOrder(
 		mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(plainDevice, statusOK),
 		mockDeviceSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK),
-		mockDeviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), plainImage, gomock.Any(), gomock.Any()).Return(statusOK),
+		mockDeviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), plainImage, gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK),
 	)
 
 	event2 := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
@@ -1453,4 +1454,51 @@ func TestRenderSpec_WhenHTTPConfigItShouldIncludeFetchedBodyWithoutPersisting(t 
 	require.NoError(t, err)
 	assert.Equal(t, "quay.io/os/base:latest", rendered.OsImage)
 	assert.Contains(t, string(rendered.Config), base64.StdEncoding.EncodeToString([]byte(body)))
+}
+
+func TestRenderDevice_SucceededGenerationSetsDeltaImageAndSize(t *testing.T) {
+	const deviceName = "device-delta-hint"
+	src := "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	tgt := "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	osImage := "quay.io/acme/os@" + tgt
+	deltaRef := "quay.io/acme/os@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	size := int64(47185920)
+
+	orgId := uuid.New()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	device := &domain.Device{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr(deviceName)},
+		Spec: &domain.DeviceSpec{
+			Os: &domain.DeviceOsSpec{Image: osImage},
+		},
+		Status: &domain.DeviceStatus{
+			Os: domain.DeviceOsStatus{ImageDigest: src},
+		},
+	}
+
+	mockDeviceSvc := deviceservice.NewMockService(ctrl)
+	mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, statusOK)
+	mockDeviceSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK)
+	mockDeviceSvc.EXPECT().UpdateRenderedDevice(
+		gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), osImage, gomock.Any(), gomock.Any(), gomock.Any(),
+	).DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, _, _, _, _ string, _ []domain.DependencySyncConfigRefStatus, _ bool, hints *deviceservice.RenderedOSHints) domain.Status {
+		require.NotNil(t, hints)
+		require.Equal(t, deltaRef, lo.FromPtr(hints.DeltaImage))
+		require.Equal(t, "45 MiB", lo.FromPtr(hints.UpdatedSize))
+		return statusOK
+	})
+
+	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
+	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, nil, nil, newTestKVStore(), &config.Config{}, orgId, event)
+	logic.deltaLookup = &stubGenerationLookup{
+		gen: &model.DeltaGeneration{
+			Status:    model.DeltaGenerationSucceeded,
+			DeltaRef:  &deltaRef,
+			SizeBytes: &size,
+		},
+	}
+
+	require.NoError(t, logic.RenderDevice(context.Background()))
 }

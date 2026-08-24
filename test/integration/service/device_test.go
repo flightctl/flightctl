@@ -1764,7 +1764,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			renderedConfig, err := buildRenderedConfig("update-rendered-device-config")
 			Expect(err).ToNot(HaveOccurred())
 
-			status = suite.Device.UpdateRenderedDevice(suite.Ctx, suite.OrgID, deviceName, renderedConfig, "", "hash1", "", nil, false)
+			status = suite.Device.UpdateRenderedDevice(suite.Ctx, suite.OrgID, deviceName, renderedConfig, "", "hash1", "", nil, false, nil)
 			Expect(status.Code).To(Equal(int32(200)))
 
 			updated, err := suite.DeviceStore.Get(suite.Ctx, suite.OrgID, deviceName)

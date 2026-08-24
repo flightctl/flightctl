@@ -331,10 +331,10 @@ func (_d *TracedDeviceService) UpdateDeviceAnnotations(ctx context.Context, orgI
 	return s1
 }
 
-func (_d *TracedDeviceService) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name string, renderedConfig string, renderedApplications string, specHash string, osImage string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool) (s1 domain.Status) {
+func (_d *TracedDeviceService) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name string, renderedConfig string, renderedApplications string, specHash string, osImage string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, osHints *RenderedOSHints) (s1 domain.Status) {
 	ctx, span := startSpan(ctx, "UpdateRenderedDevice")
 
-	s1 = _d.inner.UpdateRenderedDevice(ctx, orgId, name, renderedConfig, renderedApplications, specHash, osImage, configFingerprints, forceUpdate)
+	s1 = _d.inner.UpdateRenderedDevice(ctx, orgId, name, renderedConfig, renderedApplications, specHash, osImage, configFingerprints, forceUpdate, osHints)
 	endSpan(span, s1)
 	return s1
 }

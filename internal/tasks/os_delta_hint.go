@@ -7,10 +7,14 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/containers/image/v5/docker/reference"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	"github.com/flightctl/flightctl/internal/store/delta"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/samber/lo"
 )
 
 const generationMemoTTL = 15 * time.Minute
@@ -47,6 +51,91 @@ func FormatIECBytes(n int64) string {
 		rounded = 1
 	}
 	return fmt.Sprintf("%d %s", rounded, units[unit])
+}
+
+func ImageRepositoryFromRef(imageRef string) (string, error) {
+	named, err := reference.ParseNormalizedNamed(imageRef)
+	if err != nil {
+		return "", err
+	}
+	return named.Name(), nil
+}
+
+func digestFromImageRef(imageRef string) string {
+	named, err := reference.ParseNormalizedNamed(imageRef)
+	if err != nil {
+		return ""
+	}
+	digested, ok := named.(reference.Digested)
+	if !ok {
+		return ""
+	}
+	return digested.Digest().String()
+}
+
+func hintFromGeneration(gen *model.DeltaGeneration, fallbackSize *int64) (deltaImage *string, sizeIEC *string) {
+	var sizeBytes *int64
+	if gen != nil && gen.SizeBytes != nil {
+		sizeBytes = gen.SizeBytes
+	} else {
+		sizeBytes = fallbackSize
+	}
+	if sizeBytes != nil {
+		sizeIEC = lo.ToPtr(FormatIECBytes(*sizeBytes))
+	}
+	if gen != nil && gen.Status == model.DeltaGenerationSucceeded && gen.DeltaRef != nil && *gen.DeltaRef != "" {
+		deltaImage = gen.DeltaRef
+	}
+	return deltaImage, sizeIEC
+}
+
+func (t *DeviceRenderLogic) resolveOSDeltaHint(ctx context.Context, device *domain.Device, rendered RenderedSpec) *deviceservice.RenderedOSHints {
+	if rendered.OsImage == "" {
+		return nil
+	}
+	var fallback *int64
+	if t.osManifestSize != nil {
+		fallback, _ = t.osManifestSize(ctx, rendered.OsImage)
+	}
+	repo, err := ImageRepositoryFromRef(rendered.OsImage)
+	if err != nil || t.deltaLookup == nil {
+		_, size := hintFromGeneration(nil, fallback)
+		if size == nil {
+			return nil
+		}
+		return &deviceservice.RenderedOSHints{UpdatedSize: size}
+	}
+	src := ""
+	if device != nil && device.Status != nil {
+		src = device.Status.Os.ImageDigest
+	}
+	tgt := digestFromImageRef(rendered.OsImage)
+	if src == "" || tgt == "" {
+		_, size := hintFromGeneration(nil, fallback)
+		if size == nil {
+			return nil
+		}
+		return &deviceservice.RenderedOSHints{UpdatedSize: size}
+	}
+	gen, err := lookupCachedGeneration(ctx, t.kvStore, t.deltaLookup, delta.GenerationKey{
+		OrgID:           t.orgId,
+		ImageRepository: repo,
+		SourceDigest:    src,
+		TargetDigest:    tgt,
+	})
+	if err != nil {
+		t.log.Warnf("delta generation lookup failed for device %s/%s: %v", t.orgId, t.event.InvolvedObject.Name, err)
+		_, size := hintFromGeneration(nil, fallback)
+		if size == nil {
+			return nil
+		}
+		return &deviceservice.RenderedOSHints{UpdatedSize: size}
+	}
+	img, size := hintFromGeneration(gen, fallback)
+	if img == nil && size == nil {
+		return nil
+	}
+	return &deviceservice.RenderedOSHints{DeltaImage: img, UpdatedSize: size}
 }
 
 func generationMemoKey(key delta.GenerationKey) string {
