@@ -669,10 +669,15 @@ func TestPatchRepositoryNotFound(t *testing.T) {
 func TestPatchRepositoryDeltaStorageTarget(t *testing.T) {
 	t.Run("When a different repository is patched to deltaStorageTarget it should return 409", func(t *testing.T) {
 		h, _, _ := newTestHandler()
+		emit := &emitSpy{}
+		h.WithPrepareDeltas(&fakeDeviceLister{items: []domain.Device{
+			midUpdateDevice("updating", "quay.io/os:v2", "quay.io/os:v1", "sha256:aaa"),
+		}}, emit)
 		ctx := context.Background()
 		orgId := uuid.New()
 		_, status := h.CreateRepository(ctx, orgId, newDeltaStorageRepository("diffs", "my-registry.com", "my-org/diffs"))
 		require.Equal(t, statusCreatedCode, status.Code)
+		first := len(prepareDeltasNames(emit.events))
 
 		_, status = h.CreateRepository(ctx, orgId, newOciRepository("other", "my-registry.com"))
 		require.Equal(t, statusCreatedCode, status.Code)
@@ -681,6 +686,26 @@ func TestPatchRepositoryDeltaStorageTarget(t *testing.T) {
 			{Op: "add", Path: "/spec/deltaStorageTarget", Value: lo.ToPtr[interface{}](true)},
 		})
 		require.Equal(t, statusConflictCode, status.Code)
+		require.Len(t, prepareDeltasNames(emit.events), first)
+	})
+
+	t.Run("When the first repository is patched to deltaStorageTarget it should emit PrepareDeltas for mid-update devices", func(t *testing.T) {
+		h, _, _ := newTestHandler()
+		emit := &emitSpy{}
+		h.WithPrepareDeltas(&fakeDeviceLister{items: []domain.Device{
+			midUpdateDevice("updating", "quay.io/os:v2", "quay.io/os:v1", "sha256:aaa"),
+		}}, emit)
+		ctx := context.Background()
+		orgId := uuid.New()
+		_, status := h.CreateRepository(ctx, orgId, newOciRepository("diffs", "my-registry.com"))
+		require.Equal(t, statusCreatedCode, status.Code)
+		require.Empty(t, prepareDeltasNames(emit.events))
+
+		_, status = h.PatchRepository(ctx, orgId, "diffs", domain.PatchRequest{
+			{Op: "add", Path: "/spec/deltaStorageTarget", Value: lo.ToPtr[interface{}](true)},
+		})
+		require.Equal(t, statusSuccessCode, status.Code)
+		require.Equal(t, []string{"updating"}, prepareDeltasNames(emit.events))
 	})
 }
 

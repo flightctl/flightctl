@@ -221,7 +221,12 @@ func (h *ServiceHandler) PatchRepository(ctx context.Context, orgId uuid.UUID, n
 	newObj.Metadata.ResourceVersion = nil
 
 	result, err := h.store.Update(ctx, orgId, newObj, h.callbackRepositoryUpdated)
-	return result, common.StoreErrorToApiStatus(err, false, domain.RepositoryKind, &name)
+	status := common.StoreErrorToApiStatus(err, false, domain.RepositoryKind, &name)
+	if err != nil {
+		return result, status
+	}
+	h.emitPrepareDeltasForMidUpdate(ctx, orgId, result)
+	return result, status
 }
 
 func (h *ServiceHandler) ReplaceRepositoryStatusByError(ctx context.Context, orgId uuid.UUID, name string, repository domain.Repository, err error) (*domain.Repository, domain.Status) {

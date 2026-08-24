@@ -290,13 +290,13 @@ func (p *Preparer) enqueueChanged(ctx context.Context, orgId uuid.UUID, fleet *d
 }
 
 func (p *Preparer) completeNow(ctx context.Context, ev worker_client.EventWithOrgId, prep *model.DeltaPrepare, orgId uuid.UUID, kind, name string) error {
-	if err := p.clearStatus(ctx, orgId, kind, name); err != nil {
-		return err
-	}
 	if err := p.Store.CASPrepareStatus(ctx, prep.ID, model.DeltaPrepareComplete); err != nil {
 		if errors.Is(err, flterrors.ErrNoRowsUpdated) {
 			return nil
 		}
+		return err
+	}
+	if err := p.clearStatus(ctx, orgId, kind, name); err != nil {
 		return err
 	}
 	return p.resume(ctx, ev)
