@@ -187,14 +187,14 @@ func (r *Resolver) osCandidate(ctx context.Context, device *domain.Device, rende
 	if current == "" || rendered.OsImage == "" {
 		return DeltaCandidate{}, false, nil
 	}
+	repo, err := imageRepository(rendered.OsImage)
+	if err != nil {
+		return DeltaCandidate{}, false, nil
+	}
 	if r.Inspect == nil {
 		return DeltaCandidate{}, false, fmt.Errorf("inspect is required")
 	}
 	newDigest, err := r.Inspect(ctx, rendered.OsImage)
-	if err != nil {
-		return DeltaCandidate{}, false, err
-	}
-	repo, err := imageRepository(rendered.OsImage)
 	if err != nil {
 		return DeltaCandidate{}, false, err
 	}

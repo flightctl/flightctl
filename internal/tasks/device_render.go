@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -221,6 +222,9 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 	}
 
 	rendered, renderErr := t.renderSpec(ctx, spec)
+	if errors.Is(renderErr, errIgnitionConversion) {
+		return renderErr
+	}
 	if device.Metadata.Owner == nil || *device.Metadata.Owner == "" {
 		status = t.deviceSvc.OverwriteDeviceRepositoryRefs(ctx, t.orgId, *device.Metadata.Name, rendered.referencedRepos...)
 		if status.Code != http.StatusOK {
@@ -249,6 +253,8 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 	}
 	return nil
 }
+
+var errIgnitionConversion = errors.New("failed converting ignition config to rendered config")
 
 type RenderedSpec struct {
 	OsImage      string
@@ -280,7 +286,7 @@ func (t *DeviceRenderLogic) renderSpec(ctx context.Context, spec *domain.DeviceS
 	ignitionConfig, referencedRepos, configFingerprints, renderErr := t.renderConfig(ctx)
 	renderedConfig, err := ignitionConfigToRenderedConfig(ignitionConfig)
 	if err != nil {
-		return RenderedSpec{referencedRepos: referencedRepos, configFingerprints: configFingerprints}, fmt.Errorf("failed converting ignition config to rendered config: %w", err)
+		return RenderedSpec{referencedRepos: referencedRepos, configFingerprints: configFingerprints}, fmt.Errorf("%w: %v", errIgnitionConversion, err)
 	}
 	result := RenderedSpec{
 		Config:             renderedConfig,
