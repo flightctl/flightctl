@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
+	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -184,6 +185,46 @@ func newTestHandler() (*ServiceHandler, *fakeRepositoryStore, *fakeEventsService
 	return NewServiceHandler(repoStore, evStore, logrus.New()), repoStore, evStore
 }
 
+type fakeDeviceLister struct {
+	items []domain.Device
+}
+
+func (f *fakeDeviceLister) List(_ context.Context, _ uuid.UUID) (*domain.DeviceList, error) {
+	return &domain.DeviceList{Items: f.items}, nil
+}
+
+type emitSpy struct {
+	events []*domain.Event
+}
+
+func (s *emitSpy) EmitEvent(_ context.Context, _ uuid.UUID, event *domain.Event) {
+	if event == nil {
+		return
+	}
+	s.events = append(s.events, event)
+}
+
+var _ worker_client.WorkerClient = (*emitSpy)(nil)
+
+func midUpdateDevice(name, specImage, statusImage, digest string) domain.Device {
+	return domain.Device{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+		Spec:     &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: specImage}},
+		Status:   &domain.DeviceStatus{Os: domain.DeviceOsStatus{Image: statusImage, ImageDigest: digest}},
+	}
+}
+
+func prepareDeltasNames(events []*domain.Event) []string {
+	var names []string
+	for _, ev := range events {
+		if ev.Reason != domain.EventReasonPrepareDeltas {
+			continue
+		}
+		names = append(names, ev.InvolvedObject.Name)
+	}
+	return names
+}
+
 func newGitRepository(name, url string) domain.Repository {
 	spec := domain.RepositorySpec{}
 	_ = spec.FromGitRepoSpec(domain.GitRepoSpec{Url: url, Type: domain.GitRepoSpecTypeGit})
@@ -220,21 +261,6 @@ func newDeltaStorageRepository(name, registry, repository string) domain.Reposit
 		Metadata:   domain.ObjectMeta{Name: lo.ToPtr(name)},
 		Spec:       spec,
 	}
-}
-
-func isDeltaStorageTarget(repo *domain.Repository) bool {
-	if repo == nil {
-		return false
-	}
-	specType, err := repo.Spec.Discriminator()
-	if err != nil || specType != string(domain.RepoSpecTypeOci) {
-		return false
-	}
-	ociSpec, err := repo.Spec.AsOciRepoSpec()
-	if err != nil || ociSpec.DeltaStorageTarget == nil {
-		return false
-	}
-	return *ociSpec.DeltaStorageTarget
 }
 
 // ── CreateRepository ─────────────────────────────────────────────────────
@@ -303,6 +329,60 @@ func TestCreateRepositoryDeltaStorageTarget(t *testing.T) {
 		_, status = h.CreateRepository(ctx, orgId, newDeltaStorageRepository("other-diffs", "my-registry.com", "my-org/other"))
 		require.Equal(t, statusConflictCode, status.Code)
 		require.Contains(t, status.Message, "deltaStorageTarget")
+	})
+
+	t.Run("When a deltaStorageTarget is created it should emit PrepareDeltas for mid-update devices", func(t *testing.T) {
+		h, _, _ := newTestHandler()
+		emit := &emitSpy{}
+		nilStatus := domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("nil-status")},
+			Spec:     &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "quay.io/os:v2"}},
+		}
+		h.WithPrepareDeltas(&fakeDeviceLister{items: []domain.Device{
+			midUpdateDevice("updating", "quay.io/os:v2", "quay.io/os:v1", "sha256:aaa"),
+			midUpdateDevice("current", "quay.io/os:v1", "quay.io/os:v1", "sha256:aaa"),
+			midUpdateDevice("empty-status", "quay.io/os:v2", "", ""),
+			midUpdateDevice("no-digest", "quay.io/os:v1", "quay.io/os:v1", ""),
+			nilStatus,
+		}}, emit)
+
+		_, status := h.CreateRepository(context.Background(), uuid.New(), newDeltaStorageRepository("diffs", "my-registry.com", "my-org/diffs"))
+		require.Equal(t, statusCreatedCode, status.Code)
+		require.ElementsMatch(t, []string{"updating", "empty-status", "no-digest", "nil-status"}, prepareDeltasNames(emit.events))
+		for _, ev := range emit.events {
+			require.Equal(t, domain.DeviceKind, ev.InvolvedObject.Kind)
+			require.Equal(t, domain.EventReasonPrepareDeltas, ev.Reason)
+		}
+	})
+
+	t.Run("When a non-target repository is created it should not emit PrepareDeltas", func(t *testing.T) {
+		h, _, _ := newTestHandler()
+		emit := &emitSpy{}
+		h.WithPrepareDeltas(&fakeDeviceLister{items: []domain.Device{
+			midUpdateDevice("updating", "quay.io/os:v2", "quay.io/os:v1", "sha256:aaa"),
+		}}, emit)
+
+		_, status := h.CreateRepository(context.Background(), uuid.New(), newGitRepository("git-repo", "https://example.com/repo.git"))
+		require.Equal(t, statusCreatedCode, status.Code)
+		require.Empty(t, prepareDeltasNames(emit.events))
+	})
+
+	t.Run("When a second deltaStorageTarget is rejected it should not emit PrepareDeltas", func(t *testing.T) {
+		h, _, _ := newTestHandler()
+		emit := &emitSpy{}
+		h.WithPrepareDeltas(&fakeDeviceLister{items: []domain.Device{
+			midUpdateDevice("updating", "quay.io/os:v2", "quay.io/os:v1", "sha256:aaa"),
+		}}, emit)
+		ctx := context.Background()
+		orgId := uuid.New()
+		_, status := h.CreateRepository(ctx, orgId, newDeltaStorageRepository("diffs", "my-registry.com", "my-org/diffs"))
+		require.Equal(t, statusCreatedCode, status.Code)
+		first := len(prepareDeltasNames(emit.events))
+		require.Equal(t, 1, first)
+
+		_, status = h.CreateRepository(ctx, orgId, newDeltaStorageRepository("other-diffs", "my-registry.com", "my-org/other"))
+		require.Equal(t, statusConflictCode, status.Code)
+		require.Len(t, prepareDeltasNames(emit.events), first)
 	})
 }
 
@@ -437,6 +517,44 @@ func TestReplaceRepositoryDeltaStorageTarget(t *testing.T) {
 
 		_, status = h.CreateRepository(ctx, orgId, newDeltaStorageRepository("other-diffs", "my-registry.com", "my-org/other"))
 		require.Equal(t, statusCreatedCode, status.Code)
+	})
+
+	t.Run("When a deltaStorageTarget is replaced it should emit PrepareDeltas for mid-update devices", func(t *testing.T) {
+		h, _, _ := newTestHandler()
+		emit := &emitSpy{}
+		h.WithPrepareDeltas(&fakeDeviceLister{items: []domain.Device{
+			midUpdateDevice("updating", "quay.io/os:v2", "quay.io/os:v1", "sha256:aaa"),
+		}}, emit)
+		ctx := context.Background()
+		orgId := uuid.New()
+		_, status := h.CreateRepository(ctx, orgId, newDeltaStorageRepository("diffs", "my-registry.com", "my-org/diffs"))
+		require.Equal(t, statusCreatedCode, status.Code)
+		require.Len(t, prepareDeltasNames(emit.events), 1)
+
+		replaced := newDeltaStorageRepository("diffs", "my-registry.com", "my-org/diffs-v2")
+		_, status = h.ReplaceRepository(ctx, orgId, "diffs", replaced)
+		require.Equal(t, statusSuccessCode, status.Code)
+		require.Len(t, prepareDeltasNames(emit.events), 2)
+	})
+
+	t.Run("When a different repository is replaced with deltaStorageTarget it should not emit PrepareDeltas", func(t *testing.T) {
+		h, _, _ := newTestHandler()
+		emit := &emitSpy{}
+		h.WithPrepareDeltas(&fakeDeviceLister{items: []domain.Device{
+			midUpdateDevice("updating", "quay.io/os:v2", "quay.io/os:v1", "sha256:aaa"),
+		}}, emit)
+		ctx := context.Background()
+		orgId := uuid.New()
+		_, status := h.CreateRepository(ctx, orgId, newDeltaStorageRepository("diffs", "my-registry.com", "my-org/diffs"))
+		require.Equal(t, statusCreatedCode, status.Code)
+		first := len(prepareDeltasNames(emit.events))
+
+		_, status = h.CreateRepository(ctx, orgId, newOciRepository("other", "my-registry.com"))
+		require.Equal(t, statusCreatedCode, status.Code)
+
+		_, status = h.ReplaceRepository(ctx, orgId, "other", newDeltaStorageRepository("other", "my-registry.com", "my-org/other"))
+		require.Equal(t, statusConflictCode, status.Code)
+		require.Len(t, prepareDeltasNames(emit.events), first)
 	})
 }
 
