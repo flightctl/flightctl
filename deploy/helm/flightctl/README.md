@@ -294,7 +294,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | dbSetup.migration.backoffLimit | int | `2147483647` | Number of retries for the migration Job on failure  |
 | dbSetup.wait.sleep | int | `2` | Seconds to sleep between database connection attempts Default sleep interval between connection attempts |
 | dbSetup.wait.timeout | int | `60` | Seconds to wait for database readiness before failing Default timeout for database wait (can be overridden per deployment) |
-| deltaGeneration | object | `{"defaultRepository":{"namespace":"","registry":"","repository":"","scheme":"","secretName":"","skipServerVerification":false},"maxConcurrentDeltaGenerations":2}` | Default OCI write target for generated deltas when an organization has no deltaStorageTarget Repository. Username and password must come from the Secret named in secretName (keys: username, password); they are not written to config.yaml. |
+| deltaGeneration | object | `{"defaultRepository":{"namespace":"","registry":"","repository":"","scheme":"","secretName":"","skipServerVerification":false},"maxConcurrentDeltaGenerations":2,"timeout":"30m"}` | Default OCI write target for generated deltas when an organization has no deltaStorageTarget Repository. Username and password must come from the Secret named in secretName (keys: username, password); they are not written to config.yaml. |
 | deltaGeneration.defaultRepository.namespace | string | `""` | Optional namespace under registry (e.g. my-org). Mutually exclusive with repository. |
 | deltaGeneration.defaultRepository.registry | string | `""` | Registry hostname used as the login/CA host and as the prefix of the push path. |
 | deltaGeneration.defaultRepository.repository | string | `""` | Optional repository path under registry (e.g. my-org/diffs). Mutually exclusive with namespace. |
@@ -302,6 +302,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | deltaGeneration.defaultRepository.secretName | string | `""` | Name of the Kubernetes Secret containing 'username' and 'password' keys. |
 | deltaGeneration.defaultRepository.skipServerVerification | bool | `false` | Skip TLS verification when connecting to the registry. |
 | deltaGeneration.maxConcurrentDeltaGenerations | int | `2` | Maximum number of concurrent delta generation jobs. Defaults to 2 when omitted or <= 0. |
+| deltaGeneration.timeout | string | `"30m"` | Per-job timeout for skopeo/oci-delta/ORAS. Defaults to 30m when omitted or <= 0. |
 | deltaWorker | object | `{"image":{"image":"quay.io/flightctl/flightctl-delta-worker-el9","pullPolicy":"","tag":""}}` | Delta-worker Configuration |
 | deltaWorker.image.image | string | `"quay.io/flightctl/flightctl-delta-worker-el9"` | Delta-worker container image |
 | deltaWorker.image.pullPolicy | string | `""` | Image pull policy for delta-worker container |
