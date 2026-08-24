@@ -12,9 +12,13 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
 	"github.com/flightctl/flightctl/internal/oci"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	"github.com/flightctl/flightctl/internal/service/events"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	"github.com/flightctl/flightctl/internal/store"
 	deltastore "github.com/flightctl/flightctl/internal/store/delta"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	eventstore "github.com/flightctl/flightctl/internal/store/event"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	repostore "github.com/flightctl/flightctl/internal/store/repository"
 	"github.com/flightctl/flightctl/internal/store/selector"
@@ -69,10 +73,15 @@ func (s *Server) newPreparer(ctx context.Context) (*Preparer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("delta publisher: %w", err)
 	}
+	taskPublisher, err := worker_client.QueuePublisher(ctx, s.queuesProvider)
+	if err != nil {
+		return nil, fmt.Errorf("task publisher: %w", err)
+	}
 	fleets := fleetstore.NewFleetStore(s.db, s.log)
 	devices := devicestore.NewDeviceStore(s.db, s.log)
 	tvs := tvstore.NewTemplateVersionStore(s.db, s.log)
 	repos := repostore.NewRepositoryStore(s.db, s.log)
+	eventsSvc := events.NewServiceHandler(eventstore.NewEventStore(s.db, s.log), worker_client.NewWorkerClient(taskPublisher, s.log, worker_client.WithDeltaPublisher(publisher)), s.log)
 	deployWait := s.cfg.DeltaGeneration.EffectiveMaxWaitForDelta()
 	deployTimeout := s.cfg.DeltaGeneration.EffectiveTimeout()
 	return &Preparer{
@@ -96,8 +105,10 @@ func (s *Server) newPreparer(ctx context.Context) (*Preparer, error) {
 			}
 			return d
 		},
-		Status: NewStorePreparingStatus(fleets, devices),
-		Resume: func(context.Context, worker_client.EventWithOrgId) error { return nil },
+		Status:    NewStorePreparingStatus(fleets, devices),
+		Events:    eventsSvc,
+		FleetSvc:  fleetservice.NewServiceHandler(fleets, nil, eventsSvc, s.log),
+		DeviceSvc: deviceservice.NewDeviceServiceHandler(devices, nil, fleets, eventsSvc, nil, "", s.log),
 	}, nil
 }
 

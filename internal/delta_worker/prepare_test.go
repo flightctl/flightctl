@@ -9,14 +9,18 @@ import (
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	deltastore "github.com/flightctl/flightctl/internal/store/delta"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/tasks"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	gomock "go.uber.org/mock/gomock"
 )
 
 const (
@@ -34,11 +38,11 @@ func TestPrepare_SkipPaths(t *testing.T) {
 		store := newFakePrepareStore()
 		status := &statusSpy{}
 		resume := &resumeSpy{}
-		p := newTestPreparer(store, skipGenerateDeltaResolver(), status, resume, nil)
+		p := newTestPreparer(t, store, skipGenerateDeltaResolver(), status, resume, nil)
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
 		require.NoError(t, err)
 		assert.Empty(t, store.prepares)
-		assert.Equal(t, 1, resume.n)
+		assert.Contains(t, resumeEventReasons(p), domain.EventReasonFleetRolloutStarted)
 		assert.Empty(t, status.sets)
 		require.Len(t, status.clears, 1)
 		assert.Equal(t, domain.FleetKind, status.clears[0].kind)
@@ -48,17 +52,17 @@ func TestPrepare_SkipPaths(t *testing.T) {
 		store := newFakePrepareStore()
 		existing := store.seedWaiting(orgId, domain.FleetKind, "fleet-1", lo.ToPtr("tv-1"), nil, time.Now())
 		resume := &resumeSpy{}
-		p := newTestPreparer(store, skipGenerateDeltaResolver(), &statusSpy{}, resume, nil)
+		p := newTestPreparer(t, store, skipGenerateDeltaResolver(), &statusSpy{}, resume, nil)
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
 		require.NoError(t, err)
 		assert.Equal(t, model.DeltaPrepareFailed, store.prepares[existing.ID].Status)
-		assert.Equal(t, 1, resume.n)
+		assert.Contains(t, resumeEventReasons(p), domain.EventReasonFleetRolloutStarted)
 	})
 
 	t.Run("When the write target is missing it should Resume without inserting", func(t *testing.T) {
 		store := newFakePrepareStore()
 		resume := &resumeSpy{}
-		p := newTestPreparer(store, &Resolver{
+		p := newTestPreparer(t, store, &Resolver{
 			Fleet: func(_ context.Context, _ uuid.UUID, _ string) (*domain.Fleet, error) {
 				return fleetWithTV("fleet-1", "tv-1"), nil
 			},
@@ -69,29 +73,151 @@ func TestPrepare_SkipPaths(t *testing.T) {
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
 		require.NoError(t, err)
 		assert.Empty(t, store.prepares)
-		assert.Equal(t, 1, resume.n)
+		assert.Contains(t, resumeEventReasons(p), domain.EventReasonFleetRolloutStarted)
 	})
 
 	t.Run("When no device is eligible it should Resume without inserting", func(t *testing.T) {
 		store := newFakePrepareStore()
 		resume := &resumeSpy{}
 		fleet := fleetWithTV("fleet-1", "tv-1")
-		p := newTestPreparer(store, eligibleFleetResolver(fleet, deviceWithOS("d1", false, prepareTestSrc)), &statusSpy{}, resume, nil)
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleet, deviceWithOS("d1", false, prepareTestSrc)), &statusSpy{}, resume, nil)
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
 		require.NoError(t, err)
 		assert.Empty(t, store.prepares)
-		assert.Equal(t, 1, resume.n)
+		assert.Contains(t, resumeEventReasons(p), domain.EventReasonFleetRolloutStarted)
 	})
 
 	t.Run("When DeltaCandidates is empty it should Resume without inserting", func(t *testing.T) {
 		store := newFakePrepareStore()
 		resume := &resumeSpy{}
 		fleet := fleetWithTV("fleet-1", "tv-1")
-		p := newTestPreparer(store, eligibleFleetResolver(fleet, deviceWithOS("d1", true, "")), &statusSpy{}, resume, nil)
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleet, deviceWithOS("d1", true, "")), &statusSpy{}, resume, nil)
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
 		require.NoError(t, err)
 		assert.Empty(t, store.prepares)
-		assert.Equal(t, 1, resume.n)
+		assert.Contains(t, resumeEventReasons(p), domain.EventReasonFleetRolloutStarted)
+	})
+}
+
+func TestCompleteNow(t *testing.T) {
+	orgId := uuid.New()
+	ctx := context.Background()
+
+	t.Run("When CAS wins and live TV matches it should emit FleetRolloutStarted, annotate, SetOutOfDate, and clear preparing", func(t *testing.T) {
+		store := newFakePrepareStore()
+		prep := store.seedWaiting(orgId, domain.FleetKind, "fleet-1", lo.ToPtr("tv-1"), nil, time.Now())
+		status := &statusSpy{}
+		var annotated map[string]string
+		var outOfDateOwner string
+		p := newCompleteNowPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1")), status, func(ann map[string]string) {
+			annotated = ann
+		}, func(owner string) {
+			outOfDateOwner = owner
+		})
+
+		err := p.completeNow(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"), prep, orgId, domain.FleetKind, "fleet-1")
+		require.NoError(t, err)
+		assert.Equal(t, model.DeltaPrepareComplete, store.prepares[prep.ID].Status)
+		assert.Equal(t, []domain.EventReason{domain.EventReasonFleetRolloutStarted}, resumeEventReasons(p))
+		assert.Equal(t, "tv-1", annotated[domain.FleetAnnotationTemplateVersion])
+		assert.Equal(t, util.ResourceOwner(domain.FleetKind, "fleet-1"), outOfDateOwner)
+		require.Len(t, status.clears, 1)
+		assert.Equal(t, domain.FleetKind, status.clears[0].kind)
+		d, err := recordedEvents(p)[0].Details.AsFleetRolloutStartedDetails()
+		require.NoError(t, err)
+		assert.Equal(t, domain.None, d.RolloutStrategy)
+	})
+
+	t.Run("When live fleet has deviceSelection it should emit batched FleetRolloutStarted", func(t *testing.T) {
+		store := newFakePrepareStore()
+		prep := store.seedWaiting(orgId, domain.FleetKind, "fleet-1", lo.ToPtr("tv-1"), nil, time.Now())
+		fleet := fleetWithTV("fleet-1", "tv-1")
+		fleet.Spec.RolloutPolicy = &domain.RolloutPolicy{DeviceSelection: &domain.RolloutDeviceSelection{}}
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleet), &statusSpy{}, &resumeSpy{}, nil)
+
+		err := p.completeNow(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"), prep, orgId, domain.FleetKind, "fleet-1")
+		require.NoError(t, err)
+		d, err := recordedEvents(p)[0].Details.AsFleetRolloutStartedDetails()
+		require.NoError(t, err)
+		assert.Equal(t, domain.Batched, d.RolloutStrategy)
+	})
+
+	t.Run("When CAS wins and live TV is stale it should not emit or clear preparing", func(t *testing.T) {
+		store := newFakePrepareStore()
+		prep := store.seedWaiting(orgId, domain.FleetKind, "fleet-1", lo.ToPtr("tv-1"), nil, time.Now())
+		status := &statusSpy{}
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-2")), status, &resumeSpy{}, nil)
+
+		err := p.completeNow(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-2"), prep, orgId, domain.FleetKind, "fleet-1")
+		require.NoError(t, err)
+		assert.Equal(t, model.DeltaPrepareComplete, store.prepares[prep.ID].Status)
+		assert.NotContains(t, resumeEventReasons(p), domain.EventReasonFleetRolloutStarted)
+		assert.Empty(t, status.clears)
+	})
+
+	t.Run("When CAS misses it should not emit", func(t *testing.T) {
+		store := newFakePrepareStore()
+		prep := store.seedWaiting(orgId, domain.FleetKind, "fleet-1", lo.ToPtr("tv-1"), nil, time.Now())
+		require.NoError(t, store.CASPrepareStatus(ctx, prep.ID, model.DeltaPrepareComplete))
+		status := &statusSpy{}
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1")), status, &resumeSpy{}, nil)
+
+		err := p.completeNow(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"), prep, orgId, domain.FleetKind, "fleet-1")
+		require.NoError(t, err)
+		assert.NotContains(t, resumeEventReasons(p), domain.EventReasonFleetRolloutStarted)
+		assert.Empty(t, status.clears)
+	})
+
+	t.Run("When two completeNow calls race it should emit only once", func(t *testing.T) {
+		store := newFakePrepareStore()
+		prep := store.seedWaiting(orgId, domain.FleetKind, "fleet-1", lo.ToPtr("tv-1"), nil, time.Now())
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1")), &statusSpy{}, &resumeSpy{}, nil)
+
+		require.NoError(t, p.completeNow(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"), prep, orgId, domain.FleetKind, "fleet-1"))
+		require.NoError(t, p.completeNow(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"), prep, orgId, domain.FleetKind, "fleet-1"))
+		assert.Equal(t, []domain.EventReason{domain.EventReasonFleetRolloutStarted}, resumeEventReasons(p))
+	})
+
+	t.Run("When the prepare is not waiting it should not emit", func(t *testing.T) {
+		store := newFakePrepareStore()
+		prep := store.seedWaiting(orgId, domain.FleetKind, "fleet-1", lo.ToPtr("tv-1"), nil, time.Now())
+		require.NoError(t, store.CASPrepareStatus(ctx, prep.ID, model.DeltaPrepareFailed))
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1")), &statusSpy{}, &resumeSpy{}, nil)
+
+		err := p.completeNow(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"), prep, orgId, domain.FleetKind, "fleet-1")
+		require.NoError(t, err)
+		assert.NotContains(t, resumeEventReasons(p), domain.EventReasonFleetRolloutStarted)
+	})
+
+	t.Run("When device RV matches it should emit DeltaGenerationCompleted and clear preparing", func(t *testing.T) {
+		store := newFakePrepareStore()
+		rv := int64(7)
+		prep := store.seedWaiting(orgId, domain.DeviceKind, "d1", nil, &rv, time.Now())
+		status := &statusSpy{}
+		device := deviceWithOS("d1", true, prepareTestSrc)
+		device.Metadata.Generation = lo.ToPtr(int64(7))
+		p := newTestPreparer(t, store, eligibleDeviceResolver(device), status, &resumeSpy{}, nil)
+
+		err := p.completeNow(ctx, devicePrepareEvent(orgId, "d1"), prep, orgId, domain.DeviceKind, "d1")
+		require.NoError(t, err)
+		assert.Equal(t, []domain.EventReason{domain.EventReasonDeltaGenerationCompleted}, resumeEventReasons(p))
+		require.Len(t, status.clears, 1)
+		assert.Equal(t, domain.DeviceKind, status.clears[0].kind)
+	})
+
+	t.Run("When device RV is stale it should not emit or clear preparing", func(t *testing.T) {
+		store := newFakePrepareStore()
+		rv := int64(7)
+		prep := store.seedWaiting(orgId, domain.DeviceKind, "d1", nil, &rv, time.Now())
+		status := &statusSpy{}
+		device := deviceWithOS("d1", true, prepareTestSrc)
+		device.Metadata.Generation = lo.ToPtr(int64(8))
+		p := newTestPreparer(t, store, eligibleDeviceResolver(device), status, &resumeSpy{}, nil)
+
+		err := p.completeNow(ctx, devicePrepareEvent(orgId, "d1"), prep, orgId, domain.DeviceKind, "d1")
+		require.NoError(t, err)
+		assert.NotContains(t, resumeEventReasons(p), domain.EventReasonDeltaGenerationCompleted)
+		assert.Empty(t, status.clears)
 	})
 }
 
@@ -106,7 +232,7 @@ func TestPrepare_InsertAndAck(t *testing.T) {
 		resume := &resumeSpy{}
 		emit := &emitSpy{}
 		fleet := fleetWithTV("fleet-1", "tv-1")
-		p := newTestPreparer(store, eligibleFleetResolver(fleet, deviceWithOS("d1", true, prepareTestSrc)), status, resume, emit)
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleet, deviceWithOS("d1", true, prepareTestSrc)), status, resume, emit)
 		p.Now = func() time.Time { return now }
 
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
@@ -128,7 +254,7 @@ func TestPrepare_InsertAndAck(t *testing.T) {
 		assert.Equal(t, prepareTestRepo, payload.ImageRepository)
 		assert.Equal(t, prepareTestSrc, payload.SourceDigest)
 		assert.Equal(t, prepareTestTgt, payload.TargetDigest)
-		assert.Equal(t, 0, resume.n)
+		assert.NotContains(t, resumeEventReasons(p), domain.EventReasonFleetRolloutStarted)
 		require.Len(t, status.sets, 1)
 		assert.Equal(t, domain.FleetKind, status.sets[0].kind)
 		assert.Equal(t, "fleet-1", status.sets[0].name)
@@ -139,7 +265,7 @@ func TestPrepare_InsertAndAck(t *testing.T) {
 	t.Run("When enqueue fails it should return the emit error after insert", func(t *testing.T) {
 		store := newFakePrepareStore()
 		emit := &emitSpy{err: errors.New("redis down")}
-		p := newTestPreparer(store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, &resumeSpy{}, emit)
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, &resumeSpy{}, emit)
 		p.Now = func() time.Time { return now }
 
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
@@ -152,7 +278,7 @@ func TestPrepare_InsertAndAck(t *testing.T) {
 		store := newFakePrepareStore()
 		emit := &emitSpy{}
 		fleet := fleetWithTV("fleet-1", "tv-1")
-		p := newTestPreparer(store, eligibleFleetResolver(fleet,
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleet,
 			deviceWithOS("d1", true, prepareTestSrc),
 			deviceWithOS("d2", true, prepareTestSrc),
 		), &statusSpy{}, &resumeSpy{}, emit)
@@ -169,7 +295,7 @@ func TestPrepare_InsertAndAck(t *testing.T) {
 		store := newFakePrepareStore()
 		fleet := fleetWithTV("fleet-1", "tv-1")
 		fleet.Spec.RolloutPolicy = nil
-		p := newTestPreparer(store, eligibleFleetResolver(fleet, deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, &resumeSpy{}, &emitSpy{})
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleet, deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, &resumeSpy{}, &emitSpy{})
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
 		require.NoError(t, err)
 		require.Len(t, store.prepares, 1)
@@ -185,7 +311,7 @@ func TestPrepare_Deadlines(t *testing.T) {
 	t.Run("When maxWait is omitted it should persist with a nil deadline", func(t *testing.T) {
 		store := newFakePrepareStore()
 		resume := &resumeSpy{}
-		p := newTestPreparer(store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, resume, &emitSpy{})
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, resume, &emitSpy{})
 		p.Now = func() time.Time { return now }
 		p.MaxWait = func(*domain.Fleet) *time.Duration { return nil }
 
@@ -193,13 +319,13 @@ func TestPrepare_Deadlines(t *testing.T) {
 		require.NoError(t, err)
 		assert.Nil(t, firstPrepare(store).Deadline)
 		assert.Equal(t, model.DeltaPrepareWaiting, firstPrepare(store).Status)
-		assert.Equal(t, 0, resume.n)
+		assert.NotContains(t, resumeEventReasons(p), domain.EventReasonFleetRolloutStarted)
 	})
 
 	t.Run("When maxWait is set it should set deadline to CreatedAt plus wait", func(t *testing.T) {
 		store := newFakePrepareStore()
 		wait := 5 * time.Minute
-		p := newTestPreparer(store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, &resumeSpy{}, &emitSpy{})
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, &resumeSpy{}, &emitSpy{})
 		p.Now = func() time.Time { return now }
 		p.MaxWait = func(*domain.Fleet) *time.Duration { return &wait }
 
@@ -216,7 +342,7 @@ func TestPrepare_Deadlines(t *testing.T) {
 		resume := &resumeSpy{}
 		emit := &emitSpy{}
 		zero := time.Duration(0)
-		p := newTestPreparer(store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), status, resume, emit)
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), status, resume, emit)
 		p.Now = func() time.Time { return now }
 		p.MaxWait = func(*domain.Fleet) *time.Duration { return &zero }
 
@@ -225,7 +351,7 @@ func TestPrepare_Deadlines(t *testing.T) {
 		require.Len(t, emit.events, 1)
 		assert.Equal(t, model.DeltaPrepareComplete, firstPrepare(store).Status)
 		assert.Equal(t, now, *firstPrepare(store).Deadline)
-		assert.Equal(t, 1, resume.n)
+		assert.Contains(t, resumeEventReasons(p), domain.EventReasonFleetRolloutStarted)
 		assert.Empty(t, status.sets)
 		require.Len(t, status.clears, 1)
 	})
@@ -236,7 +362,7 @@ func TestPrepare_Deadlines(t *testing.T) {
 		fleetWait := domain.Duration("10m")
 		fleet.Spec.RolloutPolicy = &domain.RolloutPolicy{MaxWaitForDelta: &fleetWait}
 		deploy := 30 * time.Minute
-		p := newTestPreparer(store, eligibleFleetResolver(fleet, deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, &resumeSpy{}, &emitSpy{})
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleet, deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, &resumeSpy{}, &emitSpy{})
 		p.Now = func() time.Time { return now }
 		p.MaxWait = func(f *domain.Fleet) *time.Duration {
 			d, err := maxWaitFromFleet(f, &deploy)
@@ -274,7 +400,7 @@ func TestPrepare_DedupeAndSupercede(t *testing.T) {
 		}
 		resume := &resumeSpy{}
 		emit := &emitSpy{}
-		p := newTestPreparer(store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, resume, emit)
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, resume, emit)
 		p.Now = func() time.Time { return now }
 
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
@@ -283,7 +409,7 @@ func TestPrepare_DedupeAndSupercede(t *testing.T) {
 		assert.Equal(t, existing.ID, firstPrepare(store).ID)
 		assert.Equal(t, created, firstPrepare(store).CreatedAt)
 		assert.Equal(t, model.DeltaPrepareWaiting, firstPrepare(store).Status)
-		assert.Equal(t, 0, resume.n)
+		assert.NotContains(t, resumeEventReasons(p), domain.EventReasonFleetRolloutStarted)
 		assert.Empty(t, emit.events)
 	})
 
@@ -292,7 +418,7 @@ func TestPrepare_DedupeAndSupercede(t *testing.T) {
 		created := now.Add(-time.Hour)
 		existing := store.seedWaiting(orgId, domain.FleetKind, "fleet-1", lo.ToPtr("tv-1"), nil, created)
 		emit := &emitSpy{}
-		p := newTestPreparer(store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, &resumeSpy{}, emit)
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, &resumeSpy{}, emit)
 		p.Now = func() time.Time { return now }
 
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
@@ -310,7 +436,7 @@ func TestPrepare_DedupeAndSupercede(t *testing.T) {
 		status := &statusSpy{}
 		resume := &resumeSpy{}
 		emit := &emitSpy{}
-		p := newTestPreparer(store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-11"), deviceWithOS("d1", true, prepareTestSrc)), status, resume, emit)
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-11"), deviceWithOS("d1", true, prepareTestSrc)), status, resume, emit)
 		p.Now = func() time.Time { return now }
 
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-10"))
@@ -328,7 +454,7 @@ func TestPrepare_DedupeAndSupercede(t *testing.T) {
 		require.NotNil(t, inserted)
 		assert.Equal(t, model.DeltaPrepareWaiting, inserted.Status)
 		assert.Equal(t, "tv-11", lo.FromPtr(inserted.TemplateVersion))
-		assert.Equal(t, 0, resume.n)
+		assert.NotContains(t, resumeEventReasons(p), domain.EventReasonFleetRolloutStarted)
 		require.Len(t, emit.events, 1)
 		assert.Equal(t, domain.EventReasonGenerateDelta, emit.events[0].Reason)
 		assert.NotEqual(t, domain.EventReasonFleetRolloutStarted, emit.events[0].Reason)
@@ -340,7 +466,7 @@ func TestPrepare_DedupeAndSupercede(t *testing.T) {
 		store.seedWaiting(orgId, domain.FleetKind, "fleet-1", lo.ToPtr("tv-10"), nil, now.Add(-time.Hour))
 		store.casErr = flterrors.ErrNoRowsUpdated
 		status := &statusSpy{}
-		p := newTestPreparer(store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-11"), deviceWithOS("d1", true, prepareTestSrc)), status, &resumeSpy{}, &emitSpy{})
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-11"), deviceWithOS("d1", true, prepareTestSrc)), status, &resumeSpy{}, &emitSpy{})
 		p.Now = func() time.Time { return now }
 
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-10"))
@@ -353,11 +479,11 @@ func TestPrepare_DedupeAndSupercede(t *testing.T) {
 		store.insertErr = flterrors.ErrDuplicateName
 		resume := &resumeSpy{}
 		emit := &emitSpy{}
-		p := newTestPreparer(store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, resume, emit)
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, resume, emit)
 
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
 		require.NoError(t, err)
-		assert.Equal(t, 0, resume.n)
+		assert.NotContains(t, resumeEventReasons(p), domain.EventReasonFleetRolloutStarted)
 		assert.Empty(t, emit.events)
 		assert.Empty(t, store.prepares)
 	})
@@ -384,13 +510,13 @@ func TestPrepare_TerminalAndDevice(t *testing.T) {
 		status := &statusSpy{}
 		resume := &resumeSpy{}
 		emit := &emitSpy{}
-		p := newTestPreparer(store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), status, resume, emit)
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), status, resume, emit)
 
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
 		require.NoError(t, err)
 		assert.Equal(t, 0, store.insertGensN)
 		assert.Empty(t, emit.events)
-		assert.Equal(t, 1, resume.n)
+		assert.Contains(t, resumeEventReasons(p), domain.EventReasonFleetRolloutStarted)
 		assert.Equal(t, model.DeltaPrepareComplete, firstPrepare(store).Status)
 		assert.Len(t, store.joins, 1)
 		assert.Empty(t, status.sets)
@@ -413,7 +539,7 @@ func TestPrepare_TerminalAndDevice(t *testing.T) {
 			Status:          model.DeltaGenerationFailed,
 		}
 		emit := &emitSpy{}
-		p := newTestPreparer(store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, &resumeSpy{}, emit)
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, &resumeSpy{}, emit)
 
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
 		require.NoError(t, err)
@@ -443,7 +569,7 @@ func TestPrepare_TerminalAndDevice(t *testing.T) {
 		r.Expand = func(_ tasks.RenderedSpec, cands []DeltaCandidate) []DeltaCandidate {
 			return append(cands, DeltaCandidate{ImageRepository: "quay.io/apps/web", CurrentDigest: "sha256:ccc", NewDigest: "sha256:ddd"})
 		}
-		p := newTestPreparer(store, r, status, &resumeSpy{}, emit)
+		p := newTestPreparer(t, store, r, status, &resumeSpy{}, emit)
 
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
 		require.NoError(t, err)
@@ -478,7 +604,7 @@ func TestPrepare_TerminalAndDevice(t *testing.T) {
 		r.Expand = func(_ tasks.RenderedSpec, cands []DeltaCandidate) []DeltaCandidate {
 			return append(cands, DeltaCandidate{ImageRepository: "quay.io/apps/web", CurrentDigest: "sha256:ccc", NewDigest: "sha256:ddd"})
 		}
-		p := newTestPreparer(store, r, &statusSpy{}, &resumeSpy{}, emit)
+		p := newTestPreparer(t, store, r, &statusSpy{}, &resumeSpy{}, emit)
 
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
 		require.NoError(t, err)
@@ -493,7 +619,7 @@ func TestPrepare_TerminalAndDevice(t *testing.T) {
 		status := &statusSpy{}
 		device := deviceWithOS("d1", true, prepareTestSrc)
 		device.Metadata.Generation = lo.ToPtr(int64(7))
-		p := newTestPreparer(store, eligibleDeviceResolver(device), status, &resumeSpy{}, &emitSpy{})
+		p := newTestPreparer(t, store, eligibleDeviceResolver(device), status, &resumeSpy{}, &emitSpy{})
 
 		err := p.Prepare(ctx, devicePrepareEvent(orgId, "d1"))
 		require.NoError(t, err)
@@ -529,13 +655,13 @@ func TestPrepare_TerminalAndDevice(t *testing.T) {
 		device.Metadata.ResourceVersion = lo.ToPtr("99")
 		resume := &resumeSpy{}
 		emit := &emitSpy{}
-		p := newTestPreparer(store, eligibleDeviceResolver(device), &statusSpy{}, resume, emit)
+		p := newTestPreparer(t, store, eligibleDeviceResolver(device), &statusSpy{}, resume, emit)
 
 		err := p.Prepare(ctx, devicePrepareEvent(orgId, "d1"))
 		require.NoError(t, err)
 		assert.Len(t, store.prepares, 1)
 		assert.Equal(t, existing.ID, firstPrepare(store).ID)
-		assert.Equal(t, 0, resume.n)
+		assert.NotContains(t, resumeEventReasons(p), domain.EventReasonFleetRolloutStarted)
 		assert.Empty(t, emit.events)
 	})
 
@@ -547,13 +673,13 @@ func TestPrepare_TerminalAndDevice(t *testing.T) {
 		device.Metadata.Generation = lo.ToPtr(int64(6))
 		resume := &resumeSpy{}
 		emit := &emitSpy{}
-		p := newTestPreparer(store, eligibleDeviceResolver(device), &statusSpy{}, resume, emit)
+		p := newTestPreparer(t, store, eligibleDeviceResolver(device), &statusSpy{}, resume, emit)
 
 		err := p.Prepare(ctx, devicePrepareEvent(orgId, "d1"))
 		require.NoError(t, err)
 		assert.Equal(t, model.DeltaPrepareFailed, store.prepares[old.ID].Status)
 		assert.Len(t, store.prepares, 2)
-		assert.Equal(t, 0, resume.n)
+		assert.NotContains(t, resumeEventReasons(p), domain.EventReasonFleetRolloutStarted)
 		require.Len(t, emit.events, 1)
 		assert.Equal(t, domain.EventReasonGenerateDelta, emit.events[0].Reason)
 	})
@@ -561,7 +687,7 @@ func TestPrepare_TerminalAndDevice(t *testing.T) {
 	t.Run("When a fleet annotation is missing it should fall back to event details TemplateVersion", func(t *testing.T) {
 		store := newFakePrepareStore()
 		fleet := &domain.Fleet{Metadata: domain.ObjectMeta{Name: lo.ToPtr("fleet-1")}, Spec: domain.FleetSpec{}}
-		p := newTestPreparer(store, eligibleFleetResolver(fleet, deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, &resumeSpy{}, &emitSpy{})
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleet, deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, &resumeSpy{}, &emitSpy{})
 
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-from-event"))
 		require.NoError(t, err)
@@ -575,7 +701,7 @@ func TestPrepare_TerminalAndDevice(t *testing.T) {
 		var maxWaitFleet *domain.Fleet
 		var jobTimeoutFleet *domain.Fleet
 		deployWait := 15 * time.Minute
-		p := newTestPreparer(store, eligibleDeviceResolver(device), &statusSpy{}, &resumeSpy{}, &emitSpy{})
+		p := newTestPreparer(t, store, eligibleDeviceResolver(device), &statusSpy{}, &resumeSpy{}, &emitSpy{})
 		p.MaxWait = func(f *domain.Fleet) *time.Duration {
 			maxWaitFleet = f
 			return &deployWait
@@ -826,7 +952,36 @@ func (r *resumeSpy) resume(_ context.Context, _ worker_client.EventWithOrgId) er
 	return nil
 }
 
-func newTestPreparer(store *fakePrepareStore, resolver *Resolver, status PreparingStatus, resume *resumeSpy, emit *emitSpy) *Preparer {
+func newTestPreparer(t *testing.T, store *fakePrepareStore, resolver *Resolver, status PreparingStatus, resume *resumeSpy, emit *emitSpy) *Preparer {
+	t.Helper()
+	ctrl := gomock.NewController(t)
+	fleetSvc := fleetservice.NewMockService(ctrl)
+	deviceSvc := deviceservice.NewMockService(ctrl)
+	if resolver != nil && resolver.Fleet != nil {
+		fleetSvc.EXPECT().GetFleet(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+			func(ctx context.Context, orgId uuid.UUID, name string, _ domain.GetFleetParams) (*domain.Fleet, domain.Status) {
+				fleet, err := resolver.Fleet(ctx, orgId, name)
+				if err != nil {
+					return nil, domain.StatusInternalServerError(err.Error())
+				}
+				return fleet, domain.StatusOK()
+			},
+		).AnyTimes()
+	}
+	if resolver != nil && resolver.Device != nil {
+		deviceSvc.EXPECT().GetDevice(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+			func(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, domain.Status) {
+				device, err := resolver.Device(ctx, orgId, name)
+				if err != nil {
+					return nil, domain.StatusInternalServerError(err.Error())
+				}
+				return device, domain.StatusOK()
+			},
+		).AnyTimes()
+	}
+	fleetSvc.EXPECT().UpdateFleetAnnotations(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(domain.StatusOK()).AnyTimes()
+	deviceSvc.EXPECT().SetOutOfDate(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	rec := &eventRecorder{}
 	p := &Preparer{
 		Resolver: resolver,
 		Store:    store,
@@ -835,13 +990,87 @@ func newTestPreparer(store *fakePrepareStore, resolver *Resolver, status Prepari
 		JobTimeout: func(*domain.Fleet) time.Duration {
 			return 30 * time.Minute
 		},
-		Status: status,
-		Resume: resume.resume,
+		Status:    status,
+		Resume:    resume.resume,
+		Events:    rec,
+		FleetSvc:  fleetSvc,
+		DeviceSvc: deviceSvc,
 	}
 	if emit != nil {
 		p.Emit = emit.emit
 	}
 	return p
+}
+
+func newCompleteNowPreparer(t *testing.T, store *fakePrepareStore, resolver *Resolver, status PreparingStatus, onAnnotate func(map[string]string), onOutOfDate func(string)) *Preparer {
+	t.Helper()
+	p := newTestPreparer(t, store, resolver, status, &resumeSpy{}, nil)
+	ctrl := gomock.NewController(t)
+	fleetSvc := fleetservice.NewMockService(ctrl)
+	deviceSvc := deviceservice.NewMockService(ctrl)
+	fleetSvc.EXPECT().GetFleet(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, orgId uuid.UUID, name string, _ domain.GetFleetParams) (*domain.Fleet, domain.Status) {
+			fleet, err := resolver.Fleet(ctx, orgId, name)
+			if err != nil {
+				return nil, domain.StatusInternalServerError(err.Error())
+			}
+			return fleet, domain.StatusOK()
+		},
+	).AnyTimes()
+	fleetSvc.EXPECT().UpdateFleetAnnotations(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ uuid.UUID, _ string, annotations map[string]string, _ []string) domain.Status {
+			if onAnnotate != nil {
+				onAnnotate(annotations)
+			}
+			return domain.StatusOK()
+		},
+	)
+	deviceSvc.EXPECT().SetOutOfDate(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ uuid.UUID, owner string) error {
+			if onOutOfDate != nil {
+				onOutOfDate(owner)
+			}
+			return nil
+		},
+	)
+	p.FleetSvc = fleetSvc
+	p.DeviceSvc = deviceSvc
+	return p
+}
+
+func recordedEvents(p *Preparer) []*domain.Event {
+	rec, ok := p.Events.(*eventRecorder)
+	if !ok {
+		return nil
+	}
+	return rec.events
+}
+
+type eventRecorder struct {
+	events []*domain.Event
+}
+
+func (e *eventRecorder) CreateEvent(_ context.Context, _ uuid.UUID, event *domain.Event) {
+	if event == nil {
+		return
+	}
+	cp := *event
+	e.events = append(e.events, &cp)
+}
+
+func (e *eventRecorder) HandleGenericResourceDeletedEvents(context.Context, domain.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {
+}
+
+func resumeEventReasons(p *Preparer) []domain.EventReason {
+	rec, ok := p.Events.(*eventRecorder)
+	if !ok {
+		return nil
+	}
+	out := make([]domain.EventReason, 0, len(rec.events))
+	for _, ev := range rec.events {
+		out = append(out, ev.Reason)
+	}
+	return out
 }
 
 func firstPrepare(store *fakePrepareStore) *model.DeltaPrepare {
