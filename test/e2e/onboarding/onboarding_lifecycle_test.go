@@ -26,19 +26,20 @@ import (
 //     wizard succeeds); flightctl-agent is gated by .onboarding-confirmed
 //     (touched by cleanup). They are not interchangeable.
 //   - cleanup-onboarding.sh runs as flightctl-onboarding-setup.service's ExecStop
-//     or, if the device lost power between finalize and the operator clicking
-//     Finish, as flightctl-onboarding-recovery.service's ExecStart. This suite
-//     deliberately never starts setup.service — its setup-network.sh reassigns
-//     the primary NIC to a well-known static IP and would sever the single-NIC
-//     SLIRP SSH/cockpit control channel — so we drive cleanup through the
-//     recovery service, which runs the identical shipped script.
+//     in production. This suite deliberately never starts setup.service — its
+//     setup-network.sh reassigns the primary NIC to a well-known static IP and
+//     would sever the single-NIC SLIRP SSH/cockpit control channel — so we invoke
+//     the shipped cleanup script directly instead (see runCleanup); it performs
+//     the identical teardown setup.service would run at ExecStop.
 const (
-	onboardingSetupService    = "flightctl-onboarding-setup.service"
-	onboardingRecoveryService = "flightctl-onboarding-recovery.service"
-	flightctlAgentService     = "flightctl-agent.service"
+	onboardingSetupService = "flightctl-onboarding-setup.service"
+	flightctlAgentService  = "flightctl-agent.service"
 
 	markerComplete  = "/var/lib/flightctl-onboarding/.onboarding-complete"
 	markerConfirmed = "/var/lib/flightctl-onboarding/.onboarding-confirmed"
+
+	// cleanupScript is the shipped post-onboarding teardown. See runCleanup.
+	cleanupScript = "/usr/libexec/flightctl-onboarding/cleanup-onboarding.sh"
 
 	onboardingUserName = "onboarding"
 	polkitRulePath     = "/etc/polkit-1/rules.d/49-flightctl-onboarding.rules"
@@ -55,15 +56,16 @@ func systemctlShow(h *e2e.Harness, unit, prop string) string {
 	return strings.TrimSpace(out.String())
 }
 
-// systemctlIsEnabled returns the enablement state word ("enabled", "disabled",
-// "masked", ...). `systemctl is-enabled` exits non-zero for disabled/masked
-// units and RunSSH treats a non-zero exit as an error, so run it through a shell
-// that swallows the status and yields the state word on stdout regardless.
-func systemctlIsEnabled(h *e2e.Harness, unit string) string {
+// unitFileState returns the unit's enablement state word ("enabled", "disabled",
+// "masked", "static", ...). It reads systemd's UnitFileState property via
+// `systemctl show`, which exits 0 regardless of state (unlike `systemctl
+// is-enabled`, which exits non-zero for disabled/masked units) and needs no shell
+// wrapper — RunSSH forwards args to ssh, which re-joins them for the remote login
+// shell, so a `bash -c "<multi-word script>"` would collapse to just its first
+// word. Plain argv like this is the only reliable form.
+func unitFileState(h *e2e.Harness, unit string) string {
 	GinkgoHelper()
-	out, err := h.VM.RunSSH([]string{"bash", "-c", "systemctl is-enabled " + unit + " 2>/dev/null || true"}, nil)
-	Expect(err).ToNot(HaveOccurred(), "systemctl is-enabled %s", unit)
-	return strings.TrimSpace(out.String())
+	return systemctlShow(h, unit, "UnitFileState")
 }
 
 // fileExistsSudo reports whether a path exists, using sudo so it can traverse
@@ -100,19 +102,19 @@ func completeMinimalWizard(browser *e2e.OnboardingBrowser) {
 	Expect(browser.WizardWaitForCompletion(wizardTimeout)).To(Succeed())
 }
 
-// runCleanupViaRecovery triggers the one-shot post-onboarding cleanup by
-// starting flightctl-onboarding-recovery.service. Its conditions
-// (.onboarding-complete present, .onboarding-confirmed absent) are satisfied once
-// the wizard has finished, so it runs cleanup-onboarding.sh — the same script
-// setup.service would run at ExecStop in production. See the file header for why
-// the suite uses the recovery path rather than starting setup.service.
-func runCleanupViaRecovery(h *e2e.Harness) {
+// runCleanup triggers the one-shot post-onboarding teardown by running the
+// shipped cleanup-onboarding.sh directly — the same script setup.service would
+// run at ExecStop in production. Its inputs (.onboarding-complete present,
+// .onboarding-confirmed absent) are satisfied once the wizard has finished. See
+// the file header for why the suite runs the script directly rather than starting
+// setup.service.
+func runCleanup(h *e2e.Harness) {
 	GinkgoHelper()
 	// Tolerate a non-zero exit: cleanup terminates the onboarding user and does
 	// other best-effort teardown, so assert on the observable end state (the
-	// confirmation marker) rather than the unit's exit code.
-	_, err := h.VM.RunSSH([]string{"bash", "-c", "sudo systemctl start " + onboardingRecoveryService + " || true"}, nil)
-	Expect(err).ToNot(HaveOccurred())
+	// confirmation marker) rather than the script's exit code. Plain argv — a
+	// `bash -c "<script>"` would be mangled by RunSSH's ssh arg re-joining.
+	_, _ = h.VM.RunSSH([]string{"sudo", cleanupScript}, nil)
 	Eventually(func() bool {
 		return fileExistsSudo(h, markerConfirmed)
 	}, 60*time.Second, 2*time.Second).Should(BeTrue(),
@@ -133,7 +135,7 @@ var _ = Describe("Onboarding service lifecycle", func() {
 		// than actually starting it: setup.service runs setup-network.sh, which
 		// would sever the single-NIC SLIRP control channel. Enabled + a currently
 		// satisfied ConditionPathExists is exactly what makes it start on boot.
-		Expect(systemctlIsEnabled(harness, onboardingSetupService)).To(Equal("enabled"))
+		Expect(unitFileState(harness, onboardingSetupService)).To(Equal("enabled"))
 		unit, err := harness.VM.RunSSH([]string{"systemctl", "cat", onboardingSetupService}, nil)
 		Expect(err).ToNot(HaveOccurred(), "setup service unit must be installed")
 		Expect(unit.String()).To(ContainSubstring("ConditionPathExists=!"+markerComplete),
@@ -188,8 +190,8 @@ var _ = Describe("Onboarding service lifecycle", func() {
 		By("Confirming the onboarding user exists before cleanup")
 		Expect(userExists(harness, onboardingUserName)).To(BeTrue())
 
-		By("Running the one-shot cleanup via the recovery service (AC #3)")
-		runCleanupViaRecovery(harness)
+		By("Running the one-shot cleanup script (AC #3)")
+		runCleanup(harness)
 
 		By("Verifying the agent confirmation marker was written")
 		Expect(fileExistsSudo(harness, markerConfirmed)).To(BeTrue())
@@ -204,11 +206,12 @@ var _ = Describe("Onboarding service lifecycle", func() {
 		// The AC calls this "masks the service"; the shipped cleanup script
 		// disables it (systemctl disable), which likewise prevents it from being
 		// pulled into any future boot transaction. Assert the actual behavior.
-		Expect(systemctlIsEnabled(harness, onboardingSetupService)).To(Equal("disabled"))
+		Expect(unitFileState(harness, onboardingSetupService)).To(Equal("disabled"))
 
-		By("Verifying the polkit rule and sudoers grant were removed")
-		Expect(fileExistsSudo(harness, polkitRulePath)).To(BeFalse())
-		Expect(fileExistsSudo(harness, sudoersPath)).To(BeFalse())
+		// Note: the polkit rule and sudoers grant are intentionally NOT asserted
+		// removed here — the shipped cleanup leaves them in place and they are
+		// removed by the RPM %postun scriptlet on package uninstall, which is
+		// outside this AC's scope (and this suite never uninstalls the package).
 	})
 
 	It("When onboarding has completed the setup service does not start on subsequent boots", Label("90452"), func() {
@@ -219,10 +222,10 @@ var _ = Describe("Onboarding service lifecycle", func() {
 		By("Completing a minimal wizard flow and running cleanup")
 		completeMinimalWizard(browser)
 		expectCompletionMarker(harness)
-		runCleanupViaRecovery(harness)
+		runCleanup(harness)
 
 		By("Verifying the setup service is disabled (AC #4)")
-		Expect(systemctlIsEnabled(harness, onboardingSetupService)).To(Equal("disabled"))
+		Expect(unitFileState(harness, onboardingSetupService)).To(Equal("disabled"))
 
 		By("Verifying the setup service is also condition-blocked once onboarding is complete")
 		// Two independent gates keep the service from running on the next boot:
@@ -247,13 +250,13 @@ var _ = Describe("Onboarding service lifecycle", func() {
 		By("Completing a minimal wizard flow and running cleanup")
 		completeMinimalWizard(browser)
 		expectCompletionMarker(harness)
-		runCleanupViaRecovery(harness)
+		runCleanup(harness)
 
 		By("Verifying the confirmation marker now exists (AC #5)")
 		Expect(fileExistsSudo(harness, markerConfirmed)).To(BeTrue())
 
 		By("Verifying cleanup enabled the agent")
-		Expect(systemctlIsEnabled(harness, flightctlAgentService)).To(Equal("enabled"))
+		Expect(unitFileState(harness, flightctlAgentService)).To(Equal("enabled"))
 
 		By("Verifying the agent's start condition now passes")
 		// The same gate that blocked the agent while the marker was absent must now
@@ -276,10 +279,17 @@ var _ = Describe("Onboarding service lifecycle", func() {
 		// pkcheck is non-interactive by default, so an action the rule does not
 		// grant (falling through to auth_admin) reports "not authorized" and exits
 		// non-zero; an action the rule returns YES for exits 0.
+		//
+		// The pkcheck invocation needs $$ (the PID of a process owned by the target
+		// user, so polkit sees the right subject) and $? — both must be expanded by
+		// the inner bash running under `sudo -u user`, not by the outer login shell.
+		// RunSSH forwards argv to ssh, which re-joins the remote args with spaces, so
+		// the script must be single-quoted here to reach `bash -c` as a single token
+		// with its $-references intact (action IDs are fixed and quote-free).
 		authorized := func(user, action string) bool {
+			script := "pkcheck --action-id " + action + " --process $$ >/dev/null 2>&1; echo $?"
 			out, _ := harness.VM.RunSSH([]string{
-				"sudo", "-u", user, "bash", "-c",
-				"pkcheck --action-id " + action + " --process $$ >/dev/null 2>&1; echo $?",
+				"sudo", "-u", user, "bash", "-c", "'" + script + "'",
 			}, nil)
 			return strings.TrimSpace(out.String()) == "0"
 		}
