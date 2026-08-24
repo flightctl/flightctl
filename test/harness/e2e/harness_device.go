@@ -386,16 +386,9 @@ func (h *Harness) EnsureDeviceContents(deviceId string, description string, cond
 
 func (h *Harness) WaitForBootstrapAndUpdateToVersion(deviceId string, version string) (*v1beta1.Device, util.ImageReference, error) {
 	var imageReference = util.ImageReference{}
-	// Check the device status right after bootstrap
-	response, err := h.GetDeviceWithStatusSystem(deviceId)
-	if err != nil {
-		return nil, imageReference, err
-	}
-	device := response.JSON200
-	if device.Status.Summary.Status != v1beta1.DeviceSummaryStatusOnline {
-		return nil, imageReference, fmt.Errorf("device: %q is not online", deviceId)
-	}
+	device := h.WaitForOnlineStatus(deviceId)
 
+	var err error
 	err = h.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 		currentImage := device.Status.Os.Image
 		logrus.Infof("current image for %s is %s", deviceId, currentImage)
@@ -917,10 +910,6 @@ func (h *Harness) GetDevice(deviceId string) (*v1beta1.Device, error) {
 
 func (h *Harness) SetLabelsForDevice(deviceId string, labels map[string]string) error {
 	return h.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
-		if len(labels) == 0 {
-			device.Metadata.Labels = nil
-			return
-		}
 		devLabels := make(map[string]string, len(labels)+1)
 		devLabels["test-id"] = h.GetTestIDFromContext()
 		for key, value := range labels {
@@ -928,6 +917,17 @@ func (h *Harness) SetLabelsForDevice(deviceId string, labels map[string]string) 
 		}
 		device.Metadata.Labels = &devLabels
 	})
+}
+
+func (h *Harness) LabelDeviceIntoFleet(deviceID, labelKey, fleetName string) {
+	GinkgoHelper()
+	if labelKey == "" {
+		Fail("labelKey must be non-empty")
+	}
+	nextRenderedVersion, err := h.PrepareNextDeviceVersion(deviceID)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(h.SetLabelsForDevice(deviceID, map[string]string{labelKey: fleetName})).To(Succeed())
+	Expect(h.WaitForDeviceNewRenderedVersion(deviceID, nextRenderedVersion)).To(Succeed())
 }
 
 func (h *Harness) SetLabelsForDevicesByIndex(deviceIDs []string, labelsList []map[string]string, fleetName string) error {

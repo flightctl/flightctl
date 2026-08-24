@@ -273,9 +273,10 @@ full workflow.
 
 Devices pull the KubeVirt virt-launcher image when they run VM applications. That
 image is **not** included in the default `flightctl-mirror-images` control-plane
-set. Mirror it to a registry devices can reach, set `worker.vmRender.launcherImage`
-to the mirrored reference, and re-render affected devices. Guest OS and other
-workload images still need separate mirroring.
+set. Mirror the default image and any per-OS images you pin in
+`worker.vmRender.launcherImages`, set `worker.vmRender.launcherImage` (and the
+map, if used) to the mirrored references, and re-render affected devices. Guest OS
+and other workload images still need separate mirroring.
 
 See [VM application rendering in air-gapped environments](configuring-vm-render.md#air-gapped-environments).
 

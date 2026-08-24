@@ -820,14 +820,64 @@ func TestUpdateDevice(t *testing.T) {
 }
 
 func TestDecommissionDevice(t *testing.T) {
-	st, _, svc := newTestHandler()
-	ctx := context.Background()
-	orgId := uuid.New()
-	_, err := st.device.Create(ctx, orgId, &domain.Device{Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")}}, nil)
-	require.NoError(t, err)
-	result, status := svc.DecommissionDevice(ctx, orgId, "foo", domain.DeviceDecommission{})
-	require.Equal(t, int32(http.StatusOK), status.Code)
-	require.NotNil(t, result.Spec.Decommissioning)
+	t.Run("When decommissioning a device it should set decom spec, lifecycle, clear owner and labels, and emit success event", func(t *testing.T) {
+		st, ev, svc := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		labels := map[string]string{"fleet": "f1"}
+		_, err := st.device.Create(ctx, orgId, &domain.Device{
+			Metadata: domain.ObjectMeta{
+				Name:       lo.ToPtr("foo"),
+				Owner:      lo.ToPtr("Fleet/f1"),
+				Labels:     &labels,
+				Generation: lo.ToPtr(int64(3)),
+			},
+			Spec:   &domain.DeviceSpec{},
+			Status: lo.ToPtr(domain.NewDeviceStatus()),
+		}, nil)
+		require.NoError(t, err)
+
+		decom := domain.DeviceDecommission{}
+		result, status := svc.DecommissionDevice(ctx, orgId, "foo", decom)
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.NotNil(t, result.Spec.Decommissioning)
+		require.Equal(t, domain.DeviceLifecycleStatusDecommissioning, result.Status.Lifecycle.Status)
+		require.Nil(t, result.Metadata.Owner)
+		require.Nil(t, result.Metadata.Labels)
+		require.Equal(t, int64(3), lo.FromPtr(result.Metadata.Generation))
+
+		stored := st.device.devices["foo"]
+		require.NotNil(t, stored.Spec.Decommissioning)
+		require.Equal(t, domain.DeviceLifecycleStatusDecommissioning, stored.Status.Lifecycle.Status)
+		require.Nil(t, stored.Metadata.Owner)
+		require.Nil(t, stored.Metadata.Labels)
+		require.Equal(t, int64(3), lo.FromPtr(stored.Metadata.Generation))
+
+		require.Len(t, ev.created, 1)
+		require.Equal(t, domain.EventReasonDeviceDecommissioned, ev.created[0].Reason)
+	})
+
+	t.Run("When the device is already decommissioning it should return conflict without success event", func(t *testing.T) {
+		st, ev, svc := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		st.device.devices["foo"] = &domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")},
+			Spec:     &domain.DeviceSpec{Decommissioning: &domain.DeviceDecommission{}},
+		}
+
+		_, status := svc.DecommissionDevice(ctx, orgId, "foo", domain.DeviceDecommission{})
+		require.Equal(t, int32(http.StatusConflict), status.Code)
+		require.Equal(t, flterrors.ErrResourceVersionConflict.Error(), status.Message)
+		require.Empty(t, ev.created)
+	})
+
+	t.Run("When the device does not exist it should return not found", func(t *testing.T) {
+		_, ev, svc := newTestHandler()
+		_, status := svc.DecommissionDevice(context.Background(), uuid.New(), "missing", domain.DeviceDecommission{})
+		require.Equal(t, int32(http.StatusNotFound), status.Code)
+		require.Empty(t, ev.created)
+	})
 }
 
 // TestUpdateRenderedDevice covers the "no change in rendered version" path only. The
