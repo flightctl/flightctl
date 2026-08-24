@@ -32,7 +32,7 @@ type PreparingStatus interface {
 type Preparer struct {
 	Resolver   *Resolver
 	Store      prepareStore
-	Emit       func(ctx context.Context, orgId uuid.UUID, event *domain.Event)
+	Emit       func(ctx context.Context, orgId uuid.UUID, event *domain.Event) error
 	Now        func() time.Time
 	MaxWait    func(fleet *domain.Fleet) *time.Duration
 	JobTimeout func(fleet *domain.Fleet) time.Duration
@@ -191,7 +191,10 @@ func (p *Preparer) finishSkip(ctx context.Context, ev worker_client.EventWithOrg
 }
 
 func (p *Preparer) failWaiting(ctx context.Context, waiting *model.DeltaPrepare, orgId uuid.UUID, kind, name string) error {
-	if err := p.Store.CASPrepareStatus(ctx, waiting.ID, model.DeltaPrepareFailed); err != nil && !errors.Is(err, flterrors.ErrNoRowsUpdated) {
+	if err := p.Store.CASPrepareStatus(ctx, waiting.ID, model.DeltaPrepareFailed); err != nil {
+		if errors.Is(err, flterrors.ErrNoRowsUpdated) {
+			return nil
+		}
 		return err
 	}
 	return p.clearStatus(ctx, orgId, kind, name)
@@ -281,10 +284,12 @@ func (p *Preparer) enqueueChanged(ctx context.Context, orgId uuid.UUID, fleet *d
 		if err != nil {
 			return err
 		}
-		p.Emit(ctx, orgId, &domain.Event{
+		if err := p.Emit(ctx, orgId, &domain.Event{
 			Reason:  domain.EventReasonGenerateDelta,
 			Message: string(payload),
-		})
+		}); err != nil {
+			return err
+		}
 	}
 	return nil
 }

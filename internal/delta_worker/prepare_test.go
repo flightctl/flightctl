@@ -3,6 +3,7 @@ package delta_worker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -133,7 +134,18 @@ func TestPrepare_InsertAndAck(t *testing.T) {
 		assert.Equal(t, "fleet-1", status.sets[0].name)
 		assert.Equal(t, 0, status.sets[0].completed)
 		assert.Equal(t, 1, status.sets[0].total)
-		assert.Empty(t, status.clears)
+	})
+
+	t.Run("When enqueue fails it should return the emit error after insert", func(t *testing.T) {
+		store := newFakePrepareStore()
+		emit := &emitSpy{err: errors.New("redis down")}
+		p := newTestPreparer(store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, &resumeSpy{}, emit)
+		p.Now = func() time.Time { return now }
+
+		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
+		require.EqualError(t, err, "redis down")
+		require.Len(t, store.prepares, 1)
+		assert.Equal(t, model.DeltaPrepareWaiting, firstPrepare(store).Status)
 	})
 
 	t.Run("When two devices share a digest pair it should enqueue one generation", func(t *testing.T) {
@@ -321,6 +333,19 @@ func TestPrepare_DedupeAndSupercede(t *testing.T) {
 		assert.Equal(t, domain.EventReasonGenerateDelta, emit.events[0].Reason)
 		assert.NotEqual(t, domain.EventReasonFleetRolloutStarted, emit.events[0].Reason)
 		assert.NotEqual(t, domain.EventReasonDeltaGenerationCompleted, emit.events[0].Reason)
+	})
+
+	t.Run("When supercede CAS loses it should not clear preparing status", func(t *testing.T) {
+		store := newFakePrepareStore()
+		store.seedWaiting(orgId, domain.FleetKind, "fleet-1", lo.ToPtr("tv-10"), nil, now.Add(-time.Hour))
+		store.casErr = flterrors.ErrNoRowsUpdated
+		status := &statusSpy{}
+		p := newTestPreparer(store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-11"), deviceWithOS("d1", true, prepareTestSrc)), status, &resumeSpy{}, &emitSpy{})
+		p.Now = func() time.Time { return now }
+
+		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-10"))
+		require.NoError(t, err)
+		assert.Empty(t, status.clears)
 	})
 
 	t.Run("When InsertPrepare returns ErrDuplicateName it should ignore the event", func(t *testing.T) {
@@ -623,6 +648,7 @@ type fakePrepareStore struct {
 	generations map[deltastore.GenerationKey]*model.DeltaGeneration
 	joins       []model.DeltaPrepareGeneration
 	insertErr   error
+	casErr      error
 	insertGensN int
 }
 
@@ -689,6 +715,9 @@ func (f *fakePrepareStore) InsertPrepare(_ context.Context, prep *model.DeltaPre
 }
 
 func (f *fakePrepareStore) CASPrepareStatus(_ context.Context, id uuid.UUID, to string) error {
+	if f.casErr != nil {
+		return f.casErr
+	}
 	prep, ok := f.prepares[id]
 	if !ok || prep.Status != model.DeltaPrepareWaiting {
 		return flterrors.ErrNoRowsUpdated
@@ -773,14 +802,19 @@ func (s *statusSpy) Clear(_ context.Context, _ uuid.UUID, kind, name string) err
 
 type emitSpy struct {
 	events []*domain.Event
+	err    error
 }
 
-func (e *emitSpy) emit(_ context.Context, _ uuid.UUID, event *domain.Event) {
+func (e *emitSpy) emit(_ context.Context, _ uuid.UUID, event *domain.Event) error {
+	if e.err != nil {
+		return e.err
+	}
 	if event == nil {
-		return
+		return nil
 	}
 	cp := *event
 	e.events = append(e.events, &cp)
+	return nil
 }
 
 type resumeSpy struct {

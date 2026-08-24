@@ -110,6 +110,9 @@ func jobHandler(p *pipeline, workerMetrics *worker.WorkerCollector) queues.Consu
 		if err := json.Unmarshal(payload, &event); err == nil {
 			if procErr := p.process(ctx, event, log); procErr != nil {
 				log.WithError(procErr).Error("delta generation job failed")
+				if event.Event.Reason == domain.EventReasonPrepareDeltas {
+					return procErr
+				}
 			}
 		}
 

@@ -69,7 +69,6 @@ func (s *Server) newPreparer(ctx context.Context) (*Preparer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("delta publisher: %w", err)
 	}
-	client := worker_client.NewWorkerClient(nil, s.log, worker_client.WithDeltaPublisher(publisher))
 	fleets := fleetstore.NewFleetStore(s.db, s.log)
 	devices := devicestore.NewDeviceStore(s.db, s.log)
 	tvs := tvstore.NewTemplateVersionStore(s.db, s.log)
@@ -79,8 +78,10 @@ func (s *Server) newPreparer(ctx context.Context) (*Preparer, error) {
 	return &Preparer{
 		Resolver: storeResolver(s.cfg, fleets, devices, tvs, repos),
 		Store:    s.store,
-		Emit:     client.EmitEvent,
-		Now:      time.Now,
+		Emit: func(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
+			return worker_client.EnqueueEvent(ctx, publisher, orgId, event)
+		},
+		Now: time.Now,
 		MaxWait: func(fleet *domain.Fleet) *time.Duration {
 			d, err := maxWaitFromFleet(fleet, deployWait)
 			if err != nil {
