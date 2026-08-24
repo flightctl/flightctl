@@ -186,13 +186,16 @@ var _ = Describe("Onboarding enrollment and completion flow", func() {
 	It("When enrollment is configured it should enroll the device and create an enrollment request", Label("90423"), func() {
 		harness := e2e.GetWorkerHarness()
 		browser, cleanup := startBrowserSession()
-		defer cleanup()
-		// Runs before cleanup (LIFO) so the browser is still alive for WizardDebugState.
-		defer func() {
+		DeferCleanup(cleanup)
+		// Registered after cleanup so it runs first (DeferCleanup is LIFO) while the
+		// browser is still alive. DeferCleanup callbacks run after Ginkgo records the
+		// spec failure, so CurrentSpecReport().Failed() is reliable here — a plain
+		// `defer` runs during the failure unwind and would still see Failed()==false.
+		DeferCleanup(func() {
 			if CurrentSpecReport().Failed() {
 				dumpEnrollmentDiagnostics(harness, browser)
 			}
-		}()
+		})
 
 		endpoint := harness.ApiEndpoint()
 		token, _, err := login.LoginToEnvAsAdmin(harness)
@@ -237,7 +240,7 @@ var _ = Describe("Onboarding enrollment and completion flow", func() {
 		seedExistingAgentConfig(harness)
 
 		browser, cleanup := startBrowserSession()
-		defer cleanup()
+		DeferCleanup(cleanup)
 
 		By("Enabling enrollment and reaching the Enrollment step")
 		navigateToEnrollmentStep(browser)
@@ -277,7 +280,7 @@ var _ = Describe("Onboarding enrollment and completion flow", func() {
 		seedExistingAgentConfig(harness)
 
 		browser, cleanup := startBrowserSession()
-		defer cleanup()
+		DeferCleanup(cleanup)
 
 		By("Enabling enrollment and confirming the connectivity-only (use-existing) path")
 		navigateToEnrollmentStep(browser)
@@ -306,13 +309,16 @@ var _ = Describe("Onboarding enrollment and completion flow", func() {
 	It("When enrollment fails it should allow correcting credentials and re-applying", Label("90461"), func() {
 		harness := e2e.GetWorkerHarness()
 		browser, cleanup := startBrowserSession()
-		defer cleanup()
-		// Runs before cleanup (LIFO) so the browser is still alive for WizardDebugState.
-		defer func() {
+		DeferCleanup(cleanup)
+		// Registered after cleanup so it runs first (DeferCleanup is LIFO) while the
+		// browser is still alive. DeferCleanup callbacks run after Ginkgo records the
+		// spec failure, so CurrentSpecReport().Failed() is reliable here — a plain
+		// `defer` runs during the failure unwind and would still see Failed()==false.
+		DeferCleanup(func() {
 			if CurrentSpecReport().Failed() {
 				dumpEnrollmentDiagnostics(harness, browser)
 			}
-		}()
+		})
 
 		endpoint := harness.ApiEndpoint()
 		token, _, err := login.LoginToEnvAsAdmin(harness)
@@ -375,10 +381,20 @@ var _ = Describe("Onboarding enrollment and completion flow", func() {
 		sshPort := sshPortBase + workerID
 		cockpitAddr, tunnelCleanup, err := e2e.StartCockpitTunnelViaInterface(sshPort, vmUser, vmPassword, slirpStaticIP)
 		Expect(err).ToNot(HaveOccurred(), "failed to start Cockpit SSH tunnel")
-		defer tunnelCleanup()
+		DeferCleanup(tunnelCleanup)
 
 		browser := newLoggedInBrowser(cockpitAddr)
-		defer saveScreenshotOnFailure(browser, "single-nic")
+		// DeferCleanup runs after Ginkgo records the failure, so these fire reliably
+		// (a plain defer runs during the unwind and sees Failed()==false). This spec
+		// closes the browser mid-body, so on a post-close failure the screenshot is
+		// best-effort; the SSH-side diagnostics (apply log, watchdog-status, agent
+		// journal) are what reveal whether the single-NIC systemd-run delegation ran.
+		DeferCleanup(func() {
+			if CurrentSpecReport().Failed() {
+				dumpEnrollmentDiagnostics(harness, browser)
+			}
+		})
+		DeferCleanup(saveScreenshotOnFailure, browser, "single-nic")
 
 		By("Driving a minimal apply on the single-NIC VM")
 		// On this single-NIC VM every apply is delegated to apply-and-enroll.sh under
@@ -429,13 +445,16 @@ var _ = Describe("Onboarding enrollment and completion flow", func() {
 		endpoint := harness.ApiEndpoint()
 
 		browser, cleanup := startBrowserSession()
-		defer cleanup()
-		// Runs before cleanup (LIFO) so the browser is still alive for WizardDebugState.
-		defer func() {
+		DeferCleanup(cleanup)
+		// Registered after cleanup so it runs first (DeferCleanup is LIFO) while the
+		// browser is still alive. DeferCleanup callbacks run after Ginkgo records the
+		// spec failure, so CurrentSpecReport().Failed() is reliable here — a plain
+		// `defer` runs during the failure unwind and would still see Failed()==false.
+		DeferCleanup(func() {
 			if CurrentSpecReport().Failed() {
 				dumpEnrollmentDiagnostics(harness, browser)
 			}
-		}()
+		})
 
 		By("Configuring enrollment with an invalid token to force a failure after network activation")
 		navigateToEnrollmentStep(browser)
@@ -475,7 +494,7 @@ var _ = Describe("Onboarding enrollment and completion flow", func() {
 
 		By("Verifying the wizard is reachable again (not stuck in a completed state)")
 		browser2, cleanup2 := startBrowserSession()
-		defer cleanup2()
+		DeferCleanup(cleanup2)
 		alreadyComplete, err := browser2.WizardIsAlreadyComplete()
 		Expect(err).ToNot(HaveOccurred())
 		Expect(alreadyComplete).To(BeFalse(),
@@ -496,7 +515,13 @@ var _ = Describe("Onboarding enrollment and completion flow", func() {
 		setEnrollMockExitCode(harness, 3)
 
 		browser, cleanup := startBrowserSession()
-		defer cleanup()
+		DeferCleanup(cleanup)
+		// Registered after cleanup so it runs first (LIFO) while the browser is alive.
+		DeferCleanup(func() {
+			if CurrentSpecReport().Failed() {
+				dumpEnrollmentDiagnostics(harness, browser)
+			}
+		})
 
 		By("Configuring enrollment so the wizard generates a credential params file for the script")
 		navigateToEnrollmentStep(browser)
@@ -588,15 +613,18 @@ func installEnrollmentMock(h *e2e.Harness) {
 // dumpEnrollmentDiagnostics captures wizard + guest state to the Ginkgo output
 // when an enrollment spec fails, so a CI run reveals the real reason instead of a
 // bare "timed out". It is strictly best-effort: every step tolerates its own
-// failure (the browser context may already be unwinding, and any given file/unit
-// may not exist), and it never asserts. Call it via a deferred guard that runs
+// failure (the browser may already be closed, and any given file/unit may not
+// exist), and it never asserts. Call it from a DeferCleanup guard — which runs
+// after Ginkgo has recorded the failure, so CurrentSpecReport().Failed() is
+// reliable (a plain defer runs during the unwind and would see it as false).
+// Register it after the browser-cleanup DeferCleanup so it runs first (LIFO)
 // while the browser is still alive:
 //
-//	defer func() {
+//	DeferCleanup(func() {
 //	    if CurrentSpecReport().Failed() {
 //	        dumpEnrollmentDiagnostics(harness, browser)
 //	    }
-//	}()
+//	})
 //
 // It reads only non-secret diagnostics: the wizard's DOM state, the delegated
 // apply log, the watchdog-status file, and the agent journal. It deliberately

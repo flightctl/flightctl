@@ -529,10 +529,47 @@ func (b *OnboardingBrowser) WizardWaitForCompletion(timeout time.Duration) error
 }
 
 // WizardWaitForFailure waits until the progress page shows a danger alert.
+// It polls (rather than a bare iframeWaitVisible) so that on timeout it can
+// embed a full wizard snapshot — current step, primary-button state, and the
+// progress-page text — into the returned error. That diagnostic is captured in
+// the error itself (and therefore in JUnit's system-err), independent of any
+// deferred screenshot/diagnostics hook, which is essential because a plain Go
+// defer sees CurrentSpecReport().Failed()==false during the failure unwind.
+// If the apply unexpectedly SUCCEEDS, that is reported too so a mis-triggered
+// failure scenario is distinguishable from one that never applied at all.
 func (b *OnboardingBrowser) WizardWaitForFailure(timeout time.Duration) error {
-	return chromedp.Run(b.ctx,
-		b.iframeWaitVisible(`.pf-v6-c-alert.pf-m-danger`, timeout),
-	)
+	deadline := time.Now().Add(timeout)
+	js := fmt.Sprintf(`
+		(function() {
+			var doc = %s;
+			if (!doc) return '';
+			if (doc.querySelector('.pf-v6-c-alert.pf-m-danger')) return 'failed';
+			if (doc.querySelector('.pf-v6-c-alert.pf-m-success')) return 'success';
+			return '';
+		})()
+	`, b.iframeDoc())
+	for {
+		var state string
+		if err := chromedp.Run(b.ctx, chromedp.Evaluate(js, &state)); err != nil {
+			return fmt.Errorf("WizardWaitForFailure: %w", err)
+		}
+		switch state {
+		case "failed":
+			return nil
+		case "success":
+			// Best-effort diagnostics: the apply succeeded when a danger alert
+			// was expected, so surface the state to explain the mismatch.
+			txt, _ := b.WizardGetReviewText()
+			return fmt.Errorf("WizardWaitForFailure: apply SUCCEEDED but a failure (danger alert) was expected; state: %s\nprogress page:\n%s", b.WizardDebugState(), txt)
+		}
+		if time.Now().After(deadline) {
+			// Best-effort diagnostics: no danger alert appeared, so capture the
+			// wizard state to reveal whether apply even reached the progress step.
+			txt, _ := b.WizardGetReviewText()
+			return fmt.Errorf("WizardWaitForFailure: no danger alert after %s; state: %s\nprogress page:\n%s", timeout, b.WizardDebugState(), txt)
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
 }
 
 // WizardGetReviewText returns the text content of the review page from the iframe.
