@@ -19,7 +19,7 @@ import (
 
 const ackTimeout = 5 * time.Second
 
-func LaunchConsumers(ctx context.Context, queuesProvider queues.Provider, cfg *config.Config, store deltastore.Store, workerMetrics *worker.WorkerCollector, log logrus.FieldLogger) error {
+func LaunchConsumers(ctx context.Context, queuesProvider queues.Provider, cfg *config.Config, store deltastore.Store, workerMetrics *worker.WorkerCollector, log logrus.FieldLogger, preparer ...*Preparer) error {
 	n := cfg.DeltaGeneration.EffectiveMaxConcurrentDeltaGenerations()
 	if workerMetrics != nil {
 		workerMetrics.SetConsumersActive(float64(n))
@@ -30,7 +30,7 @@ func LaunchConsumers(ctx context.Context, queuesProvider queues.Provider, cfg *c
 		}()
 	}
 
-	handler := jobHandler(newPipeline(cfg, store), workerMetrics)
+	handler := jobHandler(newPipeline(cfg, store, firstPreparer(preparer)), workerMetrics)
 	for i := 0; i < n; i++ {
 		consumer, err := queuesProvider.NewQueueConsumer(ctx, consts.DeltaGenerationTaskQueue)
 		if err != nil {
@@ -43,12 +43,19 @@ func LaunchConsumers(ctx context.Context, queuesProvider queues.Provider, cfg *c
 	return nil
 }
 
-func newPipeline(cfg *config.Config, store deltastore.Store) *pipeline {
+func firstPreparer(preparers []*Preparer) *Preparer {
+	if len(preparers) == 0 {
+		return nil
+	}
+	return preparers[0]
+}
+
+func newPipeline(cfg *config.Config, store deltastore.Store, preparer *Preparer) *pipeline {
 	timeout := 30 * time.Minute
 	if cfg != nil && cfg.DeltaGeneration != nil {
 		timeout = cfg.DeltaGeneration.EffectiveTimeout()
 	}
-	return &pipeline{
+	p := &pipeline{
 		store:   store,
 		timeout: timeout,
 		check: func(ctx context.Context, imageRepository, sourceDigest, targetDigest string) (existenceResult, error) {
@@ -60,6 +67,10 @@ func newPipeline(cfg *config.Config, store deltastore.Store) *pipeline {
 		},
 		pushPath: pushPathFromConfig(cfg),
 	}
+	if preparer != nil {
+		p.prepare = preparer.Prepare
+	}
+	return p
 }
 
 func writeSpecFromConfig(cfg *config.Config) *domain.OciRepoSpec {

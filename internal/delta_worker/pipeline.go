@@ -19,7 +19,8 @@ import (
 const persistTimeout = 5 * time.Second
 
 type generationJob struct {
-	Key deltastore.GenerationKey
+	Key     deltastore.GenerationKey
+	Timeout time.Duration
 }
 
 type generateDeltaPayload struct {
@@ -44,38 +45,64 @@ type pipeline struct {
 	generate func(ctx context.Context, sourceRef, targetRef, pushPath string) (deltaRef string, sizeBytes int64, err error)
 	pushPath func(imageRepository string) (string, error)
 	resume   func(ctx context.Context, key deltastore.GenerationKey) error
+	prepare  func(ctx context.Context, ev worker_client.EventWithOrgId) error
 }
 
-func parseGenerationJob(ev worker_client.EventWithOrgId) (generationJob, bool) {
+func parseGenerationJob(ev worker_client.EventWithOrgId) (generationJob, bool, error) {
 	if ev.Event.Reason != domain.EventReasonGenerateDelta {
-		return generationJob{}, false
+		return generationJob{}, false, nil
 	}
 	if ev.OrgId == uuid.Nil {
-		return generationJob{}, false
+		return generationJob{}, false, nil
 	}
 	var payload generateDeltaPayload
 	if err := json.Unmarshal([]byte(ev.Event.Message), &payload); err != nil {
-		return generationJob{}, false
+		return generationJob{}, false, nil
 	}
 	if payload.ImageRepository == "" || payload.SourceDigest == "" || payload.TargetDigest == "" {
-		return generationJob{}, false
+		return generationJob{}, false, nil
 	}
-	return generationJob{Key: deltastore.GenerationKey{
+	job := generationJob{Key: deltastore.GenerationKey{
 		OrgID:           ev.OrgId,
 		ImageRepository: payload.ImageRepository,
 		SourceDigest:    payload.SourceDigest,
 		TargetDigest:    payload.TargetDigest,
-	}}, true
+	}}
+	if payload.Timeout == "" {
+		return job, true, nil
+	}
+	d, err := time.ParseDuration(payload.Timeout)
+	if err != nil {
+		return generationJob{}, false, fmt.Errorf("generate delta timeout: %w", err)
+	}
+	job.Timeout = d
+	return job, true, nil
 }
 
 func (p *pipeline) process(ctx context.Context, ev worker_client.EventWithOrgId, log logrus.FieldLogger) error {
-	ctx, cancel := context.WithTimeout(ctx, p.timeout)
-	defer cancel()
+	if ev.Event.Reason == domain.EventReasonPrepareDeltas {
+		if p.prepare == nil {
+			return nil
+		}
+		ctx, cancel := context.WithTimeout(ctx, p.timeout)
+		defer cancel()
+		return p.prepare(ctx, ev)
+	}
 
-	job, ok := parseGenerationJob(ev)
+	job, ok, err := parseGenerationJob(ev)
+	if err != nil {
+		return err
+	}
 	if !ok {
 		return nil
 	}
+	timeout := p.timeout
+	if job.Timeout > 0 {
+		timeout = job.Timeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
 	if p.store == nil {
 		return nil
 	}
