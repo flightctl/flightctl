@@ -280,6 +280,50 @@ var _ = Describe("DeltaStore", func() {
 		})
 	})
 
+	Context("When looking up a waiting prepare by identity", func() {
+		It("should return the waiting row for that org kind and name", func() {
+			prep := fleetPrepare("myfleet", nil)
+			Expect(deltaStore.InsertPrepare(ctx, prep)).To(Succeed())
+
+			got, err := deltaStore.GetWaitingPrepare(ctx, orgId, domain.FleetKind, "myfleet")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got).ToNot(BeNil())
+			Expect(got.ID).To(Equal(prep.ID))
+			Expect(*got.TemplateVersion).To(Equal("tv-1"))
+		})
+
+		It("should return nil when no waiting row exists", func() {
+			got, err := deltaStore.GetWaitingPrepare(ctx, orgId, domain.FleetKind, "missing")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got).To(BeNil())
+		})
+
+		It("should return nil for a complete or failed row", func() {
+			complete := fleetPrepare("done", nil)
+			complete.Status = model.DeltaPrepareComplete
+			Expect(deltaStore.InsertPrepare(ctx, complete)).To(Succeed())
+
+			failed := fleetPrepare("failed", nil)
+			failed.Status = model.DeltaPrepareFailed
+			Expect(deltaStore.InsertPrepare(ctx, failed)).To(Succeed())
+
+			gotComplete, err := deltaStore.GetWaitingPrepare(ctx, orgId, domain.FleetKind, "done")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(gotComplete).To(BeNil())
+
+			gotFailed, err := deltaStore.GetWaitingPrepare(ctx, orgId, domain.FleetKind, "failed")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(gotFailed).To(BeNil())
+		})
+
+		It("should not return a waiting row of a different kind", func() {
+			Expect(deltaStore.InsertPrepare(ctx, fleetPrepare("shared", nil))).To(Succeed())
+			got, err := deltaStore.GetWaitingPrepare(ctx, orgId, domain.DeviceKind, "shared")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got).To(BeNil())
+		})
+	})
+
 	Context("When inserting waiting prepares for a fleet and a device with the same name", func() {
 		It("should keep both rows", func() {
 			fleetPrep := fleetPrepare("shared", nil)
