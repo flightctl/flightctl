@@ -514,7 +514,7 @@ func TestDispatchTasks_WithNilMetrics(t *testing.T) {
 	mockConsumer.On("Complete", mock.Anything, "entry-123", payload, mock.MatchedBy(func(e error) bool { return e == nil })).Return(nil)
 
 	// Create dispatcher with nil metrics
-	handler := dispatchTasks(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	handler := TaskConsumer{}.dispatch()
 
 	// Execute handler
 	err = handler(ctx, payload, "entry-123", mockConsumer, log)
@@ -549,7 +549,7 @@ func TestDispatchTasks_WithNilMetrics_SuccessfulProcessing(t *testing.T) {
 	mockConsumer.On("Complete", mock.Anything, "entry-123", payload, mock.MatchedBy(func(e error) bool { return e == nil })).Return(nil)
 
 	// Create dispatcher with nil metrics
-	handler := dispatchTasks(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	handler := TaskConsumer{}.dispatch()
 
 	// Execute handler
 	err = handler(ctx, payload, "entry-123", mockConsumer, log)
@@ -572,7 +572,7 @@ func TestDispatchTasks_WithNilMetrics_InvalidPayload(t *testing.T) {
 	mockConsumer.On("Complete", mock.Anything, "entry-123", payload, nil).Return(nil)
 
 	// Create dispatcher with nil metrics
-	handler := dispatchTasks(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	handler := TaskConsumer{}.dispatch()
 
 	// Execute handler
 	err := handler(ctx, payload, "entry-123", mockConsumer, log)

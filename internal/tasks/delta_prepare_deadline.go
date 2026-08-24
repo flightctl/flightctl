@@ -13,6 +13,7 @@ import (
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	eventservice "github.com/flightctl/flightctl/internal/service/event"
 	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
+	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
 	deltastore "github.com/flightctl/flightctl/internal/store/delta"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
@@ -33,15 +34,17 @@ type DeltaPrepareDeadline struct {
 	deltaStore prepareDeadlineStore
 	fleetSvc   fleetservice.Service
 	deviceSvc  deviceservice.Service
+	tvSvc      templateversionservice.Service
 	eventSvc   eventservice.Service
 }
 
-func NewDeltaPrepareDeadline(log logrus.FieldLogger, deltaStore deltastore.Store, fleetSvc fleetservice.Service, deviceSvc deviceservice.Service, eventSvc eventservice.Service) *DeltaPrepareDeadline {
+func NewDeltaPrepareDeadline(log logrus.FieldLogger, deltaStore deltastore.Store, fleetSvc fleetservice.Service, deviceSvc deviceservice.Service, tvSvc templateversionservice.Service, eventSvc eventservice.Service) *DeltaPrepareDeadline {
 	return &DeltaPrepareDeadline{
 		log:        log,
 		deltaStore: deltaStore,
 		fleetSvc:   fleetSvc,
 		deviceSvc:  deviceSvc,
+		tvSvc:      tvSvc,
 		eventSvc:   eventSvc,
 	}
 }
@@ -83,12 +86,17 @@ func (t *DeltaPrepareDeadline) failExpired(ctx context.Context, prep *model.Delt
 func (t *DeltaPrepareDeadline) identityMatches(ctx context.Context, prep *model.DeltaPrepare) (bool, error) {
 	switch prep.Kind {
 	case domain.FleetKind:
-		fleet, status := t.fleetSvc.GetFleet(ctx, prep.OrgID, prep.Name, domain.GetFleetParams{})
-		if status.Code != http.StatusOK {
-			return false, fmt.Errorf("getting fleet %s: %s", prep.Name, status.Message)
+		if t.tvSvc == nil {
+			return false, fmt.Errorf("template version service is required")
 		}
-		live := liveFleetTemplateVersion(fleet)
-		return equalStringPtr(prep.TemplateVersion, live), nil
+		tv, status := t.tvSvc.GetLatestTemplateVersion(ctx, prep.OrgID, prep.Name)
+		if status.Code != http.StatusOK {
+			if status.Code == http.StatusNotFound {
+				return false, nil
+			}
+			return false, fmt.Errorf("getting latest template version for fleet %s: %s", prep.Name, status.Message)
+		}
+		return equalStringPtr(prep.TemplateVersion, tv.Metadata.Name), nil
 	case domain.DeviceKind:
 		device, status := t.deviceSvc.GetDevice(ctx, prep.OrgID, prep.Name)
 		if status.Code != http.StatusOK {

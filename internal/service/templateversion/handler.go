@@ -9,7 +9,6 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
-	"github.com/flightctl/flightctl/internal/service/fleet"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	templateversionstore "github.com/flightctl/flightctl/internal/store/templateversion"
@@ -38,9 +37,6 @@ func (h *ServiceHandler) CreateTemplateVersion(ctx context.Context, orgId uuid.U
 	}
 
 	result, err := h.store.Create(ctx, orgId, &templateVersion, h.callbackTemplateVersionUpdated)
-	if err == nil {
-		fleet.EmitFleetRolloutStartedEvent(ctx, h.events, orgId, lo.FromPtr(templateVersion.Metadata.Name), templateVersion.Spec.Fleet, immediateRollout)
-	}
 	return result, common.StoreErrorToApiStatus(err, true, domain.TemplateVersionKind, templateVersion.Metadata.Name)
 }
 

@@ -15,6 +15,7 @@ import (
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	"github.com/flightctl/flightctl/internal/service/events"
 	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
+	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
 	"github.com/flightctl/flightctl/internal/store"
 	deltastore "github.com/flightctl/flightctl/internal/store/delta"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
@@ -109,6 +110,7 @@ func (s *Server) newPreparer(ctx context.Context) (*Preparer, error) {
 		Events:    eventsSvc,
 		FleetSvc:  fleetservice.NewServiceHandler(fleets, nil, eventsSvc, s.log),
 		DeviceSvc: deviceservice.NewDeviceServiceHandler(devices, nil, fleets, eventsSvc, nil, "", s.log),
+		TVSvc:     templateversionservice.NewServiceHandler(tvs, nil, eventsSvc, s.log),
 	}, nil
 }
 

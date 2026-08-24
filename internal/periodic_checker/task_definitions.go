@@ -23,6 +23,7 @@ import (
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	resourcesyncservice "github.com/flightctl/flightctl/internal/service/resourcesync"
 	syncstateservice "github.com/flightctl/flightctl/internal/service/syncstate"
+	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
 	deltastore "github.com/flightctl/flightctl/internal/store/delta"
 	vulnerabilityfindingstore "github.com/flightctl/flightctl/internal/store/vulnerabilityfinding"
 	"github.com/flightctl/flightctl/internal/tasks"
@@ -227,12 +228,13 @@ type DeltaPrepareDeadlineExecutor struct {
 	deltaStore deltastore.Store
 	fleetSvc   fleetservice.Service
 	deviceSvc  deviceservice.Service
+	tvSvc      templateversionservice.Service
 	eventSvc   eventservice.Service
 }
 
 func (e *DeltaPrepareDeadlineExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
 	taskCtx := createTaskContext(ctx, PeriodicTaskTypeDeltaPrepareDeadline)
-	tasks.NewDeltaPrepareDeadline(e.log, e.deltaStore, e.fleetSvc, e.deviceSvc, e.eventSvc).Poll(taskCtx)
+	tasks.NewDeltaPrepareDeadline(e.log, e.deltaStore, e.fleetSvc, e.deviceSvc, e.tvSvc, e.eventSvc).Poll(taskCtx)
 }
 
 type QueueMaintenanceExecutor struct {
@@ -353,6 +355,7 @@ func InitializeTaskExecutors(
 	vulnClient trustifyv2.VulnerabilityClient,
 	depSyncMetrics *periodicmetrics.DependencySyncCollector,
 	deltaStore deltastore.Store,
+	tvSvc templateversionservice.Service,
 ) map[PeriodicTaskType]PeriodicTaskExecutor {
 	executors := map[PeriodicTaskType]PeriodicTaskExecutor{
 		PeriodicTaskTypeRepositoryTester: &RepositoryTesterExecutor{
@@ -393,6 +396,7 @@ func InitializeTaskExecutors(
 			deltaStore: deltaStore,
 			fleetSvc:   fleetSvc,
 			deviceSvc:  deviceSvc,
+			tvSvc:      tvSvc,
 			eventSvc:   eventSvc,
 		},
 		PeriodicTaskTypeQueueMaintenance: &QueueMaintenanceExecutor{

@@ -165,7 +165,7 @@ func testTemplateVersion(fleet, name string) domain.TemplateVersion {
 }
 
 func TestCreateTemplateVersion(t *testing.T) {
-	t.Run("When the resource is valid it should create it and emit a fleet rollout started event", func(t *testing.T) {
+	t.Run("When the resource is valid it should create it without emitting fleet rollout started", func(t *testing.T) {
 		h, fakeStore, _, fakeEvents := newTestHandler()
 		tv := testTemplateVersion("myfleet", "v1")
 
@@ -173,13 +173,11 @@ func TestCreateTemplateVersion(t *testing.T) {
 		require.Equal(t, statusCreatedCode, status.Code)
 		require.NotNil(t, result)
 		require.Contains(t, fakeStore.items, tvKey{fleet: "myfleet", name: "v1"})
-		// CreateTemplateVersion emits both the fleet-rollout-started event and the
-		// template version's own ResourceCreated event.
 		var reasons []domain.EventReason
 		for _, e := range fakeEvents.created {
 			reasons = append(reasons, e.Reason)
 		}
-		require.Contains(t, reasons, domain.EventReasonFleetRolloutStarted)
+		require.NotContains(t, reasons, domain.EventReasonFleetRolloutStarted)
 		require.Contains(t, reasons, domain.EventReasonResourceCreated)
 	})
 

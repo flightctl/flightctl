@@ -27,6 +27,7 @@ import (
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	resourcesyncservice "github.com/flightctl/flightctl/internal/service/resourcesync"
 	syncstateservice "github.com/flightctl/flightctl/internal/service/syncstate"
+	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	checkpointstore "github.com/flightctl/flightctl/internal/store/checkpoint"
 	deltastore "github.com/flightctl/flightctl/internal/store/delta"
@@ -38,6 +39,7 @@ import (
 	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
 	resourcesyncstore "github.com/flightctl/flightctl/internal/store/resourcesync"
 	syncstatestore "github.com/flightctl/flightctl/internal/store/syncstate"
+	templateversionstore "github.com/flightctl/flightctl/internal/store/templateversion"
 	vulnerabilityfindingstore "github.com/flightctl/flightctl/internal/store/vulnerabilityfinding"
 	"github.com/flightctl/flightctl/internal/tasks"
 	trustifyv2 "github.com/flightctl/flightctl/internal/trustify/v2"
@@ -118,6 +120,7 @@ func (s *Server) Run(ctx context.Context) error {
 	organizationStore := organizationstore.NewOrganizationStore(s.db)
 	dependencyRefStore := dependencyrefstore.NewDependencyRefStore(s.db, s.log.WithField("pkg", "dependencyref-store"))
 	syncStateStore := syncstatestore.NewSyncStateStore(s.db, s.log.WithField("pkg", "syncstate-store"))
+	tvStore := templateversionstore.NewTemplateVersionStore(s.db, s.log.WithField("pkg", "templateversion-store"))
 	vulnerabilityFindingStore := vulnerabilityfindingstore.NewVulnerabilityFindingStore(s.db, s.log.WithField("pkg", "vulnerabilityfinding-store"))
 
 	eventsSvc := events.NewServiceHandler(eventStore, workerClient, s.log)
@@ -132,6 +135,7 @@ func (s *Server) Run(ctx context.Context) error {
 	organizationSvc := organizationservice.WrapWithTracing(organizationservice.NewServiceHandler(organizationStore))
 	dependencyrefSvc := dependencyrefservice.WrapWithTracing(dependencyrefservice.NewServiceHandler(dependencyRefStore, s.log))
 	syncstateSvc := syncstateservice.WrapWithTracing(syncstateservice.NewServiceHandler(syncStateStore))
+	tvSvc := templateversionservice.WrapWithTracing(templateversionservice.NewServiceHandler(tvStore, kvStore, eventsSvc, s.log))
 
 	var secretInformerClientset kubernetes.Interface
 	if s.cfg.Periodic != nil && s.cfg.Periodic.ClusterLevelSecretAccess {
@@ -170,7 +174,7 @@ func (s *Server) Run(ctx context.Context) error {
 	periodicTaskExecutors := InitializeTaskExecutors(s.log,
 		repositorySvc, fleetSvc, resourceSyncSvc, catalogSvc, deviceSvc, eventSvc,
 		checkpointSvc, organizationSvc, dependencyrefSvc, syncstateSvc,
-		s.cfg, queuesProvider, workerClient, nil, vulnerabilityFindingStore, vulnClient, depSyncMetrics, deltastore.NewStore(s.db, s.log))
+		s.cfg, queuesProvider, workerClient, nil, vulnerabilityFindingStore, vulnClient, depSyncMetrics, deltastore.NewStore(s.db, s.log), tvSvc)
 
 	// Create channel manager for task distribution
 	channelManagerConfig := ChannelManagerConfig{

@@ -13,6 +13,7 @@ import (
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	eventservice "github.com/flightctl/flightctl/internal/service/events"
 	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
+	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
 	deltastore "github.com/flightctl/flightctl/internal/store/delta"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/util"
@@ -49,6 +50,7 @@ type Preparer struct {
 	Events     eventservice.Service
 	FleetSvc   fleetservice.Service
 	DeviceSvc  deviceservice.Service
+	TVSvc      templateversionservice.Service
 }
 
 type prepareIdentity struct {
@@ -357,15 +359,20 @@ func (p *Preparer) completeNow(ctx context.Context, ev worker_client.EventWithOr
 	return p.emitResume(ctx, orgId, kind, name, prep)
 }
 
-func (p *Preparer) identityMatches(ctx context.Context, ev worker_client.EventWithOrgId, prep *model.DeltaPrepare) (bool, error) {
+func (p *Preparer) identityMatches(ctx context.Context, _ worker_client.EventWithOrgId, prep *model.DeltaPrepare) (bool, error) {
 	switch prep.Kind {
 	case domain.FleetKind:
-		fleet, err := p.getFleet(ctx, prep.OrgID, prep.Name)
-		if err != nil {
-			return false, err
+		if p.TVSvc == nil {
+			return false, fmt.Errorf("template version service is required to resume fleet prepare")
 		}
-		live := liveFleetTemplateVersion(fleet, eventTemplateVersion(ev))
-		return equalStringPtr(prep.TemplateVersion, live), nil
+		tv, status := p.TVSvc.GetLatestTemplateVersion(ctx, prep.OrgID, prep.Name)
+		if status.Code != http.StatusOK {
+			if status.Code == http.StatusNotFound {
+				return false, nil
+			}
+			return false, fmt.Errorf("getting latest template version for fleet %s: %s", prep.Name, status.Message)
+		}
+		return equalStringPtr(prep.TemplateVersion, tv.Metadata.Name), nil
 	case domain.DeviceKind:
 		device, err := p.getDevice(ctx, prep.OrgID, prep.Name)
 		if err != nil {

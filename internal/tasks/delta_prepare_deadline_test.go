@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
+	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -88,6 +89,8 @@ func TestDeltaPrepareDeadlinePoll(t *testing.T) {
 		fleetSvc.EXPECT().UpdateFleetAnnotations(gomock.Any(), orgId, "fleet-1", gomock.Any(), gomock.Any()).Return(domain.StatusOK())
 		fleetSvc.EXPECT().ReplaceFleetStatus(gomock.Any(), orgId, "fleet-1", gomock.Any()).Return(fleet, domain.StatusOK())
 		deviceSvc.EXPECT().SetOutOfDate(gomock.Any(), orgId, gomock.Any()).Return(nil)
+		tvSvc := templateversionservice.NewMockService(ctrl)
+		tvSvc.EXPECT().GetLatestTemplateVersion(gomock.Any(), orgId, "fleet-1").Return(&domain.TemplateVersion{Metadata: domain.ObjectMeta{Name: lo.ToPtr("tv-1")}}, domain.StatusOK())
 		rec := &deadlineEventRecorder{}
 		prep := model.DeltaPrepare{
 			ID:              uuid.New(),
@@ -99,7 +102,7 @@ func TestDeltaPrepareDeadlinePoll(t *testing.T) {
 			Deadline:        lo.ToPtr(time.Now().Add(-time.Minute)),
 		}
 		store := &fakeDeadlineStore{waiting: []model.DeltaPrepare{prep}}
-		task := &DeltaPrepareDeadline{log: log, deltaStore: store, fleetSvc: fleetSvc, deviceSvc: deviceSvc, eventSvc: rec}
+		task := &DeltaPrepareDeadline{log: log, deltaStore: store, fleetSvc: fleetSvc, deviceSvc: deviceSvc, tvSvc: tvSvc, eventSvc: rec}
 
 		task.Poll(context.Background())
 		assert.Equal(t, model.DeltaPrepareFailed, store.waiting[0].Status)
@@ -132,7 +135,9 @@ func TestDeltaPrepareDeadlinePoll(t *testing.T) {
 			},
 			Spec: domain.FleetSpec{},
 		}
-		fleetSvc.EXPECT().GetFleet(gomock.Any(), orgId, "fleet-1", gomock.Any()).Return(fleet, domain.StatusOK())
+		fleetSvc.EXPECT().GetFleet(gomock.Any(), orgId, "fleet-1", gomock.Any()).Return(fleet, domain.StatusOK()).AnyTimes()
+		tvSvc := templateversionservice.NewMockService(ctrl)
+		tvSvc.EXPECT().GetLatestTemplateVersion(gomock.Any(), orgId, "fleet-1").Return(&domain.TemplateVersion{Metadata: domain.ObjectMeta{Name: lo.ToPtr("tv-2")}}, domain.StatusOK())
 		rec := &deadlineEventRecorder{}
 		prep := model.DeltaPrepare{
 			ID:              uuid.New(),
@@ -143,7 +148,7 @@ func TestDeltaPrepareDeadlinePoll(t *testing.T) {
 			Status:          model.DeltaPrepareWaiting,
 		}
 		store := &fakeDeadlineStore{waiting: []model.DeltaPrepare{prep}}
-		task := &DeltaPrepareDeadline{log: log, deltaStore: store, fleetSvc: fleetSvc, deviceSvc: deviceSvc, eventSvc: rec}
+		task := &DeltaPrepareDeadline{log: log, deltaStore: store, fleetSvc: fleetSvc, deviceSvc: deviceSvc, tvSvc: tvSvc, eventSvc: rec}
 		task.Poll(context.Background())
 		assert.Equal(t, model.DeltaPrepareFailed, store.waiting[0].Status)
 		assert.Empty(t, rec.events)

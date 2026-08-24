@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
+	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
 	deltastore "github.com/flightctl/flightctl/internal/store/delta"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/tasks"
@@ -1045,6 +1046,7 @@ func newTestPreparer(t *testing.T, store *fakePrepareStore, resolver *Resolver, 
 	ctrl := gomock.NewController(t)
 	fleetSvc := fleetservice.NewMockService(ctrl)
 	deviceSvc := deviceservice.NewMockService(ctrl)
+	tvSvc := templateversionservice.NewMockService(ctrl)
 	if resolver != nil && resolver.Fleet != nil {
 		fleetSvc.EXPECT().GetFleet(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 			func(ctx context.Context, orgId uuid.UUID, name string, _ domain.GetFleetParams) (*domain.Fleet, domain.Status) {
@@ -1053,6 +1055,19 @@ func newTestPreparer(t *testing.T, store *fakePrepareStore, resolver *Resolver, 
 					return nil, domain.StatusInternalServerError(err.Error())
 				}
 				return fleet, domain.StatusOK()
+			},
+		).AnyTimes()
+		tvSvc.EXPECT().GetLatestTemplateVersion(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+			func(ctx context.Context, orgId uuid.UUID, name string) (*domain.TemplateVersion, domain.Status) {
+				fleet, err := resolver.Fleet(ctx, orgId, name)
+				if err != nil {
+					return nil, domain.StatusInternalServerError(err.Error())
+				}
+				tv := liveFleetTemplateVersion(fleet, nil)
+				if tv == nil {
+					return nil, domain.StatusResourceNotFound("TemplateVersion", name)
+				}
+				return &domain.TemplateVersion{Metadata: domain.ObjectMeta{Name: tv}}, domain.StatusOK()
 			},
 		).AnyTimes()
 	}
@@ -1083,6 +1098,7 @@ func newTestPreparer(t *testing.T, store *fakePrepareStore, resolver *Resolver, 
 		Events:    rec,
 		FleetSvc:  fleetSvc,
 		DeviceSvc: deviceSvc,
+		TVSvc:     tvSvc,
 	}
 	if emit != nil {
 		p.Emit = emit.emit
