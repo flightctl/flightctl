@@ -100,6 +100,9 @@ func (t *DeltaPrepareDeadline) identityMatches(ctx context.Context, prep *model.
 	case domain.DeviceKind:
 		device, status := t.deviceSvc.GetDevice(ctx, prep.OrgID, prep.Name)
 		if status.Code != http.StatusOK {
+			if status.Code == http.StatusNotFound {
+				return false, nil
+			}
 			return false, fmt.Errorf("getting device %s: %s", prep.Name, status.Message)
 		}
 		return equalInt64Ptr(prep.SpecResourceVersion, device.Metadata.Generation), nil

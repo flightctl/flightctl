@@ -81,7 +81,7 @@ func (p *Preparer) Prepare(ctx context.Context, ev worker_client.EventWithOrgId)
 		return err
 	}
 	if result.Skip {
-		return p.finishSkip(ctx, ev, ev.OrgId, kind, name)
+		return p.finishSkip(ctx, ev, ev.OrgId, kind, name, identity)
 	}
 
 	prep, err := p.waitingOrInsert(ctx, ev.OrgId, kind, name, identity, fleet)
@@ -175,7 +175,28 @@ func (p *Preparer) fleetIdentity(ctx context.Context, ev worker_client.EventWith
 	if err != nil {
 		return prepareIdentity{}, nil, err
 	}
-	return prepareIdentity{templateVersion: liveFleetTemplateVersion(fleet, eventTemplateVersion(ev))}, fleet, nil
+	tv, err := p.fleetPrepareTemplateVersion(ctx, ev)
+	if err != nil {
+		return prepareIdentity{}, nil, err
+	}
+	return prepareIdentity{templateVersion: tv}, fleet, nil
+}
+
+func (p *Preparer) fleetPrepareTemplateVersion(ctx context.Context, ev worker_client.EventWithOrgId) (*string, error) {
+	if tv := eventTemplateVersion(ev); tv != nil {
+		return tv, nil
+	}
+	if p.TVSvc == nil {
+		return nil, fmt.Errorf("template version service is required to identify fleet prepare")
+	}
+	latest, status := p.TVSvc.GetLatestTemplateVersion(ctx, ev.OrgId, ev.Event.InvolvedObject.Name)
+	if status.Code != http.StatusOK {
+		if status.Code == http.StatusNotFound {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("getting latest template version for fleet %s: %s", ev.Event.InvolvedObject.Name, status.Message)
+	}
+	return latest.Metadata.Name, nil
 }
 
 func (p *Preparer) deviceIdentity(ctx context.Context, ev worker_client.EventWithOrgId) (prepareIdentity, error) {
@@ -219,7 +240,7 @@ func (p *Preparer) waitingOrInsert(ctx context.Context, orgId uuid.UUID, kind, n
 	return existing, nil
 }
 
-func (p *Preparer) finishSkip(ctx context.Context, ev worker_client.EventWithOrgId, orgId uuid.UUID, kind, name string) error {
+func (p *Preparer) finishSkip(ctx context.Context, ev worker_client.EventWithOrgId, orgId uuid.UUID, kind, name string, identity prepareIdentity) error {
 	waiting, err := p.Store.GetWaitingPrepare(ctx, orgId, kind, name)
 	if err != nil {
 		return err
@@ -232,7 +253,7 @@ func (p *Preparer) finishSkip(ctx context.Context, ev worker_client.EventWithOrg
 	if err := p.clearStatus(ctx, orgId, kind, name); err != nil {
 		return err
 	}
-	return p.emitResume(ctx, orgId, kind, name, nil)
+	return p.emitResume(ctx, orgId, kind, name, &model.DeltaPrepare{TemplateVersion: identity.templateVersion})
 }
 
 func (p *Preparer) failWaiting(ctx context.Context, waiting *model.DeltaPrepare, orgId uuid.UUID, kind, name string) error {
@@ -374,9 +395,15 @@ func (p *Preparer) identityMatches(ctx context.Context, _ worker_client.EventWit
 		}
 		return equalStringPtr(prep.TemplateVersion, tv.Metadata.Name), nil
 	case domain.DeviceKind:
-		device, err := p.getDevice(ctx, prep.OrgID, prep.Name)
-		if err != nil {
-			return false, err
+		if p.DeviceSvc == nil {
+			return false, fmt.Errorf("device service is required to resume device prepare")
+		}
+		device, status := p.DeviceSvc.GetDevice(ctx, prep.OrgID, prep.Name)
+		if status.Code != http.StatusOK {
+			if status.Code == http.StatusNotFound {
+				return false, nil
+			}
+			return false, fmt.Errorf("getting device %s: %s", prep.Name, status.Message)
 		}
 		return equalInt64Ptr(prep.SpecResourceVersion, device.Metadata.Generation), nil
 	default:
@@ -393,17 +420,6 @@ func (p *Preparer) getFleet(ctx context.Context, orgId uuid.UUID, name string) (
 		return nil, fmt.Errorf("getting fleet %s: %s", name, status.Message)
 	}
 	return fleet, nil
-}
-
-func (p *Preparer) getDevice(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error) {
-	if p.DeviceSvc == nil {
-		return nil, fmt.Errorf("device service is required to resume device prepare")
-	}
-	device, status := p.DeviceSvc.GetDevice(ctx, orgId, name)
-	if status.Code != http.StatusOK {
-		return nil, fmt.Errorf("getting device %s: %s", name, status.Message)
-	}
-	return device, nil
 }
 
 func (p *Preparer) emitResume(ctx context.Context, orgId uuid.UUID, kind, name string, prep *model.DeltaPrepare) error {

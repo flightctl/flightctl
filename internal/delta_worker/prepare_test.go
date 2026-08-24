@@ -493,10 +493,10 @@ func TestPrepare_DedupeAndSupercede(t *testing.T) {
 		status := &statusSpy{}
 		resume := &resumeSpy{}
 		emit := &emitSpy{}
-		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-11"), deviceWithOS("d1", true, prepareTestSrc)), status, resume, emit)
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-10"), deviceWithOS("d1", true, prepareTestSrc)), status, resume, emit)
 		p.Now = func() time.Time { return now }
 
-		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-10"))
+		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-11"))
 		require.NoError(t, err)
 		gotOld, ok := store.prepares[old.ID]
 		require.True(t, ok)
@@ -518,15 +518,29 @@ func TestPrepare_DedupeAndSupercede(t *testing.T) {
 		assert.NotEqual(t, domain.EventReasonDeltaGenerationCompleted, emit.events[0].Reason)
 	})
 
+	t.Run("When the fleet annotation is an older TV it should key the wait to the PrepareDeltas templateVersion", func(t *testing.T) {
+		store := newFakePrepareStore()
+		emit := &emitSpy{}
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, &resumeSpy{}, emit)
+
+		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-2"))
+		require.NoError(t, err)
+		require.Len(t, store.prepares, 1)
+		assert.Equal(t, "tv-2", lo.FromPtr(firstPrepare(store).TemplateVersion))
+		assert.Equal(t, model.DeltaPrepareWaiting, firstPrepare(store).Status)
+		require.Len(t, emit.events, 1)
+		assert.Equal(t, domain.EventReasonGenerateDelta, emit.events[0].Reason)
+	})
+
 	t.Run("When supercede CAS loses it should not clear preparing status", func(t *testing.T) {
 		store := newFakePrepareStore()
 		store.seedWaiting(orgId, domain.FleetKind, "fleet-1", lo.ToPtr("tv-10"), nil, now.Add(-time.Hour))
 		store.casErr = flterrors.ErrNoRowsUpdated
 		status := &statusSpy{}
-		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-11"), deviceWithOS("d1", true, prepareTestSrc)), status, &resumeSpy{}, &emitSpy{})
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-10"), deviceWithOS("d1", true, prepareTestSrc)), status, &resumeSpy{}, &emitSpy{})
 		p.Now = func() time.Time { return now }
 
-		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-10"))
+		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-11"))
 		require.NoError(t, err)
 		assert.Empty(t, status.clears)
 	})
