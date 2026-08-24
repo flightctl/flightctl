@@ -225,14 +225,57 @@ func (b *OnboardingBrowser) WizardSetHostnameAndLabels(hostname string, labels m
 	return nil
 }
 
-// WizardClickNext clicks the primary ("Next") button in the wizard footer and
-// gives React a moment to transition to the next step.
-func (b *OnboardingBrowser) WizardClickNext() error {
-	if err := chromedp.Run(b.ctx, b.iframeClickFooterButton("primary")); err != nil {
+// currentWizardStep returns the label of the wizard's current nav step (the
+// text of .pf-v6-c-wizard__nav-link.pf-m-current), or "" when it cannot be
+// determined yet.
+func (b *OnboardingBrowser) currentWizardStep() (string, error) {
+	js := fmt.Sprintf(`
+		(function() {
+			var doc = %s;
+			if (!doc) return '';
+			var cur = doc.querySelector('.pf-v6-c-wizard__nav-link.pf-m-current');
+			return cur ? cur.innerText.trim() : '';
+		})()
+	`, b.iframeDoc())
+	var step string
+	err := chromedp.Run(b.ctx, chromedp.Evaluate(js, &step))
+	return step, err
+}
+
+// clickFooterAndAwaitStepChange clicks the footer's primary ("Next") or
+// secondary ("Back") button and then waits until the wizard's current nav step
+// actually changes, rather than blindly sleeping. A blind sleep returns success
+// even when a slow React render has not advanced the step yet, so a later helper
+// fails several steps downstream with an opaque "element not found" error. If the
+// step does not change within the timeout, fail here with the current wizard
+// state so the real cause is visible.
+func (b *OnboardingBrowser) clickFooterAndAwaitStepChange(variant string) error {
+	before, err := b.currentWizardStep()
+	if err != nil {
 		return err
 	}
-	time.Sleep(400 * time.Millisecond)
-	return nil
+	if err := chromedp.Run(b.ctx, b.iframeClickFooterButton(variant)); err != nil {
+		return err
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		cur, err := b.currentWizardStep()
+		if err != nil {
+			return err
+		}
+		if cur != "" && cur != before {
+			return nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return fmt.Errorf("wizard step did not change from %q after clicking %s button; state: %s",
+		before, variant, b.WizardDebugState())
+}
+
+// WizardClickNext clicks the primary ("Next") button in the wizard footer and
+// waits for the wizard to advance to the next step.
+func (b *OnboardingBrowser) WizardClickNext() error {
+	return b.clickFooterAndAwaitStepChange("primary")
 }
 
 // WizardSetConnectivityHost fills the Review step's "Connectivity test host"
@@ -362,13 +405,10 @@ func (b *OnboardingBrowser) WizardClickApply() error {
 	return chromedp.Run(b.ctx, b.iframeClickFooterButton("primary"))
 }
 
-// WizardClickBack clicks the secondary ("Back") button in the wizard footer.
+// WizardClickBack clicks the secondary ("Back") button in the wizard footer and
+// waits for the wizard to return to the previous step.
 func (b *OnboardingBrowser) WizardClickBack() error {
-	if err := chromedp.Run(b.ctx, b.iframeClickFooterButton("secondary")); err != nil {
-		return err
-	}
-	time.Sleep(400 * time.Millisecond)
-	return nil
+	return b.clickFooterAndAwaitStepChange("secondary")
 }
 
 // WizardWaitForCompletion waits until the progress page reaches a terminal state.
@@ -397,10 +437,14 @@ func (b *OnboardingBrowser) WizardWaitForCompletion(timeout time.Duration) error
 		case "success":
 			return nil
 		case "failed":
+			// Best-effort diagnostics: we are already returning an error, so a
+			// failure to scrape the progress-page text just yields an empty txt.
 			txt, _ := b.WizardGetReviewText()
 			return fmt.Errorf("wizard apply failed; state: %s\nprogress page:\n%s", b.WizardDebugState(), txt)
 		}
 		if time.Now().After(deadline) {
+			// Best-effort diagnostics: we are already returning an error, so a
+			// failure to scrape the progress-page text just yields an empty txt.
 			txt, _ := b.WizardGetReviewText()
 			return fmt.Errorf("WizardWaitForCompletion: no success/failure alert after %s; state: %s\nprogress page:\n%s", timeout, b.WizardDebugState(), txt)
 		}
@@ -515,7 +559,7 @@ func StartCockpitTunnel(sshPort int, sshUser, sshPassword string) (cockpitAddr s
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "LogLevel=ERROR",
-		"-L", fmt.Sprintf("127.0.0.1:%d:localhost:9090", localPort),
+		"-L", fmt.Sprintf("127.0.0.1:%d:localhost:%d", localPort, cockpitPort),
 		"-N",
 	)
 	if startErr := cmd.Start(); startErr != nil {
@@ -539,7 +583,7 @@ func StartCockpitTunnel(sshPort int, sshUser, sshPassword string) (cockpitAddr s
 
 	_ = cmd.Process.Kill()
 	_ = cmd.Wait()
-	return "", nil, fmt.Errorf("SSH tunnel to port 9090 via SSH port %d did not become ready within 15s", sshPort)
+	return "", nil, fmt.Errorf("SSH tunnel to port %d via SSH port %d did not become ready within 15s", cockpitPort, sshPort)
 }
 
 // --- iframe helpers ---
@@ -844,6 +888,8 @@ func escapeJSString(s string) string {
 			result = append(result, '\\', '\\')
 		case '\'':
 			result = append(result, '\\', '\'')
+		case '"':
+			result = append(result, '\\', '"')
 		case '\n':
 			result = append(result, '\\', 'n')
 		case '\r':

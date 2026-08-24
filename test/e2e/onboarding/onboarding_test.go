@@ -17,8 +17,12 @@ import (
 
 const (
 	sshPortBase = 2233
-	vmUser      = "user"
-	vmPassword  = "user"
+	// vmUser/vmPassword are NOT secrets: they are the well-known, hard-coded
+	// login baked into the ephemeral e2e base VM image (see the VM provisioning
+	// harness). The image fixes this account, so the value cannot be injected at
+	// runtime; it only ever authenticates to a throwaway local libvirt guest.
+	vmUser     = "user"
+	vmPassword = "user" // gitleaks:allow -- fixed credential of the ephemeral test VM image
 	// cockpitUser is the passwordless "onboarding" user created by
 	// create-onboarding-user.sh. The wizard's privileged apply operations
 	// (hostname/NTP/NetworkManager via D-Bus) are authorized by the polkit rule
@@ -26,8 +30,10 @@ const (
 	// Logging in as any other user (e.g. "user") makes every apply step fail
 	// polkit authorization. SSH access for this user is intentionally blocked, so
 	// the SSH tunnel and all system verification still use vmUser/vmPassword.
+	// cockpitPassword is not a secret either: the suite sets it on the throwaway
+	// onboarding account purely so headless Chrome can log in deterministically.
 	cockpitUser     = "onboarding"
-	cockpitPassword = "onboarding"
+	cockpitPassword = "onboarding" // gitleaks:allow -- test-only password for the ephemeral onboarding account
 	wizardTimeout   = 120 * time.Second
 
 	// SLIRP-matching static IPv4 values. The nested VM has a single NIC on QEMU
@@ -41,6 +47,24 @@ const (
 	slirpStaticGateway = "10.0.2.2"
 )
 
+// newLoggedInBrowser creates a headless Chrome session and logs it in to the
+// Cockpit wizard as the onboarding user. The caller owns the returned browser
+// and must Close() it. Sharing this helper keeps tunnel-independent session
+// setup (creation, login, and its failure messages) identical across every spec.
+func newLoggedInBrowser(cockpitAddr string) *e2e.OnboardingBrowser {
+	GinkgoHelper()
+	browser, err := e2e.NewOnboardingBrowser(context.Background())
+	Expect(err).ToNot(HaveOccurred(), "failed to create headless Chrome session")
+
+	if err := browser.CockpitLogin(cockpitAddr, cockpitUser, cockpitPassword); err != nil {
+		// Close the just-created Chrome session before the failing assertion
+		// aborts the spec, so a login failure does not leak the browser.
+		browser.Close()
+		Expect(err).ToNot(HaveOccurred(), "failed to log in to Cockpit")
+	}
+	return browser
+}
+
 // startBrowserSession creates an SSH tunnel to Cockpit and a headless Chrome
 // session logged in to the wizard. Returns the browser and a cleanup function.
 func startBrowserSession() (*e2e.OnboardingBrowser, func()) {
@@ -50,11 +74,19 @@ func startBrowserSession() (*e2e.OnboardingBrowser, func()) {
 	cockpitAddr, tunnelCleanup, err := e2e.StartCockpitTunnel(sshPort, vmUser, vmPassword)
 	Expect(err).ToNot(HaveOccurred(), "failed to start Cockpit SSH tunnel")
 
-	browser, err := e2e.NewOnboardingBrowser(context.Background())
-	Expect(err).ToNot(HaveOccurred(), "failed to create headless Chrome session")
+	// If newLoggedInBrowser aborts the spec (its Expect panics through Ginkgo's
+	// Fail), the caller never receives the cleanup func below, so tear the tunnel
+	// down as we unwind. Ownership passes to the returned cleanup once the browser
+	// is up.
+	tunnelOwned := false
+	defer func() {
+		if !tunnelOwned {
+			tunnelCleanup()
+		}
+	}()
 
-	err = browser.CockpitLogin(cockpitAddr, cockpitUser, cockpitPassword)
-	Expect(err).ToNot(HaveOccurred(), "failed to log in to Cockpit")
+	browser := newLoggedInBrowser(cockpitAddr)
+	tunnelOwned = true
 
 	cleanup := func() {
 		saveScreenshotOnFailure(browser, "")
@@ -118,19 +150,29 @@ func sanitizeFileName(s string) string {
 	return strings.Trim(b.String(), "-")
 }
 
-// getOnboardingNMProfile returns the name of the flightctl-onboarding-* NM
-// connection profile created by the wizard.
-func getOnboardingNMProfile(h *e2e.Harness) string {
-	out, err := h.VM.RunSSH([]string{"nmcli", "-t", "-f", "NAME", "con", "show"}, nil)
+// getOnboardingNMProfileOfType returns the name of the flightctl-onboarding-* NM
+// connection profile of the given connection type ("802-3-ethernet", "vlan",
+// ...). Selecting by type matters for the VLAN spec: a VLAN apply leaves two
+// flightctl-onboarding-* profiles — the ethernet parent and the VLAN child — and
+// `nmcli con show` ordering is not guaranteed, so matching by prefix alone could
+// return the parent and make the VLAN assertions fail.
+func getOnboardingNMProfileOfType(h *e2e.Harness, connType string) string {
+	GinkgoHelper()
+	out, err := h.VM.RunSSH([]string{"nmcli", "-t", "-f", "NAME,TYPE", "con", "show"}, nil)
 	Expect(err).ToNot(HaveOccurred(), "nmcli con show failed")
 
+	var seen []string
 	for _, line := range strings.Split(out.String(), "\n") {
-		name := strings.TrimSpace(line)
-		if strings.HasPrefix(name, "flightctl-onboarding-") {
-			return name
+		fields := strings.SplitN(strings.TrimSpace(line), ":", 2)
+		if len(fields) < 2 || !strings.HasPrefix(fields[0], "flightctl-onboarding-") {
+			continue
+		}
+		seen = append(seen, line)
+		if fields[1] == connType {
+			return fields[0]
 		}
 	}
-	Fail("no flightctl-onboarding-* NM profile found")
+	Fail("no flightctl-onboarding-* NM profile of type " + connType + " found; profiles: " + strings.Join(seen, ", "))
 	return ""
 }
 
@@ -256,7 +298,7 @@ var _ = Describe("Onboarding wizard configuration flow", func() {
 		Expect(labelsContent).To(ContainSubstring("edge"))
 
 		By("Verifying NM connection profile was created (AC #4)")
-		profileName := getOnboardingNMProfile(harness)
+		profileName := getOnboardingNMProfileOfType(harness, "802-3-ethernet")
 		out, err = harness.VM.RunSSH([]string{
 			"nmcli", "-t", "-f", "ipv4.addresses", "con", "show", profileName,
 		}, nil)
@@ -297,7 +339,10 @@ var _ = Describe("Onboarding wizard configuration flow", func() {
 
 		Expect(browser.WizardClickNext()).To(Succeed()) // → Network Services
 		Expect(browser.WizardConfigureNTP("time.example.com")).To(Succeed())
-		Expect(browser.WizardConfigureProxy("proxy.example.com", "8080", "proxyuser", "secret123")).To(Succeed())
+		// The proxy password here is a throwaway literal typed into the wizard so
+		// the assertion below can prove it is masked (never rendered) on the Review
+		// screen — it is test data, not a real credential.
+		Expect(browser.WizardConfigureProxy("proxy.example.com", "8080", "proxyuser", "secret123")).To(Succeed()) // gitleaks:allow -- dummy value asserted to be masked below
 
 		Expect(browser.WizardClickNext()).To(Succeed()) // → Enrollment
 		Expect(browser.WizardDisableEnrollment()).To(Succeed())
@@ -490,7 +535,7 @@ var _ = Describe("Onboarding wizard configuration flow", func() {
 		Expect(browser.WizardWaitForCompletion(wizardTimeout)).To(Succeed())
 
 		By("Verifying NM profile type and method")
-		profileName := getOnboardingNMProfile(harness)
+		profileName := getOnboardingNMProfileOfType(harness, "802-3-ethernet")
 
 		out, err := harness.VM.RunSSH([]string{
 			"nmcli", "-t", "-f", "connection.type", "con", "show", profileName,
@@ -543,7 +588,9 @@ var _ = Describe("Onboarding wizard configuration flow", func() {
 		Expect(browser.WizardClickNext()).To(Succeed()) // → Network Services
 
 		By("Configuring proxy with authentication")
-		Expect(browser.WizardConfigureProxy("proxy.corp.com", "3128", "admin", "p@ss")).To(Succeed())
+		// Throwaway proxy credentials typed into the wizard to exercise the
+		// authenticated-proxy path; not a real secret.
+		Expect(browser.WizardConfigureProxy("proxy.corp.com", "3128", "admin", "p@ss")).To(Succeed()) // gitleaks:allow -- dummy test credential
 
 		By("Applying")
 		Expect(browser.WizardClickNext()).To(Succeed()) // → Enrollment
@@ -591,7 +638,7 @@ var _ = Describe("Onboarding wizard configuration flow", func() {
 		Expect(browser.WizardWaitForCompletion(wizardTimeout)).To(Succeed())
 
 		By("Verifying NM profile is VLAN type")
-		profileName := getOnboardingNMProfile(harness)
+		profileName := getOnboardingNMProfileOfType(harness, "vlan")
 
 		out, err := harness.VM.RunSSH([]string{
 			"nmcli", "-t", "-f", "connection.type", "con", "show", profileName,
@@ -646,12 +693,11 @@ var _ = Describe("Onboarding wizard configuration flow", func() {
 		Expect(err).ToNot(HaveOccurred())
 		defer tunnelCleanup()
 
-		browser, err := e2e.NewOnboardingBrowser(context.Background())
-		Expect(err).ToNot(HaveOccurred())
+		// This spec drives two browser sessions over the same tunnel, so it manages
+		// the tunnel itself and creates each session with the shared helper rather
+		// than using startBrowserSession (which bundles one browser with the tunnel).
+		browser := newLoggedInBrowser(cockpitAddr)
 		defer browser.Close()
-
-		err = browser.CockpitLogin(cockpitAddr, cockpitUser, cockpitPassword)
-		Expect(err).ToNot(HaveOccurred())
 
 		By("Running a minimal wizard flow to completion")
 		Expect(browser.WizardSelectNIC()).To(Succeed())
@@ -669,15 +715,11 @@ var _ = Describe("Onboarding wizard configuration flow", func() {
 		By("Opening a new browser session to the same VM")
 		browser.Close()
 
-		browser2, err := e2e.NewOnboardingBrowser(context.Background())
-		Expect(err).ToNot(HaveOccurred())
+		browser2 := newLoggedInBrowser(cockpitAddr)
 		defer browser2.Close()
 		// Registered after browser2.Close() so it runs first (LIFO) and captures
 		// the live browser before its context is cancelled.
 		defer saveScreenshotOnFailure(browser2, "already-complete")
-
-		err = browser2.CockpitLogin(cockpitAddr, cockpitUser, cockpitPassword)
-		Expect(err).ToNot(HaveOccurred())
 
 		By("Verifying the wizard shows the already-complete message")
 		found, err := browser2.WizardIsAlreadyComplete()

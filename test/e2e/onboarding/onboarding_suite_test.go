@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
 	"github.com/flightctl/flightctl/test/e2e/infra/setup"
@@ -196,17 +197,29 @@ func installCockpitAndOnboarding(h *e2e.Harness) {
 	onboardingConfig := fmt.Sprintf(`{"onboardingUser":{"password":%q}}`, cockpitPassword)
 	_, err = h.VM.RunSSH([]string{"sudo", "mkdir", "-p", onboardingConfigDir}, nil)
 	Expect(err).ToNot(HaveOccurred(), "failed to create onboarding config dir")
-	_, err = h.VM.RunSSH([]string{"sudo", "tee", onboardingConfigPath}, bytes.NewBufferString(onboardingConfig))
+	// Redirect tee's stdout to /dev/null: tee echoes its stdin (the password JSON)
+	// to stdout, and RunSSH folds stdout into its error message, so on failure the
+	// password would otherwise leak into the Ginkgo failure output.
+	_, err = h.VM.RunSSH([]string{"sudo", "tee", onboardingConfigPath, ">", "/dev/null"}, bytes.NewBufferString(onboardingConfig))
 	Expect(err).ToNot(HaveOccurred(), "failed to write onboarding config with password")
 
 	const createUserScript = "/usr/libexec/flightctl-onboarding/create-onboarding-user.sh"
 	_, err = h.VM.RunSSH([]string{"sudo", createUserScript}, nil)
 	Expect(err).ToNot(HaveOccurred(), "failed to create onboarding user (required for polkit-authorized apply)")
 
-	// Verify cockpit is listening.
-	out, err := h.VM.RunSSH([]string{
-		"sudo", "ss", "-tlnp", "sport", "=", ":9090",
-	}, nil)
-	Expect(err).ToNot(HaveOccurred(), "cockpit not listening on port 9090")
-	logrus.Infof("cockpit listening: %s", out.String())
+	// Verify cockpit is listening. `ss` exits 0 even when no socket matches the
+	// filter, so asserting only on the exit code would pass with nothing on 9090
+	// and every spec would then fail later inside Chrome with an opaque tunnel or
+	// login error. Assert on the output, and poll, because socket activation can
+	// lag `systemctl enable --now`.
+	Eventually(func() (string, error) {
+		out, err := h.VM.RunSSH([]string{
+			"sudo", "ss", "-tlnH", "sport", "=", ":9090",
+		}, nil)
+		if err != nil {
+			return "", err
+		}
+		return out.String(), nil
+	}, 60*time.Second, 2*time.Second).Should(ContainSubstring(":9090"),
+		"cockpit is not listening on port 9090")
 }
