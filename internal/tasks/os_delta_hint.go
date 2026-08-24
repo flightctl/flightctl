@@ -53,6 +53,11 @@ func FormatIECBytes(n int64) string {
 	return fmt.Sprintf("%d %s", rounded, units[unit])
 }
 
+func (t DeviceRenderLogic) WithDeltaLookup(lookup delta.Store) DeviceRenderLogic {
+	t.deltaLookup = lookup
+	return t
+}
+
 func ImageRepositoryFromRef(imageRef string) (string, error) {
 	named, err := reference.ParseNormalizedNamed(imageRef)
 	if err != nil {
