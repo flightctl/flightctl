@@ -6384,6 +6384,8 @@ components:
           $ref: '#/components/schemas/DependencySyncStatus'
         capabilities:
           $ref: '#/components/schemas/DeviceCapabilities'
+        deltaGeneration:
+          $ref: '#/components/schemas/DeltaGenerationStatus'
       additionalProperties: false
     DeviceLastSeen:
       type: object
@@ -7282,6 +7284,14 @@ components:
         generateDelta:
           type: boolean
           description: When false, skip control-plane OS delta generation for this fleet. Omitted means true.
+        maxWaitForDelta:
+          allOf:
+            - $ref: '#/components/schemas/Duration'
+          description: How long a prepare may wait before periodic resume. Omitted uses DeltaGeneration.maxWaitForDelta. Ignored when generateDelta is false. 0s still generates then resumes immediately.
+        deltaGenerationTimeout:
+          allOf:
+            - $ref: '#/components/schemas/Duration'
+          description: Context deadline for each generation job. Omitted uses DeltaGeneration.timeout.
       description: RolloutPolicy is the rollout policy of the fleet.
 
     FleetSpec:
@@ -7399,8 +7409,26 @@ components:
             $ref: '#/components/schemas/Condition'
         devicesSummary:
           $ref: '#/components/schemas/DevicesSummary'
+        deltaGeneration:
+          $ref: '#/components/schemas/DeltaGenerationStatus'
       required:
         - conditions
+      additionalProperties: false
+    DeltaGenerationStatus:
+      type: object
+      description: Progress of control-plane delta generation while a prepare is in flight. Omitted when not preparing.
+      properties:
+        completed:
+          type: integer
+          format: int64
+          description: Number of joined generation pairs that are already terminal.
+        total:
+          type: integer
+          format: int64
+          description: Number of unique generation pairs in this prepare.
+      required:
+        - completed
+        - total
       additionalProperties: false
     DevicesSummary:
       type: object
@@ -7822,6 +7850,8 @@ components:
       - 'SpecValid'             # Device (service condition)
       - 'MultipleOwners'        # Device (service condition)
       - 'DeviceDecommissioning' # Device
+      - 'FleetDeltaPreparing'   # Fleet
+      - 'DeviceDeltaPreparing'  # Device
       x-enum-varnames:
       - EnrollmentRequestApproved
       - EnrollmentRequestTPMVerified
@@ -7839,6 +7869,8 @@ components:
       - DeviceSpecValid
       - DeviceMultipleOwners
       - DeviceDecommissioning
+      - FleetDeltaPreparing
+      - DeviceDeltaPreparing
     ConditionStatus:
       type: string
       description: Status of the condition, one of True, False, Unknown.
