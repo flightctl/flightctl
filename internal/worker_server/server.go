@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
+	deltaworker "github.com/flightctl/flightctl/internal/delta_worker"
 	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
 	"github.com/flightctl/flightctl/internal/kvstore"
@@ -150,6 +151,7 @@ func (s *Server) Run(ctx context.Context) error {
 		QueuePublisher:     publisher,
 		WorkerClient:       workerClient,
 		DeltaStore:         deltaStore,
+		Preparing:          deltaworker.NewStorePreparingStatus(fleetStore, deviceStore),
 	}, 1, 1); err != nil {
 		s.log.WithError(err).Error("failed to launch consumers")
 		return err
