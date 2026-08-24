@@ -622,10 +622,41 @@ func (b *OnboardingBrowser) WizardNavigateBackwards(n int) error {
 // StartCockpitTunnel starts an SSH local port forward from a free local port to
 // the VM's Cockpit service on port 9090. Returns the local address to use with
 // CockpitLogin and a cleanup function that kills the tunnel process.
+//
+// The forward targets the guest's own loopback ("localhost:9090") and binds
+// locally to 127.0.0.1, so the browser reaches Cockpit as 127.0.0.1. This is the
+// right choice for every spec that drives configuration through the multi-NIC
+// inline apply path; use StartCockpitTunnelViaInterface for specs that need the
+// wizard's single-NIC detection to fire.
 func StartCockpitTunnel(sshPort int, sshUser, sshPassword string) (cockpitAddr string, cleanup func(), err error) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	return startCockpitTunnel(sshPort, sshUser, sshPassword, "127.0.0.1", "localhost")
+}
+
+// StartCockpitTunnelViaInterface forwards to the guest's real interface address
+// (guestIP:9090) instead of its loopback, and binds the local end to 127.0.0.2
+// so the browser's window.location.hostname is "127.0.0.2" rather than a value
+// the wizard treats as localhost. Both are required to make the wizard's
+// single-NIC detection (isConnectedViaInterface in the onboarding plugin) return
+// true: it bails out immediately when the page hostname is localhost, and it
+// otherwise matches the local address of the accepted cockpit-ws connection
+// (as reported by `ss`) against the interface's addresses. Forwarding to
+// guestIP:9090 makes cockpit-ws see guestIP as that local address, which is a
+// member of the interface's addresses on a single-NIC guest. The returned
+// cockpitAddr is "127.0.0.2:<port>"; 127.0.0.2 is still loopback (bindable
+// without extra setup on Linux) but is not one of the literals the plugin's
+// isLocalhost() treats as local.
+func StartCockpitTunnelViaInterface(sshPort int, sshUser, sshPassword, guestIP string) (cockpitAddr string, cleanup func(), err error) {
+	return startCockpitTunnel(sshPort, sshUser, sshPassword, "127.0.0.2", guestIP)
+}
+
+// startCockpitTunnel is the shared implementation behind StartCockpitTunnel and
+// StartCockpitTunnelViaInterface. localBind is the loopback address the forward
+// listens on (and the host the browser navigates to); forwardHost is the host
+// cockpit-ws is reached at from inside the guest.
+func startCockpitTunnel(sshPort int, sshUser, sshPassword, localBind, forwardHost string) (cockpitAddr string, cleanup func(), err error) {
+	listener, err := net.Listen("tcp", net.JoinHostPort(localBind, "0"))
 	if err != nil {
-		return "", nil, fmt.Errorf("finding free port: %w", err)
+		return "", nil, fmt.Errorf("finding free port on %s: %w", localBind, err)
 	}
 	localPort := listener.Addr().(*net.TCPAddr).Port
 	listener.Close()
@@ -639,7 +670,7 @@ func StartCockpitTunnel(sshPort int, sshUser, sshPassword string) (cockpitAddr s
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "LogLevel=ERROR",
-		"-L", fmt.Sprintf("127.0.0.1:%d:localhost:%d", localPort, cockpitPort),
+		"-L", fmt.Sprintf("%s:%d:%s:%d", localBind, localPort, forwardHost, cockpitPort),
 		"-N",
 	)
 	cmd.Env = append(os.Environ(), "SSHPASS="+sshPassword)
@@ -652,25 +683,25 @@ func StartCockpitTunnel(sshPort int, sshUser, sshPassword string) (cockpitAddr s
 		return "", nil, fmt.Errorf("starting SSH tunnel: %w", startErr)
 	}
 
+	dialAddr := net.JoinHostPort(localBind, strconv.Itoa(localPort))
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
-		conn, dialErr := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", localPort), 500*time.Millisecond)
+		conn, dialErr := net.DialTimeout("tcp", dialAddr, 500*time.Millisecond)
 		if dialErr == nil {
 			conn.Close()
-			cockpitAddr = fmt.Sprintf("127.0.0.1:%d", localPort)
 			cleanup = func() {
 				_ = cmd.Process.Kill()
 				_ = cmd.Wait()
 			}
-			return cockpitAddr, cleanup, nil
+			return dialAddr, cleanup, nil
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
 
 	_ = cmd.Process.Kill()
 	_ = cmd.Wait()
-	return "", nil, fmt.Errorf("SSH tunnel to port %d via SSH port %d did not become ready within 15s: %s",
-		cockpitPort, sshPort, strings.TrimSpace(sshStderr.String()))
+	return "", nil, fmt.Errorf("SSH tunnel to %s:%d via SSH port %d did not become ready within 15s: %s",
+		forwardHost, cockpitPort, sshPort, strings.TrimSpace(sshStderr.String()))
 }
 
 // --- iframe helpers ---

@@ -57,7 +57,7 @@ const (
 	onboardingScriptDir = "/usr/share/cockpit/system-onboarding/system-onboarding.d"
 
 	// enrollMockRemotePath is where E7 stages the mock enrollment script before
-	// installing it (root-owned, 0755) over the real enrollment script(s).
+	// bind-mounting it (root-owned, 0755) over the real enrollment script(s).
 	enrollMockRemotePath = "/tmp/e2e-enroll-mock.sh"
 
 	// enrollSentinelPath records that the E7 mock ran and what it received; it
@@ -187,6 +187,12 @@ var _ = Describe("Onboarding enrollment and completion flow", func() {
 		harness := e2e.GetWorkerHarness()
 		browser, cleanup := startBrowserSession()
 		defer cleanup()
+		// Runs before cleanup (LIFO) so the browser is still alive for WizardDebugState.
+		defer func() {
+			if CurrentSpecReport().Failed() {
+				dumpEnrollmentDiagnostics(harness, browser)
+			}
+		}()
 
 		endpoint := harness.ApiEndpoint()
 		token, _, err := login.LoginToEnvAsAdmin(harness)
@@ -301,6 +307,12 @@ var _ = Describe("Onboarding enrollment and completion flow", func() {
 		harness := e2e.GetWorkerHarness()
 		browser, cleanup := startBrowserSession()
 		defer cleanup()
+		// Runs before cleanup (LIFO) so the browser is still alive for WizardDebugState.
+		defer func() {
+			if CurrentSpecReport().Failed() {
+				dumpEnrollmentDiagnostics(harness, browser)
+			}
+		}()
 
 		endpoint := harness.ApiEndpoint()
 		token, _, err := login.LoginToEnvAsAdmin(harness)
@@ -349,9 +361,19 @@ var _ = Describe("Onboarding enrollment and completion flow", func() {
 		// This spec manages its own tunnel/browser so it can drop the browser
 		// (simulating the operator's control channel going away) right after Apply
 		// and then verify completion purely over SSH.
+		//
+		// It also needs the wizard's single-NIC path, where apply is delegated to a
+		// systemd-run transient unit that survives the browser going away. That path
+		// only fires when the plugin's isConnectedViaInterface() returns true, which
+		// requires the browser to reach Cockpit via the guest's real interface
+		// address (not loopback) — the default StartCockpitTunnel forwards to the
+		// guest's localhost, which makes the wizard treat this as a multi-NIC inline
+		// apply that dies with the browser. StartCockpitTunnelViaInterface forwards to
+		// the guest's eth0 (10.0.2.15) and navigates via 127.0.0.2 so hostname is not
+		// localhost. See StartCockpitTunnelViaInterface for the full rationale.
 		workerID := GinkgoParallelProcess()
 		sshPort := sshPortBase + workerID
-		cockpitAddr, tunnelCleanup, err := e2e.StartCockpitTunnel(sshPort, vmUser, vmPassword)
+		cockpitAddr, tunnelCleanup, err := e2e.StartCockpitTunnelViaInterface(sshPort, vmUser, vmPassword, slirpStaticIP)
 		Expect(err).ToNot(HaveOccurred(), "failed to start Cockpit SSH tunnel")
 		defer tunnelCleanup()
 
@@ -408,6 +430,12 @@ var _ = Describe("Onboarding enrollment and completion flow", func() {
 
 		browser, cleanup := startBrowserSession()
 		defer cleanup()
+		// Runs before cleanup (LIFO) so the browser is still alive for WizardDebugState.
+		defer func() {
+			if CurrentSpecReport().Failed() {
+				dumpEnrollmentDiagnostics(harness, browser)
+			}
+		}()
 
 		By("Configuring enrollment with an invalid token to force a failure after network activation")
 		navigateToEnrollmentStep(browser)
@@ -506,18 +534,33 @@ var _ = Describe("Onboarding enrollment and completion flow", func() {
 	})
 })
 
-// installEnrollmentMock stages enrollMockScript and installs it (root-owned,
-// 0755) over every enrollment script in onboardingScriptDir. The wizard's
+// installEnrollmentMock stages enrollMockScript as a root-owned, 0755 file and
+// bind-mounts it over every enrollment script in onboardingScriptDir. The wizard's
 // generated enrollment script must live in that allowlisted directory, so
 // replacing the scripts there guarantees the wizard invokes the mock regardless
 // of the real script's filename.
+//
+// A bind mount is used rather than `install`/`cp` because the packaged scripts
+// live under /usr, which is read-only in bootc image mode — overwriting the file
+// in place fails with EROFS. Bind-mounting is a mount-namespace operation, not a
+// write to the underlying filesystem, so it works over a read-only /usr; the
+// delegated apply runs in the host mount namespace (no PrivateMounts), so it sees
+// the mount. The mount source must be root-owned because apply-and-enroll.sh's
+// validate_script_path rejects any script whose realpath is not owned by uid 0
+// (`sudo tee` writes the staged file as root). All mounts are discarded when the
+// suite reverts the VM to its pre-onboarding snapshot between specs, so no
+// explicit unmount is needed.
 func installEnrollmentMock(h *e2e.Harness) {
 	GinkgoHelper()
+	// sudo tee → the staged mock is owned by root (uid 0), which
+	// validate_script_path requires; chmod makes it executable for the bind target.
 	_, err := h.VM.RunSSH(
-		[]string{"tee", enrollMockRemotePath, ">", "/dev/null"},
+		[]string{"sudo", "tee", enrollMockRemotePath, ">", "/dev/null"},
 		bytes.NewBufferString(enrollMockScript),
 	)
 	Expect(err).ToNot(HaveOccurred(), "failed to stage enrollment mock script")
+	_, err = h.VM.RunSSH([]string{"sudo", "chmod", "0755", enrollMockRemotePath}, nil)
+	Expect(err).ToNot(HaveOccurred(), "failed to make enrollment mock executable")
 
 	out, err := h.VM.RunSSH([]string{"sudo", "ls", onboardingScriptDir}, nil)
 	Expect(err).ToNot(HaveOccurred(), "failed to list enrollment script dir")
@@ -535,11 +578,60 @@ func installEnrollmentMock(h *e2e.Harness) {
 
 	for _, name := range scripts {
 		_, err := h.VM.RunSSH([]string{
-			"sudo", "install", "-m", "0755", "-o", "root", "-g", "root",
+			"sudo", "mount", "--bind",
 			enrollMockRemotePath, onboardingScriptDir + "/" + name,
 		}, nil)
-		Expect(err).ToNot(HaveOccurred(), "failed to install mock over "+name)
+		Expect(err).ToNot(HaveOccurred(), "failed to bind-mount mock over "+name)
 	}
+}
+
+// dumpEnrollmentDiagnostics captures wizard + guest state to the Ginkgo output
+// when an enrollment spec fails, so a CI run reveals the real reason instead of a
+// bare "timed out". It is strictly best-effort: every step tolerates its own
+// failure (the browser context may already be unwinding, and any given file/unit
+// may not exist), and it never asserts. Call it via a deferred guard that runs
+// while the browser is still alive:
+//
+//	defer func() {
+//	    if CurrentSpecReport().Failed() {
+//	        dumpEnrollmentDiagnostics(harness, browser)
+//	    }
+//	}()
+//
+// It reads only non-secret diagnostics: the wizard's DOM state, the delegated
+// apply log, the watchdog-status file, and the agent journal. It deliberately
+// does not dump /etc/flightctl/config.yaml, which can carry certificate material.
+func dumpEnrollmentDiagnostics(h *e2e.Harness, browser *e2e.OnboardingBrowser) {
+	GinkgoWriter.Println("=== enrollment failure diagnostics ===")
+
+	if browser != nil {
+		GinkgoWriter.Printf("wizard state: %s\n", browser.WizardDebugState())
+		if txt, err := browser.WizardGetReviewText(); err == nil && strings.TrimSpace(txt) != "" {
+			GinkgoWriter.Printf("wizard page text:\n%s\n", txt)
+		}
+	}
+
+	// Each entry is a label plus a plain argv (no shell metacharacters, so
+	// RunSSH's space-joining is safe). Paths use the OLD flightctl-onboarding
+	// naming the CI VM still ships (see the onboarding RPM naming note).
+	diagnostics := []struct {
+		label string
+		argv  []string
+	}{
+		{"apply log", []string{"sudo", "cat", "/var/log/flightctl-onboarding-apply.log"}},
+		{"watchdog status", []string{"sudo", "cat", "/var/lib/flightctl-onboarding/.watchdog-status"}},
+		{"agent journal", []string{"sudo", "journalctl", "-u", "flightctl-agent", "--no-pager", "-n", "150"}},
+		{"agent unit state", []string{"systemctl", "is-active", "flightctl-agent"}},
+	}
+	for _, d := range diagnostics {
+		out, err := h.VM.RunSSH(d.argv, nil)
+		if err != nil {
+			GinkgoWriter.Printf("%s: unavailable (%v)\n", d.label, err)
+			continue
+		}
+		GinkgoWriter.Printf("%s:\n%s\n", d.label, out.String())
+	}
+	GinkgoWriter.Println("=== end diagnostics ===")
 }
 
 // setEnrollMockExitCode writes the exit code the E7 mock will return next.
