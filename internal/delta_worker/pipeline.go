@@ -26,6 +26,7 @@ type generateDeltaPayload struct {
 	ImageRepository string `json:"imageRepository"`
 	SourceDigest    string `json:"sourceDigest"`
 	TargetDigest    string `json:"targetDigest"`
+	Timeout         string `json:"timeout,omitempty"`
 }
 
 type generationStore interface {

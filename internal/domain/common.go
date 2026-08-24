@@ -78,6 +78,7 @@ type PermissionList = v1beta1.PermissionList
 
 type Duration = v1beta1.Duration
 type Percentage = v1beta1.Percentage
+type DeltaGenerationStatus = v1beta1.DeltaGenerationStatus
 type CronExpression = v1beta1.CronExpression
 type TimeZone = v1beta1.TimeZone
 
