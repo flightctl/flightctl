@@ -26,6 +26,29 @@ type generationMemo struct {
 	SizeBytes *int64  `json:"sizeBytes,omitempty"`
 }
 
+func FormatIECBytes(n int64) string {
+	if n <= 0 {
+		return "0 KiB"
+	}
+	units := []string{"KiB", "MiB", "GiB", "TiB"}
+	val := float64(n) / 1024
+	unit := 0
+	for unit < len(units)-1 && val >= 1024 {
+		val /= 1024
+		unit++
+	}
+	rounded := int64(val + 0.5)
+	if rounded == 0 && unit > 0 {
+		val *= 1024
+		unit--
+		rounded = int64(val + 0.5)
+	}
+	if rounded == 0 {
+		rounded = 1
+	}
+	return fmt.Sprintf("%d %s", rounded, units[unit])
+}
+
 func generationMemoKey(key delta.GenerationKey) string {
 	return fmt.Sprintf("deltaHint/%s/%s/%s/%s", key.OrgID, key.ImageRepository, key.SourceDigest, key.TargetDigest)
 }

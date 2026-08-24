@@ -46,6 +46,26 @@ func testGenerationKey() delta.GenerationKey {
 	}
 }
 
+func TestFormatIECBytes(t *testing.T) {
+	tests := []struct {
+		name string
+		n    int64
+		want string
+	}{
+		{name: "When the size is zero it should report 0 KiB", n: 0, want: "0 KiB"},
+		{name: "When the size is below one KiB it should report 1 KiB", n: 1, want: "1 KiB"},
+		{name: "When the size is exactly 1024 it should report 1 KiB", n: 1024, want: "1 KiB"},
+		{name: "When the size is 45 MiB it should report 45 MiB", n: 47185920, want: "45 MiB"},
+		{name: "When the size is 1 GiB it should report 1 GiB", n: 1 << 30, want: "1 GiB"},
+		{name: "When the size is 1 TiB it should report 1 TiB", n: 1 << 40, want: "1 TiB"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, FormatIECBytes(tt.n))
+		})
+	}
+}
+
 func TestLookupCachedGeneration(t *testing.T) {
 	ctx := context.Background()
 	key := testGenerationKey()
