@@ -4,6 +4,7 @@ package onboarding_test
 
 import (
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/flightctl/flightctl/test/harness/e2e"
@@ -181,7 +182,12 @@ var _ = Describe("Onboarding service lifecycle", func() {
 	It("When onboarding completes cleanup confirms the agent, removes the onboarding user, and disables the setup service", Label("90418"), func() {
 		harness := e2e.GetWorkerHarness()
 		browser, cleanup := startBrowserSession()
-		defer cleanup()
+		// The deferred teardown and the explicit pre-cleanup close below share one
+		// cleanup func; sync.Once keeps the second call a no-op (cleanup closes the
+		// browser and tunnel, which are not safe to release twice).
+		var closeOnce sync.Once
+		closeBrowser := func() { closeOnce.Do(cleanup) }
+		defer closeBrowser()
 
 		By("Completing a minimal wizard flow")
 		completeMinimalWizard(browser)
@@ -189,6 +195,14 @@ var _ = Describe("Onboarding service lifecycle", func() {
 
 		By("Confirming the onboarding user exists before cleanup")
 		Expect(userExists(harness, onboardingUserName)).To(BeTrue())
+
+		// End the onboarding user's Cockpit login session before cleanup runs.
+		// cleanup-onboarding.sh removes the user with `userdel -r`, which refuses
+		// (and the script swallows the error) while the user still owns a live
+		// session — and driving the wizard just opened one. Closing the browser and
+		// its SSH tunnel lets the session terminate so the deletion can succeed.
+		By("Closing the wizard browser session so the onboarding login session ends")
+		closeBrowser()
 
 		By("Running the one-shot cleanup script (AC #3)")
 		runCleanup(harness)
