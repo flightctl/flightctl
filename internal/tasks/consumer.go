@@ -304,7 +304,8 @@ func shouldRenderDevice(ctx context.Context, event domain.Event, log logrus.Fiel
 		domain.EventReasonDependencyChangeDetected,
 		domain.EventReasonResourceCreated,
 		domain.EventReasonFleetRolloutDeviceSelected, domain.EventReasonDeviceConflictResolved,
-		domain.EventReasonDeviceDecommissioned, domain.EventReasonApplicationLifecycleChanged}, event.Reason) {
+		domain.EventReasonDeviceDecommissioned, domain.EventReasonApplicationLifecycleChanged,
+		domain.EventReasonDeltaGenerationCompleted}, event.Reason) {
 		return true
 	}
 

@@ -346,7 +346,7 @@ func TestShouldRenderDevice(t *testing.T) {
 		{
 			name:     "DeltaGenerationCompleted",
 			event:    createTestEvent(domain.DeviceKind, domain.EventReasonDeltaGenerationCompleted, "device1"),
-			expected: false,
+			expected: true,
 		},
 	}
 
