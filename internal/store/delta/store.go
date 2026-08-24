@@ -34,6 +34,7 @@ type Store interface {
 	CASPrepareStatus(ctx context.Context, id uuid.UUID, to string) error
 	ListWaitingPastDeadline(ctx context.Context) ([]model.DeltaPrepare, error)
 	ListWaitingPreparesByGeneration(ctx context.Context, key GenerationKey) ([]model.DeltaPrepare, error)
+	ListPrepareGenerationKeys(ctx context.Context, prepareID uuid.UUID) ([]GenerationKey, error)
 	InsertPrepareGenerations(ctx context.Context, prepareID uuid.UUID, keys []GenerationKey) error
 	GetWaitingPrepare(ctx context.Context, orgID uuid.UUID, kind, name string) (*model.DeltaPrepare, error)
 }
@@ -382,6 +383,24 @@ func (s *DeltaStore) ListWaitingPreparesByGeneration(ctx context.Context, key Ge
 		return nil, store.ErrorFromGormError(result.Error)
 	}
 	return rows, nil
+}
+
+func (s *DeltaStore) ListPrepareGenerationKeys(ctx context.Context, prepareID uuid.UUID) ([]GenerationKey, error) {
+	var rows []model.DeltaPrepareGeneration
+	result := s.getDB(ctx).Where("prepare_id = ?", prepareID).Find(&rows)
+	if result.Error != nil {
+		return nil, store.ErrorFromGormError(result.Error)
+	}
+	keys := make([]GenerationKey, 0, len(rows))
+	for _, row := range rows {
+		keys = append(keys, GenerationKey{
+			OrgID:           row.OrgID,
+			ImageRepository: row.ImageRepository,
+			SourceDigest:    row.SourceDigest,
+			TargetDigest:    row.TargetDigest,
+		})
+	}
+	return keys, nil
 }
 
 func (s *DeltaStore) CASPrepareStatus(ctx context.Context, id uuid.UUID, to string) error {

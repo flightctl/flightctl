@@ -69,6 +69,7 @@ func newPipeline(cfg *config.Config, store deltastore.Store, preparer *Preparer)
 	}
 	if preparer != nil {
 		p.prepare = preparer.Prepare
+		p.preparer = preparer
 	}
 	return p
 }

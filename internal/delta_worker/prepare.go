@@ -28,6 +28,8 @@ type prepareStore interface {
 	InsertGenerations(ctx context.Context, gens []*model.DeltaGeneration) ([]deltastore.GenerationKey, error)
 	InsertPrepareGenerations(ctx context.Context, prepareID uuid.UUID, keys []deltastore.GenerationKey) error
 	GetGeneration(ctx context.Context, key deltastore.GenerationKey) (*model.DeltaGeneration, error)
+	ListWaitingPreparesByGeneration(ctx context.Context, key deltastore.GenerationKey) ([]model.DeltaPrepare, error)
+	ListPrepareGenerationKeys(ctx context.Context, prepareID uuid.UUID) ([]deltastore.GenerationKey, error)
 }
 
 type PreparingStatus interface {
@@ -117,6 +119,38 @@ func (p *Preparer) Prepare(ctx context.Context, ev worker_client.EventWithOrgId)
 		return p.completeNow(ctx, ev, prep, ev.OrgId, kind, name)
 	}
 	return p.setPreparing(ctx, ev.OrgId, kind, name, completed, len(keys))
+}
+
+func (p *Preparer) completeWaitingIfTerminal(ctx context.Context, key deltastore.GenerationKey) error {
+	if p.Store == nil {
+		return fmt.Errorf("store is required")
+	}
+	waiting, err := p.Store.ListWaitingPreparesByGeneration(ctx, key)
+	if err != nil {
+		return err
+	}
+	for i := range waiting {
+		prep := &waiting[i]
+		keys, err := p.Store.ListPrepareGenerationKeys(ctx, prep.ID)
+		if err != nil {
+			return err
+		}
+		allTerminal, _, err := p.completedCount(ctx, keys)
+		if err != nil {
+			return err
+		}
+		if !allTerminal {
+			continue
+		}
+		ev := worker_client.EventWithOrgId{
+			OrgId: prep.OrgID,
+			Event: domain.Event{InvolvedObject: domain.ObjectReference{Kind: prep.Kind, Name: prep.Name}},
+		}
+		if err := p.completeNow(ctx, ev, prep, prep.OrgID, prep.Kind, prep.Name); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (p *Preparer) liveIdentity(ctx context.Context, ev worker_client.EventWithOrgId) (prepareIdentity, *domain.Fleet, error) {

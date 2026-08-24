@@ -35,7 +35,6 @@ type generationStore interface {
 	InsertGenerations(ctx context.Context, gens []*model.DeltaGeneration) ([]deltastore.GenerationKey, error)
 	ClaimGeneration(ctx context.Context, key deltastore.GenerationKey) (*model.DeltaGeneration, error)
 	CASGeneration(ctx context.Context, key deltastore.GenerationKey, expectedRV int64, update deltastore.GenerationCAS) error
-	ListWaitingPreparesByGeneration(ctx context.Context, key deltastore.GenerationKey) ([]model.DeltaPrepare, error)
 }
 
 type pipeline struct {
@@ -44,8 +43,8 @@ type pipeline struct {
 	check    func(ctx context.Context, imageRepository, sourceDigest, targetDigest string) (existenceResult, error)
 	generate func(ctx context.Context, sourceRef, targetRef, pushPath string) (deltaRef string, sizeBytes int64, err error)
 	pushPath func(imageRepository string) (string, error)
-	resume   func(ctx context.Context, key deltastore.GenerationKey) error
 	prepare  func(ctx context.Context, ev worker_client.EventWithOrgId) error
+	preparer *Preparer
 }
 
 func parseGenerationJob(ev worker_client.EventWithOrgId) (generationJob, bool, error) {
@@ -196,13 +195,8 @@ func (p *pipeline) failGeneration(ctx context.Context, key deltastore.Generation
 }
 
 func (p *pipeline) runResume(ctx context.Context, key deltastore.GenerationKey) error {
-	if p.resume != nil {
-		return p.resume(ctx, key)
+	if p.preparer == nil {
+		return nil
 	}
-	return tryLastPairResume(ctx, p.store, key)
-}
-
-func tryLastPairResume(ctx context.Context, store generationStore, key deltastore.GenerationKey) error {
-	_, err := store.ListWaitingPreparesByGeneration(ctx, key)
-	return err
+	return p.preparer.completeWaitingIfTerminal(ctx, key)
 }

@@ -13,21 +13,20 @@ import (
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
 type fakeGenerationStore struct {
-	rejected     []*model.DeltaGeneration
-	inserted     []*model.DeltaGeneration
-	claimed      int
-	claimErr     error
-	cas          []deltastore.GenerationCAS
-	casErr       error
-	casFailN     int
-	waiting      []model.DeltaPrepare
-	claimedRV    int64
-	listWaitingN int
+	rejected  []*model.DeltaGeneration
+	inserted  []*model.DeltaGeneration
+	claimed   int
+	claimErr  error
+	cas       []deltastore.GenerationCAS
+	casErr    error
+	casFailN  int
+	claimedRV int64
 }
 
 func (f *fakeGenerationStore) InsertRejectedGeneration(_ context.Context, gen *model.DeltaGeneration) error {
@@ -61,11 +60,6 @@ func (f *fakeGenerationStore) CASGeneration(ctx context.Context, _ deltastore.Ge
 	}
 	f.cas = append(f.cas, update)
 	return nil
-}
-
-func (f *fakeGenerationStore) ListWaitingPreparesByGeneration(_ context.Context, _ deltastore.GenerationKey) ([]model.DeltaPrepare, error) {
-	f.listWaitingN++
-	return f.waiting, nil
 }
 
 func generateEvent(org uuid.UUID, repo, src, tgt string) worker_client.EventWithOrgId {
@@ -145,7 +139,7 @@ func TestPipelineProcess(t *testing.T) {
 
 	t.Run("When existence is found it should insert rejected and not generate", func(t *testing.T) {
 		req := require.New(t)
-		store := &fakeGenerationStore{waiting: []model.DeltaPrepare{{Name: "fleet-a"}}}
+		store := &fakeGenerationStore{}
 		var generated bool
 		p := &pipeline{
 			store:   store,
@@ -162,7 +156,6 @@ func TestPipelineProcess(t *testing.T) {
 		req.False(generated)
 		req.Len(store.rejected, 1)
 		req.Equal(int64(77), *store.rejected[0].SizeBytes)
-		req.Equal(1, store.listWaitingN)
 		req.Empty(store.inserted)
 	})
 
@@ -209,7 +202,6 @@ func TestPipelineProcess(t *testing.T) {
 		req.Equal(model.DeltaGenerationSucceeded, store.cas[0].Status)
 		req.Equal("write.example/os@sha256:delta", *store.cas[0].DeltaRef)
 		req.Equal(int64(12), *store.cas[0].SizeBytes)
-		req.Equal(1, store.listWaitingN)
 	})
 
 	t.Run("When generate fails it should CAS failed and resume", func(t *testing.T) {
@@ -228,7 +220,6 @@ func TestPipelineProcess(t *testing.T) {
 		req.NoError(p.process(context.Background(), generateEvent(org, repo, src, tgt), log))
 		req.Len(store.cas, 1)
 		req.Equal(model.DeltaGenerationFailed, store.cas[0].Status)
-		req.Equal(1, store.listWaitingN)
 	})
 
 	t.Run("When claim is in_progress it should not steal", func(t *testing.T) {
@@ -265,7 +256,6 @@ func TestPipelineProcess(t *testing.T) {
 		req.NoError(p.process(context.Background(), generateEvent(org, repo, src, tgt), log))
 		req.Len(store.cas, 1)
 		req.Equal(model.DeltaGenerationFailed, store.cas[0].Status)
-		req.Equal(1, store.listWaitingN)
 	})
 
 	t.Run("When generate context times out it should CAS failed", func(t *testing.T) {
@@ -285,7 +275,6 @@ func TestPipelineProcess(t *testing.T) {
 		req.NoError(p.process(context.Background(), generateEvent(org, repo, src, tgt), log))
 		req.Len(store.cas, 1)
 		req.Equal(model.DeltaGenerationFailed, store.cas[0].Status)
-		req.Equal(1, store.listWaitingN)
 	})
 
 	t.Run("When CAS is stale it should not overwrite", func(t *testing.T) {
@@ -302,6 +291,31 @@ func TestPipelineProcess(t *testing.T) {
 			},
 		}
 		req.NoError(p.process(context.Background(), generateEvent(org, repo, src, tgt), log))
-		req.Equal(0, store.listWaitingN)
+		req.Empty(store.cas)
+	})
+
+	t.Run("When generate succeeds and every joined pair is terminal it should complete the waiting prepare", func(t *testing.T) {
+		req := require.New(t)
+		genStore := &fakeGenerationStore{claimedRV: 1}
+		prepStore := newFakePrepareStore()
+		key := deltastore.GenerationKey{OrgID: org, ImageRepository: repo, SourceDigest: src, TargetDigest: tgt}
+		waiting := prepStore.seedWaiting(org, domain.FleetKind, "fleet-1", lo.ToPtr("tv-1"), nil, time.Now())
+		req.NoError(prepStore.InsertPrepareGenerations(context.Background(), waiting.ID, []deltastore.GenerationKey{key}))
+		prepStore.generations[key] = &model.DeltaGeneration{Status: model.DeltaGenerationSucceeded}
+		preparer := newTestPreparer(t, prepStore, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1")), &statusSpy{}, &resumeSpy{}, nil)
+		p := &pipeline{
+			store:    genStore,
+			timeout:  time.Minute,
+			preparer: preparer,
+			check: func(context.Context, string, string, string) (existenceResult, error) {
+				return existenceResult{Status: existenceNotFound}, nil
+			},
+			generate: func(context.Context, string, string, string) (string, int64, error) {
+				return "ref", 1, nil
+			},
+		}
+		req.NoError(p.process(context.Background(), generateEvent(org, repo, src, tgt), log))
+		req.Equal(model.DeltaPrepareComplete, prepStore.prepares[waiting.ID].Status)
+		req.Contains(resumeEventReasons(preparer), domain.EventReasonFleetRolloutStarted)
 	})
 }

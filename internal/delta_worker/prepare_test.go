@@ -221,6 +221,62 @@ func TestCompleteNow(t *testing.T) {
 	})
 }
 
+func TestCompleteWaitingIfTerminal(t *testing.T) {
+	orgId := uuid.New()
+	ctx := context.Background()
+	keyA := deltastore.GenerationKey{OrgID: orgId, ImageRepository: prepareTestRepo, SourceDigest: prepareTestSrc, TargetDigest: prepareTestTgt}
+	keyB := deltastore.GenerationKey{OrgID: orgId, ImageRepository: prepareTestRepo, SourceDigest: "sha256:ccc", TargetDigest: prepareTestTgt}
+
+	t.Run("When every joined generation is terminal it should complete and emit", func(t *testing.T) {
+		store := newFakePrepareStore()
+		prep := store.seedWaiting(orgId, domain.FleetKind, "fleet-1", lo.ToPtr("tv-1"), nil, time.Now())
+		require.NoError(t, store.InsertPrepareGenerations(ctx, prep.ID, []deltastore.GenerationKey{keyA, keyB}))
+		store.generations[keyA] = &model.DeltaGeneration{Status: model.DeltaGenerationSucceeded}
+		store.generations[keyB] = &model.DeltaGeneration{Status: model.DeltaGenerationFailed}
+		status := &statusSpy{}
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1")), status, &resumeSpy{}, nil)
+
+		require.NoError(t, p.completeWaitingIfTerminal(ctx, keyA))
+		assert.Equal(t, model.DeltaPrepareComplete, store.prepares[prep.ID].Status)
+		assert.Contains(t, resumeEventReasons(p), domain.EventReasonFleetRolloutStarted)
+		require.Len(t, status.clears, 1)
+	})
+
+	t.Run("When a joined generation is still pending it should not complete", func(t *testing.T) {
+		store := newFakePrepareStore()
+		prep := store.seedWaiting(orgId, domain.FleetKind, "fleet-1", lo.ToPtr("tv-1"), nil, time.Now())
+		require.NoError(t, store.InsertPrepareGenerations(ctx, prep.ID, []deltastore.GenerationKey{keyA, keyB}))
+		store.generations[keyA] = &model.DeltaGeneration{Status: model.DeltaGenerationSucceeded}
+		store.generations[keyB] = &model.DeltaGeneration{Status: model.DeltaGenerationPending}
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1")), &statusSpy{}, &resumeSpy{}, nil)
+
+		require.NoError(t, p.completeWaitingIfTerminal(ctx, keyA))
+		assert.Equal(t, model.DeltaPrepareWaiting, store.prepares[prep.ID].Status)
+		assert.NotContains(t, resumeEventReasons(p), domain.EventReasonFleetRolloutStarted)
+	})
+
+	t.Run("When no waiting prepare is joined it should not emit", func(t *testing.T) {
+		store := newFakePrepareStore()
+		store.generations[keyA] = &model.DeltaGeneration{Status: model.DeltaGenerationSucceeded}
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1")), &statusSpy{}, &resumeSpy{}, nil)
+
+		require.NoError(t, p.completeWaitingIfTerminal(ctx, keyA))
+		assert.NotContains(t, resumeEventReasons(p), domain.EventReasonFleetRolloutStarted)
+	})
+
+	t.Run("When the prepare was superceded it should not emit", func(t *testing.T) {
+		store := newFakePrepareStore()
+		prep := store.seedWaiting(orgId, domain.FleetKind, "fleet-1", lo.ToPtr("tv-1"), nil, time.Now())
+		require.NoError(t, store.InsertPrepareGenerations(ctx, prep.ID, []deltastore.GenerationKey{keyA}))
+		store.generations[keyA] = &model.DeltaGeneration{Status: model.DeltaGenerationSucceeded}
+		require.NoError(t, store.CASPrepareStatus(ctx, prep.ID, model.DeltaPrepareFailed))
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1")), &statusSpy{}, &resumeSpy{}, nil)
+
+		require.NoError(t, p.completeWaitingIfTerminal(ctx, keyA))
+		assert.NotContains(t, resumeEventReasons(p), domain.EventReasonFleetRolloutStarted)
+	})
+}
+
 func TestPrepare_InsertAndAck(t *testing.T) {
 	orgId := uuid.New()
 	ctx := context.Background()
@@ -904,6 +960,38 @@ func (f *fakePrepareStore) GetGeneration(_ context.Context, key deltastore.Gener
 	}
 	cp := *gen
 	return &cp, nil
+}
+
+func (f *fakePrepareStore) ListWaitingPreparesByGeneration(_ context.Context, key deltastore.GenerationKey) ([]model.DeltaPrepare, error) {
+	var out []model.DeltaPrepare
+	for _, join := range f.joins {
+		if join.OrgID != key.OrgID || join.ImageRepository != key.ImageRepository || join.SourceDigest != key.SourceDigest || join.TargetDigest != key.TargetDigest {
+			continue
+		}
+		prep, ok := f.prepares[join.PrepareID]
+		if !ok || prep.Status != model.DeltaPrepareWaiting {
+			continue
+		}
+		cp := *prep
+		out = append(out, cp)
+	}
+	return out, nil
+}
+
+func (f *fakePrepareStore) ListPrepareGenerationKeys(_ context.Context, prepareID uuid.UUID) ([]deltastore.GenerationKey, error) {
+	var keys []deltastore.GenerationKey
+	for _, join := range f.joins {
+		if join.PrepareID != prepareID {
+			continue
+		}
+		keys = append(keys, deltastore.GenerationKey{
+			OrgID:           join.OrgID,
+			ImageRepository: join.ImageRepository,
+			SourceDigest:    join.SourceDigest,
+			TargetDigest:    join.TargetDigest,
+		})
+	}
+	return keys, nil
 }
 
 type statusSpy struct {
