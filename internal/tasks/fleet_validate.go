@@ -47,7 +47,7 @@ type FleetValidateLogic struct {
 	orgId              uuid.UUID
 	event              domain.Event
 	templateConfig     *[]domain.ConfigProviderSpec
-	workerClient       worker_client.WorkerClient
+	WorkerClient       worker_client.WorkerClient
 }
 
 func NewFleetValidateLogic(log logrus.FieldLogger, fleetSvc fleetservice.Service, templateversionSvc templateversionservice.Service, deviceSvc deviceservice.Service, repositorySvc repositoryservice.Service, k8sClient k8sclient.K8SClient, orgId uuid.UUID, event domain.Event) FleetValidateLogic {
@@ -119,7 +119,7 @@ func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Co
 }
 
 func (t *FleetValidateLogic) emitPrepareDeltas(ctx context.Context, fleetName, tvName string) error {
-	if t.workerClient == nil {
+	if t.WorkerClient == nil {
 		return fmt.Errorf("worker client is required to emit PrepareDeltas")
 	}
 	details := domain.PrepareDeltasDetails{
@@ -130,7 +130,7 @@ func (t *FleetValidateLogic) emitPrepareDeltas(ctx context.Context, fleetName, t
 	if err := eventDetails.FromPrepareDeltasDetails(details); err != nil {
 		return err
 	}
-	t.workerClient.EmitEvent(ctx, t.orgId, domain.GetBaseEvent(ctx, domain.FleetKind, fleetName, domain.EventReasonPrepareDeltas, "Preparing OS image deltas", &eventDetails))
+	t.WorkerClient.EmitEvent(ctx, t.orgId, domain.GetBaseEvent(ctx, domain.FleetKind, fleetName, domain.EventReasonPrepareDeltas, "Preparing OS image deltas", &eventDetails))
 	return nil
 }
 

@@ -198,5 +198,5 @@ func (p *pipeline) runResume(ctx context.Context, key deltastore.GenerationKey) 
 	if p.preparer == nil {
 		return nil
 	}
-	return p.preparer.completeWaitingIfTerminal(ctx, key)
+	return p.preparer.CompleteWaitingIfTerminal(ctx, key)
 }

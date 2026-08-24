@@ -123,7 +123,7 @@ func (p *Preparer) Prepare(ctx context.Context, ev worker_client.EventWithOrgId)
 	return p.setPreparing(ctx, ev.OrgId, kind, name, completed, len(keys))
 }
 
-func (p *Preparer) completeWaitingIfTerminal(ctx context.Context, key deltastore.GenerationKey) error {
+func (p *Preparer) CompleteWaitingIfTerminal(ctx context.Context, key deltastore.GenerationKey) error {
 	if p.Store == nil {
 		return fmt.Errorf("store is required")
 	}

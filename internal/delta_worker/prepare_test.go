@@ -237,7 +237,7 @@ func TestCompleteWaitingIfTerminal(t *testing.T) {
 		status := &statusSpy{}
 		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1")), status, &resumeSpy{}, nil)
 
-		require.NoError(t, p.completeWaitingIfTerminal(ctx, keyA))
+		require.NoError(t, p.CompleteWaitingIfTerminal(ctx, keyA))
 		assert.Equal(t, model.DeltaPrepareComplete, store.prepares[prep.ID].Status)
 		assert.Contains(t, resumeEventReasons(p), domain.EventReasonFleetRolloutStarted)
 		require.Len(t, status.clears, 1)
@@ -251,7 +251,7 @@ func TestCompleteWaitingIfTerminal(t *testing.T) {
 		store.generations[keyB] = &model.DeltaGeneration{Status: model.DeltaGenerationPending}
 		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1")), &statusSpy{}, &resumeSpy{}, nil)
 
-		require.NoError(t, p.completeWaitingIfTerminal(ctx, keyA))
+		require.NoError(t, p.CompleteWaitingIfTerminal(ctx, keyA))
 		assert.Equal(t, model.DeltaPrepareWaiting, store.prepares[prep.ID].Status)
 		assert.NotContains(t, resumeEventReasons(p), domain.EventReasonFleetRolloutStarted)
 	})
@@ -261,7 +261,7 @@ func TestCompleteWaitingIfTerminal(t *testing.T) {
 		store.generations[keyA] = &model.DeltaGeneration{Status: model.DeltaGenerationSucceeded}
 		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1")), &statusSpy{}, &resumeSpy{}, nil)
 
-		require.NoError(t, p.completeWaitingIfTerminal(ctx, keyA))
+		require.NoError(t, p.CompleteWaitingIfTerminal(ctx, keyA))
 		assert.NotContains(t, resumeEventReasons(p), domain.EventReasonFleetRolloutStarted)
 	})
 
@@ -273,7 +273,7 @@ func TestCompleteWaitingIfTerminal(t *testing.T) {
 		require.NoError(t, store.CASPrepareStatus(ctx, prep.ID, model.DeltaPrepareFailed))
 		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1")), &statusSpy{}, &resumeSpy{}, nil)
 
-		require.NoError(t, p.completeWaitingIfTerminal(ctx, keyA))
+		require.NoError(t, p.CompleteWaitingIfTerminal(ctx, keyA))
 		assert.NotContains(t, resumeEventReasons(p), domain.EventReasonFleetRolloutStarted)
 	})
 }

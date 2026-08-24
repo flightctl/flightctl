@@ -115,7 +115,7 @@ func (d TaskConsumer) dispatch() queues.ConsumeHandler {
 					return nil
 				}
 				logic := NewFleetValidateLogic(log, d.FleetSvc, d.TemplateversionSvc, d.DeviceSvc, d.RepositorySvc, d.K8sClient, eventWithOrgId.OrgId, eventWithOrgId.Event)
-				logic.workerClient = d.WorkerClient
+				logic.WorkerClient = d.WorkerClient
 				if err := logic.CreateNewTemplateVersionIfFleetValid(ctx); err != nil {
 					log.Errorf("failed validating fleet %s/%s: %v", eventWithOrgId.OrgId, eventWithOrgId.Event.InvolvedObject.Name, err)
 				}

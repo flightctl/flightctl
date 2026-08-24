@@ -68,7 +68,7 @@ func TestFleetValidateLogic_CreateNewTemplateVersionIfFleetValid_EmitsPrepareDel
 			mockFleetSvc.EXPECT().UpdateFleetConditions(gomock.Any(), gomock.Any(), fleetName, gomock.Any()).Return(domain.Status{Code: http.StatusOK})
 
 			logic := NewFleetValidateLogic(log, mockFleetSvc, mockTemplateVersionSvc, mockDeviceSvc, mockRepositorySvc, mockK8SClient, orgId, event)
-			logic.workerClient = emit
+			logic.WorkerClient = emit
 
 			err := logic.CreateNewTemplateVersionIfFleetValid(context.Background())
 			require.NoError(t, err)
