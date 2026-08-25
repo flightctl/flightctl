@@ -95,10 +95,14 @@ func runShell(h *e2e.Harness, script string) (string, error) {
 	return out.String(), err
 }
 
-// wifiStackAvailable reports whether the WiFi soft-AP stack is present (hostapd
-// binary + a loadable mac80211_hwsim module). The suite's BeforeSuite installs it
-// transiently (installWifiStack); this is a defensive guard so the specs skip
-// rather than fail opaquely if that install did not take effect.
+// wifiStackAvailable reports whether the COMPLETE WiFi soft-AP stack is present:
+// the hostapd binary (the AP), the dnsmasq binary (DHCP + the DNS hijack the
+// captive-portal specs assert), and a loadable mac80211_hwsim module (the virtual
+// radios). The suite's BeforeSuite installs it transiently (installWifiStack); this
+// is a defensive guard so the specs skip rather than fail opaquely if that install
+// did not fully take effect. It must probe the SAME three pieces as installWifiStack's
+// preinstalled-image check: gating on only hostapd + hwsim would let the DHCP/DNS
+// specs run (and fail) when a best-effort runtime install left dnsmasq missing.
 //
 // The module probe is `modprobe -n` (dry run), not `modinfo`: modinfo only
 // confirms the .ko file exists in the modules tree, whereas modprobe -n resolves
@@ -108,11 +112,14 @@ func runShell(h *e2e.Harness, script string) (string, error) {
 // the freshly-dropped module), so the specs skip cleanly instead of loadHwsimRadios
 // failing hard on an unregistered module.
 func wifiStackAvailable(h *e2e.Harness) bool {
-	// Bound both probes: wifiStackAvailable runs in BeforeEach for every spec, so a
+	// Bound the probes: wifiStackAvailable runs in BeforeEach for every spec, so a
 	// wedged SSH connection must not hang the skip decision indefinitely.
 	ctx, cancel := context.WithTimeout(context.Background(), wifiSSHProbeTimeout)
 	defer cancel()
 	if _, err := h.VM.RunSSHContext(ctx, []string{"command", "-v", "hostapd"}, nil); err != nil {
+		return false
+	}
+	if _, err := h.VM.RunSSHContext(ctx, []string{"command", "-v", "dnsmasq"}, nil); err != nil {
 		return false
 	}
 	if _, err := h.VM.RunSSHContext(ctx, []string{"sudo", "modprobe", "-n", "mac80211_hwsim"}, nil); err != nil {
