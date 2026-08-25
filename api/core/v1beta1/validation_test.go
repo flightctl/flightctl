@@ -2741,6 +2741,55 @@ func TestRepository_Validate_OciRepoSpec(t *testing.T) {
 			wantErr: true,
 			errMsg:  "spec.ociAuth.password",
 		},
+		{
+			name: "When repository and namespace are both set it should reject",
+			spec: OciRepoSpec{
+				Registry:   "my-registry.com",
+				Type:       "oci",
+				Repository: lo.ToPtr("my-org/diffs"),
+				Namespace:  lo.ToPtr("my-org"),
+			},
+			wantErr: true,
+			errMsg:  "mutually exclusive",
+		},
+		{
+			name: "When only repository is set it should accept",
+			spec: OciRepoSpec{
+				Registry:   "my-registry.com",
+				Type:       "oci",
+				Repository: lo.ToPtr("my-org/diffs"),
+			},
+			wantErr: false,
+		},
+		{
+			name: "When only namespace is set it should accept",
+			spec: OciRepoSpec{
+				Registry:  "my-registry.com",
+				Type:      "oci",
+				Namespace: lo.ToPtr("my-org"),
+			},
+			wantErr: false,
+		},
+		{
+			name: "When deltaStorageTarget is true with only repository it should accept",
+			spec: OciRepoSpec{
+				Registry:           "my-registry.com",
+				Type:               "oci",
+				Repository:         lo.ToPtr("my-org/diffs"),
+				DeltaStorageTarget: lo.ToPtr(true),
+			},
+			wantErr: false,
+		},
+		{
+			name: "When repository is empty and namespace is set it should accept",
+			spec: OciRepoSpec{
+				Registry:   "my-registry.com",
+				Type:       "oci",
+				Repository: lo.ToPtr(""),
+				Namespace:  lo.ToPtr("my-org"),
+			},
+			wantErr: false,
+		},
 	}
 
 	for _, tt := range tests {

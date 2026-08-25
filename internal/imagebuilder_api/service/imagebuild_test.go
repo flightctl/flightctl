@@ -11,6 +11,7 @@ import (
 	api "github.com/flightctl/flightctl/api/imagebuilder/v1alpha1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
+	"github.com/flightctl/flightctl/internal/oci"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
@@ -911,6 +912,99 @@ func TestCreateImageBuildDestinationRepositoryNotReadWrite(t *testing.T) {
 
 	require.Equal(int32(http.StatusBadRequest), statusCode(status))
 	require.Contains(status.Message, "spec.destination.repository: Repository \"output-registry\" must have 'ReadWrite' access mode")
+}
+
+func TestCreateImageBuildDestinationNamespaceRejected(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	repoStore := NewDummyRepositoryStore()
+	sourceRepo := newOciRepository("input-registry", v1beta1.Read)
+	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
+	destRepo := newOciRepositoryCustom("output-registry", v1beta1.ReadWrite, nil, lo.ToPtr("my-org"))
+	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, nil, nil, nil, log.InitLogs())
+
+	imageBuild := newValidImageBuild("test-build")
+	_, status := svc.Create(ctx, orgId, imageBuild)
+
+	require.Equal(int32(http.StatusBadRequest), statusCode(status))
+	require.Contains(status.Message, "namespace")
+}
+
+func TestCreateImageBuildDestinationRepositoryMismatchRejected(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	repoStore := NewDummyRepositoryStore()
+	sourceRepo := newOciRepository("input-registry", v1beta1.Read)
+	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
+	destRepo := newOciRepositoryCustom("output-registry", v1beta1.ReadWrite, lo.ToPtr("my-org/diffs"), nil)
+	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, nil, nil, nil, log.InitLogs())
+
+	imageBuild := newValidImageBuild("test-build")
+	_, status := svc.Create(ctx, orgId, imageBuild)
+
+	require.Equal(int32(http.StatusBadRequest), statusCode(status))
+	require.Contains(status.Message, "imageName")
+}
+
+func TestCreateImageBuildDestinationRepositoryMatchAccepted(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	repoStore := NewDummyRepositoryStore()
+	sourceRepo := newOciRepository("input-registry", v1beta1.Read)
+	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
+	destRepo := newOciRepositoryCustom("output-registry", v1beta1.ReadWrite, lo.ToPtr("output-image"), nil)
+	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, nil, nil, nil, log.InitLogs())
+
+	imageBuild := newValidImageBuild("test-build")
+	result, status := svc.Create(ctx, orgId, imageBuild)
+
+	require.Equal(int32(http.StatusCreated), statusCode(status))
+	require.NotNil(result)
+}
+
+func TestCreateImageBuildSourceNamespaceAccepted(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	repoStore := NewDummyRepositoryStore()
+	sourceRepo := newOciRepositoryCustom("input-registry", v1beta1.Read, nil, lo.ToPtr("my-org"))
+	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
+	destRepo := newOciRepository("output-registry", v1beta1.ReadWrite)
+	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, nil, nil, nil, log.InitLogs())
+
+	imageBuild := newValidImageBuild("test-build")
+	result, status := svc.Create(ctx, orgId, imageBuild)
+
+	require.Equal(int32(http.StatusCreated), statusCode(status))
+	require.NotNil(result)
+}
+
+func TestCreateImageBuildRegistryOnlyDestinationAccepted(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	repoStore := NewDummyRepositoryStore()
+	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, nil, nil, nil, log.InitLogs())
+
+	imageBuild := newValidImageBuild("test-build")
+	result, status := svc.Create(ctx, orgId, imageBuild)
+
+	require.Equal(int32(http.StatusCreated), statusCode(status))
+	require.NotNil(result)
+	require.Equal("quay.io/output-image:v1.0", oci.ImageDestRef("quay.io", imageBuild.Spec.Destination.ImageName, imageBuild.Spec.Destination.ImageTag))
 }
 
 func TestCreateImageBuildWithUserConfiguration(t *testing.T) {

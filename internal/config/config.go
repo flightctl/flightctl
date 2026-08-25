@@ -13,6 +13,7 @@ import (
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	authprovider "github.com/flightctl/flightctl/internal/auth/provider"
 	"github.com/flightctl/flightctl/internal/config/ca"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/util"
 	"sigs.k8s.io/yaml"
@@ -42,6 +43,7 @@ type Config struct {
 	Organizations          *organizationsConfig       `json:"organizations,omitempty"`
 	TelemetryGateway       *telemetryGatewayConfig    `json:"telemetrygateway,omitempty"`
 	VulnerabilityReporting *VulnerabilityConfig       `json:"vulnerabilityReporting,omitempty"`
+	DeltaGeneration        *DeltaGenerationConfig     `json:"deltaGeneration,omitempty"`
 	DependenciesSync       *DependenciesSyncConfig    `json:"dependenciesSync,omitempty"`
 	Encryption             *EncryptionConfig          `json:"encryption,omitempty"`
 }
@@ -894,6 +896,49 @@ type QuayConfig struct {
 	SkipTLSVerify bool `json:"skipTlsVerify,omitempty"`
 }
 
+type DeltaGenerationConfig struct {
+	DefaultRepository *DefaultRepositoryConfig `json:"defaultRepository,omitempty"`
+}
+
+type DefaultRepositoryConfig struct {
+	Registry               string           `json:"registry,omitempty"`
+	Repository             *string          `json:"repository,omitempty"`
+	Namespace              *string          `json:"namespace,omitempty"`
+	Scheme                 *string          `json:"scheme,omitempty"`
+	SkipServerVerification *bool            `json:"skipServerVerification,omitempty"`
+	CaCrt                  *string          `json:"ca.crt,omitempty"`
+	Username               string           `json:"-"`
+	Password               api.SecureString `json:"-"`
+}
+
+func (d *DefaultRepositoryConfig) OciRepoSpec() *domain.OciRepoSpec {
+	if d == nil || d.Registry == "" {
+		return nil
+	}
+	spec := &domain.OciRepoSpec{
+		Type:                   domain.OciRepoSpecTypeOci,
+		Registry:               d.Registry,
+		Repository:             d.Repository,
+		Namespace:              d.Namespace,
+		SkipServerVerification: d.SkipServerVerification,
+		CaCrt:                  d.CaCrt,
+	}
+	if d.Scheme != nil && *d.Scheme != "" {
+		scheme := domain.OciRepoSpecScheme(*d.Scheme)
+		spec.Scheme = &scheme
+	}
+	if d.Username == "" || d.Password == "" {
+		return spec
+	}
+	auth := &domain.OciAuth{}
+	_ = auth.FromDockerAuth(domain.DockerAuth{
+		Username: d.Username,
+		Password: string(d.Password),
+	})
+	spec.OciAuth = auth
+	return spec
+}
+
 // TrustifyConfig holds Trustify API connection and authentication details.
 type TrustifyConfig struct {
 	// Endpoint is the Trustify API base URL (e.g. "https://trustify.example.com").
@@ -1285,6 +1330,7 @@ func applyEnvVarOverrides(c *Config) {
 		c.Database.MigrationPassword = api.SecureString(dbMigrationPass)
 	}
 	applyVulnerabilityReportingEnvVarOverrides(c)
+	applyDeltaGenerationEnvVarOverrides(c)
 	// CRYPTO_FORCE_FIPS environment variable sets the global crypto policy FIPS mode.
 	// This overrides auto-detection and applies to all cryptographic protocols.
 	// Valid values: "true", "1" (enable), "false", "0" (disable)
@@ -1418,6 +1464,26 @@ func applyVulnerabilityReportingDefaults(c *Config) {
 	}
 	if v.Quay.MaxConcurrentRequests == 0 {
 		v.Quay.MaxConcurrentRequests = DefaultQuayMaxConcurrentRequests
+	}
+}
+
+func applyDeltaGenerationEnvVarOverrides(c *Config) {
+	username := os.Getenv("DELTA_GENERATION_DEFAULT_REPOSITORY_USERNAME")
+	password := os.Getenv("DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD")
+	if username == "" && password == "" {
+		return
+	}
+	if c.DeltaGeneration == nil {
+		c.DeltaGeneration = &DeltaGenerationConfig{}
+	}
+	if c.DeltaGeneration.DefaultRepository == nil {
+		c.DeltaGeneration.DefaultRepository = &DefaultRepositoryConfig{}
+	}
+	if username != "" {
+		c.DeltaGeneration.DefaultRepository.Username = username
+	}
+	if password != "" {
+		c.DeltaGeneration.DefaultRepository.Password = api.SecureString(password)
 	}
 }
 

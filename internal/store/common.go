@@ -115,6 +115,7 @@ func RetryUpdate(fn func() (bool, error)) error {
 const (
 	ConstraintAuthProviderOIDCUnique   = "idx_authproviders_oidc_unique"
 	ConstraintAuthProviderOAuth2Unique = "idx_authproviders_oauth2_unique"
+	ConstraintDeltaStorageTargetUnique = "idx_repositories_delta_storage_target"
 )
 
 type CreateOrUpdateMode string

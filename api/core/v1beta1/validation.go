@@ -703,6 +703,11 @@ func (r *Repository) Validate() []error {
 			return allErrs
 		}
 		allErrs = append(allErrs, validation.ValidateHostIPOrFQDNWithOptionalPort(&ociRepoSpec.Registry, "spec.registry")...)
+		repositorySet := ociRepoSpec.Repository != nil && *ociRepoSpec.Repository != ""
+		namespaceSet := ociRepoSpec.Namespace != nil && *ociRepoSpec.Namespace != ""
+		if repositorySet && namespaceSet {
+			allErrs = append(allErrs, fmt.Errorf("spec.repository and spec.namespace are mutually exclusive"))
+		}
 		if ociRepoSpec.OciAuth != nil {
 			dockerAuth, err := ociRepoSpec.OciAuth.AsDockerAuth()
 			if err != nil {
