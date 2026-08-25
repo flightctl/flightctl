@@ -129,9 +129,15 @@ case "${AGENT_OS_ID}" in
     CONTAINERFILE_DIR="${BASE_DIR}/containerfiles/cs10-bootc${DISTRO_SUFFIX}"
     OS_ID="cs10-bootc"
     ;;
+  fedora-bootc)
+    # Fedora onboarding flavor: only source of a usable mac80211_hwsim radio for
+    # the onboarding WiFi specs (cs9/cs10 kernels filter it out). No -redhat variant.
+    CONTAINERFILE_DIR="${BASE_DIR}/containerfiles/fedora-bootc"
+    OS_ID="fedora-bootc"
+    ;;
   *)
     echo "[ERROR] Unsupported AGENT_OS_ID: ${AGENT_OS_ID}" >&2
-    echo "Supported values: cs9-bootc, cs10-bootc" >&2
+    echo "Supported values: cs9-bootc, cs10-bootc, fedora-bootc" >&2
     exit 1
     ;;
 esac

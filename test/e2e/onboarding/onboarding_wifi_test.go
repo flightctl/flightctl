@@ -3,6 +3,7 @@
 package onboarding_test
 
 import (
+	"bytes"
 	"fmt"
 	"regexp"
 	"sort"
@@ -62,6 +63,11 @@ const (
 	// wifiWizardURL is where captive-portal.py redirects generic connectivity
 	// probes: http://<ap-address>:<cockpit-port>/<cockpit onboarding path>.
 	wifiWizardURL = "http://10.42.0.1:9090/cockpit/@localhost/system-onboarding/index.html"
+
+	// wifiProbeHostname is an arbitrary external connectivity-probe hostname used
+	// to prove the AP's DNS is a catch-all: dnsmasq must answer ANY name with the
+	// AP address so every OS captive-portal probe is funneled to the portal.
+	wifiProbeHostname = "connectivitycheck.gstatic.com"
 )
 
 // A NIC name (nmcli DEVICE) and the SSID we expect, constrained so nothing
@@ -84,14 +90,22 @@ func runShell(h *e2e.Harness, script string) (string, error) {
 }
 
 // wifiStackAvailable reports whether the WiFi soft-AP stack is present (hostapd
-// binary + the mac80211_hwsim module). The suite's BeforeSuite installs it
+// binary + a loadable mac80211_hwsim module). The suite's BeforeSuite installs it
 // transiently (installWifiStack); this is a defensive guard so the specs skip
 // rather than fail opaquely if that install did not take effect.
+//
+// The module probe is `modprobe -n` (dry run), not `modinfo`: modinfo only
+// confirms the .ko file exists in the modules tree, whereas modprobe -n resolves
+// the full dependency chain and honors modules.dep exactly as the real
+// `modprobe mac80211_hwsim radios=2` in loadHwsimRadios will. That makes the gate
+// a true predictor of load success (e.g. it fails when depmod has not registered
+// the freshly-dropped module), so the specs skip cleanly instead of loadHwsimRadios
+// failing hard on an unregistered module.
 func wifiStackAvailable(h *e2e.Harness) bool {
 	if _, err := h.VM.RunSSH([]string{"command", "-v", "hostapd"}, nil); err != nil {
 		return false
 	}
-	if _, err := h.VM.RunSSH([]string{"sudo", "modinfo", "mac80211_hwsim"}, nil); err != nil {
+	if _, err := h.VM.RunSSH([]string{"sudo", "modprobe", "-n", "mac80211_hwsim"}, nil); err != nil {
 		return false
 	}
 	return true
@@ -209,6 +223,56 @@ func curlRedirect(h *e2e.Harness, curlArgs string) (code, location string) {
 	return code, location
 }
 
+// dnsQueryScript resolves a single A record against an explicit DNS server using
+// only the Python 3 standard library, so it needs no bind-utils (dig/nslookup)
+// on the read-only device image. python3 is guaranteed present here: the captive
+// portal (captive-portal.py) is a python3 service and startWifiAP already proved
+// it is serving. The hostname and server are passed as argv (argv[1], argv[2])
+// so nothing is interpolated into the script text. It prints the resolved IPv4
+// address and exits 0, or exits non-zero if the query fails or returns no A record.
+const dnsQueryScript = `
+import socket, struct, sys
+host, server = sys.argv[1], sys.argv[2]
+header = struct.pack(">HHHHHH", 0x1234, 0x0100, 1, 0, 0, 0)
+q = b"".join(struct.pack("B", len(p)) + p.encode() for p in host.split(".")) + b"\x00"
+q += struct.pack(">HH", 1, 1)
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+s.settimeout(5)
+s.sendto(header + q, (server, 53))
+data, _ = s.recvfrom(512)
+ancount = struct.unpack(">H", data[6:8])[0]
+i = 12
+while data[i] != 0:
+    i += 1 + data[i]
+i += 5
+for _ in range(ancount):
+    if data[i] & 0xC0 == 0xC0:
+        i += 2
+    else:
+        while data[i] != 0:
+            i += 1 + data[i]
+        i += 1
+    rtype, _rclass, _ttl, rdlen = struct.unpack(">HHIH", data[i:i+10])
+    i += 10
+    rdata = data[i:i+rdlen]
+    i += rdlen
+    if rtype == 1 and rdlen == 4:
+        print("%d.%d.%d.%d" % tuple(rdata))
+        sys.exit(0)
+sys.exit(1)
+`
+
+// resolveViaDNS asks the given DNS server to resolve hostname and returns the
+// A record it answers with. hostname/server are validated constants passed as
+// argv to dnsQueryScript (never spliced into the script text).
+func resolveViaDNS(h *e2e.Harness, hostname, server string) (string, error) {
+	out, err := h.VM.RunSSH([]string{"python3", "-", hostname, server}, bytes.NewBufferString(dnsQueryScript))
+	if out == nil {
+		return "", err
+	}
+	return strings.TrimSpace(out.String()), err
+}
+
 // expectSSIDVisible waits until the client radio can see the AP's SSID in a scan.
 func expectSSIDVisible(h *e2e.Harness, clientIface, ssid string) {
 	Eventually(func() (string, error) {
@@ -266,9 +330,24 @@ var _ = Describe("Onboarding WiFi access point", Label("onboarding"), Label("wif
 			MatchRegexp(`IP4\.DNS.*:`+regexp.QuoteMeta(wifiAPAddress)),
 		), "client did not get the expected DHCP configuration from the AP")
 
-		// The client can reach the captive portal over the air.
+		// DNS hijack: the client's resolver (the AP, per the IP4.DNS assertion
+		// above) must answer an arbitrary external hostname with the AP address.
+		// Asserting this closes the gap the direct-IP probe leaves open - a broken
+		// catch-all DNS could still pass the DHCP and IP-based redirect checks.
+		var resolved string
+		Eventually(func() (string, error) {
+			var err error
+			resolved, err = resolveViaDNS(h, wifiProbeHostname, wifiAPAddress)
+			return resolved, err
+		}, 30*time.Second, 3*time.Second).Should(Equal(wifiAPAddress),
+			"AP DNS should resolve arbitrary hostname %q to the AP address (captive-portal hijack)", wifiProbeHostname)
+
+		// Reaching that hostname over the air (via the address DNS just returned)
+		// is redirected by the portal - the full name-based captive-portal path,
+		// not just a direct-IP hit.
 		Eventually(func() string {
-			code, _ := curlRedirect(h, "--interface "+clientIface+" http://"+wifiAPAddress+"/generate_204")
+			code, _ := curlRedirect(h, fmt.Sprintf("--interface %s --resolve %s:80:%s http://%s/generate_204",
+				clientIface, wifiProbeHostname, resolved, wifiProbeHostname))
 			return code
 		}, 30*time.Second, 3*time.Second).Should(Equal("302"),
 			"associated client should be redirected by the captive portal")

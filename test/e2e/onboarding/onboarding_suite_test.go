@@ -320,6 +320,30 @@ func installCockpitAndOnboarding(h *e2e.Harness) {
 // to the in-memory overlay by --transient) are captured by the memory snapshot
 // and persist across every per-spec revert.
 func installWifiStack(h *e2e.Harness) {
+	// Every SSH call here runs under an explicit timeout so a hung dnf/depmod (no
+	// stdin, a wedged mirror, a stuck kernel-module transaction) cannot block
+	// BeforeSuite indefinitely and stall the whole onboarding suite. On timeout
+	// the call returns an error and we fall through to letting the WiFi specs skip.
+	const (
+		wifiProbeTimeout   = 60 * time.Second
+		wifiInstallTimeout = 10 * time.Minute
+	)
+
+	// If the device image already bakes the WiFi soft-AP stack (the Fedora
+	// onboarding flavor bakes mac80211_hwsim + userspace; see
+	// test/scripts/agent-images/containerfiles/fedora-bootc/), there is nothing
+	// to install at runtime. modinfo succeeds only when the module is present and
+	// registered with depmod, which the baked image does at build time. Skip the
+	// transient install in that case: on Fedora kernel-modules-extra-$(uname -r)
+	// does not even provide hwsim, so attempting it would only log a spurious
+	// warning and pull redundant userspace packages.
+	probeCtx, cancelProbe := context.WithTimeout(context.Background(), wifiProbeTimeout)
+	defer cancelProbe()
+	if _, err := h.VM.RunSSHContext(probeCtx, []string{"sudo", "modinfo", "mac80211_hwsim"}, nil); err == nil {
+		logrus.Info("WiFi soft-AP stack already baked into the device image; skipping runtime install")
+		return
+	}
+
 	// Best-effort. The WiFi specs are gated behind wifiStackAvailable and Skip when
 	// the stack is absent, so a failed install must NOT abort BeforeSuite and take
 	// down the rest of the onboarding suite (notably the config-flow specs). The
@@ -327,7 +351,9 @@ func installWifiStack(h *e2e.Harness) {
 	// the enabled repos, so kernel-modules-extra-$(uname -r) no longer resolves and
 	// dnf aborts the whole transaction. When that happens, log and let the WiFi
 	// specs skip rather than failing every onboarding test.
-	if _, err := h.VM.RunSSH(append([]string{
+	installCtx, cancelInstall := context.WithTimeout(context.Background(), wifiInstallTimeout)
+	defer cancelInstall()
+	if _, err := h.VM.RunSSHContext(installCtx, append([]string{
 		"sudo", "dnf", "install",
 	}, append(dnfInstallFlags,
 		"kernel-modules-extra-$(uname -r)",
@@ -337,7 +363,9 @@ func installWifiStack(h *e2e.Harness) {
 	}
 
 	// Rebuild modules.dep so modprobe can find the just-installed mac80211_hwsim.
-	if _, err := h.VM.RunSSH([]string{"sudo", "depmod", "-a"}, nil); err != nil {
+	depmodCtx, cancelDepmod := context.WithTimeout(context.Background(), wifiProbeTimeout)
+	defer cancelDepmod()
+	if _, err := h.VM.RunSSHContext(depmodCtx, []string{"sudo", "depmod", "-a"}, nil); err != nil {
 		logrus.Warnf("depmod after WiFi stack install failed; WiFi specs may skip: %v", err)
 	}
 }
