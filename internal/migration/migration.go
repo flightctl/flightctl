@@ -147,6 +147,9 @@ func customizeMigration(ctx context.Context, tx *gorm.DB, log logrus.FieldLogger
 	if err := normalizeAuthProviderURLs(ctx, tx); err != nil {
 		return err
 	}
+	if err := backfillVulnerabilitySource(ctx, tx); err != nil {
+		return err
+	}
 	return migrateCatalogItemLabels(ctx, tx, log)
 }
 
