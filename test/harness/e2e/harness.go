@@ -1855,6 +1855,26 @@ func NewTestHarnessWithFreshVMFromPool(ctx context.Context, workerID int) (*Harn
 	return harness, nil
 }
 
+// NewTestHarnessWithVMOnly creates a harness with a fresh VM that is booted and
+// reachable via SSH but does NOT start the flightctl-agent. Use this for suites
+// where the agent lifecycle is managed by something other than the test harness
+// (e.g. the onboarding wizard).
+func NewTestHarnessWithVMOnly(ctx context.Context, workerID int) (*Harness, error) {
+	harness, err := newTestHarnessBase(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	testVM, err := CreateFreshVMWithTPM(workerID, os.TempDir(), 2233, "")
+	if err != nil {
+		harness.ctxCancel()
+		return nil, fmt.Errorf("failed to create VM-only harness for worker %d: %w", workerID, err)
+	}
+
+	harness.VM = testVM
+	return harness, nil
+}
+
 // GetVMFromPool retrieves a VM from the pool for the given worker ID.
 // VMs are created on-demand if they don't already exist in the pool.
 func (h *Harness) GetVMFromPool(workerID int) (vm.TestVMInterface, error) {
