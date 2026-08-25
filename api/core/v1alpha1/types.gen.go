@@ -567,7 +567,7 @@ type Status struct {
 	Status string `json:"status"`
 }
 
-// Vulnerability A single vulnerability (CVE) finding. Vulnerabilities are global CVE records from Trustify; they are not tenant-owned resources. Tenancy is determined by the device or fleet context through which they are queried.
+// Vulnerability A single vulnerability (CVE) finding. Vulnerabilities are global CVE records produced by the configured vulnerability scanner; they are not tenant-owned resources. Tenancy is determined by the device or fleet context through which they are queried.
 type Vulnerability struct {
 	// AdvisoryId Vendor advisory identifier when available.
 	AdvisoryId *string `json:"advisoryId,omitempty"`
@@ -607,6 +607,9 @@ type Vulnerability struct {
 
 	// Severity Normalized severity label.
 	Severity VulnerabilitySeverity `json:"severity"`
+
+	// Source The vulnerability backend that produced this finding (e.g. trustify, quay).
+	Source *string `json:"source,omitempty"`
 }
 
 // VulnerabilitySeverity Normalized severity label.
