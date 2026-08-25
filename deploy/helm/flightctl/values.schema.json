@@ -975,7 +975,7 @@
         "syncInterval": { "type": "string", "description": "Sync interval for periodic Trustify fetch (e.g. \"15m\", \"1h\")" },
         "backend": {
           "type": "string",
-          "description": "Vulnerability scanning backend. Currently only 'trustify' is supported; leave empty to default to Trustify when a trustify config is present.",
+          "description": "Vulnerability scanning backend. Currently only 'trustify' is supported; leave empty to default to Trustify when a trustify config with a non-empty endpoint is present.",
           "enum": ["", "trustify"]
         },
         "trustify": {
