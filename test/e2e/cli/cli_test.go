@@ -356,23 +356,26 @@ var _ = Describe("cli operation", func() {
 			Expect(out).To(ContainSubstring(deviceName))
 
 			By("Comparing with-slash and no-slash forms for table and JSON output")
-			withSlash, err := harness.CLI("get", "device/"+deviceName)
-			Expect(err).NotTo(HaveOccurred(), "flightctl get device/%s failed", deviceName)
+			// Device status can change between the two GETs (Updated UpToDate vs OutOfDate).
+			Eventually(func(g Gomega) {
+				withSlash, err := harness.CLI("get", "device/"+deviceName)
+				g.Expect(err).NotTo(HaveOccurred(), "flightctl get device/%s failed", deviceName)
 
-			noSlash, err := harness.CLI("get", "device", deviceName)
-			Expect(err).NotTo(HaveOccurred(), "flightctl get device %s failed", deviceName)
+				noSlash, err := harness.CLI("get", "device", deviceName)
+				g.Expect(err).NotTo(HaveOccurred(), "flightctl get device %s failed", deviceName)
 
-			Expect(collapse(withSlash)).To(Equal(collapse(noSlash)),
-				"no-slash table output must equal with-slash")
+				g.Expect(collapse(withSlash)).To(Equal(collapse(noSlash)),
+					"no-slash table output must equal with-slash")
 
-			withSlashJSON, err := harness.CLI("get", "device/"+deviceName, "-o", "json")
-			Expect(err).NotTo(HaveOccurred(), "flightctl get device/%s -o json failed", deviceName)
+				withSlashJSON, err := harness.CLI("get", "device/"+deviceName, "-o", "json")
+				g.Expect(err).NotTo(HaveOccurred(), "flightctl get device/%s -o json failed", deviceName)
 
-			noSlashJSON, err := harness.CLI("get", "device", deviceName, "-o", "json")
-			Expect(err).NotTo(HaveOccurred(), "flightctl get device %s -o json failed", deviceName)
+				noSlashJSON, err := harness.CLI("get", "device", deviceName, "-o", "json")
+				g.Expect(err).NotTo(HaveOccurred(), "flightctl get device %s -o json failed", deviceName)
 
-			Expect(noSlashJSON).To(MatchJSON(withSlashJSON),
-				"no-slash JSON must deep-equal with-slash")
+				g.Expect(noSlashJSON).To(MatchJSON(withSlashJSON),
+					"no-slash JSON must deep-equal with-slash")
+			}, "10s", "200ms").Should(Succeed())
 		})
 
 		It("Should show last-seen with proper flag", Label("85014", "sanity", "client", e2e.NeedVMLabel), func() {

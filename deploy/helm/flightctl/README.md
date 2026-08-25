@@ -433,20 +433,21 @@ For more detailed configuration options, see the [Values](#values) section below
 | upgradeHooks.scaleDown.deployments | list | `["flightctl-periodic","flightctl-worker"]` | List of Deployments to scale down in order |
 | upgradeHooks.scaleDown.timeoutSeconds | int | `120` | Timeout in seconds to wait for rollout per Deployment |
 | vulnerabilityReporting | object | `{"backend":"","enabled":false,"syncInterval":"15m","trustify":{"auth":{"mode":"none","oidcIssuerUrl":"","secretName":""},"endpoint":""}}` | Vulnerability Integration Configuration |
-| vulnerabilityReporting.backend | string | `""` | Vulnerability scanning backend. Currently only "trustify" is supported; leave empty to default to Trustify when a trustify config is present. |
+| vulnerabilityReporting.backend | string | `""` | Vulnerability scanning backend. Currently only "trustify" is supported; leave empty to default to Trustify when a trustify config with a non-empty endpoint is present. |
 | vulnerabilityReporting.enabled | bool | `false` | Enable vulnerability integration (sync task + API endpoints). |
 | vulnerabilityReporting.syncInterval | string | `"15m"` | Sync interval for periodic Trustify fetch (e.g. "15m", "1h"). |
 | vulnerabilityReporting.trustify.auth.mode | string | `"none"` | Authentication mode for Trustify. Allowed values: 'client-credentials', 'none'. |
 | vulnerabilityReporting.trustify.auth.oidcIssuerUrl | string | `""` | OIDC issuer URL for client-credentials mode. |
 | vulnerabilityReporting.trustify.auth.secretName | string | `""` | Name of the Kubernetes Secret containing 'client_id' and 'client_secret' keys. |
 | vulnerabilityReporting.trustify.endpoint | string | `""` | Trustify API base URL (do not include /api/v1 or /api/v2 paths). |
-| worker | object | `{"clusterLevelSecretAccess":false,"image":{"image":"quay.io/flightctl/flightctl-worker-el9","pullPolicy":"","tag":""},"vmRender":{"launcherImage":"","passtWorkarounds":false}}` | Worker Configuration |
+| worker | object | `{"clusterLevelSecretAccess":false,"image":{"image":"quay.io/flightctl/flightctl-worker-el9","pullPolicy":"","tag":""},"vmRender":{"launcherImage":"","launcherImages":{},"passtWorkarounds":false}}` | Worker Configuration |
 | worker.clusterLevelSecretAccess | bool | `false` | Allow flightctl-worker to access secrets at the cluster level for embedding in device configs |
 | worker.image.image | string | `"quay.io/flightctl/flightctl-worker-el9"` | Worker container image |
 | worker.image.pullPolicy | string | `""` | Image pull policy for worker container |
 | worker.image.tag | string | `""` | Worker image tag |
-| worker.vmRender | object | `{"launcherImage":"","passtWorkarounds":false}` | VM application render options passed to vm-to-quadlet |
+| worker.vmRender | object | `{"launcherImage":"","launcherImages":{},"passtWorkarounds":false}` | VM application render options passed to vm-to-quadlet |
 | worker.vmRender.launcherImage | string | `""` | virt-launcher image used when converting VmApplications to Quadlet units (leave empty to use the worker default) |
+| worker.vmRender.launcherImages | object | `{}` | virt-launcher images keyed by os-release ID and major from status.systemInfo (e.g. "rhel-9", "rhel-10") |
 | worker.vmRender.passtWorkarounds | bool | `false` | Enable passt networking workarounds for older virt-launcher images (default false; enable only for older images) |
 
 ## Environment-Specific Values Files

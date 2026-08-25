@@ -231,6 +231,7 @@ var DefaultSystemInfo = append([]string{
 	systeminfocommon.KernelKey,
 	systeminfocommon.DistroNameKey,
 	systeminfocommon.DistroVersionKey,
+	systeminfocommon.DistroIdKey,
 	systeminfocommon.ProductNameKey,
 	systeminfocommon.ProductUUIDKey,
 	systeminfocommon.ProductSerialKey,

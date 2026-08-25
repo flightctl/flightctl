@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -24,14 +25,30 @@ const (
 	VMGuestMemoryDefault = "1024M"
 )
 
-const vmFedoraNoCloudUserData = `#cloud-config
-ssh_pwauth: true
-password: fedora
-chpasswd: { expire: False }`
-
 // VMYAML builds a KubeVirt VirtualMachine manifest for e2e tests. cloudInitVolumeYAML
 // is the cloudinitdisk volume entry (including list-item indentation under volumes)
 func VMYAML(name, guestMemory, image, cloudInitVolumeYAML string) string {
+	return vmYAMLManifest(name, guestMemory, image, 0, cloudInitVolumeYAML)
+}
+
+// VMFedoraNoCloudUserData returns cloud-init userData that enables password SSH for the fedora user.
+func VMFedoraNoCloudUserData(password string) string {
+	return fmt.Sprintf(`#cloud-config
+ssh_pwauth: true
+password: %s
+chpasswd: { expire: False }`, password)
+}
+
+// VMYAMLWithCPU builds a KubeVirt VirtualMachine manifest. cpuCores <= 0 omits the cpu block.
+func VMYAMLWithCPU(name, guestMemory, image string, cpuCores int, cloudInitUserData string) string {
+	return vmYAMLManifest(name, guestMemory, image, cpuCores, VMCloudInitNoCloudVolume(cloudInitUserData))
+}
+
+func vmYAMLManifest(name, guestMemory, image string, cpuCores int, cloudInitVolumeYAML string) string {
+	cpuBlock := ""
+	if cpuCores > 0 {
+		cpuBlock = fmt.Sprintf("        cpu:\n          cores: %d\n", cpuCores)
+	}
 	return fmt.Sprintf(`apiVersion: kubevirt.io/v1
 kind: VirtualMachine
 metadata:
@@ -41,7 +58,7 @@ spec:
   template:
     spec:
       domain:
-        devices:
+%s        devices:
           disks:
           - disk:
               bus: virtio
@@ -63,7 +80,7 @@ spec:
       - containerdisk:
           image: %s
         name: containerdisk
-%s`, name, guestMemory, image, cloudInitVolumeYAML)
+%s`, name, cpuBlock, guestMemory, image, cloudInitVolumeYAML)
 }
 
 // VMYAMLWithConfigDrive builds a VM manifest using cloudInitConfigDrive userDataBase64.
@@ -299,7 +316,7 @@ func NewMountVolume(name, mountPath string) (v1beta1.ApplicationVolume, error) {
 // publishPorts so that the server-side renderer can inject it into the
 // generated .pod unit.
 func NewVmApplicationSpec(name, image string) (v1beta1.ApplicationProviderSpec, error) {
-	vmYAML := VMYAML(name, VMGuestMemoryDefault, image, VMCloudInitNoCloudVolume(vmFedoraNoCloudUserData))
+	vmYAML := VMYAML(name, VMGuestMemoryDefault, image, VMCloudInitNoCloudVolume(VMFedoraNoCloudUserData("fedora")))
 	return NewVmApplicationSpecFromYAML(name, []string{"2222:22"}, vmYAML)
 }
 
@@ -1125,42 +1142,64 @@ func (h *Harness) QuadletPathForUserOnVM(user string) (string, error) {
 }
 
 func (h *Harness) getUserHomeOnVM(user string) (string, error) {
+	_, home, err := h.getUserOnVM(user)
+	return home, err
+}
+
+func (h *Harness) getUserOnVM(user string) (uid, home string, err error) {
 	out, err := h.VM.RunSSH([]string{"sudo", "getent", "passwd", user}, nil)
 	if err != nil {
-		return "", fmt.Errorf("getent passwd %s: %w", user, err)
+		return "", "", fmt.Errorf("getent passwd %s: %w", user, err)
 	}
 	line := strings.TrimSpace(out.String())
 	fields := strings.Split(line, ":")
-	if len(fields) < 2 {
-		return "", fmt.Errorf("getent passwd %s: unexpected output", user)
+	// passwd: name:password:UID:GID:GECOS:home:shell — GECOS may contain colons.
+	if len(fields) < 7 {
+		return "", "", fmt.Errorf("getent passwd %s: unexpected output", user)
 	}
-	return fields[len(fields)-2], nil
+	uid = fields[2]
+	home = fields[len(fields)-2]
+	if uid == "" || home == "" {
+		return "", "", fmt.Errorf("getent passwd %s: missing uid or home", user)
+	}
+	for _, r := range uid {
+		if r < '0' || r > '9' {
+			return "", "", fmt.Errorf("getent passwd %s: invalid uid %q", user, uid)
+		}
+	}
+	return uid, home, nil
 }
 
-// RunPodmanPsContainerNamesAsUser runs podman ps (or podman ps -a) on the VM as the given user and returns container names.
-func (h *Harness) RunPodmanPsContainerNamesAsUser(user string, allContainers bool) (string, error) {
-	var args []string
+// RunShellAsUserOnVM runs command in sh -c as user on the VM.
+// RunSSH joins argv with spaces for the remote shell, so the command is passed as one quoted argument.
+func (h *Harness) RunShellAsUserOnVM(user, command string) (string, error) {
+	var remote string
 	if user == "root" {
-		args = []string{"sudo", "-u", user, "podman", "ps", "--format", "{{.Names}}"}
-		if allContainers {
-			args = []string{"sudo", "-u", user, "podman", "ps", "-a", "--format", "{{.Names}}"}
-		}
+		remote = fmt.Sprintf("sudo sh -c %q", command)
 	} else {
-		home, err := h.getUserHomeOnVM(user)
+		uid, home, err := h.getUserOnVM(user)
 		if err != nil {
 			return "", err
 		}
-		cmd := fmt.Sprintf("cd /tmp && env HOME=%q podman ps --format '{{.Names}}'", home)
-		if allContainers {
-			cmd = fmt.Sprintf("cd /tmp && env HOME=%q podman ps -a --format '{{.Names}}'", home)
-		}
-		args = []string{"sudo", "-u", user, "sh", "-c", cmd}
+		// Bake in the numeric UID. $(id -u) is expanded by the outer bash -lc as the
+		// SSH user, not the target user, so it cannot be used here.
+		inner := fmt.Sprintf("cd /tmp && env HOME=%q XDG_RUNTIME_DIR=/run/user/%s %s", home, uid, command)
+		remote = fmt.Sprintf("sudo -u %q sh -c %q", user, inner)
 	}
-	out, err := h.VM.RunSSH(args, nil)
+	out, err := h.VM.RunSSH(vmShellCommandArgs(remote), nil)
 	if err != nil {
 		return "", err
 	}
 	return out.String(), nil
+}
+
+// RunPodmanPsContainerNamesAsUser runs podman ps (or podman ps -a) on the VM as the given user and returns container names.
+func (h *Harness) RunPodmanPsContainerNamesAsUser(user string, allContainers bool) (string, error) {
+	ps := "podman ps --format '{{.Names}}'"
+	if allContainers {
+		ps = "podman ps -a --format '{{.Names}}'"
+	}
+	return h.RunShellAsUserOnVM(user, ps)
 }
 
 // RunSystemctlUserStatus runs systemctl --user status for the given user on the VM.
@@ -1186,6 +1225,30 @@ func (h *Harness) GetContainerPorts() (string, error) {
 // =============================================================================
 // VM operations
 // =============================================================================
+
+// CurlOnDevice GETs url from inside the device VM using curl --fail.
+func (h *Harness) CurlOnDevice(url, connectTimeout, maxTime string) error {
+	if h.VM == nil {
+		return fmt.Errorf("device VM is not configured")
+	}
+	if url == "" {
+		return fmt.Errorf("url is required")
+	}
+	out, err := h.VM.RunSSH([]string{
+		"curl", "-sS", "--fail",
+		"--connect-timeout", connectTimeout,
+		"--max-time", maxTime,
+		url,
+	}, nil)
+	if err != nil {
+		curlOutput := ""
+		if out != nil {
+			curlOutput = strings.TrimSpace(out.String())
+		}
+		return fmt.Errorf("GET %s: %w, curl output: %q", url, err, curlOutput)
+	}
+	return nil
+}
 
 // RunSSHOnDeviceLocalPort runs ssh on the device host to localhost:port using password auth.
 // This exercises VM publishPorts mappings (e.g. host 2222 to guest 22).
@@ -1241,14 +1304,56 @@ fi`,
 		quotedPassword,
 		sshCommand,
 	)
-	out, err := h.VM.RunSSH([]string{"/bin/sh", "-c", script}, nil)
+	out, err := h.VM.RunSSH([]string{"/bin/sh -c " + shellQuote(script)}, nil)
 	if err != nil {
-		return "", fmt.Errorf(
+		return "", classifyDeviceLocalSSHError(fmt.Errorf(
 			"running /bin/sh -c ssh script on device VM (localhost:%d user=%s remote=%s): %w",
 			port, user, strings.Join(remoteArgs, " "), err,
-		)
+		))
 	}
 	return trimSSHCommandOutput(out.String()), nil
+}
+
+var (
+	ErrSSHConnectionRefused = errors.New("ssh connection refused")
+	ErrSSHAuthFailed        = errors.New("ssh authentication failed")
+	ErrSSHTimeout           = errors.New("ssh connection timed out")
+)
+
+func classifyDeviceLocalSSHError(err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(msg, "connection refused"):
+		return fmt.Errorf("%w: %s", ErrSSHConnectionRefused, err.Error())
+	case strings.Contains(msg, "permission denied"), strings.Contains(msg, "authentication failed"):
+		return fmt.Errorf("%w: %s", ErrSSHAuthFailed, err.Error())
+	case strings.Contains(msg, "connection timed out"), strings.Contains(msg, "operation timed out"):
+		return fmt.Errorf("%w: %s", ErrSSHTimeout, err.Error())
+	default:
+		return err
+	}
+}
+
+func (h *Harness) ExpectSSHUnavailableOnPort(port int, appName, user, password string) {
+	GinkgoHelper()
+	const remoteCmd = "/usr/bin/whoami"
+	const unavailableWindow = "10s"
+	Eventually(func(g Gomega) {
+		_, sshErr := h.RunSSHOnDeviceLocalPort(port, user, password, remoteCmd)
+		g.Expect(sshErr).To(HaveOccurred(), "SSH to %s on published port %d should be unavailable", appName, port)
+		g.Expect(errors.Is(sshErr, ErrSSHConnectionRefused) || errors.Is(sshErr, ErrSSHTimeout)).
+			To(BeTrue(), "SSH to %s on port %d failed with %v, want connection refused or timeout", appName, port, sshErr)
+	}, LONGTIMEOUT, POLLING).Should(Succeed())
+
+	Consistently(func(g Gomega) {
+		_, sshErr := h.RunSSHOnDeviceLocalPort(port, user, password, remoteCmd)
+		g.Expect(sshErr).To(HaveOccurred(), "SSH to %s on published port %d should remain unavailable", appName, port)
+		g.Expect(errors.Is(sshErr, ErrSSHConnectionRefused) || errors.Is(sshErr, ErrSSHTimeout)).
+			To(BeTrue(), "SSH to %s on port %d failed with %v, want connection refused or timeout", appName, port, sshErr)
+	}, unavailableWindow, POLLING).Should(Succeed())
 }
 
 // trimSSHCommandOutput returns the last non-empty line from nested SSH output. Device-side
@@ -1318,7 +1423,7 @@ func (h *Harness) RunUDPProbeOnDeviceLocalPort(port int) (string, error) {
 		return "", fmt.Errorf("port must be between 1 and 65535, got %d", port)
 	}
 
-	out, err := h.VM.RunSSH([]string{"/bin/sh", "-c", udpProbeDeviceHostScript(port)}, nil)
+	out, err := h.VM.RunSSH([]string{"/bin/sh -c " + shellQuote(udpProbeDeviceHostScript(port))}, nil)
 	if err != nil {
 		return "", fmt.Errorf("running UDP probe on device host localhost:%d: %w", port, err)
 	}
