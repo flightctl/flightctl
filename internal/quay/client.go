@@ -25,6 +25,7 @@ const (
 	reasonMissingImageReference   = "missing_image_reference"
 	reasonMissingImageDigest      = "missing_image_digest"
 	reasonNotOnConfiguredRegistry = "not_on_configured_registry"
+	reasonUnparseableReference    = "unparseable_image_reference"
 	reasonNotFound                = "not_found"
 )
 
@@ -84,8 +85,8 @@ func (c *Client) FetchImageSecurity(ctx context.Context, image vulnerability.Ima
 
 	host, repoPath, err := parseImageReference(image.Image)
 	if err != nil {
-		c.log.WithError(err).WithField("image", image.Image).
-			Debug("skipping image: unparseable image reference")
+		c.log.WithFields(logrus.Fields{"image": image.Image, "reason": reasonUnparseableReference}).
+			WithError(err).Debug("skipping image")
 		return nil, nil
 	}
 
@@ -120,6 +121,8 @@ func (c *Client) FetchImageSecurity(ctx context.Context, image vulnerability.Ima
 	}
 
 	if report.Status != statusScanned {
+		// Dynamic reason construction handles any future statuses Quay might add
+		// beyond the known set (queued, pending, unsupported, failed).
 		c.log.WithFields(logrus.Fields{
 			"digest": image.Digest,
 			"status": report.Status,
@@ -138,8 +141,7 @@ func (c *Client) logNonOK(digest string, statusCode int) {
 	case http.StatusNotFound:
 		entry.WithField("reason", reasonNotFound).Debug("skipping image: not found on configured registry")
 	case http.StatusUnauthorized:
-		c.log.WithFields(logrus.Fields{"endpoint": c.endpoint, "status_code": statusCode}).
-			Error("quay authentication failed")
+		entry.WithField("endpoint", c.endpoint).Error("quay authentication failed")
 	case http.StatusForbidden:
 		entry.Warn("quay authorization failed: insufficient permissions")
 	default:
