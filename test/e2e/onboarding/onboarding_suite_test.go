@@ -83,6 +83,12 @@ var _ = BeforeSuite(func() {
 	// is pristine (see resetAgentEnrollmentState for why this matters).
 	resetAgentEnrollmentState(harness)
 
+	// Install the WiFi soft-AP stack so the WiFi specs run on the standard e2e
+	// device image (no dedicated baked image). Done before the snapshot so the
+	// transient packages are captured by the memory snapshot and survive reverts.
+	logrus.Infof("Worker %d: installing WiFi soft-AP stack", workerID)
+	installWifiStack(harness)
+
 	// Take a snapshot so each test starts from a clean post-install state.
 	logrus.Infof("Worker %d: creating %s snapshot", workerID, onboardingSnapshotID)
 	err = harness.VM.CreateSnapshot(onboardingSnapshotID)
@@ -297,4 +303,31 @@ func installCockpitAndOnboarding(h *e2e.Harness) {
 		return out.String(), nil
 	}, 60*time.Second, 2*time.Second).Should(ContainSubstring(":9090"),
 		"cockpit is not listening on port 9090")
+}
+
+// installWifiStack transiently installs the WiFi soft-AP userspace and the
+// kernel module needed to synthesize virtual radios, so the WiFi specs run on
+// the standard e2e device image without a dedicated baked image. It mirrors the
+// EDM-4205 feasibility spike:
+//   - kernel-modules-extra must match the running kernel exactly. $(uname -r) is
+//     expanded by the remote shell (RunSSH space-joins argv into one shell
+//     command line); every argument here is a fixed literal, so nothing
+//     untrusted is interpolated.
+//   - depmod -a registers the freshly-dropped mac80211_hwsim so the per-spec
+//     `modprobe mac80211_hwsim radios=2` (loadHwsimRadios) can find it.
+//
+// Called from BeforeSuite before the snapshot so the transient packages (written
+// to the in-memory overlay by --transient) are captured by the memory snapshot
+// and persist across every per-spec revert.
+func installWifiStack(h *e2e.Harness) {
+	_, err := h.VM.RunSSH(append([]string{
+		"sudo", "dnf", "install",
+	}, append(dnfInstallFlags,
+		"kernel-modules-extra-$(uname -r)",
+		"hostapd", "wpa_supplicant", "NetworkManager-wifi", "iw", "dnsmasq")...), nil)
+	Expect(err).ToNot(HaveOccurred(), "failed to install WiFi soft-AP stack")
+
+	// Rebuild modules.dep so modprobe can find the just-installed mac80211_hwsim.
+	_, err = h.VM.RunSSH([]string{"sudo", "depmod", "-a"}, nil)
+	Expect(err).ToNot(HaveOccurred(), "failed to run depmod after installing kernel-modules-extra")
 }
