@@ -3,7 +3,9 @@ package telemetrygateway
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"os"
+	"strings"
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/telemetry_gateway/deviceattrs"
@@ -18,6 +20,7 @@ import (
 	"go.opentelemetry.io/collector/confmap/provider/envprovider"
 	"go.opentelemetry.io/collector/exporter"
 	"go.opentelemetry.io/collector/exporter/otlpexporter"
+	"go.opentelemetry.io/collector/exporter/otlphttpexporter"
 	"go.opentelemetry.io/collector/extension"
 	"go.opentelemetry.io/collector/otelcol"
 	"go.opentelemetry.io/collector/processor"
@@ -121,8 +124,9 @@ func Run(ctx context.Context, cfg *config.Config, opts ...Option) error {
 					"env:OTEL_CONFIG_YAML",
 				},
 				ProviderFactories: []confmap.ProviderFactory{
-					envprovider.NewFactory(),
+					newStrictEnvProviderFactory(),
 				},
+				DefaultScheme: "env",
 			},
 		},
 		Factories: func() (otelcol.Factories, error) {
@@ -136,6 +140,7 @@ func Run(ctx context.Context, cfg *config.Config, opts ...Option) error {
 				},
 				Exporters: map[component.Type]exporter.Factory{
 					component.MustNewType("otlp"):                  otlpexporter.NewFactory(),
+					component.MustNewType("otlphttp"):              otlphttpexporter.NewFactory(),
 					component.MustNewType("prometheus"):            prometheusexporter.NewFactory(),
 					component.MustNewType("prometheusremotewrite"): prometheusremotewriteexporter.NewFactory(),
 				},
@@ -163,6 +168,61 @@ func Run(ctx context.Context, cfg *config.Config, opts ...Option) error {
 	return nil
 }
 
+func isHTTPEndpoint(endpoint string) bool {
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return false
+	}
+	return u.Scheme == "http" || u.Scheme == "https"
+}
+
+func validateHTTPEndpoint(endpoint string) error {
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("missing host in endpoint %q", endpoint)
+	}
+	if u.RawQuery != "" {
+		return fmt.Errorf("query strings are not supported in endpoint %q", endpoint)
+	}
+	if u.Fragment != "" {
+		return fmt.Errorf("fragments are not supported in endpoint %q", endpoint)
+	}
+	return nil
+}
+
+// strictEnvProvider wraps the OTel envprovider but fails on undefined
+// environment variables instead of logging a warning and continuing
+// with an empty string.
+type strictEnvProvider struct {
+	inner confmap.Provider
+}
+
+func newStrictEnvProviderFactory() confmap.ProviderFactory {
+	return confmap.NewProviderFactory(func(ps confmap.ProviderSettings) confmap.Provider {
+		return &strictEnvProvider{inner: envprovider.NewFactory().Create(ps)}
+	})
+}
+
+func (p *strictEnvProvider) Retrieve(ctx context.Context, uri string, watcher confmap.WatcherFunc) (*confmap.Retrieved, error) {
+	if !strings.HasPrefix(uri, "env:") {
+		return nil, fmt.Errorf("%q uri is not supported by env provider", uri)
+	}
+	name := strings.TrimPrefix(uri, "env:")
+	if idx := strings.Index(name, ":-"); idx >= 0 {
+		name = name[:idx]
+	}
+	if _, ok := os.LookupEnv(name); !ok {
+		return nil, fmt.Errorf("undefined environment variable: %s", name)
+	}
+	return p.inner.Retrieve(ctx, uri, watcher)
+}
+
+func (p *strictEnvProvider) Scheme() string                     { return "env" }
+func (p *strictEnvProvider) Shutdown(ctx context.Context) error { return p.inner.Shutdown(ctx) }
+
 // buildOTelConfigMap builds the OTEL collector config.
 func buildOTelConfigMap(cfg *config.Config) (map[string]any, error) {
 	exporterNames := []string{}
@@ -175,29 +235,44 @@ func buildOTelConfigMap(cfg *config.Config) (map[string]any, error) {
 		exporterNames = append(exporterNames, "prometheus")
 	}
 	if cfg.TelemetryGateway.Forward != nil && cfg.TelemetryGateway.Forward.Endpoint != "" {
-		otlp := map[string]any{
-			"endpoint": cfg.TelemetryGateway.Forward.Endpoint,
+		fwd := cfg.TelemetryGateway.Forward
+		exporterCfg := map[string]any{
+			"endpoint": fwd.Endpoint,
 		}
-		if cfg.TelemetryGateway.Forward.TLS != nil {
+		if fwd.TLS != nil {
 			tls := map[string]any{}
-			if cfg.TelemetryGateway.Forward.TLS.InsecureSkipTlsVerify {
+			if fwd.TLS.InsecureSkipTlsVerify {
 				tls["insecure_skip_verify"] = true
 			}
-			if v := cfg.TelemetryGateway.Forward.TLS.CertFile; v != "" {
+			if v := fwd.TLS.CertFile; v != "" {
 				tls["cert_file"] = v
 			}
-			if v := cfg.TelemetryGateway.Forward.TLS.KeyFile; v != "" {
+			if v := fwd.TLS.KeyFile; v != "" {
 				tls["key_file"] = v
 			}
-			if v := cfg.TelemetryGateway.Forward.TLS.CAFile; v != "" {
+			if v := fwd.TLS.CAFile; v != "" {
 				tls["ca_file"] = v
 			}
 			if len(tls) > 0 {
-				otlp["tls"] = tls
+				exporterCfg["tls"] = tls
 			}
 		}
-		exporters["otlp"] = otlp
-		exporterNames = append(exporterNames, "otlp")
+		exporterKey := "otlp"
+		if isHTTPEndpoint(fwd.Endpoint) {
+			exporterKey = "otlphttp"
+			if err := validateHTTPEndpoint(fwd.Endpoint); err != nil {
+				return nil, fmt.Errorf("forward endpoint: %w", err)
+			}
+			if len(fwd.Headers) > 0 {
+				headers := make(map[string]string, len(fwd.Headers))
+				for k, v := range fwd.Headers {
+					headers[k] = v.Value()
+				}
+				exporterCfg["headers"] = headers
+			}
+		}
+		exporters[exporterKey] = exporterCfg
+		exporterNames = append(exporterNames, exporterKey)
 	}
 	if len(exporterNames) == 0 {
 		return nil, fmt.Errorf("no exporters configured")
