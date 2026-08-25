@@ -233,3 +233,124 @@ func TestApplyVulnerabilityReportingEnvVarOverrides_Backend(t *testing.T) {
 		t.Errorf("When the backend env var is set it should populate Backend, got %q", c.VulnerabilityReporting.Backend)
 	}
 }
+
+func TestVulnerabilityConfig_QuayJSONRoundTrip(t *testing.T) {
+	var v VulnerabilityConfig
+	in := `{"backend":"quay","quay":{"endpoint":"https://quay.io","token":"tok","maxConcurrentRequests":7}}`
+	if err := json.Unmarshal([]byte(in), &v); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if v.Backend != VulnerabilityBackendQuay {
+		t.Errorf("When backend is quay it should deserialize to the enum, got %q", v.Backend)
+	}
+	if v.Quay == nil {
+		t.Fatal("When a quay block is present it should deserialize into Quay")
+	}
+	if v.Quay.Endpoint != "https://quay.io" {
+		t.Errorf("Quay endpoint = %q, want https://quay.io", v.Quay.Endpoint)
+	}
+	if string(v.Quay.Token) != "tok" {
+		t.Errorf("Quay token = %q, want tok", string(v.Quay.Token))
+	}
+	if v.Quay.MaxConcurrentRequests != 7 {
+		t.Errorf("Quay maxConcurrentRequests = %d, want 7", v.Quay.MaxConcurrentRequests)
+	}
+
+	out, err := json.Marshal(VulnerabilityConfig{Backend: VulnerabilityBackendQuay})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(out), `"backend":"quay"`) {
+		t.Errorf("When backend is quay it should serialize to JSON, got %s", out)
+	}
+}
+
+func TestVulnerabilityConfig_EffectiveBackend(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  VulnerabilityConfig
+		want VulnerabilityBackend
+	}{
+		{
+			name: "When backend is set explicitly it should be returned",
+			cfg:  VulnerabilityConfig{Backend: VulnerabilityBackendQuay, Trustify: &TrustifyConfig{}},
+			want: VulnerabilityBackendQuay,
+		},
+		{
+			name: "When backend is empty and a Trustify block is present it should default to trustify",
+			cfg:  VulnerabilityConfig{Trustify: &TrustifyConfig{}},
+			want: VulnerabilityBackendTrustify,
+		},
+		{
+			name: "When backend is empty and no Trustify block is present it should be empty",
+			cfg:  VulnerabilityConfig{},
+			want: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.cfg.EffectiveBackend(); got != tt.want {
+				t.Errorf("EffectiveBackend() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestApplyVulnerabilityReportingEnvVarOverrides_Quay(t *testing.T) {
+	t.Setenv("FLIGHTCTL_VULNERABILITY_REPORTING_BACKEND", "quay")
+	t.Setenv("FLIGHTCTL_VULNERABILITY_REPORTING_QUAY_ENDPOINT", "https://quay.example.com")
+	t.Setenv("FLIGHTCTL_VULNERABILITY_REPORTING_QUAY_TOKEN", "secret-token")
+	t.Setenv("FLIGHTCTL_VULNERABILITY_REPORTING_QUAY_MAX_CONCURRENT_REQUESTS", "9")
+
+	c := &Config{}
+	applyVulnerabilityReportingEnvVarOverrides(c)
+
+	if c.VulnerabilityReporting == nil || c.VulnerabilityReporting.Quay == nil {
+		t.Fatal("When quay env vars are set it should initialize VulnerabilityReporting.Quay")
+	}
+	if c.VulnerabilityReporting.Backend != VulnerabilityBackendQuay {
+		t.Errorf("Backend = %q, want quay", c.VulnerabilityReporting.Backend)
+	}
+	q := c.VulnerabilityReporting.Quay
+	if q.Endpoint != "https://quay.example.com" {
+		t.Errorf("Quay endpoint = %q", q.Endpoint)
+	}
+	if string(q.Token) != "secret-token" {
+		t.Errorf("Quay token = %q", string(q.Token))
+	}
+	if q.MaxConcurrentRequests != 9 {
+		t.Errorf("Quay maxConcurrentRequests = %d, want 9", q.MaxConcurrentRequests)
+	}
+}
+
+func TestApplyVulnerabilityReportingEnvVarOverrides_QuayInvalidMaxConcurrent(t *testing.T) {
+	t.Setenv("FLIGHTCTL_VULNERABILITY_REPORTING_QUAY_ENDPOINT", "https://quay.example.com")
+	t.Setenv("FLIGHTCTL_VULNERABILITY_REPORTING_QUAY_MAX_CONCURRENT_REQUESTS", "not-a-number")
+
+	c := &Config{}
+	applyVulnerabilityReportingEnvVarOverrides(c)
+
+	if c.VulnerabilityReporting == nil || c.VulnerabilityReporting.Quay == nil {
+		t.Fatal("When a quay env var is set it should initialize VulnerabilityReporting.Quay")
+	}
+	if c.VulnerabilityReporting.Quay.MaxConcurrentRequests != 0 {
+		t.Errorf("When maxConcurrentRequests is invalid it should be ignored, got %d", c.VulnerabilityReporting.Quay.MaxConcurrentRequests)
+	}
+}
+
+func TestApplyVulnerabilityReportingDefaults_QuayMaxConcurrent(t *testing.T) {
+	c := &Config{VulnerabilityReporting: &VulnerabilityConfig{Quay: &QuayConfig{Endpoint: "https://quay.io"}}}
+	applyVulnerabilityReportingDefaults(c)
+
+	if c.VulnerabilityReporting.Quay.MaxConcurrentRequests != DefaultQuayMaxConcurrentRequests {
+		t.Errorf("When maxConcurrentRequests is unset it should default to %d, got %d",
+			DefaultQuayMaxConcurrentRequests, c.VulnerabilityReporting.Quay.MaxConcurrentRequests)
+	}
+
+	// An explicit value must be preserved.
+	c2 := &Config{VulnerabilityReporting: &VulnerabilityConfig{Quay: &QuayConfig{MaxConcurrentRequests: 3}}}
+	applyVulnerabilityReportingDefaults(c2)
+	if c2.VulnerabilityReporting.Quay.MaxConcurrentRequests != 3 {
+		t.Errorf("When maxConcurrentRequests is set it should be preserved, got %d", c2.VulnerabilityReporting.Quay.MaxConcurrentRequests)
+	}
+}

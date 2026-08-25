@@ -782,7 +782,13 @@ type VulnerabilityBackend string
 const (
 	// VulnerabilityBackendTrustify selects the Trustify (TPA) backend.
 	VulnerabilityBackendTrustify VulnerabilityBackend = "trustify"
+	// VulnerabilityBackendQuay selects the Quay Security API backend.
+	VulnerabilityBackendQuay VulnerabilityBackend = "quay"
 )
+
+// DefaultQuayMaxConcurrentRequests bounds concurrent Quay Security API requests
+// when the Quay config does not specify a value.
+const DefaultQuayMaxConcurrentRequests = 5
 
 // VulnerabilityConfig holds configuration for the vulnerability integration feature.
 type VulnerabilityConfig struct {
@@ -795,6 +801,37 @@ type VulnerabilityConfig struct {
 	Backend VulnerabilityBackend `json:"backend,omitempty"`
 	// Trustify holds the Trustify connection details (periodic service only).
 	Trustify *TrustifyConfig `json:"trustify,omitempty"`
+	// Quay holds the Quay Security API connection details (periodic service only).
+	Quay *QuayConfig `json:"quay,omitempty"`
+}
+
+// EffectiveBackend resolves the configured backend, applying the empty-backend
+// default so all callers share one rule: an explicit Backend is returned as-is;
+// an empty Backend falls back to Trustify when a Trustify config is present;
+// otherwise it returns an empty backend. It does not log or mutate the config.
+func (v *VulnerabilityConfig) EffectiveBackend() VulnerabilityBackend {
+	if v == nil {
+		return ""
+	}
+	if v.Backend != "" {
+		return v.Backend
+	}
+	if v.Trustify != nil {
+		return VulnerabilityBackendTrustify
+	}
+	return ""
+}
+
+// QuayConfig holds Quay Security API connection and authentication details.
+// Quay authenticates with a bearer token rather than OIDC client credentials.
+type QuayConfig struct {
+	// Endpoint is the Quay API base URL (e.g. "https://quay.io").
+	Endpoint string `json:"endpoint,omitempty"`
+	// Token is the bearer token used to authenticate to the Quay Security API.
+	Token api.SecureString `json:"token,omitempty"`
+	// MaxConcurrentRequests bounds concurrent Quay API requests.
+	// Defaults to DefaultQuayMaxConcurrentRequests when unset.
+	MaxConcurrentRequests int `json:"maxConcurrentRequests,omitempty"`
 }
 
 // TrustifyConfig holds Trustify API connection and authentication details.
@@ -1136,6 +1173,7 @@ func Load(cfgFile string) (*Config, error) {
 	}
 
 	applyEnvVarOverrides(c)
+	applyVulnerabilityReportingDefaults(c)
 	if err := applyAuthDefaults(c); err != nil {
 		return nil, fmt.Errorf("applying auth defaults: %w", err)
 	}
@@ -1208,9 +1246,13 @@ func applyVulnerabilityReportingEnvVarOverrides(c *Config) {
 	trustifyOIDCIssuerURL := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_OIDC_ISSUER_URL")
 	trustifyClientID := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_CLIENT_ID")
 	trustifyClientSecret := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_CLIENT_SECRET")
+	quayEndpoint := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_QUAY_ENDPOINT")
+	quayToken := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_QUAY_TOKEN")
+	quayMaxConcurrent := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_QUAY_MAX_CONCURRENT_REQUESTS")
 
 	if enabled == "" && syncInterval == "" && backend == "" && trustifyEndpoint == "" && trustifyAuthMode == "" &&
-		trustifyOIDCIssuerURL == "" && trustifyClientID == "" && trustifyClientSecret == "" {
+		trustifyOIDCIssuerURL == "" && trustifyClientID == "" && trustifyClientSecret == "" &&
+		quayEndpoint == "" && quayToken == "" && quayMaxConcurrent == "" {
 		return
 	}
 
@@ -1242,6 +1284,42 @@ func applyVulnerabilityReportingEnvVarOverrides(c *Config) {
 	}
 
 	applyVulnerabilityReportingTrustifyEnvVarOverrides(c.VulnerabilityReporting, trustifyEndpoint, trustifyAuthMode, trustifyOIDCIssuerURL, trustifyClientID, trustifyClientSecret)
+	applyVulnerabilityReportingQuayEnvVarOverrides(c.VulnerabilityReporting, quayEndpoint, quayToken, quayMaxConcurrent)
+}
+
+func applyVulnerabilityReportingQuayEnvVarOverrides(v *VulnerabilityConfig, endpoint, token, maxConcurrent string) {
+	if endpoint == "" && token == "" && maxConcurrent == "" {
+		return
+	}
+	if v.Quay == nil {
+		v.Quay = &QuayConfig{}
+	}
+	if endpoint != "" {
+		v.Quay.Endpoint = endpoint
+	}
+	if token != "" {
+		v.Quay.Token = api.SecureString(token)
+	}
+	if maxConcurrent != "" {
+		n, err := strconv.Atoi(maxConcurrent)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Invalid FLIGHTCTL_VULNERABILITY_REPORTING_QUAY_MAX_CONCURRENT_REQUESTS value %q: %v, ignoring\n", maxConcurrent, err)
+		} else {
+			v.Quay.MaxConcurrentRequests = n
+		}
+	}
+}
+
+// applyVulnerabilityReportingDefaults fills in defaults for vulnerability
+// reporting sub-configs that are present but under-specified.
+func applyVulnerabilityReportingDefaults(c *Config) {
+	v := c.VulnerabilityReporting
+	if v == nil || v.Quay == nil {
+		return
+	}
+	if v.Quay.MaxConcurrentRequests == 0 {
+		v.Quay.MaxConcurrentRequests = DefaultQuayMaxConcurrentRequests
+	}
 }
 
 func applyVulnerabilityReportingTrustifyEnvVarOverrides(v *VulnerabilityConfig, endpoint, authMode, oidcIssuerURL, clientID, clientSecret string) {
