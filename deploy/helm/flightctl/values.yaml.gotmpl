@@ -318,6 +318,8 @@ worker:
   vmRender:
     # -- virt-launcher image used when converting VmApplications to Quadlet units (leave empty to use the worker default)
     launcherImage: ""
+    # -- virt-launcher images keyed by os-release ID and major from status.systemInfo (e.g. "rhel-9", "rhel-10")
+    launcherImages: {}
     # -- Enable passt networking workarounds for older virt-launcher images (default false; enable only for older images)
     passtWorkarounds: false
 
@@ -551,7 +553,7 @@ vulnerabilityReporting:
   enabled: false
   # -- Sync interval for periodic Trustify fetch (e.g. "15m", "1h").
   syncInterval: "15m"
-  # -- Vulnerability scanning backend. Currently only "trustify" is supported; leave empty to default to Trustify when a trustify config is present.
+  # -- Vulnerability scanning backend. Currently only "trustify" is supported; leave empty to default to Trustify when a trustify config with a non-empty endpoint is present.
   backend: ""
   trustify:
     # -- Trustify API base URL (do not include /api/v1 or /api/v2 paths).

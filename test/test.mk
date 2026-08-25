@@ -64,8 +64,7 @@ _integration_test: $(REPORTS)
 		$(if $(TEST_DIR),$(TEST_DIR),$(GO_INTEGRATIONTEST_DIRS))
 
 _e2e_test: $(REPORTS)
-	sudo chown $(shell whoami):$(shell whoami) -R bin/output
-	sudo chmod a+x test/scripts/setup_e2e_environment.sh test/scripts/e2e_cleanup.sh test/scripts/e2e_startup.sh
+	chmod a+x test/scripts/setup_e2e_environment.sh test/scripts/e2e_cleanup.sh test/scripts/e2e_startup.sh
 	test/scripts/setup_e2e_environment.sh
 	test/scripts/run_e2e_tests.sh "$(REPORTS)" $(GO_E2E_DIRS)
 

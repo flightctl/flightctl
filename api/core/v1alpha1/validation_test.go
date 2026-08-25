@@ -578,6 +578,54 @@ func TestCatalogItemValuesValidation(t *testing.T) {
 			wantErr:     true,
 			errContains: `"ports" is not a valid key`,
 		},
+		// runAs (EDM-5284)
+		{
+			name:     "container with runAs",
+			category: CatalogItemCategoryApplication,
+			itemType: CatalogItemTypeContainer,
+			config: &map[string]interface{}{
+				"runAs": "app-user",
+			},
+			wantErr: false,
+		},
+		{
+			name:     "quadlet with runAs",
+			category: CatalogItemCategoryApplication,
+			itemType: CatalogItemTypeQuadlet,
+			config: &map[string]interface{}{
+				"runAs": "app-user",
+			},
+			wantErr: false,
+		},
+		{
+			name:     "compose with runAs",
+			category: CatalogItemCategoryApplication,
+			itemType: CatalogItemTypeCompose,
+			config: &map[string]interface{}{
+				"runAs": "app-user",
+			},
+			wantErr: false,
+		},
+		{
+			name:     "container with runAs wrong type",
+			category: CatalogItemCategoryApplication,
+			itemType: CatalogItemTypeContainer,
+			config: &map[string]interface{}{
+				"runAs": 1234,
+			},
+			wantErr:     true,
+			errContains: "runAs: must be a string",
+		},
+		{
+			name:     "helm with runAs field (not allowed)",
+			category: CatalogItemCategoryApplication,
+			itemType: CatalogItemTypeHelm,
+			config: &map[string]interface{}{
+				"runAs": "app-user",
+			},
+			wantErr:     true,
+			errContains: `"runAs" is not a valid key`,
+		},
 		// complete examples for each type
 		{
 			name:     "container complete example",
@@ -590,6 +638,7 @@ func TestCatalogItemValuesValidation(t *testing.T) {
 					"ENABLE_DEBUG": "false",
 				},
 				"ports": []interface{}{"8080:80", "9090:9090", "443:443"},
+				"runAs": "app-user",
 				"resources": map[string]interface{}{
 					"limits": map[string]interface{}{
 						"cpu":    "1.5",
