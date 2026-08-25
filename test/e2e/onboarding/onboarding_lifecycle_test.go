@@ -397,8 +397,12 @@ var _ = Describe("Onboarding service lifecycle", func() {
 		_, err := harness.VM.RunSSH([]string{"sudo", "useradd", "-M", "polkit-negative-test"}, nil)
 		Expect(err).ToNot(HaveOccurred())
 		// Remove the throwaway user so a rerun on a reused VM does not fail at useradd.
+		// This user is never logged in (created with useradd -M for a polkit check
+		// only), so userdel has no live login session to race and its failure is a
+		// genuine cleanup problem worth failing the spec on.
 		DeferCleanup(func() {
-			_, _ = harness.VM.RunSSH([]string{"sudo", "userdel", "polkit-negative-test"}, nil)
+			_, err := harness.VM.RunSSH([]string{"sudo", "userdel", "polkit-negative-test"}, nil)
+			Expect(err).ToNot(HaveOccurred(), "remove polkit-negative-test")
 		})
 		Expect(authorized("polkit-negative-test", "org.freedesktop.hostname1.set-static-hostname")).To(BeFalse(),
 			"a user other than 'onboarding' must not be authorized by the onboarding polkit rule")
