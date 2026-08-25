@@ -278,11 +278,23 @@ var _ = Describe("Onboarding service lifecycle", func() {
 	It("When onboarding has completed the setup service does not start on subsequent boots", Label("90452"), func() {
 		harness := e2e.GetWorkerHarness()
 		browser, cleanup := startBrowserSession()
-		defer cleanup()
+		var closeOnce sync.Once
+		closeBrowser := func() { closeOnce.Do(cleanup) }
+		defer closeBrowser()
 
-		By("Completing a minimal wizard flow and running cleanup")
+		By("Completing a minimal wizard flow")
 		completeMinimalWizard(browser)
 		expectCompletionMarker(harness)
+
+		// End the onboarding user's login session before cleanup: the shipped
+		// cleanup's one-shot userdel refuses (and swallows the error) while the
+		// user still owns the live Cockpit session the wizard just opened. See
+		// drainUserLoginSession.
+		By("Closing the wizard browser session and draining it before cleanup")
+		closeBrowser()
+		drainUserLoginSession(harness, onboardingUserName)
+
+		By("Running the one-shot cleanup script")
 		runCleanup(harness)
 
 		By("Verifying the setup service is disabled (AC #4)")
@@ -306,11 +318,23 @@ var _ = Describe("Onboarding service lifecycle", func() {
 	It("When the confirmation marker exists the flightctl-agent is enabled and its start condition passes", Label("90428"), func() {
 		harness := e2e.GetWorkerHarness()
 		browser, cleanup := startBrowserSession()
-		defer cleanup()
+		var closeOnce sync.Once
+		closeBrowser := func() { closeOnce.Do(cleanup) }
+		defer closeBrowser()
 
-		By("Completing a minimal wizard flow and running cleanup")
+		By("Completing a minimal wizard flow")
 		completeMinimalWizard(browser)
 		expectCompletionMarker(harness)
+
+		// End the onboarding user's login session before cleanup: the shipped
+		// cleanup's one-shot userdel refuses (and swallows the error) while the
+		// user still owns the live Cockpit session the wizard just opened. See
+		// drainUserLoginSession.
+		By("Closing the wizard browser session and draining it before cleanup")
+		closeBrowser()
+		drainUserLoginSession(harness, onboardingUserName)
+
+		By("Running the one-shot cleanup script")
 		runCleanup(harness)
 
 		By("Verifying the confirmation marker now exists (AC #5)")
@@ -372,6 +396,10 @@ var _ = Describe("Onboarding service lifecycle", func() {
 		By("Verifying a non-onboarding user is denied the same D-Bus action")
 		_, err := harness.VM.RunSSH([]string{"sudo", "useradd", "-M", "polkit-negative-test"}, nil)
 		Expect(err).ToNot(HaveOccurred())
+		// Remove the throwaway user so a rerun on a reused VM does not fail at useradd.
+		DeferCleanup(func() {
+			_, _ = harness.VM.RunSSH([]string{"sudo", "userdel", "polkit-negative-test"}, nil)
+		})
 		Expect(authorized("polkit-negative-test", "org.freedesktop.hostname1.set-static-hostname")).To(BeFalse(),
 			"a user other than 'onboarding' must not be authorized by the onboarding polkit rule")
 
