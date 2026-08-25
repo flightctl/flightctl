@@ -791,7 +791,8 @@ type VulnerabilityConfig struct {
 	// SyncInterval is the interval between backend sync runs (e.g. "15m", "1h").
 	SyncInterval util.Duration `json:"syncInterval,omitempty"`
 	// Backend selects the vulnerability scanning backend. When empty, the sync
-	// task defaults to Trustify if a Trustify config is present.
+	// task defaults to Trustify if a Trustify config with a non-empty endpoint
+	// is present.
 	Backend VulnerabilityBackend `json:"backend,omitempty"`
 	// Trustify holds the Trustify connection details (periodic service only).
 	Trustify *TrustifyConfig `json:"trustify,omitempty"`
