@@ -100,8 +100,8 @@ func TestConsumer_shouldRunSBOMPipeline_BackendCapability(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "When the backend is empty but a trustify block is present it should run the pipeline",
-			vuln: &config.VulnerabilityConfig{Enabled: true, Trustify: &config.TrustifyConfig{}},
+			name: "When the backend is empty but a trustify block with endpoint is present it should run the pipeline",
+			vuln: &config.VulnerabilityConfig{Enabled: true, Trustify: &config.TrustifyConfig{Endpoint: "https://trustify.example.com"}},
 			want: true,
 		},
 		{
