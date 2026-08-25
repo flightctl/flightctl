@@ -75,7 +75,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.25.9
+          go-version: 1.26.5
           # setup-go's own built-in cache would otherwise restore/save the exact
           # same ~/.cache/go-build and ~/go/pkg/mod as the "Restore/Save Go modules
           # cache" steps below, redundantly. Worse, its save has no ref gate (see
