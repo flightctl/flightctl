@@ -3,10 +3,27 @@ package quay
 import (
 	"testing"
 
+	"github.com/flightctl/flightctl/internal/vulnerability"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
+	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// findingByCVE returns the single finding with the given CVE ID, failing if it
+// is absent or duplicated.
+func findingByCVE(t *testing.T, findings []vulnerability.Finding, cve string) vulnerability.Finding {
+	t.Helper()
+	var out []vulnerability.Finding
+	for _, f := range findings {
+		if f.CveID == cve {
+			out = append(out, f)
+		}
+	}
+	require.Lenf(t, out, 1, "expected exactly one finding for %s", cve)
+	return out[0]
+}
 
 func TestExtractCVEIDs(t *testing.T) {
 	tests := []struct {
@@ -166,6 +183,168 @@ func TestCVSSScore(t *testing.T) {
 			assert.Equal(t, *tt.want, *got)
 		})
 	}
+}
+
+func TestFindingsFromReport_Nil(t *testing.T) {
+	log, _ := logtest.NewNullLogger()
+	assert.Nil(t, findingsFromReport("sha256:abc", nil, log))
+	assert.Nil(t, findingsFromReport("sha256:abc", &Response{}, log))
+	assert.Nil(t, findingsFromReport("sha256:abc", &Response{Data: &Data{}}, log))
+}
+
+func TestFindingsFromReport_FieldMapping(t *testing.T) {
+	log, _ := logtest.NewNullLogger()
+	report := &Response{
+		Status: statusScanned,
+		Data: &Data{Layer: &Layer{Features: []Feature{{
+			Name: "openssl",
+			Vulnerabilities: []Vulnerability{{
+				Name:          "RHSA-2024:1234",
+				NamespaceName: "rhel:8",
+				Description:   "an openssl flaw",
+				Link:          "https://access.redhat.com/security/cve/CVE-2021-44228",
+				Severity:      "Defcon1",
+				Metadata:      Metadata{NVD: NVD{CVSSv3: CVSS{Score: 9.8, Vectors: "AV:N"}}},
+			}},
+		}}}},
+	}
+
+	findings := findingsFromReport("sha256:img", report, log)
+	require.Len(t, findings, 1)
+	f := findings[0]
+
+	assert.Equal(t, "CVE-2021-44228", f.CveID)
+	assert.Equal(t, "sha256:img", f.ImageDigest)
+	assert.Equal(t, "affected", f.Status)
+	assert.Equal(t, "Critical", f.Severity)
+	assert.Equal(t, "an openssl flaw", f.Description)
+	require.NotNil(t, f.CvssScore)
+	assert.Equal(t, 9.8, *f.CvssScore)
+	require.NotNil(t, f.AdvisoryID)
+	assert.Equal(t, "RHSA-2024:1234", *f.AdvisoryID)
+	require.NotNil(t, f.Issuer)
+	assert.Equal(t, "Red Hat", f.Issuer.Name)
+	assert.Nil(t, f.PublishedAt)
+}
+
+func TestFindingsFromReport_AdvisoryFanOut(t *testing.T) {
+	log, _ := logtest.NewNullLogger()
+	report := &Response{
+		Status: statusScanned,
+		Data: &Data{Layer: &Layer{Features: []Feature{{
+			Vulnerabilities: []Vulnerability{{
+				Name:          "RHSA-2021:5678",
+				NamespaceName: "rhel:8",
+				Link:          "cve/CVE-2021-44228 cve/CVE-2021-45046",
+				Severity:      "High",
+			}},
+		}}}},
+	}
+
+	findings := findingsFromReport("sha256:img", report, log)
+	require.Len(t, findings, 2)
+	for _, cve := range []string{"CVE-2021-44228", "CVE-2021-45046"} {
+		f := findingByCVE(t, findings, cve)
+		require.NotNil(t, f.AdvisoryID)
+		assert.Equal(t, "RHSA-2021:5678", *f.AdvisoryID)
+		assert.Equal(t, "High", f.Severity)
+	}
+}
+
+func TestFindingsFromReport_DebianNameIsCVE(t *testing.T) {
+	log, _ := logtest.NewNullLogger()
+	report := &Response{
+		Status: statusScanned,
+		Data: &Data{Layer: &Layer{Features: []Feature{{
+			Vulnerabilities: []Vulnerability{{
+				Name:          "CVE-2019-9999",
+				NamespaceName: "debian:11",
+				Link:          "https://security-tracker.debian.org/tracker/DSA-1",
+				Severity:      "Low",
+			}},
+		}}}},
+	}
+
+	findings := findingsFromReport("sha256:img", report, log)
+	require.Len(t, findings, 1)
+	assert.Equal(t, "CVE-2019-9999", findings[0].CveID)
+	assert.Nil(t, findings[0].AdvisoryID, "a Name that is itself a CVE carries no advisory ID")
+	assert.Equal(t, "Debian", findings[0].Issuer.Name)
+}
+
+func TestFindingsFromReport_SkipsNoCVEWithDebugLog(t *testing.T) {
+	log, hook := logtest.NewNullLogger()
+	log.SetLevel(logrus.DebugLevel)
+	report := &Response{
+		Status: statusScanned,
+		Data: &Data{Layer: &Layer{Features: []Feature{{
+			Vulnerabilities: []Vulnerability{{
+				Name:     "RHSA-2024:0001",
+				Link:     "https://access.redhat.com/errata/RHSA-2024:0001",
+				Severity: "High",
+			}},
+		}}}},
+	}
+
+	findings := findingsFromReport("sha256:img", report, log)
+	assert.Empty(t, findings)
+
+	entry := hook.LastEntry()
+	require.NotNil(t, entry, "expected a debug log for the skipped vulnerability")
+	assert.Equal(t, logrus.DebugLevel, entry.Level)
+	assert.Equal(t, "sha256:img", entry.Data["digest"])
+	assert.Equal(t, "RHSA-2024:0001", entry.Data["name"])
+}
+
+func TestFindingsFromReport_DistinctCVEsAcrossFeatures(t *testing.T) {
+	log, _ := logtest.NewNullLogger()
+	report := &Response{
+		Status: statusScanned,
+		Data: &Data{Layer: &Layer{Features: []Feature{
+			{Vulnerabilities: []Vulnerability{{Name: "CVE-2021-0001", NamespaceName: "rhel:8", Link: "cve/CVE-2021-0001", Severity: "High"}}},
+			{Vulnerabilities: []Vulnerability{{Name: "CVE-2021-0002", NamespaceName: "debian:11", Link: "cve/CVE-2021-0002", Severity: "Low"}}},
+		}}},
+	}
+
+	findings := findingsFromReport("sha256:img", report, log)
+	require.Len(t, findings, 2)
+	assert.Equal(t, "High", findingByCVE(t, findings, "CVE-2021-0001").Severity)
+	assert.Equal(t, "Low", findingByCVE(t, findings, "CVE-2021-0002").Severity)
+}
+
+func TestFindingsFromReport_DedupKeepsFirstOnConflict(t *testing.T) {
+	log, _ := logtest.NewNullLogger()
+	report := &Response{
+		Status: statusScanned,
+		Data: &Data{Layer: &Layer{Features: []Feature{
+			{Vulnerabilities: []Vulnerability{{Name: "CVE-2021-44228", NamespaceName: "rhel:8", Link: "cve/CVE-2021-44228", Severity: "Critical"}}},
+			{Vulnerabilities: []Vulnerability{{Name: "CVE-2021-44228", NamespaceName: "debian:11", Link: "cve/CVE-2021-44228", Severity: "Low"}}},
+		}}},
+	}
+
+	findings := findingsFromReport("sha256:img", report, log)
+	require.Len(t, findings, 1)
+	assert.Equal(t, "Critical", findings[0].Severity, "first occurrence of a CVE is authoritative")
+	assert.Equal(t, "Red Hat", findings[0].Issuer.Name)
+}
+
+func TestFindingsFromReport_DeduplicatesByCVE(t *testing.T) {
+	log, _ := logtest.NewNullLogger()
+	report := &Response{
+		Status: statusScanned,
+		Data: &Data{Layer: &Layer{Features: []Feature{
+			{Vulnerabilities: []Vulnerability{{
+				Name: "CVE-2021-44228", NamespaceName: "rhel:8", Link: "cve/CVE-2021-44228", Severity: "Critical",
+			}}},
+			{Vulnerabilities: []Vulnerability{{
+				Name: "RHSA-2021:1", NamespaceName: "rhel:8", Link: "cve/CVE-2021-44228", Severity: "Critical",
+			}}},
+		}}},
+	}
+
+	findings := findingsFromReport("sha256:img", report, log)
+	require.Len(t, findings, 1, "the same (digest, cve) must collapse to one finding")
+	assert.Equal(t, "CVE-2021-44228", findings[0].CveID)
 }
 
 func TestAdvisoryID(t *testing.T) {

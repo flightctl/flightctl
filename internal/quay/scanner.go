@@ -6,7 +6,12 @@ import (
 
 	"github.com/flightctl/flightctl/internal/vulnerability"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 )
+
+// statusAffected is the only status Quay-sourced findings carry: Quay reports
+// vulnerabilities currently detected in an image and provides no VEX status.
+const statusAffected = "affected"
 
 // cveRegex matches CVE identifiers in free text (e.g. advisory links). It
 // mirrors the pattern Quay uses internally to derive CVEs from vulnerability
@@ -36,6 +41,54 @@ var severityMap = map[string]string{
 	"Low":        "Low",
 	"Negligible": "None",
 	"Unknown":    "Unknown",
+}
+
+// findingsFromReport walks a scanned Quay report's Features and their
+// Vulnerabilities and returns one Finding per extracted CVE for the given image
+// digest. Vulnerabilities with no extractable CVE ID are skipped with a debug
+// log (RHEM's composite key requires a CVE ID). Findings are deduplicated by
+// (digest, cve_id): the first occurrence of a CVE is authoritative, so a CVE
+// referenced from multiple Features collapses to a single finding carrying that
+// first occurrence's fields.
+func findingsFromReport(digest string, report *Response, log logrus.FieldLogger) []vulnerability.Finding {
+	if report == nil || report.Data == nil || report.Data.Layer == nil {
+		return nil
+	}
+	if log == nil {
+		log = logrus.StandardLogger()
+	}
+
+	var findings []vulnerability.Finding
+	seen := make(map[string]struct{})
+	for _, feature := range report.Data.Layer.Features {
+		for _, vuln := range feature.Vulnerabilities {
+			cveIDs := extractCVEIDs(vuln)
+			if len(cveIDs) == 0 {
+				log.WithFields(logrus.Fields{
+					"digest": digest,
+					"name":   vuln.Name,
+				}).Debug("skipping vulnerability with no extractable CVE ID")
+				continue
+			}
+			for _, cveID := range cveIDs {
+				if _, ok := seen[cveID]; ok {
+					continue
+				}
+				seen[cveID] = struct{}{}
+				findings = append(findings, vulnerability.Finding{
+					CveID:       cveID,
+					ImageDigest: digest,
+					Severity:    mapSeverity(vuln.Severity),
+					CvssScore:   cvssScore(vuln.Metadata),
+					Status:      statusAffected,
+					Issuer:      buildIssuer(vuln.NamespaceName),
+					AdvisoryID:  advisoryID(vuln.Name),
+					Description: vuln.Description,
+				})
+			}
+		}
+	}
+	return findings
 }
 
 // extractCVEIDs returns the CVE identifiers for a vulnerability. It matches the
