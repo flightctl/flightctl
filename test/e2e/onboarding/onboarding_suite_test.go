@@ -79,6 +79,10 @@ var _ = BeforeSuite(func() {
 	logrus.Infof("Worker %d: fresh VM created, installing cockpit + onboarding RPM", workerID)
 	installCockpitAndOnboarding(harness)
 
+	// Scrub any pre-onboarding agent enrollment before snapshotting so the snapshot
+	// is pristine (see resetAgentEnrollmentState for why this matters).
+	resetAgentEnrollmentState(harness)
+
 	// Take a snapshot so each test starts from a clean post-install state.
 	logrus.Infof("Worker %d: creating %s snapshot", workerID, onboardingSnapshotID)
 	err = harness.VM.CreateSnapshot(onboardingSnapshotID)
@@ -127,6 +131,58 @@ var _ = AfterEach(func() {
 	harness.PrintAgentLogsIfFailed()
 	harness.CaptureDeploymentLogsIfFailed()
 })
+
+// resetAgentEnrollmentState scrubs any flightctl-agent enrollment the base image
+// left behind on first boot, so the pre-onboarding snapshot is pristine.
+//
+// The base device image ships flightctl-agent enabled, so on first boot — before
+// the onboarding RPM installs the gate drop-in that keeps the agent from starting
+// until onboarding is confirmed — the agent runs, generates a CSR, and creates an
+// EnrollmentRequest, logging an "/enroll/<id>" line to the persistent journal. If
+// that state leaks into the snapshot, every reverted spec inherits it, and the
+// damage is subtle: GetEnrollmentIDFromServiceLogs derives the device ID from the
+// FIRST "/enroll/<id>" match in the agent journal (util.GetEnrollmentIdFromText),
+// so it returns the STALE baked-in id rather than the current wizard-driven
+// enrollment. The enrollment specs then approve the wrong device while their real
+// device is never approved, and they time out in WaitForOnlineStatus.
+//
+// Stop the agent, remove its on-disk enrollment identity, and rotate+vacuum the
+// journal so no stale "/enroll/<id>" survives. After this the gate drop-in keeps
+// the agent inactive across reverts until the wizard starts it, so the only
+// "/enroll/<id>" any spec ever sees is the one its own wizard run produced. All
+// commands are plain argv (RunSSH re-joins args for the remote shell, so a
+// `bash -c "<multi-word>"` would collapse to its first word).
+func resetAgentEnrollmentState(h *e2e.Harness) {
+	// Best-effort stop: the agent may already be gated/inactive.
+	_, _ = h.VM.RunSSH([]string{"sudo", "systemctl", "stop", "flightctl-agent"}, nil)
+
+	// Remove the enrollment identity and spec files the first-boot agent persisted.
+	// Surface a failure here: if the stale state survives, every enrollment spec
+	// then approves the wrong device and times out in WaitForOnlineStatus — exactly
+	// the opaque failure this function exists to prevent, so don't discard the error.
+	if _, err := h.VM.RunSSH([]string{
+		"sudo", "rm", "-rf",
+		"/var/lib/flightctl/certs",
+		"/var/lib/flightctl/current.json",
+		"/var/lib/flightctl/desired.json",
+		"/var/lib/flightctl/rollback.json",
+		"/var/lib/flightctl/system.json",
+	}, nil); err != nil {
+		logrus.Warnf("failed to remove persisted agent enrollment state: %v", err)
+	}
+
+	// Rotate then vacuum the persistent journal so the stale "/enroll/<id>" line is
+	// gone. Rotating first seals the active journal file so the subsequent vacuum can
+	// actually remove the archived records that hold the stale enrollment line.
+	for _, argv := range [][]string{
+		{"sudo", "journalctl", "--rotate"},
+		{"sudo", "journalctl", "--vacuum-time=1s"},
+	} {
+		if _, err := h.VM.RunSSH(argv, nil); err != nil {
+			logrus.Warnf("failed to clear stale journal enrollment records (%v): %v", argv, err)
+		}
+	}
+}
 
 // setupVMOnlyHarness creates a worker harness backed by a fresh VM that is
 // booted and reachable via SSH but does NOT start the flightctl-agent.

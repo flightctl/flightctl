@@ -249,12 +249,21 @@ func splitNmcliTerse(line string) []string {
 //     success state can surface before that background unit reaches finalize,
 //     so poll rather than checking once.
 func expectCompletionMarker(h *e2e.Harness) {
+	expectCompletionMarkerWithin(h, 60*time.Second)
+}
+
+// expectCompletionMarkerWithin is expectCompletionMarker with a caller-chosen
+// timeout. Specs whose delegated apply legitimately takes minutes to finalize —
+// e.g. the single-NIC completion spec, where apply-and-enroll.sh spends up to the
+// full connectivity budget plus NTP-sync wait before writing the marker — need a
+// budget larger than the 60s default.
+func expectCompletionMarkerWithin(h *e2e.Harness, timeout time.Duration) {
 	Eventually(func() error {
 		_, err := h.VM.RunSSH([]string{
 			"sudo", "test", "-f", "/var/lib/flightctl-onboarding/.onboarding-complete",
 		}, nil)
 		return err
-	}, 60*time.Second, 2*time.Second).Should(Succeed(), "completion marker not found")
+	}, timeout, 2*time.Second).Should(Succeed(), "completion marker not found")
 }
 
 // expectNTPServer asserts the wizard-configured NTP server landed in the
