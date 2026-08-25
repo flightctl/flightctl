@@ -481,18 +481,25 @@ var _ = Describe("Onboarding wizard configuration flow", func() {
 		By("Verifying first attempt shows failure")
 		Expect(browser.WizardWaitForFailure(wizardTimeout)).To(Succeed())
 
-		By("Verifying the hostname step actually ran before the failure")
+		By("Verifying the configuration was applied before the failure")
 		// Guard against a vacuous rollback check: if the apply had failed before the
-		// hostname step ever ran, the assertions below (hostname != attempted value,
-		// hostname == original) would both pass without proving any rollback happened.
-		// The progress page lists each executed step with its target, so requiring the
-		// attempted hostname to appear there confirms the hostname step was applied
-		// (and therefore that the subsequent revert is a genuine rollback).
+		// configuration step ever ran, the assertions below (hostname != attempted
+		// value, hostname == original) would both pass without proving any rollback
+		// happened. The wizard applies system configuration (hostname, NTP, proxy,
+		// labels) INLINE first and only then delegates the network/connectivity test;
+		// so the progress page reaching the connectivity phase proves the inline
+		// configuration (including the hostname) was applied, and its "Reverting
+		// changes" entry proves the failure triggered a genuine rollback. The progress
+		// page lists generic step labels, not per-step target values, so we assert on
+		// the phase labels rather than on the attempted hostname string.
 		progressText, err := browser.WizardGetReviewText()
 		Expect(err).ToNot(HaveOccurred())
-		Expect(progressText).To(ContainSubstring("error-recovery-test"),
-			"progress page should show the hostname step ran with the attempted hostname, "+
-				"so the rollback assertion below is meaningful")
+		Expect(progressText).To(ContainSubstring("Testing network connectivity"),
+			"progress page should show the apply reached the connectivity phase, "+
+				"proving the inline configuration (including hostname) was applied first")
+		Expect(progressText).To(ContainSubstring("Reverting changes"),
+			"progress page should show the failed apply triggered a rollback, "+
+				"so the hostname-restored assertion below is meaningful")
 
 		By("Verifying applied changes were rolled back after the failure")
 		// The installed onboarding package rolls back every applied step (including
