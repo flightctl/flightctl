@@ -190,6 +190,9 @@ func addStatusIfNeeded(enrollmentRequest *domain.EnrollmentRequest) {
 func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, orgId uuid.UUID, enrollmentRequest *domain.EnrollmentRequest) error {
 	deviceStatus := domain.NewDeviceStatus()
 	deviceStatus.Lifecycle = domain.DeviceLifecycleStatus{Status: "Enrolled"}
+	if enrollmentRequest.Spec.DeviceStatus != nil {
+		deviceStatus.SystemInfo = enrollmentRequest.Spec.DeviceStatus.SystemInfo
+	}
 
 	// Check if TPM was verified during enrollment request creation
 	isTPMVerified := false

@@ -44,11 +44,48 @@ func DefaultVmRenderOptions() VmRenderOptions {
 	}
 }
 
-func vmRenderOptionsFromConfig(cfg *config.Config) VmRenderOptions {
+func vmRenderOptionsFromConfig(cfg *config.Config, osKey string) VmRenderOptions {
 	return VmRenderOptions{
-		LauncherImage:    cfg.EffectiveVmLauncherImage(),
+		LauncherImage:    cfg.EffectiveVmLauncherImage(osKey),
 		PasstWorkarounds: cfg.EffectiveVmPasstWorkarounds(),
 	}
+}
+
+const (
+	deviceDistroVersionKey = "distroVersion"
+	deviceDistroIdKey      = "distroId"
+)
+
+func osKeyFromDevice(device *domain.Device) string {
+	if device == nil || device.Status == nil {
+		return ""
+	}
+	id, _ := device.Status.SystemInfo.Get(deviceDistroIdKey)
+	id = strings.ToLower(strings.TrimSpace(id))
+	if id == "" {
+		return ""
+	}
+	version, _ := device.Status.SystemInfo.Get(deviceDistroVersionKey)
+	major := parseDistroMajor(version)
+	if major == "" {
+		return ""
+	}
+	return id + "-" + major
+}
+
+func parseDistroMajor(version string) string {
+	version = strings.TrimSpace(version)
+	if version == "" {
+		return ""
+	}
+	end := 0
+	for end < len(version) && version[end] >= '0' && version[end] <= '9' {
+		end++
+	}
+	if end == 0 {
+		return ""
+	}
+	return version[:end]
 }
 
 // limitedWriter wraps a bytes.Buffer and returns an error once more than limit

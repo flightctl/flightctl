@@ -79,14 +79,7 @@ var _ = Describe("CLI decommission test", func() {
 			GinkgoWriter.Printf("Approved new enrollment request: %s\n", newEnrollmentId)
 
 			By("Verifying the re-enrolled device comes online with the new ID")
-			Eventually(harness.GetDeviceWithStatusSystem, TIMEOUT, POLLING).WithArguments(
-				newEnrollmentId).ShouldNot(BeNil())
-
-			newDevice, err := harness.GetDevice(newEnrollmentId)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(newDevice).NotTo(BeNil())
-			Expect(newDevice.Status.Summary.Status).To(Equal(v1beta1.DeviceSummaryStatusOnline),
-				"Expected re-enrolled device to be online")
+			harness.WaitForOnlineStatus(newEnrollmentId)
 			GinkgoWriter.Printf("Re-enrolled device %s is now online\n", newEnrollmentId)
 		})
 	})

@@ -187,6 +187,88 @@ var _ = Describe("EnrollmentRequest Device Creation Unit Tests", func() {
 		})
 	})
 
+	Context("createDeviceFromEnrollmentRequest with enrollment systemInfo", func() {
+		It("When enrollment systemInfo has distroId it should copy it onto the device after approval", func() {
+			er := CreateTestER()
+			erName := lo.FromPtr(er.Metadata.Name)
+			enrollmentStatus := api.NewDeviceStatus()
+			enrollmentStatus.SystemInfo.OperatingSystem = "linux"
+			enrollmentStatus.SystemInfo.Set("distroId", "rhel")
+			enrollmentStatus.SystemInfo.Set("distroVersion", "9.5 (Plow)")
+			er.Spec.DeviceStatus = &enrollmentStatus
+
+			By("creating enrollment request with systemInfo")
+			created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+			Expect(created).ToNot(BeNil())
+
+			By("approving the enrollment request")
+			approval := api.EnrollmentRequestApproval{
+				Approved: true,
+				Labels:   &map[string]string{"approved": "true"},
+			}
+			_, st := suite.EnrollmentRequest.ApproveEnrollmentRequest(suite.Ctx, suite.OrgID, erName, approval)
+			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
+
+			By("verifying device systemInfo")
+			device, status := suite.Device.GetDevice(suite.Ctx, suite.OrgID, erName)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+			Expect(device.Status).ToNot(BeNil())
+			id, found := device.Status.SystemInfo.Get("distroId")
+			Expect(found).To(BeTrue())
+			Expect(id).To(Equal("rhel"))
+			version, found := device.Status.SystemInfo.Get("distroVersion")
+			Expect(found).To(BeTrue())
+			Expect(version).To(Equal("9.5 (Plow)"))
+			Expect(device.Status.SystemInfo.OperatingSystem).To(Equal("linux"))
+			Expect(device.Status.Lifecycle.Status).To(Equal(api.DeviceLifecycleStatusEnrolled))
+		})
+
+		It("When awaitingReconnect is set it should keep systemInfo and set awaiting reconnect summary", func() {
+			er := CreateTestER()
+			erName := lo.FromPtr(er.Metadata.Name)
+			er.Metadata.Annotations = &map[string]string{
+				api.DeviceAnnotationAwaitingReconnect: "true",
+			}
+			enrollmentStatus := api.NewDeviceStatus()
+			enrollmentStatus.SystemInfo.Set("distroId", "rhel")
+			enrollmentStatus.SystemInfo.Set("distroVersion", "10.0 (Coughlan)")
+			er.Spec.DeviceStatus = &enrollmentStatus
+
+			By("creating enrollment request")
+			created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+			Expect(created).ToNot(BeNil())
+
+			By("approving the enrollment request")
+			defaultOrg := &model.Organization{
+				ID:          org.DefaultID,
+				ExternalID:  org.DefaultID.String(),
+				DisplayName: org.DefaultID.String(),
+			}
+			mappedIdentity := identity.NewMappedIdentity("testuser", "", []*model.Organization{defaultOrg}, map[string][]string{}, false, nil)
+			ctxApproval := context.WithValue(suite.Ctx, consts.MappedIdentityCtxKey, mappedIdentity)
+
+			approval := api.EnrollmentRequestApproval{
+				Approved: true,
+				Labels:   &map[string]string{"approved": "true"},
+			}
+			_, st := suite.EnrollmentRequest.ApproveEnrollmentRequest(ctxApproval, suite.OrgID, erName, approval)
+			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
+
+			By("verifying device systemInfo and awaiting reconnect summary")
+			device, status := suite.Device.GetDevice(suite.Ctx, suite.OrgID, erName)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+			Expect(device.Status.Summary.Status).To(Equal(api.DeviceSummaryStatusAwaitingReconnect))
+			id, found := device.Status.SystemInfo.Get("distroId")
+			Expect(found).To(BeTrue())
+			Expect(id).To(Equal("rhel"))
+			version, found := device.Status.SystemInfo.Get("distroVersion")
+			Expect(found).To(BeTrue())
+			Expect(version).To(Equal("10.0 (Coughlan)"))
+		})
+	})
+
 	Context("createDeviceFromEnrollmentRequest with osMode capabilities", func() {
 		It("When osMode is package it should set device capabilities.osMode to package", func() {
 			er := CreateTestER()

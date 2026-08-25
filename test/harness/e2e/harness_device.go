@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -386,16 +387,9 @@ func (h *Harness) EnsureDeviceContents(deviceId string, description string, cond
 
 func (h *Harness) WaitForBootstrapAndUpdateToVersion(deviceId string, version string) (*v1beta1.Device, util.ImageReference, error) {
 	var imageReference = util.ImageReference{}
-	// Check the device status right after bootstrap
-	response, err := h.GetDeviceWithStatusSystem(deviceId)
-	if err != nil {
-		return nil, imageReference, err
-	}
-	device := response.JSON200
-	if device.Status.Summary.Status != v1beta1.DeviceSummaryStatusOnline {
-		return nil, imageReference, fmt.Errorf("device: %q is not online", deviceId)
-	}
+	device := h.WaitForOnlineStatus(deviceId)
 
+	var err error
 	err = h.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 		currentImage := device.Status.Os.Image
 		logrus.Infof("current image for %s is %s", deviceId, currentImage)
@@ -917,10 +911,6 @@ func (h *Harness) GetDevice(deviceId string) (*v1beta1.Device, error) {
 
 func (h *Harness) SetLabelsForDevice(deviceId string, labels map[string]string) error {
 	return h.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
-		if len(labels) == 0 {
-			device.Metadata.Labels = nil
-			return
-		}
 		devLabels := make(map[string]string, len(labels)+1)
 		devLabels["test-id"] = h.GetTestIDFromContext()
 		for key, value := range labels {
@@ -928,6 +918,17 @@ func (h *Harness) SetLabelsForDevice(deviceId string, labels map[string]string) 
 		}
 		device.Metadata.Labels = &devLabels
 	})
+}
+
+func (h *Harness) LabelDeviceIntoFleet(deviceID, labelKey, fleetName string) {
+	GinkgoHelper()
+	if labelKey == "" {
+		Fail("labelKey must be non-empty")
+	}
+	nextRenderedVersion, err := h.PrepareNextDeviceVersion(deviceID)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(h.SetLabelsForDevice(deviceID, map[string]string{labelKey: fleetName})).To(Succeed())
+	Expect(h.WaitForDeviceNewRenderedVersion(deviceID, nextRenderedVersion)).To(Succeed())
 }
 
 func (h *Harness) SetLabelsForDevicesByIndex(deviceIDs []string, labelsList []map[string]string, fleetName string) error {
@@ -980,14 +981,19 @@ func (h *Harness) GetSelectedDevicesForBatch(fleetName string) ([]*v1beta1.Devic
 }
 
 func (h *Harness) GetUnavailableDevicesPerGroup(fleetName string, groupBy []string) (map[string][]*v1beta1.Device, error) {
+	return h.GetUnavailableDevicesPerGroupWithContext(h.Context, fleetName, groupBy)
+}
+
+// GetUnavailableDevicesPerGroupWithContext returns unavailable fleet devices grouped by label values.
+func (h *Harness) GetUnavailableDevicesPerGroupWithContext(ctx context.Context, fleetName string, groupBy []string) (map[string][]*v1beta1.Device, error) {
 	labelSelector := fmt.Sprintf("fleet=%s", fleetName)
 	listDeviceParams := &v1beta1.ListDevicesParams{
 		LabelSelector: &labelSelector,
 	}
 
-	response, err := h.Client.ListDevicesWithResponse(h.Context, listDeviceParams)
+	response, err := h.Client.ListDevicesWithResponse(ctx, listDeviceParams)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list devices: %s", err)
+		return nil, fmt.Errorf("failed to list devices: %w", err)
 	}
 	if response == nil {
 		return nil, fmt.Errorf("device response is nil")

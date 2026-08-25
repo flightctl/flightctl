@@ -277,8 +277,8 @@ func TestVulnerabilityConfig_EffectiveBackend(t *testing.T) {
 			want: VulnerabilityBackendQuay,
 		},
 		{
-			name: "When backend is empty and a Trustify block is present it should default to trustify",
-			cfg:  VulnerabilityConfig{Trustify: &TrustifyConfig{}},
+			name: "When backend is empty and a Trustify block with endpoint is present it should default to trustify",
+			cfg:  VulnerabilityConfig{Trustify: &TrustifyConfig{Endpoint: "https://trustify.example.com"}},
 			want: VulnerabilityBackendTrustify,
 		},
 		{
