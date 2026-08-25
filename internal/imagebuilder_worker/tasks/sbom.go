@@ -14,6 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/domain"
 	"github.com/flightctl/flightctl/internal/oci"
 	trustifyv2 "github.com/flightctl/flightctl/internal/trustify/v2"
+	"github.com/flightctl/flightctl/internal/vulnerability"
 	"github.com/google/uuid"
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -392,5 +393,5 @@ func (c *Consumer) shouldRunSBOMPipeline() bool {
 		return false
 	}
 	v := c.cfg.VulnerabilityReporting
-	return v != nil && v.Enabled && v.Trustify != nil
+	return v != nil && v.Enabled && vulnerability.RequiresSBOMUpload(v.EffectiveBackend())
 }
