@@ -432,6 +432,11 @@ var _ = Describe("Onboarding enrollment and completion flow", func() {
 		DeferCleanup(tunnelCleanup)
 
 		browser := newLoggedInBrowser(cockpitAddr)
+		// Guarantee the browser is torn down even if the spec fails before the
+		// explicit mid-body Close below. Registered first so it runs last (LIFO),
+		// after the diagnostics/screenshot callbacks capture state; Close only
+		// cancels contexts, so the later explicit Close is a harmless no-op.
+		DeferCleanup(browser.Close)
 		// DeferCleanup runs after Ginkgo records the failure, so these fire reliably
 		// (a plain defer runs during the unwind and sees Failed()==false). This spec
 		// closes the browser mid-body, so on a post-close failure the screenshot is
@@ -632,6 +637,11 @@ var _ = Describe("Onboarding enrollment and completion flow", func() {
 		DeferCleanup(tunnelCleanup)
 
 		browser := newLoggedInBrowser(cockpitAddr)
+		// Guarantee the browser is torn down even if the spec fails before the
+		// explicit mid-body Close below. Registered first so it runs last (LIFO),
+		// after the diagnostics/screenshot callbacks capture state; Close only
+		// cancels contexts, so the later explicit Close is a harmless no-op.
+		DeferCleanup(browser.Close)
 		// This spec closes the browser mid-body once the delegated apply has launched,
 		// so on a post-close failure the screenshot is best-effort; the SSH-side
 		// diagnostics and the mock sentinel are what confirm the script ran.

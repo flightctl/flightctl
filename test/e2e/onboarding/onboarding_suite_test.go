@@ -157,20 +157,31 @@ func resetAgentEnrollmentState(h *e2e.Harness) {
 	_, _ = h.VM.RunSSH([]string{"sudo", "systemctl", "stop", "flightctl-agent"}, nil)
 
 	// Remove the enrollment identity and spec files the first-boot agent persisted.
-	_, _ = h.VM.RunSSH([]string{
+	// Surface a failure here: if the stale state survives, every enrollment spec
+	// then approves the wrong device and times out in WaitForOnlineStatus — exactly
+	// the opaque failure this function exists to prevent, so don't discard the error.
+	if _, err := h.VM.RunSSH([]string{
 		"sudo", "rm", "-rf",
 		"/var/lib/flightctl/certs",
 		"/var/lib/flightctl/current.json",
 		"/var/lib/flightctl/desired.json",
 		"/var/lib/flightctl/rollback.json",
 		"/var/lib/flightctl/system.json",
-	}, nil)
+	}, nil); err != nil {
+		logrus.Warnf("failed to remove persisted agent enrollment state: %v", err)
+	}
 
 	// Rotate then vacuum the persistent journal so the stale "/enroll/<id>" line is
 	// gone. Rotating first seals the active journal file so the subsequent vacuum can
 	// actually remove the archived records that hold the stale enrollment line.
-	_, _ = h.VM.RunSSH([]string{"sudo", "journalctl", "--rotate"}, nil)
-	_, _ = h.VM.RunSSH([]string{"sudo", "journalctl", "--vacuum-time=1s"}, nil)
+	for _, argv := range [][]string{
+		{"sudo", "journalctl", "--rotate"},
+		{"sudo", "journalctl", "--vacuum-time=1s"},
+	} {
+		if _, err := h.VM.RunSSH(argv, nil); err != nil {
+			logrus.Warnf("failed to clear stale journal enrollment records (%v): %v", argv, err)
+		}
+	}
 }
 
 // setupVMOnlyHarness creates a worker harness backed by a fresh VM that is
