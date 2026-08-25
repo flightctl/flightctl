@@ -23,6 +23,9 @@ const (
 
 	// VMGuestMemoryDefault is the guest RAM for e2e KubeVirt VM manifests.
 	VMGuestMemoryDefault = "1024M"
+
+	// VMFedoraGuestUser is the default login user on Fedora containerdisk images.
+	VMFedoraGuestUser = "fedora"
 )
 
 // VMYAML builds a KubeVirt VirtualMachine manifest for e2e tests. cloudInitVolumeYAML
@@ -31,12 +34,21 @@ func VMYAML(name, guestMemory, image, cloudInitVolumeYAML string) string {
 	return vmYAMLManifest(name, guestMemory, image, 0, cloudInitVolumeYAML)
 }
 
+// VMGuestDisableFaillockCommand returns a cloud-init runcmd that disables pam_faillock
+// via authselect (Fedora PAM args can ignore faillock.conf) and clears any lockout
+// already recorded for user. Failures are ignored so non-authselect images still boot.
+func VMGuestDisableFaillockCommand(user string) string {
+	return fmt.Sprintf(`bash -lc "authselect disable-feature with-faillock >/dev/null 2>&1 || true; faillock --user %s --reset >/dev/null 2>&1 || true"`, user)
+}
+
 // VMFedoraNoCloudUserData returns cloud-init userData that enables password SSH for the fedora user.
 func VMFedoraNoCloudUserData(password string) string {
 	return fmt.Sprintf(`#cloud-config
 ssh_pwauth: true
 password: %s
-chpasswd: { expire: False }`, password)
+chpasswd: { expire: False }
+runcmd:
+  - %s`, password, VMGuestDisableFaillockCommand(VMFedoraGuestUser))
 }
 
 // VMYAMLWithCPU builds a KubeVirt VirtualMachine manifest. cpuCores <= 0 omits the cpu block.
@@ -1337,6 +1349,7 @@ func classifyDeviceLocalSSHError(err error) error {
 	}
 }
 
+// ExpectSSHUnavailableOnPort waits until password SSH on localhost:port fails, then checks it stays down.
 func (h *Harness) ExpectSSHUnavailableOnPort(port int, appName, user, password string) {
 	GinkgoHelper()
 	const remoteCmd = "/usr/bin/whoami"

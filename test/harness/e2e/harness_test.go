@@ -86,3 +86,17 @@ func TestRedactCommandArgsRemovesSensitiveValues(t *testing.T) {
 		t.Fatalf("expected non-sensitive args to be preserved in %v", redacted)
 	}
 }
+
+func TestVMFedoraNoCloudUserDataWhenEnablingPasswordSSHItShouldResetFaillock(t *testing.T) {
+	got := VMFedoraNoCloudUserData("secret-pass")
+	for _, want := range []string{
+		"ssh_pwauth: true",
+		"password: secret-pass",
+		"authselect disable-feature with-faillock",
+		"faillock --user " + VMFedoraGuestUser + " --reset",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("cloud-init userData missing %q:\n%s", want, got)
+		}
+	}
+}

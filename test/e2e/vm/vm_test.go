@@ -25,7 +25,7 @@ const (
 	vmAppBName                  = "test-vm-b"
 	defaultVMImage              = "quay.io/containerdisks/fedora:40"
 	defaultVMUpdatedImage       = "quay.io/containerdisks/fedora:41"
-	vmGuestUser                 = "fedora"
+	vmGuestUser                 = e2e.VMFedoraGuestUser
 	vmGuestPassword             = "fedora"
 	vmModifiedGuestPassword     = "fedora-new"
 	vmModifyBaselineGuestMemory = "1G"
@@ -63,7 +63,7 @@ func getVMUpdatedImage() string {
 	return defaultVMUpdatedImage
 }
 
-var _ = Describe("VM Applications", Ordered, func() {
+var _ = Describe("VM Applications", Ordered, ContinueOnFailure, func() {
 	var (
 		deviceID  string
 		harness   *e2e.Harness
@@ -719,7 +719,11 @@ chpasswd:
 }
 
 func configDriveCloudUserData(sshPublicKey, password string) string {
-	return "#cloud-config\n" + configDriveCloudUserIdentityYAML(sshPublicKey, password) + "\n"
+	return fmt.Sprintf(`#cloud-config
+%s
+runcmd:
+  - %s
+`, configDriveCloudUserIdentityYAML(sshPublicKey, password), e2e.VMGuestDisableFaillockCommand(vmCloudUser))
 }
 
 func configDriveCloudUserDataWithServices(sshPublicKey, password string) string {
@@ -779,8 +783,9 @@ write_files:
       [Install]
       WantedBy=multi-user.target
 runcmd:
+  - %s
   - systemctl daemon-reload
   - systemctl enable --now hello-http.service
   - systemctl enable --now hello-udp.service
-`, configDriveCloudUserIdentityYAML(sshPublicKey, password), configDriveIndexHTMLContent, vmBPublishedUDPPort)
+`, configDriveCloudUserIdentityYAML(sshPublicKey, password), configDriveIndexHTMLContent, vmBPublishedUDPPort, e2e.VMGuestDisableFaillockCommand(vmCloudUser))
 }
