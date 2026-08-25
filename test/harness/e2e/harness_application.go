@@ -1142,42 +1142,64 @@ func (h *Harness) QuadletPathForUserOnVM(user string) (string, error) {
 }
 
 func (h *Harness) getUserHomeOnVM(user string) (string, error) {
+	_, home, err := h.getUserOnVM(user)
+	return home, err
+}
+
+func (h *Harness) getUserOnVM(user string) (uid, home string, err error) {
 	out, err := h.VM.RunSSH([]string{"sudo", "getent", "passwd", user}, nil)
 	if err != nil {
-		return "", fmt.Errorf("getent passwd %s: %w", user, err)
+		return "", "", fmt.Errorf("getent passwd %s: %w", user, err)
 	}
 	line := strings.TrimSpace(out.String())
 	fields := strings.Split(line, ":")
-	if len(fields) < 2 {
-		return "", fmt.Errorf("getent passwd %s: unexpected output", user)
+	// passwd: name:password:UID:GID:GECOS:home:shell — GECOS may contain colons.
+	if len(fields) < 7 {
+		return "", "", fmt.Errorf("getent passwd %s: unexpected output", user)
 	}
-	return fields[len(fields)-2], nil
+	uid = fields[2]
+	home = fields[len(fields)-2]
+	if uid == "" || home == "" {
+		return "", "", fmt.Errorf("getent passwd %s: missing uid or home", user)
+	}
+	for _, r := range uid {
+		if r < '0' || r > '9' {
+			return "", "", fmt.Errorf("getent passwd %s: invalid uid %q", user, uid)
+		}
+	}
+	return uid, home, nil
 }
 
-// RunPodmanPsContainerNamesAsUser runs podman ps (or podman ps -a) on the VM as the given user and returns container names.
-func (h *Harness) RunPodmanPsContainerNamesAsUser(user string, allContainers bool) (string, error) {
-	var args []string
+// RunShellAsUserOnVM runs command in sh -c as user on the VM.
+// RunSSH joins argv with spaces for the remote shell, so the command is passed as one quoted argument.
+func (h *Harness) RunShellAsUserOnVM(user, command string) (string, error) {
+	var remote string
 	if user == "root" {
-		args = []string{"sudo", "-u", user, "podman", "ps", "--format", "{{.Names}}"}
-		if allContainers {
-			args = []string{"sudo", "-u", user, "podman", "ps", "-a", "--format", "{{.Names}}"}
-		}
+		remote = fmt.Sprintf("sudo sh -c %q", command)
 	} else {
-		home, err := h.getUserHomeOnVM(user)
+		uid, home, err := h.getUserOnVM(user)
 		if err != nil {
 			return "", err
 		}
-		cmd := fmt.Sprintf("cd /tmp && env HOME=%q podman ps --format '{{.Names}}'", home)
-		if allContainers {
-			cmd = fmt.Sprintf("cd /tmp && env HOME=%q podman ps -a --format '{{.Names}}'", home)
-		}
-		args = []string{"sudo", "-u", user, "sh", "-c", cmd}
+		// Bake in the numeric UID. $(id -u) is expanded by the outer bash -lc as the
+		// SSH user, not the target user, so it cannot be used here.
+		inner := fmt.Sprintf("cd /tmp && env HOME=%q XDG_RUNTIME_DIR=/run/user/%s %s", home, uid, command)
+		remote = fmt.Sprintf("sudo -u %q sh -c %q", user, inner)
 	}
-	out, err := h.VM.RunSSH(args, nil)
+	out, err := h.VM.RunSSH(vmShellCommandArgs(remote), nil)
 	if err != nil {
 		return "", err
 	}
 	return out.String(), nil
+}
+
+// RunPodmanPsContainerNamesAsUser runs podman ps (or podman ps -a) on the VM as the given user and returns container names.
+func (h *Harness) RunPodmanPsContainerNamesAsUser(user string, allContainers bool) (string, error) {
+	ps := "podman ps --format '{{.Names}}'"
+	if allContainers {
+		ps = "podman ps -a --format '{{.Names}}'"
+	}
+	return h.RunShellAsUserOnVM(user, ps)
 }
 
 // RunSystemctlUserStatus runs systemctl --user status for the given user on the VM.
@@ -1203,6 +1225,30 @@ func (h *Harness) GetContainerPorts() (string, error) {
 // =============================================================================
 // VM operations
 // =============================================================================
+
+// CurlOnDevice GETs url from inside the device VM using curl --fail.
+func (h *Harness) CurlOnDevice(url, connectTimeout, maxTime string) error {
+	if h.VM == nil {
+		return fmt.Errorf("device VM is not configured")
+	}
+	if url == "" {
+		return fmt.Errorf("url is required")
+	}
+	out, err := h.VM.RunSSH([]string{
+		"curl", "-sS", "--fail",
+		"--connect-timeout", connectTimeout,
+		"--max-time", maxTime,
+		url,
+	}, nil)
+	if err != nil {
+		curlOutput := ""
+		if out != nil {
+			curlOutput = strings.TrimSpace(out.String())
+		}
+		return fmt.Errorf("GET %s: %w, curl output: %q", url, err, curlOutput)
+	}
+	return nil
+}
 
 // RunSSHOnDeviceLocalPort runs ssh on the device host to localhost:port using password auth.
 // This exercises VM publishPorts mappings (e.g. host 2222 to guest 22).
