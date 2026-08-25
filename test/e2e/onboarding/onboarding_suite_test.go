@@ -320,14 +320,24 @@ func installCockpitAndOnboarding(h *e2e.Harness) {
 // to the in-memory overlay by --transient) are captured by the memory snapshot
 // and persist across every per-spec revert.
 func installWifiStack(h *e2e.Harness) {
-	_, err := h.VM.RunSSH(append([]string{
+	// Best-effort. The WiFi specs are gated behind wifiStackAvailable and Skip when
+	// the stack is absent, so a failed install must NOT abort BeforeSuite and take
+	// down the rest of the onboarding suite (notably the config-flow specs). The
+	// common cause is repo drift: the device image's pinned kernel has rolled out of
+	// the enabled repos, so kernel-modules-extra-$(uname -r) no longer resolves and
+	// dnf aborts the whole transaction. When that happens, log and let the WiFi
+	// specs skip rather than failing every onboarding test.
+	if _, err := h.VM.RunSSH(append([]string{
 		"sudo", "dnf", "install",
 	}, append(dnfInstallFlags,
 		"kernel-modules-extra-$(uname -r)",
-		"hostapd", "wpa_supplicant", "NetworkManager-wifi", "iw", "dnsmasq")...), nil)
-	Expect(err).ToNot(HaveOccurred(), "failed to install WiFi soft-AP stack")
+		"hostapd", "wpa_supplicant", "NetworkManager-wifi", "iw", "dnsmasq")...), nil); err != nil {
+		logrus.Warnf("WiFi soft-AP stack install failed; WiFi specs will skip: %v", err)
+		return
+	}
 
 	// Rebuild modules.dep so modprobe can find the just-installed mac80211_hwsim.
-	_, err = h.VM.RunSSH([]string{"sudo", "depmod", "-a"}, nil)
-	Expect(err).ToNot(HaveOccurred(), "failed to run depmod after installing kernel-modules-extra")
+	if _, err := h.VM.RunSSH([]string{"sudo", "depmod", "-a"}, nil); err != nil {
+		logrus.Warnf("depmod after WiFi stack install failed; WiFi specs may skip: %v", err)
+	}
 }
