@@ -25,6 +25,11 @@ const (
 	onboardingSnapshotID = "pre-onboarding"
 )
 
+// suiteHarness holds the fresh VM harness created in BeforeSuite so AfterSuite
+// can tear it down. CreateFreshVMWithTPM does not register the VM in the pool
+// maps, so pool-level cleanup would never see it; we must destroy it explicitly.
+var suiteHarness *e2e.Harness
+
 // dnfInstallFlags make dnf installs non-interactive and robust inside the test VM.
 // The VM's SSH sessions have no stdin, so any dnf prompt (transaction confirm or
 // GPG key import) yields EOF and dnf aborts with "Operation aborted." even with -y.
@@ -70,6 +75,7 @@ var _ = BeforeSuite(func() {
 	harness, ctx, err := setupVMOnlyHarness(workerID)
 	Expect(err).ToNot(HaveOccurred(), "failed to create fresh VM for onboarding suite")
 	_ = ctx
+	suiteHarness = harness
 
 	logrus.Infof("Worker %d: fresh VM created, installing cockpit + onboarding RPM", workerID)
 	installCockpitAndOnboarding(harness)
@@ -79,6 +85,18 @@ var _ = BeforeSuite(func() {
 	err = harness.VM.CreateSnapshot(onboardingSnapshotID)
 	Expect(err).ToNot(HaveOccurred(), "failed to create pre-onboarding snapshot")
 	logrus.Infof("Worker %d: onboarding suite setup complete", workerID)
+})
+
+var _ = AfterSuite(func() {
+	// The fresh VM is created outside the normal pool (CreateFreshVMWithTPM does
+	// not populate the pool maps), so pool cleanup will not reach it. Destroy it
+	// explicitly. e2e.Cleanup both force-deletes the VM and removes any pool
+	// bookkeeping for it.
+	if suiteHarness == nil {
+		return
+	}
+	e2e.Cleanup(suiteHarness)
+	suiteHarness = nil
 })
 
 var _ = BeforeEach(func() {
