@@ -84,6 +84,46 @@ func userExists(h *e2e.Harness, user string) bool {
 	return err == nil
 }
 
+// drainUserLoginSession terminates a user's login session and its
+// `user@<uid>.service`, then waits until logind stops tracking the user (the user
+// no longer appears in `loginctl list-users`). It does NOT delete the account —
+// getent still resolves the user afterwards; it only guarantees the user owns no
+// live session or systemd --user instance.
+//
+// This exists because cleanup-onboarding.sh removes the onboarding account with a
+// single, best-effort `userdel -r` after just a fixed 2s sleep, swallowing any
+// error. logind tears a user's systemd --user manager down asynchronously once
+// the last session closes, and 2s is not always enough: if the manager is still
+// stopping when userdel runs, userdel refuses ("user is currently used by
+// process"), and because the script runs once and ignores the failure the account
+// survives cleanup for good. Merely closing the wizard browser (as this suite
+// does) starts that teardown but does not wait for it, leaving the race open.
+// Draining the session here first — and confirming logind has dropped the user —
+// makes cleanup's userdel run against an idle account so it succeeds on its one
+// shot.
+func drainUserLoginSession(h *e2e.Harness, user string) {
+	GinkgoHelper()
+	// terminate-user is fire-and-forget: it requests teardown and returns before
+	// the user manager has stopped, so the poll below is what actually waits.
+	_, _ = h.VM.RunSSH([]string{"sudo", "loginctl", "terminate-user", user}, nil)
+	Eventually(func() bool {
+		// list-users prints "UID USER [LINGER STATE]" per row; a user with no
+		// session and no running manager is absent from the list entirely.
+		out, err := h.VM.RunSSH([]string{"loginctl", "list-users", "--no-legend"}, nil)
+		if err != nil {
+			return false
+		}
+		for _, line := range strings.Split(out.String(), "\n") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 && fields[1] == user {
+				return false
+			}
+		}
+		return true
+	}, 60*time.Second, 2*time.Second).Should(BeTrue(),
+		"the onboarding user's login session and user manager should end before cleanup")
+}
+
 // completeMinimalWizard drives the wizard through the shortest path to a
 // successful apply: pick the NIC, skip every optional domain, set a hostname,
 // and apply with the connectivity test relaxed. On success the wizard's finalize
@@ -197,12 +237,19 @@ var _ = Describe("Onboarding service lifecycle", func() {
 		Expect(userExists(harness, onboardingUserName)).To(BeTrue())
 
 		// End the onboarding user's Cockpit login session before cleanup runs.
-		// cleanup-onboarding.sh removes the user with `userdel -r`, which refuses
-		// (and the script swallows the error) while the user still owns a live
-		// session — and driving the wizard just opened one. Closing the browser and
-		// its SSH tunnel lets the session terminate so the deletion can succeed.
+		// cleanup-onboarding.sh removes the user with a single best-effort
+		// `userdel -r` (2s sleep, error swallowed), which refuses while the user
+		// still owns a live session or a running systemd --user manager — and
+		// driving the wizard just opened one. Closing the browser and its SSH tunnel
+		// only STARTS logind's async teardown; it does not wait for it, so cleanup
+		// can still race the manager's shutdown. Drain the session and wait for
+		// logind to drop the user so cleanup's one-shot userdel runs against an idle
+		// account. See drainUserLoginSession.
 		By("Closing the wizard browser session so the onboarding login session ends")
 		closeBrowser()
+
+		By("Draining the onboarding user's login session before cleanup")
+		drainUserLoginSession(harness, onboardingUserName)
 
 		By("Running the one-shot cleanup script (AC #3)")
 		runCleanup(harness)
