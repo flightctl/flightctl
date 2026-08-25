@@ -1,8 +1,10 @@
 package quay
 
 import (
+	"context"
 	"testing"
 
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/vulnerability"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -370,4 +372,125 @@ func TestAdvisoryID(t *testing.T) {
 			assert.Equal(t, *tt.want, *got)
 		})
 	}
+}
+
+func TestNewScanner_NilConfig(t *testing.T) {
+	s, err := NewScanner(nil, nil)
+	require.NoError(t, err)
+	assert.Nil(t, s, "a nil Quay config yields no scanner")
+}
+
+func scannedResponse() Response {
+	return Response{
+		Status: statusScanned,
+		Data: &Data{Layer: &Layer{Features: []Feature{{
+			Name:          "openssl",
+			NamespaceName: "rhel:9",
+			Vulnerabilities: []Vulnerability{{
+				Name:     "RHSA-2024:1234",
+				Link:     "https://access.redhat.com/security/cve/CVE-2024-0001",
+				Severity: "High",
+				Metadata: Metadata{NVD: NVD{CVSSv3: CVSS{Score: 9.8, Vectors: "AV:N"}}},
+			}},
+		}}}},
+	}
+}
+
+func TestScanImages_Success(t *testing.T) {
+	srv := newMockQuayServer(t, &mockQuayServer{response: scannedResponse()})
+	s, err := NewScanner(&config.QuayConfig{Endpoint: srv.URL, Token: "test-token"}, nil)
+	require.NoError(t, err)
+	require.NotNil(t, s)
+
+	out, err := s.ScanImages(context.Background(), []vulnerability.ImageRef{
+		{Digest: "sha256:abc", Image: hostOf(srv) + "/testorg/testrepo:latest"},
+	})
+	require.NoError(t, err)
+	require.Contains(t, out, "sha256:abc")
+	require.Len(t, out["sha256:abc"], 1)
+	f := out["sha256:abc"][0]
+	assert.Equal(t, "CVE-2024-0001", f.CveID)
+	assert.Equal(t, "affected", f.Status)
+	assert.Equal(t, "High", f.Severity)
+}
+
+func TestScanImages_SkipsImagesOnOtherRegistries(t *testing.T) {
+	srv := newMockQuayServer(t, &mockQuayServer{response: scannedResponse()})
+	s, err := NewScanner(&config.QuayConfig{Endpoint: srv.URL, Token: "test-token"}, nil)
+	require.NoError(t, err)
+
+	out, err := s.ScanImages(context.Background(), []vulnerability.ImageRef{
+		{Digest: "sha256:other", Image: "docker.io/library/nginx:latest"},
+	})
+	require.NoError(t, err)
+	assert.NotContains(t, out, "sha256:other", "images on other registries are filtered out")
+}
+
+func TestScanImages_MultipleImages(t *testing.T) {
+	srv := newMockQuayServer(t, &mockQuayServer{response: scannedResponse()})
+	s, err := NewScanner(&config.QuayConfig{Endpoint: srv.URL, Token: "test-token"}, nil)
+	require.NoError(t, err)
+
+	out, err := s.ScanImages(context.Background(), []vulnerability.ImageRef{
+		{Digest: "sha256:a", Image: hostOf(srv) + "/org/a:latest"},
+		{Digest: "sha256:b", Image: hostOf(srv) + "/org/b:latest"},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, out, "sha256:a")
+	assert.Contains(t, out, "sha256:b")
+}
+
+func TestScanImages_FetchErrorAborts(t *testing.T) {
+	// A malformed 200 body makes the client's decode fail, which is a genuine
+	// error (not a documented skip) and must abort the scan, discarding any
+	// findings already accumulated from earlier images.
+	srv := newMockQuayServer(t, &mockQuayServer{rawBody: "{not json"})
+	s, err := NewScanner(&config.QuayConfig{Endpoint: srv.URL, Token: "test-token"}, nil)
+	require.NoError(t, err)
+
+	out, err := s.ScanImages(context.Background(), []vulnerability.ImageRef{
+		{Digest: "sha256:a", Image: hostOf(srv) + "/org/a:latest"},
+		{Digest: "sha256:b", Image: hostOf(srv) + "/org/b:latest"},
+	})
+	require.Error(t, err)
+	assert.Nil(t, out, "a genuine error aborts and discards partial results")
+}
+
+func TestScanImages_ScannedWithNoFindingsOmitsDigest(t *testing.T) {
+	// A scanned report whose only vulnerability has no extractable CVE yields
+	// no findings, and the digest is omitted from the returned map.
+	resp := Response{
+		Status: statusScanned,
+		Data: &Data{Layer: &Layer{Features: []Feature{{
+			Vulnerabilities: []Vulnerability{{
+				Name: "RHSA-2024:9", Link: "https://access.redhat.com/errata/RHSA-2024:9", Severity: "High",
+			}},
+		}}}},
+	}
+	srv := newMockQuayServer(t, &mockQuayServer{response: resp})
+	s, err := NewScanner(&config.QuayConfig{Endpoint: srv.URL, Token: "test-token"}, nil)
+	require.NoError(t, err)
+
+	out, err := s.ScanImages(context.Background(), []vulnerability.ImageRef{
+		{Digest: "sha256:empty", Image: hostOf(srv) + "/org/repo:latest"},
+	})
+	require.NoError(t, err)
+	assert.NotContains(t, out, "sha256:empty")
+}
+
+func TestRegistry_ResolvesQuayBackend(t *testing.T) {
+	srv := newMockQuayServer(t, &mockQuayServer{response: scannedResponse()})
+	cfg := &config.VulnerabilityConfig{
+		Backend: config.VulnerabilityBackendQuay,
+		Quay:    &config.QuayConfig{Endpoint: srv.URL, Token: "test-token"},
+	}
+	s, err := vulnerability.NewScanner(cfg)
+	require.NoError(t, err)
+	require.NotNil(t, s, "backend \"quay\" must resolve via the init() registration")
+
+	out, err := s.ScanImages(context.Background(), []vulnerability.ImageRef{
+		{Digest: "sha256:abc", Image: hostOf(srv) + "/org/repo:latest"},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, out, "sha256:abc")
 }

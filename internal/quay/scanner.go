@@ -1,9 +1,12 @@
 package quay
 
 import (
+	"context"
+	"fmt"
 	"regexp"
 	"strings"
 
+	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/vulnerability"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -12,6 +15,61 @@ import (
 // statusAffected is the only status Quay-sourced findings carry: Quay reports
 // vulnerabilities currently detected in an image and provides no VEX status.
 const statusAffected = "affected"
+
+func init() {
+	vulnerability.Register(string(config.VulnerabilityBackendQuay),
+		func(cfg *config.VulnerabilityConfig) (vulnerability.Scanner, error) {
+			return NewScanner(cfg.Quay, nil)
+		}, vulnerability.WithSBOMUpload(false)) // Quay indexes images natively
+}
+
+// quayScanner implements vulnerability.Scanner over the Quay Security API
+// client, converting Quay/Clair scan reports into backend-agnostic
+// vulnerability.Finding DTOs.
+type quayScanner struct {
+	client *Client
+	log    logrus.FieldLogger
+}
+
+// NewScanner returns a Quay-backed Scanner. It returns (nil, nil) when cfg is
+// nil so callers can treat a missing Quay configuration as "no scanner". Unlike
+// Trustify, the Quay client needs no request context to construct (bearer-token
+// auth, no OIDC discovery), so it is built eagerly here.
+func NewScanner(cfg *config.QuayConfig, log logrus.FieldLogger) (vulnerability.Scanner, error) {
+	if cfg == nil {
+		return nil, nil
+	}
+	if log == nil {
+		log = logrus.StandardLogger()
+	}
+	client, err := NewClient(cfg, log)
+	if err != nil {
+		return nil, err
+	}
+	return &quayScanner{client: client, log: log}, nil
+}
+
+// ScanImages fetches each image's Quay Security report and converts the
+// contained vulnerabilities into findings keyed by image digest. Images the
+// client skips (missing reference, other registry, not "scanned", 404)
+// contribute no findings; a genuine fetch or decode error aborts the scan.
+func (s *quayScanner) ScanImages(ctx context.Context, images []vulnerability.ImageRef) (map[string][]vulnerability.Finding, error) {
+	out := make(map[string][]vulnerability.Finding)
+	for _, image := range images {
+		report, err := s.client.FetchImageSecurity(ctx, image)
+		if err != nil {
+			return nil, fmt.Errorf("scanning image %s: %w", image.Digest, err)
+		}
+		if report == nil {
+			continue
+		}
+		findings := findingsFromReport(image.Digest, report, s.log)
+		if len(findings) > 0 {
+			out[image.Digest] = append(out[image.Digest], findings...)
+		}
+	}
+	return out, nil
+}
 
 // cveRegex matches CVE identifiers in free text (e.g. advisory links). It
 // mirrors the pattern Quay uses internally to derive CVEs from vulnerability
