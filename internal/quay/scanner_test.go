@@ -380,6 +380,12 @@ func TestNewScanner_NilConfig(t *testing.T) {
 	assert.Nil(t, s, "a nil Quay config yields no scanner")
 }
 
+func TestNewScanner_InvalidEndpoint(t *testing.T) {
+	s, err := NewScanner(&config.QuayConfig{Endpoint: ""}, nil)
+	require.Error(t, err, "an unparseable endpoint must surface as a constructor error")
+	assert.Nil(t, s)
+}
+
 func scannedResponse() Response {
 	return Response{
 		Status: statusScanned,
