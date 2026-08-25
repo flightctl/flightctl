@@ -72,9 +72,8 @@ var _ = BeforeSuite(func() {
 	workerID := GinkgoParallelProcess()
 
 	// Create a fresh VM (booted, SSH ready) without starting the agent.
-	harness, ctx, err := setupVMOnlyHarness(workerID)
+	harness, err := setupVMOnlyHarness(workerID)
 	Expect(err).ToNot(HaveOccurred(), "failed to create fresh VM for onboarding suite")
-	_ = ctx
 	suiteHarness = harness
 
 	logrus.Infof("Worker %d: fresh VM created, installing cockpit + onboarding RPM", workerID)
@@ -132,15 +131,17 @@ var _ = AfterEach(func() {
 // setupVMOnlyHarness creates a worker harness backed by a fresh VM that is
 // booted and reachable via SSH but does NOT start the flightctl-agent.
 // The onboarding wizard is responsible for configuring and starting the agent.
-func setupVMOnlyHarness(workerID int) (*e2e.Harness, context.Context, error) {
+func setupVMOnlyHarness(workerID int) (*e2e.Harness, error) {
 	suiteCtx := context.Background()
 	harness, err := e2e.NewTestHarnessWithVMOnly(suiteCtx, workerID)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create VM-only harness for worker %d: %w", workerID, err)
+		return nil, fmt.Errorf("failed to create VM-only harness for worker %d: %w", workerID, err)
 	}
 
+	// The suite context is stored for later retrieval via e2e.GetWorkerContext();
+	// callers do not need it back from here.
 	e2e.StoreWorkerHarness(workerID, harness, suiteCtx)
-	return harness, suiteCtx, nil
+	return harness, nil
 }
 
 // installCockpitAndOnboarding installs cockpit, cockpit-ws, cockpit-bridge,

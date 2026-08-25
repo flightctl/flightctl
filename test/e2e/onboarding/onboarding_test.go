@@ -4,6 +4,8 @@ package onboarding_test
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,12 +19,6 @@ import (
 
 const (
 	sshPortBase = 2233
-	// vmUser/vmPassword are NOT secrets: they are the well-known, hard-coded
-	// login baked into the ephemeral e2e base VM image (see the VM provisioning
-	// harness). The image fixes this account, so the value cannot be injected at
-	// runtime; it only ever authenticates to a throwaway local libvirt guest.
-	vmUser     = "user"
-	vmPassword = "user" // gitleaks:allow -- fixed credential of the ephemeral test VM image
 	// cockpitUser is the passwordless "onboarding" user created by
 	// create-onboarding-user.sh. The wizard's privileged apply operations
 	// (hostname/NTP/NetworkManager via D-Bus) are authorized by the polkit rule
@@ -30,11 +26,8 @@ const (
 	// Logging in as any other user (e.g. "user") makes every apply step fail
 	// polkit authorization. SSH access for this user is intentionally blocked, so
 	// the SSH tunnel and all system verification still use vmUser/vmPassword.
-	// cockpitPassword is not a secret either: the suite sets it on the throwaway
-	// onboarding account purely so headless Chrome can log in deterministically.
-	cockpitUser     = "onboarding"
-	cockpitPassword = "onboarding" // gitleaks:allow -- test-only password for the ephemeral onboarding account
-	wizardTimeout   = 120 * time.Second
+	cockpitUser   = "onboarding"
+	wizardTimeout = 120 * time.Second
 
 	// SLIRP-matching static IPv4 values. The nested VM has a single NIC on QEMU
 	// user-mode (SLIRP) networking; the guest is fixed at 10.0.2.15 with gateway
@@ -46,6 +39,42 @@ const (
 	slirpStaticMask    = "255.255.255.0"
 	slirpStaticGateway = "10.0.2.2"
 )
+
+// Test credentials. These are not real secrets — they authenticate only to a
+// throwaway local libvirt guest — but they are sourced at runtime rather than
+// committed as literals:
+//   - vmUser/vmPassword default to the well-known login baked into the ephemeral
+//     e2e base VM image (see vm_pool.go). The image fixes this account, so the
+//     default matches it, but both are overridable via the environment.
+//   - cockpitPassword is set BY the suite on the throwaway onboarding account so
+//     headless Chrome can log in deterministically. It is generated per run
+//     unless overridden, so no password literal is committed.
+var (
+	vmUser          = envOrDefault("E2E_VM_USER", "user")
+	vmPassword      = envOrDefault("E2E_VM_PASSWORD", "user") //nolint:gosec // image-baked throwaway credential, overridable via env
+	cockpitPassword = envOrDefault("ONBOARDING_COCKPIT_PASSWORD", randomPassword())
+)
+
+// envOrDefault returns the value of environment variable key, or def when it is
+// unset or empty.
+func envOrDefault(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
+
+// randomPassword returns a random hex string used as the throwaway Cockpit login
+// for the onboarding account the suite creates. Generating it per run keeps a
+// password literal out of the source tree. If the system RNG is unavailable
+// (never expected), it panics rather than silently using a predictable value.
+func randomPassword() string {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		panic("onboarding e2e: cannot generate random Cockpit password: " + err.Error())
+	}
+	return hex.EncodeToString(buf)
+}
 
 // newLoggedInBrowser creates a headless Chrome session and logs it in to the
 // Cockpit wizard as the onboarding user. The caller owns the returned browser
@@ -163,7 +192,14 @@ func getOnboardingNMProfileOfType(h *e2e.Harness, connType string) string {
 
 	var seen []string
 	for _, line := range strings.Split(out.String(), "\n") {
-		fields := strings.SplitN(strings.TrimSpace(line), ":", 2)
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// `nmcli -t` escapes a literal ':' inside a field value as '\:' (and '\' as
+		// '\\'), so a naive SplitN on ':' would mis-split a NAME containing a colon.
+		// Split on unescaped separators instead.
+		fields := splitNmcliTerse(line)
 		if len(fields) < 2 || !strings.HasPrefix(fields[0], "flightctl-onboarding-") {
 			continue
 		}
@@ -174,6 +210,29 @@ func getOnboardingNMProfileOfType(h *e2e.Harness, connType string) string {
 	}
 	Fail("no flightctl-onboarding-* NM profile of type " + connType + " found; profiles: " + strings.Join(seen, ", "))
 	return ""
+}
+
+// splitNmcliTerse splits a single line of `nmcli -t` (terse) output into its
+// fields on unescaped ':' separators, unescaping '\:' and '\\' in each field.
+func splitNmcliTerse(line string) []string {
+	var fields []string
+	var cur strings.Builder
+	for i := 0; i < len(line); i++ {
+		switch line[i] {
+		case '\\':
+			if i+1 < len(line) {
+				i++
+				cur.WriteByte(line[i])
+			}
+		case ':':
+			fields = append(fields, cur.String())
+			cur.Reset()
+		default:
+			cur.WriteByte(line[i])
+		}
+	}
+	fields = append(fields, cur.String())
+	return fields
 }
 
 // expectCompletionMarker asserts the onboarding completion marker eventually
@@ -412,6 +471,19 @@ var _ = Describe("Onboarding wizard configuration flow", func() {
 
 		By("Verifying first attempt shows failure")
 		Expect(browser.WizardWaitForFailure(wizardTimeout)).To(Succeed())
+
+		By("Verifying the hostname step actually ran before the failure")
+		// Guard against a vacuous rollback check: if the apply had failed before the
+		// hostname step ever ran, the assertions below (hostname != attempted value,
+		// hostname == original) would both pass without proving any rollback happened.
+		// The progress page lists each executed step with its target, so requiring the
+		// attempted hostname to appear there confirms the hostname step was applied
+		// (and therefore that the subsequent revert is a genuine rollback).
+		progressText, err := browser.WizardGetReviewText()
+		Expect(err).ToNot(HaveOccurred())
+		Expect(progressText).To(ContainSubstring("error-recovery-test"),
+			"progress page should show the hostname step ran with the attempted hostname, "+
+				"so the rollback assertion below is meaningful")
 
 		By("Verifying applied changes were rolled back after the failure")
 		// The installed onboarding package rolls back every applied step (including
@@ -698,6 +770,11 @@ var _ = Describe("Onboarding wizard configuration flow", func() {
 		// than using startBrowserSession (which bundles one browser with the tunnel).
 		browser := newLoggedInBrowser(cockpitAddr)
 		defer browser.Close()
+		// Registered after browser.Close() so it runs first (LIFO): if the apply flow
+		// below fails, this captures the still-live first session before its context is
+		// cancelled. Every other spec gets this via startBrowserSession's cleanup; this
+		// spec manages its browsers directly, so wire the capture up explicitly.
+		defer saveScreenshotOnFailure(browser, "run-to-completion")
 
 		By("Running a minimal wizard flow to completion")
 		Expect(browser.WizardSelectNIC()).To(Succeed())

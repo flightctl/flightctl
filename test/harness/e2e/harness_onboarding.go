@@ -1,9 +1,11 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -46,6 +48,15 @@ func NewOnboardingBrowser(parent context.Context) (*OnboardingBrowser, error) {
 	)
 	allocCtx, allocCancel := chromedp.NewExecAllocator(parent, opts...)
 	ctx, cancel := chromedp.NewContext(allocCtx)
+
+	// Run a no-op action to actually start Chrome now. Without this the allocation
+	// is lazy and a missing/broken Chrome binary would only surface later as an
+	// opaque CockpitLogin timeout; here it fails with a clear browser-startup error.
+	if err := chromedp.Run(ctx); err != nil {
+		cancel()
+		allocCancel()
+		return nil, fmt.Errorf("starting headless Chrome: %w", err)
+	}
 
 	return &OnboardingBrowser{
 		allocCtx:    allocCtx,
@@ -531,13 +542,14 @@ func (b *OnboardingBrowser) WizardConfigureSecondaryDNS(dns string) error {
 	)
 }
 
-// WizardNavigateBackwards clicks the Back button n times with a delay between clicks.
+// WizardNavigateBackwards clicks the Back button n times. WizardClickBack already
+// polls until the wizard's current step actually changes, so no extra delay
+// between clicks is needed.
 func (b *OnboardingBrowser) WizardNavigateBackwards(n int) error {
 	for i := 0; i < n; i++ {
 		if err := b.WizardClickBack(); err != nil {
 			return fmt.Errorf("clicking Back (click %d/%d): %w", i+1, n, err)
 		}
-		time.Sleep(500 * time.Millisecond)
 	}
 	return nil
 }
@@ -553,7 +565,10 @@ func StartCockpitTunnel(sshPort int, sshUser, sshPassword string) (cockpitAddr s
 	localPort := listener.Addr().(*net.TCPAddr).Port
 	listener.Close()
 
-	cmd := exec.Command("sshpass", "-p", sshPassword, // #nosec G204 - e2e test code with controlled inputs
+	// Pass the password via SSHPASS (sshpass -e) rather than on the command line
+	// (sshpass -p), so the credential stays out of argv, the process table, and any
+	// logged command string.
+	cmd := exec.Command("sshpass", "-e", // #nosec G204 - e2e test code with controlled inputs
 		"ssh", "-p", strconv.Itoa(sshPort),
 		fmt.Sprintf("%s@127.0.0.1", sshUser),
 		"-o", "StrictHostKeyChecking=no",
@@ -562,6 +577,12 @@ func StartCockpitTunnel(sshPort int, sshUser, sshPassword string) (cockpitAddr s
 		"-L", fmt.Sprintf("127.0.0.1:%d:localhost:%d", localPort, cockpitPort),
 		"-N",
 	)
+	cmd.Env = append(os.Environ(), "SSHPASS="+sshPassword)
+	// Capture ssh's stderr so a tunnel that never comes up (auth failure, refused
+	// forward) reports the underlying reason instead of a bare "did not become
+	// ready" timeout.
+	var sshStderr bytes.Buffer
+	cmd.Stderr = &sshStderr
 	if startErr := cmd.Start(); startErr != nil {
 		return "", nil, fmt.Errorf("starting SSH tunnel: %w", startErr)
 	}
@@ -583,7 +604,8 @@ func StartCockpitTunnel(sshPort int, sshUser, sshPassword string) (cockpitAddr s
 
 	_ = cmd.Process.Kill()
 	_ = cmd.Wait()
-	return "", nil, fmt.Errorf("SSH tunnel to port %d via SSH port %d did not become ready within 15s", cockpitPort, sshPort)
+	return "", nil, fmt.Errorf("SSH tunnel to port %d via SSH port %d did not become ready within 15s: %s",
+		cockpitPort, sshPort, strings.TrimSpace(sshStderr.String()))
 }
 
 // --- iframe helpers ---
@@ -592,8 +614,14 @@ func StartCockpitTunnel(sshPort int, sshUser, sshPassword string) (cockpitAddr s
 // and perform DOM operations there.
 
 func (b *OnboardingBrowser) iframeDoc() string {
+	// Resolve the iframe defensively: document.querySelector returns null when the
+	// Cockpit iframe is gone (session drop, reload, login timeout), and reading
+	// .contentDocument on null throws a TypeError inside the page. Returning null
+	// instead lets every helper's `if (!doc)` guard produce a diagnosable
+	// "iframe not found" message rather than an opaque
+	// "Cannot read properties of null (reading 'contentDocument')".
 	return fmt.Sprintf(
-		`document.querySelector("iframe[name='%s']").contentDocument`,
+		`(function(){var f=document.querySelector("iframe[name='%s']");return f?f.contentDocument:null;})()`,
 		cockpitIframeName,
 	)
 }
