@@ -184,6 +184,35 @@ func enrollmentReview(browser *e2e.OnboardingBrowser) {
 	Expect(browser.WizardSetConnectivityRequired(false)).To(Succeed())
 }
 
+// waitForDelegatedApplyLaunched blocks until the wizard's delegated apply has
+// actually started on the guest — i.e. run-apply-enroll.sh has invoked systemd-run
+// and the flightctl-onboarding-apply-<ns> transient unit exists. On the single-NIC
+// path WizardClickApply only clicks the button; the wizard then calls
+// cockpit.spawn(["sudo", run-apply-enroll.sh, ...]) over the Cockpit bridge, and
+// that spawn must finish before systemd-run registers the unit. Specs that drop the
+// browser (E5) or that rely on the enrollment script running in PID 1's mount
+// namespace (E7) must wait for this first, or closing the bridge kills the spawn
+// before the background unit is ever created (observed in CI: empty apply-unit
+// journal, no apply log, marker timeout).
+func waitForDelegatedApplyLaunched(h *e2e.Harness, timeout time.Duration) {
+	GinkgoHelper()
+	// Single-element argv → run through a shell by RunSSH; the pattern is a static
+	// string with no harvested values, so there is nothing to inject. The transient
+	// unit is created with --remain-after-exit, so it persists after the apply
+	// completes; `grep -c … || true` yields "0" (not an SSH error) when it is absent.
+	Eventually(func() (string, error) {
+		out, err := h.VM.RunSSH([]string{
+			"systemctl list-units --all --no-legend 'flightctl-onboarding-apply-*.service' " +
+				"2>/dev/null | grep -c flightctl-onboarding-apply || true",
+		}, nil)
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(out.String()), nil
+	}, timeout, 2*time.Second).ShouldNot(Or(Equal("0"), BeEmpty()),
+		"the delegated apply transient unit (flightctl-onboarding-apply-*) never launched")
+}
+
 var _ = Describe("Onboarding enrollment and completion flow", func() {
 
 	It("When enrollment is configured it should enroll the device and create an enrollment request", Label("90423"), func() {
@@ -226,13 +255,13 @@ var _ = Describe("Onboarding enrollment and completion flow", func() {
 		expectCompletionMarker(harness)
 
 		By("Verifying the agent enrolled: enrollment request appears, is approved, and the device comes online")
-		// cleanup-onboarding.sh (run by apply-and-enroll.sh) starts flightctl-agent,
-		// which reads the wizard-written /etc/flightctl/config.yaml and creates an
-		// EnrollmentRequest. enrollApproveRestartAndWaitOnline reads the enrollment
-		// ID from the in-VM agent journal, waits for the request, approves it,
-		// restarts the agent (the onboarding agent's short enrollment-verify cap
-		// means it has usually gone inactive by approval time), and waits for the
-		// device to report online.
+		// On wizard success the agent is enabled but not started (the onboarding gate
+		// defers its start until session end). enrollApproveRestartAndWaitOnline arms
+		// the gate and starts the agent so it reads the wizard-written
+		// /etc/flightctl/config.yaml and creates an EnrollmentRequest, reads the
+		// enrollment ID from that fresh agent invocation, waits for the request,
+		// approves it, restarts the agent (its short enrollment-verify cap means it
+		// has usually gone inactive by approval time), and waits for online.
 		deviceID := enrollApproveRestartAndWaitOnline(harness)
 		Expect(deviceID).ToNot(BeEmpty(), "enrollment ID should be present in agent logs")
 	})
@@ -385,16 +414,17 @@ var _ = Describe("Onboarding enrollment and completion flow", func() {
 		// (simulating the operator's control channel going away) right after Apply
 		// and then verify completion purely over SSH.
 		//
-		// The wizard ALWAYS delegates the network-activation + connectivity +
-		// enrollment + finalize + cleanup phase to a systemd-run transient unit
-		// (run-apply-enroll.sh → apply-and-enroll.sh); there is no inline apply path
-		// and no isConnectedViaInterface() gate in the deployed package. The transient
-		// unit is a child of PID 1, so it is unaffected by the browser/cockpit-bridge
-		// going away — which is exactly the completion-after-disconnect behaviour AC5
-		// asserts. StartCockpitTunnelViaInterface is used (rather than the loopback
-		// StartCockpitTunnel) so the browser reaches Cockpit via the guest's real eth0
-		// (10.0.2.15, navigating via 127.0.0.2 so the origin host is not localhost),
-		// keeping the guest addressable over its real interface during the apply.
+		// The deployed wizard's apply branches on isSingleNic (whether the selected
+		// NIC is the interface Cockpit is reached through): single-NIC delegates the
+		// network-activation + connectivity + enrollment + finalize + cleanup phase to
+		// a systemd-run transient unit (run-apply-enroll.sh → apply-and-enroll.sh),
+		// while multi-NIC runs those steps inline in the Cockpit bridge. This spec
+		// forces the single-NIC path via StartCockpitTunnelViaInterface so the browser
+		// reaches Cockpit through the guest's real eth0 (10.0.2.15, navigated via
+		// 127.0.0.2 so the origin host is not localhost) and WizardSelectNIC selects
+		// that same interface. The transient unit is a child of PID 1, so it is
+		// unaffected by the browser/cockpit-bridge going away — exactly the
+		// completion-after-disconnect behaviour AC5 asserts.
 		workerID := GinkgoParallelProcess()
 		sshPort := sshPortBase + workerID
 		cockpitAddr, tunnelCleanup, err := e2e.StartCockpitTunnelViaInterface(sshPort, vmUser, vmPassword, slirpStaticIP)
@@ -430,13 +460,23 @@ var _ = Describe("Onboarding enrollment and completion flow", func() {
 		Expect(browser.WizardSetConnectivityRequired(false)).To(Succeed())
 		Expect(browser.WizardClickApply()).To(Succeed())
 
-		By("Dropping the browser control channel immediately after Apply")
-		// Record which apply path the wizard chose (inline vs single-NIC delegated)
-		// while the browser is still alive; on the delegated path the transient unit
-		// is already launched by the time Apply returns, so closing Chrome here cannot
-		// affect it — completion must proceed in the background. If the wizard instead
-		// ran the apply inline, closing the browser kills it (no marker/apply log),
-		// which this logged state helps diagnose.
+		By("Waiting for the delegated apply to launch before dropping the browser")
+		// WizardClickApply only clicks the button; the wizard then invokes
+		// cockpit.spawn(["sudo", run-apply-enroll.sh, ...]) over the Cockpit bridge, and
+		// that spawn must finish before systemd-run registers the transient unit.
+		// Closing Chrome before then tears down the bridge and the systemd-run never
+		// runs — nothing completes in the background and no marker is ever written
+		// (observed in CI: empty apply-unit journal, no apply log, marker timeout). Wait
+		// for the transient unit to exist so the drop genuinely tests
+		// completion-after-disconnect rather than racing the delegation.
+		waitForDelegatedApplyLaunched(harness, 90*time.Second)
+
+		By("Dropping the browser control channel while the delegated apply runs")
+		// The transient unit is a child of PID 1, so closing Chrome now cannot affect
+		// it; completion must proceed in the background. The connectivity + NTP-sync +
+		// finalize steps still have minutes to run, so the drop lands well before the
+		// marker is written — exactly the completion-after-disconnect behaviour AC5
+		// asserts.
 		GinkgoWriter.Printf("wizard state at browser drop: %s\n", browser.WizardDebugState())
 		browser.Close()
 
@@ -575,14 +615,32 @@ var _ = Describe("Onboarding enrollment and completion flow", func() {
 		// file. The mock exits 0 so the wizard completes normally.
 		setEnrollMockExitCode(harness, 0)
 
-		browser, cleanup := startBrowserSession()
-		DeferCleanup(cleanup)
-		// Registered after cleanup so it runs first (LIFO) while the browser is alive.
+		// installEnrollmentMock bind-mounts the mock over the packaged enrollment
+		// script inside PID 1's mount namespace (nsenter --mount=/proc/1/ns/mnt). The
+		// wizard only runs the enrollment script in that namespace on the single-NIC
+		// path, where it delegates to a systemd-run transient unit that systemd (PID 1)
+		// spawns in PID 1's mount namespace; the multi-NIC path runs the script inline
+		// in the Cockpit bridge's own namespace, where the bind is invisible and the
+		// real flightctl-enroll.sh runs instead (observed in CI: the completion marker
+		// appeared but the mock sentinel never did). So force the single-NIC delegated
+		// path via StartCockpitTunnelViaInterface — the same way E5 (90430) does — and
+		// verify the mock's record over SSH.
+		workerID := GinkgoParallelProcess()
+		sshPort := sshPortBase + workerID
+		cockpitAddr, tunnelCleanup, err := e2e.StartCockpitTunnelViaInterface(sshPort, vmUser, vmPassword, slirpStaticIP)
+		Expect(err).ToNot(HaveOccurred(), "failed to start Cockpit SSH tunnel")
+		DeferCleanup(tunnelCleanup)
+
+		browser := newLoggedInBrowser(cockpitAddr)
+		// This spec closes the browser mid-body once the delegated apply has launched,
+		// so on a post-close failure the screenshot is best-effort; the SSH-side
+		// diagnostics and the mock sentinel are what confirm the script ran.
 		DeferCleanup(func() {
 			if CurrentSpecReport().Failed() {
 				dumpEnrollmentDiagnostics(harness, browser)
 			}
 		})
+		DeferCleanup(saveScreenshotOnFailure, browser, "enroll-script")
 
 		By("Configuring enrollment so the wizard generates a credential params file for the script")
 		navigateToEnrollmentStep(browser)
@@ -591,9 +649,16 @@ var _ = Describe("Onboarding enrollment and completion flow", func() {
 		enrollmentReview(browser)
 		Expect(browser.WizardClickApply()).To(Succeed())
 
-		By("Verifying onboarding completes")
-		Expect(browser.WizardWaitForCompletion(wizardTimeout)).To(Succeed())
-		expectCompletionMarker(harness)
+		By("Waiting for the delegated apply to launch, then dropping the browser")
+		// Wait for the transient unit before closing Chrome (see waitForDelegatedApplyLaunched
+		// / E5). Dropping the browser afterwards avoids the single-NIC network
+		// re-activation blipping the control channel during completion — the sentinel
+		// and marker are verified purely over SSH.
+		waitForDelegatedApplyLaunched(harness, 90*time.Second)
+		browser.Close()
+
+		By("Verifying onboarding completes in the background transient unit")
+		expectCompletionMarkerWithin(harness, 6*time.Minute)
 
 		By("Verifying the third-party script was invoked with a non-empty credential params file")
 		sentinel := readEnrollSentinel(harness)
@@ -608,42 +673,52 @@ var _ = Describe("Onboarding enrollment and completion flow", func() {
 	})
 })
 
-// enrollApproveRestartAndWaitOnline approves the onboarding device's enrollment
-// request and then restarts flightctl-agent before waiting for it to report
-// online. It exists because the onboarding agent config uses a short
-// enrollment-verify backoff cap: the agent that the wizard started creates the
-// enrollment request and, by the time the test reads the ID from its journal,
-// waits for the request, and approves it, has typically already gone inactive.
-// The shared EnrollAndWaitForOnlineStatus approves but never restarts, so the
-// device would sit in Unknown forever. Restarting after approval makes the agent
-// re-read its (persisted) enrollment identity, pick up the now-approved request,
-// fetch its certificate, and report status. The device ID is stable across the
-// restart because a plain restart preserves /var/lib/flightctl enrollment state.
+// enrollApproveRestartAndWaitOnline starts the onboarding device's agent, reads
+// the enrollment ID it logs, approves the request, and waits for the device to
+// report online.
+//
+// On a successful wizard run the agent has NOT been started yet. The deployed
+// flightctl-enroll.sh installs /etc/flightctl/config.yaml + the enrollment cert
+// but, while the onboarding gate marker (.onboarding-confirmed) is absent, only
+// `systemctl enable`s the agent and DEFERS the start (it logs "Onboarding gate
+// active — deferring flightctl-agent start"). The marker and the first agent start
+// happen only in cleanup-onboarding.sh, which runs on session end
+// (setup.service ExecStop) — after this spec has finished. So at this point the
+// agent unit is inactive and its journal is empty; reading the enrollment ID
+// before starting the agent is guaranteed to find nothing (the historical "pass"
+// relied on a base-image auto-enrolled agent polluting the journal, which the
+// BeforeSuite snapshot reset now removes).
+//
+// So arm the gate and start the agent ourselves — exactly what cleanup-onboarding.sh
+// does on session end — triggered deterministically here instead. The agent then
+// reads the wizard-written config, creates its EnrollmentRequest, and logs the ID.
 func enrollApproveRestartAndWaitOnline(h *e2e.Harness) string {
 	GinkgoHelper()
+
+	// The flightctl-agent unit is gated by a drop-in
+	// (ConditionPathExists=/var/lib/flightctl-onboarding/.onboarding-confirmed);
+	// while that marker is absent `systemctl start`/`restart` is a silent no-op
+	// (unmet start condition). Create it (the exact line cleanup-onboarding.sh runs)
+	// so the agent can start at all, then start the agent so it enrolls.
+	_, err := h.VM.RunSSH([]string{
+		"sudo", "touch", "/var/lib/flightctl-onboarding/.onboarding-confirmed",
+	}, nil)
+	Expect(err).ToNot(HaveOccurred(), "failed to arm the flightctl-agent onboarding gate marker")
+	Expect(h.RestartFlightCtlAgent()).To(Succeed(), "failed to start flightctl-agent for enrollment")
+
+	// GetEnrollmentIDFromServiceLogs reads the LATEST systemd invocation's logs and
+	// polls until the ID appears, so it sees only this fresh enrollment.
 	deviceID := h.GetEnrollmentIDFromServiceLogs("flightctl-agent")
 	Expect(deviceID).ToNot(BeEmpty(), "enrollment ID should be present in agent logs")
 
 	h.WaitForEnrollmentRequest(deviceID)
 	h.ApproveEnrollment(deviceID, h.TestEnrollmentApproval())
 
-	// The flightctl-agent unit is gated by a drop-in
-	// (ConditionPathExists=/var/lib/flightctl-onboarding/.onboarding-confirmed);
-	// when that marker is absent `systemctl restart` is a silent no-op (unmet
-	// start condition), so the agent never re-reads the approved enrollment and
-	// the device sits in Unknown forever. cleanup-onboarding.sh creates that marker
-	// on a successful onboarding, but the onboarding agent's short enrollment-verify
-	// cap means the agent is stopped again well before the test approves — and by
-	// approval time the marker has been removed. Re-create it here (the exact line
-	// cleanup-onboarding.sh runs) so the restart below actually starts the agent.
-	_, err := h.VM.RunSSH([]string{
-		"sudo", "touch", "/var/lib/flightctl-onboarding/.onboarding-confirmed",
-	}, nil)
-	Expect(err).ToNot(HaveOccurred(), "failed to arm the flightctl-agent onboarding gate marker")
-
-	// The enrolling agent has likely gone inactive waiting for approval; restart
-	// it so it re-reads the approved enrollment and completes certificate
-	// acquisition. WaitForOnlineStatus asserts the device reaches online.
+	// The onboarding agent config uses a short enrollment-verify backoff cap, so by
+	// approval time the enrolling agent has usually gone inactive. Restart it so it
+	// re-reads its (persisted) enrollment identity, picks up the now-approved
+	// request, and fetches its certificate. The device ID is stable across the
+	// restart because a plain restart preserves /var/lib/flightctl enrollment state.
 	Expect(h.RestartFlightCtlAgent()).To(Succeed(), "failed to restart flightctl-agent after approval")
 	h.WaitForOnlineStatus(deviceID)
 	return deviceID
