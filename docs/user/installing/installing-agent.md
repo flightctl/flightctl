@@ -105,7 +105,7 @@ The agent's configuration file `/etc/flightctl/config.yaml` takes the following 
 | `spec-fetch-error-max-delay` | `Duration` | | Maximum delay between `/rendered` retries after repeated failures. Must be greater than or equal to `spec-fetch-error-base-delay`. Default: `5m` |
 | `default-labels`         | `object` (`string`) | | Labels (`key: value`-pairs) that the agent requests for the device during enrollment. **Important:** Label values must be valid Kubernetes labels (alphanumeric, `-`, `_`, `.`, max 63 chars). Invalid labels are skipped with an error log. Default: `{}` |
 | `label-from-systeminfo`  | `object` (`string`) | | Maps system information fields to device labels at enrollment time. See [Enrollment-time label mapping](#enrollment-time-label-mapping). Default: `{}` |
-| `system-info`            | `array` (`string`) | | System info that the agent shall include in status updates from built-in collectors. See [Built-in system info collectors](#built-in-system-info-collectors) and [Managed system-info collectors](#managed-system-info-collectors). Default: `["hostname", "kernel", "distroName", "distroVersion", "productName", "productUuid", "productSerial", "netInterfaceDefault", "netIpDefault", "netMacDefault", "managementCertNotAfter", "managementCertSerial", "tpmVendorInfo"]` |
+| `system-info`            | `array` (`string`) | | System info that the agent shall include in status updates from built-in collectors. See [Built-in system info collectors](#built-in-system-info-collectors) and [Managed system-info collectors](#managed-system-info-collectors). Default: `["hostname", "kernel", "distroName", "distroVersion", "distroId", "productName", "productUuid", "productSerial", "netInterfaceDefault", "netIpDefault", "netMacDefault", "managementCertNotAfter", "managementCertSerial", "tpmVendorInfo"]` |
 | `system-info-custom`     | `array` (`string`) | | System info that the agent shall include in status updates from user-defined collectors. See [Custom system info collectors](#custom-system-info-collectors). Default: `[]` |
 | `system-info-timeout`    | `Duration` | | The timeout for collecting system info. Default: `2m`. Maximum: `2m` |
 | `pull-timeout`           | `Duration` | | The timeout for pulling a single OCI target. Default: `10m` |
@@ -163,6 +163,7 @@ You can specify extra system infos to be included in the device status by listin
 | `kernel`              | The running Linux kernel version                                  |
 | `distroName`          | The name of the operating system distribution.                    |
 | `distroVersion`       | The version of the operating system distribution                  |
+| `distroId`            | The os-release `ID` (for example `rhel` or `fedora`). Used with `distroVersion` to select `launcherImages` keys such as `rhel-9`. See [Configuring VM application rendering](configuring-vm-render.md). |
 | `productName`         | The system’s product or model name (from DMI data)                |
 | `productSerial`       | The hardware serial number (if available)                         |
 | `productUuid`         | The UUID of the system board or chassis                           |
@@ -180,7 +181,7 @@ You can specify extra system infos to be included in the device status by listin
 For example, if you add the following parameter to your agent's `config.yaml`
 
 ```console
-system-info: [hostname, kernel, distroName, distroVersion]
+system-info: [hostname, kernel, distroName, distroVersion, distroId]
 ```
 
 then the reported device status might look like
@@ -197,6 +198,7 @@ status:
     kernel: 5.14.0-503.38.1.el9_5.x86_64
     distroName: Red Hat Enterprise Linux
     distroVersion: 9.5 (Plow)
+    distroId: rhel
 ```
 
 ## Managed system info collectors

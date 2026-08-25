@@ -415,8 +415,9 @@ type workerConfig struct {
 // vmRenderConfig holds options for converting VmApplications to Quadlet units
 // via vm-to-quadlet.
 type vmRenderConfig struct {
-	LauncherImage    string `json:"launcherImage,omitempty"`
-	PasstWorkarounds *bool  `json:"passtWorkarounds,omitempty"`
+	LauncherImage    string            `json:"launcherImage,omitempty"`
+	LauncherImages   map[string]string `json:"launcherImages,omitempty"`
+	PasstWorkarounds *bool             `json:"passtWorkarounds,omitempty"`
 }
 
 // NewDefaultWorkerConfig returns the default flightctl-worker configuration.
@@ -431,11 +432,13 @@ func NewDefaultWorkerConfig() *workerConfig {
 }
 
 // EffectiveVmLauncherImage returns the virt-launcher image used for VM render.
-func (c *Config) EffectiveVmLauncherImage() string {
+// osKey is "{os-release ID}-{major}" from status.systemInfo (e.g. "rhel-9").
+// An empty osKey skips per-OS lookup.
+func (c *Config) EffectiveVmLauncherImage(osKey string) string {
 	if c == nil || c.Worker == nil {
 		return DefaultVirtLauncherImage
 	}
-	return c.Worker.EffectiveLauncherImage()
+	return c.Worker.EffectiveLauncherImage(osKey)
 }
 
 // EffectiveVmPasstWorkarounds returns whether passt workarounds are enabled for VM render.
@@ -446,9 +449,17 @@ func (c *Config) EffectiveVmPasstWorkarounds() bool {
 	return c.Worker.EffectivePasstWorkarounds()
 }
 
-// EffectiveLauncherImage returns the virt-launcher image (config override or default).
-func (c *workerConfig) EffectiveLauncherImage() string {
-	if c != nil && c.VmRender != nil && c.VmRender.LauncherImage != "" {
+// EffectiveLauncherImage returns the virt-launcher image for osKey.
+func (c *workerConfig) EffectiveLauncherImage(osKey string) string {
+	if c == nil || c.VmRender == nil {
+		return DefaultVirtLauncherImage
+	}
+	if osKey != "" && c.VmRender.LauncherImages != nil {
+		if img := c.VmRender.LauncherImages[osKey]; img != "" {
+			return img
+		}
+	}
+	if c.VmRender.LauncherImage != "" {
 		return c.VmRender.LauncherImage
 	}
 	return DefaultVirtLauncherImage
@@ -797,7 +808,8 @@ type VulnerabilityConfig struct {
 	// SyncInterval is the interval between backend sync runs (e.g. "15m", "1h").
 	SyncInterval util.Duration `json:"syncInterval,omitempty"`
 	// Backend selects the vulnerability scanning backend. When empty, the sync
-	// task defaults to Trustify if a Trustify config is present.
+	// task defaults to Trustify if a Trustify config with a non-empty endpoint
+	// is present.
 	Backend VulnerabilityBackend `json:"backend,omitempty"`
 	// Trustify holds the Trustify connection details (periodic service only).
 	Trustify *TrustifyConfig `json:"trustify,omitempty"`
@@ -807,8 +819,9 @@ type VulnerabilityConfig struct {
 
 // EffectiveBackend resolves the configured backend, applying the empty-backend
 // default so all callers share one rule: an explicit Backend is returned as-is;
-// an empty Backend falls back to Trustify when a Trustify config is present;
-// otherwise it returns an empty backend. It does not log or mutate the config.
+// an empty Backend falls back to Trustify when a Trustify config with a
+// non-empty endpoint is present; otherwise it returns an empty backend. It does
+// not log or mutate the config.
 func (v *VulnerabilityConfig) EffectiveBackend() VulnerabilityBackend {
 	if v == nil {
 		return ""
@@ -816,7 +829,7 @@ func (v *VulnerabilityConfig) EffectiveBackend() VulnerabilityBackend {
 	if v.Backend != "" {
 		return v.Backend
 	}
-	if v.Trustify != nil {
+	if v.Trustify != nil && strings.TrimSpace(v.Trustify.Endpoint) != "" {
 		return VulnerabilityBackendTrustify
 	}
 	return ""
