@@ -25,6 +25,7 @@ const (
 	PackageModeAgentContainerName = "flightctl-package-mode-agent"
 	PackageModeFlightctlUser      = "flightctl"
 	PackageModeRejectMessage      = "package-mode device cannot satisfy spec with os.image"
+	packageModeAgentImageEnv      = "E2E_PACKAGE_MODE_IMAGE"
 	packageModeRegistriesConfPath = "/etc/containers/registries.conf.d/flightctl-e2e.conf"
 	packageModeRegistryCAPath     = "/etc/pki/ca-trust/source/anchors/flightctl-e2e-registry.crt"
 
@@ -42,6 +43,9 @@ var (
 
 // GetPackageModeAgentImage returns the package-mode OCI image reference used by the e2e helper container.
 func GetPackageModeAgentImage() string {
+	if imageRef := strings.TrimSpace(os.Getenv(packageModeAgentImageEnv)); imageRef != "" {
+		return imageRef
+	}
 	return testutil.NewDeviceImageReference(testutil.DeviceTags.Package).String()
 }
 
