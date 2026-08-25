@@ -505,6 +505,11 @@
               "type": "string",
               "description": "virt-launcher image used when converting VmApplications to Quadlet units (leave empty to use the worker default)"
             },
+            "launcherImages": {
+              "type": "object",
+              "description": "virt-launcher images keyed by os-release ID and major from status.systemInfo (e.g. \"rhel-9\", \"rhel-10\")",
+              "additionalProperties": { "type": "string" }
+            },
             "passtWorkarounds": {
               "type": "boolean",
               "description": "Enable passt networking workarounds for older virt-launcher images"
@@ -975,7 +980,7 @@
         "syncInterval": { "type": "string", "description": "Sync interval for periodic Trustify fetch (e.g. \"15m\", \"1h\")" },
         "backend": {
           "type": "string",
-          "description": "Vulnerability scanning backend. Currently only 'trustify' is supported; leave empty to default to Trustify when a trustify config is present.",
+          "description": "Vulnerability scanning backend. Currently only 'trustify' is supported; leave empty to default to Trustify when a trustify config with a non-empty endpoint is present.",
           "enum": ["", "trustify"]
         },
         "trustify": {

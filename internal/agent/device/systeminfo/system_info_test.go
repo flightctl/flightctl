@@ -240,7 +240,7 @@ func TestGetCollectionOptsFromInfoKeys(t *testing.T) {
 		},
 		{
 			name:         "distribution keys",
-			infoKeys:     []string{common.DistroNameKey, common.DistroVersionKey},
+			infoKeys:     []string{common.DistroNameKey, common.DistroVersionKey, common.DistroIdKey},
 			expectDistro: true,
 		},
 		{

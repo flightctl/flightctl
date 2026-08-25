@@ -23,7 +23,11 @@ reviews:
     change affects the API surface (OpenAPI, types, gRPC), the device agent,
     the server-side control plane (store, service, worker, periodic), deployment
     (Helm, quadlets, RPM), or test infrastructure, and flag any backward-
-    compatibility implications.
+    compatibility implications. End the summary with a "Risk classification"
+    section that states which risk label (risk:ship, risk:show, or risk:ask)
+    was applied and the specific criteria from the labeling instructions that
+    determined the classification. If the PR was close to a different
+    classification, note which one and why it did not qualify.
   collapse_walkthrough: false
   sequence_diagrams: true
 
