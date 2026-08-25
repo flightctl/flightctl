@@ -30,7 +30,7 @@ OS_ID="fedora-bootc"
 export AGENT_OS_ID="${OS_ID}"
 export OS_ID
 
-SOURCE_GIT_TAG="${SOURCE_GIT_TAG:-$(${ROOT_DIR}/hack/current-version)}"
+SOURCE_GIT_TAG="${SOURCE_GIT_TAG:-$("${ROOT_DIR}/hack/current-version")}"
 TAG="${TAG:-$SOURCE_GIT_TAG}"
 IMAGE_REPO="${IMAGE_REPO:-quay.io/flightctl/flightctl-device}"
 export SOURCE_GIT_TAG TAG IMAGE_REPO

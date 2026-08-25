@@ -4,6 +4,7 @@ package onboarding_test
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"regexp"
 	"sort"
@@ -68,6 +69,11 @@ const (
 	// to prove the AP's DNS is a catch-all: dnsmasq must answer ANY name with the
 	// AP address so every OS captive-portal probe is funneled to the portal.
 	wifiProbeHostname = "connectivitycheck.gstatic.com"
+
+	// wifiSSHProbeTimeout bounds the quick SSH probes (wifiStackAvailable's
+	// command/modprobe checks and resolveViaDNS) so a wedged SSH connection cannot
+	// stall a spec's BeforeEach skip decision or an Eventually poller.
+	wifiSSHProbeTimeout = 30 * time.Second
 )
 
 // A NIC name (nmcli DEVICE) and the SSID we expect, constrained so nothing
@@ -102,10 +108,14 @@ func runShell(h *e2e.Harness, script string) (string, error) {
 // the freshly-dropped module), so the specs skip cleanly instead of loadHwsimRadios
 // failing hard on an unregistered module.
 func wifiStackAvailable(h *e2e.Harness) bool {
-	if _, err := h.VM.RunSSH([]string{"command", "-v", "hostapd"}, nil); err != nil {
+	// Bound both probes: wifiStackAvailable runs in BeforeEach for every spec, so a
+	// wedged SSH connection must not hang the skip decision indefinitely.
+	ctx, cancel := context.WithTimeout(context.Background(), wifiSSHProbeTimeout)
+	defer cancel()
+	if _, err := h.VM.RunSSHContext(ctx, []string{"command", "-v", "hostapd"}, nil); err != nil {
 		return false
 	}
-	if _, err := h.VM.RunSSH([]string{"sudo", "modprobe", "-n", "mac80211_hwsim"}, nil); err != nil {
+	if _, err := h.VM.RunSSHContext(ctx, []string{"sudo", "modprobe", "-n", "mac80211_hwsim"}, nil); err != nil {
 		return false
 	}
 	return true
@@ -266,7 +276,11 @@ sys.exit(1)
 // A record it answers with. hostname/server are validated constants passed as
 // argv to dnsQueryScript (never spliced into the script text).
 func resolveViaDNS(h *e2e.Harness, hostname, server string) (string, error) {
-	out, err := h.VM.RunSSH([]string{"python3", "-", hostname, server}, bytes.NewBufferString(dnsQueryScript))
+	// Bound the probe: resolveViaDNS runs inside an Eventually, so a wedged SSH
+	// connection must not outlive the poller's own deadline.
+	ctx, cancel := context.WithTimeout(context.Background(), wifiSSHProbeTimeout)
+	defer cancel()
+	out, err := h.VM.RunSSHContext(ctx, []string{"python3", "-", hostname, server}, bytes.NewBufferString(dnsQueryScript))
 	if out == nil {
 		return "", err
 	}

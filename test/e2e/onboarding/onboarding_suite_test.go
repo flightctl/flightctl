@@ -329,17 +329,26 @@ func installWifiStack(h *e2e.Harness) {
 		wifiInstallTimeout = 10 * time.Minute
 	)
 
-	// If the device image already bakes the WiFi soft-AP stack (the Fedora
+	// If the device image already bakes the COMPLETE WiFi soft-AP stack (the Fedora
 	// onboarding flavor bakes mac80211_hwsim + userspace; see
-	// test/scripts/agent-images/containerfiles/fedora-bootc/), there is nothing
-	// to install at runtime. modinfo succeeds only when the module is present and
-	// registered with depmod, which the baked image does at build time. Skip the
-	// transient install in that case: on Fedora kernel-modules-extra-$(uname -r)
-	// does not even provide hwsim, so attempting it would only log a spurious
-	// warning and pull redundant userspace packages.
+	// test/scripts/agent-images/containerfiles/fedora-bootc/), there is nothing to
+	// install at runtime. Probe all three pieces the specs need - the kernel module
+	// AND both userspace daemons (hostapd for the AP, dnsmasq for DHCP/DNS) - before
+	// treating the image as preinstalled; if any is missing, fall through to the
+	// runtime install rather than wrongly skipping it and leaving the specs to fail.
+	// Use `modprobe -n` (not modinfo): it resolves the dependency chain via
+	// modules.dep exactly as the real load in loadHwsimRadios, so it also confirms
+	// the module is registered with depmod, which the baked image does at build time.
+	// On the cs9/cs10 images this probe fails (hwsim is filtered out of those
+	// kernels) and we fall through to the transient install below; on Fedora
+	// kernel-modules-extra-$(uname -r) does not even provide hwsim, so attempting
+	// the install there would only log a spurious warning and pull redundant
+	// userspace packages - which the early return avoids.
 	probeCtx, cancelProbe := context.WithTimeout(context.Background(), wifiProbeTimeout)
 	defer cancelProbe()
-	if _, err := h.VM.RunSSHContext(probeCtx, []string{"sudo", "modinfo", "mac80211_hwsim"}, nil); err == nil {
+	if _, err := h.VM.RunSSHContext(probeCtx, []string{
+		"sudo modprobe -n mac80211_hwsim && command -v hostapd >/dev/null && command -v dnsmasq >/dev/null",
+	}, nil); err == nil {
 		logrus.Info("WiFi soft-AP stack already baked into the device image; skipping runtime install")
 		return
 	}

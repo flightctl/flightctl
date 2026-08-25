@@ -177,14 +177,22 @@ build-e2e-containers: e2e-agent-images
 #     run_e2e_tests.sh, whose package-mode bundle lookup has no Fedora bundle.
 #
 # Negated filters (e.g. !onboarding, !wifi) are stripped first so excluding those
-# specs does not wrongly pull in the Fedora flavor. Complex negations such as
-# !(onboarding || wifi) are not parsed; pass AGENT_OS_ID explicitly for those.
+# specs does not wrongly pull in the Fedora flavor. A parenthesized negation such
+# as !(onboarding || wifi) still contains the bare label substrings even though it
+# EXCLUDES those specs, so auto-selecting on it would build the wrong OS image and
+# clobber the shared qcow2; detect the "!(" group and skip auto-selection, leaving
+# AGENT_OS_ID to its default (cs9-bootc) or an explicit override.
 # This must run before E2E_AGENT_IMAGES_SENTINEL is expanded (:= below) so the
 # per-OS sentinel path matches the selected flavor.
+# A lone "(" cannot appear directly inside a make function argument (it would
+# unbalance the parser's paren scan), so hold it in a variable to search for "!(".
+ONBOARDING_LPAREN := (
 ifeq ($(origin AGENT_OS_ID),undefined)
+ifeq ($(findstring !$(ONBOARDING_LPAREN),$(GINKGO_LABEL_FILTER)),)
 ONBOARDING_LABEL_MATCH := $(subst !onboarding,,$(subst !wifi,,$(GINKGO_LABEL_FILTER)))
 ifneq ($(strip $(foreach l,onboarding wifi,$(findstring $(l),$(ONBOARDING_LABEL_MATCH)))),)
 AGENT_OS_ID := fedora-bootc
+endif
 endif
 endif
 
