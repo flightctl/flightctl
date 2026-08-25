@@ -57,8 +57,11 @@ const (
 	onboardingScriptDir = "/usr/share/cockpit/system-onboarding/system-onboarding.d"
 
 	// enrollMockRemotePath is where E7 stages the mock enrollment script before
-	// bind-mounting it (root-owned, 0755) over the real enrollment script(s).
-	enrollMockRemotePath = "/tmp/e2e-enroll-mock.sh"
+	// bind-mounting it (root-owned, 0755) over the real enrollment script(s). It
+	// lives under /var/tmp (not /tmp) so the bind-mount source is a real on-disk
+	// path visible in every mount namespace — including PID 1's, where the delegated
+	// apply's systemd-run transient unit performs the bind (see installEnrollmentMock).
+	enrollMockRemotePath = "/var/tmp/e2e-enroll-mock.sh"
 
 	// enrollSentinelPath records that the E7 mock ran and what it received; it
 	// never contains secret values. enrollExitCodePath lets the test flip the
@@ -382,15 +385,16 @@ var _ = Describe("Onboarding enrollment and completion flow", func() {
 		// (simulating the operator's control channel going away) right after Apply
 		// and then verify completion purely over SSH.
 		//
-		// It also needs the wizard's single-NIC path, where apply is delegated to a
-		// systemd-run transient unit that survives the browser going away. That path
-		// only fires when the plugin's isConnectedViaInterface() returns true, which
-		// requires the browser to reach Cockpit via the guest's real interface
-		// address (not loopback) — the default StartCockpitTunnel forwards to the
-		// guest's localhost, which makes the wizard treat this as a multi-NIC inline
-		// apply that dies with the browser. StartCockpitTunnelViaInterface forwards to
-		// the guest's eth0 (10.0.2.15) and navigates via 127.0.0.2 so hostname is not
-		// localhost. See StartCockpitTunnelViaInterface for the full rationale.
+		// The wizard ALWAYS delegates the network-activation + connectivity +
+		// enrollment + finalize + cleanup phase to a systemd-run transient unit
+		// (run-apply-enroll.sh → apply-and-enroll.sh); there is no inline apply path
+		// and no isConnectedViaInterface() gate in the deployed package. The transient
+		// unit is a child of PID 1, so it is unaffected by the browser/cockpit-bridge
+		// going away — which is exactly the completion-after-disconnect behaviour AC5
+		// asserts. StartCockpitTunnelViaInterface is used (rather than the loopback
+		// StartCockpitTunnel) so the browser reaches Cockpit via the guest's real eth0
+		// (10.0.2.15, navigating via 127.0.0.2 so the origin host is not localhost),
+		// keeping the guest addressable over its real interface during the apply.
 		workerID := GinkgoParallelProcess()
 		sshPort := sshPortBase + workerID
 		cockpitAddr, tunnelCleanup, err := e2e.StartCockpitTunnelViaInterface(sshPort, vmUser, vmPassword, slirpStaticIP)
@@ -437,22 +441,22 @@ var _ = Describe("Onboarding enrollment and completion flow", func() {
 		browser.Close()
 
 		By("Verifying onboarding completed in the background transient unit")
-		expectCompletionMarker(harness)
-		// The apply log is written only by apply-and-enroll.sh (the delegated unit),
-		// so its completion line proves the systemd-run hand-off ran to completion
-		// after the browser was gone.
-		Eventually(func() (string, error) {
-			out, err := harness.VM.RunSSH([]string{
-				"sudo", "cat", "/var/log/flightctl-onboarding-apply.log",
-			}, nil)
-			if err != nil {
-				return "", err
-			}
-			return out.String(), nil
-		}, 60*time.Second, 2*time.Second).Should(ContainSubstring("Onboarding completed successfully"),
-			"delegated apply unit should have completed after the browser disconnected")
+		// The .onboarding-complete marker is written by the delegated unit's finalize
+		// step, which runs only after the connectivity budget (up to ~300s even for a
+		// non-required host, since apply-and-enroll.sh loops until the budget or a
+		// success) and the NTP-sync wait. Had the wizard run the apply inline instead,
+		// closing the browser above would have killed it before finalize and no marker
+		// would ever appear — so the marker's existence is itself the proof that the
+		// systemd-run hand-off ran to completion after the control channel was gone.
+		// (The apply log would corroborate this, but cleanup-onboarding.sh deletes it
+		// on success, so it is unreliable as an assertion target — the marker is not.)
+		expectCompletionMarkerWithin(harness, 6*time.Minute)
 
-		By("Verifying the applied hostname took effect")
+		By("Verifying the applied hostname took effect and was not rolled back")
+		// Hostname is applied inline before delegation, but a *failed* delegated apply
+		// runs rollback-config.sh which restores the original hostname. So the applied
+		// hostname still being in place (together with the marker) confirms the
+		// delegated apply succeeded rather than failing and rolling back.
 		out, err := harness.VM.RunSSH([]string{"hostnamectl", "hostname"}, nil)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(strings.TrimSpace(out.String())).To(Equal("single-nic-complete"))
@@ -623,6 +627,20 @@ func enrollApproveRestartAndWaitOnline(h *e2e.Harness) string {
 	h.WaitForEnrollmentRequest(deviceID)
 	h.ApproveEnrollment(deviceID, h.TestEnrollmentApproval())
 
+	// The flightctl-agent unit is gated by a drop-in
+	// (ConditionPathExists=/var/lib/flightctl-onboarding/.onboarding-confirmed);
+	// when that marker is absent `systemctl restart` is a silent no-op (unmet
+	// start condition), so the agent never re-reads the approved enrollment and
+	// the device sits in Unknown forever. cleanup-onboarding.sh creates that marker
+	// on a successful onboarding, but the onboarding agent's short enrollment-verify
+	// cap means the agent is stopped again well before the test approves — and by
+	// approval time the marker has been removed. Re-create it here (the exact line
+	// cleanup-onboarding.sh runs) so the restart below actually starts the agent.
+	_, err := h.VM.RunSSH([]string{
+		"sudo", "touch", "/var/lib/flightctl-onboarding/.onboarding-confirmed",
+	}, nil)
+	Expect(err).ToNot(HaveOccurred(), "failed to arm the flightctl-agent onboarding gate marker")
+
 	// The enrolling agent has likely gone inactive waiting for approval; restart
 	// it so it re-reads the approved enrollment and completes certificate
 	// acquisition. WaitForOnlineStatus asserts the device reaches online.
@@ -640,13 +658,21 @@ func enrollApproveRestartAndWaitOnline(h *e2e.Harness) string {
 // A bind mount is used rather than `install`/`cp` because the packaged scripts
 // live under /usr, which is read-only in bootc image mode — overwriting the file
 // in place fails with EROFS. Bind-mounting is a mount-namespace operation, not a
-// write to the underlying filesystem, so it works over a read-only /usr; the
-// delegated apply runs in the host mount namespace (no PrivateMounts), so it sees
-// the mount. The mount source must be root-owned because apply-and-enroll.sh's
-// validate_script_path rejects any script whose realpath is not owned by uid 0
-// (`sudo tee` writes the staged file as root). All mounts are discarded when the
-// suite reverts the VM to its pre-onboarding snapshot between specs, so no
-// explicit unmount is needed.
+// write to the underlying filesystem, so it works over a read-only /usr. The mount
+// source must be root-owned because apply-and-enroll.sh's validate_script_path
+// rejects any script whose realpath is not owned by uid 0 (`sudo tee` writes the
+// staged file as root).
+//
+// The mount is performed inside PID 1's mount namespace via
+// `nsenter --mount=/proc/1/ns/mnt`. The delegated enrollment script runs in a
+// systemd-run transient unit, which systemd (PID 1) spawns in ITS mount namespace;
+// a plain `mount --bind` from this SSH session lands in the session's own mount
+// namespace and is invisible to that unit, so the real enrollment script — not the
+// mock — runs (observed in CI: the completion marker appeared but the mock sentinel
+// never did, i.e. the genuine flightctl-enroll.sh ran). Entering PID 1's namespace
+// puts the bind exactly where the transient unit will see it. All mounts are
+// discarded when the suite reverts the VM to its pre-onboarding snapshot between
+// specs, so no explicit unmount is needed.
 func installEnrollmentMock(h *e2e.Harness) {
 	GinkgoHelper()
 	// sudo tee → the staged mock is owned by root (uid 0), which
@@ -675,7 +701,7 @@ func installEnrollmentMock(h *e2e.Harness) {
 
 	for _, name := range scripts {
 		_, err := h.VM.RunSSH([]string{
-			"sudo", "mount", "--bind",
+			"sudo", "nsenter", "--mount=/proc/1/ns/mnt", "mount", "--bind",
 			enrollMockRemotePath, onboardingScriptDir + "/" + name,
 		}, nil)
 		Expect(err).ToNot(HaveOccurred(), "failed to bind-mount mock over "+name)
@@ -711,9 +737,11 @@ func dumpEnrollmentDiagnostics(h *e2e.Harness, browser *e2e.OnboardingBrowser) {
 		}
 	}
 
-	// Each entry is a label plus a plain argv (no shell metacharacters, so
-	// RunSSH's space-joining is safe). Paths use the OLD flightctl-onboarding
-	// naming the CI VM still ships (see the onboarding RPM naming note).
+	// Each entry is a label plus an argv. Most are plain argv with no shell
+	// metacharacters; the delegated-apply-unit entry is a single-element pipeline
+	// deliberately run through a shell (its pattern is a static string with no
+	// harvested values). Paths use the OLD flightctl-onboarding naming the CI VM
+	// still ships (see the onboarding RPM naming note).
 	diagnostics := []struct {
 		label string
 		argv  []string
@@ -722,11 +750,21 @@ func dumpEnrollmentDiagnostics(h *e2e.Harness, browser *e2e.OnboardingBrowser) {
 		{"watchdog status", []string{"sudo", "cat", "/var/lib/flightctl-onboarding/.watchdog-status"}},
 		{"agent journal", []string{"sudo", "journalctl", "-u", "flightctl-agent", "--no-pager", "-n", "300"}},
 		{"agent unit state", []string{"systemctl", "is-active", "flightctl-agent"}},
-		// Recent full system journal reveals whether the single-NIC apply was
-		// delegated to a systemd-run transient unit (its output lands here) or ran
-		// inline and died with the browser. Glob-free argv keeps RunSSH's
-		// space-joining safe.
-		{"recent system journal", []string{"sudo", "journalctl", "--no-pager", "-n", "300"}},
+		// The delegated apply runs in a systemd-run transient unit
+		// (flightctl-onboarding-apply-*), whose output lands in the system journal
+		// and — unlike the apply log — survives cleanup-onboarding.sh. A raw
+		// `journalctl -n` dump buries these lines under SSH-session ("Session N of
+		// user") spam, so filter to the apply/enrollment markers. Single-element argv
+		// is run through a shell by RunSSH (the pattern is a static string with no
+		// harvested values, so there is nothing to inject); `|| true` keeps a
+		// no-match grep from surfacing as an error.
+		{"delegated apply unit journal", []string{
+			"sudo journalctl --no-pager -n 4000 | " +
+				"grep -aiE 'onboarding-apply|apply-and-enroll|Delegating network|" +
+				"Waiting for connectivity|Connectivity (confirmed|not available)|" +
+				"enrollment script|No enrollment scripts|Onboarding completed|ROLLBACK|ERROR' " +
+				"|| true",
+		}},
 	}
 	for _, d := range diagnostics {
 		out, err := h.VM.RunSSH(d.argv, nil)
