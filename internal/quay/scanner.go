@@ -56,14 +56,14 @@ func NewScanner(cfg *config.QuayConfig, log logrus.FieldLogger) (vulnerability.S
 func (s *quayScanner) ScanImages(ctx context.Context, images []vulnerability.ImageRef) (map[string][]vulnerability.Finding, error) {
 	out := make(map[string][]vulnerability.Finding)
 	for _, image := range images {
-		report, err := s.client.FetchImageSecurity(ctx, image)
+		res, err := s.client.FetchImageSecurity(ctx, image)
 		if err != nil {
 			return nil, fmt.Errorf("scanning image %s: %w", image.Digest, err)
 		}
-		if report == nil {
+		if res.Report == nil {
 			continue
 		}
-		findings := findingsFromReport(image.Digest, report, s.log)
+		findings := findingsFromReport(image.Digest, res.Report, s.log)
 		if len(findings) > 0 {
 			out[image.Digest] = append(out[image.Digest], findings...)
 		}
