@@ -71,6 +71,7 @@ func TestInitialization(t *testing.T) {
 					mockSpecManager.EXPECT().GetRollbackInfo().Return(spec.RollbackInfo{}, nil),
 					mockSystemInfoManager.EXPECT().IsRebooted().Return(false),
 					mockSpecManager.EXPECT().IsUpgrading().Return(false),
+					mockSpecManager.EXPECT().GetRollbackInfo().Return(spec.RollbackInfo{}, nil),
 					mockSpecManager.EXPECT().RenderedVersion(spec.Current).Return("1"),
 					mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil),
 				)
@@ -135,6 +136,7 @@ func TestInitialization(t *testing.T) {
 					mockSpecManager.EXPECT().GetRollbackInfo().Return(spec.RollbackInfo{}, nil),
 					mockSystemInfoManager.EXPECT().IsRebooted().Return(false),
 					mockSpecManager.EXPECT().IsUpgrading().Return(false),
+					mockSpecManager.EXPECT().GetRollbackInfo().Return(spec.RollbackInfo{}, nil),
 					mockSpecManager.EXPECT().RenderedVersion(spec.Current).Return("2"),
 					mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil),
 				)
@@ -194,6 +196,98 @@ func TestInitialization(t *testing.T) {
 				return
 			}
 			require.NoError(err)
+		})
+	}
+}
+
+func TestUpdateStatus(t *testing.T) {
+	require := require.New(t)
+	ctx := context.TODO()
+
+	testCases := []struct {
+		name           string
+		upgrading      bool
+		rollbackInfo   spec.RollbackInfo
+		rollbackErr    error
+		wantReason     string
+		wantMessage    string
+		wantMsgContain string
+	}{
+		{
+			name:       "When upgrading it should report Rebooting",
+			upgrading:  true,
+			wantReason: string(v1beta1.UpdateStateRebooting),
+		},
+		{
+			name:       "When not upgrading and no rollback info it should report Updated",
+			wantReason: string(v1beta1.UpdateStateUpdated),
+		},
+		{
+			name: "When rollback info has a persisted error it should report Error with that message",
+			rollbackInfo: spec.RollbackInfo{
+				Version:      "6",
+				SpecHash:     "abc123",
+				ErrorMessage: "[2026-04-23 12:00:00] While Preparing: prefetch failed for quay.io/flightctl/images:doesnotexist: required resource not found",
+			},
+			wantReason:     string(v1beta1.UpdateStateError),
+			wantMsgContain: "prefetch failed for quay.io/flightctl/images:doesnotexist",
+		},
+		{
+			name:         "When rollback info has a version but no error it should report Error for that version",
+			rollbackInfo: spec.RollbackInfo{Version: "6", SpecHash: "abc123"},
+			wantReason:   string(v1beta1.UpdateStateError),
+			wantMessage:  "Failed to update to renderedVersion: 6",
+		},
+		{
+			name:        "When rollback info cannot be read it should not report Updated",
+			rollbackErr: errors.New("disk error"),
+			wantReason:  string(v1beta1.UpdateStateError),
+			wantMessage: "Failed to read rollback info after update",
+		},
+	}
+
+	for _, tt := range testCases {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockStatusManager := status.NewMockManager(ctrl)
+			mockSpecManager := spec.NewMockManager(ctrl)
+
+			mockSpecManager.EXPECT().IsUpgrading().Return(tt.upgrading)
+			if !tt.upgrading {
+				mockSpecManager.EXPECT().GetRollbackInfo().Return(tt.rollbackInfo, tt.rollbackErr)
+			}
+			mockSpecManager.EXPECT().RenderedVersion(spec.Current).Return("1")
+
+			var gotCondition v1beta1.Condition
+			mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+				func(_ context.Context, fns ...status.UpdateStatusFn) (*v1beta1.DeviceStatus, error) {
+					ds := &v1beta1.DeviceStatus{}
+					for _, fn := range fns {
+						require.NoError(fn(ds))
+					}
+					cond := v1beta1.FindStatusCondition(ds.Conditions, v1beta1.ConditionTypeDeviceUpdating)
+					require.NotNil(cond)
+					gotCondition = *cond
+					return ds, nil
+				},
+			)
+
+			b := &Bootstrap{
+				statusManager: mockStatusManager,
+				specManager:   mockSpecManager,
+				log:           log.NewPrefixLogger("test"),
+			}
+			b.updateStatus(ctx)
+
+			require.Equal(tt.wantReason, gotCondition.Reason)
+			if tt.wantMessage != "" {
+				require.Equal(tt.wantMessage, gotCondition.Message)
+			}
+			if tt.wantMsgContain != "" {
+				require.Contains(gotCondition.Message, tt.wantMsgContain)
+			}
 		})
 	}
 }

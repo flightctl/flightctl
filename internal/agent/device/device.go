@@ -351,13 +351,17 @@ func (a *Agent) rollbackDevice(ctx context.Context, current, desired *v1beta1.De
 		if err := syncFn(ctx, desired, current); err != nil {
 			a.log.Warnf("Rollback sync completed with errors, proceeding with OS rollback: %v", err)
 		}
+		syncMsg := formatSyncErrorMessage(desired, syncErr)
 		a.handleSyncError(ctx, desired, syncErr)
+		if err := a.specManager.RecordRollbackError(syncMsg); err != nil {
+			a.log.Errorf("Failed to persist rollback error: %v", err)
+		}
 
 		rollbackDevice, err := a.specManager.Read(spec.Rollback)
 		if err != nil {
 			return fmt.Errorf("reading rollback spec for OS rollback: %w", err)
 		}
-		return a.rebootIntoRollbackOS(ctx, rollbackDevice.Spec)
+		return a.rebootIntoRollbackOS(ctx, rollbackDevice.Spec, syncMsg)
 	}
 
 	if err := a.specManager.Rollback(ctx); err != nil {
@@ -367,13 +371,17 @@ func (a *Agent) rollbackDevice(ctx context.Context, current, desired *v1beta1.De
 	return syncFn(ctx, desired, current)
 }
 
-func (a *Agent) rebootIntoRollbackOS(ctx context.Context, rollbackSpec *v1beta1.DeviceSpec) error {
+func (a *Agent) rebootIntoRollbackOS(ctx context.Context, rollbackSpec *v1beta1.DeviceSpec, syncMsg string) error {
 	if err := a.hookManager.OnBeforeRebooting(ctx); err != nil {
 		a.log.Errorf("Error executing BeforeRebooting hook: %v", err)
 		return err
 	}
 
 	infoMsg := fmt.Sprintf("Device is rebooting into rollback OS: %s", rollbackSpec.Os.Image)
+	if syncMsg != "" {
+		infoMsg = fmt.Sprintf("%s: %s", infoMsg, syncMsg)
+	}
+	infoMsg = log.Truncate(infoMsg, status.MaxMessageLength)
 	_, updateErr := a.statusManager.Update(ctx, status.SetDeviceSummary(v1beta1.DeviceSummaryStatus{
 		Status: v1beta1.DeviceSummaryStatusRebooting,
 		Info:   lo.ToPtr(infoMsg),
@@ -690,9 +698,9 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1beta1.Device, sy
 
 	se := errors.FormatError(syncErr)
 	if !errors.IsRetryable(syncErr) {
-		msg := fmt.Sprintf("Failed to update to renderedVersion: %s: %v", version, syncErr.Error())
+		msg := formatSyncErrorMessage(desired, syncErr)
 		conditionUpdate.Reason = string(v1beta1.UpdateStateError)
-		conditionUpdate.Message = log.Truncate(msg, status.MaxMessageLength)
+		conditionUpdate.Message = msg
 		conditionUpdate.Status = v1beta1.ConditionStatusFalse
 		a.pullConfigResolver.Cleanup()
 		a.prefetchManager.Cleanup()
@@ -703,13 +711,22 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1beta1.Device, sy
 		conditionUpdate.Message = log.Truncate(msg, status.MaxMessageLength)
 		conditionUpdate.Status = v1beta1.ConditionStatusTrue
 		a.log.Warn(msg, se.Timestamp)
-	}
-	if se.Phase != nil || se.Component != nil {
-		conditionUpdate.Message = log.Truncate(se.Message(), status.MaxMessageLength)
+		if se.Phase != nil || se.Component != nil {
+			conditionUpdate.Message = log.Truncate(se.Message(), status.MaxMessageLength)
+		}
 	}
 	if err := a.statusManager.UpdateCondition(ctx, conditionUpdate); err != nil {
 		a.log.Warnf("Failed to update device status condition: %v", err)
 	}
+}
+
+func formatSyncErrorMessage(desired *v1beta1.Device, syncErr error) string {
+	se := errors.FormatError(syncErr)
+	msg := fmt.Sprintf("Failed to update to renderedVersion: %s: %v", desired.Version(), syncErr.Error())
+	if se.Phase != nil || se.Component != nil {
+		msg = se.Message()
+	}
+	return log.Truncate(msg, status.MaxMessageLength)
 }
 
 func (a *Agent) handlePrefetchNotReady(ctx context.Context, syncErr error) {

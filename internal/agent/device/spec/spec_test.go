@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"path/filepath"
 	"testing"
 	"time"
@@ -754,6 +755,99 @@ func TestCreateRollback(t *testing.T) {
 
 		err = s.CreateRollback(ctx)
 		require.ErrorIs(err, errors.ErrGettingBootcStatus)
+	})
+}
+
+func TestGetRollbackInfo(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+	log := log.NewPrefixLogger("test")
+	rollbackPath := "test/rollback.json"
+	s := &manager{
+		log:              log,
+		deviceReadWriter: mockReadWriter,
+		rollbackPath:     rollbackPath,
+		cache:            newCache(log),
+	}
+
+	t.Run("When rollback spec is missing it should return empty info", func(t *testing.T) {
+		mockReadWriter.EXPECT().ReadFile(rollbackPath).Return(nil, errors.ErrNotExist)
+		info, err := s.GetRollbackInfo()
+		require.NoError(err)
+		require.Empty(info.Version)
+		require.Empty(info.SpecHash)
+		require.Empty(info.ErrorMessage)
+	})
+
+	t.Run("When annotations are nil it should return empty info", func(t *testing.T) {
+		device := &v1beta1.Device{
+			Metadata: v1beta1.ObjectMeta{},
+			Spec:     &v1beta1.DeviceSpec{},
+		}
+		b, err := json.Marshal(device)
+		require.NoError(err)
+		mockReadWriter.EXPECT().ReadFile(rollbackPath).Return(b, nil)
+		info, err := s.GetRollbackInfo()
+		require.NoError(err)
+		require.Empty(info.ErrorMessage)
+	})
+
+	t.Run("When error message is stored it should return it", func(t *testing.T) {
+		device := createTestRenderedDevice("flightctl-device:v1")
+		(*device.Metadata.Annotations)[annotationDesiredVersion] = "6"
+		(*device.Metadata.Annotations)[annotationDesiredSpecHash] = "abc123"
+		(*device.Metadata.Annotations)[annotationRollbackError] = "prefetch failed for quay.io/flightctl/images:doesnotexist"
+		b, err := json.Marshal(device)
+		require.NoError(err)
+		mockReadWriter.EXPECT().ReadFile(rollbackPath).Return(b, nil)
+		info, err := s.GetRollbackInfo()
+		require.NoError(err)
+		require.Equal("6", info.Version)
+		require.Equal("abc123", info.SpecHash)
+		require.Equal("prefetch failed for quay.io/flightctl/images:doesnotexist", info.ErrorMessage)
+	})
+}
+
+func TestRecordRollbackError(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+	log := log.NewPrefixLogger("test")
+	rollbackPath := "test/rollback.json"
+	s := &manager{
+		log:              log,
+		deviceReadWriter: mockReadWriter,
+		rollbackPath:     rollbackPath,
+		cache:            newCache(log),
+	}
+
+	t.Run("When message is empty it should be a no-op", func(t *testing.T) {
+		err := s.RecordRollbackError("")
+		require.NoError(err)
+	})
+
+	t.Run("When rollback spec exists it should persist the error message", func(t *testing.T) {
+		device := createTestRenderedDevice("flightctl-device:v1")
+		(*device.Metadata.Annotations)[annotationDesiredVersion] = "6"
+		existing, err := json.Marshal(device)
+		require.NoError(err)
+		mockReadWriter.EXPECT().ReadFile(rollbackPath).Return(existing, nil)
+		mockReadWriter.EXPECT().WriteFile(rollbackPath, gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ string, data []byte, _ fs.FileMode, _ ...fileio.FileOption) error {
+				var written v1beta1.Device
+				require.NoError(json.Unmarshal(data, &written))
+				require.Equal("6", (*written.Metadata.Annotations)[annotationDesiredVersion])
+				require.Equal("prefetch failed for bad-image", (*written.Metadata.Annotations)[annotationRollbackError])
+				return nil
+			},
+		)
+		err = s.RecordRollbackError("prefetch failed for bad-image")
+		require.NoError(err)
 	})
 }
 

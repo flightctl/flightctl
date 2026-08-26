@@ -272,6 +272,20 @@ func (mr *MockManagerMockRecorder) Read(specType any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Read", reflect.TypeOf((*MockManager)(nil).Read), specType)
 }
 
+// RecordRollbackError mocks base method.
+func (m *MockManager) RecordRollbackError(message string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RecordRollbackError", message)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RecordRollbackError indicates an expected call of RecordRollbackError.
+func (mr *MockManagerMockRecorder) RecordRollbackError(message any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordRollbackError", reflect.TypeOf((*MockManager)(nil).RecordRollbackError), message)
+}
+
 // RenderedVersion mocks base method.
 func (m *MockManager) RenderedVersion(specType Type) string {
 	m.ctrl.T.Helper()
