@@ -25,6 +25,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service"
 	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
 	trustifyv2 "github.com/flightctl/flightctl/internal/trustify/v2"
+	"github.com/flightctl/flightctl/internal/vulnerability"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -322,9 +323,10 @@ func (c *Consumer) processSBOM(
 		}
 	}
 
-	// Upload SBOM to Trustify (if enabled and configured)
+	// Upload SBOM to Trustify (if enabled and the backend requires SBOM upload)
 	if c.shouldUploadSBOMToTrustify() && c.cfg.VulnerabilityReporting != nil &&
-		c.cfg.VulnerabilityReporting.Enabled && c.cfg.VulnerabilityReporting.Trustify != nil {
+		c.cfg.VulnerabilityReporting.Enabled &&
+		vulnerability.RequiresSBOMUpload(c.cfg.VulnerabilityReporting.EffectiveBackend()) {
 		trustifyClient, err := trustifyv2.NewVulnerabilityClient(ctx, c.cfg.VulnerabilityReporting.Trustify)
 		if err != nil {
 			log.WithError(err).Warn("Failed to create Trustify client for SBOM upload (non-fatal)")

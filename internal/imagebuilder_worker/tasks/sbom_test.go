@@ -78,6 +78,75 @@ func TestConsumer_transformSBOM(t *testing.T) {
 	})
 }
 
+func TestConsumer_shouldRunSBOMPipeline_BackendCapability(t *testing.T) {
+	t.Parallel()
+
+	// sbomOnlyTrustifyUpload configures SBOM so the pipeline decision hinges
+	// solely on the vulnerability backend's SBOM-upload capability: generation
+	// enabled, registry push disabled (so it does not short-circuit to true),
+	// and Trustify upload enabled.
+	sbomOnlyTrustifyUpload := func() *config.SBOMConfig {
+		return &config.SBOMConfig{Enabled: true, PushToRegistry: false, UploadToTrustify: true}
+	}
+
+	tests := []struct {
+		name string
+		vuln *config.VulnerabilityConfig
+		want bool
+	}{
+		{
+			name: "When the backend is trustify it should run the pipeline (trustify requires SBOM upload)",
+			vuln: &config.VulnerabilityConfig{Enabled: true, Backend: config.VulnerabilityBackendTrustify, Trustify: &config.TrustifyConfig{}},
+			want: true,
+		},
+		{
+			name: "When the backend is empty but a trustify block with endpoint is present it should run the pipeline",
+			vuln: &config.VulnerabilityConfig{Enabled: true, Trustify: &config.TrustifyConfig{Endpoint: "https://trustify.example.com"}},
+			want: true,
+		},
+		{
+			name: "When the backend is quay it should skip the pipeline (quay indexes natively)",
+			vuln: &config.VulnerabilityConfig{Enabled: true, Backend: config.VulnerabilityBackendQuay},
+			want: false,
+		},
+		{
+			// Discriminates the capability check from a plain Trustify-block
+			// nil-check: a lingering Trustify block must not force SBOM upload
+			// once the backend is explicitly quay.
+			name: "When the backend is quay it should skip even if a stale trustify block is present",
+			vuln: &config.VulnerabilityConfig{Enabled: true, Backend: config.VulnerabilityBackendQuay, Trustify: &config.TrustifyConfig{}},
+			want: false,
+		},
+		{
+			name: "When the backend is empty with no trustify block it should skip the pipeline",
+			vuln: &config.VulnerabilityConfig{Enabled: true},
+			want: false,
+		},
+		{
+			name: "When vulnerability reporting is disabled it should skip the pipeline",
+			vuln: &config.VulnerabilityConfig{Enabled: false, Backend: config.VulnerabilityBackendTrustify, Trustify: &config.TrustifyConfig{}},
+			want: false,
+		},
+		{
+			name: "When vulnerability reporting is nil it should skip the pipeline",
+			vuln: nil,
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := config.NewDefault()
+			cfg.ImageBuilderWorker.SBOM = sbomOnlyTrustifyUpload()
+			cfg.VulnerabilityReporting = tt.vuln
+
+			c := testConsumer(t, cfg)
+			require.Equal(t, tt.want, c.shouldRunSBOMPipeline())
+		})
+	}
+}
+
 // testingWriter sends log output to the test log (optional noise reduction).
 type testingWriter struct{ t *testing.T }
 
