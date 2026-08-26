@@ -119,7 +119,7 @@ var _ = Describe("CLI decommission test", func() {
 				"Expected 404 status for non-existent device")
 		})
 
-		It("Should return 409 when decommissioning while ongoing and after completion", Label("88272-88273"), func() {
+		It("Should return 409 when decommissioning while ongoing and after completion", Label("88272", "88273"), func() {
 			harness := e2e.GetWorkerHarness()
 
 			By("Enrolling a device and waiting for it to come online")
