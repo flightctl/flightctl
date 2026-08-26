@@ -373,6 +373,17 @@ func waitForVMAppRunningHealthy(h *e2e.Harness, deviceID, appName string) {
 	Expect(err).ToNot(HaveOccurred())
 }
 
+// expectLoginPromptThenPasswordSSH waits until the guest serial login prompt appears,
+// then checks published-port SSH. The prompt means getty is up; it does not log in.
+// Use after a first start or a stop/start. Skip when the guest was already running.
+func expectLoginPromptThenPasswordSSH(h *e2e.Harness, deviceID, appName, user, password string, port int) {
+	GinkgoHelper()
+	cs := h.NewAppConsoleSessionWaitingForLogin(deviceID, appName, testutil.LONG_TIMEOUT, testutil.POLLING)
+	cs.Disconnect()
+	cs.Close()
+	expectSSHWhoamiWithPassword(h, port, appName, user, password)
+}
+
 // expectSSHWhoamiWithPassword polls password SSH to a published host port until whoami returns the guest user.
 func expectSSHWhoamiWithPassword(h *e2e.Harness, port int, appName, user, password string) {
 	GinkgoHelper()

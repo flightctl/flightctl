@@ -78,7 +78,7 @@ var _ = Describe("VM Applications on a Fleet", func() {
 		}
 		Expect(err).ToNot(HaveOccurred())
 		expectNginxReachable(harness)
-		expectSSHWhoamiWithPassword(harness, vmPublishedSSHPort, vmAppName, vmGuestUser, vmGuestPassword)
+		expectLoginPromptThenPasswordSSH(harness, device1ID, vmAppName, vmGuestUser, vmGuestPassword, vmPublishedSSHPort)
 
 		By("Stopping the VM application on the fleet")
 		_, err = harness.CLI("app", "stop", "fleet/"+fleetName, "--name", vmAppName, "-y")
@@ -100,8 +100,8 @@ var _ = Describe("VM Applications on a Fleet", func() {
 		Expect(err).ToNot(HaveOccurred())
 		Expect(harness.WaitForApplicationStatus(device1ID, vmAppName, v1beta1.ApplicationStatusRunning, testutil.LONG_TIMEOUT, testutil.POLLING)).To(Succeed())
 		Expect(harness2.WaitForApplicationStatus(device2ID, vmAppName, v1beta1.ApplicationStatusRunning, testutil.LONG_TIMEOUT, testutil.POLLING)).To(Succeed())
-		expectSSHWhoamiWithPassword(harness, vmPublishedSSHPort, vmAppName, vmGuestUser, vmGuestPassword)
-		expectSSHWhoamiWithPassword(harness2, vmPublishedSSHPort, vmAppName, vmGuestUser, vmGuestPassword)
+		expectLoginPromptThenPasswordSSH(harness, device1ID, vmAppName, vmGuestUser, vmGuestPassword, vmPublishedSSHPort)
+		expectLoginPromptThenPasswordSSH(harness2, device2ID, vmAppName, vmGuestUser, vmGuestPassword, vmPublishedSSHPort)
 
 		By("Stopping the VM application on device 1 only")
 		_, err = harness.CLI("app", "stop", "device/"+device1ID, "--name", vmAppName, "-y")
@@ -116,7 +116,7 @@ var _ = Describe("VM Applications on a Fleet", func() {
 		Expect(err).ToNot(HaveOccurred())
 		Expect(harness.WaitForApplicationStatus(device1ID, vmAppName, v1beta1.ApplicationStatusRunning, testutil.LONG_TIMEOUT, testutil.POLLING)).To(Succeed())
 		Expect(harness2.WaitForApplicationStatus(device2ID, vmAppName, v1beta1.ApplicationStatusRunning, testutil.LONG_TIMEOUT, testutil.POLLING)).To(Succeed())
-		expectSSHWhoamiWithPassword(harness, vmPublishedSSHPort, vmAppName, vmGuestUser, vmGuestPassword)
+		expectLoginPromptThenPasswordSSH(harness, device1ID, vmAppName, vmGuestUser, vmGuestPassword, vmPublishedSSHPort)
 		expectSSHWhoamiWithPassword(harness2, vmPublishedSSHPort, vmAppName, vmGuestUser, vmGuestPassword)
 
 		By("Rejecting fleet-scoped app restart")
