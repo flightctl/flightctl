@@ -74,6 +74,15 @@ spec:
                   name: {{ $auth.secretName }}
                   key: client_secret
             {{- end }}
+            {{- $quay := default dict $vuln.quay -}}
+            {{- $quayAuth := default dict $quay.auth -}}
+            {{- if and (default false $vuln.enabled) $quayAuth.secretName }}
+            - name: FLIGHTCTL_VULNERABILITY_REPORTING_QUAY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $quayAuth.secretName }}
+                  key: token
+            {{- end }}
           volumeMounts:
             - mountPath: /root/.flightctl/config.yaml
               name: flightctl-periodic-config
