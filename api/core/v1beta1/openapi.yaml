@@ -7287,6 +7287,9 @@ components:
           $ref: '#/components/schemas/Percentage'
         defaultUpdateTimeout:
           $ref: '#/components/schemas/Duration'
+        generateDelta:
+          type: boolean
+          description: When false, skip control-plane OS delta generation for this fleet. Omitted means true.
       description: RolloutPolicy is the rollout policy of the fleet.
 
     FleetSpec:
