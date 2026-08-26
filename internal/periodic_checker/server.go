@@ -15,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/org/cache"
+	_ "github.com/flightctl/flightctl/internal/quay" // register the Quay vulnerability scanner backend
 	"github.com/flightctl/flightctl/internal/rendered"
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	checkpointservice "github.com/flightctl/flightctl/internal/service/checkpoint"
