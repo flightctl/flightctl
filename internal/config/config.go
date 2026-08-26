@@ -797,6 +797,35 @@ const (
 	VulnerabilityBackendQuay VulnerabilityBackend = "quay"
 )
 
+// ParseVulnerabilityBackend validates and returns the backend enum value for the
+// given string. Empty string is allowed (maps to empty VulnerabilityBackend).
+// Returns an error for unknown non-empty values.
+func ParseVulnerabilityBackend(s string) (VulnerabilityBackend, error) {
+	if s == "" {
+		return "", nil
+	}
+	switch VulnerabilityBackend(s) {
+	case VulnerabilityBackendTrustify, VulnerabilityBackendQuay:
+		return VulnerabilityBackend(s), nil
+	default:
+		return "", fmt.Errorf("unknown vulnerability backend %q (known: trustify, quay)", s)
+	}
+}
+
+// UnmarshalJSON validates the backend value during JSON deserialization.
+func (v *VulnerabilityBackend) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	parsed, err := ParseVulnerabilityBackend(s)
+	if err != nil {
+		return err
+	}
+	*v = parsed
+	return nil
+}
+
 // DefaultQuayMaxConcurrentRequests bounds concurrent Quay Security API requests
 // when the Quay config does not specify a value.
 const DefaultQuayMaxConcurrentRequests = 5
@@ -833,6 +862,18 @@ func (v *VulnerabilityConfig) EffectiveBackend() VulnerabilityBackend {
 		return VulnerabilityBackendTrustify
 	}
 	return ""
+}
+
+// Validate checks the VulnerabilityConfig for invalid values and returns an
+// error if any are found.
+func (v *VulnerabilityConfig) Validate() error {
+	if v == nil {
+		return nil
+	}
+	if v.Quay != nil && v.Quay.MaxConcurrentRequests < 0 {
+		return fmt.Errorf("vulnerability.quay.maxConcurrentRequests must be non-negative, got %d", v.Quay.MaxConcurrentRequests)
+	}
+	return nil
 }
 
 // QuayConfig holds Quay Security API connection and authentication details.
@@ -1191,6 +1232,12 @@ func Load(cfgFile string) (*Config, error) {
 		return nil, fmt.Errorf("applying auth defaults: %w", err)
 	}
 
+	if c.VulnerabilityReporting != nil {
+		if err := c.VulnerabilityReporting.Validate(); err != nil {
+			return nil, fmt.Errorf("invalid vulnerability configuration: %w", err)
+		}
+	}
+
 	return c, nil
 }
 
@@ -1274,7 +1321,12 @@ func applyVulnerabilityReportingEnvVarOverrides(c *Config) {
 	}
 
 	if backend != "" {
-		c.VulnerabilityReporting.Backend = VulnerabilityBackend(backend)
+		parsed, err := ParseVulnerabilityBackend(backend)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Invalid FLIGHTCTL_VULNERABILITY_REPORTING_BACKEND value %q: %v, ignoring\n", backend, err)
+		} else {
+			c.VulnerabilityReporting.Backend = parsed
+		}
 	}
 
 	switch enabled {
@@ -1317,6 +1369,8 @@ func applyVulnerabilityReportingQuayEnvVarOverrides(v *VulnerabilityConfig, endp
 		n, err := strconv.Atoi(maxConcurrent)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: Invalid FLIGHTCTL_VULNERABILITY_REPORTING_QUAY_MAX_CONCURRENT_REQUESTS value %q: %v, ignoring\n", maxConcurrent, err)
+		} else if n < 0 {
+			fmt.Fprintf(os.Stderr, "Warning: FLIGHTCTL_VULNERABILITY_REPORTING_QUAY_MAX_CONCURRENT_REQUESTS must be non-negative, got %d, ignoring\n", n)
 		} else {
 			v.Quay.MaxConcurrentRequests = n
 		}

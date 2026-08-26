@@ -2341,7 +2341,8 @@ components:
           description: Advisory publish time when known.
         source:
           type: string
-          description: The vulnerability backend that produced this finding (e.g. trustify, quay).
+          description: The vulnerability backend that produced this finding.
+          enum: [trustify, quay]
         image:
           type: string
           description: Image reference (name or URL) from the device context.
