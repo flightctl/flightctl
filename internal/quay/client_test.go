@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/vulnerability"
@@ -96,7 +97,7 @@ func newTestClient(t *testing.T, endpoint string) (*Client, *test.Hook) {
 	t.Helper()
 	logger, hook := test.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
-	c, err := NewClient(&config.QuayConfig{Endpoint: endpoint, Token: "test-token"}, logger)
+	c, err := NewClient(&config.QuayConfig{Endpoint: endpoint, Token: "test-token"}, logger, nil)
 	require.NoError(t, err)
 	require.NotNil(t, c)
 	return c, hook
@@ -116,14 +117,14 @@ func hasEntryWithField(hook *test.Hook, field, value string) bool {
 
 func TestNewClient_NilConfig(t *testing.T) {
 	logger, _ := test.NewNullLogger()
-	c, err := NewClient(nil, logger)
+	c, err := NewClient(nil, logger, nil)
 	require.NoError(t, err)
 	require.Nil(t, c, "nil config disables the backend and yields a nil client")
 }
 
 func TestNewClient_EmptyEndpoint(t *testing.T) {
 	logger, _ := test.NewNullLogger()
-	c, err := NewClient(&config.QuayConfig{Endpoint: "", Token: "t"}, logger)
+	c, err := NewClient(&config.QuayConfig{Endpoint: "", Token: "t"}, logger, nil)
 	require.Error(t, err)
 	require.Nil(t, c)
 }
@@ -138,7 +139,10 @@ func TestParseEndpoint(t *testing.T) {
 	}{
 		{"https with trailing slash", "https://quay.io/", "https://quay.io", "quay.io", false},
 		{"schemeless normalized to https", "quay.io", "https://quay.io", "quay.io", false},
-		{"http with port preserved", "http://127.0.0.1:8080", "http://127.0.0.1:8080", "127.0.0.1:8080", false},
+		{"http with non-default port preserved", "http://127.0.0.1:8080", "http://127.0.0.1:8080", "127.0.0.1:8080", false},
+		{"mixed case lowercased", "https://Quay.IO", "https://Quay.IO", "quay.io", false},
+		{"explicit default https port stripped", "https://quay.io:443", "https://quay.io:443", "quay.io", false},
+		{"explicit default http port stripped", "http://quay.io:80", "http://quay.io:80", "quay.io", false},
 		{"empty is an error", "", "", "", true},
 	}
 	for _, tt := range tests {
@@ -312,10 +316,41 @@ func TestFetchImageSecurity_RegistryFilter(t *testing.T) {
 	require.True(t, hasEntryWithField(hook, "reason", reasonNotOnConfiguredRegistry))
 }
 
+func TestFetchImageSecurity_RegistryFilterNormalization(t *testing.T) {
+	// Regression test for mixed-case and explicit default port matching
+	tests := []struct {
+		name           string
+		configEndpoint string
+		wantHost       string
+	}{
+		{"mixed case endpoint lowercased", "https://Quay.IO", "quay.io"},
+		{"explicit https default port stripped", "https://quay.io:443", "quay.io"},
+		{"explicit http default port stripped", "http://quay.io:80", "quay.io"},
+		{"non-default port preserved", "https://quay.io:8443", "quay.io:8443"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			c, err := NewClient(&config.QuayConfig{Endpoint: tt.configEndpoint, Token: "test-token"}, logger, nil)
+			require.NoError(t, err)
+			require.Equal(t, tt.wantHost, c.registryHost, "registryHost should be normalized for case-insensitive comparison")
+		})
+	}
+}
+
 func TestNewClient_NilLoggerDefaults(t *testing.T) {
-	c, err := NewClient(&config.QuayConfig{Endpoint: "https://quay.io", Token: "t"}, nil)
+	c, err := NewClient(&config.QuayConfig{Endpoint: "https://quay.io", Token: "t"}, nil, nil)
 	require.NoError(t, err)
 	require.NotNil(t, c)
+}
+
+func TestNewClient_CustomHTTPClient(t *testing.T) {
+	customClient := &http.Client{Timeout: 10 * time.Second}
+	c, err := NewClient(&config.QuayConfig{Endpoint: "https://quay.io", Token: "t"}, nil, customClient)
+	require.NoError(t, err)
+	require.NotNil(t, c)
+	require.Equal(t, customClient, c.httpClient, "custom HTTP client should be preserved")
 }
 
 func TestFetchImageSecurity_UnparseableReference(t *testing.T) {
@@ -352,4 +387,25 @@ func TestFetchImageSecurity_DecodeError(t *testing.T) {
 	report, err := c.FetchImageSecurity(context.Background(), image)
 	require.Error(t, err, "a malformed response body is a genuine error")
 	require.Nil(t, report)
+}
+
+func TestFetchImageSecurity_ScannedWithNilData(t *testing.T) {
+	// Regression test: Quay's contract is status="scanned" → non-nil Data.Layer
+	mock := &mockQuayServer{response: Response{Status: "scanned", Data: nil}}
+	srv := newMockQuayServer(t, mock)
+	c, hook := newTestClient(t, srv.URL)
+
+	image := vulnerability.ImageRef{
+		Digest: "sha256:abc123",
+		Image:  hostOf(srv) + "/testorg/testrepo:latest",
+	}
+	report, err := c.FetchImageSecurity(context.Background(), image)
+	require.NoError(t, err, "malformed scanned response is a skip, not an error")
+	require.Nil(t, report)
+	require.True(t, hasEntryWithField(hook, "reason", "malformed_scanned_response"))
+
+	// Verify log level is Warn (check the last entry's level)
+	last := hook.LastEntry()
+	require.NotNil(t, last)
+	require.Equal(t, logrus.WarnLevel, last.Level)
 }
