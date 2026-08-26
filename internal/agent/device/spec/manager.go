@@ -361,7 +361,7 @@ func (s *manager) GetRollbackInfo() (RollbackInfo, error) {
 	}, nil
 }
 
-func (s *manager) RecordRollbackError(message string) error {
+func (s *manager) RecordRollbackError(ctx context.Context, message string) error {
 	if message == "" {
 		return nil
 	}
@@ -376,7 +376,7 @@ func (s *manager) RecordRollbackError(message string) error {
 		annotations = rollback.Metadata.Annotations
 	}
 	(*annotations)[annotationRollbackError] = message
-	if err := s.write(context.TODO(), Rollback, rollback, audit.ReasonRollback); err != nil {
+	if err := s.write(ctx, Rollback, rollback, audit.ReasonRollback); err != nil {
 		return fmt.Errorf("writing rollback error: %w", err)
 	}
 	return nil

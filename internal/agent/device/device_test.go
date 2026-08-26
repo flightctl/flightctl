@@ -636,7 +636,7 @@ func TestOSRollback(t *testing.T) {
 				mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil).AnyTimes()
 				mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(true)
 				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("quay.io/org/os:v2", true, nil)
-				mockSpecManager.EXPECT().RecordRollbackError(gomock.Any()).Return(nil)
+				mockSpecManager.EXPECT().RecordRollbackError(gomock.Any(), gomock.Any()).Return(nil)
 				mockSpecManager.EXPECT().Read(spec.Rollback).Return(&v1beta1.Device{
 					Spec: &v1beta1.DeviceSpec{Os: &v1beta1.DeviceOsSpec{Image: "quay.io/org/os:v1"}},
 				}, nil)
@@ -659,7 +659,7 @@ func TestOSRollback(t *testing.T) {
 				mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil).AnyTimes()
 				mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(true)
 				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("quay.io/org/os:v2", true, nil)
-				mockSpecManager.EXPECT().RecordRollbackError(gomock.Any()).Return(nil)
+				mockSpecManager.EXPECT().RecordRollbackError(gomock.Any(), gomock.Any()).Return(nil)
 				mockSpecManager.EXPECT().Read(spec.Rollback).Return(&v1beta1.Device{
 					Spec: &v1beta1.DeviceSpec{Os: &v1beta1.DeviceOsSpec{Image: "quay.io/org/os:v1"}},
 				}, nil)

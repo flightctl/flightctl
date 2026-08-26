@@ -353,7 +353,7 @@ func (a *Agent) rollbackDevice(ctx context.Context, current, desired *v1beta1.De
 		}
 		syncMsg := formatSyncErrorMessage(desired, syncErr)
 		a.handleSyncError(ctx, desired, syncErr)
-		if err := a.specManager.RecordRollbackError(syncMsg); err != nil {
+		if err := a.specManager.RecordRollbackError(ctx, syncMsg); err != nil {
 			a.log.Errorf("Failed to persist rollback error: %v", err)
 		}
 

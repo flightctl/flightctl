@@ -97,7 +97,7 @@ type Manager interface {
 	GetRollbackInfo() (RollbackInfo, error)
 	// RecordRollbackError stores the sync error that caused a rollback in
 	// rollback.json so the message survives the rollback reboot.
-	RecordRollbackError(message string) error
+	RecordRollbackError(ctx context.Context, message string) error
 	// Rollback reverts the device to the state of the rollback rendered spec.
 	Rollback(ctx context.Context, opts ...RollbackOption) error
 	// GetDesired returns the desired rendered device from the management API.

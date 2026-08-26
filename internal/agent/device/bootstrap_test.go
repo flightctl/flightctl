@@ -202,7 +202,8 @@ func TestInitialization(t *testing.T) {
 
 func TestUpdateStatus(t *testing.T) {
 	require := require.New(t)
-	ctx := context.TODO()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	testCases := []struct {
 		name           string

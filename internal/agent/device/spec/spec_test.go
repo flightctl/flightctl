@@ -816,6 +816,9 @@ func TestRecordRollbackError(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	mockReadWriter := fileio.NewMockReadWriter(ctrl)
 	log := log.NewPrefixLogger("test")
 	rollbackPath := "test/rollback.json"
@@ -827,7 +830,7 @@ func TestRecordRollbackError(t *testing.T) {
 	}
 
 	t.Run("When message is empty it should be a no-op", func(t *testing.T) {
-		err := s.RecordRollbackError("")
+		err := s.RecordRollbackError(ctx, "")
 		require.NoError(err)
 	})
 
@@ -846,7 +849,7 @@ func TestRecordRollbackError(t *testing.T) {
 				return nil
 			},
 		)
-		err = s.RecordRollbackError("prefetch failed for bad-image")
+		err = s.RecordRollbackError(ctx, "prefetch failed for bad-image")
 		require.NoError(err)
 	})
 }
