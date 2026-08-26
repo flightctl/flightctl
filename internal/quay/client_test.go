@@ -285,7 +285,7 @@ func TestFetchImageSecurity_NonScannedStatuses(t *testing.T) {
 			res, err := c.FetchImageSecurity(context.Background(), image)
 			require.NoError(t, err)
 			require.Nil(t, res.Report, "non-scanned status yields no report")
-			require.Equal(t, outcomeSkipped, res.Outcome)
+			require.Equal(t, outcomeSkippedError, res.Outcome)
 			require.Equal(t, 1, mock.count(), "the API is still queried")
 			require.True(t, hasEntryWithField(hook, "status", status),
 				"the scan status is logged to explain the missing report")
@@ -305,7 +305,7 @@ func TestFetchImageSecurity_NotFound(t *testing.T) {
 	res, err := c.FetchImageSecurity(context.Background(), image)
 	require.NoError(t, err, "a 404 is a skip, not a hard error — sync continues")
 	require.Nil(t, res.Report)
-	require.Equal(t, outcomeSkipped, res.Outcome)
+	require.Equal(t, outcomeSkippedError, res.Outcome)
 	require.True(t, hasEntryWithField(hook, "reason", reasonNotFound))
 	require.True(t, hasEntryWithField(hook, "event", eventScanSkipped))
 }
@@ -343,7 +343,7 @@ func TestFetchImageSecurity_Forbidden(t *testing.T) {
 	res, err := c.FetchImageSecurity(context.Background(), image)
 	require.NoError(t, err, "403 skips the image with a warning; it is not a hard error")
 	require.Nil(t, res.Report)
-	require.Equal(t, outcomeSkipped, res.Outcome)
+	require.Equal(t, outcomeSkippedError, res.Outcome)
 	require.Equal(t, 1, mock.count(), "403 is not retried")
 
 	last := hook.LastEntry()
@@ -363,7 +363,7 @@ func TestFetchImageSecurity_UnexpectedStatus(t *testing.T) {
 	res, err := c.FetchImageSecurity(context.Background(), image)
 	require.NoError(t, err, "an unexpected status skips the image rather than failing the scan")
 	require.Nil(t, res.Report)
-	require.Equal(t, outcomeSkipped, res.Outcome)
+	require.Equal(t, outcomeSkippedError, res.Outcome)
 	require.Equal(t, 1, mock.count(), "an unexpected 4xx is not retried")
 
 	last := hook.LastEntry()

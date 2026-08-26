@@ -69,7 +69,7 @@ type fetchOutcome int
 const (
 	outcomeScanned         fetchOutcome = iota // Report is present and status "scanned"
 	outcomeSkippedRegistry                     // missing/other-registry/unparseable reference, missing digest
-	outcomeSkipped                             // 404, 403, or a non-"scanned" scan status
+	outcomeSkippedError                        // 404, 403, or a non-"scanned" scan status
 )
 
 // fetchResult is the outcome of fetching one image's Quay Security report.
@@ -150,20 +150,20 @@ func (c *Client) FetchImageSecurity(ctx context.Context, image vulnerability.Ima
 	reqURL := c.securityURL(repoPath, image.Digest)
 	resp, attempts, err := c.retryableGet(ctx, reqURL, image.Digest)
 	if err != nil {
-		return fetchResult{Outcome: outcomeSkipped, Attempts: attempts}, err
+		return fetchResult{Outcome: outcomeSkippedError, Attempts: attempts}, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		if err := c.classifyNonOK(image.Digest, resp.StatusCode); err != nil {
-			return fetchResult{Outcome: outcomeSkipped, Attempts: attempts}, err
+			return fetchResult{Outcome: outcomeSkippedError, Attempts: attempts}, err
 		}
-		return fetchResult{Outcome: outcomeSkipped, Attempts: attempts}, nil
+		return fetchResult{Outcome: outcomeSkippedError, Attempts: attempts}, nil
 	}
 
 	var report Response
 	if err := json.NewDecoder(resp.Body).Decode(&report); err != nil {
-		return fetchResult{Outcome: outcomeSkipped, Attempts: attempts}, fmt.Errorf("decoding quay security response: %w", err)
+		return fetchResult{Outcome: outcomeSkippedError, Attempts: attempts}, fmt.Errorf("decoding quay security response: %w", err)
 	}
 
 	if report.Status != statusScanned {
@@ -175,7 +175,7 @@ func (c *Client) FetchImageSecurity(ctx context.Context, image vulnerability.Ima
 			"status": report.Status,
 			"reason": "scan_" + report.Status,
 		}).Info("skipping image: scan not complete")
-		return fetchResult{Outcome: outcomeSkipped, Attempts: attempts}, nil
+		return fetchResult{Outcome: outcomeSkippedError, Attempts: attempts}, nil
 	}
 
 	return fetchResult{Report: &report, Outcome: outcomeScanned, Attempts: attempts}, nil

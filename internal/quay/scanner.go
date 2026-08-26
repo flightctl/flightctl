@@ -133,9 +133,9 @@ func (s *quayScanner) ScanImages(ctx context.Context, images []vulnerability.Ima
 				}
 				counts.failed++
 				s.log.WithFields(logrus.Fields{
-					"event":   eventScanFailed,
-					"digest":  image.Digest,
-					"attempt": res.Attempts,
+					"event":    eventScanFailed,
+					"digest":   image.Digest,
+					"attempts": res.Attempts,
 				}).WithError(err).Warn("quay image scan failed; skipping")
 				return
 			}
@@ -155,7 +155,7 @@ func (s *quayScanner) ScanImages(ctx context.Context, images []vulnerability.Ima
 				}
 			case outcomeSkippedRegistry:
 				counts.skippedRegistry++
-			case outcomeSkipped:
+			case outcomeSkippedError:
 				counts.skippedError++
 			}
 		}(image)
