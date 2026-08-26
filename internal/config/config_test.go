@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -198,5 +199,37 @@ func TestConfig_String_HandlesEmptyClientSecrets(t *testing.T) {
 	// Should not panic with empty secrets
 	if !strings.Contains(result, "test-client-id") {
 		t.Error("Should handle empty client secrets gracefully")
+	}
+}
+
+func TestVulnerabilityConfig_BackendJSONRoundTrip(t *testing.T) {
+	var v VulnerabilityConfig
+	if err := json.Unmarshal([]byte(`{"backend":"trustify"}`), &v); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if v.Backend != VulnerabilityBackendTrustify {
+		t.Errorf("When backend is set in JSON it should deserialize to the enum, got %q", v.Backend)
+	}
+
+	out, err := json.Marshal(VulnerabilityConfig{Backend: VulnerabilityBackendTrustify})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(out), `"backend":"trustify"`) {
+		t.Errorf("When backend is set it should serialize to JSON, got %s", out)
+	}
+}
+
+func TestApplyVulnerabilityReportingEnvVarOverrides_Backend(t *testing.T) {
+	t.Setenv("FLIGHTCTL_VULNERABILITY_REPORTING_BACKEND", "trustify")
+
+	c := &Config{}
+	applyVulnerabilityReportingEnvVarOverrides(c)
+
+	if c.VulnerabilityReporting == nil {
+		t.Fatal("When the backend env var is set it should initialize VulnerabilityReporting")
+	}
+	if c.VulnerabilityReporting.Backend != VulnerabilityBackendTrustify {
+		t.Errorf("When the backend env var is set it should populate Backend, got %q", c.VulnerabilityReporting.Backend)
 	}
 }

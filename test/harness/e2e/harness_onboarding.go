@@ -194,6 +194,71 @@ func (b *OnboardingBrowser) WizardDisableEnrollment() error {
 	)
 }
 
+// WizardEnableEnrollment turns the Flight Control enrollment switch on WITHOUT
+// forcing the "Request new" credential-provisioning path. When the device already
+// has an agent config carrying a client certificate (detected by
+// read-flightctl-config.sh), the wizard auto-selects "Use existing" and hides the
+// credential fields. Specs that need to observe that auto-detection must use this
+// helper rather than WizardConfigureEnrollment, which clicks
+// #configure-new-flightctl and would override the detected state.
+func (b *OnboardingBrowser) WizardEnableEnrollment() error {
+	return chromedp.Run(b.ctx,
+		b.iframeWaitVisible(`#flightctl-enrollment`, 5*time.Second),
+		b.iframeEnsureSwitchOn(`flightctl-enrollment`),
+	)
+}
+
+// WizardSetTLSInsecure turns off the enrollment step's "Verify TLS certificates"
+// switch (#tls-verification), which sets the wizard's tlsMode to "insecure" so the
+// generated `flightctl login` runs with -k. Test deployments present a self-signed
+// certificate the VM does not trust, so enrollment specs must disable verification
+// (or supply a custom CA) for the login inside flightctl-enroll.sh to succeed. Call
+// it after WizardConfigureEnrollment, which selects the "Request new" body where
+// this switch lives.
+func (b *OnboardingBrowser) WizardSetTLSInsecure() error {
+	return chromedp.Run(b.ctx,
+		b.iframeWaitVisible(`#tls-verification`, 5*time.Second),
+		b.iframeEnsureSwitchOff(`tls-verification`),
+	)
+}
+
+// WizardEnrollmentUsesExisting reports whether the enrollment step's "Use existing"
+// radio (#use-existing-flightctl) is selected. The wizard enables and auto-selects
+// it only when it detects a pre-provisioned agent config carrying a client
+// certificate.
+func (b *OnboardingBrowser) WizardEnrollmentUsesExisting() (bool, error) {
+	var checked bool
+	js := fmt.Sprintf(`
+		(function() {
+			var doc = %s;
+			if (!doc) return false;
+			var el = doc.querySelector('#use-existing-flightctl');
+			return !!(el && el.checked);
+		})()
+	`, b.iframeDoc())
+	err := chromedp.Run(b.ctx, chromedp.Evaluate(js, &checked))
+	return checked, err
+}
+
+// WizardEnrollmentCredentialFieldVisible reports whether the enrollment step's
+// credential-token field (#credential-token) is present and visible. It is used to
+// assert that the "Use existing" path hides the credential-provisioning UI.
+func (b *OnboardingBrowser) WizardEnrollmentCredentialFieldVisible() (bool, error) {
+	var visible bool
+	js := fmt.Sprintf(`
+		(function() {
+			var doc = %s;
+			if (!doc) return false;
+			var el = doc.querySelector('#credential-token');
+			if (!el) return false;
+			var rect = el.getBoundingClientRect();
+			return rect.width > 0 && rect.height > 0;
+		})()
+	`, b.iframeDoc())
+	err := chromedp.Run(b.ctx, chromedp.Evaluate(js, &visible))
+	return visible, err
+}
+
 // WizardSetHostname sets the hostname on the Labels page.
 func (b *OnboardingBrowser) WizardSetHostname(hostname string) error {
 	return chromedp.Run(b.ctx,
@@ -464,10 +529,47 @@ func (b *OnboardingBrowser) WizardWaitForCompletion(timeout time.Duration) error
 }
 
 // WizardWaitForFailure waits until the progress page shows a danger alert.
+// It polls (rather than a bare iframeWaitVisible) so that on timeout it can
+// embed a full wizard snapshot — current step, primary-button state, and the
+// progress-page text — into the returned error. That diagnostic is captured in
+// the error itself (and therefore in JUnit's system-err), independent of any
+// deferred screenshot/diagnostics hook, which is essential because a plain Go
+// defer sees CurrentSpecReport().Failed()==false during the failure unwind.
+// If the apply unexpectedly SUCCEEDS, that is reported too so a mis-triggered
+// failure scenario is distinguishable from one that never applied at all.
 func (b *OnboardingBrowser) WizardWaitForFailure(timeout time.Duration) error {
-	return chromedp.Run(b.ctx,
-		b.iframeWaitVisible(`.pf-v6-c-alert.pf-m-danger`, timeout),
-	)
+	deadline := time.Now().Add(timeout)
+	js := fmt.Sprintf(`
+		(function() {
+			var doc = %s;
+			if (!doc) return '';
+			if (doc.querySelector('.pf-v6-c-alert.pf-m-danger')) return 'failed';
+			if (doc.querySelector('.pf-v6-c-alert.pf-m-success')) return 'success';
+			return '';
+		})()
+	`, b.iframeDoc())
+	for {
+		var state string
+		if err := chromedp.Run(b.ctx, chromedp.Evaluate(js, &state)); err != nil {
+			return fmt.Errorf("WizardWaitForFailure: %w", err)
+		}
+		switch state {
+		case "failed":
+			return nil
+		case "success":
+			// Best-effort diagnostics: the apply succeeded when a danger alert
+			// was expected, so surface the state to explain the mismatch.
+			txt, _ := b.WizardGetReviewText()
+			return fmt.Errorf("WizardWaitForFailure: apply SUCCEEDED but a failure (danger alert) was expected; state: %s\nprogress page:\n%s", b.WizardDebugState(), txt)
+		}
+		if time.Now().After(deadline) {
+			// Best-effort diagnostics: no danger alert appeared, so capture the
+			// wizard state to reveal whether apply even reached the progress step.
+			txt, _ := b.WizardGetReviewText()
+			return fmt.Errorf("WizardWaitForFailure: no danger alert after %s; state: %s\nprogress page:\n%s", timeout, b.WizardDebugState(), txt)
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
 }
 
 // WizardGetReviewText returns the text content of the review page from the iframe.
@@ -557,10 +659,41 @@ func (b *OnboardingBrowser) WizardNavigateBackwards(n int) error {
 // StartCockpitTunnel starts an SSH local port forward from a free local port to
 // the VM's Cockpit service on port 9090. Returns the local address to use with
 // CockpitLogin and a cleanup function that kills the tunnel process.
+//
+// The forward targets the guest's own loopback ("localhost:9090") and binds
+// locally to 127.0.0.1, so the browser reaches Cockpit as 127.0.0.1. This is the
+// right choice for every spec that drives configuration through the multi-NIC
+// inline apply path; use StartCockpitTunnelViaInterface for specs that need the
+// wizard's single-NIC detection to fire.
 func StartCockpitTunnel(sshPort int, sshUser, sshPassword string) (cockpitAddr string, cleanup func(), err error) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	return startCockpitTunnel(sshPort, sshUser, sshPassword, "127.0.0.1", "localhost")
+}
+
+// StartCockpitTunnelViaInterface forwards to the guest's real interface address
+// (guestIP:9090) instead of its loopback, and binds the local end to 127.0.0.2
+// so the browser's window.location.hostname is "127.0.0.2" rather than a value
+// the wizard treats as localhost. Both are required to make the wizard's
+// single-NIC detection (isConnectedViaInterface in the onboarding plugin) return
+// true: it bails out immediately when the page hostname is localhost, and it
+// otherwise matches the local address of the accepted cockpit-ws connection
+// (as reported by `ss`) against the interface's addresses. Forwarding to
+// guestIP:9090 makes cockpit-ws see guestIP as that local address, which is a
+// member of the interface's addresses on a single-NIC guest. The returned
+// cockpitAddr is "127.0.0.2:<port>"; 127.0.0.2 is still loopback (bindable
+// without extra setup on Linux) but is not one of the literals the plugin's
+// isLocalhost() treats as local.
+func StartCockpitTunnelViaInterface(sshPort int, sshUser, sshPassword, guestIP string) (cockpitAddr string, cleanup func(), err error) {
+	return startCockpitTunnel(sshPort, sshUser, sshPassword, "127.0.0.2", guestIP)
+}
+
+// startCockpitTunnel is the shared implementation behind StartCockpitTunnel and
+// StartCockpitTunnelViaInterface. localBind is the loopback address the forward
+// listens on (and the host the browser navigates to); forwardHost is the host
+// cockpit-ws is reached at from inside the guest.
+func startCockpitTunnel(sshPort int, sshUser, sshPassword, localBind, forwardHost string) (cockpitAddr string, cleanup func(), err error) {
+	listener, err := net.Listen("tcp", net.JoinHostPort(localBind, "0"))
 	if err != nil {
-		return "", nil, fmt.Errorf("finding free port: %w", err)
+		return "", nil, fmt.Errorf("finding free port on %s: %w", localBind, err)
 	}
 	localPort := listener.Addr().(*net.TCPAddr).Port
 	listener.Close()
@@ -574,7 +707,7 @@ func StartCockpitTunnel(sshPort int, sshUser, sshPassword string) (cockpitAddr s
 		"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null",
 		"-o", "LogLevel=ERROR",
-		"-L", fmt.Sprintf("127.0.0.1:%d:localhost:%d", localPort, cockpitPort),
+		"-L", fmt.Sprintf("%s:%d:%s:%d", localBind, localPort, forwardHost, cockpitPort),
 		"-N",
 	)
 	cmd.Env = append(os.Environ(), "SSHPASS="+sshPassword)
@@ -587,25 +720,25 @@ func StartCockpitTunnel(sshPort int, sshUser, sshPassword string) (cockpitAddr s
 		return "", nil, fmt.Errorf("starting SSH tunnel: %w", startErr)
 	}
 
+	dialAddr := net.JoinHostPort(localBind, strconv.Itoa(localPort))
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
-		conn, dialErr := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", localPort), 500*time.Millisecond)
+		conn, dialErr := net.DialTimeout("tcp", dialAddr, 500*time.Millisecond)
 		if dialErr == nil {
 			conn.Close()
-			cockpitAddr = fmt.Sprintf("127.0.0.1:%d", localPort)
 			cleanup = func() {
 				_ = cmd.Process.Kill()
 				_ = cmd.Wait()
 			}
-			return cockpitAddr, cleanup, nil
+			return dialAddr, cleanup, nil
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
 
 	_ = cmd.Process.Kill()
 	_ = cmd.Wait()
-	return "", nil, fmt.Errorf("SSH tunnel to port %d via SSH port %d did not become ready within 15s: %s",
-		cockpitPort, sshPort, strings.TrimSpace(sshStderr.String()))
+	return "", nil, fmt.Errorf("SSH tunnel to %s:%d via SSH port %d did not become ready within 15s: %s",
+		forwardHost, cockpitPort, sshPort, strings.TrimSpace(sshStderr.String()))
 }
 
 // --- iframe helpers ---
