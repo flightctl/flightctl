@@ -352,6 +352,26 @@ func TestFetchImageSecurity_Forbidden(t *testing.T) {
 	require.True(t, hasEntryWithField(hook, "reason", reasonForbidden))
 }
 
+func TestFetchImageSecurity_UnexpectedStatus(t *testing.T) {
+	// An unexpected, non-retryable status (not 401/403/404, not 429/5xx) must
+	// degrade gracefully: the image is skipped with a warn, not a hard error.
+	mock := &mockQuayServer{httpStatus: http.StatusBadRequest}
+	srv := newMockQuayServer(t, mock)
+	c, hook := newTestClient(t, srv.URL)
+
+	image := vulnerability.ImageRef{Digest: "sha256:abc", Image: hostOf(srv) + "/org/repo:latest"}
+	res, err := c.FetchImageSecurity(context.Background(), image)
+	require.NoError(t, err, "an unexpected status skips the image rather than failing the scan")
+	require.Nil(t, res.Report)
+	require.Equal(t, outcomeSkipped, res.Outcome)
+	require.Equal(t, 1, mock.count(), "an unexpected 4xx is not retried")
+
+	last := hook.LastEntry()
+	require.NotNil(t, last)
+	require.Equal(t, logrus.WarnLevel, last.Level)
+	require.True(t, hasEntryWithField(hook, "event", eventScanSkipped))
+}
+
 func TestFetchImageSecurity_Retries429ThenSuccess(t *testing.T) {
 	mock := &mockQuayServer{
 		statusSequence: []int{http.StatusTooManyRequests, http.StatusOK},
