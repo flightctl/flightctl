@@ -854,13 +854,19 @@ func convertEKECDSAPublicKey(key *ecdsa.PublicKey) (*tpm2.TPMTPublic, error) {
 
 	tpmPublic := tpm2.ECCEKTemplate
 
+	// Uncompressed SEC1 point encoding: 0x04 || X || Y, 32 bytes each for P-256.
+	rawPoint, err := key.Bytes()
+	if err != nil {
+		return nil, fmt.Errorf("encode ECDSA public key: %w", err)
+	}
+
 	// put actual key data into the unique portion
 	tpmPublic.Unique = tpm2.NewTPMUPublicID(
 		tpm2.TPMAlgECC,
 		&tpm2.TPMSECCPoint{
 			// 32 as defined by the P256. Should more curves be supported this will change
-			X: tpm2.TPM2BECCParameter{Buffer: key.X.FillBytes(make([]byte, 32))},
-			Y: tpm2.TPM2BECCParameter{Buffer: key.Y.FillBytes(make([]byte, 32))},
+			X: tpm2.TPM2BECCParameter{Buffer: rawPoint[1:33]},
+			Y: tpm2.TPM2BECCParameter{Buffer: rawPoint[33:65]},
 		},
 	)
 
