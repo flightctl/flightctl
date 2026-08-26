@@ -61,11 +61,17 @@ sudo -E "${SCRIPT_DIR}/scripts/build.sh" --base
 
 # 2) Produce the qcow2 from the base image. Fedora bootc images do not carry a
 #    default root filesystem type, so bootc-image-builder aborts without an
-#    explicit --rootfs ("missing required info: DefaultRootFs"). Pass xfs to match
-#    the type BIB infers for the cs9/cs10 disks and keep all flavors consistent.
+#    explicit --rootfs ("missing required info: DefaultRootFs").
+#
+#    Use ext4, NOT xfs: the BIB container's mkfs.xfs formats the root with modern
+#    on-disk features (nrext64, exchange) that the CI test-vm's CentOS Stream 9
+#    host kernel (5.14) cannot mount. Because BIB runs privileged and shares the
+#    host kernel, osbuild's install-to-filesystem stage then fails with
+#    "mount: wrong fs type, bad option, bad superblock". ext4 has no equivalent
+#    kernel-version-gated features and mounts fine under 5.14.
 QCOW2_OUTPUT_DIR="${ROOT_DIR}/bin/output/agent-qcow2-${OS_ID}"
 echo "Producing qcow2 for ${OS_ID}"
-OUTPUT_DIR="${QCOW2_OUTPUT_DIR}" ROOTFS="${ROOTFS:-xfs}" "${SCRIPT_DIR}/scripts/qcow2.sh"
+OUTPUT_DIR="${QCOW2_OUTPUT_DIR}" ROOTFS="${ROOTFS:-ext4}" "${SCRIPT_DIR}/scripts/qcow2.sh"
 
 # 3) Move the disk to the shared path every suite boots from and record the flavor.
 QCOW_SRC="${QCOW2_OUTPUT_DIR}/qcow2/disk.qcow2"
