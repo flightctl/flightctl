@@ -1,0 +1,12 @@
+#cloud-config
+ssh_pwauth: true
+password: {{ yamlQuote .Password }}
+chpasswd: { expire: False }
+write_files:
+  - path: /etc/security/faillock.conf
+    owner: root:root
+    permissions: '0644'
+    content: |
+      deny = 0
+runcmd:
+  - {{ .FaillockCommand }}

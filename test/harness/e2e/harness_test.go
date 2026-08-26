@@ -88,15 +88,90 @@ func TestRedactCommandArgsRemovesSensitiveValues(t *testing.T) {
 }
 
 func TestVMFedoraNoCloudUserDataWhenEnablingPasswordSSHItShouldResetFaillock(t *testing.T) {
-	got := VMFedoraNoCloudUserData("secret-pass")
-	for _, want := range []string{
-		"ssh_pwauth: true",
-		"password: secret-pass",
-		"authselect disable-feature with-faillock",
-		"faillock --user " + VMFedoraGuestUser + " --reset",
+	password := t.Name()
+	got := VMFedoraNoCloudUserData(password)
+	for _, field := range []string{
+		"ssh_pwauth",
+		"password",
+		"faillock-conf",
+		"faillock-deny",
+		"faillock-disable",
+		"faillock-reset",
 	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("cloud-init userData missing %q:\n%s", want, got)
+		var present bool
+		switch field {
+		case "ssh_pwauth":
+			present = strings.Contains(got, "ssh_pwauth: true")
+		case "password":
+			present = strings.Contains(got, "password: "+yamlQuote(password))
+		case "faillock-conf":
+			present = strings.Contains(got, "path: /etc/security/faillock.conf")
+		case "faillock-deny":
+			present = strings.Contains(got, "deny = 0")
+		case "faillock-disable":
+			present = strings.Contains(got, "authselect disable-feature with-faillock")
+		case "faillock-reset":
+			present = strings.Contains(got, "faillock --user "+VMFedoraGuestUser+" --reset")
 		}
+		if !present {
+			t.Fatalf("cloud-init userData is missing required field %s", field)
+		}
+	}
+}
+
+func TestVMFedoraNoCloudUserDataWhenPasswordHasYAMLMetacharactersItShouldQuoteTheScalar(t *testing.T) {
+	password := `p:ass"word`
+	got := VMFedoraNoCloudUserData(password)
+	if !strings.Contains(got, "password: "+yamlQuote(password)) {
+		t.Fatal("cloud-init userData is missing a quoted password field")
+	}
+}
+
+func TestVMYAMLWhenBuildingNoCloudManifestItShouldEmbedIndentedUserData(t *testing.T) {
+	userData := VMFedoraNoCloudUserData(t.Name())
+	got := VMYAML("test-vm", "1024M", "quay.io/example/fedora:40", userData)
+	for _, field := range []string{
+		"kind",
+		"guest-memory",
+		"cloud-init-nocloud",
+		"user-data",
+		"no-cpu",
+	} {
+		var present bool
+		switch field {
+		case "kind":
+			present = strings.Contains(got, "kind: VirtualMachine")
+		case "guest-memory":
+			present = strings.Contains(got, "guest: 1024M")
+		case "cloud-init-nocloud":
+			present = strings.Contains(got, "cloudInitNoCloud:")
+		case "user-data":
+			present = strings.Contains(got, "ssh_pwauth: true")
+		case "no-cpu":
+			present = !strings.Contains(got, "cpu:")
+		}
+		if !present {
+			t.Fatalf("vm.yaml is missing required field %s", field)
+		}
+	}
+}
+
+func TestVMYAMLWithCPUWhenCoresAreSetItShouldRenderCPUBlock(t *testing.T) {
+	got := VMYAMLWithCPU("test-vm", "2G", "quay.io/example/fedora:41", 2, VMFedoraNoCloudUserData(t.Name()))
+	if !strings.Contains(got, "cores: 2") {
+		t.Fatal("vm.yaml is missing cpu cores")
+	}
+}
+
+func TestVMYAMLWithConfigDriveWhenUserDataIsBase64ItShouldUseConfigDriveVolume(t *testing.T) {
+	got := VMYAMLWithConfigDrive("test-vm", "1024M", "quay.io/example/fedora:40", "YWJj")
+	if !strings.Contains(got, "cloudInitConfigDrive:") {
+		t.Fatal("vm.yaml is missing cloudInitConfigDrive volume")
+	}
+	if !strings.Contains(got, "userDataBase64: YWJj") {
+		t.Fatal("vm.yaml is missing config-drive userDataBase64")
+	}
+	if strings.Contains(got, "cloudInitNoCloud:") {
+		t.Fatal("vm.yaml included cloudInitNoCloud for a config-drive manifest")
 	}
 }

@@ -28,101 +28,6 @@ const (
 	VMFedoraGuestUser = "fedora"
 )
 
-// VMYAML builds a KubeVirt VirtualMachine manifest for e2e tests. cloudInitVolumeYAML
-// is the cloudinitdisk volume entry (including list-item indentation under volumes)
-func VMYAML(name, guestMemory, image, cloudInitVolumeYAML string) string {
-	return vmYAMLManifest(name, guestMemory, image, 0, cloudInitVolumeYAML)
-}
-
-// VMGuestDisableFaillockCommand returns a cloud-init runcmd that disables pam_faillock
-// via authselect (Fedora PAM args can ignore faillock.conf) and clears any lockout
-// already recorded for user. Failures are ignored so non-authselect images still boot.
-func VMGuestDisableFaillockCommand(user string) string {
-	return fmt.Sprintf(`bash -lc "authselect disable-feature with-faillock >/dev/null 2>&1 || true; faillock --user %s --reset >/dev/null 2>&1 || true"`, user)
-}
-
-// VMFedoraNoCloudUserData returns cloud-init userData that enables password SSH for the fedora user.
-func VMFedoraNoCloudUserData(password string) string {
-	return fmt.Sprintf(`#cloud-config
-ssh_pwauth: true
-password: %s
-chpasswd: { expire: False }
-runcmd:
-  - %s`, password, VMGuestDisableFaillockCommand(VMFedoraGuestUser))
-}
-
-// VMYAMLWithCPU builds a KubeVirt VirtualMachine manifest. cpuCores <= 0 omits the cpu block.
-func VMYAMLWithCPU(name, guestMemory, image string, cpuCores int, cloudInitUserData string) string {
-	return vmYAMLManifest(name, guestMemory, image, cpuCores, VMCloudInitNoCloudVolume(cloudInitUserData))
-}
-
-func vmYAMLManifest(name, guestMemory, image string, cpuCores int, cloudInitVolumeYAML string) string {
-	cpuBlock := ""
-	if cpuCores > 0 {
-		cpuBlock = fmt.Sprintf("        cpu:\n          cores: %d\n", cpuCores)
-	}
-	return fmt.Sprintf(`apiVersion: kubevirt.io/v1
-kind: VirtualMachine
-metadata:
-  name: %s
-spec:
-  running: true
-  template:
-    spec:
-      domain:
-%s        devices:
-          disks:
-          - disk:
-              bus: virtio
-            name: containerdisk
-          - disk:
-              bus: virtio
-            name: cloudinitdisk
-          interfaces:
-          - masquerade: {}
-            name: default
-          rng: {}
-        memory:
-          guest: %s
-        resources: {}
-      networks:
-      - name: default
-        pod: {}
-      volumes:
-      - containerdisk:
-          image: %s
-        name: containerdisk
-%s`, name, cpuBlock, guestMemory, image, cloudInitVolumeYAML)
-}
-
-// VMYAMLWithConfigDrive builds a VM manifest using cloudInitConfigDrive userDataBase64.
-func VMYAMLWithConfigDrive(name, guestMemory, image, userDataBase64 string) string {
-	return VMYAML(name, guestMemory, image, vmCloudInitConfigDriveVolume(userDataBase64))
-}
-
-// VMCloudInitNoCloudVolume returns the cloudinitdisk volume using cloudInitNoCloud.
-func VMCloudInitNoCloudVolume(userData string) string {
-	return fmt.Sprintf(`      - cloudInitNoCloud:
-          userData: |-
-%s
-        name: cloudinitdisk`, vmIndentCloudInitUserData(userData, 12))
-}
-
-func vmCloudInitConfigDriveVolume(userDataBase64 string) string {
-	return fmt.Sprintf(`      - cloudInitConfigDrive:
-          userDataBase64: %s
-        name: cloudinitdisk`, userDataBase64)
-}
-
-func vmIndentCloudInitUserData(userData string, spaces int) string {
-	prefix := strings.Repeat(" ", spaces)
-	lines := strings.Split(strings.TrimSuffix(userData, "\n"), "\n")
-	for i, line := range lines {
-		lines[i] = prefix + line
-	}
-	return strings.Join(lines, "\n")
-}
-
 // QuadletPathForUser returns the quadlet systemd path for the given user.
 // Empty or "root" returns the root path; any other user returns the user's config path.
 func QuadletPathForUser(user string) string {
@@ -328,7 +233,7 @@ func NewMountVolume(name, mountPath string) (v1beta1.ApplicationVolume, error) {
 // publishPorts so that the server-side renderer can inject it into the
 // generated .pod unit.
 func NewVmApplicationSpec(name, image string) (v1beta1.ApplicationProviderSpec, error) {
-	vmYAML := VMYAML(name, VMGuestMemoryDefault, image, VMCloudInitNoCloudVolume(VMFedoraNoCloudUserData("fedora")))
+	vmYAML := VMYAML(name, VMGuestMemoryDefault, image, VMFedoraNoCloudUserData("fedora"))
 	return NewVmApplicationSpecFromYAML(name, []string{"2222:22"}, vmYAML)
 }
 
