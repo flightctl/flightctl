@@ -23,13 +23,14 @@ type mockQuayServer struct {
 	mu sync.Mutex
 
 	// Behavior knobs.
-	httpStatus     int            // HTTP status to return (0 => 200)
-	status         string         // Response.Status for a 200 body (ignored when rawBody set)
-	response       Response       // full body for a 200 response (used when status is empty)
-	rawBody        string         // raw body override (for malformed-JSON tests)
-	statusSequence []int          // per-request statuses; index i used for request i, last repeats
-	statusByPath   map[string]int // per-repo-path status (path substring => status)
-	delay          time.Duration  // per-request delay (for timeout tests)
+	httpStatus     int                      // HTTP status to return (0 => 200)
+	status         string                   // Response.Status for a 200 body (ignored when rawBody set)
+	response       Response                 // full body for a 200 response (used when status is empty)
+	rawBody        string                   // raw body override (for malformed-JSON tests)
+	statusSequence []int                    // per-request statuses; index i used for request i, last repeats
+	statusByPath   map[string]int           // per-repo-path status (path substring => status)
+	delay          time.Duration            // per-request delay (for timeout tests)
+	delayByPath    map[string]time.Duration // per-repo-path delay (path substring => delay)
 
 	// Captured request state.
 	requestCount int
@@ -56,7 +57,7 @@ func newMockQuayServer(t *testing.T, m *mockQuayServer) *httptest.Server {
 			m.maxInFlight = m.inFlight
 		}
 		status := m.statusFor(idx, r.URL.Path)
-		delay := m.delay
+		delay := m.delayFor(r.URL.Path)
 		m.mu.Unlock()
 
 		defer func() {
@@ -102,6 +103,29 @@ func (m *mockQuayServer) statusFor(idx int, path string) int {
 		return m.statusSequence[len(m.statusSequence)-1]
 	}
 	return m.httpStatus
+}
+
+// delayFor resolves the artificial delay for a request. Caller holds m.mu.
+func (m *mockQuayServer) delayFor(path string) time.Duration {
+	for frag, d := range m.delayByPath {
+		if strings.Contains(path, frag) {
+			return d
+		}
+	}
+	return m.delay
+}
+
+// countEntriesWithField reports how many log entries carry field==value.
+func countEntriesWithField(hook *test.Hook, field, value string) int {
+	n := 0
+	for _, e := range hook.AllEntries() {
+		if v, ok := e.Data[field]; ok {
+			if s, ok := v.(string); ok && s == value {
+				n++
+			}
+		}
+	}
+	return n
 }
 
 func (m *mockQuayServer) count() int {

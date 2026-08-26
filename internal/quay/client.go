@@ -48,9 +48,12 @@ const (
 // Structured log event names emitted by the Quay backend (design §6). They are
 // carried in the "event" log field so operators can filter by outcome.
 const (
-	eventScanSkipped = "quay_scan_skipped"
-	eventRateLimited = "quay_rate_limited"
-	eventAuthError   = "quay_auth_error"
+	eventScanCompleted = "quay_scan_completed"
+	eventScanSkipped   = "quay_scan_skipped"
+	eventScanFailed    = "quay_scan_failed"
+	eventRateLimited   = "quay_rate_limited"
+	eventAuthError     = "quay_auth_error"
+	eventSyncSummary   = "quay_sync_summary"
 )
 
 // ErrQuayAuth is returned when Quay rejects the configured token (HTTP 401). It
