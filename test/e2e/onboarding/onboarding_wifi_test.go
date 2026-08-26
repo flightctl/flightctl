@@ -147,9 +147,18 @@ func wifiDevices(h *e2e.Harness) []string {
 
 // loadHwsimRadios loads two virtual radios and returns their interface names.
 // The first drives the AP, the second acts as the over-the-air client.
+//
+// wifiStackAvailable already gated entry with `modprobe -n` (a dry run), but a dry
+// run only resolves the dependency chain - it does not insert the module, so it
+// cannot prove the kernel will accept the real insertion (an ABI mismatch, a
+// blacklist, or a rejected radios= parameter would still surface only here). If the
+// real load fails we therefore Skip rather than fail hard: an hwsim that resolves
+// but will not insert is an environment/availability condition, matching the suite's
+// skip-on-unavailable contract, not a product regression the spec should flag.
 func loadHwsimRadios(h *e2e.Harness) (apIface, clientIface string) {
-	_, err := h.VM.RunSSH([]string{"sudo", "modprobe", "mac80211_hwsim", "radios=2"}, nil)
-	Expect(err).ToNot(HaveOccurred(), "failed to load mac80211_hwsim")
+	if _, err := h.VM.RunSSH([]string{"sudo", "modprobe", "mac80211_hwsim", "radios=2"}, nil); err != nil {
+		Skip(fmt.Sprintf("mac80211_hwsim could not be loaded (radios=2), skipping WiFi spec: %v", err))
+	}
 
 	var devs []string
 	Eventually(func() int {
