@@ -432,9 +432,12 @@ For more detailed configuration options, see the [Values](#values) section below
 | upgradeHooks.scaleDown.condition | string | `"chart"` | When to run pre-upgrade scale down job: "always", "never", or "chart" (default). "chart" runs only if helm.sh/chart changed. |
 | upgradeHooks.scaleDown.deployments | list | `["flightctl-periodic","flightctl-worker"]` | List of Deployments to scale down in order |
 | upgradeHooks.scaleDown.timeoutSeconds | int | `120` | Timeout in seconds to wait for rollout per Deployment |
-| vulnerabilityReporting | object | `{"backend":"","enabled":false,"syncInterval":"15m","trustify":{"auth":{"mode":"none","oidcIssuerUrl":"","secretName":""},"endpoint":""}}` | Vulnerability Integration Configuration |
-| vulnerabilityReporting.backend | string | `""` | Vulnerability scanning backend. Currently only "trustify" is supported; leave empty to default to Trustify when a trustify config is present. |
+| vulnerabilityReporting | object | `{"backend":"","enabled":false,"quay":{"auth":{"secretName":""},"endpoint":"","maxConcurrentRequests":5},"syncInterval":"15m","trustify":{"auth":{"mode":"none","oidcIssuerUrl":"","secretName":""},"endpoint":""}}` | Vulnerability Integration Configuration |
+| vulnerabilityReporting.backend | string | `""` | Vulnerability scanning backend. One of "trustify" or "quay"; leave empty to default to Trustify when a trustify config is present. |
 | vulnerabilityReporting.enabled | bool | `false` | Enable vulnerability integration (sync task + API endpoints). |
+| vulnerabilityReporting.quay.auth.secretName | string | `""` | Name of the Kubernetes Secret containing a 'token' key with the Quay bearer token. |
+| vulnerabilityReporting.quay.endpoint | string | `""` | Quay API base URL (e.g. "https://quay.io"). |
+| vulnerabilityReporting.quay.maxConcurrentRequests | int | `5` | Maximum number of concurrent requests to the Quay Security API. |
 | vulnerabilityReporting.syncInterval | string | `"15m"` | Sync interval for periodic Trustify fetch (e.g. "15m", "1h"). |
 | vulnerabilityReporting.trustify.auth.mode | string | `"none"` | Authentication mode for Trustify. Allowed values: 'client-credentials', 'none'. |
 | vulnerabilityReporting.trustify.auth.oidcIssuerUrl | string | `""` | OIDC issuer URL for client-credentials mode. |

@@ -551,7 +551,7 @@ vulnerabilityReporting:
   enabled: false
   # -- Sync interval for periodic Trustify fetch (e.g. "15m", "1h").
   syncInterval: "15m"
-  # -- Vulnerability scanning backend. Currently only "trustify" is supported; leave empty to default to Trustify when a trustify config is present.
+  # -- Vulnerability scanning backend. One of "trustify" or "quay"; leave empty to default to Trustify when a trustify config is present.
   backend: ""
   trustify:
     # -- Trustify API base URL (do not include /api/v1 or /api/v2 paths).
@@ -562,6 +562,14 @@ vulnerabilityReporting:
       # -- OIDC issuer URL for client-credentials mode.
       oidcIssuerUrl: ""
       # -- Name of the Kubernetes Secret containing 'client_id' and 'client_secret' keys.
+      secretName: ""
+  quay:
+    # -- Quay API base URL (e.g. "https://quay.io").
+    endpoint: ""
+    # -- Maximum number of concurrent requests to the Quay Security API.
+    maxConcurrentRequests: 5
+    auth:
+      # -- Name of the Kubernetes Secret containing a 'token' key with the Quay bearer token.
       secretName: ""
 
 # -- Upgrade hooks
