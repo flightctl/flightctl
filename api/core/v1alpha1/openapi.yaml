@@ -2299,7 +2299,7 @@ components:
           description: Count of distinct CVEs with unknown or unscored severity.
     Vulnerability:
       type: object
-      description: A single vulnerability (CVE) finding. Vulnerabilities are global CVE records from Trustify; they are not tenant-owned resources. Tenancy is determined by the device or fleet context through which they are queried.
+      description: A single vulnerability (CVE) finding. Vulnerabilities are global CVE records produced by the configured vulnerability scanner; they are not tenant-owned resources. Tenancy is determined by the device or fleet context through which they are queried.
       additionalProperties: false
       required:
         - apiVersion
@@ -2339,6 +2339,10 @@ components:
           type: string
           format: date-time
           description: Advisory publish time when known.
+        source:
+          type: string
+          description: The vulnerability backend that produced this finding.
+          enum: [trustify, quay]
         image:
           type: string
           description: Image reference (name or URL) from the device context.

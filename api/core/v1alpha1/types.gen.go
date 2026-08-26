@@ -51,6 +51,12 @@ const (
 	VulnerabilitySeverityUnknown  VulnerabilitySeverity = "Unknown"
 )
 
+// Defines values for VulnerabilitySource.
+const (
+	Quay     VulnerabilitySource = "quay"
+	Trustify VulnerabilitySource = "trustify"
+)
+
 // Defines values for VulnerabilityGroupSeverity.
 const (
 	VulnerabilityGroupSeverityCritical VulnerabilityGroupSeverity = "Critical"
@@ -567,7 +573,7 @@ type Status struct {
 	Status string `json:"status"`
 }
 
-// Vulnerability A single vulnerability (CVE) finding. Vulnerabilities are global CVE records from Trustify; they are not tenant-owned resources. Tenancy is determined by the device or fleet context through which they are queried.
+// Vulnerability A single vulnerability (CVE) finding. Vulnerabilities are global CVE records produced by the configured vulnerability scanner; they are not tenant-owned resources. Tenancy is determined by the device or fleet context through which they are queried.
 type Vulnerability struct {
 	// AdvisoryId Vendor advisory identifier when available.
 	AdvisoryId *string `json:"advisoryId,omitempty"`
@@ -607,10 +613,16 @@ type Vulnerability struct {
 
 	// Severity Normalized severity label.
 	Severity VulnerabilitySeverity `json:"severity"`
+
+	// Source The vulnerability backend that produced this finding.
+	Source *VulnerabilitySource `json:"source,omitempty"`
 }
 
 // VulnerabilitySeverity Normalized severity label.
 type VulnerabilitySeverity string
+
+// VulnerabilitySource The vulnerability backend that produced this finding.
+type VulnerabilitySource string
 
 // VulnerabilityGroup A CVE grouped across one or more images, as returned by fleet-scoped and organization-wide vulnerability list endpoints. Each finding represents one image in which the CVE was detected.
 type VulnerabilityGroup struct {

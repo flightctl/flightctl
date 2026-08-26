@@ -320,4 +320,48 @@ var _ = Describe("DataStore Migration Tests", func() {
 			Expect(err.Error()).To(ContainSubstring("would share issuer"))
 		})
 	})
+
+	Context("Vulnerability finding source backfill", func() {
+		It("When upgrading, it should add a nullable source column and backfill pre-existing rows to trustify", func() {
+			freshCtx := testutil.StartSpecTracerForGinkgo(suiteCtx)
+			freshLog := flightlog.InitLogs()
+
+			orgID := uuid.New()
+			freshCfg, freshDbName, freshGormDb := createFreshDBWithOrgs(freshCtx, freshLog, []uuid.UUID{orgID})
+			defer func() {
+				Expect(testdb.DeleteTestDB(freshCtx, freshLog, freshCfg, freshGormDb, freshDbName)).To(Succeed())
+			}()
+
+			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)).To(Succeed())
+
+			db := freshGormDb.WithContext(freshCtx)
+
+			// The source column must exist after migration.
+			Expect(db.Migrator().HasColumn(&model.VulnerabilityFinding{}, "source")).To(BeTrue())
+
+			// Reset the once-only guard so the backfill re-runs against the row
+			// we insert below (the initial run had no findings to backfill).
+			Expect(db.Where("key = ?", "backfill_vulnerability_source_v1").Delete(&model.SchemaMigration{}).Error).To(Succeed())
+
+			// Insert a pre-existing finding without a source (simulating a row
+			// written before the column existed) so its source is NULL.
+			Expect(db.Exec(`
+				INSERT INTO vulnerability_findings (image_digest, cve_id, status, severity, first_seen_at, updated_at)
+				VALUES (?, ?, ?, ?, NOW(), NOW())`,
+				"sha256:legacy", "CVE-2020-0001", "affected", "High").Error).To(Succeed())
+
+			var beforeSource *string
+			Expect(db.Raw(`SELECT source FROM vulnerability_findings WHERE image_digest = ? AND cve_id = ?`,
+				"sha256:legacy", "CVE-2020-0001").Scan(&beforeSource).Error).To(Succeed())
+			Expect(beforeSource).To(BeNil())
+
+			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)).To(Succeed())
+
+			var afterSource *string
+			Expect(db.Raw(`SELECT source FROM vulnerability_findings WHERE image_digest = ? AND cve_id = ?`,
+				"sha256:legacy", "CVE-2020-0001").Scan(&afterSource).Error).To(Succeed())
+			Expect(afterSource).ToNot(BeNil())
+			Expect(*afterSource).To(Equal("trustify"))
+		})
+	})
 })

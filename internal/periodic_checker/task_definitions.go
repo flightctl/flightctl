@@ -247,12 +247,15 @@ type VulnerabilitySyncExecutor struct {
 	findingStore  vulnerabilityfindingstore.Store
 	checkpointSvc checkpointservice.Service
 	eventSvc      eventservice.Service
+	// backend is the resolved vulnerability backend whose name is stamped as
+	// the source on every finding produced by the sync.
+	backend config.VulnerabilityBackend
 }
 
 func (e *VulnerabilitySyncExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
 	taskCtx := createTaskContext(ctx, PeriodicTaskTypeVulnerabilitySync)
 	checkpoint := &serviceCheckpointAdapter{svc: e.checkpointSvc}
-	vulnSync := tasks.NewVulnerabilitySync(e.log, e.scanner, e.findingStore, checkpoint, e.eventSvc)
+	vulnSync := tasks.NewVulnerabilitySync(e.log, e.scanner, e.findingStore, checkpoint, e.eventSvc, e.backend)
 	vulnSync.Poll(taskCtx)
 }
 
@@ -389,6 +392,7 @@ func InitializeTaskExecutors(
 			findingStore:  findingStore,
 			checkpointSvc: checkpointSvc,
 			eventSvc:      eventSvc,
+			backend:       cfg.VulnerabilityReporting.EffectiveBackend(),
 		}
 	}
 
