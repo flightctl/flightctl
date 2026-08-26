@@ -1,8 +1,8 @@
 module github.com/flightctl/flightctl
 
-go 1.24.0
+go 1.26.0
 
-toolchain go1.25.8
+toolchain go1.26.5
 
 require (
 	github.com/ccoveille/go-safecast v1.1.0
