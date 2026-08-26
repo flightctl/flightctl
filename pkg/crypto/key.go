@@ -50,9 +50,9 @@ func NewKeyPairWithHash() (crypto.PublicKey, crypto.PrivateKey, []byte, error) {
 	publicKey, privateKey, err := newECDSAKeyPair()
 	var publicKeyHash []byte
 	if err == nil {
-		publicKeyHash = hashECDSAKey(publicKey)
+		publicKeyHash, err = hashECDSAKey(publicKey)
 	}
-	return publicKey, privateKey, publicKeyHash, nil
+	return publicKey, privateKey, publicKeyHash, err
 }
 
 func newECDSAKeyPair() (*ecdsa.PublicKey, *ecdsa.PrivateKey, error) {
@@ -66,9 +66,9 @@ func newECDSAKeyPair() (*ecdsa.PublicKey, *ecdsa.PrivateKey, error) {
 func HashPublicKey(key crypto.PublicKey) ([]byte, error) {
 	switch key := key.(type) {
 	case ecdsa.PublicKey:
-		return hashECDSAKey(&key), nil
+		return hashECDSAKey(&key)
 	case *ecdsa.PublicKey:
-		return hashECDSAKey(key), nil
+		return hashECDSAKey(key)
 	case rsa.PublicKey:
 		return hashRSAKey(&key), nil
 	case *rsa.PublicKey:
@@ -86,11 +86,14 @@ func HashPublicKey(key crypto.PublicKey) ([]byte, error) {
 	}
 }
 
-func hashECDSAKey(publicKey *ecdsa.PublicKey) []byte {
+func hashECDSAKey(publicKey *ecdsa.PublicKey) ([]byte, error) {
+	raw, err := publicKey.Bytes()
+	if err != nil {
+		return nil, fmt.Errorf("encode ECDSA public key: %w", err)
+	}
 	hash := sha256.New()
-	hash.Write(publicKey.X.Bytes())
-	hash.Write(publicKey.Y.Bytes())
-	return hash.Sum(nil)
+	hash.Write(raw)
+	return hash.Sum(nil), nil
 }
 
 func hashRSAKey(publicKey *rsa.PublicKey) []byte {
