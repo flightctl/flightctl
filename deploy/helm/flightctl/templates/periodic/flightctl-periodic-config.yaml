@@ -67,6 +67,7 @@ data:
     {{- $vuln := default dict .Values.vulnerabilityReporting }}
     {{- $trustify := default dict $vuln.trustify }}
     {{- $auth := default dict $trustify.auth }}
+    {{- $quay := default dict $vuln.quay }}
     {{- if default false $vuln.enabled }}
     vulnerabilityReporting:
         enabled: true
@@ -83,6 +84,13 @@ data:
                 {{- if $auth.oidcIssuerUrl }}
                 oidcIssuerUrl: {{ $auth.oidcIssuerUrl | quote }}
                 {{- end }}
+            {{- end }}
+        {{- end }}
+        {{- if $quay.endpoint }}
+        quay:
+            endpoint: {{ $quay.endpoint | quote }}
+            {{- if $quay.maxConcurrentRequests }}
+            maxConcurrentRequests: {{ $quay.maxConcurrentRequests | int }}
             {{- end }}
         {{- end }}
     {{- end }}
