@@ -279,7 +279,7 @@ func backoffWithJitter(backoff time.Duration) time.Duration {
 	if half <= 0 {
 		return backoff
 	}
-	return backoff + time.Duration(rand.Int64N(half))
+	return backoff + time.Duration(rand.Int64N(half)) //nolint:gosec // G404: retry backoff jitter, not security-sensitive
 }
 
 // isTimeout reports whether err is a request timeout (as opposed to another
