@@ -35,6 +35,26 @@ TAG="${TAG:-$SOURCE_GIT_TAG}"
 IMAGE_REPO="${IMAGE_REPO:-quay.io/flightctl/flightctl-device}"
 export SOURCE_GIT_TAG TAG IMAGE_REPO
 
+# Reject path arguments that could escape the build context (a bind mount of
+# {project root}/bin) before they are forwarded to the Containerfile, which uses
+# them unquoted in `cp /build-context/${VAR}/...`. Only relative, in-tree paths
+# are legitimate here: no absolute paths, no leading ~, and no ".." components.
+require_safe_relpath() {
+    local name="$1" value="$2"
+    case "${value}" in
+        /*|~*)
+            echo "ERROR: ${name} must be a relative in-tree path, got: ${value}" >&2
+            exit 1
+            ;;
+    esac
+    case "/${value}/" in
+        */../*)
+            echo "ERROR: ${name} must not contain a '..' component, got: ${value}" >&2
+            exit 1
+            ;;
+    esac
+}
+
 # Forward an optional COPR/local RPM source selection to the Containerfile. The
 # Containerfile already defaults RPM_COPR_REPO to @redhat-et/flightctl-dev, so an
 # unset RPM_COPR_REPO here means "use that default"; only forward overrides.
@@ -46,8 +66,19 @@ if [ -n "${RPM_COPR_PACKAGE:-}" ]; then
     BUILD_ARGS="${BUILD_ARGS} --build-arg RPM_COPR_PACKAGE=${RPM_COPR_PACKAGE}"
 fi
 if [ -n "${RPM_DIR:-}" ]; then
+    require_safe_relpath RPM_DIR "${RPM_DIR}"
     BUILD_ARGS="${BUILD_ARGS} --build-arg RPM_DIR=${RPM_DIR}"
 fi
+# The Containerfile also consumes these optional in-tree paths (CA trust, agent
+# config and certs) via `cp /build-context/${VAR}`. This wrapper does not add
+# them to BUILD_ARGS, but validate any the caller set in the environment so a
+# traversal value cannot reach the build through PODMAN_BUILD_EXTRA_FLAGS.
+for _pathvar in TRUST_CA_FROM AGENT_CONFIG_FROM AGENT_CERTS_FROM; do
+    eval "_pathval=\${${_pathvar}:-}"
+    if [ -n "${_pathval}" ]; then
+        require_safe_relpath "${_pathvar}" "${_pathval}"
+    fi
+done
 if [ -n "${PODMAN_BUILD_EXTRA_FLAGS:-}" ]; then
     export PODMAN_BUILD_EXTRA_FLAGS="${PODMAN_BUILD_EXTRA_FLAGS} ${BUILD_ARGS}"
 else

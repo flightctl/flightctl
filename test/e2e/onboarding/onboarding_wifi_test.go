@@ -261,10 +261,10 @@ host, server = sys.argv[1], sys.argv[2]
 header = struct.pack(">HHHHHH", 0x1234, 0x0100, 1, 0, 0, 0)
 q = b"".join(struct.pack("B", len(p)) + p.encode() for p in host.split(".")) + b"\x00"
 q += struct.pack(">HH", 1, 1)
-s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-s.settimeout(5)
-s.sendto(header + q, (server, 53))
-data, _ = s.recvfrom(512)
+with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+    s.settimeout(5)
+    s.sendto(header + q, (server, 53))
+    data, _ = s.recvfrom(512)
 ancount = struct.unpack(">H", data[6:8])[0]
 i = 12
 while data[i] != 0:
