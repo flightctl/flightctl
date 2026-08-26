@@ -411,18 +411,32 @@ var _ = Describe("VM Agent Helm Application Tests", Ordered, Label("microshift")
 			})
 			Expect(err).ToNot(HaveOccurred())
 
-			By("Disable connectivity from the registry to ensure prefetch relies on old images")
+			By("Disable connectivity to the registry and verify running applications keep using prefetched images")
 			DeferCleanup(func() { _ = harness.FixNetworkFailure(services.Registry.Host, services.Registry.Port) })
 			err = harness.SimulateNetworkFailure(services.Registry.Host, services.Registry.Port)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Already-running workloads must stay healthy while the registry is unreachable: they
+			// run from images the agent prefetched, so a registry outage alone must not degrade them.
+			err = harness.WaitForApplicationStatus(deviceId, quadletAppName, v1beta1.ApplicationStatusRunning, util.TIMEOUT, util.POLLING)
+			Expect(err).ToNot(HaveOccurred())
+			err = harness.WaitForApplicationStatus(deviceId, containerAppName, v1beta1.ApplicationStatusRunning, util.TIMEOUT, util.POLLING)
+			Expect(err).ToNot(HaveOccurred())
+			err = harness.WaitForApplicationStatus(deviceId, helmAppName, v1beta1.ApplicationStatusRunning, util.TIMEOUT, util.POLLING)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Restore connectivity before recreating the quadlet in rootless mode. Recreating a quadlet
+			// restarts its generated ".image" units, which run `podman image pull` and always contact
+			// the registry (podman does not fall back to the local cache for a tagged reference). If the
+			// registry were still blocked, the worker container's image pull would fail and the quadlet
+			// would stay partially ready forever.
+			err = harness.FixNetworkFailure(services.Registry.Host, services.Registry.Port)
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Swap quadlets back to rootless")
 			err = harness.UpdateDeviceAndWaitForVersion(deviceId, func(device *v1beta1.Device) {
 				device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{containerAppSpec, rootlessQuadlet, helmAppSpec}
 			})
-			Expect(err).ToNot(HaveOccurred())
-
-			err = harness.FixNetworkFailure(services.Registry.Host, services.Registry.Port)
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Ensure all applications are running")
