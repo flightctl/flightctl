@@ -2,9 +2,12 @@ package quay
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/vulnerability"
@@ -27,8 +30,9 @@ func init() {
 // client, converting Quay/Clair scan reports into backend-agnostic
 // vulnerability.Finding DTOs.
 type quayScanner struct {
-	client *Client
-	log    logrus.FieldLogger
+	client        *Client
+	log           logrus.FieldLogger
+	maxConcurrent int
 }
 
 // NewScanner returns a Quay-backed Scanner. It returns (nil, nil) when cfg is
@@ -46,27 +50,139 @@ func NewScanner(cfg *config.QuayConfig, log logrus.FieldLogger) (vulnerability.S
 	if err != nil {
 		return nil, err
 	}
-	return &quayScanner{client: client, log: log}, nil
+	maxConcurrent := cfg.MaxConcurrentRequests
+	if maxConcurrent <= 0 {
+		maxConcurrent = config.DefaultQuayMaxConcurrentRequests
+	}
+	return &quayScanner{client: client, log: log, maxConcurrent: maxConcurrent}, nil
 }
 
-// ScanImages fetches each image's Quay Security report and converts the
-// contained vulnerabilities into findings keyed by image digest. Images the
-// client skips (missing reference, other registry, not "scanned", 404)
-// contribute no findings; a genuine fetch or decode error aborts the scan.
+// syncCounts accumulates the per-image outcomes of one scan cycle for the
+// quay_sync_summary event. Every image lands in exactly one of scanned,
+// skippedRegistry, skippedError, or failed; retried is the total number of
+// retries (extra HTTP attempts) made across all images.
+type syncCounts struct {
+	scanned         int
+	skippedRegistry int
+	skippedError    int
+	failed          int
+	retried         int
+}
+
+// ScanImages fetches each image's Quay Security report concurrently and converts
+// the contained vulnerabilities into findings keyed by image digest. Requests
+// are bounded by a semaphore sized to the configured MaxConcurrentRequests.
+//
+// Failures are isolated per image: an image the client skips (missing reference,
+// other registry, non-"scanned" status, 404, 403) contributes no findings, and a
+// genuine fetch or decode error for one image is logged (quay_scan_failed) and
+// skipped so the remaining images still scan. A top-level error is returned only
+// when every image fails. HTTP 401 is terminal: the first occurrence cancels the
+// in-flight scan and ScanImages returns ErrQuayAuth without a partial map. A
+// quay_sync_summary event with the aggregate counts is emitted after a
+// non-aborted cycle.
 func (s *quayScanner) ScanImages(ctx context.Context, images []vulnerability.ImageRef) (map[string][]vulnerability.Finding, error) {
-	out := make(map[string][]vulnerability.Finding)
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	var (
+		mu      sync.Mutex
+		wg      sync.WaitGroup
+		out     = make(map[string][]vulnerability.Finding)
+		counts  syncCounts
+		authErr error
+	)
+	sem := make(chan struct{}, s.maxConcurrent)
+
 	for _, image := range images {
-		report, err := s.client.FetchImageSecurity(ctx, image)
-		if err != nil {
-			return nil, fmt.Errorf("scanning image %s: %w", image.Digest, err)
-		}
-		if report == nil {
-			continue
-		}
-		findings := findingsFromReport(image.Digest, report, s.log)
-		if len(findings) > 0 {
-			out[image.Digest] = append(out[image.Digest], findings...)
-		}
+		wg.Add(1)
+		go func(image vulnerability.ImageRef) {
+			defer wg.Done()
+
+			// Acquire a slot, bailing out immediately if the scan was cancelled
+			// (e.g. a sibling image hit a 401) before we ever issued a request.
+			select {
+			case sem <- struct{}{}:
+				defer func() { <-sem }()
+			case <-ctx.Done():
+				return
+			}
+
+			start := time.Now()
+			res, err := s.client.FetchImageSecurity(ctx, image)
+
+			mu.Lock()
+			defer mu.Unlock()
+			if res.Attempts > 1 {
+				counts.retried += res.Attempts - 1
+			}
+
+			if err != nil {
+				if errors.Is(err, ErrQuayAuth) {
+					if authErr == nil {
+						authErr = err
+					}
+					cancel() // fail-fast: stop siblings still queued on the semaphore
+					return
+				}
+				if ctx.Err() != nil {
+					// The scan is being torn down (a sibling's 401 fail-fast or
+					// parent cancellation); this error is induced, not a genuine
+					// per-image failure, so it is neither counted nor logged.
+					return
+				}
+				counts.failed++
+				s.log.WithFields(logrus.Fields{
+					"event":    eventScanFailed,
+					"digest":   image.Digest,
+					"attempts": res.Attempts,
+				}).WithError(err).Warn("quay image scan failed; skipping")
+				return
+			}
+
+			switch res.Outcome {
+			case outcomeScanned:
+				findings := findingsFromReport(image.Digest, res.Report, s.log)
+				counts.scanned++
+				s.log.WithFields(logrus.Fields{
+					"event":       eventScanCompleted,
+					"digest":      image.Digest,
+					"cve_count":   len(findings),
+					"duration_ms": time.Since(start).Milliseconds(),
+				}).Info("quay image scan completed")
+				if len(findings) > 0 {
+					out[image.Digest] = append(out[image.Digest], findings...)
+				}
+			case outcomeSkippedRegistry:
+				counts.skippedRegistry++
+			case outcomeSkippedError:
+				counts.skippedError++
+			}
+		}(image)
+	}
+	wg.Wait()
+
+	if authErr != nil {
+		return nil, authErr
+	}
+	// Respect parent-context cancellation (shutdown/deadline): surface it rather
+	// than returning a partial map the caller would mistake for a full scan.
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	s.log.WithFields(logrus.Fields{
+		"event":            eventSyncSummary,
+		"total_images":     len(images),
+		"scanned":          counts.scanned,
+		"skipped_registry": counts.skippedRegistry,
+		"skipped_error":    counts.skippedError,
+		"failed":           counts.failed,
+		"retried":          counts.retried,
+	}).Info("quay vulnerability scan complete")
+
+	if counts.failed > 0 && counts.failed == len(images) {
+		return nil, fmt.Errorf("all %d image scans failed", len(images))
 	}
 	return out, nil
 }

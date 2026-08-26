@@ -2,7 +2,10 @@ package quay
 
 import (
 	"context"
+	"fmt"
+	"net/http"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/vulnerability"
@@ -12,6 +15,22 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// newTestScanner builds a Quay scanner against endpoint with the given
+// concurrency limit and a debug-level captured logger. It lowers the client's
+// retry backoff so retry-driven paths (5xx exhaustion, timeouts) stay fast.
+func newTestScanner(t *testing.T, endpoint string, maxConcurrent int) (*quayScanner, *logtest.Hook) {
+	t.Helper()
+	logger, hook := logtest.NewNullLogger()
+	logger.SetLevel(logrus.DebugLevel)
+	cfg := &config.QuayConfig{Endpoint: endpoint, Token: "test-token", MaxConcurrentRequests: maxConcurrent}
+	s, err := NewScanner(cfg, logger)
+	require.NoError(t, err)
+	require.NotNil(t, s)
+	qs := s.(*quayScanner)
+	qs.client.backoffBase = time.Millisecond
+	return qs, hook
+}
 
 // findingByCVE returns the single finding with the given CVE ID, failing if it
 // is absent or duplicated.
@@ -446,20 +465,188 @@ func TestScanImages_MultipleImages(t *testing.T) {
 	assert.Contains(t, out, "sha256:b")
 }
 
-func TestScanImages_FetchErrorAborts(t *testing.T) {
-	// A malformed 200 body makes the client's decode fail, which is a genuine
-	// error (not a documented skip) and must abort the scan, discarding any
-	// findings already accumulated from earlier images.
+func TestScanImages_AllFail(t *testing.T) {
+	// A malformed 200 body makes every image's decode fail. When all images
+	// fail, ScanImages returns a top-level error and no partial map.
 	srv := newMockQuayServer(t, &mockQuayServer{rawBody: "{not json"})
-	s, err := NewScanner(&config.QuayConfig{Endpoint: srv.URL, Token: "test-token"}, nil)
-	require.NoError(t, err)
+	s, _ := newTestScanner(t, srv.URL, 5)
 
 	out, err := s.ScanImages(context.Background(), []vulnerability.ImageRef{
 		{Digest: "sha256:a", Image: hostOf(srv) + "/org/a:latest"},
 		{Digest: "sha256:b", Image: hostOf(srv) + "/org/b:latest"},
 	})
 	require.Error(t, err)
-	assert.Nil(t, out, "a genuine error aborts and discards partial results")
+	require.ErrorContains(t, err, "all 2 image scans failed")
+	assert.Nil(t, out, "when every image fails the scan reports a top-level error")
+}
+
+func TestScanImages_MixedIsolation(t *testing.T) {
+	// One image's repo returns a persistent 500 (fails after retries); the other
+	// scans cleanly. The failure is isolated: the healthy image's findings are
+	// returned, no top-level error is raised, and a quay_scan_failed event is
+	// logged for the broken image.
+	srv := newMockQuayServer(t, &mockQuayServer{
+		response:     scannedResponse(),
+		statusByPath: map[string]int{"org/bad": http.StatusInternalServerError},
+	})
+	s, hook := newTestScanner(t, srv.URL, 5)
+
+	out, err := s.ScanImages(context.Background(), []vulnerability.ImageRef{
+		{Digest: "sha256:good", Image: hostOf(srv) + "/org/good:latest"},
+		{Digest: "sha256:bad", Image: hostOf(srv) + "/org/bad:latest"},
+	})
+	require.NoError(t, err, "a single failing image must not abort the scan")
+	assert.Contains(t, out, "sha256:good")
+	assert.NotContains(t, out, "sha256:bad")
+	require.True(t, hasEntryWithField(hook, "event", eventScanFailed))
+	require.True(t, hasEntryWithField(hook, "digest", "sha256:bad"))
+}
+
+func TestScanImages_TimeoutIsolation(t *testing.T) {
+	// One image's repo stalls past the per-request timeout; after retries it is
+	// isolated as a per-image failure while the fast image still scans.
+	srv := newMockQuayServer(t, &mockQuayServer{
+		response:    scannedResponse(),
+		delayByPath: map[string]time.Duration{"org/slow": 500 * time.Millisecond},
+	})
+	s, _ := newTestScanner(t, srv.URL, 5)
+	s.client.httpClient.Timeout = 60 * time.Millisecond
+
+	out, err := s.ScanImages(context.Background(), []vulnerability.ImageRef{
+		{Digest: "sha256:fast", Image: hostOf(srv) + "/org/fast:latest"},
+		{Digest: "sha256:slow", Image: hostOf(srv) + "/org/slow:latest"},
+	})
+	require.NoError(t, err, "a timing-out image is isolated, not a full abort")
+	assert.Contains(t, out, "sha256:fast")
+	assert.NotContains(t, out, "sha256:slow")
+}
+
+func TestScanImages_Unauthorized(t *testing.T) {
+	// A 401 on any image is terminal: ScanImages returns ErrQuayAuth and no map.
+	srv := newMockQuayServer(t, &mockQuayServer{httpStatus: http.StatusUnauthorized})
+	s, hook := newTestScanner(t, srv.URL, 1)
+
+	out, err := s.ScanImages(context.Background(), []vulnerability.ImageRef{
+		{Digest: "sha256:a", Image: hostOf(srv) + "/org/a:latest"},
+		{Digest: "sha256:b", Image: hostOf(srv) + "/org/b:latest"},
+	})
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrQuayAuth)
+	assert.Nil(t, out, "a 401 aborts the scan without partial results")
+	require.True(t, hasEntryWithField(hook, "event", eventAuthError))
+}
+
+func TestScanImages_Forbidden(t *testing.T) {
+	// A 403 skips just the affected image (warn); the rest continue.
+	srv := newMockQuayServer(t, &mockQuayServer{
+		response:     scannedResponse(),
+		statusByPath: map[string]int{"org/denied": http.StatusForbidden},
+	})
+	s, hook := newTestScanner(t, srv.URL, 5)
+
+	out, err := s.ScanImages(context.Background(), []vulnerability.ImageRef{
+		{Digest: "sha256:ok", Image: hostOf(srv) + "/org/ok:latest"},
+		{Digest: "sha256:denied", Image: hostOf(srv) + "/org/denied:latest"},
+	})
+	require.NoError(t, err, "a 403 skips one image; it is not a hard error")
+	assert.Contains(t, out, "sha256:ok")
+	assert.NotContains(t, out, "sha256:denied")
+	require.True(t, hasEntryWithField(hook, "reason", reasonForbidden))
+}
+
+func TestScanImages_BoundedConcurrency(t *testing.T) {
+	// With more images than the concurrency limit and each request artificially
+	// delayed, the observed max in-flight requests must never exceed the limit.
+	const limit = 3
+	mock := &mockQuayServer{response: scannedResponse(), delay: 40 * time.Millisecond}
+	srv := newMockQuayServer(t, mock)
+	s, _ := newTestScanner(t, srv.URL, limit)
+
+	var images []vulnerability.ImageRef
+	for i := 0; i < 9; i++ {
+		images = append(images, vulnerability.ImageRef{
+			Digest: fmt.Sprintf("sha256:%d", i),
+			Image:  fmt.Sprintf("%s/org/repo%d:latest", hostOf(srv), i),
+		})
+	}
+
+	out, err := s.ScanImages(context.Background(), images)
+	require.NoError(t, err)
+	require.Len(t, out, len(images))
+	assert.LessOrEqual(t, mock.maxConcurrent(), limit, "concurrency is bounded by the semaphore")
+	assert.Greater(t, mock.maxConcurrent(), 1, "requests do run concurrently")
+}
+
+func TestScanImages_SyncSummaryCounts(t *testing.T) {
+	// A mixed run emits exactly one quay_sync_summary carrying the aggregate
+	// per-image counts: one scanned, one registry-skip, one error-skip (404).
+	srv := newMockQuayServer(t, &mockQuayServer{
+		response:     scannedResponse(),
+		statusByPath: map[string]int{"org/missing": http.StatusNotFound},
+	})
+	s, hook := newTestScanner(t, srv.URL, 5)
+
+	out, err := s.ScanImages(context.Background(), []vulnerability.ImageRef{
+		{Digest: "sha256:ok", Image: hostOf(srv) + "/org/ok:latest"},
+		{Digest: "sha256:missing", Image: hostOf(srv) + "/org/missing:latest"},
+		{Digest: "sha256:elsewhere", Image: "docker.io/library/nginx:latest"},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, out, "sha256:ok")
+
+	require.Equal(t, 1, countEntriesWithField(hook, "event", eventSyncSummary),
+		"the summary is emitted exactly once per cycle")
+	var summary *logrus.Entry
+	for _, e := range hook.AllEntries() {
+		if e.Data["event"] == eventSyncSummary {
+			summary = e
+		}
+	}
+	require.NotNil(t, summary)
+	assert.Equal(t, 3, summary.Data["total_images"])
+	assert.Equal(t, 1, summary.Data["scanned"])
+	assert.Equal(t, 1, summary.Data["skipped_registry"])
+	assert.Equal(t, 1, summary.Data["skipped_error"])
+	assert.Equal(t, 0, summary.Data["failed"])
+}
+
+func TestScanImages_ScanCompletedEvent(t *testing.T) {
+	srv := newMockQuayServer(t, &mockQuayServer{response: scannedResponse()})
+	s, hook := newTestScanner(t, srv.URL, 5)
+
+	_, err := s.ScanImages(context.Background(), []vulnerability.ImageRef{
+		{Digest: "sha256:abc", Image: hostOf(srv) + "/org/repo:latest"},
+	})
+	require.NoError(t, err)
+
+	var completed *logrus.Entry
+	for _, e := range hook.AllEntries() {
+		if e.Data["event"] == eventScanCompleted {
+			completed = e
+		}
+	}
+	require.NotNil(t, completed, "a successful scan emits quay_scan_completed")
+	assert.Equal(t, "sha256:abc", completed.Data["digest"])
+	assert.Equal(t, 1, completed.Data["cve_count"])
+	assert.Contains(t, completed.Data, "duration_ms")
+}
+
+func TestScanImages_ParentContextCancelled(t *testing.T) {
+	// A cancelled parent context must surface as an error, never as a partial map
+	// the caller would mistake for a complete scan (design §4.6 ctx.Done respect).
+	srv := newMockQuayServer(t, &mockQuayServer{response: scannedResponse()})
+	s, _ := newTestScanner(t, srv.URL, 2)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	out, err := s.ScanImages(ctx, []vulnerability.ImageRef{
+		{Digest: "sha256:a", Image: hostOf(srv) + "/org/a:latest"},
+		{Digest: "sha256:b", Image: hostOf(srv) + "/org/b:latest"},
+	})
+	require.Error(t, err)
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Nil(t, out, "cancellation yields no partial results")
 }
 
 func TestScanImages_ScannedWithNoFindingsOmitsDigest(t *testing.T) {
