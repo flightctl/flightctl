@@ -269,7 +269,8 @@ ancount = struct.unpack(">H", data[6:8])[0]
 i = 12
 while data[i] != 0:
     i += 1 + data[i]
-i += 5
+i += 1  # consume the root/null label the loop stopped on (it exits pointing AT the 0 byte)
+i += 4  # skip the question's QTYPE (2 bytes) + QCLASS (2 bytes) to reach the first answer RR
 for _ in range(ancount):
     if data[i] & 0xC0 == 0xC0:
         i += 2
