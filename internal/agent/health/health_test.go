@@ -3,6 +3,8 @@ package health
 import (
 	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -285,6 +287,10 @@ func TestRun(t *testing.T) {
 			execMock := executer.NewMockExecuter(ctrl)
 			tt.setupMocks(execMock)
 
+			// Create a temporary cert file so the enrollment gate is passed
+			certPath := filepath.Join(t.TempDir(), "agent.crt")
+			require.NoError(os.WriteFile(certPath, []byte("fake-cert"), 0600))
+
 			logger := log.NewPrefixLogger("test")
 			output := &bytes.Buffer{}
 
@@ -296,6 +302,7 @@ func TestRun(t *testing.T) {
 				WithVerbose(true),
 				WithOutput(output),
 				WithSystemdClient(client.NewSystemd(execMock, v1beta1.RootUsername)),
+				WithManagementCertPath(certPath),
 			)
 
 			err := checker.Run(context.Background())
@@ -391,4 +398,116 @@ func TestNewWithOptions(t *testing.T) {
 	require.True(checker.verbose)
 	require.Equal(output, checker.output)
 	require.Equal(customSystemd, checker.systemd)
+}
+
+func TestRunNotEnrolled(t *testing.T) {
+	require := require.New(t)
+
+	logger := log.NewPrefixLogger("test")
+	output := &bytes.Buffer{}
+
+	// Use a path that does not exist to simulate a device that has not enrolled
+	certPath := filepath.Join(t.TempDir(), "nonexistent", "agent.crt")
+
+	checker := NewChecker(
+		logger,
+		WithVerbose(true),
+		WithOutput(output),
+		WithManagementCertPath(certPath),
+	)
+
+	err := checker.Run(context.Background())
+	require.NoError(err)
+	require.Contains(output.String(), "not yet enrolled")
+}
+
+func TestRunEnrolledAndHealthy(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Create a temporary management certificate file to simulate enrollment
+	certDir := t.TempDir()
+	certPath := filepath.Join(certDir, "agent.crt")
+	require.NoError(os.WriteFile(certPath, []byte("fake-cert"), 0600))
+
+	execMock := executer.NewMockExecuter(ctrl)
+	execMock.EXPECT().
+		ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "show", "--all", "--", serviceName).
+		Return(activeServiceOutput, "", 0).
+		MinTimes(2)
+
+	logger := log.NewPrefixLogger("test")
+	output := &bytes.Buffer{}
+
+	checker := NewChecker(
+		logger,
+		WithTimeout(30*time.Second),
+		WithStabilityWindow(50*time.Millisecond),
+		WithPollInterval(10*time.Millisecond),
+		WithVerbose(true),
+		WithOutput(output),
+		WithSystemdClient(client.NewSystemd(execMock, v1beta1.RootUsername)),
+		WithManagementCertPath(certPath),
+	)
+
+	err := checker.Run(context.Background())
+	require.NoError(err)
+	require.Contains(output.String(), "All health checks passed")
+}
+
+func TestRunEnrolledButUnhealthy(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Create a temporary management certificate file to simulate enrollment
+	certDir := t.TempDir()
+	certPath := filepath.Join(certDir, "agent.crt")
+	require.NoError(os.WriteFile(certPath, []byte("fake-cert"), 0600))
+
+	execMock := executer.NewMockExecuter(ctrl)
+	execMock.EXPECT().
+		ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "show", "--all", "--", serviceName).
+		Return(failedServiceOutput, "", 0)
+
+	logger := log.NewPrefixLogger("test")
+	output := &bytes.Buffer{}
+
+	checker := NewChecker(
+		logger,
+		WithTimeout(30*time.Second),
+		WithStabilityWindow(50*time.Millisecond),
+		WithPollInterval(10*time.Millisecond),
+		WithVerbose(true),
+		WithOutput(output),
+		WithSystemdClient(client.NewSystemd(execMock, v1beta1.RootUsername)),
+		WithManagementCertPath(certPath),
+	)
+
+	err := checker.Run(context.Background())
+	require.Error(err)
+	require.Contains(err.Error(), "has failed")
+}
+
+func TestIsEnrolled(t *testing.T) {
+	require := require.New(t)
+
+	t.Run("When management cert exists it should report enrolled", func(t *testing.T) {
+		certDir := t.TempDir()
+		certPath := filepath.Join(certDir, "agent.crt")
+		require.NoError(os.WriteFile(certPath, []byte("fake-cert"), 0600))
+
+		logger := log.NewPrefixLogger("test")
+		checker := NewChecker(logger, WithManagementCertPath(certPath))
+		require.True(checker.isEnrolled())
+	})
+
+	t.Run("When management cert does not exist it should report not enrolled", func(t *testing.T) {
+		certPath := filepath.Join(t.TempDir(), "nonexistent", "agent.crt")
+
+		logger := log.NewPrefixLogger("test")
+		checker := NewChecker(logger, WithManagementCertPath(certPath))
+		require.False(checker.isEnrolled())
+	})
 }
