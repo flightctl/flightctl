@@ -698,9 +698,9 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1beta1.Device, sy
 
 	se := errors.FormatError(syncErr)
 	if !errors.IsRetryable(syncErr) {
-		msg := formatSyncErrorMessage(desired, syncErr)
+		msg := fmt.Sprintf("Failed to update to renderedVersion: %s: %v", version, syncErr.Error())
 		conditionUpdate.Reason = string(v1beta1.UpdateStateError)
-		conditionUpdate.Message = msg
+		conditionUpdate.Message = log.Truncate(msg, status.MaxMessageLength)
 		conditionUpdate.Status = v1beta1.ConditionStatusFalse
 		a.pullConfigResolver.Cleanup()
 		a.prefetchManager.Cleanup()
@@ -711,9 +711,9 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1beta1.Device, sy
 		conditionUpdate.Message = log.Truncate(msg, status.MaxMessageLength)
 		conditionUpdate.Status = v1beta1.ConditionStatusTrue
 		a.log.Warn(msg, se.Timestamp)
-		if se.Phase != nil || se.Component != nil {
-			conditionUpdate.Message = log.Truncate(se.Message(), status.MaxMessageLength)
-		}
+	}
+	if se.Phase != nil || se.Component != nil {
+		conditionUpdate.Message = log.Truncate(se.Message(), status.MaxMessageLength)
 	}
 	if err := a.statusManager.UpdateCondition(ctx, conditionUpdate); err != nil {
 		a.log.Warnf("Failed to update device status condition: %v", err)
