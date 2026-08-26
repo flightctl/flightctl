@@ -41,13 +41,18 @@ type Client struct {
 // NewClient builds a Quay Security API client from the Quay backend config.
 // It returns (nil, nil) when cfg is nil, so a caller can treat an absent Quay
 // configuration as a disabled backend. It returns an error when the configured
-// endpoint has no parseable host.
-func NewClient(cfg *config.QuayConfig, log logrus.FieldLogger) (*Client, error) {
+// endpoint has no parseable host. The httpClient parameter allows injection of
+// custom TLS config (e.g., custom CA, InsecureSkipVerify); when nil, a default
+// client with a 30s timeout is used.
+func NewClient(cfg *config.QuayConfig, log logrus.FieldLogger, httpClient *http.Client) (*Client, error) {
 	if cfg == nil {
 		return nil, nil
 	}
 	if log == nil {
 		log = logrus.StandardLogger()
+	}
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: defaultHTTPTimeout}
 	}
 	base, host, err := parseEndpoint(cfg.Endpoint)
 	if err != nil {
@@ -57,7 +62,7 @@ func NewClient(cfg *config.QuayConfig, log logrus.FieldLogger) (*Client, error) 
 		endpoint:     base,
 		registryHost: host,
 		token:        cfg.Token.Value(),
-		httpClient:   &http.Client{Timeout: defaultHTTPTimeout},
+		httpClient:   httpClient,
 		log:          log,
 	}, nil
 }
@@ -131,6 +136,17 @@ func (c *Client) FetchImageSecurity(ctx context.Context, image vulnerability.Ima
 		return nil, nil
 	}
 
+	// Quay's contract: status="scanned" always has non-nil Data.Layer (even if
+	// Features is empty for zero vulnerabilities). Treat nil as malformed.
+	if report.Data == nil || report.Data.Layer == nil {
+		c.log.WithFields(logrus.Fields{
+			"digest": image.Digest,
+			"status": report.Status,
+			"reason": "malformed_scanned_response",
+		}).Warn("skipping image: scanned status with nil data")
+		return nil, nil
+	}
+
 	return &report, nil
 }
 
@@ -156,9 +172,10 @@ func (c *Client) securityURL(repoPath, digest string) string {
 }
 
 // parseEndpoint normalizes a configured endpoint URL into a base URL (used to
-// build request URLs) and its "host[:port]" (used to filter images by
-// registry). A scheme is assumed to be HTTPS when omitted, so both values stay
-// consistent regardless of how the endpoint was written.
+// build request URLs) and its normalized hostname (used to filter images by
+// registry). The hostname is lowercased and default ports (443 for https, 80
+// for http) are stripped to match the normalization applied by reference.Domain
+// on image references. A scheme is assumed to be HTTPS when omitted.
 func parseEndpoint(endpoint string) (base, host string, err error) {
 	e := strings.TrimSpace(endpoint)
 	if e == "" {
@@ -175,7 +192,22 @@ func parseEndpoint(endpoint string) (base, host string, err error) {
 		return "", "", fmt.Errorf("quay endpoint %q has no host", endpoint)
 	}
 	base = strings.TrimRight(u.Scheme+"://"+u.Host+u.Path, "/")
-	return base, u.Host, nil
+
+	// Normalize hostname to match reference.Domain behavior:
+	// lowercase and strip default ports (443 for https, 80 for http).
+	hostname := strings.ToLower(u.Hostname())
+	port := u.Port()
+
+	// Strip default ports
+	if (u.Scheme == "https" && port == "443") || (u.Scheme == "http" && port == "80") {
+		host = hostname
+	} else if port != "" {
+		host = hostname + ":" + port
+	} else {
+		host = hostname
+	}
+
+	return base, host, nil
 }
 
 // parseImageReference normalizes an image reference into its registry host and
