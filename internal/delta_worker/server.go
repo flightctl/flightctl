@@ -18,6 +18,7 @@ import (
 	"github.com/flightctl/flightctl/internal/oci"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	eventservice "github.com/flightctl/flightctl/internal/service/event"
+	"github.com/flightctl/flightctl/internal/service/events"
 	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
@@ -40,11 +41,12 @@ type Server struct {
 	templateVersions templateversionservice.Service
 	repositories     repositoryservice.Service
 	events           eventservice.Service
+	eventCallbacks   events.Service
 	kvStore          kvstore.KVStore
 	workerMetrics    *worker.WorkerCollector
 }
 
-func New(cfg *config.Config, log logrus.FieldLogger, queuesProvider queues.Provider, deltaStore deltastore.Store, fleets fleetservice.Service, devices deviceservice.Service, templateVersions templateversionservice.Service, repositories repositoryservice.Service, events eventservice.Service, kvStore kvstore.KVStore, workerMetrics *worker.WorkerCollector) *Server {
+func New(cfg *config.Config, log logrus.FieldLogger, queuesProvider queues.Provider, deltaStore deltastore.Store, fleets fleetservice.Service, devices deviceservice.Service, templateVersions templateversionservice.Service, repositories repositoryservice.Service, events eventservice.Service, eventCallbacks events.Service, kvStore kvstore.KVStore, workerMetrics *worker.WorkerCollector) *Server {
 	return &Server{
 		cfg:              cfg,
 		log:              log,
@@ -55,6 +57,7 @@ func New(cfg *config.Config, log logrus.FieldLogger, queuesProvider queues.Provi
 		templateVersions: templateVersions,
 		repositories:     repositories,
 		events:           events,
+		eventCallbacks:   eventCallbacks,
 		kvStore:          kvStore,
 		workerMetrics:    workerMetrics,
 	}
@@ -114,8 +117,11 @@ func (s *Server) newPreparer(ctx context.Context) (*Preparer, error) {
 			}
 			return d
 		},
-		Status: NewServicePreparingStatus(s.fleets, s.devices),
-		Resume: func(context.Context, worker_client.EventWithOrgId) error { return nil },
+		Status:    NewServicePreparingStatus(s.fleets, s.devices),
+		Events:    s.eventCallbacks,
+		FleetSvc:  s.fleets,
+		DeviceSvc: s.devices,
+		TVSvc:     s.templateVersions,
 	}, nil
 }
 

@@ -147,14 +147,23 @@ func main() {
 	fleetStore := fleetstore.NewFleetStore(db, log)
 	repositoryStore := repostore.NewRepositoryStore(db, log)
 	templateVersionStore := tvstore.NewTemplateVersionStore(db, log)
-	eventsSvc := events.NewServiceHandler(eventStore, nil, log)
+	deltaPublisher, err := worker_client.DeltaQueuePublisher(ctx, provider)
+	if err != nil {
+		log.Fatalf("creating delta publisher: %v", err)
+	}
+	taskPublisher, err := worker_client.QueuePublisher(ctx, provider)
+	if err != nil {
+		log.Fatalf("creating task publisher: %v", err)
+	}
+	workerClient := worker_client.NewWorkerClient(taskPublisher, log, worker_client.WithDeltaPublisher(deltaPublisher))
+	eventsSvc := events.NewServiceHandler(eventStore, workerClient, log)
 	fleetSvc := fleetservice.WrapWithTracing(fleetservice.NewServiceHandler(fleetStore, nil, eventsSvc, log))
 	deviceSvc := deviceservice.WrapWithTracing(deviceservice.NewDeviceServiceHandler(deviceStore, nil, fleetStore, eventsSvc, kvStore, "", log))
 	templateVersionSvc := templateversionservice.WrapWithTracing(templateversionservice.NewServiceHandler(templateVersionStore, kvStore, eventsSvc, log))
 	repositorySvc := repositoryservice.WrapWithTracing(repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, log))
 	eventSvc := eventservice.WrapWithTracing(eventservice.NewServiceHandler(eventStore, eventsSvc))
 
-	server := deltaworker.New(cfg, log, provider, deltaStore, fleetSvc, deviceSvc, templateVersionSvc, repositorySvc, eventSvc, kvStore, workerCollector)
+	server := deltaworker.New(cfg, log, provider, deltaStore, fleetSvc, deviceSvc, templateVersionSvc, repositorySvc, eventSvc, eventsSvc, kvStore, workerCollector)
 	if err := server.Run(ctx); err != nil {
 		log.Fatalf("Error running server: %s", err)
 	}

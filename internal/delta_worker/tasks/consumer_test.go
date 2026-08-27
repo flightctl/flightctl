@@ -83,6 +83,10 @@ func (failingPreparer) Prepare(context.Context, worker_client.EventWithOrgId) er
 	return errors.New("prepare failed")
 }
 
+func (failingPreparer) CompleteWaitingIfTerminal(context.Context, deltastore.GenerationKey) error {
+	return nil
+}
+
 func TestLaunchConsumers(t *testing.T) {
 	log := logrus.New()
 	log.SetLevel(logrus.ErrorLevel)
