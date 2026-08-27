@@ -7,6 +7,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/delta_worker/service/deltaprepare"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	periodicmetrics "github.com/flightctl/flightctl/internal/instrumentation/metrics/periodic"
@@ -23,7 +24,9 @@ import (
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	resourcesyncservice "github.com/flightctl/flightctl/internal/service/resourcesync"
 	syncstateservice "github.com/flightctl/flightctl/internal/service/syncstate"
+	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
 	vulnerabilityfindingservice "github.com/flightctl/flightctl/internal/service/vulnerabilityfinding"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/vulnerability"
@@ -52,6 +55,7 @@ const (
 	PeriodicTaskTypeVulnerabilitySync      PeriodicTaskType = "vulnerability-sync"
 	PeriodicTaskTypeDependencySyncGit      PeriodicTaskType = "dependency-sync-git"
 	PeriodicTaskTypeDependencySyncHttp     PeriodicTaskType = "dependency-sync-http"
+	PeriodicTaskTypeDeltaPrepareDeadline   PeriodicTaskType = "delta-prepare-deadline"
 )
 
 type PeriodicTaskMetadata struct {
@@ -70,6 +74,7 @@ var periodicTasks = map[PeriodicTaskType]PeriodicTaskMetadata{
 	PeriodicTaskTypeVulnerabilitySync:      {Interval: tasks.VulnerabilitySyncInterval, SystemWide: true},
 	PeriodicTaskTypeDependencySyncGit:      {Interval: config.DefaultDependencySyncTaskInterval, SystemWide: false},
 	PeriodicTaskTypeDependencySyncHttp:     {Interval: config.DefaultDependencySyncTaskInterval, SystemWide: false},
+	PeriodicTaskTypeDeltaPrepareDeadline:   {Interval: tasks.DeltaPrepareDeadlinePollingInterval, SystemWide: true},
 }
 
 // MergeTasksWithConfig merges configured task intervals with defaults.
@@ -219,6 +224,23 @@ func (e *EventCleanupExecutor) Execute(ctx context.Context, log logrus.FieldLogg
 	eventCleanup.Poll(taskCtx)
 }
 
+type DeltaPrepareDeadlineExecutor struct {
+	log        logrus.FieldLogger
+	deltaStore interface {
+		ListWaitingPastDeadline(context.Context, int, time.Time) ([]model.DeltaPrepare, error)
+	}
+	prepareSvc deltaprepare.Service
+	fleetSvc   fleetservice.Service
+	deviceSvc  deviceservice.Service
+	tvSvc      templateversionservice.Service
+	eventSvc   eventservice.Service
+}
+
+func (e *DeltaPrepareDeadlineExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
+	taskCtx := createTaskContext(ctx, PeriodicTaskTypeDeltaPrepareDeadline)
+	tasks.NewDeltaPrepareDeadline(e.log, e.deltaStore, e.prepareSvc, e.fleetSvc, e.deviceSvc, e.tvSvc, e.eventSvc).Poll(taskCtx)
+}
+
 type QueueMaintenanceExecutor struct {
 	log             logrus.FieldLogger
 	checkpointSvc   checkpointservice.Service
@@ -339,6 +361,11 @@ func InitializeTaskExecutors(
 	findingSvc vulnerabilityfindingservice.Service,
 	scanner vulnerability.Scanner,
 	depSyncMetrics *periodicmetrics.DependencySyncCollector,
+	deltaStore interface {
+		ListWaitingPastDeadline(context.Context, int, time.Time) ([]model.DeltaPrepare, error)
+	},
+	prepareSvc deltaprepare.Service,
+	tvSvc templateversionservice.Service,
 ) map[PeriodicTaskType]PeriodicTaskExecutor {
 	executors := map[PeriodicTaskType]PeriodicTaskExecutor{
 		PeriodicTaskTypeRepositoryTester: &RepositoryTesterExecutor{
@@ -373,6 +400,15 @@ func InitializeTaskExecutors(
 			log:                  log.WithField("pkg", "event-cleanup"),
 			eventSvc:             eventSvc,
 			eventRetentionPeriod: cfg.Service.EventRetentionPeriod,
+		},
+		PeriodicTaskTypeDeltaPrepareDeadline: &DeltaPrepareDeadlineExecutor{
+			log:        log.WithField("pkg", "delta-prepare-deadline"),
+			deltaStore: deltaStore,
+			prepareSvc: prepareSvc,
+			fleetSvc:   fleetSvc,
+			deviceSvc:  deviceSvc,
+			tvSvc:      tvSvc,
+			eventSvc:   eventSvc,
 		},
 		PeriodicTaskTypeQueueMaintenance: &QueueMaintenanceExecutor{
 			log:             log.WithField("pkg", "queue-maintenance"),

@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
 	deltaconfig "github.com/flightctl/flightctl/internal/delta_worker/config"
+	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
 	"github.com/flightctl/flightctl/internal/worker_client"
@@ -82,6 +83,10 @@ type failingPreparer struct{}
 
 func (failingPreparer) Prepare(context.Context, worker_client.EventWithOrgId) error {
 	return errors.New("prepare failed")
+}
+
+func (failingPreparer) CompleteWaitingIfTerminal(context.Context, deltastore.GenerationKey) error {
+	return nil
 }
 
 func TestLaunchConsumers(t *testing.T) {
