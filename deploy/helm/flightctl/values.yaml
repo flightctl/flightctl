@@ -565,6 +565,21 @@ vulnerabilityReporting:
       oidcIssuerUrl: ""
       # -- Name of the Kubernetes Secret containing 'client_id' and 'client_secret' keys.
       secretName: ""
+    # -- Path to a CA bundle for verifying the Trustify server certificate. If unset, system roots are used.
+    caFile: ""
+    # -- Skip TLS certificate verification (insecure, for lab/air-gap only). Defaults to false.
+    skipTlsVerify: false
+  quay:
+    # -- Quay API base URL (e.g. "https://quay.io").
+    endpoint: ""
+    # -- Name of the Kubernetes Secret containing the 'token' key for Quay Security API bearer authentication.
+    secretName: ""
+    # -- Maximum number of concurrent Quay API requests. Defaults to 5 when unset.
+    maxConcurrentRequests: 5
+    # -- Path to a CA bundle for verifying the Quay server certificate. If unset, system roots are used.
+    caFile: ""
+    # -- Skip TLS certificate verification (insecure, for lab/air-gap only). Defaults to false.
+    skipTlsVerify: false
 
 # -- Upgrade hooks
 upgradeHooks:

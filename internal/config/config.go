@@ -886,6 +886,12 @@ type QuayConfig struct {
 	// MaxConcurrentRequests bounds concurrent Quay API requests.
 	// Defaults to DefaultQuayMaxConcurrentRequests when unset.
 	MaxConcurrentRequests int `json:"maxConcurrentRequests,omitempty"`
+	// CAFile is the path to a CA bundle for verifying the Quay server certificate.
+	// Optional. If unset, system roots are used.
+	CAFile string `json:"caFile,omitempty"`
+	// SkipTLSVerify disables TLS certificate verification (insecure, for lab/air-gap only).
+	// Defaults to false.
+	SkipTLSVerify bool `json:"skipTlsVerify,omitempty"`
 }
 
 // TrustifyConfig holds Trustify API connection and authentication details.
@@ -895,6 +901,12 @@ type TrustifyConfig struct {
 	Endpoint string `json:"endpoint,omitempty"`
 	// Auth configures how the periodic service authenticates to Trustify.
 	Auth *TrustifyAuthConfig `json:"auth,omitempty"`
+	// CAFile is the path to a CA bundle for verifying the Trustify server certificate.
+	// Optional. If unset, system roots are used.
+	CAFile string `json:"caFile,omitempty"`
+	// SkipTLSVerify disables TLS certificate verification (insecure, for lab/air-gap only).
+	// Defaults to false.
+	SkipTLSVerify bool `json:"skipTlsVerify,omitempty"`
 }
 
 // TrustifyAuthConfig configures authentication against the Trustify API.
@@ -1306,13 +1318,19 @@ func applyVulnerabilityReportingEnvVarOverrides(c *Config) {
 	trustifyOIDCIssuerURL := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_OIDC_ISSUER_URL")
 	trustifyClientID := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_CLIENT_ID")
 	trustifyClientSecret := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_CLIENT_SECRET")
+	trustifyCAFile := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_CA_FILE")
+	trustifySkipTLSVerify := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_SKIP_TLS_VERIFY")
 	quayEndpoint := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_QUAY_ENDPOINT")
 	quayToken := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_QUAY_TOKEN")
 	quayMaxConcurrent := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_QUAY_MAX_CONCURRENT_REQUESTS")
+	quayCAFile := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_QUAY_CA_FILE")
+	quaySkipTLSVerify := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_QUAY_SKIP_TLS_VERIFY")
 
 	if enabled == "" && syncInterval == "" && backend == "" && trustifyEndpoint == "" && trustifyAuthMode == "" &&
 		trustifyOIDCIssuerURL == "" && trustifyClientID == "" && trustifyClientSecret == "" &&
-		quayEndpoint == "" && quayToken == "" && quayMaxConcurrent == "" {
+		trustifyCAFile == "" && trustifySkipTLSVerify == "" &&
+		quayEndpoint == "" && quayToken == "" && quayMaxConcurrent == "" &&
+		quayCAFile == "" && quaySkipTLSVerify == "" {
 		return
 	}
 
@@ -1348,12 +1366,12 @@ func applyVulnerabilityReportingEnvVarOverrides(c *Config) {
 		}
 	}
 
-	applyVulnerabilityReportingTrustifyEnvVarOverrides(c.VulnerabilityReporting, trustifyEndpoint, trustifyAuthMode, trustifyOIDCIssuerURL, trustifyClientID, trustifyClientSecret)
-	applyVulnerabilityReportingQuayEnvVarOverrides(c.VulnerabilityReporting, quayEndpoint, quayToken, quayMaxConcurrent)
+	applyVulnerabilityReportingTrustifyEnvVarOverrides(c.VulnerabilityReporting, trustifyEndpoint, trustifyAuthMode, trustifyOIDCIssuerURL, trustifyClientID, trustifyClientSecret, trustifyCAFile, trustifySkipTLSVerify)
+	applyVulnerabilityReportingQuayEnvVarOverrides(c.VulnerabilityReporting, quayEndpoint, quayToken, quayMaxConcurrent, quayCAFile, quaySkipTLSVerify)
 }
 
-func applyVulnerabilityReportingQuayEnvVarOverrides(v *VulnerabilityConfig, endpoint, token, maxConcurrent string) {
-	if endpoint == "" && token == "" && maxConcurrent == "" {
+func applyVulnerabilityReportingQuayEnvVarOverrides(v *VulnerabilityConfig, endpoint, token, maxConcurrent, caFile, skipTLSVerify string) {
+	if endpoint == "" && token == "" && maxConcurrent == "" && caFile == "" && skipTLSVerify == "" {
 		return
 	}
 	if v.Quay == nil {
@@ -1375,6 +1393,19 @@ func applyVulnerabilityReportingQuayEnvVarOverrides(v *VulnerabilityConfig, endp
 			v.Quay.MaxConcurrentRequests = n
 		}
 	}
+	if caFile != "" {
+		v.Quay.CAFile = caFile
+	}
+	if skipTLSVerify != "" {
+		switch skipTLSVerify {
+		case "true", "1":
+			v.Quay.SkipTLSVerify = true
+		case "false", "0":
+			v.Quay.SkipTLSVerify = false
+		default:
+			fmt.Fprintf(os.Stderr, "Warning: Invalid FLIGHTCTL_VULNERABILITY_REPORTING_QUAY_SKIP_TLS_VERIFY value %q (expected: true/1/false/0), ignoring\n", skipTLSVerify)
+		}
+	}
 }
 
 // applyVulnerabilityReportingDefaults fills in defaults for vulnerability
@@ -1389,8 +1420,8 @@ func applyVulnerabilityReportingDefaults(c *Config) {
 	}
 }
 
-func applyVulnerabilityReportingTrustifyEnvVarOverrides(v *VulnerabilityConfig, endpoint, authMode, oidcIssuerURL, clientID, clientSecret string) {
-	if endpoint == "" && authMode == "" && oidcIssuerURL == "" && clientID == "" && clientSecret == "" {
+func applyVulnerabilityReportingTrustifyEnvVarOverrides(v *VulnerabilityConfig, endpoint, authMode, oidcIssuerURL, clientID, clientSecret, caFile, skipTLSVerify string) {
+	if endpoint == "" && authMode == "" && oidcIssuerURL == "" && clientID == "" && clientSecret == "" && caFile == "" && skipTLSVerify == "" {
 		return
 	}
 	if v.Trustify == nil {
@@ -1398,6 +1429,19 @@ func applyVulnerabilityReportingTrustifyEnvVarOverrides(v *VulnerabilityConfig, 
 	}
 	if endpoint != "" {
 		v.Trustify.Endpoint = endpoint
+	}
+	if caFile != "" {
+		v.Trustify.CAFile = caFile
+	}
+	if skipTLSVerify != "" {
+		switch skipTLSVerify {
+		case "true", "1":
+			v.Trustify.SkipTLSVerify = true
+		case "false", "0":
+			v.Trustify.SkipTLSVerify = false
+		default:
+			fmt.Fprintf(os.Stderr, "Warning: Invalid FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_SKIP_TLS_VERIFY value %q (expected: true/1/false/0), ignoring\n", skipTLSVerify)
+		}
 	}
 	if authMode == "" && oidcIssuerURL == "" && clientID == "" && clientSecret == "" {
 		return
