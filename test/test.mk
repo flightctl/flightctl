@@ -161,6 +161,41 @@ prepare-e2e-test: bin/.ssh/id_rsa.pub bin/e2e-certs/ca.pem build-e2e-containers 
 build-e2e-containers: e2e-agent-images
 	@echo "Building E2E containers with Docker caching..."
 
+# --- Device image flavor auto-selection for the onboarding/WiFi e2e specs ---
+# The onboarding suite's WiFi soft-AP specs (Label("onboarding")/Label("wifi"))
+# need a device image with a usable mac80211_hwsim radio, which only the Fedora
+# bootc flavor bakes (cs9/cs10 kernels filter hwsim out). When a run is scoped to
+# those specs via GINKGO_LABEL_FILTER, auto-select AGENT_OS_ID=fedora-bootc so the
+# build produces the WiFi-capable image with no CI/job config change.
+#
+# Scoped to THIS execution only:
+#   - fires solely when GINKGO_LABEL_FILTER selects onboarding/wifi, so the
+#     default cs9/cs10 sanity runs are untouched;
+#   - an explicit AGENT_OS_ID (env or command line) always wins ($(origin ...));
+#   - assigned with := (file scope, NOT exported) so it steers only the make
+#     build graph below and never leaks into the separately-spawned
+#     run_e2e_tests.sh, whose package-mode bundle lookup has no Fedora bundle.
+#
+# Negated filters (e.g. !onboarding, !wifi) are stripped first so excluding those
+# specs does not wrongly pull in the Fedora flavor. A parenthesized negation such
+# as !(onboarding || wifi) still contains the bare label substrings even though it
+# EXCLUDES those specs, so auto-selecting on it would build the wrong OS image and
+# clobber the shared qcow2; detect the "!(" group and skip auto-selection, leaving
+# AGENT_OS_ID to its default (cs9-bootc) or an explicit override.
+# This must run before E2E_AGENT_IMAGES_SENTINEL is expanded (:= below) so the
+# per-OS sentinel path matches the selected flavor.
+# A lone "(" cannot appear directly inside a make function argument (it would
+# unbalance the parser's paren scan), so hold it in a variable to search for "!(".
+ONBOARDING_LPAREN := (
+ifeq ($(origin AGENT_OS_ID),undefined)
+ifeq ($(findstring !$(ONBOARDING_LPAREN),$(GINKGO_LABEL_FILTER)),)
+ONBOARDING_LABEL_MATCH := $(subst !onboarding,,$(subst !wifi,,$(GINKGO_LABEL_FILTER)))
+ifneq ($(strip $(foreach l,onboarding wifi,$(findstring $(l),$(ONBOARDING_LABEL_MATCH)))),)
+AGENT_OS_ID := fedora-bootc
+endif
+endif
+endif
+
 # Build E2E agent images with proper caching (offline build – no cert generation)
 # Sentinel file includes AGENT_OS_ID to ensure rebuilds when OS changes
 E2E_AGENT_IMAGES_SENTINEL := $(ROOT_DIR)/bin/.e2e-agent-images-$(AGENT_OS_ID)

@@ -25,7 +25,7 @@ const (
 	lifecycleHelmNamespace      = "test-app"
 	lifecycleVMApp              = "test-vm"
 	lifecycleVMSSHPort          = 2222
-	lifecycleVMUser             = "fedora"
+	lifecycleVMUser             = e2e.VMFedoraGuestUser
 	lifecycleVMPassword         = "fedora"
 	lifecycleNoopWindow         = 5 * time.Second
 	lifecycleAlpineImage        = "quay.io/flightctl-tests/alpine:v1"
