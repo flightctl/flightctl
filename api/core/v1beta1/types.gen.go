@@ -109,17 +109,28 @@ const (
 	ConditionTypeCertificateSigningRequestFailed      ConditionType = "Failed"
 	ConditionTypeCertificateSigningRequestTPMVerified ConditionType = "TPMVerified"
 	ConditionTypeDeviceDecommissioning                ConditionType = "DeviceDecommissioning"
+	ConditionTypeDeviceDeltaPreparing                 ConditionType = "DeviceDeltaPreparing"
 	ConditionTypeDeviceMultipleOwners                 ConditionType = "MultipleOwners"
 	ConditionTypeDeviceSpecValid                      ConditionType = "SpecValid"
 	ConditionTypeDeviceUpdating                       ConditionType = "Updating"
 	ConditionTypeEnrollmentRequestApproved            ConditionType = "Approved"
 	ConditionTypeEnrollmentRequestTPMVerified         ConditionType = "TPMVerified"
+	ConditionTypeFleetDeltaPreparing                  ConditionType = "FleetDeltaPreparing"
 	ConditionTypeFleetRolloutInProgress               ConditionType = "RolloutInProgress"
 	ConditionTypeFleetValid                           ConditionType = "Valid"
 	ConditionTypeRepositoryAccessible                 ConditionType = "Accessible"
 	ConditionTypeResourceSyncAccessible               ConditionType = "Accessible"
 	ConditionTypeResourceSyncResourceParsed           ConditionType = "ResourceParsed"
 	ConditionTypeResourceSyncSynced                   ConditionType = "Synced"
+)
+
+// Defines values for DeltaGenerationPhase.
+const (
+	DeltaGenerationPhaseCheckingExisting DeltaGenerationPhase = "checkingExisting"
+	DeltaGenerationPhaseCreateDelta      DeltaGenerationPhase = "createDelta"
+	DeltaGenerationPhasePullSource       DeltaGenerationPhase = "pullSource"
+	DeltaGenerationPhasePullTarget       DeltaGenerationPhase = "pullTarget"
+	DeltaGenerationPhasePush             DeltaGenerationPhase = "push"
 )
 
 // Defines values for DependencyChangeDetectedDetailsDetailType.
@@ -1189,6 +1200,39 @@ type CronExpression = string
 // CustomDeviceInfo User-defined information about the device.
 type CustomDeviceInfo map[string]string
 
+// DeltaGenerationPhase Current step of control-plane delta generation for the in-flight pair.
+type DeltaGenerationPhase string
+
+// DeltaGenerationStatus Progress of control-plane delta generation while a prepare is in flight. Pair counts are required. Remaining fields describe the current pair and are omitted when unknown. Condition messages carry only the pair counts.
+type DeltaGenerationStatus struct {
+	// BytesDone Bytes transferred in the current blob or copy.
+	BytesDone *int64 `json:"bytesDone,omitempty"`
+
+	// BytesTotal Total bytes of the current blob or copy.
+	BytesTotal *int64 `json:"bytesTotal,omitempty"`
+
+	// Completed Number of joined generation pairs that are already terminal.
+	Completed int64 `json:"completed"`
+
+	// ItemsDone Completed items in the current phase (for example oci-delta layers).
+	ItemsDone *int64 `json:"itemsDone,omitempty"`
+
+	// ItemsTotal Total items in the current phase.
+	ItemsTotal *int64 `json:"itemsTotal,omitempty"`
+
+	// LastUpdated Time of the last progress write for this prepare.
+	LastUpdated *time.Time `json:"lastUpdated,omitempty"`
+
+	// Percent Progress of the current phase, 0-100.
+	Percent *int64 `json:"percent,omitempty"`
+
+	// Phase Current step of control-plane delta generation for the in-flight pair.
+	Phase *DeltaGenerationPhase `json:"phase,omitempty"`
+
+	// Total Number of unique generation pairs in this prepare.
+	Total int64 `json:"total"`
+}
+
 // DependencyChangeDetectedDetails defines model for DependencyChangeDetectedDetails.
 type DependencyChangeDetectedDetails struct {
 	// DetailType The type of detail for discriminator purposes.
@@ -1560,6 +1604,9 @@ type DeviceStatus struct {
 
 	// Config Current status of the device config.
 	Config DeviceConfigStatus `json:"config"`
+
+	// DeltaGeneration Progress of control-plane delta generation while a prepare is in flight. Pair counts are required. Remaining fields describe the current pair and are omitted when unknown. Condition messages carry only the pair counts.
+	DeltaGeneration *DeltaGenerationStatus `json:"deltaGeneration,omitempty"`
 
 	// DependencySync DependencySyncStatus represents the synchronization fingerprints for external dependencies of a device, captured at render time.
 	DependencySync *DependencySyncStatus `json:"dependencySync,omitempty"`
@@ -2142,6 +2189,9 @@ type FleetSpec struct {
 type FleetStatus struct {
 	// Conditions Current state of the fleet.
 	Conditions []Condition `json:"conditions"`
+
+	// DeltaGeneration Progress of control-plane delta generation while a prepare is in flight. Pair counts are required. Remaining fields describe the current pair and are omitted when unknown. Condition messages carry only the pair counts.
+	DeltaGeneration *DeltaGenerationStatus `json:"deltaGeneration,omitempty"`
 
 	// DevicesSummary A summary of the devices in the fleet returned when fetching a single Fleet.
 	DevicesSummary *DevicesSummary `json:"devicesSummary,omitempty"`
@@ -3118,6 +3168,9 @@ type RolloutPolicy struct {
 	// DefaultUpdateTimeout The maximum duration allowed for the action to complete. The duration should be specified as a positive integer followed by a time unit. Supported time units are: `s` for seconds, `m` for minutes, `h` for hours.
 	DefaultUpdateTimeout *Duration `json:"defaultUpdateTimeout,omitempty"`
 
+	// DeltaGenerationTimeout Context deadline for each generation job. Omitted uses DeltaGeneration.timeout.
+	DeltaGenerationTimeout *Duration `json:"deltaGenerationTimeout,omitempty"`
+
 	// DeviceSelection Describes how to select devices for rollout.
 	DeviceSelection *RolloutDeviceSelection `json:"deviceSelection,omitempty"`
 
@@ -3126,6 +3179,9 @@ type RolloutPolicy struct {
 
 	// GenerateDelta When false, skip control-plane OS delta generation for this fleet. Omitted means true.
 	GenerateDelta *bool `json:"generateDelta,omitempty"`
+
+	// MaxWaitForDelta How long a prepare may wait before periodic resume. Omitted uses DeltaGeneration.maxWaitForDelta. Ignored when generateDelta is false. 0s still generates then resumes immediately.
+	MaxWaitForDelta *Duration `json:"maxWaitForDelta,omitempty"`
 
 	// SuccessThreshold Percentage is the string format representing percentage string.
 	SuccessThreshold *Percentage `json:"successThreshold,omitempty"`

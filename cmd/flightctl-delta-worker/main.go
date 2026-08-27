@@ -17,9 +17,9 @@ import (
 	instpprof "github.com/flightctl/flightctl/internal/instrumentation/pprof"
 	"github.com/flightctl/flightctl/internal/instrumentation/profiling"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
+	"github.com/flightctl/flightctl/internal/kvstore"
 	canaryservice "github.com/flightctl/flightctl/internal/service/canary"
 	"github.com/flightctl/flightctl/internal/store"
-	deltastore "github.com/flightctl/flightctl/internal/store/delta"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -78,6 +78,12 @@ func main() {
 		log.Fatalf("initializing encryption canary store: %v", err)
 	}
 
+	kvStore, err := kvstore.NewKVStore(ctx, log, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password)
+	if err != nil {
+		log.Fatalf("connecting to KV store: %v", err)
+	}
+	defer kvStore.Close()
+
 	ctx = context.WithValue(ctx, consts.EventSourceComponentCtxKey, "flightctl-delta-worker")
 	ctx = context.WithValue(ctx, consts.EventActorCtxKey, "service:flightctl-delta-worker")
 
@@ -112,8 +118,7 @@ func main() {
 		}
 	}
 
-	deltaStore := deltastore.NewStore(db, log)
-	server := deltaworker.New(cfg, log, provider, deltaStore, workerCollector)
+	server := deltaworker.New(cfg, log, provider, db, kvStore, workerCollector)
 	if err := server.Run(ctx); err != nil {
 		log.Fatalf("Error running server: %s", err)
 	}

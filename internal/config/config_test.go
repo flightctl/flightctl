@@ -549,6 +549,47 @@ deltaGeneration:
 	})
 }
 
+func TestEffectiveMaxWaitForDelta(t *testing.T) {
+	t.Run("When config is omitted it should return nil deadline", func(t *testing.T) {
+		require.Nil(t, (*DeltaGenerationConfig)(nil).EffectiveMaxWaitForDelta())
+		require.Nil(t, (&DeltaGenerationConfig{}).EffectiveMaxWaitForDelta())
+	})
+
+	t.Run("When YAML omits maxWaitForDelta it should return nil deadline", func(t *testing.T) {
+		path := writeTempConfig(t, `
+deltaGeneration:
+  timeout: 15m
+`)
+		cfg, err := Load(path)
+		require.NoError(t, err)
+		require.Nil(t, cfg.DeltaGeneration.EffectiveMaxWaitForDelta())
+	})
+
+	t.Run("When YAML sets maxWaitForDelta to 0s it should return a zero deadline", func(t *testing.T) {
+		path := writeTempConfig(t, `
+deltaGeneration:
+  maxWaitForDelta: 0s
+`)
+		cfg, err := Load(path)
+		require.NoError(t, err)
+		got := cfg.DeltaGeneration.EffectiveMaxWaitForDelta()
+		require.NotNil(t, got)
+		require.Equal(t, time.Duration(0), *got)
+	})
+
+	t.Run("When YAML sets maxWaitForDelta to 10m it should return 10m", func(t *testing.T) {
+		path := writeTempConfig(t, `
+deltaGeneration:
+  maxWaitForDelta: 10m
+`)
+		cfg, err := Load(path)
+		require.NoError(t, err)
+		got := cfg.DeltaGeneration.EffectiveMaxWaitForDelta()
+		require.NotNil(t, got)
+		require.Equal(t, 10*time.Minute, *got)
+	})
+}
+
 func TestDefaultRepositoryConfigOciRepoSpec(t *testing.T) {
 	t.Run("When registry is empty it should return nil", func(t *testing.T) {
 		require.Nil(t, (&DefaultRepositoryConfig{}).OciRepoSpec())

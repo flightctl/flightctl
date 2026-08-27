@@ -2,6 +2,7 @@ package delta
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -38,6 +39,7 @@ type Store interface {
 	ListWaitingPastDeadline(ctx context.Context, limit int, asOf time.Time) ([]model.DeltaPrepare, error)
 	ListWaitingPreparesByGeneration(ctx context.Context, key GenerationKey) ([]model.DeltaPrepare, error)
 	InsertPrepareGenerations(ctx context.Context, prepareID uuid.UUID, keys []GenerationKey) error
+	GetWaitingPrepare(ctx context.Context, orgID uuid.UUID, kind, name string) (*model.DeltaPrepare, error)
 }
 
 type GenerationKey struct {
@@ -362,6 +364,21 @@ func (s *DeltaStore) GetPrepare(ctx context.Context, id uuid.UUID) (*model.Delta
 	var prep model.DeltaPrepare
 	result := s.getDB(ctx).Where("id = ?", id).Take(&prep)
 	if result.Error != nil {
+		return nil, store.ErrorFromGormError(result.Error)
+	}
+	return &prep, nil
+}
+
+func (s *DeltaStore) GetWaitingPrepare(ctx context.Context, orgID uuid.UUID, kind, name string) (*model.DeltaPrepare, error) {
+	var prep model.DeltaPrepare
+	result := s.getDB(ctx).Where(
+		"org_id = ? AND kind = ? AND name = ? AND status = ?",
+		orgID, kind, name, model.DeltaPrepareWaiting,
+	).Take(&prep)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
 		return nil, store.ErrorFromGormError(result.Error)
 	}
 	return &prep, nil

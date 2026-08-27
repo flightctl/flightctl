@@ -14,12 +14,13 @@ import (
 	deltastore "github.com/flightctl/flightctl/internal/store/delta"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
 
 const ackTimeout = 5 * time.Second
 
-func LaunchConsumers(ctx context.Context, queuesProvider queues.Provider, cfg *config.Config, store deltastore.Store, workerMetrics *worker.WorkerCollector, log logrus.FieldLogger) error {
+func LaunchConsumers(ctx context.Context, queuesProvider queues.Provider, cfg *config.Config, store deltastore.Store, workerMetrics *worker.WorkerCollector, log logrus.FieldLogger, preparer ...*Preparer) error {
 	n := cfg.DeltaGeneration.EffectiveMaxConcurrentDeltaGenerations()
 	if workerMetrics != nil {
 		workerMetrics.SetConsumersActive(float64(n))
@@ -30,7 +31,7 @@ func LaunchConsumers(ctx context.Context, queuesProvider queues.Provider, cfg *c
 		}()
 	}
 
-	handler := jobHandler(newPipeline(cfg, store, log), workerMetrics)
+	handler := jobHandler(newPipeline(cfg, store, firstPreparer(preparer), log), workerMetrics)
 	for i := 0; i < n; i++ {
 		consumer, err := queuesProvider.NewQueueConsumer(ctx, consts.DeltaGenerationTaskQueue)
 		if err != nil {
@@ -43,27 +44,54 @@ func LaunchConsumers(ctx context.Context, queuesProvider queues.Provider, cfg *c
 	return nil
 }
 
-func newPipeline(cfg *config.Config, store deltastore.Store, log logrus.FieldLogger) *pipeline {
+func firstPreparer(preparers []*Preparer) *Preparer {
+	if len(preparers) == 0 {
+		return nil
+	}
+	return preparers[0]
+}
+
+func newPipeline(cfg *config.Config, store deltastore.Store, preparer *Preparer, log logrus.FieldLogger) *pipeline {
 	timeout := 30 * time.Minute
 	if cfg != nil && cfg.DeltaGeneration != nil {
 		timeout = cfg.DeltaGeneration.EffectiveTimeout()
 	}
-	return &pipeline{
+	p := &pipeline{
 		store:   store,
 		timeout: timeout,
-		check: func(ctx context.Context, imageRepository, sourceDigest, targetDigest string) (existenceResult, error) {
-			existCfg, err := existenceConfigFromSpec(ctx, writeSpecFromConfig(cfg), imageRepository)
+		check: func(ctx context.Context, orgID uuid.UUID, imageRepository, sourceDigest, targetDigest string) (existenceResult, error) {
+			spec, err := resolveWriteSpec(ctx, cfg, preparer, orgID)
+			if err != nil {
+				return existenceResult{}, err
+			}
+			existCfg, err := existenceConfigFromSpec(ctx, spec, imageRepository)
 			if err != nil {
 				return existenceResult{}, err
 			}
 			return checkExistingDelta(ctx, imageRepository, sourceDigest, targetDigest, existCfg)
 		},
-		generate: func(ctx context.Context, sourceRef, targetRef, pushPath string) (string, int64, error) {
-			g := generator{run: execRunner{}, writeSpec: writeSpecFromConfig(cfg), log: log}
+		generate: func(ctx context.Context, orgID uuid.UUID, sourceRef, targetRef, pushPath string) (string, int64, error) {
+			spec, err := resolveWriteSpec(ctx, cfg, preparer, orgID)
+			if err != nil {
+				return "", 0, err
+			}
+			g := generator{run: execRunner{}, writeSpec: spec, log: log}
 			return g.createAndPushDelta(ctx, sourceRef, targetRef, pushPath)
 		},
-		pushPath: pushPathFromConfig(cfg),
+		pushPath: pushPathFromWriteSpec(cfg, preparer),
 	}
+	if preparer != nil {
+		p.prepare = preparer.Prepare
+		p.status = preparer.Status
+	}
+	return p
+}
+
+func resolveWriteSpec(ctx context.Context, cfg *config.Config, preparer *Preparer, orgID uuid.UUID) (*domain.OciRepoSpec, error) {
+	if preparer != nil && preparer.Resolver != nil && preparer.Resolver.WriteTarget != nil {
+		return preparer.Resolver.WriteTarget(ctx, orgID)
+	}
+	return writeSpecFromConfig(cfg), nil
 }
 
 func writeSpecFromConfig(cfg *config.Config) *domain.OciRepoSpec {
@@ -73,9 +101,12 @@ func writeSpecFromConfig(cfg *config.Config) *domain.OciRepoSpec {
 	return oci.SelectWriteTarget(nil, cfg.DeltaGeneration.DefaultRepository.OciRepoSpec())
 }
 
-func pushPathFromConfig(cfg *config.Config) func(string) (string, error) {
-	return func(imageRepository string) (string, error) {
-		spec := writeSpecFromConfig(cfg)
+func pushPathFromWriteSpec(cfg *config.Config, preparer *Preparer) func(context.Context, uuid.UUID, string) (string, error) {
+	return func(ctx context.Context, orgID uuid.UUID, imageRepository string) (string, error) {
+		spec, err := resolveWriteSpec(ctx, cfg, preparer, orgID)
+		if err != nil {
+			return "", err
+		}
 		if spec == nil {
 			return "", fmt.Errorf("deltaGeneration.defaultRepository is required to push")
 		}
@@ -104,6 +135,9 @@ func jobHandler(p *pipeline, workerMetrics *worker.WorkerCollector) queues.Consu
 		if err := json.Unmarshal(payload, &event); err == nil {
 			if procErr := p.process(ctx, event, log); procErr != nil {
 				log.WithError(procErr).Error("delta generation job failed")
+				if event.Event.Reason == domain.EventReasonPrepareDeltas {
+					return procErr
+				}
 			}
 		}
 

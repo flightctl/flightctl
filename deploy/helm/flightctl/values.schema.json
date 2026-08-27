@@ -1135,6 +1135,10 @@
         "timeout": {
           "type": "string",
           "description": "Per-job timeout for generating a delta (Go duration, e.g. 30m). Defaults to 30m when omitted or <= 0"
+        },
+        "maxWaitForDelta": {
+          "type": "string",
+          "description": "Optional prepare wait cap (Go duration, e.g. 10m). Omitted means no deadline. 0s generates then resumes immediately"
         }
       }
     },

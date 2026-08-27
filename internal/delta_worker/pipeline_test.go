@@ -69,10 +69,15 @@ func (f *fakeGenerationStore) ListWaitingPreparesByGeneration(_ context.Context,
 }
 
 func generateEvent(org uuid.UUID, repo, src, tgt string) worker_client.EventWithOrgId {
+	return generateEventWithTimeout(org, repo, src, tgt, "")
+}
+
+func generateEventWithTimeout(org uuid.UUID, repo, src, tgt, timeout string) worker_client.EventWithOrgId {
 	payload, _ := json.Marshal(generateDeltaPayload{
 		ImageRepository: repo,
 		SourceDigest:    src,
 		TargetDigest:    tgt,
+		Timeout:         timeout,
 	})
 	return worker_client.EventWithOrgId{
 		OrgId: org,
@@ -88,19 +93,54 @@ func TestPipelineProcess(t *testing.T) {
 	tgt := "sha256:tgt"
 	repo := "quay.io/team-a/os"
 
-	t.Run("When PrepareDeltas it should not generate", func(t *testing.T) {
+	t.Run("When PrepareDeltas it should call Prepare and not generate", func(t *testing.T) {
 		req := require.New(t)
 		store := &fakeGenerationStore{}
-		p := &pipeline{store: store, timeout: time.Minute, check: func(context.Context, string, string, string) (existenceResult, error) {
-			t.Fatal("existence check must not run")
-			return existenceResult{}, nil
-		}}
-		err := p.process(context.Background(), worker_client.EventWithOrgId{
+		var prepared worker_client.EventWithOrgId
+		p := &pipeline{
+			store:   store,
+			timeout: time.Minute,
+			check: func(context.Context, uuid.UUID, string, string, string) (existenceResult, error) {
+				t.Fatal("existence check must not run")
+				return existenceResult{}, nil
+			},
+			generate: func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
+				t.Fatal("generate must not run")
+				return "", 0, nil
+			},
+			prepare: func(_ context.Context, ev worker_client.EventWithOrgId) error {
+				prepared = ev
+				return nil
+			},
+		}
+		ev := worker_client.EventWithOrgId{
 			OrgId: org,
 			Event: domain.Event{Reason: domain.EventReasonPrepareDeltas},
-		}, log)
+		}
+		err := p.process(context.Background(), ev, log)
 		req.NoError(err)
+		req.Equal(domain.EventReasonPrepareDeltas, prepared.Event.Reason)
 		req.Empty(store.inserted)
+		req.Equal(0, store.claimed)
+	})
+
+	t.Run("When GenerateDelta payload timeout is set it should override pipeline timeout", func(t *testing.T) {
+		req := require.New(t)
+		store := &fakeGenerationStore{}
+		p := &pipeline{
+			store:   store,
+			timeout: time.Hour,
+			check: func(context.Context, uuid.UUID, string, string, string) (existenceResult, error) {
+				return existenceResult{Status: existenceNotFound}, nil
+			},
+			generate: func(ctx context.Context, _ uuid.UUID, _, _, _ string) (string, int64, error) {
+				<-ctx.Done()
+				return "", 0, ctx.Err()
+			},
+		}
+		req.NoError(p.process(context.Background(), generateEventWithTimeout(org, repo, src, tgt, time.Nanosecond.String()), log))
+		req.Len(store.cas, 1)
+		req.Equal(model.DeltaGenerationFailed, store.cas[0].Status)
 	})
 
 	t.Run("When existence is found it should insert rejected and not generate", func(t *testing.T) {
@@ -110,10 +150,10 @@ func TestPipelineProcess(t *testing.T) {
 		p := &pipeline{
 			store:   store,
 			timeout: time.Minute,
-			check: func(context.Context, string, string, string) (existenceResult, error) {
+			check: func(context.Context, uuid.UUID, string, string, string) (existenceResult, error) {
 				return existenceResult{Status: existenceFound, SizeBytes: 77}, nil
 			},
-			generate: func(context.Context, string, string, string) (string, int64, error) {
+			generate: func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
 				generated = true
 				return "", 0, nil
 			},
@@ -132,10 +172,10 @@ func TestPipelineProcess(t *testing.T) {
 		p := &pipeline{
 			store:   store,
 			timeout: time.Minute,
-			check: func(context.Context, string, string, string) (existenceResult, error) {
+			check: func(context.Context, uuid.UUID, string, string, string) (existenceResult, error) {
 				return existenceResult{Status: existenceInconclusive}, nil
 			},
-			generate: func(context.Context, string, string, string) (string, int64, error) {
+			generate: func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
 				t.Fatal("generate must not run")
 				return "", 0, nil
 			},
@@ -151,16 +191,16 @@ func TestPipelineProcess(t *testing.T) {
 		p := &pipeline{
 			store:   store,
 			timeout: time.Minute,
-			check: func(context.Context, string, string, string) (existenceResult, error) {
+			check: func(context.Context, uuid.UUID, string, string, string) (existenceResult, error) {
 				return existenceResult{Status: existenceNotFound}, nil
 			},
-			generate: func(_ context.Context, sourceRef, targetRef, pushPath string) (string, int64, error) {
+			generate: func(_ context.Context, _ uuid.UUID, sourceRef, targetRef, pushPath string) (string, int64, error) {
 				req.Equal(repo+"@"+src, sourceRef)
 				req.Equal(repo+"@"+tgt, targetRef)
 				req.Equal("write.example/os", pushPath)
 				return "write.example/os@sha256:delta", 12, nil
 			},
-			pushPath: func(string) (string, error) { return "write.example/os", nil },
+			pushPath: func(context.Context, uuid.UUID, string) (string, error) { return "write.example/os", nil },
 		}
 		req.NoError(p.process(context.Background(), generateEvent(org, repo, src, tgt), log))
 		req.Len(store.inserted, 1)
@@ -178,10 +218,10 @@ func TestPipelineProcess(t *testing.T) {
 		p := &pipeline{
 			store:   store,
 			timeout: time.Minute,
-			check: func(context.Context, string, string, string) (existenceResult, error) {
+			check: func(context.Context, uuid.UUID, string, string, string) (existenceResult, error) {
 				return existenceResult{Status: existenceNotFound}, nil
 			},
-			generate: func(context.Context, string, string, string) (string, int64, error) {
+			generate: func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
 				return "", 0, errors.New("oci-delta exploded")
 			},
 		}
@@ -197,10 +237,10 @@ func TestPipelineProcess(t *testing.T) {
 		p := &pipeline{
 			store:   store,
 			timeout: time.Minute,
-			check: func(context.Context, string, string, string) (existenceResult, error) {
+			check: func(context.Context, uuid.UUID, string, string, string) (existenceResult, error) {
 				return existenceResult{Status: existenceNotFound}, nil
 			},
-			generate: func(context.Context, string, string, string) (string, int64, error) {
+			generate: func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
 				t.Fatal("generate must not run")
 				return "", 0, nil
 			},
@@ -215,10 +255,10 @@ func TestPipelineProcess(t *testing.T) {
 		p := &pipeline{
 			store:   store,
 			timeout: time.Minute,
-			check: func(context.Context, string, string, string) (existenceResult, error) {
+			check: func(context.Context, uuid.UUID, string, string, string) (existenceResult, error) {
 				return existenceResult{Status: existenceNotFound}, nil
 			},
-			generate: func(context.Context, string, string, string) (string, int64, error) {
+			generate: func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
 				return "ref", 1, nil
 			},
 		}
@@ -234,10 +274,10 @@ func TestPipelineProcess(t *testing.T) {
 		p := &pipeline{
 			store:   store,
 			timeout: time.Nanosecond,
-			check: func(context.Context, string, string, string) (existenceResult, error) {
+			check: func(context.Context, uuid.UUID, string, string, string) (existenceResult, error) {
 				return existenceResult{Status: existenceNotFound}, nil
 			},
-			generate: func(ctx context.Context, _, _, _ string) (string, int64, error) {
+			generate: func(ctx context.Context, _ uuid.UUID, _, _, _ string) (string, int64, error) {
 				<-ctx.Done()
 				return "", 0, ctx.Err()
 			},
@@ -254,10 +294,10 @@ func TestPipelineProcess(t *testing.T) {
 		p := &pipeline{
 			store:   store,
 			timeout: time.Minute,
-			check: func(context.Context, string, string, string) (existenceResult, error) {
+			check: func(context.Context, uuid.UUID, string, string, string) (existenceResult, error) {
 				return existenceResult{Status: existenceNotFound}, nil
 			},
-			generate: func(context.Context, string, string, string) (string, int64, error) {
+			generate: func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
 				return "ref", 1, nil
 			},
 		}

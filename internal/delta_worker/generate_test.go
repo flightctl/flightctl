@@ -24,7 +24,7 @@ type recordingRunner struct {
 	errAt map[string]error
 }
 
-func (r *recordingRunner) Run(_ context.Context, name string, args ...string) error {
+func (r *recordingRunner) Run(_ context.Context, name string, args []string, _ func(string)) error {
 	r.calls = append(r.calls, append([]string{name}, args...))
 	if r.errAt != nil {
 		if err, ok := r.errAt[name]; ok {
@@ -66,6 +66,7 @@ func TestCreateAndPushDelta_WhenToolsSucceedItShouldPushLayoutNotOrasCLI(t *test
 	req.Len(runner.calls, 1)
 	req.Equal("oci-delta", runner.calls[0][0])
 	req.Equal("create", runner.calls[0][1])
+	req.Equal("--debug", runner.calls[0][2])
 }
 
 func TestCreateAndPushDelta_WhenLayerDoesNotShrinkItShouldStillSucceed(t *testing.T) {
@@ -129,7 +130,7 @@ func TestCreateAndPushDelta_WhenContextIsCancelledItShouldReturnError(t *testing
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	g := generator{
-		run: runnerFunc(func(ctx context.Context, _ string, _ ...string) error {
+		run: runnerFunc(func(ctx context.Context, _ string, _ []string, _ func(string)) error {
 			return ctx.Err()
 		}),
 		layoutPayloadSize: func(string) (int64, error) { return 0, nil },
@@ -159,10 +160,10 @@ func TestCreateAndPushDelta_WhenDeltaDirItShouldUseWorkSubdir(t *testing.T) {
 	req.Contains(runner.calls[0], "oci:"+filepath.Join(work, "source")+":img")
 }
 
-type runnerFunc func(ctx context.Context, name string, args ...string) error
+type runnerFunc func(ctx context.Context, name string, args []string, onLine func(string)) error
 
-func (f runnerFunc) Run(ctx context.Context, name string, args ...string) error {
-	return f(ctx, name, args...)
+func (f runnerFunc) Run(ctx context.Context, name string, args []string, onLine func(string)) error {
+	return f(ctx, name, args, onLine)
 }
 
 func TestReferenceForResolve_WhenDigestRefItShouldReturnDigest(t *testing.T) {

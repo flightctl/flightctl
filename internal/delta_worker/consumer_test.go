@@ -120,6 +120,18 @@ flightctl_worker_consumers_active 2
 		require.Equal(t, 1, testutil.CollectAndCount(metrics, "flightctl_worker_tasks_by_type_total"))
 	})
 
+	t.Run("When PrepareDeltas handler fails it should not ack", func(t *testing.T) {
+		provider := &recordingProvider{}
+		require.NoError(t, LaunchConsumers(ctx, provider, config.NewDefault(), nil, nil, log, &Preparer{}))
+		payload, err := json.Marshal(worker_client.EventWithOrgId{
+			OrgId: uuid.New(),
+			Event: domain.Event{Reason: domain.EventReasonPrepareDeltas},
+		})
+		require.NoError(t, err)
+		require.Error(t, provider.consumers[0].handler(ctx, payload, "3", provider.consumers[0], log))
+		require.Equal(t, 0, provider.consumers[0].completeN)
+	})
+
 	t.Run("When garbage payload it should ack with nil error", func(t *testing.T) {
 		provider := &recordingProvider{}
 		require.NoError(t, LaunchConsumers(ctx, provider, config.NewDefault(), nil, nil, log))
