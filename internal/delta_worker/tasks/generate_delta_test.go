@@ -67,6 +67,10 @@ func (f *fakeGenerationStore) InsertPrepareGenerations(context.Context, uuid.UUI
 	return nil
 }
 
+func (f *fakeGenerationStore) GetWaitingPrepare(context.Context, uuid.UUID, string, string) (*model.DeltaPrepare, error) {
+	return nil, nil
+}
+
 func (f *fakeGenerationStore) InsertRejectedGeneration(_ context.Context, gen *model.DeltaGeneration) error {
 	f.rejected = append(f.rejected, gen)
 	return nil
@@ -106,7 +110,7 @@ func (f *fakeGenerationStore) ListWaitingPreparesByGeneration(_ context.Context,
 }
 
 func generateEvent(org uuid.UUID, repo, src, tgt string) worker_client.EventWithOrgId {
-	payload, _ := json.Marshal(generateDeltaPayload{
+	payload, _ := json.Marshal(GenerateDeltaPayload{
 		ImageRepository: repo,
 		SourceDigest:    src,
 		TargetDigest:    tgt,
@@ -131,7 +135,7 @@ func TestHandleGenerateDelta(t *testing.T) {
 		c := &Consumer{
 			store:      store,
 			jobTimeout: time.Minute,
-			existenceCheck: func(context.Context, string, string, string) (existenceResult, error) {
+			existenceCheck: func(context.Context, uuid.UUID, string, string, string) (existenceResult, error) {
 				t.Fatal("existence check must not run")
 				return existenceResult{}, nil
 			},
@@ -151,10 +155,10 @@ func TestHandleGenerateDelta(t *testing.T) {
 		c := &Consumer{
 			store:      store,
 			jobTimeout: time.Minute,
-			existenceCheck: func(context.Context, string, string, string) (existenceResult, error) {
+			existenceCheck: func(context.Context, uuid.UUID, string, string, string) (existenceResult, error) {
 				return existenceResult{Status: existenceFound, SizeBytes: 77}, nil
 			},
-			generateDelta: func(context.Context, string, string, string) (string, int64, error) {
+			generateDelta: func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
 				generated = true
 				return "", 0, nil
 			},
@@ -173,10 +177,10 @@ func TestHandleGenerateDelta(t *testing.T) {
 		c := &Consumer{
 			store:      store,
 			jobTimeout: time.Minute,
-			existenceCheck: func(context.Context, string, string, string) (existenceResult, error) {
+			existenceCheck: func(context.Context, uuid.UUID, string, string, string) (existenceResult, error) {
 				return existenceResult{Status: existenceInconclusive}, nil
 			},
-			generateDelta: func(context.Context, string, string, string) (string, int64, error) {
+			generateDelta: func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
 				t.Fatal("generate must not run")
 				return "", 0, nil
 			},
@@ -194,16 +198,16 @@ func TestHandleGenerateDelta(t *testing.T) {
 		c := &Consumer{
 			store:      store,
 			jobTimeout: time.Minute,
-			existenceCheck: func(context.Context, string, string, string) (existenceResult, error) {
+			existenceCheck: func(context.Context, uuid.UUID, string, string, string) (existenceResult, error) {
 				return existenceResult{Status: existenceNotFound}, nil
 			},
-			generateDelta: func(_ context.Context, sourceRef, targetRef, pushPath string) (string, int64, error) {
+			generateDelta: func(_ context.Context, _ uuid.UUID, sourceRef, targetRef, pushPath string) (string, int64, error) {
 				req.Equal(repo+"@"+src, sourceRef)
 				req.Equal(repo+"@"+tgt, targetRef)
 				req.Equal("write.example/os", pushPath)
 				return "write.example/os@sha256:delta", 12, nil
 			},
-			pushPath: func(string) (string, error) { return "write.example/os", nil },
+			pushPath: func(context.Context, uuid.UUID, string) (string, error) { return "write.example/os", nil },
 		}
 		req.NoError(c.handleGenerateDelta(context.Background(), generateEvent(org, repo, src, tgt), log))
 		req.Len(store.inserted, 1)
@@ -221,10 +225,10 @@ func TestHandleGenerateDelta(t *testing.T) {
 		c := &Consumer{
 			store:      store,
 			jobTimeout: time.Minute,
-			existenceCheck: func(context.Context, string, string, string) (existenceResult, error) {
+			existenceCheck: func(context.Context, uuid.UUID, string, string, string) (existenceResult, error) {
 				return existenceResult{Status: existenceNotFound}, nil
 			},
-			generateDelta: func(context.Context, string, string, string) (string, int64, error) {
+			generateDelta: func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
 				return "", 0, errors.New("oci-delta exploded")
 			},
 		}
@@ -240,10 +244,10 @@ func TestHandleGenerateDelta(t *testing.T) {
 		c := &Consumer{
 			store:      store,
 			jobTimeout: time.Minute,
-			existenceCheck: func(context.Context, string, string, string) (existenceResult, error) {
+			existenceCheck: func(context.Context, uuid.UUID, string, string, string) (existenceResult, error) {
 				return existenceResult{Status: existenceNotFound}, nil
 			},
-			generateDelta: func(context.Context, string, string, string) (string, int64, error) {
+			generateDelta: func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
 				t.Fatal("generate must not run")
 				return "", 0, nil
 			},
@@ -258,10 +262,10 @@ func TestHandleGenerateDelta(t *testing.T) {
 		c := &Consumer{
 			store:      store,
 			jobTimeout: time.Minute,
-			existenceCheck: func(context.Context, string, string, string) (existenceResult, error) {
+			existenceCheck: func(context.Context, uuid.UUID, string, string, string) (existenceResult, error) {
 				return existenceResult{Status: existenceNotFound}, nil
 			},
-			generateDelta: func(context.Context, string, string, string) (string, int64, error) {
+			generateDelta: func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
 				return "ref", 1, nil
 			},
 		}
@@ -277,10 +281,10 @@ func TestHandleGenerateDelta(t *testing.T) {
 		c := &Consumer{
 			store:      store,
 			jobTimeout: time.Nanosecond,
-			existenceCheck: func(context.Context, string, string, string) (existenceResult, error) {
+			existenceCheck: func(context.Context, uuid.UUID, string, string, string) (existenceResult, error) {
 				return existenceResult{Status: existenceNotFound}, nil
 			},
-			generateDelta: func(ctx context.Context, _, _, _ string) (string, int64, error) {
+			generateDelta: func(ctx context.Context, _ uuid.UUID, _, _, _ string) (string, int64, error) {
 				<-ctx.Done()
 				return "", 0, ctx.Err()
 			},
@@ -297,10 +301,10 @@ func TestHandleGenerateDelta(t *testing.T) {
 		c := &Consumer{
 			store:      store,
 			jobTimeout: time.Minute,
-			existenceCheck: func(context.Context, string, string, string) (existenceResult, error) {
+			existenceCheck: func(context.Context, uuid.UUID, string, string, string) (existenceResult, error) {
 				return existenceResult{Status: existenceNotFound}, nil
 			},
-			generateDelta: func(context.Context, string, string, string) (string, int64, error) {
+			generateDelta: func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
 				return "ref", 1, nil
 			},
 		}
@@ -426,7 +430,7 @@ func TestCheckExistingDelta(t *testing.T) {
 			req.NoError(err)
 			imageRepository := u.Host + "/team-a/os"
 
-			got, err := checkExistingDelta(context.Background(), imageRepository, testSourceDigest, testTargetDigest, existenceConfig{
+			got, err := checkExistingDelta(context.Background(), imageRepository, testSourceDigest, testTargetDigest, ExistenceConfig{
 				Client: srv.Client(),
 				Scheme: "http",
 			})
@@ -446,7 +450,7 @@ func TestCheckExistingDelta_WhenRegistryUnreachableItShouldBeInconclusive(t *tes
 	addr := ln.Addr().String()
 	req.NoError(ln.Close())
 
-	got, err := checkExistingDelta(context.Background(), addr+"/team-a/os", testSourceDigest, testTargetDigest, existenceConfig{
+	got, err := checkExistingDelta(context.Background(), addr+"/team-a/os", testSourceDigest, testTargetDigest, ExistenceConfig{
 		Client: &http.Client{Timeout: 2 * time.Second},
 		Scheme: "http",
 	})
@@ -465,7 +469,7 @@ type recordingRunner struct {
 	errAt map[string]error
 }
 
-func (r *recordingRunner) Run(_ context.Context, name string, args ...string) error {
+func (r *recordingRunner) Run(_ context.Context, name string, args []string, _ func(string)) error {
 	r.calls = append(r.calls, append([]string{name}, args...))
 	if r.errAt != nil {
 		if err, ok := r.errAt[name]; ok {
@@ -570,7 +574,7 @@ func TestCreateAndPushDelta_WhenContextIsCancelledItShouldReturnError(t *testing
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	g := generator{
-		run: runnerFunc(func(ctx context.Context, _ string, _ ...string) error {
+		run: runnerFunc(func(ctx context.Context, _ string, _ []string, _ func(string)) error {
 			return ctx.Err()
 		}),
 		layoutPayloadSize: func(string) (int64, error) { return 0, nil },
@@ -600,10 +604,10 @@ func TestCreateAndPushDelta_WhenDeltaDirItShouldUseWorkSubdir(t *testing.T) {
 	req.Contains(runner.calls[0], "oci:"+filepath.Join(work, "source")+":img")
 }
 
-type runnerFunc func(ctx context.Context, name string, args ...string) error
+type runnerFunc func(ctx context.Context, name string, args []string, onLine func(string)) error
 
-func (f runnerFunc) Run(ctx context.Context, name string, args ...string) error {
-	return f(ctx, name, args...)
+func (f runnerFunc) Run(ctx context.Context, name string, args []string, onLine func(string)) error {
+	return f(ctx, name, args, onLine)
 }
 
 func TestReferenceForResolve_WhenDigestRefItShouldReturnDigest(t *testing.T) {

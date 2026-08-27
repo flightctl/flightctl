@@ -3,6 +3,7 @@ package tasks
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -76,6 +77,12 @@ func (p *recordingProvider) SetCheckpointTimestamp(_ context.Context, _ time.Tim
 	return nil
 }
 
+type failingPreparer struct{}
+
+func (failingPreparer) Prepare(context.Context, worker_client.EventWithOrgId) error {
+	return errors.New("prepare failed")
+}
+
 func TestLaunchConsumers(t *testing.T) {
 	log := logrus.New()
 	log.SetLevel(logrus.ErrorLevel)
@@ -84,7 +91,7 @@ func TestLaunchConsumers(t *testing.T) {
 	t.Run("When default config it should open DeltaGenerationTaskQueue twice", func(t *testing.T) {
 		provider := &recordingProvider{}
 		metrics := worker.NewWorkerCollector(ctx, log, config.NewDefault(), nil)
-		err := LaunchConsumers(ctx, provider, config.NewDefault(), nil, metrics, log)
+		err := LaunchConsumers(ctx, provider, config.NewDefault(), nil, metrics, log, nil)
 		require.NoError(t, err)
 		require.Equal(t, []string{consts.DeltaGenerationTaskQueue, consts.DeltaGenerationTaskQueue}, provider.queueNames)
 		require.NoError(t, testutil.CollectAndCompare(metrics, strings.NewReader(`
@@ -97,7 +104,7 @@ flightctl_worker_consumers_active 2
 	t.Run("When maxConcurrentDeltaGenerations is 3 it should open three consumers", func(t *testing.T) {
 		provider := &recordingProvider{}
 		cfg := &config.Config{DeltaGeneration: &config.DeltaGenerationConfig{MaxConcurrentDeltaGenerations: 3}}
-		err := LaunchConsumers(ctx, provider, cfg, nil, nil, log)
+		err := LaunchConsumers(ctx, provider, cfg, nil, nil, log, nil)
 		require.NoError(t, err)
 		require.Len(t, provider.queueNames, 3)
 		for _, name := range provider.queueNames {
@@ -108,7 +115,7 @@ flightctl_worker_consumers_active 2
 	t.Run("When PrepareDeltas payload it should ack with nil error", func(t *testing.T) {
 		provider := &recordingProvider{}
 		metrics := worker.NewWorkerCollector(ctx, log, config.NewDefault(), nil)
-		require.NoError(t, LaunchConsumers(ctx, provider, config.NewDefault(), nil, metrics, log))
+		require.NoError(t, LaunchConsumers(ctx, provider, config.NewDefault(), nil, metrics, log, nil))
 		payload, err := json.Marshal(worker_client.EventWithOrgId{
 			OrgId: uuid.New(),
 			Event: domain.Event{Reason: domain.EventReasonPrepareDeltas},
@@ -120,10 +127,24 @@ flightctl_worker_consumers_active 2
 		require.Equal(t, 1, testutil.CollectAndCount(metrics, "flightctl_worker_tasks_by_type_total"))
 	})
 
+	t.Run("When PrepareDeltas handler fails it should not ack", func(t *testing.T) {
+		provider := &recordingProvider{}
+		require.NoError(t, LaunchConsumers(ctx, provider, config.NewDefault(), nil, nil, log, &ConsumerWiring{
+			Preparer: failingPreparer{},
+		}))
+		payload, err := json.Marshal(worker_client.EventWithOrgId{
+			OrgId: uuid.New(),
+			Event: domain.Event{Reason: domain.EventReasonPrepareDeltas},
+		})
+		require.NoError(t, err)
+		require.Error(t, provider.consumers[0].handler(ctx, payload, "3", provider.consumers[0], log))
+		require.Equal(t, 0, provider.consumers[0].completeN)
+	})
+
 	t.Run("When garbage payload it should ack as permanent failure", func(t *testing.T) {
 		provider := &recordingProvider{}
 		metrics := worker.NewWorkerCollector(ctx, log, config.NewDefault(), nil)
-		require.NoError(t, LaunchConsumers(ctx, provider, config.NewDefault(), nil, metrics, log))
+		require.NoError(t, LaunchConsumers(ctx, provider, config.NewDefault(), nil, metrics, log, nil))
 		require.NoError(t, provider.consumers[0].handler(ctx, []byte("not-json"), "2", provider.consumers[0], log))
 		require.Equal(t, 1, provider.consumers[0].completeN)
 		require.NoError(t, provider.consumers[0].completeErr)
@@ -133,7 +154,7 @@ flightctl_worker_consumers_active 2
 	t.Run("When invalid GenerateDelta payload it should ack as permanent failure", func(t *testing.T) {
 		provider := &recordingProvider{}
 		metrics := worker.NewWorkerCollector(ctx, log, config.NewDefault(), nil)
-		require.NoError(t, LaunchConsumers(ctx, provider, config.NewDefault(), nil, metrics, log))
+		require.NoError(t, LaunchConsumers(ctx, provider, config.NewDefault(), nil, metrics, log, nil))
 		payload, err := json.Marshal(worker_client.EventWithOrgId{
 			OrgId: uuid.New(),
 			Event: domain.Event{Reason: domain.EventReasonGenerateDelta, Message: "{\"imageRepository\":\"not-valid\"}"},
@@ -149,13 +170,13 @@ flightctl_worker_consumers_active 2
 	t.Run("When mis-routed task-queue payload it should ack as permanent failure", func(t *testing.T) {
 		provider := &recordingProvider{}
 		metrics := worker.NewWorkerCollector(ctx, log, config.NewDefault(), nil)
-		require.NoError(t, LaunchConsumers(ctx, provider, config.NewDefault(), nil, metrics, log))
+		require.NoError(t, LaunchConsumers(ctx, provider, config.NewDefault(), nil, metrics, log, nil))
 		payload, err := json.Marshal(worker_client.EventWithOrgId{
 			OrgId: uuid.New(),
 			Event: domain.Event{Reason: domain.EventReasonFleetRolloutStarted},
 		})
 		require.NoError(t, err)
-		require.NoError(t, provider.consumers[0].handler(ctx, payload, "3", provider.consumers[0], log))
+		require.NoError(t, provider.consumers[0].handler(ctx, payload, "4", provider.consumers[0], log))
 		require.Equal(t, 1, provider.consumers[0].completeN)
 		require.NoError(t, provider.consumers[0].completeErr)
 		require.Equal(t, 1, testutil.CollectAndCount(metrics, "flightctl_worker_permanent_failures_total"))

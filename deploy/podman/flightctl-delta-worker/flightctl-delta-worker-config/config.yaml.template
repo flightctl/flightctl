@@ -35,6 +35,9 @@ metrics:
 deltaGeneration:
   maxConcurrentDeltaGenerations: {{if and .deltaGeneration .deltaGeneration.maxConcurrentDeltaGenerations}}{{.deltaGeneration.maxConcurrentDeltaGenerations}}{{else}}2{{end}}
   timeout: {{if and .deltaGeneration .deltaGeneration.timeout}}{{.deltaGeneration.timeout}}{{else}}30m{{end}}
+  {{- if and .deltaGeneration .deltaGeneration.maxWaitForDelta }}
+  maxWaitForDelta: {{.deltaGeneration.maxWaitForDelta}}
+  {{- end }}
 {{- with .deltaGeneration }}
 {{- with .defaultRepository }}
 {{- if .registry }}

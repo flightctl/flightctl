@@ -12,9 +12,11 @@ import (
 	"github.com/flightctl/flightctl/internal/oci"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
+	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util/validation"
+	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -23,15 +25,39 @@ import (
 	"oras.land/oras-go/v2/registry/remote/errcode"
 )
 
+type DeviceLister interface {
+	List(ctx context.Context, orgId uuid.UUID) (*domain.DeviceList, error)
+}
+
+type deviceStoreLister struct {
+	store devicestore.Store
+}
+
+func NewDeviceLister(store devicestore.Store) DeviceLister {
+	return deviceStoreLister{store: store}
+}
+
+func (l deviceStoreLister) List(ctx context.Context, orgId uuid.UUID) (*domain.DeviceList, error) {
+	return l.store.List(ctx, orgId, devicestore.DeviceListParams{})
+}
+
 type ServiceHandler struct {
-	store  repositorystore.Store
-	events events.Service
-	log    logrus.FieldLogger
+	store   repositorystore.Store
+	events  events.Service
+	log     logrus.FieldLogger
+	devices DeviceLister
+	emit    worker_client.WorkerClient
 }
 
 // NewServiceHandler creates a new repository ServiceHandler instance.
 func NewServiceHandler(store repositorystore.Store, events events.Service, log logrus.FieldLogger) *ServiceHandler {
 	return &ServiceHandler{store: store, events: events, log: log}
+}
+
+func (h *ServiceHandler) WithPrepareDeltas(devices DeviceLister, emit worker_client.WorkerClient) *ServiceHandler {
+	h.devices = devices
+	h.emit = emit
+	return h
 }
 
 var _ Service = (*ServiceHandler)(nil)
@@ -68,7 +94,12 @@ func (h *ServiceHandler) CreateRepository(ctx context.Context, orgId uuid.UUID, 
 
 	result, err := h.store.Create(ctx, orgId, &repository)
 	h.callbackRepositoryUpdated(ctx, domain.RepositoryKind, orgId, lo.FromPtr(repository.Metadata.Name), nil, result, true, err)
-	return result, common.StoreErrorToApiStatus(err, true, domain.RepositoryKind, repository.Metadata.Name)
+	status := common.StoreErrorToApiStatus(err, true, domain.RepositoryKind, repository.Metadata.Name)
+	if err != nil {
+		return result, status
+	}
+	h.emitPrepareDeltasForMidUpdate(ctx, orgId, result)
+	return result, status
 }
 
 func (h *ServiceHandler) rejectDuplicateDeltaStorageTarget(ctx context.Context, orgId uuid.UUID, repo domain.Repository) error {
@@ -146,7 +177,12 @@ func (h *ServiceHandler) ReplaceRepository(ctx context.Context, orgId uuid.UUID,
 
 	result, oldRepo, created, err := h.store.CreateOrUpdate(ctx, orgId, &repository)
 	h.callbackRepositoryUpdated(ctx, domain.RepositoryKind, orgId, name, oldRepo, result, created, err)
-	return result, common.StoreErrorToApiStatus(err, created, domain.RepositoryKind, &name)
+	status := common.StoreErrorToApiStatus(err, created, domain.RepositoryKind, &name)
+	if err != nil {
+		return result, status
+	}
+	h.emitPrepareDeltasForMidUpdate(ctx, orgId, result)
+	return result, status
 }
 
 func (h *ServiceHandler) DeleteRepository(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
@@ -190,7 +226,12 @@ func (h *ServiceHandler) PatchRepository(ctx context.Context, orgId uuid.UUID, n
 
 	result, oldRepo, err := h.store.Update(ctx, orgId, newObj)
 	h.callbackRepositoryUpdated(ctx, domain.RepositoryKind, orgId, name, oldRepo, result, false, err)
-	return result, common.StoreErrorToApiStatus(err, false, domain.RepositoryKind, &name)
+	status := common.StoreErrorToApiStatus(err, false, domain.RepositoryKind, &name)
+	if err != nil {
+		return result, status
+	}
+	h.emitPrepareDeltasForMidUpdate(ctx, orgId, result)
+	return result, status
 }
 
 func (h *ServiceHandler) ReplaceRepositoryStatusByError(ctx context.Context, orgId uuid.UUID, name string, repository domain.Repository, err error) (*domain.Repository, domain.Status) {
@@ -391,4 +432,76 @@ func (h *ServiceHandler) resolveOciRepoRef(ctx context.Context, orgId uuid.UUID,
 		return nil, domain.StatusBadRequest(fmt.Sprintf("invalid repository reference %q: %v", fullRef, err))
 	}
 	return repoRef, domain.StatusOK()
+}
+
+func (h *ServiceHandler) emitPrepareDeltasForMidUpdate(ctx context.Context, orgId uuid.UUID, repo *domain.Repository) {
+	if h.emit == nil || h.devices == nil {
+		return
+	}
+	if !isDeltaStorageTarget(repo) {
+		return
+	}
+	list, err := h.devices.List(ctx, orgId)
+	if err != nil {
+		h.log.WithError(err).WithField("org", orgId.String()).Error("listing devices for PrepareDeltas after write target apply")
+		return
+	}
+	if list == nil {
+		return
+	}
+	for i := range list.Items {
+		device := &list.Items[i]
+		if !deviceMidUpdate(device) {
+			continue
+		}
+		name := lo.FromPtr(device.Metadata.Name)
+		if name == "" {
+			continue
+		}
+		event, err := prepareDeltasEvent(ctx, name)
+		if err != nil {
+			h.log.WithError(err).Errorf("building PrepareDeltas event for device %s", name)
+			continue
+		}
+		h.emit.EmitEvent(ctx, orgId, event)
+	}
+}
+
+func prepareDeltasEvent(ctx context.Context, deviceName string) (*domain.Event, error) {
+	details := domain.PrepareDeltasDetails{
+		DetailType: domain.PrepareDeltasDetailsDetailType("PrepareDeltas"),
+	}
+	var eventDetails domain.EventDetails
+	if err := eventDetails.FromPrepareDeltasDetails(details); err != nil {
+		return nil, err
+	}
+	return domain.GetBaseEvent(ctx, domain.DeviceKind, deviceName, domain.EventReasonPrepareDeltas, "Preparing OS image deltas", &eventDetails), nil
+}
+
+func deviceMidUpdate(d *domain.Device) bool {
+	if d == nil || d.Spec == nil || d.Spec.Os == nil || d.Spec.Os.Image == "" {
+		return false
+	}
+	if d.Status == nil {
+		return true
+	}
+	if d.Status.Os.Image == "" || d.Status.Os.ImageDigest == "" {
+		return true
+	}
+	return d.Spec.Os.Image != d.Status.Os.Image
+}
+
+func isDeltaStorageTarget(repo *domain.Repository) bool {
+	if repo == nil {
+		return false
+	}
+	specType, err := repo.Spec.Discriminator()
+	if err != nil || specType != string(domain.RepoSpecTypeOci) {
+		return false
+	}
+	ociSpec, err := repo.Spec.AsOciRepoSpec()
+	if err != nil || ociSpec.DeltaStorageTarget == nil {
+		return false
+	}
+	return *ociSpec.DeltaStorageTarget
 }

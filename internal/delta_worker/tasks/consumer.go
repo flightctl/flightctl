@@ -13,6 +13,7 @@ import (
 	deltastore "github.com/flightctl/flightctl/internal/store/delta"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
 
@@ -20,26 +21,42 @@ const ackTimeout = 5 * time.Second
 
 // Consumer handles incoming jobs from the delta-generation task queue.
 type Consumer struct {
-	cfg           *config.Config
-	store         deltastore.Store
-	workerMetrics *worker.WorkerCollector
-	log           logrus.FieldLogger
+	cfg             *config.Config
+	store           deltastore.Store
+	workerMetrics   *worker.WorkerCollector
+	log             logrus.FieldLogger
+	preparer        PrepareDeltasHandler
+	writeTarget     writeTargetResolver
+	pushPath        pushPathResolver
+	preparingStatus preparingStatusReporter
 
 	jobTimeout     time.Duration
-	existenceCheck func(ctx context.Context, imageRepository, sourceDigest, targetDigest string) (existenceResult, error)
-	generateDelta  func(ctx context.Context, sourceRef, targetRef, pushPath string) (deltaRef string, sizeBytes int64, err error)
-	pushPath       func(imageRepository string) (string, error)
+	existenceCheck func(ctx context.Context, orgID uuid.UUID, imageRepository, sourceDigest, targetDigest string) (existenceResult, error)
+	generateDelta  func(ctx context.Context, orgID uuid.UUID, sourceRef, targetRef, pushPath string) (deltaRef string, sizeBytes int64, err error)
 	resume         func(ctx context.Context, key deltastore.GenerationKey) error
 }
 
+// ConsumerWiring configures optional runtime dependencies for the consumer.
+type ConsumerWiring struct {
+	Preparer        PrepareDeltasHandler
+	WriteTarget     writeTargetResolver
+	PreparingStatus preparingStatusReporter
+}
+
 // NewConsumer creates a new Consumer instance.
-func NewConsumer(cfg *config.Config, store deltastore.Store, workerMetrics *worker.WorkerCollector, log logrus.FieldLogger) *Consumer {
-	return &Consumer{
+func NewConsumer(cfg *config.Config, store deltastore.Store, workerMetrics *worker.WorkerCollector, log logrus.FieldLogger, wiring *ConsumerWiring) *Consumer {
+	c := &Consumer{
 		cfg:           cfg,
 		store:         store,
 		workerMetrics: workerMetrics,
 		log:           log,
 	}
+	if wiring != nil {
+		c.preparer = wiring.Preparer
+		c.writeTarget = wiring.WriteTarget
+		c.preparingStatus = wiring.PreparingStatus
+	}
+	return c
 }
 
 // Consume handles a single queue message.
@@ -65,31 +82,36 @@ func (c *Consumer) Consume(ctx context.Context, payload []byte, entryID string, 
 
 	var procErr error
 	switch event.Event.Reason {
-	case domain.EventReasonGenerateDelta:
-		if _, ok := parseGenerationJob(event); !ok {
-			log.WithField("orgId", event.OrgId).Warnf("invalid GenerateDelta payload message=%q", event.Event.Message)
-			return completePoisonMessage(consumer, c.workerMetrics, log, entryID, payload)
-		}
-		if c.workerMetrics != nil {
-			c.workerMetrics.IncTasksByType(taskType)
-		}
-		taskStart := time.Now()
-		procErr = c.handleGenerateDelta(ctx, event, log)
-		if c.workerMetrics != nil {
-			c.workerMetrics.ObserveTaskExecutionDuration(taskType, time.Since(taskStart))
-		}
-		if procErr != nil {
-			log.WithError(procErr).Error("delta generation job failed")
-		}
 	case domain.EventReasonPrepareDeltas:
 		if c.workerMetrics != nil {
 			c.workerMetrics.IncTasksByType(taskType)
 		}
-		log.Debug("PrepareDeltas is not handled by the delta worker; acknowledging")
+		procErr = c.handlePrepareDeltas(ctx, event, log)
+	case domain.EventReasonGenerateDelta:
+		if _, ok, parseErr := parseGenerationJob(event); parseErr != nil {
+			procErr = parseErr
+		} else if !ok {
+			log.WithField("orgId", event.OrgId).Warnf("invalid GenerateDelta payload message=%q", event.Event.Message)
+			return completePoisonMessage(consumer, c.workerMetrics, log, entryID, payload)
+		} else {
+			if c.workerMetrics != nil {
+				c.workerMetrics.IncTasksByType(taskType)
+			}
+			taskStart := time.Now()
+			procErr = c.handleGenerateDelta(ctx, event, log)
+			if c.workerMetrics != nil {
+				c.workerMetrics.ObserveTaskExecutionDuration(taskType, time.Since(taskStart))
+			}
+		}
 	default:
 		log.Debugf("unhandled delta-generation event reason %q; acknowledging", event.Event.Reason)
 	}
-
+	if procErr != nil {
+		log.WithError(procErr).Error("delta generation job failed")
+		if event.Event.Reason == domain.EventReasonPrepareDeltas {
+			return procErr
+		}
+	}
 	ackCtx, cancel := context.WithTimeout(context.Background(), ackTimeout)
 	defer cancel()
 	if err := consumer.Complete(ackCtx, entryID, payload, procErr); err != nil {
@@ -110,7 +132,7 @@ func (c *Consumer) Consume(ctx context.Context, payload []byte, entryID string, 
 }
 
 // LaunchConsumers starts Redis consumers on the delta-generation task queue.
-func LaunchConsumers(ctx context.Context, queuesProvider queues.Provider, cfg *config.Config, store deltastore.Store, workerMetrics *worker.WorkerCollector, log logrus.FieldLogger) error {
+func LaunchConsumers(ctx context.Context, queuesProvider queues.Provider, cfg *config.Config, store deltastore.Store, workerMetrics *worker.WorkerCollector, log logrus.FieldLogger, wiring *ConsumerWiring) error {
 	n := cfg.DeltaGeneration.EffectiveMaxConcurrentDeltaGenerations()
 	if workerMetrics != nil {
 		workerMetrics.SetConsumersActive(float64(n))
@@ -123,7 +145,7 @@ func LaunchConsumers(ctx context.Context, queuesProvider queues.Provider, cfg *c
 		}()
 	}
 
-	taskConsumer := NewConsumer(cfg, store, workerMetrics, log)
+	taskConsumer := NewConsumer(cfg, store, workerMetrics, log, wiring)
 	for i := 0; i < n; i++ {
 		consumer, err := queuesProvider.NewQueueConsumer(ctx, consts.DeltaGenerationTaskQueue)
 		if err != nil {

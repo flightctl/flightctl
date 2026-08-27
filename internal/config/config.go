@@ -925,6 +925,7 @@ type DeltaGenerationConfig struct {
 	DefaultRepository             *DefaultRepositoryConfig `json:"defaultRepository,omitempty"`
 	MaxConcurrentDeltaGenerations int                      `json:"maxConcurrentDeltaGenerations,omitempty"`
 	Timeout                       util.Duration            `json:"timeout,omitempty"`
+	MaxWaitForDelta               *util.Duration           `json:"maxWaitForDelta,omitempty"`
 }
 
 const maxConcurrentDeltaGenerationsLimit = 32
@@ -945,6 +946,14 @@ func (c *DeltaGenerationConfig) EffectiveTimeout() time.Duration {
 		return 30 * time.Minute
 	}
 	return time.Duration(c.Timeout)
+}
+
+func (c *DeltaGenerationConfig) EffectiveMaxWaitForDelta() *time.Duration {
+	if c == nil || c.MaxWaitForDelta == nil {
+		return nil
+	}
+	d := time.Duration(*c.MaxWaitForDelta)
+	return &d
 }
 
 type DefaultRepositoryConfig struct {
