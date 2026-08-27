@@ -248,10 +248,11 @@ func TestFetchImageSecurity_NonOKStatusLogging(t *testing.T) {
 		name       string
 		httpStatus int
 		wantLevel  logrus.Level
+		wantError  bool
 	}{
-		{"unauthorized logs error", http.StatusUnauthorized, logrus.ErrorLevel},
-		{"forbidden logs warn", http.StatusForbidden, logrus.WarnLevel},
-		{"server error logs warn", http.StatusInternalServerError, logrus.WarnLevel},
+		{"unauthorized logs error and returns error", http.StatusUnauthorized, logrus.ErrorLevel, true},
+		{"forbidden logs warn and returns error", http.StatusForbidden, logrus.WarnLevel, true},
+		{"server error logs warn and returns error", http.StatusInternalServerError, logrus.WarnLevel, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -264,8 +265,13 @@ func TestFetchImageSecurity_NonOKStatusLogging(t *testing.T) {
 				Image:  hostOf(srv) + "/testorg/testrepo:latest",
 			}
 			report, err := c.FetchImageSecurity(context.Background(), image)
-			require.NoError(t, err, "a non-2xx response is a skip, not a hard error")
-			require.Nil(t, report)
+			if tt.wantError {
+				require.Error(t, err, "non-404 failures should return errors for caller to decide policy")
+				require.Nil(t, report)
+			} else {
+				require.NoError(t, err)
+				require.Nil(t, report)
+			}
 			require.Equal(t, 1, mock.count())
 			last := hook.LastEntry()
 			require.NotNil(t, last)
@@ -335,6 +341,39 @@ func TestFetchImageSecurity_RegistryFilterNormalization(t *testing.T) {
 			c, err := NewClient(&config.QuayConfig{Endpoint: tt.configEndpoint, Token: "test-token"}, logger, nil)
 			require.NoError(t, err)
 			require.Equal(t, tt.wantHost, c.registryHost, "registryHost should be normalized for case-insensitive comparison")
+		})
+	}
+}
+
+func TestFetchImageSecurity_ImageReferenceNormalization(t *testing.T) {
+	// Regression test for image reference normalization (mixed-case, explicit ports)
+	// Uses parseImageReference directly to test normalization logic
+	tests := []struct {
+		name        string
+		imageRef    string
+		wantHost    string
+		configHost  string
+		shouldMatch bool
+	}{
+		{"mixed case image ref normalized to lowercase", "Quay.IO/org/repo:tag", "quay.io", "quay.io", true},
+		{"explicit https port 443 stripped", "quay.io:443/org/repo:tag", "quay.io", "quay.io", true},
+		{"portless image ref", "quay.io/org/repo:tag", "quay.io", "quay.io", true},
+		{"non-default port preserved and matches", "quay.io:8443/org/repo:tag", "quay.io:8443", "quay.io:8443", true},
+		{"non-default port mismatch", "quay.io:8443/org/repo:tag", "quay.io:8443", "quay.io", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			host, repoPath, err := parseImageReference(tt.imageRef)
+			require.NoError(t, err)
+			require.Equal(t, tt.wantHost, host, "image host should be normalized")
+			require.Equal(t, "org/repo", repoPath)
+
+			if tt.shouldMatch {
+				require.Equal(t, tt.configHost, host, "normalized image host should match configured host")
+			} else {
+				require.NotEqual(t, tt.configHost, host, "mismatched hosts should not match")
+			}
 		})
 	}
 }

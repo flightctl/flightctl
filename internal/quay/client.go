@@ -116,8 +116,13 @@ func (c *Client) FetchImageSecurity(ctx context.Context, image vulnerability.Ima
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode == http.StatusNotFound {
+			c.log.WithFields(logrus.Fields{"digest": image.Digest, "reason": reasonNotFound}).
+				Debug("skipping image: not found on configured registry")
+			return nil, nil
+		}
 		c.logNonOK(image.Digest, resp.StatusCode)
-		return nil, nil
+		return nil, fmt.Errorf("quay security api returned %d for image %s", resp.StatusCode, image.Digest)
 	}
 
 	var report Response
@@ -192,26 +197,35 @@ func parseEndpoint(endpoint string) (base, host string, err error) {
 		return "", "", fmt.Errorf("quay endpoint %q has no host", endpoint)
 	}
 	base = strings.TrimRight(u.Scheme+"://"+u.Host+u.Path, "/")
-
-	// Normalize hostname to match reference.Domain behavior:
-	// lowercase and strip default ports (443 for https, 80 for http).
-	hostname := strings.ToLower(u.Hostname())
-	port := u.Port()
-
-	// Strip default ports
-	if (u.Scheme == "https" && port == "443") || (u.Scheme == "http" && port == "80") {
-		host = hostname
-	} else if port != "" {
-		host = hostname + ":" + port
-	} else {
-		host = hostname
-	}
-
+	host = normalizeHost(u.Host, u.Scheme)
 	return base, host, nil
 }
 
+// normalizeHost normalizes a registry hostname by lowercasing and stripping
+// default ports (443 for https, 80 for http). This matches the normalization
+// behavior of reference.Domain for image references.
+func normalizeHost(host, scheme string) string {
+	hostname := host
+	port := ""
+	if idx := strings.LastIndex(host, ":"); idx != -1 {
+		hostname = host[:idx]
+		port = host[idx+1:]
+	}
+
+	hostname = strings.ToLower(hostname)
+
+	// Strip default ports
+	if (scheme == "https" && port == "443") || (scheme == "http" && port == "80") {
+		return hostname
+	} else if port != "" {
+		return hostname + ":" + port
+	}
+	return hostname
+}
+
 // parseImageReference normalizes an image reference into its registry host and
-// repository path ("namespace/repo"), stripping any scheme prefix.
+// repository path ("namespace/repo"), stripping any scheme prefix. The host is
+// normalized (lowercased, default HTTPS port 443 stripped) to match parseEndpoint.
 func parseImageReference(imageRef string) (host, repoPath string, err error) {
 	ref := imageRef
 	if idx := strings.Index(ref, "://"); idx != -1 {
@@ -221,5 +235,6 @@ func parseImageReference(imageRef string) (host, repoPath string, err error) {
 	if err != nil {
 		return "", "", err
 	}
-	return reference.Domain(named), reference.Path(named), nil
+	// Docker registry references default to HTTPS, so normalize with https scheme
+	return normalizeHost(reference.Domain(named), "https"), reference.Path(named), nil
 }
