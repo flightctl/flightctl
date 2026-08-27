@@ -1002,7 +1002,21 @@
                 "oidcIssuerUrl": { "type": "string", "description": "OIDC issuer URL for client-credentials mode" },
                 "secretName": { "type": "string", "description": "Name of the Kubernetes Secret containing 'client_id' and 'client_secret' keys" }
               }
-            }
+            },
+            "caFile": { "type": "string", "description": "Path to a CA bundle for verifying the Trustify server certificate. If unset, system roots are used." },
+            "skipTlsVerify": { "type": "boolean", "description": "Skip TLS certificate verification (insecure, for lab/air-gap only). Defaults to false." }
+          }
+        },
+        "quay": {
+          "type": "object",
+          "description": "Quay Security API connection details",
+          "additionalProperties": false,
+          "properties": {
+            "endpoint": { "type": "string", "description": "Quay API base URL (e.g. \"https://quay.io\")" },
+            "secretName": { "type": "string", "description": "Name of the Kubernetes Secret containing the 'token' key for Quay Security API bearer authentication" },
+            "maxConcurrentRequests": { "type": "integer", "description": "Maximum number of concurrent Quay API requests. Defaults to 5 when unset." },
+            "caFile": { "type": "string", "description": "Path to a CA bundle for verifying the Quay server certificate. If unset, system roots are used." },
+            "skipTlsVerify": { "type": "boolean", "description": "Skip TLS certificate verification (insecure, for lab/air-gap only). Defaults to false." }
           }
         }
       }
