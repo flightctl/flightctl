@@ -5,14 +5,21 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	eventservice "github.com/flightctl/flightctl/internal/service/events"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
+	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
 	deltastore "github.com/flightctl/flightctl/internal/store/delta"
 	"github.com/flightctl/flightctl/internal/store/model"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 )
 
 type prepareStore interface {
@@ -22,6 +29,8 @@ type prepareStore interface {
 	InsertGenerations(ctx context.Context, gens []*model.DeltaGeneration) ([]deltastore.GenerationKey, error)
 	InsertPrepareGenerations(ctx context.Context, prepareID uuid.UUID, keys []deltastore.GenerationKey) error
 	GetGeneration(ctx context.Context, key deltastore.GenerationKey, opts ...deltastore.GenerationGetOption) (*model.DeltaGeneration, error)
+	ListWaitingPreparesByGeneration(ctx context.Context, key deltastore.GenerationKey) ([]model.DeltaPrepare, error)
+	ListPrepareGenerationKeys(ctx context.Context, prepareID uuid.UUID) ([]deltastore.GenerationKey, error)
 }
 
 type PreparingStatus interface {
@@ -39,6 +48,10 @@ type Preparer struct {
 	JobTimeout func(fleet *domain.Fleet) time.Duration
 	Status     PreparingStatus
 	Resume     func(ctx context.Context, ev worker_client.EventWithOrgId) error
+	Events     eventservice.Service
+	FleetSvc   fleetservice.Service
+	DeviceSvc  deviceservice.Service
+	TVSvc      templateversionservice.Service
 }
 
 type prepareIdentity struct {
@@ -69,7 +82,7 @@ func (p *Preparer) Prepare(ctx context.Context, ev worker_client.EventWithOrgId)
 		return err
 	}
 	if result.Skip {
-		return p.finishSkip(ctx, ev, ev.OrgId, kind, name)
+		return p.finishSkip(ctx, ev, ev.OrgId, kind, name, identity)
 	}
 
 	prep, err := p.waitingOrInsert(ctx, ev.OrgId, kind, name, identity, fleet)
@@ -112,6 +125,38 @@ func (p *Preparer) Prepare(ctx context.Context, ev worker_client.EventWithOrgId)
 	return p.setPreparing(ctx, ev.OrgId, kind, name, completed, len(keys))
 }
 
+func (p *Preparer) CompleteWaitingIfTerminal(ctx context.Context, key deltastore.GenerationKey) error {
+	if p.Store == nil {
+		return fmt.Errorf("store is required")
+	}
+	waiting, err := p.Store.ListWaitingPreparesByGeneration(ctx, key)
+	if err != nil {
+		return err
+	}
+	for i := range waiting {
+		prep := &waiting[i]
+		keys, err := p.Store.ListPrepareGenerationKeys(ctx, prep.ID)
+		if err != nil {
+			return err
+		}
+		allTerminal, _, err := p.completedCount(ctx, keys)
+		if err != nil {
+			return err
+		}
+		if !allTerminal {
+			continue
+		}
+		ev := worker_client.EventWithOrgId{
+			OrgId: prep.OrgID,
+			Event: domain.Event{InvolvedObject: domain.ObjectReference{Kind: prep.Kind, Name: prep.Name}},
+		}
+		if err := p.completeNow(ctx, ev, prep, prep.OrgID, prep.Kind, prep.Name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (p *Preparer) liveIdentity(ctx context.Context, ev worker_client.EventWithOrgId) (prepareIdentity, *domain.Fleet, error) {
 	switch ev.Event.InvolvedObject.Kind {
 	case domain.FleetKind:
@@ -132,7 +177,28 @@ func (p *Preparer) fleetIdentity(ctx context.Context, ev worker_client.EventWith
 	if err != nil {
 		return prepareIdentity{}, nil, err
 	}
-	return prepareIdentity{templateVersion: liveFleetTemplateVersion(fleet, eventTemplateVersion(ev))}, fleet, nil
+	tv, err := p.fleetPrepareTemplateVersion(ctx, ev)
+	if err != nil {
+		return prepareIdentity{}, nil, err
+	}
+	return prepareIdentity{templateVersion: tv}, fleet, nil
+}
+
+func (p *Preparer) fleetPrepareTemplateVersion(ctx context.Context, ev worker_client.EventWithOrgId) (*string, error) {
+	if tv := eventTemplateVersion(ev); tv != nil {
+		return tv, nil
+	}
+	if p.TVSvc == nil {
+		return nil, fmt.Errorf("template version service is required to identify fleet prepare")
+	}
+	latest, status := p.TVSvc.GetLatestTemplateVersion(ctx, ev.OrgId, ev.Event.InvolvedObject.Name)
+	if status.Code != http.StatusOK {
+		if status.Code == http.StatusNotFound {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("getting latest template version for fleet %s: %s", ev.Event.InvolvedObject.Name, status.Message)
+	}
+	return latest.Metadata.Name, nil
 }
 
 func (p *Preparer) deviceIdentity(ctx context.Context, ev worker_client.EventWithOrgId) (prepareIdentity, error) {
@@ -176,7 +242,7 @@ func (p *Preparer) waitingOrInsert(ctx context.Context, orgId uuid.UUID, kind, n
 	return existing, nil
 }
 
-func (p *Preparer) finishSkip(ctx context.Context, ev worker_client.EventWithOrgId, orgId uuid.UUID, kind, name string) error {
+func (p *Preparer) finishSkip(ctx context.Context, ev worker_client.EventWithOrgId, orgId uuid.UUID, kind, name string, identity prepareIdentity) error {
 	waiting, err := p.Store.GetWaitingPrepare(ctx, orgId, kind, name)
 	if err != nil {
 		return err
@@ -189,7 +255,7 @@ func (p *Preparer) finishSkip(ctx context.Context, ev worker_client.EventWithOrg
 	if err := p.clearStatus(ctx, orgId, kind, name); err != nil {
 		return err
 	}
-	return p.resume(ctx, ev)
+	return p.emitResume(ctx, orgId, kind, name, &model.DeltaPrepare{TemplateVersion: identity.templateVersion})
 }
 
 func (p *Preparer) failWaiting(ctx context.Context, waiting *model.DeltaPrepare, orgId uuid.UUID, kind, name string) error {
@@ -303,10 +369,110 @@ func (p *Preparer) completeNow(ctx context.Context, ev worker_client.EventWithOr
 		}
 		return err
 	}
+	matches, err := p.identityMatches(ctx, ev, prep)
+	if err != nil {
+		return err
+	}
+	if !matches {
+		return nil
+	}
 	if err := p.clearStatus(ctx, orgId, kind, name); err != nil {
 		return err
 	}
-	return p.resume(ctx, ev)
+	return p.emitResume(ctx, orgId, kind, name, prep)
+}
+
+func (p *Preparer) identityMatches(ctx context.Context, _ worker_client.EventWithOrgId, prep *model.DeltaPrepare) (bool, error) {
+	switch prep.Kind {
+	case domain.FleetKind:
+		if p.TVSvc == nil {
+			return false, fmt.Errorf("template version service is required to resume fleet prepare")
+		}
+		tv, status := p.TVSvc.GetLatestTemplateVersion(ctx, prep.OrgID, prep.Name)
+		if status.Code != http.StatusOK {
+			if status.Code == http.StatusNotFound {
+				return false, nil
+			}
+			return false, fmt.Errorf("getting latest template version for fleet %s: %s", prep.Name, status.Message)
+		}
+		return equalStringPtr(prep.TemplateVersion, tv.Metadata.Name), nil
+	case domain.DeviceKind:
+		if p.DeviceSvc == nil {
+			return false, fmt.Errorf("device service is required to resume device prepare")
+		}
+		device, status := p.DeviceSvc.GetDevice(ctx, prep.OrgID, prep.Name)
+		if status.Code != http.StatusOK {
+			if status.Code == http.StatusNotFound {
+				return false, nil
+			}
+			return false, fmt.Errorf("getting device %s: %s", prep.Name, status.Message)
+		}
+		return equalInt64Ptr(prep.SpecResourceVersion, device.Metadata.Generation), nil
+	default:
+		return false, fmt.Errorf("unsupported prepare kind %q", prep.Kind)
+	}
+}
+
+func (p *Preparer) getFleet(ctx context.Context, orgId uuid.UUID, name string) (*domain.Fleet, error) {
+	if p.FleetSvc == nil {
+		return nil, fmt.Errorf("fleet service is required to resume fleet prepare")
+	}
+	fleet, status := p.FleetSvc.GetFleet(ctx, orgId, name, domain.GetFleetParams{})
+	if status.Code != http.StatusOK {
+		return nil, fmt.Errorf("getting fleet %s: %s", name, status.Message)
+	}
+	return fleet, nil
+}
+
+func (p *Preparer) emitResume(ctx context.Context, orgId uuid.UUID, kind, name string, prep *model.DeltaPrepare) error {
+	switch kind {
+	case domain.FleetKind:
+		return p.emitFleetResume(ctx, orgId, name, prep)
+	case domain.DeviceKind:
+		if p.Events == nil {
+			return fmt.Errorf("events service is required to resume device prepare")
+		}
+		p.Events.CreateEvent(ctx, orgId, domain.GetBaseEvent(ctx, domain.DeviceKind, name, domain.EventReasonDeltaGenerationCompleted, "Delta generation completed.", nil))
+		return nil
+	default:
+		return fmt.Errorf("unsupported prepare kind %q", kind)
+	}
+}
+
+func (p *Preparer) emitFleetResume(ctx context.Context, orgId uuid.UUID, name string, prep *model.DeltaPrepare) error {
+	if p.Events == nil {
+		return fmt.Errorf("events service is required to resume fleet prepare")
+	}
+	if p.DeviceSvc == nil {
+		return fmt.Errorf("device service is required to resume fleet prepare")
+	}
+	fleet, err := p.getFleet(ctx, orgId, name)
+	if err != nil {
+		return err
+	}
+	tv := lo.FromPtr(prepTemplateVersion(prep))
+	if tv == "" {
+		tv = lo.FromPtr(liveFleetTemplateVersion(fleet, nil))
+	}
+	status := p.FleetSvc.UpdateFleetAnnotations(ctx, orgId, name, map[string]string{
+		domain.FleetAnnotationTemplateVersion: tv,
+	}, nil)
+	if status.Code != http.StatusOK {
+		return fmt.Errorf("setting fleet template version annotation: %s", status.Message)
+	}
+	if err := p.DeviceSvc.SetOutOfDate(ctx, orgId, util.ResourceOwner(domain.FleetKind, name)); err != nil {
+		return err
+	}
+	immediate := fleet.Spec.RolloutPolicy == nil || fleet.Spec.RolloutPolicy.DeviceSelection == nil
+	fleetservice.EmitFleetRolloutStartedEvent(ctx, p.Events, orgId, tv, name, immediate)
+	return nil
+}
+
+func prepTemplateVersion(prep *model.DeltaPrepare) *string {
+	if prep == nil {
+		return nil
+	}
+	return prep.TemplateVersion
 }
 
 func (p *Preparer) emitJoinSnapshots(ctx context.Context, prep *model.DeltaPrepare, keys []deltastore.GenerationKey) {
@@ -341,13 +507,6 @@ func (p *Preparer) clearStatus(ctx context.Context, orgId uuid.UUID, kind, name 
 		return nil
 	}
 	return p.Status.Clear(ctx, orgId, kind, name)
-}
-
-func (p *Preparer) resume(ctx context.Context, ev worker_client.EventWithOrgId) error {
-	if p.Resume == nil {
-		return nil
-	}
-	return p.Resume(ctx, ev)
 }
 
 func (p *Preparer) now() time.Time {

@@ -84,6 +84,7 @@ func newPipeline(cfg *config.Config, store deltastore.Store, preparer *Preparer,
 		p.prepare = preparer.Prepare
 		p.status = preparer.Status
 		p.persist = preparer.Persist
+		p.preparer = preparer
 	}
 	return p
 }
