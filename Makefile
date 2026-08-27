@@ -45,6 +45,11 @@ else
 	GC_FLAGS :=
 endif
 
+# --- Branding Overrides ---
+# Set DEFAULT_AAP_APP_NAME to override the OAuth application name registered
+# in AAP Gateway (e.g. DEFAULT_AAP_APP_NAME="Edge Manager" for downstream).
+DEFAULT_AAP_APP_NAME ?=
+
 GO_LD_FLAGS = $(GC_FLAGS) -ldflags "\
 	-X github.com/flightctl/flightctl/pkg/version.majorFromGit=$(MAJOR) \
 	-X github.com/flightctl/flightctl/pkg/version.minorFromGit=$(MINOR) \
@@ -53,6 +58,7 @@ GO_LD_FLAGS = $(GC_FLAGS) -ldflags "\
 	-X github.com/flightctl/flightctl/pkg/version.commitFromGit=$(SOURCE_GIT_COMMIT) \
 	-X github.com/flightctl/flightctl/pkg/version.gitTreeState=$(SOURCE_GIT_TREE_STATE) \
 	-X github.com/flightctl/flightctl/pkg/version.buildDate=$(BIN_TIMESTAMP) \
+	$(if $(DEFAULT_AAP_APP_NAME),-X 'main.defaultAAPOAuthAppName=$(DEFAULT_AAP_APP_NAME)') \
 	$(LD_FLAGS)"
 GO_BUILD_FLAGS += $(GO_LD_FLAGS)
 
