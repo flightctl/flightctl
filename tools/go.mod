@@ -2,7 +2,7 @@ module github.com/flightctl/flightctl/tools
 
 go 1.26.0
 
-toolchain go1.26.5
+toolchain go1.26.7
 
 require (
 	github.com/hexdigest/gowrap v1.4.3
