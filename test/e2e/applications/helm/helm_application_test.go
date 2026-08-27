@@ -411,8 +411,30 @@ var _ = Describe("VM Agent Helm Application Tests", Ordered, Label("microshift")
 			})
 			Expect(err).ToNot(HaveOccurred())
 
+			By("Confirm all applications are running before the registry outage")
+			// UpdateDeviceAndWaitForVersion only waits for the rendered version, so establish the
+			// Running baseline explicitly; otherwise the checks below cannot prove the apps survived
+			// the outage rather than simply having never started.
+			err = harness.WaitForApplicationStatus(deviceId, quadletAppName, v1beta1.ApplicationStatusRunning, util.TIMEOUT, util.POLLING)
+			Expect(err).ToNot(HaveOccurred())
+			err = harness.WaitForApplicationStatus(deviceId, containerAppName, v1beta1.ApplicationStatusRunning, util.TIMEOUT, util.POLLING)
+			Expect(err).ToNot(HaveOccurred())
+			err = harness.WaitForApplicationStatus(deviceId, helmAppName, v1beta1.ApplicationStatusRunning, util.TIMEOUT, util.POLLING)
+			Expect(err).ToNot(HaveOccurred())
+
 			By("Disable connectivity to the registry and verify running applications keep using prefetched images")
-			DeferCleanup(func() { _ = harness.FixNetworkFailure(services.Registry.Host, services.Registry.Port) })
+			// The spec restores connectivity explicitly below. FixNetworkFailure deletes the iptables
+			// rule, so calling it a second time errors on the now-absent rule; guard the deferred
+			// restore so it only runs (and is asserted) when the explicit restore has not happened,
+			// e.g. if the spec fails earlier.
+			networkRestored := false
+			DeferCleanup(func() {
+				if networkRestored {
+					return
+				}
+				Expect(harness.FixNetworkFailure(services.Registry.Host, services.Registry.Port)).
+					To(Succeed(), "restore registry connectivity")
+			})
 			err = harness.SimulateNetworkFailure(services.Registry.Host, services.Registry.Port)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -432,6 +454,7 @@ var _ = Describe("VM Agent Helm Application Tests", Ordered, Label("microshift")
 			// would stay partially ready forever.
 			err = harness.FixNetworkFailure(services.Registry.Host, services.Registry.Port)
 			Expect(err).ToNot(HaveOccurred())
+			networkRestored = true
 
 			By("Swap quadlets back to rootless")
 			err = harness.UpdateDeviceAndWaitForVersion(deviceId, func(device *v1beta1.Device) {
