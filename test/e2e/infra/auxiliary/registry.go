@@ -55,7 +55,7 @@ type Registry struct {
 	Host string
 	Port string
 	// Reused is true when reuse=true and registryContainerName is already running (not merely
-	// present or stopped); auxiliary.Get skips artifact upload when Reused (see containers.ContainerRunningByName).
+	// present or stopped). Image bundles are still uploaded so manifests match the current bundle.
 	Reused        bool
 	Authenticated AuthenticatedEndpoint
 
@@ -93,8 +93,9 @@ func (r *Registry) Start(ctx context.Context, network string, reuse bool) error 
 		Name:         registryContainerName,
 		ExposedPorts: []string{registryHostPort + ":" + registryPort},
 		Env: map[string]string{
-			"REGISTRY_HTTP_TLS_CERTIFICATE": "/certs/registry.crt",
-			"REGISTRY_HTTP_TLS_KEY":         "/certs/registry.key",
+			"REGISTRY_HTTP_TLS_CERTIFICATE":   "/certs/registry.crt",
+			"REGISTRY_HTTP_TLS_KEY":           "/certs/registry.key",
+			"REGISTRY_STORAGE_DELETE_ENABLED": "true",
 		},
 		Files: []testcontainers.ContainerFile{
 			{HostFilePath: certPath, ContainerFilePath: "/certs/registry.crt", FileMode: 0644},
@@ -123,6 +124,12 @@ func (r *Registry) Start(ctx context.Context, network string, reuse bool) error 
 	}
 	if err := configureInsecureRegistry(r.URL); err != nil {
 		logrus.Warnf("Failed to configure insecure registry: %v", err)
+	}
+	if ApplyDeltaWorkerRegistryRemap == nil {
+		return fmt.Errorf("delta worker registry remap: infra hook not registered")
+	}
+	if err := ApplyDeltaWorkerRegistryRemap(r.URL); err != nil {
+		return fmt.Errorf("configure registry remap: %w", err)
 	}
 	logrus.Infof("Registry container started: %s (TLS enabled)", r.URL)
 
