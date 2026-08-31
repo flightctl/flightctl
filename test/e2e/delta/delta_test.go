@@ -185,8 +185,14 @@ func skipGenerateAndHold(harness *e2e.Harness, deviceId string) {
 	infra.SkipIfOciDeltaUnavailable(harness.Context, setup.GetDefaultProviders())
 	device, err := harness.GetDevice(deviceId)
 	Expect(err).ToNot(HaveOccurred())
-	if device.Status == nil || device.Status.Capabilities == nil || device.Status.Capabilities.DeltaEligible == nil || !*device.Status.Capabilities.DeltaEligible {
-		Skip("device status.capabilities.deltaEligible is not true")
+	if device.Status == nil {
+		Skip("device has no status")
+	}
+	if device.Status.SystemInfo.DeltaEligible == nil || !*device.Status.SystemInfo.DeltaEligible {
+		Skip("device status.systemInfo.deltaEligible is not true")
+	}
+	if device.Status.SystemInfo.BootcVersion == nil || *device.Status.SystemInfo.BootcVersion == "" {
+		Skip("device status.systemInfo.bootcVersion is not set")
 	}
 }
 
