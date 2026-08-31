@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -13,6 +12,7 @@ import (
 	deltastore "github.com/flightctl/flightctl/internal/store/delta"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/worker_client"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
 
@@ -36,6 +36,7 @@ type generationStore interface {
 	ClaimGeneration(ctx context.Context, key deltastore.GenerationKey) (*model.DeltaGeneration, error)
 	CASGeneration(ctx context.Context, key deltastore.GenerationKey, expectedRV int64, update deltastore.GenerationCAS) error
 	ListWaitingPreparesByGeneration(ctx context.Context, key deltastore.GenerationKey) ([]model.DeltaPrepare, error)
+	CountPreparePairs(ctx context.Context, prepareID uuid.UUID) (completed, total int, err error)
 }
 
 type pipeline struct {
@@ -47,6 +48,7 @@ type pipeline struct {
 	resume   func(ctx context.Context, key deltastore.GenerationKey) error
 	prepare  func(ctx context.Context, ev worker_client.EventWithOrgId) error
 	status   PreparingStatus
+	persist  func(ctx context.Context, orgId uuid.UUID, event *domain.Event)
 }
 
 func parseGenerationJob(ev worker_client.EventWithOrgId) (generationJob, bool, error) {
@@ -111,9 +113,9 @@ func (p *pipeline) process(ctx context.Context, ev worker_client.EventWithOrgId,
 
 	key := job.Key
 	log.Infof("generate delta repo=%s source=%s target=%s", key.ImageRepository, key.SourceDigest, key.TargetDigest)
-	stopCheck := p.heartbeatPrepareProgress(ctx, key, domain.DeltaGenerationPhaseCheckingExisting, log)
+	checkPhase := domain.DeltaGenerationPhaseCheckingExisting
+	p.fanoutProgress(ctx, key, domain.DeltaGenerationProgressInProgress, &checkPhase, log)
 	result, err := p.check(ctx, key.OrgID, key.ImageRepository, key.SourceDigest, key.TargetDigest)
-	stopCheck()
 	if err != nil {
 		return err
 	}
@@ -133,6 +135,7 @@ func (p *pipeline) process(ctx context.Context, ev worker_client.EventWithOrgId,
 		}); err != nil {
 			return err
 		}
+		p.completePair(ctx, key, domain.DeltaGenerationProgressRejected, log)
 		return p.runResume(ctx, key)
 	}
 
@@ -165,16 +168,15 @@ func (p *pipeline) process(ctx context.Context, ev worker_client.EventWithOrgId,
 	sourceRef := key.ImageRepository + "@" + key.SourceDigest
 	targetRef := key.ImageRepository + "@" + key.TargetDigest
 	log.Infof("creating delta source=%s target=%s push=%s", sourceRef, targetRef, pushPath)
-	var lastMu sync.Mutex
-	var last GenerationProgress
+	lastPhase := domain.DeltaGenerationPhaseCheckingExisting
 	genCtx := withCopyProgress(ctx, func(prog GenerationProgress) {
-		lastMu.Lock()
-		last = prog
-		lastMu.Unlock()
-		p.reportCopyProgress(ctx, key, prog, log)
+		if prog.Phase == "" || prog.Phase == lastPhase {
+			return
+		}
+		ph := prog.Phase
+		lastPhase = ph
+		p.fanoutProgress(ctx, key, domain.DeltaGenerationProgressInProgress, &ph, log)
 	})
-	stopGen := p.heartbeatLastProgress(ctx, key, &lastMu, &last, log)
-	defer stopGen()
 	deltaRef, sizeBytes, genErr := p.generate(genCtx, key.OrgID, sourceRef, targetRef, pushPath)
 	if genErr != nil {
 		return p.failGeneration(ctx, key, claimed.ResourceVersion, genErr)
@@ -195,63 +197,66 @@ func (p *pipeline) process(ctx context.Context, ev worker_client.EventWithOrgId,
 		}
 		return p.failGeneration(ctx, key, claimed.ResourceVersion, casErr)
 	}
+	p.completePair(writeCtx, key, domain.DeltaGenerationProgressSucceeded, log)
 	return p.runResume(writeCtx, key)
 }
 
-func (p *pipeline) reportCopyProgress(ctx context.Context, key deltastore.GenerationKey, progress GenerationProgress, log logrus.FieldLogger) {
+func (p *pipeline) completePair(ctx context.Context, key deltastore.GenerationKey, status domain.DeltaGenerationProgressDetailsGenerationStatus, log logrus.FieldLogger) {
+	p.fanoutProgress(ctx, key, status, nil, log)
+	p.refreshPairCounts(ctx, key, log)
+}
+
+func (p *pipeline) fanoutProgress(ctx context.Context, key deltastore.GenerationKey, status domain.DeltaGenerationProgressDetailsGenerationStatus, phase *domain.DeltaGenerationPhase, log logrus.FieldLogger) {
+	if p.persist == nil || p.store == nil {
+		return
+	}
+	waiting, err := p.store.ListWaitingPreparesByGeneration(ctx, key)
+	if err != nil {
+		if log != nil {
+			log.WithError(err).Warn("failed to list prepares for delta generation progress")
+		}
+		return
+	}
+	for i := range waiting {
+		prep := waiting[i]
+		event, err := deltaGenerationProgressEvent(ctx, prep, key, status, phase)
+		if err != nil {
+			if log != nil {
+				log.WithError(err).Warnf("failed to build delta generation progress for %s/%s", prep.Kind, prep.Name)
+			}
+			continue
+		}
+		p.persist(ctx, prep.OrgID, event)
+	}
+}
+
+func (p *pipeline) refreshPairCounts(ctx context.Context, key deltastore.GenerationKey, log logrus.FieldLogger) {
 	if p.status == nil || p.store == nil {
 		return
 	}
 	waiting, err := p.store.ListWaitingPreparesByGeneration(ctx, key)
 	if err != nil {
 		if log != nil {
-			log.WithError(err).Warn("failed to list prepares for copy progress")
+			log.WithError(err).Warn("failed to list prepares for pair counts")
 		}
 		return
 	}
 	for i := range waiting {
 		prep := waiting[i]
-		if err := p.status.SetProgress(ctx, prep.OrgID, prep.Kind, prep.Name, progress); err != nil && log != nil {
-			log.WithError(err).Warnf("failed to update copy progress for %s/%s", prep.Kind, prep.Name)
+		completed, total, err := p.store.CountPreparePairs(ctx, prep.ID)
+		if err != nil {
+			if log != nil {
+				log.WithError(err).Warnf("failed to count pairs for %s/%s", prep.Kind, prep.Name)
+			}
+			continue
+		}
+		if total == 0 {
+			continue
+		}
+		if err := p.status.Set(ctx, prep.OrgID, prep.Kind, prep.Name, completed, total); err != nil && log != nil {
+			log.WithError(err).Warnf("failed to update pair counts for %s/%s", prep.Kind, prep.Name)
 		}
 	}
-}
-
-func (p *pipeline) heartbeatPrepareProgress(ctx context.Context, key deltastore.GenerationKey, phase domain.DeltaGenerationPhase, log logrus.FieldLogger) context.CancelFunc {
-	progress := GenerationProgress{Phase: phase}
-	p.reportCopyProgress(ctx, key, progress, log)
-	return p.tickProgress(ctx, func() {
-		p.reportCopyProgress(ctx, key, progress, log)
-	})
-}
-
-func (p *pipeline) heartbeatLastProgress(ctx context.Context, key deltastore.GenerationKey, mu *sync.Mutex, last *GenerationProgress, log logrus.FieldLogger) context.CancelFunc {
-	return p.tickProgress(ctx, func() {
-		mu.Lock()
-		cur := *last
-		mu.Unlock()
-		if cur.Phase == "" {
-			return
-		}
-		p.reportCopyProgress(ctx, key, cur, log)
-	})
-}
-
-func (p *pipeline) tickProgress(ctx context.Context, fn func()) context.CancelFunc {
-	ctx, cancel := context.WithCancel(ctx)
-	go func() {
-		t := time.NewTicker(copyProgressInterval)
-		defer t.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-t.C:
-				fn()
-			}
-		}
-	}()
-	return cancel
 }
 
 func persistContext(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -264,6 +269,9 @@ func (p *pipeline) failGeneration(ctx context.Context, key deltastore.Generation
 	casErr := p.store.CASGeneration(ctx, key, rv, deltastore.GenerationCAS{Status: model.DeltaGenerationFailed})
 	if casErr != nil && !errors.Is(casErr, flterrors.ErrNoRowsUpdated) {
 		return fmt.Errorf("generate: %w; persist failed status: %v", cause, casErr)
+	}
+	if casErr == nil {
+		p.completePair(ctx, key, domain.DeltaGenerationProgressFailed, nil)
 	}
 	return p.runResume(ctx, key)
 }

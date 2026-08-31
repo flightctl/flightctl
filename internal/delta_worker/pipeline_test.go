@@ -13,21 +13,25 @@ import (
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
 type fakeGenerationStore struct {
-	rejected     []*model.DeltaGeneration
-	inserted     []*model.DeltaGeneration
-	claimed      int
-	claimErr     error
-	cas          []deltastore.GenerationCAS
-	casErr       error
-	casFailN     int
-	waiting      []model.DeltaPrepare
-	claimedRV    int64
-	listWaitingN int
+	rejected       []*model.DeltaGeneration
+	inserted       []*model.DeltaGeneration
+	claimed        int
+	claimErr       error
+	cas            []deltastore.GenerationCAS
+	casErr         error
+	casFailN       int
+	waiting        []model.DeltaPrepare
+	claimedRV      int64
+	listWaitingN   int
+	countCompleted int
+	countTotal     int
+	countErr       error
 }
 
 func (f *fakeGenerationStore) InsertRejectedGeneration(_ context.Context, gen *model.DeltaGeneration) error {
@@ -66,6 +70,10 @@ func (f *fakeGenerationStore) CASGeneration(ctx context.Context, _ deltastore.Ge
 func (f *fakeGenerationStore) ListWaitingPreparesByGeneration(_ context.Context, _ deltastore.GenerationKey) ([]model.DeltaPrepare, error) {
 	f.listWaitingN++
 	return f.waiting, nil
+}
+
+func (f *fakeGenerationStore) CountPreparePairs(_ context.Context, _ uuid.UUID) (int, int, error) {
+	return f.countCompleted, f.countTotal, f.countErr
 }
 
 func generateEvent(org uuid.UUID, repo, src, tgt string) worker_client.EventWithOrgId {
@@ -303,5 +311,93 @@ func TestPipelineProcess(t *testing.T) {
 		}
 		req.NoError(p.process(context.Background(), generateEvent(org, repo, src, tgt), log))
 		req.Equal(0, store.listWaitingN)
+	})
+
+	t.Run("When persist is set it should emit phase changes not percent and write completed/total", func(t *testing.T) {
+		req := require.New(t)
+		prepID := uuid.New()
+		store := &fakeGenerationStore{
+			waiting: []model.DeltaPrepare{{
+				ID:              prepID,
+				OrgID:           org,
+				Kind:            domain.FleetKind,
+				Name:            "fleet-a",
+				TemplateVersion: lo.ToPtr("tv-1"),
+			}},
+			countCompleted: 1,
+			countTotal:     3,
+		}
+		status := &statusSpy{}
+		persist := &emitSpy{}
+		p := &pipeline{
+			store:   store,
+			timeout: time.Minute,
+			check: func(context.Context, uuid.UUID, string, string, string) (existenceResult, error) {
+				return existenceResult{Status: existenceNotFound}, nil
+			},
+			generate: func(ctx context.Context, _ uuid.UUID, _, _, _ string) (string, int64, error) {
+				emitGenerationProgress(ctx, GenerationProgress{Phase: domain.DeltaGenerationPhasePullSource})
+				emitGenerationProgress(ctx, GenerationProgress{Phase: domain.DeltaGenerationPhasePullSource, Percent: lo.ToPtr(int64(40))})
+				emitGenerationProgress(ctx, GenerationProgress{Phase: domain.DeltaGenerationPhasePullTarget})
+				return "ref", 1, nil
+			},
+			status:  status,
+			persist: persist.persist,
+		}
+		req.NoError(p.process(context.Background(), generateEvent(org, repo, src, tgt), log))
+		req.Len(persist.events, 4)
+		req.Equal(domain.EventReasonDeltaGenerationProgress, persist.events[0].Reason)
+		req.Equal(domain.EventTypeNormal, persist.events[0].Type)
+		req.Equal("fleet-a", persist.events[0].InvolvedObject.Name)
+		statuses := make([]domain.DeltaGenerationProgressDetailsGenerationStatus, 0, 4)
+		phases := make([]string, 0, 4)
+		for _, ev := range persist.events {
+			d, err := ev.Details.AsDeltaGenerationProgressDetails()
+			req.NoError(err)
+			statuses = append(statuses, d.GenerationStatus)
+			if d.Phase != nil {
+				phases = append(phases, string(*d.Phase))
+			}
+		}
+		req.Equal([]domain.DeltaGenerationProgressDetailsGenerationStatus{
+			domain.DeltaGenerationProgressInProgress,
+			domain.DeltaGenerationProgressInProgress,
+			domain.DeltaGenerationProgressInProgress,
+			domain.DeltaGenerationProgressSucceeded,
+		}, statuses)
+		req.Equal([]string{"checkingExisting", "pullSource", "pullTarget"}, phases)
+		req.Equal(persist.events[3].Type, domain.EventTypeNormal)
+		req.Len(status.sets, 1)
+		req.Equal(statusCall{kind: domain.FleetKind, name: "fleet-a", completed: 1, total: 3}, status.sets[0])
+	})
+
+	t.Run("When generate fails it should emit a Warning progress event", func(t *testing.T) {
+		req := require.New(t)
+		store := &fakeGenerationStore{waiting: []model.DeltaPrepare{{
+			OrgID: org,
+			Kind:  domain.DeviceKind,
+			Name:  "dev-1",
+		}}}
+		persist := &emitSpy{}
+		p := &pipeline{
+			store:   store,
+			timeout: time.Minute,
+			check: func(context.Context, uuid.UUID, string, string, string) (existenceResult, error) {
+				return existenceResult{Status: existenceNotFound}, nil
+			},
+			generate: func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
+				return "", 0, errors.New("oci-delta exploded")
+			},
+			persist: persist.persist,
+		}
+		req.NoError(p.process(context.Background(), generateEvent(org, repo, src, tgt), log))
+		req.GreaterOrEqual(len(persist.events), 2)
+		last := persist.events[len(persist.events)-1]
+		req.Equal(domain.EventReasonDeltaGenerationProgress, last.Reason)
+		req.Equal(domain.EventTypeWarning, last.Type)
+		d, err := last.Details.AsDeltaGenerationProgressDetails()
+		req.NoError(err)
+		req.Equal(domain.DeltaGenerationProgressFailed, d.GenerationStatus)
+		req.Nil(d.Phase)
 	})
 }

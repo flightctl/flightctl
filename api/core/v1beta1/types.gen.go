@@ -133,6 +133,19 @@ const (
 	DeltaGenerationPhasePush             DeltaGenerationPhase = "push"
 )
 
+// Defines values for DeltaGenerationProgressDetailsDetailType.
+const (
+	DeltaGenerationProgress DeltaGenerationProgressDetailsDetailType = "DeltaGenerationProgress"
+)
+
+// Defines values for DeltaGenerationProgressDetailsGenerationStatus.
+const (
+	DeltaGenerationProgressFailed     DeltaGenerationProgressDetailsGenerationStatus = "failed"
+	DeltaGenerationProgressInProgress DeltaGenerationProgressDetailsGenerationStatus = "in_progress"
+	DeltaGenerationProgressRejected   DeltaGenerationProgressDetailsGenerationStatus = "rejected"
+	DeltaGenerationProgressSucceeded  DeltaGenerationProgressDetailsGenerationStatus = "succeeded"
+)
+
 // Defines values for DependencyChangeDetectedDetailsDetailType.
 const (
 	DependencyChangeDetected DependencyChangeDetectedDetailsDetailType = "DependencyChangeDetected"
@@ -247,6 +260,7 @@ const (
 const (
 	EventReasonApplicationLifecycleChanged     EventReason = "ApplicationLifecycleChanged"
 	EventReasonDeltaGenerationCompleted        EventReason = "DeltaGenerationCompleted"
+	EventReasonDeltaGenerationProgress         EventReason = "DeltaGenerationProgress"
 	EventReasonDependencyChangeDetected        EventReason = "DependencyChangeDetected"
 	EventReasonDependencySyncProbeFailed       EventReason = "DependencySyncProbeFailed"
 	EventReasonDeviceApplicationDegraded       EventReason = "DeviceApplicationDegraded"
@@ -1203,31 +1217,46 @@ type CustomDeviceInfo map[string]string
 // DeltaGenerationPhase Current step of control-plane delta generation for the in-flight pair.
 type DeltaGenerationPhase string
 
-// DeltaGenerationStatus Progress of control-plane delta generation while a prepare is in flight. Pair counts are required. Remaining fields describe the current pair and are omitted when unknown. Condition messages carry only the pair counts.
-type DeltaGenerationStatus struct {
-	// BytesDone Bytes transferred in the current blob or copy.
-	BytesDone *int64 `json:"bytesDone,omitempty"`
+// DeltaGenerationProgressDetails Structured details for DeltaGenerationProgress events. One event per phase entry or terminal result for a digest pair, fanned out to each waiting Fleet or standalone Device. Not a percent heartbeat.
+type DeltaGenerationProgressDetails struct {
+	// DetailType The type of detail for discriminator purposes.
+	DetailType DeltaGenerationProgressDetailsDetailType `json:"detailType"`
 
-	// BytesTotal Total bytes of the current blob or copy.
-	BytesTotal *int64 `json:"bytesTotal,omitempty"`
+	// GenerationStatus Generation row status for this pair.
+	GenerationStatus DeltaGenerationProgressDetailsGenerationStatus `json:"generationStatus"`
 
-	// Completed Number of joined generation pairs that are already terminal.
-	Completed int64 `json:"completed"`
-
-	// ItemsDone Completed items in the current phase (for example oci-delta layers).
-	ItemsDone *int64 `json:"itemsDone,omitempty"`
-
-	// ItemsTotal Total items in the current phase.
-	ItemsTotal *int64 `json:"itemsTotal,omitempty"`
-
-	// LastUpdated Time of the last progress write for this prepare.
-	LastUpdated *time.Time `json:"lastUpdated,omitempty"`
-
-	// Percent Progress of the current phase, 0-100.
-	Percent *int64 `json:"percent,omitempty"`
+	// ImageRepository Image repository (host/namespace/name) for this pair.
+	ImageRepository string `json:"imageRepository"`
 
 	// Phase Current step of control-plane delta generation for the in-flight pair.
 	Phase *DeltaGenerationPhase `json:"phase,omitempty"`
+
+	// SourceDigest Current image digest.
+	SourceDigest string `json:"sourceDigest"`
+
+	// SpecResourceVersion Device only. Spec generation of the standalone Device this prepare is for.
+	SpecResourceVersion *int64 `json:"specResourceVersion,omitempty"`
+
+	// TargetDigest Target image digest.
+	TargetDigest string `json:"targetDigest"`
+
+	// TemplateVersion Fleet only. The TemplateVersion this prepare is for.
+	TemplateVersion *string `json:"templateVersion,omitempty"`
+}
+
+// DeltaGenerationProgressDetailsDetailType The type of detail for discriminator purposes.
+type DeltaGenerationProgressDetailsDetailType string
+
+// DeltaGenerationProgressDetailsGenerationStatus Generation row status for this pair.
+type DeltaGenerationProgressDetailsGenerationStatus string
+
+// DeltaGenerationStatus Pair counts for a prepare in flight. Per-pair phase is reported on DeltaGenerationProgress events. Condition messages carry the same completed/total counts.
+type DeltaGenerationStatus struct {
+	// Completed Number of joined generation pairs that are already terminal.
+	Completed int64 `json:"completed"`
+
+	// LastUpdated Time of the last completed/total write for this prepare.
+	LastUpdated *time.Time `json:"lastUpdated,omitempty"`
 
 	// Total Number of unique generation pairs in this prepare.
 	Total int64 `json:"total"`
@@ -1605,7 +1634,7 @@ type DeviceStatus struct {
 	// Config Current status of the device config.
 	Config DeviceConfigStatus `json:"config"`
 
-	// DeltaGeneration Progress of control-plane delta generation while a prepare is in flight. Pair counts are required. Remaining fields describe the current pair and are omitted when unknown. Condition messages carry only the pair counts.
+	// DeltaGeneration Pair counts for a prepare in flight. Per-pair phase is reported on DeltaGenerationProgress events. Condition messages carry the same completed/total counts.
 	DeltaGeneration *DeltaGenerationStatus `json:"deltaGeneration,omitempty"`
 
 	// DependencySync DependencySyncStatus represents the synchronization fingerprints for external dependencies of a device, captured at render time.
@@ -2190,7 +2219,7 @@ type FleetStatus struct {
 	// Conditions Current state of the fleet.
 	Conditions []Condition `json:"conditions"`
 
-	// DeltaGeneration Progress of control-plane delta generation while a prepare is in flight. Pair counts are required. Remaining fields describe the current pair and are omitted when unknown. Condition messages carry only the pair counts.
+	// DeltaGeneration Pair counts for a prepare in flight. Per-pair phase is reported on DeltaGenerationProgress events. Condition messages carry the same completed/total counts.
 	DeltaGeneration *DeltaGenerationStatus `json:"deltaGeneration,omitempty"`
 
 	// DevicesSummary A summary of the devices in the fleet returned when fetching a single Fleet.
@@ -5869,6 +5898,34 @@ func (t *EventDetails) MergePrepareDeltasDetails(v PrepareDeltasDetails) error {
 	return err
 }
 
+// AsDeltaGenerationProgressDetails returns the union data inside the EventDetails as a DeltaGenerationProgressDetails
+func (t EventDetails) AsDeltaGenerationProgressDetails() (DeltaGenerationProgressDetails, error) {
+	var body DeltaGenerationProgressDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDeltaGenerationProgressDetails overwrites any union data inside the EventDetails as the provided DeltaGenerationProgressDetails
+func (t *EventDetails) FromDeltaGenerationProgressDetails(v DeltaGenerationProgressDetails) error {
+	v.DetailType = "DeltaGenerationProgress"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDeltaGenerationProgressDetails performs a merge with any union data inside the EventDetails, using the provided DeltaGenerationProgressDetails
+func (t *EventDetails) MergeDeltaGenerationProgressDetails(v DeltaGenerationProgressDetails) error {
+	v.DetailType = "DeltaGenerationProgress"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 func (t EventDetails) Discriminator() (string, error) {
 	var discriminator struct {
 		Discriminator string `json:"detailType"`
@@ -5885,6 +5942,8 @@ func (t EventDetails) ValueByDiscriminator() (interface{}, error) {
 	switch discriminator {
 	case "ApplicationLifecycleChanged":
 		return t.AsApplicationLifecycleChangedDetails()
+	case "DeltaGenerationProgress":
+		return t.AsDeltaGenerationProgressDetails()
 	case "DependencyChangeDetected":
 		return t.AsDependencyChangeDetectedDetails()
 	case "DependencySyncProbeFailed":

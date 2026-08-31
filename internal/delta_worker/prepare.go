@@ -26,7 +26,6 @@ type prepareStore interface {
 
 type PreparingStatus interface {
 	Set(ctx context.Context, orgId uuid.UUID, kind, name string, completed, total int) error
-	SetProgress(ctx context.Context, orgId uuid.UUID, kind, name string, progress GenerationProgress) error
 	Clear(ctx context.Context, orgId uuid.UUID, kind, name string) error
 }
 
@@ -34,6 +33,7 @@ type Preparer struct {
 	Resolver   *Resolver
 	Store      prepareStore
 	Emit       func(ctx context.Context, orgId uuid.UUID, event *domain.Event) error
+	Persist    func(ctx context.Context, orgId uuid.UUID, event *domain.Event)
 	Now        func() time.Time
 	MaxWait    func(fleet *domain.Fleet) *time.Duration
 	JobTimeout func(fleet *domain.Fleet) time.Duration
@@ -100,6 +100,7 @@ func (p *Preparer) Prepare(ctx context.Context, ev worker_client.EventWithOrgId)
 	if err := p.Store.InsertPrepareGenerations(ctx, prep.ID, keys); err != nil {
 		return err
 	}
+	p.emitJoinSnapshots(ctx, prep, keys)
 
 	zeroWait := isZeroWait(p.maxWait(fleet))
 	if err := p.enqueueChanged(ctx, ev.OrgId, fleet, changed); err != nil {
@@ -306,6 +307,26 @@ func (p *Preparer) completeNow(ctx context.Context, ev worker_client.EventWithOr
 		return err
 	}
 	return p.resume(ctx, ev)
+}
+
+func (p *Preparer) emitJoinSnapshots(ctx context.Context, prep *model.DeltaPrepare, keys []deltastore.GenerationKey) {
+	if p.Persist == nil || prep == nil {
+		return
+	}
+	for _, key := range keys {
+		gen, err := p.Store.GetGeneration(ctx, key)
+		if err != nil {
+			continue
+		}
+		if gen.Status != model.DeltaGenerationInProgress {
+			continue
+		}
+		event, err := deltaGenerationProgressEvent(ctx, *prep, key, domain.DeltaGenerationProgressInProgress, nil)
+		if err != nil {
+			continue
+		}
+		p.Persist(ctx, prep.OrgID, event)
+	}
 }
 
 func (p *Preparer) setPreparing(ctx context.Context, orgId uuid.UUID, kind, name string, completed, total int) error {

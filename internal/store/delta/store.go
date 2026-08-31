@@ -38,6 +38,7 @@ type Store interface {
 	CASPrepareStatus(ctx context.Context, id uuid.UUID, to string) error
 	ListWaitingPastDeadline(ctx context.Context, limit int, asOf time.Time) ([]model.DeltaPrepare, error)
 	ListWaitingPreparesByGeneration(ctx context.Context, key GenerationKey) ([]model.DeltaPrepare, error)
+	CountPreparePairs(ctx context.Context, prepareID uuid.UUID) (completed, total int, err error)
 	InsertPrepareGenerations(ctx context.Context, prepareID uuid.UUID, keys []GenerationKey) error
 	GetWaitingPrepare(ctx context.Context, orgID uuid.UUID, kind, name string) (*model.DeltaPrepare, error)
 }
@@ -433,6 +434,27 @@ func (s *DeltaStore) ListWaitingPreparesByGeneration(ctx context.Context, key Ge
 		return nil, store.ErrorFromGormError(result.Error)
 	}
 	return rows, nil
+}
+
+func (s *DeltaStore) CountPreparePairs(ctx context.Context, prepareID uuid.UUID) (int, int, error) {
+	var rows []struct {
+		Status string `gorm:"column:status"`
+	}
+	result := s.getDB(ctx).Table("delta_prepare_generations AS pg").
+		Select("g.status").
+		Joins("INNER JOIN delta_generations AS g ON g.org_id = pg.org_id AND g.image_repository = pg.image_repository AND g.source_digest = pg.source_digest AND g.target_digest = pg.target_digest").
+		Where("pg.prepare_id = ?", prepareID).
+		Scan(&rows)
+	if result.Error != nil {
+		return 0, 0, store.ErrorFromGormError(result.Error)
+	}
+	completed := 0
+	for _, row := range rows {
+		if row.Status == model.DeltaGenerationSucceeded || row.Status == model.DeltaGenerationFailed || row.Status == model.DeltaGenerationRejected {
+			completed++
+		}
+	}
+	return completed, len(rows), nil
 }
 
 func (s *DeltaStore) CASPrepareStatus(ctx context.Context, id uuid.UUID, to string) error {

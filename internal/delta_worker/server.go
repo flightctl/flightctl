@@ -14,9 +14,11 @@ import (
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/oci"
+	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
 	deltastore "github.com/flightctl/flightctl/internal/store/delta"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	eventstore "github.com/flightctl/flightctl/internal/store/event"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	repostore "github.com/flightctl/flightctl/internal/store/repository"
 	"github.com/flightctl/flightctl/internal/store/selector"
@@ -79,13 +81,15 @@ func (s *Server) newPreparer(ctx context.Context) (*Preparer, error) {
 	repos := repostore.NewRepositoryStore(s.db, s.log)
 	deployWait := s.cfg.DeltaGeneration.EffectiveMaxWaitForDelta()
 	deployTimeout := s.cfg.DeltaGeneration.EffectiveTimeout()
+	eventSvc := events.NewServiceHandler(eventstore.NewEventStore(s.db, s.log.WithField("pkg", "event-store")), nil, s.log)
 	return &Preparer{
 		Resolver: storeResolver(s.cfg, fleets, devices, tvs, repos, s.kvStore),
 		Store:    s.store,
 		Emit: func(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
 			return worker_client.EnqueueEvent(ctx, publisher, orgId, event)
 		},
-		Now: time.Now,
+		Persist: eventSvc.CreateEvent,
+		Now:     time.Now,
 		MaxWait: func(fleet *domain.Fleet) *time.Duration {
 			d, err := maxWaitFromFleet(fleet, deployWait)
 			if err != nil {

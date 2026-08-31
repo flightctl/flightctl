@@ -61,8 +61,8 @@ func TestEmitEvent_QueueRouting(t *testing.T) {
 			wantDelta: 0,
 		},
 		{
-			name:      "When reason is not allowlisted it should enqueue on neither producer",
-			reason:    domain.EventReasonFleetValid,
+			name:      "When DeltaGenerationProgress it should enqueue on neither producer",
+			reason:    domain.EventReasonDeltaGenerationProgress,
 			withDelta: true,
 			wantTask:  0,
 			wantDelta: 0,

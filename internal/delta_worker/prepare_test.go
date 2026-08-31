@@ -287,6 +287,39 @@ func TestPrepare_DedupeAndSupercede(t *testing.T) {
 		assert.Empty(t, emit.events)
 	})
 
+	t.Run("When joining an in-progress pair it should persist a snapshot progress event", func(t *testing.T) {
+		store := newFakePrepareStore()
+		created := now.Add(-time.Hour)
+		existing := store.seedWaiting(orgId, domain.FleetKind, "fleet-1", lo.ToPtr("tv-1"), nil, created)
+		store.generations[deltastore.GenerationKey{
+			OrgID:           orgId,
+			ImageRepository: prepareTestRepo,
+			SourceDigest:    prepareTestSrc,
+			TargetDigest:    prepareTestTgt,
+		}] = &model.DeltaGeneration{
+			OrgID:           orgId,
+			ImageRepository: prepareTestRepo,
+			SourceDigest:    prepareTestSrc,
+			TargetDigest:    prepareTestTgt,
+			Status:          model.DeltaGenerationInProgress,
+		}
+		persist := &emitSpy{}
+		p := newTestPreparer(store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, &resumeSpy{}, &emitSpy{})
+		p.Now = func() time.Time { return now }
+		p.Persist = persist.persist
+
+		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
+		require.NoError(t, err)
+		assert.Equal(t, existing.ID, firstPrepare(store).ID)
+		require.Len(t, persist.events, 1)
+		assert.Equal(t, domain.EventReasonDeltaGenerationProgress, persist.events[0].Reason)
+		d, err := persist.events[0].Details.AsDeltaGenerationProgressDetails()
+		require.NoError(t, err)
+		assert.Equal(t, domain.DeltaGenerationProgressInProgress, d.GenerationStatus)
+		assert.Nil(t, d.Phase)
+		assert.Equal(t, lo.ToPtr("tv-1"), d.TemplateVersion)
+	})
+
 	t.Run("When a waiting prepare with the same identity is missing joins it should enqueue without a new row", func(t *testing.T) {
 		store := newFakePrepareStore()
 		created := now.Add(-time.Hour)
@@ -795,10 +828,6 @@ func (s *statusSpy) Set(_ context.Context, _ uuid.UUID, kind, name string, compl
 	return nil
 }
 
-func (s *statusSpy) SetProgress(_ context.Context, _ uuid.UUID, _, _ string, _ GenerationProgress) error {
-	return nil
-}
-
 func (s *statusSpy) Clear(_ context.Context, _ uuid.UUID, kind, name string) error {
 	s.clears = append(s.clears, statusCall{kind: kind, name: name})
 	return nil
@@ -819,6 +848,10 @@ func (e *emitSpy) emit(_ context.Context, _ uuid.UUID, event *domain.Event) erro
 	cp := *event
 	e.events = append(e.events, &cp)
 	return nil
+}
+
+func (e *emitSpy) persist(ctx context.Context, orgId uuid.UUID, event *domain.Event) {
+	_ = e.emit(ctx, orgId, event)
 }
 
 type resumeSpy struct {
