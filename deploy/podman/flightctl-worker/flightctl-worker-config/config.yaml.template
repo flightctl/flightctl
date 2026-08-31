@@ -37,6 +37,30 @@ worker:
     {{- end }}
     passtWorkarounds: {{if and .worker .worker.vmRender}}{{if eq (printf "%v" .worker.vmRender.passtWorkarounds) "true"}}true{{else}}false{{end}}{{else}}false{{end}}
 
+{{- with .deltaGeneration }}
+{{- with .defaultRepository }}
+{{- if .registry }}
+deltaGeneration:
+  defaultRepository:
+    registry: {{ .registry }}
+    {{- if .repository }}
+    repository: {{ .repository }}
+    {{- end }}
+    {{- if .namespace }}
+    namespace: {{ .namespace }}
+    {{- end }}
+    {{- if .scheme }}
+    scheme: {{ .scheme }}
+    {{- end }}
+    {{- if .skipServerVerification }}
+    skipServerVerification: true
+    {{- end }}
+    {{- if .caCrt }}
+    ca.crt: {{ .caCrt }}
+    {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
 
 {{- with .profiling }}
 {{- $pprof := .pprof }}
