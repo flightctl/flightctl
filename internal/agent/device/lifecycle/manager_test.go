@@ -370,8 +370,6 @@ func TestLifecycleManager_enrollmentRequest_capabilities(t *testing.T) {
 	}
 }
 
-func ptr[T any](v T) *T { return &v }
-
 func TestLifecycleManager_buildEnrollmentLabels(t *testing.T) {
 	tests := []struct {
 		name                string

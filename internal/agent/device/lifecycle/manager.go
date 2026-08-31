@@ -430,12 +430,11 @@ func (m *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *
 		m.log.Debugf("Failed to read desired.json: %v", err)
 	}
 
-	// Build enrollment labels by merging labelFromSystemInfo with defaultLabels
-	enrollmentLabels := m.buildEnrollmentLabels(deviceStatus)
-
 	if deviceStatus != nil {
 		deviceos.ApplyDeltaSystemInfo(&deviceStatus.SystemInfo, m.caps)
 	}
+
+	enrollmentLabels := m.buildEnrollmentLabels(deviceStatus)
 
 	req := v1beta1.EnrollmentRequest{
 		ApiVersion: "v1beta1",
