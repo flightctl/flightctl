@@ -17,6 +17,13 @@ const (
 	authPath = "/etc/ostree/auth.json"
 )
 
+type Capabilities struct {
+	OsMode          v1beta1.OsModeType
+	DeltaEligible   bool
+	BootcVersion    string
+	OCIDeltaVersion string
+}
+
 type Client interface {
 	// Status retrieves the current OS status
 	Status(ctx context.Context) (*Status, error)
@@ -26,6 +33,8 @@ type Client interface {
 	Rollback(ctx context.Context) error
 	// Apply applies the OS changes, potentially triggering a reboot
 	Apply(ctx context.Context) error
+	// Capabilities reports OS mode, tool versions, and whether this client can apply OS deltas.
+	Capabilities(ctx context.Context) Capabilities
 }
 
 type Manager interface {
@@ -44,14 +53,14 @@ type Manager interface {
 func NewManager(
 	log *log.PrefixLogger,
 	client Client,
-	osMode v1beta1.OsModeType,
+	caps Capabilities,
 	readWriter fileio.ReadWriter,
 	podmanClient *client.Podman,
 	pullConfigResolver dependency.PullConfigResolver,
 ) Manager {
 	return &manager{
 		client:             client,
-		osMode:             osMode,
+		caps:               caps,
 		podmanClient:       podmanClient,
 		readWriter:         readWriter,
 		pullConfigResolver: pullConfigResolver,
@@ -61,7 +70,7 @@ func NewManager(
 
 type manager struct {
 	client             Client
-	osMode             v1beta1.OsModeType
+	caps               Capabilities
 	podmanClient       *client.Podman
 	readWriter         fileio.ReadWriter
 	pullConfigResolver dependency.PullConfigResolver
@@ -76,9 +85,23 @@ func (m *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, _ ..
 
 	status.Os.Image = bootcInfo.GetBootedImage()
 	status.Os.ImageDigest = bootcInfo.GetBootedImageDigest()
-	osMode := m.osMode
+	osMode := m.caps.OsMode
 	status.Capabilities = &v1beta1.DeviceCapabilities{OsMode: &osMode}
+	ApplyDeltaSystemInfo(&status.SystemInfo, m.caps)
 	return nil
+}
+
+func ApplyDeltaSystemInfo(info *v1beta1.DeviceSystemInfo, caps Capabilities) {
+	eligible := caps.DeltaEligible
+	info.DeltaEligible = &eligible
+	if caps.BootcVersion != "" {
+		v := caps.BootcVersion
+		info.BootcVersion = &v
+	}
+	if caps.OCIDeltaVersion != "" {
+		v := caps.OCIDeltaVersion
+		info.OciDeltaVersion = &v
+	}
 }
 
 func (m *manager) BeforeUpdate(ctx context.Context, current, desired *v1beta1.DeviceSpec) error {

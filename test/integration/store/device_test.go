@@ -226,6 +226,90 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).Should(MatchError(flterrors.ErrResourceNotFound))
 		})
 
+		It("When UpdateStatus omits DeltaEligible it should leave the field unset on Get", func() {
+			name := "delta-eligible-omitted"
+			testutil.CreateTestDevice(ctx, devStore, orgId, name, nil, nil, nil)
+			status := api.NewDeviceStatus()
+			status.Capabilities = &api.DeviceCapabilities{OsMode: lo.ToPtr(api.OsModeImage)}
+			device := api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(name)},
+				Status:   &status,
+			}
+			_, _, err := devStore.UpdateStatus(ctx, orgId, &device, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			got, err := devStore.Get(ctx, orgId, name)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got.Status).ToNot(BeNil())
+			Expect(got.Status.Capabilities).ToNot(BeNil())
+			Expect(got.Status.SystemInfo.DeltaEligible).To(BeNil())
+			Expect(got.Status.SystemInfo.BootcVersion).To(BeNil())
+			Expect(got.Status.SystemInfo.OciDeltaVersion).To(BeNil())
+		})
+
+		It("When UpdateStatus sets lastDelta fallbackReason and size it should return them on Get", func() {
+			name := "os-delta-status-fields"
+			testutil.CreateTestDevice(ctx, devStore, orgId, name, nil, nil, nil)
+			status := api.NewDeviceStatus()
+			status.Os.LastDelta = &api.DeviceDeltaApplyStatus{
+				FallbackReason: lo.ToPtr("delta apply failed"),
+				Size:           lo.ToPtr("45 MiB"),
+			}
+			device := api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(name)},
+				Status:   &status,
+			}
+			_, _, err := devStore.UpdateStatus(ctx, orgId, &device, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			got, err := devStore.Get(ctx, orgId, name)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got.Status).ToNot(BeNil())
+			Expect(got.Status.Os.LastDelta).ToNot(BeNil())
+			Expect(got.Status.Os.LastDelta.FallbackReason).ToNot(BeNil())
+			Expect(*got.Status.Os.LastDelta.FallbackReason).To(Equal("delta apply failed"))
+			Expect(got.Status.Os.LastDelta.Size).ToNot(BeNil())
+			Expect(*got.Status.Os.LastDelta.Size).To(Equal("45 MiB"))
+		})
+
+		It("When spec Os.DeltaImage is set it should return it on Get", func() {
+			name := "delta-image-set"
+			device := api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(name)},
+				Spec: &api.DeviceSpec{Os: &api.DeviceOsSpec{
+					Image:      "quay.io/acme/os:latest",
+					DeltaImage: lo.ToPtr("quay.io/acme/os@sha256:ddd"),
+				}},
+				Status: lo.ToPtr(api.NewDeviceStatus()),
+			}
+			_, err := devStore.Create(ctx, orgId, &device, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			got, err := devStore.Get(ctx, orgId, name)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got.Spec).ToNot(BeNil())
+			Expect(got.Spec.Os).ToNot(BeNil())
+			Expect(got.Spec.Os.DeltaImage).ToNot(BeNil())
+			Expect(*got.Spec.Os.DeltaImage).To(Equal("quay.io/acme/os@sha256:ddd"))
+		})
+
+		It("When spec Os.DeltaImage is omitted it should leave DeltaImage nil on Get", func() {
+			name := "delta-image-omitted"
+			device := api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(name)},
+				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "quay.io/acme/os:latest"}},
+				Status:   lo.ToPtr(api.NewDeviceStatus()),
+			}
+			_, err := devStore.Create(ctx, orgId, &device, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			got, err := devStore.Get(ctx, orgId, name)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got.Spec).ToNot(BeNil())
+			Expect(got.Spec.Os).ToNot(BeNil())
+			Expect(got.Spec.Os.DeltaImage).To(BeNil())
+		})
+
 		It("Delete device success", func() {
 			deleted, err := devStore.Delete(ctx, orgId, "mydevice-1", callback)
 			Expect(err).ToNot(HaveOccurred())

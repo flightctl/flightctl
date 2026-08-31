@@ -1256,6 +1256,9 @@ type DeviceApplicationStatus struct {
 	// Embedded Whether the application is embedded in the bootc image.
 	Embedded bool `json:"embedded"`
 
+	// LastDelta Result of the most recent delta apply attempt for this update target.
+	LastDelta *DeviceDeltaApplyStatus `json:"lastDelta,omitempty"`
+
 	// Name Human readable name of the application.
 	Name string `json:"name"`
 
@@ -1313,6 +1316,15 @@ type DeviceDecommission struct {
 
 // DeviceDecommissionTargetType Specifies the desired decommissioning method of the device.
 type DeviceDecommissionTargetType string
+
+// DeviceDeltaApplyStatus Result of the most recent delta apply attempt for this update target.
+type DeviceDeltaApplyStatus struct {
+	// FallbackReason Set when the most recent update attempt fell back from a delta to a full image pull. Absent if no delta was attempted or the delta succeeded. Cleared when the next update attempt for this target starts.
+	FallbackReason *string `json:"fallbackReason,omitempty"`
+
+	// Size Expected delta size in IEC units (KiB, MiB, GiB, or TiB). Absent when the size is not yet known.
+	Size *string `json:"size,omitempty"`
+}
 
 // DeviceIntegrityCheckStatus DeviceIntegrityCheckStatus represents the status of the integrity check performed on the device.
 type DeviceIntegrityCheckStatus struct {
@@ -1419,8 +1431,17 @@ type DeviceMultipleOwnersResolvedDetailsDetailType string
 // DeviceMultipleOwnersResolvedDetailsResolutionType How the conflict was resolved.
 type DeviceMultipleOwnersResolvedDetailsResolutionType string
 
-// DeviceOsSpec Either a specific OCI image reference, or a reference to a catalog item version that can be resolved to an OCI image ref.
-type DeviceOsSpec = ImageOrCatalogItemRefSpec
+// DeviceOsSpec defines model for DeviceOsSpec.
+type DeviceOsSpec struct {
+	// CatalogItemRef A reference to a catalog item, along with its configuration.
+	CatalogItemRef *CatalogItemRefSpec `json:"catalogItemRef,omitempty"`
+
+	// DeltaImage Optional hint: a reference to a delta artifact the control plane's generation records indicate may be applicable to reach `image` from this device's current image. Absent does not imply no delta exists — the device independently discovers candidate delta artifacts (e.g. deltas published by a customer's own CI) regardless of this field, and falls back to a full pull only if none is usable.
+	DeltaImage *string `json:"deltaImage,omitempty"`
+
+	// Image Reference to an OCI image or artifact with tag.
+	Image string `json:"image,omitempty"`
+}
 
 // DeviceOsStatus Current status of the device OS.
 type DeviceOsStatus struct {
@@ -1429,6 +1450,9 @@ type DeviceOsStatus struct {
 
 	// ImageDigest The digest of the OS image (e.g. sha256:a0...).
 	ImageDigest string `json:"imageDigest"`
+
+	// LastDelta Result of the most recent delta apply attempt for this update target.
+	LastDelta *DeviceDeltaApplyStatus `json:"lastDelta,omitempty"`
 }
 
 // DeviceOwnershipChangedDetails defines model for DeviceOwnershipChangedDetails.
@@ -1584,8 +1608,17 @@ type DeviceSystemInfo struct {
 	// BootID Boot ID reported by the device.
 	BootID string `json:"bootID"`
 
+	// BootcVersion Version reported by `bootc --version`. Absent when bootc is not installed or the version command fails.
+	BootcVersion *string `json:"bootcVersion,omitempty"`
+
 	// CustomInfo User-defined information about the device.
 	CustomInfo *CustomDeviceInfo `json:"customInfo,omitempty"`
+
+	// DeltaEligible Whether this device can apply OS deltas. True only when bootc is 1.15.0 or newer and the oci-delta binary is present. False when this agent cannot apply deltas. Omitted when an older agent does not report the field.
+	DeltaEligible *bool `json:"deltaEligible,omitempty"`
+
+	// OciDeltaVersion Version reported by `oci-delta --version`. Absent when oci-delta is not installed or the version command fails.
+	OciDeltaVersion *string `json:"ociDeltaVersion,omitempty"`
 
 	// OperatingSystem The Operating System reported by the device.
 	OperatingSystem      string            `json:"operatingSystem"`
@@ -3693,12 +3726,36 @@ func (a *DeviceSystemInfo) UnmarshalJSON(b []byte) error {
 		delete(object, "bootID")
 	}
 
+	if raw, found := object["bootcVersion"]; found {
+		err = json.Unmarshal(raw, &a.BootcVersion)
+		if err != nil {
+			return fmt.Errorf("error reading 'bootcVersion': %w", err)
+		}
+		delete(object, "bootcVersion")
+	}
+
 	if raw, found := object["customInfo"]; found {
 		err = json.Unmarshal(raw, &a.CustomInfo)
 		if err != nil {
 			return fmt.Errorf("error reading 'customInfo': %w", err)
 		}
 		delete(object, "customInfo")
+	}
+
+	if raw, found := object["deltaEligible"]; found {
+		err = json.Unmarshal(raw, &a.DeltaEligible)
+		if err != nil {
+			return fmt.Errorf("error reading 'deltaEligible': %w", err)
+		}
+		delete(object, "deltaEligible")
+	}
+
+	if raw, found := object["ociDeltaVersion"]; found {
+		err = json.Unmarshal(raw, &a.OciDeltaVersion)
+		if err != nil {
+			return fmt.Errorf("error reading 'ociDeltaVersion': %w", err)
+		}
+		delete(object, "ociDeltaVersion")
 	}
 
 	if raw, found := object["operatingSystem"]; found {
@@ -3743,10 +3800,31 @@ func (a DeviceSystemInfo) MarshalJSON() ([]byte, error) {
 		return nil, fmt.Errorf("error marshaling 'bootID': %w", err)
 	}
 
+	if a.BootcVersion != nil {
+		object["bootcVersion"], err = json.Marshal(a.BootcVersion)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'bootcVersion': %w", err)
+		}
+	}
+
 	if a.CustomInfo != nil {
 		object["customInfo"], err = json.Marshal(a.CustomInfo)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'customInfo': %w", err)
+		}
+	}
+
+	if a.DeltaEligible != nil {
+		object["deltaEligible"], err = json.Marshal(a.DeltaEligible)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'deltaEligible': %w", err)
+		}
+	}
+
+	if a.OciDeltaVersion != nil {
+		object["ociDeltaVersion"], err = json.Marshal(a.OciDeltaVersion)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'ociDeltaVersion': %w", err)
 		}
 	}
 
