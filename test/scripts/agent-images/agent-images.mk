@@ -67,12 +67,10 @@ e2e-agent-image-onboarding: | bin
 	SOURCE_GIT_TAG=$(SOURCE_GIT_TAG) SOURCE_GIT_TREE_STATE=$(SOURCE_GIT_TREE_STATE) SOURCE_GIT_COMMIT=$(SOURCE_GIT_COMMIT) \
 		$(ROOT_DIR)/test/scripts/agent-images/build_onboarding_image.sh
 
-# DEPRECATED: push-e2e-agent-images is no longer called from prepare-e2e-test
-# Image uploading is now handled by testcontainers at test runtime in test/e2e/infra/images.go
-# This target is kept for manual use if needed.
+# Starts (or reuses) the e2e registry and uploads bundles via the same Go path
+# as test runtime (auxiliary.StartServices → UploadImages).
 .PHONY: push-e2e-agent-images
 push-e2e-agent-images: e2e-agent-images
-	@echo "NOTE: This target is deprecated. Images are now uploaded by testcontainers at test runtime."
 	@if [ ! -f "$(AGENT_BUNDLE)" ]; then \
 		echo "Agent bundle not found at $(AGENT_BUNDLE). Run 'make e2e-agent-images' first."; \
 		exit 1; \
@@ -81,10 +79,7 @@ push-e2e-agent-images: e2e-agent-images
 		echo "App bundle not found at $(APP_BUNDLE). Run 'make e2e-agent-images' first."; \
 		exit 1; \
 	fi
-	$(ROOT_DIR)/test/scripts/agent-images/scripts/upload-images.sh "$(AGENT_BUNDLE)"
-	$(ROOT_DIR)/test/scripts/agent-images/scripts/upload-images.sh "$(APP_BUNDLE)"
-	$(ROOT_DIR)/test/scripts/agent-images/scripts/upload-charts.sh
-	$(ROOT_DIR)/test/scripts/agent-images/scripts/upload-quadlets.sh
+	go run ./test/e2e/infra/cmd/push-e2e-images
 
 bin/.e2e-agent-certs:
 	# Short enrollment-verify interval for e2e speed; wider Cap/Steps so that short

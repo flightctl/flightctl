@@ -6,11 +6,53 @@ package setup
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/flightctl/flightctl/test/e2e/infra"
+	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
 	"github.com/flightctl/flightctl/test/e2e/infra/k8s"
 	"github.com/flightctl/flightctl/test/e2e/infra/quadlet"
+	"github.com/sirupsen/logrus"
 )
+
+func init() {
+	auxiliary.ApplyDeltaWorkerRegistryRemap = applyDeltaWorkerRegistryRemap
+}
+
+func applyDeltaWorkerRegistryRemap(registryURL string) error {
+	if err := EnsureDefaultProviders(nil); err != nil {
+		return fmt.Errorf("delta worker registry remap: %w", err)
+	}
+	p := GetDefaultProviders()
+	if p == nil || p.Infra == nil {
+		return fmt.Errorf("delta worker registry remap: providers not set")
+	}
+	if p.Lifecycle == nil {
+		return fmt.Errorf("delta worker registry remap: lifecycle not set")
+	}
+	if err := p.Infra.ApplyDeltaWorkerRegistryRemap(registryURL); err != nil {
+		return err
+	}
+	if err := restartIfRunning(p, infra.ServiceDeltaWorker, "delta-worker"); err != nil {
+		return err
+	}
+	return restartIfRunning(p, infra.ServiceWorker, "worker")
+}
+
+func restartIfRunning(p *infra.Providers, svc infra.ServiceName, name string) error {
+	running, err := p.Lifecycle.IsRunning(svc)
+	if err != nil {
+		return fmt.Errorf("%s registry remap: %w", name, err)
+	}
+	if !running {
+		logrus.Infof("%s is not running; remap applied without restart", name)
+		return nil
+	}
+	if err := p.Lifecycle.Restart(svc); err != nil {
+		return fmt.Errorf("%s registry remap restart: %w", name, err)
+	}
+	return p.Lifecycle.WaitForReady(svc, 5*time.Minute)
+}
 
 var (
 	defaultProviders   *infra.Providers

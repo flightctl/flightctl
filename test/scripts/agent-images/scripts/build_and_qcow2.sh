@@ -90,24 +90,18 @@ create_bundle() {
   local -a refs=()
   printf '%s\n' "----------" "Creating bundle" "----------"
 
-  list_device_refs() {
-    local filter="$1"
-    listing="$(sudo podman images --format '{{.Repository}}:{{.Tag}}' \
-      --filter "label=io.flightctl.e2e.component=device" \
-      --filter "reference=${filter}")" || {
-      echo "::error::Failed to list device images for ${filter}" | tee -a "${variants_log}"
-      exit 1
-    }
-    while IFS= read -r line; do
-      [ -n "${line}" ] || continue
-      [ "${line}" = "<none>:<none>" ] && continue
-      refs+=("${line}")
-    done <<< "${listing}"
+  listing="$(sudo podman images --format '{{.Repository}}:{{.Tag}}' \
+    --filter "label=io.flightctl.e2e.component=device")" || {
+    echo "::error::Failed to list device images" | tee -a "${variants_log}"
+    exit 1
   }
-
-  list_device_refs "${IMAGE_REPO}:*-${OS_ID}-*"
-  list_device_refs "${IMAGE_REPO}:package"
-  list_device_refs "${IMAGE_REPO}:package-${OS_ID}"
+  while IFS= read -r line; do
+    [ -n "${line}" ] || continue
+    [ "${line}" = "<none>:<none>" ] && continue
+    case "${line}" in
+      "${IMAGE_REPO}:"*) refs+=("${line}") ;;
+    esac
+  done <<< "${listing}"
 
   mapfile -t refs < <(printf '%s\n' "${refs[@]}" | sort -u)
   if [ "${#refs[@]}" -eq 0 ] || [ -z "${refs[0]:-}" ]; then
@@ -115,13 +109,27 @@ create_bundle() {
     exit 1
   fi
   {
-    echo "Bundling ${#refs[@]} images:"
+    echo "Bundling ${#refs[@]} images (OCI layout, preserve-digests):"
     for ref in "${refs[@]}"; do
       printf '\t- %s\n' "${ref}"
     done
   } | tee -a "${variants_log}"
+
+  local staging
+  staging="$(mktemp -d)"
+  mkdir -p "${staging}/oci"
+  : > "${staging}/e2e-refs.tsv"
+  local ref tag
+  for ref in "${refs[@]}"; do
+    tag="${ref##*:}"
+    sudo skopeo copy --preserve-digests \
+      "containers-storage:${ref}" "oci:${staging}/oci:${tag}" 2>&1 | tee -a "${variants_log}"
+    printf '%s\t%s\n' "${tag}" "${ref}" >> "${staging}/e2e-refs.tsv"
+  done
   rm -f "${bundle_tar}"
-  sudo podman save --multi-image-archive -o "${bundle_tar}" "${refs[@]}" 2>&1 | tee -a "${variants_log}"
+  sudo chown -R "$(id -un)":"$(id -gn)" "${staging}"
+  tar -C "${staging}" -cf "${bundle_tar}" oci e2e-refs.tsv
+  rm -rf "${staging}"
   sudo chown -R "$(id -un)":"$(id -gn)" "${ARTIFACTS_OUTPUT_DIR}" || true
 
   if [ "${DO_PUSH}" = "true" ]; then

@@ -167,6 +167,14 @@ type InfraProvider interface {
 	// For K8s: spawns a short-lived batch/v1 Job running psql in the cluster.
 	// For Quadlet: connects directly via pgx using TCP to the database host.
 	QueryDBExternal(sql string) (string, error)
+
+	// ApplyDeltaWorkerRegistryRemap writes containers/image remaps so the delta
+	// worker and render worker rewrite quay.io/flightctl refs to the e2e registry.
+	// Callers restart those services via Lifecycle.
+	// For K8s: ConfigMap mounted at /etc/containers/registries.conf.d (not baked into Helm).
+	// For Quadlet: files under /etc/flightctl/flightctl-delta-worker/registries.conf.d
+	// and /etc/flightctl/flightctl-worker/registries.conf.d.
+	ApplyDeltaWorkerRegistryRemap(registryURL string) error
 }
 
 // DeploymentServiceNames maps deployment/service names (same in K8s and Quadlet) to ServiceName.

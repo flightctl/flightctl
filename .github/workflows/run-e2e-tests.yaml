@@ -137,15 +137,19 @@ jobs:
           PACKAGE_REF="quay.io/flightctl/flightctl-device:package"
           CONTAINER_RUNTIME="$(detect_testcontainers_runtime)"
           echo "Detected testcontainers runtime: ${CONTAINER_RUNTIME} (DOCKER_HOST=${DOCKER_HOST:-unset})"
+          layout="$(mktemp -d)"
+          tar -xf "${BUNDLE}" -C "${layout}"
+          src="oci:${layout}/oci:package"
           if [[ "${CONTAINER_RUNTIME}" == "podman" ]]; then
             echo "Loading package-mode image into Podman image storage"
             export CONTAINER_HOST="${DOCKER_HOST}"
-            podman load -i "${BUNDLE}"
+            skopeo copy --preserve-digests "${src}" "containers-storage:${PACKAGE_REF}"
             podman image exists "${PACKAGE_REF}"
           else
             echo "Loading package-mode image into Docker daemon"
-            skopeo copy "docker-archive:${BUNDLE}:${PACKAGE_REF}" "docker-daemon:${PACKAGE_REF}"
+            skopeo copy --preserve-digests "${src}" "docker-daemon:${PACKAGE_REF}"
           fi
+          rm -rf "${layout}"
 
           # Cleanup
           rm -rf test-artifacts
@@ -164,12 +168,9 @@ jobs:
         env:
           AGENT_OS_ID: ${{ inputs.os_id }}
         run: |
-          # prepare-e2e-test handles the full dependency chain:
-          #   - deploy-e2e-extras (registry)
-          #   - build-e2e-containers
-          #   - push-e2e-agent-images (detects existing bundles, won't rebuild)
-          #   - prepare-e2e-qcow-config -> bin/.e2e-agent-injected -> bin/.e2e-agent-certs
-          # All dependencies are resolved automatically by Make
+          # prepare-e2e-test: certs, agent bundle sentinel, qcow inject, CLI.
+          # Registry start + UploadImages run when the e2e process calls auxiliary.Get
+          # (same Go path as make push-e2e-agent-images).
           make prepare-e2e-test
 
       # ========== RUN E2E TESTS ==========
