@@ -980,8 +980,8 @@
         "syncInterval": { "type": "string", "description": "Sync interval for periodic Trustify fetch (e.g. \"15m\", \"1h\")" },
         "backend": {
           "type": "string",
-          "description": "Vulnerability scanning backend. Currently only 'trustify' is supported; leave empty to default to Trustify when a trustify config with a non-empty endpoint is present.",
-          "enum": ["", "trustify"]
+          "description": "Vulnerability scanning backend ('trustify' or 'quay'); leave empty to default to Trustify when a trustify config with a non-empty endpoint is present.",
+          "enum": ["", "trustify", "quay"]
         },
         "trustify": {
           "type": "object",
@@ -1004,6 +1004,7 @@
               }
             },
             "caFile": { "type": "string", "description": "Path to a CA bundle for verifying the Trustify server certificate. If unset, system roots are used." },
+            "caCertConfigMapName": { "type": "string", "description": "Name of a ConfigMap containing key 'ca-cert.pem' with the CA bundle for the Trustify server. When set, it is mounted and used instead of caFile." },
             "skipTlsVerify": { "type": "boolean", "description": "Skip TLS certificate verification (insecure, for lab/air-gap only). Defaults to false." }
           }
         },
@@ -1016,6 +1017,7 @@
             "secretName": { "type": "string", "description": "Name of the Kubernetes Secret containing the 'token' key for Quay Security API bearer authentication" },
             "maxConcurrentRequests": { "type": "integer", "description": "Maximum number of concurrent Quay API requests. Defaults to 5 when unset." },
             "caFile": { "type": "string", "description": "Path to a CA bundle for verifying the Quay server certificate. If unset, system roots are used." },
+            "caCertConfigMapName": { "type": "string", "description": "Name of a ConfigMap containing key 'ca-cert.pem' with the CA bundle for the Quay server. When set, it is mounted and used instead of caFile." },
             "skipTlsVerify": { "type": "boolean", "description": "Skip TLS certificate verification (insecure, for lab/air-gap only). Defaults to false." }
           }
         }

@@ -106,6 +106,9 @@ imageBuilderWorker:
 vulnerabilityReporting:
   enabled: true
   syncInterval: {{if .vulnerabilityReporting.syncInterval}}{{.vulnerabilityReporting.syncInterval}}{{else}}15m{{end}}
+  {{- if .vulnerabilityReporting.backend}}
+  backend: {{.vulnerabilityReporting.backend}}
+  {{- end}}
   {{- if .vulnerabilityReporting.trustify}}
   trustify:
     endpoint: {{.vulnerabilityReporting.trustify.endpoint}}
@@ -115,6 +118,12 @@ vulnerabilityReporting:
       {{- if .vulnerabilityReporting.trustify.auth.oidcIssuerUrl}}
       oidcIssuerUrl: {{.vulnerabilityReporting.trustify.auth.oidcIssuerUrl}}
       {{- end}}
+    {{- end}}
+    {{- if .vulnerabilityReporting.trustify.caFile}}
+    caFile: {{.vulnerabilityReporting.trustify.caFile}}
+    {{- end}}
+    {{- if .vulnerabilityReporting.trustify.skipTlsVerify}}
+    skipTlsVerify: true
     {{- end}}
   {{- end}}
 {{- end}}

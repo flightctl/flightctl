@@ -432,9 +432,10 @@ For more detailed configuration options, see the [Values](#values) section below
 | upgradeHooks.scaleDown.condition | string | `"chart"` | When to run pre-upgrade scale down job: "always", "never", or "chart" (default). "chart" runs only if helm.sh/chart changed. |
 | upgradeHooks.scaleDown.deployments | list | `["flightctl-periodic","flightctl-worker"]` | List of Deployments to scale down in order |
 | upgradeHooks.scaleDown.timeoutSeconds | int | `120` | Timeout in seconds to wait for rollout per Deployment |
-| vulnerabilityReporting | object | `{"backend":"","enabled":false,"quay":{"caFile":"","endpoint":"","maxConcurrentRequests":5,"secretName":"","skipTlsVerify":false},"syncInterval":"15m","trustify":{"auth":{"mode":"none","oidcIssuerUrl":"","secretName":""},"caFile":"","endpoint":"","skipTlsVerify":false}}` | Vulnerability Integration Configuration |
-| vulnerabilityReporting.backend | string | `""` | Vulnerability scanning backend. Currently only "trustify" is supported; leave empty to default to Trustify when a trustify config with a non-empty endpoint is present. |
+| vulnerabilityReporting | object | `{"backend":"","enabled":false,"quay":{"caCertConfigMapName":"","caFile":"","endpoint":"","maxConcurrentRequests":5,"secretName":"","skipTlsVerify":false},"syncInterval":"15m","trustify":{"auth":{"mode":"none","oidcIssuerUrl":"","secretName":""},"caCertConfigMapName":"","caFile":"","endpoint":"","skipTlsVerify":false}}` | Vulnerability Integration Configuration |
+| vulnerabilityReporting.backend | string | `""` | Vulnerability scanning backend ("trustify" or "quay"); leave empty to default to Trustify when a trustify config with a non-empty endpoint is present. |
 | vulnerabilityReporting.enabled | bool | `false` | Enable vulnerability integration (sync task + API endpoints). |
+| vulnerabilityReporting.quay.caCertConfigMapName | string | `""` | Name of a ConfigMap containing key 'ca-cert.pem' with the CA bundle for the Quay server. When set, it is mounted and used instead of caFile. |
 | vulnerabilityReporting.quay.caFile | string | `""` | Path to a CA bundle for verifying the Quay server certificate. If unset, system roots are used. |
 | vulnerabilityReporting.quay.endpoint | string | `""` | Quay API base URL (e.g. "https://quay.io"). |
 | vulnerabilityReporting.quay.maxConcurrentRequests | int | `5` | Maximum number of concurrent Quay API requests. Defaults to 5 when unset. |
@@ -444,6 +445,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | vulnerabilityReporting.trustify.auth.mode | string | `"none"` | Authentication mode for Trustify. Allowed values: 'client-credentials', 'none'. |
 | vulnerabilityReporting.trustify.auth.oidcIssuerUrl | string | `""` | OIDC issuer URL for client-credentials mode. |
 | vulnerabilityReporting.trustify.auth.secretName | string | `""` | Name of the Kubernetes Secret containing 'client_id' and 'client_secret' keys. |
+| vulnerabilityReporting.trustify.caCertConfigMapName | string | `""` | Name of a ConfigMap containing key 'ca-cert.pem' with the CA bundle for the Trustify server. When set, it is mounted and used instead of caFile. |
 | vulnerabilityReporting.trustify.caFile | string | `""` | Path to a CA bundle for verifying the Trustify server certificate. If unset, system roots are used. |
 | vulnerabilityReporting.trustify.endpoint | string | `""` | Trustify API base URL (do not include /api/v1 or /api/v2 paths). |
 | vulnerabilityReporting.trustify.skipTlsVerify | bool | `false` | Skip TLS certificate verification (insecure, for lab/air-gap only). Defaults to false. |

@@ -553,7 +553,7 @@ vulnerabilityReporting:
   enabled: false
   # -- Sync interval for periodic Trustify fetch (e.g. "15m", "1h").
   syncInterval: "15m"
-  # -- Vulnerability scanning backend. Currently only "trustify" is supported; leave empty to default to Trustify when a trustify config with a non-empty endpoint is present.
+  # -- Vulnerability scanning backend ("trustify" or "quay"); leave empty to default to Trustify when a trustify config with a non-empty endpoint is present.
   backend: ""
   trustify:
     # -- Trustify API base URL (do not include /api/v1 or /api/v2 paths).
@@ -567,6 +567,8 @@ vulnerabilityReporting:
       secretName: ""
     # -- Path to a CA bundle for verifying the Trustify server certificate. If unset, system roots are used.
     caFile: ""
+    # -- Name of a ConfigMap containing key 'ca-cert.pem' with the CA bundle for the Trustify server. When set, it is mounted and used instead of caFile.
+    caCertConfigMapName: ""
     # -- Skip TLS certificate verification (insecure, for lab/air-gap only). Defaults to false.
     skipTlsVerify: false
   quay:
@@ -578,6 +580,8 @@ vulnerabilityReporting:
     maxConcurrentRequests: 5
     # -- Path to a CA bundle for verifying the Quay server certificate. If unset, system roots are used.
     caFile: ""
+    # -- Name of a ConfigMap containing key 'ca-cert.pem' with the CA bundle for the Quay server. When set, it is mounted and used instead of caFile.
+    caCertConfigMapName: ""
     # -- Skip TLS certificate verification (insecure, for lab/air-gap only). Defaults to false.
     skipTlsVerify: false
 
