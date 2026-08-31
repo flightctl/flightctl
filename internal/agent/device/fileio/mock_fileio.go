@@ -270,6 +270,20 @@ func (mr *MockWriterMockRecorder) RemoveContents(path any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveContents", reflect.TypeOf((*MockWriter)(nil).RemoveContents), path)
 }
 
+// RemoveEmptyDir mocks base method.
+func (m *MockWriter) RemoveEmptyDir(dir string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RemoveEmptyDir", dir)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RemoveEmptyDir indicates an expected call of RemoveEmptyDir.
+func (mr *MockWriterMockRecorder) RemoveEmptyDir(dir any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveEmptyDir", reflect.TypeOf((*MockWriter)(nil).RemoveEmptyDir), dir)
+}
+
 // RemoveFile mocks base method.
 func (m *MockWriter) RemoveFile(file string) error {
 	m.ctrl.T.Helper()
@@ -623,6 +637,20 @@ func (m *MockReadWriter) RemoveContents(path string) error {
 func (mr *MockReadWriterMockRecorder) RemoveContents(path any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveContents", reflect.TypeOf((*MockReadWriter)(nil).RemoveContents), path)
+}
+
+// RemoveEmptyDir mocks base method.
+func (m *MockReadWriter) RemoveEmptyDir(dir string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RemoveEmptyDir", dir)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RemoveEmptyDir indicates an expected call of RemoveEmptyDir.
+func (mr *MockReadWriterMockRecorder) RemoveEmptyDir(dir any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveEmptyDir", reflect.TypeOf((*MockReadWriter)(nil).RemoveEmptyDir), dir)
 }
 
 // RemoveFile mocks base method.

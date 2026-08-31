@@ -25,6 +25,8 @@ func TestSync(t *testing.T) {
 		createdFiles []string
 		// files which are removed via the sync operation
 		removedFiles []string
+		// directories that become empty and are cleaned up via the sync operation
+		removedDirs []string
 	}{
 		{
 			name:    "no desired config",
@@ -54,6 +56,9 @@ func TestSync(t *testing.T) {
 				"/etc/example/file1.txt",
 				"/etc/example/file2.txt",
 				"/etc/example/file3.txt",
+			},
+			removedDirs: []string{
+				"/etc/example",
 			},
 		},
 		{
@@ -93,6 +98,10 @@ func TestSync(t *testing.T) {
 
 			for _, f := range tt.removedFiles {
 				expectRemoveFile(mockWriter, f)
+			}
+
+			for _, d := range tt.removedDirs {
+				expectRemoveEmptyDir(mockWriter, d)
 			}
 
 			err := controller.Sync(ctx, tt.current, tt.desired)
@@ -172,6 +181,10 @@ func expectCreateFile(mockWriter *fileio.MockWriter, mockManagedFile *fileio.Moc
 
 func expectRemoveFile(mockWriter *fileio.MockWriter, f string) {
 	mockWriter.EXPECT().RemoveFile(f).Return(nil)
+}
+
+func expectRemoveEmptyDir(mockWriter *fileio.MockWriter, d string) {
+	mockWriter.EXPECT().RemoveEmptyDir(d).Return(nil)
 }
 
 func testConfigProvider(require *require.Assertions, fileCount int) *[]v1beta1.ConfigProviderSpec {

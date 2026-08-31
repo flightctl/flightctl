@@ -162,6 +162,28 @@ func (w *writer) RemoveFile(file string) error {
 	return nil
 }
 
+// RemoveEmptyDir removes the directory at the given path only if it is empty.
+// It is a no-op if the directory does not exist or still contains entries, so
+// it never deletes directories that hold other content.
+func (w *writer) RemoveEmptyDir(dir string) error {
+	fullPath := filepath.Join(w.rootDir, dir)
+	entries, err := os.ReadDir(fullPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read dir %q: %w", dir, err)
+	}
+	if len(entries) > 0 {
+		// directory still holds content; leave it in place
+		return nil
+	}
+	if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove empty dir %q: %w", dir, err)
+	}
+	return nil
+}
+
 func (w *writer) RemoveAll(path string) error {
 	if err := os.RemoveAll(filepath.Join(w.rootDir, path)); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove path %q: %w", path, err)
