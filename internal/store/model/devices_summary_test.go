@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 )
 
@@ -97,4 +98,69 @@ func TestDeviceOsModeCountKey(t *testing.T) {
 			require.Equal(t, tt.want, deviceOsModeCountKey(tt.status))
 		})
 	}
+}
+
+func TestDeviceDeltaEligibleCountKey(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		status *domain.DeviceStatus
+		want   string
+	}{
+		{
+			name:   "When status is nil it should return unknown",
+			status: nil,
+			want:   CapabilityCountUnknown,
+		},
+		{
+			name:   "When capabilities is nil it should return unknown",
+			status: &domain.DeviceStatus{},
+			want:   CapabilityCountUnknown,
+		},
+		{
+			name:   "When DeltaEligible is nil it should return unknown",
+			status: &domain.DeviceStatus{},
+			want:   CapabilityCountUnknown,
+		},
+		{
+			name: "When DeltaEligible is true it should return true",
+			status: func() *domain.DeviceStatus {
+				s := &domain.DeviceStatus{}
+				s.SystemInfo.DeltaEligible = lo.ToPtr(true)
+				return s
+			}(),
+			want: "true",
+		},
+		{
+			name: "When DeltaEligible is false it should return false",
+			status: func() *domain.DeviceStatus {
+				s := &domain.DeviceStatus{}
+				s.SystemInfo.DeltaEligible = lo.ToPtr(false)
+				return s
+			}(),
+			want: "false",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tt.want, deviceDeltaEligibleCountKey(tt.status))
+		})
+	}
+}
+
+func TestNewDevicesSummaryCapabilities(t *testing.T) {
+	t.Parallel()
+
+	got := NewDevicesSummaryCapabilities(
+		map[string]int64{"": 2, "image": 1},
+		map[string]int64{"": 1, "true": 3},
+	)
+	require.NotNil(t, got)
+	require.NotNil(t, got.OsMode)
+	require.Equal(t, map[string]int64{CapabilityCountUnknown: 2, "image": 1}, *got.OsMode)
+	require.NotNil(t, got.DeltaEligible)
+	require.Equal(t, map[string]int64{CapabilityCountUnknown: 1, "true": 3}, *got.DeltaEligible)
 }

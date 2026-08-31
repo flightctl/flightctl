@@ -217,18 +217,34 @@ func (f *TableFormatter) printDevicesSummaryTable(w *tabwriter.Writer, summary *
 		f.printTableRowLn(w, "APPLICATIONS", k, fmt.Sprintf("%d", summary.ApplicationStatus[k]))
 	}
 
-	// Print capabilities as a separate section if any are present.
-	if summary.Capabilities != nil && summary.Capabilities.OsMode != nil && len(*summary.Capabilities.OsMode) > 0 {
-		if err := w.Flush(); err != nil {
-			return err
-		}
-		fmt.Fprintln(w)
-		f.printHeaderRowLn(w, "CAPABILITY", "VALUE", "COUNT")
-		for _, k := range slices.Sorted(maps.Keys(*summary.Capabilities.OsMode)) {
-			f.printTableRowLn(w, "OS MODE", k, fmt.Sprintf("%d", (*summary.Capabilities.OsMode)[k]))
-		}
+	if summary.Capabilities == nil {
+		return nil
+	}
+	osMode := summary.Capabilities.OsMode
+	deltaEligible := summary.Capabilities.DeltaEligible
+	hasOsMode := osMode != nil && len(*osMode) > 0
+	hasDeltaEligible := deltaEligible != nil && len(*deltaEligible) > 0
+	if !hasOsMode && !hasDeltaEligible {
+		return nil
+	}
+	if err := w.Flush(); err != nil {
+		return err
+	}
+	fmt.Fprintln(w)
+	f.printHeaderRowLn(w, "CAPABILITY", "VALUE", "COUNT")
+	if hasOsMode {
+		f.printCapabilityCountRows(w, "OS MODE", *osMode)
+	}
+	if hasDeltaEligible {
+		f.printCapabilityCountRows(w, "DELTA ELIGIBLE", *deltaEligible)
 	}
 	return nil
+}
+
+func (f *TableFormatter) printCapabilityCountRows(w *tabwriter.Writer, label string, counts map[string]int64) {
+	for _, k := range slices.Sorted(maps.Keys(counts)) {
+		f.printTableRowLn(w, label, k, fmt.Sprintf("%d", counts[k]))
+	}
 }
 
 func (f *TableFormatter) printDevicesLastSeenTable(w *tabwriter.Writer, lastSeen *api.DeviceLastSeen) error {
@@ -239,6 +255,22 @@ func (f *TableFormatter) printDevicesLastSeenTable(w *tabwriter.Writer, lastSeen
 		f.printTableRowLn(w, lastSeen.LastSeen.Format(time.RFC3339), humanize.Time(lastSeen.LastSeen))
 	}
 	return nil
+}
+
+func formatDeviceUpdatedCell(status *api.DeviceStatus) string {
+	if status == nil {
+		return "Unknown"
+	}
+	cell := string(status.Updated.Status)
+	if status.Os.LastDelta != nil {
+		if size := status.Os.LastDelta.Size; size != nil && *size != "" {
+			cell += " " + *size
+		}
+		if reason := status.Os.LastDelta.FallbackReason; reason != nil && *reason != "" {
+			cell += " (fallback)"
+		}
+	}
+	return cell
 }
 
 func (f *TableFormatter) printDevicesTable(w *tabwriter.Writer, wide bool, devices ...api.Device) error {
@@ -259,7 +291,7 @@ func (f *TableFormatter) printDevicesTable(w *tabwriter.Writer, wide bool, devic
 		applicationsStatus := "Unknown"
 		if d.Status != nil {
 			summaryStatus = string(d.Status.Summary.Status)
-			updatedStatus = string(d.Status.Updated.Status)
+			updatedStatus = formatDeviceUpdatedCell(d.Status)
 			applicationsStatus = string(d.Status.ApplicationsSummary.Status)
 		}
 

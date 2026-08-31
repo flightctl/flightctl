@@ -1,6 +1,10 @@
 package model
 
-import "github.com/flightctl/flightctl/internal/domain"
+import (
+	"strconv"
+
+	"github.com/flightctl/flightctl/internal/domain"
+)
 
 // CapabilityCountUnknown is the DevicesSummary capabilities map key for devices
 // that have not reported a given capability (missing status.capabilities field).
@@ -34,11 +38,20 @@ func deviceOsModeCountKey(status *domain.DeviceStatus) string {
 	return string(*status.Capabilities.OsMode)
 }
 
+func deviceDeltaEligibleCountKey(status *domain.DeviceStatus) string {
+	if status == nil || status.SystemInfo.DeltaEligible == nil {
+		return CapabilityCountUnknown
+	}
+	return strconv.FormatBool(*status.SystemInfo.DeltaEligible)
+}
+
 // NewDevicesSummaryCapabilities builds the capabilities breakdown for a DevicesSummary,
-// normalizing missing osMode values to CapabilityCountUnknown.
-func NewDevicesSummaryCapabilities(osMode map[string]int64) *domain.DevicesSummaryCapabilities {
-	normalizedCounts := NormalizeCapabilityCounts(osMode)
+// normalizing missing osMode and deltaEligible values to CapabilityCountUnknown.
+func NewDevicesSummaryCapabilities(osMode, deltaEligible map[string]int64) *domain.DevicesSummaryCapabilities {
+	normalizedOsMode := NormalizeCapabilityCounts(osMode)
+	normalizedDeltaEligible := NormalizeCapabilityCounts(deltaEligible)
 	return &domain.DevicesSummaryCapabilities{
-		OsMode: &normalizedCounts,
+		OsMode:        &normalizedOsMode,
+		DeltaEligible: &normalizedDeltaEligible,
 	}
 }

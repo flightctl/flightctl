@@ -332,6 +332,7 @@ var _ = Describe("DeviceStore create", func() {
 			expectedSummaryMap := make(map[string]int64)
 			expectedUpdatedMap := make(map[string]int64)
 			expectedOsModeMap := make(map[string]int64)
+			expectedDeltaEligibleMap := make(map[string]int64)
 			for i := range allDevices.Items {
 				d := &allDevices.Items[i]
 				applicationStatus := fmt.Sprintf("application-%d", i)
@@ -346,13 +347,18 @@ var _ = Describe("DeviceStore create", func() {
 				switch i {
 				case 0:
 					d.Status.Capabilities = &api.DeviceCapabilities{OsMode: lo.ToPtr(api.OsModeImage)}
+					d.Status.SystemInfo.DeltaEligible = lo.ToPtr(true)
 					expectedOsModeMap[string(api.OsModeImage)]++
+					expectedDeltaEligibleMap["true"]++
 				case 1:
 					d.Status.Capabilities = &api.DeviceCapabilities{OsMode: lo.ToPtr(api.OsModePackage)}
+					d.Status.SystemInfo.DeltaEligible = lo.ToPtr(false)
 					expectedOsModeMap[string(api.OsModePackage)]++
+					expectedDeltaEligibleMap["false"]++
 				default:
 					d.Status.Capabilities = nil
 					expectedOsModeMap[model.CapabilityCountUnknown]++
+					expectedDeltaEligibleMap[model.CapabilityCountUnknown]++
 				}
 				_, _, err = devStore.UpdateStatus(ctx, orgId, d, nil)
 				Expect(err).ToNot(HaveOccurred())
@@ -366,6 +372,8 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(allDevices.Summary.Capabilities).ToNot(BeNil())
 			Expect(allDevices.Summary.Capabilities.OsMode).ToNot(BeNil())
 			Expect(*allDevices.Summary.Capabilities.OsMode).To(Equal(expectedOsModeMap))
+			Expect(allDevices.Summary.Capabilities.DeltaEligible).ToNot(BeNil())
+			Expect(*allDevices.Summary.Capabilities.DeltaEligible).To(Equal(expectedDeltaEligibleMap))
 			Expect(allDevices.Summary.Total).To(Equal(int64(3)))
 
 			allDevicesSummary, err := devStore.Summary(ctx, orgId, store.ListParams{})
@@ -376,6 +384,8 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(allDevicesSummary.Capabilities).ToNot(BeNil())
 			Expect(allDevicesSummary.Capabilities.OsMode).ToNot(BeNil())
 			Expect(*allDevicesSummary.Capabilities.OsMode).To(Equal(expectedOsModeMap))
+			Expect(allDevicesSummary.Capabilities.DeltaEligible).ToNot(BeNil())
+			Expect(*allDevicesSummary.Capabilities.DeltaEligible).To(Equal(expectedDeltaEligibleMap))
 			Expect(allDevicesSummary.Total).To(Equal(int64(3)))
 		})
 
