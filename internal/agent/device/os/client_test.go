@@ -22,12 +22,12 @@ func TestClientCapabilitiesMode(t *testing.T) {
 		},
 		{
 			name:     "When client is rpm-ostree it should report image mode",
-			client:   &rpmOSTree{},
+			client:   &rpmOSTree{lookPath: lookPathNone(), ociDeltaVersion: versionOK("")},
 			wantMode: v1beta1.OsModeImage,
 		},
 		{
 			name:     "When client is dummy it should report package mode",
-			client:   &dummy{},
+			client:   &dummy{lookPath: lookPathNone(), ociDeltaVersion: versionOK("")},
 			wantMode: v1beta1.OsModePackage,
 		},
 	}
@@ -52,7 +52,7 @@ func TestBootcCapabilitiesDeltaEligible(t *testing.T) {
 		wantOCI         string
 	}{
 		{
-			name:            "When bootc is 1.15.0 and oci-delta is present it should return true",
+			name:            "When oci-delta is present it should return true",
 			lookPath:        lookPathPresent("bootc", "oci-delta"),
 			bootcVersion:    versionOK("bootc 1.15.0"),
 			ociDeltaVersion: versionOK("oci-delta 0.2.1"),
@@ -61,34 +61,7 @@ func TestBootcCapabilitiesDeltaEligible(t *testing.T) {
 			wantOCI:         "oci-delta 0.2.1",
 		},
 		{
-			name:            "When bootc --version is a bare 1.15.0 it should return true",
-			lookPath:        lookPathPresent("bootc", "oci-delta"),
-			bootcVersion:    versionOK("1.15.0"),
-			ociDeltaVersion: versionOK("oci-delta 0.1.0"),
-			expected:        true,
-			wantBootc:       "1.15.0",
-			wantOCI:         "oci-delta 0.1.0",
-		},
-		{
-			name:            "When bootc is newer than 1.15.0 and oci-delta is present it should return true",
-			lookPath:        lookPathPresent("bootc", "oci-delta"),
-			bootcVersion:    versionOK("1.15.1"),
-			ociDeltaVersion: versionOK("oci-delta 0.1.0"),
-			expected:        true,
-			wantBootc:       "1.15.1",
-			wantOCI:         "oci-delta 0.1.0",
-		},
-		{
-			name:            "When bootc is 2.0.0 and oci-delta is present it should return true",
-			lookPath:        lookPathPresent("bootc", "oci-delta"),
-			bootcVersion:    versionOK("bootc 2.0.0"),
-			ociDeltaVersion: versionOK("oci-delta 0.1.0"),
-			expected:        true,
-			wantBootc:       "bootc 2.0.0",
-			wantOCI:         "oci-delta 0.1.0",
-		},
-		{
-			name:            "When bootc version output has a trailing newline it should return true",
+			name:            "When bootc version output has a trailing newline it should trim it",
 			lookPath:        lookPathPresent("bootc", "oci-delta"),
 			bootcVersion:    versionOK("bootc 1.15.0\n"),
 			ociDeltaVersion: versionOK("oci-delta 0.1.0"),
@@ -97,21 +70,12 @@ func TestBootcCapabilitiesDeltaEligible(t *testing.T) {
 			wantOCI:         "oci-delta 0.1.0",
 		},
 		{
-			name:            "When bootc is 1.14.9 and oci-delta is present it should return false",
+			name:            "When oci-delta is present it should return true regardless of bootc version",
 			lookPath:        lookPathPresent("bootc", "oci-delta"),
 			bootcVersion:    versionOK("bootc 1.14.9"),
 			ociDeltaVersion: versionOK("oci-delta 0.1.0"),
-			expected:        false,
+			expected:        true,
 			wantBootc:       "bootc 1.14.9",
-			wantOCI:         "oci-delta 0.1.0",
-		},
-		{
-			name:            "When bootc is 1.14.0 and oci-delta is present it should return false",
-			lookPath:        lookPathPresent("bootc", "oci-delta"),
-			bootcVersion:    versionOK("1.14.0"),
-			ociDeltaVersion: versionOK("oci-delta 0.1.0"),
-			expected:        false,
-			wantBootc:       "1.14.0",
 			wantOCI:         "oci-delta 0.1.0",
 		},
 		{
@@ -122,28 +86,19 @@ func TestBootcCapabilitiesDeltaEligible(t *testing.T) {
 			wantBootc:    "bootc 1.15.0",
 		},
 		{
-			name:            "When bootc is missing it should return false",
+			name:            "When bootc is missing and oci-delta is present it should return true",
 			lookPath:        lookPathPresent("oci-delta"),
 			bootcVersion:    versionOK("bootc 1.15.0"),
 			ociDeltaVersion: versionOK("oci-delta 0.1.0"),
-			expected:        false,
+			expected:        true,
 			wantOCI:         "oci-delta 0.1.0",
 		},
 		{
-			name:            "When bootc --version fails it should return false",
+			name:            "When bootc --version fails and oci-delta is present it should return true",
 			lookPath:        lookPathPresent("bootc", "oci-delta"),
 			bootcVersion:    versionErr,
 			ociDeltaVersion: versionOK("oci-delta 0.1.0"),
-			expected:        false,
-			wantOCI:         "oci-delta 0.1.0",
-		},
-		{
-			name:            "When bootc version output is unparsable it should return false",
-			lookPath:        lookPathPresent("bootc", "oci-delta"),
-			bootcVersion:    versionOK("not a version"),
-			ociDeltaVersion: versionOK("oci-delta 0.1.0"),
-			expected:        false,
-			wantBootc:       "not a version",
+			expected:        true,
 			wantOCI:         "oci-delta 0.1.0",
 		},
 	}
@@ -157,6 +112,52 @@ func TestBootcCapabilitiesDeltaEligible(t *testing.T) {
 			require.Equal(tc.expected, caps.DeltaEligible)
 			require.Equal(tc.wantBootc, caps.BootcVersion)
 			require.Equal(tc.wantOCI, caps.OCIDeltaVersion)
+		})
+	}
+}
+
+func TestCapabilitiesDeltaEligibleFromOCIDelta(t *testing.T) {
+	testCases := []struct {
+		name     string
+		client   Client
+		expected bool
+		wantOCI  string
+	}{
+		{
+			name: "When rpm-ostree has oci-delta it should return true",
+			client: &rpmOSTree{
+				lookPath:        lookPathPresent("oci-delta"),
+				ociDeltaVersion: versionOK("oci-delta 0.2.1"),
+			},
+			expected: true,
+			wantOCI:  "oci-delta 0.2.1",
+		},
+		{
+			name: "When dummy has oci-delta it should return true",
+			client: &dummy{
+				lookPath:        lookPathPresent("oci-delta"),
+				ociDeltaVersion: versionOK("oci-delta 0.2.1"),
+			},
+			expected: true,
+			wantOCI:  "oci-delta 0.2.1",
+		},
+		{
+			name: "When dummy is missing oci-delta it should return false",
+			client: &dummy{
+				lookPath:        lookPathNone(),
+				ociDeltaVersion: versionOK("oci-delta 0.2.1"),
+			},
+			expected: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			caps := tc.client.Capabilities(t.Context())
+			require.Equal(tc.expected, caps.DeltaEligible)
+			require.Equal(tc.wantOCI, caps.OCIDeltaVersion)
+			require.Empty(caps.BootcVersion)
 		})
 	}
 }

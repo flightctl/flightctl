@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	stdexec "os/exec"
-	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -16,33 +14,24 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
-const (
-	minDeltaBootcMajor  = 1
-	minDeltaBootcMinor  = 15
-	minDeltaBootcPatch  = 0
-	bootcVersionTimeout = 10 * time.Second
-)
+const versionCmdTimeout = 10 * time.Second
 
-var bootcVersionRE = regexp.MustCompile(`(\d+)\.(\d+)(?:\.(\d+))?`)
+func collectBootcVersion(ctx context.Context, lookPath func(string) (string, error), bootcVersion func(context.Context) (string, error)) string {
+	if _, err := lookPath("bootc"); err != nil {
+		return ""
+	}
+	return versionString(ctx, bootcVersion)
+}
 
-func collectToolInfo(ctx context.Context, lookPath func(string) (string, error), bootcVersion, ociDeltaVersion func(context.Context) (string, error)) (bootcVer, ociVer string, eligible bool) {
-	if _, err := lookPath("bootc"); err == nil {
-		bootcVer = versionString(ctx, bootcVersion)
+func collectOCIDelta(ctx context.Context, lookPath func(string) (string, error), ociDeltaVersion func(context.Context) (string, error)) (string, bool) {
+	if _, err := lookPath("oci-delta"); err != nil {
+		return "", false
 	}
-	hasOCI := false
-	if _, err := lookPath("oci-delta"); err == nil {
-		hasOCI = true
-		ociVer = versionString(ctx, ociDeltaVersion)
-	}
-	major, minor, patch, ok := parseBootcVersion(bootcVer)
-	if !hasOCI || !ok {
-		return bootcVer, ociVer, false
-	}
-	return bootcVer, ociVer, versionAtLeast(major, minor, patch, minDeltaBootcMajor, minDeltaBootcMinor, minDeltaBootcPatch)
+	return versionString(ctx, ociDeltaVersion), true
 }
 
 func versionString(ctx context.Context, fn func(context.Context) (string, error)) string {
-	versionCtx, cancel := context.WithTimeout(ctx, bootcVersionTimeout)
+	versionCtx, cancel := context.WithTimeout(ctx, versionCmdTimeout)
 	defer cancel()
 	out, err := fn(versionCtx)
 	if err != nil {
@@ -62,39 +51,6 @@ func versionCmd(exec executer.Executer, name string) func(context.Context) (stri
 	}
 }
 
-func parseBootcVersion(output string) (major, minor, patch int, ok bool) {
-	match := bootcVersionRE.FindStringSubmatch(output)
-	if match == nil {
-		return 0, 0, 0, false
-	}
-	major, err := strconv.Atoi(match[1])
-	if err != nil {
-		return 0, 0, 0, false
-	}
-	minor, err = strconv.Atoi(match[2])
-	if err != nil {
-		return 0, 0, 0, false
-	}
-	if match[3] == "" {
-		return major, minor, 0, true
-	}
-	patch, err = strconv.Atoi(match[3])
-	if err != nil {
-		return 0, 0, 0, false
-	}
-	return major, minor, patch, true
-}
-
-func versionAtLeast(major, minor, patch, minMajor, minMinor, minPatch int) bool {
-	if major != minMajor {
-		return major > minMajor
-	}
-	if minor != minMinor {
-		return minor > minMinor
-	}
-	return patch >= minPatch
-}
-
 func NewClient(log *log.PrefixLogger, exec executer.Executer) Client {
 	switch {
 	case isBinaryAvailable("bootc"):
@@ -105,7 +61,7 @@ func NewClient(log *log.PrefixLogger, exec executer.Executer) Client {
 		return newRpmOSTreeClient(exec)
 	default:
 		log.Infof("package-mode / no image manager; using no-op OS client")
-		return newDummyClient(log)
+		return newDummyClient(log, exec)
 	}
 }
 
@@ -131,11 +87,11 @@ type bootc struct {
 }
 
 func (b *bootc) Capabilities(ctx context.Context) Capabilities {
-	bootcVer, ociVer, eligible := collectToolInfo(ctx, b.lookPath, b.bootcVersion, b.ociDeltaVersion)
+	ociVer, eligible := collectOCIDelta(ctx, b.lookPath, b.ociDeltaVersion)
 	return Capabilities{
 		OsMode:          v1beta1.OsModeImage,
 		DeltaEligible:   eligible,
-		BootcVersion:    bootcVer,
+		BootcVersion:    collectBootcVersion(ctx, b.lookPath, b.bootcVersion),
 		OCIDeltaVersion: ociVer,
 	}
 }
@@ -161,11 +117,17 @@ func (b *bootc) Apply(ctx context.Context) error {
 }
 
 func newRpmOSTreeClient(exec executer.Executer) *rpmOSTree {
-	return &rpmOSTree{client: client.NewRPMOSTree(exec)}
+	return &rpmOSTree{
+		client:          client.NewRPMOSTree(exec),
+		lookPath:        stdexec.LookPath,
+		ociDeltaVersion: versionCmd(exec, "oci-delta"),
+	}
 }
 
 type rpmOSTree struct {
-	client *client.RPMOSTree
+	client          *client.RPMOSTree
+	lookPath        func(string) (string, error)
+	ociDeltaVersion func(context.Context) (string, error)
 }
 
 func (r *rpmOSTree) Status(ctx context.Context) (*Status, error) {
@@ -189,16 +151,27 @@ func (r *rpmOSTree) Apply(ctx context.Context) error {
 }
 
 func (r *rpmOSTree) Capabilities(ctx context.Context) Capabilities {
-	return Capabilities{OsMode: v1beta1.OsModeImage}
+	ociVer, eligible := collectOCIDelta(ctx, r.lookPath, r.ociDeltaVersion)
+	return Capabilities{
+		OsMode:          v1beta1.OsModeImage,
+		DeltaEligible:   eligible,
+		OCIDeltaVersion: ociVer,
+	}
 }
 
-func newDummyClient(log *log.PrefixLogger) *dummy {
-	return &dummy{log: log}
+func newDummyClient(log *log.PrefixLogger, exec executer.Executer) *dummy {
+	return &dummy{
+		log:             log,
+		lookPath:        stdexec.LookPath,
+		ociDeltaVersion: versionCmd(exec, "oci-delta"),
+	}
 }
 
 // dummy client for package-mode (no image manager)
 type dummy struct {
-	log *log.PrefixLogger
+	log             *log.PrefixLogger
+	lookPath        func(string) (string, error)
+	ociDeltaVersion func(context.Context) (string, error)
 }
 
 func (d *dummy) Status(ctx context.Context) (*Status, error) {
@@ -221,5 +194,10 @@ func (d *dummy) Apply(ctx context.Context) error {
 }
 
 func (d *dummy) Capabilities(ctx context.Context) Capabilities {
-	return Capabilities{OsMode: v1beta1.OsModePackage}
+	ociVer, eligible := collectOCIDelta(ctx, d.lookPath, d.ociDeltaVersion)
+	return Capabilities{
+		OsMode:          v1beta1.OsModePackage,
+		DeltaEligible:   eligible,
+		OCIDeltaVersion: ociVer,
+	}
 }

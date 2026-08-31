@@ -33,7 +33,7 @@ type Client interface {
 	Rollback(ctx context.Context) error
 	// Apply applies the OS changes, potentially triggering a reboot
 	Apply(ctx context.Context) error
-	// Capabilities reports OS mode, tool versions, and whether this client can apply OS deltas.
+	// Capabilities reports OS mode, tool versions, and whether this device can consume OCI deltas.
 	Capabilities(ctx context.Context) Capabilities
 }
 

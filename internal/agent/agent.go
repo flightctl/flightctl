@@ -176,7 +176,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	osClient := os.NewClient(a.log, exec)
 	caps := osClient.Capabilities(ctx)
 	a.log.Infof("OS mode detected: %s", caps.OsMode)
-	a.log.Infof("OS delta eligible: %t bootc=%q oci-delta=%q", caps.DeltaEligible, caps.BootcVersion, caps.OCIDeltaVersion)
+	a.log.Infof("delta eligible: %t bootc=%q oci-delta=%q", caps.DeltaEligible, caps.BootcVersion, caps.OCIDeltaVersion)
 
 	// create podman client
 	podmanClientFactory := client.NewPodmanFactory(a.log, pollBackoff, rwFactory)

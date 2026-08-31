@@ -1614,7 +1614,7 @@ type DeviceSystemInfo struct {
 	// CustomInfo User-defined information about the device.
 	CustomInfo *CustomDeviceInfo `json:"customInfo,omitempty"`
 
-	// DeltaEligible Whether this device can apply OS deltas. True only when bootc is 1.15.0 or newer and the oci-delta binary is present. False when this agent cannot apply deltas. Omitted when an older agent does not report the field.
+	// DeltaEligible Whether this device can consume OCI deltas. True when the oci-delta binary is present. False when it is not. Omitted when an older agent does not report the field.
 	DeltaEligible *bool `json:"deltaEligible,omitempty"`
 
 	// OciDeltaVersion Version reported by `oci-delta --version`. Absent when oci-delta is not installed or the version command fails.
