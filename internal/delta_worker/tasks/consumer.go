@@ -25,10 +25,9 @@ type Consumer struct {
 	store           deltastore.Store
 	workerMetrics   *worker.WorkerCollector
 	log             logrus.FieldLogger
-	preparer        PrepareDeltasHandler
-	writeTarget     writeTargetResolver
-	pushPath        pushPathResolver
-	preparingStatus preparingStatusReporter
+	preparer    PrepareDeltasHandler
+	writeTarget writeTargetResolver
+	pushPath    pushPathResolver
 
 	jobTimeout     time.Duration
 	existenceCheck func(ctx context.Context, orgID uuid.UUID, imageRepository, sourceDigest, targetDigest string) (existenceResult, error)
@@ -38,9 +37,8 @@ type Consumer struct {
 
 // ConsumerWiring configures optional runtime dependencies for the consumer.
 type ConsumerWiring struct {
-	Preparer        PrepareDeltasHandler
-	WriteTarget     writeTargetResolver
-	PreparingStatus preparingStatusReporter
+	Preparer    PrepareDeltasHandler
+	WriteTarget writeTargetResolver
 }
 
 // NewConsumer creates a new Consumer instance.
@@ -54,7 +52,6 @@ func NewConsumer(cfg *config.Config, store deltastore.Store, workerMetrics *work
 	if wiring != nil {
 		c.preparer = wiring.Preparer
 		c.writeTarget = wiring.WriteTarget
-		c.preparingStatus = wiring.PreparingStatus
 	}
 	return c
 }

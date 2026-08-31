@@ -70,10 +70,6 @@ type PrepareDeltasHandler interface {
 	Prepare(ctx context.Context, ev worker_client.EventWithOrgId) error
 }
 
-type preparingStatusReporter interface {
-	SetProgress(ctx context.Context, orgId uuid.UUID, kind, name string, progress GenerationProgress) error
-}
-
 type writeTargetResolver func(ctx context.Context, orgID uuid.UUID) (*domain.OciRepoSpec, error)
 type pushPathResolver func(ctx context.Context, orgID uuid.UUID, imageRepository string) (string, error)
 
@@ -338,23 +334,7 @@ func (c *Consumer) runResume(ctx context.Context, key deltastore.GenerationKey) 
 	return err
 }
 
-func (c *Consumer) reportCopyProgress(ctx context.Context, key deltastore.GenerationKey, progress GenerationProgress, log logrus.FieldLogger) {
-	if c.preparingStatus == nil || c.store == nil {
-		return
-	}
-	waiting, err := c.store.ListWaitingPreparesByGeneration(ctx, key)
-	if err != nil {
-		if log != nil {
-			log.WithError(err).Warn("failed to list prepares for copy progress")
-		}
-		return
-	}
-	for i := range waiting {
-		prep := waiting[i]
-		if err := c.preparingStatus.SetProgress(ctx, prep.OrgID, prep.Kind, prep.Name, progress); err != nil && log != nil {
-			log.WithError(err).Warnf("failed to update copy progress for %s/%s", prep.Kind, prep.Name)
-		}
-	}
+func (c *Consumer) reportCopyProgress(context.Context, deltastore.GenerationKey, GenerationProgress, logrus.FieldLogger) {
 }
 
 func (c *Consumer) heartbeatPrepareProgress(ctx context.Context, key deltastore.GenerationKey, phase domain.DeltaGenerationPhase, log logrus.FieldLogger) context.CancelFunc {
