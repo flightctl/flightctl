@@ -2,14 +2,18 @@ package trustifyv2
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
+	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/clientcredentials"
 )
 
@@ -339,10 +343,48 @@ func stripSHA256Prefix(s string) string {
 	return strings.TrimPrefix(s, "sha256:")
 }
 
-// buildHTTPClient constructs an http.Client according to the auth mode.
+// buildTLSTransport constructs an *http.Transport whose TLS configuration honors
+// the CAFile and SkipTLSVerify settings. It clones http.DefaultTransport so
+// default behaviors (proxy handling, connection pooling) are preserved.
+func buildTLSTransport(cfg *config.TrustifyConfig) (*http.Transport, error) {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+
+	tlsConfig := &tls.Config{
+		MinVersion:         tls.VersionTLS12,
+		InsecureSkipVerify: cfg.SkipTLSVerify, //nolint:gosec // opt-in insecure mode for lab/air-gap environments
+	}
+
+	if cfg.CAFile != "" {
+		caPEM, err := os.ReadFile(cfg.CAFile)
+		if err != nil {
+			return nil, fmt.Errorf("reading Trustify CA file %q: %w", cfg.CAFile, err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(caPEM) {
+			return nil, fmt.Errorf("no valid certificates found in Trustify CA file %q", cfg.CAFile)
+		}
+		tlsConfig.RootCAs = pool
+	}
+
+	transport.TLSClientConfig = tlsConfig
+	return transport, nil
+}
+
+// buildHTTPClient constructs an http.Client according to the auth mode, applying
+// the configured TLS settings (CAFile / SkipTLSVerify) in all cases.
 func buildHTTPClient(ctx context.Context, cfg *config.TrustifyConfig) (*http.Client, error) {
+	transport, err := buildTLSTransport(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	baseClient := &http.Client{
+		Timeout:   defaultHTTPTimeout,
+		Transport: transport,
+	}
+
 	if cfg.Auth == nil || cfg.Auth.Mode == AuthModeNone || cfg.Auth.Mode == "" {
-		return &http.Client{Timeout: defaultHTTPTimeout}, nil
+		return baseClient, nil
 	}
 
 	if cfg.Auth.Mode != AuthModeClientCredentials {
@@ -351,6 +393,10 @@ func buildHTTPClient(ctx context.Context, cfg *config.TrustifyConfig) (*http.Cli
 			Err:  fmt.Errorf("unsupported authentication mode %q", cfg.Auth.Mode),
 		}
 	}
+
+	// Ensure OIDC discovery and the OAuth token requests also honor the TLS
+	// settings by threading the base client through the context.
+	ctx = context.WithValue(ctx, oauth2.HTTPClient, baseClient)
 
 	tokenURL, err := discoverTokenEndpoint(ctx, cfg.Auth.OIDCIssuerURL)
 	if err != nil {
@@ -386,7 +432,7 @@ func discoverTokenEndpoint(ctx context.Context, issuerURL string) (string, error
 	}
 	req.Header.Set("Accept", "application/json")
 
-	httpClient := &http.Client{Timeout: defaultHTTPTimeout}
+	httpClient := httpClientFromContext(ctx)
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("fetching discovery document from %s: %w", discoveryURL, err)
@@ -408,6 +454,16 @@ func discoverTokenEndpoint(ctx context.Context, issuerURL string) (string, error
 	}
 
 	return doc.TokenEndpoint, nil
+}
+
+// httpClientFromContext returns the *http.Client stored under oauth2.HTTPClient
+// in the context (so TLS settings are honored), falling back to a plain client
+// with the default timeout when none is present.
+func httpClientFromContext(ctx context.Context) *http.Client {
+	if c, ok := ctx.Value(oauth2.HTTPClient).(*http.Client); ok && c != nil {
+		return c
+	}
+	return &http.Client{Timeout: defaultHTTPTimeout}
 }
 
 // decodeJSON is a helper to decode JSON from a reader.
