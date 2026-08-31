@@ -67,25 +67,42 @@ func checkPublishMatrix(repoRoot string, services []ExpandedService) []Issue {
 }
 
 func parsePublishImages(content string) (map[string]struct{}, error) {
-	// Current layout: top-level env SUPPORTED_IMAGES: "api worker ..."
-	if m := regexp.MustCompile(`(?m)^\s*SUPPORTED_IMAGES:\s*"([^"]+)"`).FindStringSubmatch(content); m != nil {
-		got := map[string]struct{}{}
-		for _, part := range strings.Fields(m[1]) {
-			got[part] = struct{}{}
-		}
-		return got, nil
+	var doc map[string]any
+	if err := yaml.Unmarshal([]byte(content), &doc); err != nil {
+		return nil, fmt.Errorf("parse publish-containers.yaml: %w", err)
 	}
-	// Older layout: strategy.matrix.image: ['api', 'worker', ...]
-	if m := regexp.MustCompile(`(?m)^\s*image:\s*\[([^\]]+)\]`).FindStringSubmatch(content); m != nil {
-		got := map[string]struct{}{}
-		for _, part := range strings.Split(m[1], ",") {
-			part = strings.TrimSpace(part)
-			part = strings.Trim(part, "'\"")
-			if part != "" {
+	if env, ok := doc["env"].(map[string]any); ok {
+		if raw, ok := env["SUPPORTED_IMAGES"].(string); ok && strings.TrimSpace(raw) != "" {
+			got := map[string]struct{}{}
+			for _, part := range strings.Fields(raw) {
 				got[part] = struct{}{}
 			}
+			return got, nil
 		}
-		return got, nil
+	}
+	jobs, _ := doc["jobs"].(map[string]any)
+	for _, job := range jobs {
+		jm, ok := job.(map[string]any)
+		if !ok {
+			continue
+		}
+		strategy, _ := jm["strategy"].(map[string]any)
+		matrix, _ := strategy["matrix"].(map[string]any)
+		images, ok := matrix["image"].([]any)
+		if !ok {
+			continue
+		}
+		got := map[string]struct{}{}
+		for _, item := range images {
+			s, ok := item.(string)
+			if !ok || s == "" {
+				continue
+			}
+			got[s] = struct{}{}
+		}
+		if len(got) > 0 {
+			return got, nil
+		}
 	}
 	return nil, fmt.Errorf("could not find SUPPORTED_IMAGES or matrix.image list in publish-containers.yaml")
 }
@@ -106,29 +123,6 @@ func checkAirGapObservability(repoRoot string, services []ExpandedService) []Iss
 		return nil
 	}
 	return []Issue{{Check: check, Message: strings.TrimSpace(d.Format("observabilityOnlyImages mismatch vs registry observabilityOnly"))}}
-}
-
-func parseObservabilityOnlyImages(src string) (map[string]struct{}, error) {
-	idx := strings.Index(src, "var observabilityOnlyImages")
-	if idx < 0 {
-		return nil, fmt.Errorf("could not find observabilityOnlyImages in generate-embed/main.go")
-	}
-	block := src[idx:]
-	if end := strings.Index(block, "}"); end >= 0 {
-		block = block[:end]
-	}
-	re := regexp.MustCompile(`"([a-z0-9-]+)"\s*:\s*true`)
-	got := map[string]struct{}{}
-	for _, line := range strings.Split(block, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "//") {
-			continue
-		}
-		if m := re.FindStringSubmatch(trimmed); m != nil {
-			got[m[1]] = struct{}{}
-		}
-	}
-	return got, nil
 }
 
 func checkImagesYAML(repoRoot string, services []ExpandedService) []Issue {
@@ -306,15 +300,9 @@ func checkCollectLogs(repoRoot string, services []ExpandedService) []Issue {
 	if err != nil {
 		return []Issue{{Check: check, Message: err.Error()}}
 	}
-	re := regexp.MustCompile(`for deployment in ([^;]+)`)
-	m := re.FindSubmatch(data)
-	if m == nil {
-		return []Issue{{Check: check, Message: "could not find deployment loop in collect-logs action"}}
-	}
-	got := map[string]struct{}{}
-	for _, part := range strings.Fields(string(m[1])) {
-		part = strings.TrimPrefix(part, "flightctl-")
-		got[part] = struct{}{}
+	got, err := parseCollectLogDeployments(string(data))
+	if err != nil {
+		return []Issue{{Check: check, Message: err.Error()}}
 	}
 	want := toSet(namesWhere(services, func(s ExpandedService) bool { return s.CollectLogs }))
 	d := DiffSets(want, got)
@@ -324,35 +312,53 @@ func checkCollectLogs(repoRoot string, services []ExpandedService) []Issue {
 	return []Issue{{Check: check, Message: strings.TrimSpace(d.Format("collect-logs deployments mismatch"))}}
 }
 
+func parseCollectLogDeployments(content string) (map[string]struct{}, error) {
+	var doc struct {
+		Runs struct {
+			Steps []struct {
+				Run string `yaml:"run"`
+			} `yaml:"steps"`
+		} `yaml:"runs"`
+	}
+	if err := yaml.Unmarshal([]byte(content), &doc); err != nil {
+		return nil, fmt.Errorf("parse collect-logs action.yml: %w", err)
+	}
+	got := map[string]struct{}{}
+	found := false
+	for _, step := range doc.Runs.Steps {
+		for _, line := range strings.Split(step.Run, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+				continue
+			}
+			const prefix = "for deployment in "
+			if !strings.HasPrefix(trimmed, prefix) {
+				continue
+			}
+			found = true
+			rest := strings.TrimPrefix(trimmed, prefix)
+			rest = strings.TrimSuffix(rest, "; do")
+			rest = strings.TrimSuffix(rest, ";do")
+			for _, part := range strings.Fields(rest) {
+				got[strings.TrimPrefix(part, "flightctl-")] = struct{}{}
+			}
+		}
+	}
+	if !found {
+		return nil, fmt.Errorf("could not find deployment loop in collect-logs action")
+	}
+	return got, nil
+}
+
 func checkTagOverride(repoRoot string, services []ExpandedService) []Issue {
 	const check = "tag-override"
 	data, err := os.ReadFile(filepath.Join(repoRoot, "internal/quadlet/renderer/renderer.go"))
 	if err != nil {
 		return []Issue{{Check: check, Message: err.Error()}}
 	}
-	src := string(data)
-
-	fieldRe := regexp.MustCompile(`(\w+)\s+ImageConfig\s+\x60mapstructure:"([^"]+)"\x60`)
-	keyByField := map[string]string{}
-	for _, m := range fieldRe.FindAllStringSubmatch(src, -1) {
-		keyByField[m[1]] = m[2]
-	}
-
-	idx := strings.Index(src, "func (config *RendererConfig) ApplyFlightctlServicesTagOverride")
-	if idx < 0 {
-		return []Issue{{Check: check, Message: "could not find ApplyFlightctlServicesTagOverride"}}
-	}
-	fn := src[idx:]
-	if end := strings.Index(fn, "\nfunc "); end > 0 {
-		fn = fn[:end]
-	}
-
-	assignRe := regexp.MustCompile(`config\.(\w+)\.Tag\s*=\s*tag`)
-	got := map[string]struct{}{}
-	for _, m := range assignRe.FindAllStringSubmatch(fn, -1) {
-		if key, ok := keyByField[m[1]]; ok {
-			got[key] = struct{}{}
-		}
+	got, err := parseRendererTagOverrides(string(data))
+	if err != nil {
+		return []Issue{{Check: check, Message: err.Error()}}
 	}
 	want := toSet(namesWhere(services, func(s ExpandedService) bool { return s.TagOverride }))
 	d := DiffSets(want, got)

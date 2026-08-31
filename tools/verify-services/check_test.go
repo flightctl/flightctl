@@ -168,6 +168,11 @@ func TestUnitWants(t *testing.T) {
 			content: "[Unit]\nWants=flightctl-api.service flightctl-worker.service\n",
 			want:    []string{"flightctl-api.service", "flightctl-worker.service"},
 		},
+		{
+			name:    "When Wants continues with backslash it should include next line",
+			content: "[Unit]\nWants=flightctl-api.service \\\n flightctl-worker.service\n",
+			want:    []string{"flightctl-api.service", "flightctl-worker.service"},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -242,12 +247,12 @@ func TestParseObservabilityOnlyImages(t *testing.T) {
 	}{
 		{
 			name: "When map entries are active it should include them",
-			src:  "var observabilityOnlyImages = map[string]bool{\n\t\"grafana\": true,\n\t\"prometheus\": true,\n}\n",
+			src:  "package p\nvar observabilityOnlyImages = map[string]bool{\n\t\"grafana\": true,\n\t\"prometheus\": true,\n}\n",
 			want: []string{"grafana", "prometheus"},
 		},
 		{
 			name: "When map entry is commented it should ignore it",
-			src:  "var observabilityOnlyImages = map[string]bool{\n\t\"grafana\": true,\n\t// \"prometheus\": true,\n}\n",
+			src:  "package p\nvar observabilityOnlyImages = map[string]bool{\n\t\"grafana\": true,\n\t// \"prometheus\": true,\n}\n",
 			want: []string{"grafana"},
 			skip: []string{"prometheus"},
 		},
@@ -290,6 +295,75 @@ func TestCheckPodmanSave(t *testing.T) {
 		issues := checkPodmanSave(root, services)
 		if len(issues) == 0 {
 			t.Fatal("expected missing api save issue")
+		}
+	})
+}
+
+func TestParseCollectLogDeployments(t *testing.T) {
+	cases := []struct {
+		name    string
+		yaml    string
+		want    []string
+		skip    []string
+		wantErr bool
+	}{
+		{
+			name: "When loop is active it should include deployments",
+			yaml: "runs:\n  steps:\n    - run: |\n        for deployment in flightctl-api flightctl-db; do\n          echo hi\n        done\n",
+			want: []string{"api", "db"},
+		},
+		{
+			name:    "When loop is only commented it should error",
+			yaml:    "runs:\n  steps:\n    - run: |\n        # for deployment in flightctl-api flightctl-db; do\n        echo hi\n",
+			wantErr: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseCollectLogDeployments(tc.yaml)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, name := range tc.want {
+				if _, ok := got[name]; !ok {
+					t.Fatalf("missing %s in %v", name, got)
+				}
+			}
+		})
+	}
+}
+
+func TestParseRendererTagOverrides(t *testing.T) {
+	src := `package renderer
+type ImageConfig struct {
+	Tag string
+}
+type RendererConfig struct {
+	Api    ImageConfig ` + "`mapstructure:\"api\"`" + `
+	Worker ImageConfig ` + "`mapstructure:\"worker\"`" + `
+}
+func (config *RendererConfig) ApplyFlightctlServicesTagOverride() {
+	tag := "x"
+	config.Api.Tag = tag
+	// config.Worker.Tag = tag
+}
+`
+	t.Run("When assignment is commented it should ignore it", func(t *testing.T) {
+		got, err := parseRendererTagOverrides(src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := got["api"]; !ok {
+			t.Fatalf("missing api in %v", got)
+		}
+		if _, ok := got["worker"]; ok {
+			t.Fatal("commented worker assignment should be ignored")
 		}
 	})
 }

@@ -63,7 +63,7 @@ func checkQuadlet(repoRoot string, services []ExpandedService) []Issue {
 func unitWants(content string) map[string]struct{} {
 	out := map[string]struct{}{}
 	inUnit := false
-	for _, line := range strings.Split(content, "\n") {
+	for _, line := range systemdLogicalLines(content) {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
 			inUnit = trimmed == "[Unit]"
@@ -77,6 +77,24 @@ func unitWants(content string) map[string]struct{} {
 				out[unit] = struct{}{}
 			}
 		}
+	}
+	return out
+}
+
+func systemdLogicalLines(content string) []string {
+	var out []string
+	var buf string
+	for _, line := range strings.Split(content, "\n") {
+		trimmedRight := strings.TrimRight(line, " \t")
+		if strings.HasSuffix(trimmedRight, `\`) {
+			buf += strings.TrimSuffix(trimmedRight, `\`) + " "
+			continue
+		}
+		out = append(out, buf+line)
+		buf = ""
+	}
+	if buf != "" {
+		out = append(out, buf)
 	}
 	return out
 }
