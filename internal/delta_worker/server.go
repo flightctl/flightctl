@@ -65,6 +65,8 @@ func (s *Server) Run(ctx context.Context) error {
 		WriteTarget: func(ctx context.Context, orgID uuid.UUID) (*domain.OciRepoSpec, error) {
 			return resolveWriteSpec(ctx, s.cfg, preparer, orgID)
 		},
+		Persist:    preparer.Persist,
+		PairCounts: preparer.Status,
 	}
 	if err := tasks.LaunchConsumers(ctx, s.queuesProvider, s.cfg, s.store, s.workerMetrics, s.log, wiring); err != nil {
 		s.log.WithError(err).Error("failed to launch delta-generation consumers")

@@ -21,13 +21,15 @@ const ackTimeout = 5 * time.Second
 
 // Consumer handles incoming jobs from the delta-generation task queue.
 type Consumer struct {
-	cfg             *config.Config
-	store           deltastore.Store
-	workerMetrics   *worker.WorkerCollector
-	log             logrus.FieldLogger
-	preparer    PrepareDeltasHandler
-	writeTarget writeTargetResolver
-	pushPath    pushPathResolver
+	cfg           *config.Config
+	store         deltastore.Store
+	workerMetrics *worker.WorkerCollector
+	log           logrus.FieldLogger
+	preparer      PrepareDeltasHandler
+	writeTarget   writeTargetResolver
+	pushPath      pushPathResolver
+	persist       func(ctx context.Context, orgId uuid.UUID, event *domain.Event)
+	pairCounts    pairCountStatus
 
 	jobTimeout     time.Duration
 	existenceCheck func(ctx context.Context, orgID uuid.UUID, imageRepository, sourceDigest, targetDigest string) (existenceResult, error)
@@ -36,9 +38,15 @@ type Consumer struct {
 }
 
 // ConsumerWiring configures optional runtime dependencies for the consumer.
+type pairCountStatus interface {
+	Set(ctx context.Context, orgId uuid.UUID, kind, name string, completed, total int) error
+}
+
 type ConsumerWiring struct {
 	Preparer    PrepareDeltasHandler
 	WriteTarget writeTargetResolver
+	Persist     func(ctx context.Context, orgId uuid.UUID, event *domain.Event)
+	PairCounts  pairCountStatus
 }
 
 // NewConsumer creates a new Consumer instance.
@@ -52,6 +60,8 @@ func NewConsumer(cfg *config.Config, store deltastore.Store, workerMetrics *work
 	if wiring != nil {
 		c.preparer = wiring.Preparer
 		c.writeTarget = wiring.WriteTarget
+		c.persist = wiring.Persist
+		c.pairCounts = wiring.PairCounts
 	}
 	return c
 }

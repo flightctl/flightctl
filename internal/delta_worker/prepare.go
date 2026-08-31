@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/delta_worker/tasks"
+	deltatasks "github.com/flightctl/flightctl/internal/delta_worker/tasks"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	deltastore "github.com/flightctl/flightctl/internal/store/delta"
@@ -278,7 +278,7 @@ func (p *Preparer) enqueueChanged(ctx context.Context, orgId uuid.UUID, fleet *d
 	}
 	timeout := p.jobTimeout(fleet)
 	for _, key := range changed {
-		payload, err := json.Marshal(tasks.GenerateDeltaPayload{
+		payload, err := json.Marshal(deltatasks.GenerateDeltaPayload{
 			ImageRepository: key.ImageRepository,
 			SourceDigest:    key.SourceDigest,
 			TargetDigest:    key.TargetDigest,
@@ -322,7 +322,7 @@ func (p *Preparer) emitJoinSnapshots(ctx context.Context, prep *model.DeltaPrepa
 		if gen.Status != model.DeltaGenerationInProgress {
 			continue
 		}
-		event, err := deltaGenerationProgressEvent(ctx, *prep, key, domain.DeltaGenerationProgressInProgress, nil)
+		event, err := deltatasks.DeltaGenerationProgressEvent(ctx, *prep, key, domain.DeltaGenerationProgressInProgress, deltatasks.GenerationPhasePtr(gen))
 		if err != nil {
 			continue
 		}

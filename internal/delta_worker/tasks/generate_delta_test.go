@@ -71,6 +71,14 @@ func (f *fakeGenerationStore) GetWaitingPrepare(context.Context, uuid.UUID, stri
 	return nil, nil
 }
 
+func (f *fakeGenerationStore) CountPreparePairs(context.Context, uuid.UUID) (int, int, error) {
+	return 0, 0, nil
+}
+
+func (f *fakeGenerationStore) SetGenerationPhase(context.Context, deltastore.GenerationKey, string) error {
+	return nil
+}
+
 func (f *fakeGenerationStore) InsertRejectedGeneration(_ context.Context, gen *model.DeltaGeneration) error {
 	f.rejected = append(f.rejected, gen)
 	return nil

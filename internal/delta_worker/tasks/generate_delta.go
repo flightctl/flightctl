@@ -221,9 +221,9 @@ func (c *Consumer) handleGenerateDelta(ctx context.Context, ev worker_client.Eve
 	if check == nil {
 		check = c.defaultExistenceCheck
 	}
-	stopCheck := c.heartbeatPrepareProgress(ctx, key, domain.DeltaGenerationPhaseCheckingExisting, log)
+	checkPhase := domain.DeltaGenerationPhaseCheckingExisting
+	c.fanoutProgress(ctx, key, domain.DeltaGenerationProgressInProgress, &checkPhase, log)
 	result, err := check(ctx, key.OrgID, key.ImageRepository, key.SourceDigest, key.TargetDigest)
-	stopCheck()
 	if err != nil {
 		return err
 	}
@@ -240,6 +240,7 @@ func (c *Consumer) handleGenerateDelta(ctx context.Context, ev worker_client.Eve
 		}); err != nil {
 			return err
 		}
+		c.completePair(ctx, key, domain.DeltaGenerationProgressRejected, log)
 		return c.runResume(ctx, key)
 	}
 
@@ -281,16 +282,15 @@ func (c *Consumer) handleGenerateDelta(ctx context.Context, ev worker_client.Eve
 	sourceRef := key.ImageRepository + "@" + key.SourceDigest
 	targetRef := key.ImageRepository + "@" + key.TargetDigest
 	log.Infof("creating delta source=%s target=%s push=%s", sourceRef, targetRef, pushPath)
-	var lastMu sync.Mutex
-	var last GenerationProgress
+	lastPhase := domain.DeltaGenerationPhaseCheckingExisting
 	genCtx := withCopyProgress(ctx, func(prog GenerationProgress) {
-		lastMu.Lock()
-		last = prog
-		lastMu.Unlock()
-		c.reportCopyProgress(ctx, key, prog, log)
+		if prog.Phase == "" || prog.Phase == lastPhase {
+			return
+		}
+		ph := prog.Phase
+		lastPhase = ph
+		c.fanoutProgress(ctx, key, domain.DeltaGenerationProgressInProgress, &ph, log)
 	})
-	stopGen := c.heartbeatLastProgress(ctx, key, &lastMu, &last, log)
-	defer stopGen()
 	deltaRef, sizeBytes, genErr := generate(genCtx, key.OrgID, sourceRef, targetRef, pushPath)
 	if genErr != nil {
 		return c.failGeneration(ctx, key, claimed.ResourceVersion, genErr)
@@ -309,7 +309,8 @@ func (c *Consumer) handleGenerateDelta(ctx context.Context, ev worker_client.Eve
 		}
 		return c.failGeneration(ctx, key, claimed.ResourceVersion, casErr)
 	}
-	return c.runResume(ctx, key)
+	c.completePair(writeCtx, key, domain.DeltaGenerationProgressSucceeded, log)
+	return c.runResume(writeCtx, key)
 }
 
 func persistContext(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -323,7 +324,73 @@ func (c *Consumer) failGeneration(ctx context.Context, key deltastore.Generation
 	if casErr != nil && !errors.Is(casErr, flterrors.ErrNoRowsUpdated) {
 		return fmt.Errorf("generate: %w; persist failed status: %w", cause, casErr)
 	}
+	if casErr == nil {
+		c.completePair(ctx, key, domain.DeltaGenerationProgressFailed, nil)
+	}
 	return c.runResume(ctx, key)
+}
+
+func (c *Consumer) completePair(ctx context.Context, key deltastore.GenerationKey, status domain.DeltaGenerationProgressDetailsGenerationStatus, log logrus.FieldLogger) {
+	c.fanoutProgress(ctx, key, status, nil, log)
+	c.refreshPairCounts(ctx, key, log)
+}
+
+func (c *Consumer) fanoutProgress(ctx context.Context, key deltastore.GenerationKey, status domain.DeltaGenerationProgressDetailsGenerationStatus, phase *domain.DeltaGenerationPhase, log logrus.FieldLogger) {
+	if c.persist == nil || c.store == nil {
+		return
+	}
+	waiting, err := c.store.ListWaitingPreparesByGeneration(ctx, key)
+	if err != nil {
+		if log != nil {
+			log.WithError(err).Warn("failed to list prepares for delta generation progress")
+		}
+		return
+	}
+	for i := range waiting {
+		prep := waiting[i]
+		event, err := DeltaGenerationProgressEvent(ctx, prep, key, status, phase)
+		if err != nil {
+			if log != nil {
+				log.WithError(err).Warnf("failed to build delta generation progress for %s/%s", prep.Kind, prep.Name)
+			}
+			continue
+		}
+		c.persist(ctx, prep.OrgID, event)
+	}
+	if status == domain.DeltaGenerationProgressInProgress && phase != nil && *phase != "" {
+		if err := c.store.SetGenerationPhase(ctx, key, string(*phase)); err != nil && log != nil {
+			log.WithError(err).Warnf("failed to persist delta generation phase for %s", key.ImageRepository)
+		}
+	}
+}
+
+func (c *Consumer) refreshPairCounts(ctx context.Context, key deltastore.GenerationKey, log logrus.FieldLogger) {
+	if c.pairCounts == nil || c.store == nil {
+		return
+	}
+	waiting, err := c.store.ListWaitingPreparesByGeneration(ctx, key)
+	if err != nil {
+		if log != nil {
+			log.WithError(err).Warn("failed to list prepares for pair counts")
+		}
+		return
+	}
+	for i := range waiting {
+		prep := waiting[i]
+		completed, total, err := c.store.CountPreparePairs(ctx, prep.ID)
+		if err != nil {
+			if log != nil {
+				log.WithError(err).Warnf("failed to count pairs for %s/%s", prep.Kind, prep.Name)
+			}
+			continue
+		}
+		if total == 0 {
+			continue
+		}
+		if err := c.pairCounts.Set(ctx, prep.OrgID, prep.Kind, prep.Name, completed, total); err != nil && log != nil {
+			log.WithError(err).Warnf("failed to update pair counts for %s/%s", prep.Kind, prep.Name)
+		}
+	}
 }
 
 func (c *Consumer) runResume(ctx context.Context, key deltastore.GenerationKey) error {
@@ -332,44 +399,6 @@ func (c *Consumer) runResume(ctx context.Context, key deltastore.GenerationKey) 
 	}
 	_, err := c.store.ListWaitingPreparesByGeneration(ctx, key)
 	return err
-}
-
-func (c *Consumer) reportCopyProgress(context.Context, deltastore.GenerationKey, GenerationProgress, logrus.FieldLogger) {
-}
-
-func (c *Consumer) heartbeatPrepareProgress(ctx context.Context, key deltastore.GenerationKey, phase domain.DeltaGenerationPhase, log logrus.FieldLogger) context.CancelFunc {
-	progress := GenerationProgress{Phase: phase}
-	c.reportCopyProgress(ctx, key, progress, log)
-	return c.tickProgress(ctx, func() { c.reportCopyProgress(ctx, key, progress, log) })
-}
-
-func (c *Consumer) heartbeatLastProgress(ctx context.Context, key deltastore.GenerationKey, mu *sync.Mutex, last *GenerationProgress, log logrus.FieldLogger) context.CancelFunc {
-	return c.tickProgress(ctx, func() {
-		mu.Lock()
-		cur := *last
-		mu.Unlock()
-		if cur.Phase == "" {
-			return
-		}
-		c.reportCopyProgress(ctx, key, cur, log)
-	})
-}
-
-func (c *Consumer) tickProgress(ctx context.Context, fn func()) context.CancelFunc {
-	ctx, cancel := context.WithCancel(ctx)
-	go func() {
-		t := time.NewTicker(copyProgressInterval)
-		defer t.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-t.C:
-				fn()
-			}
-		}
-	}()
-	return cancel
 }
 
 const (
