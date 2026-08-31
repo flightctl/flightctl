@@ -38,8 +38,29 @@ data:
         workerCollector:
             enabled: true
     {{- $delta := default dict .Values.deltaGeneration }}
+    {{- $defaultRepo := default dict $delta.defaultRepository }}
     deltaGeneration:
         maxConcurrentDeltaGenerations: {{ default 2 $delta.maxConcurrentDeltaGenerations }}
+        timeout: {{ default "30m" $delta.timeout }}
+        {{- if $defaultRepo.registry }}
+        defaultRepository:
+            registry: {{ $defaultRepo.registry | quote }}
+            {{- if $defaultRepo.repository }}
+            repository: {{ $defaultRepo.repository | quote }}
+            {{- end }}
+            {{- if $defaultRepo.namespace }}
+            namespace: {{ $defaultRepo.namespace | quote }}
+            {{- end }}
+            {{- if $defaultRepo.scheme }}
+            scheme: {{ $defaultRepo.scheme | quote }}
+            {{- end }}
+            {{- if $defaultRepo.skipServerVerification }}
+            skipServerVerification: true
+            {{- end }}
+            {{- if $defaultRepo.caCrt }}
+            ca.crt: {{ $defaultRepo.caCrt | quote }}
+            {{- end }}
+        {{- end }}
     {{ if (default dict .Values.dev).tracing }}
     tracing:
         enabled: true

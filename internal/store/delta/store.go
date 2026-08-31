@@ -28,12 +28,15 @@ const (
 type Store interface {
 	InitialMigration(ctx context.Context) error
 	InsertGenerations(ctx context.Context, gens []*model.DeltaGeneration) (changed []GenerationKey, err error)
+	InsertRejectedGeneration(ctx context.Context, gen *model.DeltaGeneration) error
 	GetGeneration(ctx context.Context, key GenerationKey, opts ...GenerationGetOption) (*model.DeltaGeneration, error)
+	ClaimGeneration(ctx context.Context, key GenerationKey) (*model.DeltaGeneration, error)
 	CASGeneration(ctx context.Context, key GenerationKey, expectedRV int64, update GenerationCAS) error
 	InsertPrepare(ctx context.Context, prep *model.DeltaPrepare) error
 	GetPrepare(ctx context.Context, id uuid.UUID) (*model.DeltaPrepare, error)
 	CASPrepareStatus(ctx context.Context, id uuid.UUID, to string) error
 	ListWaitingPastDeadline(ctx context.Context, limit int, asOf time.Time) ([]model.DeltaPrepare, error)
+	ListWaitingPreparesByGeneration(ctx context.Context, key GenerationKey) ([]model.DeltaPrepare, error)
 	InsertPrepareGenerations(ctx context.Context, prepareID uuid.UUID, keys []GenerationKey) error
 }
 
@@ -154,6 +157,54 @@ func (s *DeltaStore) createJoinForeignKeys(db *gorm.DB) error {
 	return nil
 }
 
+func rejectedConflictStatuses() []string {
+	return []string{
+		model.DeltaGenerationPending,
+		model.DeltaGenerationFailed,
+		model.DeltaGenerationRejected,
+	}
+}
+
+func rejectedConflictAllows(status string) bool {
+	for _, allowed := range rejectedConflictStatuses() {
+		if status == allowed {
+			return true
+		}
+	}
+	return false
+}
+
+func isClaimableStatus(status string) bool {
+	return status == model.DeltaGenerationPending
+}
+
+func rejectedConflict() clause.OnConflict {
+	values := make([]interface{}, 0, len(rejectedConflictStatuses()))
+	for _, status := range rejectedConflictStatuses() {
+		values = append(values, status)
+	}
+	return clause.OnConflict{
+		Columns: []clause.Column{
+			{Name: "org_id"},
+			{Name: "image_repository"},
+			{Name: "source_digest"},
+			{Name: "target_digest"},
+		},
+		DoUpdates: clause.Assignments(map[string]interface{}{
+			"status":           model.DeltaGenerationRejected,
+			"size_bytes":       gorm.Expr("EXCLUDED.size_bytes"),
+			"resource_version": gorm.Expr("delta_generations.resource_version + 1"),
+			"updated_at":       gorm.Expr("NOW()"),
+		}),
+		Where: clause.Where{Exprs: []clause.Expression{
+			clause.IN{
+				Column: clause.Column{Table: "delta_generations", Name: "status"},
+				Values: values,
+			},
+		}},
+	}
+}
+
 func generationConflict() clause.OnConflict {
 	return clause.OnConflict{
 		Columns: []clause.Column{
@@ -225,6 +276,14 @@ func (s *DeltaStore) InsertGenerations(ctx context.Context, gens []*model.DeltaG
 	return changed, nil
 }
 
+func (s *DeltaStore) InsertRejectedGeneration(ctx context.Context, gen *model.DeltaGeneration) error {
+	if gen == nil {
+		return fmt.Errorf("cannot insert nil DeltaGeneration")
+	}
+	gen.Status = model.DeltaGenerationRejected
+	return store.ErrorFromGormError(s.getDB(ctx).Clauses(rejectedConflict()).Create(gen).Error)
+}
+
 func (s *DeltaStore) GetGeneration(ctx context.Context, key GenerationKey, opts ...GenerationGetOption) (*model.DeltaGeneration, error) {
 	cfg := &generationGet{}
 	for _, opt := range opts {
@@ -265,6 +324,25 @@ func (s *DeltaStore) GetGeneration(ctx context.Context, key GenerationKey, opts 
 			key.OrgID, key.ImageRepository, key.SourceDigest, key.TargetDigest)
 	}
 	return &gens[0], nil
+}
+
+func (s *DeltaStore) ClaimGeneration(ctx context.Context, key GenerationKey) (*model.DeltaGeneration, error) {
+	result := s.getDB(ctx).Model(&model.DeltaGeneration{}).
+		Where(
+			"org_id = ? AND image_repository = ? AND source_digest = ? AND target_digest = ? AND status = ?",
+			key.OrgID, key.ImageRepository, key.SourceDigest, key.TargetDigest, model.DeltaGenerationPending,
+		).
+		Updates(map[string]interface{}{
+			"status":           model.DeltaGenerationInProgress,
+			"resource_version": gorm.Expr("resource_version + 1"),
+		})
+	if result.Error != nil {
+		return nil, store.ErrorFromGormError(result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return nil, flterrors.ErrNoRowsUpdated
+	}
+	return s.GetGeneration(ctx, key)
 }
 
 func (s *DeltaStore) InsertPrepare(ctx context.Context, prep *model.DeltaPrepare) error {
@@ -319,6 +397,21 @@ func (s *DeltaStore) ListWaitingPastDeadline(ctx context.Context, limit int, asO
 		"status = ? AND deadline IS NOT NULL AND deadline < ?",
 		model.DeltaPrepareWaiting, asOf,
 	).Order("deadline ASC, id ASC").Limit(limit).Find(&rows)
+	if result.Error != nil {
+		return nil, store.ErrorFromGormError(result.Error)
+	}
+	return rows, nil
+}
+
+func (s *DeltaStore) ListWaitingPreparesByGeneration(ctx context.Context, key GenerationKey) ([]model.DeltaPrepare, error) {
+	var rows []model.DeltaPrepare
+	result := s.getDB(ctx).Model(&model.DeltaPrepare{}).
+		Joins("INNER JOIN delta_prepare_generations ON delta_prepare_generations.prepare_id = delta_prepares.id").
+		Where(
+			"delta_prepare_generations.org_id = ? AND delta_prepare_generations.image_repository = ? AND delta_prepare_generations.source_digest = ? AND delta_prepare_generations.target_digest = ? AND delta_prepares.status = ?",
+			key.OrgID, key.ImageRepository, key.SourceDigest, key.TargetDigest, model.DeltaPrepareWaiting,
+		).
+		Find(&rows)
 	if result.Error != nil {
 		return nil, store.ErrorFromGormError(result.Error)
 	}
