@@ -243,6 +243,11 @@ func TestIsCleanupCandidate(t *testing.T) {
 		{"/etc/microshift", true},
 		{"/etc/microshift/manifests.d", true},
 		{"/opt/app/data", true},
+		// relative paths must never be cleanup candidates: joined with the
+		// writer root they could traverse outside it (e.g. "../etc").
+		{"../etc", false},
+		{"etc/microshift", false},
+		{"./opt/app/data", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.dir, func(t *testing.T) {

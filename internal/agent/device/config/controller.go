@@ -189,11 +189,17 @@ func (c *Controller) removeEmptyDirs(removedFiles []string, desiredFiles []v1bet
 
 // isCleanupCandidate reports whether dir may be considered for empty-directory
 // cleanup. Empty, relative, and protected system directories are excluded.
+// Requiring an absolute path guards against traversal: a rendered path such as
+// "../etc" must never be joined with the writer root and removed.
 func isCleanupCandidate(dir string) bool {
 	if dir == "" || dir == "." {
 		return false
 	}
-	return !protectedDirs[filepath.Clean(dir)]
+	cleaned := filepath.Clean(dir)
+	if !filepath.IsAbs(cleaned) {
+		return false
+	}
+	return !protectedDirs[cleaned]
 }
 
 func (c *Controller) writeFiles(files []v1beta1.FileSpec) error {

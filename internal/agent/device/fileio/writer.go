@@ -167,16 +167,24 @@ func (w *writer) RemoveFile(file string) error {
 // it never deletes directories that hold other content.
 func (w *writer) RemoveEmptyDir(dir string) error {
 	fullPath := filepath.Join(w.rootDir, dir)
-	entries, err := os.ReadDir(fullPath)
+	// Only one entry is needed to decide the directory is non-empty; reading a
+	// single entry avoids listing and sorting every entry, which matters on
+	// constrained edge devices where the directory may hold many unmanaged files.
+	f, err := os.Open(fullPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return fmt.Errorf("read dir %q: %w", dir, err)
+		return fmt.Errorf("open dir %q: %w", dir, err)
 	}
-	if len(entries) > 0 {
+	_, err = f.ReadDir(1)
+	f.Close()
+	if err == nil {
 		// directory still holds content; leave it in place
 		return nil
+	}
+	if err != io.EOF {
+		return fmt.Errorf("read dir %q: %w", dir, err)
 	}
 	if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove empty dir %q: %w", dir, err)
