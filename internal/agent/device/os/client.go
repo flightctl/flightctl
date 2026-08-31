@@ -105,7 +105,7 @@ func NewClient(log *log.PrefixLogger, exec executer.Executer) Client {
 		return newRpmOSTreeClient(exec)
 	default:
 		log.Infof("package-mode / no image manager; using no-op OS client")
-		return newDummyClient(log, exec)
+		return newDummyClient(log)
 	}
 }
 
@@ -161,19 +161,11 @@ func (b *bootc) Apply(ctx context.Context) error {
 }
 
 func newRpmOSTreeClient(exec executer.Executer) *rpmOSTree {
-	return &rpmOSTree{
-		client:          client.NewRPMOSTree(exec),
-		lookPath:        stdexec.LookPath,
-		bootcVersion:    versionCmd(exec, "bootc"),
-		ociDeltaVersion: versionCmd(exec, "oci-delta"),
-	}
+	return &rpmOSTree{client: client.NewRPMOSTree(exec)}
 }
 
 type rpmOSTree struct {
-	client          *client.RPMOSTree
-	lookPath        func(string) (string, error)
-	bootcVersion    func(context.Context) (string, error)
-	ociDeltaVersion func(context.Context) (string, error)
+	client *client.RPMOSTree
 }
 
 func (r *rpmOSTree) Status(ctx context.Context) (*Status, error) {
@@ -197,30 +189,16 @@ func (r *rpmOSTree) Apply(ctx context.Context) error {
 }
 
 func (r *rpmOSTree) Capabilities(ctx context.Context) Capabilities {
-	bootcVer, ociVer, eligible := collectToolInfo(ctx, r.lookPath, r.bootcVersion, r.ociDeltaVersion)
-	return Capabilities{
-		OsMode:          v1beta1.OsModeImage,
-		DeltaEligible:   eligible,
-		BootcVersion:    bootcVer,
-		OCIDeltaVersion: ociVer,
-	}
+	return Capabilities{OsMode: v1beta1.OsModeImage}
 }
 
-func newDummyClient(log *log.PrefixLogger, exec executer.Executer) *dummy {
-	return &dummy{
-		log:             log,
-		lookPath:        stdexec.LookPath,
-		bootcVersion:    versionCmd(exec, "bootc"),
-		ociDeltaVersion: versionCmd(exec, "oci-delta"),
-	}
+func newDummyClient(log *log.PrefixLogger) *dummy {
+	return &dummy{log: log}
 }
 
 // dummy client for package-mode (no image manager)
 type dummy struct {
-	log             *log.PrefixLogger
-	lookPath        func(string) (string, error)
-	bootcVersion    func(context.Context) (string, error)
-	ociDeltaVersion func(context.Context) (string, error)
+	log *log.PrefixLogger
 }
 
 func (d *dummy) Status(ctx context.Context) (*Status, error) {
@@ -243,11 +221,5 @@ func (d *dummy) Apply(ctx context.Context) error {
 }
 
 func (d *dummy) Capabilities(ctx context.Context) Capabilities {
-	bootcVer, ociVer, eligible := collectToolInfo(ctx, d.lookPath, d.bootcVersion, d.ociDeltaVersion)
-	return Capabilities{
-		OsMode:          v1beta1.OsModePackage,
-		DeltaEligible:   eligible,
-		BootcVersion:    bootcVer,
-		OCIDeltaVersion: ociVer,
-	}
+	return Capabilities{OsMode: v1beta1.OsModePackage}
 }

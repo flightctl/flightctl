@@ -22,12 +22,12 @@ func TestClientCapabilitiesMode(t *testing.T) {
 		},
 		{
 			name:     "When client is rpm-ostree it should report image mode",
-			client:   &rpmOSTree{lookPath: lookPathNone(), bootcVersion: versionOK(""), ociDeltaVersion: versionOK("")},
+			client:   &rpmOSTree{},
 			wantMode: v1beta1.OsModeImage,
 		},
 		{
 			name:     "When client is dummy it should report package mode",
-			client:   &dummy{lookPath: lookPathNone(), bootcVersion: versionOK(""), ociDeltaVersion: versionOK("")},
+			client:   &dummy{},
 			wantMode: v1beta1.OsModePackage,
 		},
 	}
