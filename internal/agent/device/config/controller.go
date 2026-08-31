@@ -109,36 +109,13 @@ func (c *Controller) removeObsoleteFiles(currentFiles, desiredFiles []v1beta1.Fi
 	return nil
 }
 
-// protectedDirs are directories we never remove during empty-directory cleanup,
-// even if they end up empty. They are well-known system roots; removing them
-// would be surprising and outside the scope of tidying up config-managed files.
-var protectedDirs = map[string]bool{
-	"/":     true,
-	"/etc":  true,
-	"/var":  true,
-	"/usr":  true,
-	"/opt":  true,
-	"/run":  true,
-	"/home": true,
-	"/root": true,
-	"/boot": true,
-	"/tmp":  true,
-	"/srv":  true,
-	"/mnt":  true,
-	"/dev":  true,
-	"/proc": true,
-	"/sys":  true,
-	"/lib":  true,
-	"/bin":  true,
-	"/sbin": true,
-}
-
 // removeEmptyDirs removes directories left empty after obsolete files were
 // deleted. It walks up the parent directories of each removed file (deepest
-// first) and removes each one that is now empty, stopping at protected system
-// roots. Directories that still hold desired files are preserved, as are any
-// directories that still contain other content (RemoveEmptyDir is a no-op on
-// non-empty directories). Cleanup failures are logged, never fatal.
+// first) and removes each one that is now empty, stopping before top-level
+// directories (see isCleanupCandidate). Directories that still hold desired
+// files are preserved, as are any directories that still contain other content
+// (RemoveEmptyDir is a no-op on non-empty directories). Cleanup failures are
+// logged, never fatal.
 func (c *Controller) removeEmptyDirs(removedFiles []string, desiredFiles []v1beta1.FileSpec) {
 	// Preserve every directory a desired file lives under: those directories are
 	// needed by the subsequent write step and must not be pruned.
@@ -188,9 +165,13 @@ func (c *Controller) removeEmptyDirs(removedFiles []string, desiredFiles []v1bet
 }
 
 // isCleanupCandidate reports whether dir may be considered for empty-directory
-// cleanup. Empty, relative, and protected system directories are excluded.
-// Requiring an absolute path guards against traversal: a rendered path such as
-// "../etc" must never be joined with the writer root and removed.
+// cleanup. The root and any of its direct children (top-level directories such
+// as /etc, /var, /media, /lib64) are never removed: pruning a top-level
+// directory is surprising and outside the scope of tidying up config-managed
+// files, and an allowlist of well-known roots would inevitably miss some.
+// Empty and relative paths are also excluded; requiring an absolute path guards
+// against traversal so a rendered path such as "../etc" can never be joined
+// with the writer root and removed.
 func isCleanupCandidate(dir string) bool {
 	if dir == "" || dir == "." {
 		return false
@@ -199,7 +180,8 @@ func isCleanupCandidate(dir string) bool {
 	if !filepath.IsAbs(cleaned) {
 		return false
 	}
-	return !protectedDirs[cleaned]
+	// Never remove the root or a top-level directory (a direct child of "/").
+	return filepath.Dir(cleaned) != "/"
 }
 
 func (c *Controller) writeFiles(files []v1beta1.FileSpec) error {

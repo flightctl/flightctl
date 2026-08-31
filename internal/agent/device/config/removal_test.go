@@ -204,6 +204,17 @@ func TestRemoveEmptyDirs(t *testing.T) {
 			expectedDirs: nil,
 		},
 		{
+			name: "unlisted top-level dir is never removed, nested dirs are",
+			removedFiles: []string{
+				"/media/config/app.yaml",
+			},
+			// /media/config is cleaned, but /media (a direct child of "/") is
+			// preserved even though it is not on any allowlist.
+			expectedDirs: []string{
+				"/media/config",
+			},
+		},
+		{
 			name:         "empty removal list is a no-op",
 			removedFiles: nil,
 			expectedDirs: nil,
@@ -243,6 +254,11 @@ func TestIsCleanupCandidate(t *testing.T) {
 		{"/etc/microshift", true},
 		{"/etc/microshift/manifests.d", true},
 		{"/opt/app/data", true},
+		// top-level directories (direct children of "/") are never candidates,
+		// even ones not on any allowlist such as /media or /lib64.
+		{"/media", false},
+		{"/lib64", false},
+		{"/media/app", true},
 		// relative paths must never be cleanup candidates: joined with the
 		// writer root they could traverse outside it (e.g. "../etc").
 		{"../etc", false},
