@@ -12,7 +12,6 @@ import (
 	deltastore "github.com/flightctl/flightctl/internal/store/delta"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/worker_client"
-	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
 
