@@ -88,7 +88,8 @@ var _ = Describe("PrepareDeltas persist", func() {
 				Expect(err).ToNot(HaveOccurred())
 				Expect(device.Status).ToNot(BeNil())
 				device.Status.Os.ImageDigest = srcDigest
-				device.Status.Capabilities = &domain.DeviceCapabilities{DeltaEligible: lo.ToPtr(true)}
+				device.Status.SystemInfo.DeltaEligible = lo.ToPtr(true)
+				device.Status.SystemInfo.BootcVersion = lo.ToPtr("bootc 1.15.0")
 				_, _, err = devices.UpdateStatus(ctx, orgId, device, nil)
 				Expect(err).ToNot(HaveOccurred())
 			}
