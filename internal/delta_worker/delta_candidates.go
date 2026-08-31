@@ -231,8 +231,13 @@ func hasEligibleDevice(devices []*domain.Device) bool {
 }
 
 func deviceEligible(d *domain.Device) bool {
-	return d != nil && d.Status != nil && d.Status.Capabilities != nil &&
-		d.Status.Capabilities.DeltaEligible != nil && *d.Status.Capabilities.DeltaEligible
+	if d == nil || d.Status == nil {
+		return false
+	}
+	if d.Status.SystemInfo.DeltaEligible == nil || !*d.Status.SystemInfo.DeltaEligible {
+		return false
+	}
+	return d.Status.SystemInfo.BootcVersion != nil && *d.Status.SystemInfo.BootcVersion != ""
 }
 
 func currentDigest(d *domain.Device) string {

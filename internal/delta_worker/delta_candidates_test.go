@@ -257,7 +257,8 @@ func deviceWithOS(name string, eligible bool, digest string) *domain.Device {
 		},
 	}
 	if eligible {
-		d.Status.Capabilities = &domain.DeviceCapabilities{DeltaEligible: lo.ToPtr(true)}
+		d.Status.SystemInfo.DeltaEligible = lo.ToPtr(true)
+		d.Status.SystemInfo.BootcVersion = lo.ToPtr("bootc 1.15.0")
 	}
 	return d
 }
