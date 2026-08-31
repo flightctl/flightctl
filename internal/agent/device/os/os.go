@@ -133,6 +133,13 @@ func ApplyDeltaSystemInfo(info *v1beta1.DeviceSystemInfo, caps Capabilities) {
 	}
 }
 
+func (m *manager) canApplyOSDelta() bool {
+	if !m.caps.DeltaEligible {
+		return false
+	}
+	return m.caps.BootcVersion != ""
+}
+
 func (m *manager) BeforeUpdate(ctx context.Context, current, desired *v1beta1.DeviceSpec) error {
 	if desired.Os == nil {
 		return nil
@@ -177,7 +184,7 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1bet
 
 	m.startImageAttempt(osImage)
 	optsFn := m.osPullOptsFn()
-	if !m.caps.DeltaEligible {
+	if !m.canApplyOSDelta() {
 		return m.fullImageCollection(osImage, optsFn), nil
 	}
 
