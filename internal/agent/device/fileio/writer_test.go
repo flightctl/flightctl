@@ -650,6 +650,15 @@ func TestRemoveEmptyDir(t *testing.T) {
 			},
 			wantExists: false,
 		},
+		{
+			name: "When the path is a symlink to an empty directory it should be preserved",
+			setup: func(t *testing.T, rootDir string) string {
+				require.NoError(t, os.MkdirAll(filepath.Join(rootDir, "target"), 0755))
+				require.NoError(t, os.Symlink(filepath.Join(rootDir, "target"), filepath.Join(rootDir, "link")))
+				return "link"
+			},
+			wantExists: true,
+		},
 	}
 
 	for _, tt := range tests {

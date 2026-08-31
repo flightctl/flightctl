@@ -40,11 +40,10 @@ func inlineProvider(t *testing.T, paths ...string) *[]v1beta1.ConfigProviderSpec
 	return &[]v1beta1.ConfigProviderSpec{provider}
 }
 
-// TestSyncRemovesEmptyDirs_EDM4892 reproduces the reported scenario end-to-end
-// with a real writer: a host configuration (e.g. MicroShift manifests from a
-// git repo) populates a nested directory tree, then the source is removed. Both
-// the files and the directories created to hold them must be gone afterwards.
-func TestSyncRemovesEmptyDirs_EDM4892(t *testing.T) {
+// TestSyncRemovesEmptyDirs verifies end-to-end with a real writer that removing
+// a config source deletes both its files and the now-empty directory tree that
+// held them, while a protected system root survives.
+func TestSyncRemovesEmptyDirs(t *testing.T) {
 	require := require.New(t)
 	ctx := context.Background()
 	tempDir := t.TempDir()

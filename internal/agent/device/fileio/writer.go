@@ -167,6 +167,20 @@ func (w *writer) RemoveFile(file string) error {
 // it never deletes directories that hold other content.
 func (w *writer) RemoveEmptyDir(dir string) error {
 	fullPath := filepath.Join(w.rootDir, dir)
+	// Only operate on real directories. os.Open would follow a symlink and read
+	// its target, but os.Remove would delete the link and leave the target in
+	// place; skip symlinks (and anything that is not a directory) so cleanup only
+	// removes actual, owned directories.
+	info, err := os.Lstat(fullPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("stat dir %q: %w", dir, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return nil
+	}
 	// Only one entry is needed to decide the directory is non-empty; reading a
 	// single entry avoids listing and sorting every entry, which matters on
 	// constrained edge devices where the directory may hold many unmanaged files.

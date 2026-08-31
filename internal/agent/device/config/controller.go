@@ -99,12 +99,7 @@ func (c *Controller) removeObsoleteFiles(currentFiles, desiredFiles []v1beta1.Fi
 			return fmt.Errorf("%w %w: %w", deviceerrors.ErrDeletingFilesFailed, deviceerrors.WithElement(file), err)
 		}
 	}
-	// Fix for EDM-4892: removing the files is not enough. A removed host
-	// configuration source (e.g. a git repo populating
-	// /etc/microshift/manifests.d/) also creates directories to hold those
-	// files; without cleaning them up the device is left with a stale, empty
-	// directory tree that reads as "content still present" after the source is
-	// removed. This is best-effort cleanup and never fails the reconcile.
+	// Remove empty managed directories left after obsolete files are deleted.
 	c.removeEmptyDirs(removeFiles, desiredFiles)
 	return nil
 }
