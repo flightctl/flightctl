@@ -104,6 +104,8 @@ const (
 	EventReasonDeltaGenerationCompleted        = v1beta1.EventReasonDeltaGenerationCompleted
 )
 
+const EventReasonGenerateDelta EventReason = "GenerateDelta"
+
 // ========== Event Details Types ==========
 
 type InternalTaskFailedDetails = v1beta1.InternalTaskFailedDetails

@@ -53,6 +53,20 @@ spec:
                 secretKeyRef:
                   name: {{ include "flightctl.dbAppUserSecret" . }}
                   key: user
+            {{- $delta := default dict .Values.deltaGeneration -}}
+            {{- $defaultRepo := default dict $delta.defaultRepository -}}
+            {{- if $defaultRepo.secretName }}
+            - name: DELTA_GENERATION_DEFAULT_REPOSITORY_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $defaultRepo.secretName }}
+                  key: username
+            - name: DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $defaultRepo.secretName }}
+                  key: password
+            {{- end }}
             {{- if .Values.deltaWorker.env }}
             {{- range $key, $value := .Values.deltaWorker.env }}
             - name: {{ $key }}

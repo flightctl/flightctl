@@ -34,6 +34,30 @@ metrics:
     enabled: true
 deltaGeneration:
   maxConcurrentDeltaGenerations: {{if and .deltaGeneration .deltaGeneration.maxConcurrentDeltaGenerations}}{{.deltaGeneration.maxConcurrentDeltaGenerations}}{{else}}2{{end}}
+  timeout: {{if and .deltaGeneration .deltaGeneration.timeout}}{{.deltaGeneration.timeout}}{{else}}30m{{end}}
+{{- with .deltaGeneration }}
+{{- with .defaultRepository }}
+{{- if .registry }}
+  defaultRepository:
+    registry: {{ .registry }}
+    {{- if .repository }}
+    repository: {{ .repository }}
+    {{- end }}
+    {{- if .namespace }}
+    namespace: {{ .namespace }}
+    {{- end }}
+    {{- if .scheme }}
+    scheme: {{ .scheme }}
+    {{- end }}
+    {{- if .skipServerVerification }}
+    skipServerVerification: true
+    {{- end }}
+    {{- if .caCrt }}
+    ca.crt: {{ .caCrt }}
+    {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- with .profiling }}
 {{- $pprof := .pprof }}
 {{- $pyroscope := .pyroscope }}

@@ -189,6 +189,13 @@ build-worker: bin
 build-delta-worker: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-delta-worker
 
+# libostree requires CGO; tags match the oci-delta RPM (skip unused graph-driver headers).
+OCI_DELTA_REF ?= 45baae628ce3fa5fa2071a702426487dcf1f5e0b
+OCI_DELTA_TAGS ?= exclude_graphdriver_aufs exclude_graphdriver_btrfs exclude_graphdriver_zfs
+
+install-oci-delta: bin
+	$(GOENV) CGO_ENABLED=1 GOOS=$(GOOS) GOARCH=$(GOARCH) GOBIN=$(GOBIN) go install -tags "$(OCI_DELTA_TAGS)" github.com/containers/oci-delta@$(OCI_DELTA_REF)
+
 build-periodic: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-periodic
 
@@ -409,7 +416,7 @@ bin/.rpm: $(shell find $(ROOT_DIR)/ -name "*.go" -not -path "$(ROOT_DIR)/packagi
 
 rpm: bin/.rpm
 
-.PHONY: rpm build build-api build-pam-issuer build-periodic build-worker build-delta-worker build-alert-exporter build-alertmanager-proxy build-userinfo-proxy build-standalone build-imagebuilder-api build-imagebuilder-worker build-remote-access generate-mirror-embed build-mirror-images
+.PHONY: rpm build build-api build-pam-issuer build-periodic build-worker build-delta-worker install-oci-delta build-alert-exporter build-alertmanager-proxy build-userinfo-proxy build-standalone build-imagebuilder-api build-imagebuilder-worker build-remote-access generate-mirror-embed build-mirror-images
 
 # cross-building for deb pkg
 bin/amd64:
