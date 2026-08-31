@@ -293,18 +293,6 @@ func generationProgressKey(st *v1beta1.DeltaGenerationStatus) string {
 	if st.LastUpdated != nil {
 		fmt.Fprintf(&b, " t=%d", st.LastUpdated.Unix())
 	}
-	if st.Phase != nil {
-		fmt.Fprintf(&b, " %s", *st.Phase)
-	}
-	if st.Percent != nil {
-		fmt.Fprintf(&b, " %d%%", *st.Percent)
-	}
-	if st.ItemsDone != nil && st.ItemsTotal != nil {
-		fmt.Fprintf(&b, " items=%d/%d", *st.ItemsDone, *st.ItemsTotal)
-	}
-	if st.BytesDone != nil && st.BytesTotal != nil {
-		fmt.Fprintf(&b, " bytes=%d/%d", *st.BytesDone, *st.BytesTotal)
-	}
 	return b.String()
 }
 
