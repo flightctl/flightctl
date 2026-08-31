@@ -73,7 +73,9 @@ func unitWants(content string) map[string]struct{} {
 			continue
 		}
 		if strings.HasPrefix(trimmed, "Wants=") {
-			out[strings.TrimPrefix(trimmed, "Wants=")] = struct{}{}
+			for _, unit := range strings.Fields(strings.TrimPrefix(trimmed, "Wants=")) {
+				out[unit] = struct{}{}
+			}
 		}
 	}
 	return out

@@ -7,24 +7,53 @@ import (
 )
 
 func TestCheckContainerfiles(t *testing.T) {
-	t.Run("When missing flavour it should report", func(t *testing.T) {
-		root := t.TempDir()
-		for _, osName := range []string{"el9", "el10"} {
-			dir := filepath.Join(root, "packaging/images", osName)
-			if err := os.MkdirAll(dir, 0o755); err != nil {
-				t.Fatal(err)
+	cases := []struct {
+		name      string
+		el9       bool
+		el10      bool
+		wantIssue bool
+	}{
+		{
+			name:      "When missing flavour it should report",
+			el9:       true,
+			el10:      false,
+			wantIssue: true,
+		},
+		{
+			name:      "When both flavours exist it should pass",
+			el9:       true,
+			el10:      true,
+			wantIssue: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			for _, osName := range []string{"el9", "el10"} {
+				dir := filepath.Join(root, "packaging/images", osName)
+				if err := os.MkdirAll(dir, 0o755); err != nil {
+					t.Fatal(err)
+				}
 			}
-		}
-		if err := os.WriteFile(filepath.Join(root, "packaging/images/el9/Containerfile.api"), []byte("FROM scratch\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-
-		services := []ExpandedService{{Name: "api", BuildContainer: true}}
-		issues := checkContainerfiles(root, services)
-		if len(issues) == 0 {
-			t.Fatal("expected missing el10 containerfile issue")
-		}
-	})
+			if tc.el9 {
+				if err := os.WriteFile(filepath.Join(root, "packaging/images/el9/Containerfile.api"), []byte("FROM scratch\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.el10 {
+				if err := os.WriteFile(filepath.Join(root, "packaging/images/el10/Containerfile.api"), []byte("FROM scratch\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			issues := checkContainerfiles(root, []ExpandedService{{Name: "api", BuildContainer: true}})
+			if tc.wantIssue && len(issues) == 0 {
+				t.Fatal("expected issue")
+			}
+			if !tc.wantIssue && len(issues) != 0 {
+				t.Fatalf("unexpected issues: %v", issues)
+			}
+		})
+	}
 }
 
 func TestCheckNginx(t *testing.T) {
@@ -58,6 +87,14 @@ func TestCheckNginx(t *testing.T) {
 				{Name: "remote-access", RequireGateway: true},
 			},
 			wantCount: 0,
+		},
+		{
+			name:  "When only prefix host it should report",
+			nginx: "proxy_pass http://flightctl-api-v2:3080;\n",
+			services: []ExpandedService{
+				{Name: "api", RequireGateway: true},
+			},
+			wantCount: 1,
 		},
 	}
 	for _, tc := range cases {
@@ -114,19 +151,39 @@ func TestCheckPublishMatrix(t *testing.T) {
 }
 
 func TestUnitWants(t *testing.T) {
-	t.Run("When Wants is commented it should ignore", func(t *testing.T) {
-		content := "[Unit]\n# Wants=flightctl-api.service\nWants=flightctl-worker.service\n[Install]\nWants=should-ignore.service\n"
-		got := unitWants(content)
-		if _, ok := got["flightctl-api.service"]; ok {
-			t.Fatal("commented Wants should be ignored")
-		}
-		if _, ok := got["flightctl-worker.service"]; !ok {
-			t.Fatal("active Wants missing")
-		}
-		if _, ok := got["should-ignore.service"]; ok {
-			t.Fatal("Wants outside [Unit] should be ignored")
-		}
-	})
+	cases := []struct {
+		name    string
+		content string
+		want    []string
+		absent  []string
+	}{
+		{
+			name:    "When Wants is commented it should ignore",
+			content: "[Unit]\n# Wants=flightctl-api.service\nWants=flightctl-worker.service\n[Install]\nWants=should-ignore.service\n",
+			want:    []string{"flightctl-worker.service"},
+			absent:  []string{"flightctl-api.service", "should-ignore.service"},
+		},
+		{
+			name:    "When multiple units on one Wants it should split them",
+			content: "[Unit]\nWants=flightctl-api.service flightctl-worker.service\n",
+			want:    []string{"flightctl-api.service", "flightctl-worker.service"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := unitWants(tc.content)
+			for _, u := range tc.want {
+				if _, ok := got[u]; !ok {
+					t.Fatalf("missing %s in %v", u, got)
+				}
+			}
+			for _, u := range tc.absent {
+				if _, ok := got[u]; ok {
+					t.Fatalf("unexpected %s", u)
+				}
+			}
+		})
+	}
 }
 
 func TestHasNginxRoutingDirective(t *testing.T) {
@@ -154,6 +211,18 @@ func TestHasNginxRoutingDirective(t *testing.T) {
 			host:    "flightctl-api",
 			want:    false,
 		},
+		{
+			name:    "When prefix host it should not match",
+			content: "proxy_pass http://flightctl-api-v2:3080;\n",
+			host:    "flightctl-api",
+			want:    false,
+		},
+		{
+			name:    "When host only in inline comment it should not match",
+			content: "proxy_pass http://other:80; # flightctl-api\n",
+			host:    "flightctl-api",
+			want:    false,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -162,4 +231,65 @@ func TestHasNginxRoutingDirective(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestParseObservabilityOnlyImages(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want []string
+		skip []string
+	}{
+		{
+			name: "When map entries are active it should include them",
+			src:  "var observabilityOnlyImages = map[string]bool{\n\t\"grafana\": true,\n\t\"prometheus\": true,\n}\n",
+			want: []string{"grafana", "prometheus"},
+		},
+		{
+			name: "When map entry is commented it should ignore it",
+			src:  "var observabilityOnlyImages = map[string]bool{\n\t\"grafana\": true,\n\t// \"prometheus\": true,\n}\n",
+			want: []string{"grafana"},
+			skip: []string{"prometheus"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseObservabilityOnlyImages(tc.src)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, name := range tc.want {
+				if _, ok := got[name]; !ok {
+					t.Fatalf("missing %s in %v", name, got)
+				}
+			}
+			for _, name := range tc.skip {
+				if _, ok := got[name]; ok {
+					t.Fatalf("commented %s should be ignored", name)
+				}
+			}
+		})
+	}
+}
+
+func TestCheckPodmanSave(t *testing.T) {
+	t.Run("When required save is only commented it should report", func(t *testing.T) {
+		root := t.TempDir()
+		dir := filepath.Join(root, "deploy")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		content := "podman save flightctl-worker-$(OS):latest\n# podman save flightctl-api-$(OS):latest\n"
+		if err := os.WriteFile(filepath.Join(dir, "deploy.mk"), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		services := []ExpandedService{
+			{Name: "api", BuildContainer: true, Publish: true},
+			{Name: "worker", BuildContainer: true, Publish: true},
+		}
+		issues := checkPodmanSave(root, services)
+		if len(issues) == 0 {
+			t.Fatal("expected missing api save issue")
+		}
+	})
 }

@@ -27,20 +27,44 @@ func checkNginx(repoRoot string, services []ExpandedService) []Issue {
 	return issues
 }
 
-// hasNginxRoutingDirective reports an active (non-comment) proxy_pass or
-// upstream server line that references host.
 func hasNginxRoutingDirective(content, host string) bool {
 	for _, line := range strings.Split(content, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-		if !strings.Contains(trimmed, host) {
-			continue
-		}
-		if strings.HasPrefix(trimmed, "proxy_pass") || strings.HasPrefix(trimmed, "server ") {
+		if nginxDirectiveHost(line) == host {
 			return true
 		}
 	}
 	return false
+}
+
+// nginxDirectiveHost returns the hostname from an active proxy_pass or
+// upstream server directive. Inline comments and prefix hosts are ignored.
+func nginxDirectiveHost(line string) string {
+	if i := strings.Index(line, "#"); i >= 0 {
+		line = line[:i]
+	}
+	trimmed := strings.TrimSpace(line)
+	var arg string
+	switch {
+	case strings.HasPrefix(trimmed, "proxy_pass"):
+		arg = strings.TrimSpace(strings.TrimPrefix(trimmed, "proxy_pass"))
+	case strings.HasPrefix(trimmed, "server "):
+		arg = strings.TrimSpace(strings.TrimPrefix(trimmed, "server"))
+	default:
+		return ""
+	}
+	arg = strings.TrimSuffix(arg, ";")
+	fields := strings.Fields(arg)
+	if len(fields) == 0 {
+		return ""
+	}
+	u := fields[0]
+	u = strings.TrimPrefix(u, "http://")
+	u = strings.TrimPrefix(u, "https://")
+	if i := strings.Index(u, "/"); i >= 0 {
+		u = u[:i]
+	}
+	if i := strings.LastIndex(u, ":"); i >= 0 {
+		u = u[:i]
+	}
+	return u
 }

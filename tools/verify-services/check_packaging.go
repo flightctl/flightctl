@@ -97,10 +97,21 @@ func checkAirGapObservability(repoRoot string, services []ExpandedService) []Iss
 	if err != nil {
 		return []Issue{{Check: check, Message: err.Error()}}
 	}
-	src := string(data)
+	got, err := parseObservabilityOnlyImages(string(data))
+	if err != nil {
+		return []Issue{{Check: check, Message: err.Error()}}
+	}
+	d := DiffSets(want, got)
+	if d.Empty() {
+		return nil
+	}
+	return []Issue{{Check: check, Message: strings.TrimSpace(d.Format("observabilityOnlyImages mismatch vs registry observabilityOnly"))}}
+}
+
+func parseObservabilityOnlyImages(src string) (map[string]struct{}, error) {
 	idx := strings.Index(src, "var observabilityOnlyImages")
 	if idx < 0 {
-		return []Issue{{Check: check, Message: "could not find observabilityOnlyImages in generate-embed/main.go"}}
+		return nil, fmt.Errorf("could not find observabilityOnlyImages in generate-embed/main.go")
 	}
 	block := src[idx:]
 	if end := strings.Index(block, "}"); end >= 0 {
@@ -108,14 +119,16 @@ func checkAirGapObservability(repoRoot string, services []ExpandedService) []Iss
 	}
 	re := regexp.MustCompile(`"([a-z0-9-]+)"\s*:\s*true`)
 	got := map[string]struct{}{}
-	for _, m := range re.FindAllStringSubmatch(block, -1) {
-		got[m[1]] = struct{}{}
+	for _, line := range strings.Split(block, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "//") {
+			continue
+		}
+		if m := re.FindStringSubmatch(trimmed); m != nil {
+			got[m[1]] = struct{}{}
+		}
 	}
-	d := DiffSets(want, got)
-	if d.Empty() {
-		return nil
-	}
-	return []Issue{{Check: check, Message: strings.TrimSpace(d.Format("observabilityOnlyImages mismatch vs registry observabilityOnly"))}}
+	return got, nil
 }
 
 func checkImagesYAML(repoRoot string, services []ExpandedService) []Issue {
@@ -156,8 +169,8 @@ func checkImagesKeys(repoRoot string, services []ExpandedService, rel, check str
 	return []Issue{{Check: check, Message: strings.TrimSpace(d.Format(rel + " key mismatch"))}}
 }
 
-var ignoredContainerfiles = map[string]struct{}{
-	"proxy": {}, // legacy/unused Containerfile.proxy (el9 only)
+func ignoreContainerfile(svc string) bool {
+	return svc == "proxy" // legacy/unused Containerfile.proxy (el9 only)
 }
 
 func checkContainerfiles(repoRoot string, services []ExpandedService) []Issue {
@@ -178,7 +191,7 @@ func checkContainerfiles(repoRoot string, services []ExpandedService) []Issue {
 				continue
 			}
 			svc := strings.TrimPrefix(name, "Containerfile.")
-			if _, skip := ignoredContainerfiles[svc]; skip {
+			if ignoreContainerfile(svc) {
 				continue
 			}
 			got[svc] = struct{}{}
@@ -269,8 +282,13 @@ func checkPodmanSave(repoRoot string, services []ExpandedService) []Issue {
 	}
 	re := regexp.MustCompile(`podman save flightctl-([a-z0-9-]+)-\$\(OS\):latest`)
 	got := map[string]struct{}{}
-	for _, m := range re.FindAllStringSubmatch(string(data), -1) {
-		got[m[1]] = struct{}{}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "#") {
+			continue
+		}
+		if m := re.FindStringSubmatch(line); m != nil {
+			got[m[1]] = struct{}{}
+		}
 	}
 	want := toSet(namesWhere(services, func(s ExpandedService) bool {
 		return s.BuildContainer && s.Publish
