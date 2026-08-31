@@ -37,6 +37,7 @@ type generationStore interface {
 	CASGeneration(ctx context.Context, key deltastore.GenerationKey, expectedRV int64, update deltastore.GenerationCAS) error
 	ListWaitingPreparesByGeneration(ctx context.Context, key deltastore.GenerationKey) ([]model.DeltaPrepare, error)
 	CountPreparePairs(ctx context.Context, prepareID uuid.UUID) (completed, total int, err error)
+	SetGenerationPhase(ctx context.Context, key deltastore.GenerationKey, phase string) error
 }
 
 type pipeline struct {
@@ -227,6 +228,11 @@ func (p *pipeline) fanoutProgress(ctx context.Context, key deltastore.Generation
 			continue
 		}
 		p.persist(ctx, prep.OrgID, event)
+	}
+	if status == domain.DeltaGenerationProgressInProgress && phase != nil && *phase != "" {
+		if err := p.store.SetGenerationPhase(ctx, key, string(*phase)); err != nil && log != nil {
+			log.WithError(err).Warnf("failed to persist delta generation phase for %s", key.ImageRepository)
+		}
 	}
 }
 

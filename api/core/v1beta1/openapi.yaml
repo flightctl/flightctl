@@ -7439,7 +7439,7 @@ components:
         - DeltaGenerationPhasePush
     DeltaGenerationStatus:
       type: object
-      description: Pair counts for a prepare in flight. Per-pair phase is reported on DeltaGenerationProgress events. Condition messages carry the same completed/total counts.
+      description: Pair counts (completed/total) for a prepare in flight. Per-pair phase is one DeltaGenerationProgress event per step, not a percent heartbeat. Condition messages carry the same completed/total counts.
       properties:
         completed:
           type: integer
@@ -8384,7 +8384,7 @@ components:
           description: Fleet only. The TemplateVersion this prepare is for. Required when involvedObject.kind is Fleet; omitted for Device.
     DeltaGenerationProgressDetails:
       type: object
-      description: Structured details for DeltaGenerationProgress events. One event per phase entry or terminal result for a digest pair, fanned out to each waiting Fleet or standalone Device. Not a percent heartbeat.
+      description: Structured details for DeltaGenerationProgress events. One event when a pair enters a phase or becomes terminal, fanned out to each waiting Fleet or standalone Device. Not a percent heartbeat.
       additionalProperties: false
       required:
         - detailType

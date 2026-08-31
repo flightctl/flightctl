@@ -39,6 +39,7 @@ type Store interface {
 	ListWaitingPastDeadline(ctx context.Context, limit int, asOf time.Time) ([]model.DeltaPrepare, error)
 	ListWaitingPreparesByGeneration(ctx context.Context, key GenerationKey) ([]model.DeltaPrepare, error)
 	CountPreparePairs(ctx context.Context, prepareID uuid.UUID) (completed, total int, err error)
+	SetGenerationPhase(ctx context.Context, key GenerationKey, phase string) error
 	InsertPrepareGenerations(ctx context.Context, prepareID uuid.UUID, keys []GenerationKey) error
 	GetWaitingPrepare(ctx context.Context, orgID uuid.UUID, kind, name string) (*model.DeltaPrepare, error)
 }
@@ -455,6 +456,19 @@ func (s *DeltaStore) CountPreparePairs(ctx context.Context, prepareID uuid.UUID)
 		}
 	}
 	return completed, len(rows), nil
+}
+
+func (s *DeltaStore) SetGenerationPhase(ctx context.Context, key GenerationKey, phase string) error {
+	result := s.getDB(ctx).Model(&model.DeltaGeneration{}).
+		Where(
+			"org_id = ? AND image_repository = ? AND source_digest = ? AND target_digest = ?",
+			key.OrgID, key.ImageRepository, key.SourceDigest, key.TargetDigest,
+		).
+		Update("phase", phase)
+	if result.Error != nil {
+		return store.ErrorFromGormError(result.Error)
+	}
+	return nil
 }
 
 func (s *DeltaStore) CASPrepareStatus(ctx context.Context, id uuid.UUID, to string) error {

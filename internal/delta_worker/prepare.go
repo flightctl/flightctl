@@ -321,7 +321,7 @@ func (p *Preparer) emitJoinSnapshots(ctx context.Context, prep *model.DeltaPrepa
 		if gen.Status != model.DeltaGenerationInProgress {
 			continue
 		}
-		event, err := deltaGenerationProgressEvent(ctx, *prep, key, domain.DeltaGenerationProgressInProgress, nil)
+		event, err := deltaGenerationProgressEvent(ctx, *prep, key, domain.DeltaGenerationProgressInProgress, generationPhasePtr(gen))
 		if err != nil {
 			continue
 		}

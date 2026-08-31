@@ -1217,7 +1217,7 @@ type CustomDeviceInfo map[string]string
 // DeltaGenerationPhase Current step of control-plane delta generation for the in-flight pair.
 type DeltaGenerationPhase string
 
-// DeltaGenerationProgressDetails Structured details for DeltaGenerationProgress events. One event per phase entry or terminal result for a digest pair, fanned out to each waiting Fleet or standalone Device. Not a percent heartbeat.
+// DeltaGenerationProgressDetails Structured details for DeltaGenerationProgress events. One event when a pair enters a phase or becomes terminal, fanned out to each waiting Fleet or standalone Device. Not a percent heartbeat.
 type DeltaGenerationProgressDetails struct {
 	// DetailType The type of detail for discriminator purposes.
 	DetailType DeltaGenerationProgressDetailsDetailType `json:"detailType"`
@@ -1250,7 +1250,7 @@ type DeltaGenerationProgressDetailsDetailType string
 // DeltaGenerationProgressDetailsGenerationStatus Generation row status for this pair.
 type DeltaGenerationProgressDetailsGenerationStatus string
 
-// DeltaGenerationStatus Pair counts for a prepare in flight. Per-pair phase is reported on DeltaGenerationProgress events. Condition messages carry the same completed/total counts.
+// DeltaGenerationStatus Pair counts (completed/total) for a prepare in flight. Per-pair phase is one DeltaGenerationProgress event per step, not a percent heartbeat. Condition messages carry the same completed/total counts.
 type DeltaGenerationStatus struct {
 	// Completed Number of joined generation pairs that are already terminal.
 	Completed int64 `json:"completed"`
@@ -1634,7 +1634,7 @@ type DeviceStatus struct {
 	// Config Current status of the device config.
 	Config DeviceConfigStatus `json:"config"`
 
-	// DeltaGeneration Pair counts for a prepare in flight. Per-pair phase is reported on DeltaGenerationProgress events. Condition messages carry the same completed/total counts.
+	// DeltaGeneration Pair counts (completed/total) for a prepare in flight. Per-pair phase is one DeltaGenerationProgress event per step, not a percent heartbeat. Condition messages carry the same completed/total counts.
 	DeltaGeneration *DeltaGenerationStatus `json:"deltaGeneration,omitempty"`
 
 	// DependencySync DependencySyncStatus represents the synchronization fingerprints for external dependencies of a device, captured at render time.
@@ -2219,7 +2219,7 @@ type FleetStatus struct {
 	// Conditions Current state of the fleet.
 	Conditions []Condition `json:"conditions"`
 
-	// DeltaGeneration Pair counts for a prepare in flight. Per-pair phase is reported on DeltaGenerationProgress events. Condition messages carry the same completed/total counts.
+	// DeltaGeneration Pair counts (completed/total) for a prepare in flight. Per-pair phase is one DeltaGenerationProgress event per step, not a percent heartbeat. Condition messages carry the same completed/total counts.
 	DeltaGeneration *DeltaGenerationStatus `json:"deltaGeneration,omitempty"`
 
 	// DevicesSummary A summary of the devices in the fleet returned when fetching a single Fleet.

@@ -76,6 +76,10 @@ func (f *fakeGenerationStore) CountPreparePairs(_ context.Context, _ uuid.UUID) 
 	return f.countCompleted, f.countTotal, f.countErr
 }
 
+func (f *fakeGenerationStore) SetGenerationPhase(_ context.Context, _ deltastore.GenerationKey, _ string) error {
+	return nil
+}
+
 func generateEvent(org uuid.UUID, repo, src, tgt string) worker_client.EventWithOrgId {
 	return generateEventWithTimeout(org, repo, src, tgt, "")
 }
@@ -366,7 +370,14 @@ func TestPipelineProcess(t *testing.T) {
 			domain.DeltaGenerationProgressSucceeded,
 		}, statuses)
 		req.Equal([]string{"checkingExisting", "pullSource", "pullTarget"}, phases)
+		req.Equal("flightctl-delta-worker", persist.events[0].Source.Component)
+		req.Equal("service:flightctl-delta-worker", persist.events[0].Actor)
+		req.Contains(persist.events[1].Message, "entered pullSource")
+		req.NotContains(persist.events[1].Message, "40")
 		req.Equal(persist.events[3].Type, domain.EventTypeNormal)
+		succ, err := persist.events[3].Details.AsDeltaGenerationProgressDetails()
+		req.NoError(err)
+		req.Nil(succ.Phase)
 		req.Len(status.sets, 1)
 		req.Equal(statusCall{kind: domain.FleetKind, name: "fleet-a", completed: 1, total: 3}, status.sets[0])
 	})

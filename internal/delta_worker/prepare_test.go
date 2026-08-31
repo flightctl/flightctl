@@ -302,6 +302,7 @@ func TestPrepare_DedupeAndSupercede(t *testing.T) {
 			SourceDigest:    prepareTestSrc,
 			TargetDigest:    prepareTestTgt,
 			Status:          model.DeltaGenerationInProgress,
+			Phase:           lo.ToPtr(string(domain.DeltaGenerationPhaseCreateDelta)),
 		}
 		persist := &emitSpy{}
 		p := newTestPreparer(store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, &resumeSpy{}, &emitSpy{})
@@ -316,8 +317,13 @@ func TestPrepare_DedupeAndSupercede(t *testing.T) {
 		d, err := persist.events[0].Details.AsDeltaGenerationProgressDetails()
 		require.NoError(t, err)
 		assert.Equal(t, domain.DeltaGenerationProgressInProgress, d.GenerationStatus)
-		assert.Nil(t, d.Phase)
+		require.NotNil(t, d.Phase)
+		assert.Equal(t, domain.DeltaGenerationPhaseCreateDelta, *d.Phase)
 		assert.Equal(t, lo.ToPtr("tv-1"), d.TemplateVersion)
+		assert.Nil(t, d.SpecResourceVersion)
+		assert.Equal(t, "flightctl-delta-worker", persist.events[0].Source.Component)
+		assert.Equal(t, "service:flightctl-delta-worker", persist.events[0].Actor)
+		assert.Contains(t, persist.events[0].Message, "entered createDelta")
 	})
 
 	t.Run("When a waiting prepare with the same identity is missing joins it should enqueue without a new row", func(t *testing.T) {
