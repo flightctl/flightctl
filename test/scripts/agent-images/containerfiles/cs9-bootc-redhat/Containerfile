@@ -6,8 +6,14 @@
 #   - base:    final base image starting from prebase and layering flightctl RPMs
 #
 
+FROM docker.io/library/golang:1.26-bookworm AS oci-delta-build
+RUN apt-get update && apt-get install -y --no-install-recommends gcc pkg-config libostree-dev && rm -rf /var/lib/apt/lists/*
+RUN CGO_ENABLED=1 GOBIN=/out go install -tags "exclude_graphdriver_aufs exclude_graphdriver_btrfs exclude_graphdriver_zfs" github.com/containers/oci-delta@45baae628ce3fa5fa2071a702426487dcf1f5e0b
+
 # ---------- Stage: prebase ----------
 FROM registry.redhat.io/rhel9/rhel-bootc:latest AS prebase
+
+COPY --from=oci-delta-build /out/oci-delta /usr/bin/oci-delta
 
 # Enable EPEL repos (no EPEL Next for Red Hat Enterprise Linux)
 RUN --mount=type=cache,target=/var/cache/dnf \

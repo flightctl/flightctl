@@ -577,4 +577,8 @@ func (f fakeInfraProvider) SetEncryptionConfig(infra.ServiceName, *internalconfi
 	return errors.New("not implemented")
 }
 
+func (f fakeInfraProvider) ApplyDeltaWorkerRegistryRemap(string) error {
+	return errors.New("not implemented")
+}
+
 var _ infra.InfraProvider = fakeInfraProvider{}

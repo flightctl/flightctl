@@ -3,6 +3,8 @@
 We generate multiple agent images for testing purposes, each with a different
 services running, but all connected to our flightctl service for management.
 
+The bootc base image includes `oci-delta` at `/usr/bin/oci-delta`.
+
 This work is performed by the `create_agent_images.sh` script in this
 directory.
 

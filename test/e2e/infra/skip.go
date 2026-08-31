@@ -4,6 +4,7 @@ package infra
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 )
@@ -65,6 +66,21 @@ func observabilityPrometheusSkipMessage(envType string) string {
 			"install flightctl-monitoring-stack"
 	default:
 		return fmt.Sprintf("observability prometheus not configured for %s deployment", envType)
+	}
+}
+
+// SkipIfOciDeltaUnavailable skips when the delta-worker is missing or has no oci-delta binary.
+func SkipIfOciDeltaUnavailable(ctx context.Context, providers *Providers) {
+	exists, err := providers.Infra.ServiceExists(ctx, ServiceDeltaWorker)
+	if err != nil {
+		Fail(fmt.Sprintf("unable to check delta-worker: %v", err))
+	}
+	if !exists {
+		Skip("flightctl-delta-worker is not deployed")
+	}
+	out, err := providers.Infra.ExecInService(ServiceDeltaWorker, []string{"command", "-v", "oci-delta"})
+	if err != nil || strings.TrimSpace(out) == "" {
+		Skip("oci-delta is not available in the delta-worker")
 	}
 }
 
