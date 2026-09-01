@@ -834,6 +834,18 @@ func TestRecordRollbackError(t *testing.T) {
 		require.NoError(err)
 	})
 
+	t.Run("When rollback spec is missing it should propagate the error", func(t *testing.T) {
+		mockReadWriter.EXPECT().ReadFile(rollbackPath).Return(nil, errors.ErrNotExist)
+		err := s.RecordRollbackError(ctx, "prefetch failed for bad-image")
+		require.ErrorIs(err, errors.ErrMissingRenderedSpec)
+	})
+
+	t.Run("When rollback spec cannot be read it should propagate the error", func(t *testing.T) {
+		mockReadWriter.EXPECT().ReadFile(rollbackPath).Return(nil, errors.New("read error"))
+		err := s.RecordRollbackError(ctx, "prefetch failed for bad-image")
+		require.ErrorIs(err, errors.ErrReadingRenderedSpec)
+	})
+
 	t.Run("When rollback spec exists it should persist the error message", func(t *testing.T) {
 		device := createTestRenderedDevice("flightctl-device:v1")
 		(*device.Metadata.Annotations)[annotationDesiredVersion] = "6"

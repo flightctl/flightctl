@@ -353,6 +353,7 @@ func (a *Agent) rollbackDevice(ctx context.Context, current, desired *v1beta1.De
 		}
 		syncMsg := formatSyncErrorMessage(desired, syncErr)
 		a.handleSyncError(ctx, desired, syncErr)
+		// Persisting the error is best-effort and must not prevent rebooting into the rollback OS.
 		if err := a.specManager.RecordRollbackError(ctx, syncMsg); err != nil {
 			a.log.Errorf("Failed to persist rollback error: %v", err)
 		}
@@ -700,7 +701,7 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1beta1.Device, sy
 	if !errors.IsRetryable(syncErr) {
 		msg := fmt.Sprintf("Failed to update to renderedVersion: %s: %v", version, syncErr.Error())
 		conditionUpdate.Reason = string(v1beta1.UpdateStateError)
-		conditionUpdate.Message = log.Truncate(msg, status.MaxMessageLength)
+		conditionUpdate.Message = formatSyncErrorMessage(desired, syncErr)
 		conditionUpdate.Status = v1beta1.ConditionStatusFalse
 		a.pullConfigResolver.Cleanup()
 		a.prefetchManager.Cleanup()
@@ -711,9 +712,9 @@ func (a *Agent) handleSyncError(ctx context.Context, desired *v1beta1.Device, sy
 		conditionUpdate.Message = log.Truncate(msg, status.MaxMessageLength)
 		conditionUpdate.Status = v1beta1.ConditionStatusTrue
 		a.log.Warn(msg, se.Timestamp)
-	}
-	if se.Phase != nil || se.Component != nil {
-		conditionUpdate.Message = log.Truncate(se.Message(), status.MaxMessageLength)
+		if se.Phase != nil || se.Component != nil {
+			conditionUpdate.Message = log.Truncate(se.Message(), status.MaxMessageLength)
+		}
 	}
 	if err := a.statusManager.UpdateCondition(ctx, conditionUpdate); err != nil {
 		a.log.Warnf("Failed to update device status condition: %v", err)
