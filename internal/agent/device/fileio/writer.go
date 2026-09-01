@@ -191,14 +191,16 @@ func (w *writer) RemoveEmptyDir(dir string) error {
 		}
 		return fmt.Errorf("open dir %q: %w", dir, err)
 	}
-	_, err = f.ReadDir(1)
-	f.Close()
-	if err == nil {
+	_, readErr := f.ReadDir(1)
+	if closeErr := f.Close(); closeErr != nil {
+		return fmt.Errorf("close dir %q: %w", dir, closeErr)
+	}
+	if readErr == nil {
 		// directory still holds content; leave it in place
 		return nil
 	}
-	if err != io.EOF {
-		return fmt.Errorf("read dir %q: %w", dir, err)
+	if readErr != io.EOF {
+		return fmt.Errorf("read dir %q: %w", dir, readErr)
 	}
 	if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove empty dir %q: %w", dir, err)
