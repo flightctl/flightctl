@@ -18,18 +18,22 @@ import (
 // Config controller is responsible for ensuring the device configuration is reconciled
 // against the device spec.
 type Controller struct {
-	deviceWriter fileio.Writer
-	log          *log.PrefixLogger
+	deviceReadWriter fileio.ReadWriter
+	dataDir          string
+	log              *log.PrefixLogger
 }
 
-// NewController creates a new config controller.
+// NewController creates a new config controller. dataDir is the agent data
+// directory under which the managed-directory ownership manifest is persisted.
 func NewController(
-	deviceWriter fileio.Writer,
+	deviceReadWriter fileio.ReadWriter,
+	dataDir string,
 	log *log.PrefixLogger,
 ) *Controller {
 	return &Controller{
-		deviceWriter: deviceWriter,
-		log:          log,
+		deviceReadWriter: deviceReadWriter,
+		dataDir:          dataDir,
+		log:              log,
 	}
 }
 
@@ -70,48 +74,72 @@ func computeRemoval(currentFileList, desiredFileList []v1beta1.FileSpec) []strin
 }
 
 func (c *Controller) ensureConfigFiles(currentFiles, desiredFiles []v1beta1.FileSpec) error {
-	if err := c.removeObsoleteFiles(currentFiles, desiredFiles); err != nil {
+	// owned is the set of directories the agent created for managed files. It
+	// gates empty-directory cleanup so the agent only removes directories it
+	// created, and is persisted across reconciles (and reboots).
+	owned := c.loadManagedDirectories()
+	dirty := false
+
+	removed, err := c.removeObsoleteFiles(currentFiles, desiredFiles, owned)
+	if err != nil {
 		return fmt.Errorf("%w: %w", deviceerrors.ErrFailedToRemoveObsoleteFiles, err)
 	}
+	dirty = dirty || removed
 
 	if len(desiredFiles) == 0 {
 		c.log.Debug("No config files to write")
-		// no files to write
-		return nil
+	} else {
+		// Record the directories the agent is about to create before writing, so
+		// they become eligible for future cleanup.
+		if c.recordNewDirectories(desiredFiles, owned) {
+			dirty = true
+		}
+		if err := c.writeFiles(desiredFiles); err != nil {
+			c.log.Warnf("Writing config files failed: %+v", err)
+			return fmt.Errorf("failed to apply configuration: %w", err)
+		}
 	}
 
-	if err := c.writeFiles(desiredFiles); err != nil {
-		c.log.Warnf("Writing config files failed: %+v", err)
-		return fmt.Errorf("failed to apply configuration: %w", err)
+	if dirty {
+		if err := c.saveManagedDirectories(owned); err != nil {
+			// Persisting ownership is best-effort: a failure only means some
+			// directories may not be cleaned up later, never a failed sync.
+			c.log.Warnf("Failed to persist managed directory ownership: %v", err)
+		}
 	}
 	return nil
 }
 
-// removeObsoleteFiles removes files that are present in the currentFiles but not in the desiredFiles.
-func (c *Controller) removeObsoleteFiles(currentFiles, desiredFiles []v1beta1.FileSpec) error {
+// removeObsoleteFiles removes files that are present in the currentFiles but not
+// in the desiredFiles, then prunes any now-empty directories the agent created.
+// It reports whether the owned-directory set changed.
+func (c *Controller) removeObsoleteFiles(currentFiles, desiredFiles []v1beta1.FileSpec, owned map[string]bool) (bool, error) {
 	removeFiles := computeRemoval(currentFiles, desiredFiles)
 	for _, file := range removeFiles {
 		if len(file) == 0 {
 			continue
 		}
 		c.log.Debugf("Deleting file: %s", file)
-		if err := c.deviceWriter.RemoveFile(file); err != nil {
-			return fmt.Errorf("%w %w: %w", deviceerrors.ErrDeletingFilesFailed, deviceerrors.WithElement(file), err)
+		if err := c.deviceReadWriter.RemoveFile(file); err != nil {
+			return false, fmt.Errorf("%w %w: %w", deviceerrors.ErrDeletingFilesFailed, deviceerrors.WithElement(file), err)
 		}
 	}
 	// Remove empty managed directories left after obsolete files are deleted.
-	c.removeEmptyDirs(removeFiles, desiredFiles)
-	return nil
+	changed := c.removeEmptyDirs(removeFiles, desiredFiles, owned)
+	return changed, nil
 }
 
 // removeEmptyDirs removes directories left empty after obsolete files were
 // deleted. It walks up the parent directories of each removed file (deepest
-// first) and removes each one that is now empty, stopping before top-level
-// directories (see isCleanupCandidate). Directories that still hold desired
-// files are preserved, as are any directories that still contain other content
-// (RemoveEmptyDir is a no-op on non-empty directories). Cleanup failures are
-// logged, never fatal.
-func (c *Controller) removeEmptyDirs(removedFiles []string, desiredFiles []v1beta1.FileSpec) {
+// first) and removes each one that is now empty, but only if the agent created
+// it (owned); directories the agent did not create — pre-existing, package- or
+// user-owned directories that merely held a managed file — are never removed.
+// Directories that still hold desired files are preserved, as are any that still
+// contain other content (RemoveEmptyDir is a no-op on non-empty directories).
+// Top-level and relative paths are excluded by isCleanupCandidate. Cleanup
+// failures are logged, never fatal. Successfully removed directories are dropped
+// from owned; it reports whether owned changed.
+func (c *Controller) removeEmptyDirs(removedFiles []string, desiredFiles []v1beta1.FileSpec, owned map[string]bool) bool {
 	// Preserve every directory a desired file lives under: those directories are
 	// needed by the subsequent write step and must not be pruned.
 	keep := make(map[string]bool)
@@ -133,10 +161,11 @@ func (c *Controller) removeEmptyDirs(removedFiles []string, desiredFiles []v1bet
 	}
 
 	// Remove deepest directories first so that parents become empty (and thus
-	// removable) only after their now-empty children are gone.
+	// removable) only after their now-empty children are gone. Only directories
+	// the agent created (owned) and not needed by a desired file are eligible.
 	dirs := make([]string, 0, len(candidates))
 	for dir := range candidates {
-		if keep[dir] {
+		if keep[dir] || !owned[dir] {
 			continue
 		}
 		dirs = append(dirs, dir)
@@ -150,13 +179,17 @@ func (c *Controller) removeEmptyDirs(removedFiles []string, desiredFiles []v1bet
 		return dirs[i] < dirs[j]
 	})
 
+	changed := false
 	for _, dir := range dirs {
-		if err := c.deviceWriter.RemoveEmptyDir(dir); err != nil {
+		if err := c.deviceReadWriter.RemoveEmptyDir(dir); err != nil {
 			c.log.Warnf("Failed to remove empty directory %s: %v", dir, err)
 			continue
 		}
 		c.log.Debugf("Removed empty directory: %s", dir)
+		delete(owned, dir)
+		changed = true
 	}
+	return changed
 }
 
 // isCleanupCandidate reports whether dir may be considered for empty-directory
@@ -181,7 +214,7 @@ func isCleanupCandidate(dir string) bool {
 
 func (c *Controller) writeFiles(files []v1beta1.FileSpec) error {
 	for _, file := range files {
-		managedFile, err := c.deviceWriter.CreateManagedFile(file)
+		managedFile, err := c.deviceReadWriter.CreateManagedFile(file)
 		if err != nil {
 			return fmt.Errorf("creating managed file %w: %w", deviceerrors.WithElement(file.Path), err)
 		}

@@ -361,6 +361,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create config controller
 	configController := config.NewController(
 		rootReadWriter,
+		a.config.DataDir,
 		a.log,
 	)
 

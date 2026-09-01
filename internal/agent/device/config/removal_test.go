@@ -51,7 +51,7 @@ func TestSyncRemovesEmptyDirs(t *testing.T) {
 		fileio.NewReader(fileio.WithReaderRootDir(tempDir)),
 		fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
 	)
-	controller := NewController(rw, log.NewPrefixLogger("test"))
+	controller := NewController(rw, "/var/lib/flightctl", log.NewPrefixLogger("test"))
 
 	files := []string{
 		"/etc/microshift/manifests.d/app1/kustomization.yaml",
@@ -104,7 +104,7 @@ func TestSyncPreservesSharedDirs(t *testing.T) {
 		fileio.NewReader(fileio.WithReaderRootDir(tempDir)),
 		fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
 	)
-	controller := NewController(rw, log.NewPrefixLogger("test"))
+	controller := NewController(rw, "/var/lib/flightctl", log.NewPrefixLogger("test"))
 
 	kept := "/etc/microshift/manifests.d/app/keep.yaml"
 	removed := "/etc/microshift/manifests.d/app/remove.yaml"
@@ -138,7 +138,7 @@ func TestSyncPreservesNonEmptyDirs(t *testing.T) {
 		fileio.NewReader(fileio.WithReaderRootDir(tempDir)),
 		fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
 	)
-	controller := NewController(rw, log.NewPrefixLogger("test"))
+	controller := NewController(rw, "/var/lib/flightctl", log.NewPrefixLogger("test"))
 
 	managed := "/etc/microshift/manifests.d/app/managed.yaml"
 	require.NoError(controller.Sync(ctx,
@@ -163,11 +163,98 @@ func TestSyncPreservesNonEmptyDirs(t *testing.T) {
 	require.NoError(err, "directory holding unmanaged content must not be removed")
 }
 
+// TestSyncPreservesPreExistingDirs verifies end-to-end that cleanup removes only
+// directories the agent created: a pre-existing (e.g. package-created) directory
+// whose only file was a managed one is preserved once that file is removed,
+// while a sibling directory the agent created is pruned.
+func TestSyncPreservesPreExistingDirs(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	tempDir := t.TempDir()
+	rw := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tempDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
+	)
+	controller := NewController(rw, "/var/lib/flightctl", log.NewPrefixLogger("test"))
+
+	// Simulate a package-created directory the agent must never remove.
+	preExisting := "/opt/vendor/data"
+	require.NoError(os.MkdirAll(filepath.Join(tempDir, preExisting), 0o755))
+
+	inPreExisting := "/opt/vendor/data/app.conf" // only file, but dir predates the agent
+	agentOwned := "/opt/managed/app/config.yaml" // agent creates /opt/managed[/app]
+
+	require.NoError(controller.Sync(ctx,
+		&v1beta1.DeviceSpec{},
+		&v1beta1.DeviceSpec{Config: inlineProvider(t, inPreExisting, agentOwned)},
+	))
+
+	// Remove the source.
+	require.NoError(controller.Sync(ctx,
+		&v1beta1.DeviceSpec{Config: inlineProvider(t, inPreExisting, agentOwned)},
+		&v1beta1.DeviceSpec{},
+	))
+
+	// Both files are gone.
+	for _, f := range []string{inPreExisting, agentOwned} {
+		_, err := os.Stat(filepath.Join(tempDir, f))
+		require.True(os.IsNotExist(err), "file should be removed: %s", f)
+	}
+	// The pre-existing directory (and its parent) must survive.
+	_, err := os.Stat(filepath.Join(tempDir, preExisting))
+	require.NoError(err, "pre-existing directory the agent did not create must be preserved")
+	// The agent-created tree must be pruned.
+	for _, dir := range []string{"/opt/managed/app", "/opt/managed"} {
+		_, err := os.Stat(filepath.Join(tempDir, dir))
+		require.True(os.IsNotExist(err), "agent-created empty directory should be removed: %s", dir)
+	}
+}
+
+// TestSyncOwnershipPersistsAcrossControllers verifies that directory ownership
+// recorded when files are written survives into a fresh controller (simulating
+// an agent restart between the write and the later removal), so cleanup still
+// prunes the agent-created tree.
+func TestSyncOwnershipPersistsAcrossControllers(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	tempDir := t.TempDir()
+	rw := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tempDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
+	)
+
+	file := "/etc/foo/bar/x.yaml"
+
+	// First controller writes the files and persists ownership.
+	writer := NewController(rw, "/var/lib/flightctl", log.NewPrefixLogger("test"))
+	require.NoError(writer.Sync(ctx,
+		&v1beta1.DeviceSpec{},
+		&v1beta1.DeviceSpec{Config: inlineProvider(t, file)},
+	))
+
+	// A fresh controller (as after a reboot) removes the source.
+	remover := NewController(rw, "/var/lib/flightctl", log.NewPrefixLogger("test"))
+	require.NoError(remover.Sync(ctx,
+		&v1beta1.DeviceSpec{Config: inlineProvider(t, file)},
+		&v1beta1.DeviceSpec{},
+	))
+
+	for _, dir := range []string{"/etc/foo/bar", "/etc/foo"} {
+		_, err := os.Stat(filepath.Join(tempDir, dir))
+		require.True(os.IsNotExist(err), "agent-created empty directory should be removed after restart: %s", dir)
+	}
+	_, err := os.Stat(filepath.Join(tempDir, "/etc"))
+	require.NoError(err, "/etc must not be removed")
+}
+
 func TestRemoveEmptyDirs(t *testing.T) {
 	tests := []struct {
 		name         string
 		removedFiles []string
 		desiredFiles []v1beta1.FileSpec
+		// owned is the set of agent-created directories loaded from the ownership
+		// manifest; only directories in this set are eligible for cleanup.
+		owned []string
 		// expectedDirs is the exact set of directories RemoveEmptyDir is called
 		// with, in deepest-first order.
 		expectedDirs []string
@@ -177,6 +264,12 @@ func TestRemoveEmptyDirs(t *testing.T) {
 			removedFiles: []string{
 				"/etc/microshift/manifests.d/app1/deploy.yaml",
 				"/etc/microshift/manifests.d/app2/svc.yaml",
+			},
+			owned: []string{
+				"/etc/microshift",
+				"/etc/microshift/manifests.d",
+				"/etc/microshift/manifests.d/app1",
+				"/etc/microshift/manifests.d/app2",
 			},
 			expectedDirs: []string{
 				"/etc/microshift/manifests.d/app1",
@@ -193,6 +286,11 @@ func TestRemoveEmptyDirs(t *testing.T) {
 			desiredFiles: []v1beta1.FileSpec{
 				{Path: "/etc/microshift/manifests.d/app/keep.yaml"},
 			},
+			owned: []string{
+				"/etc/microshift",
+				"/etc/microshift/manifests.d",
+				"/etc/microshift/manifests.d/app",
+			},
 			expectedDirs: nil,
 		},
 		{
@@ -200,6 +298,7 @@ func TestRemoveEmptyDirs(t *testing.T) {
 			removedFiles: []string{
 				"/etc/motd",
 			},
+			owned:        []string{"/etc"},
 			expectedDirs: nil,
 		},
 		{
@@ -207,11 +306,22 @@ func TestRemoveEmptyDirs(t *testing.T) {
 			removedFiles: []string{
 				"/media/config/app.yaml",
 			},
+			owned: []string{"/media", "/media/config"},
 			// /media/config is cleaned, but /media (a direct child of "/") is
 			// preserved even though it is not on any allowlist.
 			expectedDirs: []string{
 				"/media/config",
 			},
+		},
+		{
+			name: "directories the agent did not create are never removed",
+			removedFiles: []string{
+				"/home/flightctl/.local/app.conf",
+			},
+			// The agent never created ~flightctl/.local (the package did), so it
+			// is absent from the owned set and must be preserved even once empty.
+			owned:        nil,
+			expectedDirs: nil,
 		},
 		{
 			name:         "empty removal list is a no-op",
@@ -225,15 +335,20 @@ func TestRemoveEmptyDirs(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 
-			mockWriter := fileio.NewMockWriter(ctrl)
+			mockWriter := fileio.NewMockReadWriter(ctrl)
 			var got []string
 			mockWriter.EXPECT().RemoveEmptyDir(gomock.Any()).DoAndReturn(func(dir string) error {
 				got = append(got, dir)
 				return nil
 			}).AnyTimes()
 
-			controller := NewController(mockWriter, log.NewPrefixLogger("test"))
-			controller.removeEmptyDirs(tt.removedFiles, tt.desiredFiles)
+			owned := make(map[string]bool, len(tt.owned))
+			for _, dir := range tt.owned {
+				owned[dir] = true
+			}
+
+			controller := NewController(mockWriter, "/var/lib/flightctl", log.NewPrefixLogger("test"))
+			controller.removeEmptyDirs(tt.removedFiles, tt.desiredFiles, owned)
 
 			require.Equal(t, tt.expectedDirs, got)
 		})
