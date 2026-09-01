@@ -359,11 +359,15 @@ func buildTLSTransport(cfg *config.TrustifyConfig) (*http.Transport, error) {
 		if err != nil {
 			return nil, fmt.Errorf("reading Trustify CA file %q: %w", cfg.CAFile, err)
 		}
-		pool := x509.NewCertPool()
+		pool, err := x509.SystemCertPool()
+		if err != nil || pool == nil {
+			pool = x509.NewCertPool()
+		}
 		if !pool.AppendCertsFromPEM(caPEM) {
 			return nil, fmt.Errorf("no valid certificates found in Trustify CA file %q", cfg.CAFile)
 		}
 		tlsConfig.RootCAs = pool
+	}
 	}
 
 	transport.TLSClientConfig = tlsConfig
