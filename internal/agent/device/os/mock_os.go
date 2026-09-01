@@ -56,6 +56,20 @@ func (mr *MockClientMockRecorder) Apply(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Apply", reflect.TypeOf((*MockClient)(nil).Apply), ctx)
 }
 
+// Capabilities mocks base method.
+func (m *MockClient) Capabilities(ctx context.Context) Capabilities {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Capabilities", ctx)
+	ret0, _ := ret[0].(Capabilities)
+	return ret0
+}
+
+// Capabilities indicates an expected call of Capabilities.
+func (mr *MockClientMockRecorder) Capabilities(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Capabilities", reflect.TypeOf((*MockClient)(nil).Capabilities), ctx)
+}
+
 // Rollback mocks base method.
 func (m *MockClient) Rollback(ctx context.Context) error {
 	m.ctrl.T.Helper()

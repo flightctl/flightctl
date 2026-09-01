@@ -17,26 +17,42 @@ func TestManagerStatus(t *testing.T) {
 	testCases := []struct {
 		name              string
 		osMode            v1beta1.OsModeType
+		deltaEligible     bool
 		bootedImage       string
 		bootedImageDigest string
 		expectedImage     string
 		expectedDigest    string
+		expectedEligible  bool
 	}{
 		{
-			name:              "When image mode it should populate os fields and capabilities",
+			name:              "When image mode and delta eligible it should populate os fields and DeltaEligible true",
 			osMode:            v1beta1.OsModeImage,
+			deltaEligible:     true,
 			bootedImage:       "quay.io/centos-bootc/centos-bootc:stream9",
 			bootedImageDigest: "sha256:a0b1c2d3",
 			expectedImage:     "quay.io/centos-bootc/centos-bootc:stream9",
 			expectedDigest:    "sha256:a0b1c2d3",
+			expectedEligible:  true,
 		},
 		{
-			name:              "When package mode it should report empty os fields and package capabilities",
+			name:              "When image mode and not delta eligible it should report DeltaEligible false",
+			osMode:            v1beta1.OsModeImage,
+			deltaEligible:     false,
+			bootedImage:       "quay.io/centos-bootc/centos-bootc:stream9",
+			bootedImageDigest: "sha256:a0b1c2d3",
+			expectedImage:     "quay.io/centos-bootc/centos-bootc:stream9",
+			expectedDigest:    "sha256:a0b1c2d3",
+			expectedEligible:  false,
+		},
+		{
+			name:              "When package mode it should report empty os fields and DeltaEligible false",
 			osMode:            v1beta1.OsModePackage,
+			deltaEligible:     false,
 			bootedImage:       "",
 			bootedImageDigest: "",
 			expectedImage:     "",
 			expectedDigest:    "",
+			expectedEligible:  false,
 		},
 	}
 
@@ -55,7 +71,12 @@ func TestManagerStatus(t *testing.T) {
 
 			m := &manager{
 				client: mockClient,
-				osMode: tc.osMode,
+				caps: Capabilities{
+					OsMode:          tc.osMode,
+					DeltaEligible:   tc.deltaEligible,
+					BootcVersion:    "bootc 1.15.0",
+					OCIDeltaVersion: "oci-delta 0.2.1",
+				},
 			}
 
 			ctx := context.Background()
@@ -68,6 +89,12 @@ func TestManagerStatus(t *testing.T) {
 			require.NotNil(status.Capabilities)
 			require.NotNil(status.Capabilities.OsMode)
 			require.Equal(tc.osMode, *status.Capabilities.OsMode)
+			require.NotNil(status.SystemInfo.DeltaEligible)
+			require.Equal(tc.expectedEligible, *status.SystemInfo.DeltaEligible)
+			require.NotNil(status.SystemInfo.BootcVersion)
+			require.Equal("bootc 1.15.0", *status.SystemInfo.BootcVersion)
+			require.NotNil(status.SystemInfo.OciDeltaVersion)
+			require.Equal("oci-delta 0.2.1", *status.SystemInfo.OciDeltaVersion)
 		})
 	}
 }
@@ -83,7 +110,7 @@ func TestManagerStatusWhenClientFails(t *testing.T) {
 
 	m := &manager{
 		client: mockClient,
-		osMode: v1beta1.OsModePackage,
+		caps:   Capabilities{OsMode: v1beta1.OsModePackage},
 	}
 
 	status := &v1beta1.DeviceStatus{}

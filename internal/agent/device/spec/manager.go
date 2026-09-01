@@ -40,7 +40,7 @@ type manager struct {
 	deviceName       string
 	deviceReadWriter fileio.ReadWriter
 	osClient         os.Client
-	osMode           v1beta1.OsModeType
+	caps             os.Capabilities
 	publisher        Publisher
 	watcher          Watcher
 	cache            *cache
@@ -62,7 +62,7 @@ func NewManager(
 	policyManager policy.Manager,
 	deviceReadWriter fileio.ReadWriter,
 	osClient os.Client,
-	osMode v1beta1.OsModeType,
+	caps os.Capabilities,
 	pollConfig poll.Config,
 	errorBackoff poll.Config,
 	deviceNotFoundHandler func() error,
@@ -86,7 +86,7 @@ func NewManager(
 		deviceName:       deviceName,
 		deviceReadWriter: deviceReadWriter,
 		osClient:         osClient,
-		osMode:           osMode,
+		caps:             caps,
 		cache:            cache,
 		policyManager:    policyManager,
 		auditLogger:      auditLogger,
@@ -534,7 +534,7 @@ func (s *manager) isNewDesiredVersion(desired *v1beta1.Device) bool {
 }
 
 func (s *manager) ShouldApplyOSImageUpdate() bool {
-	if s.osMode == v1beta1.OsModePackage {
+	if s.caps.OsMode == v1beta1.OsModePackage {
 		return false
 	}
 	return s.cache.getOSVersion(Current) != s.cache.getOSVersion(Desired)
