@@ -453,11 +453,6 @@ func expectImageExists(mockExec *executer.MockExecuter, image string, exists boo
 		Return("", "", exitCode)
 }
 
-func expectPodmanVersion(mockExec *executer.MockExecuter) {
-	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").
-		Return("podman version 5.5.0", "", 0)
-}
-
 func expectListReferrers(mockExec *executer.MockExecuter, image, stdout, stderr string, exitCode int) {
 	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "list-referrers", "docker://"+image, "--no-creds").
 		Return(stdout, stderr, exitCode)
