@@ -19,9 +19,10 @@ Volume=/etc/flightctl/ssh:/etc/flightctl/ssh:ro,z
 Volume=/etc/flightctl/encryption:/root/.flightctl/encryption:ro,z
 Volume=/etc/flightctl/pki/db:/root/.flightctl/certs/db:ro,z
 # Optional: Mount a CA bundle for verifying the vulnerability backend (Trustify/Quay) server
-# certificate. Uncomment and point the source at your CA file, then set the matching
-# vulnerabilityReporting.<backend>.caFile path in service-config.yaml to the target path.
-# Volume=/etc/flightctl/certs/vulnerability-ca.pem:/etc/flightctl/certs/vulnerability-ca.pem:ro,z
+# certificate. Uncomment and match caFile in service-config.yaml to the target path
+# (same single-file pattern as /etc/flightctl/pki/ca-bundle.crt on flightctl-api).
+# Volume=/etc/flightctl/certs/trustify-ca.pem:/etc/flightctl/certs/trustify-ca.pem:ro,z
+# Volume=/etc/flightctl/certs/quay-ca.pem:/etc/flightctl/certs/quay-ca.pem:ro,z
 
 [Service]
 Restart=always
