@@ -695,8 +695,8 @@ The following table shows the application runtimes and formats supported by Flig
 
 | Specification                                                                                                      | Format            | Source / Delivery              |
 |--------------------------------------------------------------------------------------------------------------------|-------------------|--------------------------------|
-| Compose specification (via [`podman-compose`](https://github.com/containers/podman-compose))                       | OCI Image         | OCI registry                   |
-| Compose specification (via [`podman-compose`](https://github.com/containers/podman-compose))                       | Unpackaged Inline | Inline in device specification |
+| [Compose specification](https://github.com/compose-spec/compose-spec/blob/main/spec.md) (via a compose provider)  | OCI Image         | OCI registry                   |
+| [Compose specification](https://github.com/compose-spec/compose-spec/blob/main/spec.md) (via a compose provider)  | Unpackaged Inline | Inline in device specification |
 | Quadlet specification (via [Podman Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html)) | OCI Image         | OCI registry                   |
 | Quadlet specification (via [Podman Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html)) | Unpackaged Inline | Inline in device specification |
 | Simplified container specification                                                                                 | OCI Image         | OCI registry                   |
@@ -714,7 +714,14 @@ The following table shows the application runtimes and formats supported by Flig
 | Virtual machine definition | Unpackaged inline | Inline in device specification |
 
 > [!NOTE]
-> Compose applications require `podman-compose` to be installed on the device.
+> Compose applications require a compose provider to be installed on the device.
+> [`podman-compose`](https://github.com/containers/podman-compose) is recommended
+> and is the only provider validated by the Flight Control project.
+> The agent also accepts standalone
+> [`docker-compose`](https://github.com/docker/compose) v2 as an alternative
+> provider; `docker-compose` does not require Docker Engine and works through
+> the Podman compose interface. However, `docker-compose` is not tested or
+> supported by Flight Control.
 
 > [!NOTE]
 > `quadlet`, `container`, and `vm` applications require podman version 5.0 or above.
@@ -1421,7 +1428,7 @@ spec:
 ```
 
 > [!NOTE]
-> Inline compose applications can have at most two paths. The first should be named `podman-compose.yaml`, and the second (override) must be named `podman-compose.override.yaml`.
+> Inline compose applications can have at most two paths. The agent searches for a base file from `docker-compose.yaml`, `docker-compose.yml`, `podman-compose.yaml`, or `podman-compose.yml` (in that order). An optional override file follows the same naming convention (for example, `docker-compose.override.yaml` or `podman-compose.override.yaml`).
 
 ### Creating Quadlet Applications
 
@@ -1863,7 +1870,7 @@ The following are required on the device to support application volumes:
 
 **Compose Applications:**
 
-* `podman-compose` installed.
+* A compose provider installed. `podman-compose` is recommended; `docker-compose` v2 (standalone) is also accepted but is not validated by Flight Control.
 
 ## Using Device Lifecycle Hooks
 
