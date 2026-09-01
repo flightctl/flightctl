@@ -483,20 +483,3 @@ func TestScanImages_ScannedWithNoFindingsOmitsDigest(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, out, "sha256:empty")
 }
-
-func TestRegistry_ResolvesQuayBackend(t *testing.T) {
-	srv := newMockQuayServer(t, &mockQuayServer{response: scannedResponse()})
-	cfg := &config.VulnerabilityConfig{
-		Backend: config.VulnerabilityBackendQuay,
-		Quay:    &config.QuayConfig{Endpoint: srv.URL, Token: "test-token"},
-	}
-	s, err := vulnerability.NewScanner(cfg)
-	require.NoError(t, err)
-	require.NotNil(t, s, "backend \"quay\" must resolve via the init() registration")
-
-	out, err := s.ScanImages(context.Background(), []vulnerability.ImageRef{
-		{Digest: "sha256:abc", Image: hostOf(srv) + "/org/repo:latest"},
-	})
-	require.NoError(t, err)
-	assert.Contains(t, out, "sha256:abc")
-}

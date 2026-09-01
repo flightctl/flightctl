@@ -16,13 +16,6 @@ import (
 // vulnerabilities currently detected in an image and provides no VEX status.
 const statusAffected = "affected"
 
-func init() {
-	vulnerability.Register(string(config.VulnerabilityBackendQuay),
-		func(cfg *config.VulnerabilityConfig) (vulnerability.Scanner, error) {
-			return NewScanner(cfg.Quay, nil)
-		}, vulnerability.WithSBOMUpload(false)) // Quay indexes images natively
-}
-
 // quayScanner implements vulnerability.Scanner over the Quay Security API
 // client, converting Quay/Clair scan reports into backend-agnostic
 // vulnerability.Finding DTOs.

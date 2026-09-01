@@ -15,7 +15,6 @@ import (
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/org/cache"
-	_ "github.com/flightctl/flightctl/internal/quay" // register the Quay vulnerability scanner backend
 	"github.com/flightctl/flightctl/internal/rendered"
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	checkpointservice "github.com/flightctl/flightctl/internal/service/checkpoint"
@@ -40,9 +39,9 @@ import (
 	syncstatestore "github.com/flightctl/flightctl/internal/store/syncstate"
 	vulnerabilityfindingstore "github.com/flightctl/flightctl/internal/store/vulnerabilityfinding"
 	"github.com/flightctl/flightctl/internal/tasks"
-	_ "github.com/flightctl/flightctl/internal/trustify/v2" // register the Trustify vulnerability scanner backend
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/vulnerability"
+	"github.com/flightctl/flightctl/internal/vulnerability/backends"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -153,7 +152,7 @@ func (s *Server) Run(ctx context.Context) error {
 	var scanner vulnerability.Scanner
 	if s.cfg.VulnerabilityReporting != nil && s.cfg.VulnerabilityReporting.Enabled {
 		var err error
-		scanner, err = vulnerability.NewScanner(s.cfg.VulnerabilityReporting)
+		scanner, err = backends.NewScanner(s.cfg.VulnerabilityReporting)
 		if err != nil {
 			s.log.WithError(err).Error("Failed to initialize vulnerability scanner, vulnerability sync will be disabled")
 		} else if scanner == nil {

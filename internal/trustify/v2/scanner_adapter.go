@@ -10,12 +10,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func init() {
-	vulnerability.Register(string(config.VulnerabilityBackendTrustify), func(cfg *config.VulnerabilityConfig) (vulnerability.Scanner, error) {
-		return NewScanner(cfg.Trustify)
-	}, vulnerability.WithSBOMUpload(true))
-}
-
 // trustifyScanner implements vulnerability.Scanner over the Trustify v2 client,
 // converting Trustify findings into backend-agnostic vulnerability.Finding DTOs.
 type trustifyScanner struct {
