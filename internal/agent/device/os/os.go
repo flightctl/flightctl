@@ -99,7 +99,7 @@ type manager struct {
 	mu                 sync.Mutex
 	fallbackReason     *string
 	lastAttemptedImage string
-	deltaStaged        bool
+	stagedDeltaImage   string
 }
 
 func (m *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, _ ...status.CollectorOpt) error {
@@ -113,7 +113,9 @@ func (m *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, _ ..
 	m.mu.Lock()
 	reason := m.fallbackReason
 	m.mu.Unlock()
-	status.Os.LastDelta = &v1beta1.DeviceDeltaApplyStatus{FallbackReason: reason}
+	if reason != nil {
+		status.Os.LastDelta = &v1beta1.DeviceDeltaApplyStatus{FallbackReason: reason}
+	}
 	osMode := m.caps.OsMode
 	status.Capabilities = &v1beta1.DeviceCapabilities{OsMode: &osMode}
 	ApplyDeltaSystemInfo(&status.SystemInfo, m.caps)
@@ -157,7 +159,7 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1bet
 	osImage := desired.Os.Image
 
 	m.mu.Lock()
-	deltaStaged := m.deltaStaged
+	deltaStaged := m.stagedDeltaImage == osImage
 	m.mu.Unlock()
 	if deltaStaged {
 		m.log.Debugf("OS image already staged from delta: %s", osImage)
@@ -273,7 +275,7 @@ func (m *manager) pullAndApplyOSDelta(ctx context.Context, candidate, osImage st
 		return m.failApply(err)
 	}
 	m.mu.Lock()
-	m.deltaStaged = true
+	m.stagedDeltaImage = osImage
 	m.mu.Unlock()
 	return nil
 }
@@ -295,7 +297,7 @@ func (m *manager) AfterUpdate(ctx context.Context, desired *v1beta1.DeviceSpec) 
 		return nil
 	}
 	m.mu.Lock()
-	deltaStaged := m.deltaStaged
+	deltaStaged := m.stagedDeltaImage == desired.Os.Image
 	m.mu.Unlock()
 	if deltaStaged {
 		return nil
@@ -333,8 +335,11 @@ func (m *manager) Rollback(ctx context.Context, desired *v1beta1.DeviceSpec) err
 }
 
 func (m *manager) Reboot(ctx context.Context, desired *v1beta1.DeviceSpec) error {
+	if desired == nil || desired.Os == nil {
+		return m.client.Apply(ctx)
+	}
 	m.mu.Lock()
-	deltaStaged := m.deltaStaged
+	deltaStaged := m.stagedDeltaImage == desired.Os.Image
 	m.mu.Unlock()
 	if deltaStaged {
 		return m.client.RebootStaged(ctx)

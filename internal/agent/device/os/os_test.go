@@ -177,6 +177,7 @@ func TestCollectOCITargets(t *testing.T) {
 		desired        *v1beta1.DeviceSpec
 		fallbackReason *string
 		lastAttempted  string
+		stagedDelta    string
 		setup          func(*testing.T, *executer.MockExecuter, *MockClient, *dependency.MockPullConfigResolver)
 		wantRefs       []string
 		wantReason     *string
@@ -209,6 +210,28 @@ func TestCollectOCITargets(t *testing.T) {
 				expectImageExists(mockExec, testDesiredImage, true)
 			},
 			wantEmpty: true,
+		},
+		{
+			name:        "When a delta is already staged for the desired image it should skip collection",
+			caps:        Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.15.0"},
+			desired:     desiredSpec(testDesiredImage, nil),
+			stagedDelta: testDesiredImage,
+			setup: func(_ *testing.T, _ *executer.MockExecuter, _ *MockClient, _ *dependency.MockPullConfigResolver) {
+			},
+			wantEmpty: true,
+		},
+		{
+			name:        "When a delta is staged for a different image it should collect the new desired image",
+			caps:        Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: false},
+			desired:     desiredSpec(testDesiredImage, nil),
+			stagedDelta: testBootedImage,
+			setup: func(t *testing.T, mockExec *executer.MockExecuter, mockClient *MockClient, mockResolver *dependency.MockPullConfigResolver) {
+				mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil)
+				expectImageExists(mockExec, testDesiredImage, false)
+				expectPullConfig(t, mockResolver)
+			},
+			wantRefs:      []string{testDesiredImage},
+			wantAttempted: testDesiredImage,
 		},
 		{
 			name:    "When not delta eligible it should emit a full-image target without Referrers",
@@ -373,6 +396,7 @@ func TestCollectOCITargets(t *testing.T) {
 			m := newTestManager(t, mockClient, mockExec, mockResolver, tt.caps)
 			m.fallbackReason = tt.fallbackReason
 			m.lastAttemptedImage = tt.lastAttempted
+			m.stagedDeltaImage = tt.stagedDelta
 
 			collection, err := m.CollectOCITargets(context.Background(), nil, tt.desired)
 			require.NoError(t, err)
@@ -394,12 +418,12 @@ func TestCollectOCITargets(t *testing.T) {
 			}
 
 			status := &v1beta1.DeviceStatus{}
-			if tt.desired.Os != nil && !tt.wantEmpty || tt.wantReason != nil || tt.fallbackReason != nil {
-				mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil).MaxTimes(1)
-				if err := m.Status(context.Background(), status); err == nil {
-					require.Equal(t, tt.wantReason, osLastDeltaFallback(status))
-				}
+			if tt.desired.Os == nil {
+				return
 			}
+			mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil)
+			require.NoError(t, m.Status(context.Background(), status))
+			require.Equal(t, tt.wantReason, osLastDeltaFallback(status))
 		})
 	}
 }
@@ -407,7 +431,11 @@ func TestCollectOCITargets(t *testing.T) {
 func newTestManager(t *testing.T, bootcClient Client, mockExec *executer.MockExecuter, resolver dependency.PullConfigResolver, caps Capabilities) *manager {
 	t.Helper()
 	logger := log.NewPrefixLogger("test")
-	rw := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
+	tmpDir := t.TempDir()
+	rw := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+	)
 	backoff := poll.Config{BaseDelay: time.Millisecond, Factor: 1.5, MaxSteps: 1}
 	return NewManager(
 		logger,

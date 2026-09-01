@@ -204,9 +204,6 @@ func (s *Skopeo) ListReferrers(ctx context.Context, image string, opts ...Client
 		if err != nil {
 			return nil, err
 		}
-		if name == "" {
-			name, _ = parseImageNameAndDigest(image)
-		}
 	}
 	if name == "" || digest == "" {
 		return nil, fmt.Errorf("list referrers: cannot resolve Tag Schema for %q", image)

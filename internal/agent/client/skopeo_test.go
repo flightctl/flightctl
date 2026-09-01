@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -17,6 +18,7 @@ func TestSkopeoInspectManifest(t *testing.T) {
 	tests := []struct {
 		name           string
 		image          string
+		withAuth       bool
 		setupMocks     func(*executer.MockExecuter)
 		expectedResult *OCIManifest
 		expectedError  bool
@@ -92,22 +94,9 @@ func TestSkopeoInspectManifest(t *testing.T) {
 			expectedError: false,
 		},
 		{
-			name:  "inspect with authentication",
-			image: "private-registry.io/test/image:v1",
-			setupMocks: func(mockExec *executer.MockExecuter) {
-				manifestJSON := `{
-					"schemaVersion": 2,
-					"mediaType": "application/vnd.oci.image.manifest.v1+json",
-					"config": {
-						"mediaType": "application/vnd.oci.image.config.v1+json",
-						"digest": "sha256:abc123",
-						"size": 500
-					}
-				}`
-				mockExec.EXPECT().
-					ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://private-registry.io/test/image:v1", "--authfile", "/tmp/test-auth.json").
-					Return(manifestJSON, "", 0)
-			},
+			name:     "inspect with authentication",
+			image:    "private-registry.io/test/image:v1",
+			withAuth: true,
 			expectedResult: &OCIManifest{
 				MediaType: "application/vnd.oci.image.manifest.v1+json",
 				Config: &OCIDescriptor{
@@ -208,17 +197,28 @@ func TestSkopeoInspectManifest(t *testing.T) {
 			logger := log.NewPrefixLogger("test")
 			logger.SetLevel(logrus.ErrorLevel)
 
-			tt.setupMocks(mockExec)
-
 			readWriter := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
 			skopeo := NewSkopeo(logger, mockExec, readWriter)
 
 			var opts []ClientOption
-			if tt.name == "inspect with authentication" {
-				tmpFile := "/tmp/test-auth.json"
-				_ = readWriter.WriteFile(tmpFile, []byte(`{"auths":{}}`), 0600)
-				defer func() { _ = readWriter.RemoveAll(tmpFile) }()
+			if tt.withAuth {
+				tmpFile := filepath.Join(t.TempDir(), "auth.json")
+				require.NoError(t, readWriter.WriteFile(tmpFile, []byte(`{"auths":{}}`), 0600))
 				opts = append(opts, WithPullSecret(tmpFile))
+				manifestJSON := `{
+					"schemaVersion": 2,
+					"mediaType": "application/vnd.oci.image.manifest.v1+json",
+					"config": {
+						"mediaType": "application/vnd.oci.image.config.v1+json",
+						"digest": "sha256:abc123",
+						"size": 500
+					}
+				}`
+				mockExec.EXPECT().
+					ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://private-registry.io/test/image:v1", "--authfile", tmpFile).
+					Return(manifestJSON, "", 0)
+			} else {
+				tt.setupMocks(mockExec)
 			}
 
 			ctx := context.Background()
@@ -409,14 +409,9 @@ func TestSkopeoListReferrers(t *testing.T) {
 			expectedError: true,
 		},
 		{
-			name:     "When a pull secret is set it should pass --authfile",
-			image:    targetImage,
-			withAuth: true,
-			setupMocks: func(mockExec *executer.MockExecuter) {
-				mockExec.EXPECT().
-					ExecuteWithContext(gomock.Any(), "skopeo", "list-referrers", dockerTarget, "--authfile", "/tmp/test-auth.json").
-					Return(indexJSON, "", 0)
-			},
+			name:       "When a pull secret is set it should pass --authfile",
+			image:      targetImage,
+			withAuth:   true,
 			wantDigest: deltaDigest,
 		},
 	}
@@ -429,17 +424,20 @@ func TestSkopeoListReferrers(t *testing.T) {
 			mockExec := executer.NewMockExecuter(ctrl)
 			logger := log.NewPrefixLogger("test")
 			logger.SetLevel(logrus.ErrorLevel)
-			tt.setupMocks(mockExec)
 
 			readWriter := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
 			skopeo := NewSkopeo(logger, mockExec, readWriter)
 
 			var opts []ClientOption
 			if tt.withAuth {
-				tmpFile := "/tmp/test-auth.json"
+				tmpFile := filepath.Join(t.TempDir(), "auth.json")
 				require.NoError(t, readWriter.WriteFile(tmpFile, []byte(`{"auths":{}}`), 0600))
-				defer func() { _ = readWriter.RemoveAll(tmpFile) }()
 				opts = append(opts, WithPullSecret(tmpFile))
+				mockExec.EXPECT().
+					ExecuteWithContext(gomock.Any(), "skopeo", "list-referrers", dockerTarget, "--authfile", tmpFile).
+					Return(indexJSON, "", 0)
+			} else {
+				tt.setupMocks(mockExec)
 			}
 
 			result, err := skopeo.ListReferrers(context.Background(), tt.image, opts...)

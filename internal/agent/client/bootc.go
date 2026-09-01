@@ -74,7 +74,7 @@ func (b *bootc) SwitchRegistry(ctx context.Context, image string) error {
 	}
 	target, err := container.ImageToBootcTarget(image)
 	if err != nil {
-		return err
+		return fmt.Errorf("convert registry image target: %w", err)
 	}
 	return b.runSwitch(ctx, "registry", target, true)
 }

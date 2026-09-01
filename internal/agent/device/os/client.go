@@ -128,10 +128,10 @@ func (b *bootc) Apply(ctx context.Context) error {
 
 func (b *bootc) RebootStaged(ctx context.Context) error {
 	_, stderr, exitCode := b.exec.ExecuteWithContext(ctx, "systemctl", "reboot")
-	if exitCode != 0 && exitCode != 137 {
-		return fmt.Errorf("systemctl reboot: %s", stderr)
+	if exitCode == 0 || exitCode == 137 || exitCode == 143 {
+		return nil
 	}
-	return nil
+	return fmt.Errorf("systemctl reboot: %s", stderr)
 }
 
 func newRpmOSTreeClient(exec executer.Executer) *rpmOSTree {
