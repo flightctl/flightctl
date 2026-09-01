@@ -73,7 +73,7 @@ func isBinaryAvailable(binaryName string) bool {
 func newBootcClient(log *log.PrefixLogger, exec executer.Executer) *bootc {
 	return &bootc{
 		client:          client.NewBootc(log, exec),
-		exec:            exec,
+		systemd:         client.NewSystemd(exec, v1beta1.RootUsername),
 		lookPath:        stdexec.LookPath,
 		bootcVersion:    versionCmd(exec, "bootc"),
 		ociDeltaVersion: versionCmd(exec, "oci-delta"),
@@ -82,7 +82,7 @@ func newBootcClient(log *log.PrefixLogger, exec executer.Executer) *bootc {
 
 type bootc struct {
 	client          client.Bootc
-	exec            executer.Executer
+	systemd         *client.Systemd
 	lookPath        func(string) (string, error)
 	bootcVersion    func(context.Context) (string, error)
 	ociDeltaVersion func(context.Context) (string, error)
@@ -127,11 +127,7 @@ func (b *bootc) Apply(ctx context.Context) error {
 }
 
 func (b *bootc) RebootStaged(ctx context.Context) error {
-	_, stderr, exitCode := b.exec.ExecuteWithContext(ctx, "systemctl", "reboot")
-	if exitCode == 0 || exitCode == 137 || exitCode == 143 {
-		return nil
-	}
-	return fmt.Errorf("systemctl reboot: %s", stderr)
+	return b.systemd.Reboot(ctx)
 }
 
 func newRpmOSTreeClient(exec executer.Executer) *rpmOSTree {

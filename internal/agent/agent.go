@@ -318,8 +318,9 @@ func (a *Agent) Run(ctx context.Context) error {
 		rootReadWriter,
 		rootPodmanClient,
 		pullConfigResolver,
-		client.NewOCIDelta(a.log, exec),
+		client.NewOCIDelta(a.log, exec, time.Duration(a.config.PullTimeout)),
 		rootSkopeoClient,
+		time.Duration(a.config.PullTimeout),
 	)
 
 	// create prefetch manager

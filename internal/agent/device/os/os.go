@@ -22,7 +22,6 @@ const (
 	fallbackReasonApply = "delta apply failed"
 	osDeltaTempPrefix   = "os-delta"
 	osDeltaLayoutName   = "image"
-	osDeltaCopyTimeout  = 10 * time.Minute
 )
 
 type Capabilities struct {
@@ -73,6 +72,7 @@ func NewManager(
 	pullConfigResolver dependency.PullConfigResolver,
 	ociDelta *client.OCIDelta,
 	skopeo *client.Skopeo,
+	pullTimeout time.Duration,
 ) Manager {
 	return &manager{
 		client:             client,
@@ -82,6 +82,7 @@ func NewManager(
 		pullConfigResolver: pullConfigResolver,
 		ociDelta:           ociDelta,
 		skopeo:             skopeo,
+		pullTimeout:        pullTimeout,
 		log:                log,
 	}
 }
@@ -94,6 +95,7 @@ type manager struct {
 	pullConfigResolver dependency.PullConfigResolver
 	ociDelta           *client.OCIDelta
 	skopeo             *client.Skopeo
+	pullTimeout        time.Duration
 	log                *log.PrefixLogger
 
 	mu                 sync.Mutex
@@ -257,7 +259,7 @@ func (m *manager) pullAndApplyOSDelta(ctx context.Context, candidate, osImage st
 	defer func() { _ = m.readWriter.RemoveAll(tmpDir) }()
 
 	deltaFile := filepath.Join(tmpDir, "delta.oci")
-	opts := append([]client.ClientOption{client.Timeout(osDeltaCopyTimeout)}, optsFn()...)
+	opts := append([]client.ClientOption{client.Timeout(m.pullTimeout)}, optsFn()...)
 	if err := m.skopeo.Copy(ctx, "docker://"+candidate, "oci-archive:"+deltaFile, opts...); err != nil {
 		m.setFallbackReason(fallbackReasonPull)
 		return err

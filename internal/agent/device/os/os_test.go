@@ -444,8 +444,9 @@ func newTestManager(t *testing.T, bootcClient Client, mockExec *executer.MockExe
 		rw,
 		client.NewPodman(logger, mockExec, rw, backoff),
 		resolver,
-		client.NewOCIDelta(logger, mockExec),
+		client.NewOCIDelta(logger, mockExec, time.Minute),
 		client.NewSkopeo(logger, mockExec, rw),
+		time.Minute,
 	).(*manager)
 }
 

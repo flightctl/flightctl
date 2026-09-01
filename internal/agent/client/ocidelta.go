@@ -11,9 +11,8 @@ import (
 )
 
 const (
-	ociDeltaCmd            = "oci-delta"
-	ostreeRepoPath         = "/ostree/repo"
-	defaultOCIDeltaTimeout = 30 * time.Minute
+	ociDeltaCmd    = "oci-delta"
+	ostreeRepoPath = "/ostree/repo"
 )
 
 type OCIDelta struct {
@@ -22,11 +21,11 @@ type OCIDelta struct {
 	timeout time.Duration
 }
 
-func NewOCIDelta(log *log.PrefixLogger, exec executer.Executer) *OCIDelta {
+func NewOCIDelta(log *log.PrefixLogger, exec executer.Executer, timeout time.Duration) *OCIDelta {
 	return &OCIDelta{
 		log:     log,
 		exec:    exec,
-		timeout: defaultOCIDeltaTimeout,
+		timeout: timeout,
 	}
 }
 

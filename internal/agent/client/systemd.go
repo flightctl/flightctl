@@ -88,10 +88,10 @@ func (s *Systemd) Reboot(ctx context.Context) error {
 	}
 	command, args := s.createArgs("reboot")
 	_, stderr, exitCode := s.exec.ExecuteWithContext(ctx, command, args...)
-	if exitCode != 0 {
-		return fmt.Errorf("reboot systemd: %w", errors.FromStderr(stderr, exitCode))
+	if exitCode == 0 || exitCode == 137 || exitCode == 143 {
+		return nil
 	}
-	return nil
+	return fmt.Errorf("reboot systemd: %w", errors.FromStderr(stderr, exitCode))
 }
 
 func (s *Systemd) Restart(ctx context.Context, name string) error {

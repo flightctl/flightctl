@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -67,7 +68,7 @@ func TestOCIDeltaApply(t *testing.T) {
 			logger.SetLevel(logrus.ErrorLevel)
 			tt.setupMocks(mockExec)
 
-			delta := NewOCIDelta(logger, mockExec)
+			delta := NewOCIDelta(logger, mockExec, time.Minute)
 			err := delta.Apply(context.Background(), deltaRef, "oci:"+dest)
 			if tt.expectedError {
 				require.Error(t, err)
