@@ -39,8 +39,9 @@ import (
 	syncstatestore "github.com/flightctl/flightctl/internal/store/syncstate"
 	vulnerabilityfindingstore "github.com/flightctl/flightctl/internal/store/vulnerabilityfinding"
 	"github.com/flightctl/flightctl/internal/tasks"
-	trustifyv2 "github.com/flightctl/flightctl/internal/trustify/v2"
+	_ "github.com/flightctl/flightctl/internal/trustify/v2" // register the Trustify vulnerability scanner backend
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/internal/vulnerability"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -148,16 +149,14 @@ func (s *Server) Run(ctx context.Context) error {
 		s.log.Debug("Secret informer disabled by configuration")
 	}
 
-	var vulnClient trustifyv2.VulnerabilityClient
+	var scanner vulnerability.Scanner
 	if s.cfg.VulnerabilityReporting != nil && s.cfg.VulnerabilityReporting.Enabled {
-		if s.cfg.VulnerabilityReporting.Trustify == nil {
-			s.log.Warn("Vulnerability syncing is enabled but Trustify config is missing; vulnerability-sync executor will be skipped")
-		} else {
-			var err error
-			vulnClient, err = trustifyv2.NewVulnerabilityClient(ctx, s.cfg.VulnerabilityReporting.Trustify)
-			if err != nil {
-				s.log.WithError(err).Error("Failed to initialize Trustify client, vulnerability sync will be disabled")
-			}
+		var err error
+		scanner, err = vulnerability.NewScanner(s.cfg.VulnerabilityReporting)
+		if err != nil {
+			s.log.WithError(err).Error("Failed to initialize vulnerability scanner, vulnerability sync will be disabled")
+		} else if scanner == nil {
+			s.log.Warn("Vulnerability syncing is enabled but the selected backend has no configuration; vulnerability-sync executor will be skipped")
 		}
 	} else {
 		s.log.Debug("Vulnerability syncing is disabled")
@@ -169,7 +168,7 @@ func (s *Server) Run(ctx context.Context) error {
 	periodicTaskExecutors := InitializeTaskExecutors(s.log,
 		repositorySvc, fleetSvc, resourceSyncSvc, catalogSvc, deviceSvc, eventSvc,
 		checkpointSvc, organizationSvc, dependencyrefSvc, syncstateSvc,
-		s.cfg, queuesProvider, workerClient, nil, vulnerabilityFindingStore, vulnClient, depSyncMetrics)
+		s.cfg, queuesProvider, workerClient, nil, vulnerabilityFindingStore, scanner, depSyncMetrics)
 
 	// Create channel manager for task distribution
 	channelManagerConfig := ChannelManagerConfig{
