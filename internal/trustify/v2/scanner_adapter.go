@@ -22,12 +22,11 @@ func init() {
 type trustifyScanner struct {
 	cfg *config.TrustifyConfig
 
-	// once guards lazy client construction so overlapping ScanImages calls
+	// mu guards lazy client construction so overlapping ScanImages calls
 	// (VulnerabilitySync is SystemWide and can be rescheduled before a prior
 	// run completes) cannot race to build duplicate clients.
-	once    sync.Once
-	client  VulnerabilityClient
-	initErr error
+	mu     sync.Mutex
+	client VulnerabilityClient
 }
 
 // NewScanner returns a Trustify-backed Scanner. It returns nil, nil when cfg is
@@ -47,14 +46,22 @@ func NewScanner(cfg *config.TrustifyConfig) (vulnerability.Scanner, error) {
 var newVulnerabilityClient = NewVulnerabilityClient
 
 func (s *trustifyScanner) ensureClient(ctx context.Context) (VulnerabilityClient, error) {
-	s.once.Do(func() {
-		// A client injected at construction (in tests) is left untouched.
-		if s.client != nil {
-			return
-		}
-		s.client, s.initErr = newVulnerabilityClient(ctx, s.cfg)
-	})
-	return s.client, s.initErr
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// A client already built (or injected at construction in tests) is reused.
+	if s.client != nil {
+		return s.client, nil
+	}
+	// Construction (OIDC discovery in client-credentials mode) can fail
+	// transiently on a canceled context or a network blip. Return the error
+	// without caching it so a later scan retries rather than staying wedged
+	// until process restart.
+	client, err := newVulnerabilityClient(ctx, s.cfg)
+	if err != nil {
+		return nil, err
+	}
+	s.client = client
+	return s.client, nil
 }
 
 // ScanImages fetches findings for the given images' digests. Trustify keys

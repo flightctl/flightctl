@@ -241,10 +241,48 @@ func TestTrustifyScanner_ensureClient_ConcurrentInitBuildsOnce(t *testing.T) {
 			req.NoError(err)
 		}()
 	}
-	wg.Wait()
+
+	// Wait through a channel with a deadline so a blocked scan fails fast
+	// instead of hanging until the suite-level timeout.
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("concurrent scans did not complete within deadline")
+	}
 
 	// Lazy construction must happen exactly once across concurrent scans.
 	req.Equal(int32(1), atomic.LoadInt32(&calls))
+}
+
+func TestTrustifyScanner_ensureClient_RetriesAfterTransientFailure(t *testing.T) {
+	req := require.New(t)
+
+	var calls int32
+	orig := newVulnerabilityClient
+	newVulnerabilityClient = func(_ context.Context, _ *config.TrustifyConfig) (VulnerabilityClient, error) {
+		// Fail the first construction (transient), succeed afterwards.
+		if atomic.AddInt32(&calls, 1) == 1 {
+			return nil, errors.New("transient discovery failure")
+		}
+		return &stubClient{}, nil
+	}
+	t.Cleanup(func() { newVulnerabilityClient = orig })
+
+	s := &trustifyScanner{cfg: &config.TrustifyConfig{Endpoint: "https://trustify.example"}}
+
+	// First scan fails because client construction failed; the error is not
+	// cached, so a later scan can rebuild the client.
+	_, err := s.ScanImages(context.Background(), []vulnerability.ImageRef{{Digest: "sha256:aaaa"}})
+	req.Error(err)
+
+	_, err = s.ScanImages(context.Background(), []vulnerability.ImageRef{{Digest: "sha256:aaaa"}})
+	req.NoError(err)
+	req.Equal(int32(2), atomic.LoadInt32(&calls))
 }
 
 func TestNewScanner_NilConfigReturnsNil(t *testing.T) {
