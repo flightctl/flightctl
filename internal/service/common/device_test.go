@@ -680,6 +680,17 @@ func TestUpdateServerSideLifecycleStatus(t *testing.T) {
 			expectedInfo:   "Device has completed decommissioning",
 			expectedChange: true,
 		},
+		{
+			name:          "When decommissioning condition exists but is inactive it should not change status",
+			currentStatus: domain.DeviceLifecycleStatusEnrolled,
+			condition: &domain.Condition{
+				Type:   domain.ConditionTypeDeviceDecommissioning,
+				Status: domain.ConditionStatusFalse,
+				Reason: string(domain.DecommissionStateStarted),
+			},
+			expectedStatus: domain.DeviceLifecycleStatusEnrolled,
+			expectedChange: false,
+		},
 	}
 
 	for _, tt := range tests {
