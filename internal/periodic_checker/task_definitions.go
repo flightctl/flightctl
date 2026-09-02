@@ -243,8 +243,8 @@ func (e *QueueMaintenanceExecutor) Execute(ctx context.Context, log logrus.Field
 
 type VulnerabilitySyncExecutor struct {
 	log           logrus.FieldLogger
-	scanner    vulnerability.Scanner
-	findingSvc vulnerabilityfindingservice.Service
+	scanner       vulnerability.Scanner
+	findingSvc    vulnerabilityfindingservice.Service
 	checkpointSvc checkpointservice.Service
 	eventSvc      eventservice.Service
 	// backend is the resolved vulnerability backend whose name is stamped as
@@ -387,9 +387,9 @@ func InitializeTaskExecutors(
 
 	if cfg.VulnerabilityReporting != nil && cfg.VulnerabilityReporting.Enabled && scanner != nil && findingSvc != nil {
 		executors[PeriodicTaskTypeVulnerabilitySync] = &VulnerabilitySyncExecutor{
-			log:        log.WithField("pkg", "vulnerability-sync"),
-			scanner:    scanner,
-			findingSvc: findingSvc,
+			log:           log.WithField("pkg", "vulnerability-sync"),
+			scanner:       scanner,
+			findingSvc:    findingSvc,
 			checkpointSvc: checkpointSvc,
 			eventSvc:      eventSvc,
 			backend:       cfg.VulnerabilityReporting.EffectiveBackend(),
