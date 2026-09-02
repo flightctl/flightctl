@@ -946,6 +946,44 @@ func TestSetDeviceServiceConditions(t *testing.T) {
 		require.Len(t, ev.created, 1)
 	})
 
+	t.Run("When a service condition is updated it should preserve agent-owned conditions", func(t *testing.T) {
+		st, _, svc := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		agentCond := domain.Condition{
+			Type:    domain.ConditionTypeDeviceUpdating,
+			Status:  domain.ConditionStatusTrue,
+			Reason:  "Applying",
+			Message: "applying spec",
+		}
+		serviceCond := domain.Condition{
+			Type:    domain.ConditionTypeDeviceSpecValid,
+			Status:  domain.ConditionStatusTrue,
+			Reason:  "ok",
+			Message: "ok",
+		}
+		_, err := st.device.Create(ctx, orgId, &domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")},
+			Status: &domain.DeviceStatus{
+				Conditions: []domain.Condition{agentCond, serviceCond},
+			},
+		}, nil)
+		require.NoError(t, err)
+
+		status := svc.SetDeviceServiceConditions(ctx, orgId, "foo", []domain.Condition{
+			{Type: domain.ConditionTypeDeviceSpecValid, Status: domain.ConditionStatusFalse, Message: "bad spec"},
+		})
+		require.Equal(t, int32(http.StatusOK), status.Code)
+
+		stored := st.device.devices["foo"]
+		gotAgent := domain.FindStatusCondition(stored.Status.Conditions, domain.ConditionTypeDeviceUpdating)
+		require.Equal(t, &agentCond, gotAgent)
+		gotService := domain.FindStatusCondition(stored.Status.Conditions, domain.ConditionTypeDeviceSpecValid)
+		require.NotNil(t, gotService)
+		require.Equal(t, domain.ConditionStatusFalse, gotService.Status)
+		require.Equal(t, "bad spec", gotService.Message)
+	})
+
 	t.Run("When merge changes nothing it should skip write and not emit events", func(t *testing.T) {
 		st, ev, svc := newTestHandler()
 		ctx := context.Background()
