@@ -1,6 +1,7 @@
 package vm_test
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/flightctl/flightctl/test/harness/e2e"
@@ -85,4 +86,31 @@ func TestVMApplicationUnitPatternsUseProductionNames(t *testing.T) {
 	require.Len(t, patterns, 2)
 	require.Equal(t, expectedVMAppTargetUnitName, patterns[0])
 	require.Equal(t, expectedVMAppComputeServiceName, patterns[1])
+}
+
+func TestConfigDriveCloudUserDataWhenEnablingPasswordSSHItShouldResetFaillock(t *testing.T) {
+	sshPublicKey := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAItest"
+	password := t.Name()
+	got := configDriveCloudUserData(sshPublicKey, password)
+
+	require.Contains(t, got, "ssh_pwauth: true")
+	require.Contains(t, got, "name: "+vmCloudUser)
+	require.Contains(t, got, "password: "+strconv.Quote(password))
+	require.Contains(t, got, strconv.Quote(sshPublicKey))
+	require.Contains(t, got, "path: /etc/security/faillock.conf")
+	require.Contains(t, got, "deny = 0")
+	require.Contains(t, got, "authselect disable-feature with-faillock")
+	require.Contains(t, got, "faillock --user "+vmCloudUser+" --reset")
+	require.NotContains(t, got, "hello-http.service")
+}
+
+func TestConfigDriveCloudUserDataWithServicesWhenRequestedItShouldIncludeHTTPAndUDPUnits(t *testing.T) {
+	got := configDriveCloudUserDataWithServices("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAItest", t.Name())
+
+	require.Contains(t, got, "path: /etc/security/faillock.conf")
+	require.Contains(t, got, "hello-http.service")
+	require.Contains(t, got, "hello-udp.service")
+	require.Contains(t, got, "PORT = "+strconv.Itoa(vmBPublishedUDPPort))
+	require.Contains(t, got, strconv.Quote(configDriveIndexHTMLContent))
+	require.Contains(t, got, "systemctl enable --now hello-http.service")
 }

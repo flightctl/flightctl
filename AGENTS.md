@@ -18,7 +18,7 @@ Flight Control is a service for declarative management of fleets of edge devices
 
 ## Build and development
 
-- **Build:** `make build` (requires Go ≥1.23, podman, and other deps; see [docs/developer/README.md](docs/developer/README.md)).
+- **Build:** `make build` (requires Go ≥1.26, podman, and other deps; see [docs/developer/README.md](docs/developer/README.md)).
 - **Generate API/client code and mocks:** `make generate` (requires mockgen: `go install go.uber.org/mock/mockgen@v0.4.0`).
 - **Proto generation:** `make generate-proto` for `api/grpc/`.
 - **Unit tests:** `make unit-test` (requires gotestsum: `go install gotest.tools/gotestsum@latest`). Avoid `make test`; prefer `make unit-test` (and `make integration-test` separately if needed). When verifying changes, first run unit tests on the specific files changed, then run `make unit-test` for the full suite. Two opt-out flags are available for faster local iteration: `RACE=0` disables the race detector and `COVERAGE=0` disables the coverage profile (e.g. `make unit-test RACE=0 COVERAGE=0`). Both default to `1` so CI always runs with race detection and coverage enabled.

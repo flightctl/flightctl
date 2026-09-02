@@ -368,7 +368,6 @@ func buildTLSTransport(cfg *config.TrustifyConfig) (*http.Transport, error) {
 		}
 		tlsConfig.RootCAs = pool
 	}
-	}
 
 	transport.TLSClientConfig = tlsConfig
 	return transport, nil

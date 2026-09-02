@@ -23,93 +23,10 @@ const (
 
 	// VMGuestMemoryDefault is the guest RAM for e2e KubeVirt VM manifests.
 	VMGuestMemoryDefault = "1024M"
+
+	// VMFedoraGuestUser is the default login user on Fedora containerdisk images.
+	VMFedoraGuestUser = "fedora"
 )
-
-// VMYAML builds a KubeVirt VirtualMachine manifest for e2e tests. cloudInitVolumeYAML
-// is the cloudinitdisk volume entry (including list-item indentation under volumes)
-func VMYAML(name, guestMemory, image, cloudInitVolumeYAML string) string {
-	return vmYAMLManifest(name, guestMemory, image, 0, cloudInitVolumeYAML)
-}
-
-// VMFedoraNoCloudUserData returns cloud-init userData that enables password SSH for the fedora user.
-func VMFedoraNoCloudUserData(password string) string {
-	return fmt.Sprintf(`#cloud-config
-ssh_pwauth: true
-password: %s
-chpasswd: { expire: False }`, password)
-}
-
-// VMYAMLWithCPU builds a KubeVirt VirtualMachine manifest. cpuCores <= 0 omits the cpu block.
-func VMYAMLWithCPU(name, guestMemory, image string, cpuCores int, cloudInitUserData string) string {
-	return vmYAMLManifest(name, guestMemory, image, cpuCores, VMCloudInitNoCloudVolume(cloudInitUserData))
-}
-
-func vmYAMLManifest(name, guestMemory, image string, cpuCores int, cloudInitVolumeYAML string) string {
-	cpuBlock := ""
-	if cpuCores > 0 {
-		cpuBlock = fmt.Sprintf("        cpu:\n          cores: %d\n", cpuCores)
-	}
-	return fmt.Sprintf(`apiVersion: kubevirt.io/v1
-kind: VirtualMachine
-metadata:
-  name: %s
-spec:
-  running: true
-  template:
-    spec:
-      domain:
-%s        devices:
-          disks:
-          - disk:
-              bus: virtio
-            name: containerdisk
-          - disk:
-              bus: virtio
-            name: cloudinitdisk
-          interfaces:
-          - masquerade: {}
-            name: default
-          rng: {}
-        memory:
-          guest: %s
-        resources: {}
-      networks:
-      - name: default
-        pod: {}
-      volumes:
-      - containerdisk:
-          image: %s
-        name: containerdisk
-%s`, name, cpuBlock, guestMemory, image, cloudInitVolumeYAML)
-}
-
-// VMYAMLWithConfigDrive builds a VM manifest using cloudInitConfigDrive userDataBase64.
-func VMYAMLWithConfigDrive(name, guestMemory, image, userDataBase64 string) string {
-	return VMYAML(name, guestMemory, image, vmCloudInitConfigDriveVolume(userDataBase64))
-}
-
-// VMCloudInitNoCloudVolume returns the cloudinitdisk volume using cloudInitNoCloud.
-func VMCloudInitNoCloudVolume(userData string) string {
-	return fmt.Sprintf(`      - cloudInitNoCloud:
-          userData: |-
-%s
-        name: cloudinitdisk`, vmIndentCloudInitUserData(userData, 12))
-}
-
-func vmCloudInitConfigDriveVolume(userDataBase64 string) string {
-	return fmt.Sprintf(`      - cloudInitConfigDrive:
-          userDataBase64: %s
-        name: cloudinitdisk`, userDataBase64)
-}
-
-func vmIndentCloudInitUserData(userData string, spaces int) string {
-	prefix := strings.Repeat(" ", spaces)
-	lines := strings.Split(strings.TrimSuffix(userData, "\n"), "\n")
-	for i, line := range lines {
-		lines[i] = prefix + line
-	}
-	return strings.Join(lines, "\n")
-}
 
 // QuadletPathForUser returns the quadlet systemd path for the given user.
 // Empty or "root" returns the root path; any other user returns the user's config path.
@@ -316,7 +233,7 @@ func NewMountVolume(name, mountPath string) (v1beta1.ApplicationVolume, error) {
 // publishPorts so that the server-side renderer can inject it into the
 // generated .pod unit.
 func NewVmApplicationSpec(name, image string) (v1beta1.ApplicationProviderSpec, error) {
-	vmYAML := VMYAML(name, VMGuestMemoryDefault, image, VMCloudInitNoCloudVolume(VMFedoraNoCloudUserData("fedora")))
+	vmYAML := VMYAML(name, VMGuestMemoryDefault, image, VMFedoraNoCloudUserData("fedora"))
 	return NewVmApplicationSpecFromYAML(name, []string{"2222:22"}, vmYAML)
 }
 
@@ -1337,6 +1254,7 @@ func classifyDeviceLocalSSHError(err error) error {
 	}
 }
 
+// ExpectSSHUnavailableOnPort waits until password SSH on localhost:port fails, then checks it stays down.
 func (h *Harness) ExpectSSHUnavailableOnPort(port int, appName, user, password string) {
 	GinkgoHelper()
 	const remoteCmd = "/usr/bin/whoami"

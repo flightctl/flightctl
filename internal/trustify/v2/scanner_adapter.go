@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/vulnerability"
@@ -19,7 +20,12 @@ func init() {
 // trustifyScanner implements vulnerability.Scanner over the Trustify v2 client,
 // converting Trustify findings into backend-agnostic vulnerability.Finding DTOs.
 type trustifyScanner struct {
-	cfg    *config.TrustifyConfig
+	cfg *config.TrustifyConfig
+
+	// mu guards lazy client construction so overlapping ScanImages calls
+	// (VulnerabilitySync is SystemWide and can be rescheduled before a prior
+	// run completes) cannot race to build duplicate clients.
+	mu     sync.Mutex
 	client VulnerabilityClient
 }
 
@@ -35,16 +41,27 @@ func NewScanner(cfg *config.TrustifyConfig) (vulnerability.Scanner, error) {
 	return &trustifyScanner{cfg: cfg}, nil
 }
 
+// newVulnerabilityClient is a seam so tests can exercise concurrent lazy
+// initialization without real network I/O.
+var newVulnerabilityClient = NewVulnerabilityClient
+
 func (s *trustifyScanner) ensureClient(ctx context.Context) (VulnerabilityClient, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	// A client already built (or injected at construction in tests) is reused.
 	if s.client != nil {
 		return s.client, nil
 	}
-	client, err := NewVulnerabilityClient(ctx, s.cfg)
+	// Construction (OIDC discovery in client-credentials mode) can fail
+	// transiently on a canceled context or a network blip. Return the error
+	// without caching it so a later scan retries rather than staying wedged
+	// until process restart.
+	client, err := newVulnerabilityClient(ctx, s.cfg)
 	if err != nil {
 		return nil, err
 	}
 	s.client = client
-	return client, nil
+	return s.client, nil
 }
 
 // ScanImages fetches findings for the given images' digests. Trustify keys
@@ -68,6 +85,7 @@ func (s *trustifyScanner) ScanImages(ctx context.Context, images []vulnerability
 	}
 
 	out := make(map[string][]vulnerability.Finding, len(raw))
+	skipped := 0
 	for digest, findings := range raw {
 		if findings == nil {
 			out[digest] = nil
@@ -78,11 +96,17 @@ func (s *trustifyScanner) ScanImages(ctx context.Context, images []vulnerability
 			vf, err := toVulnFinding(f)
 			if err != nil {
 				logrus.WithError(err).Debugf("Skipping finding for digest %s cve %s", f.ImageDigest, f.CVEID)
+				skipped++
 				continue
 			}
 			converted = append(converted, vf)
 		}
 		out[digest] = converted
+	}
+	// Surface data-quality issues at warn level so they are visible without
+	// debug logging; per-finding detail stays at debug above.
+	if skipped > 0 {
+		logrus.Warnf("Skipped %d Trustify findings due to normalization errors", skipped)
 	}
 	return out, nil
 }

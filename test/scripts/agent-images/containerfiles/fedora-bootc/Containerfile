@@ -1,0 +1,176 @@
+# syntax=docker/dockerfile:1.6
+#
+# Multi-stage base image build for flightctl device images - Fedora bootc
+# (onboarding e2e flavor).
+#
+# WHY FEDORA (and not cs9/cs10): the onboarding WiFi specs need the
+# mac80211_hwsim emulated-radio module. Red Hat filters mac80211_hwsim out of
+# every published CentOS Stream / RHEL kernel RPM (it is a test-only module), so
+# it is unobtainable on cs9-bootc/cs10-bootc at any version. Fedora ships it in
+# kernel-modules-internal. This flavor therefore exists solely so the onboarding
+# suite (GINKGO_LABEL_FILTER=onboarding) can exercise the WiFi soft-AP path on a
+# device image that actually has a usable hwsim radio. It is NOT a replacement
+# for the cs9/cs10 device images used by the sanity suites.
+#
+# Targets:
+#   - prebase: bootc base with repos, tooling, users, services, and the baked
+#              WiFi soft-AP stack (userspace + mac80211_hwsim) - no flightctl RPMs
+#   - base:    final base image starting from prebase and layering flightctl RPMs
+#
+
+# ---------- Stage: prebase ----------
+FROM quay.io/fedora/fedora-bootc:44 AS prebase
+
+# Fedora uses dnf5; the COPR command ships as a separate plugin package.
+RUN --mount=type=cache,target=/var/cache/libdnf5 \
+    dnf install -y "dnf5-command(copr)"
+
+# Utilities used by tests
+RUN --mount=type=cache,target=/var/cache/libdnf5 \
+    dnf install -y python3-dotenv
+
+# Base services and tooling that don't depend on our RPMs
+RUN --mount=type=cache,target=/var/cache/libdnf5 \
+    dnf install -y greenboot greenboot-default-health-checks podman-compose && \
+    dnf install -y firewalld && \
+    systemctl enable firewalld.service && \
+    systemctl enable podman.service
+
+# Speed up greenboot rollback for E2E testing:
+# Reduce boot attempts from 3 to 1 (saves ~6 minutes per rollback test)
+# Note: This config is read at staging time by greenboot-grub2-set-counter.service
+RUN echo "GREENBOOT_MAX_BOOT_ATTEMPTS=1" >> /etc/greenboot/greenboot.conf
+
+# Create test user
+RUN useradd -ms /bin/bash user && \
+    echo "user:user" | chpasswd && \
+    echo "user ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+
+# Create flightctl custom info directory
+RUN mkdir -p /usr/lib/flightctl/custom-info.d && \
+    chmod 755 /usr/lib/flightctl/custom-info.d
+
+# Add custom system info collectors
+RUN echo -e '#!/bin/bash\necho "my site"' > /usr/lib/flightctl/custom-info.d/siteName && \
+    echo -e '#!/bin/bash\necho ""' > /usr/lib/flightctl/custom-info.d/emptyValue && \
+    echo -e '#!/bin/bash\necho "no-show"' > /usr/lib/flightctl/custom-info.d/keyNotShown && \
+    chmod 755 /usr/lib/flightctl/custom-info.d/*
+
+# ---------- WiFi soft-AP stack (baked) ----------
+# Bake the WiFi soft-AP userspace and the mac80211_hwsim emulated-radio module
+# into the image so the onboarding WiFi specs need no runtime kernel-module
+# install (the standard cs9/cs10 runtime approach is impossible - hwsim is
+# filtered out of those kernels). mac80211_hwsim ships in kernel-modules-internal
+# on Fedora.
+#
+# bootc requires exactly ONE kernel modules tree under /usr/lib/modules; a second
+# tree breaks `bootc install-to-filesystem`. kernel-modules-internal must match
+# the installed kernel-core NEVR exactly. Installing it can pull a newer kernel
+# than the one baked into the base image (repos move faster than the base image),
+# which would leave the old kernel's tree behind. We therefore prune every
+# modules tree that is not the current kernel-core, then rebuild modules.dep and
+# assert the invariant (exactly one tree, and hwsim present) so the build fails
+# loudly rather than producing an unbootable or hwsim-less disk.
+RUN --mount=type=cache,target=/var/cache/libdnf5 \
+    set -eux; \
+    dnf install -y hostapd wpa_supplicant NetworkManager-wifi iw dnsmasq; \
+    dnf install -y kernel-modules-internal; \
+    kver="$(rpm -q --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' kernel-core | sort -V | tail -n1)"; \
+    for d in /usr/lib/modules/*/; do \
+      tree="$(basename "${d}")"; \
+      if [ "${tree}" != "${kver}" ]; then \
+        echo "Pruning stale kernel modules tree: ${tree}"; \
+        rm -rf "${d}"; \
+      fi; \
+    done; \
+    depmod -a "${kver}"; \
+    tree_count="$(find /usr/lib/modules -maxdepth 1 -mindepth 1 -type d | wc -l)"; \
+    if [ "${tree_count}" -ne 1 ]; then \
+      echo "ERROR: expected exactly one kernel modules tree, found ${tree_count}:" >&2; \
+      find /usr/lib/modules -maxdepth 1 -mindepth 1 -type d >&2; \
+      exit 1; \
+    fi; \
+    if ! find "/usr/lib/modules/${kver}" -name 'mac80211_hwsim.ko*' | grep -q .; then \
+      echo "ERROR: mac80211_hwsim not found under /usr/lib/modules/${kver}" >&2; \
+      exit 1; \
+    fi; \
+    echo "WiFi stack baked: kernel ${kver}, mac80211_hwsim present"
+
+ARG SOURCE_GIT_TAG
+ARG SOURCE_GIT_COMMIT
+LABEL org.opencontainers.image.source="https://github.com/flightctl/flightctl"
+LABEL org.opencontainers.image.version="${SOURCE_GIT_TAG}"
+LABEL org.opencontainers.image.revision="${SOURCE_GIT_COMMIT}"
+
+# ---------- Stage: base  ----------
+FROM prebase AS base
+
+# Redeclare ARGs after FROM to make them available in this stage
+ARG SOURCE_GIT_TAG
+ARG SOURCE_GIT_COMMIT
+
+# RPM source configuration (paths relative to {project root}/bin/).
+# This flavor defaults to the flightctl-dev COPR because Fedora RPMs are not
+# built by the local `make rpm` (which targets el9/el10). A caller can still
+# override RPM_COPR_REPO="" and provide local Fedora RPMs via RPM_DIR.
+ARG RPM_DIR=rpm
+ARG RPM_COPR_REPO=@redhat-et/flightctl-dev
+ARG RPM_COPR_PACKAGE=flightctl-agent
+
+# Optional: CA trust, agent config and certs
+ARG TRUST_CA_FROM=
+ARG AGENT_CONFIG_FROM=
+ARG AGENT_CERTS_FROM=
+
+COPY --from=variant-context flightctl-e2e.tmpfiles.conf /usr/lib/tmpfiles.d/flightctl-e2e.tmpfiles.conf
+
+# Install CA trust, agent config and certs if provided
+RUN --mount=type=bind,from=project-bin,source=.,target=/build-context \
+    sh -exc '\
+      if [ -n "${TRUST_CA_FROM}" ]; then \
+        echo "Installing custom CA certificate from ${TRUST_CA_FROM}"; \
+        cp "/build-context/${TRUST_CA_FROM}" /etc/pki/ca-trust/source/anchors/; \
+        update-ca-trust; \
+      fi; \
+      if [ -n "${AGENT_CONFIG_FROM}" ]; then \
+        echo "Installing agent config from ${AGENT_CONFIG_FROM}"; \
+        mkdir -p /etc/flightctl; \
+        cp "/build-context/${AGENT_CONFIG_FROM}" /etc/flightctl/config.yaml; \
+      fi; \
+      if [ -n "${AGENT_CERTS_FROM}" ]; then \
+        echo "Installing agent certificates from ${AGENT_CERTS_FROM}"; \
+        mkdir -p /etc/flightctl/certs; \
+        if ls "/build-context/${AGENT_CERTS_FROM}"/* >/dev/null 2>&1; then \
+          cp "/build-context/${AGENT_CERTS_FROM}"/* /etc/flightctl/certs/; \
+        else \
+          echo "No certificate files found in ${AGENT_CERTS_FROM}, skipping copy"; \
+        fi; \
+      fi'
+
+# Install flightctl RPMs (from COPR or local files).
+# Unlike cs9/cs10, this flavor defaults to COPR (flightctl-dev) because the local
+# RPM build does not produce Fedora packages. flightctl-selinux is installed
+# alongside the agent so the baked image carries the SELinux policy, matching the
+# cs9/cs10 flavors which bake flightctl-selinux from local RPMs.
+RUN --mount=type=bind,from=project-bin,source=.,target=/build-context \
+    --mount=type=cache,target=/var/cache/libdnf5 \
+    sh -exc '\
+      mkdir -p /tmp/rpms; \
+      if [ -n "${RPM_COPR_REPO}" ]; then \
+        echo "Installing from COPR: ${RPM_COPR_REPO}, package: ${RPM_COPR_PACKAGE}"; \
+        dnf copr -y enable ${RPM_COPR_REPO}; \
+        dnf install -y ${RPM_COPR_PACKAGE} flightctl-selinux; \
+      else \
+        echo "Installing local RPMs from ${RPM_DIR}"; \
+        cp /build-context/${RPM_DIR}/flightctl-agent-*.rpm \
+           /build-context/${RPM_DIR}/flightctl-greenboot-*.rpm \
+           /build-context/${RPM_DIR}/flightctl-selinux-*.rpm /tmp/rpms/; \
+        ls -l /tmp/rpms; \
+        dnf install -y /tmp/rpms/*.rpm; \
+        rm -rf /tmp/rpms; \
+      fi; \
+      systemctl enable flightctl-agent.service'
+
+LABEL org.opencontainers.image.source="https://github.com/flightctl/flightctl"
+LABEL org.opencontainers.image.version="${SOURCE_GIT_TAG}"
+LABEL org.opencontainers.image.revision="${SOURCE_GIT_COMMIT}"

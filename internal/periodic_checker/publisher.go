@@ -4,6 +4,7 @@ import (
 	"container/heap"
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"sync"
 	"time"
 
@@ -13,7 +14,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/exp/rand"
 )
 
 const (
@@ -353,7 +353,7 @@ func (p *PeriodicTaskPublisher) addOrganizationTasks(orgID uuid.UUID) {
 		if staggerRange <= 0 {
 			staggerRange = time.Millisecond
 		}
-		stagger := time.Duration(rand.Intn(int(staggerRange)))
+		stagger := time.Duration(rand.IntN(int(staggerRange))) //nolint:gosec // G404: task-scheduling stagger jitter
 		nextRun := now.Add(stagger)
 
 		task := &ScheduledTask{
@@ -391,7 +391,7 @@ func (p *PeriodicTaskPublisher) addSystemWideTasks() {
 		if staggerRange <= 0 {
 			staggerRange = time.Millisecond
 		}
-		stagger := time.Duration(rand.Intn(int(staggerRange)))
+		stagger := time.Duration(rand.IntN(int(staggerRange))) //nolint:gosec // G404: task-scheduling stagger jitter
 		nextRun := now.Add(stagger)
 
 		// System-wide tasks use a special "system" orgID (nil UUID)
