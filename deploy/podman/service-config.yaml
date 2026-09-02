@@ -162,12 +162,18 @@ prometheus:
 # vulnerabilityReporting:
 #   # Enable vulnerability integration (sync task in flightctl-periodic + API endpoints in flightctl-api).
 #   enabled: false
-#   # Sync interval for periodic Trustify fetch (e.g. "15m", "1h").
+#   # Sync interval for periodic backend fetch (e.g. "15m", "1h").
 #   syncInterval: 15m
+#   # Vulnerability scanning backend ('trustify' or 'quay'); leave empty to default to Trustify when a trustify config with a non-empty endpoint is present.
+#   backend: trustify
 #   trustify:
 #     # Trustify API base URL (used by flightctl-periodic only).
 #     # NOTE: Do not include the API path; the client appends /api/v2/vulnerability/analyze automatically.
 #     endpoint: https://trustify.example.com
+#     # Optional: CA certificate file for Trustify TLS (mount at /etc/ssl/trustify-ca.pem in container).
+#     caFile: /etc/ssl/trustify-ca.pem
+#     # Optional: Skip TLS verification (not recommended for production).
+#     # skipTlsVerify: false
 #     auth:
 #       # Authentication mode. Allowed values: 'client-credentials', 'none'.
 #       mode: none
@@ -175,6 +181,21 @@ prometheus:
 #       oidcIssuerUrl: https://keycloak.example.com/realms/trustify
 #       # client_id and client_secret are supplied via FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_CLIENT_ID
 #       # and FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_CLIENT_SECRET environment variables.
+#     # Path to a CA bundle for verifying the Trustify server certificate. If unset, system roots are used.
+#     # caFile: /etc/flightctl/certs/trustify-ca.pem
+#     # Skip TLS certificate verification (insecure, for lab/air-gap only). Defaults to false.
+#     # skipTlsVerify: false
+#   # Quay backend (used by flightctl-periodic only). Set backend: quay above to select it.
+#   quay:
+#     # Quay API base URL (e.g. "https://quay.io").
+#     endpoint: https://quay.io
+#     # Maximum number of concurrent Quay API requests. Defaults to 5 when unset.
+#     maxConcurrentRequests: 5
+#     # The bearer token is supplied via the FLIGHTCTL_VULNERABILITY_REPORTING_QUAY_TOKEN environment variable.
+#     # Path to a CA bundle for verifying the Quay server certificate. If unset, system roots are used.
+#     # caFile: /etc/flightctl/certs/quay-ca.pem
+#     # Skip TLS certificate verification (insecure, for lab/air-gap only). Defaults to false.
+#     # skipTlsVerify: false
 
 # Automated dependency synchronization (optional).
 # Controls the global polling interval for git/HTTP dependency probes.

@@ -62,7 +62,9 @@ spec:
             {{- $vuln := default dict .Values.vulnerabilityReporting -}}
             {{- $trustify := default dict $vuln.trustify -}}
             {{- $auth := default dict $trustify.auth -}}
-            {{- if and (default false $vuln.enabled) $trustify (eq $auth.mode "client-credentials") $auth.secretName }}
+            {{- $quay := default dict $vuln.quay -}}
+            {{- $effectiveBackend := or $vuln.backend (ternary "trustify" "" (ne (default "" $trustify.endpoint) "")) -}}
+            {{- if and (default false $vuln.enabled) (or (eq $effectiveBackend "trustify") (eq $effectiveBackend "")) $trustify (eq $auth.mode "client-credentials") $auth.secretName }}
             - name: FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_CLIENT_ID
               valueFrom:
                 secretKeyRef:
@@ -73,6 +75,13 @@ spec:
                 secretKeyRef:
                   name: {{ $auth.secretName }}
                   key: client_secret
+            {{- end }}
+            {{- if and (default false $vuln.enabled) $quay.secretName }}
+            - name: FLIGHTCTL_VULNERABILITY_REPORTING_QUAY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $quay.secretName }}
+                  key: token
             {{- end }}
           volumeMounts:
             - mountPath: /root/.flightctl/config.yaml
@@ -86,6 +95,8 @@ spec:
               name: flightctl-encryption-key
               readOnly: true
             {{- include "flightctl.dbSslVolumeMounts" . | nindent 12 }}
+            {{- include "flightctl.vulnerabilityTrustifyCaVolumeMounts" . | nindent 12 }}
+            {{- include "flightctl.vulnerabilityQuayCaVolumeMounts" . | nindent 12 }}
 
       restartPolicy: Always
       volumes:
@@ -103,3 +114,5 @@ spec:
             secretName: flightctl-encryption-key
             defaultMode: 0400
         {{- include "flightctl.dbSslVolumes" . | nindent 8 }}
+        {{- include "flightctl.vulnerabilityTrustifyCaVolumes" . | nindent 8 }}
+        {{- include "flightctl.vulnerabilityQuayCaVolumes" . | nindent 8 }}
