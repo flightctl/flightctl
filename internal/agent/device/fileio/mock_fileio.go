@@ -271,11 +271,12 @@ func (mr *MockWriterMockRecorder) RemoveContents(path any) *gomock.Call {
 }
 
 // RemoveEmptyDir mocks base method.
-func (m *MockWriter) RemoveEmptyDir(dir string) error {
+func (m *MockWriter) RemoveEmptyDir(dir string) (bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RemoveEmptyDir", dir)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // RemoveEmptyDir indicates an expected call of RemoveEmptyDir.
@@ -640,11 +641,12 @@ func (mr *MockReadWriterMockRecorder) RemoveContents(path any) *gomock.Call {
 }
 
 // RemoveEmptyDir mocks base method.
-func (m *MockReadWriter) RemoveEmptyDir(dir string) error {
+func (m *MockReadWriter) RemoveEmptyDir(dir string) (bool, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RemoveEmptyDir", dir)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // RemoveEmptyDir indicates an expected call of RemoveEmptyDir.

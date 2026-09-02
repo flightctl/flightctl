@@ -162,10 +162,11 @@ func (w *writer) RemoveFile(file string) error {
 	return nil
 }
 
-// RemoveEmptyDir removes the directory at the given path only if it is empty.
-// It is a no-op if the directory does not exist or still contains entries, so
-// it never deletes directories that hold other content.
-func (w *writer) RemoveEmptyDir(dir string) error {
+// RemoveEmptyDir removes the directory at the given path only if it is empty,
+// reporting whether it was actually removed. It is a no-op (removed=false) if the
+// directory does not exist, is a symlink or non-directory, or still contains
+// entries, so it never deletes directories that hold other content.
+func (w *writer) RemoveEmptyDir(dir string) (bool, error) {
 	fullPath := filepath.Join(w.rootDir, dir)
 	// Only operate on real directories. os.Open would follow a symlink and read
 	// its target, but os.Remove would delete the link and leave the target in
@@ -174,12 +175,12 @@ func (w *writer) RemoveEmptyDir(dir string) error {
 	info, err := os.Lstat(fullPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return false, nil
 		}
-		return fmt.Errorf("stat dir %q: %w", dir, err)
+		return false, fmt.Errorf("stat dir %q: %w", dir, err)
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-		return nil
+		return false, nil
 	}
 	// Only one entry is needed to decide the directory is non-empty; reading a
 	// single entry avoids listing and sorting every entry, which matters on
@@ -187,25 +188,28 @@ func (w *writer) RemoveEmptyDir(dir string) error {
 	f, err := os.Open(fullPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return false, nil
 		}
-		return fmt.Errorf("open dir %q: %w", dir, err)
+		return false, fmt.Errorf("open dir %q: %w", dir, err)
 	}
 	_, readErr := f.ReadDir(1)
 	if closeErr := f.Close(); closeErr != nil {
-		return fmt.Errorf("close dir %q: %w", dir, closeErr)
+		return false, fmt.Errorf("close dir %q: %w", dir, closeErr)
 	}
 	if readErr == nil {
 		// directory still holds content; leave it in place
-		return nil
+		return false, nil
 	}
 	if readErr != io.EOF {
-		return fmt.Errorf("read dir %q: %w", dir, readErr)
+		return false, fmt.Errorf("read dir %q: %w", dir, readErr)
 	}
-	if err := os.Remove(fullPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("remove empty dir %q: %w", dir, err)
+	if err := os.Remove(fullPath); err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("remove empty dir %q: %w", dir, err)
 	}
-	return nil
+	return true, nil
 }
 
 func (w *writer) RemoveAll(path string) error {

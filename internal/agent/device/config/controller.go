@@ -137,8 +137,10 @@ func (c *Controller) removeObsoleteFiles(currentFiles, desiredFiles []v1beta1.Fi
 // Directories that still hold desired files are preserved, as are any that still
 // contain other content (RemoveEmptyDir is a no-op on non-empty directories).
 // Top-level and relative paths are excluded by isCleanupCandidate. Cleanup
-// failures are logged, never fatal. Successfully removed directories are dropped
-// from owned; it reports whether owned changed.
+// failures are logged, never fatal; a directory whose removal errors keeps its
+// ownership so the next reconcile retries. Ownership is otherwise relinquished
+// after the best-effort attempt — whether the directory was removed or preserved
+// — so it reports whether owned changed.
 func (c *Controller) removeEmptyDirs(removedFiles []string, desiredFiles []v1beta1.FileSpec, owned map[string]bool) bool {
 	// Preserve every directory a desired file lives under: those directories are
 	// needed by the subsequent write step and must not be pruned.
@@ -181,11 +183,18 @@ func (c *Controller) removeEmptyDirs(removedFiles []string, desiredFiles []v1bet
 
 	changed := false
 	for _, dir := range dirs {
-		if err := c.deviceReadWriter.RemoveEmptyDir(dir); err != nil {
+		removed, err := c.deviceReadWriter.RemoveEmptyDir(dir)
+		if err != nil {
+			// Keep ownership so the next reconcile retries the removal.
 			c.log.Warnf("Failed to remove empty directory %s: %v", dir, err)
 			continue
 		}
-		c.log.Debugf("Removed empty directory: %s", dir)
+		if removed {
+			c.log.Debugf("Removed empty directory: %s", dir)
+		}
+		// Relinquish ownership after the best-effort attempt: a directory that was
+		// preserved (it still holds unmanaged content, or is a symlink) is no
+		// longer tracked either way, so cleanup never revisits it.
 		delete(owned, dir)
 		changed = true
 	}

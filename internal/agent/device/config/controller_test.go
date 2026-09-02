@@ -195,7 +195,7 @@ func expectRemoveFile(mockWriter *fileio.MockReadWriter, f string) {
 }
 
 func expectRemoveEmptyDir(mockWriter *fileio.MockReadWriter, d string) {
-	mockWriter.EXPECT().RemoveEmptyDir(d).Return(nil)
+	mockWriter.EXPECT().RemoveEmptyDir(d).Return(true, nil)
 }
 
 // expectManagedDirectories wires the ownership-manifest I/O the controller

@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -337,9 +338,9 @@ func TestRemoveEmptyDirs(t *testing.T) {
 
 			mockWriter := fileio.NewMockReadWriter(ctrl)
 			var got []string
-			mockWriter.EXPECT().RemoveEmptyDir(gomock.Any()).DoAndReturn(func(dir string) error {
+			mockWriter.EXPECT().RemoveEmptyDir(gomock.Any()).DoAndReturn(func(dir string) (bool, error) {
 				got = append(got, dir)
-				return nil
+				return true, nil
 			}).AnyTimes()
 
 			owned := make(map[string]bool, len(tt.owned))
@@ -353,6 +354,56 @@ func TestRemoveEmptyDirs(t *testing.T) {
 			require.Equal(t, tt.expectedDirs, got)
 		})
 	}
+}
+
+// TestRemoveEmptyDirsOwnership verifies how ownership is updated after the
+// best-effort removal attempt: a directory that was removed or merely preserved
+// (RemoveEmptyDir reported no error) is relinquished, while one whose removal
+// errored keeps its ownership so the next reconcile retries.
+func TestRemoveEmptyDirsOwnership(t *testing.T) {
+	const (
+		removedDir   = "/etc/app/removed"   // RemoveEmptyDir reports removed=true
+		preservedDir = "/etc/app/preserved" // RemoveEmptyDir reports removed=false (e.g. unmanaged content)
+		erroredDir   = "/etc/app/errored"   // RemoveEmptyDir returns an error
+	)
+	removedFiles := []string{
+		removedDir + "/a.yaml",
+		preservedDir + "/b.yaml",
+		erroredDir + "/c.yaml",
+	}
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockWriter := fileio.NewMockReadWriter(ctrl)
+	mockWriter.EXPECT().RemoveEmptyDir(gomock.Any()).DoAndReturn(func(dir string) (bool, error) {
+		switch dir {
+		case removedDir:
+			return true, nil
+		case erroredDir:
+			return false, errors.New("boom")
+		default:
+			// preservedDir and the shared /etc/app parent: no error, not removed.
+			return false, nil
+		}
+	}).AnyTimes()
+
+	owned := map[string]bool{
+		removedDir:   true,
+		preservedDir: true,
+		erroredDir:   true,
+		"/etc/app":   true,
+	}
+
+	controller := NewController(mockWriter, "/var/lib/flightctl", log.NewPrefixLogger("test"))
+	changed := controller.removeEmptyDirs(removedFiles, nil, owned)
+
+	require.True(t, changed)
+	// Removed and preserved directories are both relinquished after the attempt.
+	require.NotContains(t, owned, removedDir)
+	require.NotContains(t, owned, preservedDir)
+	// A directory whose removal errored keeps its ownership for a later retry.
+	require.Contains(t, owned, erroredDir)
 }
 
 func TestIsCleanupCandidate(t *testing.T) {
