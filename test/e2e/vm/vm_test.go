@@ -54,6 +54,15 @@ const (
 	vmBPublishedUDPPort              = 9090
 	vmGuestSSHPort                   = 22
 	vmGuestMemory                    = "1024M"
+	vmHostDataImagePath              = "/var/lib/flightctl/vm-data/test-vm.img"
+	vmExtraDataSize                  = "10M"
+	vmHostDataHelloContent           = "hello"
+	vmHostDataGuestDisk              = "vdc"
+	vmExtraDataGuestDisk             = "vdd"
+	vmHostVolumeSetupScriptPath      = "/usr/local/bin/verify-vm-host-volumes.sh"
+	vmHostDataHelloFile              = "/var/tmp/host-data-hello.txt"
+	vmExtraDataUsedFile              = "/var/tmp/extradata-used.txt"
+	vmExtraDataUsedContent           = "used"
 	configDriveIndexHTMLContent      = "Hello from ConfigDrive"
 	systemdSubStateActive            = "active"
 	systemdSubStateRunning           = "running"
@@ -354,6 +363,61 @@ var _ = Describe("VM Applications", Ordered, ContinueOnFailure, func() {
 		By("Verifying serial console login with the updated cloud-init password")
 		expectSerialLoginWithPassword(harness, deviceID, vmAppName, vmGuestUser, vmModifiedGuestPassword)
 	})
+
+	// HostDisk plus a blank dataVolume appear as extra guest disks. Removing both
+	// volumes from the spec leaves the VM Running/Healthy with two disks.
+	It("attaches hostDisk and dataVolume to the VM and removes them cleanly", Label("vm", "90243"), func() {
+		image := getVMImage()
+		setupCloudInit := vmFedoraNoCloudUserDataWithHostVolumeSetup(vmGuestPassword)
+		laterCloudInit := vmFedoraNoCloudUserDataWithPasswordlessSudo(vmGuestPassword)
+		publishPorts := []string{fmt.Sprintf("%d:%d", vmPublishedSSHPort, vmGuestSSHPort)}
+
+		applyVMYAML := func(vmYAML string) {
+			GinkgoHelper()
+			spec, specErr := e2e.NewVmApplicationSpecFromYAML(vmAppName, publishPorts, vmYAML)
+			Expect(specErr).ToNot(HaveOccurred())
+			updateErr := harness.UpdateDeviceAndWaitForVersion(deviceID, func(device *v1beta1.Device) {
+				device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{spec}
+			})
+			Expect(updateErr).ToNot(HaveOccurred())
+			waitForVMAppRunningHealthy(harness, deviceID, vmAppName)
+		}
+
+		By("Preparing a formatted hostDisk image on the device")
+		_, err := harness.VM.RunSSH([]string{"sudo", "bash", "-s"}, bytes.NewBufferString(hostDataImagePrepScript(vmHostDataImagePath)))
+		Expect(err).ToNot(HaveOccurred())
+		DeferCleanup(func() {
+			_, _ = harness.VM.RunSSH([]string{"sudo", "rm", "-f", vmHostDataImagePath}, nil)
+		})
+
+		By("Deploying the VM with host-data and extradata disks")
+		applyVMYAML(e2e.VMYAMLWithHostVolumes(vmAppName, vmGuestMemory, image, setupCloudInit, vmHostDataImagePath, vmExtraDataSize))
+		expectSSHWhoamiWithPassword(harness, vmPublishedSSHPort, vmAppName, vmGuestUser, vmGuestPassword)
+
+		By(fmt.Sprintf("Verifying four guest disks including %s (host-data) and %s (extradata)", vmHostDataGuestDisk, vmExtraDataGuestDisk))
+		disks := expectGuestDiskCount(harness, 4)
+		Expect(disks).To(ContainElements(vmHostDataGuestDisk, vmExtraDataGuestDisk))
+
+		By("Waiting for cloud-init to mount host-data and format extradata")
+		expectGuestFileContains(harness, vmHostDataHelloFile, vmHostDataHelloContent)
+		expectGuestFileContains(harness, vmExtraDataUsedFile, vmExtraDataUsedContent)
+
+		By("Removing extradata")
+		applyVMYAML(e2e.VMYAMLWithHostVolumes(vmAppName, vmGuestMemory, image, laterCloudInit, vmHostDataImagePath, ""))
+		expectSSHWhoamiWithPassword(harness, vmPublishedSSHPort, vmAppName, vmGuestUser, vmGuestPassword)
+
+		By(fmt.Sprintf("Verifying three guest disks including %s (host-data) and excluding %s (extradata)", vmHostDataGuestDisk, vmExtraDataGuestDisk))
+		disks = expectGuestDiskCount(harness, 3)
+		Expect(disks).To(ContainElement(vmHostDataGuestDisk))
+		Expect(disks).NotTo(ContainElement(vmExtraDataGuestDisk))
+
+		By("Removing host-data and verifying two disks remain")
+		applyVMYAML(e2e.VMYAML(vmAppName, vmGuestMemory, image, laterCloudInit))
+		expectSSHWhoamiWithPassword(harness, vmPublishedSSHPort, vmAppName, vmGuestUser, vmGuestPassword)
+		disks = expectGuestDiskCount(harness, 2)
+		Expect(disks).NotTo(ContainElement(vmHostDataGuestDisk))
+		Expect(disks).NotTo(ContainElement(vmExtraDataGuestDisk))
+	})
 })
 
 func waitForVMAppRunningHealthy(h *e2e.Harness, deviceID, appName string) {
@@ -474,6 +538,118 @@ func getPodmanContainerID(h *e2e.Harness, containerName string) string {
 	id, err := podmanContainerID(h, containerName)
 	Expect(err).NotTo(HaveOccurred())
 	return id
+}
+
+func hostDataImagePrepScript(imagePath string) string {
+	return fmt.Sprintf(`set -euo pipefail
+img=%q
+dir=$(dirname "$img")
+mkdir -p "$dir"
+truncate -s 1G "$img"
+chown 107:107 "$img"
+chmod 0660 "$img"
+chmod 0755 "$dir" "$(dirname "$dir")" 2>/dev/null || true
+loop=$(losetup -fP --show "$img")
+cleanup() {
+  umount /mnt/vm-data >/dev/null 2>&1 || true
+  losetup -d "$loop" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+if command -v mkfs.xfs >/dev/null 2>&1; then
+  mkfs.xfs -f "$loop"
+else
+  mkfs.ext4 -F "$loop"
+fi
+mkdir -p /mnt/vm-data
+mount "$loop" /mnt/vm-data
+printf 'hello\n' > /mnt/vm-data/hello.txt
+umount /mnt/vm-data
+losetup -d "$loop"
+trap - EXIT
+`, imagePath)
+}
+
+func parseLsblkDisks(out string) []string {
+	var disks []string
+	for _, name := range strings.Split(out, ",") {
+		if name = strings.TrimSpace(name); name != "" {
+			disks = append(disks, name)
+		}
+	}
+	return disks
+}
+
+func vmFedoraNoCloudUserDataWithPasswordlessSudo(password string) string {
+	return e2e.VMFedoraNoCloudUserDataWith(password, []e2e.VMCloudInitWriteFile{vmGuestSudoersWriteFile()}, nil)
+}
+
+func vmGuestSudoersWriteFile() e2e.VMCloudInitWriteFile {
+	return e2e.VMCloudInitWriteFile{
+		Path:        fmt.Sprintf("/etc/sudoers.d/%s", vmGuestUser),
+		Owner:       "root:root",
+		Permissions: "0440",
+		Content:     fmt.Sprintf("%s ALL=(ALL) NOPASSWD:ALL", vmGuestUser),
+	}
+}
+
+func vmFedoraNoCloudUserDataWithHostVolumeSetup(password string) string {
+	script := fmt.Sprintf(`#!/bin/bash
+set -euo pipefail
+for _ in $(seq 1 60); do
+  [ -b /dev/%[1]s ] && [ -b /dev/%[2]s ] && break
+  sleep 2
+done
+if [ ! -b /dev/%[1]s ] || [ ! -b /dev/%[2]s ]; then
+  echo "expected /dev/%[1]s and /dev/%[2]s" >&2
+  exit 1
+fi
+mkdir -p /mnt/host-data /mnt/extradata
+mount /dev/%[1]s /mnt/host-data
+cp /mnt/host-data/hello.txt %[3]s
+chmod 0644 %[3]s
+mkfs.ext4 -F /dev/%[2]s
+mount /dev/%[2]s /mnt/extradata
+echo %[4]s > /mnt/extradata/used.txt
+cp /mnt/extradata/used.txt %[5]s
+chmod 0644 %[5]s
+`, vmHostDataGuestDisk, vmExtraDataGuestDisk, vmHostDataHelloFile, vmExtraDataUsedContent, vmExtraDataUsedFile)
+	return e2e.VMFedoraNoCloudUserDataWith(password, []e2e.VMCloudInitWriteFile{
+		vmGuestSudoersWriteFile(),
+		{
+			Path:        vmHostVolumeSetupScriptPath,
+			Owner:       "root:root",
+			Permissions: "0755",
+			Content:     script,
+		},
+	}, []string{vmHostVolumeSetupScriptPath})
+}
+
+func expectGuestFileContains(h *e2e.Harness, path, want string) {
+	GinkgoHelper()
+	Eventually(func(g Gomega) {
+		out, sshErr := h.RunSSHOnDeviceLocalPort(vmPublishedSSHPort, vmGuestUser, vmGuestPassword, "cat", path)
+		g.Expect(sshErr).NotTo(HaveOccurred(), "reading guest file %s failed", path)
+		g.Expect(out).To(ContainSubstring(want), "guest file %s", path)
+	}, testutil.LONG_TIMEOUT, testutil.POLLING).Should(Succeed())
+}
+
+func expectGuestDiskCount(h *e2e.Harness, want int) []string {
+	GinkgoHelper()
+	var disks []string
+	Eventually(func(g Gomega) {
+		out, sshErr := h.RunSSHOnDeviceLocalPort(
+			vmPublishedSSHPort,
+			vmGuestUser,
+			vmGuestPassword,
+			`bash -lc 'sudo -n lsblk --virtio -d -n -l -v -o NAME | paste -sd,'`,
+		)
+		GinkgoWriter.Printf("guest lsblk: %q err=%v\n", out, sshErr)
+		g.Expect(sshErr).NotTo(HaveOccurred(), "reading guest lsblk failed")
+		parsed := parseLsblkDisks(out)
+		g.Expect(parsed).To(HaveLen(want), "lsblk output: %s", out)
+		disks = parsed
+	}, testutil.LONG_TIMEOUT, testutil.POLLING).Should(Succeed())
+	return disks
 }
 
 func expectGuestCPUCount(h *e2e.Harness, port int, appName, user, password string, wantCPUs int) {

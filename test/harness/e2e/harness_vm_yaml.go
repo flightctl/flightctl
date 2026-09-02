@@ -33,11 +33,24 @@ type vmYAMLParams struct {
 	CPUCores       int
 	UserData       string
 	UserDataBase64 string
+	HostDiskPath   string
+	ExtraDataSize  string
+}
+
+// VMCloudInitWriteFile is an extra cloud-init write_files entry merged into
+// VMFedoraNoCloudUserDataWith alongside the default faillock.conf.
+type VMCloudInitWriteFile struct {
+	Path        string
+	Owner       string
+	Permissions string
+	Content     string
 }
 
 type fedoraCloudConfigParams struct {
 	Password        string
 	FaillockCommand string
+	ExtraWriteFiles []VMCloudInitWriteFile
+	ExtraRuncmds    []string
 }
 
 func renderTemplate(tmpl *template.Template, data any) string {
@@ -89,9 +102,16 @@ func VMGuestDisableFaillockCommand(user string) string {
 
 // VMFedoraNoCloudUserData returns cloud-init userData that enables password SSH for the fedora user.
 func VMFedoraNoCloudUserData(password string) string {
+	return VMFedoraNoCloudUserDataWith(password, nil, nil)
+}
+
+// VMFedoraNoCloudUserDataWith is VMFedoraNoCloudUserData plus extra write_files and runcmd entries.
+func VMFedoraNoCloudUserDataWith(password string, extraWriteFiles []VMCloudInitWriteFile, extraRuncmds []string) string {
 	return renderTemplate(fedoraCloudConfigTemplate, fedoraCloudConfigParams{
 		Password:        password,
 		FaillockCommand: VMGuestDisableFaillockCommand(VMFedoraGuestUser),
+		ExtraWriteFiles: extraWriteFiles,
+		ExtraRuncmds:    extraRuncmds,
 	})
 }
 
@@ -103,6 +123,19 @@ func VMYAMLWithCPU(name, guestMemory, image string, cpuCores int, cloudInitUserD
 		Image:       image,
 		CPUCores:    cpuCores,
 		UserData:    cloudInitUserData,
+	})
+}
+
+// VMYAMLWithHostVolumes builds a VM manifest with optional hostDisk and blank dataVolume disks.
+// An empty hostDiskPath omits host-data. An empty extraDataSize omits extradata.
+func VMYAMLWithHostVolumes(name, guestMemory, image, cloudInitUserData, hostDiskPath, extraDataSize string) string {
+	return renderVMYAML(vmYAMLParams{
+		Name:          name,
+		GuestMemory:   guestMemory,
+		Image:         image,
+		UserData:      cloudInitUserData,
+		HostDiskPath:  hostDiskPath,
+		ExtraDataSize: extraDataSize,
 	})
 }
 

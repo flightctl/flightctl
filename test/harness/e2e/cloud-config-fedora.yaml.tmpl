@@ -8,5 +8,15 @@ write_files:
     permissions: '0644'
     content: |
       deny = 0
+{{- range .ExtraWriteFiles }}
+  - path: {{ .Path }}
+    owner: {{ .Owner }}
+    permissions: '{{ .Permissions }}'
+    content: |
+{{ indent 6 .Content }}
+{{- end }}
 runcmd:
   - {{ .FaillockCommand }}
+{{- range .ExtraRuncmds }}
+  - {{ . }}
+{{- end }}
