@@ -183,6 +183,7 @@ func TestCollectOCITargets(t *testing.T) {
 		wantReason     *string
 		wantEmpty      bool
 		wantAttempted  string
+		wantStaged     *string
 	}{
 		{
 			name:    "When there is no OS spec it should return an empty collection",
@@ -218,7 +219,8 @@ func TestCollectOCITargets(t *testing.T) {
 			stagedDelta: testDesiredImage,
 			setup: func(_ *testing.T, _ *executer.MockExecuter, _ *MockClient, _ *dependency.MockPullConfigResolver) {
 			},
-			wantEmpty: true,
+			wantEmpty:  true,
+			wantStaged: lo.ToPtr(testDesiredImage),
 		},
 		{
 			name:        "When a delta is staged for a different image it should collect the new desired image",
@@ -232,6 +234,7 @@ func TestCollectOCITargets(t *testing.T) {
 			},
 			wantRefs:      []string{testDesiredImage},
 			wantAttempted: testDesiredImage,
+			wantStaged:    lo.ToPtr(""),
 		},
 		{
 			name:    "When not delta eligible it should emit a full-image target without Referrers",
@@ -257,6 +260,7 @@ func TestCollectOCITargets(t *testing.T) {
 			},
 			wantEmpty:     true,
 			wantAttempted: testDesiredImage,
+			wantStaged:    lo.ToPtr(testDesiredImage),
 		},
 		{
 			name:    "When no hint and a matching referrer exists it should pull that digest",
@@ -271,6 +275,7 @@ func TestCollectOCITargets(t *testing.T) {
 			},
 			wantEmpty:     true,
 			wantAttempted: testDesiredImage,
+			wantStaged:    lo.ToPtr(testDesiredImage),
 		},
 		{
 			name:    "When no matching referrer exists it should full pull and leave the fallback reason unset",
@@ -416,6 +421,9 @@ func TestCollectOCITargets(t *testing.T) {
 			if tt.wantAttempted != "" {
 				require.Equal(t, tt.wantAttempted, m.lastAttemptedImage)
 			}
+			if tt.wantStaged != nil {
+				require.Equal(t, *tt.wantStaged, m.stagedDeltaImage)
+			}
 
 			status := &v1beta1.DeviceStatus{}
 			if tt.desired.Os == nil {
@@ -424,6 +432,79 @@ func TestCollectOCITargets(t *testing.T) {
 			mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil)
 			require.NoError(t, m.Status(context.Background(), status))
 			require.Equal(t, tt.wantReason, osLastDeltaFallback(status))
+		})
+	}
+}
+
+func TestAfterUpdateAndReboot(t *testing.T) {
+	desired := &v1beta1.DeviceSpec{Os: &v1beta1.DeviceOsSpec{Image: testDesiredImage}}
+
+	tests := []struct {
+		name        string
+		desired     *v1beta1.DeviceSpec
+		stagedDelta string
+		setup       func(*MockClient)
+		runAfter    bool
+		runReboot   bool
+	}{
+		{
+			name:        "When a delta is staged for the desired image AfterUpdate should skip Switch",
+			desired:     desired,
+			stagedDelta: testDesiredImage,
+			setup:       func(_ *MockClient) {},
+			runAfter:    true,
+		},
+		{
+			name:    "When no delta is staged AfterUpdate should Switch to the desired image",
+			desired: desired,
+			setup: func(mockClient *MockClient) {
+				mockClient.EXPECT().Switch(gomock.Any(), testDesiredImage).Return(nil)
+			},
+			runAfter: true,
+		},
+		{
+			name:        "When a delta is staged for the desired image Reboot should use RebootStaged",
+			desired:     desired,
+			stagedDelta: testDesiredImage,
+			setup: func(mockClient *MockClient) {
+				mockClient.EXPECT().RebootStaged(gomock.Any()).Return(nil)
+			},
+			runReboot: true,
+		},
+		{
+			name:    "When no delta is staged Reboot should Apply",
+			desired: desired,
+			setup: func(mockClient *MockClient) {
+				mockClient.EXPECT().Apply(gomock.Any()).Return(nil)
+			},
+			runReboot: true,
+		},
+		{
+			name:        "When a delta is staged for a different image Reboot should Apply",
+			desired:     desired,
+			stagedDelta: testBootedImage,
+			setup: func(mockClient *MockClient) {
+				mockClient.EXPECT().Apply(gomock.Any()).Return(nil)
+			},
+			runReboot: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockClient := NewMockClient(ctrl)
+			tt.setup(mockClient)
+			m := &manager{client: mockClient, stagedDeltaImage: tt.stagedDelta}
+
+			if tt.runAfter {
+				require.NoError(t, m.AfterUpdate(context.Background(), tt.desired))
+			}
+			if tt.runReboot {
+				require.NoError(t, m.Reboot(context.Background(), tt.desired))
+			}
 		})
 	}
 }

@@ -308,7 +308,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create os manager
 	rootSkopeoClient, err := skopeoClientFactory("")
 	if err != nil {
-		return err
+		return fmt.Errorf("initialize root Skopeo client: %w", err)
 	}
 
 	osManager := os.NewManager(

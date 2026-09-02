@@ -159,6 +159,7 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1bet
 	}
 
 	osImage := desired.Os.Image
+	m.startImageAttempt(osImage)
 
 	m.mu.Lock()
 	deltaStaged := m.stagedDeltaImage == osImage
@@ -186,7 +187,6 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1bet
 		return &dependency.OCICollection{}, nil
 	}
 
-	m.startImageAttempt(osImage)
 	optsFn := m.osPullOptsFn()
 	if !m.canApplyOSDelta() {
 		return m.fullImageCollection(osImage, optsFn), nil
@@ -231,11 +231,13 @@ func (m *manager) fullImageCollection(osImage string, optsFn dependency.ClientOp
 func (m *manager) startImageAttempt(osImage string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.lastAttemptedImage == osImage {
-		return
+	if m.lastAttemptedImage != osImage {
+		m.lastAttemptedImage = osImage
+		m.fallbackReason = nil
 	}
-	m.lastAttemptedImage = osImage
-	m.fallbackReason = nil
+	if m.stagedDeltaImage != "" && m.stagedDeltaImage != osImage {
+		m.stagedDeltaImage = ""
+	}
 }
 
 func (m *manager) discoverOSDelta(ctx context.Context, desired *v1beta1.DeviceSpec, sourceDigest string, optsFn dependency.ClientOptsFn) string {
@@ -254,7 +256,7 @@ func (m *manager) discoverOSDelta(ctx context.Context, desired *v1beta1.DeviceSp
 func (m *manager) pullAndApplyOSDelta(ctx context.Context, candidate, osImage string, optsFn dependency.ClientOptsFn) error {
 	tmpDir, err := m.readWriter.MkdirTemp(osDeltaTempPrefix)
 	if err != nil {
-		return m.failApply(err)
+		return err
 	}
 	defer func() { _ = m.readWriter.RemoveAll(tmpDir) }()
 

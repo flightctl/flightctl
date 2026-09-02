@@ -157,5 +157,5 @@ func isJSON(s string) bool {
 
 func stagedDespiteExit(stdout, stderr string) bool {
 	out := stdout + stderr
-	return strings.Contains(out, "Queued for next boot")
+	return strings.Contains(out, "Queued for next boot:")
 }
