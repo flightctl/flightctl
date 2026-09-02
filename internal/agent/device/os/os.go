@@ -256,7 +256,7 @@ func (m *manager) discoverOSDelta(ctx context.Context, desired *v1beta1.DeviceSp
 func (m *manager) pullAndApplyOSDelta(ctx context.Context, candidate, osImage string, optsFn dependency.ClientOptsFn) error {
 	tmpDir, err := m.readWriter.MkdirTemp(osDeltaTempPrefix)
 	if err != nil {
-		return err
+		return fmt.Errorf("create delta temporary directory: %w", err)
 	}
 	defer func() { _ = m.readWriter.RemoveAll(tmpDir) }()
 
@@ -280,6 +280,7 @@ func (m *manager) pullAndApplyOSDelta(ctx context.Context, candidate, osImage st
 	}
 	m.mu.Lock()
 	m.stagedDeltaImage = osImage
+	m.fallbackReason = nil
 	m.mu.Unlock()
 	return nil
 }

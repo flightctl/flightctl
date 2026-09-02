@@ -263,6 +263,22 @@ func TestCollectOCITargets(t *testing.T) {
 			wantStaged:    lo.ToPtr(testDesiredImage),
 		},
 		{
+			name:           "When a later delta attempt for the same image succeeds it should clear a previous fallback reason",
+			caps:           Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.15.0"},
+			desired:        desiredSpec(testDesiredImage, lo.ToPtr(testHintedDelta)),
+			fallbackReason: lo.ToPtr(fallbackReasonPull),
+			lastAttempted:  testDesiredImage,
+			setup: func(t *testing.T, mockExec *executer.MockExecuter, mockClient *MockClient, mockResolver *dependency.MockPullConfigResolver) {
+				mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil)
+				expectImageExists(mockExec, testDesiredImage, false)
+				expectPullConfig(t, mockResolver)
+				expectDeltaSuccess(t, mockExec, mockClient, testHintedDelta)
+			},
+			wantEmpty:     true,
+			wantAttempted: testDesiredImage,
+			wantStaged:    lo.ToPtr(testDesiredImage),
+		},
+		{
 			name:    "When no hint and a matching referrer exists it should pull that digest",
 			caps:    Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.15.0"},
 			desired: desiredSpec(testDesiredImage, nil),
@@ -457,6 +473,15 @@ func TestAfterUpdateAndReboot(t *testing.T) {
 		{
 			name:    "When no delta is staged AfterUpdate should Switch to the desired image",
 			desired: desired,
+			setup: func(mockClient *MockClient) {
+				mockClient.EXPECT().Switch(gomock.Any(), testDesiredImage).Return(nil)
+			},
+			runAfter: true,
+		},
+		{
+			name:        "When a delta is staged for a different image AfterUpdate should Switch to the desired image",
+			desired:     desired,
+			stagedDelta: testBootedImage,
 			setup: func(mockClient *MockClient) {
 				mockClient.EXPECT().Switch(gomock.Any(), testDesiredImage).Return(nil)
 			},
