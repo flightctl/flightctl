@@ -25,7 +25,7 @@ func RunMetricsServer(
 		ctx,
 		metrics.WithListenAddr(addr),
 		metrics.WithHandlerWrapper(func(h http.Handler) http.Handler {
-			return otelhttp.NewHandler(h, "metrics-http-server", otelhttp.WithPublicEndpoint())
+			return otelhttp.NewHandler(h, "metrics-http-server", otelhttp.WithPublicEndpointFn(func(*http.Request) bool { return true }))
 		}),
 	)
 }
