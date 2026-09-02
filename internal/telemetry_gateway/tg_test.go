@@ -135,7 +135,7 @@ telemetrygateway:
 	}
 }
 
-func TestBuildOTelConfigMap_GRPCWithHeadersIgnored(t *testing.T) {
+func TestBuildOTelConfigMap_GRPCWithHeadersRejected(t *testing.T) {
 	cfg := forwardCfg(t, `
 telemetrygateway:
   forward:
@@ -144,14 +144,12 @@ telemetrygateway:
       Authorization: "Api-Token test"
 `)
 
-	root, err := buildOTelConfigMap(cfg)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	_, err := buildOTelConfigMap(cfg)
+	if err == nil {
+		t.Fatal("expected error when headers are set on a gRPC endpoint")
 	}
-
-	exporters := root["exporters"].(map[string]any)
-	if _, ok := exporters["otlp"]; !ok {
-		t.Error("expected 'otlp' exporter for gRPC endpoint even with headers set")
+	if !strings.Contains(err.Error(), "forward headers are only supported for http(s) endpoints") {
+		t.Errorf("unexpected error message: %v", err)
 	}
 }
 

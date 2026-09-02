@@ -270,6 +270,8 @@ func buildOTelConfigMap(cfg *config.Config) (map[string]any, error) {
 				}
 				exporterCfg["headers"] = headers
 			}
+		} else if len(fwd.Headers) > 0 {
+			return nil, fmt.Errorf("forward headers are only supported for http(s) endpoints")
 		}
 		exporters[exporterKey] = exporterCfg
 		exporterNames = append(exporterNames, exporterKey)

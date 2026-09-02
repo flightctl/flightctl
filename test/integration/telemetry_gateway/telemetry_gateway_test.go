@@ -392,25 +392,11 @@ service:
 			defer cancel()
 			Expect(exportTestMetrics(rpcCtx, cc)).To(Succeed())
 
-			Eventually(func() bool {
-				req := httpMC.lastRequest()
-				if req == nil {
-					return false
-				}
-				for _, rm := range req.metrics.ResourceMetrics {
-					for _, sm := range rm.ScopeMetrics {
-						for _, m := range sm.Metrics {
-							if m.GetName() == "test_tg_metric" {
-								return true
-							}
-						}
-					}
-				}
-				return false
-			}, timeout, polling).Should(BeTrue(), "HTTP collector did not receive forwarded metric")
+			Eventually(func() *httpOTLPRequest {
+				return httpMC.findRequestByMetric("test_tg_metric")
+			}, timeout, polling).ShouldNot(BeNil(), "HTTP collector did not receive forwarded metric")
 
-			req := httpMC.lastRequest()
-			Expect(req).ToNot(BeNil())
+			req := httpMC.findRequestByMetric("test_tg_metric")
 			Expect(req.headers.Get("Authorization")).To(Equal("Api-Token test-token-123"))
 			Expect(req.headers.Get("X-Custom-Header")).To(Equal("custom-value"))
 			verifyDeviceAttrs(req.metrics, "test_tg_metric", "testdevice")
@@ -476,25 +462,11 @@ service:
 			defer cancel()
 			Expect(exportTestMetrics(rpcCtx, cc)).To(Succeed())
 
-			Eventually(func() bool {
-				req := httpMC.lastRequest()
-				if req == nil {
-					return false
-				}
-				for _, rm := range req.metrics.ResourceMetrics {
-					for _, sm := range rm.ScopeMetrics {
-						for _, m := range sm.Metrics {
-							if m.GetName() == "test_tg_metric" {
-								return true
-							}
-						}
-					}
-				}
-				return false
-			}, timeout, polling).Should(BeTrue(), "HTTP collector did not receive forwarded metric")
+			Eventually(func() *httpOTLPRequest {
+				return httpMC.findRequestByMetric("test_tg_metric")
+			}, timeout, polling).ShouldNot(BeNil(), "HTTP collector did not receive forwarded metric")
 
-			req := httpMC.lastRequest()
-			Expect(req).ToNot(BeNil())
+			req := httpMC.findRequestByMetric("test_tg_metric")
 			Expect(req.headers.Get("Authorization")).To(Equal("Api-Token secret-token-from-env"))
 			verifyDeviceAttrs(req.metrics, "test_tg_metric", "testdevice")
 		})
@@ -557,24 +529,11 @@ service:
 			defer cancel()
 			Expect(exportTestMetrics(rpcCtx, cc)).To(Succeed())
 
-			Eventually(func() bool {
-				req := httpMC.lastRequest()
-				if req == nil {
-					return false
-				}
-				for _, rm := range req.metrics.ResourceMetrics {
-					for _, sm := range rm.ScopeMetrics {
-						for _, m := range sm.Metrics {
-							if m.GetName() == "test_tg_metric" {
-								return true
-							}
-						}
-					}
-				}
-				return false
-			}, timeout, polling).Should(BeTrue(), "HTTP collector did not receive forwarded metric")
+			Eventually(func() *httpOTLPRequest {
+				return httpMC.findRequestByMetric("test_tg_metric")
+			}, timeout, polling).ShouldNot(BeNil(), "HTTP collector did not receive forwarded metric")
 
-			verifyDeviceAttrs(httpMC.lastRequest().metrics, "test_tg_metric", "testdevice")
+			verifyDeviceAttrs(httpMC.findRequestByMetric("test_tg_metric").metrics, "test_tg_metric", "testdevice")
 		})
 	})
 
@@ -653,24 +612,11 @@ service:
 			defer cancel()
 			Expect(exportTestMetrics(rpcCtx, cc)).To(Succeed())
 
-			Eventually(func() bool {
-				req := httpMC.lastRequest()
-				if req == nil {
-					return false
-				}
-				for _, rm := range req.metrics.ResourceMetrics {
-					for _, sm := range rm.ScopeMetrics {
-						for _, m := range sm.Metrics {
-							if m.GetName() == "test_tg_metric" {
-								return true
-							}
-						}
-					}
-				}
-				return false
-			}, timeout, polling).Should(BeTrue(), "HTTP mTLS collector did not receive forwarded metric")
+			Eventually(func() *httpOTLPRequest {
+				return httpMC.findRequestByMetric("test_tg_metric")
+			}, timeout, polling).ShouldNot(BeNil(), "HTTP mTLS collector did not receive forwarded metric")
 
-			verifyDeviceAttrs(httpMC.lastRequest().metrics, "test_tg_metric", "testdevice")
+			verifyDeviceAttrs(httpMC.findRequestByMetric("test_tg_metric").metrics, "test_tg_metric", "testdevice")
 		})
 	})
 
@@ -935,6 +881,8 @@ service:
 
 func verifyDeviceAttrs(req *collectormetrics.ExportMetricsServiceRequest, metricName, expectedDeviceID string) {
 	GinkgoHelper()
+	Expect(req).ToNot(BeNil())
+	found := false
 	for _, rm := range req.ResourceMetrics {
 		var deviceID, orgID string
 		for _, attr := range rm.Resource.Attributes {
@@ -953,6 +901,7 @@ func verifyDeviceAttrs(req *collectormetrics.ExportMetricsServiceRequest, metric
 				if m.GetName() != metricName {
 					continue
 				}
+				found = true
 				dp := m.GetSum().GetDataPoints()
 				Expect(dp).ToNot(BeEmpty())
 				attrs := dp[0].GetAttributes()
@@ -970,6 +919,7 @@ func verifyDeviceAttrs(req *collectormetrics.ExportMetricsServiceRequest, metric
 			}
 		}
 	}
+	Expect(found).To(BeTrue(), "metric %q not found in request", metricName)
 }
 
 func createConfig(serverCrt string, serverKey string, caPath string, otlpAddr string) *config.Config {
@@ -1134,13 +1084,23 @@ type mockHTTPOTLPCollector struct {
 	reqs []httpOTLPRequest
 }
 
-func (m *mockHTTPOTLPCollector) lastRequest() *httpOTLPRequest {
+func (m *mockHTTPOTLPCollector) findRequestByMetric(name string) *httpOTLPRequest {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if len(m.reqs) == 0 {
-		return nil
+	for i := range m.reqs {
+		for _, rm := range m.reqs[i].metrics.ResourceMetrics {
+			for _, sm := range rm.ScopeMetrics {
+				for _, metric := range sm.Metrics {
+					if metric.GetName() == name {
+						req := m.reqs[i]
+						req.headers = req.headers.Clone()
+						return &req
+					}
+				}
+			}
+		}
 	}
-	return &m.reqs[len(m.reqs)-1]
+	return nil
 }
 
 func (m *mockHTTPOTLPCollector) ServeHTTP(w http.ResponseWriter, r *http.Request) {

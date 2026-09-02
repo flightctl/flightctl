@@ -43,12 +43,18 @@ telemetryGateway:
       {{- end }}
       {{- if .telemetryGateway.forward.tls.caFile }}
       caFile: {{ .telemetryGateway.forward.tls.caFile }}
+      {{- else }}
+      caFile: /etc/flightctl/flightctl-telemetry-gateway/forward/ca.crt
       {{- end }}
       {{- if .telemetryGateway.forward.tls.certFile }}
       certFile: {{ .telemetryGateway.forward.tls.certFile }}
+      {{- else }}
+      certFile: /etc/flightctl/flightctl-telemetry-gateway/forward/client.crt
       {{- end }}
       {{- if .telemetryGateway.forward.tls.keyFile }}
       keyFile: {{ .telemetryGateway.forward.tls.keyFile }}
+      {{- else }}
+      keyFile: /etc/flightctl/flightctl-telemetry-gateway/forward/client.key
       {{- end }}
     {{- end }}
 {{- end}}
