@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -32,7 +33,7 @@ type Store interface {
 	InsertPrepare(ctx context.Context, prep *model.DeltaPrepare) error
 	GetPrepare(ctx context.Context, id uuid.UUID) (*model.DeltaPrepare, error)
 	CASPrepareStatus(ctx context.Context, id uuid.UUID, to string) error
-	ListWaitingPastDeadline(ctx context.Context, limit int) ([]model.DeltaPrepare, error)
+	ListWaitingPastDeadline(ctx context.Context, limit int, asOf time.Time) ([]model.DeltaPrepare, error)
 	InsertPrepareGenerations(ctx context.Context, prepareID uuid.UUID, keys []GenerationKey) error
 }
 
@@ -182,33 +183,12 @@ func generationKeyOf(gen *model.DeltaGeneration) GenerationKey {
 }
 
 func uniqueGenerations(gens []*model.DeltaGeneration) ([]*model.DeltaGeneration, error) {
-	out := make([]*model.DeltaGeneration, 0, len(gens))
-	seen := make(map[GenerationKey]struct{}, len(gens))
 	for _, gen := range gens {
 		if gen == nil {
 			return nil, fmt.Errorf("cannot insert nil DeltaGeneration")
 		}
-		key := generationKeyOf(gen)
-		if _, dup := seen[key]; dup {
-			continue
-		}
-		seen[key] = struct{}{}
-		out = append(out, gen)
 	}
-	return out, nil
-}
-
-func uniqueGenerationKeys(keys []GenerationKey) []GenerationKey {
-	out := make([]GenerationKey, 0, len(keys))
-	seen := make(map[GenerationKey]struct{}, len(keys))
-	for _, key := range keys {
-		if _, dup := seen[key]; dup {
-			continue
-		}
-		seen[key] = struct{}{}
-		out = append(out, key)
-	}
-	return out
+	return lo.UniqBy(gens, generationKeyOf), nil
 }
 
 func (s *DeltaStore) InsertGenerations(ctx context.Context, gens []*model.DeltaGeneration) ([]GenerationKey, error) {
@@ -310,7 +290,7 @@ func (s *DeltaStore) GetPrepare(ctx context.Context, id uuid.UUID) (*model.Delta
 }
 
 func (s *DeltaStore) InsertPrepareGenerations(ctx context.Context, prepareID uuid.UUID, keys []GenerationKey) error {
-	keys = uniqueGenerationKeys(keys)
+	keys = lo.Uniq(keys)
 	if len(keys) == 0 {
 		return nil
 	}
@@ -327,14 +307,17 @@ func (s *DeltaStore) InsertPrepareGenerations(ctx context.Context, prepareID uui
 	return store.ErrorFromGormError(s.getDB(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&joins).Error)
 }
 
-func (s *DeltaStore) ListWaitingPastDeadline(ctx context.Context, limit int) ([]model.DeltaPrepare, error) {
+func (s *DeltaStore) ListWaitingPastDeadline(ctx context.Context, limit int, asOf time.Time) ([]model.DeltaPrepare, error) {
 	if limit < 1 || limit > MaxListWaitingPastDeadline {
 		return nil, fmt.Errorf("limit must be between 1 and %d", MaxListWaitingPastDeadline)
 	}
+	if asOf.IsZero() {
+		return nil, fmt.Errorf("asOf time is required")
+	}
 	var rows []model.DeltaPrepare
 	result := s.getDB(ctx).Where(
-		"status = ? AND deadline IS NOT NULL AND deadline < NOW()",
-		model.DeltaPrepareWaiting,
+		"status = ? AND deadline IS NOT NULL AND deadline < ?",
+		model.DeltaPrepareWaiting, asOf,
 	).Order("deadline ASC, id ASC").Limit(limit).Find(&rows)
 	if result.Error != nil {
 		return nil, store.ErrorFromGormError(result.Error)

@@ -53,6 +53,8 @@ func (DeltaPrepare) TableName() string {
 	return "delta_prepares"
 }
 
+// DeltaPrepareGeneration is the join row that attaches a DeltaPrepare to the
+// DeltaGeneration keys it is waiting on.
 type DeltaPrepareGeneration struct {
 	PrepareID       uuid.UUID `gorm:"type:uuid;primaryKey"`
 	OrgID           uuid.UUID `gorm:"type:uuid;primaryKey"`

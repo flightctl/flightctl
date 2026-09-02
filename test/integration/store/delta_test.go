@@ -320,7 +320,7 @@ var _ = Describe("DeltaStore", func() {
 			Expect(deltaStore.InsertPrepare(ctx, fleetPrepare("future", &future))).To(Succeed())
 			Expect(deltaStore.InsertPrepare(ctx, fleetPrepare("none", nil))).To(Succeed())
 
-			listed, err := deltaStore.ListWaitingPastDeadline(ctx, deltastore.MaxListWaitingPastDeadline)
+			listed, err := deltaStore.ListWaitingPastDeadline(ctx, deltastore.MaxListWaitingPastDeadline, time.Now())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(listed).To(HaveLen(1))
 			Expect(listed[0].Name).To(Equal("expired"))
@@ -340,7 +340,7 @@ var _ = Describe("DeltaStore", func() {
 			}
 			Expect(deltaStore.InsertPrepare(ctx, otherPrep)).To(Succeed())
 
-			listed, err := deltaStore.ListWaitingPastDeadline(ctx, deltastore.MaxListWaitingPastDeadline)
+			listed, err := deltaStore.ListWaitingPastDeadline(ctx, deltastore.MaxListWaitingPastDeadline, time.Now())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(listed).To(HaveLen(2))
 			names := []string{listed[0].Name, listed[1].Name}
@@ -353,7 +353,7 @@ var _ = Describe("DeltaStore", func() {
 			Expect(deltaStore.InsertPrepare(ctx, fleetPrepare("first", &earlier))).To(Succeed())
 			Expect(deltaStore.InsertPrepare(ctx, fleetPrepare("second", &later))).To(Succeed())
 
-			listed, err := deltaStore.ListWaitingPastDeadline(ctx, 1)
+			listed, err := deltaStore.ListWaitingPastDeadline(ctx, 1, time.Now())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(listed).To(HaveLen(1))
 			Expect(listed[0].Name).To(Equal("first"))
