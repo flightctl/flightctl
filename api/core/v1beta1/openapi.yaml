@@ -6289,7 +6289,21 @@ components:
         - metadata
         - items
     DeviceOsSpec:
-      $ref: '#/components/schemas/ImageOrCatalogItemRefSpec'
+      description: Either a specific OCI image reference, or a reference to a catalog item version that can be resolved to an OCI image ref.
+      allOf:
+        - $ref: '#/components/schemas/ImageOrCatalogItemRefSpec'
+        - type: object
+          properties:
+            deltaImage:
+              type: string
+              description: >-
+                Optional hint: a reference to a delta artifact the control
+                plane's generation records indicate may be applicable to reach
+                `image` from this device's current image. Absent does not imply
+                no delta exists — the device independently discovers candidate
+                delta artifacts (e.g. deltas published by a customer's own CI)
+                regardless of this field, and falls back to a full pull only if
+                none is usable.
     DeviceStatus:
       type: object
       description: DeviceStatus represents information about the status of a device. Status may trail the actual state of a device.
@@ -6380,6 +6394,22 @@ components:
         agentVersion:
           type: string
           description: The Agent version.
+        bootcVersion:
+          type: string
+          description: >-
+            Version reported by `bootc --version`. Absent when bootc is not
+            installed or the version command fails.
+        ociDeltaVersion:
+          type: string
+          description: >-
+            Version reported by `oci-delta --version`. Absent when oci-delta is
+            not installed or the version command fails.
+        deltaEligible:
+          type: boolean
+          description: >-
+            Whether this device can consume OCI deltas. True when the oci-delta
+            binary is present. False when it is not. Omitted when an older
+            agent does not report the field.
         customInfo:
           $ref: "#/components/schemas/CustomDeviceInfo"
       additionalProperties:
@@ -6539,6 +6569,8 @@ components:
           description: Status of volumes used by this application.
           items:
             $ref: "#/components/schemas/ApplicationVolumeStatus"
+        lastDelta:
+          $ref: "#/components/schemas/DeviceDeltaApplyStatus"
     ApplicationVolumeStatus:
       type: object
       description: Status of a volume used by an application.
@@ -6618,6 +6650,23 @@ components:
         osMode:
           $ref: '#/components/schemas/OsModeType'
       additionalProperties: false
+    DeviceDeltaApplyStatus:
+      type: object
+      description: >-
+        Result of the most recent delta apply attempt for this update target.
+      additionalProperties: false
+      properties:
+        fallbackReason:
+          type: string
+          description: >-
+            Set when the most recent update attempt fell back from a delta to a
+            full image pull. Absent if no delta was attempted or the delta
+            succeeded. Cleared when the next update attempt for this target starts.
+        size:
+          type: string
+          description: >-
+            Expected delta size in IEC units (KiB, MiB, GiB, or TiB).
+            Absent when the size is not yet known.
     DeviceOsStatus:
       type: object
       description: Current status of the device OS.
@@ -6631,6 +6680,8 @@ components:
         imageDigest:
           type: string
           description: The digest of the OS image (e.g. sha256:a0...).
+        lastDelta:
+          $ref: "#/components/schemas/DeviceDeltaApplyStatus"
     DeviceConfigStatus:
       type: object
       description: Current status of the device config.

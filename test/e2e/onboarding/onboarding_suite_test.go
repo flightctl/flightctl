@@ -79,6 +79,16 @@ var _ = BeforeSuite(func() {
 	logrus.Infof("Worker %d: fresh VM created, installing cockpit + onboarding RPM", workerID)
 	installCockpitAndOnboarding(harness)
 
+	// Scrub any pre-onboarding agent enrollment before snapshotting so the snapshot
+	// is pristine (see resetAgentEnrollmentState for why this matters).
+	resetAgentEnrollmentState(harness)
+
+	// Install the WiFi soft-AP stack so the WiFi specs run on the standard e2e
+	// device image (no dedicated baked image). Done before the snapshot so the
+	// transient packages are captured by the memory snapshot and survive reverts.
+	logrus.Infof("Worker %d: installing WiFi soft-AP stack", workerID)
+	installWifiStack(harness)
+
 	// Take a snapshot so each test starts from a clean post-install state.
 	logrus.Infof("Worker %d: creating %s snapshot", workerID, onboardingSnapshotID)
 	err = harness.VM.CreateSnapshot(onboardingSnapshotID)
@@ -127,6 +137,58 @@ var _ = AfterEach(func() {
 	harness.PrintAgentLogsIfFailed()
 	harness.CaptureDeploymentLogsIfFailed()
 })
+
+// resetAgentEnrollmentState scrubs any flightctl-agent enrollment the base image
+// left behind on first boot, so the pre-onboarding snapshot is pristine.
+//
+// The base device image ships flightctl-agent enabled, so on first boot — before
+// the onboarding RPM installs the gate drop-in that keeps the agent from starting
+// until onboarding is confirmed — the agent runs, generates a CSR, and creates an
+// EnrollmentRequest, logging an "/enroll/<id>" line to the persistent journal. If
+// that state leaks into the snapshot, every reverted spec inherits it, and the
+// damage is subtle: GetEnrollmentIDFromServiceLogs derives the device ID from the
+// FIRST "/enroll/<id>" match in the agent journal (util.GetEnrollmentIdFromText),
+// so it returns the STALE baked-in id rather than the current wizard-driven
+// enrollment. The enrollment specs then approve the wrong device while their real
+// device is never approved, and they time out in WaitForOnlineStatus.
+//
+// Stop the agent, remove its on-disk enrollment identity, and rotate+vacuum the
+// journal so no stale "/enroll/<id>" survives. After this the gate drop-in keeps
+// the agent inactive across reverts until the wizard starts it, so the only
+// "/enroll/<id>" any spec ever sees is the one its own wizard run produced. All
+// commands are plain argv (RunSSH re-joins args for the remote shell, so a
+// `bash -c "<multi-word>"` would collapse to its first word).
+func resetAgentEnrollmentState(h *e2e.Harness) {
+	// Best-effort stop: the agent may already be gated/inactive.
+	_, _ = h.VM.RunSSH([]string{"sudo", "systemctl", "stop", "flightctl-agent"}, nil)
+
+	// Remove the enrollment identity and spec files the first-boot agent persisted.
+	// Surface a failure here: if the stale state survives, every enrollment spec
+	// then approves the wrong device and times out in WaitForOnlineStatus — exactly
+	// the opaque failure this function exists to prevent, so don't discard the error.
+	if _, err := h.VM.RunSSH([]string{
+		"sudo", "rm", "-rf",
+		"/var/lib/flightctl/certs",
+		"/var/lib/flightctl/current.json",
+		"/var/lib/flightctl/desired.json",
+		"/var/lib/flightctl/rollback.json",
+		"/var/lib/flightctl/system.json",
+	}, nil); err != nil {
+		logrus.Warnf("failed to remove persisted agent enrollment state: %v", err)
+	}
+
+	// Rotate then vacuum the persistent journal so the stale "/enroll/<id>" line is
+	// gone. Rotating first seals the active journal file so the subsequent vacuum can
+	// actually remove the archived records that hold the stale enrollment line.
+	for _, argv := range [][]string{
+		{"sudo", "journalctl", "--rotate"},
+		{"sudo", "journalctl", "--vacuum-time=1s"},
+	} {
+		if _, err := h.VM.RunSSH(argv, nil); err != nil {
+			logrus.Warnf("failed to clear stale journal enrollment records (%v): %v", argv, err)
+		}
+	}
+}
 
 // setupVMOnlyHarness creates a worker harness backed by a fresh VM that is
 // booted and reachable via SSH but does NOT start the flightctl-agent.
@@ -241,4 +303,78 @@ func installCockpitAndOnboarding(h *e2e.Harness) {
 		return out.String(), nil
 	}, 60*time.Second, 2*time.Second).Should(ContainSubstring(":9090"),
 		"cockpit is not listening on port 9090")
+}
+
+// installWifiStack transiently installs the WiFi soft-AP userspace and the
+// kernel module needed to synthesize virtual radios, so the WiFi specs run on
+// the standard e2e device image without a dedicated baked image. It mirrors the
+// EDM-4205 feasibility spike:
+//   - kernel-modules-extra must match the running kernel exactly. $(uname -r) is
+//     expanded by the remote shell (RunSSH space-joins argv into one shell
+//     command line); every argument here is a fixed literal, so nothing
+//     untrusted is interpolated.
+//   - depmod -a registers the freshly-dropped mac80211_hwsim so the per-spec
+//     `modprobe mac80211_hwsim radios=2` (loadHwsimRadios) can find it.
+//
+// Called from BeforeSuite before the snapshot so the transient packages (written
+// to the in-memory overlay by --transient) are captured by the memory snapshot
+// and persist across every per-spec revert.
+func installWifiStack(h *e2e.Harness) {
+	// Every SSH call here runs under an explicit timeout so a hung dnf/depmod (no
+	// stdin, a wedged mirror, a stuck kernel-module transaction) cannot block
+	// BeforeSuite indefinitely and stall the whole onboarding suite. On timeout
+	// the call returns an error and we fall through to letting the WiFi specs skip.
+	const (
+		wifiProbeTimeout   = 60 * time.Second
+		wifiInstallTimeout = 10 * time.Minute
+	)
+
+	// If the device image already bakes the COMPLETE WiFi soft-AP stack (the Fedora
+	// onboarding flavor bakes mac80211_hwsim + userspace; see
+	// test/scripts/agent-images/containerfiles/fedora-bootc/), there is nothing to
+	// install at runtime. Probe all three pieces the specs need - the kernel module
+	// AND both userspace daemons (hostapd for the AP, dnsmasq for DHCP/DNS) - before
+	// treating the image as preinstalled; if any is missing, fall through to the
+	// runtime install rather than wrongly skipping it and leaving the specs to fail.
+	// Use `modprobe -n` (not modinfo): it resolves the dependency chain via
+	// modules.dep exactly as the real load in loadHwsimRadios, so it also confirms
+	// the module is registered with depmod, which the baked image does at build time.
+	// On the cs9/cs10 images this probe fails (hwsim is filtered out of those
+	// kernels) and we fall through to the transient install below; on Fedora
+	// kernel-modules-extra-$(uname -r) does not even provide hwsim, so attempting
+	// the install there would only log a spurious warning and pull redundant
+	// userspace packages - which the early return avoids.
+	probeCtx, cancelProbe := context.WithTimeout(context.Background(), wifiProbeTimeout)
+	defer cancelProbe()
+	if _, err := h.VM.RunSSHContext(probeCtx, []string{
+		"sudo modprobe -n mac80211_hwsim && command -v hostapd >/dev/null && command -v dnsmasq >/dev/null",
+	}, nil); err == nil {
+		logrus.Info("WiFi soft-AP stack already baked into the device image; skipping runtime install")
+		return
+	}
+
+	// Best-effort. The WiFi specs are gated behind wifiStackAvailable and Skip when
+	// the stack is absent, so a failed install must NOT abort BeforeSuite and take
+	// down the rest of the onboarding suite (notably the config-flow specs). The
+	// common cause is repo drift: the device image's pinned kernel has rolled out of
+	// the enabled repos, so kernel-modules-extra-$(uname -r) no longer resolves and
+	// dnf aborts the whole transaction. When that happens, log and let the WiFi
+	// specs skip rather than failing every onboarding test.
+	installCtx, cancelInstall := context.WithTimeout(context.Background(), wifiInstallTimeout)
+	defer cancelInstall()
+	if _, err := h.VM.RunSSHContext(installCtx, append([]string{
+		"sudo", "dnf", "install",
+	}, append(dnfInstallFlags,
+		"kernel-modules-extra-$(uname -r)",
+		"hostapd", "wpa_supplicant", "NetworkManager-wifi", "iw", "dnsmasq")...), nil); err != nil {
+		logrus.Warnf("WiFi soft-AP stack install failed; WiFi specs will skip: %v", err)
+		return
+	}
+
+	// Rebuild modules.dep so modprobe can find the just-installed mac80211_hwsim.
+	depmodCtx, cancelDepmod := context.WithTimeout(context.Background(), wifiProbeTimeout)
+	defer cancelDepmod()
+	if _, err := h.VM.RunSSHContext(depmodCtx, []string{"sudo", "depmod", "-a"}, nil); err != nil {
+		logrus.Warnf("depmod after WiFi stack install failed; WiFi specs may skip: %v", err)
+	}
 }

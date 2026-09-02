@@ -2,9 +2,13 @@ package trustifyv2
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -398,6 +402,192 @@ func TestGetVulnerabilitiesForDigests_Unreachable(t *testing.T) {
 
 	var connErr *ConnectionError
 	require.ErrorAs(t, err, &connErr)
+}
+
+// ---- TLS configuration (CAFile / SkipTLSVerify) -----------------------------
+
+// writeCertPEM writes a certificate to a temp PEM file and returns its path.
+func writeCertPEM(t *testing.T, cert *x509.Certificate) string {
+	t.Helper()
+	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})
+	f := filepath.Join(t.TempDir(), "ca.pem")
+	require.NoError(t, os.WriteFile(f, pemBytes, 0600))
+	return f
+}
+
+func TestBuildTLSTransport_Defaults(t *testing.T) {
+	tr, err := buildTLSTransport(&config.TrustifyConfig{})
+	require.NoError(t, err)
+	require.NotNil(t, tr.TLSClientConfig)
+	require.False(t, tr.TLSClientConfig.InsecureSkipVerify)
+	require.Nil(t, tr.TLSClientConfig.RootCAs)
+}
+
+func TestBuildTLSTransport_SkipTLSVerify(t *testing.T) {
+	tr, err := buildTLSTransport(&config.TrustifyConfig{SkipTLSVerify: true})
+	require.NoError(t, err)
+	require.NotNil(t, tr.TLSClientConfig)
+	require.True(t, tr.TLSClientConfig.InsecureSkipVerify)
+}
+
+func TestBuildTLSTransport_CAFileReachesTransport(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+
+	caFile := writeCertPEM(t, srv.Certificate())
+	tr, err := buildTLSTransport(&config.TrustifyConfig{CAFile: caFile})
+	require.NoError(t, err)
+	require.NotNil(t, tr.TLSClientConfig.RootCAs)
+
+	// A client using this transport should trust the server's self-signed cert.
+	client := &http.Client{Transport: tr}
+	resp, err := client.Get(srv.URL)
+	require.NoError(t, err)
+	_ = resp.Body.Close()
+}
+
+func TestBuildTLSTransport_UntrustedByDefault(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+
+	tr, err := buildTLSTransport(&config.TrustifyConfig{}) // no CA, no skip-verify
+	require.NoError(t, err)
+
+	client := &http.Client{Transport: tr}
+	_, err = client.Get(srv.URL)
+	require.Error(t, err, "self-signed server should not be trusted without CAFile or SkipTLSVerify")
+}
+
+func TestBuildTLSTransport_InvalidCAFilePath(t *testing.T) {
+	_, err := buildTLSTransport(&config.TrustifyConfig{CAFile: filepath.Join(t.TempDir(), "does-not-exist.pem")})
+	require.Error(t, err)
+}
+
+func TestBuildTLSTransport_InvalidCAContent(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "bad.pem")
+	require.NoError(t, os.WriteFile(f, []byte("not a certificate"), 0600))
+	_, err := buildTLSTransport(&config.TrustifyConfig{CAFile: f})
+	require.Error(t, err)
+}
+
+func TestNewVulnerabilityClient_TLS_SkipVerifyAllowsSelfSigned(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(PurlListResponse{})
+	}))
+	t.Cleanup(srv.Close)
+
+	cfg := &config.TrustifyConfig{Endpoint: srv.URL, SkipTLSVerify: true}
+	c, err := NewVulnerabilityClient(context.Background(), cfg)
+	require.NoError(t, err)
+
+	_, err = c.GetVulnerabilitiesForDigests(context.Background(), []string{"sha256:x"})
+	require.NoError(t, err, "SkipTLSVerify should allow connecting to a self-signed TLS server")
+}
+
+func TestNewVulnerabilityClient_TLS_CAFileAllowsSelfSigned(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(PurlListResponse{})
+	}))
+	t.Cleanup(srv.Close)
+
+	caFile := writeCertPEM(t, srv.Certificate())
+	cfg := &config.TrustifyConfig{Endpoint: srv.URL, CAFile: caFile}
+	c, err := NewVulnerabilityClient(context.Background(), cfg)
+	require.NoError(t, err)
+
+	_, err = c.GetVulnerabilitiesForDigests(context.Background(), []string{"sha256:x"})
+	require.NoError(t, err, "CAFile should let the client trust the self-signed TLS server")
+}
+
+func TestNewVulnerabilityClient_TLS_UntrustedFailsByDefault(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(PurlListResponse{})
+	}))
+	t.Cleanup(srv.Close)
+
+	cfg := &config.TrustifyConfig{Endpoint: srv.URL} // no CA, no skip-verify
+	c, err := NewVulnerabilityClient(context.Background(), cfg)
+	require.NoError(t, err)
+
+	_, err = c.GetVulnerabilitiesForDigests(context.Background(), []string{"sha256:x"})
+	require.Error(t, err, "self-signed TLS server should not be trusted by default")
+}
+
+func TestNewVulnerabilityClient_TLS_ClientCredentialsHonorsCAFile(t *testing.T) {
+	// One self-signed TLS server serves OIDC discovery, the token endpoint, and
+	// the Trustify API — so a successful GetVulnerabilitiesForDigests proves the
+	// configured TLS reaches discovery, token fetch, and API calls (the
+	// client-credentials context-threading path).
+	var srv *httptest.Server
+	srv = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/.well-known/openid-configuration":
+			_ = json.NewEncoder(w).Encode(map[string]string{"token_endpoint": srv.URL + "/token"})
+		case "/token":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"access_token": "fake-token",
+				"token_type":   "Bearer",
+				"expires_in":   3600,
+			})
+		default:
+			_ = json.NewEncoder(w).Encode(PurlListResponse{})
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	caFile := writeCertPEM(t, srv.Certificate())
+	cfg := &config.TrustifyConfig{
+		Endpoint: srv.URL,
+		CAFile:   caFile,
+		Auth: &config.TrustifyAuthConfig{
+			Mode:          AuthModeClientCredentials,
+			OIDCIssuerURL: srv.URL,
+			ClientID:      "my-client",
+			ClientSecret:  "my-secret",
+		},
+	}
+	c, err := NewVulnerabilityClient(context.Background(), cfg)
+	require.NoError(t, err, "OIDC discovery over TLS should succeed when CAFile is trusted")
+
+	_, err = c.GetVulnerabilitiesForDigests(context.Background(), []string{"sha256:x"})
+	require.NoError(t, err, "token fetch and API calls over TLS should honor CAFile")
+}
+
+func TestNewVulnerabilityClient_TLS_ClientCredentialsUntrustedDiscoveryFails(t *testing.T) {
+	var srv *httptest.Server
+	srv = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/.well-known/openid-configuration" {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]string{"token_endpoint": srv.URL + "/token"})
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+
+	cfg := &config.TrustifyConfig{
+		Endpoint: srv.URL,
+		Auth: &config.TrustifyAuthConfig{
+			Mode:          AuthModeClientCredentials,
+			OIDCIssuerURL: srv.URL, // no CAFile and no SkipTLSVerify → discovery TLS must fail
+			ClientID:      "my-client",
+			ClientSecret:  "my-secret",
+		},
+	}
+	_, err := NewVulnerabilityClient(context.Background(), cfg)
+	require.Error(t, err, "OIDC discovery over an untrusted self-signed TLS server should fail")
+
+	var authErr *AuthError
+	require.ErrorAs(t, err, &authErr)
+	require.Equal(t, AuthModeClientCredentials, authErr.Mode)
 }
 
 // ---- helper functions -------------------------------------------------------

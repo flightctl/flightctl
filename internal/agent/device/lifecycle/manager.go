@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	deviceos "github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/identity"
 	"github.com/flightctl/flightctl/internal/tpm"
@@ -50,7 +51,7 @@ type LifecycleManager struct {
 	enrollmentClient    client.Enrollment
 	defaultLabels       map[string]string
 	labelFromSystemInfo map[string]string
-	osMode              v1beta1.OsModeType
+	caps                deviceos.Capabilities
 	enrollmentCSR       []byte
 	statusManager       status.Manager
 	systemdClient       *client.Systemd
@@ -72,7 +73,7 @@ func NewManager(
 	enrollmentCSR []byte,
 	defaultLabels map[string]string,
 	labelFromSystemInfo map[string]string,
-	osMode v1beta1.OsModeType,
+	caps deviceos.Capabilities,
 	statusManager status.Manager,
 	systemdClient *client.Systemd,
 	identityProvider identity.Provider,
@@ -91,7 +92,7 @@ func NewManager(
 		enrollmentCSR:        enrollmentCSR,
 		defaultLabels:        defaultLabels,
 		labelFromSystemInfo:  labelFromSystemInfo,
-		osMode:               osMode,
+		caps:                 caps,
 		backoff:              backoff,
 		statusManager:        statusManager,
 		systemdClient:        systemdClient,
@@ -429,7 +430,10 @@ func (m *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *
 		m.log.Debugf("Failed to read desired.json: %v", err)
 	}
 
-	// Build enrollment labels by merging labelFromSystemInfo with defaultLabels
+	if deviceStatus != nil {
+		deviceos.ApplyDeltaSystemInfo(&deviceStatus.SystemInfo, m.caps)
+	}
+
 	enrollmentLabels := m.buildEnrollmentLabels(deviceStatus)
 
 	req := v1beta1.EnrollmentRequest{
@@ -443,7 +447,7 @@ func (m *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *
 			DeviceStatus:         deviceStatus,
 			Labels:               &enrollmentLabels,
 			KnownRenderedVersion: knownRenderedVersion,
-			OsMode:               &m.osMode,
+			OsMode:               &m.caps.OsMode,
 		},
 	}
 

@@ -118,6 +118,9 @@ data:
     vulnerabilityReporting:
         enabled: true
         syncInterval: {{ $vuln.syncInterval | default "15m" | quote }}
+        {{- if $vuln.backend }}
+        backend: {{ $vuln.backend | quote }}
+        {{- end }}
         {{- if $vuln.trustify }}
         trustify:
             endpoint: {{ $trustify.endpoint | quote }}
@@ -127,6 +130,14 @@ data:
                 {{- if $auth.oidcIssuerUrl }}
                 oidcIssuerUrl: {{ $auth.oidcIssuerUrl | quote }}
                 {{- end }}
+            {{- end }}
+            {{- if $trustify.caCertConfigMapName }}
+            caFile: /etc/ssl/vulnerability/trustify/ca-cert.pem
+            {{- else if $trustify.caFile }}
+            caFile: {{ $trustify.caFile | quote }}
+            {{- end }}
+            {{- if $trustify.skipTlsVerify }}
+            skipTlsVerify: true
             {{- end }}
         {{- end }}
     {{- end }}

@@ -1,0 +1,82 @@
+#cloud-config
+ssh_pwauth: true
+users:
+  - name: {{.User}}
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    lock_passwd: false
+    ssh_authorized_keys:
+      - {{ yamlQuote .SSHPublicKey }}
+chpasswd:
+  expire: false
+  users:
+    - name: {{.User}}
+      password: {{ yamlQuote .Password }}
+      type: text
+write_files:
+  - path: /etc/security/faillock.conf
+    owner: root:root
+    permissions: '0644'
+    content: |
+      deny = 0
+{{- if .WithServices }}
+  - path: /var/www/html/index.html
+    content: {{ yamlQuote .IndexHTML }}
+    owner: root:root
+    permissions: '0644'
+  - path: /usr/local/bin/hello-udp-listener.py
+    owner: root:root
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env python3
+      import socket
+
+      PORT = {{.UDPPort}}
+
+      sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+      sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+      sock.bind(("0.0.0.0", PORT))
+      while True:
+          _data, addr = sock.recvfrom(1024)
+          sock.sendto(b"hello\n", addr)
+  - path: /etc/systemd/system/hello-http.service
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Hello HTTP service
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=simple
+      WorkingDirectory=/var/www/html
+      ExecStart=/usr/bin/python3 -m http.server 80
+      Restart=on-failure
+
+      [Install]
+      WantedBy=multi-user.target
+  - path: /etc/systemd/system/hello-udp.service
+    owner: root:root
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Hello UDP reply service
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=simple
+      ExecStart=/usr/bin/python3 /usr/local/bin/hello-udp-listener.py
+      Restart=on-failure
+
+      [Install]
+      WantedBy=multi-user.target
+{{- end }}
+runcmd:
+  - {{.FaillockCommand}}
+{{- if .WithServices }}
+  - systemctl daemon-reload
+  - systemctl enable --now hello-http.service
+  - systemctl enable --now hello-udp.service
+{{- end }}

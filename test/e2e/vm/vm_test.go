@@ -1,6 +1,8 @@
 package vm_test
 
 import (
+	"bytes"
+	_ "embed"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -9,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"text/template"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
@@ -19,13 +22,22 @@ import (
 	. "github.com/onsi/gomega"
 )
 
+//go:embed cloud-config-drive.yaml.tmpl
+var configDriveCloudConfigTemplateText string
+
+var configDriveCloudConfigTemplate = template.Must(
+	template.New("cloud-config-drive").Funcs(template.FuncMap{
+		"yamlQuote": strconv.Quote,
+	}).Parse(configDriveCloudConfigTemplateText),
+)
+
 const (
 	vmAppName                   = "test-vm"
 	vmAppAName                  = "test-vm-a"
 	vmAppBName                  = "test-vm-b"
 	defaultVMImage              = "quay.io/containerdisks/fedora:40"
 	defaultVMUpdatedImage       = "quay.io/containerdisks/fedora:41"
-	vmGuestUser                 = "fedora"
+	vmGuestUser                 = e2e.VMFedoraGuestUser
 	vmGuestPassword             = "fedora"
 	vmModifiedGuestPassword     = "fedora-new"
 	vmModifyBaselineGuestMemory = "1G"
@@ -63,7 +75,7 @@ func getVMUpdatedImage() string {
 	return defaultVMUpdatedImage
 }
 
-var _ = Describe("VM Applications", Ordered, func() {
+var _ = Describe("VM Applications", Ordered, ContinueOnFailure, func() {
 	var (
 		deviceID  string
 		harness   *e2e.Harness
@@ -359,6 +371,17 @@ func waitForVMAppRunningHealthy(h *e2e.Harness, deviceID, appName string) {
 		logVMApplicationUnitStatus(h, appName)
 	}
 	Expect(err).ToNot(HaveOccurred())
+}
+
+// expectLoginPromptThenPasswordSSH waits until the guest serial login prompt appears,
+// then checks published-port SSH. The prompt means getty is up; it does not log in.
+// Use after a first start or a stop/start. Skip when the guest was already running.
+func expectLoginPromptThenPasswordSSH(h *e2e.Harness, deviceID, appName, user, password string, port int) {
+	GinkgoHelper()
+	cs := h.NewAppConsoleSessionWaitingForLogin(deviceID, appName, testutil.LONG_TIMEOUT, testutil.POLLING)
+	cs.Disconnect()
+	cs.Close()
+	expectSSHWhoamiWithPassword(h, port, appName, user, password)
 }
 
 // expectSSHWhoamiWithPassword polls password SSH to a published host port until whoami returns the guest user.
@@ -701,86 +724,37 @@ func encodeConfigDriveUserData(cloudConfig string) string {
 	return base64.StdEncoding.EncodeToString([]byte(cloudConfig))
 }
 
-func configDriveCloudUserIdentityYAML(sshPublicKey, password string) string {
-	return fmt.Sprintf(`ssh_pwauth: true
-users:
-  - name: %s
-    sudo: ALL=(ALL) NOPASSWD:ALL
-    shell: /bin/bash
-    lock_passwd: false
-    ssh_authorized_keys:
-      - %s
-chpasswd:
-  expire: false
-  users:
-    - name: %s
-      password: %s
-      type: text`, vmCloudUser, sshPublicKey, vmCloudUser, password)
+type configDriveCloudConfigParams struct {
+	User            string
+	Password        string
+	SSHPublicKey    string
+	FaillockCommand string
+	WithServices    bool
+	IndexHTML       string
+	UDPPort         int
+}
+
+func renderConfigDriveCloudUserData(sshPublicKey, password string, withServices bool) string {
+	var buf bytes.Buffer
+	params := configDriveCloudConfigParams{
+		User:            vmCloudUser,
+		Password:        password,
+		SSHPublicKey:    sshPublicKey,
+		FaillockCommand: e2e.VMGuestDisableFaillockCommand(vmCloudUser),
+		WithServices:    withServices,
+		IndexHTML:       configDriveIndexHTMLContent,
+		UDPPort:         vmBPublishedUDPPort,
+	}
+	if err := configDriveCloudConfigTemplate.Execute(&buf, params); err != nil {
+		panic("rendering cloud-config-drive: " + err.Error())
+	}
+	return buf.String()
 }
 
 func configDriveCloudUserData(sshPublicKey, password string) string {
-	return "#cloud-config\n" + configDriveCloudUserIdentityYAML(sshPublicKey, password) + "\n"
+	return renderConfigDriveCloudUserData(sshPublicKey, password, false)
 }
 
 func configDriveCloudUserDataWithServices(sshPublicKey, password string) string {
-	return fmt.Sprintf(`#cloud-config
-%s
-write_files:
-  - path: /var/www/html/index.html
-    content: %q
-    owner: root:root
-    permissions: '0644'
-  - path: /usr/local/bin/hello-udp-listener.py
-    owner: root:root
-    permissions: '0755'
-    content: |
-      #!/usr/bin/env python3
-      import socket
-
-      PORT = %d
-
-      sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-      sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-      sock.bind(("0.0.0.0", PORT))
-      while True:
-          _data, addr = sock.recvfrom(1024)
-          sock.sendto(b"hello\n", addr)
-  - path: /etc/systemd/system/hello-http.service
-    owner: root:root
-    permissions: '0644'
-    content: |
-      [Unit]
-      Description=Hello HTTP service
-      After=network-online.target
-      Wants=network-online.target
-
-      [Service]
-      Type=simple
-      WorkingDirectory=/var/www/html
-      ExecStart=/usr/bin/python3 -m http.server 80
-      Restart=on-failure
-
-      [Install]
-      WantedBy=multi-user.target
-  - path: /etc/systemd/system/hello-udp.service
-    owner: root:root
-    permissions: '0644'
-    content: |
-      [Unit]
-      Description=Hello UDP reply service
-      After=network-online.target
-      Wants=network-online.target
-
-      [Service]
-      Type=simple
-      ExecStart=/usr/bin/python3 /usr/local/bin/hello-udp-listener.py
-      Restart=on-failure
-
-      [Install]
-      WantedBy=multi-user.target
-runcmd:
-  - systemctl daemon-reload
-  - systemctl enable --now hello-http.service
-  - systemctl enable --now hello-udp.service
-`, configDriveCloudUserIdentityYAML(sshPublicKey, password), configDriveIndexHTMLContent, vmBPublishedUDPPort)
+	return renderConfigDriveCloudUserData(sshPublicKey, password, true)
 }

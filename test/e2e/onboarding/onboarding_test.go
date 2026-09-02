@@ -249,12 +249,21 @@ func splitNmcliTerse(line string) []string {
 //     success state can surface before that background unit reaches finalize,
 //     so poll rather than checking once.
 func expectCompletionMarker(h *e2e.Harness) {
+	expectCompletionMarkerWithin(h, 60*time.Second)
+}
+
+// expectCompletionMarkerWithin is expectCompletionMarker with a caller-chosen
+// timeout. Specs whose delegated apply legitimately takes minutes to finalize —
+// e.g. the single-NIC completion spec, where apply-and-enroll.sh spends up to the
+// full connectivity budget plus NTP-sync wait before writing the marker — need a
+// budget larger than the 60s default.
+func expectCompletionMarkerWithin(h *e2e.Harness, timeout time.Duration) {
 	Eventually(func() error {
 		_, err := h.VM.RunSSH([]string{
 			"sudo", "test", "-f", "/var/lib/flightctl-onboarding/.onboarding-complete",
 		}, nil)
 		return err
-	}, 60*time.Second, 2*time.Second).Should(Succeed(), "completion marker not found")
+	}, timeout, 2*time.Second).Should(Succeed(), "completion marker not found")
 }
 
 // expectNTPServer asserts the wizard-configured NTP server landed in the
@@ -472,18 +481,28 @@ var _ = Describe("Onboarding wizard configuration flow", func() {
 		By("Verifying first attempt shows failure")
 		Expect(browser.WizardWaitForFailure(wizardTimeout)).To(Succeed())
 
-		By("Verifying the hostname step actually ran before the failure")
+		By("Verifying the configuration was applied before the failure")
 		// Guard against a vacuous rollback check: if the apply had failed before the
-		// hostname step ever ran, the assertions below (hostname != attempted value,
-		// hostname == original) would both pass without proving any rollback happened.
-		// The progress page lists each executed step with its target, so requiring the
-		// attempted hostname to appear there confirms the hostname step was applied
-		// (and therefore that the subsequent revert is a genuine rollback).
-		progressText, err := browser.WizardGetReviewText()
-		Expect(err).ToNot(HaveOccurred())
-		Expect(progressText).To(ContainSubstring("error-recovery-test"),
-			"progress page should show the hostname step ran with the attempted hostname, "+
-				"so the rollback assertion below is meaningful")
+		// configuration step ever ran, the assertions below (hostname != attempted
+		// value, hostname == original) would both pass without proving any rollback
+		// happened. The wizard applies system configuration (hostname, NTP, proxy,
+		// labels) INLINE first and only then delegates the network/connectivity test;
+		// so the progress page reaching the connectivity phase proves the inline
+		// configuration (including the hostname) was applied, and its "Reverting
+		// changes" entry proves the failure triggered a genuine rollback. The progress
+		// page lists generic step labels, not per-step target values, so we assert on
+		// the phase labels rather than on the attempted hostname string.
+		// The rollback runs asynchronously after WizardWaitForFailure returns (the
+		// danger alert appears before "Reverting changes" is written), so poll the
+		// progress text rather than reading it once.
+		Eventually(func() (string, error) {
+			return browser.WizardGetReviewText()
+		}, 60*time.Second, 2*time.Second).Should(SatisfyAll(
+			ContainSubstring("Testing network connectivity"),
+			ContainSubstring("Reverting changes"),
+		), "progress page should show the apply reached the connectivity phase "+
+			"(proving the inline configuration, including hostname, was applied first) "+
+			"and then rolled back")
 
 		By("Verifying applied changes were rolled back after the failure")
 		// The installed onboarding package rolls back every applied step (including
@@ -491,13 +510,18 @@ var _ = Describe("Onboarding wizard configuration flow", func() {
 		// rollback plan from the applied items and runs rollback-config.sh, which
 		// restores the original hostname. So after a failed apply the hostname must
 		// no longer be the attempted value; it is reverted to the pre-apply hostname.
-		out, err := harness.VM.RunSSH([]string{"hostnamectl", "hostname"}, nil)
-		Expect(err).ToNot(HaveOccurred())
-		revertedHostname := strings.TrimSpace(out.String())
-		Expect(revertedHostname).ToNot(Equal("error-recovery-test"),
-			"hostname should have been rolled back after the failed apply")
-		Expect(revertedHostname).To(Equal(originalHostname),
-			"hostname should have been restored to its pre-apply value")
+		// Rollback restores the hostname asynchronously, so poll until it is back to
+		// its pre-apply value (which also proves it is no longer the attempted one).
+		Eventually(func() (string, error) {
+			out, err := harness.VM.RunSSH([]string{"hostnamectl", "hostname"}, nil)
+			if err != nil {
+				return "", err
+			}
+			return strings.TrimSpace(out.String()), nil
+		}, 60*time.Second, 2*time.Second).Should(And(
+			Not(Equal("error-recovery-test")),
+			Equal(originalHostname),
+		), "hostname should have been rolled back to its pre-apply value after the failed apply")
 
 		By("Navigating back to the Review step to correct the connectivity setting")
 		// Progress → Review = 1 click. The offending setting (the connectivity test)
@@ -511,7 +535,7 @@ var _ = Describe("Onboarding wizard configuration flow", func() {
 		Expect(browser.WizardWaitForCompletion(wizardTimeout)).To(Succeed())
 
 		By("Verifying the corrected apply now applies the hostname")
-		out, err = harness.VM.RunSSH([]string{"hostnamectl", "hostname"}, nil)
+		out, err := harness.VM.RunSSH([]string{"hostnamectl", "hostname"}, nil)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(strings.TrimSpace(out.String())).To(Equal("error-recovery-test"))
 

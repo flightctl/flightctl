@@ -5,8 +5,42 @@ APP_BUNDLE := $(ROOT_DIR)/bin/app-images-bundle.tar
 AGENT_BUNDLE_DIR := $(ROOT_DIR)/bin/agent-artifacts
 AGENT_BUNDLE := $(AGENT_BUNDLE_DIR)/agent-images-bundle-$(AGENT_OS_ID).tar
 
+# Flavor guard for the shared qcow path.
+# bin/output/qcow2/disk.qcow2 is a single path reused by every OS flavor, but
+# each flavor has its own build sentinel. A disk left behind by a build of a
+# different flavor makes THIS flavor's sentinel target look up to date, so make
+# would skip the rebuild and the wrong image would boot (e.g. a cs9 disk for a
+# Fedora WiFi run, silently skipping every WiFi spec). Both build paths record
+# the disk's flavor in the disk.qcow2.os-id sidecar; if it does not match the
+# requested AGENT_OS_ID, drop the disk and this flavor's sentinel here (at parse
+# time) so the recipe below rebuilds from scratch. E2E_AGENT_IMAGES_SENTINEL is
+# used verbatim (not recomputed) so the exact file make keys on is the one
+# removed. The disk is user-owned after every successful build (both paths chown
+# bin/output back), so no sudo is needed; a stale root-owned disk from an aborted
+# build is still overwritten by the rebuild's mv into the user-owned directory.
+QCOW2_DISK := $(ROOT_DIR)/bin/output/qcow2/disk.qcow2
+QCOW2_OSID_FILE := $(QCOW2_DISK).os-id
+QCOW2_RECORDED_OSID := $(strip $(if $(wildcard $(QCOW2_OSID_FILE)),$(shell cat $(QCOW2_OSID_FILE) 2>/dev/null)))
+ifneq ($(QCOW2_RECORDED_OSID),)
+ifneq ($(QCOW2_RECORDED_OSID),$(AGENT_OS_ID))
+$(shell rm -f $(QCOW2_DISK) $(E2E_AGENT_IMAGES_SENTINEL))
+endif
+endif
+
 bin/output/qcow2/disk.qcow2: $(E2E_AGENT_IMAGES_SENTINEL)
 
+ifeq ($(AGENT_OS_ID),fedora-bootc)
+# Fedora onboarding flavor: the onboarding suite (GINKGO_LABEL_FILTER=onboarding)
+# needs a WiFi-capable device image (mac80211_hwsim baked; unobtainable on
+# cs9/cs10). It uses neither the v2..v12 variants, the agent multi-image bundle,
+# nor the app bundle, so this path builds only the base image and the qcow2 via a
+# dedicated minimal orchestrator. Selected with AGENT_OS_ID=fedora-bootc, e.g.
+#   AGENT_OS_ID=fedora-bootc make prepare-e2e-test
+$(E2E_AGENT_IMAGES_SENTINEL): | bin
+	SOURCE_GIT_TAG=$(SOURCE_GIT_TAG) SOURCE_GIT_TREE_STATE=$(SOURCE_GIT_TREE_STATE) SOURCE_GIT_COMMIT=$(SOURCE_GIT_COMMIT) \
+		$(ROOT_DIR)/test/scripts/agent-images/build_onboarding_image.sh
+	touch $(E2E_AGENT_IMAGES_SENTINEL)
+else
 # Build + bundle artifacts (no push)
 $(E2E_AGENT_IMAGES_SENTINEL): | bin
 	@if [ ! -f "$(AGENT_BUNDLE)" ]; then \
@@ -23,6 +57,15 @@ $(E2E_AGENT_IMAGES_SENTINEL): | bin
 		echo "App bundle already exists at $(APP_BUNDLE)"; \
 	fi
 	touch $(E2E_AGENT_IMAGES_SENTINEL)
+endif
+
+# Convenience alias: build the Fedora onboarding device image + qcow2 directly,
+# regardless of the current AGENT_OS_ID. Equivalent to the fedora-bootc sentinel
+# path above.
+.PHONY: e2e-agent-image-onboarding
+e2e-agent-image-onboarding: | bin
+	SOURCE_GIT_TAG=$(SOURCE_GIT_TAG) SOURCE_GIT_TREE_STATE=$(SOURCE_GIT_TREE_STATE) SOURCE_GIT_COMMIT=$(SOURCE_GIT_COMMIT) \
+		$(ROOT_DIR)/test/scripts/agent-images/build_onboarding_image.sh
 
 # DEPRECATED: push-e2e-agent-images is no longer called from prepare-e2e-test
 # Image uploading is now handled by testcontainers at test runtime in test/e2e/infra/images.go

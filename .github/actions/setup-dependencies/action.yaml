@@ -17,11 +17,23 @@ inputs:
 runs:
   using: "composite"
   steps:
+      # Pin cache-dependency-path to the root go.sum. Left unset, setup-go
+      # resolves the cache key by searching for go.sum across the repo, and
+      # this repo has several (root plus tools/*/go.sum). That ambiguous
+      # resolution intermittently trips a runner-toolkit bug in setup-go's
+      # post-step cache save ("Index was out of range"), which fails the job
+      # even when all build/test steps pass. It surfaces on release branches
+      # (cold cache -> the save path actually runs) far more than on main
+      # (warm exact-key hit -> save skipped). Anchoring the key to a single
+      # file that exists on every branch makes resolution deterministic while
+      # keeping setup-go's built-in caching and its correct post-step save
+      # timing (after go install and the caller's make targets complete).
       - name: Setup Go
         if: ${{ inputs.skip_package_install != 'true' }}
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25.9'
+          go-version: '1.26.7'
+          cache-dependency-path: go.sum
 
       - name: Prepare apt cache directory
         if: ${{ inputs.skip_package_install != 'true' }}

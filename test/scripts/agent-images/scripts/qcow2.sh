@@ -15,6 +15,17 @@ mkdir -p "${ROOT_DIR}/dnf-cache" "${ROOT_DIR}/osbuild-cache"
 
 echo -e "\033[32mProducing qcow2 image for ${BASE_IMAGE}, writing to ${OUTPUT_DIR}\033[m"
 
+# bootc-image-builder infers the root filesystem type from the source image's
+# distro. The centos-bootc images carry that default, but Fedora bootc images do
+# not, so BIB aborts on them with "failed to initialize bootc distro: missing
+# required info: DefaultRootFs". Callers that build a Fedora flavor (the WiFi
+# onboarding image) set ROOTFS to pass an explicit --rootfs; cs9/cs10 leave it
+# unset and keep BIB's inferred default.
+BIB_EXTRA_ARGS=()
+if [ -n "${ROOTFS:-}" ]; then
+    BIB_EXTRA_ARGS+=(--rootfs "${ROOTFS}")
+fi
+
 sudo podman run --rm \
                 -it \
                 --privileged \
@@ -27,6 +38,7 @@ sudo podman run --rm \
                 quay.io/centos-bootc/bootc-image-builder:latest \
                 build \
                 --type qcow2 \
+                "${BIB_EXTRA_ARGS[@]}" \
                 "${BASE_IMAGE}"
 
 sudo chown -R "${USER}:$(id -gn ${USER})" "${OUTPUT_DIR}"
