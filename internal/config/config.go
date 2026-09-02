@@ -945,6 +945,7 @@ type telemetryGatewayExport struct {
 
 type telemetryGatewayForward struct {
 	Endpoint string                      `json:"endpoint,omitempty"`
+	Headers  map[string]api.SecureString `json:"headers,omitempty"`
 	TLS      *telemetryGatewayForwardTLS `json:"tls,omitempty"`
 }
 

@@ -410,6 +410,16 @@ For more detailed configuration options, see the [Values](#values) section below
 | remoteAccess.logLevel | string | `"info"` | Log level for the remote access service |
 | remoteAccess.resources | object | `{"limits":{"cpu":"500m","memory":"256Mi"},"requests":{"cpu":"100m","memory":"128Mi"}}` | Resource requests and limits for the remote access container |
 | telemetryGateway.additionalRouteLabels | string | `nil` |  |
+| telemetryGateway.extraEnvs | list | `[]` | Extra environment variables for the telemetry gateway container. Use to inject secrets for forward header values via ${VAR} expansion. |
+| telemetryGateway.extraVolumeMounts | list | `[]` | Extra volume mounts for the telemetry gateway container. Use to mount TLS certificates for mTLS forward connections. |
+| telemetryGateway.extraVolumes | list | `[]` | Extra volumes for the telemetry gateway pod. |
+| telemetryGateway.forward | object | `{"endpoint":"","headers":{},"tls":{"caFile":"","certFile":"","insecureSkipTlsVerify":false,"keyFile":""}}` | Forward telemetry to an upstream OTLP collector. Uses OTLP/gRPC for bare host:port endpoints, OTLP/HTTP for http(s):// URLs. Header values support ${ENV_VAR} expansion for secret injection. |
+| telemetryGateway.forward.endpoint | string | `""` | Upstream OTLP endpoint (e.g. "collector:4317" for gRPC, "https://host/api/v2/otlp" for HTTP) |
+| telemetryGateway.forward.headers | object | `{}` | Custom HTTP headers for authentication (only used with OTLP/HTTP endpoints). Values support ${ENV_VAR} expansion — use extraEnvs with secretKeyRef to avoid storing tokens in the ConfigMap. |
+| telemetryGateway.forward.tls.caFile | string | `""` | Path to CA certificate file |
+| telemetryGateway.forward.tls.certFile | string | `""` | Path to client certificate file (for mTLS) |
+| telemetryGateway.forward.tls.insecureSkipTlsVerify | bool | `false` | Skip TLS certificate verification |
+| telemetryGateway.forward.tls.keyFile | string | `""` | Path to client key file (for mTLS) |
 | telemetryGateway.image.image | string | `"quay.io/flightctl/flightctl-telemetry-gateway-el9"` | Telemetry gateway container image |
 | telemetryGateway.image.pullPolicy | string | `""` | Image pull policy for Telemetry gateway container |
 | telemetryGateway.image.tag | string | `""` | Telemetry gateway image tag |
