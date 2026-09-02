@@ -25,7 +25,7 @@ import (
 const DeltaPrepareDeadlinePollingInterval = time.Minute
 
 type prepareDeadlineStore interface {
-	ListWaitingPastDeadline(ctx context.Context, limit int) ([]model.DeltaPrepare, error)
+	ListWaitingPastDeadline(ctx context.Context, limit int, asOf time.Time) ([]model.DeltaPrepare, error)
 	CASPrepareStatus(ctx context.Context, id uuid.UUID, to string) error
 }
 
@@ -51,7 +51,7 @@ func NewDeltaPrepareDeadline(log logrus.FieldLogger, deltaStore deltastore.Store
 
 func (t *DeltaPrepareDeadline) Poll(ctx context.Context) {
 	t.log.Info("Running DeltaPrepareDeadline Polling")
-	rows, err := t.deltaStore.ListWaitingPastDeadline(ctx, deltastore.MaxListWaitingPastDeadline)
+	rows, err := t.deltaStore.ListWaitingPastDeadline(ctx, deltastore.MaxListWaitingPastDeadline, time.Now())
 	if err != nil {
 		t.log.WithError(err).Error("listing waiting delta prepares past deadline")
 		return
