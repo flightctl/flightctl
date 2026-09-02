@@ -1015,7 +1015,7 @@
           "properties": {
             "endpoint": { "type": "string", "description": "Quay API base URL (e.g. \"https://quay.io\")" },
             "secretName": { "type": "string", "description": "Name of the Kubernetes Secret containing the 'token' key for Quay Security API bearer authentication" },
-            "maxConcurrentRequests": { "type": "integer", "description": "Maximum number of concurrent Quay API requests. Defaults to 5 when unset." },
+            "maxConcurrentRequests": { "type": "integer", "description": "Maximum number of concurrent Quay API requests. Defaults to 5 when unset.", "minimum": 0 },
             "caFile": { "type": "string", "description": "Path to a CA bundle for verifying the Quay server certificate. If unset, system roots are used." },
             "caCertConfigMapName": { "type": "string", "description": "Name of a ConfigMap containing key 'ca-cert.pem' with the CA bundle for the Quay server. When set, it is mounted and used instead of caFile." },
             "skipTlsVerify": { "type": "boolean", "description": "Skip TLS certificate verification (insecure, for lab/air-gap only). Defaults to false." }

@@ -63,7 +63,8 @@ spec:
             {{- $trustify := default dict $vuln.trustify -}}
             {{- $auth := default dict $trustify.auth -}}
             {{- $quay := default dict $vuln.quay -}}
-            {{- if and (default false $vuln.enabled) $trustify (eq $auth.mode "client-credentials") $auth.secretName }}
+            {{- $effectiveBackend := or $vuln.backend (ternary "trustify" "" $trustify) -}}
+            {{- if and (default false $vuln.enabled) (or (eq $effectiveBackend "trustify") (eq $effectiveBackend "")) $trustify (eq $auth.mode "client-credentials") $auth.secretName }}
             - name: FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_CLIENT_ID
               valueFrom:
                 secretKeyRef:

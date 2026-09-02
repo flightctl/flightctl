@@ -441,7 +441,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | vulnerabilityReporting.quay.maxConcurrentRequests | int | `5` | Maximum number of concurrent Quay API requests. Defaults to 5 when unset. |
 | vulnerabilityReporting.quay.secretName | string | `""` | Name of the Kubernetes Secret containing the 'token' key for Quay Security API bearer authentication. |
 | vulnerabilityReporting.quay.skipTlsVerify | bool | `false` | Skip TLS certificate verification (insecure, for lab/air-gap only). Defaults to false. |
-| vulnerabilityReporting.syncInterval | string | `"15m"` | Sync interval for periodic Trustify fetch (e.g. "15m", "1h"). |
+| vulnerabilityReporting.syncInterval | string | `"15m"` | Sync interval for periodic backend fetch (e.g. "15m", "1h"). |
 | vulnerabilityReporting.trustify.auth.mode | string | `"none"` | Authentication mode for Trustify. Allowed values: 'client-credentials', 'none'. |
 | vulnerabilityReporting.trustify.auth.oidcIssuerUrl | string | `""` | OIDC issuer URL for client-credentials mode. |
 | vulnerabilityReporting.trustify.auth.secretName | string | `""` | Name of the Kubernetes Secret containing 'client_id' and 'client_secret' keys. |

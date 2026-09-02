@@ -2343,6 +2343,7 @@ components:
           type: string
           description: The vulnerability backend that produced this finding.
           enum: [trustify, quay]
+          x-enum-varnames: [Trustify, Quay]
         image:
           type: string
           description: Image reference (name or URL) from the device context.

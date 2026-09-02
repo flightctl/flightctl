@@ -170,6 +170,10 @@ prometheus:
 #     # Trustify API base URL (used by flightctl-periodic only).
 #     # NOTE: Do not include the API path; the client appends /api/v2/vulnerability/analyze automatically.
 #     endpoint: https://trustify.example.com
+#     # Optional: CA certificate file for Trustify TLS (mount at /etc/ssl/trustify-ca.pem in container).
+#     caFile: /etc/ssl/trustify-ca.pem
+#     # Optional: Skip TLS verification (not recommended for production).
+#     # skipTlsVerify: false
 #     auth:
 #       # Authentication mode. Allowed values: 'client-credentials', 'none'.
 #       mode: none
