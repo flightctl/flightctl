@@ -73,26 +73,26 @@ func NewClient(cfg *config.QuayConfig, log logrus.FieldLogger) (*Client, error) 
 func (c *Client) FetchImageSecurity(ctx context.Context, image vulnerability.ImageRef) (*Response, error) {
 	if image.Image == "" {
 		c.log.WithFields(logrus.Fields{"digest": image.Digest, "reason": reasonMissingImageReference}).
-			Debug("skipping image")
+			Info("skipping image: no image reference")
 		return nil, nil
 	}
 
 	if image.Digest == "" {
 		c.log.WithFields(logrus.Fields{"image": image.Image, "reason": reasonMissingImageDigest}).
-			Debug("skipping image")
+			Info("skipping image: no image digest")
 		return nil, nil
 	}
 
 	host, repoPath, err := parseImageReference(image.Image)
 	if err != nil {
 		c.log.WithFields(logrus.Fields{"image": image.Image, "reason": reasonUnparseableReference}).
-			WithError(err).Debug("skipping image")
+			WithError(err).Warn("skipping image: unparseable reference")
 		return nil, nil
 	}
 
 	if host != c.registryHost {
 		c.log.WithFields(logrus.Fields{"digest": image.Digest, "host": host, "reason": reasonNotOnConfiguredRegistry}).
-			Debug("skipping image")
+			Info("skipping image: not on configured registry")
 		return nil, nil
 	}
 
@@ -139,7 +139,7 @@ func (c *Client) logNonOK(digest string, statusCode int) {
 	entry := c.log.WithFields(logrus.Fields{"digest": digest, "status_code": statusCode})
 	switch statusCode {
 	case http.StatusNotFound:
-		entry.WithField("reason", reasonNotFound).Debug("skipping image: not found on configured registry")
+		entry.WithField("reason", reasonNotFound).Info("skipping image: not found on configured registry")
 	case http.StatusUnauthorized:
 		entry.WithField("endpoint", c.endpoint).Error("quay authentication failed")
 	case http.StatusForbidden:
