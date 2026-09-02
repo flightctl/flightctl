@@ -1,1 +1,2 @@
-FROM registry.access.redhat.com/ubi9/nginx-126:1-1776370455
+ARG RUN_BASE
+FROM ${RUN_BASE}

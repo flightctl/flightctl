@@ -234,9 +234,15 @@ generate-mirror-embed: $(MIRROR_EMBED_OUT)
 build-mirror-images: generate-mirror-embed bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN)/flightctl-mirror-images ./scripts/air-gap/mirror-images
 
+# Helper: extract a field from images.yaml for the current OS.
+# Usage: $(call yaml-field,container-name,field-name)
+yaml-field = $(shell hack/yaml-field.sh packaging/images/$(OS)/images.yaml $(1) $(2))
+
 # Container builds
 flightctl-api-container: packaging/images/$(OS)/Containerfile.api go.mod go.sum $(GO_FILES)
 	podman build \
+		--build-arg BUILD_BASE=$(call yaml-field,api,build_base) \
+		--build-arg RUN_BASE=$(call yaml-field,api,run_base) \
 		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
 		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
@@ -244,6 +250,8 @@ flightctl-api-container: packaging/images/$(OS)/Containerfile.api go.mod go.sum 
 
 flightctl-pam-issuer-container: packaging/images/$(OS)/Containerfile.pam-issuer go.mod go.sum $(GO_FILES)
 	podman build \
+		--build-arg BUILD_BASE=$(call yaml-field,pam-issuer,build_base) \
+		--build-arg RUN_BASE=$(call yaml-field,pam-issuer,run_base) \
 		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
 		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
@@ -251,6 +259,8 @@ flightctl-pam-issuer-container: packaging/images/$(OS)/Containerfile.pam-issuer 
 
 flightctl-db-setup-container: packaging/images/$(OS)/Containerfile.db-setup deploy/scripts/setup_database_users.sh deploy/scripts/setup_database_users.sql
 	podman build \
+		--build-arg BUILD_BASE=$(call yaml-field,db-setup,build_base) \
+		--build-arg RUN_BASE=$(call yaml-field,db-setup,run_base) \
 		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
 		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
@@ -259,6 +269,8 @@ flightctl-db-setup-container: packaging/images/$(OS)/Containerfile.db-setup depl
 
 flightctl-worker-container: packaging/images/$(OS)/Containerfile.worker go.mod go.sum $(GO_FILES)
 	podman build \
+		--build-arg BUILD_BASE=$(call yaml-field,worker,build_base) \
+		--build-arg RUN_BASE=$(call yaml-field,worker,run_base) \
 		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
 		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
@@ -266,6 +278,8 @@ flightctl-worker-container: packaging/images/$(OS)/Containerfile.worker go.mod g
 
 flightctl-periodic-container: packaging/images/$(OS)/Containerfile.periodic go.mod go.sum $(GO_FILES)
 	podman build \
+		--build-arg BUILD_BASE=$(call yaml-field,periodic,build_base) \
+		--build-arg RUN_BASE=$(call yaml-field,periodic,run_base) \
 		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
 		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
@@ -273,6 +287,8 @@ flightctl-periodic-container: packaging/images/$(OS)/Containerfile.periodic go.m
 
 flightctl-alert-exporter-container: packaging/images/$(OS)/Containerfile.alert-exporter go.mod go.sum $(GO_FILES)
 	podman build \
+		--build-arg BUILD_BASE=$(call yaml-field,alert-exporter,build_base) \
+		--build-arg RUN_BASE=$(call yaml-field,alert-exporter,run_base) \
 		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
 		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
@@ -280,6 +296,8 @@ flightctl-alert-exporter-container: packaging/images/$(OS)/Containerfile.alert-e
 
 flightctl-alertmanager-proxy-container: packaging/images/$(OS)/Containerfile.alertmanager-proxy go.mod go.sum $(GO_FILES)
 	podman build \
+		--build-arg BUILD_BASE=$(call yaml-field,alertmanager-proxy,build_base) \
+		--build-arg RUN_BASE=$(call yaml-field,alertmanager-proxy,run_base) \
 		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
 		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
@@ -287,6 +305,8 @@ flightctl-alertmanager-proxy-container: packaging/images/$(OS)/Containerfile.ale
 
 flightctl-multiarch-cli-container: packaging/images/$(OS)/Containerfile.cli-artifacts go.mod go.sum $(GO_FILES)
 	podman build \
+		--build-arg BUILD_BASE=$(call yaml-field,cli-artifacts,build_base) \
+		--build-arg RUN_BASE=$(call yaml-field,cli-artifacts,run_base) \
 		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
 		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
@@ -294,6 +314,8 @@ flightctl-multiarch-cli-container: packaging/images/$(OS)/Containerfile.cli-arti
 
 flightctl-userinfo-proxy-container: packaging/images/$(OS)/Containerfile.userinfo-proxy go.mod go.sum $(GO_FILES)
 	podman build \
+		--build-arg BUILD_BASE=$(call yaml-field,userinfo-proxy,build_base) \
+		--build-arg RUN_BASE=$(call yaml-field,userinfo-proxy,run_base) \
 		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
 		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
@@ -301,6 +323,8 @@ flightctl-userinfo-proxy-container: packaging/images/$(OS)/Containerfile.userinf
 
 flightctl-telemetry-gateway-container: packaging/images/$(OS)/Containerfile.telemetry-gateway go.mod go.sum $(GO_FILES)
 	podman build \
+		--build-arg BUILD_BASE=$(call yaml-field,telemetry-gateway,build_base) \
+		--build-arg RUN_BASE=$(call yaml-field,telemetry-gateway,run_base) \
 		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
 		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
@@ -308,6 +332,8 @@ flightctl-telemetry-gateway-container: packaging/images/$(OS)/Containerfile.tele
 
 flightctl-imagebuilder-api-container: packaging/images/$(OS)/Containerfile.imagebuilder-api go.mod go.sum $(GO_FILES)
 	podman build \
+		--build-arg BUILD_BASE=$(call yaml-field,imagebuilder-api,build_base) \
+		--build-arg RUN_BASE=$(call yaml-field,imagebuilder-api,run_base) \
 		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
 		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
@@ -315,6 +341,8 @@ flightctl-imagebuilder-api-container: packaging/images/$(OS)/Containerfile.image
 
 flightctl-imagebuilder-worker-container: packaging/images/$(OS)/Containerfile.imagebuilder-worker go.mod go.sum $(GO_FILES)
 	podman build \
+		--build-arg BUILD_BASE=$(call yaml-field,imagebuilder-worker,build_base) \
+		--build-arg RUN_BASE=$(call yaml-field,imagebuilder-worker,run_base) \
 		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
 		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
@@ -322,6 +350,8 @@ flightctl-imagebuilder-worker-container: packaging/images/$(OS)/Containerfile.im
 
 flightctl-remote-access-container: packaging/images/$(OS)/Containerfile.remote-access go.mod go.sum $(GO_FILES)
 	podman build \
+		--build-arg BUILD_BASE=$(call yaml-field,remote-access,build_base) \
+		--build-arg RUN_BASE=$(call yaml-field,remote-access,run_base) \
 		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
 		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \

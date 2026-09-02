@@ -1,30 +1,46 @@
 api:
   image: quay.io/flightctl/flightctl-api-el10
   tag: latest
+  build_base: registry.access.redhat.com/ubi10/go-toolset:1.26.7-1787775323
+  run_base: quay.io/flightctl/flightctl-base:10.1-1769518576
 periodic:
   image: quay.io/flightctl/flightctl-periodic-el10
   tag: latest
+  build_base: registry.access.redhat.com/ubi10/go-toolset:1.26.7-1787775323
+  run_base: quay.io/flightctl/flightctl-base:10.1-1769518576
 worker:
   image: quay.io/flightctl/flightctl-worker-el10
   tag: latest
+  build_base: registry.access.redhat.com/ubi10/go-toolset:1.26.7-1787775323
+  run_base: quay.io/flightctl/flightctl-base:10.1-1769518576
 alert-exporter:
   image: quay.io/flightctl/flightctl-alert-exporter-el10
   tag: latest
+  build_base: registry.access.redhat.com/ubi10/go-toolset:1.26.7-1787775323
+  run_base: quay.io/flightctl/flightctl-base:10.1-1769518576
 cli-artifacts:
   image: quay.io/flightctl/flightctl-cli-artifacts-el10
   tag: latest
+  build_base: registry.access.redhat.com/ubi10/go-toolset:1.26.7-1787775323
+  run_base: registry.access.redhat.com/ubi10/ubi-minimal:10.1-1769677092
 alertmanager-proxy:
   image: quay.io/flightctl/flightctl-alertmanager-proxy-el10
   tag: latest
+  build_base: registry.access.redhat.com/ubi10/go-toolset:1.26.7-1787775323
+  run_base: quay.io/flightctl/flightctl-base:10.1-1769518576
 pam-issuer:
   image: quay.io/flightctl/flightctl-pam-issuer-el10
   tag: latest
+  build_base: registry.access.redhat.com/ubi10/go-toolset:1.26.7-1787775323
+  run_base: quay.io/flightctl/flightctl-base:10.1-1769518576
 ui:
   image: quay.io/flightctl/flightctl-ui-el10
   tag: latest
 db-setup:
   image: quay.io/flightctl/flightctl-db-setup-el10
   tag: latest
+  build_base: registry.access.redhat.com/ubi10/go-toolset:1.26.7-1787775323
+  run_base: registry.access.redhat.com/ubi10/ubi-minimal:10.1-1769677092
 gateway:
   image: registry.access.redhat.com/ubi10/nginx-126
   tag: "1785834652"
@@ -41,9 +57,13 @@ alertmanager:
 imagebuilder-api:
   image: quay.io/flightctl/flightctl-imagebuilder-api-el10
   tag: latest
+  build_base: registry.access.redhat.com/ubi10/go-toolset:1.26.7-1787775323
+  run_base: quay.io/flightctl/flightctl-base:10.1-1769518576
 imagebuilder-worker:
   image: quay.io/flightctl/flightctl-imagebuilder-worker-el10
   tag: latest
+  build_base: registry.access.redhat.com/ubi10/go-toolset:1.26.7-1787775323
+  run_base: quay.io/flightctl/flightctl-base:10.1-1769518576
 # grafana and prometheus MUST remain here: packaging/rpm/flightctl.spec invokes
 # `flightctl-standalone render quadlets` with this file to populate
 # {{ .Grafana.Image }}:{{ .Grafana.Tag }} and {{ .Prometheus.Image }}:{{ .Prometheus.Tag }}
@@ -61,9 +81,15 @@ prometheus:
 telemetry-gateway:
   image: quay.io/flightctl/flightctl-telemetry-gateway-el10
   tag: latest
+  build_base: registry.access.redhat.com/ubi10/go-toolset:1.26.7-1787775323
+  run_base: quay.io/flightctl/flightctl-base:10.1-1769518576
 userinfo-proxy:
   image: quay.io/flightctl/flightctl-userinfo-proxy-el10
   tag: latest
+  build_base: registry.access.redhat.com/ubi10/go-toolset:1.26.7-1787775323
+  run_base: quay.io/flightctl/flightctl-base:10.1-1769518576
 remote-access:
   image: quay.io/flightctl/flightctl-remote-access-el10
   tag: latest
+  build_base: registry.access.redhat.com/ubi10/go-toolset:1.26.7-1787775323
+  run_base: quay.io/flightctl/flightctl-base:10.1-1769518576

@@ -1,0 +1,95 @@
+name: Refresh Base Images
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: refresh-base-images
+  cancel-in-progress: false
+
+env:
+  IMAGE_REGISTRY: quay.io/flightctl
+  UBI_REGISTRY: registry.access.redhat.com
+
+jobs:
+  detect-updates:
+    runs-on: ubuntu-24.04
+    outputs:
+      build_matrix: ${{ steps.detect.outputs.build_matrix }}
+      manifest_matrix: ${{ steps.detect.outputs.manifest_matrix }}
+      updates_json: ${{ steps.detect.outputs.updates_json }}
+      any_updated: ${{ steps.detect.outputs.any_updated }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - id: detect
+        run: go run . detect --images-dir=../../packaging/images --go-mod=../../go.mod --ubi-registry="${UBI_REGISTRY}" --image-registry="${IMAGE_REGISTRY}" --github-output="$GITHUB_OUTPUT"
+        working-directory: tools/refresh-base-images
+
+  build-base:
+    needs: detect-updates
+    if: needs.detect-updates.outputs.build_matrix != '[]'
+    strategy:
+      matrix:
+        include: ${{ fromJSON(needs.detect-updates.outputs.build_matrix) }}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: sudo IMAGE_TAG="${{ matrix.micro_tag }}" IMAGE_REPO="${IMAGE_REGISTRY}/flightctl-base" ./hack/build_flightctl-base.sh
+      - name: Export image from root to user container storage
+        run: sudo podman save -o /tmp/base-image.tar "${IMAGE_REGISTRY}/flightctl-base:${{ matrix.arch }}-${{ matrix.micro_tag }}"
+      - run: podman load -i /tmp/base-image.tar
+      - uses: redhat-actions/push-to-registry@94ade333c38ecc0e60e94785125d9a52ca423b37 # v3
+        with:
+          image: flightctl/flightctl-base
+          tags: ${{ matrix.arch }}-${{ matrix.micro_tag }}
+          registry: quay.io
+          username: ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_USERNAME }}
+          password: ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_PASSWORD }}
+
+  manifest:
+    needs: [detect-updates, build-base]
+    if: needs.detect-updates.outputs.manifest_matrix != '[]'
+    strategy:
+      matrix:
+        include: ${{ fromJSON(needs.detect-updates.outputs.manifest_matrix) }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: redhat-actions/podman-login@4934294ad0449894bcd1e9f191899d7292469603 # v1
+        with:
+          registry: quay.io
+          username: ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_USERNAME }}
+          password: ${{ secrets.QUAY_FLIGHTCTL_INFRA_ROBOT_PASSWORD }}
+      - run: podman manifest create "${IMAGE_REGISTRY}/flightctl-base:${{ matrix.micro_tag }}"
+      - run: podman manifest add "${IMAGE_REGISTRY}/flightctl-base:${{ matrix.micro_tag }}" "docker://${IMAGE_REGISTRY}/flightctl-base:amd64-${{ matrix.micro_tag }}"
+      - run: podman manifest add "${IMAGE_REGISTRY}/flightctl-base:${{ matrix.micro_tag }}" "docker://${IMAGE_REGISTRY}/flightctl-base:arm64-${{ matrix.micro_tag }}"
+      - run: podman manifest push --all "${IMAGE_REGISTRY}/flightctl-base:${{ matrix.micro_tag }}" "docker://${IMAGE_REGISTRY}/flightctl-base:${{ matrix.micro_tag }}"
+
+  open-pr:
+    needs: [detect-updates, build-base, manifest]
+    if: always() && needs.build-base.result == 'success' && needs.manifest.result == 'success' && needs.detect-updates.outputs.any_updated == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go run ./tools/refresh-base-images create-pr --images-dir=packaging/images --ubi-registry="${UBI_REGISTRY}" --image-registry="${IMAGE_REGISTRY}" --updates-json="$UPDATES_JSON" --repo="${GITHUB_REPOSITORY}"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPDATES_JSON: ${{ needs.detect-updates.outputs.updates_json }}
