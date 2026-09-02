@@ -14,11 +14,14 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-const waitingPrepareIndex = "idx_delta_prepares_one_waiting"
-
 const (
+	waitingPrepareIndex         = "idx_delta_prepares_one_waiting"
+	waitingPrepareDeadlineIndex = "idx_delta_prepares_waiting_deadline"
+
 	fkPrepareGenerationPrepare    = "fk_delta_prepare_generations_prepare"
 	fkPrepareGenerationGeneration = "fk_delta_prepare_generations_generation"
+
+	MaxListWaitingPastDeadline = 1000
 )
 
 type Store interface {
@@ -29,7 +32,7 @@ type Store interface {
 	InsertPrepare(ctx context.Context, prep *model.DeltaPrepare) error
 	GetPrepare(ctx context.Context, id uuid.UUID) (*model.DeltaPrepare, error)
 	CASPrepareStatus(ctx context.Context, id uuid.UUID, to string) error
-	ListWaitingPastDeadline(ctx context.Context) ([]model.DeltaPrepare, error)
+	ListWaitingPastDeadline(ctx context.Context, limit int) ([]model.DeltaPrepare, error)
 	InsertPrepareGenerations(ctx context.Context, prepareID uuid.UUID, keys []GenerationKey) error
 }
 
@@ -87,6 +90,9 @@ func (s *DeltaStore) InitialMigration(ctx context.Context) error {
 	if err := s.createWaitingPrepareIndex(db); err != nil {
 		return err
 	}
+	if err := s.createWaitingPrepareDeadlineIndex(db); err != nil {
+		return err
+	}
 	return s.createJoinForeignKeys(db)
 }
 
@@ -98,9 +104,23 @@ func (s *DeltaStore) createWaitingPrepareIndex(db *gorm.DB) error {
 		return nil
 	}
 	return db.Exec(`
-		CREATE UNIQUE INDEX IF NOT EXISTS ` + waitingPrepareIndex + `
+		CREATE UNIQUE INDEX IF NOT EXISTS idx_delta_prepares_one_waiting
 		ON delta_prepares (org_id, kind, name)
 		WHERE status = 'waiting'
+	`).Error
+}
+
+func (s *DeltaStore) createWaitingPrepareDeadlineIndex(db *gorm.DB) error {
+	if db.Migrator().HasIndex(&model.DeltaPrepare{}, waitingPrepareDeadlineIndex) {
+		return nil
+	}
+	if db.Dialector.Name() != "postgres" {
+		return nil
+	}
+	return db.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_delta_prepares_waiting_deadline
+		ON delta_prepares (deadline, id)
+		WHERE status = 'waiting' AND deadline IS NOT NULL
 	`).Error
 }
 
@@ -111,7 +131,7 @@ func (s *DeltaStore) createJoinForeignKeys(db *gorm.DB) error {
 	if !db.Migrator().HasConstraint(&model.DeltaPrepareGeneration{}, fkPrepareGenerationPrepare) {
 		if err := db.Exec(`
 			ALTER TABLE delta_prepare_generations
-			ADD CONSTRAINT ` + fkPrepareGenerationPrepare + `
+			ADD CONSTRAINT fk_delta_prepare_generations_prepare
 			FOREIGN KEY (prepare_id) REFERENCES delta_prepares (id)
 		`).Error; err != nil {
 			return err
@@ -120,7 +140,7 @@ func (s *DeltaStore) createJoinForeignKeys(db *gorm.DB) error {
 	if !db.Migrator().HasConstraint(&model.DeltaPrepareGeneration{}, fkPrepareGenerationGeneration) {
 		if err := db.Exec(`
 			ALTER TABLE delta_prepare_generations
-			ADD CONSTRAINT ` + fkPrepareGenerationGeneration + `
+			ADD CONSTRAINT fk_delta_prepare_generations_generation
 			FOREIGN KEY (org_id, image_repository, source_digest, target_digest)
 			REFERENCES delta_generations (org_id, image_repository, source_digest, target_digest)
 		`).Error; err != nil {
@@ -304,12 +324,15 @@ func (s *DeltaStore) InsertPrepareGenerations(ctx context.Context, prepareID uui
 	return store.ErrorFromGormError(s.getDB(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&joins).Error)
 }
 
-func (s *DeltaStore) ListWaitingPastDeadline(ctx context.Context) ([]model.DeltaPrepare, error) {
+func (s *DeltaStore) ListWaitingPastDeadline(ctx context.Context, limit int) ([]model.DeltaPrepare, error) {
+	if limit < 1 || limit > MaxListWaitingPastDeadline {
+		return nil, fmt.Errorf("limit must be between 1 and %d", MaxListWaitingPastDeadline)
+	}
 	var rows []model.DeltaPrepare
 	result := s.getDB(ctx).Where(
 		"status = ? AND deadline IS NOT NULL AND deadline < NOW()",
 		model.DeltaPrepareWaiting,
-	).Find(&rows)
+	).Order("deadline ASC, id ASC").Limit(limit).Find(&rows)
 	if result.Error != nil {
 		return nil, store.ErrorFromGormError(result.Error)
 	}
