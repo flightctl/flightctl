@@ -138,7 +138,10 @@ var _ = Describe("VM Applications", Ordered, ContinueOnFailure, func() {
 	// pod/systemd policy and return the app to Running/Healthy without operator start.
 	// After recovery, serial console exclusivity is checked: a second connect without
 	// --force is rejected, and --force takes over the active session.
-	It("recovers Running and Healthy after an unexpected virt-launcher compute crash", Label("vm", "90232", "90239"), func() {
+	// Then the guest domain is suspended inside the still-running compute container:
+	// the app stays Running while applicationsSummary becomes Degraded, and resume
+	// returns Healthy with SSH working.
+	It("recovers Running and Healthy after an unexpected virt-launcher compute crash", Label("vm", "90232", "90239", "90246"), func() {
 		By("Deploying the VM application")
 		err := harness.UpdateDeviceAndWaitForVersion(deviceID, func(device *v1beta1.Device) {
 			device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{vmAppSpec}
@@ -177,6 +180,62 @@ var _ = Describe("VM Applications", Ordered, ContinueOnFailure, func() {
 		expectSSHWhoamiWithPassword(harness, vmPublishedSSHPort, vmAppName, vmGuestUser, vmGuestPassword)
 
 		expectSerialConsoleForceTakeover(harness, deviceID, vmAppName, vmGuestUser, vmGuestPassword)
+
+		By("Suspending the guest domain without stopping the Quadlet unit")
+		var domain string
+		Eventually(func(g Gomega) {
+			out, listErr := harness.VirshOnCompute(computeContainerAfter, "list", "--name", "--state-running")
+			g.Expect(listErr).NotTo(HaveOccurred(), "listing running guest domains")
+			var names []string
+			for _, line := range strings.Split(out, "\n") {
+				line = strings.TrimSpace(line)
+				if line != "" {
+					names = append(names, line)
+				}
+			}
+			g.Expect(names).To(HaveLen(1), "expected one running guest domain, got %v", names)
+			domain = names[0]
+		}, testutil.LONG_TIMEOUT, testutil.POLLING).Should(Succeed())
+		GinkgoWriter.Printf("Suspending guest domain %q in compute container %q\n", domain, computeContainerAfter)
+		_, err = harness.VirshOnCompute(computeContainerAfter, "suspend", domain)
+		Expect(err).NotTo(HaveOccurred(), "suspending guest domain %q", domain)
+		Eventually(func(g Gomega) {
+			state, stateErr := harness.VirshOnCompute(computeContainerAfter, "domstate", domain)
+			g.Expect(stateErr).NotTo(HaveOccurred(), "reading domain state for %q", domain)
+			g.Expect(strings.TrimSpace(state)).To(Equal("paused"), "guest domain %q", domain)
+		}, testutil.LONG_TIMEOUT, testutil.POLLING).Should(Succeed())
+		Expect(getPodmanContainerID(harness, computeContainerAfter)).To(Equal(containerIDAfter),
+			"compute container should keep running after guest suspend")
+
+		By("Waiting for applications summary Degraded while the app stays Running")
+		err = harness.WaitForApplicationSummary(deviceID, testutil.LONG_TIMEOUT, testutil.POLLING, v1beta1.ApplicationsSummaryStatusDegraded)
+		if err != nil {
+			logVMApplicationUnitStatus(harness, vmAppName)
+		}
+		Expect(err).ToNot(HaveOccurred())
+		err = harness.WaitForApplicationStatus(deviceID, vmAppName, v1beta1.ApplicationStatusRunning, testutil.LONG_TIMEOUT, testutil.POLLING)
+		if err != nil {
+			logVMApplicationUnitStatus(harness, vmAppName)
+		}
+		Expect(err).ToNot(HaveOccurred())
+		Expect(getPodmanContainerID(harness, computeContainerAfter)).To(Equal(containerIDAfter),
+			"compute container should keep running while the guest is unhealthy")
+		summary, summaryErr := harness.GetDeviceWithStatusSummary(deviceID)
+		Expect(summaryErr).NotTo(HaveOccurred())
+		GinkgoWriter.Printf("device %s status.summary=%s (not asserted; may stay Online)\n", deviceID, summary)
+
+		By("Resuming the guest domain")
+		_, err = harness.VirshOnCompute(computeContainerAfter, "resume", domain)
+		Expect(err).NotTo(HaveOccurred(), "resuming guest domain %q", domain)
+		Eventually(func(g Gomega) {
+			state, stateErr := harness.VirshOnCompute(computeContainerAfter, "domstate", domain)
+			g.Expect(stateErr).NotTo(HaveOccurred(), "reading domain state for %q", domain)
+			g.Expect(strings.TrimSpace(state)).To(Equal("running"), "guest domain %q", domain)
+		}, testutil.LONG_TIMEOUT, testutil.POLLING).Should(Succeed())
+
+		By("Waiting for applications summary to return to Healthy and verifying SSH works")
+		waitForVMAppRunningHealthy(harness, deviceID, vmAppName)
+		expectSSHWhoamiWithPassword(harness, vmPublishedSSHPort, vmAppName, vmGuestUser, vmGuestPassword)
 	})
 
 	// Two VM apps on one device without conflict. Both use KubeVirt ConfigDrive

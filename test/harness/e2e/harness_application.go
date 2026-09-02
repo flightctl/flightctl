@@ -1143,6 +1143,16 @@ func (h *Harness) GetContainerPorts() (string, error) {
 // VM operations
 // =============================================================================
 
+// VirshOnCompute runs virsh inside the virt-launcher compute container on the device.
+func (h *Harness) VirshOnCompute(container string, virshArgs ...string) (string, error) {
+	args := append([]string{"sudo", "podman", "exec", container, "virsh"}, virshArgs...)
+	out, err := h.VM.RunSSH(args, nil)
+	if err != nil {
+		return "", fmt.Errorf("virsh %s in %q: %w", strings.Join(virshArgs, " "), container, err)
+	}
+	return strings.TrimSpace(out.String()), nil
+}
+
 // CurlOnDevice GETs url from inside the device VM using curl --fail.
 func (h *Harness) CurlOnDevice(url, connectTimeout, maxTime string) error {
 	if h.VM == nil {
