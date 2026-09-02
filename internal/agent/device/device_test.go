@@ -406,7 +406,7 @@ func TestSync(t *testing.T) {
 			appController := applications.NewController(podmanFactory, nil, mockAppManager, rwFactory, log, "2025-01-01T00:00:00Z")
 			statusManager := status.NewManager(deviceName, log)
 			statusManager.SetClient(mockManagementClient)
-			configController := config.NewController(readWriter, log)
+			configController := config.NewController(readWriter, tempDir, log)
 
 			agent := Agent{
 				log:                    log,
@@ -963,7 +963,7 @@ func TestSyncDeviceSpecPackageModeRejection(t *testing.T) {
 		}
 		consoleManager := console.NewManager(nil, deviceName, "root", mockExec, mockWatcher, logger)
 		appController := applications.NewController(podmanFactory, nil, mockAppManager, rwFactory, logger, "2025-01-01T00:00:00Z")
-		configController := config.NewController(readWriter, logger)
+		configController := config.NewController(readWriter, tempDir, logger)
 
 		upgradeFailed := false
 		rollbackCalled := false
