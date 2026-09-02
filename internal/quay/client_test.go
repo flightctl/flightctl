@@ -143,6 +143,8 @@ func TestParseEndpoint(t *testing.T) {
 		{"mixed case lowercased", "https://Quay.IO", "https://Quay.IO", "quay.io", false},
 		{"explicit default https port stripped", "https://quay.io:443", "https://quay.io:443", "quay.io", false},
 		{"explicit default http port stripped", "http://quay.io:80", "http://quay.io:80", "quay.io", false},
+		{"ipv6 literal with non-default port preserved", "https://[2001:db8::1]:5000", "https://[2001:db8::1]:5000", "[2001:db8::1]:5000", false},
+		{"ipv6 literal with default https port stripped", "https://[2001:db8::1]:443", "https://[2001:db8::1]:443", "2001:db8::1", false},
 		{"empty is an error", "", "", "", true},
 	}
 	for _, tt := range tests {
@@ -155,6 +157,33 @@ func TestParseEndpoint(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, tt.wantBase, base)
 			require.Equal(t, tt.wantHost, host)
+		})
+	}
+}
+
+// TestNormalizeHostIPv6 exercises the host/port split and normalization helpers
+// with IPv6 literals, which a manual LastIndex(":") split would corrupt.
+func TestNormalizeHostIPv6(t *testing.T) {
+	tests := []struct {
+		name         string
+		host         string
+		scheme       string
+		wantHostname string
+		wantPort     string
+		wantHost     string
+	}{
+		{"ipv6 with non-default port preserved", "[2001:db8::1]:5000", "https", "2001:db8::1", "5000", "[2001:db8::1]:5000"},
+		{"ipv6 with default https port stripped", "[2001:db8::1]:443", "https", "2001:db8::1", "443", "2001:db8::1"},
+		{"ipv6 mixed case lowercased", "[2001:DB8::AbCd]:5000", "https", "2001:DB8::AbCd", "5000", "[2001:db8::abcd]:5000"},
+		{"hostname with port", "quay.io:8443", "https", "quay.io", "8443", "quay.io:8443"},
+		{"hostname without port", "quay.io", "https", "quay.io", "", "quay.io"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			hostname, port := splitHostPort(tt.host)
+			require.Equal(t, tt.wantHostname, hostname)
+			require.Equal(t, tt.wantPort, port)
+			require.Equal(t, tt.wantHost, normalizeHost(hostname, port, tt.scheme))
 		})
 	}
 }
