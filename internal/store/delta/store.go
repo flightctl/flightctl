@@ -117,11 +117,14 @@ func (s *DeltaStore) createWaitingPrepareDeadlineIndex(db *gorm.DB) error {
 	if db.Dialector.Name() != "postgres" {
 		return nil
 	}
-	return db.Exec(`
+	if err := db.Exec(`
 		CREATE INDEX IF NOT EXISTS idx_delta_prepares_waiting_deadline
 		ON delta_prepares (deadline, id)
 		WHERE status = 'waiting' AND deadline IS NOT NULL
-	`).Error
+	`).Error; err != nil {
+		return fmt.Errorf("create waiting prepare deadline index: %w", err)
+	}
+	return nil
 }
 
 func (s *DeltaStore) createJoinForeignKeys(db *gorm.DB) error {
