@@ -24,7 +24,7 @@ type fakeDeadlineStore struct {
 	casTo   map[uuid.UUID]string
 }
 
-func (f *fakeDeadlineStore) ListWaitingPastDeadline(context.Context) ([]model.DeltaPrepare, error) {
+func (f *fakeDeadlineStore) ListWaitingPastDeadline(_ context.Context, _ int) ([]model.DeltaPrepare, error) {
 	out := make([]model.DeltaPrepare, len(f.waiting))
 	copy(out, f.waiting)
 	return out, nil
