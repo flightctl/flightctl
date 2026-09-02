@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -197,30 +198,36 @@ func parseEndpoint(endpoint string) (base, host string, err error) {
 		return "", "", fmt.Errorf("quay endpoint %q has no host", endpoint)
 	}
 	base = strings.TrimRight(u.Scheme+"://"+u.Host+u.Path, "/")
-	host = normalizeHost(u.Host, u.Scheme)
+	// url.URL already splits host and port correctly (including IPv6 literals).
+	host = normalizeHost(u.Hostname(), u.Port(), u.Scheme)
 	return base, host, nil
 }
 
-// normalizeHost normalizes a registry hostname by lowercasing and stripping
-// default ports (443 for https, 80 for http). This matches the normalization
-// behavior of reference.Domain for image references.
-func normalizeHost(host, scheme string) string {
-	hostname := host
-	port := ""
-	if idx := strings.LastIndex(host, ":"); idx != -1 {
-		hostname = host[:idx]
-		port = host[idx+1:]
-	}
-
+// normalizeHost normalizes a registry hostname by lowercasing it and stripping
+// default ports (443 for https, 80 for http). hostname and port are the already
+// split host components (port may be empty); the result is rebuilt with
+// net.JoinHostPort so IPv6 literals are bracketed correctly. This matches the
+// normalization behavior of reference.Domain for image references.
+func normalizeHost(hostname, port, scheme string) string {
 	hostname = strings.ToLower(hostname)
-
-	// Strip default ports
+	if port == "" {
+		return hostname
+	}
+	// Strip default ports.
 	if (scheme == "https" && port == "443") || (scheme == "http" && port == "80") {
 		return hostname
-	} else if port != "" {
-		return hostname + ":" + port
 	}
-	return hostname
+	return net.JoinHostPort(hostname, port)
+}
+
+// splitHostPort splits a "host" or "host:port" string using net.SplitHostPort,
+// falling back to treating the whole string as the host when no port is present.
+// Unlike a manual LastIndex(":") split, this handles IPv6 literals correctly.
+func splitHostPort(host string) (hostname, port string) {
+	if h, p, err := net.SplitHostPort(host); err == nil {
+		return h, p
+	}
+	return host, ""
 }
 
 // parseImageReference normalizes an image reference into its registry host and
@@ -235,6 +242,7 @@ func parseImageReference(imageRef string) (host, repoPath string, err error) {
 	if err != nil {
 		return "", "", err
 	}
-	// Docker registry references default to HTTPS, so normalize with https scheme
-	return normalizeHost(reference.Domain(named), "https"), reference.Path(named), nil
+	// Docker registry references default to HTTPS, so normalize with https scheme.
+	hostname, port := splitHostPort(reference.Domain(named))
+	return normalizeHost(hostname, port, "https"), reference.Path(named), nil
 }
