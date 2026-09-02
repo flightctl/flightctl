@@ -858,6 +858,38 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 		})
 	})
 
+	Context("SetDeviceServiceConditions", func() {
+		It("persists a changed service condition and skips write when unchanged", func() {
+			deviceName := "svc-conditions-device"
+			_, status := suite.Device.CreateDevice(suite.Ctx, suite.OrgID, api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "img"}},
+			})
+			Expect(status.Code).To(Equal(int32(201)))
+
+			cond := api.Condition{
+				Type:    api.ConditionTypeDeviceSpecValid,
+				Status:  api.ConditionStatusTrue,
+				Reason:  "ok",
+				Message: "ok",
+			}
+			status = suite.Device.SetDeviceServiceConditions(suite.Ctx, suite.OrgID, deviceName, []api.Condition{cond})
+			Expect(status.Code).To(Equal(int32(200)))
+
+			afterWrite, status := suite.Device.GetDevice(suite.Ctx, suite.OrgID, deviceName)
+			Expect(status.Code).To(Equal(int32(200)))
+			Expect(api.IsStatusConditionTrue(afterWrite.Status.Conditions, api.ConditionTypeDeviceSpecValid)).To(BeTrue())
+			rvAfterWrite := lo.FromPtr(afterWrite.Metadata.ResourceVersion)
+
+			status = suite.Device.SetDeviceServiceConditions(suite.Ctx, suite.OrgID, deviceName, []api.Condition{cond})
+			Expect(status.Code).To(Equal(int32(200)))
+
+			afterNoop, status := suite.Device.GetDevice(suite.Ctx, suite.OrgID, deviceName)
+			Expect(status.Code).To(Equal(int32(200)))
+			Expect(lo.FromPtr(afterNoop.Metadata.ResourceVersion)).To(Equal(rvAfterWrite))
+		})
+	})
+
 	Context("Package-mode OS image rejection", func() {
 		seedDeviceWithOsMode := func(deviceName string, osMode *api.OsModeType) {
 			GinkgoHelper()
