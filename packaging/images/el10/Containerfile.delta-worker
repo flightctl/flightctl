@@ -1,3 +1,5 @@
+ARG BUILD_BASE
+ARG RUN_BASE
 # ── vm-to-quadlet build stage ─────────────────────────────────────────────────
 # Isolated from the main build to avoid module-cache contamination — the tool
 # pins k8s.io at a different version than flightctl.
@@ -26,7 +28,7 @@ RUN set -eu; \
     install -m 0755 "/tmp/linux-${HELM_ARCH}/helm" /out/helm
 
 # ── flightctl delta worker build stage ────────────────────────────────────────
-FROM registry.access.redhat.com/ubi10/go-toolset:1.26.7-1787775323 as build
+FROM ${BUILD_BASE} as build
 WORKDIR /app
 
 # Switch to root for build operations
@@ -78,7 +80,7 @@ RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
     make build-delta-worker install-oci-delta
 
-FROM registry.access.redhat.com/ubi10/ubi-micro:10.1-1769518576
+FROM ${RUN_BASE}
 USER 0
 COPY --from=build /runtime-root/ /
 WORKDIR /app
