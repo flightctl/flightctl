@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
@@ -57,18 +58,41 @@ func (b *bootc) Switch(ctx context.Context, image string) error {
 	if err != nil {
 		return err
 	}
+	return b.runSwitch(ctx, "containers-storage", target, true)
+}
 
+func (b *bootc) SwitchOCI(ctx context.Context, layoutDir string) error {
+	if layoutDir == "" {
+		return fmt.Errorf("empty oci layout path")
+	}
+	return b.runSwitch(ctx, "oci", layoutDir, true)
+}
+
+func (b *bootc) SwitchRegistry(ctx context.Context, image string) error {
+	if image == "" {
+		return fmt.Errorf("empty image reference")
+	}
+	target, err := container.ImageToBootcTarget(image)
+	if err != nil {
+		return fmt.Errorf("convert registry image target: %w", err)
+	}
+	return b.runSwitch(ctx, "registry", target, true)
+}
+
+func (b *bootc) runSwitch(ctx context.Context, transport, target string, retain bool) error {
 	done := make(chan error, 1)
 	go func() {
-		args := []string{
-			"switch",
-			"--transport",
-			"containers-storage",
-			"--retain",
-			target,
+		args := []string{"switch", "--transport", transport}
+		if retain {
+			args = append(args, "--retain")
 		}
-		_, stderr, exitCode := b.executer.ExecuteWithContext(ctx, BootcCmd, args...)
+		args = append(args, target)
+		stdout, stderr, exitCode := b.executer.ExecuteWithContext(ctx, BootcCmd, args...)
 		if exitCode != 0 {
+			if stagedDespiteExit(stdout, stderr) {
+				done <- nil
+				return
+			}
 			done <- fmt.Errorf("%w: %w", errors.ErrStageImage, errors.FromStderr(stderr, exitCode))
 			return
 		}
@@ -129,4 +153,9 @@ func (b *bootc) UsrOverlay(ctx context.Context) error {
 func isJSON(s string) bool {
 	var js json.RawMessage
 	return json.Unmarshal([]byte(s), &js) == nil
+}
+
+func stagedDespiteExit(stdout, stderr string) bool {
+	out := stdout + stderr
+	return strings.Contains(out, "Queued for next boot:")
 }

@@ -73,6 +73,7 @@ func isBinaryAvailable(binaryName string) bool {
 func newBootcClient(log *log.PrefixLogger, exec executer.Executer) *bootc {
 	return &bootc{
 		client:          client.NewBootc(log, exec),
+		systemd:         client.NewSystemd(exec, v1beta1.RootUsername),
 		lookPath:        stdexec.LookPath,
 		bootcVersion:    versionCmd(exec, "bootc"),
 		ociDeltaVersion: versionCmd(exec, "oci-delta"),
@@ -81,6 +82,7 @@ func newBootcClient(log *log.PrefixLogger, exec executer.Executer) *bootc {
 
 type bootc struct {
 	client          client.Bootc
+	systemd         *client.Systemd
 	lookPath        func(string) (string, error)
 	bootcVersion    func(context.Context) (string, error)
 	ociDeltaVersion func(context.Context) (string, error)
@@ -108,12 +110,24 @@ func (b *bootc) Switch(ctx context.Context, image string) error {
 	return b.client.Switch(ctx, image)
 }
 
+func (b *bootc) SwitchOCI(ctx context.Context, layoutDir string) error {
+	return b.client.SwitchOCI(ctx, layoutDir)
+}
+
+func (b *bootc) SwitchRegistry(ctx context.Context, image string) error {
+	return b.client.SwitchRegistry(ctx, image)
+}
+
 func (b *bootc) Rollback(ctx context.Context) error {
 	return b.client.Rollback(ctx)
 }
 
 func (b *bootc) Apply(ctx context.Context) error {
 	return b.client.Apply(ctx)
+}
+
+func (b *bootc) RebootStaged(ctx context.Context) error {
+	return b.systemd.Reboot(ctx)
 }
 
 func newRpmOSTreeClient(exec executer.Executer) *rpmOSTree {
@@ -142,11 +156,23 @@ func (r *rpmOSTree) Switch(ctx context.Context, image string) error {
 	return r.client.Switch(ctx, image)
 }
 
+func (r *rpmOSTree) SwitchOCI(_ context.Context, _ string) error {
+	return fmt.Errorf("oci switch requires bootc")
+}
+
+func (r *rpmOSTree) SwitchRegistry(_ context.Context, _ string) error {
+	return fmt.Errorf("registry switch requires bootc")
+}
+
 func (r *rpmOSTree) Rollback(ctx context.Context) error {
 	return r.client.Rollback(ctx)
 }
 
 func (r *rpmOSTree) Apply(ctx context.Context) error {
+	return r.client.Apply(ctx)
+}
+
+func (r *rpmOSTree) RebootStaged(ctx context.Context) error {
 	return r.client.Apply(ctx)
 }
 
@@ -183,6 +209,16 @@ func (d *dummy) Switch(ctx context.Context, image string) error {
 	return nil
 }
 
+func (d *dummy) SwitchOCI(ctx context.Context, layoutDir string) error {
+	d.log.Debugf("Ignoring oci switch to %s from dummy client for package-mode", layoutDir)
+	return nil
+}
+
+func (d *dummy) SwitchRegistry(ctx context.Context, image string) error {
+	d.log.Debugf("Ignoring registry switch to %s from dummy client for package-mode", image)
+	return nil
+}
+
 func (d *dummy) Rollback(ctx context.Context) error {
 	d.log.Debugf("Ignoring rollback and reboot from dummy client for package-mode")
 	return nil
@@ -190,6 +226,11 @@ func (d *dummy) Rollback(ctx context.Context) error {
 
 func (d *dummy) Apply(ctx context.Context) error {
 	d.log.Debugf("Ignoring apply from dummy client for package-mode")
+	return nil
+}
+
+func (d *dummy) RebootStaged(ctx context.Context) error {
+	d.log.Debugf("Ignoring staged reboot from dummy client for package-mode")
 	return nil
 }
 

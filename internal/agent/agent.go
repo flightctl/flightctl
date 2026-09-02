@@ -306,7 +306,22 @@ func (a *Agent) Run(ctx context.Context) error {
 	shutdownManager.Register("applications", applicationsManager.Shutdown)
 
 	// create os manager
-	osManager := os.NewManager(a.log, osClient, caps, rootReadWriter, rootPodmanClient, pullConfigResolver)
+	rootSkopeoClient, err := skopeoClientFactory("")
+	if err != nil {
+		return fmt.Errorf("initialize root Skopeo client: %w", err)
+	}
+
+	osManager := os.NewManager(
+		a.log,
+		osClient,
+		caps,
+		rootReadWriter,
+		rootPodmanClient,
+		pullConfigResolver,
+		client.NewOCIDelta(a.log, exec, time.Duration(a.config.PullTimeout)),
+		rootSkopeoClient,
+		time.Duration(a.config.PullTimeout),
+	)
 
 	// create prefetch manager
 	prefetchManager := dependency.NewPrefetchManager(
