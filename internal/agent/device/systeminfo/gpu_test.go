@@ -96,8 +96,6 @@ func TestLoadPCIMappings(t *testing.T) {
 }
 
 func TestParseUevent(t *testing.T) {
-	require := require.New(t)
-
 	tests := []struct {
 		name string
 		data string
@@ -144,6 +142,7 @@ func TestParseUevent(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
 			got := parseUevent([]byte(tt.data))
 			require.Equal(tt.want, got)
 		})
@@ -151,19 +150,19 @@ func TestParseUevent(t *testing.T) {
 }
 
 func TestCollectPlatformGPUs(t *testing.T) {
-	require := require.New(t)
 	logger := log.NewPrefixLogger("test")
 
 	tests := []struct {
 		name       string
-		setup      func(rw fileio.ReadWriter)
+		setup      func(t *testing.T, rw fileio.ReadWriter)
 		startIndex int
 		wantCount  int
 		wantFirst  *GPUDeviceInfo
 	}{
 		{
 			name: "When a Jetson Orin GPU is present it should return one GPU with correct metadata",
-			setup: func(rw fileio.ReadWriter) {
+			setup: func(t *testing.T, rw fileio.ReadWriter) {
+				require := require.New(t)
 				err := rw.MkdirAll(filepath.Join(platformDevicesPath, "17000000.gpu"), fileio.DefaultDirectoryPermissions)
 				require.NoError(err)
 				err = rw.WriteFile(
@@ -185,13 +184,14 @@ func TestCollectPlatformGPUs(t *testing.T) {
 		},
 		{
 			name:       "When the platform devices directory does not exist it should return nil",
-			setup:      func(rw fileio.ReadWriter) {},
+			setup:      func(_ *testing.T, _ fileio.ReadWriter) {},
 			startIndex: 0,
 			wantCount:  0,
 		},
 		{
 			name: "When a platform device has OF_NAME=gpu but an unknown compatible string it should be skipped",
-			setup: func(rw fileio.ReadWriter) {
+			setup: func(t *testing.T, rw fileio.ReadWriter) {
+				require := require.New(t)
 				err := rw.MkdirAll(filepath.Join(platformDevicesPath, "17000000.gpu"), fileio.DefaultDirectoryPermissions)
 				require.NoError(err)
 				uevent := []byte("OF_NAME=gpu\nOF_COMPATIBLE_0=unknown,gpu-chip\n")
@@ -207,7 +207,8 @@ func TestCollectPlatformGPUs(t *testing.T) {
 		},
 		{
 			name: "When a platform device is not a GPU it should be ignored",
-			setup: func(rw fileio.ReadWriter) {
+			setup: func(t *testing.T, rw fileio.ReadWriter) {
+				require := require.New(t)
 				err := rw.MkdirAll(filepath.Join(platformDevicesPath, "serial0"), fileio.DefaultDirectoryPermissions)
 				require.NoError(err)
 				uevent := []byte("OF_NAME=serial\nOF_COMPATIBLE_0=ns16550a\n")
@@ -223,7 +224,8 @@ func TestCollectPlatformGPUs(t *testing.T) {
 		},
 		{
 			name: "When the known compatible string is OF_COMPATIBLE_1 it should still match",
-			setup: func(rw fileio.ReadWriter) {
+			setup: func(t *testing.T, rw fileio.ReadWriter) {
+				require := require.New(t)
 				err := rw.MkdirAll(filepath.Join(platformDevicesPath, "17000000.gpu"), fileio.DefaultDirectoryPermissions)
 				require.NoError(err)
 				uevent := []byte("OF_NAME=gpu\nOF_COMPATIBLE_0=nvidia,tegra234-gpu\nOF_COMPATIBLE_1=nvidia,ga10b\nOF_COMPATIBLE_N=2\n")
@@ -246,7 +248,8 @@ func TestCollectPlatformGPUs(t *testing.T) {
 		},
 		{
 			name: "When a Jetson Xavier GPU is present it should return Volta metadata",
-			setup: func(rw fileio.ReadWriter) {
+			setup: func(t *testing.T, rw fileio.ReadWriter) {
+				require := require.New(t)
 				err := rw.MkdirAll(filepath.Join(platformDevicesPath, "17000000.gpu"), fileio.DefaultDirectoryPermissions)
 				require.NoError(err)
 				uevent := []byte("OF_NAME=gpu\nOF_COMPATIBLE_0=nvidia,gv11b\nOF_COMPATIBLE_N=1\n")
@@ -269,7 +272,8 @@ func TestCollectPlatformGPUs(t *testing.T) {
 		},
 		{
 			name: "When a platform GPU has memory info it should populate MemoryBytes",
-			setup: func(rw fileio.ReadWriter) {
+			setup: func(t *testing.T, rw fileio.ReadWriter) {
+				require := require.New(t)
 				gpuDir := filepath.Join(platformDevicesPath, "17000000.gpu")
 				err := rw.MkdirAll(gpuDir, fileio.DefaultDirectoryPermissions)
 				require.NoError(err)
@@ -301,7 +305,8 @@ func TestCollectPlatformGPUs(t *testing.T) {
 		},
 		{
 			name: "When startIndex is offset it should assign indices starting from that value",
-			setup: func(rw fileio.ReadWriter) {
+			setup: func(t *testing.T, rw fileio.ReadWriter) {
+				require := require.New(t)
 				err := rw.MkdirAll(filepath.Join(platformDevicesPath, "17000000.gpu"), fileio.DefaultDirectoryPermissions)
 				require.NoError(err)
 				err = rw.WriteFile(
@@ -325,12 +330,13 @@ func TestCollectPlatformGPUs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
 			tmpDir := t.TempDir()
 			rw := fileio.NewReadWriter(
 				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
 				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
 			)
-			tt.setup(rw)
+			tt.setup(t, rw)
 
 			gpus := collectPlatformGPUs(logger, rw, tt.startIndex)
 			require.Len(gpus, tt.wantCount)
@@ -344,6 +350,39 @@ func TestCollectPlatformGPUs(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCollectPlatformGPUs_MultipleDevices(t *testing.T) {
+	require := require.New(t)
+	logger := log.NewPrefixLogger("test")
+
+	tmpDir := t.TempDir()
+	rw := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+	)
+
+	require.NoError(rw.MkdirAll(filepath.Join(platformDevicesPath, "17000000.gpu"), fileio.DefaultDirectoryPermissions))
+	require.NoError(rw.WriteFile(
+		filepath.Join(platformDevicesPath, "17000000.gpu", "uevent"),
+		[]byte("OF_NAME=gpu\nOF_COMPATIBLE_0=nvidia,ga10b\nOF_COMPATIBLE_N=1\n"),
+		fileio.DefaultFilePermissions,
+	))
+
+	require.NoError(rw.MkdirAll(filepath.Join(platformDevicesPath, "17800000.gpu"), fileio.DefaultDirectoryPermissions))
+	require.NoError(rw.WriteFile(
+		filepath.Join(platformDevicesPath, "17800000.gpu", "uevent"),
+		[]byte("OF_NAME=gpu\nOF_COMPATIBLE_0=nvidia,gv11b\nOF_COMPATIBLE_N=1\n"),
+		fileio.DefaultFilePermissions,
+	))
+
+	gpus := collectPlatformGPUs(logger, rw, 0)
+	require.Len(gpus, 2)
+	require.Equal(0, gpus[0].Index)
+	require.Equal(1, gpus[1].Index)
+
+	vendors := map[string]bool{gpus[0].Vendor: true, gpus[1].Vendor: true}
+	require.True(vendors["NVIDIA"])
 }
 
 func TestCollectGPUInfo_PCI(t *testing.T) {
