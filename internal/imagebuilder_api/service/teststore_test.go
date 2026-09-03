@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/repository"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
+	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 )
@@ -404,27 +405,8 @@ func (s *DummyRepositoryStore) Create(ctx context.Context, orgId uuid.UUID, repo
 	return &created, nil
 }
 
-func (s *DummyRepositoryStore) Update(ctx context.Context, orgId uuid.UUID, repository *domain.Repository) (*domain.Repository, *domain.Repository, error) {
-	name := lo.FromPtr(repository.Metadata.Name)
-	if _, exists := s.repositories[name]; !exists {
-		return nil, nil, flterrors.ErrResourceNotFound
-	}
-	var updated domain.Repository
-	deepCopy(repository, &updated)
-	s.repositories[name] = &updated
-	return &updated, nil, nil
-}
-
-func (s *DummyRepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *domain.Repository) (*domain.Repository, *domain.Repository, bool, error) {
-	name := lo.FromPtr(repository.Metadata.Name)
-	created := false
-	if _, exists := s.repositories[name]; !exists {
-		created = true
-	}
-	var result domain.Repository
-	deepCopy(repository, &result)
-	s.repositories[name] = &result
-	return &result, nil, created, nil
+func (s *DummyRepositoryStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.Repository, apply repositorystore.RepositoryApplyFunc) (*domain.Repository, *domain.Repository, bool, error) {
+	return nil, nil, false, nil
 }
 
 func (s *DummyRepositoryStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Repository, error) {

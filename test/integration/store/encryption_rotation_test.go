@@ -102,7 +102,9 @@ var _ = Describe("Encryption key rotation", func() {
 
 		repo, err := repositoryStore.Get(ctx, orgId, "rotation-test")
 		Expect(err).ToNot(HaveOccurred())
-		_, _, err = repositoryStore.Update(ctx, orgId, repo)
+		_, _, _, err = repositoryStore.Mutate(ctx, orgId, "rotation-test", repo, func(m *repositorystore.RepositoryMutation) error {
+			return nil
+		})
 		Expect(err).ToNot(HaveOccurred())
 
 		rawAfter := readRawSpec("rotation-test")
@@ -163,7 +165,9 @@ var _ = Describe("Encryption key rotation", func() {
 
 		repo, err := repositoryStore.Get(ctx, orgId, "canary-test")
 		Expect(err).ToNot(HaveOccurred())
-		_, _, err = repositoryStore.Update(ctx, orgId, repo)
+		_, _, _, err = repositoryStore.Mutate(ctx, orgId, "canary-test", repo, func(m *repositorystore.RepositoryMutation) error {
+			return nil
+		})
 		Expect(err).ToNot(HaveOccurred())
 
 		newCanary, err := cs.Get(ctx, "v1", "rot-rotated")

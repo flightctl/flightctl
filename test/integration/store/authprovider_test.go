@@ -174,7 +174,13 @@ var _ = Describe("AuthProviderStore", func() {
 			err = created.Spec.FromOIDCProviderSpec(oidcSpec)
 			Expect(err).ToNot(HaveOccurred())
 
-			result, _, err := authStore.Update(ctx, orgId, created)
+			result, _, _, err := authStore.Mutate(ctx, orgId, lo.FromPtr(created.Metadata.Name), created, func(m *authproviderstore.AuthProviderMutation) error {
+				if err := m.RequireExisting(); err != nil {
+					return err
+				}
+				m.AuthProvider.Spec = created.Spec
+				return nil
+			})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result).ToNot(BeNil())
 			updatedSpec, err := result.Spec.AsOIDCProviderSpec()
@@ -182,16 +188,25 @@ var _ = Describe("AuthProviderStore", func() {
 			Expect(updatedSpec.ClientId).To(Equal("updated-client-id"))
 		})
 
-		It("CreateOrUpdateAuthProvider create mode", func() {
+		It("Mutate auth provider create mode", func() {
 			provider := createTestAuthProvider("create-or-update-provider")
-			result, _, created, err := authStore.CreateOrUpdate(ctx, orgId, &provider)
+			result, _, created, err := authStore.Mutate(ctx, orgId, lo.FromPtr(provider.Metadata.Name), nil, func(m *authproviderstore.AuthProviderMutation) error {
+				if m.AuthProvider == nil {
+					next := provider
+					m.AuthProvider = &next
+					return nil
+				}
+				m.AuthProvider.Spec = provider.Spec
+				store.ApplyObjectMetaUpdate(&m.AuthProvider.Metadata, &provider.Metadata, nil)
+				return nil
+			})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeTrue())
 			Expect(result).ToNot(BeNil())
 			Expect(*result.Metadata.Name).To(Equal("create-or-update-provider"))
 		})
 
-		It("CreateOrUpdateAuthProvider update mode", func() {
+		It("Mutate auth provider update mode", func() {
 			provider := createTestAuthProvider("create-or-update-provider")
 			_, err := authStore.Create(ctx, orgId, &provider)
 			Expect(err).ToNot(HaveOccurred())
@@ -203,7 +218,16 @@ var _ = Describe("AuthProviderStore", func() {
 			err = provider.Spec.FromOIDCProviderSpec(oidcSpec)
 			Expect(err).ToNot(HaveOccurred())
 
-			result, _, created, err := authStore.CreateOrUpdate(ctx, orgId, &provider)
+			result, _, created, err := authStore.Mutate(ctx, orgId, lo.FromPtr(provider.Metadata.Name), nil, func(m *authproviderstore.AuthProviderMutation) error {
+				if m.AuthProvider == nil {
+					next := provider
+					m.AuthProvider = &next
+					return nil
+				}
+				m.AuthProvider.Spec = provider.Spec
+				store.ApplyObjectMetaUpdate(&m.AuthProvider.Metadata, &provider.Metadata, nil)
+				return nil
+			})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeFalse())
 			Expect(result).ToNot(BeNil())

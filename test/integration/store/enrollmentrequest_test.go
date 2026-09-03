@@ -139,7 +139,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 			Expect(*enrollmentrequests.Items[0].Metadata.Name).To(Equal("myenrollmentrequest-1"))
 		})
 
-		It("CreateOrUpdateEnrollmentRequest create mode", func() {
+		It("Mutate enrollment request create mode", func() {
 			enrollmentrequest := api.EnrollmentRequest{
 				Metadata: api.ObjectMeta{
 					Name: lo.ToPtr("newresourcename"),
@@ -149,7 +149,19 @@ var _ = Describe("enrollmentRequestStore create", func() {
 				},
 				Status: nil,
 			}
-			er, _, created, err := enrollmentRequestStore.CreateOrUpdate(ctx, orgId, &enrollmentrequest)
+			er, _, created, err := enrollmentRequestStore.Mutate(ctx, orgId, lo.FromPtr(enrollmentrequest.Metadata.Name), nil, func(m *enrollmentrequeststore.EnrollmentRequestMutation) error {
+				if m.EnrollmentRequest == nil {
+					next := enrollmentrequest
+					m.EnrollmentRequest = &next
+					return nil
+				}
+				m.EnrollmentRequest.Spec = enrollmentrequest.Spec
+				if enrollmentrequest.Status != nil {
+					m.EnrollmentRequest.Status = enrollmentrequest.Status
+				}
+				store.ApplyObjectMetaUpdate(&m.EnrollmentRequest.Metadata, &enrollmentrequest.Metadata, nil)
+				return nil
+			})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(true))
 			Expect(er.ApiVersion).To(Equal(model.EnrollmentRequestAPIVersion()))
@@ -159,7 +171,7 @@ var _ = Describe("enrollmentRequestStore create", func() {
 			Expect(er.Status.Conditions).To(BeEmpty())
 		})
 
-		It("CreateOrUpdateEnrollmentRequest update mode", func() {
+		It("Mutate enrollment request update mode", func() {
 			enrollmentrequest := api.EnrollmentRequest{
 				Metadata: api.ObjectMeta{
 					Name: lo.ToPtr("myenrollmentrequest-1"),
@@ -171,7 +183,19 @@ var _ = Describe("enrollmentRequestStore create", func() {
 					Certificate: lo.ToPtr("bogus-cert"),
 				},
 			}
-			er, _, created, err := enrollmentRequestStore.CreateOrUpdate(ctx, orgId, &enrollmentrequest)
+			er, _, created, err := enrollmentRequestStore.Mutate(ctx, orgId, lo.FromPtr(enrollmentrequest.Metadata.Name), nil, func(m *enrollmentrequeststore.EnrollmentRequestMutation) error {
+				if m.EnrollmentRequest == nil {
+					next := enrollmentrequest
+					m.EnrollmentRequest = &next
+					return nil
+				}
+				m.EnrollmentRequest.Spec = enrollmentrequest.Spec
+				if enrollmentrequest.Status != nil {
+					m.EnrollmentRequest.Status = enrollmentrequest.Status
+				}
+				store.ApplyObjectMetaUpdate(&m.EnrollmentRequest.Metadata, &enrollmentrequest.Metadata, nil)
+				return nil
+			})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(false))
 			Expect(er.ApiVersion).To(Equal(model.EnrollmentRequestAPIVersion()))

@@ -21,14 +21,11 @@ type MockResourceSync struct {
 }
 
 func (m *MockResourceSync) InitialMigration(ctx context.Context) error { return nil }
+func (m *MockResourceSync) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.ResourceSync, apply resourcesyncstore.ResourceSyncApplyFunc) (*domain.ResourceSync, *domain.ResourceSync, bool, error) {
+	return nil, nil, false, nil
+}
 func (m *MockResourceSync) Create(ctx context.Context, orgId uuid.UUID, resourceSync *domain.ResourceSync) (*domain.ResourceSync, error) {
 	return nil, nil
-}
-func (m *MockResourceSync) Update(ctx context.Context, orgId uuid.UUID, resourceSync *domain.ResourceSync) (*domain.ResourceSync, *domain.ResourceSync, error) {
-	return nil, nil, nil
-}
-func (m *MockResourceSync) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, resourceSync *domain.ResourceSync) (*domain.ResourceSync, *domain.ResourceSync, bool, error) {
-	return nil, nil, false, nil
 }
 func (m *MockResourceSync) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.ResourceSync, error) {
 	return nil, nil
