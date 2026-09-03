@@ -382,9 +382,10 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 
 			By("Updating device to v7 (MicroShift image)")
 			// v7 includes MicroShift which installs 40_microshift_running_check.sh
-			// in /usr/lib/greenboot/check/required.d/. MicroShift will fail its health
-			// check (insufficient VM resources), but flightctl-configure-greenboot.service
-			// should disable it via DISABLED_HEALTHCHECKS before greenboot runs.
+			// under greenboot required.d (/etc and/or /usr/lib). MicroShift will fail
+			// its health check (insufficient VM resources), but
+			// flightctl-configure-greenboot.service should disable it via the vendor
+			// blocklist in DISABLED_HEALTHCHECKS before greenboot runs.
 			_, _, err = harness.WaitForBootstrapAndUpdateToVersion(deviceId, util.DeviceTags.V7)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -408,8 +409,8 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 				"sudo", "journalctl", "-b", "-u", "flightctl-configure-greenboot.service", "--no-pager",
 			}, nil)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(configureOutput.String()).To(ContainSubstring("Disabling third-party greenboot health checks"),
-				"Expected configure-greenboot to disable third-party health checks")
+			Expect(configureOutput.String()).To(ContainSubstring("Disabling bundled vendor greenboot health checks"),
+				"Expected configure-greenboot to disable bundled vendor health checks")
 
 			GinkgoWriter.Println("Confirmed: third-party MicroShift health check did not trigger rollback")
 		})

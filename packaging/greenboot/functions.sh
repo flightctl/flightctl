@@ -10,8 +10,8 @@ SCRIPT_NAME=$(basename "$0")
 # Constants
 #
 
-# Greenboot configuration file path
-GREENBOOT_CONF="/etc/greenboot/greenboot.conf"
+# Greenboot configuration file path (override in tests via GREENBOOT_CONF)
+GREENBOOT_CONF="${GREENBOOT_CONF:-/etc/greenboot/greenboot.conf}"
 
 #
 # Logging
@@ -61,27 +61,44 @@ collect_debug_info() {
 # Greenboot configuration (used by flightctl-configure-greenboot.service)
 #
 
-# Find third-party application health check scripts in required.d directories
-# Preserves core greenboot scripts and flightctl scripts
-find_third_party_scripts() {
+# Bundled vendor health checks to disable wherever they appear.
+# MicroShift installs under /etc; some images place checks under /usr/lib.
+# Non-blocklisted customer scripts in either path participate in rollback by default.
+DISABLED_VENDOR_HEALTHCHECKS=(
+    40_microshift_running_check.sh
+)
+
+# Return true if name is already listed in the disabled scripts string.
+_is_already_listed() {
+    local scripts="$1"
+    local name="$2"
+    case " $scripts " in
+        *" \"$name\" "*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# Find blocklisted vendor health checks in /usr/lib and /etc required.d.
+# Only names in DISABLED_VENDOR_HEALTHCHECKS are returned; customer scripts are left alone.
+find_blocked_vendor_healthchecks() {
+    local usr_lib_dir="${GREENBOOT_USR_LIB_REQUIRED_D:-/usr/lib/greenboot/check/required.d}"
+    local etc_dir="${GREENBOOT_ETC_REQUIRED_D:-/etc/greenboot/check/required.d}"
     local scripts=""
-    for dir in /usr/lib/greenboot/check/required.d /etc/greenboot/check/required.d; do
+    local dir script name blocked
+
+    for dir in "$usr_lib_dir" "$etc_dir"; do
         [ -d "$dir" ] || continue
         for script in "$dir"/*.sh; do
             [ -f "$script" ] || continue
-            local name
             name=$(basename "$script")
-            # Skip flightctl's own health check scripts
-            case "$name" in
-                *flightctl*) continue ;;
-            esac
-            # Skip core greenboot scripts (from greenboot package)
-            case "$name" in
-                00_required_scripts_start.sh) continue ;;
-                01_repository_dns_check.sh) continue ;;
-                02_watchdog.sh) continue ;;
-            esac
-            scripts="$scripts \"$name\""
+            for blocked in "${DISABLED_VENDOR_HEALTHCHECKS[@]}"; do
+                if [ "$name" = "$blocked" ]; then
+                    if ! _is_already_listed "$scripts" "$name"; then
+                        scripts="$scripts \"$name\""
+                    fi
+                    break
+                fi
+            done
         done
     done
     echo "$scripts"
