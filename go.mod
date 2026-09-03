@@ -72,7 +72,7 @@ require (
 	go.uber.org/mock v0.4.0
 	golang.org/x/crypto v0.53.0
 	golang.org/x/exp v0.0.0-20260410095643-746e56fc9e2f
-	golang.org/x/sync v0.21.0
+	golang.org/x/sync v0.22.0
 	golang.org/x/sys v0.46.0
 	golang.org/x/term v0.44.0
 	google.golang.org/grpc v1.79.3
@@ -124,7 +124,7 @@ require (
 	go.uber.org/zap v1.27.0
 	golang.org/x/net v0.56.0
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
-	oras.land/oras-go/v2 v2.6.0
+	oras.land/oras-go/v2 v2.6.2
 )
 
 require (
