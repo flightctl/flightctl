@@ -162,6 +162,41 @@ func TestRepoDestRef(t *testing.T) {
 	require.Equal(t, "my-registry.com/nginx/nginx", RepoDestRef("my-registry.com", "nginx/nginx"))
 }
 
+func TestRegistryObjectRef(t *testing.T) {
+	spec := &domain.OciRepoSpec{Registry: "my-registry.com", Type: domain.OciRepoSpecTypeOci}
+
+	t.Run("When neither repository nor namespace is set it should use registry plus image name", func(t *testing.T) {
+		got, err := RegistryObjectRef(spec, "nginx/nginx")
+		require.NoError(t, err)
+		require.Equal(t, "my-registry.com/nginx/nginx", got)
+	})
+
+	t.Run("When repository is set it should ignore image name", func(t *testing.T) {
+		s := &domain.OciRepoSpec{Registry: "my-registry.com", Type: domain.OciRepoSpecTypeOci, Repository: lo.ToPtr("my-org/diffs")}
+		got, err := RegistryObjectRef(s, "nginx/nginx")
+		require.NoError(t, err)
+		require.Equal(t, "my-registry.com/my-org/diffs", got)
+	})
+
+	t.Run("When namespace is set it should use last path segment", func(t *testing.T) {
+		s := &domain.OciRepoSpec{Registry: "my-registry.com", Type: domain.OciRepoSpecTypeOci, Namespace: lo.ToPtr("my-org")}
+		got, err := RegistryObjectRef(s, "nginx/nginx")
+		require.NoError(t, err)
+		require.Equal(t, "my-registry.com/my-org/nginx", got)
+	})
+
+	t.Run("When repository and namespace are both set it should error", func(t *testing.T) {
+		s := &domain.OciRepoSpec{
+			Registry:   "my-registry.com",
+			Type:       domain.OciRepoSpecTypeOci,
+			Repository: lo.ToPtr("my-org/diffs"),
+			Namespace:  lo.ToPtr("my-org"),
+		}
+		_, err := RegistryObjectRef(s, "nginx/nginx")
+		require.Error(t, err)
+	})
+}
+
 func TestSelectWriteTargetUsesDefaultRepository(t *testing.T) {
 	spec := (&config.DefaultRepositoryConfig{
 		Registry:   "my-registry.com",

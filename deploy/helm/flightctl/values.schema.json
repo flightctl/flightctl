@@ -1086,7 +1086,27 @@
             "skipServerVerification": { "type": "boolean", "description": "Skip TLS verification when connecting to the registry" },
             "caCrt": { "type": "string", "description": "Base64-encoded PEM of a custom registry CA (same encoding as Repository spec ca.crt)" },
             "secretName": { "type": "string", "description": "Name of the Kubernetes Secret containing 'username' and 'password' keys" }
-          }
+          },
+          "allOf": [
+            {
+              "not": {
+                "allOf": [
+                  {
+                    "required": ["repository"],
+                    "properties": {
+                      "repository": { "type": "string", "minLength": 1 }
+                    }
+                  },
+                  {
+                    "required": ["namespace"],
+                    "properties": {
+                      "namespace": { "type": "string", "minLength": 1 }
+                    }
+                  }
+                ]
+              }
+            }
+          ]
         }
       }
     },

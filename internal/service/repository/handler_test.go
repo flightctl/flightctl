@@ -705,3 +705,65 @@ func TestCheckRepositoryOciTagUsesRegistryFromSpec(t *testing.T) {
 	}
 	require.True(t, found, "expected a request path containing 'myorg/myimage', got %v", recorded)
 }
+
+func TestCheckRepositoryOciTagUsesSpecRepository(t *testing.T) {
+	h, _, _ := newTestHandler()
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	srv, paths := newOciTestServer(t)
+	registry := strings.TrimPrefix(srv.URL, "http://")
+	repo := newOciRepository("oci-repo", registry)
+	spec := domain.OciRepoSpec{
+		Registry:   registry,
+		Type:       domain.OciRepoSpecTypeOci,
+		Scheme:     lo.ToPtr(domain.OciRepoSchemeHttp),
+		Repository: lo.ToPtr("my-org/diffs"),
+	}
+	require.NoError(t, repo.Spec.FromOciRepoSpec(spec))
+	_, status := h.CreateRepository(ctx, orgId, repo)
+	require.Equal(t, statusCreatedCode, status.Code)
+
+	_, status = h.CheckRepositoryOciTag(ctx, orgId, "oci-repo", "nginx/nginx", "latest")
+	require.Equal(t, statusSuccessCode, status.Code)
+	recorded := paths.get()
+	found := false
+	for _, p := range recorded {
+		if strings.Contains(p, "my-org/diffs") {
+			found = true
+			break
+		}
+	}
+	require.True(t, found, "expected a request path containing 'my-org/diffs', got %v", recorded)
+}
+
+func TestCheckRepositoryOciTagUsesSpecNamespace(t *testing.T) {
+	h, _, _ := newTestHandler()
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	srv, paths := newOciTestServer(t)
+	registry := strings.TrimPrefix(srv.URL, "http://")
+	repo := newOciRepository("oci-repo", registry)
+	spec := domain.OciRepoSpec{
+		Registry:  registry,
+		Type:      domain.OciRepoSpecTypeOci,
+		Scheme:    lo.ToPtr(domain.OciRepoSchemeHttp),
+		Namespace: lo.ToPtr("my-org"),
+	}
+	require.NoError(t, repo.Spec.FromOciRepoSpec(spec))
+	_, status := h.CreateRepository(ctx, orgId, repo)
+	require.Equal(t, statusCreatedCode, status.Code)
+
+	_, status = h.CheckRepositoryOciTag(ctx, orgId, "oci-repo", "nginx/nginx", "latest")
+	require.Equal(t, statusSuccessCode, status.Code)
+	recorded := paths.get()
+	found := false
+	for _, p := range recorded {
+		if strings.Contains(p, "my-org/nginx") {
+			found = true
+			break
+		}
+	}
+	require.True(t, found, "expected a request path containing 'my-org/nginx', got %v", recorded)
+}

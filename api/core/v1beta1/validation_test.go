@@ -2790,6 +2790,26 @@ func TestRepository_Validate_OciRepoSpec(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			name: "When repository contains a tag it should reject",
+			spec: OciRepoSpec{
+				Registry:   "my-registry.com",
+				Type:       "oci",
+				Repository: lo.ToPtr("my-org/diffs:latest"),
+			},
+			wantErr: true,
+			errMsg:  "spec.repository",
+		},
+		{
+			name: "When namespace contains a digest it should reject",
+			spec: OciRepoSpec{
+				Registry:  "my-registry.com",
+				Type:      "oci",
+				Namespace: lo.ToPtr("my-org@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+			},
+			wantErr: true,
+			errMsg:  "spec.namespace",
+		},
 	}
 
 	for _, tt := range tests {

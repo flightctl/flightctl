@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/internal/util/validation"
 	"sigs.k8s.io/yaml"
 )
 
@@ -1757,6 +1758,10 @@ func Validate(cfg *Config) error {
 		}
 	}
 
+	if err := validateDeltaGeneration(cfg); err != nil {
+		return err
+	}
+
 	// Validate OIDC and OAuth2 provider role assignments
 	if cfg.Auth != nil {
 		if cfg.Auth.OIDC != nil {
@@ -1771,6 +1776,35 @@ func Validate(cfg *Config) error {
 		}
 	}
 
+	return nil
+}
+
+func validateDeltaGeneration(cfg *Config) error {
+	if cfg.DeltaGeneration == nil || cfg.DeltaGeneration.DefaultRepository == nil {
+		return nil
+	}
+	d := cfg.DeltaGeneration.DefaultRepository
+	repoSet := d.Repository != nil && strings.TrimSpace(*d.Repository) != ""
+	nsSet := d.Namespace != nil && strings.TrimSpace(*d.Namespace) != ""
+	if repoSet && nsSet {
+		return fmt.Errorf("deltaGeneration.defaultRepository.repository and namespace are mutually exclusive")
+	}
+	if (d.Username != "" || d.Password != "") && d.Registry == "" {
+		return fmt.Errorf("deltaGeneration.defaultRepository.registry is required when username or password is set")
+	}
+	if d.Scheme != nil && *d.Scheme != "" && *d.Scheme != "http" && *d.Scheme != "https" {
+		return fmt.Errorf("deltaGeneration.defaultRepository.scheme must be http or https")
+	}
+	if repoSet {
+		if errs := validation.ValidateString(d.Repository, "deltaGeneration.defaultRepository.repository", 1, 255, validation.OciImageNameRegexp, validation.OciImageNameFmt); len(errs) > 0 {
+			return errs[0]
+		}
+	}
+	if nsSet {
+		if errs := validation.ValidateString(d.Namespace, "deltaGeneration.defaultRepository.namespace", 1, 255, validation.OciImageNameRegexp, validation.OciImageNameFmt); len(errs) > 0 {
+			return errs[0]
+		}
+	}
 	return nil
 }
 

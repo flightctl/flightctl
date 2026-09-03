@@ -708,6 +708,12 @@ func (r *Repository) Validate() []error {
 		if repositorySet && namespaceSet {
 			allErrs = append(allErrs, fmt.Errorf("spec.repository and spec.namespace are mutually exclusive"))
 		}
+		if repositorySet {
+			allErrs = append(allErrs, validation.ValidateString(ociRepoSpec.Repository, "spec.repository", 1, 255, validation.OciImageNameRegexp, validation.OciImageNameFmt)...)
+		}
+		if namespaceSet {
+			allErrs = append(allErrs, validation.ValidateString(ociRepoSpec.Namespace, "spec.namespace", 1, 255, validation.OciImageNameRegexp, validation.OciImageNameFmt)...)
+		}
 		if ociRepoSpec.OciAuth != nil {
 			dockerAuth, err := ociRepoSpec.OciAuth.AsDockerAuth()
 			if err != nil {

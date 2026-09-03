@@ -541,3 +541,50 @@ func TestDefaultRepositoryConfigOciRepoSpec(t *testing.T) {
 		require.Nil(t, spec.OciAuth)
 	})
 }
+
+func TestValidateDeltaGenerationDefaultRepository(t *testing.T) {
+	t.Run("When repository and namespace are both set it should fail", func(t *testing.T) {
+		cfg := NewDefault()
+		cfg.DeltaGeneration = &DeltaGenerationConfig{
+			DefaultRepository: &DefaultRepositoryConfig{
+				Registry:   "my-registry.com",
+				Repository: lo.ToPtr("my-org/diffs"),
+				Namespace:  lo.ToPtr("my-org"),
+			},
+		}
+		require.Error(t, Validate(cfg))
+	})
+
+	t.Run("When credentials are set without registry it should fail", func(t *testing.T) {
+		cfg := NewDefault()
+		cfg.DeltaGeneration = &DeltaGenerationConfig{
+			DefaultRepository: &DefaultRepositoryConfig{
+				Username: "delta-user",
+				Password: "delta-pass",
+			},
+		}
+		require.Error(t, Validate(cfg))
+	})
+
+	t.Run("When scheme is invalid it should fail", func(t *testing.T) {
+		cfg := NewDefault()
+		cfg.DeltaGeneration = &DeltaGenerationConfig{
+			DefaultRepository: &DefaultRepositoryConfig{
+				Registry: "my-registry.com",
+				Scheme:   lo.ToPtr("ftp"),
+			},
+		}
+		require.Error(t, Validate(cfg))
+	})
+
+	t.Run("When only repository is set it should pass", func(t *testing.T) {
+		cfg := NewDefault()
+		cfg.DeltaGeneration = &DeltaGenerationConfig{
+			DefaultRepository: &DefaultRepositoryConfig{
+				Registry:   "my-registry.com",
+				Repository: lo.ToPtr("my-org/diffs"),
+			},
+		}
+		require.NoError(t, Validate(cfg))
+	})
+}

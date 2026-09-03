@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -383,7 +382,10 @@ func (h *ServiceHandler) resolveOciRepoRef(ctx context.Context, orgId uuid.UUID,
 	}
 	ociSpec := &ociSpecVal
 
-	fullRef := strings.TrimRight(ociSpec.Registry, "/") + "/" + strings.TrimLeft(imageName, "/")
+	fullRef, err := oci.RegistryObjectRef(ociSpec, imageName)
+	if err != nil {
+		return nil, domain.StatusBadRequest(err.Error())
+	}
 	repoRef, err := oci.BuildOciRepoRef(ctx, ociSpec, fullRef)
 	if err != nil {
 		return nil, domain.StatusBadRequest(fmt.Sprintf("invalid repository reference %q: %v", fullRef, err))
