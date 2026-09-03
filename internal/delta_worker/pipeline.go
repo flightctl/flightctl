@@ -46,10 +46,10 @@ type pipeline struct {
 	check    func(ctx context.Context, orgID uuid.UUID, imageRepository, sourceDigest, targetDigest string) (existenceResult, error)
 	generate func(ctx context.Context, orgID uuid.UUID, sourceRef, targetRef, pushPath string) (deltaRef string, sizeBytes int64, err error)
 	pushPath func(ctx context.Context, orgID uuid.UUID, imageRepository string) (string, error)
-	resume   func(ctx context.Context, key deltastore.GenerationKey) error
 	prepare  func(ctx context.Context, ev worker_client.EventWithOrgId) error
 	status   PreparingStatus
 	persist  func(ctx context.Context, orgId uuid.UUID, event *domain.Event)
+	preparer *Preparer
 }
 
 func parseGenerationJob(ev worker_client.EventWithOrgId) (generationJob, bool, error) {
@@ -283,13 +283,8 @@ func (p *pipeline) failGeneration(ctx context.Context, key deltastore.Generation
 }
 
 func (p *pipeline) runResume(ctx context.Context, key deltastore.GenerationKey) error {
-	if p.resume != nil {
-		return p.resume(ctx, key)
+	if p.preparer == nil {
+		return nil
 	}
-	return tryLastPairResume(ctx, p.store, key)
-}
-
-func tryLastPairResume(ctx context.Context, store generationStore, key deltastore.GenerationKey) error {
-	_, err := store.ListWaitingPreparesByGeneration(ctx, key)
-	return err
+	return p.preparer.CompleteWaitingIfTerminal(ctx, key)
 }

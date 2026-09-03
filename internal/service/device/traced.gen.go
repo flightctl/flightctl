@@ -243,6 +243,14 @@ func (_d *TracedDeviceService) ReplaceDeviceStatus(ctx context.Context, orgId uu
 	return dp1, s1
 }
 
+func (_d *TracedDeviceService) ReplaceServiceOwnedStatus(ctx context.Context, orgId uuid.UUID, name string, device domain.Device) (dp1 *domain.Device, s1 domain.Status) {
+	ctx, span := startSpan(ctx, "ReplaceServiceOwnedStatus")
+
+	dp1, s1 = _d.inner.ReplaceServiceOwnedStatus(ctx, orgId, name, device)
+	endSpan(span, s1)
+	return dp1, s1
+}
+
 func (_d *TracedDeviceService) RestartDeviceApplication(ctx context.Context, orgId uuid.UUID, name string, appName string) (dp1 *domain.Device, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "RestartDeviceApplication")
 

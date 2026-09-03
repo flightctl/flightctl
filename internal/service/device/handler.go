@@ -463,6 +463,20 @@ func (h *DeviceServiceHandler) ReplaceDeviceStatus(ctx context.Context, orgId uu
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
+func (h *DeviceServiceHandler) ReplaceServiceOwnedStatus(ctx context.Context, orgId uuid.UUID, name string, device domain.Device) (*domain.Device, domain.Status) {
+	if device.Metadata.Name == nil || *device.Metadata.Name == "" {
+		return nil, domain.StatusBadRequest("device name is required")
+	}
+	if name != *device.Metadata.Name {
+		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
+	}
+	if device.Status == nil {
+		return nil, domain.StatusBadRequest("device status is required")
+	}
+	result, _, err := h.deviceStore.ReplaceServiceOwnedStatus(ctx, orgId, &device)
+	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
+}
+
 func (h *DeviceServiceHandler) PatchDeviceStatus(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.Device, domain.Status) {
 	currentObj, err := h.deviceStore.Get(ctx, orgId, name)
 	if err != nil {

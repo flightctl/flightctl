@@ -132,7 +132,22 @@ func (s *Server) Run(ctx context.Context) error {
 		s.log.WithField("pkg", "encryption-migration"),
 	)
 
-	if err = tasks.LaunchConsumers(ctx, s.queuesProvider, fleetSvc, templateVersionSvc, deviceSvc, dependencyrefSvc, repositorySvc, catalogSvc, eventSvc, s.k8sClient, kvStore, s.cfg, 1, 1, s.workerMetrics, encryptionMigrator, publisher); err != nil {
+	if err = tasks.LaunchConsumers(ctx, s.queuesProvider, tasks.TaskConsumer{
+		FleetSvc:           fleetSvc,
+		TemplateversionSvc: templateVersionSvc,
+		DeviceSvc:          deviceSvc,
+		DependencyrefSvc:   dependencyrefSvc,
+		RepositorySvc:      repositorySvc,
+		CatalogSvc:         catalogSvc,
+		EventSvc:           eventSvc,
+		K8sClient:          s.k8sClient,
+		KVStore:            kvStore,
+		Cfg:                s.cfg,
+		WorkerMetrics:      s.workerMetrics,
+		EncryptionMigrator: encryptionMigrator,
+		QueuePublisher:     publisher,
+		WorkerClient:       workerClient,
+	}, 1, 1); err != nil {
 		s.log.WithError(err).Error("failed to launch consumers")
 		return err
 	}

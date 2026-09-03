@@ -344,3 +344,105 @@ var _ = Describe("Application lifecycle overlay at render time", func() {
 			"this fleet-wide start is more recent than device-1's own last override (an earlier start), so it takes effect too")
 	})
 })
+
+var _ = Describe("PrepareDeltas holds device-selection member specs", func() {
+	var (
+		log                *logrus.Logger
+		ctx                context.Context
+		orgId              uuid.UUID
+		deviceStore        devicestore.Store
+		fleetStore         fleetstore.Store
+		fleetSvc           fleetservice.Service
+		templateVersionSvc templateversionservice.Service
+		deviceSvc          deviceservice.Service
+		repositorySvc      repositoryservice.Service
+		workerClient       worker_client.WorkerClient
+		cfg                *config.Config
+		dbName             string
+		db                 *gorm.DB
+		ctrl               *gomock.Controller
+	)
+
+	BeforeEach(func() {
+		ctx = testutil.StartSpecTracerForGinkgo(suiteCtx)
+		orgId = store.NullOrgId
+		log = flightlog.InitLogs()
+		var err error
+		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
+		Expect(err).NotTo(HaveOccurred())
+		deviceStore = devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
+		fleetStore = fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
+		tvStore := templateversionstore.NewTemplateVersionStore(db, log.WithField("pkg", "templateversion-store"))
+		repoStore := repositorystore.NewRepositoryStore(db, log.WithField("pkg", "repository-store"))
+		eventStore := eventstore.NewEventStore(db, log.WithField("pkg", "event-store"))
+		ctrl = gomock.NewController(GinkgoT())
+		mockQueueProducer := queues.NewMockQueueProducer(ctrl)
+		mockQueueProducer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+		workerClient = worker_client.NewWorkerClient(mockQueueProducer, log)
+		kvStoreInst, err := kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
+		Expect(err).ToNot(HaveOccurred())
+		eventsSvc := events.NewServiceHandler(eventStore, workerClient, log)
+		fleetSvc = fleetservice.NewServiceHandler(fleetStore, nil, eventsSvc, log)
+		templateVersionSvc = templateversionservice.NewServiceHandler(tvStore, kvStoreInst, eventsSvc, log)
+		deviceSvc = deviceservice.NewDeviceServiceHandler(deviceStore, nil, fleetStore, eventsSvc, kvStoreInst, "", log)
+		repositorySvc = repositoryservice.NewServiceHandler(repoStore, eventsSvc, log)
+	})
+
+	AfterEach(func() {
+		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
+		ctrl.Finish()
+	})
+
+	It("should not write member specs after template version create", func() {
+		const (
+			fleetName  = "hold-fleet"
+			deviceName = "hold-device"
+			oldImage   = "os"
+			newImage   = "quay.io/acme/os:v2"
+		)
+		selection := &api.RolloutDeviceSelection{}
+		fleet := &api.Fleet{
+			Metadata: api.ObjectMeta{Name: lo.ToPtr(fleetName)},
+			Spec: api.FleetSpec{
+				RolloutPolicy: &api.RolloutPolicy{DeviceSelection: selection},
+				Template: struct {
+					Metadata *api.ObjectMeta `json:"metadata,omitempty"`
+					Spec     api.DeviceSpec  `json:"spec"`
+				}{
+					Spec: api.DeviceSpec{Os: &api.DeviceOsSpec{Image: newImage}},
+				},
+			},
+		}
+		_, err := fleetStore.Create(ctx, orgId, fleet)
+		Expect(err).ToNot(HaveOccurred())
+		testutil.CreateTestDevice(ctx, deviceStore, orgId, deviceName, lo.ToPtr("Fleet/"+fleetName), nil, nil)
+
+		event := api.Event{
+			Reason: api.EventReasonResourceUpdated,
+			InvolvedObject: api.ObjectReference{
+				Kind: api.FleetKind,
+				Name: fleetName,
+			},
+		}
+		logic := tasks.NewFleetValidateLogic(log, fleetSvc, templateVersionSvc, deviceSvc, repositorySvc, nil, orgId, event)
+		logic.WorkerClient = workerClient
+		Expect(logic.CreateNewTemplateVersionIfFleetValid(ctx)).To(Succeed())
+
+		dev, err := deviceStore.Get(ctx, orgId, deviceName)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(dev.Spec).ToNot(BeNil())
+		Expect(dev.Spec.Os).ToNot(BeNil())
+		Expect(dev.Spec.Os.Image).To(Equal(oldImage))
+		if dev.Metadata.Annotations != nil {
+			_, hasTV := (*dev.Metadata.Annotations)[api.DeviceAnnotationTemplateVersion]
+			Expect(hasTV).To(BeFalse())
+		}
+
+		gotFleet, err := fleetStore.Get(ctx, orgId, fleetName)
+		Expect(err).ToNot(HaveOccurred())
+		if gotFleet.Metadata.Annotations != nil {
+			_, hasTV := (*gotFleet.Metadata.Annotations)[api.FleetAnnotationTemplateVersion]
+			Expect(hasTV).To(BeFalse())
+		}
+	})
+})

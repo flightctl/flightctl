@@ -7,6 +7,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
@@ -68,10 +69,33 @@ func EmitDeviceUpdatedEvent(ctx context.Context, eventsService events.Service, l
 
 	annotations := map[string]string{}
 	delayDeviceRender, ok := ctx.Value(consts.DelayDeviceRenderCtxKey).(bool)
-	if ok && delayDeviceRender {
+	holdStandalone := deviceSpecsChanged(oldDevice, newDevice) && !hasFleetOwner(newDevice)
+	if (ok && delayDeviceRender) || holdStandalone {
 		annotations[domain.EventAnnotationDelayDeviceRender] = "true"
 	}
 	eventsService.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, false, domain.DeviceKind, name, updateDetails, log, annotations))
+	if holdStandalone {
+		emitStandalonePrepareDeltas(ctx, eventsService, orgId, name)
+	}
+}
+
+func hasFleetOwner(device *domain.Device) bool {
+	if device == nil {
+		return false
+	}
+	kind, _, err := util.GetResourceOwner(device.Metadata.Owner)
+	return err == nil && kind == domain.FleetKind
+}
+
+func emitStandalonePrepareDeltas(ctx context.Context, eventsService events.Service, orgId uuid.UUID, name string) {
+	details := domain.PrepareDeltasDetails{
+		DetailType: domain.PrepareDeltasDetailsDetailType("PrepareDeltas"),
+	}
+	var eventDetails domain.EventDetails
+	if err := eventDetails.FromPrepareDeltasDetails(details); err != nil {
+		return
+	}
+	eventsService.CreateEvent(ctx, orgId, domain.GetBaseEvent(ctx, domain.DeviceKind, name, domain.EventReasonPrepareDeltas, "Preparing OS image deltas", &eventDetails))
 }
 
 func ensureSpecUpdatedField(details *domain.ResourceUpdatedDetails, oldDevice, newDevice *domain.Device) *domain.ResourceUpdatedDetails {
