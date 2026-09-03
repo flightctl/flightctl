@@ -20,6 +20,7 @@ import (
 	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
 	"github.com/flightctl/flightctl/internal/store"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
+	deltastore "github.com/flightctl/flightctl/internal/store/delta"
 	dependencyrefstore "github.com/flightctl/flightctl/internal/store/dependencyref"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
@@ -1276,4 +1277,70 @@ var _ = Describe("DeviceRender", func() {
 				"redundant FleetRolloutDeviceSelected must not bump renderedVersion when already caught up")
 		})
 	})
+
+	Context("OS delta hint after prepare resume", func() {
+		It("When a succeeded generation exists GetRenderedDevice should expose deltaImage and IEC updated size", func() {
+			const (
+				srcDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+				tgtDigest = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+				osImage   = "quay.io/acme/os@" + tgtDigest
+				deltaRef  = "quay.io/acme/os@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+			)
+			sizeBytes := int64(47185920)
+			testDeviceName := deviceName + "-os-delta-hint-" + uuid.New().String()[:8]
+
+			device := &api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{Image: osImage},
+				},
+				Status: &api.DeviceStatus{
+					Os: api.DeviceOsStatus{ImageDigest: srcDigest},
+				},
+			}
+			_, err := deviceStore.Create(ctx, orgId, device, nil)
+			Expect(err).ToNot(HaveOccurred())
+			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil) }()
+
+			created, err := deviceStore.Get(ctx, orgId, testDeviceName)
+			Expect(err).ToNot(HaveOccurred())
+			if created.Status == nil {
+				created.Status = &api.DeviceStatus{}
+			}
+			created.Status.Os.ImageDigest = srcDigest
+			_, _, err = deviceStore.UpdateStatus(ctx, orgId, created, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			deltaStore := deltastore.NewStore(db, log.WithField("pkg", "delta-store"))
+			_, err = deltaStore.InsertGenerations(ctx, []*model.DeltaGeneration{{
+				OrgID:           orgId,
+				ImageRepository: "quay.io/acme/os",
+				SourceDigest:    srcDigest,
+				TargetDigest:    tgtDigest,
+				Status:          model.DeltaGenerationSucceeded,
+				DeltaRef:        lo.ToPtr(deltaRef),
+				SizeBytes:       &sizeBytes,
+			}})
+			Expect(err).ToNot(HaveOccurred())
+
+			event := api.Event{
+				Reason:         api.EventReasonResourceUpdated,
+				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
+			}
+			logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil, orgId, event).
+				WithDeltaLookup(deltaStore)
+			Expect(logic.RenderDevice(ctx)).To(Succeed())
+
+			renderedDevice, status := deviceSvc.GetRenderedDevice(ctx, orgId, testDeviceName, api.GetRenderedDeviceParams{})
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+			Expect(renderedDevice).ToNot(BeNil())
+			Expect(renderedDevice.Spec).ToNot(BeNil())
+			Expect(renderedDevice.Spec.Os).ToNot(BeNil())
+			Expect(lo.FromPtr(renderedDevice.Spec.Os.DeltaImage)).To(Equal(deltaRef))
+			Expect(renderedDevice.Status).ToNot(BeNil())
+			Expect(renderedDevice.Status.Os.LastDelta).ToNot(BeNil())
+			Expect(lo.FromPtr(renderedDevice.Status.Os.LastDelta.Size)).To(Equal("45 MiB"))
+		})
+	})
+
 })
