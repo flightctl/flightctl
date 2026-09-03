@@ -501,20 +501,9 @@ Create `deploy/podman/flightctl-myservice/flightctl-myservice.volume`:
 VolumeName=flightctl-myservice
 ```
 
-### 5. Update Install Scripting
+### 5. Update install manifest
 
-Edit `deploy/scripts/install.sh` to include your service in the `render_files()` function:
-
-```bash
-render_files() {
-    # ... existing services ...
-    render_service "myservice" "${SOURCE_DIR}"
-    # ... rest of function ...
-
-    # If the service writes config ensure the location where those files are placed exists
-    mkdir -p "${CONFIG_WRITEABLE_DIR}/flightctl-cli-artifacts"
-}
-```
+Add the new service files to [`internal/quadlet/renderer/manifest.go`](../../internal/quadlet/renderer/manifest.go) (explicit copy list used by `flightctl-standalone render quadlets`). Register the service in [`hack/services.yaml`](../../hack/services.yaml) and run `make verify-services` so CI catches missing wiring. See [adding-a-service.md](adding-a-service.md).
 
 Edit `deploy/scripts/deploy_quadlets.sh` so the polling waits for the new service to spin up.
 
