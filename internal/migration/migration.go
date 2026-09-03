@@ -16,6 +16,7 @@ import (
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	checkpointstore "github.com/flightctl/flightctl/internal/store/checkpoint"
+	deltastore "github.com/flightctl/flightctl/internal/store/delta"
 	dependencyrefstore "github.com/flightctl/flightctl/internal/store/dependencyref"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
@@ -119,6 +120,9 @@ func runMainStoreMigrations(ctx context.Context, tx *gorm.DB, log logrus.FieldLo
 		return err
 	}
 	if err := canarystore.NewCanaryStore(tx, log).InitialMigration(ctx); err != nil {
+		return err
+	}
+	if err := deltastore.NewStore(tx, log).InitialMigration(ctx); err != nil {
 		return err
 	}
 
