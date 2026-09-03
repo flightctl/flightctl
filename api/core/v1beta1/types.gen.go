@@ -3124,6 +3124,9 @@ type RolloutPolicy struct {
 	// DisruptionBudget DisruptionBudget defines the level of allowed disruption when rollout is in progress.
 	DisruptionBudget *DisruptionBudget `json:"disruptionBudget,omitempty"`
 
+	// GenerateDelta When false, skip control-plane OS delta generation for this fleet. Omitted means true.
+	GenerateDelta *bool `json:"generateDelta,omitempty"`
+
 	// SuccessThreshold Percentage is the string format representing percentage string.
 	SuccessThreshold *Percentage `json:"successThreshold,omitempty"`
 }
