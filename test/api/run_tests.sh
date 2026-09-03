@@ -29,6 +29,36 @@ extract_server_url() {
     ' "$CLIENT_CONFIG"
 }
 
+url_host() {
+    local url="${1#*://}"
+    url="${url%%/*}"
+    echo "${url%%:*}"
+}
+
+# resolve_wildcard_dns_ip prints the IP address embedded in a nip.io/sslip.io
+# hostname (e.g. "api.10.1.0.5.nip.io" -> "10.1.0.5"), or nothing if the host
+# isn't one of these synthetic wildcard-DNS names (see test/scripts/functions,
+# which mints them from the runner's own IP). Resolving them for real still
+# means a live query to a third-party nameserver for an answer already known
+# locally, and a transient failure there ("NameResolutionError") has broken
+# otherwise-healthy schemathesis runs mid-fuzzing.
+resolve_wildcard_dns_ip() {
+    local host="$1"
+    if [[ "$host" =~ ^.+\.([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3})\.nip\.io$ ]]; then
+        echo "${BASH_REMATCH[1]}"
+        return 0
+    fi
+    if [[ "$host" =~ ^.+\.([0-9a-fA-F-]+)\.sslip\.io$ ]]; then
+        echo "${BASH_REMATCH[1]//-/:}"
+        return 0
+    fi
+    # Not a wildcard-DNS hostname (e.g. a real domain in a non-CI environment) -
+    # leave it to normal DNS. Explicit 0: under "set -e", the caller's
+    # "ip=$(resolve_wildcard_dns_ip ...)" assignment would otherwise abort the
+    # whole script on the first non-matching host.
+    return 0
+}
+
 run_schemathesis() {
     local service="$1" version="$2" server_url="$3" core_url="$4"
     local service_name="${service%%/*}"
@@ -52,6 +82,23 @@ run_schemathesis() {
 
     local -a podman_args=(--rm --init --security-opt label=disable --network=host)
     [ -z "${CI:-}" ] && podman_args+=(-t)
+
+    # Pin any wildcard-DNS hostnames (base_url and core_url may name different
+    # services, e.g. imagebuilder-api.* vs api.*) so the container resolves them
+    # locally instead of over the network. --network=host shares the host's
+    # network namespace but not its /etc/hosts, so this container would otherwise
+    # still make a live DNS query per hostname.
+    local -A pinned_hosts=()
+    local url host ip
+    for url in "$base_url" "$core_url"; do
+        host=$(url_host "$url")
+        [ -n "${pinned_hosts[$host]:-}" ] && continue
+        ip=$(resolve_wildcard_dns_ip "$host")
+        [ -z "$ip" ] && continue
+        podman_args+=(--add-host "${host}:${ip}")
+        pinned_hosts[$host]=1
+    done
+
     local -a volumes=(
         -v "${ROOT_DIR}/api:/app/specs:ro"
         -v "${SCRIPT_DIR}:/app/config:ro"
