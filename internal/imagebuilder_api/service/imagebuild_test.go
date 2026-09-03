@@ -971,7 +971,7 @@ func TestCreateImageBuildDestinationRepositoryMatchAccepted(t *testing.T) {
 	require.NotNil(result)
 }
 
-func TestCreateImageBuildSourceNamespaceAccepted(t *testing.T) {
+func TestCreateImageBuildSourceNamespaceRejected(t *testing.T) {
 	require := require.New(t)
 	ctx := context.Background()
 	orgId := uuid.New()
@@ -984,10 +984,29 @@ func TestCreateImageBuildSourceNamespaceAccepted(t *testing.T) {
 	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, nil, nil, nil, log.InitLogs())
 
 	imageBuild := newValidImageBuild("test-build")
-	result, status := svc.Create(ctx, orgId, imageBuild)
+	_, status := svc.Create(ctx, orgId, imageBuild)
 
-	require.Equal(int32(http.StatusCreated), statusCode(status))
-	require.NotNil(result)
+	require.Equal(int32(http.StatusBadRequest), statusCode(status))
+	require.Contains(status.Message, "namespace")
+}
+
+func TestCreateImageBuildSourceRepositoryRejected(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	repoStore := NewDummyRepositoryStore()
+	sourceRepo := newOciRepositoryCustom("input-registry", v1beta1.Read, lo.ToPtr("upstream/os"), nil)
+	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
+	destRepo := newOciRepository("output-registry", v1beta1.ReadWrite)
+	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
+	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, nil, nil, nil, log.InitLogs())
+
+	imageBuild := newValidImageBuild("test-build")
+	_, status := svc.Create(ctx, orgId, imageBuild)
+
+	require.Equal(int32(http.StatusBadRequest), statusCode(status))
+	require.Contains(status.Message, "repository")
 }
 
 func TestCreateImageBuildRegistryOnlyDestinationAccepted(t *testing.T) {

@@ -714,6 +714,12 @@ func (r *Repository) Validate() []error {
 		if namespaceSet {
 			allErrs = append(allErrs, validation.ValidateString(ociRepoSpec.Namespace, "spec.namespace", 1, 255, validation.OciImageNameRegexp, validation.OciImageNameFmt)...)
 		}
+		if ociRepoSpec.DeltaStorageTarget != nil && *ociRepoSpec.DeltaStorageTarget {
+			accessMode := lo.FromPtrOr(ociRepoSpec.AccessMode, Read)
+			if accessMode != ReadWrite {
+				allErrs = append(allErrs, fmt.Errorf("spec.accessMode must be ReadWrite when spec.deltaStorageTarget is true"))
+			}
+		}
 		if ociRepoSpec.OciAuth != nil {
 			dockerAuth, err := ociRepoSpec.OciAuth.AsDockerAuth()
 			if err != nil {

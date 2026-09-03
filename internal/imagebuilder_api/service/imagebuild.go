@@ -617,6 +617,12 @@ func (s *imageBuildService) validate(ctx context.Context, orgId uuid.UUID, image
 			}
 			if specType != string(domain.RepoSpecTypeOci) {
 				errs = append(errs, fmt.Errorf("spec.source.repository: Repository %q must be of type 'oci', got %q", imageBuild.Spec.Source.Repository, specType))
+			} else {
+				ociSpec, err := repo.Spec.AsOciRepoSpec()
+				if err != nil {
+					return nil, fmt.Errorf("failed to get source repository OCI spec: %w", err)
+				}
+				errs = append(errs, ValidateImageSourceOciSpec(&ociSpec, "spec.source.repository")...)
 			}
 		}
 	}

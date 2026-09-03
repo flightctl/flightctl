@@ -128,21 +128,21 @@ vulnerabilityReporting:
 {{- if .registry }}
 deltaGeneration:
   defaultRepository:
-    registry: {{ .registry }}
+    registry: {{ printf "%q" .registry }}
     {{- if .repository }}
-    repository: {{ .repository }}
+    repository: {{ printf "%q" .repository }}
     {{- end }}
     {{- if .namespace }}
-    namespace: {{ .namespace }}
+    namespace: {{ printf "%q" .namespace }}
     {{- end }}
     {{- if .scheme }}
-    scheme: {{ .scheme }}
+    scheme: {{ printf "%q" .scheme }}
     {{- end }}
     {{- if .skipServerVerification }}
     skipServerVerification: true
     {{- end }}
     {{- if .caCrt }}
-    ca.crt: {{ .caCrt }}
+    ca.crt: {{ printf "%q" .caCrt }}
     {{- end }}
 {{- end }}
 {{- end }}

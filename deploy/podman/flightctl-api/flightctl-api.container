@@ -13,6 +13,8 @@ AddHost=%H:host-gateway
 EnvironmentFile=/etc/flightctl/flightctl-api/env
 Secret=flightctl-postgresql-user-password,type=env,target=DB_PASSWORD
 Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
+Secret=flightctl-delta-generation-default-repository-username,type=env,target=DELTA_GENERATION_DEFAULT_REPOSITORY_USERNAME
+Secret=flightctl-delta-generation-default-repository-password,type=env,target=DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD
 Environment=DB_USER=flightctl_app
 
 Volume=/etc/flightctl/pki/flightctl-api/server.crt:/root/.flightctl/certs/server.crt:ro,z

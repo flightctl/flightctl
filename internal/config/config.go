@@ -916,11 +916,13 @@ func (d *DefaultRepositoryConfig) OciRepoSpec() *domain.OciRepoSpec {
 	if d == nil || d.Registry == "" {
 		return nil
 	}
+	accessMode := domain.OciRepoAccessModeReadWrite
 	spec := &domain.OciRepoSpec{
 		Type:                   domain.OciRepoSpecTypeOci,
 		Registry:               d.Registry,
 		Repository:             d.Repository,
 		Namespace:              d.Namespace,
+		AccessMode:             &accessMode,
 		SkipServerVerification: d.SkipServerVerification,
 		CaCrt:                  d.CaCrt,
 	}
@@ -1786,11 +1788,18 @@ func validateDeltaGeneration(cfg *Config) error {
 	d := cfg.DeltaGeneration.DefaultRepository
 	repoSet := d.Repository != nil && strings.TrimSpace(*d.Repository) != ""
 	nsSet := d.Namespace != nil && strings.TrimSpace(*d.Namespace) != ""
+	schemeSet := d.Scheme != nil && strings.TrimSpace(*d.Scheme) != ""
+	caSet := d.CaCrt != nil && strings.TrimSpace(*d.CaCrt) != ""
+	skipSet := d.SkipServerVerification != nil
+	credsSet := d.Username != "" || d.Password != ""
+	anySet := repoSet || nsSet || schemeSet || caSet || skipSet || credsSet
+	if anySet {
+		if errs := validation.ValidateHostIPOrFQDNWithOptionalPort(&d.Registry, "deltaGeneration.defaultRepository.registry"); len(errs) > 0 {
+			return errs[0]
+		}
+	}
 	if repoSet && nsSet {
 		return fmt.Errorf("deltaGeneration.defaultRepository.repository and namespace are mutually exclusive")
-	}
-	if (d.Username != "" || d.Password != "") && d.Registry == "" {
-		return fmt.Errorf("deltaGeneration.defaultRepository.registry is required when username or password is set")
 	}
 	if d.Scheme != nil && *d.Scheme != "" && *d.Scheme != "http" && *d.Scheme != "https" {
 		return fmt.Errorf("deltaGeneration.defaultRepository.scheme must be http or https")

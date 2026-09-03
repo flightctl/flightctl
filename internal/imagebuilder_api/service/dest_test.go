@@ -79,3 +79,56 @@ func TestValidateImageDestOciSpec(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateImageSourceOciSpec(t *testing.T) {
+	tests := []struct {
+		name    string
+		spec    *domain.OciRepoSpec
+		wantErr string
+	}{
+		{
+			name: "When namespace is set it should reject",
+			spec: &domain.OciRepoSpec{
+				Registry:  "my-registry.com",
+				Type:      domain.OciRepoSpecTypeOci,
+				Namespace: lo.ToPtr("my-org"),
+			},
+			wantErr: "namespace",
+		},
+		{
+			name: "When repository is set it should reject",
+			spec: &domain.OciRepoSpec{
+				Registry:   "my-registry.com",
+				Type:       domain.OciRepoSpecTypeOci,
+				Repository: lo.ToPtr("upstream/os"),
+			},
+			wantErr: "repository",
+		},
+		{
+			name: "When repository and namespace are omitted it should accept",
+			spec: &domain.OciRepoSpec{
+				Registry: "my-registry.com",
+				Type:     domain.OciRepoSpecTypeOci,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := ValidateImageSourceOciSpec(tt.spec, "spec.source.repository")
+			if tt.wantErr == "" {
+				require.Empty(t, errs)
+				return
+			}
+			require.NotEmpty(t, errs)
+			found := false
+			for _, err := range errs {
+				if strings.Contains(err.Error(), tt.wantErr) {
+					found = true
+					break
+				}
+			}
+			require.True(t, found, "expected error containing %q, got %v", tt.wantErr, errs)
+		})
+	}
+}

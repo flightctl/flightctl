@@ -513,6 +513,7 @@ func TestDefaultRepositoryConfigOciRepoSpec(t *testing.T) {
 			Password:   "delta-pass",
 		}).OciRepoSpec()
 		require.NotNil(t, spec)
+		require.Equal(t, domain.OciRepoAccessModeReadWrite, lo.FromPtr(spec.AccessMode))
 		require.Equal(t, "my-registry.com", spec.Registry)
 		require.Equal(t, "my-org/diffs", lo.FromPtr(spec.Repository))
 		require.NotNil(t, spec.OciAuth)
@@ -572,6 +573,47 @@ func TestValidateDeltaGenerationDefaultRepository(t *testing.T) {
 			DefaultRepository: &DefaultRepositoryConfig{
 				Registry: "my-registry.com",
 				Scheme:   lo.ToPtr("ftp"),
+			},
+		}
+		require.Error(t, Validate(cfg))
+	})
+
+	t.Run("When repository is set without registry it should fail", func(t *testing.T) {
+		cfg := NewDefault()
+		cfg.DeltaGeneration = &DeltaGenerationConfig{
+			DefaultRepository: &DefaultRepositoryConfig{
+				Repository: lo.ToPtr("my-org/diffs"),
+			},
+		}
+		require.Error(t, Validate(cfg))
+	})
+
+	t.Run("When namespace is set without registry it should fail", func(t *testing.T) {
+		cfg := NewDefault()
+		cfg.DeltaGeneration = &DeltaGenerationConfig{
+			DefaultRepository: &DefaultRepositoryConfig{
+				Namespace: lo.ToPtr("my-org"),
+			},
+		}
+		require.Error(t, Validate(cfg))
+	})
+
+	t.Run("When skipServerVerification is set without registry it should fail", func(t *testing.T) {
+		cfg := NewDefault()
+		cfg.DeltaGeneration = &DeltaGenerationConfig{
+			DefaultRepository: &DefaultRepositoryConfig{
+				SkipServerVerification: lo.ToPtr(true),
+			},
+		}
+		require.Error(t, Validate(cfg))
+	})
+
+	t.Run("When registry is invalid it should fail", func(t *testing.T) {
+		cfg := NewDefault()
+		cfg.DeltaGeneration = &DeltaGenerationConfig{
+			DefaultRepository: &DefaultRepositoryConfig{
+				Registry:   "not a valid host",
+				Repository: lo.ToPtr("my-org/diffs"),
 			},
 		}
 		require.Error(t, Validate(cfg))

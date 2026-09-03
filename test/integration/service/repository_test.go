@@ -281,6 +281,7 @@ var _ = Describe("Repository deltaStorageTarget", func() {
 			Registry:           "my-registry.com",
 			Type:               "oci",
 			Repository:         lo.ToPtr("my-org/diffs"),
+			AccessMode:         lo.ToPtr(api.ReadWrite),
 			DeltaStorageTarget: lo.ToPtr(true),
 		})
 		Expect(err).ToNot(HaveOccurred())

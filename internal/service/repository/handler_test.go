@@ -200,6 +200,7 @@ func newDeltaStorageRepository(name, registry, repository string) domain.Reposit
 		Registry:           registry,
 		Type:               domain.OciRepoSpecTypeOci,
 		Repository:         lo.ToPtr(repository),
+		AccessMode:         lo.ToPtr(domain.OciRepoAccessModeReadWrite),
 		DeltaStorageTarget: lo.ToPtr(true),
 	})
 	return domain.Repository{
@@ -548,6 +549,7 @@ func TestPatchRepositoryDeltaStorageTarget(t *testing.T) {
 		require.Equal(t, statusCreatedCode, status.Code)
 
 		_, status = h.PatchRepository(ctx, orgId, "other", domain.PatchRequest{
+			{Op: "add", Path: "/spec/accessMode", Value: lo.ToPtr[interface{}]("ReadWrite")},
 			{Op: "add", Path: "/spec/deltaStorageTarget", Value: lo.ToPtr[interface{}](true)},
 		})
 		require.Equal(t, statusConflictCode, status.Code)

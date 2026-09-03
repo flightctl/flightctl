@@ -2771,12 +2771,36 @@ func TestRepository_Validate_OciRepoSpec(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "When deltaStorageTarget is true with only repository it should accept",
+			name: "When deltaStorageTarget is true without accessMode it should reject",
 			spec: OciRepoSpec{
 				Registry:           "my-registry.com",
 				Type:               "oci",
 				Repository:         lo.ToPtr("my-org/diffs"),
 				DeltaStorageTarget: lo.ToPtr(true),
+			},
+			wantErr: true,
+			errMsg:  "ReadWrite",
+		},
+		{
+			name: "When deltaStorageTarget is true with Read accessMode it should reject",
+			spec: OciRepoSpec{
+				Registry:           "my-registry.com",
+				Type:               "oci",
+				Repository:         lo.ToPtr("my-org/diffs"),
+				DeltaStorageTarget: lo.ToPtr(true),
+				AccessMode:         lo.ToPtr(Read),
+			},
+			wantErr: true,
+			errMsg:  "ReadWrite",
+		},
+		{
+			name: "When deltaStorageTarget is true with ReadWrite it should accept",
+			spec: OciRepoSpec{
+				Registry:           "my-registry.com",
+				Type:               "oci",
+				Repository:         lo.ToPtr("my-org/diffs"),
+				DeltaStorageTarget: lo.ToPtr(true),
+				AccessMode:         lo.ToPtr(ReadWrite),
 			},
 			wantErr: false,
 		},

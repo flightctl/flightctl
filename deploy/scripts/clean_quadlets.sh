@@ -51,7 +51,7 @@ clean_networks() {
 
 clean_secrets() {
     # Remove generated secrets
-    secrets=("flightctl-postgresql-password" "flightctl-postgresql-master-password" "flightctl-postgresql-user-password" "flightctl-kv-password" "flightctl-alertmanager-password" "flightctl-alertmanager-proxy-password")
+    secrets=("flightctl-postgresql-password" "flightctl-postgresql-master-password" "flightctl-postgresql-user-password" "flightctl-kv-password" "flightctl-alertmanager-password" "flightctl-alertmanager-proxy-password" "flightctl-delta-generation-default-repository-username" "flightctl-delta-generation-default-repository-password")
     for secret in "${secrets[@]}"; do
         if  podman secret inspect "$secret" &>/dev/null; then
             echo "Removing secret $secret"

@@ -27,6 +27,8 @@ deploy_service() {
         ensure_postgres_secrets
     elif [[ "$service_name" == "kv" ]]; then
         ensure_kv_secrets
+    elif [[ "$service_name" == "api" ]]; then
+        ensure_delta_generation_secrets
     else
         echo "No pre-startup logic for $service_name"
     fi
