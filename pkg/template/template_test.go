@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/yaml"
 )
 
 const inputYAML = `global:
@@ -215,4 +216,43 @@ func TestRenderTemplate_InvalidOutputPath(t *testing.T) {
 	err = Render(inputFile, templateFile, outputFile)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to create output file")
+}
+
+func TestRenderQuotesIPv6RegistryWithPort(t *testing.T) {
+	tempDir := t.TempDir()
+	inputFile := filepath.Join(tempDir, "input.yaml")
+	require.NoError(t, os.WriteFile(inputFile, []byte(`
+deltaGeneration:
+  defaultRepository:
+    registry: "[::1]:5000"
+    repository: my-org/diffs
+`), 0600))
+
+	templateFile := filepath.Join(tempDir, "config.yaml.template")
+	require.NoError(t, os.WriteFile(templateFile, []byte(`{{- with .deltaGeneration }}
+{{- with .defaultRepository }}
+{{- if .registry }}
+deltaGeneration:
+  defaultRepository:
+    registry: {{ printf "%q" .registry }}
+    {{- if .repository }}
+    repository: {{ printf "%q" .repository }}
+    {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+`), 0600))
+
+	outputFile := filepath.Join(tempDir, "config.yaml")
+	require.NoError(t, Render(inputFile, templateFile, outputFile))
+
+	out, err := os.ReadFile(outputFile)
+	require.NoError(t, err)
+	require.Contains(t, string(out), `registry: "[::1]:5000"`)
+
+	parsed := map[string]any{}
+	require.NoError(t, yaml.Unmarshal(out, &parsed))
+	delta := parsed["deltaGeneration"].(map[string]any)
+	repo := delta["defaultRepository"].(map[string]any)
+	require.Equal(t, "[::1]:5000", repo["registry"])
 }

@@ -2741,6 +2741,99 @@ func TestRepository_Validate_OciRepoSpec(t *testing.T) {
 			wantErr: true,
 			errMsg:  "spec.ociAuth.password",
 		},
+		{
+			name: "When repository and namespace are both set it should reject",
+			spec: OciRepoSpec{
+				Registry:   "my-registry.com",
+				Type:       "oci",
+				Repository: lo.ToPtr("my-org/diffs"),
+				Namespace:  lo.ToPtr("my-org"),
+			},
+			wantErr: true,
+			errMsg:  "mutually exclusive",
+		},
+		{
+			name: "When only repository is set it should accept",
+			spec: OciRepoSpec{
+				Registry:   "my-registry.com",
+				Type:       "oci",
+				Repository: lo.ToPtr("my-org/diffs"),
+			},
+			wantErr: false,
+		},
+		{
+			name: "When only namespace is set it should accept",
+			spec: OciRepoSpec{
+				Registry:  "my-registry.com",
+				Type:      "oci",
+				Namespace: lo.ToPtr("my-org"),
+			},
+			wantErr: false,
+		},
+		{
+			name: "When deltaStorageTarget is true without accessMode it should reject",
+			spec: OciRepoSpec{
+				Registry:           "my-registry.com",
+				Type:               "oci",
+				Repository:         lo.ToPtr("my-org/diffs"),
+				DeltaStorageTarget: lo.ToPtr(true),
+			},
+			wantErr: true,
+			errMsg:  "ReadWrite",
+		},
+		{
+			name: "When deltaStorageTarget is true with Read accessMode it should reject",
+			spec: OciRepoSpec{
+				Registry:           "my-registry.com",
+				Type:               "oci",
+				Repository:         lo.ToPtr("my-org/diffs"),
+				DeltaStorageTarget: lo.ToPtr(true),
+				AccessMode:         lo.ToPtr(Read),
+			},
+			wantErr: true,
+			errMsg:  "ReadWrite",
+		},
+		{
+			name: "When deltaStorageTarget is true with ReadWrite it should accept",
+			spec: OciRepoSpec{
+				Registry:           "my-registry.com",
+				Type:               "oci",
+				Repository:         lo.ToPtr("my-org/diffs"),
+				DeltaStorageTarget: lo.ToPtr(true),
+				AccessMode:         lo.ToPtr(ReadWrite),
+			},
+			wantErr: false,
+		},
+		{
+			name: "When repository is empty and namespace is set it should accept",
+			spec: OciRepoSpec{
+				Registry:   "my-registry.com",
+				Type:       "oci",
+				Repository: lo.ToPtr(""),
+				Namespace:  lo.ToPtr("my-org"),
+			},
+			wantErr: false,
+		},
+		{
+			name: "When repository contains a tag it should reject",
+			spec: OciRepoSpec{
+				Registry:   "my-registry.com",
+				Type:       "oci",
+				Repository: lo.ToPtr("my-org/diffs:latest"),
+			},
+			wantErr: true,
+			errMsg:  "spec.repository",
+		},
+		{
+			name: "When namespace contains a digest it should reject",
+			spec: OciRepoSpec{
+				Registry:  "my-registry.com",
+				Type:      "oci",
+				Namespace: lo.ToPtr("my-org@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+			},
+			wantErr: true,
+			errMsg:  "spec.namespace",
+		},
 	}
 
 	for _, tt := range tests {

@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -63,10 +62,41 @@ func (h *ServiceHandler) CreateRepository(ctx context.Context, orgId uuid.UUID, 
 	if errs := repository.Validate(); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
+	if err := h.rejectDuplicateDeltaStorageTarget(ctx, orgId, repository); err != nil {
+		return nil, common.StoreErrorToApiStatus(err, false, domain.RepositoryKind, repository.Metadata.Name)
+	}
 
 	result, err := h.store.Create(ctx, orgId, &repository)
 	h.callbackRepositoryUpdated(ctx, domain.RepositoryKind, orgId, lo.FromPtr(repository.Metadata.Name), nil, result, true, err)
 	return result, common.StoreErrorToApiStatus(err, true, domain.RepositoryKind, repository.Metadata.Name)
+}
+
+func (h *ServiceHandler) rejectDuplicateDeltaStorageTarget(ctx context.Context, orgId uuid.UUID, repo domain.Repository) error {
+	specType, err := repo.Spec.Discriminator()
+	if err != nil {
+		return nil
+	}
+	if specType != string(domain.RepoSpecTypeOci) {
+		return nil
+	}
+	ociSpec, err := repo.Spec.AsOciRepoSpec()
+	if err != nil {
+		return err
+	}
+	if ociSpec.DeltaStorageTarget == nil || !*ociSpec.DeltaStorageTarget {
+		return nil
+	}
+	existing, err := h.store.GetDeltaStorageTarget(ctx, orgId)
+	if err != nil {
+		return err
+	}
+	if existing == nil {
+		return nil
+	}
+	if lo.FromPtr(existing.Metadata.Name) == lo.FromPtr(repo.Metadata.Name) {
+		return nil
+	}
+	return flterrors.ErrDuplicateDeltaStorageTarget
 }
 
 func (h *ServiceHandler) ListRepositories(ctx context.Context, orgId uuid.UUID, params domain.ListRepositoriesParams) (*domain.RepositoryList, domain.Status) {
@@ -101,6 +131,9 @@ func (h *ServiceHandler) ReplaceRepository(ctx context.Context, orgId uuid.UUID,
 	}
 	if name != *repository.Metadata.Name {
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
+	}
+	if err := h.rejectDuplicateDeltaStorageTarget(ctx, orgId, repository); err != nil {
+		return nil, common.StoreErrorToApiStatus(err, false, domain.RepositoryKind, &name)
 	}
 
 	// Preserve sensitive data from existing repository if the new one contains masked placeholders
@@ -142,6 +175,9 @@ func (h *ServiceHandler) PatchRepository(ctx context.Context, orgId uuid.UUID, n
 
 	if errs := currentObj.ValidateUpdate(newObj); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
+	}
+	if err := h.rejectDuplicateDeltaStorageTarget(ctx, orgId, *newObj); err != nil {
+		return nil, common.StoreErrorToApiStatus(err, false, domain.RepositoryKind, &name)
 	}
 
 	// Preserve sensitive data from existing repository if the new one contains masked placeholders
@@ -346,7 +382,10 @@ func (h *ServiceHandler) resolveOciRepoRef(ctx context.Context, orgId uuid.UUID,
 	}
 	ociSpec := &ociSpecVal
 
-	fullRef := strings.TrimRight(ociSpec.Registry, "/") + "/" + strings.TrimLeft(imageName, "/")
+	fullRef, err := oci.RegistryObjectRef(ociSpec, imageName)
+	if err != nil {
+		return nil, domain.StatusBadRequest(err.Error())
+	}
 	repoRef, err := oci.BuildOciRepoRef(ctx, ociSpec, fullRef)
 	if err != nil {
 		return nil, domain.StatusBadRequest(fmt.Sprintf("invalid repository reference %q: %v", fullRef, err))

@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/store"
@@ -29,6 +30,8 @@ type Store interface {
 	// Used by domain metrics
 	Count(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, error)
 	CountByOrg(ctx context.Context, orgId *uuid.UUID) ([]store.CountByOrgResult, error)
+
+	GetDeltaStorageTarget(ctx context.Context, orgId uuid.UUID) (*domain.Repository, error)
 }
 
 type RepositoryStore struct {
@@ -88,7 +91,25 @@ func (s *RepositoryStore) InitialMigration(ctx context.Context) error {
 		}
 	}
 
+	if err := s.createDeltaStorageTargetUniqueIndex(db); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+func (s *RepositoryStore) createDeltaStorageTargetUniqueIndex(db *gorm.DB) error {
+	if db.Migrator().HasIndex(&model.Repository{}, store.ConstraintDeltaStorageTargetUnique) {
+		return nil
+	}
+	if db.Dialector.Name() != "postgres" {
+		return nil
+	}
+	return db.Exec(`
+		CREATE UNIQUE INDEX ` + store.ConstraintDeltaStorageTargetUnique + `
+		ON repositories (org_id)
+		WHERE spec->>'deltaStorageTarget' = 'true'
+	`).Error
 }
 
 func (s *RepositoryStore) Create(ctx context.Context, orgId uuid.UUID, resource *domain.Repository) (*domain.Repository, error) {
@@ -119,6 +140,18 @@ func (s *RepositoryStore) ListIgnoreOrg(ctx context.Context) ([]model.Repository
 		return nil, store.ErrorFromGormError(result.Error)
 	}
 	return repositories, nil
+}
+
+func (s *RepositoryStore) GetDeltaStorageTarget(ctx context.Context, orgId uuid.UUID) (*domain.Repository, error) {
+	var repo model.Repository
+	result := s.getDB(ctx).Where("org_id = ? AND spec->>'deltaStorageTarget' = ?", orgId, "true").Take(&repo)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, store.ErrorFromGormError(result.Error)
+	}
+	return repo.ToApiResource()
 }
 
 func (s *RepositoryStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {

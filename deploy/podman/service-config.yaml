@@ -197,6 +197,18 @@ prometheus:
 #     # Skip TLS certificate verification (insecure, for lab/air-gap only). Defaults to false.
 #     # skipTlsVerify: false
 
+# Default OCI write target for generated deltas when an organization has no deltaStorageTarget Repository.
+# Username and password are supplied via DELTA_GENERATION_DEFAULT_REPOSITORY_USERNAME and
+# DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD; they are not written to config.yaml.
+# deltaGeneration:
+#   defaultRepository:
+#     registry: my-registry.com
+#     repository: my-org/diffs
+#     # namespace: my-org
+#     scheme: https
+#     skipServerVerification: false
+#     # ca.crt: <base64-encoded PEM>
+
 # Automated dependency synchronization (optional).
 # Controls the global polling interval for git/HTTP dependency probes.
 # dependenciesSync:

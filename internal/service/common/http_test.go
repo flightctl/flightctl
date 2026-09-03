@@ -132,6 +132,11 @@ func TestStoreErrorToApiStatus(t *testing.T) {
 			expectedCode: 409,
 		},
 		{
+			name:         "When err is ErrDuplicateDeltaStorageTarget it should return 409",
+			err:          flterrors.ErrDuplicateDeltaStorageTarget,
+			expectedCode: 409,
+		},
+		{
 			name:         "When err is an unrecognized error it should return 500",
 			err:          errors.New("some unmapped database error"),
 			expectedCode: 500,

@@ -59,8 +59,9 @@ var (
 	ErrNotOrgMember          = errors.New("access denied to organization")
 
 	// authprovider
-	ErrDuplicateOIDCProvider   = errors.New("an OIDC auth provider with the same issuer and clientId already exists")
-	ErrDuplicateOAuth2Provider = errors.New("an OAuth2 auth provider with the same userinfoUrl and clientId already exists")
+	ErrDuplicateOIDCProvider       = errors.New("an OIDC auth provider with the same issuer and clientId already exists")
+	ErrDuplicateOAuth2Provider     = errors.New("an OAuth2 auth provider with the same userinfoUrl and clientId already exists")
+	ErrDuplicateDeltaStorageTarget = errors.New("an OCI repository with deltaStorageTarget already exists in this organization")
 
 	// database encoding
 	ErrUnsupportedUnicode = errors.New("unsupported Unicode escape sequence")

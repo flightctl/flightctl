@@ -294,6 +294,14 @@ For more detailed configuration options, see the [Values](#values) section below
 | dbSetup.migration.backoffLimit | int | `2147483647` | Number of retries for the migration Job on failure  |
 | dbSetup.wait.sleep | int | `2` | Seconds to sleep between database connection attempts Default sleep interval between connection attempts |
 | dbSetup.wait.timeout | int | `60` | Seconds to wait for database readiness before failing Default timeout for database wait (can be overridden per deployment) |
+| deltaGeneration | object | `{"defaultRepository":{"caCrt":"","namespace":"","registry":"","repository":"","scheme":"","secretName":"","skipServerVerification":false}}` | Default OCI write target for generated deltas when an organization has no deltaStorageTarget Repository. Username and password must come from the Secret named in secretName (keys: username, password); they are not written to config.yaml. |
+| deltaGeneration.defaultRepository.caCrt | string | `""` | Base64-encoded PEM of a custom registry CA (same encoding as Repository spec ca.crt). |
+| deltaGeneration.defaultRepository.namespace | string | `""` | Optional namespace under registry (e.g. my-org). Mutually exclusive with repository. |
+| deltaGeneration.defaultRepository.registry | string | `""` | Registry hostname used as the login/CA host and as the prefix of the push path. |
+| deltaGeneration.defaultRepository.repository | string | `""` | Optional repository path under registry (e.g. my-org/diffs). Mutually exclusive with namespace. |
+| deltaGeneration.defaultRepository.scheme | string | `""` | URL scheme for connecting to the registry. Allowed values: http, https. |
+| deltaGeneration.defaultRepository.secretName | string | `""` | Name of the Kubernetes Secret containing 'username' and 'password' keys. |
+| deltaGeneration.defaultRepository.skipServerVerification | bool | `false` | Skip TLS verification when connecting to the registry. |
 | encryption | object | `{"activeKeyID":"default","keys":[{"file":"key","id":"default"}]}` | Encryption-at-rest key configuration. The flightctl-encryption-key Secret is mounted at /root/.flightctl/encryption/ in all services. Each key entry maps a logical key ID to a filename within that Secret. For key rotation: add a new key file to the Secret, add it here, then change activeKeyID. |
 | encryption.activeKeyID | string | `"default"` | Key ID used for new encryptions. Must match one of the IDs in the keys list. |
 | encryption.keys | list | `[{"file":"key","id":"default"}]` | List of available encryption keys. Old keys remain available for decryption during rotation. |
