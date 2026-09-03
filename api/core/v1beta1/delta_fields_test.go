@@ -202,6 +202,7 @@ func TestNewDeviceStatusDoesNotInventDeltaFields(t *testing.T) {
 	status := NewDeviceStatus()
 	assert.Nil(t, status.Capabilities)
 	assert.Nil(t, status.Os.LastDelta)
+	assert.Nil(t, status.DeltaGeneration)
 }
 
 func TestPrepareDeltasDetailsJSON(t *testing.T) {
@@ -256,6 +257,37 @@ func TestPrepareDeltasDetailsJSON(t *testing.T) {
 			assert.Contains(t, raw, `"templateVersion":"`+tt.wantMarshalTV+`"`)
 		})
 	}
+}
+
+func TestDeltaGenerationProgressDetailsJSON(t *testing.T) {
+	t.Run("When phase is set it should round-trip an in-progress pair", func(t *testing.T) {
+		in := `{"detailType":"DeltaGenerationProgress","imageRepository":"quay.io/acme/os","sourceDigest":"sha256:aaa","targetDigest":"sha256:bbb","generationStatus":"in_progress","phase":"createDelta","templateVersion":"tv-1"}`
+		var details DeltaGenerationProgressDetails
+		require.NoError(t, json.Unmarshal([]byte(in), &details))
+		assert.Equal(t, DeltaGenerationProgress, details.DetailType)
+		assert.Equal(t, "quay.io/acme/os", details.ImageRepository)
+		assert.Equal(t, DeltaGenerationProgressInProgress, details.GenerationStatus)
+		require.NotNil(t, details.Phase)
+		assert.Equal(t, DeltaGenerationPhaseCreateDelta, *details.Phase)
+		assert.Equal(t, lo.ToPtr("tv-1"), details.TemplateVersion)
+		assert.NotContains(t, in, `"percent"`)
+	})
+
+	t.Run("When generationStatus is failed it should omit phase", func(t *testing.T) {
+		src := DeltaGenerationProgressDetails{
+			DetailType:       DeltaGenerationProgress,
+			ImageRepository:  "quay.io/acme/os",
+			SourceDigest:     "sha256:aaa",
+			TargetDigest:     "sha256:bbb",
+			GenerationStatus: DeltaGenerationProgressFailed,
+		}
+		data, err := json.Marshal(src)
+		require.NoError(t, err)
+		raw := string(data)
+		assert.Contains(t, raw, `"generationStatus":"failed"`)
+		assert.NotContains(t, raw, `"phase"`)
+		assert.NotContains(t, raw, `"percent"`)
+	})
 }
 
 func TestRolloutPolicyGenerateDeltaJSON(t *testing.T) {
@@ -317,4 +349,106 @@ func TestRolloutPolicyGenerateDeltaJSON(t *testing.T) {
 			assert.Contains(t, raw, `"generateDelta":false`)
 		})
 	}
+}
+
+func TestRolloutPolicyWaitAndTimeoutJSON(t *testing.T) {
+	tests := []struct {
+		name            string
+		jsonInput       string
+		wantWait        *Duration
+		wantTimeout     *Duration
+		marshalSource   RolloutPolicy
+		wantMarshalOmit []string
+		wantMarshalWait string
+	}{
+		{
+			name:        "When wait and timeout are absent it should leave both nil",
+			jsonInput:   `{}`,
+			wantWait:    nil,
+			wantTimeout: nil,
+		},
+		{
+			name:        "When maxWaitForDelta is 0s it should unmarshal zero duration",
+			jsonInput:   `{"maxWaitForDelta":"0s"}`,
+			wantWait:    lo.ToPtr(Duration("0s")),
+			wantTimeout: nil,
+		},
+		{
+			name:        "When both are set it should unmarshal the durations",
+			jsonInput:   `{"maxWaitForDelta":"10m","deltaGenerationTimeout":"30m"}`,
+			wantWait:    lo.ToPtr(Duration("10m")),
+			wantTimeout: lo.ToPtr(Duration("30m")),
+		},
+		{
+			name:            "When wait and timeout are nil it should omit them from JSON",
+			marshalSource:   RolloutPolicy{},
+			wantMarshalOmit: []string{`"maxWaitForDelta"`, `"deltaGenerationTimeout"`},
+		},
+		{
+			name:            "When MaxWaitForDelta is 0s it should include maxWaitForDelta in JSON",
+			marshalSource:   RolloutPolicy{MaxWaitForDelta: lo.ToPtr(Duration("0s"))},
+			wantMarshalWait: "0s",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.jsonInput != "" {
+				var policy RolloutPolicy
+				require.NoError(t, json.Unmarshal([]byte(tt.jsonInput), &policy))
+				assert.Equal(t, tt.wantWait, policy.MaxWaitForDelta)
+				assert.Equal(t, tt.wantTimeout, policy.DeltaGenerationTimeout)
+				return
+			}
+
+			data, err := json.Marshal(tt.marshalSource)
+			require.NoError(t, err)
+			raw := string(data)
+			for _, key := range tt.wantMarshalOmit {
+				assert.NotContains(t, raw, key)
+			}
+			if tt.wantMarshalWait != "" {
+				assert.Contains(t, raw, `"maxWaitForDelta":"`+tt.wantMarshalWait+`"`)
+			}
+		})
+	}
+}
+
+func TestDeltaGenerationStatusJSON(t *testing.T) {
+	t.Run("When deltaGeneration is absent it should leave Fleet and Device status nil", func(t *testing.T) {
+		var fleet FleetStatus
+		require.NoError(t, json.Unmarshal([]byte(`{}`), &fleet))
+		assert.Nil(t, fleet.DeltaGeneration)
+
+		var device DeviceStatus
+		require.NoError(t, json.Unmarshal([]byte(`{}`), &device))
+		assert.Nil(t, device.DeltaGeneration)
+	})
+
+	t.Run("When deltaGeneration is set it should round-trip completed and total", func(t *testing.T) {
+		in := `{"completed":1,"total":4}`
+		var status DeltaGenerationStatus
+		require.NoError(t, json.Unmarshal([]byte(in), &status))
+		assert.Equal(t, int64(1), status.Completed)
+		assert.Equal(t, int64(4), status.Total)
+
+		data, err := json.Marshal(FleetStatus{Conditions: []Condition{}, DeltaGeneration: &status})
+		require.NoError(t, err)
+		assert.Contains(t, string(data), `"deltaGeneration"`)
+		assert.Contains(t, string(data), `"completed":1`)
+		assert.Contains(t, string(data), `"total":4`)
+		assert.NotContains(t, string(data), `"phase"`)
+		assert.NotContains(t, string(data), `"pairs"`)
+	})
+
+	t.Run("When DeltaGeneration is nil it should omit deltaGeneration from JSON", func(t *testing.T) {
+		data, err := json.Marshal(FleetStatus{Conditions: []Condition{}})
+		require.NoError(t, err)
+		assert.NotContains(t, string(data), `"deltaGeneration"`)
+	})
+}
+
+func TestDeltaPreparingConditionTypes(t *testing.T) {
+	assert.Equal(t, ConditionType("FleetDeltaPreparing"), ConditionTypeFleetDeltaPreparing)
+	assert.Equal(t, ConditionType("DeviceDeltaPreparing"), ConditionTypeDeviceDeltaPreparing)
 }

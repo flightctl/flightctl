@@ -33,6 +33,8 @@ const (
 	ConditionTypeDeviceUpdating                       = v1beta1.ConditionTypeDeviceUpdating
 	ConditionTypeEnrollmentRequestApproved            = v1beta1.ConditionTypeEnrollmentRequestApproved
 	ConditionTypeEnrollmentRequestTPMVerified         = v1beta1.ConditionTypeEnrollmentRequestTPMVerified
+	ConditionTypeFleetDeltaPreparing                  = v1beta1.ConditionTypeFleetDeltaPreparing
+	ConditionTypeDeviceDeltaPreparing                 = v1beta1.ConditionTypeDeviceDeltaPreparing
 	ConditionTypeFleetRolloutInProgress               = v1beta1.ConditionTypeFleetRolloutInProgress
 	ConditionTypeFleetValid                           = v1beta1.ConditionTypeFleetValid
 	ConditionTypeRepositoryAccessible                 = v1beta1.ConditionTypeRepositoryAccessible
@@ -76,8 +78,18 @@ type PermissionList = v1beta1.PermissionList
 
 type Duration = v1beta1.Duration
 type Percentage = v1beta1.Percentage
+type DeltaGenerationPhase = v1beta1.DeltaGenerationPhase
+type DeltaGenerationStatus = v1beta1.DeltaGenerationStatus
 type CronExpression = v1beta1.CronExpression
 type TimeZone = v1beta1.TimeZone
+
+const (
+	DeltaGenerationPhaseCheckingExisting = v1beta1.DeltaGenerationPhaseCheckingExisting
+	DeltaGenerationPhasePullSource       = v1beta1.DeltaGenerationPhasePullSource
+	DeltaGenerationPhasePullTarget       = v1beta1.DeltaGenerationPhasePullTarget
+	DeltaGenerationPhaseCreateDelta      = v1beta1.DeltaGenerationPhaseCreateDelta
+	DeltaGenerationPhasePush             = v1beta1.DeltaGenerationPhasePush
+)
 
 // ========== Resource Kinds ==========
 

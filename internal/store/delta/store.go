@@ -2,6 +2,7 @@ package delta
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -37,7 +38,10 @@ type Store interface {
 	CASPrepareStatus(ctx context.Context, id uuid.UUID, to string) error
 	ListWaitingPastDeadline(ctx context.Context, limit int, asOf time.Time) ([]model.DeltaPrepare, error)
 	ListWaitingPreparesByGeneration(ctx context.Context, key GenerationKey) ([]model.DeltaPrepare, error)
+	CountPreparePairs(ctx context.Context, prepareID uuid.UUID) (completed, total int, err error)
+	SetGenerationPhase(ctx context.Context, key GenerationKey, phase string) error
 	InsertPrepareGenerations(ctx context.Context, prepareID uuid.UUID, keys []GenerationKey) error
+	GetWaitingPrepare(ctx context.Context, orgID uuid.UUID, kind, name string) (*model.DeltaPrepare, error)
 }
 
 type GenerationKey struct {
@@ -367,6 +371,21 @@ func (s *DeltaStore) GetPrepare(ctx context.Context, id uuid.UUID) (*model.Delta
 	return &prep, nil
 }
 
+func (s *DeltaStore) GetWaitingPrepare(ctx context.Context, orgID uuid.UUID, kind, name string) (*model.DeltaPrepare, error) {
+	var prep model.DeltaPrepare
+	result := s.getDB(ctx).Where(
+		"org_id = ? AND kind = ? AND name = ? AND status = ?",
+		orgID, kind, name, model.DeltaPrepareWaiting,
+	).Take(&prep)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, store.ErrorFromGormError(result.Error)
+	}
+	return &prep, nil
+}
+
 func (s *DeltaStore) InsertPrepareGenerations(ctx context.Context, prepareID uuid.UUID, keys []GenerationKey) error {
 	keys = lo.Uniq(keys)
 	if len(keys) == 0 {
@@ -416,6 +435,40 @@ func (s *DeltaStore) ListWaitingPreparesByGeneration(ctx context.Context, key Ge
 		return nil, store.ErrorFromGormError(result.Error)
 	}
 	return rows, nil
+}
+
+func (s *DeltaStore) CountPreparePairs(ctx context.Context, prepareID uuid.UUID) (int, int, error) {
+	var rows []struct {
+		Status string `gorm:"column:status"`
+	}
+	result := s.getDB(ctx).Table("delta_prepare_generations AS pg").
+		Select("g.status").
+		Joins("INNER JOIN delta_generations AS g ON g.org_id = pg.org_id AND g.image_repository = pg.image_repository AND g.source_digest = pg.source_digest AND g.target_digest = pg.target_digest").
+		Where("pg.prepare_id = ?", prepareID).
+		Scan(&rows)
+	if result.Error != nil {
+		return 0, 0, store.ErrorFromGormError(result.Error)
+	}
+	completed := 0
+	for _, row := range rows {
+		if row.Status == model.DeltaGenerationSucceeded || row.Status == model.DeltaGenerationFailed || row.Status == model.DeltaGenerationRejected {
+			completed++
+		}
+	}
+	return completed, len(rows), nil
+}
+
+func (s *DeltaStore) SetGenerationPhase(ctx context.Context, key GenerationKey, phase string) error {
+	result := s.getDB(ctx).Model(&model.DeltaGeneration{}).
+		Where(
+			"org_id = ? AND image_repository = ? AND source_digest = ? AND target_digest = ?",
+			key.OrgID, key.ImageRepository, key.SourceDigest, key.TargetDigest,
+		).
+		Update("phase", phase)
+	if result.Error != nil {
+		return store.ErrorFromGormError(result.Error)
+	}
+	return nil
 }
 
 func (s *DeltaStore) CASPrepareStatus(ctx context.Context, id uuid.UUID, to string) error {

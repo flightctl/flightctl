@@ -187,6 +187,10 @@ func (s *fakeDeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, dev
 	return updated, before, err
 }
 
+func (s *fakeDeviceStore) ReplaceServiceOwnedStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device) (*domain.Device, *domain.Device, error) {
+	return s.UpdateStatus(ctx, orgId, device, nil)
+}
+
 func (s *fakeDeviceStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error {
 	_, _, _, err := s.Mutate(ctx, orgId, name, nil, func(m *devicestore.DeviceMutation) error {
 		if err := m.RequireExisting(); err != nil {

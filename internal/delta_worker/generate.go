@@ -1,6 +1,7 @@
 package delta_worker
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	_ "crypto/sha256"
@@ -12,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/oci"
@@ -28,16 +30,49 @@ import (
 const layoutTag = "img"
 
 type runner interface {
-	Run(ctx context.Context, name string, args ...string) error
+	Run(ctx context.Context, name string, args []string, onLine func(string)) error
 }
 
 type execRunner struct{}
 
-func (execRunner) Run(ctx context.Context, name string, args ...string) error {
+func (execRunner) Run(ctx context.Context, name string, args []string, onLine func(string)) error {
 	cmd := exec.CommandContext(ctx, name, args...)
-	out, err := cmd.CombinedOutput()
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return fmt.Errorf("%s: %w: %s", name, err, out)
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	var (
+		mu  sync.Mutex
+		out strings.Builder
+		wg  sync.WaitGroup
+	)
+	scan := func(r io.Reader) {
+		defer wg.Done()
+		s := bufio.NewScanner(r)
+		for s.Scan() {
+			line := s.Text()
+			mu.Lock()
+			out.WriteString(line)
+			out.WriteByte('\n')
+			mu.Unlock()
+			if onLine != nil {
+				onLine(line)
+			}
+		}
+	}
+	wg.Add(2)
+	go scan(stdout)
+	go scan(stderr)
+	wg.Wait()
+	if err := cmd.Wait(); err != nil {
+		return fmt.Errorf("%s: %w: %s", name, err, out.String())
 	}
 	return nil
 }
@@ -92,17 +127,27 @@ func (g generator) createAndPushDelta(ctx context.Context, sourceRef, targetRef,
 		}
 	}
 	g.info("pulling source %s tls=%s", sourceRef, tlsSummaryForImage(sourceRef, g.writeSpec))
+	emitGenerationProgress(ctx, GenerationProgress{Phase: domain.DeltaGenerationPhasePullSource})
 	if err := pull(withCopyOp(ctx, "pull source"), sourceRef, sourceDir); err != nil {
 		return "", 0, fmt.Errorf("pull source: %w", err)
 	}
 	g.info("pulled source %s", sourceRef)
 	g.info("pulling target %s tls=%s", targetRef, tlsSummaryForImage(targetRef, g.writeSpec))
+	emitGenerationProgress(ctx, GenerationProgress{Phase: domain.DeltaGenerationPhasePullTarget})
 	if err := pull(withCopyOp(ctx, "pull target"), targetRef, targetDir); err != nil {
 		return "", 0, fmt.Errorf("pull target: %w", err)
 	}
 	g.info("pulled target %s", targetRef)
 	g.info("creating oci-delta")
-	if err := run.Run(ctx, "oci-delta", "create", sourceOCI, targetOCI, deltaOCI); err != nil {
+	emitGenerationProgress(ctx, GenerationProgress{Phase: domain.DeltaGenerationPhaseCreateDelta})
+	onLine := func(line string) {
+		p, ok := parseOciDeltaCreateLine(line)
+		if !ok {
+			return
+		}
+		emitGenerationProgress(ctx, p)
+	}
+	if err := run.Run(ctx, "oci-delta", []string{"create", "--debug", sourceOCI, targetOCI, deltaOCI}, onLine); err != nil {
 		return "", 0, fmt.Errorf("create delta: %w", err)
 	}
 	g.info("created oci-delta")
@@ -114,6 +159,7 @@ func (g generator) createAndPushDelta(ctx context.Context, sourceRef, targetRef,
 		}
 	}
 	g.info("pushing delta to %s tls=%s", pushPath, tlsSummary(g.writeSpec))
+	emitGenerationProgress(ctx, GenerationProgress{Phase: domain.DeltaGenerationPhasePush})
 	deltaRef, err = push(withCopyOp(ctx, "push"), deltaDir, pushPath, sourceRef, targetRef)
 	if err != nil {
 		return "", 0, fmt.Errorf("push delta: %w", err)
@@ -333,7 +379,7 @@ func pushStoredBlob(ctx context.Context, src content.Fetcher, dst content.Pusher
 	}
 	defer rc.Close()
 	if obs != nil {
-		obs.emit(fmt.Sprintf("%s %s %s %s", obs.op, blobLabel(desc), formatBytes(desc.Size), desc.Digest), true)
+		obs.emit(blobProgress(obs.phase, 0, desc.Size), fmt.Sprintf("%s %s %s %s", obs.op, blobLabel(desc), formatBytes(desc.Size), desc.Digest), true)
 	}
 	if err := dst.Push(ctx, desc, rc); err != nil {
 		if errors.Is(err, errdef.ErrAlreadyExists) {
@@ -342,7 +388,7 @@ func pushStoredBlob(ctx context.Context, src content.Fetcher, dst content.Pusher
 		return err
 	}
 	if obs != nil {
-		obs.emit(fmt.Sprintf("%s %s complete %s %s", obs.op, blobLabel(desc), formatBytes(desc.Size), desc.Digest), true)
+		obs.emit(blobProgress(obs.phase, desc.Size, desc.Size), fmt.Sprintf("%s %s complete %s %s", obs.op, blobLabel(desc), formatBytes(desc.Size), desc.Digest), true)
 	}
 	return nil
 }

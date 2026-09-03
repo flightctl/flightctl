@@ -6384,6 +6384,8 @@ components:
           $ref: '#/components/schemas/DependencySyncStatus'
         capabilities:
           $ref: '#/components/schemas/DeviceCapabilities'
+        deltaGeneration:
+          $ref: '#/components/schemas/DeltaGenerationStatus'
       additionalProperties: false
     DeviceLastSeen:
       type: object
@@ -7290,6 +7292,14 @@ components:
         generateDelta:
           type: boolean
           description: When false, skip control-plane OS delta generation for this fleet. Omitted means true.
+        maxWaitForDelta:
+          allOf:
+            - $ref: '#/components/schemas/Duration'
+          description: How long a prepare may wait before periodic resume. Omitted uses DeltaGeneration.maxWaitForDelta. Ignored when generateDelta is false. 0s still generates then resumes immediately.
+        deltaGenerationTimeout:
+          allOf:
+            - $ref: '#/components/schemas/Duration'
+          description: Context deadline for each generation job. Omitted uses DeltaGeneration.timeout.
       description: RolloutPolicy is the rollout policy of the fleet.
 
     FleetSpec:
@@ -7407,8 +7417,45 @@ components:
             $ref: '#/components/schemas/Condition'
         devicesSummary:
           $ref: '#/components/schemas/DevicesSummary'
+        deltaGeneration:
+          $ref: '#/components/schemas/DeltaGenerationStatus'
       required:
         - conditions
+      additionalProperties: false
+    DeltaGenerationPhase:
+      type: string
+      description: Current step of control-plane delta generation for the in-flight pair.
+      enum:
+        - checkingExisting
+        - pullSource
+        - pullTarget
+        - createDelta
+        - push
+      x-enum-varnames:
+        - DeltaGenerationPhaseCheckingExisting
+        - DeltaGenerationPhasePullSource
+        - DeltaGenerationPhasePullTarget
+        - DeltaGenerationPhaseCreateDelta
+        - DeltaGenerationPhasePush
+    DeltaGenerationStatus:
+      type: object
+      description: Pair counts (completed/total) for a prepare in flight. Per-pair phase is one DeltaGenerationProgress event per step, not a percent heartbeat. Condition messages carry the same completed/total counts.
+      properties:
+        completed:
+          type: integer
+          format: int64
+          description: Number of joined generation pairs that are already terminal.
+        total:
+          type: integer
+          format: int64
+          description: Number of unique generation pairs in this prepare.
+        lastUpdated:
+          type: string
+          format: date-time
+          description: Time of the last completed/total write for this prepare.
+      required:
+        - completed
+        - total
       additionalProperties: false
     DevicesSummary:
       type: object
@@ -7823,6 +7870,8 @@ components:
       - 'SpecValid'             # Device (service condition)
       - 'MultipleOwners'        # Device (service condition)
       - 'DeviceDecommissioning' # Device
+      - 'FleetDeltaPreparing'   # Fleet
+      - 'DeviceDeltaPreparing'  # Device
       x-enum-varnames:
       - EnrollmentRequestApproved
       - EnrollmentRequestTPMVerified
@@ -7840,6 +7889,8 @@ components:
       - DeviceSpecValid
       - DeviceMultipleOwners
       - DeviceDecommissioning
+      - FleetDeltaPreparing
+      - DeviceDeltaPreparing
     ConditionStatus:
       type: string
       description: Status of the condition, one of True, False, Unknown.
@@ -8046,6 +8097,7 @@ components:
             - EncryptionMigrationCompleted
             - ApplicationLifecycleChanged
             - PrepareDeltas
+            - DeltaGenerationProgress
             - DeltaGenerationCompleted
         message:
           type: string
@@ -8133,6 +8185,7 @@ components:
           DependencySyncProbeFailed: "#/components/schemas/DependencySyncProbeFailedDetails"
           ApplicationLifecycleChanged: "#/components/schemas/ApplicationLifecycleChangedDetails"
           PrepareDeltas: "#/components/schemas/PrepareDeltasDetails"
+          DeltaGenerationProgress: "#/components/schemas/DeltaGenerationProgressDetails"
       oneOf:
         - $ref: "#/components/schemas/ResourceUpdatedDetails"
         - $ref: "#/components/schemas/DeviceOwnershipChangedDetails"
@@ -8153,6 +8206,7 @@ components:
         - $ref: "#/components/schemas/DependencySyncProbeFailedDetails"
         - $ref: "#/components/schemas/ApplicationLifecycleChangedDetails"
         - $ref: "#/components/schemas/PrepareDeltasDetails"
+        - $ref: "#/components/schemas/DeltaGenerationProgressDetails"
     DeviceVulnerabilityCveDetails:
       type: object
       description: Structured details for per-device CVE vulnerability events.
@@ -8328,6 +8382,52 @@ components:
         templateVersion:
           type: string
           description: Fleet only. The TemplateVersion this prepare is for. Required when involvedObject.kind is Fleet; omitted for Device.
+    DeltaGenerationProgressDetails:
+      type: object
+      description: Structured details for DeltaGenerationProgress events. One event when a pair enters a phase or becomes terminal, fanned out to each waiting Fleet or standalone Device. Not a percent heartbeat.
+      additionalProperties: false
+      required:
+        - detailType
+        - imageRepository
+        - sourceDigest
+        - targetDigest
+        - generationStatus
+      properties:
+        detailType:
+          type: string
+          enum: [DeltaGenerationProgress]
+          description: The type of detail for discriminator purposes.
+        imageRepository:
+          type: string
+          description: Image repository (host/namespace/name) for this pair.
+        sourceDigest:
+          type: string
+          description: Current image digest.
+        targetDigest:
+          type: string
+          description: Target image digest.
+        generationStatus:
+          type: string
+          description: Generation row status for this pair.
+          enum:
+            - in_progress
+            - succeeded
+            - failed
+            - rejected
+          x-enum-varnames:
+            - DeltaGenerationProgressInProgress
+            - DeltaGenerationProgressSucceeded
+            - DeltaGenerationProgressFailed
+            - DeltaGenerationProgressRejected
+        phase:
+          $ref: '#/components/schemas/DeltaGenerationPhase'
+        templateVersion:
+          type: string
+          description: Fleet only. The TemplateVersion this prepare is for.
+        specResourceVersion:
+          type: integer
+          format: int64
+          description: Device only. Spec generation of the standalone Device this prepare is for.
     FleetRolloutStartedDetails:
       type: object
       required:

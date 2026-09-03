@@ -3,6 +3,7 @@ package worker_client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -60,8 +61,8 @@ func TestEmitEvent_QueueRouting(t *testing.T) {
 			wantDelta: 0,
 		},
 		{
-			name:      "When reason is not allowlisted it should enqueue on neither producer",
-			reason:    domain.EventReasonFleetValid,
+			name:      "When DeltaGenerationProgress it should enqueue on neither producer",
+			reason:    domain.EventReasonDeltaGenerationProgress,
 			withDelta: true,
 			wantTask:  0,
 			wantDelta: 0,
@@ -99,3 +100,28 @@ func TestEmitEvent_QueueRouting(t *testing.T) {
 		})
 	}
 }
+
+func TestEnqueueEvent(t *testing.T) {
+	orgID := uuid.New()
+	t.Run("When producer is nil it should return an error", func(t *testing.T) {
+		err := EnqueueEvent(context.Background(), nil, orgID, &domain.Event{Reason: domain.EventReasonGenerateDelta})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "queue producer is required")
+	})
+	t.Run("When enqueue fails it should return the producer error", func(t *testing.T) {
+		p := &failingProducer{err: errors.New("redis down")}
+		err := EnqueueEvent(context.Background(), p, orgID, &domain.Event{Reason: domain.EventReasonGenerateDelta})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "redis down")
+	})
+}
+
+type failingProducer struct {
+	err error
+}
+
+func (p *failingProducer) Enqueue(_ context.Context, _ []byte, _ int64) error {
+	return p.err
+}
+
+func (p *failingProducer) Close() {}

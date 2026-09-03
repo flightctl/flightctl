@@ -77,17 +77,20 @@ func (t *workerClient) EmitEvent(ctx context.Context, orgId uuid.UUID, event *do
 	t.enqueue(ctx, orgId, event, t.publisher)
 }
 
-func (t *workerClient) enqueue(ctx context.Context, orgId uuid.UUID, event *domain.Event, producer queues.QueueProducer) {
+// EnqueueEvent marshals event and writes it to producer. It returns marshal and enqueue errors.
+func EnqueueEvent(ctx context.Context, producer queues.QueueProducer, orgId uuid.UUID, event *domain.Event) error {
+	if event == nil {
+		return fmt.Errorf("event is required")
+	}
 	if producer == nil {
-		return
+		return fmt.Errorf("queue producer is required")
 	}
 	b, err := json.Marshal(EventWithOrgId{
 		OrgId: orgId,
 		Event: *event,
 	})
 	if err != nil {
-		t.log.WithError(err).Error("failed to marshal event for workers")
-		return
+		return fmt.Errorf("failed to marshal event for workers: %w", err)
 	}
 	var timestamp int64
 	if event.Metadata.CreationTimestamp != nil {
@@ -96,6 +99,16 @@ func (t *workerClient) enqueue(ctx context.Context, orgId uuid.UUID, event *doma
 		timestamp = time.Now().UnixMicro()
 	}
 	if err = producer.Enqueue(ctx, b, timestamp); err != nil {
+		return fmt.Errorf("failed to enqueue event for workers: %w", err)
+	}
+	return nil
+}
+
+func (t *workerClient) enqueue(ctx context.Context, orgId uuid.UUID, event *domain.Event, producer queues.QueueProducer) {
+	if producer == nil {
+		return
+	}
+	if err := EnqueueEvent(ctx, producer, orgId, event); err != nil {
 		t.log.WithError(err).Error("failed to enqueue event for workers")
 	}
 }

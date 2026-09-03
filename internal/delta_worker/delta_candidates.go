@@ -29,7 +29,7 @@ type Resolver struct {
 	Devices         func(ctx context.Context, orgId uuid.UUID, owner string) ([]*domain.Device, error)
 	Device          func(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error)
 	WriteTarget     func(ctx context.Context, orgId uuid.UUID) (*domain.OciRepoSpec, error)
-	Inspect         func(ctx context.Context, image string) (string, error)
+	Inspect         func(ctx context.Context, orgId uuid.UUID, image string) (string, error)
 	DesiredSpec     func(device *domain.Device, tv *domain.TemplateVersion) (*domain.DeviceSpec, error)
 	Render          func(ctx context.Context, spec *domain.DeviceSpec) (tasks.RenderedSpec, error)
 	Expand          func(tasks.RenderedSpec, []DeltaCandidate) []DeltaCandidate
@@ -84,7 +84,7 @@ func (r *Resolver) fleetCandidates(ctx context.Context, ev worker_client.EventWi
 
 	var candidates []DeltaCandidate
 	for _, device := range devices {
-		deviceCands, err := r.candidatesForDevice(ctx, device, tv)
+		deviceCands, err := r.candidatesForDevice(ctx, ev.OrgId, device, tv)
 		if err != nil {
 			return DeltaCandidateResult{}, err
 		}
@@ -108,7 +108,7 @@ func (r *Resolver) deviceCandidates(ctx context.Context, ev worker_client.EventW
 		return DeltaCandidateResult{Skip: true}, nil
 	}
 
-	candidates, err := r.candidatesForDevice(ctx, device, nil)
+	candidates, err := r.candidatesForDevice(ctx, ev.OrgId, device, nil)
 	if err != nil {
 		return DeltaCandidateResult{}, err
 	}
@@ -135,7 +135,7 @@ func (r *Resolver) templateVersionFromEvent(ctx context.Context, ev worker_clien
 	return r.TemplateVersion(ctx, ev.OrgId, ev.Event.InvolvedObject.Name, *details.TemplateVersion)
 }
 
-func (r *Resolver) candidatesForDevice(ctx context.Context, device *domain.Device, tv *domain.TemplateVersion) ([]DeltaCandidate, error) {
+func (r *Resolver) candidatesForDevice(ctx context.Context, orgId uuid.UUID, device *domain.Device, tv *domain.TemplateVersion) ([]DeltaCandidate, error) {
 	if !deviceEligible(device) {
 		return nil, nil
 	}
@@ -160,7 +160,7 @@ func (r *Resolver) candidatesForDevice(ctx context.Context, device *domain.Devic
 	}
 
 	var candidates []DeltaCandidate
-	if cand, ok, err := r.osCandidate(ctx, device, rendered); err != nil {
+	if cand, ok, err := r.osCandidate(ctx, orgId, device, rendered); err != nil {
 		return nil, err
 	} else if ok {
 		candidates = append(candidates, cand)
@@ -182,7 +182,7 @@ func (r *Resolver) desiredSpec(device *domain.Device, tv *domain.TemplateVersion
 	return desired(device, tv)
 }
 
-func (r *Resolver) osCandidate(ctx context.Context, device *domain.Device, rendered tasks.RenderedSpec) (DeltaCandidate, bool, error) {
+func (r *Resolver) osCandidate(ctx context.Context, orgId uuid.UUID, device *domain.Device, rendered tasks.RenderedSpec) (DeltaCandidate, bool, error) {
 	current := currentDigest(device)
 	if current == "" || rendered.OsImage == "" {
 		return DeltaCandidate{}, false, nil
@@ -194,7 +194,7 @@ func (r *Resolver) osCandidate(ctx context.Context, device *domain.Device, rende
 	if r.Inspect == nil {
 		return DeltaCandidate{}, false, fmt.Errorf("inspect is required")
 	}
-	newDigest, err := r.Inspect(ctx, rendered.OsImage)
+	newDigest, err := r.Inspect(ctx, orgId, rendered.OsImage)
 	if err != nil {
 		return DeltaCandidate{}, false, err
 	}

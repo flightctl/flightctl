@@ -30,6 +30,7 @@ type DeltaGeneration struct {
 	LastVerifiedAt  *time.Time
 	GeneratedAt     *time.Time
 	ResourceVersion int64
+	Phase           *string
 	UpdatedAt       time.Time
 }
 
