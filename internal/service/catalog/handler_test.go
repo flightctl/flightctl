@@ -105,9 +105,6 @@ func (f *fakeDeviceStore) GetRendered(context.Context, uuid.UUID, string, *strin
 func (f *fakeDeviceStore) Healthcheck(context.Context, uuid.UUID, []string) error {
 	panic("not implemented")
 }
-func (f *fakeDeviceStore) ProcessAwaitingReconnectAnnotation(context.Context, uuid.UUID, string, *string) (bool, error) {
-	panic("not implemented")
-}
 func (f *fakeDeviceStore) GetLastSeen(context.Context, uuid.UUID, string) (*time.Time, error) {
 	panic("not implemented")
 }
