@@ -84,7 +84,7 @@ func TestLaunchConsumers(t *testing.T) {
 	t.Run("When default config it should open DeltaGenerationTaskQueue twice", func(t *testing.T) {
 		provider := &recordingProvider{}
 		metrics := worker.NewWorkerCollector(ctx, log, config.NewDefault(), nil)
-		err := LaunchConsumers(ctx, provider, config.NewDefault(), metrics, log)
+		err := LaunchConsumers(ctx, provider, config.NewDefault(), nil, metrics, log)
 		require.NoError(t, err)
 		require.Equal(t, []string{consts.DeltaGenerationTaskQueue, consts.DeltaGenerationTaskQueue}, provider.queueNames)
 		require.NoError(t, testutil.CollectAndCompare(metrics, strings.NewReader(`
@@ -97,7 +97,7 @@ flightctl_worker_consumers_active 2
 	t.Run("When maxConcurrentDeltaGenerations is 3 it should open three consumers", func(t *testing.T) {
 		provider := &recordingProvider{}
 		cfg := &config.Config{DeltaGeneration: &config.DeltaGenerationConfig{MaxConcurrentDeltaGenerations: 3}}
-		err := LaunchConsumers(ctx, provider, cfg, nil, log)
+		err := LaunchConsumers(ctx, provider, cfg, nil, nil, log)
 		require.NoError(t, err)
 		require.Len(t, provider.queueNames, 3)
 		for _, name := range provider.queueNames {
@@ -108,7 +108,7 @@ flightctl_worker_consumers_active 2
 	t.Run("When PrepareDeltas payload it should ack with nil error", func(t *testing.T) {
 		provider := &recordingProvider{}
 		metrics := worker.NewWorkerCollector(ctx, log, config.NewDefault(), nil)
-		require.NoError(t, LaunchConsumers(ctx, provider, config.NewDefault(), metrics, log))
+		require.NoError(t, LaunchConsumers(ctx, provider, config.NewDefault(), nil, metrics, log))
 		payload, err := json.Marshal(worker_client.EventWithOrgId{
 			OrgId: uuid.New(),
 			Event: domain.Event{Reason: domain.EventReasonPrepareDeltas},
@@ -122,7 +122,7 @@ flightctl_worker_consumers_active 2
 
 	t.Run("When garbage payload it should ack with nil error", func(t *testing.T) {
 		provider := &recordingProvider{}
-		require.NoError(t, LaunchConsumers(ctx, provider, config.NewDefault(), nil, log))
+		require.NoError(t, LaunchConsumers(ctx, provider, config.NewDefault(), nil, nil, log))
 		require.NoError(t, provider.consumers[0].handler(ctx, []byte("not-json"), "2", provider.consumers[0], log))
 		require.Equal(t, 1, provider.consumers[0].completeN)
 		require.NoError(t, provider.consumers[0].completeErr)

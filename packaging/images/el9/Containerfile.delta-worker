@@ -1,8 +1,20 @@
-FROM registry.access.redhat.com/ubi9/go-toolset:1.25.9-1778675823 as build
+FROM registry.access.redhat.com/ubi9/go-toolset:1.26.5-1787559109 as build
 WORKDIR /app
 
 # Switch to root for build operations
 USER 0
+
+RUN ARCH=$(uname -m) && \
+    dnf install -y --nobest --nogpgcheck \
+      --repofrompath "cs-baseos,https://mirror.stream.centos.org/9-stream/BaseOS/${ARCH}/os/" \
+      --repofrompath "cs-appstream,https://mirror.stream.centos.org/9-stream/AppStream/${ARCH}/os/" \
+      --repofrompath "cs-crb,https://mirror.stream.centos.org/9-stream/CRB/${ARCH}/os/" \
+      ostree-devel && \
+    dnf clean all
+
+RUN dnf install -y --installroot=/runtime-root --setopt=install_weak_deps=False --nodocs \
+      ostree-libs && \
+    dnf --installroot=/runtime-root clean all
 
 # Copy dependencies first (most stable)
 COPY go.mod go.sum ./
@@ -36,9 +48,11 @@ ENV SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT}
 # Use BuildKit cache mounts for Go caching
 RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
-    make build-delta-worker
+    make build-delta-worker install-oci-delta
 
 FROM quay.io/flightctl/flightctl-base:9.7-1762965531
+USER 0
+COPY --from=build /runtime-root/ /
 WORKDIR /app
 LABEL \
   com.redhat.component="flightctl-delta-worker-container" \
@@ -48,4 +62,5 @@ LABEL \
   name="flightctl-delta-worker" \
   summary="Flight Control Edge management service, OS delta generation worker"
 COPY --from=build /app/bin/flightctl-delta-worker .
+COPY --from=build /app/bin/oci-delta /usr/local/bin/oci-delta
 CMD ["./flightctl-delta-worker"]

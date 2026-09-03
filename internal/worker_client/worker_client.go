@@ -117,6 +117,7 @@ var eventReasons = map[domain.EventReason]struct{}{
 
 var deltaEventReasons = map[domain.EventReason]struct{}{
 	domain.EventReasonPrepareDeltas: {},
+	domain.EventReasonGenerateDelta: {},
 }
 
 func shouldEmitEvent(reason domain.EventReason) bool {

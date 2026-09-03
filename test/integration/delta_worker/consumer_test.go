@@ -86,7 +86,7 @@ var _ = Describe("Delta worker consumers", func() {
 		It("should consume and ack PrepareDeltas on DeltaGenerationTaskQueue", func() {
 			cfg := config.NewDefault()
 			cfg.DeltaGeneration = &config.DeltaGenerationConfig{MaxConcurrentDeltaGenerations: 1}
-			Expect(deltaworker.LaunchConsumers(ctx, provider, cfg, nil, log)).To(Succeed())
+			Expect(deltaworker.LaunchConsumers(ctx, provider, cfg, nil, nil, log)).To(Succeed())
 
 			payload := prepareDeltasPayload()
 			producer, err := provider.NewQueueProducer(ctx, consts.DeltaGenerationTaskQueue)
@@ -102,7 +102,7 @@ var _ = Describe("Delta worker consumers", func() {
 		It("should not consume the same payload from TaskQueue", func() {
 			cfg := config.NewDefault()
 			cfg.DeltaGeneration = &config.DeltaGenerationConfig{MaxConcurrentDeltaGenerations: 1}
-			Expect(deltaworker.LaunchConsumers(ctx, provider, cfg, nil, log)).To(Succeed())
+			Expect(deltaworker.LaunchConsumers(ctx, provider, cfg, nil, nil, log)).To(Succeed())
 
 			payload := prepareDeltasPayload()
 			producer, err := provider.NewQueueProducer(ctx, consts.TaskQueue)

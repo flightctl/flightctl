@@ -19,6 +19,7 @@ import (
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	canaryservice "github.com/flightctl/flightctl/internal/service/canary"
 	"github.com/flightctl/flightctl/internal/store"
+	deltastore "github.com/flightctl/flightctl/internal/store/delta"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -111,7 +112,8 @@ func main() {
 		}
 	}
 
-	server := deltaworker.New(cfg, log, provider, workerCollector)
+	deltaStore := deltastore.NewStore(db, log)
+	server := deltaworker.New(cfg, log, provider, deltaStore, workerCollector)
 	if err := server.Run(ctx); err != nil {
 		log.Fatalf("Error running server: %s", err)
 	}

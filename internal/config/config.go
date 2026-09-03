@@ -900,6 +900,7 @@ type QuayConfig struct {
 type DeltaGenerationConfig struct {
 	DefaultRepository             *DefaultRepositoryConfig `json:"defaultRepository,omitempty"`
 	MaxConcurrentDeltaGenerations int                      `json:"maxConcurrentDeltaGenerations,omitempty"`
+	Timeout                       util.Duration            `json:"timeout,omitempty"`
 }
 
 func (c *DeltaGenerationConfig) EffectiveMaxConcurrentDeltaGenerations() int {
@@ -907,6 +908,13 @@ func (c *DeltaGenerationConfig) EffectiveMaxConcurrentDeltaGenerations() int {
 		return 2
 	}
 	return c.MaxConcurrentDeltaGenerations
+}
+
+func (c *DeltaGenerationConfig) EffectiveTimeout() time.Duration {
+	if c == nil || time.Duration(c.Timeout) <= 0 {
+		return 30 * time.Minute
+	}
+	return time.Duration(c.Timeout)
 }
 
 type DefaultRepositoryConfig struct {
