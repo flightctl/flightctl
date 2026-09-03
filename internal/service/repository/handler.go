@@ -13,7 +13,6 @@ import (
 	"github.com/flightctl/flightctl/internal/oci"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
-	"github.com/flightctl/flightctl/internal/store"
 	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util/validation"
@@ -187,7 +186,7 @@ func (h *ServiceHandler) GetRepositoryDeviceReferences(ctx context.Context, orgI
 
 // callbackRepositoryUpdated is the repository-specific callback that handles repository update events
 func (h *ServiceHandler) callbackRepositoryUpdated(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	store.SafeEventCallback(h.log, func() {
+	common.SafeEventCallback(h.log, func() {
 		if err != nil {
 			status := common.StoreErrorToApiStatus(err, created, domain.RepositoryKind, &name)
 			h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, domain.RepositoryKind, name, status, nil))
@@ -240,7 +239,7 @@ func (h *ServiceHandler) callbackRepositoryUpdated(ctx context.Context, resource
 
 // callbackRepositoryDeleted is the repository-specific callback that handles repository deletion events
 func (h *ServiceHandler) callbackRepositoryDeleted(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	store.SafeEventCallback(h.log, func() {
+	common.SafeEventCallback(h.log, func() {
 		h.events.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 	})
 }

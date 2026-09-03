@@ -113,7 +113,7 @@ func (h *ServiceHandler) GetLatestTemplateVersion(ctx context.Context, orgId uui
 
 // callbackTemplateVersionUpdated is the template version-specific callback that handles template version events
 func (h *ServiceHandler) callbackTemplateVersionUpdated(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	store.SafeEventCallback(h.log, func() {
+	common.SafeEventCallback(h.log, func() {
 		if err != nil {
 			status := common.StoreErrorToApiStatus(err, created, string(resourceKind), &name)
 			h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, resourceKind, name, status, nil))
@@ -136,7 +136,7 @@ func (h *ServiceHandler) callbackTemplateVersionUpdated(ctx context.Context, res
 
 // callbackTemplateVersionDeleted is the template version-specific callback that handles template version deletion events
 func (h *ServiceHandler) callbackTemplateVersionDeleted(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	store.SafeEventCallback(h.log, func() {
+	common.SafeEventCallback(h.log, func() {
 		h.events.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 	})
 }

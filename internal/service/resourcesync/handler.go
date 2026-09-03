@@ -118,6 +118,7 @@ func (h *ServiceHandler) DeleteResourceSync(ctx context.Context, orgId uuid.UUID
 			return nil
 		}
 		owner := util.SetResourceOwner(domain.ResourceSyncKind, name)
+		// nil is intentional: it joins the surrounding WithTransaction TX on ctx.
 		tx := store.DB(ctx, nil)
 		if err := h.catalogStore.UnsetItemOwner(ctx, tx, orgId, *owner); err != nil {
 			return err
@@ -176,7 +177,7 @@ func (h *ServiceHandler) ReplaceResourceSyncStatus(ctx context.Context, orgId uu
 
 // callbackResourceSyncUpdated is the resource sync-specific callback that handles resource sync events
 func (h *ServiceHandler) callbackResourceSyncUpdated(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	store.SafeEventCallback(h.log, func() {
+	common.SafeEventCallback(h.log, func() {
 		if err != nil {
 			status := common.StoreErrorToApiStatus(err, created, string(resourceKind), &name)
 			h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, resourceKind, name, status, nil))
@@ -206,7 +207,7 @@ func (h *ServiceHandler) callbackResourceSyncUpdated(ctx context.Context, resour
 
 // callbackResourceSyncDeleted is the resource sync-specific callback that handles resource sync deletion events
 func (h *ServiceHandler) callbackResourceSyncDeleted(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	store.SafeEventCallback(h.log, func() {
+	common.SafeEventCallback(h.log, func() {
 		h.events.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 	})
 }

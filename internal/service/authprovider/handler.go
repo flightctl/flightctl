@@ -11,7 +11,6 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
-	"github.com/flightctl/flightctl/internal/store"
 	authproviderstore "github.com/flightctl/flightctl/internal/store/authprovider"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/google/uuid"
@@ -333,7 +332,7 @@ func (h *ServiceHandler) GetAuthConfig(ctx context.Context, authConfig *domain.A
 
 // callbackAuthProviderUpdated is the auth provider-specific callback that handles auth provider update events
 func (h *ServiceHandler) callbackAuthProviderUpdated(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	store.SafeEventCallback(h.log, func() {
+	common.SafeEventCallback(h.log, func() {
 		if err != nil {
 			status := common.StoreErrorToApiStatus(err, created, domain.AuthProviderKind, &name)
 			h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, domain.AuthProviderKind, name, status, nil))
@@ -362,7 +361,7 @@ func (h *ServiceHandler) callbackAuthProviderUpdated(ctx context.Context, resour
 
 // callbackAuthProviderDeleted is the auth provider-specific callback that handles auth provider deletion events
 func (h *ServiceHandler) callbackAuthProviderDeleted(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	store.SafeEventCallback(h.log, func() {
+	common.SafeEventCallback(h.log, func() {
 		h.events.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
 	})
 }
