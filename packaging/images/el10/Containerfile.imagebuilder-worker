@@ -1,4 +1,6 @@
-FROM registry.access.redhat.com/ubi10/go-toolset:1.26.7-1787775323 as build
+ARG BUILD_BASE
+ARG RUN_BASE
+FROM ${BUILD_BASE} as build
 WORKDIR /app
 
 # Switch to root for build operations
@@ -40,7 +42,7 @@ RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
     make build-imagebuilder-worker
 
-FROM quay.io/flightctl/flightctl-base:10.1-1769518576
+FROM ${RUN_BASE}
 
 USER 0
 COPY --from=build /runtime-root/ /
