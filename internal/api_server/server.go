@@ -30,6 +30,7 @@ import (
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	certificatesigningrequestservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	enrollmentconfigservice "github.com/flightctl/flightctl/internal/service/enrollmentconfig"
 	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	eventservice "github.com/flightctl/flightctl/internal/service/event"
 	"github.com/flightctl/flightctl/internal/service/events"
@@ -38,6 +39,7 @@ import (
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	resourcesyncservice "github.com/flightctl/flightctl/internal/service/resourcesync"
 	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
+	"github.com/flightctl/flightctl/internal/service/tpmcsr"
 	vulnerabilityfindingservice "github.com/flightctl/flightctl/internal/service/vulnerabilityfinding"
 	"github.com/flightctl/flightctl/internal/store"
 	authproviderstore "github.com/flightctl/flightctl/internal/store/authprovider"
@@ -207,15 +209,15 @@ func (s *Server) Run(ctx context.Context) error {
 	enrollmentRequestSvc := enrollmentrequestservice.WrapWithTracing(
 		enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, deviceStore, csrStore, s.ca, kvStore, eventsSvc, s.log, s.cfg.Service.TPMCAPaths, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl))
 	csrSvc := certificatesigningrequestservice.WrapWithTracing(
-		certificatesigningrequestservice.NewServiceHandler(csrStore, enrollmentRequestStore, s.ca, eventsSvc, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl))
+		certificatesigningrequestservice.NewServiceHandler(csrStore, tpmcsr.NewVerifier(enrollmentRequestSvc), s.ca, eventsSvc, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl))
 	templateVersionSvc := templateversionservice.WrapWithTracing(
 		templateversionservice.NewServiceHandler(templateVersionStore, kvStore, eventsSvc, s.log))
 	repositorySvc := repositoryservice.WrapWithTracing(
 		repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, s.log))
-	resourceSyncSvc := resourcesyncservice.WrapWithTracing(
-		resourcesyncservice.NewServiceHandler(resourceSyncStore, catalogStore, fleetStore, eventsSvc, s.log))
 	catalogSvc := catalogservice.WrapWithTracing(
 		catalogservice.NewServiceHandler(catalogStore, deviceStore, fleetStore, eventsSvc, s.log))
+	resourceSyncSvc := resourcesyncservice.WrapWithTracing(
+		resourcesyncservice.NewServiceHandler(resourceSyncStore, catalogSvc, fleetSvc, eventsSvc, s.log))
 	eventSvc := eventservice.WrapWithTracing(
 		eventservice.NewServiceHandler(eventStore, eventsSvc))
 	organizationSvc := organizationservice.WrapWithTracing(
@@ -223,7 +225,9 @@ func (s *Server) Run(ctx context.Context) error {
 	authProviderSvc := authproviderservice.WrapWithTracing(
 		authproviderservice.NewServiceHandler(authProviderStore, eventsSvc, s.log))
 	vulnerabilityFindingSvc := vulnerabilityfindingservice.WrapWithTracing(
-		vulnerabilityfindingservice.NewServiceHandler(vulnerabilityFindingStore, deviceStore, fleetStore, eventsSvc, vulnerabilityEnabled, s.log))
+		vulnerabilityfindingservice.NewServiceHandler(vulnerabilityFindingStore, deviceSvc, fleetSvc, eventsSvc, vulnerabilityEnabled, s.log))
+	enrollmentConfigSvc := enrollmentconfigservice.WrapWithTracing(
+		enrollmentconfigservice.NewServiceHandler(csrSvc, s.ca, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl))
 
 	// Initialize auth with the authprovider service for OIDC provider access
 	authN, err := auth.InitMultiAuth(s.cfg, s.log, authProviderSvc)
@@ -259,8 +263,8 @@ func (s *Server) Run(ctx context.Context) error {
 	router := chi.NewRouter()
 
 	// Create identity mapping middleware
-	orgProvisioner := service.NewOrgProvisioner(catalogStore, s.log)
-	identityMapper := service.NewIdentityMapper(organizationStore, orgProvisioner, s.log)
+	orgProvisioner := service.NewOrgProvisioner(catalogSvc, s.log)
+	identityMapper := service.NewIdentityMapper(organizationSvc, orgProvisioner, s.log)
 	identityMapper.Start()
 	defer identityMapper.Stop()
 	identityMappingMiddleware := fcmiddleware.NewIdentityMappingMiddleware(identityMapper, s.log)
@@ -294,7 +298,7 @@ func (s *Server) Run(ctx context.Context) error {
 	negotiator := versioning.NewNegotiator(versioning.V1Beta1, server.MetadataResolver)
 
 	handlerV1Beta1 := transportv1beta1.NewTransportHandler(
-		authProviderSvc, csrSvc, deviceSvc, enrollmentRequestSvc, eventSvc,
+		authProviderSvc, csrSvc, deviceSvc, enrollmentRequestSvc, enrollmentConfigSvc, eventSvc,
 		fleetSvc, organizationSvc, repositorySvc, resourceSyncSvc, templateVersionSvc,
 		convertv1beta1.NewConverter(),
 		s.authN, authTokenProxy, authUserInfoProxy, s.authZ,

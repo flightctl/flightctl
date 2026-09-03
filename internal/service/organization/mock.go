@@ -14,6 +14,8 @@ import (
 	reflect "reflect"
 
 	domain "github.com/flightctl/flightctl/internal/domain"
+	store "github.com/flightctl/flightctl/internal/store"
+	model "github.com/flightctl/flightctl/internal/store/model"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -40,6 +42,21 @@ func (m *MockService) EXPECT() *MockServiceMockRecorder {
 	return m.recorder
 }
 
+// List mocks base method.
+func (m *MockService) List(ctx context.Context, listParams store.ListParams) ([]*model.Organization, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "List", ctx, listParams)
+	ret0, _ := ret[0].([]*model.Organization)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// List indicates an expected call of List.
+func (mr *MockServiceMockRecorder) List(ctx, listParams any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockService)(nil).List), ctx, listParams)
+}
+
 // ListAllOrganizations mocks base method.
 func (m *MockService) ListAllOrganizations(ctx context.Context, params domain.ListOrganizationsParams) (*domain.OrganizationList, domain.Status) {
 	m.ctrl.T.Helper()
@@ -55,6 +72,36 @@ func (mr *MockServiceMockRecorder) ListAllOrganizations(ctx, params any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListAllOrganizations", reflect.TypeOf((*MockService)(nil).ListAllOrganizations), ctx, params)
 }
 
+// ListByExternalIDs mocks base method.
+func (m *MockService) ListByExternalIDs(ctx context.Context, externalIDs []string) ([]*model.Organization, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListByExternalIDs", ctx, externalIDs)
+	ret0, _ := ret[0].([]*model.Organization)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListByExternalIDs indicates an expected call of ListByExternalIDs.
+func (mr *MockServiceMockRecorder) ListByExternalIDs(ctx, externalIDs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByExternalIDs", reflect.TypeOf((*MockService)(nil).ListByExternalIDs), ctx, externalIDs)
+}
+
+// ListByIDs mocks base method.
+func (m *MockService) ListByIDs(ctx context.Context, ids []string) ([]*model.Organization, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListByIDs", ctx, ids)
+	ret0, _ := ret[0].([]*model.Organization)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListByIDs indicates an expected call of ListByIDs.
+func (mr *MockServiceMockRecorder) ListByIDs(ctx, ids any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListByIDs", reflect.TypeOf((*MockService)(nil).ListByIDs), ctx, ids)
+}
+
 // ListOrganizations mocks base method.
 func (m *MockService) ListOrganizations(ctx context.Context, params domain.ListOrganizationsParams) (*domain.OrganizationList, domain.Status) {
 	m.ctrl.T.Helper()
@@ -68,4 +115,19 @@ func (m *MockService) ListOrganizations(ctx context.Context, params domain.ListO
 func (mr *MockServiceMockRecorder) ListOrganizations(ctx, params any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListOrganizations", reflect.TypeOf((*MockService)(nil).ListOrganizations), ctx, params)
+}
+
+// UpsertMany mocks base method.
+func (m *MockService) UpsertMany(ctx context.Context, orgs []*model.Organization) ([]*model.Organization, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpsertMany", ctx, orgs)
+	ret0, _ := ret[0].([]*model.Organization)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UpsertMany indicates an expected call of UpsertMany.
+func (mr *MockServiceMockRecorder) UpsertMany(ctx, orgs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpsertMany", reflect.TypeOf((*MockService)(nil).UpsertMany), ctx, orgs)
 }
