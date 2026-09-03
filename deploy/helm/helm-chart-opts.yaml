@@ -26,6 +26,8 @@ community-el9:
       image: quay.io/flightctl/flightctl-cli-artifacts-el9
     worker:
       image: quay.io/flightctl/flightctl-worker-el9
+    deltaWorker:
+      image: quay.io/flightctl/flightctl-delta-worker-el9
     periodic:
       image: quay.io/flightctl/flightctl-periodic-el9
     alertExporter:
@@ -80,6 +82,8 @@ rhem-el9:
       image: registry.redhat.io/rhem/flightctl-cli-artifacts-rhel9
     worker:
       image: registry.redhat.io/rhem/flightctl-worker-rhel9
+    deltaWorker:
+      image: registry.redhat.io/rhem/flightctl-delta-worker-rhel9
     periodic:
       image: registry.redhat.io/rhem/flightctl-periodic-rhel9
     alertExporter:
@@ -131,6 +135,8 @@ community-el10:
       image: quay.io/flightctl/flightctl-cli-artifacts-el10
     worker:
       image: quay.io/flightctl/flightctl-worker-el10
+    deltaWorker:
+      image: quay.io/flightctl/flightctl-delta-worker-el10
     periodic:
       image: quay.io/flightctl/flightctl-periodic-el10
     alertExporter:
@@ -185,6 +191,8 @@ rhem-el10:
       image: registry.redhat.io/rhem/flightctl-cli-artifacts-rhel10
     worker:
       image: registry.redhat.io/rhem/flightctl-worker-rhel10
+    deltaWorker:
+      image: registry.redhat.io/rhem/flightctl-delta-worker-rhel10
     periodic:
       image: registry.redhat.io/rhem/flightctl-periodic-rhel10
     alertExporter:

@@ -24,6 +24,7 @@ const (
 	ServiceRedis              ServiceName = "redis"
 	ServiceAPI                ServiceName = "api"
 	ServiceWorker             ServiceName = "worker"
+	ServiceDeltaWorker        ServiceName = "delta-worker"
 	ServicePeriodic           ServiceName = "periodic"
 	ServiceTelemetryGateway   ServiceName = "telemetry-gateway"
 	ServiceUI                 ServiceName = "ui"
@@ -147,6 +148,7 @@ var DeploymentServiceNames = map[string]ServiceName{
 	"flightctl-kv":                  ServiceRedis,
 	"flightctl-api":                 ServiceAPI,
 	"flightctl-worker":              ServiceWorker,
+	"flightctl-delta-worker":        ServiceDeltaWorker,
 	"flightctl-periodic":            ServicePeriodic,
 	"flightctl-telemetry-gateway":   ServiceTelemetryGateway,
 	"flightctl-db":                  ServiceDB,

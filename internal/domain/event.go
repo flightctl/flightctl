@@ -100,6 +100,8 @@ const (
 	EventReasonEncryptionMigrationStarted      = v1beta1.EventReasonEncryptionMigrationStarted
 	EventReasonEncryptionMigrationCompleted    = v1beta1.EventReasonEncryptionMigrationCompleted
 	EventReasonApplicationLifecycleChanged     = v1beta1.EventReasonApplicationLifecycleChanged
+	EventReasonPrepareDeltas                   = v1beta1.EventReasonPrepareDeltas
+	EventReasonDeltaGenerationCompleted        = v1beta1.EventReasonDeltaGenerationCompleted
 )
 
 // ========== Event Details Types ==========
@@ -122,6 +124,8 @@ type DependencySyncProbeFailedDetailsDetailType = v1beta1.DependencySyncProbeFai
 type ApplicationLifecycleChangedDetails = v1beta1.ApplicationLifecycleChangedDetails
 type ApplicationLifecycleChangedDetailsDetailType = v1beta1.ApplicationLifecycleChangedDetailsDetailType
 type ApplicationLifecycleChangedDetailsAction = v1beta1.ApplicationLifecycleChangedDetailsAction
+type PrepareDeltasDetails = v1beta1.PrepareDeltasDetails
+type PrepareDeltasDetailsDetailType = v1beta1.PrepareDeltasDetailsDetailType
 
 const (
 	InternalTaskFailed            = v1beta1.InternalTaskFailed

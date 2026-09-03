@@ -40,6 +40,7 @@ var ServiceRegistry = map[infra.ServiceName]ServiceInfo{
 	infra.ServiceRedis:              {ContainerName: "flightctl-kv", SystemdUnit: "flightctl-kv.service", Port: 6379},
 	infra.ServiceAPI:                {ContainerName: "flightctl-api", SystemdUnit: "flightctl-api.service", Port: 3443},
 	infra.ServiceWorker:             {ContainerName: "flightctl-worker", SystemdUnit: "flightctl-worker.service", Port: 7443},
+	infra.ServiceDeltaWorker:        {ContainerName: "flightctl-delta-worker", SystemdUnit: "flightctl-delta-worker.service", Port: 8080},
 	infra.ServicePeriodic:           {ContainerName: "flightctl-periodic", SystemdUnit: "flightctl-periodic.service", Port: 0},
 	infra.ServiceTelemetryGateway:   {ContainerName: "flightctl-telemetry-gateway", SystemdUnit: "flightctl-telemetry-gateway.service", Port: 9464},
 	infra.ServiceDB:                 {ContainerName: "flightctl-db", SystemdUnit: "flightctl-db.service", Port: 5432},
