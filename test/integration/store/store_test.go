@@ -161,10 +161,8 @@ var _ = Describe("DataStore Migration Tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Simulate the user intentionally deleting the default catalog.
-			noopCallback := store.RemoveOwnerCallback(func(_ context.Context, _ *gorm.DB, _ uuid.UUID, _ string) error {
-				return nil
-			})
-			Expect(catalogStore.Delete(freshCtx, store.NullOrgId, domain.DefaultCatalogName, noopCallback, nil)).To(Succeed())
+			_, err = catalogStore.Delete(freshCtx, store.NullOrgId, domain.DefaultCatalogName)
+			Expect(err).To(Succeed())
 
 			// Confirm it is gone.
 			_, err = catalogStore.Get(freshCtx, store.NullOrgId, domain.DefaultCatalogName)

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
-	"github.com/flightctl/flightctl/internal/store"
 	authproviderstore "github.com/flightctl/flightctl/internal/store/authprovider"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
@@ -167,8 +166,7 @@ func CreateTestTemplateVersion(ctx context.Context, tvStore templateversionstore
 		resource.Status = status
 	}
 
-	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-	_, err := tvStore.Create(ctx, orgId, &resource, callback)
+	_, err := tvStore.Create(ctx, orgId, &resource)
 
 	return err
 }
@@ -202,8 +200,7 @@ func CreateRepositories(ctx context.Context, numRepositories int, repositoryStor
 			Spec: spec,
 		}
 
-		callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-		_, err = repositoryStore.Create(ctx, orgId, &resource, callback)
+		_, err = repositoryStore.Create(ctx, orgId, &resource)
 		if err != nil {
 			return err
 		}
@@ -226,11 +223,11 @@ func CreateTestEnrolmentRequests(numEnrollmentRequests int, ctx context.Context,
 			},
 		}
 
-		_, err := enrollmentRequestStore.Create(ctx, orgId, &resource, nil)
+		_, err := enrollmentRequestStore.Create(ctx, orgId, &resource)
 		if err != nil {
 			log.Fatalf("creating enrollmentrequest: %v", err)
 		}
-		_, err = enrollmentRequestStore.UpdateStatus(ctx, orgId, &resource, nil)
+		_, _, err = enrollmentRequestStore.UpdateStatus(ctx, orgId, &resource)
 		if err != nil {
 			log.Fatalf("updating enrollmentrequest status: %v", err)
 		}
@@ -250,7 +247,7 @@ func CreateTestResourceSyncs(ctx context.Context, numResourceSyncs int, resource
 			},
 		}
 
-		_, err := resourceSyncStore.Create(ctx, orgId, &resource, nil)
+		_, err := resourceSyncStore.Create(ctx, orgId, &resource)
 		if err != nil {
 			log.Fatalf("creating resourcesync: %v", err)
 		}
@@ -303,8 +300,7 @@ func ReturnTestAuthProvider(orgId uuid.UUID, name string, issuer string, labels 
 // CreateTestAuthProvider creates a test auth provider in the store
 func CreateTestAuthProvider(ctx context.Context, authStore authproviderstore.Store, orgId uuid.UUID, name string, issuer string, labels *map[string]string) {
 	resource := ReturnTestAuthProvider(orgId, name, issuer, labels)
-	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-	_, err := authStore.Create(ctx, orgId, &resource, callback)
+	_, err := authStore.Create(ctx, orgId, &resource)
 	if err != nil {
 		log.Fatalf("creating auth provider: %v", err)
 	}
@@ -375,8 +371,7 @@ func CreateTestAuthProviderWithStaticOrg(ctx context.Context, authStore authprov
 		log.Fatalf("failed to create auth provider spec: %v", err)
 	}
 
-	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-	_, err := authStore.Create(ctx, orgId, &provider, callback)
+	_, err := authStore.Create(ctx, orgId, &provider)
 	if err != nil {
 		log.Fatalf("creating OIDC provider with static org: %v", err)
 	}
@@ -425,8 +420,7 @@ func CreateTestAuthProviderWithDynamicOrg(ctx context.Context, authStore authpro
 		log.Fatalf("failed to create auth provider spec: %v", err)
 	}
 
-	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-	_, err := authStore.Create(ctx, orgId, &provider, callback)
+	_, err := authStore.Create(ctx, orgId, &provider)
 	if err != nil {
 		log.Fatalf("creating OIDC provider with dynamic org: %v", err)
 	}
@@ -476,8 +470,7 @@ func CreateTestAuthProviderWithPerUserOrg(ctx context.Context, authStore authpro
 		log.Fatalf("failed to create auth provider spec: %v", err)
 	}
 
-	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-	_, err := authStore.Create(ctx, orgId, &provider, callback)
+	_, err := authStore.Create(ctx, orgId, &provider)
 	if err != nil {
 		log.Fatalf("creating OIDC provider with per-user org: %v", err)
 	}
