@@ -24,7 +24,6 @@ var _ = Describe("Encryption at rest — Key rotation metrics and migration", La
 	)
 
 	BeforeEach(func() {
-		skipIfNoBuiltinDB()
 		harness = e2e.GetWorkerHarness()
 		providers = setup.GetDefaultProviders()
 		infra.SkipIfObservabilityNotConfigured(harness.GetTestContext(), providers)
@@ -164,7 +163,6 @@ var _ = Describe("Encryption at rest — Key rotation", Label("encryption"), Ser
 	)
 
 	BeforeEach(func() {
-		skipIfNoBuiltinDB()
 		harness = e2e.GetWorkerHarness()
 		providers = setup.GetDefaultProviders()
 		savedConfig = ""

@@ -784,3 +784,15 @@ func (p *InfraProvider) SetEncryptionConfig(service infra.ServiceName, enc *inte
 	}
 	return p.SetServiceConfig(service, "config.yaml", updated)
 }
+
+// GetDBConnectionParams reads DB connection parameters from the API ConfigMap and
+// the flightctl-db-app-secret Secret in the internal namespace.
+func (p *InfraProvider) GetDBConnectionParams() (infra.DBConnectionParams, error) {
+	return p.getDBConnectionParams()
+}
+
+// QueryDBExternal executes a SQL query against the external DB by spawning a
+// short-lived batch/v1 Job in the internal namespace.
+func (p *InfraProvider) QueryDBExternal(sql string) (string, error) {
+	return p.queryDBViaJob(sql)
+}
