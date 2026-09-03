@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	agentconfig "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 )
@@ -26,15 +28,20 @@ const (
 	defaultPollInterval = 5 * time.Second
 )
 
+// DefaultManagementCertPath is the default path to the management certificate
+// issued during enrollment.
+var DefaultManagementCertPath = filepath.Join(agentconfig.DefaultDataDir, agentconfig.DefaultCertsDirName, agentconfig.GeneratedCertFile)
+
 // checker performs health checks on the agent.
 type checker struct {
-	log             *log.PrefixLogger
-	systemd         *client.Systemd
-	timeout         time.Duration
-	stabilityWindow time.Duration
-	pollInterval    time.Duration
-	verbose         bool
-	output          io.Writer
+	log                *log.PrefixLogger
+	systemd            *client.Systemd
+	timeout            time.Duration
+	stabilityWindow    time.Duration
+	pollInterval       time.Duration
+	verbose            bool
+	output             io.Writer
+	managementCertPath string
 }
 
 // Option is a functional option for configuring the checker.
@@ -82,14 +89,23 @@ func WithSystemdClient(systemd *client.Systemd) Option {
 	}
 }
 
+// WithManagementCertPath sets the path to the management certificate used to
+// determine enrollment state.
+func WithManagementCertPath(path string) Option {
+	return func(c *checker) {
+		c.managementCertPath = path
+	}
+}
+
 // NewChecker creates a new health checker with the given options.
 func NewChecker(log *log.PrefixLogger, opts ...Option) *checker {
 	c := &checker{
-		log:             log,
-		timeout:         150 * time.Second,
-		stabilityWindow: defaultStabilityWindow,
-		pollInterval:    defaultPollInterval,
-		output:          os.Stdout,
+		log:                log,
+		timeout:            150 * time.Second,
+		stabilityWindow:    defaultStabilityWindow,
+		pollInterval:       defaultPollInterval,
+		output:             os.Stdout,
+		managementCertPath: DefaultManagementCertPath,
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -114,10 +130,19 @@ func NewChecker(log *log.PrefixLogger, opts ...Option) *checker {
 // It polls until the service becomes active (up to timeout), then monitors
 // for a stability window to ensure the service doesn't crash-loop.
 //
+// If the device has not yet been enrolled (no management certificate on disk),
+// the health check passes immediately — an unenrolled agent waiting for
+// enrollment is a valid operational state, not a boot failure.
+//
 // Phase 1: Wait up to `timeout` for service to become active.
 // Phase 2: Monitor for `stabilityWindow` to ensure service stays active.
 // Total maximum time: timeout + stabilityWindow.
 func (c *checker) Run(ctx context.Context) error {
+	if !c.isEnrolled() {
+		c.printInfo("Device is not yet enrolled (no management certificate at %s) — health check passed", c.managementCertPath)
+		return nil
+	}
+
 	// Phase 1: Wait for service to become active (up to timeout)
 	phase1Ctx, cancel1 := context.WithTimeout(ctx, c.timeout)
 	defer cancel1()
@@ -138,6 +163,13 @@ func (c *checker) Run(ctx context.Context) error {
 
 	c.printInfo("All health checks passed")
 	return nil
+}
+
+// isEnrolled returns true if the management certificate exists on disk,
+// indicating the device has completed enrollment.
+func (c *checker) isEnrolled() bool {
+	_, err := os.Stat(c.managementCertPath)
+	return err == nil
 }
 
 // waitForServiceActive polls until the service becomes active or context expires.
