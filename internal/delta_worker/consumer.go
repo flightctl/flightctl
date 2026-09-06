@@ -51,22 +51,15 @@ func idleHandler(workerMetrics *worker.WorkerCollector) queues.ConsumeHandler {
 		var event worker_client.EventWithOrgId
 		if err := json.Unmarshal(payload, &event); err != nil {
 			log.WithError(err).Error("failed to unmarshal event payload")
-			if workerMetrics != nil {
-				workerMetrics.IncPermanentFailures()
-				workerMetrics.IncMessagesProcessed("permanent_failure")
-			}
-			ackCtx, cancel := context.WithTimeout(context.Background(), ackTimeout)
-			defer cancel()
-			if ackErr := consumer.Complete(ackCtx, entryID, payload, nil); ackErr != nil {
-				log.WithError(ackErr).Errorf("failed to complete message %s after unmarshal error", entryID)
-			}
-			return nil
+			return completePoisonMessage(consumer, workerMetrics, log, entryID, payload)
+		}
+
+		if !worker_client.IsDeltaGenerationQueueEvent(event.Event.Reason) {
+			log.WithField("reason", event.Event.Reason).Warn("dropping mis-routed event on delta-generation queue")
+			return completePoisonMessage(consumer, workerMetrics, log, entryID, payload)
 		}
 
 		taskType := string(event.Event.Reason)
-		if taskType == "" {
-			taskType = "unknown"
-		}
 		if workerMetrics != nil {
 			workerMetrics.IncTasksByType(taskType)
 			workerMetrics.ObserveTaskExecutionDuration(taskType, time.Since(start))
@@ -82,4 +75,17 @@ func idleHandler(workerMetrics *worker.WorkerCollector) queues.ConsumeHandler {
 		}
 		return nil
 	}
+}
+
+func completePoisonMessage(consumer queues.QueueConsumer, workerMetrics *worker.WorkerCollector, log logrus.FieldLogger, entryID string, payload []byte) error {
+	if workerMetrics != nil {
+		workerMetrics.IncPermanentFailures()
+		workerMetrics.IncMessagesProcessed("permanent_failure")
+	}
+	ackCtx, cancel := context.WithTimeout(context.Background(), ackTimeout)
+	defer cancel()
+	if ackErr := consumer.Complete(ackCtx, entryID, payload, nil); ackErr != nil {
+		log.WithError(ackErr).Errorf("failed to complete message %s after poison handling", entryID)
+	}
+	return nil
 }

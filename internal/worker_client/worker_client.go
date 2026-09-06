@@ -128,6 +128,12 @@ var deltaEventReasons = map[domain.EventReason]struct{}{
 	domain.EventReasonPrepareDeltas: {},
 }
 
+// IsDeltaGenerationQueueEvent reports whether reason belongs on DeltaGenerationTaskQueue.
+func IsDeltaGenerationQueueEvent(reason domain.EventReason) bool {
+	_, ok := deltaEventReasons[reason]
+	return ok
+}
+
 func shouldEmitEvent(reason domain.EventReason) bool {
 	_, contains := eventReasons[reason]
 	return contains
