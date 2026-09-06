@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -183,9 +184,15 @@ func newGitRepository(name, url string) domain.Repository {
 	}
 }
 
+func mustRepositoryFromOciRepoSpec(spec *domain.RepositorySpec, oci domain.OciRepoSpec) {
+	if err := spec.FromOciRepoSpec(oci); err != nil {
+		panic(fmt.Sprintf("mustRepositoryFromOciRepoSpec: %v", err))
+	}
+}
+
 func newOciRepository(name, registry string) domain.Repository {
 	spec := domain.RepositorySpec{}
-	_ = spec.FromOciRepoSpec(domain.OciRepoSpec{Registry: registry, Type: domain.OciRepoSpecTypeOci, Scheme: lo.ToPtr(domain.OciRepoSchemeHttp)})
+	mustRepositoryFromOciRepoSpec(&spec, domain.OciRepoSpec{Registry: registry, Type: domain.OciRepoSpecTypeOci, Scheme: lo.ToPtr(domain.OciRepoSchemeHttp)})
 	return domain.Repository{
 		ApiVersion: "v1beta1",
 		Kind:       "Repository",
@@ -196,7 +203,7 @@ func newOciRepository(name, registry string) domain.Repository {
 
 func newDeltaStorageRepository(name, registry, repository string) domain.Repository {
 	spec := domain.RepositorySpec{}
-	_ = spec.FromOciRepoSpec(domain.OciRepoSpec{
+	mustRepositoryFromOciRepoSpec(&spec, domain.OciRepoSpec{
 		Registry:           registry,
 		Type:               domain.OciRepoSpecTypeOci,
 		Repository:         lo.ToPtr(repository),

@@ -466,10 +466,16 @@ func (s *DummyRepositoryStore) GetDeltaStorageTarget(ctx context.Context, orgId 
 	return nil, nil
 }
 
+func mustFromOciRepoSpec(spec *v1beta1.RepositorySpec, oci v1beta1.OciRepoSpec) {
+	if err := spec.FromOciRepoSpec(oci); err != nil {
+		panic(fmt.Sprintf("mustFromOciRepoSpec: %v", err))
+	}
+}
+
 // newOciRepository creates a test OCI repository with the specified access mode
 func newOciRepository(name string, accessMode v1beta1.OciRepoSpecAccessMode) *v1beta1.Repository {
 	spec := v1beta1.RepositorySpec{}
-	_ = spec.FromOciRepoSpec(v1beta1.OciRepoSpec{
+	mustFromOciRepoSpec(&spec, v1beta1.OciRepoSpec{
 		Registry:   "quay.io",
 		Type:       v1beta1.OciRepoSpecTypeOci,
 		AccessMode: &accessMode,
@@ -486,7 +492,7 @@ func newOciRepository(name string, accessMode v1beta1.OciRepoSpecAccessMode) *v1
 
 func newOciRepositoryCustom(name string, accessMode v1beta1.OciRepoSpecAccessMode, repository, namespace *string) *v1beta1.Repository {
 	spec := v1beta1.RepositorySpec{}
-	_ = spec.FromOciRepoSpec(v1beta1.OciRepoSpec{
+	mustFromOciRepoSpec(&spec, v1beta1.OciRepoSpec{
 		Registry:   "quay.io",
 		Type:       v1beta1.OciRepoSpecTypeOci,
 		AccessMode: &accessMode,

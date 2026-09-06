@@ -198,12 +198,13 @@ func TestRegistryObjectRef(t *testing.T) {
 }
 
 func TestSelectWriteTargetUsesDefaultRepository(t *testing.T) {
-	spec := (&config.DefaultRepositoryConfig{
+	spec, err := (&config.DefaultRepositoryConfig{
 		Registry:   "my-registry.com",
 		Repository: lo.ToPtr("my-org/diffs"),
 		Username:   "delta-user",
 		Password:   "delta-pass",
 	}).OciRepoSpec()
+	require.NoError(t, err)
 	require.NotNil(t, spec)
 
 	selected := SelectWriteTarget(nil, spec)

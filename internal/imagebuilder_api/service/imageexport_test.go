@@ -923,9 +923,9 @@ func TestDownloadImageExportDestinationNamespaceRejected(t *testing.T) {
 
 	repoStore := NewDummyRepositoryStore()
 	sourceRepo := newOciRepository("input-registry", v1beta1.Read)
-	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
+	_, _ = repoStore.Create(ctx, orgId, sourceRepo)
 	destRepo := newOciRepositoryCustom("output-registry", v1beta1.ReadWrite, nil, lo.ToPtr("my-org"))
-	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
+	_, _ = repoStore.Create(ctx, orgId, destRepo)
 
 	imageBuildStore := NewDummyImageBuildStore()
 	imageBuild := newValidImageBuild("test-image-build")
@@ -952,9 +952,9 @@ func TestDownloadImageExportDestinationRepositoryMismatchRejected(t *testing.T) 
 
 	repoStore := NewDummyRepositoryStore()
 	sourceRepo := newOciRepository("input-registry", v1beta1.Read)
-	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
+	_, _ = repoStore.Create(ctx, orgId, sourceRepo)
 	destRepo := newOciRepositoryCustom("output-registry", v1beta1.ReadWrite, lo.ToPtr("my-org/diffs"), nil)
-	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
+	_, _ = repoStore.Create(ctx, orgId, destRepo)
 
 	imageBuildStore := NewDummyImageBuildStore()
 	imageBuild := newValidImageBuild("test-image-build")

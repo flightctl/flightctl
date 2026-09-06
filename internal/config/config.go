@@ -912,9 +912,9 @@ type DefaultRepositoryConfig struct {
 	Password               api.SecureString `json:"-"`
 }
 
-func (d *DefaultRepositoryConfig) OciRepoSpec() *domain.OciRepoSpec {
+func (d *DefaultRepositoryConfig) OciRepoSpec() (*domain.OciRepoSpec, error) {
 	if d == nil || d.Registry == "" {
-		return nil
+		return nil, nil
 	}
 	accessMode := domain.OciRepoAccessModeReadWrite
 	spec := &domain.OciRepoSpec{
@@ -931,15 +931,17 @@ func (d *DefaultRepositoryConfig) OciRepoSpec() *domain.OciRepoSpec {
 		spec.Scheme = &scheme
 	}
 	if d.Username == "" || d.Password == "" {
-		return spec
+		return spec, nil
 	}
 	auth := &domain.OciAuth{}
-	_ = auth.FromDockerAuth(domain.DockerAuth{
+	if err := auth.FromDockerAuth(domain.DockerAuth{
 		Username: d.Username,
 		Password: string(d.Password),
-	})
+	}); err != nil {
+		return nil, err
+	}
 	spec.OciAuth = auth
-	return spec
+	return spec, nil
 }
 
 // TrustifyConfig holds Trustify API connection and authentication details.
@@ -1893,6 +1895,11 @@ func (cfg *Config) sanitizeForLogging() *Config {
 		if sanitized.Auth.PAMOIDCIssuer != nil && sanitized.Auth.PAMOIDCIssuer.ClientSecret != "" {
 			sanitized.Auth.PAMOIDCIssuer.ClientSecret = "[REDACTED]"
 		}
+	}
+
+	if sanitized.DeltaGeneration != nil && sanitized.DeltaGeneration.DefaultRepository != nil && sanitized.DeltaGeneration.DefaultRepository.CaCrt != nil {
+		redacted := "[REDACTED]"
+		sanitized.DeltaGeneration.DefaultRepository.CaCrt = &redacted
 	}
 
 	return &sanitized

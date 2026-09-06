@@ -921,9 +921,9 @@ func TestCreateImageBuildDestinationNamespaceRejected(t *testing.T) {
 
 	repoStore := NewDummyRepositoryStore()
 	sourceRepo := newOciRepository("input-registry", v1beta1.Read)
-	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
+	_, _ = repoStore.Create(ctx, orgId, sourceRepo)
 	destRepo := newOciRepositoryCustom("output-registry", v1beta1.ReadWrite, nil, lo.ToPtr("my-org"))
-	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
+	_, _ = repoStore.Create(ctx, orgId, destRepo)
 	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, nil, nil, nil, log.InitLogs())
 
 	imageBuild := newValidImageBuild("test-build")
@@ -940,9 +940,9 @@ func TestCreateImageBuildDestinationRepositoryMismatchRejected(t *testing.T) {
 
 	repoStore := NewDummyRepositoryStore()
 	sourceRepo := newOciRepository("input-registry", v1beta1.Read)
-	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
+	_, _ = repoStore.Create(ctx, orgId, sourceRepo)
 	destRepo := newOciRepositoryCustom("output-registry", v1beta1.ReadWrite, lo.ToPtr("my-org/diffs"), nil)
-	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
+	_, _ = repoStore.Create(ctx, orgId, destRepo)
 	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, nil, nil, nil, log.InitLogs())
 
 	imageBuild := newValidImageBuild("test-build")
@@ -959,9 +959,9 @@ func TestCreateImageBuildDestinationRepositoryMatchAccepted(t *testing.T) {
 
 	repoStore := NewDummyRepositoryStore()
 	sourceRepo := newOciRepository("input-registry", v1beta1.Read)
-	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
+	_, _ = repoStore.Create(ctx, orgId, sourceRepo)
 	destRepo := newOciRepositoryCustom("output-registry", v1beta1.ReadWrite, lo.ToPtr("output-image"), nil)
-	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
+	_, _ = repoStore.Create(ctx, orgId, destRepo)
 	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, nil, nil, nil, log.InitLogs())
 
 	imageBuild := newValidImageBuild("test-build")
@@ -978,9 +978,9 @@ func TestCreateImageBuildSourceNamespaceRejected(t *testing.T) {
 
 	repoStore := NewDummyRepositoryStore()
 	sourceRepo := newOciRepositoryCustom("input-registry", v1beta1.Read, nil, lo.ToPtr("my-org"))
-	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
+	_, _ = repoStore.Create(ctx, orgId, sourceRepo)
 	destRepo := newOciRepository("output-registry", v1beta1.ReadWrite)
-	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
+	_, _ = repoStore.Create(ctx, orgId, destRepo)
 	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, nil, nil, nil, log.InitLogs())
 
 	imageBuild := newValidImageBuild("test-build")
@@ -997,9 +997,9 @@ func TestCreateImageBuildSourceRepositoryRejected(t *testing.T) {
 
 	repoStore := NewDummyRepositoryStore()
 	sourceRepo := newOciRepositoryCustom("input-registry", v1beta1.Read, lo.ToPtr("upstream/os"), nil)
-	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
+	_, _ = repoStore.Create(ctx, orgId, sourceRepo)
 	destRepo := newOciRepository("output-registry", v1beta1.ReadWrite)
-	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
+	_, _ = repoStore.Create(ctx, orgId, destRepo)
 	svc := NewImageBuildService(NewDummyImageBuildStore(), repoStore, nil, nil, nil, nil, nil, nil, log.InitLogs())
 
 	imageBuild := newValidImageBuild("test-build")

@@ -501,17 +501,22 @@ deltaGeneration:
 
 func TestDefaultRepositoryConfigOciRepoSpec(t *testing.T) {
 	t.Run("When registry is empty it should return nil", func(t *testing.T) {
-		require.Nil(t, (&DefaultRepositoryConfig{}).OciRepoSpec())
-		require.Nil(t, (*DefaultRepositoryConfig)(nil).OciRepoSpec())
+		spec, err := (&DefaultRepositoryConfig{}).OciRepoSpec()
+		require.NoError(t, err)
+		require.Nil(t, spec)
+		spec, err = (*DefaultRepositoryConfig)(nil).OciRepoSpec()
+		require.NoError(t, err)
+		require.Nil(t, spec)
 	})
 
 	t.Run("When username and password are set it should carry Docker auth", func(t *testing.T) {
-		spec := (&DefaultRepositoryConfig{
+		spec, err := (&DefaultRepositoryConfig{
 			Registry:   "my-registry.com",
 			Repository: lo.ToPtr("my-org/diffs"),
 			Username:   "delta-user",
 			Password:   "delta-pass",
 		}).OciRepoSpec()
+		require.NoError(t, err)
 		require.NotNil(t, spec)
 		require.Equal(t, domain.OciRepoAccessModeReadWrite, lo.FromPtr(spec.AccessMode))
 		require.Equal(t, "my-registry.com", spec.Registry)
@@ -524,23 +529,49 @@ func TestDefaultRepositoryConfigOciRepoSpec(t *testing.T) {
 	})
 
 	t.Run("When scheme is set it should copy it onto the OCI spec", func(t *testing.T) {
-		spec := (&DefaultRepositoryConfig{
+		spec, err := (&DefaultRepositoryConfig{
 			Registry: "my-registry.com",
 			Scheme:   lo.ToPtr("http"),
 		}).OciRepoSpec()
+		require.NoError(t, err)
 		require.NotNil(t, spec)
 		require.Equal(t, domain.OciRepoSpecScheme("http"), lo.FromPtr(spec.Scheme))
 		require.Nil(t, spec.OciAuth)
 	})
 
 	t.Run("When only username is set it should omit OCI auth", func(t *testing.T) {
-		spec := (&DefaultRepositoryConfig{
+		spec, err := (&DefaultRepositoryConfig{
 			Registry: "my-registry.com",
 			Username: "delta-user",
 		}).OciRepoSpec()
+		require.NoError(t, err)
 		require.NotNil(t, spec)
 		require.Nil(t, spec.OciAuth)
 	})
+}
+
+func TestConfig_String_RedactsDeltaGenerationDefaultRepositoryCaCrt(t *testing.T) {
+	caCrt := "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t"
+	cfg := &Config{
+		DeltaGeneration: &DeltaGenerationConfig{
+			DefaultRepository: &DefaultRepositoryConfig{
+				Registry: "my-registry.com",
+				CaCrt:    lo.ToPtr(caCrt),
+			},
+		},
+	}
+
+	result := cfg.String()
+
+	if strings.Contains(result, caCrt) {
+		t.Error("default repository CA certificate should be redacted")
+	}
+	if !strings.Contains(result, "[REDACTED]") {
+		t.Error("String() should contain [REDACTED] markers")
+	}
+	if !strings.Contains(result, "my-registry.com") {
+		t.Error("non-sensitive registry hostname should be preserved")
+	}
 }
 
 func TestValidateDeltaGenerationDefaultRepository(t *testing.T) {
