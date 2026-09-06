@@ -77,13 +77,20 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	defer publisher.Close()
 
+	deltaPublisher, err := worker_client.DeltaQueuePublisher(ctx, s.queuesProvider)
+	if err != nil {
+		s.log.WithError(err).Error("failed to create delta queue publisher")
+		return err
+	}
+	defer deltaPublisher.Close()
+
 	kvStore, err := kvstore.NewKVStore(ctx, s.log, s.cfg.KV.Hostname, s.cfg.KV.Port, s.cfg.KV.Password)
 	if err != nil {
 		s.log.WithError(err).Error("failed to create kvStore")
 		return err
 	}
 
-	workerClient := worker_client.NewWorkerClient(publisher, s.log)
+	workerClient := worker_client.NewWorkerClient(publisher, s.log, worker_client.WithDeltaPublisher(deltaPublisher))
 	if err = rendered.Bus.Initialize(ctx, kvStore, s.queuesProvider, time.Duration(s.cfg.Service.RenderedWaitTimeout), s.log); err != nil {
 		s.log.WithError(err).Error("failed to create rendered version manager")
 		return err

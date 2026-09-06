@@ -898,7 +898,21 @@ type QuayConfig struct {
 }
 
 type DeltaGenerationConfig struct {
-	DefaultRepository *DefaultRepositoryConfig `json:"defaultRepository,omitempty"`
+	DefaultRepository             *DefaultRepositoryConfig `json:"defaultRepository,omitempty"`
+	MaxConcurrentDeltaGenerations int                      `json:"maxConcurrentDeltaGenerations,omitempty"`
+}
+
+const maxConcurrentDeltaGenerationsLimit = 32
+
+// EffectiveMaxConcurrentDeltaGenerations returns the configured consumer count, defaulting to 2 and capped at maxConcurrentDeltaGenerationsLimit.
+func (c *DeltaGenerationConfig) EffectiveMaxConcurrentDeltaGenerations() int {
+	if c == nil || c.MaxConcurrentDeltaGenerations <= 0 {
+		return 2
+	}
+	if c.MaxConcurrentDeltaGenerations > maxConcurrentDeltaGenerationsLimit {
+		return maxConcurrentDeltaGenerationsLimit
+	}
+	return c.MaxConcurrentDeltaGenerations
 }
 
 type DefaultRepositoryConfig struct {

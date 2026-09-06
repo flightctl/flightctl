@@ -171,11 +171,17 @@ func (s *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	defer publisher.Close()
+	deltaPublisher, err := worker_client.DeltaQueuePublisher(ctx, s.queuesProvider)
+	if err != nil {
+		return err
+	}
+	defer deltaPublisher.Close()
 	kvStore, err := kvstore.NewKVStore(ctx, s.log, s.cfg.KV.Hostname, s.cfg.KV.Port, s.cfg.KV.Password)
 	if err != nil {
 		return err
 	}
-	workerClient := worker_client.NewWorkerClient(publisher, s.log)
+	workerClient := worker_client.NewWorkerClient(publisher, s.log, worker_client.WithDeltaPublisher(deltaPublisher))
 
 	s.log.Println("Initializing API server")
 

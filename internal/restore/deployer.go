@@ -98,6 +98,7 @@ func (s *SystemctlServiceHandler) Start(ctx context.Context) error {
 var defaultPodmanServiceNames = []string{
 	"flightctl-api",
 	"flightctl-worker",
+	"flightctl-delta-worker",
 	"flightctl-periodic",
 	"flightctl-imagebuilder-api",
 	"flightctl-imagebuilder-worker",
@@ -118,10 +119,11 @@ type deploymentInfo struct {
 // hold database connections and must be stopped before restore. Namespace
 // assignment mirrors the Helm chart layout:
 //   - External namespace (Internal=false): api, imagebuilder-api, alertmanager-proxy
-//   - Internal namespace (Internal=true):  worker, periodic, imagebuilder-worker, alert-exporter
+//   - Internal namespace (Internal=true):  worker, delta-worker, periodic, imagebuilder-worker, alert-exporter
 var defaultDeploymentRegistry = []deploymentInfo{
 	{Name: "flightctl-api", Internal: false},
 	{Name: "flightctl-worker", Internal: true},
+	{Name: "flightctl-delta-worker", Internal: true},
 	{Name: "flightctl-periodic", Internal: true},
 	{Name: "flightctl-imagebuilder-api", Internal: false},
 	{Name: "flightctl-imagebuilder-worker", Internal: true},
