@@ -2,6 +2,7 @@ package delta_worker
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -172,11 +173,20 @@ func serviceResolver(cfg *config.Config, fleets fleetservice.Service, devices de
 		},
 		DesiredSpec: internaltasks.DesiredSpecFromTemplate,
 		Render: func(_ context.Context, spec *domain.DeviceSpec) (internaltasks.RenderedSpec, error) {
-			if spec == nil || spec.Os == nil {
-				return internaltasks.RenderedSpec{}, nil
+			result := internaltasks.RenderedSpec{}
+			if spec != nil && spec.Os != nil {
+				result.OsImage = spec.Os.Image
 			}
-			return internaltasks.RenderedSpec{OsImage: spec.Os.Image}, nil
+			if spec != nil && spec.Applications != nil {
+				appsBytes, err := json.Marshal(*spec.Applications)
+				if err != nil {
+					return result, nil
+				}
+				result.Applications = appsBytes
+			}
+			return result, nil
 		},
+		Expand: expandWithInspect(cache, repos, cfg),
 	}
 }
 
@@ -272,4 +282,30 @@ func inspectImageDigest(ctx context.Context, image string, cfg tasks.ExistenceCo
 		return "", fmt.Errorf("inspect %s: missing Docker-Content-Digest", image)
 	}
 	return digest, nil
+}
+
+// expandWithInspect returns an Expand callback that uses registry inspect to
+// resolve new image digests and pairs them with current digests from device
+// application status.
+func expandWithInspect(cache oci.DigestCache, repos repostore.Store, cfg *config.Config) func(context.Context, uuid.UUID, *domain.Device, tasks.RenderedSpec, []DeltaCandidate) []DeltaCandidate {
+	return func(ctx context.Context, orgId uuid.UUID, device *domain.Device, rendered tasks.RenderedSpec, cands []DeltaCandidate) []DeltaCandidate {
+		inspect := func(ctx context.Context, orgId uuid.UUID, image string) (string, error) {
+			return oci.CachedImageDigest(ctx, cache, image, func(ctx context.Context) (string, error) {
+				spec, err := loadWriteTarget(ctx, repos, cfg, orgId)
+				if err != nil {
+					return "", err
+				}
+				named, err := reference.ParseNormalizedNamed(image)
+				if err != nil {
+					return "", err
+				}
+				existCfg, err := existenceConfigFromSpec(ctx, spec, named.Name())
+				if err != nil {
+					return "", err
+				}
+				return inspectImageDigest(ctx, image, existCfg)
+			})
+		}
+		return expandAppCandidates(ctx, orgId, device, rendered, cands, inspect)
+	}
 }
