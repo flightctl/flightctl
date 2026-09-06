@@ -74,7 +74,7 @@ type fakeDeviceStore struct {
 	rendered         map[string]*devicestore.DeviceRendered
 	repoRefs         map[string][]string
 	lastSeen         map[string]*time.Time
-	healthcheckCalls [][]string
+	healthcheckCalls []healthcheckCall
 	healthcheckErr   error
 }
 
@@ -280,8 +280,13 @@ func (s *fakeDeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name
 	return s.Get(ctx, orgId, name)
 }
 
+type healthcheckCall struct {
+	orgId uuid.UUID
+	names []string
+}
+
 func (s *fakeDeviceStore) Healthcheck(ctx context.Context, orgId uuid.UUID, names []string) error {
-	s.healthcheckCalls = append(s.healthcheckCalls, names)
+	s.healthcheckCalls = append(s.healthcheckCalls, healthcheckCall{orgId: orgId, names: names})
 	return s.healthcheckErr
 }
 

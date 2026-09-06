@@ -116,13 +116,15 @@ func TestGetDevice(t *testing.T) {
 }
 
 func TestHealthcheckDevices(t *testing.T) {
-	t.Run("When the store succeeds it should delegate names to the store", func(t *testing.T) {
+	t.Run("When the store succeeds it should delegate orgId and names to the store", func(t *testing.T) {
 		st, _, svc := newTestHandler()
 		ctx := context.Background()
 		orgId := uuid.New()
 		names := []string{"d1", "d2"}
 		require.NoError(t, svc.HealthcheckDevices(ctx, orgId, names))
-		require.Equal(t, [][]string{names}, st.device.healthcheckCalls)
+		require.Len(t, st.device.healthcheckCalls, 1)
+		require.Equal(t, orgId, st.device.healthcheckCalls[0].orgId)
+		require.Equal(t, names, st.device.healthcheckCalls[0].names)
 	})
 
 	t.Run("When the store fails it should return the error", func(t *testing.T) {
