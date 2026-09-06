@@ -150,6 +150,7 @@ type application struct {
 	id                string
 	path              string
 	imageRef          string
+	imageDigest       string
 	workloads         []Workload
 	volume            provider.VolumeManager
 	status            *v1beta1.DeviceApplicationStatus
@@ -171,9 +172,10 @@ func NewApplication(p provider.Provider) *application {
 		}
 	}
 	return &application{
-		id:       spec.ID,
-		path:     spec.Path,
-		imageRef: spec.Image,
+		id:          spec.ID,
+		path:        spec.Path,
+		imageRef:    spec.Image,
+		imageDigest: spec.ImageDigest,
 		status: &v1beta1.DeviceApplicationStatus{
 			Name:     spec.Name,
 			Status:   v1beta1.ApplicationStatusUnknown,
@@ -393,33 +395,35 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	// update volume status
 	a.volume.Status(a.status)
 
-	// Collect image digests from workloads. The parent image ref comes from
-	// the provider spec; workload images come from the container runtime.
-	// Actual digest lookup requires podman and will be populated by the
-	// provider during prefetch; here we record the image refs so the
-	// control plane knows which images this application uses.
+	// Collect image digests from the provider's parent image and workload
+	// container images. The parent digest is captured during the OCI
+	// collection phase (parentIsAvailable); workload digests come from the
+	// container runtime events.
 	a.collectImageDigests()
 
 	return a.status, summary, nil
 }
 
 // collectImageDigests populates status.ImageDigests from the application's
-// known image references. The parent imageRef comes from the provider spec;
-// workload images come from the container runtime. Digests are populated when
-// available (e.g. after a successful pull); missing digests are omitted.
+// known image references and their digests. The parent image digest is
+// captured by the OCI collection phase (parentIsAvailable); workload images
+// carry their container image refs. Entries with an empty digest are included
+// so the control plane can identify which images this application uses (a
+// missing digest means the image is not yet in storage — full pull).
 func (a *application) collectImageDigests() {
 	seen := make(map[string]struct{})
 	var digests []v1beta1.ApplicationImageDigest
 
-	// Parent image from the provider spec.
+	// Parent image from the provider spec, with digest from parentIsAvailable.
 	if a.imageRef != "" {
 		seen[a.imageRef] = struct{}{}
 		digests = append(digests, v1beta1.ApplicationImageDigest{
-			Image: a.imageRef,
+			Image:  a.imageRef,
+			Digest: a.imageDigest,
 		})
 	}
 
-	// Workload images from the container runtime.
+	// Workload container images from the runtime.
 	for _, w := range a.workloads {
 		if w.Image == "" {
 			continue

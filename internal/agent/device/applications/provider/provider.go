@@ -83,6 +83,9 @@ type ApplicationSpec struct {
 
 	// Image is the resolved OCI image reference for the application.
 	Image string
+	// ImageDigest is the content digest of Image in local storage, populated
+	// when parentIsAvailable confirms the image is present.
+	ImageDigest string
 
 	// App-type-specific specs (only one will be set based on AppType)
 	ContainerApp *v1beta1.ContainerApplication
@@ -263,6 +266,12 @@ func collectNestedForProvider(
 	}
 	if !available {
 		return nil, true, nil
+	}
+
+	// Capture the parent digest on the spec so it appears in
+	// DeviceApplicationStatus.ImageDigests without a separate podman query.
+	if digest != "" {
+		p.Spec().ImageDigest = digest
 	}
 
 	if cachedEntry, found := ociCache.Get(p.ID()); found {
