@@ -6601,11 +6601,7 @@ components:
           $ref: "#/components/schemas/DeviceDeltaApplyStatus"
         imageDigests:
           type: array
-          description: >
-            Image references this application uses and their digests in local
-            storage. image is the ref from the current rendered spec (tag or
-            digest). digest is what is in storage. When image is already a
-            digest ref it matches digest. Reported by the agent.
+          description: "Image references this application uses and their digests in local storage. image is the ref from the current rendered spec (tag or digest). digest is what is in storage. When image is already a digest ref it matches digest."
           items:
             $ref: "#/components/schemas/ApplicationImageDigest"
     ApplicationImageDigest:

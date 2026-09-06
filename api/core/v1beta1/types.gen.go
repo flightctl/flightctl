@@ -1359,7 +1359,7 @@ type DeviceApplicationStatus struct {
 	// Embedded Whether the application is embedded in the bootc image.
 	Embedded bool `json:"embedded"`
 
-	// ImageDigests Image references this application uses and their digests in local storage. image is the ref from the current rendered spec (tag or digest). digest is what is in storage. When image is already a digest ref it matches digest. Reported by the agent.
+	// ImageDigests Image references this application uses and their digests in local storage. image is the ref from the current rendered spec (tag or digest). digest is what is in storage. When image is already a digest ref it matches digest.
 	ImageDigests *[]ApplicationImageDigest `json:"imageDigests,omitempty"`
 
 	// LastDelta Result of the most recent delta apply attempt for this update target.
