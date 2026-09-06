@@ -938,7 +938,7 @@ func (d *DefaultRepositoryConfig) OciRepoSpec() (*domain.OciRepoSpec, error) {
 		Username: d.Username,
 		Password: string(d.Password),
 	}); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("default repository authentication: %w", err)
 	}
 	spec.OciAuth = auth
 	return spec, nil

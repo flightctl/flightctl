@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -16,6 +17,7 @@ import (
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
+	"github.com/stretchr/testify/require"
 )
 
 // DummyImageBuildStore is a mock implementation of store.ImageBuildStore
@@ -466,16 +468,21 @@ func (s *DummyRepositoryStore) GetDeltaStorageTarget(ctx context.Context, orgId 
 	return nil, nil
 }
 
-func mustFromOciRepoSpec(spec *v1beta1.RepositorySpec, oci v1beta1.OciRepoSpec) {
-	if err := spec.FromOciRepoSpec(oci); err != nil {
-		panic(fmt.Sprintf("mustFromOciRepoSpec: %v", err))
-	}
+func mustFromOciRepoSpec(t *testing.T, spec *v1beta1.RepositorySpec, oci v1beta1.OciRepoSpec) {
+	t.Helper()
+	require.NoError(t, spec.FromOciRepoSpec(oci))
+}
+
+func requireRepositoryCreate(t *testing.T, repoStore *DummyRepositoryStore, ctx context.Context, orgId uuid.UUID, repo *v1beta1.Repository) {
+	t.Helper()
+	_, err := repoStore.Create(ctx, orgId, repo)
+	require.NoError(t, err)
 }
 
 // newOciRepository creates a test OCI repository with the specified access mode
-func newOciRepository(name string, accessMode v1beta1.OciRepoSpecAccessMode) *v1beta1.Repository {
+func newOciRepository(t *testing.T, name string, accessMode v1beta1.OciRepoSpecAccessMode) *v1beta1.Repository {
 	spec := v1beta1.RepositorySpec{}
-	mustFromOciRepoSpec(&spec, v1beta1.OciRepoSpec{
+	mustFromOciRepoSpec(t, &spec, v1beta1.OciRepoSpec{
 		Registry:   "quay.io",
 		Type:       v1beta1.OciRepoSpecTypeOci,
 		AccessMode: &accessMode,
@@ -490,9 +497,9 @@ func newOciRepository(name string, accessMode v1beta1.OciRepoSpecAccessMode) *v1
 	}
 }
 
-func newOciRepositoryCustom(name string, accessMode v1beta1.OciRepoSpecAccessMode, repository, namespace *string) *v1beta1.Repository {
+func newOciRepositoryCustom(t *testing.T, name string, accessMode v1beta1.OciRepoSpecAccessMode, repository, namespace *string) *v1beta1.Repository {
 	spec := v1beta1.RepositorySpec{}
-	mustFromOciRepoSpec(&spec, v1beta1.OciRepoSpec{
+	mustFromOciRepoSpec(t, &spec, v1beta1.OciRepoSpec{
 		Registry:   "quay.io",
 		Type:       v1beta1.OciRepoSpecTypeOci,
 		AccessMode: &accessMode,

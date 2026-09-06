@@ -2,7 +2,6 @@ package repository
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -184,15 +183,14 @@ func newGitRepository(name, url string) domain.Repository {
 	}
 }
 
-func mustRepositoryFromOciRepoSpec(spec *domain.RepositorySpec, oci domain.OciRepoSpec) {
-	if err := spec.FromOciRepoSpec(oci); err != nil {
-		panic(fmt.Sprintf("mustRepositoryFromOciRepoSpec: %v", err))
-	}
+func mustRepositoryFromOciRepoSpec(t *testing.T, spec *domain.RepositorySpec, oci domain.OciRepoSpec) {
+	t.Helper()
+	require.NoError(t, spec.FromOciRepoSpec(oci))
 }
 
-func newOciRepository(name, registry string) domain.Repository {
+func newOciRepository(t *testing.T, name, registry string) domain.Repository {
 	spec := domain.RepositorySpec{}
-	mustRepositoryFromOciRepoSpec(&spec, domain.OciRepoSpec{Registry: registry, Type: domain.OciRepoSpecTypeOci, Scheme: lo.ToPtr(domain.OciRepoSchemeHttp)})
+	mustRepositoryFromOciRepoSpec(t, &spec, domain.OciRepoSpec{Registry: registry, Type: domain.OciRepoSpecTypeOci, Scheme: lo.ToPtr(domain.OciRepoSchemeHttp)})
 	return domain.Repository{
 		ApiVersion: "v1beta1",
 		Kind:       "Repository",
@@ -201,9 +199,9 @@ func newOciRepository(name, registry string) domain.Repository {
 	}
 }
 
-func newDeltaStorageRepository(name, registry, repository string) domain.Repository {
+func newDeltaStorageRepository(t *testing.T, name, registry, repository string) domain.Repository {
 	spec := domain.RepositorySpec{}
-	mustRepositoryFromOciRepoSpec(&spec, domain.OciRepoSpec{
+	mustRepositoryFromOciRepoSpec(t, &spec, domain.OciRepoSpec{
 		Registry:           registry,
 		Type:               domain.OciRepoSpecTypeOci,
 		Repository:         lo.ToPtr(repository),
@@ -285,7 +283,7 @@ func TestCreateRepositoryDeltaStorageTarget(t *testing.T) {
 		h, _, _ := newTestHandler()
 		ctx := context.Background()
 		orgId := uuid.New()
-		_, status := h.CreateRepository(ctx, orgId, newDeltaStorageRepository("diffs", "my-registry.com", "my-org/diffs"))
+		_, status := h.CreateRepository(ctx, orgId, newDeltaStorageRepository(t, "diffs", "my-registry.com", "my-org/diffs"))
 		require.Equal(t, statusCreatedCode, status.Code)
 	})
 
@@ -293,10 +291,10 @@ func TestCreateRepositoryDeltaStorageTarget(t *testing.T) {
 		h, _, _ := newTestHandler()
 		ctx := context.Background()
 		orgId := uuid.New()
-		_, status := h.CreateRepository(ctx, orgId, newDeltaStorageRepository("diffs", "my-registry.com", "my-org/diffs"))
+		_, status := h.CreateRepository(ctx, orgId, newDeltaStorageRepository(t, "diffs", "my-registry.com", "my-org/diffs"))
 		require.Equal(t, statusCreatedCode, status.Code)
 
-		_, status = h.CreateRepository(ctx, orgId, newDeltaStorageRepository("other-diffs", "my-registry.com", "my-org/other"))
+		_, status = h.CreateRepository(ctx, orgId, newDeltaStorageRepository(t, "other-diffs", "my-registry.com", "my-org/other"))
 		require.Equal(t, statusConflictCode, status.Code)
 		require.Contains(t, status.Message, "deltaStorageTarget")
 	})
@@ -398,10 +396,10 @@ func TestReplaceRepositoryDeltaStorageTarget(t *testing.T) {
 		h, _, _ := newTestHandler()
 		ctx := context.Background()
 		orgId := uuid.New()
-		_, status := h.CreateRepository(ctx, orgId, newDeltaStorageRepository("diffs", "my-registry.com", "my-org/diffs"))
+		_, status := h.CreateRepository(ctx, orgId, newDeltaStorageRepository(t, "diffs", "my-registry.com", "my-org/diffs"))
 		require.Equal(t, statusCreatedCode, status.Code)
 
-		replaced := newDeltaStorageRepository("diffs", "my-registry.com", "my-org/diffs-v2")
+		replaced := newDeltaStorageRepository(t, "diffs", "my-registry.com", "my-org/diffs-v2")
 		_, status = h.ReplaceRepository(ctx, orgId, "diffs", replaced)
 		require.Equal(t, statusSuccessCode, status.Code)
 	})
@@ -410,13 +408,13 @@ func TestReplaceRepositoryDeltaStorageTarget(t *testing.T) {
 		h, _, _ := newTestHandler()
 		ctx := context.Background()
 		orgId := uuid.New()
-		_, status := h.CreateRepository(ctx, orgId, newDeltaStorageRepository("diffs", "my-registry.com", "my-org/diffs"))
+		_, status := h.CreateRepository(ctx, orgId, newDeltaStorageRepository(t, "diffs", "my-registry.com", "my-org/diffs"))
 		require.Equal(t, statusCreatedCode, status.Code)
 
-		_, status = h.CreateRepository(ctx, orgId, newOciRepository("other", "my-registry.com"))
+		_, status = h.CreateRepository(ctx, orgId, newOciRepository(t, "other", "my-registry.com"))
 		require.Equal(t, statusCreatedCode, status.Code)
 
-		_, status = h.ReplaceRepository(ctx, orgId, "other", newDeltaStorageRepository("other", "my-registry.com", "my-org/other"))
+		_, status = h.ReplaceRepository(ctx, orgId, "other", newDeltaStorageRepository(t, "other", "my-registry.com", "my-org/other"))
 		require.Equal(t, statusConflictCode, status.Code)
 	})
 
@@ -424,14 +422,14 @@ func TestReplaceRepositoryDeltaStorageTarget(t *testing.T) {
 		h, _, _ := newTestHandler()
 		ctx := context.Background()
 		orgId := uuid.New()
-		_, status := h.CreateRepository(ctx, orgId, newDeltaStorageRepository("diffs", "my-registry.com", "my-org/diffs"))
+		_, status := h.CreateRepository(ctx, orgId, newDeltaStorageRepository(t, "diffs", "my-registry.com", "my-org/diffs"))
 		require.Equal(t, statusCreatedCode, status.Code)
 
-		cleared := newOciRepository("diffs", "my-registry.com")
+		cleared := newOciRepository(t, "diffs", "my-registry.com")
 		_, status = h.ReplaceRepository(ctx, orgId, "diffs", cleared)
 		require.Equal(t, statusSuccessCode, status.Code)
 
-		_, status = h.CreateRepository(ctx, orgId, newDeltaStorageRepository("other-diffs", "my-registry.com", "my-org/other"))
+		_, status = h.CreateRepository(ctx, orgId, newDeltaStorageRepository(t, "other-diffs", "my-registry.com", "my-org/other"))
 		require.Equal(t, statusCreatedCode, status.Code)
 	})
 }
@@ -549,10 +547,10 @@ func TestPatchRepositoryDeltaStorageTarget(t *testing.T) {
 		h, _, _ := newTestHandler()
 		ctx := context.Background()
 		orgId := uuid.New()
-		_, status := h.CreateRepository(ctx, orgId, newDeltaStorageRepository("diffs", "my-registry.com", "my-org/diffs"))
+		_, status := h.CreateRepository(ctx, orgId, newDeltaStorageRepository(t, "diffs", "my-registry.com", "my-org/diffs"))
 		require.Equal(t, statusCreatedCode, status.Code)
 
-		_, status = h.CreateRepository(ctx, orgId, newOciRepository("other", "my-registry.com"))
+		_, status = h.CreateRepository(ctx, orgId, newOciRepository(t, "other", "my-registry.com"))
 		require.Equal(t, statusCreatedCode, status.Code)
 
 		_, status = h.PatchRepository(ctx, orgId, "other", domain.PatchRequest{
@@ -695,7 +693,7 @@ func TestCheckRepositoryOciTagUsesRegistryFromSpec(t *testing.T) {
 
 	srv, paths := newOciTestServer(t)
 	registry := strings.TrimPrefix(srv.URL, "http://")
-	_, status := h.CreateRepository(ctx, orgId, newOciRepository("oci-repo", registry))
+	_, status := h.CreateRepository(ctx, orgId, newOciRepository(t, "oci-repo", registry))
 	require.Equal(t, statusCreatedCode, status.Code)
 
 	result, status := h.CheckRepositoryOciTag(ctx, orgId, "oci-repo", "myorg/myimage", "latest")
@@ -722,7 +720,7 @@ func TestCheckRepositoryOciTagUsesSpecRepository(t *testing.T) {
 
 	srv, paths := newOciTestServer(t)
 	registry := strings.TrimPrefix(srv.URL, "http://")
-	repo := newOciRepository("oci-repo", registry)
+	repo := newOciRepository(t, "oci-repo", registry)
 	spec := domain.OciRepoSpec{
 		Registry:   registry,
 		Type:       domain.OciRepoSpecTypeOci,
@@ -753,7 +751,7 @@ func TestCheckRepositoryOciTagUsesSpecNamespace(t *testing.T) {
 
 	srv, paths := newOciTestServer(t)
 	registry := strings.TrimPrefix(srv.URL, "http://")
-	repo := newOciRepository("oci-repo", registry)
+	repo := newOciRepository(t, "oci-repo", registry)
 	spec := domain.OciRepoSpec{
 		Registry:  registry,
 		Type:      domain.OciRepoSpecTypeOci,
