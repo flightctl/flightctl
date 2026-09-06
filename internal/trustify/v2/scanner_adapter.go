@@ -12,7 +12,7 @@ import (
 )
 
 func init() {
-	vulnerability.Register(string(config.VulnerabilityBackendTrustify), func(cfg *config.VulnerabilityConfig) (vulnerability.Scanner, error) {
+	vulnerability.Register(config.VulnerabilityBackendTrustify, func(cfg *config.VulnerabilityConfig) (vulnerability.Scanner, error) {
 		return NewScanner(cfg.Trustify)
 	}, vulnerability.WithSBOMUpload(true))
 }

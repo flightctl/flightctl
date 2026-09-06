@@ -13,6 +13,12 @@ AddHost=%H:host-gateway
 Environment=HOME=/root
 Secret=flightctl-postgresql-user-password,type=env,target=DB_PASSWORD
 Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
+# When backend: quay is selected, create a Podman secret and add this Quadlet
+# drop-in so deployments that do not use Quay do not require the secret:
+#   /etc/containers/systemd/flightctl-periodic.container.d/quay-token.conf
+#   [Container]
+#   Secret=flightctl-quay-token,type=env,target=FLIGHTCTL_VULNERABILITY_REPORTING_QUAY_TOKEN
+# Create the secret with: printf %s "your-token" | podman secret create flightctl-quay-token -
 Environment=DB_USER=flightctl_app
 Volume=/etc/flightctl/flightctl-periodic/config.yaml:/root/.flightctl/config.yaml:ro,z
 Volume=/etc/flightctl/ssh:/etc/flightctl/ssh:ro,z
