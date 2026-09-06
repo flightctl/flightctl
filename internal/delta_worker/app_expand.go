@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/containers/image/v5/docker/reference"
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/api/common"
+	preparetask "github.com/flightctl/flightctl/internal/delta_worker/tasks/prepare"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/google/uuid"
@@ -25,9 +27,9 @@ func expandAppCandidates(
 	orgId uuid.UUID,
 	device *domain.Device,
 	rendered tasks.RenderedSpec,
-	candidates []DeltaCandidate,
+	candidates []preparetask.DeltaCandidate,
 	inspect inspectFn,
-) []DeltaCandidate {
+) []preparetask.DeltaCandidate {
 	if len(rendered.Applications) == 0 {
 		return candidates
 	}
@@ -80,31 +82,39 @@ func pairCandidate(
 	newImageRef string,
 	digestIndex map[string]string,
 	inspect inspectFn,
-) (DeltaCandidate, bool) {
+) (preparetask.DeltaCandidate, bool) {
 	currentDigest, ok := digestIndex[newImageRef]
 	if !ok || currentDigest == "" {
-		return DeltaCandidate{}, false
+		return preparetask.DeltaCandidate{}, false
 	}
 
-	repo, err := imageRepository(newImageRef)
+	repo, err := applicationImageRepository(newImageRef)
 	if err != nil {
-		return DeltaCandidate{}, false
+		return preparetask.DeltaCandidate{}, false
 	}
 
 	newDigest, err := inspect(ctx, orgId, newImageRef)
 	if err != nil || newDigest == "" {
-		return DeltaCandidate{}, false
+		return preparetask.DeltaCandidate{}, false
 	}
 
 	if currentDigest == newDigest {
-		return DeltaCandidate{}, false
+		return preparetask.DeltaCandidate{}, false
 	}
 
-	return DeltaCandidate{
+	return preparetask.DeltaCandidate{
 		ImageRepository: repo,
 		CurrentDigest:   currentDigest,
 		NewDigest:       newDigest,
 	}, true
+}
+
+func applicationImageRepository(image string) (string, error) {
+	named, err := reference.ParseNormalizedNamed(image)
+	if err != nil {
+		return "", err
+	}
+	return named.Name(), nil
 }
 
 // extractNewImageRefs extracts all image references from a rendered application
