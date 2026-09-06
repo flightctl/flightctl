@@ -6599,6 +6599,28 @@ components:
             $ref: "#/components/schemas/ApplicationVolumeStatus"
         lastDelta:
           $ref: "#/components/schemas/DeviceDeltaApplyStatus"
+        imageDigests:
+          type: array
+          description: >
+            Image references this application uses and their digests in local
+            storage. image is the ref from the current rendered spec (tag or
+            digest). digest is what is in storage. When image is already a
+            digest ref it matches digest. Reported by the agent.
+          items:
+            $ref: "#/components/schemas/ApplicationImageDigest"
+    ApplicationImageDigest:
+      type: object
+      description: An image reference and its content digest in local storage.
+      required:
+        - image
+        - digest
+      properties:
+        image:
+          type: string
+          description: Image reference as it appears in the rendered application spec.
+        digest:
+          type: string
+          description: Content digest of the image in local storage (e.g. sha256:abc...).
     ApplicationVolumeStatus:
       type: object
       description: Status of a volume used by an application.
