@@ -17,6 +17,8 @@ import (
 	instpprof "github.com/flightctl/flightctl/internal/instrumentation/pprof"
 	"github.com/flightctl/flightctl/internal/instrumentation/profiling"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
+	canaryservice "github.com/flightctl/flightctl/internal/service/canary"
+	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -58,6 +60,28 @@ func main() {
 			encMgr.SetMetricsRecorder(ec)
 			encCollector = ec
 		}
+	}
+
+	// Postgres startup matches flightctl-worker: encryption canary needs DB access now;
+	// follow-on stack stories use the same connection for delta generation.
+	log.Println("Initializing data store")
+	db, err := store.InitDB(cfg, log)
+	if err != nil {
+		log.Fatalf("initializing data store: %v", err)
+	}
+	defer func() {
+		sqlDB, err := db.DB()
+		if err != nil {
+			log.Errorf("failed to get database handle for close: %v", err)
+			return
+		}
+		if err := sqlDB.Close(); err != nil {
+			log.Errorf("failed to close database: %v", err)
+		}
+	}()
+
+	if err := canaryservice.InitEncryption(ctx, db, log); err != nil {
+		log.Fatalf("initializing encryption canary store: %v", err)
 	}
 
 	ctx = context.WithValue(ctx, consts.EventSourceComponentCtxKey, "flightctl-delta-worker")
