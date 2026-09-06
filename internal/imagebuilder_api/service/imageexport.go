@@ -20,6 +20,7 @@ import (
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/oci"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
 	mainstore "github.com/flightctl/flightctl/internal/store"
@@ -48,6 +49,7 @@ var (
 	ErrInvalidManifestDigest             = errors.New("invalid manifest digest")
 	ErrInvalidManifestLayerCount         = errors.New("invalid manifest layer count")
 	ErrRepositoryNotFound                = errors.New("repository not found")
+	ErrInvalidImageDest                  = errors.New("invalid image destination repository")
 
 	// External service errors (5xx - Service Unavailable)
 	ErrExternalServiceUnavailable = errors.New("external service unavailable")
@@ -551,7 +553,10 @@ func (s *imageExportService) setupRepositoryReference(ctx context.Context, ociSp
 		scheme = string(*ociSpec.Scheme)
 	}
 	registryHostname := ociSpec.Registry
-	destRef := fmt.Sprintf("%s/%s", registryHostname, imageName)
+	if destErrs := ValidateImageDestOciSpec(ociSpec, imageName, "spec.destination.repository"); len(destErrs) > 0 {
+		return nil, nil, "", "", fmt.Errorf("%w: %w", ErrInvalidImageDest, errors.Join(destErrs...))
+	}
+	destRef := oci.RepoDestRef(registryHostname, imageName)
 
 	log.WithFields(logrus.Fields{
 		"destRef": destRef, "scheme": scheme, "registryHostname": registryHostname,
