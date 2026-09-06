@@ -32,7 +32,7 @@ type Resolver struct {
 	Inspect         func(ctx context.Context, orgId uuid.UUID, image string) (string, error)
 	DesiredSpec     func(device *domain.Device, tv *domain.TemplateVersion) (*domain.DeviceSpec, error)
 	Render          func(ctx context.Context, spec *domain.DeviceSpec) (tasks.RenderedSpec, error)
-	Expand          func(tasks.RenderedSpec, []DeltaCandidate) []DeltaCandidate
+	Expand          func(context.Context, uuid.UUID, *domain.Device, tasks.RenderedSpec, []DeltaCandidate) []DeltaCandidate
 }
 
 func (r *Resolver) DeltaCandidates(ctx context.Context, ev worker_client.EventWithOrgId) (DeltaCandidateResult, error) {
@@ -167,7 +167,7 @@ func (r *Resolver) candidatesForDevice(ctx context.Context, orgId uuid.UUID, dev
 		candidates = append(candidates, cand)
 	}
 	if r.Expand != nil {
-		candidates = r.Expand(rendered, candidates)
+		candidates = r.Expand(ctx, orgId, device, rendered, candidates)
 	}
 	return candidates, nil
 }
