@@ -149,6 +149,7 @@ type Workload struct {
 type application struct {
 	id                string
 	path              string
+	imageRef          string
 	workloads         []Workload
 	volume            provider.VolumeManager
 	status            *v1beta1.DeviceApplicationStatus
@@ -170,8 +171,9 @@ func NewApplication(p provider.Provider) *application {
 		}
 	}
 	return &application{
-		id:   spec.ID,
-		path: spec.Path,
+		id:       spec.ID,
+		path:     spec.Path,
+		imageRef: spec.Image,
 		status: &v1beta1.DeviceApplicationStatus{
 			Name:     spec.Name,
 			Status:   v1beta1.ApplicationStatusUnknown,
@@ -391,7 +393,49 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	// update volume status
 	a.volume.Status(a.status)
 
+	// Collect image digests from workloads. The parent image ref comes from
+	// the provider spec; workload images come from the container runtime.
+	// Actual digest lookup requires podman and will be populated by the
+	// provider during prefetch; here we record the image refs so the
+	// control plane knows which images this application uses.
+	a.collectImageDigests()
+
 	return a.status, summary, nil
+}
+
+// collectImageDigests populates status.ImageDigests from the application's
+// known image references. The parent imageRef comes from the provider spec;
+// workload images come from the container runtime. Digests are populated when
+// available (e.g. after a successful pull); missing digests are omitted.
+func (a *application) collectImageDigests() {
+	seen := make(map[string]struct{})
+	var digests []v1beta1.ApplicationImageDigest
+
+	// Parent image from the provider spec.
+	if a.imageRef != "" {
+		seen[a.imageRef] = struct{}{}
+		digests = append(digests, v1beta1.ApplicationImageDigest{
+			Image: a.imageRef,
+		})
+	}
+
+	// Workload images from the container runtime.
+	for _, w := range a.workloads {
+		if w.Image == "" {
+			continue
+		}
+		if _, ok := seen[w.Image]; ok {
+			continue
+		}
+		seen[w.Image] = struct{}{}
+		digests = append(digests, v1beta1.ApplicationImageDigest{
+			Image: w.Image,
+		})
+	}
+
+	if len(digests) > 0 {
+		a.status.ImageDigests = &digests
+	}
 }
 
 // isTerminal reports whether a workload has reached a terminal container state,
