@@ -37,6 +37,7 @@ func (f *fakeCSRService) GetCertificateSigningRequest(ctx context.Context, orgId
 }
 
 func newTestCA(t *testing.T) *crypto.CAClient {
+	t.Helper()
 	cfg := cacfg.NewDefault(t.TempDir())
 	caClient, _, err := crypto.EnsureCA(cfg)
 	require.NoError(t, err)
