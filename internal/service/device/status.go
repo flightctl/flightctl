@@ -163,22 +163,7 @@ func updateServerSideDeviceUpdatedStatus(device *domain.Device, ctx context.Cont
 	}
 	if !device.IsManaged() && !device.IsUpdatedToDeviceSpec() {
 		device.Status.Updated.Status = domain.DeviceUpdatedStatusOutOfDate
-		baseMessage := domain.DeviceOutOfDateText
-		var errorMessage string
-
-		// Prefer update condition error if available
-		if updateCondition := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceUpdating); updateCondition != nil {
-			if updateCondition.Reason == string(domain.UpdateStateError) && updateCondition.Message != "" {
-				errorMessage = fmt.Sprintf("%s: %s", baseMessage, updateCondition.Message)
-			}
-		}
-
-		// Final fallback to base message (skip rollout error check since unmanaged devices don't have rollout errors)
-		if errorMessage == "" {
-			errorMessage = baseMessage + "."
-		}
-
-		device.Status.Updated.Info = lo.ToPtr(errorMessage)
+		device.Status.Updated.Info = lo.ToPtr(unmanagedDeviceOutOfDateMessage(device))
 		return device.Status.Updated.Status != lastUpdateStatus
 	}
 	if device.IsManaged() {
@@ -219,25 +204,54 @@ func updateServerSideDeviceUpdatedStatus(device *domain.Device, ctx context.Cont
 		device.Status.Updated.Info = lo.ToPtr("Device was updated to the latest device spec.")
 	}
 
-	// Override UpToDate if the device has an OS target it cannot satisfy.
-	// Requires capabilities.osMode to be reported; legacy devices without capabilities skip this check.
-	if device.Status.Updated.Status == domain.DeviceUpdatedStatusUpToDate &&
-		device.Spec != nil && device.Spec.Os != nil &&
-		device.Status.Capabilities != nil && device.Status.Capabilities.OsMode != nil {
-		hasOsTarget := device.Spec.Os.Image != "" || device.Spec.Os.CatalogItemRef != nil
-		if hasOsTarget {
-			if device.Spec.Os.Image != "" && device.Status.Os.Image != device.Spec.Os.Image {
-				device.Status.Updated.Status = domain.DeviceUpdatedStatusOutOfDate
-				device.Status.Updated.Info = lo.ToPtr(fmt.Sprintf("Device OS image mismatch: running %q, expected %q.", device.Status.Os.Image, device.Spec.Os.Image))
-			} else if *device.Status.Capabilities.OsMode == domain.OsModePackage &&
-				device.Spec.Os.CatalogItemRef != nil && device.Spec.Os.Image == "" {
-				device.Status.Updated.Status = domain.DeviceUpdatedStatusOutOfDate
-				device.Status.Updated.Info = lo.ToPtr("Device has a catalog OS target that cannot be satisfied.")
-			}
+	overrideUpToDateForOsTarget(device)
+
+	return device.Status.Updated.Status != lastUpdateStatus
+}
+
+// overrideUpToDateForOsTarget downgrades an UpToDate device to OutOfDate when
+// the device has an OS target it cannot satisfy. Requires capabilities.osMode
+// to be reported; legacy devices without capabilities skip this check.
+func overrideUpToDateForOsTarget(device *domain.Device) {
+	if device.Status.Updated.Status != domain.DeviceUpdatedStatusUpToDate {
+		return
+	}
+	if device.Spec == nil || device.Spec.Os == nil {
+		return
+	}
+	if device.Status.Capabilities == nil || device.Status.Capabilities.OsMode == nil {
+		return
+	}
+
+	hasOsTarget := device.Spec.Os.Image != "" || device.Spec.Os.CatalogItemRef != nil
+	if !hasOsTarget {
+		return
+	}
+
+	if device.Spec.Os.Image != "" && device.Status.Os.Image != device.Spec.Os.Image {
+		device.Status.Updated.Status = domain.DeviceUpdatedStatusOutOfDate
+		device.Status.Updated.Info = lo.ToPtr(fmt.Sprintf("Device OS image mismatch: running %q, expected %q.", device.Status.Os.Image, device.Spec.Os.Image))
+	} else if *device.Status.Capabilities.OsMode == domain.OsModePackage &&
+		device.Spec.Os.CatalogItemRef != nil && device.Spec.Os.Image == "" {
+		device.Status.Updated.Status = domain.DeviceUpdatedStatusOutOfDate
+		device.Status.Updated.Info = lo.ToPtr("Device has a catalog OS target that cannot be satisfied.")
+	}
+}
+
+// unmanagedDeviceOutOfDateMessage builds a human-readable info message for an
+// unmanaged device whose spec is not up-to-date.
+func unmanagedDeviceOutOfDateMessage(device *domain.Device) string {
+	baseMessage := domain.DeviceOutOfDateText
+
+	// Prefer update condition error if available
+	if updateCondition := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceUpdating); updateCondition != nil {
+		if updateCondition.Reason == string(domain.UpdateStateError) && updateCondition.Message != "" {
+			return fmt.Sprintf("%s: %s", baseMessage, updateCondition.Message)
 		}
 	}
 
-	return device.Status.Updated.Status != lastUpdateStatus
+	// Final fallback to base message (skip rollout error check since unmanaged devices don't have rollout errors)
+	return baseMessage + "."
 }
 
 func updateServerSideApplicationStatus(device *domain.Device) bool {
