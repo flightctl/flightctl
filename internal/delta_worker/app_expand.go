@@ -16,10 +16,11 @@ import (
 type inspectFn func(ctx context.Context, orgId uuid.UUID, image string) (string, error)
 
 // expandAppCandidates extracts application image pairs from the rendered spec
-// and appends them to the existing (OS) candidates. For each application in
-// the rendered spec it extracts parent and nested image references, pairs them
-// with the current digest from the device's status.applications[].imageDigests,
-// and resolves the new digest via inspect.
+// and appends them to the existing (OS) candidates. The rendered spec carries
+// fully expanded applications (inline content already resolved). For each
+// application it extracts parent and nested image references, pairs them with
+// the current digest from the device's status.applications[].imageDigests,
+// and resolves the new digest via registry inspect.
 func expandAppCandidates(
 	ctx context.Context,
 	orgId uuid.UUID,
@@ -131,7 +132,8 @@ func extractNewImageRefs(app *domain.ApplicationProviderSpec) []string {
 	return deduplicateStrings(refs)
 }
 
-// extractContainerRefs extracts the parent image from a container application.
+// extractContainerRefs extracts the container image from a rendered container
+// application.
 func extractContainerRefs(app *domain.ApplicationProviderSpec) []string {
 	container, err := (*app).AsContainerApplication()
 	if err != nil {
@@ -144,9 +146,11 @@ func extractContainerRefs(app *domain.ApplicationProviderSpec) []string {
 	return []string{imageSpec.Image}
 }
 
-// extractComposeRefs extracts image references from a compose application.
-// For image-based compose apps, the parent artifact image is included.
-// For inline compose apps, service images are parsed from the compose YAML.
+// extractComposeRefs extracts all image references from a rendered compose
+// application: the parent artifact image (when image-based) and every service
+// image inside the compose YAML. Rendered compose apps always carry inline
+// content — the render pipeline expands image-based artifacts into inline
+// files before the spec reaches PrepareDeltas.
 func extractComposeRefs(app *domain.ApplicationProviderSpec) []string {
 	compose, err := (*app).AsComposeApplication()
 	if err != nil {
@@ -155,25 +159,25 @@ func extractComposeRefs(app *domain.ApplicationProviderSpec) []string {
 
 	var refs []string
 
-	// Try image-based first (parent artifact).
+	// Parent artifact image (image-based compose).
 	imageSpec, err := compose.AsImageApplicationProviderSpec()
 	if err == nil && imageSpec.Image != "" {
 		refs = append(refs, imageSpec.Image)
-		// For image-based compose, nested service images require pulling and
-		// extracting the artifact — that is deferred to the worker.
-		return refs
 	}
 
-	// Inline compose: parse service images from the compose YAML content.
+	// Service images from the inline compose YAML.
 	inline, err := compose.AsInlineApplicationProviderSpec()
-	if err != nil {
-		return refs
+	if err == nil {
+		refs = append(refs, parseComposeServiceImages(inline.Inline)...)
 	}
-	refs = append(refs, parseComposeServiceImages(inline.Inline)...)
+
 	return refs
 }
 
-// extractQuadletRefs extracts image references from a quadlet application.
+// extractQuadletRefs extracts all image references from a rendered quadlet
+// application: the parent artifact image (when image-based) and every Image=
+// reference inside inline quadlet unit files. Rendered quadlet apps always
+// carry inline content.
 func extractQuadletRefs(app *domain.ApplicationProviderSpec) []string {
 	quadlet, err := (*app).AsQuadletApplication()
 	if err != nil {
@@ -182,26 +186,27 @@ func extractQuadletRefs(app *domain.ApplicationProviderSpec) []string {
 
 	var refs []string
 
-	// Try image-based first (parent artifact).
+	// Parent artifact image (image-based quadlet).
 	imageSpec, err := quadlet.AsImageApplicationProviderSpec()
 	if err == nil && imageSpec.Image != "" {
 		refs = append(refs, imageSpec.Image)
-		return refs
 	}
 
-	// Inline quadlet: parse Image= from quadlet unit files.
+	// Image= refs from inline quadlet unit files.
 	inline, err := quadlet.AsInlineApplicationProviderSpec()
-	if err != nil {
-		return refs
+	if err == nil {
+		refs = append(refs, parseQuadletImageRefs(inline.Inline)...)
 	}
-	refs = append(refs, parseQuadletImageRefs(inline.Inline)...)
+
 	return refs
 }
 
-// extractHelmRefs extracts image references from a helm application.
-// For now, only the chart image itself is included. Extracting images
-// from helm template output requires running helm on the worker, which
-// has security constraints (§4.5) and is deferred.
+// extractHelmRefs extracts image references from a rendered helm application.
+// The chart image is always included. Helm template output (which would reveal
+// pod/container images) is not available in the rendered spec — extracting
+// those images requires running helm template on the worker with timeout and
+// resource limits (design §4.5). Those nested images are handled when helm
+// template runs during generation.
 func extractHelmRefs(app *domain.ApplicationProviderSpec) []string {
 	helm, err := (*app).AsHelmApplication()
 	if err != nil {

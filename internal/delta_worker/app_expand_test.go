@@ -95,6 +95,18 @@ func TestExpandAppCandidates(t *testing.T) {
 		require.Len(t, result, 2)
 	})
 
+	t.Run("When a compose app is image-based with inline content it should extract parent and service images", func(t *testing.T) {
+		app := imageBasedComposeAppWithInline("quay.io/acme/compose-pkg:v2", "quay.io/acme/svc-a:v2")
+		rendered := renderedWithApps(t, app)
+		device := deviceWithMultipleDigests(map[string]string{
+			"quay.io/acme/compose-pkg:v2": "sha256:old_pkg",
+			"quay.io/acme/svc-a:v2":       "sha256:old_svc_a",
+		})
+
+		result := expandAppCandidates(ctx, orgId, device, rendered, nil, inspectOK)
+		require.Len(t, result, 2, "should produce candidates for both parent artifact and nested service")
+	})
+
 	t.Run("When a quadlet app is inline it should extract Image= refs", func(t *testing.T) {
 		app := inlineQuadletApp("quay.io/acme/worker:v2")
 		rendered := renderedWithApps(t, app)
@@ -223,6 +235,35 @@ func imageVolume(name, reference string) v1beta1.ApplicationVolume {
 	}
 	_ = vol.FromImageVolumeProviderSpec(imgVol)
 	return vol
+}
+
+// imageBasedComposeAppWithInline creates a compose app that has both an image
+// ref (parent artifact) AND inline content (the rendered form). This simulates
+// what the render pipeline produces: it expands the artifact into inline files
+// so PrepareDeltas can parse them without pulling the artifact.
+func imageBasedComposeAppWithInline(parentImage string, serviceImages ...string) domain.ApplicationProviderSpec {
+	var services []string
+	for i, img := range serviceImages {
+		services = append(services, fmt.Sprintf("  svc%d:\n    image: %s", i, img))
+	}
+	content := "services:\n" + joinLines(services)
+	compose := v1beta1.ComposeApplication{
+		AppType: v1beta1.AppTypeCompose,
+		Name:    lo.ToPtr("compose-app"),
+	}
+	// Set the image-based spec.
+	imageSpec := v1beta1.ImageSpec{Image: parentImage}
+	_ = compose.FromImageApplicationProviderSpec(imageSpec)
+	// Also set inline content (as render does).
+	inline := v1beta1.InlineApplicationProviderSpec{
+		Inline: []v1beta1.ApplicationContent{
+			{Path: "docker-compose.yaml", Content: lo.ToPtr(content)},
+		},
+	}
+	_ = compose.MergeInlineApplicationProviderSpec(inline)
+	var app domain.ApplicationProviderSpec
+	_ = app.FromComposeApplication(compose)
+	return app
 }
 
 func inlineComposeApp(serviceImages ...string) domain.ApplicationProviderSpec {
