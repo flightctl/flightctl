@@ -575,6 +575,16 @@ func TestConfig_String_RedactsDeltaGenerationDefaultRepositoryCaCrt(t *testing.T
 }
 
 func TestValidateDeltaGenerationDefaultRepository(t *testing.T) {
+	t.Run("When only registry is set and invalid it should fail", func(t *testing.T) {
+		cfg := NewDefault()
+		cfg.DeltaGeneration = &DeltaGenerationConfig{
+			DefaultRepository: &DefaultRepositoryConfig{
+				Registry: "not a valid host",
+			},
+		}
+		require.Error(t, Validate(cfg))
+	})
+
 	t.Run("When repository and namespace are both set it should fail", func(t *testing.T) {
 		cfg := NewDefault()
 		cfg.DeltaGeneration = &DeltaGenerationConfig{

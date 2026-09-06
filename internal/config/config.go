@@ -1794,7 +1794,7 @@ func validateDeltaGeneration(cfg *Config) error {
 	caSet := d.CaCrt != nil && strings.TrimSpace(*d.CaCrt) != ""
 	skipSet := d.SkipServerVerification != nil
 	credsSet := d.Username != "" || d.Password != ""
-	anySet := repoSet || nsSet || schemeSet || caSet || skipSet || credsSet
+	anySet := strings.TrimSpace(d.Registry) != "" || repoSet || nsSet || schemeSet || caSet || skipSet || credsSet
 	if anySet {
 		if errs := validation.ValidateHostIPOrFQDNWithOptionalPort(&d.Registry, "deltaGeneration.defaultRepository.registry"); len(errs) > 0 {
 			return errs[0]

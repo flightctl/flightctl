@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/store"
@@ -92,7 +93,7 @@ func (s *RepositoryStore) InitialMigration(ctx context.Context) error {
 	}
 
 	if err := s.createDeltaStorageTargetUniqueIndex(db); err != nil {
-		return err
+		return fmt.Errorf("create delta-storage-target unique index: %w", err)
 	}
 
 	return nil
