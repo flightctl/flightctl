@@ -22,6 +22,7 @@ spec:
       serviceAccountName: flightctl-delta-worker
       securityContext:
         runAsNonRoot: true
+        fsGroup: 1001
         seccompProfile:
           type: RuntimeDefault
       {{- if .Values.global.imagePullSecretName }}
@@ -81,6 +82,8 @@ spec:
             - mountPath: /root/.flightctl/encryption
               name: flightctl-encryption-key
               readOnly: true
+            - mountPath: /tmp
+              name: tmp-dir
             {{- include "flightctl.dbSslVolumeMounts" . | nindent 12 }}
       restartPolicy: Always
       volumes:
@@ -90,5 +93,7 @@ spec:
         - name: flightctl-encryption-key
           secret:
             secretName: flightctl-encryption-key
-            defaultMode: 0400
+            defaultMode: 0440
+        - name: tmp-dir
+          emptyDir: {}
         {{- include "flightctl.dbSslVolumes" . | nindent 8 }}
