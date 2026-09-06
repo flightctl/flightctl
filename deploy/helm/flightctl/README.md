@@ -303,10 +303,11 @@ For more detailed configuration options, see the [Values](#values) section below
 | deltaGeneration.defaultRepository.secretName | string | `""` | Name of the Kubernetes Secret containing 'username' and 'password' keys. |
 | deltaGeneration.defaultRepository.skipServerVerification | bool | `false` | Skip TLS verification when connecting to the registry. |
 | deltaGeneration.maxConcurrentDeltaGenerations | int | `2` | Maximum number of concurrent delta generation jobs. Defaults to 2 when omitted or <= 0. |
-| deltaWorker | object | `{"image":{"image":"quay.io/flightctl/flightctl-delta-worker-el9","pullPolicy":"","tag":""}}` | Delta-worker Configuration |
+| deltaWorker | object | `{"image":{"image":"quay.io/flightctl/flightctl-delta-worker-el9","pullPolicy":"","tag":""},"resources":{"limits":{"cpu":"2","memory":"2Gi"},"requests":{"cpu":"100m","memory":"256Mi"}}}` | Delta-worker Configuration |
 | deltaWorker.image.image | string | `"quay.io/flightctl/flightctl-delta-worker-el9"` | Delta-worker container image |
 | deltaWorker.image.pullPolicy | string | `""` | Image pull policy for delta-worker container |
 | deltaWorker.image.tag | string | `""` | Delta-worker image tag |
+| deltaWorker.resources | object | `{"limits":{"cpu":"2","memory":"2Gi"},"requests":{"cpu":"100m","memory":"256Mi"}}` | Resource requests and limits for the delta-worker container |
 | encryption | object | `{"activeKeyID":"default","keys":[{"file":"key","id":"default"}]}` | Encryption-at-rest key configuration. The flightctl-encryption-key Secret is mounted at /root/.flightctl/encryption/ in all services. Each key entry maps a logical key ID to a filename within that Secret. For key rotation: add a new key file to the Secret, add it here, then change activeKeyID. |
 | encryption.activeKeyID | string | `"default"` | Key ID used for new encryptions. Must match one of the IDs in the keys list. |
 | encryption.keys | list | `[{"file":"key","id":"default"}]` | List of available encryption keys. Old keys remain available for decryption during rotation. |
