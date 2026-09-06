@@ -21,7 +21,6 @@ spec:
     spec:
       serviceAccountName: flightctl-delta-worker
       securityContext:
-        runAsNonRoot: true
         fsGroup: 1001
         seccompProfile:
           type: RuntimeDefault
@@ -39,6 +38,7 @@ spec:
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
+            runAsNonRoot: true
             runAsUser: 1001
             runAsGroup: 0
             capabilities:
