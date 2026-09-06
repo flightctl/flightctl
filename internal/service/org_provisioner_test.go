@@ -18,7 +18,7 @@ func createTestOrgProvisioner(catalogStore *fakeCatalogStore) *OrgProvisioner {
 }
 
 func TestEnsureDefaults_NewOrg_CreatesDefaultCatalog(t *testing.T) {
-	catalogStore := &fakeCatalogStore{}
+	catalogStore := &fakeCatalogStore{catalogs: make(map[catalogKey]*domain.Catalog)}
 	provisioner := createTestOrgProvisioner(catalogStore)
 
 	org := &model.Organization{ID: uuid.New(), ExternalID: "org-1", DisplayName: "Organization 1"}
@@ -34,7 +34,7 @@ func TestEnsureDefaults_NewOrg_CreatesDefaultCatalog(t *testing.T) {
 }
 
 func TestEnsureDefaults_ExistingCatalog_DoesNotDuplicate(t *testing.T) {
-	catalogStore := &fakeCatalogStore{}
+	catalogStore := &fakeCatalogStore{catalogs: make(map[catalogKey]*domain.Catalog)}
 	provisioner := createTestOrgProvisioner(catalogStore)
 
 	org := &model.Organization{ID: uuid.New(), ExternalID: "org-1", DisplayName: "Organization 1"}
@@ -51,7 +51,7 @@ func TestEnsureDefaults_ExistingCatalog_DoesNotDuplicate(t *testing.T) {
 }
 
 func TestEnsureDefaults_MultipleOrgs_CreatesDefaultCatalogForEach(t *testing.T) {
-	catalogStore := &fakeCatalogStore{}
+	catalogStore := &fakeCatalogStore{catalogs: make(map[catalogKey]*domain.Catalog)}
 	provisioner := createTestOrgProvisioner(catalogStore)
 
 	org1 := &model.Organization{ID: uuid.New(), ExternalID: "org-1", DisplayName: "Organization 1"}
@@ -70,7 +70,8 @@ func TestEnsureDefaults_MultipleOrgs_CreatesDefaultCatalogForEach(t *testing.T) 
 
 func TestEnsureDefaults_CatalogGetError_DoesNotPanic(t *testing.T) {
 	catalogStore := &fakeCatalogStore{
-		getErr: errors.New("database error"),
+		catalogs: make(map[catalogKey]*domain.Catalog),
+		getErr:   errors.New("database error"),
 	}
 
 	provisioner := createTestOrgProvisioner(catalogStore)
