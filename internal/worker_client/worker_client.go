@@ -70,6 +70,13 @@ func (t *workerClient) EmitEvent(ctx context.Context, orgId uuid.UUID, event *do
 		return
 	}
 	if _, isDelta := deltaEventReasons[event.Reason]; isDelta {
+		if t.deltaPublisher == nil {
+			t.log.WithFields(logrus.Fields{
+				"orgId":  orgId,
+				"reason": event.Reason,
+			}).Warn("delta-generation publisher is not configured; dropping event")
+			return
+		}
 		t.enqueue(ctx, orgId, event, t.deltaPublisher)
 		return
 	}

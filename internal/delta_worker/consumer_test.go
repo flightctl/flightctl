@@ -120,11 +120,13 @@ flightctl_worker_consumers_active 2
 		require.Equal(t, 1, testutil.CollectAndCount(metrics, "flightctl_worker_tasks_by_type_total"))
 	})
 
-	t.Run("When garbage payload it should ack with nil error", func(t *testing.T) {
+	t.Run("When garbage payload it should ack as permanent failure", func(t *testing.T) {
 		provider := &recordingProvider{}
-		require.NoError(t, LaunchConsumers(ctx, provider, config.NewDefault(), nil, log))
+		metrics := worker.NewWorkerCollector(ctx, log, config.NewDefault(), nil)
+		require.NoError(t, LaunchConsumers(ctx, provider, config.NewDefault(), metrics, log))
 		require.NoError(t, provider.consumers[0].handler(ctx, []byte("not-json"), "2", provider.consumers[0], log))
 		require.Equal(t, 1, provider.consumers[0].completeN)
 		require.NoError(t, provider.consumers[0].completeErr)
+		require.Equal(t, 1, testutil.CollectAndCount(metrics, "flightctl_worker_permanent_failures_total"))
 	})
 }

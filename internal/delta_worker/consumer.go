@@ -21,7 +21,6 @@ func LaunchConsumers(ctx context.Context, queuesProvider queues.Provider, cfg *c
 	n := cfg.DeltaGeneration.EffectiveMaxConcurrentDeltaGenerations()
 	if workerMetrics != nil {
 		workerMetrics.SetConsumersActive(float64(n))
-		workerMetrics.SetQueueDepth(consts.DeltaGenerationTaskQueue, 0)
 		go func() {
 			<-ctx.Done()
 			workerMetrics.SetConsumersActive(0)
@@ -49,7 +48,25 @@ func idleHandler(workerMetrics *worker.WorkerCollector) queues.ConsumeHandler {
 			defer workerMetrics.DecMessagesInProgress()
 		}
 
-		taskType := taskTypeFromPayload(payload, log)
+		var event worker_client.EventWithOrgId
+		if err := json.Unmarshal(payload, &event); err != nil {
+			log.WithError(err).Error("failed to unmarshal event payload")
+			if workerMetrics != nil {
+				workerMetrics.IncPermanentFailures()
+				workerMetrics.IncMessagesProcessed("permanent_failure")
+			}
+			ackCtx, cancel := context.WithTimeout(context.Background(), ackTimeout)
+			defer cancel()
+			if ackErr := consumer.Complete(ackCtx, entryID, payload, nil); ackErr != nil {
+				log.WithError(ackErr).Errorf("failed to complete message %s after unmarshal error", entryID)
+			}
+			return nil
+		}
+
+		taskType := string(event.Event.Reason)
+		if taskType == "" {
+			taskType = "unknown"
+		}
 		if workerMetrics != nil {
 			workerMetrics.IncTasksByType(taskType)
 			workerMetrics.ObserveTaskExecutionDuration(taskType, time.Since(start))
@@ -65,16 +82,4 @@ func idleHandler(workerMetrics *worker.WorkerCollector) queues.ConsumeHandler {
 		}
 		return nil
 	}
-}
-
-func taskTypeFromPayload(payload []byte, log logrus.FieldLogger) string {
-	var event worker_client.EventWithOrgId
-	if err := json.Unmarshal(payload, &event); err != nil {
-		log.WithError(err).Error("failed to unmarshal event payload")
-		return "unknown"
-	}
-	if event.Event.Reason == "" {
-		return "unknown"
-	}
-	return string(event.Event.Reason)
 }

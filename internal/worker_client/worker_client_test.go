@@ -22,6 +22,16 @@ func (p *recordingProducer) Enqueue(_ context.Context, payload []byte, _ int64) 
 
 func (p *recordingProducer) Close() {}
 
+type logrusHook struct {
+	fn func(*logrus.Entry)
+}
+
+func (h *logrusHook) Levels() []logrus.Level { return logrus.AllLevels }
+func (h *logrusHook) Fire(e *logrus.Entry) error {
+	h.fn(e)
+	return nil
+}
+
 func TestEmitEvent_QueueRouting(t *testing.T) {
 	orgID := uuid.New()
 	tests := []struct {
@@ -37,13 +47,6 @@ func TestEmitEvent_QueueRouting(t *testing.T) {
 			withDelta: true,
 			wantTask:  0,
 			wantDelta: 1,
-		},
-		{
-			name:      "When PrepareDeltas without delta publisher it should enqueue on neither producer",
-			reason:    domain.EventReasonPrepareDeltas,
-			withDelta: false,
-			wantTask:  0,
-			wantDelta: 0,
 		},
 		{
 			name:      "When DeltaGenerationCompleted it should enqueue on the TaskQueue producer only",
@@ -98,4 +101,22 @@ func TestEmitEvent_QueueRouting(t *testing.T) {
 			require.Equal(t, tt.reason, got.Event.Reason)
 		})
 	}
+}
+
+func TestEmitEvent_WhenPrepareDeltasWithoutDeltaPublisherItShouldWarn(t *testing.T) {
+	taskProd := &recordingProducer{}
+	log := logrus.New()
+	log.SetLevel(logrus.WarnLevel)
+	var warnings []string
+	log.AddHook(&logrusHook{fn: func(e *logrus.Entry) {
+		if e.Level == logrus.WarnLevel {
+			warnings = append(warnings, e.Message)
+		}
+	}})
+
+	client := NewWorkerClient(taskProd, log)
+	client.EmitEvent(context.Background(), uuid.New(), &domain.Event{Reason: domain.EventReasonPrepareDeltas})
+
+	require.Empty(t, taskProd.payloads)
+	require.NotEmpty(t, warnings)
 }
