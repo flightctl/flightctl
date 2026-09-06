@@ -359,6 +359,7 @@ push-containers: login
 	podman push flightctl-pam-issuer:latest
 	podman push flightctl-db-setup:latest
 	podman push flightctl-worker:latest
+	podman push flightctl-delta-worker-$(OS):latest
 	podman push flightctl-periodic:latest
 	podman push flightctl-alert-exporter:latest
 	podman push flightctl-alertmanager-proxy:latest

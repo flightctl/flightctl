@@ -9,6 +9,7 @@ ContainerName=flightctl-delta-worker
 Image={{ .DeltaWorker.Image }}:{{ .DeltaWorker.Tag }}
 Pull=missing
 Network=flightctl.network
+User=1001
 AddHost=%H:host-gateway
 Environment=HOME=/root
 Secret=flightctl-postgresql-user-password,type=env,target=DB_PASSWORD

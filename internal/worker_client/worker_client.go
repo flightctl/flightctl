@@ -38,6 +38,7 @@ func QueuePublisher(ctx context.Context, queuesProvider queues.Provider) (queues
 	return publisher, nil
 }
 
+// DeltaQueuePublisher returns a producer for the delta-generation task queue.
 func DeltaQueuePublisher(ctx context.Context, queuesProvider queues.Provider) (queues.QueueProducer, error) {
 	publisher, err := queuesProvider.NewQueueProducer(ctx, consts.DeltaGenerationTaskQueue)
 	if err != nil {
@@ -46,6 +47,7 @@ func DeltaQueuePublisher(ctx context.Context, queuesProvider queues.Provider) (q
 	return publisher, nil
 }
 
+// WithDeltaPublisher configures a worker client to publish delta-generation events.
 func WithDeltaPublisher(p queues.QueueProducer) ClientOption {
 	return func(c *workerClient) {
 		c.deltaPublisher = p

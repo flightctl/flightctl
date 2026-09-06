@@ -535,6 +535,11 @@
         "env": {
           "type": "object",
           "additionalProperties": { "type": "string" }
+        },
+        "resources": {
+          "type": "object",
+          "description": "Resource requests and limits for the delta-worker container",
+          "additionalProperties": true
         }
       }
     },

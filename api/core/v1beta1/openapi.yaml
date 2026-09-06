@@ -8321,6 +8321,8 @@ components:
         detailType:
           type: string
           enum: [PrepareDeltas]
+          x-enum-varnames:
+            - PrepareDeltas
           description: The type of detail for discriminator purposes.
         templateVersion:
           type: string

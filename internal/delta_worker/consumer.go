@@ -16,6 +16,7 @@ import (
 
 const ackTimeout = 5 * time.Second
 
+// LaunchConsumers starts Redis consumers on the delta-generation task queue.
 func LaunchConsumers(ctx context.Context, queuesProvider queues.Provider, cfg *config.Config, workerMetrics *worker.WorkerCollector, log logrus.FieldLogger) error {
 	n := cfg.DeltaGeneration.EffectiveMaxConcurrentDeltaGenerations()
 	if workerMetrics != nil {

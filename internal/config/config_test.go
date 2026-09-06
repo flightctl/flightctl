@@ -523,6 +523,10 @@ deltaGeneration:
 	t.Run("When NewDefault it should Effective 2", func(t *testing.T) {
 		require.Equal(t, 2, NewDefault().DeltaGeneration.EffectiveMaxConcurrentDeltaGenerations())
 	})
+
+	t.Run("When value exceeds the limit it should cap", func(t *testing.T) {
+		require.Equal(t, maxConcurrentDeltaGenerationsLimit, (&DeltaGenerationConfig{MaxConcurrentDeltaGenerations: 1000}).EffectiveMaxConcurrentDeltaGenerations())
+	})
 }
 
 func TestDefaultRepositoryConfigOciRepoSpec(t *testing.T) {

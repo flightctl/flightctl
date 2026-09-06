@@ -38,8 +38,13 @@ RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
     make build-delta-worker
 
-FROM quay.io/flightctl/flightctl-base:9.7-1762965531
+FROM registry.access.redhat.com/ubi9/ubi-minimal:9.7-1763362218
+
+ENV USER_UID=1001 \
+    HOME=/root
+
 WORKDIR /app
+
 LABEL \
   com.redhat.component="flightctl-delta-worker-container" \
   description="Flight Control Edge management service, OS delta generation worker" \
@@ -47,5 +52,13 @@ LABEL \
   io.k8s.display-name="Flight Control Delta Worker" \
   name="flightctl-delta-worker" \
   summary="Flight Control Edge management service, OS delta generation worker"
-COPY --from=build /app/bin/flightctl-delta-worker .
+
+RUN mkdir -p ${HOME}/.flightctl && \
+    chown -R ${USER_UID}:0 ${HOME} /app && \
+    chmod -R g+rwX ${HOME} /app
+
+COPY --from=build --chown=${USER_UID}:0 /app/bin/flightctl-delta-worker .
+
+USER ${USER_UID}
+
 CMD ["./flightctl-delta-worker"]

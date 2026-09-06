@@ -68,8 +68,13 @@ func main() {
 		log.Fatalf("initializing data store: %v", err)
 	}
 	defer func() {
-		if sqlDB, err := db.DB(); err == nil {
-			_ = sqlDB.Close()
+		sqlDB, err := db.DB()
+		if err != nil {
+			log.Errorf("failed to get database handle for close: %v", err)
+			return
+		}
+		if err := sqlDB.Close(); err != nil {
+			log.Errorf("failed to close database: %v", err)
 		}
 	}()
 
@@ -85,6 +90,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed connecting to Redis queue: %v", err)
 	}
+	defer func() {
+		provider.Stop()
+		provider.Wait()
+	}()
 
 	var workerCollector *worker.WorkerCollector
 	if cfg.Metrics != nil && cfg.Metrics.Enabled {
