@@ -55,3 +55,4 @@ This directory contains everything needed to deploy the Flight Control service: 
 2. **Quadlets:** `make deploy-quadlets`; edit units and config under `deploy/podman/` and `deploy/scripts/`.
 3. **DB/KV/Alertmanager:** Use `make deploy-db`, `deploy-kv`, etc. for local/quadlet workflows. Integration tests use testcontainers via `test/integration/preflight` (see `test/AGENTS.md`).
 4. New or changed Helm values/templates should be validated with `make lint-helm` and a test deploy.
+5. When adding a service, update `hack/services.yaml` and run `make verify-services` (see [docs/developer/adding-a-service.md](../docs/developer/adding-a-service.md)).

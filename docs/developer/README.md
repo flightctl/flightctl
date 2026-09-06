@@ -34,6 +34,10 @@ To generate API code and mocks, use `make generate`  This requires installing mo
 
 `go install go.uber.org/mock/mockgen@v0.4.0`
 
+### Adding a service
+
+When adding a new backend service (API, worker, and so on), register it in `hack/services.yaml` and run `make verify-services`. See [Adding a service](adding-a-service.md). There is no service scaffolding generator.
+
 ### Package-mode
 
 For the agent RPM subpackage split (`flightctl-agent` /
