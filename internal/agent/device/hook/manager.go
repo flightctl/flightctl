@@ -2,6 +2,7 @@ package hook
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -85,7 +86,8 @@ func (m *manager) OnAfterRebooting(ctx context.Context) error {
 }
 
 // OnBeforeEnrolling writes hook-context.json, then runs BeforeEnrolling hooks
-// from both the image and /etc overlay directories.
+// from both the image and /etc overlay directories. After execution, it
+// populates enrollCtx result fields (Success, Output, HookLabels).
 func (m *manager) OnBeforeEnrolling(ctx context.Context, enrollCtx *EnrollmentContext) error {
 	hookType := api.DeviceLifecycleHookBeforeEnrolling
 
@@ -98,7 +100,16 @@ func (m *manager) OnBeforeEnrolling(ctx context.Context, enrollCtx *EnrollmentCo
 	actionCtx := newEnrollmentActionContext(hookType, string(jsonBytes))
 
 	// BeforeEnrolling loads from both image and /etc overlay dirs
-	return m.loadAndExecuteActionsFromDirs(ctx, actionCtx, []string{ReadOnlyConfigDir, UserWritableConfigDir})
+	execErr := m.loadAndExecuteActionsFromDirs(ctx, actionCtx, []string{ReadOnlyConfigDir, UserWritableConfigDir})
+
+	// Populate result fields regardless of execution outcome
+	enrollCtx.Output = actionCtx.output.String()
+	enrollCtx.Success = execErr == nil
+
+	// Read hook labels if the hooks wrote them
+	enrollCtx.HookLabels = m.readHookLabels()
+
+	return execErr
 }
 
 // OnAfterEnrolling writes hook-context.json, then runs AfterEnrolling hooks
@@ -235,4 +246,19 @@ func (m *manager) executeActions(ctx context.Context, actions []api.HookAction, 
 		}
 	}
 	return nil
+}
+
+// readHookLabels reads labels from HookLabelsPath if the file exists.
+// Returns nil if the file does not exist or cannot be parsed.
+func (m *manager) readHookLabels() map[string]string {
+	data, err := m.readWriter.ReadFile(HookLabelsPath)
+	if err != nil {
+		return nil
+	}
+	var labels map[string]string
+	if err := json.Unmarshal(data, &labels); err != nil {
+		m.log.Warnf("Failed to parse hook labels from %s: %v", HookLabelsPath, err)
+		return nil
+	}
+	return labels
 }
