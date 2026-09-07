@@ -1827,6 +1827,9 @@ type EnrollmentRequestSpec struct {
 
 	// OsMode OS management mode. "image" indicates the OS is managed via bootc or rpm-ostree image updates. "package" indicates no image-based OS management is available.
 	OsMode *OsModeType `json:"osMode,omitempty"`
+
+	// PreEnrollment Result of pre-enrollment hook execution, agent-populated.
+	PreEnrollment *PreEnrollmentResult `json:"preEnrollment,omitempty"`
 }
 
 // EnrollmentRequestStatus EnrollmentRequestStatus represents information about the status of a EnrollmentRequest.
@@ -2854,6 +2857,15 @@ type Permission struct {
 type PermissionList struct {
 	// Permissions List of permissions available to the user.
 	Permissions []Permission `json:"permissions"`
+}
+
+// PreEnrollmentResult Result of pre-enrollment hook execution, agent-populated.
+type PreEnrollmentResult struct {
+	// Output Last 4KiB of combined stdout/stderr from pre-enrollment hooks. Truncated with a trailing marker when the raw output exceeds 4096 bytes. Secret patterns (PEM blocks, Bearer prefixes, known token env names) are redacted before persistence.
+	Output *string `json:"output,omitempty"`
+
+	// Success Whether all pre-enrollment hooks completed with exit code 0.
+	Success bool `json:"success"`
 }
 
 // PrepareDeltasDetails Structured details for PrepareDeltas events.
