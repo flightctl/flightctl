@@ -204,38 +204,25 @@ func updateServerSideDeviceUpdatedStatus(device *domain.Device, ctx context.Cont
 		device.Status.Updated.Info = lo.ToPtr("Device was updated to the latest device spec.")
 	}
 
-	overrideUpToDateForOsTarget(device)
+	// Override UpToDate if the device has an OS target it cannot satisfy.
+	// Requires capabilities.osMode to be reported; legacy devices without capabilities skip this check.
+	if device.Status.Updated.Status == domain.DeviceUpdatedStatusUpToDate &&
+		device.Spec != nil && device.Spec.Os != nil &&
+		device.Status.Capabilities != nil && device.Status.Capabilities.OsMode != nil {
+		hasOsTarget := device.Spec.Os.Image != "" || device.Spec.Os.CatalogItemRef != nil
+		if hasOsTarget {
+			if device.Spec.Os.Image != "" && device.Status.Os.Image != device.Spec.Os.Image {
+				device.Status.Updated.Status = domain.DeviceUpdatedStatusOutOfDate
+				device.Status.Updated.Info = lo.ToPtr(fmt.Sprintf("Device OS image mismatch: running %q, expected %q.", device.Status.Os.Image, device.Spec.Os.Image))
+			} else if *device.Status.Capabilities.OsMode == domain.OsModePackage &&
+				device.Spec.Os.CatalogItemRef != nil && device.Spec.Os.Image == "" {
+				device.Status.Updated.Status = domain.DeviceUpdatedStatusOutOfDate
+				device.Status.Updated.Info = lo.ToPtr("Device has a catalog OS target that cannot be satisfied.")
+			}
+		}
+	}
 
 	return device.Status.Updated.Status != lastUpdateStatus
-}
-
-// overrideUpToDateForOsTarget downgrades an UpToDate device to OutOfDate when
-// the device has an OS target it cannot satisfy. Requires capabilities.osMode
-// to be reported; legacy devices without capabilities skip this check.
-func overrideUpToDateForOsTarget(device *domain.Device) {
-	if device.Status.Updated.Status != domain.DeviceUpdatedStatusUpToDate {
-		return
-	}
-	if device.Spec == nil || device.Spec.Os == nil {
-		return
-	}
-	if device.Status.Capabilities == nil || device.Status.Capabilities.OsMode == nil {
-		return
-	}
-
-	hasOsTarget := device.Spec.Os.Image != "" || device.Spec.Os.CatalogItemRef != nil
-	if !hasOsTarget {
-		return
-	}
-
-	if device.Spec.Os.Image != "" && device.Status.Os.Image != device.Spec.Os.Image {
-		device.Status.Updated.Status = domain.DeviceUpdatedStatusOutOfDate
-		device.Status.Updated.Info = lo.ToPtr(fmt.Sprintf("Device OS image mismatch: running %q, expected %q.", device.Status.Os.Image, device.Spec.Os.Image))
-	} else if *device.Status.Capabilities.OsMode == domain.OsModePackage &&
-		device.Spec.Os.CatalogItemRef != nil && device.Spec.Os.Image == "" {
-		device.Status.Updated.Status = domain.DeviceUpdatedStatusOutOfDate
-		device.Status.Updated.Info = lo.ToPtr("Device has a catalog OS target that cannot be satisfied.")
-	}
 }
 
 // unmanagedDeviceOutOfDateMessage builds a human-readable info message for an
