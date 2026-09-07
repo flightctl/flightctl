@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
+	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -42,6 +44,32 @@ func newFakeRepositoryStore() *fakeRepositoryStore {
 
 func (f *fakeRepositoryStore) InitialMigration(_ context.Context) error { return nil }
 
+func (f *fakeRepositoryStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.Repository, apply repositorystore.RepositoryApplyFunc) (*domain.Repository, *domain.Repository, bool, error) {
+	old, exists := f.items[name]
+	creating := !exists
+	var before *domain.Repository
+	var current *domain.Repository
+	if !creating {
+		before = old
+		cp := *old
+		current = &cp
+	}
+	mutation := &repositorystore.RepositoryMutation{Repository: current}
+	if apply != nil {
+		if err := apply(mutation); err != nil {
+			if errors.Is(err, store.ErrMutateSkipWrite) {
+				return mutation.Repository, before, false, nil
+			}
+			return nil, nil, false, err
+		}
+	}
+	if mutation.Repository == nil {
+		return nil, nil, false, flterrors.ErrResourceIsNil
+	}
+	f.items[name] = mutation.Repository
+	return mutation.Repository, before, creating, nil
+}
+
 func (f *fakeRepositoryStore) Create(ctx context.Context, orgId uuid.UUID, repository *domain.Repository) (*domain.Repository, error) {
 	name := lo.FromPtr(repository.Metadata.Name)
 	if _, exists := f.items[name]; exists {
@@ -49,26 +77,6 @@ func (f *fakeRepositoryStore) Create(ctx context.Context, orgId uuid.UUID, repos
 	}
 	f.items[name] = repository
 	return repository, nil
-}
-
-func (f *fakeRepositoryStore) Update(ctx context.Context, orgId uuid.UUID, repository *domain.Repository) (*domain.Repository, *domain.Repository, error) {
-	name := lo.FromPtr(repository.Metadata.Name)
-	old, exists := f.items[name]
-	if !exists {
-		return nil, nil, flterrors.ErrResourceNotFound
-	}
-	f.items[name] = repository
-	return repository, old, nil
-}
-
-func (f *fakeRepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *domain.Repository) (*domain.Repository, *domain.Repository, bool, error) {
-	name := lo.FromPtr(repository.Metadata.Name)
-	if _, exists := f.items[name]; exists {
-		result, old, err := f.Update(ctx, orgId, repository)
-		return result, old, false, err
-	}
-	result, err := f.Create(ctx, orgId, repository)
-	return result, nil, true, err
 }
 
 func (f *fakeRepositoryStore) Get(_ context.Context, _ uuid.UUID, name string) (*domain.Repository, error) {

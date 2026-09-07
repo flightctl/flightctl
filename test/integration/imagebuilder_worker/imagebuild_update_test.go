@@ -111,7 +111,9 @@ var _ = Describe("ImageBuild Update Integration Tests", func() {
 		ociSpec.AccessMode = lo.ToPtr(v1beta1.ReadWrite)
 		err = outputRepo.Spec.FromOciRepoSpec(ociSpec)
 		Expect(err).ToNot(HaveOccurred())
-		_, _, err = repositoryStore.Update(ctx, orgID, outputRepo)
+		_, _, _, err = repositoryStore.Mutate(ctx, orgID, outputRepoName, outputRepo, func(m *repositorystore.RepositoryMutation) error {
+			return nil
+		})
 		Expect(err).ToNot(HaveOccurred())
 
 		// Create imagebuilder service

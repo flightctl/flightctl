@@ -184,7 +184,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 			Expect(*resourcesyncs.Items[0].Metadata.Name).To(Equal("myresourcesync-1"))
 		})
 
-		It("CreateOrUpdateResourceSync create mode", func() {
+		It("Mutate resource sync create mode", func() {
 			resourcesync := api.ResourceSync{
 				Metadata: api.ObjectMeta{
 					Name: lo.ToPtr("newresourcename"),
@@ -195,7 +195,19 @@ var _ = Describe("ResourceSyncStore create", func() {
 				},
 				Status: nil,
 			}
-			rs, _, created, err := resourceSyncStore.CreateOrUpdate(ctx, orgId, &resourcesync)
+			rs, _, created, err := resourceSyncStore.Mutate(ctx, orgId, lo.FromPtr(resourcesync.Metadata.Name), nil, func(m *resourcesyncstore.ResourceSyncMutation) error {
+				if m.ResourceSync == nil {
+					next := resourcesync
+					m.ResourceSync = &next
+					return nil
+				}
+				m.ResourceSync.Spec = resourcesync.Spec
+				if resourcesync.Status != nil {
+					m.ResourceSync.Status = resourcesync.Status
+				}
+				store.ApplyObjectMetaUpdate(&m.ResourceSync.Metadata, &resourcesync.Metadata, nil)
+				return nil
+			})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(true))
 			Expect(rs.ApiVersion).To(Equal(model.ResourceSyncAPIVersion()))
@@ -206,7 +218,7 @@ var _ = Describe("ResourceSyncStore create", func() {
 			Expect(rs.Status.Conditions).To(BeEmpty())
 		})
 
-		It("CreateOrUpdateResourceSync update mode", func() {
+		It("Mutate resource sync update mode", func() {
 			resourcesync := api.ResourceSync{
 				Metadata: api.ObjectMeta{
 					Name: lo.ToPtr("myresourcesync-1"),
@@ -217,7 +229,19 @@ var _ = Describe("ResourceSyncStore create", func() {
 				},
 				Status: nil,
 			}
-			rs, _, created, err := resourceSyncStore.CreateOrUpdate(ctx, orgId, &resourcesync)
+			rs, _, created, err := resourceSyncStore.Mutate(ctx, orgId, lo.FromPtr(resourcesync.Metadata.Name), nil, func(m *resourcesyncstore.ResourceSyncMutation) error {
+				if m.ResourceSync == nil {
+					next := resourcesync
+					m.ResourceSync = &next
+					return nil
+				}
+				m.ResourceSync.Spec = resourcesync.Spec
+				if resourcesync.Status != nil {
+					m.ResourceSync.Status = resourcesync.Status
+				}
+				store.ApplyObjectMetaUpdate(&m.ResourceSync.Metadata, &resourcesync.Metadata, nil)
+				return nil
+			})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(Equal(false))
 			Expect(rs.ApiVersion).To(Equal(model.ResourceSyncAPIVersion()))

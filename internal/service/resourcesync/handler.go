@@ -98,7 +98,26 @@ func (h *ServiceHandler) ReplaceResourceSync(ctx context.Context, orgId uuid.UUI
 		return nil, domain.StatusBadRequest("resource name specified in metadata does not match name in path")
 	}
 
-	result, oldResourceSync, created, err := h.store.CreateOrUpdate(ctx, orgId, &rs)
+	result, oldResourceSync, created, err := h.store.Mutate(ctx, orgId, name, nil, func(m *resourcesyncstore.ResourceSyncMutation) error {
+		if m.ResourceSync == nil {
+			next := rs
+			next.Metadata.Name = lo.ToPtr(name)
+			m.ResourceSync = &next
+			return nil
+		}
+		current := m.ResourceSync
+		current.Spec = rs.Spec
+		if rs.Metadata.Labels != nil {
+			current.Metadata.Labels = rs.Metadata.Labels
+		}
+		if rs.Metadata.Annotations != nil {
+			current.Metadata.Annotations = rs.Metadata.Annotations
+		}
+		if rs.Metadata.Owner != nil {
+			current.Metadata.Owner = rs.Metadata.Owner
+		}
+		return nil
+	})
 	h.callbackResourceSyncUpdated(ctx, domain.ResourceSyncKind, orgId, name, oldResourceSync, result, created, err)
 	return result, common.StoreErrorToApiStatus(err, created, domain.ResourceSyncKind, &name)
 }
@@ -154,7 +173,14 @@ func (h *ServiceHandler) PatchResourceSync(ctx context.Context, orgId uuid.UUID,
 
 	common.NilOutManagedObjectMetaProperties(&newObj.Metadata)
 	newObj.Metadata.ResourceVersion = nil
-	result, oldResourceSync, err := h.store.Update(ctx, orgId, newObj)
+	result, oldResourceSync, _, err := h.store.Mutate(ctx, orgId, name, currentObj, func(m *resourcesyncstore.ResourceSyncMutation) error {
+		if err := m.RequireExisting(); err != nil {
+			return err
+		}
+		m.ResourceSync.Spec = newObj.Spec
+		m.ResourceSync.Metadata.Labels = newObj.Metadata.Labels
+		return nil
+	})
 	h.callbackResourceSyncUpdated(ctx, domain.ResourceSyncKind, orgId, name, oldResourceSync, result, false, err)
 	return result, common.StoreErrorToApiStatus(err, false, domain.ResourceSyncKind, &name)
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
+	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/google/uuid"
@@ -289,32 +290,33 @@ func (f *fakeCatalogStore) Create(ctx context.Context, orgId uuid.UUID, catalog 
 	return catalog, nil
 }
 
-func (f *fakeCatalogStore) Update(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog) (*domain.Catalog, *domain.Catalog, error) {
+func (f *fakeCatalogStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.Catalog, apply catalogstore.CatalogApplyFunc) (*domain.Catalog, *domain.Catalog, bool, error) {
 	if f.err != nil {
-		return nil, nil, f.err
+		return nil, nil, false, f.err
 	}
-	name := lo.FromPtr(catalog.Metadata.Name)
 	old, exists := f.catalogs[name]
-	if !exists {
-		return nil, nil, flterrors.ErrResourceNotFound
+	creating := !exists
+	var before *domain.Catalog
+	var current *domain.Catalog
+	if !creating {
+		before = old
+		cp := *old
+		current = &cp
 	}
-	// Mirrors the real generic store: fields left nil by the caller are preserved
-	// from the existing resource rather than wiped on update.
-	if catalog.Metadata.Owner == nil {
-		catalog.Metadata.Owner = old.Metadata.Owner
+	mutation := &catalogstore.CatalogMutation{Catalog: current}
+	if apply != nil {
+		if err := apply(mutation); err != nil {
+			if errors.Is(err, store.ErrMutateSkipWrite) {
+				return mutation.Catalog, before, false, nil
+			}
+			return nil, nil, false, err
+		}
 	}
-	f.catalogs[name] = catalog
-	return catalog, old, nil
-}
-
-func (f *fakeCatalogStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog) (*domain.Catalog, *domain.Catalog, bool, error) {
-	name := lo.FromPtr(catalog.Metadata.Name)
-	if _, exists := f.catalogs[name]; exists {
-		result, old, err := f.Update(ctx, orgId, catalog)
-		return result, old, false, err
+	if mutation.Catalog == nil {
+		return nil, nil, false, flterrors.ErrResourceIsNil
 	}
-	result, err := f.Create(ctx, orgId, catalog)
-	return result, nil, true, err
+	f.catalogs[name] = mutation.Catalog
+	return mutation.Catalog, before, creating, nil
 }
 
 func (f *fakeCatalogStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Catalog, error) {
