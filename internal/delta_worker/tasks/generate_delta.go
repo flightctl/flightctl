@@ -150,9 +150,6 @@ func (c *Consumer) handleGenerateDelta(ctx context.Context, ev worker_client.Eve
 
 	job, ok := parseGenerationJob(ev)
 	if !ok {
-		if ev.Event.Reason == domain.EventReasonGenerateDelta {
-			log.Warnf("ignoring GenerateDelta: payload not parseable org=%s message=%q", ev.OrgId, ev.Event.Message)
-		}
 		return nil
 	}
 	if c.store == nil {
@@ -559,13 +556,6 @@ func withCopyLog(ctx context.Context, log logrus.FieldLogger) context.Context {
 		return ctx
 	}
 	return context.WithValue(ctx, copyLogKey{}, log)
-}
-
-func withCopyProgress(ctx context.Context, fn func(string)) context.Context {
-	if fn == nil {
-		return ctx
-	}
-	return context.WithValue(ctx, copyProgressFnKey{}, fn)
 }
 
 func withCopyOp(ctx context.Context, op string) context.Context {

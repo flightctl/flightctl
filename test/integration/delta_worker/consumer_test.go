@@ -83,12 +83,12 @@ var _ = Describe("Delta worker consumers", func() {
 	})
 
 	AfterEach(func() {
-		if redisClient != nil {
-			Expect(redisClient.Del(ctx, consts.DeltaGenerationTaskQueue, consts.TaskQueue).Err()).To(Succeed())
-		}
 		if provider != nil {
 			provider.Stop()
 			provider.Wait()
+		}
+		if redisClient != nil {
+			Expect(redisClient.Del(ctx, consts.DeltaGenerationTaskQueue, consts.TaskQueue).Err()).To(Succeed())
 		}
 		if cancel != nil {
 			cancel()

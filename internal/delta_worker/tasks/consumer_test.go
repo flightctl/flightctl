@@ -130,6 +130,22 @@ flightctl_worker_consumers_active 2
 		require.Equal(t, 1, testutil.CollectAndCount(metrics, "flightctl_worker_permanent_failures_total"))
 	})
 
+	t.Run("When invalid GenerateDelta payload it should ack as permanent failure", func(t *testing.T) {
+		provider := &recordingProvider{}
+		metrics := worker.NewWorkerCollector(ctx, log, config.NewDefault(), nil)
+		require.NoError(t, LaunchConsumers(ctx, provider, config.NewDefault(), nil, metrics, log))
+		payload, err := json.Marshal(worker_client.EventWithOrgId{
+			OrgId: uuid.New(),
+			Event: domain.Event{Reason: domain.EventReasonGenerateDelta, Message: "{\"imageRepository\":\"not-valid\"}"},
+		})
+		require.NoError(t, err)
+		require.NoError(t, provider.consumers[0].handler(ctx, payload, "4", provider.consumers[0], log))
+		require.Equal(t, 1, provider.consumers[0].completeN)
+		require.NoError(t, provider.consumers[0].completeErr)
+		require.Equal(t, 1, testutil.CollectAndCount(metrics, "flightctl_worker_permanent_failures_total"))
+		require.Equal(t, 0, testutil.CollectAndCount(metrics, "flightctl_worker_tasks_by_type_total"))
+	})
+
 	t.Run("When mis-routed task-queue payload it should ack as permanent failure", func(t *testing.T) {
 		provider := &recordingProvider{}
 		metrics := worker.NewWorkerCollector(ctx, log, config.NewDefault(), nil)

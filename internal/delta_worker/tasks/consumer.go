@@ -66,6 +66,10 @@ func (c *Consumer) Consume(ctx context.Context, payload []byte, entryID string, 
 	var procErr error
 	switch event.Event.Reason {
 	case domain.EventReasonGenerateDelta:
+		if _, ok := parseGenerationJob(event); !ok {
+			log.WithField("orgId", event.OrgId).Warnf("invalid GenerateDelta payload message=%q", event.Event.Message)
+			return completePoisonMessage(consumer, c.workerMetrics, log, entryID, payload)
+		}
 		if c.workerMetrics != nil {
 			c.workerMetrics.IncTasksByType(taskType)
 		}
