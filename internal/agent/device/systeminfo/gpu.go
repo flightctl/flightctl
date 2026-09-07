@@ -216,11 +216,15 @@ type platformGPUInfo struct {
 	Arch   string
 }
 
-var knownPlatformGPUs = map[string]platformGPUInfo{
-	"nvidia,gm20b": {Vendor: "NVIDIA", Model: "GM20B", Arch: "Maxwell"},
-	"nvidia,gp10b": {Vendor: "NVIDIA", Model: "GP10B", Arch: "Pascal"},
-	"nvidia,gv11b": {Vendor: "NVIDIA", Model: "GV11B", Arch: "Volta"},
-	"nvidia,ga10b": {Vendor: "NVIDIA", Model: "GA10B", Arch: "Ampere"},
+func lookupPlatformGPU(compatible string) (platformGPUInfo, bool) {
+	known := map[string]platformGPUInfo{
+		"nvidia,gm20b": {Vendor: "NVIDIA", Model: "GM20B", Arch: "Maxwell"},
+		"nvidia,gp10b": {Vendor: "NVIDIA", Model: "GP10B", Arch: "Pascal"},
+		"nvidia,gv11b": {Vendor: "NVIDIA", Model: "GV11B", Arch: "Volta"},
+		"nvidia,ga10b": {Vendor: "NVIDIA", Model: "GA10B", Arch: "Ampere"},
+	}
+	info, found := known[compatible]
+	return info, found
 }
 
 // collectPlatformGPUs scans platform bus devices for integrated GPUs identified
@@ -254,7 +258,7 @@ func collectPlatformGPUs(log *log.PrefixLogger, reader fileio.Reader, startIndex
 			if !ok {
 				break
 			}
-			if info, found := knownPlatformGPUs[compat]; found {
+			if info, found := lookupPlatformGPU(compat); found {
 				matched = &info
 				break
 			}
