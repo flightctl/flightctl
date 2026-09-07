@@ -32,6 +32,12 @@ func (h *ServiceHandler) GetEnrollmentConfig(ctx context.Context, orgId uuid.UUI
 		return nil, domain.StatusInternalServerError("failed to get CA certificate")
 	}
 
+	// GetCABundle may read from a file (os.ReadFile), which is not context-aware.
+	// Check context cancellation before proceeding to the CSR lookup.
+	if err := ctx.Err(); err != nil {
+		return nil, domain.StatusInternalServerError("request cancelled")
+	}
+
 	clientCert := []byte{}
 	if params.Csr != nil {
 		if errs := validation.ValidateResourceName(params.Csr); len(errs) > 0 {

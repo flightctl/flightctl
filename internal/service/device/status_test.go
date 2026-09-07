@@ -360,3 +360,78 @@ func TestUpdateServerSideDeviceUpdatedStatus_OsImageMismatch(t *testing.T) {
 		})
 	}
 }
+
+func TestManagedDeviceOutOfDateMessage_AnnotationPriority(t *testing.T) {
+	tests := []struct {
+		name           string
+		annotations    map[string]string
+		conditions     []domain.Condition
+		expectContains string
+	}{
+		{
+			name: "When both annotation and error condition exist annotation should win",
+			annotations: map[string]string{
+				domain.DeviceAnnotationLastRolloutError: "annotation error",
+			},
+			conditions: []domain.Condition{
+				{
+					Type:    domain.ConditionTypeDeviceUpdating,
+					Status:  domain.ConditionStatusFalse,
+					Reason:  string(domain.UpdateStateError),
+					Message: "condition error",
+				},
+			},
+			expectContains: "annotation error",
+		},
+		{
+			name: "When non-error condition exists alongside annotation annotation should still win",
+			annotations: map[string]string{
+				domain.DeviceAnnotationLastRolloutError: "rollout failed",
+			},
+			conditions: []domain.Condition{
+				{
+					Type:    domain.ConditionTypeDeviceUpdating,
+					Status:  domain.ConditionStatusTrue,
+					Reason:  "InProgress",
+					Message: "applying spec",
+				},
+			},
+			expectContains: "rollout failed",
+		},
+		{
+			name: "When only error condition exists condition message should be used",
+			conditions: []domain.Condition{
+				{
+					Type:    domain.ConditionTypeDeviceUpdating,
+					Status:  domain.ConditionStatusFalse,
+					Reason:  string(domain.UpdateStateError),
+					Message: "condition error",
+				},
+			},
+			expectContains: "condition error",
+		},
+		{
+			name:           "When neither annotation nor error condition exists fallback text should be used",
+			expectContains: domain.DeviceOutOfSyncWithFleetText,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			device := &domain.Device{
+				Metadata: domain.ObjectMeta{
+					Name: lo.ToPtr("test-device"),
+				},
+				Status: &domain.DeviceStatus{
+					Conditions: tt.conditions,
+				},
+			}
+			if tt.annotations != nil {
+				device.Metadata.Annotations = &tt.annotations
+			}
+
+			msg := managedDeviceOutOfDateMessage(device)
+			assert.Contains(t, msg, tt.expectContains)
+		})
+	}
+}
