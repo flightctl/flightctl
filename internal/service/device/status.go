@@ -182,47 +182,29 @@ func updateServerSideDeviceUpdatedStatus(device *domain.Device, ctx context.Cont
 			device.Status.Updated.Info = lo.ToPtr("Device was updated to the fleet's latest device spec.")
 		} else {
 			device.Status.Updated.Status = domain.DeviceUpdatedStatusOutOfDate
-
-			var errorMessage string
-			baseMessage := "Device could not be updated to the fleet's latest device spec"
-			if updateCondition := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceUpdating); updateCondition != nil {
-				if updateCondition.Reason == string(domain.UpdateStateError) {
-					errorMessage = fmt.Sprintf("%s: %s", baseMessage, updateCondition.Message)
-				}
-			} else if device.Metadata.Annotations != nil {
-				if lastRolloutError, ok := (*device.Metadata.Annotations)[domain.DeviceAnnotationLastRolloutError]; ok && lastRolloutError != "" {
-					errorMessage = fmt.Sprintf("%s: %s", baseMessage, lastRolloutError)
-				}
-			}
-			if errorMessage == "" {
-				errorMessage = domain.DeviceOutOfSyncWithFleetText
-			}
-			device.Status.Updated.Info = lo.ToPtr(errorMessage)
+			device.Status.Updated.Info = lo.ToPtr(managedDeviceOutOfDateMessage(device))
 		}
 	} else {
 		device.Status.Updated.Status = domain.DeviceUpdatedStatusUpToDate
 		device.Status.Updated.Info = lo.ToPtr("Device was updated to the latest device spec.")
 	}
 
-	// Override UpToDate if the device has an OS target it cannot satisfy.
-	// Requires capabilities.osMode to be reported; legacy devices without capabilities skip this check.
-	if device.Status.Updated.Status == domain.DeviceUpdatedStatusUpToDate &&
-		device.Spec != nil && device.Spec.Os != nil &&
-		device.Status.Capabilities != nil && device.Status.Capabilities.OsMode != nil {
-		hasOsTarget := device.Spec.Os.Image != "" || device.Spec.Os.CatalogItemRef != nil
-		if hasOsTarget {
-			if device.Spec.Os.Image != "" && device.Status.Os.Image != device.Spec.Os.Image {
-				device.Status.Updated.Status = domain.DeviceUpdatedStatusOutOfDate
-				device.Status.Updated.Info = lo.ToPtr(fmt.Sprintf("Device OS image mismatch: running %q, expected %q.", device.Status.Os.Image, device.Spec.Os.Image))
-			} else if *device.Status.Capabilities.OsMode == domain.OsModePackage &&
-				device.Spec.Os.CatalogItemRef != nil && device.Spec.Os.Image == "" {
-				device.Status.Updated.Status = domain.DeviceUpdatedStatusOutOfDate
-				device.Status.Updated.Info = lo.ToPtr("Device has a catalog OS target that cannot be satisfied.")
-			}
+	return device.Status.Updated.Status != lastUpdateStatus
+}
+
+func managedDeviceOutOfDateMessage(device *domain.Device) string {
+	baseMessage := "Device could not be updated to the fleet's latest device spec"
+	if device.Metadata.Annotations != nil {
+		if lastRolloutError, ok := (*device.Metadata.Annotations)[domain.DeviceAnnotationLastRolloutError]; ok && lastRolloutError != "" {
+			return fmt.Sprintf("%s: %s", baseMessage, lastRolloutError)
 		}
 	}
-
-	return device.Status.Updated.Status != lastUpdateStatus
+	if updateCondition := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceUpdating); updateCondition != nil {
+		if updateCondition.Reason == string(domain.UpdateStateError) && updateCondition.Message != "" {
+			return fmt.Sprintf("%s: %s", baseMessage, updateCondition.Message)
+		}
+	}
+	return domain.DeviceOutOfSyncWithFleetText
 }
 
 // unmanagedDeviceOutOfDateMessage builds a human-readable info message for an
