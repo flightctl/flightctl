@@ -60,6 +60,7 @@ type LifecycleManager struct {
 
 	hookManager                hook.Manager
 	preEnrollmentFailurePolicy string
+	preEnrollmentBackoff       wait.Backoff
 
 	backoff wait.Backoff
 	log     *log.PrefixLogger
@@ -114,6 +115,12 @@ func NewManager(
 		identityProvider:           identityProvider,
 		hookManager:                hookManager,
 		preEnrollmentFailurePolicy: preEnrollmentFailurePolicy,
+		preEnrollmentBackoff: wait.Backoff{
+			Steps:    10,
+			Duration: 5 * time.Second,
+			Factor:   2.0,
+			Cap:      5 * time.Minute,
+		},
 	}
 }
 
@@ -452,13 +459,7 @@ func (m *LifecycleManager) runPreEnrollmentHooks(ctx context.Context, deviceStat
 		result.success = false
 		if m.preEnrollmentFailurePolicy == "Block" {
 			m.log.Warnf("Pre-enrollment hook failed with Block policy, retrying with backoff: %v", hookErr)
-			blockBackoff := wait.Backoff{
-				Steps:    10,
-				Duration: 5 * time.Second,
-				Factor:   2.0,
-				Cap:      5 * time.Minute,
-			}
-			retryErr := wait.ExponentialBackoffWithContext(ctx, blockBackoff, func(ctx context.Context) (bool, error) {
+			retryErr := wait.ExponentialBackoffWithContext(ctx, m.preEnrollmentBackoff, func(ctx context.Context) (bool, error) {
 				retryCtx := &hook.EnrollmentContext{
 					DeviceName:            enrollCtx.DeviceName,
 					SystemInfo:            enrollCtx.SystemInfo,
