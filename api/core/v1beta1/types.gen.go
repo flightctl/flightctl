@@ -156,8 +156,10 @@ const (
 
 // Defines values for DeviceLifecycleHookType.
 const (
+	DeviceLifecycleHookAfterEnrolling  DeviceLifecycleHookType = "AfterEnrolling"
 	DeviceLifecycleHookAfterRebooting  DeviceLifecycleHookType = "AfterRebooting"
 	DeviceLifecycleHookAfterUpdating   DeviceLifecycleHookType = "AfterUpdating"
+	DeviceLifecycleHookBeforeEnrolling DeviceLifecycleHookType = "BeforeEnrolling"
 	DeviceLifecycleHookBeforeRebooting DeviceLifecycleHookType = "BeforeRebooting"
 	DeviceLifecycleHookBeforeUpdating  DeviceLifecycleHookType = "BeforeUpdating"
 )

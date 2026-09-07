@@ -1,14 +1,20 @@
 package hook
 
 import (
+	"context"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/pkg/executer"
+	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
+	gomock "go.uber.org/mock/gomock"
 )
 
 func TestSplitCommandAndArgs(t *testing.T) {
@@ -262,6 +268,68 @@ func TestReplaceTokensInrun(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := replaceTokens(tt.run, tt.tokens)
 			require.Equal(tt.expected, got)
+		})
+	}
+}
+
+// TestEnrollmentActionContext verifies enrollment action context and FLIGHTCTL_HOOK_CONTEXT injection.
+func TestEnrollmentActionContext(t *testing.T) {
+	tests := []struct {
+		name            string
+		hookContextJSON string
+		wantEnvVar      bool
+	}{
+		{
+			name:            "When hookContextJSON is set it should include FLIGHTCTL_HOOK_CONTEXT in env",
+			hookContextJSON: `{"hook":"BeforeEnrolling","deviceName":"dev-01"}`,
+			wantEnvVar:      true,
+		},
+		{
+			name:            "When hookContextJSON is empty it should not include FLIGHTCTL_HOOK_CONTEXT in env",
+			hookContextJSON: "",
+			wantEnvVar:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			actCtx := newEnrollmentActionContext(v1beta1.DeviceLifecycleHookBeforeEnrolling, tt.hookContextJSON)
+			require.Equal(v1beta1.DeviceLifecycleHookBeforeEnrolling, actCtx.hook)
+			require.Equal(tt.hookContextJSON, actCtx.hookContextJSON)
+
+			var capturedEnv []string
+			mockExec := executer.NewMockExecuter(ctrl)
+			mockExec.EXPECT().ExecuteWithContextFromDir(
+				gomock.Any(), "", "true", []string{}, gomock.Any(),
+			).DoAndReturn(func(_ context.Context, _ string, _ string, _ []string, env ...string) (string, string, int) {
+				capturedEnv = env
+				return "", "", 0
+			}).Times(1)
+
+			logger := log.NewPrefixLogger("test")
+			logger.SetLevel(logrus.ErrorLevel)
+			runAction := v1beta1.HookActionRun{Run: "true"}
+			require.NoError(executeRunAction(context.Background(), mockExec, logger, runAction, actCtx))
+
+			foundHookContext := false
+			for _, env := range capturedEnv {
+				if strings.HasPrefix(env, "FLIGHTCTL_HOOK_CONTEXT=") {
+					foundHookContext = true
+					if tt.wantEnvVar {
+						require.Equal("FLIGHTCTL_HOOK_CONTEXT="+tt.hookContextJSON, env)
+					}
+					break
+				}
+			}
+			require.Equal(tt.wantEnvVar, foundHookContext)
+
+			// Verify that update/reboot action contexts never have hookContextJSON
+			updateCtx := newActionContext(v1beta1.DeviceLifecycleHookAfterUpdating, nil, nil, false)
+			require.Empty(updateCtx.hookContextJSON)
 		})
 	}
 }
