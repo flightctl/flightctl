@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -120,8 +121,8 @@ func TestHandleGenerateDelta(t *testing.T) {
 	org := uuid.New()
 	log := logrus.New()
 	log.SetLevel(logrus.ErrorLevel)
-	src := "sha256:src"
-	tgt := "sha256:tgt"
+	src := "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	tgt := "sha256:2222222222222222222222222222222222222222222222222222222222222222"
 	repo := "quay.io/team-a/os"
 
 	t.Run("When PrepareDeltas it should not generate", func(t *testing.T) {
@@ -166,7 +167,7 @@ func TestHandleGenerateDelta(t *testing.T) {
 		req.Empty(store.inserted)
 	})
 
-	t.Run("When existence is inconclusive it should skip insert and generate", func(t *testing.T) {
+	t.Run("When existence is inconclusive it should return retryable error", func(t *testing.T) {
 		req := require.New(t)
 		store := &fakeGenerationStore{}
 		c := &Consumer{
@@ -180,7 +181,9 @@ func TestHandleGenerateDelta(t *testing.T) {
 				return "", 0, nil
 			},
 		}
-		req.NoError(c.handleGenerateDelta(context.Background(), generateEvent(org, repo, src, tgt), log))
+		err := c.handleGenerateDelta(context.Background(), generateEvent(org, repo, src, tgt), log)
+		req.Error(err)
+		req.Contains(err.Error(), "inconclusive")
 		req.Empty(store.inserted)
 		req.Empty(store.rejected)
 	})
@@ -438,8 +441,13 @@ func TestCheckExistingDelta(t *testing.T) {
 
 func TestCheckExistingDelta_WhenRegistryUnreachableItShouldBeInconclusive(t *testing.T) {
 	req := require.New(t)
-	got, err := checkExistingDelta(context.Background(), "127.0.0.1:1/team-a/os", testSourceDigest, testTargetDigest, existenceConfig{
-		Client: &http.Client{},
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	req.NoError(err)
+	addr := ln.Addr().String()
+	req.NoError(ln.Close())
+
+	got, err := checkExistingDelta(context.Background(), addr+"/team-a/os", testSourceDigest, testTargetDigest, existenceConfig{
+		Client: &http.Client{Timeout: 2 * time.Second},
 		Scheme: "http",
 	})
 	req.NoError(err)

@@ -403,6 +403,8 @@ func (s *DeltaStore) ListWaitingPastDeadline(ctx context.Context, limit int, asO
 	return rows, nil
 }
 
+const maxWaitingPreparesPerGeneration = 1000
+
 func (s *DeltaStore) ListWaitingPreparesByGeneration(ctx context.Context, key GenerationKey) ([]model.DeltaPrepare, error) {
 	var rows []model.DeltaPrepare
 	result := s.getDB(ctx).Model(&model.DeltaPrepare{}).
@@ -411,6 +413,7 @@ func (s *DeltaStore) ListWaitingPreparesByGeneration(ctx context.Context, key Ge
 			"delta_prepare_generations.org_id = ? AND delta_prepare_generations.image_repository = ? AND delta_prepare_generations.source_digest = ? AND delta_prepare_generations.target_digest = ? AND delta_prepares.status = ?",
 			key.OrgID, key.ImageRepository, key.SourceDigest, key.TargetDigest, model.DeltaPrepareWaiting,
 		).
+		Limit(maxWaitingPreparesPerGeneration).
 		Find(&rows)
 	if result.Error != nil {
 		return nil, store.ErrorFromGormError(result.Error)

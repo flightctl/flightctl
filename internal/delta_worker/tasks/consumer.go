@@ -44,7 +44,6 @@ func NewConsumer(cfg *config.Config, store deltastore.Store, workerMetrics *work
 
 // Consume handles a single queue message.
 func (c *Consumer) Consume(ctx context.Context, payload []byte, entryID string, consumer queues.QueueConsumer, log logrus.FieldLogger) error {
-	start := time.Now()
 	if c.workerMetrics != nil {
 		c.workerMetrics.IncMessagesInProgress()
 		defer c.workerMetrics.DecMessagesInProgress()
@@ -63,27 +62,47 @@ func (c *Consumer) Consume(ctx context.Context, payload []byte, entryID string, 
 
 	taskType := string(event.Event.Reason)
 	log.Infof("received %s", taskType)
-	if c.workerMetrics != nil {
-		c.workerMetrics.IncTasksByType(taskType)
-		c.workerMetrics.ObserveTaskExecutionDuration(taskType, time.Since(start))
-		c.workerMetrics.IncMessagesProcessed("success")
-		c.workerMetrics.UpdateLastSuccessfulTask()
-	}
 
+	var procErr error
 	switch event.Event.Reason {
 	case domain.EventReasonGenerateDelta:
-		if procErr := c.handleGenerateDelta(ctx, event, log); procErr != nil {
+		if c.workerMetrics != nil {
+			c.workerMetrics.IncTasksByType(taskType)
+		}
+		taskStart := time.Now()
+		procErr = c.handleGenerateDelta(ctx, event, log)
+		if c.workerMetrics != nil {
+			c.workerMetrics.ObserveTaskExecutionDuration(taskType, time.Since(taskStart))
+		}
+		if procErr != nil {
 			log.WithError(procErr).Error("delta generation job failed")
 		}
+	case domain.EventReasonPrepareDeltas:
+		if c.workerMetrics != nil {
+			c.workerMetrics.IncTasksByType(taskType)
+		}
+		log.Debug("PrepareDeltas is not handled by the delta worker; acknowledging")
+	default:
+		log.Debugf("unhandled delta-generation event reason %q; acknowledging", event.Event.Reason)
 	}
 
 	ackCtx, cancel := context.WithTimeout(context.Background(), ackTimeout)
 	defer cancel()
-	if err := consumer.Complete(ackCtx, entryID, payload, nil); err != nil {
+	if err := consumer.Complete(ackCtx, entryID, payload, procErr); err != nil {
 		log.WithError(err).Errorf("failed to complete message %s", entryID)
 		return err
 	}
-	return nil
+
+	if c.workerMetrics != nil {
+		if procErr != nil {
+			c.workerMetrics.IncMessagesProcessed("queued_for_retry")
+		} else {
+			c.workerMetrics.IncMessagesProcessed("success")
+			c.workerMetrics.UpdateLastSuccessfulTask()
+		}
+	}
+
+	return procErr
 }
 
 // LaunchConsumers starts Redis consumers on the delta-generation task queue.

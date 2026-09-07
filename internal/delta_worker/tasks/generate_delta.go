@@ -1,7 +1,6 @@
 package tasks
 
 import (
-	"bytes"
 	"context"
 	_ "crypto/sha256"
 	"encoding/json"
@@ -16,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/containers/image/v5/docker/reference"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -24,6 +24,7 @@ import (
 	deltastore "github.com/flightctl/flightctl/internal/store/delta"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/worker_client"
+	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sirupsen/logrus"
 	"oras.land/oras-go/v2"
@@ -34,7 +35,10 @@ import (
 	"oras.land/oras-go/v2/registry/remote"
 )
 
-const persistTimeout = 5 * time.Second
+const (
+	persistTimeout           = 5 * time.Second
+	maxRegistryResponseBytes = 10 << 20
+)
 
 type generationJob struct {
 	Key deltastore.GenerationKey
@@ -57,12 +61,32 @@ func parseGenerationJob(ev worker_client.EventWithOrgId) (generationJob, bool) {
 	if payload.ImageRepository == "" || payload.SourceDigest == "" || payload.TargetDigest == "" {
 		return generationJob{}, false
 	}
+	if err := validateGenerationPayload(payload); err != nil {
+		return generationJob{}, false
+	}
 	return generationJob{Key: deltastore.GenerationKey{
 		OrgID:           ev.OrgId,
 		ImageRepository: payload.ImageRepository,
 		SourceDigest:    payload.SourceDigest,
 		TargetDigest:    payload.TargetDigest,
 	}}, true
+}
+
+func validateGenerationPayload(payload generateDeltaPayload) error {
+	rewritten, err := oci.RewriteImageRef(payload.ImageRepository)
+	if err != nil {
+		return err
+	}
+	if _, err := reference.ParseNormalizedNamed(rewritten); err != nil {
+		return err
+	}
+	if _, err := digest.Parse(payload.SourceDigest); err != nil {
+		return err
+	}
+	if _, err := digest.Parse(payload.TargetDigest); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (c *Consumer) effectiveTimeout() time.Duration {
@@ -77,35 +101,47 @@ func (c *Consumer) effectiveTimeout() time.Duration {
 }
 
 func (c *Consumer) defaultExistenceCheck(ctx context.Context, imageRepository, sourceDigest, targetDigest string) (existenceResult, error) {
-	existCfg, err := existenceConfigFromSpec(ctx, writeSpecFromConfig(c.cfg), imageRepository)
+	spec, err := writeSpecFromConfig(c.cfg)
 	if err != nil {
 		return existenceResult{}, err
 	}
+	existCfg, err := existenceConfigFromSpec(ctx, spec, imageRepository)
+	if err != nil {
+		return existenceResult{}, err
+	}
+	existCfg.log = c.log
 	return checkExistingDelta(ctx, imageRepository, sourceDigest, targetDigest, existCfg)
 }
 
 func (c *Consumer) defaultGenerateDelta(ctx context.Context, sourceRef, targetRef, pushPath string) (string, int64, error) {
-	g := generator{run: execRunner{}, writeSpec: writeSpecFromConfig(c.cfg), log: c.log}
+	spec, err := writeSpecFromConfig(c.cfg)
+	if err != nil {
+		return "", 0, err
+	}
+	g := generator{run: execRunner{}, writeSpec: spec, log: c.log}
 	return g.createAndPushDelta(ctx, sourceRef, targetRef, pushPath)
 }
 
 func (c *Consumer) defaultPushPath(imageRepository string) (string, error) {
-	spec := writeSpecFromConfig(c.cfg)
+	spec, err := writeSpecFromConfig(c.cfg)
+	if err != nil {
+		return "", err
+	}
 	if spec == nil {
 		return "", fmt.Errorf("deltaGeneration.defaultRepository is required to push")
 	}
 	return oci.ResolveDeltaPushPath(spec, imageRepository)
 }
 
-func writeSpecFromConfig(cfg *config.Config) *domain.OciRepoSpec {
+func writeSpecFromConfig(cfg *config.Config) (*domain.OciRepoSpec, error) {
 	if cfg == nil || cfg.DeltaGeneration == nil || cfg.DeltaGeneration.DefaultRepository == nil {
-		return nil
+		return nil, nil
 	}
 	spec, err := cfg.DeltaGeneration.DefaultRepository.OciRepoSpec()
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	return oci.SelectWriteTarget(nil, spec)
+	return oci.SelectWriteTarget(nil, spec), nil
 }
 
 func (c *Consumer) handleGenerateDelta(ctx context.Context, ev worker_client.EventWithOrgId, log logrus.FieldLogger) error {
@@ -136,7 +172,7 @@ func (c *Consumer) handleGenerateDelta(ctx context.Context, ev worker_client.Eve
 	}
 	log.Infof("existence check repo=%s status=%s", key.ImageRepository, existenceStatusName(result.Status))
 	if result.Status == existenceInconclusive {
-		return nil
+		return fmt.Errorf("existence check inconclusive for %s", key.ImageRepository)
 	}
 	if result.Status == existenceFound {
 		size := result.SizeBytes
@@ -174,8 +210,14 @@ func (c *Consumer) handleGenerateDelta(ctx context.Context, ev worker_client.Eve
 	pushPath := key.ImageRepository
 	if c.pushPath != nil {
 		pushPath, err = c.pushPath(key.ImageRepository)
-	} else if writeSpecFromConfig(c.cfg) != nil {
-		pushPath, err = c.defaultPushPath(key.ImageRepository)
+	} else {
+		spec, specErr := writeSpecFromConfig(c.cfg)
+		if specErr != nil {
+			return c.failGeneration(ctx, key, claimed.ResourceVersion, specErr)
+		}
+		if spec != nil {
+			pushPath, err = c.defaultPushPath(key.ImageRepository)
+		}
 	}
 	if err != nil {
 		return c.failGeneration(ctx, key, claimed.ResourceVersion, err)
@@ -208,7 +250,7 @@ func (c *Consumer) handleGenerateDelta(ctx context.Context, ev worker_client.Eve
 		}
 		return c.failGeneration(ctx, key, claimed.ResourceVersion, casErr)
 	}
-	return c.runResume(writeCtx, key)
+	return c.runResume(ctx, key)
 }
 
 func persistContext(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -216,11 +258,11 @@ func persistContext(ctx context.Context) (context.Context, context.CancelFunc) {
 }
 
 func (c *Consumer) failGeneration(ctx context.Context, key deltastore.GenerationKey, rv int64, cause error) error {
-	ctx, cancel := persistContext(ctx)
+	writeCtx, cancel := persistContext(ctx)
 	defer cancel()
-	casErr := c.store.CASGeneration(ctx, key, rv, deltastore.GenerationCAS{Status: model.DeltaGenerationFailed})
+	casErr := c.store.CASGeneration(writeCtx, key, rv, deltastore.GenerationCAS{Status: model.DeltaGenerationFailed})
 	if casErr != nil && !errors.Is(casErr, flterrors.ErrNoRowsUpdated) {
-		return fmt.Errorf("generate: %w; persist failed status: %v", cause, casErr)
+		return fmt.Errorf("generate: %w; persist failed status: %w", cause, casErr)
 	}
 	return c.runResume(ctx, key)
 }
@@ -267,6 +309,7 @@ type existenceConfig struct {
 	Scheme   string
 	Username string
 	Password string
+	log      logrus.FieldLogger
 }
 
 func checkExistingDelta(ctx context.Context, imageRepository, sourceDigest, targetDigest string, cfg existenceConfig) (existenceResult, error) {
@@ -276,7 +319,7 @@ func checkExistingDelta(ctx context.Context, imageRepository, sourceDigest, targ
 	}
 	host, repo, err := splitRegistryRepository(rewritten)
 	if err != nil {
-		return existenceResult{Status: existenceInconclusive}, nil
+		return inconclusive(cfg, "existence check: unparseable image repository", err)
 	}
 	client := cfg.Client
 	if client == nil {
@@ -289,21 +332,21 @@ func checkExistingDelta(ctx context.Context, imageRepository, sourceDigest, targ
 
 	status, body, err := registryGet(ctx, client, cfg, fmt.Sprintf("%s://%s/v2/%s/referrers/%s", scheme, host, repo, targetDigest))
 	if err != nil {
-		return existenceResult{Status: existenceInconclusive}, nil
+		return inconclusive(cfg, "existence check: referrers request failed", err)
 	}
 	if isInconclusiveStatus(status) {
-		return existenceResult{Status: existenceInconclusive}, nil
+		return inconclusive(cfg, fmt.Sprintf("existence check: referrers returned status %d", status), nil)
 	}
 	if status == http.StatusNotFound {
 		return checkTagSchema(ctx, client, cfg, scheme, host, repo, sourceDigest, targetDigest)
 	}
 	if status != http.StatusOK {
-		return existenceResult{Status: existenceInconclusive}, nil
+		return inconclusive(cfg, fmt.Sprintf("existence check: referrers returned status %d", status), nil)
 	}
 
 	desc, ok, err := matchingDeltaDescriptor(body, sourceDigest)
 	if err != nil {
-		return existenceResult{Status: existenceInconclusive}, nil
+		return inconclusive(cfg, "existence check: invalid referrers index", err)
 	}
 	if !ok {
 		return existenceResult{Status: existenceNotFound}, nil
@@ -314,21 +357,21 @@ func checkExistingDelta(ctx context.Context, imageRepository, sourceDigest, targ
 func checkTagSchema(ctx context.Context, client *http.Client, cfg existenceConfig, scheme, host, repo, sourceDigest, targetDigest string) (existenceResult, error) {
 	status, body, err := registryGet(ctx, client, cfg, fmt.Sprintf("%s://%s/v2/%s/manifests/%s", scheme, host, repo, tagSchemaRef(targetDigest)))
 	if err != nil {
-		return existenceResult{Status: existenceInconclusive}, nil
+		return inconclusive(cfg, "existence check: tag-schema manifest request failed", err)
 	}
 	if isInconclusiveStatus(status) {
-		return existenceResult{Status: existenceInconclusive}, nil
+		return inconclusive(cfg, fmt.Sprintf("existence check: tag-schema manifest returned status %d", status), nil)
 	}
 	if status == http.StatusNotFound {
 		return existenceResult{Status: existenceNotFound}, nil
 	}
 	if status != http.StatusOK {
-		return existenceResult{Status: existenceInconclusive}, nil
+		return inconclusive(cfg, fmt.Sprintf("existence check: tag-schema manifest returned status %d", status), nil)
 	}
 
 	desc, ok, err := matchingDeltaDescriptor(body, sourceDigest)
 	if err != nil {
-		return existenceResult{Status: existenceInconclusive}, nil
+		return inconclusive(cfg, "existence check: invalid tag-schema index", err)
 	}
 	if !ok {
 		return existenceResult{Status: existenceNotFound}, nil
@@ -339,20 +382,31 @@ func checkTagSchema(ctx context.Context, client *http.Client, cfg existenceConfi
 func fetchDeltaSize(ctx context.Context, client *http.Client, cfg existenceConfig, scheme, host, repo, digest string) (existenceResult, error) {
 	status, body, err := registryGet(ctx, client, cfg, fmt.Sprintf("%s://%s/v2/%s/manifests/%s", scheme, host, repo, digest))
 	if err != nil {
-		return existenceResult{Status: existenceInconclusive}, nil
+		return inconclusive(cfg, "existence check: delta manifest request failed", err)
 	}
 	if status != http.StatusOK {
-		return existenceResult{Status: existenceInconclusive}, nil
+		return inconclusive(cfg, fmt.Sprintf("existence check: delta manifest returned status %d", status), nil)
 	}
 	var manifest ocispec.Manifest
 	if err := json.Unmarshal(body, &manifest); err != nil {
-		return existenceResult{Status: existenceInconclusive}, nil
+		return inconclusive(cfg, "existence check: invalid delta manifest", err)
 	}
 	size := manifest.Config.Size
 	for _, layer := range manifest.Layers {
 		size += layer.Size
 	}
 	return existenceResult{Status: existenceFound, SizeBytes: size}, nil
+}
+
+func inconclusive(cfg existenceConfig, msg string, err error) (existenceResult, error) {
+	if cfg.log != nil {
+		entry := cfg.log
+		if err != nil {
+			entry = entry.WithError(err)
+		}
+		entry.Debug(msg)
+	}
+	return existenceResult{Status: existenceInconclusive}, nil
 }
 
 func matchingDeltaDescriptor(indexBody []byte, sourceDigest string) (ocispec.Descriptor, bool, error) {
@@ -380,6 +434,9 @@ func registryGet(ctx context.Context, client *http.Client, cfg existenceConfig, 
 	if err != nil {
 		return 0, nil, err
 	}
+	if strings.Contains(rawURL, "/referrers/") {
+		req.Header.Set("Accept", "application/vnd.oci.image.index.v1+json, application/json")
+	}
 	if cfg.Username != "" {
 		req.SetBasicAuth(cfg.Username, cfg.Password)
 	}
@@ -388,9 +445,12 @@ func registryGet(ctx context.Context, client *http.Client, cfg existenceConfig, 
 		return 0, nil, err
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxRegistryResponseBytes+1))
 	if err != nil {
 		return 0, nil, err
+	}
+	if len(body) > maxRegistryResponseBytes {
+		return resp.StatusCode, nil, fmt.Errorf("registry response exceeds %d bytes", maxRegistryResponseBytes)
 	}
 	return resp.StatusCode, body, nil
 }
@@ -399,6 +459,7 @@ func isInconclusiveStatus(status int) bool {
 	return status == http.StatusUnauthorized || status == http.StatusForbidden || status >= http.StatusInternalServerError
 }
 
+// tagSchemaRef maps a sha256 digest (sha256:hex) to the tag-schema tag form (sha256-hex).
 func tagSchemaRef(digest string) string {
 	return strings.Replace(digest, ":", "-", 1)
 }
@@ -894,6 +955,8 @@ func pushLayoutAsReferrer(ctx context.Context, layout *deltaLayout, dst content.
 }
 
 // ensureSubjectBlob stores the subject manifest bytes in the blob CAS.
+// Some registries require the subject manifest blob to exist before accepting a referrer;
+// push it as application/octet-stream because the registry may not have it indexed yet.
 func ensureSubjectBlob(ctx context.Context, dst content.Pusher, subject ocispec.Descriptor) error {
 	repo, ok := dst.(*remote.Repository)
 	if !ok {
@@ -915,13 +978,8 @@ func ensureSubjectBlob(ctx context.Context, dst content.Pusher, subject ocispec.
 	if err != nil {
 		return fmt.Errorf("fetch subject %s: %w", subject.Digest, err)
 	}
-	payload, err := io.ReadAll(rc)
-	_ = rc.Close()
-	if err != nil {
-		return fmt.Errorf("read subject %s: %w", subject.Digest, err)
-	}
-	blobDesc.Size = int64(len(payload))
-	if err := repo.Blobs().Push(ctx, blobDesc, bytes.NewReader(payload)); err != nil {
+	defer rc.Close()
+	if err := repo.Blobs().Push(ctx, blobDesc, rc); err != nil {
 		if errors.Is(err, errdef.ErrAlreadyExists) {
 			return nil
 		}

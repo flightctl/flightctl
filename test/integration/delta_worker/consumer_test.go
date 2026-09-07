@@ -29,6 +29,7 @@ var (
 	redisHost     string
 	redisPort     uint
 	redisPassword domain.SecureString
+	redisClient   *redis.Client
 	redisCleanup  func()
 )
 
@@ -45,9 +46,18 @@ var _ = BeforeSuite(func() {
 	redisHost, redisPort, redisPassword, redisCleanup, err = testdb.CreateTestRedis(
 		suiteCtx, flightlog.InitLogs())
 	Expect(err).NotTo(HaveOccurred())
+
+	redisClient = redis.NewClient(&redis.Options{
+		Addr:     fmt.Sprintf("%s:%d", redisHost, redisPort),
+		Password: string(redisPassword),
+		DB:       0,
+	})
 })
 
 var _ = AfterSuite(func() {
+	if redisClient != nil {
+		Expect(redisClient.Close()).To(Succeed())
+	}
 	if redisCleanup != nil {
 		redisCleanup()
 	}
@@ -73,6 +83,9 @@ var _ = Describe("Delta worker consumers", func() {
 	})
 
 	AfterEach(func() {
+		if redisClient != nil {
+			Expect(redisClient.Del(ctx, consts.DeltaGenerationTaskQueue, consts.TaskQueue).Err()).To(Succeed())
+		}
 		if provider != nil {
 			provider.Stop()
 			provider.Wait()
@@ -129,13 +142,7 @@ func prepareDeltasPayload() []byte {
 
 func streamLen(ctx context.Context, queueName string) int64 {
 	GinkgoHelper()
-	client := redis.NewClient(&redis.Options{
-		Addr:     fmt.Sprintf("%s:%d", redisHost, redisPort),
-		Password: string(redisPassword),
-		DB:       0,
-	})
-	defer client.Close()
-	n, err := client.XLen(ctx, queueName).Result()
+	n, err := redisClient.XLen(ctx, queueName).Result()
 	Expect(err).ToNot(HaveOccurred())
 	return n
 }
