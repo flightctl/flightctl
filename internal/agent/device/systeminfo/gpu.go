@@ -217,14 +217,18 @@ type platformGPUInfo struct {
 }
 
 func lookupPlatformGPU(compatible string) (platformGPUInfo, bool) {
-	known := map[string]platformGPUInfo{
-		"nvidia,gm20b": {Vendor: "NVIDIA", Model: "GM20B", Arch: "Maxwell"},
-		"nvidia,gp10b": {Vendor: "NVIDIA", Model: "GP10B", Arch: "Pascal"},
-		"nvidia,gv11b": {Vendor: "NVIDIA", Model: "GV11B", Arch: "Volta"},
-		"nvidia,ga10b": {Vendor: "NVIDIA", Model: "GA10B", Arch: "Ampere"},
+	switch compatible {
+	case "nvidia,gm20b":
+		return platformGPUInfo{Vendor: "NVIDIA", Model: "GM20B", Arch: "Maxwell"}, true
+	case "nvidia,gp10b":
+		return platformGPUInfo{Vendor: "NVIDIA", Model: "GP10B", Arch: "Pascal"}, true
+	case "nvidia,gv11b":
+		return platformGPUInfo{Vendor: "NVIDIA", Model: "GV11B", Arch: "Volta"}, true
+	case "nvidia,ga10b":
+		return platformGPUInfo{Vendor: "NVIDIA", Model: "GA10B", Arch: "Ampere"}, true
+	default:
+		return platformGPUInfo{}, false
 	}
-	info, found := known[compatible]
-	return info, found
 }
 
 // collectPlatformGPUs scans platform bus devices for integrated GPUs identified
