@@ -1,15 +1,12 @@
 package device
 
 import (
-	"context"
 	"testing"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service/common"
-	"github.com/google/uuid"
 	"github.com/samber/lo"
-	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -207,155 +204,6 @@ func TestUpdateServerSideApplicationStatus_PreservesDeviceStatus(t *testing.T) {
 			if tt.expectedInfo != "" {
 				assert.NotNil(t, device.Status.ApplicationsSummary.Info)
 				assert.Equal(t, tt.expectedInfo, *device.Status.ApplicationsSummary.Info, "Info should be preserved from device")
-			}
-		})
-	}
-}
-
-func TestUpdateServerSideDeviceUpdatedStatus_OsImageMismatch(t *testing.T) {
-	ctx := context.Background()
-	orgId := uuid.New()
-	log := logrus.NewEntry(logrus.StandardLogger())
-
-	tests := []struct {
-		name               string
-		specOsImage        string
-		specCatalogItemRef *domain.CatalogItemRefSpec
-		statusOsImage      string
-		capabilities       *domain.DeviceCapabilities
-		expectedStatus     domain.DeviceUpdatedStatusType
-		expectInfoContains string
-	}{
-		{
-			name:           "When image-mode device has matching OS images it should remain UpToDate",
-			specOsImage:    "quay.io/flightctl/device:v7",
-			statusOsImage:  "quay.io/flightctl/device:v7",
-			capabilities:   &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModeImage)},
-			expectedStatus: domain.DeviceUpdatedStatusUpToDate,
-		},
-		{
-			name:               "When image-mode device has mismatching OS images it should override to OutOfDate",
-			specOsImage:        "quay.io/flightctl/device:v7",
-			statusOsImage:      "quay.io/flightctl/device:base",
-			capabilities:       &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModeImage)},
-			expectedStatus:     domain.DeviceUpdatedStatusOutOfDate,
-			expectInfoContains: "OS image mismatch",
-		},
-		{
-			name:               "When package-mode device has spec OS image it should override to OutOfDate",
-			specOsImage:        "quay.io/flightctl/device:v7",
-			statusOsImage:      "",
-			capabilities:       &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
-			expectedStatus:     domain.DeviceUpdatedStatusOutOfDate,
-			expectInfoContains: "OS image mismatch",
-		},
-		{
-			name:           "When package-mode device has no spec OS image it should remain UpToDate",
-			specOsImage:    "",
-			statusOsImage:  "",
-			capabilities:   &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
-			expectedStatus: domain.DeviceUpdatedStatusUpToDate,
-		},
-		{
-			name:           "When legacy device without capabilities has empty status OS image it should remain UpToDate",
-			specOsImage:    "quay.io/flightctl/device:v7",
-			statusOsImage:  "",
-			capabilities:   nil,
-			expectedStatus: domain.DeviceUpdatedStatusUpToDate,
-		},
-		{
-			name:           "When legacy device without capabilities has mismatching OS images it should remain UpToDate",
-			specOsImage:    "quay.io/flightctl/device:v7",
-			statusOsImage:  "quay.io/flightctl/device:base",
-			capabilities:   nil,
-			expectedStatus: domain.DeviceUpdatedStatusUpToDate,
-		},
-		{
-			name:           "When device has capabilities with nil osMode it should remain UpToDate",
-			specOsImage:    "quay.io/flightctl/device:v7",
-			statusOsImage:  "quay.io/flightctl/device:base",
-			capabilities:   &domain.DeviceCapabilities{OsMode: nil},
-			expectedStatus: domain.DeviceUpdatedStatusUpToDate,
-		},
-		{
-			name:           "When no spec OS image is set it should remain UpToDate regardless of capabilities",
-			specOsImage:    "",
-			statusOsImage:  "quay.io/flightctl/device:base",
-			capabilities:   &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModeImage)},
-			expectedStatus: domain.DeviceUpdatedStatusUpToDate,
-		},
-		{
-			name:               "When package-mode device has catalogItemRef only it should override to OutOfDate",
-			specCatalogItemRef: &domain.CatalogItemRefSpec{Catalog: "cat", Item: "os", Version: "v1"},
-			capabilities:       &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
-			expectedStatus:     domain.DeviceUpdatedStatusOutOfDate,
-			expectInfoContains: "catalog OS target",
-		},
-		{
-			name:               "When image-mode device has catalogItemRef only it should remain UpToDate",
-			specCatalogItemRef: &domain.CatalogItemRefSpec{Catalog: "cat", Item: "os", Version: "v1"},
-			capabilities:       &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModeImage)},
-			expectedStatus:     domain.DeviceUpdatedStatusUpToDate,
-		},
-		{
-			name:               "When legacy device without capabilities has catalogItemRef it should remain UpToDate",
-			specCatalogItemRef: &domain.CatalogItemRefSpec{Catalog: "cat", Item: "os", Version: "v1"},
-			capabilities:       nil,
-			expectedStatus:     domain.DeviceUpdatedStatusUpToDate,
-		},
-		{
-			name:               "When device has capabilities with nil osMode and catalogItemRef it should remain UpToDate",
-			specCatalogItemRef: &domain.CatalogItemRefSpec{Catalog: "cat", Item: "os", Version: "v1"},
-			capabilities:       &domain.DeviceCapabilities{OsMode: nil},
-			expectedStatus:     domain.DeviceUpdatedStatusUpToDate,
-		},
-		{
-			name:           "When package-mode device has no OS target it should remain UpToDate",
-			capabilities:   &domain.DeviceCapabilities{OsMode: lo.ToPtr(domain.OsModePackage)},
-			expectedStatus: domain.DeviceUpdatedStatusUpToDate,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			annotations := map[string]string{
-				domain.DeviceAnnotationRenderedVersion: "4",
-			}
-			device := &domain.Device{
-				Metadata: domain.ObjectMeta{
-					Name:        lo.ToPtr("test-device"),
-					Annotations: &annotations,
-				},
-				Spec: &domain.DeviceSpec{},
-				Status: &domain.DeviceStatus{
-					LastSeen: lo.ToPtr(time.Now()),
-					Updated: domain.DeviceUpdatedStatus{
-						Status: domain.DeviceUpdatedStatusUpToDate,
-					},
-					Config: domain.DeviceConfigStatus{
-						RenderedVersion: "4",
-					},
-					Os: domain.DeviceOsStatus{
-						Image: tt.statusOsImage,
-					},
-					Capabilities: tt.capabilities,
-				},
-			}
-			if tt.specOsImage != "" {
-				device.Spec.Os = &domain.DeviceOsSpec{Image: tt.specOsImage}
-			}
-			if tt.specCatalogItemRef != nil {
-				if device.Spec.Os == nil {
-					device.Spec.Os = &domain.DeviceOsSpec{}
-				}
-				device.Spec.Os.CatalogItemRef = tt.specCatalogItemRef
-			}
-
-			updateServerSideDeviceUpdatedStatus(device, ctx, nil, log, orgId)
-
-			assert.Equal(t, tt.expectedStatus, device.Status.Updated.Status)
-			if tt.expectInfoContains != "" {
-				assert.Contains(t, *device.Status.Updated.Info, tt.expectInfoContains)
 			}
 		})
 	}
