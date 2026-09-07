@@ -243,7 +243,7 @@ func TestCollectPlatformGPUs(t *testing.T) {
 				Vendor:   "NVIDIA",
 				Model:    "GA10B",
 				Arch:     "Ampere",
-				DeviceID: "nvidia,tegra234-gpu",
+				DeviceID: "nvidia,ga10b",
 			},
 		},
 		{
