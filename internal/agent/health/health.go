@@ -166,10 +166,18 @@ func (c *checker) Run(ctx context.Context) error {
 }
 
 // isEnrolled returns true if the management certificate exists on disk,
-// indicating the device has completed enrollment.
+// indicating the device has completed enrollment. Only file existence is
+// checked; an empty cert file is treated as enrolled.
 func (c *checker) isEnrolled() bool {
 	_, err := os.Stat(c.managementCertPath)
-	return err == nil
+	if err == nil {
+		return true
+	}
+	if os.IsNotExist(err) {
+		return false
+	}
+	c.log.Warnf("Cannot read management certificate at %s: %v — treating device as not enrolled", c.managementCertPath, err)
+	return false
 }
 
 // waitForServiceActive polls until the service becomes active or context expires.

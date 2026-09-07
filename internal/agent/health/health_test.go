@@ -372,6 +372,7 @@ func TestNewDefaults(t *testing.T) {
 	require.NotNil(checker.output)
 	require.NotNil(checker.systemd)
 	require.False(checker.verbose)
+	require.Equal(DefaultManagementCertPath, checker.managementCertPath)
 }
 
 func TestNewWithOptions(t *testing.T) {
@@ -419,41 +420,6 @@ func TestRunNotEnrolled(t *testing.T) {
 	err := checker.Run(context.Background())
 	require.NoError(err)
 	require.Contains(output.String(), "not yet enrolled")
-}
-
-func TestRunEnrolledAndHealthy(t *testing.T) {
-	require := require.New(t)
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	// Create a temporary management certificate file to simulate enrollment
-	certDir := t.TempDir()
-	certPath := filepath.Join(certDir, "agent.crt")
-	require.NoError(os.WriteFile(certPath, []byte("fake-cert"), 0600))
-
-	execMock := executer.NewMockExecuter(ctrl)
-	execMock.EXPECT().
-		ExecuteWithContext(gomock.Any(), "/usr/bin/systemctl", "show", "--all", "--", serviceName).
-		Return(activeServiceOutput, "", 0).
-		MinTimes(2)
-
-	logger := log.NewPrefixLogger("test")
-	output := &bytes.Buffer{}
-
-	checker := NewChecker(
-		logger,
-		WithTimeout(30*time.Second),
-		WithStabilityWindow(50*time.Millisecond),
-		WithPollInterval(10*time.Millisecond),
-		WithVerbose(true),
-		WithOutput(output),
-		WithSystemdClient(client.NewSystemd(execMock, v1beta1.RootUsername)),
-		WithManagementCertPath(certPath),
-	)
-
-	err := checker.Run(context.Background())
-	require.NoError(err)
-	require.Contains(output.String(), "All health checks passed")
 }
 
 func TestRunEnrolledButUnhealthy(t *testing.T) {

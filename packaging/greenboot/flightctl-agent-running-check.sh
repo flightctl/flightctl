@@ -33,9 +33,11 @@ FLIGHTCTL_HEALTH_POLL_INTERVAL=5
 
 # Path to the management certificate. If absent, the device is not yet enrolled
 # and the health check passes immediately instead of triggering a boot-loop.
+# Matches health.DefaultManagementCertPath; override in greenboot.conf when
+# using a non-default DataDir or custom cert path.
 FLIGHTCTL_MANAGEMENT_CERT="/var/lib/flightctl/certs/agent.crt"
 
-# Allow the three values above to be tuned via greenboot.conf, same as
+# Allow the values above to be tuned via greenboot.conf, same as
 # GREENBOOT_MAX_BOOT_ATTEMPTS and other greenboot settings.
 if [ -f "$GREENBOOT_CONF" ]; then
     # shellcheck disable=SC1090
