@@ -20,13 +20,23 @@ const (
 	HookContextMode = 0600
 )
 
+// HookLabelsPath is the well-known file where pre-enrollment hooks write labels.
+const HookLabelsPath = "/run/flightctl/hook-labels.json"
+
 // EnrollmentContext carries device metadata for enrollment hook execution.
-// Callers populate this before invoking OnBeforeEnrolling/OnAfterEnrolling.
+// Callers populate input fields before invoking OnBeforeEnrolling/OnAfterEnrolling.
+// Result fields are populated by the hook manager after execution.
 type EnrollmentContext struct {
+	// Input fields (set by caller before OnBeforeEnrolling)
 	DeviceName            string
 	SystemInfo            map[string]interface{}
 	Labels                map[string]string
 	ManagementCertificate *CertificateMetadata
+
+	// Result fields (populated by OnBeforeEnrolling)
+	Success    bool
+	Output     string
+	HookLabels map[string]string
 }
 
 // CertificateMetadata contains management certificate identity info (no private key).
