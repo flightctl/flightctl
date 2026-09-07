@@ -7042,6 +7042,8 @@ components:
           description: 'The rendered version of the device from desired.json (optional).'
         osMode:
           $ref: '#/components/schemas/OsModeType'
+        preEnrollment:
+          $ref: '#/components/schemas/PreEnrollmentResult'
       description: EnrollmentRequestSpec is a description of a EnrollmentRequest's target state.
     EnrollmentRequestStatus:
       type: object
@@ -7059,6 +7061,24 @@ components:
       required:
         - conditions
       description: EnrollmentRequestStatus represents information about the status of a EnrollmentRequest.
+
+    PreEnrollmentResult:
+      type: object
+      description: Result of pre-enrollment hook execution, agent-populated.
+      required:
+        - success
+      properties:
+        success:
+          type: boolean
+          description: Whether all pre-enrollment hooks completed with exit code 0.
+        output:
+          type: string
+          maxLength: 4096
+          description: >-
+            Last 4KiB of combined stdout/stderr from pre-enrollment hooks.
+            Truncated with a trailing marker when the raw output exceeds
+            4096 bytes. Secret patterns (PEM blocks, Bearer prefixes,
+            known token env names) are redacted before persistence.
 
     ResourceSync:
       type: object
