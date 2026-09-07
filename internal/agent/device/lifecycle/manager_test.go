@@ -1074,7 +1074,7 @@ func TestLifecycleManager_buildEnrollmentLabels_WithHookLabels(t *testing.T) {
 			log:                 log.NewPrefixLogger("test"),
 		}
 		hookLabels := map[string]string{
-			"env":                    "edge",
+			"env":                   "edge",
 			"day1.example.com/role": "edge",
 		}
 		status := &v1beta1.DeviceStatus{
