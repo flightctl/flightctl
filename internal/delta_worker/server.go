@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/delta_worker/tasks"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
 	deltastore "github.com/flightctl/flightctl/internal/store/delta"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -31,7 +32,7 @@ func New(cfg *config.Config, log logrus.FieldLogger, queuesProvider queues.Provi
 }
 
 func (s *Server) Run(ctx context.Context) error {
-	if err := LaunchConsumers(ctx, s.queuesProvider, s.cfg, s.store, s.workerMetrics, s.log); err != nil {
+	if err := tasks.LaunchConsumers(ctx, s.queuesProvider, s.cfg, s.store, s.workerMetrics, s.log); err != nil {
 		s.log.WithError(err).Error("failed to launch delta-generation consumers")
 		return err
 	}

@@ -1,4 +1,4 @@
-package delta_worker
+package tasks
 
 import (
 	"context"
