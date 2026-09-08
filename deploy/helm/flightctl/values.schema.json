@@ -513,6 +513,10 @@
             "passtWorkarounds": {
               "type": "boolean",
               "description": "Enable passt networking workarounds for older virt-launcher images"
+            },
+            "renderTimeout": {
+              "type": "string",
+              "description": "Time budget for a single device render operation including VM conversion and DB writes (default 60s)"
             }
           }
         }

@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -77,4 +78,56 @@ func TestEffectiveVmLauncherImage(t *testing.T) {
 			assert.Equal(t, tt.want, cfg.EffectiveVmLauncherImage(tt.osKey))
 		})
 	}
+}
+
+func TestEffectiveRenderTimeout(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		json string
+		want time.Duration
+	}{
+		{
+			name: "When config is empty it should use the built-in default",
+			json: `{}`,
+			want: DefaultRenderTimeout,
+		},
+		{
+			name: "When renderTimeout is set it should use the configured value",
+			json: `{
+				"worker": {"vmRender": {"renderTimeout": "2m"}}
+			}`,
+			want: 2 * time.Minute,
+		},
+		{
+			name: "When renderTimeout is zero it should fall back to the default",
+			json: `{
+				"worker": {"vmRender": {"renderTimeout": "0s"}}
+			}`,
+			want: DefaultRenderTimeout,
+		},
+		{
+			name: "When worker is set without vmRender it should use the default",
+			json: `{
+				"worker": {}
+			}`,
+			want: DefaultRenderTimeout,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := &Config{}
+			require.NoError(t, json.Unmarshal([]byte(tt.json), cfg))
+			assert.Equal(t, tt.want, cfg.EffectiveRenderTimeout())
+		})
+	}
+
+	t.Run("When Config is nil it should use the default", func(t *testing.T) {
+		t.Parallel()
+		var cfg *Config
+		assert.Equal(t, DefaultRenderTimeout, cfg.EffectiveRenderTimeout())
+	})
 }
