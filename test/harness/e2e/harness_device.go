@@ -658,78 +658,49 @@ func (h *Harness) UpdateDeviceAndWaitForVersion(deviceID string, updateFunc func
 	return nil
 }
 
-// deviceUpdateFailedOrRolledBack is true when the device did not successfully apply the desired
-// spec. That is either a stable Updating/Error (optional message check), or a completed OS/spec
-// rollback where the agent reports Updating/Updated, summary online, and updated OutOfDate — in
-// that case the prefetch or sync error is not always preserved on the condition after rollback.
-func deviceUpdateFailedOrRolledBack(device *v1beta1.Device, expectedMessageSubstrings []string) bool {
+// deviceUpdateFailed is true when the device reports a stable Updating/Error
+// condition. If expectedMessageSubstrings are provided, the condition message
+// must contain at least one of them.
+func deviceUpdateFailed(device *v1beta1.Device, expectedMessageSubstrings []string) bool {
 	if device == nil || device.Status == nil {
 		return false
 	}
 
-	if ConditionExists(device, v1beta1.ConditionTypeDeviceUpdating,
+	if !ConditionExists(device, v1beta1.ConditionTypeDeviceUpdating,
 		v1beta1.ConditionStatusFalse, string(v1beta1.UpdateStateError)) {
-		if len(expectedMessageSubstrings) == 0 {
-			return true
-		}
-		cond := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceUpdating)
-		if cond == nil {
-			return false
-		}
-		for _, substring := range expectedMessageSubstrings {
-			if strings.Contains(cond.Message, substring) {
-				return true
-			}
-		}
-		return false
-	}
-
-	// Rollback: bootc/OS rollback or spec rollback can clear Error and leave OutOfDate + Updating/Updated.
-	if device.Status.Updated.Status != v1beta1.DeviceUpdatedStatusOutOfDate ||
-		device.Status.Summary.Status != v1beta1.DeviceSummaryStatusOnline {
-		return false
-	}
-	cond := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceUpdating)
-	if cond == nil {
-		return false
-	}
-	if cond.Status == v1beta1.ConditionStatusTrue {
-		return false
-	}
-	if cond.Reason != string(v1beta1.UpdateStateUpdated) {
 		return false
 	}
 	if len(expectedMessageSubstrings) == 0 {
 		return true
 	}
+	cond := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceUpdating)
+	if cond == nil {
+		return false
+	}
 	for _, substring := range expectedMessageSubstrings {
 		if strings.Contains(cond.Message, substring) {
 			return true
 		}
-		if device.Status.Updated.Info != nil && strings.Contains(*device.Status.Updated.Info, substring) {
-			return true
-		}
 	}
-	return true
+	return false
 }
 
 // UpdateDeviceAndWaitForFailure updates a device and waits for the update to fail with an error.
-// If expectedMessageSubstrings are provided, it verifies that the error message contains at least one of them
-// (or that the update rolled back, which may not retain the same message text on the status).
+// If expectedMessageSubstrings are provided, it verifies that the error message contains at least one of them.
 func (h *Harness) UpdateDeviceAndWaitForFailure(deviceID string, updateFunc func(device *v1beta1.Device), expectedMessageSubstrings ...string) error {
 	err := h.UpdateDeviceWithRetries(deviceID, updateFunc)
 	if err != nil {
 		return fmt.Errorf("failed to update device: %w", err)
 	}
 
-	description := "update should fail with error or roll back"
+	description := "update should fail with error"
 	if len(expectedMessageSubstrings) > 0 {
-		description = fmt.Sprintf("update should fail with error (or roll back) matching one of: %v", expectedMessageSubstrings)
+		description = fmt.Sprintf("update should fail with error containing one of: %v", expectedMessageSubstrings)
 	}
 
 	h.WaitForDeviceContents(deviceID, description,
 		func(device *v1beta1.Device) bool {
-			return deviceUpdateFailedOrRolledBack(device, expectedMessageSubstrings)
+			return deviceUpdateFailed(device, expectedMessageSubstrings)
 		}, LONGTIMEOUT)
 
 	h.WaitForDeviceContents(deviceID, "device should be out of date but online after failed update",
