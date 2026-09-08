@@ -6,16 +6,15 @@ import (
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/service/catalog"
 	"github.com/flightctl/flightctl/internal/service/events"
+	"github.com/flightctl/flightctl/internal/service/fleet"
 	"github.com/flightctl/flightctl/internal/store"
-	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
-	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	resourcesyncstore "github.com/flightctl/flightctl/internal/store/resourcesync"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
-	"gorm.io/gorm"
 )
 
 const (
@@ -112,32 +111,32 @@ func (f *fakeResourceSyncStore) CountByOrgAndStatus(ctx context.Context, orgId *
 	return nil, nil
 }
 
-// fakeCatalogStore embeds catalogstore.Store (nil) and overrides UnsetItemOwner/UnsetOwner
+// fakeCatalogService embeds catalog.Service (nil) and overrides UnsetItemOwner/UnsetOwner
 // used by DeleteResourceSync's service-owned cascade.
-type fakeCatalogStore struct {
-	catalogstore.Store
+type fakeCatalogService struct {
+	catalog.Service
 	unsetItemOwnerCalls []string
 	unsetOwnerCalls     []string
 }
 
-func (f *fakeCatalogStore) UnsetItemOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
+func (f *fakeCatalogService) UnsetItemOwner(ctx context.Context, orgId uuid.UUID, owner string) error {
 	f.unsetItemOwnerCalls = append(f.unsetItemOwnerCalls, owner)
 	return nil
 }
 
-func (f *fakeCatalogStore) UnsetOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
+func (f *fakeCatalogService) UnsetOwner(ctx context.Context, orgId uuid.UUID, owner string) error {
 	f.unsetOwnerCalls = append(f.unsetOwnerCalls, owner)
 	return nil
 }
 
-// fakeFleetStore embeds fleetstore.Store (nil) and overrides only UnsetOwner.
-type fakeFleetStore struct {
-	fleetstore.Store
+// fakeFleetService embeds fleet.Service (nil) and overrides only UnsetOwner.
+type fakeFleetService struct {
+	fleet.Service
 	unsetOwnerCalls []string
 	failUnset       bool
 }
 
-func (f *fakeFleetStore) UnsetOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
+func (f *fakeFleetService) UnsetOwner(ctx context.Context, orgId uuid.UUID, owner string) error {
 	f.unsetOwnerCalls = append(f.unsetOwnerCalls, owner)
 	if f.failUnset {
 		return flterrors.ErrResourceNotFound
@@ -173,12 +172,12 @@ func (f *fakeEventsService) HandleGenericResourceDeletedEvents(ctx context.Conte
 	f.deleted = append(f.deleted, recordedCallback{orgId: orgId, name: name, created: created, err: err})
 }
 
-func newTestHandler() (*ServiceHandler, *fakeResourceSyncStore, *fakeCatalogStore, *fakeFleetStore, *fakeEventsService) {
+func newTestHandler() (*ServiceHandler, *fakeResourceSyncStore, *fakeCatalogService, *fakeFleetService, *fakeEventsService) {
 	rsStore := newFakeResourceSyncStore()
-	catStore := &fakeCatalogStore{}
-	flStore := &fakeFleetStore{}
+	catSvc := &fakeCatalogService{}
+	flSvc := &fakeFleetService{}
 	evStore := &fakeEventsService{}
-	return NewServiceHandler(rsStore, catStore, flStore, evStore, logrus.New()), rsStore, catStore, flStore, evStore
+	return NewServiceHandler(rsStore, catSvc, flSvc, evStore, logrus.New()), rsStore, catSvc, flSvc, evStore
 }
 
 func testResourceSync(name string) domain.ResourceSync {

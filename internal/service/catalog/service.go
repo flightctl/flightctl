@@ -25,4 +25,6 @@ type Service interface {
 	PatchCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string, patch domain.PatchRequest, enforceOwnership bool) (*domain.CatalogItem, domain.Status)
 	DeleteCatalogItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string, enforceOwnership bool) domain.Status
 	GetCatalogItemDeployments(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string, params domain.GetCatalogItemDeploymentsParams) (*domain.CatalogItemDeploymentList, domain.Status)
+	UnsetOwner(ctx context.Context, orgId uuid.UUID, owner string) error
+	UnsetItemOwner(ctx context.Context, orgId uuid.UUID, owner string) error
 }
