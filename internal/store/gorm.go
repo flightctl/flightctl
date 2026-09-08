@@ -288,6 +288,8 @@ func (d *constraintAwareDialector) Translate(err error) error {
 			return flterrors.ErrDuplicateOIDCProvider
 		case ConstraintAuthProviderOAuth2Unique:
 			return flterrors.ErrDuplicateOAuth2Provider
+		case ConstraintDeltaStorageTargetUnique:
+			return flterrors.ErrDuplicateDeltaStorageTarget
 		}
 	}
 

@@ -5412,6 +5412,28 @@ components:
         skipServerVerification:
           type: boolean
           description: Skip remote server verification.
+        repository:
+          type: string
+          description: >-
+            Optional OCI repository path under spec.registry
+            (e.g. my-org/diffs). When set, this object is that repo
+            (`my-registry.com/my-org/diffs`), not only a registry.
+            Mutually exclusive with namespace. ImageBuild destination
+            imageName must equal this value.
+        namespace:
+          type: string
+          description: >-
+            Optional org/subpath under spec.registry (e.g. my-org).
+            Concrete names are spec.registry/namespace/<name>.
+            Mutually exclusive with repository. Used by delta push
+            (`{registry}/{namespace}/{imageName}`). Invalid on an
+            ImageBuild or ImageExport destination Repository.
+        deltaStorageTarget:
+          type: boolean
+          description: >-
+            When true, generated deltas are pushed to this object
+            (at most one per org). Auth is the existing ociAuth / accessMode.
+            Placement follows repository / namespace / registry-only as above.
         baseImages:
           type: array
           description: Curated list of trusted base images available in this registry. When present, the Image Builder source picker surfaces these entries as selectable options.

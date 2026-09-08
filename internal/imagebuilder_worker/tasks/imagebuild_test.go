@@ -68,6 +68,9 @@ func (m *mockRepositoryStore) Count(context.Context, uuid.UUID, store.ListParams
 func (m *mockRepositoryStore) CountByOrg(context.Context, *uuid.UUID) ([]store.CountByOrgResult, error) {
 	return nil, nil
 }
+func (m *mockRepositoryStore) GetDeltaStorageTarget(context.Context, uuid.UUID) (*v1beta1.Repository, error) {
+	return nil, nil
+}
 
 // mockServiceHandler is a mock implementation of service.ServiceHandler for testing
 type mockServiceHandler struct {
