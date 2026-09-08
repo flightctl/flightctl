@@ -18,6 +18,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type statusRule struct {
+	fragment string
+	code     int
+}
+
 // mockQuayServer is a configurable Quay Security API stub.
 type mockQuayServer struct {
 	mu sync.Mutex
@@ -28,9 +33,10 @@ type mockQuayServer struct {
 	response       Response                 // full body for a 200 response (used when status is empty)
 	rawBody        string                   // raw body override (for malformed-JSON tests)
 	statusSequence []int                    // per-request statuses; index i used for request i, last repeats
-	statusByPath   map[string]int           // per-repo-path status (path substring => status)
+	statusByPath   []statusRule             // ordered per-repo-path status rules
 	delay          time.Duration            // per-request delay (for timeout tests)
 	delayByPath    map[string]time.Duration // per-repo-path delay (path substring => delay)
+	served         chan struct{}            // optional signal after a response is written
 
 	// Captured request state.
 	requestCount int
@@ -72,11 +78,13 @@ func newMockQuayServer(t *testing.T, m *mockQuayServer) *httptest.Server {
 
 		if status != 0 && status != http.StatusOK {
 			w.WriteHeader(status)
+			m.signalServed()
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		if m.rawBody != "" {
 			_, _ = w.Write([]byte(m.rawBody))
+			m.signalServed()
 			return
 		}
 		body := m.response
@@ -84,6 +92,7 @@ func newMockQuayServer(t *testing.T, m *mockQuayServer) *httptest.Server {
 			body = Response{Status: m.status}
 		}
 		_ = json.NewEncoder(w).Encode(body)
+		m.signalServed()
 	}))
 	t.Cleanup(srv.Close)
 	return srv
@@ -91,9 +100,9 @@ func newMockQuayServer(t *testing.T, m *mockQuayServer) *httptest.Server {
 
 // statusFor resolves the HTTP status for a request. Caller holds m.mu.
 func (m *mockQuayServer) statusFor(idx int, path string) int {
-	for frag, code := range m.statusByPath {
-		if strings.Contains(path, frag) {
-			return code
+	for _, rule := range m.statusByPath {
+		if strings.Contains(path, rule.fragment) {
+			return rule.code
 		}
 	}
 	if len(m.statusSequence) > 0 {
@@ -103,6 +112,16 @@ func (m *mockQuayServer) statusFor(idx int, path string) int {
 		return m.statusSequence[len(m.statusSequence)-1]
 	}
 	return m.httpStatus
+}
+
+func (m *mockQuayServer) signalServed() {
+	if m.served == nil {
+		return
+	}
+	select {
+	case m.served <- struct{}{}:
+	default:
+	}
 }
 
 // delayFor resolves the artificial delay for a request. Caller holds m.mu.
@@ -447,7 +466,7 @@ func TestFetchImageSecurity_RetriesExhausted(t *testing.T) {
 	res, err := c.FetchImageSecurity(context.Background(), image)
 	require.Error(t, err, "a persistent 5xx fails after exhausting retries")
 	require.Nil(t, res.Report)
-	require.Equal(t, maxRetries, mock.count(), "exactly maxRetries attempts are made")
+	require.Equal(t, maxAttempts, mock.count(), "exactly maxAttempts attempts are made")
 	require.ErrorContains(t, err, "max retries exceeded querying quay security api",
 		"the exhaustion error names the retry contract")
 	require.ErrorContains(t, err, "status 503", "the last transient failure is wrapped")
@@ -457,14 +476,21 @@ func TestFetchImageSecurity_ContextCancelledDuringBackoff(t *testing.T) {
 	// First attempt returns a retryable 503, then the context is cancelled while
 	// the client sleeps in its backoff window — exercising the ctx.Done() branch
 	// between attempts (distinct from a cancellation before the first request).
-	mock := &mockQuayServer{httpStatus: http.StatusServiceUnavailable}
+	served := make(chan struct{}, 1)
+	mock := &mockQuayServer{httpStatus: http.StatusServiceUnavailable, served: served}
 	srv := newMockQuayServer(t, mock)
 	c, _ := newTestClient(t, srv.URL)
 	c.backoffBase = 200 * time.Millisecond // wide enough to cancel mid-backoff
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	time.AfterFunc(20*time.Millisecond, cancel)
+	go func() {
+		select {
+		case <-served:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
 
 	image := vulnerability.ImageRef{Digest: "sha256:abc", Image: hostOf(srv) + "/org/repo:latest"}
 	_, err := c.FetchImageSecurity(ctx, image)
@@ -483,7 +509,7 @@ func TestFetchImageSecurity_TimeoutRetriesThenFails(t *testing.T) {
 	res, err := c.FetchImageSecurity(context.Background(), image)
 	require.Error(t, err, "a persistent timeout fails after retries")
 	require.Nil(t, res.Report)
-	require.Equal(t, maxRetries, mock.count(), "timeouts are retried up to maxRetries")
+	require.Equal(t, maxAttempts, mock.count(), "timeouts are retried up to maxAttempts")
 	require.ErrorContains(t, err, "timed out", "the timeout is surfaced in the wrapped error")
 }
 

@@ -486,7 +486,7 @@ func TestScanImages_MixedIsolation(t *testing.T) {
 	// logged for the broken image.
 	srv := newMockQuayServer(t, &mockQuayServer{
 		response:     scannedResponse(),
-		statusByPath: map[string]int{"org/bad": http.StatusInternalServerError},
+		statusByPath: []statusRule{{fragment: "org/bad", code: http.StatusInternalServerError}},
 	})
 	s, hook := newTestScanner(t, srv.URL, 5)
 
@@ -539,7 +539,7 @@ func TestScanImages_Forbidden(t *testing.T) {
 	// A 403 skips just the affected image (warn); the rest continue.
 	srv := newMockQuayServer(t, &mockQuayServer{
 		response:     scannedResponse(),
-		statusByPath: map[string]int{"org/denied": http.StatusForbidden},
+		statusByPath: []statusRule{{fragment: "org/denied", code: http.StatusForbidden}},
 	})
 	s, hook := newTestScanner(t, srv.URL, 5)
 
@@ -581,7 +581,7 @@ func TestScanImages_SyncSummaryCounts(t *testing.T) {
 	// per-image counts: one scanned, one registry-skip, one error-skip (404).
 	srv := newMockQuayServer(t, &mockQuayServer{
 		response:     scannedResponse(),
-		statusByPath: map[string]int{"org/missing": http.StatusNotFound},
+		statusByPath: []statusRule{{fragment: "org/missing", code: http.StatusNotFound}},
 	})
 	s, hook := newTestScanner(t, srv.URL, 5)
 

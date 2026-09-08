@@ -103,6 +103,10 @@ func (s *quayScanner) ScanImages(ctx context.Context, images []vulnerability.Ima
 
 			start := time.Now()
 			res, err := s.client.FetchImageSecurity(ctx, image)
+			var findings []vulnerability.Finding
+			if err == nil && res.Outcome == outcomeScanned {
+				findings = findingsFromReport(image.Digest, res.Report, s.log)
+			}
 
 			mu.Lock()
 			defer mu.Unlock()
@@ -135,7 +139,6 @@ func (s *quayScanner) ScanImages(ctx context.Context, images []vulnerability.Ima
 
 			switch res.Outcome {
 			case outcomeScanned:
-				findings := findingsFromReport(image.Digest, res.Report, s.log)
 				counts.scanned++
 				s.log.WithFields(logrus.Fields{
 					"event":       eventScanCompleted,

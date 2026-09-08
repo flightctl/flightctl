@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/rand/v2"
 	"net"
 	"net/http"
@@ -24,13 +25,13 @@ const defaultHTTPTimeout = 30 * time.Second
 const statusScanned = "scanned"
 
 // Retry policy for transient Quay Security API failures. HTTP 429, HTTP 5xx,
-// and request timeouts are retried up to maxRetries total attempts; the delay
+// and request timeouts are retried up to maxAttempts total attempts; the delay
 // starts at initialBackoff, doubles after each attempt, is capped at
 // maxBackoff, and carries additive jitter of up to half the current delay.
 // Non-transient failures (4xx other than 429, connection errors, decode
 // errors) are not retried.
 const (
-	maxRetries     = 3
+	maxAttempts    = 3
 	initialBackoff = 1 * time.Second
 	maxBackoff     = 30 * time.Second
 )
@@ -207,7 +208,7 @@ func (c *Client) FetchImageSecurity(ctx context.Context, image vulnerability.Ima
 func (c *Client) retryableGet(ctx context.Context, reqURL, digest string) (*http.Response, int, error) {
 	backoff := c.backoffBase
 	var lastErr error
-	for attempt := 1; attempt <= maxRetries; attempt++ {
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		resp, err := c.doGet(ctx, reqURL)
 		switch {
 		case err != nil && isTimeout(err):
@@ -215,13 +216,14 @@ func (c *Client) retryableGet(ctx context.Context, reqURL, digest string) (*http
 		case err != nil:
 			return nil, attempt, fmt.Errorf("querying quay security api: %w", err)
 		case resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= http.StatusInternalServerError:
+			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10))
 			resp.Body.Close()
 			lastErr = fmt.Errorf("quay security api returned status %d", resp.StatusCode)
 		default:
 			return resp, attempt, nil
 		}
 
-		if attempt == maxRetries {
+		if attempt == maxAttempts {
 			break
 		}
 
@@ -241,7 +243,7 @@ func (c *Client) retryableGet(ctx context.Context, reqURL, digest string) (*http
 		}
 		backoff = min(backoff*2, maxBackoff)
 	}
-	return nil, maxRetries, fmt.Errorf("max retries exceeded querying quay security api: %w", lastErr)
+	return nil, maxAttempts, fmt.Errorf("max retries exceeded querying quay security api: %w", lastErr)
 }
 
 // doGet builds and sends a single authenticated GET request.
