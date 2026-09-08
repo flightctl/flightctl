@@ -252,6 +252,7 @@ func ShouldValidateOrg(method, path string) bool {
 // - Filtering out flightctl-admin from both global and org-specific roles (it's only used for super admin flag)
 // - Distributing remaining global roles to all organizations
 // - Combining org-specific and global roles for each organization
+// - Collapsing repeated organization entries so each organization is reported once
 func BuildReportedOrganizations(organizations []string, orgRoles map[string][]string, isInternalID bool) ([]ReportedOrganization, bool) {
 	reportedOrganizations := make([]ReportedOrganization, 0, len(organizations))
 	globalRoles := orgRoles["*"] // Get global roles if any
@@ -269,7 +270,19 @@ func BuildReportedOrganizations(organizations []string, orgRoles map[string][]st
 	}
 
 	// Build reported organizations with roles
+	seenOrgs := make(map[string]struct{}, len(organizations))
 	for _, org := range organizations {
+		// Callers may report the same organization more than once (e.g. an org claim
+		// derived from a multi-valued role claim). Exactly one ReportedOrganization per
+		// organization is the invariant downstream relies on: the identity mapper
+		// resolves each entry to the same DB row and appends it, so duplicates surface
+		// in GET /organizations. Collapsing is lossless because roles are looked up
+		// from orgRoles by name and are therefore identical for repeated entries.
+		if _, duplicate := seenOrgs[org]; duplicate {
+			continue
+		}
+		seenOrgs[org] = struct{}{}
+
 		// Use a map to deduplicate roles from the start
 		roleSet := make(map[string]struct{}, len(orgRoles[org])+len(filteredGlobalRolesMap))
 
