@@ -24,6 +24,7 @@ type command struct {
 	args    []string
 }
 
+// TestHookManager verifies the hook manager's AfterUpdating flow with various hook configurations.
 func TestHookManager(t *testing.T) {
 	require := require.New(t)
 	testCases := []struct {
@@ -138,6 +139,7 @@ const testHookRebootedCondition = `
   run: echo "System was not rebooted."
 `
 
+// createTempHooksDir builds a temp directory with default and custom hook YAML for update tests.
 func createTempHooksDir(t *testing.T, hooks map[string]string) fileio.ReadWriter {
 	tempDir := t.TempDir()
 	readerWriter := fileio.NewReadWriter(
@@ -162,6 +164,7 @@ func createTempHooksDir(t *testing.T, hooks map[string]string) fileio.ReadWriter
 	return readerWriter
 }
 
+// createDeviceSpec builds a DeviceSpec with the given file paths and inline content.
 func createDeviceSpec(require *require.Assertions, fileMap map[string]string) *v1beta1.DeviceSpec {
 	files := []v1beta1.FileSpec{}
 	for path, data := range fileMap {
@@ -179,6 +182,177 @@ func createDeviceSpec(require *require.Assertions, fileMap map[string]string) *v
 	}
 }
 
+const testEnrollmentHookYAML = `
+- run: echo "enrollment hook executed"
+`
+
+// TestHookManagerEnrollment verifies enrollment hook discovery, merge rules, and execution.
+func TestHookManagerEnrollment(t *testing.T) {
+	tests := []struct {
+		name             string
+		hooks            map[string]string
+		hookType         string
+		expectedCommands []command
+	}{
+		{
+			name: "When BeforeEnrolling has hooks in image dir it should execute them",
+			hooks: map[string]string{
+				"/usr/lib/flightctl/hooks.d/beforeenrolling/01-test.yaml": testEnrollmentHookYAML,
+			},
+			hookType:         "before",
+			expectedCommands: []command{{"echo", []string{"enrollment hook executed"}}},
+		},
+		{
+			name: "When BeforeEnrolling has hooks in both dirs it should merge and execute",
+			hooks: map[string]string{
+				"/usr/lib/flightctl/hooks.d/beforeenrolling/01-test.yaml": testEnrollmentHookYAML,
+				"/etc/flightctl/hooks.d/beforeenrolling/02-test.yaml":     testEnrollmentHookYAML,
+			},
+			hookType:         "before",
+			expectedCommands: []command{{"echo", []string{"enrollment hook executed"}}, {"echo", []string{"enrollment hook executed"}}},
+		},
+		{
+			name: "When AfterEnrolling has hooks in /etc only it should not load them (image-only)",
+			hooks: map[string]string{
+				"/etc/flightctl/hooks.d/afterenrolling/01-test.yaml": testEnrollmentHookYAML,
+			},
+			hookType:         "after",
+			expectedCommands: []command{},
+		},
+		{
+			name: "When AfterEnrolling has hooks in /usr/lib only it should load and execute",
+			hooks: map[string]string{
+				"/usr/lib/flightctl/hooks.d/afterenrolling/01-test.yaml": testEnrollmentHookYAML,
+			},
+			hookType:         "after",
+			expectedCommands: []command{{"echo", []string{"enrollment hook executed"}}},
+		},
+		{
+			name:             "When no enrollment hooks exist it should not error",
+			hooks:            map[string]string{},
+			hookType:         "before",
+			expectedCommands: []command{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			readWriter := createEnrollmentHooksDir(t, tt.hooks)
+			mockExec := executer.NewMockExecuter(ctrl)
+			logger := log.NewPrefixLogger("test")
+			logger.SetLevel(logrus.DebugLevel)
+			hookManager := NewManager(readWriter, mockExec, logger)
+			expectExecCalls(mockExec, tt.expectedCommands)
+
+			ctx, cancel := context.WithCancel(context.TODO())
+			defer cancel()
+
+			enrollCtx := &EnrollmentContext{
+				DeviceName: "test-device",
+				SystemInfo: map[string]interface{}{"os": "linux"},
+				Labels:     map[string]string{"env": "test"},
+			}
+
+			var err error
+			if tt.hookType == "before" {
+				err = hookManager.OnBeforeEnrolling(ctx, enrollCtx)
+			} else {
+				err = hookManager.OnAfterEnrolling(ctx, enrollCtx)
+			}
+			require.NoError(err)
+		})
+	}
+}
+
+// TestHookManagerEnrollmentContext verifies FLIGHTCTL_HOOK_CONTEXT is injected during hook execution.
+func TestHookManagerEnrollmentContext(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	hooks := map[string]string{
+		"/usr/lib/flightctl/hooks.d/beforeenrolling/01-test.yaml": testEnrollmentHookYAML,
+	}
+	readWriter := createEnrollmentHooksDir(t, hooks)
+	mockExec := executer.NewMockExecuter(ctrl)
+	logger := log.NewPrefixLogger("test")
+	logger.SetLevel(logrus.DebugLevel)
+	hookManager := NewManager(readWriter, mockExec, logger)
+
+	// Capture env vars passed to executor to verify FLIGHTCTL_HOOK_CONTEXT
+	var capturedEnv []string
+	mockExec.EXPECT().ExecuteWithContextFromDir(gomock.Any(), "", "echo", []string{"enrollment hook executed"}, gomock.Any()).DoAndReturn(
+		func(ctx context.Context, workingDir, command string, args []string, env ...string) (string, string, int) {
+			capturedEnv = env
+			return "", "", 0
+		}).Times(1)
+
+	ctx, cancel := context.WithCancel(context.TODO())
+	defer cancel()
+
+	enrollCtx := &EnrollmentContext{
+		DeviceName: "test-device",
+		SystemInfo: map[string]interface{}{},
+		Labels:     map[string]string{},
+	}
+
+	require.NoError(hookManager.OnBeforeEnrolling(ctx, enrollCtx))
+
+	// Verify FLIGHTCTL_HOOK_CONTEXT is in the captured env vars
+	found := false
+	for _, env := range capturedEnv {
+		if strings.HasPrefix(env, "FLIGHTCTL_HOOK_CONTEXT=") {
+			found = true
+			// Verify it's valid JSON
+			jsonStr := strings.TrimPrefix(env, "FLIGHTCTL_HOOK_CONTEXT=")
+			require.True(len(jsonStr) > 0, "FLIGHTCTL_HOOK_CONTEXT value should not be empty")
+
+			// Verify the JSON contains the expected hook field
+			require.Contains(jsonStr, `"hook":"BeforeEnrolling"`)
+			require.Contains(jsonStr, `"deviceName":"test-device"`)
+
+			// Verify the context file was written and matches the env var
+			contextFilePath := readWriter.PathFor(HookContextPath)
+			fileData, err := os.ReadFile(contextFilePath)
+			require.NoError(err)
+			require.Equal(jsonStr, string(fileData), "env var content should match file content")
+			break
+		}
+	}
+	require.True(found, "FLIGHTCTL_HOOK_CONTEXT env var should be set")
+}
+
+// createEnrollmentHooksDir builds a temp hooks.d tree for enrollment hook tests.
+func createEnrollmentHooksDir(t *testing.T, hooks map[string]string) fileio.ReadWriter {
+	t.Helper()
+	tempDir := t.TempDir()
+	readWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tempDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
+	)
+
+	// Create enrollment hook directories
+	for _, dir := range []string{
+		"/usr/lib/flightctl/hooks.d/beforeenrolling",
+		"/usr/lib/flightctl/hooks.d/afterenrolling",
+		"/etc/flightctl/hooks.d/beforeenrolling",
+		"/etc/flightctl/hooks.d/afterenrolling",
+	} {
+		require.NoError(t, readWriter.MkdirAll(dir, 0755))
+	}
+
+	for fpath, content := range hooks {
+		require.NoError(t, readWriter.WriteFile(fpath, []byte(content), 0600))
+	}
+
+	return readWriter
+}
+
+// expectExecCalls configures the mock executor to expect the given commands in order.
 func expectExecCalls(mockExecuter *executer.MockExecuter, expectedCommands []command) {
 	if len(expectedCommands) > 0 {
 		calls := make([]any, len(expectedCommands))

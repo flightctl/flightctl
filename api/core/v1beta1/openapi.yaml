@@ -6161,11 +6161,15 @@ components:
       - 'AfterUpdating'
       - 'BeforeRebooting'
       - 'AfterRebooting'
+      - 'BeforeEnrolling'
+      - 'AfterEnrolling'
       x-enum-varnames:
         - "DeviceLifecycleHookBeforeUpdating"
         - "DeviceLifecycleHookAfterUpdating"
         - "DeviceLifecycleHookBeforeRebooting"
         - "DeviceLifecycleHookAfterRebooting"
+        - "DeviceLifecycleHookBeforeEnrolling"
+        - "DeviceLifecycleHookAfterEnrolling"
     HookAction:
       allOf:
       - type: object

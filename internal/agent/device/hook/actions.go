@@ -49,6 +49,7 @@ type actionContext struct {
 	updatedFiles    map[string]api.FileSpec
 	removedFiles    map[string]api.FileSpec
 	commandLineVars map[CommandLineVarKey]string
+	hookContextJSON string // non-empty for enrollment hooks; set to the JSON written to hook-context.json
 }
 
 func newActionContext(hook api.DeviceLifecycleHookType, current *api.DeviceSpec, desired *api.DeviceSpec, systemRebooted bool) *actionContext {
@@ -71,6 +72,20 @@ func newActionContext(hook api.DeviceLifecycleHookType, current *api.DeviceSpec,
 		computeFileDiff(actionContext, defaultIfNil(current), defaultIfNil(desired))
 	}
 	return actionContext
+}
+
+// newEnrollmentActionContext creates an actionContext for enrollment hooks.
+// hookContextJSON is the JSON content of hook-context.json, injected as
+// the FLIGHTCTL_HOOK_CONTEXT env var during hook execution.
+func newEnrollmentActionContext(hook api.DeviceLifecycleHookType, hookContextJSON string) *actionContext {
+	return &actionContext{
+		hook:            hook,
+		createdFiles:    make(map[string]api.FileSpec),
+		updatedFiles:    make(map[string]api.FileSpec),
+		removedFiles:    make(map[string]api.FileSpec),
+		commandLineVars: make(map[CommandLineVarKey]string),
+		hookContextJSON: hookContextJSON,
+	}
 }
 
 func resetCommandLineVars(actionCtx *actionContext) {
@@ -156,6 +171,11 @@ func executeRunAction(ctx context.Context, exec executer.Executer, log *log.Pref
 
 	// Inject agent PID as environment variable for hooks to use
 	envVars = append(envVars, fmt.Sprintf("FLIGHTCTL_AGENT_PID=%d", os.Getpid()))
+
+	// Inject hook context JSON for enrollment hooks (matches hook-context.json content)
+	if actionCtx.hookContextJSON != "" {
+		envVars = append(envVars, fmt.Sprintf("FLIGHTCTL_HOOK_CONTEXT=%s", actionCtx.hookContextJSON))
+	}
 
 	_, stderr, exitCode := exec.ExecuteWithContextFromDir(ctx, workDir, cmd, args, envVars...)
 	if exitCode != 0 {
