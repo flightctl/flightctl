@@ -101,6 +101,10 @@ func formatSerialNumber(b []byte) string {
 // HookContextPath with mode 0600, and returns the JSON bytes for use
 // as the FLIGHTCTL_HOOK_CONTEXT environment variable value.
 func writeHookContext(readWriter fileio.ReadWriter, hookType string, enrollCtx *EnrollmentContext) ([]byte, error) {
+	if enrollCtx == nil {
+		return nil, fmt.Errorf("enrollment context is nil")
+	}
+
 	ctx := hookContext{
 		Hook:                  hookType,
 		DeviceName:            enrollCtx.DeviceName,

@@ -131,6 +131,8 @@ func (m *manager) loadAndExecuteActionsFromDirs(ctx context.Context, actionCtx *
 	return m.executeActions(ctx, actions, actionCtx)
 }
 
+// loadAndExecuteActions loads hook actions from the default config directories
+// and executes them in order for the hook type in actionCtx.
 func (m *manager) loadAndExecuteActions(ctx context.Context, actionCtx *actionContext) error {
 	m.log.Debugf("Starting hook manager On%s()", actionCtx.hook)
 	defer m.log.Debugf("Finished hook manager On%s()", actionCtx.hook)
@@ -142,6 +144,8 @@ func (m *manager) loadAndExecuteActions(ctx context.Context, actionCtx *actionCo
 	return m.executeActions(ctx, actions, actionCtx)
 }
 
+// loadAndMergeActions loads and merges hook actions from the default config
+// directories (ReadOnlyConfigDir and UserWritableConfigDir).
 func (m *manager) loadAndMergeActions(hookType api.DeviceLifecycleHookType) ([]api.HookAction, error) {
 	return m.loadAndMergeActionsFromDirs(hookType, []string{ReadOnlyConfigDir, UserWritableConfigDir})
 }
@@ -149,8 +153,6 @@ func (m *manager) loadAndMergeActions(hookType api.DeviceLifecycleHookType) ([]a
 // loadAndMergeActionsFromDirs loads hook YAML from the specified base directories,
 // merges them in lexical order, and returns the flattened action list.
 // Each dir is expected to contain hooks.d/<hooktype>/*.yaml.
-// loadAndMergeActionsFromDirs discovers and merges hook YAML from hooks.d
-// subdirectories under each config root for the given hook type.
 func (m *manager) loadAndMergeActionsFromDirs(hookType api.DeviceLifecycleHookType, dirs []string) ([]api.HookAction, error) {
 	actionsMap := map[string][]api.HookAction{}
 	for _, dir := range dirs {
@@ -172,6 +174,8 @@ func (m *manager) loadAndMergeActionsFromDirs(hookType api.DeviceLifecycleHookTy
 	return actions, nil
 }
 
+// loadActions reads hook YAML files matching actionFilesGlob, parses and
+// validates them, and appends the resulting actions to actionsMap keyed by filename.
 func (m *manager) loadActions(actionsMap map[string][]api.HookAction, actionFilesGlob string) error {
 	actionFiles, err := filepath.Glob(m.readWriter.PathFor(actionFilesGlob))
 	if err != nil {

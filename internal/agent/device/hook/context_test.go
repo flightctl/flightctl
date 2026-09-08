@@ -268,6 +268,23 @@ func TestWriteHookContextDirectoryCreation(t *testing.T) {
 	require.True(info.IsDir())
 }
 
+// TestWriteHookContextNilEnrollmentContext verifies that writeHookContext returns
+// an error when the enrollment context is nil.
+func TestWriteHookContextNilEnrollmentContext(t *testing.T) {
+	require := require.New(t)
+
+	tempDir := t.TempDir()
+	readWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tempDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
+	)
+
+	jsonBytes, err := writeHookContext(readWriter, "BeforeEnrolling", nil)
+	require.Error(err)
+	require.Nil(jsonBytes)
+	require.Contains(err.Error(), "enrollment context is nil")
+}
+
 // TestHookContextJSONStructure verifies JSON field names and empty-map serialization.
 func TestHookContextJSONStructure(t *testing.T) {
 	require := require.New(t)

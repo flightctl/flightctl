@@ -24,6 +24,7 @@ type command struct {
 	args    []string
 }
 
+// TestHookManager verifies the hook manager's AfterUpdating flow with various hook configurations.
 func TestHookManager(t *testing.T) {
 	require := require.New(t)
 	testCases := []struct {
@@ -138,6 +139,7 @@ const testHookRebootedCondition = `
   run: echo "System was not rebooted."
 `
 
+// createTempHooksDir builds a temp directory with default and custom hook YAML for update tests.
 func createTempHooksDir(t *testing.T, hooks map[string]string) fileio.ReadWriter {
 	tempDir := t.TempDir()
 	readerWriter := fileio.NewReadWriter(
@@ -162,6 +164,7 @@ func createTempHooksDir(t *testing.T, hooks map[string]string) fileio.ReadWriter
 	return readerWriter
 }
 
+// createDeviceSpec builds a DeviceSpec with the given file paths and inline content.
 func createDeviceSpec(require *require.Assertions, fileMap map[string]string) *v1beta1.DeviceSpec {
 	files := []v1beta1.FileSpec{}
 	for path, data := range fileMap {
@@ -349,6 +352,7 @@ func createEnrollmentHooksDir(t *testing.T, hooks map[string]string) fileio.Read
 	return readWriter
 }
 
+// expectExecCalls configures the mock executor to expect the given commands in order.
 func expectExecCalls(mockExecuter *executer.MockExecuter, expectedCommands []command) {
 	if len(expectedCommands) > 0 {
 		calls := make([]any, len(expectedCommands))
