@@ -65,6 +65,13 @@ func applyRenderedUpdate(
 			}
 			device.Status.Os.LastDelta.Size = osHints.UpdatedSize
 		}
+		if len(osHints.AppSizes) > 0 {
+			for i := range device.Status.Applications {
+				if sz, ok := osHints.AppSizes[device.Status.Applications[i].Name]; ok {
+					device.Status.Applications[i].Size = sz
+				}
+			}
+		}
 	}
 	return next, nil
 }
