@@ -183,8 +183,8 @@ jobs:
       - name: Resolve base images
         id: base-images
         run: |
-          build_base=$(hack/yaml-field.sh "packaging/images/${{ matrix.os }}/images.yaml" "${{ matrix.image }}" build_base)
-          run_base=$(hack/yaml-field.sh "packaging/images/${{ matrix.os }}/images.yaml" "${{ matrix.image }}" run_base)
+          build_base=$(go run -C tools/refresh-base-images . query --file "../../packaging/images/${{ matrix.os }}/images.yaml" --key "${{ matrix.image }}" --field build_base)
+          run_base=$(go run -C tools/refresh-base-images . query --file "../../packaging/images/${{ matrix.os }}/images.yaml" --key "${{ matrix.image }}" --field run_base)
           echo "build_base=${build_base}" >> "$GITHUB_OUTPUT"
           echo "run_base=${run_base}" >> "$GITHUB_OUTPUT"
 
