@@ -365,10 +365,13 @@ func (p *InfraProvider) queryDBViaJob(sql string) (string, error) {
 			env = append(env, e)
 		}
 	}
+	logrus.Infof("queryDBViaJob: hasPGSSLKEY=%v sslKeySourcePath=%q sslKeyDest=%q", hasPGSSLKEY, sslKeySourcePath, sslKeyDest)
 
 	// When a client key is present, add an emptyDir volume and an init container
-	// that copies the projected (read-only) key file to the emptyDir and sets 0600.
-	// This satisfies both OCP (readable by any UID) and psql (not world-accessible).
+	// that copies the projected (read-only, 0444) key file to the emptyDir and sets 0600.
+	// This satisfies both OCP (readable by any UID after copy) and psql (not world-accessible).
+	// The psql container's PGSSLKEY is redirected to the emptyDir copy so psql never reads
+	// the projected volume key directly.
 	volumes := append([]corev1.Volume(nil), migSpec.sslVolumes...)
 	volumeMounts := append([]corev1.VolumeMount(nil), migSpec.sslVolumeMounts...)
 	var initContainers []corev1.Container
@@ -387,7 +390,12 @@ func (p *InfraProvider) queryDBViaJob(sql string) (string, error) {
 				Name:            "fix-ssl-key-perms",
 				Image:           migSpec.image,
 				ImagePullPolicy: corev1.PullIfNotPresent,
-				Command:         []string{"sh", "-c", fmt.Sprintf("cp %s %s && chmod 0600 %s", sslKeySourcePath, sslKeyDest, sslKeyDest)},
+				// Use cat+redirect instead of cp so the output file is created with the
+				// running UID as owner (cp may preserve source ownership on some systems).
+				Command: []string{"sh", "-c", fmt.Sprintf(
+					"cat %s > %s && chmod 0600 %s && echo 'key copied OK'",
+					sslKeySourcePath, sslKeyDest, sslKeyDest,
+				)},
 				VolumeMounts: append(
 					append([]corev1.VolumeMount(nil), migSpec.sslVolumeMounts...),
 					corev1.VolumeMount{Name: sslKeyEmptyDir, MountPath: "/ssl-key"},
@@ -513,7 +521,9 @@ func waitForJobCompletion(ctx context.Context, p *InfraProvider, ns, jobName str
 	return fmt.Errorf("Job %s did not complete within %s", jobName, dbQueryJobTimeout)
 }
 
-// collectJobPodLogs returns the combined stdout of all pods created by the Job.
+// collectJobPodLogs returns the combined stdout of all pods created by the Job,
+// including init container logs (prefixed with the container name) to aid diagnosis
+// when an init container fails before the main container starts.
 func collectJobPodLogs(ctx context.Context, p *InfraProvider, ns, jobName string) (string, error) {
 	pods, err := p.client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{
 		LabelSelector: fmt.Sprintf("job-name=%s", jobName),
@@ -531,18 +541,39 @@ func collectJobPodLogs(ctx context.Context, p *InfraProvider, ns, jobName string
 
 	var sb strings.Builder
 	for i := range pods.Items {
-		req := p.client.CoreV1().Pods(ns).GetLogs(pods.Items[i].Name, &corev1.PodLogOptions{})
+		pod := &pods.Items[i]
+
+		// Collect init container logs first — if an init container failed, the main
+		// container never starts and its logs would be empty, hiding the real error.
+		for _, ic := range pod.Spec.InitContainers {
+			icReq := p.client.CoreV1().Pods(ns).GetLogs(pod.Name, &corev1.PodLogOptions{Container: ic.Name})
+			icStream, icErr := icReq.Stream(ctx)
+			if icErr != nil {
+				// Init container may not have started; log a warning and continue.
+				logrus.Warnf("queryDBViaJob: get logs for init container %s/%s: %v", pod.Name, ic.Name, icErr)
+				continue
+			}
+			icData, icReadErr := io.ReadAll(io.LimitReader(icStream, maxLogBytes+1))
+			_ = icStream.Close()
+			if icReadErr == nil && len(icData) > 0 {
+				fmt.Fprintf(&sb, "[init:%s] %s\n", ic.Name, strings.TrimSpace(string(icData)))
+			}
+		}
+
+		req := p.client.CoreV1().Pods(ns).GetLogs(pod.Name, &corev1.PodLogOptions{})
 		stream, err := req.Stream(ctx)
 		if err != nil {
-			return "", fmt.Errorf("stream logs for pod %s: %w", pods.Items[i].Name, err)
+			// Main container may not have started (init container failed); skip.
+			logrus.Warnf("queryDBViaJob: get logs for pod %s: %v", pod.Name, err)
+			continue
 		}
 		data, readErr := io.ReadAll(io.LimitReader(stream, maxLogBytes+1))
 		closeErr := stream.Close()
 		if readErr != nil {
-			return "", fmt.Errorf("read logs for pod %s: %w", pods.Items[i].Name, readErr)
+			return "", fmt.Errorf("read logs for pod %s: %w", pod.Name, readErr)
 		}
 		if closeErr != nil {
-			return "", fmt.Errorf("close logs for pod %s: %w", pods.Items[i].Name, closeErr)
+			return "", fmt.Errorf("close logs for pod %s: %w", pod.Name, closeErr)
 		}
 		if len(data) > maxLogBytes {
 			data = append(data[:maxLogBytes], []byte("\n[... truncated at 64 KiB ...]")...)
