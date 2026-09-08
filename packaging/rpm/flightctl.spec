@@ -326,9 +326,7 @@ fi
     install -m 0755 packaging/greenboot/flightctl-agent-running-check.sh %{buildroot}/usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh
     install -m 0755 packaging/greenboot/flightctl-agent-pre-rollback.sh %{buildroot}/usr/lib/greenboot/red.d/40_flightctl_agent_pre_rollback.sh
     mkdir -p %{buildroot}/usr/libexec/flightctl
-    install -m 0755 packaging/greenboot/flightctl-configure-greenboot.sh %{buildroot}/usr/libexec/flightctl/configure-greenboot.sh
     install -m 0755 packaging/flightctl/mask-bootc-timer.sh %{buildroot}/usr/libexec/flightctl/mask-bootc-timer.sh
-    install -m 0644 packaging/systemd/flightctl-configure-greenboot.service %{buildroot}/usr/lib/systemd/system
     install -m 0644 packaging/systemd/flightctl-mask-bootc-timer.service %{buildroot}/usr/lib/systemd/system
     cp bin/flightctl-agent %{buildroot}/usr/bin
     cp packaging/must-gather/flightctl-must-gather %{buildroot}/usr/bin
@@ -504,9 +502,7 @@ fi
     /usr/share/flightctl/functions/greenboot.sh
     /usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh
     /usr/lib/greenboot/red.d/40_flightctl_agent_pre_rollback.sh
-    /usr/libexec/flightctl/configure-greenboot.sh
     /usr/libexec/flightctl/mask-bootc-timer.sh
-    /usr/lib/systemd/system/flightctl-configure-greenboot.service
     /usr/lib/systemd/system/flightctl-mask-bootc-timer.service
 
 %post agent
@@ -548,9 +544,8 @@ chown -R flightctl:flightctl ~flightctl/{.config,.local}
 # See: https://github.com/fedora-iot/greenboot-rs/issues/171
 # See: https://github.com/openshift/microshift/pull/5530
 systemctl enable --quiet greenboot-healthcheck 2>/dev/null || :
-# Enable the greenboot configuration service (runs before greenboot-healthcheck.service)
-# This ensures only flightctl health checks can trigger OS rollback
-systemctl enable flightctl-configure-greenboot.service >/dev/null 2>&1 || :
+# Disable stale unit if left enabled from a previous package version.
+systemctl disable flightctl-configure-greenboot.service 2>/dev/null || :
 # Mask bootc auto-update timer on first boot (bootc/composefs); the script
 # is also run directly below for immediate effect during RPM install.
 systemctl enable flightctl-mask-bootc-timer.service >/dev/null 2>&1 || :
@@ -565,7 +560,7 @@ if [ "$1" -eq 0 ]; then
 fi
 
 %preun greenboot
-%systemd_preun flightctl-configure-greenboot.service flightctl-mask-bootc-timer.service
+%systemd_preun flightctl-mask-bootc-timer.service
 
 %postun greenboot
 # Restore bootc automatic-update timer only on full removal (not upgrade)
