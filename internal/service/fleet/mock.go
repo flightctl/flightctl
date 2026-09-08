@@ -254,6 +254,20 @@ func (mr *MockServiceMockRecorder) StopFleetApplication(ctx, orgId, name, appNam
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StopFleetApplication", reflect.TypeOf((*MockService)(nil).StopFleetApplication), ctx, orgId, name, appName)
 }
 
+// UnsetOwner mocks base method.
+func (m *MockService) UnsetOwner(ctx context.Context, orgId uuid.UUID, owner string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UnsetOwner", ctx, orgId, owner)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UnsetOwner indicates an expected call of UnsetOwner.
+func (mr *MockServiceMockRecorder) UnsetOwner(ctx, orgId, owner any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UnsetOwner", reflect.TypeOf((*MockService)(nil).UnsetOwner), ctx, orgId, owner)
+}
+
 // UpdateFleetAnnotations mocks base method.
 func (m *MockService) UpdateFleetAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) domain.Status {
 	m.ctrl.T.Helper()
