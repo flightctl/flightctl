@@ -63,24 +63,28 @@ func newMockQuayServer(t *testing.T, m *mockQuayServer) *httptest.Server {
 	return srv
 }
 
+// count returns the number of requests received by the mock server.
 func (m *mockQuayServer) count() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.requestCount
 }
 
+// auth returns the Authorization header from the most recent request.
 func (m *mockQuayServer) auth() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.lastAuth
 }
 
+// path returns the URL path from the most recent request.
 func (m *mockQuayServer) path() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.lastPath
 }
 
+// query returns the raw query string from the most recent request.
 func (m *mockQuayServer) query() string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
