@@ -247,7 +247,7 @@ build-mirror-images: generate-mirror-embed bin
 
 # Helper: extract a field from images.yaml for the current OS.
 # Usage: $(call yaml-field,container-name,field-name)
-yaml-field = $(shell hack/yaml-field.sh packaging/images/$(OS)/images.yaml $(1) $(2))
+yaml-field = $(shell go run -C tools/refresh-base-images . query --file ../../packaging/images/$(OS)/images.yaml --key $(1) --field $(2))
 
 # Container builds
 flightctl-api-container: packaging/images/$(OS)/Containerfile.api go.mod go.sum $(GO_FILES)
