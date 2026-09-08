@@ -293,35 +293,6 @@ func (s *fakeDeviceStore) SetOutOfDate(ctx context.Context, orgId uuid.UUID, own
 	return nil
 }
 
-func (s *fakeDeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, callback devicestore.ServiceConditionsCallback) error {
-	d, ok := s.devices[name]
-	if !ok {
-		return flterrors.ErrResourceNotFound
-	}
-	var oldConditions []domain.Condition
-	if d.Status != nil {
-		oldConditions = append([]domain.Condition(nil), d.Status.Conditions...)
-	}
-	newConditions := append([]domain.Condition(nil), oldConditions...)
-	changed := false
-	for _, condition := range conditions {
-		if domain.SetStatusCondition(&newConditions, condition) {
-			changed = true
-		}
-	}
-	if !changed {
-		return nil
-	}
-	if d.Status == nil {
-		d.Status = lo.ToPtr(domain.NewDeviceStatus())
-	}
-	d.Status.Conditions = newConditions
-	if callback != nil {
-		callback(ctx, orgId, d, oldConditions, newConditions)
-	}
-	return nil
-}
-
 func (s *fakeDeviceStore) RemoveConflictPausedAnnotation(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, []string, error) {
 	var ids []string
 	for name, d := range s.devices {

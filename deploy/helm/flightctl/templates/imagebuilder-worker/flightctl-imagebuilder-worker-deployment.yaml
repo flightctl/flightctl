@@ -136,6 +136,7 @@ spec:
             {{- end }}
 
             {{- include "flightctl.dbSslVolumeMounts" . | nindent 12 }}
+            {{- include "flightctl.vulnerabilityTrustifyCaVolumeMounts" . | nindent 12 }}
           {{- with .Values.imageBuilderWorker.resources }}
           resources:
             {{- toYaml . | nindent 12 }}
@@ -213,4 +214,5 @@ spec:
             secretName: {{ .Values.imageBuilderWorker.serviceImages.pullSecretName }}
         {{- end }}
         {{- include "flightctl.dbSslVolumes" . | nindent 8 }}
+        {{- include "flightctl.vulnerabilityTrustifyCaVolumes" . | nindent 8 }}
 {{- end }}

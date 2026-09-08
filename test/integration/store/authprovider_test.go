@@ -33,8 +33,6 @@ var _ = Describe("AuthProviderStore", func() {
 		cfg               *config.Config
 		dbName            string
 		db                *gorm.DB
-		called            bool
-		callback          store.EventCallback
 	)
 
 	BeforeEach(func() {
@@ -45,11 +43,6 @@ var _ = Describe("AuthProviderStore", func() {
 		Expect(err).NotTo(HaveOccurred())
 		authStore = authproviderstore.NewAuthProviderStore(db, log.WithField("pkg", "authprovider-store"))
 		organizationStore = organizationstore.NewOrganizationStore(db)
-		called = false
-		callback = store.EventCallback(func(ctx context.Context, resourceKind api.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-			called = true
-		})
-
 		orgId = uuid.New()
 		err = testutil.CreateTestOrganization(ctx, organizationStore, orgId)
 		Expect(err).ToNot(HaveOccurred())
@@ -103,30 +96,29 @@ var _ = Describe("AuthProviderStore", func() {
 	Context("AuthProvider store operations", func() {
 		It("CreateAuthProvider success", func() {
 			provider := createTestAuthProvider("test-provider")
-			result, err := authStore.Create(ctx, orgId, &provider, callback)
+			result, err := authStore.Create(ctx, orgId, &provider)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result).ToNot(BeNil())
 			Expect(*result.Metadata.Name).To(Equal("test-provider"))
 			Expect(result.ApiVersion).To(Equal("flightctl.io/v1beta1"))
 			Expect(result.Kind).To(Equal(api.AuthProviderKind))
-			Expect(called).To(BeTrue())
 		})
 
 		It("CreateAuthProvider - duplicate name error", func() {
 			provider1 := createTestAuthProvider("duplicate-provider")
 			provider2 := createTestAuthProvider("duplicate-provider")
 
-			_, err := authStore.Create(ctx, orgId, &provider1, callback)
+			_, err := authStore.Create(ctx, orgId, &provider1)
 			Expect(err).ToNot(HaveOccurred())
 
-			_, err = authStore.Create(ctx, orgId, &provider2, callback)
+			_, err = authStore.Create(ctx, orgId, &provider2)
 			Expect(err).To(HaveOccurred())
 			Expect(err).Should(MatchError(flterrors.ErrDuplicateName))
 		})
 
 		It("GetAuthProvider success", func() {
 			provider := createTestAuthProvider("get-test-provider")
-			_, err := authStore.Create(ctx, orgId, &provider, callback)
+			_, err := authStore.Create(ctx, orgId, &provider)
 			Expect(err).ToNot(HaveOccurred())
 
 			result, err := authStore.Get(ctx, orgId, "get-test-provider")
@@ -137,7 +129,7 @@ var _ = Describe("AuthProviderStore", func() {
 
 		It("should store clientSecret encrypted at rest", func() {
 			provider := createTestAuthProvider("encrypted-provider")
-			_, err := authStore.Create(ctx, orgId, &provider, callback)
+			_, err := authStore.Create(ctx, orgId, &provider)
 			Expect(err).ToNot(HaveOccurred())
 
 			result, err := authStore.Get(ctx, orgId, "encrypted-provider")
@@ -161,7 +153,7 @@ var _ = Describe("AuthProviderStore", func() {
 
 		It("GetAuthProvider - wrong org - not found error", func() {
 			provider := createTestAuthProvider("wrong-org-provider")
-			_, err := authStore.Create(ctx, orgId, &provider, callback)
+			_, err := authStore.Create(ctx, orgId, &provider)
 			Expect(err).ToNot(HaveOccurred())
 
 			badOrgId := uuid.New()
@@ -172,7 +164,7 @@ var _ = Describe("AuthProviderStore", func() {
 
 		It("UpdateAuthProvider success", func() {
 			provider := createTestAuthProvider("update-test-provider")
-			created, err := authStore.Create(ctx, orgId, &provider, callback)
+			created, err := authStore.Create(ctx, orgId, &provider)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Update the provider
@@ -182,7 +174,7 @@ var _ = Describe("AuthProviderStore", func() {
 			err = created.Spec.FromOIDCProviderSpec(oidcSpec)
 			Expect(err).ToNot(HaveOccurred())
 
-			result, err := authStore.Update(ctx, orgId, created, callback)
+			result, _, err := authStore.Update(ctx, orgId, created)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result).ToNot(BeNil())
 			updatedSpec, err := result.Spec.AsOIDCProviderSpec()
@@ -192,7 +184,7 @@ var _ = Describe("AuthProviderStore", func() {
 
 		It("CreateOrUpdateAuthProvider create mode", func() {
 			provider := createTestAuthProvider("create-or-update-provider")
-			result, created, err := authStore.CreateOrUpdate(ctx, orgId, &provider, callback)
+			result, _, created, err := authStore.CreateOrUpdate(ctx, orgId, &provider)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeTrue())
 			Expect(result).ToNot(BeNil())
@@ -201,7 +193,7 @@ var _ = Describe("AuthProviderStore", func() {
 
 		It("CreateOrUpdateAuthProvider update mode", func() {
 			provider := createTestAuthProvider("create-or-update-provider")
-			_, err := authStore.Create(ctx, orgId, &provider, callback)
+			_, err := authStore.Create(ctx, orgId, &provider)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Update the provider
@@ -211,7 +203,7 @@ var _ = Describe("AuthProviderStore", func() {
 			err = provider.Spec.FromOIDCProviderSpec(oidcSpec)
 			Expect(err).ToNot(HaveOccurred())
 
-			result, created, err := authStore.CreateOrUpdate(ctx, orgId, &provider, callback)
+			result, _, created, err := authStore.CreateOrUpdate(ctx, orgId, &provider)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(created).To(BeFalse())
 			Expect(result).ToNot(BeNil())
@@ -222,12 +214,11 @@ var _ = Describe("AuthProviderStore", func() {
 
 		It("DeleteAuthProvider success", func() {
 			provider := createTestAuthProvider("delete-test-provider")
-			_, err := authStore.Create(ctx, orgId, &provider, callback)
+			_, err := authStore.Create(ctx, orgId, &provider)
 			Expect(err).ToNot(HaveOccurred())
 
-			err = authStore.Delete(ctx, orgId, "delete-test-provider", callback)
+			_, err = authStore.Delete(ctx, orgId, "delete-test-provider")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(called).To(BeTrue())
 
 			// Verify it's deleted
 			_, err = authStore.Get(ctx, orgId, "delete-test-provider")
@@ -236,16 +227,15 @@ var _ = Describe("AuthProviderStore", func() {
 		})
 
 		It("DeleteAuthProvider - not found", func() {
-			err := authStore.Delete(ctx, orgId, "nonexistent", callback)
+			_, err := authStore.Delete(ctx, orgId, "nonexistent")
 			Expect(err).ToNot(HaveOccurred())
-			Expect(called).To(BeFalse())
 		})
 
 		It("ListAuthProviders with paging", func() {
 			// Create multiple providers
 			for i := 0; i < 5; i++ {
 				provider := createTestAuthProvider(fmt.Sprintf("provider-%d", i))
-				_, err := authStore.Create(ctx, orgId, &provider, callback)
+				_, err := authStore.Create(ctx, orgId, &provider)
 				Expect(err).ToNot(HaveOccurred())
 			}
 
@@ -269,12 +259,12 @@ var _ = Describe("AuthProviderStore", func() {
 			// Create providers with different labels
 			provider1 := createTestAuthProvider("labeled-provider-1")
 			provider1.Metadata.Labels = &map[string]string{"env": "test", "type": "oidc"}
-			_, err := authStore.Create(ctx, orgId, &provider1, callback)
+			_, err := authStore.Create(ctx, orgId, &provider1)
 			Expect(err).ToNot(HaveOccurred())
 
 			provider2 := createTestAuthProvider("labeled-provider-2")
 			provider2.Metadata.Labels = &map[string]string{"env": "prod", "type": "oidc"}
-			_, err = authStore.Create(ctx, orgId, &provider2, callback)
+			_, err = authStore.Create(ctx, orgId, &provider2)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Test label selector
@@ -293,11 +283,11 @@ var _ = Describe("AuthProviderStore", func() {
 		It("ListAuthProviders with field selector", func() {
 			// Create providers with different names
 			provider1 := createTestAuthProvider("field-provider-1")
-			_, err := authStore.Create(ctx, orgId, &provider1, callback)
+			_, err := authStore.Create(ctx, orgId, &provider1)
 			Expect(err).ToNot(HaveOccurred())
 
 			provider2 := createTestAuthProvider("field-provider-2")
-			_, err = authStore.Create(ctx, orgId, &provider2, callback)
+			_, err = authStore.Create(ctx, orgId, &provider2)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Test field selector with supported field (metadata.name)
@@ -317,7 +307,7 @@ var _ = Describe("AuthProviderStore", func() {
 			// Create some providers
 			for i := 0; i < 3; i++ {
 				provider := createTestAuthProvider(fmt.Sprintf("count-provider-%d", i))
-				_, err := authStore.Create(ctx, orgId, &provider, callback)
+				_, err := authStore.Create(ctx, orgId, &provider)
 				Expect(err).ToNot(HaveOccurred())
 			}
 
@@ -330,7 +320,7 @@ var _ = Describe("AuthProviderStore", func() {
 			// Create providers in current org
 			for i := 0; i < 2; i++ {
 				provider := createTestAuthProvider(fmt.Sprintf("org-provider-%d", i))
-				_, err := authStore.Create(ctx, orgId, &provider, callback)
+				_, err := authStore.Create(ctx, orgId, &provider)
 				Expect(err).ToNot(HaveOccurred())
 			}
 
@@ -341,7 +331,7 @@ var _ = Describe("AuthProviderStore", func() {
 
 			for i := 0; i < 3; i++ {
 				provider := createTestAuthProvider(fmt.Sprintf("other-org-provider-%d", i))
-				_, err := authStore.Create(ctx, otherOrgId, &provider, callback)
+				_, err := authStore.Create(ctx, otherOrgId, &provider)
 				Expect(err).ToNot(HaveOccurred())
 			}
 
@@ -363,7 +353,7 @@ var _ = Describe("AuthProviderStore", func() {
 
 		It("should accept provider with all required fields", func() {
 			provider := createTestAuthProvider("valid-provider")
-			result, err := authStore.Create(ctx, orgId, &provider, callback)
+			result, err := authStore.Create(ctx, orgId, &provider)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result).ToNot(BeNil())
 		})
@@ -407,7 +397,7 @@ var _ = Describe("AuthProviderStore", func() {
 			err = provider.Spec.FromOIDCProviderSpec(oidcSpec)
 			Expect(err).ToNot(HaveOccurred())
 
-			result, err := authStore.Create(ctx, orgId, &provider, callback)
+			result, err := authStore.Create(ctx, orgId, &provider)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result).ToNot(BeNil())
 		})
@@ -449,7 +439,7 @@ var _ = Describe("AuthProviderStore", func() {
 			err = provider.Spec.FromOIDCProviderSpec(oidcSpec)
 			Expect(err).ToNot(HaveOccurred())
 
-			result, err := authStore.Create(ctx, orgId, &provider, callback)
+			result, err := authStore.Create(ctx, orgId, &provider)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result).ToNot(BeNil())
 		})
@@ -492,7 +482,7 @@ var _ = Describe("AuthProviderStore", func() {
 			err = provider.Spec.FromOIDCProviderSpec(oidcSpec)
 			Expect(err).ToNot(HaveOccurred())
 
-			result, err := authStore.Create(ctx, orgId, &provider, callback)
+			result, err := authStore.Create(ctx, orgId, &provider)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result).ToNot(BeNil())
 		})
@@ -526,7 +516,7 @@ var _ = Describe("AuthProviderStore", func() {
 			err = provider.Spec.FromK8sProviderSpec(k8sSpec)
 			Expect(err).ToNot(HaveOccurred())
 
-			result, err := authStore.Create(ctx, orgId, &provider, callback)
+			result, err := authStore.Create(ctx, orgId, &provider)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result).ToNot(BeNil())
 
@@ -555,7 +545,7 @@ var _ = Describe("AuthProviderStore", func() {
 			err := provider.Spec.FromAapProviderSpec(aapSpec)
 			Expect(err).ToNot(HaveOccurred())
 
-			result, err := authStore.Create(ctx, orgId, &provider, callback)
+			result, err := authStore.Create(ctx, orgId, &provider)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result).ToNot(BeNil())
 
@@ -584,7 +574,7 @@ var _ = Describe("AuthProviderStore", func() {
 			err := provider.Spec.FromOpenShiftProviderSpec(openshiftSpec)
 			Expect(err).ToNot(HaveOccurred())
 
-			result, err := authStore.Create(ctx, orgId, &provider, callback)
+			result, err := authStore.Create(ctx, orgId, &provider)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(result).ToNot(BeNil())
 

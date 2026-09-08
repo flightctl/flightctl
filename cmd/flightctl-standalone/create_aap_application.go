@@ -49,10 +49,10 @@ func NewCreateAAPApplicationCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create-oauth-application",
 		Short: "Create an OAuth application in AAP",
-		Long: `Create an OAuth application in AAP Gateway for Flight Control.
+		Long: `Create an OAuth application in AAP Gateway.
 
 This command reads the service configuration to get AAP settings and creates
-an OAuth application if one is not already configured. Requires setting the aap.apiUrl and aap.token in the service configuration. 
+an OAuth application if one is not already configured. Requires setting the aap.apiUrl and aap.token in the service configuration.
 The resulting client_id is written to the specified output file.
 
 The command is idempotent: it will skip creation if:

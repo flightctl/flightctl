@@ -64,8 +64,7 @@ func createRepository(ctx context.Context, repostore repositorystore.Store, log 
 		Spec: spec,
 	}
 
-	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-	repo, err = repostore.Create(ctx, orgId, &resource, callback)
+	repo, err = repostore.Create(ctx, orgId, &resource)
 	return repo, err
 }
 
@@ -95,8 +94,7 @@ func createOciRepository(ctx context.Context, repostore repositorystore.Store, o
 		Spec: spec,
 	}
 
-	callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-	return repostore.Create(ctx, orgId, &resource, callback)
+	return repostore.Create(ctx, orgId, &resource)
 }
 
 var _ = Describe("RepoTester", func() {

@@ -19,13 +19,6 @@ import (
 // vulnerabilities currently detected in an image and provides no VEX status.
 const statusAffected = "affected"
 
-func init() {
-	vulnerability.Register(string(config.VulnerabilityBackendQuay),
-		func(cfg *config.VulnerabilityConfig) (vulnerability.Scanner, error) {
-			return NewScanner(cfg.Quay, nil)
-		}, vulnerability.WithSBOMUpload(false)) // Quay indexes images natively
-}
-
 // quayScanner implements vulnerability.Scanner over the Quay Security API
 // client, converting Quay/Clair scan reports into backend-agnostic
 // vulnerability.Finding DTOs.
@@ -46,7 +39,7 @@ func NewScanner(cfg *config.QuayConfig, log logrus.FieldLogger) (vulnerability.S
 	if log == nil {
 		log = logrus.StandardLogger()
 	}
-	client, err := NewClient(cfg, log)
+	client, err := NewClient(cfg, log, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -219,11 +212,11 @@ var severityMap = map[string]string{
 
 // findingsFromReport walks a scanned Quay report's Features and their
 // Vulnerabilities and returns one Finding per extracted CVE for the given image
-// digest. Vulnerabilities with no extractable CVE ID are skipped with a debug
-// log (RHEM's composite key requires a CVE ID). Findings are deduplicated by
-// (digest, cve_id): the first occurrence of a CVE is authoritative, so a CVE
-// referenced from multiple Features collapses to a single finding carrying that
-// first occurrence's fields.
+// digest. Vulnerabilities with no extractable CVE ID are skipped with a warning
+// log (RHEM's composite key requires a CVE ID, so data is lost). Findings are
+// deduplicated by (digest, cve_id): the first occurrence of a CVE is
+// authoritative, so a CVE referenced from multiple Features collapses to a
+// single finding carrying that first occurrence's fields.
 func findingsFromReport(digest string, report *Response, log logrus.FieldLogger) []vulnerability.Finding {
 	if report == nil || report.Data == nil || report.Data.Layer == nil {
 		return nil
@@ -241,7 +234,7 @@ func findingsFromReport(digest string, report *Response, log logrus.FieldLogger)
 				log.WithFields(logrus.Fields{
 					"digest": digest,
 					"name":   vuln.Name,
-				}).Debug("skipping vulnerability with no extractable CVE ID")
+				}).Warn("skipping vulnerability: no extractable CVE ID (data loss)")
 				continue
 			}
 			for _, cveID := range cveIDs {

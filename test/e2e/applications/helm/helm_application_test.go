@@ -411,18 +411,55 @@ var _ = Describe("VM Agent Helm Application Tests", Ordered, Label("microshift")
 			})
 			Expect(err).ToNot(HaveOccurred())
 
-			By("Disable connectivity from the registry to ensure prefetch relies on old images")
-			DeferCleanup(func() { _ = harness.FixNetworkFailure(services.Registry.Host, services.Registry.Port) })
+			By("Confirm all applications are running before the registry outage")
+			// UpdateDeviceAndWaitForVersion only waits for the rendered version, so establish the
+			// Running baseline explicitly; otherwise the checks below cannot prove the apps survived
+			// the outage rather than simply having never started.
+			err = harness.WaitForApplicationStatus(deviceId, quadletAppName, v1beta1.ApplicationStatusRunning, util.TIMEOUT, util.POLLING)
+			Expect(err).ToNot(HaveOccurred())
+			err = harness.WaitForApplicationStatus(deviceId, containerAppName, v1beta1.ApplicationStatusRunning, util.TIMEOUT, util.POLLING)
+			Expect(err).ToNot(HaveOccurred())
+			err = harness.WaitForApplicationStatus(deviceId, helmAppName, v1beta1.ApplicationStatusRunning, util.TIMEOUT, util.POLLING)
+			Expect(err).ToNot(HaveOccurred())
+
+			By("Disable connectivity to the registry and verify running applications keep using prefetched images")
+			// The spec restores connectivity explicitly below. FixNetworkFailure deletes the iptables
+			// rule, so calling it a second time errors on the now-absent rule; guard the deferred
+			// restore so it only runs (and is asserted) when the explicit restore has not happened,
+			// e.g. if the spec fails earlier.
+			networkRestored := false
+			DeferCleanup(func() {
+				if networkRestored {
+					return
+				}
+				Expect(harness.FixNetworkFailure(services.Registry.Host, services.Registry.Port)).
+					To(Succeed(), "restore registry connectivity")
+			})
 			err = harness.SimulateNetworkFailure(services.Registry.Host, services.Registry.Port)
 			Expect(err).ToNot(HaveOccurred())
+
+			// Already-running workloads must stay healthy while the registry is unreachable: they
+			// run from images the agent prefetched, so a registry outage alone must not degrade them.
+			err = harness.WaitForApplicationStatus(deviceId, quadletAppName, v1beta1.ApplicationStatusRunning, util.TIMEOUT, util.POLLING)
+			Expect(err).ToNot(HaveOccurred())
+			err = harness.WaitForApplicationStatus(deviceId, containerAppName, v1beta1.ApplicationStatusRunning, util.TIMEOUT, util.POLLING)
+			Expect(err).ToNot(HaveOccurred())
+			err = harness.WaitForApplicationStatus(deviceId, helmAppName, v1beta1.ApplicationStatusRunning, util.TIMEOUT, util.POLLING)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Restore connectivity before recreating the quadlet in rootless mode. Recreating a quadlet
+			// restarts its generated ".image" units, which run `podman image pull` and always contact
+			// the registry (podman does not fall back to the local cache for a tagged reference). If the
+			// registry were still blocked, the worker container's image pull would fail and the quadlet
+			// would stay partially ready forever.
+			err = harness.FixNetworkFailure(services.Registry.Host, services.Registry.Port)
+			Expect(err).ToNot(HaveOccurred())
+			networkRestored = true
 
 			By("Swap quadlets back to rootless")
 			err = harness.UpdateDeviceAndWaitForVersion(deviceId, func(device *v1beta1.Device) {
 				device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{containerAppSpec, rootlessQuadlet, helmAppSpec}
 			})
-			Expect(err).ToNot(HaveOccurred())
-
-			err = harness.FixNetworkFailure(services.Registry.Host, services.Registry.Port)
 			Expect(err).ToNot(HaveOccurred())
 
 			By("Ensure all applications are running")

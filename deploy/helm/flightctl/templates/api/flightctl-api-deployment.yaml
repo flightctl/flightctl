@@ -55,6 +55,20 @@ spec:
               value: {{ $value | quote }}
             {{- end }}
             {{- end }}
+            {{- $delta := default dict .Values.deltaGeneration -}}
+            {{- $defaultRepo := default dict $delta.defaultRepository -}}
+            {{- if $defaultRepo.secretName }}
+            - name: DELTA_GENERATION_DEFAULT_REPOSITORY_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $defaultRepo.secretName }}
+                  key: username
+            - name: DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $defaultRepo.secretName }}
+                  key: password
+            {{- end }}
           ports:
             - containerPort: 3443
               name: service-api

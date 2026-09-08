@@ -165,7 +165,11 @@ func updateServerSideLifecycleStatus(device *domain.Device) bool {
 	lastLifecycleStatus := device.Status.Lifecycle.Status
 	lastLifecycleInfo := device.Status.Lifecycle.Info
 
-	// check device-reported Conditions to see if lifecycle status needs update
+	// Decommissioned is a terminal state — no transitions allowed
+	if lastLifecycleStatus == domain.DeviceLifecycleStatusDecommissioned {
+		return false
+	}
+
 	condition := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceDecommissioning)
 	if condition == nil {
 		return false
@@ -176,22 +180,21 @@ func updateServerSideLifecycleStatus(device *domain.Device) bool {
 			Info:   lo.ToPtr("Device has errored while decommissioning"),
 			Status: domain.DeviceLifecycleStatusDecommissioned,
 		}
-	}
-
-	if condition.IsDecomComplete() {
+	} else if condition.IsDecomComplete() {
 		device.Status.Lifecycle = domain.DeviceLifecycleStatus{
 			Info:   lo.ToPtr("Device has completed decommissioning"),
 			Status: domain.DeviceLifecycleStatusDecommissioned,
 		}
-	}
-
-	if condition.IsDecomStarted() {
-		device.Status.Lifecycle = domain.DeviceLifecycleStatus{
-			Info:   lo.ToPtr("Device has acknowledged decommissioning request"),
-			Status: domain.DeviceLifecycleStatusDecommissioning,
+	} else if condition.IsDecomStarted() {
+		// Only allow transition to Decommissioning from a non-Decommissioning state
+		if lastLifecycleStatus != domain.DeviceLifecycleStatusDecommissioning {
+			device.Status.Lifecycle = domain.DeviceLifecycleStatus{
+				Info:   lo.ToPtr("Device has acknowledged decommissioning request"),
+				Status: domain.DeviceLifecycleStatusDecommissioning,
+			}
 		}
 	}
-	return device.Status.Lifecycle.Status != lastLifecycleStatus && device.Status.Lifecycle.Info != lastLifecycleInfo
+	return device.Status.Lifecycle.Status != lastLifecycleStatus || lo.FromPtr(device.Status.Lifecycle.Info) != lo.FromPtr(lastLifecycleInfo)
 }
 
 func updateServerSideDeviceUpdatedStatus(device *domain.Device, ctx context.Context, fleetStore fleetstore.Store, log logrus.FieldLogger, orgId uuid.UUID) bool {

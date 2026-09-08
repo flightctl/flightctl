@@ -51,7 +51,7 @@ type Agent struct {
 	prefetchManager        dependency.PrefetchManager
 	pullConfigResolver     dependency.PullConfigResolver
 	pruningManager         imagepruning.Manager
-	osMode                 v1beta1.OsModeType
+	caps                   os.Capabilities
 
 	statusUpdateInterval util.Duration
 	statusUpdateJitter   util.Duration
@@ -84,7 +84,7 @@ func NewAgent(
 	prefetchManager dependency.PrefetchManager,
 	pullConfigResolver dependency.PullConfigResolver,
 	pruningManager imagepruning.Manager,
-	osMode v1beta1.OsModeType,
+	caps os.Capabilities,
 	backoff wait.Backoff,
 	log *log.PrefixLogger,
 ) *Agent {
@@ -111,7 +111,7 @@ func NewAgent(
 		prefetchManager:        prefetchManager,
 		pullConfigResolver:     pullConfigResolver,
 		pruningManager:         pruningManager,
-		osMode:                 osMode,
+		caps:                   caps,
 		backoff:                backoff,
 		log:                    log,
 	}
@@ -288,7 +288,7 @@ func (a *Agent) syncDeviceSpec(ctx context.Context) {
 // the desired spec. Returns a non-retryable error if the spec contains an OS
 // target (image or catalogItemRef) that package-mode devices cannot fulfill.
 func (a *Agent) checkPackageModeSpecCompat(desired *v1beta1.Device) error {
-	if a.osMode != v1beta1.OsModePackage {
+	if a.caps.OsMode != v1beta1.OsModePackage {
 		return nil
 	}
 	if desired.Spec == nil || desired.Spec.Os == nil {

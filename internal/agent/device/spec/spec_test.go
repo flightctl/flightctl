@@ -516,7 +516,7 @@ func TestShouldApplyOSImageUpdate(t *testing.T) {
 	})
 
 	t.Run("When mode is package it should return false even when versions differ", func(t *testing.T) {
-		s.osMode = v1beta1.OsModePackage
+		s.caps.OsMode = v1beta1.OsModePackage
 		s.cache.current.osVersion = "flightctl-device:v2"
 		s.cache.desired.osVersion = "flightctl-device:v3"
 
@@ -524,7 +524,7 @@ func TestShouldApplyOSImageUpdate(t *testing.T) {
 	})
 
 	t.Run("When mode is image it should retain version comparison", func(t *testing.T) {
-		s.osMode = v1beta1.OsModeImage
+		s.caps.OsMode = v1beta1.OsModeImage
 		s.cache.current.osVersion = "flightctl-device:v2"
 		s.cache.desired.osVersion = "flightctl-device:v3"
 
@@ -532,7 +532,7 @@ func TestShouldApplyOSImageUpdate(t *testing.T) {
 	})
 
 	t.Run("When mode is unset it should retain version comparison", func(t *testing.T) {
-		s.osMode = ""
+		s.caps.OsMode = ""
 		s.cache.current.osVersion = "flightctl-device:v2"
 		s.cache.desired.osVersion = "flightctl-device:v3"
 

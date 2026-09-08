@@ -834,7 +834,7 @@ var _ = Describe("FleetStore create", func() {
 					Path:       "my/path",
 				},
 			}
-			_, err := resourceSyncStore.Create(ctx, orgId, &resourceSync, nil)
+			_, err := resourceSyncStore.Create(ctx, orgId, &resourceSync)
 			Expect(err).ToNot(HaveOccurred())
 
 			owner := util.SetResourceOwner(api.ResourceSyncKind, "test-resourcesync")

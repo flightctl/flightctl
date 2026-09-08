@@ -20,13 +20,16 @@ type ConsoleSession struct {
 }
 
 // NewAppConsoleSession starts a PTY console session to a VM application's serial or VNC console.
-func (h *Harness) NewAppConsoleSession(deviceID, appName, consoleType string) *ConsoleSession {
-	in, out, err := h.RunInteractiveCLI(
+// extraArgs are appended to the flightctl app console command (for example "--force").
+func (h *Harness) NewAppConsoleSession(deviceID, appName, consoleType string, extraArgs ...string) *ConsoleSession {
+	args := []string{
 		"app", "console", fmt.Sprintf("device/%s", deviceID),
 		"--name", appName,
 		"--type", consoleType,
 		"--tty",
-	)
+	}
+	args = append(args, extraArgs...)
+	in, out, err := h.RunInteractiveCLI(args...)
 	Expect(err).ToNot(HaveOccurred())
 
 	return &ConsoleSession{Stdin: in, Stdout: BufferReader(out)}
@@ -107,7 +110,7 @@ func (cs *ConsoleSession) MustSend(cmd string) {
 func (cs *ConsoleSession) MustExpect(pattern string) {
 	GinkgoWriter.Printf("console EXPECT %q\n", pattern)
 	Eventually(cs.Stdout).Should(Say(pattern))
-	Expect(cs.Stdout.Clear()).To(Succeed())
+	cs.clearStdoutIfOpen()
 }
 
 // MustExpectWithin waits up to timeout for a pattern to appear in the console output.
@@ -115,7 +118,19 @@ func (cs *ConsoleSession) MustExpect(pattern string) {
 func (cs *ConsoleSession) MustExpectWithin(pattern string, timeout, polling time.Duration) {
 	GinkgoWriter.Printf("console EXPECT %q (timeout %s)\n", pattern, timeout)
 	Eventually(cs.Stdout).WithTimeout(timeout).WithPolling(polling).Should(Say(pattern))
-	Expect(cs.Stdout.Clear()).To(Succeed())
+	cs.clearStdoutIfOpen()
+}
+
+// clearStdoutIfOpen drops already-matched output so the next expect starts clean.
+// A session that has already exited (for example after --force takeover) closes the
+// buffer; clearing it would fail even though the pattern was seen.
+func (cs *ConsoleSession) clearStdoutIfOpen() {
+	if cs.Stdout == nil || cs.Stdout.Closed() {
+		return
+	}
+	if err := cs.Stdout.Clear(); err != nil {
+		GinkgoWriter.Printf("skipping stdout clear: %v\n", err)
+	}
 }
 
 func mustParseDuration(s string) time.Duration {

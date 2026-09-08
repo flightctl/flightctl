@@ -56,6 +56,34 @@ func (mr *MockClientMockRecorder) Apply(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Apply", reflect.TypeOf((*MockClient)(nil).Apply), ctx)
 }
 
+// Capabilities mocks base method.
+func (m *MockClient) Capabilities(ctx context.Context) Capabilities {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Capabilities", ctx)
+	ret0, _ := ret[0].(Capabilities)
+	return ret0
+}
+
+// Capabilities indicates an expected call of Capabilities.
+func (mr *MockClientMockRecorder) Capabilities(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Capabilities", reflect.TypeOf((*MockClient)(nil).Capabilities), ctx)
+}
+
+// RebootStaged mocks base method.
+func (m *MockClient) RebootStaged(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RebootStaged", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RebootStaged indicates an expected call of RebootStaged.
+func (mr *MockClientMockRecorder) RebootStaged(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RebootStaged", reflect.TypeOf((*MockClient)(nil).RebootStaged), ctx)
+}
+
 // Rollback mocks base method.
 func (m *MockClient) Rollback(ctx context.Context) error {
 	m.ctrl.T.Helper()
@@ -97,6 +125,34 @@ func (m *MockClient) Switch(ctx context.Context, image string) error {
 func (mr *MockClientMockRecorder) Switch(ctx, image any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Switch", reflect.TypeOf((*MockClient)(nil).Switch), ctx, image)
+}
+
+// SwitchOCI mocks base method.
+func (m *MockClient) SwitchOCI(ctx context.Context, layoutDir string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SwitchOCI", ctx, layoutDir)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SwitchOCI indicates an expected call of SwitchOCI.
+func (mr *MockClientMockRecorder) SwitchOCI(ctx, layoutDir any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SwitchOCI", reflect.TypeOf((*MockClient)(nil).SwitchOCI), ctx, layoutDir)
+}
+
+// SwitchRegistry mocks base method.
+func (m *MockClient) SwitchRegistry(ctx context.Context, image string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SwitchRegistry", ctx, image)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SwitchRegistry indicates an expected call of SwitchRegistry.
+func (mr *MockClientMockRecorder) SwitchRegistry(ctx, image any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SwitchRegistry", reflect.TypeOf((*MockClient)(nil).SwitchRegistry), ctx, image)
 }
 
 // MockManager is a mock of Manager interface.

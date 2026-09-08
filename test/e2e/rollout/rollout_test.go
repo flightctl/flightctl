@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
@@ -137,28 +138,28 @@ var _ = Describe("Rollout Policies", Label("rollout"), func() {
 			deviceSpec, err := tc.createDeviceSpec()
 			Expect(err).ToNot(HaveOccurred())
 
-			newRenderedVersion, err := tc.harness.PrepareNextDeviceVersion(tc.deviceIDs[0])
+			deviceVersions, err := tc.prepareNextDeviceVersions()
 			Expect(err).ToNot(HaveOccurred())
 
 			fleetSpec := createFleetSpecWithoutDeviceSelection(lo.ToPtr(api.Percentage(SuccessThreshold)), deviceSpec)
-			fleetSpec.RolloutPolicy.DisruptionBudget = createDisruptionBudget(2, 2, []string{})
+			fleetSpec.RolloutPolicy.DisruptionBudget = createDisruptionBudget(2, lo.ToPtr(2), []string{})
 
 			err = tc.harness.CreateOrUpdateTestFleet(fleetName, fleetSpec)
 			Expect(err).ToNot(HaveOccurred())
 
+			unavailableMonitor := tc.startUnavailableDeviceLimitMonitor([]string{}, 1)
+			defer unavailableMonitor.cancel()
+
 			By("Verifying that the disruption budget is respected")
-			// Get unavailable devices per group
-			unavailableDevices, err := tc.harness.GetUnavailableDevicesPerGroup(fleetName, []string{labelSite, labelFunction})
+			Eventually(tc.checkUnavailableDeviceCounts, TIMEOUT, POLLING).
+				WithArguments([]string{}, map[string]int{"": 1}).
+				Should(Succeed())
+			Expect(readMonitorError(unavailableMonitor.errChan)).ToNot(HaveOccurred())
+
+			err = tc.waitForDeviceVersionsWithMonitor(deviceVersions, unavailableMonitor)
 			Expect(err).ToNot(HaveOccurred())
-
-			for _, group := range unavailableDevices {
-				Expect(len(group)).To(BeNumerically("<=", 1), "Should have at most 1 unavailable device per group")
-			}
-
-			for _, deviceID := range tc.deviceIDs {
-				err = tc.harness.WaitForDeviceNewRenderedVersion(deviceID, newRenderedVersion)
-				Expect(err).ToNot(HaveOccurred())
-			}
+			err = unavailableMonitor.stop()
+			Expect(err).ToNot(HaveOccurred())
 
 			By("Verifying all devices are eventually updated")
 			err = tc.verifyAllDevicesUpdated(3)
@@ -171,20 +172,32 @@ var _ = Describe("Rollout Policies", Label("rollout"), func() {
 			deviceSpec, err = tc.createDeviceSpec()
 			Expect(err).ToNot(HaveOccurred())
 
+			deviceVersions, err = tc.prepareNextDeviceVersions()
+			Expect(err).ToNot(HaveOccurred())
+
 			fleetSpec = createFleetSpecWithoutDeviceSelection(lo.ToPtr(api.Percentage(SuccessThreshold)), deviceSpec)
-			fleetSpec.RolloutPolicy.DisruptionBudget = createDisruptionBudget(2, 0, []string{labelSite})
+			fleetSpec.RolloutPolicy.DisruptionBudget = createDisruptionBudget(2, nil, []string{labelSite})
 
 			err = tc.harness.CreateOrUpdateTestFleet(fleetName, fleetSpec)
 			Expect(err).ToNot(HaveOccurred())
 
+			groupedUnavailableMonitor := tc.startUnavailableDeviceLimitMonitor([]string{labelSite}, 2)
+			defer groupedUnavailableMonitor.cancel()
+
 			By("Verifying that the disruption budget is respected")
-			// Get unavailable devices per group
-			unavailableDevices, err = tc.harness.GetUnavailableDevicesPerGroup(fleetName, []string{labelSite, labelFunction})
+			Eventually(tc.checkUnavailableDeviceCounts, TIMEOUT, POLLING).
+				WithArguments([]string{labelSite}, map[string]int{siteMadrid: 2}).
+				Should(Succeed())
+			Expect(readMonitorError(groupedUnavailableMonitor.errChan)).ToNot(HaveOccurred())
+
+			err = tc.waitForDeviceVersionsWithMonitor(deviceVersions, groupedUnavailableMonitor)
+			Expect(err).ToNot(HaveOccurred())
+			err = groupedUnavailableMonitor.stop()
 			Expect(err).ToNot(HaveOccurred())
 
-			for _, group := range unavailableDevices {
-				Expect(len(group)).To(BeNumerically("==", 2), "Should select 2 devices in 1st batch")
-			}
+			By("Verifying all devices are eventually updated")
+			err = tc.verifyAllDevicesUpdated(3)
+			Expect(err).ToNot(HaveOccurred())
 		})
 	})
 
@@ -487,6 +500,7 @@ const (
 
 	maxConcurrentVMs        = 2
 	pendingDevicesSeparator = "; "
+	monitorRequestTimeout   = 10 * time.Second
 )
 
 var testFleetSelector = api.LabelSelector{
@@ -543,11 +557,11 @@ func createFleetSpecWithoutDeviceSelection(threshold *api.Percentage, testFleetS
 	}
 }
 
-func createDisruptionBudget(maxUnavailable, minAvailable int, groupBy []string) *api.DisruptionBudget {
+func createDisruptionBudget(maxUnavailable int, minAvailable *int, groupBy []string) *api.DisruptionBudget {
 	return &api.DisruptionBudget{
 		GroupBy:        &groupBy,
 		MaxUnavailable: lo.ToPtr(maxUnavailable),
-		MinAvailable:   lo.ToPtr(minAvailable),
+		MinAvailable:   minAvailable,
 	}
 }
 
@@ -694,6 +708,100 @@ func (tc *TestContext) updateAppVersion(version string) error {
 	})
 }
 
+// prepareNextDeviceVersions records the expected next rendered version for each rollout device.
+func (tc *TestContext) prepareNextDeviceVersions() (map[string]int, error) {
+	deviceVersions := make(map[string]int, len(tc.deviceIDs))
+	for _, deviceID := range tc.deviceIDs {
+		newRenderedVersion, err := tc.harness.PrepareNextDeviceVersion(deviceID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to prepare next rendered version for device %s: %w", deviceID, err)
+		}
+		deviceVersions[deviceID] = newRenderedVersion
+	}
+	return deviceVersions, nil
+}
+
+// unavailableDeviceLimitMonitor tracks asynchronous disruption-budget limit checks.
+type unavailableDeviceLimitMonitor struct {
+	cancel  context.CancelFunc
+	errChan <-chan error
+}
+
+// startUnavailableDeviceLimitMonitor starts polling for grouped unavailable-device budget violations.
+func (tc *TestContext) startUnavailableDeviceLimitMonitor(groupBy []string, unavailableLimit int) unavailableDeviceLimitMonitor {
+	monitorCtx, cancel := context.WithCancel(context.Background())
+	errChan := make(chan error, 1)
+	go tc.monitorUnavailableDeviceLimit(monitorCtx, groupBy, unavailableLimit, errChan)
+	return unavailableDeviceLimitMonitor{cancel: cancel, errChan: errChan}
+}
+
+// stop cancels the monitor and waits for the polling goroutine to exit.
+func (m unavailableDeviceLimitMonitor) stop() error {
+	m.cancel()
+	return waitMonitorError(m.errChan)
+}
+
+// waitForDeviceVersionsWithMonitor waits for device updates while checking monitor failures between waits.
+func (tc *TestContext) waitForDeviceVersionsWithMonitor(deviceVersions map[string]int, monitor unavailableDeviceLimitMonitor) error {
+	for deviceID, newRenderedVersion := range deviceVersions {
+		if err := tc.harness.WaitForDeviceNewRenderedVersion(deviceID, newRenderedVersion); err != nil {
+			return err
+		}
+		if err := readMonitorError(monitor.errChan); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// monitorUnavailableDeviceLimit polls unavailable-device counts until canceled or a limit is exceeded.
+func (tc *TestContext) monitorUnavailableDeviceLimit(ctx context.Context, groupBy []string, unavailableLimit int, errChan chan<- error) {
+	defer close(errChan)
+
+	pollInterval, err := time.ParseDuration(POLLING)
+	if err != nil {
+		errChan <- fmt.Errorf("failed to parse polling interval %q: %w", POLLING, err)
+		return
+	}
+
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	for {
+		requestCtx, cancel := context.WithTimeout(ctx, monitorRequestTimeout)
+		err := tc.checkUnavailableDeviceLimit(requestCtx, groupBy, unavailableLimit)
+		cancel()
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			errChan <- err
+			return
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+// readMonitorError returns a monitor error if one is already available.
+func readMonitorError(errChan <-chan error) error {
+	select {
+	case err := <-errChan:
+		return err
+	default:
+		return nil
+	}
+}
+
+// waitMonitorError waits for the monitor to finish and returns its final error.
+func waitMonitorError(errChan <-chan error) error {
+	return <-errChan
+}
+
 func (tc *TestContext) verifyAllDevicesUpdated(expectedCount int) error {
 	// Add retries for 5 minutes with Eventually pattern
 	Eventually(func() error {
@@ -722,6 +830,48 @@ func (tc *TestContext) verifyAllDevicesUpdated(expectedCount int) error {
 		}
 		return nil
 	}, MEDIUMTIMEOUT, POLLINGINTERVAL).Should(Succeed())
+	return nil
+}
+
+// checkUnavailableDeviceLimit fails when any observed group exceeds the disruption-budget limit.
+func (tc *TestContext) checkUnavailableDeviceLimit(ctx context.Context, groupBy []string, unavailableLimit int) error {
+	unavailableDevices, err := tc.harness.GetUnavailableDevicesPerGroupWithContext(ctx, fleetName, groupBy)
+	if err != nil {
+		return fmt.Errorf("failed to get unavailable devices for fleet %q grouped by %v: %w", fleetName, groupBy, err)
+	}
+
+	var overLimit []string
+	for groupKey, devices := range unavailableDevices {
+		if len(devices) > unavailableLimit {
+			overLimit = append(overLimit, fmt.Sprintf("group %q has %d unavailable devices, limit is %d", groupKey, len(devices), unavailableLimit))
+		}
+	}
+	if len(overLimit) > 0 {
+		return fmt.Errorf("unavailable device counts exceeded disruption budget: %s", strings.Join(overLimit, pendingDevicesSeparator))
+	}
+	return nil
+}
+
+// checkUnavailableDeviceCounts verifies exact unavailable-device counts for selected groups.
+func (tc *TestContext) checkUnavailableDeviceCounts(groupBy []string, expectedCounts map[string]int) error {
+	ctx, cancel := context.WithTimeout(tc.harness.Context, monitorRequestTimeout)
+	defer cancel()
+
+	unavailableDevices, err := tc.harness.GetUnavailableDevicesPerGroupWithContext(ctx, fleetName, groupBy)
+	if err != nil {
+		return fmt.Errorf("failed to get unavailable devices for fleet %q grouped by %v: %w", fleetName, groupBy, err)
+	}
+
+	var pending []string
+	for groupKey, expectedCount := range expectedCounts {
+		actualCount := len(unavailableDevices[groupKey])
+		if actualCount != expectedCount {
+			pending = append(pending, fmt.Sprintf("group %q has %d unavailable devices, expected %d", groupKey, actualCount, expectedCount))
+		}
+	}
+	if len(pending) > 0 {
+		return fmt.Errorf("unavailable device counts do not match disruption budget: %s", strings.Join(pending, pendingDevicesSeparator))
+	}
 	return nil
 }
 

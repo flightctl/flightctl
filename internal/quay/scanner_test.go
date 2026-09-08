@@ -293,9 +293,8 @@ func TestFindingsFromReport_DebianNameIsCVE(t *testing.T) {
 	assert.Equal(t, "Debian", findings[0].Issuer.Name)
 }
 
-func TestFindingsFromReport_SkipsNoCVEWithDebugLog(t *testing.T) {
+func TestFindingsFromReport_SkipsNoCVEWithWarningLog(t *testing.T) {
 	log, hook := logtest.NewNullLogger()
-	log.SetLevel(logrus.DebugLevel)
 	report := &Response{
 		Status: statusScanned,
 		Data: &Data{Layer: &Layer{Features: []Feature{{
@@ -311,8 +310,8 @@ func TestFindingsFromReport_SkipsNoCVEWithDebugLog(t *testing.T) {
 	assert.Empty(t, findings)
 
 	entry := hook.LastEntry()
-	require.NotNil(t, entry, "expected a debug log for the skipped vulnerability")
-	assert.Equal(t, logrus.DebugLevel, entry.Level)
+	require.NotNil(t, entry, "expected a warning log for the skipped vulnerability")
+	assert.Equal(t, logrus.WarnLevel, entry.Level)
 	assert.Equal(t, "sha256:img", entry.Data["digest"])
 	assert.Equal(t, "RHSA-2024:0001", entry.Data["name"])
 }
@@ -669,21 +668,4 @@ func TestScanImages_ScannedWithNoFindingsOmitsDigest(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.NotContains(t, out, "sha256:empty")
-}
-
-func TestRegistry_ResolvesQuayBackend(t *testing.T) {
-	srv := newMockQuayServer(t, &mockQuayServer{response: scannedResponse()})
-	cfg := &config.VulnerabilityConfig{
-		Backend: config.VulnerabilityBackendQuay,
-		Quay:    &config.QuayConfig{Endpoint: srv.URL, Token: "test-token"},
-	}
-	s, err := vulnerability.NewScanner(cfg)
-	require.NoError(t, err)
-	require.NotNil(t, s, "backend \"quay\" must resolve via the init() registration")
-
-	out, err := s.ScanImages(context.Background(), []vulnerability.ImageRef{
-		{Digest: "sha256:abc", Image: hostOf(srv) + "/org/repo:latest"},
-	})
-	require.NoError(t, err)
-	assert.Contains(t, out, "sha256:abc")
 }

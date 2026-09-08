@@ -2,7 +2,10 @@ package os
 
 import (
 	"context"
-	"os/exec"
+	"fmt"
+	stdexec "os/exec"
+	"strings"
+	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -11,25 +14,41 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
-// DetectMode determines the OS management mode by checking for image
-// management binaries on PATH. If bootc or rpm-ostree is available, the
-// mode is "image"; otherwise it is "package".
-//
-// lookPath should be exec.LookPath in production. Accepting it as a
-// parameter enables deterministic unit testing without PATH manipulation.
-//
-// DetectMode and NewClient both check binary availability but via separate
-// mechanisms — DetectMode uses the caller-supplied lookPath while NewClient
-// uses isBinaryAvailable (os/exec.LookPath directly). Both run sequentially
-// at startup in agent.go, so PATH cannot change between the two calls.
-func DetectMode(lookPath func(string) (string, error)) v1beta1.OsModeType {
-	if _, err := lookPath("bootc"); err == nil {
-		return v1beta1.OsModeImage
+const versionCmdTimeout = 10 * time.Second
+
+func collectBootcVersion(ctx context.Context, lookPath func(string) (string, error), bootcVersion func(context.Context) (string, error)) string {
+	if _, err := lookPath("bootc"); err != nil {
+		return ""
 	}
-	if _, err := lookPath("rpm-ostree"); err == nil {
-		return v1beta1.OsModeImage
+	return versionString(ctx, bootcVersion)
+}
+
+func collectOCIDelta(ctx context.Context, lookPath func(string) (string, error), ociDeltaVersion func(context.Context) (string, error)) (string, bool) {
+	if _, err := lookPath("oci-delta"); err != nil {
+		return "", false
 	}
-	return v1beta1.OsModePackage
+	return versionString(ctx, ociDeltaVersion), true
+}
+
+func versionString(ctx context.Context, fn func(context.Context) (string, error)) string {
+	versionCtx, cancel := context.WithTimeout(ctx, versionCmdTimeout)
+	defer cancel()
+	out, err := fn(versionCtx)
+	if err != nil {
+		return ""
+	}
+	line, _, _ := strings.Cut(strings.TrimSpace(out), "\n")
+	return strings.TrimSpace(line)
+}
+
+func versionCmd(exec executer.Executer, name string) func(context.Context) (string, error) {
+	return func(ctx context.Context) (string, error) {
+		stdout, stderr, exitCode := exec.ExecuteWithContext(ctx, name, "--version")
+		if exitCode != 0 {
+			return "", fmt.Errorf("%s --version: %s", name, stderr)
+		}
+		return stdout, nil
+	}
 }
 
 func NewClient(log *log.PrefixLogger, exec executer.Executer) Client {
@@ -42,23 +61,41 @@ func NewClient(log *log.PrefixLogger, exec executer.Executer) Client {
 		return newRpmOSTreeClient(exec)
 	default:
 		log.Infof("package-mode / no image manager; using no-op OS client")
-		return newDummyClient(log)
+		return newDummyClient(log, exec)
 	}
 }
 
 func isBinaryAvailable(binaryName string) bool {
-	_, err := exec.LookPath(binaryName)
+	_, err := stdexec.LookPath(binaryName)
 	return err == nil
 }
 
 func newBootcClient(log *log.PrefixLogger, exec executer.Executer) *bootc {
 	return &bootc{
-		client: client.NewBootc(log, exec),
+		client:          client.NewBootc(log, exec),
+		systemd:         client.NewSystemd(exec, v1beta1.RootUsername),
+		lookPath:        stdexec.LookPath,
+		bootcVersion:    versionCmd(exec, "bootc"),
+		ociDeltaVersion: versionCmd(exec, "oci-delta"),
 	}
 }
 
 type bootc struct {
-	client client.Bootc
+	client          client.Bootc
+	systemd         *client.Systemd
+	lookPath        func(string) (string, error)
+	bootcVersion    func(context.Context) (string, error)
+	ociDeltaVersion func(context.Context) (string, error)
+}
+
+func (b *bootc) Capabilities(ctx context.Context) Capabilities {
+	ociVer, eligible := collectOCIDelta(ctx, b.lookPath, b.ociDeltaVersion)
+	return Capabilities{
+		OsMode:          v1beta1.OsModeImage,
+		DeltaEligible:   eligible,
+		BootcVersion:    collectBootcVersion(ctx, b.lookPath, b.bootcVersion),
+		OCIDeltaVersion: ociVer,
+	}
 }
 
 func (b *bootc) Status(ctx context.Context) (*Status, error) {
@@ -73,6 +110,14 @@ func (b *bootc) Switch(ctx context.Context, image string) error {
 	return b.client.Switch(ctx, image)
 }
 
+func (b *bootc) SwitchOCI(ctx context.Context, layoutDir string) error {
+	return b.client.SwitchOCI(ctx, layoutDir)
+}
+
+func (b *bootc) SwitchRegistry(ctx context.Context, image string) error {
+	return b.client.SwitchRegistry(ctx, image)
+}
+
 func (b *bootc) Rollback(ctx context.Context) error {
 	return b.client.Rollback(ctx)
 }
@@ -81,14 +126,22 @@ func (b *bootc) Apply(ctx context.Context) error {
 	return b.client.Apply(ctx)
 }
 
+func (b *bootc) RebootStaged(ctx context.Context) error {
+	return b.systemd.Reboot(ctx)
+}
+
 func newRpmOSTreeClient(exec executer.Executer) *rpmOSTree {
 	return &rpmOSTree{
-		client: client.NewRPMOSTree(exec),
+		client:          client.NewRPMOSTree(exec),
+		lookPath:        stdexec.LookPath,
+		ociDeltaVersion: versionCmd(exec, "oci-delta"),
 	}
 }
 
 type rpmOSTree struct {
-	client *client.RPMOSTree
+	client          *client.RPMOSTree
+	lookPath        func(string) (string, error)
+	ociDeltaVersion func(context.Context) (string, error)
 }
 
 func (r *rpmOSTree) Status(ctx context.Context) (*Status, error) {
@@ -103,6 +156,14 @@ func (r *rpmOSTree) Switch(ctx context.Context, image string) error {
 	return r.client.Switch(ctx, image)
 }
 
+func (r *rpmOSTree) SwitchOCI(_ context.Context, _ string) error {
+	return fmt.Errorf("oci switch requires bootc")
+}
+
+func (r *rpmOSTree) SwitchRegistry(_ context.Context, _ string) error {
+	return fmt.Errorf("registry switch requires bootc")
+}
+
 func (r *rpmOSTree) Rollback(ctx context.Context) error {
 	return r.client.Rollback(ctx)
 }
@@ -111,15 +172,32 @@ func (r *rpmOSTree) Apply(ctx context.Context) error {
 	return r.client.Apply(ctx)
 }
 
-func newDummyClient(log *log.PrefixLogger) *dummy {
+func (r *rpmOSTree) RebootStaged(ctx context.Context) error {
+	return r.client.Apply(ctx)
+}
+
+func (r *rpmOSTree) Capabilities(ctx context.Context) Capabilities {
+	ociVer, eligible := collectOCIDelta(ctx, r.lookPath, r.ociDeltaVersion)
+	return Capabilities{
+		OsMode:          v1beta1.OsModeImage,
+		DeltaEligible:   eligible,
+		OCIDeltaVersion: ociVer,
+	}
+}
+
+func newDummyClient(log *log.PrefixLogger, exec executer.Executer) *dummy {
 	return &dummy{
-		log: log,
+		log:             log,
+		lookPath:        stdexec.LookPath,
+		ociDeltaVersion: versionCmd(exec, "oci-delta"),
 	}
 }
 
 // dummy client for package-mode (no image manager)
 type dummy struct {
-	log *log.PrefixLogger
+	log             *log.PrefixLogger
+	lookPath        func(string) (string, error)
+	ociDeltaVersion func(context.Context) (string, error)
 }
 
 func (d *dummy) Status(ctx context.Context) (*Status, error) {
@@ -131,6 +209,16 @@ func (d *dummy) Switch(ctx context.Context, image string) error {
 	return nil
 }
 
+func (d *dummy) SwitchOCI(ctx context.Context, layoutDir string) error {
+	d.log.Debugf("Ignoring oci switch to %s from dummy client for package-mode", layoutDir)
+	return nil
+}
+
+func (d *dummy) SwitchRegistry(ctx context.Context, image string) error {
+	d.log.Debugf("Ignoring registry switch to %s from dummy client for package-mode", image)
+	return nil
+}
+
 func (d *dummy) Rollback(ctx context.Context) error {
 	d.log.Debugf("Ignoring rollback and reboot from dummy client for package-mode")
 	return nil
@@ -139,4 +227,18 @@ func (d *dummy) Rollback(ctx context.Context) error {
 func (d *dummy) Apply(ctx context.Context) error {
 	d.log.Debugf("Ignoring apply from dummy client for package-mode")
 	return nil
+}
+
+func (d *dummy) RebootStaged(ctx context.Context) error {
+	d.log.Debugf("Ignoring staged reboot from dummy client for package-mode")
+	return nil
+}
+
+func (d *dummy) Capabilities(ctx context.Context) Capabilities {
+	ociVer, eligible := collectOCIDelta(ctx, d.lookPath, d.ociDeltaVersion)
+	return Capabilities{
+		OsMode:          v1beta1.OsModePackage,
+		DeltaEligible:   eligible,
+		OCIDeltaVersion: ociVer,
+	}
 }

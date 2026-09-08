@@ -2,11 +2,14 @@ package config
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/samber/lo"
+	"github.com/stretchr/testify/require"
 )
 
 func TestConfig_String_ObfuscatesSensitiveData(t *testing.T) {
@@ -277,8 +280,8 @@ func TestVulnerabilityConfig_EffectiveBackend(t *testing.T) {
 			want: VulnerabilityBackendQuay,
 		},
 		{
-			name: "When backend is empty and a Trustify block is present it should default to trustify",
-			cfg:  VulnerabilityConfig{Trustify: &TrustifyConfig{}},
+			name: "When backend is empty and a Trustify block with endpoint is present it should default to trustify",
+			cfg:  VulnerabilityConfig{Trustify: &TrustifyConfig{Endpoint: "https://trustify.example.com"}},
 			want: VulnerabilityBackendTrustify,
 		},
 		{
@@ -353,4 +356,318 @@ func TestApplyVulnerabilityReportingDefaults_QuayMaxConcurrent(t *testing.T) {
 	if c2.VulnerabilityReporting.Quay.MaxConcurrentRequests != 3 {
 		t.Errorf("When maxConcurrentRequests is set it should be preserved, got %d", c2.VulnerabilityReporting.Quay.MaxConcurrentRequests)
 	}
+}
+
+func TestApplyVulnerabilityReportingEnvVarOverrides_InvalidBackend(t *testing.T) {
+	t.Setenv("FLIGHTCTL_VULNERABILITY_REPORTING_BACKEND", "typo")
+
+	c := &Config{}
+	applyVulnerabilityReportingEnvVarOverrides(c)
+
+	if c.VulnerabilityReporting != nil && c.VulnerabilityReporting.Backend != "" {
+		t.Errorf("When backend env var is invalid it should be ignored, got %q", c.VulnerabilityReporting.Backend)
+	}
+}
+
+func TestApplyVulnerabilityReportingEnvVarOverrides_NegativeMaxConcurrent(t *testing.T) {
+	t.Setenv("FLIGHTCTL_VULNERABILITY_REPORTING_QUAY_ENDPOINT", "https://quay.example.com")
+	t.Setenv("FLIGHTCTL_VULNERABILITY_REPORTING_QUAY_MAX_CONCURRENT_REQUESTS", "-5")
+
+	c := &Config{}
+	applyVulnerabilityReportingEnvVarOverrides(c)
+
+	if c.VulnerabilityReporting == nil || c.VulnerabilityReporting.Quay == nil {
+		t.Fatal("When a quay env var is set it should initialize VulnerabilityReporting.Quay")
+	}
+	if c.VulnerabilityReporting.Quay.MaxConcurrentRequests != 0 {
+		t.Errorf("When maxConcurrentRequests is negative it should be ignored, got %d", c.VulnerabilityReporting.Quay.MaxConcurrentRequests)
+	}
+}
+
+func TestVulnerabilityBackend_UnmarshalJSON_Invalid(t *testing.T) {
+	var v VulnerabilityConfig
+	in := `{"backend":"invalid-backend"}`
+	err := json.Unmarshal([]byte(in), &v)
+	if err == nil {
+		t.Fatal("When backend is invalid it should error during unmarshal")
+	}
+	if !strings.Contains(err.Error(), "unknown vulnerability backend") {
+		t.Errorf("Error should mention unknown backend, got: %v", err)
+	}
+}
+
+func TestVulnerabilityConfig_Validate_NegativeMaxConcurrent(t *testing.T) {
+	v := &VulnerabilityConfig{
+		Quay: &QuayConfig{
+			Endpoint:              "https://quay.io",
+			MaxConcurrentRequests: -5,
+		},
+	}
+	err := v.Validate()
+	if err == nil {
+		t.Fatal("When maxConcurrentRequests is negative Validate should error")
+	}
+	if !strings.Contains(err.Error(), "non-negative") {
+		t.Errorf("Error should mention non-negative requirement, got: %v", err)
+	}
+}
+
+func TestVulnerabilityConfig_Validate_ValidConfig(t *testing.T) {
+	v := &VulnerabilityConfig{
+		Backend: VulnerabilityBackendQuay,
+		Quay: &QuayConfig{
+			Endpoint:              "https://quay.io",
+			MaxConcurrentRequests: 5,
+		},
+	}
+	err := v.Validate()
+	if err != nil {
+		t.Errorf("Valid config should not error, got: %v", err)
+	}
+}
+
+func writeTempConfig(t *testing.T, contents string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(contents), 0600))
+	return path
+}
+
+func TestLoadDeltaGenerationDefaultRepository(t *testing.T) {
+	t.Run("When YAML has registry and repository it should load them and ignore username and password", func(t *testing.T) {
+		path := writeTempConfig(t, `
+deltaGeneration:
+  defaultRepository:
+    registry: my-registry.com
+    repository: my-org/diffs
+    scheme: https
+    skipServerVerification: true
+    username: from-yaml
+    password: from-yaml-secret
+`)
+		cfg, err := Load(path)
+		require.NoError(t, err)
+		require.NotNil(t, cfg.DeltaGeneration)
+		require.NotNil(t, cfg.DeltaGeneration.DefaultRepository)
+		dr := cfg.DeltaGeneration.DefaultRepository
+		require.Equal(t, "my-registry.com", dr.Registry)
+		require.Equal(t, "my-org/diffs", lo.FromPtr(dr.Repository))
+		require.Equal(t, "https", lo.FromPtr(dr.Scheme))
+		require.True(t, lo.FromPtr(dr.SkipServerVerification))
+		require.Empty(t, dr.Username)
+		require.Empty(t, string(dr.Password))
+	})
+
+	t.Run("When YAML has namespace it should load it", func(t *testing.T) {
+		path := writeTempConfig(t, `
+deltaGeneration:
+  defaultRepository:
+    registry: my-registry.com
+    namespace: my-org
+`)
+		cfg, err := Load(path)
+		require.NoError(t, err)
+		require.Equal(t, "my-org", lo.FromPtr(cfg.DeltaGeneration.DefaultRepository.Namespace))
+	})
+
+	t.Run("When env vars are set it should populate username and password", func(t *testing.T) {
+		t.Setenv("DELTA_GENERATION_DEFAULT_REPOSITORY_USERNAME", "delta-user")
+		t.Setenv("DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD", "delta-pass")
+		path := writeTempConfig(t, `
+deltaGeneration:
+  defaultRepository:
+    registry: my-registry.com
+    repository: my-org/diffs
+`)
+		cfg, err := Load(path)
+		require.NoError(t, err)
+		dr := cfg.DeltaGeneration.DefaultRepository
+		require.Equal(t, "delta-user", dr.Username)
+		require.Equal(t, "delta-pass", string(dr.Password))
+	})
+
+	t.Run("When env vars are set without YAML deltaGeneration it should still populate credentials", func(t *testing.T) {
+		t.Setenv("DELTA_GENERATION_DEFAULT_REPOSITORY_USERNAME", "delta-user")
+		t.Setenv("DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD", "delta-pass")
+		path := writeTempConfig(t, "{}\n")
+		cfg, err := Load(path)
+		require.NoError(t, err)
+		require.NotNil(t, cfg.DeltaGeneration)
+		require.NotNil(t, cfg.DeltaGeneration.DefaultRepository)
+		require.Equal(t, "delta-user", cfg.DeltaGeneration.DefaultRepository.Username)
+		require.Equal(t, "delta-pass", string(cfg.DeltaGeneration.DefaultRepository.Password))
+	})
+}
+
+func TestDefaultRepositoryConfigOciRepoSpec(t *testing.T) {
+	t.Run("When registry is empty it should return nil", func(t *testing.T) {
+		spec, err := (&DefaultRepositoryConfig{}).OciRepoSpec()
+		require.NoError(t, err)
+		require.Nil(t, spec)
+		spec, err = (*DefaultRepositoryConfig)(nil).OciRepoSpec()
+		require.NoError(t, err)
+		require.Nil(t, spec)
+	})
+
+	t.Run("When username and password are set it should carry Docker auth", func(t *testing.T) {
+		spec, err := (&DefaultRepositoryConfig{
+			Registry:   "my-registry.com",
+			Repository: lo.ToPtr("my-org/diffs"),
+			Username:   "delta-user",
+			Password:   "delta-pass",
+		}).OciRepoSpec()
+		require.NoError(t, err)
+		require.NotNil(t, spec)
+		require.Equal(t, domain.OciRepoAccessModeReadWrite, lo.FromPtr(spec.AccessMode))
+		require.Equal(t, "my-registry.com", spec.Registry)
+		require.Equal(t, "my-org/diffs", lo.FromPtr(spec.Repository))
+		require.NotNil(t, spec.OciAuth)
+		docker, err := spec.OciAuth.AsDockerAuth()
+		require.NoError(t, err)
+		require.Equal(t, "delta-user", docker.Username)
+		require.Equal(t, "delta-pass", docker.Password)
+	})
+
+	t.Run("When scheme is set it should copy it onto the OCI spec", func(t *testing.T) {
+		spec, err := (&DefaultRepositoryConfig{
+			Registry: "my-registry.com",
+			Scheme:   lo.ToPtr("http"),
+		}).OciRepoSpec()
+		require.NoError(t, err)
+		require.NotNil(t, spec)
+		require.Equal(t, domain.OciRepoSpecScheme("http"), lo.FromPtr(spec.Scheme))
+		require.Nil(t, spec.OciAuth)
+	})
+
+	t.Run("When only username is set it should omit OCI auth", func(t *testing.T) {
+		spec, err := (&DefaultRepositoryConfig{
+			Registry: "my-registry.com",
+			Username: "delta-user",
+		}).OciRepoSpec()
+		require.NoError(t, err)
+		require.NotNil(t, spec)
+		require.Nil(t, spec.OciAuth)
+	})
+}
+
+func TestConfig_String_RedactsDeltaGenerationDefaultRepositoryCaCrt(t *testing.T) {
+	caCrt := "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0t"
+	cfg := &Config{
+		DeltaGeneration: &DeltaGenerationConfig{
+			DefaultRepository: &DefaultRepositoryConfig{
+				Registry: "my-registry.com",
+				CaCrt:    lo.ToPtr(caCrt),
+			},
+		},
+	}
+
+	result := cfg.String()
+
+	if strings.Contains(result, caCrt) {
+		t.Error("default repository CA certificate should be redacted")
+	}
+	if !strings.Contains(result, "[REDACTED]") {
+		t.Error("String() should contain [REDACTED] markers")
+	}
+	if !strings.Contains(result, "my-registry.com") {
+		t.Error("non-sensitive registry hostname should be preserved")
+	}
+}
+
+func TestValidateDeltaGenerationDefaultRepository(t *testing.T) {
+	t.Run("When only registry is set and invalid it should fail", func(t *testing.T) {
+		cfg := NewDefault()
+		cfg.DeltaGeneration = &DeltaGenerationConfig{
+			DefaultRepository: &DefaultRepositoryConfig{
+				Registry: "not a valid host",
+			},
+		}
+		require.Error(t, Validate(cfg))
+	})
+
+	t.Run("When repository and namespace are both set it should fail", func(t *testing.T) {
+		cfg := NewDefault()
+		cfg.DeltaGeneration = &DeltaGenerationConfig{
+			DefaultRepository: &DefaultRepositoryConfig{
+				Registry:   "my-registry.com",
+				Repository: lo.ToPtr("my-org/diffs"),
+				Namespace:  lo.ToPtr("my-org"),
+			},
+		}
+		require.Error(t, Validate(cfg))
+	})
+
+	t.Run("When credentials are set without registry it should fail", func(t *testing.T) {
+		cfg := NewDefault()
+		cfg.DeltaGeneration = &DeltaGenerationConfig{
+			DefaultRepository: &DefaultRepositoryConfig{
+				Username: "delta-user",
+				Password: "delta-pass",
+			},
+		}
+		require.Error(t, Validate(cfg))
+	})
+
+	t.Run("When scheme is invalid it should fail", func(t *testing.T) {
+		cfg := NewDefault()
+		cfg.DeltaGeneration = &DeltaGenerationConfig{
+			DefaultRepository: &DefaultRepositoryConfig{
+				Registry: "my-registry.com",
+				Scheme:   lo.ToPtr("ftp"),
+			},
+		}
+		require.Error(t, Validate(cfg))
+	})
+
+	t.Run("When repository is set without registry it should fail", func(t *testing.T) {
+		cfg := NewDefault()
+		cfg.DeltaGeneration = &DeltaGenerationConfig{
+			DefaultRepository: &DefaultRepositoryConfig{
+				Repository: lo.ToPtr("my-org/diffs"),
+			},
+		}
+		require.Error(t, Validate(cfg))
+	})
+
+	t.Run("When namespace is set without registry it should fail", func(t *testing.T) {
+		cfg := NewDefault()
+		cfg.DeltaGeneration = &DeltaGenerationConfig{
+			DefaultRepository: &DefaultRepositoryConfig{
+				Namespace: lo.ToPtr("my-org"),
+			},
+		}
+		require.Error(t, Validate(cfg))
+	})
+
+	t.Run("When skipServerVerification is set without registry it should fail", func(t *testing.T) {
+		cfg := NewDefault()
+		cfg.DeltaGeneration = &DeltaGenerationConfig{
+			DefaultRepository: &DefaultRepositoryConfig{
+				SkipServerVerification: lo.ToPtr(true),
+			},
+		}
+		require.Error(t, Validate(cfg))
+	})
+
+	t.Run("When registry is invalid it should fail", func(t *testing.T) {
+		cfg := NewDefault()
+		cfg.DeltaGeneration = &DeltaGenerationConfig{
+			DefaultRepository: &DefaultRepositoryConfig{
+				Registry:   "not a valid host",
+				Repository: lo.ToPtr("my-org/diffs"),
+			},
+		}
+		require.Error(t, Validate(cfg))
+	})
+
+	t.Run("When only repository is set it should pass", func(t *testing.T) {
+		cfg := NewDefault()
+		cfg.DeltaGeneration = &DeltaGenerationConfig{
+			DefaultRepository: &DefaultRepositoryConfig{
+				Registry:   "my-registry.com",
+				Repository: lo.ToPtr("my-org/diffs"),
+			},
+		}
+		require.NoError(t, Validate(cfg))
+	})
 }

@@ -422,7 +422,7 @@ func collectionOptsFromInfoKeys(infoKeys []string) ([]CollectOpt, error) {
 			opts = append(opts, withCollector(collectorSystem, collectSystemFunc))
 		case common.KernelKey:
 			opts = append(opts, withCollector(collectorKernel, collectKernelFunc))
-		case common.DistroNameKey, common.DistroVersionKey:
+		case common.DistroNameKey, common.DistroVersionKey, common.DistroIdKey:
 			opts = append(opts, withCollector(collectorDistribution, collectDistributionFunc))
 		case common.HostnameKey, common.ArchitectureKey:
 			// No specific collector needed - hostname and architecture are always collected
@@ -542,6 +542,18 @@ var SupportedInfoKeys = map[string]func(info *Info) string{
 			return ""
 		}
 		if val, ok := i.Distribution["version"]; ok {
+			if str, ok := val.(string); ok {
+				return str
+			}
+			return fmt.Sprint(val)
+		}
+		return ""
+	},
+	common.DistroIdKey: func(i *Info) string {
+		if i.Distribution == nil {
+			return ""
+		}
+		if val, ok := i.Distribution["id"]; ok {
 			if str, ok := val.(string); ok {
 				return str
 			}

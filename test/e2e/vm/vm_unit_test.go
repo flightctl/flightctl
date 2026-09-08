@@ -1,11 +1,42 @@
 package vm_test
 
 import (
+	"strconv"
 	"testing"
 
 	"github.com/flightctl/flightctl/test/harness/e2e"
 	"github.com/stretchr/testify/require"
 )
+
+func TestParseLsblkDisks(t *testing.T) {
+	tests := []struct {
+		name string
+		out  string
+		want []string
+	}{
+		{
+			name: "When paste-joined names it should keep each disk",
+			out:  "vda,vdb,vdc,vdd",
+			want: []string{"vda", "vdb", "vdc", "vdd"},
+		},
+		{
+			name: "When names have surrounding space it should trim fields",
+			out:  " vda , vdb ",
+			want: []string{"vda", "vdb"},
+		},
+		{
+			name: "When output is empty it should return no disks",
+			out:  "",
+			want: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, parseLsblkDisks(tt.out))
+		})
+	}
+}
 
 const (
 	expectedVMAppTargetUnitName     = "test-vm-425604-flightctl-quadlet-app.target"
@@ -85,4 +116,31 @@ func TestVMApplicationUnitPatternsUseProductionNames(t *testing.T) {
 	require.Len(t, patterns, 2)
 	require.Equal(t, expectedVMAppTargetUnitName, patterns[0])
 	require.Equal(t, expectedVMAppComputeServiceName, patterns[1])
+}
+
+func TestConfigDriveCloudUserDataWhenEnablingPasswordSSHItShouldResetFaillock(t *testing.T) {
+	sshPublicKey := "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAItest"
+	password := t.Name()
+	got := configDriveCloudUserData(sshPublicKey, password)
+
+	require.Contains(t, got, "ssh_pwauth: true")
+	require.Contains(t, got, "name: "+vmCloudUser)
+	require.Contains(t, got, "password: "+strconv.Quote(password))
+	require.Contains(t, got, strconv.Quote(sshPublicKey))
+	require.Contains(t, got, "path: /etc/security/faillock.conf")
+	require.Contains(t, got, "deny = 0")
+	require.Contains(t, got, "authselect disable-feature with-faillock")
+	require.Contains(t, got, "faillock --user "+vmCloudUser+" --reset")
+	require.NotContains(t, got, "hello-http.service")
+}
+
+func TestConfigDriveCloudUserDataWithServicesWhenRequestedItShouldIncludeHTTPAndUDPUnits(t *testing.T) {
+	got := configDriveCloudUserDataWithServices("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAItest", t.Name())
+
+	require.Contains(t, got, "path: /etc/security/faillock.conf")
+	require.Contains(t, got, "hello-http.service")
+	require.Contains(t, got, "hello-udp.service")
+	require.Contains(t, got, "PORT = "+strconv.Itoa(vmBPublishedUDPPort))
+	require.Contains(t, got, strconv.Quote(configDriveIndexHTMLContent))
+	require.Contains(t, got, "systemctl enable --now hello-http.service")
 }
