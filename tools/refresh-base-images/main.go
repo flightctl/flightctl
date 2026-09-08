@@ -61,7 +61,7 @@ type DetectResult struct {
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "Usage: refresh-base-images <detect|update|create-pr> [flags]")
+		fmt.Fprintln(os.Stderr, "Usage: refresh-base-images <detect|update|create-pr|query> [flags]")
 		os.Exit(1)
 	}
 
@@ -72,8 +72,10 @@ func main() {
 		runUpdate(os.Args[2:])
 	case "create-pr":
 		runCreatePR(os.Args[2:])
+	case "query":
+		os.Exit(runQuery(os.Args[2:]))
 	default:
-		fmt.Fprintf(os.Stderr, "Unknown subcommand %q. Use 'detect', 'update', or 'create-pr'.\n", os.Args[1])
+		fmt.Fprintf(os.Stderr, "Unknown subcommand %q. Use 'detect', 'update', 'create-pr', or 'query'.\n", os.Args[1])
 		os.Exit(1)
 	}
 }
