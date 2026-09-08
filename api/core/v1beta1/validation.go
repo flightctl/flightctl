@@ -102,6 +102,9 @@ func (r DeviceSpec) Validate(fleetTemplate bool) []error {
 		if len(r.Os.Image) > 0 && r.Os.CatalogItemRef != nil {
 			allErrs = append(allErrs, errors.New("cannot have both image and catalog item ref for device OS"))
 		}
+		if r.Os.DeltaImage != nil && len(*r.Os.DeltaImage) > 0 {
+			allErrs = append(allErrs, validateOciImageReference(r.Os.DeltaImage, "spec.os.deltaImage", fleetTemplate)...)
+		}
 	}
 	if r.Config != nil {
 		allErrs = append(allErrs, validateConfigs(*r.Config, fleetTemplate)...)

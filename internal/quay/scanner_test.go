@@ -274,9 +274,8 @@ func TestFindingsFromReport_DebianNameIsCVE(t *testing.T) {
 	assert.Equal(t, "Debian", findings[0].Issuer.Name)
 }
 
-func TestFindingsFromReport_SkipsNoCVEWithDebugLog(t *testing.T) {
+func TestFindingsFromReport_SkipsNoCVEWithWarningLog(t *testing.T) {
 	log, hook := logtest.NewNullLogger()
-	log.SetLevel(logrus.DebugLevel)
 	report := &Response{
 		Status: statusScanned,
 		Data: &Data{Layer: &Layer{Features: []Feature{{
@@ -292,8 +291,8 @@ func TestFindingsFromReport_SkipsNoCVEWithDebugLog(t *testing.T) {
 	assert.Empty(t, findings)
 
 	entry := hook.LastEntry()
-	require.NotNil(t, entry, "expected a debug log for the skipped vulnerability")
-	assert.Equal(t, logrus.DebugLevel, entry.Level)
+	require.NotNil(t, entry, "expected a warning log for the skipped vulnerability")
+	assert.Equal(t, logrus.WarnLevel, entry.Level)
 	assert.Equal(t, "sha256:img", entry.Data["digest"])
 	assert.Equal(t, "RHSA-2024:0001", entry.Data["name"])
 }

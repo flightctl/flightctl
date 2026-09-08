@@ -118,6 +118,26 @@ func StartAuxServicesAsync(ctx context.Context) *AuxServicesFuture {
 	return future
 }
 
+// StartAuxServicesAsyncWith starts only the requested auxiliary services in the
+// background and returns immediately. Unlike StartAuxServicesAsync (which starts
+// the full default set via auxiliary.Get), this lets a suite opt out of services
+// it does not use — e.g. the onboarding suite needs only the registry and not the
+// git server, whose image is built from a local Dockerfile context and can fail to
+// unpack under restrictive rootless subuid ranges. Fails the process on error,
+// matching auxiliary.Get's behavior.
+func StartAuxServicesAsyncWith(ctx context.Context, services ...auxiliary.Service) *AuxServicesFuture {
+	future := &AuxServicesFuture{result: make(chan *auxiliary.Services, 1)}
+	go func() {
+		auxiliary.ConfigureDockerHost()
+		svcs, err := auxiliary.StartServices(ctx, services)
+		if err != nil {
+			logrus.Fatalf("failed to start aux services: %v", err)
+		}
+		future.result <- svcs
+	}()
+	return future
+}
+
 // Wait blocks until aux service setup completes and returns the services.
 func (f *AuxServicesFuture) Wait() *auxiliary.Services {
 	return <-f.result
@@ -132,6 +152,14 @@ func CurrentSpecNeedsVM() bool {
 		}
 	}
 	return false
+}
+
+// StoreWorkerHarness stores a harness and context for the given worker ID.
+// Use this when setting up a harness outside of SetupWorkerHarness (e.g., with
+// a fresh VM) so that GetWorkerHarness/GetWorkerContext can retrieve them.
+func StoreWorkerHarness(workerID int, harness *Harness, ctx context.Context) {
+	workerHarnesses.Store(workerID, harness)
+	workerContexts.Store(workerID, ctx)
 }
 
 // GetWorkerHarness retrieves the harness for the current worker.

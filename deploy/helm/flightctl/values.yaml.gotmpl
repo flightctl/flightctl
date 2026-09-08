@@ -318,6 +318,8 @@ worker:
   vmRender:
     # -- virt-launcher image used when converting VmApplications to Quadlet units (leave empty to use the worker default)
     launcherImage: ""
+    # -- virt-launcher images keyed by os-release ID and major from status.systemInfo (e.g. "rhel-9", "rhel-10")
+    launcherImages: {}
     # -- Enable passt networking workarounds for older virt-launcher images (default false; enable only for older images)
     passtWorkarounds: false
 
@@ -483,6 +485,33 @@ telemetryGateway:
     # -- Image pull policy for Telemetry gateway container
     pullPolicy: ""
   additionalRouteLabels: null
+  # -- Extra environment variables for the telemetry gateway container.
+  # Use to inject secrets for forward header values via ${VAR} expansion.
+  extraEnvs: []
+  # -- Extra volume mounts for the telemetry gateway container.
+  # Use to mount TLS certificates for mTLS forward connections.
+  extraVolumeMounts: []
+  # -- Extra volumes for the telemetry gateway pod.
+  extraVolumes: []
+  # -- Forward telemetry to an upstream OTLP collector.
+  # Uses OTLP/gRPC for bare host:port endpoints, OTLP/HTTP for http(s):// URLs.
+  # Header values support ${ENV_VAR} expansion for secret injection.
+  forward:
+    # -- Upstream OTLP endpoint (e.g. "collector:4317" for gRPC, "https://host/api/v2/otlp" for HTTP)
+    endpoint: ""
+    # -- Custom HTTP headers for authentication (only used with OTLP/HTTP endpoints).
+    # Values support ${ENV_VAR} expansion — use extraEnvs with secretKeyRef to avoid
+    # storing tokens in the ConfigMap.
+    headers: {}
+    tls:
+      # -- Skip TLS certificate verification
+      insecureSkipTlsVerify: false
+      # -- Path to CA certificate file
+      caFile: ""
+      # -- Path to client certificate file (for mTLS)
+      certFile: ""
+      # -- Path to client key file (for mTLS)
+      keyFile: ""
 
 # -- UI Configuration
 ui:
@@ -551,7 +580,7 @@ vulnerabilityReporting:
   enabled: false
   # -- Sync interval for periodic Trustify fetch (e.g. "15m", "1h").
   syncInterval: "15m"
-  # -- Vulnerability scanning backend. Currently only "trustify" is supported; leave empty to default to Trustify when a trustify config is present.
+  # -- Vulnerability scanning backend ("trustify" or "quay"); leave empty to default to Trustify when a trustify config with a non-empty endpoint is present.
   backend: ""
   trustify:
     # -- Trustify API base URL (do not include /api/v1 or /api/v2 paths).
@@ -563,6 +592,25 @@ vulnerabilityReporting:
       oidcIssuerUrl: ""
       # -- Name of the Kubernetes Secret containing 'client_id' and 'client_secret' keys.
       secretName: ""
+    # -- Path to a CA bundle for verifying the Trustify server certificate. If unset, system roots are used.
+    caFile: ""
+    # -- Name of a ConfigMap containing key 'ca-cert.pem' with the CA bundle for the Trustify server. When set, it is mounted and used instead of caFile.
+    caCertConfigMapName: ""
+    # -- Skip TLS certificate verification (insecure, for lab/air-gap only). Defaults to false.
+    skipTlsVerify: false
+  quay:
+    # -- Quay API base URL (e.g. "https://quay.io").
+    endpoint: ""
+    # -- Name of the Kubernetes Secret containing the 'token' key for Quay Security API bearer authentication.
+    secretName: ""
+    # -- Maximum number of concurrent Quay API requests. Defaults to 5 when unset.
+    maxConcurrentRequests: 5
+    # -- Path to a CA bundle for verifying the Quay server certificate. If unset, system roots are used.
+    caFile: ""
+    # -- Name of a ConfigMap containing key 'ca-cert.pem' with the CA bundle for the Quay server. When set, it is mounted and used instead of caFile.
+    caCertConfigMapName: ""
+    # -- Skip TLS certificate verification (insecure, for lab/air-gap only). Defaults to false.
+    skipTlsVerify: false
 
 # -- Upgrade hooks
 upgradeHooks:

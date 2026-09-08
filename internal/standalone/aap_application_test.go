@@ -160,16 +160,84 @@ func TestCreateAAPApplication(t *testing.T) {
 }
 
 func TestBuildOAuthApplicationRequest(t *testing.T) {
-	req := buildOAuthApplicationRequest("example.com", "test-app", 7)
+	tests := []struct {
+		name         string
+		baseDomain   string
+		appName      string
+		organization int
+	}{
+		{
+			name:         "upstream default app name",
+			baseDomain:   "example.com",
+			appName:      "Flight Control",
+			organization: 1,
+		},
+		{
+			name:         "downstream override app name",
+			baseDomain:   "example.com",
+			appName:      "Edge Manager",
+			organization: 1,
+		},
+		{
+			name:         "custom app name with custom org",
+			baseDomain:   "custom.example.com",
+			appName:      "My Custom App",
+			organization: 7,
+		},
+	}
 
-	require.Equal(t, "test-app", req.Name)
-	require.Equal(t, 7, req.Organization)
-	require.Equal(t, "authorization-code", req.AuthorizationGrantType)
-	require.Equal(t, "public", req.ClientType)
-	require.Equal(t, "https://example.com:443", req.AppURL)
-	require.Equal(
-		t,
-		"https://example.com:443/callback http://localhost:8080/callback http://127.0.0.1:8080/callback",
-		req.RedirectURIs,
-	)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := buildOAuthApplicationRequest(tt.baseDomain, tt.appName, tt.organization)
+
+			require.Equal(t, tt.appName, req.Name)
+			require.Equal(t, tt.organization, req.Organization)
+			require.Equal(t, "authorization-code", req.AuthorizationGrantType)
+			require.Equal(t, "public", req.ClientType)
+			require.Equal(t, "https://"+tt.baseDomain+":443", req.AppURL)
+			require.Contains(t, req.RedirectURIs, "https://"+tt.baseDomain+":443/callback")
+			require.Contains(t, req.RedirectURIs, "http://localhost:8080/callback")
+			require.Contains(t, req.RedirectURIs, "http://127.0.0.1:8080/callback")
+		})
+	}
+}
+
+func TestCreateAAPApplicationWithDownstreamName(t *testing.T) {
+	require := require.New(t)
+
+	// Verify that a downstream app name (e.g. "Edge Manager") flows
+	// through the full creation pipeline correctly. This exercises the
+	// path that is activated when DEFAULT_AAP_APP_NAME is set at build
+	// time via Makefile ldflags.
+	const downstreamAppName = "Edge Manager"
+
+	mock := &MockOAuthApplicationCreator{
+		CreateFunc: func(ctx context.Context, token string, req *aap.AAPOAuthApplicationRequest) (*aap.AAPOAuthApplicationResponse, error) {
+			require.Equal(downstreamAppName, req.Name, "OAuth application request should use the downstream app name")
+			return &aap.AAPOAuthApplicationResponse{
+				ID:       1,
+				Name:     req.Name,
+				ClientID: "downstream-client-id",
+			}, nil
+		},
+	}
+
+	outputPath := filepath.Join(t.TempDir(), "client_id")
+	err := CreateAAPApplication(context.Background(), CreateAAPApplicationOptions{
+		Client: mock,
+		Logger: log.NewPrefixLogger("test"),
+		AAPConfig: &standaloneconfig.AAPConfig{
+			Token: "test-token",
+		},
+		BaseDomain:   "edge.example.com",
+		AppName:      downstreamAppName,
+		Organization: 1,
+		OutputFile:   outputPath,
+	})
+
+	require.NoError(err)
+
+	data, err := os.ReadFile(outputPath)
+	require.NoError(err)
+	require.Equal("downstream-client-id", string(data))
 }

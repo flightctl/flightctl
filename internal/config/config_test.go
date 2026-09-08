@@ -277,8 +277,8 @@ func TestVulnerabilityConfig_EffectiveBackend(t *testing.T) {
 			want: VulnerabilityBackendQuay,
 		},
 		{
-			name: "When backend is empty and a Trustify block is present it should default to trustify",
-			cfg:  VulnerabilityConfig{Trustify: &TrustifyConfig{}},
+			name: "When backend is empty and a Trustify block with endpoint is present it should default to trustify",
+			cfg:  VulnerabilityConfig{Trustify: &TrustifyConfig{Endpoint: "https://trustify.example.com"}},
 			want: VulnerabilityBackendTrustify,
 		},
 		{
@@ -352,5 +352,73 @@ func TestApplyVulnerabilityReportingDefaults_QuayMaxConcurrent(t *testing.T) {
 	applyVulnerabilityReportingDefaults(c2)
 	if c2.VulnerabilityReporting.Quay.MaxConcurrentRequests != 3 {
 		t.Errorf("When maxConcurrentRequests is set it should be preserved, got %d", c2.VulnerabilityReporting.Quay.MaxConcurrentRequests)
+	}
+}
+
+func TestApplyVulnerabilityReportingEnvVarOverrides_InvalidBackend(t *testing.T) {
+	t.Setenv("FLIGHTCTL_VULNERABILITY_REPORTING_BACKEND", "typo")
+
+	c := &Config{}
+	applyVulnerabilityReportingEnvVarOverrides(c)
+
+	if c.VulnerabilityReporting != nil && c.VulnerabilityReporting.Backend != "" {
+		t.Errorf("When backend env var is invalid it should be ignored, got %q", c.VulnerabilityReporting.Backend)
+	}
+}
+
+func TestApplyVulnerabilityReportingEnvVarOverrides_NegativeMaxConcurrent(t *testing.T) {
+	t.Setenv("FLIGHTCTL_VULNERABILITY_REPORTING_QUAY_ENDPOINT", "https://quay.example.com")
+	t.Setenv("FLIGHTCTL_VULNERABILITY_REPORTING_QUAY_MAX_CONCURRENT_REQUESTS", "-5")
+
+	c := &Config{}
+	applyVulnerabilityReportingEnvVarOverrides(c)
+
+	if c.VulnerabilityReporting == nil || c.VulnerabilityReporting.Quay == nil {
+		t.Fatal("When a quay env var is set it should initialize VulnerabilityReporting.Quay")
+	}
+	if c.VulnerabilityReporting.Quay.MaxConcurrentRequests != 0 {
+		t.Errorf("When maxConcurrentRequests is negative it should be ignored, got %d", c.VulnerabilityReporting.Quay.MaxConcurrentRequests)
+	}
+}
+
+func TestVulnerabilityBackend_UnmarshalJSON_Invalid(t *testing.T) {
+	var v VulnerabilityConfig
+	in := `{"backend":"invalid-backend"}`
+	err := json.Unmarshal([]byte(in), &v)
+	if err == nil {
+		t.Fatal("When backend is invalid it should error during unmarshal")
+	}
+	if !strings.Contains(err.Error(), "unknown vulnerability backend") {
+		t.Errorf("Error should mention unknown backend, got: %v", err)
+	}
+}
+
+func TestVulnerabilityConfig_Validate_NegativeMaxConcurrent(t *testing.T) {
+	v := &VulnerabilityConfig{
+		Quay: &QuayConfig{
+			Endpoint:              "https://quay.io",
+			MaxConcurrentRequests: -5,
+		},
+	}
+	err := v.Validate()
+	if err == nil {
+		t.Fatal("When maxConcurrentRequests is negative Validate should error")
+	}
+	if !strings.Contains(err.Error(), "non-negative") {
+		t.Errorf("Error should mention non-negative requirement, got: %v", err)
+	}
+}
+
+func TestVulnerabilityConfig_Validate_ValidConfig(t *testing.T) {
+	v := &VulnerabilityConfig{
+		Backend: VulnerabilityBackendQuay,
+		Quay: &QuayConfig{
+			Endpoint:              "https://quay.io",
+			MaxConcurrentRequests: 5,
+		},
+	}
+	err := v.Validate()
+	if err != nil {
+		t.Errorf("Valid config should not error, got: %v", err)
 	}
 }

@@ -3341,6 +3341,23 @@ func TestDeviceSpecValidate_OsSpec(t *testing.T) {
 			errorStrings: []string{"spec.os.image"},
 		},
 		{
+			name: "When os has a valid deltaImage it should pass",
+			os: &DeviceOsSpec{
+				Image:      "quay.io/org/image:latest",
+				DeltaImage: lo.ToPtr("quay.io/org/os:delta"),
+			},
+			wantErr: false,
+		},
+		{
+			name: "When os has an invalid deltaImage it should fail",
+			os: &DeviceOsSpec{
+				Image:      "quay.io/org/image:latest",
+				DeltaImage: lo.ToPtr("invalid image!!!"),
+			},
+			wantErr:      true,
+			errorStrings: []string{"spec.os.deltaImage"},
+		},
+		{
 			name: "When os has a catalog item ref with missing fields it should fail",
 			os: &DeviceOsSpec{
 				CatalogItemRef: &CatalogItemRefSpec{

@@ -410,6 +410,16 @@ For more detailed configuration options, see the [Values](#values) section below
 | remoteAccess.logLevel | string | `"info"` | Log level for the remote access service |
 | remoteAccess.resources | object | `{"limits":{"cpu":"500m","memory":"256Mi"},"requests":{"cpu":"100m","memory":"128Mi"}}` | Resource requests and limits for the remote access container |
 | telemetryGateway.additionalRouteLabels | string | `nil` |  |
+| telemetryGateway.extraEnvs | list | `[]` | Extra environment variables for the telemetry gateway container. Use to inject secrets for forward header values via ${VAR} expansion. |
+| telemetryGateway.extraVolumeMounts | list | `[]` | Extra volume mounts for the telemetry gateway container. Use to mount TLS certificates for mTLS forward connections. |
+| telemetryGateway.extraVolumes | list | `[]` | Extra volumes for the telemetry gateway pod. |
+| telemetryGateway.forward | object | `{"endpoint":"","headers":{},"tls":{"caFile":"","certFile":"","insecureSkipTlsVerify":false,"keyFile":""}}` | Forward telemetry to an upstream OTLP collector. Uses OTLP/gRPC for bare host:port endpoints, OTLP/HTTP for http(s):// URLs. Header values support ${ENV_VAR} expansion for secret injection. |
+| telemetryGateway.forward.endpoint | string | `""` | Upstream OTLP endpoint (e.g. "collector:4317" for gRPC, "https://host/api/v2/otlp" for HTTP) |
+| telemetryGateway.forward.headers | object | `{}` | Custom HTTP headers for authentication (only used with OTLP/HTTP endpoints). Values support ${ENV_VAR} expansion — use extraEnvs with secretKeyRef to avoid storing tokens in the ConfigMap. |
+| telemetryGateway.forward.tls.caFile | string | `""` | Path to CA certificate file |
+| telemetryGateway.forward.tls.certFile | string | `""` | Path to client certificate file (for mTLS) |
+| telemetryGateway.forward.tls.insecureSkipTlsVerify | bool | `false` | Skip TLS certificate verification |
+| telemetryGateway.forward.tls.keyFile | string | `""` | Path to client key file (for mTLS) |
 | telemetryGateway.image.image | string | `"quay.io/flightctl/flightctl-telemetry-gateway-el9"` | Telemetry gateway container image |
 | telemetryGateway.image.pullPolicy | string | `""` | Image pull policy for Telemetry gateway container |
 | telemetryGateway.image.tag | string | `""` | Telemetry gateway image tag |
@@ -432,21 +442,31 @@ For more detailed configuration options, see the [Values](#values) section below
 | upgradeHooks.scaleDown.condition | string | `"chart"` | When to run pre-upgrade scale down job: "always", "never", or "chart" (default). "chart" runs only if helm.sh/chart changed. |
 | upgradeHooks.scaleDown.deployments | list | `["flightctl-periodic","flightctl-worker"]` | List of Deployments to scale down in order |
 | upgradeHooks.scaleDown.timeoutSeconds | int | `120` | Timeout in seconds to wait for rollout per Deployment |
-| vulnerabilityReporting | object | `{"backend":"","enabled":false,"syncInterval":"15m","trustify":{"auth":{"mode":"none","oidcIssuerUrl":"","secretName":""},"endpoint":""}}` | Vulnerability Integration Configuration |
-| vulnerabilityReporting.backend | string | `""` | Vulnerability scanning backend. Currently only "trustify" is supported; leave empty to default to Trustify when a trustify config is present. |
+| vulnerabilityReporting | object | `{"backend":"","enabled":false,"quay":{"caCertConfigMapName":"","caFile":"","endpoint":"","maxConcurrentRequests":5,"secretName":"","skipTlsVerify":false},"syncInterval":"15m","trustify":{"auth":{"mode":"none","oidcIssuerUrl":"","secretName":""},"caCertConfigMapName":"","caFile":"","endpoint":"","skipTlsVerify":false}}` | Vulnerability Integration Configuration |
+| vulnerabilityReporting.backend | string | `""` | Vulnerability scanning backend ("trustify" or "quay"); leave empty to default to Trustify when a trustify config with a non-empty endpoint is present. |
 | vulnerabilityReporting.enabled | bool | `false` | Enable vulnerability integration (sync task + API endpoints). |
+| vulnerabilityReporting.quay.caCertConfigMapName | string | `""` | Name of a ConfigMap containing key 'ca-cert.pem' with the CA bundle for the Quay server. When set, it is mounted and used instead of caFile. |
+| vulnerabilityReporting.quay.caFile | string | `""` | Path to a CA bundle for verifying the Quay server certificate. If unset, system roots are used. |
+| vulnerabilityReporting.quay.endpoint | string | `""` | Quay API base URL (e.g. "https://quay.io"). |
+| vulnerabilityReporting.quay.maxConcurrentRequests | int | `5` | Maximum number of concurrent Quay API requests. Defaults to 5 when unset. |
+| vulnerabilityReporting.quay.secretName | string | `""` | Name of the Kubernetes Secret containing the 'token' key for Quay Security API bearer authentication. |
+| vulnerabilityReporting.quay.skipTlsVerify | bool | `false` | Skip TLS certificate verification (insecure, for lab/air-gap only). Defaults to false. |
 | vulnerabilityReporting.syncInterval | string | `"15m"` | Sync interval for periodic Trustify fetch (e.g. "15m", "1h"). |
 | vulnerabilityReporting.trustify.auth.mode | string | `"none"` | Authentication mode for Trustify. Allowed values: 'client-credentials', 'none'. |
 | vulnerabilityReporting.trustify.auth.oidcIssuerUrl | string | `""` | OIDC issuer URL for client-credentials mode. |
 | vulnerabilityReporting.trustify.auth.secretName | string | `""` | Name of the Kubernetes Secret containing 'client_id' and 'client_secret' keys. |
+| vulnerabilityReporting.trustify.caCertConfigMapName | string | `""` | Name of a ConfigMap containing key 'ca-cert.pem' with the CA bundle for the Trustify server. When set, it is mounted and used instead of caFile. |
+| vulnerabilityReporting.trustify.caFile | string | `""` | Path to a CA bundle for verifying the Trustify server certificate. If unset, system roots are used. |
 | vulnerabilityReporting.trustify.endpoint | string | `""` | Trustify API base URL (do not include /api/v1 or /api/v2 paths). |
-| worker | object | `{"clusterLevelSecretAccess":false,"image":{"image":"quay.io/flightctl/flightctl-worker-el9","pullPolicy":"","tag":""},"vmRender":{"launcherImage":"","passtWorkarounds":false}}` | Worker Configuration |
+| vulnerabilityReporting.trustify.skipTlsVerify | bool | `false` | Skip TLS certificate verification (insecure, for lab/air-gap only). Defaults to false. |
+| worker | object | `{"clusterLevelSecretAccess":false,"image":{"image":"quay.io/flightctl/flightctl-worker-el9","pullPolicy":"","tag":""},"vmRender":{"launcherImage":"","launcherImages":{},"passtWorkarounds":false}}` | Worker Configuration |
 | worker.clusterLevelSecretAccess | bool | `false` | Allow flightctl-worker to access secrets at the cluster level for embedding in device configs |
 | worker.image.image | string | `"quay.io/flightctl/flightctl-worker-el9"` | Worker container image |
 | worker.image.pullPolicy | string | `""` | Image pull policy for worker container |
 | worker.image.tag | string | `""` | Worker image tag |
-| worker.vmRender | object | `{"launcherImage":"","passtWorkarounds":false}` | VM application render options passed to vm-to-quadlet |
+| worker.vmRender | object | `{"launcherImage":"","launcherImages":{},"passtWorkarounds":false}` | VM application render options passed to vm-to-quadlet |
 | worker.vmRender.launcherImage | string | `""` | virt-launcher image used when converting VmApplications to Quadlet units (leave empty to use the worker default) |
+| worker.vmRender.launcherImages | object | `{}` | virt-launcher images keyed by os-release ID and major from status.systemInfo (e.g. "rhel-9", "rhel-10") |
 | worker.vmRender.passtWorkarounds | bool | `false` | Enable passt networking workarounds for older virt-launcher images (default false; enable only for older images) |
 
 ## Environment-Specific Values Files

@@ -35,7 +35,7 @@ func NewScanner(cfg *config.QuayConfig, log logrus.FieldLogger) (vulnerability.S
 	if log == nil {
 		log = logrus.StandardLogger()
 	}
-	client, err := NewClient(cfg, log)
+	client, err := NewClient(cfg, log, nil)
 	if err != nil {
 		return nil, err
 	}

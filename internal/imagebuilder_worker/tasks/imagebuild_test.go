@@ -38,23 +38,23 @@ func (m *mockRepositoryStore) Get(ctx context.Context, orgId uuid.UUID, name str
 }
 
 func (m *mockRepositoryStore) InitialMigration(context.Context) error { return nil }
-func (m *mockRepositoryStore) Create(context.Context, uuid.UUID, *v1beta1.Repository, store.EventCallback) (*v1beta1.Repository, error) {
+func (m *mockRepositoryStore) Create(context.Context, uuid.UUID, *v1beta1.Repository) (*v1beta1.Repository, error) {
 	return nil, nil
 }
-func (m *mockRepositoryStore) Update(context.Context, uuid.UUID, *v1beta1.Repository, store.EventCallback) (*v1beta1.Repository, error) {
-	return nil, nil
+func (m *mockRepositoryStore) Update(context.Context, uuid.UUID, *v1beta1.Repository) (*v1beta1.Repository, *v1beta1.Repository, error) {
+	return nil, nil, nil
 }
-func (m *mockRepositoryStore) CreateOrUpdate(context.Context, uuid.UUID, *v1beta1.Repository, store.EventCallback) (*v1beta1.Repository, bool, error) {
-	return nil, false, nil
+func (m *mockRepositoryStore) CreateOrUpdate(context.Context, uuid.UUID, *v1beta1.Repository) (*v1beta1.Repository, *v1beta1.Repository, bool, error) {
+	return nil, nil, false, nil
 }
 func (m *mockRepositoryStore) List(context.Context, uuid.UUID, store.ListParams) (*v1beta1.RepositoryList, error) {
 	return nil, nil
 }
-func (m *mockRepositoryStore) Delete(context.Context, uuid.UUID, string, store.EventCallback) error {
-	return nil
+func (m *mockRepositoryStore) Delete(context.Context, uuid.UUID, string) (bool, error) {
+	return false, nil
 }
-func (m *mockRepositoryStore) UpdateStatus(context.Context, uuid.UUID, *v1beta1.Repository, store.EventCallback) (*v1beta1.Repository, error) {
-	return nil, nil
+func (m *mockRepositoryStore) UpdateStatus(context.Context, uuid.UUID, *v1beta1.Repository) (*v1beta1.Repository, *v1beta1.Repository, error) {
+	return nil, nil, nil
 }
 func (m *mockRepositoryStore) GetFleetRefs(context.Context, uuid.UUID, string) (*v1beta1.FleetList, error) {
 	return nil, nil

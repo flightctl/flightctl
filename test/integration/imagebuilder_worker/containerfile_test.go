@@ -119,10 +119,7 @@ func createOCIRepository(ctx context.Context, repoStore repositorystore.Store, o
 		},
 		Spec: spec,
 	}
-
-	callback := flightctlstore.EventCallback(func(context.Context, v1beta1.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {
-	})
-	return repoStore.Create(ctx, orgId, &resource, callback)
+	return repoStore.Create(ctx, orgId, &resource)
 }
 
 var _ = Describe("Containerfile Generation", func() {
@@ -383,9 +380,7 @@ var _ = Describe("Containerfile Generation", func() {
 				},
 				Spec: gitSpec,
 			}
-			callback := flightctlstore.EventCallback(func(context.Context, v1beta1.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {
-			})
-			_, err = repositoryStore.Create(ctx, orgId, &gitRepo, callback)
+			_, err = repositoryStore.Create(ctx, orgId, &gitRepo)
 			Expect(err).ToNot(HaveOccurred())
 
 			imageBuild := newTestImageBuild("test-build", "late")

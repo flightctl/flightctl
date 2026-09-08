@@ -17,18 +17,41 @@ inputs:
 runs:
   using: "composite"
   steps:
+      # Pin cache-dependency-path to the root go.sum. Left unset, setup-go
+      # resolves the cache key by searching for go.sum across the repo, and
+      # this repo has several (root plus tools/*/go.sum). That ambiguous
+      # resolution intermittently trips a runner-toolkit bug in setup-go's
+      # post-step cache save ("Index was out of range"), which fails the job
+      # even when all build/test steps pass. It surfaces on release branches
+      # (cold cache -> the save path actually runs) far more than on main
+      # (warm exact-key hit -> save skipped). Anchoring the key to a single
+      # file that exists on every branch makes resolution deterministic while
+      # keeping setup-go's built-in caching and its correct post-step save
+      # timing (after go install and the caller's make targets complete).
       - name: Setup Go
         if: ${{ inputs.skip_package_install != 'true' }}
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25.9'
+          go-version: '1.26.7'
+          cache-dependency-path: go.sum
 
       - name: Prepare apt cache directory
         if: ${{ inputs.skip_package_install != 'true' }}
         shell: bash
         run: |
           echo "APT_CACHE_DIR=${HOME}/.cache/apt-archives" >> "$GITHUB_ENV"
+          echo "APT_OPTS=-o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20" >> "$GITHUB_ENV"
           mkdir -p "${HOME}/.cache/apt-archives"
+
+      # GitHub-hosted images list azure.archive.ubuntu.com first. When that
+      # host hangs, apt retries it for every index file.
+      - name: Pin Ubuntu apt mirrors
+        if: ${{ inputs.skip_package_install != 'true' }}
+        shell: bash
+        run: |
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            printf 'https://archive.ubuntu.com/ubuntu/\tpriority:1\nhttps://security.ubuntu.com/ubuntu/\tpriority:2\n' | sudo tee /etc/apt/apt-mirrors.txt
+          fi
 
       # apt's default archive dir (/var/cache/apt/archives) is root-owned, so
       # actions/cache — which runs as the unprivileged runner user — can't
@@ -55,8 +78,8 @@ runs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-          sudo apt update -y 
-          sudo apt -o Dir::Cache::Archives="${APT_CACHE_DIR}" install -y libvirt-clients libvirt-daemon-system libvirt-daemon \
+          sudo apt ${APT_OPTS} update -y
+          sudo apt ${APT_OPTS} -o Dir::Cache::Archives="${APT_CACHE_DIR}" install -y libvirt-clients libvirt-daemon-system libvirt-daemon \
                               virtinst bridge-utils qemu-system-x86 qemu-kvm \
                               swtpm apparmor-utils libguestfs-tools
           sudo usermod -a -G kvm,libvirt,swtpm $USER
@@ -67,8 +90,8 @@ runs:
         shell: bash
         run: |
           echo "::group::Installing general dependencies"
-          sudo apt update -y # fix broken repo cache
-          sudo apt -o Dir::Cache::Archives="${APT_CACHE_DIR}" install -y make python3-pip podman podman-compose libvirt-dev libpam0g-dev
+          sudo apt ${APT_OPTS} update -y
+          sudo apt ${APT_OPTS} -o Dir::Cache::Archives="${APT_CACHE_DIR}" install -y make python3-pip podman podman-compose libvirt-dev libpam0g-dev
 
           # Ubuntu noble ships crun 1.14.1 which rejects OCI runtime spec v1.2.1
           # version strings emitted by Podman 4.9+, causing "unknown version specified"
@@ -102,10 +125,13 @@ runs:
 
           if [ "$(uname -m)" = "x86_64" ]; then
             PROTOC_ARCH=x86_64
+            PROTOC_SHA256=3e866620c5be27664f3d2fa2d656b5f3e09b5152b42f1bedbf427b333e90021a
           else
             PROTOC_ARCH=aarch_64
+            PROTOC_SHA256=6427349140e01f06e049e707a58709a4f221ae73ab9a0425bc4a00c8d0e1ab32
           fi
-          curl -Lo protoc.zip "https://github.com/protocolbuffers/protobuf/releases/download/v3.14.0/protoc-3.14.0-linux-${PROTOC_ARCH}.zip"
+          curl -Lo protoc.zip "https://github.com/protocolbuffers/protobuf/releases/download/v29.3/protoc-29.3-linux-${PROTOC_ARCH}.zip"
+          echo "${PROTOC_SHA256}  protoc.zip" | sha256sum -c -
           sudo unzip -q -o protoc.zip bin/protoc -d /usr/local
           sudo chmod a+x /usr/local/bin/protoc
           protoc --version
@@ -156,7 +182,7 @@ runs:
         shell: bash
         if: ${{ inputs.unit_tests == 'true' && inputs.skip_package_install != 'true' }}
         run: |
-          sudo apt -o Dir::Cache::Archives="${APT_CACHE_DIR}" install -y bubblewrap apparmor-profiles
+          sudo apt ${APT_OPTS} -o Dir::Cache::Archives="${APT_CACHE_DIR}" install -y bubblewrap apparmor-profiles
           sudo ln -s /usr/share/apparmor/extra-profiles/bwrap-userns-restrict /etc/apparmor.d/bwrap || true
           sudo apparmor_parser /etc/apparmor.d/bwrap
 

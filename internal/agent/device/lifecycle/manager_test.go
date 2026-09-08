@@ -15,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/identity"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -296,21 +297,24 @@ func TestLifecycleManager_Initialize_NoBannerOnEnrollmentFailure(t *testing.T) {
 	}
 }
 
-func TestLifecycleManager_enrollmentRequest_osMode(t *testing.T) {
+func TestLifecycleManager_enrollmentRequest_capabilities(t *testing.T) {
 	tests := []struct {
-		name           string
-		osMode         v1beta1.OsModeType
-		expectedOsMode *v1beta1.OsModeType
+		name             string
+		osMode           v1beta1.OsModeType
+		deltaEligible    bool
+		expectedEligible bool
 	}{
 		{
-			name:           "When osMode is image it should include osMode in enrollment request",
-			osMode:         v1beta1.OsModeImage,
-			expectedOsMode: ptr(v1beta1.OsModeImage),
+			name:             "When osMode is image and delta eligible it should set spec.osMode and systemInfo",
+			osMode:           v1beta1.OsModeImage,
+			deltaEligible:    true,
+			expectedEligible: true,
 		},
 		{
-			name:           "When osMode is package it should include osMode in enrollment request",
-			osMode:         v1beta1.OsModePackage,
-			expectedOsMode: ptr(v1beta1.OsModePackage),
+			name:             "When osMode is package it should include osMode and deltaEligible false",
+			osMode:           v1beta1.OsModePackage,
+			deltaEligible:    false,
+			expectedEligible: false,
 		},
 	}
 
@@ -327,7 +331,12 @@ func TestLifecycleManager_enrollmentRequest_osMode(t *testing.T) {
 				enrollmentCSR:    []byte("test-csr"),
 				enrollmentClient: mockEnrollment,
 				deviceReadWriter: mockReadWriter,
-				osMode:           tt.osMode,
+				caps: os.Capabilities{
+					OsMode:          tt.osMode,
+					DeltaEligible:   tt.deltaEligible,
+					BootcVersion:    "bootc 1.15.0",
+					OCIDeltaVersion: "oci-delta 0.2.1",
+				},
 				backoff: wait.Backoff{
 					Steps:    1,
 					Duration: time.Millisecond,
@@ -347,12 +356,19 @@ func TestLifecycleManager_enrollmentRequest_osMode(t *testing.T) {
 			err := manager.enrollmentRequest(ctx, &v1beta1.DeviceStatus{})
 
 			require.NoError(t, err)
-			require.Equal(t, tt.expectedOsMode, capturedReq.Spec.OsMode)
+			require.NotNil(t, capturedReq.Spec.OsMode)
+			require.Equal(t, tt.osMode, *capturedReq.Spec.OsMode)
+			require.NotNil(t, capturedReq.Spec.DeviceStatus)
+			require.Nil(t, capturedReq.Spec.DeviceStatus.Capabilities)
+			require.NotNil(t, capturedReq.Spec.DeviceStatus.SystemInfo.DeltaEligible)
+			require.Equal(t, tt.expectedEligible, *capturedReq.Spec.DeviceStatus.SystemInfo.DeltaEligible)
+			require.NotNil(t, capturedReq.Spec.DeviceStatus.SystemInfo.BootcVersion)
+			require.Equal(t, "bootc 1.15.0", *capturedReq.Spec.DeviceStatus.SystemInfo.BootcVersion)
+			require.NotNil(t, capturedReq.Spec.DeviceStatus.SystemInfo.OciDeltaVersion)
+			require.Equal(t, "oci-delta 0.2.1", *capturedReq.Spec.DeviceStatus.SystemInfo.OciDeltaVersion)
 		})
 	}
 }
-
-func ptr[T any](v T) *T { return &v }
 
 func TestLifecycleManager_buildEnrollmentLabels(t *testing.T) {
 	tests := []struct {

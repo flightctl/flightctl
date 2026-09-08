@@ -75,9 +75,6 @@ func (m *MockDevice) Delete(ctx context.Context, orgId uuid.UUID, name string, c
 func (m *MockDevice) GetRendered(ctx context.Context, orgId uuid.UUID, name string, knownRenderedVersion *string, consoleGrpcEndpoint string) (*domain.Device, error) {
 	return nil, nil
 }
-func (m *MockDevice) SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, callback devicestore.ServiceConditionsCallback) error {
-	return nil
-}
 func (m *MockDevice) OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error {
 	return nil
 }

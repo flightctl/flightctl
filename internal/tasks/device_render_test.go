@@ -724,7 +724,7 @@ func TestRenderDevice_PermanentError(t *testing.T) {
 
 	mockSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, statusOK)
 
-	specHash := hashRenderedWithSpec(device.Spec)
+	specHash := hashRenderedWithSpec(device.Spec, config.DefaultVirtLauncherImage)
 	mockSvc.EXPECT().UpdateDeviceAnnotations(
 		gomock.Any(), orgId, deviceName,
 		map[string]string{
@@ -811,7 +811,7 @@ func TestRenderDevice_PermanentError_StandaloneDevice(t *testing.T) {
 	mockSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, statusOK)
 	mockSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK)
 
-	specHash := hashRenderedWithSpec(device.Spec)
+	specHash := hashRenderedWithSpec(device.Spec, config.DefaultVirtLauncherImage)
 	mockSvc.EXPECT().UpdateDeviceAnnotations(
 		gomock.Any(), orgId, deviceName,
 		map[string]string{
@@ -900,7 +900,7 @@ func TestRenderDevice_PermanentAppError(t *testing.T) {
 	mockSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(device, statusOK)
 	mockSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK)
 
-	specHash := hashRenderedWithSpec(device.Spec)
+	specHash := hashRenderedWithSpec(device.Spec, config.DefaultVirtLauncherImage)
 	mockSvc.EXPECT().UpdateDeviceAnnotations(
 		gomock.Any(), orgId, deviceName,
 		map[string]string{

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -148,9 +149,13 @@ func (v *TestVM) sshCommandWithUserContext(ctx context.Context, inputArgs []stri
 		sshArgs = append([]string{"-i", string(v.SSHPrivateKeyPath), "-o", "PasswordAuthentication=no"}, sshArgs...)
 		cmd = exec.CommandContext(ctx, "ssh", append(sshArgs, inputArgs...)...) // #nosec G204 - test code with controlled inputs
 	} else {
-		// Password-based authentication with sshpass
+		// Password-based authentication with sshpass. Pass the password via the
+		// SSHPASS environment variable (sshpass -e) rather than on the command line
+		// (sshpass -p): the latter puts the credential in argv, where it lands in the
+		// process table and in every debug log of cmd.String() below.
 		sshArgs = append([]string{"-o", "PubkeyAuthentication=no"}, sshArgs...)
-		cmd = exec.CommandContext(ctx, "sshpass", append([]string{"-p", v.SSHPassword, "ssh"}, append(sshArgs, inputArgs...)...)...) // #nosec G204 - test code with controlled inputs
+		cmd = exec.CommandContext(ctx, "sshpass", append([]string{"-e", "ssh"}, append(sshArgs, inputArgs...)...)...) // #nosec G204 - test code with controlled inputs
+		cmd.Env = append(os.Environ(), "SSHPASS="+v.SSHPassword)
 	}
 
 	if len(inputArgs) == 0 {

@@ -406,7 +406,7 @@ func TestSync(t *testing.T) {
 			appController := applications.NewController(podmanFactory, nil, mockAppManager, rwFactory, log, "2025-01-01T00:00:00Z")
 			statusManager := status.NewManager(deviceName, log)
 			statusManager.SetClient(mockManagementClient)
-			configController := config.NewController(readWriter, log)
+			configController := config.NewController(readWriter, tempDir, log)
 
 			agent := Agent{
 				log:                    log,
@@ -537,7 +537,7 @@ func TestRollbackDevice(t *testing.T) {
 				policyManager,
 				readWriter,
 				mockOSClient,
-				v1beta1.OsModeImage,
+				os.Capabilities{OsMode: v1beta1.OsModeImage},
 				poll.NewConfig(time.Second, 1.5),
 				poll.Config{BaseDelay: 5 * time.Second, Factor: 2, MaxDelay: 5 * time.Minute, JitterFactor: 0.2},
 				func() error { return nil },
@@ -903,7 +903,7 @@ func TestCheckPackageModeSpecCompat(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			agent := Agent{osMode: tc.osMode}
+			agent := Agent{caps: os.Capabilities{OsMode: tc.osMode}}
 			err := agent.checkPackageModeSpecCompat(tc.desired)
 			if tc.expectErr {
 				require.Error(t, err)
@@ -963,7 +963,7 @@ func TestSyncDeviceSpecPackageModeRejection(t *testing.T) {
 		}
 		consoleManager := console.NewManager(nil, deviceName, "root", mockExec, mockWatcher, logger)
 		appController := applications.NewController(podmanFactory, nil, mockAppManager, rwFactory, logger, "2025-01-01T00:00:00Z")
-		configController := config.NewController(readWriter, logger)
+		configController := config.NewController(readWriter, tempDir, logger)
 
 		upgradeFailed := false
 		rollbackCalled := false
@@ -1033,7 +1033,7 @@ func TestSyncDeviceSpecPackageModeRejection(t *testing.T) {
 			osManager:              mockOSManager,
 			pruningManager:         mockPruningManager,
 			pullConfigResolver:     mockPullConfigResolver,
-			osMode:                 v1beta1.OsModePackage,
+			caps:                   os.Capabilities{OsMode: v1beta1.OsModePackage},
 		}
 
 		agent.syncDeviceSpec(ctx)
@@ -1067,7 +1067,7 @@ func TestSyncDeviceSpecPackageModeRejection(t *testing.T) {
 		agent := Agent{
 			log:         logger,
 			specManager: mockSpecManager,
-			osMode:      v1beta1.OsModePackage,
+			caps:        os.Capabilities{OsMode: v1beta1.OsModePackage},
 		}
 
 		agent.syncDeviceSpec(ctx)

@@ -32,6 +32,12 @@ data:
             {{- if $vmRender.launcherImage }}
             launcherImage: {{ $vmRender.launcherImage | quote }}
             {{- end }}
+            {{- if $vmRender.launcherImages }}
+            launcherImages:
+            {{- range $major, $image := $vmRender.launcherImages }}
+              {{ $major | quote }}: {{ $image | quote }}
+            {{- end }}
+            {{- end }}
             passtWorkarounds: {{ if kindIs "bool" $vmRender.passtWorkarounds }}{{ $vmRender.passtWorkarounds }}{{ else }}false{{ end }}
     kv:
         hostname: flightctl-kv.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local

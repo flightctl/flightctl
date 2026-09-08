@@ -1,10 +1,17 @@
 package vm_test
 
 import (
+	"bytes"
+	_ "embed"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"io"
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
+	"text/template"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
@@ -15,24 +22,52 @@ import (
 	. "github.com/onsi/gomega"
 )
 
+//go:embed cloud-config-drive.yaml.tmpl
+var configDriveCloudConfigTemplateText string
+
+var configDriveCloudConfigTemplate = template.Must(
+	template.New("cloud-config-drive").Funcs(template.FuncMap{
+		"yamlQuote": strconv.Quote,
+	}).Parse(configDriveCloudConfigTemplateText),
+)
+
 const (
-	vmAppName                    = "test-vm"
-	vmAppAName                   = "test-vm-a"
-	vmAppBName                   = "test-vm-b"
-	defaultVMImage               = "quay.io/containerdisks/fedora:40"
-	vmGuestUser                  = "fedora"
-	vmGuestPassword              = "fedora"
-	vmCloudUser                  = "cloud-user"
-	vmCloudUserPassword          = "cloud-user-pass"
-	vmPublishedSSHPort           = 2222
-	vmBPublishedSSHPort          = 2223
-	vmBPublishedUDPPort          = 9090
-	vmGuestMemory                = "1024M"
-	configDriveIndexHTMLContent  = "Hello from ConfigDrive"
-	systemdSubStateActive        = "active"
-	systemdSubStateRunning       = "running"
-	systemdLoadStateLoadedString = string(v1beta1.SystemdLoadStateLoaded)
-	systemdActiveStateActive     = string(v1beta1.SystemdActiveStateActive)
+	vmAppName                   = "test-vm"
+	vmAppAName                  = "test-vm-a"
+	vmAppBName                  = "test-vm-b"
+	defaultVMImage              = "quay.io/containerdisks/fedora:40"
+	defaultVMUpdatedImage       = "quay.io/containerdisks/fedora:41"
+	vmGuestUser                 = e2e.VMFedoraGuestUser
+	vmGuestPassword             = "fedora"
+	vmModifiedGuestPassword     = "fedora-new"
+	vmModifyBaselineGuestMemory = "1G"
+	vmModifyBaselineCPUCores    = 1
+	vmModifiedGuestMemory       = "2G"
+	vmModifiedCPUCores          = 2
+	// Guest-visible MemTotal for 2G is slightly below the requested quantity.
+	vmModifiedGuestMemoryMinKiB      = 1700000
+	vmCloudUser                      = "cloud-user"
+	vmCloudUserPassword              = "cloud-user-pass"
+	vmPublishedSSHPort               = 2222
+	vmBPublishedSSHPort              = 2223
+	vmPublishedPortUnavailableWindow = "10s"
+	vmBPublishedUDPPort              = 9090
+	vmGuestSSHPort                   = 22
+	vmGuestMemory                    = "1024M"
+	vmHostDataImagePath              = "/var/lib/flightctl/vm-data/test-vm.img"
+	vmExtraDataSize                  = "10M"
+	vmHostDataHelloContent           = "hello"
+	vmHostDataGuestDisk              = "vdc"
+	vmExtraDataGuestDisk             = "vdd"
+	vmHostVolumeSetupScriptPath      = "/usr/local/bin/verify-vm-host-volumes.sh"
+	vmHostDataHelloFile              = "/var/tmp/host-data-hello.txt"
+	vmExtraDataUsedFile              = "/var/tmp/extradata-used.txt"
+	vmExtraDataUsedContent           = "used"
+	configDriveIndexHTMLContent      = "Hello from ConfigDrive"
+	systemdSubStateActive            = "active"
+	systemdSubStateRunning           = "running"
+	systemdLoadStateLoadedString     = string(v1beta1.SystemdLoadStateLoaded)
+	systemdActiveStateActive         = string(v1beta1.SystemdActiveStateActive)
 )
 
 func getVMImage() string {
@@ -42,7 +77,14 @@ func getVMImage() string {
 	return defaultVMImage
 }
 
-var _ = Describe("VM Applications", Ordered, func() {
+func getVMUpdatedImage() string {
+	if image := os.Getenv("FLIGHTCTL_E2E_VM_UPDATED_IMAGE"); image != "" {
+		return image
+	}
+	return defaultVMUpdatedImage
+}
+
+var _ = Describe("VM Applications", Ordered, ContinueOnFailure, func() {
 	var (
 		deviceID  string
 		harness   *e2e.Harness
@@ -69,20 +111,7 @@ var _ = Describe("VM Applications", Ordered, func() {
 			device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{vmAppSpec}
 		})
 		Expect(err).ToNot(HaveOccurred())
-
-		By("Verifying the VM application reports Running status")
-		err = harness.WaitForApplicationStatus(deviceID, vmAppName, v1beta1.ApplicationStatusRunning, testutil.LONG_TIMEOUT, testutil.POLLING)
-		if err != nil {
-			logVMApplicationUnitStatus(harness, vmAppName)
-		}
-		Expect(err).ToNot(HaveOccurred())
-
-		By("Verifying the applications summary is Healthy")
-		err = harness.WaitForApplicationSummary(deviceID, testutil.LONG_TIMEOUT, testutil.POLLING, v1beta1.ApplicationsSummaryStatusHealthy)
-		if err != nil {
-			logVMApplicationUnitStatus(harness, vmAppName)
-		}
-		Expect(err).ToNot(HaveOccurred())
+		waitForVMAppRunningHealthy(harness, deviceID, vmAppName)
 
 		By("Waiting for the VM serial console login prompt")
 		cs := harness.NewAppConsoleSessionWaitingForLogin(deviceID, vmAppName, testutil.LONG_TIMEOUT, testutil.POLLING)
@@ -105,6 +134,110 @@ var _ = Describe("VM Applications", Ordered, func() {
 		}, testutil.LONG_TIMEOUT, testutil.POLLING).Should(Succeed())
 	})
 
+	// Unexpected virt-launcher compute death (not flightctl app stop) should restart via
+	// pod/systemd policy and return the app to Running/Healthy without operator start.
+	// After recovery, serial console exclusivity is checked: a second connect without
+	// --force is rejected, and --force takes over the active session.
+	// Then the guest domain is suspended inside the still-running compute container:
+	// the app stays Running while applicationsSummary becomes Degraded, and resume
+	// returns Healthy with SSH working.
+	It("recovers Running and Healthy after an unexpected virt-launcher compute crash", Label("vm", "90232", "90239", "90246"), func() {
+		By("Deploying the VM application")
+		err := harness.UpdateDeviceAndWaitForVersion(deviceID, func(device *v1beta1.Device) {
+			device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{vmAppSpec}
+		})
+		Expect(err).ToNot(HaveOccurred())
+		waitForVMAppRunningHealthy(harness, deviceID, vmAppName)
+
+		By("Verifying SSH before the crash")
+		expectSSHWhoamiWithPassword(harness, vmPublishedSSHPort, vmAppName, vmGuestUser, vmGuestPassword)
+
+		computeContainer := findRunningVMComputeContainerName(harness, vmAppName)
+		containerIDBefore := getPodmanContainerID(harness, computeContainer)
+		GinkgoWriter.Printf("Pre-crash compute container %q ID %q\n", computeContainer, containerIDBefore)
+
+		By("Force-killing the virt-launcher compute container")
+		_, err = harness.VM.RunSSH([]string{"sudo", "podman", "kill", computeContainer}, nil)
+		Expect(err).NotTo(HaveOccurred(), "killing podman container %q", computeContainer)
+
+		By("Waiting for the compute container to be recreated")
+		var computeContainerAfter, containerIDAfter string
+		Eventually(func(g Gomega) {
+			name, lookupErr := runningVMComputeContainerName(harness, vmAppName)
+			g.Expect(lookupErr).NotTo(HaveOccurred(), "finding running compute container")
+			id, idErr := podmanContainerID(harness, name)
+			g.Expect(idErr).NotTo(HaveOccurred(), "reading podman container ID for %q", name)
+			g.Expect(id).NotTo(Equal(containerIDBefore), "compute container should be recreated after crash")
+			computeContainerAfter = name
+			containerIDAfter = id
+		}, testutil.LONG_TIMEOUT, testutil.POLLING).Should(Succeed())
+		GinkgoWriter.Printf("Post-recovery compute container %q ID %q\n", computeContainerAfter, containerIDAfter)
+
+		By("Waiting for the VM application to recover to Running/Healthy without operator start")
+		waitForVMAppRunningHealthy(harness, deviceID, vmAppName)
+
+		By("Verifying SSH works again after recovery")
+		expectSSHWhoamiWithPassword(harness, vmPublishedSSHPort, vmAppName, vmGuestUser, vmGuestPassword)
+
+		expectSerialConsoleForceTakeover(harness, deviceID, vmAppName, vmGuestUser, vmGuestPassword)
+
+		By("Suspending the guest domain without stopping the Quadlet unit")
+		var domain string
+		Eventually(func(g Gomega) {
+			out, listErr := harness.VirshOnCompute(computeContainerAfter, "list", "--name", "--state-running")
+			g.Expect(listErr).NotTo(HaveOccurred(), "listing running guest domains")
+			var names []string
+			for _, line := range strings.Split(out, "\n") {
+				line = strings.TrimSpace(line)
+				if line != "" {
+					names = append(names, line)
+				}
+			}
+			g.Expect(names).To(HaveLen(1), "expected one running guest domain, got %v", names)
+			domain = names[0]
+		}, testutil.LONG_TIMEOUT, testutil.POLLING).Should(Succeed())
+		GinkgoWriter.Printf("Suspending guest domain %q in compute container %q\n", domain, computeContainerAfter)
+		_, err = harness.VirshOnCompute(computeContainerAfter, "suspend", domain)
+		Expect(err).NotTo(HaveOccurred(), "suspending guest domain %q", domain)
+		Eventually(func(g Gomega) {
+			state, stateErr := harness.VirshOnCompute(computeContainerAfter, "domstate", domain)
+			g.Expect(stateErr).NotTo(HaveOccurred(), "reading domain state for %q", domain)
+			g.Expect(strings.TrimSpace(state)).To(Equal("paused"), "guest domain %q", domain)
+		}, testutil.LONG_TIMEOUT, testutil.POLLING).Should(Succeed())
+		Expect(getPodmanContainerID(harness, computeContainerAfter)).To(Equal(containerIDAfter),
+			"compute container should keep running after guest suspend")
+
+		By("Waiting for applications summary Degraded while the app stays Running")
+		err = harness.WaitForApplicationSummary(deviceID, testutil.LONG_TIMEOUT, testutil.POLLING, v1beta1.ApplicationsSummaryStatusDegraded)
+		if err != nil {
+			logVMApplicationUnitStatus(harness, vmAppName)
+		}
+		Expect(err).ToNot(HaveOccurred())
+		err = harness.WaitForApplicationStatus(deviceID, vmAppName, v1beta1.ApplicationStatusRunning, testutil.LONG_TIMEOUT, testutil.POLLING)
+		if err != nil {
+			logVMApplicationUnitStatus(harness, vmAppName)
+		}
+		Expect(err).ToNot(HaveOccurred())
+		Expect(getPodmanContainerID(harness, computeContainerAfter)).To(Equal(containerIDAfter),
+			"compute container should keep running while the guest is unhealthy")
+		summary, summaryErr := harness.GetDeviceWithStatusSummary(deviceID)
+		Expect(summaryErr).NotTo(HaveOccurred())
+		GinkgoWriter.Printf("device %s status.summary=%s (not asserted; may stay Online)\n", deviceID, summary)
+
+		By("Resuming the guest domain")
+		_, err = harness.VirshOnCompute(computeContainerAfter, "resume", domain)
+		Expect(err).NotTo(HaveOccurred(), "resuming guest domain %q", domain)
+		Eventually(func(g Gomega) {
+			state, stateErr := harness.VirshOnCompute(computeContainerAfter, "domstate", domain)
+			g.Expect(stateErr).NotTo(HaveOccurred(), "reading domain state for %q", domain)
+			g.Expect(strings.TrimSpace(state)).To(Equal("running"), "guest domain %q", domain)
+		}, testutil.LONG_TIMEOUT, testutil.POLLING).Should(Succeed())
+
+		By("Waiting for applications summary to return to Healthy and verifying SSH works")
+		waitForVMAppRunningHealthy(harness, deviceID, vmAppName)
+		expectSSHWhoamiWithPassword(harness, vmPublishedSSHPort, vmAppName, vmGuestUser, vmGuestPassword)
+	})
+
 	// Two VM apps on one device without conflict. Both use KubeVirt ConfigDrive
 	// (userDataBase64). test-vm-a maps 2222:22; test-vm-b maps 2223:22/tcp and
 	// 9090:9090/udp. Verifies concurrent Running/Healthy state, cloud-user login
@@ -119,7 +252,7 @@ var _ = Describe("VM Applications", Ordered, func() {
 		image := getVMImage()
 		vmAppASpec, err := e2e.NewVmApplicationSpecFromYAML(
 			vmAppAName,
-			[]string{fmt.Sprintf("%d:22", vmPublishedSSHPort)},
+			[]string{fmt.Sprintf("%d:%d", vmPublishedSSHPort, vmGuestSSHPort)},
 			e2e.VMYAMLWithConfigDrive(vmAppAName, vmGuestMemory, image, encodeConfigDriveUserData(configDriveCloudUserData(sshPublicKey, vmCloudUserPassword))),
 		)
 		Expect(err).ToNot(HaveOccurred())
@@ -127,7 +260,7 @@ var _ = Describe("VM Applications", Ordered, func() {
 		vmAppBSpec, err := e2e.NewVmApplicationSpecFromYAML(
 			vmAppBName,
 			[]string{
-				fmt.Sprintf("%d:22/tcp", vmBPublishedSSHPort),
+				fmt.Sprintf("%d:%d/tcp", vmBPublishedSSHPort, vmGuestSSHPort),
 				fmt.Sprintf("%d:%d/udp", vmBPublishedUDPPort, vmBPublishedUDPPort),
 			},
 			e2e.VMYAMLWithConfigDrive(vmAppBName, vmGuestMemory, image, encodeConfigDriveUserData(configDriveCloudUserDataWithServices(sshPublicKey, vmCloudUserPassword))),
@@ -141,21 +274,8 @@ var _ = Describe("VM Applications", Ordered, func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		for _, appName := range []string{vmAppAName, vmAppBName} {
-			By(fmt.Sprintf("Waiting for VM application %s to reach Running", appName))
-			err = harness.WaitForApplicationStatus(deviceID, appName, v1beta1.ApplicationStatusRunning, testutil.LONG_TIMEOUT, testutil.POLLING)
-			if err != nil {
-				logVMApplicationUnitStatus(harness, appName)
-			}
-			Expect(err).ToNot(HaveOccurred())
+			waitForVMAppRunningHealthy(harness, deviceID, appName)
 		}
-
-		By("Verifying the applications summary is Healthy")
-		err = harness.WaitForApplicationSummary(deviceID, testutil.LONG_TIMEOUT, testutil.POLLING, v1beta1.ApplicationsSummaryStatusHealthy)
-		if err != nil {
-			logVMApplicationUnitStatus(harness, vmAppAName)
-			logVMApplicationUnitStatus(harness, vmAppBName)
-		}
-		Expect(err).ToNot(HaveOccurred())
 
 		By("Verifying SSH via published host ports for both VMs")
 		expectSSHWhoamiWithPassword(harness, vmPublishedSSHPort, vmAppAName, vmCloudUser, vmCloudUserPassword)
@@ -248,7 +368,144 @@ var _ = Describe("VM Applications", Ordered, func() {
 
 		expectSSHWhoamiWithPassword(harness, vmBPublishedSSHPort, vmAppBName, vmCloudUser, vmCloudUserPassword)
 	})
+
+	// Changing VM sizing, publishPorts, containerdisk image, and cloud-init password in the
+	// device spec re-renders the app; the VM returns to Running/Healthy with observable updates.
+	It("re-renders and applies modified VM memory, cores, publishPorts, disk image, and cloud-init password", Label("vm", "90233"), func() {
+		baselineImage := getVMImage()
+		updatedImage := getVMUpdatedImage()
+
+		baselineSpec, err := e2e.NewVmApplicationSpecFromYAML(
+			vmAppName,
+			[]string{fmt.Sprintf("%d:%d", vmPublishedSSHPort, vmGuestSSHPort)},
+			e2e.VMYAMLWithCPU(vmAppName, vmModifyBaselineGuestMemory, baselineImage, vmModifyBaselineCPUCores, e2e.VMFedoraNoCloudUserData(vmGuestPassword)),
+		)
+		Expect(err).ToNot(HaveOccurred())
+
+		modifiedSpec, err := e2e.NewVmApplicationSpecFromYAML(
+			vmAppName,
+			[]string{fmt.Sprintf("%d:%d", vmBPublishedSSHPort, vmGuestSSHPort)},
+			e2e.VMYAMLWithCPU(vmAppName, vmModifiedGuestMemory, updatedImage, vmModifiedCPUCores, e2e.VMFedoraNoCloudUserData(vmModifiedGuestPassword)),
+		)
+		Expect(err).ToNot(HaveOccurred())
+
+		By("Deploying the baseline VM application")
+		err = harness.UpdateDeviceAndWaitForVersion(deviceID, func(device *v1beta1.Device) {
+			device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{baselineSpec}
+		})
+		Expect(err).ToNot(HaveOccurred())
+		waitForVMAppRunningHealthy(harness, deviceID, vmAppName)
+
+		By("Verifying baseline SSH on the original published port")
+		expectSSHWhoamiWithPassword(harness, vmPublishedSSHPort, vmAppName, vmGuestUser, vmGuestPassword)
+
+		By("Applying the modified VM application spec")
+		err = harness.UpdateDeviceAndWaitForVersion(deviceID, func(device *v1beta1.Device) {
+			device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{modifiedSpec}
+		})
+		Expect(err).ToNot(HaveOccurred())
+		waitForVMAppRunningHealthy(harness, deviceID, vmAppName)
+
+		By("Verifying SSH on the new published port with the updated password")
+		expectSSHWhoamiWithPassword(harness, vmBPublishedSSHPort, vmAppName, vmGuestUser, vmModifiedGuestPassword)
+
+		By("Verifying SSH on the previous published port is removed")
+		expectSSHUnavailableOnPort(harness, vmPublishedSSHPort, vmAppName, vmGuestUser, vmModifiedGuestPassword)
+
+		By("Verifying guest CPU and memory reflect the updated spec")
+		expectGuestCPUCount(harness, vmBPublishedSSHPort, vmAppName, vmGuestUser, vmModifiedGuestPassword, vmModifiedCPUCores)
+		expectGuestMemoryAtLeastKiB(harness, vmBPublishedSSHPort, vmAppName, vmGuestUser, vmModifiedGuestPassword, vmModifiedGuestMemoryMinKiB)
+
+		By("Verifying the rendered quadlet workload references the updated containerdisk image")
+		expectVMQuadletDirContainsImage(harness, vmAppName, updatedImage)
+
+		By("Verifying serial console login with the updated cloud-init password")
+		expectSerialLoginWithPassword(harness, deviceID, vmAppName, vmGuestUser, vmModifiedGuestPassword)
+	})
+
+	// HostDisk plus a blank dataVolume appear as extra guest disks. Removing both
+	// volumes from the spec leaves the VM Running/Healthy with two disks.
+	It("attaches hostDisk and dataVolume to the VM and removes them cleanly", Label("vm", "90243"), func() {
+		image := getVMImage()
+		setupCloudInit := vmFedoraNoCloudUserDataWithHostVolumeSetup(vmGuestPassword)
+		laterCloudInit := vmFedoraNoCloudUserDataWithPasswordlessSudo(vmGuestPassword)
+		publishPorts := []string{fmt.Sprintf("%d:%d", vmPublishedSSHPort, vmGuestSSHPort)}
+
+		applyVMYAML := func(vmYAML string) {
+			GinkgoHelper()
+			spec, specErr := e2e.NewVmApplicationSpecFromYAML(vmAppName, publishPorts, vmYAML)
+			Expect(specErr).ToNot(HaveOccurred())
+			updateErr := harness.UpdateDeviceAndWaitForVersion(deviceID, func(device *v1beta1.Device) {
+				device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{spec}
+			})
+			Expect(updateErr).ToNot(HaveOccurred())
+			waitForVMAppRunningHealthy(harness, deviceID, vmAppName)
+		}
+
+		By("Preparing a formatted hostDisk image on the device")
+		_, err := harness.VM.RunSSH([]string{"sudo", "bash", "-s"}, bytes.NewBufferString(hostDataImagePrepScript(vmHostDataImagePath)))
+		Expect(err).ToNot(HaveOccurred())
+		DeferCleanup(func() {
+			_, _ = harness.VM.RunSSH([]string{"sudo", "rm", "-f", vmHostDataImagePath}, nil)
+		})
+
+		By("Deploying the VM with host-data and extradata disks")
+		applyVMYAML(e2e.VMYAMLWithHostVolumes(vmAppName, vmGuestMemory, image, setupCloudInit, vmHostDataImagePath, vmExtraDataSize))
+		expectSSHWhoamiWithPassword(harness, vmPublishedSSHPort, vmAppName, vmGuestUser, vmGuestPassword)
+
+		By(fmt.Sprintf("Verifying four guest disks including %s (host-data) and %s (extradata)", vmHostDataGuestDisk, vmExtraDataGuestDisk))
+		disks := expectGuestDiskCount(harness, 4)
+		Expect(disks).To(ContainElements(vmHostDataGuestDisk, vmExtraDataGuestDisk))
+
+		By("Waiting for cloud-init to mount host-data and format extradata")
+		expectGuestFileContains(harness, vmHostDataHelloFile, vmHostDataHelloContent)
+		expectGuestFileContains(harness, vmExtraDataUsedFile, vmExtraDataUsedContent)
+
+		By("Removing extradata")
+		applyVMYAML(e2e.VMYAMLWithHostVolumes(vmAppName, vmGuestMemory, image, laterCloudInit, vmHostDataImagePath, ""))
+		expectSSHWhoamiWithPassword(harness, vmPublishedSSHPort, vmAppName, vmGuestUser, vmGuestPassword)
+
+		By(fmt.Sprintf("Verifying three guest disks including %s (host-data) and excluding %s (extradata)", vmHostDataGuestDisk, vmExtraDataGuestDisk))
+		disks = expectGuestDiskCount(harness, 3)
+		Expect(disks).To(ContainElement(vmHostDataGuestDisk))
+		Expect(disks).NotTo(ContainElement(vmExtraDataGuestDisk))
+
+		By("Removing host-data and verifying two disks remain")
+		applyVMYAML(e2e.VMYAML(vmAppName, vmGuestMemory, image, laterCloudInit))
+		expectSSHWhoamiWithPassword(harness, vmPublishedSSHPort, vmAppName, vmGuestUser, vmGuestPassword)
+		disks = expectGuestDiskCount(harness, 2)
+		Expect(disks).NotTo(ContainElement(vmHostDataGuestDisk))
+		Expect(disks).NotTo(ContainElement(vmExtraDataGuestDisk))
+	})
 })
+
+func waitForVMAppRunningHealthy(h *e2e.Harness, deviceID, appName string) {
+	GinkgoHelper()
+	By(fmt.Sprintf("Waiting for VM application %s to reach Running", appName))
+	err := h.WaitForApplicationStatus(deviceID, appName, v1beta1.ApplicationStatusRunning, testutil.LONG_TIMEOUT, testutil.POLLING)
+	if err != nil {
+		logVMApplicationUnitStatus(h, appName)
+	}
+	Expect(err).ToNot(HaveOccurred())
+
+	By("Verifying the applications summary is Healthy")
+	err = h.WaitForApplicationSummary(deviceID, testutil.LONG_TIMEOUT, testutil.POLLING, v1beta1.ApplicationsSummaryStatusHealthy)
+	if err != nil {
+		logVMApplicationUnitStatus(h, appName)
+	}
+	Expect(err).ToNot(HaveOccurred())
+}
+
+// expectLoginPromptThenPasswordSSH waits until the guest serial login prompt appears,
+// then checks published-port SSH. The prompt means getty is up; it does not log in.
+// Use after a first start or a stop/start. Skip when the guest was already running.
+func expectLoginPromptThenPasswordSSH(h *e2e.Harness, deviceID, appName, user, password string, port int) {
+	GinkgoHelper()
+	cs := h.NewAppConsoleSessionWaitingForLogin(deviceID, appName, testutil.LONG_TIMEOUT, testutil.POLLING)
+	cs.Disconnect()
+	cs.Close()
+	expectSSHWhoamiWithPassword(h, port, appName, user, password)
+}
 
 // expectSSHWhoamiWithPassword polls password SSH to a published host port until whoami returns the guest user.
 func expectSSHWhoamiWithPassword(h *e2e.Harness, port int, appName, user, password string) {
@@ -268,6 +525,288 @@ func expectSSHWhoamiWithPassword(h *e2e.Harness, port int, appName, user, passwo
 		g.Expect(sshErr).NotTo(HaveOccurred(), "password SSH to %s on published port %d failed", appName, port)
 		g.Expect(strings.TrimSpace(out)).To(Equal(user))
 	}, testutil.LONG_TIMEOUT, testutil.POLLING).Should(Succeed())
+}
+
+// expectSSHUnavailableOnPort polls until password SSH on port fails, then verifies it stays unavailable.
+func expectSSHUnavailableOnPort(h *e2e.Harness, port int, appName, user, password string) {
+	GinkgoHelper()
+	const remoteCmd = "/usr/bin/whoami"
+	Eventually(func(g Gomega) {
+		_, sshErr := h.RunSSHOnDeviceLocalPort(port, user, password, remoteCmd)
+		g.Expect(sshErr).To(HaveOccurred(), "SSH to %s on published port %d should be unavailable", appName, port)
+		g.Expect(errors.Is(sshErr, e2e.ErrSSHConnectionRefused) || errors.Is(sshErr, e2e.ErrSSHTimeout)).
+			To(BeTrue(), "SSH to %s on port %d failed with %v, want connection refused or timeout", appName, port, sshErr)
+	}, testutil.LONG_TIMEOUT, testutil.POLLING).Should(Succeed())
+
+	Consistently(func(g Gomega) {
+		_, sshErr := h.RunSSHOnDeviceLocalPort(port, user, password, remoteCmd)
+		g.Expect(sshErr).To(HaveOccurred(), "SSH to %s on published port %d should remain unavailable", appName, port)
+		g.Expect(errors.Is(sshErr, e2e.ErrSSHConnectionRefused) || errors.Is(sshErr, e2e.ErrSSHTimeout)).
+			To(BeTrue(), "SSH to %s on port %d failed with %v, want connection refused or timeout", appName, port, sshErr)
+	}, vmPublishedPortUnavailableWindow, testutil.POLLING).Should(Succeed())
+}
+
+// runningVMComputeContainerName finds the running virt-launcher compute container name for appName.
+func runningVMComputeContainerName(h *e2e.Harness, appName string) (string, error) {
+	pattern := fmt.Sprintf("virt-launcher-%s-compute", appName)
+	out, err := h.VM.RunSSH([]string{"sudo", "podman", "ps", "--format", "{{.Names}}"}, nil)
+	if err != nil {
+		return "", fmt.Errorf("listing running podman containers: %w", err)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" && strings.Contains(line, pattern) {
+			return line, nil
+		}
+	}
+	return "", fmt.Errorf("running compute container matching %q not found", pattern)
+}
+
+// findRunningVMComputeContainerName returns the running virt-launcher compute container name for appName.
+func findRunningVMComputeContainerName(h *e2e.Harness, appName string) string {
+	GinkgoHelper()
+	var containerName string
+	Eventually(func(g Gomega) {
+		var err error
+		containerName, err = runningVMComputeContainerName(h, appName)
+		g.Expect(err).NotTo(HaveOccurred())
+	}, testutil.LONG_TIMEOUT, testutil.POLLING).Should(Succeed())
+	return containerName
+}
+
+// podmanContainerID returns the running podman container ID for containerName on the device.
+func podmanContainerID(h *e2e.Harness, containerName string) (string, error) {
+	out, err := h.VM.RunSSH([]string{
+		"sudo", "podman", "ps",
+		"--filter", "name=^" + regexp.QuoteMeta(containerName) + "$",
+		"--format", "{{.ID}}",
+	}, nil)
+	if err != nil {
+		return "", fmt.Errorf("reading podman container ID for %q: %w", containerName, err)
+	}
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) == "" {
+		return "", fmt.Errorf("podman container ID for %q not found", containerName)
+	}
+	return strings.TrimSpace(lines[0]), nil
+}
+
+// getPodmanContainerID returns the running podman container ID for containerName on the device.
+func getPodmanContainerID(h *e2e.Harness, containerName string) string {
+	GinkgoHelper()
+	id, err := podmanContainerID(h, containerName)
+	Expect(err).NotTo(HaveOccurred())
+	return id
+}
+
+func hostDataImagePrepScript(imagePath string) string {
+	return fmt.Sprintf(`set -euo pipefail
+img=%q
+dir=$(dirname "$img")
+mkdir -p "$dir"
+truncate -s 1G "$img"
+chown 107:107 "$img"
+chmod 0660 "$img"
+chmod 0755 "$dir" "$(dirname "$dir")" 2>/dev/null || true
+loop=$(losetup -fP --show "$img")
+cleanup() {
+  umount /mnt/vm-data >/dev/null 2>&1 || true
+  losetup -d "$loop" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+if command -v mkfs.xfs >/dev/null 2>&1; then
+  mkfs.xfs -f "$loop"
+else
+  mkfs.ext4 -F "$loop"
+fi
+mkdir -p /mnt/vm-data
+mount "$loop" /mnt/vm-data
+printf 'hello\n' > /mnt/vm-data/hello.txt
+umount /mnt/vm-data
+losetup -d "$loop"
+trap - EXIT
+`, imagePath)
+}
+
+func parseLsblkDisks(out string) []string {
+	var disks []string
+	for _, name := range strings.Split(out, ",") {
+		if name = strings.TrimSpace(name); name != "" {
+			disks = append(disks, name)
+		}
+	}
+	return disks
+}
+
+func vmFedoraNoCloudUserDataWithPasswordlessSudo(password string) string {
+	return e2e.VMFedoraNoCloudUserDataWith(password, []e2e.VMCloudInitWriteFile{vmGuestSudoersWriteFile()}, nil)
+}
+
+func vmGuestSudoersWriteFile() e2e.VMCloudInitWriteFile {
+	return e2e.VMCloudInitWriteFile{
+		Path:        fmt.Sprintf("/etc/sudoers.d/%s", vmGuestUser),
+		Owner:       "root:root",
+		Permissions: "0440",
+		Content:     fmt.Sprintf("%s ALL=(ALL) NOPASSWD:ALL", vmGuestUser),
+	}
+}
+
+func vmFedoraNoCloudUserDataWithHostVolumeSetup(password string) string {
+	script := fmt.Sprintf(`#!/bin/bash
+set -euo pipefail
+for _ in $(seq 1 60); do
+  [ -b /dev/%[1]s ] && [ -b /dev/%[2]s ] && break
+  sleep 2
+done
+if [ ! -b /dev/%[1]s ] || [ ! -b /dev/%[2]s ]; then
+  echo "expected /dev/%[1]s and /dev/%[2]s" >&2
+  exit 1
+fi
+mkdir -p /mnt/host-data /mnt/extradata
+mount /dev/%[1]s /mnt/host-data
+cp /mnt/host-data/hello.txt %[3]s
+chmod 0644 %[3]s
+mkfs.ext4 -F /dev/%[2]s
+mount /dev/%[2]s /mnt/extradata
+echo %[4]s > /mnt/extradata/used.txt
+cp /mnt/extradata/used.txt %[5]s
+chmod 0644 %[5]s
+`, vmHostDataGuestDisk, vmExtraDataGuestDisk, vmHostDataHelloFile, vmExtraDataUsedContent, vmExtraDataUsedFile)
+	return e2e.VMFedoraNoCloudUserDataWith(password, []e2e.VMCloudInitWriteFile{
+		vmGuestSudoersWriteFile(),
+		{
+			Path:        vmHostVolumeSetupScriptPath,
+			Owner:       "root:root",
+			Permissions: "0755",
+			Content:     script,
+		},
+	}, []string{vmHostVolumeSetupScriptPath})
+}
+
+func expectGuestFileContains(h *e2e.Harness, path, want string) {
+	GinkgoHelper()
+	Eventually(func(g Gomega) {
+		out, sshErr := h.RunSSHOnDeviceLocalPort(vmPublishedSSHPort, vmGuestUser, vmGuestPassword, "cat", path)
+		g.Expect(sshErr).NotTo(HaveOccurred(), "reading guest file %s failed", path)
+		g.Expect(out).To(ContainSubstring(want), "guest file %s", path)
+	}, testutil.LONG_TIMEOUT, testutil.POLLING).Should(Succeed())
+}
+
+func expectGuestDiskCount(h *e2e.Harness, want int) []string {
+	GinkgoHelper()
+	var disks []string
+	Eventually(func(g Gomega) {
+		out, sshErr := h.RunSSHOnDeviceLocalPort(
+			vmPublishedSSHPort,
+			vmGuestUser,
+			vmGuestPassword,
+			`bash -lc 'sudo -n lsblk --virtio -d -n -l -v -o NAME | paste -sd,'`,
+		)
+		GinkgoWriter.Printf("guest lsblk: %q err=%v\n", out, sshErr)
+		g.Expect(sshErr).NotTo(HaveOccurred(), "reading guest lsblk failed")
+		parsed := parseLsblkDisks(out)
+		g.Expect(parsed).To(HaveLen(want), "lsblk output: %s", out)
+		disks = parsed
+	}, testutil.LONG_TIMEOUT, testutil.POLLING).Should(Succeed())
+	return disks
+}
+
+func expectGuestCPUCount(h *e2e.Harness, port int, appName, user, password string, wantCPUs int) {
+	GinkgoHelper()
+	want := strconv.Itoa(wantCPUs)
+	Eventually(func(g Gomega) {
+		out, sshErr := h.RunSSHOnDeviceLocalPort(port, user, password, "nproc")
+		g.Expect(sshErr).NotTo(HaveOccurred(), "reading nproc on %s failed", appName)
+		g.Expect(strings.TrimSpace(out)).To(Equal(want))
+	}, testutil.LONG_TIMEOUT, testutil.POLLING).Should(Succeed())
+}
+
+func expectGuestMemoryAtLeastKiB(h *e2e.Harness, port int, appName, user, password string, minKiB int) {
+	GinkgoHelper()
+	Eventually(func(g Gomega) {
+		out, sshErr := h.RunSSHOnDeviceLocalPort(
+			port,
+			user,
+			password,
+			`bash -lc 'grep MemTotal /proc/meminfo | tr -s " " | cut -d" " -f2'`,
+		)
+		g.Expect(sshErr).NotTo(HaveOccurred(), "reading MemTotal on %s failed", appName)
+		memKiB, parseErr := strconv.Atoi(strings.TrimSpace(out))
+		g.Expect(parseErr).NotTo(HaveOccurred(), "parsing MemTotal output %q", out)
+		g.Expect(memKiB).To(BeNumerically(">=", minKiB), "guest MemTotal on %s", appName)
+	}, testutil.LONG_TIMEOUT, testutil.POLLING).Should(Succeed())
+}
+
+func expectVMQuadletDirContainsImage(h *e2e.Harness, appName, imageRef string) {
+	GinkgoHelper()
+	computeContainerFile := vmApplicationComputeContainerFileName(appName)
+	filePath := fmt.Sprintf("%s/%s/%s", e2e.QuadletUnitPath, appName, computeContainerFile)
+	expectedSource := fmt.Sprintf("source=%s", imageRef)
+	Eventually(func(g Gomega) {
+		out, err := h.VM.RunSSH([]string{"sudo", "cat", filePath}, nil)
+		g.Expect(err).NotTo(HaveOccurred(), "reading compute quadlet workload %q", filePath)
+		g.Expect(out.String()).To(ContainSubstring(expectedSource), "containerdisk image in %q", filePath)
+	}, testutil.LONG_TIMEOUT, testutil.POLLING).Should(Succeed())
+}
+
+func expectSerialLoginWithPassword(h *e2e.Harness, deviceID, appName, user, password string) {
+	GinkgoHelper()
+	cs := h.NewAppConsoleSessionWaitingForLogin(deviceID, appName, testutil.LONG_TIMEOUT, testutil.POLLING)
+	DeferCleanup(cs.Close)
+	loginOnSerialConsole(cs, user, password)
+	cs.Disconnect()
+}
+
+// loginOnSerialConsole completes a password login on an already-open serial session
+// and checks whoami. The session is left connected.
+func loginOnSerialConsole(cs *e2e.ConsoleSession, user, password string) {
+	GinkgoHelper()
+	cs.MustSend(user)
+	cs.MustExpectWithin(`(?i)password:`, testutil.DURATION_TIMEOUT, testutil.POLLING)
+	cs.MustSend(password)
+	cs.MustExpectWithin(fmt.Sprintf(`.*%s@.*\$`, user), testutil.DURATION_TIMEOUT, testutil.POLLING)
+	cs.MustSend(fmt.Sprintf("printf '<<whoami>>%%s<<whoami>>\\n' \"$(whoami)\""))
+	cs.MustExpectWithin(fmt.Sprintf("<<whoami>>%s<<whoami>>", user), testutil.DURATION_TIMEOUT, testutil.POLLING)
+}
+
+// expectSerialConsoleForceTakeover verifies serial login, then that a second connect
+// without --force is rejected and --force replaces the first session.
+func expectSerialConsoleForceTakeover(h *e2e.Harness, deviceID, appName, user, password string) {
+	GinkgoHelper()
+	By("Verifying serial console login works")
+	cs1 := h.NewAppConsoleSessionWaitingForLogin(deviceID, appName, testutil.LONG_TIMEOUT, testutil.POLLING)
+	DeferCleanup(cs1.Close)
+	loginOnSerialConsole(cs1, user, password)
+
+	By("Rejecting a second serial console without --force")
+	out, err := h.CLI(
+		"app", "console",
+		fmt.Sprintf("device/%s", deviceID),
+		"--name", appName,
+		"--type", "serial",
+	)
+	Expect(err).To(HaveOccurred())
+	Expect(out).To(ContainSubstring(fmt.Sprintf("serial console session already active for application %s", appName)))
+
+	By("Logging out of the guest so the replacement session sees a login prompt")
+	cs1.MustSend("exit")
+	cs1.MustExpectWithin(`(?i)login:`, testutil.DURATION_TIMEOUT, testutil.POLLING)
+
+	By("Taking over the serial console with --force")
+	cs2 := h.NewAppConsoleSession(deviceID, appName, "serial", "--force")
+	DeferCleanup(cs2.Close)
+
+	By("Waiting for the first session to disconnect with a replacement message")
+	Eventually(func(g Gomega) {
+		g.Expect(string(cs1.Stdout.Contents())).To(ContainSubstring("console session replaced by a new connection"))
+	}, testutil.DURATION_TIMEOUT, testutil.POLLING).Should(Succeed())
+	Eventually(cs1.Stdout.Closed).WithTimeout(testutil.DURATION_TIMEOUT).WithPolling(testutil.POLLING).Should(BeTrue())
+
+	By("Verifying the replacement serial session is usable")
+	_, err = io.WriteString(cs2.Stdin, "\n")
+	Expect(err).NotTo(HaveOccurred())
+	cs2.MustExpectWithin(`(?i)login:`, testutil.DURATION_TIMEOUT, testutil.POLLING)
+	loginOnSerialConsole(cs2, user, password)
 }
 
 // expectGuestUDPHello polls a UDP probe inside the guest via SSH to a published TCP port.
@@ -406,6 +945,11 @@ func vmApplicationComputeServiceName(appName string) string {
 	return quadlet.NamespaceResource(vmApplicationID(appName), fmt.Sprintf("virt-launcher-%s-compute.service", appName))
 }
 
+// vmApplicationComputeContainerFileName returns the generated virt-launcher compute container quadlet file name.
+func vmApplicationComputeContainerFileName(appName string) string {
+	return quadlet.NamespaceResource(vmApplicationID(appName), fmt.Sprintf("virt-launcher-%s-compute.container", appName))
+}
+
 // vmApplicationID returns the production app ID used to namespace generated VM units.
 func vmApplicationID(appName string) string {
 	return lifecycle.GenerateAppID(appName, v1beta1.CurrentProcessUsername)
@@ -415,86 +959,37 @@ func encodeConfigDriveUserData(cloudConfig string) string {
 	return base64.StdEncoding.EncodeToString([]byte(cloudConfig))
 }
 
-func configDriveCloudUserIdentityYAML(sshPublicKey, password string) string {
-	return fmt.Sprintf(`ssh_pwauth: true
-users:
-  - name: %s
-    sudo: ALL=(ALL) NOPASSWD:ALL
-    shell: /bin/bash
-    lock_passwd: false
-    ssh_authorized_keys:
-      - %s
-chpasswd:
-  expire: false
-  users:
-    - name: %s
-      password: %s
-      type: text`, vmCloudUser, sshPublicKey, vmCloudUser, password)
+type configDriveCloudConfigParams struct {
+	User            string
+	Password        string
+	SSHPublicKey    string
+	FaillockCommand string
+	WithServices    bool
+	IndexHTML       string
+	UDPPort         int
+}
+
+func renderConfigDriveCloudUserData(sshPublicKey, password string, withServices bool) string {
+	var buf bytes.Buffer
+	params := configDriveCloudConfigParams{
+		User:            vmCloudUser,
+		Password:        password,
+		SSHPublicKey:    sshPublicKey,
+		FaillockCommand: e2e.VMGuestDisableFaillockCommand(vmCloudUser),
+		WithServices:    withServices,
+		IndexHTML:       configDriveIndexHTMLContent,
+		UDPPort:         vmBPublishedUDPPort,
+	}
+	if err := configDriveCloudConfigTemplate.Execute(&buf, params); err != nil {
+		panic("rendering cloud-config-drive: " + err.Error())
+	}
+	return buf.String()
 }
 
 func configDriveCloudUserData(sshPublicKey, password string) string {
-	return "#cloud-config\n" + configDriveCloudUserIdentityYAML(sshPublicKey, password) + "\n"
+	return renderConfigDriveCloudUserData(sshPublicKey, password, false)
 }
 
 func configDriveCloudUserDataWithServices(sshPublicKey, password string) string {
-	return fmt.Sprintf(`#cloud-config
-%s
-write_files:
-  - path: /var/www/html/index.html
-    content: %q
-    owner: root:root
-    permissions: '0644'
-  - path: /usr/local/bin/hello-udp-listener.py
-    owner: root:root
-    permissions: '0755'
-    content: |
-      #!/usr/bin/env python3
-      import socket
-
-      PORT = %d
-
-      sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-      sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-      sock.bind(("0.0.0.0", PORT))
-      while True:
-          _data, addr = sock.recvfrom(1024)
-          sock.sendto(b"hello\n", addr)
-  - path: /etc/systemd/system/hello-http.service
-    owner: root:root
-    permissions: '0644'
-    content: |
-      [Unit]
-      Description=Hello HTTP service
-      After=network-online.target
-      Wants=network-online.target
-
-      [Service]
-      Type=simple
-      WorkingDirectory=/var/www/html
-      ExecStart=/usr/bin/python3 -m http.server 80
-      Restart=on-failure
-
-      [Install]
-      WantedBy=multi-user.target
-  - path: /etc/systemd/system/hello-udp.service
-    owner: root:root
-    permissions: '0644'
-    content: |
-      [Unit]
-      Description=Hello UDP reply service
-      After=network-online.target
-      Wants=network-online.target
-
-      [Service]
-      Type=simple
-      ExecStart=/usr/bin/python3 /usr/local/bin/hello-udp-listener.py
-      Restart=on-failure
-
-      [Install]
-      WantedBy=multi-user.target
-runcmd:
-  - systemctl daemon-reload
-  - systemctl enable --now hello-http.service
-  - systemctl enable --now hello-udp.service
-`, configDriveCloudUserIdentityYAML(sshPublicKey, password), configDriveIndexHTMLContent, vmBPublishedUDPPort)
+	return renderConfigDriveCloudUserData(sshPublicKey, password, true)
 }

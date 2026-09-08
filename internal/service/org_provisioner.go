@@ -62,7 +62,7 @@ func (p *OrgProvisioner) ensureDefaultCatalog(ctx context.Context, orgID uuid.UU
 		Spec: domain.CatalogSpec{
 			DisplayName: &displayName,
 		},
-	}, nil)
+	})
 	if err != nil {
 		p.log.WithError(err).Errorf("Failed to create default catalog for org %s", orgID)
 	}

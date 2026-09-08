@@ -1,0 +1,78 @@
+apiVersion: kubevirt.io/v1
+kind: VirtualMachine
+metadata:
+  name: {{.Name}}
+spec:
+  running: true
+{{- if .ExtraDataSize }}
+  dataVolumeTemplates:
+  - metadata:
+      name: extradata
+    spec:
+      source:
+        blank: {}
+      storage:
+        resources:
+          requests:
+            storage: {{.ExtraDataSize}}
+{{- end }}
+  template:
+    spec:
+      domain:
+{{- if gt .CPUCores 0 }}
+        cpu:
+          cores: {{.CPUCores}}
+{{- end }}
+        devices:
+          disks:
+          - disk:
+              bus: virtio
+            name: containerdisk
+          - disk:
+              bus: virtio
+            name: cloudinitdisk
+{{- if .HostDiskPath }}
+          - disk:
+              bus: virtio
+            name: host-data
+{{- end }}
+{{- if .ExtraDataSize }}
+          - disk:
+              bus: virtio
+            name: extradata
+{{- end }}
+          interfaces:
+          - masquerade: {}
+            name: default
+          rng: {}
+        memory:
+          guest: {{.GuestMemory}}
+        resources: {}
+      networks:
+      - name: default
+        pod: {}
+      volumes:
+      - containerdisk:
+          image: {{.Image}}
+        name: containerdisk
+{{- if .UserDataBase64 }}
+      - cloudInitConfigDrive:
+          userDataBase64: {{.UserDataBase64}}
+        name: cloudinitdisk
+{{- else }}
+      - cloudInitNoCloud:
+          userData: |-
+{{ indent 12 .UserData }}
+        name: cloudinitdisk
+{{- end }}
+{{- if .HostDiskPath }}
+      - hostDisk:
+          path: {{.HostDiskPath}}
+          type: DiskOrFail
+        name: host-data
+{{- end }}
+{{- if .ExtraDataSize }}
+      - dataVolume:
+          name: extradata
+        name: extradata
+{{- end }}

@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
-	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/test/e2e/infra"
 	"github.com/flightctl/flightctl/test/e2e/infra/setup"
@@ -57,16 +56,9 @@ var _ = Describe("VM Agent behavior", func() {
 			Expect(enrollmentRequest.Spec.DeviceStatus).ToNot(BeNil())
 			Expect(enrollmentRequest.Spec.DeviceStatus.SystemInfo.IsEmpty()).NotTo(BeTrue())
 
-			// Approve the enrollment and wait for the device details to be populated by the agent
 			harness.ApproveEnrollment(enrollmentID, harness.TestEnrollmentApproval())
-			GinkgoWriter.Printf("Waiting for device %s to report status\n", enrollmentID)
-
-			// wait for the device to pickup enrollment and report measurements on device status
-			Eventually(func() *apiclient.GetDeviceResponse {
-				resp, err := harness.GetDeviceWithStatusSystem(enrollmentID)
-				Expect(err).ToNot(HaveOccurred())
-				return resp
-			}, TIMEOUT, POLLING).ShouldNot(BeNil())
+			GinkgoWriter.Printf("Waiting for device %s to come online\n", enrollmentID)
+			harness.WaitForOnlineStatus(enrollmentID)
 		})
 		It("Should report a message when a device is assigned to multiple fleets", Label("75992", "agent"), func() {
 			// Get harness directly - no shared package-level variable

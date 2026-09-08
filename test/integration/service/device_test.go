@@ -858,6 +858,38 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 		})
 	})
 
+	Context("SetDeviceServiceConditions", func() {
+		It("persists a changed service condition and skips write when unchanged", func() {
+			deviceName := "svc-conditions-device"
+			_, status := suite.Device.CreateDevice(suite.Ctx, suite.OrgID, api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec:     &api.DeviceSpec{Os: &api.DeviceOsSpec{Image: "img"}},
+			})
+			Expect(status.Code).To(Equal(int32(201)))
+
+			cond := api.Condition{
+				Type:    api.ConditionTypeDeviceSpecValid,
+				Status:  api.ConditionStatusTrue,
+				Reason:  "ok",
+				Message: "ok",
+			}
+			status = suite.Device.SetDeviceServiceConditions(suite.Ctx, suite.OrgID, deviceName, []api.Condition{cond})
+			Expect(status.Code).To(Equal(int32(200)))
+
+			afterWrite, status := suite.Device.GetDevice(suite.Ctx, suite.OrgID, deviceName)
+			Expect(status.Code).To(Equal(int32(200)))
+			Expect(api.IsStatusConditionTrue(afterWrite.Status.Conditions, api.ConditionTypeDeviceSpecValid)).To(BeTrue())
+			rvAfterWrite := lo.FromPtr(afterWrite.Metadata.ResourceVersion)
+
+			status = suite.Device.SetDeviceServiceConditions(suite.Ctx, suite.OrgID, deviceName, []api.Condition{cond})
+			Expect(status.Code).To(Equal(int32(200)))
+
+			afterNoop, status := suite.Device.GetDevice(suite.Ctx, suite.OrgID, deviceName)
+			Expect(status.Code).To(Equal(int32(200)))
+			Expect(lo.FromPtr(afterNoop.Metadata.ResourceVersion)).To(Equal(rvAfterWrite))
+		})
+	})
+
 	Context("Package-mode OS image rejection", func() {
 		seedDeviceWithOsMode := func(deviceName string, osMode *api.OsModeType) {
 			GinkgoHelper()
@@ -1043,6 +1075,71 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 			_, status := suite.Device.ReplaceDevice(suite.Ctx, suite.OrgID, deviceName, updated, nil, true, true)
 			Expect(status.Code).To(Equal(int32(200)))
+		})
+	})
+
+	Context("DeltaEligible status persist and GET", func() {
+		seedDeviceWithDeltaSystemInfo := func(deviceName string, deltaEligible *bool, bootcVersion, ociDeltaVersion *string) {
+			GinkgoHelper()
+			device := api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec:     &api.DeviceSpec{},
+			}
+			_, status := suite.Device.CreateDevice(suite.Ctx, suite.OrgID, device)
+			Expect(status.Code).To(Equal(int32(201)))
+
+			deviceStatus := api.NewDeviceStatus()
+			deviceStatus.Capabilities = &api.DeviceCapabilities{
+				OsMode: lo.ToPtr(api.OsModeImage),
+			}
+			deviceStatus.SystemInfo.DeltaEligible = deltaEligible
+			deviceStatus.SystemInfo.BootcVersion = bootcVersion
+			deviceStatus.SystemInfo.OciDeltaVersion = ociDeltaVersion
+			statusDevice := api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Status:   &deviceStatus,
+			}
+			_, status = suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, statusDevice, false)
+			Expect(status.Code).To(Equal(int32(200)))
+		}
+
+		It("When status has OsMode but no delta systemInfo fields it should leave them unset on GET", func() {
+			deviceName := "delta-eligible-omitted"
+			seedDeviceWithDeltaSystemInfo(deviceName, nil, nil, nil)
+
+			got, status := suite.Device.GetDevice(suite.Ctx, suite.OrgID, deviceName)
+			Expect(status.Code).To(Equal(int32(200)))
+			Expect(got.Status).ToNot(BeNil())
+			Expect(got.Status.Capabilities).ToNot(BeNil())
+			Expect(got.Status.SystemInfo.DeltaEligible).To(BeNil())
+			Expect(got.Status.SystemInfo.BootcVersion).To(BeNil())
+			Expect(got.Status.SystemInfo.OciDeltaVersion).To(BeNil())
+		})
+
+		It("When DeltaEligible is true it should return true on GET", func() {
+			deviceName := "delta-eligible-true"
+			seedDeviceWithDeltaSystemInfo(deviceName, lo.ToPtr(true), lo.ToPtr("bootc 1.15.0"), lo.ToPtr("oci-delta 0.2.1"))
+
+			got, status := suite.Device.GetDevice(suite.Ctx, suite.OrgID, deviceName)
+			Expect(status.Code).To(Equal(int32(200)))
+			Expect(got.Status).ToNot(BeNil())
+			Expect(got.Status.SystemInfo.DeltaEligible).ToNot(BeNil())
+			Expect(*got.Status.SystemInfo.DeltaEligible).To(BeTrue())
+			Expect(got.Status.SystemInfo.BootcVersion).ToNot(BeNil())
+			Expect(*got.Status.SystemInfo.BootcVersion).To(Equal("bootc 1.15.0"))
+			Expect(got.Status.SystemInfo.OciDeltaVersion).ToNot(BeNil())
+			Expect(*got.Status.SystemInfo.OciDeltaVersion).To(Equal("oci-delta 0.2.1"))
+		})
+
+		It("When DeltaEligible is false it should return false on GET", func() {
+			deviceName := "delta-eligible-false"
+			seedDeviceWithDeltaSystemInfo(deviceName, lo.ToPtr(false), nil, nil)
+
+			got, status := suite.Device.GetDevice(suite.Ctx, suite.OrgID, deviceName)
+			Expect(status.Code).To(Equal(int32(200)))
+			Expect(got.Status).ToNot(BeNil())
+			Expect(got.Status.SystemInfo.DeltaEligible).ToNot(BeNil())
+			Expect(*got.Status.SystemInfo.DeltaEligible).To(BeFalse())
 		})
 	})
 

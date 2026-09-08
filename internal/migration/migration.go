@@ -16,6 +16,7 @@ import (
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	checkpointstore "github.com/flightctl/flightctl/internal/store/checkpoint"
+	deltastore "github.com/flightctl/flightctl/internal/store/delta"
 	dependencyrefstore "github.com/flightctl/flightctl/internal/store/dependencyref"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
@@ -36,13 +37,15 @@ import (
 // ErrDryRunComplete signals that migrations validated successfully in dry-run mode.
 var ErrDryRunComplete = errors.New("dry-run complete")
 
-// Run executes all database migrations within a single transaction.
-// If dryRun is true, the transaction is rolled back after successful validation.
+// Run executes schema migrations within a single transaction, then runs the
+// vulnerability-source data backfill in bounded transactions. If dryRun is
+// true, the schema migration transaction is rolled back after validation and
+// the data backfill is skipped.
 // The provided db must be connected as a user with migration privileges.
 func Run(ctx context.Context, db *gorm.DB, log logrus.FieldLogger, dryRun bool) error {
 	ctx = store.WithBypassSpanCheck(ctx)
 
-	return db.Transaction(func(tx *gorm.DB) error {
+	err := db.Transaction(func(tx *gorm.DB) error {
 		txLog := log.WithFields(logrus.Fields{
 			"pkg":     "migration-store-tx",
 			"dry_run": dryRun,
@@ -63,6 +66,11 @@ func Run(ctx context.Context, db *gorm.DB, log logrus.FieldLogger, dryRun bool) 
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+
+	return backfillVulnerabilitySource(ctx, db)
 }
 
 // runMainStoreMigrations runs schema migrations for every resource's own store, in the same
@@ -121,6 +129,9 @@ func runMainStoreMigrations(ctx context.Context, tx *gorm.DB, log logrus.FieldLo
 	if err := canarystore.NewCanaryStore(tx, log).InitialMigration(ctx); err != nil {
 		return err
 	}
+	if err := deltastore.NewStore(tx, log).InitialMigration(ctx); err != nil {
+		return err
+	}
 
 	return customizeMigration(ctx, tx, log)
 }
@@ -145,9 +156,6 @@ func customizeMigration(ctx context.Context, tx *gorm.DB, log logrus.FieldLogger
 		return err
 	}
 	if err := normalizeAuthProviderURLs(ctx, tx); err != nil {
-		return err
-	}
-	if err := backfillVulnerabilitySource(ctx, tx); err != nil {
 		return err
 	}
 	return migrateCatalogItemLabels(ctx, tx, log)

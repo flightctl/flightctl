@@ -339,7 +339,7 @@ var _ = Describe("DeviceRender", func() {
 				},
 				Spec: repoSpec,
 			}
-			_, err = repoStore.Create(ctx, orgId, repo, nil)
+			_, err = repoStore.Create(ctx, orgId, repo)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Create a fleet with inline configuration that uses device labels
@@ -491,7 +491,7 @@ var _ = Describe("DeviceRender", func() {
 				},
 				Spec: repoSpec,
 			}
-			_, err = repoStore.Create(ctx, orgId, repo, nil)
+			_, err = repoStore.Create(ctx, orgId, repo)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Create a fleet with inline configuration

@@ -23,6 +23,10 @@ Volume=/etc/flightctl/pki/db:/root/.flightctl/certs/db:ro,z
 Volume=/var/tmp/flightctl-builds:/var/tmp/flightctl-builds:rw,z
 Volume=/var/tmp/flightctl-exports:/var/tmp/flightctl-exports:rw,z
 Volume=flightctl-worker-storage:/var/lib/containers
+# Optional: Mount a CA bundle for verifying the Trustify server certificate (used for SBOM
+# upload). Uncomment and point the source at your CA file, then set
+# vulnerabilityReporting.trustify.caFile in service-config.yaml to the target path.
+# Volume=/etc/flightctl/certs/vulnerability-ca.pem:/etc/flightctl/certs/vulnerability-ca.pem:ro,z
 # Optional: Mount RHEL entitlement certs for subscription-only repos (auto-detected if present).
 # On RHEL hosts with active subscription, uncomment to use host entitlements:
 # Volume=/etc/pki/entitlement:/etc/pki/entitlement:ro,z

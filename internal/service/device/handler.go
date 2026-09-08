@@ -870,12 +870,61 @@ func (h *DeviceServiceHandler) UpdateRenderedDevice(ctx context.Context, orgId u
 }
 
 func (h *DeviceServiceHandler) SetDeviceServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition) domain.Status {
-	callback := func(ctx context.Context, orgId uuid.UUID, device *domain.Device, oldConditions, newConditions []domain.Condition) {
-		h.diffAndEmitConditionEvents(ctx, orgId, device, oldConditions, newConditions)
+	var oldConditions, newConditions []domain.Condition
+	result, _, _, err := h.deviceStore.Mutate(ctx, orgId, name, nil, func(m *devicestore.DeviceMutation) error {
+		if err := m.RequireExisting(); err != nil {
+			return err
+		}
+		existing := serviceConditionsFromDevice(m.Device)
+		merged, changed := common.MergeStatusConditions(existing, conditions)
+		if !changed {
+			return store.ErrMutateSkipWrite
+		}
+		oldConditions = existing
+		newConditions = merged
+		replaceServiceConditionsOnDevice(m.Device, merged)
+		return nil
+	})
+	if err != nil {
+		return common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 	}
+	if result != nil {
+		h.diffAndEmitConditionEvents(ctx, orgId, result, oldConditions, newConditions)
+	}
+	return domain.StatusOK()
+}
 
-	err := h.deviceStore.SetServiceConditions(ctx, orgId, name, conditions, callback)
-	return common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
+// serviceConditionsFromDevice returns SpecValid / MultipleOwners conditions from
+// Status.Conditions (agent and service conditions are stored separately but
+// exposed together by Get).
+func serviceConditionsFromDevice(device *domain.Device) []domain.Condition {
+	if device == nil || device.Status == nil {
+		return nil
+	}
+	var out []domain.Condition
+	for _, c := range device.Status.Conditions {
+		if c.Type.IsServiceConditionType() {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// replaceServiceConditionsOnDevice swaps service-owned conditions on Status while
+// preserving agent conditions. NewDeviceFromApiResource routes service types into
+// the service_conditions column on persist.
+func replaceServiceConditionsOnDevice(device *domain.Device, serviceConds []domain.Condition) {
+	if device.Status == nil {
+		status := domain.NewDeviceStatus()
+		device.Status = &status
+	}
+	var agent []domain.Condition
+	for _, c := range device.Status.Conditions {
+		if !c.Type.IsServiceConditionType() {
+			agent = append(agent, c)
+		}
+	}
+	device.Status.Conditions = append(agent, serviceConds...)
 }
 
 // diffAndEmitConditionEvents compares old and new conditions and emits events for condition changes

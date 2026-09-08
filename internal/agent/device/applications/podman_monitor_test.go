@@ -1657,7 +1657,7 @@ func TestPodmanMonitorResolveConsole(t *testing.T) {
 		// always return the same session type. Assert the VNC-specific observable
 		// behavior instead: the underlying exec targets the serial socket, not the VNC one.
 		execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "exec", "systemd-my-vm-compute", "sh", "-c", gomock.Any()).
-			Return("", "", 0).Times(1)
+			Return("", "", 0).Times(2)
 		execMock.EXPECT().CommandContext(gomock.Any(), "podman", "exec", "-i", "systemd-my-vm-compute", "nc", "-U", "/var/run/kubevirt-private/default/virt-serial0").
 			DoAndReturn(func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
 				return exec.CommandContext(ctx, "cat")
@@ -1716,7 +1716,7 @@ func TestPodmanMonitorResolveConsole(t *testing.T) {
 		// always return the serial session. Assert the VNC-specific observable behavior
 		// instead: the underlying exec targets the VNC socket, not the serial one.
 		execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "exec", "systemd-my-vm-compute", "sh", "-c", gomock.Any()).
-			Return("", "", 0).Times(1)
+			Return("", "", 0).Times(2)
 		execMock.EXPECT().CommandContext(gomock.Any(), "podman", "exec", "-i", "systemd-my-vm-compute", "nc", "-U", "/var/run/kubevirt-private/default/virt-vnc").
 			DoAndReturn(func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
 				return exec.CommandContext(ctx, "cat")
