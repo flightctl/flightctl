@@ -374,6 +374,8 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 		})
 		It("Should rollback when third-party health check (MicroShift) fails", Label("greenboot-third-party", "88229", "agent"), func() {
 			harness := e2e.GetWorkerHarness()
+			// Shorten flightctl and MicroShift greenboot check timeouts; LONGTIMEOUT below
+			// is the outer bound for the full reboot+rollback cycle.
 			setFastGreenbootHealthTimeouts(harness)
 
 			By("Getting initial device state")
@@ -792,26 +794,32 @@ func readAgentLogsForRollbackAssertion(harness *e2e.Harness) string {
 // the currently-booted deployment before triggering the v11 update also takes effect on
 // the v11 boot and the rollback boot that follows it.
 //
-// Existing FLIGHTCTL_HEALTH_* keys are stripped before append so repeated calls
-// (or a non-pristine VM) do not grow greenboot.conf with duplicate assignments.
+// MICROSHIFT_WAIT_TIMEOUT_SEC shortens 40_microshift_running_check.sh (default 5–10m
+// per attempt) so third-party rollback e2e fits within LONGTIMEOUT.
+//
+// Existing FLIGHTCTL_HEALTH_* and MICROSHIFT_WAIT_TIMEOUT_SEC keys are stripped
+// before append so repeated calls (or a non-pristine VM) do not grow
+// greenboot.conf with duplicate assignments.
 const fastGreenbootOverrideScript = `sudo mkdir -p /etc/greenboot
 sudo touch /etc/greenboot/greenboot.conf
 sudo sed -i \
   -e '/^FLIGHTCTL_HEALTH_CHECK_TIMEOUT=/d' \
   -e '/^FLIGHTCTL_HEALTH_STABILITY_WINDOW=/d' \
   -e '/^FLIGHTCTL_HEALTH_POLL_INTERVAL=/d' \
+  -e '/^MICROSHIFT_WAIT_TIMEOUT_SEC=/d' \
   /etc/greenboot/greenboot.conf
 cat <<'EOF' | sudo tee -a /etc/greenboot/greenboot.conf >/dev/null
 FLIGHTCTL_HEALTH_CHECK_TIMEOUT=90
 FLIGHTCTL_HEALTH_STABILITY_WINDOW=10
 FLIGHTCTL_HEALTH_POLL_INTERVAL=2
+MICROSHIFT_WAIT_TIMEOUT_SEC=60
 EOF
 `
 
 func setFastGreenbootHealthTimeouts(harness *e2e.Harness) {
 	_, err := harness.VM.RunSSH([]string{"bash", "-lc", fastGreenbootOverrideScript}, nil)
 	Expect(err).NotTo(HaveOccurred())
-	GinkgoWriter.Println("[setFastGreenbootHealthTimeouts] set greenboot.conf override: timeout=90s stability-window=10s poll-interval=2s")
+	GinkgoWriter.Println("[setFastGreenbootHealthTimeouts] set greenboot.conf override: flightctl timeout=90s stability-window=10s poll-interval=2s microshift-wait=60s")
 }
 
 // waitForGreenbootOSRollbackFromV11BrokenAgent updates the device to the v11 image (broken flightctl-agent),
