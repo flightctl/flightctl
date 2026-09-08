@@ -657,7 +657,7 @@ func TestPushLayoutAsReferrer_WhenDestHasSubjectItShouldPackWithSubject(t *testi
 	loaded, err := loadDeltaLayout(ctx, layoutDir)
 	req.NoError(err)
 	req.NoError(loaded.matchesPair(sourceDigest, subject.Digest.String()))
-	packed, err := pushLayoutAsReferrer(ctx, loaded, dest, subject)
+	packed, err := pushLayoutAsReferrer(ctx, loaded, dest, subject, dest)
 	req.NoError(err)
 
 	rc, err := dest.Fetch(ctx, packed)
@@ -671,6 +671,67 @@ func TestPushLayoutAsReferrer_WhenDestHasSubjectItShouldPackWithSubject(t *testi
 	req.Equal(subject.Digest, manifest.Subject.Digest)
 	req.Equal(sourceDigest, manifest.Annotations[ociDeltaSourceAnnotation])
 	req.Equal(ociDeltaArtifactType, manifest.ArtifactType)
+}
+
+func TestPushLayoutAsReferrer_WhenSubjectSrcDiffersFromDestItShouldPackReferrer(t *testing.T) {
+	req := require.New(t)
+	ctx := context.Background()
+	layoutDir := t.TempDir()
+	srcDir := t.TempDir()
+	destDir := t.TempDir()
+
+	src, err := ocistore.New(srcDir)
+	req.NoError(err)
+	subjectPayload := []byte("os-layer")
+	subjectLayer := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageLayer,
+		Digest:    digest.FromBytes(subjectPayload),
+		Size:      int64(len(subjectPayload)),
+	}
+	const sourceDigest = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	req.NoError(src.Push(ctx, subjectLayer, bytes.NewReader(subjectPayload)))
+	subject, err := oras.PackManifest(ctx, src, oras.PackManifestVersion1_1, ocispec.MediaTypeImageManifest, oras.PackManifestOptions{
+		Layers: []ocispec.Descriptor{subjectLayer},
+	})
+	req.NoError(err)
+
+	dest, err := ocistore.New(destDir)
+	req.NoError(err)
+
+	layout, err := ocistore.New(layoutDir)
+	req.NoError(err)
+	deltaPayload := []byte("delta-layer")
+	deltaLayer := ocispec.Descriptor{
+		MediaType: ocispec.MediaTypeImageLayer,
+		Digest:    digest.FromBytes(deltaPayload),
+		Size:      int64(len(deltaPayload)),
+	}
+	req.NoError(layout.Push(ctx, deltaLayer, bytes.NewReader(deltaPayload)))
+	layoutManifest, err := oras.PackManifest(ctx, layout, oras.PackManifestVersion1_1, ociDeltaArtifactType, oras.PackManifestOptions{
+		Subject: &subject,
+		Layers:  []ocispec.Descriptor{deltaLayer},
+		ManifestAnnotations: map[string]string{
+			ociDeltaSourceAnnotation: sourceDigest,
+		},
+	})
+	req.NoError(err)
+	req.NoError(layout.Tag(ctx, layoutManifest, layoutTag))
+
+	loaded, err := loadDeltaLayout(ctx, layoutDir)
+	req.NoError(err)
+	req.NoError(loaded.matchesPair(sourceDigest, subject.Digest.String()))
+	packed, err := pushLayoutAsReferrer(ctx, loaded, dest, subject, src)
+	req.NoError(err)
+
+	rc, err := dest.Fetch(ctx, packed)
+	req.NoError(err)
+	defer rc.Close()
+	b, err := io.ReadAll(rc)
+	req.NoError(err)
+	var manifest ocispec.Manifest
+	req.NoError(json.Unmarshal(b, &manifest))
+	req.NotNil(manifest.Subject)
+	req.Equal(subject.Digest, manifest.Subject.Digest)
 }
 
 func TestDeltaLayout_WhenPairDoesNotMatchItShouldError(t *testing.T) {

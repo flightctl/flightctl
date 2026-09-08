@@ -831,11 +831,15 @@ func pushOCILayout(ctx context.Context, spec *domain.OciRepoSpec, layoutDir, des
 	if err := layout.matchesPair(sourceDigest, targetDigest); err != nil {
 		return "", err
 	}
-	subject, err := resolveExactDigest(ctx, dst, destRef, layout.subject.Digest.String())
+	srcRepo, _, err := remoteImageRepository(ctx, spec, targetRef)
+	if err != nil {
+		return "", fmt.Errorf("configure source image repository: %w", err)
+	}
+	subject, err := resolveExactDigest(ctx, srcRepo, targetRef, layout.subject.Digest.String())
 	if err != nil {
 		return "", err
 	}
-	desc, err := pushLayoutAsReferrer(ctx, layout, dst, subject)
+	desc, err := pushLayoutAsReferrer(ctx, layout, dst, subject, srcRepo)
 	if err != nil {
 		return "", err
 	}
@@ -917,7 +921,7 @@ func referenceForResolve(imageRef string) (string, error) {
 	return parsed.Reference, nil
 }
 
-func pushLayoutAsReferrer(ctx context.Context, layout *deltaLayout, dst content.Pusher, subject ocispec.Descriptor) (ocispec.Descriptor, error) {
+func pushLayoutAsReferrer(ctx context.Context, layout *deltaLayout, dst content.Pusher, subject ocispec.Descriptor, subjectSrc content.Fetcher) (ocispec.Descriptor, error) {
 	obs := copyObserverFrom(ctx)
 	if err := pushStoredBlob(ctx, layout.store, dst, layout.manifest.Config, obs); err != nil {
 		return ocispec.Descriptor{}, fmt.Errorf("push config: %w", err)
@@ -927,7 +931,7 @@ func pushLayoutAsReferrer(ctx context.Context, layout *deltaLayout, dst content.
 			return ocispec.Descriptor{}, fmt.Errorf("push layer %d: %w", i, err)
 		}
 	}
-	if err := ensureSubjectBlob(ctx, dst, subject); err != nil {
+	if err := ensureSubjectBlob(ctx, dst, subject, subjectSrc); err != nil {
 		return ocispec.Descriptor{}, fmt.Errorf("ensure subject blob: %w", err)
 	}
 	config := layout.manifest.Config
@@ -947,7 +951,7 @@ func pushLayoutAsReferrer(ctx context.Context, layout *deltaLayout, dst content.
 // ensureSubjectBlob stores the subject manifest bytes in the blob CAS.
 // Some registries require the subject manifest blob to exist before accepting a referrer;
 // push it as application/octet-stream because the registry may not have it indexed yet.
-func ensureSubjectBlob(ctx context.Context, dst content.Pusher, subject ocispec.Descriptor) error {
+func ensureSubjectBlob(ctx context.Context, dst content.Pusher, subject ocispec.Descriptor, subjectSrc content.Fetcher) error {
 	repo, ok := dst.(*remote.Repository)
 	if !ok {
 		return nil
@@ -964,7 +968,11 @@ func ensureSubjectBlob(ctx context.Context, dst content.Pusher, subject ocispec.
 	if exists {
 		return nil
 	}
-	rc, err := repo.Fetch(ctx, subject)
+	src := subjectSrc
+	if src == nil {
+		src = repo
+	}
+	rc, err := src.Fetch(ctx, subject)
 	if err != nil {
 		return fmt.Errorf("fetch subject %s: %w", subject.Digest, err)
 	}
