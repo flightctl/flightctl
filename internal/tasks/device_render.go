@@ -54,31 +54,15 @@ func deviceRender(ctx context.Context, orgId uuid.UUID, event domain.Event, devi
 	logic := NewDeviceRenderLogic(log, deviceSvc, repositorySvc, catalogSvc, k8sClient, kvStore, cfg, orgId, event)
 	logic.deltaLookup = deltaStore
 	logic.preparing = preparing
-	if event.InvolvedObject.Kind != domain.DeviceKind {
-		log.Errorf("DeviceRender called with unexpected kind %s and op %s", event.InvolvedObject.Kind, event.Reason)
-		return nil
-	}
-
-	// Detach from the parent's EventProcessingTimeout so that the render
-	// operation runs under its own configurable deadline. Explicit parent
-	// cancellation (e.g. shutdown) still propagates through the goroutine.
-	renderCtx, cancelRender := context.WithTimeout(context.WithoutCancel(ctx), cfg.EffectiveRenderTimeout())
-	defer cancelRender()
-	go func() {
-		select {
-		case <-ctx.Done():
-			if errors.Is(ctx.Err(), context.Canceled) {
-				cancelRender()
-			}
-		case <-renderCtx.Done():
+	if event.InvolvedObject.Kind == domain.DeviceKind {
+		err := logic.RenderDevice(ctx)
+		if err != nil {
+			log.Errorf("failed rendering device %s/%s: %v", orgId, event.InvolvedObject.Name, err)
+		} else {
+			log.Infof("completed rendering device %s/%s", orgId, event.InvolvedObject.Name)
 		}
-	}()
-
-	err := logic.RenderDevice(renderCtx)
-	if err != nil {
-		log.Errorf("failed rendering device %s/%s: %v", orgId, event.InvolvedObject.Name, err)
 	} else {
-		log.Infof("completed rendering device %s/%s", orgId, event.InvolvedObject.Name)
+		log.Errorf("DeviceRender called with unexpected kind %s and op %s", event.InvolvedObject.Kind, event.Reason)
 	}
 	return nil
 }
@@ -101,6 +85,9 @@ type DeviceRenderLogic struct {
 	deltaLookup       generationLookup
 	osManifestSize    func(context.Context, string) (*int64, error)
 	preparing         preparingClearer
+	// device is the device being rendered, used for looking up current
+	// image digests when resolving application delta hints.
+	device *domain.Device
 }
 
 func NewDeviceRenderLogic(log logrus.FieldLogger, deviceSvc deviceservice.Service, repositorySvc repositoryservice.Service, catalogSvc catalogservice.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, cfg *config.Config, orgId uuid.UUID, event domain.Event) DeviceRenderLogic {
@@ -146,6 +133,7 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		return fmt.Errorf("failed getting device %s/%s: %s", t.orgId, t.event.InvolvedObject.Name, status.Message)
 	}
 
+	t.device = device
 	t.bindVmLauncher(device)
 
 	// Calculate hash including device spec and selected virt-launcher image.
@@ -159,6 +147,17 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		domain.EventReasonFleetRolloutDeviceSelected,
 		domain.EventReasonApplicationLifecycleChanged,
 	}, t.event.Reason)
+
+	// If device.Spec or device.Spec.Config are nil, we still want to render an empty ignition config
+	var applications *[]domain.ApplicationProviderSpec
+	if device.Spec != nil {
+		// Copy rather than alias device.Spec.Applications: the lifecycle overlay below replaces
+		// elements in place, and must not mutate the device object read above.
+		if device.Spec.Applications != nil {
+			appsCopy := append([]domain.ApplicationProviderSpec(nil), (*device.Spec.Applications)...)
+			applications = &appsCopy
+		}
+	}
 
 	if device.Metadata.Annotations != nil {
 		annotations := lo.FromPtr(device.Metadata.Annotations)
@@ -229,13 +228,6 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 	if t.ownerFleet != nil {
 		fleetLifecycleRaw = annotations[domain.DeviceAnnotationFleetApplicationLifecycle]
 	}
-	var applications *[]domain.ApplicationProviderSpec
-	if device.Spec != nil && device.Spec.Applications != nil {
-		// Copy rather than alias device.Spec.Applications: the lifecycle overlay below replaces
-		// elements in place, and must not mutate the device object read above.
-		appsCopy := append([]domain.ApplicationProviderSpec(nil), (*device.Spec.Applications)...)
-		applications = &appsCopy
-	}
 	if deviceLifecycleRaw != "" || fleetLifecycleRaw != "" {
 		if err := domain.OverlayApplicationLifecycle(applications, deviceLifecycleRaw, fleetLifecycleRaw); err != nil {
 			t.log.Errorf("failed to overlay application lifecycle for device %s/%s, skipping override: %v", t.orgId, t.event.InvolvedObject.Name, err)
@@ -275,7 +267,14 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		syncRefs = append(syncRefs, ref)
 	}
 
-	status = t.deviceSvc.UpdateRenderedDevice(ctx, t.orgId, t.event.InvolvedObject.Name, string(rendered.Config), string(rendered.Applications), specHash, rendered.OsImage, syncRefs, bypassHashCheck, t.resolveOSDeltaHint(ctx, device, rendered))
+	osHints := t.resolveOSDeltaHint(ctx, device, rendered)
+	if len(rendered.appSizes) > 0 {
+		if osHints == nil {
+			osHints = &deviceservice.RenderedOSHints{}
+		}
+		osHints.AppSizes = rendered.appSizes
+	}
+	status = t.deviceSvc.UpdateRenderedDevice(ctx, t.orgId, t.event.InvolvedObject.Name, string(rendered.Config), string(rendered.Applications), specHash, rendered.OsImage, syncRefs, bypassHashCheck, osHints)
 	if err := common.ApiStatusToErr(status); err != nil {
 		return t.setErrorStatus(ctx, err)
 	}
@@ -308,6 +307,9 @@ type RenderedSpec struct {
 
 	referencedRepos    []string
 	configFingerprints []ConfigRefFingerprint
+	// appSizes maps application name → IEC-formatted download size, computed
+	// from delta generation records during rendering.
+	appSizes map[string]*string
 }
 
 func (t *DeviceRenderLogic) RenderSpec(ctx context.Context, spec *domain.DeviceSpec) (RenderedSpec, error) {
@@ -351,11 +353,12 @@ func (t *DeviceRenderLogic) renderSpec(ctx context.Context, spec *domain.DeviceS
 		}
 	}
 
-	renderedApplications, err := t.renderApplications(ctx, applications)
+	renderedApplications, appSizes, err := t.renderApplications(ctx, applications)
 	if err != nil {
 		return result, err
 	}
 	result.Applications = renderedApplications
+	result.appSizes = appSizes
 	return result, nil
 }
 
@@ -392,9 +395,9 @@ func (t *DeviceRenderLogic) setErrorStatus(ctx context.Context, renderErr error)
 	return renderErr
 }
 
-func (t *DeviceRenderLogic) renderApplications(ctx context.Context, applications *[]domain.ApplicationProviderSpec) ([]byte, error) {
+func (t *DeviceRenderLogic) renderApplications(ctx context.Context, applications *[]domain.ApplicationProviderSpec) ([]byte, map[string]*string, error) {
 	if applications == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	var invalidApplications []string
@@ -426,15 +429,19 @@ func (t *DeviceRenderLogic) renderApplications(ctx context.Context, applications
 			pluralSuffix = "s"
 			errorPrefix = "First error"
 		}
-		return nil, fmt.Errorf("%d invalid application%s: %s. %s: %w", len(invalidApplications), pluralSuffix, strings.Join(invalidApplications, ", "), errorPrefix, firstError)
+		return nil, nil, fmt.Errorf("%d invalid application%s: %s. %s: %w", len(invalidApplications), pluralSuffix, strings.Join(invalidApplications, ", "), errorPrefix, firstError)
 	}
+
+	// Resolve delta hints for each rendered application, if delta lookup is
+	// available and the device has current image digest data.
+	appSizes := t.resolveAppDeltaHints(ctx, t.device, renderedApplications)
 
 	renderedApplicationBytes, err := json.Marshal(renderedApplications)
 	if err != nil {
-		return nil, fmt.Errorf("failed marshalling applications: %w", err)
+		return nil, nil, fmt.Errorf("failed marshalling applications: %w", err)
 	}
 
-	return renderedApplicationBytes, nil
+	return renderedApplicationBytes, appSizes, nil
 }
 
 func (t *DeviceRenderLogic) renderConfig(ctx context.Context, deviceConfig *[]domain.ConfigProviderSpec) (*config_latest_types.Config, []string, []ConfigRefFingerprint, error) {
