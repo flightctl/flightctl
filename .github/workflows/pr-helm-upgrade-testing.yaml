@@ -376,16 +376,36 @@ jobs:
             echo ""
           done
 
-          # Check for orphaned PVs that were bound to flightctl claims
-          ORPHANED_PVS=$(kubectl get pv --no-headers 2>/dev/null \
-            | { grep -E "flightctl-(external|internal)" || true; } | wc -l)
-          if [ "$ORPHANED_PVS" -ne 0 ]; then
-            echo "FAIL: $ORPHANED_PVS PV(s) referencing flightctl namespaces still exist:"
-            kubectl get pv | grep -E "flightctl-(external|internal)"
-            FAILED=true
-          else
-            echo "✓ No orphaned PVs referencing flightctl namespaces"
-          fi
+          # PVC deletion and PV reclaim are asynchronous. Give the provisioner a
+          # short window to delete released PVs before treating them as orphaned.
+          PV_RECLAIM_TIMEOUT=30
+          PV_RECLAIM_INTERVAL=2
+          PV_RECLAIM_DEADLINE=$((SECONDS + PV_RECLAIM_TIMEOUT))
+          ORPHANED_PVS=""
+
+          while true; do
+            ORPHANED_PVS=$(kubectl get pv -o json \
+              | jq -r '.items[]
+                | select(.spec.claimRef.namespace == "flightctl-external" or
+                         .spec.claimRef.namespace == "flightctl-internal")
+                | [.metadata.name, .status.phase, .spec.persistentVolumeReclaimPolicy,
+                   .spec.claimRef.namespace, .spec.claimRef.name]
+                | @tsv')
+
+            if [ -z "$ORPHANED_PVS" ]; then
+              echo "✓ No orphaned PVs referencing flightctl namespaces"
+              break
+            fi
+
+            if [ "$SECONDS" -ge "$PV_RECLAIM_DEADLINE" ]; then
+              echo "FAIL: PV(s) referencing flightctl namespaces still exist after ${PV_RECLAIM_TIMEOUT}s:"
+              printf '%s\n' "$ORPHANED_PVS"
+              FAILED=true
+              break
+            fi
+
+            sleep "$PV_RECLAIM_INTERVAL"
+          done
 
           if [ "$FAILED" = "true" ]; then
             echo ""
