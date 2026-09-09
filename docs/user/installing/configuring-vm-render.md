@@ -1,6 +1,6 @@
 # Configuring VM application rendering
 
-The Flight Control worker converts `VmApplication` manifests into Quadlet units with `vm-to-quadlet` before devices receive the rendered application. You can configure the virt-launcher image, optional per-OS images, and passt workarounds used during that conversion.
+The Flight Control worker converts `VmApplication` manifests into Quadlet units with `vm-to-quadlet` before devices receive the rendered application. You can configure the virt-launcher image, optional per-OS images, passt workarounds, and the time budget for each device render.
 
 ## Defaults
 
@@ -9,6 +9,7 @@ The Flight Control worker converts `VmApplication` manifests into Quadlet units 
 | `launcherImage` | `quay.io/kubevirt/virt-launcher:v1.9.0` (built into the worker; leave config unset or empty to use it) |
 | `launcherImages` | empty (no per-OS pins) |
 | `passtWorkarounds` | `false` |
+| `renderTimeout` | `60s` |
 
 `passtWorkarounds` enables startup patches for known networking issues in older virt-launcher passt builds (for example guest network instability and related passt failures). The default virt-launcher image does not need this. Enable it only when the selected `launcherImage` or `launcherImages` entry is an older image that still requires the workaround.
 
@@ -48,6 +49,7 @@ Selection runs only when the worker renders a device (fleet rollout, spec change
 | `worker.vmRender.launcherImage` | string | Default virt-launcher image when `launcherImages` has no match. Leave empty to use the worker built-in default. |
 | `worker.vmRender.launcherImages` | object | Optional map of virt-launcher images keyed by `{distroId}-{major}` from `status.systemInfo` (for example `"rhel-9"`, `"rhel-10"`). |
 | `worker.vmRender.passtWorkarounds` | boolean | When `true`, enable passt networking workarounds in generated Quadlet units. |
+| `worker.vmRender.renderTimeout` | duration string | Time budget for one device render, including VM conversion and database writes. The default is `60s`. |
 
 ## Kubernetes (Helm)
 
@@ -59,6 +61,16 @@ worker:
     launcherImage: ""
     launcherImages: {}
     passtWorkarounds: false
+    renderTimeout: "60s"
+```
+
+Set a different duration when devices with multiple VM applications need more
+time to render. For example:
+
+```yaml
+worker:
+  vmRender:
+    renderTimeout: "2m"
 ```
 
 To pin images for mixed OS fleets:
@@ -71,6 +83,7 @@ worker:
       "rhel-9": "<registry>/virt-launcher-rhel9:<tag>"
       "rhel-10": "<registry>/virt-launcher-rhel10:<tag>"
     passtWorkarounds: false
+    renderTimeout: "60s"
 ```
 
 Replace `<registry>` and `<tag>` with the image repository and tag that devices can pull.
@@ -93,6 +106,7 @@ Edit `/etc/flightctl/service-config.yaml` only when you need overrides. Omit `la
 worker:
   vmRender:
     passtWorkarounds: false
+    renderTimeout: 60s
 ```
 
 To pin images per OS, add `launcherImages` under the same `vmRender` block:
@@ -104,6 +118,7 @@ worker:
       "rhel-9": "<registry>/virt-launcher-rhel9:<tag>"
       "rhel-10": "<registry>/virt-launcher-rhel10:<tag>"
     passtWorkarounds: false
+    renderTimeout: 60s
 ```
 
 Restart the worker so the config template is re-rendered and the service reloads:
@@ -150,7 +165,7 @@ There is currently no separate Red Hat product virt-launcher image in the Flight
 
 ## After changing settings
 
-Conversion results are cached by `vm.yaml` content and these render options. Changing `launcherImage`, `launcherImages`, or `passtWorkarounds` affects newly rendered devices. Re-render existing devices (for example by updating the device or fleet) if they must pick up the new settings. The same applies after an OS major change: the new `launcherImages` key is used on the next render, not when the agent reports the new `distroId` / `distroVersion`.
+Conversion results are cached by `vm.yaml` content and these render options. Changing `launcherImage`, `launcherImages`, `passtWorkarounds`, or `renderTimeout` affects newly rendered devices. Re-render existing devices (for example by updating the device or fleet) if they must pick up the new settings. The same applies after an OS major change: the new `launcherImages` key is used on the next render, not when the agent reports the new `distroId` / `distroVersion`.
 
 ## Related information
 
