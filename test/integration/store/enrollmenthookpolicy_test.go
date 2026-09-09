@@ -8,6 +8,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
 	enrollmenthookpolicystore "github.com/flightctl/flightctl/internal/store/enrollmenthookpolicy"
+	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/flightctl/flightctl/test/util/testdb"
@@ -37,11 +38,14 @@ var _ = Describe("EnrollmentHookPolicyStore", func() {
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
 		Expect(err).NotTo(HaveOccurred())
 		ehpStore = enrollmenthookpolicystore.NewStore(db, log.WithField("pkg", "enrollmenthookpolicy-store"))
-		orgId = uuid.MustParse(cfg.Service.DefaultOrgId)
+		organizationStore := organizationstore.NewOrganizationStore(db)
+		orgId = uuid.New()
+		err = testutil.CreateTestOrganization(ctx, organizationStore, orgId)
+		Expect(err).NotTo(HaveOccurred())
 	})
 
 	AfterEach(func() {
-		testdb.DropTestDB(log, cfg, dbName)
+		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
 	})
 
 	It("When creating a policy it should succeed", func() {
