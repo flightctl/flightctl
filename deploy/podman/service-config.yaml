@@ -122,6 +122,7 @@ prometheus:
 # to the mirrored location.
 # Enable passtWorkarounds only when using older virt-launcher images that need it.
 # worker:
+#   renderTimeout: 60s
 #   vmRender:
 #     launcherImage: ""
 #     launcherImages:
