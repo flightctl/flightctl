@@ -106,7 +106,7 @@ var _ = Describe("PrepareDeltas persist", func() {
 				Kind:       domain.RepositoryKind,
 				Metadata:   domain.ObjectMeta{Name: lo.ToPtr("diffs")},
 				Spec:       spec,
-			}, nil)
+			})
 			Expect(err).ToNot(HaveOccurred())
 
 			emit := &prepareEmitSpy{}
@@ -135,7 +135,7 @@ var _ = Describe("PrepareDeltas persist", func() {
 					Render: func(_ context.Context, spec *domain.DeviceSpec) (tasks.RenderedSpec, error) {
 						return tasks.RenderedSpec{OsImage: spec.Os.Image}, nil
 					},
-					Inspect: func(_ context.Context, image string) (string, error) {
+					Inspect: func(_ context.Context, _ uuid.UUID, image string) (string, error) {
 						Expect(image).To(Equal(newImage))
 						return tgtDigest, nil
 					},
