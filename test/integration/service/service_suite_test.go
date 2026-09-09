@@ -17,6 +17,7 @@ import (
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	certificatesigningrequestservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	enrollmenthookpolicyservice "github.com/flightctl/flightctl/internal/service/enrollmenthookpolicy"
 	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/service/events"
 	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
@@ -27,6 +28,7 @@ import (
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	enrollmenthookpolicystore "github.com/flightctl/flightctl/internal/store/enrollmenthookpolicy"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
@@ -95,6 +97,7 @@ type ServiceTestSuite struct {
 	Device                    deviceservice.Service
 	EnrollmentRequest         enrollmentrequestservice.Service
 	Fleet                     fleetservice.Service
+	EnrollmentHookPolicy      enrollmenthookpolicyservice.Service
 	Repository                repositoryservice.Service
 
 	OrgID uuid.UUID
@@ -131,6 +134,7 @@ func (s *ServiceTestSuite) Setup() {
 	fleetStore := fleetstore.NewFleetStore(s.DB, s.Log.WithField("pkg", "fleet-store"))
 	enrollmentRequestStore := enrollmentrequeststore.NewEnrollmentRequestStore(s.DB, s.Log.WithField("pkg", "enrollmentrequest-store"))
 	repositoryStore := repositorystore.NewRepositoryStore(s.DB, s.Log.WithField("pkg", "repository-store"))
+	enrollmentHookPolicyStore := enrollmenthookpolicystore.NewStore(s.DB, s.Log.WithField("pkg", "enrollmenthookpolicy-store"))
 
 	// Add a default admin mapped identity to the context for tests
 	// This is required by auth provider validation
@@ -170,6 +174,7 @@ func (s *ServiceTestSuite) Setup() {
 	s.CertificateSigningRequest = certificatesigningrequestservice.NewServiceHandler(csrStore, tpmcsr.NewVerifier(s.EnrollmentRequest), s.caClient, eventsSvc, s.Log, "", "")
 	s.Fleet = fleetservice.NewServiceHandler(fleetStore, catalogStore, eventsSvc, s.Log)
 	s.Repository = repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, s.Log)
+	s.EnrollmentHookPolicy = enrollmenthookpolicyservice.NewServiceHandler(enrollmentHookPolicyStore, eventsSvc, s.Log)
 
 	// Default org for integration tests
 	s.OrgID = store.NullOrgId
