@@ -17,12 +17,15 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/poll"
 )
 
 const (
-	maxQueueSize = 10
+	maxQueueSize             = 10
+	ociDeltaArtifactType     = "application/vnd.io.github.containers.oci-delta.v1"
+	ociDeltaSourceAnnotation = "io.github.containers.delta.source"
 )
 
 const (
@@ -83,6 +86,47 @@ type OCIDeltaTarget struct {
 	SourceDigest string
 	Application  string
 	ResultFn     func(error)
+}
+
+func selectApplicationDeltaCandidate(targetImage string, delta *OCIDeltaTarget, index *client.OCIIndex) string {
+	if delta == nil {
+		return ""
+	}
+	if delta.Hint != "" {
+		return delta.Hint
+	}
+	if index == nil {
+		return ""
+	}
+	repo := imageRepository(targetImage)
+	if repo == "" {
+		return ""
+	}
+	for _, ref := range index.Manifests {
+		if ref.ArtifactType != ociDeltaArtifactType || ref.Digest == "" {
+			continue
+		}
+		if normalizeDigest(ref.Annotations[ociDeltaSourceAnnotation]) == normalizeDigest(delta.SourceDigest) {
+			return repo + "@" + ref.Digest
+		}
+	}
+	return ""
+}
+
+func imageRepository(image string) string {
+	matches := validation.OciImageReferenceRegexp.FindStringSubmatch(image)
+	if len(matches) == 0 {
+		return ""
+	}
+	return matches[1]
+}
+
+func normalizeDigest(digest string) string {
+	digest = strings.TrimSpace(digest)
+	if digest == "" || strings.Contains(digest, ":") {
+		return digest
+	}
+	return "sha256:" + digest
 }
 
 // OCIPullTarget represents an OCI target to be prefetched
@@ -207,6 +251,7 @@ type prefetchManager struct {
 	podmanFactory   client.PodmanFactory
 	skopeoFactory   client.SkopeoFactory
 	cliClients      client.CLIClients
+	ociDelta        *client.OCIDelta
 	readWriter      fileio.ReadWriter
 	resourceManager resource.Manager
 	// pullTimeout is the duration that each target will wait unless it
@@ -223,9 +268,18 @@ type prefetchManager struct {
 type prefetchTask struct {
 	clientOptsFn ClientOptsFn
 	ociType      OCIType
+	delta        *OCIDeltaTarget
 	err          error
 	done         bool
 	cancelFn     context.CancelFunc
+}
+
+// PrefetchManagerOption configures optional prefetch integrations.
+type PrefetchManagerOption func(*prefetchManager)
+
+// WithOCIDelta enables application delta reconstruction in containers/storage.
+func WithOCIDelta(ociDelta *client.OCIDelta) PrefetchManagerOption {
+	return func(m *prefetchManager) { m.ociDelta = ociDelta }
 }
 
 // NewPrefetchManager creates a new prefetch manager instance
@@ -239,8 +293,9 @@ func NewPrefetchManager(
 	pullTimeout util.Duration,
 	resourceManager resource.Manager,
 	pollConfig poll.Config,
+	opts ...PrefetchManagerOption,
 ) *prefetchManager {
-	return &prefetchManager{
+	m := &prefetchManager{
 		log:             log,
 		podmanFactory:   podmanFactory,
 		skopeoFactory:   skopeoFactory,
@@ -252,6 +307,10 @@ func NewPrefetchManager(
 		tasks:           make(map[imageRef]*prefetchTask),
 		queue:           make(chan imageRef, maxQueueSize),
 	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
 }
 
 func (m *prefetchManager) Run(ctx context.Context) {
@@ -484,7 +543,7 @@ func (m *prefetchManager) pull(ctx context.Context, target imageRef, task *prefe
 
 	switch ociType {
 	case OCITypePodmanImage:
-		_, err = podman.Pull(ctx, target.image, opts...)
+		err = m.pullApplicationImage(ctx, target, task, podman, skopeo, opts...)
 	case OCITypeCRIImage:
 		_, err = m.cliClients.CRI().Pull(ctx, target.image, opts...)
 	case OCITypePodmanArtifact:
@@ -519,6 +578,59 @@ func (m *prefetchManager) pull(ctx context.Context, target imageRef, task *prefe
 	return err
 }
 
+func (m *prefetchManager) pullApplicationImage(ctx context.Context, target imageRef, task *prefetchTask, podman *client.Podman, skopeo *client.Skopeo, opts ...client.ClientOption) error {
+	if task.delta == nil || m.ociDelta == nil {
+		_, err := podman.Pull(ctx, target.image, opts...)
+		return err
+	}
+
+	candidate := task.delta.Hint
+	if candidate == "" {
+		index, err := skopeo.ListReferrers(ctx, target.image, opts...)
+		if err != nil {
+			m.log.Debugf("application delta referrers unavailable for %s: %v", target.image, err)
+		} else {
+			candidate = selectApplicationDeltaCandidate(target.image, task.delta, index)
+		}
+	}
+
+	if candidate == "" {
+		if task.delta.ResultFn != nil {
+			task.delta.ResultFn(nil)
+		}
+		_, err := podman.Pull(ctx, target.image, opts...)
+		return err
+	}
+
+	tmpDir, err := m.readWriter.MkdirTemp("application-delta")
+	if err != nil {
+		return m.applicationDeltaFallback(ctx, target, task, podman, fmt.Errorf("create application delta temporary directory: %w", err), opts...)
+	}
+	defer func() { _ = m.readWriter.RemoveAll(tmpDir) }()
+
+	deltaFile := filepath.Join(tmpDir, "delta.oci")
+	if err := skopeo.Copy(ctx, "docker://"+candidate, "oci-archive:"+deltaFile, opts...); err != nil {
+		return m.applicationDeltaFallback(ctx, target, task, podman, err, opts...)
+	}
+	if err := m.ociDelta.Import(ctx, deltaFile, target.image); err != nil {
+		return m.applicationDeltaFallback(ctx, target, task, podman, err, opts...)
+	}
+	if task.delta.ResultFn != nil {
+		task.delta.ResultFn(nil)
+	}
+	return nil
+}
+
+func (m *prefetchManager) applicationDeltaFallback(ctx context.Context, target imageRef, task *prefetchTask, podman *client.Podman, deltaErr error, opts ...client.ClientOption) error {
+	if task.delta.ResultFn != nil {
+		task.delta.ResultFn(deltaErr)
+	}
+	if _, err := podman.Pull(ctx, target.image, opts...); err != nil {
+		return fmt.Errorf("application delta failed: %w; full image pull failed: %w", deltaErr, err)
+	}
+	return nil
+}
+
 func (m *prefetchManager) setResult(target imageRef, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -545,7 +657,7 @@ func (m *prefetchManager) setError(target imageRef, err error) {
 func (m *prefetchManager) Schedule(ctx context.Context, targets OCIPullTargetsByUser) error {
 	for user, target := range targets.Iter() {
 		ref := imageRef{image: target.Reference, owner: user}
-		if err := m.schedule(ctx, ref, target.Type, target.ClientOptsFn); err != nil {
+		if err := m.schedule(ctx, ref, target.Type, target.ClientOptsFn, target.Delta); err != nil {
 			return fmt.Errorf("prefetch schedule %w: %w", errors.WithElement(target.Reference), err)
 		}
 	}
@@ -553,8 +665,8 @@ func (m *prefetchManager) Schedule(ctx context.Context, targets OCIPullTargetsBy
 	return nil
 }
 
-func (m *prefetchManager) schedule(ctx context.Context, target imageRef, ociType OCIType, clientOptsFn ClientOptsFn) error {
-	needsQueue, err := m.prepareTask(ctx, target, ociType, clientOptsFn)
+func (m *prefetchManager) schedule(ctx context.Context, target imageRef, ociType OCIType, clientOptsFn ClientOptsFn, delta *OCIDeltaTarget) error {
+	needsQueue, err := m.prepareTask(ctx, target, ociType, clientOptsFn, delta)
 	if err != nil {
 		return err
 	}
@@ -578,7 +690,7 @@ func (m *prefetchManager) schedule(ctx context.Context, target imageRef, ociType
 	}
 }
 
-func (m *prefetchManager) prepareTask(ctx context.Context, target imageRef, ociType OCIType, clientOptsFn ClientOptsFn) (bool, error) {
+func (m *prefetchManager) prepareTask(ctx context.Context, target imageRef, ociType OCIType, clientOptsFn ClientOptsFn, delta *OCIDeltaTarget) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -629,6 +741,7 @@ func (m *prefetchManager) prepareTask(ctx context.Context, target imageRef, ociT
 	task := &prefetchTask{
 		ociType:      ociType,
 		clientOptsFn: clientOptsFn,
+		delta:        delta,
 	}
 	m.tasks[target] = task
 	return true, nil

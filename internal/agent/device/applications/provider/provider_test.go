@@ -268,6 +268,7 @@ func TestDecorateApplicationTargets(t *testing.T) {
 			DeltaImage:   childHint,
 		}},
 		"app",
+		nil,
 	)
 
 	require.Equal(t, parentHint, got[0].Delta.Hint)
@@ -442,7 +443,7 @@ func TestCollectProviderTargetsDeferredDependencies(t *testing.T) {
 			providers := tt.providers(ctrl)
 			ctx := context.Background()
 
-			collection, err := collectProviderTargets(ctx, logger, providers, nil, NewOCITargetCache(), NewAppDataCache())
+			collection, err := collectProviderTargets(ctx, logger, providers, nil, NewOCITargetCache(), NewAppDataCache(), nil)
 
 			if tt.wantErr {
 				require.Error(err)

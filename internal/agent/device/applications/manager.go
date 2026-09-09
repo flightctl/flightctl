@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"sync"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
@@ -41,6 +42,8 @@ type manager struct {
 
 	// cache of temporary extracted app data
 	appDataCache map[string]*provider.AppData
+	deltaMu      sync.Mutex
+	deltaResults map[string]*v1beta1.DeviceDeltaApplyStatus
 
 	// appConsole is created by WithConsole and owned by this manager.
 	// executor/dialFn live on PodmanMonitor (VM/serial-console specific).
@@ -68,6 +71,7 @@ func NewManager(
 		bootTime:           bootTime,
 		ociTargetCache:     provider.NewOCITargetCache(),
 		appDataCache:       provider.NewAppDataCache(),
+		deltaResults:       make(map[string]*v1beta1.DeviceDeltaApplyStatus),
 	}
 }
 
@@ -256,6 +260,13 @@ func (m *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, opts
 	allResults = append(allResults, k8sResults...)
 
 	statuses, summary := aggregateAppStatuses(allResults)
+	m.deltaMu.Lock()
+	for i := range statuses {
+		if delta, ok := m.deltaResults[statuses[i].Name]; ok {
+			statuses[i].LastDelta = delta
+		}
+	}
+	m.deltaMu.Unlock()
 	status.ApplicationsSummary = summary
 	status.Applications = statuses
 	return nil
@@ -345,7 +356,6 @@ func (m *manager) Shutdown(ctx context.Context, state shutdown.State) error {
 func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1beta1.DeviceSpec, opts ...dependency.OCICollectOpt) (*dependency.OCICollection, error) {
 	o := dependency.ApplyOCICollectOpts(opts...)
 	osUpdatePending := o.OSUpdatePending()
-
 	collection, err := provider.CollectOCITargets(
 		ctx,
 		m.log,
@@ -356,6 +366,7 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1bet
 		provider.WithPullConfigResolver(m.pullConfigResolver),
 		provider.WithOCICache(m.ociTargetCache),
 		provider.WithAppData(m.appDataCache),
+		provider.WithDeltaResult(m.recordDeltaResult),
 	)
 	if err != nil {
 		if !isDeferrableAppError(osUpdatePending, err) {
@@ -365,6 +376,17 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1bet
 	}
 
 	return collection, nil
+}
+
+func (m *manager) recordDeltaResult(application string, err error) {
+	m.deltaMu.Lock()
+	defer m.deltaMu.Unlock()
+	if err == nil {
+		m.deltaResults[application] = nil
+		return
+	}
+	reason := err.Error()
+	m.deltaResults[application] = &v1beta1.DeviceDeltaApplyStatus{FallbackReason: &reason}
 }
 
 // WithConsole injects app console dependencies after construction and creates
