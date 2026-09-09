@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flight Control — Open Source Fleet Management for Edge Devices</title>
+<link rel="stylesheet" href="deck.css">
+</head>
+<body>
+
+<div id="stage">
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     1 — COVER
+     ══════════════════════════════════════════════════════════════════════ -->
+<section class="slide slide--cover">
+  <img class="logo" src="logo-white.png" alt="Flight Control">
+  <div class="cover-rule"></div>
+  <h1>Managing fleets of edge devices, <span>declaratively</span></h1>
+  <p class="lede">An open source service for simple, scalable, and secure lifecycle management of Linux devices and the workloads that run on them.</p>
+  <div class="presenter">
+    <span class="name">Avishay Traeger</span>
+    <span class="meta">Sr. Principal Software Engineer &middot; Red Hat</span>
+    <span class="mail">atraeger@redhat.com</span>
+  </div>
+  <div class="slide-footer">
+    <span>github.com/flightctl/flightctl &middot; Apache-2.0</span>
+    <span>flightctl.io</span>
+  </div>
+  <div class="notes-src" hidden>
+    <p class="timing">0:00 – 0:30 &nbsp;|&nbsp; target total 22 min + Q&amp;A</p>
+    <p>Quick intro. Set the frame: <strong>this is an open source project, not a product pitch</strong> — I want to show you the problem space, the design, and how to get involved.</p>
+    <p>Ask for a show of hands: "who here runs Linux somewhere that isn't a datacenter or a laptop?" It calibrates how much edge context to give on the next slide.</p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     2 — THE DEVICE EDGE
+     ══════════════════════════════════════════════════════════════════════ -->
+<section class="slide">
+  <div class="kicker">The problem space</div>
+  <h2>Linux keeps escaping the datacenter</h2>
+  <p class="subtitle">Same OS, same containers, same tooling instincts &mdash; radically different operating conditions.</p>
+  <div class="body">
+    <div class="col" style="display:flex;align-items:center">
+      <div class="cards c2" style="width:100%">
+        <div class="card frag"><h4><span class="dot"></span>Retail &amp; hospitality</h4><p>Point-of-sale terminals, kiosks, digital signage. Thousands of sites, no IT staff on site.</p></div>
+        <div class="card frag"><h4><span class="dot"></span>Industrial &amp; robotics</h4><p>Factory controllers, AMRs, machine-vision inspection. Downtime is measured in lost production.</p></div>
+        <div class="card frag"><h4><span class="dot"></span>Energy &amp; utilities</h4><p>Solar inverters, substation gateways, metering. Physically exposed, cellular-only backhaul.</p></div>
+        <div class="card frag"><h4><span class="dot"></span>Transport &amp; healthcare</h4><p>In-vehicle compute, toll systems, bedside and imaging devices. Regulated and safety-relevant.</p></div>
+      </div>
+    </div>
+    <div class="col col--narrow">
+      <ul class="bullets tight">
+        <li class="frag"><strong>Scale &times; distribution</strong><span class="sub">10 sites is a spreadsheet. 10,000 sites is a distributed systems problem.</span></li>
+        <li class="frag"><strong>Hostile networks</strong><span class="sub">Private, NAT'd, cellular, intermittent. Often no inbound reachability at all.</span></li>
+        <li class="frag"><strong>No hands on site</strong><span class="sub">A failed update can mean a truck roll. Sometimes to an oil rig.</span></li>
+        <li class="frag"><strong>Physical exposure</strong><span class="sub">Tampering, theft, cloning. The device is not in your building.</span></li>
+        <li class="frag"><strong>Constrained hardware</strong><span class="sub">CPU, memory, storage, power and thermal budgets.</span></li>
+      </ul>
+    </div>
+  </div>
+  <div class="slide-footer"><span class="fc-mark"><img src="logo-white.png" alt=""></span><span class="num"></span></div>
+  <div class="notes-src" hidden>
+    <p class="timing">0:30 – 2:00</p>
+    <p>Don't read the cards. Pick <strong>one</strong> concrete example and tell it as a story — e.g. a retailer with 4,000 stores, three devices per store, on store-provided broadband that fails weekly.</p>
+    <p>The four constraints on the right are the ones that actually drive the architecture. Flag them now, and refer back:</p>
+    <ul>
+      <li><strong>No inbound reachability</strong> → agent calls home (slide 5)</li>
+      <li><strong>No hands on site</strong> → transactional updates + rollback (slide 7)</li>
+      <li><strong>Physical exposure</strong> → hardware root of trust (slide 11)</li>
+      <li><strong>Scale</strong> → fleets and staged rollouts (slides 9–10)</li>
+    </ul>
+    <p><em>If running long, this is the slide to compress — one example, then move.</em></p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     3 — WHY THE USUAL TOOLS DON'T FIT
+     ══════════════════════════════════════════════════════════════════════ -->
+<section class="slide">
+  <div class="kicker">Why not just&hellip;</div>
+  <h2>The tools we already love don't quite fit</h2>
+  <p class="subtitle">Each assumes something the device edge doesn't give you.</p>
+  <div class="body">
+    <div class="col">
+      <div class="cards c3">
+        <div class="card frag">
+          <h4><span class="dot"></span>Push-based config management</h4>
+          <p style="margin-bottom:10px">Ansible, Puppet, Salt &mdash; excellent tools, wrong assumption.</p>
+          <ul>
+            <li>Needs to reach the device <em class="hl">now</em>; devices are offline or NAT'd</li>
+            <li>Mutable hosts drift apart over years</li>
+            <li>A half-applied run leaves no way back</li>
+          </ul>
+        </div>
+        <div class="card frag">
+          <h4><span class="dot"></span>Kubernetes everywhere</h4>
+          <p style="margin-bottom:10px">Great model, heavy assumptions.</p>
+          <ul>
+            <li>Control plane expects a stable, low-latency network</li>
+            <li>A node is disposable; a device in a hospital is not</li>
+            <li>Doesn't manage the host OS itself &mdash; the part that bricks</li>
+          </ul>
+        </div>
+        <div class="card frag">
+          <h4><span class="dot"></span>Scripts + golden images</h4>
+          <p style="margin-bottom:10px">Where most teams actually start.</p>
+          <ul>
+            <li>Works at 10 devices, collapses at 10,000</li>
+            <li>No inventory, no staged rollout, no audit trail</li>
+            <li>Every team rebuilds the same fleet controller, badly</li>
+          </ul>
+        </div>
+      </div>
+      <div class="note frag" style="margin-top:22px">
+        Flight Control isn't a replacement for any of these &mdash; it borrows the declarative API model from Kubernetes, delegates OS updates to <span style="font-family:var(--font-mono);color:var(--accent-soft)">bootc</span> and workloads to <span style="font-family:var(--font-mono);color:var(--accent-soft)">Podman</span>/<span style="font-family:var(--font-mono);color:var(--accent-soft)">MicroShift</span>, and fills in the part nobody owns: <strong>the fleet.</strong>
+      </div>
+    </div>
+  </div>
+  <div class="slide-footer"><span class="fc-mark"><img src="logo-white.png" alt=""></span><span class="num"></span></div>
+  <div class="notes-src" hidden>
+    <p class="timing">2:00 – 3:15</p>
+    <p>Be genuinely fair to these tools — this audience uses them daily and will tune out if it sounds like a strawman. The line to land: <strong>"none of them are wrong, they're just solving a different shape of problem."</strong></p>
+    <p>The closing note is the important bit: we are <em>not</em> reinventing the OS update mechanism or the container runtime. We compose them.</p>
+    <p><em>Droppable if short on time — but the last line should survive into slide 4 verbally.</em></p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     4 — VISION & PRINCIPLES
+     ══════════════════════════════════════════════════════════════════════ -->
+<section class="slide">
+  <div class="kicker">Flight Control</div>
+  <h2>Simple, scalable, and secure management of Linux edge fleets</h2>
+  <div class="body" style="margin-top:14px">
+    <div class="col col--narrow">
+      <p class="big-quote">Declare the OS, the config, and the apps you want. <span>The fleet converges.</span></p>
+      <div class="note" style="margin-top:26px">Started 2023 &middot; Apache&nbsp;2.0 &middot; Go<br>~50 contributors &middot; v1.3 shipped Aug&nbsp;2026</div>
+    </div>
+    <div class="col col--wide">
+      <ul class="bullets">
+        <li class="frag"><strong>Declarative, Kubernetes-like API &mdash; without requiring Kubernetes</strong><span class="sub">Familiar to anyone who has written a <code style="font-family:var(--font-mono);color:var(--accent-soft)">kind:</code> and a <code style="font-family:var(--font-mono);color:var(--accent-soft)">selector:</code>, but a shallow learning curve if you haven't.</span></li>
+        <li class="frag"><strong>Opinionated out of the box</strong><span class="sub">A working operating model on day one, not a construction kit. Escape hatches exist when you outgrow it.</span></li>
+        <li class="frag"><strong>GitOps <em class="hl">and</em> ClickOps</strong><span class="sub">Same API behind a Git repository, a CLI, an Ansible collection, and a web UI. Teams don't all work the same way.</span></li>
+        <li class="frag"><strong>Designed for bad networks and friction-free security</strong><span class="sub">Offline-tolerant by default. Hardware-rooted identity that nobody has to hand-provision.</span></li>
+        <li class="frag"><strong>Compose, don't reimplement</strong><span class="sub">bootc / rpm-ostree for the OS, Podman and MicroShift for workloads, OCI registries for distribution.</span></li>
+      </ul>
+    </div>
+  </div>
+  <div class="slide-footer"><span class="fc-mark"><img src="logo-white.png" alt=""></span><span class="num"></span></div>
+  <div class="notes-src" hidden>
+    <p class="timing">3:15 – 4:15</p>
+    <p>This is the thesis slide. If someone only remembers one slide, make it this one.</p>
+    <p>"Kubernetes-like without Kubernetes" usually gets a reaction — be ready for the follow-up. The honest answer: <strong>we took the API ergonomics (declarative spec/status, labels, selectors, controllers reconciling) and deliberately left behind the runtime assumptions</strong> (etcd quorum, always-on control plane, pods as the unit of everything).</p>
+    <p>The "opinionated" bullet matters to this crowd — some will hear it as "inflexible". Pre-empt: there are lifecycle hooks and a remote console for when the model runs out.</p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     5 — ARCHITECTURE
+     ══════════════════════════════════════════════════════════════════════ -->
+<section class="slide">
+  <div class="kicker">Architecture</div>
+  <h2>A service, an agent, and one rule: the device always calls home</h2>
+  <div class="body" style="margin-top:6px">
+    <div class="col" style="display:flex">
+      <svg class="diagram" viewBox="0 0 1140 470" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="#1ba8ff"/>
+          </marker>
+          <marker id="arrow-dim" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="#5c7ea6"/>
+          </marker>
+        </defs>
+
+        <!-- ── external providers (top) ────────────────────────────────── -->
+        <g class="frag" data-frag="3">
+          <rect class="box-alt" x="219" y="0"   width="150" height="54" rx="9"/>
+          <text class="t-title" x="294" y="22" text-anchor="middle">Authentication</text>
+          <text class="t-small" x="294" y="40" text-anchor="middle">OIDC · Keycloak · AAP</text>
+
+          <rect class="box-alt" x="377" y="0"   width="150" height="54" rx="9"/>
+          <text class="t-title" x="452" y="22" text-anchor="middle">Authorization</text>
+          <text class="t-small" x="452" y="40" text-anchor="middle">SpiceDB · K8s RBAC</text>
+
+          <rect class="box-alt" x="535" y="0"   width="150" height="54" rx="9"/>
+          <text class="t-title" x="610" y="22" text-anchor="middle">Certificates</text>
+          <text class="t-small" x="610" y="40" text-anchor="middle">built-in · cert-manager</text>
+
+          <path class="flow-dash" d="M 294 54 L 294 76"/>
+          <path class="flow-dash" d="M 452 54 L 452 76"/>
+          <path class="flow-dash" d="M 610 54 L 610 76"/>
+        </g>
+
+        <!-- ── users (left) ───────────────────────────────────────────── -->
+        <g class="frag" data-frag="1">
+          <text class="t-accent" x="0" y="126">USERS &amp; AUTOMATION</text>
+          <rect class="box" x="0" y="140" width="152" height="46" rx="9"/>
+          <text class="t-title" x="76" y="169" text-anchor="middle">CLI</text>
+          <rect class="box" x="0" y="196" width="152" height="46" rx="9"/>
+          <text class="t-title" x="76" y="225" text-anchor="middle">Web UI</text>
+          <rect class="box" x="0" y="252" width="152" height="46" rx="9"/>
+          <text class="t-title" x="76" y="275" text-anchor="middle">GitOps / Ansible</text>
+          <text class="t-small" x="76" y="291" text-anchor="middle">Python client · MCP</text>
+
+          <path class="flow" d="M 156 219 L 234 219"/>
+          <text class="t-mono" x="195" y="209" text-anchor="middle">HTTPS + JWT</text>
+        </g>
+
+        <!-- ── service (centre) ───────────────────────────────────────── -->
+        <g class="frag" data-frag="1">
+          <rect class="group" x="240" y="78" width="424" height="250" rx="14"/>
+          <text class="t-accent" x="258" y="102">FLIGHT CONTROL SERVICE</text>
+
+          <rect class="box-hi" x="262" y="114" width="380" height="56" rx="9"/>
+          <text class="t-title" x="452" y="138" text-anchor="middle">API Server</text>
+          <text class="t-small" x="452" y="157" text-anchor="middle">user endpoint (JWT) &nbsp;·&nbsp; agent endpoint (mTLS)</text>
+
+          <rect class="box" x="262" y="192" width="185" height="56" rx="9"/>
+          <text class="t-title" x="354" y="216" text-anchor="middle">Workers</text>
+          <text class="t-small" x="354" y="234" text-anchor="middle">fleet · rollout · resync</text>
+
+          <rect class="box" x="457" y="192" width="185" height="56" rx="9"/>
+          <text class="t-title" x="549" y="216" text-anchor="middle">PostgreSQL</text>
+          <text class="t-small" x="549" y="234" text-anchor="middle">inventory · spec · status</text>
+
+          <text class="t-small" x="452" y="288" text-anchor="middle">runs on Kubernetes/OpenShift &mdash; or on plain RHEL with Podman quadlets</text>
+        </g>
+
+        <!-- ── config sources (bottom) ────────────────────────────────── -->
+        <g class="frag" data-frag="4">
+          <path class="flow-dim" d="M 290 372 L 290 332"/>
+          <path class="flow-dim" d="M 398 372 L 398 332"/>
+          <path class="flow-dim" d="M 506 372 L 506 332"/>
+          <path class="flow-dim" d="M 614 372 L 614 332"/>
+
+          <rect class="box-alt" x="240" y="374" width="100" height="44" rx="9"/>
+          <text class="t-title" x="290" y="401" text-anchor="middle">Git</text>
+          <rect class="box-alt" x="348" y="374" width="100" height="44" rx="9"/>
+          <text class="t-title" x="398" y="401" text-anchor="middle">OCI registry</text>
+          <rect class="box-alt" x="456" y="374" width="100" height="44" rx="9"/>
+          <text class="t-title" x="506" y="401" text-anchor="middle">K8s Secret</text>
+          <rect class="box-alt" x="564" y="374" width="100" height="44" rx="9"/>
+          <text class="t-title" x="614" y="401" text-anchor="middle">HTTP</text>
+          <text class="t-small" x="452" y="440" text-anchor="middle">configuration &amp; artifact sources</text>
+        </g>
+
+        <!-- ── device (right) ─────────────────────────────────────────── -->
+        <g class="frag" data-frag="2">
+          <rect class="group" x="850" y="78" width="290" height="250" rx="14"/>
+          <text class="t-accent" x="868" y="102">DEVICE</text>
+
+          <rect class="box-hi" x="872" y="114" width="246" height="56" rx="9"/>
+          <text class="t-title" x="995" y="138" text-anchor="middle">Flight Control Agent</text>
+          <text class="t-small" x="995" y="157" text-anchor="middle">reconciles · reports · self-heals</text>
+
+          <rect class="box" x="872" y="188" width="76" height="46" rx="8"/>
+          <text class="t-label" x="910" y="216" text-anchor="middle">bootc</text>
+          <rect class="box" x="957" y="188" width="76" height="46" rx="8"/>
+          <text class="t-label" x="995" y="216" text-anchor="middle">Podman</text>
+          <rect class="box" x="1042" y="188" width="76" height="46" rx="8"/>
+          <text class="t-label" x="1080" y="216" text-anchor="middle">MicroShift</text>
+
+          <rect class="box" x="872" y="246" width="76" height="46" rx="8"/>
+          <text class="t-label" x="910" y="274" text-anchor="middle">TPM</text>
+          <rect class="box" x="957" y="246" width="161" height="46" rx="8"/>
+          <text class="t-label" x="1037" y="274" text-anchor="middle">image-mode Linux</text>
+        </g>
+
+        <!-- ── the call-home link ─────────────────────────────────────── -->
+        <g class="frag" data-frag="2">
+          <path class="flow" d="M 866 142 L 672 142"/>
+          <text class="t-mono" x="769" y="128" text-anchor="middle" style="font-size:11.5px">get spec · post status</text>
+          <text class="t-small" x="769" y="164" text-anchor="middle">outbound mTLS only</text>
+          <text class="t-small" x="769" y="182" text-anchor="middle">no inbound ports · no VPN</text>
+        </g>
+      </svg>
+    </div>
+  </div>
+  <div class="slide-footer"><span class="fc-mark"><img src="logo-white.png" alt=""></span><span class="num"></span></div>
+  <div class="notes-src" hidden>
+    <p class="timing">4:15 – 6:15 &nbsp;|&nbsp; longest slide, budget for it</p>
+    <p>Build it in four steps (press → between each):</p>
+    <ul>
+      <li><strong>Service + users.</strong> API server, workers, Postgres. Two API endpoints, two auth mechanisms — that separation matters, come back to it on slide 11.</li>
+      <li><strong>Device + the arrow.</strong> The single most important detail in the talk: <strong>the arrow points left.</strong> The device initiates every connection. That's what makes NAT, cellular, and firewalled sites work without a VPN or a bastion, and it's why there's no inbound attack surface on the device.</li>
+      <li><strong>Providers.</strong> All pluggable — you bring your own IdP and CA. Nothing here is Red Hat-specific.</li>
+      <li><strong>Config sources.</strong> The service resolves Git/OCI/Secret/HTTP references <em>server-side</em> and hands the agent a flat, resolved spec. Devices never need credentials for your Git server.</li>
+    </ul>
+    <p>Worth saying out loud: the service runs on Kubernetes <em>or</em> on a single RHEL box with Podman quadlets. Kubernetes is not a prerequisite for using this.</p>
+    <p><strong>Likely question:</strong> "polling — what's the latency?" Answer: poll interval is configurable (default order of seconds-to-minutes); it's a deliberate trade of freshness for scale and network tolerance.</p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     6 — THE OBJECT MODEL
+     ══════════════════════════════════════════════════════════════════════ -->
+<section class="slide">
+  <div class="kicker">The API</div>
+  <h2>Everything is a resource with a spec and a status</h2>
+  <p class="subtitle">Desired state goes down. Observed state comes back up. Controllers close the loop.</p>
+  <div class="body">
+    <div class="col col--wide">
+      <div style="margin-bottom:20px">
+        <span class="pill">Device</span><span class="pill">Fleet</span><span class="pill">EnrollmentRequest</span><span class="pill">Repository</span><span class="pill">ResourceSync</span><span class="pill">CertificateSigningRequest</span><span class="pill alpha">ImageBuild</span><span class="pill alpha">ImageExport</span><span class="pill alpha">Catalog</span><span class="pill alpha">CatalogItem</span>
+        <div style="font-size:13.5px;color:var(--ink-faint);margin-top:2px"><span style="color:#ffce7a">amber</span> = alpha, still moving</div>
+      </div>
+      <ul class="bullets tight">
+        <li class="frag"><strong>Declarative means the agent can act alone</strong><span class="sub">The spec describes the goal, not the steps. An offline device still knows what it is supposed to become, and can get there without asking.</span></li>
+        <li class="frag"><strong>Versionable means Git is a first-class UI</strong><span class="sub">A <code style="font-family:var(--font-mono);color:var(--accent-soft)">ResourceSync</code> watches a repo — poll or webhook — and applies what it finds. Your fleet definition gets code review.</span></li>
+        <li class="frag"><strong>Spec/status separation means honest reporting</strong><span class="sub">"Should be v2.4" and "is v2.3, downloading, 68%" are different fields. You can always tell drift from progress.</span></li>
+      </ul>
+    </div>
+    <div class="col">
+      <pre class="code sm frag"><span class="k">apiVersion</span><span class="p">:</span> <span class="v">flightctl.io/v1beta1</span>
+<span class="k">kind</span><span class="p">:</span> <span class="v">Device</span>
+<span class="k">metadata</span><span class="p">:</span>
+  <span class="k">name</span><span class="p">:</span> <span class="v">pos-terminal-042</span>
+  <span class="k">labels</span><span class="p">:</span>
+    <span class="k">type</span><span class="p">:</span> <span class="v">pos-terminal</span>
+    <span class="k">region</span><span class="p">:</span> <span class="v">emea</span>
+    <span class="k">store</span><span class="p">:</span> <span class="v">berlin-04</span>
+<span class="k">spec</span><span class="p">:</span>            <span class="c"># what you want</span>
+  <span class="k">os</span><span class="p">:</span>
+    <span class="k">image</span><span class="p">:</span> <span class="v">quay.io/acme/pos:v2.4</span>
+<span class="k">status</span><span class="p">:</span>          <span class="c"># what is true</span>
+  <span class="k">os</span><span class="p">:</span>
+    <span class="k">image</span><span class="p">:</span> <span class="v">quay.io/acme/pos:v2.3</span>
+  <span class="k">updated</span><span class="p">:</span>
+    <span class="k">status</span><span class="p">:</span> <span class="hi">Updating</span>
+    <span class="k">info</span><span class="p">:</span> <span class="v">Download complete,</span>
+      <span class="v">waiting for update window.</span></pre>
+    </div>
+  </div>
+  <div class="slide-footer"><span class="fc-mark"><img src="logo-white.png" alt=""></span><span class="num"></span></div>
+  <div class="notes-src" hidden>
+    <p class="timing">6:15 – 7:30</p>
+    <p>Don't enumerate the pills — let people scan them. Just note the alpha ones are the newest surface area and the place where community input actually changes the API.</p>
+    <p>The YAML is the payoff: point at <code>spec.os.image</code> vs <code>status.os.image</code> and the <code>Updating</code> status. That one status message — "downloaded, waiting for the update window" — encodes two design decisions we'll unpack next: download-before-apply, and scheduled maintenance windows.</p>
+    <p>For a Kubernetes-literate crowd: yes, <code>ResourceSync</code> is basically Argo/Flux for devices, and no, you don't need a cluster to run it.</p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     7 — OS + CONFIG
+     ══════════════════════════════════════════════════════════════════════ -->
+<section class="slide">
+  <div class="kicker">What you declare &mdash; 1 of 2</div>
+  <h2>Operating system and host configuration</h2>
+  <div class="body" style="margin-top:10px">
+    <div class="col col--wide">
+      <ul class="bullets tight">
+        <li class="frag"><strong>Image-mode OS, so drift can't accumulate</strong><span class="sub">The agent orchestrates the update but delegates execution to <em class="hl">bootc</em> (or rpm-ostree). Every device with the same image tag is bit-for-bit the same host.</span></li>
+        <li class="frag"><strong>Config as logical layers on top of the image</strong><span class="sub">Fetch from Git, an OCI artifact, a K8s Secret, HTTP, or inline. The <em class="hl">service</em> resolves the sources; the agent just applies files and signals systemd to reload &mdash; usually with no reboot.</span></li>
+        <li class="frag"><strong>Download first, then apply transactionally</strong><span class="sub">Every asset lands on disk before anything changes. If the update or the Greenboot health checks fail, the device returns to the previous OS <em>and</em> the previous config. No truck roll.</span></li>
+        <li class="frag"><strong>Maintenance windows, per device or per fleet</strong><span class="sub">Separate schedules for downloading and for applying. Update the shop floor at 4am on Mondays, not during a shift.</span></li>
+      </ul>
+      <div class="note frag">Escape hatch: device lifecycle hooks run your own scripts before/after updates, and a remote console gets you a shell when the model isn't enough.</div>
+    </div>
+    <div class="col">
+      <pre class="code sm frag"><span class="k">spec</span><span class="p">:</span>
+  <span class="k">os</span><span class="p">:</span>
+    <span class="k">image</span><span class="p">:</span> <span class="v">quay.io/acme/pos:v2.4</span>
+
+  <span class="k">config</span><span class="p">:</span>
+    <span class="p">-</span> <span class="k">name</span><span class="p">:</span> <span class="v">site-network</span>
+      <span class="k">gitRef</span><span class="p">:</span>
+        <span class="k">repository</span><span class="p">:</span> <span class="v">site-configs</span>
+        <span class="k">targetRevision</span><span class="p">:</span> <span class="v">v1</span>
+        <span class="k">path</span><span class="p">:</span> <span class="v">/network/berlin-04</span>
+    <span class="p">-</span> <span class="k">name</span><span class="p">:</span> <span class="v">motd</span>
+      <span class="k">inline</span><span class="p">:</span>
+        <span class="p">-</span> <span class="k">path</span><span class="p">:</span> <span class="v">/etc/motd</span>
+          <span class="k">content</span><span class="p">:</span> <span class="v">Managed by flightctl.</span>
+
+  <span class="k">updatePolicy</span><span class="p">:</span>
+    <span class="k">downloadSchedule</span><span class="p">:</span>
+      <span class="k">at</span><span class="p">:</span> <span class="v">"0 2 * * *"</span>
+      <span class="k">startGraceDuration</span><span class="p">:</span> <span class="v">"30m"</span>
+    <span class="k">updateSchedule</span><span class="p">:</span>
+      <span class="k">at</span><span class="p">:</span> <span class="v">"0 4 * * 1"</span>       <span class="c"># Mon 4am</span>
+      <span class="k">timeZone</span><span class="p">:</span> <span class="v">Europe/Berlin</span>
+      <span class="k">startGraceDuration</span><span class="p">:</span> <span class="v">"1h"</span></pre>
+    </div>
+  </div>
+  <div class="slide-footer"><span class="fc-mark"><img src="logo-white.png" alt=""></span><span class="num"></span></div>
+  <div class="notes-src" hidden>
+    <p class="timing">7:30 – 9:00</p>
+    <p>Two things to make vivid here, because they're what people actually lose sleep over:</p>
+    <ul>
+      <li><strong>Download-then-apply.</strong> Say it plainly: "the agent will not touch a running system until every byte it needs is already on disk." Cellular device on a 20-minute connectivity window — this is the difference between an update landing and a brick.</li>
+      <li><strong>Rollback covers config too</strong>, not just the OS image. That surprises people who've used ostree directly.</li>
+    </ul>
+    <p>The <code>startGraceDuration</code> field is a nice detail if there's appetite — it exists because a device that was asleep at 4am shouldn't miss its window forever.</p>
+    <p>Package-mode RHEL is supported too, but be precise if it comes up: there Flight Control manages configuration and applications only — the agent detects it isn't in image mode and leaves OS updates to your existing <code>dnf</code> workflow. Mention only if asked.</p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     8 — APPLICATIONS
+     ══════════════════════════════════════════════════════════════════════ -->
+<section class="slide">
+  <div class="kicker">What you declare &mdash; 2 of 2</div>
+  <h2>Application workloads</h2>
+  <div class="body" style="margin-top:10px">
+    <div class="col col--wide">
+      <ul class="bullets tight">
+        <li class="frag"><strong>Containers, VMs, and Kubernetes &mdash; one API</strong><span class="sub">Podman containers, Quadlets, and compose; virtual machines; MicroShift when a workload genuinely needs Kubernetes. Same <code style="font-family:var(--font-mono);color:var(--accent-soft)">applications:</code> list either way.</span></li>
+        <li class="frag"><strong>Virtual machines are first-class</strong><span class="sub">Declare a KubeVirt <code style="font-family:var(--font-mono);color:var(--accent-soft)">VirtualMachine</code>; the service renders it to Quadlets and the agent runs it on KVM. That legacy Windows app runs next to your containers &mdash; managed the same way, rolled out the same way.</span></li>
+        <li class="frag"><strong>Apps ship as OCI artifacts or images</strong><span class="sub">Packaged and versioned in a registry you already run &mdash; or defined inline in the spec for small things.</span></li>
+        <li class="frag"><strong>Volumes can be OCI artifacts too</strong><span class="sub">Ship an AI model, a config bundle, or static assets as a versioned artifact and mount it. Update the model without rebuilding the app.</span></li>
+        <li class="frag"><strong>The agent watches, not just installs</strong><span class="sub">Per-application health rolls up into device status and into the fleet summary. A crash-looping container is visible centrally, not just in a log nobody reads.</span></li>
+      </ul>
+    </div>
+    <div class="col">
+      <pre class="code sm frag"><span class="k">spec</span><span class="p">:</span>
+  <span class="k">applications</span><span class="p">:</span>
+    <span class="p">-</span> <span class="k">name</span><span class="p">:</span> <span class="v">checkout</span>
+      <span class="k">appType</span><span class="p">:</span> <span class="v">quadlet</span>
+      <span class="k">image</span><span class="p">:</span> <span class="v">quay.io/acme/checkout:v7</span>
+      <span class="k">volumes</span><span class="p">:</span>
+        <span class="p">-</span> <span class="k">name</span><span class="p">:</span> <span class="v">pricing-model</span>
+          <span class="k">image</span><span class="p">:</span>
+            <span class="k">reference</span><span class="p">:</span> <span class="v">quay.io/acme/</span>
+              <span class="v">pricing-model:2026-09</span>
+    <span class="p">-</span> <span class="k">name</span><span class="p">:</span> <span class="v">back-office</span>   <span class="c"># the app nobody</span>
+      <span class="k">appType</span><span class="p">:</span> <span class="hi">vm</span>          <span class="c"># dares rewrite</span>
+      <span class="k">publishPorts</span><span class="p">:</span> [<span class="v">"3389:3389"</span>]
+      <span class="k">inline</span><span class="p">:</span>
+        <span class="p">-</span> <span class="k">path</span><span class="p">:</span> <span class="v">vm.yaml</span>
+          <span class="k">content</span><span class="p">:</span> <span class="p">|</span>
+            <span class="k">apiVersion</span><span class="p">:</span> <span class="v">kubevirt.io/v1</span>
+            <span class="k">kind</span><span class="p">:</span> <span class="v">VirtualMachine</span>
+            <span class="k">metadata</span><span class="p">:</span>
+              <span class="k">name</span><span class="p">:</span> <span class="v">back-office</span>
+            <span class="k">spec</span><span class="p">:</span> <span class="c">{ ... }</span></pre>
+      <div class="code-caption" style="margin-top:8px">also: appType: container · compose · MicroShift</div>
+    </div>
+  </div>
+  <div class="slide-footer"><span class="fc-mark"><img src="logo-white.png" alt=""></span><span class="num"></span></div>
+  <div class="notes-src" hidden>
+    <p class="timing">9:00 – 10:00</p>
+    <p>Move briskly — this slide is more "yes, that works the way you'd hope" than a new concept.</p>
+    <p><strong>Spend a beat on the VM bullet.</strong> It's the one that surprises people. The edge is full of software that will never be containerized — a Windows POS backend, a vendor's HMI, a 2011 Java app with a licence dongle. You declare a KubeVirt <code>VirtualMachine</code> manifest inline, the control plane renders it to Quadlet units, and the agent runs it on KVM on the device. No Kubernetes involved — just the manifest format, because it's the one people already know.</p>
+    <p>Be honest about the boundary: Flight Control manages the VM's <em>lifecycle</em> — deploy, start, stop, restart, roll out a new disk image — not what's inside it. Inside stays your problem, with Ansible or whatever you use today. That honesty lands better than overclaiming.</p>
+    <p>The OCI-artifact-as-volume bullet is the other one worth a beat. Concrete framing: <strong>"ship a new pricing model or a new vision model to 4,000 stores by bumping one tag — the app container doesn't change, so nothing restarts that doesn't have to."</strong> AI-at-the-edge people light up at this.</p>
+    <p>If asked "why Quadlets and not just compose?" — both are supported; Quadlets give you systemd semantics (ordering, restart policy, journald) which matters on a device with no orchestrator above it.</p>
+    <p>Other likely VM questions: needs <code>/dev/kvm</code> and CPU virt extensions; the virt runtime ships in the device OS image; Windows guests work (UEFI, TPM, VirtIO drivers, RDP published via <code>publishPorts</code>).</p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     9 — FLEETS
+     ══════════════════════════════════════════════════════════════════════ -->
+<section class="slide">
+  <div class="kicker">Scaling out</div>
+  <h2>From one device to ten thousand: fleets</h2>
+  <p class="subtitle">Devices are never assigned to a fleet. A fleet <em class="hl">selects</em> them &mdash; including the ones that don't exist yet.</p>
+  <div class="body">
+    <div class="col col--wide" style="display:flex">
+      <svg class="diagram" viewBox="0 0 720 400" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1 L 10 5 L 0 9 z" fill="#1ba8ff"/>
+          </marker>
+        </defs>
+
+        <!-- fleet definition -->
+        <g class="frag" data-frag="1">
+          <rect class="box-hi" x="0" y="16" width="290" height="120" rx="11"/>
+          <text class="t-title" x="20" y="44">Fleet: pos-terminals-emea</text>
+          <text class="t-mono"  x="20" y="68">selector:</text>
+          <text class="t-mono"  x="34" y="88">matchLabels:</text>
+          <text class="t-mono"  x="48" y="108">type: pos-terminal</text>
+          <text class="t-mono"  x="48" y="128">region: emea</text>
+        </g>
+
+        <g class="frag" data-frag="2">
+          <rect class="box" x="0" y="154" width="290" height="120" rx="11"/>
+          <text class="t-title" x="20" y="182">+ device template</text>
+          <text class="t-small" x="20" y="208">OS image, config sources,</text>
+          <text class="t-small" x="20" y="228">applications, resource monitors</text>
+          <text class="t-small" x="20" y="256">Written once. Values can vary by label.</text>
+        </g>
+
+        <path class="frag" data-frag="3" d="M 298 150 L 372 150" stroke="#1ba8ff" stroke-width="2" fill="none" marker-end="url(#a2)"/>
+        <text class="frag t-accent" data-frag="3" x="335" y="138" text-anchor="middle">applies to</text>
+
+        <!-- device population -->
+        <g class="frag" data-frag="3">
+          <text class="t-accent" x="384" y="22">DEVICE POPULATION</text>
+
+          <rect class="box-hi" x="384" y="32" width="156" height="82" rx="10"/>
+          <text class="t-title" x="398" y="56">pos-04 · berlin</text>
+          <text class="t-mono"  x="398" y="78" style="font-size:11.5px">type: pos-terminal</text>
+          <text class="t-mono"  x="398" y="98" style="font-size:11.5px">region: emea</text>
+
+          <rect class="box-hi" x="550" y="32" width="156" height="82" rx="10"/>
+          <text class="t-title" x="564" y="56">pos-11 · madrid</text>
+          <text class="t-mono"  x="564" y="78" style="font-size:11.5px">type: pos-terminal</text>
+          <text class="t-mono"  x="564" y="98" style="font-size:11.5px">region: emea</text>
+
+          <rect class="box-alt" x="384" y="128" width="156" height="82" rx="10"/>
+          <text class="t-title" x="398" y="152">pos-52 · austin</text>
+          <text class="t-small" x="398" y="174" style="font-size:11.5px">type: pos-terminal</text>
+          <text class="t-small" x="398" y="194" style="font-size:11.5px">region: amer &nbsp;✗</text>
+
+          <rect class="box-alt" x="550" y="128" width="156" height="82" rx="10"/>
+          <text class="t-title" x="564" y="152">kiosk-07 · berlin</text>
+          <text class="t-small" x="564" y="174" style="font-size:11.5px">type: kiosk &nbsp;✗</text>
+          <text class="t-small" x="564" y="194" style="font-size:11.5px">region: emea</text>
+        </g>
+
+        <!-- future device -->
+        <g class="frag" data-frag="4">
+          <rect x="384" y="226" width="322" height="86" rx="10" fill="rgba(78,201,165,.10)" stroke="rgba(78,201,165,.55)" stroke-width="1.4" stroke-dasharray="6 4"/>
+          <text class="t-title" x="398" y="252" fill="#4ec9a5">pos-88 · dublin &mdash; enrolls tomorrow</text>
+          <text class="t-small" x="398" y="276">Labels itself from system info at enrollment,</text>
+          <text class="t-small" x="398" y="296">matches the selector, inherits the template.</text>
+        </g>
+
+        <!-- consequences -->
+        <g class="frag" data-frag="5">
+          <line x1="0" y1="334" x2="706" y2="334" stroke="rgba(123,170,224,.22)" stroke-width="1"/>
+          <text class="t-label" x="0" y="362">Replace failed hardware &rarr; the new unit gets the same labels &rarr; it joins automatically.</text>
+          <text class="t-label" x="0" y="388">Relabel a device &rarr; it moves fleets &rarr; the new template is applied on next check-in.</text>
+        </g>
+      </svg>
+    </div>
+    <div class="col" style="flex:0 0 300px">
+      <ul class="bullets tight">
+        <li class="frag" data-frag="6"><strong>Labels are the organizing primitive</strong><span class="sub">Location, hardware model, purpose, rollout stage. Devices can self-label at enrollment from system info &mdash; zero-touch fleet assignment.</span></li>
+        <li class="frag" data-frag="7"><strong>One template, many devices</strong><span class="sub">The fleet controller copies the rendered template into each device's spec. From there it's the same reconcile loop as a single device.</span></li>
+        <li class="frag" data-frag="8"><strong>Overlaps are detected, not silently resolved</strong><span class="sub">Two fleets selecting one device? It keeps its current fleet and raises <code style="font-family:var(--font-mono);color:var(--accent-soft)">MultipleOwners</code>.</span></li>
+      </ul>
+    </div>
+  </div>
+  <div class="slide-footer"><span class="fc-mark"><img src="logo-white.png" alt=""></span><span class="num"></span></div>
+  <div class="notes-src" hidden>
+    <p class="timing">10:00 – 11:15</p>
+    <p>The line that makes this click: <strong>"you never add a device to a fleet — you give it labels, and the fleet finds it."</strong></p>
+    <p>Build to the green box and dwell there. <em>Tomorrow's</em> device is the point. The enrollment-time <code>label-from-systeminfo</code> feature means a tech can unbox hardware, plug it in, and it lands in the right fleet with the right OS and apps without anyone touching the console.</p>
+    <p>The <code>MultipleOwners</code> detail signals maturity to this audience — we chose to surface the ambiguity rather than pick a winner.</p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     10 — ROLLOUTS
+     ══════════════════════════════════════════════════════════════════════ -->
+<section class="slide">
+  <div class="kicker">Scaling out</div>
+  <h2>Rollouts you can survive</h2>
+  <p class="subtitle" style="max-width:none">Changing one device is easy. Changing ten thousand without taking down the business is the hard part.</p>
+  <div class="body">
+    <div class="col col--wide">
+      <div class="cards c2">
+        <div class="card frag">
+          <h4><span class="dot"></span>Batch sequence</h4>
+          <p style="margin-bottom:9px">Ordered batches, selected by label and/or a count or percentage. They run one after another.</p>
+          <ul>
+            <li>Canary, then 1% of EMEA, then the rest of EMEA, then everything</li>
+            <li>An implicit final batch sweeps up the remainder</li>
+          </ul>
+        </div>
+        <div class="card frag">
+          <h4><span class="dot"></span>Success threshold</h4>
+          <p style="margin-bottom:9px">A batch must hit its success ratio before the next one starts. Otherwise the rollout stops and waits for a human.</p>
+          <ul>
+            <li>A bad image reaches your canaries, not your revenue</li>
+          </ul>
+        </div>
+        <div class="card frag">
+          <h4><span class="dot"></span>Disruption budget</h4>
+          <p style="margin-bottom:9px">Orthogonal to batching: cap how many devices are down <em class="hl">at once</em>, grouped by any label.</p>
+          <ul>
+            <li><code style="font-family:var(--font-mono);color:var(--accent-soft)">groupBy: [store], minAvailable: 2</code> &mdash; every store keeps two working tills, always</li>
+          </ul>
+        </div>
+        <div class="card frag">
+          <h4><span class="dot"></span>Per-device windows still apply</h4>
+          <p style="margin-bottom:9px">The rollout picks devices; the device decides when it may act.</p>
+          <ul>
+            <li>Selected at noon, applies at 4am local &mdash; <code style="font-family:var(--font-mono);color:var(--accent-soft)">OutOfDate</code> in between</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="col">
+      <pre class="code sm frag"><span class="k">spec</span><span class="p">:</span>
+  <span class="k">rolloutPolicy</span><span class="p">:</span>
+    <span class="k">deviceSelection</span><span class="p">:</span>
+      <span class="k">strategy</span><span class="p">:</span> <span class="v">BatchSequence</span>
+      <span class="k">sequence</span><span class="p">:</span>
+        <span class="p">-</span> <span class="k">selector</span><span class="p">:</span>
+            <span class="k">matchLabels</span><span class="p">:</span> <span class="v">{ stage: canary }</span>
+          <span class="k">limit</span><span class="p">:</span> <span class="v">1</span>
+        <span class="p">-</span> <span class="k">selector</span><span class="p">:</span>
+            <span class="k">matchLabels</span><span class="p">:</span> <span class="v">{ region: emea }</span>
+          <span class="k">limit</span><span class="p">:</span> <span class="v">1%</span>
+        <span class="p">-</span> <span class="k">selector</span><span class="p">:</span>
+            <span class="k">matchLabels</span><span class="p">:</span> <span class="v">{ region: emea }</span>
+        <span class="p">-</span> <span class="k">limit</span><span class="p">:</span> <span class="v">10%</span>
+      <span class="c"># + implicit final batch</span>
+
+    <span class="k">successThreshold</span><span class="p">:</span> <span class="v">95%</span>
+
+    <span class="k">disruptionBudget</span><span class="p">:</span>
+      <span class="k">groupBy</span><span class="p">:</span> [<span class="v">store</span>]
+      <span class="k">minAvailable</span><span class="p">:</span> <span class="v">2</span></pre>
+    </div>
+  </div>
+  <div class="slide-footer"><span class="fc-mark"><img src="logo-white.png" alt=""></span><span class="num"></span></div>
+  <div class="notes-src" hidden>
+    <p class="timing">11:15 – 12:30</p>
+    <p>Frame this as the slide that separates a demo from a production system. <strong>"Anyone can push a config to a device. The hard part is pushing it to ten thousand devices and still having a business in the morning."</strong></p>
+    <p>Walk the YAML top to bottom — it reads almost like English and the audience will follow it faster than the cards.</p>
+    <p>The disruption budget is the subtlest idea: it's not about <em>order</em>, it's about <em>concurrency within a group</em>. The two-tills-per-store example is the clearest way to land it.</p>
+    <p>Honest caveat if it comes up: this is currently a single strategy (<code>BatchSequence</code>). Richer strategies — and status-driven prioritization — are on the list, and it's a good area to contribute.</p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     11 — SECURITY / LIFECYCLE
+     ══════════════════════════════════════════════════════════════════════ -->
+<section class="slide">
+  <div class="kicker">Security</div>
+  <h2>Identity from unboxing to decommission</h2>
+  <p class="subtitle">The device is in a parking garage. Assume someone will open it.</p>
+  <div class="body" style="flex-direction:column;gap:26px">
+    <div class="timeline">
+      <div class="tl-step frag">
+        <div class="num">1</div>
+        <h4>Provision</h4>
+        <p>Device is imaged with the OS, the agent, and an enrollment config that binds it to your service. Nothing secret is baked in.</p>
+      </div>
+      <div class="tl-step frag">
+        <div class="num">2</div>
+        <h4>Generate identity</h4>
+        <p>On first boot the agent creates a keypair. The private key never leaves the TPM &mdash; it can't be extracted or cloned onto other hardware.</p>
+      </div>
+      <div class="tl-step frag">
+        <div class="num">3</div>
+        <h4>Request enrollment</h4>
+        <p>Agent submits a TCG-compliant CSR plus system inventory, with cryptographic proof of possession by a live TPM and a chain back to the manufacturer.</p>
+      </div>
+      <div class="tl-step frag">
+        <div class="num">4</div>
+        <h4>Approve</h4>
+        <p>A human — or a policy — approves, optionally assigning labels. Only then is a device record created and a client certificate issued.</p>
+      </div>
+      <div class="tl-step frag">
+        <div class="num">5</div>
+        <h4>Operate</h4>
+        <p>Every call is mTLS on a separate agent-facing endpoint. Certificates rotate automatically before expiry. Users authenticate separately, via your IdP.</p>
+      </div>
+      <div class="tl-step frag">
+        <div class="num">6</div>
+        <h4>Decommission</h4>
+        <p>The service instructs the agent to destroy its private key, making the identity permanently unusable, and records the device as decommissioned.</p>
+      </div>
+    </div>
+    <div class="cards c3 frag">
+      <div class="card card--accent"><h4>No inbound attack surface</h4><p>The device listens for nothing. There is no port to scan, no VPN concentrator to compromise, no bastion to protect.</p></div>
+      <div class="card card--accent"><h4>Two endpoints, two trust models</h4><p>Users get JWTs from your OIDC provider; devices get X.509 from your CA. A stolen user token is not a device, and vice versa.</p></div>
+      <div class="card card--accent"><h4>Bring your own everything</h4><p>Keycloak, generic OIDC, OpenShift OAuth, AAP, or PAM for authn. SpiceDB or Kubernetes RBAC for authz. Built-in CA or cert-manager.</p></div>
+    </div>
+  </div>
+  <div class="slide-footer"><span class="fc-mark"><img src="logo-white.png" alt=""></span><span class="num"></span></div>
+  <div class="notes-src" hidden>
+    <p class="timing">12:30 – 14:00</p>
+    <p>Open with the threat model, not the mechanism: <strong>"the physical security assumption you get for free in a datacenter is exactly the one you don't have here."</strong></p>
+    <p>Step 2 is the crux. Spell out the consequence: <em>if someone steals the disk and clones it, the clone cannot authenticate</em>, because the key lives in that specific TPM. That's the whole reason for hardware root of trust, stated in one sentence.</p>
+    <p>Step 4 — "friction-free but not zero-trust-free". Approval is a real gate; it's also automatable, which is where a lot of current work is going.</p>
+    <p>Step 6 usually gets a nod from anyone who's had to account for lost hardware in an audit.</p>
+    <p><strong>Likely question:</strong> "what if there's no TPM?" File-based keys are supported; you lose clone resistance, and that's an explicit, documented trade.</p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     12 — DAY 2
+     ══════════════════════════════════════════════════════════════════════ -->
+<section class="slide">
+  <div class="kicker">Day 2</div>
+  <h2>Knowing what's actually happening out there</h2>
+  <div class="body">
+    <div class="col" style="display:flex;align-items:center">
+      <div class="cards c2" style="width:100%">
+        <div class="card frag"><h4><span class="dot"></span>Status that rolls up</h4><p>Device, application, and update status aggregate into a live fleet summary. The agent pushes on change rather than being polled, so it stays cheap on constrained hardware and metered links.</p></div>
+        <div class="card frag"><h4><span class="dot"></span>Resource monitors &amp; alerts</h4><p>Declare CPU, memory, and disk thresholds in the device spec. The agent evaluates them locally &mdash; and keeps evaluating them while offline. Alerts surface through Alertmanager.</p></div>
+        <div class="card frag"><h4><span class="dot"></span>Metrics &amp; traces</h4><p>Prometheus metrics for the service, an OpenTelemetry gateway for device-side telemetry. Standard tooling, no bespoke dashboard required.</p></div>
+        <div class="card frag"><h4><span class="dot"></span>Vulnerability view</h4><p>Scan the OS images your fleet is actually running and see CVEs by severity, per device and per fleet. Answers "are we exposed, and where?" without an inventory spreadsheet.</p></div>
+        <div class="card frag"><h4><span class="dot"></span>Remote console</h4><p>A shell on a device that has no reachable address, over the connection the agent already holds open. For when the declarative model runs out.</p></div>
+        <div class="card frag"><h4><span class="dot"></span>Air-gapped operation</h4><p>Fully offline installs, offline RPM repositories, and portable-media workflows for sites with no internet at all.</p></div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-footer"><span class="fc-mark"><img src="logo-white.png" alt=""></span><span class="num"></span></div>
+  <div class="notes-src" hidden>
+    <p class="timing">14:00 – 15:00</p>
+    <p>Fast slide, six beats. Don't read them — highlight three and let the rest be scanned.</p>
+    <p>Worth emphasizing: <strong>resource monitors keep working offline.</strong> A device that loses connectivity for a week still evaluates its own health rules and reports the backlog when it reconnects.</p>
+    <p>The vulnerability view and the OTel gateway are both new since the last time I gave a version of this talk — a year ago these were roadmap bullets. Good moment to say the project is moving fast.</p>
+    <p>Remote console is the one that always draws a question at conferences: it reuses the outbound connection, so it works through NAT with no port forwarding.</p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     13 — BUILD & DISTRIBUTE
+     ══════════════════════════════════════════════════════════════════════ -->
+<section class="slide">
+  <div class="kicker">Newest surface area</div>
+  <h2>Building and distributing what you ship</h2>
+  <p class="subtitle">Managing devices is half the job. Producing the images and apps they run is the other half.</p>
+  <div class="body">
+    <div class="col col--wide" style="display:flex;flex-direction:column;justify-content:center">
+      <div class="cards c3">
+        <div class="card frag">
+          <h4><span class="dot"></span>ImageBuild <span class="pill alpha" style="margin:0">alpha</span></h4>
+          <p style="margin-bottom:9px">Build a bootc image with the agent already embedded &mdash; through the API, not a laptop.</p>
+          <ul>
+            <li>Generates the Containerfile, builds, pushes</li>
+            <li>Optional SBOM generation and publication as an OCI referrer</li>
+            <li>Handles enrollment certificate binding</li>
+          </ul>
+        </div>
+        <div class="card frag">
+          <h4><span class="dot"></span>ImageExport <span class="pill alpha" style="margin:0">alpha</span></h4>
+          <p style="margin-bottom:9px">Turn that image into something a factory or a technician can actually flash.</p>
+          <ul>
+            <li>qcow2, vmdk, ISO</li>
+            <li>Same declarative resource, same audit trail</li>
+          </ul>
+        </div>
+        <div class="card frag">
+          <h4><span class="dot"></span>Catalog <span class="pill alpha" style="margin:0">alpha</span></h4>
+          <p style="margin-bottom:9px">A versioned index of what's deployable: apps, system images, AI models.</p>
+          <ul>
+            <li>Versions with explicit upgrade paths</li>
+            <li>Publisher metadata, icons, support links</li>
+            <li>Groundwork for click-to-deploy in the UI</li>
+          </ul>
+        </div>
+      </div>
+      <div class="note frag" style="margin-top:24px">
+        These three close the loop: <strong>build an image → publish it to a catalog → point a fleet at it → watch it roll out</strong> &mdash; all through the same API, all reviewable in Git. They're also the least settled part of the project, which makes them the most interesting place to have an opinion.
+      </div>
+    </div>
+  </div>
+  <div class="slide-footer"><span class="fc-mark"><img src="logo-white.png" alt=""></span><span class="num"></span></div>
+  <div class="notes-src" hidden>
+    <p class="timing">15:00 – 16:00</p>
+    <p>Context that makes this land: at Community Day last year, "artifact catalog" was a single bullet on a <em>where we'd like to go next</em> slide. It's real now, in alpha. Say that — it's evidence of velocity, and it's true.</p>
+    <p>The closing note is the call to action in disguise. Alpha APIs are where a community contributor can still change the shape of something. Plant that here so slide 16 has somewhere to land.</p>
+    <p><em>This is the second candidate to cut if the clock is against you — but if you cut it, keep the "build → catalog → fleet" sentence.</em></p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     14 — DEMO
+     ══════════════════════════════════════════════════════════════════════ -->
+<section class="slide slide--section">
+  <div class="kicker">Enough slides</div>
+  <h2>Demo</h2>
+  <p class="subtitle">A device enrolling, joining a fleet, and taking an update &mdash; with the rollout policy doing its job.</p>
+  <div class="demo-steps">
+    <div class="demo-step"><b>1 &middot; Enroll</b>A device boots and shows up as an<br>enrollment request. Approve, label, done.</div>
+    <div class="demo-step"><b>2 &middot; Join a fleet</b>Labels match a selector; the template<br>lands in the device spec automatically.</div>
+    <div class="demo-step"><b>3 &middot; Change the fleet</b>Bump an OS image or an app version<br>&mdash; via <span style="font-family:var(--font-mono);color:var(--accent-soft)">flightctl apply</span> or a Git commit.</div>
+    <div class="demo-step"><b>4 &middot; Watch the rollout</b>Canary batch first, status rolling up<br>live, threshold gating the next batch.</div>
+    <div class="demo-step"><b>5 &middot; Break something</b>Fail a health check and watch the<br>device roll itself back.</div>
+  </div>
+  <div class="note" style="margin-top:34px;max-width:70ch">Recorded walkthrough &mdash; roughly six minutes. Everything shown runs from <span style="font-family:var(--font-mono);color:var(--accent-soft)">make deploy</span> on a laptop.</div>
+  <div class="slide-footer"><span class="fc-mark"><img src="logo-white.png" alt=""></span><span class="num"></span></div>
+  <div class="notes-src" hidden>
+    <p class="timing">16:00 – 22:00 &nbsp;|&nbsp; ~6 min of video</p>
+    <p><strong>Placeholder slide — drop the recording in here.</strong> To embed: replace the <code>.demo-steps</code> block with<br>
+    <code>&lt;video src='demo.mp4' controls style='width:100%;border-radius:12px'&gt;&lt;/video&gt;</code><br>
+    and keep the file next to the deck (or base64 it into the single-file build).</p>
+    <p>The five steps double as the shot list for the recording. Narrate over it rather than letting it play silently — the interesting moments are the <em>waits</em> (download complete, waiting for window) and the rollback, and those need explaining.</p>
+    <p>Watch the clock here. If the talk is running long, the recording is the one thing you can cut into: skip step 5 and describe the rollback verbally.</p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     15 — PROJECT STATUS
+     ══════════════════════════════════════════════════════════════════════ -->
+<section class="slide">
+  <div class="kicker">The project</div>
+  <h2>Where things stand</h2>
+  <div class="body" style="flex-direction:column;gap:24px">
+    <div class="stats compact">
+      <div class="stat"><div class="n">v1.3</div><div class="l">released Aug 2026</div></div>
+      <div class="stat"><div class="n">~50</div><div class="l">contributors</div></div>
+      <div class="stat"><div class="n">2,400+</div><div class="l">commits, last 12 months</div></div>
+      <div class="stat"><div class="n">Apache&nbsp;2.0</div><div class="l">Go · since 2023</div></div>
+    </div>
+    <div class="body" style="gap:40px">
+      <div class="col">
+        <h3 style="font-size:21px;margin-bottom:12px;color:var(--accent)">1.3 highlights</h3>
+        <div class="hero-item">
+          <b>Package-mode RHEL</b>
+          <span>Manage config and applications on ordinary <code style="font-family:var(--font-mono);color:var(--accent-soft)">dnf</code>-managed hosts. Adopting Flight Control no longer means moving to image mode first.</span>
+        </div>
+        <div class="hero-item">
+          <b>Virtual machines</b>
+          <span>Deploy, start, stop, and restart KVM guests through the same API &mdash; the legacy Windows box that shares the hardware, managed from one place.</span>
+        </div>
+        <div class="hero-item">
+          <b>First-boot customization</b>
+          <span>An onsite setup step before enrollment: static IP, proxy, per-device settings. For sites where DHCP isn't allowed.</span>
+        </div>
+      </div>
+      <div class="col">
+        <h3 style="font-size:21px;margin-bottom:12px;color:var(--accent)">1.4 highlights</h3>
+        <div class="hero-item">
+          <b>MLOps at the edge</b>
+          <span>Push inference runtimes and models from the catalog to GPU-capable fleets, with the rollout policies you already have. An orchestrator, not another MLOps platform.</span>
+        </div>
+        <div class="hero-item">
+          <b>Delta updates</b>
+          <span>Ship what changed instead of a 1&ndash;2&nbsp;GB bootc image, falling back to a full pull when no delta fits. Updating over cellular stops being theoretical.</span>
+        </div>
+        <ul class="bullets mini">
+          <li>Pre- and post-enrollment hooks, independent of any fleet</li>
+          <li>Reported device info as selectors for fleets and rollout batches</li>
+          <li>Capability gating &mdash; catch "no GPU here" before the rollout, not after</li>
+          <li>Catalog inheritance for fleet OS and applications</li>
+          <li>Periodic status reporting; Clair/Quay as a CVE backend</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="slide-footer"><span class="fc-mark"><img src="logo-white.png" alt=""></span><span class="num"></span></div>
+  <div class="notes-src" hidden>
+    <p class="timing">22:00 – 23:00</p>
+    <p>The numbers are there to establish that this is a real, active project rather than a demo — don't dwell, let them be read.</p>
+    <p><strong>Only the boxed items get said out loud.</strong> The five lines under 1.4 are there to be scanned, not read.</p>
+    <p><strong>Package-mode RHEL</strong> — the objection you get all day is "image mode is a big commitment and my fleet isn't there yet." As of 1.3 that's no longer a prerequisite. Be precise about the boundary, because it's a fair question: on a package-mode host Flight Control manages <em>configuration and applications</em>, and the agent detects it isn't in image mode and won't attempt OS updates. Your <code>dnf</code> workflow stays yours. RHEL only for now — Debian and Ubuntu are deferred.</p>
+    <p><strong>Virtual machines</strong> — callback to the applications slide. Say plainly: this shipped, it isn't a plan. Scope for the first iteration is deploy / start / stop / restart on KVM-libvirt, with sane default networking and storage; graphical console access and catalog integration are follow-on work. If someone asks about live migration or HA, the answer is no — this is a single-device hypervisor story, not a virtualization platform.</p>
+    <p><strong>First-boot customization</strong> — the concrete scenario sells this: a site where DHCP isn't permitted, so someone physically present has to supply a static IP, a proxy, or a licence token before the device can reach anything. Customers were building their own bespoke first-boot services for this and baking them into the image. Now it's out of the box, and it runs <em>before</em> enrollment and fleet assignment.</p>
+    <p><strong>MLOps at the edge</strong> — inference at the edge is the single most-asked-for thing right now, and today people hand-roll it. The design point is worth stating out loud: <strong>Flight Control is the orchestrator, not the MLOps platform</strong> — training and model curation stay in tools built for that. What 1.4 adds is the deployment half: inference runtime and model as independently versioned catalog items, pushed to GPU-capable fleets under the same rollout policies, with telemetry coming back through the OTel gateway. Ties straight to the OCI-artifact volumes on the applications slide.</p>
+    <p><strong>Delta updates</strong> — the honest framing: a bootc image is 1–2 GB, and a site on cellular or satellite cannot pull that on every change. Note the history if it helps — rpm-ostree had delta upgrades and image mode lost them; this gets the capability back, built on <code>oci-delta</code>. Two details worth having ready: it falls back transparently to a full pull when no usable delta exists, and unlike registry-side tricks it works fully offline, which is the case that actually matters here.</p>
+    <p>The rest is deliberately specific — vague roadmaps don't attract contributors. If anything there sounds interesting to someone in the room, that's the conversation to have afterwards.</p>
+    <p>Numbers are current as of Sept 2026 — <strong>refresh them before presenting</strong> (<code>gh api repos/flightctl/flightctl</code>). Same for the v1.4 list: it's a snapshot of in-progress work, so re-check it close to the date.</p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     16 — GET INVOLVED
+     ══════════════════════════════════════════════════════════════════════ -->
+<section class="slide">
+  <div class="kicker">Your turn</div>
+  <h2>Get involved</h2>
+  <p class="subtitle">It's Go, it's Apache-2.0, and it builds and runs on a laptop.</p>
+  <div class="body">
+    <div class="col col--wide">
+      <div class="cards c2">
+        <div class="card frag">
+          <h4><span class="dot"></span>Run it in ten minutes</h4>
+          <pre class="code sm" style="margin-top:10px;border:0;background:rgba(4,11,22,.6);padding:12px 14px"><span class="p">$</span> git clone https://github.com/\
+      flightctl/flightctl
+<span class="p">$</span> make build
+<span class="p">$</span> make deploy      <span class="c"># kind + Helm</span>
+<span class="p">$</span> make agent-vm    <span class="c"># a device to manage</span></pre>
+          <p style="margin-top:10px">Or <code style="font-family:var(--font-mono);color:var(--accent-soft)">make deploy-quadlets</code> for a Podman-only install with no Kubernetes.</p>
+        </div>
+        <div class="card frag">
+          <h4><span class="dot"></span>Good places to start</h4>
+          <ul>
+            <li><strong>Tell us your use case.</strong> Genuinely the highest-value contribution &mdash; the operating model is still being shaped by real deployments.</li>
+            <li><strong>Alpha APIs</strong> &mdash; catalog, image build, export. Opinions welcome while they can still change.</li>
+            <li><strong>Hardware coverage</strong> &mdash; new TPM configurations, architectures, distros.</li>
+            <li><strong>Ecosystem clients</strong> &mdash; Ansible collection, Python client, MCP server all live in the org.</li>
+          </ul>
+        </div>
+        <div class="card frag">
+          <h4><span class="dot"></span>How we work</h4>
+          <ul>
+            <li>Issues and PRs on GitHub; <code style="font-family:var(--font-mono);color:var(--accent-soft)">good first issue</code> and <code style="font-family:var(--font-mono);color:var(--accent-soft)">help wanted</code> labels</li>
+            <li>Design-heavy changes go through a Flight Control Enhancement Proposal first</li>
+            <li><code style="font-family:var(--font-mono);color:var(--accent-soft)">CONTRIBUTING.md</code> and <code style="font-family:var(--font-mono);color:var(--accent-soft)">AGENTS.md</code> cover setup, conventions, and tests &mdash; written for humans and coding agents alike</li>
+          </ul>
+        </div>
+        <div class="card frag card--accent">
+          <h4><span class="dot"></span>Come find me</h4>
+          <p>Bring the ugly parts of your edge deployment &mdash; the intermittent link, the weird hardware, the update that took down a site. Those conversations are what the roadmap is made of.</p>
+          <p style="margin-top:10px;font-family:var(--font-mono);color:var(--accent)">atraeger@redhat.com</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="slide-footer"><span class="fc-mark"><img src="logo-white.png" alt=""></span><span class="num"></span></div>
+  <div class="notes-src" hidden>
+    <p class="timing">23:00 – 24:00</p>
+    <p>Slow down here. This is the actual ask of the talk, and it's the reason to give it at a community event rather than write a blog post.</p>
+    <p>Lead with the ten-minute setup — for this audience, "I can run it tonight" is more persuasive than any feature list. <code>make deploy</code> plus <code>make agent-vm</code> gives a full service and a real managed device on one machine.</p>
+    <p>Be explicit that <strong>use cases are the contribution we want most</strong>. Design decisions are still open, and someone describing a deployment we haven't seen changes more than a patch would.</p>
+    <p>Note: no public chat channel yet — GitHub issues are the front door. If someone asks, that's fair feedback to take back.</p>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     17 — THANK YOU
+     ══════════════════════════════════════════════════════════════════════ -->
+<section class="slide slide--section">
+  <img class="logo" src="logo-white.png" alt="Flight Control" style="width:400px;margin-bottom:36px">
+  <h2 style="font-size:52px">Thank you</h2>
+  <p class="subtitle" style="margin-bottom:38px">Questions &mdash; and if you have a fleet story, I want to hear it.</p>
+  <div class="links" style="max-width:900px">
+    <div class="link-row"><span class="lbl">Project</span><span class="val">github.com/flightctl/flightctl</span></div>
+    <div class="link-row"><span class="lbl">Website</span><span class="val">flightctl.io</span></div>
+    <div class="link-row"><span class="lbl">Demos</span><span class="val">youtube.com/@flightctl</span></div>
+    <div class="link-row"><span class="lbl">Docs</span><span class="val">docs/user/ in the repo</span></div>
+    <div class="link-row"><span class="lbl">Contributing</span><span class="val">CONTRIBUTING.md · AGENTS.md</span></div>
+    <div class="link-row"><span class="lbl">Me</span><span class="val">atraeger@redhat.com</span></div>
+  </div>
+  <div class="slide-footer"><span>Apache-2.0</span><span>Flight Control</span></div>
+  <div class="notes-src" hidden>
+    <p class="timing">24:00 – 24:15, then Q&amp;A</p>
+    <p>Leave this up for the whole Q&amp;A — the links are the point.</p>
+    <p><strong>Questions to expect:</strong></p>
+    <ul>
+      <li><em>How does this relate to Red Hat Edge Manager?</em> Flight Control is the upstream project; RHEM is the supported downstream build. Same code, different support model.</li>
+      <li><em>Does it work with non-Red Hat distros?</em> Anything image-mode via bootc/ostree works. Package mode is validated on RHEL only so far — Debian and Ubuntu are deferred, and there Flight Control manages config and apps rather than the OS.</li>
+      <li><em>How many devices per service instance?</em> Give a real figure from recent scale testing rather than guessing — look it up before the talk.</li>
+      <li><em>Why not Kubernetes / KubeEdge / Akri?</em> Back to slide 3 — we didn't want to require a cluster or an always-on control plane, and we wanted the host OS itself to be managed.</li>
+    </ul>
+  </div>
+</section>
+
+</div><!-- /#stage -->
+
+<div id="progress"></div>
+
+<aside id="notes">
+  <h3>Speaker notes</h3>
+  <div id="notes-body"></div>
+</aside>
+
+<div id="help">
+  <div class="panel">
+    <h3>Keyboard shortcuts</h3>
+    <dl>
+      <dt>→ ↓ Space</dt><dd>Next step / slide</dd>
+      <dt>← ↑</dt><dd>Previous</dd>
+      <dt>N / P</dt><dd>Next / previous slide (skip steps)</dd>
+      <dt>Home / End</dt><dd>First / last slide</dd>
+      <dt>1 – 9</dt><dd>Jump to slide</dd>
+      <dt>S</dt><dd>Toggle speaker notes</dd>
+      <dt>F</dt><dd>Fullscreen</dd>
+      <dt>B</dt><dd>Black out screen</dd>
+      <dt>?</dt><dd>This help</dd>
+    </dl>
+    <p style="margin:20px 0 0;font-size:14px;color:var(--ink-faint)">Export to PDF: print (Ctrl/Cmd-P), landscape, background graphics on.</p>
+  </div>
+</div>
+
+<script src="deck.js"></script>
+</body>
+</html>

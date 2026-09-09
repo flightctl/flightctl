@@ -1,0 +1,536 @@
+/* ==========================================================================
+   Flight Control — presentation theme
+   Brand: flightctl.io  (deep blue #2b62b0, accent #1ba8ff, navy #102445)
+   ========================================================================== */
+
+:root {
+  --brand:        #2b62b0;
+  --brand-light:  #3f7ad0;
+  --accent:       #1ba8ff;
+  --accent-soft:  #7cd0ff;
+  --navy:         #0b1728;
+  --navy-2:       #102445;
+  --navy-3:       #16305a;
+  --ink:          #eef4fb;
+  --ink-dim:      #a8bdd6;
+  --ink-faint:    #6d87a6;
+  --line:         rgba(123, 170, 224, .22);
+  --panel:        rgba(22, 48, 90, .45);
+  --ok:           #4ec9a5;
+  --warn:         #f0b040;
+  --danger:       #f56e6e;
+
+  --font-display: "Red Hat Display", "Red Hat Text", -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-text:    "Red Hat Text", "Red Hat Display", -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono:    "Red Hat Mono", "JetBrains Mono", "Fira Code", "DejaVu Sans Mono", ui-monospace, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #05080f;
+  font-family: var(--font-text);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* --------------------------------------------------------------------------
+   Stage / slide canvas — fixed 1280x720, scaled to fit the viewport
+   -------------------------------------------------------------------------- */
+
+#stage {
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 1280px;
+  height: 720px;
+  transform-origin: center center;
+}
+
+.slide {
+  position: absolute;
+  inset: 0;
+  display: none;
+  flex-direction: column;
+  padding: 54px 72px 64px;
+  background:
+    radial-gradient(1100px 620px at 82% -18%, rgba(27, 168, 255, .16), transparent 62%),
+    radial-gradient(820px 520px at -12% 108%, rgba(43, 98, 176, .22), transparent 60%),
+    linear-gradient(160deg, var(--navy-2) 0%, var(--navy) 62%, #070f1c 100%);
+  overflow: hidden;
+}
+
+.slide.active { display: flex; }
+
+/* thin brand rule along the top of every content slide */
+.slide:not(.slide--cover):not(.slide--section)::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--accent) 0%, var(--brand) 48%, transparent 100%);
+}
+
+/* --------------------------------------------------------------------------
+   Typography
+   -------------------------------------------------------------------------- */
+
+h1, h2, h3, h4 { font-family: var(--font-display); font-weight: 700; margin: 0; }
+
+.slide h2 {
+  font-size: 40px;
+  line-height: 1.1;
+  letter-spacing: -.015em;
+  margin-bottom: 6px;
+}
+
+.slide .kicker {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 12px;
+}
+
+.slide .subtitle {
+  font-size: 20px;
+  line-height: 1.4;
+  color: var(--ink-dim);
+  margin: 0 0 26px;
+  max-width: 60ch;
+}
+
+.body { flex: 1; display: flex; gap: 40px; min-height: 0; }
+.col  { flex: 1; min-width: 0; }
+.col--narrow { flex: 0 0 400px; }
+.col--wide   { flex: 1.35; }
+
+/* --------------------------------------------------------------------------
+   Bullets
+   -------------------------------------------------------------------------- */
+
+ul.bullets { list-style: none; margin: 0; padding: 0; }
+
+ul.bullets > li {
+  position: relative;
+  padding-left: 30px;
+  margin-bottom: 20px;
+  font-size: 21px;
+  line-height: 1.42;
+  color: var(--ink);
+}
+
+ul.bullets > li::before {
+  content: "";
+  position: absolute;
+  left: 2px; top: .52em;
+  width: 9px; height: 9px;
+  border-radius: 2px;
+  background: var(--accent);
+  transform: rotate(45deg);
+}
+
+ul.bullets > li .sub {
+  display: block;
+  margin-top: 7px;
+  font-size: 17px;
+  line-height: 1.45;
+  color: var(--ink-dim);
+}
+
+ul.bullets ul { list-style: none; margin: 8px 0 0; padding: 0; }
+ul.bullets ul li {
+  position: relative;
+  padding-left: 20px;
+  margin-bottom: 6px;
+  font-size: 17px;
+  line-height: 1.4;
+  color: var(--ink-dim);
+}
+ul.bullets ul li::before {
+  content: "";
+  position: absolute;
+  left: 2px; top: .6em;
+  width: 6px; height: 1.5px;
+  background: var(--ink-faint);
+}
+
+ul.bullets.tight > li { margin-bottom: 13px; font-size: 19px; }
+
+strong { color: #fff; font-weight: 700; }
+em.hl  { color: var(--accent-soft); font-style: normal; font-weight: 600; }
+
+/* --------------------------------------------------------------------------
+   Cards
+   -------------------------------------------------------------------------- */
+
+.cards { display: grid; gap: 16px; }
+.cards.c2 { grid-template-columns: repeat(2, 1fr); }
+.cards.c3 { grid-template-columns: repeat(3, 1fr); }
+.cards.c4 { grid-template-columns: repeat(4, 1fr); }
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 18px 20px;
+  min-width: 0;
+}
+
+.card h4 {
+  font-size: 18px;
+  margin-bottom: 8px;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.card h4 .dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent); flex: none;
+}
+
+.card p { margin: 0; font-size: 16px; line-height: 1.45; color: var(--ink-dim); }
+.card ul { list-style: none; margin: 0; padding: 0; }
+.card ul li {
+  font-size: 15.5px; line-height: 1.4; color: var(--ink-dim);
+  padding-left: 15px; position: relative; margin-bottom: 5px;
+}
+.card ul li::before {
+  content: ""; position: absolute; left: 0; top: .58em;
+  width: 5px; height: 5px; border-radius: 50%; background: var(--ink-faint);
+}
+
+.card--accent { border-color: rgba(27, 168, 255, .45); background: rgba(27, 168, 255, .10); }
+
+/* --------------------------------------------------------------------------
+   Code blocks
+   -------------------------------------------------------------------------- */
+
+pre.code {
+  font-family: var(--font-mono);
+  background: rgba(4, 11, 22, .78);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 18px 20px;
+  margin: 0;
+  font-size: 15.5px;
+  line-height: 1.58;
+  color: #d6e4f5;
+  overflow: hidden;
+  white-space: pre;
+}
+
+pre.code.sm { font-size: 14px; line-height: 1.55; }
+pre.code .k  { color: var(--accent); }         /* keys */
+pre.code .v  { color: #ffd9a0; }               /* values */
+pre.code .c  { color: var(--ink-faint); font-style: italic; }
+pre.code .p  { color: #8fb4dd; }               /* punctuation / prompt */
+pre.code .hi { color: var(--ok); }
+
+.code-caption {
+  font-size: 14px;
+  color: var(--ink-faint);
+  margin-top: 10px;
+  font-family: var(--font-mono);
+}
+
+/* --------------------------------------------------------------------------
+   Stats
+   -------------------------------------------------------------------------- */
+
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+
+.stat {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 20px 18px;
+  text-align: center;
+}
+.stat .n {
+  font-family: var(--font-display);
+  font-size: 42px; font-weight: 800; line-height: 1;
+  color: var(--accent);
+  letter-spacing: -.02em;
+}
+.stat .l {
+  margin-top: 9px; font-size: 14px; line-height: 1.3;
+  color: var(--ink-dim); text-transform: uppercase; letter-spacing: .07em;
+}
+
+/* headline callouts + condensed variants, used on the project-status slide */
+
+.hero-item {
+  background: rgba(27, 168, 255, .10);
+  border: 1px solid rgba(27, 168, 255, .42);
+  border-left-width: 3px;
+  border-radius: 10px;
+  padding: 10px 16px;
+  margin-bottom: 9px;
+}
+.hero-item b {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 18.5px; font-weight: 700; color: #fff;
+  margin-bottom: 3px;
+}
+.hero-item span { display: block; font-size: 15px; line-height: 1.4; color: var(--ink-dim); }
+
+ul.bullets.mini > li { font-size: 16.5px; line-height: 1.38; margin-bottom: 9px; padding-left: 22px; }
+ul.bullets.mini > li::before { width: 7px; height: 7px; left: 1px; top: .48em; }
+
+.stats.compact .stat { padding: 14px 16px; }
+.stats.compact .stat .n { font-size: 34px; }
+.stats.compact .stat .l { margin-top: 7px; font-size: 13px; }
+
+/* --------------------------------------------------------------------------
+   Cover slide
+   -------------------------------------------------------------------------- */
+
+.slide--cover {
+  justify-content: center;
+  padding: 0 92px;
+  background:
+    radial-gradient(1000px 700px at 78% 8%, rgba(27, 168, 255, .22), transparent 60%),
+    radial-gradient(900px 620px at 8% 96%, rgba(43, 98, 176, .30), transparent 62%),
+    linear-gradient(155deg, #16305a 0%, var(--navy-2) 45%, #060d18 100%);
+}
+
+.slide--cover .logo { width: 460px; margin-bottom: 40px; }
+
+.slide--cover h1 {
+  font-size: 58px;
+  line-height: 1.06;
+  letter-spacing: -.025em;
+  max-width: 20ch;
+  margin-bottom: 20px;
+}
+.slide--cover h1 span { color: var(--accent); }
+
+.slide--cover .lede {
+  font-size: 22px;
+  color: var(--ink-dim);
+  max-width: 58ch;
+  line-height: 1.4;
+  margin-bottom: 46px;
+}
+
+.presenter { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.presenter .name { font-family: var(--font-display); font-size: 22px; font-weight: 700; }
+.presenter .meta { font-size: 17px; color: var(--ink-dim); }
+.presenter .mail { font-family: var(--font-mono); font-size: 16px; color: var(--accent); }
+
+.cover-rule {
+  width: 88px; height: 4px; border-radius: 2px;
+  background: linear-gradient(90deg, var(--accent), var(--brand));
+  margin-bottom: 26px;
+}
+
+/* --------------------------------------------------------------------------
+   Section / demo slide
+   -------------------------------------------------------------------------- */
+
+.slide--section {
+  justify-content: center;
+  align-items: flex-start;
+  padding: 0 92px;
+  background:
+    radial-gradient(900px 640px at 70% 20%, rgba(27, 168, 255, .20), transparent 62%),
+    linear-gradient(150deg, var(--navy-3) 0%, var(--navy-2) 50%, #060d18 100%);
+}
+.slide--section h2 { font-size: 66px; letter-spacing: -.03em; margin-bottom: 18px; }
+.slide--section .subtitle { font-size: 23px; max-width: 64ch; margin-bottom: 34px; }
+
+.demo-steps { display: flex; gap: 14px; flex-wrap: wrap; }
+.demo-step {
+  background: rgba(11, 23, 40, .6);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 9px;
+  padding: 13px 17px;
+  font-size: 16px;
+  color: var(--ink-dim);
+}
+.demo-step b { display: block; color: #fff; font-size: 16.5px; font-weight: 700; margin-bottom: 3px; }
+
+/* --------------------------------------------------------------------------
+   Diagram primitives (inline SVG helpers + HTML boxes)
+   -------------------------------------------------------------------------- */
+
+.diagram { width: 100%; height: 100%; display: block; }
+.diagram text { font-family: var(--font-text); fill: var(--ink); }
+.diagram .t-title  { font-family: var(--font-display); font-weight: 700; font-size: 16px; fill: #fff; }
+.diagram .t-label  { font-size: 14px; fill: var(--ink-dim); }
+.diagram .t-small  { font-size: 12.5px; fill: var(--ink-faint); }
+.diagram .t-accent { font-size: 13px; fill: var(--accent); font-weight: 600; }
+.diagram .t-mono   { font-family: var(--font-mono); font-size: 12.5px; fill: var(--accent-soft); }
+
+.diagram .box     { fill: rgba(22, 48, 90, .55); stroke: var(--line); stroke-width: 1.2; }
+.diagram .box-alt { fill: rgba(11, 23, 40, .72); stroke: var(--line); stroke-width: 1.2; }
+.diagram .box-hi  { fill: rgba(27, 168, 255, .12); stroke: rgba(27, 168, 255, .55); stroke-width: 1.4; }
+.diagram .group   { fill: rgba(43, 98, 176, .10); stroke: rgba(123, 170, 224, .32); stroke-width: 1.2; stroke-dasharray: 5 4; }
+
+.diagram .flow      { stroke: var(--accent); stroke-width: 2; fill: none; marker-end: url(#arrow); }
+.diagram .flow-dim  { stroke: #5c7ea6; stroke-width: 1.6; fill: none; marker-end: url(#arrow-dim); }
+.diagram .flow-dash { stroke: #5c7ea6; stroke-width: 1.6; fill: none; stroke-dasharray: 5 4; marker-end: url(#arrow-dim); }
+
+/* --------------------------------------------------------------------------
+   Timeline (lifecycle slide)
+   -------------------------------------------------------------------------- */
+
+.timeline { display: flex; align-items: stretch; gap: 0; margin-top: 4px; }
+.tl-step { flex: 1; position: relative; padding: 0 14px 0 0; }
+.tl-step .num {
+  width: 30px; height: 30px; border-radius: 50%;
+  background: var(--accent); color: #06111f;
+  font-family: var(--font-display); font-weight: 800; font-size: 15px;
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 13px; position: relative; z-index: 2;
+}
+.tl-step::after {
+  content: ""; position: absolute;
+  top: 14px; left: 30px; right: 0; height: 2px;
+  background: linear-gradient(90deg, rgba(27,168,255,.55), rgba(27,168,255,.18));
+}
+.tl-step:last-child::after { display: none; }
+.tl-step h4 { font-size: 17px; margin-bottom: 7px; color: #fff; }
+.tl-step p  { margin: 0; font-size: 14.5px; line-height: 1.42; color: var(--ink-dim); padding-right: 8px; }
+
+/* --------------------------------------------------------------------------
+   Misc utilities
+   -------------------------------------------------------------------------- */
+
+.pill {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 13.5px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(27, 168, 255, .4);
+  background: rgba(27, 168, 255, .10);
+  color: var(--accent-soft);
+  margin: 0 6px 8px 0;
+}
+.pill.alpha { border-color: rgba(240, 176, 64, .45); background: rgba(240, 176, 64, .10); color: #ffce7a; }
+
+.note {
+  font-size: 15px; color: var(--ink-faint); line-height: 1.45;
+  border-left: 2px solid var(--line); padding-left: 14px; margin-top: 18px;
+}
+
+.big-quote {
+  font-family: var(--font-display);
+  font-size: 30px; line-height: 1.32; font-weight: 500;
+  color: #fff; max-width: 30ch;
+}
+.big-quote span { color: var(--accent); }
+
+.links { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px 34px; }
+.link-row { display: flex; align-items: baseline; gap: 12px; font-size: 18px; }
+.link-row .lbl { color: var(--ink-dim); flex: 0 0 128px; }
+.link-row .val { font-family: var(--font-mono); font-size: 16.5px; color: var(--accent); }
+
+/* --------------------------------------------------------------------------
+   Fragments (step-by-step reveal)
+   -------------------------------------------------------------------------- */
+
+.frag { opacity: 0; transition: opacity .28s ease, transform .28s ease; transform: translateY(6px); }
+.frag.shown { opacity: 1; transform: none; }
+.frag-dim { opacity: .3; transition: opacity .28s ease; }
+.frag-dim.shown { opacity: 1; }
+
+/* --------------------------------------------------------------------------
+   Chrome: footer, progress, slide numbers
+   -------------------------------------------------------------------------- */
+
+.slide-footer {
+  position: absolute;
+  left: 72px; right: 72px; bottom: 22px;
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 13px; color: var(--ink-faint);
+  letter-spacing: .04em;
+}
+.slide--cover .slide-footer, .slide--section .slide-footer { left: 92px; right: 92px; }
+.slide-footer .fc-mark { display: flex; align-items: center; gap: 9px; }
+.slide-footer .fc-mark img { height: 15px; opacity: .55; }
+
+#progress {
+  position: fixed; bottom: 0; left: 0; height: 3px;
+  background: linear-gradient(90deg, var(--brand), var(--accent));
+  transition: width .25s ease;
+  z-index: 40;
+}
+
+/* --------------------------------------------------------------------------
+   Speaker notes panel
+   -------------------------------------------------------------------------- */
+
+#notes {
+  position: fixed;
+  right: 0; top: 0; bottom: 0;
+  width: 380px;
+  background: #060d18;
+  border-left: 1px solid var(--line);
+  padding: 26px 26px 40px;
+  overflow-y: auto;
+  display: none;
+  z-index: 50;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--ink-dim);
+}
+body.notes-on #notes { display: block; }
+#notes h3 {
+  font-size: 13px; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--accent); margin-bottom: 14px;
+}
+#notes .timing {
+  font-family: var(--font-mono); font-size: 13px; color: var(--ink-faint);
+  border-bottom: 1px solid var(--line); padding-bottom: 12px; margin-bottom: 16px;
+}
+#notes p { margin: 0 0 12px; }
+#notes strong { color: var(--ink); }
+#notes ul { margin: 0 0 12px; padding-left: 18px; }
+#notes li { margin-bottom: 6px; }
+
+#help {
+  position: fixed; inset: 0;
+  background: rgba(3, 7, 14, .93);
+  display: none; align-items: center; justify-content: center;
+  z-index: 60;
+}
+body.help-on #help { display: flex; }
+#help .panel {
+  background: var(--navy-2); border: 1px solid var(--line); border-radius: 14px;
+  padding: 34px 40px; max-width: 520px;
+}
+#help h3 { font-size: 20px; margin-bottom: 18px; }
+#help dl { display: grid; grid-template-columns: 110px 1fr; gap: 10px 16px; margin: 0; font-size: 15.5px; }
+#help dt { font-family: var(--font-mono); color: var(--accent); }
+#help dd { margin: 0; color: var(--ink-dim); }
+
+/* --------------------------------------------------------------------------
+   Print / export to PDF
+   -------------------------------------------------------------------------- */
+
+@media print {
+  @page { size: 1280px 720px; margin: 0; }
+  html, body { overflow: visible; background: #fff; height: auto; }
+  #stage { position: static; transform: none !important; width: 1280px; height: auto; }
+  .slide {
+    position: relative;
+    display: flex !important;
+    width: 1280px; height: 720px;
+    page-break-after: always; break-after: page;
+    inset: auto;
+  }
+  .frag, .frag-dim { opacity: 1 !important; transform: none !important; }
+  #notes, #help, #progress, #hint { display: none !important; }
+}
