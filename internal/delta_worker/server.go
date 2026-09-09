@@ -287,8 +287,8 @@ func inspectImageDigest(ctx context.Context, image string, cfg tasks.ExistenceCo
 // expandWithInspect returns an Expand callback that uses registry inspect to
 // resolve new image digests and pairs them with current digests from device
 // application status.
-func expandWithInspect(cache oci.DigestCache, repos repostore.Store, cfg *config.Config) func(context.Context, uuid.UUID, *domain.Device, tasks.RenderedSpec, []DeltaCandidate) []DeltaCandidate {
-	return func(ctx context.Context, orgId uuid.UUID, device *domain.Device, rendered tasks.RenderedSpec, cands []DeltaCandidate) []DeltaCandidate {
+func expandWithInspect(cache oci.DigestCache, repos repostore.Store, cfg *config.Config) func(context.Context, uuid.UUID, *domain.Device, internaltasks.RenderedSpec, []DeltaCandidate) []DeltaCandidate {
+	return func(ctx context.Context, orgId uuid.UUID, device *domain.Device, rendered internaltasks.RenderedSpec, cands []DeltaCandidate) []DeltaCandidate {
 		inspect := func(ctx context.Context, orgId uuid.UUID, image string) (string, error) {
 			return oci.CachedImageDigest(ctx, cache, image, func(ctx context.Context) (string, error) {
 				spec, err := loadWriteTarget(ctx, repos, cfg, orgId)
@@ -299,7 +299,7 @@ func expandWithInspect(cache oci.DigestCache, repos repostore.Store, cfg *config
 				if err != nil {
 					return "", err
 				}
-				existCfg, err := existenceConfigFromSpec(ctx, spec, named.Name())
+				existCfg, err := tasks.ExistenceConfigFromSpec(ctx, spec, named.Name())
 				if err != nil {
 					return "", err
 				}
