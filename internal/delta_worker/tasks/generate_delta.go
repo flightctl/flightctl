@@ -161,20 +161,6 @@ func (c *Consumer) defaultGenerateDelta(ctx context.Context, orgID uuid.UUID, so
 	return g.createAndPushDelta(ctx, sourceRef, targetRef, pushPath)
 }
 
-func (c *Consumer) defaultPushPath(ctx context.Context, orgID uuid.UUID, imageRepository string) (string, error) {
-	if c.pushPath != nil {
-		return c.pushPath(ctx, orgID, imageRepository)
-	}
-	spec, err := c.resolveWriteSpec(ctx, orgID)
-	if err != nil {
-		return "", err
-	}
-	if spec == nil {
-		return "", fmt.Errorf("deltaGeneration.defaultRepository is required to push")
-	}
-	return oci.ResolveDeltaPushPath(spec, imageRepository)
-}
-
 func WriteSpecFromConfig(cfg *config.Config) *domain.OciRepoSpec {
 	if cfg == nil || cfg.DeltaGeneration == nil || cfg.DeltaGeneration.DefaultRepository == nil {
 		return nil
