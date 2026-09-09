@@ -826,3 +826,57 @@ func (a *AuthProvider) PreserveSensitiveData(existing SensitiveDataPreserver) er
 	}
 	return nil
 }
+
+func (p *EnrollmentHookPolicy) HideSensitiveData() error {
+	if p == nil {
+		return nil
+	}
+	actions := p.Spec.AfterEnrolling.ControlPlaneActions
+	if actions == nil {
+		return nil
+	}
+	for i := range *actions {
+		if (*actions)[i].Auth != nil {
+			hideValue((*actions)[i].Auth.BearerToken)
+		}
+	}
+	return nil
+}
+
+func (l *EnrollmentHookPolicyList) HideSensitiveData() error {
+	if l == nil {
+		return nil
+	}
+	for i := range l.Items {
+		if err := l.Items[i].HideSensitiveData(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p *EnrollmentHookPolicy) PreserveSensitiveData(existing SensitiveDataPreserver) error {
+	if p == nil || existing == nil {
+		return nil
+	}
+	existingPolicy, ok := existing.(*EnrollmentHookPolicy)
+	if !ok || existingPolicy == nil {
+		return nil
+	}
+	newActions := p.Spec.AfterEnrolling.ControlPlaneActions
+	existingActions := existingPolicy.Spec.AfterEnrolling.ControlPlaneActions
+	if newActions == nil || existingActions == nil {
+		return nil
+	}
+	for i := range *newActions {
+		if i >= len(*existingActions) {
+			break
+		}
+		newAuth := (*newActions)[i].Auth
+		existingAuth := (*existingActions)[i].Auth
+		if newAuth != nil && existingAuth != nil {
+			preserveValue(newAuth.BearerToken, existingAuth.BearerToken)
+		}
+	}
+	return nil
+}
