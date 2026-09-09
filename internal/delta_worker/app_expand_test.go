@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
+	preparetask "github.com/flightctl/flightctl/internal/delta_worker/tasks/prepare"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/google/uuid"
@@ -27,8 +28,8 @@ func TestExpandAppCandidates(t *testing.T) {
 	}
 
 	t.Run("When rendered spec has no applications it should return OS candidates unchanged", func(t *testing.T) {
-		osCand := DeltaCandidate{ImageRepository: "quay.io/acme/os", CurrentDigest: "sha256:aaa", NewDigest: "sha256:bbb"}
-		result := expandAppCandidates(ctx, orgId, nil, tasks.RenderedSpec{}, []DeltaCandidate{osCand}, inspectOK)
+		osCand := preparetask.DeltaCandidate{ImageRepository: "quay.io/acme/os", CurrentDigest: "sha256:aaa", NewDigest: "sha256:bbb"}
+		result := expandAppCandidates(ctx, orgId, nil, tasks.RenderedSpec{}, []preparetask.DeltaCandidate{osCand}, inspectOK)
 		require.Len(t, result, 1)
 		assert.Equal(t, osCand, result[0])
 	})
@@ -128,8 +129,8 @@ func TestExpandAppCandidates(t *testing.T) {
 
 	t.Run("When applications JSON is invalid it should return candidates unchanged", func(t *testing.T) {
 		rendered := tasks.RenderedSpec{Applications: []byte("invalid json")}
-		osCand := DeltaCandidate{ImageRepository: "quay.io/acme/os", CurrentDigest: "sha256:aaa", NewDigest: "sha256:bbb"}
-		result := expandAppCandidates(ctx, orgId, nil, rendered, []DeltaCandidate{osCand}, inspectOK)
+		osCand := preparetask.DeltaCandidate{ImageRepository: "quay.io/acme/os", CurrentDigest: "sha256:aaa", NewDigest: "sha256:bbb"}
+		result := expandAppCandidates(ctx, orgId, nil, rendered, []preparetask.DeltaCandidate{osCand}, inspectOK)
 		require.Len(t, result, 1)
 		assert.Equal(t, osCand, result[0])
 	})
