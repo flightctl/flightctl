@@ -496,6 +496,10 @@
           "type": "boolean",
           "description": "Allow worker to access cluster-level secrets for embedding in device configs"
         },
+        "renderTimeout": {
+          "type": "string",
+          "description": "Time budget for a single device render operation including VM conversion and DB writes (default 60s)"
+        },
         "vmRender": {
           "type": "object",
           "description": "VM application render options passed to vm-to-quadlet",
@@ -513,10 +517,6 @@
             "passtWorkarounds": {
               "type": "boolean",
               "description": "Enable passt networking workarounds for older virt-launcher images"
-            },
-            "renderTimeout": {
-              "type": "string",
-              "description": "Time budget for a single device render operation including VM conversion and DB writes (default 60s)"
             }
           }
         }
@@ -1209,4 +1209,3 @@
     }
   }
 }
-

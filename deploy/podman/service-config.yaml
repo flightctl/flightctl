@@ -122,13 +122,13 @@ prometheus:
 # to the mirrored location.
 # Enable passtWorkarounds only when using older virt-launcher images that need it.
 # worker:
+#   renderTimeout: 60s
 #   vmRender:
 #     launcherImage: ""
 #     launcherImages:
 #       "rhel-9": ""
 #       "rhel-10": ""
 #     passtWorkarounds: false
-#     renderTimeout: 60s
 
 # ImageBuilder Worker (optional). Uncomment and set when using custom builder images, SBOM, or skip-TLS.
 # imagebuilderWorker:

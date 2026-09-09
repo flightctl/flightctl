@@ -49,19 +49,19 @@ Selection runs only when the worker renders a device (fleet rollout, spec change
 | `worker.vmRender.launcherImage` | string | Default virt-launcher image when `launcherImages` has no match. Leave empty to use the worker built-in default. |
 | `worker.vmRender.launcherImages` | object | Optional map of virt-launcher images keyed by `{distroId}-{major}` from `status.systemInfo` (for example `"rhel-9"`, `"rhel-10"`). |
 | `worker.vmRender.passtWorkarounds` | boolean | When `true`, enable passt networking workarounds in generated Quadlet units. |
-| `worker.vmRender.renderTimeout` | duration string | Time budget for one device render, including VM conversion and database writes. The default is `60s`. |
+| `worker.renderTimeout` | duration string | Time budget for one device render, including VM conversion and database writes. The default is `60s`. |
 
 ## Kubernetes (Helm)
 
-Set the values under `worker.vmRender`. Leave `launcherImage` empty unless you need an override. Leave `launcherImages` empty unless you pin images per OS:
+Set the timeout under `worker` and the VM-specific options under `worker.vmRender`:
 
 ```yaml
 worker:
+  renderTimeout: "60s"
   vmRender:
     launcherImage: ""
     launcherImages: {}
     passtWorkarounds: false
-    renderTimeout: "60s"
 ```
 
 Set a different duration when devices with multiple VM applications need more
@@ -69,21 +69,20 @@ time to render. For example:
 
 ```yaml
 worker:
-  vmRender:
-    renderTimeout: "2m"
+  renderTimeout: "2m"
 ```
 
 To pin images for mixed OS fleets:
 
 ```yaml
 worker:
+  renderTimeout: "60s"
   vmRender:
     launcherImage: ""
     launcherImages:
       "rhel-9": "<registry>/virt-launcher-rhel9:<tag>"
       "rhel-10": "<registry>/virt-launcher-rhel10:<tag>"
     passtWorkarounds: false
-    renderTimeout: "60s"
 ```
 
 Replace `<registry>` and `<tag>` with the image repository and tag that devices can pull.
@@ -104,21 +103,21 @@ Edit `/etc/flightctl/service-config.yaml` only when you need overrides. Omit `la
 
 ```yaml
 worker:
+  renderTimeout: 60s
   vmRender:
     passtWorkarounds: false
-    renderTimeout: 60s
 ```
 
 To pin images per OS, add `launcherImages` under the same `vmRender` block:
 
 ```yaml
 worker:
+  renderTimeout: 60s
   vmRender:
     launcherImages:
       "rhel-9": "<registry>/virt-launcher-rhel9:<tag>"
       "rhel-10": "<registry>/virt-launcher-rhel10:<tag>"
     passtWorkarounds: false
-    renderTimeout: 60s
 ```
 
 Restart the worker so the config template is re-rendered and the service reloads:
@@ -165,7 +164,7 @@ There is currently no separate Red Hat product virt-launcher image in the Flight
 
 ## After changing settings
 
-Conversion results are cached by `vm.yaml` content and these render options. Changing `launcherImage`, `launcherImages`, `passtWorkarounds`, or `renderTimeout` affects newly rendered devices. Re-render existing devices (for example by updating the device or fleet) if they must pick up the new settings. The same applies after an OS major change: the new `launcherImages` key is used on the next render, not when the agent reports the new `distroId` / `distroVersion`.
+Conversion results are cached by `vm.yaml` content and the VM render options. Changing `launcherImage`, `launcherImages`, or `passtWorkarounds` affects newly rendered devices. The worker-level `renderTimeout` applies to device renders as they run. Re-render existing devices (for example by updating the device or fleet) if they must pick up changed VM settings. The same applies after an OS major change: the new `launcherImages` key is used on the next render, not when the agent reports the new `distroId` / `distroVersion`.
 
 ## Related information
 

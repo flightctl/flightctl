@@ -419,7 +419,8 @@ const DefaultRenderTimeout = 60 * time.Second
 
 // workerConfig holds configuration for the flightctl-worker service.
 type workerConfig struct {
-	VmRender *vmRenderConfig `json:"vmRender,omitempty"`
+	RenderTimeout util.Duration   `json:"renderTimeout,omitempty"`
+	VmRender      *vmRenderConfig `json:"vmRender,omitempty"`
 }
 
 // vmRenderConfig holds options for converting VmApplications to Quadlet units
@@ -428,7 +429,6 @@ type vmRenderConfig struct {
 	LauncherImage    string            `json:"launcherImage,omitempty"`
 	LauncherImages   map[string]string `json:"launcherImages,omitempty"`
 	PasstWorkarounds *bool             `json:"passtWorkarounds,omitempty"`
-	RenderTimeout    util.Duration     `json:"renderTimeout,omitempty"`
 }
 
 // NewDefaultWorkerConfig returns the default flightctl-worker configuration.
@@ -494,8 +494,8 @@ func (c *workerConfig) EffectivePasstWorkarounds() bool {
 
 // EffectiveRenderTimeout returns the configured render timeout for the worker.
 func (c *workerConfig) EffectiveRenderTimeout() time.Duration {
-	if c != nil && c.VmRender != nil && c.VmRender.RenderTimeout > 0 {
-		return time.Duration(c.VmRender.RenderTimeout)
+	if c != nil && c.RenderTimeout > 0 {
+		return time.Duration(c.RenderTimeout)
 	}
 	return DefaultRenderTimeout
 }

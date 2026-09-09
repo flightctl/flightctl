@@ -96,14 +96,14 @@ func TestEffectiveRenderTimeout(t *testing.T) {
 		{
 			name: "When renderTimeout is set it should use the configured value",
 			json: `{
-				"worker": {"vmRender": {"renderTimeout": "2m"}}
+				"worker": {"renderTimeout": "2m"}
 			}`,
 			want: 2 * time.Minute,
 		},
 		{
 			name: "When renderTimeout is zero it should fall back to the default",
 			json: `{
-				"worker": {"vmRender": {"renderTimeout": "0s"}}
+				"worker": {"renderTimeout": "0s"}
 			}`,
 			want: DefaultRenderTimeout,
 		},

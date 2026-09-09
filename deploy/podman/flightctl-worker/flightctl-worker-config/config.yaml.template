@@ -25,6 +25,9 @@ kv:
   port: 6379
 service: {}
 worker:
+  {{- if and .worker .worker.renderTimeout }}
+  renderTimeout: {{.worker.renderTimeout}}
+  {{- end }}
   vmRender:
     {{- if and .worker .worker.vmRender .worker.vmRender.launcherImage }}
     launcherImage: {{.worker.vmRender.launcherImage}}
