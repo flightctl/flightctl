@@ -114,6 +114,8 @@ func LaunchConsumers(ctx context.Context, queuesProvider queues.Provider, cfg *c
 	n := cfg.DeltaGeneration.EffectiveMaxConcurrentDeltaGenerations()
 	if workerMetrics != nil {
 		workerMetrics.SetConsumersActive(float64(n))
+		// Queue depth is populated by the queue integration when available; zero is
+		// the initial value until the first depth update is observed.
 		workerMetrics.SetQueueDepth(consts.DeltaGenerationTaskQueue, 0)
 		go func() {
 			<-ctx.Done()

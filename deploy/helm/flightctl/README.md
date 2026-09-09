@@ -303,7 +303,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | deltaGeneration.defaultRepository.secretName | string | `""` | Name of the Kubernetes Secret containing 'username' and 'password' keys. |
 | deltaGeneration.defaultRepository.skipServerVerification | bool | `false` | Skip TLS verification when connecting to the registry. |
 | deltaGeneration.maxConcurrentDeltaGenerations | int | `2` | Maximum number of concurrent delta generation jobs. Defaults to 2 when omitted or <= 0. |
-| deltaGeneration.timeout | string | `"30m"` | Per-job timeout for skopeo/oci-delta/ORAS. Defaults to 30m when omitted or <= 0. |
+| deltaGeneration.timeout | string | `"30m"` | Per-job timeout for oci-delta/ORAS. Defaults to 30m when omitted or <= 0. |
 | deltaWorker | object | `{"image":{"image":"quay.io/flightctl/flightctl-delta-worker-el9","pullPolicy":"","tag":""},"resources":{"limits":{"cpu":"2","memory":"2Gi"},"requests":{"cpu":"100m","memory":"256Mi"}}}` | Delta-worker Configuration |
 | deltaWorker.image.image | string | `"quay.io/flightctl/flightctl-delta-worker-el9"` | Delta-worker container image |
 | deltaWorker.image.pullPolicy | string | `""` | Image pull policy for delta-worker container |
