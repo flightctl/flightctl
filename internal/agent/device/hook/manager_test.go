@@ -246,7 +246,7 @@ func TestHookManagerEnrollment(t *testing.T) {
 			logger := log.NewPrefixLogger("test")
 			logger.SetLevel(logrus.DebugLevel)
 			hookManager := NewManager(readWriter, mockExec, logger)
-			expectExecCalls(mockExec, tt.expectedCommands)
+			expectEnrollmentExecCalls(mockExec, tt.expectedCommands)
 
 			ctx, cancel := context.WithCancel(context.TODO())
 			defer cancel()
@@ -268,6 +268,18 @@ func TestHookManagerEnrollment(t *testing.T) {
 	}
 }
 
+func TestReadHookLabelsRejectsOversizedFile(t *testing.T) {
+	require := require.New(t)
+	readWriter := createEnrollmentHooksDir(t, map[string]string{})
+	oversized := strings.Repeat("a", MaxHookLabelsFileSize+1)
+	require.NoError(readWriter.WriteFile(HookLabelsPath, []byte(oversized), 0600))
+
+	hookManager := NewManager(readWriter, executer.NewCommonExecuter(), log.NewPrefixLogger("test"))
+	impl, ok := hookManager.(*manager)
+	require.True(ok)
+	require.Nil(impl.readHookLabels())
+}
+
 // TestHookManagerEnrollmentContext verifies FLIGHTCTL_HOOK_CONTEXT is injected during hook execution.
 func TestHookManagerEnrollmentContext(t *testing.T) {
 	require := require.New(t)
@@ -285,8 +297,8 @@ func TestHookManagerEnrollmentContext(t *testing.T) {
 
 	// Capture env vars passed to executor to verify FLIGHTCTL_HOOK_CONTEXT
 	var capturedEnv []string
-	mockExec.EXPECT().ExecuteWithContextFromDir(gomock.Any(), "", "echo", []string{"enrollment hook executed"}, gomock.Any()).DoAndReturn(
-		func(ctx context.Context, workingDir, command string, args []string, env ...string) (string, string, int) {
+	mockExec.EXPECT().ExecuteWithBoundedOutputFromDir(gomock.Any(), "", "echo", []string{"enrollment hook executed"}, MaxEnrollmentHookActionOutput, gomock.Any()).DoAndReturn(
+		func(ctx context.Context, workingDir, command string, args []string, _ int, env ...string) (string, string, int) {
 			capturedEnv = env
 			return "", "", 0
 		}).Times(1)
@@ -350,6 +362,85 @@ func createEnrollmentHooksDir(t *testing.T, hooks map[string]string) fileio.Read
 	}
 
 	return readWriter
+}
+
+func TestOnBeforeEnrollingRecordsPerActionResults(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	multiActionYAML := `
+- run: echo first
+- run: echo second
+`
+	hooks := map[string]string{
+		"/usr/lib/flightctl/hooks.d/beforeenrolling/01-test.yaml": multiActionYAML,
+	}
+	readWriter := createEnrollmentHooksDir(t, hooks)
+	mockExec := executer.NewMockExecuter(ctrl)
+	logger := log.NewPrefixLogger("test")
+	logger.SetLevel(logrus.ErrorLevel)
+	hookManager := NewManager(readWriter, mockExec, logger)
+
+	mockExec.EXPECT().ExecuteWithBoundedOutputFromDir(gomock.Any(), "", "echo", []string{"first"}, MaxEnrollmentHookActionOutput, gomock.Any()).
+		Return("ip=10.0.0.1", "", 0).Times(1)
+	mockExec.EXPECT().ExecuteWithBoundedOutputFromDir(gomock.Any(), "", "echo", []string{"second"}, MaxEnrollmentHookActionOutput, gomock.Any()).
+		Return("", "serial=ABC", 0).Times(1)
+
+	enrollCtx := &EnrollmentContext{DeviceName: "test-device"}
+	require.NoError(hookManager.OnBeforeEnrolling(context.Background(), enrollCtx))
+	require.True(enrollCtx.Success)
+	require.Len(enrollCtx.Actions, 2)
+	require.Equal("/usr/lib/flightctl/hooks.d/beforeenrolling/01-test.yaml", enrollCtx.Actions[0].Source)
+	require.Equal(0, enrollCtx.Actions[0].ExitCode)
+	require.Equal("ip=10.0.0.1", enrollCtx.Actions[0].Output)
+	require.Equal("/usr/lib/flightctl/hooks.d/beforeenrolling/01-test.yaml", enrollCtx.Actions[1].Source)
+	require.Equal("serial=ABC", enrollCtx.Actions[1].Output)
+}
+
+func TestOnBeforeEnrollingRecordsFailedActionResult(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	hooks := map[string]string{
+		"/usr/lib/flightctl/hooks.d/beforeenrolling/01-test.yaml": `- run: /bin/false`,
+	}
+	readWriter := createEnrollmentHooksDir(t, hooks)
+	mockExec := executer.NewMockExecuter(ctrl)
+	logger := log.NewPrefixLogger("test")
+	logger.SetLevel(logrus.ErrorLevel)
+	hookManager := NewManager(readWriter, mockExec, logger)
+
+	mockExec.EXPECT().ExecuteWithBoundedOutputFromDir(gomock.Any(), "", "/bin/false", []string{}, MaxEnrollmentHookActionOutput, gomock.Any()).
+		Return("", "failed", 1).Times(1)
+
+	enrollCtx := &EnrollmentContext{DeviceName: "test-device"}
+	require.Error(hookManager.OnBeforeEnrolling(context.Background(), enrollCtx))
+	require.False(enrollCtx.Success)
+	require.Len(enrollCtx.Actions, 1)
+	require.Equal("/usr/lib/flightctl/hooks.d/beforeenrolling/01-test.yaml", enrollCtx.Actions[0].Source)
+	require.Equal(1, enrollCtx.Actions[0].ExitCode)
+	require.Equal("failed", enrollCtx.Actions[0].Output)
+}
+
+// expectEnrollmentExecCalls configures bounded-output executor expectations for enrollment hooks.
+func expectEnrollmentExecCalls(mockExecuter *executer.MockExecuter, expectedCommands []command) {
+	if len(expectedCommands) > 0 {
+		calls := make([]any, len(expectedCommands))
+		for i, e := range expectedCommands {
+			calls[i] = mockExecuter.EXPECT().ExecuteWithBoundedOutputFromDir(gomock.Any(), "", e.command, e.args, MaxEnrollmentHookActionOutput, gomock.Any()).DoAndReturn(
+				func(ctx context.Context, workingDir, command string, args []string, _ int, env ...string) (string, string, int) {
+					return "", "", 0
+				}).Return("", "", 0).Times(1)
+		}
+		gomock.InOrder(calls...)
+	} else {
+		mockExecuter.EXPECT().ExecuteWithBoundedOutputFromDir(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+			func(ctx context.Context, workingDir, command string, args []string, _ int, env ...string) (string, string, int) {
+				return strings.Join(append([]string{command}, args...), " "), "", 0
+			}).Times(0)
+	}
 }
 
 // expectExecCalls configures the mock executor to expect the given commands in order.
