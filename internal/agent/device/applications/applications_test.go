@@ -225,7 +225,7 @@ func TestApplicationStatus(t *testing.T) {
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
 		},
 		{
-			name: "When single workload is unhealthy it should report Running degraded",
+			name: "When single workload is unhealthy it should report Starting degraded",
 			workloads: []Workload{
 				{
 					Name:   "container1",
@@ -233,11 +233,11 @@ func TestApplicationStatus(t *testing.T) {
 				},
 			},
 			expectedReady:         "0/1",
-			expectedStatus:        v1beta1.ApplicationStatusRunning,
+			expectedStatus:        v1beta1.ApplicationStatusStarting,
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
 		},
 		{
-			name: "When one workload is unhealthy and one is healthy it should report Running degraded",
+			name: "When one workload is unhealthy and one is healthy it should report Starting degraded",
 			workloads: []Workload{
 				{
 					Name:   "container1",
@@ -249,11 +249,11 @@ func TestApplicationStatus(t *testing.T) {
 				},
 			},
 			expectedReady:         "1/2",
-			expectedStatus:        v1beta1.ApplicationStatusRunning,
+			expectedStatus:        v1beta1.ApplicationStatusStarting,
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
 		},
 		{
-			name: "When all workloads are unhealthy it should report Running degraded",
+			name: "When all workloads are unhealthy it should report Starting degraded",
 			workloads: []Workload{
 				{
 					Name:   "container1",
@@ -265,11 +265,11 @@ func TestApplicationStatus(t *testing.T) {
 				},
 			},
 			expectedReady:         "0/2",
-			expectedStatus:        v1beta1.ApplicationStatusRunning,
+			expectedStatus:        v1beta1.ApplicationStatusStarting,
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
 		},
 		{
-			name: "When one workload is unhealthy and one is exited it should report Running degraded",
+			name: "When one workload is unhealthy and one is exited it should report Starting degraded",
 			workloads: []Workload{
 				{
 					Name:   "container1",
@@ -281,11 +281,11 @@ func TestApplicationStatus(t *testing.T) {
 				},
 			},
 			expectedReady:         "0/2",
-			expectedStatus:        v1beta1.ApplicationStatusRunning,
+			expectedStatus:        v1beta1.ApplicationStatusStarting,
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
 		},
 		{
-			name: "When one workload is unhealthy and one has died it should report Running degraded",
+			name: "When one workload is unhealthy and one has died it should report Starting degraded",
 			workloads: []Workload{
 				{
 					Name:   "container1",
@@ -297,17 +297,17 @@ func TestApplicationStatus(t *testing.T) {
 				},
 			},
 			expectedReady:         "0/2",
-			expectedStatus:        v1beta1.ApplicationStatusRunning,
+			expectedStatus:        v1beta1.ApplicationStatusStarting,
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
 		},
 		{
-			name: "When one workload is unhealthy and one is stopping it should report Running degraded",
+			name: "When one workload is unhealthy and one is stopping it should report Starting degraded",
 			workloads: []Workload{
 				{Name: "container1", Status: StatusUnhealthy},
 				{Name: "container2", Status: StatusStop},
 			},
 			expectedReady:         "0/2",
-			expectedStatus:        v1beta1.ApplicationStatusRunning,
+			expectedStatus:        v1beta1.ApplicationStatusStarting,
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
 		},
 		{
@@ -323,7 +323,7 @@ func TestApplicationStatus(t *testing.T) {
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusHealthy,
 		},
 		{
-			name: "When a running workload is unhealthy and init containers have exited it should report Running degraded",
+			name: "When a running workload is unhealthy and init containers have exited it should report Starting degraded",
 			workloads: []Workload{
 				{Name: "compute", Status: StatusUnhealthy},
 				{Name: "virt-launcher", Status: StatusRunning},
@@ -331,7 +331,7 @@ func TestApplicationStatus(t *testing.T) {
 				{Name: "init-config", Status: StatusExited},
 			},
 			expectedReady:         "1/4",
-			expectedStatus:        v1beta1.ApplicationStatusRunning,
+			expectedStatus:        v1beta1.ApplicationStatusStarting,
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
 		},
 	}

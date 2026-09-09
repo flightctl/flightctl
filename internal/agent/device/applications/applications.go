@@ -361,7 +361,9 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 		newStatus = v1beta1.ApplicationStatusRunning
 		summary.Status = v1beta1.ApplicationsSummaryStatusHealthy
 	case isRunningUnhealthy(total, healthy, unhealthy, initializing, stopped+stopping):
-		newStatus = v1beta1.ApplicationStatusRunning
+		// A health-degraded application is still recovering. Report Starting so
+		// the individual status remains consistent with a Degraded summary.
+		newStatus = v1beta1.ApplicationStatusStarting
 		summary.Status = v1beta1.ApplicationsSummaryStatusDegraded
 	case isRunningDegraded(total, healthy, initializing):
 		newStatus = v1beta1.ApplicationStatusRunning

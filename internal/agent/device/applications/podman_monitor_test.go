@@ -495,14 +495,14 @@ func TestUpdateContainerHealthStatus(t *testing.T) {
 		expectedSummary        v1beta1.ApplicationsSummaryStatusType
 	}{
 		{
-			name:                   "When running VM workload becomes unhealthy it should report Running degraded",
+			name:                   "When running VM workload becomes unhealthy it should report Starting degraded",
 			appType:                v1beta1.AppTypeVm,
 			initialWorkloadStatus:  StatusRunning,
 			health:                 "unhealthy",
 			expectedWorkloadStatus: StatusUnhealthy,
 			expectedRequiresHealth: true,
 			expectedReady:          "0/1",
-			expectedAppStatus:      v1beta1.ApplicationStatusRunning,
+			expectedAppStatus:      v1beta1.ApplicationStatusStarting,
 			expectedSummary:        v1beta1.ApplicationsSummaryStatusDegraded,
 		},
 		{
@@ -517,14 +517,14 @@ func TestUpdateContainerHealthStatus(t *testing.T) {
 			expectedSummary:        v1beta1.ApplicationsSummaryStatusHealthy,
 		},
 		{
-			name:                   "When VM health is starting it should report Running degraded",
+			name:                   "When VM health is starting it should report Starting degraded",
 			appType:                v1beta1.AppTypeVm,
 			initialWorkloadStatus:  StatusRunning,
 			health:                 "starting",
 			expectedWorkloadStatus: StatusUnhealthy,
 			expectedRequiresHealth: true,
 			expectedReady:          "0/1",
-			expectedAppStatus:      v1beta1.ApplicationStatusRunning,
+			expectedAppStatus:      v1beta1.ApplicationStatusStarting,
 			expectedSummary:        v1beta1.ApplicationsSummaryStatusDegraded,
 		},
 		{
@@ -699,7 +699,7 @@ func TestVMHealthGatedCrashLoopSequence(t *testing.T) {
 	require.True(ok)
 	require.True(workload.RequiresHealth)
 	require.Equal(StatusUnhealthy, workload.Status)
-	assertSummary("0/1", v1beta1.ApplicationStatusRunning, v1beta1.ApplicationsSummaryStatusDegraded)
+	assertSummary("0/1", v1beta1.ApplicationStatusStarting, v1beta1.ApplicationsSummaryStatusDegraded)
 
 	died := mockPodmanEventError(appName, v1beta1.CurrentProcessUsername, service, "died", 2)
 	died.ID = "container-id-1"
@@ -715,12 +715,12 @@ func TestVMHealthGatedCrashLoopSequence(t *testing.T) {
 	require.True(workload.RequiresHealth)
 	require.Equal(StatusUnhealthy, workload.Status)
 	require.Equal("container-id-2", workload.ID)
-	assertSummary("0/1", v1beta1.ApplicationStatusRunning, v1beta1.ApplicationsSummaryStatusDegraded)
+	assertSummary("0/1", v1beta1.ApplicationStatusStarting, v1beta1.ApplicationsSummaryStatusDegraded)
 
 	starting2 := mockPodmanHealthEvent(appName, v1beta1.CurrentProcessUsername, service, "starting")
 	starting2.ID = "container-id-2"
 	monitor.handleEvent(t.Context(), starting2)
-	assertSummary("0/1", v1beta1.ApplicationStatusRunning, v1beta1.ApplicationsSummaryStatusDegraded)
+	assertSummary("0/1", v1beta1.ApplicationStatusStarting, v1beta1.ApplicationsSummaryStatusDegraded)
 
 	healthy := mockPodmanHealthEvent(appName, v1beta1.CurrentProcessUsername, service, "healthy")
 	healthy.ID = "container-id-2"
