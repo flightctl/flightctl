@@ -312,6 +312,12 @@ const (
 	Warning EventType = "Warning"
 )
 
+// Defines values for FailurePolicyType.
+const (
+	FailurePolicyBlock    FailurePolicyType = "Block"
+	FailurePolicyContinue FailurePolicyType = "Continue"
+)
+
 // Defines values for FileOperation.
 const (
 	FileOperationCreated FileOperation = "created"
@@ -1748,6 +1754,99 @@ type EnrollmentConfig struct {
 	EnrollmentService EnrollmentService `json:"enrollment-service"`
 }
 
+// EnrollmentHookAuth Authentication configuration for an enrollment hook action.
+type EnrollmentHookAuth struct {
+	// BearerToken Bearer token for HTTP authentication.
+	BearerToken *string `json:"bearerToken,omitempty"`
+}
+
+// EnrollmentHookHttpAction An HTTP action to execute as part of an enrollment hook.
+type EnrollmentHookHttpAction struct {
+	// Auth Authentication configuration for an enrollment hook action.
+	Auth *EnrollmentHookAuth `json:"auth,omitempty"`
+
+	// Retry Retry policy for an enrollment hook action.
+	Retry *EnrollmentHookRetryPolicy `json:"retry,omitempty"`
+
+	// Timeout Timeout duration (e.g. "30s"). Defaults to 30s, max 5m.
+	Timeout *string `json:"timeout,omitempty"`
+
+	// Url The HTTPS URL to call.
+	Url string `json:"url"`
+}
+
+// EnrollmentHookPolicy EnrollmentHookPolicy defines an org-scoped enrollment hook policy.
+type EnrollmentHookPolicy struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion ApiVersion `json:"apiVersion"`
+
+	// Kind Kind is a string value representing the REST resource this object represents.
+	Kind string `json:"kind"`
+
+	// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
+	Metadata ObjectMeta `json:"metadata"`
+
+	// Spec Specification for an enrollment hook policy.
+	Spec EnrollmentHookPolicySpec `json:"spec"`
+
+	// Status Status of an enrollment hook policy.
+	Status *EnrollmentHookPolicyStatus `json:"status,omitempty"`
+}
+
+// EnrollmentHookPolicyList EnrollmentHookPolicyList is a list of EnrollmentHookPolicy resources.
+type EnrollmentHookPolicyList struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion ApiVersion `json:"apiVersion"`
+
+	// Items List of enrollment hook policies.
+	Items []EnrollmentHookPolicy `json:"items"`
+
+	// Kind Kind is a string value representing the REST resource this object represents.
+	Kind string `json:"kind"`
+
+	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
+	Metadata ListMeta `json:"metadata"`
+}
+
+// EnrollmentHookPolicySpec Specification for an enrollment hook policy.
+type EnrollmentHookPolicySpec struct {
+	// AfterEnrolling Configuration for a stage of enrollment hooks.
+	AfterEnrolling EnrollmentHookStageSpec `json:"afterEnrolling"`
+}
+
+// EnrollmentHookPolicyStatus Status of an enrollment hook policy.
+type EnrollmentHookPolicyStatus struct {
+	// Conditions Current conditions of the enrollment hook policy.
+	Conditions *[]Condition `json:"conditions,omitempty"`
+}
+
+// EnrollmentHookRetryPolicy Retry policy for an enrollment hook action.
+type EnrollmentHookRetryPolicy struct {
+	// BackoffDelay Initial backoff delay duration (e.g. "2s"). Defaults to "2s".
+	BackoffDelay *string `json:"backoffDelay,omitempty"`
+
+	// BackoffPolicy Backoff strategy (e.g. "exponential"). Defaults to "exponential".
+	BackoffPolicy *string `json:"backoffPolicy,omitempty"`
+
+	// Deadline Overall deadline for all retry attempts (e.g. "10m"). Defaults to "10m".
+	Deadline *string `json:"deadline,omitempty"`
+
+	// MaxAttempts Maximum number of retry attempts. Defaults to 5, max 20.
+	MaxAttempts *int `json:"maxAttempts,omitempty"`
+
+	// MaxBackoff Maximum backoff duration (e.g. "2m"). Defaults to "2m".
+	MaxBackoff *string `json:"maxBackoff,omitempty"`
+}
+
+// EnrollmentHookStageSpec Configuration for a stage of enrollment hooks.
+type EnrollmentHookStageSpec struct {
+	// ControlPlaneActions List of HTTP actions to execute during this enrollment stage.
+	ControlPlaneActions *[]EnrollmentHookHttpAction `json:"controlPlaneActions,omitempty"`
+
+	// FailurePolicy Determines behavior when a hook action fails.
+	FailurePolicy *FailurePolicyType `json:"failurePolicy,omitempty"`
+}
+
 // EnrollmentRequest EnrollmentRequest represents a request for approval to enroll a device.
 type EnrollmentRequest struct {
 	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
@@ -1938,6 +2037,9 @@ type EventSource struct {
 	// Component The name of the component that is responsible for the event.
 	Component string `json:"component"`
 }
+
+// FailurePolicyType Determines behavior when a hook action fails.
+type FailurePolicyType string
 
 // FileContent The content of a file.
 type FileContent struct {
@@ -3476,6 +3578,21 @@ type GetEnrollmentConfigParams struct {
 	Csr *string `form:"csr,omitempty" json:"csr,omitempty"`
 }
 
+// ListEnrollmentHookPoliciesParams defines parameters for ListEnrollmentHookPolicies.
+type ListEnrollmentHookPoliciesParams struct {
+	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
+
+	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
+	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
+
+	// FieldSelector A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
+
+	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
+	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // ListEnrollmentRequestsParams defines parameters for ListEnrollmentRequests.
 type ListEnrollmentRequestsParams struct {
 	// Continue An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
@@ -3661,6 +3778,15 @@ type PatchDeviceStatusApplicationJSONPatchPlusJSONRequestBody = PatchRequest
 
 // ReplaceDeviceStatusJSONRequestBody defines body for ReplaceDeviceStatus for application/json ContentType.
 type ReplaceDeviceStatusJSONRequestBody = Device
+
+// CreateEnrollmentHookPolicyJSONRequestBody defines body for CreateEnrollmentHookPolicy for application/json ContentType.
+type CreateEnrollmentHookPolicyJSONRequestBody = EnrollmentHookPolicy
+
+// PatchEnrollmentHookPolicyApplicationJSONPatchPlusJSONRequestBody defines body for PatchEnrollmentHookPolicy for application/json-patch+json ContentType.
+type PatchEnrollmentHookPolicyApplicationJSONPatchPlusJSONRequestBody = PatchRequest
+
+// ReplaceEnrollmentHookPolicyJSONRequestBody defines body for ReplaceEnrollmentHookPolicy for application/json ContentType.
+type ReplaceEnrollmentHookPolicyJSONRequestBody = EnrollmentHookPolicy
 
 // CreateEnrollmentRequestJSONRequestBody defines body for CreateEnrollmentRequest for application/json ContentType.
 type CreateEnrollmentRequestJSONRequestBody = EnrollmentRequest

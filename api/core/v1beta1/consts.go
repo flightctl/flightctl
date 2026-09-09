@@ -90,6 +90,10 @@ const (
 	RepositoryKind       = "Repository"
 	RepositoryListKind   = "RepositoryList"
 
+	EnrollmentHookPolicyAPIVersion = "v1beta1"
+	EnrollmentHookPolicyKind       = "EnrollmentHookPolicy"
+	EnrollmentHookPolicyListKind   = "EnrollmentHookPolicyList"
+
 	AuthProviderAPIVersion = "v1beta1"
 	AuthProviderKind       = "AuthProvider"
 	AuthProviderListKind   = "AuthProviderList"

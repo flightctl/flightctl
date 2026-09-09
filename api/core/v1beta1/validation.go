@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"reflect"
 	"regexp"
@@ -2471,5 +2472,161 @@ func (s CatalogItemRefSpec) Validate() []error {
 	if s.Catalog != strings.TrimSpace(s.Catalog) || s.Item != strings.TrimSpace(s.Item) || s.Version != strings.TrimSpace(s.Version) {
 		allErrs = append(allErrs, errors.New("catalog, item, and version must not contain leading or trailing whitespace"))
 	}
+	return allErrs
+}
+
+const (
+	enrollmentHookPolicyRequiredName = "default"
+	enrollmentHookDefaultTimeout     = "30s"
+	enrollmentHookMaxTimeout         = 5 * time.Minute
+	enrollmentHookDefaultMaxAttempts = 5
+	enrollmentHookMinMaxAttempts     = 1
+	enrollmentHookMaxMaxAttempts     = 20
+	enrollmentHookDefaultBackoff     = "exponential"
+	enrollmentHookDefaultBackoffDly  = "2s"
+	enrollmentHookDefaultMaxBackoff  = "2m"
+	enrollmentHookDefaultDeadline    = "10m"
+)
+
+// Validate validates an EnrollmentHookPolicy and applies defaults.
+// This method mutates the receiver by setting default values for omitted fields.
+func (p *EnrollmentHookPolicy) Validate() []error {
+	if p == nil {
+		return nil
+	}
+	var allErrs []error
+
+	if p.Metadata.Name == nil || *p.Metadata.Name != enrollmentHookPolicyRequiredName {
+		allErrs = append(allErrs, fmt.Errorf("metadata.name must be %q", enrollmentHookPolicyRequiredName))
+	}
+	allErrs = append(allErrs, validation.ValidateLabels(p.Metadata.Labels)...)
+	allErrs = append(allErrs, validation.ValidateAnnotations(p.Metadata.Annotations)...)
+
+	stage := &p.Spec.AfterEnrolling
+
+	// Default failurePolicy to Block
+	if stage.FailurePolicy == nil {
+		def := FailurePolicyBlock
+		stage.FailurePolicy = &def
+	}
+	if *stage.FailurePolicy != FailurePolicyBlock && *stage.FailurePolicy != FailurePolicyContinue {
+		allErrs = append(allErrs, fmt.Errorf("spec.afterEnrolling.failurePolicy must be %q or %q", FailurePolicyBlock, FailurePolicyContinue))
+	}
+
+	// Gate-only policy: no controlPlaneActions is valid
+	if stage.ControlPlaneActions == nil || len(*stage.ControlPlaneActions) == 0 {
+		return allErrs
+	}
+
+	for i, action := range *stage.ControlPlaneActions {
+		prefix := fmt.Sprintf("spec.afterEnrolling.controlPlaneActions[%d]", i)
+		allErrs = append(allErrs, validateEnrollmentHookAction(&(*stage.ControlPlaneActions)[i], action, prefix)...)
+	}
+
+	return allErrs
+}
+
+func validateEnrollmentHookAction(action *EnrollmentHookHttpAction, orig EnrollmentHookHttpAction, prefix string) []error {
+	var allErrs []error
+
+	if action.Url == "" {
+		allErrs = append(allErrs, fmt.Errorf("%s.url must not be empty", prefix))
+		return allErrs
+	}
+
+	parsed, err := url.Parse(action.Url)
+	if err != nil {
+		allErrs = append(allErrs, fmt.Errorf("%s.url is not a valid URL: %w", prefix, err))
+		return allErrs
+	}
+	if parsed.Scheme != "https" {
+		allErrs = append(allErrs, fmt.Errorf("%s.url must use HTTPS scheme", prefix))
+	}
+
+	host := parsed.Hostname()
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.IsLoopback() {
+			allErrs = append(allErrs, fmt.Errorf("%s.url must not use a loopback address", prefix))
+		}
+		if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+			allErrs = append(allErrs, fmt.Errorf("%s.url must not use a link-local address", prefix))
+		}
+	}
+
+	// Default and validate timeout
+	if action.Timeout == nil {
+		def := enrollmentHookDefaultTimeout
+		action.Timeout = &def
+	}
+	if action.Timeout != nil {
+		d, parseErr := time.ParseDuration(*action.Timeout)
+		if parseErr != nil {
+			allErrs = append(allErrs, fmt.Errorf("%s.timeout is not a valid duration: %w", prefix, parseErr))
+		} else if d <= 0 {
+			allErrs = append(allErrs, fmt.Errorf("%s.timeout must be positive", prefix))
+		} else if d > enrollmentHookMaxTimeout {
+			allErrs = append(allErrs, fmt.Errorf("%s.timeout must not exceed %s", prefix, enrollmentHookMaxTimeout))
+		}
+	}
+
+	// Default and validate retry
+	if action.Retry != nil {
+		allErrs = append(allErrs, validateAndDefaultRetry(action.Retry, prefix+".retry")...)
+	}
+
+	return allErrs
+}
+
+func validateAndDefaultRetry(retry *EnrollmentHookRetryPolicy, prefix string) []error {
+	var allErrs []error
+
+	if retry.MaxAttempts == nil {
+		def := enrollmentHookDefaultMaxAttempts
+		retry.MaxAttempts = &def
+	}
+	if *retry.MaxAttempts < enrollmentHookMinMaxAttempts || *retry.MaxAttempts > enrollmentHookMaxMaxAttempts {
+		allErrs = append(allErrs, fmt.Errorf("%s.maxAttempts must be between %d and %d", prefix, enrollmentHookMinMaxAttempts, enrollmentHookMaxMaxAttempts))
+	}
+
+	if retry.BackoffPolicy == nil {
+		def := enrollmentHookDefaultBackoff
+		retry.BackoffPolicy = &def
+	}
+	if retry.BackoffDelay == nil {
+		def := enrollmentHookDefaultBackoffDly
+		retry.BackoffDelay = &def
+	}
+	if retry.BackoffDelay != nil {
+		if d, err := time.ParseDuration(*retry.BackoffDelay); err != nil {
+			allErrs = append(allErrs, fmt.Errorf("%s.backoffDelay is not a valid duration: %w", prefix, err))
+		} else if d <= 0 {
+			allErrs = append(allErrs, fmt.Errorf("%s.backoffDelay must be positive", prefix))
+		}
+	}
+
+	if retry.MaxBackoff == nil {
+		def := enrollmentHookDefaultMaxBackoff
+		retry.MaxBackoff = &def
+	}
+	if retry.MaxBackoff != nil {
+		if d, err := time.ParseDuration(*retry.MaxBackoff); err != nil {
+			allErrs = append(allErrs, fmt.Errorf("%s.maxBackoff is not a valid duration: %w", prefix, err))
+		} else if d <= 0 {
+			allErrs = append(allErrs, fmt.Errorf("%s.maxBackoff must be positive", prefix))
+		}
+	}
+
+	if retry.Deadline == nil {
+		def := enrollmentHookDefaultDeadline
+		retry.Deadline = &def
+	}
+	if retry.Deadline != nil {
+		if d, err := time.ParseDuration(*retry.Deadline); err != nil {
+			allErrs = append(allErrs, fmt.Errorf("%s.deadline is not a valid duration: %w", prefix, err))
+		} else if d <= 0 {
+			allErrs = append(allErrs, fmt.Errorf("%s.deadline must be positive", prefix))
+		}
+	}
+
 	return allErrs
 }
