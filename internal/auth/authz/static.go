@@ -36,6 +36,7 @@ var resourcePermissions = map[string]map[string][]string{
 		"fleets":                         {"get", "list", "create", "update", "patch", "delete"},
 		"resourcesyncs":                  {"get", "list", "create", "update", "patch", "delete"},
 		"repositories":                   {"get", "list", "create", "update", "patch", "delete"},
+		"enrollmenthookpolicies":         {"get", "list", "create", "update", "patch", "delete"},
 		"catalogs":                       {"get", "list"},
 		"catalogitems":                   {"get", "list"},
 		"imagebuilds":                    {"get", "list", "create", "update", "patch", "delete"},
