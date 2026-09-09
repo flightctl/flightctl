@@ -496,6 +496,10 @@
           "type": "boolean",
           "description": "Allow worker to access cluster-level secrets for embedding in device configs"
         },
+        "renderTimeout": {
+          "type": "string",
+          "description": "Time budget for a single device render operation including VM conversion and DB writes (default 60s)"
+        },
         "vmRender": {
           "type": "object",
           "description": "VM application render options passed to vm-to-quadlet",
@@ -1136,6 +1140,10 @@
         "maxConcurrentDeltaGenerations": {
           "type": "integer",
           "description": "Maximum number of concurrent delta generation jobs. Defaults to 2 when omitted or <= 0"
+        },
+        "timeout": {
+          "type": "string",
+          "description": "Per-job timeout for generating a delta (Go duration, e.g. 30m). Defaults to 30m when omitted or <= 0"
         }
       }
     },
@@ -1205,4 +1213,3 @@
     }
   }
 }
-

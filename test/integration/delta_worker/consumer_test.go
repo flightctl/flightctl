@@ -9,7 +9,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
-	deltaworker "github.com/flightctl/flightctl/internal/delta_worker"
+	deltatasks "github.com/flightctl/flightctl/internal/delta_worker/tasks"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
@@ -29,6 +29,7 @@ var (
 	redisHost     string
 	redisPort     uint
 	redisPassword domain.SecureString
+	redisClient   *redis.Client
 	redisCleanup  func()
 )
 
@@ -45,9 +46,18 @@ var _ = BeforeSuite(func() {
 	redisHost, redisPort, redisPassword, redisCleanup, err = testdb.CreateTestRedis(
 		suiteCtx, flightlog.InitLogs())
 	Expect(err).NotTo(HaveOccurred())
+
+	redisClient = redis.NewClient(&redis.Options{
+		Addr:     fmt.Sprintf("%s:%d", redisHost, redisPort),
+		Password: string(redisPassword),
+		DB:       0,
+	})
 })
 
 var _ = AfterSuite(func() {
+	if redisClient != nil {
+		Expect(redisClient.Close()).To(Succeed())
+	}
 	if redisCleanup != nil {
 		redisCleanup()
 	}
@@ -77,6 +87,9 @@ var _ = Describe("Delta worker consumers", func() {
 			provider.Stop()
 			provider.Wait()
 		}
+		if redisClient != nil {
+			Expect(redisClient.Del(ctx, consts.DeltaGenerationTaskQueue, consts.TaskQueue).Err()).To(Succeed())
+		}
 		if cancel != nil {
 			cancel()
 		}
@@ -86,7 +99,7 @@ var _ = Describe("Delta worker consumers", func() {
 		It("should consume and ack PrepareDeltas on DeltaGenerationTaskQueue", func() {
 			cfg := config.NewDefault()
 			cfg.DeltaGeneration = &config.DeltaGenerationConfig{MaxConcurrentDeltaGenerations: 1}
-			Expect(deltaworker.LaunchConsumers(ctx, provider, cfg, nil, log)).To(Succeed())
+			Expect(deltatasks.LaunchConsumers(ctx, provider, cfg, nil, nil, log)).To(Succeed())
 
 			payload := prepareDeltasPayload()
 			producer, err := provider.NewQueueProducer(ctx, consts.DeltaGenerationTaskQueue)
@@ -102,7 +115,7 @@ var _ = Describe("Delta worker consumers", func() {
 		It("should not consume the same payload from TaskQueue", func() {
 			cfg := config.NewDefault()
 			cfg.DeltaGeneration = &config.DeltaGenerationConfig{MaxConcurrentDeltaGenerations: 1}
-			Expect(deltaworker.LaunchConsumers(ctx, provider, cfg, nil, log)).To(Succeed())
+			Expect(deltatasks.LaunchConsumers(ctx, provider, cfg, nil, nil, log)).To(Succeed())
 
 			payload := prepareDeltasPayload()
 			producer, err := provider.NewQueueProducer(ctx, consts.TaskQueue)
@@ -129,13 +142,7 @@ func prepareDeltasPayload() []byte {
 
 func streamLen(ctx context.Context, queueName string) int64 {
 	GinkgoHelper()
-	client := redis.NewClient(&redis.Options{
-		Addr:     fmt.Sprintf("%s:%d", redisHost, redisPort),
-		Password: string(redisPassword),
-		DB:       0,
-	})
-	defer client.Close()
-	n, err := client.XLen(ctx, queueName).Result()
+	n, err := redisClient.XLen(ctx, queueName).Result()
 	Expect(err).ToNot(HaveOccurred())
 	return n
 }

@@ -294,7 +294,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | dbSetup.migration.backoffLimit | int | `2147483647` | Number of retries for the migration Job on failure  |
 | dbSetup.wait.sleep | int | `2` | Seconds to sleep between database connection attempts Default sleep interval between connection attempts |
 | dbSetup.wait.timeout | int | `60` | Seconds to wait for database readiness before failing Default timeout for database wait (can be overridden per deployment) |
-| deltaGeneration | object | `{"defaultRepository":{"caCrt":"","namespace":"","registry":"","repository":"","scheme":"","secretName":"","skipServerVerification":false},"maxConcurrentDeltaGenerations":2}` | Default OCI write target for generated deltas when an organization has no deltaStorageTarget Repository. Username and password must come from the Secret named in secretName (keys: username, password); they are not written to config.yaml. |
+| deltaGeneration | object | `{"defaultRepository":{"caCrt":"","namespace":"","registry":"","repository":"","scheme":"","secretName":"","skipServerVerification":false},"maxConcurrentDeltaGenerations":2,"timeout":"30m"}` | Default OCI write target for generated deltas when an organization has no deltaStorageTarget Repository. Username and password must come from the Secret named in secretName (keys: username, password); they are not written to config.yaml. |
 | deltaGeneration.defaultRepository.caCrt | string | `""` | Base64-encoded PEM of a custom registry CA (same encoding as Repository spec ca.crt). |
 | deltaGeneration.defaultRepository.namespace | string | `""` | Optional namespace under registry (e.g. my-org). Mutually exclusive with repository. |
 | deltaGeneration.defaultRepository.registry | string | `""` | Registry hostname used as the login/CA host and as the prefix of the push path. |
@@ -303,6 +303,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | deltaGeneration.defaultRepository.secretName | string | `""` | Name of the Kubernetes Secret containing 'username' and 'password' keys. |
 | deltaGeneration.defaultRepository.skipServerVerification | bool | `false` | Skip TLS verification when connecting to the registry. |
 | deltaGeneration.maxConcurrentDeltaGenerations | int | `2` | Maximum number of concurrent delta generation jobs. Defaults to 2 when omitted or <= 0. |
+| deltaGeneration.timeout | string | `"30m"` | Per-job timeout for oci-delta/ORAS. Defaults to 30m when omitted or <= 0. |
 | deltaWorker | object | `{"image":{"image":"quay.io/flightctl/flightctl-delta-worker-el9","pullPolicy":"","tag":""},"resources":{"limits":{"cpu":"2","memory":"2Gi"},"requests":{"cpu":"100m","memory":"256Mi"}}}` | Delta-worker Configuration |
 | deltaWorker.image.image | string | `"quay.io/flightctl/flightctl-delta-worker-el9"` | Delta-worker container image |
 | deltaWorker.image.pullPolicy | string | `""` | Image pull policy for delta-worker container |
@@ -473,11 +474,12 @@ For more detailed configuration options, see the [Values](#values) section below
 | vulnerabilityReporting.trustify.caFile | string | `""` | Path to a CA bundle for verifying the Trustify server certificate. If unset, system roots are used. |
 | vulnerabilityReporting.trustify.endpoint | string | `""` | Trustify API base URL (do not include /api/v1 or /api/v2 paths). |
 | vulnerabilityReporting.trustify.skipTlsVerify | bool | `false` | Skip TLS certificate verification (insecure, for lab/air-gap only). Defaults to false. |
-| worker | object | `{"clusterLevelSecretAccess":false,"image":{"image":"quay.io/flightctl/flightctl-worker-el9","pullPolicy":"","tag":""},"vmRender":{"launcherImage":"","launcherImages":{},"passtWorkarounds":false}}` | Worker Configuration |
+| worker | object | `{"clusterLevelSecretAccess":false,"image":{"image":"quay.io/flightctl/flightctl-worker-el9","pullPolicy":"","tag":""},"renderTimeout":"60s","vmRender":{"launcherImage":"","launcherImages":{},"passtWorkarounds":false}}` | Worker Configuration |
 | worker.clusterLevelSecretAccess | bool | `false` | Allow flightctl-worker to access secrets at the cluster level for embedding in device configs |
 | worker.image.image | string | `"quay.io/flightctl/flightctl-worker-el9"` | Worker container image |
 | worker.image.pullPolicy | string | `""` | Image pull policy for worker container |
 | worker.image.tag | string | `""` | Worker image tag |
+| worker.renderTimeout | string | `"60s"` | Time budget for a single device render operation including VM conversion and DB writes (default "60s") |
 | worker.vmRender | object | `{"launcherImage":"","launcherImages":{},"passtWorkarounds":false}` | VM application render options passed to vm-to-quadlet |
 | worker.vmRender.launcherImage | string | `""` | virt-launcher image used when converting VmApplications to Quadlet units (leave empty to use the worker default) |
 | worker.vmRender.launcherImages | object | `{}` | virt-launcher images keyed by os-release ID and major from status.systemInfo (e.g. "rhel-9", "rhel-10") |

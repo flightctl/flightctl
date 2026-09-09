@@ -1383,3 +1383,113 @@ func TestRenderApplication_ImageMountVolumeCatalogRef_ResolvesToImage(t *testing
 		assert.Equal(t, "/data", imgMountProvider.Mount.Path)
 	})
 }
+
+// TestDeviceRender_NonDeviceKind verifies that deviceRender returns nil when
+// invoked with a non-Device event kind.
+func TestDeviceRender_NonDeviceKind(t *testing.T) {
+	orgId := uuid.New()
+	event := createTestEvent(domain.FleetKind, domain.EventReasonResourceUpdated, "some-fleet")
+	cfg := &config.Config{}
+
+	err := deviceRender(context.Background(), orgId, event, nil, nil, nil, nil, nil, cfg, logrus.New())
+	require.NoError(t, err, "deviceRender should return nil for non-Device events")
+}
+
+// TestDeviceRender_DetachedContextSurvivesParentDeadline verifies that the
+// render operation continues after the parent context's deadline expires.
+// This is the core regression test for EDM-5717: when EventProcessingTimeout
+// fires, the detached render context must still allow the render to complete.
+func TestDeviceRender_DetachedContextSurvivesParentDeadline(t *testing.T) {
+	const deviceName = "multi-vm-device"
+	orgId := uuid.New()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	// Build a device with an empty spec (simplest successful render path).
+	device := &domain.Device{
+		Metadata: domain.ObjectMeta{
+			Name: lo.ToPtr(deviceName),
+		},
+		Spec: &domain.DeviceSpec{},
+	}
+
+	mockSvc := deviceservice.NewMockService(ctrl)
+	// GetDevice is called with the renderCtx; it must not fail even though
+	// the parent has expired by the time the render starts.
+	mockSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).
+		DoAndReturn(func(ctx context.Context, _ uuid.UUID, _ string) (*domain.Device, domain.Status) {
+			// Assert the renderCtx has not yet expired (parent deadline is irrelevant).
+			assert.NoError(t, ctx.Err(), "render context should be alive even though parent has expired")
+			return device, statusOK
+		})
+	mockSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK)
+	mockSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK)
+
+	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
+	cfg := &config.Config{}
+
+	// Create a parent context that has already expired (simulates EventProcessingTimeout).
+	expiredCtx, cancel := context.WithTimeout(context.Background(), 0)
+	defer cancel()
+	// Wait for it to actually expire.
+	<-expiredCtx.Done()
+
+	err := deviceRender(expiredCtx, orgId, event, mockSvc, nil, nil, nil, newTestKVStore(), cfg, logrus.New())
+	require.NoError(t, err, "deviceRender should succeed even with an expired parent context")
+}
+
+// TestDeviceRender_ExplicitCancelPropagates verifies that explicit parent
+// cancellation (e.g. shutdown) propagates to the render context.
+func TestDeviceRender_ExplicitCancelPropagates(t *testing.T) {
+	const deviceName = "cancel-device"
+	orgId := uuid.New()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	parentCtx, parentCancel := context.WithCancel(context.Background())
+
+	// Build a device whose GetDevice call blocks until the parent cancel has
+	// propagated to the render context, then returns.
+	device := &domain.Device{
+		Metadata: domain.ObjectMeta{
+			Name: lo.ToPtr(deviceName),
+		},
+		Spec: &domain.DeviceSpec{},
+	}
+
+	mockSvc := deviceservice.NewMockService(ctrl)
+	mockSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).
+		DoAndReturn(func(ctx context.Context, _ uuid.UUID, _ string) (*domain.Device, domain.Status) {
+			// Cancel the parent to simulate a shutdown signal, then wait
+			// for the render context (ctx here) to observe the cancellation
+			// deterministically, rather than sleeping.
+			parentCancel()
+			<-ctx.Done()
+			return device, statusOK
+		})
+	// After GetDevice, RenderDevice proceeds to renderConfig which returns an
+	// empty ignition config. Then it calls OverwriteDeviceRepositoryRefs.
+	// Since the render context is now canceled, these calls may or may not
+	// succeed. Allow any calls but don't require them.
+	mockSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK).AnyTimes()
+	mockSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK).AnyTimes()
+
+	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
+	cfg := &config.Config{}
+
+	// The render may succeed or fail depending on timing; the key assertion
+	// is that it terminates promptly (doesn't hang waiting for the render
+	// timeout) when the parent is explicitly canceled.
+	done := make(chan struct{})
+	go func() {
+		_ = deviceRender(parentCtx, orgId, event, mockSvc, nil, nil, nil, newTestKVStore(), cfg, logrus.New())
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Good — the render finished promptly.
+	case <-time.After(5 * time.Second):
+		t.Fatal("deviceRender did not terminate promptly after explicit parent cancellation")
+	}
+}
