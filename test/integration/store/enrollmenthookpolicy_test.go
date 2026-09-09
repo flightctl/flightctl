@@ -22,13 +22,13 @@ import (
 
 var _ = Describe("EnrollmentHookPolicyStore", func() {
 	var (
-		log       *logrus.Logger
-		ctx       context.Context
-		orgId     uuid.UUID
-		ehpStore  enrollmenthookpolicystore.Store
-		cfg       *config.Config
-		dbName    string
-		db        *gorm.DB
+		log      *logrus.Logger
+		ctx      context.Context
+		orgId    uuid.UUID
+		ehpStore enrollmenthookpolicystore.Store
+		cfg      *config.Config
+		dbName   string
+		db       *gorm.DB
 	)
 
 	BeforeEach(func() {
