@@ -2859,10 +2859,22 @@ type PermissionList struct {
 	Permissions []Permission `json:"permissions"`
 }
 
+// PreEnrollmentActionResult Result of a single executed pre-enrollment hook action, agent-populated.
+type PreEnrollmentActionResult struct {
+	// ExitCode Process exit code from the hook action.
+	ExitCode int `json:"exitCode"`
+
+	// Index 1-based index of the executed hook action in merge order (matches agent logs).
+	Index int `json:"index"`
+
+	// Output Redacted stdout/stderr from this action. The total size across all actions is capped at 4KiB. Secret patterns (PEM blocks, Bearer prefixes, known token env names) are redacted before persistence.
+	Output *string `json:"output,omitempty"`
+}
+
 // PreEnrollmentResult Result of pre-enrollment hook execution, agent-populated.
 type PreEnrollmentResult struct {
-	// Output Last 4KiB of combined stdout/stderr from pre-enrollment hooks. Truncated with a trailing marker when the raw output exceeds 4096 bytes. Secret patterns (PEM blocks, Bearer prefixes, known token env names) are redacted before persistence.
-	Output *string `json:"output,omitempty"`
+	// Actions Per-action results in execution order.
+	Actions *[]PreEnrollmentActionResult `json:"actions,omitempty"`
 
 	// Success Whether all pre-enrollment hooks completed with exit code 0.
 	Success bool `json:"success"`

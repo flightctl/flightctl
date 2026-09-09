@@ -29,6 +29,13 @@ const MaxHookLabelsFileSize = 16 * 1024
 // MaxEnrollmentHookActionOutput bounds combined stdout+stderr capture per enrollment hook action.
 const MaxEnrollmentHookActionOutput = 4096
 
+// EnrollmentActionResult is the outcome of a single executed enrollment hook action.
+type EnrollmentActionResult struct {
+	Index    int
+	ExitCode int
+	Output   string
+}
+
 // EnrollmentContext carries device metadata for enrollment hook execution.
 // Callers populate input fields before invoking OnBeforeEnrolling/OnAfterEnrolling.
 // Result fields are populated by the hook manager after execution.
@@ -41,7 +48,7 @@ type EnrollmentContext struct {
 
 	// Result fields (populated by OnBeforeEnrolling)
 	Success    bool
-	Output     string
+	Actions    []EnrollmentActionResult
 	HookLabels map[string]string
 }
 

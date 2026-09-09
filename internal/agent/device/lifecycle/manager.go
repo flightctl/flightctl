@@ -69,7 +69,7 @@ type LifecycleManager struct {
 // preEnrollmentResult carries the outcome of pre-enrollment hooks for the ER.
 type preEnrollmentResult struct {
 	success    bool
-	output     string
+	actions    []hook.EnrollmentActionResult
 	hookLabels map[string]string
 }
 
@@ -453,7 +453,7 @@ func (m *LifecycleManager) runPreEnrollmentHooks(ctx context.Context, deviceStat
 
 	result := &preEnrollmentResult{
 		success:    enrollCtx.Success,
-		output:     enrollCtx.Output,
+		actions:    enrollCtx.Actions,
 		hookLabels: enrollCtx.HookLabels,
 	}
 
@@ -470,11 +470,11 @@ func (m *LifecycleManager) runPreEnrollmentHooks(ctx context.Context, deviceStat
 				}
 				if err := m.hookManager.OnBeforeEnrolling(ctx, retryCtx); err != nil {
 					m.log.Warnf("Pre-enrollment hook retry failed: %v", err)
-					result.output = retryCtx.Output
+					result.actions = retryCtx.Actions
 					return false, nil
 				}
 				result.success = true
-				result.output = retryCtx.Output
+				result.actions = retryCtx.Actions
 				result.hookLabels = retryCtx.HookLabels
 				return true, nil
 			})
@@ -486,11 +486,7 @@ func (m *LifecycleManager) runPreEnrollmentHooks(ctx context.Context, deviceStat
 		}
 	}
 
-	// Redact and truncate output for persistence
-	if result.output != "" {
-		result.output = redactSecrets(result.output)
-		result.output = truncateOutput(result.output, maxPreEnrollmentOutput)
-	}
+	result.actions = sanitizePreEnrollmentActions(result.actions, maxPreEnrollmentOutput)
 
 	return result, nil
 }
@@ -552,8 +548,18 @@ func (m *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *
 		pre := &v1beta1.PreEnrollmentResult{
 			Success: preResult.success,
 		}
-		if preResult.output != "" {
-			pre.Output = &preResult.output
+		if len(preResult.actions) > 0 {
+			apiActions := make([]v1beta1.PreEnrollmentActionResult, len(preResult.actions))
+			for i, action := range preResult.actions {
+				apiActions[i] = v1beta1.PreEnrollmentActionResult{
+					Index:    action.Index,
+					ExitCode: action.ExitCode,
+				}
+				if action.Output != "" {
+					apiActions[i].Output = &action.Output
+				}
+			}
+			pre.Actions = &apiActions
 		}
 		req.Spec.PreEnrollment = pre
 	}

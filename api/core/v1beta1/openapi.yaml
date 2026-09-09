@@ -7062,6 +7062,29 @@ components:
         - conditions
       description: EnrollmentRequestStatus represents information about the status of a EnrollmentRequest.
 
+    PreEnrollmentActionResult:
+      type: object
+      description: Result of a single executed pre-enrollment hook action, agent-populated.
+      required:
+        - index
+        - exitCode
+      properties:
+        index:
+          type: integer
+          minimum: 1
+          description: >-
+            1-based index of the executed hook action in merge order (matches
+            agent logs).
+        exitCode:
+          type: integer
+          description: Process exit code from the hook action.
+        output:
+          type: string
+          description: >-
+            Redacted stdout/stderr from this action. The total size across all
+            actions is capped at 4KiB. Secret patterns (PEM blocks, Bearer
+            prefixes, known token env names) are redacted before persistence.
+
     PreEnrollmentResult:
       type: object
       description: Result of pre-enrollment hook execution, agent-populated.
@@ -7071,14 +7094,11 @@ components:
         success:
           type: boolean
           description: Whether all pre-enrollment hooks completed with exit code 0.
-        output:
-          type: string
-          maxLength: 4096
-          description: >-
-            Last 4KiB of combined stdout/stderr from pre-enrollment hooks.
-            Truncated with a trailing marker when the raw output exceeds
-            4096 bytes. Secret patterns (PEM blocks, Bearer prefixes,
-            known token env names) are redacted before persistence.
+        actions:
+          type: array
+          description: Per-action results in execution order.
+          items:
+            $ref: '#/components/schemas/PreEnrollmentActionResult'
 
     ResourceSync:
       type: object

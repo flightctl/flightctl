@@ -6,10 +6,12 @@ import (
 	"errors"
 	"io"
 	"os/exec"
+	"sync"
 	"syscall"
 )
 
 type outputBudget struct {
+	mu    sync.Mutex
 	max   int
 	total int
 }
@@ -31,6 +33,9 @@ func (w *combinedOutputWriter) Write(p []byte) (int, error) {
 	if w.budget.max <= 0 {
 		return w.dst.Write(p)
 	}
+
+	w.budget.mu.Lock()
+	defer w.budget.mu.Unlock()
 
 	remaining := w.budget.max - w.budget.total
 	if remaining <= 0 {

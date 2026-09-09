@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/stretchr/testify/require"
 )
 
@@ -63,6 +64,34 @@ func TestRedactSecrets(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSanitizePreEnrollmentActions(t *testing.T) {
+	require := require.New(t)
+
+	t.Run("When actions fit within budget it should redact each output", func(t *testing.T) {
+		actions := []hook.EnrollmentActionResult{
+			{Index: 1, ExitCode: 0, Output: "Bearer secret-token"},
+			{Index: 2, ExitCode: 0, Output: "ok"},
+		}
+		result := sanitizePreEnrollmentActions(actions, 4096)
+		require.Len(result, 2)
+		require.Contains(result[0].Output, "Bearer [REDACTED]")
+		require.NotContains(result[0].Output, "secret-token")
+		require.Equal("ok", result[1].Output)
+	})
+
+	t.Run("When combined output exceeds budget it should truncate later actions first", func(t *testing.T) {
+		actions := []hook.EnrollmentActionResult{
+			{Index: 1, ExitCode: 0, Output: strings.Repeat("A", 3000)},
+			{Index: 2, ExitCode: 1, Output: strings.Repeat("B", 3000)},
+		}
+		result := sanitizePreEnrollmentActions(actions, 4096)
+		require.Len(result, 2)
+		require.Equal(3000, len(result[0].Output))
+		require.LessOrEqual(len(result[1].Output), 4096-3000+len(truncationMarker))
+		require.True(strings.HasSuffix(result[1].Output, truncationMarker))
+	})
 }
 
 func TestTruncateOutput(t *testing.T) {

@@ -108,7 +108,7 @@ func (m *manager) OnBeforeEnrolling(ctx context.Context, enrollCtx *EnrollmentCo
 	execErr := m.loadAndExecuteActionsFromDirs(ctx, actionCtx, []string{ReadOnlyConfigDir, UserWritableConfigDir})
 
 	// Populate result fields regardless of execution outcome
-	enrollCtx.Output = actionCtx.output.String()
+	enrollCtx.Actions = actionCtx.actionResults
 	enrollCtx.Success = execErr == nil
 
 	// Read hook labels if the hooks wrote them
@@ -246,9 +246,11 @@ func (m *manager) executeActions(ctx context.Context, actions []api.HookAction, 
 		if err != nil {
 			return err
 		}
+		actionCtx.actionIndex = i + 1
 		if err := executeAction(ctx, m.exec, m.log, action, actionCtx, actionTimeout); err != nil {
 			return fmt.Errorf("%w: %s hook action #%d: %w", errors.ErrFailedToExecute, actionCtx.hook, i+1, err)
 		}
+		actionCtx.actionIndex = 0
 	}
 	return nil
 }

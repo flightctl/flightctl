@@ -14,12 +14,12 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
-	agentapi "github.com/flightctl/flightctl/internal/api/client/agent"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/identity"
+	agentapi "github.com/flightctl/flightctl/internal/api/client/agent"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -861,7 +861,8 @@ func TestLifecycleManager_PreEnrollmentHooks(t *testing.T) {
 			log:                        log.NewPrefixLogger("test"),
 		}
 
-		_ = manager.Initialize(context.Background(), &v1beta1.DeviceStatus{})
+		err := manager.Initialize(context.Background(), &v1beta1.DeviceStatus{})
+		require.Error(err)
 		require.Equal([]string{"OnBeforeEnrolling", "CreateEnrollmentRequest"}, callOrder)
 	})
 
@@ -906,7 +907,9 @@ func TestLifecycleManager_PreEnrollmentHooks(t *testing.T) {
 		mockHookManager.EXPECT().OnBeforeEnrolling(gomock.Any(), gomock.Any()).DoAndReturn(
 			func(_ context.Context, enrollCtx *hook.EnrollmentContext) error {
 				enrollCtx.Success = true
-				enrollCtx.Output = "hook output"
+				enrollCtx.Actions = []hook.EnrollmentActionResult{{
+					Index: 1, ExitCode: 0, Output: "hook output",
+				}}
 				return nil
 			})
 		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(nil, errors.New("not found")).AnyTimes()
@@ -937,11 +940,16 @@ func TestLifecycleManager_PreEnrollmentHooks(t *testing.T) {
 			log:                        log.NewPrefixLogger("test"),
 		}
 
-		_ = manager.Initialize(context.Background(), &v1beta1.DeviceStatus{})
+		err := manager.Initialize(context.Background(), &v1beta1.DeviceStatus{})
+		require.Error(err)
 		require.NotNil(capturedER.Spec.PreEnrollment)
 		require.True(capturedER.Spec.PreEnrollment.Success)
-		require.NotNil(capturedER.Spec.PreEnrollment.Output)
-		require.Equal("hook output", *capturedER.Spec.PreEnrollment.Output)
+		require.NotNil(capturedER.Spec.PreEnrollment.Actions)
+		require.Len(*capturedER.Spec.PreEnrollment.Actions, 1)
+		require.Equal(1, (*capturedER.Spec.PreEnrollment.Actions)[0].Index)
+		require.Equal(0, (*capturedER.Spec.PreEnrollment.Actions)[0].ExitCode)
+		require.NotNil((*capturedER.Spec.PreEnrollment.Actions)[0].Output)
+		require.Equal("hook output", *(*capturedER.Spec.PreEnrollment.Actions)[0].Output)
 	})
 
 	t.Run("When hook fails with Continue policy it should submit ER with success=false", func(t *testing.T) {
@@ -984,7 +992,8 @@ func TestLifecycleManager_PreEnrollmentHooks(t *testing.T) {
 			log:                        log.NewPrefixLogger("test"),
 		}
 
-		_ = manager.Initialize(context.Background(), &v1beta1.DeviceStatus{})
+		err := manager.Initialize(context.Background(), &v1beta1.DeviceStatus{})
+		require.Error(err)
 		require.NotNil(capturedER.Spec.PreEnrollment)
 		require.False(capturedER.Spec.PreEnrollment.Success)
 	})
@@ -1035,11 +1044,15 @@ func TestLifecycleManager_PreEnrollmentHooks(t *testing.T) {
 				callCount++
 				if callCount <= 1 {
 					enrollCtx.Success = false
-					enrollCtx.Output = "first attempt failed"
+					enrollCtx.Actions = []hook.EnrollmentActionResult{{
+						Index: 1, ExitCode: 1, Output: "first attempt failed",
+					}}
 					return errors.New("hook failed first attempt")
 				}
 				enrollCtx.Success = true
-				enrollCtx.Output = "retry succeeded"
+				enrollCtx.Actions = []hook.EnrollmentActionResult{{
+					Index: 1, ExitCode: 0, Output: "retry succeeded",
+				}}
 				enrollCtx.HookLabels = map[string]string{"day1.example.com/role": "edge"}
 				return nil
 			}).AnyTimes()
@@ -1070,12 +1083,16 @@ func TestLifecycleManager_PreEnrollmentHooks(t *testing.T) {
 			log:                        log.NewPrefixLogger("test"),
 		}
 
-		_ = manager.Initialize(context.Background(), &v1beta1.DeviceStatus{})
+		err := manager.Initialize(context.Background(), &v1beta1.DeviceStatus{})
+		require.Error(err)
 		require.GreaterOrEqual(callCount, 2)
 		require.NotNil(capturedER.Spec.PreEnrollment)
 		require.True(capturedER.Spec.PreEnrollment.Success)
-		require.NotNil(capturedER.Spec.PreEnrollment.Output)
-		require.Equal("retry succeeded", *capturedER.Spec.PreEnrollment.Output)
+		require.NotNil(capturedER.Spec.PreEnrollment.Actions)
+		require.Len(*capturedER.Spec.PreEnrollment.Actions, 1)
+		require.Equal(0, (*capturedER.Spec.PreEnrollment.Actions)[0].ExitCode)
+		require.NotNil((*capturedER.Spec.PreEnrollment.Actions)[0].Output)
+		require.Equal("retry succeeded", *(*capturedER.Spec.PreEnrollment.Actions)[0].Output)
 		require.NotNil(capturedER.Spec.Labels)
 		require.Equal("edge", (*capturedER.Spec.Labels)["day1.example.com/role"])
 	})

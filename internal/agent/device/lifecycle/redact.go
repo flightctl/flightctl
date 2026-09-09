@@ -3,6 +3,8 @@ package lifecycle
 import (
 	"regexp"
 	"strings"
+
+	"github.com/flightctl/flightctl/internal/agent/device/hook"
 )
 
 const truncationMarker = "\n[truncated]"
@@ -33,6 +35,32 @@ func redactSecrets(output string) string {
 	})
 
 	return result
+}
+
+// sanitizePreEnrollmentActions redacts secrets and enforces a shared output budget
+// across all pre-enrollment action results (first actions retain priority).
+func sanitizePreEnrollmentActions(actions []hook.EnrollmentActionResult, maxBytes int) []hook.EnrollmentActionResult {
+	if len(actions) == 0 {
+		return nil
+	}
+	sanitized := make([]hook.EnrollmentActionResult, len(actions))
+	remaining := maxBytes
+	for i, action := range actions {
+		sanitized[i].Index = action.Index
+		sanitized[i].ExitCode = action.ExitCode
+		if action.Output == "" || remaining <= 0 {
+			continue
+		}
+		out := redactSecrets(action.Output)
+		if len(out) > remaining {
+			out = truncateOutput(out, remaining)
+			remaining = 0
+		} else {
+			remaining -= len(out)
+		}
+		sanitized[i].Output = out
+	}
+	return sanitized
 }
 
 // truncateOutput keeps the last maxBytes of output, appending a truncation

@@ -364,6 +364,65 @@ func createEnrollmentHooksDir(t *testing.T, hooks map[string]string) fileio.Read
 	return readWriter
 }
 
+func TestOnBeforeEnrollingRecordsPerActionResults(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	multiActionYAML := `
+- run: echo first
+- run: echo second
+`
+	hooks := map[string]string{
+		"/usr/lib/flightctl/hooks.d/beforeenrolling/01-test.yaml": multiActionYAML,
+	}
+	readWriter := createEnrollmentHooksDir(t, hooks)
+	mockExec := executer.NewMockExecuter(ctrl)
+	logger := log.NewPrefixLogger("test")
+	logger.SetLevel(logrus.ErrorLevel)
+	hookManager := NewManager(readWriter, mockExec, logger)
+
+	mockExec.EXPECT().ExecuteWithBoundedOutputFromDir(gomock.Any(), "", "echo", []string{"first"}, MaxEnrollmentHookActionOutput, gomock.Any()).
+		Return("ip=10.0.0.1", "", 0).Times(1)
+	mockExec.EXPECT().ExecuteWithBoundedOutputFromDir(gomock.Any(), "", "echo", []string{"second"}, MaxEnrollmentHookActionOutput, gomock.Any()).
+		Return("", "serial=ABC", 0).Times(1)
+
+	enrollCtx := &EnrollmentContext{DeviceName: "test-device"}
+	require.NoError(hookManager.OnBeforeEnrolling(context.Background(), enrollCtx))
+	require.True(enrollCtx.Success)
+	require.Len(enrollCtx.Actions, 2)
+	require.Equal(1, enrollCtx.Actions[0].Index)
+	require.Equal(0, enrollCtx.Actions[0].ExitCode)
+	require.Equal("ip=10.0.0.1", enrollCtx.Actions[0].Output)
+	require.Equal(2, enrollCtx.Actions[1].Index)
+	require.Equal("serial=ABC", enrollCtx.Actions[1].Output)
+}
+
+func TestOnBeforeEnrollingRecordsFailedActionResult(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	hooks := map[string]string{
+		"/usr/lib/flightctl/hooks.d/beforeenrolling/01-test.yaml": `- run: /bin/false`,
+	}
+	readWriter := createEnrollmentHooksDir(t, hooks)
+	mockExec := executer.NewMockExecuter(ctrl)
+	logger := log.NewPrefixLogger("test")
+	logger.SetLevel(logrus.ErrorLevel)
+	hookManager := NewManager(readWriter, mockExec, logger)
+
+	mockExec.EXPECT().ExecuteWithBoundedOutputFromDir(gomock.Any(), "", "/bin/false", []string{}, MaxEnrollmentHookActionOutput, gomock.Any()).
+		Return("", "failed", 1).Times(1)
+
+	enrollCtx := &EnrollmentContext{DeviceName: "test-device"}
+	require.Error(hookManager.OnBeforeEnrolling(context.Background(), enrollCtx))
+	require.False(enrollCtx.Success)
+	require.Len(enrollCtx.Actions, 1)
+	require.Equal(1, enrollCtx.Actions[0].ExitCode)
+	require.Equal("failed", enrollCtx.Actions[0].Output)
+}
+
 // expectEnrollmentExecCalls configures bounded-output executor expectations for enrollment hooks.
 func expectEnrollmentExecCalls(mockExecuter *executer.MockExecuter, expectedCommands []command) {
 	if len(expectedCommands) > 0 {
