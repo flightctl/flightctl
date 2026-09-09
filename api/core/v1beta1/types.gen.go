@@ -2864,7 +2864,7 @@ type PreEnrollmentActionResult struct {
 	// ExitCode Process exit code from the hook action.
 	ExitCode int `json:"exitCode"`
 
-	// Index 1-based index of the executed hook action in merge order (matches agent logs).
+	// Index One-based index of the executed hook action in merge order (matches agent logs).
 	Index int `json:"index"`
 
 	// Output Redacted stdout/stderr from this action. The total size across all actions is capped at 4KiB. Secret patterns (PEM blocks, Bearer prefixes, known token env names) are redacted before persistence.
