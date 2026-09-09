@@ -36,6 +36,7 @@ var encryptionRegistry = []EncryptedField{
 	{domain.RepositoryKind, []string{"Spec", "sshConfig", "privateKeyPassphrase"}},
 	{domain.RepositoryKind, []string{"Spec", "ociAuth", "password"}},
 	{domain.AuthProviderKind, []string{"Spec", "clientSecret"}},
+	{domain.EnrollmentHookPolicyKind, []string{"Spec", "afterEnrolling", "controlPlaneActions", "[]", "auth", "bearerToken"}},
 	{domain.DeviceKind, []string{"RenderedConfig"}},
 	{domain.DeviceKind, []string{"RenderedApplications"}},
 }
@@ -80,7 +81,8 @@ func EncryptionHandlers() map[string]encryption.ModelEncryptHandler {
 	return map[string]encryption.ModelEncryptHandler{
 		domain.RepositoryKind:   genericEncryptHandler(domain.RepositoryKind),
 		domain.AuthProviderKind: genericEncryptHandler(domain.AuthProviderKind),
-		domain.DeviceKind:       genericEncryptHandler(domain.DeviceKind),
+		domain.DeviceKind:                  genericEncryptHandler(domain.DeviceKind),
+		domain.EnrollmentHookPolicyKind: enrollmentHookPolicyEncryptHandler(),
 	}
 }
 
@@ -315,4 +317,99 @@ func replaceModelFromJSON(model any, data any, kind string) error {
 
 	elem.Set(tmp.Elem())
 	return nil
+}
+
+// enrollmentHookPolicyEncryptHandler returns a custom encryption handler that
+// traverses the controlPlaneActions array to encrypt/decrypt bearer tokens.
+// The generic handler cannot do this because encryptJSONPath does not traverse
+// JSON arrays.
+func enrollmentHookPolicyEncryptHandler() encryption.ModelEncryptHandler {
+	return func(ctx context.Context, model any, encrypt encryption.EncryptFunc) error {
+		var data map[string]any
+
+		if m, ok := model.(map[string]any); ok {
+			data = m
+		} else {
+			jsonBytes, err := json.Marshal(model)
+			if err != nil {
+				return fmt.Errorf("marshal EnrollmentHookPolicy: %w", err)
+			}
+			dec := json.NewDecoder(bytes.NewReader(jsonBytes))
+			dec.UseNumber()
+			if err := dec.Decode(&data); err != nil {
+				return fmt.Errorf("unmarshal EnrollmentHookPolicy to map: %w", err)
+			}
+		}
+
+		modified, err := encryptEnrollmentHookPolicyBearerTokens(ctx, data, encrypt)
+		if err != nil {
+			return err
+		}
+		if !modified {
+			return nil
+		}
+
+		if _, ok := model.(map[string]any); ok {
+			// For map input, mutations happened in-place
+			return nil
+		}
+		return replaceModelFromJSON(model, data, domain.EnrollmentHookPolicyKind)
+	}
+}
+
+func encryptEnrollmentHookPolicyBearerTokens(ctx context.Context, data map[string]any, encrypt encryption.EncryptFunc) (bool, error) {
+	spec, ok := data["Spec"]
+	if !ok {
+		// Try snake_case for GORM map mode
+		spec, ok = data["spec"]
+	}
+	if !ok || spec == nil {
+		return false, nil
+	}
+
+	specMap, ok := spec.(map[string]any)
+	if !ok {
+		// spec might be a json.Unmarshaler (JSONField) — unmarshal it
+		b, err := json.Marshal(spec)
+		if err != nil {
+			return false, nil
+		}
+		if err := json.Unmarshal(b, &specMap); err != nil {
+			return false, nil
+		}
+	}
+
+	afterEnrolling, ok := specMap["afterEnrolling"]
+	if !ok || afterEnrolling == nil {
+		return false, nil
+	}
+	stageMap, ok := afterEnrolling.(map[string]any)
+	if !ok {
+		return false, nil
+	}
+
+	actions, ok := stageMap["controlPlaneActions"]
+	if !ok || actions == nil {
+		return false, nil
+	}
+	actionsSlice, ok := actions.([]any)
+	if !ok {
+		return false, nil
+	}
+
+	modified := false
+	for _, action := range actionsSlice {
+		actionMap, ok := action.(map[string]any)
+		if !ok {
+			continue
+		}
+		encrypted, err := encryptJSONPath(ctx, actionMap, []string{"auth", "bearerToken"}, encrypt)
+		if err != nil {
+			return false, fmt.Errorf("encrypt EnrollmentHookPolicy bearerToken: %w", err)
+		}
+		if encrypted {
+			modified = true
+		}
+	}
+	return modified, nil
 }
