@@ -14,6 +14,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	agentapi "github.com/flightctl/flightctl/internal/api/client/agent"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
@@ -1033,14 +1034,23 @@ func TestLifecycleManager_PreEnrollmentHooks(t *testing.T) {
 			func(_ context.Context, enrollCtx *hook.EnrollmentContext) error {
 				callCount++
 				if callCount <= 1 {
+					enrollCtx.Success = false
+					enrollCtx.Output = "first attempt failed"
 					return errors.New("hook failed first attempt")
 				}
 				enrollCtx.Success = true
+				enrollCtx.Output = "retry succeeded"
+				enrollCtx.HookLabels = map[string]string{"day1.example.com/role": "edge"}
 				return nil
 			}).AnyTimes()
 		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(nil, errors.New("not found")).AnyTimes()
 		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-		mockEnrollment.EXPECT().CreateEnrollmentRequest(gomock.Any(), gomock.Any()).Return(nil, nil)
+		var capturedER v1beta1.EnrollmentRequest
+		mockEnrollment.EXPECT().CreateEnrollmentRequest(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ context.Context, er v1beta1.EnrollmentRequest, _ ...agentapi.RequestEditorFn) (*v1beta1.EnrollmentRequest, error) {
+				capturedER = er
+				return nil, nil
+			})
 		mockEnrollment.EXPECT().GetEnrollmentRequest(gomock.Any(), gomock.Any()).Return(&v1beta1.EnrollmentRequest{
 			Status: &v1beta1.EnrollmentRequestStatus{
 				Conditions: []v1beta1.Condition{{Type: "Denied", Reason: "test", Message: "test"}},
@@ -1062,6 +1072,12 @@ func TestLifecycleManager_PreEnrollmentHooks(t *testing.T) {
 
 		_ = manager.Initialize(context.Background(), &v1beta1.DeviceStatus{})
 		require.GreaterOrEqual(callCount, 2)
+		require.NotNil(capturedER.Spec.PreEnrollment)
+		require.True(capturedER.Spec.PreEnrollment.Success)
+		require.NotNil(capturedER.Spec.PreEnrollment.Output)
+		require.Equal("retry succeeded", *capturedER.Spec.PreEnrollment.Output)
+		require.NotNil(capturedER.Spec.Labels)
+		require.Equal("edge", (*capturedER.Spec.Labels)["day1.example.com/role"])
 	})
 }
 

@@ -389,6 +389,11 @@ func (cfg *Config) Complete() error {
 	if cfg.Enrollment.PreEnrollment.FailurePolicy == "" {
 		cfg.Enrollment.PreEnrollment.FailurePolicy = DefaultPreEnrollmentFailurePolicy
 	}
+	switch cfg.Enrollment.PreEnrollment.FailurePolicy {
+	case "Continue", "Block":
+	default:
+		return fmt.Errorf("invalid enrollment.preEnrollment.failurePolicy %q: must be Continue or Block", cfg.Enrollment.PreEnrollment.FailurePolicy)
+	}
 	return nil
 }
 

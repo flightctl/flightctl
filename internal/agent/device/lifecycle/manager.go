@@ -441,8 +441,10 @@ func (m *LifecycleManager) runPreEnrollmentHooks(ctx context.Context, deviceStat
 	if deviceStatus != nil {
 		sysInfoMap := make(map[string]interface{})
 		sysInfoBytes, err := json.Marshal(deviceStatus.SystemInfo)
-		if err == nil {
-			_ = json.Unmarshal(sysInfoBytes, &sysInfoMap)
+		if err != nil {
+			m.log.Warnf("Failed to marshal system info for pre-enrollment hooks: %v", err)
+		} else if err := json.Unmarshal(sysInfoBytes, &sysInfoMap); err != nil {
+			m.log.Warnf("Failed to unmarshal system info for pre-enrollment hooks: %v", err)
 		}
 		enrollCtx.SystemInfo = sysInfoMap
 	}
@@ -642,7 +644,7 @@ func (m *LifecycleManager) buildEnrollmentLabels(deviceStatus *v1beta1.DeviceSta
 			continue
 		}
 		if err := validation.ValidateLabelValue(labelName, labelValue); len(err) > 0 {
-			m.log.Errorf("Invalid hook label %q=%q: %v - skipping", labelName, labelValue, err)
+			m.log.Errorf("Invalid hook label value for key %q: %v - skipping", labelName, err)
 			continue
 		}
 		labels[labelName] = labelValue

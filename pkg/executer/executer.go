@@ -1,13 +1,10 @@
 package executer
 
 import (
-	"bytes"
 	"context"
-	"errors"
 	"os/exec"
 	"os/user"
 	"strconv"
-	"syscall"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 )
@@ -17,6 +14,9 @@ type Executer interface {
 	Execute(command string, args ...string) (stdout string, stderr string, exitCode int)
 	ExecuteWithContext(ctx context.Context, command string, args ...string) (stdout string, stderr string, exitCode int)
 	ExecuteWithContextFromDir(ctx context.Context, workingDir string, command string, args []string, env ...string) (stdout string, stderr string, exitCode int)
+	// ExecuteWithBoundedOutputFromDir limits combined stdout+stderr capture to
+	// maxCombinedOutputBytes. Zero or negative means unlimited.
+	ExecuteWithBoundedOutputFromDir(ctx context.Context, workingDir string, command string, args []string, maxCombinedOutputBytes int, env ...string) (stdout string, stderr string, exitCode int)
 }
 
 type commonExecuter struct {
@@ -97,35 +97,14 @@ func (e *commonExecuter) ExecuteWithContextFromDir(ctx context.Context, workingD
 	if len(env) > 0 {
 		cmd.Env = env
 	}
-	return e.execute(ctx, cmd)
+	return e.runCmd(ctx, cmd, 0)
 }
 
-func getExitCode(err error) int {
-	if err == nil {
-		return 0
+func (e *commonExecuter) ExecuteWithBoundedOutputFromDir(ctx context.Context, workingDir string, command string, args []string, maxCombinedOutputBytes int, env ...string) (stdout string, stderr string, exitCode int) {
+	cmd := e.CommandContext(ctx, command, args...)
+	cmd.Dir = workingDir
+	if len(env) > 0 {
+		cmd.Env = env
 	}
-
-	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		if state, ok := exitErr.ProcessState.Sys().(syscall.WaitStatus); ok {
-			// sigkill is seen during upgrade reboot
-			if state.Signal() == syscall.SIGKILL {
-				return 137 // 128 + 9 (SIGKILL)
-			}
-		}
-		return exitErr.ExitCode()
-	}
-
-	return -1
-}
-
-func getErrorStr(err error, stderr *bytes.Buffer) string {
-	b := stderr.Bytes()
-	if len(b) > 0 {
-		return string(b)
-	} else if err != nil {
-		return err.Error()
-	}
-
-	return ""
+	return e.runCmd(ctx, cmd, maxCombinedOutputBytes)
 }

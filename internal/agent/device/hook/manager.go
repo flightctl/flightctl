@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -98,6 +99,10 @@ func (m *manager) OnBeforeEnrolling(ctx context.Context, enrollCtx *EnrollmentCo
 	}
 
 	actionCtx := newEnrollmentActionContext(hookType, string(jsonBytes))
+
+	if err := m.readWriter.RemoveFile(HookLabelsPath); err != nil {
+		return fmt.Errorf("clearing stale hook labels: %w", err)
+	}
 
 	// BeforeEnrolling loads from both image and /etc overlay dirs
 	execErr := m.loadAndExecuteActionsFromDirs(ctx, actionCtx, []string{ReadOnlyConfigDir, UserWritableConfigDir})
@@ -251,10 +256,28 @@ func (m *manager) executeActions(ctx context.Context, actions []api.HookAction, 
 // readHookLabels reads labels from HookLabelsPath if the file exists.
 // Returns nil if the file does not exist or cannot be parsed.
 func (m *manager) readHookLabels() map[string]string {
-	data, err := m.readWriter.ReadFile(HookLabelsPath)
+	path := m.readWriter.PathFor(HookLabelsPath)
+	file, err := os.Open(path)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		m.log.Warnf("Failed to read hook labels from %s: %v", HookLabelsPath, err)
 		return nil
 	}
+	defer file.Close()
+
+	limited := io.LimitReader(file, int64(MaxHookLabelsFileSize)+1)
+	data, err := io.ReadAll(limited)
+	if err != nil {
+		m.log.Warnf("Failed to read hook labels from %s: %v", HookLabelsPath, err)
+		return nil
+	}
+	if len(data) > MaxHookLabelsFileSize {
+		m.log.Warnf("Hook labels file %s exceeds size limit (%d bytes)", HookLabelsPath, MaxHookLabelsFileSize)
+		return nil
+	}
+
 	var labels map[string]string
 	if err := json.Unmarshal(data, &labels); err != nil {
 		m.log.Warnf("Failed to parse hook labels from %s: %v", HookLabelsPath, err)

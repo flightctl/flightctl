@@ -178,19 +178,22 @@ func executeRunAction(ctx context.Context, exec executer.Executer, log *log.Pref
 		envVars = append(envVars, fmt.Sprintf("FLIGHTCTL_HOOK_CONTEXT=%s", actionCtx.hookContextJSON))
 	}
 
-	stdout, stderr, exitCode := exec.ExecuteWithContextFromDir(ctx, workDir, cmd, args, envVars...)
-	// Capture combined stdout+stderr for enrollment hooks only
+	var stdout, stderr string
+	var exitCode int
 	if actionCtx.hookContextJSON != "" {
+		stdout, stderr, exitCode = exec.ExecuteWithBoundedOutputFromDir(ctx, workDir, cmd, args, MaxEnrollmentHookActionOutput, envVars...)
 		if stdout != "" {
 			actionCtx.output.WriteString(stdout)
 		}
 		if stderr != "" {
 			actionCtx.output.WriteString(stderr)
 		}
+	} else {
+		stdout, stderr, exitCode = exec.ExecuteWithContextFromDir(ctx, workDir, cmd, args, envVars...)
 	}
 	if exitCode != 0 {
-		log.Errorf("Running %q returned with exit code %d: %s", commandLine, exitCode, stderr)
-		return fmt.Errorf("%w: %s (%d)", errors.ErrExitCode, stderr, exitCode)
+		log.Errorf("Running %q returned with exit code %d", commandLine, exitCode)
+		return fmt.Errorf("%w (%d)", errors.ErrExitCode, exitCode)
 	}
 	log.Infof("Hook %s executed %q without error", actionCtx.hook, commandLine)
 

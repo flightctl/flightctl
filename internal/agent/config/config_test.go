@@ -515,4 +515,12 @@ enrollment:
 		require.NoError(cfg.Complete())
 		require.Equal("Block", cfg.Enrollment.PreEnrollment.FailurePolicy)
 	})
+
+	t.Run("When failurePolicy is invalid it should fail Complete", func(t *testing.T) {
+		cfg := NewDefault()
+		cfg.Enrollment.PreEnrollment.FailurePolicy = "block"
+		err := cfg.Complete()
+		require.Error(err)
+		require.Contains(err.Error(), "failurePolicy")
+	})
 }

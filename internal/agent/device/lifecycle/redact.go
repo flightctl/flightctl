@@ -13,8 +13,8 @@ var pemBlockRe = regexp.MustCompile(`(?s)-----BEGIN [A-Z0-9 ]+-----.*?-----END [
 // bearerRe matches Bearer token values.
 var bearerRe = regexp.MustCompile(`(?i)(Bearer\s+)\S+`)
 
-// envVarSecretRe matches lines where a known secret env var name has a value assigned.
-var envVarSecretRe = regexp.MustCompile(`(?m)^(TOKEN|SECRET|PASSWORD|API_KEY|AWS_SECRET_ACCESS_KEY|BEARER_TOKEN)=.+$`)
+// envVarSecretRe matches lines where a secret env var name (exact or common suffix) has a value assigned.
+var envVarSecretRe = regexp.MustCompile(`(?m)^(?:[A-Za-z0-9_]*(?:TOKEN|SECRET|PASSWORD|API_KEY|BEARER_TOKEN)|AWS_SECRET_ACCESS_KEY)=.+$`)
 
 // redactSecrets replaces known secret patterns in hook output.
 func redactSecrets(output string) string {

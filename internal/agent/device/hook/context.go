@@ -23,6 +23,12 @@ const (
 // HookLabelsPath is the well-known file where pre-enrollment hooks write labels.
 const HookLabelsPath = "/run/flightctl/hook-labels.json"
 
+// MaxHookLabelsFileSize is the maximum allowed size of hook-labels.json.
+const MaxHookLabelsFileSize = 16 * 1024
+
+// MaxEnrollmentHookActionOutput bounds combined stdout+stderr capture per enrollment hook action.
+const MaxEnrollmentHookActionOutput = 4096
+
 // EnrollmentContext carries device metadata for enrollment hook execution.
 // Callers populate input fields before invoking OnBeforeEnrolling/OnAfterEnrolling.
 // Result fields are populated by the hook manager after execution.

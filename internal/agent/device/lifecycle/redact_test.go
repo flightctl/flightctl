@@ -40,6 +40,12 @@ func TestRedactSecrets(t *testing.T) {
 			absent:   []string{"my-secret-value", "AKIA1234", "hunter2"},
 		},
 		{
+			name:     "When input has suffixed secret env var names it should redact the values",
+			input:    "GITHUB_TOKEN=ghp_secret\nDB_PASSWORD=supersecret",
+			contains: []string{"GITHUB_TOKEN=[REDACTED]", "DB_PASSWORD=[REDACTED]"},
+			absent:   []string{"ghp_secret", "supersecret"},
+		},
+		{
 			name:     "When input has no secrets it should be preserved unchanged",
 			input:    "normal output line 1\nnormal output line 2",
 			contains: []string{"normal output line 1", "normal output line 2"},
