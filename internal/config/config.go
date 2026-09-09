@@ -410,6 +410,13 @@ func (c *imageBuilderWorkerConfig) EffectiveSyftSkipTLSVerify() bool {
 
 const DefaultVirtLauncherImage = "quay.io/kubevirt/virt-launcher:v1.9.0"
 
+// DefaultRenderTimeout is the default time budget for a single device render
+// operation (config + application rendering + DB writes). It replaces the
+// shared EventProcessingTimeout for render tasks so that devices with
+// multiple VM applications have enough time for sequential vm-to-quadlet
+// subprocess invocations.
+const DefaultRenderTimeout = 60 * time.Second
+
 // workerConfig holds configuration for the flightctl-worker service.
 type workerConfig struct {
 	VmRender *vmRenderConfig `json:"vmRender,omitempty"`
@@ -421,6 +428,7 @@ type vmRenderConfig struct {
 	LauncherImage    string            `json:"launcherImage,omitempty"`
 	LauncherImages   map[string]string `json:"launcherImages,omitempty"`
 	PasstWorkarounds *bool             `json:"passtWorkarounds,omitempty"`
+	RenderTimeout    util.Duration     `json:"renderTimeout,omitempty"`
 }
 
 // NewDefaultWorkerConfig returns the default flightctl-worker configuration.
@@ -452,6 +460,14 @@ func (c *Config) EffectiveVmPasstWorkarounds() bool {
 	return c.Worker.EffectivePasstWorkarounds()
 }
 
+// EffectiveRenderTimeout returns the time budget for a single device render operation.
+func (c *Config) EffectiveRenderTimeout() time.Duration {
+	if c == nil || c.Worker == nil {
+		return DefaultRenderTimeout
+	}
+	return c.Worker.EffectiveRenderTimeout()
+}
+
 // EffectiveLauncherImage returns the virt-launcher image for osKey.
 func (c *workerConfig) EffectiveLauncherImage(osKey string) string {
 	if c == nil || c.VmRender == nil {
@@ -474,6 +490,14 @@ func (c *workerConfig) EffectivePasstWorkarounds() bool {
 		return *c.VmRender.PasstWorkarounds
 	}
 	return false
+}
+
+// EffectiveRenderTimeout returns the configured render timeout for the worker.
+func (c *workerConfig) EffectiveRenderTimeout() time.Duration {
+	if c != nil && c.VmRender != nil && c.VmRender.RenderTimeout > 0 {
+		return time.Duration(c.VmRender.RenderTimeout)
+	}
+	return DefaultRenderTimeout
 }
 
 // IsSBOMEnabled returns whether SBOM generation is enabled.

@@ -39,6 +39,9 @@ data:
             {{- end }}
             {{- end }}
             passtWorkarounds: {{ if kindIs "bool" $vmRender.passtWorkarounds }}{{ $vmRender.passtWorkarounds }}{{ else }}false{{ end }}
+            {{- if $vmRender.renderTimeout }}
+            renderTimeout: {{ $vmRender.renderTimeout | quote }}
+            {{- end }}
     kv:
         hostname: flightctl-kv.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local
         port: 6379

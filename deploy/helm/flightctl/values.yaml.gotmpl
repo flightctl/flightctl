@@ -322,6 +322,8 @@ worker:
     launcherImages: {}
     # -- Enable passt networking workarounds for older virt-launcher images (default false; enable only for older images)
     passtWorkarounds: false
+    # -- Time budget for a single device render operation including VM conversion and DB writes (default "60s")
+    renderTimeout: "60s"
 
 # -- Delta-worker Configuration
 deltaWorker:
