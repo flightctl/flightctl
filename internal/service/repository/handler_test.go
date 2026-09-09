@@ -340,7 +340,7 @@ func TestCreateRepositoryDeltaStorageTarget(t *testing.T) {
 			nilStatus,
 		}}, emit)
 
-		_, status := h.CreateRepository(context.Background(), uuid.New(), newDeltaStorageRepository("diffs", "my-registry.com", "my-org/diffs"))
+		_, status := h.CreateRepository(context.Background(), uuid.New(), newDeltaStorageRepository(t, "diffs", "my-registry.com", "my-org/diffs"))
 		require.Equal(t, statusCreatedCode, status.Code)
 		require.ElementsMatch(t, []string{"updating", "empty-status", "no-digest", "nil-status"}, prepareDeltasNames(emit.events))
 		for _, ev := range emit.events {
@@ -369,12 +369,12 @@ func TestCreateRepositoryDeltaStorageTarget(t *testing.T) {
 		}}, emit)
 		ctx := context.Background()
 		orgId := uuid.New()
-		_, status := h.CreateRepository(ctx, orgId, newDeltaStorageRepository("diffs", "my-registry.com", "my-org/diffs"))
+		_, status := h.CreateRepository(ctx, orgId, newDeltaStorageRepository(t, "diffs", "my-registry.com", "my-org/diffs"))
 		require.Equal(t, statusCreatedCode, status.Code)
 		first := len(prepareDeltasNames(emit.events))
 		require.Equal(t, 1, first)
 
-		_, status = h.CreateRepository(ctx, orgId, newDeltaStorageRepository("other-diffs", "my-registry.com", "my-org/other"))
+		_, status = h.CreateRepository(ctx, orgId, newDeltaStorageRepository(t, "other-diffs", "my-registry.com", "my-org/other"))
 		require.Equal(t, statusConflictCode, status.Code)
 		require.Len(t, prepareDeltasNames(emit.events), first)
 	})
@@ -521,11 +521,11 @@ func TestReplaceRepositoryDeltaStorageTarget(t *testing.T) {
 		}}, emit)
 		ctx := context.Background()
 		orgId := uuid.New()
-		_, status := h.CreateRepository(ctx, orgId, newDeltaStorageRepository("diffs", "my-registry.com", "my-org/diffs"))
+		_, status := h.CreateRepository(ctx, orgId, newDeltaStorageRepository(t, "diffs", "my-registry.com", "my-org/diffs"))
 		require.Equal(t, statusCreatedCode, status.Code)
 		require.Len(t, prepareDeltasNames(emit.events), 1)
 
-		replaced := newDeltaStorageRepository("diffs", "my-registry.com", "my-org/diffs-v2")
+		replaced := newDeltaStorageRepository(t, "diffs", "my-registry.com", "my-org/diffs-v2")
 		_, status = h.ReplaceRepository(ctx, orgId, "diffs", replaced)
 		require.Equal(t, statusSuccessCode, status.Code)
 		require.Len(t, prepareDeltasNames(emit.events), 2)
@@ -539,14 +539,14 @@ func TestReplaceRepositoryDeltaStorageTarget(t *testing.T) {
 		}}, emit)
 		ctx := context.Background()
 		orgId := uuid.New()
-		_, status := h.CreateRepository(ctx, orgId, newDeltaStorageRepository("diffs", "my-registry.com", "my-org/diffs"))
+		_, status := h.CreateRepository(ctx, orgId, newDeltaStorageRepository(t, "diffs", "my-registry.com", "my-org/diffs"))
 		require.Equal(t, statusCreatedCode, status.Code)
 		first := len(prepareDeltasNames(emit.events))
 
-		_, status = h.CreateRepository(ctx, orgId, newOciRepository("other", "my-registry.com"))
+		_, status = h.CreateRepository(ctx, orgId, newOciRepository(t, "other", "my-registry.com"))
 		require.Equal(t, statusCreatedCode, status.Code)
 
-		_, status = h.ReplaceRepository(ctx, orgId, "other", newDeltaStorageRepository("other", "my-registry.com", "my-org/other"))
+		_, status = h.ReplaceRepository(ctx, orgId, "other", newDeltaStorageRepository(t, "other", "my-registry.com", "my-org/other"))
 		require.Equal(t, statusConflictCode, status.Code)
 		require.Len(t, prepareDeltasNames(emit.events), first)
 	})
@@ -692,7 +692,7 @@ func TestPatchRepositoryDeltaStorageTarget(t *testing.T) {
 		}}, emit)
 		ctx := context.Background()
 		orgId := uuid.New()
-		_, status := h.CreateRepository(ctx, orgId, newOciRepository("diffs", "my-registry.com"))
+		_, status := h.CreateRepository(ctx, orgId, newOciRepository(t, "diffs", "my-registry.com"))
 		require.Equal(t, statusCreatedCode, status.Code)
 		require.Empty(t, prepareDeltasNames(emit.events))
 

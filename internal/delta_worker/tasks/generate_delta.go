@@ -622,7 +622,7 @@ func ExistenceConfigFromSpec(ctx context.Context, spec *domain.OciRepoSpec, imag
 	}
 	host, _, err := SplitRegistryRepository(rewritten)
 	if err != nil {
-		return existenceConfig{}, err
+		return ExistenceConfig{}, err
 	}
 	effective := specForRegistry(host, spec)
 	if effective.Scheme != nil && *effective.Scheme != "" {
