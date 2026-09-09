@@ -165,22 +165,14 @@ func rejectedConflictStatuses() []string {
 	}
 }
 
-func rejectedConflictAllows(status string) bool {
-	for _, allowed := range rejectedConflictStatuses() {
-		if status == allowed {
-			return true
-		}
-	}
-	return false
-}
-
 func isClaimableStatus(status string) bool {
 	return status == model.DeltaGenerationPending
 }
 
 func rejectedConflict() clause.OnConflict {
-	values := make([]interface{}, 0, len(rejectedConflictStatuses()))
-	for _, status := range rejectedConflictStatuses() {
+	statuses := rejectedConflictStatuses()
+	values := make([]interface{}, 0, len(statuses))
+	for _, status := range statuses {
 		values = append(values, status)
 	}
 	return clause.OnConflict{
