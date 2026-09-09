@@ -999,6 +999,9 @@ func (c ApplicationContent) IsPlain() bool {
 func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []error {
 	allErrs := []error{}
 	seenAppNames := make(map[string]struct{})
+	// EDM-5264: published VM host ports are scoped to the device, not to an
+	// individual application.
+	seenVmPublishedPorts := make(map[string]string)
 
 	for _, app := range apps {
 		appType, err := app.Discriminator()
@@ -1032,12 +1035,56 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 			allErrs = append(allErrs, validateQuadletApplication(app, appName, fleetTemplate)...)
 		case AppTypeVm:
 			allErrs = append(allErrs, validateVmApplication(app, appName, fleetTemplate)...)
+			allErrs = append(allErrs, validateVmApplicationPortConflicts(app, appName, seenVmPublishedPorts)...)
 		default:
 			allErrs = append(allErrs, fmt.Errorf("unknown application type: %s", appType))
 		}
 	}
 
 	return allErrs
+}
+
+func validateVmApplicationPortConflicts(app ApplicationProviderSpec, appName string, seenPorts map[string]string) []error {
+	vm, err := app.AsVmApplication()
+	if err != nil || vm.PublishPorts == nil {
+		return nil
+	}
+
+	pathPrefix := fmt.Sprintf("spec.applications[%s].publishPorts", appName)
+	var allErrs []error
+	for i, port := range *vm.PublishPorts {
+		portKey, ok := vmPublishedPortKey(port)
+		if !ok {
+			// The format and range validator reports the more useful error for
+			// malformed entries; they cannot participate in conflict detection.
+			continue
+		}
+
+		if previousApp, exists := seenPorts[portKey]; exists {
+			allErrs = append(allErrs, fmt.Errorf("%s[%d]: host port %s is already used by application %q", pathPrefix, i, portKey, previousApp))
+			continue
+		}
+		seenPorts[portKey] = appName
+	}
+	return allErrs
+}
+
+func vmPublishedPortKey(port string) (string, bool) {
+	if !containerPortPattern.MatchString(port) {
+		return "", false
+	}
+
+	colonParts := strings.SplitN(port, ":", 2)
+	hostPort, err := strconv.Atoi(colonParts[0])
+	if err != nil || hostPort < privilegedPortRangeStart || hostPort > portRangeEnd {
+		return "", false
+	}
+
+	protocol := "tcp"
+	if protocolParts := strings.SplitN(colonParts[1], "/", 2); len(protocolParts) == 2 {
+		protocol = protocolParts[1]
+	}
+	return fmt.Sprintf("%d/%s", hostPort, protocol), true
 }
 
 // validateApplicationLifecycleFieldsReadOnly rejects client-supplied values for

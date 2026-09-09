@@ -1111,6 +1111,29 @@ func TestValidateApplications(t *testing.T) {
 			},
 		},
 		{
+			name: "VM applications with duplicate host ports",
+			apps: []ApplicationProviderSpec{
+				newTestVmInlineAppWithPorts(t, "app1", []string{"8080:80"}),
+				newTestVmInlineAppWithPorts(t, "app2", []string{"8080:81"}),
+			},
+			wantErrs: []string{"host port 8080/tcp is already used by application \"app1\""},
+		},
+		{
+			name: "VM applications with duplicate host ports and explicit default protocol",
+			apps: []ApplicationProviderSpec{
+				newTestVmInlineAppWithPorts(t, "app1", []string{"8080:80"}),
+				newTestVmInlineAppWithPorts(t, "app2", []string{"8080:81/tcp"}),
+			},
+			wantErrs: []string{"host port 8080/tcp is already used by application \"app1\""},
+		},
+		{
+			name: "VM applications with same host port on different protocols",
+			apps: []ApplicationProviderSpec{
+				newTestVmInlineAppWithPorts(t, "app1", []string{"8080:80/tcp"}),
+				newTestVmInlineAppWithPorts(t, "app2", []string{"8080:81/udp"}),
+			},
+		},
+		{
 			name: "invalid volume name",
 			apps: []ApplicationProviderSpec{
 				newTestApplication(require, "app1", "quay.io/app/image:1", "quay.io/vol/image:1", "vol@1"),
