@@ -77,6 +77,14 @@ func detectOCIType(manifest *client.OCIManifest) (OCIType, error) {
 // avoiding disk I/O in steady state when all images are already present.
 type ClientOptsFn func() []client.ClientOption
 
+// OCIDeltaTarget describes an optional delta transition for an OCI target.
+type OCIDeltaTarget struct {
+	Hint         string
+	SourceDigest string
+	Application  string
+	ResultFn     func(error)
+}
+
 // OCIPullTarget represents an OCI target to be prefetched
 type OCIPullTarget struct {
 	Type         OCIType
@@ -84,6 +92,7 @@ type OCIPullTarget struct {
 	Digest       string
 	PullPolicy   v1beta1.ImagePullPolicy
 	ClientOptsFn ClientOptsFn // Called only when pulling is actually needed
+	Delta        *OCIDeltaTarget
 }
 
 // A set of OCIPullTargets grouped by the user that will use the targets (blank Username is root).

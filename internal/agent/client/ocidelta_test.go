@@ -79,3 +79,65 @@ func TestOCIDeltaApply(t *testing.T) {
 		})
 	}
 }
+
+func TestOCIDeltaImport(t *testing.T) {
+	const (
+		deltaRef  = "quay.io/acme/app-delta@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		targetRef = "quay.io/acme/app@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	)
+
+	tests := []struct {
+		name          string
+		setupMocks    func(*executer.MockExecuter)
+		expectedError bool
+	}{
+		{
+			name: "When import succeeds it should import into container storage",
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(
+					gomock.Any(),
+					"oci-delta",
+					"apply",
+					"--container-storage",
+					deltaRef,
+					targetRef,
+				).Return("", "", 0)
+			},
+		},
+		{
+			name: "When import fails it should return an error wrapping stderr",
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(
+					gomock.Any(),
+					"oci-delta",
+					"apply",
+					"--container-storage",
+					deltaRef,
+					targetRef,
+				).Return("", "Error: diff_id mismatch", 1)
+			},
+			expectedError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockExec := executer.NewMockExecuter(ctrl)
+			logger := log.NewPrefixLogger("test")
+			logger.SetLevel(logrus.ErrorLevel)
+			tt.setupMocks(mockExec)
+
+			delta := NewOCIDelta(logger, mockExec, time.Minute)
+			err := delta.Import(context.Background(), deltaRef, targetRef)
+			if tt.expectedError {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), "diff_id mismatch")
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
