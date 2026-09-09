@@ -29,7 +29,6 @@ func assembleDesiredSpec(device *domain.Device, tv *domain.TemplateVersion) (*do
 		img, err := ReplaceParametersInString(tv.Status.Os.Image, device)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failed replacing parameters in OS image: %w", err))
-			osSpec = nil
 		} else {
 			osSpec.Image = img
 		}

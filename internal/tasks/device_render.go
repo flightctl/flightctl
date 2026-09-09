@@ -95,8 +95,6 @@ type DeviceRenderLogic struct {
 	event             domain.Event
 	ownerFleet        *string
 	templateVersion   *string
-	deviceConfig      *[]domain.ConfigProviderSpec
-	applications      *[]domain.ApplicationProviderSpec
 	vmConverter       VmConverterFn
 	vmRenderOptions   VmRenderOptions
 	customVmConverter bool
@@ -158,17 +156,6 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		domain.EventReasonFleetRolloutDeviceSelected,
 		domain.EventReasonApplicationLifecycleChanged,
 	}, t.event.Reason)
-
-	// If device.Spec or device.Spec.Config are nil, we still want to render an empty ignition config
-	if device.Spec != nil {
-		t.deviceConfig = device.Spec.Config
-		// Copy rather than alias device.Spec.Applications: the lifecycle overlay below replaces
-		// elements in place, and must not mutate the device object read above.
-		if device.Spec.Applications != nil {
-			appsCopy := append([]domain.ApplicationProviderSpec(nil), (*device.Spec.Applications)...)
-			t.applications = &appsCopy
-		}
-	}
 
 	if device.Metadata.Annotations != nil {
 		annotations := lo.FromPtr(device.Metadata.Annotations)
@@ -239,8 +226,15 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 	if t.ownerFleet != nil {
 		fleetLifecycleRaw = annotations[domain.DeviceAnnotationFleetApplicationLifecycle]
 	}
+	var applications *[]domain.ApplicationProviderSpec
+	if device.Spec != nil && device.Spec.Applications != nil {
+		// Copy rather than alias device.Spec.Applications: the lifecycle overlay below replaces
+		// elements in place, and must not mutate the device object read above.
+		appsCopy := append([]domain.ApplicationProviderSpec(nil), (*device.Spec.Applications)...)
+		applications = &appsCopy
+	}
 	if deviceLifecycleRaw != "" || fleetLifecycleRaw != "" {
-		if err := domain.OverlayApplicationLifecycle(t.applications, deviceLifecycleRaw, fleetLifecycleRaw); err != nil {
+		if err := domain.OverlayApplicationLifecycle(applications, deviceLifecycleRaw, fleetLifecycleRaw); err != nil {
 			t.log.Errorf("failed to overlay application lifecycle for device %s/%s, skipping override: %v", t.orgId, t.event.InvolvedObject.Name, err)
 		}
 	}
@@ -248,13 +242,13 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 	spec := device.Spec
 	if spec != nil {
 		specCopy := *spec
-		specCopy.Applications = t.applications
+		specCopy.Applications = applications
 		spec = &specCopy
 	}
 
 	rendered, renderErr := t.renderSpec(ctx, spec)
 	if errors.Is(renderErr, errIgnitionConversion) {
-		return renderErr
+		return t.setErrorStatus(ctx, renderErr)
 	}
 	if device.Metadata.Owner == nil || *device.Metadata.Owner == "" {
 		status = t.deviceSvc.OverwriteDeviceRepositoryRefs(ctx, t.orgId, *device.Metadata.Name, rendered.referencedRepos...)
@@ -301,20 +295,17 @@ func (t *DeviceRenderLogic) RenderSpec(ctx context.Context, spec *domain.DeviceS
 }
 
 func (t *DeviceRenderLogic) renderSpec(ctx context.Context, spec *domain.DeviceSpec) (RenderedSpec, error) {
+	var deviceConfig *[]domain.ConfigProviderSpec
+	var applications *[]domain.ApplicationProviderSpec
 	if spec != nil {
-		t.deviceConfig = spec.Config
+		deviceConfig = spec.Config
 		if spec.Applications != nil {
 			appsCopy := append([]domain.ApplicationProviderSpec(nil), (*spec.Applications)...)
-			t.applications = &appsCopy
-		} else {
-			t.applications = nil
+			applications = &appsCopy
 		}
-	} else {
-		t.deviceConfig = nil
-		t.applications = nil
 	}
 
-	ignitionConfig, referencedRepos, configFingerprints, renderErr := t.renderConfig(ctx)
+	ignitionConfig, referencedRepos, configFingerprints, renderErr := t.renderConfig(ctx, deviceConfig)
 	renderedConfig, err := ignitionConfigToRenderedConfig(ignitionConfig)
 	if err != nil {
 		return RenderedSpec{referencedRepos: referencedRepos, configFingerprints: configFingerprints}, fmt.Errorf("%w: %v", errIgnitionConversion, err)
@@ -340,7 +331,7 @@ func (t *DeviceRenderLogic) renderSpec(ctx context.Context, spec *domain.DeviceS
 		}
 	}
 
-	renderedApplications, err := t.renderApplications(ctx)
+	renderedApplications, err := t.renderApplications(ctx, applications)
 	if err != nil {
 		return result, err
 	}
@@ -381,8 +372,8 @@ func (t *DeviceRenderLogic) setErrorStatus(ctx context.Context, renderErr error)
 	return renderErr
 }
 
-func (t *DeviceRenderLogic) renderApplications(ctx context.Context) ([]byte, error) {
-	if t.applications == nil {
+func (t *DeviceRenderLogic) renderApplications(ctx context.Context, applications *[]domain.ApplicationProviderSpec) ([]byte, error) {
+	if applications == nil {
 		return nil, nil
 	}
 
@@ -390,8 +381,8 @@ func (t *DeviceRenderLogic) renderApplications(ctx context.Context) ([]byte, err
 	var renderedApplications []domain.ApplicationProviderSpec
 	var firstError error
 
-	for i := range *t.applications {
-		application := (*t.applications)[i]
+	for i := range *applications {
+		application := (*applications)[i]
 		name, renderedApplication, renderErr := renderApplication(ctx, &application, t.vmConverter, t.vmRenderOptions, t.kvStore, t.orgId, t.catalogSvc)
 		applicationName := util.DefaultIfNil(name, "<unknown>")
 
@@ -426,14 +417,14 @@ func (t *DeviceRenderLogic) renderApplications(ctx context.Context) ([]byte, err
 	return renderedApplicationBytes, nil
 }
 
-func (t *DeviceRenderLogic) renderConfig(ctx context.Context) (*config_latest_types.Config, []string, []ConfigRefFingerprint, error) {
+func (t *DeviceRenderLogic) renderConfig(ctx context.Context, deviceConfig *[]domain.ConfigProviderSpec) (*config_latest_types.Config, []string, []ConfigRefFingerprint, error) {
 	ignitionConfig := &config_latest_types.Config{
 		Ignition: config_latest_types.Ignition{
 			Version: config_latest_types.MaxVersion.String(),
 		},
 	}
 
-	if t.deviceConfig == nil {
+	if deviceConfig == nil {
 		return ignitionConfig, nil, nil, nil
 	}
 
@@ -441,8 +432,8 @@ func (t *DeviceRenderLogic) renderConfig(ctx context.Context) (*config_latest_ty
 	referencedRepos := []string{}
 	var fingerprints []ConfigRefFingerprint
 	var firstError error
-	for i := range *t.deviceConfig {
-		configItem := (*t.deviceConfig)[i]
+	for i := range *deviceConfig {
+		configItem := (*deviceConfig)[i]
 		name, repoName, fingerprint, err := t.renderConfigItem(ctx, &configItem, &ignitionConfig)
 
 		if repoName != nil {

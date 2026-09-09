@@ -410,7 +410,31 @@ func TestDeltaCandidates_ResolveOSFromUnsavedRender(t *testing.T) {
 		assert.Contains(t, err.Error(), "templateVersion")
 	})
 
-	t.Run("When the rendered OS image cannot be parsed it should omit that device", func(t *testing.T) {
+	t.Run("When one rendered OS image cannot be parsed it should omit that device", func(t *testing.T) {
+		r := baseResolver()
+		r.Devices = func(_ context.Context, _ uuid.UUID, _ string) ([]*domain.Device, error) {
+			return []*domain.Device{
+				deviceWithOS("bad", true, currentDig),
+				deviceWithOS("good", true, currentDig),
+			}, nil
+		}
+		r.Render = func(_ context.Context, spec *domain.DeviceSpec) (tasks.RenderedSpec, error) {
+			if spec.Os.Image == "bad" {
+				return tasks.RenderedSpec{OsImage: "not a valid image!!!"}, nil
+			}
+			return tasks.RenderedSpec{OsImage: newImage}, nil
+		}
+		r.Inspect = func(_ context.Context, _ string) (string, error) {
+			return newDig, nil
+		}
+		result, err := r.DeltaCandidates(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
+		require.NoError(t, err)
+		require.Len(t, result.Candidates, 1)
+		assert.Equal(t, currentDig, result.Candidates[0].CurrentDigest)
+		assert.Equal(t, newDig, result.Candidates[0].NewDigest)
+	})
+
+	t.Run("When no rendered OS image can be parsed it should skip", func(t *testing.T) {
 		r := baseResolver()
 		r.Devices = func(_ context.Context, _ uuid.UUID, _ string) ([]*domain.Device, error) {
 			return []*domain.Device{deviceWithOS("d1", true, currentDig)}, nil

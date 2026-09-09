@@ -30,6 +30,19 @@ func TestDesiredSpecFromTemplate(t *testing.T) {
 	httpItem := makeHttpConfigItem(t, "http-cfg", "http-repo", &httpSuffix)
 	inlineItem := makeInlineConfigItem(t, "inline-cfg", "/etc/{{ .metadata.labels.site }}.conf", "site={{ .metadata.labels.site }}")
 	appItem := makeContainerAppItem(t, "app-1", "quay.io/apps/{{ .metadata.labels.app }}:latest")
+	systemdPatterns := []string{"sshd.service"}
+	systemd := &struct {
+		MatchPatterns *[]string `json:"matchPatterns,omitempty"`
+	}{MatchPatterns: &systemdPatterns}
+	resource := domain.ResourceMonitor{}
+	require.NoError(t, resource.FromCpuResourceMonitorSpec(domain.CpuResourceMonitorSpec{
+		MonitorType:      "CPU",
+		SamplingInterval: "30s",
+	}))
+	resources := []domain.ResourceMonitor{resource}
+	updatePolicy := &domain.DeviceUpdatePolicySpec{
+		DownloadSchedule: &domain.UpdateSchedule{At: "0 2 * * *", StartGraceDuration: "10m"},
+	}
 
 	tv := &domain.TemplateVersion{
 		Metadata: domain.ObjectMeta{Name: lo.ToPtr("tv-1")},
@@ -39,6 +52,9 @@ func TestDesiredSpecFromTemplate(t *testing.T) {
 			},
 			Config:       &[]domain.ConfigProviderSpec{gitItem, httpItem, inlineItem},
 			Applications: &[]domain.ApplicationProviderSpec{appItem},
+			Systemd:      systemd,
+			Resources:    &resources,
+			UpdatePolicy: updatePolicy,
 		},
 	}
 
@@ -51,6 +67,9 @@ func TestDesiredSpecFromTemplate(t *testing.T) {
 	assert.Equal(t, "quay.io/os/edge:latest", spec.Os.Image)
 	assert.Equal(t, originalImage, device.Spec.Os.Image)
 	assert.NotSame(t, device.Spec, spec)
+	assert.Equal(t, systemd, spec.Systemd)
+	assert.Equal(t, resources, *spec.Resources)
+	assert.Equal(t, updatePolicy, spec.UpdatePolicy)
 
 	require.NotNil(t, spec.Config)
 	require.Len(t, *spec.Config, 3)
