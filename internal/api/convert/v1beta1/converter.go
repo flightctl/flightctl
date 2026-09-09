@@ -6,6 +6,7 @@ type Converter interface {
 	Fleet() FleetConverter
 	Repository() RepositoryConverter
 	EnrollmentRequest() EnrollmentRequestConverter
+	EnrollmentHookPolicy() EnrollmentHookPolicyConverter
 	CertificateSigningRequest() CertificateSigningRequestConverter
 	AuthProvider() AuthProviderConverter
 	ResourceSync() ResourceSyncConverter
@@ -21,6 +22,7 @@ type converterImpl struct {
 	fleet                     FleetConverter
 	repository                RepositoryConverter
 	enrollmentRequest         EnrollmentRequestConverter
+	enrollmentHookPolicy      EnrollmentHookPolicyConverter
 	certificateSigningRequest CertificateSigningRequestConverter
 	authProvider              AuthProviderConverter
 	resourceSync              ResourceSyncConverter
@@ -38,6 +40,7 @@ func NewConverter() Converter {
 		fleet:                     NewFleetConverter(),
 		repository:                NewRepositoryConverter(),
 		enrollmentRequest:         NewEnrollmentRequestConverter(),
+		enrollmentHookPolicy:      NewEnrollmentHookPolicyConverter(),
 		certificateSigningRequest: NewCertificateSigningRequestConverter(),
 		authProvider:              NewAuthProviderConverter(),
 		resourceSync:              NewResourceSyncConverter(),
@@ -63,6 +66,10 @@ func (c *converterImpl) Repository() RepositoryConverter {
 
 func (c *converterImpl) EnrollmentRequest() EnrollmentRequestConverter {
 	return c.enrollmentRequest
+}
+
+func (c *converterImpl) EnrollmentHookPolicy() EnrollmentHookPolicyConverter {
+	return c.enrollmentHookPolicy
 }
 
 func (c *converterImpl) CertificateSigningRequest() CertificateSigningRequestConverter {
