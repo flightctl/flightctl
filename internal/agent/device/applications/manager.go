@@ -44,6 +44,7 @@ type manager struct {
 	appDataCache map[string]*provider.AppData
 	deltaMu      sync.Mutex
 	deltaResults map[string]*v1beta1.DeviceDeltaApplyStatus
+	deltaDesired *v1beta1.DeviceSpec
 
 	// appConsole is created by WithConsole and owned by this manager.
 	// executor/dialFn live on PodmanMonitor (VM/serial-console specific).
@@ -356,6 +357,12 @@ func (m *manager) Shutdown(ctx context.Context, state shutdown.State) error {
 func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1beta1.DeviceSpec, opts ...dependency.OCICollectOpt) (*dependency.OCICollection, error) {
 	o := dependency.ApplyOCICollectOpts(opts...)
 	osUpdatePending := o.OSUpdatePending()
+	m.deltaMu.Lock()
+	if m.deltaDesired != desired {
+		m.deltaResults = make(map[string]*v1beta1.DeviceDeltaApplyStatus)
+		m.deltaDesired = desired
+	}
+	m.deltaMu.Unlock()
 	collection, err := provider.CollectOCITargets(
 		ctx,
 		m.log,
@@ -382,7 +389,9 @@ func (m *manager) recordDeltaResult(application string, err error) {
 	m.deltaMu.Lock()
 	defer m.deltaMu.Unlock()
 	if err == nil {
-		m.deltaResults[application] = nil
+		if _, exists := m.deltaResults[application]; !exists {
+			m.deltaResults[application] = nil
+		}
 		return
 	}
 	reason := err.Error()
