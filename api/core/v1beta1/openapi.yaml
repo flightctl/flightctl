@@ -7073,7 +7073,7 @@ components:
           type: integer
           minimum: 1
           description: >-
-            1-based index of the executed hook action in merge order (matches
+            One-based index of the executed hook action in merge order (matches
             agent logs).
         exitCode:
           type: integer

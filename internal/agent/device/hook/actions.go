@@ -207,7 +207,7 @@ func executeRunAction(ctx context.Context, exec executer.Executer, log *log.Pref
 		stdout, stderr, exitCode = exec.ExecuteWithBoundedOutputFromDir(ctx, workDir, cmd, args, MaxEnrollmentHookActionOutput, envVars...)
 		recordEnrollmentActionResult(actionCtx, exitCode, stdout, stderr)
 	} else {
-		stdout, stderr, exitCode = exec.ExecuteWithContextFromDir(ctx, workDir, cmd, args, envVars...)
+		_, stderr, exitCode = exec.ExecuteWithContextFromDir(ctx, workDir, cmd, args, envVars...)
 	}
 	if exitCode != 0 {
 		if actionCtx.hookContextJSON != "" {
