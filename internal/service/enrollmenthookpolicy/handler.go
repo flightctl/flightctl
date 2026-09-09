@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
 	enrollmenthookpolicystore "github.com/flightctl/flightctl/internal/store/enrollmenthookpolicy"
 	"github.com/google/uuid"

@@ -12,4 +12,9 @@ type EnrollmentHookRetryPolicy = v1beta1.EnrollmentHookRetryPolicy
 type EnrollmentHookAuth = v1beta1.EnrollmentHookAuth
 type FailurePolicyType = v1beta1.FailurePolicyType
 
+const (
+	FailurePolicyBlock    = v1beta1.FailurePolicyBlock
+	FailurePolicyContinue = v1beta1.FailurePolicyContinue
+)
+
 type ListEnrollmentHookPoliciesParams = v1beta1.ListEnrollmentHookPoliciesParams
