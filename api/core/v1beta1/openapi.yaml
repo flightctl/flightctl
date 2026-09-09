@@ -7066,15 +7066,17 @@ components:
       type: object
       description: Result of a single executed pre-enrollment hook action, agent-populated.
       required:
-        - index
+        - source
         - exitCode
       properties:
-        index:
-          type: integer
-          minimum: 1
+        source:
+          type: string
           description: >-
-            One-based index of the executed hook action in merge order (matches
-            agent logs).
+            Path to the hook definition YAML that contained this action (for
+            example /etc/flightctl/hooks.d/beforeenrolling/10-network.yaml).
+        command:
+          type: string
+          description: The run command line executed for this action.
         exitCode:
           type: integer
           description: Process exit code from the hook action.

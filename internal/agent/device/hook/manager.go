@@ -162,18 +162,27 @@ func (m *manager) loadAndExecuteActions(ctx context.Context, actionCtx *actionCo
 
 // loadAndMergeActions loads and merges hook actions from the default config
 // directories (ReadOnlyConfigDir and UserWritableConfigDir).
-func (m *manager) loadAndMergeActions(hookType api.DeviceLifecycleHookType) ([]api.HookAction, error) {
+func (m *manager) loadAndMergeActions(hookType api.DeviceLifecycleHookType) ([]sourcedHookAction, error) {
 	return m.loadAndMergeActionsFromDirs(hookType, []string{ReadOnlyConfigDir, UserWritableConfigDir})
+}
+
+type hookFileActions struct {
+	source  string
+	actions []api.HookAction
+}
+
+type sourcedHookAction struct {
+	source string
+	action api.HookAction
 }
 
 // loadAndMergeActionsFromDirs loads hook YAML from the specified base directories,
 // merges them in lexical order, and returns the flattened action list.
 // Each dir is expected to contain hooks.d/<hooktype>/*.yaml.
-func (m *manager) loadAndMergeActionsFromDirs(hookType api.DeviceLifecycleHookType, dirs []string) ([]api.HookAction, error) {
-	actionsMap := map[string][]api.HookAction{}
+func (m *manager) loadAndMergeActionsFromDirs(hookType api.DeviceLifecycleHookType, dirs []string) ([]sourcedHookAction, error) {
+	actionsMap := map[string]hookFileActions{}
 	for _, dir := range dirs {
-		err := m.loadActions(actionsMap, filepath.Join(dir, HooksDropInDirName, strings.ToLower(string(hookType)), "*.yaml"))
-		if err != nil {
+		if err := m.loadActions(actionsMap, hookType, dir); err != nil {
 			return nil, err
 		}
 	}
@@ -183,16 +192,25 @@ func (m *manager) loadAndMergeActionsFromDirs(hookType api.DeviceLifecycleHookTy
 		keyList = append(keyList, k)
 	}
 	sort.Strings(keyList)
-	actions := []api.HookAction{}
+	actions := []sourcedHookAction{}
 	for _, k := range keyList {
-		actions = append(actions, actionsMap[k]...)
+		fileActions := actionsMap[k]
+		for _, action := range fileActions.actions {
+			actions = append(actions, sourcedHookAction{
+				source: fileActions.source,
+				action: action,
+			})
+		}
 	}
 	return actions, nil
 }
 
-// loadActions reads hook YAML files matching actionFilesGlob, parses and
-// validates them, and appends the resulting actions to actionsMap keyed by filename.
-func (m *manager) loadActions(actionsMap map[string][]api.HookAction, actionFilesGlob string) error {
+// loadActions reads hook YAML files from configDir, parses and validates them,
+// and stores the resulting actions in actionsMap keyed by filename.
+// Later directories replace earlier entries with the same filename (overlay semantics).
+func (m *manager) loadActions(actionsMap map[string]hookFileActions, hookType api.DeviceLifecycleHookType, configDir string) error {
+	hookDir := filepath.Join(configDir, HooksDropInDirName, strings.ToLower(string(hookType)))
+	actionFilesGlob := filepath.Join(hookDir, "*.yaml")
 	actionFiles, err := filepath.Glob(m.readWriter.PathFor(actionFilesGlob))
 	if err != nil {
 		return fmt.Errorf("%w: actions matching %q: %w", errors.ErrLookingForHook, actionFilesGlob, err)
@@ -213,13 +231,18 @@ func (m *manager) loadActions(actionsMap map[string][]api.HookAction, actionFile
 		if len(allErrs) > 0 {
 			return errors.Join(allErrs...)
 		}
-		actionsMap[filepath.Base(f)] = actions
+		sourcePath := filepath.Join(hookDir, filepath.Base(f))
+		actionsMap[filepath.Base(f)] = hookFileActions{
+			source:  sourcePath,
+			actions: actions,
+		}
 	}
 	return nil
 }
 
-func (m *manager) executeActions(ctx context.Context, actions []api.HookAction, actionCtx *actionContext) error {
-	for i, action := range actions {
+func (m *manager) executeActions(ctx context.Context, actions []sourcedHookAction, actionCtx *actionContext) error {
+	for i, sourced := range actions {
+		action := sourced.action
 		if err := checkActionDependency(action); err != nil {
 			m.log.Debugf("Skipping %s hook action #%d: dependencies not met: %v", actionCtx.hook, i+1, err)
 			continue
@@ -246,11 +269,11 @@ func (m *manager) executeActions(ctx context.Context, actions []api.HookAction, 
 		if err != nil {
 			return err
 		}
-		actionCtx.actionIndex = i + 1
+		actionCtx.actionSource = sourced.source
 		if err := executeAction(ctx, m.exec, m.log, action, actionCtx, actionTimeout); err != nil {
 			return fmt.Errorf("%w: %s hook action #%d: %w", errors.ErrFailedToExecute, actionCtx.hook, i+1, err)
 		}
-		actionCtx.actionIndex = 0
+		actionCtx.actionSource = ""
 	}
 	return nil
 }

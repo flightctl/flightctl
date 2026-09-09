@@ -908,7 +908,8 @@ func TestLifecycleManager_PreEnrollmentHooks(t *testing.T) {
 			func(_ context.Context, enrollCtx *hook.EnrollmentContext) error {
 				enrollCtx.Success = true
 				enrollCtx.Actions = []hook.EnrollmentActionResult{{
-					Index: 1, ExitCode: 0, Output: "hook output",
+					Source: "/etc/flightctl/hooks.d/beforeenrolling/01-test.yaml",
+					Command: "echo hook", ExitCode: 0, Output: "hook output",
 				}}
 				return nil
 			})
@@ -946,7 +947,9 @@ func TestLifecycleManager_PreEnrollmentHooks(t *testing.T) {
 		require.True(capturedER.Spec.PreEnrollment.Success)
 		require.NotNil(capturedER.Spec.PreEnrollment.Actions)
 		require.Len(*capturedER.Spec.PreEnrollment.Actions, 1)
-		require.Equal(1, (*capturedER.Spec.PreEnrollment.Actions)[0].Index)
+		require.Equal("/etc/flightctl/hooks.d/beforeenrolling/01-test.yaml", (*capturedER.Spec.PreEnrollment.Actions)[0].Source)
+		require.NotNil((*capturedER.Spec.PreEnrollment.Actions)[0].Command)
+		require.Equal("echo hook", *(*capturedER.Spec.PreEnrollment.Actions)[0].Command)
 		require.Equal(0, (*capturedER.Spec.PreEnrollment.Actions)[0].ExitCode)
 		require.NotNil((*capturedER.Spec.PreEnrollment.Actions)[0].Output)
 		require.Equal("hook output", *(*capturedER.Spec.PreEnrollment.Actions)[0].Output)
@@ -1045,13 +1048,15 @@ func TestLifecycleManager_PreEnrollmentHooks(t *testing.T) {
 				if callCount <= 1 {
 					enrollCtx.Success = false
 					enrollCtx.Actions = []hook.EnrollmentActionResult{{
-						Index: 1, ExitCode: 1, Output: "first attempt failed",
+						Source: "/etc/flightctl/hooks.d/beforeenrolling/01-test.yaml",
+						Command: "/bin/false", ExitCode: 1, Output: "first attempt failed",
 					}}
 					return errors.New("hook failed first attempt")
 				}
 				enrollCtx.Success = true
 				enrollCtx.Actions = []hook.EnrollmentActionResult{{
-					Index: 1, ExitCode: 0, Output: "retry succeeded",
+					Source: "/etc/flightctl/hooks.d/beforeenrolling/01-test.yaml",
+					Command: "echo ok", ExitCode: 0, Output: "retry succeeded",
 				}}
 				enrollCtx.HookLabels = map[string]string{"day1.example.com/role": "edge"}
 				return nil

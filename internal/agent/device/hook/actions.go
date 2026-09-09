@@ -50,7 +50,7 @@ type actionContext struct {
 	removedFiles    map[string]api.FileSpec
 	commandLineVars map[CommandLineVarKey]string
 	hookContextJSON string // non-empty for enrollment hooks; set to the JSON written to hook-context.json
-	actionIndex     int    // 1-based index for the current enrollment hook action
+	actionSource    string // hook YAML path for the current enrollment hook action
 	actionResults   []EnrollmentActionResult
 }
 
@@ -145,12 +145,13 @@ func executeAction(ctx context.Context, exec executer.Executer, log *log.PrefixL
 	}
 }
 
-func recordEnrollmentActionResult(actionCtx *actionContext, exitCode int, stdout, stderr string) {
-	if actionCtx.hookContextJSON == "" || actionCtx.actionIndex <= 0 {
+func recordEnrollmentActionResult(actionCtx *actionContext, exitCode int, stdout, stderr, command string) {
+	if actionCtx.hookContextJSON == "" || actionCtx.actionSource == "" {
 		return
 	}
 	actionCtx.actionResults = append(actionCtx.actionResults, EnrollmentActionResult{
-		Index:    actionCtx.actionIndex,
+		Source:   actionCtx.actionSource,
+		Command:  command,
 		ExitCode: exitCode,
 		Output:   combineCommandOutput(stdout, stderr),
 	})
@@ -205,7 +206,7 @@ func executeRunAction(ctx context.Context, exec executer.Executer, log *log.Pref
 	var exitCode int
 	if actionCtx.hookContextJSON != "" {
 		stdout, stderr, exitCode = exec.ExecuteWithBoundedOutputFromDir(ctx, workDir, cmd, args, MaxEnrollmentHookActionOutput, envVars...)
-		recordEnrollmentActionResult(actionCtx, exitCode, stdout, stderr)
+		recordEnrollmentActionResult(actionCtx, exitCode, stdout, stderr, commandLine)
 	} else {
 		_, stderr, exitCode = exec.ExecuteWithContextFromDir(ctx, workDir, cmd, args, envVars...)
 	}

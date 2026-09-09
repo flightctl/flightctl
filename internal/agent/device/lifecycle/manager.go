@@ -552,8 +552,11 @@ func (m *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *
 			apiActions := make([]v1beta1.PreEnrollmentActionResult, len(preResult.actions))
 			for i, action := range preResult.actions {
 				apiActions[i] = v1beta1.PreEnrollmentActionResult{
-					Index:    action.Index,
+					Source:   action.Source,
 					ExitCode: action.ExitCode,
+				}
+				if action.Command != "" {
+					apiActions[i].Command = &action.Command
 				}
 				if action.Output != "" {
 					apiActions[i].Output = &action.Output

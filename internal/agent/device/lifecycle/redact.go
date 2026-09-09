@@ -46,7 +46,8 @@ func sanitizePreEnrollmentActions(actions []hook.EnrollmentActionResult, maxByte
 	sanitized := make([]hook.EnrollmentActionResult, len(actions))
 	remaining := maxBytes
 	for i, action := range actions {
-		sanitized[i].Index = action.Index
+		sanitized[i].Source = action.Source
+		sanitized[i].Command = action.Command
 		sanitized[i].ExitCode = action.ExitCode
 		if action.Output == "" || remaining <= 0 {
 			continue

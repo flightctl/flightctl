@@ -71,8 +71,8 @@ func TestSanitizePreEnrollmentActions(t *testing.T) {
 
 	t.Run("When actions fit within budget it should redact each output", func(t *testing.T) {
 		actions := []hook.EnrollmentActionResult{
-			{Index: 1, ExitCode: 0, Output: "Bearer secret-token"},
-			{Index: 2, ExitCode: 0, Output: "ok"},
+			{Source: "/etc/flightctl/hooks.d/beforeenrolling/01.yaml", ExitCode: 0, Output: "Bearer secret-token"},
+			{Source: "/etc/flightctl/hooks.d/beforeenrolling/02.yaml", ExitCode: 0, Output: "ok"},
 		}
 		result := sanitizePreEnrollmentActions(actions, 4096)
 		require.Len(result, 2)
@@ -83,8 +83,8 @@ func TestSanitizePreEnrollmentActions(t *testing.T) {
 
 	t.Run("When combined output exceeds budget it should truncate later actions first", func(t *testing.T) {
 		actions := []hook.EnrollmentActionResult{
-			{Index: 1, ExitCode: 0, Output: strings.Repeat("A", 3000)},
-			{Index: 2, ExitCode: 1, Output: strings.Repeat("B", 3000)},
+			{Source: "/etc/flightctl/hooks.d/beforeenrolling/01.yaml", ExitCode: 0, Output: strings.Repeat("A", 3000)},
+			{Source: "/etc/flightctl/hooks.d/beforeenrolling/02.yaml", ExitCode: 1, Output: strings.Repeat("B", 3000)},
 		}
 		result := sanitizePreEnrollmentActions(actions, 4096)
 		require.Len(result, 2)
