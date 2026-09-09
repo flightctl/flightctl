@@ -24,6 +24,8 @@ tags:
     description: Operations on Device resources.
   - name: deviceactions
     description: Operations for device actions.
+  - name: enrollmenthookpolicy
+    description: Operations on EnrollmentHookPolicy resources.
   - name: enrollmentrequest
     description: Operations on EnrollmentRequest resources.
   - name: event
@@ -3063,6 +3065,395 @@ paths:
                 $ref: '#/components/schemas/Status'
         "404":
           description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /enrollmenthookpolicies:
+    x-resource: enrollmenthookpolicies
+    get:
+      tags:
+        - enrollmenthookpolicy
+      description: List EnrollmentHookPolicy resources.
+      operationId: listEnrollmentHookPolicies
+      parameters:
+        - name: continue
+          in: query
+          description: An optional parameter to query more results from the server. The value of the paramter must match the value of the 'continue' field in the previous list response.
+          required: false
+          schema:
+            type: string
+        - name: labelSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
+          schema:
+            type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
+          required: false
+          schema:
+            type: integer
+            format: int32
+            minimum: 0
+            maximum: 1000
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentHookPolicyList'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+    post:
+      tags:
+        - enrollmenthookpolicy
+      description: Create an EnrollmentHookPolicy resource.
+      operationId: createEnrollmentHookPolicy
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnrollmentHookPolicy'
+        required: true
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentHookPolicy'
+          links:
+            GetEnrollmentHookPolicy:
+              operationId: getEnrollmentHookPolicy
+              parameters:
+                name: '$response.body#/metadata/name'
+            DeleteEnrollmentHookPolicy:
+              operationId: deleteEnrollmentHookPolicy
+              parameters:
+                name: '$response.body#/metadata/name'
+            ReplaceEnrollmentHookPolicy:
+              operationId: replaceEnrollmentHookPolicy
+              parameters:
+                name: '$response.body#/metadata/name'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /enrollmenthookpolicies/{name}:
+    x-resource: enrollmenthookpolicies
+    get:
+      tags:
+        - enrollmenthookpolicy
+      description: Get an EnrollmentHookPolicy resource.
+      operationId: getEnrollmentHookPolicy
+      parameters:
+        - name: name
+          in: path
+          description: The name of the EnrollmentHookPolicy resource to get.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentHookPolicy'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+    put:
+      tags:
+        - enrollmenthookpolicy
+      description: Update an EnrollmentHookPolicy resource.
+      operationId: replaceEnrollmentHookPolicy
+      parameters:
+        - name: name
+          in: path
+          description: The name of the EnrollmentHookPolicy resource to update.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EnrollmentHookPolicy'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentHookPolicy'
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentHookPolicy'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+    delete:
+      tags:
+        - enrollmenthookpolicy
+      description: Delete an EnrollmentHookPolicy resource.
+      operationId: deleteEnrollmentHookPolicy
+      parameters:
+        - name: name
+          in: path
+          description: The name of the EnrollmentHookPolicy resource to delete.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+    patch:
+      tags:
+        - enrollmenthookpolicy
+      description: Patch an EnrollmentHookPolicy resource.
+      operationId: patchEnrollmentHookPolicy
+      parameters:
+        - name: name
+          in: path
+          description: The name of the EnrollmentHookPolicy resource to patch.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json-patch+json:
+            schema:
+              $ref: '#/components/schemas/PatchRequest'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EnrollmentHookPolicy'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict
           content:
             application/json:
               schema:
@@ -9061,6 +9452,130 @@ components:
         - metadata
         - items
       description: AuthProviderList is a list of auth providers.
+    EnrollmentHookPolicy:
+      type: object
+      properties:
+        apiVersion:
+          $ref: '#/components/schemas/ApiVersion'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents.'
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          $ref: '#/components/schemas/EnrollmentHookPolicySpec'
+        status:
+          $ref: '#/components/schemas/EnrollmentHookPolicyStatus'
+      required:
+        - apiVersion
+        - kind
+        - metadata
+        - spec
+      description: EnrollmentHookPolicy defines an org-scoped enrollment hook policy.
+    EnrollmentHookPolicySpec:
+      type: object
+      description: Specification for an enrollment hook policy.
+      properties:
+        afterEnrolling:
+          $ref: '#/components/schemas/EnrollmentHookStageSpec'
+      required:
+        - afterEnrolling
+    EnrollmentHookStageSpec:
+      type: object
+      description: Configuration for a stage of enrollment hooks.
+      properties:
+        failurePolicy:
+          $ref: '#/components/schemas/FailurePolicyType'
+        controlPlaneActions:
+          type: array
+          description: List of HTTP actions to execute during this enrollment stage.
+          items:
+            $ref: '#/components/schemas/EnrollmentHookHttpAction'
+    FailurePolicyType:
+      type: string
+      description: Determines behavior when a hook action fails.
+      enum:
+        - Block
+        - Continue
+      x-enum-varnames:
+        - FailurePolicyBlock
+        - FailurePolicyContinue
+    EnrollmentHookHttpAction:
+      type: object
+      description: An HTTP action to execute as part of an enrollment hook.
+      properties:
+        url:
+          type: string
+          description: The HTTPS URL to call.
+          minLength: 1
+        timeout:
+          type: string
+          description: Timeout duration (e.g. "30s"). Defaults to 30s, max 5m.
+        retry:
+          $ref: '#/components/schemas/EnrollmentHookRetryPolicy'
+        auth:
+          $ref: '#/components/schemas/EnrollmentHookAuth'
+      required:
+        - url
+    EnrollmentHookRetryPolicy:
+      type: object
+      description: Retry policy for an enrollment hook action.
+      properties:
+        maxAttempts:
+          type: integer
+          description: Maximum number of retry attempts. Defaults to 5, max 20.
+          minimum: 1
+          maximum: 20
+        backoffPolicy:
+          type: string
+          description: Backoff strategy (e.g. "exponential"). Defaults to "exponential".
+        backoffDelay:
+          type: string
+          description: Initial backoff delay duration (e.g. "2s"). Defaults to "2s".
+        maxBackoff:
+          type: string
+          description: Maximum backoff duration (e.g. "2m"). Defaults to "2m".
+        deadline:
+          type: string
+          description: Overall deadline for all retry attempts (e.g. "10m"). Defaults to "10m".
+    EnrollmentHookAuth:
+      type: object
+      description: Authentication configuration for an enrollment hook action.
+      properties:
+        bearerToken:
+          type: string
+          description: Bearer token for HTTP authentication.
+          format: password
+    EnrollmentHookPolicyStatus:
+      type: object
+      description: Status of an enrollment hook policy.
+      properties:
+        conditions:
+          type: array
+          description: Current conditions of the enrollment hook policy.
+          items:
+            $ref: '#/components/schemas/Condition'
+    EnrollmentHookPolicyList:
+      type: object
+      properties:
+        apiVersion:
+          $ref: '#/components/schemas/ApiVersion'
+        kind:
+          type: string
+          description: 'Kind is a string value representing the REST resource this object represents.'
+        metadata:
+          $ref: '#/components/schemas/ListMeta'
+        items:
+          type: array
+          description: List of enrollment hook policies.
+          items:
+            $ref: '#/components/schemas/EnrollmentHookPolicy'
+      required:
+        - apiVersion
+        - kind
+        - metadata
+        - items
+      description: EnrollmentHookPolicyList is a list of EnrollmentHookPolicy resources.
     PermissionList:
       type: object
       description: List of available permissions for a user.

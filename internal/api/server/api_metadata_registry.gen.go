@@ -25,6 +25,7 @@ const (
 	API_RESOURCE_DEVICES_RESUME = "devices/resume"
 	API_RESOURCE_DEVICES_STATUS = "devices/status"
 	API_RESOURCE_ENROLLMENTCONFIG = "enrollmentconfig"
+	API_RESOURCE_ENROLLMENTHOOKPOLICIES = "enrollmenthookpolicies"
 	API_RESOURCE_ENROLLMENTREQUESTS = "enrollmentrequests"
 	API_RESOURCE_ENROLLMENTREQUESTS_APPROVAL = "enrollmentrequests/approval"
 	API_RESOURCE_ENROLLMENTREQUESTS_STATUS = "enrollmentrequests/status"
@@ -476,6 +477,54 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 		OperationID: "getEnrollmentConfig",
 		Resource:    "enrollmentconfig",
 		Action:      "list",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
+	},
+	"GET:/enrollmenthookpolicies": {
+		OperationID: "listEnrollmentHookPolicies",
+		Resource:    "enrollmenthookpolicies",
+		Action:      "list",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
+	},
+	"POST:/enrollmenthookpolicies": {
+		OperationID: "createEnrollmentHookPolicy",
+		Resource:    "enrollmenthookpolicies",
+		Action:      "create",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
+	},
+	"DELETE:/enrollmenthookpolicies/{name}": {
+		OperationID: "deleteEnrollmentHookPolicy",
+		Resource:    "enrollmenthookpolicies",
+		Action:      "delete",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
+	},
+	"GET:/enrollmenthookpolicies/{name}": {
+		OperationID: "getEnrollmentHookPolicy",
+		Resource:    "enrollmenthookpolicies",
+		Action:      "get",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
+	},
+	"PATCH:/enrollmenthookpolicies/{name}": {
+		OperationID: "patchEnrollmentHookPolicy",
+		Resource:    "enrollmenthookpolicies",
+		Action:      "patch",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
+	},
+	"PUT:/enrollmenthookpolicies/{name}": {
+		OperationID: "replaceEnrollmentHookPolicy",
+		Resource:    "enrollmenthookpolicies",
+		Action:      "update",
 		Versions: []apimetadata.EndpointMetadataVersion{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
