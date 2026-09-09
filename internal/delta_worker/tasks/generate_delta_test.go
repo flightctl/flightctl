@@ -117,6 +117,10 @@ func (f *fakeGenerationStore) ListWaitingPreparesByGeneration(_ context.Context,
 	return f.waiting, nil
 }
 
+func (f *fakeGenerationStore) ListPrepareGenerationKeys(context.Context, uuid.UUID) ([]deltastore.GenerationKey, error) {
+	return nil, nil
+}
+
 func generateEvent(org uuid.UUID, repo, src, tgt string) worker_client.EventWithOrgId {
 	payload, _ := json.Marshal(GenerateDeltaPayload{
 		ImageRepository: repo,
