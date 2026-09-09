@@ -232,6 +232,10 @@ func collectProviderTargets(
 		if err != nil {
 			return nil, fmt.Errorf("%w: %w", errors.ErrGettingProviderSpec, err)
 		}
+		parentHint, nestedHints := applicationDeltaHints(p.Spec())
+		for user, userTargets := range baseTargets {
+			baseTargets[user] = decorateApplicationTargets(userTargets, parentHint, nestedHints, p.Name())
+		}
 		targets = targets.MergeWith(baseTargets)
 
 		nestedTargets, requeue, err := collectNestedForProvider(ctx, log, p, configProvider, ociCache, appDataCache)
@@ -241,6 +245,8 @@ func collectProviderTargets(
 		if requeue {
 			needsRequeue = true
 		}
+		_, nestedHints = applicationDeltaHints(p.Spec())
+		nestedTargets = decorateApplicationTargets(nestedTargets, nil, nestedHints, p.Name())
 		targets = targets.Add(p.Spec().User, nestedTargets...)
 	}
 
@@ -250,6 +256,77 @@ func collectProviderTargets(
 		Targets: targets,
 		Requeue: needsRequeue,
 	}, depsErr
+}
+
+func decorateApplicationTargets(
+	targets []dependency.OCIPullTarget,
+	parentHint *string,
+	nestedHints []v1beta1.ImageDeltaHint,
+	application string,
+) []dependency.OCIPullTarget {
+	for i := range targets {
+		target := &targets[i]
+		var hint string
+		if i == 0 && parentHint != nil {
+			hint = *parentHint
+		} else {
+			digest := target.Digest
+			if digest == "" {
+				digest = digestFromReference(target.Reference)
+			}
+			for _, nestedHint := range nestedHints {
+				if nestedHint.TargetDigest == digest {
+					hint = nestedHint.DeltaImage
+					break
+				}
+			}
+		}
+		sourceDigest := target.Digest
+		if sourceDigest == "" {
+			sourceDigest = digestFromReference(target.Reference)
+		}
+		target.Delta = &dependency.OCIDeltaTarget{
+			Hint:         hint,
+			SourceDigest: sourceDigest,
+			Application:  application,
+		}
+	}
+	return targets
+}
+
+func applicationDeltaHints(spec *ApplicationSpec) (*string, []v1beta1.ImageDeltaHint) {
+	var imageSpec v1beta1.ImageApplicationProviderSpec
+	found := false
+	var err error
+	switch {
+	case spec.ContainerApp != nil:
+		imageSpec, err = spec.ContainerApp.AsImageApplicationProviderSpec()
+		found = true
+	case spec.ComposeApp != nil && spec.ComposeApp.Type() == v1beta1.ImageApplicationProviderType:
+		imageSpec, err = spec.ComposeApp.AsImageApplicationProviderSpec()
+		found = true
+	case spec.HelmApp != nil:
+		imageSpec, err = spec.HelmApp.AsImageApplicationProviderSpec()
+		found = true
+	case spec.QuadletApp != nil && spec.QuadletApp.Type() == v1beta1.ImageApplicationProviderType:
+		imageSpec, err = spec.QuadletApp.AsImageApplicationProviderSpec()
+		found = true
+	}
+	if err != nil || !found {
+		return nil, nil
+	}
+	var nested []v1beta1.ImageDeltaHint
+	if imageSpec.DeltaImages != nil {
+		nested = *imageSpec.DeltaImages
+	}
+	return imageSpec.DeltaImage, nested
+}
+
+func digestFromReference(reference string) string {
+	if index := strings.Index(reference, "@sha256:"); index >= 0 {
+		return reference[index+1:]
+	}
+	return ""
 }
 
 func collectNestedForProvider(
