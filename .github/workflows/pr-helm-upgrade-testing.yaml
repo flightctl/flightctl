@@ -379,33 +379,28 @@ jobs:
           # PVC deletion and PV reclaim are asynchronous. Give the provisioner a
           # short window to delete released PVs before treating them as orphaned.
           PV_RECLAIM_TIMEOUT=30
-          PV_RECLAIM_INTERVAL=2
-          PV_RECLAIM_DEADLINE=$((SECONDS + PV_RECLAIM_TIMEOUT))
-          ORPHANED_PVS=""
+          ORPHANED_PV_NAMES_OUTPUT=$(kubectl get pv -o jsonpath='{range .items[?(@.spec.claimRef.namespace=="flightctl-external")]}{.metadata.name}{"\n"}{end}{range .items[?(@.spec.claimRef.namespace=="flightctl-internal")]}{.metadata.name}{"\n"}{end}')
+          ORPHANED_PV_NAMES=()
+          if [ -n "$ORPHANED_PV_NAMES_OUTPUT" ]; then
+            mapfile -t ORPHANED_PV_NAMES <<< "$ORPHANED_PV_NAMES_OUTPUT"
+          fi
 
-          while true; do
-            ORPHANED_PVS=$(kubectl get pv -o json \
-              | jq -r '.items[]
-                | select(.spec.claimRef.namespace == "flightctl-external" or
-                         .spec.claimRef.namespace == "flightctl-internal")
-                | [.metadata.name, .status.phase, .spec.persistentVolumeReclaimPolicy,
-                   .spec.claimRef.namespace, .spec.claimRef.name]
-                | @tsv')
+          if [ "${#ORPHANED_PV_NAMES[@]}" -eq 0 ]; then
+            echo "✓ No orphaned PVs referencing flightctl namespaces"
+          else
+            PV_RESOURCES=()
+            for PV_NAME in "${ORPHANED_PV_NAMES[@]}"; do
+              PV_RESOURCES+=("pv/${PV_NAME}")
+            done
 
-            if [ -z "$ORPHANED_PVS" ]; then
+            if kubectl wait --for=delete "${PV_RESOURCES[@]}" --timeout="${PV_RECLAIM_TIMEOUT}s"; then
               echo "✓ No orphaned PVs referencing flightctl namespaces"
-              break
-            fi
-
-            if [ "$SECONDS" -ge "$PV_RECLAIM_DEADLINE" ]; then
+            else
               echo "FAIL: PV(s) referencing flightctl namespaces still exist after ${PV_RECLAIM_TIMEOUT}s:"
-              printf '%s\n' "$ORPHANED_PVS"
+              kubectl get pv "${ORPHANED_PV_NAMES[@]}" --ignore-not-found -o wide
               FAILED=true
-              break
             fi
-
-            sleep "$PV_RECLAIM_INTERVAL"
-          done
+          fi
 
           if [ "$FAILED" = "true" ]; then
             echo ""
