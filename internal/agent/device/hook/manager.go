@@ -2,7 +2,9 @@ package hook
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -85,7 +87,8 @@ func (m *manager) OnAfterRebooting(ctx context.Context) error {
 }
 
 // OnBeforeEnrolling writes hook-context.json, then runs BeforeEnrolling hooks
-// from both the image and /etc overlay directories.
+// from both the image and /etc overlay directories. After execution, it
+// populates enrollCtx result fields (Success, Output, HookLabels).
 func (m *manager) OnBeforeEnrolling(ctx context.Context, enrollCtx *EnrollmentContext) error {
 	hookType := api.DeviceLifecycleHookBeforeEnrolling
 
@@ -97,8 +100,21 @@ func (m *manager) OnBeforeEnrolling(ctx context.Context, enrollCtx *EnrollmentCo
 
 	actionCtx := newEnrollmentActionContext(hookType, string(jsonBytes))
 
+	if err := m.readWriter.RemoveFile(HookLabelsPath); err != nil {
+		return fmt.Errorf("clearing stale hook labels: %w", err)
+	}
+
 	// BeforeEnrolling loads from both image and /etc overlay dirs
-	return m.loadAndExecuteActionsFromDirs(ctx, actionCtx, []string{ReadOnlyConfigDir, UserWritableConfigDir})
+	execErr := m.loadAndExecuteActionsFromDirs(ctx, actionCtx, []string{ReadOnlyConfigDir, UserWritableConfigDir})
+
+	// Populate result fields regardless of execution outcome
+	enrollCtx.Output = actionCtx.output.String()
+	enrollCtx.Success = execErr == nil
+
+	// Read hook labels if the hooks wrote them
+	enrollCtx.HookLabels = m.readHookLabels()
+
+	return execErr
 }
 
 // OnAfterEnrolling writes hook-context.json, then runs AfterEnrolling hooks
@@ -235,4 +251,37 @@ func (m *manager) executeActions(ctx context.Context, actions []api.HookAction, 
 		}
 	}
 	return nil
+}
+
+// readHookLabels reads labels from HookLabelsPath if the file exists.
+// Returns nil if the file does not exist or cannot be parsed.
+func (m *manager) readHookLabels() map[string]string {
+	path := m.readWriter.PathFor(HookLabelsPath)
+	file, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		m.log.Warnf("Failed to read hook labels from %s: %v", HookLabelsPath, err)
+		return nil
+	}
+	defer file.Close()
+
+	limited := io.LimitReader(file, int64(MaxHookLabelsFileSize)+1)
+	data, err := io.ReadAll(limited)
+	if err != nil {
+		m.log.Warnf("Failed to read hook labels from %s: %v", HookLabelsPath, err)
+		return nil
+	}
+	if len(data) > MaxHookLabelsFileSize {
+		m.log.Warnf("Hook labels file %s exceeds size limit (%d bytes)", HookLabelsPath, MaxHookLabelsFileSize)
+		return nil
+	}
+
+	var labels map[string]string
+	if err := json.Unmarshal(data, &labels); err != nil {
+		m.log.Warnf("Failed to parse hook labels from %s: %v", HookLabelsPath, err)
+		return nil
+	}
+	return labels
 }
