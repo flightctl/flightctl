@@ -132,7 +132,7 @@ collect_git_worktree_mounts() {
 }
 
 current_commit() {
-  (cd "${REPO_ROOT}" && git rev-parse --short "HEAD^{commit}" 2>/dev/null) || echo "unknown"
+  ( (cd "${REPO_ROOT}" && git rev-parse "HEAD^{commit}" 2>/dev/null) || echo "unknown") | cut -c1-9
 }
 
 ensure_version_env() {
