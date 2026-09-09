@@ -478,7 +478,7 @@ func (p *InfraProvider) queryDBViaJob(sql string) (string, error) {
 		// Include the pod output in the returned error so it appears in the
 		// Ginkgo test report (Ginkgo shows error strings; logrus output is not
 		// captured in the Ginkgo output section visible in CI test reports).
-		logs, logErr := collectJobPodLogs(ctx, p, ns, jobName)
+		logs, logErr := collectJobPodLogs(ctx, p, ns, jobName, true)
 		if logErr != nil {
 			logrus.Warnf("queryDBViaJob: collect pod logs for failed Job %s: %v", jobName, logErr)
 			return "", fmt.Errorf("queryDBViaJob: %w", completionErr)
@@ -490,7 +490,7 @@ func (p *InfraProvider) queryDBViaJob(sql string) (string, error) {
 		return "", fmt.Errorf("queryDBViaJob: %w", completionErr)
 	}
 
-	output, err := collectJobPodLogs(ctx, p, ns, jobName)
+	output, err := collectJobPodLogs(ctx, p, ns, jobName, false)
 	if err != nil {
 		return "", fmt.Errorf("queryDBViaJob: collect logs: %w", err)
 	}
@@ -521,10 +521,11 @@ func waitForJobCompletion(ctx context.Context, p *InfraProvider, ns, jobName str
 	return fmt.Errorf("Job %s did not complete within %s", jobName, dbQueryJobTimeout)
 }
 
-// collectJobPodLogs returns the combined stdout of all pods created by the Job,
-// including init container logs (prefixed with the container name) to aid diagnosis
-// when an init container fails before the main container starts.
-func collectJobPodLogs(ctx context.Context, p *InfraProvider, ns, jobName string) (string, error) {
+// collectJobPodLogs returns the combined stdout of all pods created by the Job.
+// When includeInitLogs is true, init container logs are prepended (prefixed with
+// the container name) to aid diagnosis when an init container fails. On the success
+// path pass false so init container output does not pollute the query result.
+func collectJobPodLogs(ctx context.Context, p *InfraProvider, ns, jobName string, includeInitLogs bool) (string, error) {
 	pods, err := p.client.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{
 		LabelSelector: fmt.Sprintf("job-name=%s", jobName),
 	})
@@ -543,20 +544,25 @@ func collectJobPodLogs(ctx context.Context, p *InfraProvider, ns, jobName string
 	for i := range pods.Items {
 		pod := &pods.Items[i]
 
-		// Collect init container logs first — if an init container failed, the main
-		// container never starts and its logs would be empty, hiding the real error.
+		// Collect init container logs — included in the result only on failure so that
+		// init container stdout (e.g. "key copied OK") does not pollute the query result.
 		for _, ic := range pod.Spec.InitContainers {
 			icReq := p.client.CoreV1().Pods(ns).GetLogs(pod.Name, &corev1.PodLogOptions{Container: ic.Name})
 			icStream, icErr := icReq.Stream(ctx)
 			if icErr != nil {
-				// Init container may not have started; log a warning and continue.
 				logrus.Warnf("queryDBViaJob: get logs for init container %s/%s: %v", pod.Name, ic.Name, icErr)
 				continue
 			}
 			icData, icReadErr := io.ReadAll(io.LimitReader(icStream, maxLogBytes+1))
 			_ = icStream.Close()
-			if icReadErr == nil && len(icData) > 0 {
-				fmt.Fprintf(&sb, "[init:%s] %s\n", ic.Name, strings.TrimSpace(string(icData)))
+			if icReadErr != nil || len(icData) == 0 {
+				continue
+			}
+			msg := strings.TrimSpace(string(icData))
+			if includeInitLogs {
+				fmt.Fprintf(&sb, "[init:%s] %s\n", ic.Name, msg)
+			} else {
+				logrus.Debugf("queryDBViaJob: init container %s/%s: %s", pod.Name, ic.Name, msg)
 			}
 		}
 
