@@ -908,7 +908,7 @@ func TestLifecycleManager_PreEnrollmentHooks(t *testing.T) {
 			func(_ context.Context, enrollCtx *hook.EnrollmentContext) error {
 				enrollCtx.Success = true
 				enrollCtx.Actions = []hook.EnrollmentActionResult{{
-					Source: "/etc/flightctl/hooks.d/beforeenrolling/01-test.yaml",
+					Source:   "/etc/flightctl/hooks.d/beforeenrolling/01-test.yaml",
 					ExitCode: 0, Output: "hook output",
 				}}
 				return nil
@@ -1046,14 +1046,14 @@ func TestLifecycleManager_PreEnrollmentHooks(t *testing.T) {
 				if callCount <= 1 {
 					enrollCtx.Success = false
 					enrollCtx.Actions = []hook.EnrollmentActionResult{{
-						Source: "/etc/flightctl/hooks.d/beforeenrolling/01-test.yaml",
+						Source:   "/etc/flightctl/hooks.d/beforeenrolling/01-test.yaml",
 						ExitCode: 1, Output: "first attempt failed",
 					}}
 					return errors.New("hook failed first attempt")
 				}
 				enrollCtx.Success = true
 				enrollCtx.Actions = []hook.EnrollmentActionResult{{
-					Source: "/etc/flightctl/hooks.d/beforeenrolling/01-test.yaml",
+					Source:   "/etc/flightctl/hooks.d/beforeenrolling/01-test.yaml",
 					ExitCode: 0, Output: "retry succeeded",
 				}}
 				enrollCtx.HookLabels = map[string]string{"day1.example.com/role": "edge"}

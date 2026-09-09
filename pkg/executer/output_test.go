@@ -10,7 +10,7 @@ import (
 func TestExecuteWithBoundedOutputFromDir(t *testing.T) {
 	e := NewCommonExecuter()
 
-	t.Run("When output exceeds the combined limit it should truncate capture", func(t *testing.T) {
+	t.Run("When output exceeds the per-stream limit it should truncate capture", func(t *testing.T) {
 		require := require.New(t)
 		stdout, stderr, code := e.ExecuteWithBoundedOutputFromDir(
 			t.Context(),
@@ -20,6 +20,8 @@ func TestExecuteWithBoundedOutputFromDir(t *testing.T) {
 			4096,
 		)
 		require.Equal(0, code)
+		require.LessOrEqual(len(stdout), 2048)
+		require.LessOrEqual(len(stderr), 2048)
 		require.LessOrEqual(len(stdout)+len(stderr), 4096)
 	})
 
@@ -38,16 +40,17 @@ func TestExecuteWithBoundedOutputFromDir(t *testing.T) {
 		require.Empty(stderr)
 	})
 
-	t.Run("When stdout and stderr write concurrently it should respect the shared budget", func(t *testing.T) {
+	t.Run("When one stream is verbose it should not consume the other stream's budget", func(t *testing.T) {
 		require := require.New(t)
 		stdout, stderr, code := e.ExecuteWithBoundedOutputFromDir(
 			t.Context(),
 			"",
 			"sh",
-			[]string{"-c", "printf A; printf B >&2"},
-			3,
+			[]string{"-c", "dd if=/dev/zero bs=1 count=100 2>/dev/null | tr '\\0' 'A'"},
+			100,
 		)
 		require.Equal(0, code)
-		require.LessOrEqual(len(stdout)+len(stderr), 3)
+		require.LessOrEqual(len(stdout), 50)
+		require.Empty(stderr)
 	})
 }

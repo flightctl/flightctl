@@ -26,7 +26,8 @@ const HookLabelsPath = "/run/flightctl/hook-labels.json"
 // MaxHookLabelsFileSize is the maximum allowed size of hook-labels.json.
 const MaxHookLabelsFileSize = 16 * 1024
 
-// MaxEnrollmentHookActionOutput bounds combined stdout+stderr capture per enrollment hook action.
+// MaxEnrollmentHookActionOutput bounds stdout+stderr capture per enrollment hook action
+// (4096 bytes total: 2048 per stream at the executor).
 const MaxEnrollmentHookActionOutput = 4096
 
 // EnrollmentActionResult is the outcome of a single executed enrollment hook action.
