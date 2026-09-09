@@ -374,8 +374,8 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 		})
 		It("Should rollback when third-party health check (MicroShift) fails", Label("greenboot-third-party", "88229", "agent"), func() {
 			harness := e2e.GetWorkerHarness()
-			// Shorten flightctl and MicroShift greenboot check timeouts; LONGTIMEOUT below
-			// is the outer bound for the full reboot+rollback cycle.
+			// Shorten flightctl and MicroShift greenboot check timeouts so the full
+			// reboot+rollback cycle fits within LONGTIMEOUT.
 			setFastGreenbootHealthTimeouts(harness)
 
 			By("Getting initial device state")
@@ -406,9 +406,11 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 					device.Status.SystemInfo.BootID != initialBootID
 			}, LONGTIMEOUT)
 
+			// Volatile journal drops prior-boot logs so FALLBACK may not appear; rollback
+			// is already confirmed via device status above.
 			assertGreenbootFallbackJournalDetected(harness, true)
 
-			By("Verifying device reports as OutOfDate after rollback (spec wants v7, running initial)")
+			By("Verifying device reports OutOfDate after rollback (spec wants v7, running initial)")
 			harness.WaitForDeviceContents(deviceId, "device should be out of date after rollback", func(device *v1beta1.Device) bool {
 				if device.Status.Updated.Status != v1beta1.DeviceUpdatedStatusOutOfDate {
 					return false
@@ -794,12 +796,11 @@ func readAgentLogsForRollbackAssertion(harness *e2e.Harness) string {
 // the currently-booted deployment before triggering the v11 update also takes effect on
 // the v11 boot and the rollback boot that follows it.
 //
-// MICROSHIFT_WAIT_TIMEOUT_SEC shortens 40_microshift_running_check.sh (default 5–10m
-// per attempt) so third-party rollback e2e fits within LONGTIMEOUT.
-//
-// Existing FLIGHTCTL_HEALTH_* and MICROSHIFT_WAIT_TIMEOUT_SEC keys are stripped
-// before append so repeated calls (or a non-pristine VM) do not grow
-// greenboot.conf with duplicate assignments.
+// Existing FLIGHTCTL_HEALTH_* and MICROSHIFT_WAIT_TIMEOUT_SEC keys are stripped before
+// append so repeated calls (or a non-pristine VM) do not grow greenboot.conf with
+// duplicate assignments.
+// MICROSHIFT_WAIT_TIMEOUT_SEC shortens 40_microshift_running_check.sh (default 5-10m
+// per attempt) so the third-party rollback e2e fits within LONGTIMEOUT.
 const fastGreenbootOverrideScript = `sudo mkdir -p /etc/greenboot
 sudo touch /etc/greenboot/greenboot.conf
 sudo sed -i \

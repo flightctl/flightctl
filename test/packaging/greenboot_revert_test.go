@@ -25,6 +25,10 @@ func repoRoot(t *testing.T) string {
 	}
 }
 
+// TestGreenbootConfigureServiceRemoved is a packaging regression test that verifies
+// flightctl-configure-greenboot.service and all DISABLED_HEALTHCHECKS management have
+// been removed. The configure-greenboot service was silently disabling all third-party
+// greenboot health checks (EDM-5046); this test prevents reintroduction.
 func TestGreenbootConfigureServiceRemoved(t *testing.T) {
 	root := repoRoot(t)
 
@@ -59,6 +63,7 @@ func TestGreenbootConfigureServiceRemoved(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read functions.sh: %v", err)
 	}
+	functionsText := string(functions)
 	for _, forbidden := range []string{
 		"find_third_party_scripts",
 		"find_blocked_vendor_healthchecks",
@@ -66,7 +71,7 @@ func TestGreenbootConfigureServiceRemoved(t *testing.T) {
 		"DISABLED_HEALTHCHECKS",
 		"DISABLED_VENDOR_HEALTHCHECKS",
 	} {
-		if strings.Contains(string(functions), forbidden) {
+		if strings.Contains(functionsText, forbidden) {
 			t.Fatalf("functions.sh still contains %q", forbidden)
 		}
 	}
