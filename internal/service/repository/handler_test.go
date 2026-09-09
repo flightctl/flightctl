@@ -697,6 +697,7 @@ func TestPatchRepositoryDeltaStorageTarget(t *testing.T) {
 		require.Empty(t, prepareDeltasNames(emit.events))
 
 		_, status = h.PatchRepository(ctx, orgId, "diffs", domain.PatchRequest{
+			{Op: "add", Path: "/spec/accessMode", Value: lo.ToPtr[interface{}]("ReadWrite")},
 			{Op: "add", Path: "/spec/deltaStorageTarget", Value: lo.ToPtr[interface{}](true)},
 		})
 		require.Equal(t, statusSuccessCode, status.Code)
