@@ -334,6 +334,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.config.PullTimeout,
 		resourceManager,
 		pollBackoff,
+		dependency.WithOCIDelta(client.NewOCIDelta(a.log, exec, time.Duration(a.config.PullTimeout))),
 	)
 
 	// create status manager
