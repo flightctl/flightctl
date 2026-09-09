@@ -25,7 +25,7 @@ current_tree_state() {
 
 SOURCE_GIT_TAG="${SOURCE_GIT_TAG:-$(${ROOT_DIR}/hack/current-version)}"
 SOURCE_GIT_TREE_STATE="${SOURCE_GIT_TREE_STATE:-$(current_tree_state)}"
-SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT:-$(cd "${ROOT_DIR}" && git rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")}"
+SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT:-$( (cd "${ROOT_DIR}" && git rev-parse "HEAD^{commit}" 2>/dev/null || echo "unknown") | cut -c1-9)}"
 TAG="${TAG:-$SOURCE_GIT_TAG}"
 
 PODMAN_LOG_LEVEL="${PODMAN_LOG_LEVEL:-info}"

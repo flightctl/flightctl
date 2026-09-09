@@ -289,14 +289,14 @@ fi
     )" \
     SOURCE_GIT_TREE_STATE="clean" \
     SOURCE_GIT_COMMIT="$(
-        commit=$(git rev-parse --short HEAD 2>/dev/null || true);
+        commit=$( (git rev-parse HEAD 2>/dev/null || true) | cut -c1-9);
         if [ -z "$commit" ]; then
             commit=$(grep -v '^\$Format' packaging/rpm/git-metadata 2>/dev/null | tr -d '[:space:]');
         fi;
         if [ -z "$commit" ]; then
             commit=$(echo %{version} | grep -o '[-~]g[0-9a-f]*' | sed 's/[-~]g//');
         fi;
-        echo "${commit:-unknown}";
+        echo "${commit:-unknown}" | cut -c1-9;
     )" \
     %{?disable_fips} %make_build build-cli build-agent build-backup build-restore build-standalone build-mirror-images
 

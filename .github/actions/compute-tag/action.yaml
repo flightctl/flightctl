@@ -44,7 +44,7 @@ runs:
         else
           SOURCE_GIT_TREE_STATE=dirty
         fi
-        SOURCE_GIT_COMMIT=$(git rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")
+        SOURCE_GIT_COMMIT=$( (git rev-parse "HEAD^{commit}" 2>/dev/null || echo "unknown") | cut -c1-9)
         
         {
           echo "git_tag=${SOURCE_GIT_TAG}"

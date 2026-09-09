@@ -24,7 +24,7 @@ VERBOSE ?= false
 
 SOURCE_GIT_TAG ?=$(shell $(ROOT_DIR)/hack/current-version)
 SOURCE_GIT_TREE_STATE ?=$(shell ( ( [ ! -d "$(ROOT_DIR)/.git/" ] || git -C $(ROOT_DIR) diff --quiet ) && echo 'clean' ) || echo 'dirty')
-SOURCE_GIT_COMMIT ?=$(shell git -C $(ROOT_DIR) rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")
+SOURCE_GIT_COMMIT ?=$(shell (git -C $(ROOT_DIR) rev-parse "HEAD^{commit}" 2>/dev/null || echo "unknown") | cut -c1-9)
 BIN_TIMESTAMP ?=$(shell date +'%Y%m%d')
 SOURCE_GIT_TAG_NO_V = $(shell echo $(SOURCE_GIT_TAG) | sed 's/^v//')
 MAJOR = $(shell echo $(SOURCE_GIT_TAG_NO_V) | awk -F'[._~-]' '{print $$1}')
