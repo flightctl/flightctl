@@ -258,3 +258,64 @@ func persistMigratedModel(ctx context.Context, db *gorm.DB, row any, orgID uuid.
 	}
 	return nil
 }
+
+type enrollmentHookPolicyEncryptionResource struct {
+	db      *gorm.DB
+	mgr     *encryption.Manager
+	handler encryption.ModelEncryptHandler
+}
+
+func newEnrollmentHookPolicyEncryptionResource(db *gorm.DB, mgr *encryption.Manager) *enrollmentHookPolicyEncryptionResource {
+	return &enrollmentHookPolicyEncryptionResource{
+		db:      db,
+		mgr:     mgr,
+		handler: model.EncryptionHandlers()[domain.EnrollmentHookPolicyKind],
+	}
+}
+
+func (r *enrollmentHookPolicyEncryptionResource) Kind() string {
+	return domain.EnrollmentHookPolicyKind
+}
+
+func (r *enrollmentHookPolicyEncryptionResource) NextPage(ctx context.Context, orgID uuid.UUID, afterName string, limit int) ([]EncryptionMigratableRow, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	var rows []model.EnrollmentHookPolicy
+	q := r.db.WithContext(ctx).Model(&model.EnrollmentHookPolicy{}).
+		Where("org_id = ? AND spec IS NOT NULL", orgID).
+		Order("name ASC").
+		Limit(limit)
+	if afterName != "" {
+		q = q.Where("name > ?", afterName)
+	}
+	if err := q.Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]EncryptionMigratableRow, 0, len(rows))
+	for i := range rows {
+		out = append(out, &enrollmentHookPolicyMigratableRow{db: r.db, mgr: r.mgr, handler: r.handler, row: &rows[i]})
+	}
+	return out, nil
+}
+
+type enrollmentHookPolicyMigratableRow struct {
+	db      *gorm.DB
+	mgr     *encryption.Manager
+	handler encryption.ModelEncryptHandler
+	row     *model.EnrollmentHookPolicy
+}
+
+func (r *enrollmentHookPolicyMigratableRow) OrgID() uuid.UUID { return r.row.OrgID }
+func (r *enrollmentHookPolicyMigratableRow) Name() string     { return r.row.Name }
+
+func (r *enrollmentHookPolicyMigratableRow) Migrate(ctx context.Context, encrypt encryption.EncryptFunc) (bool, []string, error) {
+	return migrateModelRow(ctx, r.row, domain.EnrollmentHookPolicyKind, encrypt, r.mgr, r.handler)
+}
+
+func (r *enrollmentHookPolicyMigratableRow) Persist(ctx context.Context) error {
+	expected := resourceVersionValue(r.row.ResourceVersion)
+	newRV := expected + 1
+	r.row.ResourceVersion = &newRV
+	return persistMigratedModel(ctx, r.db, r.row, r.row.OrgID, r.row.Name, expected, []string{"Spec", "ResourceVersion", "UpdatedAt"})
+}
