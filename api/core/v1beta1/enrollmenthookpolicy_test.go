@@ -7,8 +7,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func strPtr(s string) *string { return &s }
-func intPtr(i int) *int       { return &i }
+func strPtr(s string) *string                      { return &s }
+func intPtr(i int) *int                            { return &i }
 func fpPtr(f FailurePolicyType) *FailurePolicyType { return &f }
 
 func validEnrollmentHookPolicy() EnrollmentHookPolicy {

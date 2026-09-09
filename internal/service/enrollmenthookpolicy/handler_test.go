@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/events"
@@ -115,8 +114,8 @@ func newTestHandler() (*ServiceHandler, *fakeStore, *fakeEventsService) {
 	return h, fs, fe
 }
 
-func strPtr(s string) *string                                       { return &s }
-func fpPtr(f v1beta1.FailurePolicyType) *v1beta1.FailurePolicyType { return &f }
+func strPtr(s string) *string                                    { return &s }
+func fpPtr(f domain.FailurePolicyType) *domain.FailurePolicyType { return &f }
 
 func validPolicy() domain.EnrollmentHookPolicy {
 	name := "default"
@@ -124,7 +123,7 @@ func validPolicy() domain.EnrollmentHookPolicy {
 		Metadata: domain.ObjectMeta{Name: &name},
 		Spec: domain.EnrollmentHookPolicySpec{
 			AfterEnrolling: domain.EnrollmentHookStageSpec{
-				FailurePolicy: fpPtr(v1beta1.FailurePolicyBlock),
+				FailurePolicy: fpPtr(domain.FailurePolicyBlock),
 				ControlPlaneActions: &[]domain.EnrollmentHookHttpAction{
 					{
 						Url:     "https://example.com/hook",
