@@ -426,16 +426,10 @@ func (s *DeltaStore) CASGeneration(ctx context.Context, key GenerationKey, expec
 	updates := map[string]interface{}{
 		"status":           update.Status,
 		"delta_ref":        update.DeltaRef,
+		"size_bytes":       update.SizeBytes,
 		"last_verified_at": update.LastVerifiedAt,
 		"generated_at":     update.GeneratedAt,
 		"resource_version": gorm.Expr("resource_version + 1"),
-	}
-	if update.SizeBytes != nil {
-		// A successful generation must never replace an existing larger size.
-		updates["size_bytes"] = gorm.Expr(
-			"CASE WHEN status = ? AND size_bytes > ? THEN size_bytes ELSE ? END",
-			model.DeltaGenerationSucceeded, *update.SizeBytes, *update.SizeBytes,
-		)
 	}
 	result := s.getDB(ctx).Model(&model.DeltaGeneration{}).
 		Where(
