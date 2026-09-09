@@ -378,28 +378,20 @@ jobs:
 
           # PVC deletion and PV reclaim are asynchronous. Give the provisioner a
           # short window to delete released PVs before treating them as orphaned.
-          PV_RECLAIM_TIMEOUT=30
-          ORPHANED_PV_NAMES_OUTPUT=$(kubectl get pv -o jsonpath='{range .items[?(@.spec.claimRef.namespace=="flightctl-external")]}{.metadata.name}{"\n"}{end}{range .items[?(@.spec.claimRef.namespace=="flightctl-internal")]}{.metadata.name}{"\n"}{end}')
-          ORPHANED_PV_NAMES=()
-          if [ -n "$ORPHANED_PV_NAMES_OUTPUT" ]; then
-            mapfile -t ORPHANED_PV_NAMES <<< "$ORPHANED_PV_NAMES_OUTPUT"
-          fi
+          ORPHANED_PVS=""
+          for ((attempt = 1; attempt <= 10; attempt++)); do
+            PV_LIST=$(kubectl get pv --no-headers)
+            ORPHANED_PVS=$(printf '%s\n' "$PV_LIST" | grep -E "flightctl-(external|internal)" || true)
+            [ -z "$ORPHANED_PVS" ] && break
+            [ "$attempt" -lt 10 ] && sleep 1
+          done
 
-          if [ "${#ORPHANED_PV_NAMES[@]}" -eq 0 ]; then
-            echo "✓ No orphaned PVs referencing flightctl namespaces"
+          if [ -n "$ORPHANED_PVS" ]; then
+            echo "FAIL: PV(s) referencing flightctl namespaces still exist after 10s:"
+            printf '%s\n' "$ORPHANED_PVS"
+            FAILED=true
           else
-            PV_RESOURCES=()
-            for PV_NAME in "${ORPHANED_PV_NAMES[@]}"; do
-              PV_RESOURCES+=("pv/${PV_NAME}")
-            done
-
-            if kubectl wait --for=delete "${PV_RESOURCES[@]}" --timeout="${PV_RECLAIM_TIMEOUT}s"; then
-              echo "✓ No orphaned PVs referencing flightctl namespaces"
-            else
-              echo "FAIL: PV(s) referencing flightctl namespaces still exist after ${PV_RECLAIM_TIMEOUT}s:"
-              kubectl get pv "${ORPHANED_PV_NAMES[@]}" --ignore-not-found -o wide
-              FAILED=true
-            fi
+            echo "✓ No orphaned PVs referencing flightctl namespaces"
           fi
 
           if [ "$FAILED" = "true" ]; then
