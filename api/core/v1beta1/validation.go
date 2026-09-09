@@ -999,9 +999,9 @@ func (c ApplicationContent) IsPlain() bool {
 func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []error {
 	allErrs := []error{}
 	seenAppNames := make(map[string]struct{})
-	// EDM-5264: published VM host ports are scoped to the device, not to an
-	// individual application.
-	seenVmPublishedPorts := make(map[string]string)
+	// EDM-5264: published host ports are scoped to the device, not to an
+	// individual VM or container application.
+	seenPublishedPorts := make(map[string]string)
 
 	for _, app := range apps {
 		appType, err := app.Discriminator()
@@ -1027,6 +1027,7 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 		switch AppType(appType) {
 		case AppTypeContainer:
 			allErrs = append(allErrs, validateContainerApplication(app, appName, fleetTemplate)...)
+			allErrs = append(allErrs, validateApplicationPortConflicts(app, appName, AppTypeContainer, seenPublishedPorts)...)
 		case AppTypeHelm:
 			allErrs = append(allErrs, ValidateHelmApplication(app, appName, fleetTemplate)...)
 		case AppTypeCompose:
@@ -1035,7 +1036,7 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 			allErrs = append(allErrs, validateQuadletApplication(app, appName, fleetTemplate)...)
 		case AppTypeVm:
 			allErrs = append(allErrs, validateVmApplication(app, appName, fleetTemplate)...)
-			allErrs = append(allErrs, validateVmApplicationPortConflicts(app, appName, seenVmPublishedPorts)...)
+			allErrs = append(allErrs, validateApplicationPortConflicts(app, appName, AppTypeVm, seenPublishedPorts)...)
 		default:
 			allErrs = append(allErrs, fmt.Errorf("unknown application type: %s", appType))
 		}
@@ -1044,16 +1045,35 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 	return allErrs
 }
 
-func validateVmApplicationPortConflicts(app ApplicationProviderSpec, appName string, seenPorts map[string]string) []error {
-	vm, err := app.AsVmApplication()
-	if err != nil || vm.PublishPorts == nil {
+func validateApplicationPortConflicts(app ApplicationProviderSpec, appName string, appType AppType, seenPorts map[string]string) []error {
+	var ports *[]ApplicationPort
+	var portsField string
+	switch appType {
+	case AppTypeContainer:
+		container, err := app.AsContainerApplication()
+		if err != nil {
+			return nil
+		}
+		ports = container.Ports
+		portsField = "ports"
+	case AppTypeVm:
+		vm, err := app.AsVmApplication()
+		if err != nil {
+			return nil
+		}
+		ports = vm.PublishPorts
+		portsField = "publishPorts"
+	default:
+		return nil
+	}
+	if ports == nil {
 		return nil
 	}
 
-	pathPrefix := fmt.Sprintf("spec.applications[%s].publishPorts", appName)
+	pathPrefix := fmt.Sprintf("spec.applications[%s].%s", appName, portsField)
 	var allErrs []error
-	for i, port := range *vm.PublishPorts {
-		portKey, ok := vmPublishedPortKey(port)
+	for i, port := range *ports {
+		portKey, ok := publishedPortKey(port)
 		if !ok {
 			// The format and range validator reports the more useful error for
 			// malformed entries; they cannot participate in conflict detection.
@@ -1069,7 +1089,7 @@ func validateVmApplicationPortConflicts(app ApplicationProviderSpec, appName str
 	return allErrs
 }
 
-func vmPublishedPortKey(port string) (string, bool) {
+func publishedPortKey(port string) (string, bool) {
 	if !containerPortPattern.MatchString(port) {
 		return "", false
 	}

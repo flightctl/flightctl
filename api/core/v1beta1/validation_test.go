@@ -1134,6 +1134,14 @@ func TestValidateApplications(t *testing.T) {
 			},
 		},
 		{
+			name: "VM and container applications with duplicate host ports",
+			apps: []ApplicationProviderSpec{
+				newTestVmInlineAppWithPorts(t, "vm-app", []string{"8080:80"}),
+				newTestApplicationWithPortsAndResources(require, "container-app", "quay.io/app/image:1", []string{"8080:81"}, nil),
+			},
+			wantErrs: []string{"host port 8080/tcp is already used by application \"vm-app\""},
+		},
+		{
 			name: "invalid volume name",
 			apps: []ApplicationProviderSpec{
 				newTestApplication(require, "app1", "quay.io/app/image:1", "quay.io/vol/image:1", "vol@1"),
