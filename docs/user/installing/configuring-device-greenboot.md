@@ -46,12 +46,11 @@ Exiting the health check with a non-zero status declares the boot as failed. The
 > `flightctl-greenboot` is optional; health checks can still run, but there is
 > no image-based OS rollback.
 
-### Third-Party Health Check Management
+### Third-Party Health Checks
 
-Flight Control is designed to be the sole controller of OS rollback decisions. The `flightctl-configure-greenboot.service` runs before `greenboot-healthcheck.service` on every boot, automatically disabling third-party health checks (e.g., MicroShift) by setting `DISABLED_HEALTHCHECKS` in `/etc/greenboot/greenboot.conf`. Core greenboot scripts and Flight Control's own health checks are preserved.
+Flight Control installs only its own `20_check_flightctl_agent.sh` health check. Other applications (for example MicroShift) may install additional scripts under `/usr/lib/greenboot/check/required.d` or `/etc/greenboot/check/required.d`. Those checks run as part of greenboot and can trigger OS rollback when they fail.
 
-> [!WARNING]
-> Do not manually edit `DISABLED_HEALTHCHECKS` in `/etc/greenboot/greenboot.conf` it is replaced on every boot by `flightctl-configure-greenboot.service`.
+The agent waits for `boot-complete.target` before committing an OS update spec, so a rollback triggered by any required health check does not leave the device reporting `UpToDate` on the wrong OS image.
 
 ## The `systemd` Journal Service Configuration
 
