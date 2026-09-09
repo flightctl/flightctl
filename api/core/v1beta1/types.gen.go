@@ -2861,9 +2861,6 @@ type PermissionList struct {
 
 // PreEnrollmentActionResult Result of a single executed pre-enrollment hook action, agent-populated.
 type PreEnrollmentActionResult struct {
-	// Command The run command line executed for this action.
-	Command *string `json:"command,omitempty"`
-
 	// ExitCode Process exit code from the hook action.
 	ExitCode int `json:"exitCode"`
 

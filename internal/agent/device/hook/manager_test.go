@@ -392,11 +392,9 @@ func TestOnBeforeEnrollingRecordsPerActionResults(t *testing.T) {
 	require.True(enrollCtx.Success)
 	require.Len(enrollCtx.Actions, 2)
 	require.Equal("/usr/lib/flightctl/hooks.d/beforeenrolling/01-test.yaml", enrollCtx.Actions[0].Source)
-	require.Equal("echo first", enrollCtx.Actions[0].Command)
 	require.Equal(0, enrollCtx.Actions[0].ExitCode)
 	require.Equal("ip=10.0.0.1", enrollCtx.Actions[0].Output)
 	require.Equal("/usr/lib/flightctl/hooks.d/beforeenrolling/01-test.yaml", enrollCtx.Actions[1].Source)
-	require.Equal("echo second", enrollCtx.Actions[1].Command)
 	require.Equal("serial=ABC", enrollCtx.Actions[1].Output)
 }
 
@@ -422,7 +420,6 @@ func TestOnBeforeEnrollingRecordsFailedActionResult(t *testing.T) {
 	require.False(enrollCtx.Success)
 	require.Len(enrollCtx.Actions, 1)
 	require.Equal("/usr/lib/flightctl/hooks.d/beforeenrolling/01-test.yaml", enrollCtx.Actions[0].Source)
-	require.Equal("/bin/false", enrollCtx.Actions[0].Command)
 	require.Equal(1, enrollCtx.Actions[0].ExitCode)
 	require.Equal("failed", enrollCtx.Actions[0].Output)
 }

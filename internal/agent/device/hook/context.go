@@ -32,7 +32,6 @@ const MaxEnrollmentHookActionOutput = 4096
 // EnrollmentActionResult is the outcome of a single executed enrollment hook action.
 type EnrollmentActionResult struct {
 	Source   string
-	Command  string
 	ExitCode int
 	Output   string
 }

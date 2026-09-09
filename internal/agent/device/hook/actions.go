@@ -145,13 +145,12 @@ func executeAction(ctx context.Context, exec executer.Executer, log *log.PrefixL
 	}
 }
 
-func recordEnrollmentActionResult(actionCtx *actionContext, exitCode int, stdout, stderr, command string) {
+func recordEnrollmentActionResult(actionCtx *actionContext, exitCode int, stdout, stderr string) {
 	if actionCtx.hookContextJSON == "" || actionCtx.actionSource == "" {
 		return
 	}
 	actionCtx.actionResults = append(actionCtx.actionResults, EnrollmentActionResult{
 		Source:   actionCtx.actionSource,
-		Command:  command,
 		ExitCode: exitCode,
 		Output:   combineCommandOutput(stdout, stderr),
 	})
@@ -206,7 +205,7 @@ func executeRunAction(ctx context.Context, exec executer.Executer, log *log.Pref
 	var exitCode int
 	if actionCtx.hookContextJSON != "" {
 		stdout, stderr, exitCode = exec.ExecuteWithBoundedOutputFromDir(ctx, workDir, cmd, args, MaxEnrollmentHookActionOutput, envVars...)
-		recordEnrollmentActionResult(actionCtx, exitCode, stdout, stderr, commandLine)
+		recordEnrollmentActionResult(actionCtx, exitCode, stdout, stderr)
 	} else {
 		_, stderr, exitCode = exec.ExecuteWithContextFromDir(ctx, workDir, cmd, args, envVars...)
 	}

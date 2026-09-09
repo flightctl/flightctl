@@ -7074,9 +7074,6 @@ components:
           description: >-
             Path to the hook definition YAML that contained this action (for
             example /etc/flightctl/hooks.d/beforeenrolling/10-network.yaml).
-        command:
-          type: string
-          description: The run command line executed for this action.
         exitCode:
           type: integer
           description: Process exit code from the hook action.

@@ -555,9 +555,6 @@ func (m *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *
 					Source:   action.Source,
 					ExitCode: action.ExitCode,
 				}
-				if action.Command != "" {
-					apiActions[i].Command = &action.Command
-				}
 				if action.Output != "" {
 					apiActions[i].Output = &action.Output
 				}

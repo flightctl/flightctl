@@ -909,7 +909,7 @@ func TestLifecycleManager_PreEnrollmentHooks(t *testing.T) {
 				enrollCtx.Success = true
 				enrollCtx.Actions = []hook.EnrollmentActionResult{{
 					Source: "/etc/flightctl/hooks.d/beforeenrolling/01-test.yaml",
-					Command: "echo hook", ExitCode: 0, Output: "hook output",
+					ExitCode: 0, Output: "hook output",
 				}}
 				return nil
 			})
@@ -948,8 +948,6 @@ func TestLifecycleManager_PreEnrollmentHooks(t *testing.T) {
 		require.NotNil(capturedER.Spec.PreEnrollment.Actions)
 		require.Len(*capturedER.Spec.PreEnrollment.Actions, 1)
 		require.Equal("/etc/flightctl/hooks.d/beforeenrolling/01-test.yaml", (*capturedER.Spec.PreEnrollment.Actions)[0].Source)
-		require.NotNil((*capturedER.Spec.PreEnrollment.Actions)[0].Command)
-		require.Equal("echo hook", *(*capturedER.Spec.PreEnrollment.Actions)[0].Command)
 		require.Equal(0, (*capturedER.Spec.PreEnrollment.Actions)[0].ExitCode)
 		require.NotNil((*capturedER.Spec.PreEnrollment.Actions)[0].Output)
 		require.Equal("hook output", *(*capturedER.Spec.PreEnrollment.Actions)[0].Output)
@@ -1049,14 +1047,14 @@ func TestLifecycleManager_PreEnrollmentHooks(t *testing.T) {
 					enrollCtx.Success = false
 					enrollCtx.Actions = []hook.EnrollmentActionResult{{
 						Source: "/etc/flightctl/hooks.d/beforeenrolling/01-test.yaml",
-						Command: "/bin/false", ExitCode: 1, Output: "first attempt failed",
+						ExitCode: 1, Output: "first attempt failed",
 					}}
 					return errors.New("hook failed first attempt")
 				}
 				enrollCtx.Success = true
 				enrollCtx.Actions = []hook.EnrollmentActionResult{{
 					Source: "/etc/flightctl/hooks.d/beforeenrolling/01-test.yaml",
-					Command: "echo ok", ExitCode: 0, Output: "retry succeeded",
+					ExitCode: 0, Output: "retry succeeded",
 				}}
 				enrollCtx.HookLabels = map[string]string{"day1.example.com/role": "edge"}
 				return nil
