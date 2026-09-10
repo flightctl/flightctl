@@ -135,7 +135,7 @@ var _ = Describe("Single Container Applications", Ordered, func() {
 		Expect(err).ToNot(HaveOccurred())
 	})
 
-	It("reports error status when a second container application binds to an already used port", Label("88861", "sanity"), func() {
+	It("rejects a second container application that binds to an already used port during validation", Label("88861", "sanity"), func() {
 		By("Deploying first container application on port " + getPortMapping())
 		err := harness.UpdateDeviceAndWaitForVersion(deviceId, func(device *v1beta1.Device) {
 			device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{defaultAppSpec}
@@ -149,16 +149,12 @@ var _ = Describe("Single Container Applications", Ordered, func() {
 		Expect(err).ToNot(HaveOccurred())
 		Expect(containerPorts).To(ContainSubstring(hostPort), "expected host port %s to be mapped for first app", hostPort)
 
-		By("Deploying second container application on the same port")
+		By("Rejecting the second container application on the same port during validation")
 		GinkgoWriter.Printf("Deploying second container app %s on conflicting port %s\n", containerAppName2, getPortMapping())
-		err = harness.UpdateDeviceAndWaitForVersion(deviceId, func(device *v1beta1.Device) {
+		err = harness.UpdateDevice(deviceId, func(device *v1beta1.Device) {
 			device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{defaultAppSpec, samePortSecondAppSpec}
 		})
-		Expect(err).ToNot(HaveOccurred())
-
-		By("Verifying second application enters Error status due to port conflict")
-		err = harness.WaitForApplicationStatus(deviceId, containerAppName2, v1beta1.ApplicationStatusError, testutil.TIMEOUT, testutil.POLLING)
-		Expect(err).ToNot(HaveOccurred())
+		Expect(err).To(MatchError(ContainSubstring(fmt.Sprintf("host port %s/tcp is already used", hostPort))))
 
 		By("Verifying first application remains Running")
 		err = harness.WaitForApplicationStatus(deviceId, containerAppName, v1beta1.ApplicationStatusRunning, testutil.TIMEOUT, testutil.POLLING)
