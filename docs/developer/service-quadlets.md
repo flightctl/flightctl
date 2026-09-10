@@ -140,7 +140,7 @@ export DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD='registry-password'
 make deploy-quadlets
 ```
 
-Because these credentials are optional, they are not included in the vendor-owned delta-worker Quadlet. If the secrets already exist, the deployment also recreates the drop-in automatically without needing the environment variables. Deployments without a default repository do not create or reference these secrets.
+Because these credentials are optional, they are not included in the vendor-owned delta-worker Quadlet. If the secrets already exist and the generated drop-in is missing, deployment also creates the drop-in automatically without needing the environment variables. This drop-in is deployment-managed and overwritten by a later `make deploy-quadlets`. Deployments without a default repository do not create or reference these secrets.
 
 `/etc/containers/systemd/flightctl-delta-worker.container.d/delta-generation-repository.conf`:
 
@@ -150,7 +150,7 @@ Secret=flightctl-delta-generation-default-repository-username,type=env,target=DE
 Secret=flightctl-delta-generation-default-repository-password,type=env,target=DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD
 ```
 
-The drop-in may also be added manually after deployment if the secrets were created separately. After adding or changing it, run:
+The drop-in may also be added manually after deployment if the secrets were created separately. As with other Quadlet changes, adding it after services are already running requires an explicit reload and worker restart:
 
 ```bash
 sudo systemctl daemon-reload
