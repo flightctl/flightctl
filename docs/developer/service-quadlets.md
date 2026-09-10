@@ -140,17 +140,15 @@ export DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD='registry-password'
 make deploy-quadlets
 ```
 
-Because these credentials are optional, they are not included in the vendor-owned API and delta-worker Quadlets. Add them through systemd drop-ins so deployments without a default repository do not reference missing Podman secrets. Create both files before running `systemctl daemon-reload` or `make deploy-quadlets`:
+Because these credentials are optional, they are not included in the vendor-owned delta-worker Quadlet. Add them through a systemd drop-in so deployments without a default repository do not reference missing Podman secrets. Create this file before running `systemctl daemon-reload` or `make deploy-quadlets`:
 
-`/etc/containers/systemd/flightctl-api.container.d/delta-generation-repository.conf`:
+`/etc/containers/systemd/flightctl-delta-worker.container.d/delta-generation-repository.conf`:
 
 ```ini
 [Container]
 Secret=flightctl-delta-generation-default-repository-username,type=env,target=DELTA_GENERATION_DEFAULT_REPOSITORY_USERNAME
 Secret=flightctl-delta-generation-default-repository-password,type=env,target=DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD
 ```
-
-Create an equivalent drop-in at `/etc/containers/systemd/flightctl-delta-worker.container.d/delta-generation-repository.conf`.
 
 ### External Database Configuration
 
