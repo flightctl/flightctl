@@ -6388,6 +6388,8 @@ components:
           $ref: '#/components/schemas/DependencySyncStatus'
         capabilities:
           $ref: '#/components/schemas/DeviceCapabilities'
+        systemInfoStatus:
+          $ref: '#/components/schemas/DeviceSystemInfoStatus'
       additionalProperties: false
     DeviceLastSeen:
       type: object
@@ -6449,6 +6451,72 @@ components:
       additionalProperties:
         type: string
         description: A user-defined custom property value.
+    DeviceSystemInfoStatus:
+      type: object
+      description: Status of the system information collection sources for a device.
+      required:
+        - summary
+        - statuses
+      properties:
+        summary:
+          $ref: '#/components/schemas/DeviceSystemInfoSummaryStatus'
+        statuses:
+          $ref: '#/components/schemas/DeviceSystemInfoStatuses'
+      additionalProperties: false
+    DeviceSystemInfoStatuses:
+      type: object
+      description: Collection statuses for built-in and custom information sources.
+      required:
+        - systemInfo
+        - customInfo
+      properties:
+        systemInfo:
+          type: object
+          description: Per-source collection status for built-in system information.
+          additionalProperties:
+            $ref: '#/components/schemas/SystemInfoSourceStatus'
+        customInfo:
+          type: object
+          description: Per-source collection status for custom device information.
+          additionalProperties:
+            $ref: '#/components/schemas/SystemInfoSourceStatus'
+      additionalProperties: false
+    DeviceSystemInfoSummaryStatus:
+      type: object
+      description: Aggregate summary of the system information collection health.
+      required:
+        - status
+      properties:
+        status:
+          $ref: '#/components/schemas/SystemInfoSummaryStatusType'
+      additionalProperties: false
+    SystemInfoSummaryStatusType:
+      type: string
+      description: Aggregate health of the system information collection.
+      enum:
+        - "Healthy"
+        - "Degraded"
+        - "Error"
+        - "Unknown"
+      x-enum-varnames:
+        - "SystemInfoSummaryStatusHealthy"
+        - "SystemInfoSummaryStatusDegraded"
+        - "SystemInfoSummaryStatusError"
+        - "SystemInfoSummaryStatusUnknown"
+    SystemInfoSourceStatus:
+      type: object
+      description: Collection status for a single system information source.
+      required:
+        - lastTransitionTime
+      properties:
+        lastTransitionTime:
+          type: string
+          format: date-time
+          description: The last time the collection status of this source changed.
+        message:
+          type: string
+          description: Human readable message providing details about the source status.
+      additionalProperties: false
     SystemdUnitStatus:
       type: object
       required:

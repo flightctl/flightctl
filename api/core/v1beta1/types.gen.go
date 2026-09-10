@@ -527,6 +527,14 @@ const (
 	RolloutStrategyBatchSequence RolloutStrategy = "BatchSequence"
 )
 
+// Defines values for SystemInfoSummaryStatusType.
+const (
+	SystemInfoSummaryStatusDegraded SystemInfoSummaryStatusType = "Degraded"
+	SystemInfoSummaryStatusError    SystemInfoSummaryStatusType = "Error"
+	SystemInfoSummaryStatusHealthy  SystemInfoSummaryStatusType = "Healthy"
+	SystemInfoSummaryStatusUnknown  SystemInfoSummaryStatusType = "Unknown"
+)
+
 // Defines values for SystemdActiveStateType.
 const (
 	SystemdActiveStateActivating   SystemdActiveStateType = "activating"
@@ -1587,6 +1595,9 @@ type DeviceStatus struct {
 	// SystemInfo System information collected from the device.
 	SystemInfo DeviceSystemInfo `json:"systemInfo"`
 
+	// SystemInfoStatus Status of the system information collection sources for a device.
+	SystemInfoStatus *DeviceSystemInfoStatus `json:"systemInfoStatus,omitempty"`
+
 	// Systemd List of systemd unit statuses.
 	Systemd *[]SystemdUnitStatus `json:"systemd,omitempty"`
 
@@ -1632,6 +1643,30 @@ type DeviceSystemInfo struct {
 	// OperatingSystem The Operating System reported by the device.
 	OperatingSystem      string            `json:"operatingSystem"`
 	AdditionalProperties map[string]string `json:"-"`
+}
+
+// DeviceSystemInfoStatus Status of the system information collection sources for a device.
+type DeviceSystemInfoStatus struct {
+	// Statuses Collection statuses for built-in and custom information sources.
+	Statuses DeviceSystemInfoStatuses `json:"statuses"`
+
+	// Summary Aggregate summary of the system information collection health.
+	Summary DeviceSystemInfoSummaryStatus `json:"summary"`
+}
+
+// DeviceSystemInfoStatuses Collection statuses for built-in and custom information sources.
+type DeviceSystemInfoStatuses struct {
+	// CustomInfo Per-source collection status for custom device information.
+	CustomInfo map[string]SystemInfoSourceStatus `json:"customInfo"`
+
+	// SystemInfo Per-source collection status for built-in system information.
+	SystemInfo map[string]SystemInfoSourceStatus `json:"systemInfo"`
+}
+
+// DeviceSystemInfoSummaryStatus Aggregate summary of the system information collection health.
+type DeviceSystemInfoSummaryStatus struct {
+	// Status Aggregate health of the system information collection.
+	Status SystemInfoSummaryStatusType `json:"status"`
 }
 
 // DeviceUpdatePolicySpec Specifies the policy for managing device updates, including when updates should be downloaded and applied.
@@ -3192,6 +3227,18 @@ type Status struct {
 	// Status Status of the operation. One of: "Success" or "Failure". More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#spec-and-status.
 	Status string `json:"status"`
 }
+
+// SystemInfoSourceStatus Collection status for a single system information source.
+type SystemInfoSourceStatus struct {
+	// LastTransitionTime The last time the collection status of this source changed.
+	LastTransitionTime time.Time `json:"lastTransitionTime"`
+
+	// Message Human readable message providing details about the source status.
+	Message *string `json:"message,omitempty"`
+}
+
+// SystemInfoSummaryStatusType Aggregate health of the system information collection.
+type SystemInfoSummaryStatusType string
 
 // SystemdActiveStateType The high-level unit activation state.
 type SystemdActiveStateType string
