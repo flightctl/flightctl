@@ -24,7 +24,7 @@ const (
 
 var _ = Describe("Device observability", func() {
 	Context("telemetry gateway metrics", func() {
-		It("should export device host metrics via the telemetry gateway", Label("85040"), func() {
+		It("should export device host metrics via the telemetry gateway", Label("85040"), func(ctx SpecContext) {
 			harness := e2e.GetWorkerHarness()
 			p := setup.GetDefaultProviders()
 			workerID := GinkgoParallelProcess()
@@ -53,16 +53,9 @@ var _ = Describe("Device observability", func() {
 				Expect(cfg).To(ContainSubstring("keyFile"))
 			}
 			By("enrolling a device and updating to the v10 image with OTEL collector")
-			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
-			nextRenderedVersion, err := harness.PrepareNextDeviceVersion(deviceId)
+			deviceId, err := ensureOTelDevice(ctx, harness, "")
 			Expect(err).ToNot(HaveOccurred())
-			_, _, err = harness.WaitForBootstrapAndUpdateToVersion(deviceId, util.DeviceTags.V10)
-			Expect(err).ToNot(HaveOccurred())
-			err = harness.WaitForDeviceNewRenderedVersionWithReboot(deviceId, nextRenderedVersion)
-			Expect(err).ToNot(HaveOccurred())
-
-			By("waiting for otelcol to be running on the device")
-			Eventually(harness.OTelcolActiveStatus(), TIMEOUT, POLLING).Should(Equal("active"))
+			Expect(deviceId).ToNot(BeEmpty())
 
 			By("getting telemetry gateway metrics endpoint")
 			baseURL, pfCleanup, err := p.Infra.ExposeService(infra.ServiceTelemetryGateway, "http")
