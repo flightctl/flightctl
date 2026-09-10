@@ -29,7 +29,7 @@ When working in a specific part of the codebase, follow the guidance in the corr
 ## Commits
 
 - **Signed commits** – All commits must be signed (e.g. with GPG or SSH). Configure signing in Git and sign each commit before pushing.
-- **Jira prefix in title** – The first line of the commit message (the title) must be prefixed with the relevant Jira issue key, e.g. `EDM-1234: Short description of the change`. Use `NO-ISSUE:` for trivial or non-ticket changes (e.g. typos, minor docs). See the git history for examples: `git log --oneline`.
+- **Jira prefix in title** – The first line of the commit message (the title) must be prefixed with the relevant Jira issue key, e.g. `<PROJECT>-<NUMBER>: Short description of the change`. Use `NO-ISSUE:` for trivial or non-ticket changes (e.g. typos, minor docs). See the git history for examples: `git log --oneline`.
 - **No Jira references in code** – Keep Jira issue keys and URLs out of source code, comments, tests, and documentation. Use commit messages, pull requests, and Jira for issue tracking.
 
 ## Submitting changes

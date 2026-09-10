@@ -1088,6 +1088,7 @@ func validateApplicationPortConflicts(app ApplicationProviderSpec, appName strin
 	return allErrs
 }
 
+// publishedPortKey normalizes a typed host-to-guest mapping for conflict checks.
 func publishedPortKey(port string) (string, bool) {
 	if !containerPortPattern.MatchString(port) {
 		return "", false
@@ -1098,6 +1099,10 @@ func publishedPortKey(port string) (string, bool) {
 	if err != nil || hostPort < privilegedPortRangeStart || hostPort > portRangeEnd {
 		return "", false
 	}
+	guestPort, err := strconv.Atoi(strings.SplitN(colonParts[1], "/", 2)[0])
+	if err != nil || guestPort < privilegedPortRangeStart || guestPort > portRangeEnd {
+		return "", false
+	}
 
 	protocol := "tcp"
 	if protocolParts := strings.SplitN(colonParts[1], "/", 2); len(protocolParts) == 2 {
@@ -1106,14 +1111,20 @@ func publishedPortKey(port string) (string, bool) {
 	return fmt.Sprintf("%d/%s", hostPort, protocol), true
 }
 
+// validateQuadletApplicationPortConflicts checks inline Quadlet container units
+// against the device-wide published-port set used by VM and container apps.
 func validateQuadletApplicationPortConflicts(app ApplicationProviderSpec, appName string, seenPorts map[string]string) []error {
 	quadletApp, err := app.AsQuadletApplication()
 	if err != nil || quadletApp.Type() != InlineApplicationProviderType {
+		// validateQuadletApplication reports malformed provider conversions; avoid
+		// duplicating that error while keeping conflict detection best effort.
 		return nil
 	}
 
 	inlineSpec, err := quadletApp.AsInlineApplicationProviderSpec()
 	if err != nil {
+		// The application validator reports this conversion error with its normal
+		// provider path; avoid emitting a second error here.
 		return nil
 	}
 
@@ -1125,14 +1136,20 @@ func validateQuadletApplicationPortConflicts(app ApplicationProviderSpec, appNam
 
 		content, err := decodeApplicationContent(inline)
 		if err != nil {
+			// ApplicationContent.Validate already reports decoding errors with the
+			// inline content path.
 			continue
 		}
 		unit, err := quadlet.NewUnit(content)
 		if err != nil {
+			// ValidateContents already reports Quadlet parse errors with the file
+			// path, so there is no additional conflict data to process.
 			continue
 		}
 		ports, err := unit.LookupAll(quadlet.ContainerGroup, quadlet.PublishPortKey)
 		if err != nil {
+			// Missing [Container]/PublishPort is valid for other Quadlet files and
+			// produces no published host port to track.
 			continue
 		}
 
@@ -1150,6 +1167,8 @@ func validateQuadletApplicationPortConflicts(app ApplicationProviderSpec, appNam
 	return allErrs
 }
 
+// quadletPublishedPortKeys returns normalized host-port/protocol keys for a
+// Quadlet PublishPort value, expanding an explicitly configured host range.
 func quadletPublishedPortKeys(port string) []string {
 	portParts := strings.SplitN(port, "/", 2)
 	protocol := "tcp"
