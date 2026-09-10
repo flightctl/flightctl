@@ -236,7 +236,7 @@ func (p *ServiceLifecycleProvider) SetDeploymentEnv(service infra.ServiceName, e
 		return err
 	}
 
-	logrus.Infof("Quadlet: set env %s=%s on %s", envName, envValue, containerFile)
+	logrus.Infof("Quadlet: set env %s on %s", envName, containerFile)
 	return p.daemonReloadAndRestart(service, unit)
 }
 
