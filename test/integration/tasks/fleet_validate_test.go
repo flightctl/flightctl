@@ -180,6 +180,7 @@ var _ = Describe("FleetValidate", func() {
 				},
 			}
 			logic := tasks.NewFleetValidateLogic(log, fleetSvc, templateVersionSvc, deviceSvc, repositorySvc, nil, orgId, event)
+			logic.WorkerClient = workerClient
 
 			gitItem := api.ConfigProviderSpec{}
 			err := gitItem.FromGitConfigProviderSpec(*goodGitConfig)
@@ -239,6 +240,7 @@ var _ = Describe("FleetValidate", func() {
 				},
 			}
 			logic := tasks.NewFleetValidateLogic(log, fleetSvc, templateVersionSvc, deviceSvc, repositorySvc, nil, orgId, event)
+			logic.WorkerClient = workerClient
 
 			gitItem := api.ConfigProviderSpec{}
 			err := gitItem.FromGitConfigProviderSpec(*badGitConfig)
@@ -296,6 +298,7 @@ var _ = Describe("FleetValidate", func() {
 				},
 			}
 			logic := tasks.NewFleetValidateLogic(log, fleetSvc, templateVersionSvc, deviceSvc, repositorySvc, nil, orgId, event)
+			logic.WorkerClient = workerClient
 
 			gitItem := api.ConfigProviderSpec{}
 			err := gitItem.FromGitConfigProviderSpec(*goodGitConfig)
@@ -353,6 +356,7 @@ var _ = Describe("FleetValidate", func() {
 				},
 			}
 			logic := tasks.NewFleetValidateLogic(log, fleetSvc, templateVersionSvc, deviceSvc, repositorySvc, nil, orgId, event)
+			logic.WorkerClient = workerClient
 
 			gitItem := api.ConfigProviderSpec{}
 			err := gitItem.FromGitConfigProviderSpec(*goodGitConfig)

@@ -68,6 +68,7 @@ type GenerationProgress struct {
 
 type PrepareDeltasHandler interface {
 	Prepare(ctx context.Context, ev worker_client.EventWithOrgId) error
+	CompleteWaitingIfTerminal(ctx context.Context, key deltastore.GenerationKey) error
 }
 
 type writeTargetResolver func(ctx context.Context, orgID uuid.UUID) (*domain.OciRepoSpec, error)
@@ -382,6 +383,9 @@ func (c *Consumer) refreshPairCounts(ctx context.Context, key deltastore.Generat
 func (c *Consumer) runResume(ctx context.Context, key deltastore.GenerationKey) error {
 	if c.resume != nil {
 		return c.resume(ctx, key)
+	}
+	if c.preparer != nil {
+		return c.preparer.CompleteWaitingIfTerminal(ctx, key)
 	}
 	_, err := c.store.ListWaitingPreparesByGeneration(ctx, key)
 	return err
