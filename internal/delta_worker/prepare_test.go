@@ -677,7 +677,7 @@ func TestPrepare_TerminalAndDevice(t *testing.T) {
 		emit := &emitSpy{}
 		status := &statusSpy{}
 		r := eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc))
-		r.Expand = func(_ tasks.RenderedSpec, cands []DeltaCandidate) []DeltaCandidate {
+		r.Expand = func(_ context.Context, _ uuid.UUID, _ *domain.Device, _ tasks.RenderedSpec, cands []DeltaCandidate) []DeltaCandidate {
 			return append(cands, DeltaCandidate{ImageRepository: "quay.io/apps/web", CurrentDigest: "sha256:ccc", NewDigest: "sha256:ddd"})
 		}
 		p := newTestPreparer(t, store, r, status, &resumeSpy{}, emit)
@@ -712,7 +712,7 @@ func TestPrepare_TerminalAndDevice(t *testing.T) {
 		}
 		emit := &emitSpy{}
 		r := eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc))
-		r.Expand = func(_ tasks.RenderedSpec, cands []DeltaCandidate) []DeltaCandidate {
+		r.Expand = func(_ context.Context, _ uuid.UUID, _ *domain.Device, _ tasks.RenderedSpec, cands []DeltaCandidate) []DeltaCandidate {
 			return append(cands, DeltaCandidate{ImageRepository: "quay.io/apps/web", CurrentDigest: "sha256:ccc", NewDigest: "sha256:ddd"})
 		}
 		p := newTestPreparer(t, store, r, &statusSpy{}, &resumeSpy{}, emit)
