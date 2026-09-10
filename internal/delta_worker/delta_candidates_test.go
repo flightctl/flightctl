@@ -507,7 +507,7 @@ func TestDeltaCandidates_ResolveOSFromUnsavedRender(t *testing.T) {
 		r.Devices = func(_ context.Context, _ uuid.UUID, _ string) ([]*domain.Device, error) {
 			return []*domain.Device{deviceWithOS("d1", true, currentDig)}, nil
 		}
-		r.Expand = func(_ tasks.RenderedSpec, cands []DeltaCandidate) []DeltaCandidate {
+		r.Expand = func(_ context.Context, _ uuid.UUID, _ *domain.Device, _ tasks.RenderedSpec, cands []DeltaCandidate) []DeltaCandidate {
 			return append(cands, DeltaCandidate{ImageRepository: "quay.io/apps/web", CurrentDigest: "sha256:ccc", NewDigest: "sha256:ddd"})
 		}
 		result, err := r.DeltaCandidates(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
