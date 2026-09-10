@@ -45,6 +45,7 @@ Flight Control is a service for declarative management of fleets of edge devices
 - **API changes:** Edit OpenAPI YAML and hand-maintained types (e.g. `api/core/v1beta1/types.go`), then `make generate`. Do not edit `*.gen.go` by hand.
 - **Documentation:** User docs under `docs/user/`, developer docs under `docs/developer/`. Run `make lint-docs` and `make spellcheck-docs` for user docs.
 - **Commits:** All commits must be signed (GPG or SSH). Commit messages must be prefixed with Jira issue key (e.g., `EDM-1234: Description`) or `NO-ISSUE:` for trivial changes.
+- **Jira references:** Do not include Jira issue keys or Jira URLs in source code, comments, test names, or user-facing documentation. Track work in commit messages, pull requests, and Jira instead.
 
 ## Before committing
 

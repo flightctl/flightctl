@@ -1142,6 +1142,25 @@ func TestValidateApplications(t *testing.T) {
 			wantErrs: []string{"host port 8080/tcp is already used by application \"vm-app\""},
 		},
 		{
+			name: "Quadlet and VM applications with duplicate host ports",
+			apps: []ApplicationProviderSpec{
+				newTestQuadletInlineApp(t, "quadlet-app", map[string]string{
+					"app.container": "[Container]\nImage=quay.io/app/image:1\nPublishPort=8080:80",
+				}),
+				newTestVmInlineAppWithPorts(t, "vm-app", []string{"8080:81"}),
+			},
+			wantErrs: []string{"host port 8080/tcp is already used by application \"quadlet-app\""},
+		},
+		{
+			name: "Quadlet and VM applications with same host port on different protocols",
+			apps: []ApplicationProviderSpec{
+				newTestQuadletInlineApp(t, "quadlet-app", map[string]string{
+					"app.container": "[Container]\nImage=quay.io/app/image:1\nPublishPort=8080:80/udp",
+				}),
+				newTestVmInlineAppWithPorts(t, "vm-app", []string{"8080:81/tcp"}),
+			},
+		},
+		{
 			name: "invalid volume name",
 			apps: []ApplicationProviderSpec{
 				newTestApplication(require, "app1", "quay.io/app/image:1", "quay.io/vol/image:1", "vol@1"),
@@ -3360,6 +3379,22 @@ func newTestVmInlineAppWithPorts(t *testing.T, name string, publishPorts []strin
 	}))
 	var spec ApplicationProviderSpec
 	require.NoError(t, spec.FromVmApplication(vm))
+	return spec
+}
+
+func newTestQuadletInlineApp(t *testing.T, name string, files map[string]string) ApplicationProviderSpec {
+	t.Helper()
+	inline := make([]ApplicationContent, 0, len(files))
+	for path, content := range files {
+		inline = append(inline, ApplicationContent{Path: path, Content: lo.ToPtr(content)})
+	}
+	quadletApp := QuadletApplication{
+		AppType: AppTypeQuadlet,
+		Name:    lo.ToPtr(name),
+	}
+	require.NoError(t, quadletApp.FromInlineApplicationProviderSpec(InlineApplicationProviderSpec{Inline: inline}))
+	var spec ApplicationProviderSpec
+	require.NoError(t, spec.FromQuadletApplication(quadletApp))
 	return spec
 }
 
