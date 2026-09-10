@@ -26,6 +26,7 @@ type DeviceUpdatedStatus = v1beta1.DeviceUpdatedStatus
 type DeviceResourceStatus = v1beta1.DeviceResourceStatus
 type DeviceLastSeen = v1beta1.DeviceLastSeen
 type DeviceOsStatus = v1beta1.DeviceOsStatus
+type DeviceDeltaApplyStatus = v1beta1.DeviceDeltaApplyStatus
 type DeviceSystemInfo = v1beta1.DeviceSystemInfo
 type CustomDeviceInfo = v1beta1.CustomDeviceInfo
 type DeviceCapabilities = v1beta1.DeviceCapabilities
