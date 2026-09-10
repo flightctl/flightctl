@@ -12,7 +12,7 @@ require (
 	github.com/creack/pty v1.1.24
 	github.com/dustin/go-humanize v1.0.1
 	github.com/evanphx/json-patch v5.9.0+incompatible
-	github.com/getkin/kin-openapi v0.145.0
+	github.com/getkin/kin-openapi v0.149.0
 	github.com/gliderlabs/ssh v0.3.8
 	github.com/go-chi/chi/v5 v5.2.4
 	github.com/go-chi/httprate v0.15.0
@@ -358,7 +358,7 @@ require (
 	github.com/puzpuzpuz/xsync/v3 v3.5.1 // indirect
 	github.com/rs/cors v1.11.1 // indirect
 	github.com/sagikazarmark/locafero v0.11.0 // indirect
-	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3 // indirect
 	github.com/scaleway/scaleway-sdk-go v1.0.0-beta.33 // indirect
 	github.com/segmentio/asm v1.2.0 // indirect
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
