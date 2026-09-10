@@ -195,8 +195,8 @@ prometheus:
 #     # skipTlsVerify: false
 
 # Default OCI write target for generated deltas when an organization has no deltaStorageTarget Repository.
-# Username and password are supplied via DELTA_GENERATION_DEFAULT_REPOSITORY_USERNAME and
-# DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD; they are not written to config.yaml.
+# Username and password are supplied through Podman secrets mounted into the
+# delta-worker Quadlet; they are not written to config.yaml.
 # deltaGeneration:
 #   defaultRepository:
 #     registry: my-registry.com

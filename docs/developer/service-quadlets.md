@@ -130,17 +130,16 @@ A subset of sensitive data is managed through Podman secrets:
 Secret=flightctl-postgresql-master-password,type=env,target=DB_PASSWORD
 ```
 
-Secrets are automatically generated during deployment and injected as environment variables to the running containers.
+Database and key-value secrets are automatically generated during deployment and injected as environment variables to the running containers.
 
-The default OCI repository credentials for delta generation are optional. If a default repository is configured, set the credentials before deployment:
+The default OCI repository credentials for delta generation are optional and user-managed. The deployment does not create or remove these secrets. Create both non-empty Podman secrets yourself when a default repository is configured, for example from protected files:
 
 ```bash
-export DELTA_GENERATION_DEFAULT_REPOSITORY_USERNAME='registry-user'
-export DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD='registry-password'
-make deploy-quadlets
+sudo podman secret create flightctl-delta-generation-default-repository-username /path/to/username
+sudo podman secret create flightctl-delta-generation-default-repository-password /path/to/password
 ```
 
-Because these credentials are optional, they are not included in the vendor-owned delta-worker Quadlet. Add them through a systemd drop-in so deployments without a default repository do not reference missing Podman secrets. Create this file before running `systemctl daemon-reload` or `make deploy-quadlets`:
+Because these credentials are optional, they are not included in the vendor-owned delta-worker Quadlet. Add them through a systemd drop-in so deployments without a default repository do not reference missing Podman secrets:
 
 `/etc/containers/systemd/flightctl-delta-worker.container.d/delta-generation-repository.conf`:
 
@@ -148,6 +147,13 @@ Because these credentials are optional, they are not included in the vendor-owne
 [Container]
 Secret=flightctl-delta-generation-default-repository-username,type=env,target=DELTA_GENERATION_DEFAULT_REPOSITORY_USERNAME
 Secret=flightctl-delta-generation-default-repository-password,type=env,target=DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD
+```
+
+The drop-in may be added before or after deployment. After adding or changing it, run:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart flightctl-delta-worker.service
 ```
 
 ### External Database Configuration

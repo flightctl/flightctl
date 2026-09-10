@@ -28,28 +28,6 @@ ensure_kv_secrets() {
     ensure_secret "flightctl-kv-password" "FLIGHTCTL_KV_PASSWORD"
 }
 
-ensure_delta_generation_secrets() {
-    echo "Ensuring secrets for delta generation default repository"
-    ensure_env_secret "flightctl-delta-generation-default-repository-username" "DELTA_GENERATION_DEFAULT_REPOSITORY_USERNAME"
-    ensure_env_secret "flightctl-delta-generation-default-repository-password" "DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD"
-}
-
-# Ensure a secret exists from an environment variable without generating a value.
-ensure_env_secret() {
-    local secret_name="$1"
-    local env_var_name="$2"
-
-    if sudo podman secret exists "$secret_name"; then
-        return 0
-    fi
-    if [ -z "${!env_var_name}" ]; then
-        echo "Skipping secret $secret_name because $env_var_name is not set"
-        return 0
-    fi
-    echo "Creating secret $secret_name"
-    sudo -E podman secret create --env "$secret_name" "$env_var_name"
-}
-
 # Ensure a specific secret exists
 # Args:
 #   $1: Secret name
