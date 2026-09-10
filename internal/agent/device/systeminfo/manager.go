@@ -35,12 +35,14 @@ type manager struct {
 	readWriter fileio.ReadWriter
 	dataDir    string
 
-	mu                sync.Mutex
-	infoKeys          []string
-	customKeys        []string
-	collectionTimeout time.Duration
-	collectors        map[string]CollectorFn
-	collected         bool
+	mu                 sync.Mutex
+	infoKeys           []string
+	customKeys         []string
+	collectionTimeout  time.Duration
+	collectionInterval time.Duration
+	collectors         map[string]CollectorFn
+	collected          bool
+	cachedSystemInfo   *v1beta1.DeviceSystemInfo
 
 	log *log.PrefixLogger
 }
@@ -53,16 +55,18 @@ func NewManager(
 	infoKeys []string,
 	customKeys []string,
 	collectionTimeout util.Duration,
+	collectionInterval util.Duration,
 ) *manager {
 	return &manager{
-		exec:              exec,
-		readWriter:        readWriter,
-		dataDir:           dataDir,
-		infoKeys:          infoKeys,
-		customKeys:        customKeys,
-		collectionTimeout: time.Duration(collectionTimeout),
-		collectors:        make(map[string]CollectorFn),
-		log:               log,
+		exec:               exec,
+		readWriter:         readWriter,
+		dataDir:            dataDir,
+		infoKeys:           infoKeys,
+		customKeys:         customKeys,
+		collectionTimeout:  time.Duration(collectionTimeout),
+		collectionInterval: time.Duration(collectionInterval),
+		collectors:         make(map[string]CollectorFn),
+		log:                log,
 	}
 }
 
@@ -200,23 +204,35 @@ func (m *manager) BootTime() string {
 	return m.bootTime
 }
 
-func (m *manager) Status(ctx context.Context, deviceStatus *v1beta1.DeviceStatus, opts ...status.CollectorOpt) error {
-	collectorOpts := status.CollectorOpts{}
-	for _, opt := range opts {
-		opt(&collectorOpts)
+// Run starts periodic system info collection in a blocking loop.
+// It performs an initial collection immediately, then collects again
+// at each collectionInterval tick. Stops when ctx is cancelled.
+func (m *manager) Run(ctx context.Context) {
+	m.log.Debugf("Starting systeminfo collection loop (interval=%s)", m.collectionInterval)
+	m.collect(ctx)
+
+	if m.collectionInterval <= 0 {
+		m.log.Debugf("Systeminfo collection complete (single run, no interval)")
+		return
 	}
+
+	ticker := time.NewTicker(m.collectionInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			m.log.Debugf("Systeminfo collection loop stopped")
+			return
+		case <-ticker.C:
+			m.collect(ctx)
+		}
+	}
+}
+
+// collect performs a single collection cycle, storing results in the cache.
+func (m *manager) collect(ctx context.Context) {
 	m.mu.Lock()
-
-	if m.collected && !collectorOpts.Force {
-		m.mu.Unlock()
-		return nil
-	}
-
-	// set collected to true even if there is an error this is to prevent
-	// collecting system info multiple times
-	m.collected = true
-
-	// reduce scope of the mutex
 	timeout := m.collectionTimeout
 	infoKeys := slices.Clone(m.infoKeys)
 	customKeys := slices.Clone(m.customKeys)
@@ -226,6 +242,7 @@ func (m *manager) Status(ctx context.Context, deviceStatus *v1beta1.DeviceStatus
 		collectors[k] = v
 	}
 	dataDir := m.dataDir
+	m.collected = true
 	m.mu.Unlock()
 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
@@ -243,12 +260,28 @@ func (m *manager) Status(ctx context.Context, deviceStatus *v1beta1.DeviceStatus
 		filepath.Join(dataDir, HardwareMapFileName),
 	)
 
-	if err != nil {
-		deviceStatus.SystemInfo = m.defaultSystemInfo()
-		return err
-	}
-	deviceStatus.SystemInfo = systemInfo
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
+	if err != nil {
+		m.log.Warnf("System info collection failed: %v", err)
+		defaultInfo := m.defaultSystemInfo()
+		m.cachedSystemInfo = &defaultInfo
+		return
+	}
+	m.cachedSystemInfo = &systemInfo
+}
+
+func (m *manager) Status(ctx context.Context, deviceStatus *v1beta1.DeviceStatus, opts ...status.CollectorOpt) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.cachedSystemInfo != nil {
+		deviceStatus.SystemInfo = *m.cachedSystemInfo
+		return nil
+	}
+
+	deviceStatus.SystemInfo = m.defaultSystemInfo()
 	return nil
 }
 

@@ -51,6 +51,8 @@ type Manager interface {
 	BootTime() string
 	// RegisterCollector registers a system info collector
 	RegisterCollector(ctx context.Context, key string, fn CollectorFn)
+	// Run starts periodic system info collection. Blocks until ctx is cancelled.
+	Run(ctx context.Context)
 	status.Exporter
 }
 
