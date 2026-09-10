@@ -185,6 +185,119 @@ func generateScriptBytes(sleepms int, output string, exitCode int) []byte {
 	return []byte(content)
 }
 
+func TestCollectDeviceSystemInfoCustomKeysThreeState(t *testing.T) {
+	require := require.New(t)
+
+	scripts := map[string][]byte{
+		"scriptA.sh": generateScriptBytes(0, "valueA", 0),
+		"scriptB.sh": generateScriptBytes(0, "valueB", 0),
+		"scriptC":    generateScriptBytes(0, "valueC", 0),
+	}
+
+	tests := []struct {
+		name           string
+		customKeys     []string
+		expectedKeys   []string
+		unexpectedKeys []string
+		expectNoCustm  bool
+	}{
+		{
+			name:         "When customKeys is nil it should auto-discover all scripts",
+			customKeys:   nil,
+			expectedKeys: []string{"scriptA", "scriptB", "scriptC"},
+		},
+		{
+			name:          "When customKeys is empty it should collect nothing",
+			customKeys:    []string{},
+			expectNoCustm: true,
+		},
+		{
+			name:           "When customKeys has explicit keys it should collect only those keys",
+			customKeys:     []string{"scriptA"},
+			expectedKeys:   []string{"scriptA"},
+			unexpectedKeys: []string{"scriptB", "scriptC"},
+		},
+		{
+			name:         "When customKeys contains wildcard it should auto-discover all scripts",
+			customKeys:   []string{"*"},
+			expectedKeys: []string{"scriptA", "scriptB", "scriptC"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
+
+			err := rw.MkdirAll(config.SystemInfoCustomScriptDir, fileio.DefaultDirectoryPermissions)
+			require.NoError(err)
+
+			// boot_id is always read
+			err = rw.MkdirAll("/proc/sys/kernel/random", 0755)
+			require.NoError(err)
+			err = rw.WriteFile(bootIDPath, []byte("test-boot-id"), 0644)
+			require.NoError(err)
+
+			for name, content := range scripts {
+				err = rw.WriteFile(
+					filepath.Join(config.SystemInfoCustomScriptDir, name),
+					content,
+					fileio.DefaultExecutablePermissions,
+				)
+				require.NoError(err)
+			}
+
+			ctrl := gomock.NewController(t)
+			mockExec := executer.NewMockExecuter(ctrl)
+			log := log.NewPrefixLogger("test")
+
+			// Boot time collection always happens
+			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "uptime", "-s").Return("2024-12-13 11:01:08", "", 0).Times(1)
+			// Custom scripts use ExecuteWithContext(ctx, scriptPath) — allow any
+			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), gomock.Any()).DoAndReturn(
+				func(ctx context.Context, cmd string, args ...string) (string, string, int) {
+					realExec := executer.NewCommonExecuter()
+					return realExec.ExecuteWithContext(ctx, cmd, args...)
+				},
+			).AnyTimes()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			result, err := collectDeviceSystemInfo(
+				ctx, log, mockExec, rw,
+				nil, // infoKeys - not relevant for this test
+				tt.customKeys,
+				"test-boot-id",
+				nil, // collectors
+				"",  // hardwareMapPath
+			)
+			require.NoError(err)
+
+			if tt.expectNoCustm {
+				require.Nil(result.CustomInfo, "expected no custom info")
+				return
+			}
+
+			require.NotNil(result.CustomInfo, "expected custom info to be present")
+			customInfo := map[string]string(*result.CustomInfo)
+
+			for _, key := range tt.expectedKeys {
+				_, exists := customInfo[key]
+				require.True(exists, "expected key %q to be present", key)
+			}
+
+			for _, key := range tt.unexpectedKeys {
+				_, exists := customInfo[key]
+				require.False(exists, "unexpected key %q should not be present", key)
+			}
+		})
+	}
+}
+
 func TestGetCollectionOptsFromInfoKeys(t *testing.T) {
 	tests := []struct {
 		name          string
