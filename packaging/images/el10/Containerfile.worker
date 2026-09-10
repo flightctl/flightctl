@@ -51,7 +51,8 @@ RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
     make build-worker
 
-FROM quay.io/flightctl/flightctl-base:10.1-1769518576
+FROM registry.access.redhat.com/ubi10/ubi-minimal:10.1-1769677092
+RUN microdnf install --nodocs --setopt install_weak_deps=0 -y tzdata && microdnf clean all
 WORKDIR /app
 LABEL \
   com.redhat.component="flightctl-worker-container" \
