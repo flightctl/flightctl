@@ -40,6 +40,7 @@ import (
 	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
 	resourcesyncstore "github.com/flightctl/flightctl/internal/store/resourcesync"
 	syncstatestore "github.com/flightctl/flightctl/internal/store/syncstate"
+	//nolint:depguard // periodic checker uses the template-version store for its scheduled reconciliation.
 	templateversionstore "github.com/flightctl/flightctl/internal/store/templateversion"
 	vulnerabilityfindingstore "github.com/flightctl/flightctl/internal/store/vulnerabilityfinding"
 	"github.com/flightctl/flightctl/internal/tasks"
