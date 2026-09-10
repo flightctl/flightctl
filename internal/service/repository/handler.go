@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/oci"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
+	//nolint:depguard // repository service uses this store to resolve affected devices.
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
 	"github.com/flightctl/flightctl/internal/store/selector"

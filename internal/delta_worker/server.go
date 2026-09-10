@@ -18,11 +18,16 @@ import (
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
 	deltastore "github.com/flightctl/flightctl/internal/store/delta"
+	//nolint:depguard // delta-worker wiring owns its store adapters.
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	//nolint:depguard // delta-worker wiring owns its store adapters.
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
+	//nolint:depguard // delta-worker wiring owns its store adapters.
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
+	//nolint:depguard // delta-worker wiring owns its store adapters.
 	repostore "github.com/flightctl/flightctl/internal/store/repository"
 	"github.com/flightctl/flightctl/internal/store/selector"
+	//nolint:depguard // delta-worker wiring owns its store adapters.
 	tvstore "github.com/flightctl/flightctl/internal/store/templateversion"
 	internaltasks "github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/worker_client"

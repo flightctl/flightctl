@@ -306,12 +306,12 @@ func TestRolloutPolicyGenerateDeltaJSON(t *testing.T) {
 		},
 		{
 			name:      "When generateDelta is false it should unmarshal false",
-			jsonInput: `{"generateDelta":false}`,
+			jsonInput: `{"deltaConfiguration":{"generateDelta":false}}`,
 			want:      lo.ToPtr(false),
 		},
 		{
 			name:      "When generateDelta is true it should unmarshal true",
-			jsonInput: `{"generateDelta":true}`,
+			jsonInput: `{"deltaConfiguration":{"generateDelta":true}}`,
 			want:      lo.ToPtr(true),
 		},
 		{
@@ -321,7 +321,7 @@ func TestRolloutPolicyGenerateDeltaJSON(t *testing.T) {
 		},
 		{
 			name:           "When GenerateDelta is false it should include generateDelta in JSON",
-			marshalSource:  RolloutPolicy{GenerateDelta: lo.ToPtr(false)},
+			marshalSource:  RolloutPolicy{DeltaConfiguration: &DeltaConfiguration{GenerateDelta: lo.ToPtr(false)}},
 			wantMarshalVal: false,
 		},
 	}
@@ -331,7 +331,11 @@ func TestRolloutPolicyGenerateDeltaJSON(t *testing.T) {
 			if tt.jsonInput != "" {
 				var policy RolloutPolicy
 				require.NoError(t, json.Unmarshal([]byte(tt.jsonInput), &policy))
-				assert.Equal(t, tt.want, policy.GenerateDelta)
+				if policy.DeltaConfiguration == nil {
+					assert.Nil(t, tt.want)
+					return
+				}
+				assert.Equal(t, tt.want, policy.DeltaConfiguration.GenerateDelta)
 				return
 			}
 
@@ -369,24 +373,24 @@ func TestRolloutPolicyWaitAndTimeoutJSON(t *testing.T) {
 		},
 		{
 			name:        "When maxWaitForDelta is 0s it should unmarshal zero duration",
-			jsonInput:   `{"maxWaitForDelta":"0s"}`,
+			jsonInput:   `{"deltaConfiguration":{"maxWaitForDelta":"0s"}}`,
 			wantWait:    lo.ToPtr(Duration("0s")),
 			wantTimeout: nil,
 		},
 		{
 			name:        "When both are set it should unmarshal the durations",
-			jsonInput:   `{"maxWaitForDelta":"10m","deltaGenerationTimeout":"30m"}`,
+			jsonInput:   `{"deltaConfiguration":{"maxWaitForDelta":"10m","deltaGenerationTimeout":"30m"}}`,
 			wantWait:    lo.ToPtr(Duration("10m")),
 			wantTimeout: lo.ToPtr(Duration("30m")),
 		},
 		{
 			name:            "When wait and timeout are nil it should omit them from JSON",
 			marshalSource:   RolloutPolicy{},
-			wantMarshalOmit: []string{`"maxWaitForDelta"`, `"deltaGenerationTimeout"`},
+			wantMarshalOmit: []string{`"deltaConfiguration"`, `"maxWaitForDelta"`, `"deltaGenerationTimeout"`},
 		},
 		{
 			name:            "When MaxWaitForDelta is 0s it should include maxWaitForDelta in JSON",
-			marshalSource:   RolloutPolicy{MaxWaitForDelta: lo.ToPtr(Duration("0s"))},
+			marshalSource:   RolloutPolicy{DeltaConfiguration: &DeltaConfiguration{MaxWaitForDelta: lo.ToPtr(Duration("0s"))}},
 			wantMarshalWait: "0s",
 		},
 	}
@@ -396,8 +400,13 @@ func TestRolloutPolicyWaitAndTimeoutJSON(t *testing.T) {
 			if tt.jsonInput != "" {
 				var policy RolloutPolicy
 				require.NoError(t, json.Unmarshal([]byte(tt.jsonInput), &policy))
-				assert.Equal(t, tt.wantWait, policy.MaxWaitForDelta)
-				assert.Equal(t, tt.wantTimeout, policy.DeltaGenerationTimeout)
+				if policy.DeltaConfiguration == nil {
+					assert.Nil(t, tt.wantWait)
+					assert.Nil(t, tt.wantTimeout)
+					return
+				}
+				assert.Equal(t, tt.wantWait, policy.DeltaConfiguration.MaxWaitForDelta)
+				assert.Equal(t, tt.wantTimeout, policy.DeltaConfiguration.DeltaGenerationTimeout)
 				return
 			}
 

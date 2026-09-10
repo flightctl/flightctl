@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	//nolint:depguard // delta-worker status persistence owns this store adapter.
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/google/uuid"
 )

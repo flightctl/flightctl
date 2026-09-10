@@ -470,10 +470,10 @@ func durationPayload(d time.Duration) string {
 }
 
 func maxWaitFromFleet(fleet *domain.Fleet, deploy *time.Duration) (*time.Duration, error) {
-	if fleet == nil || fleet.Spec.RolloutPolicy == nil || fleet.Spec.RolloutPolicy.MaxWaitForDelta == nil {
+	if fleet == nil || fleet.Spec.RolloutPolicy == nil || fleet.Spec.RolloutPolicy.DeltaConfiguration == nil || fleet.Spec.RolloutPolicy.DeltaConfiguration.MaxWaitForDelta == nil {
 		return deploy, nil
 	}
-	d, err := time.ParseDuration(*fleet.Spec.RolloutPolicy.MaxWaitForDelta)
+	d, err := time.ParseDuration(*fleet.Spec.RolloutPolicy.DeltaConfiguration.MaxWaitForDelta)
 	if err != nil {
 		return nil, fmt.Errorf("rolloutPolicy.maxWaitForDelta: %w", err)
 	}
@@ -481,10 +481,10 @@ func maxWaitFromFleet(fleet *domain.Fleet, deploy *time.Duration) (*time.Duratio
 }
 
 func jobTimeoutFromFleet(fleet *domain.Fleet, deploy time.Duration) (time.Duration, error) {
-	if fleet == nil || fleet.Spec.RolloutPolicy == nil || fleet.Spec.RolloutPolicy.DeltaGenerationTimeout == nil {
+	if fleet == nil || fleet.Spec.RolloutPolicy == nil || fleet.Spec.RolloutPolicy.DeltaConfiguration == nil || fleet.Spec.RolloutPolicy.DeltaConfiguration.DeltaGenerationTimeout == nil {
 		return deploy, nil
 	}
-	d, err := time.ParseDuration(*fleet.Spec.RolloutPolicy.DeltaGenerationTimeout)
+	d, err := time.ParseDuration(*fleet.Spec.RolloutPolicy.DeltaConfiguration.DeltaGenerationTimeout)
 	if err != nil {
 		return 0, fmt.Errorf("rolloutPolicy.deltaGenerationTimeout: %w", err)
 	}

@@ -1216,6 +1216,18 @@ type CronExpression = string
 // CustomDeviceInfo User-defined information about the device.
 type CustomDeviceInfo map[string]string
 
+// DeltaConfiguration Delta generation configuration for a fleet rollout.
+type DeltaConfiguration struct {
+	// DeltaGenerationTimeout Context deadline for each generation job. Omitted uses DeltaGeneration.timeout.
+	DeltaGenerationTimeout *Duration `json:"deltaGenerationTimeout,omitempty"`
+
+	// GenerateDelta When false, skip control-plane OS delta generation for this fleet. Omitted means true.
+	GenerateDelta *bool `json:"generateDelta,omitempty"`
+
+	// MaxWaitForDelta How long a prepare may wait before periodic resume. Omitted uses DeltaGeneration.maxWaitForDelta. Ignored when generateDelta is false. 0s still generates then resumes immediately.
+	MaxWaitForDelta *Duration `json:"maxWaitForDelta,omitempty"`
+}
+
 // DeltaGenerationPhase Current step of control-plane delta generation for the in-flight pair.
 type DeltaGenerationPhase string
 
@@ -3223,20 +3235,14 @@ type RolloutPolicy struct {
 	// DefaultUpdateTimeout The maximum duration allowed for the action to complete. The duration should be specified as a positive integer followed by a time unit. Supported time units are: `s` for seconds, `m` for minutes, `h` for hours.
 	DefaultUpdateTimeout *Duration `json:"defaultUpdateTimeout,omitempty"`
 
-	// DeltaGenerationTimeout Context deadline for each generation job. Omitted uses DeltaGeneration.timeout.
-	DeltaGenerationTimeout *Duration `json:"deltaGenerationTimeout,omitempty"`
+	// DeltaConfiguration Delta generation configuration for a fleet rollout.
+	DeltaConfiguration *DeltaConfiguration `json:"deltaConfiguration,omitempty"`
 
 	// DeviceSelection Describes how to select devices for rollout.
 	DeviceSelection *RolloutDeviceSelection `json:"deviceSelection,omitempty"`
 
 	// DisruptionBudget DisruptionBudget defines the level of allowed disruption when rollout is in progress.
 	DisruptionBudget *DisruptionBudget `json:"disruptionBudget,omitempty"`
-
-	// GenerateDelta When false, skip control-plane OS delta generation for this fleet. Omitted means true.
-	GenerateDelta *bool `json:"generateDelta,omitempty"`
-
-	// MaxWaitForDelta How long a prepare may wait before periodic resume. Omitted uses DeltaGeneration.maxWaitForDelta. Ignored when generateDelta is false. 0s still generates then resumes immediately.
-	MaxWaitForDelta *Duration `json:"maxWaitForDelta,omitempty"`
 
 	// SuccessThreshold Percentage is the string format representing percentage string.
 	SuccessThreshold *Percentage `json:"successThreshold,omitempty"`
