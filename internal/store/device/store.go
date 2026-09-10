@@ -125,6 +125,14 @@ type DeviceRendered struct {
 	Config       string
 	Applications string
 	OsImage      string
+	OsDeltaImage *string
+}
+
+func renderedOsSpec(rendered *DeviceRendered) domain.DeviceOsSpec {
+	if rendered == nil {
+		return domain.DeviceOsSpec{}
+	}
+	return domain.DeviceOsSpec{Image: rendered.OsImage, DeltaImage: rendered.OsDeltaImage}
 }
 
 // DeviceMutation is the unit apply mutates. Handlers decide all field changes.
@@ -706,7 +714,7 @@ func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, device *domai
 			apps = "[]"
 		}
 		deviceModel.RenderedApplications = model.MakeJSONField(json.RawMessage(apps))
-		deviceModel.RenderedOs = model.MakeJSONField(domain.DeviceOsSpec{Image: rendered.OsImage})
+		deviceModel.RenderedOs = model.MakeJSONField(renderedOsSpec(rendered))
 		deviceModel.RenderTimestamp = time.Now()
 	}
 
@@ -767,7 +775,7 @@ func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, before, devic
 		}
 		updates["rendered_config"] = &cfg
 		updates["rendered_applications"] = &apps
-		updates["rendered_os"] = model.MakeJSONField(domain.DeviceOsSpec{Image: rendered.OsImage})
+		updates["rendered_os"] = model.MakeJSONField(renderedOsSpec(rendered))
 		updates["render_timestamp"] = time.Now()
 	}
 
