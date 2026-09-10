@@ -770,9 +770,12 @@ setting "RLIMIT_NOFILE" limit to soft=1048576,hard=1048576
 1048576. This fails when the host's hard limit is lower (for example, 524288, which is the
 OpenShift default) and the container runtime does not grant `CAP_SYS_RESOURCE` to raise it.
 
-**Solution**: The ImageBuilder Worker sets `--ulimit nofile=1048576:1048576` on the nested
-podman worker container, relying on the privileged pod's `CAP_SYS_RESOURCE` capability.
-If you still encounter this error, the host itself must be configured to allow the higher limit.
+**Solution**: The ImageBuilder Worker reads its own current `RLIMIT_NOFILE` (soft and hard) at
+startup and passes it through to the nested podman worker container via
+`--ulimit nofile=<soft>:<hard>`, instead of hardcoding `1048576:1048576`. The nested container
+can therefore never end up with a higher limit than the worker process itself was granted, so
+raising the limit for builds is a matter of raising the **worker process's own**
+file-descriptor limit, as described below for each deployment type.
 
 On OpenShift, apply the following `MachineConfig` to the worker nodes:
 
@@ -803,13 +806,20 @@ processes on the node, including container runtimes.
 > `DefaultLimitNOFILE` is a system-wide default that applies to every service started by systemd
 > that does not have its own `LimitNOFILE=` directive in its unit file.
 
-On a Podman Quadlet (Linux host), use a systemd drop-in to raise the limit only for
-`flightctl-imagebuilder-worker.service`, without affecting any other service on the host:
+On a Podman Quadlet (Linux host), the shipped `flightctl-imagebuilder-worker.container` unit
+already requests `nofile=1048576:1048576` for itself (both `Ulimit=` under `[Container]` and
+`LimitNOFILE=` under `[Service]`), so no action is needed by default. If you need a different
+value — for example, to go higher than 1048576, or because your host's own limit is lower and
+podman fails to even start the worker container — override it with a drop-in rather than
+editing the vendored unit file (edits there are lost on upgrade):
 
 ```ini
-# /etc/systemd/system/flightctl-imagebuilder-worker.service.d/limits.conf
+# /etc/containers/systemd/flightctl-imagebuilder-worker.container.d/limits.conf
+[Container]
+Ulimit=nofile=<soft>:<hard>
+
 [Service]
-LimitNOFILE=1048576:1048576
+LimitNOFILE=<hard>
 ```
 
 Then reload and restart the service:
@@ -825,4 +835,17 @@ Verify the running service has the new limit:
 systemctl show flightctl-imagebuilder-worker.service | grep LimitNOFILE
 ```
 
-The output should show `LimitNOFILE=1048576` and `LimitNOFILESoft=1048576`.
+The output should show `LimitNOFILE=<hard>` and `LimitNOFILESoft=<soft>`.
+
+### File Descriptor Limits
+
+The ImageBuilder Worker never requests a higher `RLIMIT_NOFILE` for the nested build container
+than it was itself granted at startup, so raising the limit for builds means raising the
+**worker process's own** limit:
+
+- **Podman Quadlet**: set via `Ulimit=`/`LimitNOFILE=` in the `flightctl-imagebuilder-worker.container`
+  unit (`1048576:1048576` by default as of this release). Override with a drop-in as shown above.
+- **Kubernetes / OpenShift**: pod-level ulimits are not configurable through the Helm chart —
+  Kubernetes has no per-pod ulimit field. The limit comes entirely from the node/container
+  runtime defaults, and can only be raised at the node level, for example via the `MachineConfig`
+  shown above on OpenShift.

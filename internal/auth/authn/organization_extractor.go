@@ -89,12 +89,22 @@ func (e *OrganizationExtractor) extractDynamicOrganizations(assignment *api.Auth
 		return organizations
 	}
 
+	// Identity providers commonly derive the organization claim from a multi-valued
+	// source (e.g. Entra ID app roles named "<org>.<role>"), which yields one entry per
+	// source value and therefore repeats an organization for every role the user holds
+	// in it. Organization membership is a set, so collapse duplicates while preserving
+	// first-seen order. Matches the PAM provider's extractOrganizations.
+	seen := make(map[string]struct{}, len(orgArray))
 	for _, item := range orgArray {
 		orgStr, ok := item.(string)
 		if !ok || orgStr == "" {
 			continue
 		}
 		orgName := e.applyPrefixSuffix(orgStr, dynamicAssignment.OrganizationNamePrefix, dynamicAssignment.OrganizationNameSuffix)
+		if _, duplicate := seen[orgName]; duplicate {
+			continue
+		}
+		seen[orgName] = struct{}{}
 		organizations = append(organizations, orgName)
 	}
 

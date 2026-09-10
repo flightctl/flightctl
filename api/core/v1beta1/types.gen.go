@@ -1827,6 +1827,9 @@ type EnrollmentRequestSpec struct {
 
 	// OsMode OS management mode. "image" indicates the OS is managed via bootc or rpm-ostree image updates. "package" indicates no image-based OS management is available.
 	OsMode *OsModeType `json:"osMode,omitempty"`
+
+	// PreEnrollment Result of pre-enrollment hook execution, agent-populated.
+	PreEnrollment *PreEnrollmentResult `json:"preEnrollment,omitempty"`
 }
 
 // EnrollmentRequestStatus EnrollmentRequestStatus represents information about the status of a EnrollmentRequest.
@@ -2856,6 +2859,27 @@ type PermissionList struct {
 	Permissions []Permission `json:"permissions"`
 }
 
+// PreEnrollmentActionResult Result of a single executed pre-enrollment hook action, agent-populated.
+type PreEnrollmentActionResult struct {
+	// ExitCode Process exit code from the hook action.
+	ExitCode int `json:"exitCode"`
+
+	// Output Redacted stdout/stderr from this action. The total size across all actions is capped at 4KiB. Secret patterns (PEM blocks, Bearer prefixes, known token env names) are redacted before persistence.
+	Output *string `json:"output,omitempty"`
+
+	// Source Path to the hook definition YAML that contained this action (for example /etc/flightctl/hooks.d/beforeenrolling/10-network.yaml).
+	Source string `json:"source"`
+}
+
+// PreEnrollmentResult Result of pre-enrollment hook execution, agent-populated.
+type PreEnrollmentResult struct {
+	// Actions Per-action results in execution order.
+	Actions *[]PreEnrollmentActionResult `json:"actions,omitempty"`
+
+	// Success Whether all pre-enrollment hooks completed with exit code 0.
+	Success bool `json:"success"`
+}
+
 // PrepareDeltasDetails Structured details for PrepareDeltas events.
 type PrepareDeltasDetails struct {
 	// DetailType The type of detail for discriminator purposes.
@@ -3125,6 +3149,9 @@ type RolloutPolicy struct {
 
 	// DisruptionBudget DisruptionBudget defines the level of allowed disruption when rollout is in progress.
 	DisruptionBudget *DisruptionBudget `json:"disruptionBudget,omitempty"`
+
+	// GenerateDelta When false, skip control-plane OS delta generation for this fleet. Omitted means true.
+	GenerateDelta *bool `json:"generateDelta,omitempty"`
 
 	// SuccessThreshold Percentage is the string format representing percentage string.
 	SuccessThreshold *Percentage `json:"successThreshold,omitempty"`

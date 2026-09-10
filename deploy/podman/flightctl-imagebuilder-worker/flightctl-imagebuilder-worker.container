@@ -39,10 +39,17 @@ Volume=flightctl-worker-storage:/var/lib/containers
 #   Volume=/etc/flightctl/service-images-auth.json:/root/.config/containers/auth.json:ro,z
 PodmanArgs=--privileged
 
+# Sets this container's own RLIMIT_NOFILE, which the imagebuilder-worker process then
+# forwards to the nested podman build container (see "File Descriptor Limits" in
+# configuring-imagebuilder.md). 1048576 matches what buildah expects when raising its
+# own nofile limit during builds.
+Ulimit=nofile=1048576:1048576
+
 [Service]
 Restart=always
 RestartSec=30
 Delegate=yes
+LimitNOFILE=1048576
 
 ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-imagebuilder-worker/config.yaml.template --output-file /etc/flightctl/flightctl-imagebuilder-worker/config.yaml
 

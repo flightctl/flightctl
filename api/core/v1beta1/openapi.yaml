@@ -7042,6 +7042,8 @@ components:
           description: 'The rendered version of the device from desired.json (optional).'
         osMode:
           $ref: '#/components/schemas/OsModeType'
+        preEnrollment:
+          $ref: '#/components/schemas/PreEnrollmentResult'
       description: EnrollmentRequestSpec is a description of a EnrollmentRequest's target state.
     EnrollmentRequestStatus:
       type: object
@@ -7059,6 +7061,43 @@ components:
       required:
         - conditions
       description: EnrollmentRequestStatus represents information about the status of a EnrollmentRequest.
+
+    PreEnrollmentActionResult:
+      type: object
+      description: Result of a single executed pre-enrollment hook action, agent-populated.
+      required:
+        - source
+        - exitCode
+      properties:
+        source:
+          type: string
+          description: >-
+            Path to the hook definition YAML that contained this action (for
+            example /etc/flightctl/hooks.d/beforeenrolling/10-network.yaml).
+        exitCode:
+          type: integer
+          description: Process exit code from the hook action.
+        output:
+          type: string
+          description: >-
+            Redacted stdout/stderr from this action. The total size across all
+            actions is capped at 4KiB. Secret patterns (PEM blocks, Bearer
+            prefixes, known token env names) are redacted before persistence.
+
+    PreEnrollmentResult:
+      type: object
+      description: Result of pre-enrollment hook execution, agent-populated.
+      required:
+        - success
+      properties:
+        success:
+          type: boolean
+          description: Whether all pre-enrollment hooks completed with exit code 0.
+        actions:
+          type: array
+          description: Per-action results in execution order.
+          items:
+            $ref: '#/components/schemas/PreEnrollmentActionResult'
 
     ResourceSync:
       type: object
@@ -7291,6 +7330,9 @@ components:
           $ref: '#/components/schemas/Percentage'
         defaultUpdateTimeout:
           $ref: '#/components/schemas/Duration'
+        generateDelta:
+          type: boolean
+          description: When false, skip control-plane OS delta generation for this fleet. Omitted means true.
       description: RolloutPolicy is the rollout policy of the fleet.
 
     FleetSpec:

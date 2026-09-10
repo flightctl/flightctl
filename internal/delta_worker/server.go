@@ -4,7 +4,9 @@ import (
 	"context"
 
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/delta_worker/tasks"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
+	deltastore "github.com/flightctl/flightctl/internal/store/delta"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/sirupsen/logrus"
 )
@@ -14,22 +16,23 @@ type Server struct {
 	cfg            *config.Config
 	log            logrus.FieldLogger
 	queuesProvider queues.Provider
+	store          deltastore.Store
 	workerMetrics  *worker.WorkerCollector
 }
 
 // New constructs a delta-generation worker server.
-func New(cfg *config.Config, log logrus.FieldLogger, queuesProvider queues.Provider, workerMetrics *worker.WorkerCollector) *Server {
+func New(cfg *config.Config, log logrus.FieldLogger, queuesProvider queues.Provider, store deltastore.Store, workerMetrics *worker.WorkerCollector) *Server {
 	return &Server{
 		cfg:            cfg,
 		log:            log,
 		queuesProvider: queuesProvider,
+		store:          store,
 		workerMetrics:  workerMetrics,
 	}
 }
 
-// Run starts queue consumers and blocks until the provider shuts down.
 func (s *Server) Run(ctx context.Context) error {
-	if err := LaunchConsumers(ctx, s.queuesProvider, s.cfg, s.workerMetrics, s.log); err != nil {
+	if err := tasks.LaunchConsumers(ctx, s.queuesProvider, s.cfg, s.store, s.workerMetrics, s.log); err != nil {
 		s.log.WithError(err).Error("failed to launch delta-generation consumers")
 		return err
 	}
