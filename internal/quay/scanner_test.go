@@ -19,7 +19,7 @@ import (
 // newTestScanner builds a Quay scanner against endpoint with the given
 // concurrency limit and a debug-level captured logger. It lowers the client's
 // retry backoff so retry-driven paths (5xx exhaustion, timeouts) stay fast.
-func newTestScanner(t *testing.T, endpoint string, maxConcurrent int) (*quayScanner, *logtest.Hook) {
+func newTestScanner(t *testing.T, endpoint string, maxConcurrent int, httpClients ...*http.Client) (*quayScanner, *logtest.Hook) {
 	t.Helper()
 	logger, hook := logtest.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
@@ -28,6 +28,9 @@ func newTestScanner(t *testing.T, endpoint string, maxConcurrent int) (*quayScan
 	require.NoError(t, err)
 	require.NotNil(t, s)
 	qs := s.(*quayScanner)
+	if len(httpClients) > 0 {
+		qs.client.httpClient = httpClients[0]
+	}
 	qs.client.backoffBase = time.Millisecond
 	return qs, hook
 }
@@ -425,6 +428,7 @@ func TestScanImages_Success(t *testing.T) {
 	s, err := NewScanner(&config.QuayConfig{Endpoint: srv.URL, Token: "test-token"}, nil)
 	require.NoError(t, err)
 	require.NotNil(t, s)
+	s.(*quayScanner).client.httpClient = srv.Client()
 
 	out, err := s.ScanImages(context.Background(), []vulnerability.ImageRef{
 		{Digest: "sha256:abc", Image: hostOf(srv) + "/testorg/testrepo:latest"},
@@ -442,6 +446,7 @@ func TestScanImages_SkipsImagesOnOtherRegistries(t *testing.T) {
 	srv := newMockQuayServer(t, &mockQuayServer{response: scannedResponse()})
 	s, err := NewScanner(&config.QuayConfig{Endpoint: srv.URL, Token: "test-token"}, nil)
 	require.NoError(t, err)
+	s.(*quayScanner).client.httpClient = srv.Client()
 
 	out, err := s.ScanImages(context.Background(), []vulnerability.ImageRef{
 		{Digest: "sha256:other", Image: "docker.io/library/nginx:latest"},
@@ -454,6 +459,7 @@ func TestScanImages_MultipleImages(t *testing.T) {
 	srv := newMockQuayServer(t, &mockQuayServer{response: scannedResponse()})
 	s, err := NewScanner(&config.QuayConfig{Endpoint: srv.URL, Token: "test-token"}, nil)
 	require.NoError(t, err)
+	s.(*quayScanner).client.httpClient = srv.Client()
 
 	out, err := s.ScanImages(context.Background(), []vulnerability.ImageRef{
 		{Digest: "sha256:a", Image: hostOf(srv) + "/org/a:latest"},
@@ -468,7 +474,7 @@ func TestScanImages_AllFail(t *testing.T) {
 	// A malformed 200 body makes every image's decode fail. When all images
 	// fail, ScanImages returns a top-level error and no partial map.
 	srv := newMockQuayServer(t, &mockQuayServer{rawBody: "{not json"})
-	s, _ := newTestScanner(t, srv.URL, 5)
+	s, _ := newTestScanner(t, srv.URL, 5, srv.Client())
 
 	out, err := s.ScanImages(context.Background(), []vulnerability.ImageRef{
 		{Digest: "sha256:a", Image: hostOf(srv) + "/org/a:latest"},
@@ -488,7 +494,7 @@ func TestScanImages_MixedIsolation(t *testing.T) {
 		response:     scannedResponse(),
 		statusByPath: []statusRule{{fragment: "org/bad", code: http.StatusInternalServerError}},
 	})
-	s, hook := newTestScanner(t, srv.URL, 5)
+	s, hook := newTestScanner(t, srv.URL, 5, srv.Client())
 
 	out, err := s.ScanImages(context.Background(), []vulnerability.ImageRef{
 		{Digest: "sha256:good", Image: hostOf(srv) + "/org/good:latest"},
@@ -508,7 +514,7 @@ func TestScanImages_TimeoutIsolation(t *testing.T) {
 		response:    scannedResponse(),
 		delayByPath: map[string]time.Duration{"org/slow": 500 * time.Millisecond},
 	})
-	s, _ := newTestScanner(t, srv.URL, 5)
+	s, _ := newTestScanner(t, srv.URL, 5, srv.Client())
 	s.client.httpClient.Timeout = 60 * time.Millisecond
 
 	out, err := s.ScanImages(context.Background(), []vulnerability.ImageRef{
@@ -523,7 +529,7 @@ func TestScanImages_TimeoutIsolation(t *testing.T) {
 func TestScanImages_Unauthorized(t *testing.T) {
 	// A 401 on any image is terminal: ScanImages returns ErrQuayAuth and no map.
 	srv := newMockQuayServer(t, &mockQuayServer{httpStatus: http.StatusUnauthorized})
-	s, hook := newTestScanner(t, srv.URL, 1)
+	s, hook := newTestScanner(t, srv.URL, 1, srv.Client())
 
 	out, err := s.ScanImages(context.Background(), []vulnerability.ImageRef{
 		{Digest: "sha256:a", Image: hostOf(srv) + "/org/a:latest"},
@@ -541,7 +547,7 @@ func TestScanImages_Forbidden(t *testing.T) {
 		response:     scannedResponse(),
 		statusByPath: []statusRule{{fragment: "org/denied", code: http.StatusForbidden}},
 	})
-	s, hook := newTestScanner(t, srv.URL, 5)
+	s, hook := newTestScanner(t, srv.URL, 5, srv.Client())
 
 	out, err := s.ScanImages(context.Background(), []vulnerability.ImageRef{
 		{Digest: "sha256:ok", Image: hostOf(srv) + "/org/ok:latest"},
@@ -559,7 +565,7 @@ func TestScanImages_BoundedConcurrency(t *testing.T) {
 	const limit = 3
 	mock := &mockQuayServer{response: scannedResponse(), delay: 40 * time.Millisecond}
 	srv := newMockQuayServer(t, mock)
-	s, _ := newTestScanner(t, srv.URL, limit)
+	s, _ := newTestScanner(t, srv.URL, limit, srv.Client())
 
 	var images []vulnerability.ImageRef
 	for i := 0; i < 9; i++ {
@@ -583,7 +589,7 @@ func TestScanImages_SyncSummaryCounts(t *testing.T) {
 		response:     scannedResponse(),
 		statusByPath: []statusRule{{fragment: "org/missing", code: http.StatusNotFound}},
 	})
-	s, hook := newTestScanner(t, srv.URL, 5)
+	s, hook := newTestScanner(t, srv.URL, 5, srv.Client())
 
 	out, err := s.ScanImages(context.Background(), []vulnerability.ImageRef{
 		{Digest: "sha256:ok", Image: hostOf(srv) + "/org/ok:latest"},
@@ -611,7 +617,7 @@ func TestScanImages_SyncSummaryCounts(t *testing.T) {
 
 func TestScanImages_ScanCompletedEvent(t *testing.T) {
 	srv := newMockQuayServer(t, &mockQuayServer{response: scannedResponse()})
-	s, hook := newTestScanner(t, srv.URL, 5)
+	s, hook := newTestScanner(t, srv.URL, 5, srv.Client())
 
 	_, err := s.ScanImages(context.Background(), []vulnerability.ImageRef{
 		{Digest: "sha256:abc", Image: hostOf(srv) + "/org/repo:latest"},
@@ -634,7 +640,7 @@ func TestScanImages_ParentContextCancelled(t *testing.T) {
 	// A cancelled parent context must surface as an error, never as a partial map
 	// the caller would mistake for a complete scan (design §4.6 ctx.Done respect).
 	srv := newMockQuayServer(t, &mockQuayServer{response: scannedResponse()})
-	s, _ := newTestScanner(t, srv.URL, 2)
+	s, _ := newTestScanner(t, srv.URL, 2, srv.Client())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -662,6 +668,7 @@ func TestScanImages_ScannedWithNoFindingsOmitsDigest(t *testing.T) {
 	srv := newMockQuayServer(t, &mockQuayServer{response: resp})
 	s, err := NewScanner(&config.QuayConfig{Endpoint: srv.URL, Token: "test-token"}, nil)
 	require.NoError(t, err)
+	s.(*quayScanner).client.httpClient = srv.Client()
 
 	out, err := s.ScanImages(context.Background(), []vulnerability.ImageRef{
 		{Digest: "sha256:empty", Image: hostOf(srv) + "/org/repo:latest"},

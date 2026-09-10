@@ -96,7 +96,7 @@ type Client struct {
 // NewClient builds a Quay Security API client from the Quay backend config.
 // It returns (nil, nil) when cfg is nil, so a caller can treat an absent Quay
 // configuration as a disabled backend. It returns an error when the configured
-// endpoint has no parseable host. The httpClient parameter allows injection of
+// endpoint has no parseable host or is not HTTPS. The httpClient parameter allows injection of
 // custom TLS config (e.g., custom CA, InsecureSkipVerify); when nil, a default
 // client with a 30s timeout is used.
 func NewClient(cfg *config.QuayConfig, log logrus.FieldLogger, httpClient *http.Client) (*Client, error) {
@@ -126,12 +126,22 @@ func NewClient(cfg *config.QuayConfig, log logrus.FieldLogger, httpClient *http.
 // FetchImageSecurity retrieves the Quay Security report for one deployed image.
 //
 // It returns a scanned report when the image is hosted on the configured
-// registry and Quay reports status "scanned". It returns a no-report result
-// (with a classified Outcome) when the image is skipped for a documented reason
-// (missing reference, non-matching registry, non-"scanned" status, 404, 403).
-// It returns ErrQuayAuth on HTTP 401 and a wrapped error on any genuine failure
-// to reach Quay (after retries) or decode a successful response.
-func (c *Client) FetchImageSecurity(ctx context.Context, image vulnerability.ImageRef) (fetchResult, error) {
+// registry and Quay reports status "scanned". It returns nil when the image is
+// skipped for a documented reason (missing reference, non-matching registry,
+// non-"scanned" status, 404, 403). It returns ErrQuayAuth on HTTP 401 and a
+// wrapped error on any genuine failure to reach Quay (after retries) or decode
+// a successful response.
+func (c *Client) FetchImageSecurity(ctx context.Context, image vulnerability.ImageRef) (*Response, error) {
+	result, err := c.fetchImageSecurity(ctx, image)
+	if err != nil {
+		return nil, err
+	}
+	return result.Report, nil
+}
+
+// fetchImageSecurity retrieves a report and the internal metadata used by the
+// scanner to aggregate per-image outcomes and retry counts.
+func (c *Client) fetchImageSecurity(ctx context.Context, image vulnerability.ImageRef) (fetchResult, error) {
 	if image.Image == "" {
 		c.logSkip(logrus.Fields{"digest": image.Digest, "reason": reasonMissingImageReference})
 		return fetchResult{Outcome: outcomeSkippedRegistry}, nil
@@ -308,11 +318,11 @@ func isTimeout(err error) bool {
 	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
-// parseEndpoint normalizes a configured endpoint URL into a base URL (used to
-// build request URLs) and its normalized hostname (used to filter images by
-// registry). The hostname is lowercased and default ports (443 for https, 80
-// for http) are stripped to match the normalization applied by reference.Domain
-// on image references. A scheme is assumed to be HTTPS when omitted.
+// parseEndpoint normalizes a configured HTTPS endpoint URL into a base URL (used
+// to build request URLs) and its normalized hostname (used to filter images by
+// registry). The hostname is lowercased and the default HTTPS port is stripped
+// to match the normalization applied by reference.Domain. A scheme is assumed
+// to be HTTPS when omitted.
 func parseEndpoint(endpoint string) (base, host string, err error) {
 	e := strings.TrimSpace(endpoint)
 	if e == "" {
@@ -328,9 +338,13 @@ func parseEndpoint(endpoint string) (base, host string, err error) {
 	if u.Host == "" {
 		return "", "", fmt.Errorf("quay endpoint %q has no host", endpoint)
 	}
-	base = strings.TrimRight(u.Scheme+"://"+u.Host+u.Path, "/")
+	if !strings.EqualFold(u.Scheme, "https") {
+		return "", "", fmt.Errorf("quay endpoint %q must use HTTPS", endpoint)
+	}
+	scheme := strings.ToLower(u.Scheme)
+	base = strings.TrimRight(scheme+"://"+u.Host+u.Path, "/")
 	// url.URL already splits host and port correctly (including IPv6 literals).
-	host = normalizeHost(u.Hostname(), u.Port(), u.Scheme)
+	host = normalizeHost(u.Hostname(), u.Port(), scheme)
 	return base, host, nil
 }
 

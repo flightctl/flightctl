@@ -51,7 +51,7 @@ type mockQuayServer struct {
 
 func newMockQuayServer(t *testing.T, m *mockQuayServer) *httptest.Server {
 	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		m.mu.Lock()
 		idx := m.requestCount
 		m.requestCount++
@@ -182,14 +182,18 @@ func (m *mockQuayServer) query() string {
 // hostOf returns the "host:port" of a test server URL (scheme stripped),
 // suitable for constructing an image reference on that registry.
 func hostOf(srv *httptest.Server) string {
-	return strings.TrimPrefix(srv.URL, "http://")
+	return strings.TrimPrefix(strings.TrimPrefix(srv.URL, "https://"), "http://")
 }
 
-func newTestClient(t *testing.T, endpoint string) (*Client, *test.Hook) {
+func newTestClient(t *testing.T, endpoint string, httpClients ...*http.Client) (*Client, *test.Hook) {
 	t.Helper()
 	logger, hook := test.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
-	c, err := NewClient(&config.QuayConfig{Endpoint: endpoint, Token: "test-token"}, logger, nil)
+	var httpClient *http.Client
+	if len(httpClients) > 0 {
+		httpClient = httpClients[0]
+	}
+	c, err := NewClient(&config.QuayConfig{Endpoint: endpoint, Token: "test-token"}, logger, httpClient)
 	require.NoError(t, err)
 	require.NotNil(t, c)
 	c.backoffBase = time.Millisecond // keep retry tests fast
@@ -222,6 +226,20 @@ func TestNewClient_EmptyEndpoint(t *testing.T) {
 	require.Nil(t, c)
 }
 
+func TestNewClient_RejectsHTTPBeforeRequest(t *testing.T) {
+	requestCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		requestCount++
+	}))
+	t.Cleanup(srv.Close)
+
+	logger, _ := test.NewNullLogger()
+	c, err := NewClient(&config.QuayConfig{Endpoint: srv.URL, Token: "t"}, logger, srv.Client())
+	require.ErrorContains(t, err, "must use HTTPS")
+	require.Nil(t, c)
+	require.Zero(t, requestCount, "an insecure endpoint must be rejected before any request")
+}
+
 func TestParseEndpoint(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -232,10 +250,10 @@ func TestParseEndpoint(t *testing.T) {
 	}{
 		{"https with trailing slash", "https://quay.io/", "https://quay.io", "quay.io", false},
 		{"schemeless normalized to https", "quay.io", "https://quay.io", "quay.io", false},
-		{"http with non-default port preserved", "http://127.0.0.1:8080", "http://127.0.0.1:8080", "127.0.0.1:8080", false},
+		{"http endpoint rejected", "http://127.0.0.1:8080", "", "", true},
 		{"mixed case lowercased", "https://Quay.IO", "https://Quay.IO", "quay.io", false},
 		{"explicit default https port stripped", "https://quay.io:443", "https://quay.io:443", "quay.io", false},
-		{"explicit default http port stripped", "http://quay.io:80", "http://quay.io:80", "quay.io", false},
+		{"explicit http port rejected", "http://quay.io:80", "", "", true},
 		{"ipv6 literal with non-default port preserved", "https://[2001:db8::1]:5000", "https://[2001:db8::1]:5000", "[2001:db8::1]:5000", false},
 		{"ipv6 literal with default https port stripped", "https://[2001:db8::1]:443", "https://[2001:db8::1]:443", "2001:db8::1", false},
 		{"empty is an error", "", "", "", true},
@@ -302,13 +320,13 @@ func TestFetchImageSecurity_Success(t *testing.T) {
 		},
 	}
 	srv := newMockQuayServer(t, mock)
-	c, _ := newTestClient(t, srv.URL)
+	c, _ := newTestClient(t, srv.URL, srv.Client())
 
 	image := vulnerability.ImageRef{
 		Digest: "sha256:abc123",
 		Image:  hostOf(srv) + "/testorg/testrepo:latest",
 	}
-	res, err := c.FetchImageSecurity(context.Background(), image)
+	res, err := c.fetchImageSecurity(context.Background(), image)
 	require.NoError(t, err)
 	require.Equal(t, outcomeScanned, res.Outcome)
 	require.NotNil(t, res.Report)
@@ -324,18 +342,34 @@ func TestFetchImageSecurity_Success(t *testing.T) {
 	require.Len(t, res.Report.Data.Layer.Features, 1)
 }
 
+func TestFetchImageSecurity_PublicContract(t *testing.T) {
+	mock := &mockQuayServer{
+		response: Response{Status: "scanned", Data: &Data{Layer: &Layer{}}},
+	}
+	srv := newMockQuayServer(t, mock)
+	c, _ := newTestClient(t, srv.URL, srv.Client())
+
+	report, err := c.FetchImageSecurity(context.Background(), vulnerability.ImageRef{
+		Digest: "sha256:abc123",
+		Image:  hostOf(srv) + "/testorg/testrepo:latest",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, report)
+	require.Equal(t, statusScanned, report.Status)
+}
+
 func TestFetchImageSecurity_NonScannedStatuses(t *testing.T) {
 	for _, status := range []string{"queued", "pending", "unsupported", "failed"} {
 		t.Run(status, func(t *testing.T) {
 			mock := &mockQuayServer{status: status}
 			srv := newMockQuayServer(t, mock)
-			c, hook := newTestClient(t, srv.URL)
+			c, hook := newTestClient(t, srv.URL, srv.Client())
 
 			image := vulnerability.ImageRef{
 				Digest: "sha256:abc123",
 				Image:  hostOf(srv) + "/testorg/testrepo:latest",
 			}
-			res, err := c.FetchImageSecurity(context.Background(), image)
+			res, err := c.fetchImageSecurity(context.Background(), image)
 			require.NoError(t, err)
 			require.Nil(t, res.Report, "non-scanned status yields no report")
 			require.Equal(t, outcomeSkippedError, res.Outcome)
@@ -349,13 +383,13 @@ func TestFetchImageSecurity_NonScannedStatuses(t *testing.T) {
 func TestFetchImageSecurity_NotFound(t *testing.T) {
 	mock := &mockQuayServer{httpStatus: http.StatusNotFound}
 	srv := newMockQuayServer(t, mock)
-	c, hook := newTestClient(t, srv.URL)
+	c, hook := newTestClient(t, srv.URL, srv.Client())
 
 	image := vulnerability.ImageRef{
 		Digest: "sha256:notfound",
 		Image:  hostOf(srv) + "/testorg/testrepo:latest",
 	}
-	res, err := c.FetchImageSecurity(context.Background(), image)
+	res, err := c.fetchImageSecurity(context.Background(), image)
 	require.NoError(t, err, "a 404 is a skip, not a hard error — sync continues")
 	require.Nil(t, res.Report)
 	require.Equal(t, outcomeSkippedError, res.Outcome)
@@ -366,13 +400,13 @@ func TestFetchImageSecurity_NotFound(t *testing.T) {
 func TestFetchImageSecurity_Unauthorized(t *testing.T) {
 	mock := &mockQuayServer{httpStatus: http.StatusUnauthorized}
 	srv := newMockQuayServer(t, mock)
-	c, hook := newTestClient(t, srv.URL)
+	c, hook := newTestClient(t, srv.URL, srv.Client())
 
 	image := vulnerability.ImageRef{
 		Digest: "sha256:abc123",
 		Image:  hostOf(srv) + "/testorg/testrepo:latest",
 	}
-	res, err := c.FetchImageSecurity(context.Background(), image)
+	res, err := c.fetchImageSecurity(context.Background(), image)
 	require.Error(t, err, "401 must surface as a terminal error, not a skip")
 	require.ErrorIs(t, err, ErrQuayAuth)
 	require.Nil(t, res.Report)
@@ -387,13 +421,13 @@ func TestFetchImageSecurity_Unauthorized(t *testing.T) {
 func TestFetchImageSecurity_Forbidden(t *testing.T) {
 	mock := &mockQuayServer{httpStatus: http.StatusForbidden}
 	srv := newMockQuayServer(t, mock)
-	c, hook := newTestClient(t, srv.URL)
+	c, hook := newTestClient(t, srv.URL, srv.Client())
 
 	image := vulnerability.ImageRef{
 		Digest: "sha256:abc123",
 		Image:  hostOf(srv) + "/testorg/testrepo:latest",
 	}
-	res, err := c.FetchImageSecurity(context.Background(), image)
+	res, err := c.fetchImageSecurity(context.Background(), image)
 	require.NoError(t, err, "403 skips the image with a warning; it is not a hard error")
 	require.Nil(t, res.Report)
 	require.Equal(t, outcomeSkippedError, res.Outcome)
@@ -410,10 +444,10 @@ func TestFetchImageSecurity_UnexpectedStatus(t *testing.T) {
 	// degrade gracefully: the image is skipped with a warn, not a hard error.
 	mock := &mockQuayServer{httpStatus: http.StatusBadRequest}
 	srv := newMockQuayServer(t, mock)
-	c, hook := newTestClient(t, srv.URL)
+	c, hook := newTestClient(t, srv.URL, srv.Client())
 
 	image := vulnerability.ImageRef{Digest: "sha256:abc", Image: hostOf(srv) + "/org/repo:latest"}
-	res, err := c.FetchImageSecurity(context.Background(), image)
+	res, err := c.fetchImageSecurity(context.Background(), image)
 	require.NoError(t, err, "an unexpected status skips the image rather than failing the scan")
 	require.Nil(t, res.Report)
 	require.Equal(t, outcomeSkippedError, res.Outcome)
@@ -431,10 +465,10 @@ func TestFetchImageSecurity_Retries429ThenSuccess(t *testing.T) {
 		response:       Response{Status: "scanned", Data: &Data{Layer: &Layer{}}},
 	}
 	srv := newMockQuayServer(t, mock)
-	c, hook := newTestClient(t, srv.URL)
+	c, hook := newTestClient(t, srv.URL, srv.Client())
 
 	image := vulnerability.ImageRef{Digest: "sha256:abc", Image: hostOf(srv) + "/org/repo:latest"}
-	res, err := c.FetchImageSecurity(context.Background(), image)
+	res, err := c.fetchImageSecurity(context.Background(), image)
 	require.NoError(t, err)
 	require.NotNil(t, res.Report)
 	require.Equal(t, 2, res.Attempts, "one retry after the 429")
@@ -448,10 +482,10 @@ func TestFetchImageSecurity_Retries5xxThenSuccess(t *testing.T) {
 		response:       Response{Status: "scanned", Data: &Data{Layer: &Layer{}}},
 	}
 	srv := newMockQuayServer(t, mock)
-	c, _ := newTestClient(t, srv.URL)
+	c, _ := newTestClient(t, srv.URL, srv.Client())
 
 	image := vulnerability.ImageRef{Digest: "sha256:abc", Image: hostOf(srv) + "/org/repo:latest"}
-	res, err := c.FetchImageSecurity(context.Background(), image)
+	res, err := c.fetchImageSecurity(context.Background(), image)
 	require.NoError(t, err)
 	require.NotNil(t, res.Report)
 	require.Equal(t, 2, res.Attempts, "one retry after the 500")
@@ -460,10 +494,10 @@ func TestFetchImageSecurity_Retries5xxThenSuccess(t *testing.T) {
 func TestFetchImageSecurity_RetriesExhausted(t *testing.T) {
 	mock := &mockQuayServer{httpStatus: http.StatusServiceUnavailable}
 	srv := newMockQuayServer(t, mock)
-	c, _ := newTestClient(t, srv.URL)
+	c, _ := newTestClient(t, srv.URL, srv.Client())
 
 	image := vulnerability.ImageRef{Digest: "sha256:abc", Image: hostOf(srv) + "/org/repo:latest"}
-	res, err := c.FetchImageSecurity(context.Background(), image)
+	res, err := c.fetchImageSecurity(context.Background(), image)
 	require.Error(t, err, "a persistent 5xx fails after exhausting retries")
 	require.Nil(t, res.Report)
 	require.Equal(t, maxAttempts, mock.count(), "exactly maxAttempts attempts are made")
@@ -479,7 +513,7 @@ func TestFetchImageSecurity_ContextCancelledDuringBackoff(t *testing.T) {
 	served := make(chan struct{}, 1)
 	mock := &mockQuayServer{httpStatus: http.StatusServiceUnavailable, served: served}
 	srv := newMockQuayServer(t, mock)
-	c, _ := newTestClient(t, srv.URL)
+	c, _ := newTestClient(t, srv.URL, srv.Client())
 	c.backoffBase = 200 * time.Millisecond // wide enough to cancel mid-backoff
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -493,7 +527,7 @@ func TestFetchImageSecurity_ContextCancelledDuringBackoff(t *testing.T) {
 	}()
 
 	image := vulnerability.ImageRef{Digest: "sha256:abc", Image: hostOf(srv) + "/org/repo:latest"}
-	_, err := c.FetchImageSecurity(ctx, image)
+	_, err := c.fetchImageSecurity(ctx, image)
 	require.Error(t, err)
 	require.ErrorIs(t, err, context.Canceled)
 	require.Equal(t, 1, mock.count(), "cancellation during backoff stops further attempts")
@@ -502,11 +536,11 @@ func TestFetchImageSecurity_ContextCancelledDuringBackoff(t *testing.T) {
 func TestFetchImageSecurity_TimeoutRetriesThenFails(t *testing.T) {
 	mock := &mockQuayServer{httpStatus: http.StatusOK, delay: 200 * time.Millisecond, status: "scanned"}
 	srv := newMockQuayServer(t, mock)
-	c, _ := newTestClient(t, srv.URL)
+	c, _ := newTestClient(t, srv.URL, srv.Client())
 	c.httpClient.Timeout = 20 * time.Millisecond
 
 	image := vulnerability.ImageRef{Digest: "sha256:abc", Image: hostOf(srv) + "/org/repo:latest"}
-	res, err := c.FetchImageSecurity(context.Background(), image)
+	res, err := c.fetchImageSecurity(context.Background(), image)
 	require.Error(t, err, "a persistent timeout fails after retries")
 	require.Nil(t, res.Report)
 	require.Equal(t, maxAttempts, mock.count(), "timeouts are retried up to maxAttempts")
@@ -516,10 +550,10 @@ func TestFetchImageSecurity_TimeoutRetriesThenFails(t *testing.T) {
 func TestFetchImageSecurity_MissingImageReference(t *testing.T) {
 	mock := &mockQuayServer{status: "scanned"}
 	srv := newMockQuayServer(t, mock)
-	c, hook := newTestClient(t, srv.URL)
+	c, hook := newTestClient(t, srv.URL, srv.Client())
 
 	image := vulnerability.ImageRef{Digest: "sha256:abc123", Image: ""}
-	res, err := c.FetchImageSecurity(context.Background(), image)
+	res, err := c.fetchImageSecurity(context.Background(), image)
 	require.NoError(t, err)
 	require.Nil(t, res.Report)
 	require.Equal(t, outcomeSkippedRegistry, res.Outcome)
@@ -530,10 +564,10 @@ func TestFetchImageSecurity_MissingImageReference(t *testing.T) {
 func TestFetchImageSecurity_MissingDigest(t *testing.T) {
 	mock := &mockQuayServer{status: "scanned"}
 	srv := newMockQuayServer(t, mock)
-	c, hook := newTestClient(t, srv.URL)
+	c, hook := newTestClient(t, srv.URL, srv.Client())
 
 	image := vulnerability.ImageRef{Digest: "", Image: hostOf(srv) + "/testorg/testrepo:latest"}
-	res, err := c.FetchImageSecurity(context.Background(), image)
+	res, err := c.fetchImageSecurity(context.Background(), image)
 	require.NoError(t, err)
 	require.Nil(t, res.Report)
 	require.Equal(t, outcomeSkippedRegistry, res.Outcome)
@@ -544,13 +578,13 @@ func TestFetchImageSecurity_MissingDigest(t *testing.T) {
 func TestFetchImageSecurity_RegistryFilter(t *testing.T) {
 	mock := &mockQuayServer{status: "scanned"}
 	srv := newMockQuayServer(t, mock)
-	c, hook := newTestClient(t, srv.URL)
+	c, hook := newTestClient(t, srv.URL, srv.Client())
 
 	image := vulnerability.ImageRef{
 		Digest: "sha256:abc123",
 		Image:  "docker.io/library/nginx:latest",
 	}
-	res, err := c.FetchImageSecurity(context.Background(), image)
+	res, err := c.fetchImageSecurity(context.Background(), image)
 	require.NoError(t, err)
 	require.Nil(t, res.Report)
 	require.Equal(t, outcomeSkippedRegistry, res.Outcome)
@@ -567,7 +601,6 @@ func TestFetchImageSecurity_RegistryFilterNormalization(t *testing.T) {
 	}{
 		{"mixed case endpoint lowercased", "https://Quay.IO", "quay.io"},
 		{"explicit https default port stripped", "https://quay.io:443", "quay.io"},
-		{"explicit http default port stripped", "http://quay.io:80", "quay.io"},
 		{"non-default port preserved", "https://quay.io:8443", "quay.io:8443"},
 	}
 
@@ -631,10 +664,10 @@ func TestNewClient_CustomHTTPClient(t *testing.T) {
 func TestFetchImageSecurity_UnparseableReference(t *testing.T) {
 	mock := &mockQuayServer{status: "scanned"}
 	srv := newMockQuayServer(t, mock)
-	c, _ := newTestClient(t, srv.URL)
+	c, _ := newTestClient(t, srv.URL, srv.Client())
 
 	image := vulnerability.ImageRef{Digest: "sha256:abc123", Image: "not a valid ref@@@:::"}
-	res, err := c.FetchImageSecurity(context.Background(), image)
+	res, err := c.fetchImageSecurity(context.Background(), image)
 	require.NoError(t, err, "an unparseable reference is a skip, not a hard error")
 	require.Nil(t, res.Report)
 	require.Equal(t, outcomeSkippedRegistry, res.Outcome)
@@ -644,10 +677,10 @@ func TestFetchImageSecurity_UnparseableReference(t *testing.T) {
 func TestFetchImageSecurity_TransportError(t *testing.T) {
 	// 127.0.0.1:1 is a valid registry host that refuses connections. A
 	// connection refusal is not a timeout, so it is not retried.
-	c, _ := newTestClient(t, "http://127.0.0.1:1")
+	c, _ := newTestClient(t, "https://127.0.0.1:1")
 
 	image := vulnerability.ImageRef{Digest: "sha256:abc123", Image: "127.0.0.1:1/testorg/testrepo:latest"}
-	res, err := c.FetchImageSecurity(context.Background(), image)
+	res, err := c.fetchImageSecurity(context.Background(), image)
 	require.Error(t, err, "a transport failure is a genuine error")
 	require.Nil(t, res.Report)
 }
@@ -655,13 +688,13 @@ func TestFetchImageSecurity_TransportError(t *testing.T) {
 func TestFetchImageSecurity_DecodeError(t *testing.T) {
 	mock := &mockQuayServer{rawBody: "{not valid json"}
 	srv := newMockQuayServer(t, mock)
-	c, _ := newTestClient(t, srv.URL)
+	c, _ := newTestClient(t, srv.URL, srv.Client())
 
 	image := vulnerability.ImageRef{
 		Digest: "sha256:abc123",
 		Image:  hostOf(srv) + "/testorg/testrepo:latest",
 	}
-	res, err := c.FetchImageSecurity(context.Background(), image)
+	res, err := c.fetchImageSecurity(context.Background(), image)
 	require.Error(t, err, "a malformed response body is a genuine error")
 	require.Nil(t, res.Report)
 	require.Equal(t, 1, mock.count(), "a 200 with a bad body is not retried")
@@ -670,13 +703,13 @@ func TestFetchImageSecurity_DecodeError(t *testing.T) {
 func TestFetchImageSecurity_ContextCancelled(t *testing.T) {
 	mock := &mockQuayServer{httpStatus: http.StatusServiceUnavailable}
 	srv := newMockQuayServer(t, mock)
-	c, _ := newTestClient(t, srv.URL)
+	c, _ := newTestClient(t, srv.URL, srv.Client())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
 	image := vulnerability.ImageRef{Digest: "sha256:abc", Image: hostOf(srv) + "/org/repo:latest"}
-	_, err := c.FetchImageSecurity(ctx, image)
+	_, err := c.fetchImageSecurity(ctx, image)
 	require.Error(t, err)
 	require.True(t, errors.Is(err, context.Canceled) || strings.Contains(err.Error(), "context canceled"))
 }
@@ -685,13 +718,13 @@ func TestFetchImageSecurity_ScannedWithNilData(t *testing.T) {
 	// Regression test: Quay's contract is status="scanned" → non-nil Data.Layer
 	mock := &mockQuayServer{response: Response{Status: "scanned", Data: nil}}
 	srv := newMockQuayServer(t, mock)
-	c, hook := newTestClient(t, srv.URL)
+	c, hook := newTestClient(t, srv.URL, srv.Client())
 
 	image := vulnerability.ImageRef{
 		Digest: "sha256:abc123",
 		Image:  hostOf(srv) + "/testorg/testrepo:latest",
 	}
-	res, err := c.FetchImageSecurity(context.Background(), image)
+	res, err := c.fetchImageSecurity(context.Background(), image)
 	require.NoError(t, err, "malformed scanned response is a skip, not an error")
 	require.Nil(t, res.Report)
 	require.Equal(t, outcomeSkippedError, res.Outcome)
