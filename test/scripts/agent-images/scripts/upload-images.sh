@@ -4,6 +4,9 @@ set -euo pipefail
 # Upload images from a bundle tar to a registry.
 # Usage: ./upload-images.sh <bundle.tar> [--registry-endpoint host:port] [--jobs N]
 #
+# Agent bundles are an OCI layout plus e2e-refs.tsv (manifest digests preserved).
+# App bundles are docker-archive.
+#
 # If REGISTRY_ENDPOINT is not provided, it will be calculated using registry_address()
 #
 # Anonymous / no-auth push (e.g. local insecure registry): set DEST_REGISTRY_NO_CREDS=1
@@ -56,42 +59,35 @@ fi
 
 echo "Pushing images from bundle: ${BUNDLE}"
 
-mapfile -t REFS < <(tar -xOf "$BUNDLE" manifest.json | jq -r '.[].RepoTags[]')
+dest_no_creds() {
+  [[ "${DEST_REGISTRY_NO_CREDS:-}" == "1" || "${DEST_REGISTRY_NO_CREDS:-}" == "true" ]]
+}
 
-pairs_file="$(mktemp)"
-for r in "${REFS[@]}"; do
-  path="${r#*/}"
-  [[ "$path" == "$r" ]] && path="${r}"
-  src="docker-archive:${BUNDLE}:${r}"
-  dst="docker://${REGISTRY_ENDPOINT}/${path}"
-  printf '%s %s\n' "$src" "$dst" >> "$pairs_file"
-done
-
-cat "$pairs_file" | xargs -P "$JOBS" -I{} bash -c '
-  set -euo pipefail
-  src=$(echo {} | awk "{print \$1}")
-  dst=$(echo {} | awk "{print \$2}")
-  tag="${dst##*:}"
-  pfx="[push ${tag}] "
+copy_retry() {
+  local src="$1"
+  local dst="$2"
+  shift 2
+  local extra_flags=("$@")
+  local tag="${dst##*:}"
+  local pfx="[push ${tag}] "
   echo "${pfx}${src} -> ${dst}"
 
-  max_retries=3
-  retry=0
+  local max_retries=3
+  local retry=0
+  local skopeo_output skopeo_exit
+  local dest_flags=(--dest-tls-verify=false)
+  if dest_no_creds; then
+    dest_flags+=(--dest-no-creds)
+  fi
   while [[ $retry -lt $max_retries ]]; do
     set +euo pipefail
-    if [[ "${DEST_REGISTRY_NO_CREDS:-}" == "1" || "${DEST_REGISTRY_NO_CREDS:-}" == "true" ]]; then
-      skopeo_output=$(skopeo copy --all --dest-tls-verify=false --dest-no-creds "$src" "$dst" 2>&1)
-    else
-      skopeo_output=$(skopeo copy --all --dest-tls-verify=false "$src" "$dst" 2>&1)
-    fi
+    skopeo_output=$(skopeo copy "${dest_flags[@]}" "${extra_flags[@]}" "$src" "$dst" 2>&1)
     skopeo_exit=$?
     echo "$skopeo_output" | awk -v p="$pfx" "{print p \$0}"
-
     if [[ $skopeo_exit -eq 0 ]]; then
       set -euo pipefail
-      break
+      return 0
     fi
-
     ((retry++))
     if [[ $retry -lt $max_retries ]]; then
       echo "${pfx}Push failed, retrying in 5 seconds... (attempt $((retry+1))/$max_retries)"
@@ -99,10 +95,66 @@ cat "$pairs_file" | xargs -P "$JOBS" -I{} bash -c '
     else
       echo "${pfx}Push failed after $max_retries attempts"
       set -euo pipefail
-      exit 1
+      return 1
     fi
   done
-'
+}
 
-rm -f "$pairs_file"
+push_oci_pair() {
+  local src="$1"
+  local dst="$2"
+  copy_retry "$src" "$dst" --preserve-digests
+  local inspect_flags=(--tls-verify=false)
+  if dest_no_creds; then
+    inspect_flags+=(--no-creds)
+  fi
+  local want got
+  want=$(skopeo inspect --format "{{.Digest}}" "$src")
+  got=$(skopeo inspect "${inspect_flags[@]}" --format "{{.Digest}}" "$dst")
+  if [[ "$want" != "$got" ]]; then
+    echo "manifest digest changed: source $want dest $got ($src -> $dst)"
+    return 1
+  fi
+}
+
+push_archive_pair() {
+  copy_retry "$1" "$2" --all
+}
+
+export -f dest_no_creds copy_retry push_oci_pair push_archive_pair
+
+if tar -tf "$BUNDLE" | grep -qx 'oci/oci-layout'; then
+  workdir="$(mktemp -d)"
+  trap 'rm -rf "${workdir}"' EXIT
+  tar -xf "$BUNDLE" -C "$workdir"
+  refs_file="${workdir}/e2e-refs.tsv"
+  if [ ! -f "${refs_file}" ]; then
+    echo "OCI bundle missing e2e-refs.tsv"
+    exit 1
+  fi
+  pairs_file="$(mktemp)"
+  trap 'rm -rf "${workdir}"; rm -f "${pairs_file}"' EXIT
+  while IFS=$'\t' read -r tag ref; do
+    [ -n "${tag:-}" ] && [ -n "${ref:-}" ] || continue
+    path="${ref#*/}"
+    [[ "$path" == "$ref" ]] && path="${ref}"
+    printf '%s %s\n' "oci:${workdir}/oci:${tag}" "docker://${REGISTRY_ENDPOINT}/${path}" >> "$pairs_file"
+  done < "${refs_file}"
+  count=$(wc -l < "$pairs_file")
+  xargs -P "$JOBS" -n 2 bash -c 'push_oci_pair "$1" "$2"' _ < "$pairs_file"
+  echo "Done. Pushed ${count} image(s) to ${REGISTRY_ENDPOINT}"
+  exit 0
+fi
+
+mapfile -t REFS < <(tar -xOf "$BUNDLE" manifest.json | jq -r '.[].RepoTags[]')
+
+pairs_file="$(mktemp)"
+trap 'rm -f "${pairs_file}"' EXIT
+for r in "${REFS[@]}"; do
+  path="${r#*/}"
+  [[ "$path" == "$r" ]] && path="${r}"
+  printf '%s %s\n' "docker-archive:${BUNDLE}:${r}" "docker://${REGISTRY_ENDPOINT}/${path}" >> "$pairs_file"
+done
+
+xargs -P "$JOBS" -n 2 bash -c 'push_archive_pair "$1" "$2"' _ < "$pairs_file"
 echo "Done. Pushed ${#REFS[@]} image(s) to ${REGISTRY_ENDPOINT}"

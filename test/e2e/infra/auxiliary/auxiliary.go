@@ -19,6 +19,10 @@ var (
 	svcs *Services
 )
 
+// ApplyDeltaWorkerRegistryRemap is set by infra/setup. It writes remap config
+// through InfraProvider and restarts the delta worker and render worker through Lifecycle.
+var ApplyDeltaWorkerRegistryRemap func(registryURL string) error
+
 // Services holds the E2E aux services (registry, git, prometheus, jaeger, keycloak, trustify, file server).
 // Same for all deployment types; created once and reused. Each service is nil until started.
 // reuse is kept so Cleanup can no-op when reuse=true (containers stay running for the next run).
@@ -65,7 +69,8 @@ func Get(ctx context.Context) *Services {
 }
 
 // StartServices starts only the requested aux services with reuse=true.
-// For registry, image bundles are uploaded when the container is freshly created (not reused).
+// Image bundles are always uploaded so registry manifests match the bundle
+// (reuse must not keep a docker-archive rewrite from an earlier run).
 func StartServices(ctx context.Context, services []Service) (*Services, error) {
 	network := GetDockerNetwork()
 	reuse := true
@@ -77,10 +82,10 @@ func StartServices(ctx context.Context, services []Service) (*Services, error) {
 			if err := s.Registry.Start(ctx, network, reuse); err != nil {
 				return nil, fmt.Errorf("failed to start registry: %w", err)
 			}
+			if err := s.UploadImages(ctx); err != nil {
+				return nil, fmt.Errorf("failed to upload images: %w", err)
+			}
 			if !s.Registry.Reused {
-				if err := s.UploadImages(ctx); err != nil {
-					return nil, fmt.Errorf("failed to upload images: %w", err)
-				}
 				if err := s.UploadCharts(); err != nil {
 					return nil, fmt.Errorf("failed to upload charts: %w", err)
 				}
@@ -91,7 +96,7 @@ func StartServices(ctx context.Context, services []Service) (*Services, error) {
 					return nil, fmt.Errorf("failed to mirror external test images: %w", err)
 				}
 			} else {
-				logrus.Info("Skipping artifact upload (registry container was reused)")
+				logrus.Info("Skipping chart/quadlet/external upload (registry container was reused)")
 			}
 		case ServiceGitServer:
 			s.GitServer = &GitServer{}

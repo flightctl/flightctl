@@ -587,4 +587,8 @@ func (f fakeInfraProvider) QueryDBExternal(string) (string, error) {
 	return "", errors.New("not implemented")
 }
 
+func (f fakeInfraProvider) ApplyDeltaWorkerRegistryRemap(string) error {
+	return errors.New("not implemented")
+}
+
 var _ infra.InfraProvider = fakeInfraProvider{}
