@@ -8,6 +8,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
+	"sigs.k8s.io/yaml"
 )
 
 var yamlConfig = `enrollment-service:
@@ -523,4 +524,62 @@ enrollment:
 		require.Error(err)
 		require.Contains(err.Error(), "failurePolicy")
 	})
+}
+
+func TestSystemInfoCustomYAMLDeserialization(t *testing.T) {
+	tests := []struct {
+		name          string
+		yamlInput     string
+		expectNil     bool
+		expectedLen   int
+		expectedValue []string
+	}{
+		{
+			name:      "When system-info-custom is absent in YAML it should deserialize as nil",
+			yamlInput: "log-level: info\n",
+			expectNil: true,
+		},
+		{
+			name:        "When system-info-custom is empty list it should deserialize as non-nil with len 0",
+			yamlInput:   "system-info-custom: []\n",
+			expectNil:   false,
+			expectedLen: 0,
+		},
+		{
+			name:          "When system-info-custom has an explicit key it should deserialize with that key",
+			yamlInput:     "system-info-custom:\n  - my-key\n",
+			expectNil:     false,
+			expectedLen:   1,
+			expectedValue: []string{"my-key"},
+		},
+		{
+			name:          "When system-info-custom has wildcard it should deserialize as ['*']",
+			yamlInput:     "system-info-custom:\n  - '*'\n",
+			expectNil:     false,
+			expectedLen:   1,
+			expectedValue: []string{"*"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+
+			var cfg Config
+			err := yaml.Unmarshal([]byte(tt.yamlInput), &cfg)
+			require.NoError(err)
+
+			if tt.expectNil {
+				require.Nil(cfg.SystemInfoCustom, "expected SystemInfoCustom to be nil")
+				return
+			}
+
+			require.NotNil(cfg.SystemInfoCustom, "expected SystemInfoCustom to be non-nil")
+			require.Len(cfg.SystemInfoCustom, tt.expectedLen)
+
+			if tt.expectedValue != nil {
+				require.Equal(tt.expectedValue, cfg.SystemInfoCustom)
+			}
+		})
+	}
 }
