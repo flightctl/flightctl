@@ -20,12 +20,16 @@ func DesiredSpecFromTemplate(device *domain.Device, tv *domain.TemplateVersion) 
 }
 
 func assembleDesiredSpec(device *domain.Device, tv *domain.TemplateVersion) (*domain.DeviceSpec, []model.DependencyRef, []error) {
+	if tv == nil || tv.Status == nil {
+		return nil, nil, []error{fmt.Errorf("template version status is not available")}
+	}
+
 	var f FleetRolloutsLogic
 	errs := []error{}
 
 	var osSpec *domain.DeviceOsSpec
 	if tv.Status != nil && tv.Status.Os != nil {
-		osSpec = &domain.DeviceOsSpec{CatalogItemRef: tv.Status.Os.CatalogItemRef}
+		osSpec = &domain.DeviceOsSpec{}
 		img, err := ReplaceParametersInString(tv.Status.Os.Image, device)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("failed replacing parameters in OS image: %w", err))

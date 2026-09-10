@@ -383,7 +383,7 @@ func TestDeltaCandidates_ResolveOSFromUnsavedRender(t *testing.T) {
 		require.Len(t, result.Candidates, 1)
 	})
 
-	t.Run("When inspect fails it should fail the call", func(t *testing.T) {
+	t.Run("When inspect fails it should omit the device", func(t *testing.T) {
 		r := baseResolver()
 		r.Devices = func(_ context.Context, _ uuid.UUID, _ string) ([]*domain.Device, error) {
 			return []*domain.Device{deviceWithOS("d1", true, currentDig)}, nil
@@ -391,8 +391,10 @@ func TestDeltaCandidates_ResolveOSFromUnsavedRender(t *testing.T) {
 		r.Inspect = func(_ context.Context, _ string) (string, error) {
 			return "", fmt.Errorf("registry down")
 		}
-		_, err := r.DeltaCandidates(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
-		require.Error(t, err)
+		result, err := r.DeltaCandidates(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
+		require.NoError(t, err)
+		assert.True(t, result.Skip)
+		assert.Empty(t, result.Candidates)
 	})
 
 	t.Run("When fleet details omit templateVersion it should fail", func(t *testing.T) {
@@ -417,6 +419,13 @@ func TestDeltaCandidates_ResolveOSFromUnsavedRender(t *testing.T) {
 				deviceWithOS("bad", true, currentDig),
 				deviceWithOS("good", true, currentDig),
 			}, nil
+		}
+		r.DesiredSpec = func(device *domain.Device, _ *domain.TemplateVersion) (*domain.DeviceSpec, error) {
+			image := newImage
+			if device.Metadata.Name != nil && *device.Metadata.Name == "bad" {
+				image = "bad"
+			}
+			return &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: image}}, nil
 		}
 		r.Render = func(_ context.Context, spec *domain.DeviceSpec) (tasks.RenderedSpec, error) {
 			if spec.Os.Image == "bad" {

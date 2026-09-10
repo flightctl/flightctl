@@ -161,7 +161,7 @@ func (r *Resolver) candidatesForDevice(ctx context.Context, device *domain.Devic
 
 	var candidates []DeltaCandidate
 	if cand, ok, err := r.osCandidate(ctx, device, rendered); err != nil {
-		return nil, err
+		return nil, nil
 	} else if ok {
 		candidates = append(candidates, cand)
 	}

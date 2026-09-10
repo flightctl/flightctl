@@ -98,7 +98,7 @@ func TestDesiredSpecFromTemplate(t *testing.T) {
 	assert.Equal(t, "quay.io/apps/web:latest", imageSpec.Image)
 }
 
-func TestDesiredSpecFromTemplate_WhenOsIsACatalogItemRefItShouldCopyTheRefWithoutWritingTheDevice(t *testing.T) {
+func TestDesiredSpecFromTemplate_WhenOsIsACatalogItemRefItShouldNotCopyTheRef(t *testing.T) {
 	ref := domain.CatalogItemRefSpec{Catalog: "rhel", Item: "edge", Version: "9.4"}
 	device := &domain.Device{
 		Metadata: domain.ObjectMeta{Name: lo.ToPtr("device-1")},
@@ -114,8 +114,7 @@ func TestDesiredSpecFromTemplate_WhenOsIsACatalogItemRefItShouldCopyTheRefWithou
 	spec, err := DesiredSpecFromTemplate(device, tv)
 	require.NoError(t, err)
 	require.NotNil(t, spec.Os)
-	require.NotNil(t, spec.Os.CatalogItemRef)
-	assert.Equal(t, ref, *spec.Os.CatalogItemRef)
+	assert.Nil(t, spec.Os.CatalogItemRef)
 	assert.Empty(t, spec.Os.Image)
 	assert.Equal(t, "old-image:latest", device.Spec.Os.Image)
 }
@@ -135,6 +134,18 @@ func TestDesiredSpecFromTemplate_WhenSubstitutionFailsItShouldReturnAnError(t *t
 	_, err := DesiredSpecFromTemplate(device, tv)
 	require.Error(t, err)
 	assert.Equal(t, "old-image:latest", device.Spec.Os.Image)
+}
+
+func TestDesiredSpecFromTemplate_WhenStatusIsMissingItShouldReturnAnError(t *testing.T) {
+	device := &domain.Device{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr("device-1")},
+		Spec:     &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "old-image:latest"}},
+	}
+	tv := &domain.TemplateVersion{Metadata: domain.ObjectMeta{Name: lo.ToPtr("tv-1")}}
+
+	_, err := DesiredSpecFromTemplate(device, tv)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "template version status is not available")
 }
 
 func makeInlineConfigItem(t *testing.T, name, path, content string) domain.ConfigProviderSpec {
