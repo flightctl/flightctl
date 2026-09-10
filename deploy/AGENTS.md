@@ -33,9 +33,23 @@ This directory contains everything needed to deploy the Flight Control service: 
 
 ## Helm specifics
 
-- **Values:** `deploy/helm/flightctl/values.yaml` (base), `values.e2e.yaml`, `values.dev.yaml`, `values.nodeport.yaml`, etc. Lint uses `lint-values.yaml`.
-- **Templates:** Go templates under `deploy/helm/flightctl/templates/` (API, UI, imagebuilder, certs, RBAC, etc.). Some filenames are generated (e.g. `README.md.gotmpl`, `Chart.yaml.gotmpl`).
+- **Values source:** edit `deploy/helm/flightctl/values.yaml.gotmpl` (and `Chart.yaml.gotmpl`). Do **not** hand-edit generated `values.yaml` / `Chart.yaml`.
+- **README source:** edit `deploy/helm/flightctl/README.md.gotmpl`. Do **not** hand-edit generated `README.md`.
+- **Regenerate:** from `deploy/helm/`, run `go generate ./...` (charttmpl → values/Chart; helm-docs → README; genroles).
+- **Overlay values:** `values.e2e.yaml`, `values.dev.yaml`, `values.nodeport.yaml`, etc. Lint uses `lint-values.yaml`.
+- **Templates:** Go templates under `deploy/helm/flightctl/templates/` (API, UI, imagebuilder, certs, RBAC, etc.).
 - **Lint:** `make lint-helm` runs `helm lint` with the chart’s lint values.
+- **Tests:** `go test ./deploy/helm/flightctl/scripts/` covers chart scripts and offline `helm template` render checks (`chart_render_test.go`, `ensure_password_secrets_test.go`). Included in `make unit-test` via `./deploy/helm/...`.
+
+### Chart templating rules (offline-render safe)
+
+The chart must render correctly with plain `helm template` (no live cluster, no Helm release state). Follow these rules when editing templates:
+
+- **Do not branch on** `.Release.IsInstall` or `.Release.IsUpgrade`. Prefer shared hooks that work for both lifecycles (e.g. `post-install,pre-upgrade` for migrations that need regular resources first), or values-driven conditionals.
+- **Do not put `randAlphaNum` (or similar) into Secret/`stringData` that Helm re-applies every render.** Generate credentials in idempotent create-if-missing Jobs (see `flightctl-password-secrets.yaml`, encryption-key/cert Jobs). Existing password keys must never rotate on upgrade.
+- **Treat `lookup` as optional.** Empty/`nil` means “unknown / not visible”, not “resource missing with certainty”. Never treat a failed lookup as a chart-label change or as a reason to regenerate secrets. Prefer explicit values when discovery is required (`global.baseDomain`, auth URLs, `*SecretName`, etc.).
+- **Keep install friction low:** if the user omits Secrets/certs, Jobs should still create them. Do not require a special deploy mode or mandatory BYO secrets for the default path.
+- **Upgrade hooks that need live Deployment state** (e.g. scale-down `condition: chart`) must no-op when objects are not visible; document `condition: always` for environments where cluster state is unavailable at render time.
 
 ## Podman / quadlets
 
