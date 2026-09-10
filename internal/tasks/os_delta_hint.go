@@ -72,7 +72,11 @@ func deltaWriteSpec(cfg *config.Config) *domain.OciRepoSpec {
 	if cfg == nil || cfg.DeltaGeneration == nil || cfg.DeltaGeneration.DefaultRepository == nil {
 		return nil
 	}
-	return oci.SelectWriteTarget(nil, cfg.DeltaGeneration.DefaultRepository.OciRepoSpec())
+	spec, err := cfg.DeltaGeneration.DefaultRepository.OciRepoSpec()
+	if err != nil {
+		return nil
+	}
+	return oci.SelectWriteTarget(nil, spec)
 }
 
 func (t *DeviceRenderLogic) resolveTargetDigest(ctx context.Context, osImage string) (string, error) {
