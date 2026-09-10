@@ -999,6 +999,7 @@ func (c ApplicationContent) IsPlain() bool {
 func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []error {
 	allErrs := []error{}
 	seenAppNames := make(map[string]struct{})
+	seenPublishedPorts := make(map[string]string)
 
 	for _, app := range apps {
 		appType, err := app.Discriminator()
@@ -1024,20 +1025,183 @@ func validateApplications(apps []ApplicationProviderSpec, fleetTemplate bool) []
 		switch AppType(appType) {
 		case AppTypeContainer:
 			allErrs = append(allErrs, validateContainerApplication(app, appName, fleetTemplate)...)
+			allErrs = append(allErrs, validateApplicationPortConflicts(app, appName, AppTypeContainer, seenPublishedPorts)...)
 		case AppTypeHelm:
 			allErrs = append(allErrs, ValidateHelmApplication(app, appName, fleetTemplate)...)
 		case AppTypeCompose:
 			allErrs = append(allErrs, validateComposeApplication(app, appName, fleetTemplate)...)
 		case AppTypeQuadlet:
 			allErrs = append(allErrs, validateQuadletApplication(app, appName, fleetTemplate)...)
+			allErrs = append(allErrs, validateQuadletApplicationPortConflicts(app, appName, seenPublishedPorts)...)
 		case AppTypeVm:
 			allErrs = append(allErrs, validateVmApplication(app, appName, fleetTemplate)...)
+			allErrs = append(allErrs, validateApplicationPortConflicts(app, appName, AppTypeVm, seenPublishedPorts)...)
 		default:
 			allErrs = append(allErrs, fmt.Errorf("unknown application type: %s", appType))
 		}
 	}
 
 	return allErrs
+}
+
+func validateApplicationPortConflicts(app ApplicationProviderSpec, appName string, appType AppType, seenPorts map[string]string) []error {
+	var ports *[]ApplicationPort
+	var portsField string
+	switch appType {
+	case AppTypeContainer:
+		container, err := app.AsContainerApplication()
+		if err != nil {
+			return nil
+		}
+		ports = container.Ports
+		portsField = "ports"
+	case AppTypeVm:
+		vm, err := app.AsVmApplication()
+		if err != nil {
+			return nil
+		}
+		ports = vm.PublishPorts
+		portsField = "publishPorts"
+	default:
+		return nil
+	}
+	if ports == nil {
+		return nil
+	}
+
+	pathPrefix := fmt.Sprintf("spec.applications[%s].%s", appName, portsField)
+	var allErrs []error
+	for i, port := range *ports {
+		portKey, ok := publishedPortKey(port)
+		if !ok {
+			// The format and range validator reports the more useful error for
+			// malformed entries; they cannot participate in conflict detection.
+			continue
+		}
+
+		if previousApp, exists := seenPorts[portKey]; exists {
+			allErrs = append(allErrs, fmt.Errorf("%s[%d]: host port %s is already used by application %q", pathPrefix, i, portKey, previousApp))
+			continue
+		}
+		seenPorts[portKey] = appName
+	}
+	return allErrs
+}
+
+// publishedPortKey normalizes a typed host-to-guest mapping for conflict checks.
+func publishedPortKey(port string) (string, bool) {
+	if !containerPortPattern.MatchString(port) {
+		return "", false
+	}
+
+	colonParts := strings.SplitN(port, ":", 2)
+	hostPort, err := strconv.Atoi(colonParts[0])
+	if err != nil || hostPort < privilegedPortRangeStart || hostPort > portRangeEnd {
+		return "", false
+	}
+	guestPort, err := strconv.Atoi(strings.SplitN(colonParts[1], "/", 2)[0])
+	if err != nil || guestPort < privilegedPortRangeStart || guestPort > portRangeEnd {
+		return "", false
+	}
+
+	protocol := "tcp"
+	if protocolParts := strings.SplitN(colonParts[1], "/", 2); len(protocolParts) == 2 {
+		protocol = protocolParts[1]
+	}
+	return fmt.Sprintf("%d/%s", hostPort, protocol), true
+}
+
+// validateQuadletApplicationPortConflicts checks inline Quadlet container units
+// against the device-wide published-port set used by VM and container apps.
+func validateQuadletApplicationPortConflicts(app ApplicationProviderSpec, appName string, seenPorts map[string]string) []error {
+	quadletApp, err := app.AsQuadletApplication()
+	if err != nil || quadletApp.Type() != InlineApplicationProviderType {
+		// validateQuadletApplication reports malformed provider conversions; avoid
+		// duplicating that error while keeping conflict detection best effort.
+		return nil
+	}
+
+	inlineSpec, err := quadletApp.AsInlineApplicationProviderSpec()
+	if err != nil {
+		// The application validator reports this conversion error with its normal
+		// provider path; avoid emitting a second error here.
+		return nil
+	}
+
+	var allErrs []error
+	for _, inline := range inlineSpec.Inline {
+		if inline.Content == nil || !strings.HasSuffix(inline.Path, quadlet.ContainerExtension) {
+			continue
+		}
+
+		content, err := decodeApplicationContent(inline)
+		if err != nil {
+			// ApplicationContent.Validate already reports decoding errors with the
+			// inline content path.
+			continue
+		}
+		unit, err := quadlet.NewUnit(content)
+		if err != nil {
+			// ValidateContents already reports Quadlet parse errors with the file
+			// path, so there is no additional conflict data to process.
+			continue
+		}
+		ports, err := unit.LookupAll(quadlet.ContainerGroup, quadlet.PublishPortKey)
+		if err != nil {
+			// Missing [Container]/PublishPort is valid for other Quadlet files and
+			// produces no published host port to track.
+			continue
+		}
+
+		pathPrefix := fmt.Sprintf("spec.applications[%s].inline[%s].content", appName, inline.Path)
+		for _, port := range ports {
+			for _, portKey := range quadletPublishedPortKeys(port) {
+				if previousApp, exists := seenPorts[portKey]; exists {
+					allErrs = append(allErrs, fmt.Errorf("%s: host port %s is already used by application %q", pathPrefix, portKey, previousApp))
+					continue
+				}
+				seenPorts[portKey] = appName
+			}
+		}
+	}
+	return allErrs
+}
+
+// quadletPublishedPortKeys returns normalized host-port/protocol keys for a
+// Quadlet PublishPort value, expanding an explicitly configured host range.
+func quadletPublishedPortKeys(port string) []string {
+	portParts := strings.SplitN(port, "/", 2)
+	protocol := "tcp"
+	if len(portParts) == 2 {
+		protocol = portParts[1]
+	}
+	if protocol != "tcp" && protocol != "udp" && protocol != "sctp" {
+		return nil
+	}
+
+	colonParts := strings.Split(portParts[0], ":")
+	if len(colonParts) < 2 {
+		return nil
+	}
+	hostPortRange := colonParts[len(colonParts)-2]
+	rangeParts := strings.SplitN(hostPortRange, "-", 2)
+	start, err := strconv.Atoi(rangeParts[0])
+	if err != nil || start < privilegedPortRangeStart || start > portRangeEnd {
+		return nil
+	}
+	end := start
+	if len(rangeParts) == 2 {
+		end, err = strconv.Atoi(rangeParts[1])
+		if err != nil || end < start || end > portRangeEnd {
+			return nil
+		}
+	}
+
+	keys := make([]string, 0, end-start+1)
+	for hostPort := start; hostPort <= end; hostPort++ {
+		keys = append(keys, fmt.Sprintf("%d/%s", hostPort, protocol))
+	}
+	return keys
 }
 
 // validateApplicationLifecycleFieldsReadOnly rejects client-supplied values for

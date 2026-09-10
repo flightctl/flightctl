@@ -825,6 +825,8 @@ To deploy a VM application, add an entry to the `applications` section of the de
 | `inline` | Required. Exactly one file named `vm.yaml`. The file must be a KubeVirt `VirtualMachine` manifest with `apiVersion: kubevirt.io/v1`, `kind: VirtualMachine`, and `metadata.name` matching the application name. |
 | `publishPorts` | Optional. List of host-to-guest port mappings. Each entry must use the format `"hostPort:guestPort"` or `"hostPort:guestPort/protocol"` (for example, `"8080:80"` or `"8080:80/tcp"`). |
 
+Published host ports are unique per device and protocol across VM, container, and inline Quadlet `.container` applications. The API rejects a configuration when two applications request the same host port for the same protocol; an omitted protocol is treated as TCP.
+
 > [!NOTE]
 > The control plane converts the `vm.yaml` manifest into Quadlet units before the agent deploys it. The agent does not run the KubeVirt manifest directly. You can configure a default virt-launcher image, optional per-OS images, and passt workarounds used for that conversion; see [Configuring VM application rendering](../installing/configuring-vm-render.md).
 
@@ -1695,7 +1697,7 @@ applications, quadlet definitions are the recommended approach.
   default it runs under the root podman/systemd instance. If set to a non-root user, it runs under a
   rootless podman instance for that user.
 * **Environment Variables** - Optional - Variables to be injected into the running container
-* **Port Mappings** - Optional - Must be in the format `hostPort:containerPort`, with each port limited in the range of `1-65535`
+* **Port Mappings** - Optional - Must be in the format `hostPort:containerPort[/protocol]`, with each port limited in the range of `1-65535`. Published host ports are unique per device and protocol across VM, container, and inline Quadlet `.container` applications; an omitted protocol is treated as TCP.
 * **CPU Limits** - Optional - Positive decimal number (e.g., `"1.5"`, `"2"`, `"0.5"`)
 * **Memory Limits** - Optional - Number followed by optional unit - `b` (bytes), `k` (kibibytes), `m` (mebibytes), or `g` (gibibytes). Examples: `"512m"`, `"2g"`, `"1024k"`
 * **Named Volume Mounts** - Optional - Persistent volumes mounted within the container

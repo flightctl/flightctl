@@ -1111,6 +1111,56 @@ func TestValidateApplications(t *testing.T) {
 			},
 		},
 		{
+			name: "When VM applications publish the same host port it should reject the configuration",
+			apps: []ApplicationProviderSpec{
+				newTestVmInlineAppWithPorts(t, "app1", []string{"8080:80"}),
+				newTestVmInlineAppWithPorts(t, "app2", []string{"8080:81"}),
+			},
+			wantErrs: []string{"host port 8080/tcp is already used by application \"app1\""},
+		},
+		{
+			name: "When VM applications publish the same host port with an explicit TCP protocol it should reject the configuration",
+			apps: []ApplicationProviderSpec{
+				newTestVmInlineAppWithPorts(t, "app1", []string{"8080:80"}),
+				newTestVmInlineAppWithPorts(t, "app2", []string{"8080:81/tcp"}),
+			},
+			wantErrs: []string{"host port 8080/tcp is already used by application \"app1\""},
+		},
+		{
+			name: "When VM applications publish the same host port on different protocols it should accept the configuration",
+			apps: []ApplicationProviderSpec{
+				newTestVmInlineAppWithPorts(t, "app1", []string{"8080:80/tcp"}),
+				newTestVmInlineAppWithPorts(t, "app2", []string{"8080:81/udp"}),
+			},
+		},
+		{
+			name: "When VM and container applications publish the same host port it should reject the configuration",
+			apps: []ApplicationProviderSpec{
+				newTestVmInlineAppWithPorts(t, "vm-app", []string{"8080:80"}),
+				newTestApplicationWithPortsAndResources(require, "container-app", "quay.io/app/image:1", []string{"8080:81"}, nil),
+			},
+			wantErrs: []string{"host port 8080/tcp is already used by application \"vm-app\""},
+		},
+		{
+			name: "When Quadlet and VM applications publish the same host port it should reject the configuration",
+			apps: []ApplicationProviderSpec{
+				newTestQuadletInlineApp(t, "quadlet-app", map[string]string{
+					"app.container": "[Container]\nImage=quay.io/app/image:1\nPublishPort=8080:80",
+				}),
+				newTestVmInlineAppWithPorts(t, "vm-app", []string{"8080:81"}),
+			},
+			wantErrs: []string{"host port 8080/tcp is already used by application \"quadlet-app\""},
+		},
+		{
+			name: "When Quadlet and VM applications publish the same host port on different protocols it should accept the configuration",
+			apps: []ApplicationProviderSpec{
+				newTestQuadletInlineApp(t, "quadlet-app", map[string]string{
+					"app.container": "[Container]\nImage=quay.io/app/image:1\nPublishPort=8080:80/udp",
+				}),
+				newTestVmInlineAppWithPorts(t, "vm-app", []string{"8080:81/tcp"}),
+			},
+		},
+		{
 			name: "invalid volume name",
 			apps: []ApplicationProviderSpec{
 				newTestApplication(require, "app1", "quay.io/app/image:1", "quay.io/vol/image:1", "vol@1"),
@@ -3284,6 +3334,11 @@ func TestValidateVmApplication(t *testing.T) {
 	}
 }
 
+func TestPublishedPortKeyRejectsInvalidGuestPort(t *testing.T) {
+	_, ok := publishedPortKey("8080:0")
+	require.False(t, ok)
+}
+
 // validVmYaml returns a minimal valid KubeVirt VirtualMachine YAML for the given name.
 func validVmYaml(name string) string {
 	return "apiVersion: kubevirt.io/v1\nkind: VirtualMachine\nmetadata:\n  name: " + name + "\nspec:\n  running: false\n"
@@ -3329,6 +3384,23 @@ func newTestVmInlineAppWithPorts(t *testing.T, name string, publishPorts []strin
 	}))
 	var spec ApplicationProviderSpec
 	require.NoError(t, spec.FromVmApplication(vm))
+	return spec
+}
+
+// newTestQuadletInlineApp builds a Quadlet application with inline file contents.
+func newTestQuadletInlineApp(t *testing.T, name string, files map[string]string) ApplicationProviderSpec {
+	t.Helper()
+	inline := make([]ApplicationContent, 0, len(files))
+	for path, content := range files {
+		inline = append(inline, ApplicationContent{Path: path, Content: lo.ToPtr(content)})
+	}
+	quadletApp := QuadletApplication{
+		AppType: AppTypeQuadlet,
+		Name:    lo.ToPtr(name),
+	}
+	require.NoError(t, quadletApp.FromInlineApplicationProviderSpec(InlineApplicationProviderSpec{Inline: inline}))
+	var spec ApplicationProviderSpec
+	require.NoError(t, spec.FromQuadletApplication(quadletApp))
 	return spec
 }
 
