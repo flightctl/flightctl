@@ -4,8 +4,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
@@ -522,5 +524,38 @@ enrollment:
 		err := cfg.Complete()
 		require.Error(err)
 		require.Contains(err.Error(), "failurePolicy")
+	})
+}
+
+func TestSystemInfoCollectionInterval(t *testing.T) {
+	t.Run("When system-info-periodic interval is set it should use that interval", func(t *testing.T) {
+		require := require.New(t)
+
+		cfg := NewDefault()
+		customInterval := util.Duration(5 * time.Minute)
+		cfg.SystemInfoPeriodic.Interval = customInterval
+
+		result := cfg.SystemInfoCollectionInterval()
+		require.Equal(customInterval, result)
+	})
+
+	t.Run("When system-info-periodic interval is zero it should fall back to StatusUpdateInterval", func(t *testing.T) {
+		require := require.New(t)
+
+		cfg := NewDefault()
+		// SystemInfoPeriodic.Interval is zero by default
+
+		result := cfg.SystemInfoCollectionInterval()
+		require.Equal(cfg.StatusUpdateInterval, result)
+	})
+
+	t.Run("When system-info-periodic interval is absent it should fall back to StatusUpdateInterval", func(t *testing.T) {
+		require := require.New(t)
+
+		cfg := NewDefault()
+		cfg.StatusUpdateInterval = util.Duration(30 * time.Second)
+
+		result := cfg.SystemInfoCollectionInterval()
+		require.Equal(util.Duration(30*time.Second), result)
 	})
 }
