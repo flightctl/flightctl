@@ -6604,6 +6604,14 @@ components:
           description: "Image references this application uses and their digests in local storage. image is the ref from the current rendered spec (tag or digest). digest is what is in storage. When image is already a digest ref it matches digest."
           items:
             $ref: "#/components/schemas/ApplicationImageDigest"
+        size:
+          type: string
+          description: >-
+            Expected total download size for this application update in
+            IEC units (e.g. "245.3 MiB", "1 GiB"). Computed as the sum
+            of all image pair sizes (parent + nested + volumes), using
+            delta size when available or full manifest size otherwise.
+            Absent when no size information is available.
     ApplicationImageDigest:
       type: object
       description: An image reference and its content digest in local storage.
@@ -9296,8 +9304,38 @@ components:
         image:
           description: Reference to an OCI image or artifact with tag.
           type: string
+        deltaImage:
+          description: >-
+            Optional hint: a reference to a delta artifact for the main
+            image. Set by the control plane when a successful delta
+            generation record exists for the current-to-target digest
+            transition.
+          type: string
+        deltaImages:
+          description: >-
+            Optional hints for nested images within this application
+            (e.g. service images in a compose app, OCI volume images).
+            Each entry maps a target digest to its delta artifact
+            reference.
+          type: array
+          items:
+            $ref: '#/components/schemas/ImageDeltaHint'
       required:
         - image
+    ImageDeltaHint:
+      type: object
+      description: A delta hint for a nested image within an application.
+      properties:
+        targetDigest:
+          description: The content digest of the target image.
+          type: string
+        deltaImage:
+          description: Reference to the delta artifact for this nested image.
+          type: string
+      required:
+        - targetDigest
+        - deltaImage
+      additionalProperties: false
     CatalogItemRefSpec:
       type: object
       description: A reference to a catalog item, along with its configuration.
