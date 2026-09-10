@@ -63,23 +63,35 @@ func NewSystemctlServiceHandler(serviceNames []string) *SystemctlServiceHandler 
 }
 
 func (s *SystemctlServiceHandler) Stop(ctx context.Context) error {
-	if len(s.serviceNames) == 0 {
-		return nil
-	}
-	args := append([]string{"stop"}, s.serviceNames...)
-	if out, err := exec.CommandContext(ctx, "systemctl", args...).CombinedOutput(); err != nil {
-		return fmt.Errorf("systemctl stop failed: %w (output: %s)", err, out)
-	}
-	return nil
+	return s.runSystemctl(ctx, "stop")
 }
 
 func (s *SystemctlServiceHandler) Start(ctx context.Context) error {
+	return s.runSystemctl(ctx, "start")
+}
+
+// runSystemctl runs "systemctl <verb>" for each service individually so that a
+// unit-not-found error (exit code 5, e.g. a service removed in a newer version
+// but still present on disk from a previous install) does not abort the rest.
+func (s *SystemctlServiceHandler) runSystemctl(ctx context.Context, verb string) error {
 	if len(s.serviceNames) == 0 {
 		return nil
 	}
-	args := append([]string{"start"}, s.serviceNames...)
-	if out, err := exec.CommandContext(ctx, "systemctl", args...).CombinedOutput(); err != nil {
-		return fmt.Errorf("systemctl start failed: %w (output: %s)", err, out)
+	var errs []string
+	for _, svc := range s.serviceNames {
+		out, err := exec.CommandContext(ctx, "systemctl", verb, svc).CombinedOutput()
+		if err == nil {
+			continue
+		}
+		// Exit code 5: unit not loaded (stop) or not found (start). Treat as absent — skip.
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 5 {
+			logrus.Debugf("systemctl %s %s: unit not present, skipping", verb, svc)
+			continue
+		}
+		errs = append(errs, fmt.Sprintf("systemctl %s %s failed: %v (output: %s)", verb, svc, err, out))
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("%s", strings.Join(errs, "; "))
 	}
 	return nil
 }

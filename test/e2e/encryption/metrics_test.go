@@ -80,23 +80,12 @@ var _ = Describe("Encryption at rest — Metrics", Label("encryption", "observab
 		})
 
 		It("S6: should report no encryption errors during normal operation", Label("90128"), func() {
-			// Use sum(errors_total) value (not series count) so that a new error that
-			// increments an existing label-set series is detected. PromQueryResultCount
-			// returns the number of matching time series — it stays constant even when
-			// an existing series is incremented, making it unable to detect such errors.
-			errQuery := `sum(flightctl_encryption_errors_total)`
-
-			// Capture the baseline before creating the AuthProvider so any error
-			// produced by the creation itself is counted as a delta, not part of
-			// the baseline. Prometheus counters are process-lifetime values; other
-			// tests (e.g. N2) may have already incremented the counter.
+			// Capture error baseline before the AuthProvider create so we measure only
+			// the delta produced by S6. Use increase()[2m] rather than sum() so that a
+			// service restart (which resets in-memory counters) cannot make the value
+			// decrease and break the baseline comparison.
+			errQuery := `sum(increase(flightctl_encryption_errors_total[2m]))`
 			baselineErrorValue := harness.PromQueryCountValue(promURL, errQuery)()
-
-			// Capture the baseline operations count before creating the AuthProvider so we can
-			// wait for the S6 operation to be recorded in Prometheus before checking errors.
-			// This prevents a race where the error check runs before the S6 operation reaches Prometheus.
-			opsQuery := `sum(flightctl_encryption_operations_total)`
-			baselineOpsValue := harness.PromQueryCountValue(promURL, opsQuery)()
 
 			By("creating an AuthProvider to produce a successful encrypt operation")
 			apName := "enc-metrics-noerr-ap-" + harness.GetTestIDFromContext()
@@ -111,13 +100,17 @@ var _ = Describe("Encryption at rest — Metrics", Label("encryption", "observab
 			})
 
 			By("verifying flightctl_encryption_errors_total did not increase during normal operations")
-			// Wait for the S6 create operation to be recorded (ops counter increased), then confirm
-			// errors didn't grow. Using the counter value (not series count) ensures we detect the
-			// S6 operation itself rather than passing on a pre-existing series from an earlier test.
+			// Wait until Prometheus has scraped at least one successful encrypt operation in the
+			// last 2 minutes. increase()[2m] is immune to counter resets from service restarts —
+			// unlike sum() which can decrease when a restart resets the in-memory counter while
+			// a stale pre-restart scrape remains in the TSDB. applyManifest success proves the
+			// operation happened server-side; this wait ensures Prometheus caught up before
+			// we assert on the error counter.
+			opsQuery := `sum(increase(flightctl_encryption_operations_total{status="success"}[2m]))`
 			Eventually(harness.PromQueryCountValue(promURL, opsQuery),
 				testutil.DURATION_TIMEOUT, testutil.EVENTUALLY_POLLING_250,
-			).Should(BeNumerically(">", baselineOpsValue),
-				"must see the S6 encrypt operation recorded before checking error counter")
+			).Should(BeNumerically(">", 0),
+				"must see at least one successful encrypt operation in the last 2m before checking errors")
 
 			Expect(harness.PromQueryCountValue(promURL, errQuery)()).To(Equal(baselineErrorValue),
 				"flightctl_encryption_errors_total must not increase after a successful encrypt operation")

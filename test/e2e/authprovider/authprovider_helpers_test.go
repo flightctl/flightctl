@@ -577,4 +577,14 @@ func (f fakeInfraProvider) SetEncryptionConfig(infra.ServiceName, *internalconfi
 	return errors.New("not implemented")
 }
 
+// GetDBConnectionParams is unused by these tests and satisfies infra.InfraProvider.
+func (f fakeInfraProvider) GetDBConnectionParams() (infra.DBConnectionParams, error) {
+	return infra.DBConnectionParams{}, errors.New("not implemented")
+}
+
+// QueryDBExternal is unused by these tests and satisfies infra.InfraProvider.
+func (f fakeInfraProvider) QueryDBExternal(string) (string, error) {
+	return "", errors.New("not implemented")
+}
+
 var _ infra.InfraProvider = fakeInfraProvider{}
