@@ -51,7 +51,7 @@ var _ = Describe("OS delta hold", Label("delta"), Serial, func() {
 		createWritableDeltaRepo(harness)
 
 		fleetName := "delta-os-skip-generate"
-		policy := &v1beta1.RolloutPolicy{GenerateDelta: lo.ToPtr(false)}
+		policy := &v1beta1.RolloutPolicy{DeltaConfiguration: &v1beta1.DeltaConfiguration{GenerateDelta: lo.ToPtr(false)}}
 		Expect(harness.CreateOrUpdateTestFleet(fleetName, osFleetSpec(harness, fleetName, util.DeviceTags.Base, policy))).To(Succeed())
 
 		deviceId, _ := harness.EnrollAndWaitForOnlineStatus(map[string]string{fleetLabelKey: fleetName})
@@ -80,7 +80,7 @@ var _ = Describe("OS delta hold", Label("delta"), Serial, func() {
 		createWritableDeltaRepo(harness)
 
 		fleetName := "delta-os-deadline"
-		policy := &v1beta1.RolloutPolicy{MaxWaitForDelta: lo.ToPtr(v1beta1.Duration("1s"))}
+		policy := &v1beta1.RolloutPolicy{DeltaConfiguration: &v1beta1.DeltaConfiguration{MaxWaitForDelta: lo.ToPtr(v1beta1.Duration("1s"))}}
 		Expect(harness.CreateOrUpdateTestFleet(fleetName, osFleetSpec(harness, fleetName, util.DeviceTags.Base, policy))).To(Succeed())
 
 		deviceId, _ := harness.EnrollAndWaitForOnlineStatus(map[string]string{fleetLabelKey: fleetName})
