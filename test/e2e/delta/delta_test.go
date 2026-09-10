@@ -19,12 +19,12 @@ import (
 )
 
 const (
-	TIMEOUT         = "5m"
-	POLLING         = "500ms"
-	LONGTIMEOUT  = "10m"
-	GENERATE_CAP = "30m"
-	progressStall   = 90 * time.Second
-	fleetLabelKey   = "fleet"
+	TIMEOUT       = "5m"
+	POLLING       = "500ms"
+	LONGTIMEOUT   = "10m"
+	GENERATE_CAP  = "30m"
+	progressStall = 90 * time.Second
+	fleetLabelKey = "fleet"
 )
 
 var _ = Describe("OS delta hold", Label("delta"), Serial, func() {
