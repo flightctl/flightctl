@@ -6,6 +6,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -14,17 +16,20 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/container"
+	agentcfg "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/test/harness/containers"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/sirupsen/logrus"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
+	"sigs.k8s.io/yaml"
 )
 
 const (
 	PackageModeAgentContainerName = "flightctl-package-mode-agent"
 	PackageModeFlightctlUser      = "flightctl"
 	PackageModeRejectMessage      = "package-mode device cannot satisfy spec with os.image"
+	packageModeAgentImageEnv      = "E2E_PACKAGE_MODE_IMAGE"
 	packageModeRegistriesConfPath = "/etc/containers/registries.conf.d/flightctl-e2e.conf"
 	packageModeRegistryCAPath     = "/etc/pki/ca-trust/source/anchors/flightctl-e2e-registry.crt"
 
@@ -42,6 +47,9 @@ var (
 
 // GetPackageModeAgentImage returns the package-mode OCI image reference used by the e2e helper container.
 func GetPackageModeAgentImage() string {
+	if imageRef := strings.TrimSpace(os.Getenv(packageModeAgentImageEnv)); imageRef != "" {
+		return imageRef
+	}
 	return testutil.NewDeviceImageReference(testutil.DeviceTags.Package).String()
 }
 
@@ -63,6 +71,18 @@ func StartPackageModeAgent(ctx context.Context, agentConfigDir, registryHost, re
 	}
 	if _, err := os.Stat(agentCertsDir); err != nil {
 		return nil, fmt.Errorf("agent certs dir not found at %s: %w", agentCertsDir, err)
+	}
+	var enrollmentHostMapping string
+	if containers.IsPodman() && isK8sEnvironment() {
+		enrollmentServer, err := enrollmentServerFromConfig(agentConfigPath)
+		if err != nil {
+			return nil, fmt.Errorf("read package-mode enrollment server: %w", err)
+		}
+		resolvedHostMapping, err := enrollmentHostMappingFromServer(ctx, enrollmentServer, net.DefaultResolver.LookupIP)
+		if err != nil {
+			return nil, fmt.Errorf("resolve package-mode enrollment host: %w", err)
+		}
+		enrollmentHostMapping = resolvedHostMapping
 	}
 
 	files := []testcontainers.ContainerFile{
@@ -113,6 +133,9 @@ func StartPackageModeAgent(ctx context.Context, agentConfigDir, registryHost, re
 			)
 			if containers.IsPodman() {
 				hc.ExtraHosts = append(hc.ExtraHosts, "host.containers.internal:host-gateway")
+				if enrollmentHostMapping != "" {
+					hc.ExtraHosts = append(hc.ExtraHosts, enrollmentHostMapping)
+				}
 			}
 		},
 	}
@@ -149,6 +172,48 @@ func StartPackageModeAgent(ctx context.Context, agentConfigDir, registryHost, re
 
 	logrus.Info("Package-mode agent container started")
 	return agent, nil
+}
+
+// enrollmentServerFromConfig reads the enrollment service URL from a strictly validated agent config.
+func enrollmentServerFromConfig(configPath string) (string, error) {
+	contents, err := os.ReadFile(configPath)
+	if err != nil {
+		return "", fmt.Errorf("read agent config: %w", err)
+	}
+
+	var config agentcfg.Config
+	if err := yaml.UnmarshalStrict(contents, &config); err != nil {
+		return "", fmt.Errorf("parse agent config: %w", err)
+	}
+
+	server := strings.TrimSpace(config.EnrollmentService.Service.Server)
+	if server == "" {
+		return "", fmt.Errorf("agent config does not define enrollment-service.service.server")
+	}
+	return server, nil
+}
+
+// enrollmentHostMappingFromServer resolves an enrollment server hostname into a container host mapping.
+func enrollmentHostMappingFromServer(ctx context.Context, server string, lookupIP func(context.Context, string, string) ([]net.IP, error)) (string, error) {
+	parsed, err := url.Parse(server)
+	if err != nil {
+		return "", fmt.Errorf("parse enrollment server URL: %w", err)
+	}
+	hostname := parsed.Hostname()
+	if hostname == "" {
+		return "", fmt.Errorf("enrollment server URL does not define a hostname")
+	}
+
+	ips, err := lookupIP(ctx, "ip4", hostname)
+	if err != nil {
+		return "", fmt.Errorf("resolve enrollment hostname %q: %w", hostname, err)
+	}
+	for _, ip := range ips {
+		if ipv4 := ip.To4(); ipv4 != nil {
+			return hostname + ":" + ipv4.String(), nil
+		}
+	}
+	return "", fmt.Errorf("enrollment hostname %q has no IPv4 address", hostname)
 }
 
 // setupContainerEnvironment prepares the package-mode helper container to run the agent and nested podman workloads.
