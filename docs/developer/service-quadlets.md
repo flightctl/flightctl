@@ -132,6 +132,26 @@ Secret=flightctl-postgresql-master-password,type=env,target=DB_PASSWORD
 
 Secrets are automatically generated during deployment and injected as environment variables to the running containers.
 
+The default OCI repository credentials for delta generation are optional. If a default repository is configured, set the credentials before deployment:
+
+```bash
+export DELTA_GENERATION_DEFAULT_REPOSITORY_USERNAME='registry-user'
+export DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD='registry-password'
+make deploy-quadlets
+```
+
+Because these credentials are optional, they are not included in the vendor-owned API and delta-worker Quadlets. Add them through systemd drop-ins so deployments without a default repository do not reference missing Podman secrets. Create both files before running `systemctl daemon-reload` or `make deploy-quadlets`:
+
+`/etc/containers/systemd/flightctl-api.container.d/delta-generation-repository.conf`:
+
+```ini
+[Container]
+Secret=flightctl-delta-generation-default-repository-username,type=env,target=DELTA_GENERATION_DEFAULT_REPOSITORY_USERNAME
+Secret=flightctl-delta-generation-default-repository-password,type=env,target=DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD
+```
+
+Create an equivalent drop-in at `/etc/containers/systemd/flightctl-delta-worker.container.d/delta-generation-repository.conf`.
+
 ### External Database Configuration
 
 Flight Control supports both internal (containerized) and external database deployments using a unified container architecture. Both database modes use the same container definitions and authentication mechanisms.

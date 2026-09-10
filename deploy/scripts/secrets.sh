@@ -32,22 +32,6 @@ ensure_delta_generation_secrets() {
     echo "Ensuring secrets for delta generation default repository"
     ensure_env_secret "flightctl-delta-generation-default-repository-username" "DELTA_GENERATION_DEFAULT_REPOSITORY_USERNAME"
     ensure_env_secret "flightctl-delta-generation-default-repository-password" "DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD"
-
-    # Quadlet does not support optional Secret= entries. Remove mounts for
-    # credentials that were not configured so Podman does not try to use a
-    # missing secret. Existing secrets are preserved for idempotent redeploys.
-    local unit_dir="${QUADLET_FILES_OUTPUT_DIR:-/usr/share/containers/systemd}"
-    local unit_file
-    for unit_file in "${unit_dir}/flightctl-api.container" "${unit_dir}/flightctl-delta-worker.container"; do
-        if [[ -f "$unit_file" ]]; then
-            if ! sudo podman secret exists "flightctl-delta-generation-default-repository-username"; then
-                sudo sed -i '/^Secret=flightctl-delta-generation-default-repository-username,/d' "$unit_file"
-            fi
-            if ! sudo podman secret exists "flightctl-delta-generation-default-repository-password"; then
-                sudo sed -i '/^Secret=flightctl-delta-generation-default-repository-password,/d' "$unit_file"
-            fi
-        fi
-    done
 }
 
 # Ensure a secret exists from an environment variable without generating a value.
