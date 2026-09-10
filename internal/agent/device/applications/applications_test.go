@@ -112,7 +112,7 @@ func TestApplicationStatus(t *testing.T) {
 			expected:              v1beta1.AppTypeCompose,
 		},
 		{
-			name: "app running degraded",
+			name: "app starting degraded after workload died",
 			workloads: []Workload{
 				{
 					Name:   "container1",
@@ -124,12 +124,12 @@ func TestApplicationStatus(t *testing.T) {
 				},
 			},
 			expectedReady:         "1/2",
-			expectedStatus:        v1beta1.ApplicationStatusRunning,
+			expectedStatus:        v1beta1.ApplicationStatusStarting,
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
 			expected:              v1beta1.AppTypeCompose,
 		},
 		{
-			name: "app running degraded",
+			name: "app starting degraded after workload exited",
 			workloads: []Workload{
 				{
 					Name:   "container1",
@@ -141,7 +141,7 @@ func TestApplicationStatus(t *testing.T) {
 				},
 			},
 			expectedReady:         "1/2",
-			expectedStatus:        v1beta1.ApplicationStatusRunning,
+			expectedStatus:        v1beta1.ApplicationStatusStarting,
 			expectedSummaryStatus: v1beta1.ApplicationsSummaryStatusDegraded,
 			expected:              v1beta1.AppTypeCompose,
 		},
