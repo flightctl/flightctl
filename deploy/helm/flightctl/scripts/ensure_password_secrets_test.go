@@ -124,6 +124,36 @@ func TestEnsurePasswordSecrets(t *testing.T) {
 		assertKeepAnnotations(t, internal)
 	})
 
+	t.Run("When secrets already exist in both namespaces it should preserve both passwords", func(t *testing.T) {
+		binDir, storeDir := fakeKubectlEnv(t, fakeKubectlOptions{})
+		existingPassword := base64.StdEncoding.EncodeToString([]byte("shared-password"))
+		secretData := map[string]string{
+			"user":         base64.StdEncoding.EncodeToString([]byte("flightctl_app")),
+			"userPassword": existingPassword,
+		}
+		writeFakeSecret(t, storeDir, "flightctl", "flightctl-db-app-secret", secretData)
+		writeFakeSecret(t, storeDir, "flightctl-internal", "flightctl-db-app-secret", secretData)
+
+		cmd := exec.Command("bash", scriptPath,
+			"--namespace", "flightctl",
+			"--internal-namespace", "flightctl-internal",
+			"--ensure-db-app",
+		)
+		cmd.Env = append(os.Environ(), "PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("script failed: %v\nOutput: %s", err, output)
+		}
+
+		for _, namespace := range []string{"flightctl", "flightctl-internal"} {
+			secret := readFakeSecret(t, storeDir, namespace, "flightctl-db-app-secret")
+			if got := secret.Data["userPassword"]; got != existingPassword {
+				t.Errorf("password changed in %s: got %q want %q", namespace, got, existingPassword)
+			}
+			assertKeepAnnotations(t, secret)
+		}
+	})
+
 	t.Run("When lookup fails it should abort without creating secrets", func(t *testing.T) {
 		binDir, storeDir := fakeKubectlEnv(t, fakeKubectlOptions{failGet: true})
 		cmd := exec.Command("bash", scriptPath,
@@ -187,7 +217,7 @@ type fakeSecret struct {
 }
 
 type fakeKubectlOptions struct {
-	failGet            bool
+	failGet             bool
 	createAlreadyExists bool
 }
 
