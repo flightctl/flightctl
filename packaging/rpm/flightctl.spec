@@ -289,14 +289,14 @@ fi
     )" \
     SOURCE_GIT_TREE_STATE="clean" \
     SOURCE_GIT_COMMIT="$(
-        commit=$(git rev-parse --short HEAD 2>/dev/null || true);
+        commit=$( (git rev-parse HEAD 2>/dev/null || true) | cut -c1-9);
         if [ -z "$commit" ]; then
             commit=$(grep -v '^\$Format' packaging/rpm/git-metadata 2>/dev/null | tr -d '[:space:]');
         fi;
         if [ -z "$commit" ]; then
             commit=$(echo %{version} | grep -o '[-~]g[0-9a-f]*' | sed 's/[-~]g//');
         fi;
-        echo "${commit:-unknown}";
+        echo "${commit:-unknown}" | cut -c1-9;
     )" \
     %{?disable_fips} %make_build build-cli build-agent build-backup build-restore build-standalone build-mirror-images
 
@@ -326,9 +326,7 @@ fi
     install -m 0755 packaging/greenboot/flightctl-agent-running-check.sh %{buildroot}/usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh
     install -m 0755 packaging/greenboot/flightctl-agent-pre-rollback.sh %{buildroot}/usr/lib/greenboot/red.d/40_flightctl_agent_pre_rollback.sh
     mkdir -p %{buildroot}/usr/libexec/flightctl
-    install -m 0755 packaging/greenboot/flightctl-configure-greenboot.sh %{buildroot}/usr/libexec/flightctl/configure-greenboot.sh
     install -m 0755 packaging/flightctl/mask-bootc-timer.sh %{buildroot}/usr/libexec/flightctl/mask-bootc-timer.sh
-    install -m 0644 packaging/systemd/flightctl-configure-greenboot.service %{buildroot}/usr/lib/systemd/system
     install -m 0644 packaging/systemd/flightctl-mask-bootc-timer.service %{buildroot}/usr/lib/systemd/system
     cp bin/flightctl-agent %{buildroot}/usr/bin
     cp packaging/must-gather/flightctl-must-gather %{buildroot}/usr/bin
@@ -504,9 +502,7 @@ fi
     /usr/share/flightctl/functions/greenboot.sh
     /usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh
     /usr/lib/greenboot/red.d/40_flightctl_agent_pre_rollback.sh
-    /usr/libexec/flightctl/configure-greenboot.sh
     /usr/libexec/flightctl/mask-bootc-timer.sh
-    /usr/lib/systemd/system/flightctl-configure-greenboot.service
     /usr/lib/systemd/system/flightctl-mask-bootc-timer.service
 
 %post agent
@@ -548,9 +544,8 @@ chown -R flightctl:flightctl ~flightctl/{.config,.local}
 # See: https://github.com/fedora-iot/greenboot-rs/issues/171
 # See: https://github.com/openshift/microshift/pull/5530
 systemctl enable --quiet greenboot-healthcheck 2>/dev/null || :
-# Enable the greenboot configuration service (runs before greenboot-healthcheck.service)
-# This ensures only flightctl health checks can trigger OS rollback
-systemctl enable flightctl-configure-greenboot.service >/dev/null 2>&1 || :
+# Disable stale unit if left enabled from a previous package version.
+systemctl disable flightctl-configure-greenboot.service 2>/dev/null || :
 # Mask bootc auto-update timer on first boot (bootc/composefs); the script
 # is also run directly below for immediate effect during RPM install.
 systemctl enable flightctl-mask-bootc-timer.service >/dev/null 2>&1 || :
@@ -565,7 +560,7 @@ if [ "$1" -eq 0 ]; then
 fi
 
 %preun greenboot
-%systemd_preun flightctl-configure-greenboot.service flightctl-mask-bootc-timer.service
+%systemd_preun flightctl-mask-bootc-timer.service
 
 %postun greenboot
 # Restore bootc automatic-update timer only on full removal (not upgrade)
@@ -605,6 +600,7 @@ fi
     %dir %{_sysconfdir}/flightctl/flightctl-periodic
     %dir %{_sysconfdir}/flightctl/flightctl-ui
     %dir %{_sysconfdir}/flightctl/flightctl-worker
+    %dir %{_sysconfdir}/flightctl/flightctl-delta-worker
     %dir %{_sysconfdir}/flightctl/flightctl-telemetry-gateway
     %dir %{_sysconfdir}/flightctl/flightctl-telemetry-gateway/forward
     %dir %{_sysconfdir}/flightctl/ssh
@@ -627,6 +623,7 @@ fi
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-alert-exporter
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-periodic
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-worker
+    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-delta-worker
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db-migrate
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-imagebuilder-api
     %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-imagebuilder-worker
@@ -650,6 +647,7 @@ fi
     %{_datadir}/flightctl/flightctl-alert-exporter/config.yaml.template
     %{_datadir}/flightctl/flightctl-periodic/config.yaml.template
     %{_datadir}/flightctl/flightctl-worker/config.yaml.template
+    %{_datadir}/flightctl/flightctl-delta-worker/config.yaml.template
     %{_datadir}/flightctl/flightctl-db-migrate/config.yaml.template
     %{_datadir}/flightctl/flightctl-imagebuilder-api/config.yaml.template
     %{_datadir}/flightctl/flightctl-imagebuilder-worker/config.yaml.template
@@ -660,6 +658,7 @@ fi
     # Quadlet files (excluding observability components which are in separate packages)
     %{_datadir}/containers/systemd/flightctl-api.container
     %{_datadir}/containers/systemd/flightctl-worker.container
+    %{_datadir}/containers/systemd/flightctl-delta-worker.container
     %{_datadir}/containers/systemd/flightctl-periodic.container
     %{_datadir}/containers/systemd/flightctl-alert*.container
     %{_datadir}/containers/systemd/flightctl-cli-artifacts*.container

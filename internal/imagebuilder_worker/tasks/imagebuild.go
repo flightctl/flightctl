@@ -24,13 +24,14 @@ import (
 	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/internal/oci"
 	"github.com/flightctl/flightctl/internal/service"
-	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
+	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	trustifyv2 "github.com/flightctl/flightctl/internal/trustify/v2"
 	"github.com/flightctl/flightctl/internal/vulnerability"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -478,7 +479,7 @@ type EnrollmentCredentialGenerator interface {
 // This function is exported for testing purposes
 func GenerateContainerfile(
 	ctx context.Context,
-	repositoryStore repositorystore.Store,
+	repositories repositoryservice.Service,
 	credentialGenerator EnrollmentCredentialGenerator,
 	orgID uuid.UUID,
 	imageBuild *domain.ImageBuild,
@@ -486,8 +487,8 @@ func GenerateContainerfile(
 ) (*ContainerfileResult, error) {
 	// Create a temporary consumer for testing purposes
 	c := &Consumer{
-		repositoryStore: repositoryStore,
-		log:             log,
+		repositories: repositories,
+		log:          log,
 	}
 	return c.generateContainerfileWithGenerator(ctx, orgID, imageBuild, credentialGenerator, log)
 }
@@ -523,8 +524,8 @@ func (c *Consumer) generateContainerfileWithGenerator(
 	spec := imageBuild.Spec
 
 	// Load the source repository to get the registry hostname
-	repo, err := c.repositoryStore.Get(ctx, orgID, spec.Source.Repository)
-	if err != nil {
+	repo, status := c.repositories.GetRepository(ctx, orgID, spec.Source.Repository)
+	if err := statusToErr(status); err != nil {
 		return nil, fmt.Errorf("failed to get source repository: %w", err)
 	}
 
@@ -720,6 +721,33 @@ func (w *podmanWorker) runInWorker(ctx context.Context, log logrus.FieldLogger, 
 	return nil
 }
 
+// nofileUlimitArgs returns the podman "--ulimit nofile=<cur>:<max>" arguments
+// derived from the current process' RLIMIT_NOFILE, so the worker container
+// inherits a limit Kubernetes will actually allow. It returns nil if the
+// current limit cannot be read.
+func nofileUlimitArgs(log logrus.FieldLogger) []string {
+	var rLimit unix.Rlimit
+	if err := unix.Getrlimit(unix.RLIMIT_NOFILE, &rLimit); err != nil {
+		log.WithError(err).Warn("Could not read RLIMIT_NOFILE; worker container will use default ulimits")
+		return nil
+	}
+	arg := formatNofileUlimit(rLimit)
+	log.Debugf("Passing ulimit %s to worker container", arg)
+	return []string{"--ulimit", arg}
+}
+
+// formatNofileUlimit renders rLimit as a podman "--ulimit" value. A hard limit of
+// RLIM_INFINITY is common on bare-metal/quadlet hosts (unlike the typical Kubernetes case
+// where soft and hard are equal); it is capped to the soft limit rather than passed through
+// as a literal 0xffffffffffffffff.
+func formatNofileUlimit(rLimit unix.Rlimit) string {
+	max := rLimit.Max
+	if max == unix.RLIM_INFINITY {
+		max = rLimit.Cur
+	}
+	return fmt.Sprintf("nofile=%d:%d", rLimit.Cur, max)
+}
+
 // startPodmanWorker starts a detached podman worker container for building images.
 // It returns the container name, worker info, and a cleanup function.
 func (c *Consumer) startPodmanWorker(
@@ -819,6 +847,12 @@ ignore_chown_errors = "true"
 	if c.cfg.ImageBuilderWorker.EffectivePodmanSkipTLSVerify() {
 		startArgs = append(startArgs, "--tls-verify=false")
 	}
+
+	// Pass the current RLIMIT_NOFILE to the worker container so nested
+	// podman builds don't attempt to raise the limit beyond what Kubernetes
+	// permits for this pod, which would cause "operation not permitted".
+	startArgs = append(startArgs, nofileUlimitArgs(log)...)
+
 	startArgs = append(startArgs,
 		"--cap-add=SYS_ADMIN",
 		podmanImage,
@@ -993,8 +1027,8 @@ func (c *Consumer) loginToRegistry(
 
 // getOciRepoSpec retrieves and validates a repository as OCI type, returning its spec.
 func (c *Consumer) getOciRepoSpec(ctx context.Context, orgID uuid.UUID, repoName string, repoRole string) (*coredomain.OciRepoSpec, error) {
-	repo, err := c.repositoryStore.Get(ctx, orgID, repoName)
-	if err != nil {
+	repo, status := c.repositories.GetRepository(ctx, orgID, repoName)
+	if err := statusToErr(status); err != nil {
 		return nil, fmt.Errorf("failed to get %s repository: %w", repoRole, err)
 	}
 

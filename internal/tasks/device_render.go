@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -51,15 +52,33 @@ import (
 
 func deviceRender(ctx context.Context, orgId uuid.UUID, event domain.Event, deviceSvc deviceservice.Service, repositorySvc repositoryservice.Service, catalogSvc catalogservice.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, cfg *config.Config, log logrus.FieldLogger) error {
 	logic := NewDeviceRenderLogic(log, deviceSvc, repositorySvc, catalogSvc, k8sClient, kvStore, cfg, orgId, event)
-	if event.InvolvedObject.Kind == domain.DeviceKind {
-		err := logic.RenderDevice(ctx)
-		if err != nil {
-			log.Errorf("failed rendering device %s/%s: %v", orgId, event.InvolvedObject.Name, err)
-		} else {
-			log.Infof("completed rendering device %s/%s", orgId, event.InvolvedObject.Name)
-		}
-	} else {
+	if event.InvolvedObject.Kind != domain.DeviceKind {
 		log.Errorf("DeviceRender called with unexpected kind %s and op %s", event.InvolvedObject.Kind, event.Reason)
+		return nil
+	}
+
+	// Detach from the parent's EventProcessingTimeout so that the render
+	// operation (config + application rendering + DB/Redis writes) runs under
+	// its own configurable deadline. Explicit parent cancellation (e.g.
+	// shutdown) still propagates via the goroutine below, matching the pattern
+	// used by fleetRolloutIterationContext.
+	renderCtx, cancelRender := context.WithTimeout(context.WithoutCancel(ctx), cfg.EffectiveRenderTimeout())
+	defer cancelRender()
+	go func() {
+		select {
+		case <-ctx.Done():
+			if errors.Is(ctx.Err(), context.Canceled) {
+				cancelRender()
+			}
+		case <-renderCtx.Done():
+		}
+	}()
+
+	err := logic.RenderDevice(renderCtx)
+	if err != nil {
+		log.Errorf("failed rendering device %s/%s: %v", orgId, event.InvolvedObject.Name, err)
+	} else {
+		log.Infof("completed rendering device %s/%s", orgId, event.InvolvedObject.Name)
 	}
 	return nil
 }

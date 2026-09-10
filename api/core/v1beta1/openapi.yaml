@@ -6161,11 +6161,15 @@ components:
       - 'AfterUpdating'
       - 'BeforeRebooting'
       - 'AfterRebooting'
+      - 'BeforeEnrolling'
+      - 'AfterEnrolling'
       x-enum-varnames:
         - "DeviceLifecycleHookBeforeUpdating"
         - "DeviceLifecycleHookAfterUpdating"
         - "DeviceLifecycleHookBeforeRebooting"
         - "DeviceLifecycleHookAfterRebooting"
+        - "DeviceLifecycleHookBeforeEnrolling"
+        - "DeviceLifecycleHookAfterEnrolling"
     HookAction:
       allOf:
       - type: object
@@ -7038,6 +7042,8 @@ components:
           description: 'The rendered version of the device from desired.json (optional).'
         osMode:
           $ref: '#/components/schemas/OsModeType'
+        preEnrollment:
+          $ref: '#/components/schemas/PreEnrollmentResult'
       description: EnrollmentRequestSpec is a description of a EnrollmentRequest's target state.
     EnrollmentRequestStatus:
       type: object
@@ -7055,6 +7061,43 @@ components:
       required:
         - conditions
       description: EnrollmentRequestStatus represents information about the status of a EnrollmentRequest.
+
+    PreEnrollmentActionResult:
+      type: object
+      description: Result of a single executed pre-enrollment hook action, agent-populated.
+      required:
+        - source
+        - exitCode
+      properties:
+        source:
+          type: string
+          description: >-
+            Path to the hook definition YAML that contained this action (for
+            example /etc/flightctl/hooks.d/beforeenrolling/10-network.yaml).
+        exitCode:
+          type: integer
+          description: Process exit code from the hook action.
+        output:
+          type: string
+          description: >-
+            Redacted stdout/stderr from this action. The total size across all
+            actions is capped at 4KiB. Secret patterns (PEM blocks, Bearer
+            prefixes, known token env names) are redacted before persistence.
+
+    PreEnrollmentResult:
+      type: object
+      description: Result of pre-enrollment hook execution, agent-populated.
+      required:
+        - success
+      properties:
+        success:
+          type: boolean
+          description: Whether all pre-enrollment hooks completed with exit code 0.
+        actions:
+          type: array
+          description: Per-action results in execution order.
+          items:
+            $ref: '#/components/schemas/PreEnrollmentActionResult'
 
     ResourceSync:
       type: object
@@ -8042,6 +8085,8 @@ components:
             - EncryptionMigrationStarted
             - EncryptionMigrationCompleted
             - ApplicationLifecycleChanged
+            - PrepareDeltas
+            - DeltaGenerationCompleted
         message:
           type: string
           description: A human-readable description of the status of this operation.
@@ -8127,6 +8172,7 @@ components:
           DependencyChangeDetected: "#/components/schemas/DependencyChangeDetectedDetails"
           DependencySyncProbeFailed: "#/components/schemas/DependencySyncProbeFailedDetails"
           ApplicationLifecycleChanged: "#/components/schemas/ApplicationLifecycleChangedDetails"
+          PrepareDeltas: "#/components/schemas/PrepareDeltasDetails"
       oneOf:
         - $ref: "#/components/schemas/ResourceUpdatedDetails"
         - $ref: "#/components/schemas/DeviceOwnershipChangedDetails"
@@ -8146,6 +8192,7 @@ components:
         - $ref: "#/components/schemas/DependencyChangeDetectedDetails"
         - $ref: "#/components/schemas/DependencySyncProbeFailedDetails"
         - $ref: "#/components/schemas/ApplicationLifecycleChangedDetails"
+        - $ref: "#/components/schemas/PrepareDeltasDetails"
     DeviceVulnerabilityCveDetails:
       type: object
       description: Structured details for per-device CVE vulnerability events.
@@ -8308,6 +8355,21 @@ components:
         errorCount:
           type: integer
           description: Number of errors encountered by this ResourceSync update.
+    PrepareDeltasDetails:
+      type: object
+      description: Structured details for PrepareDeltas events.
+      required:
+        - detailType
+      properties:
+        detailType:
+          type: string
+          enum: [PrepareDeltas]
+          x-enum-varnames:
+            - PrepareDeltas
+          description: The type of detail for discriminator purposes.
+        templateVersion:
+          type: string
+          description: Fleet only. The TemplateVersion this prepare is for. Required when involvedObject.kind is Fleet; omitted for Device.
     FleetRolloutStartedDetails:
       type: object
       required:

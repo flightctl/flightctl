@@ -173,8 +173,24 @@ func (b *Bootstrap) updateStatus(ctx context.Context) {
 		// TODO: only set rebooting in case where we are actually rebooting
 		updatingCondition.Reason = string(v1beta1.UpdateStateRebooting)
 	} else {
-		updatingCondition.Status = v1beta1.ConditionStatusFalse
-		updatingCondition.Reason = string(v1beta1.UpdateStateUpdated)
+		rollbackInfo, err := b.specManager.GetRollbackInfo()
+		if err != nil {
+			b.log.Errorf("Failed to read rollback info: %v", err)
+			updatingCondition.Status = v1beta1.ConditionStatusFalse
+			updatingCondition.Reason = string(v1beta1.UpdateStateError)
+			updatingCondition.Message = "Failed to read rollback info after update"
+		} else if rollbackInfo.ErrorMessage != "" || rollbackInfo.Version != "" {
+			updatingCondition.Status = v1beta1.ConditionStatusFalse
+			updatingCondition.Reason = string(v1beta1.UpdateStateError)
+			if rollbackInfo.ErrorMessage != "" {
+				updatingCondition.Message = rollbackInfo.ErrorMessage
+			} else {
+				updatingCondition.Message = fmt.Sprintf("Failed to update to renderedVersion: %s", rollbackInfo.Version)
+			}
+		} else {
+			updatingCondition.Status = v1beta1.ConditionStatusFalse
+			updatingCondition.Reason = string(v1beta1.UpdateStateUpdated)
+		}
 	}
 
 	_, updateErr := b.statusManager.Update(ctx,

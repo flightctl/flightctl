@@ -66,7 +66,7 @@ func TestHandleImageExportUpdated_StoreError(t *testing.T) {
 
 	svc := newTestIBService(orgID)
 	svc.exports.getErr = errors.New("db unavailable")
-	consumer := newTestConsumer(svc, &dummyCatalogStoreAdapter{newDummyCatalogItemWriter()})
+	consumer := newTestConsumer(svc, &dummyCatalogStoreAdapter{w: newDummyCatalogItemWriter()})
 
 	err := consumer.handleImageExportUpdated(ctx, makeExportUpdateEvent(orgID, "export-1"), consumer.log)
 	require.Error(err)
@@ -87,7 +87,7 @@ func TestHandleImageExportUpdated_NoStatus(t *testing.T) {
 		Spec:     api.ImageExportSpec{Format: api.ExportFormatTypeQCOW2},
 	}
 	_, _ = svc.exports.Create(ctx, orgID, export)
-	consumer := newTestConsumer(svc, &dummyCatalogStoreAdapter{newDummyCatalogItemWriter()})
+	consumer := newTestConsumer(svc, &dummyCatalogStoreAdapter{w: newDummyCatalogItemWriter()})
 
 	err := consumer.handleImageExportUpdated(ctx, makeExportUpdateEvent(orgID, "export-no-status"), consumer.log)
 	require.NoError(err)
@@ -108,7 +108,7 @@ func TestHandleImageExportUpdated_PendingExport(t *testing.T) {
 	_, _ = svc.promotions.Create(ctx, orgID, promotion)
 
 	producer := &recordingQueueProducer{}
-	consumer := newTestConsumerWithProducer(svc, &dummyCatalogStoreAdapter{newDummyCatalogItemWriter()}, producer)
+	consumer := newTestConsumerWithProducer(svc, &dummyCatalogStoreAdapter{w: newDummyCatalogItemWriter()}, producer)
 
 	err := consumer.handleImageExportUpdated(ctx, makeExportUpdateEvent(orgID, "export-pending"), consumer.log)
 	require.NoError(err)
@@ -130,7 +130,7 @@ func TestHandleImageExportUpdated_ConvertingExport(t *testing.T) {
 	_, _ = svc.promotions.Create(ctx, orgID, promotion)
 
 	producer := &recordingQueueProducer{}
-	consumer := newTestConsumerWithProducer(svc, &dummyCatalogStoreAdapter{newDummyCatalogItemWriter()}, producer)
+	consumer := newTestConsumerWithProducer(svc, &dummyCatalogStoreAdapter{w: newDummyCatalogItemWriter()}, producer)
 
 	err := consumer.handleImageExportUpdated(ctx, makeExportUpdateEvent(orgID, "export-converting"), consumer.log)
 	require.NoError(err)
@@ -163,7 +163,7 @@ func TestHandleImageExportUpdated_InvalidSource(t *testing.T) {
 		},
 	}
 	_, _ = svc.exports.Create(ctx, orgID, export)
-	consumer := newTestConsumer(svc, &dummyCatalogStoreAdapter{newDummyCatalogItemWriter()})
+	consumer := newTestConsumer(svc, &dummyCatalogStoreAdapter{w: newDummyCatalogItemWriter()})
 
 	err := consumer.handleImageExportUpdated(ctx, makeExportUpdateEvent(orgID, "export-invalid-src"), consumer.log)
 	require.NoError(err)
@@ -180,7 +180,7 @@ func TestHandleImageExportUpdated_CompletedNoPendingPromotions(t *testing.T) {
 	export := makeExportWithCondition("export-done", "build-1", api.ExportFormatTypeQCOW2, domain.ImageExportConditionReasonCompleted)
 	_, _ = svc.exports.Create(ctx, orgID, export)
 
-	consumer := newTestConsumer(svc, &dummyCatalogStoreAdapter{newDummyCatalogItemWriter()})
+	consumer := newTestConsumer(svc, &dummyCatalogStoreAdapter{w: newDummyCatalogItemWriter()})
 
 	err := consumer.handleImageExportUpdated(ctx, makeExportUpdateEvent(orgID, "export-done"), consumer.log)
 	require.NoError(err)
@@ -207,7 +207,7 @@ func TestHandleImageExportUpdated_CompletedTriggersPromotion(t *testing.T) {
 	_, _ = svc.promotions.Create(ctx, orgID, promotion)
 
 	producer := &recordingQueueProducer{}
-	consumer := newTestConsumerWithProducer(svc, &dummyCatalogStoreAdapter{newDummyCatalogItemWriter()}, producer)
+	consumer := newTestConsumerWithProducer(svc, &dummyCatalogStoreAdapter{w: newDummyCatalogItemWriter()}, producer)
 
 	err := consumer.handleImageExportUpdated(ctx, makeExportUpdateEvent(orgID, "export-done"), consumer.log)
 	require.NoError(err)
@@ -232,7 +232,7 @@ func TestHandleImageExportUpdated_EvaluationError(t *testing.T) {
 	// Inject an error into ListPendingForBuild so enqueuePromotionsForBuild fails.
 	svc.promotions.listPendingErr = errors.New("db error")
 
-	consumer := newTestConsumer(svc, &dummyCatalogStoreAdapter{newDummyCatalogItemWriter()})
+	consumer := newTestConsumer(svc, &dummyCatalogStoreAdapter{w: newDummyCatalogItemWriter()})
 
 	err := consumer.handleImageExportUpdated(ctx, makeExportUpdateEvent(orgID, "export-done"), consumer.log)
 	require.Error(err)

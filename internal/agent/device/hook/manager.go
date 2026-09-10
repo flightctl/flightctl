@@ -2,7 +2,9 @@ package hook
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -35,19 +37,27 @@ type Manager interface {
 	OnAfterUpdating(ctx context.Context, current *api.DeviceSpec, desired *api.DeviceSpec, systemRebooted bool) error
 	OnBeforeRebooting(ctx context.Context) error
 	OnAfterRebooting(ctx context.Context) error
+
+	// Enrollment hook methods — added by EDM-5701.
+	// Callers provide an EnrollmentContext with device metadata; the hook type
+	// string is set internally by each method.
+	OnBeforeEnrolling(ctx context.Context, enrollCtx *EnrollmentContext) error
+	OnAfterEnrolling(ctx context.Context, enrollCtx *EnrollmentContext) error
 }
 
 type manager struct {
-	log    *log.PrefixLogger
-	reader fileio.Reader
-	exec   executer.Executer
+	log        *log.PrefixLogger
+	readWriter fileio.ReadWriter
+	exec       executer.Executer
 }
 
-func NewManager(reader fileio.Reader, exec executer.Executer, log *log.PrefixLogger) Manager {
+// NewManager creates a hook manager. The readWriter provides both read access
+// for loading hook YAML and write access for writing hook-context.json.
+func NewManager(readWriter fileio.ReadWriter, exec executer.Executer, log *log.PrefixLogger) Manager {
 	return &manager{
-		log:    log,
-		reader: reader,
-		exec:   exec,
+		log:        log,
+		readWriter: readWriter,
+		exec:       exec,
 	}
 }
 
@@ -76,6 +86,69 @@ func (m *manager) OnAfterRebooting(ctx context.Context) error {
 	return m.loadAndExecuteActions(ctx, actionCtx)
 }
 
+// OnBeforeEnrolling writes hook-context.json, then runs BeforeEnrolling hooks
+// from both the image and /etc overlay directories. After execution, it
+// populates enrollCtx result fields (Success, Output, HookLabels).
+func (m *manager) OnBeforeEnrolling(ctx context.Context, enrollCtx *EnrollmentContext) error {
+	hookType := api.DeviceLifecycleHookBeforeEnrolling
+
+	// Write hook-context.json and get JSON bytes for env var injection
+	jsonBytes, err := writeHookContext(m.readWriter, string(hookType), enrollCtx)
+	if err != nil {
+		return fmt.Errorf("writing hook context for %s: %w", hookType, err)
+	}
+
+	actionCtx := newEnrollmentActionContext(hookType, string(jsonBytes))
+
+	if err := m.readWriter.RemoveFile(HookLabelsPath); err != nil {
+		return fmt.Errorf("clearing stale hook labels: %w", err)
+	}
+
+	// BeforeEnrolling loads from both image and /etc overlay dirs
+	execErr := m.loadAndExecuteActionsFromDirs(ctx, actionCtx, []string{ReadOnlyConfigDir, UserWritableConfigDir})
+
+	// Populate result fields regardless of execution outcome
+	enrollCtx.Actions = actionCtx.actionResults
+	enrollCtx.Success = execErr == nil
+
+	// Read hook labels if the hooks wrote them
+	enrollCtx.HookLabels = m.readHookLabels()
+
+	return execErr
+}
+
+// OnAfterEnrolling writes hook-context.json, then runs AfterEnrolling hooks
+// from the image directory only (no /etc overlay per design §4.2).
+func (m *manager) OnAfterEnrolling(ctx context.Context, enrollCtx *EnrollmentContext) error {
+	hookType := api.DeviceLifecycleHookAfterEnrolling
+
+	// Write hook-context.json and get JSON bytes for env var injection
+	jsonBytes, err := writeHookContext(m.readWriter, string(hookType), enrollCtx)
+	if err != nil {
+		return fmt.Errorf("writing hook context for %s: %w", hookType, err)
+	}
+
+	actionCtx := newEnrollmentActionContext(hookType, string(jsonBytes))
+
+	// 1.4: AfterEnrolling image-only per design §4.2 — no /etc overlay
+	return m.loadAndExecuteActionsFromDirs(ctx, actionCtx, []string{ReadOnlyConfigDir})
+}
+
+// loadAndExecuteActionsFromDirs loads hook actions from the given config roots
+// and executes them in order for the hook type in actionCtx.
+func (m *manager) loadAndExecuteActionsFromDirs(ctx context.Context, actionCtx *actionContext, dirs []string) error {
+	m.log.Debugf("Starting hook manager On%s()", actionCtx.hook)
+	defer m.log.Debugf("Finished hook manager On%s()", actionCtx.hook)
+
+	actions, err := m.loadAndMergeActionsFromDirs(actionCtx.hook, dirs)
+	if err != nil {
+		return err
+	}
+	return m.executeActions(ctx, actions, actionCtx)
+}
+
+// loadAndExecuteActions loads hook actions from the default config directories
+// and executes them in order for the hook type in actionCtx.
 func (m *manager) loadAndExecuteActions(ctx context.Context, actionCtx *actionContext) error {
 	m.log.Debugf("Starting hook manager On%s()", actionCtx.hook)
 	defer m.log.Debugf("Finished hook manager On%s()", actionCtx.hook)
@@ -87,17 +160,31 @@ func (m *manager) loadAndExecuteActions(ctx context.Context, actionCtx *actionCo
 	return m.executeActions(ctx, actions, actionCtx)
 }
 
-func (m *manager) loadAndMergeActions(hookType api.DeviceLifecycleHookType) ([]api.HookAction, error) {
-	actionsMap := map[string][]api.HookAction{}
-	// Read actions from the read-only hooks directory (/usr/lib/flightctl/hooks.d/${hookType}/*.yaml)
-	err := m.loadActions(actionsMap, filepath.Join(ReadOnlyConfigDir, HooksDropInDirName, strings.ToLower(string(hookType)), "*.yaml"))
-	if err != nil {
-		return nil, err
-	}
-	// Overlay actions from the user-writable hooks directory (/etc/flightctl/hooks.d/${hookType}/*.yaml)
-	err = m.loadActions(actionsMap, filepath.Join(UserWritableConfigDir, HooksDropInDirName, strings.ToLower(string(hookType)), "*.yaml"))
-	if err != nil {
-		return nil, err
+// loadAndMergeActions loads and merges hook actions from the default config
+// directories (ReadOnlyConfigDir and UserWritableConfigDir).
+func (m *manager) loadAndMergeActions(hookType api.DeviceLifecycleHookType) ([]sourcedHookAction, error) {
+	return m.loadAndMergeActionsFromDirs(hookType, []string{ReadOnlyConfigDir, UserWritableConfigDir})
+}
+
+type hookFileActions struct {
+	source  string
+	actions []api.HookAction
+}
+
+type sourcedHookAction struct {
+	source string
+	action api.HookAction
+}
+
+// loadAndMergeActionsFromDirs loads hook YAML from the specified base directories,
+// merges them in lexical order, and returns the flattened action list.
+// Each dir is expected to contain hooks.d/<hooktype>/*.yaml.
+func (m *manager) loadAndMergeActionsFromDirs(hookType api.DeviceLifecycleHookType, dirs []string) ([]sourcedHookAction, error) {
+	actionsMap := map[string]hookFileActions{}
+	for _, dir := range dirs {
+		if err := m.loadActions(actionsMap, hookType, dir); err != nil {
+			return nil, err
+		}
 	}
 	// Sort files containing actions in lexical order, then flatten actionMap into a list of actions in that order
 	keyList := make([]string, 0, len(actionsMap))
@@ -105,15 +192,26 @@ func (m *manager) loadAndMergeActions(hookType api.DeviceLifecycleHookType) ([]a
 		keyList = append(keyList, k)
 	}
 	sort.Strings(keyList)
-	actions := []api.HookAction{}
+	actions := []sourcedHookAction{}
 	for _, k := range keyList {
-		actions = append(actions, actionsMap[k]...)
+		fileActions := actionsMap[k]
+		for _, action := range fileActions.actions {
+			actions = append(actions, sourcedHookAction{
+				source: fileActions.source,
+				action: action,
+			})
+		}
 	}
 	return actions, nil
 }
 
-func (m *manager) loadActions(actionsMap map[string][]api.HookAction, actionFilesGlob string) error {
-	actionFiles, err := filepath.Glob(m.reader.PathFor(actionFilesGlob))
+// loadActions reads hook YAML files from configDir, parses and validates them,
+// and stores the resulting actions in actionsMap keyed by filename.
+// Later directories replace earlier entries with the same filename (overlay semantics).
+func (m *manager) loadActions(actionsMap map[string]hookFileActions, hookType api.DeviceLifecycleHookType, configDir string) error {
+	hookDir := filepath.Join(configDir, HooksDropInDirName, strings.ToLower(string(hookType)))
+	actionFilesGlob := filepath.Join(hookDir, "*.yaml")
+	actionFiles, err := filepath.Glob(m.readWriter.PathFor(actionFilesGlob))
 	if err != nil {
 		return fmt.Errorf("%w: actions matching %q: %w", errors.ErrLookingForHook, actionFilesGlob, err)
 	}
@@ -133,13 +231,18 @@ func (m *manager) loadActions(actionsMap map[string][]api.HookAction, actionFile
 		if len(allErrs) > 0 {
 			return errors.Join(allErrs...)
 		}
-		actionsMap[filepath.Base(f)] = actions
+		sourcePath := filepath.Join(hookDir, filepath.Base(f))
+		actionsMap[filepath.Base(f)] = hookFileActions{
+			source:  sourcePath,
+			actions: actions,
+		}
 	}
 	return nil
 }
 
-func (m *manager) executeActions(ctx context.Context, actions []api.HookAction, actionCtx *actionContext) error {
-	for i, action := range actions {
+func (m *manager) executeActions(ctx context.Context, actions []sourcedHookAction, actionCtx *actionContext) error {
+	for i, sourced := range actions {
+		action := sourced.action
 		if err := checkActionDependency(action); err != nil {
 			m.log.Debugf("Skipping %s hook action #%d: dependencies not met: %v", actionCtx.hook, i+1, err)
 			continue
@@ -166,9 +269,44 @@ func (m *manager) executeActions(ctx context.Context, actions []api.HookAction, 
 		if err != nil {
 			return err
 		}
+		actionCtx.actionSource = sourced.source
 		if err := executeAction(ctx, m.exec, m.log, action, actionCtx, actionTimeout); err != nil {
 			return fmt.Errorf("%w: %s hook action #%d: %w", errors.ErrFailedToExecute, actionCtx.hook, i+1, err)
 		}
+		actionCtx.actionSource = ""
 	}
 	return nil
+}
+
+// readHookLabels reads labels from HookLabelsPath if the file exists.
+// Returns nil if the file does not exist or cannot be parsed.
+func (m *manager) readHookLabels() map[string]string {
+	path := m.readWriter.PathFor(HookLabelsPath)
+	file, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		m.log.Warnf("Failed to read hook labels from %s: %v", HookLabelsPath, err)
+		return nil
+	}
+	defer file.Close()
+
+	limited := io.LimitReader(file, int64(MaxHookLabelsFileSize)+1)
+	data, err := io.ReadAll(limited)
+	if err != nil {
+		m.log.Warnf("Failed to read hook labels from %s: %v", HookLabelsPath, err)
+		return nil
+	}
+	if len(data) > MaxHookLabelsFileSize {
+		m.log.Warnf("Hook labels file %s exceeds size limit (%d bytes)", HookLabelsPath, MaxHookLabelsFileSize)
+		return nil
+	}
+
+	var labels map[string]string
+	if err := json.Unmarshal(data, &labels); err != nil {
+		m.log.Warnf("Failed to parse hook labels from %s: %v", HookLabelsPath, err)
+		return nil
+	}
+	return labels
 }

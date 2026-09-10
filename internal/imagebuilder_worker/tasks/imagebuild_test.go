@@ -10,16 +10,17 @@ import (
 	api "github.com/flightctl/flightctl/api/imagebuilder/v1alpha1"
 	"github.com/flightctl/flightctl/internal/crypto"
 	coredomain "github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/flterrors"
-	"github.com/flightctl/flightctl/internal/store"
+	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 )
 
-// mockRepositoryStore is a mock implementation of repositorystore.Store for testing
+// mockRepositoryStore is a mock implementation of repositoryservice.Service for testing
 type mockRepositoryStore struct {
+	repositoryservice.Service
 	repositories map[string]*v1beta1.Repository
 }
 
@@ -29,44 +30,12 @@ func newMockRepositoryStore() *mockRepositoryStore {
 	}
 }
 
-func (m *mockRepositoryStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*v1beta1.Repository, error) {
+func (m *mockRepositoryStore) GetRepository(ctx context.Context, orgId uuid.UUID, name string) (*coredomain.Repository, coredomain.Status) {
 	repo, ok := m.repositories[name]
 	if !ok {
-		return nil, flterrors.ErrResourceNotFound
+		return nil, coredomain.StatusResourceNotFound(coredomain.RepositoryKind, name)
 	}
-	return repo, nil
-}
-
-func (m *mockRepositoryStore) InitialMigration(context.Context) error { return nil }
-func (m *mockRepositoryStore) Create(context.Context, uuid.UUID, *v1beta1.Repository) (*v1beta1.Repository, error) {
-	return nil, nil
-}
-func (m *mockRepositoryStore) Update(context.Context, uuid.UUID, *v1beta1.Repository) (*v1beta1.Repository, *v1beta1.Repository, error) {
-	return nil, nil, nil
-}
-func (m *mockRepositoryStore) CreateOrUpdate(context.Context, uuid.UUID, *v1beta1.Repository) (*v1beta1.Repository, *v1beta1.Repository, bool, error) {
-	return nil, nil, false, nil
-}
-func (m *mockRepositoryStore) List(context.Context, uuid.UUID, store.ListParams) (*v1beta1.RepositoryList, error) {
-	return nil, nil
-}
-func (m *mockRepositoryStore) Delete(context.Context, uuid.UUID, string) (bool, error) {
-	return false, nil
-}
-func (m *mockRepositoryStore) UpdateStatus(context.Context, uuid.UUID, *v1beta1.Repository) (*v1beta1.Repository, *v1beta1.Repository, error) {
-	return nil, nil, nil
-}
-func (m *mockRepositoryStore) GetFleetRefs(context.Context, uuid.UUID, string) (*v1beta1.FleetList, error) {
-	return nil, nil
-}
-func (m *mockRepositoryStore) GetDeviceRefs(context.Context, uuid.UUID, string) (*v1beta1.DeviceList, error) {
-	return nil, nil
-}
-func (m *mockRepositoryStore) Count(context.Context, uuid.UUID, store.ListParams) (int64, error) {
-	return 0, nil
-}
-func (m *mockRepositoryStore) CountByOrg(context.Context, *uuid.UUID) ([]store.CountByOrgResult, error) {
-	return nil, nil
+	return repo, coredomain.StatusOK()
 }
 func (m *mockRepositoryStore) GetDeltaStorageTarget(context.Context, uuid.UUID) (*v1beta1.Repository, error) {
 	return nil, nil
@@ -467,6 +436,45 @@ func TestContainerfileTemplate_OnboardingARG(t *testing.T) {
 	require.Contains(t, containerfileTemplate, "flightctl-onboarding", "Template should reference flightctl-onboarding package")
 	require.Contains(t, containerfileTemplate, "flightctl-onboarding-setup.service", "Template should enable flightctl-onboarding-setup.service")
 	require.Contains(t, containerfileTemplate, "$PACKAGES", "Template should use $PACKAGES variable for install")
+}
+
+func TestNofileUlimitArgs_ReflectsCurrentRlimit(t *testing.T) {
+	var want unix.Rlimit
+	err := unix.Getrlimit(unix.RLIMIT_NOFILE, &want)
+	require.NoError(t, err)
+
+	args := nofileUlimitArgs(log.InitLogs())
+
+	require.Equal(t, []string{"--ulimit", formatNofileUlimit(want)}, args)
+}
+
+func TestFormatNofileUlimit(t *testing.T) {
+	tests := []struct {
+		name  string
+		limit unix.Rlimit
+		want  string
+	}{
+		{
+			name:  "finite hard limit",
+			limit: unix.Rlimit{Cur: 1024, Max: 4096},
+			want:  "nofile=1024:4096",
+		},
+		{
+			name:  "soft equals hard (typical Kubernetes case)",
+			limit: unix.Rlimit{Cur: 1048576, Max: 1048576},
+			want:  "nofile=1048576:1048576",
+		},
+		{
+			name:  "infinite hard limit is capped to the soft limit",
+			limit: unix.Rlimit{Cur: 1024, Max: unix.RLIM_INFINITY},
+			want:  "nofile=1024:1024",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, formatNofileUlimit(tt.limit))
+		})
+	}
 }
 
 func TestInstallCACertInWorker_NilCaCrt(t *testing.T) {

@@ -10,8 +10,8 @@ SCRIPT_NAME=$(basename "$0")
 # Constants
 #
 
-# Greenboot configuration file path
-GREENBOOT_CONF="/etc/greenboot/greenboot.conf"
+# Greenboot configuration file path (override in tests via GREENBOOT_CONF)
+GREENBOOT_CONF="${GREENBOOT_CONF:-/etc/greenboot/greenboot.conf}"
 
 #
 # Logging
@@ -55,48 +55,4 @@ collect_debug_info() {
 
     log_info "Recent journal entries:"
     journalctl -u flightctl-agent.service -n 50 --no-pager 2>&1 || true
-}
-
-#
-# Greenboot configuration (used by flightctl-configure-greenboot.service)
-#
-
-# Find third-party application health check scripts in required.d directories
-# Preserves core greenboot scripts and flightctl scripts
-find_third_party_scripts() {
-    local scripts=""
-    for dir in /usr/lib/greenboot/check/required.d /etc/greenboot/check/required.d; do
-        [ -d "$dir" ] || continue
-        for script in "$dir"/*.sh; do
-            [ -f "$script" ] || continue
-            local name
-            name=$(basename "$script")
-            # Skip flightctl's own health check scripts
-            case "$name" in
-                *flightctl*) continue ;;
-            esac
-            # Skip core greenboot scripts (from greenboot package)
-            case "$name" in
-                00_required_scripts_start.sh) continue ;;
-                01_repository_dns_check.sh) continue ;;
-                02_watchdog.sh) continue ;;
-            esac
-            scripts="$scripts \"$name\""
-        done
-    done
-    echo "$scripts"
-}
-
-# Set DISABLED_HEALTHCHECKS in greenboot.conf
-set_disabled_healthchecks() {
-    local disabled_scripts="$1"
-
-    mkdir -p "$(dirname "$GREENBOOT_CONF")"
-    touch "$GREENBOOT_CONF"
-
-    # Remove existing DISABLED_HEALTHCHECKS line and add new one
-    local tmp_conf="$GREENBOOT_CONF.tmp.$$"
-    grep -v '^DISABLED_HEALTHCHECKS=' "$GREENBOOT_CONF" > "$tmp_conf" 2>/dev/null || true
-    echo "DISABLED_HEALTHCHECKS=($disabled_scripts)" >> "$tmp_conf"
-    mv "$tmp_conf" "$GREENBOOT_CONF"
 }

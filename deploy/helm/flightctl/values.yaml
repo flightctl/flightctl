@@ -314,6 +314,8 @@ worker:
     pullPolicy: ""
   # -- Allow flightctl-worker to access secrets at the cluster level for embedding in device configs
   clusterLevelSecretAccess: false
+  # -- Time budget for a single device render operation including VM conversion and DB writes (default "60s")
+  renderTimeout: "60s"
   # -- VM application render options passed to vm-to-quadlet
   vmRender:
     # -- virt-launcher image used when converting VmApplications to Quadlet units (leave empty to use the worker default)
@@ -322,6 +324,24 @@ worker:
     launcherImages: {}
     # -- Enable passt networking workarounds for older virt-launcher images (default false; enable only for older images)
     passtWorkarounds: false
+
+# -- Delta-worker Configuration
+deltaWorker:
+  image:
+    # -- Delta-worker container image
+    image: quay.io/flightctl/flightctl-delta-worker-el9
+    # -- Delta-worker image tag
+    tag: ""
+    # -- Image pull policy for delta-worker container
+    pullPolicy: ""
+  # -- Resource requests and limits for the delta-worker container
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "2"
+      memory: "2Gi"
 
 # -- Periodic Configuration
 periodic:
@@ -630,6 +650,10 @@ deltaGeneration:
     caCrt: ""
     # -- Name of the Kubernetes Secret containing 'username' and 'password' keys.
     secretName: ""
+  # -- Maximum number of concurrent delta generation jobs. Defaults to 2 when omitted or <= 0.
+  maxConcurrentDeltaGenerations: 2
+  # -- Per-job timeout for oci-delta/ORAS. Defaults to 30m when omitted or <= 0.
+  timeout: 30m
 
 # -- Upgrade hooks
 upgradeHooks:
@@ -640,6 +664,7 @@ upgradeHooks:
     deployments:
       - flightctl-periodic
       - flightctl-worker
+      - flightctl-delta-worker
     # -- Timeout in seconds to wait for rollout per Deployment
     timeoutSeconds: 120
   # -- Enable pre-upgrade DB migration dry-run as a hook

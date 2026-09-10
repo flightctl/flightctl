@@ -85,21 +85,6 @@ func (mr *MockServiceMockRecorder) DeleteEnrollmentRequest(ctx, orgId, name any)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteEnrollmentRequest", reflect.TypeOf((*MockService)(nil).DeleteEnrollmentRequest), ctx, orgId, name)
 }
 
-// GetEnrollmentConfig mocks base method.
-func (m *MockService) GetEnrollmentConfig(ctx context.Context, orgId uuid.UUID, params domain.GetEnrollmentConfigParams) (*domain.EnrollmentConfig, domain.Status) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetEnrollmentConfig", ctx, orgId, params)
-	ret0, _ := ret[0].(*domain.EnrollmentConfig)
-	ret1, _ := ret[1].(domain.Status)
-	return ret0, ret1
-}
-
-// GetEnrollmentConfig indicates an expected call of GetEnrollmentConfig.
-func (mr *MockServiceMockRecorder) GetEnrollmentConfig(ctx, orgId, params any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetEnrollmentConfig", reflect.TypeOf((*MockService)(nil).GetEnrollmentConfig), ctx, orgId, params)
-}
-
 // GetEnrollmentRequest mocks base method.
 func (m *MockService) GetEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string) (*domain.EnrollmentRequest, domain.Status) {
 	m.ctrl.T.Helper()

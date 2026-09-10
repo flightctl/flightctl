@@ -156,8 +156,10 @@ const (
 
 // Defines values for DeviceLifecycleHookType.
 const (
+	DeviceLifecycleHookAfterEnrolling  DeviceLifecycleHookType = "AfterEnrolling"
 	DeviceLifecycleHookAfterRebooting  DeviceLifecycleHookType = "AfterRebooting"
 	DeviceLifecycleHookAfterUpdating   DeviceLifecycleHookType = "AfterUpdating"
+	DeviceLifecycleHookBeforeEnrolling DeviceLifecycleHookType = "BeforeEnrolling"
 	DeviceLifecycleHookBeforeRebooting DeviceLifecycleHookType = "BeforeRebooting"
 	DeviceLifecycleHookBeforeUpdating  DeviceLifecycleHookType = "BeforeUpdating"
 )
@@ -235,6 +237,7 @@ const (
 // Defines values for EventReason.
 const (
 	EventReasonApplicationLifecycleChanged     EventReason = "ApplicationLifecycleChanged"
+	EventReasonDeltaGenerationCompleted        EventReason = "DeltaGenerationCompleted"
 	EventReasonDependencyChangeDetected        EventReason = "DependencyChangeDetected"
 	EventReasonDependencySyncProbeFailed       EventReason = "DependencySyncProbeFailed"
 	EventReasonDeviceApplicationDegraded       EventReason = "DeviceApplicationDegraded"
@@ -283,6 +286,7 @@ const (
 	EventReasonFleetValid                      EventReason = "FleetValid"
 	EventReasonInternalTaskFailed              EventReason = "InternalTaskFailed"
 	EventReasonInternalTaskPermanentlyFailed   EventReason = "InternalTaskPermanentlyFailed"
+	EventReasonPrepareDeltas                   EventReason = "PrepareDeltas"
 	EventReasonReferencedRepositoryUpdated     EventReason = "ReferencedRepositoryUpdated"
 	EventReasonRepositoryAccessible            EventReason = "RepositoryAccessible"
 	EventReasonRepositoryInaccessible          EventReason = "RepositoryInaccessible"
@@ -450,6 +454,11 @@ const (
 	Remove  PatchRequestOp = "remove"
 	Replace PatchRequestOp = "replace"
 	Test    PatchRequestOp = "test"
+)
+
+// Defines values for PrepareDeltasDetailsDetailType.
+const (
+	PrepareDeltas PrepareDeltasDetailsDetailType = "PrepareDeltas"
 )
 
 // Defines values for ReferencedRepositoryUpdatedDetailsDetailType.
@@ -1818,6 +1827,9 @@ type EnrollmentRequestSpec struct {
 
 	// OsMode OS management mode. "image" indicates the OS is managed via bootc or rpm-ostree image updates. "package" indicates no image-based OS management is available.
 	OsMode *OsModeType `json:"osMode,omitempty"`
+
+	// PreEnrollment Result of pre-enrollment hook execution, agent-populated.
+	PreEnrollment *PreEnrollmentResult `json:"preEnrollment,omitempty"`
 }
 
 // EnrollmentRequestStatus EnrollmentRequestStatus represents information about the status of a EnrollmentRequest.
@@ -2846,6 +2858,39 @@ type PermissionList struct {
 	// Permissions List of permissions available to the user.
 	Permissions []Permission `json:"permissions"`
 }
+
+// PreEnrollmentActionResult Result of a single executed pre-enrollment hook action, agent-populated.
+type PreEnrollmentActionResult struct {
+	// ExitCode Process exit code from the hook action.
+	ExitCode int `json:"exitCode"`
+
+	// Output Redacted stdout/stderr from this action. The total size across all actions is capped at 4KiB. Secret patterns (PEM blocks, Bearer prefixes, known token env names) are redacted before persistence.
+	Output *string `json:"output,omitempty"`
+
+	// Source Path to the hook definition YAML that contained this action (for example /etc/flightctl/hooks.d/beforeenrolling/10-network.yaml).
+	Source string `json:"source"`
+}
+
+// PreEnrollmentResult Result of pre-enrollment hook execution, agent-populated.
+type PreEnrollmentResult struct {
+	// Actions Per-action results in execution order.
+	Actions *[]PreEnrollmentActionResult `json:"actions,omitempty"`
+
+	// Success Whether all pre-enrollment hooks completed with exit code 0.
+	Success bool `json:"success"`
+}
+
+// PrepareDeltasDetails Structured details for PrepareDeltas events.
+type PrepareDeltasDetails struct {
+	// DetailType The type of detail for discriminator purposes.
+	DetailType PrepareDeltasDetailsDetailType `json:"detailType"`
+
+	// TemplateVersion Fleet only. The TemplateVersion this prepare is for. Required when involvedObject.kind is Fleet; omitted for Device.
+	TemplateVersion *string `json:"templateVersion,omitempty"`
+}
+
+// PrepareDeltasDetailsDetailType The type of detail for discriminator purposes.
+type PrepareDeltasDetailsDetailType string
 
 // QuadletApplication defines model for QuadletApplication.
 type QuadletApplication struct {
@@ -5763,6 +5808,34 @@ func (t *EventDetails) MergeApplicationLifecycleChangedDetails(v ApplicationLife
 	return err
 }
 
+// AsPrepareDeltasDetails returns the union data inside the EventDetails as a PrepareDeltasDetails
+func (t EventDetails) AsPrepareDeltasDetails() (PrepareDeltasDetails, error) {
+	var body PrepareDeltasDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromPrepareDeltasDetails overwrites any union data inside the EventDetails as the provided PrepareDeltasDetails
+func (t *EventDetails) FromPrepareDeltasDetails(v PrepareDeltasDetails) error {
+	v.DetailType = "PrepareDeltas"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergePrepareDeltasDetails performs a merge with any union data inside the EventDetails, using the provided PrepareDeltasDetails
+func (t *EventDetails) MergePrepareDeltasDetails(v PrepareDeltasDetails) error {
+	v.DetailType = "PrepareDeltas"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 func (t EventDetails) Discriminator() (string, error) {
 	var discriminator struct {
 		Discriminator string `json:"detailType"`
@@ -5807,6 +5880,8 @@ func (t EventDetails) ValueByDiscriminator() (interface{}, error) {
 		return t.AsInternalTaskFailedDetails()
 	case "InternalTaskPermanentlyFailed":
 		return t.AsInternalTaskPermanentlyFailedDetails()
+	case "PrepareDeltas":
+		return t.AsPrepareDeltasDetails()
 	case "ReferencedRepositoryUpdated":
 		return t.AsReferencedRepositoryUpdatedDetails()
 	case "ResourceSyncCompleted":

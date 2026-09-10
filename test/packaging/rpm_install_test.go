@@ -165,7 +165,6 @@ func TestImageModeInstall(t *testing.T) {
 	c.assertInstalled("greenboot")
 	c.assertFileExists("/usr/libexec/flightctl/mask-bootc-timer.sh")
 	c.assertFileExists("/usr/lib/greenboot/check/required.d/20_check_flightctl_agent.sh")
-	c.assertFileExists("/usr/lib/systemd/system/flightctl-configure-greenboot.service")
 }
 
 // AC-3: Upgrade path — RPM metadata proves the Recommends + version-lock mechanism

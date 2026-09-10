@@ -19,7 +19,9 @@ tag=$(git -c "versionsort.suffix=-rc" tag --points-at HEAD --sort version:refnam
 # base commit and re-attach the distance and hash suffix.
 if [[ -z "$tag" ]]; then
   nearest_tag=$(git describe --tags --always --first-parent --match 'v*' --abbrev=0 2>/dev/null)
-  full_describe=$(git describe --tags --always --first-parent --match 'v*' 2>/dev/null)
+  # Shorten only the full describe hash; preserve the tag, distance, and any dirty suffix.
+  full_describe=$(git describe --tags --always --first-parent --match 'v*' --abbrev=40 2>/dev/null |
+    sed -E 's/(-[0-9]+-g[0-9a-f]{9})[0-9a-f]+(-dirty)?$/\1\2/; s/^([0-9a-f]{9})[0-9a-f]+(-dirty)?$/\1\2/')
   base_commit=$(git rev-parse "$nearest_tag"^{commit})
   best_tag=$(git -c "versionsort.suffix=-rc" tag --points-at "$base_commit" --sort version:refname -l 'v*' | tail -n 1)
   if [[ -n "$best_tag" ]]; then
