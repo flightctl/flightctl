@@ -71,6 +71,9 @@ type Store interface {
 	// UpdateStatus writes status + resource_version only (service_conditions unchanged).
 	// previous is optional (first attempt only). No events; caller uses before/updated.
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, previous *domain.Device) (updated *domain.Device, before *domain.Device, err error)
+	// ReplaceServiceOwnedStatus writes service_conditions from the device's
+	// service-owned status fields. Agent status JSON is unchanged.
+	ReplaceServiceOwnedStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device) (updated *domain.Device, before *domain.Device, err error)
 	// UpdateAnnotations merges annotations (and applies deleteKeys) via Mutate.
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error)
@@ -614,6 +617,49 @@ func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, device 
 		// Shallow copy: Metadata is a value type, so reassigning next.Metadata.ResourceVersion
 		// below doesn't touch before.Metadata.ResourceVersion; Status is fully replaced, not
 		// mutated in place.
+		next := *current
+		next.Status = device.Status
+		next.Metadata.ResourceVersion = lo.ToPtr(strconv.FormatInt(rv+1, 10))
+		updated = &next
+		return false, nil
+	})
+	return updated, before, err
+}
+
+func (s *DeviceStore) ReplaceServiceOwnedStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device) (*domain.Device, *domain.Device, error) {
+	if device == nil {
+		return nil, nil, flterrors.ErrResourceIsNil
+	}
+	name := lo.FromPtr(device.Metadata.Name)
+	fromAPI, err := model.NewDeviceFromApiResource(device)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var before, updated *domain.Device
+	err = store.RetryUpdate(func() (bool, error) {
+		current, getErr := s.getWithTimestamp(ctx, orgId, name)
+		if getErr != nil {
+			return false, getErr
+		}
+		before = current
+
+		rv, rvErr := strconv.ParseInt(lo.FromPtr(current.Metadata.ResourceVersion), 10, 64)
+		if rvErr != nil {
+			return false, flterrors.ErrIllegalResourceVersionFormat
+		}
+		existing := &model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
+		result := s.getDB(ctx).Model(existing).Where("resource_version = ?", rv).Updates(map[string]interface{}{
+			"service_conditions": fromAPI.ServiceConditions,
+			"resource_version":   gorm.Expr("resource_version + 1"),
+		})
+		if result.Error != nil {
+			err := store.ErrorFromGormError(result.Error)
+			return strings.Contains(err.Error(), "deadlock"), err
+		}
+		if result.RowsAffected == 0 {
+			return true, flterrors.ErrNoRowsUpdated
+		}
 		next := *current
 		next.Status = device.Status
 		next.Metadata.ResourceVersion = lo.ToPtr(strconv.FormatInt(rv+1, 10))

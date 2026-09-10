@@ -76,6 +76,18 @@ func (_d *TracedService) DeleteRepository(ctx context.Context, orgId uuid.UUID, 
 	return s1
 }
 
+func (_d *TracedService) GetDeltaStorageTarget(ctx context.Context, orgId uuid.UUID) (rp1 *domain.Repository, err error) {
+	ctx, span := startSpan(ctx, "GetDeltaStorageTarget")
+
+	rp1, err = _d.inner.GetDeltaStorageTarget(ctx, orgId)
+	st := domain.StatusOK()
+	if err != nil {
+		st = domain.StatusInternalServerError(err.Error())
+	}
+	endSpan(span, st)
+	return rp1, err
+}
+
 func (_d *TracedService) GetRepository(ctx context.Context, orgId uuid.UUID, name string) (rp1 *domain.Repository, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "GetRepository")
 
