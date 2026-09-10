@@ -24,7 +24,7 @@ func TestDeltaCandidates_SkipPaths(t *testing.T) {
 			Fleet: func(_ context.Context, _ uuid.UUID, _ string) (*domain.Fleet, error) {
 				return &domain.Fleet{
 					Spec: domain.FleetSpec{
-						RolloutPolicy: &domain.RolloutPolicy{GenerateDelta: lo.ToPtr(false)},
+						RolloutPolicy: &domain.RolloutPolicy{DeltaConfiguration: &domain.DeltaConfiguration{GenerateDelta: lo.ToPtr(false)}},
 					},
 				}, nil
 			},
@@ -290,7 +290,7 @@ func TestDeltaCandidates_ResolveOSFromUnsavedRender(t *testing.T) {
 			Render: func(_ context.Context, spec *domain.DeviceSpec) (tasks.RenderedSpec, error) {
 				return tasks.RenderedSpec{OsImage: spec.Os.Image}, nil
 			},
-			Inspect: func(_ context.Context, image string) (string, error) {
+			Inspect: func(_ context.Context, _ uuid.UUID, image string) (string, error) {
 				if image != newImage {
 					return "", fmt.Errorf("unexpected image %s", image)
 				}
@@ -383,18 +383,16 @@ func TestDeltaCandidates_ResolveOSFromUnsavedRender(t *testing.T) {
 		require.Len(t, result.Candidates, 1)
 	})
 
-	t.Run("When inspect fails it should omit the device", func(t *testing.T) {
+	t.Run("When inspect fails it should fail the call", func(t *testing.T) {
 		r := baseResolver()
 		r.Devices = func(_ context.Context, _ uuid.UUID, _ string) ([]*domain.Device, error) {
 			return []*domain.Device{deviceWithOS("d1", true, currentDig)}, nil
 		}
-		r.Inspect = func(_ context.Context, _ string) (string, error) {
+		r.Inspect = func(_ context.Context, _ uuid.UUID, _ string) (string, error) {
 			return "", fmt.Errorf("registry down")
 		}
-		result, err := r.DeltaCandidates(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
-		require.NoError(t, err)
-		assert.True(t, result.Skip)
-		assert.Empty(t, result.Candidates)
+		_, err := r.DeltaCandidates(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
+		require.Error(t, err)
 	})
 
 	t.Run("When fleet details omit templateVersion it should fail", func(t *testing.T) {
@@ -433,7 +431,7 @@ func TestDeltaCandidates_ResolveOSFromUnsavedRender(t *testing.T) {
 			}
 			return tasks.RenderedSpec{OsImage: newImage}, nil
 		}
-		r.Inspect = func(_ context.Context, _ string) (string, error) {
+		r.Inspect = func(_ context.Context, _ uuid.UUID, _ string) (string, error) {
 			return newDig, nil
 		}
 		result, err := r.DeltaCandidates(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
@@ -451,7 +449,7 @@ func TestDeltaCandidates_ResolveOSFromUnsavedRender(t *testing.T) {
 		r.Render = func(_ context.Context, _ *domain.DeviceSpec) (tasks.RenderedSpec, error) {
 			return tasks.RenderedSpec{OsImage: "not a valid image!!!"}, nil
 		}
-		r.Inspect = func(_ context.Context, _ string) (string, error) {
+		r.Inspect = func(_ context.Context, _ uuid.UUID, _ string) (string, error) {
 			t.Fatal("inspect must not run for an unparseable image")
 			return newDig, nil
 		}
@@ -548,7 +546,7 @@ func TestDeltaCandidates_DedupInOrg(t *testing.T) {
 		Render: func(_ context.Context, spec *domain.DeviceSpec) (tasks.RenderedSpec, error) {
 			return tasks.RenderedSpec{OsImage: spec.Os.Image}, nil
 		},
-		Inspect: func(_ context.Context, _ string) (string, error) {
+		Inspect: func(_ context.Context, _ uuid.UUID, _ string) (string, error) {
 			return newDig, nil
 		},
 	}

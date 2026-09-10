@@ -100,6 +100,21 @@ func (mr *MockServiceMockRecorder) DeleteRepository(ctx, orgId, name any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRepository", reflect.TypeOf((*MockService)(nil).DeleteRepository), ctx, orgId, name)
 }
 
+// GetDeltaStorageTarget mocks base method.
+func (m *MockService) GetDeltaStorageTarget(ctx context.Context, orgId uuid.UUID) (*domain.Repository, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDeltaStorageTarget", ctx, orgId)
+	ret0, _ := ret[0].(*domain.Repository)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetDeltaStorageTarget indicates an expected call of GetDeltaStorageTarget.
+func (mr *MockServiceMockRecorder) GetDeltaStorageTarget(ctx, orgId any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeltaStorageTarget", reflect.TypeOf((*MockService)(nil).GetDeltaStorageTarget), ctx, orgId)
+}
+
 // GetRepository mocks base method.
 func (m *MockService) GetRepository(ctx context.Context, orgId uuid.UUID, name string) (*domain.Repository, domain.Status) {
 	m.ctrl.T.Helper()

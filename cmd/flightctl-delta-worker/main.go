@@ -17,9 +17,21 @@ import (
 	instpprof "github.com/flightctl/flightctl/internal/instrumentation/pprof"
 	"github.com/flightctl/flightctl/internal/instrumentation/profiling"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
+	"github.com/flightctl/flightctl/internal/kvstore"
 	canaryservice "github.com/flightctl/flightctl/internal/service/canary"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	eventservice "github.com/flightctl/flightctl/internal/service/event"
+	"github.com/flightctl/flightctl/internal/service/events"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
+	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
+	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
 	"github.com/flightctl/flightctl/internal/store"
 	deltastore "github.com/flightctl/flightctl/internal/store/delta"
+	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	eventstore "github.com/flightctl/flightctl/internal/store/event"
+	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
+	repostore "github.com/flightctl/flightctl/internal/store/repository"
+	tvstore "github.com/flightctl/flightctl/internal/store/templateversion"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -85,6 +97,12 @@ func main() {
 		log.Fatalf("initializing encryption canary store: %v", err)
 	}
 
+	kvStore, err := kvstore.NewKVStore(ctx, log, cfg.KV.Hostname, cfg.KV.Port, cfg.KV.Password)
+	if err != nil {
+		log.Fatalf("connecting to KV store: %v", err)
+	}
+	defer kvStore.Close()
+
 	ctx = context.WithValue(ctx, consts.EventSourceComponentCtxKey, "flightctl-delta-worker")
 	ctx = context.WithValue(ctx, consts.EventActorCtxKey, "service:flightctl-delta-worker")
 
@@ -124,7 +142,19 @@ func main() {
 	}
 
 	deltaStore := deltastore.NewStore(db, log)
-	server := deltaworker.New(cfg, log, provider, deltaStore, workerCollector)
+	deviceStore := devicestore.NewDeviceStore(db, log)
+	eventStore := eventstore.NewEventStore(db, log)
+	fleetStore := fleetstore.NewFleetStore(db, log)
+	repositoryStore := repostore.NewRepositoryStore(db, log)
+	templateVersionStore := tvstore.NewTemplateVersionStore(db, log)
+	eventsSvc := events.NewServiceHandler(eventStore, nil, log)
+	fleetSvc := fleetservice.WrapWithTracing(fleetservice.NewServiceHandler(fleetStore, nil, eventsSvc, log))
+	deviceSvc := deviceservice.WrapWithTracing(deviceservice.NewDeviceServiceHandler(deviceStore, nil, fleetStore, eventsSvc, kvStore, "", log))
+	templateVersionSvc := templateversionservice.WrapWithTracing(templateversionservice.NewServiceHandler(templateVersionStore, kvStore, eventsSvc, log))
+	repositorySvc := repositoryservice.WrapWithTracing(repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, log))
+	eventSvc := eventservice.WrapWithTracing(eventservice.NewServiceHandler(eventStore, eventsSvc))
+
+	server := deltaworker.New(cfg, log, provider, deltaStore, fleetSvc, deviceSvc, templateVersionSvc, repositorySvc, eventSvc, kvStore, workerCollector)
 	if err := server.Run(ctx); err != nil {
 		log.Fatalf("Error running server: %s", err)
 	}

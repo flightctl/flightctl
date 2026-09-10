@@ -110,6 +110,9 @@ func (f *fakeDeviceStore) ProcessAwaitingReconnectAnnotation(context.Context, uu
 func (f *fakeDeviceStore) GetLastSeen(context.Context, uuid.UUID, string) (*time.Time, error) {
 	panic("not implemented")
 }
+func (f *fakeDeviceStore) ReplaceServiceOwnedStatus(context.Context, uuid.UUID, *domain.Device) (*domain.Device, *domain.Device, error) {
+	panic("not implemented")
+}
 func (f *fakeDeviceStore) OverwriteRepositoryRefs(context.Context, uuid.UUID, string, ...string) error {
 	panic("not implemented")
 }
