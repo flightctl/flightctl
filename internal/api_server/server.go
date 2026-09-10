@@ -220,7 +220,7 @@ func (s *Server) Run(ctx context.Context) error {
 		templateversionservice.NewServiceHandler(templateVersionStore, kvStore, eventsSvc, s.log))
 	repositorySvc := repositoryservice.WrapWithTracing(
 		repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, s.log).
-			WithPrepareDeltas(repositoryservice.NewDeviceLister(deviceStore), workerClient))
+			WithPrepareDeltas(repositoryservice.NewDeviceLister(deviceSvc), workerClient))
 	catalogSvc := catalogservice.WrapWithTracing(
 		catalogservice.NewServiceHandler(catalogStore, deviceStore, fleetStore, eventsSvc, s.log))
 	resourceSyncSvc := resourcesyncservice.WrapWithTracing(

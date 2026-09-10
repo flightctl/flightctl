@@ -9,9 +9,13 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	deltaworker "github.com/flightctl/flightctl/internal/delta_worker"
 	"github.com/flightctl/flightctl/internal/domain"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	"github.com/flightctl/flightctl/internal/service/events"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	"github.com/flightctl/flightctl/internal/store"
 	deltastore "github.com/flightctl/flightctl/internal/store/delta"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	eventstore "github.com/flightctl/flightctl/internal/store/event"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/flightctl/flightctl/internal/store/model"
 	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
@@ -43,6 +47,8 @@ var _ = Describe("PrepareDeltas persist", func() {
 		fleets     fleetstore.Store
 		devices    devicestore.Store
 		repos      repositorystore.Store
+		fleetSvc   fleetservice.Service
+		deviceSvc  deviceservice.Service
 	)
 
 	BeforeEach(func() {
@@ -55,6 +61,10 @@ var _ = Describe("PrepareDeltas persist", func() {
 		fleets = fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
 		devices = devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
 		repos = repositorystore.NewRepositoryStore(db, log.WithField("pkg", "repository-store"))
+		eventStore := eventstore.NewEventStore(db, log.WithField("pkg", "event-store"))
+		eventsSvc := events.NewServiceHandler(eventStore, nil, log)
+		fleetSvc = fleetservice.WrapWithTracing(fleetservice.NewServiceHandler(fleets, nil, eventsSvc, log))
+		deviceSvc = deviceservice.WrapWithTracing(deviceservice.NewDeviceServiceHandler(devices, nil, fleets, eventsSvc, nil, "", log))
 		orgs := organizationstore.NewOrganizationStore(db)
 		orgId = uuid.New()
 		Expect(testutil.CreateTestOrganization(ctx, orgs, orgId)).To(Succeed())
@@ -145,7 +155,7 @@ var _ = Describe("PrepareDeltas persist", func() {
 				Now:        time.Now,
 				MaxWait:    func(*domain.Fleet) *time.Duration { return nil },
 				JobTimeout: func(*domain.Fleet) time.Duration { return 30 * time.Minute },
-				Status:     deltaworker.NewStorePreparingStatus(fleets, devices),
+				Status:     deltaworker.NewServicePreparingStatus(fleetSvc, deviceSvc),
 				Resume:     func(context.Context, worker_client.EventWithOrgId) error { return nil },
 			}
 

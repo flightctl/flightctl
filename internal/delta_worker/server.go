@@ -2,6 +2,7 @@ package delta_worker
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,48 +16,47 @@ import (
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/oci"
-	"github.com/flightctl/flightctl/internal/service/events"
-	"github.com/flightctl/flightctl/internal/store"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	eventservice "github.com/flightctl/flightctl/internal/service/event"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
+	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
+	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
 	deltastore "github.com/flightctl/flightctl/internal/store/delta"
-	//nolint:depguard // delta-worker wiring owns its store adapters.
-	devicestore "github.com/flightctl/flightctl/internal/store/device"
-	//nolint:depguard // delta-worker wiring owns its store adapters.
-	eventstore "github.com/flightctl/flightctl/internal/store/event"
-	//nolint:depguard // delta-worker wiring owns its store adapters.
-	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
-	//nolint:depguard // delta-worker wiring owns its store adapters.
-	repostore "github.com/flightctl/flightctl/internal/store/repository"
-	"github.com/flightctl/flightctl/internal/store/selector"
-	//nolint:depguard // delta-worker wiring owns its store adapters.
-	tvstore "github.com/flightctl/flightctl/internal/store/templateversion"
 	internaltasks "github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
-	"gorm.io/gorm"
 )
 
 // Server runs the delta-generation worker process.
 type Server struct {
-	cfg            *config.Config
-	log            logrus.FieldLogger
-	queuesProvider queues.Provider
-	db             *gorm.DB
-	store          deltastore.Store
-	kvStore        kvstore.KVStore
-	workerMetrics  *worker.WorkerCollector
+	cfg              *config.Config
+	log              logrus.FieldLogger
+	queuesProvider   queues.Provider
+	store            deltastore.Store
+	fleets           fleetservice.Service
+	devices          deviceservice.Service
+	templateVersions templateversionservice.Service
+	repositories     repositoryservice.Service
+	events           eventservice.Service
+	kvStore          kvstore.KVStore
+	workerMetrics    *worker.WorkerCollector
 }
 
-func New(cfg *config.Config, log logrus.FieldLogger, queuesProvider queues.Provider, db *gorm.DB, kvStore kvstore.KVStore, workerMetrics *worker.WorkerCollector) *Server {
+func New(cfg *config.Config, log logrus.FieldLogger, queuesProvider queues.Provider, deltaStore deltastore.Store, fleets fleetservice.Service, devices deviceservice.Service, templateVersions templateversionservice.Service, repositories repositoryservice.Service, events eventservice.Service, kvStore kvstore.KVStore, workerMetrics *worker.WorkerCollector) *Server {
 	return &Server{
-		cfg:            cfg,
-		log:            log,
-		queuesProvider: queuesProvider,
-		db:             db,
-		store:          deltastore.NewStore(db, log),
-		kvStore:        kvStore,
-		workerMetrics:  workerMetrics,
+		cfg:              cfg,
+		log:              log,
+		queuesProvider:   queuesProvider,
+		store:            deltaStore,
+		fleets:           fleets,
+		devices:          devices,
+		templateVersions: templateVersions,
+		repositories:     repositories,
+		events:           events,
+		kvStore:          kvStore,
+		workerMetrics:    workerMetrics,
 	}
 }
 
@@ -90,20 +90,15 @@ func (s *Server) newPreparer(ctx context.Context) (*Preparer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("delta publisher: %w", err)
 	}
-	fleets := fleetstore.NewFleetStore(s.db, s.log)
-	devices := devicestore.NewDeviceStore(s.db, s.log)
-	tvs := tvstore.NewTemplateVersionStore(s.db, s.log)
-	repos := repostore.NewRepositoryStore(s.db, s.log)
 	deployWait := s.cfg.DeltaGeneration.EffectiveMaxWaitForDelta()
 	deployTimeout := s.cfg.DeltaGeneration.EffectiveTimeout()
-	eventSvc := events.NewServiceHandler(eventstore.NewEventStore(s.db, s.log.WithField("pkg", "event-store")), nil, s.log)
 	return &Preparer{
-		Resolver: storeResolver(s.cfg, fleets, devices, tvs, repos, s.kvStore),
+		Resolver: serviceResolver(s.cfg, s.fleets, s.devices, s.templateVersions, s.repositories, s.kvStore),
 		Store:    s.store,
 		Emit: func(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
 			return worker_client.EnqueueEvent(ctx, publisher, orgId, event)
 		},
-		Persist: eventSvc.CreateEvent,
+		Persist: s.events.CreateEvent,
 		Now:     time.Now,
 		MaxWait: func(fleet *domain.Fleet) *time.Duration {
 			d, err := maxWaitFromFleet(fleet, deployWait)
@@ -119,24 +114,35 @@ func (s *Server) newPreparer(ctx context.Context) (*Preparer, error) {
 			}
 			return d
 		},
-		Status: NewStorePreparingStatus(fleets, devices),
+		Status: NewServicePreparingStatus(s.fleets, s.devices),
 		Resume: func(context.Context, worker_client.EventWithOrgId) error { return nil },
 	}, nil
 }
 
-func storeResolver(cfg *config.Config, fleets fleetstore.Store, devices devicestore.Store, tvs tvstore.Store, repos repostore.Store, cache oci.DigestCache) *Resolver {
+func serviceResolver(cfg *config.Config, fleets fleetservice.Service, devices deviceservice.Service, tvs templateversionservice.Service, repos repositoryservice.Service, cache oci.DigestCache) *Resolver {
 	return &Resolver{
 		Fleet: func(ctx context.Context, orgId uuid.UUID, name string) (*domain.Fleet, error) {
-			return fleets.Get(ctx, orgId, name)
+			fleet, status := fleets.GetFleet(ctx, orgId, name, domain.GetFleetParams{})
+			return fleet, statusError(status)
 		},
 		TemplateVersion: func(ctx context.Context, orgId uuid.UUID, fleet, name string) (*domain.TemplateVersion, error) {
-			return tvs.Get(ctx, orgId, fleet, name)
+			version, status := tvs.GetTemplateVersion(ctx, orgId, fleet, name)
+			return version, statusError(status)
 		},
 		Devices: func(ctx context.Context, orgId uuid.UUID, owner string) ([]*domain.Device, error) {
-			return listDevicesByOwner(ctx, devices, orgId, owner)
+			list, status := devices.ListDevices(ctx, orgId, domain.ListDevicesParams{FieldSelector: &owner}, nil)
+			if err := statusError(status); err != nil {
+				return nil, err
+			}
+			out := make([]*domain.Device, 0, len(list.Items))
+			for i := range list.Items {
+				out = append(out, &list.Items[i])
+			}
+			return out, nil
 		},
 		Device: func(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error) {
-			return devices.Get(ctx, orgId, name)
+			device, status := devices.GetDevice(ctx, orgId, name)
+			return device, statusError(status)
 		},
 		WriteTarget: func(ctx context.Context, orgId uuid.UUID) (*domain.OciRepoSpec, error) {
 			return loadWriteTarget(ctx, repos, cfg, orgId)
@@ -175,23 +181,7 @@ func resolveWriteSpec(ctx context.Context, cfg *config.Config, preparer *Prepare
 	return tasks.WriteSpecFromConfig(cfg), nil
 }
 
-func listDevicesByOwner(ctx context.Context, devices devicestore.Store, orgId uuid.UUID, owner string) ([]*domain.Device, error) {
-	fs, err := selector.NewFieldSelectorFromMap(map[string]string{"metadata.owner": owner})
-	if err != nil {
-		return nil, err
-	}
-	list, err := devices.List(ctx, orgId, devicestore.DeviceListParams{ListParams: store.ListParams{FieldSelector: fs}})
-	if err != nil {
-		return nil, err
-	}
-	out := make([]*domain.Device, 0, len(list.Items))
-	for i := range list.Items {
-		out = append(out, &list.Items[i])
-	}
-	return out, nil
-}
-
-func loadWriteTarget(ctx context.Context, repos repostore.Store, cfg *config.Config, orgId uuid.UUID) (*domain.OciRepoSpec, error) {
+func loadWriteTarget(ctx context.Context, repos repositoryservice.Service, cfg *config.Config, orgId uuid.UUID) (*domain.OciRepoSpec, error) {
 	var orgSpec *domain.OciRepoSpec
 	if repos != nil {
 		repo, err := repos.GetDeltaStorageTarget(ctx, orgId)
@@ -207,6 +197,16 @@ func loadWriteTarget(ctx context.Context, repos repostore.Store, cfg *config.Con
 		}
 	}
 	return oci.SelectWriteTarget(orgSpec, tasks.WriteSpecFromConfig(cfg)), nil
+}
+
+func statusError(status domain.Status) error {
+	if status.Code == http.StatusOK {
+		return nil
+	}
+	if status.Message == "" {
+		return fmt.Errorf("service request failed with status %d", status.Code)
+	}
+	return errors.New(status.Message)
 }
 
 func inspectImageDigest(ctx context.Context, image string, cfg tasks.ExistenceConfig) (string, error) {

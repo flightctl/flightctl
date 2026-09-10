@@ -11,9 +11,8 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/oci"
 	"github.com/flightctl/flightctl/internal/service/common"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	"github.com/flightctl/flightctl/internal/service/events"
-	//nolint:depguard // repository service uses this store to resolve affected devices.
-	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/util/validation"
@@ -30,16 +29,20 @@ type DeviceLister interface {
 	List(ctx context.Context, orgId uuid.UUID) (*domain.DeviceList, error)
 }
 
-type deviceStoreLister struct {
-	store devicestore.Store
+func NewDeviceLister(service deviceservice.Service) DeviceLister {
+	return deviceServiceLister{service: service}
 }
 
-func NewDeviceLister(store devicestore.Store) DeviceLister {
-	return deviceStoreLister{store: store}
+type deviceServiceLister struct {
+	service deviceservice.Service
 }
 
-func (l deviceStoreLister) List(ctx context.Context, orgId uuid.UUID) (*domain.DeviceList, error) {
-	return l.store.List(ctx, orgId, devicestore.DeviceListParams{})
+func (l deviceServiceLister) List(ctx context.Context, orgId uuid.UUID) (*domain.DeviceList, error) {
+	list, status := l.service.ListDevices(ctx, orgId, domain.ListDevicesParams{}, nil)
+	if status.Code != 200 {
+		return nil, errors.New(status.Message)
+	}
+	return list, nil
 }
 
 type ServiceHandler struct {
@@ -155,6 +158,10 @@ func (h *ServiceHandler) ListRepositories(ctx context.Context, orgId uuid.UUID, 
 func (h *ServiceHandler) GetRepository(ctx context.Context, orgId uuid.UUID, name string) (*domain.Repository, domain.Status) {
 	result, err := h.store.Get(ctx, orgId, name)
 	return result, common.StoreErrorToApiStatus(err, false, domain.RepositoryKind, &name)
+}
+
+func (h *ServiceHandler) GetDeltaStorageTarget(ctx context.Context, orgId uuid.UUID) (*domain.Repository, error) {
+	return h.store.GetDeltaStorageTarget(ctx, orgId)
 }
 
 func (h *ServiceHandler) ReplaceRepository(ctx context.Context, orgId uuid.UUID, name string, repository domain.Repository) (*domain.Repository, domain.Status) {

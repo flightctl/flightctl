@@ -11,6 +11,7 @@ type Service interface {
 	CreateRepository(ctx context.Context, orgId uuid.UUID, repo domain.Repository) (*domain.Repository, domain.Status)
 	ListRepositories(ctx context.Context, orgId uuid.UUID, params domain.ListRepositoriesParams) (*domain.RepositoryList, domain.Status)
 	GetRepository(ctx context.Context, orgId uuid.UUID, name string) (*domain.Repository, domain.Status)
+	GetDeltaStorageTarget(ctx context.Context, orgId uuid.UUID) (*domain.Repository, error)
 	ReplaceRepository(ctx context.Context, orgId uuid.UUID, name string, repo domain.Repository) (*domain.Repository, domain.Status)
 	DeleteRepository(ctx context.Context, orgId uuid.UUID, name string) domain.Status
 	PatchRepository(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.Repository, domain.Status)
