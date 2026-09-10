@@ -27,11 +27,14 @@ const (
 type AccessTokenRefresher struct {
 	config         *Config
 	once           sync.Once
+	mu             sync.RWMutex
+	persistMu      sync.Mutex // serializes config updates with Persist so an older refresh cannot overwrite a newer file
 	provider       login.AuthProvider
 	log            logrus.FieldLogger
 	configFilePath string
 	callbackPort   int
 	cancel         context.CancelFunc
+	stopped        bool
 }
 
 // NewAccessTokenRefresher creates a new AccessTokenRefresher instance
@@ -98,17 +101,24 @@ func CreateAuthProviderWithCredentials(authInfo AuthInfo, insecure bool, apiServ
 	}
 }
 
+// init creates the auth provider from client config. If a provider is already
+// set (for example in tests), it is left unchanged.
 func (r *AccessTokenRefresher) init() error {
+	if r.provider != nil {
+		return nil
+	}
 	var err error
 	r.provider, err = CreateAuthProvider(r.config.AuthInfo, r.config.Service.InsecureSkipVerify, r.config.Service.Server, r.callbackPort)
 	return err
 }
 
+// parseExpireTime returns the current access-token expiry as a timestamp.
 func (r *AccessTokenRefresher) parseExpireTime() (time.Time, error) {
-	if r.config.AuthInfo.AccessTokenExpiry == "" {
+	accessTokenExpiry := r.accessTokenExpiry()
+	if accessTokenExpiry == "" {
 		return time.Time{}, fmt.Errorf("no access token expiry found")
 	}
-	return time.Parse(time.RFC3339Nano, r.config.AuthInfo.AccessTokenExpiry)
+	return time.Parse(time.RFC3339Nano, accessTokenExpiry)
 }
 
 func (r *AccessTokenRefresher) shouldRefresh(expireTime time.Time) bool {
@@ -122,43 +132,40 @@ func isExpiredTokenError(err error) bool {
 	return strings.Contains(err.Error(), "invalid_grant")
 }
 
+// refresh renews the access token with the auth provider and persists the
+// updated config when a config file path is set.
 func (r *AccessTokenRefresher) refresh() error {
-	if r.config.AuthInfo.RefreshToken == "" {
+	refreshToken := r.getRefreshToken()
+	if refreshToken == "" {
 		return fmt.Errorf("no refresh token found")
 	}
-	authInfo, err := r.provider.Renew(r.config.AuthInfo.RefreshToken)
+	authInfo, err := r.provider.Renew(refreshToken)
 	if err != nil {
 		return fmt.Errorf("failed to renew token: %w", err)
 	}
-	if authInfo.RefreshToken != "" {
-		r.config.AuthInfo.RefreshToken = authInfo.RefreshToken
-	}
-	r.config.AuthInfo.AccessToken = authInfo.AccessToken
-	if authInfo.ExpiresIn != nil {
-		expiryTime := time.Now().Add(time.Duration(*authInfo.ExpiresIn) * time.Second)
-		r.config.AuthInfo.AccessTokenExpiry = expiryTime.Format(time.RFC3339Nano)
-	}
-	if authInfo.IdToken != "" {
-		r.config.AuthInfo.IdToken = authInfo.IdToken
-	}
-	// Only persist if configFilePath is provided
-	if r.configFilePath != "" {
-		return r.config.Persist(r.configFilePath)
+
+	r.persistMu.Lock()
+	defer r.persistMu.Unlock()
+	snapshot := r.refreshAuthInfo(authInfo)
+	if snapshot != nil {
+		return snapshot.Persist(r.configFilePath)
 	}
 	return nil
 }
 
+// waitDuration returns how long to wait before the next refresh, targeting
+// five seconds before expiry with a minimum of one second.
 func (r *AccessTokenRefresher) waitDuration() time.Duration {
-	waitDuration := time.Second
-	if r.config.AuthInfo.AccessTokenExpiry != "" {
-		expireTime, err := r.parseExpireTime()
-		if err != nil {
-			r.log.Errorf("failed to parse time %s: %v", r.config.AuthInfo.AccessTokenExpiry, err)
-		} else {
-			waitDuration = util.Max(time.Until(expireTime)-5*time.Second, time.Second)
-		}
+	accessTokenExpiry := r.accessTokenExpiry()
+	if accessTokenExpiry == "" {
+		return time.Second
 	}
-	return waitDuration
+	expireTime, err := time.Parse(time.RFC3339Nano, accessTokenExpiry)
+	if err != nil {
+		r.log.Errorf("failed to parse time %s: %v", accessTokenExpiry, err)
+		return time.Second
+	}
+	return util.Max(time.Until(expireTime)-5*time.Second, time.Second)
 }
 
 func (r *AccessTokenRefresher) refreshLoop(ctx context.Context) {
@@ -186,10 +193,13 @@ func (r *AccessTokenRefresher) refreshLoop(ctx context.Context) {
 // Start initializes and starts the token refresh loop if not already started.
 // The provided context is used as the parent context for the refresh loop.
 // When the context is cancelled, the refresh loop will stop.
+// If Stop has already been called, Start does not launch the loop.
 func (r *AccessTokenRefresher) Start(ctx context.Context) {
 	r.once.Do(func() {
 		r.log = flightlog.InitLogs()
-		if r.config.AuthInfo.RefreshToken == "" {
+		hasRefreshToken := r.getRefreshToken() != ""
+		if !hasRefreshToken {
+			r.log.Info("no refresh token found, skipping token refresh")
 			return
 		}
 		if err := r.init(); err != nil {
@@ -208,20 +218,26 @@ func (r *AccessTokenRefresher) Start(ctx context.Context) {
 			}
 		}
 		ctx, cancel := context.WithCancel(ctx)
-		r.cancel = cancel
+		if !r.setCancel(cancel) {
+			cancel()
+			return
+		}
 		go r.refreshLoop(ctx)
 	})
 }
 
-// Stop stops the token refresh loop gracefully
+// Stop stops the token refresh loop. It records a stopped state even if the
+// loop has not started yet, so a later Start will not launch it.
 func (r *AccessTokenRefresher) Stop() {
-	if r.cancel != nil {
-		r.cancel()
-		r.cancel = nil
+	if cancel := r.takeCancel(); cancel != nil {
+		cancel()
 	}
 }
 
+// accessToken returns the token currently used for API calls.
 func (r *AccessTokenRefresher) accessToken() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	if r.config.AuthInfo.TokenToUse == TokenToUseIdToken {
 		return r.config.AuthInfo.IdToken
 	}
@@ -232,4 +248,64 @@ func (r *AccessTokenRefresher) accessToken() string {
 // Start() must be called before calling this method to initialize the refresh loop.
 func (r *AccessTokenRefresher) GetAccessToken() string {
 	return r.accessToken()
+}
+
+// getRefreshToken returns the stored refresh token.
+func (r *AccessTokenRefresher) getRefreshToken() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.config.AuthInfo.RefreshToken
+}
+
+// accessTokenExpiry returns the stored access-token expiry string.
+func (r *AccessTokenRefresher) accessTokenExpiry() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.config.AuthInfo.AccessTokenExpiry
+}
+
+// setCancel stores the refresh-loop cancel function. It returns false if
+// Stop has already been called, in which case the caller must not start the loop.
+func (r *AccessTokenRefresher) setCancel(cancel context.CancelFunc) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.stopped {
+		return false
+	}
+	r.cancel = cancel
+	return true
+}
+
+// takeCancel marks the refresher stopped and returns the stored cancel
+// function, if any, so Stop can cancel an in-flight refresh loop.
+func (r *AccessTokenRefresher) takeCancel() context.CancelFunc {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.stopped = true
+	cancel := r.cancel
+	r.cancel = nil
+	return cancel
+}
+
+// refreshAuthInfo writes renewed tokens into the in-memory config. If a
+// config file path is set, it returns a snapshot to persist; otherwise it returns nil.
+func (r *AccessTokenRefresher) refreshAuthInfo(authInfo login.AuthInfo) *Config {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if authInfo.RefreshToken != "" {
+		r.config.AuthInfo.RefreshToken = authInfo.RefreshToken
+	}
+	r.config.AuthInfo.AccessToken = authInfo.AccessToken
+	if authInfo.ExpiresIn != nil {
+		expiryTime := time.Now().Add(time.Duration(*authInfo.ExpiresIn) * time.Second)
+		r.config.AuthInfo.AccessTokenExpiry = expiryTime.Format(time.RFC3339Nano)
+	}
+	if authInfo.IdToken != "" {
+		r.config.AuthInfo.IdToken = authInfo.IdToken
+	}
+	var snapshot *Config
+	if r.configFilePath != "" {
+		snapshot = r.config.DeepCopy()
+	}
+	return snapshot
 }
