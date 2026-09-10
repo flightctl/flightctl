@@ -178,6 +178,8 @@ type Config struct {
 	SystemInfo []string `json:"system-info,omitempty"`
 
 	// SystemInfoCustom defines keys used to collect custom system information.
+	// A nil slice discovers all executable scripts; an empty slice disables custom
+	// collection; a wildcard discovers all scripts; other values select named keys.
 	// Each key should match the name of an executable script in the custom info directory.
 	// The script must output a single string, which will be included in device.status.systemInfo.CustomInfo.
 	//
