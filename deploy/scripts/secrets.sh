@@ -28,6 +28,48 @@ ensure_kv_secrets() {
     ensure_secret "flightctl-kv-password" "FLIGHTCTL_KV_PASSWORD"
 }
 
+ensure_delta_generation_secrets() {
+    local username_secret="flightctl-delta-generation-default-repository-username"
+    local password_secret="flightctl-delta-generation-default-repository-password"
+    local dropin_dir="${QUADLET_SYSTEMD_DIR:-/etc/containers/systemd}/flightctl-delta-worker.container.d"
+    local dropin_file="${dropin_dir}/delta-generation-repository.conf"
+
+    if [[ -z "${DELTA_GENERATION_DEFAULT_REPOSITORY_USERNAME:-}" ||
+          -z "${DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD:-}" ]]; then
+        if sudo podman secret exists "$username_secret" && sudo podman secret exists "$password_secret"; then
+            sudo install -d -m 0755 "$dropin_dir"
+            sudo tee "$dropin_file" >/dev/null <<EOF
+[Container]
+Secret=${username_secret},type=env,target=DELTA_GENERATION_DEFAULT_REPOSITORY_USERNAME
+Secret=${password_secret},type=env,target=DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD
+EOF
+        fi
+        return 0
+    fi
+
+    ensure_env_secret "$username_secret" DELTA_GENERATION_DEFAULT_REPOSITORY_USERNAME
+    ensure_env_secret "$password_secret" DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD
+
+    sudo install -d -m 0755 "$dropin_dir"
+    sudo tee "$dropin_file" >/dev/null <<EOF
+[Container]
+Secret=${username_secret},type=env,target=DELTA_GENERATION_DEFAULT_REPOSITORY_USERNAME
+Secret=${password_secret},type=env,target=DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD
+EOF
+}
+
+# Ensure a secret exists from a user-provided environment variable.
+ensure_env_secret() {
+    local secret_name="$1"
+    local env_var_name="$2"
+
+    if sudo podman secret exists "$secret_name"; then
+        return 0
+    fi
+    echo "Creating secret $secret_name from $env_var_name"
+    sudo -E podman secret create --env "$secret_name" "$env_var_name"
+}
+
 # Ensure a specific secret exists
 # Args:
 #   $1: Secret name

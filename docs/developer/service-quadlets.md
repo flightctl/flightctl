@@ -132,14 +132,15 @@ Secret=flightctl-postgresql-master-password,type=env,target=DB_PASSWORD
 
 Database and key-value secrets are automatically generated during deployment and injected as environment variables to the running containers.
 
-The default OCI repository credentials for delta generation are optional and user-managed. The deployment does not create or remove these secrets. Create both non-empty Podman secrets yourself when a default repository is configured, for example from protected files:
+The default OCI repository credentials for delta generation are optional. When both credential environment variables are provided, deployment creates the non-empty Podman secrets and the delta-worker drop-in automatically:
 
 ```bash
-sudo podman secret create flightctl-delta-generation-default-repository-username /path/to/username
-sudo podman secret create flightctl-delta-generation-default-repository-password /path/to/password
+export DELTA_GENERATION_DEFAULT_REPOSITORY_USERNAME='registry-user'
+export DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD='registry-password'
+make deploy-quadlets
 ```
 
-Because these credentials are optional, they are not included in the vendor-owned delta-worker Quadlet. Add them through a systemd drop-in so deployments without a default repository do not reference missing Podman secrets:
+Because these credentials are optional, they are not included in the vendor-owned delta-worker Quadlet. If the secrets already exist, the deployment also recreates the drop-in automatically without needing the environment variables. Deployments without a default repository do not create or reference these secrets.
 
 `/etc/containers/systemd/flightctl-delta-worker.container.d/delta-generation-repository.conf`:
 
@@ -149,7 +150,7 @@ Secret=flightctl-delta-generation-default-repository-username,type=env,target=DE
 Secret=flightctl-delta-generation-default-repository-password,type=env,target=DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD
 ```
 
-The drop-in may be added before or after deployment. After adding or changing it, run:
+The drop-in may also be added manually after deployment if the secrets were created separately. After adding or changing it, run:
 
 ```bash
 sudo systemctl daemon-reload
