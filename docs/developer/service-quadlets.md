@@ -130,7 +130,32 @@ A subset of sensitive data is managed through Podman secrets:
 Secret=flightctl-postgresql-master-password,type=env,target=DB_PASSWORD
 ```
 
-Secrets are automatically generated during deployment and injected as environment variables to the running containers.
+Database and key-value secrets are automatically generated during deployment and injected as environment variables to the running containers.
+
+The default OCI repository credentials for delta generation are optional. When both credential environment variables are provided, deployment creates the non-empty Podman secrets and the delta-worker drop-in automatically:
+
+```bash
+export DELTA_GENERATION_DEFAULT_REPOSITORY_USERNAME='registry-user'
+export DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD='registry-password'
+make deploy-quadlets
+```
+
+Because these credentials are optional, they are not included in the vendor-owned delta-worker Quadlet. If the secrets already exist and the generated drop-in is missing, deployment also creates the drop-in automatically without needing the environment variables. This drop-in is deployment-managed and overwritten by a later `make deploy-quadlets`. Deployments without a default repository do not create or reference these secrets.
+
+`/etc/containers/systemd/flightctl-delta-worker.container.d/delta-generation-repository.conf`:
+
+```ini
+[Container]
+Secret=flightctl-delta-generation-default-repository-username,type=env,target=DELTA_GENERATION_DEFAULT_REPOSITORY_USERNAME
+Secret=flightctl-delta-generation-default-repository-password,type=env,target=DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD
+```
+
+The drop-in may also be added manually after deployment if the secrets were created separately. As with other Quadlet changes, adding it after services are already running requires an explicit reload and worker restart:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart flightctl-delta-worker.service
+```
 
 ### External Database Configuration
 
