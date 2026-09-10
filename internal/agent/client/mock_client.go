@@ -310,6 +310,34 @@ func (mr *MockBootcMockRecorder) Switch(ctx, image any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Switch", reflect.TypeOf((*MockBootc)(nil).Switch), ctx, image)
 }
 
+// SwitchOCI mocks base method.
+func (m *MockBootc) SwitchOCI(ctx context.Context, layoutDir string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SwitchOCI", ctx, layoutDir)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SwitchOCI indicates an expected call of SwitchOCI.
+func (mr *MockBootcMockRecorder) SwitchOCI(ctx, layoutDir any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SwitchOCI", reflect.TypeOf((*MockBootc)(nil).SwitchOCI), ctx, layoutDir)
+}
+
+// SwitchRegistry mocks base method.
+func (m *MockBootc) SwitchRegistry(ctx context.Context, image string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SwitchRegistry", ctx, image)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SwitchRegistry indicates an expected call of SwitchRegistry.
+func (mr *MockBootcMockRecorder) SwitchRegistry(ctx, image any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SwitchRegistry", reflect.TypeOf((*MockBootc)(nil).SwitchRegistry), ctx, image)
+}
+
 // UsrOverlay mocks base method.
 func (m *MockBootc) UsrOverlay(ctx context.Context) error {
 	m.ctrl.T.Helper()

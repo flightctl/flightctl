@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"runtime/debug"
 	"strings"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -772,4 +773,17 @@ func CastResources[T any](oldResource, newResource interface{}) (oldTyped, newTy
 	}
 
 	return oldTyped, newTyped, true
+}
+
+// SafeEventCallback runs callback and recovers panics so event emission cannot fail a completed persist.
+func SafeEventCallback(log logrus.FieldLogger, callback func()) {
+	if callback == nil {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			log.Errorf("Event Callback panicked: %v\nBacktrace:\n%s", r, string(debug.Stack()))
+		}
+	}()
+	callback()
 }

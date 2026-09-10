@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -107,9 +108,6 @@ func (f *fakeDeviceStore) ProcessAwaitingReconnectAnnotation(context.Context, uu
 	panic("not implemented")
 }
 func (f *fakeDeviceStore) GetLastSeen(context.Context, uuid.UUID, string) (*time.Time, error) {
-	panic("not implemented")
-}
-func (f *fakeDeviceStore) SetServiceConditions(context.Context, uuid.UUID, string, []domain.Condition, devicestore.ServiceConditionsCallback) error {
 	panic("not implemented")
 }
 func (f *fakeDeviceStore) OverwriteRepositoryRefs(context.Context, uuid.UUID, string, ...string) error {
@@ -262,9 +260,11 @@ var _ fleetstore.Store = (*fakeFleetStore)(nil)
 // internal/service/teststore_framework_test.go's DummyCatalog (which cannot be imported
 // directly since it lives in a _test.go file in a different package).
 type fakeCatalogStore struct {
-	catalogs map[string]*domain.Catalog
-	items    map[string]*domain.CatalogItem // key: itemKey(catalogName, itemName)
-	err      error
+	catalogs           map[string]*domain.Catalog
+	items              map[string]*domain.CatalogItem // key: itemKey(catalogName, itemName)
+	err                error
+	lastUnsetOwner     string
+	lastUnsetItemOwner string
 }
 
 func newFakeCatalogStore() *fakeCatalogStore {
@@ -277,7 +277,7 @@ func itemKey(catalogName, itemName string) string {
 
 func (f *fakeCatalogStore) InitialMigration(ctx context.Context) error { return f.err }
 
-func (f *fakeCatalogStore) Create(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog, callbackEvent store.EventCallback) (*domain.Catalog, error) {
+func (f *fakeCatalogStore) Create(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog) (*domain.Catalog, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -286,20 +286,17 @@ func (f *fakeCatalogStore) Create(ctx context.Context, orgId uuid.UUID, catalog 
 		return nil, flterrors.ErrDuplicateName
 	}
 	f.catalogs[name] = catalog
-	if callbackEvent != nil {
-		callbackEvent(ctx, domain.CatalogKind, orgId, name, nil, catalog, true, nil)
-	}
 	return catalog, nil
 }
 
-func (f *fakeCatalogStore) Update(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog, callbackEvent store.EventCallback) (*domain.Catalog, error) {
+func (f *fakeCatalogStore) Update(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog) (*domain.Catalog, *domain.Catalog, error) {
 	if f.err != nil {
-		return nil, f.err
+		return nil, nil, f.err
 	}
 	name := lo.FromPtr(catalog.Metadata.Name)
 	old, exists := f.catalogs[name]
 	if !exists {
-		return nil, flterrors.ErrResourceNotFound
+		return nil, nil, flterrors.ErrResourceNotFound
 	}
 	// Mirrors the real generic store: fields left nil by the caller are preserved
 	// from the existing resource rather than wiped on update.
@@ -307,20 +304,17 @@ func (f *fakeCatalogStore) Update(ctx context.Context, orgId uuid.UUID, catalog 
 		catalog.Metadata.Owner = old.Metadata.Owner
 	}
 	f.catalogs[name] = catalog
-	if callbackEvent != nil {
-		callbackEvent(ctx, domain.CatalogKind, orgId, name, old, catalog, false, nil)
-	}
-	return catalog, nil
+	return catalog, old, nil
 }
 
-func (f *fakeCatalogStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog, callbackEvent store.EventCallback) (*domain.Catalog, bool, error) {
+func (f *fakeCatalogStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, catalog *domain.Catalog) (*domain.Catalog, *domain.Catalog, bool, error) {
 	name := lo.FromPtr(catalog.Metadata.Name)
 	if _, exists := f.catalogs[name]; exists {
-		result, err := f.Update(ctx, orgId, catalog, callbackEvent)
-		return result, false, err
+		result, old, err := f.Update(ctx, orgId, catalog)
+		return result, old, false, err
 	}
-	result, err := f.Create(ctx, orgId, catalog, callbackEvent)
-	return result, true, err
+	result, err := f.Create(ctx, orgId, catalog)
+	return result, nil, true, err
 }
 
 func (f *fakeCatalogStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Catalog, error) {
@@ -345,32 +339,29 @@ func (f *fakeCatalogStore) List(ctx context.Context, orgId uuid.UUID, listParams
 	return &domain.CatalogList{Items: items}, nil
 }
 
-func (f *fakeCatalogStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callback store.RemoveOwnerCallback, callbackEvent store.EventCallback) error {
-	old, exists := f.catalogs[name]
+func (f *fakeCatalogStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
+	_, exists := f.catalogs[name]
 	if !exists {
-		return flterrors.ErrResourceNotFound
+		return false, flterrors.ErrResourceNotFound
+	}
+	prefix := name + "/"
+	for key := range f.items {
+		if strings.HasPrefix(key, prefix) {
+			return false, flterrors.ErrResourceNotEmpty
+		}
 	}
 	delete(f.catalogs, name)
-	if callback != nil {
-		_ = callback(ctx, nil, orgId, name)
-	}
-	if callbackEvent != nil {
-		callbackEvent(ctx, domain.CatalogKind, orgId, name, old, nil, false, nil)
-	}
-	return nil
+	return true, nil
 }
 
-func (f *fakeCatalogStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Catalog, eventCallback store.EventCallback) (*domain.Catalog, error) {
+func (f *fakeCatalogStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Catalog) (*domain.Catalog, *domain.Catalog, error) {
 	name := lo.FromPtr(resource.Metadata.Name)
 	old, exists := f.catalogs[name]
 	if !exists {
-		return nil, flterrors.ErrResourceNotFound
+		return nil, nil, flterrors.ErrResourceNotFound
 	}
 	f.catalogs[name] = resource
-	if eventCallback != nil {
-		eventCallback(ctx, domain.CatalogKind, orgId, name, old, resource, false, nil)
-	}
-	return resource, nil
+	return resource, old, nil
 }
 
 func (f *fakeCatalogStore) Count(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, error) {
@@ -378,10 +369,12 @@ func (f *fakeCatalogStore) Count(ctx context.Context, orgId uuid.UUID, listParam
 }
 
 func (f *fakeCatalogStore) UnsetOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
+	f.lastUnsetOwner = owner
 	return f.err
 }
 
 func (f *fakeCatalogStore) UnsetItemOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error {
+	f.lastUnsetItemOwner = owner
 	return f.err
 }
 
@@ -2207,5 +2200,42 @@ func TestGetCatalogItemDeploymentsPagination(t *testing.T) {
 			require.False(t, seen[key], "duplicate deployment: %s", key)
 			seen[key] = true
 		}
+	})
+}
+
+func TestUnsetOwner(t *testing.T) {
+	t.Run("When the store succeeds it should clear ownership for the owner", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		orgId := uuid.New()
+
+		err := h.UnsetOwner(context.Background(), orgId, "ResourceSync/rs1")
+		require.NoError(t, err)
+		require.Equal(t, "ResourceSync/rs1", fakeStore.lastUnsetOwner)
+	})
+
+	t.Run("When the store fails it should return the error", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		fakeStore.err = flterrors.ErrResourceNotFound
+
+		err := h.UnsetOwner(context.Background(), uuid.New(), "ResourceSync/rs1")
+		require.ErrorIs(t, err, flterrors.ErrResourceNotFound)
+	})
+}
+
+func TestUnsetItemOwner(t *testing.T) {
+	t.Run("When the store succeeds it should clear item ownership for the owner", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+
+		err := h.UnsetItemOwner(context.Background(), uuid.New(), "ResourceSync/rs1")
+		require.NoError(t, err)
+		require.Equal(t, "ResourceSync/rs1", fakeStore.lastUnsetItemOwner)
+	})
+
+	t.Run("When the store fails it should return the error", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		fakeStore.err = errors.New("unset failed")
+
+		err := h.UnsetItemOwner(context.Background(), uuid.New(), "ResourceSync/rs1")
+		require.EqualError(t, err, "unset failed")
 	})
 }

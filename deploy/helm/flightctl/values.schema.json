@@ -496,6 +496,10 @@
           "type": "boolean",
           "description": "Allow worker to access cluster-level secrets for embedding in device configs"
         },
+        "renderTimeout": {
+          "type": "string",
+          "description": "Time budget for a single device render operation including VM conversion and DB writes (default 60s)"
+        },
         "vmRender": {
           "type": "object",
           "description": "VM application render options passed to vm-to-quadlet",
@@ -505,11 +509,41 @@
               "type": "string",
               "description": "virt-launcher image used when converting VmApplications to Quadlet units (leave empty to use the worker default)"
             },
+            "launcherImages": {
+              "type": "object",
+              "description": "virt-launcher images keyed by os-release ID and major from status.systemInfo (e.g. \"rhel-9\", \"rhel-10\")",
+              "additionalProperties": { "type": "string" }
+            },
             "passtWorkarounds": {
               "type": "boolean",
               "description": "Enable passt networking workarounds for older virt-launcher images"
             }
           }
+        }
+      }
+    },
+    "deltaWorker": {
+      "type": "object",
+      "description": "Delta-worker configuration",
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "image": { "type": "string", "description": "Delta-worker container image" },
+            "tag": { "type": "string", "description": "Delta-worker image tag" },
+            "pullPolicy": { "type": "string", "description": "Image pull policy for delta-worker container" }
+          }
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "resources": {
+          "type": "object",
+          "description": "Resource requests and limits for the delta-worker container",
+          "additionalProperties": true
         }
       }
     },
@@ -824,6 +858,48 @@
           "type": ["object", "null"],
           "description": "Additional labels for Telemetry gateway routes.",
           "additionalProperties": { "type": "string" }
+        },
+        "extraEnvs": {
+          "type": "array",
+          "description": "Extra environment variables for the telemetry gateway container. Use to inject secrets for forward header values via ${VAR} expansion.",
+          "items": { "type": "object" }
+        },
+        "extraVolumeMounts": {
+          "type": "array",
+          "description": "Extra volume mounts for the telemetry gateway container. Use to mount TLS certificates for mTLS forward connections.",
+          "items": { "type": "object" }
+        },
+        "extraVolumes": {
+          "type": "array",
+          "description": "Extra volumes for the telemetry gateway pod.",
+          "items": { "type": "object" }
+        },
+        "forward": {
+          "type": "object",
+          "description": "Forward telemetry to an upstream OTLP collector.",
+          "additionalProperties": false,
+          "properties": {
+            "endpoint": {
+              "type": "string",
+              "description": "Upstream OTLP endpoint. Use host:port for gRPC, http(s):// URL for OTLP/HTTP."
+            },
+            "headers": {
+              "type": "object",
+              "description": "Custom HTTP headers for authentication (OTLP/HTTP only).",
+              "additionalProperties": { "type": "string" }
+            },
+            "tls": {
+              "type": "object",
+              "description": "TLS configuration for the forward connection.",
+              "additionalProperties": false,
+              "properties": {
+                "insecureSkipTlsVerify": { "type": "boolean", "description": "Skip TLS certificate verification." },
+                "caFile": { "type": "string", "description": "Path to CA certificate file." },
+                "certFile": { "type": "string", "description": "Path to client certificate file (mTLS)." },
+                "keyFile": { "type": "string", "description": "Path to client key file (mTLS)." }
+              }
+            }
+          }
         }
       }
     },
@@ -975,7 +1051,7 @@
         "syncInterval": { "type": "string", "description": "Sync interval for periodic Trustify fetch (e.g. \"15m\", \"1h\")" },
         "backend": {
           "type": "string",
-          "description": "Vulnerability scanning backend. One of 'trustify' or 'quay'; leave empty to default to Trustify when a trustify config is present.",
+          "description": "Vulnerability scanning backend ('trustify' or 'quay'); leave empty to default to Trustify when a trustify config with a non-empty endpoint is present.",
           "enum": ["", "trustify", "quay"]
         },
         "trustify": {
@@ -997,25 +1073,77 @@
                 "oidcIssuerUrl": { "type": "string", "description": "OIDC issuer URL for client-credentials mode" },
                 "secretName": { "type": "string", "description": "Name of the Kubernetes Secret containing 'client_id' and 'client_secret' keys" }
               }
-            }
+            },
+            "caFile": { "type": "string", "description": "Path to a CA bundle for verifying the Trustify server certificate. If unset, system roots are used." },
+            "caCertConfigMapName": { "type": "string", "description": "Name of a ConfigMap containing key 'ca-cert.pem' with the CA bundle for the Trustify server. When set, it is mounted and used instead of caFile." },
+            "skipTlsVerify": { "type": "boolean", "description": "Skip TLS certificate verification (insecure, for lab/air-gap only). Defaults to false." }
           }
         },
         "quay": {
           "type": "object",
-          "description": "Quay API connection details",
+          "description": "Quay Security API connection details",
           "additionalProperties": false,
           "properties": {
             "endpoint": { "type": "string", "description": "Quay API base URL (e.g. \"https://quay.io\")" },
-            "maxConcurrentRequests": { "type": "integer", "description": "Maximum number of concurrent requests to the Quay Security API" },
-            "auth": {
-              "type": "object",
-              "description": "Quay authentication configuration",
-              "additionalProperties": false,
-              "properties": {
-                "secretName": { "type": "string", "description": "Name of the Kubernetes Secret containing a 'token' key with the Quay bearer token" }
+            "secretName": { "type": "string", "description": "Name of the Kubernetes Secret containing the 'token' key for Quay Security API bearer authentication" },
+            "maxConcurrentRequests": { "type": "integer", "description": "Maximum number of concurrent Quay API requests. Defaults to 5 when unset.", "minimum": 0 },
+            "caFile": { "type": "string", "description": "Path to a CA bundle for verifying the Quay server certificate. If unset, system roots are used." },
+            "caCertConfigMapName": { "type": "string", "description": "Name of a ConfigMap containing key 'ca-cert.pem' with the CA bundle for the Quay server. When set, it is mounted and used instead of caFile." },
+            "skipTlsVerify": { "type": "boolean", "description": "Skip TLS certificate verification (insecure, for lab/air-gap only). Defaults to false." }
+          }
+        }
+      }
+    },
+    "deltaGeneration": {
+      "type": "object",
+      "description": "Default OCI write target for generated deltas when an organization has no deltaStorageTarget Repository",
+      "additionalProperties": false,
+      "properties": {
+        "defaultRepository": {
+          "type": "object",
+          "description": "Default repository used when the org has no deltaStorageTarget",
+          "additionalProperties": false,
+          "properties": {
+            "registry": { "type": "string", "description": "Registry hostname used as the login/CA host and as the prefix of the push path" },
+            "repository": { "type": "string", "description": "Optional repository path under registry (e.g. my-org/diffs). Mutually exclusive with namespace" },
+            "namespace": { "type": "string", "description": "Optional namespace under registry (e.g. my-org). Mutually exclusive with repository" },
+            "scheme": {
+              "type": "string",
+              "description": "URL scheme for connecting to the registry",
+              "enum": ["", "http", "https"]
+            },
+            "skipServerVerification": { "type": "boolean", "description": "Skip TLS verification when connecting to the registry" },
+            "caCrt": { "type": "string", "description": "Base64-encoded PEM of a custom registry CA (same encoding as Repository spec ca.crt)" },
+            "secretName": { "type": "string", "description": "Name of the Kubernetes Secret containing 'username' and 'password' keys" }
+          },
+          "allOf": [
+            {
+              "not": {
+                "allOf": [
+                  {
+                    "required": ["repository"],
+                    "properties": {
+                      "repository": { "type": "string", "minLength": 1 }
+                    }
+                  },
+                  {
+                    "required": ["namespace"],
+                    "properties": {
+                      "namespace": { "type": "string", "minLength": 1 }
+                    }
+                  }
+                ]
               }
             }
-          }
+          ]
+        },
+        "maxConcurrentDeltaGenerations": {
+          "type": "integer",
+          "description": "Maximum number of concurrent delta generation jobs. Defaults to 2 when omitted or <= 0"
+        },
+        "timeout": {
+          "type": "string",
+          "description": "Per-job timeout for generating a delta (Go duration, e.g. 30m). Defaults to 30m when omitted or <= 0"
         }
       }
     },
@@ -1085,4 +1213,3 @@
     }
   }
 }
-

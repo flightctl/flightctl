@@ -5412,6 +5412,28 @@ components:
         skipServerVerification:
           type: boolean
           description: Skip remote server verification.
+        repository:
+          type: string
+          description: >-
+            Optional OCI repository path under spec.registry
+            (e.g. my-org/diffs). When set, this object is that repo
+            (`my-registry.com/my-org/diffs`), not only a registry.
+            Mutually exclusive with namespace. ImageBuild destination
+            imageName must equal this value.
+        namespace:
+          type: string
+          description: >-
+            Optional org/subpath under spec.registry (e.g. my-org).
+            Concrete names are spec.registry/namespace/<name>.
+            Mutually exclusive with repository. Used by delta push
+            (`{registry}/{namespace}/{imageName}`). Invalid on an
+            ImageBuild or ImageExport destination Repository.
+        deltaStorageTarget:
+          type: boolean
+          description: >-
+            When true, generated deltas are pushed to this object
+            (at most one per org). Auth is the existing ociAuth / accessMode.
+            Placement follows repository / namespace / registry-only as above.
         baseImages:
           type: array
           description: Curated list of trusted base images available in this registry. When present, the Image Builder source picker surfaces these entries as selectable options.
@@ -6139,11 +6161,15 @@ components:
       - 'AfterUpdating'
       - 'BeforeRebooting'
       - 'AfterRebooting'
+      - 'BeforeEnrolling'
+      - 'AfterEnrolling'
       x-enum-varnames:
         - "DeviceLifecycleHookBeforeUpdating"
         - "DeviceLifecycleHookAfterUpdating"
         - "DeviceLifecycleHookBeforeRebooting"
         - "DeviceLifecycleHookAfterRebooting"
+        - "DeviceLifecycleHookBeforeEnrolling"
+        - "DeviceLifecycleHookAfterEnrolling"
     HookAction:
       allOf:
       - type: object
@@ -6289,7 +6315,21 @@ components:
         - metadata
         - items
     DeviceOsSpec:
-      $ref: '#/components/schemas/ImageOrCatalogItemRefSpec'
+      description: Either a specific OCI image reference, or a reference to a catalog item version that can be resolved to an OCI image ref.
+      allOf:
+        - $ref: '#/components/schemas/ImageOrCatalogItemRefSpec'
+        - type: object
+          properties:
+            deltaImage:
+              type: string
+              description: >-
+                Optional hint: a reference to a delta artifact the control
+                plane's generation records indicate may be applicable to reach
+                `image` from this device's current image. Absent does not imply
+                no delta exists — the device independently discovers candidate
+                delta artifacts (e.g. deltas published by a customer's own CI)
+                regardless of this field, and falls back to a full pull only if
+                none is usable.
     DeviceStatus:
       type: object
       description: DeviceStatus represents information about the status of a device. Status may trail the actual state of a device.
@@ -6380,6 +6420,22 @@ components:
         agentVersion:
           type: string
           description: The Agent version.
+        bootcVersion:
+          type: string
+          description: >-
+            Version reported by `bootc --version`. Absent when bootc is not
+            installed or the version command fails.
+        ociDeltaVersion:
+          type: string
+          description: >-
+            Version reported by `oci-delta --version`. Absent when oci-delta is
+            not installed or the version command fails.
+        deltaEligible:
+          type: boolean
+          description: >-
+            Whether this device can consume OCI deltas. True when the oci-delta
+            binary is present. False when it is not. Omitted when an older
+            agent does not report the field.
         customInfo:
           $ref: "#/components/schemas/CustomDeviceInfo"
       additionalProperties:
@@ -6539,6 +6595,8 @@ components:
           description: Status of volumes used by this application.
           items:
             $ref: "#/components/schemas/ApplicationVolumeStatus"
+        lastDelta:
+          $ref: "#/components/schemas/DeviceDeltaApplyStatus"
     ApplicationVolumeStatus:
       type: object
       description: Status of a volume used by an application.
@@ -6618,6 +6676,23 @@ components:
         osMode:
           $ref: '#/components/schemas/OsModeType'
       additionalProperties: false
+    DeviceDeltaApplyStatus:
+      type: object
+      description: >-
+        Result of the most recent delta apply attempt for this update target.
+      additionalProperties: false
+      properties:
+        fallbackReason:
+          type: string
+          description: >-
+            Set when the most recent update attempt fell back from a delta to a
+            full image pull. Absent if no delta was attempted or the delta
+            succeeded. Cleared when the next update attempt for this target starts.
+        size:
+          type: string
+          description: >-
+            Expected delta size in IEC units (KiB, MiB, GiB, or TiB).
+            Absent when the size is not yet known.
     DeviceOsStatus:
       type: object
       description: Current status of the device OS.
@@ -6631,6 +6706,8 @@ components:
         imageDigest:
           type: string
           description: The digest of the OS image (e.g. sha256:a0...).
+        lastDelta:
+          $ref: "#/components/schemas/DeviceDeltaApplyStatus"
     DeviceConfigStatus:
       type: object
       description: Current status of the device config.
@@ -6965,6 +7042,8 @@ components:
           description: 'The rendered version of the device from desired.json (optional).'
         osMode:
           $ref: '#/components/schemas/OsModeType'
+        preEnrollment:
+          $ref: '#/components/schemas/PreEnrollmentResult'
       description: EnrollmentRequestSpec is a description of a EnrollmentRequest's target state.
     EnrollmentRequestStatus:
       type: object
@@ -6982,6 +7061,43 @@ components:
       required:
         - conditions
       description: EnrollmentRequestStatus represents information about the status of a EnrollmentRequest.
+
+    PreEnrollmentActionResult:
+      type: object
+      description: Result of a single executed pre-enrollment hook action, agent-populated.
+      required:
+        - source
+        - exitCode
+      properties:
+        source:
+          type: string
+          description: >-
+            Path to the hook definition YAML that contained this action (for
+            example /etc/flightctl/hooks.d/beforeenrolling/10-network.yaml).
+        exitCode:
+          type: integer
+          description: Process exit code from the hook action.
+        output:
+          type: string
+          description: >-
+            Redacted stdout/stderr from this action. The total size across all
+            actions is capped at 4KiB. Secret patterns (PEM blocks, Bearer
+            prefixes, known token env names) are redacted before persistence.
+
+    PreEnrollmentResult:
+      type: object
+      description: Result of pre-enrollment hook execution, agent-populated.
+      required:
+        - success
+      properties:
+        success:
+          type: boolean
+          description: Whether all pre-enrollment hooks completed with exit code 0.
+        actions:
+          type: array
+          description: Per-action results in execution order.
+          items:
+            $ref: '#/components/schemas/PreEnrollmentActionResult'
 
     ResourceSync:
       type: object
@@ -7969,6 +8085,8 @@ components:
             - EncryptionMigrationStarted
             - EncryptionMigrationCompleted
             - ApplicationLifecycleChanged
+            - PrepareDeltas
+            - DeltaGenerationCompleted
         message:
           type: string
           description: A human-readable description of the status of this operation.
@@ -8054,6 +8172,7 @@ components:
           DependencyChangeDetected: "#/components/schemas/DependencyChangeDetectedDetails"
           DependencySyncProbeFailed: "#/components/schemas/DependencySyncProbeFailedDetails"
           ApplicationLifecycleChanged: "#/components/schemas/ApplicationLifecycleChangedDetails"
+          PrepareDeltas: "#/components/schemas/PrepareDeltasDetails"
       oneOf:
         - $ref: "#/components/schemas/ResourceUpdatedDetails"
         - $ref: "#/components/schemas/DeviceOwnershipChangedDetails"
@@ -8073,6 +8192,7 @@ components:
         - $ref: "#/components/schemas/DependencyChangeDetectedDetails"
         - $ref: "#/components/schemas/DependencySyncProbeFailedDetails"
         - $ref: "#/components/schemas/ApplicationLifecycleChangedDetails"
+        - $ref: "#/components/schemas/PrepareDeltasDetails"
     DeviceVulnerabilityCveDetails:
       type: object
       description: Structured details for per-device CVE vulnerability events.
@@ -8235,6 +8355,21 @@ components:
         errorCount:
           type: integer
           description: Number of errors encountered by this ResourceSync update.
+    PrepareDeltasDetails:
+      type: object
+      description: Structured details for PrepareDeltas events.
+      required:
+        - detailType
+      properties:
+        detailType:
+          type: string
+          enum: [PrepareDeltas]
+          x-enum-varnames:
+            - PrepareDeltas
+          description: The type of detail for discriminator purposes.
+        templateVersion:
+          type: string
+          description: Fleet only. The TemplateVersion this prepare is for. Required when involvedObject.kind is Fleet; omitted for Device.
     FleetRolloutStartedDetails:
       type: object
       required:

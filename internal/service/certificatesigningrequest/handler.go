@@ -13,11 +13,10 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
+	"github.com/flightctl/flightctl/internal/service/tpmcsr"
 	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
-	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/tpm"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -27,20 +26,20 @@ import (
 var nowFunc = time.Now
 
 type ServiceHandler struct {
-	store                  certificatesigningrequeststore.Store
-	enrollmentRequestStore enrollmentrequeststore.Store
-	ca                     *crypto.CAClient
-	events                 events.Service
-	log                    logrus.FieldLogger
-	agentEndpoint          string
-	uiUrl                  string
+	store         certificatesigningrequeststore.Store
+	tpmVerifier   *tpmcsr.Verifier
+	ca            *crypto.CAClient
+	events        events.Service
+	log           logrus.FieldLogger
+	agentEndpoint string
+	uiUrl         string
 }
 
 // NewServiceHandler creates a new certificatesigningrequest ServiceHandler instance.
 // agentEndpoint/uiUrl are only used by GenerateEnrollmentCredential (they're embedded in the
 // returned crypto.EnrollmentCredential); pass "" if a caller never needs enrollment credentials.
-func NewServiceHandler(store certificatesigningrequeststore.Store, enrollmentRequestStore enrollmentrequeststore.Store, ca *crypto.CAClient, events events.Service, log logrus.FieldLogger, agentEndpoint string, uiUrl string) *ServiceHandler {
-	return &ServiceHandler{store: store, enrollmentRequestStore: enrollmentRequestStore, ca: ca, events: events, log: log, agentEndpoint: agentEndpoint, uiUrl: uiUrl}
+func NewServiceHandler(store certificatesigningrequeststore.Store, tpmVerifier *tpmcsr.Verifier, ca *crypto.CAClient, events events.Service, log logrus.FieldLogger, agentEndpoint string, uiUrl string) *ServiceHandler {
+	return &ServiceHandler{store: store, tpmVerifier: tpmVerifier, ca: ca, events: events, log: log, agentEndpoint: agentEndpoint, uiUrl: uiUrl}
 }
 
 var _ Service = (*ServiceHandler)(nil)
@@ -131,72 +130,7 @@ func (h *ServiceHandler) ListCertificateSigningRequests(ctx context.Context, org
 }
 
 func (h *ServiceHandler) verifyTPMCSRRequest(ctx context.Context, orgId uuid.UUID, csr *domain.CertificateSigningRequest) error {
-	if csr.Status == nil {
-		csr.Status = &domain.CertificateSigningRequestStatus{}
-	}
-	csrBytes, isTPM := tpm.ParseTCGCSRBytes(string(csr.Spec.Request))
-	if !isTPM {
-		return fmt.Errorf("parsing TCG CSR")
-	}
-
-	// setTPMVerifiedFalse takes an already-formatted message rather than a format string + args
-	// so that `go vet`'s printf check does not flag call sites passing a non-constant message
-	// (e.g. notTPMBasedMessage below) as a "non-constant format string" error.
-	setTPMVerifiedFalse := func(message string) {
-		domain.SetStatusCondition(&csr.Status.Conditions, domain.Condition{
-			Message: message,
-			Reason:  domain.TPMVerificationFailedReason,
-			Status:  domain.ConditionStatusFalse,
-			Type:    domain.ConditionTypeCertificateSigningRequestTPMVerified,
-		})
-	}
-
-	kind, owner, err := util.GetResourceOwner(csr.Metadata.Owner)
-	if err != nil {
-		setTPMVerifiedFalse("Failed to determine resource owner")
-		return nil
-	}
-	if kind != domain.DeviceKind {
-		setTPMVerifiedFalse(fmt.Sprintf("The CSR's owner is not a %s", domain.DeviceKind))
-		return nil
-	}
-	// TODO this should be retrieved from the device rather than from the ER
-	er, err := h.enrollmentRequestStore.Get(ctx, orgId, owner)
-	if err != nil {
-		setTPMVerifiedFalse(fmt.Sprintf("Unable to find CSR's owner: %s/%s", orgId, owner))
-		return nil
-	}
-
-	notTPMBasedMessage := fmt.Sprintf("The CSR's owner %s is not TPM based.", lo.FromPtr(csr.Metadata.Owner))
-	if er.Status == nil || !domain.IsStatusConditionTrue(er.Status.Conditions, domain.ConditionTypeEnrollmentRequestTPMVerified) {
-		setTPMVerifiedFalse(notTPMBasedMessage)
-		return nil
-	}
-
-	erBytes, isTPM := tpm.ParseTCGCSRBytes(er.Spec.Csr)
-	if !isTPM {
-		setTPMVerifiedFalse(notTPMBasedMessage)
-		return nil
-	}
-
-	parsed, err := tpm.ParseTCGCSR(erBytes)
-	if err != nil {
-		setTPMVerifiedFalse(notTPMBasedMessage)
-		return nil
-	}
-
-	if err = tpm.VerifyTCGCSRSigningChain(csrBytes, parsed.CSRContents.Payload.AttestPub); err != nil {
-		setTPMVerifiedFalse(err.Error())
-		return nil
-	}
-	domain.SetStatusCondition(&csr.Status.Conditions, domain.Condition{
-		Message: "TPM chain of trust verified",
-		Reason:  "TPMVerificationSucceeded",
-		Status:  domain.ConditionStatusTrue,
-		Type:    domain.ConditionTypeCertificateSigningRequestTPMVerified,
-	})
-
-	return nil
+	return h.tpmVerifier.VerifyTPMCSRRequest(ctx, orgId, csr)
 }
 
 func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, csr domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, domain.Status) {
@@ -227,7 +161,8 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, or
 		}
 	}
 
-	result, err := h.store.Create(ctx, orgId, &csr, h.callbackCertificateSigningRequestUpdated)
+	result, err := h.store.Create(ctx, orgId, &csr)
+	h.callbackCertificateSigningRequestUpdated(ctx, domain.CertificateSigningRequestKind, orgId, lo.FromPtr(csr.Metadata.Name), nil, result, true, err)
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, true, domain.CertificateSigningRequestKind, csr.Metadata.Name)
 	}
@@ -248,7 +183,10 @@ func (h *ServiceHandler) CreateCertificateSigningRequest(ctx context.Context, or
 }
 
 func (h *ServiceHandler) DeleteCertificateSigningRequest(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
-	err := h.store.Delete(ctx, orgId, name, h.callbackCertificateSigningRequestDeleted)
+	deleted, err := h.store.Delete(ctx, orgId, name)
+	if err == nil && deleted {
+		h.callbackCertificateSigningRequestDeleted(ctx, domain.CertificateSigningRequestKind, orgId, name, nil, nil, false, nil)
+	}
 	return common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, &name)
 }
 
@@ -307,7 +245,8 @@ func (h *ServiceHandler) PatchCertificateSigningRequest(ctx context.Context, org
 		}
 	}
 
-	result, err := h.store.Update(ctx, orgId, newObj, h.callbackCertificateSigningRequestUpdated)
+	result, oldCSR, err := h.store.Update(ctx, orgId, newObj)
+	h.callbackCertificateSigningRequestUpdated(ctx, domain.CertificateSigningRequestKind, orgId, name, oldCSR, result, false, err)
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, false, domain.CertificateSigningRequestKind, &name)
 	}
@@ -374,7 +313,8 @@ func (h *ServiceHandler) ReplaceCertificateSigningRequest(ctx context.Context, o
 		}
 	}
 
-	result, created, err := h.store.CreateOrUpdate(ctx, orgId, &csr, h.callbackCertificateSigningRequestUpdated)
+	result, oldCSR, created, err := h.store.CreateOrUpdate(ctx, orgId, &csr)
+	h.callbackCertificateSigningRequestUpdated(ctx, domain.CertificateSigningRequestKind, orgId, name, oldCSR, result, created, err)
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, created, domain.CertificateSigningRequestKind, &name)
 	}
@@ -523,28 +463,32 @@ func (h *ServiceHandler) validateAllowedSignersForCSRService(csr *domain.Certifi
 
 // callbackCertificateSigningRequestUpdated is the certificate signing request-specific callback that handles CSR events
 func (h *ServiceHandler) callbackCertificateSigningRequestUpdated(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	if err != nil {
-		status := common.StoreErrorToApiStatus(err, created, string(resourceKind), &name)
-		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, resourceKind, name, status, nil))
-	} else {
-		// Compute ResourceUpdatedDetails for updates
-		var updateDetails *domain.ResourceUpdatedDetails
-		if !created {
-			var (
-				oldCSR, newCSR *domain.CertificateSigningRequest
-				ok             bool
-			)
-			if oldCSR, newCSR, ok = common.CastResources[domain.CertificateSigningRequest](oldResource, newResource); ok && oldCSR != nil && newCSR != nil {
-				updateDetails = common.ComputeResourceUpdatedDetails(oldCSR.Metadata, newCSR.Metadata)
+	common.SafeEventCallback(h.log, func() {
+		if err != nil {
+			status := common.StoreErrorToApiStatus(err, created, string(resourceKind), &name)
+			h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, resourceKind, name, status, nil))
+		} else {
+			// Compute ResourceUpdatedDetails for updates
+			var updateDetails *domain.ResourceUpdatedDetails
+			if !created {
+				var (
+					oldCSR, newCSR *domain.CertificateSigningRequest
+					ok             bool
+				)
+				if oldCSR, newCSR, ok = common.CastResources[domain.CertificateSigningRequest](oldResource, newResource); ok && oldCSR != nil && newCSR != nil {
+					updateDetails = common.ComputeResourceUpdatedDetails(oldCSR.Metadata, newCSR.Metadata)
+				}
 			}
+			h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, updateDetails, h.log, nil))
 		}
-		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, resourceKind, name, updateDetails, h.log, nil))
-	}
+	})
 }
 
 // callbackCertificateSigningRequestDeleted is the certificate signing request-specific callback that handles CSR deletion events
 func (h *ServiceHandler) callbackCertificateSigningRequestDeleted(ctx context.Context, resourceKind domain.ResourceKind, orgId uuid.UUID, name string, oldResource, newResource interface{}, created bool, err error) {
-	h.events.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	common.SafeEventCallback(h.log, func() {
+		h.events.HandleGenericResourceDeletedEvents(ctx, resourceKind, orgId, name, oldResource, newResource, created, err)
+	})
 }
 
 // setCSRFailedCondition sets the Failed condition on the provided CSR, persists the change, and logs any error during persistence.

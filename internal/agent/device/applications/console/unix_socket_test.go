@@ -23,6 +23,17 @@ func (c *recordingCloser) Close() error {
 	return nil
 }
 
+func pkillScripts(exec *mockExecStreamer) []string {
+	var scripts []string
+	for _, call := range exec.execCalls {
+		joined := strings.Join(call, " ")
+		if strings.Contains(joined, "pkill") {
+			scripts = append(scripts, joined)
+		}
+	}
+	return scripts
+}
+
 func TestDialVMUnixSocket_WhenExecIsNilItShouldReturnError(t *testing.T) {
 	require := require.New(t)
 	logger := log.NewPrefixLogger("test")
@@ -33,7 +44,48 @@ func TestDialVMUnixSocket_WhenExecIsNilItShouldReturnError(t *testing.T) {
 	require.Contains(err.Error(), "no exec streamer")
 }
 
-func TestDialVMUnixSocket_WhenOpeningItShouldReapLeftoverNCBeforeDial(t *testing.T) {
+func TestDialVMUnixSocket_WhenNCIsPresentItShouldDialWithNC(t *testing.T) {
+	require := require.New(t)
+	closer := &recordingCloser{}
+	exec := &mockExecStreamer{conn: closer}
+	logger := log.NewPrefixLogger("test")
+
+	conn, err := dialVMUnixSocket(context.Background(), exec, "compute", vmSerialSocketPath, logger)
+	require.NoError(err)
+	require.NotNil(conn)
+	require.Equal([]string{"nc", "-U", vmSerialSocketPath}, exec.streamCmds[0])
+}
+
+func TestDialVMUnixSocket_WhenNCIsMissingItShouldDialWithSocat(t *testing.T) {
+	require := require.New(t)
+	closer := &recordingCloser{}
+	exec := &mockExecStreamer{conn: closer, ncMissing: true}
+	logger := log.NewPrefixLogger("test")
+
+	conn, err := dialVMUnixSocket(context.Background(), exec, "compute", vmSerialSocketPath, logger)
+	require.NoError(err)
+	require.NotNil(conn)
+	require.Equal([]string{"socat", "-", "UNIX-CONNECT:" + vmSerialSocketPath}, exec.streamCmds[0])
+}
+
+func TestDialVMUnixSocket_WhenNCProbeFailsItShouldNotFallBackToSocat(t *testing.T) {
+	require := require.New(t)
+	exec := &mockExecStreamer{
+		conn:     &recordingCloser{},
+		probeErr: fmt.Errorf("podman exec compute: no such container"),
+	}
+	logger := log.NewPrefixLogger("test")
+
+	conn, err := dialVMUnixSocket(context.Background(), exec, "compute", vmSerialSocketPath, logger)
+	require.Error(err)
+	require.Nil(conn)
+	require.Contains(err.Error(), "probe nc")
+	require.Contains(err.Error(), "no such container")
+	require.Equal(0, exec.streamN)
+	require.Empty(pkillScripts(exec))
+}
+
+func TestDialVMUnixSocket_WhenOpeningItShouldReapLeftoverClientsBeforeDial(t *testing.T) {
 	require := require.New(t)
 	closer := &recordingCloser{}
 	exec := &mockExecStreamer{conn: closer}
@@ -44,14 +96,15 @@ func TestDialVMUnixSocket_WhenOpeningItShouldReapLeftoverNCBeforeDial(t *testing
 	require.NoError(err)
 	require.NotNil(conn)
 
-	require.Len(exec.execCalls, 1, "expected a pre-dial cleanup Exec call")
-	require.Contains(strings.Join(exec.execCalls[0], " "), socketPath)
-	require.Contains(strings.Join(exec.execCalls[0], " "), "pkill")
+	require.Len(exec.execCalls, 2, "expected nc probe then pre-dial cleanup")
+	pkill := pkillScripts(exec)
+	require.Len(pkill, 1)
+	require.Contains(pkill[0], socketPath)
 	require.Equal(1, exec.streamN)
 
 	require.NoError(conn.Close())
 	require.True(closer.closed)
-	require.Len(exec.execCalls, 1, "Close must not pkill (avoids killing a --force successor's nc)")
+	require.Len(pkillScripts(exec), 1, "Close must not pkill (avoids killing a --force successor)")
 }
 
 func TestDialVMUnixSocket_WhenDialFailsItShouldRetryUpToThreeTimes(t *testing.T) {
@@ -72,7 +125,7 @@ func TestDialVMUnixSocket_WhenDialFailsItShouldRetryUpToThreeTimes(t *testing.T)
 	require.NoError(err)
 	require.NotNil(conn)
 	require.Equal(3, exec.streamN)
-	require.Len(exec.execCalls, 3, "each attempt reaps before dial")
+	require.Len(pkillScripts(exec), 3, "each attempt reaps before dial")
 	require.Less(time.Since(start), time.Second)
 	require.NoError(conn.Close())
 }
@@ -93,7 +146,7 @@ func TestDialVMUnixSocket_WhenAllDialAttemptsFailItShouldReturnError(t *testing.
 	require.Nil(conn)
 	require.Contains(err.Error(), "after 3 attempts")
 	require.Equal(3, exec.streamN)
-	require.Len(exec.execCalls, 3)
+	require.Len(pkillScripts(exec), 3)
 }
 
 func TestDialVMUnixSocket_WhenOldSessionClosesAfterNewDialItShouldNotReap(t *testing.T) {
@@ -104,33 +157,32 @@ func TestDialVMUnixSocket_WhenOldSessionClosesAfterNewDialItShouldNotReap(t *tes
 
 	oldConn, err := dialVMUnixSocket(context.Background(), shared, "compute", socketPath, logger)
 	require.NoError(err)
-	require.Len(shared.execCalls, 1)
+	require.Len(pkillScripts(shared), 1)
 
-	// Simulate --force: new dial starts while old session still open.
 	shared.conn = &recordingCloser{}
 	newConn, err := dialVMUnixSocket(context.Background(), shared, "compute", socketPath, logger)
 	require.NoError(err)
-	require.Len(shared.execCalls, 2, "new dial issues its own pre-dial pkill")
+	require.Len(pkillScripts(shared), 2, "new dial issues its own pre-dial pkill")
 
 	require.NoError(oldConn.Close())
-	require.Len(shared.execCalls, 2, "old Close must not issue another pkill")
+	require.Len(pkillScripts(shared), 2, "old Close must not issue another pkill")
 	require.NoError(newConn.Close())
-	require.Len(shared.execCalls, 2)
+	require.Len(pkillScripts(shared), 2)
 }
 
-func TestKillNCSocketHolders_WhenPatternBuiltItShouldNotMatchLogSuffix(t *testing.T) {
+func TestKillSocketHolders_WhenPatternBuiltItShouldCoverNCAndSocatWithoutLogSuffix(t *testing.T) {
 	require := require.New(t)
 	exec := &mockExecStreamer{}
 	logger := log.NewPrefixLogger("test")
 
-	killNCSocketHolders(context.Background(), exec, "compute", vmSerialSocketPath, logger)
+	killSocketHolders(context.Background(), exec, "compute", vmSerialSocketPath, logger)
 	require.Len(exec.execCalls, 1)
 	script := strings.Join(exec.execCalls[0], " ")
 	require.Contains(script, "^nc -U "+vmSerialSocketPath+"$")
+	require.Contains(script, "^socat - UNIX-CONNECT:"+vmSerialSocketPath+"$")
 	require.NotContains(script, "virt-serial0-log")
 }
 
-// dialWithRetryDelay runs dialVMUnixSocket with a shortened retry delay for tests.
 func dialWithRetryDelay(t *testing.T, ctx context.Context, exec ExecStreamer, containerName, socketPath string, logger *log.PrefixLogger, delay time.Duration) (io.ReadWriteCloser, error) {
 	t.Helper()
 	prev := dialRetryDelay

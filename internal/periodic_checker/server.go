@@ -15,7 +15,6 @@ import (
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/org/cache"
-	_ "github.com/flightctl/flightctl/internal/quay" // register the Quay vulnerability scanner backend
 	"github.com/flightctl/flightctl/internal/rendered"
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	checkpointservice "github.com/flightctl/flightctl/internal/service/checkpoint"
@@ -28,6 +27,7 @@ import (
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	resourcesyncservice "github.com/flightctl/flightctl/internal/service/resourcesync"
 	syncstateservice "github.com/flightctl/flightctl/internal/service/syncstate"
+	vulnerabilityfindingservice "github.com/flightctl/flightctl/internal/service/vulnerabilityfinding"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	checkpointstore "github.com/flightctl/flightctl/internal/store/checkpoint"
 	dependencyrefstore "github.com/flightctl/flightctl/internal/store/dependencyref"
@@ -40,9 +40,9 @@ import (
 	syncstatestore "github.com/flightctl/flightctl/internal/store/syncstate"
 	vulnerabilityfindingstore "github.com/flightctl/flightctl/internal/store/vulnerabilityfinding"
 	"github.com/flightctl/flightctl/internal/tasks"
-	_ "github.com/flightctl/flightctl/internal/trustify/v2" // register the Trustify vulnerability scanner backend
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/vulnerability"
+	"github.com/flightctl/flightctl/internal/vulnerability/backends"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -125,8 +125,8 @@ func (s *Server) Run(ctx context.Context) error {
 
 	repositorySvc := repositoryservice.WrapWithTracing(repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, s.log))
 	fleetSvc := fleetservice.WrapWithTracing(fleetservice.NewServiceHandler(fleetStore, catalogStore, eventsSvc, s.log))
-	resourceSyncSvc := resourcesyncservice.WrapWithTracing(resourcesyncservice.NewServiceHandler(resourceSyncStore, catalogStore, fleetStore, eventsSvc, s.log))
 	catalogSvc := catalogservice.WrapWithTracing(catalogservice.NewServiceHandler(catalogStore, deviceStore, fleetStore, eventsSvc, s.log))
+	resourceSyncSvc := resourcesyncservice.WrapWithTracing(resourcesyncservice.NewServiceHandler(resourceSyncStore, catalogSvc, fleetSvc, eventsSvc, s.log))
 	deviceSvc := deviceservice.WrapWithTracing(deviceservice.NewDeviceServiceHandler(deviceStore, catalogStore, fleetStore, eventsSvc, kvStore, "", s.log))
 	eventSvc := eventservice.WrapWithTracing(eventservice.NewServiceHandler(eventStore, eventsSvc))
 	checkpointSvc := checkpointservice.WrapWithTracing(checkpointservice.NewServiceHandler(checkpointStore))
@@ -153,7 +153,7 @@ func (s *Server) Run(ctx context.Context) error {
 	var scanner vulnerability.Scanner
 	if s.cfg.VulnerabilityReporting != nil && s.cfg.VulnerabilityReporting.Enabled {
 		var err error
-		scanner, err = vulnerability.NewScanner(s.cfg.VulnerabilityReporting)
+		scanner, err = backends.NewScanner(s.cfg.VulnerabilityReporting)
 		if err != nil {
 			s.log.WithError(err).Error("Failed to initialize vulnerability scanner, vulnerability sync will be disabled")
 		} else if scanner == nil {
@@ -165,11 +165,14 @@ func (s *Server) Run(ctx context.Context) error {
 
 	depSyncMetrics := periodicmetrics.NewDependencySyncCollector()
 
+	findingSvc := vulnerabilityfindingservice.WrapWithTracing(
+		vulnerabilityfindingservice.NewServiceHandler(vulnerabilityFindingStore, deviceSvc, fleetSvc, eventsSvc, s.cfg.VulnerabilityReporting != nil && s.cfg.VulnerabilityReporting.Enabled, s.log))
+
 	// Initialize the task executors.
 	periodicTaskExecutors := InitializeTaskExecutors(s.log,
 		repositorySvc, fleetSvc, resourceSyncSvc, catalogSvc, deviceSvc, eventSvc,
 		checkpointSvc, organizationSvc, dependencyrefSvc, syncstateSvc,
-		s.cfg, queuesProvider, workerClient, nil, vulnerabilityFindingStore, scanner, depSyncMetrics)
+		s.cfg, queuesProvider, workerClient, nil, findingSvc, scanner, depSyncMetrics)
 
 	// Create channel manager for task distribution
 	channelManagerConfig := ChannelManagerConfig{

@@ -19,13 +19,6 @@ import (
 // vulnerabilities currently detected in an image and provides no VEX status.
 const statusAffected = "affected"
 
-func init() {
-	vulnerability.Register(string(config.VulnerabilityBackendQuay),
-		func(cfg *config.VulnerabilityConfig) (vulnerability.Scanner, error) {
-			return NewScanner(cfg.Quay, nil)
-		}, vulnerability.WithSBOMUpload(false)) // Quay indexes images natively
-}
-
 // quayScanner implements vulnerability.Scanner over the Quay Security API
 // client, converting Quay/Clair scan reports into backend-agnostic
 // vulnerability.Finding DTOs.
@@ -46,7 +39,7 @@ func NewScanner(cfg *config.QuayConfig, log logrus.FieldLogger) (vulnerability.S
 	if log == nil {
 		log = logrus.StandardLogger()
 	}
-	client, err := NewClient(cfg, log)
+	client, err := NewClient(cfg, log, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -70,8 +63,9 @@ type syncCounts struct {
 }
 
 // ScanImages fetches each image's Quay Security report concurrently and converts
-// the contained vulnerabilities into findings keyed by image digest. Requests
-// are bounded by a semaphore sized to the configured MaxConcurrentRequests.
+// the contained vulnerabilities into findings keyed by image digest. Work is
+// processed by a bounded worker pool sized to MaxConcurrentRequests, so both
+// request concurrency and goroutine creation are bounded.
 //
 // Failures are isolated per image: an image the client skips (missing reference,
 // other registry, non-"scanned" status, 404, 403) contributes no findings, and a
@@ -92,74 +86,95 @@ func (s *quayScanner) ScanImages(ctx context.Context, images []vulnerability.Ima
 		counts  syncCounts
 		authErr error
 	)
-	sem := make(chan struct{}, s.maxConcurrent)
-
-	for _, image := range images {
-		wg.Add(1)
-		go func(image vulnerability.ImageRef) {
-			defer wg.Done()
-
-			// Acquire a slot, bailing out immediately if the scan was cancelled
-			// (e.g. a sibling image hit a 401) before we ever issued a request.
-			select {
-			case sem <- struct{}{}:
-				defer func() { <-sem }()
-			case <-ctx.Done():
-				return
-			}
-
-			start := time.Now()
-			res, err := s.client.FetchImageSecurity(ctx, image)
-
-			mu.Lock()
-			defer mu.Unlock()
-			if res.Attempts > 1 {
-				counts.retried += res.Attempts - 1
-			}
-
-			if err != nil {
-				if errors.Is(err, ErrQuayAuth) {
-					if authErr == nil {
-						authErr = err
-					}
-					cancel() // fail-fast: stop siblings still queued on the semaphore
-					return
-				}
-				if ctx.Err() != nil {
-					// The scan is being torn down (a sibling's 401 fail-fast or
-					// parent cancellation); this error is induced, not a genuine
-					// per-image failure, so it is neither counted nor logged.
-					return
-				}
-				counts.failed++
-				s.log.WithFields(logrus.Fields{
-					"event":    eventScanFailed,
-					"digest":   image.Digest,
-					"attempts": res.Attempts,
-				}).WithError(err).Warn("quay image scan failed; skipping")
-				return
-			}
-
-			switch res.Outcome {
-			case outcomeScanned:
-				findings := findingsFromReport(image.Digest, res.Report, s.log)
-				counts.scanned++
-				s.log.WithFields(logrus.Fields{
-					"event":       eventScanCompleted,
-					"digest":      image.Digest,
-					"cve_count":   len(findings),
-					"duration_ms": time.Since(start).Milliseconds(),
-				}).Info("quay image scan completed")
-				if len(findings) > 0 {
-					out[image.Digest] = append(out[image.Digest], findings...)
-				}
-			case outcomeSkippedRegistry:
-				counts.skippedRegistry++
-			case outcomeSkippedError:
-				counts.skippedError++
-			}
-		}(image)
+	workerCount := s.maxConcurrent
+	if workerCount <= 0 {
+		workerCount = 1
 	}
+	if workerCount > len(images) {
+		workerCount = len(images)
+	}
+	jobs := make(chan vulnerability.ImageRef)
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case image, ok := <-jobs:
+					if !ok {
+						return
+					}
+
+					start := time.Now()
+					res, err := s.client.fetchImageSecurity(ctx, image)
+					var findings []vulnerability.Finding
+					if err == nil && res.Outcome == outcomeScanned {
+						findings = findingsFromReport(image.Digest, res.Report, s.log)
+					}
+
+					func() {
+						mu.Lock()
+						defer mu.Unlock()
+						if res.Attempts > 1 {
+							counts.retried += res.Attempts - 1
+						}
+
+						if err != nil {
+							if errors.Is(err, ErrQuayAuth) {
+								if authErr == nil {
+									authErr = err
+								}
+								cancel() // fail-fast: stop siblings still queued on the work queue
+								return
+							}
+							if ctx.Err() != nil {
+								// The scan is being torn down (a sibling's 401 fail-fast or
+								// parent cancellation); this error is induced, not a genuine
+								// per-image failure, so it is neither counted nor logged.
+								return
+							}
+							counts.failed++
+							s.log.WithFields(logrus.Fields{
+								"event":    eventScanFailed,
+								"digest":   image.Digest,
+								"attempts": res.Attempts,
+							}).WithError(err).Warn("quay image scan failed; skipping")
+							return
+						}
+
+						switch res.Outcome {
+						case outcomeScanned:
+							counts.scanned++
+							s.log.WithFields(logrus.Fields{
+								"event":       eventScanCompleted,
+								"digest":      image.Digest,
+								"cve_count":   len(findings),
+								"duration_ms": time.Since(start).Milliseconds(),
+							}).Info("quay image scan completed")
+							if len(findings) > 0 {
+								out[image.Digest] = append(out[image.Digest], findings...)
+							}
+						case outcomeSkippedRegistry:
+							counts.skippedRegistry++
+						case outcomeSkippedError:
+							counts.skippedError++
+						}
+					}()
+				}
+			}
+		}()
+	}
+sendJobs:
+	for _, image := range images {
+		select {
+		case <-ctx.Done():
+			break sendJobs
+		case jobs <- image:
+		}
+	}
+	close(jobs)
 	wg.Wait()
 
 	if authErr != nil {
@@ -219,11 +234,11 @@ var severityMap = map[string]string{
 
 // findingsFromReport walks a scanned Quay report's Features and their
 // Vulnerabilities and returns one Finding per extracted CVE for the given image
-// digest. Vulnerabilities with no extractable CVE ID are skipped with a debug
-// log (RHEM's composite key requires a CVE ID). Findings are deduplicated by
-// (digest, cve_id): the first occurrence of a CVE is authoritative, so a CVE
-// referenced from multiple Features collapses to a single finding carrying that
-// first occurrence's fields.
+// digest. Vulnerabilities with no extractable CVE ID are skipped with a warning
+// log (RHEM's composite key requires a CVE ID, so data is lost). Findings are
+// deduplicated by (digest, cve_id): the first occurrence of a CVE is
+// authoritative, so a CVE referenced from multiple Features collapses to a
+// single finding carrying that first occurrence's fields.
 func findingsFromReport(digest string, report *Response, log logrus.FieldLogger) []vulnerability.Finding {
 	if report == nil || report.Data == nil || report.Data.Layer == nil {
 		return nil
@@ -241,7 +256,7 @@ func findingsFromReport(digest string, report *Response, log logrus.FieldLogger)
 				log.WithFields(logrus.Fields{
 					"digest": digest,
 					"name":   vuln.Name,
-				}).Debug("skipping vulnerability with no extractable CVE ID")
+				}).Warn("skipping vulnerability: no extractable CVE ID (data loss)")
 				continue
 			}
 			for _, cveID := range cveIDs {

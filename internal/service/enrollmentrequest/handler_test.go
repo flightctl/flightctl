@@ -46,39 +46,33 @@ func newFakeEnrollmentRequestStore() *fakeEnrollmentRequestStore {
 
 func (f *fakeEnrollmentRequestStore) InitialMigration(ctx context.Context) error { return nil }
 
-func (f *fakeEnrollmentRequestStore) Create(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest, callbackEvent store.EventCallback) (*domain.EnrollmentRequest, error) {
+func (f *fakeEnrollmentRequestStore) Create(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest) (*domain.EnrollmentRequest, error) {
 	name := lo.FromPtr(req.Metadata.Name)
 	if _, exists := f.items[name]; exists {
 		return nil, flterrors.ErrDuplicateName
 	}
 	f.items[name] = req
-	if callbackEvent != nil {
-		callbackEvent(ctx, domain.EnrollmentRequestKind, orgId, name, nil, req, true, nil)
-	}
 	return req, nil
 }
 
-func (f *fakeEnrollmentRequestStore) Update(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest, callbackEvent store.EventCallback) (*domain.EnrollmentRequest, error) {
+func (f *fakeEnrollmentRequestStore) Update(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, error) {
 	name := lo.FromPtr(req.Metadata.Name)
 	old, exists := f.items[name]
 	if !exists {
-		return nil, flterrors.ErrResourceNotFound
+		return nil, nil, flterrors.ErrResourceNotFound
 	}
 	f.items[name] = req
-	if callbackEvent != nil {
-		callbackEvent(ctx, domain.EnrollmentRequestKind, orgId, name, old, req, false, nil)
-	}
-	return req, nil
+	return req, old, nil
 }
 
-func (f *fakeEnrollmentRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest, callbackEvent store.EventCallback) (*domain.EnrollmentRequest, bool, error) {
+func (f *fakeEnrollmentRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error) {
 	name := lo.FromPtr(req.Metadata.Name)
 	if _, exists := f.items[name]; exists {
-		result, err := f.Update(ctx, orgId, req, callbackEvent)
-		return result, false, err
+		result, old, err := f.Update(ctx, orgId, req)
+		return result, old, false, err
 	}
-	result, err := f.Create(ctx, orgId, req, callbackEvent)
-	return result, true, err
+	result, err := f.Create(ctx, orgId, req)
+	return result, nil, true, err
 }
 
 func (f *fakeEnrollmentRequestStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.EnrollmentRequest, error) {
@@ -97,32 +91,26 @@ func (f *fakeEnrollmentRequestStore) List(ctx context.Context, orgId uuid.UUID, 
 	return &domain.EnrollmentRequestList{Items: items}, nil
 }
 
-func (f *fakeEnrollmentRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callbackEvent store.EventCallback) error {
+func (f *fakeEnrollmentRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
 	if _, exists := f.items[name]; !exists {
-		return nil
+		return false, nil
 	}
 	delete(f.items, name)
-	if callbackEvent != nil {
-		callbackEvent(ctx, domain.EnrollmentRequestKind, orgId, name, nil, nil, false, nil)
-	}
-	return nil
+	return true, nil
 }
 
-func (f *fakeEnrollmentRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest, callbackEvent store.EventCallback) (*domain.EnrollmentRequest, error) {
+func (f *fakeEnrollmentRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, error) {
 	name := lo.FromPtr(req.Metadata.Name)
-	if _, exists := f.items[name]; !exists {
-		return nil, flterrors.ErrResourceNotFound
+	old, exists := f.items[name]
+	if !exists {
+		return nil, nil, flterrors.ErrResourceNotFound
 	}
 	f.items[name] = req
-	if callbackEvent != nil {
-		callbackEvent(ctx, domain.EnrollmentRequestKind, orgId, name, nil, req, false, nil)
-	}
-	return req, nil
+	return req, old, nil
 }
 
-// fakeDeviceStore embeds devicestore.Store (nil) and overrides only Get and Create,
-// the methods this handler's allowCreationOrUpdate/deviceExists/createDeviceFromEnrollmentRequest
-// call sites use.
+// fakeDeviceStore embeds devicestore.Store (nil) and overrides Get/Create/CreateOrUpdate
+// used by allowCreationOrUpdate/deviceExists/createDeviceFromEnrollmentRequest.
 type fakeDeviceStore struct {
 	devicestore.Store
 	items map[string]*domain.Device
@@ -147,6 +135,14 @@ func (f *fakeDeviceStore) Create(ctx context.Context, orgId uuid.UUID, device *d
 	}
 	f.items[name] = device
 	return device, nil
+}
+
+func (f *fakeDeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string) (*domain.Device, *domain.Device, bool, error) {
+	name := lo.FromPtr(device.Metadata.Name)
+	existing := f.items[name]
+	created := existing == nil
+	f.items[name] = device
+	return device, existing, created, nil
 }
 
 // fakeKVStore embeds kvstore.KVStore (nil) and overrides only SetNX, the sole method
@@ -582,11 +578,143 @@ func TestCreateDeviceFromEnrollmentRequestOsMode(t *testing.T) {
 	}
 }
 
+func TestCreateDeviceFromEnrollmentRequestSystemInfo(t *testing.T) {
+	t.Run("When DeviceStatus is nil it should create the device with empty systemInfo", func(t *testing.T) {
+		h, _, fakeDevices, _, _ := newTestHandler(t)
+		ctx := context.Background()
+		orgId := uuid.New()
+		deviceName := "no-status-device"
+
+		er := &domain.EnrollmentRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(deviceName)},
+			Spec:     domain.EnrollmentRequestSpec{Csr: "TestCSR"},
+		}
+
+		err := h.createDeviceFromEnrollmentRequest(ctx, orgId, er)
+		require.NoError(t, err)
+
+		device, err := fakeDevices.Get(ctx, orgId, deviceName)
+		require.NoError(t, err)
+		require.NotNil(t, device.Status)
+		id, found := device.Status.SystemInfo.Get("distroId")
+		require.False(t, found)
+		require.Empty(t, id)
+		require.Equal(t, domain.DeviceLifecycleStatusEnrolled, device.Status.Lifecycle.Status)
+	})
+
+	t.Run("When systemInfo has distroId it should copy it onto the device", func(t *testing.T) {
+		h, _, fakeDevices, _, _ := newTestHandler(t)
+		ctx := context.Background()
+		orgId := uuid.New()
+		deviceName := "rhel9-device"
+
+		enrollmentStatus := domain.NewDeviceStatus()
+		enrollmentStatus.SystemInfo.AgentVersion = "v1.2.3"
+		enrollmentStatus.SystemInfo.OperatingSystem = "linux"
+		enrollmentStatus.SystemInfo.Set("distroId", "rhel")
+		enrollmentStatus.SystemInfo.Set("distroVersion", "9.5 (Plow)")
+
+		er := &domain.EnrollmentRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(deviceName)},
+			Spec: domain.EnrollmentRequestSpec{
+				Csr:          "TestCSR",
+				DeviceStatus: &enrollmentStatus,
+			},
+		}
+
+		err := h.createDeviceFromEnrollmentRequest(ctx, orgId, er)
+		require.NoError(t, err)
+
+		device, err := fakeDevices.Get(ctx, orgId, deviceName)
+		require.NoError(t, err)
+		require.NotNil(t, device.Status)
+		id, found := device.Status.SystemInfo.Get("distroId")
+		require.True(t, found)
+		require.Equal(t, "rhel", id)
+		version, found := device.Status.SystemInfo.Get("distroVersion")
+		require.True(t, found)
+		require.Equal(t, "9.5 (Plow)", version)
+		require.Equal(t, "v1.2.3", device.Status.SystemInfo.AgentVersion)
+		require.Equal(t, "linux", device.Status.SystemInfo.OperatingSystem)
+		require.Equal(t, domain.DeviceLifecycleStatusEnrolled, device.Status.Lifecycle.Status)
+	})
+
+	t.Run("When enrollment reports integrity verified it should still set integrity from TPM result", func(t *testing.T) {
+		h, _, fakeDevices, _, _ := newTestHandler(t)
+		ctx := context.Background()
+		orgId := uuid.New()
+		deviceName := "integrity-overlay-device"
+
+		enrollmentStatus := domain.NewDeviceStatus()
+		enrollmentStatus.Integrity = domain.DeviceIntegrityStatus{
+			Status: domain.DeviceIntegrityStatusVerified,
+		}
+		enrollmentStatus.SystemInfo.Set("distroId", "rhel")
+		enrollmentStatus.SystemInfo.Set("distroVersion", "9.5 (Plow)")
+
+		er := &domain.EnrollmentRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(deviceName)},
+			Spec: domain.EnrollmentRequestSpec{
+				Csr:          "TestCSR",
+				DeviceStatus: &enrollmentStatus,
+			},
+		}
+
+		err := h.createDeviceFromEnrollmentRequest(ctx, orgId, er)
+		require.NoError(t, err)
+
+		device, err := fakeDevices.Get(ctx, orgId, deviceName)
+		require.NoError(t, err)
+		require.Equal(t, domain.DeviceIntegrityStatusUnsupported, device.Status.Integrity.Status)
+		id, found := device.Status.SystemInfo.Get("distroId")
+		require.True(t, found)
+		require.Equal(t, "rhel", id)
+	})
+
+	t.Run("When awaitingReconnect is set it should keep systemInfo and set awaiting reconnect summary", func(t *testing.T) {
+		h, _, fakeDevices, _, _ := newTestHandler(t)
+		ctx := context.Background()
+		orgId := uuid.New()
+		deviceName := "reconnect-device"
+
+		enrollmentStatus := domain.NewDeviceStatus()
+		enrollmentStatus.SystemInfo.Set("distroId", "rhel")
+		enrollmentStatus.SystemInfo.Set("distroVersion", "10.0 (Coughlan)")
+
+		er := &domain.EnrollmentRequest{
+			Metadata: domain.ObjectMeta{
+				Name: lo.ToPtr(deviceName),
+				Annotations: &map[string]string{
+					domain.DeviceAnnotationAwaitingReconnect: "true",
+				},
+			},
+			Spec: domain.EnrollmentRequestSpec{
+				Csr:          "TestCSR",
+				DeviceStatus: &enrollmentStatus,
+			},
+		}
+
+		err := h.createDeviceFromEnrollmentRequest(ctx, orgId, er)
+		require.NoError(t, err)
+
+		device, err := fakeDevices.Get(ctx, orgId, deviceName)
+		require.NoError(t, err)
+		require.Equal(t, domain.DeviceSummaryStatusAwaitingReconnect, device.Status.Summary.Status)
+		id, found := device.Status.SystemInfo.Get("distroId")
+		require.True(t, found)
+		require.Equal(t, "rhel", id)
+		version, found := device.Status.SystemInfo.Get("distroVersion")
+		require.True(t, found)
+		require.Equal(t, "10.0 (Coughlan)", version)
+		require.Equal(t, domain.DeviceLifecycleStatusEnrolled, device.Status.Lifecycle.Status)
+	})
+}
+
 // TestCreateDeviceFromEnrollmentRequestNeverManaged is a regression guard for the deviceOnlyStore
 // adapter's safety invariant: createDeviceFromEnrollmentRequest must never set Metadata.Owner on
 // the device it builds. deviceOnlyStore only overrides Device() on its embedded nil store.Store;
-// every other accessor (including Fleet()) panics if called. common.UpdateServiceSideStatus only
-// calls st.Fleet() when the device IsManaged() (i.e. has a non-nil Owner), so if this invariant
+// every other accessor panics if called. UpdateServiceSideStatus only calls fleet.Service.GetFleet
+// when the device IsManaged() (i.e. has a non-nil Owner), so if this invariant
 // were ever broken, this test would fail with a panic instead of a production nil-pointer panic.
 func TestCreateDeviceFromEnrollmentRequestNeverManaged(t *testing.T) {
 	h, _, fakeDevices, _, _ := newTestHandler(t)
@@ -607,4 +735,54 @@ func TestCreateDeviceFromEnrollmentRequestNeverManaged(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, device.Metadata.Owner)
 	require.False(t, device.IsManaged())
+}
+
+func TestCreateDeviceFromEnrollmentRequest(t *testing.T) {
+	t.Run("When a device with the same name already exists it should refuse overwrite", func(t *testing.T) {
+		h, _, fakeDevices, _, fakeEvents := newTestHandler(t)
+		ctx := context.Background()
+		orgId := uuid.New()
+		name := "existing-device"
+
+		existing := &domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+			Status:   lo.ToPtr(domain.NewDeviceStatus()),
+		}
+		existing.Status.Lifecycle.Status = "AlreadyEnrolled"
+		fakeDevices.items[name] = existing
+
+		er := &domain.EnrollmentRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+			Spec:     domain.EnrollmentRequestSpec{Csr: "TestCSR", DeviceStatus: lo.ToPtr(domain.NewDeviceStatus())},
+		}
+
+		err := h.createDeviceFromEnrollmentRequest(ctx, orgId, er)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "already exists and cannot be overwritten during enrollment request approval")
+
+		stored, getErr := fakeDevices.Get(ctx, orgId, name)
+		require.NoError(t, getErr)
+		require.Equal(t, domain.DeviceLifecycleStatusType("AlreadyEnrolled"), stored.Status.Lifecycle.Status)
+		require.Empty(t, fakeEvents.createdWithReason(domain.EventReasonResourceCreated))
+	})
+
+	t.Run("When the device does not exist it should create it and emit a created event", func(t *testing.T) {
+		h, _, fakeDevices, _, fakeEvents := newTestHandler(t)
+		ctx := context.Background()
+		orgId := uuid.New()
+		name := "new-device"
+
+		er := &domain.EnrollmentRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+			Spec:     domain.EnrollmentRequestSpec{Csr: "TestCSR", DeviceStatus: lo.ToPtr(domain.NewDeviceStatus())},
+		}
+
+		err := h.createDeviceFromEnrollmentRequest(ctx, orgId, er)
+		require.NoError(t, err)
+
+		stored, getErr := fakeDevices.Get(ctx, orgId, name)
+		require.NoError(t, getErr)
+		require.NotNil(t, stored)
+		require.Len(t, fakeEvents.createdWithReason(domain.EventReasonResourceCreated), 1)
+	})
 }

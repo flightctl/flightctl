@@ -36,6 +36,7 @@ const (
 	// Distribution info keys
 	DistroNameKey    = "distroName"
 	DistroVersionKey = "distroVersion"
+	DistroIdKey      = "distroId"
 
 	// Identity / security (runtime/conditional collectors)
 	ManagementCertNotAfterKey = "managementCertNotAfter"
@@ -110,6 +111,7 @@ var builtInKeys = newKeySet(
 	ProductSerialKey,
 	DistroNameKey,
 	DistroVersionKey,
+	DistroIdKey,
 )
 
 var allKeys = unionKeySets(builtInKeys, runtimeKeys)

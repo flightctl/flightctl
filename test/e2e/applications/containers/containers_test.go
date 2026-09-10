@@ -1,7 +1,9 @@
 package containers_test
 
 import (
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/test/harness/e2e"
@@ -25,6 +27,15 @@ const (
 	defaultCPU    = "4"
 	defaultMemory = "256m"
 	lowMemory     = "1m"
+
+	detachFleetName              = "edm-5202-detach-fleet"
+	detachFleetSelectorLabelKey  = "fleet"
+	detachDeviceLabelKey         = "detached"
+	detachDeviceLabelValue       = "true"
+	detachExpectedApplicationNum = 1
+
+	errHarnessNil    = "harness is nil"
+	errDeviceIDEmpty = "device ID is empty"
 )
 
 var _ = Describe("Single Container Applications", Ordered, func() {
@@ -229,8 +240,142 @@ var _ = Describe("Single Container Applications", Ordered, func() {
 		harness.WaitForNoApplications(deviceId)
 		harness.VerifyQuadletApplicationFolderDeleted(containerAppName)
 	})
+
+	It("keeps application summary defined when a device with applications is detached from its fleet", Label("90322", "sanity"), func() {
+		By("Creating a fleet that deploys a container application")
+		fleetSelector := v1beta1.LabelSelector{
+			MatchLabels: &map[string]string{detachFleetSelectorLabelKey: detachFleetName},
+		}
+		fleetDeviceSpec := v1beta1.DeviceSpec{
+			Applications: &[]v1beta1.ApplicationProviderSpec{defaultAppSpec},
+		}
+		err := harness.CreateOrUpdateTestFleet(detachFleetName, fleetSelector, fleetDeviceSpec)
+		Expect(err).ToNot(HaveOccurred(), "create fleet %s", detachFleetName)
+		DeferCleanup(func() error {
+			var cleanupErr error
+			if err := resetDeviceLabelsIfExists(harness, deviceId, map[string]string{detachDeviceLabelKey: detachDeviceLabelValue}); err != nil {
+				cleanupErr = errors.Join(cleanupErr, fmt.Errorf("reset device %s labels after fleet detach test: %w", deviceId, err))
+			}
+			if err := harness.DeleteFleetIgnoreNotFound(detachFleetName); err != nil {
+				cleanupErr = errors.Join(cleanupErr, fmt.Errorf("delete fleet %s after fleet detach test: %w", detachFleetName, err))
+			}
+			return cleanupErr
+		})
+
+		fleet, err := harness.GetFleet(detachFleetName)
+		Expect(err).ToNot(HaveOccurred(), "get fleet %s", detachFleetName)
+		Expect(fleet.Spec.Template.Spec.Applications).ToNot(BeNil())
+		Expect(*fleet.Spec.Template.Spec.Applications).To(HaveLen(detachExpectedApplicationNum))
+
+		By("Selecting the enrolled device into the fleet")
+		nextRenderedVersion, err := harness.PrepareNextDeviceVersionFromCurrentStatus(deviceId)
+		Expect(err).ToNot(HaveOccurred())
+		err = harness.SetLabelsForDevice(deviceId, map[string]string{detachFleetSelectorLabelKey: detachFleetName})
+		Expect(err).ToNot(HaveOccurred())
+		err = harness.WaitForDeviceNewRenderedVersion(deviceId, nextRenderedVersion)
+		Expect(err).ToNot(HaveOccurred())
+
+		By("Verifying the fleet application is running and healthy")
+		err = harness.WaitForApplicationStatus(deviceId, containerAppName, v1beta1.ApplicationStatusRunning, testutil.TIMEOUT, testutil.POLLING)
+		Expect(err).ToNot(HaveOccurred())
+		err = harness.WaitForApplicationSummary(deviceId, testutil.TIMEOUT, testutil.POLLING, v1beta1.ApplicationsSummaryStatusHealthy)
+		Expect(err).ToNot(HaveOccurred())
+
+		By("Removing the label that selects the device into the fleet")
+		err = harness.SetLabelsForDevice(deviceId, map[string]string{detachDeviceLabelKey: detachDeviceLabelValue})
+		Expect(err).ToNot(HaveOccurred())
+
+		By("Verifying the online detached device keeps a healthy application summary")
+		Eventually(deviceDetachedWithHealthyApplications, testutil.TIMEOUT, testutil.POLLING).WithArguments(harness, deviceId).Should(Succeed())
+		err = harness.WaitForApplicationStatus(deviceId, containerAppName, v1beta1.ApplicationStatusRunning, testutil.TIMEOUT, testutil.POLLING)
+		Expect(err).ToNot(HaveOccurred())
+		err = harness.WaitForApplicationSummary(deviceId, testutil.TIMEOUT, testutil.POLLING, v1beta1.ApplicationsSummaryStatusHealthy)
+		Expect(err).ToNot(HaveOccurred())
+	})
 })
 
 func getPortMapping() string {
 	return fmt.Sprintf("%s:%s", hostPort, containerPort)
+}
+
+// resetDeviceLabelsIfExists avoids failing cleanup when the shared test device was already deprovisioned.
+func resetDeviceLabelsIfExists(harness *e2e.Harness, deviceID string, labels map[string]string) error {
+	if harness == nil {
+		return errors.New(errHarnessNil)
+	}
+	if deviceID == "" {
+		return errors.New(errDeviceIDEmpty)
+	}
+
+	if _, err := harness.GetDevice(deviceID); err != nil {
+		if isDeviceNotFoundError(err) {
+			GinkgoWriter.Printf("Skipping label reset for deleted device %s: %v\n", deviceID, err)
+			return nil
+		}
+		return fmt.Errorf("get device %s before label reset: %w", deviceID, err)
+	}
+
+	GinkgoWriter.Printf("Resetting labels for device %s after fleet detach test\n", deviceID)
+	return harness.SetLabelsForDevice(deviceID, labels)
+}
+
+func isDeviceNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errMsg := err.Error()
+	return strings.Contains(errMsg, "not found (404)") || strings.Contains(errMsg, "404 Not Found")
+}
+
+// deviceDetachedWithHealthyApplications verifies the post-detach regression state without hiding assertions in the helper.
+func deviceDetachedWithHealthyApplications(harness *e2e.Harness, deviceID string) error {
+	if harness == nil {
+		return errors.New(errHarnessNil)
+	}
+	if deviceID == "" {
+		return errors.New(errDeviceIDEmpty)
+	}
+
+	device, err := harness.GetDevice(deviceID)
+	if err != nil {
+		return fmt.Errorf("get device %s: %w", deviceID, err)
+	}
+	if device == nil {
+		return fmt.Errorf("device %s is nil", deviceID)
+	}
+	if device.Status == nil {
+		return fmt.Errorf("device %s status is nil", deviceID)
+	}
+	if device.Metadata.Labels == nil {
+		return fmt.Errorf("device %s labels are nil", deviceID)
+	}
+	if _, selected := (*device.Metadata.Labels)[detachFleetSelectorLabelKey]; selected {
+		return fmt.Errorf("device %s still has fleet selector label %q", deviceID, detachFleetSelectorLabelKey)
+	}
+	if got := (*device.Metadata.Labels)[detachDeviceLabelKey]; got != detachDeviceLabelValue {
+		return fmt.Errorf("device %s label %s=%q, expected %q", deviceID, detachDeviceLabelKey, got, detachDeviceLabelValue)
+	}
+	if device.Metadata.Owner != nil {
+		return fmt.Errorf("device %s owner is %s, expected no owner", deviceID, *device.Metadata.Owner)
+	}
+	if device.Status.Summary.Status != v1beta1.DeviceSummaryStatusOnline {
+		return fmt.Errorf("device %s summary status is %s, expected %s", deviceID, device.Status.Summary.Status, v1beta1.DeviceSummaryStatusOnline)
+	}
+	if device.Status.Updated.Status != v1beta1.DeviceUpdatedStatusUpToDate {
+		return fmt.Errorf("device %s updated status is %s, expected %s", deviceID, device.Status.Updated.Status, v1beta1.DeviceUpdatedStatusUpToDate)
+	}
+	if len(device.Status.Applications) != detachExpectedApplicationNum {
+		return fmt.Errorf("device %s has %d applications, expected %d", deviceID, len(device.Status.Applications), detachExpectedApplicationNum)
+	}
+	if device.Status.Applications[0].Name != containerAppName {
+		return fmt.Errorf("device %s application name is %s, expected %s", deviceID, device.Status.Applications[0].Name, containerAppName)
+	}
+	if device.Status.Applications[0].Status != v1beta1.ApplicationStatusRunning {
+		return fmt.Errorf("device %s application status is %s, expected %s", deviceID, device.Status.Applications[0].Status, v1beta1.ApplicationStatusRunning)
+	}
+	if device.Status.ApplicationsSummary.Status != v1beta1.ApplicationsSummaryStatusHealthy {
+		return fmt.Errorf("device %s application summary is %s, expected %s", deviceID, device.Status.ApplicationsSummary.Status, v1beta1.ApplicationsSummaryStatusHealthy)
+	}
+
+	return nil
 }

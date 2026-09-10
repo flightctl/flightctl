@@ -30,7 +30,6 @@ RUN if [ ! -e /usr/bin/bootc ]; then \
       greenboot-grub2-set-counter.service \
       greenboot-grub2-set-success.service \
       greenboot-rpm-ostree-grub2-check-fallback.service \
-      flightctl-configure-greenboot.service \
     ; do \
       ln -sf /dev/null "/etc/systemd/system/${unit}"; \
     done

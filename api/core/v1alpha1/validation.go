@@ -452,9 +452,9 @@ func validateCatalogItemConfig(category CatalogItemCategory, itemType CatalogIte
 }
 
 // Known fields for each CatalogItem type
-var containerKnownFields = []string{"envVars", "ports", "resources", "volumes"}
+var containerKnownFields = []string{"envVars", "ports", "resources", "runAs", "volumes"}
 var helmKnownFields = []string{"namespace", "values", "valuesFiles"}
-var quadletKnownFields = []string{"envVars", "volumes"}
+var quadletKnownFields = []string{"envVars", "runAs", "volumes"}
 
 // validateContainerConfig validates config for container type.
 func validateContainerConfig(config map[string]interface{}, pathPrefix string) []error {
@@ -469,6 +469,9 @@ func validateContainerConfig(config map[string]interface{}, pathPrefix string) [
 	} else if envVars != nil {
 		allErrs = append(allErrs, validateEnvVars(envVars, pathPrefix)...)
 	}
+
+	// Validate runAs
+	allErrs = append(allErrs, validateRunAs(config, pathPrefix)...)
 
 	// Validate ports
 	if ports, err := extractStringSlice(config, "ports"); err != nil {
@@ -553,6 +556,9 @@ func validateQuadletConfig(config map[string]interface{}, pathPrefix string) []e
 	} else if envVars != nil {
 		allErrs = append(allErrs, validateEnvVars(envVars, pathPrefix)...)
 	}
+
+	// Validate runAs
+	allErrs = append(allErrs, validateRunAs(config, pathPrefix)...)
 
 	// Validate volumes
 	if raw, exists := config["volumes"]; exists {
@@ -675,6 +681,19 @@ func validateConfigSchema(schema *map[string]any, path string) []error {
 // validateEnvVars validates environment variable names and values.
 func validateEnvVars(envVars *map[string]string, pathPrefix string) []error {
 	return validation.ValidateStringMap(envVars, pathPrefix+".envVars", 1, validation.DNS1123MaxLength, validation.EnvVarNameRegexp, nil, "")
+}
+
+// validateRunAs validates the runAs field, which names the system user the
+// application should run under. When present it must be a string.
+func validateRunAs(config map[string]interface{}, pathPrefix string) []error {
+	raw, exists := config["runAs"]
+	if !exists {
+		return nil
+	}
+	if _, ok := raw.(string); !ok {
+		return []error{fmt.Errorf("%s.runAs: must be a string", pathPrefix)}
+	}
+	return nil
 }
 
 // Port validation constants

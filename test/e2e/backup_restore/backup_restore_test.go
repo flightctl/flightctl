@@ -149,7 +149,7 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 
 			By("Approving third ER (after backup)")
 			harness3.ApproveEnrollment(er3ID, harness3.TestEnrollmentApproval())
-			Eventually(harness3.GetDeviceWithStatusSummary, testutil.TIMEOUT, testutil.POLLING).WithArguments(er3ID).ShouldNot(BeEmpty())
+			Eventually(harness3.GetDeviceWithStatusSummary, testutil.TIMEOUT, testutil.POLLING).WithArguments(er3ID).Should(Equal(v1beta1.DeviceSummaryStatusOnline))
 
 			// --- Step 4: Wait for device to apply new version; verify new RV > rvAtBackup ---
 			By("Step 4: Waiting for device 1 to apply new version (new RV > previous RV) and be UpToDate")

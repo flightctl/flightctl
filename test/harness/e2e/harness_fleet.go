@@ -1,8 +1,13 @@
 package e2e
 
 import (
+	"errors"
 	"fmt"
+	"io"
+	"net"
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -121,7 +126,7 @@ func (h *Harness) CreateOrUpdateTestFleet(testFleetName string, fleetSpecOrSelec
 
 	resp, err := h.Client.ReplaceFleetWithResponse(h.Context, testFleetName, testFleet)
 	if err != nil {
-		return fmt.Errorf("replace fleet %q: %w", testFleetName, err)
+		return apiWriteTransportError{operation: fmt.Sprintf("replace fleet %q", testFleetName), err: err}
 	}
 	// Replace creates with 201 or updates with 200; anything else is a failed apply.
 	if resp.StatusCode() != 200 && resp.StatusCode() != 201 {
@@ -155,6 +160,21 @@ func (h *Harness) CreateFleetWithSelector(fleetName string, labelSelector map[st
 	return h.CreateOrUpdateTestFleet(fleetName, selector)
 }
 
+// CreateFleetWithSelectorRetry returns an Eventually-compatible function that creates a fleet with the specified selector.
+// Transient API transport errors are retried, while non-retryable errors stop polling immediately.
+func (h *Harness) CreateFleetWithSelectorRetry(fleetName string, labelSelector map[string]string) func() error {
+	return func() error {
+		err := h.CreateFleetWithSelector(fleetName, labelSelector)
+		if err == nil {
+			return nil
+		}
+		if isRetryableAPIWriteError(err) {
+			return fmt.Errorf("create fleet %q with selector %v: %w", fleetName, labelSelector, err)
+		}
+		return StopTrying(fmt.Sprintf("non-retryable error creating fleet %q with selector %v", fleetName, labelSelector)).Wrap(err)
+	}
+}
+
 // CreateTestFleetWithConfig creates a test fleet with a configuration.
 func (h *Harness) CreateTestFleetWithConfig(testFleetName string, testFleetSelector v1beta1.LabelSelector, configProviderSpec v1beta1.ConfigProviderSpec) error {
 	var testFleetSpec = v1beta1.DeviceSpec{
@@ -164,6 +184,76 @@ func (h *Harness) CreateTestFleetWithConfig(testFleetName string, testFleetSelec
 	}
 	err := h.CreateOrUpdateTestFleet(testFleetName, testFleetSelector, testFleetSpec)
 	return err
+}
+
+type apiWriteTransportError struct {
+	operation string
+	err       error
+}
+
+func (e apiWriteTransportError) Error() string {
+	return fmt.Sprintf("%s: %v", e.operation, e.err)
+}
+
+func (e apiWriteTransportError) Unwrap() error {
+	return e.err
+}
+
+// isRetryableAPIWriteError reports whether an API write failed before the server returned
+// an HTTP response. It is intentionally limited to transport-level failures that can occur
+// while routes or pods settle, and does not classify API status responses as retryable.
+func isRetryableAPIWriteError(err error) bool {
+	transportErr, ok := apiWriteTransportCause(err)
+	if !ok {
+		return false
+	}
+
+	// Prefer sentinel checks when the transport error is preserved in the error chain.
+	if errors.Is(transportErr, io.EOF) || errors.Is(transportErr, io.ErrUnexpectedEOF) {
+		return true
+	}
+
+	// Some net/http and TLS failures are wrapped as url errors with only message text
+	// available at this layer, so keep the string checks narrow and transport-specific.
+	errText := strings.ToLower(transportErr.Error())
+	return strings.Contains(errText, "eof") ||
+		strings.Contains(errText, "connection reset") ||
+		strings.Contains(errText, "connection refused") ||
+		strings.Contains(errText, "server closed idle connection") ||
+		strings.Contains(errText, "tls: bad record mac")
+}
+
+func apiWriteTransportCause(err error) (error, bool) {
+	if err == nil {
+		return nil, false
+	}
+
+	var writeErr apiWriteTransportError
+	if errors.As(err, &writeErr) {
+		if writeErr.err != nil {
+			return writeErr.err, true
+		}
+		return writeErr, true
+	}
+
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		if urlErr.Err != nil {
+			return urlErr.Err, true
+		}
+		return urlErr, true
+	}
+
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return netErr, true
+	}
+
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return err, true
+	}
+
+	return nil, false
 }
 
 // CreateFleetWithLabelConfig creates a fleet that selects devices by a single label key/value

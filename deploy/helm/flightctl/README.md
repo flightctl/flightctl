@@ -294,6 +294,21 @@ For more detailed configuration options, see the [Values](#values) section below
 | dbSetup.migration.backoffLimit | int | `2147483647` | Number of retries for the migration Job on failure  |
 | dbSetup.wait.sleep | int | `2` | Seconds to sleep between database connection attempts Default sleep interval between connection attempts |
 | dbSetup.wait.timeout | int | `60` | Seconds to wait for database readiness before failing Default timeout for database wait (can be overridden per deployment) |
+| deltaGeneration | object | `{"defaultRepository":{"caCrt":"","namespace":"","registry":"","repository":"","scheme":"","secretName":"","skipServerVerification":false},"maxConcurrentDeltaGenerations":2,"timeout":"30m"}` | Default OCI write target for generated deltas when an organization has no deltaStorageTarget Repository. Username and password must come from the Secret named in secretName (keys: username, password); they are not written to config.yaml. |
+| deltaGeneration.defaultRepository.caCrt | string | `""` | Base64-encoded PEM of a custom registry CA (same encoding as Repository spec ca.crt). |
+| deltaGeneration.defaultRepository.namespace | string | `""` | Optional namespace under registry (e.g. my-org). Mutually exclusive with repository. |
+| deltaGeneration.defaultRepository.registry | string | `""` | Registry hostname used as the login/CA host and as the prefix of the push path. |
+| deltaGeneration.defaultRepository.repository | string | `""` | Optional repository path under registry (e.g. my-org/diffs). Mutually exclusive with namespace. |
+| deltaGeneration.defaultRepository.scheme | string | `""` | URL scheme for connecting to the registry. Allowed values: http, https. |
+| deltaGeneration.defaultRepository.secretName | string | `""` | Name of the Kubernetes Secret containing 'username' and 'password' keys. |
+| deltaGeneration.defaultRepository.skipServerVerification | bool | `false` | Skip TLS verification when connecting to the registry. |
+| deltaGeneration.maxConcurrentDeltaGenerations | int | `2` | Maximum number of concurrent delta generation jobs. Defaults to 2 when omitted or <= 0. |
+| deltaGeneration.timeout | string | `"30m"` | Per-job timeout for oci-delta/ORAS. Defaults to 30m when omitted or <= 0. |
+| deltaWorker | object | `{"image":{"image":"quay.io/flightctl/flightctl-delta-worker-el9","pullPolicy":"","tag":""},"resources":{"limits":{"cpu":"2","memory":"2Gi"},"requests":{"cpu":"100m","memory":"256Mi"}}}` | Delta-worker Configuration |
+| deltaWorker.image.image | string | `"quay.io/flightctl/flightctl-delta-worker-el9"` | Delta-worker container image |
+| deltaWorker.image.pullPolicy | string | `""` | Image pull policy for delta-worker container |
+| deltaWorker.image.tag | string | `""` | Delta-worker image tag |
+| deltaWorker.resources | object | `{"limits":{"cpu":"2","memory":"2Gi"},"requests":{"cpu":"100m","memory":"256Mi"}}` | Resource requests and limits for the delta-worker container |
 | encryption | object | `{"activeKeyID":"default","keys":[{"file":"key","id":"default"}]}` | Encryption-at-rest key configuration. The flightctl-encryption-key Secret is mounted at /root/.flightctl/encryption/ in all services. Each key entry maps a logical key ID to a filename within that Secret. For key rotation: add a new key file to the Secret, add it here, then change activeKeyID. |
 | encryption.activeKeyID | string | `"default"` | Key ID used for new encryptions. Must match one of the IDs in the keys list. |
 | encryption.keys | list | `[{"file":"key","id":"default"}]` | List of available encryption keys. Old keys remain available for decryption during rotation. |
@@ -410,6 +425,16 @@ For more detailed configuration options, see the [Values](#values) section below
 | remoteAccess.logLevel | string | `"info"` | Log level for the remote access service |
 | remoteAccess.resources | object | `{"limits":{"cpu":"500m","memory":"256Mi"},"requests":{"cpu":"100m","memory":"128Mi"}}` | Resource requests and limits for the remote access container |
 | telemetryGateway.additionalRouteLabels | string | `nil` |  |
+| telemetryGateway.extraEnvs | list | `[]` | Extra environment variables for the telemetry gateway container. Use to inject secrets for forward header values via ${VAR} expansion. |
+| telemetryGateway.extraVolumeMounts | list | `[]` | Extra volume mounts for the telemetry gateway container. Use to mount TLS certificates for mTLS forward connections. |
+| telemetryGateway.extraVolumes | list | `[]` | Extra volumes for the telemetry gateway pod. |
+| telemetryGateway.forward | object | `{"endpoint":"","headers":{},"tls":{"caFile":"","certFile":"","insecureSkipTlsVerify":false,"keyFile":""}}` | Forward telemetry to an upstream OTLP collector. Uses OTLP/gRPC for bare host:port endpoints, OTLP/HTTP for http(s):// URLs. Header values support ${ENV_VAR} expansion for secret injection. |
+| telemetryGateway.forward.endpoint | string | `""` | Upstream OTLP endpoint (e.g. "collector:4317" for gRPC, "https://host/api/v2/otlp" for HTTP) |
+| telemetryGateway.forward.headers | object | `{}` | Custom HTTP headers for authentication (only used with OTLP/HTTP endpoints). Values support ${ENV_VAR} expansion — use extraEnvs with secretKeyRef to avoid storing tokens in the ConfigMap. |
+| telemetryGateway.forward.tls.caFile | string | `""` | Path to CA certificate file |
+| telemetryGateway.forward.tls.certFile | string | `""` | Path to client certificate file (for mTLS) |
+| telemetryGateway.forward.tls.insecureSkipTlsVerify | bool | `false` | Skip TLS certificate verification |
+| telemetryGateway.forward.tls.keyFile | string | `""` | Path to client key file (for mTLS) |
 | telemetryGateway.image.image | string | `"quay.io/flightctl/flightctl-telemetry-gateway-el9"` | Telemetry gateway container image |
 | telemetryGateway.image.pullPolicy | string | `""` | Image pull policy for Telemetry gateway container |
 | telemetryGateway.image.tag | string | `""` | Telemetry gateway image tag |
@@ -427,29 +452,37 @@ For more detailed configuration options, see the [Values](#values) section below
 | ui.image.tag | string | `""` | UI container image tag |
 | ui.trustXForwardedHeaders | bool | `true` | When true, the UI proxy uses X-Forwarded-Proto and X-Forwarded-Host for OAuth redirect validation (required when TLS terminates at an ingress). Disable if the UI is reached directly without a trusted reverse proxy. Optional trustedProxyCidrs restricts this to listed CIDRs. |
 | ui.trustedProxyCidrs | string | `""` | Comma-separated CIDRs for immediate clients that may set forwarded headers (e.g. ingress pod network). Empty means any client when trustXForwardedHeaders is true. |
-| upgradeHooks | object | `{"databaseMigrationDryRun":true,"scaleDown":{"condition":"chart","deployments":["flightctl-periodic","flightctl-worker"],"timeoutSeconds":120}}` | Upgrade hooks |
+| upgradeHooks | object | `{"databaseMigrationDryRun":true,"scaleDown":{"condition":"chart","deployments":["flightctl-periodic","flightctl-worker","flightctl-delta-worker"],"timeoutSeconds":120}}` | Upgrade hooks |
 | upgradeHooks.databaseMigrationDryRun | bool | `true` | Enable pre-upgrade DB migration dry-run as a hook |
 | upgradeHooks.scaleDown.condition | string | `"chart"` | When to run pre-upgrade scale down job: "always", "never", or "chart" (default). "chart" runs only if helm.sh/chart changed. |
-| upgradeHooks.scaleDown.deployments | list | `["flightctl-periodic","flightctl-worker"]` | List of Deployments to scale down in order |
+| upgradeHooks.scaleDown.deployments | list | `["flightctl-periodic","flightctl-worker","flightctl-delta-worker"]` | List of Deployments to scale down in order |
 | upgradeHooks.scaleDown.timeoutSeconds | int | `120` | Timeout in seconds to wait for rollout per Deployment |
-| vulnerabilityReporting | object | `{"backend":"","enabled":false,"quay":{"auth":{"secretName":""},"endpoint":"","maxConcurrentRequests":5},"syncInterval":"15m","trustify":{"auth":{"mode":"none","oidcIssuerUrl":"","secretName":""},"endpoint":""}}` | Vulnerability Integration Configuration |
-| vulnerabilityReporting.backend | string | `""` | Vulnerability scanning backend. One of "trustify" or "quay"; leave empty to default to Trustify when a trustify config is present. |
+| vulnerabilityReporting | object | `{"backend":"","enabled":false,"quay":{"caCertConfigMapName":"","caFile":"","endpoint":"","maxConcurrentRequests":5,"secretName":"","skipTlsVerify":false},"syncInterval":"15m","trustify":{"auth":{"mode":"none","oidcIssuerUrl":"","secretName":""},"caCertConfigMapName":"","caFile":"","endpoint":"","skipTlsVerify":false}}` | Vulnerability Integration Configuration |
+| vulnerabilityReporting.backend | string | `""` | Vulnerability scanning backend ("trustify" or "quay"); leave empty to default to Trustify when a trustify config with a non-empty endpoint is present. |
 | vulnerabilityReporting.enabled | bool | `false` | Enable vulnerability integration (sync task + API endpoints). |
-| vulnerabilityReporting.quay.auth.secretName | string | `""` | Name of the Kubernetes Secret containing a 'token' key with the Quay bearer token. |
+| vulnerabilityReporting.quay.caCertConfigMapName | string | `""` | Name of a ConfigMap containing key 'ca-cert.pem' with the CA bundle for the Quay server. When set, it is mounted and used instead of caFile. |
+| vulnerabilityReporting.quay.caFile | string | `""` | Path to a CA bundle for verifying the Quay server certificate. If unset, system roots are used. |
 | vulnerabilityReporting.quay.endpoint | string | `""` | Quay API base URL (e.g. "https://quay.io"). |
-| vulnerabilityReporting.quay.maxConcurrentRequests | int | `5` | Maximum number of concurrent requests to the Quay Security API. |
+| vulnerabilityReporting.quay.maxConcurrentRequests | int | `5` | Maximum number of concurrent Quay API requests. Defaults to 5 when unset. |
+| vulnerabilityReporting.quay.secretName | string | `""` | Name of the Kubernetes Secret containing the 'token' key for Quay Security API bearer authentication. |
+| vulnerabilityReporting.quay.skipTlsVerify | bool | `false` | Skip TLS certificate verification (insecure, for lab/air-gap only). Defaults to false. |
 | vulnerabilityReporting.syncInterval | string | `"15m"` | Sync interval for periodic Trustify fetch (e.g. "15m", "1h"). |
 | vulnerabilityReporting.trustify.auth.mode | string | `"none"` | Authentication mode for Trustify. Allowed values: 'client-credentials', 'none'. |
 | vulnerabilityReporting.trustify.auth.oidcIssuerUrl | string | `""` | OIDC issuer URL for client-credentials mode. |
 | vulnerabilityReporting.trustify.auth.secretName | string | `""` | Name of the Kubernetes Secret containing 'client_id' and 'client_secret' keys. |
+| vulnerabilityReporting.trustify.caCertConfigMapName | string | `""` | Name of a ConfigMap containing key 'ca-cert.pem' with the CA bundle for the Trustify server. When set, it is mounted and used instead of caFile. |
+| vulnerabilityReporting.trustify.caFile | string | `""` | Path to a CA bundle for verifying the Trustify server certificate. If unset, system roots are used. |
 | vulnerabilityReporting.trustify.endpoint | string | `""` | Trustify API base URL (do not include /api/v1 or /api/v2 paths). |
-| worker | object | `{"clusterLevelSecretAccess":false,"image":{"image":"quay.io/flightctl/flightctl-worker-el9","pullPolicy":"","tag":""},"vmRender":{"launcherImage":"","passtWorkarounds":false}}` | Worker Configuration |
+| vulnerabilityReporting.trustify.skipTlsVerify | bool | `false` | Skip TLS certificate verification (insecure, for lab/air-gap only). Defaults to false. |
+| worker | object | `{"clusterLevelSecretAccess":false,"image":{"image":"quay.io/flightctl/flightctl-worker-el9","pullPolicy":"","tag":""},"renderTimeout":"60s","vmRender":{"launcherImage":"","launcherImages":{},"passtWorkarounds":false}}` | Worker Configuration |
 | worker.clusterLevelSecretAccess | bool | `false` | Allow flightctl-worker to access secrets at the cluster level for embedding in device configs |
 | worker.image.image | string | `"quay.io/flightctl/flightctl-worker-el9"` | Worker container image |
 | worker.image.pullPolicy | string | `""` | Image pull policy for worker container |
 | worker.image.tag | string | `""` | Worker image tag |
-| worker.vmRender | object | `{"launcherImage":"","passtWorkarounds":false}` | VM application render options passed to vm-to-quadlet |
+| worker.renderTimeout | string | `"60s"` | Time budget for a single device render operation including VM conversion and DB writes (default "60s") |
+| worker.vmRender | object | `{"launcherImage":"","launcherImages":{},"passtWorkarounds":false}` | VM application render options passed to vm-to-quadlet |
 | worker.vmRender.launcherImage | string | `""` | virt-launcher image used when converting VmApplications to Quadlet units (leave empty to use the worker default) |
+| worker.vmRender.launcherImages | object | `{}` | virt-launcher images keyed by os-release ID and major from status.systemInfo (e.g. "rhel-9", "rhel-10") |
 | worker.vmRender.passtWorkarounds | bool | `false` | Enable passt networking workarounds for older virt-launcher images (default false; enable only for older images) |
 
 ## Environment-Specific Values Files

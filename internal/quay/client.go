@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/rand/v2"
 	"net"
 	"net/http"
@@ -24,13 +25,13 @@ const defaultHTTPTimeout = 30 * time.Second
 const statusScanned = "scanned"
 
 // Retry policy for transient Quay Security API failures. HTTP 429, HTTP 5xx,
-// and request timeouts are retried up to maxRetries total attempts; the delay
+// and request timeouts are retried up to maxAttempts total attempts; the delay
 // starts at initialBackoff, doubles after each attempt, is capped at
 // maxBackoff, and carries additive jitter of up to half the current delay.
 // Non-transient failures (4xx other than 429, connection errors, decode
 // errors) are not retried.
 const (
-	maxRetries     = 3
+	maxAttempts    = 3
 	initialBackoff = 1 * time.Second
 	maxBackoff     = 30 * time.Second
 )
@@ -95,13 +96,18 @@ type Client struct {
 // NewClient builds a Quay Security API client from the Quay backend config.
 // It returns (nil, nil) when cfg is nil, so a caller can treat an absent Quay
 // configuration as a disabled backend. It returns an error when the configured
-// endpoint has no parseable host.
-func NewClient(cfg *config.QuayConfig, log logrus.FieldLogger) (*Client, error) {
+// endpoint has no parseable host or is not HTTPS. The httpClient parameter allows injection of
+// custom TLS config (e.g., custom CA, InsecureSkipVerify); when nil, a default
+// client with a 30s timeout is used.
+func NewClient(cfg *config.QuayConfig, log logrus.FieldLogger, httpClient *http.Client) (*Client, error) {
 	if cfg == nil {
 		return nil, nil
 	}
 	if log == nil {
 		log = logrus.StandardLogger()
+	}
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: defaultHTTPTimeout}
 	}
 	base, host, err := parseEndpoint(cfg.Endpoint)
 	if err != nil {
@@ -111,7 +117,7 @@ func NewClient(cfg *config.QuayConfig, log logrus.FieldLogger) (*Client, error) 
 		endpoint:     base,
 		registryHost: host,
 		token:        cfg.Token.Value(),
-		httpClient:   &http.Client{Timeout: defaultHTTPTimeout},
+		httpClient:   httpClient,
 		backoffBase:  initialBackoff,
 		log:          log,
 	}, nil
@@ -120,12 +126,22 @@ func NewClient(cfg *config.QuayConfig, log logrus.FieldLogger) (*Client, error) 
 // FetchImageSecurity retrieves the Quay Security report for one deployed image.
 //
 // It returns a scanned report when the image is hosted on the configured
-// registry and Quay reports status "scanned". It returns a no-report result
-// (with a classified Outcome) when the image is skipped for a documented reason
-// (missing reference, non-matching registry, non-"scanned" status, 404, 403).
-// It returns ErrQuayAuth on HTTP 401 and a wrapped error on any genuine failure
-// to reach Quay (after retries) or decode a successful response.
-func (c *Client) FetchImageSecurity(ctx context.Context, image vulnerability.ImageRef) (fetchResult, error) {
+// registry and Quay reports status "scanned". It returns nil when the image is
+// skipped for a documented reason (missing reference, non-matching registry,
+// non-"scanned" status, 404, 403). It returns ErrQuayAuth on HTTP 401 and a
+// wrapped error on any genuine failure to reach Quay (after retries) or decode
+// a successful response.
+func (c *Client) FetchImageSecurity(ctx context.Context, image vulnerability.ImageRef) (*Response, error) {
+	result, err := c.fetchImageSecurity(ctx, image)
+	if err != nil {
+		return nil, err
+	}
+	return result.Report, nil
+}
+
+// fetchImageSecurity retrieves a report and the internal metadata used by the
+// scanner to aggregate per-image outcomes and retry counts.
+func (c *Client) fetchImageSecurity(ctx context.Context, image vulnerability.ImageRef) (fetchResult, error) {
 	if image.Image == "" {
 		c.logSkip(logrus.Fields{"digest": image.Digest, "reason": reasonMissingImageReference})
 		return fetchResult{Outcome: outcomeSkippedRegistry}, nil
@@ -178,6 +194,18 @@ func (c *Client) FetchImageSecurity(ctx context.Context, image vulnerability.Ima
 		return fetchResult{Outcome: outcomeSkippedError, Attempts: attempts}, nil
 	}
 
+	// Quay's contract: status="scanned" always has non-nil Data.Layer (even if
+	// Features is empty for zero vulnerabilities). Treat nil as malformed.
+	if report.Data == nil || report.Data.Layer == nil {
+		c.log.WithFields(logrus.Fields{
+			"event":  eventScanSkipped,
+			"digest": image.Digest,
+			"status": report.Status,
+			"reason": "malformed_scanned_response",
+		}).Warn("skipping image: scanned status with nil data")
+		return fetchResult{Outcome: outcomeSkippedError, Attempts: attempts}, nil
+	}
+
 	return fetchResult{Report: &report, Outcome: outcomeScanned, Attempts: attempts}, nil
 }
 
@@ -190,7 +218,7 @@ func (c *Client) FetchImageSecurity(ctx context.Context, image vulnerability.Ima
 func (c *Client) retryableGet(ctx context.Context, reqURL, digest string) (*http.Response, int, error) {
 	backoff := c.backoffBase
 	var lastErr error
-	for attempt := 1; attempt <= maxRetries; attempt++ {
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
 		resp, err := c.doGet(ctx, reqURL)
 		switch {
 		case err != nil && isTimeout(err):
@@ -198,13 +226,14 @@ func (c *Client) retryableGet(ctx context.Context, reqURL, digest string) (*http
 		case err != nil:
 			return nil, attempt, fmt.Errorf("querying quay security api: %w", err)
 		case resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= http.StatusInternalServerError:
+			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4<<10))
 			resp.Body.Close()
 			lastErr = fmt.Errorf("quay security api returned status %d", resp.StatusCode)
 		default:
 			return resp, attempt, nil
 		}
 
-		if attempt == maxRetries {
+		if attempt == maxAttempts {
 			break
 		}
 
@@ -224,7 +253,7 @@ func (c *Client) retryableGet(ctx context.Context, reqURL, digest string) (*http
 		}
 		backoff = min(backoff*2, maxBackoff)
 	}
-	return nil, maxRetries, fmt.Errorf("max retries exceeded querying quay security api: %w", lastErr)
+	return nil, maxAttempts, fmt.Errorf("max retries exceeded querying quay security api: %w", lastErr)
 }
 
 // doGet builds and sends a single authenticated GET request.
@@ -289,10 +318,11 @@ func isTimeout(err error) bool {
 	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
-// parseEndpoint normalizes a configured endpoint URL into a base URL (used to
-// build request URLs) and its "host[:port]" (used to filter images by
-// registry). A scheme is assumed to be HTTPS when omitted, so both values stay
-// consistent regardless of how the endpoint was written.
+// parseEndpoint normalizes a configured HTTPS endpoint URL into a base URL (used
+// to build request URLs) and its normalized hostname (used to filter images by
+// registry). The hostname is lowercased and the default HTTPS port is stripped
+// to match the normalization applied by reference.Domain. A scheme is assumed
+// to be HTTPS when omitted.
 func parseEndpoint(endpoint string) (base, host string, err error) {
 	e := strings.TrimSpace(endpoint)
 	if e == "" {
@@ -308,12 +338,46 @@ func parseEndpoint(endpoint string) (base, host string, err error) {
 	if u.Host == "" {
 		return "", "", fmt.Errorf("quay endpoint %q has no host", endpoint)
 	}
-	base = strings.TrimRight(u.Scheme+"://"+u.Host+u.Path, "/")
-	return base, u.Host, nil
+	if !strings.EqualFold(u.Scheme, "https") {
+		return "", "", fmt.Errorf("quay endpoint %q must use HTTPS", endpoint)
+	}
+	scheme := strings.ToLower(u.Scheme)
+	base = strings.TrimRight(scheme+"://"+u.Host+u.Path, "/")
+	// url.URL already splits host and port correctly (including IPv6 literals).
+	host = normalizeHost(u.Hostname(), u.Port(), scheme)
+	return base, host, nil
+}
+
+// normalizeHost normalizes a registry hostname by lowercasing it and stripping
+// default ports (443 for https, 80 for http). hostname and port are the already
+// split host components (port may be empty); the result is rebuilt with
+// net.JoinHostPort so IPv6 literals are bracketed correctly. This matches the
+// normalization behavior of reference.Domain for image references.
+func normalizeHost(hostname, port, scheme string) string {
+	hostname = strings.ToLower(hostname)
+	if port == "" {
+		return hostname
+	}
+	// Strip default ports.
+	if (scheme == "https" && port == "443") || (scheme == "http" && port == "80") {
+		return hostname
+	}
+	return net.JoinHostPort(hostname, port)
+}
+
+// splitHostPort splits a "host" or "host:port" string using net.SplitHostPort,
+// falling back to treating the whole string as the host when no port is present.
+// Unlike a manual LastIndex(":") split, this handles IPv6 literals correctly.
+func splitHostPort(host string) (hostname, port string) {
+	if h, p, err := net.SplitHostPort(host); err == nil {
+		return h, p
+	}
+	return host, ""
 }
 
 // parseImageReference normalizes an image reference into its registry host and
-// repository path ("namespace/repo"), stripping any scheme prefix.
+// repository path ("namespace/repo"), stripping any scheme prefix. The host is
+// normalized (lowercased, default HTTPS port 443 stripped) to match parseEndpoint.
 func parseImageReference(imageRef string) (host, repoPath string, err error) {
 	ref := imageRef
 	if idx := strings.Index(ref, "://"); idx != -1 {
@@ -323,5 +387,7 @@ func parseImageReference(imageRef string) (host, repoPath string, err error) {
 	if err != nil {
 		return "", "", err
 	}
-	return reference.Domain(named), reference.Path(named), nil
+	// Docker registry references default to HTTPS, so normalize with https scheme.
+	hostname, port := splitHostPort(reference.Domain(named))
+	return normalizeHost(hostname, port, "https"), reference.Path(named), nil
 }

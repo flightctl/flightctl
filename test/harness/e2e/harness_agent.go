@@ -231,21 +231,28 @@ func (h *Harness) ApproveEnrollmentRequestWithLabels(enrollmentID string, labels
 	return resp.StatusCode(), nil
 }
 
-// WaitForDeviceWithSystemInfo polls until the Device exists and reports populated systemInfo.
+// WaitForDeviceWithSystemInfo polls until the Device is Online with populated systemInfo.
 func (h *Harness) WaitForDeviceWithSystemInfo(deviceID, timeout, polling string) (*v1beta1.Device, error) {
 	if strings.TrimSpace(deviceID) == "" {
 		return nil, fmt.Errorf("device ID is empty")
 	}
 
-	return pollUntil(timeout, polling, fmt.Sprintf("device %s systemInfo", deviceID), func() (*v1beta1.Device, bool, error) {
+	return pollUntil(timeout, polling, fmt.Sprintf("device %s online with systemInfo", deviceID), func() (*v1beta1.Device, bool, error) {
 		resp, err := h.Client.GetDeviceWithResponse(h.Context, deviceID)
 		if err != nil {
 			return nil, false, err
 		}
-		if resp != nil && resp.JSON200 != nil && resp.JSON200.Status != nil && !resp.JSON200.Status.SystemInfo.IsEmpty() {
-			return resp.JSON200, true, nil
+		if resp == nil || resp.JSON200 == nil || resp.JSON200.Status == nil {
+			return nil, false, nil
 		}
-		return nil, false, nil
+		device := resp.JSON200
+		if device.Status.Summary.Status != v1beta1.DeviceSummaryStatusOnline {
+			return nil, false, nil
+		}
+		if device.Status.SystemInfo.IsEmpty() {
+			return nil, false, nil
+		}
+		return device, true, nil
 	})
 }
 

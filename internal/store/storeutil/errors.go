@@ -12,7 +12,7 @@ func ErrorFromGormError(err error) error {
 	switch {
 	case err == nil:
 		return nil
-	case errors.Is(err, flterrors.ErrDuplicateOIDCProvider), errors.Is(err, flterrors.ErrDuplicateOAuth2Provider):
+	case errors.Is(err, flterrors.ErrDuplicateOIDCProvider), errors.Is(err, flterrors.ErrDuplicateOAuth2Provider), errors.Is(err, flterrors.ErrDuplicateDeltaStorageTarget):
 		// Our custom dialector has already detected specific authprovider constraint violations
 		return err
 	case errors.Is(err, gorm.ErrRecordNotFound), errors.Is(err, gorm.ErrForeignKeyViolated):

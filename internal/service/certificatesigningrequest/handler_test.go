@@ -16,9 +16,10 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/identity"
+	"github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/service/events"
+	"github.com/flightctl/flightctl/internal/service/tpmcsr"
 	"github.com/flightctl/flightctl/internal/store"
-	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -45,7 +46,7 @@ func newFakeCertificateSigningRequestStore() *fakeCertificateSigningRequestStore
 
 func (f *fakeCertificateSigningRequestStore) InitialMigration(ctx context.Context) error { return nil }
 
-func (f *fakeCertificateSigningRequestStore) Create(ctx context.Context, orgId uuid.UUID, req *domain.CertificateSigningRequest, eventCallback store.EventCallback) (*domain.CertificateSigningRequest, error) {
+func (f *fakeCertificateSigningRequestStore) Create(ctx context.Context, orgId uuid.UUID, req *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, error) {
 	name := lo.FromPtr(req.Metadata.Name)
 	if _, exists := f.items[name]; exists {
 		return nil, flterrors.ErrDuplicateName
@@ -56,17 +57,14 @@ func (f *fakeCertificateSigningRequestStore) Create(ctx context.Context, orgId u
 		req.Status = &domain.CertificateSigningRequestStatus{Conditions: []domain.Condition{}}
 	}
 	f.items[name] = req
-	if eventCallback != nil {
-		eventCallback(ctx, domain.CertificateSigningRequestKind, orgId, name, nil, req, true, nil)
-	}
 	return req, nil
 }
 
-func (f *fakeCertificateSigningRequestStore) Update(ctx context.Context, orgId uuid.UUID, req *domain.CertificateSigningRequest, eventCallback store.EventCallback) (*domain.CertificateSigningRequest, error) {
+func (f *fakeCertificateSigningRequestStore) Update(ctx context.Context, orgId uuid.UUID, req *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, error) {
 	name := lo.FromPtr(req.Metadata.Name)
 	old, exists := f.items[name]
 	if !exists {
-		return nil, flterrors.ErrResourceNotFound
+		return nil, nil, flterrors.ErrResourceNotFound
 	}
 	// Mirror internal/store/model.NewCertificateSigningRequestFromApiResource, which always
 	// defaults Status to a non-nil, empty-conditions struct regardless of the caller's input.
@@ -74,20 +72,17 @@ func (f *fakeCertificateSigningRequestStore) Update(ctx context.Context, orgId u
 		req.Status = &domain.CertificateSigningRequestStatus{Conditions: []domain.Condition{}}
 	}
 	f.items[name] = req
-	if eventCallback != nil {
-		eventCallback(ctx, domain.CertificateSigningRequestKind, orgId, name, old, req, false, nil)
-	}
-	return req, nil
+	return req, old, nil
 }
 
-func (f *fakeCertificateSigningRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, req *domain.CertificateSigningRequest, eventCallback store.EventCallback) (*domain.CertificateSigningRequest, bool, error) {
+func (f *fakeCertificateSigningRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, req *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, *domain.CertificateSigningRequest, bool, error) {
 	name := lo.FromPtr(req.Metadata.Name)
 	if _, exists := f.items[name]; exists {
-		result, err := f.Update(ctx, orgId, req, eventCallback)
-		return result, false, err
+		result, old, err := f.Update(ctx, orgId, req)
+		return result, old, false, err
 	}
-	result, err := f.Create(ctx, orgId, req, eventCallback)
-	return result, true, err
+	result, err := f.Create(ctx, orgId, req)
+	return result, nil, true, err
 }
 
 func (f *fakeCertificateSigningRequestStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.CertificateSigningRequest, error) {
@@ -106,15 +101,12 @@ func (f *fakeCertificateSigningRequestStore) List(ctx context.Context, orgId uui
 	return &domain.CertificateSigningRequestList{Items: items}, nil
 }
 
-func (f *fakeCertificateSigningRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback store.EventCallback) error {
+func (f *fakeCertificateSigningRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
 	if _, exists := f.items[name]; !exists {
-		return nil
+		return false, nil
 	}
 	delete(f.items, name)
-	if eventCallback != nil {
-		eventCallback(ctx, domain.CertificateSigningRequestKind, orgId, name, nil, nil, false, nil)
-	}
-	return nil
+	return true, nil
 }
 
 func (f *fakeCertificateSigningRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, req *domain.CertificateSigningRequest) (*domain.CertificateSigningRequest, error) {
@@ -135,23 +127,23 @@ func (f *fakeCertificateSigningRequestStore) UpdateConditions(ctx context.Contex
 	return nil
 }
 
-// fakeEnrollmentRequestStore embeds enrollmentrequeststore.Store (nil) and overrides only Get,
-// the sole method verifyTPMCSRRequest calls.
-type fakeEnrollmentRequestStore struct {
-	enrollmentrequeststore.Store
+// fakeEnrollmentRequestService is a minimal enrollmentrequest.Service stand-in for TPM
+// verification tests (GetEnrollmentRequest only).
+type fakeEnrollmentRequestService struct {
+	enrollmentrequest.Service
 	items map[string]*domain.EnrollmentRequest
 }
 
-func newFakeEnrollmentRequestStore() *fakeEnrollmentRequestStore {
-	return &fakeEnrollmentRequestStore{items: map[string]*domain.EnrollmentRequest{}}
+func newFakeEnrollmentRequestService() *fakeEnrollmentRequestService {
+	return &fakeEnrollmentRequestService{items: map[string]*domain.EnrollmentRequest{}}
 }
 
-func (f *fakeEnrollmentRequestStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.EnrollmentRequest, error) {
+func (f *fakeEnrollmentRequestService) GetEnrollmentRequest(ctx context.Context, orgId uuid.UUID, name string) (*domain.EnrollmentRequest, domain.Status) {
 	er, ok := f.items[name]
 	if !ok {
-		return nil, flterrors.ErrResourceNotFound
+		return nil, domain.Status{Code: statusNotFoundCode, Message: "not found"}
 	}
-	return er, nil
+	return er, domain.StatusOK()
 }
 
 // fakeEventsService is a recording fake for events.Service. CertificateSigningRequest's own
@@ -182,13 +174,14 @@ func newTestCA(t *testing.T) (*crypto.CAClient, *cacfg.Config) {
 	return caClient, cfg
 }
 
-func newTestHandler(t *testing.T) (*ServiceHandler, *fakeCertificateSigningRequestStore, *fakeEnrollmentRequestStore, *fakeEventsService, *cacfg.Config) {
+func newTestHandler(t *testing.T) (*ServiceHandler, *fakeCertificateSigningRequestStore, *fakeEnrollmentRequestService, *fakeEventsService, *cacfg.Config) {
 	csrStore := newFakeCertificateSigningRequestStore()
-	erStore := newFakeEnrollmentRequestStore()
+	erSvc := newFakeEnrollmentRequestService()
 	ev := &fakeEventsService{}
 	caClient, cfg := newTestCA(t)
 	logger := logrus.New()
-	return NewServiceHandler(csrStore, erStore, caClient, ev, logger, "", ""), csrStore, erStore, ev, cfg
+	verifier := tpmcsr.NewVerifier(erSvc)
+	return NewServiceHandler(csrStore, verifier, caClient, ev, logger, "", ""), csrStore, erSvc, ev, cfg
 }
 
 // csrPEM generates a throwaway PEM-encoded PKCS#10 CSR for the given common name.

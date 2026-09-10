@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -386,16 +387,9 @@ func (h *Harness) EnsureDeviceContents(deviceId string, description string, cond
 
 func (h *Harness) WaitForBootstrapAndUpdateToVersion(deviceId string, version string) (*v1beta1.Device, util.ImageReference, error) {
 	var imageReference = util.ImageReference{}
-	// Check the device status right after bootstrap
-	response, err := h.GetDeviceWithStatusSystem(deviceId)
-	if err != nil {
-		return nil, imageReference, err
-	}
-	device := response.JSON200
-	if device.Status.Summary.Status != v1beta1.DeviceSummaryStatusOnline {
-		return nil, imageReference, fmt.Errorf("device: %q is not online", deviceId)
-	}
+	device := h.WaitForOnlineStatus(deviceId)
 
+	var err error
 	err = h.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 		currentImage := device.Status.Os.Image
 		logrus.Infof("current image for %s is %s", deviceId, currentImage)
@@ -664,78 +658,49 @@ func (h *Harness) UpdateDeviceAndWaitForVersion(deviceID string, updateFunc func
 	return nil
 }
 
-// deviceUpdateFailedOrRolledBack is true when the device did not successfully apply the desired
-// spec. That is either a stable Updating/Error (optional message check), or a completed OS/spec
-// rollback where the agent reports Updating/Updated, summary online, and updated OutOfDate — in
-// that case the prefetch or sync error is not always preserved on the condition after rollback.
-func deviceUpdateFailedOrRolledBack(device *v1beta1.Device, expectedMessageSubstrings []string) bool {
+// deviceUpdateFailed is true when the device reports a stable Updating/Error
+// condition. If expectedMessageSubstrings are provided, the condition message
+// must contain at least one of them.
+func deviceUpdateFailed(device *v1beta1.Device, expectedMessageSubstrings []string) bool {
 	if device == nil || device.Status == nil {
 		return false
 	}
 
-	if ConditionExists(device, v1beta1.ConditionTypeDeviceUpdating,
+	if !ConditionExists(device, v1beta1.ConditionTypeDeviceUpdating,
 		v1beta1.ConditionStatusFalse, string(v1beta1.UpdateStateError)) {
-		if len(expectedMessageSubstrings) == 0 {
-			return true
-		}
-		cond := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceUpdating)
-		if cond == nil {
-			return false
-		}
-		for _, substring := range expectedMessageSubstrings {
-			if strings.Contains(cond.Message, substring) {
-				return true
-			}
-		}
-		return false
-	}
-
-	// Rollback: bootc/OS rollback or spec rollback can clear Error and leave OutOfDate + Updating/Updated.
-	if device.Status.Updated.Status != v1beta1.DeviceUpdatedStatusOutOfDate ||
-		device.Status.Summary.Status != v1beta1.DeviceSummaryStatusOnline {
-		return false
-	}
-	cond := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceUpdating)
-	if cond == nil {
-		return false
-	}
-	if cond.Status == v1beta1.ConditionStatusTrue {
-		return false
-	}
-	if cond.Reason != string(v1beta1.UpdateStateUpdated) {
 		return false
 	}
 	if len(expectedMessageSubstrings) == 0 {
 		return true
 	}
+	cond := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceUpdating)
+	if cond == nil {
+		return false
+	}
 	for _, substring := range expectedMessageSubstrings {
 		if strings.Contains(cond.Message, substring) {
 			return true
 		}
-		if device.Status.Updated.Info != nil && strings.Contains(*device.Status.Updated.Info, substring) {
-			return true
-		}
 	}
-	return true
+	return false
 }
 
 // UpdateDeviceAndWaitForFailure updates a device and waits for the update to fail with an error.
-// If expectedMessageSubstrings are provided, it verifies that the error message contains at least one of them
-// (or that the update rolled back, which may not retain the same message text on the status).
+// If expectedMessageSubstrings are provided, it verifies that the error message contains at least one of them.
 func (h *Harness) UpdateDeviceAndWaitForFailure(deviceID string, updateFunc func(device *v1beta1.Device), expectedMessageSubstrings ...string) error {
 	err := h.UpdateDeviceWithRetries(deviceID, updateFunc)
 	if err != nil {
 		return fmt.Errorf("failed to update device: %w", err)
 	}
 
-	description := "update should fail with error or roll back"
+	description := "update should fail with error"
 	if len(expectedMessageSubstrings) > 0 {
-		description = fmt.Sprintf("update should fail with error (or roll back) matching one of: %v", expectedMessageSubstrings)
+		description = fmt.Sprintf("update should fail with error containing one of: %v", expectedMessageSubstrings)
 	}
 
 	h.WaitForDeviceContents(deviceID, description,
 		func(device *v1beta1.Device) bool {
-			return deviceUpdateFailedOrRolledBack(device, expectedMessageSubstrings)
+			return deviceUpdateFailed(device, expectedMessageSubstrings)
 		}, LONGTIMEOUT)
 
 	h.WaitForDeviceContents(deviceID, "device should be out of date but online after failed update",
@@ -917,10 +882,6 @@ func (h *Harness) GetDevice(deviceId string) (*v1beta1.Device, error) {
 
 func (h *Harness) SetLabelsForDevice(deviceId string, labels map[string]string) error {
 	return h.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
-		if len(labels) == 0 {
-			device.Metadata.Labels = nil
-			return
-		}
 		devLabels := make(map[string]string, len(labels)+1)
 		devLabels["test-id"] = h.GetTestIDFromContext()
 		for key, value := range labels {
@@ -928,6 +889,17 @@ func (h *Harness) SetLabelsForDevice(deviceId string, labels map[string]string) 
 		}
 		device.Metadata.Labels = &devLabels
 	})
+}
+
+func (h *Harness) LabelDeviceIntoFleet(deviceID, labelKey, fleetName string) {
+	GinkgoHelper()
+	if labelKey == "" {
+		Fail("labelKey must be non-empty")
+	}
+	nextRenderedVersion, err := h.PrepareNextDeviceVersion(deviceID)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(h.SetLabelsForDevice(deviceID, map[string]string{labelKey: fleetName})).To(Succeed())
+	Expect(h.WaitForDeviceNewRenderedVersion(deviceID, nextRenderedVersion)).To(Succeed())
 }
 
 func (h *Harness) SetLabelsForDevicesByIndex(deviceIDs []string, labelsList []map[string]string, fleetName string) error {
@@ -980,14 +952,19 @@ func (h *Harness) GetSelectedDevicesForBatch(fleetName string) ([]*v1beta1.Devic
 }
 
 func (h *Harness) GetUnavailableDevicesPerGroup(fleetName string, groupBy []string) (map[string][]*v1beta1.Device, error) {
+	return h.GetUnavailableDevicesPerGroupWithContext(h.Context, fleetName, groupBy)
+}
+
+// GetUnavailableDevicesPerGroupWithContext returns unavailable fleet devices grouped by label values.
+func (h *Harness) GetUnavailableDevicesPerGroupWithContext(ctx context.Context, fleetName string, groupBy []string) (map[string][]*v1beta1.Device, error) {
 	labelSelector := fmt.Sprintf("fleet=%s", fleetName)
 	listDeviceParams := &v1beta1.ListDevicesParams{
 		LabelSelector: &labelSelector,
 	}
 
-	response, err := h.Client.ListDevicesWithResponse(h.Context, listDeviceParams)
+	response, err := h.Client.ListDevicesWithResponse(ctx, listDeviceParams)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list devices: %s", err)
+		return nil, fmt.Errorf("failed to list devices: %w", err)
 	}
 	if response == nil {
 		return nil, fmt.Errorf("device response is nil")

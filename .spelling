@@ -75,6 +75,9 @@ Kubernetes
 kustomize
 KVM
 launcherImage
+launcherImages
+distroId
+distroVersion
 lifecycle
 lifecycle-bound
 linux
@@ -429,6 +432,10 @@ CRI-O
  ImageContentSourcePolicy
  walkthrough
  arg
+ hardcoding
+ vendored
+ ulimits
+ ulimit
  - docs/user/references/cli-commands.md
 VNC
 stdin

@@ -33,6 +33,7 @@ var (
 	redisCleanup  func()
 
 	vmConverter     tasks.VmConverterFn
+	vmBinaryPath    string
 	vmBinaryCleanup func()
 )
 
@@ -63,7 +64,8 @@ var _ = SynchronizedBeforeSuite(
 			suiteCtx, flightlog.InitLogs())
 		Expect(err).NotTo(HaveOccurred())
 
-		vmConverter = tasks.NewVmConverter(string(binaryPathBytes), tasks.DefaultVmRenderOptions())
+		vmBinaryPath = string(binaryPathBytes)
+		vmConverter = tasks.NewVmConverter(vmBinaryPath, tasks.DefaultVmRenderOptions())
 	},
 )
 

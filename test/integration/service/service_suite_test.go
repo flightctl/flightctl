@@ -21,6 +21,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service/events"
 	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
+	"github.com/flightctl/flightctl/internal/service/tpmcsr"
 	"github.com/flightctl/flightctl/internal/store"
 	authproviderstore "github.com/flightctl/flightctl/internal/store/authprovider"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
@@ -164,9 +165,9 @@ func (s *ServiceTestSuite) Setup() {
 	eventsSvc := events.NewServiceHandler(s.EventStore, s.workerClient, s.Log)
 	s.AuthProvider = authproviderservice.NewServiceHandler(s.AuthProviderStore, eventsSvc, s.Log)
 	s.Catalog = catalogservice.NewServiceHandler(catalogStore, s.DeviceStore, fleetStore, eventsSvc, s.Log)
-	s.CertificateSigningRequest = certificatesigningrequestservice.NewServiceHandler(csrStore, enrollmentRequestStore, s.caClient, eventsSvc, s.Log, "", "")
 	s.Device = deviceservice.NewDeviceServiceHandler(s.DeviceStore, catalogStore, fleetStore, eventsSvc, kvStore, "", s.Log)
 	s.EnrollmentRequest = enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, s.DeviceStore, csrStore, s.caClient, kvStore, eventsSvc, s.Log, []string{}, "", "")
+	s.CertificateSigningRequest = certificatesigningrequestservice.NewServiceHandler(csrStore, tpmcsr.NewVerifier(s.EnrollmentRequest), s.caClient, eventsSvc, s.Log, "", "")
 	s.Fleet = fleetservice.NewServiceHandler(fleetStore, catalogStore, eventsSvc, s.Log)
 	s.Repository = repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, s.Log)
 

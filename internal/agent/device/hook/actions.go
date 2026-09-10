@@ -49,6 +49,9 @@ type actionContext struct {
 	updatedFiles    map[string]api.FileSpec
 	removedFiles    map[string]api.FileSpec
 	commandLineVars map[CommandLineVarKey]string
+	hookContextJSON string // non-empty for enrollment hooks; set to the JSON written to hook-context.json
+	actionSource    string // hook YAML path for the current enrollment hook action
+	actionResults   []EnrollmentActionResult
 }
 
 func newActionContext(hook api.DeviceLifecycleHookType, current *api.DeviceSpec, desired *api.DeviceSpec, systemRebooted bool) *actionContext {
@@ -71,6 +74,20 @@ func newActionContext(hook api.DeviceLifecycleHookType, current *api.DeviceSpec,
 		computeFileDiff(actionContext, defaultIfNil(current), defaultIfNil(desired))
 	}
 	return actionContext
+}
+
+// newEnrollmentActionContext creates an actionContext for enrollment hooks.
+// hookContextJSON is the JSON content of hook-context.json, injected as
+// the FLIGHTCTL_HOOK_CONTEXT env var during hook execution.
+func newEnrollmentActionContext(hook api.DeviceLifecycleHookType, hookContextJSON string) *actionContext {
+	return &actionContext{
+		hook:            hook,
+		createdFiles:    make(map[string]api.FileSpec),
+		updatedFiles:    make(map[string]api.FileSpec),
+		removedFiles:    make(map[string]api.FileSpec),
+		commandLineVars: make(map[CommandLineVarKey]string),
+		hookContextJSON: hookContextJSON,
+	}
 }
 
 func resetCommandLineVars(actionCtx *actionContext) {
@@ -128,6 +145,28 @@ func executeAction(ctx context.Context, exec executer.Executer, log *log.PrefixL
 	}
 }
 
+func recordEnrollmentActionResult(actionCtx *actionContext, exitCode int, stdout, stderr string) {
+	if actionCtx.hookContextJSON == "" || actionCtx.actionSource == "" {
+		return
+	}
+	actionCtx.actionResults = append(actionCtx.actionResults, EnrollmentActionResult{
+		Source:   actionCtx.actionSource,
+		ExitCode: exitCode,
+		Output:   combineCommandOutput(stdout, stderr),
+	})
+}
+
+func combineCommandOutput(stdout, stderr string) string {
+	switch {
+	case stdout == "":
+		return stderr
+	case stderr == "":
+		return stdout
+	default:
+		return stdout + stderr
+	}
+}
+
 func executeRunAction(ctx context.Context, exec executer.Executer, log *log.PrefixLogger,
 	action api.HookActionRun, actionCtx *actionContext) error {
 
@@ -157,10 +196,26 @@ func executeRunAction(ctx context.Context, exec executer.Executer, log *log.Pref
 	// Inject agent PID as environment variable for hooks to use
 	envVars = append(envVars, fmt.Sprintf("FLIGHTCTL_AGENT_PID=%d", os.Getpid()))
 
-	_, stderr, exitCode := exec.ExecuteWithContextFromDir(ctx, workDir, cmd, args, envVars...)
+	// Inject hook context JSON for enrollment hooks (matches hook-context.json content)
+	if actionCtx.hookContextJSON != "" {
+		envVars = append(envVars, fmt.Sprintf("FLIGHTCTL_HOOK_CONTEXT=%s", actionCtx.hookContextJSON))
+	}
+
+	var stdout, stderr string
+	var exitCode int
+	if actionCtx.hookContextJSON != "" {
+		stdout, stderr, exitCode = exec.ExecuteWithBoundedOutputFromDir(ctx, workDir, cmd, args, MaxEnrollmentHookActionOutput, envVars...)
+		recordEnrollmentActionResult(actionCtx, exitCode, stdout, stderr)
+	} else {
+		_, stderr, exitCode = exec.ExecuteWithContextFromDir(ctx, workDir, cmd, args, envVars...)
+	}
 	if exitCode != 0 {
+		if actionCtx.hookContextJSON != "" {
+			log.Errorf("Running %q returned with exit code %d", commandLine, exitCode)
+			return fmt.Errorf("%w (%d)", errors.ErrExitCode, exitCode)
+		}
 		log.Errorf("Running %q returned with exit code %d: %s", commandLine, exitCode, stderr)
-		return fmt.Errorf("%w: %s (%d)", errors.ErrExitCode, stderr, exitCode)
+		return fmt.Errorf("%w (%d): %s", errors.ErrExitCode, exitCode, stderr)
 	}
 	log.Infof("Hook %s executed %q without error", actionCtx.hook, commandLine)
 

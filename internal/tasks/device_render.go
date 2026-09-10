@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"path/filepath"
@@ -51,39 +52,58 @@ import (
 
 func deviceRender(ctx context.Context, orgId uuid.UUID, event domain.Event, deviceSvc deviceservice.Service, repositorySvc repositoryservice.Service, catalogSvc catalogservice.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, cfg *config.Config, log logrus.FieldLogger) error {
 	logic := NewDeviceRenderLogic(log, deviceSvc, repositorySvc, catalogSvc, k8sClient, kvStore, cfg, orgId, event)
-	if event.InvolvedObject.Kind == domain.DeviceKind {
-		err := logic.RenderDevice(ctx)
-		if err != nil {
-			log.Errorf("failed rendering device %s/%s: %v", orgId, event.InvolvedObject.Name, err)
-		} else {
-			log.Infof("completed rendering device %s/%s", orgId, event.InvolvedObject.Name)
-		}
-	} else {
+	if event.InvolvedObject.Kind != domain.DeviceKind {
 		log.Errorf("DeviceRender called with unexpected kind %s and op %s", event.InvolvedObject.Kind, event.Reason)
+		return nil
+	}
+
+	// Detach from the parent's EventProcessingTimeout so that the render
+	// operation (config + application rendering + DB/Redis writes) runs under
+	// its own configurable deadline. Explicit parent cancellation (e.g.
+	// shutdown) still propagates via the goroutine below, matching the pattern
+	// used by fleetRolloutIterationContext.
+	renderCtx, cancelRender := context.WithTimeout(context.WithoutCancel(ctx), cfg.EffectiveRenderTimeout())
+	defer cancelRender()
+	go func() {
+		select {
+		case <-ctx.Done():
+			if errors.Is(ctx.Err(), context.Canceled) {
+				cancelRender()
+			}
+		case <-renderCtx.Done():
+		}
+	}()
+
+	err := logic.RenderDevice(renderCtx)
+	if err != nil {
+		log.Errorf("failed rendering device %s/%s: %v", orgId, event.InvolvedObject.Name, err)
+	} else {
+		log.Infof("completed rendering device %s/%s", orgId, event.InvolvedObject.Name)
 	}
 	return nil
 }
 
 type DeviceRenderLogic struct {
-	log             logrus.FieldLogger
-	deviceSvc       deviceservice.Service
-	repositorySvc   repositoryservice.Service
-	catalogSvc      catalogservice.Service
-	k8sClient       k8sclient.K8SClient
-	kvStore         kvstore.KVStore
-	cfg             *config.Config
-	orgId           uuid.UUID
-	event           domain.Event
-	ownerFleet      *string
-	templateVersion *string
-	deviceConfig    *[]domain.ConfigProviderSpec
-	applications    *[]domain.ApplicationProviderSpec
-	vmConverter     VmConverterFn
-	vmRenderOptions VmRenderOptions
+	log               logrus.FieldLogger
+	deviceSvc         deviceservice.Service
+	repositorySvc     repositoryservice.Service
+	catalogSvc        catalogservice.Service
+	k8sClient         k8sclient.K8SClient
+	kvStore           kvstore.KVStore
+	cfg               *config.Config
+	orgId             uuid.UUID
+	event             domain.Event
+	ownerFleet        *string
+	templateVersion   *string
+	deviceConfig      *[]domain.ConfigProviderSpec
+	applications      *[]domain.ApplicationProviderSpec
+	vmConverter       VmConverterFn
+	vmRenderOptions   VmRenderOptions
+	customVmConverter bool
 }
 
 func NewDeviceRenderLogic(log logrus.FieldLogger, deviceSvc deviceservice.Service, repositorySvc repositoryservice.Service, catalogSvc catalogservice.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, cfg *config.Config, orgId uuid.UUID, event domain.Event) DeviceRenderLogic {
-	opts := vmRenderOptionsFromConfig(cfg)
+	opts := vmRenderOptionsFromConfig(cfg, "")
 	return DeviceRenderLogic{
 		log:             log,
 		deviceSvc:       deviceSvc,
@@ -105,7 +125,17 @@ func NewDeviceRenderLogic(log logrus.FieldLogger, deviceSvc deviceservice.Servic
 // NewVmConverter.
 func (t DeviceRenderLogic) WithVmConverter(fn VmConverterFn) DeviceRenderLogic {
 	t.vmConverter = fn
+	t.customVmConverter = true
 	return t
+}
+
+func (t *DeviceRenderLogic) bindVmLauncher(device *domain.Device) {
+	opts := vmRenderOptionsFromConfig(t.cfg, osKeyFromDevice(device))
+	t.vmRenderOptions = opts
+	if t.customVmConverter {
+		return
+	}
+	t.vmConverter = NewVmConverter(vmToQuadletBinary, opts)
 }
 
 //nolint:gocyclo
@@ -115,8 +145,10 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		return fmt.Errorf("failed getting device %s/%s: %s", t.orgId, t.event.InvolvedObject.Name, status.Message)
 	}
 
-	// Calculate hash including device spec to detect changes
-	specHash := hashRenderedWithSpec(device.Spec)
+	t.bindVmLauncher(device)
+
+	// Calculate hash including device spec and selected virt-launcher image.
+	specHash := hashRenderedWithSpec(device.Spec, t.vmRenderOptions.LauncherImage)
 
 	// bypassHashCheck is true for event reasons that must always produce a fresh render even
 	// though specHash (computed from device.Spec alone) hasn't changed: dependency changes and
@@ -1032,12 +1064,17 @@ func ignitionConfigToRenderedConfig(ignition *config_latest_types.Config) ([]byt
 	return renderedConfig, nil
 }
 
-// hashRenderedWithSpec creates a hash of the device spec to detect changes
-func hashRenderedWithSpec(deviceSpec *domain.DeviceSpec) string {
+// hashRenderedWithSpec creates a hash of the device spec and selected
+// virt-launcher image so an OS-major change re-renders VM applications.
+func hashRenderedWithSpec(deviceSpec *domain.DeviceSpec, launcherImage string) string {
 	if deviceSpec == nil {
 		return ""
 	}
-	specBytes, _ := json.Marshal(deviceSpec)
+	payload := struct {
+		Spec          *domain.DeviceSpec `json:"spec"`
+		LauncherImage string             `json:"launcherImage"`
+	}{deviceSpec, launcherImage}
+	specBytes, _ := json.Marshal(payload)
 	hash := sha256.Sum256(specBytes)
 	return hex.EncodeToString(hash[:])
 }

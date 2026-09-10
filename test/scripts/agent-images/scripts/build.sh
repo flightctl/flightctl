@@ -25,7 +25,7 @@ current_tree_state() {
 
 SOURCE_GIT_TAG="${SOURCE_GIT_TAG:-$(${ROOT_DIR}/hack/current-version)}"
 SOURCE_GIT_TREE_STATE="${SOURCE_GIT_TREE_STATE:-$(current_tree_state)}"
-SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT:-$(cd "${ROOT_DIR}" && git rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")}"
+SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT:-$( (cd "${ROOT_DIR}" && git rev-parse "HEAD^{commit}" 2>/dev/null || echo "unknown") | cut -c1-9)}"
 TAG="${TAG:-$SOURCE_GIT_TAG}"
 
 PODMAN_LOG_LEVEL="${PODMAN_LOG_LEVEL:-info}"
@@ -129,9 +129,15 @@ case "${AGENT_OS_ID}" in
     CONTAINERFILE_DIR="${BASE_DIR}/containerfiles/cs10-bootc${DISTRO_SUFFIX}"
     OS_ID="cs10-bootc"
     ;;
+  fedora-bootc)
+    # Fedora onboarding flavor: only source of a usable mac80211_hwsim radio for
+    # the onboarding WiFi specs (cs9/cs10 kernels filter it out). No -redhat variant.
+    CONTAINERFILE_DIR="${BASE_DIR}/containerfiles/fedora-bootc"
+    OS_ID="fedora-bootc"
+    ;;
   *)
     echo "[ERROR] Unsupported AGENT_OS_ID: ${AGENT_OS_ID}" >&2
-    echo "Supported values: cs9-bootc, cs10-bootc" >&2
+    echo "Supported values: cs9-bootc, cs10-bootc, fedora-bootc" >&2
     exit 1
     ;;
 esac

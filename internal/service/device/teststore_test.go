@@ -70,10 +70,12 @@ func newFakeStore() *fakeStore {
 // methods this package's handler_test.go exercises.
 type fakeDeviceStore struct {
 	devicestore.Store
-	devices  map[string]*domain.Device
-	rendered map[string]*devicestore.DeviceRendered
-	repoRefs map[string][]string
-	lastSeen map[string]*time.Time
+	devices          map[string]*domain.Device
+	rendered         map[string]*devicestore.DeviceRendered
+	repoRefs         map[string][]string
+	lastSeen         map[string]*time.Time
+	healthcheckCalls []healthcheckCall
+	healthcheckErr   error
 }
 
 func (s *fakeDeviceStore) rememberLastSeen(name string, device *domain.Device) {
@@ -278,6 +280,16 @@ func (s *fakeDeviceStore) GetRendered(ctx context.Context, orgId uuid.UUID, name
 	return s.Get(ctx, orgId, name)
 }
 
+type healthcheckCall struct {
+	orgId uuid.UUID
+	names []string
+}
+
+func (s *fakeDeviceStore) Healthcheck(ctx context.Context, orgId uuid.UUID, names []string) error {
+	s.healthcheckCalls = append(s.healthcheckCalls, healthcheckCall{orgId: orgId, names: names})
+	return s.healthcheckErr
+}
+
 func (s *fakeDeviceStore) GetLastSeen(ctx context.Context, orgId uuid.UUID, name string) (*time.Time, error) {
 	if _, ok := s.devices[name]; !ok {
 		return nil, flterrors.ErrResourceNotFound
@@ -290,35 +302,6 @@ func (s *fakeDeviceStore) GetLastSeen(ctx context.Context, orgId uuid.UUID, name
 }
 
 func (s *fakeDeviceStore) SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner string) error {
-	return nil
-}
-
-func (s *fakeDeviceStore) SetServiceConditions(ctx context.Context, orgId uuid.UUID, name string, conditions []domain.Condition, callback devicestore.ServiceConditionsCallback) error {
-	d, ok := s.devices[name]
-	if !ok {
-		return flterrors.ErrResourceNotFound
-	}
-	var oldConditions []domain.Condition
-	if d.Status != nil {
-		oldConditions = append([]domain.Condition(nil), d.Status.Conditions...)
-	}
-	newConditions := append([]domain.Condition(nil), oldConditions...)
-	changed := false
-	for _, condition := range conditions {
-		if domain.SetStatusCondition(&newConditions, condition) {
-			changed = true
-		}
-	}
-	if !changed {
-		return nil
-	}
-	if d.Status == nil {
-		d.Status = lo.ToPtr(domain.NewDeviceStatus())
-	}
-	d.Status.Conditions = newConditions
-	if callback != nil {
-		callback(ctx, orgId, d, oldConditions, newConditions)
-	}
 	return nil
 }
 
