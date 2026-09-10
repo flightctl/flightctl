@@ -297,6 +297,7 @@ linters:
             - "!**/internal/api_server/agentserver/server.go"
             - "!**/internal/imagebuilder_api/server.go"
             - "!**/internal/remote_access_server/server.go"
+            - "!**/internal/delta_worker/**"
             - "!**/internal/periodic_checker/server.go"
             - "!**/internal/worker_server/server.go"
             - "!**/internal/imagebuilder_worker/worker.go"
@@ -326,6 +327,7 @@ linters:
             - "!**/internal/remote_access_server/server.go"
             - "!**/internal/periodic_checker/server.go"
             - "!**/internal/worker_server/server.go"
+            - "!**/internal/delta_worker/**"
             - "!**/test/**"
           deny:
             - pkg: "github.com/flightctl/flightctl/internal/store/fleet$"
@@ -423,6 +425,8 @@ linters:
             - "!**/internal/migration/**"
             - "!**/internal/instrumentation/metrics/**"
             - "!**/internal/api_server/server.go"
+            - "!**/internal/periodic_checker/server.go"
+            - "!**/internal/delta_worker/**"
             - "!**/internal/worker_server/server.go"
             - "!**/test/**"
           deny:
