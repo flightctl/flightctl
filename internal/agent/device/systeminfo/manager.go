@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -41,8 +42,9 @@ type manager struct {
 	collectionTimeout  time.Duration
 	collectionInterval time.Duration
 	collectors         map[string]CollectorFn
-	collected          bool
 	cachedSystemInfo   *v1beta1.DeviceSystemInfo
+	initialCollection  chan struct{}
+	initialCollectOnce sync.Once
 
 	log *log.PrefixLogger
 }
@@ -66,6 +68,7 @@ func NewManager(
 		collectionTimeout:  time.Duration(collectionTimeout),
 		collectionInterval: time.Duration(collectionInterval),
 		collectors:         make(map[string]CollectorFn),
+		initialCollection:  make(chan struct{}),
 		log:                log,
 	}
 }
@@ -122,60 +125,7 @@ func (m *manager) ReloadConfig(ctx context.Context, cfg *config.Config) error {
 
 	if !reflect.DeepEqual(m.infoKeys, cfg.SystemInfo) {
 		m.log.Infof("Updating system info keys: %v -> %v", m.infoKeys, cfg.SystemInfo)
-
-		oldConfig := collectCfg{}
-
-		// Ignore errors for previous and new. We're just trying to diff the two to see if there
-		// is something new that should be collected
-		opts, _ := collectionOptsFromInfoKeys(m.infoKeys)
-		for _, opt := range opts {
-			opt(&oldConfig)
-		}
-
-		newConfig := collectCfg{}
-		opts, _ = collectionOptsFromInfoKeys(cfg.SystemInfo)
-		for _, opt := range opts {
-			opt(&newConfig)
-		}
-
-		// Snapshot old/new key sets (string keys), so we can detect newly added keys.
-		oldKeys := make(map[string]struct{}, len(m.infoKeys))
-		for _, k := range m.infoKeys {
-			oldKeys[k] = struct{}{}
-		}
-		newKeys := make(map[string]struct{}, len(cfg.SystemInfo))
-		for _, k := range cfg.SystemInfo {
-			newKeys[k] = struct{}{}
-		}
-
 		m.infoKeys = cfg.SystemInfo
-
-		// If the newConfig only removes required collectors but doesn't add any
-		// new collectors, there is no need to trigger a recollection
-		hasNewCollectors := false
-		for cType := range newConfig.enabledTypes {
-			if !oldConfig.hasCollector(cType) {
-				hasNewCollectors = true
-				break
-			}
-		}
-
-		if !hasNewCollectors {
-			for k := range newKeys {
-				if _, existed := oldKeys[k]; existed {
-					continue
-				}
-				if _, ok := m.collectors[k]; ok {
-					// Runtime collector already registered -> can collect immediately.
-					hasNewCollectors = true
-					break
-				}
-			}
-		}
-
-		if hasNewCollectors {
-			m.collected = false
-		}
 	}
 
 	if !reflect.DeepEqual(m.customKeys, cfg.SystemInfoCustom) {
@@ -210,6 +160,7 @@ func (m *manager) BootTime() string {
 func (m *manager) Run(ctx context.Context) {
 	m.log.Debugf("Starting systeminfo collection loop (interval=%s)", m.collectionInterval)
 	m.collect(ctx)
+	m.initialCollectOnce.Do(func() { close(m.initialCollection) })
 
 	if m.collectionInterval <= 0 {
 		m.log.Debugf("Systeminfo collection complete (single run, no interval)")
@@ -237,12 +188,8 @@ func (m *manager) collect(ctx context.Context) {
 	infoKeys := slices.Clone(m.infoKeys)
 	customKeys := slices.Clone(m.customKeys)
 	bootID := m.bootID
-	collectors := make(map[string]CollectorFn, len(m.collectors))
-	for k, v := range m.collectors {
-		collectors[k] = v
-	}
+	collectors := maps.Clone(m.collectors)
 	dataDir := m.dataDir
-	m.collected = true
 	m.mu.Unlock()
 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
@@ -265,23 +212,32 @@ func (m *manager) collect(ctx context.Context) {
 
 	if err != nil {
 		m.log.Warnf("System info collection failed: %v", err)
-		defaultInfo := m.defaultSystemInfo()
-		m.cachedSystemInfo = &defaultInfo
+		if m.cachedSystemInfo == nil {
+			m.cachedSystemInfo = new(m.defaultSystemInfo())
+		}
 		return
 	}
 	m.cachedSystemInfo = &systemInfo
 }
 
 func (m *manager) Status(ctx context.Context, deviceStatus *v1beta1.DeviceStatus, opts ...status.CollectorOpt) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if m.cachedSystemInfo != nil {
-		deviceStatus.SystemInfo = *m.cachedSystemInfo
-		return nil
+	var options status.CollectorOpts
+	for _, opt := range opts {
+		opt(&options)
+	}
+	if options.Force {
+		m.collect(ctx)
+	} else {
+		select {
+		case <-m.initialCollection:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 
-	deviceStatus.SystemInfo = m.defaultSystemInfo()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	deviceStatus.SystemInfo = *m.cachedSystemInfo
 	return nil
 }
 
@@ -337,7 +293,6 @@ func (m *manager) RegisterCollector(ctx context.Context, key string, fn Collecto
 	}
 
 	m.collectors[key] = fn
-	m.collected = false
 }
 
 // collectDeviceSystemInfo collects the system information from the device and returns it as a DeviceSystemInfo object.
