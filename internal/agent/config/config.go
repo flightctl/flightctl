@@ -188,6 +188,9 @@ type Config struct {
 	// SystemInfoTimeout is the timeout for collecting system info.
 	SystemInfoTimeout util.Duration `json:"system-info-timeout,omitempty"`
 
+	// SystemInfoPeriodic configures independent periodic systeminfo collection.
+	SystemInfoPeriodic SystemInfoPeriodicConfig `json:"system-info-periodic,omitempty"`
+
 	// PullTimeout is the max duration a single OCI target will try to pull.
 	PullTimeout util.Duration `json:"pull-timeout,omitempty"`
 
@@ -241,6 +244,13 @@ type PreEnrollmentConfig struct {
 // EnrollmentConfig groups enrollment-related agent settings.
 type EnrollmentConfig struct {
 	PreEnrollment PreEnrollmentConfig `json:"preEnrollment,omitempty"`
+}
+
+// SystemInfoPeriodicConfig configures periodic systeminfo collection.
+type SystemInfoPeriodicConfig struct {
+	// Interval is the collection interval for periodic systeminfo gathering.
+	// When zero or absent, the agent falls back to StatusUpdateInterval.
+	Interval util.Duration `json:"interval,omitempty"`
 }
 
 // DefaultSystemInfo defines the list of system information keys that are included
@@ -341,6 +351,16 @@ func (cfg *Config) SetManagementCertMetricsCallback(cb mgmtcertcommon.Management
 
 func (cfg *Config) GetManagementCertMetricsCallback() mgmtcertcommon.ManagementCertMetricsCallback {
 	return cfg.managementCertMetricsCallback
+}
+
+// SystemInfoCollectionInterval returns the effective collection interval
+// for periodic systeminfo gathering. If system-info-periodic.interval is
+// configured, it is used; otherwise StatusUpdateInterval is the fallback.
+func (cfg *Config) SystemInfoCollectionInterval() util.Duration {
+	if cfg.SystemInfoPeriodic.Interval > 0 {
+		return cfg.SystemInfoPeriodic.Interval
+	}
+	return cfg.StatusUpdateInterval
 }
 
 // Complete fills in defaults for fields not set by the config file
