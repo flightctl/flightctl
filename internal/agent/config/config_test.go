@@ -528,6 +528,30 @@ enrollment:
 }
 
 func TestSystemInfoCollectionInterval(t *testing.T) {
+	t.Run("When a drop-in sets system-info-periodic interval it should override the base interval", func(t *testing.T) {
+		require := require.New(t)
+
+		configDir := t.TempDir()
+		dataDir := filepath.Join(configDir, "data")
+		require.NoError(os.MkdirAll(dataDir, 0o755))
+		configFile := filepath.Join(configDir, "config.yaml")
+		require.NoError(os.WriteFile(configFile, []byte(yamlConfig+`
+system-info-periodic:
+  interval: 1m
+`), 0o600))
+
+		dropinDir := filepath.Join(configDir, "conf.d")
+		require.NoError(os.MkdirAll(dropinDir, 0o755))
+		require.NoError(os.WriteFile(filepath.Join(dropinDir, "10-system-info-periodic.yaml"), []byte("system-info-periodic:\n  interval: 5m\n"), 0o600))
+
+		cfg := NewDefault()
+		cfg.ConfigDir = configDir
+		cfg.DataDir = dataDir
+		cfg.readWriter = fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
+		require.NoError(cfg.LoadWithOverrides(configFile))
+		require.Equal(util.Duration(5*time.Minute), cfg.SystemInfoCollectionInterval())
+	})
+
 	t.Run("When system-info-periodic interval is set it should use that interval", func(t *testing.T) {
 		require := require.New(t)
 

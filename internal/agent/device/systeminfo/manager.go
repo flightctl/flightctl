@@ -43,8 +43,6 @@ type manager struct {
 	collectionInterval time.Duration
 	collectors         map[string]CollectorFn
 	cachedSystemInfo   *v1beta1.DeviceSystemInfo
-	initialCollection  chan struct{}
-	initialCollectOnce sync.Once
 
 	log *log.PrefixLogger
 }
@@ -68,7 +66,6 @@ func NewManager(
 		collectionTimeout:  time.Duration(collectionTimeout),
 		collectionInterval: time.Duration(collectionInterval),
 		collectors:         make(map[string]CollectorFn),
-		initialCollection:  make(chan struct{}),
 		log:                log,
 	}
 }
@@ -109,6 +106,8 @@ func (m *manager) Initialize(ctx context.Context) (err error) {
 			return fmt.Errorf("writing system status: %w", err)
 		}
 	}
+
+	m.collect(ctx)
 
 	return nil
 }
@@ -155,15 +154,12 @@ func (m *manager) BootTime() string {
 }
 
 // Run starts periodic system info collection in a blocking loop.
-// It performs an initial collection immediately, then collects again
-// at each collectionInterval tick. Stops when ctx is cancelled.
+// It collects at each collectionInterval tick. Stops when ctx is cancelled.
 func (m *manager) Run(ctx context.Context) {
 	m.log.Debugf("Starting systeminfo collection loop (interval=%s)", m.collectionInterval)
-	m.collect(ctx)
-	m.initialCollectOnce.Do(func() { close(m.initialCollection) })
 
 	if m.collectionInterval <= 0 {
-		m.log.Debugf("Systeminfo collection complete (single run, no interval)")
+		m.log.Debugf("Systeminfo collection disabled (no interval)")
 		return
 	}
 
@@ -227,16 +223,14 @@ func (m *manager) Status(ctx context.Context, deviceStatus *v1beta1.DeviceStatus
 	}
 	if options.Force {
 		m.collect(ctx)
-	} else {
-		select {
-		case <-m.initialCollection:
-		case <-ctx.Done():
-			return ctx.Err()
-		}
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.cachedSystemInfo == nil {
+		deviceStatus.SystemInfo = m.defaultSystemInfo()
+		return nil
+	}
 	deviceStatus.SystemInfo = *m.cachedSystemInfo
 	return nil
 }

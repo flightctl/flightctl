@@ -658,6 +658,7 @@ func mergeConfigs(base, override *Config) {
 	overrideSliceIfNotNil(&base.SystemInfo, override.SystemInfo)
 	overrideSliceIfNotNil(&base.SystemInfoCustom, override.SystemInfoCustom)
 	overrideIfNotEmpty(&base.SystemInfoTimeout, override.SystemInfoTimeout)
+	overrideIfNotEmpty(&base.SystemInfoPeriodic.Interval, override.SystemInfoPeriodic.Interval)
 
 	// tpm
 	overrideIfNotEmpty(&base.TPM.Enabled, override.TPM.Enabled)
