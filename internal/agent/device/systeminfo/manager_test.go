@@ -227,7 +227,17 @@ func TestRun(t *testing.T) {
 }
 
 func TestStatusReturnsCachedResults(t *testing.T) {
-	t.Run("When Status is called before collection it should return default info", func(t *testing.T) {
+	t.Run("When Status is cancelled before the initial collection completes it should return the context error", func(t *testing.T) {
+		require := require.New(t)
+		manager := NewManager(log.NewPrefixLogger("test"), nil, nil, "", nil, nil, 0, 0)
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		err := manager.Status(ctx, &v1beta1.DeviceStatus{})
+		require.ErrorIs(err, context.Canceled)
+	})
+
+	t.Run("When Status is called while the initial collection is running it should wait for the cached result", func(t *testing.T) {
 		require := require.New(t)
 
 		tmpDir := t.TempDir()
@@ -250,20 +260,63 @@ func TestStatusReturnsCachedResults(t *testing.T) {
 		mockExecuter := executer.NewMockExecuter(ctrl)
 		bootTime := "2024-12-13 11:01:08"
 		collectTimeout := util.Duration(5 * time.Second)
-		mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "uptime", "-s").Return(bootTime, "", 0).Times(1)
+		// Once during initialization and once during Run's initial collection.
+		// Status must not begin a second collection while Run is in progress.
+		mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "uptime", "-s").Return(bootTime, "", 0).Times(2)
 
 		log := log.NewPrefixLogger("test")
 
-		manager := NewManager(log, mockExecuter, readWriter, dataDir, nil, nil, collectTimeout, 0)
+		manager := NewManager(log, mockExecuter, readWriter, dataDir, []string{common.TPMVendorInfoKey}, nil, collectTimeout, 0)
 		err = manager.Initialize(context.Background())
 		require.NoError(err)
 
-		// Status before any collection returns defaults
+		collectionStarted := make(chan struct{})
+		completeCollection := make(chan struct{})
+		manager.RegisterCollector(context.Background(), common.TPMVendorInfoKey, func(context.Context) string {
+			close(collectionStarted)
+			<-completeCollection
+			return "TPM vendor"
+		})
+
+		runDone := make(chan struct{})
+		go func() {
+			manager.Run(context.Background())
+			close(runDone)
+		}()
+		<-collectionStarted
+
 		deviceStatus := &v1beta1.DeviceStatus{}
-		err = manager.Status(context.Background(), deviceStatus)
-		require.NoError(err)
+		statusDone := make(chan error, 1)
+		go func() {
+			statusDone <- manager.Status(context.Background(), deviceStatus)
+		}()
+
+		select {
+		case err := <-statusDone:
+			require.Failf("Status returned before initial collection completed", "unexpected error: %v", err)
+		case <-time.After(50 * time.Millisecond):
+		}
+
+		close(completeCollection)
+		require.NoError(<-statusDone)
+		<-runDone
 		require.Equal(mockBootID, deviceStatus.SystemInfo.BootID)
+		require.Equal("TPM vendor", deviceStatus.SystemInfo.AdditionalProperties[common.TPMVendorInfoKey])
+	})
+
+	t.Run("When the initial collection fails it should return the cached default result", func(t *testing.T) {
+		require := require.New(t)
+		manager := NewManager(log.NewPrefixLogger("test"), nil, nil, "", nil, nil, 0, 0)
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		manager.Run(ctx)
+
+		deviceStatus := &v1beta1.DeviceStatus{}
+		err := manager.Status(context.Background(), deviceStatus)
+		require.NoError(err)
 		require.NotEmpty(deviceStatus.SystemInfo.AgentVersion)
+		require.NotNil(deviceStatus.SystemInfo.AdditionalProperties)
 	})
 
 	t.Run("When Status is called after collection it should return cached results", func(t *testing.T) {
@@ -314,67 +367,56 @@ func TestReloadConfig(t *testing.T) {
 		name        string
 		initialKeys []string
 		newKeys     []string
-		expected    bool
 	}{
 		{
 			name:        "no change in info keys",
 			initialKeys: []string{common.NetInterfaceDefaultKey, common.CPUCoresKey},
 			newKeys:     []string{common.NetInterfaceDefaultKey, common.CPUCoresKey},
-			expected:    true,
 		},
 		{
 			name:        "change within same collector type - network",
 			initialKeys: []string{common.NetInterfaceDefaultKey},
 			newKeys:     []string{common.NetMACDefaultKey},
-			expected:    true,
 		},
 		{
 			name:        "change within same collector type - CPU",
 			initialKeys: []string{common.CPUCoresKey},
 			newKeys:     []string{common.CPUModelKey},
-			expected:    true,
 		},
 		{
 			name:        "change to different collector type",
 			initialKeys: []string{common.CPUCoresKey},
 			newKeys:     []string{common.MemoryTotalKbKey},
-			expected:    false,
 		},
 		{
 			name:        "add key requiring same collector",
 			initialKeys: []string{common.NetInterfaceDefaultKey},
 			newKeys:     []string{common.NetInterfaceDefaultKey, common.NetMACDefaultKey},
-			expected:    true,
 		},
 		{
 			name:        "add key requiring different collector",
 			initialKeys: []string{common.CPUCoresKey},
 			newKeys:     []string{common.CPUCoresKey, common.GPUKey},
-			expected:    false,
 		},
 		{
 			name:        "remove key but keep collector active",
 			initialKeys: []string{common.NetInterfaceDefaultKey, common.NetMACDefaultKey},
 			newKeys:     []string{common.NetInterfaceDefaultKey},
-			expected:    true,
 		},
 		{
 			name:        "remove key that disables collector",
 			initialKeys: []string{common.CPUCoresKey, common.MemoryTotalKbKey},
 			newKeys:     []string{common.CPUCoresKey},
-			expected:    true,
 		},
 		{
 			name:        "empty to non-empty",
 			initialKeys: []string{},
 			newKeys:     []string{common.CPUCoresKey},
-			expected:    false,
 		},
 		{
 			name:        "non-empty to empty",
 			initialKeys: []string{common.CPUCoresKey},
 			newKeys:     []string{},
-			expected:    true,
 		},
 	}
 
@@ -398,17 +440,12 @@ func TestReloadConfig(t *testing.T) {
 
 			manager := NewManager(log, mockExecuter, readWriter, dataDir, tt.initialKeys, nil, collectTimeout, 0)
 
-			// Simulate that data has been collected
-			manager.collected = true
-
 			cfg := &config.Config{
 				SystemInfo: tt.newKeys,
 			}
 
 			err = manager.ReloadConfig(context.Background(), cfg)
 			require.NoError(err)
-
-			require.Equal(tt.expected, manager.collected)
 
 			require.Equal(tt.newKeys, manager.infoKeys, "info keys should be updated")
 		})
