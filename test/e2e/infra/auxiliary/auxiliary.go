@@ -6,6 +6,7 @@ package auxiliary
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -19,17 +20,18 @@ var (
 	svcs *Services
 )
 
-// Services holds the E2E aux services (registry, git, prometheus, jaeger, keycloak, trustify, file server).
+// Services holds the E2E aux services (registry, git, prometheus, jaeger, keycloak, trustify, file server, telemetry HTTP collector).
 // Same for all deployment types; created once and reused. Each service is nil until started.
 // reuse is kept so Cleanup can no-op when reuse=true (containers stay running for the next run).
 type Services struct {
-	Registry   *Registry
-	GitServer  *GitServer
-	Prometheus *Prometheus
-	Jaeger     *Jaeger
-	Keycloak   *Keycloak
-	Trustify   *Trustify
-	FileServer *FileServer
+	Registry               *Registry
+	GitServer              *GitServer
+	Prometheus             *Prometheus
+	Jaeger                 *Jaeger
+	Keycloak               *Keycloak
+	Trustify               *Trustify
+	FileServer             *FileServer
+	TelemetryHTTPCollector *TelemetryHTTPCollector
 
 	reuse bool
 }
@@ -38,13 +40,14 @@ type Services struct {
 type Service string
 
 const (
-	ServiceRegistry   Service = "registry"
-	ServiceGitServer  Service = "git-server"
-	ServicePrometheus Service = "prometheus"
-	ServiceTracing    Service = "tracing"
-	ServiceKeycloak   Service = "keycloak"
-	ServiceTrustify   Service = "trustify"
-	ServiceFileServer Service = "file-server"
+	ServiceRegistry               Service = "registry"
+	ServiceGitServer              Service = "git-server"
+	ServicePrometheus             Service = "prometheus"
+	ServiceTracing                Service = "tracing"
+	ServiceKeycloak               Service = "keycloak"
+	ServiceTrustify               Service = "trustify"
+	ServiceFileServer             Service = "file-server"
+	ServiceTelemetryHTTPCollector Service = "telemetry-http-collector"
 )
 
 // AllServices is the default set of shared aux services (started by Get(ctx)).
@@ -123,6 +126,11 @@ func StartServices(ctx context.Context, services []Service) (*Services, error) {
 			if err := s.FileServer.Start(ctx, network, reuse); err != nil {
 				return nil, fmt.Errorf("failed to start file server: %w", err)
 			}
+		case ServiceTelemetryHTTPCollector:
+			s.TelemetryHTTPCollector = &TelemetryHTTPCollector{}
+			if err := s.TelemetryHTTPCollector.Start(ctx, network, reuse); err != nil {
+				return nil, fmt.Errorf("failed to start telemetry HTTP collector: %w", err)
+			}
 		default:
 			return nil, fmt.Errorf("unknown service: %q", svc)
 		}
@@ -142,17 +150,19 @@ func (s *Services) Cleanup(ctx context.Context) {
 
 // serviceContainerNames maps each Service to its podman container name.
 var serviceContainerNames = map[Service]string{
-	ServiceRegistry:   registryContainerName,
-	ServiceGitServer:  gitServerContainerName,
-	ServicePrometheus: prometheusContainerName,
-	ServiceTracing:    jaegerContainerName,
-	ServiceKeycloak:   keycloakContainerName,
-	ServiceTrustify:   trustifyAPIContainer,
-	ServiceFileServer: fileServerContainerName,
+	ServiceRegistry:               registryContainerName,
+	ServiceGitServer:              gitServerContainerName,
+	ServicePrometheus:             prometheusContainerName,
+	ServiceTracing:                jaegerContainerName,
+	ServiceKeycloak:               keycloakContainerName,
+	ServiceTrustify:               trustifyAPIContainer,
+	ServiceFileServer:             fileServerContainerName,
+	ServiceTelemetryHTTPCollector: telemetryHTTPCollectorContainerName,
 }
 
 // StopServices force-removes the containers for the requested aux services.
 func StopServices(services []Service) error {
+	var removeErr error
 	for _, svc := range services {
 		name, ok := serviceContainerNames[svc]
 		if !ok {
@@ -161,18 +171,20 @@ func StopServices(services []Service) error {
 		logrus.Infof("Stopping aux container %s", name)
 		if err := podmanRemove(name); err != nil {
 			logrus.Warnf("Could not remove %s: %v", name, err)
+			removeErr = errors.Join(removeErr, fmt.Errorf("remove %s: %w", name, err))
 		}
 		if svc == ServiceRegistry {
 			logrus.Infof("Stopping satellite container %s", privateRegistryContainerName)
 			if err := podmanRemove(privateRegistryContainerName); err != nil {
 				logrus.Warnf("Could not remove %s: %v", privateRegistryContainerName, err)
+				removeErr = errors.Join(removeErr, fmt.Errorf("remove %s: %w", privateRegistryContainerName, err))
 			}
 		}
 		if svc == ServiceTrustify {
 			StopTrustifyContainers()
 		}
 	}
-	return nil
+	return removeErr
 }
 
 func podmanRemove(containerName string) error {
