@@ -139,7 +139,7 @@ func (s *Server) Run(ctx context.Context) error {
 	s.log.Println("Initializing ImageBuilder API server")
 
 	// Load OpenAPI spec for request validation
-	swagger, err := api.GetSwagger()
+	swagger, err := api.GetSpec()
 	if err != nil {
 		return fmt.Errorf("failed loading swagger spec: %w", err)
 	}
