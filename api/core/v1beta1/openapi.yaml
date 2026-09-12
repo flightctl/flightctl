@@ -8016,30 +8016,35 @@ components:
         refresh_token:
           type: string
           nullable: true
+          x-omitempty: false
           description: Refresh token for refresh_token grant.
           x-oapi-codegen-extra-tags:
             form: refresh_token,omitempty
         code:
           type: string
           nullable: true
+          x-omitempty: false
           description: Authorization code for authorization_code grant.
           x-oapi-codegen-extra-tags:
             form: code,omitempty
         scope:
           type: string
           nullable: true
+          x-omitempty: false
           description: OAuth2 scope.
           x-oapi-codegen-extra-tags:
             form: scope,omitempty
         code_verifier:
           type: string
           nullable: true
+          x-omitempty: false
           description: PKCE code verifier.
           x-oapi-codegen-extra-tags:
             form: code_verifier,omitempty
         redirect_uri:
           type: string
           nullable: true
+          x-omitempty: false
           description: OAuth2 redirect URI (required for authorization_code grant if included in authorization request).
           x-oapi-codegen-extra-tags:
             form: redirect_uri,omitempty
@@ -8647,10 +8652,12 @@ components:
         previousOwner:
           type: string
           nullable: true
+          x-omitempty: false
           description: The previous owner (if applicable).
         newOwner:
           type: string
           nullable: true
+          x-omitempty: false
           description: The new owner (if applicable).
     DeviceOwnershipChangedDetails:
       type: object
@@ -8664,10 +8671,12 @@ components:
         previousOwner:
           type: string
           nullable: true
+          x-omitempty: false
           description: The previous owner fleet (null if none).
         newOwner:
           type: string
           nullable: true
+          x-omitempty: false
           description: The new owner fleet (null if removed).
     DeviceMultipleOwnersDetectedDetails:
       type: object
@@ -8701,6 +8710,7 @@ components:
         assignedOwner:
           type: string
           nullable: true
+          x-omitempty: false
           description: The fleet assigned as owner (null if no owner).
         previousMatchingFleets:
           type: array
