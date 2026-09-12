@@ -329,7 +329,7 @@ func (s *AgentServer) prepareHTTPHandler(ctx context.Context) (http.Handler, err
 	handlerV1Beta1 := agenttransportv1beta1.NewAgentTransportHandler(s.deviceSvc, s.enrollmentRequestSvc, s.csrSvc, convertv1beta1.NewConverter(), s.ca, s.log)
 
 	// Create version-specific router with OpenAPI validation
-	agentV1Beta1Swagger, err := agentv1beta1.GetSwagger()
+	agentV1Beta1Swagger, err := agentv1beta1.GetSpec()
 	if err != nil {
 		return nil, fmt.Errorf("failed loading agent v1beta1 swagger spec: %w", err)
 	}

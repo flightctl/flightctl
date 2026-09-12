@@ -33,7 +33,7 @@ var _ = Describe("API Validation Tests", func() {
 		// This simulates the real API server's validation behavior
 
 		// Load the OpenAPI spec
-		v1beta1Swagger, err := corev1beta1.GetSwagger()
+		v1beta1Swagger, err := corev1beta1.GetSpec()
 		Expect(err).ToNot(HaveOccurred())
 
 		// Create validation middleware with same config as real server
