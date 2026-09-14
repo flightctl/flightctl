@@ -22,6 +22,8 @@ import (
 	"github.com/flightctl/flightctl/internal/service/events"
 	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	enrollmenthooknotifysecrets "github.com/flightctl/flightctl/internal/store/enrollmenthooknotifysecrets"
+	enrollmenthookpolicystore "github.com/flightctl/flightctl/internal/store/enrollmenthookpolicy"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/tpm"
@@ -34,34 +36,38 @@ import (
 )
 
 type ServiceHandler struct {
-	store       enrollmentrequeststore.Store
-	deviceStore devicestore.Store
-	csrStore    certificatesigningrequeststore.Store
-	ca          *crypto.CAClient
-	kvStore     kvstore.KVStore
-	events      events.Service
-	log         logrus.FieldLogger
-	tpmCAPaths  []string
-	agentGate   *semaphore.Weighted
+	store              enrollmentrequeststore.Store
+	deviceStore        devicestore.Store
+	csrStore           certificatesigningrequeststore.Store
+	ca                 *crypto.CAClient
+	kvStore            kvstore.KVStore
+	events             events.Service
+	log                logrus.FieldLogger
+	tpmCAPaths         []string
+	agentGate          *semaphore.Weighted
+	ehPolicyStore      enrollmenthookpolicystore.Store
+	notifySecretsStore enrollmenthooknotifysecrets.Store
 
 	agentEndpoint string
 	uiUrl         string
 }
 
 // NewServiceHandler creates a new enrollmentrequest ServiceHandler instance.
-func NewServiceHandler(store enrollmentrequeststore.Store, deviceStore devicestore.Store, csrStore certificatesigningrequeststore.Store, ca *crypto.CAClient, kvStore kvstore.KVStore, events events.Service, log logrus.FieldLogger, tpmCAPaths []string, agentEndpoint string, uiUrl string) *ServiceHandler {
+func NewServiceHandler(store enrollmentrequeststore.Store, deviceStore devicestore.Store, csrStore certificatesigningrequeststore.Store, ca *crypto.CAClient, kvStore kvstore.KVStore, events events.Service, log logrus.FieldLogger, tpmCAPaths []string, agentEndpoint string, uiUrl string, ehPolicyStore enrollmenthookpolicystore.Store, notifySecretsStore enrollmenthooknotifysecrets.Store) *ServiceHandler {
 	return &ServiceHandler{
-		store:         store,
-		deviceStore:   deviceStore,
-		csrStore:      csrStore,
-		ca:            ca,
-		kvStore:       kvStore,
-		events:        events,
-		log:           log,
-		tpmCAPaths:    tpmCAPaths,
-		agentGate:     semaphore.NewWeighted(common.MaxConcurrentAgents),
-		agentEndpoint: agentEndpoint,
-		uiUrl:         uiUrl,
+		store:              store,
+		deviceStore:        deviceStore,
+		csrStore:           csrStore,
+		ca:                 ca,
+		kvStore:            kvStore,
+		events:             events,
+		log:                log,
+		tpmCAPaths:         tpmCAPaths,
+		agentGate:          semaphore.NewWeighted(common.MaxConcurrentAgents),
+		agentEndpoint:      agentEndpoint,
+		uiUrl:              uiUrl,
+		ehPolicyStore:      ehPolicyStore,
+		notifySecretsStore: notifySecretsStore,
 	}
 }
 
@@ -281,7 +287,22 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 		}
 	}
 
+	// Snapshot enrollment hook policy if one exists
 	name := lo.FromPtr(enrollmentRequest.Metadata.Name)
+	ehStatus, secrets, err := snapshotEnrollmentHookPolicy(ctx, h.ehPolicyStore, orgId, name)
+	if err != nil {
+		return fmt.Errorf("snapshot enrollment hook policy: %w", err)
+	}
+	if ehStatus != nil {
+		deviceStatus.EnrollmentHooks = ehStatus
+		reason := enrollmentHooksConditionReason(ehStatus.Snapshot)
+		domain.SetStatusCondition(&deviceStatus.Conditions, domain.Condition{
+			Type:   domain.ConditionTypeDeviceEnrollmentHooks,
+			Status: domain.ConditionStatusFalse,
+			Reason: reason,
+		})
+	}
+
 	apiResource := &domain.Device{
 		Metadata: domain.ObjectMeta{
 			Name: &name,
@@ -330,10 +351,18 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 	if errors.Is(err, flterrors.ErrDuplicateName) {
 		return fmt.Errorf("device %s already exists and cannot be overwritten during enrollment request approval: %w", name, err)
 	}
-	if err == nil {
-		h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, nil, result, true, nil)
+	if err != nil {
+		return err
 	}
-	return err
+	h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, nil, result, true, nil)
+
+	// Write bearer token secrets after successful device creation
+	if len(secrets) > 0 && h.notifySecretsStore != nil {
+		if err := h.notifySecretsStore.CreateBatch(ctx, orgId, secrets); err != nil {
+			return fmt.Errorf("write enrollment hook notify secrets: %w", err)
+		}
+	}
+	return nil
 }
 
 func (h *ServiceHandler) CreateEnrollmentRequest(ctx context.Context, orgId uuid.UUID, er domain.EnrollmentRequest) (*domain.EnrollmentRequest, domain.Status) {

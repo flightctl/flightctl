@@ -152,7 +152,7 @@ var _ = Describe("Enrollment VM launcher image selection", func() {
 		templateVersionSvc = templateversionservice.NewServiceHandler(tvStore, kvStoreInst, eventsSvc, log)
 		dependencyrefSvc = dependencyrefservice.NewServiceHandler(depStore, log)
 		repositorySvc = repositoryservice.NewServiceHandler(repoStore, eventsSvc, log)
-		enrollmentSvc = enrollmentrequestservice.NewServiceHandler(erStore, deviceStore, csrStore, caClient, kvStoreInst, eventsSvc, log, []string{}, "", "")
+		enrollmentSvc = enrollmentrequestservice.NewServiceHandler(erStore, deviceStore, csrStore, caClient, kvStoreInst, eventsSvc, log, []string{}, "", "", nil, nil)
 
 		ctx = context.WithValue(ctx, consts.MappedIdentityCtxKey, identity.NewMappedIdentity("admin", "uid-admin", nil, nil, true, nil))
 
