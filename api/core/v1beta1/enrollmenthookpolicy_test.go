@@ -85,6 +85,14 @@ func TestEnrollmentHookPolicy_Validate(t *testing.T) {
 		assert.Contains(t, errs[0].Error(), "must not be empty")
 	})
 
+	t.Run("When URL has no host it should reject", func(t *testing.T) {
+		p := validEnrollmentHookPolicy()
+		(*p.Spec.AfterEnrolling.ControlPlaneActions)[0].Url = "https:hook"
+		errs := p.Validate()
+		require.NotEmpty(t, errs)
+		assert.Contains(t, errs[0].Error(), "must include a host")
+	})
+
 	t.Run("When URL is valid HTTPS it should accept", func(t *testing.T) {
 		p := validEnrollmentHookPolicy()
 		(*p.Spec.AfterEnrolling.ControlPlaneActions)[0].Url = "https://hooks.example.com:8443/enroll"
@@ -228,5 +236,40 @@ func TestEnrollmentHookPolicy_PreserveSensitiveData(t *testing.T) {
 		err := newPolicy.PreserveSensitiveData(&existing)
 		require.NoError(t, err)
 		assert.Equal(t, "new-secret", *(*newPolicy.Spec.AfterEnrolling.ControlPlaneActions)[0].Auth.BearerToken)
+	})
+
+	t.Run("When actions are reordered it should restore token by URL not index", func(t *testing.T) {
+		existing := validEnrollmentHookPolicy()
+		*existing.Spec.AfterEnrolling.ControlPlaneActions = []EnrollmentHookHttpAction{
+			{Url: "https://hooks.example.com/a", Auth: &EnrollmentHookAuth{BearerToken: strPtr("token-a")}},
+			{Url: "https://hooks.example.com/b", Auth: &EnrollmentHookAuth{BearerToken: strPtr("token-b")}},
+		}
+		newPolicy := validEnrollmentHookPolicy()
+		*newPolicy.Spec.AfterEnrolling.ControlPlaneActions = []EnrollmentHookHttpAction{
+			{Url: "https://hooks.example.com/b", Auth: &EnrollmentHookAuth{BearerToken: strPtr(MaskedValuePlaceholder)}},
+			{Url: "https://hooks.example.com/a", Auth: &EnrollmentHookAuth{BearerToken: strPtr(MaskedValuePlaceholder)}},
+		}
+		err := newPolicy.PreserveSensitiveData(&existing)
+		require.NoError(t, err)
+		actions := *newPolicy.Spec.AfterEnrolling.ControlPlaneActions
+		assert.Equal(t, "token-b", *actions[0].Auth.BearerToken)
+		assert.Equal(t, "token-a", *actions[1].Auth.BearerToken)
+	})
+
+	t.Run("When a new action is inserted it should not inherit another action token", func(t *testing.T) {
+		existing := validEnrollmentHookPolicy()
+		(*existing.Spec.AfterEnrolling.ControlPlaneActions)[0].Auth = &EnrollmentHookAuth{
+			BearerToken: strPtr("existing-secret"),
+		}
+		newPolicy := validEnrollmentHookPolicy()
+		*newPolicy.Spec.AfterEnrolling.ControlPlaneActions = []EnrollmentHookHttpAction{
+			{Url: "https://hooks.example.com/new", Auth: &EnrollmentHookAuth{BearerToken: strPtr(MaskedValuePlaceholder)}},
+			{Url: "https://example.com/hook", Auth: &EnrollmentHookAuth{BearerToken: strPtr(MaskedValuePlaceholder)}},
+		}
+		err := newPolicy.PreserveSensitiveData(&existing)
+		require.NoError(t, err)
+		actions := *newPolicy.Spec.AfterEnrolling.ControlPlaneActions
+		assert.Equal(t, MaskedValuePlaceholder, *actions[0].Auth.BearerToken)
+		assert.Equal(t, "existing-secret", *actions[1].Auth.BearerToken)
 	})
 }

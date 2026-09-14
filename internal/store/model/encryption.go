@@ -358,24 +358,30 @@ func enrollmentHookPolicyEncryptHandler() encryption.ModelEncryptHandler {
 }
 
 func encryptEnrollmentHookPolicyBearerTokens(ctx context.Context, data map[string]any, encrypt encryption.EncryptFunc) (bool, error) {
+	specKey := "Spec"
 	spec, ok := data["Spec"]
 	if !ok {
 		// Try snake_case for GORM map mode
 		spec, ok = data["spec"]
+		if ok {
+			specKey = "spec"
+		}
 	}
 	if !ok || spec == nil {
 		return false, nil
 	}
 
+	specWasMap := true
 	specMap, ok := spec.(map[string]any)
 	if !ok {
 		// spec might be a json.Unmarshaler (JSONField) — unmarshal it
+		specWasMap = false
 		b, err := json.Marshal(spec)
 		if err != nil {
-			return false, nil
+			return false, fmt.Errorf("marshal EnrollmentHookPolicy spec: %w", err)
 		}
 		if err := json.Unmarshal(b, &specMap); err != nil {
-			return false, nil
+			return false, fmt.Errorf("unmarshal EnrollmentHookPolicy spec: %w", err)
 		}
 	}
 
@@ -410,6 +416,9 @@ func encryptEnrollmentHookPolicyBearerTokens(ctx context.Context, data map[strin
 		if encrypted {
 			modified = true
 		}
+	}
+	if modified && !specWasMap {
+		data[specKey] = specMap
 	}
 	return modified, nil
 }

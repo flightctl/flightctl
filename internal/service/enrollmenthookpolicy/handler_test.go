@@ -2,6 +2,7 @@ package enrollmenthookpolicy
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -16,19 +17,23 @@ import (
 )
 
 type fakeStore struct {
-	policies map[string]*domain.EnrollmentHookPolicy
-	err      error
+	policies  map[string]*domain.EnrollmentHookPolicy
+	createErr error
+	getErr    error
+	updateErr error
+	listErr   error
+	deleteErr error
 }
 
 func newFakeStore() *fakeStore {
 	return &fakeStore{policies: map[string]*domain.EnrollmentHookPolicy{}}
 }
 
-func (f *fakeStore) InitialMigration(_ context.Context) error { return f.err }
+func (f *fakeStore) InitialMigration(_ context.Context) error { return nil }
 
 func (f *fakeStore) Create(_ context.Context, _ uuid.UUID, p *domain.EnrollmentHookPolicy) (*domain.EnrollmentHookPolicy, error) {
-	if f.err != nil {
-		return nil, f.err
+	if f.createErr != nil {
+		return nil, f.createErr
 	}
 	name := lo.FromPtr(p.Metadata.Name)
 	if _, exists := f.policies[name]; exists {
@@ -39,8 +44,8 @@ func (f *fakeStore) Create(_ context.Context, _ uuid.UUID, p *domain.EnrollmentH
 }
 
 func (f *fakeStore) Update(_ context.Context, _ uuid.UUID, p *domain.EnrollmentHookPolicy) (*domain.EnrollmentHookPolicy, *domain.EnrollmentHookPolicy, error) {
-	if f.err != nil {
-		return nil, nil, f.err
+	if f.updateErr != nil {
+		return nil, nil, f.updateErr
 	}
 	name := lo.FromPtr(p.Metadata.Name)
 	old, exists := f.policies[name]
@@ -62,8 +67,8 @@ func (f *fakeStore) CreateOrUpdate(_ context.Context, orgId uuid.UUID, p *domain
 }
 
 func (f *fakeStore) Get(_ context.Context, _ uuid.UUID, name string) (*domain.EnrollmentHookPolicy, error) {
-	if f.err != nil {
-		return nil, f.err
+	if f.getErr != nil {
+		return nil, f.getErr
 	}
 	p, ok := f.policies[name]
 	if !ok {
@@ -73,8 +78,8 @@ func (f *fakeStore) Get(_ context.Context, _ uuid.UUID, name string) (*domain.En
 }
 
 func (f *fakeStore) List(_ context.Context, _ uuid.UUID, _ store.ListParams) (*domain.EnrollmentHookPolicyList, error) {
-	if f.err != nil {
-		return nil, f.err
+	if f.listErr != nil {
+		return nil, f.listErr
 	}
 	var items []domain.EnrollmentHookPolicy
 	for _, p := range f.policies {
@@ -84,8 +89,8 @@ func (f *fakeStore) List(_ context.Context, _ uuid.UUID, _ store.ListParams) (*d
 }
 
 func (f *fakeStore) Delete(_ context.Context, _ uuid.UUID, name string) (bool, error) {
-	if f.err != nil {
-		return false, f.err
+	if f.deleteErr != nil {
+		return false, f.deleteErr
 	}
 	if _, exists := f.policies[name]; !exists {
 		return false, nil
@@ -266,6 +271,70 @@ func TestSanitizeEnrollmentHookPolicy(t *testing.T) {
 
 	t.Run("When policy is nil it should not panic", func(t *testing.T) {
 		SanitizeEnrollmentHookPolicy(nil)
+	})
+}
+
+func TestStoreErrors(t *testing.T) {
+	t.Run("When create fails it should map store error and emit failure event", func(t *testing.T) {
+		h, fs, fakeEvents := newTestHandler()
+		fs.createErr = errors.New("db down")
+		policy := validPolicy()
+
+		result, status := h.CreateEnrollmentHookPolicy(context.Background(), uuid.New(), policy)
+		assert.Equal(t, int32(500), status.Code)
+		assert.Nil(t, result)
+		assert.Equal(t, 1, fakeEvents.createdEvents)
+	})
+
+	t.Run("When replace get fails it should map store error", func(t *testing.T) {
+		h, fs, fakeEvents := newTestHandler()
+		fs.getErr = errors.New("db down")
+		policy := validPolicy()
+
+		result, status := h.ReplaceEnrollmentHookPolicy(context.Background(), uuid.New(), "default", policy)
+		assert.Equal(t, int32(500), status.Code)
+		assert.Nil(t, result)
+		assert.Equal(t, 0, fakeEvents.createdEvents)
+	})
+
+	t.Run("When replace update fails it should map store error and emit failure event", func(t *testing.T) {
+		h, fs, fakeEvents := newTestHandler()
+		orgId := uuid.New()
+		fs.policies["default"] = lo.ToPtr(validPolicy())
+		fs.updateErr = errors.New("db down")
+		policy := validPolicy()
+
+		result, status := h.ReplaceEnrollmentHookPolicy(context.Background(), orgId, "default", policy)
+		assert.Equal(t, int32(500), status.Code)
+		assert.Nil(t, result)
+		assert.Equal(t, 1, fakeEvents.createdEvents)
+	})
+
+	t.Run("When get fails it should map store error", func(t *testing.T) {
+		h, fs, _ := newTestHandler()
+		fs.getErr = errors.New("db down")
+
+		result, status := h.GetEnrollmentHookPolicy(context.Background(), uuid.New(), "default")
+		assert.Equal(t, int32(500), status.Code)
+		assert.Nil(t, result)
+	})
+
+	t.Run("When list fails it should map store error", func(t *testing.T) {
+		h, fs, _ := newTestHandler()
+		fs.listErr = errors.New("db down")
+
+		result, status := h.ListEnrollmentHookPolicies(context.Background(), uuid.New(), domain.ListEnrollmentHookPoliciesParams{})
+		assert.Equal(t, int32(500), status.Code)
+		assert.Nil(t, result)
+	})
+
+	t.Run("When delete fails it should map store error", func(t *testing.T) {
+		h, fs, fakeEvents := newTestHandler()
+		fs.deleteErr = errors.New("db down")
+
+		status := h.DeleteEnrollmentHookPolicy(context.Background(), uuid.New(), "default")
+		assert.Equal(t, int32(500), status.Code)
+		assert.Equal(t, 1, fakeEvents.createdEvents)
 	})
 }
 

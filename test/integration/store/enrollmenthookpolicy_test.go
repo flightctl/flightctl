@@ -110,6 +110,11 @@ var _ = Describe("EnrollmentHookPolicyStore", func() {
 		result, _, _, err := ehpStore.CreateOrUpdate(ctx, orgId, updated)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(result).ToNot(BeNil())
+		Expect(lo.FromPtr(result.Spec.AfterEnrolling.FailurePolicy)).To(Equal(api.FailurePolicyContinue))
+
+		persisted, err := ehpStore.Get(ctx, orgId, "default")
+		Expect(err).ToNot(HaveOccurred())
+		Expect(lo.FromPtr(persisted.Spec.AfterEnrolling.FailurePolicy)).To(Equal(api.FailurePolicyContinue))
 	})
 })
 

@@ -136,5 +136,8 @@ func (p *EnrollmentHookPolicy) HasSameSpecAs(otherResource any) bool {
 }
 
 func (p *EnrollmentHookPolicy) GetStatusAsJson() ([]byte, error) {
+	if p.Status == nil {
+		return []byte("null"), nil
+	}
 	return p.Status.MarshalJSON()
 }

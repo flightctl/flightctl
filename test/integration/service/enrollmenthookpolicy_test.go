@@ -3,6 +3,7 @@ package service_test
 import (
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
@@ -49,7 +50,7 @@ var _ = Describe("EnrollmentHookPolicy service", func() {
 		Expect(result).To(BeNil())
 	})
 
-	It("When bearer token is set it should be redacted on GET", func() {
+	It("When bearer token is set it should be returned by service GET", func() {
 		policy := newServiceEnrollmentHookPolicy()
 		(*policy.Spec.AfterEnrolling.ControlPlaneActions)[0].Auth = &api.EnrollmentHookAuth{
 			BearerToken: lo.ToPtr("my-secret-token"),
@@ -59,9 +60,15 @@ var _ = Describe("EnrollmentHookPolicy service", func() {
 
 		got, status := suite.EnrollmentHookPolicy.GetEnrollmentHookPolicy(suite.Ctx, suite.OrgID, "default")
 		Expect(status.Code).To(Equal(int32(200)))
-		// Note: bearer tokens are encrypted at rest, not redacted at service level.
-		// Redaction happens at transport level via HideSensitiveData.
 		Expect(got).ToNot(BeNil())
+		Expect(got.Spec.AfterEnrolling.ControlPlaneActions).ToNot(BeNil())
+		Expect((*got.Spec.AfterEnrolling.ControlPlaneActions)[0].Auth).ToNot(BeNil())
+		token := lo.FromPtr((*got.Spec.AfterEnrolling.ControlPlaneActions)[0].Auth.BearerToken)
+		Expect(token).ToNot(Equal(api.MaskedValuePlaceholder))
+		plaintext, wasEncrypted, err := encryption.Decrypt(suite.Ctx, encryption.Ciphertext(token))
+		Expect(err).ToNot(HaveOccurred())
+		Expect(wasEncrypted).To(BeTrue())
+		Expect(string(plaintext)).To(Equal("my-secret-token"))
 	})
 
 	It("When replacing with masked token it should preserve original", func() {
@@ -80,6 +87,14 @@ var _ = Describe("EnrollmentHookPolicy service", func() {
 		result, status := suite.EnrollmentHookPolicy.ReplaceEnrollmentHookPolicy(suite.Ctx, suite.OrgID, "default", replacement)
 		Expect(status.Code).To(Equal(int32(200)))
 		Expect(result).ToNot(BeNil())
+		Expect(result.Spec.AfterEnrolling.ControlPlaneActions).ToNot(BeNil())
+		Expect((*result.Spec.AfterEnrolling.ControlPlaneActions)[0].Auth).ToNot(BeNil())
+		token := lo.FromPtr((*result.Spec.AfterEnrolling.ControlPlaneActions)[0].Auth.BearerToken)
+		Expect(token).ToNot(Equal(api.MaskedValuePlaceholder))
+		plaintext, wasEncrypted, err := encryption.Decrypt(suite.Ctx, encryption.Ciphertext(token))
+		Expect(err).ToNot(HaveOccurred())
+		Expect(wasEncrypted).To(BeTrue())
+		Expect(string(plaintext)).To(Equal("original-secret"))
 
 		// Status should have Ready=True after replace
 		Expect(result.Status).ToNot(BeNil())

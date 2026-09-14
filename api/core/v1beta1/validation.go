@@ -2703,6 +2703,10 @@ func validateEnrollmentHookAction(action *EnrollmentHookHttpAction, orig Enrollm
 		allErrs = append(allErrs, fmt.Errorf("%s.url is not a valid URL: %w", prefix, err))
 		return allErrs
 	}
+	if parsed.Host == "" || parsed.Hostname() == "" {
+		allErrs = append(allErrs, fmt.Errorf("%s.url must include a host", prefix))
+		return allErrs
+	}
 	if parsed.Scheme != "https" {
 		allErrs = append(allErrs, fmt.Errorf("%s.url must use HTTPS scheme", prefix))
 	}

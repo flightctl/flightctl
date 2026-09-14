@@ -4,6 +4,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 
@@ -1665,6 +1666,14 @@ func (siw *ServerInterfaceWrapper) ListEnrollmentHookPolicies(w http.ResponseWri
 
 	var err error
 
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, OrgIdScopes, []string{})
+
+	r = r.WithContext(ctx)
+
 	// Parameter object where we will unmarshal all parameters from the context
 	var params ListEnrollmentHookPoliciesParams
 
@@ -1714,6 +1723,14 @@ func (siw *ServerInterfaceWrapper) ListEnrollmentHookPolicies(w http.ResponseWri
 // CreateEnrollmentHookPolicy operation middleware
 func (siw *ServerInterfaceWrapper) CreateEnrollmentHookPolicy(w http.ResponseWriter, r *http.Request) {
 
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, OrgIdScopes, []string{})
+
+	r = r.WithContext(ctx)
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateEnrollmentHookPolicy(w, r)
 	}))
@@ -1738,6 +1755,14 @@ func (siw *ServerInterfaceWrapper) DeleteEnrollmentHookPolicy(w http.ResponseWri
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
 		return
 	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, OrgIdScopes, []string{})
+
+	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.DeleteEnrollmentHookPolicy(w, r, name)
@@ -1764,6 +1789,14 @@ func (siw *ServerInterfaceWrapper) GetEnrollmentHookPolicy(w http.ResponseWriter
 		return
 	}
 
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, OrgIdScopes, []string{})
+
+	r = r.WithContext(ctx)
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetEnrollmentHookPolicy(w, r, name)
 	}))
@@ -1789,6 +1822,14 @@ func (siw *ServerInterfaceWrapper) PatchEnrollmentHookPolicy(w http.ResponseWrit
 		return
 	}
 
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, OrgIdScopes, []string{})
+
+	r = r.WithContext(ctx)
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PatchEnrollmentHookPolicy(w, r, name)
 	}))
@@ -1813,6 +1854,14 @@ func (siw *ServerInterfaceWrapper) ReplaceEnrollmentHookPolicy(w http.ResponseWr
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
 		return
 	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, OrgIdScopes, []string{})
+
+	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ReplaceEnrollmentHookPolicy(w, r, name)

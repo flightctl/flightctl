@@ -143,7 +143,17 @@ func (h *ServiceHandler) callbackUpdated(ctx context.Context, orgId uuid.UUID, n
 			h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedFailureEvent(ctx, created, domain.EnrollmentHookPolicyKind, name, status, nil))
 			return
 		}
-		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, domain.EnrollmentHookPolicyKind, name, nil, h.log, nil))
+		if created {
+			h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, domain.EnrollmentHookPolicyKind, name, nil, h.log, nil))
+			return
+		}
+
+		oldPolicy, newPolicy, ok := common.CastResources[domain.EnrollmentHookPolicy](oldResource, newResource)
+		if !ok {
+			return
+		}
+		updateDetails := common.ComputeResourceUpdatedDetails(oldPolicy.Metadata, newPolicy.Metadata)
+		h.events.CreateEvent(ctx, orgId, common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, created, domain.EnrollmentHookPolicyKind, name, updateDetails, h.log, nil))
 	})
 }
 
