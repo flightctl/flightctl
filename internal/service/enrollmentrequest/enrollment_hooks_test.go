@@ -45,16 +45,16 @@ func (f *fakePolicyStore) Update(_ context.Context, _ uuid.UUID, _ *domain.Enrol
 
 func TestSnapshotEnrollmentHookPolicy(t *testing.T) {
 	tests := []struct {
-		name            string
-		policy          *domain.EnrollmentHookPolicy
-		policyErr       error
-		nilStore        bool
-		expectNil       bool
-		expectSecrets   int
-		expectActions   int
-		expectPolicy    domain.FailurePolicyType
-		expectURLs      []string
-		expectNoBearer  bool
+		name           string
+		policy         *domain.EnrollmentHookPolicy
+		policyErr      error
+		nilStore       bool
+		expectNil      bool
+		expectSecrets  int
+		expectActions  int
+		expectPolicy   domain.FailurePolicyType
+		expectURLs     []string
+		expectNoBearer bool
 	}{
 		{
 			name:      "When no policy exists it should return nil",
