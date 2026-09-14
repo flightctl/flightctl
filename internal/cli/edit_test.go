@@ -37,6 +37,11 @@ func TestEditOptions_Validate(t *testing.T) {
 			expectError: false,
 		},
 		{
+			name:        "valid enrollmenthookpolicy",
+			args:        []string{"enrollmenthookpolicy/default"},
+			expectError: false,
+		},
+		{
 			name:          "invalid - no resource name with TYPE format",
 			args:          []string{"device"},
 			expectError:   true,
@@ -768,6 +773,32 @@ func TestEditOptions_calculateJSONPatch(t *testing.T) {
 				t.Errorf("unexpected resourceVersion test operation found")
 			}
 		})
+	}
+}
+
+func TestEditOptions_executePatchOperation_EnrollmentHookPolicy(t *testing.T) {
+	opts := DefaultEditOptions()
+	response := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader("")),
+	}
+	client, fake := newTestClient(t, response)
+
+	httpResponse, _, err := opts.executePatchOperation(
+		context.Background(),
+		client,
+		EnrollmentHookPolicyKind,
+		"default",
+		[]byte(`[{"op":"test","path":"/metadata/resourceVersion","value":"1"}]`),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if httpResponse == nil || httpResponse.StatusCode != http.StatusOK {
+		t.Fatalf("expected successful patch response, got %#v", httpResponse)
+	}
+	if fake.callCount != 1 {
+		t.Fatalf("expected one PATCH request, got %d", fake.callCount)
 	}
 }
 
