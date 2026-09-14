@@ -203,7 +203,7 @@ func newTestHandler(t *testing.T) (*ServiceHandler, *fakeEnrollmentRequestStore,
 	ev := &fakeEventsService{}
 	caClient := newTestCA(t)
 	logger := logrus.New()
-	return NewServiceHandler(erStore, devStore, nil, caClient, kv, ev, logger, nil, "", ""), erStore, devStore, kv, ev
+	return NewServiceHandler(erStore, devStore, nil, caClient, kv, ev, logger, nil, "", "", nil, nil), erStore, devStore, kv, ev
 }
 
 func adminContext() context.Context {
