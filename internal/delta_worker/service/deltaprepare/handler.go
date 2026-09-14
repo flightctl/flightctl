@@ -1,0 +1,87 @@
+package deltaprepare
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/flightctl/flightctl/internal/delta_worker/model"
+	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store"
+	"github.com/google/uuid"
+)
+
+type ServiceHandler struct {
+	store  deltastore.DeltaPrepareStore
+	status StatusService
+}
+
+func NewServiceHandler(store deltastore.DeltaPrepareStore, status StatusService) *ServiceHandler {
+	return &ServiceHandler{store: store, status: status}
+}
+
+var _ Service = (*ServiceHandler)(nil)
+
+func (h *ServiceHandler) CreateDeltaPrepare(ctx context.Context, prepare *model.DeltaPrepare) error {
+	if err := h.store.CreateDeltaPrepare(ctx, prepare); err != nil {
+		return fmt.Errorf("create delta prepare: %w", err)
+	}
+	return nil
+}
+
+func (h *ServiceHandler) CreateOrReplaceWaitingDeltaPrepare(ctx context.Context, prepare *model.DeltaPrepare) (deltastore.PrepareAdmission, error) {
+	admission, err := h.store.CreateOrReplaceWaitingDeltaPrepare(ctx, prepare)
+	if err != nil {
+		return deltastore.PrepareAdmission{}, fmt.Errorf("create or replace waiting delta prepare: %w", err)
+	}
+	if admission.Replaced && h.status != nil {
+		if err := h.status.Clear(ctx, prepare.OrgID, prepare.Kind, prepare.Name); err != nil {
+			return deltastore.PrepareAdmission{}, fmt.Errorf("clear replaced delta prepare status: %w", err)
+		}
+	}
+	return admission, nil
+}
+
+func (h *ServiceHandler) GetDeltaPrepare(ctx context.Context, key deltastore.PrepareKey, opts ...deltastore.PrepareGetOption) (*model.DeltaPrepare, error) {
+	prepare, err := h.store.GetDeltaPrepare(ctx, key, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("get delta prepare: %w", err)
+	}
+	return prepare, nil
+}
+
+func (h *ServiceHandler) ListDeltaPrepares(ctx context.Context, ids []uuid.UUID) ([]model.DeltaPrepare, error) {
+	prepares, err := h.store.ListDeltaPrepares(ctx, ids)
+	if err != nil {
+		return nil, fmt.Errorf("list delta prepares: %w", err)
+	}
+	return prepares, nil
+}
+
+func (h *ServiceHandler) UpdateDeltaPrepare(ctx context.Context, expectedResourceVersion int64, prepare *model.DeltaPrepare) (*model.DeltaPrepare, error) {
+	updated, err := h.store.UpdateDeltaPrepare(ctx, expectedResourceVersion, prepare)
+	if err != nil {
+		return nil, fmt.Errorf("update delta prepare: %w", err)
+	}
+	return updated, nil
+}
+
+func (h *ServiceHandler) CountDeltaPrepareGenerations(ctx context.Context, prepareID uuid.UUID) (int, int, error) {
+	completed, total, err := h.store.CountDeltaPrepareGenerations(ctx, prepareID)
+	if err != nil {
+		return 0, 0, fmt.Errorf("count delta prepare generations: %w", err)
+	}
+	return completed, total, nil
+}
+
+func (h *ServiceHandler) SetDeltaPreparingStatus(ctx context.Context, orgID uuid.UUID, kind, name string, completed, total int) error {
+	if h.status == nil {
+		return nil
+	}
+	return h.status.Set(ctx, orgID, kind, name, completed, total)
+}
+
+func (h *ServiceHandler) ClearDeltaPreparingStatus(ctx context.Context, orgID uuid.UUID, kind, name string) error {
+	if h.status == nil {
+		return nil
+	}
+	return h.status.Clear(ctx, orgID, kind, name)
+}

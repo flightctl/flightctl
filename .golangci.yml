@@ -172,6 +172,7 @@ linters:
             - "!**/internal/periodic_checker/server.go"
             - "!**/internal/imagebuilder_worker/worker.go"
             - "!**/internal/worker_server/server.go"
+            - "!**/internal/delta_worker/server.go"
             - "!**/test/**"
           deny:
             - pkg: "github.com/flightctl/flightctl/internal/store/catalog$"
@@ -240,6 +241,8 @@ linters:
           files:
             - "$all"
             - "!$test"
+            - "!**/internal/delta_worker/server.go"
+            - "!**/internal/delta_worker/service/status.go"
             - "!**/internal/service/device/**"
             - "!**/internal/service/catalog/**"
             - "!**/internal/service/common/**"
@@ -283,6 +286,7 @@ linters:
           files:
             - "$all"
             - "!$test"
+            - "!**/internal/delta_worker/server.go"
             - "!**/internal/service/event/**"
             # events emits/persists via the event store (internal emitter used by other services).
             - "!**/internal/service/events/**"
@@ -308,6 +312,8 @@ linters:
           files:
             - "$all"
             - "!$test"
+            - "!**/internal/delta_worker/server.go"
+            - "!**/internal/delta_worker/service/status.go"
             - "!**/internal/service/fleet/**"
             - "!**/internal/service/catalog/**"
             - "!**/internal/service/common/**"
@@ -354,6 +360,7 @@ linters:
           files:
             - "$all"
             - "!$test"
+            - "!**/internal/delta_worker/server.go"
             - "!**/internal/service/repository/**"
             - "!**/cmd/**"
             - "!**/internal/migration/**"
@@ -410,6 +417,7 @@ linters:
           files:
             - "$all"
             - "!$test"
+            - "!**/internal/delta_worker/server.go"
             - "!**/internal/service/templateversion/**"
             - "!**/cmd/**"
             - "!**/internal/migration/**"

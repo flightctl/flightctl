@@ -101,6 +101,7 @@ const (
 	EventReasonEncryptionMigrationCompleted    = v1beta1.EventReasonEncryptionMigrationCompleted
 	EventReasonApplicationLifecycleChanged     = v1beta1.EventReasonApplicationLifecycleChanged
 	EventReasonPrepareDeltas                   = v1beta1.EventReasonPrepareDeltas
+	EventReasonDeltaGenerationProgress         = v1beta1.EventReasonDeltaGenerationProgress
 	EventReasonDeltaGenerationCompleted        = v1beta1.EventReasonDeltaGenerationCompleted
 )
 
@@ -128,15 +129,23 @@ type ApplicationLifecycleChangedDetailsDetailType = v1beta1.ApplicationLifecycle
 type ApplicationLifecycleChangedDetailsAction = v1beta1.ApplicationLifecycleChangedDetailsAction
 type PrepareDeltasDetails = v1beta1.PrepareDeltasDetails
 type PrepareDeltasDetailsDetailType = v1beta1.PrepareDeltasDetailsDetailType
+type DeltaGenerationProgressDetails = v1beta1.DeltaGenerationProgressDetails
+type DeltaGenerationProgressDetailsDetailType = v1beta1.DeltaGenerationProgressDetailsDetailType
+type DeltaGenerationProgressDetailsGenerationStatus = v1beta1.DeltaGenerationProgressDetailsGenerationStatus
 
 const (
-	InternalTaskFailed            = v1beta1.InternalTaskFailed
-	InternalTaskPermanentlyFailed = v1beta1.InternalTaskPermanentlyFailed
-	DependencyChangeDetected      = v1beta1.DependencyChangeDetected
-	DependencySyncProbeFailedDT   = v1beta1.DependencySyncProbeFailed
-	ReferencedRepositoryUpdated   = v1beta1.ReferencedRepositoryUpdated
-	ResourceUpdated               = v1beta1.ResourceUpdated
-	ApplicationLifecycleChangedDT = v1beta1.ApplicationLifecycleChangedDetailType
+	InternalTaskFailed                = v1beta1.InternalTaskFailed
+	InternalTaskPermanentlyFailed     = v1beta1.InternalTaskPermanentlyFailed
+	DependencyChangeDetected          = v1beta1.DependencyChangeDetected
+	DependencySyncProbeFailedDT       = v1beta1.DependencySyncProbeFailed
+	ReferencedRepositoryUpdated       = v1beta1.ReferencedRepositoryUpdated
+	ResourceUpdated                   = v1beta1.ResourceUpdated
+	ApplicationLifecycleChangedDT     = v1beta1.ApplicationLifecycleChangedDetailType
+	DeltaGenerationProgress           = v1beta1.DeltaGenerationProgress
+	DeltaGenerationProgressInProgress = v1beta1.DeltaGenerationProgressInProgress
+	DeltaGenerationProgressSucceeded  = v1beta1.DeltaGenerationProgressSucceeded
+	DeltaGenerationProgressFailed     = v1beta1.DeltaGenerationProgressFailed
+	DeltaGenerationProgressRejected   = v1beta1.DeltaGenerationProgressRejected
 
 	// Application lifecycle action constants
 	ApplicationLifecycleActionStop    = v1beta1.ApplicationLifecycleActionStop
