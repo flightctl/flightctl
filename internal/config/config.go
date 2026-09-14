@@ -13,7 +13,7 @@ import (
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	authprovider "github.com/flightctl/flightctl/internal/auth/provider"
 	"github.com/flightctl/flightctl/internal/config/ca"
-	"github.com/flightctl/flightctl/internal/domain"
+	deltaconfig "github.com/flightctl/flightctl/internal/delta_worker/config"
 	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/util/validation"
@@ -25,28 +25,28 @@ const (
 )
 
 type Config struct {
-	Database               *dbConfig                  `json:"database,omitempty"`
-	Service                *svcConfig                 `json:"service,omitempty"`
-	RemoteAccessService    *RemoteAccessServiceConfig `json:"remoteAccessService,omitempty"`
-	ImageBuilderService    *ImageBuilderServiceConfig `json:"imageBuilderService,omitempty"`
-	ImageBuilderWorker     *imageBuilderWorkerConfig  `json:"imageBuilderWorker,omitempty"`
-	Worker                 *workerConfig              `json:"worker,omitempty"`
-	KV                     *kvConfig                  `json:"kv,omitempty"`
-	Alertmanager           *alertmanagerConfig        `json:"alertmanager,omitempty"`
-	Auth                   *authConfig                `json:"auth,omitempty"`
-	Metrics                *metricsConfig             `json:"metrics,omitempty"`
-	CA                     *ca.Config                 `json:"ca,omitempty"`
-	Tracing                *TracingConfig             `json:"tracing,omitempty"`
-	Profiling              *ProfilingConfig           `json:"profiling,omitempty"`
-	GitOps                 *gitOpsConfig              `json:"gitOps,omitempty"`
-	CryptoPolicy           *CryptoPolicyConfig        `json:"cryptoPolicy,omitempty"`
-	Periodic               *periodicConfig            `json:"periodic,omitempty"`
-	Organizations          *organizationsConfig       `json:"organizations,omitempty"`
-	TelemetryGateway       *telemetryGatewayConfig    `json:"telemetrygateway,omitempty"`
-	VulnerabilityReporting *VulnerabilityConfig       `json:"vulnerabilityReporting,omitempty"`
-	DeltaGeneration        *DeltaGenerationConfig     `json:"deltaGeneration,omitempty"`
-	DependenciesSync       *DependenciesSyncConfig    `json:"dependenciesSync,omitempty"`
-	Encryption             *EncryptionConfig          `json:"encryption,omitempty"`
+	Database               *dbConfig                          `json:"database,omitempty"`
+	Service                *svcConfig                         `json:"service,omitempty"`
+	RemoteAccessService    *RemoteAccessServiceConfig         `json:"remoteAccessService,omitempty"`
+	ImageBuilderService    *ImageBuilderServiceConfig         `json:"imageBuilderService,omitempty"`
+	ImageBuilderWorker     *imageBuilderWorkerConfig          `json:"imageBuilderWorker,omitempty"`
+	Worker                 *workerConfig                      `json:"worker,omitempty"`
+	KV                     *kvConfig                          `json:"kv,omitempty"`
+	Alertmanager           *alertmanagerConfig                `json:"alertmanager,omitempty"`
+	Auth                   *authConfig                        `json:"auth,omitempty"`
+	Metrics                *metricsConfig                     `json:"metrics,omitempty"`
+	CA                     *ca.Config                         `json:"ca,omitempty"`
+	Tracing                *TracingConfig                     `json:"tracing,omitempty"`
+	Profiling              *ProfilingConfig                   `json:"profiling,omitempty"`
+	GitOps                 *gitOpsConfig                      `json:"gitOps,omitempty"`
+	CryptoPolicy           *CryptoPolicyConfig                `json:"cryptoPolicy,omitempty"`
+	Periodic               *periodicConfig                    `json:"periodic,omitempty"`
+	Organizations          *organizationsConfig               `json:"organizations,omitempty"`
+	TelemetryGateway       *telemetryGatewayConfig            `json:"telemetrygateway,omitempty"`
+	VulnerabilityReporting *VulnerabilityConfig               `json:"vulnerabilityReporting,omitempty"`
+	DeltaGeneration        *deltaconfig.DeltaGenerationConfig `json:"deltaGeneration,omitempty"`
+	DependenciesSync       *DependenciesSyncConfig            `json:"dependenciesSync,omitempty"`
+	Encryption             *EncryptionConfig                  `json:"encryption,omitempty"`
 }
 
 // CryptoPolicyConfig contains cryptographic policy configuration for all protocols.
@@ -921,74 +921,12 @@ type QuayConfig struct {
 	SkipTLSVerify bool `json:"skipTlsVerify,omitempty"`
 }
 
-type DeltaGenerationConfig struct {
-	DefaultRepository             *DefaultRepositoryConfig `json:"defaultRepository,omitempty"`
-	MaxConcurrentDeltaGenerations int                      `json:"maxConcurrentDeltaGenerations,omitempty"`
-	Timeout                       util.Duration            `json:"timeout,omitempty"`
-}
+type DeltaGenerationConfig = deltaconfig.DeltaGenerationConfig
+type DefaultRepositoryConfig = deltaconfig.DefaultRepositoryConfig
 
+// Kept for source compatibility with the configuration package tests while
+// the implementation lives with the delta worker.
 const maxConcurrentDeltaGenerationsLimit = 32
-
-// EffectiveMaxConcurrentDeltaGenerations returns the configured consumer count, defaulting to 2 and capped at maxConcurrentDeltaGenerationsLimit.
-func (c *DeltaGenerationConfig) EffectiveMaxConcurrentDeltaGenerations() int {
-	if c == nil || c.MaxConcurrentDeltaGenerations <= 0 {
-		return 2
-	}
-	if c.MaxConcurrentDeltaGenerations > maxConcurrentDeltaGenerationsLimit {
-		return maxConcurrentDeltaGenerationsLimit
-	}
-	return c.MaxConcurrentDeltaGenerations
-}
-
-func (c *DeltaGenerationConfig) EffectiveTimeout() time.Duration {
-	if c == nil || time.Duration(c.Timeout) <= 0 {
-		return 30 * time.Minute
-	}
-	return time.Duration(c.Timeout)
-}
-
-type DefaultRepositoryConfig struct {
-	Registry               string           `json:"registry,omitempty"`
-	Repository             *string          `json:"repository,omitempty"`
-	Namespace              *string          `json:"namespace,omitempty"`
-	Scheme                 *string          `json:"scheme,omitempty"`
-	SkipServerVerification *bool            `json:"skipServerVerification,omitempty"`
-	CaCrt                  *string          `json:"ca.crt,omitempty"`
-	Username               string           `json:"-"`
-	Password               api.SecureString `json:"-"`
-}
-
-func (d *DefaultRepositoryConfig) OciRepoSpec() (*domain.OciRepoSpec, error) {
-	if d == nil || d.Registry == "" {
-		return nil, nil
-	}
-	accessMode := domain.OciRepoAccessModeReadWrite
-	spec := &domain.OciRepoSpec{
-		Type:                   domain.OciRepoSpecTypeOci,
-		Registry:               d.Registry,
-		Repository:             d.Repository,
-		Namespace:              d.Namespace,
-		AccessMode:             &accessMode,
-		SkipServerVerification: d.SkipServerVerification,
-		CaCrt:                  d.CaCrt,
-	}
-	if d.Scheme != nil && *d.Scheme != "" {
-		scheme := domain.OciRepoSpecScheme(*d.Scheme)
-		spec.Scheme = &scheme
-	}
-	if d.Username == "" || d.Password == "" {
-		return spec, nil
-	}
-	auth := &domain.OciAuth{}
-	if err := auth.FromDockerAuth(domain.DockerAuth{
-		Username: d.Username,
-		Password: string(d.Password),
-	}); err != nil {
-		return nil, fmt.Errorf("default repository authentication: %w", err)
-	}
-	spec.OciAuth = auth
-	return spec, nil
-}
 
 // TrustifyConfig holds Trustify API connection and authentication details.
 type TrustifyConfig struct {
@@ -1525,10 +1463,10 @@ func applyDeltaGenerationEnvVarOverrides(c *Config) {
 		return
 	}
 	if c.DeltaGeneration == nil {
-		c.DeltaGeneration = &DeltaGenerationConfig{}
+		c.DeltaGeneration = &deltaconfig.DeltaGenerationConfig{}
 	}
 	if c.DeltaGeneration.DefaultRepository == nil {
-		c.DeltaGeneration.DefaultRepository = &DefaultRepositoryConfig{}
+		c.DeltaGeneration.DefaultRepository = &deltaconfig.DefaultRepositoryConfig{}
 	}
 	if username != "" {
 		c.DeltaGeneration.DefaultRepository.Username = username
