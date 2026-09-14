@@ -6797,6 +6797,8 @@ components:
           $ref: '#/components/schemas/DependencySyncStatus'
         capabilities:
           $ref: '#/components/schemas/DeviceCapabilities'
+        enrollmentHooks:
+          $ref: '#/components/schemas/DeviceEnrollmentHooksStatus'
       additionalProperties: false
     DeviceLastSeen:
       type: object
@@ -8275,6 +8277,7 @@ components:
       - 'SpecValid'             # Device (service condition)
       - 'MultipleOwners'        # Device (service condition)
       - 'DeviceDecommissioning' # Device
+      - 'EnrollmentHooks'       # Device
       x-enum-varnames:
       - EnrollmentRequestApproved
       - EnrollmentRequestTPMVerified
@@ -8292,6 +8295,7 @@ components:
       - DeviceSpecValid
       - DeviceMultipleOwners
       - DeviceDecommissioning
+      - DeviceEnrollmentHooks
     ConditionStatus:
       type: string
       description: Status of the condition, one of True, False, Unknown.
@@ -9586,6 +9590,43 @@ components:
           type: string
           description: Bearer token for HTTP authentication.
           format: password
+    DeviceEnrollmentHooksStatus:
+      type: object
+      description: Enrollment hooks state for a device.
+      properties:
+        snapshot:
+          $ref: '#/components/schemas/EnrollmentHookSnapshot'
+    EnrollmentHookSnapshot:
+      type: object
+      description: Immutable non-secret copy of EnrollmentHookPolicy fields captured at approval time.
+      required:
+        - failurePolicy
+      properties:
+        failurePolicy:
+          $ref: '#/components/schemas/FailurePolicyType'
+        controlPlaneActions:
+          type: array
+          description: Non-secret copies of control-plane actions from the policy at approval time.
+          items:
+            $ref: '#/components/schemas/EnrollmentHookSnapshotAction'
+    EnrollmentHookSnapshotAction:
+      type: object
+      description: Non-secret copy of an enrollment hook HTTP action. Excludes auth/bearerToken.
+      required:
+        - index
+        - url
+      properties:
+        index:
+          type: integer
+          description: Original action index in the policy.
+        url:
+          type: string
+          description: The HTTPS URL to call.
+        timeout:
+          type: string
+          description: Timeout duration (e.g. "30s").
+        retry:
+          $ref: '#/components/schemas/EnrollmentHookRetryPolicy'
     EnrollmentHookPolicyStatus:
       type: object
       description: Status of an enrollment hook policy.
