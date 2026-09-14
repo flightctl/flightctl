@@ -229,6 +229,14 @@ func TestDeleteEnrollmentHookPolicy(t *testing.T) {
 		assert.Equal(t, domain.StatusOK().Code, status.Code)
 		assert.Equal(t, 1, fakeEvents.createdEvents)
 	})
+
+	t.Run("When policy does not exist it should not emit delete event", func(t *testing.T) {
+		h, _, fakeEvents := newTestHandler()
+
+		status := h.DeleteEnrollmentHookPolicy(context.Background(), uuid.New(), "default")
+		assert.Equal(t, domain.StatusOK().Code, status.Code)
+		assert.Equal(t, 0, fakeEvents.createdEvents)
+	})
 }
 
 func TestGetEnrollmentHookPolicy(t *testing.T) {
@@ -334,7 +342,7 @@ func TestStoreErrors(t *testing.T) {
 
 		status := h.DeleteEnrollmentHookPolicy(context.Background(), uuid.New(), "default")
 		assert.Equal(t, int32(500), status.Code)
-		assert.Equal(t, 1, fakeEvents.createdEvents)
+		assert.Equal(t, 0, fakeEvents.createdEvents)
 	})
 }
 

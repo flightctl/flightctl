@@ -403,6 +403,8 @@ func GetSingleResource(ctx context.Context, c *client.Client, kind ResourceKind,
 		return c.GetCertificateSigningRequestWithResponse(ctx, name)
 	case AuthProviderKind:
 		return c.GetAuthProviderWithResponse(ctx, name)
+	case EnrollmentHookPolicyKind:
+		return c.GetEnrollmentHookPolicyWithResponse(ctx, name)
 	default:
 		return nil, fmt.Errorf("unsupported resource kind: %s", kind)
 	}

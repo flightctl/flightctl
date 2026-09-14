@@ -119,7 +119,9 @@ func (h *ServiceHandler) ReplaceEnrollmentHookPolicy(ctx context.Context, orgId 
 
 func (h *ServiceHandler) DeleteEnrollmentHookPolicy(ctx context.Context, orgId uuid.UUID, name string) domain.Status {
 	deleted, err := h.store.Delete(ctx, orgId, name)
-	h.callbackDeleted(ctx, domain.EnrollmentHookPolicyKind, orgId, name, nil, nil, deleted, err)
+	if err == nil && deleted {
+		h.callbackDeleted(ctx, domain.EnrollmentHookPolicyKind, orgId, name, nil, nil, deleted, err)
+	}
 	return common.StoreErrorToApiStatus(err, false, domain.EnrollmentHookPolicyKind, &name)
 }
 
