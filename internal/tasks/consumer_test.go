@@ -581,3 +581,39 @@ func TestDispatchTasks_WithNilMetrics_InvalidPayload(t *testing.T) {
 	assert.NoError(t, err)
 	mockConsumer.AssertExpectations(t)
 }
+
+func TestShouldEnrollmentHookNotify(t *testing.T) {
+	tests := []struct {
+		name     string
+		event    domain.Event
+		expected bool
+	}{
+		{
+			name:     "When EnrollmentRequestApproved it should return true",
+			event:    createTestEvent(domain.EnrollmentRequestKind, domain.EventReasonEnrollmentRequestApproved, "device1"),
+			expected: true,
+		},
+		{
+			name:     "When ResourceCreated on device it should return false",
+			event:    createTestEvent(domain.DeviceKind, domain.EventReasonResourceCreated, "device1"),
+			expected: false,
+		},
+		{
+			name:     "When ResourceUpdated on enrollment request it should return false",
+			event:    createTestEvent(domain.EnrollmentRequestKind, domain.EventReasonResourceUpdated, "er1"),
+			expected: false,
+		},
+		{
+			name:     "When EnrollmentRequestApprovalFailed it should return false",
+			event:    createTestEvent(domain.EnrollmentRequestKind, domain.EventReasonEnrollmentRequestApprovalFailed, "device1"),
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := shouldEnrollmentHookNotify(tt.event)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
