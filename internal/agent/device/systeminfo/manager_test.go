@@ -4,12 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/config"
+	deviceerrors "github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/device/systeminfo/common"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -43,7 +47,6 @@ func TestManager(t *testing.T) {
 	mockExecuter := executer.NewMockExecuter(ctrl)
 	bootTime := "2024-12-13 11:01:08"
 	collectTimeout := util.Duration(5 * time.Second)
-	// Each Initialize call gets boot time and collects boot information.
 	mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "uptime", "-s").Return(bootTime, "", 0).Times(4)
 
 	// initialize client new device
@@ -74,300 +77,6 @@ func TestManager(t *testing.T) {
 	require.NotEmpty(manager.BootTime())
 	require.Equal(mockBootID, manager.BootID())
 	require.True(manager.IsRebooted())
-}
-
-func TestRun(t *testing.T) {
-	t.Run("When Run has no interval it should retain the initial cached results", func(t *testing.T) {
-		require := require.New(t)
-
-		tmpDir := t.TempDir()
-		dataDir := filepath.Join("etc", "flightctl")
-		readWriter := fileio.NewReadWriter(
-			fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
-			fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
-		)
-		err := readWriter.MkdirAll(dataDir, 0755)
-		require.NoError(err)
-		err = readWriter.MkdirAll("/proc/sys/kernel/random", 0755)
-		require.NoError(err)
-
-		mockBootID := "c4070599-f0f0-472d-8084-09b7274ebf18"
-		err = readWriter.WriteFile(bootIDPath, []byte(mockBootID), 0644)
-		require.NoError(err)
-
-		ctrl := gomock.NewController(t)
-		defer ctrl.Finish()
-		mockExecuter := executer.NewMockExecuter(ctrl)
-		bootTime := "2024-12-13 11:01:08"
-		collectTimeout := util.Duration(5 * time.Second)
-		// Initialize gets boot time and performs the initial collection.
-		mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "uptime", "-s").Return(bootTime, "", 0).Times(2)
-
-		log := log.NewPrefixLogger("test")
-
-		// No periodic interval — Run should return without recollecting.
-		manager := NewManager(log, mockExecuter, readWriter, dataDir, []string{common.TPMVendorInfoKey}, nil, collectTimeout, 0)
-		manager.RegisterCollector(context.Background(), common.TPMVendorInfoKey, func(context.Context) string {
-			return "TPM vendor"
-		})
-		err = manager.Initialize(context.Background())
-		require.NoError(err)
-
-		require.NotNil(manager.cachedSystemInfo)
-
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		// With interval=0, Run does not collect again.
-		manager.Run(ctx)
-
-		// Run preserves the initial cached result.
-		require.NotNil(manager.cachedSystemInfo)
-		require.Equal(mockBootID, manager.cachedSystemInfo.BootID)
-		require.Equal("TPM vendor", manager.cachedSystemInfo.AdditionalProperties[common.TPMVendorInfoKey])
-	})
-
-	t.Run("When Run reloads its interval it should collect using the new interval", func(t *testing.T) {
-		require := require.New(t)
-
-		tmpDir := t.TempDir()
-		dataDir := filepath.Join("etc", "flightctl")
-		readWriter := fileio.NewReadWriter(
-			fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
-			fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
-		)
-		err := readWriter.MkdirAll(dataDir, 0755)
-		require.NoError(err)
-		err = readWriter.MkdirAll("/proc/sys/kernel/random", 0755)
-		require.NoError(err)
-
-		mockBootID := "c4070599-f0f0-472d-8084-09b7274ebf18"
-		err = readWriter.WriteFile(bootIDPath, []byte(mockBootID), 0644)
-		require.NoError(err)
-
-		ctrl := gomock.NewController(t)
-		defer ctrl.Finish()
-		mockExecuter := executer.NewMockExecuter(ctrl)
-		bootTime := "2024-12-13 11:01:08"
-		collectTimeout := util.Duration(5 * time.Second)
-		collected := make(chan struct{}, 4)
-		// Initialize gets boot time and performs the initial collection. Run collects periodically.
-		mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "uptime", "-s").DoAndReturn(
-			func(context.Context, string, ...string) (string, string, int) {
-				select {
-				case collected <- struct{}{}:
-				default:
-				}
-				return bootTime, "", 0
-			},
-		).MinTimes(4)
-
-		log := log.NewPrefixLogger("test")
-
-		collectionInterval := util.Duration(500 * time.Millisecond)
-		manager := NewManager(log, mockExecuter, readWriter, dataDir, nil, nil, collectTimeout, collectionInterval)
-		err = manager.Initialize(context.Background())
-		require.NoError(err)
-		// Ignore the boot-time and initial collection calls.
-		<-collected
-		<-collected
-
-		ctx, cancel := context.WithCancel(context.Background())
-
-		done := make(chan struct{})
-		go func() {
-			manager.Run(ctx)
-			close(done)
-		}()
-
-		// Wait for the initial periodic collection to ensure the original ticker is running.
-		select {
-		case <-collected:
-		case <-time.After(5 * time.Second):
-			require.FailNow("timed out waiting for periodic collection")
-		}
-
-		cfg := &config.Config{
-			SystemInfoTimeout: collectTimeout,
-			SystemInfoPeriodic: config.SystemInfoPeriodicConfig{
-				Interval: util.Duration(20 * time.Millisecond),
-			},
-		}
-		err = manager.ReloadConfig(ctx, cfg)
-		require.NoError(err)
-		require.Equal(20*time.Millisecond, manager.collectionInterval)
-
-		// The next collection must use the reloaded interval, not the original ticker interval.
-		select {
-		case <-collected:
-		case <-time.After(200 * time.Millisecond):
-			require.FailNow("timed out waiting for collection after interval reload")
-		}
-		cancel()
-		select {
-		case <-done:
-		case <-time.After(5 * time.Second):
-			require.FailNow("Run did not stop after context cancellation")
-		}
-
-		require.NotNil(manager.cachedSystemInfo)
-	})
-
-	t.Run("When context is cancelled it should stop Run", func(t *testing.T) {
-		require := require.New(t)
-
-		tmpDir := t.TempDir()
-		dataDir := filepath.Join("etc", "flightctl")
-		readWriter := fileio.NewReadWriter(
-			fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
-			fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
-		)
-		err := readWriter.MkdirAll(dataDir, 0755)
-		require.NoError(err)
-		err = readWriter.MkdirAll("/proc/sys/kernel/random", 0755)
-		require.NoError(err)
-
-		mockBootID := "c4070599-f0f0-472d-8084-09b7274ebf18"
-		err = readWriter.WriteFile(bootIDPath, []byte(mockBootID), 0644)
-		require.NoError(err)
-
-		ctrl := gomock.NewController(t)
-		defer ctrl.Finish()
-		mockExecuter := executer.NewMockExecuter(ctrl)
-		bootTime := "2024-12-13 11:01:08"
-		collectTimeout := util.Duration(5 * time.Second)
-		collected := make(chan struct{}, 3)
-		mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "uptime", "-s").DoAndReturn(
-			func(context.Context, string, ...string) (string, string, int) {
-				select {
-				case collected <- struct{}{}:
-				default:
-				}
-				return bootTime, "", 0
-			},
-		).MinTimes(3)
-
-		log := log.NewPrefixLogger("test")
-
-		collectionInterval := util.Duration(time.Millisecond)
-		manager := NewManager(log, mockExecuter, readWriter, dataDir, nil, nil, collectTimeout, collectionInterval)
-		err = manager.Initialize(context.Background())
-		require.NoError(err)
-		// Ignore the boot-time and initial collection calls.
-		<-collected
-		<-collected
-
-		ctx, cancel := context.WithCancel(context.Background())
-
-		done := make(chan struct{})
-		go func() {
-			manager.Run(ctx)
-			close(done)
-		}()
-
-		// Wait until Run has collected before verifying cancellation.
-		select {
-		case <-collected:
-		case <-time.After(5 * time.Second):
-			require.FailNow("timed out waiting for periodic collection")
-		}
-		cancel()
-
-		select {
-		case <-done:
-			// Run exited as expected
-		case <-time.After(5 * time.Second):
-			require.FailNow("Run did not stop after context cancellation")
-		}
-	})
-}
-
-func TestStatusReturnsCachedResults(t *testing.T) {
-	t.Run("When Status is called after Initialize it should return cached results", func(t *testing.T) {
-		require := require.New(t)
-
-		tmpDir := t.TempDir()
-		dataDir := filepath.Join("etc", "flightctl")
-		readWriter := fileio.NewReadWriter(
-			fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
-			fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
-		)
-		err := readWriter.MkdirAll(dataDir, 0755)
-		require.NoError(err)
-		err = readWriter.MkdirAll("/proc/sys/kernel/random", 0755)
-		require.NoError(err)
-
-		mockBootID := "c4070599-f0f0-472d-8084-09b7274ebf18"
-		err = readWriter.WriteFile(bootIDPath, []byte(mockBootID), 0644)
-		require.NoError(err)
-
-		ctrl := gomock.NewController(t)
-		defer ctrl.Finish()
-		mockExecuter := executer.NewMockExecuter(ctrl)
-		bootTime := "2024-12-13 11:01:08"
-		collectTimeout := util.Duration(5 * time.Second)
-		// Initialize gets boot time and performs the initial collection.
-		// Status must return its cache without recollecting.
-		mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "uptime", "-s").Return(bootTime, "", 0).Times(2)
-
-		log := log.NewPrefixLogger("test")
-
-		manager := NewManager(log, mockExecuter, readWriter, dataDir, nil, nil, collectTimeout, 0)
-		err = manager.Initialize(context.Background())
-		require.NoError(err)
-
-		deviceStatus := &v1beta1.DeviceStatus{}
-		err = manager.Status(context.Background(), deviceStatus)
-		require.NoError(err)
-
-		require.Equal(mockBootID, deviceStatus.SystemInfo.BootID)
-		require.NotEmpty(deviceStatus.SystemInfo.AgentVersion)
-	})
-}
-
-func TestRefreshRuntimeCollectors(t *testing.T) {
-	require := require.New(t)
-
-	tmpDir := t.TempDir()
-	dataDir := filepath.Join("etc", "flightctl")
-	readWriter := fileio.NewReadWriter(
-		fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
-		fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
-	)
-	require.NoError(readWriter.MkdirAll(dataDir, 0755))
-	require.NoError(readWriter.MkdirAll("/proc/sys/kernel/random", 0755))
-	require.NoError(readWriter.WriteFile(bootIDPath, []byte("boot-id"), 0644))
-
-	ctrl := gomock.NewController(t)
-	mockExecuter := executer.NewMockExecuter(ctrl)
-	// Initialize gets boot time and performs the initial full collection. A runtime
-	// refresh must not perform another full collection.
-	mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "uptime", "-s").Return("2024-12-13 11:01:08", "", 0).Times(2)
-
-	manager := NewManager(
-		log.NewPrefixLogger("test"),
-		mockExecuter,
-		readWriter,
-		dataDir,
-		[]string{common.TPMVendorInfoKey, common.ManagementCertSerialKey},
-		nil,
-		util.Duration(5*time.Second),
-		0,
-	)
-	manager.RegisterCollector(context.Background(), common.TPMVendorInfoKey, func(context.Context) string {
-		return "TPM vendor"
-	})
-	require.NoError(manager.Initialize(context.Background()))
-
-	manager.RegisterCollector(context.Background(), common.ManagementCertSerialKey, func(context.Context) string {
-		return "AB:CD"
-	})
-	manager.RefreshRuntimeCollectors(context.Background())
-
-	deviceStatus := &v1beta1.DeviceStatus{}
-	require.NoError(manager.Status(context.Background(), deviceStatus))
-	require.Equal("TPM vendor", deviceStatus.SystemInfo.AdditionalProperties[common.TPMVendorInfoKey])
-	require.Equal("AB:CD", deviceStatus.SystemInfo.AdditionalProperties[common.ManagementCertSerialKey])
 }
 
 func TestReloadConfig(t *testing.T) {
@@ -458,4 +167,363 @@ func TestReloadConfig(t *testing.T) {
 			require.Equal(tt.newKeys, manager.infoKeys, "info keys should be updated")
 		})
 	}
+}
+
+func TestRunCollectsOnItsPeriodicSchedule(t *testing.T) {
+	require := require.New(t)
+	collected := make(chan struct{}, 1)
+	manager := &manager{
+		collectionTimeout:   time.Second,
+		collectionInterval:  time.Millisecond,
+		intervalChanged:     make(chan struct{}, 1),
+		collectionRequested: make(chan struct{}, 1),
+		now:                 time.Now,
+		collection: []*collector{{
+			source: &sourceDefinition{},
+			collect: func(context.Context, *Info) error {
+				select {
+				case collected <- struct{}{}:
+				default:
+				}
+				return nil
+			},
+		}},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		manager.Run(ctx)
+		close(done)
+	}()
+
+	select {
+	case <-collected:
+	case <-time.After(time.Second):
+		require.FailNow("timed out waiting for periodic collection")
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		require.FailNow("Run did not stop after context cancellation")
+	}
+}
+
+func TestStatusDoesNotCollect(t *testing.T) {
+	require := require.New(t)
+	manager := &manager{
+		now: time.Now,
+		collection: []*collector{{
+			source: &sourceDefinition{},
+			collect: func(context.Context, *Info) error {
+				t.Fatal("Status must not invoke a collector")
+				return nil
+			},
+		}},
+	}
+
+	deviceStatus := &v1beta1.DeviceStatus{}
+	require.NoError(manager.Status(context.Background(), deviceStatus))
+	require.Equal(v1beta1.SystemInfoSummaryStatusUnknown, deviceStatus.SystemInfoStatus.Summary.Status)
+}
+
+func TestStatusWithForceRequestsCollection(t *testing.T) {
+	require := require.New(t)
+	collected := make(chan struct{}, 1)
+	manager := &manager{
+		collectionTimeout:   time.Second,
+		intervalChanged:     make(chan struct{}, 1),
+		collectionRequested: make(chan struct{}, 1),
+		forceCollection:     make(chan collectionWake),
+		now:                 time.Now,
+		collection: []*collector{{
+			source: &sourceDefinition{},
+			collect: func(context.Context, *Info) error {
+				collected <- struct{}{}
+				return nil
+			},
+		}},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		manager.Run(ctx)
+		close(done)
+	}()
+
+	deviceStatus := &v1beta1.DeviceStatus{}
+	require.NoError(manager.Status(context.Background(), deviceStatus, status.WithForceCollect()))
+	select {
+	case <-collected:
+	case <-time.After(time.Second):
+		require.FailNow("timed out waiting for forced collection")
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		require.FailNow("Run did not stop after context cancellation")
+	}
+}
+
+func TestStatusCachesCustomScriptResults(t *testing.T) {
+	require := require.New(t)
+	tmpDir := t.TempDir()
+	readWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+	)
+	require.NoError(readWriter.MkdirAll(config.SystemInfoCustomScriptDir, fileio.DefaultDirectoryPermissions))
+
+	const scriptName = "site.sh"
+	writeScript := func(content string) {
+		require.NoError(readWriter.WriteFile(
+			filepath.Join(config.SystemInfoCustomScriptDir, scriptName),
+			[]byte(content),
+			fileio.DefaultExecutablePermissions,
+		))
+	}
+	writeScript("#!/bin/sh\necho first\n")
+
+	manager := NewManager(
+		log.NewPrefixLogger("test"),
+		executer.NewCommonExecuter(),
+		readWriter,
+		"etc/flightctl",
+		nil,
+		nil,
+		util.Duration(time.Second),
+		0,
+	)
+	now := time.Date(2026, time.September, 14, 20, 0, 0, 0, time.UTC)
+	manager.now = func() time.Time {
+		current := now
+		now = now.Add(time.Second)
+		return current
+	}
+	collect := func() *v1beta1.DeviceStatus {
+		deviceStatus := &v1beta1.DeviceStatus{}
+		manager.collectAndCache(context.Background())
+		require.NoError(manager.Status(context.Background(), deviceStatus))
+		return deviceStatus
+	}
+
+	initial := collect()
+	require.Equal("first", (*initial.SystemInfo.CustomInfo)["site"])
+	initialSource := initial.SystemInfoStatus.Statuses.CustomInfo["site"]
+	require.Zero(initialSource.LastTransitionTime.Nanosecond())
+	require.Nil(initialSource.Message)
+
+	writeScript("#!/bin/sh\necho second\n")
+	repeatedSuccess := collect()
+	require.Equal("second", (*repeatedSuccess.SystemInfo.CustomInfo)["site"])
+	require.NotEqual(initialSource.LastTransitionTime, repeatedSuccess.SystemInfoStatus.Statuses.CustomInfo["site"].LastTransitionTime)
+
+	writeScript("#!/bin/sh\necho sensitive failure >&2\nexit 7\n")
+	failed := collect()
+	require.Equal("second", (*failed.SystemInfo.CustomInfo)["site"], "a failed script retains its last value")
+	failedSource := failed.SystemInfoStatus.Statuses.CustomInfo["site"]
+	require.Equal(deviceerrors.FromStderr("sensitive failure", 7).Error(), *failedSource.Message)
+	require.NotEqual(initialSource.LastTransitionTime, failedSource.LastTransitionTime)
+
+	writeScript("#!/bin/sh\necho another sensitive failure >&2\nexit 8\n")
+	repeatedFailure := collect()
+	require.Equal("second", (*repeatedFailure.SystemInfo.CustomInfo)["site"])
+	require.Equal(deviceerrors.FromStderr("another sensitive failure", 8).Error(), *repeatedFailure.SystemInfoStatus.Statuses.CustomInfo["site"].Message)
+	require.Equal(failedSource.LastTransitionTime, repeatedFailure.SystemInfoStatus.Statuses.CustomInfo["site"].LastTransitionTime)
+
+	writeScript("#!/bin/sh\nexit 9\n")
+	withoutStderr := collect()
+	require.Equal(deviceerrors.FromStderr("exit status 9", 9).Error(), *withoutStderr.SystemInfoStatus.Statuses.CustomInfo["site"].Message)
+	require.Equal(failedSource.LastTransitionTime, withoutStderr.SystemInfoStatus.Statuses.CustomInfo["site"].LastTransitionTime)
+
+	longMessage := strings.Repeat("x", status.MaxMessageLength+1)
+	writeScript("#!/bin/sh\nprintf '" + longMessage + "' >&2\nexit 10\n")
+	truncatedFailure := collect()
+	require.Equal(log.Truncate(deviceerrors.FromStderr(longMessage, 10).Error(), status.MaxMessageLength), *truncatedFailure.SystemInfoStatus.Statuses.CustomInfo["site"].Message)
+	require.Equal(failedSource.LastTransitionTime, truncatedFailure.SystemInfoStatus.Statuses.CustomInfo["site"].LastTransitionTime)
+
+	writeScript("#!/bin/sh\necho recovered\n")
+	recovered := collect()
+	require.Equal("recovered", (*recovered.SystemInfo.CustomInfo)["site"])
+	require.Nil(recovered.SystemInfoStatus.Statuses.CustomInfo["site"].Message)
+	require.NotEqual(failedSource.LastTransitionTime, recovered.SystemInfoStatus.Statuses.CustomInfo["site"].LastTransitionTime)
+}
+
+func TestStatusDiscoversDefaultCustomScriptsOnEachCollection(t *testing.T) {
+	require := require.New(t)
+	tmpDir := t.TempDir()
+	readWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+	)
+	require.NoError(readWriter.MkdirAll(config.SystemInfoCustomScriptDir, fileio.DefaultDirectoryPermissions))
+
+	manager := NewManager(
+		log.NewPrefixLogger("test"),
+		executer.NewCommonExecuter(),
+		readWriter,
+		"etc/flightctl",
+		nil,
+		nil,
+		util.Duration(time.Second),
+		0,
+	)
+	collect := func() *v1beta1.DeviceStatus {
+		deviceStatus := &v1beta1.DeviceStatus{}
+		manager.collectAndCache(context.Background())
+		require.NoError(manager.Status(context.Background(), deviceStatus))
+		return deviceStatus
+	}
+
+	initial := collect()
+	require.Empty(initial.SystemInfoStatus.Statuses.CustomInfo)
+	require.Equal(v1beta1.SystemInfoSummaryStatusUnknown, initial.SystemInfoStatus.Summary.Status)
+	require.NoError(readWriter.WriteFile(
+		filepath.Join(config.SystemInfoCustomScriptDir, "discovered.sh"),
+		[]byte("#!/bin/sh\necho discovered\n"),
+		fileio.DefaultExecutablePermissions,
+	))
+	require.NoError(readWriter.WriteFile(
+		filepath.Join(config.SystemInfoCustomScriptDir, "ignored.sh"),
+		[]byte("#!/bin/sh\necho ignored\n"),
+		0644,
+	))
+	discovered := collect()
+	require.Contains(discovered.SystemInfoStatus.Statuses.CustomInfo, "discovered")
+	require.NotContains(discovered.SystemInfoStatus.Statuses.CustomInfo, "ignored")
+	require.Equal("discovered", (*discovered.SystemInfo.CustomInfo)["discovered"])
+
+	require.NoError(readWriter.RemoveFile(filepath.Join(config.SystemInfoCustomScriptDir, "discovered.sh")))
+	require.Empty(collect().SystemInfoStatus.Statuses.CustomInfo)
+}
+
+func TestStatusReportsMissingAllowListedCustomScript(t *testing.T) {
+	require := require.New(t)
+	tmpDir := t.TempDir()
+	readWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+	)
+	require.NoError(readWriter.MkdirAll(config.SystemInfoCustomScriptDir, fileio.DefaultDirectoryPermissions))
+
+	manager := NewManager(
+		log.NewPrefixLogger("test"),
+		executer.NewCommonExecuter(),
+		readWriter,
+		"etc/flightctl",
+		nil,
+		[]string{"missing"},
+		util.Duration(time.Second),
+		0,
+	)
+	deviceStatus := &v1beta1.DeviceStatus{}
+	manager.collectAndCache(context.Background())
+	require.NoError(manager.Status(context.Background(), deviceStatus))
+
+	require.Nil(deviceStatus.SystemInfo.CustomInfo)
+	source := deviceStatus.SystemInfoStatus.Statuses.CustomInfo["missing"]
+	require.Equal("script not found", *source.Message)
+	require.Equal(v1beta1.SystemInfoSummaryStatusError, deviceStatus.SystemInfoStatus.Summary.Status)
+}
+
+func TestStatusClearsAnAllowListedValueWhenTheScriptIsMissingAfterReload(t *testing.T) {
+	require := require.New(t)
+	tmpDir := t.TempDir()
+	readWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+	)
+	require.NoError(readWriter.MkdirAll(config.SystemInfoCustomScriptDir, fileio.DefaultDirectoryPermissions))
+	const script = "site.sh"
+	require.NoError(readWriter.WriteFile(
+		filepath.Join(config.SystemInfoCustomScriptDir, script),
+		[]byte("#!/bin/sh\necho available\n"),
+		fileio.DefaultExecutablePermissions,
+	))
+
+	manager := NewManager(
+		log.NewPrefixLogger("test"),
+		executer.NewCommonExecuter(),
+		readWriter,
+		"etc/flightctl",
+		nil,
+		[]string{"site"},
+		util.Duration(time.Second),
+		0,
+	)
+	now := time.Date(2026, time.September, 14, 20, 0, 0, 0, time.UTC)
+	manager.now = func() time.Time {
+		current := now
+		now = now.Add(time.Second)
+		return current
+	}
+	collect := func() *v1beta1.DeviceStatus {
+		deviceStatus := &v1beta1.DeviceStatus{}
+		manager.collectAndCache(context.Background())
+		require.NoError(manager.Status(context.Background(), deviceStatus))
+		return deviceStatus
+	}
+
+	available := collect()
+	require.Equal("available", (*available.SystemInfo.CustomInfo)["site"])
+	availableTime := available.SystemInfoStatus.Statuses.CustomInfo["site"].LastTransitionTime
+
+	require.NoError(readWriter.RemoveFile(filepath.Join(config.SystemInfoCustomScriptDir, script)))
+	require.NoError(manager.ReloadConfig(context.Background(), &config.Config{
+		SystemInfoCustom:  []string{"site"},
+		SystemInfoTimeout: util.Duration(time.Second),
+	}))
+	missing := collect()
+	require.Nil(missing.SystemInfo.CustomInfo)
+	missingSource := missing.SystemInfoStatus.Statuses.CustomInfo["site"]
+	require.Equal("script not found", *missingSource.Message)
+	require.NotEqual(availableTime, missingSource.LastTransitionTime)
+}
+
+func TestStatusReportsSelectedBuiltInSources(t *testing.T) {
+	require := require.New(t)
+	manager := NewManager(
+		log.NewPrefixLogger("test"),
+		executer.NewCommonExecuter(),
+		fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter()),
+		"etc/flightctl",
+		[]string{common.ArchitectureKey},
+		[]string{},
+		util.Duration(time.Second),
+		0,
+	)
+	deviceStatus := &v1beta1.DeviceStatus{}
+	manager.collectAndCache(context.Background())
+	require.NoError(manager.Status(context.Background(), deviceStatus))
+
+	require.Equal(runtime.GOARCH, deviceStatus.SystemInfo.AdditionalProperties[common.ArchitectureKey])
+	require.Contains(deviceStatus.SystemInfoStatus.Statuses.SystemInfo, common.ArchitectureKey)
+	require.Empty(deviceStatus.SystemInfoStatus.Statuses.CustomInfo)
+	require.Nil(deviceStatus.SystemInfoStatus.Statuses.SystemInfo[common.ArchitectureKey].Message)
+	require.Equal(v1beta1.SystemInfoSummaryStatusHealthy, deviceStatus.SystemInfoStatus.Summary.Status)
+}
+
+func TestInfoFromCacheCombinesSelectedValuesFromASharedSource(t *testing.T) {
+	require := require.New(t)
+	productName := systemInfoKeyDefinitions[common.ProductNameKey]
+	productSerial := systemInfoKeyDefinitions[common.ProductSerialKey]
+	raw := &Info{Hardware: HardwareFacts{System: &SystemInfo{
+		ProductName:  "Edge Device",
+		SerialNumber: "serial-123",
+		UUID:         "unselected-uuid",
+	}}}
+	manager := &manager{collection: []*collector{{raw: raw, executors: []*cachedExecutor{
+		{projectInfo: productName.projectInfo},
+		{projectInfo: productSerial.projectInfo},
+	}}}}
+
+	info := manager.infoFromCache()
+	require.Equal("Edge Device", info.Hardware.System.ProductName)
+	require.Equal("serial-123", info.Hardware.System.SerialNumber)
+	require.Empty(info.Hardware.System.UUID)
 }
