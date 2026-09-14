@@ -51,12 +51,6 @@ const (
 	VulnerabilitySeverityUnknown  VulnerabilitySeverity = "Unknown"
 )
 
-// Defines values for VulnerabilitySource.
-const (
-	Quay     VulnerabilitySource = "quay"
-	Trustify VulnerabilitySource = "trustify"
-)
-
 // Defines values for VulnerabilityGroupSeverity.
 const (
 	VulnerabilityGroupSeverityCritical VulnerabilityGroupSeverity = "Critical"
@@ -85,6 +79,12 @@ const (
 	VulnerabilityImpactSeverityMedium   VulnerabilityImpactSeverity = "Medium"
 	VulnerabilityImpactSeverityNone     VulnerabilityImpactSeverity = "None"
 	VulnerabilityImpactSeverityUnknown  VulnerabilityImpactSeverity = "Unknown"
+)
+
+// Defines values for VulnerabilitySource.
+const (
+	Quay     VulnerabilitySource = "quay"
+	Trustify VulnerabilitySource = "trustify"
 )
 
 // Defines values for ListVulnerabilitiesParamsSortBy.
@@ -614,15 +614,12 @@ type Vulnerability struct {
 	// Severity Normalized severity label.
 	Severity VulnerabilitySeverity `json:"severity"`
 
-	// Source The vulnerability backend that produced this finding.
+	// Source The vulnerability backend that produced the finding.
 	Source *VulnerabilitySource `json:"source,omitempty"`
 }
 
 // VulnerabilitySeverity Normalized severity label.
 type VulnerabilitySeverity string
-
-// VulnerabilitySource The vulnerability backend that produced this finding.
-type VulnerabilitySource string
 
 // VulnerabilityGroup A CVE grouped across one or more images, as returned by fleet-scoped and organization-wide vulnerability list endpoints. Each finding represents one image in which the CVE was detected.
 type VulnerabilityGroup struct {
@@ -688,6 +685,9 @@ type VulnerabilityGroupItem struct {
 
 	// Severity Severity of this CVE for this digest.
 	Severity VulnerabilityGroupItemSeverity `json:"severity"`
+
+	// Source The vulnerability backend that produced the finding.
+	Source *VulnerabilitySource `json:"source,omitempty"`
 }
 
 // VulnerabilityGroupItemSeverity Severity of this CVE for this digest.
@@ -794,6 +794,9 @@ type VulnerabilitySeveritySummary struct {
 	// Unknown Count of findings with unknown or unscored severity.
 	Unknown int64 `json:"unknown"`
 }
+
+// VulnerabilitySource The vulnerability backend that produced the finding.
+type VulnerabilitySource string
 
 // VulnerabilitySummaryResponse Estate-wide vulnerability summary counts.
 type VulnerabilitySummaryResponse struct {
