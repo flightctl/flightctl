@@ -18,6 +18,8 @@ import (
 
 var ErrUnsupportedEncryptionType = errors.New("unsupported encryption map value type")
 
+const EnrollmentHookNotifySecretKind = "EnrollmentHookNotifySecret"
+
 // EncryptedField defines a single sensitive field that must be encrypted at rest.
 // Path segments use JSON key names from the struct root (e.g., {"Spec", "httpConfig", "password"}).
 type EncryptedField struct {
@@ -39,6 +41,7 @@ var encryptionRegistry = []EncryptedField{
 	{domain.EnrollmentHookPolicyKind, []string{"Spec", "afterEnrolling", "controlPlaneActions", "[]", "auth", "bearerToken"}},
 	{domain.DeviceKind, []string{"RenderedConfig"}},
 	{domain.DeviceKind, []string{"RenderedApplications"}},
+	{EnrollmentHookNotifySecretKind, []string{"BearerToken"}},
 }
 
 // encryptionPathsByKind is built from encryptionRegistry on init for O(1) lookup.
@@ -82,7 +85,8 @@ func EncryptionHandlers() map[string]encryption.ModelEncryptHandler {
 		domain.RepositoryKind:           genericEncryptHandler(domain.RepositoryKind),
 		domain.AuthProviderKind:         genericEncryptHandler(domain.AuthProviderKind),
 		domain.DeviceKind:               genericEncryptHandler(domain.DeviceKind),
-		domain.EnrollmentHookPolicyKind: enrollmentHookPolicyEncryptHandler(),
+		domain.EnrollmentHookPolicyKind:  enrollmentHookPolicyEncryptHandler(),
+		EnrollmentHookNotifySecretKind:   genericEncryptHandler(EnrollmentHookNotifySecretKind),
 	}
 }
 

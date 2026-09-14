@@ -319,3 +319,78 @@ func (r *enrollmentHookPolicyMigratableRow) Persist(ctx context.Context) error {
 	r.row.ResourceVersion = &newRV
 	return persistMigratedModel(ctx, r.db, r.row, r.row.OrgID, r.row.Name, expected, []string{"Spec", "ResourceVersion", "UpdatedAt"})
 }
+
+// enrollmentHookNotifySecretEncryptionResource is a custom encryption migration adapter
+// for enrollment_hook_notify_secrets. Unlike standard resources, this table uses
+// (device_name, action_index) as a composite key instead of name, and has no spec or
+// resource_version column.
+type enrollmentHookNotifySecretEncryptionResource struct {
+	db      *gorm.DB
+	mgr     *encryption.Manager
+	handler encryption.ModelEncryptHandler
+}
+
+func newEnrollmentHookNotifySecretEncryptionResource(db *gorm.DB, mgr *encryption.Manager) *enrollmentHookNotifySecretEncryptionResource {
+	return &enrollmentHookNotifySecretEncryptionResource{
+		db:      db,
+		mgr:     mgr,
+		handler: model.EncryptionHandlers()[model.EnrollmentHookNotifySecretKind],
+	}
+}
+
+func (r *enrollmentHookNotifySecretEncryptionResource) Kind() string {
+	return model.EnrollmentHookNotifySecretKind
+}
+
+func (r *enrollmentHookNotifySecretEncryptionResource) NextPage(ctx context.Context, orgID uuid.UUID, afterName string, limit int) ([]EncryptionMigratableRow, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	var rows []model.EnrollmentHookNotifySecret
+	q := r.db.WithContext(ctx).Model(&model.EnrollmentHookNotifySecret{}).
+		Where("org_id = ?", orgID).
+		Order("device_name ASC, action_index ASC").
+		Limit(limit)
+	if afterName != "" {
+		// afterName encodes "device_name" for cursor-based pagination.
+		// We page by device_name only; within a device all action_indexes are returned.
+		q = q.Where("device_name > ?", afterName)
+	}
+	if err := q.Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]EncryptionMigratableRow, 0, len(rows))
+	for i := range rows {
+		out = append(out, &enrollmentHookNotifySecretMigratableRow{db: r.db, mgr: r.mgr, handler: r.handler, row: &rows[i]})
+	}
+	return out, nil
+}
+
+type enrollmentHookNotifySecretMigratableRow struct {
+	db      *gorm.DB
+	mgr     *encryption.Manager
+	handler encryption.ModelEncryptHandler
+	row     *model.EnrollmentHookNotifySecret
+}
+
+func (r *enrollmentHookNotifySecretMigratableRow) OrgID() uuid.UUID { return r.row.OrgID }
+func (r *enrollmentHookNotifySecretMigratableRow) Name() string     { return r.row.DeviceName }
+
+func (r *enrollmentHookNotifySecretMigratableRow) Migrate(ctx context.Context, encrypt encryption.EncryptFunc) (bool, []string, error) {
+	return migrateModelRow(ctx, r.row, model.EnrollmentHookNotifySecretKind, encrypt, r.mgr, r.handler)
+}
+
+func (r *enrollmentHookNotifySecretMigratableRow) Persist(ctx context.Context) error {
+	result := r.db.WithContext(ctx).Model(r.row).
+		Where("org_id = ? AND device_name = ? AND action_index = ?", r.row.OrgID, r.row.DeviceName, r.row.ActionIndex).
+		Select("BearerToken").
+		Updates(r.row)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("%w: encryption migration concurrent update for %s/%s/%d",
+			flterrors.ErrResourceVersionConflict, r.row.OrgID, r.row.DeviceName, r.row.ActionIndex)
+	}
+	return nil
+}
