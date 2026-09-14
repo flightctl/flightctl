@@ -2,6 +2,8 @@ package quay
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -107,7 +110,11 @@ func NewClient(cfg *config.QuayConfig, log logrus.FieldLogger, httpClient *http.
 		log = logrus.StandardLogger()
 	}
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: defaultHTTPTimeout}
+		var err error
+		httpClient, err = buildHTTPClient(cfg)
+		if err != nil {
+			return nil, err
+		}
 	}
 	base, host, err := parseEndpoint(cfg.Endpoint)
 	if err != nil {
@@ -121,6 +128,43 @@ func NewClient(cfg *config.QuayConfig, log logrus.FieldLogger, httpClient *http.
 		backoffBase:  initialBackoff,
 		log:          log,
 	}, nil
+}
+
+// buildTLSTransport constructs an HTTP transport whose TLS configuration
+// honors the Quay CAFile and SkipTLSVerify settings. It clones the default
+// transport so proxy handling and connection pooling remain unchanged.
+func buildTLSTransport(cfg *config.QuayConfig) (*http.Transport, error) {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	tlsConfig := &tls.Config{
+		MinVersion:         tls.VersionTLS12,
+		InsecureSkipVerify: cfg.SkipTLSVerify, //nolint:gosec // opt-in insecure mode for lab/air-gap environments
+	}
+
+	if cfg.CAFile != "" {
+		caPEM, err := os.ReadFile(cfg.CAFile)
+		if err != nil {
+			return nil, fmt.Errorf("reading Quay CA file %q: %w", cfg.CAFile, err)
+		}
+		pool, err := x509.SystemCertPool()
+		if err != nil || pool == nil {
+			pool = x509.NewCertPool()
+		}
+		if !pool.AppendCertsFromPEM(caPEM) {
+			return nil, fmt.Errorf("no valid certificates found in Quay CA file %q", cfg.CAFile)
+		}
+		tlsConfig.RootCAs = pool
+	}
+
+	transport.TLSClientConfig = tlsConfig
+	return transport, nil
+}
+
+func buildHTTPClient(cfg *config.QuayConfig) (*http.Client, error) {
+	transport, err := buildTLSTransport(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return &http.Client{Timeout: defaultHTTPTimeout, Transport: transport}, nil
 }
 
 // FetchImageSecurity retrieves the Quay Security report for one deployed image.
