@@ -66,7 +66,7 @@ type PurlListResponse struct {
 
 // PurlSummary defines model for PurlSummary.
 type PurlSummary struct {
-	Base *PurlBase `json:"base"`
+	Base *PurlBase `json:"base,omitempty"`
 
 	// Purl The Package URL string
 	Purl       string             `json:"purl"`
@@ -74,7 +74,7 @@ type PurlSummary struct {
 
 	// Uuid Unique identifier for this PURL
 	Uuid    string       `json:"uuid"`
-	Version *PurlVersion `json:"version"`
+	Version *PurlVersion `json:"version,omitempty"`
 }
 
 // PurlVersion defines model for PurlVersion.
@@ -93,7 +93,7 @@ type SbomAdvisory struct {
 	Identifier string `json:"identifier"`
 
 	// Issuer The issuer of an advisory (e.g., Red Hat, NVD).
-	Issuer    *Issuer      `json:"issuer"`
+	Issuer    *Issuer      `json:"issuer,omitempty"`
 	Modified  *time.Time   `json:"modified"`
 	Published *time.Time   `json:"published"`
 	Status    []SbomStatus `json:"status"`

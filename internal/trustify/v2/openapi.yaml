@@ -195,11 +195,9 @@ components:
         base:
           $ref: '#/components/schemas/PurlBase'
           nullable: true
-          x-omitempty: false
         version:
           $ref: '#/components/schemas/PurlVersion'
           nullable: true
-          x-omitempty: false
         qualifiers:
           type: object
           additionalProperties:
@@ -284,7 +282,6 @@ components:
           description: CVE ID (e.g., CVE-2023-44487)
         issuer:
           nullable: true
-          x-omitempty: false
           description: The issuer of the advisory, if known.
           $ref: '#/components/schemas/Issuer'
         title:
