@@ -959,10 +959,34 @@ func (s *DeviceStore) Labels(ctx context.Context, orgId uuid.UUID, listParams st
 }
 
 func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback store.EventCallback) (bool, error) {
-	deleted, err := s.genericStore.Delete(
-		ctx,
-		model.Device{Resource: model.Resource{OrgID: orgId, Name: name}},
-		store.Resource{Table: "enrollment_requests", OrgID: orgId.String(), Name: name})
+	var deleted bool
+	err := s.getDB(ctx).Transaction(func(innerTx *gorm.DB) error {
+		// Delete the device
+		result := innerTx.Unscoped().Delete(&model.Device{Resource: model.Resource{OrgID: orgId, Name: name}})
+		if result.Error != nil {
+			return store.ErrorFromGormError(result.Error)
+		}
+		if result.RowsAffected != 0 {
+			deleted = true
+		}
+
+		// Delete associated enrollment requests
+		if err := innerTx.Unscoped().
+			Table("enrollment_requests").
+			Where("org_id = ? AND name = ? AND spec IS NOT NULL", orgId.String(), name).
+			Delete(nil).Error; err != nil {
+			return store.ErrorFromGormError(err)
+		}
+
+		// Purge enrollment hook notify secrets (uses device_name, not name)
+		if err := innerTx.
+			Where("org_id = ? AND device_name = ?", orgId, name).
+			Delete(&model.EnrollmentHookNotifySecret{}).Error; err != nil {
+			return store.ErrorFromGormError(err)
+		}
+
+		return nil
+	})
 	if deleted && eventCallback != nil {
 		s.callEventCallback(ctx, eventCallback, orgId, name, nil, nil, false, err)
 	}
