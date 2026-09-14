@@ -155,10 +155,11 @@ var _ = Describe("EnrollmentHookNotifySecretsStore", func() {
 
 	Context("Encryption", func() {
 		It("When bearer token is stored it should be encrypted at rest", func() {
+			plaintext := "plaintext-secret"
 			secret := &model.EnrollmentHookNotifySecret{
 				DeviceName:  "dev1",
 				ActionIndex: 0,
-				BearerToken: "plaintext-secret",
+				BearerToken: plaintext,
 			}
 			err := secretsStore.Create(ctx, orgId, secret)
 			Expect(err).NotTo(HaveOccurred())
@@ -167,10 +168,8 @@ var _ = Describe("EnrollmentHookNotifySecretsStore", func() {
 			var raw model.EnrollmentHookNotifySecret
 			result := db.Where("org_id = ? AND device_name = ? AND action_index = ?", orgId, "dev1", 0).First(&raw)
 			Expect(result.Error).NotTo(HaveOccurred())
-			// The raw value should not equal the plaintext if encryption is active.
-			// In test environments without encryption, this may still be plaintext;
-			// the important thing is the store layer works correctly.
-			Expect(raw.BearerToken).NotTo(BeEmpty())
+			Expect(raw.BearerToken).ToNot(Equal(plaintext))
+			Expect(raw.BearerToken).To(ContainSubstring("enc:v1:default:"))
 		})
 	})
 })

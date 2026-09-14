@@ -14,7 +14,7 @@ import (
 	reflect "reflect"
 
 	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
-	v1 "github.com/flightctl/flightctl/api/grpc/v1"
+	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	client "github.com/flightctl/flightctl/internal/agent/client"
 	client0 "github.com/flightctl/flightctl/internal/client"
 	gomock "go.uber.org/mock/gomock"
@@ -82,10 +82,10 @@ func (m *MockProvider) EXPECT() *MockProviderMockRecorder {
 }
 
 // CreateGRPCClient mocks base method.
-func (m *MockProvider) CreateGRPCClient(config *client0.Config) (v1.RouterServiceClient, error) {
+func (m *MockProvider) CreateGRPCClient(config *client0.Config) (grpc_v1.RouterServiceClient, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateGRPCClient", config)
-	ret0, _ := ret[0].(v1.RouterServiceClient)
+	ret0, _ := ret[0].(grpc_v1.RouterServiceClient)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

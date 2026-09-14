@@ -42,6 +42,9 @@ func (m *MockDevice) CountByOrgAndStatus(ctx context.Context, orgId *uuid.UUID, 
 
 // Implement other required methods with empty implementations
 func (m *MockDevice) InitialMigration(ctx context.Context) error { return nil }
+func (m *MockDevice) WithTransaction(ctx context.Context, fn func(context.Context) error) error {
+	return fn(ctx)
+}
 func (m *MockDevice) Create(ctx context.Context, orgId uuid.UUID, device *domain.Device, rendered *devicestore.DeviceRendered) (*domain.Device, error) {
 	return nil, nil
 }

@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -352,9 +354,17 @@ func (r *enrollmentHookNotifySecretEncryptionResource) NextPage(ctx context.Cont
 		Order("device_name ASC, action_index ASC").
 		Limit(limit)
 	if afterName != "" {
-		// afterName encodes "device_name" for cursor-based pagination.
-		// We page by device_name only; within a device all action_indexes are returned.
-		q = q.Where("device_name > ?", afterName)
+		deviceName, actionIndex, hasActionIndex, err := parseEnrollmentHookNotifySecretCursor(afterName)
+		if err != nil {
+			return nil, fmt.Errorf("parse enrollment hook notify secret cursor: %w", err)
+		}
+		if hasActionIndex {
+			q = q.Where("device_name > ? OR (device_name = ? AND action_index > ?)", deviceName, deviceName, actionIndex)
+		} else {
+			// Resume legacy device-name-only checkpoints at the device boundary so
+			// any actions that were skipped by the old cursor are migrated.
+			q = q.Where("device_name >= ?", deviceName)
+		}
 	}
 	if err := q.Find(&rows).Error; err != nil {
 		return nil, err
@@ -374,7 +384,25 @@ type enrollmentHookNotifySecretMigratableRow struct {
 }
 
 func (r *enrollmentHookNotifySecretMigratableRow) OrgID() uuid.UUID { return r.row.OrgID }
-func (r *enrollmentHookNotifySecretMigratableRow) Name() string     { return r.row.DeviceName }
+func (r *enrollmentHookNotifySecretMigratableRow) Name() string {
+	return enrollmentHookNotifySecretCursor(r.row.DeviceName, r.row.ActionIndex)
+}
+
+func enrollmentHookNotifySecretCursor(deviceName string, actionIndex int) string {
+	return deviceName + ":" + strconv.Itoa(actionIndex)
+}
+
+func parseEnrollmentHookNotifySecretCursor(cursor string) (string, int, bool, error) {
+	deviceName, actionIndex, hasActionIndex := strings.Cut(cursor, ":")
+	if !hasActionIndex {
+		return cursor, 0, false, nil
+	}
+	parsedActionIndex, err := strconv.Atoi(actionIndex)
+	if err != nil {
+		return "", 0, false, fmt.Errorf("invalid action index %q: %w", actionIndex, err)
+	}
+	return deviceName, parsedActionIndex, true, nil
+}
 
 func (r *enrollmentHookNotifySecretMigratableRow) Migrate(ctx context.Context, encrypt encryption.EncryptFunc) (bool, []string, error) {
 	return migrateModelRow(ctx, r.row, model.EnrollmentHookNotifySecretKind, encrypt, r.mgr, r.handler)
