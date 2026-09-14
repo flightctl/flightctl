@@ -6515,6 +6515,7 @@ components:
           description: The last time the collection status of this source changed.
         message:
           type: string
+          maxLength: 250
           description: Human readable message providing details about the source status.
       additionalProperties: false
     SystemdUnitStatus:
