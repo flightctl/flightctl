@@ -82,11 +82,11 @@ func hashFields(fields []EncryptedField) string {
 // EncryptionHandlers returns encryption handlers for all model types.
 func EncryptionHandlers() map[string]encryption.ModelEncryptHandler {
 	return map[string]encryption.ModelEncryptHandler{
-		domain.RepositoryKind:           genericEncryptHandler(domain.RepositoryKind),
-		domain.AuthProviderKind:         genericEncryptHandler(domain.AuthProviderKind),
-		domain.DeviceKind:               genericEncryptHandler(domain.DeviceKind),
-		domain.EnrollmentHookPolicyKind:  enrollmentHookPolicyEncryptHandler(),
-		EnrollmentHookNotifySecretKind:   genericEncryptHandler(EnrollmentHookNotifySecretKind),
+		domain.RepositoryKind:          genericEncryptHandler(domain.RepositoryKind),
+		domain.AuthProviderKind:        genericEncryptHandler(domain.AuthProviderKind),
+		domain.DeviceKind:              genericEncryptHandler(domain.DeviceKind),
+		domain.EnrollmentHookPolicyKind: enrollmentHookPolicyEncryptHandler(),
+		EnrollmentHookNotifySecretKind:  genericEncryptHandler(EnrollmentHookNotifySecretKind),
 	}
 }
 

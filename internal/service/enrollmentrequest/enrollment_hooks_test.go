@@ -4,7 +4,6 @@ import (
 	"context"
 	"testing"
 
-	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
@@ -53,7 +52,7 @@ func TestSnapshotEnrollmentHookPolicy(t *testing.T) {
 		expectNil       bool
 		expectSecrets   int
 		expectActions   int
-		expectPolicy    v1beta1.FailurePolicyType
+		expectPolicy    domain.FailurePolicyType
 		expectURLs      []string
 		expectNoBearer  bool
 	}{
@@ -70,20 +69,20 @@ func TestSnapshotEnrollmentHookPolicy(t *testing.T) {
 		{
 			name: "When policy has controlPlaneActions with bearer tokens it should snapshot actions and create secrets",
 			policy: &domain.EnrollmentHookPolicy{
-				Spec: v1beta1.EnrollmentHookPolicySpec{
-					AfterEnrolling: v1beta1.EnrollmentHookStageSpec{
-						FailurePolicy: lo.ToPtr(v1beta1.FailurePolicyBlock),
-						ControlPlaneActions: &[]v1beta1.EnrollmentHookHttpAction{
+				Spec: domain.EnrollmentHookPolicySpec{
+					AfterEnrolling: domain.EnrollmentHookStageSpec{
+						FailurePolicy: lo.ToPtr(domain.FailurePolicyBlock),
+						ControlPlaneActions: &[]domain.EnrollmentHookHttpAction{
 							{
 								Url:     "https://hooks.example.com/notify",
 								Timeout: lo.ToPtr("30s"),
-								Auth: &v1beta1.EnrollmentHookAuth{
+								Auth: &domain.EnrollmentHookAuth{
 									BearerToken: lo.ToPtr("secret-token-1"),
 								},
 							},
 							{
 								Url: "https://hooks.example.com/other",
-								Auth: &v1beta1.EnrollmentHookAuth{
+								Auth: &domain.EnrollmentHookAuth{
 									BearerToken: lo.ToPtr("secret-token-2"),
 								},
 							},
@@ -94,16 +93,16 @@ func TestSnapshotEnrollmentHookPolicy(t *testing.T) {
 			expectNil:     false,
 			expectSecrets: 2,
 			expectActions: 2,
-			expectPolicy:  v1beta1.FailurePolicyBlock,
+			expectPolicy:  domain.FailurePolicyBlock,
 			expectURLs:    []string{"https://hooks.example.com/notify", "https://hooks.example.com/other"},
 		},
 		{
 			name: "When policy has controlPlaneActions without bearer tokens it should snapshot actions with no secrets",
 			policy: &domain.EnrollmentHookPolicy{
-				Spec: v1beta1.EnrollmentHookPolicySpec{
-					AfterEnrolling: v1beta1.EnrollmentHookStageSpec{
-						FailurePolicy: lo.ToPtr(v1beta1.FailurePolicyBlock),
-						ControlPlaneActions: &[]v1beta1.EnrollmentHookHttpAction{
+				Spec: domain.EnrollmentHookPolicySpec{
+					AfterEnrolling: domain.EnrollmentHookStageSpec{
+						FailurePolicy: lo.ToPtr(domain.FailurePolicyBlock),
+						ControlPlaneActions: &[]domain.EnrollmentHookHttpAction{
 							{
 								Url: "https://hooks.example.com/notify",
 							},
@@ -114,22 +113,22 @@ func TestSnapshotEnrollmentHookPolicy(t *testing.T) {
 			expectNil:     false,
 			expectSecrets: 0,
 			expectActions: 1,
-			expectPolicy:  v1beta1.FailurePolicyBlock,
+			expectPolicy:  domain.FailurePolicyBlock,
 			expectURLs:    []string{"https://hooks.example.com/notify"},
 		},
 		{
 			name: "When policy has no controlPlaneActions (gate-only) it should return snapshot with failurePolicy only",
 			policy: &domain.EnrollmentHookPolicy{
-				Spec: v1beta1.EnrollmentHookPolicySpec{
-					AfterEnrolling: v1beta1.EnrollmentHookStageSpec{
-						FailurePolicy: lo.ToPtr(v1beta1.FailurePolicyContinue),
+				Spec: domain.EnrollmentHookPolicySpec{
+					AfterEnrolling: domain.EnrollmentHookStageSpec{
+						FailurePolicy: lo.ToPtr(domain.FailurePolicyContinue),
 					},
 				},
 			},
 			expectNil:     false,
 			expectSecrets: 0,
 			expectActions: 0,
-			expectPolicy:  v1beta1.FailurePolicyContinue,
+			expectPolicy:  domain.FailurePolicyContinue,
 		},
 	}
 
@@ -193,7 +192,7 @@ func TestEnrollmentHooksConditionReason(t *testing.T) {
 		{
 			name: "When controlPlaneActions is nil it should return Pending",
 			snapshot: &domain.EnrollmentHookSnapshot{
-				FailurePolicy: v1beta1.FailurePolicyBlock,
+				FailurePolicy: domain.FailurePolicyBlock,
 			},
 			expected: domain.EnrollmentHooksReasonPending,
 		},
@@ -216,13 +215,13 @@ func TestEnrollmentHooksConditionReason(t *testing.T) {
 
 func TestSnapshotExcludesBearerToken(t *testing.T) {
 	policy := &domain.EnrollmentHookPolicy{
-		Spec: v1beta1.EnrollmentHookPolicySpec{
-			AfterEnrolling: v1beta1.EnrollmentHookStageSpec{
-				FailurePolicy: lo.ToPtr(v1beta1.FailurePolicyBlock),
-				ControlPlaneActions: &[]v1beta1.EnrollmentHookHttpAction{
+		Spec: domain.EnrollmentHookPolicySpec{
+			AfterEnrolling: domain.EnrollmentHookStageSpec{
+				FailurePolicy: lo.ToPtr(domain.FailurePolicyBlock),
+				ControlPlaneActions: &[]domain.EnrollmentHookHttpAction{
 					{
 						Url: "https://hooks.example.com/notify",
-						Auth: &v1beta1.EnrollmentHookAuth{
+						Auth: &domain.EnrollmentHookAuth{
 							BearerToken: lo.ToPtr("secret-bearer-token"),
 						},
 					},

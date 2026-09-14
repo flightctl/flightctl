@@ -120,9 +120,9 @@ var eventReasons = map[domain.EventReason]struct{}{
 	domain.EventReasonFleetRolloutBatchDispatched: {},
 	domain.EventReasonDeviceConflictResolved:      {},
 	domain.EventReasonDeviceDecommissioned:        {},
-	domain.EventReasonApplicationLifecycleChanged:  {},
-	domain.EventReasonDeltaGenerationCompleted:     {},
-	domain.EventReasonEnrollmentRequestApproved:    {},
+	domain.EventReasonApplicationLifecycleChanged: {},
+	domain.EventReasonDeltaGenerationCompleted:    {},
+	domain.EventReasonEnrollmentRequestApproved:   {},
 }
 
 var deltaEventReasons = map[domain.EventReason]struct{}{
