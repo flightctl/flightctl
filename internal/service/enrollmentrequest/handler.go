@@ -347,21 +347,27 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 	// invariant, TestCreateDeviceFromEnrollmentRequestNeverManaged).
 	_ = common.UpdateServiceSideStatus(ctx, orgId, apiResource, nil, h.log)
 
-	result, err := h.deviceStore.Create(ctx, orgId, apiResource, nil)
-	if errors.Is(err, flterrors.ErrDuplicateName) {
-		return fmt.Errorf("device %s already exists and cannot be overwritten during enrollment request approval: %w", name, err)
-	}
-	if err != nil {
+	var result *domain.Device
+	if err := h.deviceStore.WithTransaction(ctx, func(txCtx context.Context) error {
+		var err error
+		result, err = h.deviceStore.Create(txCtx, orgId, apiResource, nil)
+		if errors.Is(err, flterrors.ErrDuplicateName) {
+			return fmt.Errorf("device %s already exists and cannot be overwritten during enrollment request approval: %w", name, err)
+		}
+		if err != nil {
+			return err
+		}
+
+		if len(secrets) > 0 && h.notifySecretsStore != nil {
+			if err := h.notifySecretsStore.CreateBatch(txCtx, orgId, secrets); err != nil {
+				return fmt.Errorf("write enrollment hook notify secrets: %w", err)
+			}
+		}
+		return nil
+	}); err != nil {
 		return err
 	}
 	h.callbackDeviceUpdated(ctx, domain.DeviceKind, orgId, name, nil, result, true, nil)
-
-	// Write bearer token secrets after successful device creation
-	if len(secrets) > 0 && h.notifySecretsStore != nil {
-		if err := h.notifySecretsStore.CreateBatch(ctx, orgId, secrets); err != nil {
-			return fmt.Errorf("write enrollment hook notify secrets: %w", err)
-		}
-	}
 	return nil
 }
 

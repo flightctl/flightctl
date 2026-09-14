@@ -32,12 +32,16 @@ func NewStore(db *gorm.DB, log logrus.FieldLogger) Store {
 }
 
 func (s *storeImpl) InitialMigration(ctx context.Context) error {
-	return s.db.WithContext(ctx).AutoMigrate(&model.EnrollmentHookNotifySecret{})
+	return s.getDB(ctx).AutoMigrate(&model.EnrollmentHookNotifySecret{})
+}
+
+func (s *storeImpl) getDB(ctx context.Context) *gorm.DB {
+	return store.DB(ctx, s.db)
 }
 
 func (s *storeImpl) Create(ctx context.Context, orgId uuid.UUID, secret *model.EnrollmentHookNotifySecret) error {
 	secret.OrgID = orgId
-	result := s.db.WithContext(ctx).Create(secret)
+	result := s.getDB(ctx).Create(secret)
 	return store.ErrorFromGormError(result.Error)
 }
 
@@ -48,13 +52,13 @@ func (s *storeImpl) CreateBatch(ctx context.Context, orgId uuid.UUID, secrets []
 	for i := range secrets {
 		secrets[i].OrgID = orgId
 	}
-	result := s.db.WithContext(ctx).Create(&secrets)
+	result := s.getDB(ctx).Create(&secrets)
 	return store.ErrorFromGormError(result.Error)
 }
 
 func (s *storeImpl) Get(ctx context.Context, orgId uuid.UUID, deviceName string, actionIndex int) (*model.EnrollmentHookNotifySecret, error) {
 	var secret model.EnrollmentHookNotifySecret
-	result := s.db.WithContext(ctx).
+	result := s.getDB(ctx).
 		Where("org_id = ? AND device_name = ? AND action_index = ?", orgId, deviceName, actionIndex).
 		First(&secret)
 	if result.Error != nil {
@@ -65,7 +69,7 @@ func (s *storeImpl) Get(ctx context.Context, orgId uuid.UUID, deviceName string,
 
 func (s *storeImpl) ListByDevice(ctx context.Context, orgId uuid.UUID, deviceName string) ([]model.EnrollmentHookNotifySecret, error) {
 	var secrets []model.EnrollmentHookNotifySecret
-	result := s.db.WithContext(ctx).
+	result := s.getDB(ctx).
 		Where("org_id = ? AND device_name = ?", orgId, deviceName).
 		Order("action_index ASC").
 		Find(&secrets)
@@ -76,7 +80,7 @@ func (s *storeImpl) ListByDevice(ctx context.Context, orgId uuid.UUID, deviceNam
 }
 
 func (s *storeImpl) PurgeByDevice(ctx context.Context, orgId uuid.UUID, deviceName string) error {
-	result := s.db.WithContext(ctx).
+	result := s.getDB(ctx).
 		Where("org_id = ? AND device_name = ?", orgId, deviceName).
 		Delete(&model.EnrollmentHookNotifySecret{})
 	return store.ErrorFromGormError(result.Error)

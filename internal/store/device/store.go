@@ -54,6 +54,7 @@ type DeviceListParams struct {
 
 type Store interface {
 	InitialMigration(ctx context.Context) error
+	WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error
 
 	// Exposed to users
 	// Create inserts a device. Duplicate names return ErrDuplicateName.
@@ -221,7 +222,11 @@ func (s *DeviceStore) callEventCallback(ctx context.Context, eventCallback store
 }
 
 func (s *DeviceStore) getDB(ctx context.Context) *gorm.DB {
-	return s.dbHandler.WithContext(ctx)
+	return store.DB(ctx, s.dbHandler)
+}
+
+func (s *DeviceStore) WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
+	return store.WithTransaction(ctx, s.dbHandler, fn)
 }
 
 func (s *DeviceStore) SetIntegrationTestCreateOrUpdateCallback(c store.IntegrationTestCallback) {
@@ -959,16 +964,14 @@ func (s *DeviceStore) Labels(ctx context.Context, orgId uuid.UUID, listParams st
 }
 
 func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback store.EventCallback) (bool, error) {
-	var deleted bool
+	var rowsAffected int64
 	err := s.getDB(ctx).Transaction(func(innerTx *gorm.DB) error {
 		// Delete the device
 		result := innerTx.Unscoped().Delete(&model.Device{Resource: model.Resource{OrgID: orgId, Name: name}})
 		if result.Error != nil {
 			return store.ErrorFromGormError(result.Error)
 		}
-		if result.RowsAffected != 0 {
-			deleted = true
-		}
+		rowsAffected = result.RowsAffected
 
 		// Delete associated enrollment requests
 		if err := innerTx.Unscoped().
@@ -987,6 +990,7 @@ func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, 
 
 		return nil
 	})
+	deleted := err == nil && rowsAffected != 0
 	if deleted && eventCallback != nil {
 		s.callEventCallback(ctx, eventCallback, orgId, name, nil, nil, false, err)
 	}
