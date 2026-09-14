@@ -14,7 +14,7 @@ import (
 	reflect "reflect"
 
 	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
-	client "github.com/flightctl/flightctl/internal/api/client/agent"
+	agent "github.com/flightctl/flightctl/internal/api/client/agent"
 	container "github.com/flightctl/flightctl/internal/container"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -43,7 +43,7 @@ func (m *MockManagement) EXPECT() *MockManagementMockRecorder {
 }
 
 // CreateCertificateSigningRequest mocks base method.
-func (m *MockManagement) CreateCertificateSigningRequest(ctx context.Context, csr v1beta1.CertificateSigningRequest, rcb ...client.RequestEditorFn) (*v1beta1.CertificateSigningRequest, int, error) {
+func (m *MockManagement) CreateCertificateSigningRequest(ctx context.Context, csr v1beta1.CertificateSigningRequest, rcb ...agent.RequestEditorFn) (*v1beta1.CertificateSigningRequest, int, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, csr}
 	for _, a := range rcb {
@@ -64,7 +64,7 @@ func (mr *MockManagementMockRecorder) CreateCertificateSigningRequest(ctx, csr a
 }
 
 // GetCertificateSigningRequest mocks base method.
-func (m *MockManagement) GetCertificateSigningRequest(ctx context.Context, name string, rcb ...client.RequestEditorFn) (*v1beta1.CertificateSigningRequest, int, error) {
+func (m *MockManagement) GetCertificateSigningRequest(ctx context.Context, name string, rcb ...agent.RequestEditorFn) (*v1beta1.CertificateSigningRequest, int, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, name}
 	for _, a := range rcb {
@@ -85,7 +85,7 @@ func (mr *MockManagementMockRecorder) GetCertificateSigningRequest(ctx, name any
 }
 
 // GetRenderedDevice mocks base method.
-func (m *MockManagement) GetRenderedDevice(ctx context.Context, name string, params *v1beta1.GetRenderedDeviceParams, rcb ...client.RequestEditorFn) (*v1beta1.Device, int, error) {
+func (m *MockManagement) GetRenderedDevice(ctx context.Context, name string, params *v1beta1.GetRenderedDeviceParams, rcb ...agent.RequestEditorFn) (*v1beta1.Device, int, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, name, params}
 	for _, a := range rcb {
@@ -106,7 +106,7 @@ func (mr *MockManagementMockRecorder) GetRenderedDevice(ctx, name, params any, r
 }
 
 // PatchDeviceStatus mocks base method.
-func (m *MockManagement) PatchDeviceStatus(ctx context.Context, name string, patch v1beta1.PatchRequest, rcb ...client.RequestEditorFn) error {
+func (m *MockManagement) PatchDeviceStatus(ctx context.Context, name string, patch v1beta1.PatchRequest, rcb ...agent.RequestEditorFn) error {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, name, patch}
 	for _, a := range rcb {
@@ -137,7 +137,7 @@ func (mr *MockManagementMockRecorder) SetRPCMetricsCallback(cb any) *gomock.Call
 }
 
 // UpdateDeviceStatus mocks base method.
-func (m *MockManagement) UpdateDeviceStatus(ctx context.Context, name string, device v1beta1.Device, rcb ...client.RequestEditorFn) error {
+func (m *MockManagement) UpdateDeviceStatus(ctx context.Context, name string, device v1beta1.Device, rcb ...agent.RequestEditorFn) error {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, name, device}
 	for _, a := range rcb {
@@ -179,7 +179,7 @@ func (m *MockEnrollment) EXPECT() *MockEnrollmentMockRecorder {
 }
 
 // CreateEnrollmentRequest mocks base method.
-func (m *MockEnrollment) CreateEnrollmentRequest(ctx context.Context, req v1beta1.EnrollmentRequest, cb ...client.RequestEditorFn) (*v1beta1.EnrollmentRequest, error) {
+func (m *MockEnrollment) CreateEnrollmentRequest(ctx context.Context, req v1beta1.EnrollmentRequest, cb ...agent.RequestEditorFn) (*v1beta1.EnrollmentRequest, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, req}
 	for _, a := range cb {
@@ -199,7 +199,7 @@ func (mr *MockEnrollmentMockRecorder) CreateEnrollmentRequest(ctx, req any, cb .
 }
 
 // GetEnrollmentRequest mocks base method.
-func (m *MockEnrollment) GetEnrollmentRequest(ctx context.Context, id string, cb ...client.RequestEditorFn) (*v1beta1.EnrollmentRequest, error) {
+func (m *MockEnrollment) GetEnrollmentRequest(ctx context.Context, id string, cb ...agent.RequestEditorFn) (*v1beta1.EnrollmentRequest, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, id}
 	for _, a := range cb {
