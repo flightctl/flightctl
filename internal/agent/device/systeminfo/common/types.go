@@ -62,17 +62,6 @@ func (s KeySet) Has(k string) bool {
 	return ok
 }
 
-// unionKeySets merges multiple KeySets into a single set.
-func unionKeySets(sets ...KeySet) KeySet {
-	out := make(KeySet)
-	for _, s := range sets {
-		for k := range s {
-			out[k] = struct{}{}
-		}
-	}
-	return out
-}
-
 // Strings returns the keys as a sorted []string.
 func (s KeySet) Strings() []string {
 	out := make([]string, 0, len(s))
@@ -91,47 +80,12 @@ var runtimeKeys = newKeySet(
 	TPMVendorInfoKey,
 )
 
-// builtInKeys are collected unconditionally by built-in collectors.
-var builtInKeys = newKeySet(
-	ArchitectureKey,
-	HostnameKey,
-	KernelKey,
-	CPUCoresKey,
-	CPUProcessorsKey,
-	CPUModelKey,
-	GPUKey,
-	MemoryTotalKbKey,
-	NetInterfaceDefaultKey,
-	NetIPDefaultKey,
-	NetMACDefaultKey,
-	BIOSVendorKey,
-	BIOSVersionKey,
-	ProductNameKey,
-	ProductUUIDKey,
-	ProductSerialKey,
-	DistroNameKey,
-	DistroVersionKey,
-	DistroIdKey,
-)
-
-var allKeys = unionKeySets(builtInKeys, runtimeKeys)
-
-// IsKnownKey reports whether the key is supported by the agent.
-func IsKnownKey(key string) bool {
-	return allKeys.Has(key)
-}
-
-// IsBuiltInKey reports whether the key corresponds to a built-in collector.
-func IsBuiltInKey(key string) bool {
-	return builtInKeys.Has(key)
+// IsRuntimeKey reports whether the key is supplied by a runtime collector.
+func IsRuntimeKey(key string) bool {
+	return runtimeKeys.Has(key)
 }
 
 // RuntimeKeys returns the list of runtime / conditional system-info keys.
 func RuntimeKeys() []string {
 	return runtimeKeys.Strings()
-}
-
-// BuiltInKeys returns the list of built-in system-info keys.
-func BuiltInKeys() []string {
-	return builtInKeys.Strings()
 }
