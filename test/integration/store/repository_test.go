@@ -174,6 +174,52 @@ var _ = Describe("RepositoryStore create", func() {
 			}
 		})
 
+		It("List optionally filters delta storage targets and paginates the filtered result", func() {
+			createOciRepository := func(name, repository string, deltaStorageTarget bool) {
+				spec := api.RepositorySpec{}
+				err := spec.FromOciRepoSpec(api.OciRepoSpec{
+					Registry:           "registry.example.com",
+					Type:               api.OciRepoSpecTypeOci,
+					Repository:         lo.ToPtr(repository),
+					DeltaStorageTarget: lo.ToPtr(deltaStorageTarget),
+				})
+				Expect(err).ToNot(HaveOccurred())
+				_, err = repositoryStore.Create(ctx, orgId, &api.Repository{
+					Metadata: api.ObjectMeta{Name: lo.ToPtr(name)},
+					Spec:     spec,
+				})
+				Expect(err).ToNot(HaveOccurred())
+			}
+
+			createOciRepository("delta-target", "org/deltas", true)
+			createOciRepository("oci-no-target-1", "org/one", false)
+			createOciRepository("oci-no-target-2", "org/two", false)
+
+			allRepositories, err := repositoryStore.List(ctx, orgId, store.ListParams{Limit: 1000})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(allRepositories.Items).To(HaveLen(numRepositories + 3))
+
+			deltaFieldSelector := selector.NewFieldSelectorOrDie("spec.deltaStorageTarget=true")
+			deltaRepositories, err := repositoryStore.List(ctx, orgId, store.ListParams{Limit: 1000, FieldSelector: deltaFieldSelector})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(deltaRepositories.Items).To(HaveLen(1))
+			Expect(*deltaRepositories.Items[0].Metadata.Name).To(Equal("delta-target"))
+
+			nonDeltaFieldSelector := selector.NewFieldSelectorOrDie("spec.deltaStorageTarget=false")
+			filteredRepositories, err := repositoryStore.List(ctx, orgId, store.ListParams{Limit: 1, FieldSelector: nonDeltaFieldSelector})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(filteredRepositories.Items).To(HaveLen(1))
+			Expect(*filteredRepositories.Metadata.RemainingItemCount).To(Equal(int64(1)))
+
+			continueToken, err := store.ParseContinueString(filteredRepositories.Metadata.Continue)
+			Expect(err).ToNot(HaveOccurred())
+			filteredRepositories, err = repositoryStore.List(ctx, orgId, store.ListParams{Limit: 1, Continue: continueToken, FieldSelector: nonDeltaFieldSelector})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(filteredRepositories.Items).To(HaveLen(1))
+			Expect(filteredRepositories.Metadata.Continue).To(BeNil())
+			Expect(filteredRepositories.Metadata.RemainingItemCount).To(BeNil())
+		})
+
 		It("List with labels", func() {
 			listParams := store.ListParams{
 				Limit:         1000,

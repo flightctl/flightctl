@@ -2,11 +2,13 @@ package config
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/internal/util/validation"
 )
 
 // DeltaGenerationConfig contains configuration used by the delta worker.
@@ -14,6 +16,7 @@ type DeltaGenerationConfig struct {
 	DefaultRepository             *DefaultRepositoryConfig `json:"defaultRepository,omitempty"`
 	MaxConcurrentDeltaGenerations int                      `json:"maxConcurrentDeltaGenerations,omitempty"`
 	Timeout                       util.Duration            `json:"timeout,omitempty"`
+	MaxWaitForDelta               *util.Duration           `json:"maxWaitForDelta,omitempty"`
 }
 
 const maxConcurrentDeltaGenerationsLimit = 32
@@ -30,7 +33,6 @@ func (c *DeltaGenerationConfig) EffectiveMaxConcurrentDeltaGenerations() int {
 	return c.MaxConcurrentDeltaGenerations
 }
 
-// EffectiveTimeout returns the configured generation timeout or its default.
 func (c *DeltaGenerationConfig) EffectiveTimeout() time.Duration {
 	if c == nil || time.Duration(c.Timeout) <= 0 {
 		return 30 * time.Minute
@@ -38,7 +40,52 @@ func (c *DeltaGenerationConfig) EffectiveTimeout() time.Duration {
 	return time.Duration(c.Timeout)
 }
 
-// DefaultRepositoryConfig configures the default OCI write target.
+func (c *DeltaGenerationConfig) EffectiveMaxWaitForDelta() *time.Duration {
+	if c == nil || c.MaxWaitForDelta == nil {
+		return nil
+	}
+	d := time.Duration(*c.MaxWaitForDelta)
+	return &d
+}
+
+// Validate validates the default OCI repository settings.
+func (c *DeltaGenerationConfig) Validate() error {
+	if c == nil || c.DefaultRepository == nil {
+		return nil
+	}
+	d := c.DefaultRepository
+	repoSet := d.Repository != nil && strings.TrimSpace(*d.Repository) != ""
+	nsSet := d.Namespace != nil && strings.TrimSpace(*d.Namespace) != ""
+	schemeSet := d.Scheme != nil && strings.TrimSpace(*d.Scheme) != ""
+	caSet := d.CaCrt != nil && strings.TrimSpace(*d.CaCrt) != ""
+	skipSet := d.SkipServerVerification != nil
+	credsSet := d.Username != "" || d.Password != ""
+	anySet := strings.TrimSpace(d.Registry) != "" || repoSet || nsSet || schemeSet || caSet || skipSet || credsSet
+	if anySet {
+		if errs := validation.ValidateHostIPOrFQDNWithOptionalPort(&d.Registry, "deltaGeneration.defaultRepository.registry"); len(errs) > 0 {
+			return errs[0]
+		}
+	}
+	if repoSet && nsSet {
+		return fmt.Errorf("deltaGeneration.defaultRepository.repository and namespace are mutually exclusive")
+	}
+	if d.Scheme != nil && *d.Scheme != "" && *d.Scheme != "http" && *d.Scheme != "https" {
+		return fmt.Errorf("deltaGeneration.defaultRepository.scheme must be http or https")
+	}
+	if repoSet {
+		if errs := validation.ValidateString(d.Repository, "deltaGeneration.defaultRepository.repository", 1, 255, validation.OciImageNameRegexp, validation.OciImageNameFmt); len(errs) > 0 {
+			return errs[0]
+		}
+	}
+	if nsSet {
+		if errs := validation.ValidateString(d.Namespace, "deltaGeneration.defaultRepository.namespace", 1, 255, validation.OciImageNameRegexp, validation.OciImageNameFmt); len(errs) > 0 {
+			return errs[0]
+		}
+	}
+	return nil
+}
+
+// DefaultRepositoryConfig configures the OCI repository used for generated deltas.
 type DefaultRepositoryConfig struct {
 	Registry               string           `json:"registry,omitempty"`
 	Repository             *string          `json:"repository,omitempty"`
@@ -50,7 +97,6 @@ type DefaultRepositoryConfig struct {
 	Password               api.SecureString `json:"-"`
 }
 
-// OciRepoSpec converts the default repository to an OCI repository spec.
 func (d *DefaultRepositoryConfig) OciRepoSpec() (*domain.OciRepoSpec, error) {
 	if d == nil || d.Registry == "" {
 		return nil, nil
