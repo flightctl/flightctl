@@ -2,10 +2,14 @@ package quay
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -659,6 +663,59 @@ func TestNewClient_CustomHTTPClient(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, c)
 	require.Equal(t, customClient, c.httpClient, "custom HTTP client should be preserved")
+}
+
+func writeCertPEM(t *testing.T, cert *x509.Certificate) string {
+	t.Helper()
+
+	path := filepath.Join(t.TempDir(), "ca.pem")
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})
+	require.NoError(t, os.WriteFile(path, certPEM, 0600))
+	return path
+}
+
+func TestBuildTLSTransport_Defaults(t *testing.T) {
+	transport, err := buildTLSTransport(&config.QuayConfig{})
+	require.NoError(t, err)
+	require.NotNil(t, transport.TLSClientConfig)
+	require.False(t, transport.TLSClientConfig.InsecureSkipVerify)
+	require.Nil(t, transport.TLSClientConfig.RootCAs)
+}
+
+func TestBuildTLSTransport_SkipTLSVerify(t *testing.T) {
+	transport, err := buildTLSTransport(&config.QuayConfig{SkipTLSVerify: true})
+	require.NoError(t, err)
+	require.NotNil(t, transport.TLSClientConfig)
+	require.True(t, transport.TLSClientConfig.InsecureSkipVerify)
+}
+
+func TestBuildTLSTransport_CAFileAllowsSelfSigned(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(server.Close)
+
+	caFile := writeCertPEM(t, server.Certificate())
+	transport, err := buildTLSTransport(&config.QuayConfig{CAFile: caFile})
+	require.NoError(t, err)
+
+	client := &http.Client{Transport: transport}
+	response, err := client.Get(server.URL)
+	require.NoError(t, err)
+	require.NoError(t, response.Body.Close())
+}
+
+func TestBuildTLSTransport_InvalidCAFile(t *testing.T) {
+	_, err := buildTLSTransport(&config.QuayConfig{CAFile: filepath.Join(t.TempDir(), "missing.pem")})
+	require.Error(t, err)
+}
+
+func TestBuildTLSTransport_InvalidCAPEM(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "invalid.pem")
+	require.NoError(t, os.WriteFile(path, []byte("not a certificate"), 0600))
+
+	_, err := buildTLSTransport(&config.QuayConfig{CAFile: path})
+	require.Error(t, err)
 }
 
 func TestFetchImageSecurity_UnparseableReference(t *testing.T) {
