@@ -87,11 +87,11 @@ type ServiceTestSuite struct {
 
 	// Focused stores/services consumed directly by specs. Only the resources
 	// actually exercised by this suite's consumer test files are exposed here.
-	AuthProviderStore    authproviderstore.Store
-	EventStore           eventstore.Store
-	DeviceStore          devicestore.Store
-	OrganizationStore    organizationstore.Store
-	NotifySecretsStore   enrollmenthooknotifysecretsstore.Store
+	AuthProviderStore  authproviderstore.Store
+	EventStore         eventstore.Store
+	DeviceStore        devicestore.Store
+	OrganizationStore  organizationstore.Store
+	NotifySecretsStore enrollmenthooknotifysecretsstore.Store
 
 	AuthProvider              authproviderservice.Service
 	Catalog                   catalogservice.Service
