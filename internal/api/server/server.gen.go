@@ -4,6 +4,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 
@@ -122,6 +123,24 @@ type ServerInterface interface {
 
 	// (GET /enrollmentconfig)
 	GetEnrollmentConfig(w http.ResponseWriter, r *http.Request, params GetEnrollmentConfigParams)
+
+	// (GET /enrollmenthookpolicies)
+	ListEnrollmentHookPolicies(w http.ResponseWriter, r *http.Request, params ListEnrollmentHookPoliciesParams)
+
+	// (POST /enrollmenthookpolicies)
+	CreateEnrollmentHookPolicy(w http.ResponseWriter, r *http.Request)
+
+	// (DELETE /enrollmenthookpolicies/{name})
+	DeleteEnrollmentHookPolicy(w http.ResponseWriter, r *http.Request, name string)
+
+	// (GET /enrollmenthookpolicies/{name})
+	GetEnrollmentHookPolicy(w http.ResponseWriter, r *http.Request, name string)
+
+	// (PATCH /enrollmenthookpolicies/{name})
+	PatchEnrollmentHookPolicy(w http.ResponseWriter, r *http.Request, name string)
+
+	// (PUT /enrollmenthookpolicies/{name})
+	ReplaceEnrollmentHookPolicy(w http.ResponseWriter, r *http.Request, name string)
 
 	// (GET /enrollmentrequests)
 	ListEnrollmentRequests(w http.ResponseWriter, r *http.Request, params ListEnrollmentRequestsParams)
@@ -432,6 +451,36 @@ func (_ Unimplemented) ReplaceDeviceStatus(w http.ResponseWriter, r *http.Reques
 
 // (GET /enrollmentconfig)
 func (_ Unimplemented) GetEnrollmentConfig(w http.ResponseWriter, r *http.Request, params GetEnrollmentConfigParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /enrollmenthookpolicies)
+func (_ Unimplemented) ListEnrollmentHookPolicies(w http.ResponseWriter, r *http.Request, params ListEnrollmentHookPoliciesParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /enrollmenthookpolicies)
+func (_ Unimplemented) CreateEnrollmentHookPolicy(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (DELETE /enrollmenthookpolicies/{name})
+func (_ Unimplemented) DeleteEnrollmentHookPolicy(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /enrollmenthookpolicies/{name})
+func (_ Unimplemented) GetEnrollmentHookPolicy(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PATCH /enrollmenthookpolicies/{name})
+func (_ Unimplemented) PatchEnrollmentHookPolicy(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PUT /enrollmenthookpolicies/{name})
+func (_ Unimplemented) ReplaceEnrollmentHookPolicy(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1603,6 +1652,219 @@ func (siw *ServerInterfaceWrapper) GetEnrollmentConfig(w http.ResponseWriter, r 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetEnrollmentConfig(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListEnrollmentHookPolicies operation middleware
+func (siw *ServerInterfaceWrapper) ListEnrollmentHookPolicies(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, OrgIdScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListEnrollmentHookPoliciesParams
+
+	// ------------- Optional query parameter "continue" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "continue", r.URL.Query(), &params.Continue)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "continue", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "labelSelector" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "labelSelector", r.URL.Query(), &params.LabelSelector)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "labelSelector", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "fieldSelector" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "fieldSelector", r.URL.Query(), &params.FieldSelector)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "fieldSelector", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameter("form", true, false, "limit", r.URL.Query(), &params.Limit)
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListEnrollmentHookPolicies(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateEnrollmentHookPolicy operation middleware
+func (siw *ServerInterfaceWrapper) CreateEnrollmentHookPolicy(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, OrgIdScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateEnrollmentHookPolicy(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteEnrollmentHookPolicy operation middleware
+func (siw *ServerInterfaceWrapper) DeleteEnrollmentHookPolicy(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, OrgIdScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteEnrollmentHookPolicy(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetEnrollmentHookPolicy operation middleware
+func (siw *ServerInterfaceWrapper) GetEnrollmentHookPolicy(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, OrgIdScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetEnrollmentHookPolicy(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PatchEnrollmentHookPolicy operation middleware
+func (siw *ServerInterfaceWrapper) PatchEnrollmentHookPolicy(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, OrgIdScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PatchEnrollmentHookPolicy(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReplaceEnrollmentHookPolicy operation middleware
+func (siw *ServerInterfaceWrapper) ReplaceEnrollmentHookPolicy(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, OrgIdScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReplaceEnrollmentHookPolicy(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3164,6 +3426,24 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/enrollmentconfig", wrapper.GetEnrollmentConfig)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/enrollmenthookpolicies", wrapper.ListEnrollmentHookPolicies)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/enrollmenthookpolicies", wrapper.CreateEnrollmentHookPolicy)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/enrollmenthookpolicies/{name}", wrapper.DeleteEnrollmentHookPolicy)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/enrollmenthookpolicies/{name}", wrapper.GetEnrollmentHookPolicy)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/enrollmenthookpolicies/{name}", wrapper.PatchEnrollmentHookPolicy)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/enrollmenthookpolicies/{name}", wrapper.ReplaceEnrollmentHookPolicy)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/enrollmentrequests", wrapper.ListEnrollmentRequests)

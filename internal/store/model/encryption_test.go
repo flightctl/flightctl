@@ -145,14 +145,15 @@ func TestEncryptionFormatStability(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestEncryptionHandlers_Registry(t *testing.T) {
-	_ = setupEncryption(t)
+	mgr := setupEncryption(t)
 
 	handlers := EncryptionHandlers()
-	require.Len(t, handlers, 3, "Should have 3 handlers registered")
+	require.Len(t, handlers, 4, "Should have 4 handlers registered")
 
 	require.Contains(t, handlers, domain.RepositoryKind)
 	require.Contains(t, handlers, domain.AuthProviderKind)
 	require.Contains(t, handlers, domain.DeviceKind)
+	require.Contains(t, handlers, domain.EnrollmentHookPolicyKind)
 
 	noopEncrypt := func(_ context.Context, data []byte) ([]byte, error) {
 		return data, nil
@@ -170,6 +171,30 @@ func TestEncryptionHandlers_Registry(t *testing.T) {
 				model = &AuthProvider{}
 			case domain.DeviceKind:
 				model = &Device{}
+			case domain.EnrollmentHookPolicyKind:
+				token := "secret-token"
+				model = &EnrollmentHookPolicy{
+					Spec: MakeJSONField(domain.EnrollmentHookPolicySpec{
+						AfterEnrolling: domain.EnrollmentHookStageSpec{
+							ControlPlaneActions: &[]domain.EnrollmentHookHttpAction{
+								{
+									Url: "https://example.com/hook",
+									Auth: &domain.EnrollmentHookAuth{
+										BearerToken: &token,
+									},
+								},
+							},
+						},
+					}),
+				}
+				err := handler(context.Background(), model, mgr.Encrypt)
+				require.NoError(t, err)
+				actions := model.(*EnrollmentHookPolicy).Spec.Data.AfterEnrolling.ControlPlaneActions
+				require.NotNil(t, actions)
+				encryptedToken := (*actions)[0].Auth.BearerToken
+				require.NotNil(t, encryptedToken)
+				require.True(t, encryption.IsEncrypted([]byte(*encryptedToken)))
+				return
 			default:
 				t.Fatalf("Unknown model type: %s", modelName)
 			}

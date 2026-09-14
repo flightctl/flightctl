@@ -128,6 +128,7 @@ var _ = Describe("Encryption migration", func() {
 		runUntilComplete(migrator, domain.RepositoryKind, orgId)
 		runUntilComplete(migrator, domain.AuthProviderKind, orgId)
 		runUntilComplete(migrator, domain.DeviceKind, orgId)
+		runUntilComplete(migrator, domain.EnrollmentHookPolicyKind, orgId)
 
 		var repo model.Repository
 		Expect(db.WithContext(ctx).First(&repo, "org_id = ? AND name = ?", orgId, "repo-plain").Error).To(Succeed())

@@ -313,6 +313,16 @@ func applyResourceByKind(ctx context.Context, c *client.Client, ibClient *client
 	case AuthProviderKind:
 		response, err := c.ReplaceAuthProviderWithBodyWithResponse(ctx, resourceName, "application/json", bytes.NewReader(buf))
 		return extractApplyResult(response, err)
+	case EnrollmentHookPolicyKind:
+		createResp, err := c.CreateEnrollmentHookPolicyWithBodyWithResponse(ctx, "application/json", bytes.NewReader(buf))
+		if err != nil {
+			return applyResult{err: err}
+		}
+		if createResp.HTTPResponse != nil && createResp.HTTPResponse.StatusCode == http.StatusConflict {
+			replaceResp, err := c.ReplaceEnrollmentHookPolicyWithBodyWithResponse(ctx, resourceName, "application/json", bytes.NewReader(buf))
+			return extractApplyResult(replaceResp, err)
+		}
+		return extractApplyResult(createResp, err)
 	case ImageBuildKind:
 		if ibClient == nil {
 			return applyResult{err: fmt.Errorf("imagebuilder service is not configured. Please configure 'imageBuilderService.server' in your client config")}
@@ -379,6 +389,10 @@ func extractApplyResult(response interface{}, err error) applyResult {
 	case *apiclient.ReplaceCertificateSigningRequestResponse:
 		return buildApplyResult(r.HTTPResponse, r.Body)
 	case *apiclient.ReplaceAuthProviderResponse:
+		return buildApplyResult(r.HTTPResponse, r.Body)
+	case *apiclient.CreateEnrollmentHookPolicyResponse:
+		return buildApplyResult(r.HTTPResponse, r.Body)
+	case *apiclient.ReplaceEnrollmentHookPolicyResponse:
 		return buildApplyResult(r.HTTPResponse, r.Body)
 	case *apiclientv1alpha1.ReplaceCatalogResponse:
 		return buildApplyResult(r.HTTPResponse, r.Body)

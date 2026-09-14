@@ -403,6 +403,10 @@ func TestStaticAuthZ_GetUserPermissions(t *testing.T) {
 					Operations: []string{"update"},
 				},
 				{
+					Resource:   "enrollmenthookpolicies",
+					Operations: []string{"create", "delete", "get", "list", "patch", "update"},
+				},
+				{
 					Resource:   "fleets",
 					Operations: []string{"create", "delete", "get", "list", "patch", "update"},
 				},

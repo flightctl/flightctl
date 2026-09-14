@@ -50,6 +50,7 @@ rules:
       - devices/resume
       - devices/status
       - enrollmentconfig
+      - enrollmenthookpolicies
       - enrollmentrequests
       - enrollmentrequests/approval
       - enrollmentrequests/status
@@ -104,6 +105,7 @@ rules:
       - flightctl.io
     resources:
       - devices
+      - enrollmenthookpolicies
       - fleets
       - imagebuilds
       - imageexports

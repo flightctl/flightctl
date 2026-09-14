@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
 	"github.com/flightctl/flightctl/internal/service/device"
 	"github.com/flightctl/flightctl/internal/service/enrollmentconfig"
+	"github.com/flightctl/flightctl/internal/service/enrollmenthookpolicy"
 	"github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/service/event"
 	"github.com/flightctl/flightctl/internal/service/fleet"
@@ -31,6 +32,7 @@ type TransportHandler struct {
 	authprovider              authprovider.Service
 	certificatesigningrequest certificatesigningrequest.Service
 	device                    device.Service
+	enrollmenthookpolicy      enrollmenthookpolicy.Service
 	enrollmentrequest         enrollmentrequest.Service
 	enrollmentconfig          enrollmentconfig.Service
 	event                     event.Service
@@ -59,6 +61,7 @@ func NewTransportHandler(
 	authproviderSvc authprovider.Service,
 	certificatesigningrequestSvc certificatesigningrequest.Service,
 	deviceSvc device.Service,
+	enrollmenthookpolicySvc enrollmenthookpolicy.Service,
 	enrollmentrequestSvc enrollmentrequest.Service,
 	enrollmentconfigSvc enrollmentconfig.Service,
 	eventSvc event.Service,
@@ -77,6 +80,7 @@ func NewTransportHandler(
 		authprovider:              authproviderSvc,
 		certificatesigningrequest: certificatesigningrequestSvc,
 		device:                    deviceSvc,
+		enrollmenthookpolicy:      enrollmenthookpolicySvc,
 		enrollmentrequest:         enrollmentrequestSvc,
 		enrollmentconfig:          enrollmentconfigSvc,
 		event:                     eventSvc,

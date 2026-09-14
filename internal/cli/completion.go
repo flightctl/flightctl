@@ -330,6 +330,15 @@ func (kna *KindNameAutocomplete) getAutocompleteNames(cmd *cobra.Command, o Clie
 				}
 			}
 		}
+	case EnrollmentHookPolicyKind:
+		resp, err := c.ListEnrollmentHookPoliciesWithResponse(ctx, &api.ListEnrollmentHookPoliciesParams{})
+		if err == nil && resp.JSON200 != nil {
+			for _, policy := range resp.JSON200.Items {
+				if policy.Metadata.Name != nil {
+					names = append(names, *policy.Metadata.Name)
+				}
+			}
+		}
 	case TemplateVersionKind:
 		if kna.FleetName != nil {
 			resp, err := c.ListTemplateVersionsWithResponse(ctx, *kna.FleetName, &api.ListTemplateVersionsParams{})

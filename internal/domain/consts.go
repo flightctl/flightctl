@@ -98,6 +98,14 @@ const (
 	RepositoryListKind   = v1beta1.RepositoryListKind
 )
 
+// ========== EnrollmentHookPolicy ==========
+
+const (
+	EnrollmentHookPolicyAPIVersion = v1beta1.EnrollmentHookPolicyAPIVersion
+	EnrollmentHookPolicyKind       = v1beta1.EnrollmentHookPolicyKind
+	EnrollmentHookPolicyListKind   = v1beta1.EnrollmentHookPolicyListKind
+)
+
 // ========== AuthProvider ==========
 
 const (

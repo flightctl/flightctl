@@ -857,6 +857,14 @@ func (o *GetOptions) getResourceList(ctx context.Context, c *client.Client, kind
 			Continue:      util.ToPtrWithNilDefault(o.Continue),
 		}
 		return c.ListAuthProvidersWithResponse(ctx, &params)
+	case EnrollmentHookPolicyKind:
+		params := api.ListEnrollmentHookPoliciesParams{
+			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
+			FieldSelector: util.ToPtrWithNilDefault(o.FieldSelector),
+			Limit:         util.ToPtrWithNilDefault(o.Limit),
+			Continue:      util.ToPtrWithNilDefault(o.Continue),
+		}
+		return c.ListEnrollmentHookPoliciesWithResponse(ctx, &params)
 	case CatalogKind:
 		params := apiv1alpha1.ListCatalogsParams{
 			LabelSelector: util.ToPtrWithNilDefault(o.LabelSelector),
