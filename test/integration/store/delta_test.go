@@ -340,6 +340,27 @@ var _ = Describe("DeltaStore", func() {
 			`).Scan(&fkCount).Error).ToNot(HaveOccurred())
 			Expect(fkCount).To(Equal(int64(0)))
 		})
+
+		It("should roll back the complete batch when one join fails", func() {
+			g := generation(orgId, "quay.io/team-a/os")
+			insertGens(g)
+			prep := fleetPrepare("atomic-joins", nil)
+			Expect(deltaStore.CreateDeltaPrepare(ctx, prep)).To(Succeed())
+
+			valid := &model.DeltaPrepareGeneration{
+				PrepareID: prep.ID, OrgID: g.OrgID, ImageRepository: g.ImageRepository,
+				SourceDigest: g.SourceDigest, TargetDigest: g.TargetDigest,
+			}
+			invalid := *valid
+			invalid.TargetDigest = "sha256:missing"
+
+			_, err := deltaStore.CreateDeltaPrepareGenerations(ctx, []*model.DeltaPrepareGeneration{valid, &invalid})
+			Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
+
+			joins, err := deltaStore.ListDeltaPrepareGenerations(ctx, deltastore.DeltaPrepareGenerationListFilter{PrepareID: &prep.ID})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(joins).To(BeEmpty())
+		})
 	})
 
 	Context("When inserting the same prepare-generation key twice in one batch", func() {
@@ -672,6 +693,29 @@ var _ = Describe("DeltaStore", func() {
 			listed, err := deltaStore.ListDeltaPrepareGenerations(ctx, deltastore.DeltaPrepareGenerationListFilter{PrepareID: &prep.ID})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(listed).To(HaveLen(generationCount))
+		})
+
+		It("should list every prepare waiting on one generation", func() {
+			const prepareCount = 1001
+			g := generation(orgId, "quay.io/team-a/os")
+			insertGens(g)
+
+			joins := make([]*model.DeltaPrepareGeneration, prepareCount)
+			for i := range joins {
+				prep := fleetPrepare(fmt.Sprintf("many-prepares-%04d", i), nil)
+				Expect(deltaStore.CreateDeltaPrepare(ctx, prep)).To(Succeed())
+				joins[i] = &model.DeltaPrepareGeneration{
+					PrepareID: prep.ID, OrgID: g.OrgID, ImageRepository: g.ImageRepository,
+					SourceDigest: g.SourceDigest, TargetDigest: g.TargetDigest,
+				}
+			}
+			_, err := deltaStore.CreateDeltaPrepareGenerations(ctx, joins)
+			Expect(err).ToNot(HaveOccurred())
+
+			key := keyOf(g)
+			listed, err := deltaStore.ListDeltaPrepareGenerations(ctx, deltastore.DeltaPrepareGenerationListFilter{GenerationKey: &key})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(listed).To(HaveLen(prepareCount))
 		})
 	})
 

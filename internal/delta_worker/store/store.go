@@ -570,45 +570,44 @@ func (s *DeltaStore) CreateDeltaPrepareGenerations(ctx context.Context, joins []
 	if len(joins) == 0 {
 		return nil, nil
 	}
-	inserted := make([]*model.DeltaPrepareGeneration, 0, len(joins))
 	for _, join := range joins {
 		if join == nil {
 			return nil, fmt.Errorf("cannot insert nil DeltaPrepareGeneration")
 		}
-		result := s.getDB(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(join)
-		if result.Error != nil {
-			return nil, store.ErrorFromGormError(result.Error)
+	}
+
+	inserted := make([]*model.DeltaPrepareGeneration, 0, len(joins))
+	err := store.RunInTransaction(ctx, s.dbHandler, func(tx *gorm.DB) error {
+		for _, join := range joins {
+			result := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(join)
+			if result.Error != nil {
+				return store.ErrorFromGormError(result.Error)
+			}
+			if result.RowsAffected == 1 {
+				inserted = append(inserted, join)
+			}
 		}
-		if result.RowsAffected == 1 {
-			inserted = append(inserted, join)
-		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return inserted, nil
 }
 
-const maxPrepareGenerationsPerGeneration = 1000
-
 func (s *DeltaStore) ListDeltaPrepareGenerations(ctx context.Context, filter DeltaPrepareGenerationListFilter) ([]model.DeltaPrepareGeneration, error) {
 	query := s.getDB(ctx)
-	maxRows := 0
 	if filter.PrepareID != nil {
 		query = query.Where("prepare_id = ?", *filter.PrepareID)
 	}
 	if filter.GenerationKey != nil {
 		key := filter.GenerationKey
 		query = query.Where("org_id = ? AND image_repository = ? AND source_digest = ? AND target_digest = ?", key.OrgID, key.ImageRepository, key.SourceDigest, key.TargetDigest)
-		maxRows = maxPrepareGenerationsPerGeneration
 	}
 	var rows []model.DeltaPrepareGeneration
 	query = query.Order("prepare_id ASC, org_id ASC, image_repository ASC, source_digest ASC, target_digest ASC")
 	for offset := 0; ; offset += deltaListBatchSize {
 		pageSize := deltaListBatchSize
-		if maxRows > 0 && maxRows-offset < pageSize {
-			pageSize = maxRows - offset
-		}
-		if pageSize <= 0 {
-			break
-		}
 		var batch []model.DeltaPrepareGeneration
 		result := query.Offset(offset).Limit(pageSize).Find(&batch)
 		if result.Error != nil {
