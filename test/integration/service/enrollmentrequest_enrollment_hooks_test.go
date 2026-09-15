@@ -108,6 +108,68 @@ var _ = Describe("EnrollmentRequest EnrollmentHooks Integration", func() {
 		})
 	})
 
+	Context("Agent status update after approve", func() {
+		It("When an approved device receives an agent status update it should preserve EnrollmentHooks snapshot and condition", func() {
+			By("creating a policy and approving an enrollment request")
+			policy := api.EnrollmentHookPolicy{
+				ApiVersion: "flightctl.io/v1beta1",
+				Kind:       api.EnrollmentHookPolicyKind,
+				Metadata:   api.ObjectMeta{Name: lo.ToPtr("default")},
+				Spec: api.EnrollmentHookPolicySpec{
+					AfterEnrolling: api.EnrollmentHookStageSpec{
+						FailurePolicy: lo.ToPtr(api.FailurePolicyBlock),
+						ControlPlaneActions: &[]api.EnrollmentHookHttpAction{
+							{
+								Url: "https://hooks.example.com/notify",
+								Auth: &api.EnrollmentHookAuth{
+									BearerToken: lo.ToPtr("secret-token-1"),
+								},
+							},
+						},
+					},
+				},
+			}
+			_, pSt := suite.EnrollmentHookPolicy.CreateEnrollmentHookPolicy(suite.Ctx, suite.OrgID, policy)
+			Expect(pSt.Code).To(BeEquivalentTo(http.StatusCreated))
+
+			er := CreateTestER()
+			erName := lo.FromPtr(er.Metadata.Name)
+			_, st := suite.EnrollmentRequest.CreateEnrollmentRequest(ctx, suite.OrgID, er)
+			Expect(st.Code).To(BeEquivalentTo(http.StatusCreated))
+			approveER(suite, ctx, erName)
+
+			By("simulating an agent heartbeat that replaces device status")
+			agentStatus := domain.NewDeviceStatus()
+			agentStatus.SystemInfo = api.DeviceSystemInfo{
+				OperatingSystem: "linux",
+				Architecture:    "amd64",
+				AgentVersion:    "v1.0.0",
+			}
+			agentDevice := domain.Device{
+				Metadata: domain.ObjectMeta{Name: lo.ToPtr(erName)},
+				Status:   &agentStatus,
+			}
+			_, replaceSt := suite.Device.ReplaceDeviceStatus(ctx, suite.OrgID, erName, agentDevice, true)
+			Expect(replaceSt.Code).To(BeEquivalentTo(http.StatusOK))
+
+			By("verifying EnrollmentHooks snapshot and condition survived the status replace")
+			dev, devSt := suite.Device.GetDevice(ctx, suite.OrgID, erName)
+			Expect(devSt.Code).To(BeEquivalentTo(http.StatusOK))
+
+			cond := domain.FindStatusCondition(dev.Status.Conditions, domain.ConditionTypeDeviceEnrollmentHooks)
+			Expect(cond).NotTo(BeNil())
+			Expect(cond.Status).To(Equal(domain.ConditionStatusFalse))
+			Expect(cond.Reason).To(Equal(domain.EnrollmentHooksReasonNotifyPending))
+
+			Expect(dev.Status.EnrollmentHooks).NotTo(BeNil())
+			Expect(dev.Status.EnrollmentHooks.Snapshot).NotTo(BeNil())
+			Expect(dev.Status.EnrollmentHooks.Snapshot.FailurePolicy).To(Equal(api.FailurePolicyBlock))
+			Expect(dev.Status.EnrollmentHooks.Snapshot.ControlPlaneActions).NotTo(BeNil())
+			Expect(*dev.Status.EnrollmentHooks.Snapshot.ControlPlaneActions).To(HaveLen(1))
+			Expect((*dev.Status.EnrollmentHooks.Snapshot.ControlPlaneActions)[0].Url).To(Equal("https://hooks.example.com/notify"))
+		})
+	})
+
 	Context("Approve with gate-only policy (TC-FR11-02)", func() {
 		It("When approving with gate-only policy it should set EnrollmentHooks=False/Pending", func() {
 			By("creating a gate-only policy (no controlPlaneActions)")

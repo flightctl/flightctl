@@ -826,3 +826,25 @@ func TestUpdateServerSideDeviceUpdatedStatus_ManagedDeviceErrorPriority(t *testi
 		})
 	}
 }
+
+func TestKeepDBDeviceStatusPreservesEnrollmentHooks(t *testing.T) {
+	snapshot := &domain.DeviceEnrollmentHooksStatus{
+		Snapshot: &domain.EnrollmentHookSnapshot{
+			FailurePolicy: domain.FailurePolicyBlock,
+		},
+	}
+	incoming := &domain.Device{
+		Status: &domain.DeviceStatus{
+			Summary: domain.DeviceSummaryStatus{Status: domain.DeviceSummaryStatusUnknown},
+		},
+	}
+	dbDevice := &domain.Device{
+		Status: &domain.DeviceStatus{
+			EnrollmentHooks: snapshot,
+		},
+	}
+
+	KeepDBDeviceStatus(incoming, dbDevice)
+
+	assert.Equal(t, snapshot, incoming.Status.EnrollmentHooks)
+}
