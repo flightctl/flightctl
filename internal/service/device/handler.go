@@ -898,7 +898,7 @@ func (h *DeviceServiceHandler) SetDeviceServiceConditions(ctx context.Context, o
 	return domain.StatusOK()
 }
 
-// serviceConditionsFromDevice returns SpecValid / MultipleOwners conditions from
+// serviceConditionsFromDevice returns service-owned conditions from
 // Status.Conditions (agent and service conditions are stored separately but
 // exposed together by Get).
 func serviceConditionsFromDevice(device *domain.Device) []domain.Condition {
