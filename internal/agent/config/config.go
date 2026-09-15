@@ -602,7 +602,10 @@ func (cfg *Config) LoadWithOverrides(configFile string) error {
 	entries, err := cfg.readWriter.ReadDir(confSubdir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return cfg.Complete()
+			if err := cfg.Complete(); err != nil {
+				return err
+			}
+			return cfg.Validate()
 		}
 		return err
 	}

@@ -528,6 +528,27 @@ enrollment:
 }
 
 func TestSystemInfoCollectionInterval(t *testing.T) {
+	t.Run("When no drop-ins exist and system-info-periodic interval is below the minimum it should fail loading", func(t *testing.T) {
+		require := require.New(t)
+
+		configDir := t.TempDir()
+		dataDir := filepath.Join(configDir, "data")
+		readWriter := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
+		require.NoError(readWriter.MkdirAll(dataDir, 0o755))
+		configFile := filepath.Join(configDir, "config.yaml")
+		require.NoError(readWriter.WriteFile(configFile, []byte(yamlConfig+`
+system-info-periodic:
+  interval: 1s
+`), 0o600))
+
+		cfg := NewDefault()
+		cfg.ConfigDir = configDir
+		cfg.DataDir = dataDir
+		cfg.readWriter = readWriter
+		err := cfg.LoadWithOverrides(configFile)
+		require.ErrorContains(err, "minimum system info periodic interval is 2s have 1s")
+	})
+
 	t.Run("When a drop-in sets system-info-periodic interval it should override the base interval", func(t *testing.T) {
 		require := require.New(t)
 
