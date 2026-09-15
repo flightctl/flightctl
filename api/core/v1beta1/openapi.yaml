@@ -8836,7 +8836,6 @@ components:
       description: Structured details for PrepareDeltas events.
       required:
         - detailType
-        - resourceVersion
       properties:
         detailType:
           type: string
@@ -8852,7 +8851,7 @@ components:
           description: Device only. The rendered spec hash this prepare is for. Required when involvedObject.kind is Device; omitted for Fleet.
         resourceVersion:
           type: string
-          description: The resource version of the involved Fleet or Device when this prepare event was created. Used to ignore stale prepare events. Required for PrepareDeltas events.
+          description: The resource version of the involved Fleet or Device when this prepare event was created. Used to ignore stale prepare events. May be omitted for retained events created before this field was introduced.
     DeltaGenerationProgressDetails:
       type: object
       description: Structured details for DeltaGenerationProgress events. One event when a pair enters a phase or becomes terminal, fanned out to each waiting Fleet or standalone Device. Not a percent heartbeat.

@@ -73,7 +73,10 @@ func (s *storePreparingStatus) setFleet(ctx context.Context, orgId uuid.UUID, na
 		m.Fleet.Status.DeltaGeneration = generation
 		return nil
 	})
-	return err
+	if err != nil {
+		return fmt.Errorf("set fleet preparing status: %w", err)
+	}
+	return nil
 }
 
 func (s *storePreparingStatus) clearFleet(ctx context.Context, orgId uuid.UUID, name string) error {
@@ -91,7 +94,10 @@ func (s *storePreparingStatus) clearFleet(ctx context.Context, orgId uuid.UUID, 
 		m.Fleet.Status.DeltaGeneration = nil
 		return nil
 	})
-	return err
+	if err != nil {
+		return fmt.Errorf("clear fleet preparing status: %w", err)
+	}
+	return nil
 }
 
 func (s *storePreparingStatus) setDevice(ctx context.Context, orgId uuid.UUID, name string, completed, total int) error {
@@ -111,7 +117,10 @@ func (s *storePreparingStatus) setDevice(ctx context.Context, orgId uuid.UUID, n
 		m.Device.Status.DeltaGeneration = generation
 		return nil
 	})
-	return err
+	if err != nil {
+		return fmt.Errorf("set device preparing status: %w", err)
+	}
+	return nil
 }
 
 func (s *storePreparingStatus) clearDevice(ctx context.Context, orgId uuid.UUID, name string) error {
@@ -129,7 +138,10 @@ func (s *storePreparingStatus) clearDevice(ctx context.Context, orgId uuid.UUID,
 		m.Device.Status.DeltaGeneration = nil
 		return nil
 	})
-	return err
+	if err != nil {
+		return fmt.Errorf("clear device preparing status: %w", err)
+	}
+	return nil
 }
 
 func newDeltaGenerationStatus(completed, total int) *domain.DeltaGenerationStatus {

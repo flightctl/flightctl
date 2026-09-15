@@ -590,21 +590,34 @@ const maxPrepareGenerationsPerGeneration = 1000
 
 func (s *DeltaStore) ListDeltaPrepareGenerations(ctx context.Context, filter DeltaPrepareGenerationListFilter) ([]model.DeltaPrepareGeneration, error) {
 	query := s.getDB(ctx)
+	maxRows := 0
 	if filter.PrepareID != nil {
 		query = query.Where("prepare_id = ?", *filter.PrepareID)
 	}
 	if filter.GenerationKey != nil {
 		key := filter.GenerationKey
 		query = query.Where("org_id = ? AND image_repository = ? AND source_digest = ? AND target_digest = ?", key.OrgID, key.ImageRepository, key.SourceDigest, key.TargetDigest)
-		query = query.Limit(maxPrepareGenerationsPerGeneration)
+		maxRows = maxPrepareGenerationsPerGeneration
 	}
 	var rows []model.DeltaPrepareGeneration
-	var batch []model.DeltaPrepareGeneration
-	if result := query.Order("prepare_id ASC").FindInBatches(&batch, deltaListBatchSize, func(_ *gorm.DB, _ int) error {
+	query = query.Order("prepare_id ASC, org_id ASC, image_repository ASC, source_digest ASC, target_digest ASC")
+	for offset := 0; ; offset += deltaListBatchSize {
+		pageSize := deltaListBatchSize
+		if maxRows > 0 && maxRows-offset < pageSize {
+			pageSize = maxRows - offset
+		}
+		if pageSize <= 0 {
+			break
+		}
+		var batch []model.DeltaPrepareGeneration
+		result := query.Offset(offset).Limit(pageSize).Find(&batch)
+		if result.Error != nil {
+			return nil, store.ErrorFromGormError(result.Error)
+		}
 		rows = append(rows, batch...)
-		return nil
-	}); result.Error != nil {
-		return nil, store.ErrorFromGormError(result.Error)
+		if len(batch) < pageSize {
+			break
+		}
 	}
 	return rows, nil
 }

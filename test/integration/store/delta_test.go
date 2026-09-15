@@ -3,6 +3,7 @@ package store_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
@@ -608,6 +609,25 @@ var _ = Describe("DeltaStore", func() {
 		})
 	})
 
+	Context("When transitioning a prepare through the legacy adapter", func() {
+		It("should bump resource_version with the status transition", func() {
+			prep := fleetPrepare("myfleet", nil)
+			Expect(deltaStore.CreateDeltaPrepare(ctx, prep)).To(Succeed())
+			initialRV := prep.ResourceVersion
+
+			Expect(deltaStore.CASPrepareStatus(ctx, prep.ID, model.DeltaPrepareComplete)).To(Succeed())
+
+			updated, err := deltaStore.GetDeltaPrepare(ctx, deltastore.PrepareKey{ID: prep.ID})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updated.Status).To(Equal(model.DeltaPrepareComplete))
+			Expect(updated.ResourceVersion).To(Equal(initialRV + 1))
+
+			updated.Status = model.DeltaPrepareFailed
+			_, err = deltaStore.UpdateDeltaPrepare(ctx, initialRV, updated)
+			Expect(err).To(MatchError(flterrors.ErrNoRowsUpdated))
+		})
+	})
+
 	Context("When listing prepare-generation joins with optional filters", func() {
 		It("should support both directions and an unfiltered query", func() {
 			g := generation(orgId, "quay.io/team-a/os")
@@ -633,6 +653,25 @@ var _ = Describe("DeltaStore", func() {
 			byGeneration, err := deltaStore.ListDeltaPrepareGenerations(ctx, deltastore.DeltaPrepareGenerationListFilter{GenerationKey: &key})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(byGeneration).To(HaveLen(1))
+		})
+
+		It("should list more rows than one query batch for a composite-key model", func() {
+			const generationCount = 501
+			generations := make([]*model.DeltaGeneration, generationCount)
+			keys := make([]deltastore.GenerationKey, generationCount)
+			for i := range generations {
+				generations[i] = generation(orgId, fmt.Sprintf("quay.io/team-a/os-%03d", i))
+				keys[i] = keyOf(generations[i])
+			}
+			insertGens(generations...)
+
+			prep := fleetPrepare("many-generations", nil)
+			Expect(deltaStore.CreateDeltaPrepare(ctx, prep)).To(Succeed())
+			Expect(createDeltaPrepareGenerations(ctx, deltaStore, prep.ID, keys)).To(Succeed())
+
+			listed, err := deltaStore.ListDeltaPrepareGenerations(ctx, deltastore.DeltaPrepareGenerationListFilter{PrepareID: &prep.ID})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(listed).To(HaveLen(generationCount))
 		})
 	})
 

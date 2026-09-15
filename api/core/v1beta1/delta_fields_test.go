@@ -226,18 +226,23 @@ func TestPrepareDeltasDetailsJSON(t *testing.T) {
 			wantTV:    nil,
 		},
 		{
+			name:      "When resourceVersion is omitted it should round-trip for a retained prepare",
+			jsonInput: `{"detailType":"PrepareDeltas","templateVersion":"tv-1"}`,
+			wantTV:    lo.ToPtr("tv-1"),
+		},
+		{
 			name:            "When TemplateVersion is nil it should omit templateVersion from JSON",
-			marshalSource:   PrepareDeltasDetails{DetailType: PrepareDeltas, ResourceVersion: "1"},
+			marshalSource:   PrepareDeltasDetails{DetailType: PrepareDeltas, ResourceVersion: lo.ToPtr("1")},
 			wantMarshalOmit: true,
 		},
 		{
 			name:          "When TemplateVersion is set it should include templateVersion in JSON",
-			marshalSource: PrepareDeltasDetails{DetailType: PrepareDeltas, ResourceVersion: "1", TemplateVersion: lo.ToPtr("tv-2")},
+			marshalSource: PrepareDeltasDetails{DetailType: PrepareDeltas, ResourceVersion: lo.ToPtr("1"), TemplateVersion: lo.ToPtr("tv-2")},
 			wantMarshalTV: "tv-2",
 		},
 		{
 			name:            "When SpecHash is set it should include specHash in JSON",
-			marshalSource:   PrepareDeltasDetails{DetailType: PrepareDeltas, ResourceVersion: "1", SpecHash: lo.ToPtr("hash-1")},
+			marshalSource:   PrepareDeltasDetails{DetailType: PrepareDeltas, ResourceVersion: lo.ToPtr("1"), SpecHash: lo.ToPtr("hash-1")},
 			wantMarshalHash: "hash-1",
 		},
 	}

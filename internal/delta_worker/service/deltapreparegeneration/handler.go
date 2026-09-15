@@ -57,7 +57,7 @@ func (h *ServiceHandler) CreateDeltaPrepareGenerations(ctx context.Context, join
 		if err != nil {
 			return fmt.Errorf("get delta prepare %s: %w", join.PrepareID, err)
 		}
-		if prepare.Status != model.DeltaPrepareWaiting {
+		if prepare == nil || prepare.Status != model.DeltaPrepareWaiting {
 			continue
 		}
 		event, err := deltageneration.DeltaGenerationProgressEvent(ctx, *prepare, key, domain.DeltaGenerationProgressInProgress, deltageneration.GenerationPhasePtr(generation))

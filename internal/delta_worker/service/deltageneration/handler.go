@@ -43,11 +43,19 @@ func (h *ServiceHandler) CreateDeltaGenerations(ctx context.Context, generations
 	if err != nil {
 		return nil, err
 	}
+	persisted := make(map[deltastore.GenerationKey]*model.DeltaGeneration, len(current))
+	for i := range current {
+		persisted[generationKeyOf(&current[i])] = &current[i]
+	}
 	for _, generation := range generations {
 		if generation == nil || !isTerminalStatus(generation.Status) {
 			continue
 		}
-		if err := h.emitForGeneration(ctx, generation, statusForGeneration(generation.Status), nil); err != nil {
+		stored := persisted[generationKeyOf(generation)]
+		if stored == nil || !isTerminalStatus(stored.Status) {
+			continue
+		}
+		if err := h.emitForGeneration(ctx, stored, statusForGeneration(stored.Status), GenerationPhasePtr(stored)); err != nil {
 			return nil, err
 		}
 	}
@@ -117,6 +125,15 @@ func (h *ServiceHandler) emitForGeneration(ctx context.Context, generation *mode
 
 func isTerminalStatus(status string) bool {
 	return status == model.DeltaGenerationSucceeded || status == model.DeltaGenerationFailed || status == model.DeltaGenerationRejected
+}
+
+func generationKeyOf(generation *model.DeltaGeneration) deltastore.GenerationKey {
+	return deltastore.GenerationKey{
+		OrgID:           generation.OrgID,
+		ImageRepository: generation.ImageRepository,
+		SourceDigest:    generation.SourceDigest,
+		TargetDigest:    generation.TargetDigest,
+	}
 }
 
 func statusForGeneration(status string) domain.DeltaGenerationProgressDetailsGenerationStatus {

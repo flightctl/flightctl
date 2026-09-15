@@ -2,6 +2,7 @@ package deltapreparegeneration
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/delta_worker/model"
@@ -16,6 +17,7 @@ import (
 
 type fakeGenerationService struct {
 	generations []model.DeltaGeneration
+	err         error
 }
 
 func (f *fakeGenerationService) CreateDeltaGenerations(context.Context, []*model.DeltaGeneration) ([]model.DeltaGeneration, error) {
@@ -25,7 +27,7 @@ func (f *fakeGenerationService) GetDeltaGeneration(context.Context, deltastore.G
 	return nil, nil
 }
 func (f *fakeGenerationService) ListDeltaGenerations(context.Context, []deltastore.GenerationKey) ([]model.DeltaGeneration, error) {
-	return f.generations, nil
+	return f.generations, f.err
 }
 func (f *fakeGenerationService) UpdateDeltaGeneration(context.Context, int64, *model.DeltaGeneration) (*model.DeltaGeneration, error) {
 	return nil, nil
@@ -85,6 +87,39 @@ func TestServiceCreateDeltaPrepareGenerationsReportsExistingProgress(t *testing.
 	require.NoError(t, err)
 	require.Len(t, events.created, 1)
 	require.Equal(t, domain.EventReasonDeltaGenerationProgress, events.created[0].Reason)
+}
+
+func TestServiceCreateDeltaPrepareGenerationsPropagatesGenerationListError(t *testing.T) {
+	joins := &recordingJoinStore{joins: []*model.DeltaPrepareGeneration{{PrepareID: uuid.New()}}}
+	events := &recordingEvents{}
+	wantErr := errors.New("generation store unavailable")
+	h := NewServiceHandler(joins, &fakeGenerationService{err: wantErr}, &fakePrepareService{}, events)
+
+	err := h.CreateDeltaPrepareGenerations(context.Background(), joins.joins)
+
+	require.ErrorIs(t, err, wantErr)
+	require.Empty(t, events.created)
+}
+
+func TestServiceCreateDeltaPrepareGenerationsSkipsMissingPrepare(t *testing.T) {
+	orgID := uuid.New()
+	joins := &recordingJoinStore{joins: []*model.DeltaPrepareGeneration{{
+		PrepareID: uuid.New(), OrgID: orgID, ImageRepository: "quay.io/example/os", SourceDigest: "sha256:source", TargetDigest: "sha256:target",
+	}}}
+	events := &recordingEvents{}
+	h := NewServiceHandler(
+		joins,
+		&fakeGenerationService{generations: []model.DeltaGeneration{{
+			OrgID: orgID, ImageRepository: "quay.io/example/os", SourceDigest: "sha256:source", TargetDigest: "sha256:target", Status: model.DeltaGenerationInProgress,
+		}}},
+		&fakePrepareService{},
+		events,
+	)
+
+	err := h.CreateDeltaPrepareGenerations(context.Background(), joins.joins)
+
+	require.NoError(t, err)
+	require.Empty(t, events.created)
 }
 
 func TestServiceListDeltaPrepareGenerationsDelegatesToStore(t *testing.T) {

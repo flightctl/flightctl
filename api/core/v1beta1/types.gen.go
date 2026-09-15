@@ -3071,8 +3071,8 @@ type PrepareDeltasDetails struct {
 	// DetailType The type of detail for discriminator purposes.
 	DetailType PrepareDeltasDetailsDetailType `json:"detailType"`
 
-	// ResourceVersion The resource version of the involved Fleet or Device when this prepare event was created. Used to ignore stale prepare events. Required for PrepareDeltas events.
-	ResourceVersion string `json:"resourceVersion"`
+	// ResourceVersion The resource version of the involved Fleet or Device when this prepare event was created. Used to ignore stale prepare events. May be omitted for retained events created before this field was introduced.
+	ResourceVersion *string `json:"resourceVersion,omitempty"`
 
 	// SpecHash Device only. The rendered spec hash this prepare is for. Required when involvedObject.kind is Device; omitted for Fleet.
 	SpecHash *string `json:"specHash,omitempty"`

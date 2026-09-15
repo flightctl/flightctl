@@ -129,7 +129,10 @@ func (s *DeltaStore) ListWaitingPreparesByGeneration(ctx context.Context, key Ge
 func (s *DeltaStore) CASPrepareStatus(ctx context.Context, id uuid.UUID, to string) error {
 	result := s.getDB(ctx).Model(&model.DeltaPrepare{}).
 		Where("id = ? AND status = ?", id, model.DeltaPrepareWaiting).
-		Update("status", to)
+		Updates(map[string]interface{}{
+			"status":           to,
+			"resource_version": gorm.Expr("resource_version + 1"),
+		})
 	if result.Error != nil {
 		return storepkg.ErrorFromGormError(result.Error)
 	}

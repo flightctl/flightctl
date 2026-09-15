@@ -14,12 +14,17 @@ import (
 )
 
 type fakeGenerationStore struct {
-	generation *model.DeltaGeneration
+	generation        *model.DeltaGeneration
+	persistedOnInsert *model.DeltaGeneration
 }
 
 func (f *fakeGenerationStore) InsertDeltaGenerations(_ context.Context, generations []*model.DeltaGeneration) ([]model.DeltaGeneration, error) {
 	if len(generations) > 0 {
-		f.generation = cloneGeneration(generations[0])
+		if f.persistedOnInsert != nil {
+			f.generation = cloneGeneration(f.persistedOnInsert)
+		} else {
+			f.generation = cloneGeneration(generations[0])
+		}
 		if f.generation.Status == "" {
 			f.generation.Status = model.DeltaGenerationPending
 		}
@@ -125,27 +130,70 @@ func (p *recordingStatus) Set(context.Context, uuid.UUID, string, string, int, i
 func (p *recordingStatus) Clear(context.Context, uuid.UUID, string, string) error { return nil }
 
 func TestServiceUpdateDeltaGenerationEmitsProgressToWaitingPrepares(t *testing.T) {
+	tests := []struct {
+		name          string
+		expectedRV    int64
+		wantErr       bool
+		wantEvents    int
+		wantStatusSet int
+	}{
+		{name: "When the resource version matches it should emit progress", expectedRV: 4, wantEvents: 1, wantStatusSet: 1},
+		{name: "When the resource version is stale it should not emit progress", expectedRV: 3, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			orgID := uuid.New()
+			prepareID := uuid.New()
+			key := deltastore.GenerationKey{OrgID: orgID, ImageRepository: "quay.io/example/os", SourceDigest: "sha256:source", TargetDigest: "sha256:target"}
+			store := &fakeGenerationStore{generation: &model.DeltaGeneration{
+				OrgID: orgID, ImageRepository: key.ImageRepository, SourceDigest: key.SourceDigest, TargetDigest: key.TargetDigest,
+				Status: model.DeltaGenerationInProgress, ResourceVersion: 4,
+			}}
+			prepares := &fakePrepareStore{prepares: []model.DeltaPrepare{{ID: prepareID, OrgID: orgID, Kind: domain.DeviceKind, Name: "device-1", Status: model.DeltaPrepareWaiting}}}
+			joins := &fakeJoinStore{joins: []model.DeltaPrepareGeneration{{PrepareID: prepareID, OrgID: orgID, ImageRepository: key.ImageRepository, SourceDigest: key.SourceDigest, TargetDigest: key.TargetDigest}}}
+			events := &recordingEvents{}
+			status := &recordingStatus{}
+			h := NewServiceHandler(store, prepares, joins, events, status, nil)
+
+			generation := cloneGeneration(store.generation)
+			generation.Status = model.DeltaGenerationSucceeded
+			_, err := h.UpdateDeltaGeneration(context.Background(), tt.expectedRV, generation)
+
+			if tt.wantErr {
+				require.ErrorIs(t, err, flterrors.ErrNoRowsUpdated)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Len(t, events.created, tt.wantEvents)
+			require.Equal(t, tt.wantStatusSet, status.calls)
+		})
+	}
+}
+
+func TestServiceCreateDeltaGenerationsUsesPersistedStatus(t *testing.T) {
 	orgID := uuid.New()
 	prepareID := uuid.New()
 	key := deltastore.GenerationKey{OrgID: orgID, ImageRepository: "quay.io/example/os", SourceDigest: "sha256:source", TargetDigest: "sha256:target"}
-	store := &fakeGenerationStore{generation: &model.DeltaGeneration{
+	phase := string(domain.DeltaGenerationPhasePush)
+	store := &fakeGenerationStore{persistedOnInsert: &model.DeltaGeneration{
 		OrgID: orgID, ImageRepository: key.ImageRepository, SourceDigest: key.SourceDigest, TargetDigest: key.TargetDigest,
-		Status: model.DeltaGenerationInProgress, ResourceVersion: 4,
+		Status: model.DeltaGenerationSucceeded, Phase: &phase,
 	}}
 	prepares := &fakePrepareStore{prepares: []model.DeltaPrepare{{ID: prepareID, OrgID: orgID, Kind: domain.DeviceKind, Name: "device-1", Status: model.DeltaPrepareWaiting}}}
 	joins := &fakeJoinStore{joins: []model.DeltaPrepareGeneration{{PrepareID: prepareID, OrgID: orgID, ImageRepository: key.ImageRepository, SourceDigest: key.SourceDigest, TargetDigest: key.TargetDigest}}}
 	events := &recordingEvents{}
-	status := &recordingStatus{}
-	h := NewServiceHandler(store, prepares, joins, events, status, nil)
+	h := NewServiceHandler(store, prepares, joins, events, nil, nil)
 
-	generation := cloneGeneration(store.generation)
-	generation.Status = model.DeltaGenerationSucceeded
-	_, err := h.UpdateDeltaGeneration(context.Background(), 4, generation)
+	_, err := h.CreateDeltaGenerations(context.Background(), []*model.DeltaGeneration{{
+		OrgID: orgID, ImageRepository: key.ImageRepository, SourceDigest: key.SourceDigest, TargetDigest: key.TargetDigest,
+		Status: model.DeltaGenerationRejected,
+	}})
 
 	require.NoError(t, err)
 	require.Len(t, events.created, 1)
-	require.Equal(t, domain.EventReasonDeltaGenerationProgress, events.created[0].Reason)
-	require.Equal(t, 1, status.calls)
+	details, err := events.created[0].Details.AsDeltaGenerationProgressDetails()
+	require.NoError(t, err)
+	require.Equal(t, domain.DeltaGenerationProgressSucceeded, details.GenerationStatus)
 }
 
 func cloneGeneration(generation *model.DeltaGeneration) *model.DeltaGeneration {
