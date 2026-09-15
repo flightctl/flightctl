@@ -117,6 +117,15 @@ runs:
         KIND_CONFIG: ${{ inputs.kind-config }}
       run: kind create cluster --config "${KIND_CONFIG}"
 
+    - name: Setup local DNS (replace external nip.io)
+      shell: bash
+      env:
+        BASE_DOMAIN: ${{ inputs.base-domain }}
+      run: |
+        # Extract the IP from the base domain (format: <IP>.nip.io)
+        IP="${BASE_DOMAIN%.nip.io}"
+        test/scripts/setup_local_dns.sh "${IP}"
+
     # ========== LOAD IMAGES INTO KIND ==========
     - name: Load backend images into kind
       shell: bash

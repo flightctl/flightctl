@@ -152,6 +152,11 @@ else
   BASE_DOMAIN="${IP}.nip.io"
 fi
 
+# In CI, set up local DNS to avoid flaky external nip.io lookups.
+if [[ "${GITHUB_ACTIONS:-}" == "true" ]] && [[ "$IP" != *":"* ]]; then
+  "${SCRIPT_DIR}/setup_local_dns.sh" "${IP}"
+fi
+
 helm upgrade --install --namespace flightctl-external \
                   --values ./deploy/helm/flightctl/values.dev.yaml \
                   --set global.baseDomain=${BASE_DOMAIN} \
