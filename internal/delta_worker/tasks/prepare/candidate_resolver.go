@@ -65,7 +65,7 @@ func (r *Resolver) fleetCandidates(ctx context.Context, ev worker_client.EventWi
 	if err != nil {
 		return DeltaCandidateResult{}, err
 	}
-	if fleet.Spec.RolloutPolicy != nil && fleet.Spec.RolloutPolicy.GenerateDelta != nil && !*fleet.Spec.RolloutPolicy.GenerateDelta {
+	if fleet.Spec.RolloutPolicy != nil && fleet.Spec.RolloutPolicy.DeltaGeneration != nil && fleet.Spec.RolloutPolicy.DeltaGeneration.GenerateDelta != nil && !*fleet.Spec.RolloutPolicy.DeltaGeneration.GenerateDelta {
 		return DeltaCandidateResult{Skip: true}, nil
 	}
 

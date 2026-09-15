@@ -114,17 +114,41 @@ const (
 	ConditionTypeCertificateSigningRequestFailed      ConditionType = "Failed"
 	ConditionTypeCertificateSigningRequestTPMVerified ConditionType = "TPMVerified"
 	ConditionTypeDeviceDecommissioning                ConditionType = "DeviceDecommissioning"
+	ConditionTypeDeviceDeltaPreparing                 ConditionType = "DeviceDeltaPreparing"
 	ConditionTypeDeviceMultipleOwners                 ConditionType = "MultipleOwners"
 	ConditionTypeDeviceSpecValid                      ConditionType = "SpecValid"
 	ConditionTypeDeviceUpdating                       ConditionType = "Updating"
 	ConditionTypeEnrollmentRequestApproved            ConditionType = "Approved"
 	ConditionTypeEnrollmentRequestTPMVerified         ConditionType = "TPMVerified"
+	ConditionTypeFleetDeltaPreparing                  ConditionType = "FleetDeltaPreparing"
 	ConditionTypeFleetRolloutInProgress               ConditionType = "RolloutInProgress"
 	ConditionTypeFleetValid                           ConditionType = "Valid"
 	ConditionTypeRepositoryAccessible                 ConditionType = "Accessible"
 	ConditionTypeResourceSyncAccessible               ConditionType = "Accessible"
 	ConditionTypeResourceSyncResourceParsed           ConditionType = "ResourceParsed"
 	ConditionTypeResourceSyncSynced                   ConditionType = "Synced"
+)
+
+// Defines values for DeltaGenerationPhase.
+const (
+	DeltaGenerationPhaseCheckingExisting DeltaGenerationPhase = "checkingExisting"
+	DeltaGenerationPhaseCreateDelta      DeltaGenerationPhase = "createDelta"
+	DeltaGenerationPhasePullSource       DeltaGenerationPhase = "pullSource"
+	DeltaGenerationPhasePullTarget       DeltaGenerationPhase = "pullTarget"
+	DeltaGenerationPhasePush             DeltaGenerationPhase = "push"
+)
+
+// Defines values for DeltaGenerationProgressDetailsDetailType.
+const (
+	DeltaGenerationProgress DeltaGenerationProgressDetailsDetailType = "DeltaGenerationProgress"
+)
+
+// Defines values for DeltaGenerationProgressDetailsGenerationStatus.
+const (
+	DeltaGenerationProgressFailed     DeltaGenerationProgressDetailsGenerationStatus = "failed"
+	DeltaGenerationProgressInProgress DeltaGenerationProgressDetailsGenerationStatus = "in_progress"
+	DeltaGenerationProgressRejected   DeltaGenerationProgressDetailsGenerationStatus = "rejected"
+	DeltaGenerationProgressSucceeded  DeltaGenerationProgressDetailsGenerationStatus = "succeeded"
 )
 
 // Defines values for DependencyChangeDetectedDetailsDetailType.
@@ -243,6 +267,7 @@ const (
 const (
 	EventReasonApplicationLifecycleChanged     EventReason = "ApplicationLifecycleChanged"
 	EventReasonDeltaGenerationCompleted        EventReason = "DeltaGenerationCompleted"
+	EventReasonDeltaGenerationProgress         EventReason = "DeltaGenerationProgress"
 	EventReasonDependencyChangeDetected        EventReason = "DependencyChangeDetected"
 	EventReasonDependencySyncProbeFailed       EventReason = "DependencySyncProbeFailed"
 	EventReasonDeviceApplicationDegraded       EventReason = "DeviceApplicationDegraded"
@@ -1202,6 +1227,54 @@ type CronExpression = string
 // CustomDeviceInfo User-defined information about the device.
 type CustomDeviceInfo map[string]string
 
+// DeltaGenerationPhase Current step of control-plane delta generation for the in-flight pair.
+type DeltaGenerationPhase string
+
+// DeltaGenerationProgressDetails Structured details for DeltaGenerationProgress events. One event when a pair enters a phase or becomes terminal, fanned out to each waiting Fleet or standalone Device. Not a percent heartbeat.
+type DeltaGenerationProgressDetails struct {
+	// DetailType The type of detail for discriminator purposes.
+	DetailType DeltaGenerationProgressDetailsDetailType `json:"detailType"`
+
+	// GenerationStatus Generation row status for this pair.
+	GenerationStatus DeltaGenerationProgressDetailsGenerationStatus `json:"generationStatus"`
+
+	// ImageRepository Image repository (host/namespace/name) for this pair.
+	ImageRepository string `json:"imageRepository"`
+
+	// Phase Current step of control-plane delta generation for the in-flight pair.
+	Phase *DeltaGenerationPhase `json:"phase,omitempty"`
+
+	// SourceDigest Current image digest.
+	SourceDigest string `json:"sourceDigest"`
+
+	// SpecHash Device only. The rendered spec hash this prepare is for.
+	SpecHash *string `json:"specHash,omitempty"`
+
+	// TargetDigest Target image digest.
+	TargetDigest string `json:"targetDigest"`
+
+	// TemplateVersion Fleet only. The TemplateVersion this prepare is for.
+	TemplateVersion *string `json:"templateVersion,omitempty"`
+}
+
+// DeltaGenerationProgressDetailsDetailType The type of detail for discriminator purposes.
+type DeltaGenerationProgressDetailsDetailType string
+
+// DeltaGenerationProgressDetailsGenerationStatus Generation row status for this pair.
+type DeltaGenerationProgressDetailsGenerationStatus string
+
+// DeltaGenerationStatus Pair counts (completed/total) for a prepare in flight. Per-pair phase is one DeltaGenerationProgress event per step, not a percent heartbeat. Condition messages carry the same completed/total counts.
+type DeltaGenerationStatus struct {
+	// Completed Number of joined generation pairs that are already terminal.
+	Completed int64 `json:"completed"`
+
+	// LastUpdated Time of the last completed/total write for this prepare.
+	LastUpdated *time.Time `json:"lastUpdated,omitempty"`
+
+	// Total Number of unique generation pairs in this prepare.
+	Total int64 `json:"total"`
+}
+
 // DependencyChangeDetectedDetails defines model for DependencyChangeDetectedDetails.
 type DependencyChangeDetectedDetails struct {
 	// DetailType The type of detail for discriminator purposes.
@@ -1573,6 +1646,9 @@ type DeviceStatus struct {
 
 	// Config Current status of the device config.
 	Config DeviceConfigStatus `json:"config"`
+
+	// DeltaGeneration Pair counts (completed/total) for a prepare in flight. Per-pair phase is one DeltaGenerationProgress event per step, not a percent heartbeat. Condition messages carry the same completed/total counts.
+	DeltaGeneration *DeltaGenerationStatus `json:"deltaGeneration,omitempty"`
 
 	// DependencySync DependencySyncStatus represents the synchronization fingerprints for external dependencies of a device, captured at render time.
 	DependencySync *DependencySyncStatus `json:"dependencySync,omitempty"`
@@ -2254,6 +2330,9 @@ type FleetSpec struct {
 type FleetStatus struct {
 	// Conditions Current state of the fleet.
 	Conditions []Condition `json:"conditions"`
+
+	// DeltaGeneration Pair counts (completed/total) for a prepare in flight. Per-pair phase is one DeltaGenerationProgress event per step, not a percent heartbeat. Condition messages carry the same completed/total counts.
+	DeltaGeneration *DeltaGenerationStatus `json:"deltaGeneration,omitempty"`
 
 	// DevicesSummary A summary of the devices in the fleet returned when fetching a single Fleet.
 	DevicesSummary *DevicesSummary `json:"devicesSummary,omitempty"`
@@ -2992,6 +3071,12 @@ type PrepareDeltasDetails struct {
 	// DetailType The type of detail for discriminator purposes.
 	DetailType PrepareDeltasDetailsDetailType `json:"detailType"`
 
+	// ResourceVersion The resource version of the involved Fleet or Device when this prepare event was created. Used to ignore stale prepare events. May be omitted for retained events created before this field was introduced.
+	ResourceVersion *string `json:"resourceVersion,omitempty"`
+
+	// SpecHash Device only. The rendered spec hash this prepare is for. Required when involvedObject.kind is Device; omitted for Fleet.
+	SpecHash *string `json:"specHash,omitempty"`
+
 	// TemplateVersion Fleet only. The TemplateVersion this prepare is for. Required when involvedObject.kind is Fleet; omitted for Device.
 	TemplateVersion *string `json:"templateVersion,omitempty"`
 }
@@ -3251,17 +3336,29 @@ type RolloutPolicy struct {
 	// DefaultUpdateTimeout The maximum duration allowed for the action to complete. The duration should be specified as a positive integer followed by a time unit. Supported time units are: `s` for seconds, `m` for minutes, `h` for hours.
 	DefaultUpdateTimeout *Duration `json:"defaultUpdateTimeout,omitempty"`
 
+	// DeltaGeneration Controls OS delta generation for this fleet rollout.
+	DeltaGeneration *RolloutPolicyDeltaGeneration `json:"deltaGeneration,omitempty"`
+
 	// DeviceSelection Describes how to select devices for rollout.
 	DeviceSelection *RolloutDeviceSelection `json:"deviceSelection,omitempty"`
 
 	// DisruptionBudget DisruptionBudget defines the level of allowed disruption when rollout is in progress.
 	DisruptionBudget *DisruptionBudget `json:"disruptionBudget,omitempty"`
 
+	// SuccessThreshold Percentage is the string format representing percentage string.
+	SuccessThreshold *Percentage `json:"successThreshold,omitempty"`
+}
+
+// RolloutPolicyDeltaGeneration Controls OS delta generation for this fleet rollout.
+type RolloutPolicyDeltaGeneration struct {
+	// DeltaGenerationTimeout Context deadline for each generation job. Omitted uses DeltaGeneration.timeout.
+	DeltaGenerationTimeout *Duration `json:"deltaGenerationTimeout,omitempty"`
+
 	// GenerateDelta When false, skip control-plane OS delta generation for this fleet. Omitted means true.
 	GenerateDelta *bool `json:"generateDelta,omitempty"`
 
-	// SuccessThreshold Percentage is the string format representing percentage string.
-	SuccessThreshold *Percentage `json:"successThreshold,omitempty"`
+	// MaxWaitForDelta How long a prepare may wait before periodic resume. Omitted uses DeltaGeneration.maxWaitForDelta. Ignored when generateDelta is false. 0s still generates then resumes immediately.
+	MaxWaitForDelta *Duration `json:"maxWaitForDelta,omitempty"`
 }
 
 // RolloutStrategy The strategy of choice for device selection in rollout policy.
@@ -5976,6 +6073,34 @@ func (t *EventDetails) MergePrepareDeltasDetails(v PrepareDeltasDetails) error {
 	return err
 }
 
+// AsDeltaGenerationProgressDetails returns the union data inside the EventDetails as a DeltaGenerationProgressDetails
+func (t EventDetails) AsDeltaGenerationProgressDetails() (DeltaGenerationProgressDetails, error) {
+	var body DeltaGenerationProgressDetails
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromDeltaGenerationProgressDetails overwrites any union data inside the EventDetails as the provided DeltaGenerationProgressDetails
+func (t *EventDetails) FromDeltaGenerationProgressDetails(v DeltaGenerationProgressDetails) error {
+	v.DetailType = "DeltaGenerationProgress"
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeDeltaGenerationProgressDetails performs a merge with any union data inside the EventDetails, using the provided DeltaGenerationProgressDetails
+func (t *EventDetails) MergeDeltaGenerationProgressDetails(v DeltaGenerationProgressDetails) error {
+	v.DetailType = "DeltaGenerationProgress"
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
 func (t EventDetails) Discriminator() (string, error) {
 	var discriminator struct {
 		Discriminator string `json:"detailType"`
@@ -5992,6 +6117,8 @@ func (t EventDetails) ValueByDiscriminator() (interface{}, error) {
 	switch discriminator {
 	case "ApplicationLifecycleChanged":
 		return t.AsApplicationLifecycleChangedDetails()
+	case "DeltaGenerationProgress":
+		return t.AsDeltaGenerationProgressDetails()
 	case "DependencyChangeDetected":
 		return t.AsDependencyChangeDetectedDetails()
 	case "DependencySyncProbeFailed":
