@@ -533,21 +533,22 @@ func TestSystemInfoCollectionInterval(t *testing.T) {
 
 		configDir := t.TempDir()
 		dataDir := filepath.Join(configDir, "data")
-		require.NoError(os.MkdirAll(dataDir, 0o755))
+		readWriter := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
+		require.NoError(readWriter.MkdirAll(dataDir, 0o755))
 		configFile := filepath.Join(configDir, "config.yaml")
-		require.NoError(os.WriteFile(configFile, []byte(yamlConfig+`
+		require.NoError(readWriter.WriteFile(configFile, []byte(yamlConfig+`
 system-info-periodic:
   interval: 1m
 `), 0o600))
 
 		dropinDir := filepath.Join(configDir, "conf.d")
-		require.NoError(os.MkdirAll(dropinDir, 0o755))
-		require.NoError(os.WriteFile(filepath.Join(dropinDir, "10-system-info-periodic.yaml"), []byte("system-info-periodic:\n  interval: 5m\n"), 0o600))
+		require.NoError(readWriter.MkdirAll(dropinDir, 0o755))
+		require.NoError(readWriter.WriteFile(filepath.Join(dropinDir, "10-system-info-periodic.yaml"), []byte("system-info-periodic:\n  interval: 5m\n"), 0o600))
 
 		cfg := NewDefault()
 		cfg.ConfigDir = configDir
 		cfg.DataDir = dataDir
-		cfg.readWriter = fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
+		cfg.readWriter = readWriter
 		require.NoError(cfg.LoadWithOverrides(configFile))
 		require.Equal(util.Duration(5*time.Minute), cfg.SystemInfoCollectionInterval())
 	})
@@ -581,5 +582,14 @@ system-info-periodic:
 
 		result := cfg.SystemInfoCollectionInterval()
 		require.Equal(util.Duration(30*time.Second), result)
+	})
+
+	t.Run("When system-info-periodic interval is below the minimum it should fail validation", func(t *testing.T) {
+		require := require.New(t)
+
+		cfg := NewDefault()
+		cfg.SystemInfoPeriodic.Interval = util.Duration(time.Second)
+		err := cfg.validateSyncIntervals()
+		require.ErrorContains(err, "minimum system info periodic interval is 2s have 1s")
 	})
 }
