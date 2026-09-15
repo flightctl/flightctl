@@ -154,7 +154,10 @@ func TestRun(t *testing.T) {
 		// Initialize gets boot time and performs the initial collection. Run collects periodically.
 		mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "uptime", "-s").DoAndReturn(
 			func(context.Context, string, ...string) (string, string, int) {
-				collected <- struct{}{}
+				select {
+				case collected <- struct{}{}:
+				default:
+				}
 				return bootTime, "", 0
 			},
 		).MinTimes(4)
@@ -222,7 +225,10 @@ func TestRun(t *testing.T) {
 		collected := make(chan struct{}, 3)
 		mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "uptime", "-s").DoAndReturn(
 			func(context.Context, string, ...string) (string, string, int) {
-				collected <- struct{}{}
+				select {
+				case collected <- struct{}{}:
+				default:
+				}
 				return bootTime, "", 0
 			},
 		).MinTimes(3)
