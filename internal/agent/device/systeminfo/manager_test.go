@@ -127,7 +127,7 @@ func TestRun(t *testing.T) {
 		require.Equal("TPM vendor", manager.cachedSystemInfo.AdditionalProperties[common.TPMVendorInfoKey])
 	})
 
-	t.Run("When Run is called with interval it should collect periodically", func(t *testing.T) {
+	t.Run("When Run reloads its interval it should collect using the new interval", func(t *testing.T) {
 		require := require.New(t)
 
 		tmpDir := t.TempDir()
@@ -164,8 +164,7 @@ func TestRun(t *testing.T) {
 
 		log := log.NewPrefixLogger("test")
 
-		// Short interval for test
-		collectionInterval := util.Duration(50 * time.Millisecond)
+		collectionInterval := util.Duration(500 * time.Millisecond)
 		manager := NewManager(log, mockExecuter, readWriter, dataDir, nil, nil, collectTimeout, collectionInterval)
 		err = manager.Initialize(context.Background())
 		require.NoError(err)
@@ -181,13 +180,28 @@ func TestRun(t *testing.T) {
 			close(done)
 		}()
 
-		// Wait for two periodic collection cycles.
-		for range 2 {
-			select {
-			case <-collected:
-			case <-time.After(5 * time.Second):
-				require.FailNow("timed out waiting for periodic collection")
-			}
+		// Wait for the initial periodic collection to ensure the original ticker is running.
+		select {
+		case <-collected:
+		case <-time.After(5 * time.Second):
+			require.FailNow("timed out waiting for periodic collection")
+		}
+
+		cfg := &config.Config{
+			SystemInfoTimeout: collectTimeout,
+			SystemInfoPeriodic: config.SystemInfoPeriodicConfig{
+				Interval: util.Duration(20 * time.Millisecond),
+			},
+		}
+		err = manager.ReloadConfig(ctx, cfg)
+		require.NoError(err)
+		require.Equal(20*time.Millisecond, manager.collectionInterval)
+
+		// The next collection must use the reloaded interval, not the original ticker interval.
+		select {
+		case <-collected:
+		case <-time.After(200 * time.Millisecond):
+			require.FailNow("timed out waiting for collection after interval reload")
 		}
 		cancel()
 		select {

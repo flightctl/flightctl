@@ -41,6 +41,7 @@ type manager struct {
 	customKeys         []string
 	collectionTimeout  time.Duration
 	collectionInterval time.Duration
+	intervalChanged    chan struct{}
 	collectors         map[string]CollectorFn
 	cachedSystemInfo   *v1beta1.DeviceSystemInfo
 
@@ -65,6 +66,7 @@ func NewManager(
 		customKeys:         customKeys,
 		collectionTimeout:  time.Duration(collectionTimeout),
 		collectionInterval: time.Duration(collectionInterval),
+		intervalChanged:    make(chan struct{}, 1),
 		collectors:         make(map[string]CollectorFn),
 		log:                log,
 	}
@@ -138,6 +140,16 @@ func (m *manager) ReloadConfig(ctx context.Context, cfg *config.Config) error {
 		m.collectionTimeout = timeout
 	}
 
+	interval := time.Duration(cfg.SystemInfoCollectionInterval())
+	if m.collectionInterval != interval {
+		m.log.Infof("Updating system info collection interval: %v -> %v", m.collectionInterval, interval)
+		m.collectionInterval = interval
+		select {
+		case m.intervalChanged <- struct{}{}:
+		default:
+		}
+	}
+
 	return nil
 }
 
@@ -156,14 +168,18 @@ func (m *manager) BootTime() string {
 // Run starts periodic system info collection in a blocking loop.
 // It collects at each collectionInterval tick. Stops when ctx is cancelled.
 func (m *manager) Run(ctx context.Context) {
-	m.log.Debugf("Starting systeminfo collection loop (interval=%s)", m.collectionInterval)
+	m.mu.Lock()
+	interval := m.collectionInterval
+	m.mu.Unlock()
 
-	if m.collectionInterval <= 0 {
+	m.log.Debugf("Starting systeminfo collection loop (interval=%s)", interval)
+
+	if interval <= 0 {
 		m.log.Debugf("Systeminfo collection disabled (no interval)")
 		return
 	}
 
-	ticker := time.NewTicker(m.collectionInterval)
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
@@ -171,6 +187,15 @@ func (m *manager) Run(ctx context.Context) {
 		case <-ctx.Done():
 			m.log.Debugf("Systeminfo collection loop stopped")
 			return
+		case <-m.intervalChanged:
+			m.mu.Lock()
+			interval = m.collectionInterval
+			m.mu.Unlock()
+			if interval <= 0 {
+				m.log.Debugf("Systeminfo collection disabled (no interval)")
+				return
+			}
+			ticker.Reset(interval)
 		case <-ticker.C:
 			m.collect(ctx)
 		}
