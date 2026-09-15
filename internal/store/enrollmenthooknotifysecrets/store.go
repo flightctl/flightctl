@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm"
 )
 
-//go:generate mockgen -source=store.go -destination=mock_store.go -package=enrollmenthooknotifysecrets
+//go:generate go run -modfile=../../../tools/go.mod go.uber.org/mock/mockgen -source=store.go -destination=mock_store.go -package=enrollmenthooknotifysecrets
 
 // Store manages enrollment hook notify secrets.
 type Store interface {
