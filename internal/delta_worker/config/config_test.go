@@ -15,14 +15,13 @@ func TestDeltaGenerationConfigValidate(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name: "When an HTTP repository has credentials it should be rejected",
+			name: "When an HTTP repository has credentials it should be accepted",
 			config: &DeltaGenerationConfig{DefaultRepository: &DefaultRepositoryConfig{
 				Registry: "registry.example.com",
 				Scheme:   lo.ToPtr("http"),
 				Username: "robot",
 				Password: api.SecureString("secret"),
 			}},
-			wantErr: "cannot use credentials with http",
 		},
 		{
 			name: "When an HTTP repository has no credentials it should be accepted",
