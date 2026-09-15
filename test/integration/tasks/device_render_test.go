@@ -9,6 +9,8 @@ import (
 	v1alpha1 "github.com/flightctl/flightctl/api/core/v1alpha1"
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
+	deltamodel "github.com/flightctl/flightctl/internal/delta_worker/model"
+	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/rendered"
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
@@ -24,7 +26,7 @@ import (
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
-	"github.com/flightctl/flightctl/internal/store/model"
+	storemodel "github.com/flightctl/flightctl/internal/store/model"
 	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
 	templateversionstore "github.com/flightctl/flightctl/internal/store/templateversion"
 	"github.com/flightctl/flightctl/internal/tasks"
@@ -281,7 +283,7 @@ var _ = Describe("DeviceRender", func() {
 				// Set a recent last_seen in device_timestamps so the device is not considered disconnected when
 				// UpdateServerSideDeviceStatus runs (otherwise status.updated.status can be set to Unknown).
 				setDeviceLastSeen := func(deviceName string, lastSeen time.Time) error {
-					result := db.WithContext(ctx).Model(&model.DeviceTimestamp{}).Where("org_id = ? AND name = ?", orgId, deviceName).Updates(map[string]interface{}{
+					result := db.WithContext(ctx).Model(&storemodel.DeviceTimestamp{}).Where("org_id = ? AND name = ?", orgId, deviceName).Updates(map[string]interface{}{
 						"last_seen": lastSeen,
 					})
 					return result.Error
@@ -1276,4 +1278,70 @@ var _ = Describe("DeviceRender", func() {
 				"redundant FleetRolloutDeviceSelected must not bump renderedVersion when already caught up")
 		})
 	})
+
+	Context("OS delta hint after prepare resume", func() {
+		It("When a succeeded generation exists GetRenderedDevice should expose deltaImage and IEC updated size", func() {
+			const (
+				srcDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+				tgtDigest = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+				osImage   = "quay.io/acme/os@" + tgtDigest
+				deltaRef  = "quay.io/acme/os@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+			)
+			sizeBytes := int64(47185920)
+			testDeviceName := deviceName + "-os-delta-hint-" + uuid.New().String()[:8]
+
+			device := &api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(testDeviceName)},
+				Spec: &api.DeviceSpec{
+					Os: &api.DeviceOsSpec{Image: osImage},
+				},
+				Status: &api.DeviceStatus{
+					Os: api.DeviceOsStatus{ImageDigest: srcDigest},
+				},
+			}
+			_, err := deviceStore.Create(ctx, orgId, device, nil)
+			Expect(err).ToNot(HaveOccurred())
+			defer func() { _, _ = deviceStore.Delete(ctx, orgId, testDeviceName, nil) }()
+
+			created, err := deviceStore.Get(ctx, orgId, testDeviceName)
+			Expect(err).ToNot(HaveOccurred())
+			if created.Status == nil {
+				created.Status = &api.DeviceStatus{}
+			}
+			created.Status.Os.ImageDigest = srcDigest
+			_, _, err = deviceStore.UpdateStatus(ctx, orgId, created, nil)
+			Expect(err).ToNot(HaveOccurred())
+
+			deltaStore := deltastore.NewStore(db, log.WithField("pkg", "delta-store"))
+			_, err = deltaStore.InsertDeltaGenerations(ctx, []*deltamodel.DeltaGeneration{{
+				OrgID:           orgId,
+				ImageRepository: "quay.io/acme/os",
+				SourceDigest:    srcDigest,
+				TargetDigest:    tgtDigest,
+				Status:          deltamodel.DeltaGenerationSucceeded,
+				DeltaRef:        lo.ToPtr(deltaRef),
+				SizeBytes:       &sizeBytes,
+			}})
+			Expect(err).ToNot(HaveOccurred())
+
+			event := api.Event{
+				Reason:         api.EventReasonResourceUpdated,
+				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
+			}
+			logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil, orgId, event).
+				WithDeltaLookup(deltaStore)
+			Expect(logic.RenderDevice(ctx)).To(Succeed())
+
+			renderedDevice, status := deviceSvc.GetRenderedDevice(ctx, orgId, testDeviceName, api.GetRenderedDeviceParams{})
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+			Expect(renderedDevice).ToNot(BeNil())
+			Expect(renderedDevice.Spec).ToNot(BeNil())
+			Expect(renderedDevice.Spec.Os).ToNot(BeNil())
+			Expect(lo.FromPtr(renderedDevice.Spec.Os.DeltaImage)).To(Equal(deltaRef))
+			Expect(renderedDevice.Status).ToNot(BeNil())
+			Expect(renderedDevice.Status.Os.LastDelta).ToNot(BeNil())
+			Expect(lo.FromPtr(renderedDevice.Status.Os.LastDelta.Size)).To(Equal("45 MiB"))
+		})
+	})
+
 })
