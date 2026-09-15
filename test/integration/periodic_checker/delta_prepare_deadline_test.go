@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/delta_worker/model"
 	deltaprepareservice "github.com/flightctl/flightctl/internal/delta_worker/service/deltaprepare"
 	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store"
 	"github.com/flightctl/flightctl/internal/domain"
@@ -17,7 +18,6 @@ import (
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
-	"github.com/flightctl/flightctl/internal/store/model"
 	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
 	tvstore "github.com/flightctl/flightctl/internal/store/templateversion"
 	"github.com/flightctl/flightctl/internal/tasks"
@@ -133,7 +133,7 @@ var _ = Describe("Delta prepare deadline poll", func() {
 
 		deadline.Poll(ctx)
 
-		got, err := deltaStore.GetDeltaPrepare(ctx, prep.ID)
+		got, err := deltaStore.GetDeltaPrepare(ctx, deltastore.PrepareKey{ID: prep.ID})
 		Expect(err).ToNot(HaveOccurred())
 		Expect(got.Status).To(Equal(model.DeltaPrepareFailed))
 
@@ -158,7 +158,7 @@ var _ = Describe("Delta prepare deadline poll", func() {
 
 		deadline.Poll(ctx)
 
-		got, err := deltaStore.GetDeltaPrepare(ctx, prep.ID)
+		got, err := deltaStore.GetDeltaPrepare(ctx, deltastore.PrepareKey{ID: prep.ID})
 		Expect(err).ToNot(HaveOccurred())
 		Expect(got.Status).To(Equal(model.DeltaPrepareWaiting))
 		Expect(eventReasons()).NotTo(ContainElement(domain.EventReasonFleetRolloutStarted))
