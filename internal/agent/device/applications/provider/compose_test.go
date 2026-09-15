@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -254,7 +255,7 @@ image: quay.io/flightctl-tests/alpine:v1`,
 				envFile, err := rw.ReadFile(filepath.Join(appPath, ".env"))
 				require.NoError(err)
 				for k, v := range tt.envVars {
-					require.Contains(string(envFile), k+"="+v)
+					require.Contains(string(envFile), fmt.Sprintf("%s=\"%s\"", k, v))
 				}
 			}
 		})
@@ -394,7 +395,7 @@ func TestComposeInlineProvider(t *testing.T) {
 				envFile, err := rw.ReadFile(filepath.Join(appPath, ".env"))
 				require.NoError(err)
 				for k, v := range tt.envVars {
-					require.Contains(string(envFile), k+"="+v)
+					require.Contains(string(envFile), fmt.Sprintf("%s=\"%s\"", k, v))
 				}
 			}
 		})
