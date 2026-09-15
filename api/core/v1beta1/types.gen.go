@@ -3651,7 +3651,10 @@ type VmApplication struct {
 
 	// RestartGeneration Counter incremented by the restart device API each time the application is restarted. Read-only: cannot be set directly by apply; only present in the rendered application spec delivered to the agent.
 	RestartGeneration *int `json:"restartGeneration,omitempty"`
-	union             json.RawMessage
+
+	// RunAs The username of the system user this application should be run under. This is not the same as the user within any containers of the application (if applicable). Defaults to the user that the agent runs as (generally root) if not specified.
+	RunAs Username `json:"runAs,omitempty"`
+	union json.RawMessage
 }
 
 // VolumeMount Mount configuration for a volume.
@@ -7337,6 +7340,12 @@ func (t VmApplication) MarshalJSON() ([]byte, error) {
 			return nil, fmt.Errorf("error marshaling 'restartGeneration': %w", err)
 		}
 	}
+
+	object["runAs"], err = json.Marshal(t.RunAs)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'runAs': %w", err)
+	}
+
 	b, err = json.Marshal(object)
 	return b, err
 }
@@ -7391,6 +7400,13 @@ func (t *VmApplication) UnmarshalJSON(b []byte) error {
 		err = json.Unmarshal(raw, &t.RestartGeneration)
 		if err != nil {
 			return fmt.Errorf("error reading 'restartGeneration': %w", err)
+		}
+	}
+
+	if raw, found := object["runAs"]; found {
+		err = json.Unmarshal(raw, &t.RunAs)
+		if err != nil {
+			return fmt.Errorf("error reading 'runAs': %w", err)
 		}
 	}
 
