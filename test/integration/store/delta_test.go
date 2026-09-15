@@ -150,6 +150,8 @@ var _ = Describe("DeltaStore", func() {
 			g.ResourceVersion = 3
 			g.DeltaRef = &ref
 			g.SizeBytes = &size
+			phase := string(domain.DeltaGenerationPhasePush)
+			g.Phase = &phase
 			insertGens(g)
 
 			stale := time.Now().Add(-time.Hour).UTC().Truncate(time.Microsecond)
@@ -169,6 +171,7 @@ var _ = Describe("DeltaStore", func() {
 			Expect(*got.DeltaRef).To(Equal(ref))
 			Expect(got.SizeBytes).ToNot(BeNil())
 			Expect(*got.SizeBytes).To(Equal(size))
+			Expect(got.Phase).To(BeNil())
 			Expect(got.UpdatedAt).To(BeTemporally(">", stale))
 		})
 	})
@@ -533,7 +536,63 @@ var _ = Describe("DeltaStore", func() {
 			_, err := deltaStore.GetDeltaPrepare(ctx, deltastore.PrepareKey{ID: uuid.New()})
 			Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
 		})
+
+		It("should reject incomplete keys", func() {
+			keys := []deltastore.PrepareKey{
+				{},
+				{OrgID: orgId},
+				{Kind: domain.FleetKind, Name: "myfleet"},
+				{ID: uuid.New(), Name: "myfleet"},
+			}
+			for _, key := range keys {
+				_, err := deltaStore.GetDeltaPrepare(ctx, key)
+				Expect(err).To(MatchError("prepare key requires either ID or org, kind and name"))
+			}
+		})
 	})
+
+	DescribeTable("When admitting a prepare with a non-positive source resource version", func(sourceResourceVersion int64) {
+		prep := &model.DeltaPrepare{
+			OrgID:                 orgId,
+			Kind:                  domain.FleetKind,
+			Name:                  "invalid-source-resource-version",
+			SourceResourceVersion: sourceResourceVersion,
+		}
+		_, err := deltaStore.CreateOrReplaceWaitingDeltaPrepare(ctx, prep)
+		Expect(err).To(MatchError("source resource version must be positive"))
+	},
+		Entry("zero", int64(0)),
+		Entry("negative", int64(-1)),
+	)
+
+	DescribeTable("When admitting a prepare with a conflicting identity", func(templateVersion, specHash string) {
+		baseTemplateVersion := "v1"
+		baseSpecHash := "hash-1"
+		base := &model.DeltaPrepare{
+			OrgID:                 orgId,
+			Kind:                  domain.FleetKind,
+			Name:                  "conflicting-identity",
+			TemplateVersion:       &baseTemplateVersion,
+			SpecHash:              &baseSpecHash,
+			SourceResourceVersion: 1,
+		}
+		_, err := deltaStore.CreateOrReplaceWaitingDeltaPrepare(ctx, base)
+		Expect(err).ToNot(HaveOccurred())
+
+		incoming := &model.DeltaPrepare{
+			OrgID:                 orgId,
+			Kind:                  domain.FleetKind,
+			Name:                  base.Name,
+			TemplateVersion:       &templateVersion,
+			SpecHash:              &specHash,
+			SourceResourceVersion: base.SourceResourceVersion,
+		}
+		_, err = deltaStore.CreateOrReplaceWaitingDeltaPrepare(ctx, incoming)
+		Expect(err).To(MatchError("conflicting delta prepares have source resource version 1"))
+	},
+		Entry("different template version", "v2", "hash-1"),
+		Entry("different spec hash", "v1", "hash-2"),
+	)
 
 	Context("When updating a waiting prepare to complete", func() {
 		It("should update the full object and reject a stale resource_version", func() {

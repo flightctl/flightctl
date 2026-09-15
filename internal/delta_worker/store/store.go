@@ -235,6 +235,9 @@ func generationConflict() clause.OnConflict {
 		},
 		DoUpdates: clause.Assignments(map[string]interface{}{
 			"status": returningStatus,
+			"phase": gorm.Expr(
+				"CASE WHEN " + resetFailed + " THEN NULL ELSE delta_generations.phase END",
+			),
 			"size_bytes": gorm.Expr(
 				"CASE WHEN " + applyRejected + " THEN EXCLUDED.size_bytes ELSE delta_generations.size_bytes END",
 			),
@@ -489,6 +492,13 @@ func (s *DeltaStore) GetDeltaPrepare(ctx context.Context, key PrepareKey, opts .
 	for _, opt := range opts {
 		opt(cfg)
 	}
+	if key.ID == uuid.Nil {
+		if key.OrgID == uuid.Nil || key.Kind == "" || key.Name == "" {
+			return nil, fmt.Errorf("prepare key requires either ID or org, kind and name")
+		}
+	} else if key.OrgID != uuid.Nil || key.Kind != "" || key.Name != "" {
+		return nil, fmt.Errorf("prepare key requires either ID or org, kind and name")
+	}
 	q := s.getDB(ctx).Where("1 = 1")
 	if key.ID != uuid.Nil {
 		q = q.Where("id = ?", key.ID)
@@ -606,17 +616,25 @@ func (s *DeltaStore) ListDeltaPrepareGenerations(ctx context.Context, filter Del
 	}
 	var rows []model.DeltaPrepareGeneration
 	query = query.Order("prepare_id ASC, org_id ASC, image_repository ASC, source_digest ASC, target_digest ASC")
-	for offset := 0; ; offset += deltaListBatchSize {
-		pageSize := deltaListBatchSize
+	var cursor *model.DeltaPrepareGeneration
+	for {
+		page := query
+		if cursor != nil {
+			page = page.Where(
+				"(prepare_id, org_id, image_repository, source_digest, target_digest) > (?, ?, ?, ?, ?)",
+				cursor.PrepareID, cursor.OrgID, cursor.ImageRepository, cursor.SourceDigest, cursor.TargetDigest,
+			)
+		}
 		var batch []model.DeltaPrepareGeneration
-		result := query.Offset(offset).Limit(pageSize).Find(&batch)
+		result := page.Limit(deltaListBatchSize).Find(&batch)
 		if result.Error != nil {
 			return nil, store.ErrorFromGormError(result.Error)
 		}
 		rows = append(rows, batch...)
-		if len(batch) < pageSize {
+		if len(batch) < deltaListBatchSize {
 			break
 		}
+		cursor = &batch[len(batch)-1]
 	}
 	return rows, nil
 }

@@ -18,6 +18,8 @@ import (
 // local to this extraction layer and is removed once the follow-up wiring lands.
 type Store interface {
 	InitialMigration(ctx context.Context) error
+	// InsertGenerations returns keys for every row returned by the upsert,
+	// including existing rows matched by conflict handling.
 	InsertGenerations(ctx context.Context, gens []*model.DeltaGeneration) ([]GenerationKey, error)
 	InsertRejectedGeneration(ctx context.Context, gen *model.DeltaGeneration) error
 	GetGeneration(ctx context.Context, key GenerationKey, opts ...GenerationGetOption) (*model.DeltaGeneration, error)
