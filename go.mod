@@ -108,7 +108,7 @@ require (
 	github.com/coreos/go-systemd/v22 v22.5.0
 	github.com/docker/docker v28.5.1+incompatible
 	github.com/fsnotify/fsnotify v1.9.0
-	github.com/goccy/go-yaml v1.18.0
+	github.com/goccy/go-yaml v1.19.2
 	github.com/grafana/pyroscope-go v1.4.1
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/mattbaird/jsonpatch v0.0.0-20240118010651-0ba75a80ca38
