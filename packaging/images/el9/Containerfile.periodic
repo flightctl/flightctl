@@ -38,7 +38,7 @@ RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
     make build-periodic
 
-FROM quay.io/flightctl/flightctl-base:9.7-1762965531
+FROM registry.access.redhat.com/ubi9/ubi-minimal:9.7-1763362218
 WORKDIR /app
 LABEL \
   com.redhat.component="flightctl-periodic-container" \

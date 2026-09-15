@@ -78,6 +78,34 @@ jobs:
           make -j4 build-containers
           echo "::endgroup::"
 
+      - name: Validate FIPS compliance
+        run: |
+          set -euo pipefail
+
+          echo "::group::Installing fips-validator"
+          go install github.com/flightctl/fips-validator@latest
+          echo "::endgroup::"
+
+          mapfile -t images < <(podman images --format '{{.Repository}}:{{.Tag}}' | grep 'flightctl-.*-el9:latest')
+
+          failed=0
+          for img in "${images[@]}"; do
+            echo "::group::FIPS validation: $img"
+            if podman unshare -- "$HOME/go/bin/fips-validator" image "$img"; then
+              echo "PASS: $img"
+            else
+              echo "FAIL: $img"
+              failed=1
+            fi
+            echo "::endgroup::"
+          done
+
+          if [[ "$failed" -ne 0 ]]; then
+            echo "::error::One or more images failed FIPS validation"
+            exit 1
+          fi
+          echo "All ${#images[@]} images passed FIPS validation"
+
       - name: Bundle images
         id: bundle-images
         env:
