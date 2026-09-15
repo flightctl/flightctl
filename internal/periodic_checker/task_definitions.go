@@ -7,6 +7,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/delta_worker/model"
 	"github.com/flightctl/flightctl/internal/delta_worker/service/deltaprepare"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -26,7 +27,6 @@ import (
 	syncstateservice "github.com/flightctl/flightctl/internal/service/syncstate"
 	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
 	vulnerabilityfindingservice "github.com/flightctl/flightctl/internal/service/vulnerabilityfinding"
-	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/vulnerability"
