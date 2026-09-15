@@ -12,6 +12,8 @@ global:
   auth:
     type: oidc # oidc, aap, oauth2, or none
     insecureSkipTlsVerify: true
+    # TTL for AAP identity cache (Go duration string, e.g. "45s", "2m"). Applies only when auth type is "aap".
+    aapIdentityCacheTTL: "45s"
     aap:
       enabled: true
       apiUrl:
