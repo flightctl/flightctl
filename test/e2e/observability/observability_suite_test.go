@@ -14,8 +14,8 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-const TIMEOUT = "5m"
-const POLLING = "125ms"
+const TIMEOUT = 5 * time.Minute
+const POLLING = 125 * time.Millisecond
 const LONGTIMEOUT = "10m"
 const TENMINTIMEOUT = 10 * time.Minute
 const TENSECTIMEOUT = 10 * time.Second
