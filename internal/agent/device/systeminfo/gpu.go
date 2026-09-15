@@ -164,6 +164,9 @@ func collectGPUInfo(log *log.PrefixLogger, reader fileio.Reader, mappingFile str
 		index++
 	}
 
+	platformGPUs := collectPlatformGPUs(log, reader, index)
+	gpu = append(gpu, platformGPUs...)
+
 	return gpu, nil
 }
 
@@ -205,6 +208,103 @@ func isGPU(classCode string) bool {
 	}
 
 	return false
+}
+
+type platformGPUInfo struct {
+	Vendor string
+	Model  string
+	Arch   string
+}
+
+func lookupPlatformGPU(compatible string) (platformGPUInfo, bool) {
+	switch compatible {
+	case "nvidia,gm20b":
+		return platformGPUInfo{Vendor: "NVIDIA", Model: "GM20B", Arch: "Maxwell"}, true
+	case "nvidia,gp10b":
+		return platformGPUInfo{Vendor: "NVIDIA", Model: "GP10B", Arch: "Pascal"}, true
+	case "nvidia,gv11b":
+		return platformGPUInfo{Vendor: "NVIDIA", Model: "GV11B", Arch: "Volta"}, true
+	case "nvidia,ga10b":
+		return platformGPUInfo{Vendor: "NVIDIA", Model: "GA10B", Arch: "Ampere"}, true
+	default:
+		return platformGPUInfo{}, false
+	}
+}
+
+// collectPlatformGPUs scans platform bus devices for integrated GPUs identified
+// by Device Tree compatible strings (e.g. NVIDIA Jetson SoC GPUs).
+func collectPlatformGPUs(log *log.PrefixLogger, reader fileio.Reader, startIndex int) []GPUDeviceInfo {
+	entries, err := reader.ReadDir(platformDevicesPath)
+	if err != nil {
+		log.Tracef("Could not read platform devices directory: %v", err)
+		return nil
+	}
+
+	var gpus []GPUDeviceInfo
+	for _, entry := range entries {
+		devicePath := filepath.Join(platformDevicesPath, entry.Name())
+		ueventPath := filepath.Join(devicePath, "uevent")
+
+		ueventBytes, err := reader.ReadFile(ueventPath)
+		if err != nil {
+			continue
+		}
+
+		uevent := parseUevent(ueventBytes)
+		if uevent["OF_NAME"] != "gpu" {
+			continue
+		}
+
+		var matched platformGPUInfo
+		var matchedCompat string
+		for i := 0; ; i++ {
+			key := fmt.Sprintf("OF_COMPATIBLE_%d", i)
+			compat, ok := uevent[key]
+			if !ok {
+				break
+			}
+			if info, found := lookupPlatformGPU(compat); found {
+				matched = info
+				matchedCompat = compat
+				break
+			}
+		}
+
+		if matchedCompat == "" {
+			log.Tracef("Platform device %s has OF_NAME=gpu but no known compatible string", entry.Name())
+			continue
+		}
+
+		gpu := GPUDeviceInfo{
+			Index:    startIndex,
+			Vendor:   matched.Vendor,
+			Model:    matched.Model,
+			Arch:     matched.Arch,
+			DeviceID: matchedCompat,
+		}
+		gpu.MemoryBytes = getGPUMemory(devicePath, reader, log)
+
+		gpus = append(gpus, gpu)
+		startIndex++
+	}
+
+	return gpus
+}
+
+func parseUevent(data []byte) map[string]string {
+	result := make(map[string]string)
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		result[parts[0]] = parts[1]
+	}
+	return result
 }
 
 // getGPUMemory attempts to retrieve GPU memory information using simple, vendor-agnostic approaches best effort.
