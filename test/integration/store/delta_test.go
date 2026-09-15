@@ -689,16 +689,18 @@ var _ = Describe("DeltaStore", func() {
 		})
 	})
 
-	Context("When transitioning a prepare through the legacy adapter", func() {
+	Context("When transitioning a prepare through the resource API", func() {
 		It("should bump resource_version with the status transition", func() {
 			prep := fleetPrepare("myfleet", nil)
 			Expect(deltaStore.CreateDeltaPrepare(ctx, prep)).To(Succeed())
 			initialRV := prep.ResourceVersion
 
-			Expect(deltaStore.CASPrepareStatus(ctx, prep.ID, model.DeltaPrepareComplete)).To(Succeed())
-
 			updated, err := deltaStore.GetDeltaPrepare(ctx, deltastore.PrepareKey{ID: prep.ID})
 			Expect(err).ToNot(HaveOccurred())
+			updated.Status = model.DeltaPrepareComplete
+			updated, err = deltaStore.UpdateDeltaPrepare(ctx, initialRV, updated)
+			Expect(err).ToNot(HaveOccurred())
+
 			Expect(updated.Status).To(Equal(model.DeltaPrepareComplete))
 			Expect(updated.ResourceVersion).To(Equal(initialRV + 1))
 

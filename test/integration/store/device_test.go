@@ -495,6 +495,32 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(deviceNames(imageList.Items)).To(ConsistOf("osmode-image"))
 		})
 
+		It("List with status.systemInfo.deltaEligible field filter", func() {
+			testutil.CreateTestDevice(ctx, devStore, orgId, "delta-eligible", nil, nil, nil)
+			testutil.CreateTestDevice(ctx, devStore, orgId, "delta-ineligible", nil, nil, nil)
+
+			setDeltaEligible := func(name string, eligible bool) {
+				device, err := devStore.Get(ctx, orgId, name)
+				Expect(err).ToNot(HaveOccurred())
+				device.Status.SystemInfo.DeltaEligible = lo.ToPtr(eligible)
+				_, _, err = devStore.UpdateStatus(ctx, orgId, device, nil)
+				Expect(err).ToNot(HaveOccurred())
+			}
+
+			setDeltaEligible("delta-eligible", true)
+			setDeltaEligible("delta-ineligible", false)
+
+			devices, err := devStore.List(ctx, orgId, devicestore.DeviceListParams{
+				ListParams: store.ListParams{
+					Limit:         1000,
+					FieldSelector: selector.NewFieldSelectorOrDie("status.systemInfo.deltaEligible=true", selector.WithPrivateSelectors()),
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(devices.Items).To(HaveLen(1))
+			Expect(*devices.Items[0].Metadata.Name).To(Equal("delta-eligible"))
+		})
+
 		It("List with owner selector", func() {
 			testutil.CreateTestDevice(ctx, devStore, orgId, "fleet-a-device", lo.ToPtr("Fleet/fleet-a"), nil, nil)
 			testutil.CreateTestDevice(ctx, devStore, orgId, "fleet-b-device", lo.ToPtr("Fleet/fleet-b"), nil, nil)

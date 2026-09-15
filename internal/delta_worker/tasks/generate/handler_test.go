@@ -3,8 +3,6 @@ package generate
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -12,101 +10,111 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	deltaconfig "github.com/flightctl/flightctl/internal/delta_worker/config"
 	"github.com/flightctl/flightctl/internal/delta_worker/model"
+	"github.com/flightctl/flightctl/internal/delta_worker/service/deltageneration"
 	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/google/uuid"
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 	"oras.land/oras-go/v2"
 	ocistore "oras.land/oras-go/v2/content/oci"
 )
 
-type fakeGenerationStore struct {
-	rejected     []*model.DeltaGeneration
-	inserted     []*model.DeltaGeneration
-	claimed      int
-	claimErr     error
-	cas          []deltastore.GenerationCAS
-	casErr       error
-	casFailN     int
-	waiting      []model.DeltaPrepare
-	claimedRV    int64
-	listWaitingN int
+type fakeGenerationService struct {
+	createCalls int
+	claimed     int
+	claimErr    error
+	updates     []*model.DeltaGeneration
+	casErr      error
+	casFailN    int
+	claimedRV   int64
+	generations map[deltastore.GenerationKey]*model.DeltaGeneration
 }
 
-func (f *fakeGenerationStore) InitialMigration(context.Context) error { return nil }
-
-func (f *fakeGenerationStore) GetGeneration(context.Context, deltastore.GenerationKey, ...deltastore.GenerationGetOption) (*model.DeltaGeneration, error) {
+func (f *fakeGenerationService) CreateDeltaGenerations(_ context.Context, gens []*model.DeltaGeneration) ([]model.DeltaGeneration, error) {
+	f.createCalls++
 	return nil, nil
 }
 
-func (f *fakeGenerationStore) InsertPrepare(context.Context, *model.DeltaPrepare) error { return nil }
-
-func (f *fakeGenerationStore) GetPrepare(context.Context, uuid.UUID) (*model.DeltaPrepare, error) {
-	return nil, nil
+func (f *fakeGenerationService) GetDeltaGeneration(_ context.Context, key deltastore.GenerationKey, _ ...deltastore.GenerationGetOption) (*model.DeltaGeneration, error) {
+	generation := f.generations[key]
+	if generation == nil {
+		generation = &model.DeltaGeneration{
+			OrgID:           key.OrgID,
+			ImageRepository: key.ImageRepository,
+			SourceDigest:    key.SourceDigest,
+			TargetDigest:    key.TargetDigest,
+			Status:          model.DeltaGenerationPending,
+			ResourceVersion: f.claimedRV,
+		}
+		if f.generations == nil {
+			f.generations = make(map[deltastore.GenerationKey]*model.DeltaGeneration)
+		}
+		f.generations[key] = generation
+	}
+	copy := *generation
+	return &copy, nil
 }
 
-func (f *fakeGenerationStore) CASPrepareStatus(context.Context, uuid.UUID, string) error { return nil }
-
-func (f *fakeGenerationStore) ListWaitingPastDeadline(context.Context, int, time.Time) ([]model.DeltaPrepare, error) {
-	return nil, nil
+func (f *fakeGenerationService) ListDeltaGenerations(_ context.Context, keys []deltastore.GenerationKey) ([]model.DeltaGeneration, error) {
+	result := make([]model.DeltaGeneration, 0, len(keys))
+	for _, key := range keys {
+		if generation := f.generations[key]; generation != nil {
+			result = append(result, *generation)
+		}
+	}
+	return result, nil
 }
 
-func (f *fakeGenerationStore) InsertPrepareGenerations(context.Context, uuid.UUID, []deltastore.GenerationKey) error {
-	return nil
-}
-
-func (f *fakeGenerationStore) InsertRejectedGeneration(_ context.Context, gen *model.DeltaGeneration) error {
-	f.rejected = append(f.rejected, gen)
-	return nil
-}
-
-func (f *fakeGenerationStore) InsertGenerations(_ context.Context, gens []*model.DeltaGeneration) ([]deltastore.GenerationKey, error) {
-	f.inserted = append(f.inserted, gens...)
-	return nil, nil
-}
-
-func (f *fakeGenerationStore) ClaimGeneration(_ context.Context, _ deltastore.GenerationKey) (*model.DeltaGeneration, error) {
-	if f.claimErr != nil {
+func (f *fakeGenerationService) UpdateDeltaGeneration(ctx context.Context, _ int64, generation *model.DeltaGeneration) (*model.DeltaGeneration, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if generation.Status == model.DeltaGenerationInProgress && f.claimed == 0 && f.claimErr != nil {
 		return nil, f.claimErr
 	}
-	f.claimed++
-	return &model.DeltaGeneration{Status: model.DeltaGenerationInProgress, ResourceVersion: f.claimedRV}, nil
-}
-
-func (f *fakeGenerationStore) CASGeneration(ctx context.Context, _ deltastore.GenerationKey, _ int64, update deltastore.GenerationCAS) error {
-	if err := ctx.Err(); err != nil {
-		return err
+	if generation.Status != model.DeltaGenerationInProgress && f.casErr != nil {
+		return nil, f.casErr
 	}
-	if f.casErr != nil {
-		return f.casErr
-	}
-	if f.casFailN > 0 {
+	if f.casFailN > 0 && f.claimed > 0 {
 		f.casFailN--
-		return errors.New("persist failed")
+		return nil, errors.New("persist failed")
 	}
-	f.cas = append(f.cas, update)
-	return nil
+	key := generationKey(*generation)
+	copy := *generation
+	if copy.Status == model.DeltaGenerationInProgress {
+		f.claimed++
+	}
+	copy.ResourceVersion++
+	f.generations[key] = &copy
+	snapshot := copy
+	f.updates = append(f.updates, &snapshot)
+	return &copy, nil
 }
 
-func (f *fakeGenerationStore) ListWaitingPreparesByGeneration(_ context.Context, _ deltastore.GenerationKey) ([]model.DeltaPrepare, error) {
-	f.listWaitingN++
-	return f.waiting, nil
+func generationKey(g model.DeltaGeneration) deltastore.GenerationKey {
+	return deltastore.GenerationKey{OrgID: g.OrgID, ImageRepository: g.ImageRepository, SourceDigest: g.SourceDigest, TargetDigest: g.TargetDigest}
 }
+
+var _ deltageneration.Service = (*fakeGenerationService)(nil)
 
 func generateEvent(org uuid.UUID, repo, src, tgt string) worker_client.EventWithOrgId {
-	payload, _ := json.Marshal(generateDeltaPayload{
+	payload, _ := json.Marshal(GenerateDeltaPayload{
 		ImageRepository: repo,
 		SourceDigest:    src,
 		TargetDigest:    tgt,
@@ -115,6 +123,32 @@ func generateEvent(org uuid.UUID, repo, src, tgt string) worker_client.EventWith
 		OrgId: org,
 		Event: domain.Event{Reason: domain.EventReasonGenerateDelta, Message: string(payload)},
 	}
+}
+
+func emptyRepositoryService(t *testing.T) repositoryservice.Service {
+	t.Helper()
+	mock := repositoryservice.NewMockService(gomock.NewController(t))
+	mock.EXPECT().ListRepositories(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, domain.Status{Code: http.StatusOK}).AnyTimes()
+	return mock
+}
+
+func newTestHandler(t *testing.T, store *fakeGenerationService, cfg *deltaconfig.DeltaGenerationConfig, check func(context.Context, uuid.UUID, string, string, string) (*existingDelta, error), generate func(context.Context, uuid.UUID, string, string, string) (string, int64, error)) *Handler {
+	t.Helper()
+	var existenceCheck existenceChecker
+	if check != nil {
+		existenceCheck = func(ctx context.Context, orgID uuid.UUID, imageRepository, sourceDigest, targetDigest string, _ *domain.OciRepoSpec) (*existingDelta, error) {
+			return check(ctx, orgID, imageRepository, sourceDigest, targetDigest)
+		}
+	}
+	var deltaGenerator deltaGenerator
+	if generate != nil {
+		deltaGenerator = func(ctx context.Context, generation *model.DeltaGeneration, _ *domain.OciRepoSpec, sourceRef, targetRef, pushPath string) (string, int64, error) {
+			return generate(ctx, generation.OrgID, sourceRef, targetRef, pushPath)
+		}
+	}
+	handler, err := newHandler(cfg, logrus.New(), emptyRepositoryService(t), store, existenceCheck, deltaGenerator)
+	require.NoError(t, err)
+	return handler
 }
 
 func TestHandleGenerateDelta(t *testing.T) {
@@ -127,204 +161,193 @@ func TestHandleGenerateDelta(t *testing.T) {
 
 	t.Run("When PrepareDeltas it should not generate", func(t *testing.T) {
 		req := require.New(t)
-		store := &fakeGenerationStore{}
-		c := &Consumer{
-			store:      store,
-			jobTimeout: time.Minute,
-			existenceCheck: func(context.Context, string, string, string) (existenceResult, error) {
-				t.Fatal("existence check must not run")
-				return existenceResult{}, nil
-			},
-		}
-		err := c.handleGenerateDelta(context.Background(), worker_client.EventWithOrgId{
+		store := &fakeGenerationService{}
+		c := newTestHandler(t, store, &deltaconfig.DeltaGenerationConfig{Timeout: util.Duration(time.Minute)}, func(context.Context, uuid.UUID, string, string, string) (*existingDelta, error) {
+			t.Fatal("existence check must not run")
+			return nil, nil
+		}, nil)
+		err := c.Handle(context.Background(), worker_client.EventWithOrgId{
 			OrgId: org,
 			Event: domain.Event{Reason: domain.EventReasonPrepareDeltas},
 		}, log)
 		req.NoError(err)
-		req.Empty(store.inserted)
+		req.Zero(store.createCalls)
 	})
 
-	t.Run("When existence is found it should insert rejected and not generate", func(t *testing.T) {
+	t.Run("When existence is found it should update succeeded and not generate", func(t *testing.T) {
 		req := require.New(t)
-		store := &fakeGenerationStore{waiting: []model.DeltaPrepare{{Name: "fleet-a"}}}
+		store := &fakeGenerationService{}
 		var generated bool
-		c := &Consumer{
-			store:      store,
-			jobTimeout: time.Minute,
-			existenceCheck: func(context.Context, string, string, string) (existenceResult, error) {
-				return existenceResult{Status: existenceFound, SizeBytes: 77}, nil
-			},
-			generateDelta: func(context.Context, string, string, string) (string, int64, error) {
-				generated = true
-				return "", 0, nil
-			},
-		}
-		req.NoError(c.handleGenerateDelta(context.Background(), generateEvent(org, repo, src, tgt), log))
+		c := newTestHandler(t, store, &deltaconfig.DeltaGenerationConfig{Timeout: util.Duration(time.Minute)}, func(context.Context, uuid.UUID, string, string, string) (*existingDelta, error) {
+			return &existingDelta{Ref: "write.example/os@sha256:existing", SizeBytes: 77}, nil
+		}, func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
+			generated = true
+			return "", 0, nil
+		})
+		req.NoError(c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log))
 		req.False(generated)
-		req.Len(store.rejected, 1)
-		req.Equal(int64(77), *store.rejected[0].SizeBytes)
-		req.Equal(1, store.listWaitingN)
-		req.Empty(store.inserted)
+		req.Len(store.updates, 2)
+		req.Equal(model.DeltaGenerationSucceeded, store.updates[1].Status)
+		req.Equal("write.example/os@sha256:existing", *store.updates[1].DeltaRef)
+		req.Equal(int64(77), *store.updates[1].SizeBytes)
+		req.Zero(store.createCalls)
 	})
 
-	t.Run("When existence is inconclusive it should return retryable error", func(t *testing.T) {
+	t.Run("When existence check fails it should return retryable error", func(t *testing.T) {
 		req := require.New(t)
-		store := &fakeGenerationStore{}
-		c := &Consumer{
-			store:      store,
-			jobTimeout: time.Minute,
-			existenceCheck: func(context.Context, string, string, string) (existenceResult, error) {
-				return existenceResult{Status: existenceInconclusive}, nil
-			},
-			generateDelta: func(context.Context, string, string, string) (string, int64, error) {
-				t.Fatal("generate must not run")
-				return "", 0, nil
-			},
-		}
-		err := c.handleGenerateDelta(context.Background(), generateEvent(org, repo, src, tgt), log)
+		store := &fakeGenerationService{}
+		c := newTestHandler(t, store, &deltaconfig.DeltaGenerationConfig{Timeout: util.Duration(time.Minute)}, func(context.Context, uuid.UUID, string, string, string) (*existingDelta, error) {
+			return nil, errors.New("registry unavailable")
+		}, func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
+			t.Fatal("generate must not run")
+			return "", 0, nil
+		})
+		err := c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log)
 		req.Error(err)
-		req.Contains(err.Error(), "inconclusive")
-		req.Empty(store.inserted)
-		req.Empty(store.rejected)
+		req.Contains(err.Error(), "registry unavailable")
+		req.Zero(store.createCalls)
+		req.Len(store.updates, 2)
+		req.Equal(model.DeltaGenerationPending, store.updates[1].Status)
 	})
 
-	t.Run("When miss it should claim generate and CAS succeeded", func(t *testing.T) {
+	t.Run("When miss it should claim generate and update succeeded", func(t *testing.T) {
 		req := require.New(t)
-		store := &fakeGenerationStore{claimedRV: 4}
-		c := &Consumer{
-			store:      store,
-			jobTimeout: time.Minute,
-			existenceCheck: func(context.Context, string, string, string) (existenceResult, error) {
-				return existenceResult{Status: existenceNotFound}, nil
+		store := &fakeGenerationService{claimedRV: 4}
+		c := newTestHandler(t, store, &deltaconfig.DeltaGenerationConfig{
+			Timeout: util.Duration(time.Minute),
+			DefaultRepository: &deltaconfig.DefaultRepositoryConfig{
+				Registry:   "write.example",
+				Repository: lo.ToPtr("os"),
 			},
-			generateDelta: func(_ context.Context, sourceRef, targetRef, pushPath string) (string, int64, error) {
-				req.Equal(repo+"@"+src, sourceRef)
-				req.Equal(repo+"@"+tgt, targetRef)
-				req.Equal("write.example/os", pushPath)
-				return "write.example/os@sha256:delta", 12, nil
-			},
-			pushPath: func(string) (string, error) { return "write.example/os", nil },
-		}
-		req.NoError(c.handleGenerateDelta(context.Background(), generateEvent(org, repo, src, tgt), log))
-		req.Len(store.inserted, 1)
+		}, func(context.Context, uuid.UUID, string, string, string) (*existingDelta, error) {
+			return nil, nil
+		}, func(_ context.Context, _ uuid.UUID, sourceRef, targetRef, pushPath string) (string, int64, error) {
+			req.Equal(repo+"@"+src, sourceRef)
+			req.Equal(repo+"@"+tgt, targetRef)
+			req.Equal("write.example/os", pushPath)
+			return "write.example/os@sha256:delta", 12, nil
+		})
+		req.NoError(c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log))
+		req.Zero(store.createCalls)
 		req.Equal(1, store.claimed)
-		req.Len(store.cas, 1)
-		req.Equal(model.DeltaGenerationSucceeded, store.cas[0].Status)
-		req.Equal("write.example/os@sha256:delta", *store.cas[0].DeltaRef)
-		req.Equal(int64(12), *store.cas[0].SizeBytes)
-		req.Equal(1, store.listWaitingN)
+		req.Len(store.updates, 2)
+		req.Equal(model.DeltaGenerationSucceeded, store.updates[1].Status)
+		req.Equal("write.example/os@sha256:delta", *store.updates[1].DeltaRef)
+		req.Equal(int64(12), *store.updates[1].SizeBytes)
 	})
 
-	t.Run("When generate fails it should CAS failed and resume", func(t *testing.T) {
+	t.Run("When generate fails it should update failed", func(t *testing.T) {
 		req := require.New(t)
-		store := &fakeGenerationStore{}
-		c := &Consumer{
-			store:      store,
-			jobTimeout: time.Minute,
-			existenceCheck: func(context.Context, string, string, string) (existenceResult, error) {
-				return existenceResult{Status: existenceNotFound}, nil
-			},
-			generateDelta: func(context.Context, string, string, string) (string, int64, error) {
-				return "", 0, errors.New("oci-delta exploded")
-			},
-		}
-		req.NoError(c.handleGenerateDelta(context.Background(), generateEvent(org, repo, src, tgt), log))
-		req.Len(store.cas, 1)
-		req.Equal(model.DeltaGenerationFailed, store.cas[0].Status)
-		req.Equal(1, store.listWaitingN)
+		store := &fakeGenerationService{}
+		c := newTestHandler(t, store, &deltaconfig.DeltaGenerationConfig{Timeout: util.Duration(time.Minute)}, func(context.Context, uuid.UUID, string, string, string) (*existingDelta, error) {
+			return nil, nil
+		}, func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
+			return "", 0, errors.New("oci-delta exploded")
+		})
+		req.NoError(c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log))
+		req.Len(store.updates, 2)
+		req.Equal(model.DeltaGenerationFailed, store.updates[1].Status)
 	})
 
 	t.Run("When claim is in_progress it should not steal", func(t *testing.T) {
 		req := require.New(t)
-		store := &fakeGenerationStore{claimErr: flterrors.ErrNoRowsUpdated}
-		c := &Consumer{
-			store:      store,
-			jobTimeout: time.Minute,
-			existenceCheck: func(context.Context, string, string, string) (existenceResult, error) {
-				return existenceResult{Status: existenceNotFound}, nil
-			},
-			generateDelta: func(context.Context, string, string, string) (string, int64, error) {
-				t.Fatal("generate must not run")
-				return "", 0, nil
-			},
-		}
-		req.NoError(c.handleGenerateDelta(context.Background(), generateEvent(org, repo, src, tgt), log))
-		req.Empty(store.cas)
+		store := &fakeGenerationService{claimErr: flterrors.ErrNoRowsUpdated}
+		c := newTestHandler(t, store, &deltaconfig.DeltaGenerationConfig{Timeout: util.Duration(time.Minute)}, func(context.Context, uuid.UUID, string, string, string) (*existingDelta, error) {
+			return nil, nil
+		}, func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
+			t.Fatal("generate must not run")
+			return "", 0, nil
+		})
+		req.NoError(c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log))
+		req.Empty(store.updates)
 	})
 
-	t.Run("When persist succeeded fails it should mark failed and resume", func(t *testing.T) {
+	t.Run("When claiming fails it should return the error without marking failed", func(t *testing.T) {
 		req := require.New(t)
-		store := &fakeGenerationStore{casFailN: 1}
-		c := &Consumer{
-			store:      store,
-			jobTimeout: time.Minute,
-			existenceCheck: func(context.Context, string, string, string) (existenceResult, error) {
-				return existenceResult{Status: existenceNotFound}, nil
-			},
-			generateDelta: func(context.Context, string, string, string) (string, int64, error) {
-				return "ref", 1, nil
-			},
-		}
-		req.NoError(c.handleGenerateDelta(context.Background(), generateEvent(org, repo, src, tgt), log))
-		req.Len(store.cas, 1)
-		req.Equal(model.DeltaGenerationFailed, store.cas[0].Status)
-		req.Equal(1, store.listWaitingN)
+		store := &fakeGenerationService{claimErr: errors.New("claim store unavailable")}
+		generated := false
+		c := newTestHandler(t, store, &deltaconfig.DeltaGenerationConfig{Timeout: util.Duration(time.Minute)}, func(context.Context, uuid.UUID, string, string, string) (*existingDelta, error) {
+			return nil, nil
+		}, func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
+			generated = true
+			return "ref", 1, nil
+		})
+		err := c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log)
+		req.ErrorContains(err, "claim generation: claim store unavailable")
+		req.False(generated)
+		req.Empty(store.updates)
 	})
 
-	t.Run("When generate context times out it should CAS failed", func(t *testing.T) {
+	t.Run("When persist succeeded fails it should mark failed", func(t *testing.T) {
 		req := require.New(t)
-		store := &fakeGenerationStore{}
-		c := &Consumer{
-			store:      store,
-			jobTimeout: time.Nanosecond,
-			existenceCheck: func(context.Context, string, string, string) (existenceResult, error) {
-				return existenceResult{Status: existenceNotFound}, nil
-			},
-			generateDelta: func(ctx context.Context, _, _, _ string) (string, int64, error) {
-				<-ctx.Done()
-				return "", 0, ctx.Err()
-			},
-		}
-		req.NoError(c.handleGenerateDelta(context.Background(), generateEvent(org, repo, src, tgt), log))
-		req.Len(store.cas, 1)
-		req.Equal(model.DeltaGenerationFailed, store.cas[0].Status)
-		req.Equal(1, store.listWaitingN)
+		store := &fakeGenerationService{casFailN: 1}
+		generated := false
+		c := newTestHandler(t, store, &deltaconfig.DeltaGenerationConfig{Timeout: util.Duration(time.Minute)}, func(context.Context, uuid.UUID, string, string, string) (*existingDelta, error) {
+			return nil, nil
+		}, func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
+			generated = true
+			return "ref", 1, nil
+		})
+		req.NoError(c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log))
+		req.True(generated)
+		req.Len(store.updates, 2)
+		req.Equal(model.DeltaGenerationFailed, store.updates[1].Status)
 	})
 
-	t.Run("When CAS is stale it should not overwrite", func(t *testing.T) {
+	t.Run("When generate context times out it should update failed", func(t *testing.T) {
 		req := require.New(t)
-		store := &fakeGenerationStore{casErr: flterrors.ErrNoRowsUpdated}
-		c := &Consumer{
-			store:      store,
-			jobTimeout: time.Minute,
-			existenceCheck: func(context.Context, string, string, string) (existenceResult, error) {
-				return existenceResult{Status: existenceNotFound}, nil
-			},
-			generateDelta: func(context.Context, string, string, string) (string, int64, error) {
-				return "ref", 1, nil
-			},
-		}
-		req.NoError(c.handleGenerateDelta(context.Background(), generateEvent(org, repo, src, tgt), log))
-		req.Equal(0, store.listWaitingN)
+		store := &fakeGenerationService{}
+		c := newTestHandler(t, store, &deltaconfig.DeltaGenerationConfig{Timeout: util.Duration(100 * time.Millisecond)}, func(context.Context, uuid.UUID, string, string, string) (*existingDelta, error) {
+			return nil, nil
+		}, func(ctx context.Context, _ uuid.UUID, _, _, _ string) (string, int64, error) {
+			<-ctx.Done()
+			return "", 0, ctx.Err()
+		})
+		req.NoError(c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log))
+		req.Len(store.updates, 2)
+		req.Equal(model.DeltaGenerationFailed, store.updates[1].Status)
+	})
+
+	t.Run("When update is stale it should not overwrite", func(t *testing.T) {
+		req := require.New(t)
+		store := &fakeGenerationService{casErr: flterrors.ErrNoRowsUpdated}
+		generated := false
+		c := newTestHandler(t, store, &deltaconfig.DeltaGenerationConfig{Timeout: util.Duration(time.Minute)}, func(context.Context, uuid.UUID, string, string, string) (*existingDelta, error) {
+			return nil, nil
+		}, func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
+			generated = true
+			return "ref", 1, nil
+		})
+		req.NoError(c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log))
+		req.True(generated)
+		req.Len(store.updates, 1)
+		req.Equal(model.DeltaGenerationInProgress, store.updates[0].Status)
 	})
 }
 
 const (
 	testSourceDigest = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
 	testTargetDigest = "sha256:2222222222222222222222222222222222222222222222222222222222222222"
-	testDeltaDigest  = "sha256:3333333333333333333333333333333333333333333333333333333333333333"
 )
 
 func TestCheckExistingDelta(t *testing.T) {
 	deltaManifest := ocispec.Manifest{
-		Config: ocispec.Descriptor{Size: 10},
-		Layers: []ocispec.Descriptor{{Size: 20}, {Size: 30}},
+		ArtifactType: ociDeltaArtifactType,
+		Config:       ocispec.Descriptor{Digest: digest.FromString("config"), Size: 10},
+		Layers: []ocispec.Descriptor{
+			{Digest: digest.FromString("layer-1"), Size: 20},
+			{Digest: digest.FromString("layer-2"), Size: 30},
+		},
+		Subject:     &ocispec.Descriptor{Digest: digest.NewDigestFromEncoded(digest.SHA256, strings.TrimPrefix(testTargetDigest, "sha256:"))},
+		Annotations: map[string]string{ociDeltaSourceAnnotation: testSourceDigest},
 	}
-	indexSize := int64(9999)
+	deltaManifestBytes, err := json.Marshal(deltaManifest)
+	require.NoError(t, err)
+	deltaDigest := digest.FromBytes(deltaManifestBytes)
 	referrer := ocispec.Descriptor{
 		MediaType:    ocispec.MediaTypeImageManifest,
-		Digest:       testDeltaDigest,
-		Size:         indexSize,
+		Digest:       deltaDigest,
+		Size:         int64(len(deltaManifestBytes)),
 		ArtifactType: ociDeltaArtifactType,
 		Annotations: map[string]string{
 			ociDeltaSourceAnnotation: testSourceDigest,
@@ -332,10 +355,11 @@ func TestCheckExistingDelta(t *testing.T) {
 	}
 
 	tests := []struct {
-		name     string
-		handler  http.HandlerFunc
-		want     existenceStatus
-		wantSize int64
+		name      string
+		handler   http.HandlerFunc
+		wantFound bool
+		wantSize  int64
+		wantError bool
 	}{
 		{
 			name: "When Referrers returns a matching delta it should be found with manifest size_bytes",
@@ -343,14 +367,14 @@ func TestCheckExistingDelta(t *testing.T) {
 				switch {
 				case strings.Contains(r.URL.Path, "/referrers/"):
 					writeJSON(w, http.StatusOK, ocispec.Index{Manifests: []ocispec.Descriptor{referrer}})
-				case strings.Contains(r.URL.Path, "/manifests/"+testDeltaDigest):
+				case strings.Contains(r.URL.Path, "/manifests/"+deltaDigest.String()):
 					writeJSON(w, http.StatusOK, deltaManifest)
 				default:
 					http.NotFound(w, r)
 				}
 			},
-			want:     existenceFound,
-			wantSize: 60,
+			wantFound: true,
+			wantSize:  60,
 		},
 		{
 			name: "When Referrers 404 and Tag Schema has a matching delta it should be found",
@@ -358,16 +382,16 @@ func TestCheckExistingDelta(t *testing.T) {
 				switch {
 				case strings.Contains(r.URL.Path, "/referrers/"):
 					http.NotFound(w, r)
-				case strings.Contains(r.URL.Path, "/manifests/"+tagSchemaRef(testTargetDigest)):
+				case strings.Contains(r.URL.Path, "/manifests/"+strings.Replace(testTargetDigest, ":", "-", 1)):
 					writeJSON(w, http.StatusOK, ocispec.Index{Manifests: []ocispec.Descriptor{referrer}})
-				case strings.Contains(r.URL.Path, "/manifests/"+testDeltaDigest):
+				case strings.Contains(r.URL.Path, "/manifests/"+deltaDigest.String()):
 					writeJSON(w, http.StatusOK, deltaManifest)
 				default:
 					http.NotFound(w, r)
 				}
 			},
-			want:     existenceFound,
-			wantSize: 60,
+			wantFound: true,
+			wantSize:  60,
 		},
 		{
 			name: "When Referrers 200 is empty it should be not found without Tag Schema",
@@ -375,35 +399,35 @@ func TestCheckExistingDelta(t *testing.T) {
 				switch {
 				case strings.Contains(r.URL.Path, "/referrers/"):
 					writeJSON(w, http.StatusOK, ocispec.Index{Manifests: []ocispec.Descriptor{}})
-				case strings.Contains(r.URL.Path, "/manifests/"+tagSchemaRef(testTargetDigest)):
+				case strings.Contains(r.URL.Path, "/manifests/"+strings.Replace(testTargetDigest, ":", "-", 1)):
 					t.Errorf("Tag Schema must not be queried after a Referrers 200")
 					http.NotFound(w, r)
 				default:
 					http.NotFound(w, r)
 				}
 			},
-			want: existenceNotFound,
+			wantFound: false,
 		},
 		{
 			name: "When Referrers and Tag Schema both 404 it should be not found",
 			handler: func(w http.ResponseWriter, r *http.Request) {
 				http.NotFound(w, r)
 			},
-			want: existenceNotFound,
+			wantFound: false,
 		},
 		{
-			name: "When Referrers returns 401 it should be inconclusive",
+			name: "When Referrers returns 401 it should return an error",
 			handler: func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusUnauthorized)
 			},
-			want: existenceInconclusive,
+			wantError: true,
 		},
 		{
-			name: "When Referrers returns 500 it should be inconclusive",
+			name: "When Referrers returns 500 it should return an error",
 			handler: func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(http.StatusInternalServerError)
 			},
-			want: existenceInconclusive,
+			wantError: true,
 		},
 		{
 			name: "When Referrers lists a non-matching source digest it should be not found",
@@ -412,7 +436,7 @@ func TestCheckExistingDelta(t *testing.T) {
 				other.Annotations = map[string]string{ociDeltaSourceAnnotation: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
 				writeJSON(w, http.StatusOK, ocispec.Index{Manifests: []ocispec.Descriptor{other}})
 			},
-			want: existenceNotFound,
+			wantFound: false,
 		},
 	}
 
@@ -425,39 +449,57 @@ func TestCheckExistingDelta(t *testing.T) {
 			u, err := url.Parse(srv.URL)
 			req.NoError(err)
 			imageRepository := u.Host + "/team-a/os"
+			scheme := domain.OciRepoSchemeHttp
+			spec := &domain.OciRepoSpec{Registry: u.Host, Scheme: &scheme}
 
-			got, err := checkExistingDelta(context.Background(), imageRepository, testSourceDigest, testTargetDigest, existenceConfig{
-				Client: srv.Client(),
-				Scheme: "http",
-			})
-			req.NoError(err)
-			req.Equal(tt.want, got.Status)
-			if tt.want == existenceFound {
-				req.Equal(tt.wantSize, got.SizeBytes)
+			got, err := checkExistingDelta(context.Background(), imageRepository, testSourceDigest, testTargetDigest, spec)
+			if tt.wantError {
+				req.Error(err)
+				return
 			}
+			req.NoError(err)
+			if tt.wantFound {
+				req.NotNil(got)
+				req.Equal(tt.wantSize, got.SizeBytes)
+				req.Equal(imageRepository+"@"+deltaDigest.String(), got.Ref)
+				return
+			}
+			req.Nil(got)
 		})
 	}
 }
 
-func TestCheckExistingDelta_WhenRegistryUnreachableItShouldBeInconclusive(t *testing.T) {
+func TestCheckExistingDelta_WhenRegistryUnreachableItShouldReturnAnError(t *testing.T) {
 	req := require.New(t)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	req.NoError(err)
 	addr := ln.Addr().String()
 	req.NoError(ln.Close())
 
-	got, err := checkExistingDelta(context.Background(), addr+"/team-a/os", testSourceDigest, testTargetDigest, existenceConfig{
-		Client: &http.Client{Timeout: 2 * time.Second},
-		Scheme: "http",
+	scheme := domain.OciRepoSchemeHttp
+	got, err := checkExistingDelta(context.Background(), addr+"/team-a/os", testSourceDigest, testTargetDigest, &domain.OciRepoSpec{
+		Registry: addr,
+		Scheme:   &scheme,
 	})
-	req.NoError(err)
-	req.Equal(existenceInconclusive, got.Status)
+	req.Error(err)
+	req.Nil(got)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
+	contentType := "application/json"
+	switch v.(type) {
+	case ocispec.Index:
+		contentType = ocispec.MediaTypeImageIndex
+	case ocispec.Manifest:
+		contentType = ocispec.MediaTypeImageManifest
+	}
+	w.Header().Set("Content-Type", contentType)
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	body, err := json.Marshal(v)
+	if err != nil {
+		return
+	}
+	_, _ = w.Write(body)
 }
 
 type recordingRunner struct {
@@ -465,7 +507,7 @@ type recordingRunner struct {
 	errAt map[string]error
 }
 
-func (r *recordingRunner) Run(_ context.Context, name string, args ...string) error {
+func (r *recordingRunner) Run(_ context.Context, name string, args []string) error {
 	r.calls = append(r.calls, append([]string{name}, args...))
 	if r.errAt != nil {
 		if err, ok := r.errAt[name]; ok {
@@ -570,7 +612,7 @@ func TestCreateAndPushDelta_WhenContextIsCancelledItShouldReturnError(t *testing
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	g := generator{
-		run: runnerFunc(func(ctx context.Context, _ string, _ ...string) error {
+		run: runnerFunc(func(ctx context.Context, _ string, _ []string) error {
 			return ctx.Err()
 		}),
 		layoutPayloadSize: func(string) (int64, error) { return 0, nil },
@@ -600,10 +642,10 @@ func TestCreateAndPushDelta_WhenDeltaDirItShouldUseWorkSubdir(t *testing.T) {
 	req.Contains(runner.calls[0], "oci:"+filepath.Join(work, "source")+":img")
 }
 
-type runnerFunc func(ctx context.Context, name string, args ...string) error
+type runnerFunc func(ctx context.Context, name string, args []string) error
 
-func (f runnerFunc) Run(ctx context.Context, name string, args ...string) error {
-	return f(ctx, name, args...)
+func (f runnerFunc) Run(ctx context.Context, name string, args []string) error {
+	return f(ctx, name, args)
 }
 
 func TestReferenceForResolve_WhenDigestRefItShouldReturnDigest(t *testing.T) {
@@ -614,66 +656,7 @@ func TestReferenceForResolve_WhenDigestRefItShouldReturnDigest(t *testing.T) {
 	req.Equal(dgst, got)
 }
 
-func TestPushLayoutAsReferrer_WhenDestHasSubjectItShouldPackWithSubject(t *testing.T) {
-	req := require.New(t)
-	ctx := context.Background()
-	layoutDir := t.TempDir()
-	destDir := t.TempDir()
-
-	dest, err := ocistore.New(destDir)
-	req.NoError(err)
-	subjectPayload := []byte("os-layer")
-	subjectLayer := ocispec.Descriptor{
-		MediaType: ocispec.MediaTypeImageLayer,
-		Digest:    digest.FromBytes(subjectPayload),
-		Size:      int64(len(subjectPayload)),
-	}
-	const sourceDigest = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-	req.NoError(dest.Push(ctx, subjectLayer, bytes.NewReader(subjectPayload)))
-	subject, err := oras.PackManifest(ctx, dest, oras.PackManifestVersion1_1, ocispec.MediaTypeImageManifest, oras.PackManifestOptions{
-		Layers: []ocispec.Descriptor{subjectLayer},
-	})
-	req.NoError(err)
-
-	layout, err := ocistore.New(layoutDir)
-	req.NoError(err)
-	deltaPayload := []byte("delta-layer")
-	deltaLayer := ocispec.Descriptor{
-		MediaType: ocispec.MediaTypeImageLayer,
-		Digest:    digest.FromBytes(deltaPayload),
-		Size:      int64(len(deltaPayload)),
-	}
-	req.NoError(layout.Push(ctx, deltaLayer, bytes.NewReader(deltaPayload)))
-	layoutManifest, err := oras.PackManifest(ctx, layout, oras.PackManifestVersion1_1, ociDeltaArtifactType, oras.PackManifestOptions{
-		Subject: &subject,
-		Layers:  []ocispec.Descriptor{deltaLayer},
-		ManifestAnnotations: map[string]string{
-			ociDeltaSourceAnnotation: sourceDigest,
-		},
-	})
-	req.NoError(err)
-	req.NoError(layout.Tag(ctx, layoutManifest, layoutTag))
-
-	loaded, err := loadDeltaLayout(ctx, layoutDir)
-	req.NoError(err)
-	req.NoError(loaded.matchesPair(sourceDigest, subject.Digest.String()))
-	packed, err := pushLayoutAsReferrer(ctx, loaded, dest, subject, dest)
-	req.NoError(err)
-
-	rc, err := dest.Fetch(ctx, packed)
-	req.NoError(err)
-	defer rc.Close()
-	b, err := io.ReadAll(rc)
-	req.NoError(err)
-	var manifest ocispec.Manifest
-	req.NoError(json.Unmarshal(b, &manifest))
-	req.NotNil(manifest.Subject)
-	req.Equal(subject.Digest, manifest.Subject.Digest)
-	req.Equal(sourceDigest, manifest.Annotations[ociDeltaSourceAnnotation])
-	req.Equal(ociDeltaArtifactType, manifest.ArtifactType)
-}
-
-func TestPushLayoutAsReferrer_WhenSubjectSrcDiffersFromDestItShouldPackReferrer(t *testing.T) {
+func TestCopyDeltaGraph_WhenSubjectIsNotInDestinationItShouldCopyRootWithoutSubjectGraph(t *testing.T) {
 	req := require.New(t)
 	ctx := context.Background()
 	layoutDir := t.TempDir()
@@ -681,6 +664,8 @@ func TestPushLayoutAsReferrer_WhenSubjectSrcDiffersFromDestItShouldPackReferrer(
 	destDir := t.TempDir()
 
 	src, err := ocistore.New(srcDir)
+	req.NoError(err)
+	dest, err := ocistore.New(destDir)
 	req.NoError(err)
 	subjectPayload := []byte("os-layer")
 	subjectLayer := ocispec.Descriptor{
@@ -695,9 +680,6 @@ func TestPushLayoutAsReferrer_WhenSubjectSrcDiffersFromDestItShouldPackReferrer(
 	})
 	req.NoError(err)
 
-	dest, err := ocistore.New(destDir)
-	req.NoError(err)
-
 	layout, err := ocistore.New(layoutDir)
 	req.NoError(err)
 	deltaPayload := []byte("delta-layer")
@@ -720,10 +702,9 @@ func TestPushLayoutAsReferrer_WhenSubjectSrcDiffersFromDestItShouldPackReferrer(
 	loaded, err := loadDeltaLayout(ctx, layoutDir)
 	req.NoError(err)
 	req.NoError(loaded.matchesPair(sourceDigest, subject.Digest.String()))
-	packed, err := pushLayoutAsReferrer(ctx, loaded, dest, subject, src)
-	req.NoError(err)
+	req.NoError(copyDeltaGraph(ctx, loaded, dest))
 
-	rc, err := dest.Fetch(ctx, packed)
+	rc, err := dest.Fetch(ctx, loaded.root)
 	req.NoError(err)
 	defer rc.Close()
 	b, err := io.ReadAll(rc)
@@ -732,6 +713,10 @@ func TestPushLayoutAsReferrer_WhenSubjectSrcDiffersFromDestItShouldPackReferrer(
 	req.NoError(json.Unmarshal(b, &manifest))
 	req.NotNil(manifest.Subject)
 	req.Equal(subject.Digest, manifest.Subject.Digest)
+	req.Equal(loaded.root.Digest, digest.FromBytes(b))
+	exists, err := dest.Exists(ctx, subject)
+	req.NoError(err)
+	req.False(exists)
 }
 
 func TestDeltaLayout_WhenPairDoesNotMatchItShouldError(t *testing.T) {
@@ -745,37 +730,6 @@ func TestDeltaLayout_WhenPairDoesNotMatchItShouldError(t *testing.T) {
 	req.Error(layout.matchesPair("sha256:other", layout.subject.Digest.String()))
 	req.Error(layout.matchesPair("sha256:src", "sha256:other"))
 	req.NoError(layout.matchesPair("sha256:src", layout.subject.Digest.String()))
-}
-
-func TestCopyOCILayout_WhenLayoutHasTaggedManifestItShouldCopyToDestination(t *testing.T) {
-	req := require.New(t)
-	ctx := context.Background()
-	srcDir := t.TempDir()
-	dstDir := t.TempDir()
-
-	src, err := ocistore.New(srcDir)
-	req.NoError(err)
-	payload := []byte("delta-layer")
-	layerDesc := ocispec.Descriptor{
-		MediaType: ocispec.MediaTypeImageLayer,
-		Digest:    digest.FromBytes(payload),
-		Size:      int64(len(payload)),
-	}
-	req.NoError(src.Push(ctx, layerDesc, bytes.NewReader(payload)))
-	manifestDesc, err := oras.PackManifest(ctx, src, oras.PackManifestVersion1_1, ociDeltaArtifactType, oras.PackManifestOptions{
-		Layers: []ocispec.Descriptor{layerDesc},
-	})
-	req.NoError(err)
-	req.NoError(src.Tag(ctx, manifestDesc, layoutTag))
-
-	dst, err := ocistore.New(dstDir)
-	req.NoError(err)
-	desc, err := copyOCILayout(ctx, srcDir, dst)
-	req.NoError(err)
-	req.Equal(manifestDesc.Digest, desc.Digest)
-	ok, err := dst.Exists(ctx, manifestDesc)
-	req.NoError(err)
-	req.True(ok)
 }
 
 func TestCopyImageToLayout_WhenSourceHasTaggedManifestItShouldTagLayout(t *testing.T) {
@@ -833,32 +787,4 @@ func TestPushOCILayout_WhenWriteSpecIsMissingItShouldReturnError(t *testing.T) {
 	req := require.New(t)
 	_, err := pushOCILayout(context.Background(), nil, t.TempDir(), "registry.example.com/os", "registry.example.com/os@sha256:src", "registry.example.com/os@sha256:tgt")
 	req.Error(err)
-}
-
-func TestReadLayoutPayloadSize_WhenManifestHasConfigAndLayersItShouldSumSizes(t *testing.T) {
-	req := require.New(t)
-	dir := t.TempDir()
-	blobDir := filepath.Join(dir, "blobs", "sha256")
-	req.NoError(os.MkdirAll(blobDir, 0o755))
-
-	manifest := ocispec.Manifest{
-		Config: ocispec.Descriptor{Size: 5},
-		Layers: []ocispec.Descriptor{{Size: 7}, {Size: 11}},
-	}
-	manifestBytes, err := json.Marshal(manifest)
-	req.NoError(err)
-	sum := sha256.Sum256(manifestBytes)
-	hex := hex.EncodeToString(sum[:])
-	req.NoError(os.WriteFile(filepath.Join(blobDir, hex), manifestBytes, 0o600))
-
-	index := ocispec.Index{Manifests: []ocispec.Descriptor{{
-		Digest: digest.NewDigestFromEncoded(digest.SHA256, hex),
-	}}}
-	indexBytes, err := json.Marshal(index)
-	req.NoError(err)
-	req.NoError(os.WriteFile(filepath.Join(dir, "index.json"), indexBytes, 0o600))
-
-	size, err := readLayoutPayloadSize(dir)
-	req.NoError(err)
-	req.Equal(int64(23), size)
 }

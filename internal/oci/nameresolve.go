@@ -45,16 +45,6 @@ func RegistryObjectRef(spec *domain.OciRepoSpec, imageName string) (string, erro
 	return registry + "/" + name, nil
 }
 
-func SelectWriteTarget(orgTarget, defaultTarget *domain.OciRepoSpec) *domain.OciRepoSpec {
-	if orgTarget != nil {
-		return orgTarget
-	}
-	if defaultTarget == nil || defaultTarget.Registry == "" {
-		return nil
-	}
-	return defaultTarget
-}
-
 func ResolveDeltaPushPath(spec *domain.OciRepoSpec, imageRepository string) (string, error) {
 	imagePath, _, err := imagePathParts(imageRepository)
 	if err != nil {

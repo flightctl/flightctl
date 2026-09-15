@@ -87,8 +87,9 @@ type DeviceLabel struct {
 }
 
 type ServiceConditions struct {
-	Conditions     *[]domain.Condition          `json:"conditions,omitempty"`
-	DependencySync *domain.DependencySyncStatus `json:"dependencySync,omitempty"`
+	Conditions      *[]domain.Condition           `json:"conditions,omitempty"`
+	DependencySync  *domain.DependencySyncStatus  `json:"dependencySync,omitempty"`
+	DeltaGeneration *domain.DeltaGenerationStatus `json:"deltaGeneration,omitempty"`
 }
 
 func (d Device) String() string {
@@ -125,6 +126,10 @@ func NewDeviceFromApiResource(resource *domain.Device) (*Device, error) {
 	if status.DependencySync != nil {
 		serviceConditions.DependencySync = status.DependencySync
 		status.DependencySync = nil
+	}
+	if status.DeltaGeneration != nil {
+		serviceConditions.DeltaGeneration = status.DeltaGeneration
+		status.DeltaGeneration = nil
 	}
 
 	var resourceVersion *int64
@@ -268,6 +273,10 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*domain.Device, error
 	if d.Status != nil {
 		status = d.Status.Data
 	}
+	status.Conditions = lo.Filter(status.Conditions, func(c domain.Condition, _ int) bool {
+		return !c.Type.IsServiceConditionType()
+	})
+	status.DeltaGeneration = nil
 
 	if d.ServiceConditions != nil {
 		if d.ServiceConditions.Data.Conditions != nil {
@@ -279,6 +288,7 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*domain.Device, error
 		if d.ServiceConditions.Data.DependencySync != nil {
 			status.DependencySync = d.ServiceConditions.Data.DependencySync
 		}
+		status.DeltaGeneration = d.ServiceConditions.Data.DeltaGeneration
 	}
 
 	var resourceVersion *string
