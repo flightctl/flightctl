@@ -232,7 +232,7 @@ func TestPrepare_Deadlines(t *testing.T) {
 		store := newFakePrepareStore()
 		fleet := fleetWithTV("fleet-1", "tv-1")
 		fleetWait := domain.Duration("10m")
-		fleet.Spec.RolloutPolicy = &domain.RolloutPolicy{MaxWaitForDelta: &fleetWait}
+		fleet.Spec.RolloutPolicy = &domain.RolloutPolicy{DeltaGeneration: &domain.RolloutPolicyDeltaGeneration{MaxWaitForDelta: &fleetWait}}
 		deploy := 30 * time.Minute
 		p := newTestPreparer(store, eligibleFleetResolver(fleet, deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, &resumeSpy{}, &emitSpy{})
 		p.Now = func() time.Time { return now }
@@ -580,7 +580,7 @@ func TestMaxWaitFromFleet(t *testing.T) {
 
 	t.Run("When fleet maxWaitForDelta is set it should override deployment", func(t *testing.T) {
 		d := domain.Duration("0s")
-		got, err := maxWaitFromFleet(&domain.Fleet{Spec: domain.FleetSpec{RolloutPolicy: &domain.RolloutPolicy{MaxWaitForDelta: &d}}}, &deploy)
+		got, err := maxWaitFromFleet(&domain.Fleet{Spec: domain.FleetSpec{RolloutPolicy: &domain.RolloutPolicy{DeltaGeneration: &domain.RolloutPolicyDeltaGeneration{MaxWaitForDelta: &d}}}}, &deploy)
 		require.NoError(t, err)
 		require.NotNil(t, got)
 		assert.Equal(t, time.Duration(0), *got)
@@ -605,7 +605,7 @@ func TestJobTimeoutFromFleet(t *testing.T) {
 
 	t.Run("When fleet deltaGenerationTimeout is set it should override deployment", func(t *testing.T) {
 		d := domain.Duration("2m")
-		got, err := jobTimeoutFromFleet(&domain.Fleet{Spec: domain.FleetSpec{RolloutPolicy: &domain.RolloutPolicy{DeltaGenerationTimeout: &d}}}, deploy)
+		got, err := jobTimeoutFromFleet(&domain.Fleet{Spec: domain.FleetSpec{RolloutPolicy: &domain.RolloutPolicy{DeltaGeneration: &domain.RolloutPolicyDeltaGeneration{DeltaGenerationTimeout: &d}}}}, deploy)
 		require.NoError(t, err)
 		assert.Equal(t, 2*time.Minute, got)
 	})

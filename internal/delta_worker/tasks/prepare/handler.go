@@ -379,12 +379,12 @@ func identityFromEvent(ev worker_client.EventWithOrgId) (prepareIdentity, error)
 	if err != nil {
 		return prepareIdentity{}, fmt.Errorf("prepare deltas details: %w", err)
 	}
-	if details.ResourceVersion == "" {
+	if details.ResourceVersion == nil || *details.ResourceVersion == "" {
 		return prepareIdentity{}, fmt.Errorf("prepare deltas event requires resourceVersion")
 	}
-	resourceVersion, err := strconv.ParseInt(details.ResourceVersion, 10, 64)
+	resourceVersion, err := strconv.ParseInt(*details.ResourceVersion, 10, 64)
 	if err != nil || resourceVersion <= 0 {
-		return prepareIdentity{}, fmt.Errorf("prepare deltas event has invalid resourceVersion %q", details.ResourceVersion)
+		return prepareIdentity{}, fmt.Errorf("prepare deltas event has invalid resourceVersion %q", *details.ResourceVersion)
 	}
 	switch ev.Event.InvolvedObject.Kind {
 	case domain.FleetKind:

@@ -364,7 +364,7 @@ func fleetPrepareEvent(orgId uuid.UUID, fleet, tv string) worker_client.EventWit
 	details := domain.PrepareDeltasDetails{
 		DetailType:      v1beta1.PrepareDeltas,
 		TemplateVersion: lo.ToPtr(tv),
-		ResourceVersion: "1",
+		ResourceVersion: lo.ToPtr("1"),
 	}
 	var eventDetails domain.EventDetails
 	_ = eventDetails.FromPrepareDeltasDetails(details)
@@ -735,7 +735,7 @@ func devicePrepareEvent(orgId uuid.UUID, name string) worker_client.EventWithOrg
 }
 
 func devicePrepareEventWithSpecHash(orgId uuid.UUID, name, specHash string) worker_client.EventWithOrgId {
-	details := domain.PrepareDeltasDetails{DetailType: v1beta1.PrepareDeltas, SpecHash: lo.ToPtr(specHash), ResourceVersion: "1"}
+	details := domain.PrepareDeltasDetails{DetailType: v1beta1.PrepareDeltas, SpecHash: lo.ToPtr(specHash), ResourceVersion: lo.ToPtr("1")}
 	var eventDetails domain.EventDetails
 	_ = eventDetails.FromPrepareDeltasDetails(details)
 	return worker_client.EventWithOrgId{
@@ -752,7 +752,7 @@ func devicePrepareEventWithSpecHash(orgId uuid.UUID, name, specHash string) work
 }
 
 func devicePrepareEventWithSpecHashAndResourceVersion(orgId uuid.UUID, name, specHash, resourceVersion string) worker_client.EventWithOrgId {
-	details := domain.PrepareDeltasDetails{DetailType: v1beta1.PrepareDeltas, SpecHash: lo.ToPtr(specHash), ResourceVersion: resourceVersion}
+	details := domain.PrepareDeltasDetails{DetailType: v1beta1.PrepareDeltas, SpecHash: lo.ToPtr(specHash), ResourceVersion: lo.ToPtr(resourceVersion)}
 	var eventDetails domain.EventDetails
 	_ = eventDetails.FromPrepareDeltasDetails(details)
 	return worker_client.EventWithOrgId{
