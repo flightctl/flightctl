@@ -815,7 +815,7 @@ func TestCreateDeviceFromEnrollmentRequest(t *testing.T) {
 		ctx := context.Background()
 		orgId := uuid.New()
 		name := "notify-secret-failure"
-		h.ehPolicyStore = &fakePolicyStore{policy: &domain.EnrollmentHookPolicy{
+		h.ehPolicySvc = &fakePolicyService{policy: &domain.EnrollmentHookPolicy{
 			Spec: domain.EnrollmentHookPolicySpec{
 				AfterEnrolling: domain.EnrollmentHookStageSpec{
 					ControlPlaneActions: &[]domain.EnrollmentHookHttpAction{{

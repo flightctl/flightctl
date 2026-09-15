@@ -2,11 +2,11 @@ package enrollmentrequest
 
 import (
 	"context"
-	"errors"
+	"fmt"
+	"net/http"
 
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/flterrors"
-	enrollmenthookpolicystore "github.com/flightctl/flightctl/internal/store/enrollmenthookpolicy"
+	enrollmenthookpolicy "github.com/flightctl/flightctl/internal/service/enrollmenthookpolicy"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -18,20 +18,20 @@ import (
 // Returns (nil, nil, nil) when no policy exists.
 func snapshotEnrollmentHookPolicy(
 	ctx context.Context,
-	policyStore enrollmenthookpolicystore.Store,
+	policySvc enrollmenthookpolicy.Service,
 	orgId uuid.UUID,
 	deviceName string,
 ) (*domain.DeviceEnrollmentHooksStatus, []model.EnrollmentHookNotifySecret, error) {
-	if policyStore == nil {
+	if policySvc == nil {
 		return nil, nil, nil
 	}
 
-	policy, err := policyStore.Get(ctx, orgId, "default")
-	if err != nil {
-		if errors.Is(err, flterrors.ErrResourceNotFound) {
-			return nil, nil, nil
-		}
-		return nil, nil, err
+	policy, getStatus := policySvc.GetEnrollmentHookPolicy(ctx, orgId, "default")
+	if getStatus.Code == http.StatusNotFound {
+		return nil, nil, nil
+	}
+	if getStatus.Code != http.StatusOK {
+		return nil, nil, fmt.Errorf("get enrollment hook policy: %s", getStatus.Message)
 	}
 
 	snapshot := domain.EnrollmentHookSnapshot{
@@ -61,10 +61,10 @@ func snapshotEnrollmentHookPolicy(
 		snapshot.ControlPlaneActions = &actions
 	}
 
-	status := &domain.DeviceEnrollmentHooksStatus{
+	hooksStatus := &domain.DeviceEnrollmentHooksStatus{
 		Snapshot: &snapshot,
 	}
-	return status, secrets, nil
+	return hooksStatus, secrets, nil
 }
 
 // enrollmentHooksConditionReason returns the initial condition reason based

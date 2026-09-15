@@ -25,6 +25,7 @@ import (
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	certificatesigningrequestservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	enrollmenthookpolicyservice "github.com/flightctl/flightctl/internal/service/enrollmenthookpolicy"
 	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/service/events"
 	organizationservice "github.com/flightctl/flightctl/internal/service/organization"
@@ -127,9 +128,11 @@ func (s *AgentServer) init(ctx context.Context) error {
 		deviceservice.NewDeviceServiceHandler(deviceStore, nil, fleetStore, eventsSvc, s.kvStore, s.cfg.Service.AgentEndpointAddress, s.log))
 	healthchecker.HealthChecks.Initialize(ctx, s.deviceSvc, s.log)
 	ehPolicyStore := enrollmenthookpolicystore.NewStore(s.db, s.log.WithField("pkg", "enrollmenthookpolicy-store"))
+	ehPolicySvc := enrollmenthookpolicyservice.WrapWithTracing(
+		enrollmenthookpolicyservice.NewServiceHandler(ehPolicyStore, eventsSvc, s.log))
 	notifySecretsStore := enrollmenthooknotifysecretsstore.NewStore(s.db, s.log.WithField("pkg", "enrollmenthooknotifysecrets-store"))
 	s.enrollmentRequestSvc = enrollmentrequestservice.WrapWithTracing(
-		enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, deviceStore, csrStore, s.ca, s.kvStore, eventsSvc, s.log, s.cfg.Service.TPMCAPaths, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl, ehPolicyStore, notifySecretsStore))
+		enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, deviceStore, csrStore, s.ca, s.kvStore, eventsSvc, s.log, s.cfg.Service.TPMCAPaths, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl, ehPolicySvc, notifySecretsStore))
 	s.csrSvc = certificatesigningrequestservice.WrapWithTracing(
 		certificatesigningrequestservice.NewServiceHandler(csrStore, tpmcsr.NewVerifier(s.enrollmentRequestSvc), s.ca, eventsSvc, s.log, s.cfg.Service.AgentEndpointAddress, s.cfg.Service.BaseUIUrl))
 	s.catalogSvc = catalogservice.WrapWithTracing(

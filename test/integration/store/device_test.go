@@ -329,7 +329,7 @@ var _ = Describe("DeviceStore create", func() {
 			const callbackName = "test:fail-notify-secret-delete"
 			Expect(db.Callback().Delete().Before("gorm:delete").Register(callbackName, func(tx *gorm.DB) {
 				if _, ok := tx.Statement.Model.(*model.EnrollmentHookNotifySecret); ok {
-					tx.AddError(errors.New("notify secret delete failed"))
+					_ = tx.AddError(errors.New("notify secret delete failed"))
 				}
 			})).To(Succeed())
 			DeferCleanup(func() {

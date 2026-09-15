@@ -19,11 +19,11 @@ import (
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/device"
+	enrollmenthookpolicy "github.com/flightctl/flightctl/internal/service/enrollmenthookpolicy"
 	"github.com/flightctl/flightctl/internal/service/events"
 	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	enrollmenthooknotifysecrets "github.com/flightctl/flightctl/internal/store/enrollmenthooknotifysecrets"
-	enrollmenthookpolicystore "github.com/flightctl/flightctl/internal/store/enrollmenthookpolicy"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/store/selector"
 	"github.com/flightctl/flightctl/internal/tpm"
@@ -45,7 +45,7 @@ type ServiceHandler struct {
 	log                logrus.FieldLogger
 	tpmCAPaths         []string
 	agentGate          *semaphore.Weighted
-	ehPolicyStore      enrollmenthookpolicystore.Store
+	ehPolicySvc        enrollmenthookpolicy.Service
 	notifySecretsStore enrollmenthooknotifysecrets.Store
 
 	agentEndpoint string
@@ -53,7 +53,7 @@ type ServiceHandler struct {
 }
 
 // NewServiceHandler creates a new enrollmentrequest ServiceHandler instance.
-func NewServiceHandler(store enrollmentrequeststore.Store, deviceStore devicestore.Store, csrStore certificatesigningrequeststore.Store, ca *crypto.CAClient, kvStore kvstore.KVStore, events events.Service, log logrus.FieldLogger, tpmCAPaths []string, agentEndpoint string, uiUrl string, ehPolicyStore enrollmenthookpolicystore.Store, notifySecretsStore enrollmenthooknotifysecrets.Store) *ServiceHandler {
+func NewServiceHandler(store enrollmentrequeststore.Store, deviceStore devicestore.Store, csrStore certificatesigningrequeststore.Store, ca *crypto.CAClient, kvStore kvstore.KVStore, events events.Service, log logrus.FieldLogger, tpmCAPaths []string, agentEndpoint string, uiUrl string, ehPolicySvc enrollmenthookpolicy.Service, notifySecretsStore enrollmenthooknotifysecrets.Store) *ServiceHandler {
 	return &ServiceHandler{
 		store:              store,
 		deviceStore:        deviceStore,
@@ -66,7 +66,7 @@ func NewServiceHandler(store enrollmentrequeststore.Store, deviceStore devicesto
 		agentGate:          semaphore.NewWeighted(common.MaxConcurrentAgents),
 		agentEndpoint:      agentEndpoint,
 		uiUrl:              uiUrl,
-		ehPolicyStore:      ehPolicyStore,
+		ehPolicySvc:        ehPolicySvc,
 		notifySecretsStore: notifySecretsStore,
 	}
 }
@@ -289,7 +289,7 @@ func (h *ServiceHandler) createDeviceFromEnrollmentRequest(ctx context.Context, 
 
 	// Snapshot enrollment hook policy if one exists
 	name := lo.FromPtr(enrollmentRequest.Metadata.Name)
-	ehStatus, secrets, err := snapshotEnrollmentHookPolicy(ctx, h.ehPolicyStore, orgId, name)
+	ehStatus, secrets, err := snapshotEnrollmentHookPolicy(ctx, h.ehPolicySvc, orgId, name)
 	if err != nil {
 		return fmt.Errorf("snapshot enrollment hook policy: %w", err)
 	}
