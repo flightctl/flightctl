@@ -53,7 +53,10 @@ type AapGatewayAuth struct {
 	stopOnce  sync.Once
 }
 
-func NewAapGatewayAuth(metadata api.ObjectMeta, spec api.AapProviderSpec, clientTlsConfig *tls.Config) (*AapGatewayAuth, error) {
+// DefaultAAPIdentityCacheTTL is the default TTL for the AAP identity cache.
+const DefaultAAPIdentityCacheTTL = 45 * time.Second
+
+func NewAapGatewayAuth(metadata api.ObjectMeta, spec api.AapProviderSpec, clientTlsConfig *tls.Config, cacheTTL time.Duration) (*AapGatewayAuth, error) {
 	aapClient, err := aap.NewAAPGatewayClient(aap.AAPGatewayClientOptions{
 		GatewayUrl:      spec.ApiUrl,
 		TLSClientConfig: clientTlsConfig,
@@ -62,11 +65,15 @@ func NewAapGatewayAuth(metadata api.ObjectMeta, spec api.AapProviderSpec, client
 		return nil, err
 	}
 
+	if cacheTTL <= 0 {
+		cacheTTL = DefaultAAPIdentityCacheTTL
+	}
+
 	authN := AapGatewayAuth{
 		metadata:  metadata,
 		spec:      spec,
 		aapClient: aapClient,
-		cache:     ttlcache.New[string, common.Identity](ttlcache.WithTTL[string, common.Identity](10 * time.Minute)),
+		cache:     ttlcache.New[string, common.Identity](ttlcache.WithTTL[string, common.Identity](cacheTTL)),
 	}
 	return &authN, nil
 }
