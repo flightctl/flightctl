@@ -20,10 +20,6 @@ spec:
         {{- include "flightctl.standardLabels" . | nindent 8 }}
     spec:
       serviceAccountName: flightctl-delta-worker
-      securityContext:
-        fsGroup: 1001
-        seccompProfile:
-          type: RuntimeDefault
       {{- if .Values.global.imagePullSecretName }}
       imagePullSecrets:
         - name: {{ .Values.global.imagePullSecretName }}
@@ -35,15 +31,6 @@ spec:
         - name: flightctl-delta-worker
           image: {{ include "flightctl.ensureOsQualifiedImage" (dict "root" . "imageName" .Values.deltaWorker.image.image) }}:{{ default .Chart.AppVersion .Values.deltaWorker.image.tag }}
           imagePullPolicy: {{ default .Values.global.imagePullPolicy .Values.deltaWorker.image.pullPolicy }}
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            runAsNonRoot: true
-            runAsUser: 1001
-            runAsGroup: 0
-            capabilities:
-              drop:
-                - ALL
           resources:
             {{- toYaml .Values.deltaWorker.resources | nindent 12 }}
           ports:
