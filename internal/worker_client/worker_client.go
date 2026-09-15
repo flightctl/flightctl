@@ -122,6 +122,7 @@ var eventReasons = map[domain.EventReason]struct{}{
 	domain.EventReasonDeviceDecommissioned:        {},
 	domain.EventReasonApplicationLifecycleChanged: {},
 	domain.EventReasonDeltaGenerationCompleted:    {},
+	domain.EventReasonEnrollmentRequestApproved:   {},
 }
 
 var deltaEventReasons = map[domain.EventReason]struct{}{
