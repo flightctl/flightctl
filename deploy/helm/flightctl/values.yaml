@@ -43,6 +43,8 @@ global:
     caCert: ""
     # -- True if verification of authority TLS cert should be skipped.
     insecureSkipTlsVerify: false
+    # -- TTL for AAP identity cache (Go duration string, e.g. "45s", "2m"). Applies only when auth type is "aap".
+    aapIdentityCacheTTL: "45s"
     k8s:
       # -- API URL of k8s cluster that will be used as authentication authority
       apiUrl: https://kubernetes.default.svc

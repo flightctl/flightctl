@@ -869,6 +869,9 @@ auth:
         {{- if .Values.global.auth.aap.organizationNamePrefix }}
         organizationNamePrefix: {{ .Values.global.auth.aap.organizationNamePrefix }}
         {{- end }}
+    {{- if .Values.global.auth.aapIdentityCacheTTL }}
+    aapIdentityCacheTTL: {{ .Values.global.auth.aapIdentityCacheTTL | quote }}
+    {{- end }}
     {{- else }}
     oidc:
         oidcAuthority: {{ .Values.global.auth.oidc.issuer }}
