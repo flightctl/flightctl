@@ -1,0 +1,33 @@
+data:
+  Corefile: |
+    .:53 {
+        errors
+        health
+        ready
+        kubernetes cluster.local in-addr.arpa ip6.arpa {
+           pods insecure
+           fallthrough in-addr.arpa ip6.arpa
+        }
+        hosts /etc/coredns/NodeHosts {
+           ttl 60
+           reload 15s
+           fallthrough
+        }
+        prometheus :9153
+        forward . /etc/resolv.conf
+        cache 30
+        loop
+        reload
+        loadbalance
+    }
+    nip.io:53 {
+        errors
+        template IN A nip.io {
+            match ^(.*\.)?([0-9]+)\.([0-9]+)\.([0-9]+)\.([0-9]+)\.nip\.io\.$
+            answer "{{ .Name }} 60 IN A {{ index .Group \"2\" }}.{{ index .Group \"3\" }}.{{ index .Group \"4\" }}.{{ index .Group \"5\" }}"
+            fallthrough
+        }
+        template IN AAAA nip.io {
+            rcode NOERROR
+        }
+    }
