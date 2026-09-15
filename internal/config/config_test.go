@@ -635,14 +635,20 @@ func TestDefaultRepositoryConfigOciRepoSpec(t *testing.T) {
 		require.Nil(t, spec.OciAuth)
 	})
 
-	t.Run("When only username is set it should omit OCI auth", func(t *testing.T) {
-		spec, err := (&deltaconfig.DefaultRepositoryConfig{
+	t.Run("When only username is set it should return an error", func(t *testing.T) {
+		_, err := (&deltaconfig.DefaultRepositoryConfig{
 			Registry: "my-registry.com",
 			Username: "delta-user",
 		}).OciRepoSpec()
-		require.NoError(t, err)
-		require.NotNil(t, spec)
-		require.Nil(t, spec.OciAuth)
+		require.ErrorContains(t, err, "username and password must be configured together")
+	})
+
+	t.Run("When only password is set it should return an error", func(t *testing.T) {
+		_, err := (&deltaconfig.DefaultRepositoryConfig{
+			Registry: "my-registry.com",
+			Password: "delta-pass",
+		}).OciRepoSpec()
+		require.ErrorContains(t, err, "username and password must be configured together")
 	})
 }
 
