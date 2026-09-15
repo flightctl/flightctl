@@ -44,7 +44,7 @@ const (
 )
 
 // GetSwagger returns the v1beta1 OpenAPI spec - re-exported for service layer access due to depguard rules
-var GetSwagger = v1beta1.GetSwagger
+var GetSwagger = v1beta1.GetSpec
 
 // GetV1Alpha1Swagger returns the v1alpha1 OpenAPI spec (for alpha-stage resources like Catalog)
-var GetV1Alpha1Swagger = v1alpha1.GetSwagger
+var GetV1Alpha1Swagger = v1alpha1.GetSpec

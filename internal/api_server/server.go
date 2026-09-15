@@ -316,7 +316,7 @@ func (s *Server) Run(ctx context.Context) error {
 	)
 
 	// Create v1beta1 router with OpenAPI validation
-	v1beta1Swagger, err := corev1beta1.GetSwagger()
+	v1beta1Swagger, err := corev1beta1.GetSpec()
 	if err != nil {
 		return fmt.Errorf("failed loading v1beta1 swagger spec: %w", err)
 	}
@@ -339,7 +339,7 @@ func (s *Server) Run(ctx context.Context) error {
 	})
 
 	// Create v1alpha1 router with OpenAPI validation (for alpha-stage resources like Catalog)
-	v1alpha1Swagger, err := corev1alpha1.GetSwagger()
+	v1alpha1Swagger, err := corev1alpha1.GetSpec()
 	if err != nil {
 		return fmt.Errorf("failed loading v1alpha1 swagger spec: %w", err)
 	}
