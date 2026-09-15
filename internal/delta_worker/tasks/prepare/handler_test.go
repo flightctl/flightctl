@@ -40,7 +40,7 @@ func TestPrepare_SkipPaths(t *testing.T) {
 		store := newFakePrepareStore()
 		status := &statusSpy{}
 		resume := &resumeSpy{}
-		p := newTestPreparer(store, skipGenerateDeltaResolver(), status, resume, nil)
+		p := newTestPreparer(t, store, skipGenerateDeltaResolver(), status, resume, nil)
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
 		require.NoError(t, err)
 		assert.Empty(t, store.prepares)
@@ -53,7 +53,7 @@ func TestPrepare_SkipPaths(t *testing.T) {
 		store := newFakePrepareStore()
 		existing := store.seedWaiting(orgId, domain.FleetKind, "fleet-1", lo.ToPtr("tv-1"), nil, time.Now())
 		resume := &resumeSpy{}
-		p := newTestPreparer(store, skipGenerateDeltaResolver(), &statusSpy{}, resume, nil)
+		p := newTestPreparer(t, store, skipGenerateDeltaResolver(), &statusSpy{}, resume, nil)
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
 		require.NoError(t, err)
 		assert.Equal(t, model.DeltaPrepareFailed, store.prepares[existing.ID].Status)
@@ -62,7 +62,7 @@ func TestPrepare_SkipPaths(t *testing.T) {
 	t.Run("When the write target is missing it should Resume without inserting", func(t *testing.T) {
 		store := newFakePrepareStore()
 		resume := &resumeSpy{}
-		p := newTestPreparer(store, &Resolver{
+		p := newTestPreparer(t, store, &Resolver{
 			FleetService: mockFleetService(func(_ context.Context, _ uuid.UUID, _ string) (*domain.Fleet, error) {
 				return fleetWithTV("fleet-1", "tv-1"), nil
 			}),
@@ -80,7 +80,7 @@ func TestPrepare_SkipPaths(t *testing.T) {
 		store := newFakePrepareStore()
 		resume := &resumeSpy{}
 		fleet := fleetWithTV("fleet-1", "tv-1")
-		p := newTestPreparer(store, eligibleFleetResolver(fleet, deviceWithOS("d1", false, prepareTestSrc)), &statusSpy{}, resume, nil)
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleet, deviceWithOS("d1", false, prepareTestSrc)), &statusSpy{}, resume, nil)
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
 		require.NoError(t, err)
 		assert.Empty(t, store.prepares)
@@ -90,7 +90,7 @@ func TestPrepare_SkipPaths(t *testing.T) {
 		store := newFakePrepareStore()
 		resume := &resumeSpy{}
 		fleet := fleetWithTV("fleet-1", "tv-1")
-		p := newTestPreparer(store, eligibleFleetResolver(fleet, deviceWithOS("d1", true, "")), &statusSpy{}, resume, nil)
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleet, deviceWithOS("d1", true, "")), &statusSpy{}, resume, nil)
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
 		require.NoError(t, err)
 		assert.Empty(t, store.prepares)
@@ -108,7 +108,7 @@ func TestPrepare_InsertAndAck(t *testing.T) {
 		resume := &resumeSpy{}
 		emit := &emitSpy{}
 		fleet := fleetWithTV("fleet-1", "tv-1")
-		p := newTestPreparer(store, eligibleFleetResolver(fleet, deviceWithOS("d1", true, prepareTestSrc)), status, resume, emit)
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleet, deviceWithOS("d1", true, prepareTestSrc)), status, resume, emit)
 		p.Now = func() time.Time { return now }
 
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
@@ -140,7 +140,7 @@ func TestPrepare_InsertAndAck(t *testing.T) {
 	t.Run("When enqueue fails it should return the emit error after insert", func(t *testing.T) {
 		store := newFakePrepareStore()
 		emit := &emitSpy{err: errors.New("redis down")}
-		p := newTestPreparer(store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, &resumeSpy{}, emit)
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, &resumeSpy{}, emit)
 		p.Now = func() time.Time { return now }
 
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
@@ -153,7 +153,7 @@ func TestPrepare_InsertAndAck(t *testing.T) {
 		store := newFakePrepareStore()
 		emit := &emitSpy{}
 		fleet := fleetWithTV("fleet-1", "tv-1")
-		p := newTestPreparer(store, eligibleFleetResolver(fleet,
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleet,
 			deviceWithOS("d1", true, prepareTestSrc),
 			deviceWithOS("d2", true, prepareTestSrc),
 		), &statusSpy{}, &resumeSpy{}, emit)
@@ -170,7 +170,7 @@ func TestPrepare_InsertAndAck(t *testing.T) {
 		store := newFakePrepareStore()
 		fleet := fleetWithTV("fleet-1", "tv-1")
 		fleet.Spec.RolloutPolicy = nil
-		p := newTestPreparer(store, eligibleFleetResolver(fleet, deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, &resumeSpy{}, &emitSpy{})
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleet, deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, &resumeSpy{}, &emitSpy{})
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
 		require.NoError(t, err)
 		require.Len(t, store.prepares, 1)
@@ -186,7 +186,7 @@ func TestPrepare_Deadlines(t *testing.T) {
 	t.Run("When maxWait is omitted it should persist with a nil deadline", func(t *testing.T) {
 		store := newFakePrepareStore()
 		resume := &resumeSpy{}
-		p := newTestPreparer(store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, resume, &emitSpy{})
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, resume, &emitSpy{})
 		p.Now = func() time.Time { return now }
 
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
@@ -198,7 +198,7 @@ func TestPrepare_Deadlines(t *testing.T) {
 	t.Run("When maxWait is set it should set deadline to CreatedAt plus wait", func(t *testing.T) {
 		store := newFakePrepareStore()
 		wait := 5 * time.Minute
-		p := newTestPreparer(store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, &resumeSpy{}, &emitSpy{})
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, &resumeSpy{}, &emitSpy{})
 		p.Now = func() time.Time { return now }
 		p.MaxWaitForDelta = &wait
 
@@ -215,7 +215,7 @@ func TestPrepare_Deadlines(t *testing.T) {
 		resume := &resumeSpy{}
 		emit := &emitSpy{}
 		zero := time.Duration(0)
-		p := newTestPreparer(store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), status, resume, emit)
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), status, resume, emit)
 		p.Now = func() time.Time { return now }
 		p.MaxWaitForDelta = &zero
 
@@ -234,7 +234,7 @@ func TestPrepare_Deadlines(t *testing.T) {
 		fleetWait := domain.Duration("10m")
 		fleet.Spec.RolloutPolicy = &domain.RolloutPolicy{DeltaGeneration: &domain.RolloutPolicyDeltaGeneration{MaxWaitForDelta: &fleetWait}}
 		deploy := 30 * time.Minute
-		p := newTestPreparer(store, eligibleFleetResolver(fleet, deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, &resumeSpy{}, &emitSpy{})
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleet, deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, &resumeSpy{}, &emitSpy{})
 		p.Now = func() time.Time { return now }
 		p.MaxWaitForDelta = &deploy
 
@@ -268,7 +268,7 @@ func TestPrepare_DedupeAndSupercede(t *testing.T) {
 		}
 		resume := &resumeSpy{}
 		emit := &emitSpy{}
-		p := newTestPreparer(store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, resume, emit)
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, resume, emit)
 		p.Now = func() time.Time { return now }
 
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
@@ -285,7 +285,7 @@ func TestPrepare_DedupeAndSupercede(t *testing.T) {
 		created := now.Add(-time.Hour)
 		existing := store.seedWaiting(orgId, domain.FleetKind, "fleet-1", lo.ToPtr("tv-1"), nil, created)
 		emit := &emitSpy{}
-		p := newTestPreparer(store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, &resumeSpy{}, emit)
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, &resumeSpy{}, emit)
 		p.Now = func() time.Time { return now }
 
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
@@ -304,7 +304,7 @@ func TestPrepare_DedupeAndSupercede(t *testing.T) {
 		status := &statusSpy{}
 		resume := &resumeSpy{}
 		emit := &emitSpy{}
-		p := newTestPreparer(store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-11"), deviceWithOS("d1", true, prepareTestSrc)), status, resume, emit)
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-11"), deviceWithOS("d1", true, prepareTestSrc)), status, resume, emit)
 		p.Now = func() time.Time { return now }
 
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-11"))
@@ -333,7 +333,7 @@ func TestPrepare_DedupeAndSupercede(t *testing.T) {
 		old := store.seedWaiting(orgId, domain.FleetKind, "fleet-1", lo.ToPtr("tv-10"), nil, now.Add(-time.Hour))
 		old.SourceResourceVersion = 0
 		status := &statusSpy{}
-		p := newTestPreparer(store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-11"), deviceWithOS("d1", true, prepareTestSrc)), status, &resumeSpy{}, &emitSpy{})
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-11"), deviceWithOS("d1", true, prepareTestSrc)), status, &resumeSpy{}, &emitSpy{})
 		p.Now = func() time.Time { return now }
 
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-11"))
@@ -346,7 +346,7 @@ func TestPrepare_DedupeAndSupercede(t *testing.T) {
 		store.insertErr = flterrors.ErrDuplicateName
 		resume := &resumeSpy{}
 		emit := &emitSpy{}
-		p := newTestPreparer(store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, resume, emit)
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, resume, emit)
 
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
 		require.ErrorIs(t, err, flterrors.ErrDuplicateName)
@@ -376,7 +376,7 @@ func TestPrepare_TerminalAndDevice(t *testing.T) {
 		status := &statusSpy{}
 		resume := &resumeSpy{}
 		emit := &emitSpy{}
-		p := newTestPreparer(store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), status, resume, emit)
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), status, resume, emit)
 
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
 		require.NoError(t, err)
@@ -404,7 +404,7 @@ func TestPrepare_TerminalAndDevice(t *testing.T) {
 			Status:          model.DeltaGenerationFailed,
 		}
 		emit := &emitSpy{}
-		p := newTestPreparer(store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, &resumeSpy{}, emit)
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleetWithTV("fleet-1", "tv-1"), deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, &resumeSpy{}, emit)
 
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
 		require.NoError(t, err)
@@ -434,7 +434,7 @@ func TestPrepare_TerminalAndDevice(t *testing.T) {
 		r.Expand = func(_ context.Context, _ uuid.UUID, _ *domain.Device, _ tasks.RenderedSpec, cands []DeltaCandidate) []DeltaCandidate {
 			return append(cands, DeltaCandidate{ImageRepository: "quay.io/apps/web", CurrentDigest: "sha256:ccc", NewDigest: "sha256:ddd"})
 		}
-		p := newTestPreparer(store, r, status, &resumeSpy{}, emit)
+		p := newTestPreparer(t, store, r, status, &resumeSpy{}, emit)
 
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
 		require.NoError(t, err)
@@ -469,7 +469,7 @@ func TestPrepare_TerminalAndDevice(t *testing.T) {
 		r.Expand = func(_ context.Context, _ uuid.UUID, _ *domain.Device, _ tasks.RenderedSpec, cands []DeltaCandidate) []DeltaCandidate {
 			return append(cands, DeltaCandidate{ImageRepository: "quay.io/apps/web", CurrentDigest: "sha256:ccc", NewDigest: "sha256:ddd"})
 		}
-		p := newTestPreparer(store, r, &statusSpy{}, &resumeSpy{}, emit)
+		p := newTestPreparer(t, store, r, &statusSpy{}, &resumeSpy{}, emit)
 
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
 		require.NoError(t, err)
@@ -483,7 +483,7 @@ func TestPrepare_TerminalAndDevice(t *testing.T) {
 		store := newFakePrepareStore()
 		status := &statusSpy{}
 		device := deviceWithOS("d1", true, prepareTestSrc)
-		p := newTestPreparer(store, eligibleDeviceResolver(device), status, &resumeSpy{}, &emitSpy{})
+		p := newTestPreparer(t, store, eligibleDeviceResolver(device), status, &resumeSpy{}, &emitSpy{})
 
 		err := p.Prepare(ctx, devicePrepareEventWithSpecHashAndResourceVersion(orgId, "d1", prepareTestHash, "2"))
 		require.NoError(t, err)
@@ -517,7 +517,7 @@ func TestPrepare_TerminalAndDevice(t *testing.T) {
 		device.Metadata.ResourceVersion = lo.ToPtr("99")
 		resume := &resumeSpy{}
 		emit := &emitSpy{}
-		p := newTestPreparer(store, eligibleDeviceResolver(device), &statusSpy{}, resume, emit)
+		p := newTestPreparer(t, store, eligibleDeviceResolver(device), &statusSpy{}, resume, emit)
 
 		err := p.Prepare(ctx, devicePrepareEvent(orgId, "d1"))
 		require.NoError(t, err)
@@ -532,7 +532,7 @@ func TestPrepare_TerminalAndDevice(t *testing.T) {
 		device := deviceWithOS("d1", true, prepareTestSrc)
 		resume := &resumeSpy{}
 		emit := &emitSpy{}
-		p := newTestPreparer(store, eligibleDeviceResolver(device), &statusSpy{}, resume, emit)
+		p := newTestPreparer(t, store, eligibleDeviceResolver(device), &statusSpy{}, resume, emit)
 
 		err := p.Prepare(ctx, devicePrepareEventWithSpecHashAndResourceVersion(orgId, "d1", prepareTestHash, "2"))
 		require.NoError(t, err)
@@ -545,7 +545,7 @@ func TestPrepare_TerminalAndDevice(t *testing.T) {
 	t.Run("When a fleet template version differs from the event it should reject the event", func(t *testing.T) {
 		store := newFakePrepareStore()
 		fleet := &domain.Fleet{Metadata: domain.ObjectMeta{Name: lo.ToPtr("fleet-1")}, Spec: domain.FleetSpec{}}
-		p := newTestPreparer(store, eligibleFleetResolver(fleet, deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, &resumeSpy{}, &emitSpy{})
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleet, deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, &resumeSpy{}, &emitSpy{})
 
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-from-event"))
 		require.Error(t, err)
@@ -558,7 +558,7 @@ func TestPrepare_TerminalAndDevice(t *testing.T) {
 		device := deviceWithOS("d1", true, prepareTestSrc)
 		device.Metadata.Generation = lo.ToPtr(int64(3))
 		deployWait := 15 * time.Minute
-		p := newTestPreparer(store, eligibleDeviceResolver(device), &statusSpy{}, &resumeSpy{}, &emitSpy{})
+		p := newTestPreparer(t, store, eligibleDeviceResolver(device), &statusSpy{}, &resumeSpy{}, &emitSpy{})
 		p.MaxWaitForDelta = &deployWait
 		p.DeltaGenerationTimeout = 45 * time.Minute
 
@@ -979,7 +979,7 @@ func (e *emitSpy) emit(_ context.Context, _ uuid.UUID, event *domain.Event) erro
 
 type resumeSpy struct{}
 
-func newTestPreparer(store *fakePrepareStore, resolver *Resolver, status workerservice.PreparingStatus, _ *resumeSpy, emit *emitSpy) *Handler {
+func newTestPreparer(t *testing.T, store *fakePrepareStore, resolver *Resolver, status workerservice.PreparingStatus, _ *resumeSpy, emit *emitSpy) *Handler {
 	if resolver.FleetService == nil {
 		resolver.FleetService = mockFleetService(func(_ context.Context, _ uuid.UUID, _ string) (*domain.Fleet, error) {
 			return fleetWithTV("fleet-1", "tv-1"), nil
@@ -1016,7 +1016,7 @@ func newTestPreparer(store *fakePrepareStore, resolver *Resolver, status workers
 		&fakePrepareGenerationService{store: store},
 	)
 	if err != nil {
-		panic(err)
+		t.Fatalf("creating prepare handler: %v", err)
 	}
 	p.DeltaGenerationTimeout = 30 * time.Minute
 	return p

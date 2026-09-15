@@ -72,6 +72,9 @@ func (c *DeltaGenerationConfig) Validate() error {
 	if d.Scheme != nil && *d.Scheme != "" && *d.Scheme != "http" && *d.Scheme != "https" {
 		return fmt.Errorf("deltaGeneration.defaultRepository.scheme must be http or https")
 	}
+	if d.Scheme != nil && *d.Scheme == "http" && credsSet {
+		return fmt.Errorf("deltaGeneration.defaultRepository cannot use credentials with http")
+	}
 	if repoSet {
 		if errs := validation.ValidateString(d.Repository, "deltaGeneration.defaultRepository.repository", 1, 255, validation.OciImageNameRegexp, validation.OciImageNameFmt); len(errs) > 0 {
 			return errs[0]

@@ -179,7 +179,7 @@ func serviceResolver(cfg *deltaconfig.DeltaGenerationConfig, fleets fleetservice
 		TemplateVersionService: tvs,
 		Config:                 cfg,
 		Inspect: func(ctx context.Context, orgId uuid.UUID, image string) (string, error) {
-			return oci.CachedImageDigest(ctx, kvStore, image, func(ctx context.Context) (string, error) {
+			return oci.CachedImageDigest(ctx, kvStore, orgId, image, func(ctx context.Context) (string, error) {
 				spec, err := generateTask.ResolveDeltaTargetRepo(ctx, repos, cfg, orgId)
 				if err != nil {
 					return "", err

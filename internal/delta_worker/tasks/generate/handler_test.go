@@ -91,7 +91,7 @@ func (f *fakeGenerationService) UpdateDeltaGeneration(ctx context.Context, _ int
 	if generation.Status != model.DeltaGenerationInProgress && f.casErr != nil {
 		return nil, f.casErr
 	}
-	if f.casFailN > 0 {
+	if f.casFailN > 0 && f.claimed > 0 {
 		f.casFailN--
 		return nil, errors.New("persist failed")
 	}
@@ -262,42 +262,64 @@ func TestHandleGenerateDelta(t *testing.T) {
 		req.Empty(store.updates)
 	})
 
-	t.Run("When persist succeeded fails it should mark failed", func(t *testing.T) {
+	t.Run("When claiming fails it should return the error without marking failed", func(t *testing.T) {
 		req := require.New(t)
-		store := &fakeGenerationService{casFailN: 1}
+		store := &fakeGenerationService{claimErr: errors.New("claim store unavailable")}
+		generated := false
 		c := newTestHandler(t, store, &deltaconfig.DeltaGenerationConfig{Timeout: util.Duration(time.Minute)}, func(context.Context, uuid.UUID, string, string, string) (*existingDelta, error) {
 			return nil, nil
 		}, func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
+			generated = true
+			return "ref", 1, nil
+		})
+		err := c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log)
+		req.ErrorContains(err, "claim generation: claim store unavailable")
+		req.False(generated)
+		req.Empty(store.updates)
+	})
+
+	t.Run("When persist succeeded fails it should mark failed", func(t *testing.T) {
+		req := require.New(t)
+		store := &fakeGenerationService{casFailN: 1}
+		generated := false
+		c := newTestHandler(t, store, &deltaconfig.DeltaGenerationConfig{Timeout: util.Duration(time.Minute)}, func(context.Context, uuid.UUID, string, string, string) (*existingDelta, error) {
+			return nil, nil
+		}, func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
+			generated = true
 			return "ref", 1, nil
 		})
 		req.NoError(c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log))
-		req.Len(store.updates, 1)
-		req.Equal(model.DeltaGenerationFailed, store.updates[0].Status)
+		req.True(generated)
+		req.Len(store.updates, 2)
+		req.Equal(model.DeltaGenerationFailed, store.updates[1].Status)
 	})
 
 	t.Run("When generate context times out it should update failed", func(t *testing.T) {
 		req := require.New(t)
 		store := &fakeGenerationService{}
-		c := newTestHandler(t, store, &deltaconfig.DeltaGenerationConfig{Timeout: util.Duration(time.Nanosecond)}, func(context.Context, uuid.UUID, string, string, string) (*existingDelta, error) {
+		c := newTestHandler(t, store, &deltaconfig.DeltaGenerationConfig{Timeout: util.Duration(100 * time.Millisecond)}, func(context.Context, uuid.UUID, string, string, string) (*existingDelta, error) {
 			return nil, nil
 		}, func(ctx context.Context, _ uuid.UUID, _, _, _ string) (string, int64, error) {
 			<-ctx.Done()
 			return "", 0, ctx.Err()
 		})
 		req.NoError(c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log))
-		req.Len(store.updates, 1)
-		req.Equal(model.DeltaGenerationFailed, store.updates[0].Status)
+		req.Len(store.updates, 2)
+		req.Equal(model.DeltaGenerationFailed, store.updates[1].Status)
 	})
 
 	t.Run("When update is stale it should not overwrite", func(t *testing.T) {
 		req := require.New(t)
 		store := &fakeGenerationService{casErr: flterrors.ErrNoRowsUpdated}
+		generated := false
 		c := newTestHandler(t, store, &deltaconfig.DeltaGenerationConfig{Timeout: util.Duration(time.Minute)}, func(context.Context, uuid.UUID, string, string, string) (*existingDelta, error) {
 			return nil, nil
 		}, func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
+			generated = true
 			return "ref", 1, nil
 		})
 		req.NoError(c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log))
+		req.True(generated)
 		req.Len(store.updates, 1)
 		req.Equal(model.DeltaGenerationInProgress, store.updates[0].Status)
 	})

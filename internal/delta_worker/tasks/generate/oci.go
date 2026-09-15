@@ -26,6 +26,36 @@ import (
 
 const layoutTag = "img"
 
+const maxCommandOutputBytes = 10 * 1024 * 1024
+
+type commandOutput struct {
+	strings.Builder
+	truncated bool
+}
+
+func (o *commandOutput) writeLine(line string) {
+	if o.Len() >= maxCommandOutputBytes {
+		o.truncated = true
+		return
+	}
+	remaining := maxCommandOutputBytes - o.Len()
+	if len(line) >= remaining {
+		o.WriteString(line[:remaining])
+		o.truncated = true
+		return
+	}
+	o.WriteString(line)
+	o.WriteByte('\n')
+}
+
+func (o *commandOutput) String() string {
+	output := o.Builder.String()
+	if o.truncated {
+		output += "\n[command output truncated]"
+	}
+	return output
+}
+
 type runner interface {
 	Run(ctx context.Context, name string, args []string) error
 }
@@ -47,7 +77,7 @@ func (execRunner) Run(ctx context.Context, name string, args []string) error {
 	}
 	var (
 		mu  sync.Mutex
-		out strings.Builder
+		out commandOutput
 		wg  sync.WaitGroup
 	)
 	scanErr := make(chan error, 2)
@@ -58,8 +88,7 @@ func (execRunner) Run(ctx context.Context, name string, args []string) error {
 		for s.Scan() {
 			line := s.Text()
 			mu.Lock()
-			out.WriteString(line)
-			out.WriteByte('\n')
+			out.writeLine(line)
 			mu.Unlock()
 		}
 		if err := s.Err(); err != nil {

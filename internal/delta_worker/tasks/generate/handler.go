@@ -130,7 +130,7 @@ func (c *Handler) Handle(ctx context.Context, ev worker_client.EventWithOrgId, l
 		return nil
 	}
 	if err != nil {
-		return c.failGeneration(ctx, generation, err)
+		return fmt.Errorf("claim generation: %w", err)
 	}
 
 	spec, err := ResolveDeltaTargetRepo(ctx, c.repositories, c.cfg, key.OrgID)

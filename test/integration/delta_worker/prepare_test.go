@@ -214,7 +214,7 @@ func fleetPrepareEvent(orgId uuid.UUID, fleet, tv string) worker_client.EventWit
 	details := domain.PrepareDeltasDetails{
 		DetailType:      v1beta1.PrepareDeltas,
 		TemplateVersion: lo.ToPtr(tv),
-		ResourceVersion: "1",
+		ResourceVersion: lo.ToPtr("1"),
 	}
 	var eventDetails domain.EventDetails
 	Expect(eventDetails.FromPrepareDeltasDetails(details)).To(Succeed())
