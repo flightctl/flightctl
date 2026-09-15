@@ -17,12 +17,12 @@ import (
 	v1alpha1 "github.com/flightctl/flightctl/api/core/v1alpha1"
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
+	deltamodel "github.com/flightctl/flightctl/internal/delta_worker/model"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
-	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -1493,8 +1493,8 @@ func TestRenderDevice_SucceededGenerationSetsDeltaImageAndSize(t *testing.T) {
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
 	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, nil, nil, newTestKVStore(), &config.Config{}, orgId, event)
 	logic.deltaLookup = &stubGenerationLookup{
-		gen: &model.DeltaGeneration{
-			Status:    model.DeltaGenerationSucceeded,
+		gen: &deltamodel.DeltaGeneration{
+			Status:    deltamodel.DeltaGenerationSucceeded,
 			DeltaRef:  &deltaRef,
 			SizeBytes: &size,
 		},

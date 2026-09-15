@@ -6,9 +6,9 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/flightctl/flightctl/internal/delta_worker/model"
+	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store"
 	"github.com/flightctl/flightctl/internal/flterrors"
-	"github.com/flightctl/flightctl/internal/store/delta"
-	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
@@ -21,7 +21,7 @@ type stubGenerationLookup struct {
 	err   error
 }
 
-func (s *stubGenerationLookup) GetGeneration(_ context.Context, _ delta.GenerationKey, _ ...delta.GenerationGetOption) (*model.DeltaGeneration, error) {
+func (s *stubGenerationLookup) GetDeltaGeneration(_ context.Context, _ deltastore.GenerationKey, _ ...deltastore.GenerationGetOption) (*model.DeltaGeneration, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.calls++
@@ -37,8 +37,8 @@ func (s *stubGenerationLookup) callCount() int {
 	return s.calls
 }
 
-func testGenerationKey() delta.GenerationKey {
-	return delta.GenerationKey{
+func testGenerationKey() deltastore.GenerationKey {
+	return deltastore.GenerationKey{
 		OrgID:           uuid.MustParse("11111111-1111-1111-1111-111111111111"),
 		ImageRepository: "quay.io/acme/os",
 		SourceDigest:    "sha256:aaa",

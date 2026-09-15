@@ -9,6 +9,8 @@ import (
 	v1alpha1 "github.com/flightctl/flightctl/api/core/v1alpha1"
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
+	deltamodel "github.com/flightctl/flightctl/internal/delta_worker/model"
+	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/rendered"
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
@@ -20,12 +22,11 @@ import (
 	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
 	"github.com/flightctl/flightctl/internal/store"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
-	deltastore "github.com/flightctl/flightctl/internal/store/delta"
 	dependencyrefstore "github.com/flightctl/flightctl/internal/store/dependencyref"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
-	"github.com/flightctl/flightctl/internal/store/model"
+	storemodel "github.com/flightctl/flightctl/internal/store/model"
 	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
 	templateversionstore "github.com/flightctl/flightctl/internal/store/templateversion"
 	"github.com/flightctl/flightctl/internal/tasks"
@@ -282,7 +283,7 @@ var _ = Describe("DeviceRender", func() {
 				// Set a recent last_seen in device_timestamps so the device is not considered disconnected when
 				// UpdateServerSideDeviceStatus runs (otherwise status.updated.status can be set to Unknown).
 				setDeviceLastSeen := func(deviceName string, lastSeen time.Time) error {
-					result := db.WithContext(ctx).Model(&model.DeviceTimestamp{}).Where("org_id = ? AND name = ?", orgId, deviceName).Updates(map[string]interface{}{
+					result := db.WithContext(ctx).Model(&storemodel.DeviceTimestamp{}).Where("org_id = ? AND name = ?", orgId, deviceName).Updates(map[string]interface{}{
 						"last_seen": lastSeen,
 					})
 					return result.Error
@@ -1312,12 +1313,12 @@ var _ = Describe("DeviceRender", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			deltaStore := deltastore.NewStore(db, log.WithField("pkg", "delta-store"))
-			_, err = deltaStore.InsertGenerations(ctx, []*model.DeltaGeneration{{
+			_, err = deltaStore.InsertDeltaGenerations(ctx, []*deltamodel.DeltaGeneration{{
 				OrgID:           orgId,
 				ImageRepository: "quay.io/acme/os",
 				SourceDigest:    srcDigest,
 				TargetDigest:    tgtDigest,
-				Status:          model.DeltaGenerationSucceeded,
+				Status:          deltamodel.DeltaGenerationSucceeded,
 				DeltaRef:        lo.ToPtr(deltaRef),
 				SizeBytes:       &sizeBytes,
 			}})

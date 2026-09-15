@@ -9,20 +9,20 @@ import (
 
 	"github.com/containers/image/v5/docker/reference"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/delta_worker/model"
+	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/oci"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
-	"github.com/flightctl/flightctl/internal/store/delta"
-	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/samber/lo"
 )
 
 const generationMemoTTL = 15 * time.Minute
 
 type generationLookup interface {
-	GetGeneration(ctx context.Context, key delta.GenerationKey, opts ...delta.GenerationGetOption) (*model.DeltaGeneration, error)
+	GetDeltaGeneration(ctx context.Context, key deltastore.GenerationKey, opts ...deltastore.GenerationGetOption) (*model.DeltaGeneration, error)
 }
 
 type generationMemo struct {
@@ -55,7 +55,7 @@ func FormatIECBytes(n int64) string {
 	return fmt.Sprintf("%d %s", rounded, units[unit])
 }
 
-func (t DeviceRenderLogic) WithDeltaLookup(lookup delta.Store) DeviceRenderLogic {
+func (t DeviceRenderLogic) WithDeltaLookup(lookup deltastore.DeltaGenerationStore) DeviceRenderLogic {
 	t.deltaLookup = lookup
 	return t
 }
@@ -76,11 +76,11 @@ func deltaWriteSpec(cfg *config.Config) *domain.OciRepoSpec {
 	if err != nil {
 		return nil
 	}
-	return oci.SelectWriteTarget(nil, defaultRepository)
+	return defaultRepository
 }
 
 func (t *DeviceRenderLogic) resolveTargetDigest(ctx context.Context, osImage string) (string, error) {
-	return oci.CachedImageDigest(ctx, t.kvStore, osImage, func(ctx context.Context) (string, error) {
+	return oci.CachedImageDigest(ctx, t.kvStore, t.orgId, osImage, func(ctx context.Context) (string, error) {
 		return oci.InspectImageDigest(ctx, osImage, deltaWriteSpec(t.cfg))
 	})
 }
@@ -149,7 +149,7 @@ func (t *DeviceRenderLogic) resolveOSDeltaHint(ctx context.Context, device *doma
 		}
 		return &deviceservice.RenderedOSHints{UpdatedSize: size}
 	}
-	key := delta.GenerationKey{
+	key := deltastore.GenerationKey{
 		OrgID:           t.orgId,
 		ImageRepository: repo,
 		SourceDigest:    src,
@@ -157,7 +157,7 @@ func (t *DeviceRenderLogic) resolveOSDeltaHint(ctx context.Context, device *doma
 	}
 	t.log.Infof("os delta hint query device=%s/%s repo=%s sourceDigest=%s targetDigest=%s osImage=%s",
 		t.orgId, t.event.InvolvedObject.Name, repo, src, tgt, rendered.OsImage)
-	gen, err := lookupCachedGeneration(ctx, t.kvStore, t.deltaLookup, key, "", delta.WithStatus(model.DeltaGenerationSucceeded))
+	gen, err := lookupCachedGeneration(ctx, t.kvStore, t.deltaLookup, key, "", deltastore.WithStatus(model.DeltaGenerationSucceeded))
 	if err != nil {
 		t.log.Warnf("os delta hint lookup failed device=%s/%s repo=%s sourceDigest=%s targetDigest=%s: %v",
 			t.orgId, t.event.InvolvedObject.Name, repo, src, tgt, err)
@@ -185,11 +185,11 @@ func (t *DeviceRenderLogic) resolveOSDeltaHint(ctx context.Context, device *doma
 	return &deviceservice.RenderedOSHints{DeltaImage: img, UpdatedSize: size}
 }
 
-func generationMemoKey(key delta.GenerationKey, ref string) string {
+func generationMemoKey(key deltastore.GenerationKey, ref string) string {
 	return fmt.Sprintf("deltaHint/%s/%s/%s/%s/%s", key.OrgID, key.ImageRepository, key.SourceDigest, key.TargetDigest, ref)
 }
 
-func lookupCachedGeneration(ctx context.Context, kv kvstore.KVStore, store generationLookup, key delta.GenerationKey, ref string, opts ...delta.GenerationGetOption) (*model.DeltaGeneration, error) {
+func lookupCachedGeneration(ctx context.Context, kv kvstore.KVStore, store generationLookup, key deltastore.GenerationKey, ref string, opts ...deltastore.GenerationGetOption) (*model.DeltaGeneration, error) {
 	if kv != nil {
 		raw, err := kv.Get(ctx, generationMemoKey(key, ref))
 		if err == nil && len(raw) > 0 {
@@ -203,7 +203,7 @@ func lookupCachedGeneration(ctx context.Context, kv kvstore.KVStore, store gener
 	if store == nil {
 		return nil, nil
 	}
-	gen, err := store.GetGeneration(ctx, key, opts...)
+	gen, err := store.GetDeltaGeneration(ctx, key, opts...)
 	if err != nil {
 		if errors.Is(err, flterrors.ErrResourceNotFound) {
 			_ = writeGenerationMemo(ctx, kv, key, ref, generationMemo{Missing: true})
@@ -221,7 +221,7 @@ func lookupCachedGeneration(ctx context.Context, kv kvstore.KVStore, store gener
 	return gen, nil
 }
 
-func generationFromMemo(key delta.GenerationKey, memo generationMemo) *model.DeltaGeneration {
+func generationFromMemo(key deltastore.GenerationKey, memo generationMemo) *model.DeltaGeneration {
 	if memo.Missing {
 		return nil
 	}
@@ -236,7 +236,7 @@ func generationFromMemo(key delta.GenerationKey, memo generationMemo) *model.Del
 	}
 }
 
-func writeGenerationMemo(ctx context.Context, kv kvstore.KVStore, key delta.GenerationKey, ref string, memo generationMemo) error {
+func writeGenerationMemo(ctx context.Context, kv kvstore.KVStore, key deltastore.GenerationKey, ref string, memo generationMemo) error {
 	if kv == nil {
 		return nil
 	}
