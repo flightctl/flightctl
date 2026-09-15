@@ -172,13 +172,13 @@ func (s *ServiceTestSuite) Setup() {
 	s.AuthProvider = authproviderservice.NewServiceHandler(s.AuthProviderStore, eventsSvc, s.Log)
 	s.Catalog = catalogservice.NewServiceHandler(catalogStore, s.DeviceStore, fleetStore, eventsSvc, s.Log)
 	s.Device = deviceservice.NewDeviceServiceHandler(s.DeviceStore, catalogStore, fleetStore, eventsSvc, kvStore, "", s.Log)
+	s.EnrollmentHookPolicy = enrollmenthookpolicyservice.NewServiceHandler(enrollmentHookPolicyStore, eventsSvc, s.Log)
 	notifySecretsStore := enrollmenthooknotifysecretsstore.NewStore(s.DB, s.Log.WithField("pkg", "enrollmenthooknotifysecrets-store"))
 	s.NotifySecretsStore = notifySecretsStore
-	s.EnrollmentRequest = enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, s.DeviceStore, csrStore, s.caClient, kvStore, eventsSvc, s.Log, []string{}, "", "", enrollmentHookPolicyStore, notifySecretsStore)
+	s.EnrollmentRequest = enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, s.DeviceStore, csrStore, s.caClient, kvStore, eventsSvc, s.Log, []string{}, "", "", s.EnrollmentHookPolicy, notifySecretsStore)
 	s.CertificateSigningRequest = certificatesigningrequestservice.NewServiceHandler(csrStore, tpmcsr.NewVerifier(s.EnrollmentRequest), s.caClient, eventsSvc, s.Log, "", "")
 	s.Fleet = fleetservice.NewServiceHandler(fleetStore, catalogStore, eventsSvc, s.Log)
 	s.Repository = repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, s.Log)
-	s.EnrollmentHookPolicy = enrollmenthookpolicyservice.NewServiceHandler(enrollmentHookPolicyStore, eventsSvc, s.Log)
 
 	// Default org for integration tests
 	s.OrgID = store.NullOrgId

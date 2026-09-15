@@ -2,12 +2,12 @@ package enrollmentrequest
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
-	"github.com/flightctl/flightctl/internal/store"
-	enrollmenthookpolicystore "github.com/flightctl/flightctl/internal/store/enrollmenthookpolicy"
+	enrollmenthookpolicy "github.com/flightctl/flightctl/internal/service/enrollmenthookpolicy"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -15,32 +15,34 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type fakePolicyStore struct {
+type fakePolicyService struct {
 	policy *domain.EnrollmentHookPolicy
 	err    error
 }
 
-func (f *fakePolicyStore) InitialMigration(_ context.Context) error { return nil }
-func (f *fakePolicyStore) Create(_ context.Context, _ uuid.UUID, _ *domain.EnrollmentHookPolicy) (*domain.EnrollmentHookPolicy, error) {
-	return nil, nil
+func (f *fakePolicyService) CreateEnrollmentHookPolicy(_ context.Context, _ uuid.UUID, _ domain.EnrollmentHookPolicy) (*domain.EnrollmentHookPolicy, domain.Status) {
+	return nil, domain.StatusInternalServerError("not implemented")
 }
-func (f *fakePolicyStore) Get(_ context.Context, _ uuid.UUID, _ string) (*domain.EnrollmentHookPolicy, error) {
+func (f *fakePolicyService) ListEnrollmentHookPolicies(_ context.Context, _ uuid.UUID, _ domain.ListEnrollmentHookPoliciesParams) (*domain.EnrollmentHookPolicyList, domain.Status) {
+	return nil, domain.StatusInternalServerError("not implemented")
+}
+func (f *fakePolicyService) GetEnrollmentHookPolicy(_ context.Context, _ uuid.UUID, _ string) (*domain.EnrollmentHookPolicy, domain.Status) {
 	if f.err != nil {
-		return nil, f.err
+		if errors.Is(f.err, flterrors.ErrResourceNotFound) {
+			return nil, domain.StatusResourceNotFound(string(domain.EnrollmentHookPolicyKind), "default")
+		}
+		return nil, domain.StatusInternalServerError(f.err.Error())
 	}
-	return f.policy, nil
+	return f.policy, domain.StatusOK()
 }
-func (f *fakePolicyStore) CreateOrUpdate(_ context.Context, _ uuid.UUID, _ *domain.EnrollmentHookPolicy) (*domain.EnrollmentHookPolicy, *domain.EnrollmentHookPolicy, bool, error) {
-	return nil, nil, false, nil
+func (f *fakePolicyService) ReplaceEnrollmentHookPolicy(_ context.Context, _ uuid.UUID, _ string, _ domain.EnrollmentHookPolicy) (*domain.EnrollmentHookPolicy, domain.Status) {
+	return nil, domain.StatusInternalServerError("not implemented")
 }
-func (f *fakePolicyStore) Delete(_ context.Context, _ uuid.UUID, _ string) (bool, error) {
-	return false, nil
+func (f *fakePolicyService) DeleteEnrollmentHookPolicy(_ context.Context, _ uuid.UUID, _ string) domain.Status {
+	return domain.StatusInternalServerError("not implemented")
 }
-func (f *fakePolicyStore) List(_ context.Context, _ uuid.UUID, _ store.ListParams) (*domain.EnrollmentHookPolicyList, error) {
-	return nil, nil
-}
-func (f *fakePolicyStore) Update(_ context.Context, _ uuid.UUID, _ *domain.EnrollmentHookPolicy) (*domain.EnrollmentHookPolicy, *domain.EnrollmentHookPolicy, error) {
-	return nil, nil, nil
+func (f *fakePolicyService) PatchEnrollmentHookPolicy(_ context.Context, _ uuid.UUID, _ string, _ domain.PatchRequest) (*domain.EnrollmentHookPolicy, domain.Status) {
+	return nil, domain.StatusInternalServerError("not implemented")
 }
 
 func TestSnapshotEnrollmentHookPolicy(t *testing.T) {
@@ -48,7 +50,7 @@ func TestSnapshotEnrollmentHookPolicy(t *testing.T) {
 		name           string
 		policy         *domain.EnrollmentHookPolicy
 		policyErr      error
-		nilStore       bool
+		nilService     bool
 		expectNil      bool
 		expectSecrets  int
 		expectActions  int
@@ -62,9 +64,9 @@ func TestSnapshotEnrollmentHookPolicy(t *testing.T) {
 			expectNil: true,
 		},
 		{
-			name:      "When policy store is nil it should return nil",
-			nilStore:  true,
-			expectNil: true,
+			name:       "When policy service is nil it should return nil",
+			nilService: true,
+			expectNil:  true,
 		},
 		{
 			name: "When policy has controlPlaneActions with bearer tokens it should snapshot actions and create secrets",
@@ -136,12 +138,12 @@ func TestSnapshotEnrollmentHookPolicy(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 
-			var policyStore enrollmenthookpolicystore.Store
-			if !tt.nilStore {
-				policyStore = &fakePolicyStore{policy: tt.policy, err: tt.policyErr}
+			var policySvc enrollmenthookpolicy.Service
+			if !tt.nilService {
+				policySvc = &fakePolicyService{policy: tt.policy, err: tt.policyErr}
 			}
 
-			status, secrets, err := snapshotEnrollmentHookPolicy(ctx, policyStore, [16]byte{}, "test-device")
+			status, secrets, err := snapshotEnrollmentHookPolicy(ctx, policySvc, [16]byte{}, "test-device")
 			require.NoError(t, err)
 
 			if tt.expectNil {
@@ -230,8 +232,8 @@ func TestSnapshotExcludesBearerToken(t *testing.T) {
 		},
 	}
 
-	store := &fakePolicyStore{policy: policy}
-	status, secrets, err := snapshotEnrollmentHookPolicy(context.Background(), store, [16]byte{}, "dev1")
+	svc := &fakePolicyService{policy: policy}
+	status, secrets, err := snapshotEnrollmentHookPolicy(context.Background(), svc, [16]byte{}, "dev1")
 	require.NoError(t, err)
 	require.NotNil(t, status)
 
@@ -247,4 +249,11 @@ func TestSnapshotExcludesBearerToken(t *testing.T) {
 	// Verify the snapshot type doesn't have a bearerToken field
 	// (compile-time check: EnrollmentHookSnapshotAction has no Auth field)
 	_ = model.EnrollmentHookNotifySecret{}
+}
+
+func TestSnapshotEnrollmentHookPolicyServiceError(t *testing.T) {
+	svc := &fakePolicyService{err: errors.New("database unavailable")}
+	_, _, err := snapshotEnrollmentHookPolicy(context.Background(), svc, uuid.New(), "dev1")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "database unavailable")
 }
