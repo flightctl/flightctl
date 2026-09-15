@@ -83,6 +83,9 @@ func (f *fakeDeviceStore) Mutate(context.Context, uuid.UUID, string, *domain.Dev
 func (f *fakeDeviceStore) UpdateStatus(context.Context, uuid.UUID, *domain.Device, *domain.Device) (*domain.Device, *domain.Device, error) {
 	panic("not implemented")
 }
+func (f *fakeDeviceStore) ReplaceServiceOwnedStatus(context.Context, uuid.UUID, *domain.Device) (*domain.Device, *domain.Device, error) {
+	panic("not implemented")
+}
 func (f *fakeDeviceStore) UpdateAnnotations(context.Context, uuid.UUID, string, map[string]string, []string) error {
 	panic("not implemented")
 }

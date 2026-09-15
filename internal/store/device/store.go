@@ -71,6 +71,9 @@ type Store interface {
 	// UpdateStatus writes status + resource_version only (service_conditions unchanged).
 	// previous is optional (first attempt only). No events; caller uses before/updated.
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, previous *domain.Device) (updated *domain.Device, before *domain.Device, err error)
+	// ReplaceServiceOwnedStatus updates service-owned status fields without
+	// replacing the device's desired state or agent-owned status.
+	ReplaceServiceOwnedStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device) (updated *domain.Device, before *domain.Device, err error)
 	// UpdateAnnotations merges annotations (and applies deleteKeys) via Mutate.
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error)
@@ -620,6 +623,26 @@ func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, device 
 		updated = &next
 		return false, nil
 	})
+	return updated, before, err
+}
+
+// ReplaceServiceOwnedStatus persists the service-owned portions of a device's
+// status while retaining the rest of the resource from the CAS-fresh row.
+// Callers provide a device loaded by the service layer and may update service
+// conditions (for example, delta-preparing) without changing the desired spec
+// or agent-owned status fields.
+func (s *DeviceStore) ReplaceServiceOwnedStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device) (*domain.Device, *domain.Device, error) {
+	if device == nil || device.Metadata.Name == nil {
+		return nil, nil, flterrors.ErrResourceIsNil
+	}
+	name := *device.Metadata.Name
+	updated, before, _, err := s.Mutate(ctx, orgId, name, nil, func(m *DeviceMutation) error {
+		if err := m.RequireExisting(); err != nil {
+			return err
+		}
+		m.Device.Status = device.Status
+		return nil
+	}, WithTimestamp())
 	return updated, before, err
 }
 

@@ -50,6 +50,10 @@ type Server struct {
 	prepareSvc     deltaprepare.Service
 	prepareGenSvc  deltapreparegeneration.Service
 	repositorySvc  repositoryservice.Service
+	eventsSvc      events.Service
+	fleetSvc       fleetservice.Service
+	deviceSvc      deviceservice.Service
+	tvSvc          templateversionservice.Service
 	resolver       *preparetask.Resolver
 }
 
@@ -83,6 +87,10 @@ func New(log logrus.FieldLogger, cfg *deltaconfig.DeltaGenerationConfig, db *gor
 		prepareGenSvc:  prepareGenerationSvc,
 		repositorySvc:  repositorySvc,
 		resolver:       serviceResolver(cfg, fleetSvc, deviceSvc, templateVersionSvc, repositorySvc, catalogSvc, kvStore, log),
+		eventsSvc:      eventSvc,
+		fleetSvc:       fleetSvc,
+		deviceSvc:      deviceSvc,
+		tvSvc:          templateVersionSvc,
 	}
 }
 
@@ -100,6 +108,7 @@ func (s *Server) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	generator.SetCompletePrepare(preparer.CompleteWaitingIfTerminal)
 	wiring := &tasks.ConsumerWiring{
 		Preparer:  preparer,
 		Generator: generator,
@@ -138,6 +147,10 @@ func (s *Server) newPreparer(ctx context.Context) (*preparetask.Handler, error) 
 	preparer.MaxWaitForDelta = deployWait
 	preparer.DeltaGenerationTimeout = deployTimeout
 	preparer.Now = time.Now
+	preparer.Events = s.eventsSvc
+	preparer.FleetSvc = s.fleetSvc
+	preparer.DeviceSvc = s.deviceSvc
+	preparer.TVSvc = s.tvSvc
 	return preparer, nil
 }
 

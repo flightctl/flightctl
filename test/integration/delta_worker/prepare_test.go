@@ -17,11 +17,13 @@ import (
 	preparetask "github.com/flightctl/flightctl/internal/delta_worker/tasks/prepare"
 	"github.com/flightctl/flightctl/internal/domain"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	"github.com/flightctl/flightctl/internal/service/events"
 	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
 	"github.com/flightctl/flightctl/internal/store"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	eventstore "github.com/flightctl/flightctl/internal/store/event"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
 	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
@@ -30,6 +32,7 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/queues"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/flightctl/flightctl/test/util/testdb"
 	"github.com/google/uuid"
@@ -37,6 +40,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
+	"go.uber.org/mock/gomock"
 	"gorm.io/gorm"
 )
 
@@ -186,6 +190,98 @@ var _ = Describe("PrepareDeltas persist", func() {
 			Expect(payload["imageRepository"]).To(Equal(repoName))
 			Expect(payload["sourceDigest"]).To(Equal(srcDigest))
 			Expect(payload["targetDigest"]).To(Equal(tgtDigest))
+		})
+	})
+
+	When("the last joined generation pair becomes terminal", func() {
+		It("should complete the waiting prepare and emit FleetRolloutStarted", func() {
+			const (
+				fleetName = "fleet-resume"
+				tvName    = "tv-resume"
+				repoName  = "quay.io/acme/os"
+				srcDigest = "sha256:src"
+				tgtDigest = "sha256:tgt"
+			)
+
+			testutil.CreateTestFleet(ctx, fleets, orgId, fleetName, nil, nil)
+			tvs := templateversionstore.NewTemplateVersionStore(db, log.WithField("pkg", "tv-store"))
+			Expect(testutil.CreateTestTemplateVersion(ctx, tvs, orgId, fleetName, tvName, &domain.TemplateVersionStatus{
+				Os: &domain.DeviceOsSpec{Image: "quay.io/acme/os:v2"},
+			})).To(Succeed())
+
+			ctrl := gomock.NewController(GinkgoT())
+			DeferCleanup(ctrl.Finish)
+			producer := queues.NewMockQueueProducer(ctrl)
+			producer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+			eventsSvc := events.NewServiceHandler(eventstore.NewEventStore(db, log.WithField("pkg", "event-store")), worker_client.NewWorkerClient(producer, log), log)
+			fleetSvc := fleetservice.NewServiceHandler(fleets, nil, eventsSvc, log)
+			deviceSvc := deviceservice.NewDeviceServiceHandler(devices, nil, fleets, eventsSvc, nil, "", log)
+			tvSvc := templateversionservice.NewServiceHandler(tvs, nil, eventsSvc, log)
+
+			key := deltastore.GenerationKey{
+				OrgID:           orgId,
+				ImageRepository: repoName,
+				SourceDigest:    srcDigest,
+				TargetDigest:    tgtDigest,
+			}
+			_, err := deltaStore.InsertDeltaGenerations(ctx, []*model.DeltaGeneration{{
+				OrgID:           orgId,
+				ImageRepository: repoName,
+				SourceDigest:    srcDigest,
+				TargetDigest:    tgtDigest,
+			}})
+			Expect(err).ToNot(HaveOccurred())
+			tv := tvName
+			prep := &model.DeltaPrepare{
+				OrgID:           orgId,
+				Kind:            domain.FleetKind,
+				Name:            fleetName,
+				TemplateVersion: &tv,
+			}
+			Expect(deltaStore.CreateDeltaPrepare(ctx, prep)).To(Succeed())
+			_, err = deltaStore.CreateDeltaPrepareGenerations(ctx, []*model.DeltaPrepareGeneration{{
+				PrepareID: prep.ID, OrgID: key.OrgID, ImageRepository: key.ImageRepository,
+				SourceDigest: key.SourceDigest, TargetDigest: key.TargetDigest,
+			}})
+			Expect(err).ToNot(HaveOccurred())
+
+			gen, err := deltaStore.GetDeltaGeneration(ctx, key)
+			Expect(err).ToNot(HaveOccurred())
+			gen.Status = model.DeltaGenerationSucceeded
+			_, err = deltaStore.UpdateDeltaGeneration(ctx, gen.ResourceVersion, gen)
+			Expect(err).ToNot(HaveOccurred())
+
+			status := workerservice.NewStorePreparingStatus(fleets, devices)
+			generationSvc := deltageneration.NewServiceHandler(deltaStore, deltaStore, deltaStore, eventsSvc, status, log)
+			prepareSvc := deltaprepare.NewServiceHandler(deltaStore, status)
+			prepareGenerationSvc := deltapreparegeneration.NewServiceHandler(deltaStore, generationSvc, prepareSvc, eventsSvc)
+			p := &preparetask.Handler{
+				PrepareService:           prepareSvc,
+				GenerationService:        generationSvc,
+				PrepareGenerationService: prepareGenerationSvc,
+				Events:                   eventsSvc,
+				FleetSvc:                 fleetSvc,
+				DeviceSvc:                deviceSvc,
+				TVSvc:                    tvSvc,
+			}
+			Expect(p.CompleteWaitingIfTerminal(ctx, key)).To(Succeed())
+
+			got, err := deltaStore.GetDeltaPrepare(ctx, deltastore.PrepareKey{ID: prep.ID})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got.Status).To(Equal(model.DeltaPrepareComplete))
+
+			listed, err := eventstore.NewEventStore(db, log).List(ctx, orgId, store.ListParams{Limit: 100})
+			Expect(err).ToNot(HaveOccurred())
+			reasons := make([]domain.EventReason, 0, len(listed.Items))
+			for i := range listed.Items {
+				reasons = append(reasons, listed.Items[i].Reason)
+			}
+			Expect(reasons).To(ContainElement(domain.EventReasonFleetRolloutStarted))
+
+			fleet, err := fleets.Get(ctx, orgId, fleetName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(fleet.Metadata.Annotations).ToNot(BeNil())
+			Expect((*fleet.Metadata.Annotations)[domain.FleetAnnotationTemplateVersion]).To(Equal(tvName))
 		})
 	})
 })
