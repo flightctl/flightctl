@@ -20,6 +20,7 @@ var (
 		selector.NewSelectorName("status.updated.status"):             selector.String,
 		selector.NewSelectorName("status.lifecycle.status"):           selector.String,
 		selector.NewSelectorName("status.capabilities.osMode"):        selector.String,
+		selector.NewSelectorName("status.systemInfo.deltaEligible"):   selector.Bool,
 	}
 	fleetSpecSelectors = selectorToTypeMap{
 		selector.NewSelectorName("spec.template.spec.os.image"): selector.String,
@@ -38,9 +39,10 @@ var (
 	}
 	// OCI-specific selectors (only fields unique to OciRepoSpec)
 	ociRepositorySpecSelectors = selectorToTypeMap{
-		selector.NewSelectorName("spec.type"):       selector.String,
-		selector.NewSelectorName("spec.registry"):   selector.String,
-		selector.NewSelectorName("spec.accessMode"): selector.String,
+		selector.NewSelectorName("spec.type"):               selector.String,
+		selector.NewSelectorName("spec.registry"):           selector.String,
+		selector.NewSelectorName("spec.accessMode"):         selector.String,
+		selector.NewSelectorName("spec.deltaStorageTarget"): selector.Bool,
 	}
 	certificateSigningRequestStatusSelectors = selectorToTypeMap{
 		selector.NewSelectorName("status.certificate"): selector.String,

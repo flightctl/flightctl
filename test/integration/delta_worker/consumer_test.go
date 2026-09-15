@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
+	deltaconfig "github.com/flightctl/flightctl/internal/delta_worker/config"
 	deltatasks "github.com/flightctl/flightctl/internal/delta_worker/tasks"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/worker_client"
@@ -97,9 +97,8 @@ var _ = Describe("Delta worker consumers", func() {
 
 	When("LaunchConsumers is running", func() {
 		It("should consume and ack PrepareDeltas on DeltaGenerationTaskQueue", func() {
-			cfg := config.NewDefault()
-			cfg.DeltaGeneration = &config.DeltaGenerationConfig{MaxConcurrentDeltaGenerations: 1}
-			Expect(deltatasks.LaunchConsumers(ctx, provider, cfg, nil, nil, log)).To(Succeed())
+			cfg := &deltaconfig.DeltaGenerationConfig{MaxConcurrentDeltaGenerations: 1}
+			Expect(deltatasks.LaunchConsumers(ctx, provider, cfg, nil, log, nil)).To(Succeed())
 
 			payload := prepareDeltasPayload()
 			producer, err := provider.NewQueueProducer(ctx, consts.DeltaGenerationTaskQueue)
@@ -113,9 +112,8 @@ var _ = Describe("Delta worker consumers", func() {
 		})
 
 		It("should not consume the same payload from TaskQueue", func() {
-			cfg := config.NewDefault()
-			cfg.DeltaGeneration = &config.DeltaGenerationConfig{MaxConcurrentDeltaGenerations: 1}
-			Expect(deltatasks.LaunchConsumers(ctx, provider, cfg, nil, nil, log)).To(Succeed())
+			cfg := &deltaconfig.DeltaGenerationConfig{MaxConcurrentDeltaGenerations: 1}
+			Expect(deltatasks.LaunchConsumers(ctx, provider, cfg, nil, log, nil)).To(Succeed())
 
 			payload := prepareDeltasPayload()
 			producer, err := provider.NewQueueProducer(ctx, consts.TaskQueue)
