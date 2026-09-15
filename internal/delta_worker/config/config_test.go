@@ -39,11 +39,74 @@ func TestDeltaGenerationConfigValidate(t *testing.T) {
 				Password: api.SecureString("secret"),
 			}},
 		},
+		{
+			name: "When an HTTP repository has only a username it should be rejected",
+			config: &DeltaGenerationConfig{DefaultRepository: &DefaultRepositoryConfig{
+				Registry: "registry.example.com",
+				Scheme:   lo.ToPtr("http"),
+				Username: "robot",
+			}},
+			wantErr: "username and password must be configured together",
+		},
+		{
+			name: "When an HTTP repository has only a password it should be rejected",
+			config: &DeltaGenerationConfig{DefaultRepository: &DefaultRepositoryConfig{
+				Registry: "registry.example.com",
+				Scheme:   lo.ToPtr("http"),
+				Password: api.SecureString("secret"),
+			}},
+			wantErr: "username and password must be configured together",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.config.Validate()
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
+
+func TestDefaultRepositoryConfigOciRepoSpec(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  *DefaultRepositoryConfig
+		wantErr string
+	}{
+		{
+			name: "When both credentials are configured it should create an authenticated spec",
+			config: &DefaultRepositoryConfig{
+				Registry: "registry.example.com",
+				Scheme:   lo.ToPtr("http"),
+				Username: "robot",
+				Password: api.SecureString("secret"),
+			},
+		},
+		{
+			name: "When only a username is configured it should return an error",
+			config: &DefaultRepositoryConfig{
+				Registry: "registry.example.com",
+				Username: "robot",
+			},
+			wantErr: "username and password must be configured together",
+		},
+		{
+			name: "When only a password is configured it should return an error",
+			config: &DefaultRepositoryConfig{
+				Registry: "registry.example.com",
+				Password: api.SecureString("secret"),
+			},
+			wantErr: "username and password must be configured together",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := tt.config.OciRepoSpec()
 			if tt.wantErr == "" {
 				require.NoError(t, err)
 				return

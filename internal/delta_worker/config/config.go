@@ -59,7 +59,9 @@ func (c *DeltaGenerationConfig) Validate() error {
 	schemeSet := d.Scheme != nil && strings.TrimSpace(*d.Scheme) != ""
 	caSet := d.CaCrt != nil && strings.TrimSpace(*d.CaCrt) != ""
 	skipSet := d.SkipServerVerification != nil
-	credsSet := d.Username != "" || d.Password != ""
+	usernameSet := d.Username != ""
+	passwordSet := d.Password != ""
+	credsSet := usernameSet || passwordSet
 	anySet := strings.TrimSpace(d.Registry) != "" || repoSet || nsSet || schemeSet || caSet || skipSet || credsSet
 	if anySet {
 		if errs := validation.ValidateHostIPOrFQDNWithOptionalPort(&d.Registry, "deltaGeneration.defaultRepository.registry"); len(errs) > 0 {
@@ -71,6 +73,9 @@ func (c *DeltaGenerationConfig) Validate() error {
 	}
 	if d.Scheme != nil && *d.Scheme != "" && *d.Scheme != "http" && *d.Scheme != "https" {
 		return fmt.Errorf("deltaGeneration.defaultRepository.scheme must be http or https")
+	}
+	if usernameSet != passwordSet {
+		return fmt.Errorf("deltaGeneration.defaultRepository username and password must be configured together")
 	}
 	if repoSet {
 		if errs := validation.ValidateString(d.Repository, "deltaGeneration.defaultRepository.repository", 1, 255, validation.OciImageNameRegexp, validation.OciImageNameFmt); len(errs) > 0 {
@@ -100,6 +105,9 @@ type DefaultRepositoryConfig struct {
 func (d *DefaultRepositoryConfig) OciRepoSpec() (*domain.OciRepoSpec, error) {
 	if d == nil || d.Registry == "" {
 		return nil, nil
+	}
+	if (d.Username == "") != (d.Password == "") {
+		return nil, fmt.Errorf("default repository username and password must be configured together")
 	}
 	accessMode := domain.OciRepoAccessModeReadWrite
 	spec := &domain.OciRepoSpec{
