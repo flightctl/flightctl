@@ -24,7 +24,7 @@ func TestDeltaCandidates_SkipPaths(t *testing.T) {
 			Fleet: func(_ context.Context, _ uuid.UUID, _ string) (*domain.Fleet, error) {
 				return &domain.Fleet{
 					Spec: domain.FleetSpec{
-						RolloutPolicy: &domain.RolloutPolicy{GenerateDelta: lo.ToPtr(false)},
+						RolloutPolicy: &domain.RolloutPolicy{DeltaGeneration: &domain.RolloutPolicyDeltaGeneration{GenerateDelta: lo.ToPtr(false)}},
 					},
 				}, nil
 			},

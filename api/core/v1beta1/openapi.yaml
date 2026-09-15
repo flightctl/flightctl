@@ -7730,17 +7730,10 @@ components:
         mapping:
           BatchSequence: '#/components/schemas/BatchSequence'
 
-    RolloutPolicy:
+    RolloutPolicyDeltaGeneration:
       type: object
+      description: Controls OS delta generation for this fleet rollout.
       properties:
-        disruptionBudget:
-          $ref: '#/components/schemas/DisruptionBudget'
-        deviceSelection:
-          $ref: '#/components/schemas/RolloutDeviceSelection'
-        successThreshold:
-          $ref: '#/components/schemas/Percentage'
-        defaultUpdateTimeout:
-          $ref: '#/components/schemas/Duration'
         generateDelta:
           type: boolean
           description: When false, skip control-plane OS delta generation for this fleet. Omitted means true.
@@ -7752,6 +7745,20 @@ components:
           allOf:
             - $ref: '#/components/schemas/Duration'
           description: Context deadline for each generation job. Omitted uses DeltaGeneration.timeout.
+
+    RolloutPolicy:
+      type: object
+      properties:
+        disruptionBudget:
+          $ref: '#/components/schemas/DisruptionBudget'
+        deviceSelection:
+          $ref: '#/components/schemas/RolloutDeviceSelection'
+        successThreshold:
+          $ref: '#/components/schemas/Percentage'
+        defaultUpdateTimeout:
+          $ref: '#/components/schemas/Duration'
+        deltaGeneration:
+          $ref: '#/components/schemas/RolloutPolicyDeltaGeneration'
       description: RolloutPolicy is the rollout policy of the fleet.
 
     FleetSpec:

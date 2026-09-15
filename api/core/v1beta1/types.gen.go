@@ -3336,8 +3336,8 @@ type RolloutPolicy struct {
 	// DefaultUpdateTimeout The maximum duration allowed for the action to complete. The duration should be specified as a positive integer followed by a time unit. Supported time units are: `s` for seconds, `m` for minutes, `h` for hours.
 	DefaultUpdateTimeout *Duration `json:"defaultUpdateTimeout,omitempty"`
 
-	// DeltaGenerationTimeout Context deadline for each generation job. Omitted uses DeltaGeneration.timeout.
-	DeltaGenerationTimeout *Duration `json:"deltaGenerationTimeout,omitempty"`
+	// DeltaGeneration Controls OS delta generation for this fleet rollout.
+	DeltaGeneration *RolloutPolicyDeltaGeneration `json:"deltaGeneration,omitempty"`
 
 	// DeviceSelection Describes how to select devices for rollout.
 	DeviceSelection *RolloutDeviceSelection `json:"deviceSelection,omitempty"`
@@ -3345,14 +3345,20 @@ type RolloutPolicy struct {
 	// DisruptionBudget DisruptionBudget defines the level of allowed disruption when rollout is in progress.
 	DisruptionBudget *DisruptionBudget `json:"disruptionBudget,omitempty"`
 
+	// SuccessThreshold Percentage is the string format representing percentage string.
+	SuccessThreshold *Percentage `json:"successThreshold,omitempty"`
+}
+
+// RolloutPolicyDeltaGeneration Controls OS delta generation for this fleet rollout.
+type RolloutPolicyDeltaGeneration struct {
+	// DeltaGenerationTimeout Context deadline for each generation job. Omitted uses DeltaGeneration.timeout.
+	DeltaGenerationTimeout *Duration `json:"deltaGenerationTimeout,omitempty"`
+
 	// GenerateDelta When false, skip control-plane OS delta generation for this fleet. Omitted means true.
 	GenerateDelta *bool `json:"generateDelta,omitempty"`
 
 	// MaxWaitForDelta How long a prepare may wait before periodic resume. Omitted uses DeltaGeneration.maxWaitForDelta. Ignored when generateDelta is false. 0s still generates then resumes immediately.
 	MaxWaitForDelta *Duration `json:"maxWaitForDelta,omitempty"`
-
-	// SuccessThreshold Percentage is the string format representing percentage string.
-	SuccessThreshold *Percentage `json:"successThreshold,omitempty"`
 }
 
 // RolloutStrategy The strategy of choice for device selection in rollout policy.
