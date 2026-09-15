@@ -823,6 +823,7 @@ To deploy a VM application, add an entry to the `applications` section of the de
 | `name` | Required. Application name. Must match `metadata.name` inside the `vm.yaml` file. |
 | `appType` | Must be `vm` for VM applications. |
 | `inline` | Required. Exactly one file named `vm.yaml`. The file must be a KubeVirt `VirtualMachine` manifest with `apiVersion: kubevirt.io/v1`, `kind: VirtualMachine`, and `metadata.name` matching the application name. |
+| `runAs` | Optional. The system user under which the VM application runs on the device. Defaults to the user running the agent, generally `root`. |
 | `publishPorts` | Optional. List of host-to-guest port mappings. Each entry must use the format `"hostPort:guestPort"` or `"hostPort:guestPort/protocol"` (for example, `"8080:80"` or `"8080:80/tcp"`). |
 
 Published host ports are unique per device and protocol across VM, container, and inline Quadlet `.container` applications. The API rejects a configuration when two applications request the same host port for the same protocol; an omitted protocol is treated as TCP.
