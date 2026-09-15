@@ -1,4 +1,4 @@
-package tasks
+package generate
 
 import (
 	"context"
@@ -17,12 +17,12 @@ import (
 
 	"github.com/containers/image/v5/docker/reference"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/delta_worker/model"
+	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/internal/oci"
-	deltastore "github.com/flightctl/flightctl/internal/store/delta"
-	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -50,6 +50,33 @@ type generateDeltaPayload struct {
 	TargetDigest    string `json:"targetDigest"`
 }
 
+// Handler executes an individual GenerateDelta job. Queue routing and
+// acknowledgement remain owned by the parent tasks package.
+type Handler struct {
+	cfg            *config.Config
+	store          deltastore.Store
+	log            logrus.FieldLogger
+	jobTimeout     time.Duration
+	existenceCheck func(ctx context.Context, imageRepository, sourceDigest, targetDigest string) (existenceResult, error)
+	generateDelta  func(ctx context.Context, sourceRef, targetRef, pushPath string) (deltaRef string, sizeBytes int64, err error)
+	pushPath       func(imageRepository string) (string, error)
+	resume         func(ctx context.Context, key deltastore.GenerationKey) error
+}
+
+// Consumer is retained as a package-local compatibility name for existing
+// generation tests while queue ownership moves to tasks.Consumer.
+type Consumer = Handler
+
+// NewHandler creates a GenerateDelta handler with the production defaults.
+func NewHandler(cfg *config.Config, store deltastore.Store, log logrus.FieldLogger) *Handler {
+	return &Handler{cfg: cfg, store: store, log: log}
+}
+
+// Handle executes one GenerateDelta event.
+func (h *Handler) Handle(ctx context.Context, ev worker_client.EventWithOrgId, log logrus.FieldLogger) error {
+	return h.handleGenerateDelta(ctx, ev, log)
+}
+
 func parseGenerationJob(ev worker_client.EventWithOrgId) (generationJob, bool) {
 	if ev.Event.Reason != domain.EventReasonGenerateDelta {
 		return generationJob{}, false
@@ -72,6 +99,15 @@ func parseGenerationJob(ev worker_client.EventWithOrgId) (generationJob, bool) {
 	}}, true
 }
 
+// ValidateGenerationJob returns an error for malformed GenerateDelta events.
+// Queue consumers use this to distinguish poison messages from retryable work.
+func ValidateGenerationJob(ev worker_client.EventWithOrgId) error {
+	if _, ok := parseGenerationJob(ev); !ok {
+		return fmt.Errorf("invalid GenerateDelta payload")
+	}
+	return nil
+}
+
 func validateGenerationPayload(payload generateDeltaPayload) error {
 	rewritten, err := oci.RewriteImageRef(payload.ImageRepository)
 	if err != nil {
@@ -89,19 +125,19 @@ func validateGenerationPayload(payload generateDeltaPayload) error {
 	return nil
 }
 
-func (c *Consumer) effectiveTimeout() time.Duration {
-	if c.jobTimeout > 0 {
-		return c.jobTimeout
+func (h *Handler) effectiveTimeout() time.Duration {
+	if h.jobTimeout > 0 {
+		return h.jobTimeout
 	}
 	timeout := 30 * time.Minute
-	if c.cfg != nil && c.cfg.DeltaGeneration != nil {
-		timeout = c.cfg.DeltaGeneration.EffectiveTimeout()
+	if h.cfg != nil && h.cfg.DeltaGeneration != nil {
+		timeout = h.cfg.DeltaGeneration.EffectiveTimeout()
 	}
 	return timeout
 }
 
-func (c *Consumer) defaultExistenceCheck(ctx context.Context, imageRepository, sourceDigest, targetDigest string) (existenceResult, error) {
-	spec, err := writeSpecFromConfig(c.cfg)
+func (h *Handler) defaultExistenceCheck(ctx context.Context, imageRepository, sourceDigest, targetDigest string) (existenceResult, error) {
+	spec, err := writeSpecFromConfig(h.cfg)
 	if err != nil {
 		return existenceResult{}, err
 	}
@@ -109,21 +145,21 @@ func (c *Consumer) defaultExistenceCheck(ctx context.Context, imageRepository, s
 	if err != nil {
 		return existenceResult{}, err
 	}
-	existCfg.log = c.log
+	existCfg.log = h.log
 	return checkExistingDelta(ctx, imageRepository, sourceDigest, targetDigest, existCfg)
 }
 
-func (c *Consumer) defaultGenerateDelta(ctx context.Context, sourceRef, targetRef, pushPath string) (string, int64, error) {
-	spec, err := writeSpecFromConfig(c.cfg)
+func (h *Handler) defaultGenerateDelta(ctx context.Context, sourceRef, targetRef, pushPath string) (string, int64, error) {
+	spec, err := writeSpecFromConfig(h.cfg)
 	if err != nil {
 		return "", 0, err
 	}
-	g := generator{run: execRunner{}, writeSpec: spec, log: c.log}
+	g := generator{run: execRunner{}, writeSpec: spec, log: h.log}
 	return g.createAndPushDelta(ctx, sourceRef, targetRef, pushPath)
 }
 
-func (c *Consumer) defaultPushPath(imageRepository string) (string, error) {
-	spec, err := writeSpecFromConfig(c.cfg)
+func (h *Handler) defaultPushPath(imageRepository string) (string, error) {
+	spec, err := writeSpecFromConfig(h.cfg)
 	if err != nil {
 		return "", err
 	}
@@ -144,24 +180,24 @@ func writeSpecFromConfig(cfg *config.Config) (*domain.OciRepoSpec, error) {
 	return oci.SelectWriteTarget(nil, spec), nil
 }
 
-func (c *Consumer) handleGenerateDelta(ctx context.Context, ev worker_client.EventWithOrgId, log logrus.FieldLogger) error {
-	ctx, cancel := context.WithTimeout(ctx, c.effectiveTimeout())
+func (h *Handler) handleGenerateDelta(ctx context.Context, ev worker_client.EventWithOrgId, log logrus.FieldLogger) error {
+	ctx, cancel := context.WithTimeout(ctx, h.effectiveTimeout())
 	defer cancel()
 
 	job, ok := parseGenerationJob(ev)
 	if !ok {
 		return nil
 	}
-	if c.store == nil {
+	if h.store == nil {
 		return nil
 	}
 
 	key := job.Key
 	log.Infof("generate delta repo=%s source=%s target=%s", key.ImageRepository, key.SourceDigest, key.TargetDigest)
 
-	check := c.existenceCheck
+	check := h.existenceCheck
 	if check == nil {
-		check = c.defaultExistenceCheck
+		check = h.defaultExistenceCheck
 	}
 	result, err := check(ctx, key.ImageRepository, key.SourceDigest, key.TargetDigest)
 	if err != nil {
@@ -173,7 +209,7 @@ func (c *Consumer) handleGenerateDelta(ctx context.Context, ev worker_client.Eve
 	}
 	if result.Status == existenceFound {
 		size := result.SizeBytes
-		if err := c.store.InsertRejectedGeneration(ctx, &model.DeltaGeneration{
+		if err := h.store.InsertRejectedGeneration(ctx, &model.DeltaGeneration{
 			OrgID:           key.OrgID,
 			ImageRepository: key.ImageRepository,
 			SourceDigest:    key.SourceDigest,
@@ -183,10 +219,10 @@ func (c *Consumer) handleGenerateDelta(ctx context.Context, ev worker_client.Eve
 		}); err != nil {
 			return err
 		}
-		return c.runResume(ctx, key)
+		return h.runResume(ctx, key)
 	}
 
-	if _, err := c.store.InsertGenerations(ctx, []*model.DeltaGeneration{{
+	if _, err := h.store.InsertGenerations(ctx, []*model.DeltaGeneration{{
 		OrgID:           key.OrgID,
 		ImageRepository: key.ImageRepository,
 		SourceDigest:    key.SourceDigest,
@@ -195,7 +231,7 @@ func (c *Consumer) handleGenerateDelta(ctx context.Context, ev worker_client.Eve
 		return err
 	}
 
-	claimed, err := c.store.ClaimGeneration(ctx, key)
+	claimed, err := h.store.ClaimGeneration(ctx, key)
 	if err != nil {
 		if errors.Is(err, flterrors.ErrNoRowsUpdated) {
 			log.Infof("did not claim in_progress generation for %s", key.ImageRepository)
@@ -205,37 +241,37 @@ func (c *Consumer) handleGenerateDelta(ctx context.Context, ev worker_client.Eve
 	}
 
 	pushPath := key.ImageRepository
-	if c.pushPath != nil {
-		pushPath, err = c.pushPath(key.ImageRepository)
+	if h.pushPath != nil {
+		pushPath, err = h.pushPath(key.ImageRepository)
 	} else {
-		spec, specErr := writeSpecFromConfig(c.cfg)
+		spec, specErr := writeSpecFromConfig(h.cfg)
 		if specErr != nil {
-			return c.failGeneration(ctx, key, claimed.ResourceVersion, specErr)
+			return h.failGeneration(ctx, key, claimed.ResourceVersion, specErr)
 		}
 		if spec != nil {
-			pushPath, err = c.defaultPushPath(key.ImageRepository)
+			pushPath, err = h.defaultPushPath(key.ImageRepository)
 		}
 	}
 	if err != nil {
-		return c.failGeneration(ctx, key, claimed.ResourceVersion, err)
+		return h.failGeneration(ctx, key, claimed.ResourceVersion, err)
 	}
 
-	generate := c.generateDelta
+	generate := h.generateDelta
 	if generate == nil {
-		generate = c.defaultGenerateDelta
+		generate = h.defaultGenerateDelta
 	}
 	sourceRef := key.ImageRepository + "@" + key.SourceDigest
 	targetRef := key.ImageRepository + "@" + key.TargetDigest
 	log.Infof("creating delta source=%s target=%s push=%s", sourceRef, targetRef, pushPath)
 	deltaRef, sizeBytes, genErr := generate(ctx, sourceRef, targetRef, pushPath)
 	if genErr != nil {
-		return c.failGeneration(ctx, key, claimed.ResourceVersion, genErr)
+		return h.failGeneration(ctx, key, claimed.ResourceVersion, genErr)
 	}
 	log.Infof("created delta %s sizeBytes=%d", deltaRef, sizeBytes)
 
 	writeCtx, writeCancel := persistContext(ctx)
 	defer writeCancel()
-	casErr := c.store.CASGeneration(writeCtx, key, claimed.ResourceVersion, deltastore.GenerationCAS{
+	casErr := h.store.CASGeneration(writeCtx, key, claimed.ResourceVersion, deltastore.GenerationCAS{
 		Status:    model.DeltaGenerationSucceeded,
 		DeltaRef:  &deltaRef,
 		SizeBytes: &sizeBytes,
@@ -245,30 +281,30 @@ func (c *Consumer) handleGenerateDelta(ctx context.Context, ev worker_client.Eve
 			log.Infof("stale resource_version; not completing %s", key.ImageRepository)
 			return nil
 		}
-		return c.failGeneration(ctx, key, claimed.ResourceVersion, casErr)
+		return h.failGeneration(ctx, key, claimed.ResourceVersion, casErr)
 	}
-	return c.runResume(ctx, key)
+	return h.runResume(ctx, key)
 }
 
 func persistContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(ctx), persistTimeout)
 }
 
-func (c *Consumer) failGeneration(ctx context.Context, key deltastore.GenerationKey, rv int64, cause error) error {
+func (h *Handler) failGeneration(ctx context.Context, key deltastore.GenerationKey, rv int64, cause error) error {
 	writeCtx, cancel := persistContext(ctx)
 	defer cancel()
-	casErr := c.store.CASGeneration(writeCtx, key, rv, deltastore.GenerationCAS{Status: model.DeltaGenerationFailed})
+	casErr := h.store.CASGeneration(writeCtx, key, rv, deltastore.GenerationCAS{Status: model.DeltaGenerationFailed})
 	if casErr != nil && !errors.Is(casErr, flterrors.ErrNoRowsUpdated) {
 		return fmt.Errorf("generate: %w; persist failed status: %w", cause, casErr)
 	}
-	return c.runResume(ctx, key)
+	return h.runResume(ctx, key)
 }
 
-func (c *Consumer) runResume(ctx context.Context, key deltastore.GenerationKey) error {
-	if c.resume != nil {
-		return c.resume(ctx, key)
+func (h *Handler) runResume(ctx context.Context, key deltastore.GenerationKey) error {
+	if h.resume != nil {
+		return h.resume(ctx, key)
 	}
-	_, err := c.store.ListWaitingPreparesByGeneration(ctx, key)
+	_, err := h.store.ListWaitingPreparesByGeneration(ctx, key)
 	return err
 }
 

@@ -1,13 +1,13 @@
-package delta
+package store
 
 import (
 	"context"
 	"fmt"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/delta_worker/model"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
-	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
