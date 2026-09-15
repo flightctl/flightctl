@@ -48,12 +48,13 @@ type existenceChecker func(ctx context.Context, orgID uuid.UUID, deltaRepository
 type deltaGenerator func(ctx context.Context, generation *model.DeltaGeneration, spec *domain.OciRepoSpec, sourceRef, targetRef, pushPath string) (deltaRef string, sizeBytes int64, err error)
 
 type Handler struct {
-	cfg            *deltaconfig.DeltaGenerationConfig
-	log            logrus.FieldLogger
-	repositories   repositoryservice.Service
-	generations    deltageneration.Service
-	existenceCheck existenceChecker
-	generateDelta  deltaGenerator
+	cfg             *deltaconfig.DeltaGenerationConfig
+	log             logrus.FieldLogger
+	repositories    repositoryservice.Service
+	generations     deltageneration.Service
+	existenceCheck  existenceChecker
+	generateDelta   deltaGenerator
+	completePrepare func(context.Context, deltastore.GenerationKey) error
 }
 
 func NewHandler(
@@ -63,6 +64,12 @@ func NewHandler(
 	generations deltageneration.Service,
 ) (*Handler, error) {
 	return newHandler(cfg, log, repositories, generations, nil, nil)
+}
+
+// SetCompletePrepare registers the callback used to release a waiting prepare
+// after a generation reaches a terminal state.
+func (c *Handler) SetCompletePrepare(complete func(context.Context, deltastore.GenerationKey) error) {
+	c.completePrepare = complete
 }
 
 func newHandler(
@@ -311,6 +318,9 @@ func (c *Handler) completeGeneration(ctx context.Context, generation *model.Delt
 	if err != nil {
 		return c.failGeneration(ctx, generation, err)
 	}
+	if c.completePrepare != nil {
+		return c.completePrepare(writeCtx, keyForGeneration(generation))
+	}
 	return nil
 }
 
@@ -326,5 +336,17 @@ func (c *Handler) failGeneration(ctx context.Context, generation *model.DeltaGen
 	if casErr != nil && !errors.Is(casErr, flterrors.ErrNoRowsUpdated) {
 		return fmt.Errorf("generate: %w; persist failed status: %w", cause, casErr)
 	}
+	if casErr == nil && c.completePrepare != nil {
+		return c.completePrepare(writeCtx, keyForGeneration(generation))
+	}
 	return nil
+}
+
+func keyForGeneration(generation *model.DeltaGeneration) deltastore.GenerationKey {
+	return deltastore.GenerationKey{
+		OrgID:           generation.OrgID,
+		ImageRepository: generation.ImageRepository,
+		SourceDigest:    generation.SourceDigest,
+		TargetDigest:    generation.TargetDigest,
+	}
 }

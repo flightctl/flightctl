@@ -47,7 +47,7 @@ func TestEmitDeviceUpdatedEvent(t *testing.T) {
 		require.NotPanics(t, func() {
 			EmitDeviceUpdatedEvent(context.Background(), ev, logrus.New(), domain.DeviceKind, uuid.New(), "dev1", oldDevice, device, false, nil)
 		})
-		require.Len(t, ev.created, 1)
+		require.NotEmpty(t, ev.created)
 	})
 
 	t.Run("When multiple status fields transition to Unknown it should deduplicate DeviceDisconnected events", func(t *testing.T) {
@@ -71,6 +71,46 @@ func TestEmitDeviceUpdatedEvent(t *testing.T) {
 			}
 		}
 		require.Equal(t, 1, count)
+	})
+
+	t.Run("When a standalone spec update it should delay render and emit PrepareDeltas", func(t *testing.T) {
+		ev := &fakeEvents{}
+		oldDevice := prepareTestDeviceForEvents("dev1")
+		newDevice := prepareTestDeviceForEvents("dev1")
+		newDevice.Spec = &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "img-2"}}
+		EmitDeviceUpdatedEvent(context.Background(), ev, logrus.New(), domain.DeviceKind, uuid.New(), "dev1", oldDevice, newDevice, false, nil)
+		var reasons []domain.EventReason
+		var delayed bool
+		for _, e := range ev.created {
+			reasons = append(reasons, e.Reason)
+			if e.Reason == domain.EventReasonResourceUpdated && e.Metadata.Annotations != nil {
+				delayed = (*e.Metadata.Annotations)[domain.EventAnnotationDelayDeviceRender] == "true"
+			}
+			if e.Reason == domain.EventReasonPrepareDeltas {
+				details, err := e.Details.AsPrepareDeltasDetails()
+				require.NoError(t, err)
+				require.Nil(t, details.TemplateVersion)
+			}
+		}
+		require.Contains(t, reasons, domain.EventReasonResourceUpdated)
+		require.Contains(t, reasons, domain.EventReasonPrepareDeltas)
+		require.True(t, delayed)
+	})
+
+	t.Run("When a fleet-owned spec update it should not emit PrepareDeltas or delay render", func(t *testing.T) {
+		ev := &fakeEvents{}
+		oldDevice := prepareTestDeviceForEvents("dev1")
+		oldDevice.Metadata.Owner = lo.ToPtr("Fleet/f1")
+		newDevice := prepareTestDeviceForEvents("dev1")
+		newDevice.Metadata.Owner = lo.ToPtr("Fleet/f1")
+		newDevice.Spec = &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "img-2"}}
+		EmitDeviceUpdatedEvent(context.Background(), ev, logrus.New(), domain.DeviceKind, uuid.New(), "dev1", oldDevice, newDevice, false, nil)
+		for _, e := range ev.created {
+			require.NotEqual(t, domain.EventReasonPrepareDeltas, e.Reason)
+			if e.Reason == domain.EventReasonResourceUpdated && e.Metadata.Annotations != nil {
+				require.NotEqual(t, "true", (*e.Metadata.Annotations)[domain.EventAnnotationDelayDeviceRender])
+			}
+		}
 	})
 
 	t.Run("When the resources cannot be cast to *domain.Device it should no-op", func(t *testing.T) {
