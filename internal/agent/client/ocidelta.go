@@ -48,3 +48,22 @@ func (d *OCIDelta) Apply(ctx context.Context, deltaRef, dest string) error {
 	}
 	return nil
 }
+
+// Import reconstructs an OCI image directly in containers/storage.
+func (d *OCIDelta) Import(ctx context.Context, deltaRef, targetRef string) error {
+	ctx, cancel := context.WithTimeout(ctx, d.timeout)
+	defer cancel()
+
+	_, stderr, exitCode := d.exec.ExecuteWithContext(
+		ctx,
+		ociDeltaCmd,
+		"apply",
+		"--container-storage",
+		deltaRef,
+		targetRef,
+	)
+	if exitCode != 0 {
+		return fmt.Errorf("oci-delta container-storage import: %w", errors.FromStderr(stderr, exitCode))
+	}
+	return nil
+}
