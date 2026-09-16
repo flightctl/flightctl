@@ -989,7 +989,9 @@ func (m *PodmanMonitor) resolveConsole(appName, consoleType string) (appconsole.
 
 	m.log.Infof("console: selected container %q for app %q (type=%s)", containerName, appName, ct)
 
-	podman, err := m.clientFactory("")
+	// The VM may run in a rootless Podman namespace. Use the same user that owns
+	// the application so the console exec can see the tracked compute container.
+	podman, err := m.clientFactory(found.User())
 	if err != nil {
 		return nil, fmt.Errorf("creating podman client for console: %w", err)
 	}
