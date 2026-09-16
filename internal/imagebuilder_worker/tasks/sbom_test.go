@@ -120,7 +120,9 @@ func TestConsumer_generateSBOM_StreamsSyftOutputAndEnablesVerboseLogging(t *test
 
 	args, err := os.ReadFile(argsPath)
 	require.NoError(t, err)
-	assert.Contains(t, string(args), "\n-v\n")
+	argsString := string(args)
+	assert.Contains(t, argsString, "\n-v\n"+tmpDir+":"+syftWorkDir+":Z\n")
+	assert.Contains(t, argsString, "\nscan\n-v\n--source-name\n")
 
 	var output []byte
 	for {
