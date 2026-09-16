@@ -16,7 +16,6 @@ import (
 	deltaconfig "github.com/flightctl/flightctl/internal/delta_worker/config"
 	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/util"
-	"github.com/flightctl/flightctl/internal/util/validation"
 	"sigs.k8s.io/yaml"
 )
 
@@ -921,13 +920,6 @@ type QuayConfig struct {
 	SkipTLSVerify bool `json:"skipTlsVerify,omitempty"`
 }
 
-type DeltaGenerationConfig = deltaconfig.DeltaGenerationConfig
-type DefaultRepositoryConfig = deltaconfig.DefaultRepositoryConfig
-
-// Kept for source compatibility with the configuration package tests while
-// the implementation lives with the delta worker.
-const maxConcurrentDeltaGenerationsLimit = 32
-
 // TrustifyConfig holds Trustify API connection and authentication details.
 type TrustifyConfig struct {
 	// Endpoint is the Trustify API base URL (e.g. "https://trustify.example.com").
@@ -1768,39 +1760,10 @@ func Validate(cfg *Config) error {
 }
 
 func validateDeltaGeneration(cfg *Config) error {
-	if cfg.DeltaGeneration == nil || cfg.DeltaGeneration.DefaultRepository == nil {
+	if cfg == nil {
 		return nil
 	}
-	d := cfg.DeltaGeneration.DefaultRepository
-	repoSet := d.Repository != nil && strings.TrimSpace(*d.Repository) != ""
-	nsSet := d.Namespace != nil && strings.TrimSpace(*d.Namespace) != ""
-	schemeSet := d.Scheme != nil && strings.TrimSpace(*d.Scheme) != ""
-	caSet := d.CaCrt != nil && strings.TrimSpace(*d.CaCrt) != ""
-	skipSet := d.SkipServerVerification != nil
-	credsSet := d.Username != "" || d.Password != ""
-	anySet := strings.TrimSpace(d.Registry) != "" || repoSet || nsSet || schemeSet || caSet || skipSet || credsSet
-	if anySet {
-		if errs := validation.ValidateHostIPOrFQDNWithOptionalPort(&d.Registry, "deltaGeneration.defaultRepository.registry"); len(errs) > 0 {
-			return errs[0]
-		}
-	}
-	if repoSet && nsSet {
-		return fmt.Errorf("deltaGeneration.defaultRepository.repository and namespace are mutually exclusive")
-	}
-	if d.Scheme != nil && *d.Scheme != "" && *d.Scheme != "http" && *d.Scheme != "https" {
-		return fmt.Errorf("deltaGeneration.defaultRepository.scheme must be http or https")
-	}
-	if repoSet {
-		if errs := validation.ValidateString(d.Repository, "deltaGeneration.defaultRepository.repository", 1, 255, validation.OciImageNameRegexp, validation.OciImageNameFmt); len(errs) > 0 {
-			return errs[0]
-		}
-	}
-	if nsSet {
-		if errs := validation.ValidateString(d.Namespace, "deltaGeneration.defaultRepository.namespace", 1, 255, validation.OciImageNameRegexp, validation.OciImageNameFmt); len(errs) > 0 {
-			return errs[0]
-		}
-	}
-	return nil
+	return cfg.DeltaGeneration.Validate()
 }
 
 func validateAuthProviderRoleAssignment(roleAssignment api.AuthRoleAssignment, providerType string) error {

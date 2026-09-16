@@ -478,7 +478,16 @@ func hasSpecColumn[M any]() bool {
 	}
 }
 
+// ListQueryModifier adds resource-specific predicates to a generic list query.
+// The modifier is applied to both the result query and the count query used for
+// continuation tokens.
+type ListQueryModifier func(*gorm.DB) *gorm.DB
+
 func (s *GenericStore[P, M, A, AL]) List(ctx context.Context, orgId uuid.UUID, listParams ListParams) (*AL, error) {
+	return s.ListWithQuery(ctx, orgId, listParams, nil)
+}
+
+func (s *GenericStore[P, M, A, AL]) ListWithQuery(ctx context.Context, orgId uuid.UUID, listParams ListParams, modify ListQueryModifier) (*AL, error) {
 	var resourceList []M
 	var nextContinue *string
 	var numRemaining *int64
@@ -495,6 +504,9 @@ func (s *GenericStore[P, M, A, AL]) List(ctx context.Context, orgId uuid.UUID, l
 	}
 	if hasSpecColumn[M]() {
 		query = query.Where("spec IS NOT NULL")
+	}
+	if modify != nil {
+		query = modify(query)
 	}
 
 	result := query.Find(&resourceList)
@@ -534,6 +546,12 @@ func (s *GenericStore[P, M, A, AL]) List(ctx context.Context, orgId uuid.UUID, l
 			countQuery, err := ListQuery(&resource).Build(ctx, s.getDB(ctx), orgId, listParams)
 			if err != nil {
 				return nil, err
+			}
+			if hasSpecColumn[M]() {
+				countQuery = countQuery.Where("spec IS NOT NULL")
+			}
+			if modify != nil {
+				countQuery = modify(countQuery)
 			}
 			numRemainingVal = CountRemainingItems(countQuery, continueValues, listParams)
 		}

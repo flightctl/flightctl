@@ -42,6 +42,9 @@ data:
     deltaGeneration:
         maxConcurrentDeltaGenerations: {{ default 2 $delta.maxConcurrentDeltaGenerations }}
         timeout: {{ default "30m" $delta.timeout }}
+        {{- if hasKey $delta "maxWaitForDelta" }}
+        maxWaitForDelta: {{ $delta.maxWaitForDelta | quote }}
+        {{- end }}
         {{- if $defaultRepo.registry }}
         defaultRepository:
             registry: {{ $defaultRepo.registry | quote }}
