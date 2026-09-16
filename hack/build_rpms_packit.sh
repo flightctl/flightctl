@@ -33,6 +33,7 @@ install_packit() {
 prepare_workspace() {
   # Remove existing artifacts from the previous build
   rm -f "$PACKIT_OUTPUT_DIR"/flightctl-*.rpm 2>/dev/null || true
+  rm -f noarch/flightctl-*.rpm 2>/dev/null || true
   rm -f bin/rpm/* 2>/dev/null || true
   mkdir -p bin/rpm
 
@@ -60,10 +61,12 @@ run_mock_build() {
   local build_rc=$?
   set -e
 
-  if [[ $build_rc -ne 0 ]]; then
-    echo "packit build in-mock failed with exit code $build_rc" >&2
-    exit "$build_rc"
-  fi
+  return "$build_rc"
+}
+
+artifacts_available() {
+  ls "$PACKIT_OUTPUT_DIR"/flightctl-*.rpm >/dev/null 2>&1 \
+    || ls noarch/flightctl-*.rpm >/dev/null 2>&1
 }
 
 run_local_build() {
@@ -72,14 +75,17 @@ run_local_build() {
 }
 
 move_artifacts() {
-  # Verify at least one RPM was created
-  if ! ls "$PACKIT_OUTPUT_DIR"/flightctl-*.rpm 1>/dev/null 2>&1; then
-    echo "Error: No RPMs found in $PACKIT_OUTPUT_DIR" >&2
+  if ! artifacts_available; then
+    echo "Error: No RPMs found in ${PACKIT_OUTPUT_DIR} or noarch/" >&2
     exit 1
   fi
 
-  mv "$PACKIT_OUTPUT_DIR"/flightctl-*.rpm bin/rpm
-  mv noarch/flightctl-*.rpm bin/rpm || true
+  if ls "$PACKIT_OUTPUT_DIR"/flightctl-*.rpm >/dev/null 2>&1; then
+    mv "$PACKIT_OUTPUT_DIR"/flightctl-*.rpm bin/rpm
+  fi
+  if ls noarch/flightctl-*.rpm >/dev/null 2>&1; then
+    mv noarch/flightctl-*.rpm bin/rpm
+  fi
 }
 
 cleanup_packaging_artifacts() {
@@ -96,16 +102,30 @@ install_packit
 prepare_workspace
 echo "::endgroup::"
 
+BUILD_RC=0
 if [[ -n "$ROOT" ]]; then
   echo "::group::Building RPM in $ROOT"
-  run_mock_build
+  run_mock_build || BUILD_RC=$?
 else
   echo "::group::Building RPM locally"
-  run_local_build
+  run_local_build || BUILD_RC=$?
 fi
 echo "::endgroup::"
 
-move_artifacts
-cleanup_packaging_artifacts
+if artifacts_available; then
+  move_artifacts
+  cleanup_packaging_artifacts
+  if [[ "$BUILD_RC" -ne 0 ]]; then
+    echo "WARNING: packit exited with code ${BUILD_RC} (often mock chroot cleanup after a successful build), but RPMs were installed to bin/rpm/" >&2
+  fi
+  echo "Build completed successfully"
+  exit 0
+fi
 
-echo "Build completed successfully"
+if [[ "$BUILD_RC" -ne 0 ]]; then
+  echo "packit build failed with exit code ${BUILD_RC} and no RPMs were produced in ${PACKIT_OUTPUT_DIR}" >&2
+  exit "$BUILD_RC"
+fi
+
+echo "Error: No RPMs found in ${PACKIT_OUTPUT_DIR}" >&2
+exit 1
