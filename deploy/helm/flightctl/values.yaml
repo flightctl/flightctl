@@ -452,6 +452,10 @@ imageBuilderWorker:
   maxConcurrentBuilds: 2
   # -- Default TTL for image build resources
   defaultTTL: 168h
+  # -- Inactivity timeout for image builds and exports
+  imageBuilderTimeout: 3m
+  # -- Interval between image build and export timeout checks
+  timeoutCheckTaskInterval: 1m
   # -- Enable privileged mode for container-in-container builds
   privileged: true
   # -- Secret name containing yum repository configuration files, mounted at /etc/yum.repos.d

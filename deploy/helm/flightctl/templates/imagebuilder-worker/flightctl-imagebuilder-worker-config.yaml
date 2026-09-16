@@ -42,6 +42,8 @@ data:
         logLevel: {{ default "info" .Values.imageBuilderWorker.logLevel }}
         maxConcurrentBuilds: {{ default 2 .Values.imageBuilderWorker.maxConcurrentBuilds }}
         defaultTTL: {{ default "168h" .Values.imageBuilderWorker.defaultTTL }}
+        imageBuilderTimeout: {{ default "3m" .Values.imageBuilderWorker.imageBuilderTimeout }}
+        timeoutCheckTaskInterval: {{ default "1m" .Values.imageBuilderWorker.timeoutCheckTaskInterval }}
         {{- if .Values.imageBuilderWorker.rpmRepoUrl }}
         rpmRepoUrl: {{ .Values.imageBuilderWorker.rpmRepoUrl | quote }}
         {{- end }}

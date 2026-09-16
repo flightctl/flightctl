@@ -225,6 +225,8 @@ sudo systemctl restart flightctl-imagebuilder-worker.service
 | `imageBuilderWorker.logLevel` | string | `"info"` | Log level for the worker |
 | `imageBuilderWorker.maxConcurrentBuilds` | int | `2` | Maximum number of concurrent image builds |
 | `imageBuilderWorker.defaultTTL` | string | `"168h"` | Default time-to-live for build resources |
+| `imageBuilderWorker.imageBuilderTimeout` | duration | `"3m"` | Inactivity timeout for image builds and exports |
+| `imageBuilderWorker.timeoutCheckTaskInterval` | duration | `"1m"` | Interval between image build and export timeout checks |
 | `imageBuilderWorker.privileged` | bool | `true` | Run container in privileged mode (required for image builds) |
 | `imageBuilderWorker.serviceImages` | object | — | Builder images (podman, bootc-image-builder, Syft). Each has `image` (override image, leave empty for default) and `skipTlsVerify` (set to true to skip TLS verification when pulling that image). |
 | `imageBuilderWorker.serviceImages.pullSecretName` | string | `""` | Kubernetes secret containing a key `auth.json` with registry credentials for pulling serviceImages. Mounted at `/root/.config/containers/auth.json`. Required when serviceImages are in an authenticated or air-gapped registry. |
@@ -244,6 +246,8 @@ imagebuilderWorker:
   logLevel: info
   maxConcurrentBuilds: 2
   defaultTTL: 168h
+  imageBuilderTimeout: 3m       # Inactivity timeout for image builds and exports
+  timeoutCheckTaskInterval: 1m  # Interval between timeout checks
   rpmRepoUrl: ""      # Custom RPM repository URL (optional)
   rpmRepoAdd: true    # Set to false for downstream/subscription-managed repos
   rpmRepoEnable: ""   # RPM repo name for --enablerepo (optional)

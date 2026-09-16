@@ -371,12 +371,13 @@ For more detailed configuration options, see the [Values](#values) section below
 | imageBuilderApi.image.image | string | `"quay.io/flightctl/flightctl-imagebuilder-api-el9"` | ImageBuilder API container image |
 | imageBuilderApi.image.pullPolicy | string | `""` | Image pull policy for ImageBuilder API container |
 | imageBuilderApi.image.tag | string | `""` | ImageBuilder API image tag |
-| imageBuilderWorker | object | `{"defaultTTL":"168h","enabled":true,"image":{"image":"quay.io/flightctl/flightctl-imagebuilder-worker-el9","pullPolicy":"","tag":""},"logLevel":"info","maxConcurrentBuilds":2,"privileged":true,"replicas":1,"resources":{},"rhsmCaSecretName":"","rhsmSecretName":"","sbom":{"enabled":true,"purlTransform":{"enabled":true},"pushToRegistry":true,"uploadToTrustify":true},"serviceImages":{"bootcImageBuilder":{"image":"","skipTlsVerify":false},"podman":{"image":"","skipTlsVerify":false},"pullSecretName":"","syft":{"image":"","skipTlsVerify":false}},"yumReposSecretName":""}` | ImageBuilder Worker Configuration |
+| imageBuilderWorker | object | `{"defaultTTL":"168h","enabled":true,"image":{"image":"quay.io/flightctl/flightctl-imagebuilder-worker-el9","pullPolicy":"","tag":""},"imageBuilderTimeout":"3m","logLevel":"info","maxConcurrentBuilds":2,"privileged":true,"replicas":1,"resources":{},"rhsmCaSecretName":"","rhsmSecretName":"","sbom":{"enabled":true,"purlTransform":{"enabled":true},"pushToRegistry":true,"uploadToTrustify":true},"serviceImages":{"bootcImageBuilder":{"image":"","skipTlsVerify":false},"podman":{"image":"","skipTlsVerify":false},"pullSecretName":"","syft":{"image":"","skipTlsVerify":false}},"timeoutCheckTaskInterval":"1m","yumReposSecretName":""}` | ImageBuilder Worker Configuration |
 | imageBuilderWorker.defaultTTL | string | `"168h"` | Default TTL for image build resources |
 | imageBuilderWorker.enabled | bool | `true` | Enable imagebuilder worker service |
 | imageBuilderWorker.image.image | string | `"quay.io/flightctl/flightctl-imagebuilder-worker-el9"` | ImageBuilder Worker container image |
 | imageBuilderWorker.image.pullPolicy | string | `""` | Image pull policy for ImageBuilder Worker container |
 | imageBuilderWorker.image.tag | string | `""` | ImageBuilder Worker image tag |
+| imageBuilderWorker.imageBuilderTimeout | string | `"3m"` | Inactivity timeout for image builds and exports |
 | imageBuilderWorker.logLevel | string | `"info"` | Log level for the imagebuilder worker |
 | imageBuilderWorker.maxConcurrentBuilds | int | `2` | Maximum number of concurrent image builds |
 | imageBuilderWorker.privileged | bool | `true` | Enable privileged mode for container-in-container builds |
@@ -397,6 +398,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | imageBuilderWorker.serviceImages.pullSecretName | string | `""` | Secret name containing registry credentials (auth.json) for pulling builder service images. Required when serviceImages are hosted in an authenticated or air-gapped registry. The secret must contain a key named `auth.json` in standard podman/Docker auth format. Mounted read-only at /root/.config/containers/auth.json inside the worker container. |
 | imageBuilderWorker.serviceImages.syft.image | string | `""` | Syft image for SBOM generation. If empty, defaults to `docker.io/anchore/syft:v1.44.0`. |
 | imageBuilderWorker.serviceImages.syft.skipTlsVerify | bool | `false` | Set to true to skip TLS verification when pulling the Syft image. |
+| imageBuilderWorker.timeoutCheckTaskInterval | string | `"1m"` | Interval between image build and export timeout checks |
 | imageBuilderWorker.yumReposSecretName | string | `""` | Secret name containing yum repository configuration files, mounted at /etc/yum.repos.d |
 | kv | object | `{"fsGroup":"","image":{"image":"quay.io/sclorg/valkey-8-c10s","pullPolicy":"","tag":"20260121"},"loglevel":"warning","maxmemory":"1gb","maxmemoryPolicy":"allkeys-lru","passwordSecretName":""}` | Key-Value Store Configuration |
 | kv.fsGroup | string | `""` | File system group ID for Valkey pod security context |
