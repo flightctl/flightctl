@@ -378,30 +378,30 @@ func (m *manager) systemInfoFromCache() (v1beta1.DeviceSystemInfo, *v1beta1.Devi
 	total := 0
 	unknown := false
 	for _, source := range m.collection {
-		for _, executor := range source.executors {
-			if executor.kind == hiddenSource {
+		for _, exec := range source.executors {
+			if exec.kind == hiddenSource {
 				continue
 			}
 			total++
-			if !executor.attempted {
+			if !exec.attempted {
 				unknown = true
 				continue
 			}
-			entry := v1beta1.SystemInfoSourceStatus{LastTransitionTime: executor.lastTransitionTime}
-			if executor.failed {
-				message := executor.message
-				entry.Message = &message
+			entry := v1beta1.SystemInfoSourceStatus{LastTransitionTime: exec.lastTransitionTime, Status: v1beta1.SystemInfoSourceStatusHealthy}
+			if exec.failed {
+				entry.Message = new(exec.message)
+				entry.Status = v1beta1.SystemInfoSourceStatusError
 				failed++
 			}
-			if executor.kind == systemInfoSource {
-				statuses.SystemInfo[executor.key] = entry
-				if executor.hasValue {
-					systemInfo.AdditionalProperties[executor.key] = executor.value
+			if exec.kind == systemInfoSource {
+				statuses.SystemInfo[exec.key] = entry
+				if exec.hasValue {
+					systemInfo.AdditionalProperties[exec.key] = exec.value
 				}
 			} else {
-				statuses.CustomInfo[executor.key] = entry
-				if executor.hasValue {
-					customInfo[executor.key] = executor.value
+				statuses.CustomInfo[exec.key] = entry
+				if exec.hasValue {
+					customInfo[exec.key] = exec.value
 				}
 			}
 		}
