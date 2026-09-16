@@ -230,11 +230,13 @@ func TestStatusCachesCustomScriptResults(t *testing.T) {
 	initialSource := initial.SystemInfoStatus.Statuses.CustomInfo["site"]
 	require.Zero(initialSource.LastTransitionTime.Nanosecond())
 	require.Nil(initialSource.Message)
+	require.Equal(v1beta1.SystemInfoSourceStatusHealthy, initialSource.Status)
 
 	writeScript("#!/bin/sh\necho second\n")
 	repeatedSuccess := collect()
 	require.Equal("second", (*repeatedSuccess.SystemInfo.CustomInfo)["site"])
 	require.NotEqual(initialSource.LastTransitionTime, repeatedSuccess.SystemInfoStatus.Statuses.CustomInfo["site"].LastTransitionTime)
+	require.Equal(v1beta1.SystemInfoSourceStatusHealthy, initialSource.Status)
 
 	writeScript("#!/bin/sh\necho sensitive failure >&2\nexit 7\n")
 	failed := collect()
@@ -242,29 +244,34 @@ func TestStatusCachesCustomScriptResults(t *testing.T) {
 	failedSource := failed.SystemInfoStatus.Statuses.CustomInfo["site"]
 	require.Equal(deviceerrors.FromStderr("sensitive failure", 7).Error(), *failedSource.Message)
 	require.NotEqual(initialSource.LastTransitionTime, failedSource.LastTransitionTime)
+	require.Equal(v1beta1.SystemInfoSourceStatusError, failedSource.Status)
 
 	writeScript("#!/bin/sh\necho another sensitive failure >&2\nexit 8\n")
 	repeatedFailure := collect()
 	require.Equal("second", (*repeatedFailure.SystemInfo.CustomInfo)["site"])
 	require.Equal(deviceerrors.FromStderr("another sensitive failure", 8).Error(), *repeatedFailure.SystemInfoStatus.Statuses.CustomInfo["site"].Message)
 	require.Equal(failedSource.LastTransitionTime, repeatedFailure.SystemInfoStatus.Statuses.CustomInfo["site"].LastTransitionTime)
+	require.Equal(v1beta1.SystemInfoSourceStatusError, repeatedFailure.SystemInfoStatus.Statuses.CustomInfo["site"].Status)
 
 	writeScript("#!/bin/sh\nexit 9\n")
 	withoutStderr := collect()
 	require.Equal(deviceerrors.FromStderr("exit status 9", 9).Error(), *withoutStderr.SystemInfoStatus.Statuses.CustomInfo["site"].Message)
 	require.Equal(failedSource.LastTransitionTime, withoutStderr.SystemInfoStatus.Statuses.CustomInfo["site"].LastTransitionTime)
+	require.Equal(v1beta1.SystemInfoSourceStatusError, withoutStderr.SystemInfoStatus.Statuses.CustomInfo["site"].Status)
 
 	longMessage := strings.Repeat("x", status.MaxMessageLength+1)
 	writeScript("#!/bin/sh\nprintf '" + longMessage + "' >&2\nexit 10\n")
 	truncatedFailure := collect()
 	require.Equal(log.Truncate(deviceerrors.FromStderr(longMessage, 10).Error(), status.MaxMessageLength), *truncatedFailure.SystemInfoStatus.Statuses.CustomInfo["site"].Message)
 	require.Equal(failedSource.LastTransitionTime, truncatedFailure.SystemInfoStatus.Statuses.CustomInfo["site"].LastTransitionTime)
+	require.Equal(v1beta1.SystemInfoSourceStatusError, truncatedFailure.SystemInfoStatus.Statuses.CustomInfo["site"].Status)
 
 	writeScript("#!/bin/sh\necho recovered\n")
 	recovered := collect()
 	require.Equal("recovered", (*recovered.SystemInfo.CustomInfo)["site"])
 	require.Nil(recovered.SystemInfoStatus.Statuses.CustomInfo["site"].Message)
 	require.NotEqual(failedSource.LastTransitionTime, recovered.SystemInfoStatus.Statuses.CustomInfo["site"].LastTransitionTime)
+	require.Equal(v1beta1.SystemInfoSourceStatusHealthy, recovered.SystemInfoStatus.Statuses.CustomInfo["site"].Status)
 }
 
 func TestStatusDiscoversDefaultCustomScriptsOnlyOnConstructionAndReload(t *testing.T) {

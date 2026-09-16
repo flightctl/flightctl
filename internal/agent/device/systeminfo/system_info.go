@@ -220,8 +220,6 @@ type SystemInfo struct {
 	SKU          string `json:"sku,omitempty"`
 }
 
-type infoMap map[string]string
-
 type Boot struct {
 	// Time is the time the system was booted.
 	Time string `json:"bootTime,omitempty"`
