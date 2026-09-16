@@ -216,13 +216,8 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.config.SystemInfo,
 		a.config.SystemInfoCustom,
 		a.config.SystemInfoTimeout,
+		a.config.SystemInfoCollectionInterval(),
 	)
-	if err := systemInfoManager.Initialize(ctx); err != nil {
-		return err
-	}
-
-	// create shutdown manager
-	shutdownManager := shutdown.NewManager(a.log, rootSystemdClient, rootReadWriter, gracefulShutdownTimeout, cancel)
 
 	if tpmClient != nil {
 		systemInfoManager.RegisterCollector(ctx, systeminfocommon.TPMVendorInfoKey, tpmClient.VendorInfoCollector)
@@ -232,6 +227,12 @@ func (a *Agent) Run(ctx context.Context) error {
 			}
 		}()
 	}
+	if err := systemInfoManager.Initialize(ctx); err != nil {
+		return err
+	}
+
+	// create shutdown manager
+	shutdownManager := shutdown.NewManager(a.log, rootSystemdClient, rootReadWriter, gracefulShutdownTimeout, cancel)
 
 	reloadManager := reload.NewManager(a.configFile, a.log)
 
@@ -510,6 +511,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	startAsync(reloadManager.Run)
 	startAsync(resourceManager.Run)
 	startAsync(prefetchManager.Run)
+	startAsync(systemInfoManager.Run)
 	appConsoleWatcher := specManager.Watch()
 	startAsync(consoleManager.Run)
 	startAsync(func(ctx context.Context) { applicationsManager.RunConsole(ctx, appConsoleWatcher) })
