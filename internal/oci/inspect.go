@@ -8,6 +8,7 @@ import (
 
 	"github.com/containers/image/v5/docker/reference"
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/google/uuid"
 	"oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote"
 )
@@ -82,15 +83,15 @@ func InspectImageDigest(ctx context.Context, image string, spec *domain.OciRepoS
 	return desc.Digest.String(), nil
 }
 
-func imageDigestCacheKey(imageRef string) (string, error) {
+func imageDigestCacheKey(orgID uuid.UUID, imageRef string) (string, error) {
 	rewritten, err := RewriteImageRef(imageRef)
 	if err != nil {
 		return "", err
 	}
-	return "osInspect/" + rewritten, nil
+	return "osInspect/" + orgID.String() + "/" + rewritten, nil
 }
 
-func CachedImageDigest(ctx context.Context, cache DigestCache, image string, resolve func(context.Context) (string, error)) (string, error) {
+func CachedImageDigest(ctx context.Context, cache DigestCache, orgID uuid.UUID, image string, resolve func(context.Context) (string, error)) (string, error) {
 	dgst, err := DigestFromImageRef(image)
 	if err != nil {
 		return "", err
@@ -99,7 +100,7 @@ func CachedImageDigest(ctx context.Context, cache DigestCache, image string, res
 		return dgst, nil
 	}
 	if cache != nil {
-		key, err := imageDigestCacheKey(image)
+		key, err := imageDigestCacheKey(orgID, image)
 		if err != nil {
 			return "", err
 		}
@@ -124,7 +125,7 @@ func CachedImageDigest(ctx context.Context, cache DigestCache, image string, res
 	if cache == nil {
 		return dgst, nil
 	}
-	key, err := imageDigestCacheKey(image)
+	key, err := imageDigestCacheKey(orgID, image)
 	if err != nil {
 		return "", err
 	}

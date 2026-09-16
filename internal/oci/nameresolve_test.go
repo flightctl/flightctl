@@ -3,7 +3,6 @@ package oci
 import (
 	"testing"
 
-	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
@@ -132,28 +131,6 @@ func TestResolveDeltaPushPath(t *testing.T) {
 	}
 }
 
-func TestSelectWriteTarget(t *testing.T) {
-	org := &domain.OciRepoSpec{Registry: "org-registry.com", Type: domain.OciRepoSpecTypeOci}
-	def := &domain.OciRepoSpec{Registry: "default-registry.com", Type: domain.OciRepoSpecTypeOci}
-	emptyDefault := &domain.OciRepoSpec{Type: domain.OciRepoSpecTypeOci}
-
-	t.Run("When an org target is set it should return the org target", func(t *testing.T) {
-		require.Equal(t, org, SelectWriteTarget(org, def))
-	})
-
-	t.Run("When the org target is nil it should return the default target", func(t *testing.T) {
-		require.Equal(t, def, SelectWriteTarget(nil, def))
-	})
-
-	t.Run("When both are nil it should return nil", func(t *testing.T) {
-		require.Nil(t, SelectWriteTarget(nil, nil))
-	})
-
-	t.Run("When the default has no registry it should return nil", func(t *testing.T) {
-		require.Nil(t, SelectWriteTarget(nil, emptyDefault))
-	})
-}
-
 func TestImageDestRef(t *testing.T) {
 	require.Equal(t, "my-registry.com/nginx/nginx:latest", ImageDestRef("my-registry.com", "nginx/nginx", "latest"))
 }
@@ -197,18 +174,18 @@ func TestRegistryObjectRef(t *testing.T) {
 	})
 }
 
-func TestSelectWriteTargetUsesDefaultRepository(t *testing.T) {
-	spec, err := (&config.DefaultRepositoryConfig{
+func TestDefaultRepositoryConfigCanResolveDeltaPushPath(t *testing.T) {
+	auth := &domain.OciAuth{}
+	err := auth.FromDockerAuth(domain.DockerAuth{Username: "delta-user", Password: "delta-pass"})
+	require.NoError(t, err)
+	spec := &domain.OciRepoSpec{
 		Registry:   "my-registry.com",
 		Repository: lo.ToPtr("my-org/diffs"),
-		Username:   "delta-user",
-		Password:   "delta-pass",
-	}).OciRepoSpec()
-	require.NoError(t, err)
-	require.NotNil(t, spec)
+		OciAuth:    auth,
+		Type:       domain.OciRepoSpecTypeOci,
+	}
 
-	selected := SelectWriteTarget(nil, spec)
-	require.Equal(t, spec, selected)
+	selected := spec
 
 	path, err := ResolveDeltaPushPath(selected, "quay.io/nginx/nginx")
 	require.NoError(t, err)
