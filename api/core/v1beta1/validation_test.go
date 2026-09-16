@@ -3457,6 +3457,82 @@ func TestDisruptionBudgetValidateGroupBy(t *testing.T) {
 	}
 }
 
+func TestRolloutPolicyValidate(t *testing.T) {
+	require := require.New(t)
+	minAvail := 1
+
+	deviceSelection := func() *RolloutDeviceSelection {
+		ret := &RolloutDeviceSelection{}
+		require.NoError(ret.FromBatchSequence(BatchSequence{
+			Sequence: &[]Batch{{Limit: lo.ToPtr(Batch_Limit{})}},
+		}))
+		return ret
+	}()
+
+	tests := []struct {
+		name    string
+		policy  *RolloutPolicy
+		wantErr bool
+	}{
+		{
+			name: "When only deltaGeneration is defined it should pass",
+			policy: &RolloutPolicy{
+				DeltaGeneration: &RolloutPolicyDeltaGeneration{GenerateDelta: lo.ToPtr(false)},
+			},
+		},
+		{
+			name: "When only deviceSelection is defined it should pass",
+			policy: &RolloutPolicy{
+				DeviceSelection: deviceSelection,
+			},
+		},
+		{
+			name: "When only disruptionBudget is defined it should pass",
+			policy: &RolloutPolicy{
+				DisruptionBudget: &DisruptionBudget{MinAvailable: &minAvail},
+			},
+		},
+		{
+			name: "When only successThreshold is defined it should fail",
+			policy: &RolloutPolicy{
+				SuccessThreshold: lo.ToPtr(Percentage("80%")),
+			},
+			wantErr: true,
+		},
+		{
+			name: "When only defaultUpdateTimeout is defined it should fail",
+			policy: &RolloutPolicy{
+				DefaultUpdateTimeout: lo.ToPtr(Duration("30s")),
+			},
+			wantErr: true,
+		},
+		{
+			name: "When deltaGeneration is defined with successThreshold it should pass",
+			policy: &RolloutPolicy{
+				DeltaGeneration:  &RolloutPolicyDeltaGeneration{GenerateDelta: lo.ToPtr(true)},
+				SuccessThreshold: lo.ToPtr(Percentage("80%")),
+			},
+		},
+		{
+			name:    "When rollout policy is empty it should fail",
+			policy:  &RolloutPolicy{},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := tt.policy.Validate()
+			if tt.wantErr {
+				require.NotEmpty(errs)
+				require.Contains(errs[0].Error(), "at least one of")
+			} else {
+				require.Empty(errs, "unexpected validation errors: %v", errs)
+			}
+		})
+	}
+}
+
 func TestDeviceSpecValidate_OsSpec(t *testing.T) {
 	validCatalogItemRef := &CatalogItemRefSpec{
 		Catalog: "my-catalog",
