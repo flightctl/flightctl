@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -76,6 +77,61 @@ func TestConsumer_transformSBOM(t *testing.T) {
 		_, err := c.transformSBOM(ctx, filepath.Join(dir, "missing.json"), dir, "quay.io/test/image:v1", "sha256:abc123", log)
 		require.Error(t, err)
 	})
+}
+
+func TestConsumer_generateSBOM_StreamsSyftOutputAndEnablesVerboseLogging(t *testing.T) {
+	const fakeSBOM = "{\"bomFormat\":\"CycloneDX\",\"specVersion\":\"1.5\",\"components\":[]}"
+	const fakeSyftOutput = "syft progress\n"
+	fakePodman := "#!/bin/sh\n" +
+		"if [ \"$1\" = \"run\" ]; then\n" +
+		"    printf '%s\\n' \"$@\" > \"$FAKE_PODMAN_ARGS_FILE\"\n" +
+		"    printf '%s' \"$FAKE_SYFT_OUTPUT\" >&2\n" +
+		"    printf '%s' \"$FAKE_SBOM_CONTENT\" > \"$FAKE_SBOM_PATH\"\n" +
+		"fi\n"
+
+	tmpDir := t.TempDir()
+	fakeBinDir := t.TempDir()
+	fakePodmanPath := filepath.Join(fakeBinDir, "podman")
+	argsPath := filepath.Join(tmpDir, "podman-args")
+	sbomPath := filepath.Join(tmpDir, "sbom.json")
+	require.NoError(t, os.WriteFile(fakePodmanPath, []byte(fakePodman), 0o600))
+	require.NoError(t, os.Chmod(fakePodmanPath, 0o700))
+
+	t.Setenv("PATH", fakeBinDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("FAKE_PODMAN_ARGS_FILE", argsPath)
+	t.Setenv("FAKE_SBOM_PATH", sbomPath)
+	t.Setenv("FAKE_SBOM_CONTENT", fakeSBOM)
+	t.Setenv("FAKE_SYFT_OUTPUT", fakeSyftOutput)
+
+	statusUpdater := &statusUpdater{
+		ctx:        context.Background(),
+		outputChan: make(chan []byte, 10),
+	}
+	consumer := testConsumer(t, config.NewDefault())
+	worker := &podmanWorker{
+		ContainerName: "test-worker",
+		TmpOutDir:     tmpDir,
+		statusUpdater: statusUpdater,
+	}
+
+	result, err := consumer.generateSBOM(context.Background(), "quay.io/test/image:v1", "sha256:abc123", worker, logrus.New())
+	require.NoError(t, err)
+	require.Equal(t, filepath.Join(tmpDir, "sbom-transformed.json"), result.SBOMPath)
+
+	args, err := os.ReadFile(argsPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(args), "\n-v\n")
+
+	var output []byte
+	for {
+		select {
+		case chunk := <-statusUpdater.outputChan:
+			output = append(output, chunk...)
+		default:
+			assert.Contains(t, string(output), fakeSyftOutput)
+			return
+		}
+	}
 }
 
 func TestConsumer_shouldRunSBOMPipeline_BackendCapability(t *testing.T) {
