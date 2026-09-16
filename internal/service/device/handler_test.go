@@ -937,13 +937,15 @@ func TestServiceConditionsFromDevice(t *testing.T) {
 					{Type: domain.ConditionTypeDeviceUpdating, Status: domain.ConditionStatusTrue},
 					{Type: domain.ConditionTypeDeviceSpecValid, Status: domain.ConditionStatusFalse},
 					{Type: domain.ConditionTypeDeviceMultipleOwners, Status: domain.ConditionStatusTrue},
+					{Type: domain.ConditionTypeDeviceEnrollmentHooks, Status: domain.ConditionStatusFalse, Reason: domain.EnrollmentHooksReasonNotifyPending},
 				},
 			},
 		}
 		got := serviceConditionsFromDevice(device)
-		require.Len(t, got, 2)
+		require.Len(t, got, 3)
 		require.Equal(t, domain.ConditionTypeDeviceSpecValid, got[0].Type)
 		require.Equal(t, domain.ConditionTypeDeviceMultipleOwners, got[1].Type)
+		require.Equal(t, domain.ConditionTypeDeviceEnrollmentHooks, got[2].Type)
 	})
 }
 

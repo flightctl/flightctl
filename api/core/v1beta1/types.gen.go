@@ -115,6 +115,7 @@ const (
 	ConditionTypeCertificateSigningRequestTPMVerified ConditionType = "TPMVerified"
 	ConditionTypeDeviceDecommissioning                ConditionType = "DeviceDecommissioning"
 	ConditionTypeDeviceDeltaPreparing                 ConditionType = "DeviceDeltaPreparing"
+	ConditionTypeDeviceEnrollmentHooks                ConditionType = "EnrollmentHooks"
 	ConditionTypeDeviceMultipleOwners                 ConditionType = "MultipleOwners"
 	ConditionTypeDeviceSpecValid                      ConditionType = "SpecValid"
 	ConditionTypeDeviceUpdating                       ConditionType = "Updating"
@@ -1419,6 +1420,12 @@ type DeviceDeltaApplyStatus struct {
 	Size *string `json:"size,omitempty"`
 }
 
+// DeviceEnrollmentHooksStatus Enrollment hooks state for a device.
+type DeviceEnrollmentHooksStatus struct {
+	// Snapshot Immutable non-secret copy of EnrollmentHookPolicy fields captured at approval time.
+	Snapshot *EnrollmentHookSnapshot `json:"snapshot,omitempty"`
+}
+
 // DeviceIntegrityCheckStatus DeviceIntegrityCheckStatus represents the status of the integrity check performed on the device.
 type DeviceIntegrityCheckStatus struct {
 	// Info Human-readable information about the integrity check status.
@@ -1652,6 +1659,9 @@ type DeviceStatus struct {
 
 	// DependencySync DependencySyncStatus represents the synchronization fingerprints for external dependencies of a device, captured at render time.
 	DependencySync *DependencySyncStatus `json:"dependencySync,omitempty"`
+
+	// EnrollmentHooks Enrollment hooks state for a device.
+	EnrollmentHooks *DeviceEnrollmentHooksStatus `json:"enrollmentHooks,omitempty"`
 
 	// Integrity Summary status of the integrity of the device.
 	Integrity DeviceIntegrityStatus `json:"integrity"`
@@ -1917,6 +1927,30 @@ type EnrollmentHookRetryPolicy struct {
 
 	// MaxBackoff Maximum backoff duration (e.g. "2m"). Defaults to "2m".
 	MaxBackoff *string `json:"maxBackoff,omitempty"`
+}
+
+// EnrollmentHookSnapshot Immutable non-secret copy of EnrollmentHookPolicy fields captured at approval time.
+type EnrollmentHookSnapshot struct {
+	// ControlPlaneActions Non-secret copies of control-plane actions from the policy at approval time.
+	ControlPlaneActions *[]EnrollmentHookSnapshotAction `json:"controlPlaneActions,omitempty"`
+
+	// FailurePolicy Determines behavior when a hook action fails.
+	FailurePolicy FailurePolicyType `json:"failurePolicy"`
+}
+
+// EnrollmentHookSnapshotAction Non-secret copy of an enrollment hook HTTP action. Excludes auth/bearerToken.
+type EnrollmentHookSnapshotAction struct {
+	// Index Original action index in the policy.
+	Index int `json:"index"`
+
+	// Retry Retry policy for an enrollment hook action.
+	Retry *EnrollmentHookRetryPolicy `json:"retry,omitempty"`
+
+	// Timeout Timeout duration (e.g. "30s").
+	Timeout *string `json:"timeout,omitempty"`
+
+	// Url The HTTPS URL to call.
+	Url string `json:"url"`
 }
 
 // EnrollmentHookStageSpec Configuration for a stage of enrollment hooks.

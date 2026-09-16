@@ -253,6 +253,17 @@ const (
 
 const ResourceSyncNewHashDetectedReason = v1beta1.ResourceSyncNewHashDetectedReason
 
+// ========== EnrollmentHooks Condition Reasons ==========
+
+const (
+	EnrollmentHooksReasonNotifyPending  = v1beta1.EnrollmentHooksReasonNotifyPending
+	EnrollmentHooksReasonPending        = v1beta1.EnrollmentHooksReasonPending
+	EnrollmentHooksReasonFailed         = v1beta1.EnrollmentHooksReasonFailed
+	EnrollmentHooksReasonSucceeded      = v1beta1.EnrollmentHooksReasonSucceeded
+	EnrollmentHooksReasonContinued      = v1beta1.EnrollmentHooksReasonContinued
+	EnrollmentHooksReasonManualOverride = v1beta1.EnrollmentHooksReasonManualOverride
+)
+
 // ========== Device Text ==========
 
 const (
