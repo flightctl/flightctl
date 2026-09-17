@@ -744,6 +744,8 @@ To deploy an application to a device, create a new entry in the "applications" s
 | AppType   | The application format type. Currently supported types: `compose`, `quadlet`, `container`, `helm`, `vm`.                       |
 | EnvVars   | (Optional) A list of key/value-pairs that will be passed to the deployment tool as environment variables or command line flags. |
 
+For requirements to run a supported application as a non-root user, see [Running applications as non-root](running-applications-as-non-root.md).
+
 For each application in the "applications" section of the device's specification, there exist a corresponding device status information that contains the following information:
 
 | Status Field | Description |
@@ -823,7 +825,7 @@ To deploy a VM application, add an entry to the `applications` section of the de
 | `name` | Required. Application name. Must match `metadata.name` inside the `vm.yaml` file. |
 | `appType` | Must be `vm` for VM applications. |
 | `inline` | Required. Exactly one file named `vm.yaml`. The file must be a KubeVirt `VirtualMachine` manifest with `apiVersion: kubevirt.io/v1`, `kind: VirtualMachine`, and `metadata.name` matching the application name. |
-| `runAs` | Optional. The system user under which the VM application runs on the device. Defaults to the user running the agent, generally `root`. |
+| `runAs` | Optional. The system user under which the VM application runs on the device. Defaults to the user running the agent, generally `root`. Before using a non-root user, see [Running applications as non-root](running-applications-as-non-root.md). |
 | `publishPorts` | Optional. List of host-to-guest port mappings. Each entry must use the format `"hostPort:guestPort"` or `"hostPort:guestPort/protocol"` (for example, `"8080:80"` or `"8080:80/tcp"`). |
 
 Published host ports are unique per device and protocol across VM, container, and inline Quadlet `.container` applications. The API rejects a configuration when two applications request the same host port for the same protocol; an omitted protocol is treated as TCP.
@@ -1437,16 +1439,9 @@ spec:
 
 Quadlet applications use [Podman Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html) to manage containers as native systemd services. This allows full integration with systemd's dependency management, restart policies, resource limits, and logging.
 
-We recommend running regular workloads under a rootless podman instance under the provided
-`flightctl` user's systemd instance on the agent machine. This user is automatically created when
-installing the `flightctl-agent` package. You do this by specifying the `runAs: flightctl` option in
-the application yaml config. If `runAs` is not specified, the application will run under the root
-podman and systemd instance.
-
-You may also provision your own user to run rootless applications under, but it is necessary to run
-`loginctl enable-linger <username>` to ensure the systemd instance for that user runs in the
-background without the user being logged in. Also, the user needs to have a home directory set and
-writable by that user.
+For Quadlet applications, `runAs` selects the user-level systemd instance that manages the
+generated Quadlet units. Before setting `runAs`, complete the [rootless application device
+configuration](running-applications-as-non-root.md).
 
 Reasons for running an application under the root podman include:
 
@@ -1455,11 +1450,6 @@ Reasons for running an application under the root podman include:
 - [Other limitations to be aware of](https://github.com/containers/podman/blob/main/rootless.md#shortcomings-of-rootless-podman)
 
 But many applications should not need access to the root podman instance.
-
-> [!NOTE]
-> If you want to set cpu limits on your rootless quadlet application, you might need to add
-> configuration to systemd to allow delegation of cpu cgroups to non-root users. See [this
-> troubleshooting guide for more details](https://github.com/containers/podman/blob/main/troubleshooting.md#26-running-containers-with-resource-limits-fails-with-a-permissions-error).
 
 #### Supported Quadlet File Types
 
@@ -1696,7 +1686,8 @@ applications, quadlet definitions are the recommended approach.
 * **Image** - Required - Reference to OCI runnable image
 * **RunAs** - Optional - This determines which container runtime the application will run under. By
   default it runs under the root podman/systemd instance. If set to a non-root user, it runs under a
-  rootless podman instance for that user.
+  rootless podman instance for that user. Before using a non-root user, see the `runAs` application
+  prerequisites.
 * **Environment Variables** - Optional - Variables to be injected into the running container
 * **Port Mappings** - Optional - Must be in the format `hostPort:containerPort[/protocol]`, with each port limited in the range of `1-65535`. Published host ports are unique per device and protocol across VM, container, and inline Quadlet `.container` applications; an omitted protocol is treated as TCP.
 * **CPU Limits** - Optional - Positive decimal number (e.g., `"1.5"`, `"2"`, `"0.5"`)
