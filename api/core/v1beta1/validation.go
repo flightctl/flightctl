@@ -608,8 +608,8 @@ func (r *RolloutPolicy) Validate() []error {
 	if r == nil {
 		return nil
 	}
-	if r.DeviceSelection == nil && r.DisruptionBudget == nil {
-		errs = append(errs, errors.New("at least one of [DeviceSelection, DisruptionBudget] must be defined"))
+	if r.DeviceSelection == nil && r.DisruptionBudget == nil && r.DeltaGeneration == nil {
+		errs = append(errs, errors.New("at least one of [DeviceSelection, DisruptionBudget, DeltaGeneration] must be defined"))
 	}
 	errs = append(errs, r.DeviceSelection.Validate()...)
 	errs = append(errs, r.DisruptionBudget.Validate()...)
