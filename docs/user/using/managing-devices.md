@@ -1686,8 +1686,8 @@ applications, quadlet definitions are the recommended approach.
 * **Image** - Required - Reference to OCI runnable image
 * **RunAs** - Optional - This determines which container runtime the application will run under. By
   default it runs under the root podman/systemd instance. If set to a non-root user, it runs under a
-  rootless podman instance for that user. Before using a non-root user, see the `runAs` application
-  prerequisites.
+  rootless podman instance for that user. Before using a non-root user, see the
+  [`runAs` application prerequisites](running-applications-as-non-root.md).
 * **Environment Variables** - Optional - Variables to be injected into the running container
 * **Port Mappings** - Optional - Must be in the format `hostPort:containerPort[/protocol]`, with each port limited in the range of `1-65535`. Published host ports are unique per device and protocol across VM, container, and inline Quadlet `.container` applications; an omitted protocol is treated as TCP.
 * **CPU Limits** - Optional - Positive decimal number (e.g., `"1.5"`, `"2"`, `"0.5"`)
