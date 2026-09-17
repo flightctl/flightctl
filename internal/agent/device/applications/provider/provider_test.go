@@ -714,6 +714,20 @@ func TestWriteENVFile(t *testing.T) {
 			},
 		},
 		{
+			name:    "When value contains a dollar sign it should escape it",
+			envVars: map[string]string{"SECRET": "pa$$word"},
+			expected: map[string]string{
+				"SECRET": `SECRET="pa\$\$word"`,
+			},
+		},
+		{
+			name:    "When value contains dollar backslash and double-quote it should escape all",
+			envVars: map[string]string{"ALL": `cost$10 path\"quoted`},
+			expected: map[string]string{
+				"ALL": `ALL="cost\$10 path\\\"quoted"`,
+			},
+		},
+		{
 			name:    "When value is empty it should produce an empty quoted string",
 			envVars: map[string]string{"EMPTY": ""},
 			expected: map[string]string{
