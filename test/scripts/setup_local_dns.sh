@@ -34,29 +34,35 @@ EOF
 kubectl rollout restart deploy/coredns -n kube-system
 kubectl rollout status deploy/coredns -n kube-system --timeout=60s
 
-# 4. Discover the kind node Docker IP
+# 4. Discover the kind node Docker IP and the assigned NodePort
 NODE_IP=$(docker inspect kind-control-plane -f '{{.NetworkSettings.Networks.kind.IPAddress}}')
 echo "Kind node IP: ${NODE_IP}"
-
-# 5. Get the assigned NodePort
 NODE_PORT=$(kubectl get svc kube-dns-nodeport -n kube-system -o jsonpath='{.spec.ports[0].nodePort}')
 echo "CoreDNS NodePort: ${NODE_PORT}"
 
-# 6. Disable systemd-resolved stub listener (conflicts with dnsmasq on port 53)
-sudo sed -i 's/^#\?DNSStubListener=.*/DNSStubListener=no/' /etc/systemd/resolved.conf
-sudo systemctl restart systemd-resolved
-# Point /etc/resolv.conf to dnsmasq (127.0.0.1) instead of stub-resolv.conf
-sudo rm -f /etc/resolv.conf
-echo "nameserver 127.0.0.1" | sudo tee /etc/resolv.conf
-
-# 7. Install dnsmasq and configure it to forward .nip.io queries
+# 5. Install dnsmasq while systemd-resolved is still running (apt-get needs DNS)
 sudo apt-get update -qq && sudo apt-get install -y -qq dnsmasq
+
+# 6. Write dnsmasq config: forward .nip.io to CoreDNS, use resolved upstream for everything else
 cat <<DNSMASQ_EOF | sudo tee /etc/dnsmasq.d/nip-io.conf
 server=/nip.io/${NODE_IP}#${NODE_PORT}
 resolv-file=/run/systemd/resolve/resolv.conf
 DNSMASQ_EOF
-sudo systemctl restart dnsmasq
 
-# 8. Spot-check
+# 7. Stop dnsmasq — it auto-started but cannot bind port 53 (systemd-resolved owns it)
+sudo systemctl stop dnsmasq
+
+# 8. Disable systemd-resolved stub listener so dnsmasq can have port 53
+sudo sed -i 's/^#\?DNSStubListener=.*/DNSStubListener=no/' /etc/systemd/resolved.conf
+sudo systemctl restart systemd-resolved
+
+# 9. Point /etc/resolv.conf at dnsmasq (127.0.0.1)
+sudo rm -f /etc/resolv.conf
+echo "nameserver 127.0.0.1" | sudo tee /etc/resolv.conf
+
+# 10. Start dnsmasq — port 53 is now free
+sudo systemctl start dnsmasq
+
+# 11. Spot-check
 getent hosts "api.${IP}.nip.io" || { echo "ERROR: api.${IP}.nip.io did not resolve" >&2; exit 1; }
 echo "=== Local DNS setup complete ==="
