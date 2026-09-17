@@ -43,6 +43,7 @@ func getValidEditResourceKinds() []ResourceKind {
 		FleetKind,
 		RepositoryKind,
 		CertificateSigningRequestKind,
+		EnrollmentHookPolicyKind,
 	}
 }
 
@@ -154,7 +155,7 @@ func (o *EditOptions) Validate(args []string) error {
 
 	// Check if resource type supports editing
 	switch kind {
-	case DeviceKind, FleetKind, RepositoryKind, CertificateSigningRequestKind, AuthProviderKind:
+	case DeviceKind, FleetKind, RepositoryKind, CertificateSigningRequestKind, AuthProviderKind, EnrollmentHookPolicyKind:
 		// These are supported for editing
 	default:
 		return errEditNotAllowed{kind}
@@ -497,6 +498,9 @@ func (o *EditOptions) executePatchOperation(ctx context.Context, client *apiclie
 		return o.extractResponseData(response, err)
 	case AuthProviderKind:
 		response, err := client.PatchAuthProviderWithBodyWithResponse(ctx, name, contentType, reader)
+		return o.extractResponseData(response, err)
+	case EnrollmentHookPolicyKind:
+		response, err := client.PatchEnrollmentHookPolicyWithBodyWithResponse(ctx, name, contentType, reader)
 		return o.extractResponseData(response, err)
 	case EnrollmentRequestKind:
 		response, err := client.PatchEnrollmentRequestWithBodyWithResponse(ctx, name, contentType, reader)

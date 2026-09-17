@@ -203,6 +203,7 @@ components:
           additionalProperties:
             type: string
           nullable: true
+          x-omitempty: false
     PurlBase:
       type: object
       required:
@@ -255,11 +256,13 @@ components:
         sha256:
           type: string
           nullable: true
+          x-omitempty: false
           description: SHA256 digest of the SBOM content
         published:
           type: string
           format: date-time
           nullable: true
+          x-omitempty: false
     SbomAdvisory:
       type: object
       required:
@@ -284,14 +287,17 @@ components:
         title:
           type: string
           nullable: true
+          x-omitempty: false
         published:
           type: string
           format: date-time
           nullable: true
+          x-omitempty: false
         modified:
           type: string
           format: date-time
           nullable: true
+          x-omitempty: false
         status:
           type: array
           items:
@@ -310,9 +316,11 @@ components:
         title:
           type: string
           nullable: true
+          x-omitempty: false
         description:
           type: string
           nullable: true
+          x-omitempty: false
         status:
           type: string
           description: Vulnerability status (affected, fixed, not_affected, unknown)
@@ -325,6 +333,7 @@ components:
           type: string
           format: date-time
           nullable: true
+          x-omitempty: false
     Severity:
       type: string
       description: Qualitative Severity Rating Scale
@@ -362,8 +371,10 @@ components:
         cpe_key:
           type: string
           nullable: true
+          x-omitempty: false
           description: The CPE key of the organization, if known.
         website:
           type: string
           nullable: true
+          x-omitempty: false
           description: The website of the organization, if known.

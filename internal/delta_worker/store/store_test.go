@@ -1,4 +1,4 @@
-package delta
+package store
 
 import (
 	"context"

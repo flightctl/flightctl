@@ -82,6 +82,8 @@ func (f *TableFormatter) formatList(w *tabwriter.Writer, data interface{}, optio
 		return f.printEventsTable(w, data.(*apiclient.ListEventsResponse).JSON200.Items...)
 	case strings.EqualFold(options.Kind, api.AuthProviderKind):
 		return f.printAuthProvidersTable(w, data.(*apiclient.ListAuthProvidersResponse).JSON200.Items...)
+	case strings.EqualFold(options.Kind, api.EnrollmentHookPolicyKind):
+		return f.printEnrollmentHookPoliciesTable(w, data.(*apiclient.ListEnrollmentHookPoliciesResponse).JSON200.Items...)
 	case strings.EqualFold(options.Kind, string(imagebuilderapi.ResourceKindImageBuild)):
 		return f.printImageBuildsTable(w, options.WithExports, data.(*imagebuilderclient.ListImageBuildsResponse).JSON200.Items...)
 	case strings.EqualFold(options.Kind, string(imagebuilderapi.ResourceKindImageExport)):
@@ -164,6 +166,8 @@ func (f *TableFormatter) formatSingle(w *tabwriter.Writer, data interface{}, opt
 		return f.printCSRTable(w, *data.(*apiclient.GetCertificateSigningRequestResponse).JSON200)
 	case strings.EqualFold(options.Kind, api.AuthProviderKind):
 		return f.printAuthProvidersTable(w, *data.(*apiclient.GetAuthProviderResponse).JSON200)
+	case strings.EqualFold(options.Kind, api.EnrollmentHookPolicyKind):
+		return f.printEnrollmentHookPoliciesTable(w, *data.(*apiclient.GetEnrollmentHookPolicyResponse).JSON200)
 	case strings.EqualFold(options.Kind, string(imagebuilderapi.ResourceKindImageBuild)):
 		return f.printImageBuildsTable(w, options.WithExports, *data.(*imagebuilderclient.GetImageBuildResponse).JSON200)
 	case strings.EqualFold(options.Kind, string(imagebuilderapi.ResourceKindImageExport)):
@@ -356,6 +360,27 @@ func (f *TableFormatter) printTemplateVersionsTable(w *tabwriter.Writer, tvs ...
 	f.printHeaderRowLn(w, "FLEET", "NAME")
 	for _, tv := range tvs {
 		f.printTableRowLn(w, tv.Spec.Fleet, *tv.Metadata.Name)
+	}
+	return nil
+}
+
+func (f *TableFormatter) printEnrollmentHookPoliciesTable(w *tabwriter.Writer, policies ...api.EnrollmentHookPolicy) error {
+	f.printHeaderRowLn(w, "NAME", "READY")
+	for _, p := range policies {
+		name := NoneString
+		if p.Metadata.Name != nil {
+			name = *p.Metadata.Name
+		}
+
+		ready := "Unknown"
+		if p.Status != nil && p.Status.Conditions != nil {
+			condition := api.FindStatusCondition(*p.Status.Conditions, api.ConditionType("Ready"))
+			if condition != nil {
+				ready = string(condition.Status)
+			}
+		}
+
+		f.printTableRowLn(w, name, ready)
 	}
 	return nil
 }

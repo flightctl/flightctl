@@ -38,7 +38,7 @@ jobs:
 #       - name: Update changelog
 #         run: |
 #           FULL_DATE=$(date '+%a, %d %b %Y %H:%M:%S %z')
-#           DATE=$(date '+%Y.%m.%d.%s').$(git rev-parse --short HEAD)
+#           DATE=$(date '+%Y.%m.%d.%s').$(git rev-parse HEAD | cut -c1-9)
 #           {
 #             echo "flightctl ($DATE) jammy; urgency=medium";
 #             echo "";

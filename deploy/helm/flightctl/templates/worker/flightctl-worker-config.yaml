@@ -27,6 +27,9 @@ data:
         {{- end }}
     service: {}
     worker:
+        {{- if .Values.worker.renderTimeout }}
+        renderTimeout: {{ .Values.worker.renderTimeout | quote }}
+        {{- end }}
         vmRender:
             {{- $vmRender := (.Values.worker).vmRender | default dict }}
             {{- if $vmRender.launcherImage }}

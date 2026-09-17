@@ -30,6 +30,7 @@ type DeltaGeneration struct {
 	LastVerifiedAt  *time.Time
 	GeneratedAt     *time.Time
 	ResourceVersion int64
+	Phase           *string
 	UpdatedAt       time.Time
 }
 
@@ -38,15 +39,17 @@ func (DeltaGeneration) TableName() string {
 }
 
 type DeltaPrepare struct {
-	ID                  uuid.UUID `gorm:"type:uuid;primaryKey"`
-	OrgID               uuid.UUID `gorm:"type:uuid;index"`
-	Kind                string    `gorm:"type:text"`
-	Name                string    `gorm:"type:text"`
-	TemplateVersion     *string   `gorm:"type:text"`
-	SpecResourceVersion *int64
-	Deadline            *time.Time
-	CreatedAt           time.Time
-	Status              string `gorm:"type:text"`
+	ID                    uuid.UUID `gorm:"type:uuid;primaryKey"`
+	OrgID                 uuid.UUID `gorm:"type:uuid;index"`
+	Kind                  string    `gorm:"type:text"`
+	Name                  string    `gorm:"type:text"`
+	TemplateVersion       *string   `gorm:"type:text"`
+	SpecHash              *string
+	SourceResourceVersion int64
+	Deadline              *time.Time
+	CreatedAt             time.Time
+	Status                string `gorm:"type:text"`
+	ResourceVersion       int64
 }
 
 func (DeltaPrepare) TableName() string {

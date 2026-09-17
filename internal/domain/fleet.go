@@ -12,6 +12,7 @@ type FleetStatus = v1beta1.FleetStatus
 // ========== Rollout Types ==========
 
 type RolloutPolicy = v1beta1.RolloutPolicy
+type RolloutPolicyDeltaGeneration = v1beta1.RolloutPolicyDeltaGeneration
 type RolloutDeviceSelection = v1beta1.RolloutDeviceSelection
 type RolloutStrategy = v1beta1.RolloutStrategy
 type FleetRolloutStatus = v1beta1.FleetRolloutStatus

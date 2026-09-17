@@ -13,10 +13,9 @@ import (
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	authprovider "github.com/flightctl/flightctl/internal/auth/provider"
 	"github.com/flightctl/flightctl/internal/config/ca"
-	"github.com/flightctl/flightctl/internal/domain"
+	deltaconfig "github.com/flightctl/flightctl/internal/delta_worker/config"
 	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/util"
-	"github.com/flightctl/flightctl/internal/util/validation"
 	"sigs.k8s.io/yaml"
 )
 
@@ -25,28 +24,28 @@ const (
 )
 
 type Config struct {
-	Database               *dbConfig                  `json:"database,omitempty"`
-	Service                *svcConfig                 `json:"service,omitempty"`
-	RemoteAccessService    *RemoteAccessServiceConfig `json:"remoteAccessService,omitempty"`
-	ImageBuilderService    *ImageBuilderServiceConfig `json:"imageBuilderService,omitempty"`
-	ImageBuilderWorker     *imageBuilderWorkerConfig  `json:"imageBuilderWorker,omitempty"`
-	Worker                 *workerConfig              `json:"worker,omitempty"`
-	KV                     *kvConfig                  `json:"kv,omitempty"`
-	Alertmanager           *alertmanagerConfig        `json:"alertmanager,omitempty"`
-	Auth                   *authConfig                `json:"auth,omitempty"`
-	Metrics                *metricsConfig             `json:"metrics,omitempty"`
-	CA                     *ca.Config                 `json:"ca,omitempty"`
-	Tracing                *TracingConfig             `json:"tracing,omitempty"`
-	Profiling              *ProfilingConfig           `json:"profiling,omitempty"`
-	GitOps                 *gitOpsConfig              `json:"gitOps,omitempty"`
-	CryptoPolicy           *CryptoPolicyConfig        `json:"cryptoPolicy,omitempty"`
-	Periodic               *periodicConfig            `json:"periodic,omitempty"`
-	Organizations          *organizationsConfig       `json:"organizations,omitempty"`
-	TelemetryGateway       *telemetryGatewayConfig    `json:"telemetrygateway,omitempty"`
-	VulnerabilityReporting *VulnerabilityConfig       `json:"vulnerabilityReporting,omitempty"`
-	DeltaGeneration        *DeltaGenerationConfig     `json:"deltaGeneration,omitempty"`
-	DependenciesSync       *DependenciesSyncConfig    `json:"dependenciesSync,omitempty"`
-	Encryption             *EncryptionConfig          `json:"encryption,omitempty"`
+	Database               *dbConfig                          `json:"database,omitempty"`
+	Service                *svcConfig                         `json:"service,omitempty"`
+	RemoteAccessService    *RemoteAccessServiceConfig         `json:"remoteAccessService,omitempty"`
+	ImageBuilderService    *ImageBuilderServiceConfig         `json:"imageBuilderService,omitempty"`
+	ImageBuilderWorker     *imageBuilderWorkerConfig          `json:"imageBuilderWorker,omitempty"`
+	Worker                 *workerConfig                      `json:"worker,omitempty"`
+	KV                     *kvConfig                          `json:"kv,omitempty"`
+	Alertmanager           *alertmanagerConfig                `json:"alertmanager,omitempty"`
+	Auth                   *authConfig                        `json:"auth,omitempty"`
+	Metrics                *metricsConfig                     `json:"metrics,omitempty"`
+	CA                     *ca.Config                         `json:"ca,omitempty"`
+	Tracing                *TracingConfig                     `json:"tracing,omitempty"`
+	Profiling              *ProfilingConfig                   `json:"profiling,omitempty"`
+	GitOps                 *gitOpsConfig                      `json:"gitOps,omitempty"`
+	CryptoPolicy           *CryptoPolicyConfig                `json:"cryptoPolicy,omitempty"`
+	Periodic               *periodicConfig                    `json:"periodic,omitempty"`
+	Organizations          *organizationsConfig               `json:"organizations,omitempty"`
+	TelemetryGateway       *telemetryGatewayConfig            `json:"telemetrygateway,omitempty"`
+	VulnerabilityReporting *VulnerabilityConfig               `json:"vulnerabilityReporting,omitempty"`
+	DeltaGeneration        *deltaconfig.DeltaGenerationConfig `json:"deltaGeneration,omitempty"`
+	DependenciesSync       *DependenciesSyncConfig            `json:"dependenciesSync,omitempty"`
+	Encryption             *EncryptionConfig                  `json:"encryption,omitempty"`
 }
 
 // CryptoPolicyConfig contains cryptographic policy configuration for all protocols.
@@ -410,9 +409,17 @@ func (c *imageBuilderWorkerConfig) EffectiveSyftSkipTLSVerify() bool {
 
 const DefaultVirtLauncherImage = "quay.io/kubevirt/virt-launcher:v1.9.0"
 
+// DefaultRenderTimeout is the default time budget for a single device render
+// operation (config + application rendering + DB writes). It replaces the
+// shared EventProcessingTimeout for render tasks so that devices with
+// multiple VM applications have enough time for sequential vm-to-quadlet
+// subprocess invocations.
+const DefaultRenderTimeout = 60 * time.Second
+
 // workerConfig holds configuration for the flightctl-worker service.
 type workerConfig struct {
-	VmRender *vmRenderConfig `json:"vmRender,omitempty"`
+	RenderTimeout util.Duration   `json:"renderTimeout,omitempty"`
+	VmRender      *vmRenderConfig `json:"vmRender,omitempty"`
 }
 
 // vmRenderConfig holds options for converting VmApplications to Quadlet units
@@ -452,6 +459,14 @@ func (c *Config) EffectiveVmPasstWorkarounds() bool {
 	return c.Worker.EffectivePasstWorkarounds()
 }
 
+// EffectiveRenderTimeout returns the time budget for a single device render operation.
+func (c *Config) EffectiveRenderTimeout() time.Duration {
+	if c == nil || c.Worker == nil {
+		return DefaultRenderTimeout
+	}
+	return c.Worker.EffectiveRenderTimeout()
+}
+
 // EffectiveLauncherImage returns the virt-launcher image for osKey.
 func (c *workerConfig) EffectiveLauncherImage(osKey string) string {
 	if c == nil || c.VmRender == nil {
@@ -474,6 +489,14 @@ func (c *workerConfig) EffectivePasstWorkarounds() bool {
 		return *c.VmRender.PasstWorkarounds
 	}
 	return false
+}
+
+// EffectiveRenderTimeout returns the configured render timeout for the worker.
+func (c *workerConfig) EffectiveRenderTimeout() time.Duration {
+	if c != nil && c.RenderTimeout > 0 {
+		return time.Duration(c.RenderTimeout)
+	}
+	return DefaultRenderTimeout
 }
 
 // IsSBOMEnabled returns whether SBOM generation is enabled.
@@ -895,67 +918,6 @@ type QuayConfig struct {
 	// SkipTLSVerify disables TLS certificate verification (insecure, for lab/air-gap only).
 	// Defaults to false.
 	SkipTLSVerify bool `json:"skipTlsVerify,omitempty"`
-}
-
-type DeltaGenerationConfig struct {
-	DefaultRepository             *DefaultRepositoryConfig `json:"defaultRepository,omitempty"`
-	MaxConcurrentDeltaGenerations int                      `json:"maxConcurrentDeltaGenerations,omitempty"`
-}
-
-const maxConcurrentDeltaGenerationsLimit = 32
-
-// EffectiveMaxConcurrentDeltaGenerations returns the configured consumer count, defaulting to 2 and capped at maxConcurrentDeltaGenerationsLimit.
-func (c *DeltaGenerationConfig) EffectiveMaxConcurrentDeltaGenerations() int {
-	if c == nil || c.MaxConcurrentDeltaGenerations <= 0 {
-		return 2
-	}
-	if c.MaxConcurrentDeltaGenerations > maxConcurrentDeltaGenerationsLimit {
-		return maxConcurrentDeltaGenerationsLimit
-	}
-	return c.MaxConcurrentDeltaGenerations
-}
-
-type DefaultRepositoryConfig struct {
-	Registry               string           `json:"registry,omitempty"`
-	Repository             *string          `json:"repository,omitempty"`
-	Namespace              *string          `json:"namespace,omitempty"`
-	Scheme                 *string          `json:"scheme,omitempty"`
-	SkipServerVerification *bool            `json:"skipServerVerification,omitempty"`
-	CaCrt                  *string          `json:"ca.crt,omitempty"`
-	Username               string           `json:"-"`
-	Password               api.SecureString `json:"-"`
-}
-
-func (d *DefaultRepositoryConfig) OciRepoSpec() (*domain.OciRepoSpec, error) {
-	if d == nil || d.Registry == "" {
-		return nil, nil
-	}
-	accessMode := domain.OciRepoAccessModeReadWrite
-	spec := &domain.OciRepoSpec{
-		Type:                   domain.OciRepoSpecTypeOci,
-		Registry:               d.Registry,
-		Repository:             d.Repository,
-		Namespace:              d.Namespace,
-		AccessMode:             &accessMode,
-		SkipServerVerification: d.SkipServerVerification,
-		CaCrt:                  d.CaCrt,
-	}
-	if d.Scheme != nil && *d.Scheme != "" {
-		scheme := domain.OciRepoSpecScheme(*d.Scheme)
-		spec.Scheme = &scheme
-	}
-	if d.Username == "" || d.Password == "" {
-		return spec, nil
-	}
-	auth := &domain.OciAuth{}
-	if err := auth.FromDockerAuth(domain.DockerAuth{
-		Username: d.Username,
-		Password: string(d.Password),
-	}); err != nil {
-		return nil, fmt.Errorf("default repository authentication: %w", err)
-	}
-	spec.OciAuth = auth
-	return spec, nil
 }
 
 // TrustifyConfig holds Trustify API connection and authentication details.
@@ -1493,10 +1455,10 @@ func applyDeltaGenerationEnvVarOverrides(c *Config) {
 		return
 	}
 	if c.DeltaGeneration == nil {
-		c.DeltaGeneration = &DeltaGenerationConfig{}
+		c.DeltaGeneration = &deltaconfig.DeltaGenerationConfig{}
 	}
 	if c.DeltaGeneration.DefaultRepository == nil {
-		c.DeltaGeneration.DefaultRepository = &DefaultRepositoryConfig{}
+		c.DeltaGeneration.DefaultRepository = &deltaconfig.DefaultRepositoryConfig{}
 	}
 	if username != "" {
 		c.DeltaGeneration.DefaultRepository.Username = username
@@ -1798,39 +1760,10 @@ func Validate(cfg *Config) error {
 }
 
 func validateDeltaGeneration(cfg *Config) error {
-	if cfg.DeltaGeneration == nil || cfg.DeltaGeneration.DefaultRepository == nil {
+	if cfg == nil {
 		return nil
 	}
-	d := cfg.DeltaGeneration.DefaultRepository
-	repoSet := d.Repository != nil && strings.TrimSpace(*d.Repository) != ""
-	nsSet := d.Namespace != nil && strings.TrimSpace(*d.Namespace) != ""
-	schemeSet := d.Scheme != nil && strings.TrimSpace(*d.Scheme) != ""
-	caSet := d.CaCrt != nil && strings.TrimSpace(*d.CaCrt) != ""
-	skipSet := d.SkipServerVerification != nil
-	credsSet := d.Username != "" || d.Password != ""
-	anySet := strings.TrimSpace(d.Registry) != "" || repoSet || nsSet || schemeSet || caSet || skipSet || credsSet
-	if anySet {
-		if errs := validation.ValidateHostIPOrFQDNWithOptionalPort(&d.Registry, "deltaGeneration.defaultRepository.registry"); len(errs) > 0 {
-			return errs[0]
-		}
-	}
-	if repoSet && nsSet {
-		return fmt.Errorf("deltaGeneration.defaultRepository.repository and namespace are mutually exclusive")
-	}
-	if d.Scheme != nil && *d.Scheme != "" && *d.Scheme != "http" && *d.Scheme != "https" {
-		return fmt.Errorf("deltaGeneration.defaultRepository.scheme must be http or https")
-	}
-	if repoSet {
-		if errs := validation.ValidateString(d.Repository, "deltaGeneration.defaultRepository.repository", 1, 255, validation.OciImageNameRegexp, validation.OciImageNameFmt); len(errs) > 0 {
-			return errs[0]
-		}
-	}
-	if nsSet {
-		if errs := validation.ValidateString(d.Namespace, "deltaGeneration.defaultRepository.namespace", 1, 255, validation.OciImageNameRegexp, validation.OciImageNameFmt); len(errs) > 0 {
-			return errs[0]
-		}
-	}
-	return nil
+	return cfg.DeltaGeneration.Validate()
 }
 
 func validateAuthProviderRoleAssignment(roleAssignment api.AuthRoleAssignment, providerType string) error {

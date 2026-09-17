@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 )
 
 // mockRepositoryStore is a mock implementation of repositoryservice.Service for testing
@@ -435,6 +436,45 @@ func TestContainerfileTemplate_OnboardingARG(t *testing.T) {
 	require.Contains(t, containerfileTemplate, "flightctl-onboarding", "Template should reference flightctl-onboarding package")
 	require.Contains(t, containerfileTemplate, "flightctl-onboarding-setup.service", "Template should enable flightctl-onboarding-setup.service")
 	require.Contains(t, containerfileTemplate, "$PACKAGES", "Template should use $PACKAGES variable for install")
+}
+
+func TestNofileUlimitArgs_ReflectsCurrentRlimit(t *testing.T) {
+	var want unix.Rlimit
+	err := unix.Getrlimit(unix.RLIMIT_NOFILE, &want)
+	require.NoError(t, err)
+
+	args := nofileUlimitArgs(log.InitLogs())
+
+	require.Equal(t, []string{"--ulimit", formatNofileUlimit(want)}, args)
+}
+
+func TestFormatNofileUlimit(t *testing.T) {
+	tests := []struct {
+		name  string
+		limit unix.Rlimit
+		want  string
+	}{
+		{
+			name:  "finite hard limit",
+			limit: unix.Rlimit{Cur: 1024, Max: 4096},
+			want:  "nofile=1024:4096",
+		},
+		{
+			name:  "soft equals hard (typical Kubernetes case)",
+			limit: unix.Rlimit{Cur: 1048576, Max: 1048576},
+			want:  "nofile=1048576:1048576",
+		},
+		{
+			name:  "infinite hard limit is capped to the soft limit",
+			limit: unix.Rlimit{Cur: 1024, Max: unix.RLIM_INFINITY},
+			want:  "nofile=1024:1024",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, formatNofileUlimit(tt.limit))
+		})
+	}
 }
 
 func TestInstallCACertInWorker_NilCaCrt(t *testing.T) {

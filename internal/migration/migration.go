@@ -8,6 +8,7 @@ import (
 	"errors"
 	"time"
 
+	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store"
 	"github.com/flightctl/flightctl/internal/domain"
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/store"
@@ -16,9 +17,9 @@ import (
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	checkpointstore "github.com/flightctl/flightctl/internal/store/checkpoint"
-	deltastore "github.com/flightctl/flightctl/internal/store/delta"
 	dependencyrefstore "github.com/flightctl/flightctl/internal/store/dependencyref"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	enrollmenthookpolicystore "github.com/flightctl/flightctl/internal/store/enrollmenthookpolicy"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
@@ -97,6 +98,9 @@ func runMainStoreMigrations(ctx context.Context, tx *gorm.DB, log logrus.FieldLo
 		return err
 	}
 	if err := repositorystore.NewRepositoryStore(tx, log).InitialMigration(ctx); err != nil {
+		return err
+	}
+	if err := enrollmenthookpolicystore.NewStore(tx, log).InitialMigration(ctx); err != nil {
 		return err
 	}
 	if err := resourcesyncstore.NewResourceSyncStore(tx, log).InitialMigration(ctx); err != nil {

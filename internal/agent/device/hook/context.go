@@ -20,13 +20,37 @@ const (
 	HookContextMode = 0600
 )
 
+// HookLabelsPath is the well-known file where pre-enrollment hooks write labels.
+const HookLabelsPath = "/run/flightctl/hook-labels.json"
+
+// MaxHookLabelsFileSize is the maximum allowed size of hook-labels.json.
+const MaxHookLabelsFileSize = 16 * 1024
+
+// MaxEnrollmentHookActionOutput bounds stdout+stderr capture per enrollment hook action
+// (4096 bytes total: 2048 per stream at the executor).
+const MaxEnrollmentHookActionOutput = 4096
+
+// EnrollmentActionResult is the outcome of a single executed enrollment hook action.
+type EnrollmentActionResult struct {
+	Source   string
+	ExitCode int
+	Output   string
+}
+
 // EnrollmentContext carries device metadata for enrollment hook execution.
-// Callers populate this before invoking OnBeforeEnrolling/OnAfterEnrolling.
+// Callers populate input fields before invoking OnBeforeEnrolling/OnAfterEnrolling.
+// Result fields are populated by the hook manager after execution.
 type EnrollmentContext struct {
+	// Input fields (set by caller before OnBeforeEnrolling)
 	DeviceName            string
 	SystemInfo            map[string]interface{}
 	Labels                map[string]string
 	ManagementCertificate *CertificateMetadata
+
+	// Result fields (populated by OnBeforeEnrolling)
+	Success    bool
+	Actions    []EnrollmentActionResult
+	HookLabels map[string]string
 }
 
 // CertificateMetadata contains management certificate identity info (no private key).

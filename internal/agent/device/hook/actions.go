@@ -50,6 +50,8 @@ type actionContext struct {
 	removedFiles    map[string]api.FileSpec
 	commandLineVars map[CommandLineVarKey]string
 	hookContextJSON string // non-empty for enrollment hooks; set to the JSON written to hook-context.json
+	actionSource    string // hook YAML path for the current enrollment hook action
+	actionResults   []EnrollmentActionResult
 }
 
 func newActionContext(hook api.DeviceLifecycleHookType, current *api.DeviceSpec, desired *api.DeviceSpec, systemRebooted bool) *actionContext {
@@ -143,6 +145,28 @@ func executeAction(ctx context.Context, exec executer.Executer, log *log.PrefixL
 	}
 }
 
+func recordEnrollmentActionResult(actionCtx *actionContext, exitCode int, stdout, stderr string) {
+	if actionCtx.hookContextJSON == "" || actionCtx.actionSource == "" {
+		return
+	}
+	actionCtx.actionResults = append(actionCtx.actionResults, EnrollmentActionResult{
+		Source:   actionCtx.actionSource,
+		ExitCode: exitCode,
+		Output:   combineCommandOutput(stdout, stderr),
+	})
+}
+
+func combineCommandOutput(stdout, stderr string) string {
+	switch {
+	case stdout == "":
+		return stderr
+	case stderr == "":
+		return stdout
+	default:
+		return stdout + stderr
+	}
+}
+
 func executeRunAction(ctx context.Context, exec executer.Executer, log *log.PrefixLogger,
 	action api.HookActionRun, actionCtx *actionContext) error {
 
@@ -177,10 +201,21 @@ func executeRunAction(ctx context.Context, exec executer.Executer, log *log.Pref
 		envVars = append(envVars, fmt.Sprintf("FLIGHTCTL_HOOK_CONTEXT=%s", actionCtx.hookContextJSON))
 	}
 
-	_, stderr, exitCode := exec.ExecuteWithContextFromDir(ctx, workDir, cmd, args, envVars...)
+	var stdout, stderr string
+	var exitCode int
+	if actionCtx.hookContextJSON != "" {
+		stdout, stderr, exitCode = exec.ExecuteWithBoundedOutputFromDir(ctx, workDir, cmd, args, MaxEnrollmentHookActionOutput, envVars...)
+		recordEnrollmentActionResult(actionCtx, exitCode, stdout, stderr)
+	} else {
+		_, stderr, exitCode = exec.ExecuteWithContextFromDir(ctx, workDir, cmd, args, envVars...)
+	}
 	if exitCode != 0 {
+		if actionCtx.hookContextJSON != "" {
+			log.Errorf("Running %q returned with exit code %d", commandLine, exitCode)
+			return fmt.Errorf("%w (%d)", errors.ErrExitCode, exitCode)
+		}
 		log.Errorf("Running %q returned with exit code %d: %s", commandLine, exitCode, stderr)
-		return fmt.Errorf("%w: %s (%d)", errors.ErrExitCode, stderr, exitCode)
+		return fmt.Errorf("%w (%d): %s", errors.ErrExitCode, exitCode, stderr)
 	}
 	log.Infof("Hook %s executed %q without error", actionCtx.hook, commandLine)
 

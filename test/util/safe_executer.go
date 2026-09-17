@@ -80,3 +80,10 @@ func (s *SafeExecuter) ExecuteWithContextFromDir(ctx context.Context, workingDir
 	}
 	return s.wrapped.ExecuteWithContextFromDir(ctx, workingDir, command, args, env...)
 }
+
+func (s *SafeExecuter) ExecuteWithBoundedOutputFromDir(ctx context.Context, workingDir string, command string, args []string, maxCombinedOutputBytes int, env ...string) (stdout string, stderr string, exitCode int) {
+	if isDangerousCommand(command, args...) {
+		return "", fmt.Sprintf("SafeExecuter blocked dangerous command: %s", command), 0
+	}
+	return s.wrapped.ExecuteWithBoundedOutputFromDir(ctx, workingDir, command, args, maxCombinedOutputBytes, env...)
+}

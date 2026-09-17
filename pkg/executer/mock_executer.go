@@ -80,6 +80,27 @@ func (mr *MockExecuterMockRecorder) Execute(command any, args ...any) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Execute", reflect.TypeOf((*MockExecuter)(nil).Execute), varargs...)
 }
 
+// ExecuteWithBoundedOutputFromDir mocks base method.
+func (m *MockExecuter) ExecuteWithBoundedOutputFromDir(ctx context.Context, workingDir, command string, args []string, maxCombinedOutputBytes int, env ...string) (string, string, int) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, workingDir, command, args, maxCombinedOutputBytes}
+	for _, a := range env {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "ExecuteWithBoundedOutputFromDir", varargs...)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(string)
+	ret2, _ := ret[2].(int)
+	return ret0, ret1, ret2
+}
+
+// ExecuteWithBoundedOutputFromDir indicates an expected call of ExecuteWithBoundedOutputFromDir.
+func (mr *MockExecuterMockRecorder) ExecuteWithBoundedOutputFromDir(ctx, workingDir, command, args, maxCombinedOutputBytes any, env ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, workingDir, command, args, maxCombinedOutputBytes}, env...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ExecuteWithBoundedOutputFromDir", reflect.TypeOf((*MockExecuter)(nil).ExecuteWithBoundedOutputFromDir), varargs...)
+}
+
 // ExecuteWithContext mocks base method.
 func (m *MockExecuter) ExecuteWithContext(ctx context.Context, command string, args ...string) (string, string, int) {
 	m.ctrl.T.Helper()

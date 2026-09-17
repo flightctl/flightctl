@@ -31,6 +31,7 @@ import (
 	certificatesigningrequestservice "github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	enrollmentconfigservice "github.com/flightctl/flightctl/internal/service/enrollmentconfig"
+	enrollmenthookpolicyservice "github.com/flightctl/flightctl/internal/service/enrollmenthookpolicy"
 	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	eventservice "github.com/flightctl/flightctl/internal/service/event"
 	"github.com/flightctl/flightctl/internal/service/events"
@@ -46,6 +47,7 @@ import (
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	enrollmenthookpolicystore "github.com/flightctl/flightctl/internal/store/enrollmenthookpolicy"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
@@ -220,6 +222,9 @@ func (s *Server) Run(ctx context.Context) error {
 		templateversionservice.NewServiceHandler(templateVersionStore, kvStore, eventsSvc, s.log))
 	repositorySvc := repositoryservice.WrapWithTracing(
 		repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, s.log))
+	enrollmentHookPolicyStore := enrollmenthookpolicystore.NewStore(s.db, s.log.WithField("pkg", "enrollmenthookpolicy-store"))
+	enrollmentHookPolicySvc := enrollmenthookpolicyservice.WrapWithTracing(
+		enrollmenthookpolicyservice.NewServiceHandler(enrollmentHookPolicyStore, eventsSvc, s.log))
 	catalogSvc := catalogservice.WrapWithTracing(
 		catalogservice.NewServiceHandler(catalogStore, deviceStore, fleetStore, eventsSvc, s.log))
 	resourceSyncSvc := resourcesyncservice.WrapWithTracing(
@@ -304,14 +309,14 @@ func (s *Server) Run(ctx context.Context) error {
 	negotiator := versioning.NewNegotiator(versioning.V1Beta1, server.MetadataResolver)
 
 	handlerV1Beta1 := transportv1beta1.NewTransportHandler(
-		authProviderSvc, csrSvc, deviceSvc, enrollmentRequestSvc, enrollmentConfigSvc, eventSvc,
+		authProviderSvc, csrSvc, deviceSvc, enrollmentHookPolicySvc, enrollmentRequestSvc, enrollmentConfigSvc, eventSvc,
 		fleetSvc, organizationSvc, repositorySvc, resourceSyncSvc, templateVersionSvc,
 		convertv1beta1.NewConverter(),
 		s.authN, authTokenProxy, authUserInfoProxy, s.authZ,
 	)
 
 	// Create v1beta1 router with OpenAPI validation
-	v1beta1Swagger, err := corev1beta1.GetSwagger()
+	v1beta1Swagger, err := corev1beta1.GetSpec()
 	if err != nil {
 		return fmt.Errorf("failed loading v1beta1 swagger spec: %w", err)
 	}
@@ -334,7 +339,7 @@ func (s *Server) Run(ctx context.Context) error {
 	})
 
 	// Create v1alpha1 router with OpenAPI validation (for alpha-stage resources like Catalog)
-	v1alpha1Swagger, err := corev1alpha1.GetSwagger()
+	v1alpha1Swagger, err := corev1alpha1.GetSpec()
 	if err != nil {
 		return fmt.Errorf("failed loading v1alpha1 swagger spec: %w", err)
 	}

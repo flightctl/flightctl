@@ -303,12 +303,21 @@ func TestEnrollmentActionContext(t *testing.T) {
 
 			var capturedEnv []string
 			mockExec := executer.NewMockExecuter(ctrl)
-			mockExec.EXPECT().ExecuteWithContextFromDir(
-				gomock.Any(), "", "true", []string{}, gomock.Any(),
-			).DoAndReturn(func(_ context.Context, _ string, _ string, _ []string, env ...string) (string, string, int) {
-				capturedEnv = env
-				return "", "", 0
-			}).Times(1)
+			if tt.hookContextJSON != "" {
+				mockExec.EXPECT().ExecuteWithBoundedOutputFromDir(
+					gomock.Any(), "", "true", []string{}, MaxEnrollmentHookActionOutput, gomock.Any(),
+				).DoAndReturn(func(_ context.Context, _ string, _ string, _ []string, _ int, env ...string) (string, string, int) {
+					capturedEnv = env
+					return "", "", 0
+				}).Times(1)
+			} else {
+				mockExec.EXPECT().ExecuteWithContextFromDir(
+					gomock.Any(), "", "true", []string{}, gomock.Any(),
+				).DoAndReturn(func(_ context.Context, _ string, _ string, _ []string, env ...string) (string, string, int) {
+					capturedEnv = env
+					return "", "", 0
+				}).Times(1)
+			}
 
 			logger := log.NewPrefixLogger("test")
 			logger.SetLevel(logrus.ErrorLevel)
