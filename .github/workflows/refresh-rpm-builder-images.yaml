@@ -63,7 +63,7 @@ jobs:
           echo "tags=$tags" >> "$GITHUB_OUTPUT"
 
       - name: Push all RPM builder images to Quay.io
-        uses: redhat-actions/push-to-registry@v2.7
+        uses: redhat-actions/push-to-registry@v2.8
         with:
           image: packit-builder
           tags: ${{ steps.tags.outputs.tags }}
