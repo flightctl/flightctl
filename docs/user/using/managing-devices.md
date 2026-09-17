@@ -1439,9 +1439,11 @@ spec:
 
 Quadlet applications use [Podman Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html) to manage containers as native systemd services. This allows full integration with systemd's dependency management, restart policies, resource limits, and logging.
 
-For Quadlet applications, `runAs` selects the user-level systemd instance that manages the
-generated Quadlet units. Before setting `runAs`, complete the [rootless application device
-configuration](running-applications-as-non-root.md).
+For Quadlet applications, `runAs` determines which Podman and systemd instances manage the
+generated Quadlet units. If `runAs` is omitted or set to `root`, the root Podman and systemd
+instances are used. If `runAs` selects a non-root user, that user's rootless Podman and user-level
+systemd instances are used. Before setting `runAs` to a non-root user, complete the [rootless
+application device configuration](running-applications-as-non-root.md).
 
 Reasons for running an application under the root podman include:
 
