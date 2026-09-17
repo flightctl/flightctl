@@ -29,6 +29,7 @@ const (
 // so we capture the real org ID from a non-admin user and use it to switch
 // admin into the correct org context during tests.
 var quadletSharedOrgID string
+var auxSvcs *auxiliary.Services
 
 func TestMultiorg(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -91,7 +92,7 @@ var _ = BeforeSuite(func() {
 		Skip("Multiorg tests require multi-user auth (not available on KIND)")
 	}
 
-	auxiliary.Get(context.Background())
+	auxSvcs = auxiliary.Get(context.Background())
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
 
 	harness := e2e.GetWorkerHarness()

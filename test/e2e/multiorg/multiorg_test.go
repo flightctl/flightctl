@@ -25,6 +25,8 @@ const (
 	deviceEnrollTimeout  = 120 * time.Second
 	deviceEnrollPolling  = 2 * time.Second
 	simulatorStopTimeout = 10 * time.Second
+	rbacAppName          = "rbac-app"
+	rbacAppImagePath     = "flightctl-tests/nginx:1.28-alpine-slim"
 
 	// OCP-oriented defaults; on quadlet, testUserCreds() provides prefixed names.
 	adminUser     = "admin"
@@ -361,7 +363,6 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 		It("should enforce application lifecycle and console access by role for standalone and fleet-owned devices", Label("90251", "agent"), func() {
 			testID := harness.GetTestIDFromContext()
 			deferOrgSimulatorConfig(harness, users)
-			const rbacAppName = "rbac-app"
 
 			By("Creating a device via simulator as admin")
 			err := loginAndSetOrg(harness, users.admin.name, users.admin.password)
@@ -382,7 +383,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 
 			appSpec, err := e2e.NewContainerApplicationSpecWithRunAs(
 				rbacAppName,
-				"quay.io/flightctl-tests/nginx:1.28-alpine-slim",
+				fmt.Sprintf("%s/%s", auxSvcs.Registry.URL, rbacAppImagePath),
 				nil, nil, nil, nil,
 				"flightctl",
 			)
