@@ -65,4 +65,16 @@ sudo systemctl start dnsmasq
 
 # 11. Spot-check
 getent hosts "api.${IP}.nip.io" || { echo "ERROR: api.${IP}.nip.io did not resolve" >&2; exit 1; }
+
+# 12. Fix kind node DNS — Docker configured it at creation time to forward to
+#     systemd-resolved's stub listener, which we just disabled.  Point it at
+#     dnsmasq on the host instead (reachable via the Docker gateway IP).
+GATEWAY_IP=$(docker inspect kind-control-plane -f '{{range .NetworkSettings.Networks}}{{.Gateway}}{{end}}')
+echo "Docker gateway (dnsmasq from inside kind node): ${GATEWAY_IP}"
+docker exec kind-control-plane sh -c "echo 'nameserver ${GATEWAY_IP}' > /etc/resolv.conf"
+
+# 13. Restart CoreDNS so it picks up the updated /etc/resolv.conf upstream
+kubectl rollout restart deploy/coredns -n kube-system
+kubectl rollout status deploy/coredns -n kube-system --timeout=60s
+
 echo "=== Local DNS setup complete ==="
