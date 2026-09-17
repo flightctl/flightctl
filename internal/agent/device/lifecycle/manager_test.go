@@ -15,9 +15,11 @@ import (
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	"github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/identity"
+	agentapi "github.com/flightctl/flightctl/internal/api/client/agent"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -229,28 +231,27 @@ func TestLifecycleManager_verifyEnrollment(t *testing.T) {
 func TestLifecycleManager_Initialize_NoBannerOnEnrollmentFailure(t *testing.T) {
 	tests := []struct {
 		name        string
-		setupMocks  func(*client.MockEnrollment, *identity.MockProvider, *fileio.MockReadWriter)
+		setupMocks  func(*client.MockEnrollment, *identity.MockProvider, *fileio.MockReadWriter, *hook.MockManager)
 		expectError string
 	}{
 		{
 			name: "When enrollment request creation fails it should not write the QR banner",
-			setupMocks: func(mockEnrollment *client.MockEnrollment, mockIdentity *identity.MockProvider, mockReadWriter *fileio.MockReadWriter) {
+			setupMocks: func(mockEnrollment *client.MockEnrollment, mockIdentity *identity.MockProvider, mockReadWriter *fileio.MockReadWriter, mockHook *hook.MockManager) {
 				mockIdentity.EXPECT().HasCertificate().Return(false)
+				mockHook.EXPECT().OnBeforeEnrolling(gomock.Any(), gomock.Any()).Return(nil)
 				mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(nil, errors.New("not found")).AnyTimes()
 				mockEnrollment.EXPECT().CreateEnrollmentRequest(gomock.Any(), gomock.Any()).Return(nil, errors.New("connection refused")).AnyTimes()
-				// WriteFile for the banner must NOT be called
 			},
 			expectError: "creating enrollment request",
 		},
 		{
 			name: "When enrollment request succeeds it should write the QR banner",
-			setupMocks: func(mockEnrollment *client.MockEnrollment, mockIdentity *identity.MockProvider, mockReadWriter *fileio.MockReadWriter) {
+			setupMocks: func(mockEnrollment *client.MockEnrollment, mockIdentity *identity.MockProvider, mockReadWriter *fileio.MockReadWriter, mockHook *hook.MockManager) {
 				mockIdentity.EXPECT().HasCertificate().Return(false)
+				mockHook.EXPECT().OnBeforeEnrolling(gomock.Any(), gomock.Any()).Return(nil)
 				mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(nil, errors.New("not found")).AnyTimes()
 				mockEnrollment.EXPECT().CreateEnrollmentRequest(gomock.Any(), gomock.Any()).Return(nil, nil)
-				// Banner file should be written after successful enrollment request
 				mockReadWriter.EXPECT().WriteFile(BannerFile, gomock.Any(), gomock.Any()).Return(nil)
-				// Then verifyEnrollment is called — return denied to end the loop quickly
 				mockEnrollment.EXPECT().GetEnrollmentRequest(gomock.Any(), "test-device").Return(&v1beta1.EnrollmentRequest{
 					Status: &v1beta1.EnrollmentRequestStatus{
 						Conditions: []v1beta1.Condition{
@@ -271,14 +272,17 @@ func TestLifecycleManager_Initialize_NoBannerOnEnrollmentFailure(t *testing.T) {
 			mockEnrollment := client.NewMockEnrollment(ctrl)
 			mockIdentity := identity.NewMockProvider(ctrl)
 			mockReadWriter := fileio.NewMockReadWriter(ctrl)
+			mockHookManager := hook.NewMockManager(ctrl)
 
 			manager := &LifecycleManager{
-				deviceName:           "test-device",
-				enrollmentUIEndpoint: "http://localhost:9001",
-				enrollmentClient:     mockEnrollment,
-				identityProvider:     mockIdentity,
-				deviceReadWriter:     mockReadWriter,
-				systemdClient:        client.NewSystemd(nil, ""),
+				deviceName:                 "test-device",
+				enrollmentUIEndpoint:       "http://localhost:9001",
+				enrollmentClient:           mockEnrollment,
+				identityProvider:           mockIdentity,
+				deviceReadWriter:           mockReadWriter,
+				hookManager:                mockHookManager,
+				preEnrollmentFailurePolicy: "Continue",
+				systemdClient:              client.NewSystemd(nil, ""),
 				backoff: wait.Backoff{
 					Steps:    1,
 					Duration: time.Millisecond,
@@ -286,7 +290,7 @@ func TestLifecycleManager_Initialize_NoBannerOnEnrollmentFailure(t *testing.T) {
 				log: log.NewPrefixLogger("test"),
 			}
 
-			tt.setupMocks(mockEnrollment, mockIdentity, mockReadWriter)
+			tt.setupMocks(mockEnrollment, mockIdentity, mockReadWriter, mockHookManager)
 
 			ctx := context.Background()
 			err := manager.Initialize(ctx, &v1beta1.DeviceStatus{})
@@ -353,7 +357,7 @@ func TestLifecycleManager_enrollmentRequest_capabilities(t *testing.T) {
 				}).Return(nil, nil)
 
 			ctx := context.Background()
-			err := manager.enrollmentRequest(ctx, &v1beta1.DeviceStatus{})
+			err := manager.enrollmentRequest(ctx, &v1beta1.DeviceStatus{}, nil)
 
 			require.NoError(t, err)
 			require.NotNil(t, capturedReq.Spec.OsMode)
@@ -806,8 +810,352 @@ func TestLifecycleManager_buildEnrollmentLabels(t *testing.T) {
 				log:                 log.NewPrefixLogger("test"),
 			}
 
-			result := manager.buildEnrollmentLabels(tt.deviceStatus)
+			result := manager.buildEnrollmentLabels(tt.deviceStatus, nil)
 			require.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestLifecycleManager_PreEnrollmentHooks(t *testing.T) {
+	t.Run("When OnBeforeEnrolling runs it should be called before CreateEnrollmentRequest", func(t *testing.T) {
+		require := require.New(t)
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockEnrollment := client.NewMockEnrollment(ctrl)
+		mockIdentity := identity.NewMockProvider(ctrl)
+		mockReadWriter := fileio.NewMockReadWriter(ctrl)
+		mockHookManager := hook.NewMockManager(ctrl)
+
+		callOrder := []string{}
+
+		mockIdentity.EXPECT().HasCertificate().Return(false)
+		mockHookManager.EXPECT().OnBeforeEnrolling(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ context.Context, _ *hook.EnrollmentContext) error {
+				callOrder = append(callOrder, "OnBeforeEnrolling")
+				return nil
+			})
+		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(nil, errors.New("not found")).AnyTimes()
+		mockEnrollment.EXPECT().CreateEnrollmentRequest(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ context.Context, _ v1beta1.EnrollmentRequest, _ ...any) (*v1beta1.EnrollmentRequest, error) {
+				callOrder = append(callOrder, "CreateEnrollmentRequest")
+				return nil, nil
+			})
+		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		mockEnrollment.EXPECT().GetEnrollmentRequest(gomock.Any(), gomock.Any()).Return(&v1beta1.EnrollmentRequest{
+			Status: &v1beta1.EnrollmentRequestStatus{
+				Conditions: []v1beta1.Condition{{Type: "Denied", Reason: "test", Message: "test"}},
+			},
+		}, nil)
+
+		manager := &LifecycleManager{
+			deviceName:                 "test-device",
+			enrollmentClient:           mockEnrollment,
+			identityProvider:           mockIdentity,
+			deviceReadWriter:           mockReadWriter,
+			hookManager:                mockHookManager,
+			preEnrollmentFailurePolicy: "Continue",
+			preEnrollmentBackoff:       wait.Backoff{Steps: 1, Duration: time.Millisecond},
+			systemdClient:              client.NewSystemd(nil, ""),
+			backoff:                    wait.Backoff{Steps: 1, Duration: time.Millisecond},
+			log:                        log.NewPrefixLogger("test"),
+		}
+
+		err := manager.Initialize(context.Background(), &v1beta1.DeviceStatus{})
+		require.Error(err)
+		require.Equal([]string{"OnBeforeEnrolling", "CreateEnrollmentRequest"}, callOrder)
+	})
+
+	t.Run("When already initialized it should not call OnBeforeEnrolling", func(t *testing.T) {
+		require := require.New(t)
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockIdentity := identity.NewMockProvider(ctrl)
+		mockReadWriter := fileio.NewMockReadWriter(ctrl)
+		mockHookManager := hook.NewMockManager(ctrl)
+
+		mockIdentity.EXPECT().HasCertificate().Return(true)
+		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+
+		manager := &LifecycleManager{
+			deviceName:                 "test-device",
+			identityProvider:           mockIdentity,
+			deviceReadWriter:           mockReadWriter,
+			hookManager:                mockHookManager,
+			preEnrollmentFailurePolicy: "Continue",
+			preEnrollmentBackoff:       wait.Backoff{Steps: 1, Duration: time.Millisecond},
+			systemdClient:              client.NewSystemd(nil, ""),
+			log:                        log.NewPrefixLogger("test"),
+		}
+
+		err := manager.Initialize(context.Background(), &v1beta1.DeviceStatus{})
+		require.NoError(err)
+	})
+
+	t.Run("When hook succeeds it should populate preEnrollment with success=true on ER", func(t *testing.T) {
+		require := require.New(t)
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockEnrollment := client.NewMockEnrollment(ctrl)
+		mockIdentity := identity.NewMockProvider(ctrl)
+		mockReadWriter := fileio.NewMockReadWriter(ctrl)
+		mockHookManager := hook.NewMockManager(ctrl)
+
+		mockIdentity.EXPECT().HasCertificate().Return(false)
+		mockHookManager.EXPECT().OnBeforeEnrolling(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ context.Context, enrollCtx *hook.EnrollmentContext) error {
+				enrollCtx.Success = true
+				enrollCtx.Actions = []hook.EnrollmentActionResult{{
+					Source:   "/etc/flightctl/hooks.d/beforeenrolling/01-test.yaml",
+					ExitCode: 0, Output: "hook output",
+				}}
+				return nil
+			})
+		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(nil, errors.New("not found")).AnyTimes()
+
+		var capturedER v1beta1.EnrollmentRequest
+		mockEnrollment.EXPECT().CreateEnrollmentRequest(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ context.Context, er v1beta1.EnrollmentRequest, _ ...any) (*v1beta1.EnrollmentRequest, error) {
+				capturedER = er
+				return nil, nil
+			})
+		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		mockEnrollment.EXPECT().GetEnrollmentRequest(gomock.Any(), gomock.Any()).Return(&v1beta1.EnrollmentRequest{
+			Status: &v1beta1.EnrollmentRequestStatus{
+				Conditions: []v1beta1.Condition{{Type: "Denied", Reason: "test", Message: "test"}},
+			},
+		}, nil)
+
+		manager := &LifecycleManager{
+			deviceName:                 "test-device",
+			enrollmentClient:           mockEnrollment,
+			identityProvider:           mockIdentity,
+			deviceReadWriter:           mockReadWriter,
+			hookManager:                mockHookManager,
+			preEnrollmentFailurePolicy: "Continue",
+			preEnrollmentBackoff:       wait.Backoff{Steps: 1, Duration: time.Millisecond},
+			systemdClient:              client.NewSystemd(nil, ""),
+			backoff:                    wait.Backoff{Steps: 1, Duration: time.Millisecond},
+			log:                        log.NewPrefixLogger("test"),
+		}
+
+		err := manager.Initialize(context.Background(), &v1beta1.DeviceStatus{})
+		require.Error(err)
+		require.NotNil(capturedER.Spec.PreEnrollment)
+		require.True(capturedER.Spec.PreEnrollment.Success)
+		require.NotNil(capturedER.Spec.PreEnrollment.Actions)
+		require.Len(*capturedER.Spec.PreEnrollment.Actions, 1)
+		require.Equal("/etc/flightctl/hooks.d/beforeenrolling/01-test.yaml", (*capturedER.Spec.PreEnrollment.Actions)[0].Source)
+		require.Equal(0, (*capturedER.Spec.PreEnrollment.Actions)[0].ExitCode)
+		require.NotNil((*capturedER.Spec.PreEnrollment.Actions)[0].Output)
+		require.Equal("hook output", *(*capturedER.Spec.PreEnrollment.Actions)[0].Output)
+	})
+
+	t.Run("When hook fails with Continue policy it should submit ER with success=false", func(t *testing.T) {
+		require := require.New(t)
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockEnrollment := client.NewMockEnrollment(ctrl)
+		mockIdentity := identity.NewMockProvider(ctrl)
+		mockReadWriter := fileio.NewMockReadWriter(ctrl)
+		mockHookManager := hook.NewMockManager(ctrl)
+
+		mockIdentity.EXPECT().HasCertificate().Return(false)
+		mockHookManager.EXPECT().OnBeforeEnrolling(gomock.Any(), gomock.Any()).Return(errors.New("hook failed"))
+		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(nil, errors.New("not found")).AnyTimes()
+
+		var capturedER v1beta1.EnrollmentRequest
+		mockEnrollment.EXPECT().CreateEnrollmentRequest(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ context.Context, er v1beta1.EnrollmentRequest, _ ...any) (*v1beta1.EnrollmentRequest, error) {
+				capturedER = er
+				return nil, nil
+			})
+		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		mockEnrollment.EXPECT().GetEnrollmentRequest(gomock.Any(), gomock.Any()).Return(&v1beta1.EnrollmentRequest{
+			Status: &v1beta1.EnrollmentRequestStatus{
+				Conditions: []v1beta1.Condition{{Type: "Denied", Reason: "test", Message: "test"}},
+			},
+		}, nil)
+
+		manager := &LifecycleManager{
+			deviceName:                 "test-device",
+			enrollmentClient:           mockEnrollment,
+			identityProvider:           mockIdentity,
+			deviceReadWriter:           mockReadWriter,
+			hookManager:                mockHookManager,
+			preEnrollmentFailurePolicy: "Continue",
+			preEnrollmentBackoff:       wait.Backoff{Steps: 1, Duration: time.Millisecond},
+			systemdClient:              client.NewSystemd(nil, ""),
+			backoff:                    wait.Backoff{Steps: 1, Duration: time.Millisecond},
+			log:                        log.NewPrefixLogger("test"),
+		}
+
+		err := manager.Initialize(context.Background(), &v1beta1.DeviceStatus{})
+		require.Error(err)
+		require.NotNil(capturedER.Spec.PreEnrollment)
+		require.False(capturedER.Spec.PreEnrollment.Success)
+	})
+
+	t.Run("When hook fails with Block policy it should not submit ER and return error", func(t *testing.T) {
+		require := require.New(t)
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockIdentity := identity.NewMockProvider(ctrl)
+		mockReadWriter := fileio.NewMockReadWriter(ctrl)
+		mockHookManager := hook.NewMockManager(ctrl)
+
+		mockIdentity.EXPECT().HasCertificate().Return(false)
+		mockHookManager.EXPECT().OnBeforeEnrolling(gomock.Any(), gomock.Any()).Return(errors.New("hook failed")).AnyTimes()
+
+		manager := &LifecycleManager{
+			deviceName:                 "test-device",
+			identityProvider:           mockIdentity,
+			deviceReadWriter:           mockReadWriter,
+			hookManager:                mockHookManager,
+			preEnrollmentFailurePolicy: "Block",
+			preEnrollmentBackoff:       wait.Backoff{Steps: 2, Duration: time.Millisecond, Cap: time.Millisecond},
+			systemdClient:              client.NewSystemd(nil, ""),
+			backoff:                    wait.Backoff{Steps: 1, Duration: time.Millisecond},
+			log:                        log.NewPrefixLogger("test"),
+		}
+
+		err := manager.Initialize(context.Background(), &v1beta1.DeviceStatus{})
+		require.Error(err)
+		require.Contains(err.Error(), "Block policy")
+	})
+
+	t.Run("When hook fails then succeeds with Block policy it should submit ER", func(t *testing.T) {
+		require := require.New(t)
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockEnrollment := client.NewMockEnrollment(ctrl)
+		mockIdentity := identity.NewMockProvider(ctrl)
+		mockReadWriter := fileio.NewMockReadWriter(ctrl)
+		mockHookManager := hook.NewMockManager(ctrl)
+
+		mockIdentity.EXPECT().HasCertificate().Return(false)
+		callCount := 0
+		mockHookManager.EXPECT().OnBeforeEnrolling(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ context.Context, enrollCtx *hook.EnrollmentContext) error {
+				callCount++
+				if callCount <= 1 {
+					enrollCtx.Success = false
+					enrollCtx.Actions = []hook.EnrollmentActionResult{{
+						Source:   "/etc/flightctl/hooks.d/beforeenrolling/01-test.yaml",
+						ExitCode: 1, Output: "first attempt failed",
+					}}
+					return errors.New("hook failed first attempt")
+				}
+				enrollCtx.Success = true
+				enrollCtx.Actions = []hook.EnrollmentActionResult{{
+					Source:   "/etc/flightctl/hooks.d/beforeenrolling/01-test.yaml",
+					ExitCode: 0, Output: "retry succeeded",
+				}}
+				enrollCtx.HookLabels = map[string]string{"day1.example.com/role": "edge"}
+				return nil
+			}).AnyTimes()
+		mockReadWriter.EXPECT().ReadFile(gomock.Any()).Return(nil, errors.New("not found")).AnyTimes()
+		mockReadWriter.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+		var capturedER v1beta1.EnrollmentRequest
+		mockEnrollment.EXPECT().CreateEnrollmentRequest(gomock.Any(), gomock.Any()).DoAndReturn(
+			func(_ context.Context, er v1beta1.EnrollmentRequest, _ ...agentapi.RequestEditorFn) (*v1beta1.EnrollmentRequest, error) {
+				capturedER = er
+				return nil, nil
+			})
+		mockEnrollment.EXPECT().GetEnrollmentRequest(gomock.Any(), gomock.Any()).Return(&v1beta1.EnrollmentRequest{
+			Status: &v1beta1.EnrollmentRequestStatus{
+				Conditions: []v1beta1.Condition{{Type: "Denied", Reason: "test", Message: "test"}},
+			},
+		}, nil)
+
+		manager := &LifecycleManager{
+			deviceName:                 "test-device",
+			enrollmentClient:           mockEnrollment,
+			identityProvider:           mockIdentity,
+			deviceReadWriter:           mockReadWriter,
+			hookManager:                mockHookManager,
+			preEnrollmentFailurePolicy: "Block",
+			preEnrollmentBackoff:       wait.Backoff{Steps: 3, Duration: time.Millisecond, Cap: time.Millisecond},
+			systemdClient:              client.NewSystemd(nil, ""),
+			backoff:                    wait.Backoff{Steps: 1, Duration: time.Millisecond},
+			log:                        log.NewPrefixLogger("test"),
+		}
+
+		err := manager.Initialize(context.Background(), &v1beta1.DeviceStatus{})
+		require.Error(err)
+		require.GreaterOrEqual(callCount, 2)
+		require.NotNil(capturedER.Spec.PreEnrollment)
+		require.True(capturedER.Spec.PreEnrollment.Success)
+		require.NotNil(capturedER.Spec.PreEnrollment.Actions)
+		require.Len(*capturedER.Spec.PreEnrollment.Actions, 1)
+		require.Equal(0, (*capturedER.Spec.PreEnrollment.Actions)[0].ExitCode)
+		require.NotNil((*capturedER.Spec.PreEnrollment.Actions)[0].Output)
+		require.Equal("retry succeeded", *(*capturedER.Spec.PreEnrollment.Actions)[0].Output)
+		require.NotNil(capturedER.Spec.Labels)
+		require.Equal("edge", (*capturedER.Spec.Labels)["day1.example.com/role"])
+	})
+}
+
+func TestLifecycleManager_buildEnrollmentLabels_WithHookLabels(t *testing.T) {
+	t.Run("When hook labels conflict with systemInfo and defaultLabels it should give hook labels highest priority", func(t *testing.T) {
+		require := require.New(t)
+		manager := &LifecycleManager{
+			labelFromSystemInfo: map[string]string{"env": "architecture"},
+			defaultLabels:       map[string]string{"env": "default"},
+			log:                 log.NewPrefixLogger("test"),
+		}
+		hookLabels := map[string]string{
+			"env":                   "edge",
+			"day1.example.com/role": "edge",
+		}
+		status := &v1beta1.DeviceStatus{
+			SystemInfo: v1beta1.DeviceSystemInfo{
+				Architecture: "x86_64",
+			},
+		}
+		result := manager.buildEnrollmentLabels(status, hookLabels)
+		require.Equal("edge", result["env"])
+		require.Equal("edge", result["day1.example.com/role"])
+	})
+
+	t.Run("When hook labels are nil it should use existing merge order", func(t *testing.T) {
+		require := require.New(t)
+		manager := &LifecycleManager{
+			labelFromSystemInfo: map[string]string{"arch": "architecture"},
+			defaultLabels:       map[string]string{"region": "us-east"},
+			log:                 log.NewPrefixLogger("test"),
+		}
+		status := &v1beta1.DeviceStatus{
+			SystemInfo: v1beta1.DeviceSystemInfo{
+				Architecture: "x86_64",
+			},
+		}
+		result := manager.buildEnrollmentLabels(status, nil)
+		require.Equal("x86_64", result["arch"])
+		require.Equal("us-east", result["region"])
+	})
+
+	t.Run("When hook labels and all sources present it should merge all", func(t *testing.T) {
+		require := require.New(t)
+		manager := &LifecycleManager{
+			labelFromSystemInfo: map[string]string{"arch": "architecture"},
+			defaultLabels:       map[string]string{"region": "us-east"},
+			log:                 log.NewPrefixLogger("test"),
+		}
+		hookLabels := map[string]string{"site": "dc1"}
+		status := &v1beta1.DeviceStatus{
+			SystemInfo: v1beta1.DeviceSystemInfo{
+				Architecture: "x86_64",
+			},
+		}
+		result := manager.buildEnrollmentLabels(status, hookLabels)
+		require.Equal("x86_64", result["arch"])
+		require.Equal("us-east", result["region"])
+		require.Equal("dc1", result["site"])
+	})
 }

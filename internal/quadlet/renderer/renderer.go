@@ -85,6 +85,7 @@ type RendererConfig struct {
 	Api                ImageConfig `mapstructure:"api"`
 	Periodic           ImageConfig `mapstructure:"periodic"`
 	Worker             ImageConfig `mapstructure:"worker"`
+	DeltaWorker        ImageConfig `mapstructure:"delta-worker"`
 	AlertExporter      ImageConfig `mapstructure:"alert-exporter"`
 	CliArtifacts       ImageConfig `mapstructure:"cli-artifacts"`
 	AlertmanagerProxy  ImageConfig `mapstructure:"alertmanager-proxy"`
@@ -307,6 +308,7 @@ func (config *RendererConfig) ApplyFlightctlServicesTagOverride(log logrus.Field
 	config.Api.Tag = tag
 	config.Periodic.Tag = tag
 	config.Worker.Tag = tag
+	config.DeltaWorker.Tag = tag
 	config.AlertExporter.Tag = tag
 	config.CliArtifacts.Tag = tag
 	config.AlertmanagerProxy.Tag = tag

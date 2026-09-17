@@ -261,9 +261,6 @@ func resetMigrationCheckpoints() {
 	if p == nil || p.Infra == nil {
 		return
 	}
-	if !p.Infra.BuiltinDatabaseWorkloadAvailable() {
-		return
-	}
 	if _, err := queryDB(p, "DELETE FROM checkpoints WHERE consumer = 'encryption-migration'"); err != nil {
 		GinkgoWriter.Printf("resetMigrationCheckpoints: failed to delete checkpoints (non-fatal): %v\n", err)
 	}
@@ -277,9 +274,6 @@ func resetMigrationCheckpoints() {
 func deleteStaleCanaries(keepKeyID string) {
 	p := setup.GetDefaultProviders()
 	if p == nil || p.Infra == nil {
-		return
-	}
-	if !p.Infra.BuiltinDatabaseWorkloadAvailable() {
 		return
 	}
 	if _, err := queryDB(p, fmt.Sprintf(
@@ -355,21 +349,6 @@ func backupRestoreExternalDBSkipReason() string {
 		return "Encryption backup/restore e2e skipped: no flightctl-db pod (external PostgreSQL / Helm db.type=external). EDM-3213."
 	}
 	return ""
-}
-
-// skipIfNoBuiltinDB skips the current Ginkgo spec when the built-in PostgreSQL pod is unavailable.
-// Tests that inspect DB ciphertext via queryDB() require psql access through the flightctl-db pod,
-// which is only deployed when db.type=builtin (Helm) or the Quadlet flightctl-db service is active.
-// External PostgreSQL deployments encrypt data the same way but cannot be inspected this way.
-func skipIfNoBuiltinDB() {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("E2E_EXTERNAL_DATABASE"))) {
-	case "1", "true", "yes":
-		Skip("Skipped: E2E_EXTERNAL_DATABASE set — DB ciphertext inspection requires the built-in flightctl-db pod. EDM-3213.")
-	}
-	p := setup.GetDefaultProviders()
-	if p != nil && p.Infra != nil && !p.Infra.BuiltinDatabaseWorkloadAvailable() {
-		Skip("Skipped: no flightctl-db pod (Helm db.type=external) — DB ciphertext inspection not available. EDM-3213.")
-	}
 }
 
 // encryptionKeyArchiveEntryPrefix returns the archive directory prefix for encryption key material.

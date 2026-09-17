@@ -58,6 +58,9 @@ func (m *MockRepository) GetFleetRefs(context.Context, uuid.UUID, string) (*doma
 func (m *MockRepository) GetDeviceRefs(context.Context, uuid.UUID, string) (*domain.DeviceList, error) {
 	return nil, nil
 }
+func (m *MockRepository) GetDeltaStorageTarget(context.Context, uuid.UUID) (*domain.Repository, error) {
+	return nil, nil
+}
 
 func TestRepositoryCollector(t *testing.T) {
 	// Provide mock SQL results for org aggregation

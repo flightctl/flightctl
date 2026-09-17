@@ -30,6 +30,7 @@ import (
 	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/service/events"
 	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
+	"github.com/flightctl/flightctl/internal/service/tpmcsr"
 	"github.com/flightctl/flightctl/internal/store"
 	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
@@ -409,7 +410,7 @@ func NewTestHarness(ctx context.Context, testDirPath string, goRoutineErrorHandl
 	testHarness.Device = deviceservice.NewDeviceServiceHandler(deviceStore, nil, fleetStore, eventsSvc, kvStore, "", serverLog)
 	testHarness.Fleet = fleetservice.NewServiceHandler(fleetStore, nil, eventsSvc, serverLog)
 	testHarness.EnrollmentRequest = enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, deviceStore, csrStore, ca, kvStore, eventsSvc, serverLog, []string{}, "", "")
-	testHarness.CertificateSigningRequest = certificatesigningrequestservice.NewServiceHandler(csrStore, enrollmentRequestStore, ca, eventsSvc, serverLog, "", "")
+	testHarness.CertificateSigningRequest = certificatesigningrequestservice.NewServiceHandler(csrStore, tpmcsr.NewVerifier(testHarness.EnrollmentRequest), ca, eventsSvc, serverLog, "", "")
 
 	// Only auto-start agent if not explicitly disabled via WithoutAutoStartAgent()
 	if !testHarness.skipAutoStart {

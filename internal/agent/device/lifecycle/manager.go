@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/hook"
 	deviceos "github.com/flightctl/flightctl/internal/agent/device/os"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/agent/identity"
@@ -57,11 +58,24 @@ type LifecycleManager struct {
 	systemdClient       *client.Systemd
 	identityProvider    identity.Provider
 
+	hookManager                hook.Manager
+	preEnrollmentFailurePolicy string
+	preEnrollmentBackoff       wait.Backoff
+
 	backoff wait.Backoff
 	log     *log.PrefixLogger
 }
 
-// Manager is responsible for managing the device lifecycle.
+// preEnrollmentResult carries the outcome of pre-enrollment hooks for the ER.
+type preEnrollmentResult struct {
+	success    bool
+	actions    []hook.EnrollmentActionResult
+	hookLabels map[string]string
+}
+
+const maxPreEnrollmentOutput = 4096
+
+// NewManager creates a LifecycleManager responsible for device enrollment.
 func NewManager(
 	deviceName string,
 	enrollmentUIEndpoint string,
@@ -77,33 +91,48 @@ func NewManager(
 	statusManager status.Manager,
 	systemdClient *client.Systemd,
 	identityProvider identity.Provider,
+	hookManager hook.Manager,
+	preEnrollmentFailurePolicy string,
 	backoff wait.Backoff,
 	log *log.PrefixLogger,
 ) *LifecycleManager {
 	return &LifecycleManager{
-		log:                  log,
-		deviceName:           deviceName,
-		enrollmentUIEndpoint: enrollmentUIEndpoint,
-		managementCertPath:   managementCertPath,
-		managementKeyPath:    managementKeyPath,
-		dataDir:              dataDir,
-		deviceReadWriter:     deviceReadWriter,
-		enrollmentClient:     enrollmentClient,
-		enrollmentCSR:        enrollmentCSR,
-		defaultLabels:        defaultLabels,
-		labelFromSystemInfo:  labelFromSystemInfo,
-		caps:                 caps,
-		backoff:              backoff,
-		statusManager:        statusManager,
-		systemdClient:        systemdClient,
-		identityProvider:     identityProvider,
+		log:                        log,
+		deviceName:                 deviceName,
+		enrollmentUIEndpoint:       enrollmentUIEndpoint,
+		managementCertPath:         managementCertPath,
+		managementKeyPath:          managementKeyPath,
+		dataDir:                    dataDir,
+		deviceReadWriter:           deviceReadWriter,
+		enrollmentClient:           enrollmentClient,
+		enrollmentCSR:              enrollmentCSR,
+		defaultLabels:              defaultLabels,
+		labelFromSystemInfo:        labelFromSystemInfo,
+		caps:                       caps,
+		backoff:                    backoff,
+		statusManager:              statusManager,
+		systemdClient:              systemdClient,
+		identityProvider:           identityProvider,
+		hookManager:                hookManager,
+		preEnrollmentFailurePolicy: preEnrollmentFailurePolicy,
+		preEnrollmentBackoff: wait.Backoff{
+			Steps:    10,
+			Duration: 5 * time.Second,
+			Factor:   2.0,
+			Cap:      5 * time.Minute,
+		},
 	}
 }
 
 // Initialize ensures the device is enrolled to the management service.
 func (m *LifecycleManager) Initialize(ctx context.Context, status *v1beta1.DeviceStatus) error {
 	if !m.IsInitialized() {
-		if err := m.enrollmentRequest(ctx, status); err != nil {
+		preResult, err := m.runPreEnrollmentHooks(ctx, status)
+		if err != nil {
+			return err
+		}
+
+		if err := m.enrollmentRequest(ctx, status, preResult); err != nil {
 			return err
 		}
 
@@ -112,7 +141,7 @@ func (m *LifecycleManager) Initialize(ctx context.Context, status *v1beta1.Devic
 		}
 
 		m.log.Info("Waiting for enrollment to be approved")
-		err := wait.ExponentialBackoffWithContext(ctx, m.backoff, func(ctx context.Context) (bool, error) {
+		err = wait.ExponentialBackoffWithContext(ctx, m.backoff, func(ctx context.Context) (bool, error) {
 			return m.verifyEnrollment(ctx)
 		})
 		if err != nil {
@@ -403,7 +432,66 @@ func (m *LifecycleManager) writeQRBanner(ctx context.Context, message, url strin
 	return nil
 }
 
-func (m *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *v1beta1.DeviceStatus) error {
+func (m *LifecycleManager) runPreEnrollmentHooks(ctx context.Context, deviceStatus *v1beta1.DeviceStatus) (*preEnrollmentResult, error) {
+	enrollCtx := &hook.EnrollmentContext{
+		DeviceName:            m.deviceName,
+		Labels:                make(map[string]string),
+		ManagementCertificate: nil,
+	}
+	if deviceStatus != nil {
+		sysInfoMap := make(map[string]interface{})
+		sysInfoBytes, err := json.Marshal(deviceStatus.SystemInfo)
+		if err != nil {
+			m.log.Warnf("Failed to marshal system info for pre-enrollment hooks: %v", err)
+		} else if err := json.Unmarshal(sysInfoBytes, &sysInfoMap); err != nil {
+			m.log.Warnf("Failed to unmarshal system info for pre-enrollment hooks: %v", err)
+		}
+		enrollCtx.SystemInfo = sysInfoMap
+	}
+
+	hookErr := m.hookManager.OnBeforeEnrolling(ctx, enrollCtx)
+
+	result := &preEnrollmentResult{
+		success:    enrollCtx.Success,
+		actions:    enrollCtx.Actions,
+		hookLabels: enrollCtx.HookLabels,
+	}
+
+	if hookErr != nil {
+		result.success = false
+		if m.preEnrollmentFailurePolicy == "Block" {
+			m.log.Warnf("Pre-enrollment hook failed with Block policy, retrying with backoff: %v", hookErr)
+			retryErr := wait.ExponentialBackoffWithContext(ctx, m.preEnrollmentBackoff, func(ctx context.Context) (bool, error) {
+				retryCtx := &hook.EnrollmentContext{
+					DeviceName:            enrollCtx.DeviceName,
+					SystemInfo:            enrollCtx.SystemInfo,
+					Labels:                make(map[string]string),
+					ManagementCertificate: nil,
+				}
+				if err := m.hookManager.OnBeforeEnrolling(ctx, retryCtx); err != nil {
+					m.log.Warnf("Pre-enrollment hook retry failed: %v", err)
+					result.actions = retryCtx.Actions
+					return false, nil
+				}
+				result.success = true
+				result.actions = retryCtx.Actions
+				result.hookLabels = retryCtx.HookLabels
+				return true, nil
+			})
+			if retryErr != nil {
+				return nil, fmt.Errorf("pre-enrollment hooks failed with Block policy (backoff exhausted): %w", retryErr)
+			}
+		} else {
+			m.log.Warnf("Pre-enrollment hook failed with Continue policy, proceeding: %v", hookErr)
+		}
+	}
+
+	result.actions = sanitizePreEnrollmentActions(result.actions, maxPreEnrollmentOutput)
+
+	return result, nil
+}
+
+func (m *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *v1beta1.DeviceStatus, preResult *preEnrollmentResult) error {
 	var csrString string
 	if tpm.IsTCGCSRFormat(m.enrollmentCSR) {
 		// TCG CSR is binary data, must be base64 encoded
@@ -434,7 +522,11 @@ func (m *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *
 		deviceos.ApplyDeltaSystemInfo(&deviceStatus.SystemInfo, m.caps)
 	}
 
-	enrollmentLabels := m.buildEnrollmentLabels(deviceStatus)
+	var hookLabels map[string]string
+	if preResult != nil {
+		hookLabels = preResult.hookLabels
+	}
+	enrollmentLabels := m.buildEnrollmentLabels(deviceStatus, hookLabels)
 
 	req := v1beta1.EnrollmentRequest{
 		ApiVersion: "v1beta1",
@@ -449,6 +541,27 @@ func (m *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *
 			KnownRenderedVersion: knownRenderedVersion,
 			OsMode:               &m.caps.OsMode,
 		},
+	}
+
+	// Populate preEnrollment result if hooks ran
+	if preResult != nil {
+		pre := &v1beta1.PreEnrollmentResult{
+			Success: preResult.success,
+		}
+		if len(preResult.actions) > 0 {
+			apiActions := make([]v1beta1.PreEnrollmentActionResult, len(preResult.actions))
+			for i, action := range preResult.actions {
+				apiActions[i] = v1beta1.PreEnrollmentActionResult{
+					Source:   action.Source,
+					ExitCode: action.ExitCode,
+				}
+				if action.Output != "" {
+					apiActions[i].Output = &action.Output
+				}
+			}
+			pre.Actions = &apiActions
+		}
+		req.Spec.PreEnrollment = pre
 	}
 
 	err := wait.ExponentialBackoffWithContext(ctx, m.backoff, func(ctx context.Context) (bool, error) {
@@ -470,9 +583,10 @@ func (m *LifecycleManager) enrollmentRequest(ctx context.Context, deviceStatus *
 // 1. Mapping systemInfo fields (built-in and customInfo) to labels based on labelFromSystemInfo config (sanitized)
 // 2. Adding default alias=hostname if no "alias" label is configured (sanitized)
 // 3. Merging with defaultLabels (validated but not sanitized - invalid labels are skipped)
-func (m *LifecycleManager) buildEnrollmentLabels(deviceStatus *v1beta1.DeviceStatus) map[string]string {
+// 4. Merging with hook labels from pre-enrollment hooks (validated, highest priority)
+func (m *LifecycleManager) buildEnrollmentLabels(deviceStatus *v1beta1.DeviceStatus, hookLabels map[string]string) map[string]string {
 	// Start with labels from systemInfo mappings
-	labels := make(map[string]string, len(m.labelFromSystemInfo)+len(m.defaultLabels)+1)
+	labels := make(map[string]string, len(m.labelFromSystemInfo)+len(m.defaultLabels)+len(hookLabels)+1)
 
 	// Extract and sanitize systemInfo field mappings (includes both built-in and customInfo fields)
 	for labelName, fieldName := range m.labelFromSystemInfo {
@@ -524,6 +638,19 @@ func (m *LifecycleManager) buildEnrollmentLabels(deviceStatus *v1beta1.DeviceSta
 	for labelName, labelValue := range m.defaultLabels {
 		if err := validation.ValidateLabelValue(labelName, labelValue); len(err) > 0 {
 			m.log.Errorf("Invalid default-label %q=%q: %v - skipping this label. Please fix your agent configuration.", labelName, labelValue, err)
+			continue
+		}
+		labels[labelName] = labelValue
+	}
+
+	// Merge hook labels (highest priority — later wins on key conflict)
+	for labelName, labelValue := range hookLabels {
+		if keyErrs := validation.ValidateLabelKey(labelName); len(keyErrs) > 0 {
+			m.log.Errorf("Invalid hook label key %q: %v - skipping", labelName, keyErrs)
+			continue
+		}
+		if err := validation.ValidateLabelValue(labelName, labelValue); len(err) > 0 {
+			m.log.Errorf("Invalid hook label value for key %q: %v - skipping", labelName, err)
 			continue
 		}
 		labels[labelName] = labelValue

@@ -357,6 +357,8 @@ func (a *Agent) Run(ctx context.Context) error {
 		statusManager,
 		rootSystemdClient,
 		identityProvider,
+		hookManager,
+		a.config.Enrollment.PreEnrollment.FailurePolicy,
 		backoff,
 		a.log,
 	)

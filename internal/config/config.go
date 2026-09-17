@@ -13,6 +13,7 @@ import (
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	authprovider "github.com/flightctl/flightctl/internal/auth/provider"
 	"github.com/flightctl/flightctl/internal/config/ca"
+	deltaconfig "github.com/flightctl/flightctl/internal/delta_worker/config"
 	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/util"
 	"sigs.k8s.io/yaml"
@@ -23,27 +24,28 @@ const (
 )
 
 type Config struct {
-	Database               *dbConfig                  `json:"database,omitempty"`
-	Service                *svcConfig                 `json:"service,omitempty"`
-	RemoteAccessService    *RemoteAccessServiceConfig `json:"remoteAccessService,omitempty"`
-	ImageBuilderService    *ImageBuilderServiceConfig `json:"imageBuilderService,omitempty"`
-	ImageBuilderWorker     *imageBuilderWorkerConfig  `json:"imageBuilderWorker,omitempty"`
-	Worker                 *workerConfig              `json:"worker,omitempty"`
-	KV                     *kvConfig                  `json:"kv,omitempty"`
-	Alertmanager           *alertmanagerConfig        `json:"alertmanager,omitempty"`
-	Auth                   *authConfig                `json:"auth,omitempty"`
-	Metrics                *metricsConfig             `json:"metrics,omitempty"`
-	CA                     *ca.Config                 `json:"ca,omitempty"`
-	Tracing                *TracingConfig             `json:"tracing,omitempty"`
-	Profiling              *ProfilingConfig           `json:"profiling,omitempty"`
-	GitOps                 *gitOpsConfig              `json:"gitOps,omitempty"`
-	CryptoPolicy           *CryptoPolicyConfig        `json:"cryptoPolicy,omitempty"`
-	Periodic               *periodicConfig            `json:"periodic,omitempty"`
-	Organizations          *organizationsConfig       `json:"organizations,omitempty"`
-	TelemetryGateway       *telemetryGatewayConfig    `json:"telemetrygateway,omitempty"`
-	VulnerabilityReporting *VulnerabilityConfig       `json:"vulnerabilityReporting,omitempty"`
-	DependenciesSync       *DependenciesSyncConfig    `json:"dependenciesSync,omitempty"`
-	Encryption             *EncryptionConfig          `json:"encryption,omitempty"`
+	Database               *dbConfig                          `json:"database,omitempty"`
+	Service                *svcConfig                         `json:"service,omitempty"`
+	RemoteAccessService    *RemoteAccessServiceConfig         `json:"remoteAccessService,omitempty"`
+	ImageBuilderService    *ImageBuilderServiceConfig         `json:"imageBuilderService,omitempty"`
+	ImageBuilderWorker     *imageBuilderWorkerConfig          `json:"imageBuilderWorker,omitempty"`
+	Worker                 *workerConfig                      `json:"worker,omitempty"`
+	KV                     *kvConfig                          `json:"kv,omitempty"`
+	Alertmanager           *alertmanagerConfig                `json:"alertmanager,omitempty"`
+	Auth                   *authConfig                        `json:"auth,omitempty"`
+	Metrics                *metricsConfig                     `json:"metrics,omitempty"`
+	CA                     *ca.Config                         `json:"ca,omitempty"`
+	Tracing                *TracingConfig                     `json:"tracing,omitempty"`
+	Profiling              *ProfilingConfig                   `json:"profiling,omitempty"`
+	GitOps                 *gitOpsConfig                      `json:"gitOps,omitempty"`
+	CryptoPolicy           *CryptoPolicyConfig                `json:"cryptoPolicy,omitempty"`
+	Periodic               *periodicConfig                    `json:"periodic,omitempty"`
+	Organizations          *organizationsConfig               `json:"organizations,omitempty"`
+	TelemetryGateway       *telemetryGatewayConfig            `json:"telemetrygateway,omitempty"`
+	VulnerabilityReporting *VulnerabilityConfig               `json:"vulnerabilityReporting,omitempty"`
+	DeltaGeneration        *deltaconfig.DeltaGenerationConfig `json:"deltaGeneration,omitempty"`
+	DependenciesSync       *DependenciesSyncConfig            `json:"dependenciesSync,omitempty"`
+	Encryption             *EncryptionConfig                  `json:"encryption,omitempty"`
 }
 
 // CryptoPolicyConfig contains cryptographic policy configuration for all protocols.
@@ -407,9 +409,17 @@ func (c *imageBuilderWorkerConfig) EffectiveSyftSkipTLSVerify() bool {
 
 const DefaultVirtLauncherImage = "quay.io/kubevirt/virt-launcher:v1.9.0"
 
+// DefaultRenderTimeout is the default time budget for a single device render
+// operation (config + application rendering + DB writes). It replaces the
+// shared EventProcessingTimeout for render tasks so that devices with
+// multiple VM applications have enough time for sequential vm-to-quadlet
+// subprocess invocations.
+const DefaultRenderTimeout = 60 * time.Second
+
 // workerConfig holds configuration for the flightctl-worker service.
 type workerConfig struct {
-	VmRender *vmRenderConfig `json:"vmRender,omitempty"`
+	RenderTimeout util.Duration   `json:"renderTimeout,omitempty"`
+	VmRender      *vmRenderConfig `json:"vmRender,omitempty"`
 }
 
 // vmRenderConfig holds options for converting VmApplications to Quadlet units
@@ -449,6 +459,14 @@ func (c *Config) EffectiveVmPasstWorkarounds() bool {
 	return c.Worker.EffectivePasstWorkarounds()
 }
 
+// EffectiveRenderTimeout returns the time budget for a single device render operation.
+func (c *Config) EffectiveRenderTimeout() time.Duration {
+	if c == nil || c.Worker == nil {
+		return DefaultRenderTimeout
+	}
+	return c.Worker.EffectiveRenderTimeout()
+}
+
 // EffectiveLauncherImage returns the virt-launcher image for osKey.
 func (c *workerConfig) EffectiveLauncherImage(osKey string) string {
 	if c == nil || c.VmRender == nil {
@@ -471,6 +489,14 @@ func (c *workerConfig) EffectivePasstWorkarounds() bool {
 		return *c.VmRender.PasstWorkarounds
 	}
 	return false
+}
+
+// EffectiveRenderTimeout returns the configured render timeout for the worker.
+func (c *workerConfig) EffectiveRenderTimeout() time.Duration {
+	if c != nil && c.RenderTimeout > 0 {
+		return time.Duration(c.RenderTimeout)
+	}
+	return DefaultRenderTimeout
 }
 
 // IsSBOMEnabled returns whether SBOM generation is enabled.
@@ -1285,6 +1311,7 @@ func applyEnvVarOverrides(c *Config) {
 		c.Database.MigrationPassword = api.SecureString(dbMigrationPass)
 	}
 	applyVulnerabilityReportingEnvVarOverrides(c)
+	applyDeltaGenerationEnvVarOverrides(c)
 	// CRYPTO_FORCE_FIPS environment variable sets the global crypto policy FIPS mode.
 	// This overrides auto-detection and applies to all cryptographic protocols.
 	// Valid values: "true", "1" (enable), "false", "0" (disable)
@@ -1418,6 +1445,26 @@ func applyVulnerabilityReportingDefaults(c *Config) {
 	}
 	if v.Quay.MaxConcurrentRequests == 0 {
 		v.Quay.MaxConcurrentRequests = DefaultQuayMaxConcurrentRequests
+	}
+}
+
+func applyDeltaGenerationEnvVarOverrides(c *Config) {
+	username := os.Getenv("DELTA_GENERATION_DEFAULT_REPOSITORY_USERNAME")
+	password := os.Getenv("DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD")
+	if username == "" && password == "" {
+		return
+	}
+	if c.DeltaGeneration == nil {
+		c.DeltaGeneration = &deltaconfig.DeltaGenerationConfig{}
+	}
+	if c.DeltaGeneration.DefaultRepository == nil {
+		c.DeltaGeneration.DefaultRepository = &deltaconfig.DefaultRepositoryConfig{}
+	}
+	if username != "" {
+		c.DeltaGeneration.DefaultRepository.Username = username
+	}
+	if password != "" {
+		c.DeltaGeneration.DefaultRepository.Password = api.SecureString(password)
 	}
 }
 
@@ -1691,6 +1738,10 @@ func Validate(cfg *Config) error {
 		}
 	}
 
+	if err := validateDeltaGeneration(cfg); err != nil {
+		return err
+	}
+
 	// Validate OIDC and OAuth2 provider role assignments
 	if cfg.Auth != nil {
 		if cfg.Auth.OIDC != nil {
@@ -1706,6 +1757,13 @@ func Validate(cfg *Config) error {
 	}
 
 	return nil
+}
+
+func validateDeltaGeneration(cfg *Config) error {
+	if cfg == nil {
+		return nil
+	}
+	return cfg.DeltaGeneration.Validate()
 }
 
 func validateAuthProviderRoleAssignment(roleAssignment api.AuthRoleAssignment, providerType string) error {
@@ -1784,6 +1842,11 @@ func (cfg *Config) sanitizeForLogging() *Config {
 		if sanitized.Auth.PAMOIDCIssuer != nil && sanitized.Auth.PAMOIDCIssuer.ClientSecret != "" {
 			sanitized.Auth.PAMOIDCIssuer.ClientSecret = "[REDACTED]"
 		}
+	}
+
+	if sanitized.DeltaGeneration != nil && sanitized.DeltaGeneration.DefaultRepository != nil && sanitized.DeltaGeneration.DefaultRepository.CaCrt != nil {
+		redacted := "[REDACTED]"
+		sanitized.DeltaGeneration.DefaultRepository.CaCrt = &redacted
 	}
 
 	return &sanitized

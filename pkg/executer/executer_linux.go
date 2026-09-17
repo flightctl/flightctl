@@ -3,9 +3,7 @@
 package executer
 
 import (
-	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -63,17 +61,5 @@ func (e *commonExecuter) CommandContext(ctx context.Context, command string, arg
 }
 
 func (e *commonExecuter) execute(ctx context.Context, cmd *exec.Cmd) (stdout string, stderr string, exitCode int) {
-	var stdoutBytes, stderrBytes bytes.Buffer
-	cmd.Stdout = &stdoutBytes
-	cmd.Stderr = &stderrBytes
-
-	if err := cmd.Run(); err != nil {
-		// handle timeout error
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return stdoutBytes.String(), context.DeadlineExceeded.Error(), 124
-		}
-		return stdoutBytes.String(), getErrorStr(err, &stderrBytes), getExitCode(err)
-	}
-
-	return stdoutBytes.String(), stderrBytes.String(), 0
+	return e.runCmd(ctx, cmd, 0)
 }

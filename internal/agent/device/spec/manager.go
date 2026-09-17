@@ -29,6 +29,9 @@ const (
 	// If a rollback occurs, this spec hash is marked as failed to prevent
 	// re-applying the same spec content even if the rendered version changes.
 	annotationDesiredSpecHash = "agent/desiredSpecHash"
+	// annotationRollbackError stores the formatted sync error that triggered
+	// an OS rollback so it can be reported after reboot.
+	annotationRollbackError = "agent/rollbackError"
 )
 
 // manager is responsible for managing the rendered device spec.
@@ -347,11 +350,36 @@ func (s *manager) GetRollbackInfo() (RollbackInfo, error) {
 		}
 		return RollbackInfo{}, fmt.Errorf("reading rollback spec: %w", err)
 	}
+	if rollback.Metadata.Annotations == nil {
+		return RollbackInfo{}, nil
+	}
 	annotations := *rollback.Metadata.Annotations
 	return RollbackInfo{
-		Version:  annotations[annotationDesiredVersion],
-		SpecHash: annotations[annotationDesiredSpecHash],
+		Version:      annotations[annotationDesiredVersion],
+		SpecHash:     annotations[annotationDesiredSpecHash],
+		ErrorMessage: annotations[annotationRollbackError],
 	}, nil
+}
+
+func (s *manager) RecordRollbackError(ctx context.Context, message string) error {
+	if message == "" {
+		return nil
+	}
+	rollback, err := s.Read(Rollback)
+	if err != nil {
+		return fmt.Errorf("reading rollback spec: %w", err)
+	}
+	annotations := rollback.Metadata.Annotations
+	if annotations == nil {
+		m := map[string]string{}
+		rollback.Metadata.Annotations = &m
+		annotations = rollback.Metadata.Annotations
+	}
+	(*annotations)[annotationRollbackError] = message
+	if err := s.write(ctx, Rollback, rollback, audit.ReasonRollback); err != nil {
+		return fmt.Errorf("writing rollback error: %w", err)
+	}
+	return nil
 }
 
 func (s *manager) Rollback(ctx context.Context, opts ...RollbackOption) error {

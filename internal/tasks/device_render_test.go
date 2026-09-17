@@ -1072,12 +1072,10 @@ func TestRenderDevice_CatalogRefAndPlainImage_ResolveIndependently(t *testing.T)
 	mockCatalogSvc := catalogservice.NewMockService(ctrl)
 
 	expectedCatalogOsImage := artifactUri + ":" + containerRef
-	gomock.InOrder(
-		mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(catalogDevice, statusOK),
-		mockDeviceSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK),
-		mockCatalogSvc.EXPECT().GetCatalogItem(gomock.Any(), orgId, catalogName, itemName).Return(catalogItem, statusOK),
-		mockDeviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), expectedCatalogOsImage, gomock.Any(), gomock.Any()).Return(statusOK),
-	)
+	mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).Return(catalogDevice, statusOK)
+	mockDeviceSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK)
+	mockCatalogSvc.EXPECT().GetCatalogItem(gomock.Any(), orgId, catalogName, itemName).Return(catalogItem, statusOK)
+	mockDeviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), expectedCatalogOsImage, gomock.Any(), gomock.Any()).Return(statusOK)
 
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
 	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, mockCatalogSvc, nil, newTestKVStore(), &config.Config{}, orgId, event)
@@ -1382,4 +1380,161 @@ func TestRenderApplication_ImageMountVolumeCatalogRef_ResolvesToImage(t *testing
 		assert.Nil(t, imgMountProvider.Image.CatalogItemRef)
 		assert.Equal(t, "/data", imgMountProvider.Mount.Path)
 	})
+}
+
+func TestRenderSpec_WhenCatalogItemRefItShouldResolveOsImageWithoutPersisting(t *testing.T) {
+	const (
+		catalogName  = "my-catalog"
+		itemName     = "rhel-edge"
+		version      = "9.4.0"
+		containerRef = "v9.4.0"
+		artifactUri  = "quay.io/redhat/rhel-edge"
+	)
+
+	orgId := uuid.New()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	catalogItem := makeCatalogItem(v1alpha1.CatalogItemTypeOS, artifactUri, version, containerRef)
+	mockCatalogSvc := catalogservice.NewMockService(ctrl)
+	mockCatalogSvc.EXPECT().GetCatalogItem(gomock.Any(), orgId, catalogName, itemName).Return(catalogItem, statusOK)
+
+	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, "device-1")
+	logic := NewDeviceRenderLogic(logrus.New(), nil, nil, mockCatalogSvc, nil, newTestKVStore(), &config.Config{}, orgId, event)
+
+	spec := &domain.DeviceSpec{
+		Os: &domain.DeviceOsSpec{
+			CatalogItemRef: &api.CatalogItemRefSpec{
+				Catalog: catalogName,
+				Item:    itemName,
+				Version: version,
+			},
+		},
+	}
+
+	rendered, err := logic.RenderSpec(context.Background(), spec)
+	require.NoError(t, err)
+	assert.Equal(t, artifactUri+":"+containerRef, rendered.OsImage)
+}
+
+func TestRenderSpec_WhenHTTPConfigItShouldIncludeFetchedBodyWithoutPersisting(t *testing.T) {
+	const (
+		repoName = "http-repo"
+		suffix   = "/os.json"
+		filePath = "/etc/os.json"
+		body     = `{"image":"quay.io/os/edge:latest"}`
+		fleet    = "my-fleet"
+		tv       = "tv-1"
+	)
+
+	orgId := uuid.New()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	repo := makeHTTPRepository(repoName, srv.URL)
+	mockRepoSvc := repositoryservice.NewMockService(ctrl)
+	mockRepoSvc.EXPECT().GetRepository(gomock.Any(), orgId, repoName).Return(repo, statusOK)
+
+	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, "device-1")
+	logic := newFleetOwnedLogic(mockRepoSvc, nil, newTestKVStore(), orgId, event, fleet, tv)
+
+	item := makeHTTPConfigItem("http-cfg", repoName, suffix, filePath)
+	spec := &domain.DeviceSpec{
+		Os:     &domain.DeviceOsSpec{Image: "quay.io/os/base:latest"},
+		Config: &[]domain.ConfigProviderSpec{item},
+	}
+
+	rendered, err := logic.RenderSpec(context.Background(), spec)
+	require.NoError(t, err)
+	assert.Equal(t, "quay.io/os/base:latest", rendered.OsImage)
+	assert.Contains(t, string(rendered.Config), base64.StdEncoding.EncodeToString([]byte(body)))
+}
+
+// TestDeviceRender_NonDeviceKind verifies that deviceRender returns nil when
+// invoked with a non-Device event kind.
+func TestDeviceRender_NonDeviceKind(t *testing.T) {
+	orgId := uuid.New()
+	event := createTestEvent(domain.FleetKind, domain.EventReasonResourceUpdated, "some-fleet")
+	cfg := &config.Config{}
+
+	err := deviceRender(context.Background(), orgId, event, nil, nil, nil, nil, nil, cfg, logrus.New())
+	require.NoError(t, err, "deviceRender should return nil for non-Device events")
+}
+
+// TestDeviceRender_DetachedContextSurvivesParentDeadline verifies that the
+// render operation continues after the parent context's deadline expires.
+// This is the core regression test for EDM-5717: when EventProcessingTimeout
+// fires, the detached render context must still allow the render to complete.
+func TestDeviceRender_DetachedContextSurvivesParentDeadline(t *testing.T) {
+	const deviceName = "multi-vm-device"
+	orgId := uuid.New()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	device := &domain.Device{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr(deviceName)},
+		Spec:     &domain.DeviceSpec{},
+	}
+
+	mockSvc := deviceservice.NewMockService(ctrl)
+	mockSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).
+		DoAndReturn(func(ctx context.Context, _ uuid.UUID, _ string) (*domain.Device, domain.Status) {
+			assert.NoError(t, ctx.Err(), "render context should be alive even though parent has expired")
+			return device, statusOK
+		})
+	mockSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK)
+	mockSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK)
+
+	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
+	cfg := &config.Config{}
+	expiredCtx, cancel := context.WithTimeout(context.Background(), 0)
+	defer cancel()
+	<-expiredCtx.Done()
+
+	err := deviceRender(expiredCtx, orgId, event, mockSvc, nil, nil, nil, newTestKVStore(), cfg, logrus.New())
+	require.NoError(t, err, "deviceRender should succeed even with an expired parent context")
+}
+
+// TestDeviceRender_ExplicitCancelPropagates verifies that explicit parent
+// cancellation (e.g. shutdown) propagates to the render context.
+func TestDeviceRender_ExplicitCancelPropagates(t *testing.T) {
+	const deviceName = "cancel-device"
+	orgId := uuid.New()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	parentCtx, parentCancel := context.WithCancel(context.Background())
+	device := &domain.Device{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr(deviceName)},
+		Spec:     &domain.DeviceSpec{},
+	}
+
+	mockSvc := deviceservice.NewMockService(ctrl)
+	mockSvc.EXPECT().GetDevice(gomock.Any(), orgId, deviceName).
+		DoAndReturn(func(ctx context.Context, _ uuid.UUID, _ string) (*domain.Device, domain.Status) {
+			parentCancel()
+			<-ctx.Done()
+			return device, statusOK
+		})
+	mockSvc.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgId, deviceName).Return(statusOK).AnyTimes()
+	mockSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK).AnyTimes()
+
+	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
+	cfg := &config.Config{}
+	done := make(chan struct{})
+	go func() {
+		_ = deviceRender(parentCtx, orgId, event, mockSvc, nil, nil, nil, newTestKVStore(), cfg, logrus.New())
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("deviceRender did not terminate promptly after explicit parent cancellation")
+	}
 }

@@ -552,6 +552,7 @@ func TestEncryptionConfigSurvivesRender(t *testing.T) {
 	encryptionServices := []string{
 		"flightctl-api",
 		"flightctl-worker",
+		"flightctl-delta-worker",
 		"flightctl-periodic",
 		"flightctl-alert-exporter",
 		"flightctl-alertmanager-proxy",

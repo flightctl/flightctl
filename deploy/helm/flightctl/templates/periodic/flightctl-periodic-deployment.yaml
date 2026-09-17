@@ -76,7 +76,7 @@ spec:
                   name: {{ $auth.secretName }}
                   key: client_secret
             {{- end }}
-            {{- if and (default false $vuln.enabled) $quay.secretName }}
+            {{- if and (default false $vuln.enabled) (eq $effectiveBackend "quay") $quay.secretName }}
             - name: FLIGHTCTL_VULNERABILITY_REPORTING_QUAY_TOKEN
               valueFrom:
                 secretKeyRef:

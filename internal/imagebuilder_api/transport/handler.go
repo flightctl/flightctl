@@ -467,7 +467,8 @@ func downloadErrorToStatus(err error, name string) domain.Status {
 		errors.Is(err, service.ErrImageExportManifestDigestNotSet) ||
 		errors.Is(err, service.ErrInvalidManifestDigest) ||
 		errors.Is(err, service.ErrInvalidManifestLayerCount) ||
-		errors.Is(err, service.ErrRepositoryNotFound) {
+		errors.Is(err, service.ErrRepositoryNotFound) ||
+		errors.Is(err, service.ErrInvalidImageDest) {
 		return service.StatusBadRequest(err.Error())
 	}
 

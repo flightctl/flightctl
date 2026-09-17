@@ -438,3 +438,89 @@ func TestLoadWithOverrides_DropinErrorHandling(t *testing.T) {
 		})
 	}
 }
+
+func TestPreEnrollmentFailurePolicy(t *testing.T) {
+	require := require.New(t)
+
+	t.Run("When no failurePolicy specified it should default to Continue", func(t *testing.T) {
+		cfg := NewDefault()
+		require.NoError(cfg.Complete())
+		require.Equal("Continue", cfg.Enrollment.PreEnrollment.FailurePolicy)
+	})
+
+	t.Run("When failurePolicy is Block it should survive config load", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		configDir := filepath.Join(tmpDir, "etc", "flightctl")
+		dataDir := filepath.Join(tmpDir, "var", "lib", "flightctl")
+		require.NoError(os.MkdirAll(configDir, 0o755))
+		require.NoError(os.MkdirAll(dataDir, 0o755))
+
+		configFile := filepath.Join(configDir, "config.yaml")
+		content := `enrollment-service:
+  service:
+    server: https://enrollment.endpoint
+    certificate-authority-data: abcd
+  authentication:
+    client-certificate-data: efgh
+    client-key-data: ijkl
+status-update-interval: 0m10s
+enrollment:
+  preEnrollment:
+    failurePolicy: Block
+`
+		require.NoError(os.WriteFile(configFile, []byte(content), 0o600))
+
+		cfg := NewDefault()
+		cfg.ConfigDir = configDir
+		cfg.DataDir = dataDir
+		cfg.readWriter = fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
+		require.NoError(cfg.LoadWithOverrides(configFile))
+		require.NoError(cfg.Complete())
+		require.Equal("Block", cfg.Enrollment.PreEnrollment.FailurePolicy)
+	})
+
+	t.Run("When drop-in overrides failurePolicy it should take precedence", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		configDir := filepath.Join(tmpDir, "etc", "flightctl")
+		dataDir := filepath.Join(tmpDir, "var", "lib", "flightctl")
+		require.NoError(os.MkdirAll(configDir, 0o755))
+		require.NoError(os.MkdirAll(dataDir, 0o755))
+
+		configFile := filepath.Join(configDir, "config.yaml")
+		content := `enrollment-service:
+  service:
+    server: https://enrollment.endpoint
+    certificate-authority-data: abcd
+  authentication:
+    client-certificate-data: efgh
+    client-key-data: ijkl
+status-update-interval: 0m10s
+enrollment:
+  preEnrollment:
+    failurePolicy: Continue
+`
+		require.NoError(os.WriteFile(configFile, []byte(content), 0o600))
+
+		dropinDir := filepath.Join(configDir, "conf.d")
+		require.NoError(os.MkdirAll(dropinDir, 0o755))
+		require.NoError(os.WriteFile(
+			filepath.Join(dropinDir, "10-block.yaml"),
+			[]byte("enrollment:\n  preEnrollment:\n    failurePolicy: Block\n"), 0o600))
+
+		cfg := NewDefault()
+		cfg.ConfigDir = configDir
+		cfg.DataDir = dataDir
+		cfg.readWriter = fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
+		require.NoError(cfg.LoadWithOverrides(configFile))
+		require.NoError(cfg.Complete())
+		require.Equal("Block", cfg.Enrollment.PreEnrollment.FailurePolicy)
+	})
+
+	t.Run("When failurePolicy is invalid it should fail Complete", func(t *testing.T) {
+		cfg := NewDefault()
+		cfg.Enrollment.PreEnrollment.FailurePolicy = "block"
+		err := cfg.Complete()
+		require.Error(err)
+		require.Contains(err.Error(), "failurePolicy")
+	})
+}

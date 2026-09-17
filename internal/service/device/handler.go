@@ -70,6 +70,10 @@ func NewDeviceServiceHandler(
 
 var _ Service = (*DeviceServiceHandler)(nil)
 
+func (h *DeviceServiceHandler) HealthcheckDevices(ctx context.Context, orgId uuid.UUID, names []string) error {
+	return h.deviceStore.Healthcheck(ctx, orgId, names)
+}
+
 // SanitizeDevice clears status and managed metadata from an untrusted device document
 // (HTTP body). Trusted callers that must preserve Owner/annotations must not use this.
 func SanitizeDevice(device *domain.Device) {

@@ -106,3 +106,25 @@ data:
     vulnerabilityReporting:
         enabled: true
     {{- end }}
+    {{- $delta := default dict .Values.deltaGeneration }}
+    {{- $defaultRepo := default dict $delta.defaultRepository }}
+    {{- if $defaultRepo.registry }}
+    deltaGeneration:
+        defaultRepository:
+            registry: {{ $defaultRepo.registry | quote }}
+            {{- if $defaultRepo.repository }}
+            repository: {{ $defaultRepo.repository | quote }}
+            {{- end }}
+            {{- if $defaultRepo.namespace }}
+            namespace: {{ $defaultRepo.namespace | quote }}
+            {{- end }}
+            {{- if $defaultRepo.scheme }}
+            scheme: {{ $defaultRepo.scheme | quote }}
+            {{- end }}
+            {{- if $defaultRepo.skipServerVerification }}
+            skipServerVerification: true
+            {{- end }}
+            {{- if $defaultRepo.caCrt }}
+            ca.crt: {{ $defaultRepo.caCrt | quote }}
+            {{- end }}
+    {{- end }}

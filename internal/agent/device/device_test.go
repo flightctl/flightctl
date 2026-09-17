@@ -636,6 +636,7 @@ func TestOSRollback(t *testing.T) {
 				mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil).AnyTimes()
 				mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(true)
 				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("quay.io/org/os:v2", true, nil)
+				mockSpecManager.EXPECT().RecordRollbackError(gomock.Any(), gomock.Any()).Return(nil)
 				mockSpecManager.EXPECT().Read(spec.Rollback).Return(&v1beta1.Device{
 					Spec: &v1beta1.DeviceSpec{Os: &v1beta1.DeviceOsSpec{Image: "quay.io/org/os:v1"}},
 				}, nil)
@@ -658,6 +659,29 @@ func TestOSRollback(t *testing.T) {
 				mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil).AnyTimes()
 				mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(true)
 				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("quay.io/org/os:v2", true, nil)
+				mockSpecManager.EXPECT().RecordRollbackError(gomock.Any(), gomock.Any()).Return(nil)
+				mockSpecManager.EXPECT().Read(spec.Rollback).Return(&v1beta1.Device{
+					Spec: &v1beta1.DeviceSpec{Os: &v1beta1.DeviceOsSpec{Image: "quay.io/org/os:v1"}},
+				}, nil)
+				mockHookManager.EXPECT().OnBeforeRebooting(gomock.Any()).Return(nil)
+				mockOSManager.EXPECT().Rollback(gomock.Any(), gomock.Any()).Return(nil)
+			},
+			wantReboot: true,
+		},
+		{
+			name:    "When persisting the rollback error fails it should still reboot",
+			current: newVersionedDeviceWithOS("5", "quay.io/org/os:v1"),
+			desired: newVersionedDeviceWithOS("6", "quay.io/org/os:v2"),
+			setupMocks: func(
+				mockSpecManager *spec.MockManager,
+				mockManagementClient *client.MockManagement,
+				mockHookManager *hook.MockManager,
+				mockOSManager *os.MockManager,
+			) {
+				mockManagementClient.EXPECT().UpdateDeviceStatus(gomock.Any(), deviceName, gomock.Any()).Return(nil).AnyTimes()
+				mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(true)
+				mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return("quay.io/org/os:v2", true, nil)
+				mockSpecManager.EXPECT().RecordRollbackError(gomock.Any(), gomock.Any()).Return(errors.New("write error"))
 				mockSpecManager.EXPECT().Read(spec.Rollback).Return(&v1beta1.Device{
 					Spec: &v1beta1.DeviceSpec{Os: &v1beta1.DeviceOsSpec{Image: "quay.io/org/os:v1"}},
 				}, nil)

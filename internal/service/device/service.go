@@ -59,4 +59,6 @@ type Service interface {
 	ForceUpdateServerSideDeviceStatus(ctx context.Context, orgId uuid.UUID, name string) error
 	ListConnectivityChangedDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, cutoffTime time.Time) (*domain.DeviceList, domain.Status)
 	ListLabels(ctx context.Context, orgId uuid.UUID, params domain.ListLabelsParams) (*domain.LabelList, domain.Status)
+	// HealthcheckDevices records device heartbeats for the given names (batched by the healthchecker).
+	HealthcheckDevices(ctx context.Context, orgId uuid.UUID, names []string) error
 }

@@ -320,7 +320,7 @@ var _ = Describe("DataStore Migration Tests", func() {
 	})
 
 	Context("Vulnerability finding source backfill", func() {
-		It("When upgrading, it should add a nullable source column and backfill pre-existing rows to trustify", func() {
+		It("When upgrading, it should add a nullable source column and backfill pre-existing rows to trustify in batches", func() {
 			freshCtx := testutil.StartSpecTracerForGinkgo(suiteCtx)
 			freshLog := flightlog.InitLogs()
 
@@ -341,25 +341,38 @@ var _ = Describe("DataStore Migration Tests", func() {
 			// we insert below (the initial run had no findings to backfill).
 			Expect(db.Where("key = ?", "backfill_vulnerability_source_v1").Delete(&model.SchemaMigration{}).Error).To(Succeed())
 
-			// Insert a pre-existing finding without a source (simulating a row
-			// written before the column existed) so its source is NULL.
+			const legacyFindingCount = 1001
+
+			// Insert more than one backfill batch of rows written before the source
+			// column existed, so every row initially has a NULL source.
 			Expect(db.Exec(`
 				INSERT INTO vulnerability_findings (image_digest, cve_id, status, severity, first_seen_at, updated_at)
-				VALUES (?, ?, ?, ?, NOW(), NOW())`,
-				"sha256:legacy", "CVE-2020-0001", "affected", "High").Error).To(Succeed())
+				SELECT
+					'sha256:legacy-' || n,
+					'CVE-2020-' || n,
+					'affected',
+					'High',
+					NOW(),
+					NOW()
+				FROM generate_series(1, ?) AS n`, legacyFindingCount).Error).To(Succeed())
 
-			var beforeSource *string
-			Expect(db.Raw(`SELECT source FROM vulnerability_findings WHERE image_digest = ? AND cve_id = ?`,
-				"sha256:legacy", "CVE-2020-0001").Scan(&beforeSource).Error).To(Succeed())
-			Expect(beforeSource).To(BeNil())
+			var missingSources int64
+			Expect(db.Model(&model.VulnerabilityFinding{}).Where("source IS NULL").Count(&missingSources).Error).To(Succeed())
+			Expect(missingSources).To(Equal(int64(legacyFindingCount)))
 
 			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)).To(Succeed())
 
-			var afterSource *string
-			Expect(db.Raw(`SELECT source FROM vulnerability_findings WHERE image_digest = ? AND cve_id = ?`,
-				"sha256:legacy", "CVE-2020-0001").Scan(&afterSource).Error).To(Succeed())
-			Expect(afterSource).ToNot(BeNil())
-			Expect(*afterSource).To(Equal("trustify"))
+			Expect(db.Model(&model.VulnerabilityFinding{}).Where("source IS NULL").Count(&missingSources).Error).To(Succeed())
+			Expect(missingSources).To(BeZero())
+
+			var backfilledSources int64
+			Expect(db.Model(&model.VulnerabilityFinding{}).
+				Where("source = ?", config.VulnerabilityBackendTrustify).
+				Count(&backfilledSources).Error).To(Succeed())
+			Expect(backfilledSources).To(Equal(int64(legacyFindingCount)))
+
+			var marker model.SchemaMigration
+			Expect(db.Where("key = ?", "backfill_vulnerability_source_v1").First(&marker).Error).To(Succeed())
 		})
 	})
 })

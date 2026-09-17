@@ -94,7 +94,7 @@ func (s *Server) Run(ctx context.Context) error {
 	s.log.Println("Initializing PAM issuer server")
 
 	// Load swagger spec
-	swagger, err := pamapi.GetSwagger()
+	swagger, err := pamapi.GetSpec()
 	if err != nil {
 		return fmt.Errorf("failed loading swagger spec: %w", err)
 	}

@@ -19,7 +19,6 @@ var _ = Describe("Encryption at rest — AuthProvider", Label("encryption"), fun
 	)
 
 	BeforeEach(func() {
-		skipIfNoBuiltinDB()
 		harness = e2e.GetWorkerHarness()
 		providers = setup.GetDefaultProviders()
 		clientSecret = "e2e-secret-" + harness.GetTestIDFromContext()
@@ -112,7 +111,6 @@ var _ = Describe("Encryption at rest — Repository", Label("encryption"), func(
 	)
 
 	BeforeEach(func() {
-		skipIfNoBuiltinDB()
 		harness = e2e.GetWorkerHarness()
 		providers = setup.GetDefaultProviders()
 

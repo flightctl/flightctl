@@ -20,6 +20,10 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-worker/flightctl-worker.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-worker.container"), Template: true, Mode: RegularFileMode},
 		{Action: ActionCopyDir, Source: "deploy/podman/flightctl-worker/flightctl-worker-config/", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "flightctl-worker/"), Template: false, Mode: RegularFileMode},
 
+		// Delta-worker service
+		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-delta-worker/flightctl-delta-worker.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-delta-worker.container"), Template: true, Mode: RegularFileMode},
+		{Action: ActionCopyDir, Source: "deploy/podman/flightctl-delta-worker/flightctl-delta-worker-config/", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "flightctl-delta-worker/"), Template: false, Mode: RegularFileMode},
+
 		// Alert Exporter service
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-alert-exporter/flightctl-alert-exporter.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-alert-exporter.container"), Template: true, Mode: RegularFileMode},
 		{Action: ActionCopyDir, Source: "deploy/podman/flightctl-alert-exporter/flightctl-alert-exporter-config/", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "flightctl-alert-exporter/"), Template: false, Mode: RegularFileMode},
@@ -140,6 +144,7 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "pki", "db"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-api"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-worker"), Mode: ExecutableFileMode},
+		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-delta-worker"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-periodic"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-alert-exporter"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-ui"), Mode: ExecutableFileMode},

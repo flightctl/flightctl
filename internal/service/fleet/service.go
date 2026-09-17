@@ -24,4 +24,7 @@ type Service interface {
 	GetFleetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, domain.Status)
 	StopFleetApplication(ctx context.Context, orgId uuid.UUID, name string, appName string) (*domain.Fleet, domain.Status)
 	StartFleetApplication(ctx context.Context, orgId uuid.UUID, name string, appName string) (*domain.Fleet, domain.Status)
+	// UnsetOwner clears fleet ownership for the given owner string. Joins an
+	// active store transaction from ctx when present (e.g. ResourceSync delete cascade).
+	UnsetOwner(ctx context.Context, orgId uuid.UUID, owner string) error
 }
