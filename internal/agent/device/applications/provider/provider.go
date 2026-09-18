@@ -1171,12 +1171,18 @@ func hasQuadletFiles(readWriter fileio.ReadWriter, dirPath string) (bool, error)
 	return false, nil
 }
 
-// writeENVFile writes the environment variables to a .env file in the appPath
+// writeENVFile writes the environment variables to a .env file in the appPath.
+// Values are double-quoted so that special characters (colons, hashes, spaces,
+// etc.) are treated as literal strings by systemd's EnvironmentFile directive
+// and by Podman. Embedded backslashes, double-quotes, and dollar signs inside
+// values are escaped so the quoting is well-formed and no variable expansion
+// occurs.
 func writeENVFile(appPath string, writer fileio.Writer, envVars map[string]string) error {
 	if len(envVars) > 0 {
+		replacer := strings.NewReplacer(`\`, `\\`, `"`, `\"`, `$`, `\$`)
 		var env strings.Builder
 		for k, v := range envVars {
-			env.WriteString(fmt.Sprintf("%s=%s\n", k, v))
+			env.WriteString(fmt.Sprintf("%s=\"%s\"\n", k, replacer.Replace(v)))
 		}
 		envPath := fmt.Sprintf("%s/.env", appPath)
 		if err := writer.WriteFile(envPath, []byte(env.String()), fileio.DefaultFilePermissions); err != nil {

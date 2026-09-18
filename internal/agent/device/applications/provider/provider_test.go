@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
+	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/api/common"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
@@ -652,6 +654,120 @@ func TestGetDiff_WhenOnlyHelmLifecycleFieldsDiffer_ItShouldEnsureNotChange(t *te
 			require.Empty(diff.Changed, "lifecycle-only diff must not trigger Update")
 			require.Len(diff.Ensure, 1)
 			require.Equal(appID, diff.Ensure[0].ID())
+		})
+	}
+}
+
+func TestWriteENVFile(t *testing.T) {
+	tests := []struct {
+		name     string
+		envVars  map[string]string
+		expected map[string]string // key → expected full line in the .env file
+	}{
+		{
+			name:    "When values are plain it should double-quote them",
+			envVars: map[string]string{"FOO": "bar"},
+			expected: map[string]string{
+				"FOO": `FOO="bar"`,
+			},
+		},
+		{
+			name:    "When value contains a colon it should preserve it inside quotes",
+			envVars: map[string]string{"DB_URL": "host:5432"},
+			expected: map[string]string{
+				"DB_URL": `DB_URL="host:5432"`,
+			},
+		},
+		{
+			name:    "When value contains a hash it should preserve it inside quotes",
+			envVars: map[string]string{"COMMENT": "value#with-hash"},
+			expected: map[string]string{
+				"COMMENT": `COMMENT="value#with-hash"`,
+			},
+		},
+		{
+			name:    "When value contains spaces it should preserve them inside quotes",
+			envVars: map[string]string{"GREETING": "hello world"},
+			expected: map[string]string{
+				"GREETING": `GREETING="hello world"`,
+			},
+		},
+		{
+			name:    "When value contains a double-quote it should escape it",
+			envVars: map[string]string{"MSG": `say "hello"`},
+			expected: map[string]string{
+				"MSG": `MSG="say \"hello\""`,
+			},
+		},
+		{
+			name:    "When value contains a backslash it should escape it",
+			envVars: map[string]string{"PATH_VAL": `C:\Users\test`},
+			expected: map[string]string{
+				"PATH_VAL": `PATH_VAL="C:\\Users\\test"`,
+			},
+		},
+		{
+			name:    "When value contains both backslash and double-quote it should escape both",
+			envVars: map[string]string{"COMPLEX": `path\"quoted`},
+			expected: map[string]string{
+				"COMPLEX": `COMPLEX="path\\\"quoted"`,
+			},
+		},
+		{
+			name:    "When value contains a dollar sign it should escape it",
+			envVars: map[string]string{"SECRET": "pa$$word"},
+			expected: map[string]string{
+				"SECRET": `SECRET="pa\$\$word"`,
+			},
+		},
+		{
+			name:    "When value contains dollar backslash and double-quote it should escape all",
+			envVars: map[string]string{"ALL": `cost$10 path\"quoted`},
+			expected: map[string]string{
+				"ALL": `ALL="cost\$10 path\\\"quoted"`,
+			},
+		},
+		{
+			name:    "When value is empty it should produce an empty quoted string",
+			envVars: map[string]string{"EMPTY": ""},
+			expected: map[string]string{
+				"EMPTY": `EMPTY=""`,
+			},
+		},
+		{
+			name:    "When envVars is empty it should not create a file",
+			envVars: map[string]string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			tmpDir := t.TempDir()
+			writer := fileio.NewWriter(fileio.WithWriterRootDir(tmpDir))
+			reader := fileio.NewReader(fileio.WithReaderRootDir(tmpDir))
+
+			appPath := "/test-app"
+			err := fileio.NewReadWriter(reader, writer).MkdirAll(appPath, fileio.DefaultDirectoryPermissions)
+			require.NoError(err)
+
+			err = writeENVFile(appPath, writer, tt.envVars)
+			require.NoError(err)
+
+			if len(tt.envVars) == 0 {
+				exists, err := fileio.NewReadWriter(reader, writer).PathExists(filepath.Join(appPath, ".env"))
+				require.NoError(err)
+				require.False(exists, ".env file should not be created when envVars is empty")
+				return
+			}
+
+			envFile, err := fileio.NewReadWriter(reader, writer).ReadFile(filepath.Join(appPath, ".env"))
+			require.NoError(err)
+			content := string(envFile)
+
+			for _, expectedLine := range tt.expected {
+				require.Contains(content, expectedLine+"\n")
+			}
 		})
 	}
 }
