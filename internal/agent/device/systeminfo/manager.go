@@ -327,6 +327,18 @@ func collectDeviceSystemInfo(
 		log.Warnf("Failed to handle system info keys: %v", err)
 	}
 
+	// Three-state custom info collection based on customKeys:
+	//   nil  → field absent in config: auto-discover all scripts
+	//   []   → explicitly empty:       collect nothing
+	//   [*]  → wildcard:               auto-discover all scripts
+	//   [k…] → explicit keys:          collect only those keys
+	if customKeys == nil {
+		collectionOpts = append(collectionOpts, WithAllCustom())
+	} else if slices.Contains(customKeys, "*") {
+		collectionOpts = append(collectionOpts, WithAllCustom())
+		customKeys = nil
+	}
+
 	info, err := Collect(ctx, log, exec, reader, customKeys, hardwareMapPath, collectionOpts...)
 	if err != nil {
 		log.Errorf("Failed to collect system info: %v", err)
