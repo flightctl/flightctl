@@ -773,3 +773,40 @@ func TestValidateDeltaGenerationDefaultRepository(t *testing.T) {
 		require.NoError(t, Validate(cfg))
 	})
 }
+
+func TestValidateImageBuilderWorkerTimeouts(t *testing.T) {
+	tests := []struct {
+		name          string
+		imageTimeout  time.Duration
+		wantErrorText string
+	}{
+		{
+			name:          "When imageBuilderTimeout is zero it should fail",
+			imageTimeout:  0,
+			wantErrorText: "imageBuilderWorker.imageBuilderTimeout must be greater than 0",
+		},
+		{
+			name:          "When imageBuilderTimeout is negative it should fail",
+			imageTimeout:  -time.Second,
+			wantErrorText: "imageBuilderWorker.imageBuilderTimeout must be greater than 0",
+		},
+		{
+			name:         "When imageBuilderTimeout is positive it should pass",
+			imageTimeout: 5 * time.Minute,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := NewDefault()
+			cfg.ImageBuilderWorker.ImageBuilderTimeout = util.Duration(tt.imageTimeout)
+
+			err := Validate(cfg)
+			if tt.wantErrorText == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tt.wantErrorText)
+		})
+	}
+}

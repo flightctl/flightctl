@@ -1732,10 +1732,8 @@ func Validate(cfg *Config) error {
 		}
 	}
 
-	if cfg.ImageBuilderWorker != nil {
-		if time.Duration(cfg.ImageBuilderWorker.TimeoutCheckTaskInterval) <= 0 {
-			return fmt.Errorf("imageBuilderWorker.timeoutCheckTaskInterval must be greater than 0")
-		}
+	if err := validateImageBuilderWorker(cfg.ImageBuilderWorker); err != nil {
+		return err
 	}
 
 	if err := validateDeltaGeneration(cfg); err != nil {
@@ -1756,6 +1754,19 @@ func Validate(cfg *Config) error {
 		}
 	}
 
+	return nil
+}
+
+func validateImageBuilderWorker(cfg *imageBuilderWorkerConfig) error {
+	if cfg == nil {
+		return nil
+	}
+	if time.Duration(cfg.ImageBuilderTimeout) <= 0 {
+		return fmt.Errorf("imageBuilderWorker.imageBuilderTimeout must be greater than 0")
+	}
+	if time.Duration(cfg.TimeoutCheckTaskInterval) <= 0 {
+		return fmt.Errorf("imageBuilderWorker.timeoutCheckTaskInterval must be greater than 0")
+	}
 	return nil
 }
 

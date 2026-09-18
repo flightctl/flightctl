@@ -95,7 +95,9 @@ func (c *Consumer) generateSBOM(
 		args = append(args, "--tls-verify=false")
 	}
 
-	args = append(args, syftImage, "scan", "--source-name", syftSrcName)
+	// Forward Syft's real progress output to the status updater. A synthetic
+	// heartbeat would keep a genuinely stalled scan alive past its timeout.
+	args = append(args, syftImage, "scan", "-v", "--source-name", syftSrcName)
 	if syftSrcVersion != "" {
 		args = append(args, "--source-version", syftSrcVersion)
 	}
@@ -108,8 +110,8 @@ func (c *Consumer) generateSBOM(
 
 	cmd := exec.CommandContext(ctx, "podman", args...)
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	cmd.Stdout = &statusWriter{buf: &stdout, statusUpdater: podmanWorker.statusUpdater}
+	cmd.Stderr = &statusWriter{buf: &stderr, statusUpdater: podmanWorker.statusUpdater}
 
 	if err := cmd.Run(); err != nil {
 		log.WithError(err).WithFields(logrus.Fields{

@@ -755,6 +755,8 @@
         "logLevel": { "type": "string", "description": "Log level for ImageBuilder Worker" },
         "maxConcurrentBuilds": { "type": "integer", "description": "Maximum concurrent builds" },
         "defaultTTL": { "type": "string", "description": "Default TTL for build resources" },
+        "imageBuilderTimeout": { "type": "string", "description": "Inactivity timeout for image builds and exports" },
+        "timeoutCheckTaskInterval": { "type": "string", "description": "Interval between image build and export timeout checks" },
         "rpmRepoUrl": { "type": "string", "description": "RPM repository URL to add via dnf config-manager --add-repo for flightctl-agent package" },
         "rpmRepoAdd": { "type": "boolean", "description": "Whether to add the RPM repository via dnf config-manager --add-repo (defaults to true)" },
         "rpmRepoEnable": { "type": "string", "description": "RPM repository name to enable via --enablerepo for flightctl-agent package installation" },
