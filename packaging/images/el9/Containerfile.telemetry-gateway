@@ -1,4 +1,6 @@
-FROM registry.access.redhat.com/ubi9/go-toolset:1.26.7-1787774815 as build
+ARG BUILD_BASE
+ARG RUN_BASE
+FROM ${BUILD_BASE} as build
 WORKDIR /app
 
 # Switch to root for build operations
@@ -38,7 +40,7 @@ RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
     make build-telemetry-gateway
 
-FROM quay.io/flightctl/flightctl-base:9.7-1762965531
+FROM ${RUN_BASE}
 WORKDIR /app
 LABEL \
   com.redhat.component="flightctl-telemetry-gateway-container" \
