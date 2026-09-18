@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/auth/authn"
@@ -125,7 +126,7 @@ func initAAPAuth(cfg *config.Config, log logrus.FieldLogger) (common.AuthNMiddle
 		Name: &providerName,
 	}
 
-	authNProvider, err := authn.NewAapGatewayAuth(metadata, spec, getTlsConfig(cfg))
+	authNProvider, err := authn.NewAapGatewayAuth(metadata, spec, getTlsConfig(cfg), time.Duration(cfg.Auth.AAPIdentityCacheTTL))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create AAP Gateway AuthN: %w", err)
 	}
