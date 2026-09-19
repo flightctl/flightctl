@@ -6,9 +6,9 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/flightctl/flightctl/internal/delta_worker/model"
+	delta "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
 	"github.com/flightctl/flightctl/internal/flterrors"
-	"github.com/flightctl/flightctl/internal/store/delta"
-	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
@@ -21,7 +21,7 @@ type stubGenerationLookup struct {
 	err   error
 }
 
-func (s *stubGenerationLookup) GetGeneration(_ context.Context, _ delta.GenerationKey, _ ...delta.GenerationGetOption) (*model.DeltaGeneration, error) {
+func (s *stubGenerationLookup) GetDeltaGeneration(_ context.Context, _ delta.GenerationKey, _ ...delta.GenerationGetOption) (*model.DeltaGeneration, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.calls++

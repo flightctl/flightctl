@@ -9,6 +9,8 @@ import (
 	v1alpha1 "github.com/flightctl/flightctl/api/core/v1alpha1"
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
+	deltamodel "github.com/flightctl/flightctl/internal/delta_worker/model"
+	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/rendered"
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
@@ -20,7 +22,6 @@ import (
 	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
 	"github.com/flightctl/flightctl/internal/store"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
-	deltastore "github.com/flightctl/flightctl/internal/store/delta"
 	dependencyrefstore "github.com/flightctl/flightctl/internal/store/dependencyref"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
@@ -1312,12 +1313,12 @@ var _ = Describe("DeviceRender", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			deltaStore := deltastore.NewStore(db, log.WithField("pkg", "delta-store"))
-			_, err = deltaStore.InsertGenerations(ctx, []*model.DeltaGeneration{{
+			_, err = deltaStore.InsertDeltaGenerations(ctx, []*deltamodel.DeltaGeneration{{
 				OrgID:           orgId,
 				ImageRepository: "quay.io/acme/os",
 				SourceDigest:    srcDigest,
 				TargetDigest:    tgtDigest,
-				Status:          model.DeltaGenerationSucceeded,
+				Status:          deltamodel.DeltaGenerationSucceeded,
 				DeltaRef:        lo.ToPtr(deltaRef),
 				SizeBytes:       &sizeBytes,
 			}})
