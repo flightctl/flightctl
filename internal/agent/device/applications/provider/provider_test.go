@@ -250,6 +250,35 @@ func TestExtractQuadletTargets(t *testing.T) {
 	}
 }
 
+func TestDecorateApplicationTargets(t *testing.T) {
+	parentHint := "quay.io/acme/deltas/app@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+	childHint := "quay.io/acme/deltas/child@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+
+	targets := []dependency.OCIPullTarget{
+		{Reference: "quay.io/acme/app@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+		{Reference: "quay.io/acme/child@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+		{Reference: "quay.io/acme/other:latest"},
+	}
+
+	got := decorateApplicationTargets(
+		targets,
+		&parentHint,
+		[]v1beta1.ImageDeltaHint{{
+			TargetDigest: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+			DeltaImage:   childHint,
+		}},
+		"app",
+		nil,
+	)
+
+	require.Equal(t, parentHint, got[0].Delta.Hint)
+	require.Equal(t, childHint, got[1].Delta.Hint)
+	require.Equal(t, "app", got[0].Delta.Application)
+	require.Equal(t, "app", got[1].Delta.Application)
+	require.NotNil(t, got[2].Delta)
+	require.Empty(t, got[2].Delta.Hint)
+}
+
 func TestCollectProviderTargetsDeferredDependencies(t *testing.T) {
 	tests := []struct {
 		name                string
@@ -414,7 +443,7 @@ func TestCollectProviderTargetsDeferredDependencies(t *testing.T) {
 			providers := tt.providers(ctrl)
 			ctx := context.Background()
 
-			collection, err := collectProviderTargets(ctx, logger, providers, nil, NewOCITargetCache(), NewAppDataCache())
+			collection, err := collectProviderTargets(ctx, logger, providers, nil, NewOCITargetCache(), NewAppDataCache(), nil)
 
 			if tt.wantErr {
 				require.Error(err)
