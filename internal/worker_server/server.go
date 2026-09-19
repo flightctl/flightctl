@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
+	workerservice "github.com/flightctl/flightctl/internal/delta_worker/service"
+	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
 	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
 	"github.com/flightctl/flightctl/internal/kvstore"
@@ -110,6 +112,7 @@ func (s *Server) Run(ctx context.Context) error {
 	canaryStore := canarystore.NewCanaryStore(s.db, s.log.WithField("pkg", "canary-store"))
 	canarySvc := canaryservice.WrapWithTracing(canaryservice.NewServiceHandler(canaryStore))
 	catStore := catalogstore.NewCatalogStore(s.db, s.log.WithField("pkg", "catalog-store"))
+	deltaStore := deltastore.NewStore(s.db, s.log.WithField("pkg", "delta-store"))
 
 	eventsSvc := events.NewServiceHandler(eventStore, workerClient, s.log)
 
@@ -147,6 +150,8 @@ func (s *Server) Run(ctx context.Context) error {
 		EncryptionMigrator: encryptionMigrator,
 		QueuePublisher:     publisher,
 		WorkerClient:       workerClient,
+		DeltaStore:         deltaStore,
+		Preparing:          workerservice.NewStorePreparingStatus(fleetStore, deviceStore),
 	}, 1, 1); err != nil {
 		s.log.WithError(err).Error("failed to launch consumers")
 		return err
