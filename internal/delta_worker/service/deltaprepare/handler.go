@@ -5,18 +5,46 @@ import (
 	"fmt"
 
 	"github.com/flightctl/flightctl/internal/delta_worker/model"
+	workerservice "github.com/flightctl/flightctl/internal/delta_worker/service"
 	deltagenerationstore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
 	deltapreparestore "github.com/flightctl/flightctl/internal/delta_worker/store/deltaprepare"
+	eventservice "github.com/flightctl/flightctl/internal/service/events"
 	"github.com/google/uuid"
 )
 
 type ServiceHandler struct {
 	store  deltapreparestore.Store
-	status StatusService
+	status *workerservice.StorePreparingStatus
+	events eventservice.Service
 }
 
-func NewServiceHandler(store deltapreparestore.Store, status StatusService) *ServiceHandler {
+func NewServiceHandler(store deltapreparestore.Store, status *workerservice.StorePreparingStatus) *ServiceHandler {
 	return &ServiceHandler{store: store, status: status}
+}
+
+// NewCompletionService creates the delta-prepare service with the additional
+// dependencies required by completion tasks. Completion remains on the same
+// concrete service as prepare persistence; the separate constructor only
+// makes the required resource services explicit at wiring time.
+func NewCompletionService(
+	store deltapreparestore.Store,
+	status *workerservice.StorePreparingStatus,
+	events eventservice.Service,
+) (*ServiceHandler, error) {
+	if store == nil {
+		return nil, fmt.Errorf("delta prepare store is required")
+	}
+	if status == nil {
+		return nil, fmt.Errorf("preparing status service is required")
+	}
+	if events == nil {
+		return nil, fmt.Errorf("event service is required")
+	}
+	return &ServiceHandler{
+		store:  store,
+		status: status,
+		events: events,
+	}, nil
 }
 
 var _ Service = (*ServiceHandler)(nil)
@@ -49,14 +77,6 @@ func (h *ServiceHandler) GetDeltaPrepare(ctx context.Context, key deltapreparest
 	return prepare, nil
 }
 
-func (h *ServiceHandler) DecrementPendingGenerationsForGeneration(ctx context.Context, key deltagenerationstore.GenerationKey) ([]deltapreparestore.PrepareProgress, error) {
-	progress, err := h.store.DecrementPendingGenerationsForGeneration(ctx, key)
-	if err != nil {
-		return nil, fmt.Errorf("decrement pending generations for generation: %w", err)
-	}
-	return progress, nil
-}
-
 func (h *ServiceHandler) ListDeltaPrepares(ctx context.Context, ids []uuid.UUID) ([]model.DeltaPrepare, error) {
 	prepares, err := h.store.ListDeltaPrepares(ctx, ids)
 	if err != nil {
@@ -73,12 +93,12 @@ func (h *ServiceHandler) UpdateDeltaPrepare(ctx context.Context, expectedResourc
 	return updated, nil
 }
 
-func (h *ServiceHandler) CountDeltaPrepareGenerations(ctx context.Context, prepareID uuid.UUID) (int, int, error) {
-	completed, total, err := h.store.CountDeltaPrepareGenerations(ctx, prepareID)
+func (h *ServiceHandler) DecrementPendingGenerationsForGeneration(ctx context.Context, key deltagenerationstore.GenerationKey) ([]deltapreparestore.PrepareProgress, error) {
+	progress, err := h.store.DecrementPendingGenerationsForGeneration(ctx, key)
 	if err != nil {
-		return 0, 0, fmt.Errorf("count delta prepare generations: %w", err)
+		return nil, fmt.Errorf("decrement pending generations for generation: %w", err)
 	}
-	return completed, total, nil
+	return progress, nil
 }
 
 func (h *ServiceHandler) SetDeltaPreparingStatus(ctx context.Context, orgID uuid.UUID, kind, name string, completed, total int) error {

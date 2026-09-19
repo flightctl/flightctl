@@ -51,6 +51,9 @@ func (m *MockDevice) Mutate(ctx context.Context, orgId uuid.UUID, name string, p
 func (m *MockDevice) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, previous *domain.Device) (*domain.Device, *domain.Device, error) {
 	return nil, nil, nil
 }
+func (m *MockDevice) ReplaceServiceOwnedStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device) (*domain.Device, *domain.Device, error) {
+	return nil, nil, nil
+}
 func (m *MockDevice) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error {
 	return nil
 }

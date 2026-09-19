@@ -5,6 +5,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/delta_worker/model"
 	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
+	"github.com/flightctl/flightctl/internal/domain"
 )
 
 type Service interface {
@@ -13,3 +14,13 @@ type Service interface {
 	ListDeltaGenerations(ctx context.Context, keys []deltastore.GenerationKey) ([]model.DeltaGeneration, error)
 	UpdateDeltaGeneration(ctx context.Context, expectedResourceVersion int64, generation *model.DeltaGeneration) (*model.DeltaGeneration, error)
 }
+
+// ProgressFunc is the callback invoked after a generation is persisted. A
+// callback keeps the generation service independent from the prepare-specific
+// progress implementation without introducing another service interface.
+type ProgressFunc func(
+	ctx context.Context,
+	generation *model.DeltaGeneration,
+	status domain.DeltaGenerationProgressDetailsGenerationStatus,
+	phase *domain.DeltaGenerationPhase,
+) error
