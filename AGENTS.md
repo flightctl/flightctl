@@ -8,7 +8,7 @@ Flight Control is a service for declarative management of fleets of edge devices
 |------|--------|
 | **api/** | OpenAPI specs and generated types; versioned APIs (v1alpha1, v1beta1). See [api/AGENTS.md](api/AGENTS.md). |
 | **cmd/** | Go entrypoints: `flightctl` (CLI), `flightctl-api`, `flightctl-agent`, `flightctl-worker`, `flightctl-periodic`, imagebuilder, PAM issuer, etc. |
-| **internal/** | Service and agent implementation. See [internal/AGENTS.md](internal/AGENTS.md); `internal/agent/` has narrower [internal/agent/AGENTS.md](internal/agent/AGENTS.md). |
+| **internal/** | Service and agent implementation. `internal/agent/` has its own [internal/agent/AGENTS.md](internal/agent/AGENTS.md). |
 | **pkg/** | Shared libraries (version, config, etc.). |
 | **deploy/** | Deployment: Helm (Kubernetes/OpenShift) and Podman quadlets. See [deploy/AGENTS.md](deploy/AGENTS.md). |
 | **test/** | Unit (`internal/`, `api/`), integration (`test/integration/`), e2e (`test/e2e/`). See [test/AGENTS.md](test/AGENTS.md). |
@@ -49,10 +49,142 @@ Flight Control is a service for declarative management of fleets of edge devices
 
 ## Design and implementation structure
 
-Keep architecture visible in package and file boundaries. Server-side and
-component implementation rules live in [internal/AGENTS.md](internal/AGENTS.md),
-with narrower guidance in component directories. Follow the nearest applicable
-`AGENTS.md` and do not migrate established layouts as part of unrelated work.
+Keep architecture visible in package and file boundaries. New files and
+packages should reflect domain responsibilities rather than grouping unrelated
+helpers by implementation technique.
+
+- Keep the primary workflow or handler control flow visible and close to its
+  entrypoint.
+- Where the code uses handlers, services, stores, or tasks, keep their roles
+  distinct: orchestration coordinates work, services own business rules and
+  resource events, and stores own persistence and atomic database operations.
+- Do not move an entire workflow to another layer merely to separate files.
+- Use existing project services, libraries, and neighboring implementations
+  before introducing new wrappers or parallel mechanisms.
+
+### Package structure and ownership
+
+- For service packages that use the project's interface/handler/code-generation
+  convention, keep the provider-owned interface in `service.go`, the concrete
+  implementation and orchestration in `handler.go`, generation directives in
+  `docs.go`, and adjacent tests in `*_test.go`. Keep generated mocks and
+  tracing decorators in `mock.go` and `traced.gen.go`; do not hand-edit those
+  generated files. Resource-specific helpers may remain in the same package
+  when they support that service's workflow. The control-plane details and
+  generator paths are documented in
+  [internal/service/AGENTS.md](internal/service/AGENTS.md).
+- The existing control-plane service, store, and task roots are a legacy/shared
+  layout: resource services live under `internal/service/<resource>/`, stores
+  under `internal/store/<resource>/` (with shared persistence models under
+  `internal/store/model/`), and the older task families remain in the flat
+  `internal/tasks/` package. These packages are used by `flightctl-api` and
+  other existing control-plane binaries, so preserve their locations when
+  modifying existing code and do not use them as the template for new
+  component-specific code. Do not migrate them opportunistically as part of an
+  unrelated change.
+- Component-specific code puts the owning component prefix before the layer.
+  The repository layouts are:
+  - Delta Worker uses `internal/delta_worker/service/<resource>/`,
+    `internal/delta_worker/store/<resource>/`, and
+    `internal/delta_worker/tasks/<task>/`; its task consumer and wiring stay at
+    `internal/delta_worker/tasks/`.
+  - ImageBuilder API keeps its service and store packages at
+    `internal/imagebuilder_api/service/` and
+    `internal/imagebuilder_api/store/`; these are established aggregate
+    packages with operation-specific files rather than one package per
+    resource. ImageBuilder worker task handlers live in the established flat
+    `internal/imagebuilder_worker/tasks/` package.
+  New component code must follow this component-first rule and must not be
+  added to a legacy top-level root when an owning component namespace exists.
+  Preserve an existing component's established subpackage or flat-package
+  shape unless a deliberate migration is in scope.
+- In component-scoped code, keep persistence in the owning component's store
+  namespace and keep the store API and concrete persistence implementation
+  together with their tests. Stores own SQL, transactions, CAS, upserts, and
+  other persistence invariants; services own business workflows and resource
+  events. Composition roots may import stores to construct and wire services,
+  but task and service logic should use the owning service API rather than
+  reaching into an unrelated store.
+- Keep the dependency direction one-way for new resource code: an owning
+  service may depend on its store, but a store must not depend on services, and
+  unrelated services or task packages must use the owning service API instead
+  of importing that store. Coordinate cross-resource workflows through service
+  APIs rather than adding new cross-store dependencies. Existing legacy and
+  component-wiring exceptions are not a model for new code; do not extend them
+  without an explicit architectural decision.
+- For new task families, create a package under the owning component's
+  `tasks/<task>/` directory. Keep a multi-step task workflow in `handler.go`
+  (or use an explicit task-named file for a small event/completion adapter),
+  task-specific helpers beside it, and tests next to the implementation. Keep
+  queue consumption, dispatch, and wiring at the component's `tasks/` root;
+  task handlers orchestrate services and external work, not persistence. For
+  an existing flat task package such as `internal/tasks/` or
+  `internal/imagebuilder_worker/tasks/`, preserve the flat layout unless a
+  migration is explicitly in scope; do not add a second task-package pattern
+  beside it.
+
+### Interfaces and dependencies
+
+Apply these rules in order:
+
+1. Reuse an existing provider-owned service interface when one exists.
+2. When the owning area's established convention requires a provider-owned
+   interface, define it with the provider and keep its generated mock canonical
+   across consumers.
+3. Otherwise, default new internal dependencies to concrete service types.
+   Introduce an interface only for multiple distinct production
+   implementations, a system perimeter such as a third-party SDK, external
+   HTTP client, or database driver, or an explicit user request.
+
+Do not create caller-side or subset interfaces merely to restrict access to a
+service or make unit tests mockable, and do not use function-valued dependency
+fields as a substitute for a coherent service boundary. When a broad service
+surface is the problem, decompose the concrete implementation into cohesive,
+domain-focused services rather than hiding it behind caller-side facades.
+
+### Constructor invariants
+
+- For newly introduced constructors, validate nil-able required dependencies
+  and return an error immediately when one is `nil`.
+- When modifying an existing constructor, preserve its signature unless a
+  deliberate constructor-contract migration is in scope. Do not cascade
+  signature and call-site changes solely to add dependency validation.
+- Do not add method-level defensive `nil` checks for required dependencies. Once
+  construction succeeds, methods may rely on the established invariants.
+- If a dependency is truly optional, initialize a no-op or Null Object in the
+  constructor so normal methods do not need `nil` branches. Preserve intentional
+  optional wrapper behavior documented by area-specific guidance.
+
+```go
+func NewService(repo Repository) (*Service, error) {
+	if repo == nil {
+		return nil, errors.New("repository is required")
+	}
+	return &Service{repo: repo}, nil
+}
+
+func (s *Service) Get(ctx context.Context, id string) (*User, error) {
+	return s.repo.FindByID(ctx, id)
+}
+```
+
+### Resource identity
+
+Treat identity carried by the authoritative event or resource as the source of
+truth unless a documented invariant requires a live lookup or recomputation.
+For example, retain an event's organization and resource identifiers unless the
+handler must validate current ownership or state.
+
+### Persistence
+
+Prefer database-enforced invariants, CAS, upsert, `RETURNING`, and set-based
+operations over application-side read/loop/write sequences. Process collections
+page by page when their size is not bounded by contract.
+
+### Naming
+
+Use names that describe the domain resource and operation, not vague states or
+implementation-only details.
 
 ## Before committing
 
@@ -65,12 +197,8 @@ with narrower guidance in component directories. Follow the nearest applicable
 ## Pointers to area-specific guidance
 
 - **API (OpenAPI, codegen, versioning):** [api/AGENTS.md](api/AGENTS.md)
-- **Internal implementation (architecture, dependencies, constructors, persistence):** [internal/AGENTS.md](internal/AGENTS.md)
 - **Device agent (reconciliation, lifecycle, testing):** [internal/agent/AGENTS.md](internal/agent/AGENTS.md)
 - **Service layer (mockgen/tracing-wrapper conventions for `internal/service/{resource}` sub-packages):** [internal/service/AGENTS.md](internal/service/AGENTS.md)
-- **Delta Worker (component layout, services, stores, and tasks):** [internal/delta_worker/AGENTS.md](internal/delta_worker/AGENTS.md)
-- **ImageBuilder API (aggregate service and store layout):** [internal/imagebuilder_api/AGENTS.md](internal/imagebuilder_api/AGENTS.md)
-- **ImageBuilder worker (flat task layout):** [internal/imagebuilder_worker/AGENTS.md](internal/imagebuilder_worker/AGENTS.md)
 - **Documentation (structure, style, lint):** [docs/AGENTS.md](docs/AGENTS.md)
 - **Deployment (Helm, quadlets, kind):** [deploy/AGENTS.md](deploy/AGENTS.md)
 - **Testing (unit, integration, e2e):** [test/AGENTS.md](test/AGENTS.md)
