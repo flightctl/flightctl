@@ -9,7 +9,8 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
-	deltaworker "github.com/flightctl/flightctl/internal/delta_worker"
+	workerservice "github.com/flightctl/flightctl/internal/delta_worker/service"
+	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
 	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
 	"github.com/flightctl/flightctl/internal/kvstore"
@@ -27,7 +28,6 @@ import (
 	canarystore "github.com/flightctl/flightctl/internal/store/canary"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	checkpointstore "github.com/flightctl/flightctl/internal/store/checkpoint"
-	deltastore "github.com/flightctl/flightctl/internal/store/delta"
 	dependencyrefstore "github.com/flightctl/flightctl/internal/store/dependencyref"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
@@ -151,7 +151,7 @@ func (s *Server) Run(ctx context.Context) error {
 		QueuePublisher:     publisher,
 		WorkerClient:       workerClient,
 		DeltaStore:         deltaStore,
-		Preparing:          deltaworker.NewStorePreparingStatus(fleetStore, deviceStore),
+		Preparing:          workerservice.NewStorePreparingStatus(fleetStore, deviceStore),
 	}, 1, 1); err != nil {
 		s.log.WithError(err).Error("failed to launch consumers")
 		return err

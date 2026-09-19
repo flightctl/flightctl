@@ -9,20 +9,20 @@ import (
 
 	"github.com/containers/image/v5/docker/reference"
 	"github.com/flightctl/flightctl/internal/config"
+	"github.com/flightctl/flightctl/internal/delta_worker/model"
+	delta "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/oci"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
-	"github.com/flightctl/flightctl/internal/store/delta"
-	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/samber/lo"
 )
 
 const generationMemoTTL = 15 * time.Minute
 
 type generationLookup interface {
-	GetGeneration(ctx context.Context, key delta.GenerationKey, opts ...delta.GenerationGetOption) (*model.DeltaGeneration, error)
+	GetDeltaGeneration(ctx context.Context, key delta.GenerationKey, opts ...delta.GenerationGetOption) (*model.DeltaGeneration, error)
 }
 
 type generationMemo struct {
@@ -76,11 +76,11 @@ func deltaWriteSpec(cfg *config.Config) *domain.OciRepoSpec {
 	if err != nil {
 		return nil
 	}
-	return oci.SelectWriteTarget(nil, defaultRepository)
+	return defaultRepository
 }
 
 func (t *DeviceRenderLogic) resolveTargetDigest(ctx context.Context, osImage string) (string, error) {
-	return oci.CachedImageDigest(ctx, t.kvStore, osImage, func(ctx context.Context) (string, error) {
+	return oci.CachedImageDigest(ctx, t.kvStore, t.orgId, osImage, func(ctx context.Context) (string, error) {
 		return oci.InspectImageDigest(ctx, osImage, deltaWriteSpec(t.cfg))
 	})
 }
@@ -203,7 +203,7 @@ func lookupCachedGeneration(ctx context.Context, kv kvstore.KVStore, store gener
 	if store == nil {
 		return nil, nil
 	}
-	gen, err := store.GetGeneration(ctx, key, opts...)
+	gen, err := store.GetDeltaGeneration(ctx, key, opts...)
 	if err != nil {
 		if errors.Is(err, flterrors.ErrResourceNotFound) {
 			_ = writeGenerationMemo(ctx, kv, key, ref, generationMemo{Missing: true})
