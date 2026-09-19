@@ -174,24 +174,6 @@ func (s *Service) Get(ctx context.Context, id string) (*User, error) {
 }
 ```
 
-### Resource identity
-
-Treat identity carried by the authoritative event or resource as the source of
-truth unless a documented invariant requires a live lookup or recomputation.
-For example, retain an event's organization and resource identifiers unless the
-handler must validate current ownership or state.
-
-### Persistence
-
-Prefer database-enforced invariants, CAS, upsert, `RETURNING`, and set-based
-operations over application-side read/loop/write sequences. Process collections
-page by page when their size is not bounded by contract.
-
-### Naming
-
-Use names that describe the domain resource and operation, not vague states or
-implementation-only details.
-
 ## Before committing
 
 1. **Keep docs up to date** – If you change behavior, APIs, or workflows, update the relevant docs in `docs/user/` or `docs/developer/` and run the applicable documentation checks described above and in [docs/AGENTS.md](docs/AGENTS.md).
