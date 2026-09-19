@@ -47,132 +47,55 @@ Flight Control is a service for declarative management of fleets of edge devices
 - **Commits:** All commits must be signed (GPG or SSH). Commit messages must be prefixed with Jira issue key (e.g., `<PROJECT>-<NUMBER>: Description`) or `NO-ISSUE:` for trivial changes.
 - **Jira references:** Do not include Jira issue keys or Jira URLs in source code, comments, test names, or user-facing documentation. Track work in commit messages, pull requests, and Jira instead.
 
-## Design and implementation structure
+## Architecture and package layout
 
-Keep architecture visible in package and file boundaries. New files and
-packages should reflect domain responsibilities rather than grouping unrelated
-helpers by implementation technique.
+- Keep workflow control flow near its entrypoint. Services own business rules
+  and events, stores own persistence and atomicity, and tasks orchestrate
+  services and external work.
+- Reuse existing mechanisms and preserve established layouts unless migration
+  is explicitly in scope.
 
-- Keep the primary workflow or handler control flow visible and close to its
-  entrypoint.
-- Where the code uses handlers, services, stores, or tasks, keep their roles
-  distinct: orchestration coordinates work, services own business rules and
-  resource events, and stores own persistence and atomic database operations.
-- Do not move an entire workflow to another layer merely to separate files.
-- Use existing project services, libraries, and neighboring implementations
-  before introducing new wrappers or parallel mechanisms.
+The repository uses two server-side patterns:
 
-### Package structure and ownership
+- **Legacy/shared:** `internal/service/<resource>/`,
+  `internal/store/<resource>/`, shared models in `internal/store/model/`, and
+  flat tasks in `internal/tasks/`.
+- **Component-based:** `internal/<component>/{service,store,tasks}`; each
+  component may use resource subpackages or an established aggregate/flat
+  package.
 
-The repository has two service-layout patterns:
+| Runtime | Pattern and ownership |
+|---------|-----------------------|
+| `flightctl-api`, `flightctl-worker`, `flightctl-periodic` | Legacy/shared; workers use flat `internal/tasks/`. |
+| `flightctl-alert-exporter`, `flightctl-alertmanager-proxy`, `flightctl-remote-access` | Consume legacy/shared services and stores. |
+| `flightctl-delta-worker` | Owns component-based `internal/delta_worker/{service,store,tasks}/<resource>`; consumer and wiring stay at `tasks/`. |
+| `flightctl-imagebuilder-api` | Owns aggregate component packages `internal/imagebuilder_api/{service,store}`. |
+| `flightctl-imagebuilder-worker` | Owns flat `internal/imagebuilder_worker/tasks/` and consumes ImageBuilder/shared services and stores. |
+| `flightctl-db-migrate`, `flightctl-restore` | Use shared stores; own no service or task packages. |
+| `flightctl-agent` | Uses `internal/agent/`; follow [internal/agent/AGENTS.md](internal/agent/AGENTS.md). |
 
-- **Legacy/shared control-plane pattern:** resource services live under
-  `internal/service/<resource>/`, stores under
-  `internal/store/<resource>/` (with shared persistence models under
-  `internal/store/model/`), and older task families remain in the flat
-  `internal/tasks/` package. Preserve these locations when modifying existing
-  code, but do not use this pattern for new component-owned code or migrate it
-  opportunistically.
-- **Component-based pattern:** the owning component precedes the layer, for
-  example `internal/<component>/service`, `internal/<component>/store`, and
-  `internal/<component>/tasks`. New component-owned code must stay in that
-  namespace. Preserve each component's established resource-subpackage or
-  aggregate/flat-package shape unless a deliberate migration is in scope.
+- Modify legacy/shared code in place; put new component-owned code under its
+  component namespace. Component roots may consume shared services and wire
+  stores, but stores must not depend on services, and tasks or unrelated
+  services use service APIs instead of importing stores.
+- Service packages following the interface/handler convention use `service.go`,
+  `handler.go`, `docs.go`, adjacent tests, and generated `mock.go` and
+  `traced.gen.go`; see [internal/service/AGENTS.md](internal/service/AGENTS.md).
+- Put new task families under the owning component's `tasks/<task>/`; preserve
+  established flat task packages unless migration is in scope.
 
-Use this mapping to select the owning layout:
+### Interfaces and constructors
 
-| Runtime or service | Pattern | Owned or consumed layout |
-|--------------------|---------|--------------------------|
-| `flightctl-api` | Legacy/shared | Owns the main resource services and stores under `internal/service/<resource>/` and `internal/store/<resource>/`. |
-| `flightctl-worker` | Legacy/shared | Uses shared services and stores; task handlers remain in the flat `internal/tasks/` package. |
-| `flightctl-periodic` | Legacy/shared | Uses shared services and stores plus the flat `internal/tasks/` package through `internal/periodic_checker/`. |
-| `flightctl-alert-exporter`, `flightctl-alertmanager-proxy`, `flightctl-remote-access` | Legacy/shared consumers | Compose the subset of shared control-plane services and stores they require; they do not establish a new service/store layout. |
-| `flightctl-delta-worker` | Component-based with shared dependencies | Owns `internal/delta_worker/service/<resource>/`, `internal/delta_worker/store/<resource>/`, and `internal/delta_worker/tasks/<task>/`; its task consumer and wiring stay at `internal/delta_worker/tasks/`. Composition roots may consume existing shared control-plane services and stores. |
-| `flightctl-imagebuilder-api` | Component-based with shared dependencies | Owns the aggregate `internal/imagebuilder_api/service/` and `internal/imagebuilder_api/store/` packages with operation-specific files. It may consume existing shared control-plane services and stores. |
-| `flightctl-imagebuilder-worker` | Component-based with shared dependencies | Owns the established flat `internal/imagebuilder_worker/tasks/` package, consumes ImageBuilder API stores, and may consume existing shared control-plane services and stores. |
-| `flightctl-db-migrate`, `flightctl-restore` | Shared-store utilities | Use shared store infrastructure but do not own service or task packages. |
-| `flightctl-agent` | Agent-specific | Uses the architecture under `internal/agent/`; follow `internal/agent/AGENTS.md` rather than either server-side service layout. |
-| Other commands without resource service/store/task ownership | Neither | Keep code in their established package; do not introduce either server-side pattern without an explicit architectural decision. |
-
-For service packages that use the project's
-interface/handler/code-generation convention, keep the provider-owned interface
-in `service.go`, the concrete implementation and orchestration in `handler.go`,
-generation directives in `docs.go`, and adjacent tests in `*_test.go`. Keep
-generated mocks and tracing decorators in `mock.go` and `traced.gen.go`; do not
-hand-edit those generated files. Resource-specific helpers may remain in the
-same package when they support that service's workflow. The control-plane
-details and generator paths are documented in
-[internal/service/AGENTS.md](internal/service/AGENTS.md).
-
-- In component-scoped code, keep persistence in the owning component's store
-  namespace and keep the store API and concrete persistence implementation
-  together with their tests. Stores own SQL, transactions, CAS, upserts, and
-  other persistence invariants; services own business workflows and resource
-  events. Composition roots may import stores to construct and wire services,
-  but task and service logic should use the owning service API rather than
-  reaching into an unrelated store.
-- Keep the dependency direction one-way for new resource code: an owning
-  service may depend on its store, but a store must not depend on services, and
-  unrelated services or task packages must use the owning service API instead
-  of importing that store. Coordinate cross-resource workflows through service
-  APIs rather than adding new cross-store dependencies. Existing legacy and
-  component-wiring exceptions are not a model for new code; do not extend them
-  without an explicit architectural decision.
-- For new task families, create a package under the owning component's
-  `tasks/<task>/` directory. Keep a multi-step task workflow in `handler.go`
-  (or use an explicit task-named file for a small event/completion adapter),
-  task-specific helpers beside it, and tests next to the implementation. Keep
-  queue consumption, dispatch, and wiring at the component's `tasks/` root;
-  task handlers orchestrate services and external work, not persistence. For
-  an existing flat task package such as `internal/tasks/` or
-  `internal/imagebuilder_worker/tasks/`, preserve the flat layout unless a
-  migration is explicitly in scope; do not add a second task-package pattern
-  beside it.
-
-### Interfaces and dependencies
-
-Apply these rules in order:
-
-1. Reuse an existing provider-owned service interface when one exists.
-2. When the owning area's established convention requires a provider-owned
-   interface, define it with the provider and keep its generated mock canonical
-   across consumers.
-3. Otherwise, default new internal dependencies to concrete service types.
-   Introduce an interface only for multiple distinct production
-   implementations, a system perimeter such as a third-party SDK, external
-   HTTP client, or database driver, or an explicit user request.
-
-Do not create caller-side or subset interfaces merely to restrict access to a
-service or make unit tests mockable, and do not use function-valued dependency
-fields as a substitute for a coherent service boundary. When a broad service
-surface is the problem, decompose the concrete implementation into cohesive,
-domain-focused services rather than hiding it behind caller-side facades.
-
-### Constructor invariants
-
-- For newly introduced constructors, validate nil-able required dependencies
-  and return an error immediately when one is `nil`.
-- When modifying an existing constructor, preserve its signature unless a
-  deliberate constructor-contract migration is in scope. Do not cascade
-  signature and call-site changes solely to add dependency validation.
-- Do not add method-level defensive `nil` checks for required dependencies. Once
-  construction succeeds, methods may rely on the established invariants.
-- If a dependency is truly optional, initialize a no-op or Null Object in the
-  constructor so normal methods do not need `nil` branches. Preserve intentional
-  optional wrapper behavior documented by area-specific guidance.
-
-```go
-func NewService(repo Repository) (*Service, error) {
-	if repo == nil {
-		return nil, errors.New("repository is required")
-	}
-	return &Service{repo: repo}, nil
-}
-
-func (s *Service) Get(ctx context.Context, id string) (*User, error) {
-	return s.repo.FindByID(ctx, id)
-}
-```
+- Reuse an existing provider-owned interface. Create one only when required by
+  the owning area, multiple production implementations, a system perimeter, or
+  an explicit request; otherwise use the concrete service type.
+- Do not add caller-side subsets or function fields solely for testing. Split a
+  broad service into cohesive provider-owned services instead.
+- New constructors validate required nil-able dependencies. Preserve existing
+  constructor signatures unless their contract is deliberately being migrated.
+- Required dependencies need no method-level nil checks; initialize optional
+  dependencies with a no-op where practical and preserve documented optional
+  behavior.
 
 ## Before committing
 
