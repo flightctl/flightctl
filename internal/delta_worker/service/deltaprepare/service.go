@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/flightctl/flightctl/internal/delta_worker/model"
-	workerservice "github.com/flightctl/flightctl/internal/delta_worker/service"
 	deltagenerationstore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
 	deltapreparestore "github.com/flightctl/flightctl/internal/delta_worker/store/deltaprepare"
 	"github.com/google/uuid"
@@ -20,5 +19,3 @@ type Service interface {
 	SetDeltaPreparingStatus(ctx context.Context, orgID uuid.UUID, kind, name string, completed, total int) error
 	ClearDeltaPreparingStatus(ctx context.Context, orgID uuid.UUID, kind, name string) error
 }
-
-type StatusService = workerservice.PreparingStatus

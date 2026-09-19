@@ -2,6 +2,7 @@ package events
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service/common"
@@ -26,6 +27,14 @@ func NewServiceHandler(store eventstore.Store, workerClient worker_client.Worker
 	}
 }
 
+// SetWorkerClient wires the queue publisher after construction. Some workers
+// construct their resource services before opening queue producers; keeping
+// this setter on the concrete handler lets them enable event fan-out once the
+// producer lifecycle is established.
+func (h *ServiceHandler) SetWorkerClient(workerClient worker_client.WorkerClient) {
+	h.workerClient = workerClient
+}
+
 var _ Service = (*ServiceHandler)(nil)
 
 // CreateEvent creates an event in the store
@@ -44,6 +53,36 @@ func (h *ServiceHandler) CreateEvent(ctx context.Context, orgId uuid.UUID, event
 	if h.workerClient != nil {
 		h.workerClient.EmitEvent(ctx, orgId, event)
 	}
+}
+
+// CreateEventWithRetry persists an event and retries queue publication when a
+// concrete worker client exposes publication errors. It is used by the
+// standalone-device PrepareDeltas path, whose delayed render must not depend
+// on a single transient queue write.
+func (h *ServiceHandler) CreateEventWithRetry(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
+	if event == nil {
+		return nil
+	}
+	if err := h.store.Create(ctx, orgId, event); err != nil {
+		return fmt.Errorf("create event: %w", err)
+	}
+	if h.workerClient == nil {
+		return nil
+	}
+	reliable, ok := h.workerClient.(worker_client.ReliableWorkerClient)
+	if !ok {
+		h.workerClient.EmitEvent(ctx, orgId, event)
+		return nil
+	}
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if err := reliable.EmitEventWithError(ctx, orgId, event); err == nil {
+			return nil
+		} else {
+			lastErr = err
+		}
+	}
+	return fmt.Errorf("publish event after retries: %w", lastErr)
 }
 
 // HandleGenericResourceDeletedEvents handles generic resource deletion event emission logic

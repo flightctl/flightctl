@@ -63,6 +63,13 @@ func TestEmitEvent_QueueRouting(t *testing.T) {
 			wantDelta: 0,
 		},
 		{
+			name:      "When DeltaGenerationComplete it should enqueue on the delta producer only",
+			reason:    domain.EventReasonDeltaGenerationComplete,
+			withDelta: true,
+			wantTask:  0,
+			wantDelta: 1,
+		},
+		{
 			name:      "When FleetRolloutStarted it should enqueue on the TaskQueue producer",
 			reason:    domain.EventReasonFleetRolloutStarted,
 			withDelta: true,

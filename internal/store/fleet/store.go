@@ -103,7 +103,7 @@ type FleetStore struct {
 // Make sure we conform to the Store interface
 var _ Store = (*FleetStore)(nil)
 
-func NewFleetStore(db *gorm.DB, log logrus.FieldLogger) Store {
+func NewFleetStore(db *gorm.DB, log logrus.FieldLogger) *FleetStore {
 	genericStore := store.NewGenericStore[*model.Fleet, model.Fleet, domain.Fleet, domain.FleetList](
 		db,
 		log,
@@ -112,6 +112,59 @@ func NewFleetStore(db *gorm.DB, log logrus.FieldLogger) Store {
 		model.FleetsToApiResource,
 	)
 	return &FleetStore{dbHandler: db, log: log, genericStore: genericStore}
+}
+
+// ResumeDeltaIfCurrent clears the fleet's delta-preparing state only when the
+// fleet still points at the template version that produced the prepare. The
+// preparing condition is part of the predicate so a redelivered completion
+// event cannot claim the same resource twice.
+func (s *FleetStore) ResumeDeltaIfCurrent(ctx context.Context, orgID uuid.UUID, name, templateVersion string) (*domain.Fleet, error) {
+	var fleet model.Fleet
+	result := s.getDB(ctx).Raw(`
+		UPDATE fleets
+		SET status = (
+				jsonb_set(
+					COALESCE(status, '{}'::jsonb),
+					'{conditions}',
+					COALESCE((
+						SELECT jsonb_agg(condition_json ORDER BY ordinal)
+						FROM jsonb_array_elements(COALESCE(status->'conditions', '[]'::jsonb))
+							WITH ORDINALITY AS condition_rows(condition_json, ordinal)
+						WHERE condition_json->>'type' <> @condition_type
+					), '[]'::jsonb),
+					true
+				)
+				- 'deltaGeneration'
+			),
+			resource_version = resource_version + 1
+		WHERE org_id = @org_id
+		  AND name = @name
+		  AND deleted_at IS NULL
+		  AND annotations->>@template_version_annotation = @template_version
+		  AND EXISTS (
+				SELECT 1
+				FROM jsonb_array_elements(COALESCE(status->'conditions', '[]'::jsonb)) AS condition_rows(condition_json)
+				WHERE condition_json->>'type' = @condition_type
+		  )
+		RETURNING *
+	`, map[string]interface{}{
+		"org_id":                      orgID,
+		"name":                        name,
+		"template_version":            templateVersion,
+		"template_version_annotation": domain.FleetAnnotationTemplateVersion,
+		"condition_type":              string(domain.ConditionTypeFleetDeltaPreparing),
+	}).Scan(&fleet)
+	if result.Error != nil {
+		return nil, store.ErrorFromGormError(result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return nil, nil
+	}
+	updated, err := fleet.ToApiResource()
+	if err != nil {
+		return nil, err
+	}
+	return updated, nil
 }
 
 func (s *FleetStore) callEventCallback(ctx context.Context, eventCallback store.EventCallback, orgId uuid.UUID, name string, oldFleet, newFleet *domain.Fleet, created bool, err error) {

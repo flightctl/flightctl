@@ -11,8 +11,17 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
 	deltaconfig "github.com/flightctl/flightctl/internal/delta_worker/config"
+	"github.com/flightctl/flightctl/internal/delta_worker/model"
+	workerservice "github.com/flightctl/flightctl/internal/delta_worker/service"
+	"github.com/flightctl/flightctl/internal/delta_worker/service/deltageneration"
+	"github.com/flightctl/flightctl/internal/delta_worker/service/deltaprepare"
+	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
+	deltapreparestore "github.com/flightctl/flightctl/internal/delta_worker/store/deltaprepare"
+	generationcomplete "github.com/flightctl/flightctl/internal/delta_worker/tasks/generationcomplete"
+	preparecomplete "github.com/flightctl/flightctl/internal/delta_worker/tasks/preparecomplete"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
+	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
@@ -84,6 +93,79 @@ func (failingPreparer) Prepare(context.Context, worker_client.EventWithOrgId) er
 	return errors.New("prepare failed")
 }
 
+type recordingCompletionStore struct {
+	keys    []deltastore.GenerationKey
+	prepare *model.DeltaPrepare
+	gets    []*model.DeltaPrepare
+}
+
+func (r *recordingCompletionStore) CreateDeltaPrepare(context.Context, *model.DeltaPrepare) error {
+	return nil
+}
+
+func (r *recordingCompletionStore) CreateOrReplaceWaitingDeltaPrepare(context.Context, *model.DeltaPrepare) (deltapreparestore.PrepareAdmission, error) {
+	return deltapreparestore.PrepareAdmission{}, nil
+}
+
+func (r *recordingCompletionStore) GetDeltaPrepare(_ context.Context, _ deltapreparestore.PrepareKey, _ ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error) {
+	if r.prepare == nil {
+		return nil, nil
+	}
+	r.gets = append(r.gets, r.prepare)
+	return r.prepare, nil
+}
+
+func (r *recordingCompletionStore) ListDeltaPrepares(context.Context, []uuid.UUID) ([]model.DeltaPrepare, error) {
+	return nil, nil
+}
+
+func (r *recordingCompletionStore) UpdateDeltaPrepare(context.Context, int64, *model.DeltaPrepare) (*model.DeltaPrepare, error) {
+	return nil, nil
+}
+
+func (r *recordingCompletionStore) DecrementPendingGenerationsForGeneration(_ context.Context, key deltastore.GenerationKey) ([]deltapreparestore.PrepareProgress, error) {
+	r.keys = append(r.keys, key)
+	return nil, nil
+}
+
+var _ deltapreparestore.Store = (*recordingCompletionStore)(nil)
+
+type completionStatusStore struct{}
+
+func (completionStatusStore) ResumeDeltaIfCurrent(context.Context, uuid.UUID, string, string) (bool, error) {
+	return true, nil
+}
+
+func (completionStatusStore) Mutate(_ context.Context, _ uuid.UUID, _ string, _ *domain.Device, apply devicestore.DeviceApplyFunc, _ ...devicestore.MutateOption) (*domain.Device, *domain.Device, bool, error) {
+	resourceVersion := "3"
+	device := &domain.Device{
+		Metadata: domain.ObjectMeta{ResourceVersion: &resourceVersion},
+		Status:   &domain.DeviceStatus{DeltaGeneration: &domain.DeltaGenerationStatus{}},
+	}
+	mutation := &devicestore.DeviceMutation{Device: device}
+	if err := apply(mutation); err != nil {
+		return nil, nil, false, err
+	}
+	return mutation.Device, device, false, nil
+}
+
+type completionEventServiceStub struct{}
+
+func (completionEventServiceStub) CreateEvent(context.Context, uuid.UUID, *domain.Event) {}
+
+func (completionEventServiceStub) HandleGenericResourceDeletedEvents(context.Context, domain.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {
+}
+
+func newCompletionServiceForTest(t *testing.T, store deltapreparestore.Store) *deltaprepare.ServiceHandler {
+	handler, err := deltaprepare.NewCompletionService(
+		store,
+		workerservice.NewStorePreparingStatus(nil, completionStatusStore{}),
+		completionEventServiceStub{},
+	)
+	require.NoError(t, err)
+	return handler
+}
+
 func TestLaunchConsumers(t *testing.T) {
 	log := logrus.New()
 	log.SetLevel(logrus.ErrorLevel)
@@ -140,6 +222,68 @@ flightctl_worker_consumers_active 2
 		require.NoError(t, err)
 		require.Error(t, provider.consumers[0].handler(ctx, payload, "3", provider.consumers[0], log))
 		require.Equal(t, 0, provider.consumers[0].completeN)
+	})
+
+	t.Run("When DeltaGenerationComplete payload it should complete waiting prepares", func(t *testing.T) {
+		provider := &recordingProvider{}
+		completion := &recordingCompletionStore{}
+		completionHandler, err := generationcomplete.NewHandler(newCompletionServiceForTest(t, completion), workerservice.NewStorePreparingStatus(nil, completionStatusStore{}))
+		require.NoError(t, err)
+		require.NoError(t, LaunchConsumers(ctx, provider, &deltaconfig.DeltaGenerationConfig{}, nil, log, &ConsumerWiring{
+			Completion: completionHandler,
+		}))
+		orgID := uuid.New()
+		generation := &model.DeltaGeneration{
+			OrgID:           orgID,
+			ImageRepository: "quay.io/example/os",
+			SourceDigest:    "sha256:source",
+			TargetDigest:    "sha256:target",
+			Status:          model.DeltaGenerationSucceeded,
+		}
+		event, err := deltageneration.NewGenerationCompleteEvent(generation)
+		require.NoError(t, err)
+		payload, err := json.Marshal(worker_client.EventWithOrgId{OrgId: orgID, Event: *event})
+		require.NoError(t, err)
+
+		require.NoError(t, provider.consumers[0].handler(ctx, payload, "5", provider.consumers[0], log))
+		require.Equal(t, 1, provider.consumers[0].completeN)
+		require.NoError(t, provider.consumers[0].completeErr)
+		require.Equal(t, []deltastore.GenerationKey{{
+			OrgID:           orgID,
+			ImageRepository: generation.ImageRepository,
+			SourceDigest:    generation.SourceDigest,
+			TargetDigest:    generation.TargetDigest,
+		}}, completion.keys)
+	})
+
+	t.Run("When DeltaPrepareComplete payload it should resume the prepare", func(t *testing.T) {
+		provider := &recordingProvider{}
+		completion := &recordingCompletionStore{}
+		completionHandler, err := preparecomplete.NewHandler(newCompletionServiceForTest(t, completion))
+		require.NoError(t, err)
+		require.NoError(t, LaunchConsumers(ctx, provider, &deltaconfig.DeltaGenerationConfig{}, nil, log, &ConsumerWiring{
+			PrepareComplete: completionHandler,
+		}))
+		orgID := uuid.New()
+		prepare := &model.DeltaPrepare{
+			ID:                    uuid.New(),
+			OrgID:                 orgID,
+			Kind:                  domain.DeviceKind,
+			Name:                  "device-1",
+			SourceResourceVersion: 3,
+			ResourceVersion:       2,
+			Status:                model.DeltaPrepareComplete,
+		}
+		completion.prepare = prepare
+		event, err := deltaprepare.NewPrepareCompletionEvent(prepare)
+		require.NoError(t, err)
+		payload, err := json.Marshal(worker_client.EventWithOrgId{OrgId: orgID, Event: *event})
+		require.NoError(t, err)
+
+		require.NoError(t, provider.consumers[0].handler(ctx, payload, "6", provider.consumers[0], log))
+		require.Equal(t, 1, provider.consumers[0].completeN)
+		require.NoError(t, provider.consumers[0].completeErr)
+		require.Empty(t, completion.gets)
 	})
 
 	t.Run("When garbage payload it should ack as permanent failure", func(t *testing.T) {
