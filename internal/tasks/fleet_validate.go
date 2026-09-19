@@ -15,6 +15,7 @@ import (
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -29,26 +30,13 @@ import (
 // changes). This prevents duplicate template versions from being created if the
 // task is retried or processed more than once.
 //
-// If a template version with the computed name already exists, the task assumes
-// it was previously created successfully and exits without error. This is safe
-// because the template version is immutable after creation.
+// If a template version with the computed name already exists, the task
+// verifies it and re-emits the idempotent PrepareDeltas event. This recovers
+// the window where creation succeeded but the process stopped before event
+// publication.
 //
 // This design avoids unnecessary object creation, ensures consistency, and allows
 // safe reprocessing of the task without side effects.
-
-func fleetValidate(ctx context.Context, orgId uuid.UUID, event domain.Event, fleetSvc fleetservice.Service, templateversionSvc templateversionservice.Service, deviceSvc deviceservice.Service, repositorySvc repositoryservice.Service, k8sClient k8sclient.K8SClient, log logrus.FieldLogger) error {
-	logic := NewFleetValidateLogic(log, fleetSvc, templateversionSvc, deviceSvc, repositorySvc, k8sClient, orgId, event)
-	switch {
-	case event.InvolvedObject.Kind == domain.FleetKind:
-		err := logic.CreateNewTemplateVersionIfFleetValid(ctx)
-		if err != nil {
-			log.Errorf("failed validating fleet %s/%s: %v", orgId, event.InvolvedObject.Name, err)
-		}
-	default:
-		log.Errorf("FleetValidate called with unexpected kind %s and reason %s", event.InvolvedObject.Kind, event.Reason)
-	}
-	return nil
-}
 
 type FleetValidateLogic struct {
 	log                logrus.FieldLogger
@@ -60,6 +48,7 @@ type FleetValidateLogic struct {
 	orgId              uuid.UUID
 	event              domain.Event
 	templateConfig     *[]domain.ConfigProviderSpec
+	WorkerClient       worker_client.WorkerClient
 }
 
 func NewFleetValidateLogic(log logrus.FieldLogger, fleetSvc fleetservice.Service, templateversionSvc templateversionservice.Service, deviceSvc deviceservice.Service, repositorySvc repositoryservice.Service, k8sClient k8sclient.K8SClient, orgId uuid.UUID, event domain.Event) FleetValidateLogic {
@@ -117,27 +106,71 @@ func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Co
 	tv, status := t.templateversionSvc.CreateTemplateVersion(ctx, t.orgId, templateVersion, immediateRollout)
 	if status.Code != http.StatusCreated {
 		if status.Code == http.StatusConflict {
-			t.log.Warnf("templateVersion %s already exists", templateVersionName)
-			return nil
+			t.log.Warnf("templateVersion %s already exists; recovering PrepareDeltas emission", templateVersionName)
+			existing, getStatus := t.templateversionSvc.GetTemplateVersion(ctx, t.orgId, *fleet.Metadata.Name, templateVersionName)
+			if getStatus.Code != http.StatusOK || existing == nil {
+				return t.setStatus(ctx, fmt.Errorf("failed recovering existing templateVersion %s: %s", templateVersionName, getStatus.Message))
+			}
+			emittedName := templateVersionName
+			if existing.Metadata.Name != nil {
+				emittedName = *existing.Metadata.Name
+			}
+			if err := t.prepareFleetRollout(ctx, fleet, emittedName); err != nil {
+				return t.setStatus(ctx, err)
+			}
+			return t.setStatus(ctx, nil)
 		}
 		return t.setStatus(ctx, fmt.Errorf("failed creating templateVersion for valid fleet: %s", status.Message))
 	}
 
-	annotations := map[string]string{
-		domain.FleetAnnotationTemplateVersion: *tv.Metadata.Name,
+	if tv == nil || tv.Metadata.Name == nil {
+		return t.setStatus(ctx, fmt.Errorf("created templateVersion has no name"))
 	}
-	status = t.fleetSvc.UpdateFleetAnnotations(ctx, t.orgId, *fleet.Metadata.Name, annotations, nil)
-	if status.Code != http.StatusOK {
-		return t.setStatus(ctx, fmt.Errorf("failed setting fleet annotation with newly-created templateVersion: %s", status.Message))
-	}
-
-	err := t.deviceSvc.SetOutOfDate(ctx, t.orgId, util.ResourceOwner(domain.FleetKind, *fleet.Metadata.Name))
-	if err != nil {
-		// Warn only.  It is better to continue processing than to fail the fleet validation and stop rollour.
-		t.log.Warnf("failed marking devices out-of-date after new template version created: %v", err)
+	if err := t.prepareFleetRollout(ctx, fleet, *tv.Metadata.Name); err != nil {
+		return t.setStatus(ctx, err)
 	}
 
 	return t.setStatus(ctx, nil)
+}
+
+// prepareFleetRollout makes the newly-created template version current on the
+// fleet and marks its devices out of date before queueing delta preparation.
+// Keeping these state changes before PrepareDeltas ensures the completion CAS
+// can match the same template-version identity and that a queued event always
+// observes the desired resource state.
+func (t *FleetValidateLogic) prepareFleetRollout(ctx context.Context, fleet *domain.Fleet, templateVersionName string) error {
+	fleetName := *fleet.Metadata.Name
+	status := t.fleetSvc.UpdateFleetAnnotations(ctx, t.orgId, fleetName, map[string]string{
+		domain.FleetAnnotationTemplateVersion: templateVersionName,
+	}, nil)
+	if status.Code != http.StatusOK {
+		return fmt.Errorf("failed setting fleet annotation with templateVersion: %s", status.Message)
+	}
+
+	if err := t.deviceSvc.SetOutOfDate(ctx, t.orgId, util.ResourceOwner(domain.FleetKind, fleetName)); err != nil {
+		// Warn only. It is better to continue processing than to fail fleet
+		// validation and leave the PrepareDeltas event unpublished.
+		t.log.Warnf("failed marking devices out-of-date after new template version created: %v", err)
+	}
+
+	return t.emitPrepareDeltas(ctx, fleetName, templateVersionName, fleet.Metadata.ResourceVersion)
+}
+
+func (t *FleetValidateLogic) emitPrepareDeltas(ctx context.Context, fleetName, tvName string, resourceVersion *string) error {
+	if t.WorkerClient == nil {
+		return fmt.Errorf("worker client is required to emit PrepareDeltas")
+	}
+	details := domain.PrepareDeltasDetails{
+		DetailType:      domain.PrepareDeltasDetailsDetailType("PrepareDeltas"),
+		TemplateVersion: &tvName,
+		ResourceVersion: resourceVersion,
+	}
+	var eventDetails domain.EventDetails
+	if err := eventDetails.FromPrepareDeltasDetails(details); err != nil {
+		return err
+	}
+	t.WorkerClient.EmitEvent(ctx, t.orgId, domain.GetBaseEvent(ctx, domain.FleetKind, fleetName, domain.EventReasonPrepareDeltas, "Preparing OS image deltas", &eventDetails))
+	return nil
 }
 
 func (t *FleetValidateLogic) setStatus(ctx context.Context, validationErr error) error {
