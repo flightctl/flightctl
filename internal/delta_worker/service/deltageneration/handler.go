@@ -6,37 +6,18 @@ import (
 
 	"github.com/flightctl/flightctl/internal/delta_worker/model"
 	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
-	deltapreparestore "github.com/flightctl/flightctl/internal/delta_worker/store/deltaprepare"
-	deltapreparegenerationstore "github.com/flightctl/flightctl/internal/delta_worker/store/deltapreparegeneration"
 	"github.com/flightctl/flightctl/internal/domain"
-	"github.com/flightctl/flightctl/internal/service/events"
-	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
 
-type prepareStore interface {
-	deltapreparestore.Store
-}
-
-type prepareGenerationStore interface {
-	deltapreparegenerationstore.Store
-}
-
 type ServiceHandler struct {
 	store    deltastore.Store
-	prepares prepareStore
-	joins    prepareGenerationStore
-	events   events.Service
-	status   StatusService
+	progress ProgressFunc
 	log      logrus.FieldLogger
 }
 
-type StatusService interface {
-	Set(ctx context.Context, orgID uuid.UUID, kind, name string, completed, total int) error
-}
-
-func NewServiceHandler(store deltastore.Store, prepares prepareStore, joins prepareGenerationStore, eventService events.Service, status StatusService, log logrus.FieldLogger) *ServiceHandler {
-	return &ServiceHandler{store: store, prepares: prepares, joins: joins, events: eventService, status: status, log: log}
+func NewServiceHandler(store deltastore.Store, progress ProgressFunc, log logrus.FieldLogger) *ServiceHandler {
+	return &ServiceHandler{store: store, progress: progress, log: log}
 }
 
 var _ Service = (*ServiceHandler)(nil)
@@ -45,27 +26,7 @@ func (h *ServiceHandler) CreateDeltaGenerations(ctx context.Context, generations
 	if h.store == nil {
 		return nil, fmt.Errorf("delta generation store is required")
 	}
-	current, err := h.store.InsertDeltaGenerations(ctx, generations)
-	if err != nil {
-		return nil, err
-	}
-	persisted := make(map[deltastore.GenerationKey]*model.DeltaGeneration, len(current))
-	for i := range current {
-		persisted[generationKeyOf(&current[i])] = &current[i]
-	}
-	for _, generation := range generations {
-		if generation == nil || !isTerminalStatus(generation.Status) {
-			continue
-		}
-		stored := persisted[generationKeyOf(generation)]
-		if stored == nil || !isTerminalStatus(stored.Status) {
-			continue
-		}
-		if err := h.emitForGeneration(ctx, stored, statusForGeneration(stored.Status), GenerationPhasePtr(stored)); err != nil {
-			return nil, err
-		}
-	}
-	return current, nil
+	return h.store.InsertDeltaGenerations(ctx, generations)
 }
 
 func (h *ServiceHandler) GetDeltaGeneration(ctx context.Context, key deltastore.GenerationKey, opts ...deltastore.GenerationGetOption) (*model.DeltaGeneration, error) {
@@ -81,56 +42,17 @@ func (h *ServiceHandler) UpdateDeltaGeneration(ctx context.Context, expectedReso
 	if err != nil {
 		return nil, err
 	}
-	if err := h.emitForGeneration(ctx, updated, statusForGeneration(updated.Status), GenerationPhasePtr(updated)); err != nil {
+	if err := h.emitProgress(ctx, updated); err != nil {
 		return nil, err
 	}
 	return updated, nil
 }
 
-func (h *ServiceHandler) emitForGeneration(ctx context.Context, generation *model.DeltaGeneration, status domain.DeltaGenerationProgressDetailsGenerationStatus, phase *domain.DeltaGenerationPhase) error {
-	if h.joins == nil || h.prepares == nil || h.events == nil || generation == nil {
+func (h *ServiceHandler) emitProgress(ctx context.Context, generation *model.DeltaGeneration) error {
+	if h.progress == nil || generation == nil || isTerminalStatus(generation.Status) {
 		return nil
 	}
-	key := deltastore.GenerationKey{OrgID: generation.OrgID, ImageRepository: generation.ImageRepository, SourceDigest: generation.SourceDigest, TargetDigest: generation.TargetDigest}
-	joins, err := h.joins.ListDeltaPrepareGenerations(ctx, deltapreparegenerationstore.ListFilter{GenerationKey: &key})
-	if err != nil {
-		return err
-	}
-	ids := make([]uuid.UUID, 0, len(joins))
-	for _, join := range joins {
-		ids = append(ids, join.PrepareID)
-	}
-	prepares, err := h.prepares.ListDeltaPrepares(ctx, ids)
-	if err != nil {
-		return err
-	}
-	for i := range prepares {
-		prepare := &prepares[i]
-		if prepare.Status != model.DeltaPrepareWaiting {
-			continue
-		}
-		event, err := DeltaGenerationProgressEvent(ctx, *prepare, key, status, phase)
-		if err != nil {
-			return err
-		}
-		h.events.CreateEvent(ctx, prepare.OrgID, event)
-		if h.status != nil && isTerminalStatus(generation.Status) {
-			completed, total, err := h.prepares.CountDeltaPrepareGenerations(ctx, prepare.ID)
-			if err != nil {
-				return err
-			}
-			if total > 0 {
-				if err := h.status.Set(ctx, prepare.OrgID, prepare.Kind, prepare.Name, completed, total); err != nil {
-					return err
-				}
-			}
-		}
-	}
-	return nil
-}
-
-func isTerminalStatus(status string) bool {
-	return status == model.DeltaGenerationSucceeded || status == model.DeltaGenerationFailed || status == model.DeltaGenerationRejected
+	return h.progress(ctx, generation, statusForGeneration(generation.Status), GenerationPhasePtr(generation))
 }
 
 func generationKeyOf(generation *model.DeltaGeneration) deltastore.GenerationKey {

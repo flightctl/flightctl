@@ -132,7 +132,7 @@ func emptyRepositoryService(t *testing.T) repositoryservice.Service {
 	return mock
 }
 
-func newTestHandler(t *testing.T, store *fakeGenerationService, cfg *deltaconfig.DeltaGenerationConfig, check func(context.Context, uuid.UUID, string, string, string) (*existingDelta, error), generate func(context.Context, uuid.UUID, string, string, string) (string, int64, error)) *Handler {
+func newTestHandler(t *testing.T, store *fakeGenerationService, cfg *deltaconfig.DeltaGenerationConfig, check func(context.Context, uuid.UUID, string, string, string) (*existingDelta, error), generate func(context.Context, uuid.UUID, string, string, string) (string, int64, error), emit EventEmitter) *Handler {
 	t.Helper()
 	var existenceCheck existenceChecker
 	if check != nil {
@@ -146,9 +146,13 @@ func newTestHandler(t *testing.T, store *fakeGenerationService, cfg *deltaconfig
 			return generate(ctx, generation.OrgID, sourceRef, targetRef, pushPath)
 		}
 	}
-	handler, err := newHandler(cfg, logrus.New(), emptyRepositoryService(t), store, existenceCheck, deltaGenerator)
+	handler, err := newHandler(cfg, logrus.New(), emptyRepositoryService(t), store, existenceCheck, deltaGenerator, emit)
 	require.NoError(t, err)
 	return handler
+}
+
+func noOpEventEmitter(context.Context, uuid.UUID, *domain.Event) error {
+	return nil
 }
 
 func TestHandleGenerateDelta(t *testing.T) {
@@ -165,7 +169,7 @@ func TestHandleGenerateDelta(t *testing.T) {
 		c := newTestHandler(t, store, &deltaconfig.DeltaGenerationConfig{Timeout: util.Duration(time.Minute)}, func(context.Context, uuid.UUID, string, string, string) (*existingDelta, error) {
 			t.Fatal("existence check must not run")
 			return nil, nil
-		}, nil)
+		}, nil, noOpEventEmitter)
 		err := c.Handle(context.Background(), worker_client.EventWithOrgId{
 			OrgId: org,
 			Event: domain.Event{Reason: domain.EventReasonPrepareDeltas},
@@ -183,7 +187,7 @@ func TestHandleGenerateDelta(t *testing.T) {
 		}, func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
 			generated = true
 			return "", 0, nil
-		})
+		}, noOpEventEmitter)
 		req.NoError(c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log))
 		req.False(generated)
 		req.Len(store.updates, 2)
@@ -191,6 +195,48 @@ func TestHandleGenerateDelta(t *testing.T) {
 		req.Equal("write.example/os@sha256:existing", *store.updates[1].DeltaRef)
 		req.Equal(int64(77), *store.updates[1].SizeBytes)
 		req.Zero(store.createCalls)
+	})
+
+	t.Run("When generation completes it should emit a terminal generation event", func(t *testing.T) {
+		req := require.New(t)
+		store := &fakeGenerationService{}
+		var emitted []*domain.Event
+		c := newTestHandler(t, store, &deltaconfig.DeltaGenerationConfig{Timeout: util.Duration(time.Minute)}, func(context.Context, uuid.UUID, string, string, string) (*existingDelta, error) {
+			return &existingDelta{Ref: "write.example/os@sha256:existing", SizeBytes: 77}, nil
+		}, nil, func(_ context.Context, _ uuid.UUID, event *domain.Event) error {
+			emitted = append(emitted, event)
+			return nil
+		})
+
+		req.NoError(c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log))
+		req.Len(emitted, 1)
+		req.Equal(domain.EventReasonDeltaGenerationComplete, emitted[0].Reason)
+		key, _, err := deltageneration.ParseGenerationCompleteEvent(org, emitted[0].Message)
+		req.NoError(err)
+		req.Equal(deltastore.GenerationKey{OrgID: org, ImageRepository: repo, SourceDigest: src, TargetDigest: tgt}, key)
+	})
+
+	t.Run("When generation is already terminal it should re-emit the terminal event", func(t *testing.T) {
+		req := require.New(t)
+		key := deltastore.GenerationKey{OrgID: org, ImageRepository: repo, SourceDigest: src, TargetDigest: tgt}
+		store := &fakeGenerationService{generations: map[deltastore.GenerationKey]*model.DeltaGeneration{
+			key: {
+				OrgID:           org,
+				ImageRepository: repo,
+				SourceDigest:    src,
+				TargetDigest:    tgt,
+				Status:          model.DeltaGenerationSucceeded,
+			},
+		}}
+		var emitted []*domain.Event
+		c := newTestHandler(t, store, &deltaconfig.DeltaGenerationConfig{Timeout: util.Duration(time.Minute)}, nil, nil, func(_ context.Context, _ uuid.UUID, event *domain.Event) error {
+			emitted = append(emitted, event)
+			return nil
+		})
+
+		req.NoError(c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log))
+		req.Len(emitted, 1)
+		req.Equal(domain.EventReasonDeltaGenerationComplete, emitted[0].Reason)
 	})
 
 	t.Run("When existence check fails it should return retryable error", func(t *testing.T) {
@@ -201,7 +247,7 @@ func TestHandleGenerateDelta(t *testing.T) {
 		}, func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
 			t.Fatal("generate must not run")
 			return "", 0, nil
-		})
+		}, noOpEventEmitter)
 		err := c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log)
 		req.Error(err)
 		req.Contains(err.Error(), "registry unavailable")
@@ -226,7 +272,7 @@ func TestHandleGenerateDelta(t *testing.T) {
 			req.Equal(repo+"@"+tgt, targetRef)
 			req.Equal("write.example/os", pushPath)
 			return "write.example/os@sha256:delta", 12, nil
-		})
+		}, noOpEventEmitter)
 		req.NoError(c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log))
 		req.Zero(store.createCalls)
 		req.Equal(1, store.claimed)
@@ -243,7 +289,7 @@ func TestHandleGenerateDelta(t *testing.T) {
 			return nil, nil
 		}, func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
 			return "", 0, errors.New("oci-delta exploded")
-		})
+		}, noOpEventEmitter)
 		req.NoError(c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log))
 		req.Len(store.updates, 2)
 		req.Equal(model.DeltaGenerationFailed, store.updates[1].Status)
@@ -257,7 +303,7 @@ func TestHandleGenerateDelta(t *testing.T) {
 		}, func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
 			t.Fatal("generate must not run")
 			return "", 0, nil
-		})
+		}, noOpEventEmitter)
 		req.NoError(c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log))
 		req.Empty(store.updates)
 	})
@@ -271,7 +317,7 @@ func TestHandleGenerateDelta(t *testing.T) {
 		}, func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
 			generated = true
 			return "ref", 1, nil
-		})
+		}, noOpEventEmitter)
 		err := c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log)
 		req.ErrorContains(err, "claim generation: claim store unavailable")
 		req.False(generated)
@@ -287,7 +333,7 @@ func TestHandleGenerateDelta(t *testing.T) {
 		}, func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
 			generated = true
 			return "ref", 1, nil
-		})
+		}, noOpEventEmitter)
 		req.NoError(c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log))
 		req.True(generated)
 		req.Len(store.updates, 2)
@@ -302,7 +348,7 @@ func TestHandleGenerateDelta(t *testing.T) {
 		}, func(ctx context.Context, _ uuid.UUID, _, _, _ string) (string, int64, error) {
 			<-ctx.Done()
 			return "", 0, ctx.Err()
-		})
+		}, noOpEventEmitter)
 		req.NoError(c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log))
 		req.Len(store.updates, 2)
 		req.Equal(model.DeltaGenerationFailed, store.updates[1].Status)
@@ -317,7 +363,7 @@ func TestHandleGenerateDelta(t *testing.T) {
 		}, func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
 			generated = true
 			return "ref", 1, nil
-		})
+		}, noOpEventEmitter)
 		req.NoError(c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log))
 		req.True(generated)
 		req.Len(store.updates, 1)

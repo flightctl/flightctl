@@ -33,7 +33,6 @@ type Store interface {
 	GetDeltaPrepare(ctx context.Context, key PrepareKey, opts ...PrepareGetOption) (*model.DeltaPrepare, error)
 	ListDeltaPrepares(ctx context.Context, ids []uuid.UUID) ([]model.DeltaPrepare, error)
 	UpdateDeltaPrepare(ctx context.Context, expectedResourceVersion int64, prepare *model.DeltaPrepare) (*model.DeltaPrepare, error)
-	CountDeltaPrepareGenerations(ctx context.Context, prepareID uuid.UUID) (completed, total int, err error)
 	// DecrementPendingGenerationsForGeneration atomically advances every waiting
 	// prepare joined to a currently terminal generation. Join-level completion
 	// markers prevent redelivered notifications from decrementing again. The
@@ -310,22 +309,6 @@ func (s *PrepareStore) UpdateDeltaPrepare(ctx context.Context, expectedResourceV
 		return nil, flterrors.ErrNoRowsUpdated
 	}
 	return s.GetDeltaPrepare(ctx, PrepareKey{ID: prepare.ID})
-}
-
-func (s *PrepareStore) CountDeltaPrepareGenerations(ctx context.Context, prepareID uuid.UUID) (int, int, error) {
-	var counts struct {
-		Completed int `gorm:"column:completed"`
-		Total     int `gorm:"column:total"`
-	}
-	result := s.getDB(ctx).Table("delta_prepare_generations AS pg").
-		Select("COUNT(*) AS total, COUNT(*) FILTER (WHERE g.status IN (?, ?, ?)) AS completed", model.DeltaGenerationSucceeded, model.DeltaGenerationFailed, model.DeltaGenerationRejected).
-		Joins("INNER JOIN delta_generations AS g ON g.org_id = pg.org_id AND g.image_repository = pg.image_repository AND g.source_digest = pg.source_digest AND g.target_digest = pg.target_digest").
-		Where("pg.prepare_id = ?", prepareID).
-		Scan(&counts)
-	if result.Error != nil {
-		return 0, 0, store.ErrorFromGormError(result.Error)
-	}
-	return counts.Completed, counts.Total, nil
 }
 
 func (s *PrepareStore) DecrementPendingGenerationsForGeneration(ctx context.Context, key deltagenerationstore.GenerationKey) ([]PrepareProgress, error) {

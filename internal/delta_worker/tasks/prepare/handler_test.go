@@ -9,7 +9,6 @@ import (
 
 	deltaconfig "github.com/flightctl/flightctl/internal/delta_worker/config"
 	"github.com/flightctl/flightctl/internal/delta_worker/model"
-	workerservice "github.com/flightctl/flightctl/internal/delta_worker/service"
 	"github.com/flightctl/flightctl/internal/delta_worker/service/deltageneration"
 	"github.com/flightctl/flightctl/internal/delta_worker/service/deltaprepare"
 	"github.com/flightctl/flightctl/internal/delta_worker/service/deltapreparegeneration"
@@ -42,20 +41,22 @@ func TestPrepare_SkipPaths(t *testing.T) {
 		store := newFakePrepareStore()
 		status := &statusSpy{}
 		resume := &resumeSpy{}
-		p := newTestPreparer(t, store, skipGenerateDeltaResolver(), status, resume, nil)
+		emit := &emitSpy{}
+		p := newTestPreparer(t, store, skipGenerateDeltaResolver(), status, resume, emit)
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
 		require.NoError(t, err)
 		assert.Empty(t, store.prepares)
 		assert.Empty(t, status.sets)
-		require.Len(t, status.clears, 1)
-		assert.Equal(t, domain.FleetKind, status.clears[0].kind)
+		assert.Empty(t, status.clears)
+		require.Len(t, emit.events, 1)
+		assert.Equal(t, domain.EventReasonDeltaPrepareComplete, emit.events[0].Reason)
 	})
 
 	t.Run("When generateDelta is false and a wait is in flight it should fail the waiting prepare", func(t *testing.T) {
 		store := newFakePrepareStore()
 		existing := store.seedWaiting(orgId, domain.FleetKind, "fleet-1", lo.ToPtr("tv-1"), nil, time.Now())
 		resume := &resumeSpy{}
-		p := newTestPreparer(t, store, skipGenerateDeltaResolver(), &statusSpy{}, resume, nil)
+		p := newTestPreparer(t, store, skipGenerateDeltaResolver(), &statusSpy{}, resume, &emitSpy{})
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
 		require.NoError(t, err)
 		assert.Equal(t, model.DeltaPrepareFailed, store.prepares[existing.ID].Status)
@@ -72,7 +73,7 @@ func TestPrepare_SkipPaths(t *testing.T) {
 				return &domain.RepositoryList{}, nil
 			}),
 			Config: &deltaconfig.DeltaGenerationConfig{},
-		}, &statusSpy{}, resume, nil)
+		}, &statusSpy{}, resume, &emitSpy{})
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
 		require.NoError(t, err)
 		assert.Empty(t, store.prepares)
@@ -82,7 +83,7 @@ func TestPrepare_SkipPaths(t *testing.T) {
 		store := newFakePrepareStore()
 		resume := &resumeSpy{}
 		fleet := fleetWithTV("fleet-1", "tv-1")
-		p := newTestPreparer(t, store, eligibleFleetResolver(fleet, deviceWithOS("d1", false, prepareTestSrc)), &statusSpy{}, resume, nil)
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleet, deviceWithOS("d1", false, prepareTestSrc)), &statusSpy{}, resume, &emitSpy{})
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
 		require.NoError(t, err)
 		assert.Empty(t, store.prepares)
@@ -92,7 +93,7 @@ func TestPrepare_SkipPaths(t *testing.T) {
 		store := newFakePrepareStore()
 		resume := &resumeSpy{}
 		fleet := fleetWithTV("fleet-1", "tv-1")
-		p := newTestPreparer(t, store, eligibleFleetResolver(fleet, deviceWithOS("d1", true, "")), &statusSpy{}, resume, nil)
+		p := newTestPreparer(t, store, eligibleFleetResolver(fleet, deviceWithOS("d1", true, "")), &statusSpy{}, resume, &emitSpy{})
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
 		require.NoError(t, err)
 		assert.Empty(t, store.prepares)
@@ -223,11 +224,13 @@ func TestPrepare_Deadlines(t *testing.T) {
 
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
 		require.NoError(t, err)
-		require.Len(t, emit.events, 1)
+		require.Len(t, emit.events, 2)
+		assert.Equal(t, domain.EventReasonGenerateDelta, emit.events[0].Reason)
+		assert.Equal(t, domain.EventReasonDeltaPrepareComplete, emit.events[1].Reason)
 		assert.Equal(t, model.DeltaPrepareComplete, firstPrepare(store).Status)
 		assert.Equal(t, now, *firstPrepare(store).Deadline)
 		assert.Empty(t, status.sets)
-		require.Len(t, status.clears, 1)
+		assert.Empty(t, status.clears)
 	})
 
 	t.Run("When the fleet sets maxWaitForDelta it should use the fleet duration", func(t *testing.T) {
@@ -383,11 +386,12 @@ func TestPrepare_TerminalAndDevice(t *testing.T) {
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
 		require.NoError(t, err)
 		assert.Equal(t, 1, store.insertGensN)
-		assert.Empty(t, emit.events)
+		require.Len(t, emit.events, 1)
+		assert.Equal(t, domain.EventReasonDeltaPrepareComplete, emit.events[0].Reason)
 		assert.Equal(t, model.DeltaPrepareComplete, firstPrepare(store).Status)
 		assert.Len(t, store.joins, 1)
 		assert.Empty(t, status.sets)
-		require.Len(t, status.clears, 1)
+		assert.Empty(t, status.clears)
 	})
 
 	t.Run("When every pair is already terminal including failed it should not reset failed", func(t *testing.T) {
@@ -730,6 +734,29 @@ func (f *fakePrepareStore) insertPrepareGenerations(_ context.Context, prepareID
 			TargetDigest:    key.TargetDigest,
 		})
 	}
+	if prepare := f.prepares[prepareID]; prepare != nil && prepare.Status == model.DeltaPrepareWaiting {
+		count := 0
+		for _, join := range f.joins {
+			if join.PrepareID == prepareID {
+				key := deltastore.GenerationKey{
+					OrgID:           join.OrgID,
+					ImageRepository: join.ImageRepository,
+					SourceDigest:    join.SourceDigest,
+					TargetDigest:    join.TargetDigest,
+				}
+				generation := f.generations[key]
+				if generation == nil || !isTerminalGeneration(generation.Status) {
+					count++
+				}
+			}
+		}
+		prepare.PendingGenerationsCount = count
+		prepare.ResourceVersion++
+		if count == 0 {
+			prepare.Status = model.DeltaPrepareComplete
+			delete(f.waiting, f.identityKey(prepare.OrgID, prepare.Kind, prepare.Name))
+		}
+	}
 	return nil
 }
 
@@ -744,7 +771,7 @@ func (f *fakePrepareStore) getGeneration(_ context.Context, key deltastore.Gener
 
 type fakePrepareService struct {
 	store  *fakePrepareStore
-	status workerservice.PreparingStatus
+	status preparingStatus
 }
 
 func (f *fakePrepareService) CreateDeltaPrepare(ctx context.Context, prepare *model.DeltaPrepare) error {
@@ -843,7 +870,43 @@ func (f *fakePrepareService) UpdateDeltaPrepare(_ context.Context, _ int64, prep
 	return &copy, nil
 }
 
-func (f *fakePrepareService) CountDeltaPrepareGenerations(_ context.Context, prepareID uuid.UUID) (int, int, error) {
+func (f *fakePrepareService) DecrementPendingGenerationsForGeneration(_ context.Context, key deltastore.GenerationKey) ([]deltapreparestore.PrepareProgress, error) {
+	generation := f.store.generations[key]
+	if generation == nil || !isTerminalGeneration(generation.Status) {
+		return nil, nil
+	}
+	var claimed []deltapreparestore.PrepareProgress
+	seen := make(map[uuid.UUID]struct{})
+	for _, join := range f.store.joins {
+		if join.OrgID != key.OrgID || join.ImageRepository != key.ImageRepository || join.SourceDigest != key.SourceDigest || join.TargetDigest != key.TargetDigest {
+			continue
+		}
+		if _, ok := seen[join.PrepareID]; ok {
+			continue
+		}
+		seen[join.PrepareID] = struct{}{}
+		prepare := f.store.prepares[join.PrepareID]
+		if prepare == nil || prepare.Status != model.DeltaPrepareWaiting || prepare.PendingGenerationsCount <= 0 {
+			continue
+		}
+		prepare.PendingGenerationsCount--
+		prepare.ResourceVersion++
+		if prepare.PendingGenerationsCount == 0 {
+			prepare.Status = model.DeltaPrepareComplete
+			delete(f.store.waiting, f.store.identityKey(prepare.OrgID, prepare.Kind, prepare.Name))
+			copy := *prepare
+			completed, total := f.generationCounts(copy.ID)
+			claimed = append(claimed, deltapreparestore.PrepareProgress{
+				Prepare:   copy,
+				Completed: completed,
+				Total:     total,
+			})
+		}
+	}
+	return claimed, nil
+}
+
+func (f *fakePrepareService) generationCounts(prepareID uuid.UUID) (int, int) {
 	completed, total := 0, 0
 	for _, join := range f.store.joins {
 		if join.PrepareID != prepareID {
@@ -855,11 +918,7 @@ func (f *fakePrepareService) CountDeltaPrepareGenerations(_ context.Context, pre
 			completed++
 		}
 	}
-	return completed, total, nil
-}
-
-func (f *fakePrepareService) DecrementPendingGenerationsForGeneration(context.Context, deltastore.GenerationKey) ([]deltapreparestore.PrepareProgress, error) {
-	return nil, nil
+	return completed, total
 }
 
 func (f *fakePrepareService) SetDeltaPreparingStatus(ctx context.Context, orgID uuid.UUID, kind, name string, completed, total int) error {
@@ -925,7 +984,11 @@ func (f *fakePrepareGenerationService) CreateDeltaPrepareGenerations(ctx context
 	if err := f.store.insertPrepareGenerations(ctx, joins[0].PrepareID, keys); err != nil {
 		return deltapreparegenerationstore.CreateDeltaPrepareGenerationsResult{}, err
 	}
-	return deltapreparegenerationstore.CreateDeltaPrepareGenerationsResult{InsertedJoins: joins}, nil
+	result := deltapreparegenerationstore.CreateDeltaPrepareGenerationsResult{InsertedJoins: joins}
+	if prepare := f.store.prepares[joins[0].PrepareID]; prepare != nil {
+		result.UpdatedPrepares = map[uuid.UUID]model.DeltaPrepare{prepare.ID: *prepare}
+	}
+	return result, nil
 }
 
 func (f *fakePrepareGenerationService) ListDeltaPrepareGenerations(_ context.Context, filter deltapreparegenerationstore.ListFilter) ([]model.DeltaPrepareGeneration, error) {
@@ -988,7 +1051,12 @@ func (e *emitSpy) emit(_ context.Context, _ uuid.UUID, event *domain.Event) erro
 
 type resumeSpy struct{}
 
-func newTestPreparer(t *testing.T, store *fakePrepareStore, resolver *Resolver, status workerservice.PreparingStatus, _ *resumeSpy, emit *emitSpy) *Handler {
+type preparingStatus interface {
+	Set(context.Context, uuid.UUID, string, string, int, int) error
+	Clear(context.Context, uuid.UUID, string, string) error
+}
+
+func newTestPreparer(t *testing.T, store *fakePrepareStore, resolver *Resolver, status preparingStatus, _ *resumeSpy, emit *emitSpy) *Handler {
 	if resolver.FleetService == nil {
 		resolver.FleetService = mockFleetService(func(_ context.Context, _ uuid.UUID, _ string) (*domain.Fleet, error) {
 			return fleetWithTV("fleet-1", "tv-1"), nil
@@ -1013,10 +1081,7 @@ func newTestPreparer(t *testing.T, store *fakePrepareStore, resolver *Resolver, 
 			}, nil
 		})
 	}
-	var emitFunc func(context.Context, uuid.UUID, *domain.Event) error
-	if emit != nil {
-		emitFunc = emit.emit
-	}
+	emitFunc := emit.emit
 	p, err := NewHandler(
 		resolver,
 		emitFunc,
