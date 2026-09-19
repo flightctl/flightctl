@@ -4,10 +4,10 @@ import (
 	"context"
 
 	"github.com/flightctl/flightctl/internal/delta_worker/model"
-	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store"
+	deltapreparegenerationstore "github.com/flightctl/flightctl/internal/delta_worker/store/deltapreparegeneration"
 )
 
 type Service interface {
-	CreateDeltaPrepareGenerations(ctx context.Context, joins []*model.DeltaPrepareGeneration) error
-	ListDeltaPrepareGenerations(ctx context.Context, filter deltastore.DeltaPrepareGenerationListFilter) ([]model.DeltaPrepareGeneration, error)
+	CreateDeltaPrepareGenerations(ctx context.Context, joins []*model.DeltaPrepareGeneration) (deltapreparegenerationstore.CreateDeltaPrepareGenerationsResult, error)
+	ListDeltaPrepareGenerations(ctx context.Context, filter deltapreparegenerationstore.ListFilter) ([]model.DeltaPrepareGeneration, error)
 }

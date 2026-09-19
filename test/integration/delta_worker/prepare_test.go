@@ -13,7 +13,9 @@ import (
 	"github.com/flightctl/flightctl/internal/delta_worker/service/deltageneration"
 	"github.com/flightctl/flightctl/internal/delta_worker/service/deltaprepare"
 	"github.com/flightctl/flightctl/internal/delta_worker/service/deltapreparegeneration"
-	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store"
+	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
+	deltapreparestore "github.com/flightctl/flightctl/internal/delta_worker/store/deltaprepare"
+	deltapreparegenerationstore "github.com/flightctl/flightctl/internal/delta_worker/store/deltapreparegeneration"
 	preparetask "github.com/flightctl/flightctl/internal/delta_worker/tasks/prepare"
 	"github.com/flightctl/flightctl/internal/domain"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
@@ -42,17 +44,19 @@ import (
 
 var _ = Describe("PrepareDeltas persist", func() {
 	var (
-		log              *logrus.Logger
-		ctx              context.Context
-		orgId            uuid.UUID
-		cfg              *config.Config
-		dbName           string
-		db               *gorm.DB
-		deltaStore       *deltastore.DeltaStore
-		fleets           fleetstore.Store
-		devices          devicestore.Store
-		repos            repositorystore.Store
-		templateVersions templateversionstore.Store
+		log                         *logrus.Logger
+		ctx                         context.Context
+		orgId                       uuid.UUID
+		cfg                         *config.Config
+		dbName                      string
+		db                          *gorm.DB
+		deltaGenerationStore        *deltastore.GenerationStore
+		deltaPrepareStore           *deltapreparestore.PrepareStore
+		deltaPrepareGenerationStore *deltapreparegenerationstore.PrepareGenerationStore
+		fleets                      fleetstore.Store
+		devices                     devicestore.Store
+		repos                       repositorystore.Store
+		templateVersions            templateversionstore.Store
 	)
 
 	BeforeEach(func() {
@@ -61,8 +65,12 @@ var _ = Describe("PrepareDeltas persist", func() {
 		var err error
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
 		Expect(err).NotTo(HaveOccurred())
-		deltaStore = deltastore.NewStore(db, log.WithField("pkg", "delta-store"))
-		Expect(deltaStore.InitialMigration(ctx)).To(Succeed())
+		deltaGenerationStore = deltastore.NewStore(db, log.WithField("pkg", "delta-generation-store"))
+		deltaPrepareStore = deltapreparestore.NewStore(db, log.WithField("pkg", "delta-prepare-store"))
+		deltaPrepareGenerationStore = deltapreparegenerationstore.NewStore(db, log.WithField("pkg", "delta-prepare-generation-store"))
+		Expect(deltaGenerationStore.InitialMigration(ctx)).To(Succeed())
+		Expect(deltaPrepareStore.InitialMigration(ctx)).To(Succeed())
+		Expect(deltaPrepareGenerationStore.InitialMigration(ctx)).To(Succeed())
 		fleets = fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
 		devices = devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
 		repos = repositorystore.NewRepositoryStore(db, log.WithField("pkg", "repository-store"))
@@ -132,9 +140,9 @@ var _ = Describe("PrepareDeltas persist", func() {
 
 			emit := &prepareEmitSpy{}
 			status := workerservice.NewStorePreparingStatus(fleets, devices)
-			generationService := deltageneration.NewServiceHandler(deltaStore, deltaStore, deltaStore, nil, status, log)
-			prepareService := deltaprepare.NewServiceHandler(deltaStore, status)
-			prepareGenerationService := deltapreparegeneration.NewServiceHandler(deltaStore, generationService, prepareService, nil)
+			generationService := deltageneration.NewServiceHandler(deltaGenerationStore, deltaPrepareStore, deltaPrepareGenerationStore, nil, status, log)
+			prepareService := deltaprepare.NewServiceHandler(deltaPrepareStore, status)
+			prepareGenerationService := deltapreparegeneration.NewServiceHandler(deltaPrepareGenerationStore)
 			fleetService := fleetservice.NewServiceHandler(fleets, nil, nil, log)
 			deviceService := deviceservice.NewDeviceServiceHandler(devices, nil, fleets, nil, nil, "", log)
 			repositoryService := repositoryservice.NewServiceHandler(repos, nil, log)
@@ -166,12 +174,12 @@ var _ = Describe("PrepareDeltas persist", func() {
 
 			Expect(p.Prepare(ctx, fleetPrepareEvent(orgId, fleetName, tvName))).To(Succeed())
 
-			waiting, err := deltaStore.GetDeltaPrepare(ctx, deltastore.PrepareKey{OrgID: orgId, Kind: domain.FleetKind, Name: fleetName}, deltastore.WithPrepareStatus(model.DeltaPrepareWaiting))
+			waiting, err := deltaPrepareStore.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{OrgID: orgId, Kind: domain.FleetKind, Name: fleetName}, deltapreparestore.WithPrepareStatus(model.DeltaPrepareWaiting))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(waiting).ToNot(BeNil())
 			Expect(waiting.Status).To(Equal(model.DeltaPrepareWaiting))
 
-			gen, err := deltaStore.GetDeltaGeneration(ctx, deltastore.GenerationKey{
+			gen, err := deltaGenerationStore.GetDeltaGeneration(ctx, deltastore.GenerationKey{
 				OrgID:           orgId,
 				ImageRepository: repoName,
 				SourceDigest:    srcDigest,

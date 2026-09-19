@@ -5,7 +5,9 @@ import (
 	"fmt"
 
 	"github.com/flightctl/flightctl/internal/delta_worker/model"
-	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store"
+	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
+	deltapreparestore "github.com/flightctl/flightctl/internal/delta_worker/store/deltaprepare"
+	deltapreparegenerationstore "github.com/flightctl/flightctl/internal/delta_worker/store/deltapreparegeneration"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/google/uuid"
@@ -13,15 +15,15 @@ import (
 )
 
 type prepareStore interface {
-	deltastore.DeltaPrepareStore
+	deltapreparestore.Store
 }
 
 type prepareGenerationStore interface {
-	deltastore.DeltaPrepareGenerationStore
+	deltapreparegenerationstore.Store
 }
 
 type ServiceHandler struct {
-	store    deltastore.DeltaGenerationStore
+	store    deltastore.Store
 	prepares prepareStore
 	joins    prepareGenerationStore
 	events   events.Service
@@ -29,7 +31,11 @@ type ServiceHandler struct {
 	log      logrus.FieldLogger
 }
 
-func NewServiceHandler(store deltastore.DeltaGenerationStore, prepares prepareStore, joins prepareGenerationStore, eventService events.Service, status StatusService, log logrus.FieldLogger) *ServiceHandler {
+type StatusService interface {
+	Set(ctx context.Context, orgID uuid.UUID, kind, name string, completed, total int) error
+}
+
+func NewServiceHandler(store deltastore.Store, prepares prepareStore, joins prepareGenerationStore, eventService events.Service, status StatusService, log logrus.FieldLogger) *ServiceHandler {
 	return &ServiceHandler{store: store, prepares: prepares, joins: joins, events: eventService, status: status, log: log}
 }
 
@@ -86,7 +92,7 @@ func (h *ServiceHandler) emitForGeneration(ctx context.Context, generation *mode
 		return nil
 	}
 	key := deltastore.GenerationKey{OrgID: generation.OrgID, ImageRepository: generation.ImageRepository, SourceDigest: generation.SourceDigest, TargetDigest: generation.TargetDigest}
-	joins, err := h.joins.ListDeltaPrepareGenerations(ctx, deltastore.DeltaPrepareGenerationListFilter{GenerationKey: &key})
+	joins, err := h.joins.ListDeltaPrepareGenerations(ctx, deltapreparegenerationstore.ListFilter{GenerationKey: &key})
 	if err != nil {
 		return err
 	}
