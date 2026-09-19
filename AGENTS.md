@@ -64,40 +64,46 @@ helpers by implementation technique.
 
 ### Package structure and ownership
 
-- For service packages that use the project's interface/handler/code-generation
-  convention, keep the provider-owned interface in `service.go`, the concrete
-  implementation and orchestration in `handler.go`, generation directives in
-  `docs.go`, and adjacent tests in `*_test.go`. Keep generated mocks and
-  tracing decorators in `mock.go` and `traced.gen.go`; do not hand-edit those
-  generated files. Resource-specific helpers may remain in the same package
-  when they support that service's workflow. The control-plane details and
-  generator paths are documented in
-  [internal/service/AGENTS.md](internal/service/AGENTS.md).
-- The existing control-plane service, store, and task roots are a legacy/shared
-  layout: resource services live under `internal/service/<resource>/`, stores
-  under `internal/store/<resource>/` (with shared persistence models under
-  `internal/store/model/`), and the older task families remain in the flat
-  `internal/tasks/` package. These packages are used by `flightctl-api` and
-  other existing control-plane binaries, so preserve their locations when
-  modifying existing code and do not use them as the template for new
-  component-specific code. Do not migrate them opportunistically as part of an
-  unrelated change.
-- Component-specific code puts the owning component prefix before the layer.
-  The repository layouts are:
-  - Delta Worker uses `internal/delta_worker/service/<resource>/`,
-    `internal/delta_worker/store/<resource>/`, and
-    `internal/delta_worker/tasks/<task>/`; its task consumer and wiring stay at
-    `internal/delta_worker/tasks/`.
-  - ImageBuilder API keeps its service and store packages at
-    `internal/imagebuilder_api/service/` and
-    `internal/imagebuilder_api/store/`; these are established aggregate
-    packages with operation-specific files rather than one package per
-    resource. ImageBuilder worker task handlers live in the established flat
-    `internal/imagebuilder_worker/tasks/` package.
-  New component code must follow this component-first rule and must not be
-  added to a legacy top-level root when an owning component namespace exists.
-  Preserve an existing component's established subpackage or flat-package
-  shape unless a deliberate migration is in scope.
+The repository has two service-layout patterns:
+
+- **Legacy/shared control-plane pattern:** resource services live under
+  `internal/service/<resource>/`, stores under
+  `internal/store/<resource>/` (with shared persistence models under
+  `internal/store/model/`), and older task families remain in the flat
+  `internal/tasks/` package. Preserve these locations when modifying existing
+  code, but do not use this pattern for new component-owned code or migrate it
+  opportunistically.
+- **Component-based pattern:** the owning component precedes the layer, for
+  example `internal/<component>/service`, `internal/<component>/store`, and
+  `internal/<component>/tasks`. New component-owned code must stay in that
+  namespace. Preserve each component's established resource-subpackage or
+  aggregate/flat-package shape unless a deliberate migration is in scope.
+
+Use this mapping to select the owning layout:
+
+| Runtime or service | Pattern | Owned or consumed layout |
+|--------------------|---------|--------------------------|
+| `flightctl-api` | Legacy/shared | Owns the main resource services and stores under `internal/service/<resource>/` and `internal/store/<resource>/`. |
+| `flightctl-worker` | Legacy/shared | Uses shared services and stores; task handlers remain in the flat `internal/tasks/` package. |
+| `flightctl-periodic` | Legacy/shared | Uses shared services and stores plus the flat `internal/tasks/` package through `internal/periodic_checker/`. |
+| `flightctl-alert-exporter`, `flightctl-alertmanager-proxy`, `flightctl-remote-access` | Legacy/shared consumers | Compose the subset of shared control-plane services and stores they require; they do not establish a new service/store layout. |
+| `flightctl-delta-worker` | Component-based with shared dependencies | Owns `internal/delta_worker/service/<resource>/`, `internal/delta_worker/store/<resource>/`, and `internal/delta_worker/tasks/<task>/`; its task consumer and wiring stay at `internal/delta_worker/tasks/`. Composition roots may consume existing shared control-plane services and stores. |
+| `flightctl-imagebuilder-api` | Component-based with shared dependencies | Owns the aggregate `internal/imagebuilder_api/service/` and `internal/imagebuilder_api/store/` packages with operation-specific files. It may consume existing shared control-plane services and stores. |
+| `flightctl-imagebuilder-worker` | Component-based with shared dependencies | Owns the established flat `internal/imagebuilder_worker/tasks/` package, consumes ImageBuilder API stores, and may consume existing shared control-plane services and stores. |
+| `flightctl-db-migrate`, `flightctl-restore` | Shared-store utilities | Use shared store infrastructure but do not own service or task packages. |
+| `flightctl-agent` | Agent-specific | Uses the architecture under `internal/agent/`; follow `internal/agent/AGENTS.md` rather than either server-side service layout. |
+| Other commands without resource service/store/task ownership | Neither | Keep code in their established package; do not introduce either server-side pattern without an explicit architectural decision. |
+
+For service packages that use the project's
+interface/handler/code-generation convention, keep the provider-owned interface
+in `service.go`, the concrete implementation and orchestration in `handler.go`,
+generation directives in `docs.go`, and adjacent tests in `*_test.go`. Keep
+generated mocks and tracing decorators in `mock.go` and `traced.gen.go`; do not
+hand-edit those generated files. Resource-specific helpers may remain in the
+same package when they support that service's workflow. The control-plane
+details and generator paths are documented in
+[internal/service/AGENTS.md](internal/service/AGENTS.md).
+
 - In component-scoped code, keep persistence in the owning component's store
   namespace and keep the store API and concrete persistence implementation
   together with their tests. Stores own SQL, transactions, CAS, upserts, and
