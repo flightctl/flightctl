@@ -84,6 +84,17 @@ The repository uses two server-side patterns:
 - Put new task families under the owning component's `tasks/<task>/`; preserve
   established flat task packages unless migration is in scope.
 
+### Mutation results
+
+- When a database mutation determines the resulting state, return that state
+  from the same atomic operation (for example, with `RETURNING`) and propagate
+  it to callers. Do not immediately re-read the row merely to discover what the
+  mutation wrote.
+- Drive dependent events and other side effects from the returned mutation
+  result instead of re-querying independently at each layer.
+- Re-fetch only when the mutation cannot return the required data or when the
+  operation intentionally requires a fresh, independent read.
+
 ### Interfaces and constructors
 
 - Reuse an existing provider-owned interface. Create one only when required by
