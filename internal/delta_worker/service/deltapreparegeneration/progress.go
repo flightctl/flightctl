@@ -2,6 +2,7 @@ package deltapreparegeneration
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/flightctl/flightctl/internal/delta_worker/model"
 	"github.com/flightctl/flightctl/internal/delta_worker/service/deltageneration"
@@ -14,10 +15,9 @@ import (
 )
 
 // ProgressHandler owns lookups through DeltaPrepareGeneration and progress
-// event emission for nonterminal phases of linked prepares. It is passed to
-// the generation service as a service dependency, so the generation service
-// never receives foreign resource stores. Terminal progress is emitted by the
-// generation-complete task while it processes the prepares it already claimed.
+// event emission for nonterminal phases of linked prepares. Terminal progress
+// is emitted by the generation-complete task while it processes the prepares
+// it already claimed.
 type ProgressHandler struct {
 	joins    deltapreparegenerationstore.Store
 	prepares deltaprepare.Service
@@ -35,19 +35,17 @@ func NewProgressHandler(
 func (h *ProgressHandler) EmitForGeneration(
 	ctx context.Context,
 	generation *model.DeltaGeneration,
-	status domain.DeltaGenerationProgressDetailsGenerationStatus,
-	phase *domain.DeltaGenerationPhase,
 ) error {
 	if h.joins == nil || h.prepares == nil || h.events == nil || generation == nil {
 		return nil
 	}
-	if status != domain.DeltaGenerationProgressInProgress {
+	if generation.Status != model.DeltaGenerationInProgress {
 		return nil
 	}
 	key := generationKeyOf(generation)
 	joins, err := h.joins.ListDeltaPrepareGenerations(ctx, deltapreparegenerationstore.ListFilter{GenerationKey: &key})
 	if err != nil {
-		return err
+		return fmt.Errorf("list delta prepare generations for progress: %w", err)
 	}
 	ids := make([]uuid.UUID, 0, len(joins))
 	for _, join := range joins {
@@ -55,16 +53,16 @@ func (h *ProgressHandler) EmitForGeneration(
 	}
 	prepares, err := h.prepares.ListDeltaPrepares(ctx, ids)
 	if err != nil {
-		return err
+		return fmt.Errorf("list prepares for delta generation progress: %w", err)
 	}
 	for i := range prepares {
 		prepare := &prepares[i]
 		if prepare.Status != model.DeltaPrepareWaiting {
 			continue
 		}
-		event, err := deltageneration.DeltaGenerationProgressEvent(ctx, *prepare, key, status, phase)
+		event, err := deltageneration.DeltaGenerationProgressEvent(ctx, *prepare, key, domain.DeltaGenerationProgressInProgress, deltageneration.GenerationPhasePtr(generation))
 		if err != nil {
-			return err
+			return fmt.Errorf("create delta generation progress event: %w", err)
 		}
 		h.events.CreateEvent(ctx, prepare.OrgID, event)
 	}

@@ -222,6 +222,7 @@ func (s *GenerationStore) UpdateDeltaGeneration(ctx context.Context, expectedRes
 		return nil, fmt.Errorf("cannot update nil DeltaGeneration")
 	}
 	key := generationKeyOf(generation)
+	var updated model.DeltaGeneration
 	updates := map[string]interface{}{
 		"status":           generation.Status,
 		"phase":            generation.Phase,
@@ -232,15 +233,15 @@ func (s *GenerationStore) UpdateDeltaGeneration(ctx context.Context, expectedRes
 		"resource_version": gorm.Expr("resource_version + 1"),
 		"updated_at":       gorm.Expr("NOW()"),
 	}
-	result := s.getDB(ctx).Model(&model.DeltaGeneration{}).Where(
+	result := s.getDB(ctx).Model(&updated).Where(
 		"org_id = ? AND image_repository = ? AND source_digest = ? AND target_digest = ? AND resource_version = ?",
 		key.OrgID, key.ImageRepository, key.SourceDigest, key.TargetDigest, expectedResourceVersion,
-	).Updates(updates)
+	).Clauses(clause.Returning{}).Updates(updates)
 	if result.Error != nil {
 		return nil, store.ErrorFromGormError(result.Error)
 	}
 	if result.RowsAffected == 0 {
 		return nil, flterrors.ErrNoRowsUpdated
 	}
-	return s.getGeneration(ctx, key)
+	return &updated, nil
 }

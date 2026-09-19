@@ -57,6 +57,19 @@ func TestCreateDeltaPrepareGenerationsInitializesMultiplePrepares(t *testing.T) 
 	require.Equal(t, model.DeltaPrepareComplete, created.UpdatedPrepares[second.ID].Status)
 	require.Equal(t, 0, created.UpdatedPrepares[second.ID].PendingGenerationsCount)
 
+	firstJoins, err := prepareGenerationStore.ListDeltaPrepareGenerations(ctx, ListFilter{PrepareID: &first.ID})
+	require.NoError(t, err)
+	require.Len(t, firstJoins, 2)
+	for _, join := range firstJoins {
+		if join.TargetDigest == terminalKey.TargetDigest {
+			require.True(t, join.Completed)
+		}
+	}
+	secondJoins, err := prepareGenerationStore.ListDeltaPrepareGenerations(ctx, ListFilter{PrepareID: &second.ID})
+	require.NoError(t, err)
+	require.Len(t, secondJoins, 1)
+	require.True(t, secondJoins[0].Completed)
+
 	storedFirst, err := prepareStore.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{ID: first.ID})
 	require.NoError(t, err)
 	require.Equal(t, model.DeltaPrepareWaiting, storedFirst.Status)

@@ -140,7 +140,7 @@ var _ = Describe("PrepareDeltas persist", func() {
 
 			emit := &prepareEmitSpy{}
 			status := workerservice.NewStorePreparingStatus(fleets, devices)
-			generationService := deltageneration.NewServiceHandler(deltaGenerationStore, deltaPrepareStore, deltaPrepareGenerationStore, nil, status, log)
+			generationService := deltageneration.NewServiceHandler(deltaGenerationStore, log)
 			prepareService := deltaprepare.NewServiceHandler(deltaPrepareStore, status)
 			prepareGenerationService := deltapreparegeneration.NewServiceHandler(deltaPrepareGenerationStore)
 			fleetService := fleetservice.NewServiceHandler(fleets, nil, nil, log)

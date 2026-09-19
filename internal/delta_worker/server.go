@@ -73,7 +73,7 @@ func New(log logrus.FieldLogger, cfg *deltaconfig.DeltaGenerationConfig, db *gor
 	repositorySvc := repositoryservice.WrapWithTracing(repositoryservice.NewServiceHandler(repositoryStore, eventSvc, log))
 	catalogSvc := catalogservice.WrapWithTracing(catalogservice.NewServiceHandler(catalogStore, deviceStore, fleetStore, eventSvc, log))
 	templateVersionSvc := templateversionservice.WrapWithTracing(templateversionservice.NewServiceHandler(templateVersionStore, kvStore, eventSvc, log))
-	generationSvc := deltageneration.WrapWithTracing(deltageneration.NewServiceHandler(generationStore, prepareStore, prepareGenerationStore, eventSvc, status, log))
+	generationSvc := deltageneration.WrapWithTracing(deltageneration.NewServiceHandler(generationStore, log))
 	prepareSvc := deltaprepare.WrapWithTracing(deltaprepare.NewServiceHandler(prepareStore, status))
 	prepareGenerationSvc := deltapreparegeneration.WrapWithTracing(deltapreparegeneration.NewServiceHandler(prepareGenerationStore))
 

@@ -290,6 +290,7 @@ func (s *PrepareStore) UpdateDeltaPrepare(ctx context.Context, expectedResourceV
 	if prepare == nil {
 		return nil, fmt.Errorf("cannot update nil DeltaPrepare")
 	}
+	var updated model.DeltaPrepare
 	updates := map[string]interface{}{
 		"org_id":                    prepare.OrgID,
 		"kind":                      prepare.Kind,
@@ -302,14 +303,14 @@ func (s *PrepareStore) UpdateDeltaPrepare(ctx context.Context, expectedResourceV
 		"status":                    prepare.Status,
 		"resource_version":          gorm.Expr("resource_version + 1"),
 	}
-	result := s.getDB(ctx).Model(&model.DeltaPrepare{}).Where("id = ? AND resource_version = ?", prepare.ID, expectedResourceVersion).Updates(updates)
+	result := s.getDB(ctx).Model(&updated).Where("id = ? AND resource_version = ?", prepare.ID, expectedResourceVersion).Clauses(clause.Returning{}).Updates(updates)
 	if result.Error != nil {
 		return nil, store.ErrorFromGormError(result.Error)
 	}
 	if result.RowsAffected == 0 {
 		return nil, flterrors.ErrNoRowsUpdated
 	}
-	return s.GetDeltaPrepare(ctx, PrepareKey{ID: prepare.ID})
+	return &updated, nil
 }
 
 func (s *PrepareStore) CountDeltaPrepareGenerations(ctx context.Context, prepareID uuid.UUID) (int, int, error) {

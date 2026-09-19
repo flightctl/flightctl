@@ -72,12 +72,21 @@ func TestDecrementPendingGenerationsForGeneration(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 2, stored.PendingGenerationsCount)
 
+	// A terminal generation was already complete when its join was created;
+	// redelivery must not consume the counter for either pending generation.
+	claimed, err := prepareStore.DecrementPendingGenerationsForGeneration(ctx, alreadyTerminalKey)
+	require.NoError(t, err)
+	require.Empty(t, claimed)
+	stored, err = prepareStore.GetDeltaPrepare(ctx, PrepareKey{ID: prepare.ID})
+	require.NoError(t, err)
+	require.Equal(t, 2, stored.PendingGenerationsCount)
+
 	require.NoError(t, db.Model(&model.DeltaGeneration{}).
 		Where("org_id = ? AND image_repository = ? AND source_digest = ? AND target_digest = ?",
 			pendingKey.OrgID, pendingKey.ImageRepository, pendingKey.SourceDigest, pendingKey.TargetDigest).
 		Update("status", model.DeltaGenerationSucceeded).Error)
 
-	claimed, err := prepareStore.DecrementPendingGenerationsForGeneration(ctx, pendingKey)
+	claimed, err = prepareStore.DecrementPendingGenerationsForGeneration(ctx, pendingKey)
 	require.NoError(t, err)
 	require.Len(t, claimed, 1)
 	require.Equal(t, model.DeltaPrepareWaiting, claimed[0].Prepare.Status)
@@ -107,9 +116,8 @@ func TestDecrementPendingGenerationsForGeneration(t *testing.T) {
 	require.Equal(t, 3, claimed[0].Completed)
 	require.Equal(t, 3, claimed[0].Total)
 
-	// A new prepare may be claimed by a later notification for the same
-	// terminal generation. Only the new prepare is returned; the completed join
-	// prevents the first prepare from being processed again.
+	// A new prepare records the already-terminal generation as completed while
+	// it is created, so a later notification for that generation is a no-op.
 	newPrepare := &model.DeltaPrepare{ID: uuid.New(), OrgID: orgID, Kind: "fleet", Name: "fleet-new", Status: model.DeltaPrepareWaiting}
 	require.NoError(t, prepareStore.CreateDeltaPrepare(ctx, newPrepare))
 	_, err = prepareGenerationStore.CreateDeltaPrepareGenerations(ctx, []*model.DeltaPrepareGeneration{
@@ -124,11 +132,19 @@ func TestDecrementPendingGenerationsForGeneration(t *testing.T) {
 
 	claimed, err = prepareStore.DecrementPendingGenerationsForGeneration(ctx, secondPendingKey)
 	require.NoError(t, err)
+	require.Empty(t, claimed)
+
+	require.NoError(t, db.Model(&model.DeltaGeneration{}).
+		Where("org_id = ? AND image_repository = ? AND source_digest = ? AND target_digest = ?",
+			newPendingKey.OrgID, newPendingKey.ImageRepository, newPendingKey.SourceDigest, newPendingKey.TargetDigest).
+		Update("status", model.DeltaGenerationSucceeded).Error)
+	claimed, err = prepareStore.DecrementPendingGenerationsForGeneration(ctx, newPendingKey)
+	require.NoError(t, err)
 	require.Len(t, claimed, 1)
 	require.Equal(t, newPrepare.ID, claimed[0].Prepare.ID)
 	require.Equal(t, model.DeltaPrepareComplete, claimed[0].Prepare.Status)
 	require.Equal(t, 0, claimed[0].Prepare.PendingGenerationsCount)
-	require.Equal(t, 1, claimed[0].Completed)
+	require.Equal(t, 2, claimed[0].Completed)
 	require.Equal(t, 2, claimed[0].Total)
 
 	// A second notification cannot update an already completed prepare.

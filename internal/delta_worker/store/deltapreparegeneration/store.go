@@ -123,13 +123,35 @@ func (s *PrepareGenerationStore) CreateDeltaPrepareGenerations(ctx context.Conte
 			affectedPrepareIDs = append(affectedPrepareIDs, prepareID)
 		}
 
+		// A generation may already be terminal when its join is created. Mark
+		// those joins completed before calculating the pending counter so a
+		// later redelivered terminal notification cannot decrement the counter
+		// for them a second time.
+		result := tx.Exec(`
+			UPDATE delta_prepare_generations AS pg
+			SET completed = TRUE
+			FROM delta_generations AS g
+			WHERE pg.prepare_id IN @prepare_ids
+			  AND pg.org_id = g.org_id
+			  AND pg.image_repository = g.image_repository
+			  AND pg.source_digest = g.source_digest
+			  AND pg.target_digest = g.target_digest
+			  AND pg.completed = FALSE
+			  AND g.status IN @terminal_statuses`, map[string]interface{}{
+			"prepare_ids":       affectedPrepareIDs,
+			"terminal_statuses": []string{model.DeltaGenerationSucceeded, model.DeltaGenerationFailed, model.DeltaGenerationRejected},
+		})
+		if result.Error != nil {
+			return store.ErrorFromGormError(result.Error)
+		}
+
 		// Count the generations that are still pending in the same
 		// transaction as the joins. A generation can finish before its
 		// join is committed; excluding it here prevents a missed wake-up.
 		// Compute all affected prepares in one grouped update instead of
 		// issuing one update per prepare.
 		var updated []model.DeltaPrepare
-		result := tx.Raw(`
+		result = tx.Raw(`
 WITH pending_counts AS (
 	SELECT pg.prepare_id,
 		CAST(COUNT(*) FILTER (
