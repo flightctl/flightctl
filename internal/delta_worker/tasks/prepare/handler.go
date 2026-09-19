@@ -12,7 +12,9 @@ import (
 	"github.com/flightctl/flightctl/internal/delta_worker/service/deltageneration"
 	"github.com/flightctl/flightctl/internal/delta_worker/service/deltaprepare"
 	"github.com/flightctl/flightctl/internal/delta_worker/service/deltapreparegeneration"
-	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store"
+	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
+	deltapreparestore "github.com/flightctl/flightctl/internal/delta_worker/store/deltaprepare"
+	deltapreparegenerationstore "github.com/flightctl/flightctl/internal/delta_worker/store/deltapreparegeneration"
 	generateTask "github.com/flightctl/flightctl/internal/delta_worker/tasks/generate"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -139,8 +141,15 @@ func (p *Handler) processCandidates(ctx context.Context, ev worker_client.EventW
 	if !current {
 		return nil
 	}
-	if err := p.createPrepareGenerations(ctx, prep.ID, keys); err != nil {
+	created, err := p.createPrepareGenerations(ctx, prep.ID, keys)
+	if err != nil {
 		return err
+	}
+	if updated, ok := created.UpdatedPrepares[prep.ID]; ok {
+		prep = &updated
+		if prep.Status == model.DeltaPrepareComplete {
+			return p.clearStatus(ctx, ev.OrgId, kind, name)
+		}
 	}
 	zeroWait := isZeroWait(p.maxWait(result.Fleet))
 	current, err = p.isCurrentPrepare(ctx, ev.OrgId, kind, name, prep, identity)
@@ -163,7 +172,7 @@ func (p *Handler) isCurrentPrepare(ctx context.Context, orgID uuid.UUID, kind, n
 	// This is an optimistic read, not a database lock. The admission
 	// transaction has already committed and released its row lock; this check
 	// only prevents stale work from continuing after a newer prepare replaces it.
-	current, err := p.prepareService.GetDeltaPrepare(ctx, deltastore.PrepareKey{OrgID: orgID, Kind: kind, Name: name}, deltastore.WithPrepareStatus(model.DeltaPrepareWaiting))
+	current, err := p.prepareService.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{OrgID: orgID, Kind: kind, Name: name}, deltapreparestore.WithPrepareStatus(model.DeltaPrepareWaiting))
 	if err != nil {
 		return false, err
 	}
@@ -201,7 +210,7 @@ func (p *Handler) admitPrepare(ctx context.Context, orgId uuid.UUID, kind, name 
 }
 
 func (p *Handler) finishSkip(ctx context.Context, orgId uuid.UUID, kind, name string, identity prepareIdentity) error {
-	latest, err := p.prepareService.GetDeltaPrepare(ctx, deltastore.PrepareKey{OrgID: orgId, Kind: kind, Name: name})
+	latest, err := p.prepareService.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{OrgID: orgId, Kind: kind, Name: name})
 	if err != nil {
 		return err
 	}
@@ -326,7 +335,7 @@ func (p *Handler) completeNow(ctx context.Context, prep *model.DeltaPrepare, org
 	return nil
 }
 
-func (p *Handler) createPrepareGenerations(ctx context.Context, prepareID uuid.UUID, keys []deltastore.GenerationKey) error {
+func (p *Handler) createPrepareGenerations(ctx context.Context, prepareID uuid.UUID, keys []deltastore.GenerationKey) (deltapreparegenerationstore.CreateDeltaPrepareGenerationsResult, error) {
 	joins := make([]*model.DeltaPrepareGeneration, 0, len(keys))
 	for _, key := range keys {
 		joins = append(joins, &model.DeltaPrepareGeneration{

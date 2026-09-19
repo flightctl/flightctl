@@ -5,7 +5,9 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/delta_worker/model"
-	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store"
+	deltagenerationstore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
+	deltapreparestore "github.com/flightctl/flightctl/internal/delta_worker/store/deltaprepare"
+	deltapreparegenerationstore "github.com/flightctl/flightctl/internal/delta_worker/store/deltapreparegeneration"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/events"
@@ -35,11 +37,11 @@ func (f *fakeGenerationStore) InsertDeltaGenerations(_ context.Context, generati
 	return []model.DeltaGeneration{*cloneGeneration(f.generation)}, nil
 }
 
-func (f *fakeGenerationStore) GetDeltaGeneration(_ context.Context, _ deltastore.GenerationKey, _ ...deltastore.GenerationGetOption) (*model.DeltaGeneration, error) {
+func (f *fakeGenerationStore) GetDeltaGeneration(_ context.Context, _ deltagenerationstore.GenerationKey, _ ...deltagenerationstore.GenerationGetOption) (*model.DeltaGeneration, error) {
 	return cloneGeneration(f.generation), nil
 }
 
-func (f *fakeGenerationStore) ListDeltaGenerations(_ context.Context, _ []deltastore.GenerationKey) ([]model.DeltaGeneration, error) {
+func (f *fakeGenerationStore) ListDeltaGenerations(_ context.Context, _ []deltagenerationstore.GenerationKey) ([]model.DeltaGeneration, error) {
 	if f.generation == nil {
 		return nil, nil
 	}
@@ -60,10 +62,10 @@ type fakePrepareStore struct {
 }
 
 func (f *fakePrepareStore) CreateDeltaPrepare(context.Context, *model.DeltaPrepare) error { return nil }
-func (f *fakePrepareStore) CreateOrReplaceWaitingDeltaPrepare(context.Context, *model.DeltaPrepare) (deltastore.PrepareAdmission, error) {
-	return deltastore.PrepareAdmission{}, nil
+func (f *fakePrepareStore) CreateOrReplaceWaitingDeltaPrepare(context.Context, *model.DeltaPrepare) (deltapreparestore.PrepareAdmission, error) {
+	return deltapreparestore.PrepareAdmission{}, nil
 }
-func (f *fakePrepareStore) GetDeltaPrepare(_ context.Context, key deltastore.PrepareKey, _ ...deltastore.PrepareGetOption) (*model.DeltaPrepare, error) {
+func (f *fakePrepareStore) GetDeltaPrepare(_ context.Context, key deltapreparestore.PrepareKey, _ ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error) {
 	for i := range f.prepares {
 		if key.ID != uuid.Nil && f.prepares[i].ID == key.ID {
 			return &f.prepares[i], nil
@@ -90,15 +92,18 @@ func (f *fakePrepareStore) UpdateDeltaPrepare(context.Context, int64, *model.Del
 func (f *fakePrepareStore) CountDeltaPrepareGenerations(context.Context, uuid.UUID) (int, int, error) {
 	return 1, 2, nil
 }
+func (f *fakePrepareStore) DecrementPendingGenerationsForGeneration(context.Context, deltagenerationstore.GenerationKey) ([]deltapreparestore.PrepareProgress, error) {
+	return nil, nil
+}
 
 type fakeJoinStore struct {
 	joins []model.DeltaPrepareGeneration
 }
 
-func (f *fakeJoinStore) CreateDeltaPrepareGenerations(_ context.Context, joins []*model.DeltaPrepareGeneration) ([]*model.DeltaPrepareGeneration, error) {
-	return joins, nil
+func (f *fakeJoinStore) CreateDeltaPrepareGenerations(_ context.Context, joins []*model.DeltaPrepareGeneration) (deltapreparegenerationstore.CreateDeltaPrepareGenerationsResult, error) {
+	return deltapreparegenerationstore.CreateDeltaPrepareGenerationsResult{InsertedJoins: joins}, nil
 }
-func (f *fakeJoinStore) ListDeltaPrepareGenerations(_ context.Context, filter deltastore.DeltaPrepareGenerationListFilter) ([]model.DeltaPrepareGeneration, error) {
+func (f *fakeJoinStore) ListDeltaPrepareGenerations(_ context.Context, filter deltapreparegenerationstore.ListFilter) ([]model.DeltaPrepareGeneration, error) {
 	var result []model.DeltaPrepareGeneration
 	for _, join := range f.joins {
 		if filter.GenerationKey != nil && (join.OrgID != filter.GenerationKey.OrgID || join.ImageRepository != filter.GenerationKey.ImageRepository || join.SourceDigest != filter.GenerationKey.SourceDigest || join.TargetDigest != filter.GenerationKey.TargetDigest) {
@@ -144,7 +149,7 @@ func TestServiceUpdateDeltaGenerationEmitsProgressToWaitingPrepares(t *testing.T
 		t.Run(tt.name, func(t *testing.T) {
 			orgID := uuid.New()
 			prepareID := uuid.New()
-			key := deltastore.GenerationKey{OrgID: orgID, ImageRepository: "quay.io/example/os", SourceDigest: "sha256:source", TargetDigest: "sha256:target"}
+			key := deltagenerationstore.GenerationKey{OrgID: orgID, ImageRepository: "quay.io/example/os", SourceDigest: "sha256:source", TargetDigest: "sha256:target"}
 			store := &fakeGenerationStore{generation: &model.DeltaGeneration{
 				OrgID: orgID, ImageRepository: key.ImageRepository, SourceDigest: key.SourceDigest, TargetDigest: key.TargetDigest,
 				Status: model.DeltaGenerationInProgress, ResourceVersion: 4,
@@ -173,7 +178,7 @@ func TestServiceUpdateDeltaGenerationEmitsProgressToWaitingPrepares(t *testing.T
 func TestServiceCreateDeltaGenerationsUsesPersistedStatus(t *testing.T) {
 	orgID := uuid.New()
 	prepareID := uuid.New()
-	key := deltastore.GenerationKey{OrgID: orgID, ImageRepository: "quay.io/example/os", SourceDigest: "sha256:source", TargetDigest: "sha256:target"}
+	key := deltagenerationstore.GenerationKey{OrgID: orgID, ImageRepository: "quay.io/example/os", SourceDigest: "sha256:source", TargetDigest: "sha256:target"}
 	phase := string(domain.DeltaGenerationPhasePush)
 	store := &fakeGenerationStore{persistedOnInsert: &model.DeltaGeneration{
 		OrgID: orgID, ImageRepository: key.ImageRepository, SourceDigest: key.SourceDigest, TargetDigest: key.TargetDigest,

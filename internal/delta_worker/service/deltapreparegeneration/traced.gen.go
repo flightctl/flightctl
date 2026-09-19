@@ -9,7 +9,7 @@ import (
 	"errors"
 
 	"github.com/flightctl/flightctl/internal/delta_worker/model"
-	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store"
+	deltapreparegenerationstore "github.com/flightctl/flightctl/internal/delta_worker/store/deltapreparegeneration"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"go.opentelemetry.io/otel/attribute"
@@ -45,19 +45,19 @@ func endSpan(span trace.Span, st domain.Status) {
 	span.End()
 }
 
-func (_d *TracedService) CreateDeltaPrepareGenerations(ctx context.Context, joins []*model.DeltaPrepareGeneration) (err error) {
+func (_d *TracedService) CreateDeltaPrepareGenerations(ctx context.Context, joins []*model.DeltaPrepareGeneration) (c2 deltapreparegenerationstore.CreateDeltaPrepareGenerationsResult, err error) {
 	ctx, span := startSpan(ctx, "CreateDeltaPrepareGenerations")
 
-	err = _d.inner.CreateDeltaPrepareGenerations(ctx, joins)
+	c2, err = _d.inner.CreateDeltaPrepareGenerations(ctx, joins)
 	st := domain.StatusOK()
 	if err != nil {
 		st = domain.StatusInternalServerError(err.Error())
 	}
 	endSpan(span, st)
-	return err
+	return c2, err
 }
 
-func (_d *TracedService) ListDeltaPrepareGenerations(ctx context.Context, filter deltastore.DeltaPrepareGenerationListFilter) (da1 []model.DeltaPrepareGeneration, err error) {
+func (_d *TracedService) ListDeltaPrepareGenerations(ctx context.Context, filter deltapreparegenerationstore.ListFilter) (da1 []model.DeltaPrepareGeneration, err error) {
 	ctx, span := startSpan(ctx, "ListDeltaPrepareGenerations")
 
 	da1, err = _d.inner.ListDeltaPrepareGenerations(ctx, filter)

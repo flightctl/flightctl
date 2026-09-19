@@ -6,7 +6,8 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/delta_worker/model"
-	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store"
+	deltagenerationstore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
+	deltapreparestore "github.com/flightctl/flightctl/internal/delta_worker/store/deltaprepare"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
@@ -14,7 +15,7 @@ import (
 type recordingStore struct {
 	prepare *model.DeltaPrepare
 	ids     []uuid.UUID
-	filter  int
+	gets    int
 }
 
 func (s *recordingStore) CreateDeltaPrepare(_ context.Context, prepare *model.DeltaPrepare) error {
@@ -22,12 +23,13 @@ func (s *recordingStore) CreateDeltaPrepare(_ context.Context, prepare *model.De
 	return nil
 }
 
-func (s *recordingStore) CreateOrReplaceWaitingDeltaPrepare(_ context.Context, prepare *model.DeltaPrepare) (deltastore.PrepareAdmission, error) {
+func (s *recordingStore) CreateOrReplaceWaitingDeltaPrepare(_ context.Context, prepare *model.DeltaPrepare) (deltapreparestore.PrepareAdmission, error) {
 	s.prepare = prepare
-	return deltastore.PrepareAdmission{Prepare: prepare, Accepted: true}, nil
+	return deltapreparestore.PrepareAdmission{Prepare: prepare, Accepted: true}, nil
 }
 
-func (s *recordingStore) GetDeltaPrepare(context.Context, deltastore.PrepareKey, ...deltastore.PrepareGetOption) (*model.DeltaPrepare, error) {
+func (s *recordingStore) GetDeltaPrepare(context.Context, deltapreparestore.PrepareKey, ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error) {
+	s.gets++
 	return s.prepare, nil
 }
 
@@ -42,11 +44,14 @@ func (s *recordingStore) UpdateDeltaPrepare(_ context.Context, _ int64, prepare 
 }
 
 func (s *recordingStore) CountDeltaPrepareGenerations(context.Context, uuid.UUID) (int, int, error) {
-	s.filter++
-	return 2, 3, nil
+	return 0, 0, nil
 }
 
-var _ deltastore.DeltaPrepareStore = (*recordingStore)(nil)
+func (s *recordingStore) DecrementPendingGenerationsForGeneration(context.Context, deltagenerationstore.GenerationKey) ([]deltapreparestore.PrepareProgress, error) {
+	return nil, nil
+}
+
+var _ deltapreparestore.Store = (*recordingStore)(nil)
 
 func TestServiceDelegatesPrepareOperations(t *testing.T) {
 	ctx := context.Background()
@@ -55,7 +60,7 @@ func TestServiceDelegatesPrepareOperations(t *testing.T) {
 	h := NewServiceHandler(store, nil)
 
 	require.NoError(t, h.CreateDeltaPrepare(ctx, prepare))
-	got, err := h.GetDeltaPrepare(ctx, deltastore.PrepareKey{ID: prepare.ID})
+	got, err := h.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{ID: prepare.ID})
 	require.NoError(t, err)
 	require.Same(t, prepare, got)
 
@@ -68,11 +73,6 @@ func TestServiceDelegatesPrepareOperations(t *testing.T) {
 	require.NoError(t, err)
 	require.Same(t, prepare, updated)
 
-	completed, total, err := h.CountDeltaPrepareGenerations(ctx, prepare.ID)
-	require.NoError(t, err)
-	require.Equal(t, 2, completed)
-	require.Equal(t, 3, total)
-	require.Equal(t, 1, store.filter)
 }
 
 func TestServicePropagatesStoreErrors(t *testing.T) {
@@ -86,10 +86,10 @@ func TestServicePropagatesStoreErrors(t *testing.T) {
 type errorStore struct{ err error }
 
 func (s *errorStore) CreateDeltaPrepare(context.Context, *model.DeltaPrepare) error { return s.err }
-func (s *errorStore) CreateOrReplaceWaitingDeltaPrepare(context.Context, *model.DeltaPrepare) (deltastore.PrepareAdmission, error) {
-	return deltastore.PrepareAdmission{}, s.err
+func (s *errorStore) CreateOrReplaceWaitingDeltaPrepare(context.Context, *model.DeltaPrepare) (deltapreparestore.PrepareAdmission, error) {
+	return deltapreparestore.PrepareAdmission{}, s.err
 }
-func (s *errorStore) GetDeltaPrepare(context.Context, deltastore.PrepareKey, ...deltastore.PrepareGetOption) (*model.DeltaPrepare, error) {
+func (s *errorStore) GetDeltaPrepare(context.Context, deltapreparestore.PrepareKey, ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error) {
 	return nil, s.err
 }
 func (s *errorStore) ListDeltaPrepares(context.Context, []uuid.UUID) ([]model.DeltaPrepare, error) {
@@ -101,5 +101,8 @@ func (s *errorStore) UpdateDeltaPrepare(context.Context, int64, *model.DeltaPrep
 func (s *errorStore) CountDeltaPrepareGenerations(context.Context, uuid.UUID) (int, int, error) {
 	return 0, 0, s.err
 }
+func (s *errorStore) DecrementPendingGenerationsForGeneration(context.Context, deltagenerationstore.GenerationKey) ([]deltapreparestore.PrepareProgress, error) {
+	return nil, s.err
+}
 
-var _ deltastore.DeltaPrepareStore = (*errorStore)(nil)
+var _ deltapreparestore.Store = (*errorStore)(nil)

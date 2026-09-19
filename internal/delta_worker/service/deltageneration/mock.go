@@ -14,7 +14,7 @@ import (
 	reflect "reflect"
 
 	model "github.com/flightctl/flightctl/internal/delta_worker/model"
-	store "github.com/flightctl/flightctl/internal/delta_worker/store"
+	store "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
 	gomock "go.uber.org/mock/gomock"
 )
 
