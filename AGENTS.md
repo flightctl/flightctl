@@ -110,11 +110,11 @@ The repository uses two server-side patterns:
 
 ## Before committing
 
-1. **Keep docs up to date** – If you change behavior, APIs, or workflows, update the relevant docs in `docs/user/` or `docs/developer/` and run the applicable documentation checks described above and in [docs/AGENTS.md](docs/AGENTS.md).
+1. **Keep docs up to date** – If you change behavior, APIs, or workflows, update the relevant docs in `docs/user/` or `docs/developer/`. Run `make lint-docs` and, for user docs, `make spellcheck-docs`.
 2. **Add test coverage** – New or changed code should include or extend unit tests (and integration tests where appropriate). Prefer table-driven tests and existing patterns; see [test/AGENTS.md](test/AGENTS.md) and [internal/agent/AGENTS.md](internal/agent/AGENTS.md) for area-specific standards.
-3. **Tidy dependencies** – Run the dependency cleanup command after adding/removing dependencies or modifying Go module files.
-4. **Run applicable lint checks** – Use the relevant project lint target for the files changed; see the command catalog above and area-specific guidance.
-5. **Run applicable tests** – Run focused tests first, then the relevant full unit, integration, or E2E target; follow the environment requirements in [test/AGENTS.md](test/AGENTS.md).
+3. **Tidy dependencies** – Run `make tidy` after adding/removing dependencies or modifying Go module files.
+4. **Run applicable lint checks** – Run `make lint` for Go changes and the relevant specialized target, such as `make lint-openapi`, `make lint-docs`, or `make lint-helm`, for other files.
+5. **Run applicable tests** – Run focused tests first, then the relevant full target: `make unit-test`, `make integration-test`, `make e2e-test`, or `make in-cluster-e2e-test`. Follow the environment requirements in [test/AGENTS.md](test/AGENTS.md).
 
 ## Pointers to area-specific guidance
 
