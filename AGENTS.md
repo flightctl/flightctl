@@ -110,11 +110,11 @@ The repository uses two server-side patterns:
 
 ## Before committing
 
-1. **Keep docs up to date** – If you change behavior, APIs, or workflows, update the relevant docs in `docs/user/` or `docs/developer/`. Run `make lint-docs` and, for user docs, `make spellcheck-docs`.
-2. **Add test coverage** – New or changed code should include or extend unit tests (and integration tests where appropriate). Prefer table-driven tests and existing patterns; see [test/AGENTS.md](test/AGENTS.md) and [internal/agent/AGENTS.md](internal/agent/AGENTS.md) for area-specific standards.
-3. **Tidy dependencies** – Run `make tidy` after adding/removing dependencies or modifying Go module files.
-4. **Run applicable lint checks** – Run `make lint` for Go changes and the relevant specialized target, such as `make lint-openapi`, `make lint-docs`, or `make lint-helm`, for other files.
-5. **Run applicable tests** – Run focused tests first, then the relevant full target: `make unit-test`, `make integration-test`, `make e2e-test`, or `make in-cluster-e2e-test`. Follow the environment requirements in [test/AGENTS.md](test/AGENTS.md).
+1. **Keep docs up to date** – If you change behavior, APIs, or workflows, update the relevant docs in `docs/user/` or `docs/developer/` and run `make lint-docs` (and `make spellcheck-docs` for user docs).
+2. **Add test coverage** – New or changed code should include or extend unit tests (and integration tests where appropriate). Prefer table-driven tests and existing patterns; see [test/AGENTS.md](test/AGENTS.md) and [internal/agent/AGENTS.md](internal/agent/AGENTS.md) for agent code.
+3. **Tidy dependencies** – Run `make tidy` after adding/removing dependencies or modifying go.mod files.
+4. **Run lint** – Run `make lint` before committing and fix any issues. Use `make lint-fix` to auto-fix formatting, typos, and unnecessary conversions.
+5. **Run unit and integration tests** – Before committing, run `make unit-test` and `make integration-test` (integration tests require Podman; they use testcontainers for Postgres/Redis/Alertmanager). Fix any failures before pushing.
 
 ## Pointers to area-specific guidance
 
