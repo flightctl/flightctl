@@ -11,48 +11,35 @@ import (
 	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	gomock "go.uber.org/mock/gomock"
 )
 
-func TestFleetValidateLogic_CreateNewTemplateVersionIfFleetValid_ImmediateRollout(t *testing.T) {
+func TestFleetValidateLogic_CreateNewTemplateVersionIfFleetValid_EmitsPrepareDeltas(t *testing.T) {
 	tests := []struct {
-		name              string
-		rolloutPolicy     *domain.RolloutPolicy
-		expectedImmediate bool
-		description       string
+		name          string
+		rolloutPolicy *domain.RolloutPolicy
 	}{
 		{
-			name:              "NoRolloutPolicy",
-			rolloutPolicy:     nil,
-			expectedImmediate: true,
-			description:       "immediateRollout should be true when RolloutPolicy is nil",
+			name:          "When there is no rollout policy it should emit PrepareDeltas",
+			rolloutPolicy: nil,
 		},
 		{
-			name: "RolloutPolicyWithoutDeviceSelection",
-			rolloutPolicy: &domain.RolloutPolicy{
-				DeviceSelection: nil,
-			},
-			expectedImmediate: true,
-			description:       "immediateRollout should be true when RolloutPolicy exists but DeviceSelection is nil",
-		},
-		{
-			name: "RolloutPolicyWithDeviceSelection",
+			name: "When DeviceSelection is set it should emit PrepareDeltas",
 			rolloutPolicy: &domain.RolloutPolicy{
 				DeviceSelection: &domain.RolloutDeviceSelection{},
 			},
-			expectedImmediate: false,
-			description:       "immediateRollout should be false when RolloutPolicy.DeviceSelection exists",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Setup
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 
@@ -61,6 +48,7 @@ func TestFleetValidateLogic_CreateNewTemplateVersionIfFleetValid_ImmediateRollou
 			event := createTestEvent(domain.FleetKind, "some-reason", fleetName)
 			orgId := uuid.New()
 			log := logrus.New()
+			emit := &prepareDeltasEmitter{}
 
 			mockFleetSvc := fleetservice.NewMockService(ctrl)
 			mockTemplateVersionSvc := templateversionservice.NewMockService(ctrl)
@@ -68,44 +56,82 @@ func TestFleetValidateLogic_CreateNewTemplateVersionIfFleetValid_ImmediateRollou
 			mockRepositorySvc := repositoryservice.NewMockService(ctrl)
 			mockK8SClient := k8sclient.NewMockK8SClient(ctrl)
 
-			// Mock GetFleet to return our test fleet
 			mockFleetSvc.EXPECT().GetFleet(gomock.Any(), gomock.Any(), fleetName, gomock.Any()).Return(fleet, domain.Status{Code: http.StatusOK})
-
-			// Mock OverwriteFleetRepositoryRefs to succeed
 			mockFleetSvc.EXPECT().OverwriteFleetRepositoryRefs(gomock.Any(), gomock.Any(), fleetName, gomock.Any()).Return(domain.Status{Code: http.StatusOK})
-
-			// Mock CreateTemplateVersion to capture the immediateRollout parameter
-			var capturedImmediateRollout bool
 			mockTemplateVersionSvc.EXPECT().CreateTemplateVersion(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 				func(ctx context.Context, orgId uuid.UUID, tv domain.TemplateVersion, immediateRollout bool) (*domain.TemplateVersion, domain.Status) {
-					capturedImmediateRollout = immediateRollout
 					return &domain.TemplateVersion{
 						Metadata: domain.ObjectMeta{
-							Name: &[]string{"test-tv"}[0],
+							Name: lo.ToPtr("test-tv"),
 						},
 					}, domain.Status{Code: http.StatusCreated}
 				})
-
-			// Mock UpdateFleetAnnotations to succeed
-			mockFleetSvc.EXPECT().UpdateFleetAnnotations(gomock.Any(), gomock.Any(), fleetName, gomock.Any(), gomock.Any()).Return(domain.Status{Code: http.StatusOK})
-
-			// Mock UpdateToOutOfDateByOwner to succeed
-			mockDeviceSvc.EXPECT().SetOutOfDate(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
-
-			// Mock UpdateFleetConditions to succeed
+			mockFleetSvc.EXPECT().UpdateFleetAnnotations(gomock.Any(), gomock.Any(), fleetName, map[string]string{
+				domain.FleetAnnotationTemplateVersion: "test-tv",
+			}, nil).Return(domain.Status{Code: http.StatusOK})
+			mockDeviceSvc.EXPECT().SetOutOfDate(gomock.Any(), gomock.Any(), util.ResourceOwner(domain.FleetKind, fleetName)).Return(nil)
 			mockFleetSvc.EXPECT().UpdateFleetConditions(gomock.Any(), gomock.Any(), fleetName, gomock.Any()).Return(domain.Status{Code: http.StatusOK})
 
-			// Create FleetValidateLogic instance
 			logic := NewFleetValidateLogic(log, mockFleetSvc, mockTemplateVersionSvc, mockDeviceSvc, mockRepositorySvc, mockK8SClient, orgId, event)
+			logic.WorkerClient = emit
 
-			// Execute
 			err := logic.CreateNewTemplateVersionIfFleetValid(context.Background())
-
-			// Assert
 			require.NoError(t, err)
-			assert.Equal(t, tt.expectedImmediate, capturedImmediateRollout, tt.description)
+			require.Len(t, emit.events, 1)
+			assert.Equal(t, domain.EventReasonPrepareDeltas, emit.events[0].Reason)
+			assert.Equal(t, domain.FleetKind, emit.events[0].InvolvedObject.Kind)
+			assert.Equal(t, fleetName, emit.events[0].InvolvedObject.Name)
+			details, err := emit.events[0].Details.AsPrepareDeltasDetails()
+			require.NoError(t, err)
+			assert.Equal(t, "test-tv", lo.FromPtr(details.TemplateVersion))
 		})
 	}
+}
+
+func TestFleetValidateLogic_WhenTemplateVersionAlreadyExistsItRecoversPrepareDeltas(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	fleetName := "test-fleet"
+	fleet := createTestFleet(fleetName, nil)
+	event := createTestEvent(domain.FleetKind, "some-reason", fleetName)
+	orgID := uuid.New()
+	emit := &prepareDeltasEmitter{}
+
+	mockFleetSvc := fleetservice.NewMockService(ctrl)
+	mockTemplateVersionSvc := templateversionservice.NewMockService(ctrl)
+	mockDeviceSvc := deviceservice.NewMockService(ctrl)
+	mockRepositorySvc := repositoryservice.NewMockService(ctrl)
+	mockK8SClient := k8sclient.NewMockK8SClient(ctrl)
+
+	mockFleetSvc.EXPECT().GetFleet(gomock.Any(), orgID, fleetName, gomock.Any()).Return(fleet, domain.Status{Code: http.StatusOK})
+	mockFleetSvc.EXPECT().OverwriteFleetRepositoryRefs(gomock.Any(), orgID, fleetName, gomock.Any()).Return(domain.Status{Code: http.StatusOK})
+	mockTemplateVersionSvc.EXPECT().CreateTemplateVersion(gomock.Any(), orgID, gomock.Any(), gomock.Any()).Return(nil, domain.Status{Code: http.StatusConflict})
+	mockTemplateVersionSvc.EXPECT().GetTemplateVersion(gomock.Any(), orgID, fleetName, gomock.Any()).Return(&domain.TemplateVersion{Metadata: domain.ObjectMeta{Name: lo.ToPtr("test-tv")}}, domain.Status{Code: http.StatusOK})
+	mockFleetSvc.EXPECT().UpdateFleetAnnotations(gomock.Any(), orgID, fleetName, map[string]string{
+		domain.FleetAnnotationTemplateVersion: "test-tv",
+	}, nil).Return(domain.Status{Code: http.StatusOK})
+	mockDeviceSvc.EXPECT().SetOutOfDate(gomock.Any(), orgID, util.ResourceOwner(domain.FleetKind, fleetName)).Return(nil)
+	mockFleetSvc.EXPECT().UpdateFleetConditions(gomock.Any(), orgID, fleetName, gomock.Any()).Return(domain.Status{Code: http.StatusOK})
+
+	logic := NewFleetValidateLogic(logrus.New(), mockFleetSvc, mockTemplateVersionSvc, mockDeviceSvc, mockRepositorySvc, mockK8SClient, orgID, event)
+	logic.WorkerClient = emit
+
+	require.NoError(t, logic.CreateNewTemplateVersionIfFleetValid(context.Background()))
+	require.Len(t, emit.events, 1)
+	details, err := emit.events[0].Details.AsPrepareDeltasDetails()
+	require.NoError(t, err)
+	assert.Equal(t, "test-tv", lo.FromPtr(details.TemplateVersion))
+}
+
+type prepareDeltasEmitter struct {
+	events []*domain.Event
+}
+
+func (e *prepareDeltasEmitter) EmitEvent(_ context.Context, _ uuid.UUID, event *domain.Event) {
+	if event == nil {
+		return
+	}
+	cp := *event
+	e.events = append(e.events, &cp)
 }
 
 func TestGenerateTemplateVersionName(t *testing.T) {
