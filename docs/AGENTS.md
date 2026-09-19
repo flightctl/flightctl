@@ -94,11 +94,3 @@ Documentation should be clear, consistent, appropriate for global audiences, and
 - **Excalidraw SVGs:** `make lint-diagrams` ensures SVGs under `docs/` that come from Excalidraw have the scene embedded. Add exceptions via `.excalidraw-ignore` in the same directory if a file is not from Excalidraw.
 
 When you add or edit docs, run the relevant checks before committing: at least `make lint-docs` and `make spellcheck-docs` for user docs; add `make lint-diagrams` if you added or changed Excalidraw SVGs.
-
-## Summary
-
-1. Put **user** content under **docs/user/** and **developer** content under **docs/developer/**.
-2. Follow the **Documentation style** section above (tone, voice, minimalism, headings, lists, procedures, code examples, placeholders, admonitions, links, accessibility).
-3. Update **docs/user/README.md** or **docs/developer/README.md** when adding new top-level sections or important pages.
-4. Use **relative links** and **Markdown**; export Excalidraw SVGs with **Embed Scene**.
-5. **Before committing:** Run **`make lint-docs`** and **`make spellcheck-docs`** (and **`make lint-diagrams`** if touching SVGs); fix any failures before committing.

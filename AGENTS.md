@@ -19,7 +19,7 @@ Flight Control is a service for declarative management of fleets of edge devices
 ## Build and development
 
 - **Build:** `make build` (requires Go ≥1.26, podman, and other deps; see [docs/developer/README.md](docs/developer/README.md)).
-- **Generate API/client code and mocks:** `make generate` (requires mockgen: `go install go.uber.org/mock/mockgen@v0.4.0`).
+- **Generate API/client code and mocks:** `make generate`; use the repository's `go:generate` directives, which invoke generators from the pinned Go module files.
 - **Proto generation:** `make generate-proto` for `api/grpc/`.
 - **Unit tests:** `make unit-test` (requires gotestsum: `go install gotest.tools/gotestsum@latest`). Avoid `make test`; prefer `make unit-test` (and `make integration-test` separately if needed). When verifying changes, first run unit tests on the specific files changed, then run `make unit-test` for the full suite. Two opt-out flags are available for faster local iteration: `RACE=0` disables the race detector and `COVERAGE=0` disables the coverage profile (e.g. `make unit-test RACE=0 COVERAGE=0`). Both default to `1` so CI always runs with race detection and coverage enabled.
 - **Integration tests:** `make integration-test` (uses testcontainers for Postgres/Redis/Alertmanager; requires Podman). Key options: `INTEGRATION_PROCS=N` for parallelism, `TEST_DIR=./test/integration/store` for specific suites, `INTEGRATION_GINKGO_FOCUS="pattern"` for specific tests.
@@ -47,13 +47,140 @@ Flight Control is a service for declarative management of fleets of edge devices
 - **Commits:** All commits must be signed (GPG or SSH). Commit messages must be prefixed with Jira issue key (e.g., `<PROJECT>-<NUMBER>: Description`) or `NO-ISSUE:` for trivial changes.
 - **Jira references:** Do not include Jira issue keys or Jira URLs in source code, comments, test names, or user-facing documentation. Track work in commit messages, pull requests, and Jira instead.
 
+## Design and implementation structure
+
+Keep architecture visible in package and file boundaries. New files and
+packages should reflect domain responsibilities rather than grouping unrelated
+helpers by implementation technique.
+
+- Keep the primary workflow or handler control flow visible and close to its
+  entrypoint.
+- Where the code uses handlers, services, stores, or tasks, keep their roles
+  distinct: orchestration coordinates work, services own business rules and
+  resource events, and stores own persistence and atomic database operations.
+- Do not move an entire workflow to another layer merely to separate files.
+- Use existing project services, libraries, and neighboring implementations
+  before introducing new wrappers or parallel mechanisms.
+
+### Package structure and ownership
+
+- For service packages that use the project's interface/handler/code-generation
+  convention, keep the provider-owned interface in `service.go`, the concrete
+  implementation and orchestration in `handler.go`, generation directives in
+  `docs.go`, and adjacent tests in `*_test.go`. Keep generated mocks and
+  tracing decorators in `mock.go` and `traced.gen.go`; do not hand-edit those
+  generated files. Resource-specific helpers may remain in the same package
+  when they support that service's workflow. The control-plane details and
+  generator paths are documented in
+  [internal/service/AGENTS.md](internal/service/AGENTS.md).
+- The existing control-plane service, store, and task roots are a legacy/shared
+  layout: resource services live under `internal/service/<resource>/`, stores
+  under `internal/store/<resource>/` (with shared persistence models under
+  `internal/store/model/`), and the older task families remain in the flat
+  `internal/tasks/` package. These packages are used by `flightctl-api` and
+  other existing control-plane binaries, so preserve their locations when
+  modifying existing code and do not use them as the template for new
+  component-specific code. Do not migrate them opportunistically as part of an
+  unrelated change.
+- Component-specific code puts the owning component prefix before the layer.
+  The verified current layouts are:
+  - Delta Worker uses `internal/delta_worker/service/<resource>/`,
+    `internal/delta_worker/store/<resource>/`, and
+    `internal/delta_worker/tasks/<task>/`; its task consumer and wiring stay at
+    `internal/delta_worker/tasks/`.
+  - ImageBuilder API keeps its service and store packages at
+    `internal/imagebuilder_api/service/` and
+    `internal/imagebuilder_api/store/`; these are established aggregate
+    packages with operation-specific files rather than one package per
+    resource. ImageBuilder worker task handlers live in the established flat
+    `internal/imagebuilder_worker/tasks/` package.
+  New component code must follow this component-first rule and must not be
+  added to a legacy top-level root when an owning component namespace exists.
+  Preserve an existing component's established subpackage or flat-package
+  shape unless a deliberate migration is in scope.
+- In component-scoped code, keep persistence in the owning component's store
+  namespace and keep the store API and concrete persistence implementation
+  together with their tests. Stores own SQL, transactions, CAS, upserts, and
+  other persistence invariants; services own business workflows and resource
+  events. Composition roots may import stores to construct and wire services,
+  but task and service logic should use the owning service API rather than
+  reaching into an unrelated store.
+- Keep the dependency direction one-way for new resource code: an owning
+  service may depend on its store, but a store must not depend on services, and
+  unrelated services or task packages must use the owning service API instead
+  of importing that store. Coordinate cross-resource workflows through service
+  APIs rather than adding new cross-store dependencies. Existing legacy and
+  component-wiring exceptions are not a model for new code; do not extend them
+  without an explicit architectural decision.
+- For new task families, create a package under the owning component's
+  `tasks/<task>/` directory. Keep a multi-step task workflow in `handler.go`
+  (or use an explicit task-named file for a small event/completion adapter),
+  task-specific helpers beside it, and tests next to the implementation. Keep
+  queue consumption, dispatch, and wiring at the component's `tasks/` root;
+  task handlers orchestrate services and external work, not persistence. For
+  an existing flat task package such as `internal/tasks/` or
+  `internal/imagebuilder_worker/tasks/`, preserve the flat layout unless a
+  migration is explicitly in scope; do not add a second task-package pattern
+  beside it.
+
+- Default new internal dependencies to concrete service types. Introduce an
+  interface only for multiple distinct production implementations, a system
+  perimeter such as a third-party SDK, external HTTP client, or database
+  driver, an established area-specific convention, or an explicit user
+  request. A test-only interface is an exception only when it is the
+  provider-owned canonical interface for a shared service.
+- Do not create caller-side or subset interfaces merely to restrict access to
+  a service or make unit tests mockable, and do not use function-valued
+  dependency fields as a substitute for a coherent service boundary.
+- Keep a provider-owned service interface and its generated mock canonical;
+  reuse them across consumers instead of duplicating the same service contract
+  in each consumer package.
+- When a service's broad surface is the architectural problem being addressed,
+  decompose the concrete implementation into cohesive, domain-focused
+  services instead of hiding it behind caller-side facades. Keep concrete
+  types small enough that artificial subset interfaces are unnecessary.
+- Before adding a dependency interface or function-valued field, verify that
+  the concrete implementation cannot be made cohesive and that an existing
+  provider contract or area-specific convention cannot be reused.
+
+### Constructor invariants
+
+- Validate every required dependency in its `New...` constructor and return an
+  error immediately when a required dependency is `nil`.
+- Do not add method-level defensive `nil` checks for required dependencies. Once
+  construction succeeds, methods may rely on the established invariants.
+- If a dependency is truly optional, initialize a no-op or Null Object in the
+  constructor so normal methods do not need `nil` branches. Preserve intentional
+  optional wrapper behavior documented by area-specific guidance.
+
+```go
+func NewService(repo Repository) (*Service, error) {
+	if repo == nil {
+		return nil, errors.New("repository is required")
+	}
+	return &Service{repo: repo}, nil
+}
+
+func (s *Service) Get(ctx context.Context, id string) (*User, error) {
+	return s.repo.FindByID(ctx, id)
+}
+```
+
+- Preserve authoritative event and resource identity unless an explicit
+  invariant requires a live lookup or recomputation.
+- Prefer database-enforced invariants, CAS, upsert, `RETURNING`, and set-based
+  operations over application-side read/loop/write sequences. Process large
+  collections page by page.
+- Use names that describe the domain resource and operation, not vague states
+  or implementation-only details.
+
 ## Before committing
 
-1. **Keep docs up to date** – If you change behavior, APIs, or workflows, update the relevant docs in `docs/user/` or `docs/developer/` and run `make lint-docs` (and `make spellcheck-docs` for user docs).
-2. **Add test coverage** – New or changed code should include or extend unit tests (and integration tests where appropriate). Prefer table-driven tests and existing patterns; see [test/AGENTS.md](test/AGENTS.md) and [internal/agent/AGENTS.md](internal/agent/AGENTS.md) for agent code.
-3. **Tidy dependencies** – Run `make tidy` after adding/removing dependencies or modifying go.mod files.
-4. **Run lint** – Run `make lint` before committing and fix any issues. Use `make lint-fix` to auto-fix formatting, typos, and unnecessary conversions.
-5. **Run unit and integration tests** – Before committing, run `make unit-test` and `make integration-test` (integration tests require Podman; they use testcontainers for Postgres/Redis/Alertmanager). Fix any failures before pushing.
+1. **Keep docs up to date** – If you change behavior, APIs, or workflows, update the relevant docs in `docs/user/` or `docs/developer/` and run the applicable documentation checks described above and in [docs/AGENTS.md](docs/AGENTS.md).
+2. **Add test coverage** – New or changed code should include or extend unit tests (and integration tests where appropriate). Prefer table-driven tests and existing patterns; see [test/AGENTS.md](test/AGENTS.md) and [internal/agent/AGENTS.md](internal/agent/AGENTS.md) for area-specific standards.
+3. **Tidy dependencies** – Run the dependency cleanup command after adding/removing dependencies or modifying Go module files.
+4. **Run applicable lint checks** – Use the relevant project lint target for the files changed; see the command catalog above and area-specific guidance.
+5. **Run applicable tests** – Run focused tests first, then the relevant full unit, integration, or E2E target; follow the environment requirements in [test/AGENTS.md](test/AGENTS.md).
 
 ## Pointers to area-specific guidance
 
