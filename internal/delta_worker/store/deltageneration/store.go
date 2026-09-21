@@ -67,13 +67,11 @@ func (s *GenerationStore) InitialMigration(ctx context.Context) error {
 }
 
 // generationConflict returns the atomic upsert policy used when admitting a generation.
-// Failed rows are requeued, eligible rejected rows are updated, and in-progress or
-// succeeded rows keep their existing status and metadata.
+// Failed rows are requeued; every other existing row keeps its status and metadata.
 func generationConflict() clause.OnConflict {
 	statusArgs := map[string]interface{}{
-		"pending":  model.DeltaGenerationPending,
-		"failed":   model.DeltaGenerationFailed,
-		"rejected": model.DeltaGenerationRejected,
+		"pending": model.DeltaGenerationPending,
+		"failed":  model.DeltaGenerationFailed,
 	}
 	namedExpr := func(sql string) clause.NamedExpr {
 		return clause.NamedExpr{SQL: sql, Vars: []interface{}{statusArgs}}
@@ -88,14 +86,8 @@ func generationConflict() clause.OnConflict {
 		DoUpdates: clause.Assignments(map[string]interface{}{
 			"status": namedExpr(`
 				CASE
-					WHEN EXCLUDED.status = CAST(@rejected AS text)
-					 AND delta_generations.status IN (
-						CAST(@pending AS text),
-						CAST(@failed AS text),
-						CAST(@rejected AS text)
-					 ) THEN CAST(@rejected AS text)
 					WHEN delta_generations.status = CAST(@failed AS text)
-					 THEN CAST(@pending AS text)
+						THEN CAST(@pending AS text)
 					ELSE delta_generations.status
 				END`),
 			"phase": namedExpr(`
@@ -103,40 +95,16 @@ func generationConflict() clause.OnConflict {
 					WHEN delta_generations.status = CAST(@failed AS text) THEN NULL
 					ELSE delta_generations.phase
 				END`),
-			"size_bytes": namedExpr(`
-				CASE
-					WHEN EXCLUDED.status = CAST(@rejected AS text)
-					 AND delta_generations.status IN (
-						CAST(@pending AS text),
-						CAST(@failed AS text),
-						CAST(@rejected AS text)
-					 ) THEN EXCLUDED.size_bytes
-					ELSE delta_generations.size_bytes
-				END`),
 			"resource_version": namedExpr(`
 				CASE
 					WHEN delta_generations.status = CAST(@failed AS text)
-					  OR (
-						EXCLUDED.status = CAST(@rejected AS text)
-						AND delta_generations.status IN (
-							CAST(@pending AS text),
-							CAST(@failed AS text),
-							CAST(@rejected AS text)
-						)
-					  ) THEN delta_generations.resource_version + 1
+						THEN delta_generations.resource_version + 1
 					ELSE delta_generations.resource_version
 				END`),
 			"updated_at": namedExpr(`
 				CASE
 					WHEN delta_generations.status = CAST(@failed AS text)
-					  OR (
-						EXCLUDED.status = CAST(@rejected AS text)
-						AND delta_generations.status IN (
-							CAST(@pending AS text),
-							CAST(@failed AS text),
-							CAST(@rejected AS text)
-						)
-					  ) THEN NOW()
+						THEN NOW()
 					ELSE delta_generations.updated_at
 				END`),
 		}),

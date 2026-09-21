@@ -804,7 +804,7 @@ var _ = Describe("Delta stores", func() {
 	})
 
 	Context("When inserting a rejected generation over a failed row", func() {
-		It("should set rejected, refresh size_bytes, and bump resource_version", func() {
+		It("should requeue the failed row and preserve its size_bytes", func() {
 			oldSize := int64(10)
 			g := generation(orgId, "quay.io/team-a/os")
 			g.Status = model.DeltaGenerationFailed
@@ -819,15 +819,15 @@ var _ = Describe("Delta stores", func() {
 
 			got, err := deltaGenerationStore.GetDeltaGeneration(ctx, keyOf(g))
 			Expect(err).ToNot(HaveOccurred())
-			Expect(got.Status).To(Equal(model.DeltaGenerationRejected))
+			Expect(got.Status).To(Equal(model.DeltaGenerationPending))
 			Expect(got.ResourceVersion).To(Equal(int64(4)))
 			Expect(got.SizeBytes).ToNot(BeNil())
-			Expect(*got.SizeBytes).To(Equal(newSize))
+			Expect(*got.SizeBytes).To(Equal(oldSize))
 		})
 	})
 
 	Context("When inserting a rejected generation over a pending row", func() {
-		It("should set rejected and refresh size_bytes", func() {
+		It("should preserve the pending row and its size_bytes", func() {
 			g := generation(orgId, "quay.io/team-a/os")
 			insertGens(g)
 
@@ -838,14 +838,13 @@ var _ = Describe("Delta stores", func() {
 
 			got, err := deltaGenerationStore.GetDeltaGeneration(ctx, keyOf(g))
 			Expect(err).ToNot(HaveOccurred())
-			Expect(got.Status).To(Equal(model.DeltaGenerationRejected))
-			Expect(got.SizeBytes).ToNot(BeNil())
-			Expect(*got.SizeBytes).To(Equal(newSize))
+			Expect(got.Status).To(Equal(model.DeltaGenerationPending))
+			Expect(got.SizeBytes).To(BeNil())
 		})
 	})
 
 	Context("When inserting a rejected generation over an existing rejected row", func() {
-		It("should refresh size_bytes and leave status rejected", func() {
+		It("should preserve the existing rejected row", func() {
 			oldSize := int64(10)
 			g := generation(orgId, "quay.io/team-a/os")
 			g.Status = model.DeltaGenerationRejected
@@ -861,7 +860,7 @@ var _ = Describe("Delta stores", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(got.Status).To(Equal(model.DeltaGenerationRejected))
 			Expect(got.SizeBytes).ToNot(BeNil())
-			Expect(*got.SizeBytes).To(Equal(newSize))
+			Expect(*got.SizeBytes).To(Equal(oldSize))
 		})
 	})
 
