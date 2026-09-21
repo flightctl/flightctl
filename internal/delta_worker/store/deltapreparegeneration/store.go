@@ -205,10 +205,10 @@ func (s *PrepareGenerationStore) ListDeltaPrepareGenerations(ctx context.Context
 		query = query.Where("org_id = ? AND image_repository = ? AND source_digest = ? AND target_digest = ?", key.OrgID, key.ImageRepository, key.SourceDigest, key.TargetDigest)
 	}
 	var rows []model.DeltaPrepareGeneration
-	query = query.Order("prepare_id ASC, org_id ASC, image_repository ASC, source_digest ASC, target_digest ASC")
 	var cursor *model.DeltaPrepareGeneration
 	for {
-		page := query
+		page := query.Session(&gorm.Session{}).
+			Order("prepare_id ASC, org_id ASC, image_repository ASC, source_digest ASC, target_digest ASC")
 		if cursor != nil {
 			page = page.Where(
 				"(prepare_id, org_id, image_repository, source_digest, target_digest) > (?, ?, ?, ?, ?)",
