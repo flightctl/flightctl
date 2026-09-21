@@ -3,7 +3,6 @@ package deltageneration
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/flightctl/flightctl/internal/delta_worker/model"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -68,19 +67,15 @@ func (s *GenerationStore) InitialMigration(ctx context.Context) error {
 }
 
 func generationConflict() clause.OnConflict {
-	// These values are fixed model constants, so embedding escaped SQL string
-	// literals avoids PostgreSQL treating the repeated CASE parameters as
-	// untyped placeholders while building the ON CONFLICT expression.
-	sqlStatus := func(status string) string {
-		return "'" + strings.ReplaceAll(status, "'", "''") + "'"
-	}
-	resetFailed := "delta_generations.status = " + sqlStatus(model.DeltaGenerationFailed)
-	applyRejected := "EXCLUDED.status = " + sqlStatus(model.DeltaGenerationRejected) + " AND delta_generations.status IN (" +
-		sqlStatus(model.DeltaGenerationPending) + ", " + sqlStatus(model.DeltaGenerationFailed) + ", " + sqlStatus(model.DeltaGenerationRejected) + ")"
-	changed := "(" + resetFailed + " OR " + applyRejected + ")"
-	returningStatus := gorm.Expr(
-		"CASE WHEN " + applyRejected + " THEN " + sqlStatus(model.DeltaGenerationRejected) + " WHEN " + resetFailed + " THEN " + sqlStatus(model.DeltaGenerationPending) + " ELSE delta_generations.status END",
+	resetFailed := fmt.Sprintf("delta_generations.status = '%s'", model.DeltaGenerationFailed)
+	applyRejected := fmt.Sprintf(
+		"EXCLUDED.status = '%s' AND delta_generations.status IN ('%s', '%s', '%s')",
+		model.DeltaGenerationRejected,
+		model.DeltaGenerationPending,
+		model.DeltaGenerationFailed,
+		model.DeltaGenerationRejected,
 	)
+	changed := fmt.Sprintf("(%s OR %s)", resetFailed, applyRejected)
 	return clause.OnConflict{
 		Columns: []clause.Column{
 			{Name: "org_id"},
@@ -89,19 +84,26 @@ func generationConflict() clause.OnConflict {
 			{Name: "target_digest"},
 		},
 		DoUpdates: clause.Assignments(map[string]interface{}{
-			"status": returningStatus,
-			"phase": gorm.Expr(
-				"CASE WHEN " + resetFailed + " THEN NULL ELSE delta_generations.phase END",
-			),
-			"size_bytes": gorm.Expr(
-				"CASE WHEN " + applyRejected + " THEN EXCLUDED.size_bytes ELSE delta_generations.size_bytes END",
-			),
-			"resource_version": gorm.Expr(
-				"CASE WHEN " + changed + " THEN delta_generations.resource_version + 1 ELSE delta_generations.resource_version END",
-			),
-			"updated_at": gorm.Expr(
-				"CASE WHEN " + changed + " THEN NOW() ELSE delta_generations.updated_at END",
-			),
+			"status": gorm.Expr(fmt.Sprintf(
+				"CASE WHEN %s THEN '%s' WHEN %s THEN '%s' ELSE delta_generations.status END",
+				applyRejected,
+				model.DeltaGenerationRejected,
+				resetFailed,
+				model.DeltaGenerationPending,
+			)),
+			"phase": gorm.Expr(fmt.Sprintf("CASE WHEN %s THEN NULL ELSE delta_generations.phase END", resetFailed)),
+			"size_bytes": gorm.Expr(fmt.Sprintf(
+				"CASE WHEN %s THEN EXCLUDED.size_bytes ELSE delta_generations.size_bytes END",
+				applyRejected,
+			)),
+			"resource_version": gorm.Expr(fmt.Sprintf(
+				"CASE WHEN %s THEN delta_generations.resource_version + 1 ELSE delta_generations.resource_version END",
+				changed,
+			)),
+			"updated_at": gorm.Expr(fmt.Sprintf(
+				"CASE WHEN %s THEN NOW() ELSE delta_generations.updated_at END",
+				changed,
+			)),
 		}),
 	}
 }
