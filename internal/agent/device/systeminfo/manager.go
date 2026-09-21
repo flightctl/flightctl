@@ -260,6 +260,47 @@ func (m *manager) Status(ctx context.Context, deviceStatus *v1beta1.DeviceStatus
 	return nil
 }
 
+// RefreshRuntimeCollectors updates the cached values from registered runtime collectors.
+// It intentionally skips built-in system-info collection, which can be expensive.
+func (m *manager) RefreshRuntimeCollectors(ctx context.Context) {
+	m.mu.Lock()
+	timeout := m.collectionTimeout
+	infoKeys := slices.Clone(m.infoKeys)
+	collectors := maps.Clone(m.collectors)
+	m.mu.Unlock()
+
+	runtimeKeys := make([]string, 0, len(collectors))
+	for _, key := range infoKeys {
+		if _, ok := collectors[key]; ok {
+			runtimeKeys = append(runtimeKeys, key)
+		}
+	}
+	if len(runtimeKeys) == 0 {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	runtimeInfo := getSystemInfoMap(ctx, m.log, &Info{}, runtimeKeys, collectors)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var cachedSystemInfo v1beta1.DeviceSystemInfo
+	if m.cachedSystemInfo == nil {
+		cachedSystemInfo = m.defaultSystemInfo()
+	} else {
+		cachedSystemInfo = *m.cachedSystemInfo
+		cachedSystemInfo.AdditionalProperties = maps.Clone(cachedSystemInfo.AdditionalProperties)
+	}
+	if cachedSystemInfo.AdditionalProperties == nil {
+		cachedSystemInfo.AdditionalProperties = make(map[string]string)
+	}
+	maps.Copy(cachedSystemInfo.AdditionalProperties, runtimeInfo)
+	m.cachedSystemInfo = &cachedSystemInfo
+}
+
 // defaultSystemInfo returns the default system info.
 func (m *manager) defaultSystemInfo() v1beta1.DeviceSystemInfo {
 	return v1beta1.DeviceSystemInfo{

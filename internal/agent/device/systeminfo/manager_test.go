@@ -325,6 +325,51 @@ func TestStatusReturnsCachedResults(t *testing.T) {
 	})
 }
 
+func TestRefreshRuntimeCollectors(t *testing.T) {
+	require := require.New(t)
+
+	tmpDir := t.TempDir()
+	dataDir := filepath.Join("etc", "flightctl")
+	readWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+	)
+	require.NoError(readWriter.MkdirAll(dataDir, 0755))
+	require.NoError(readWriter.MkdirAll("/proc/sys/kernel/random", 0755))
+	require.NoError(readWriter.WriteFile(bootIDPath, []byte("boot-id"), 0644))
+
+	ctrl := gomock.NewController(t)
+	mockExecuter := executer.NewMockExecuter(ctrl)
+	// Initialize gets boot time and performs the initial full collection. A runtime
+	// refresh must not perform another full collection.
+	mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "uptime", "-s").Return("2024-12-13 11:01:08", "", 0).Times(2)
+
+	manager := NewManager(
+		log.NewPrefixLogger("test"),
+		mockExecuter,
+		readWriter,
+		dataDir,
+		[]string{common.TPMVendorInfoKey, common.ManagementCertSerialKey},
+		nil,
+		util.Duration(5*time.Second),
+		0,
+	)
+	manager.RegisterCollector(context.Background(), common.TPMVendorInfoKey, func(context.Context) string {
+		return "TPM vendor"
+	})
+	require.NoError(manager.Initialize(context.Background()))
+
+	manager.RegisterCollector(context.Background(), common.ManagementCertSerialKey, func(context.Context) string {
+		return "AB:CD"
+	})
+	manager.RefreshRuntimeCollectors(context.Background())
+
+	deviceStatus := &v1beta1.DeviceStatus{}
+	require.NoError(manager.Status(context.Background(), deviceStatus))
+	require.Equal("TPM vendor", deviceStatus.SystemInfo.AdditionalProperties[common.TPMVendorInfoKey])
+	require.Equal("AB:CD", deviceStatus.SystemInfo.AdditionalProperties[common.ManagementCertSerialKey])
+}
+
 func TestReloadConfig(t *testing.T) {
 	tests := []struct {
 		name        string

@@ -613,4 +613,22 @@ system-info-periodic:
 		err := cfg.validateSyncIntervals()
 		require.ErrorContains(err, "minimum system info periodic interval is 2s have 1s")
 	})
+
+	t.Run("When system-info-periodic interval is negative it should fail validation", func(t *testing.T) {
+		require := require.New(t)
+
+		cfg := NewDefault()
+		cfg.SystemInfoPeriodic.Interval = util.Duration(-time.Minute)
+		err := cfg.validateSyncIntervals()
+		require.ErrorContains(err, "minimum system info periodic interval is 2s have -1m0s")
+	})
+
+	t.Run("When system-info-periodic interval is zero no validation should occur", func(t *testing.T) {
+		require := require.New(t)
+
+		cfg := NewDefault()
+		cfg.SystemInfoPeriodic.Interval = util.Duration(0)
+		err := cfg.validateSyncIntervals()
+		require.NoError(err)
+	})
 }

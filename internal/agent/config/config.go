@@ -566,7 +566,7 @@ func (cfg *Config) validateSyncIntervals() error {
 	if cfg.StatusUpdateInterval < MinSyncInterval {
 		return fmt.Errorf("minimum status update interval is %s have %s", MinSyncInterval, cfg.StatusUpdateInterval)
 	}
-	if cfg.SystemInfoPeriodic.Interval > 0 && cfg.SystemInfoPeriodic.Interval < MinSyncInterval {
+	if cfg.SystemInfoPeriodic.Interval != 0 && cfg.SystemInfoPeriodic.Interval < MinSyncInterval {
 		return fmt.Errorf("minimum system info periodic interval is %s have %s", MinSyncInterval, cfg.SystemInfoPeriodic.Interval)
 	}
 	if cfg.StatusUpdateJitter != nil && *cfg.StatusUpdateJitter < 0 {
