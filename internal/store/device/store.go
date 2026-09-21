@@ -785,7 +785,12 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams Devi
 	}
 
 	if len(listParams.SortColumns) == 0 {
-		listParams.SortColumns = []store.SortColumn{store.SortByAlias, store.SortByName}
+		if listParams.Continue != nil && len(listParams.Continue.Names) == 1 {
+			// Tokens issued before alias sorting contain only the device name.
+			listParams.SortColumns = []store.SortColumn{store.SortByName}
+		} else {
+			listParams.SortColumns = []store.SortColumn{store.SortByAlias, store.SortByName}
+		}
 	}
 
 	// Build base query with selectors
@@ -825,7 +830,7 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams Devi
 		for i, col := range columns {
 			switch col {
 			case store.SortByAlias:
-				continueValues[i] = lo.FromPtr(lastItem.Alias)
+				continueValues[i] = store.NullableSortValue(lastItem.Alias)
 			case store.SortByName:
 				continueValues[i] = lastItem.Name
 			case store.SortByCreatedAt:
