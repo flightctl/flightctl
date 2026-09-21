@@ -66,16 +66,18 @@ func (s *GenerationStore) InitialMigration(ctx context.Context) error {
 	return s.getDB(ctx).AutoMigrate(&model.DeltaGeneration{})
 }
 
+// generationConflict returns the atomic upsert policy used when admitting a generation.
+// Failed rows are requeued, eligible rejected rows are updated, and in-progress or
+// succeeded rows keep their existing status and metadata.
 func generationConflict() clause.OnConflict {
-	resetFailed := fmt.Sprintf("delta_generations.status = '%s'", model.DeltaGenerationFailed)
-	applyRejected := fmt.Sprintf(
-		"EXCLUDED.status = '%s' AND delta_generations.status IN ('%s', '%s', '%s')",
-		model.DeltaGenerationRejected,
-		model.DeltaGenerationPending,
-		model.DeltaGenerationFailed,
-		model.DeltaGenerationRejected,
-	)
-	changed := fmt.Sprintf("(%s OR %s)", resetFailed, applyRejected)
+	statusArgs := map[string]interface{}{
+		"pending":  model.DeltaGenerationPending,
+		"failed":   model.DeltaGenerationFailed,
+		"rejected": model.DeltaGenerationRejected,
+	}
+	namedExpr := func(sql string) clause.NamedExpr {
+		return clause.NamedExpr{SQL: sql, Vars: []interface{}{statusArgs}}
+	}
 	return clause.OnConflict{
 		Columns: []clause.Column{
 			{Name: "org_id"},
@@ -84,26 +86,59 @@ func generationConflict() clause.OnConflict {
 			{Name: "target_digest"},
 		},
 		DoUpdates: clause.Assignments(map[string]interface{}{
-			"status": gorm.Expr(fmt.Sprintf(
-				"CASE WHEN %s THEN '%s' WHEN %s THEN '%s' ELSE delta_generations.status END",
-				applyRejected,
-				model.DeltaGenerationRejected,
-				resetFailed,
-				model.DeltaGenerationPending,
-			)),
-			"phase": gorm.Expr(fmt.Sprintf("CASE WHEN %s THEN NULL ELSE delta_generations.phase END", resetFailed)),
-			"size_bytes": gorm.Expr(fmt.Sprintf(
-				"CASE WHEN %s THEN EXCLUDED.size_bytes ELSE delta_generations.size_bytes END",
-				applyRejected,
-			)),
-			"resource_version": gorm.Expr(fmt.Sprintf(
-				"CASE WHEN %s THEN delta_generations.resource_version + 1 ELSE delta_generations.resource_version END",
-				changed,
-			)),
-			"updated_at": gorm.Expr(fmt.Sprintf(
-				"CASE WHEN %s THEN NOW() ELSE delta_generations.updated_at END",
-				changed,
-			)),
+			"status": namedExpr(`
+				CASE
+					WHEN EXCLUDED.status = CAST(@rejected AS text)
+					 AND delta_generations.status IN (
+						CAST(@pending AS text),
+						CAST(@failed AS text),
+						CAST(@rejected AS text)
+					 ) THEN CAST(@rejected AS text)
+					WHEN delta_generations.status = CAST(@failed AS text)
+					 THEN CAST(@pending AS text)
+					ELSE delta_generations.status
+				END`),
+			"phase": namedExpr(`
+				CASE
+					WHEN delta_generations.status = CAST(@failed AS text) THEN NULL
+					ELSE delta_generations.phase
+				END`),
+			"size_bytes": namedExpr(`
+				CASE
+					WHEN EXCLUDED.status = CAST(@rejected AS text)
+					 AND delta_generations.status IN (
+						CAST(@pending AS text),
+						CAST(@failed AS text),
+						CAST(@rejected AS text)
+					 ) THEN EXCLUDED.size_bytes
+					ELSE delta_generations.size_bytes
+				END`),
+			"resource_version": namedExpr(`
+				CASE
+					WHEN delta_generations.status = CAST(@failed AS text)
+					  OR (
+						EXCLUDED.status = CAST(@rejected AS text)
+						AND delta_generations.status IN (
+							CAST(@pending AS text),
+							CAST(@failed AS text),
+							CAST(@rejected AS text)
+						)
+					  ) THEN delta_generations.resource_version + 1
+					ELSE delta_generations.resource_version
+				END`),
+			"updated_at": namedExpr(`
+				CASE
+					WHEN delta_generations.status = CAST(@failed AS text)
+					  OR (
+						EXCLUDED.status = CAST(@rejected AS text)
+						AND delta_generations.status IN (
+							CAST(@pending AS text),
+							CAST(@failed AS text),
+							CAST(@rejected AS text)
+						)
+					  ) THEN NOW()
+					ELSE delta_generations.updated_at
+				END`),
 		}),
 	}
 }
