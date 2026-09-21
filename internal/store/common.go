@@ -246,6 +246,9 @@ func (lq *listQuery) Build(ctx context.Context, db *gorm.DB, orgId uuid.UUID, li
 
 	columns, order, _ := getSortColumns(listParams)
 	orderExprs := lo.Map(columns, func(col SortColumn, _ int) string {
+		if col == SortByAlias {
+			return fmt.Sprintf("%s %s NULLS LAST", col, order)
+		}
 		return fmt.Sprintf("%s %s", col, order)
 	})
 
@@ -274,6 +277,12 @@ func AddPaginationToQuery(query *gorm.DB, limit int, cont *Continue, listParams 
 	}
 
 	columns, _, op := getSortColumns(listParams)
+	if len(columns) != len(cont.Names) {
+		return query.Where("FALSE")
+	}
+	if predicate, args, ok := nullableAliasPredicate(columns, cont.Names, op); ok {
+		return query.Where(predicate, args...)
+	}
 	if len(columns) == 1 {
 		return query.Where(
 			fmt.Sprintf("%s %s ?", columns[0], op),
@@ -300,6 +309,10 @@ func CountRemainingItems(query *gorm.DB, nextValues []string, listParams ListPar
 	if len(columns) != len(nextValues) {
 		return 0
 	}
+	if predicate, args, ok := nullableAliasPredicate(columns, nextValues, op); ok {
+		query.Where(predicate, args...).Count(&count)
+		return count
+	}
 
 	columnExpr := fmt.Sprintf("(%s)", strings.Join(lo.Map(columns, func(c SortColumn, _ int) string {
 		return string(c)
@@ -313,6 +326,30 @@ func CountRemainingItems(query *gorm.DB, nextValues []string, listParams ListPar
 
 	query.Count(&count)
 	return count
+}
+
+const nullSortValue = "\x00"
+
+// NullableSortValue preserves the difference between a NULL sort value and an
+// empty string in a continuation token.
+func NullableSortValue(value *string) string {
+	if value == nil {
+		return nullSortValue
+	}
+	return *value
+}
+
+func nullableAliasPredicate(columns []SortColumn, values []string, op string) (string, []any, bool) {
+	if len(columns) != 2 || columns[0] != SortByAlias {
+		return "", nil, false
+	}
+
+	if values[0] == nullSortValue {
+		return fmt.Sprintf("%s IS NULL AND %s %s ?", columns[0], columns[1], op), []any{values[1]}, true
+	}
+
+	predicate := fmt.Sprintf("((%s, %s) %s (?, ?) OR %s IS NULL)", columns[0], columns[1], op, columns[0])
+	return predicate, []any{values[0], values[1]}, true
 }
 
 func CountStatusList(ctx context.Context, query *gorm.DB, status ...string) (StatusCountList, error) {
