@@ -67,7 +67,7 @@ func New(
 	csrStore := certificatesigningrequeststore.NewCertificateSigningRequestStore(db, log.WithField("pkg", "certificatesigningrequest-store"))
 	enrollmentRequestStore := enrollmentrequeststore.NewEnrollmentRequestStore(db, log.WithField("pkg", "enrollmentrequest-store"))
 	eventsSvc := events.NewServiceHandler(eventStore, nil, log.WithField("component", "events"))
-	erHandler := enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, nil, nil, ca, kvStore, eventsSvc, log.WithField("component", "enrollmentrequest"), nil, "", "")
+	erHandler := enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, nil, nil, ca, kvStore, eventsSvc, log.WithField("component", "enrollmentrequest"), nil, "", "", nil, nil)
 	serviceHandler := certificatesigningrequestservice.NewServiceHandler(csrStore, tpmcsr.NewVerifier(erHandler), ca, eventsSvc, log.WithField("component", "service"), cfg.Service.BaseAgentEndpointUrl, cfg.Service.BaseUIUrl)
 
 	catalogSvc := catalogservice.WrapWithTracing(catalogservice.NewServiceHandler(catalogStore, nil, nil, eventsSvc, log))

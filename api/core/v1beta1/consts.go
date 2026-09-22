@@ -201,6 +201,14 @@ const (
 
 	// ResourceSync New Hash Detected Reason
 	ResourceSyncNewHashDetectedReason = "NewHashDetected"
+
+	// EnrollmentHooks Condition Reasons
+	EnrollmentHooksReasonNotifyPending  = "NotifyPending"
+	EnrollmentHooksReasonPending        = "Pending"
+	EnrollmentHooksReasonFailed         = "Failed"
+	EnrollmentHooksReasonSucceeded      = "Succeeded"
+	EnrollmentHooksReasonContinued      = "Continued"
+	EnrollmentHooksReasonManualOverride = "ManualOverride"
 )
 
 const (

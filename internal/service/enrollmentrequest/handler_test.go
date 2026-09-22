@@ -20,9 +20,12 @@ import (
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	enrollmenthooknotifysecretsstore "github.com/flightctl/flightctl/internal/store/enrollmenthooknotifysecrets"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -137,12 +140,33 @@ func (f *fakeDeviceStore) Create(ctx context.Context, orgId uuid.UUID, device *d
 	return device, nil
 }
 
+func (f *fakeDeviceStore) WithTransaction(ctx context.Context, fn func(context.Context) error) error {
+	itemsBeforeTransaction := make(map[string]*domain.Device, len(f.items))
+	for name, device := range f.items {
+		itemsBeforeTransaction[name] = device
+	}
+	if err := fn(ctx); err != nil {
+		f.items = itemsBeforeTransaction
+		return err
+	}
+	return nil
+}
+
 func (f *fakeDeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string) (*domain.Device, *domain.Device, bool, error) {
 	name := lo.FromPtr(device.Metadata.Name)
 	existing := f.items[name]
 	created := existing == nil
 	f.items[name] = device
 	return device, existing, created, nil
+}
+
+type fakeNotifySecretsStore struct {
+	enrollmenthooknotifysecretsstore.Store
+	createBatchErr error
+}
+
+func (f *fakeNotifySecretsStore) CreateBatch(_ context.Context, _ uuid.UUID, _ []model.EnrollmentHookNotifySecret) error {
+	return f.createBatchErr
 }
 
 // fakeKVStore embeds kvstore.KVStore (nil) and overrides only SetNX, the sole method
@@ -203,7 +227,7 @@ func newTestHandler(t *testing.T) (*ServiceHandler, *fakeEnrollmentRequestStore,
 	ev := &fakeEventsService{}
 	caClient := newTestCA(t)
 	logger := logrus.New()
-	return NewServiceHandler(erStore, devStore, nil, caClient, kv, ev, logger, nil, "", ""), erStore, devStore, kv, ev
+	return NewServiceHandler(erStore, devStore, nil, caClient, kv, ev, logger, nil, "", "", nil, nil), erStore, devStore, kv, ev
 }
 
 func adminContext() context.Context {
@@ -784,5 +808,34 @@ func TestCreateDeviceFromEnrollmentRequest(t *testing.T) {
 		require.NoError(t, getErr)
 		require.NotNil(t, stored)
 		require.Len(t, fakeEvents.createdWithReason(domain.EventReasonResourceCreated), 1)
+	})
+
+	t.Run("When notify secret persistence fails it should not create the device or emit an event", func(t *testing.T) {
+		h, _, fakeDevices, _, fakeEvents := newTestHandler(t)
+		ctx := context.Background()
+		orgId := uuid.New()
+		name := "notify-secret-failure"
+		h.ehPolicySvc = &fakePolicyService{policy: &domain.EnrollmentHookPolicy{
+			Spec: domain.EnrollmentHookPolicySpec{
+				AfterEnrolling: domain.EnrollmentHookStageSpec{
+					ControlPlaneActions: &[]domain.EnrollmentHookHttpAction{{
+						Url:  "https://hooks.example.com/notify",
+						Auth: &domain.EnrollmentHookAuth{BearerToken: lo.ToPtr("bearer-token")},
+					}},
+				},
+			},
+		}}
+		h.notifySecretsStore = &fakeNotifySecretsStore{createBatchErr: assert.AnError}
+
+		er := &domain.EnrollmentRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+			Spec:     domain.EnrollmentRequestSpec{Csr: "TestCSR", DeviceStatus: lo.ToPtr(domain.NewDeviceStatus())},
+		}
+
+		err := h.createDeviceFromEnrollmentRequest(ctx, orgId, er)
+		require.ErrorIs(t, err, assert.AnError)
+		_, getErr := fakeDevices.Get(ctx, orgId, name)
+		require.ErrorIs(t, getErr, flterrors.ErrResourceNotFound)
+		require.Empty(t, fakeEvents.createdWithReason(domain.EventReasonResourceCreated))
 	})
 }
