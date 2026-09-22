@@ -45,8 +45,8 @@ type Manager interface {
 	BootTime() string
 	// RegisterCollector registers a system info collector
 	RegisterCollector(ctx context.Context, key string, fn CollectorFn)
-	// RefreshPendingCollectors collects sources that have not yet been collected.
-	RefreshPendingCollectors(ctx context.Context)
+	// CollectPending collects sources that have not yet been collected.
+	CollectPending(ctx context.Context)
 	// Run starts periodic system info collection. Blocks until ctx is cancelled.
 	Run(ctx context.Context)
 	status.Exporter

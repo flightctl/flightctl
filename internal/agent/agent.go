@@ -495,7 +495,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	)
 
 	// Populate collectors registered during startup before asynchronous work begins.
-	systemInfoManager.RefreshPendingCollectors(ctx)
+	systemInfoManager.CollectPending(ctx)
 
 	// register reloader with reload manager
 	reloadManager.Register(agent.ReloadConfig)
