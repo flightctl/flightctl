@@ -166,6 +166,11 @@ func TestReloadConfig(t *testing.T) {
 			require.NoError(err)
 
 			require.Equal(tt.newKeys, manager.infoKeys, "info keys should be updated")
+			select {
+			case <-manager.collectionChanged:
+			default:
+				require.FailNow("reload should request collection")
+			}
 		})
 	}
 }

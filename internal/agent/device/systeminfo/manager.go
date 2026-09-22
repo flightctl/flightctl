@@ -127,20 +127,18 @@ func (m *manager) ReloadConfig(ctx context.Context, cfg *config.Config) error {
 
 	m.log.Info("Reloading system info config")
 
-	selectionChanged := false
 	if !reflect.DeepEqual(m.infoKeys, cfg.SystemInfo) {
 		m.log.Infof("Updating system info keys: %v -> %v", m.infoKeys, cfg.SystemInfo)
 		m.infoKeys = cfg.SystemInfo
-		selectionChanged = true
 	}
 	if !reflect.DeepEqual(m.customKeys, cfg.SystemInfoCustom) {
 		m.log.Infof("Updating custom system info keys: %v -> %v", m.customKeys, cfg.SystemInfoCustom)
 		m.customKeys = cfg.SystemInfoCustom
-		selectionChanged = true
 	}
 	// Reload custom script definitions on every SIGHUP, even when the
 	// configured keys are unchanged.
 	m.rebuildCollectors()
+	collectionChanged := true
 
 	timeout := time.Duration(cfg.SystemInfoTimeout)
 	if m.collectionTimeout != timeout {
@@ -148,7 +146,6 @@ func (m *manager) ReloadConfig(ctx context.Context, cfg *config.Config) error {
 		m.collectionTimeout = timeout
 	}
 
-	collectionChanged := selectionChanged
 	interval := time.Duration(cfg.SystemInfoCollectionInterval())
 	if m.collectionInterval != interval {
 		m.log.Infof("Updating system info collection interval: %v -> %v", m.collectionInterval, interval)
