@@ -89,6 +89,32 @@ func TestPrepare_SkipPaths(t *testing.T) {
 		assert.Empty(t, store.prepares)
 	})
 
+	t.Run("When a newer device skip supersedes a waiting prepare it should rebind the preparing identity", func(t *testing.T) {
+		store := newFakePrepareStore()
+		old := store.seedWaiting(orgId, domain.DeviceKind, "d1", nil, lo.ToPtr("old-spec-hash"), time.Now())
+		device := deviceWithOS("d1", true, "")
+		(*device.Metadata.Annotations)[domain.DeviceAnnotationRenderedSpecHash] = "new-spec-hash"
+		status := &statusSpy{}
+		emit := &emitSpy{}
+		p := newTestPreparer(t, store, eligibleDeviceResolver(device), status, &resumeSpy{}, emit)
+
+		err := p.Prepare(ctx, devicePrepareEventWithSpecHashAndResourceVersion(orgId, "d1", "new-spec-hash", "2"))
+		require.NoError(t, err)
+		assert.Equal(t, model.DeltaPrepareFailed, store.prepares[old.ID].Status)
+		require.Len(t, status.sets, 1)
+		assert.Equal(t, domain.DeviceKind, status.sets[0].kind)
+		assert.Equal(t, "d1", status.sets[0].name)
+		assert.Equal(t, 0, status.sets[0].completed)
+		assert.Equal(t, 0, status.sets[0].total)
+		assert.Equal(t, int64(2), status.sets[0].sourceResourceVersion)
+		assert.Equal(t, "new-spec-hash", lo.FromPtr(status.sets[0].specHash))
+		require.Len(t, emit.events, 1)
+		completion, err := deltaprepare.ParsePrepareCompletionEvent(orgId, emit.events[0].Message)
+		require.NoError(t, err)
+		assert.Equal(t, int64(2), completion.SourceResourceVersion)
+		assert.Equal(t, "new-spec-hash", lo.FromPtr(completion.SpecHash))
+	})
+
 	t.Run("When DeltaCandidates is empty it should Resume without inserting", func(t *testing.T) {
 		store := newFakePrepareStore()
 		resume := &resumeSpy{}
@@ -1021,15 +1047,25 @@ type statusSpy struct {
 }
 
 type statusCall struct {
-	kind, name       string
-	completed, total int
+	kind, name                string
+	completed, total          int
+	sourceResourceVersion     int64
+	templateVersion, specHash *string
 }
 
 func (s *statusSpy) SetPreparing(_ context.Context, prepare *model.DeltaPrepare, completed, total int) error {
 	if s.order != nil {
 		*s.order = append(*s.order, "status")
 	}
-	s.sets = append(s.sets, statusCall{kind: prepare.Kind, name: prepare.Name, completed: completed, total: total})
+	s.sets = append(s.sets, statusCall{
+		kind:                  prepare.Kind,
+		name:                  prepare.Name,
+		completed:             completed,
+		total:                 total,
+		sourceResourceVersion: prepare.SourceResourceVersion,
+		templateVersion:       prepare.TemplateVersion,
+		specHash:              prepare.SpecHash,
+	})
 	return nil
 }
 

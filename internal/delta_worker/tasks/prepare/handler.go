@@ -262,14 +262,25 @@ func (p *Handler) finishSkip(ctx context.Context, orgId uuid.UUID, kind, name st
 	if latest.Status == model.DeltaPrepareComplete {
 		return p.emitPrepareCompletion(ctx, latest)
 	}
-	return p.emitPrepareCompletion(ctx, &model.DeltaPrepare{
+	completion := &model.DeltaPrepare{
 		OrgID:                 orgId,
 		Kind:                  kind,
 		Name:                  name,
 		TemplateVersion:       identity.templateVersion,
 		SpecHash:              identity.specHash,
 		SourceResourceVersion: identity.resourceVersion,
-	})
+	}
+	if latest.SourceResourceVersion < identity.resourceVersion {
+		// A newer skip event can supersede a waiting prepare without going
+		// through admission, leaving the resource marker keyed to the older
+		// prepare. Re-establish the marker with the newer identity so the
+		// completion handler can perform its normal conditional cleanup. The
+		// status setter fences against a resource state newer than this event.
+		if err := p.prepareService.SetDeltaPreparingStatus(ctx, completion, 0, 0); err != nil {
+			return fmt.Errorf("rebind skipped delta preparing status: %w", err)
+		}
+	}
+	return p.emitPrepareCompletion(ctx, completion)
 }
 
 func (p *Handler) failWaiting(ctx context.Context, waiting *model.DeltaPrepare) error {
