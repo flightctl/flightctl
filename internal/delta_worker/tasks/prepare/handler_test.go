@@ -107,9 +107,10 @@ func TestPrepare_InsertAndAck(t *testing.T) {
 
 	t.Run("When a fleet Prepare has eligible devices it should insert waiting, enqueue GenerateDelta, and set DeltaPreparing", func(t *testing.T) {
 		store := newFakePrepareStore()
-		status := &statusSpy{}
+		var order []string
+		status := &statusSpy{order: &order}
 		resume := &resumeSpy{}
-		emit := &emitSpy{}
+		emit := &emitSpy{order: &order}
 		fleet := fleetWithTV("fleet-1", "tv-1")
 		p := newTestPreparer(t, store, eligibleFleetResolver(fleet, deviceWithOS("d1", true, prepareTestSrc)), status, resume, emit)
 		p.Now = func() time.Time { return now }
@@ -128,6 +129,7 @@ func TestPrepare_InsertAndAck(t *testing.T) {
 		assert.Equal(t, 1, store.insertGensN)
 		require.Len(t, emit.events, 1)
 		assert.Equal(t, domain.EventReasonGenerateDelta, emit.events[0].Reason)
+		assert.Equal(t, []string{"status", "emit"}, order)
 		var payload generateTask.GenerateDeltaPayload
 		require.NoError(t, json.Unmarshal([]byte(emit.events[0].Message), &payload))
 		assert.Equal(t, prepareTestRepo, payload.ImageRepository)
@@ -1015,6 +1017,7 @@ var _ deltapreparegeneration.Service = (*fakePrepareGenerationService)(nil)
 type statusSpy struct {
 	sets   []statusCall
 	clears []statusCall
+	order  *[]string
 }
 
 type statusCall struct {
@@ -1023,6 +1026,9 @@ type statusCall struct {
 }
 
 func (s *statusSpy) SetPreparing(_ context.Context, prepare *model.DeltaPrepare, completed, total int) error {
+	if s.order != nil {
+		*s.order = append(*s.order, "status")
+	}
 	s.sets = append(s.sets, statusCall{kind: prepare.Kind, name: prepare.Name, completed: completed, total: total})
 	return nil
 }
@@ -1035,6 +1041,7 @@ func (s *statusSpy) Clear(_ context.Context, _ uuid.UUID, kind, name string) err
 type emitSpy struct {
 	events []*domain.Event
 	err    error
+	order  *[]string
 }
 
 func (e *emitSpy) emit(_ context.Context, _ uuid.UUID, event *domain.Event) error {
@@ -1046,6 +1053,9 @@ func (e *emitSpy) emit(_ context.Context, _ uuid.UUID, event *domain.Event) erro
 	}
 	cp := *event
 	e.events = append(e.events, &cp)
+	if e.order != nil {
+		*e.order = append(*e.order, "emit")
+	}
 	return nil
 }
 

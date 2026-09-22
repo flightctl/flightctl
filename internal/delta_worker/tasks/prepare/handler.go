@@ -170,13 +170,20 @@ func (p *Handler) processCandidates(ctx context.Context, ev worker_client.EventW
 	if !current {
 		return nil
 	}
-	if err := p.enqueuePending(ctx, ev.OrgId, result.Fleet, pendingGenerationKeys(generations)); err != nil {
-		return err
-	}
 	if zeroWait {
+		if err := p.enqueuePending(ctx, ev.OrgId, result.Fleet, pendingGenerationKeys(generations)); err != nil {
+			return err
+		}
 		return p.completeNow(ctx, prep)
 	}
-	return p.setPreparing(ctx, prep, completed, len(keys))
+	// Persist the resource-side marker before publishing generation work. A
+	// generation can complete immediately after it is enqueued; the completion
+	// handler must then observe DeltaPreparing to apply progress or resume the
+	// resource instead of leaving the marker behind after this task returns.
+	if err := p.setPreparing(ctx, prep, completed, len(keys)); err != nil {
+		return err
+	}
+	return p.enqueuePending(ctx, ev.OrgId, result.Fleet, pendingGenerationKeys(generations))
 }
 
 func (p *Handler) isCurrentPrepare(ctx context.Context, orgID uuid.UUID, kind, name string, prep *model.DeltaPrepare, identity prepareIdentity) (bool, error) {
