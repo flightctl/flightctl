@@ -1145,6 +1145,94 @@ func TestGetRenderedDevice(t *testing.T) {
 	require.Equal(t, "foo", lo.FromPtr(result.Metadata.Name))
 }
 
+func TestGetRenderedDevice_EnrollmentHooksGate(t *testing.T) {
+	tests := []struct {
+		name        string
+		conditions  []domain.Condition
+		wantCode    int32
+		wantMessage string
+	}{
+		{
+			name: "When device has EnrollmentHooks False/Pending it should return 409 Conflict",
+			conditions: []domain.Condition{
+				{Type: domain.ConditionTypeDeviceEnrollmentHooks, Status: domain.ConditionStatusFalse, Reason: domain.EnrollmentHooksReasonPending},
+			},
+			wantCode:    http.StatusConflict,
+			wantMessage: "device is gated by enrollment hooks (reason: Pending)",
+		},
+		{
+			name: "When device has EnrollmentHooks False/Failed it should return 409 Conflict",
+			conditions: []domain.Condition{
+				{Type: domain.ConditionTypeDeviceEnrollmentHooks, Status: domain.ConditionStatusFalse, Reason: domain.EnrollmentHooksReasonFailed},
+			},
+			wantCode:    http.StatusConflict,
+			wantMessage: "device is gated by enrollment hooks (reason: Failed)",
+		},
+		{
+			name: "When device has EnrollmentHooks False/NotifyPending it should return 409 Conflict",
+			conditions: []domain.Condition{
+				{Type: domain.ConditionTypeDeviceEnrollmentHooks, Status: domain.ConditionStatusFalse, Reason: domain.EnrollmentHooksReasonNotifyPending},
+			},
+			wantCode:    http.StatusConflict,
+			wantMessage: "device is gated by enrollment hooks (reason: NotifyPending)",
+		},
+		{
+			name: "When device has EnrollmentHooks True/Succeeded it should return 200 OK",
+			conditions: []domain.Condition{
+				{Type: domain.ConditionTypeDeviceEnrollmentHooks, Status: domain.ConditionStatusTrue, Reason: domain.EnrollmentHooksReasonSucceeded},
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "When device has EnrollmentHooks True/Continued it should return 200 OK",
+			conditions: []domain.Condition{
+				{Type: domain.ConditionTypeDeviceEnrollmentHooks, Status: domain.ConditionStatusTrue, Reason: domain.EnrollmentHooksReasonContinued},
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name: "When device has EnrollmentHooks True/ManualOverride it should return 200 OK",
+			conditions: []domain.Condition{
+				{Type: domain.ConditionTypeDeviceEnrollmentHooks, Status: domain.ConditionStatusTrue, Reason: domain.EnrollmentHooksReasonManualOverride},
+			},
+			wantCode: http.StatusOK,
+		},
+		{
+			name:        "When device has no EnrollmentHooks condition it should return 200 OK",
+			conditions:  []domain.Condition{},
+			wantCode:    http.StatusOK,
+			wantMessage: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			st, _, svc := newTestHandler()
+			ctx := context.Background()
+			orgId := uuid.New()
+			device := domain.Device{
+				Metadata: domain.ObjectMeta{Name: lo.ToPtr("gate-test")},
+				Status: &domain.DeviceStatus{
+					Conditions: tt.conditions,
+				},
+			}
+			_, err := st.device.Create(ctx, orgId, &device, nil)
+			require.NoError(t, err)
+
+			// Non-agent caller: skips healthchecker/rendered.Bus singletons
+			result, status := svc.GetRenderedDevice(ctx, orgId, "gate-test", domain.GetRenderedDeviceParams{})
+			require.Equal(t, tt.wantCode, status.Code)
+			if tt.wantCode == http.StatusConflict {
+				require.Nil(t, result)
+				require.Contains(t, status.Message, tt.wantMessage)
+			} else {
+				require.NotNil(t, result)
+				require.Equal(t, "gate-test", lo.FromPtr(result.Metadata.Name))
+			}
+		})
+	}
+}
+
 func TestReplaceDevicePackageModeOsReject(t *testing.T) {
 	tests := []struct {
 		name                string
