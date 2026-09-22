@@ -32,8 +32,9 @@ import (
 type Option func(*runOptions)
 
 type runOptions struct {
-	settingsMutators []func(*otelcol.CollectorSettings)
-	cfgMutators      []OTelConfigMutator
+	settingsMutators    []func(*otelcol.CollectorSettings)
+	cfgMutators         []OTelConfigMutator
+	deviceListenerReady func(string)
 }
 
 // WithCollectorSettings lets callers tweak CollectorSettings before NewCollector.
@@ -44,6 +45,13 @@ func WithCollectorSettings(mut func(*otelcol.CollectorSettings)) Option {
 // WithSkipSettingGRPCLogger avoids setting the grpc logger
 func WithSkipSettingGRPCLogger(skip bool) Option {
 	return WithCollectorSettings(func(s *otelcol.CollectorSettings) { s.SkipSettingGRPCLogger = skip })
+}
+
+// WithDeviceListenerReady reports the address after the OTLP device receiver
+// has successfully bound its listener. It is intended for callers that use an
+// ephemeral listen port and need the actual address before connecting.
+func WithDeviceListenerReady(callback func(string)) Option {
+	return func(ro *runOptions) { ro.deviceListenerReady = callback }
 }
 
 // WithOTelYAMLOverlay merges a YAML snippet into the generated config (deep-merge).
@@ -130,9 +138,13 @@ func Run(ctx context.Context, cfg *config.Config, opts ...Option) error {
 			},
 		},
 		Factories: func() (otelcol.Factories, error) {
+			otlpFactory := otlpreceiver.NewFactory()
+			if ro.deviceListenerReady != nil {
+				otlpFactory = newListenerAwareOTLPFactory(ro.deviceListenerReady)
+			}
 			factories := otelcol.Factories{
 				Receivers: map[component.Type]receiver.Factory{
-					component.MustNewType("otlp"):       otlpreceiver.NewFactory(),
+					component.MustNewType("otlp"):       otlpFactory,
 					component.MustNewType("prometheus"): prometheusreceiver.NewFactory(),
 				},
 				Processors: map[component.Type]processor.Factory{
