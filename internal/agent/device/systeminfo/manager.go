@@ -252,8 +252,8 @@ func (m *manager) collect(ctx context.Context) {
 	m.collectConfigured(ctx, false)
 }
 
-// RefreshPendingCollectors collects sources that have not yet been collected.
-func (m *manager) RefreshPendingCollectors(ctx context.Context) {
+// CollectPending collects sources that have not yet been collected.
+func (m *manager) CollectPending(ctx context.Context) {
 	m.collectConfigured(ctx, true)
 }
 

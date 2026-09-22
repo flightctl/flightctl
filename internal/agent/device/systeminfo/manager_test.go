@@ -259,7 +259,7 @@ func TestStatusWithForceRequestsCollection(t *testing.T) {
 
 }
 
-func TestRefreshPendingCollectorsCollectsOnlyUnattemptedSources(t *testing.T) {
+func TestCollectPendingCollectsOnlyUnattemptedSources(t *testing.T) {
 	require := require.New(t)
 	oldCalls := 0
 	newCalls := 0
@@ -300,16 +300,16 @@ func TestRefreshPendingCollectorsCollectsOnlyUnattemptedSources(t *testing.T) {
 		entries,
 		manager.collection,
 	)
-	manager.RefreshPendingCollectors(context.Background())
+	manager.CollectPending(context.Background())
 
 	require.Equal(1, oldCalls)
 	require.Equal(1, newCalls)
-	manager.RefreshPendingCollectors(context.Background())
+	manager.CollectPending(context.Background())
 	require.Equal(1, oldCalls)
 	require.Equal(1, newCalls)
 }
 
-func TestRefreshPendingCollectorsDoesNotRetryFailedSources(t *testing.T) {
+func TestCollectPendingDoesNotRetryFailedSources(t *testing.T) {
 	require := require.New(t)
 	calls := 0
 	manager := &manager{
@@ -326,8 +326,8 @@ func TestRefreshPendingCollectorsDoesNotRetryFailedSources(t *testing.T) {
 		}},
 	}
 
-	manager.RefreshPendingCollectors(context.Background())
-	manager.RefreshPendingCollectors(context.Background())
+	manager.CollectPending(context.Background())
+	manager.CollectPending(context.Background())
 
 	require.Equal(1, calls)
 	require.True(manager.collection[0].executors[0].attempted)
