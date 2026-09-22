@@ -34,11 +34,12 @@ type Store interface {
 	ListDeltaPrepares(ctx context.Context, ids []uuid.UUID) ([]model.DeltaPrepare, error)
 	UpdateDeltaPrepare(ctx context.Context, expectedResourceVersion int64, prepare *model.DeltaPrepare) (*model.DeltaPrepare, error)
 	// DecrementPendingGenerationsForGeneration atomically advances every waiting
-	// prepare joined to a currently terminal generation. Join-level completion
-	// markers prevent redelivered notifications from decrementing again. The
-	// returned progress includes the grouped completed/total counts needed to
-	// update the owning resource without one count query per prepare.
-	DecrementPendingGenerationsForGeneration(ctx context.Context, key deltagenerationstore.GenerationKey) ([]PrepareProgress, error)
+	// prepare joined to a generation whose current status matches the completion
+	// notification. Join-level completion markers prevent redelivered
+	// notifications from decrementing again. The returned progress includes the
+	// grouped completed/total counts needed to update the owning resource without
+	// one count query per prepare.
+	DecrementPendingGenerationsForGeneration(ctx context.Context, key deltagenerationstore.GenerationKey, expectedStatus string) ([]PrepareProgress, error)
 }
 
 var _ Store = (*PrepareStore)(nil)
@@ -169,6 +170,7 @@ func (s *PrepareStore) createOrReplaceWaitingDeltaPrepare(ctx context.Context, p
 		if result.Error != nil && !errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return store.ErrorFromGormError(result.Error)
 		}
+		hasLatest := result.Error == nil
 
 		if result.Error == nil {
 			switch {
@@ -194,7 +196,11 @@ func (s *PrepareStore) createOrReplaceWaitingDeltaPrepare(ctx context.Context, p
 		if result.Error != nil {
 			return store.ErrorFromGormError(result.Error)
 		}
-		admission.Replaced = result.RowsAffected > 0
+		// A newer prepare also supersedes a completed/failed prepare. There may
+		// be no waiting row to update in that case, but the resource-side
+		// preparing marker still belongs to the older prepare and must be cleared
+		// before the new prepare can complete without waiting.
+		admission.Replaced = result.RowsAffected > 0 || (hasLatest && prep.SourceResourceVersion > latest.SourceResourceVersion)
 
 		if err := tx.Create(prep).Error; err != nil {
 			return store.ErrorFromGormError(err)
@@ -312,7 +318,7 @@ func (s *PrepareStore) UpdateDeltaPrepare(ctx context.Context, expectedResourceV
 	return &updated, nil
 }
 
-func (s *PrepareStore) DecrementPendingGenerationsForGeneration(ctx context.Context, key deltagenerationstore.GenerationKey) ([]PrepareProgress, error) {
+func (s *PrepareStore) DecrementPendingGenerationsForGeneration(ctx context.Context, key deltagenerationstore.GenerationKey, expectedStatus string) ([]PrepareProgress, error) {
 	var progress []PrepareProgress
 	err := store.RunInTransaction(ctx, s.dbHandler, func(tx *gorm.DB) error {
 		// Mark the generation/prepare join before decrementing the denormalized
@@ -334,7 +340,7 @@ func (s *PrepareStore) DecrementPendingGenerationsForGeneration(ctx context.Cont
 					  AND g.image_repository = @image_repository
 					  AND g.source_digest = @source_digest
 					  AND g.target_digest = @target_digest
-					  AND g.status IN @terminal_statuses
+					  AND g.status = @expected_status
 				)
 				AND EXISTS (
 					SELECT 1
@@ -344,14 +350,14 @@ func (s *PrepareStore) DecrementPendingGenerationsForGeneration(ctx context.Cont
 					  AND p.pending_generations_count > @minimum_pending
 				)
 			`, map[string]interface{}{
-				"org_id":            key.OrgID,
-				"image_repository":  key.ImageRepository,
-				"source_digest":     key.SourceDigest,
-				"target_digest":     key.TargetDigest,
-				"not_completed":     false,
-				"terminal_statuses": []string{model.DeltaGenerationSucceeded, model.DeltaGenerationFailed, model.DeltaGenerationRejected},
-				"waiting":           model.DeltaPrepareWaiting,
-				"minimum_pending":   0,
+				"org_id":           key.OrgID,
+				"image_repository": key.ImageRepository,
+				"source_digest":    key.SourceDigest,
+				"target_digest":    key.TargetDigest,
+				"not_completed":    false,
+				"expected_status":  expectedStatus,
+				"waiting":          model.DeltaPrepareWaiting,
+				"minimum_pending":  0,
 			}).
 			Clauses(clause.Returning{Columns: []clause.Column{{Name: "prepare_id"}}}).
 			Updates(map[string]interface{}{"completed": true})

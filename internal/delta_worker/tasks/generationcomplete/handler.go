@@ -64,7 +64,7 @@ func (h *Handler) Handle(ctx context.Context, event worker_client.EventWithOrgId
 	if err != nil {
 		return &InvalidPayloadError{err: fmt.Errorf("invalid DeltaGenerationComplete payload: %w", err)}
 	}
-	progress, err := h.completion.CompleteWaitingIfTerminal(ctx, key)
+	progress, err := h.completion.CompleteWaitingIfTerminal(ctx, key, string(status))
 	if err != nil {
 		return err
 	}
@@ -80,7 +80,7 @@ func (h *Handler) Handle(ctx context.Context, event worker_client.EventWithOrgId
 			}
 			continue
 		}
-		if err := h.status.Set(ctx, prepare.OrgID, prepare.Kind, prepare.Name, progress[i].Completed, progress[i].Total); err != nil {
+		if err := h.status.SetIfCurrent(ctx, prepare.OrgID, prepare.Kind, prepare.Name, workerservice.ResumeIdentityForPrepare(prepare), progress[i].Completed, progress[i].Total); err != nil {
 			updateErrors = append(updateErrors, fmt.Errorf("set progress for prepare %s: %w", prepare.ID, err))
 		}
 	}

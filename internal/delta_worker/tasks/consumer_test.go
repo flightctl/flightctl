@@ -123,7 +123,7 @@ func (r *recordingCompletionStore) UpdateDeltaPrepare(context.Context, int64, *m
 	return nil, nil
 }
 
-func (r *recordingCompletionStore) DecrementPendingGenerationsForGeneration(_ context.Context, key deltastore.GenerationKey) ([]deltapreparestore.PrepareProgress, error) {
+func (r *recordingCompletionStore) DecrementPendingGenerationsForGeneration(_ context.Context, key deltastore.GenerationKey, _ string) ([]deltapreparestore.PrepareProgress, error) {
 	r.keys = append(r.keys, key)
 	return nil, nil
 }

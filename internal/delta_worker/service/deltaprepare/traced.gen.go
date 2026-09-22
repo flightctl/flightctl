@@ -83,10 +83,10 @@ func (_d *TracedService) CreateOrReplaceWaitingDeltaPrepare(ctx context.Context,
 	return p1, err
 }
 
-func (_d *TracedService) DecrementPendingGenerationsForGeneration(ctx context.Context, key deltagenerationstore.GenerationKey) (pa1 []deltapreparestore.PrepareProgress, err error) {
+func (_d *TracedService) DecrementPendingGenerationsForGeneration(ctx context.Context, key deltagenerationstore.GenerationKey, expectedStatus string) (pa1 []deltapreparestore.PrepareProgress, err error) {
 	ctx, span := startSpan(ctx, "DecrementPendingGenerationsForGeneration")
 
-	pa1, err = _d.inner.DecrementPendingGenerationsForGeneration(ctx, key)
+	pa1, err = _d.inner.DecrementPendingGenerationsForGeneration(ctx, key, expectedStatus)
 	st := domain.StatusOK()
 	if err != nil {
 		st = domain.StatusInternalServerError(err.Error())
@@ -119,10 +119,10 @@ func (_d *TracedService) ListDeltaPrepares(ctx context.Context, ids []uuid.UUID)
 	return da1, err
 }
 
-func (_d *TracedService) SetDeltaPreparingStatus(ctx context.Context, orgID uuid.UUID, kind string, name string, completed int, total int) (err error) {
+func (_d *TracedService) SetDeltaPreparingStatus(ctx context.Context, prepare *model.DeltaPrepare, completed int, total int) (err error) {
 	ctx, span := startSpan(ctx, "SetDeltaPreparingStatus")
 
-	err = _d.inner.SetDeltaPreparingStatus(ctx, orgID, kind, name, completed, total)
+	err = _d.inner.SetDeltaPreparingStatus(ctx, prepare, completed, total)
 	st := domain.StatusOK()
 	if err != nil {
 		st = domain.StatusInternalServerError(err.Error())

@@ -76,7 +76,7 @@ func (s *completionStore) UpdateDeltaPrepare(context.Context, int64, *model.Delt
 	return nil, nil
 }
 
-func (s *completionStore) DecrementPendingGenerationsForGeneration(context.Context, deltagenerationstore.GenerationKey) ([]deltapreparestore.PrepareProgress, error) {
+func (s *completionStore) DecrementPendingGenerationsForGeneration(context.Context, deltagenerationstore.GenerationKey, string) ([]deltapreparestore.PrepareProgress, error) {
 	return nil, nil
 }
 

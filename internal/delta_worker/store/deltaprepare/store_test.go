@@ -74,7 +74,7 @@ func TestDecrementPendingGenerationsForGeneration(t *testing.T) {
 
 	// A terminal generation was already complete when its join was created;
 	// redelivery must not consume the counter for either pending generation.
-	claimed, err := prepareStore.DecrementPendingGenerationsForGeneration(ctx, alreadyTerminalKey)
+	claimed, err := prepareStore.DecrementPendingGenerationsForGeneration(ctx, alreadyTerminalKey, model.DeltaGenerationSucceeded)
 	require.NoError(t, err)
 	require.Empty(t, claimed)
 	stored, err = prepareStore.GetDeltaPrepare(ctx, PrepareKey{ID: prepare.ID})
@@ -86,7 +86,7 @@ func TestDecrementPendingGenerationsForGeneration(t *testing.T) {
 			pendingKey.OrgID, pendingKey.ImageRepository, pendingKey.SourceDigest, pendingKey.TargetDigest).
 		Update("status", model.DeltaGenerationSucceeded).Error)
 
-	claimed, err = prepareStore.DecrementPendingGenerationsForGeneration(ctx, pendingKey)
+	claimed, err = prepareStore.DecrementPendingGenerationsForGeneration(ctx, pendingKey, model.DeltaGenerationSucceeded)
 	require.NoError(t, err)
 	require.Len(t, claimed, 1)
 	require.Equal(t, model.DeltaPrepareWaiting, claimed[0].Prepare.Status)
@@ -96,7 +96,7 @@ func TestDecrementPendingGenerationsForGeneration(t *testing.T) {
 
 	// Redelivery of the same completion event must not consume the counter for
 	// a different generation that is still pending.
-	claimed, err = prepareStore.DecrementPendingGenerationsForGeneration(ctx, pendingKey)
+	claimed, err = prepareStore.DecrementPendingGenerationsForGeneration(ctx, pendingKey, model.DeltaGenerationSucceeded)
 	require.NoError(t, err)
 	require.Empty(t, claimed)
 	stored, err = prepareStore.GetDeltaPrepare(ctx, PrepareKey{ID: prepare.ID})
@@ -108,7 +108,7 @@ func TestDecrementPendingGenerationsForGeneration(t *testing.T) {
 			secondPendingKey.OrgID, secondPendingKey.ImageRepository, secondPendingKey.SourceDigest, secondPendingKey.TargetDigest).
 		Update("status", model.DeltaGenerationSucceeded).Error)
 
-	claimed, err = prepareStore.DecrementPendingGenerationsForGeneration(ctx, secondPendingKey)
+	claimed, err = prepareStore.DecrementPendingGenerationsForGeneration(ctx, secondPendingKey, model.DeltaGenerationSucceeded)
 	require.NoError(t, err)
 	require.Len(t, claimed, 1)
 	require.Equal(t, model.DeltaPrepareComplete, claimed[0].Prepare.Status)
@@ -130,7 +130,7 @@ func TestDecrementPendingGenerationsForGeneration(t *testing.T) {
 	require.Equal(t, model.DeltaPrepareWaiting, newStored.Status)
 	require.Equal(t, 1, newStored.PendingGenerationsCount)
 
-	claimed, err = prepareStore.DecrementPendingGenerationsForGeneration(ctx, secondPendingKey)
+	claimed, err = prepareStore.DecrementPendingGenerationsForGeneration(ctx, secondPendingKey, model.DeltaGenerationSucceeded)
 	require.NoError(t, err)
 	require.Empty(t, claimed)
 
@@ -138,7 +138,7 @@ func TestDecrementPendingGenerationsForGeneration(t *testing.T) {
 		Where("org_id = ? AND image_repository = ? AND source_digest = ? AND target_digest = ?",
 			newPendingKey.OrgID, newPendingKey.ImageRepository, newPendingKey.SourceDigest, newPendingKey.TargetDigest).
 		Update("status", model.DeltaGenerationSucceeded).Error)
-	claimed, err = prepareStore.DecrementPendingGenerationsForGeneration(ctx, newPendingKey)
+	claimed, err = prepareStore.DecrementPendingGenerationsForGeneration(ctx, newPendingKey, model.DeltaGenerationSucceeded)
 	require.NoError(t, err)
 	require.Len(t, claimed, 1)
 	require.Equal(t, newPrepare.ID, claimed[0].Prepare.ID)
@@ -148,7 +148,7 @@ func TestDecrementPendingGenerationsForGeneration(t *testing.T) {
 	require.Equal(t, 2, claimed[0].Total)
 
 	// A second notification cannot update an already completed prepare.
-	claimed, err = prepareStore.DecrementPendingGenerationsForGeneration(ctx, secondPendingKey)
+	claimed, err = prepareStore.DecrementPendingGenerationsForGeneration(ctx, secondPendingKey, model.DeltaGenerationSucceeded)
 	require.NoError(t, err)
 	require.Empty(t, claimed)
 
@@ -211,16 +211,23 @@ func TestDecrementPendingGenerationsForGenerationSkipsStaleTerminalEvent(t *test
 		Where("org_id = ? AND image_repository = ? AND source_digest = ? AND target_digest = ?",
 			key.OrgID, key.ImageRepository, key.SourceDigest, key.TargetDigest).
 		Update("status", model.DeltaGenerationPending).Error)
-	claimed, err := prepareStore.DecrementPendingGenerationsForGeneration(ctx, key)
+	claimed, err := prepareStore.DecrementPendingGenerationsForGeneration(ctx, key, model.DeltaGenerationFailed)
 	require.NoError(t, err)
 	require.Empty(t, claimed)
 
+	// The retry succeeds, but the old failed event is delivered before the
+	// success event. The old event must not claim the join based only on the
+	// fact that the row is terminal again.
 	require.NoError(t, db.Model(&model.DeltaGeneration{}).
 		Where("org_id = ? AND image_repository = ? AND source_digest = ? AND target_digest = ?",
 			key.OrgID, key.ImageRepository, key.SourceDigest, key.TargetDigest).
-		Update("status", model.DeltaGenerationFailed).Error)
+		Update("status", model.DeltaGenerationSucceeded).Error)
 
-	claimed, err = prepareStore.DecrementPendingGenerationsForGeneration(ctx, key)
+	claimed, err = prepareStore.DecrementPendingGenerationsForGeneration(ctx, key, model.DeltaGenerationFailed)
+	require.NoError(t, err)
+	require.Empty(t, claimed)
+
+	claimed, err = prepareStore.DecrementPendingGenerationsForGeneration(ctx, key, model.DeltaGenerationSucceeded)
 	require.NoError(t, err)
 	require.Len(t, claimed, 1)
 	require.Equal(t, model.DeltaPrepareComplete, claimed[0].Prepare.Status)

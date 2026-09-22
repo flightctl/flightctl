@@ -26,8 +26,14 @@ func (completionStatusStore) ResumeDeltaIfCurrent(context.Context, uuid.UUID, st
 func (completionStatusStore) Mutate(_ context.Context, _ uuid.UUID, _ string, _ *domain.Device, apply devicestore.DeviceApplyFunc, _ ...devicestore.MutateOption) (*domain.Device, *domain.Device, bool, error) {
 	resourceVersion := "3"
 	device := &domain.Device{
-		Metadata: domain.ObjectMeta{ResourceVersion: &resourceVersion},
-		Status:   &domain.DeviceStatus{DeltaGeneration: &domain.DeltaGenerationStatus{}},
+		Metadata: domain.ObjectMeta{
+			ResourceVersion: &resourceVersion,
+			Annotations:     &map[string]string{domain.DeviceAnnotationRenderedSpecHash: "spec-1"},
+		},
+		Status: &domain.DeviceStatus{
+			Conditions:      []domain.Condition{{Type: domain.ConditionTypeDeviceDeltaPreparing}},
+			DeltaGeneration: &domain.DeltaGenerationStatus{},
+		},
 	}
 	mutation := &devicestore.DeviceMutation{Device: device}
 	if err := apply(mutation); err != nil {
@@ -88,7 +94,7 @@ func (s *completionStore) UpdateDeltaPrepare(context.Context, int64, *model.Delt
 	return nil, nil
 }
 
-func (s *completionStore) DecrementPendingGenerationsForGeneration(_ context.Context, key deltastore.GenerationKey) ([]deltapreparestore.PrepareProgress, error) {
+func (s *completionStore) DecrementPendingGenerationsForGeneration(_ context.Context, key deltastore.GenerationKey, _ string) ([]deltapreparestore.PrepareProgress, error) {
 	s.key = &key
 	return s.progress, nil
 }
@@ -108,8 +114,14 @@ func (s *progressStatusStore) ResumeDeltaIfCurrent(context.Context, uuid.UUID, s
 func (s *progressStatusStore) Mutate(_ context.Context, _ uuid.UUID, _ string, _ *domain.Device, apply devicestore.DeviceApplyFunc, _ ...devicestore.MutateOption) (*domain.Device, *domain.Device, bool, error) {
 	resourceVersion := "3"
 	device := &domain.Device{
-		Metadata: domain.ObjectMeta{ResourceVersion: &resourceVersion},
-		Status:   &domain.DeviceStatus{DeltaGeneration: &domain.DeltaGenerationStatus{}},
+		Metadata: domain.ObjectMeta{
+			ResourceVersion: &resourceVersion,
+			Annotations:     &map[string]string{domain.DeviceAnnotationRenderedSpecHash: "spec-1"},
+		},
+		Status: &domain.DeviceStatus{
+			Conditions:      []domain.Condition{{Type: domain.ConditionTypeDeviceDeltaPreparing}},
+			DeltaGeneration: &domain.DeltaGenerationStatus{},
+		},
 	}
 	mutation := &devicestore.DeviceMutation{Device: device}
 	if err := apply(mutation); err != nil {
@@ -175,12 +187,14 @@ func TestNewHandlerRequiresDependencies(t *testing.T) {
 
 func TestHandlerHandleUpdatesProgressForIncompletePrepare(t *testing.T) {
 	orgID := uuid.New()
+	specHash := "spec-1"
 	prepare := model.DeltaPrepare{
-		ID:     uuid.New(),
-		OrgID:  orgID,
-		Kind:   domain.DeviceKind,
-		Name:   "device-1",
-		Status: model.DeltaPrepareWaiting,
+		ID:       uuid.New(),
+		OrgID:    orgID,
+		Kind:     domain.DeviceKind,
+		Name:     "device-1",
+		SpecHash: &specHash,
+		Status:   model.DeltaPrepareWaiting,
 	}
 	generation := &model.DeltaGeneration{
 		OrgID:           orgID,
@@ -207,12 +221,14 @@ func TestHandlerHandleUpdatesProgressForIncompletePrepare(t *testing.T) {
 
 func TestHandlerHandleEmitsTerminalProgressForClaimedPrepare(t *testing.T) {
 	orgID := uuid.New()
+	specHash := "spec-1"
 	prepare := model.DeltaPrepare{
-		ID:     uuid.New(),
-		OrgID:  orgID,
-		Kind:   domain.DeviceKind,
-		Name:   "device-1",
-		Status: model.DeltaPrepareWaiting,
+		ID:       uuid.New(),
+		OrgID:    orgID,
+		Kind:     domain.DeviceKind,
+		Name:     "device-1",
+		SpecHash: &specHash,
+		Status:   model.DeltaPrepareWaiting,
 	}
 	generation := &model.DeltaGeneration{
 		OrgID:           orgID,

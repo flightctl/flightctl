@@ -58,10 +58,10 @@ func (f *fakePrepareService) ListDeltaPrepares(context.Context, []uuid.UUID) ([]
 func (f *fakePrepareService) UpdateDeltaPrepare(context.Context, int64, *model.DeltaPrepare) (*model.DeltaPrepare, error) {
 	return nil, nil
 }
-func (f *fakePrepareService) DecrementPendingGenerationsForGeneration(context.Context, deltagenerationstore.GenerationKey) ([]deltapreparestore.PrepareProgress, error) {
+func (f *fakePrepareService) DecrementPendingGenerationsForGeneration(context.Context, deltagenerationstore.GenerationKey, string) ([]deltapreparestore.PrepareProgress, error) {
 	return nil, nil
 }
-func (f *fakePrepareService) SetDeltaPreparingStatus(_ context.Context, _ uuid.UUID, _ string, _ string, completed, total int) error {
+func (f *fakePrepareService) SetDeltaPreparingStatus(_ context.Context, _ *model.DeltaPrepare, completed, total int) error {
 	f.statusCalls++
 	return nil
 }

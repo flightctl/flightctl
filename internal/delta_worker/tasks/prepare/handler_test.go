@@ -807,7 +807,7 @@ func (f *fakePrepareService) CreateOrReplaceWaitingDeltaPrepare(ctx context.Cont
 	}
 
 	key := f.store.identityKey(prepare.OrgID, prepare.Kind, prepare.Name)
-	replaced := false
+	replaced := latest != nil && prepare.SourceResourceVersion > latest.SourceResourceVersion
 	if id, ok := f.store.waiting[key]; ok {
 		if waiting := f.store.prepares[id]; waiting != nil {
 			waiting.Status = model.DeltaPrepareFailed
@@ -870,7 +870,7 @@ func (f *fakePrepareService) UpdateDeltaPrepare(_ context.Context, _ int64, prep
 	return &copy, nil
 }
 
-func (f *fakePrepareService) DecrementPendingGenerationsForGeneration(_ context.Context, key deltastore.GenerationKey) ([]deltapreparestore.PrepareProgress, error) {
+func (f *fakePrepareService) DecrementPendingGenerationsForGeneration(_ context.Context, key deltastore.GenerationKey, _ string) ([]deltapreparestore.PrepareProgress, error) {
 	generation := f.store.generations[key]
 	if generation == nil || !isTerminalGeneration(generation.Status) {
 		return nil, nil
@@ -921,11 +921,11 @@ func (f *fakePrepareService) generationCounts(prepareID uuid.UUID) (int, int) {
 	return completed, total
 }
 
-func (f *fakePrepareService) SetDeltaPreparingStatus(ctx context.Context, orgID uuid.UUID, kind, name string, completed, total int) error {
+func (f *fakePrepareService) SetDeltaPreparingStatus(ctx context.Context, prepare *model.DeltaPrepare, completed, total int) error {
 	if f.status == nil {
 		return nil
 	}
-	return f.status.Set(ctx, orgID, kind, name, completed, total)
+	return f.status.SetPreparing(ctx, prepare, completed, total)
 }
 
 func (f *fakePrepareService) ClearDeltaPreparingStatus(ctx context.Context, orgID uuid.UUID, kind, name string) error {
@@ -1022,8 +1022,8 @@ type statusCall struct {
 	completed, total int
 }
 
-func (s *statusSpy) Set(_ context.Context, _ uuid.UUID, kind, name string, completed, total int) error {
-	s.sets = append(s.sets, statusCall{kind: kind, name: name, completed: completed, total: total})
+func (s *statusSpy) SetPreparing(_ context.Context, prepare *model.DeltaPrepare, completed, total int) error {
+	s.sets = append(s.sets, statusCall{kind: prepare.Kind, name: prepare.Name, completed: completed, total: total})
 	return nil
 }
 
@@ -1052,7 +1052,7 @@ func (e *emitSpy) emit(_ context.Context, _ uuid.UUID, event *domain.Event) erro
 type resumeSpy struct{}
 
 type preparingStatus interface {
-	Set(context.Context, uuid.UUID, string, string, int, int) error
+	SetPreparing(context.Context, *model.DeltaPrepare, int, int) error
 	Clear(context.Context, uuid.UUID, string, string) error
 }
 

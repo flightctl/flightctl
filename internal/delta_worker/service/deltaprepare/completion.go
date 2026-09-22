@@ -18,8 +18,8 @@ import (
 // terminal generation and returns their grouped progress. Resource-side status
 // updates belong to the generation-complete task handler, which owns this
 // completion event.
-func (h *ServiceHandler) CompleteWaitingIfTerminal(ctx context.Context, key deltagenerationstore.GenerationKey) ([]deltapreparestore.PrepareProgress, error) {
-	progress, err := h.store.DecrementPendingGenerationsForGeneration(ctx, key)
+func (h *ServiceHandler) CompleteWaitingIfTerminal(ctx context.Context, key deltagenerationstore.GenerationKey, expectedStatus string) ([]deltapreparestore.PrepareProgress, error) {
+	progress, err := h.store.DecrementPendingGenerationsForGeneration(ctx, key, expectedStatus)
 	if err != nil {
 		return nil, fmt.Errorf("decrement pending generations for generation: %w", err)
 	}
@@ -53,10 +53,7 @@ func (h *ServiceHandler) ResumeCompletedPrepare(ctx context.Context, prepare *mo
 	if prepare == nil {
 		return nil
 	}
-	result, err := h.status.ResumeIfCurrent(ctx, prepare.OrgID, prepare.Kind, prepare.Name, workerservice.ResumeIdentity{
-		TemplateVersion: prepare.TemplateVersion,
-		SpecHash:        prepare.SpecHash,
-	})
+	result, err := h.status.ResumeIfCurrent(ctx, prepare.OrgID, prepare.Kind, prepare.Name, workerservice.ResumeIdentityForPrepare(prepare))
 	if err != nil {
 		return err
 	}

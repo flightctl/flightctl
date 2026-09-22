@@ -176,7 +176,7 @@ func (p *Handler) processCandidates(ctx context.Context, ev worker_client.EventW
 	if zeroWait {
 		return p.completeNow(ctx, prep)
 	}
-	return p.setPreparing(ctx, ev.OrgId, kind, name, completed, len(keys))
+	return p.setPreparing(ctx, prep, completed, len(keys))
 }
 
 func (p *Handler) isCurrentPrepare(ctx context.Context, orgID uuid.UUID, kind, name string, prep *model.DeltaPrepare, identity prepareIdentity) (bool, error) {
@@ -374,11 +374,11 @@ func (p *Handler) createPrepareGenerations(ctx context.Context, prepareID uuid.U
 	return p.prepareGenerationService.CreateDeltaPrepareGenerations(ctx, joins)
 }
 
-func (p *Handler) setPreparing(ctx context.Context, orgId uuid.UUID, kind, name string, completed, total int) error {
+func (p *Handler) setPreparing(ctx context.Context, prep *model.DeltaPrepare, completed, total int) error {
 	if total == 0 {
 		return nil
 	}
-	return p.prepareService.SetDeltaPreparingStatus(ctx, orgId, kind, name, completed, total)
+	return p.prepareService.SetDeltaPreparingStatus(ctx, prep, completed, total)
 }
 
 func (p *Handler) now() time.Time {

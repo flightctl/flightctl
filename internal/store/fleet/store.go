@@ -115,10 +115,10 @@ func NewFleetStore(db *gorm.DB, log logrus.FieldLogger) *FleetStore {
 }
 
 // ResumeDeltaIfCurrent clears the fleet's delta-preparing state only when the
-// fleet still points at the template version that produced the prepare. The
-// preparing condition is part of the predicate so a redelivered completion
-// event cannot claim the same resource twice.
-func (s *FleetStore) ResumeDeltaIfCurrent(ctx context.Context, orgID uuid.UUID, name, templateVersion string) (*domain.Fleet, error) {
+// fleet still points at the template version and source resource version that
+// produced the prepare. The preparing condition is part of the predicate so a
+// redelivered completion event cannot claim the same resource twice.
+func (s *FleetStore) ResumeDeltaIfCurrent(ctx context.Context, orgID uuid.UUID, name, templateVersion string, sourceResourceVersion int64) (*domain.Fleet, error) {
 	var fleet model.Fleet
 	result := s.getDB(ctx).Raw(`
 		UPDATE fleets
@@ -136,11 +136,13 @@ func (s *FleetStore) ResumeDeltaIfCurrent(ctx context.Context, orgID uuid.UUID, 
 				)
 				- 'deltaGeneration'
 			),
-			resource_version = resource_version + 1
+			resource_version = resource_version + 1,
+			annotations = annotations - @source_resource_version_annotation
 		WHERE org_id = @org_id
 		  AND name = @name
 		  AND deleted_at IS NULL
 		  AND annotations->>@template_version_annotation = @template_version
+		  AND annotations->>@source_resource_version_annotation = @source_resource_version
 		  AND EXISTS (
 				SELECT 1
 				FROM jsonb_array_elements(COALESCE(status->'conditions', '[]'::jsonb)) AS condition_rows(condition_json)
@@ -148,11 +150,13 @@ func (s *FleetStore) ResumeDeltaIfCurrent(ctx context.Context, orgID uuid.UUID, 
 		  )
 		RETURNING *
 	`, map[string]interface{}{
-		"org_id":                      orgID,
-		"name":                        name,
-		"template_version":            templateVersion,
-		"template_version_annotation": domain.FleetAnnotationTemplateVersion,
-		"condition_type":              string(domain.ConditionTypeFleetDeltaPreparing),
+		"org_id":                             orgID,
+		"name":                               name,
+		"template_version":                   templateVersion,
+		"template_version_annotation":        domain.FleetAnnotationTemplateVersion,
+		"source_resource_version":            fmt.Sprintf("%d", sourceResourceVersion),
+		"source_resource_version_annotation": domain.FleetAnnotationDeltaPrepareResourceVersion,
+		"condition_type":                     string(domain.ConditionTypeFleetDeltaPreparing),
 	}).Scan(&fleet)
 	if result.Error != nil {
 		return nil, store.ErrorFromGormError(result.Error)

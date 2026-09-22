@@ -15,7 +15,7 @@ type Service interface {
 	GetDeltaPrepare(ctx context.Context, key deltapreparestore.PrepareKey, opts ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error)
 	ListDeltaPrepares(ctx context.Context, ids []uuid.UUID) ([]model.DeltaPrepare, error)
 	UpdateDeltaPrepare(ctx context.Context, expectedResourceVersion int64, prepare *model.DeltaPrepare) (*model.DeltaPrepare, error)
-	DecrementPendingGenerationsForGeneration(ctx context.Context, key deltagenerationstore.GenerationKey) ([]deltapreparestore.PrepareProgress, error)
-	SetDeltaPreparingStatus(ctx context.Context, orgID uuid.UUID, kind, name string, completed, total int) error
+	DecrementPendingGenerationsForGeneration(ctx context.Context, key deltagenerationstore.GenerationKey, expectedStatus string) ([]deltapreparestore.PrepareProgress, error)
+	SetDeltaPreparingStatus(ctx context.Context, prepare *model.DeltaPrepare, completed, total int) error
 	ClearDeltaPreparingStatus(ctx context.Context, orgID uuid.UUID, kind, name string) error
 }

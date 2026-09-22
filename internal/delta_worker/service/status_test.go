@@ -3,8 +3,10 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
+	"github.com/flightctl/flightctl/internal/delta_worker/model"
 	"github.com/flightctl/flightctl/internal/domain"
 	storepkg "github.com/flightctl/flightctl/internal/store"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
@@ -17,14 +19,21 @@ import (
 
 func TestStorePreparingStatus_Fleet(t *testing.T) {
 	orgId := uuid.New()
+	tv := "tv-1"
+	sourceResourceVersion := int64(1)
 	fleets := &fakeFleetStatusStore{fleet: &domain.Fleet{
-		Metadata: domain.ObjectMeta{Name: lo.ToPtr("fleet-1")},
-		Status:   &domain.FleetStatus{},
+		Metadata: domain.ObjectMeta{
+			Name:            lo.ToPtr("fleet-1"),
+			ResourceVersion: lo.ToPtr("1"),
+			Annotations:     &map[string]string{domain.FleetAnnotationTemplateVersion: tv},
+		},
+		Status: &domain.FleetStatus{},
 	}}
 	s := NewStorePreparingStatus(fleets, nil)
+	prepare := &model.DeltaPrepare{OrgID: orgId, Kind: domain.FleetKind, Name: "fleet-1", TemplateVersion: &tv, SourceResourceVersion: sourceResourceVersion}
 
-	t.Run("When Set is called it should set FleetDeltaPreparing and deltaGeneration", func(t *testing.T) {
-		err := s.Set(context.Background(), orgId, domain.FleetKind, "fleet-1", 1, 3)
+	t.Run("When SetPreparing is called it should set FleetDeltaPreparing and deltaGeneration", func(t *testing.T) {
+		err := s.SetPreparing(context.Background(), prepare, 1, 3)
 		require.NoError(t, err)
 		require.NotNil(t, fleets.fleet.Status.DeltaGeneration)
 		assert.Equal(t, int64(1), fleets.fleet.Status.DeltaGeneration.Completed)
@@ -33,6 +42,7 @@ func TestStorePreparingStatus_Fleet(t *testing.T) {
 		require.NotNil(t, cond)
 		assert.Equal(t, domain.ConditionStatusTrue, cond.Status)
 		assert.Equal(t, "1/3", cond.Message)
+		assert.Equal(t, "1", (*fleets.fleet.Metadata.Annotations)[domain.FleetAnnotationDeltaPrepareResourceVersion])
 	})
 
 	t.Run("When Clear is called it should omit the condition and deltaGeneration", func(t *testing.T) {
@@ -40,6 +50,7 @@ func TestStorePreparingStatus_Fleet(t *testing.T) {
 		require.NoError(t, err)
 		assert.Nil(t, fleets.fleet.Status.DeltaGeneration)
 		assert.Nil(t, domain.FindStatusCondition(fleets.fleet.Status.Conditions, domain.ConditionTypeFleetDeltaPreparing))
+		assert.Empty(t, (*fleets.fleet.Metadata.Annotations)[domain.FleetAnnotationDeltaPrepareResourceVersion])
 	})
 
 	t.Run("When ResumeIfCurrent is called it should clear status for the matching template version", func(t *testing.T) {
@@ -49,10 +60,13 @@ func TestStorePreparingStatus_Fleet(t *testing.T) {
 			"existing":                            "value",
 			domain.FleetAnnotationTemplateVersion: tv,
 		}
-		err := s.Set(context.Background(), orgId, domain.FleetKind, "fleet-1", 1, 1)
+		prepare := &model.DeltaPrepare{OrgID: orgId, Kind: domain.FleetKind, Name: "fleet-1", TemplateVersion: &tv, SourceResourceVersion: 2}
+		fleets.fleet.Metadata.ResourceVersion = lo.ToPtr("2")
+		err := s.SetPreparing(context.Background(), prepare, 1, 1)
 		require.NoError(t, err)
 		result, err := s.ResumeIfCurrent(context.Background(), orgId, domain.FleetKind, "fleet-1", ResumeIdentity{
-			TemplateVersion: &tv,
+			TemplateVersion:       &tv,
+			SourceResourceVersion: 2,
 		})
 		require.NoError(t, err)
 		assert.True(t, result.Matched)
@@ -62,23 +76,50 @@ func TestStorePreparingStatus_Fleet(t *testing.T) {
 		assert.Equal(t, tv, (*fleets.fleet.Metadata.Annotations)[domain.FleetAnnotationTemplateVersion])
 
 		result, err = s.ResumeIfCurrent(context.Background(), orgId, domain.FleetKind, "fleet-1", ResumeIdentity{
-			TemplateVersion: &tv,
+			TemplateVersion:       &tv,
+			SourceResourceVersion: 2,
 		})
 		require.NoError(t, err)
 		assert.False(t, result.Matched)
 	})
 
 	t.Run("When ResumeIfCurrent identity does not match it should leave the fleet unchanged", func(t *testing.T) {
-		tv := "tv-stale"
-		fleets.fleet.Metadata.Annotations = &map[string]string{}
-		_ = s.Set(context.Background(), orgId, domain.FleetKind, "fleet-1", 1, 1)
+		currentTV := "tv-current"
+		staleTV := "tv-stale"
+		fleets.fleet.Metadata.ResourceVersion = lo.ToPtr("3")
+		fleets.fleet.Metadata.Annotations = &map[string]string{domain.FleetAnnotationTemplateVersion: currentTV}
+		_ = s.SetPreparing(context.Background(), &model.DeltaPrepare{
+			OrgID: orgId, Kind: domain.FleetKind, Name: "fleet-1", TemplateVersion: &currentTV, SourceResourceVersion: 3,
+		}, 1, 1)
 		result, err := s.ResumeIfCurrent(context.Background(), orgId, domain.FleetKind, "fleet-1", ResumeIdentity{
-			TemplateVersion: &tv,
+			TemplateVersion:       &staleTV,
+			SourceResourceVersion: 3,
 		})
 		require.NoError(t, err)
 		assert.False(t, result.Matched)
 		assert.NotNil(t, domain.FindStatusCondition(fleets.fleet.Status.Conditions, domain.ConditionTypeFleetDeltaPreparing))
-		assert.Empty(t, (*fleets.fleet.Metadata.Annotations)[domain.FleetAnnotationTemplateVersion])
+		assert.Equal(t, currentTV, (*fleets.fleet.Metadata.Annotations)[domain.FleetAnnotationTemplateVersion])
+
+		t.Run("When a stale source resource version completes it should leave the fleet unchanged", func(t *testing.T) {
+			result, err := s.ResumeIfCurrent(context.Background(), orgId, domain.FleetKind, "fleet-1", ResumeIdentity{
+				TemplateVersion:       &currentTV,
+				SourceResourceVersion: 2,
+			})
+			require.NoError(t, err)
+			assert.False(t, result.Matched)
+		})
+	})
+
+	t.Run("When SetIfCurrent sees a newer source resource version it should leave the fleet unchanged", func(t *testing.T) {
+		currentTV := "tv-current"
+		fleets.fleet.Metadata.ResourceVersion = lo.ToPtr("11")
+		fleets.fleet.Metadata.Annotations = &map[string]string{domain.FleetAnnotationTemplateVersion: currentTV}
+		current := &model.DeltaPrepare{OrgID: orgId, Kind: domain.FleetKind, Name: "fleet-1", TemplateVersion: &currentTV, SourceResourceVersion: 11}
+		stale := ResumeIdentity{TemplateVersion: &currentTV, SourceResourceVersion: 10}
+		require.NoError(t, s.SetPreparing(context.Background(), current, 2, 3))
+		require.NoError(t, s.SetIfCurrent(context.Background(), orgId, domain.FleetKind, "fleet-1", stale, 1, 3))
+		assert.Equal(t, int64(2), fleets.fleet.Status.DeltaGeneration.Completed)
+		assert.Equal(t, "11", (*fleets.fleet.Metadata.Annotations)[domain.FleetAnnotationDeltaPrepareResourceVersion])
 	})
 }
 
@@ -93,9 +134,11 @@ func TestStorePreparingStatus_Device(t *testing.T) {
 		Status: &domain.DeviceStatus{},
 	}}
 	s := NewStorePreparingStatus(nil, devices)
+	specHash := "spec-1"
+	prepare := &model.DeltaPrepare{OrgID: orgId, Kind: domain.DeviceKind, Name: "d1", SpecHash: &specHash}
 
 	t.Run("When Set is called for a device it should update the preparation status", func(t *testing.T) {
-		err := s.Set(context.Background(), orgId, domain.DeviceKind, "d1", 0, 1)
+		err := s.SetPreparing(context.Background(), prepare, 0, 1)
 		require.NoError(t, err)
 		cond := domain.FindStatusCondition(devices.device.Status.Conditions, domain.ConditionTypeDeviceDeltaPreparing)
 		require.NotNil(t, cond)
@@ -111,23 +154,22 @@ func TestStorePreparingStatus_Device(t *testing.T) {
 	})
 
 	t.Run("When ResumeIfCurrent is called it should clear a matching device", func(t *testing.T) {
-		hash := "spec-1"
-		_ = s.Set(context.Background(), orgId, domain.DeviceKind, "d1", 1, 1)
+		_ = s.SetPreparing(context.Background(), prepare, 1, 1)
 		result, err := s.ResumeIfCurrent(context.Background(), orgId, domain.DeviceKind, "d1", ResumeIdentity{
-			SpecHash: &hash,
+			SpecHash: &specHash,
 		})
 		require.NoError(t, err)
 		assert.True(t, result.Matched)
 		assert.Nil(t, devices.device.Status.DeltaGeneration)
 		assert.Nil(t, domain.FindStatusCondition(devices.device.Status.Conditions, domain.ConditionTypeDeviceDeltaPreparing))
 
-		result, err = s.ResumeIfCurrent(context.Background(), orgId, domain.DeviceKind, "d1", ResumeIdentity{SpecHash: &hash})
+		result, err = s.ResumeIfCurrent(context.Background(), orgId, domain.DeviceKind, "d1", ResumeIdentity{SpecHash: &specHash})
 		require.NoError(t, err)
 		assert.False(t, result.Matched)
 	})
 
 	t.Run("When ResumeIfCurrent sees a different device spec hash it should leave status unchanged", func(t *testing.T) {
-		_ = s.Set(context.Background(), orgId, domain.DeviceKind, "d1", 1, 1)
+		_ = s.SetPreparing(context.Background(), prepare, 1, 1)
 		staleHash := "spec-stale"
 		result, err := s.ResumeIfCurrent(context.Background(), orgId, domain.DeviceKind, "d1", ResumeIdentity{SpecHash: &staleHash})
 		require.NoError(t, err)
@@ -135,19 +177,26 @@ func TestStorePreparingStatus_Device(t *testing.T) {
 		assert.NotNil(t, domain.FindStatusCondition(devices.device.Status.Conditions, domain.ConditionTypeDeviceDeltaPreparing))
 	})
 
+	t.Run("When SetIfCurrent sees a different device spec hash it should leave status unchanged", func(t *testing.T) {
+		_ = s.SetPreparing(context.Background(), prepare, 1, 1)
+		staleHash := "spec-stale"
+		require.NoError(t, s.SetIfCurrent(context.Background(), orgId, domain.DeviceKind, "d1", ResumeIdentity{SpecHash: &staleHash}, 0, 1))
+		assert.Equal(t, int64(1), devices.device.Status.DeltaGeneration.Completed)
+	})
+
 	t.Run("When Set is called with an unsupported kind it should return an error", func(t *testing.T) {
-		err := s.Set(context.Background(), orgId, "Unknown", "d1", 0, 1)
+		err := s.SetIfCurrent(context.Background(), orgId, "Unknown", "d1", ResumeIdentity{}, 0, 1)
 		require.EqualError(t, err, `unsupported preparing status kind "Unknown"`)
 	})
 
 	t.Run("When Set is called without a device store it should return an error", func(t *testing.T) {
-		err := NewStorePreparingStatus(nil, nil).Set(context.Background(), orgId, domain.DeviceKind, "d1", 0, 1)
+		err := NewStorePreparingStatus(nil, nil).SetIfCurrent(context.Background(), orgId, domain.DeviceKind, "d1", ResumeIdentity{SpecHash: &specHash}, 0, 1)
 		require.EqualError(t, err, "device store is required")
 	})
 
 	t.Run("When the device store returns an error it should propagate it", func(t *testing.T) {
 		storeErr := errors.New("device lookup failed")
-		err := NewStorePreparingStatus(nil, &fakeDeviceStatusStore{getErr: storeErr}).Set(context.Background(), orgId, domain.DeviceKind, "d1", 0, 1)
+		err := NewStorePreparingStatus(nil, &fakeDeviceStatusStore{getErr: storeErr}).SetIfCurrent(context.Background(), orgId, domain.DeviceKind, "d1", ResumeIdentity{SpecHash: &specHash}, 0, 1)
 		require.ErrorIs(t, err, storeErr)
 	})
 }
@@ -156,13 +205,15 @@ type fakeFleetStatusStore struct {
 	fleet *domain.Fleet
 }
 
-func (f *fakeFleetStatusStore) ResumeDeltaIfCurrent(_ context.Context, _ uuid.UUID, _ string, templateVersion string) (*domain.Fleet, error) {
+func (f *fakeFleetStatusStore) ResumeDeltaIfCurrent(_ context.Context, _ uuid.UUID, _ string, templateVersion string, sourceResourceVersion int64) (*domain.Fleet, error) {
 	if f.fleet == nil || f.fleet.Metadata.Annotations == nil || (*f.fleet.Metadata.Annotations)[domain.FleetAnnotationTemplateVersion] != templateVersion ||
+		(*f.fleet.Metadata.Annotations)[domain.FleetAnnotationDeltaPrepareResourceVersion] != fmt.Sprintf("%d", sourceResourceVersion) ||
 		domain.FindStatusCondition(f.fleet.Status.Conditions, domain.ConditionTypeFleetDeltaPreparing) == nil {
 		return nil, nil
 	}
 	domain.RemoveStatusCondition(&f.fleet.Status.Conditions, domain.ConditionTypeFleetDeltaPreparing)
 	f.fleet.Status.DeltaGeneration = nil
+	delete(*f.fleet.Metadata.Annotations, domain.FleetAnnotationDeltaPrepareResourceVersion)
 	return f.fleet, nil
 }
 

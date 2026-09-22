@@ -93,19 +93,19 @@ func (h *ServiceHandler) UpdateDeltaPrepare(ctx context.Context, expectedResourc
 	return updated, nil
 }
 
-func (h *ServiceHandler) DecrementPendingGenerationsForGeneration(ctx context.Context, key deltagenerationstore.GenerationKey) ([]deltapreparestore.PrepareProgress, error) {
-	progress, err := h.store.DecrementPendingGenerationsForGeneration(ctx, key)
+func (h *ServiceHandler) DecrementPendingGenerationsForGeneration(ctx context.Context, key deltagenerationstore.GenerationKey, expectedStatus string) ([]deltapreparestore.PrepareProgress, error) {
+	progress, err := h.store.DecrementPendingGenerationsForGeneration(ctx, key, expectedStatus)
 	if err != nil {
 		return nil, fmt.Errorf("decrement pending generations for generation: %w", err)
 	}
 	return progress, nil
 }
 
-func (h *ServiceHandler) SetDeltaPreparingStatus(ctx context.Context, orgID uuid.UUID, kind, name string, completed, total int) error {
+func (h *ServiceHandler) SetDeltaPreparingStatus(ctx context.Context, prepare *model.DeltaPrepare, completed, total int) error {
 	if h.status == nil {
 		return nil
 	}
-	return h.status.Set(ctx, orgID, kind, name, completed, total)
+	return h.status.SetPreparing(ctx, prepare, completed, total)
 }
 
 func (h *ServiceHandler) ClearDeltaPreparingStatus(ctx context.Context, orgID uuid.UUID, kind, name string) error {
