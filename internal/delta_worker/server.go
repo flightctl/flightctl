@@ -12,7 +12,9 @@ import (
 	"github.com/flightctl/flightctl/internal/delta_worker/service/deltageneration"
 	"github.com/flightctl/flightctl/internal/delta_worker/service/deltaprepare"
 	"github.com/flightctl/flightctl/internal/delta_worker/service/deltapreparegeneration"
-	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store"
+	deltagenerationstore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
+	deltapreparestore "github.com/flightctl/flightctl/internal/delta_worker/store/deltaprepare"
+	deltapreparegenerationstore "github.com/flightctl/flightctl/internal/delta_worker/store/deltapreparegeneration"
 	"github.com/flightctl/flightctl/internal/delta_worker/tasks"
 	generateTask "github.com/flightctl/flightctl/internal/delta_worker/tasks/generate"
 	preparetask "github.com/flightctl/flightctl/internal/delta_worker/tasks/prepare"
@@ -54,7 +56,9 @@ type Server struct {
 }
 
 func New(log logrus.FieldLogger, cfg *deltaconfig.DeltaGenerationConfig, db *gorm.DB, kvStore kvstore.KVStore, queuesProvider queues.Provider, workerMetrics *worker.WorkerCollector) *Server {
-	deltaStore := deltastore.NewStore(db, log.WithField("pkg", "delta-store"))
+	generationStore := deltagenerationstore.NewStore(db, log.WithField("pkg", "delta-generation-store"))
+	prepareStore := deltapreparestore.NewStore(db, log.WithField("pkg", "delta-prepare-store"))
+	prepareGenerationStore := deltapreparegenerationstore.NewStore(db, log.WithField("pkg", "delta-prepare-generation-store"))
 	deviceStore := devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
 	eventStore := eventstore.NewEventStore(db, log.WithField("pkg", "event-store"))
 	fleetStore := fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
@@ -69,9 +73,9 @@ func New(log logrus.FieldLogger, cfg *deltaconfig.DeltaGenerationConfig, db *gor
 	repositorySvc := repositoryservice.WrapWithTracing(repositoryservice.NewServiceHandler(repositoryStore, eventSvc, log))
 	catalogSvc := catalogservice.WrapWithTracing(catalogservice.NewServiceHandler(catalogStore, deviceStore, fleetStore, eventSvc, log))
 	templateVersionSvc := templateversionservice.WrapWithTracing(templateversionservice.NewServiceHandler(templateVersionStore, kvStore, eventSvc, log))
-	generationSvc := deltageneration.WrapWithTracing(deltageneration.NewServiceHandler(deltaStore, deltaStore, deltaStore, eventSvc, status, log))
-	prepareSvc := deltaprepare.WrapWithTracing(deltaprepare.NewServiceHandler(deltaStore, status))
-	prepareGenerationSvc := deltapreparegeneration.WrapWithTracing(deltapreparegeneration.NewServiceHandler(deltaStore, generationSvc, prepareSvc, eventSvc))
+	generationSvc := deltageneration.WrapWithTracing(deltageneration.NewServiceHandler(generationStore, log))
+	prepareSvc := deltaprepare.WrapWithTracing(deltaprepare.NewServiceHandler(prepareStore, status))
+	prepareGenerationSvc := deltapreparegeneration.WrapWithTracing(deltapreparegeneration.NewServiceHandler(prepareGenerationStore))
 
 	return &Server{
 		cfg:            cfg,

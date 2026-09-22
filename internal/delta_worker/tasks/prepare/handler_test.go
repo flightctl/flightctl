@@ -13,7 +13,9 @@ import (
 	"github.com/flightctl/flightctl/internal/delta_worker/service/deltageneration"
 	"github.com/flightctl/flightctl/internal/delta_worker/service/deltaprepare"
 	"github.com/flightctl/flightctl/internal/delta_worker/service/deltapreparegeneration"
-	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store"
+	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
+	deltapreparestore "github.com/flightctl/flightctl/internal/delta_worker/store/deltaprepare"
+	deltapreparegenerationstore "github.com/flightctl/flightctl/internal/delta_worker/store/deltapreparegeneration"
 	generateTask "github.com/flightctl/flightctl/internal/delta_worker/tasks/generate"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -749,9 +751,9 @@ func (f *fakePrepareService) CreateDeltaPrepare(ctx context.Context, prepare *mo
 	return f.store.insertPrepare(ctx, prepare)
 }
 
-func (f *fakePrepareService) CreateOrReplaceWaitingDeltaPrepare(ctx context.Context, prepare *model.DeltaPrepare) (deltastore.PrepareAdmission, error) {
+func (f *fakePrepareService) CreateOrReplaceWaitingDeltaPrepare(ctx context.Context, prepare *model.DeltaPrepare) (deltapreparestore.PrepareAdmission, error) {
 	if f.store.insertErr != nil {
-		return deltastore.PrepareAdmission{}, f.store.insertErr
+		return deltapreparestore.PrepareAdmission{}, f.store.insertErr
 	}
 	var latest *model.DeltaPrepare
 	for _, candidate := range f.store.prepares {
@@ -765,15 +767,15 @@ func (f *fakePrepareService) CreateOrReplaceWaitingDeltaPrepare(ctx context.Cont
 	if latest != nil {
 		if prepare.SourceResourceVersion < latest.SourceResourceVersion {
 			copy := *latest
-			return deltastore.PrepareAdmission{Prepare: &copy}, nil
+			return deltapreparestore.PrepareAdmission{Prepare: &copy}, nil
 		}
 		if prepare.SourceResourceVersion == latest.SourceResourceVersion {
 			identity := prepareIdentity{templateVersion: prepare.TemplateVersion, specHash: prepare.SpecHash, resourceVersion: prepare.SourceResourceVersion}
 			if !samePrepareIdentity(latest, identity) {
-				return deltastore.PrepareAdmission{}, errors.New("conflicting delta prepares")
+				return deltapreparestore.PrepareAdmission{}, errors.New("conflicting delta prepares")
 			}
 			copy := *latest
-			return deltastore.PrepareAdmission{Prepare: &copy, Accepted: latest.Status == model.DeltaPrepareWaiting}, nil
+			return deltapreparestore.PrepareAdmission{Prepare: &copy, Accepted: latest.Status == model.DeltaPrepareWaiting}, nil
 		}
 	}
 
@@ -788,18 +790,18 @@ func (f *fakePrepareService) CreateOrReplaceWaitingDeltaPrepare(ctx context.Cont
 		delete(f.store.waiting, key)
 	}
 	if err := f.store.insertPrepare(ctx, prepare); err != nil {
-		return deltastore.PrepareAdmission{}, err
+		return deltapreparestore.PrepareAdmission{}, err
 	}
 	copy := *prepare
 	if replaced && f.status != nil {
 		if err := f.status.Clear(ctx, prepare.OrgID, prepare.Kind, prepare.Name); err != nil {
-			return deltastore.PrepareAdmission{}, err
+			return deltapreparestore.PrepareAdmission{}, err
 		}
 	}
-	return deltastore.PrepareAdmission{Prepare: &copy, Accepted: true, Replaced: replaced}, nil
+	return deltapreparestore.PrepareAdmission{Prepare: &copy, Accepted: true, Replaced: replaced}, nil
 }
 
-func (f *fakePrepareService) GetDeltaPrepare(ctx context.Context, key deltastore.PrepareKey, _ ...deltastore.PrepareGetOption) (*model.DeltaPrepare, error) {
+func (f *fakePrepareService) GetDeltaPrepare(ctx context.Context, key deltapreparestore.PrepareKey, _ ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error) {
 	if key.ID == uuid.Nil {
 		return f.store.getWaitingPrepare(ctx, key.OrgID, key.Kind, key.Name)
 	}
@@ -856,6 +858,10 @@ func (f *fakePrepareService) CountDeltaPrepareGenerations(_ context.Context, pre
 	return completed, total, nil
 }
 
+func (f *fakePrepareService) DecrementPendingGenerationsForGeneration(context.Context, deltastore.GenerationKey) ([]deltapreparestore.PrepareProgress, error) {
+	return nil, nil
+}
+
 func (f *fakePrepareService) SetDeltaPreparingStatus(ctx context.Context, orgID uuid.UUID, kind, name string, completed, total int) error {
 	if f.status == nil {
 		return nil
@@ -908,18 +914,21 @@ type fakePrepareGenerationService struct {
 	store *fakePrepareStore
 }
 
-func (f *fakePrepareGenerationService) CreateDeltaPrepareGenerations(ctx context.Context, joins []*model.DeltaPrepareGeneration) error {
+func (f *fakePrepareGenerationService) CreateDeltaPrepareGenerations(ctx context.Context, joins []*model.DeltaPrepareGeneration) (deltapreparegenerationstore.CreateDeltaPrepareGenerationsResult, error) {
 	if len(joins) == 0 {
-		return nil
+		return deltapreparegenerationstore.CreateDeltaPrepareGenerationsResult{}, nil
 	}
 	keys := make([]deltastore.GenerationKey, 0, len(joins))
 	for _, join := range joins {
 		keys = append(keys, deltastore.GenerationKey{OrgID: join.OrgID, ImageRepository: join.ImageRepository, SourceDigest: join.SourceDigest, TargetDigest: join.TargetDigest})
 	}
-	return f.store.insertPrepareGenerations(ctx, joins[0].PrepareID, keys)
+	if err := f.store.insertPrepareGenerations(ctx, joins[0].PrepareID, keys); err != nil {
+		return deltapreparegenerationstore.CreateDeltaPrepareGenerationsResult{}, err
+	}
+	return deltapreparegenerationstore.CreateDeltaPrepareGenerationsResult{InsertedJoins: joins}, nil
 }
 
-func (f *fakePrepareGenerationService) ListDeltaPrepareGenerations(_ context.Context, filter deltastore.DeltaPrepareGenerationListFilter) ([]model.DeltaPrepareGeneration, error) {
+func (f *fakePrepareGenerationService) ListDeltaPrepareGenerations(_ context.Context, filter deltapreparegenerationstore.ListFilter) ([]model.DeltaPrepareGeneration, error) {
 	result := make([]model.DeltaPrepareGeneration, 0, len(f.store.joins))
 	for _, join := range f.store.joins {
 		if filter.PrepareID != nil && join.PrepareID != *filter.PrepareID {

@@ -14,7 +14,8 @@ import (
 	reflect "reflect"
 
 	model "github.com/flightctl/flightctl/internal/delta_worker/model"
-	store "github.com/flightctl/flightctl/internal/delta_worker/store"
+	deltageneration "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
+	deltaprepare "github.com/flightctl/flightctl/internal/delta_worker/store/deltaprepare"
 	uuid "github.com/google/uuid"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -56,22 +57,6 @@ func (mr *MockServiceMockRecorder) ClearDeltaPreparingStatus(ctx, orgID, kind, n
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearDeltaPreparingStatus", reflect.TypeOf((*MockService)(nil).ClearDeltaPreparingStatus), ctx, orgID, kind, name)
 }
 
-// CountDeltaPrepareGenerations mocks base method.
-func (m *MockService) CountDeltaPrepareGenerations(ctx context.Context, prepareID uuid.UUID) (int, int, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "CountDeltaPrepareGenerations", ctx, prepareID)
-	ret0, _ := ret[0].(int)
-	ret1, _ := ret[1].(int)
-	ret2, _ := ret[2].(error)
-	return ret0, ret1, ret2
-}
-
-// CountDeltaPrepareGenerations indicates an expected call of CountDeltaPrepareGenerations.
-func (mr *MockServiceMockRecorder) CountDeltaPrepareGenerations(ctx, prepareID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CountDeltaPrepareGenerations", reflect.TypeOf((*MockService)(nil).CountDeltaPrepareGenerations), ctx, prepareID)
-}
-
 // CreateDeltaPrepare mocks base method.
 func (m *MockService) CreateDeltaPrepare(ctx context.Context, prepare *model.DeltaPrepare) error {
 	m.ctrl.T.Helper()
@@ -87,10 +72,10 @@ func (mr *MockServiceMockRecorder) CreateDeltaPrepare(ctx, prepare any) *gomock.
 }
 
 // CreateOrReplaceWaitingDeltaPrepare mocks base method.
-func (m *MockService) CreateOrReplaceWaitingDeltaPrepare(ctx context.Context, prepare *model.DeltaPrepare) (store.PrepareAdmission, error) {
+func (m *MockService) CreateOrReplaceWaitingDeltaPrepare(ctx context.Context, prepare *model.DeltaPrepare) (deltaprepare.PrepareAdmission, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateOrReplaceWaitingDeltaPrepare", ctx, prepare)
-	ret0, _ := ret[0].(store.PrepareAdmission)
+	ret0, _ := ret[0].(deltaprepare.PrepareAdmission)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -101,8 +86,23 @@ func (mr *MockServiceMockRecorder) CreateOrReplaceWaitingDeltaPrepare(ctx, prepa
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateOrReplaceWaitingDeltaPrepare", reflect.TypeOf((*MockService)(nil).CreateOrReplaceWaitingDeltaPrepare), ctx, prepare)
 }
 
+// DecrementPendingGenerationsForGeneration mocks base method.
+func (m *MockService) DecrementPendingGenerationsForGeneration(ctx context.Context, key deltageneration.GenerationKey) ([]deltaprepare.PrepareProgress, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DecrementPendingGenerationsForGeneration", ctx, key)
+	ret0, _ := ret[0].([]deltaprepare.PrepareProgress)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DecrementPendingGenerationsForGeneration indicates an expected call of DecrementPendingGenerationsForGeneration.
+func (mr *MockServiceMockRecorder) DecrementPendingGenerationsForGeneration(ctx, key any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DecrementPendingGenerationsForGeneration", reflect.TypeOf((*MockService)(nil).DecrementPendingGenerationsForGeneration), ctx, key)
+}
+
 // GetDeltaPrepare mocks base method.
-func (m *MockService) GetDeltaPrepare(ctx context.Context, key store.PrepareKey, opts ...store.PrepareGetOption) (*model.DeltaPrepare, error) {
+func (m *MockService) GetDeltaPrepare(ctx context.Context, key deltaprepare.PrepareKey, opts ...deltaprepare.PrepareGetOption) (*model.DeltaPrepare, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, key}
 	for _, a := range opts {

@@ -8,7 +8,9 @@ import (
 	"errors"
 	"time"
 
-	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store"
+	deltagenerationstore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
+	deltapreparestore "github.com/flightctl/flightctl/internal/delta_worker/store/deltaprepare"
+	deltapreparegenerationstore "github.com/flightctl/flightctl/internal/delta_worker/store/deltapreparegeneration"
 	"github.com/flightctl/flightctl/internal/domain"
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/store"
@@ -133,7 +135,13 @@ func runMainStoreMigrations(ctx context.Context, tx *gorm.DB, log logrus.FieldLo
 	if err := canarystore.NewCanaryStore(tx, log).InitialMigration(ctx); err != nil {
 		return err
 	}
-	if err := deltastore.NewStore(tx, log).InitialMigration(ctx); err != nil {
+	if err := deltagenerationstore.NewStore(tx, log).InitialMigration(ctx); err != nil {
+		return err
+	}
+	if err := deltapreparestore.NewStore(tx, log).InitialMigration(ctx); err != nil {
+		return err
+	}
+	if err := deltapreparegenerationstore.NewStore(tx, log).InitialMigration(ctx); err != nil {
 		return err
 	}
 

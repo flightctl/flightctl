@@ -14,7 +14,7 @@ import (
 	reflect "reflect"
 
 	model "github.com/flightctl/flightctl/internal/delta_worker/model"
-	store "github.com/flightctl/flightctl/internal/delta_worker/store"
+	deltapreparegeneration "github.com/flightctl/flightctl/internal/delta_worker/store/deltapreparegeneration"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -42,11 +42,12 @@ func (m *MockService) EXPECT() *MockServiceMockRecorder {
 }
 
 // CreateDeltaPrepareGenerations mocks base method.
-func (m *MockService) CreateDeltaPrepareGenerations(ctx context.Context, joins []*model.DeltaPrepareGeneration) error {
+func (m *MockService) CreateDeltaPrepareGenerations(ctx context.Context, joins []*model.DeltaPrepareGeneration) (deltapreparegeneration.CreateDeltaPrepareGenerationsResult, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateDeltaPrepareGenerations", ctx, joins)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret0, _ := ret[0].(deltapreparegeneration.CreateDeltaPrepareGenerationsResult)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // CreateDeltaPrepareGenerations indicates an expected call of CreateDeltaPrepareGenerations.
@@ -56,7 +57,7 @@ func (mr *MockServiceMockRecorder) CreateDeltaPrepareGenerations(ctx, joins any)
 }
 
 // ListDeltaPrepareGenerations mocks base method.
-func (m *MockService) ListDeltaPrepareGenerations(ctx context.Context, filter store.DeltaPrepareGenerationListFilter) ([]model.DeltaPrepareGeneration, error) {
+func (m *MockService) ListDeltaPrepareGenerations(ctx context.Context, filter deltapreparegeneration.ListFilter) ([]model.DeltaPrepareGeneration, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListDeltaPrepareGenerations", ctx, filter)
 	ret0, _ := ret[0].([]model.DeltaPrepareGeneration)
