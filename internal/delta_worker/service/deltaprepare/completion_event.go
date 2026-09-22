@@ -61,6 +61,11 @@ func ParsePrepareCompletionEvent(orgID uuid.UUID, message string) (*model.DeltaP
 	if payload.Kind == "" || payload.Name == "" {
 		return nil, fmt.Errorf("prepare completion payload is missing kind or name")
 	}
+	switch payload.Kind {
+	case domain.FleetKind, domain.DeviceKind:
+	default:
+		return nil, fmt.Errorf("prepare completion payload has unsupported kind %q", payload.Kind)
+	}
 	if payload.SourceResourceVersion <= 0 {
 		return nil, fmt.Errorf("prepare completion payload has invalid source resource version")
 	}

@@ -57,3 +57,8 @@ func TestPrepareCompletionEventRejectsInvalidPayload(t *testing.T) {
 	_, err := ParsePrepareCompletionEvent(uuid.New(), `{"kind":"Fleet","name":"fleet-1"}`)
 	require.Error(t, err)
 }
+
+func TestPrepareCompletionEventRejectsUnsupportedKind(t *testing.T) {
+	_, err := ParsePrepareCompletionEvent(uuid.New(), `{"kind":"Unsupported","name":"resource-1","sourceResourceVersion":7}`)
+	require.ErrorContains(t, err, "unsupported kind")
+}
