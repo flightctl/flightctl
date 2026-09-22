@@ -14,10 +14,10 @@ import (
 )
 
 const (
-	prepareGenerationListBatchSize = 500
-	prepareGenerationIndex         = "idx_delta_prepare_generations_generation"
-	fkPrepareGenerationPrepare     = "fk_delta_prepare_generations_prepare"
-	fkPrepareGenerationGeneration  = "fk_delta_prepare_generations_generation"
+	prepareGenerationBatchSize    = 500
+	prepareGenerationIndex        = "idx_delta_prepare_generations_generation"
+	fkPrepareGenerationPrepare    = "fk_delta_prepare_generations_prepare"
+	fkPrepareGenerationGeneration = "fk_delta_prepare_generations_generation"
 )
 
 type Store interface {
@@ -108,14 +108,35 @@ func (s *PrepareGenerationStore) CreateDeltaPrepareGenerations(ctx context.Conte
 	updatedPrepares := make(map[uuid.UUID]model.DeltaPrepare)
 	err := store.RunInTransaction(ctx, s.dbHandler, func(tx *gorm.DB) error {
 		prepareIDs := make(map[uuid.UUID]struct{}, len(joins))
-		for _, join := range joins {
-			prepareIDs[join.PrepareID] = struct{}{}
-			result := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(join)
+		for start := 0; start < len(joins); start += prepareGenerationBatchSize {
+			end := min(start+prepareGenerationBatchSize, len(joins))
+			batch := make([]model.DeltaPrepareGeneration, end-start)
+			for i, join := range joins[start:end] {
+				prepareIDs[join.PrepareID] = struct{}{}
+				batch[i] = *join
+			}
+
+			result := tx.Clauses(
+				clause.OnConflict{DoNothing: true},
+				clause.Returning{},
+			).Create(&batch)
 			if result.Error != nil {
 				return store.ErrorFromGormError(result.Error)
 			}
-			if result.RowsAffected == 1 {
-				inserted = append(inserted, join)
+
+			// RETURNING contains only rows inserted by this statement when combined
+			// with ON CONFLICT DO NOTHING. Map those rows back to the original join
+			// pointers while preserving the caller's order.
+			insertedKeys := make(map[prepareGenerationKey]struct{}, len(batch))
+			for i := range batch {
+				insertedKeys[prepareGenerationKeyOf(&batch[i])] = struct{}{}
+			}
+			for _, join := range joins[start:end] {
+				key := prepareGenerationKeyOf(join)
+				if _, ok := insertedKeys[key]; ok {
+					inserted = append(inserted, join)
+					delete(insertedKeys, key)
+				}
 			}
 		}
 		affectedPrepareIDs := make([]uuid.UUID, 0, len(prepareIDs))
@@ -216,15 +237,33 @@ func (s *PrepareGenerationStore) ListDeltaPrepareGenerations(ctx context.Context
 			)
 		}
 		var batch []model.DeltaPrepareGeneration
-		result := page.Limit(prepareGenerationListBatchSize).Find(&batch)
+		result := page.Limit(prepareGenerationBatchSize).Find(&batch)
 		if result.Error != nil {
 			return nil, store.ErrorFromGormError(result.Error)
 		}
 		rows = append(rows, batch...)
-		if len(batch) < prepareGenerationListBatchSize {
+		if len(batch) < prepareGenerationBatchSize {
 			break
 		}
 		cursor = &batch[len(batch)-1]
 	}
 	return rows, nil
+}
+
+type prepareGenerationKey struct {
+	PrepareID       uuid.UUID
+	OrgID           uuid.UUID
+	ImageRepository string
+	SourceDigest    string
+	TargetDigest    string
+}
+
+func prepareGenerationKeyOf(join *model.DeltaPrepareGeneration) prepareGenerationKey {
+	return prepareGenerationKey{
+		PrepareID:       join.PrepareID,
+		OrgID:           join.OrgID,
+		ImageRepository: join.ImageRepository,
+		SourceDigest:    join.SourceDigest,
+		TargetDigest:    join.TargetDigest,
+	}
 }

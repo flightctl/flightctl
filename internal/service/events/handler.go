@@ -3,6 +3,7 @@ package events
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service/common"
@@ -76,6 +77,13 @@ func (h *ServiceHandler) CreateEventWithRetry(ctx context.Context, orgId uuid.UU
 	}
 	var lastErr error
 	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("publish event cancelled: %w", ctx.Err())
+			case <-time.After(time.Duration(attempt) * 50 * time.Millisecond):
+			}
+		}
 		if err := reliable.EmitEventWithError(ctx, orgId, event); err == nil {
 			return nil
 		} else {

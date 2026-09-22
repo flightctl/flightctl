@@ -53,8 +53,8 @@ var _ = Describe("PrepareDeltas persist", func() {
 		deltaGenerationStore        *deltastore.GenerationStore
 		deltaPrepareStore           *deltapreparestore.PrepareStore
 		deltaPrepareGenerationStore *deltapreparegenerationstore.PrepareGenerationStore
-		fleets                      fleetstore.Store
-		devices                     devicestore.Store
+		fleets                      *fleetstore.FleetStore
+		devices                     *devicestore.DeviceStore
 		repos                       repositorystore.Store
 		templateVersions            templateversionstore.Store
 	)
@@ -142,7 +142,7 @@ var _ = Describe("PrepareDeltas persist", func() {
 			status := workerservice.NewStorePreparingStatus(fleets, devices)
 			generationService := deltageneration.NewServiceHandler(deltaGenerationStore, log)
 			prepareService := deltaprepare.NewServiceHandler(deltaPrepareStore, status)
-			prepareGenerationService := deltapreparegeneration.NewServiceHandler(deltaPrepareGenerationStore)
+			prepareGenerationService := deltapreparegeneration.NewServiceHandler(deltaPrepareGenerationStore, generationService, nil)
 			fleetService := fleetservice.NewServiceHandler(fleets, nil, nil, log)
 			deviceService := deviceservice.NewDeviceServiceHandler(devices, nil, fleets, nil, nil, "", log)
 			repositoryService := repositoryservice.NewServiceHandler(repos, nil, log)
