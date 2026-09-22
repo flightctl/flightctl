@@ -325,6 +325,21 @@ func (mr *MockServiceMockRecorder) MarkDevicesRolloutSelection(ctx, orgId, param
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "MarkDevicesRolloutSelection", reflect.TypeOf((*MockService)(nil).MarkDevicesRolloutSelection), ctx, orgId, params, annotationSelector, limit)
 }
 
+// OverrideDeviceEnrollmentHook mocks base method.
+func (m *MockService) OverrideDeviceEnrollmentHook(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OverrideDeviceEnrollmentHook", ctx, orgId, name)
+	ret0, _ := ret[0].(*domain.Device)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// OverrideDeviceEnrollmentHook indicates an expected call of OverrideDeviceEnrollmentHook.
+func (mr *MockServiceMockRecorder) OverrideDeviceEnrollmentHook(ctx, orgId, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OverrideDeviceEnrollmentHook", reflect.TypeOf((*MockService)(nil).OverrideDeviceEnrollmentHook), ctx, orgId, name)
+}
+
 // OverwriteDeviceRepositoryRefs mocks base method.
 func (m *MockService) OverwriteDeviceRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) domain.Status {
 	m.ctrl.T.Helper()
