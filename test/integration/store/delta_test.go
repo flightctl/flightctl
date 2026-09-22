@@ -8,7 +8,9 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/delta_worker/model"
-	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store"
+	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
+	deltapreparestore "github.com/flightctl/flightctl/internal/delta_worker/store/deltaprepare"
+	deltapreparegenerationstore "github.com/flightctl/flightctl/internal/delta_worker/store/deltapreparegeneration"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
@@ -26,16 +28,18 @@ import (
 	"gorm.io/gorm"
 )
 
-var _ = Describe("DeltaStore", func() {
+var _ = Describe("Delta stores", func() {
 	var (
-		log               *logrus.Logger
-		ctx               context.Context
-		orgId             uuid.UUID
-		deltaStore        *deltastore.DeltaStore
-		organizationStore organizationstore.Store
-		cfg               *config.Config
-		dbName            string
-		db                *gorm.DB
+		log                         *logrus.Logger
+		ctx                         context.Context
+		orgId                       uuid.UUID
+		deltaPrepareStore           *deltapreparestore.PrepareStore
+		deltaGenerationStore        *deltastore.GenerationStore
+		deltaPrepareGenerationStore *deltapreparegenerationstore.PrepareGenerationStore
+		organizationStore           organizationstore.Store
+		cfg                         *config.Config
+		dbName                      string
+		db                          *gorm.DB
 	)
 
 	BeforeEach(func() {
@@ -44,8 +48,12 @@ var _ = Describe("DeltaStore", func() {
 		var err error
 		cfg, dbName, db, err = testdb.CreateTestDB(ctx, log, "", store.InitDB)
 		Expect(err).NotTo(HaveOccurred())
-		deltaStore = deltastore.NewStore(db, log.WithField("pkg", "delta-store"))
-		Expect(deltaStore.InitialMigration(ctx)).To(Succeed())
+		deltaPrepareStore = deltapreparestore.NewStore(db, log.WithField("pkg", "delta-prepare-store"))
+		deltaGenerationStore = deltastore.NewStore(db, log.WithField("pkg", "delta-generation-store"))
+		deltaPrepareGenerationStore = deltapreparegenerationstore.NewStore(db, log.WithField("pkg", "delta-prepare-generation-store"))
+		Expect(deltaGenerationStore.InitialMigration(ctx)).To(Succeed())
+		Expect(deltaPrepareStore.InitialMigration(ctx)).To(Succeed())
+		Expect(deltaPrepareGenerationStore.InitialMigration(ctx)).To(Succeed())
 		organizationStore = organizationstore.NewOrganizationStore(db)
 
 		orgId = uuid.New()
@@ -76,7 +84,7 @@ var _ = Describe("DeltaStore", func() {
 	}
 
 	insertGens := func(gens ...*model.DeltaGeneration) []deltastore.GenerationKey {
-		current, err := deltaStore.InsertDeltaGenerations(ctx, gens)
+		current, err := deltaGenerationStore.InsertDeltaGenerations(ctx, gens)
 		Expect(err).ToNot(HaveOccurred())
 		keys := make([]deltastore.GenerationKey, 0, len(current))
 		for i := range current {
@@ -85,7 +93,7 @@ var _ = Describe("DeltaStore", func() {
 		return keys
 	}
 
-	createDeltaPrepareGenerations := func(ctx context.Context, store *deltastore.DeltaStore, prepareID uuid.UUID, keys []deltastore.GenerationKey) error {
+	createDeltaPrepareGenerations := func(ctx context.Context, prepareID uuid.UUID, keys []deltastore.GenerationKey) error {
 		joins := make([]*model.DeltaPrepareGeneration, 0, len(keys))
 		for _, key := range keys {
 			joins = append(joins, &model.DeltaPrepareGeneration{
@@ -96,13 +104,13 @@ var _ = Describe("DeltaStore", func() {
 				TargetDigest:    key.TargetDigest,
 			})
 		}
-		_, err := store.CreateDeltaPrepareGenerations(ctx, joins)
+		_, err := deltaPrepareGenerationStore.CreateDeltaPrepareGenerations(ctx, joins)
 		return err
 	}
 
-	insertRejectedGeneration := func(ctx context.Context, store *deltastore.DeltaStore, generation *model.DeltaGeneration) error {
+	insertRejectedGeneration := func(ctx context.Context, generation *model.DeltaGeneration) error {
 		generation.Status = model.DeltaGenerationRejected
-		_, err := store.InsertDeltaGenerations(ctx, []*model.DeltaGeneration{generation})
+		_, err := deltaGenerationStore.InsertDeltaGenerations(ctx, []*model.DeltaGeneration{generation})
 		return err
 	}
 
@@ -114,12 +122,12 @@ var _ = Describe("DeltaStore", func() {
 			changed := insertGens(a, b)
 			Expect(changed).To(ConsistOf(keyOf(a), keyOf(b)))
 
-			gotA, err := deltaStore.GetDeltaGeneration(ctx, keyOf(a))
+			gotA, err := deltaGenerationStore.GetDeltaGeneration(ctx, keyOf(a))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(gotA.ImageRepository).To(Equal("quay.io/team-a/os"))
 			Expect(gotA.Status).To(Equal(model.DeltaGenerationPending))
 
-			gotB, err := deltaStore.GetDeltaGeneration(ctx, keyOf(b))
+			gotB, err := deltaGenerationStore.GetDeltaGeneration(ctx, keyOf(b))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(gotB.ImageRepository).To(Equal("quay.io/team-b/os"))
 			Expect(gotB.Status).To(Equal(model.DeltaGenerationPending))
@@ -134,7 +142,7 @@ var _ = Describe("DeltaStore", func() {
 			current := insertGens(generation(orgId, "quay.io/team-a/os"))
 			Expect(current).To(ConsistOf(keyOf(g)))
 
-			got, err := deltaStore.GetDeltaGeneration(ctx, keyOf(g))
+			got, err := deltaGenerationStore.GetDeltaGeneration(ctx, keyOf(g))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(got.Status).To(Equal(model.DeltaGenerationPending))
 			Expect(got.ResourceVersion).To(Equal(int64(0)))
@@ -163,7 +171,7 @@ var _ = Describe("DeltaStore", func() {
 			changed := insertGens(generation(orgId, "quay.io/team-a/os"))
 			Expect(changed).To(ConsistOf(keyOf(g)))
 
-			got, err := deltaStore.GetDeltaGeneration(ctx, keyOf(g))
+			got, err := deltaGenerationStore.GetDeltaGeneration(ctx, keyOf(g))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(got.Status).To(Equal(model.DeltaGenerationPending))
 			Expect(got.ResourceVersion).To(Equal(int64(4)))
@@ -212,7 +220,7 @@ var _ = Describe("DeltaStore", func() {
 			current := insertGens(generation(orgId, "quay.io/team-a/os"))
 			Expect(current).To(ConsistOf(keyOf(g)))
 
-			got, err := deltaStore.GetDeltaGeneration(ctx, keyOf(g))
+			got, err := deltaGenerationStore.GetDeltaGeneration(ctx, keyOf(g))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(got.Status).To(Equal(status))
 			Expect(got.ResourceVersion).To(Equal(int64(2)))
@@ -236,7 +244,7 @@ var _ = Describe("DeltaStore", func() {
 
 	Context("When getting a missing generation", func() {
 		It("should return ErrResourceNotFound", func() {
-			_, err := deltaStore.GetDeltaGeneration(ctx, keyOf(generation(orgId, "quay.io/missing/os")))
+			_, err := deltaGenerationStore.GetDeltaGeneration(ctx, keyOf(generation(orgId, "quay.io/missing/os")))
 			Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
 		})
 	})
@@ -251,7 +259,7 @@ var _ = Describe("DeltaStore", func() {
 				TemplateVersion:       &oldTV,
 				SourceResourceVersion: 1,
 			}
-			first, err := deltaStore.CreateOrReplaceWaitingDeltaPrepare(ctx, old)
+			first, err := deltaPrepareStore.CreateOrReplaceWaitingDeltaPrepare(ctx, old)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(first.Accepted).To(BeTrue())
 
@@ -263,12 +271,12 @@ var _ = Describe("DeltaStore", func() {
 				TemplateVersion:       &newTV,
 				SourceResourceVersion: 2,
 			}
-			second, err := deltaStore.CreateOrReplaceWaitingDeltaPrepare(ctx, newer)
+			second, err := deltaPrepareStore.CreateOrReplaceWaitingDeltaPrepare(ctx, newer)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(second.Accepted).To(BeTrue())
 			Expect(second.Replaced).To(BeTrue())
 
-			oldStored, err := deltaStore.GetDeltaPrepare(ctx, deltastore.PrepareKey{ID: old.ID})
+			oldStored, err := deltaPrepareStore.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{ID: old.ID})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(oldStored.Status).To(Equal(model.DeltaPrepareFailed))
 
@@ -280,7 +288,7 @@ var _ = Describe("DeltaStore", func() {
 				TemplateVersion:       &staleTV,
 				SourceResourceVersion: 1,
 			}
-			staleResult, err := deltaStore.CreateOrReplaceWaitingDeltaPrepare(ctx, stale)
+			staleResult, err := deltaPrepareStore.CreateOrReplaceWaitingDeltaPrepare(ctx, stale)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(staleResult.Accepted).To(BeFalse())
 			Expect(staleResult.Prepare.ID).To(Equal(newer.ID))
@@ -292,7 +300,7 @@ var _ = Describe("DeltaStore", func() {
 				TemplateVersion:       &newTV,
 				SourceResourceVersion: 2,
 			}
-			duplicateResult, err := deltaStore.CreateOrReplaceWaitingDeltaPrepare(ctx, duplicate)
+			duplicateResult, err := deltaPrepareStore.CreateOrReplaceWaitingDeltaPrepare(ctx, duplicate)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(duplicateResult.Accepted).To(BeTrue())
 			Expect(duplicateResult.Prepare.ID).To(Equal(newer.ID))
@@ -316,16 +324,16 @@ var _ = Describe("DeltaStore", func() {
 			b := generation(orgId, "quay.io/team-b/os")
 			deadline := time.Now().Add(-time.Hour)
 			prep := fleetPrepare("myfleet", &deadline)
-			Expect(deltaStore.CreateDeltaPrepare(ctx, prep)).To(Succeed())
+			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, prep)).To(Succeed())
 			Expect(prep.ID).ToNot(Equal(uuid.Nil))
 			Expect(prep.Status).To(Equal(model.DeltaPrepareWaiting))
 
 			insertGens(a, b)
 			keys := []deltastore.GenerationKey{keyOf(a), keyOf(b)}
-			Expect(createDeltaPrepareGenerations(ctx, deltaStore, prep.ID, keys)).To(Succeed())
-			Expect(createDeltaPrepareGenerations(ctx, deltaStore, prep.ID, keys)).To(Succeed())
+			Expect(createDeltaPrepareGenerations(ctx, prep.ID, keys)).To(Succeed())
+			Expect(createDeltaPrepareGenerations(ctx, prep.ID, keys)).To(Succeed())
 
-			got, err := deltaStore.GetDeltaPrepare(ctx, deltastore.PrepareKey{ID: prep.ID})
+			got, err := deltaPrepareStore.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{ID: prep.ID})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(got.Kind).To(Equal(domain.FleetKind))
 			Expect(got.Name).To(Equal("myfleet"))
@@ -348,7 +356,7 @@ var _ = Describe("DeltaStore", func() {
 			g := generation(orgId, "quay.io/team-a/os")
 			insertGens(g)
 			prep := fleetPrepare("atomic-joins", nil)
-			Expect(deltaStore.CreateDeltaPrepare(ctx, prep)).To(Succeed())
+			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, prep)).To(Succeed())
 
 			valid := &model.DeltaPrepareGeneration{
 				PrepareID: prep.ID, OrgID: g.OrgID, ImageRepository: g.ImageRepository,
@@ -357,10 +365,10 @@ var _ = Describe("DeltaStore", func() {
 			invalid := *valid
 			invalid.TargetDigest = "sha256:missing"
 
-			_, err := deltaStore.CreateDeltaPrepareGenerations(ctx, []*model.DeltaPrepareGeneration{valid, &invalid})
+			_, err := deltaPrepareGenerationStore.CreateDeltaPrepareGenerations(ctx, []*model.DeltaPrepareGeneration{valid, &invalid})
 			Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
 
-			joins, err := deltaStore.ListDeltaPrepareGenerations(ctx, deltastore.DeltaPrepareGenerationListFilter{PrepareID: &prep.ID})
+			joins, err := deltaPrepareGenerationStore.ListDeltaPrepareGenerations(ctx, deltapreparegenerationstore.ListFilter{PrepareID: &prep.ID})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(joins).To(BeEmpty())
 		})
@@ -371,10 +379,10 @@ var _ = Describe("DeltaStore", func() {
 			g := generation(orgId, "quay.io/team-a/os")
 			insertGens(g)
 			prep := fleetPrepare("myfleet", nil)
-			Expect(deltaStore.CreateDeltaPrepare(ctx, prep)).To(Succeed())
+			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, prep)).To(Succeed())
 
 			key := keyOf(g)
-			Expect(createDeltaPrepareGenerations(ctx, deltaStore, prep.ID, []deltastore.GenerationKey{key, key})).To(Succeed())
+			Expect(createDeltaPrepareGenerations(ctx, prep.ID, []deltastore.GenerationKey{key, key})).To(Succeed())
 
 			var joinCount int64
 			Expect(db.Model(&model.DeltaPrepareGeneration{}).Where("prepare_id = ?", prep.ID).Count(&joinCount).Error).ToNot(HaveOccurred())
@@ -384,8 +392,8 @@ var _ = Describe("DeltaStore", func() {
 
 	Context("When inserting a second waiting prepare for the same fleet", func() {
 		It("should return ErrDuplicateName", func() {
-			Expect(deltaStore.CreateDeltaPrepare(ctx, fleetPrepare("myfleet", nil))).To(Succeed())
-			err := deltaStore.CreateDeltaPrepare(ctx, fleetPrepare("myfleet", nil))
+			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, fleetPrepare("myfleet", nil))).To(Succeed())
+			err := deltaPrepareStore.CreateDeltaPrepare(ctx, fleetPrepare("myfleet", nil))
 			Expect(err).To(MatchError(flterrors.ErrDuplicateName))
 		})
 	})
@@ -393,9 +401,9 @@ var _ = Describe("DeltaStore", func() {
 	Context("When looking up a waiting prepare by identity", func() {
 		It("should return the waiting row for that org kind and name", func() {
 			prep := fleetPrepare("myfleet", nil)
-			Expect(deltaStore.CreateDeltaPrepare(ctx, prep)).To(Succeed())
+			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, prep)).To(Succeed())
 
-			got, err := deltaStore.GetDeltaPrepare(ctx, deltastore.PrepareKey{OrgID: orgId, Kind: domain.FleetKind, Name: "myfleet"}, deltastore.WithPrepareStatus(model.DeltaPrepareWaiting))
+			got, err := deltaPrepareStore.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{OrgID: orgId, Kind: domain.FleetKind, Name: "myfleet"}, deltapreparestore.WithPrepareStatus(model.DeltaPrepareWaiting))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(got).ToNot(BeNil())
 			Expect(got.ID).To(Equal(prep.ID))
@@ -403,7 +411,7 @@ var _ = Describe("DeltaStore", func() {
 		})
 
 		It("should return nil when no waiting row exists", func() {
-			got, err := deltaStore.GetDeltaPrepare(ctx, deltastore.PrepareKey{OrgID: orgId, Kind: domain.FleetKind, Name: "missing"}, deltastore.WithPrepareStatus(model.DeltaPrepareWaiting))
+			got, err := deltaPrepareStore.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{OrgID: orgId, Kind: domain.FleetKind, Name: "missing"}, deltapreparestore.WithPrepareStatus(model.DeltaPrepareWaiting))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(got).To(BeNil())
 		})
@@ -411,24 +419,24 @@ var _ = Describe("DeltaStore", func() {
 		It("should return nil for a complete or failed row", func() {
 			complete := fleetPrepare("done", nil)
 			complete.Status = model.DeltaPrepareComplete
-			Expect(deltaStore.CreateDeltaPrepare(ctx, complete)).To(Succeed())
+			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, complete)).To(Succeed())
 
 			failed := fleetPrepare("failed", nil)
 			failed.Status = model.DeltaPrepareFailed
-			Expect(deltaStore.CreateDeltaPrepare(ctx, failed)).To(Succeed())
+			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, failed)).To(Succeed())
 
-			gotComplete, err := deltaStore.GetDeltaPrepare(ctx, deltastore.PrepareKey{OrgID: orgId, Kind: domain.FleetKind, Name: "done"}, deltastore.WithPrepareStatus(model.DeltaPrepareWaiting))
+			gotComplete, err := deltaPrepareStore.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{OrgID: orgId, Kind: domain.FleetKind, Name: "done"}, deltapreparestore.WithPrepareStatus(model.DeltaPrepareWaiting))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(gotComplete).To(BeNil())
 
-			gotFailed, err := deltaStore.GetDeltaPrepare(ctx, deltastore.PrepareKey{OrgID: orgId, Kind: domain.FleetKind, Name: "failed"}, deltastore.WithPrepareStatus(model.DeltaPrepareWaiting))
+			gotFailed, err := deltaPrepareStore.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{OrgID: orgId, Kind: domain.FleetKind, Name: "failed"}, deltapreparestore.WithPrepareStatus(model.DeltaPrepareWaiting))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(gotFailed).To(BeNil())
 		})
 
 		It("should not return a waiting row of a different kind", func() {
-			Expect(deltaStore.CreateDeltaPrepare(ctx, fleetPrepare("shared", nil))).To(Succeed())
-			got, err := deltaStore.GetDeltaPrepare(ctx, deltastore.PrepareKey{OrgID: orgId, Kind: domain.DeviceKind, Name: "shared"}, deltastore.WithPrepareStatus(model.DeltaPrepareWaiting))
+			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, fleetPrepare("shared", nil))).To(Succeed())
+			got, err := deltaPrepareStore.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{OrgID: orgId, Kind: domain.DeviceKind, Name: "shared"}, deltapreparestore.WithPrepareStatus(model.DeltaPrepareWaiting))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(got).To(BeNil())
 		})
@@ -437,20 +445,20 @@ var _ = Describe("DeltaStore", func() {
 	Context("When inserting waiting prepares for a fleet and a device with the same name", func() {
 		It("should keep both rows", func() {
 			fleetPrep := fleetPrepare("shared", nil)
-			Expect(deltaStore.CreateDeltaPrepare(ctx, fleetPrep)).To(Succeed())
+			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, fleetPrep)).To(Succeed())
 			devicePrep := &model.DeltaPrepare{
 				OrgID:    orgId,
 				Kind:     domain.DeviceKind,
 				Name:     "shared",
 				SpecHash: lo.ToPtr("spec-hash"),
 			}
-			Expect(deltaStore.CreateDeltaPrepare(ctx, devicePrep)).To(Succeed())
+			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, devicePrep)).To(Succeed())
 
-			gotFleet, err := deltaStore.GetDeltaPrepare(ctx, deltastore.PrepareKey{ID: fleetPrep.ID})
+			gotFleet, err := deltaPrepareStore.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{ID: fleetPrep.ID})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(gotFleet.Kind).To(Equal(domain.FleetKind))
 
-			gotDevice, err := deltaStore.GetDeltaPrepare(ctx, deltastore.PrepareKey{ID: devicePrep.ID})
+			gotDevice, err := deltaPrepareStore.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{ID: devicePrep.ID})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(gotDevice.Kind).To(Equal(domain.DeviceKind))
 		})
@@ -460,8 +468,8 @@ var _ = Describe("DeltaStore", func() {
 		It("should allow the second insert", func() {
 			complete := fleetPrepare("myfleet", nil)
 			complete.Status = model.DeltaPrepareComplete
-			Expect(deltaStore.CreateDeltaPrepare(ctx, complete)).To(Succeed())
-			Expect(deltaStore.CreateDeltaPrepare(ctx, fleetPrepare("myfleet", nil))).To(Succeed())
+			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, complete)).To(Succeed())
+			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, fleetPrepare("myfleet", nil))).To(Succeed())
 		})
 	})
 
@@ -469,11 +477,11 @@ var _ = Describe("DeltaStore", func() {
 		It("should return only expired waiting rows", func() {
 			past := time.Now().Add(-time.Hour)
 			future := time.Now().Add(time.Hour)
-			Expect(deltaStore.CreateDeltaPrepare(ctx, fleetPrepare("expired", &past))).To(Succeed())
-			Expect(deltaStore.CreateDeltaPrepare(ctx, fleetPrepare("future", &future))).To(Succeed())
-			Expect(deltaStore.CreateDeltaPrepare(ctx, fleetPrepare("none", nil))).To(Succeed())
+			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, fleetPrepare("expired", &past))).To(Succeed())
+			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, fleetPrepare("future", &future))).To(Succeed())
+			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, fleetPrepare("none", nil))).To(Succeed())
 
-			listed, err := deltaStore.ListWaitingPastDeadline(ctx, deltastore.MaxListWaitingPastDeadline, time.Now())
+			listed, err := deltaPrepareStore.ListWaitingPastDeadline(ctx, deltapreparestore.MaxListWaitingPastDeadline, time.Now())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(listed).To(HaveLen(1))
 			Expect(listed[0].Name).To(Equal("expired"))
@@ -484,16 +492,16 @@ var _ = Describe("DeltaStore", func() {
 			otherOrg := uuid.New()
 			Expect(testutil.CreateTestOrganization(ctx, organizationStore, otherOrg)).To(Succeed())
 			past := time.Now().Add(-time.Hour)
-			Expect(deltaStore.CreateDeltaPrepare(ctx, fleetPrepare("org-a", &past))).To(Succeed())
+			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, fleetPrepare("org-a", &past))).To(Succeed())
 			otherPrep := &model.DeltaPrepare{
 				OrgID:    otherOrg,
 				Kind:     domain.FleetKind,
 				Name:     "org-b",
 				Deadline: &past,
 			}
-			Expect(deltaStore.CreateDeltaPrepare(ctx, otherPrep)).To(Succeed())
+			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, otherPrep)).To(Succeed())
 
-			listed, err := deltaStore.ListWaitingPastDeadline(ctx, deltastore.MaxListWaitingPastDeadline, time.Now())
+			listed, err := deltaPrepareStore.ListWaitingPastDeadline(ctx, deltapreparestore.MaxListWaitingPastDeadline, time.Now())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(listed).To(HaveLen(2))
 			names := []string{listed[0].Name, listed[1].Name}
@@ -503,10 +511,10 @@ var _ = Describe("DeltaStore", func() {
 		It("should return at most limit rows ordered by deadline then id", func() {
 			earlier := time.Now().Add(-2 * time.Hour)
 			later := time.Now().Add(-time.Hour)
-			Expect(deltaStore.CreateDeltaPrepare(ctx, fleetPrepare("first", &earlier))).To(Succeed())
-			Expect(deltaStore.CreateDeltaPrepare(ctx, fleetPrepare("second", &later))).To(Succeed())
+			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, fleetPrepare("first", &earlier))).To(Succeed())
+			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, fleetPrepare("second", &later))).To(Succeed())
 
-			listed, err := deltaStore.ListWaitingPastDeadline(ctx, 1, time.Now())
+			listed, err := deltaPrepareStore.ListWaitingPastDeadline(ctx, 1, time.Now())
 			Expect(err).ToNot(HaveOccurred())
 			Expect(listed).To(HaveLen(1))
 			Expect(listed[0].Name).To(Equal("first"))
@@ -518,34 +526,34 @@ var _ = Describe("DeltaStore", func() {
 			g := generation(orgId, "quay.io/team-a/os")
 			insertGens(g)
 
-			err := createDeltaPrepareGenerations(ctx, deltaStore, uuid.New(), []deltastore.GenerationKey{keyOf(g)})
+			err := createDeltaPrepareGenerations(ctx, uuid.New(), []deltastore.GenerationKey{keyOf(g)})
 			Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
 		})
 
 		It("should return ErrResourceNotFound if the generation does not exist", func() {
 			prep := fleetPrepare("myfleet", nil)
-			Expect(deltaStore.CreateDeltaPrepare(ctx, prep)).To(Succeed())
+			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, prep)).To(Succeed())
 
-			err := createDeltaPrepareGenerations(ctx, deltaStore, prep.ID, []deltastore.GenerationKey{keyOf(generation(orgId, "quay.io/missing/os"))})
+			err := createDeltaPrepareGenerations(ctx, prep.ID, []deltastore.GenerationKey{keyOf(generation(orgId, "quay.io/missing/os"))})
 			Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
 		})
 	})
 
 	Context("When getting a missing prepare", func() {
 		It("should return ErrResourceNotFound", func() {
-			_, err := deltaStore.GetDeltaPrepare(ctx, deltastore.PrepareKey{ID: uuid.New()})
+			_, err := deltaPrepareStore.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{ID: uuid.New()})
 			Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
 		})
 
 		It("should reject incomplete keys", func() {
-			keys := []deltastore.PrepareKey{
+			keys := []deltapreparestore.PrepareKey{
 				{},
 				{OrgID: orgId},
 				{Kind: domain.FleetKind, Name: "myfleet"},
 				{ID: uuid.New(), Name: "myfleet"},
 			}
 			for _, key := range keys {
-				_, err := deltaStore.GetDeltaPrepare(ctx, key)
+				_, err := deltaPrepareStore.GetDeltaPrepare(ctx, key)
 				Expect(err).To(MatchError("prepare key requires either ID or org, kind and name"))
 			}
 		})
@@ -558,7 +566,7 @@ var _ = Describe("DeltaStore", func() {
 			Name:                  "invalid-source-resource-version",
 			SourceResourceVersion: sourceResourceVersion,
 		}
-		_, err := deltaStore.CreateOrReplaceWaitingDeltaPrepare(ctx, prep)
+		_, err := deltaPrepareStore.CreateOrReplaceWaitingDeltaPrepare(ctx, prep)
 		Expect(err).To(MatchError("source resource version must be positive"))
 	},
 		Entry("zero", int64(0)),
@@ -576,7 +584,7 @@ var _ = Describe("DeltaStore", func() {
 			SpecHash:              &baseSpecHash,
 			SourceResourceVersion: 1,
 		}
-		_, err := deltaStore.CreateOrReplaceWaitingDeltaPrepare(ctx, base)
+		_, err := deltaPrepareStore.CreateOrReplaceWaitingDeltaPrepare(ctx, base)
 		Expect(err).ToNot(HaveOccurred())
 
 		incoming := &model.DeltaPrepare{
@@ -587,7 +595,7 @@ var _ = Describe("DeltaStore", func() {
 			SpecHash:              &specHash,
 			SourceResourceVersion: base.SourceResourceVersion,
 		}
-		_, err = deltaStore.CreateOrReplaceWaitingDeltaPrepare(ctx, incoming)
+		_, err = deltaPrepareStore.CreateOrReplaceWaitingDeltaPrepare(ctx, incoming)
 		Expect(err).To(MatchError("conflicting delta prepares have source resource version 1"))
 	},
 		Entry("different template version", "v2", "hash-1"),
@@ -597,18 +605,18 @@ var _ = Describe("DeltaStore", func() {
 	Context("When updating a waiting prepare to complete", func() {
 		It("should update the full object and reject a stale resource_version", func() {
 			prep := fleetPrepare("myfleet", nil)
-			Expect(deltaStore.CreateDeltaPrepare(ctx, prep)).To(Succeed())
+			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, prep)).To(Succeed())
 
 			prep.Status = model.DeltaPrepareComplete
-			updated, err := deltaStore.UpdateDeltaPrepare(ctx, prep.ResourceVersion, prep)
+			updated, err := deltaPrepareStore.UpdateDeltaPrepare(ctx, prep.ResourceVersion, prep)
 			Expect(err).ToNot(HaveOccurred())
 
-			got, err := deltaStore.GetDeltaPrepare(ctx, deltastore.PrepareKey{ID: prep.ID})
+			got, err := deltaPrepareStore.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{ID: prep.ID})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(got.Status).To(Equal(model.DeltaPrepareComplete))
 
 			prep.Status = model.DeltaPrepareFailed
-			_, err = deltaStore.UpdateDeltaPrepare(ctx, updated.ResourceVersion-1, prep)
+			_, err = deltaPrepareStore.UpdateDeltaPrepare(ctx, updated.ResourceVersion-1, prep)
 			Expect(err).To(MatchError(flterrors.ErrNoRowsUpdated))
 		})
 	})
@@ -622,15 +630,15 @@ var _ = Describe("DeltaStore", func() {
 
 			ref := "oci://delta"
 			size := int64(9)
-			stored, err := deltaStore.GetDeltaGeneration(ctx, keyOf(g))
+			stored, err := deltaGenerationStore.GetDeltaGeneration(ctx, keyOf(g))
 			Expect(err).ToNot(HaveOccurred())
 			stored.Status = model.DeltaGenerationSucceeded
 			stored.DeltaRef = &ref
 			stored.SizeBytes = &size
-			_, err = deltaStore.UpdateDeltaGeneration(ctx, 0, stored)
+			_, err = deltaGenerationStore.UpdateDeltaGeneration(ctx, 0, stored)
 			Expect(err).To(MatchError(flterrors.ErrNoRowsUpdated))
 
-			got, err := deltaStore.GetDeltaGeneration(ctx, keyOf(g))
+			got, err := deltaGenerationStore.GetDeltaGeneration(ctx, keyOf(g))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(got.Status).To(Equal(model.DeltaGenerationInProgress))
 			Expect(got.ResourceVersion).To(Equal(int64(1)))
@@ -641,10 +649,10 @@ var _ = Describe("DeltaStore", func() {
 	Context("When updating a generation through the resource API", func() {
 		It("should persist the full object and bump resource_version", func() {
 			g := generation(orgId, "quay.io/team-a/os")
-			_, err := deltaStore.InsertDeltaGenerations(ctx, []*model.DeltaGeneration{g})
+			_, err := deltaGenerationStore.InsertDeltaGenerations(ctx, []*model.DeltaGeneration{g})
 			Expect(err).ToNot(HaveOccurred())
 
-			stored, err := deltaStore.GetDeltaGeneration(ctx, keyOf(g))
+			stored, err := deltaGenerationStore.GetDeltaGeneration(ctx, keyOf(g))
 			Expect(err).ToNot(HaveOccurred())
 			phase := string(domain.DeltaGenerationPhasePush)
 			ref := "oci://delta"
@@ -654,7 +662,7 @@ var _ = Describe("DeltaStore", func() {
 			stored.DeltaRef = &ref
 			stored.SizeBytes = &size
 
-			updated, err := deltaStore.UpdateDeltaGeneration(ctx, stored.ResourceVersion, stored)
+			updated, err := deltaGenerationStore.UpdateDeltaGeneration(ctx, stored.ResourceVersion, stored)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(updated.ResourceVersion).To(Equal(stored.ResourceVersion + 1))
 			Expect(updated.Status).To(Equal(model.DeltaGenerationSucceeded))
@@ -666,7 +674,7 @@ var _ = Describe("DeltaStore", func() {
 
 			stale := *updated
 			stale.Status = model.DeltaGenerationFailed
-			_, err = deltaStore.UpdateDeltaGeneration(ctx, stored.ResourceVersion, &stale)
+			_, err = deltaGenerationStore.UpdateDeltaGeneration(ctx, stored.ResourceVersion, &stale)
 			Expect(err).To(MatchError(flterrors.ErrNoRowsUpdated))
 		})
 	})
@@ -674,17 +682,17 @@ var _ = Describe("DeltaStore", func() {
 	Context("When updating a prepare through the resource API", func() {
 		It("should persist the full object and enforce resource_version", func() {
 			prep := fleetPrepare("myfleet", nil)
-			Expect(deltaStore.CreateDeltaPrepare(ctx, prep)).To(Succeed())
+			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, prep)).To(Succeed())
 
-			stored, err := deltaStore.GetDeltaPrepare(ctx, deltastore.PrepareKey{ID: prep.ID})
+			stored, err := deltaPrepareStore.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{ID: prep.ID})
 			Expect(err).ToNot(HaveOccurred())
 			stored.Status = model.DeltaPrepareComplete
-			updated, err := deltaStore.UpdateDeltaPrepare(ctx, stored.ResourceVersion, stored)
+			updated, err := deltaPrepareStore.UpdateDeltaPrepare(ctx, stored.ResourceVersion, stored)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(updated.Status).To(Equal(model.DeltaPrepareComplete))
 			Expect(updated.ResourceVersion).To(Equal(stored.ResourceVersion + 1))
 
-			_, err = deltaStore.UpdateDeltaPrepare(ctx, stored.ResourceVersion, updated)
+			_, err = deltaPrepareStore.UpdateDeltaPrepare(ctx, stored.ResourceVersion, updated)
 			Expect(err).To(MatchError(flterrors.ErrNoRowsUpdated))
 		})
 	})
@@ -692,20 +700,20 @@ var _ = Describe("DeltaStore", func() {
 	Context("When transitioning a prepare through the resource API", func() {
 		It("should bump resource_version with the status transition", func() {
 			prep := fleetPrepare("myfleet", nil)
-			Expect(deltaStore.CreateDeltaPrepare(ctx, prep)).To(Succeed())
+			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, prep)).To(Succeed())
 			initialRV := prep.ResourceVersion
 
-			updated, err := deltaStore.GetDeltaPrepare(ctx, deltastore.PrepareKey{ID: prep.ID})
+			updated, err := deltaPrepareStore.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{ID: prep.ID})
 			Expect(err).ToNot(HaveOccurred())
 			updated.Status = model.DeltaPrepareComplete
-			updated, err = deltaStore.UpdateDeltaPrepare(ctx, initialRV, updated)
+			updated, err = deltaPrepareStore.UpdateDeltaPrepare(ctx, initialRV, updated)
 			Expect(err).ToNot(HaveOccurred())
 
 			Expect(updated.Status).To(Equal(model.DeltaPrepareComplete))
 			Expect(updated.ResourceVersion).To(Equal(initialRV + 1))
 
 			updated.Status = model.DeltaPrepareFailed
-			_, err = deltaStore.UpdateDeltaPrepare(ctx, initialRV, updated)
+			_, err = deltaPrepareStore.UpdateDeltaPrepare(ctx, initialRV, updated)
 			Expect(err).To(MatchError(flterrors.ErrNoRowsUpdated))
 		})
 	})
@@ -715,24 +723,24 @@ var _ = Describe("DeltaStore", func() {
 			g := generation(orgId, "quay.io/team-a/os")
 			insertGens(g)
 			prep := fleetPrepare("myfleet", nil)
-			Expect(deltaStore.CreateDeltaPrepare(ctx, prep)).To(Succeed())
+			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, prep)).To(Succeed())
 			join := &model.DeltaPrepareGeneration{
 				PrepareID: prep.ID, OrgID: g.OrgID, ImageRepository: g.ImageRepository,
 				SourceDigest: g.SourceDigest, TargetDigest: g.TargetDigest,
 			}
-			_, err := deltaStore.CreateDeltaPrepareGenerations(ctx, []*model.DeltaPrepareGeneration{join})
+			_, err := deltaPrepareGenerationStore.CreateDeltaPrepareGenerations(ctx, []*model.DeltaPrepareGeneration{join})
 			Expect(err).To(Succeed())
 
-			all, err := deltaStore.ListDeltaPrepareGenerations(ctx, deltastore.DeltaPrepareGenerationListFilter{})
+			all, err := deltaPrepareGenerationStore.ListDeltaPrepareGenerations(ctx, deltapreparegenerationstore.ListFilter{})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(all).To(HaveLen(1))
 
-			byPrepare, err := deltaStore.ListDeltaPrepareGenerations(ctx, deltastore.DeltaPrepareGenerationListFilter{PrepareID: &prep.ID})
+			byPrepare, err := deltaPrepareGenerationStore.ListDeltaPrepareGenerations(ctx, deltapreparegenerationstore.ListFilter{PrepareID: &prep.ID})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(byPrepare).To(HaveLen(1))
 
 			key := keyOf(g)
-			byGeneration, err := deltaStore.ListDeltaPrepareGenerations(ctx, deltastore.DeltaPrepareGenerationListFilter{GenerationKey: &key})
+			byGeneration, err := deltaPrepareGenerationStore.ListDeltaPrepareGenerations(ctx, deltapreparegenerationstore.ListFilter{GenerationKey: &key})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(byGeneration).To(HaveLen(1))
 		})
@@ -748,10 +756,10 @@ var _ = Describe("DeltaStore", func() {
 			insertGens(generations...)
 
 			prep := fleetPrepare("many-generations", nil)
-			Expect(deltaStore.CreateDeltaPrepare(ctx, prep)).To(Succeed())
-			Expect(createDeltaPrepareGenerations(ctx, deltaStore, prep.ID, keys)).To(Succeed())
+			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, prep)).To(Succeed())
+			Expect(createDeltaPrepareGenerations(ctx, prep.ID, keys)).To(Succeed())
 
-			listed, err := deltaStore.ListDeltaPrepareGenerations(ctx, deltastore.DeltaPrepareGenerationListFilter{PrepareID: &prep.ID})
+			listed, err := deltaPrepareGenerationStore.ListDeltaPrepareGenerations(ctx, deltapreparegenerationstore.ListFilter{PrepareID: &prep.ID})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(listed).To(HaveLen(generationCount))
 		})
@@ -764,17 +772,17 @@ var _ = Describe("DeltaStore", func() {
 			joins := make([]*model.DeltaPrepareGeneration, prepareCount)
 			for i := range joins {
 				prep := fleetPrepare(fmt.Sprintf("many-prepares-%04d", i), nil)
-				Expect(deltaStore.CreateDeltaPrepare(ctx, prep)).To(Succeed())
+				Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, prep)).To(Succeed())
 				joins[i] = &model.DeltaPrepareGeneration{
 					PrepareID: prep.ID, OrgID: g.OrgID, ImageRepository: g.ImageRepository,
 					SourceDigest: g.SourceDigest, TargetDigest: g.TargetDigest,
 				}
 			}
-			_, err := deltaStore.CreateDeltaPrepareGenerations(ctx, joins)
+			_, err := deltaPrepareGenerationStore.CreateDeltaPrepareGenerations(ctx, joins)
 			Expect(err).ToNot(HaveOccurred())
 
 			key := keyOf(g)
-			listed, err := deltaStore.ListDeltaPrepareGenerations(ctx, deltastore.DeltaPrepareGenerationListFilter{GenerationKey: &key})
+			listed, err := deltaPrepareGenerationStore.ListDeltaPrepareGenerations(ctx, deltapreparegenerationstore.ListFilter{GenerationKey: &key})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(listed).To(HaveLen(prepareCount))
 		})
@@ -785,9 +793,9 @@ var _ = Describe("DeltaStore", func() {
 			size := int64(128)
 			g := generation(orgId, "quay.io/team-a/os")
 			g.SizeBytes = &size
-			Expect(insertRejectedGeneration(ctx, deltaStore, g)).To(Succeed())
+			Expect(insertRejectedGeneration(ctx, g)).To(Succeed())
 
-			got, err := deltaStore.GetDeltaGeneration(ctx, keyOf(g))
+			got, err := deltaGenerationStore.GetDeltaGeneration(ctx, keyOf(g))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(got.Status).To(Equal(model.DeltaGenerationRejected))
 			Expect(got.SizeBytes).ToNot(BeNil())
@@ -796,7 +804,7 @@ var _ = Describe("DeltaStore", func() {
 	})
 
 	Context("When inserting a rejected generation over a failed row", func() {
-		It("should set rejected, refresh size_bytes, and bump resource_version", func() {
+		It("should requeue the failed row and preserve its size_bytes", func() {
 			oldSize := int64(10)
 			g := generation(orgId, "quay.io/team-a/os")
 			g.Status = model.DeltaGenerationFailed
@@ -807,37 +815,36 @@ var _ = Describe("DeltaStore", func() {
 			newSize := int64(99)
 			incoming := generation(orgId, "quay.io/team-a/os")
 			incoming.SizeBytes = &newSize
-			Expect(insertRejectedGeneration(ctx, deltaStore, incoming)).To(Succeed())
+			Expect(insertRejectedGeneration(ctx, incoming)).To(Succeed())
 
-			got, err := deltaStore.GetDeltaGeneration(ctx, keyOf(g))
+			got, err := deltaGenerationStore.GetDeltaGeneration(ctx, keyOf(g))
 			Expect(err).ToNot(HaveOccurred())
-			Expect(got.Status).To(Equal(model.DeltaGenerationRejected))
+			Expect(got.Status).To(Equal(model.DeltaGenerationPending))
 			Expect(got.ResourceVersion).To(Equal(int64(4)))
 			Expect(got.SizeBytes).ToNot(BeNil())
-			Expect(*got.SizeBytes).To(Equal(newSize))
+			Expect(*got.SizeBytes).To(Equal(oldSize))
 		})
 	})
 
 	Context("When inserting a rejected generation over a pending row", func() {
-		It("should set rejected and refresh size_bytes", func() {
+		It("should preserve the pending row and its size_bytes", func() {
 			g := generation(orgId, "quay.io/team-a/os")
 			insertGens(g)
 
 			newSize := int64(55)
 			incoming := generation(orgId, "quay.io/team-a/os")
 			incoming.SizeBytes = &newSize
-			Expect(insertRejectedGeneration(ctx, deltaStore, incoming)).To(Succeed())
+			Expect(insertRejectedGeneration(ctx, incoming)).To(Succeed())
 
-			got, err := deltaStore.GetDeltaGeneration(ctx, keyOf(g))
+			got, err := deltaGenerationStore.GetDeltaGeneration(ctx, keyOf(g))
 			Expect(err).ToNot(HaveOccurred())
-			Expect(got.Status).To(Equal(model.DeltaGenerationRejected))
-			Expect(got.SizeBytes).ToNot(BeNil())
-			Expect(*got.SizeBytes).To(Equal(newSize))
+			Expect(got.Status).To(Equal(model.DeltaGenerationPending))
+			Expect(got.SizeBytes).To(BeNil())
 		})
 	})
 
 	Context("When inserting a rejected generation over an existing rejected row", func() {
-		It("should refresh size_bytes and leave status rejected", func() {
+		It("should preserve the existing rejected row", func() {
 			oldSize := int64(10)
 			g := generation(orgId, "quay.io/team-a/os")
 			g.Status = model.DeltaGenerationRejected
@@ -847,13 +854,13 @@ var _ = Describe("DeltaStore", func() {
 			newSize := int64(44)
 			incoming := generation(orgId, "quay.io/team-a/os")
 			incoming.SizeBytes = &newSize
-			Expect(insertRejectedGeneration(ctx, deltaStore, incoming)).To(Succeed())
+			Expect(insertRejectedGeneration(ctx, incoming)).To(Succeed())
 
-			got, err := deltaStore.GetDeltaGeneration(ctx, keyOf(g))
+			got, err := deltaGenerationStore.GetDeltaGeneration(ctx, keyOf(g))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(got.Status).To(Equal(model.DeltaGenerationRejected))
 			Expect(got.SizeBytes).ToNot(BeNil())
-			Expect(*got.SizeBytes).To(Equal(newSize))
+			Expect(*got.SizeBytes).To(Equal(oldSize))
 		})
 	})
 
@@ -869,9 +876,9 @@ var _ = Describe("DeltaStore", func() {
 			incoming := generation(orgId, "quay.io/team-a/os")
 			newSize := int64(100)
 			incoming.SizeBytes = &newSize
-			Expect(insertRejectedGeneration(ctx, deltaStore, incoming)).To(Succeed())
+			Expect(insertRejectedGeneration(ctx, incoming)).To(Succeed())
 
-			got, err := deltaStore.GetDeltaGeneration(ctx, keyOf(g))
+			got, err := deltaGenerationStore.GetDeltaGeneration(ctx, keyOf(g))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(got.Status).To(Equal(status))
 			Expect(got.ResourceVersion).To(Equal(int64(5)))
@@ -889,20 +896,20 @@ var _ = Describe("DeltaStore", func() {
 			insertGens(g, other)
 
 			waiting := fleetPrepare("waiting-fleet", nil)
-			Expect(deltaStore.CreateDeltaPrepare(ctx, waiting)).To(Succeed())
-			Expect(createDeltaPrepareGenerations(ctx, deltaStore, waiting.ID, []deltastore.GenerationKey{keyOf(g)})).To(Succeed())
+			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, waiting)).To(Succeed())
+			Expect(createDeltaPrepareGenerations(ctx, waiting.ID, []deltastore.GenerationKey{keyOf(g)})).To(Succeed())
 
 			complete := fleetPrepare("complete-fleet", nil)
 			complete.Status = model.DeltaPrepareComplete
-			Expect(deltaStore.CreateDeltaPrepare(ctx, complete)).To(Succeed())
-			Expect(createDeltaPrepareGenerations(ctx, deltaStore, complete.ID, []deltastore.GenerationKey{keyOf(g)})).To(Succeed())
+			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, complete)).To(Succeed())
+			Expect(createDeltaPrepareGenerations(ctx, complete.ID, []deltastore.GenerationKey{keyOf(g)})).To(Succeed())
 
 			otherWaiting := fleetPrepare("other-fleet", nil)
-			Expect(deltaStore.CreateDeltaPrepare(ctx, otherWaiting)).To(Succeed())
-			Expect(createDeltaPrepareGenerations(ctx, deltaStore, otherWaiting.ID, []deltastore.GenerationKey{keyOf(other)})).To(Succeed())
+			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, otherWaiting)).To(Succeed())
+			Expect(createDeltaPrepareGenerations(ctx, otherWaiting.ID, []deltastore.GenerationKey{keyOf(other)})).To(Succeed())
 
 			key := keyOf(g)
-			listed, err := deltaStore.ListDeltaPrepareGenerations(ctx, deltastore.DeltaPrepareGenerationListFilter{GenerationKey: &key})
+			listed, err := deltaPrepareGenerationStore.ListDeltaPrepareGenerations(ctx, deltapreparegenerationstore.ListFilter{GenerationKey: &key})
 			Expect(err).ToNot(HaveOccurred())
 			Expect(listed).To(HaveLen(2))
 			prepareIDs := []uuid.UUID{listed[0].PrepareID, listed[1].PrepareID}
@@ -919,15 +926,15 @@ var _ = Describe("DeltaStore", func() {
 
 			ref := "oci://delta"
 			size := int64(9)
-			stored, err := deltaStore.GetDeltaGeneration(ctx, keyOf(g))
+			stored, err := deltaGenerationStore.GetDeltaGeneration(ctx, keyOf(g))
 			Expect(err).ToNot(HaveOccurred())
 			stored.Status = model.DeltaGenerationSucceeded
 			stored.DeltaRef = &ref
 			stored.SizeBytes = &size
-			_, err = deltaStore.UpdateDeltaGeneration(ctx, 1, stored)
+			_, err = deltaGenerationStore.UpdateDeltaGeneration(ctx, 1, stored)
 			Expect(err).ToNot(HaveOccurred())
 
-			got, err := deltaStore.GetDeltaGeneration(ctx, keyOf(g))
+			got, err := deltaGenerationStore.GetDeltaGeneration(ctx, keyOf(g))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(got.Status).To(Equal(model.DeltaGenerationSucceeded))
 			Expect(got.ResourceVersion).To(Equal(int64(2)))
@@ -957,8 +964,8 @@ var _ = Describe("DeltaStore", func() {
 			g := generation(orgId, "quay.io/team-a/os")
 			insertGens(g)
 			prep := fleetPrepare("myfleet", nil)
-			Expect(deltaStore.CreateDeltaPrepare(ctx, prep)).To(Succeed())
-			Expect(createDeltaPrepareGenerations(ctx, deltaStore, prep.ID, []deltastore.GenerationKey{keyOf(g)})).To(Succeed())
+			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, prep)).To(Succeed())
+			Expect(createDeltaPrepareGenerations(ctx, prep.ID, []deltastore.GenerationKey{keyOf(g)})).To(Succeed())
 
 			afterDevice, err := deviceStore.Get(ctx, orgId, "mydevice")
 			Expect(err).ToNot(HaveOccurred())

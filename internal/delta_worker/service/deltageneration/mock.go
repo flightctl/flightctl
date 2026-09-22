@@ -14,7 +14,7 @@ import (
 	reflect "reflect"
 
 	model "github.com/flightctl/flightctl/internal/delta_worker/model"
-	store "github.com/flightctl/flightctl/internal/delta_worker/store"
+	deltageneration "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -57,7 +57,7 @@ func (mr *MockServiceMockRecorder) CreateDeltaGenerations(ctx, generations any) 
 }
 
 // GetDeltaGeneration mocks base method.
-func (m *MockService) GetDeltaGeneration(ctx context.Context, key store.GenerationKey, opts ...store.GenerationGetOption) (*model.DeltaGeneration, error) {
+func (m *MockService) GetDeltaGeneration(ctx context.Context, key deltageneration.GenerationKey, opts ...deltageneration.GenerationGetOption) (*model.DeltaGeneration, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, key}
 	for _, a := range opts {
@@ -77,7 +77,7 @@ func (mr *MockServiceMockRecorder) GetDeltaGeneration(ctx, key any, opts ...any)
 }
 
 // ListDeltaGenerations mocks base method.
-func (m *MockService) ListDeltaGenerations(ctx context.Context, keys []store.GenerationKey) ([]model.DeltaGeneration, error) {
+func (m *MockService) ListDeltaGenerations(ctx context.Context, keys []deltageneration.GenerationKey) ([]model.DeltaGeneration, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ListDeltaGenerations", ctx, keys)
 	ret0, _ := ret[0].([]model.DeltaGeneration)
