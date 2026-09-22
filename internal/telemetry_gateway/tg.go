@@ -25,15 +25,15 @@ import (
 	"go.opentelemetry.io/collector/otelcol"
 	"go.opentelemetry.io/collector/processor"
 	"go.opentelemetry.io/collector/receiver"
+	"go.opentelemetry.io/collector/receiver/otlpreceiver"
 )
 
 // Option configures how Run builds both the Collector and the OTEL config.
 type Option func(*runOptions)
 
 type runOptions struct {
-	settingsMutators    []func(*otelcol.CollectorSettings)
-	cfgMutators         []OTelConfigMutator
-	deviceListenerReady func(string)
+	settingsMutators []func(*otelcol.CollectorSettings)
+	cfgMutators      []OTelConfigMutator
 }
 
 // WithCollectorSettings lets callers tweak CollectorSettings before NewCollector.
@@ -44,13 +44,6 @@ func WithCollectorSettings(mut func(*otelcol.CollectorSettings)) Option {
 // WithSkipSettingGRPCLogger avoids setting the grpc logger
 func WithSkipSettingGRPCLogger(skip bool) Option {
 	return WithCollectorSettings(func(s *otelcol.CollectorSettings) { s.SkipSettingGRPCLogger = skip })
-}
-
-// WithDeviceListenerReady reports the address after the OTLP device receiver
-// has successfully bound its listener. It is intended for callers that use an
-// ephemeral listen port and need the actual address before connecting.
-func WithDeviceListenerReady(callback func(string)) Option {
-	return func(ro *runOptions) { ro.deviceListenerReady = callback }
 }
 
 // WithOTelYAMLOverlay merges a YAML snippet into the generated config (deep-merge).
@@ -137,12 +130,9 @@ func Run(ctx context.Context, cfg *config.Config, opts ...Option) error {
 			},
 		},
 		Factories: func() (otelcol.Factories, error) {
-			// Use the same receiver implementation for production and tests. Tests
-			// may provide a callback to observe an ephemeral listener's address.
-			otlpFactory := newListenerAwareOTLPFactory(ro.deviceListenerReady)
 			factories := otelcol.Factories{
 				Receivers: map[component.Type]receiver.Factory{
-					component.MustNewType("otlp"):       otlpFactory,
+					component.MustNewType("otlp"):       otlpreceiver.NewFactory(),
 					component.MustNewType("prometheus"): prometheusreceiver.NewFactory(),
 				},
 				Processors: map[component.Type]processor.Factory{

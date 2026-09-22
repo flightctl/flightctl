@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -105,8 +106,7 @@ var _ = Describe("Telemetry Gateway", func() {
 		Expect(os.WriteFile(serverKey, keyPEM, 0o600)).To(Succeed())
 
 		// The Prometheus exporter address is set only by contexts that exercise
-		// that exporter. The OTLP device receiver owns its listener and reports
-		// the actual address after binding.
+		// that exporter. The test discovers the OTLP listener after OTel binds it.
 		promAddr = ""
 
 		// base config + reset mutators
@@ -1059,11 +1059,7 @@ func startTelemetryGateway(
 		mutate(&cfg)
 	}
 
-	listenerReady := make(chan string, 1)
 	opts := append([]telemetrygateway.Option(nil), baseOpts...)
-	opts = append(opts, telemetrygateway.WithDeviceListenerReady(func(addr string) {
-		listenerReady <- addr
-	}))
 
 	cfgBytes, err := yaml.Marshal(&cfg)
 	if err != nil {
@@ -1073,13 +1069,18 @@ func startTelemetryGateway(
 		return "", nil, nil, err
 	}
 
+	listenersBefore, err := currentProcessTCPListeners()
+	if err != nil {
+		return "", nil, nil, err
+	}
+
 	gwCtx, cancel := context.WithCancel(ctx)
 	gwDone := make(chan error, 1)
 	go func() {
 		gwDone <- telemetrygateway.Run(gwCtx, &cfg, opts...)
 	}()
 
-	otlpAddr, startupErr := waitForGatewayReady(ctx, listenerReady, readinessTLS, gwDone)
+	otlpAddr, startupErr := waitForGatewayReady(ctx, listenersBefore, readinessTLS, gwDone)
 	if startupErr == nil {
 		return otlpAddr, cancel, gwDone, nil
 	}
@@ -1094,26 +1095,12 @@ func startTelemetryGateway(
 
 func waitForGatewayReady(
 	ctx context.Context,
-	listenerReady <-chan string,
+	listenersBefore map[string]string,
 	clientTLS *tls.Config,
 	done <-chan error,
 ) (string, error) {
 	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()
-
-	var addr string
-	select {
-	case addr = <-listenerReady:
-	case err := <-done:
-		if err == nil {
-			return "", errors.New("telemetry gateway exited before binding its device listener")
-		}
-		return "", err
-	case <-deadline.C:
-		return "", errors.New("telemetry gateway did not bind its device listener")
-	case <-ctx.Done():
-		return "", ctx.Err()
-	}
 
 	ticker := time.NewTicker(polling)
 	defer ticker.Stop()
@@ -1122,22 +1109,113 @@ func waitForGatewayReady(
 		select {
 		case err := <-done:
 			if err == nil {
-				return "", errors.New("telemetry gateway exited before becoming ready")
+				return "", errors.New("telemetry gateway exited before binding its device listener")
 			}
 			return "", err
 		case <-ticker.C:
-			dialer := &net.Dialer{Timeout: gatewayReadinessDialTimeout}
-			conn, err := tls.DialWithDialer(dialer, "tcp", addr, clientTLS.Clone())
-			if err == nil {
-				_ = conn.Close()
-				return addr, nil
+			listeners, err := currentProcessTCPListeners()
+			if err != nil {
+				return "", err
+			}
+			for inode, addr := range listeners {
+				if _, existed := listenersBefore[inode]; existed {
+					continue
+				}
+
+				addr = dialableAddress(addr)
+				conn, err := tls.DialWithDialer(&net.Dialer{Timeout: gatewayReadinessDialTimeout}, "tcp", addr, clientTLS.Clone())
+				if err == nil {
+					_ = conn.Close()
+					return addr, nil
+				}
 			}
 		case <-deadline.C:
-			return "", fmt.Errorf("telemetry gateway did not become TLS-ready on %s", addr)
+			return "", errors.New("telemetry gateway did not become TLS-ready")
 		case <-ctx.Done():
 			return "", ctx.Err()
 		}
 	}
+}
+
+// currentProcessTCPListeners returns listening TCP sockets owned by this test
+// process. OTel binds port 0 internally and does not expose the selected port;
+// the test identifies the new listener and verifies it with the gateway's mTLS
+// handshake.
+func currentProcessTCPListeners() (map[string]string, error) {
+	fdEntries, err := os.ReadDir("/proc/self/fd")
+	if err != nil {
+		return nil, fmt.Errorf("read process file descriptors: %w", err)
+	}
+
+	socketInodes := make(map[string]struct{})
+	for _, entry := range fdEntries {
+		target, err := os.Readlink(filepath.Join("/proc/self/fd", entry.Name()))
+		if err != nil {
+			continue
+		}
+		if strings.HasPrefix(target, "socket:[") && strings.HasSuffix(target, "]") {
+			inode := strings.TrimSuffix(strings.TrimPrefix(target, "socket:["), "]")
+			socketInodes[inode] = struct{}{}
+		}
+	}
+
+	tcpTable, err := os.ReadFile("/proc/net/tcp")
+	if err != nil {
+		return nil, fmt.Errorf("read TCP socket table: %w", err)
+	}
+
+	listeners := make(map[string]string)
+	for _, line := range strings.Split(string(tcpTable), "\n")[1:] {
+		fields := strings.Fields(line)
+		if len(fields) < 10 || fields[3] != "0A" {
+			continue
+		}
+
+		inode := fields[9]
+		if _, owned := socketInodes[inode]; !owned {
+			continue
+		}
+
+		addr, err := parseProcTCPAddress(fields[1])
+		if err != nil {
+			return nil, err
+		}
+		listeners[inode] = addr
+	}
+
+	return listeners, nil
+}
+
+func parseProcTCPAddress(encoded string) (string, error) {
+	parts := strings.Split(encoded, ":")
+	if len(parts) != 2 {
+		return "", fmt.Errorf("invalid TCP address %q", encoded)
+	}
+
+	encodedIP, err := strconv.ParseUint(parts[0], 16, 32)
+	if err != nil {
+		return "", fmt.Errorf("parse TCP address %q: %w", encoded, err)
+	}
+	port, err := strconv.ParseUint(parts[1], 16, 16)
+	if err != nil {
+		return "", fmt.Errorf("parse TCP port %q: %w", encoded, err)
+	}
+
+	host := net.IPv4(
+		byte(encodedIP),
+		byte(encodedIP>>8),
+		byte(encodedIP>>16),
+		byte(encodedIP>>24),
+	).String()
+	return net.JoinHostPort(host, strconv.Itoa(int(port))), nil
+}
+
+func dialableAddress(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err == nil && host == "0.0.0.0" {
+		return net.JoinHostPort("127.0.0.1", port)
+	}
+	return addr
 }
 
 // ---- Mock downstream OTLP HTTP collector (TLS, no client certs) ----
