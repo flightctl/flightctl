@@ -102,6 +102,13 @@ func (f FleetSelectorMatchingLogic) DeviceLabelsUpdated(ctx context.Context) err
 		return fmt.Errorf("%s", errorMsg)
 	}
 
+	// Secondary gate: skip fleet matching for devices whose enrollment hooks
+	// have not reached a terminal success state.
+	if domain.IsDeviceEnrollmentHooksGated(device) {
+		f.log.Infof("Skipping fleet matching for device %s/%s: enrollment hooks gate is active", f.orgId, f.event.InvolvedObject.Name)
+		return nil
+	}
+
 	// Get the current owner and make sure it's a fleet
 	currentOwnerFleet, isOwnerAFleet, err := getOwnerFleet(device)
 	if err != nil {
@@ -354,6 +361,13 @@ func (f FleetSelectorMatchingLogic) handleDevicesMatchingFleet(ctx context.Conte
 			if ctx.Err() != nil {
 				f.log.Warnf("Context cancelled during device processing, stopping early. Processed %d devices so far", devicesProcessed)
 				return devicesProcessed, errors
+			}
+
+			// Primary gate: skip devices whose enrollment hooks have not
+			// reached a terminal success state.
+			if domain.IsDeviceEnrollmentHooksGated(&device) {
+				f.log.Infof("Skipping fleet matching for device %s/%s: enrollment hooks gate is active", f.orgId, lo.FromPtr(device.Metadata.Name))
+				continue
 			}
 
 			// Get the device's current owner for comparison
