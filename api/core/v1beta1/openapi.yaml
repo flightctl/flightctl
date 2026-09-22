@@ -6269,6 +6269,7 @@ components:
         file named vm.yaml.
       allOf:
         - $ref: '#/components/schemas/ApplicationProviderBase'
+        - $ref: '#/components/schemas/ApplicationUser'
         - type: object
           properties:
             publishPorts:
