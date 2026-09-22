@@ -40,8 +40,10 @@ import (
 )
 
 const (
-	timeout = 10 * time.Second
-	polling = 250 * time.Millisecond
+	timeout                     = 10 * time.Second
+	polling                     = 250 * time.Millisecond
+	gatewayStartupAttempts      = 5
+	gatewayReadinessDialTimeout = 200 * time.Millisecond
 )
 
 var (
@@ -67,10 +69,12 @@ var _ = Describe("Telemetry Gateway", func() {
 		caClient *icrypto.CAClient
 
 		// config plumbing
-		baseCfg     *config.Config
-		cfgMutators []func(*config.Config)
-		testDirPath string
-		runOpts     []telemetrygateway.Option
+		baseCfg               *config.Config
+		cfgMutators           []func(*config.Config)
+		refreshPortAllocators []func()
+		testDirPath           string
+		runOpts               []telemetrygateway.Option
+		gatewayReadyTLS       *tls.Config
 	)
 
 	BeforeEach(func() {
@@ -102,62 +106,37 @@ var _ = Describe("Telemetry Gateway", func() {
 		Expect(os.WriteFile(serverCrt, certPEM, 0o600)).To(Succeed())
 		Expect(os.WriteFile(serverKey, keyPEM, 0o600)).To(Succeed())
 
-		// ports
-		otlpAddr = localAddr()
+		// The gateway and its internal metrics exporter bind their ports after
+		// this hook runs. Their addresses are allocated immediately before each
+		// startup attempt so a parallel collision is detected and can be retried.
 		promAddr = ""
 
 		// base config + reset mutators
-		baseCfg = createConfig(serverCrt, serverKey, caPath, otlpAddr)
+		baseCfg = createConfig(serverCrt, serverKey, caPath, "127.0.0.1:0")
 		cfgMutators = nil
+		refreshPortAllocators = nil
 
-		// Use random port for OTel internal metrics to avoid port 8888 conflicts during parallel test execution
-		otelMetricsPort := localAddr() // returns "localhost:port"
-		_, port, _ := net.SplitHostPort(otelMetricsPort)
 		runOpts = []telemetrygateway.Option{
 			telemetrygateway.WithSkipSettingGRPCLogger(true), // kill grpclog race in tests
-			telemetrygateway.WithOTelYAMLOverlay(fmt.Sprintf(`
-service:
-  telemetry:
-    metrics:
-      readers:
-        - pull:
-            exporter:
-              prometheus:
-                host: localhost
-                port: %s
-`, port)),
 		}
+
+		gatewayReadyTLS, err = newGatewayClientTLSConfig(ctx, caClient, "client-telemetry-gateway-readiness")
+		Expect(err).ToNot(HaveOccurred())
 	})
 
-	// Start the gateway after all mutators from nested BeforeEach have run
+	// Start the gateway after all mutators from nested BeforeEach have run.
 	JustBeforeEach(func() {
-		// apply per-test tweaks
-		cfg := *baseCfg // shallow copy of struct
-		for _, m := range cfgMutators {
-			m(&cfg)
-		}
-
-		// (optional) persist for debugging
-		cfgBytes, err := yaml.Marshal(&cfg)
+		var err error
+		otlpAddr, gwCancel, gwDone, err = startTelemetryGateway(
+			ctx,
+			baseCfg,
+			cfgMutators,
+			refreshPortAllocators,
+			runOpts,
+			gatewayReadyTLS,
+			testDirPath,
+		)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(os.WriteFile(filepath.Join(testDirPath, "config.yaml"), cfgBytes, 0o600)).To(Succeed())
-
-		gwCtx, cancel := context.WithCancel(ctx)
-		gwCancel = cancel
-		gwDone = make(chan error, 1)
-		go func() {
-			gwDone <- telemetrygateway.Run(gwCtx, &cfg, runOpts...)
-		}()
-
-		// wait OTLP up
-		Eventually(func() bool {
-			conn, err := net.DialTimeout("tcp", otlpAddr, 200*time.Millisecond)
-			if err != nil {
-				return false
-			}
-			_ = conn.Close()
-			return true
-		}, timeout, polling).Should(BeTrue())
 	})
 
 	AfterEach(func() {
@@ -179,11 +158,12 @@ service:
 	Context("with a custom Prometheus listen address", func() {
 		BeforeEach(func() {
 			// change prom listen addr in this context only
-			newProm := localAddr()
-			promAddr = newProm
+			refreshPortAllocators = append(refreshPortAllocators, func() {
+				promAddr = localAddr()
+			})
 			cfgMutators = append(cfgMutators, func(c *config.Config) {
 				// assuming your config struct has TelemetryGateway.Export.Prometheus (string)
-				snippet := fmt.Appendf(nil, "telemetrygateway:\n  export:\n    prometheus: %q\n", newProm)
+				snippet := fmt.Appendf(nil, "telemetrygateway:\n  export:\n    prometheus: %q\n", promAddr)
 				_ = yaml.Unmarshal(snippet, c)
 			})
 		})
@@ -651,8 +631,10 @@ service:
 			Expect(os.WriteFile(forwardCrt, certPEM, 0o600)).To(Succeed())
 			Expect(os.WriteFile(forwardKey, keyPEM, 0o600)).To(Succeed())
 
-			// Choose Prometheus endpoint for this test
-			promAddr = localAddr()
+			// Choose a fresh Prometheus endpoint for each gateway startup attempt.
+			refreshPortAllocators = append(refreshPortAllocators, func() {
+				promAddr = localAddr()
+			})
 			// Ensure exporter exists in base config (so build map doesn’t error);
 			// overlay will *also* set exporters and add otlp.
 			cfgMutators = append(cfgMutators, func(c *config.Config) {
@@ -1070,6 +1052,130 @@ func localAddr() string {
 	Expect(err).ToNot(HaveOccurred())
 	defer l.Close()
 	return l.Addr().String()
+}
+
+func newGatewayClientTLSConfig(ctx context.Context, caClient *icrypto.CAClient, subjectName string) (*tls.Config, error) {
+	privateKey, cert, err := makeKeyPairAndCSR(ctx, caClient, caClient.Cfg.DeviceSvcClientSignerName, subjectName, 365)
+	if err != nil {
+		return nil, err
+	}
+
+	caPool := x509.NewCertPool()
+	for _, caCert := range caClient.GetCABundleX509() {
+		caPool.AddCert(caCert)
+	}
+
+	return &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		RootCAs:    caPool,
+		Certificates: []tls.Certificate{{
+			Certificate: [][]byte{cert.Raw},
+			PrivateKey:  privateKey,
+		}},
+		ServerName: "localhost",
+	}, nil
+}
+
+func startTelemetryGateway(
+	ctx context.Context,
+	baseCfg *config.Config,
+	cfgMutators []func(*config.Config),
+	refreshPortAllocators []func(),
+	baseOpts []telemetrygateway.Option,
+	readinessTLS *tls.Config,
+	testDirPath string,
+) (string, context.CancelFunc, chan error, error) {
+	for attempt := 0; attempt < gatewayStartupAttempts; attempt++ {
+		for _, refresh := range refreshPortAllocators {
+			refresh()
+		}
+
+		otlpAddr := localAddr()
+		cfg := *baseCfg // shallow copy of struct
+		cfg.TelemetryGateway.Listen.Device = otlpAddr
+		for _, mutate := range cfgMutators {
+			mutate(&cfg)
+		}
+
+		// Allocate the internal OTel metrics port for this same startup attempt.
+		otelMetricsPort := localAddr()
+		_, port, err := net.SplitHostPort(otelMetricsPort)
+		if err != nil {
+			return "", nil, nil, fmt.Errorf("split OTel metrics address %q: %w", otelMetricsPort, err)
+		}
+
+		opts := append([]telemetrygateway.Option(nil), baseOpts...)
+		opts = append(opts, telemetrygateway.WithOTelYAMLOverlay(fmt.Sprintf(`
+service:
+  telemetry:
+    metrics:
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: localhost
+                port: %s
+`, port)))
+
+		cfgBytes, err := yaml.Marshal(&cfg)
+		if err != nil {
+			return "", nil, nil, err
+		}
+		if err := os.WriteFile(filepath.Join(testDirPath, "config.yaml"), cfgBytes, 0o600); err != nil {
+			return "", nil, nil, err
+		}
+
+		gwCtx, cancel := context.WithCancel(ctx)
+		gwDone := make(chan error, 1)
+		go func() {
+			gwDone <- telemetrygateway.Run(gwCtx, &cfg, opts...)
+		}()
+
+		startupErr := waitForGatewayReady(ctx, otlpAddr, readinessTLS, gwDone)
+		if startupErr == nil {
+			return otlpAddr, cancel, gwDone, nil
+		}
+
+		cancel()
+		if !strings.Contains(startupErr.Error(), "address already in use") {
+			select {
+			case <-gwDone:
+			case <-time.After(2 * time.Second):
+			}
+			return "", nil, nil, fmt.Errorf("telemetry gateway failed to become ready: %w", startupErr)
+		}
+	}
+
+	return "", nil, nil, fmt.Errorf("telemetry gateway could not acquire ports after %d attempts", gatewayStartupAttempts)
+}
+
+func waitForGatewayReady(ctx context.Context, addr string, clientTLS *tls.Config, done <-chan error) error {
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+
+	ticker := time.NewTicker(polling)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case err := <-done:
+			if err == nil {
+				return errors.New("telemetry gateway exited before becoming ready")
+			}
+			return err
+		case <-ticker.C:
+			dialer := &net.Dialer{Timeout: gatewayReadinessDialTimeout}
+			conn, err := tls.DialWithDialer(dialer, "tcp", addr, clientTLS.Clone())
+			if err == nil {
+				_ = conn.Close()
+				return nil
+			}
+		case <-deadline.C:
+			return fmt.Errorf("telemetry gateway did not become TLS-ready on %s", addr)
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 }
 
 // ---- Mock downstream OTLP HTTP collector (TLS, no client certs) ----
