@@ -1157,9 +1157,11 @@ func waitForGatewayReady(
 				addr = dialableAddress(addr)
 				conn, err := tls.DialWithDialer(&net.Dialer{Timeout: gatewayReadinessDialTimeout}, "tcp", addr, clientTLS.Clone())
 				if err == nil {
-					if closeErr := conn.Close(); closeErr != nil {
-						return "", fmt.Errorf("close gateway readiness connection: %w", closeErr)
-					}
+					defer func() {
+						if closeErr := conn.Close(); closeErr != nil {
+							fmt.Fprintf(GinkgoWriter, "[gateway] failed to close readiness connection: %v\n", closeErr)
+						}
+					}()
 					return addr, nil
 				}
 			}
@@ -1185,7 +1187,11 @@ func currentProcessTCPListeners() (map[string]string, error) {
 	for _, entry := range fdEntries {
 		target, err := os.Readlink(filepath.Join("/proc/self/fd", entry.Name()))
 		if err != nil {
-			continue
+			// The descriptor can close between ReadDir and Readlink.
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return nil, fmt.Errorf("read process file descriptor %s: %w", entry.Name(), err)
 		}
 		if strings.HasPrefix(target, "socket:[") && strings.HasSuffix(target, "]") {
 			inode := strings.TrimSuffix(strings.TrimPrefix(target, "socket:["), "]")
