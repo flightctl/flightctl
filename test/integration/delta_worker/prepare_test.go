@@ -196,6 +196,56 @@ var _ = Describe("PrepareDeltas persist", func() {
 			Expect(payload["targetDigest"]).To(Equal(tgtDigest))
 		})
 	})
+
+	When("a prepare completion is newer than the Fleet preparing marker", func() {
+		const (
+			fleetName = "fleet-cleanup"
+			tvName    = "tv-cleanup"
+		)
+
+		setPreparingMarker := func(sourceResourceVersion string) {
+			testutil.CreateTestFleet(ctx, fleets, orgId, fleetName, nil, nil)
+			_, _, _, err := fleets.Mutate(ctx, orgId, fleetName, nil, func(m *fleetstore.FleetMutation) error {
+				annotations := map[string]string{
+					domain.FleetAnnotationTemplateVersion:             tvName,
+					domain.FleetAnnotationDeltaPrepareResourceVersion: sourceResourceVersion,
+				}
+				m.Fleet.Metadata.Annotations = &annotations
+				m.Fleet.Status = &domain.FleetStatus{
+					Conditions: []domain.Condition{{
+						Type:   domain.ConditionTypeFleetDeltaPreparing,
+						Status: domain.ConditionStatusTrue,
+					}},
+					DeltaGeneration: &domain.DeltaGenerationStatus{Completed: 0, Total: 1},
+				}
+				return nil
+			})
+			Expect(err).ToNot(HaveOccurred())
+		}
+
+		It("should clear an older marker", func() {
+			setPreparingMarker("10")
+
+			updated, err := fleets.ResumeDeltaIfCurrent(ctx, orgId, fleetName, tvName, 11)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updated).ToNot(BeNil())
+			Expect(domain.FindStatusCondition(updated.Status.Conditions, domain.ConditionTypeFleetDeltaPreparing)).To(BeNil())
+			Expect((*updated.Metadata.Annotations)[domain.FleetAnnotationDeltaPrepareResourceVersion]).To(BeEmpty())
+		})
+
+		It("should not clear a newer marker", func() {
+			setPreparingMarker("12")
+
+			updated, err := fleets.ResumeDeltaIfCurrent(ctx, orgId, fleetName, tvName, 11)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updated).To(BeNil())
+
+			current, err := fleets.Get(ctx, orgId, fleetName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(domain.FindStatusCondition(current.Status.Conditions, domain.ConditionTypeFleetDeltaPreparing)).ToNot(BeNil())
+			Expect((*current.Metadata.Annotations)[domain.FleetAnnotationDeltaPrepareResourceVersion]).To(Equal("12"))
+		})
+	})
 })
 
 type prepareEmitSpy struct {

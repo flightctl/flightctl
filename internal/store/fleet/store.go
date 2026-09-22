@@ -114,10 +114,12 @@ func NewFleetStore(db *gorm.DB, log logrus.FieldLogger) *FleetStore {
 	return &FleetStore{dbHandler: db, log: log, genericStore: genericStore}
 }
 
-// ResumeDeltaIfCurrent clears the fleet's delta-preparing state only when the
-// fleet still points at the template version and source resource version that
-// produced the prepare. The preparing condition is part of the predicate so a
-// redelivered completion event cannot claim the same resource twice.
+// ResumeDeltaIfCurrent clears the fleet's delta-preparing state when the fleet
+// still points at the template version that produced the prepare and its
+// marker is not newer than that prepare. The preparing condition is part of
+// the predicate so a redelivered completion event cannot claim the same
+// resource twice; a newer marker prevents an older completion from clearing
+// the current prepare.
 func (s *FleetStore) ResumeDeltaIfCurrent(ctx context.Context, orgID uuid.UUID, name, templateVersion string, sourceResourceVersion int64) (*domain.Fleet, error) {
 	var fleet model.Fleet
 	result := s.getDB(ctx).Raw(`
@@ -142,7 +144,11 @@ func (s *FleetStore) ResumeDeltaIfCurrent(ctx context.Context, orgID uuid.UUID, 
 		  AND name = @name
 		  AND deleted_at IS NULL
 		  AND annotations->>@template_version_annotation = @template_version
-		  AND annotations->>@source_resource_version_annotation = @source_resource_version
+		  AND CASE
+				WHEN annotations->>@source_resource_version_annotation ~ '^[0-9]+$'
+				THEN (annotations->>@source_resource_version_annotation)::numeric <= @source_resource_version
+				ELSE FALSE
+			  END
 		  AND EXISTS (
 				SELECT 1
 				FROM jsonb_array_elements(COALESCE(status->'conditions', '[]'::jsonb)) AS condition_rows(condition_json)
