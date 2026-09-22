@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -43,6 +44,7 @@ import (
 const (
 	timeout                     = 10 * time.Second
 	polling                     = 250 * time.Millisecond
+	gatewayStartupAttempts      = 5
 	gatewayReadinessDialTimeout = 200 * time.Millisecond
 )
 
@@ -69,11 +71,12 @@ var _ = Describe("Telemetry Gateway", func() {
 		caClient *icrypto.CAClient
 
 		// config plumbing
-		baseCfg         *config.Config
-		cfgMutators     []func(*config.Config)
-		testDirPath     string
-		runOpts         []telemetrygateway.Option
-		gatewayReadyTLS *tls.Config
+		baseCfg               *config.Config
+		cfgMutators           []func(*config.Config)
+		refreshPortAllocators []func()
+		testDirPath           string
+		runOpts               []telemetrygateway.Option
+		gatewayReadyTLS       *tls.Config
 	)
 
 	BeforeEach(func() {
@@ -112,6 +115,7 @@ var _ = Describe("Telemetry Gateway", func() {
 		// base config + reset mutators
 		baseCfg = createConfig(serverCrt, serverKey, caPath, "127.0.0.1:0")
 		cfgMutators = nil
+		refreshPortAllocators = nil
 
 		runOpts = []telemetrygateway.Option{
 			telemetrygateway.WithSkipSettingGRPCLogger(true), // kill grpclog race in tests
@@ -134,6 +138,7 @@ service:
 			ctx,
 			baseCfg,
 			cfgMutators,
+			refreshPortAllocators,
 			runOpts,
 			gatewayReadyTLS,
 			testDirPath,
@@ -159,8 +164,10 @@ service:
 
 	Context("with a custom Prometheus listen address", func() {
 		BeforeEach(func() {
-			// change prom listen addr in this context only
-			promAddr = localAddr()
+			// Refresh the Prometheus endpoint before every gateway startup attempt.
+			refreshPortAllocators = append(refreshPortAllocators, func() {
+				promAddr = localAddr()
+			})
 			cfgMutators = append(cfgMutators, func(c *config.Config) {
 				// assuming your config struct has TelemetryGateway.Export.Prometheus (string)
 				snippet := fmt.Appendf(nil, "telemetrygateway:\n  export:\n    prometheus: %q\n", promAddr)
@@ -631,8 +638,10 @@ service:
 			Expect(os.WriteFile(forwardCrt, certPEM, 0o600)).To(Succeed())
 			Expect(os.WriteFile(forwardKey, keyPEM, 0o600)).To(Succeed())
 
-			// Choose the Prometheus endpoint before starting the gateway.
-			promAddr = localAddr()
+			// Refresh the Prometheus endpoint before every gateway startup attempt.
+			refreshPortAllocators = append(refreshPortAllocators, func() {
+				promAddr = localAddr()
+			})
 			// Ensure exporter exists in base config (so build map doesn’t error);
 			// overlay will *also* set exporters and add otlp.
 			cfgMutators = append(cfgMutators, func(c *config.Config) {
@@ -1050,47 +1059,70 @@ func startTelemetryGateway(
 	ctx context.Context,
 	baseCfg *config.Config,
 	cfgMutators []func(*config.Config),
+	refreshPortAllocators []func(),
 	baseOpts []telemetrygateway.Option,
 	readinessTLS *tls.Config,
 	testDirPath string,
 ) (string, context.CancelFunc, chan error, error) {
-	cfg := *baseCfg // shallow copy of struct
-	for _, mutate := range cfgMutators {
-		mutate(&cfg)
+	startupCtx, startupCancel := context.WithTimeout(ctx, timeout)
+	defer startupCancel()
+
+	var lastStartupErr error
+	for attempt := 0; attempt < gatewayStartupAttempts; attempt++ {
+		for _, refresh := range refreshPortAllocators {
+			refresh()
+		}
+
+		cfg := *baseCfg // shallow copy of struct
+		for _, mutate := range cfgMutators {
+			mutate(&cfg)
+		}
+
+		opts := append([]telemetrygateway.Option(nil), baseOpts...)
+
+		cfgBytes, err := yaml.Marshal(&cfg)
+		if err != nil {
+			return "", nil, nil, err
+		}
+		if err := os.WriteFile(filepath.Join(testDirPath, "config.yaml"), cfgBytes, 0o600); err != nil {
+			return "", nil, nil, err
+		}
+
+		listenersBefore, err := currentProcessTCPListeners()
+		if err != nil {
+			return "", nil, nil, err
+		}
+
+		gwCtx, cancel := context.WithCancel(ctx)
+		gwDone := make(chan error, 1)
+		go func() {
+			gwDone <- telemetrygateway.Run(gwCtx, &cfg, opts...)
+		}()
+
+		otlpAddr, startupErr := waitForGatewayReady(startupCtx, listenersBefore, readinessTLS, gwDone)
+		if startupErr == nil {
+			return otlpAddr, cancel, gwDone, nil
+		}
+		lastStartupErr = startupErr
+
+		cancel()
+		if !isAddressInUse(startupErr) {
+			select {
+			case <-gwDone:
+			case <-time.After(2 * time.Second):
+			}
+			return "", nil, nil, fmt.Errorf("telemetry gateway failed to become ready: %w", startupErr)
+		}
 	}
 
-	opts := append([]telemetrygateway.Option(nil), baseOpts...)
-
-	cfgBytes, err := yaml.Marshal(&cfg)
-	if err != nil {
-		return "", nil, nil, err
+	if startupCtx.Err() != nil {
+		return "", nil, nil, fmt.Errorf("telemetry gateway failed to become ready: %w", startupCtx.Err())
 	}
-	if err := os.WriteFile(filepath.Join(testDirPath, "config.yaml"), cfgBytes, 0o600); err != nil {
-		return "", nil, nil, err
-	}
+	return "", nil, nil, fmt.Errorf("telemetry gateway could not acquire ports after %d attempts: %w", gatewayStartupAttempts, lastStartupErr)
+}
 
-	listenersBefore, err := currentProcessTCPListeners()
-	if err != nil {
-		return "", nil, nil, err
-	}
-
-	gwCtx, cancel := context.WithCancel(ctx)
-	gwDone := make(chan error, 1)
-	go func() {
-		gwDone <- telemetrygateway.Run(gwCtx, &cfg, opts...)
-	}()
-
-	otlpAddr, startupErr := waitForGatewayReady(ctx, listenersBefore, readinessTLS, gwDone)
-	if startupErr == nil {
-		return otlpAddr, cancel, gwDone, nil
-	}
-
-	cancel()
-	select {
-	case <-gwDone:
-	case <-time.After(2 * time.Second):
-	}
-	return "", nil, nil, fmt.Errorf("telemetry gateway failed to become ready: %w", startupErr)
+func isAddressInUse(err error) bool {
+	return errors.Is(err, syscall.EADDRINUSE) || strings.Contains(strings.ToLower(err.Error()), "address already in use")
 }
 
 func waitForGatewayReady(
@@ -1125,7 +1157,9 @@ func waitForGatewayReady(
 				addr = dialableAddress(addr)
 				conn, err := tls.DialWithDialer(&net.Dialer{Timeout: gatewayReadinessDialTimeout}, "tcp", addr, clientTLS.Clone())
 				if err == nil {
-					_ = conn.Close()
+					if closeErr := conn.Close(); closeErr != nil {
+						return "", fmt.Errorf("close gateway readiness connection: %w", closeErr)
+					}
 					return addr, nil
 				}
 			}
