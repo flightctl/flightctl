@@ -71,6 +71,7 @@ const (
 // Fleet annotation keys
 const (
 	FleetAnnotationTemplateVersion             = v1beta1.FleetAnnotationTemplateVersion
+	FleetAnnotationDeltaPrepareResourceVersion = v1beta1.FleetAnnotationDeltaPrepareResourceVersion
 	FleetAnnotationDeployingTemplateVersion    = v1beta1.FleetAnnotationDeployingTemplateVersion
 	FleetAnnotationBatchNumber                 = v1beta1.FleetAnnotationBatchNumber
 	FleetAnnotationRolloutApproved             = v1beta1.FleetAnnotationRolloutApproved

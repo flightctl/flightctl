@@ -106,6 +106,8 @@ const (
 )
 
 const EventReasonGenerateDelta EventReason = "GenerateDelta"
+const EventReasonDeltaGenerationComplete EventReason = "DeltaGenerationComplete"
+const EventReasonDeltaPrepareComplete EventReason = "DeltaPrepareComplete"
 
 // ========== Event Details Types ==========
 

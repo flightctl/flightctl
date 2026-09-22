@@ -43,11 +43,7 @@ func (s *recordingStore) UpdateDeltaPrepare(_ context.Context, _ int64, prepare 
 	return prepare, nil
 }
 
-func (s *recordingStore) CountDeltaPrepareGenerations(context.Context, uuid.UUID) (int, int, error) {
-	return 0, 0, nil
-}
-
-func (s *recordingStore) DecrementPendingGenerationsForGeneration(context.Context, deltagenerationstore.GenerationKey) ([]deltapreparestore.PrepareProgress, error) {
+func (s *recordingStore) DecrementPendingGenerationsForGeneration(context.Context, deltagenerationstore.GenerationKey, string) ([]deltapreparestore.PrepareProgress, error) {
 	return nil, nil
 }
 
@@ -98,10 +94,7 @@ func (s *errorStore) ListDeltaPrepares(context.Context, []uuid.UUID) ([]model.De
 func (s *errorStore) UpdateDeltaPrepare(context.Context, int64, *model.DeltaPrepare) (*model.DeltaPrepare, error) {
 	return nil, s.err
 }
-func (s *errorStore) CountDeltaPrepareGenerations(context.Context, uuid.UUID) (int, int, error) {
-	return 0, 0, s.err
-}
-func (s *errorStore) DecrementPendingGenerationsForGeneration(context.Context, deltagenerationstore.GenerationKey) ([]deltapreparestore.PrepareProgress, error) {
+func (s *errorStore) DecrementPendingGenerationsForGeneration(context.Context, deltagenerationstore.GenerationKey, string) ([]deltapreparestore.PrepareProgress, error) {
 	return nil, s.err
 }
 

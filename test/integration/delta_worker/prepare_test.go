@@ -53,8 +53,8 @@ var _ = Describe("PrepareDeltas persist", func() {
 		deltaGenerationStore        *deltastore.GenerationStore
 		deltaPrepareStore           *deltapreparestore.PrepareStore
 		deltaPrepareGenerationStore *deltapreparegenerationstore.PrepareGenerationStore
-		fleets                      fleetstore.Store
-		devices                     devicestore.Store
+		fleets                      *fleetstore.FleetStore
+		devices                     *devicestore.DeviceStore
 		repos                       repositorystore.Store
 		templateVersions            templateversionstore.Store
 	)
@@ -142,7 +142,7 @@ var _ = Describe("PrepareDeltas persist", func() {
 			status := workerservice.NewStorePreparingStatus(fleets, devices)
 			generationService := deltageneration.NewServiceHandler(deltaGenerationStore, log)
 			prepareService := deltaprepare.NewServiceHandler(deltaPrepareStore, status)
-			prepareGenerationService := deltapreparegeneration.NewServiceHandler(deltaPrepareGenerationStore)
+			prepareGenerationService := deltapreparegeneration.NewServiceHandler(deltaPrepareGenerationStore, generationService, nil)
 			fleetService := fleetservice.NewServiceHandler(fleets, nil, nil, log)
 			deviceService := deviceservice.NewDeviceServiceHandler(devices, nil, fleets, nil, nil, "", log)
 			repositoryService := repositoryservice.NewServiceHandler(repos, nil, log)
@@ -194,6 +194,56 @@ var _ = Describe("PrepareDeltas persist", func() {
 			Expect(payload["imageRepository"]).To(Equal(repoName))
 			Expect(payload["sourceDigest"]).To(Equal(srcDigest))
 			Expect(payload["targetDigest"]).To(Equal(tgtDigest))
+		})
+	})
+
+	When("a prepare completion is newer than the Fleet preparing marker", func() {
+		const (
+			fleetName = "fleet-cleanup"
+			tvName    = "tv-cleanup"
+		)
+
+		setPreparingMarker := func(sourceResourceVersion string) {
+			testutil.CreateTestFleet(ctx, fleets, orgId, fleetName, nil, nil)
+			_, _, _, err := fleets.Mutate(ctx, orgId, fleetName, nil, func(m *fleetstore.FleetMutation) error {
+				annotations := map[string]string{
+					domain.FleetAnnotationTemplateVersion:             tvName,
+					domain.FleetAnnotationDeltaPrepareResourceVersion: sourceResourceVersion,
+				}
+				m.Fleet.Metadata.Annotations = &annotations
+				m.Fleet.Status = &domain.FleetStatus{
+					Conditions: []domain.Condition{{
+						Type:   domain.ConditionTypeFleetDeltaPreparing,
+						Status: domain.ConditionStatusTrue,
+					}},
+					DeltaGeneration: &domain.DeltaGenerationStatus{Completed: 0, Total: 1},
+				}
+				return nil
+			})
+			Expect(err).ToNot(HaveOccurred())
+		}
+
+		It("should clear an older marker", func() {
+			setPreparingMarker("10")
+
+			updated, err := fleets.ResumeDeltaIfCurrent(ctx, orgId, fleetName, tvName, 11)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updated).ToNot(BeNil())
+			Expect(domain.FindStatusCondition(updated.Status.Conditions, domain.ConditionTypeFleetDeltaPreparing)).To(BeNil())
+			Expect((*updated.Metadata.Annotations)[domain.FleetAnnotationDeltaPrepareResourceVersion]).To(BeEmpty())
+		})
+
+		It("should not clear a newer marker", func() {
+			setPreparingMarker("12")
+
+			updated, err := fleets.ResumeDeltaIfCurrent(ctx, orgId, fleetName, tvName, 11)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updated).To(BeNil())
+
+			current, err := fleets.Get(ctx, orgId, fleetName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(domain.FindStatusCondition(current.Status.Conditions, domain.ConditionTypeFleetDeltaPreparing)).ToNot(BeNil())
+			Expect((*current.Metadata.Annotations)[domain.FleetAnnotationDeltaPrepareResourceVersion]).To(Equal("12"))
 		})
 	})
 })

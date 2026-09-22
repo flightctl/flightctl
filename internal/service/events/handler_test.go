@@ -46,6 +46,22 @@ func (f *fakeWorkerClient) EmitEvent(ctx context.Context, orgId uuid.UUID, event
 	f.emitted = append(f.emitted, event)
 }
 
+type cancelingReliableWorkerClient struct {
+	attempts   int
+	cancel     context.CancelFunc
+	publishErr error
+}
+
+func (f *cancelingReliableWorkerClient) EmitEvent(context.Context, uuid.UUID, *domain.Event) {}
+
+func (f *cancelingReliableWorkerClient) EmitEventWithError(context.Context, uuid.UUID, *domain.Event) error {
+	f.attempts++
+	if f.attempts == 1 {
+		f.cancel()
+	}
+	return f.publishErr
+}
+
 func newTestHandler() (*ServiceHandler, *fakeEventStore, *fakeWorkerClient) {
 	fakeStore := &fakeEventStore{}
 	fakeWorker := &fakeWorkerClient{}
@@ -96,6 +112,21 @@ func TestCreateEvent(t *testing.T) {
 		h.CreateEvent(context.Background(), orgId, event)
 		require.Len(t, fakeStore.events, 1)
 	})
+}
+
+func TestCreateEventWithRetry_WhenContextCanceledDuringBackoffItStopsBeforeNextAttempt(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	worker := &cancelingReliableWorkerClient{
+		cancel:     cancel,
+		publishErr: errors.New("queue unavailable"),
+	}
+	h := NewServiceHandler(&fakeEventStore{}, worker, logrus.New())
+	event := domain.GetBaseEvent(ctx, domain.DeviceKind, "dev1", domain.EventReasonResourceUpdated, "updated", nil)
+
+	err := h.CreateEventWithRetry(ctx, uuid.New(), event)
+
+	require.ErrorIs(t, err, context.Canceled)
+	require.Equal(t, 1, worker.attempts)
 }
 
 func TestHandleGenericResourceDeletedEvents(t *testing.T) {

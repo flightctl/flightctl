@@ -12,7 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/delta_worker/service/deltageneration"
 	"github.com/flightctl/flightctl/internal/delta_worker/service/deltaprepare"
 	"github.com/flightctl/flightctl/internal/delta_worker/service/deltapreparegeneration"
-	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
+	deltagenerationstore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
 	deltapreparestore "github.com/flightctl/flightctl/internal/delta_worker/store/deltaprepare"
 	deltapreparegenerationstore "github.com/flightctl/flightctl/internal/delta_worker/store/deltapreparegeneration"
 	generateTask "github.com/flightctl/flightctl/internal/delta_worker/tasks/generate"
@@ -67,6 +67,9 @@ func NewHandler(
 	if prepareService == nil || generationService == nil || prepareGenerationService == nil {
 		return nil, fmt.Errorf("delta services are required")
 	}
+	if emit == nil {
+		return nil, fmt.Errorf("event emitter is required")
+	}
 	return &Handler{
 		resolver:                 resolver,
 		emit:                     emit,
@@ -100,6 +103,9 @@ func (p *Handler) Prepare(ctx context.Context, ev worker_client.EventWithOrgId) 
 	if prep == nil {
 		return nil
 	}
+	if prep.Status == model.DeltaPrepareComplete {
+		return p.emitPrepareCompletion(ctx, prep)
+	}
 	return p.processCandidates(ctx, ev, identity, prep, result)
 }
 
@@ -132,7 +138,7 @@ func (p *Handler) processCandidates(ctx context.Context, ev worker_client.EventW
 		return err
 	}
 	keys := generationKeysFromGenerations(generations)
-	allTerminal, completed := generationProgress(generations)
+	completed := generationProgress(generations)
 
 	current, err = p.isCurrentPrepare(ctx, ev.OrgId, kind, name, prep, identity)
 	if err != nil {
@@ -145,12 +151,17 @@ func (p *Handler) processCandidates(ctx context.Context, ev worker_client.EventW
 	if err != nil {
 		return err
 	}
-	if updated, ok := created.UpdatedPrepares[prep.ID]; ok {
-		prep = &updated
-		if prep.Status == model.DeltaPrepareComplete {
-			return p.clearStatus(ctx, ev.OrgId, kind, name)
-		}
+	updatedPrepare, ok := created.UpdatedPrepares[prep.ID]
+	if !ok {
+		return nil
 	}
+	if updatedPrepare.Status == model.DeltaPrepareComplete {
+		return p.emitPrepareCompletion(ctx, &updatedPrepare)
+	}
+	if updatedPrepare.Status != model.DeltaPrepareWaiting {
+		return nil
+	}
+	prep = &updatedPrepare
 	zeroWait := isZeroWait(p.maxWait(result.Fleet))
 	current, err = p.isCurrentPrepare(ctx, ev.OrgId, kind, name, prep, identity)
 	if err != nil {
@@ -159,13 +170,20 @@ func (p *Handler) processCandidates(ctx context.Context, ev worker_client.EventW
 	if !current {
 		return nil
 	}
-	if err := p.enqueuePending(ctx, ev.OrgId, result.Fleet, pendingGenerationKeys(generations)); err != nil {
+	if zeroWait {
+		if err := p.enqueuePending(ctx, ev.OrgId, result.Fleet, pendingGenerationKeys(generations)); err != nil {
+			return err
+		}
+		return p.completeNow(ctx, prep)
+	}
+	// Persist the resource-side marker before publishing generation work. A
+	// generation can complete immediately after it is enqueued; the completion
+	// handler must then observe DeltaPreparing to apply progress or resume the
+	// resource instead of leaving the marker behind after this task returns.
+	if err := p.setPreparing(ctx, prep, completed, len(keys)); err != nil {
 		return err
 	}
-	if allTerminal || zeroWait {
-		return p.completeNow(ctx, prep, ev.OrgId, kind, name)
-	}
-	return p.setPreparing(ctx, ev.OrgId, kind, name, completed, len(keys))
+	return p.enqueuePending(ctx, ev.OrgId, result.Fleet, pendingGenerationKeys(generations))
 }
 
 func (p *Handler) isCurrentPrepare(ctx context.Context, orgID uuid.UUID, kind, name string, prep *model.DeltaPrepare, identity prepareIdentity) (bool, error) {
@@ -204,6 +222,10 @@ func (p *Handler) admitPrepare(ctx context.Context, orgId uuid.UUID, kind, name 
 		return nil, err
 	}
 	if !admission.Accepted {
+		if admission.Prepare != nil && admission.Prepare.Status == model.DeltaPrepareComplete &&
+			admission.Prepare.SourceResourceVersion == identity.resourceVersion && samePrepareIdentity(admission.Prepare, identity) {
+			return admission.Prepare, nil
+		}
 		return nil, nil
 	}
 	return admission.Prepare, nil
@@ -215,7 +237,14 @@ func (p *Handler) finishSkip(ctx context.Context, orgId uuid.UUID, kind, name st
 		return err
 	}
 	if latest == nil {
-		return p.clearStatus(ctx, orgId, kind, name)
+		return p.emitPrepareCompletion(ctx, &model.DeltaPrepare{
+			OrgID:                 orgId,
+			Kind:                  kind,
+			Name:                  name,
+			TemplateVersion:       identity.templateVersion,
+			SpecHash:              identity.specHash,
+			SourceResourceVersion: identity.resourceVersion,
+		})
 	}
 	if latest.SourceResourceVersion > identity.resourceVersion {
 		return nil
@@ -224,22 +253,37 @@ func (p *Handler) finishSkip(ctx context.Context, orgId uuid.UUID, kind, name st
 		if !samePrepareIdentity(latest, identity) {
 			return fmt.Errorf("conflicting delta prepares have source resource version %d", identity.resourceVersion)
 		}
-		if latest.Status != model.DeltaPrepareWaiting {
-			return nil
-		}
 	}
 	if latest.Status == model.DeltaPrepareWaiting {
-		if err := p.failWaiting(ctx, latest, orgId, kind, name); err != nil {
+		if err := p.failWaiting(ctx, latest); err != nil {
 			return err
 		}
 	}
-	if err := p.clearStatus(ctx, orgId, kind, name); err != nil {
-		return err
+	if latest.Status == model.DeltaPrepareComplete {
+		return p.emitPrepareCompletion(ctx, latest)
 	}
-	return nil
+	completion := &model.DeltaPrepare{
+		OrgID:                 orgId,
+		Kind:                  kind,
+		Name:                  name,
+		TemplateVersion:       identity.templateVersion,
+		SpecHash:              identity.specHash,
+		SourceResourceVersion: identity.resourceVersion,
+	}
+	if latest.SourceResourceVersion < identity.resourceVersion {
+		// A newer skip event can supersede a waiting prepare without going
+		// through admission, leaving the resource marker keyed to the older
+		// prepare. Re-establish the marker with the newer identity so the
+		// completion handler can perform its normal conditional cleanup. The
+		// status setter fences against a resource state newer than this event.
+		if err := p.prepareService.SetDeltaPreparingStatus(ctx, completion, 0, 0); err != nil {
+			return fmt.Errorf("rebind skipped delta preparing status: %w", err)
+		}
+	}
+	return p.emitPrepareCompletion(ctx, completion)
 }
 
-func (p *Handler) failWaiting(ctx context.Context, waiting *model.DeltaPrepare, orgId uuid.UUID, kind, name string) error {
+func (p *Handler) failWaiting(ctx context.Context, waiting *model.DeltaPrepare) error {
 	waiting.Status = model.DeltaPrepareFailed
 	_, err := p.prepareService.UpdateDeltaPrepare(ctx, waiting.ResourceVersion, waiting)
 	if err != nil {
@@ -248,25 +292,22 @@ func (p *Handler) failWaiting(ctx context.Context, waiting *model.DeltaPrepare, 
 		}
 		return err
 	}
-	return p.clearStatus(ctx, orgId, kind, name)
+	return nil
 }
 
-func generationProgress(generations []model.DeltaGeneration) (allTerminal bool, completed int) {
-	allTerminal = true
+func generationProgress(generations []model.DeltaGeneration) (completed int) {
 	for _, generation := range generations {
 		if isTerminalGeneration(generation.Status) {
 			completed++
-			continue
 		}
-		allTerminal = false
 	}
-	return allTerminal, completed
+	return completed
 }
 
-func generationKeysFromGenerations(generations []model.DeltaGeneration) []deltastore.GenerationKey {
-	keys := make([]deltastore.GenerationKey, 0, len(generations))
+func generationKeysFromGenerations(generations []model.DeltaGeneration) []deltagenerationstore.GenerationKey {
+	keys := make([]deltagenerationstore.GenerationKey, 0, len(generations))
 	for _, generation := range generations {
-		keys = append(keys, deltastore.GenerationKey{
+		keys = append(keys, deltagenerationstore.GenerationKey{
 			OrgID:           generation.OrgID,
 			ImageRepository: generation.ImageRepository,
 			SourceDigest:    generation.SourceDigest,
@@ -276,13 +317,13 @@ func generationKeysFromGenerations(generations []model.DeltaGeneration) []deltas
 	return keys
 }
 
-func pendingGenerationKeys(generations []model.DeltaGeneration) []deltastore.GenerationKey {
-	keys := make([]deltastore.GenerationKey, 0, len(generations))
+func pendingGenerationKeys(generations []model.DeltaGeneration) []deltagenerationstore.GenerationKey {
+	keys := make([]deltagenerationstore.GenerationKey, 0, len(generations))
 	for _, generation := range generations {
 		if generation.Status != model.DeltaGenerationPending {
 			continue
 		}
-		keys = append(keys, deltastore.GenerationKey{
+		keys = append(keys, deltagenerationstore.GenerationKey{
 			OrgID:           generation.OrgID,
 			ImageRepository: generation.ImageRepository,
 			SourceDigest:    generation.SourceDigest,
@@ -292,12 +333,9 @@ func pendingGenerationKeys(generations []model.DeltaGeneration) []deltastore.Gen
 	return keys
 }
 
-func (p *Handler) enqueuePending(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, pending []deltastore.GenerationKey) error {
+func (p *Handler) enqueuePending(ctx context.Context, orgId uuid.UUID, fleet *domain.Fleet, pending []deltagenerationstore.GenerationKey) error {
 	if len(pending) == 0 {
 		return nil
-	}
-	if p.emit == nil {
-		return fmt.Errorf("emit is required to enqueue generate jobs")
 	}
 	timeout := p.jobTimeout(fleet)
 	for _, key := range pending {
@@ -320,22 +358,30 @@ func (p *Handler) enqueuePending(ctx context.Context, orgId uuid.UUID, fleet *do
 	return nil
 }
 
-func (p *Handler) completeNow(ctx context.Context, prep *model.DeltaPrepare, orgId uuid.UUID, kind, name string) error {
+func (p *Handler) completeNow(ctx context.Context, prep *model.DeltaPrepare) error {
 	prep.Status = model.DeltaPrepareComplete
-	_, err := p.prepareService.UpdateDeltaPrepare(ctx, prep.ResourceVersion, prep)
+	updated, err := p.prepareService.UpdateDeltaPrepare(ctx, prep.ResourceVersion, prep)
 	if err != nil {
 		if errors.Is(err, flterrors.ErrNoRowsUpdated) {
 			return nil
 		}
 		return err
 	}
-	if err := p.clearStatus(ctx, orgId, kind, name); err != nil {
-		return err
+	if updated != nil {
+		prep = updated
 	}
-	return nil
+	return p.emitPrepareCompletion(ctx, prep)
 }
 
-func (p *Handler) createPrepareGenerations(ctx context.Context, prepareID uuid.UUID, keys []deltastore.GenerationKey) (deltapreparegenerationstore.CreateDeltaPrepareGenerationsResult, error) {
+func (p *Handler) emitPrepareCompletion(ctx context.Context, prep *model.DeltaPrepare) error {
+	event, err := deltaprepare.NewPrepareCompletionEvent(prep)
+	if err != nil {
+		return err
+	}
+	return p.emit(ctx, prep.OrgID, event)
+}
+
+func (p *Handler) createPrepareGenerations(ctx context.Context, prepareID uuid.UUID, keys []deltagenerationstore.GenerationKey) (deltapreparegenerationstore.CreateDeltaPrepareGenerationsResult, error) {
 	joins := make([]*model.DeltaPrepareGeneration, 0, len(keys))
 	for _, key := range keys {
 		joins = append(joins, &model.DeltaPrepareGeneration{
@@ -346,15 +392,11 @@ func (p *Handler) createPrepareGenerations(ctx context.Context, prepareID uuid.U
 	return p.prepareGenerationService.CreateDeltaPrepareGenerations(ctx, joins)
 }
 
-func (p *Handler) setPreparing(ctx context.Context, orgId uuid.UUID, kind, name string, completed, total int) error {
+func (p *Handler) setPreparing(ctx context.Context, prep *model.DeltaPrepare, completed, total int) error {
 	if total == 0 {
 		return nil
 	}
-	return p.prepareService.SetDeltaPreparingStatus(ctx, orgId, kind, name, completed, total)
-}
-
-func (p *Handler) clearStatus(ctx context.Context, orgId uuid.UUID, kind, name string) error {
-	return p.prepareService.ClearDeltaPreparingStatus(ctx, orgId, kind, name)
+	return p.prepareService.SetDeltaPreparingStatus(ctx, prep, completed, total)
 }
 
 func (p *Handler) now() time.Time {
