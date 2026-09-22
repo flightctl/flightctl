@@ -557,6 +557,23 @@ func (h *DeviceServiceHandler) GetRenderedDevice(ctx context.Context, orgId uuid
 		processedAwaitReconnect = h.processAwaitingReconnectIfNeeded(ctx, orgId, name, params.KnownRenderedVersion)
 	}
 
+	// Enrollment hooks gate: check before WaitForNotification so agents don't
+	// long-poll while gated. GetRendered() (below) also loads the full device
+	// including service_conditions, but it runs after WaitForNotification —
+	// too late for the gate since the agent would already be blocked.
+	device, deviceErr := h.deviceStore.Get(ctx, orgId, name)
+	if deviceErr != nil {
+		h.log.Errorf("GetRenderedDevice %s/%s: failed to get device for gate check: %v", orgId, name, deviceErr)
+		return nil, common.StoreErrorToApiStatus(deviceErr, false, domain.DeviceKind, &name)
+	}
+	if domain.IsDeviceEnrollmentHooksGated(device) {
+		reason := ""
+		if cond := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceEnrollmentHooks); cond != nil {
+			reason = cond.Reason
+		}
+		return nil, domain.StatusConflict(fmt.Sprintf("device is gated by enrollment hooks (reason: %s)", reason))
+	}
+
 	if params.KnownRenderedVersion != nil && !processedAwaitReconnect {
 		n, gotNotification, err := rendered.Bus.Instance().WaitForNotification(ctx, orgId, name, *params.KnownRenderedVersion)
 		if err != nil {
