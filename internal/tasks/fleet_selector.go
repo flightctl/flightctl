@@ -662,6 +662,11 @@ func (f FleetSelectorMatchingLogic) handleOrphanedDevices(ctx context.Context, f
 				return devicesProcessed, errors
 			}
 
+			if domain.IsDeviceEnrollmentHooksGated(&device) {
+				f.log.Infof("Skipping ownership recomputation for device %s/%s: enrollment hooks gate is active", f.orgId, lo.FromPtr(device.Metadata.Name))
+				continue
+			}
+
 			devicesProcessed++
 			// Recompute matching fleets for this orphaned device
 			allFleets, err := allFleetsFetcher()
@@ -720,6 +725,11 @@ func (f FleetSelectorMatchingLogic) handleDevicesWithMultipleOwnersCondition(ctx
 			if ctx.Err() != nil {
 				f.log.Warnf("Context cancelled during device processing, stopping early. Processed %d devices so far", devicesProcessed)
 				return devicesProcessed, errors
+			}
+
+			if domain.IsDeviceEnrollmentHooksGated(&device) {
+				f.log.Infof("Skipping ownership recomputation for device %s/%s: enrollment hooks gate is active", f.orgId, lo.FromPtr(device.Metadata.Name))
+				continue
 			}
 
 			// Get the device's current state for comparison
