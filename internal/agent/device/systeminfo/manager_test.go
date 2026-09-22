@@ -178,6 +178,7 @@ func TestRunCollectsOnItsPeriodicSchedule(t *testing.T) {
 		collectionInterval: time.Millisecond,
 		collectionChanged:  make(chan struct{}, 1),
 		now:                time.Now,
+		log:                log.NewPrefixLogger("test"),
 		collection: []*collector{{
 			source: &sourceDefinition{},
 			collect: func(context.Context, *Info) error {

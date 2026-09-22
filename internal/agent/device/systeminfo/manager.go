@@ -127,12 +127,16 @@ func (m *manager) ReloadConfig(ctx context.Context, cfg *config.Config) error {
 
 	m.log.Info("Reloading system info config")
 
-	selectionChanged := !reflect.DeepEqual(m.infoKeys, cfg.SystemInfo) || !reflect.DeepEqual(m.customKeys, cfg.SystemInfoCustom)
-	if selectionChanged {
+	selectionChanged := false
+	if !reflect.DeepEqual(m.infoKeys, cfg.SystemInfo) {
 		m.log.Infof("Updating system info keys: %v -> %v", m.infoKeys, cfg.SystemInfo)
-		m.log.Infof("Updating custom system info keys: %v -> %v", m.customKeys, cfg.SystemInfoCustom)
 		m.infoKeys = cfg.SystemInfo
+		selectionChanged = true
+	}
+	if !reflect.DeepEqual(m.customKeys, cfg.SystemInfoCustom) {
+		m.log.Infof("Updating custom system info keys: %v -> %v", m.customKeys, cfg.SystemInfoCustom)
 		m.customKeys = cfg.SystemInfoCustom
+		selectionChanged = true
 	}
 	// Reload custom script definitions on every SIGHUP, even when the
 	// configured keys are unchanged.
@@ -188,37 +192,48 @@ func (m *manager) Status(ctx context.Context, deviceStatus *v1beta1.DeviceStatus
 
 // Run starts periodic system info collection and stops when ctx is cancelled.
 func (m *manager) Run(ctx context.Context) {
-	var ticker *time.Ticker
-	var ticks <-chan time.Time
-	resetTicker := func(interval time.Duration) {
-		if ticker != nil {
-			ticker.Stop()
-			ticker = nil
-			ticks = nil
+	var (
+		interval time.Duration
+		ticker   *time.Ticker
+		ticks    <-chan time.Time
+	)
+	updateTicker := func() {
+		m.mu.Lock()
+		updatedInterval := m.collectionInterval
+		m.mu.Unlock()
+		if updatedInterval != interval {
+			if updatedInterval <= 0 {
+				if ticker != nil {
+					ticker.Stop()
+					ticker = nil
+					ticks = nil
+				}
+				m.log.Debugf("Systeminfo collection disabled (no interval)")
+			} else if ticker == nil {
+				ticker = time.NewTicker(updatedInterval)
+				ticks = ticker.C
+				m.log.Debugf("Starting systeminfo collection loop (interval=%s)", updatedInterval)
+			} else {
+				ticker.Reset(updatedInterval)
+				m.log.Debugf("Systeminfo collection loop changed (interval=%s)", updatedInterval)
+			}
 		}
-		if interval > 0 {
-			ticker = time.NewTicker(interval)
-			ticks = ticker.C
-		}
+		interval = updatedInterval
 	}
+	updateTicker()
 	defer func() {
 		if ticker != nil {
 			ticker.Stop()
 		}
 	}()
 
-	m.mu.Lock()
-	resetTicker(m.collectionInterval)
-	m.mu.Unlock()
-
 	for {
 		select {
 		case <-ctx.Done():
+			m.log.Debugf("Systeminfo collection loop stopped")
 			return
 		case <-m.collectionChanged:
-			m.mu.Lock()
-			resetTicker(m.collectionInterval)
-			m.mu.Unlock()
+			updateTicker()
 			m.collect(ctx)
 		case <-ticks:
 			m.collect(ctx)
