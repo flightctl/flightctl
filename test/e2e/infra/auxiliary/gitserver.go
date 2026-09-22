@@ -1,6 +1,8 @@
 package auxiliary
 
 import (
+	"archive/tar"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -43,13 +45,17 @@ func (g *GitServer) Start(ctx context.Context, network string, reuse bool) error
 		return fmt.Errorf("failed to get project root: %w", err)
 	}
 	buildContext := filepath.Join(projectRoot, "test", "scripts")
+	contextArchive, err := gitServerContextArchive(buildContext)
+	if err != nil {
+		return fmt.Errorf("failed to prepare git server build context: %w", err)
+	}
 	req := testcontainers.ContainerRequest{
 		FromDockerfile: testcontainers.FromDockerfile{
-			Context:    buildContext,
-			Dockerfile: "Containerfile.gitserver",
-			Repo:       gitServerImageRepo,
-			Tag:        gitServerImageTag,
-			KeepImage:  true,
+			ContextArchive: contextArchive,
+			Dockerfile:     "Containerfile.gitserver",
+			Repo:           gitServerImageRepo,
+			Tag:            gitServerImageTag,
+			KeepImage:      true,
 		},
 		Name:         gitServerContainerName,
 		ExposedPorts: []string{gitServerPort},
@@ -76,6 +82,83 @@ func (g *GitServer) Start(ctx context.Context, network string, reuse bool) error
 	g.InternalPort = g.Port
 	g.URL = fmt.Sprintf("ssh://user@%s", net.JoinHostPort(g.Host, strconv.Itoa(g.Port)))
 	logrus.Infof("Git server container started: %s", g.URL)
+	return nil
+}
+
+// gitServerContextArchive creates a minimal build context with normalized root
+// ownership. The Podman Docker-compatible build API otherwise preserves the
+// host UID in the context tar, which can be unmapped in a rootless user namespace.
+func gitServerContextArchive(contextDir string) (io.ReadSeeker, error) {
+	var archiveBuffer bytes.Buffer
+	tarWriter := tar.NewWriter(&archiveBuffer)
+
+	if err := addGitServerArchiveEntry(tarWriter, contextDir, "Containerfile.gitserver"); err != nil {
+		return nil, err
+	}
+	if err := addGitServerArchiveEntry(tarWriter, contextDir, "git-server-entrypoint.sh"); err != nil {
+		return nil, err
+	}
+
+	commandDir := filepath.Join(contextDir, "git-server-cmds")
+	entries, err := os.ReadDir(commandDir)
+	if err != nil {
+		return nil, fmt.Errorf("read git server commands: %w", err)
+	}
+	if err := addGitServerArchiveDirectory(tarWriter, "git-server-cmds"); err != nil {
+		return nil, err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			return nil, fmt.Errorf("unexpected directory in git server commands: %s", entry.Name())
+		}
+		name := filepath.Join("git-server-cmds", entry.Name())
+		if err := addGitServerArchiveEntry(tarWriter, contextDir, name); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := tarWriter.Close(); err != nil {
+		return nil, fmt.Errorf("close git server build context: %w", err)
+	}
+	return bytes.NewReader(archiveBuffer.Bytes()), nil
+}
+
+func addGitServerArchiveDirectory(writer *tar.Writer, name string) error {
+	return writer.WriteHeader(&tar.Header{
+		Name:     name + "/",
+		Mode:     0755,
+		Typeflag: tar.TypeDir,
+		Uname:    "root",
+		Gname:    "root",
+	})
+}
+
+func addGitServerArchiveEntry(writer *tar.Writer, contextDir, name string) error {
+	path := filepath.Join(contextDir, filepath.FromSlash(name))
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("stat git server build file %q: %w", name, err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("git server build file %q is not regular", name)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read git server build file %q: %w", name, err)
+	}
+	header := &tar.Header{
+		Name:  name,
+		Mode:  int64(info.Mode().Perm()),
+		Size:  int64(len(data)),
+		Uname: "root",
+		Gname: "root",
+	}
+	if err := writer.WriteHeader(header); err != nil {
+		return fmt.Errorf("write git server build file %q header: %w", name, err)
+	}
+	if _, err := writer.Write(data); err != nil {
+		return fmt.Errorf("write git server build file %q: %w", name, err)
+	}
 	return nil
 }
 
