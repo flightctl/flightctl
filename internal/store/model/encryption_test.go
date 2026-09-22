@@ -148,12 +148,13 @@ func TestEncryptionHandlers_Registry(t *testing.T) {
 	mgr := setupEncryption(t)
 
 	handlers := EncryptionHandlers()
-	require.Len(t, handlers, 4, "Should have 4 handlers registered")
+	require.Len(t, handlers, 5, "Should have 5 handlers registered")
 
 	require.Contains(t, handlers, domain.RepositoryKind)
 	require.Contains(t, handlers, domain.AuthProviderKind)
 	require.Contains(t, handlers, domain.DeviceKind)
 	require.Contains(t, handlers, domain.EnrollmentHookPolicyKind)
+	require.Contains(t, handlers, EnrollmentHookNotifySecretKind)
 
 	noopEncrypt := func(_ context.Context, data []byte) ([]byte, error) {
 		return data, nil
@@ -195,6 +196,10 @@ func TestEncryptionHandlers_Registry(t *testing.T) {
 				require.NotNil(t, encryptedToken)
 				require.True(t, encryption.IsEncrypted([]byte(*encryptedToken)))
 				return
+			case EnrollmentHookNotifySecretKind:
+				model = &EnrollmentHookNotifySecret{
+					BearerToken: "secret-bearer",
+				}
 			default:
 				t.Fatalf("Unknown model type: %s", modelName)
 			}

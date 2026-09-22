@@ -3,6 +3,7 @@ package store_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -322,6 +323,26 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(deleted).To(BeFalse())
 			Expect(called).To(BeFalse())
+		})
+
+		It("When deleting notify secrets fails it should roll back device deletion", func() {
+			const callbackName = "test:fail-notify-secret-delete"
+			Expect(db.Callback().Delete().Before("gorm:delete").Register(callbackName, func(tx *gorm.DB) {
+				if _, ok := tx.Statement.Model.(*model.EnrollmentHookNotifySecret); ok {
+					_ = tx.AddError(errors.New("notify secret delete failed"))
+				}
+			})).To(Succeed())
+			DeferCleanup(func() {
+				Expect(db.Callback().Delete().Remove(callbackName)).To(Succeed())
+			})
+
+			deleted, err := devStore.Delete(ctx, orgId, "mydevice-1", callback)
+			Expect(err).To(HaveOccurred())
+			Expect(deleted).To(BeFalse())
+			Expect(called).To(BeFalse())
+
+			_, err = devStore.Get(ctx, orgId, "mydevice-1")
+			Expect(err).ToNot(HaveOccurred())
 		})
 
 		It("List with summary", func() {

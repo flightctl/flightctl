@@ -125,6 +125,16 @@ func dispatchTasks(fleetSvc fleetservice.Service, templateversionSvc templatever
 			})
 			errorMessages = appendErrorMessage(errorMessages, taskName, err)
 		}
+		if shouldEnrollmentHookNotify(eventWithOrgId.Event) {
+			taskName = "enrollmentHookNotify"
+			err = runTaskWithMetrics(taskName, workerMetrics, func() error {
+				// Stub: actual notify webhook execution is EDM-5707 scope
+				log.Infof("enrollment hook notify: event received for %s/%s (handler not yet implemented)",
+					eventWithOrgId.OrgId, eventWithOrgId.Event.InvolvedObject.Name)
+				return nil
+			})
+			errorMessages = appendErrorMessage(errorMessages, taskName, err)
+		}
 		if shouldRunEncryptionMigration(eventWithOrgId.Event) {
 			taskName = "encryptionMigration"
 			err = runTaskWithMetrics(taskName, workerMetrics, func() error {
@@ -323,6 +333,10 @@ func shouldUpdateRepositoryReferers(ctx context.Context, event domain.Event, log
 	}
 
 	return false
+}
+
+func shouldEnrollmentHookNotify(event domain.Event) bool {
+	return event.Reason == domain.EventReasonEnrollmentRequestApproved
 }
 
 func shouldRunEncryptionMigration(event domain.Event) bool {

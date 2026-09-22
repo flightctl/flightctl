@@ -340,6 +340,11 @@ func KeepDBDeviceStatus(device, dbDevice *domain.Device) {
 		device.Status.Summary.Status = dbDevice.Status.Summary.Status
 		device.Status.Summary.Info = dbDevice.Status.Summary.Info
 	}
+
+	// Preserve server-owned enrollment hook snapshot; the agent never reports this field.
+	if dbDevice.Status.EnrollmentHooks != nil {
+		device.Status.EnrollmentHooks = dbDevice.Status.EnrollmentHooks
+	}
 }
 
 func ComputeDeviceStatusChanges(ctx context.Context, oldDevice, newDevice *domain.Device, orgId uuid.UUID) ResourceUpdates {
