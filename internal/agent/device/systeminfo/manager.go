@@ -34,25 +34,18 @@ type manager struct {
 	readWriter fileio.ReadWriter
 	dataDir    string
 
-	mu                   sync.Mutex
-	collectionMu         sync.Mutex
-	infoKeys             []string
-	customKeys           []string
-	collectionTimeout    time.Duration
-	collectionInterval   time.Duration
-	intervalChanged      chan struct{}
-	collectionRequested  chan struct{}
-	forceCollection      chan collectionWake
-	runtimeCollectors    map[string]CollectorFn
-	collection           []*collector
-	refreshCustomSources bool
-	now                  func() time.Time
+	mu                 sync.Mutex
+	collectionMu       sync.Mutex
+	infoKeys           []string
+	customKeys         []string
+	collectionTimeout  time.Duration
+	collectionInterval time.Duration
+	collectionChanged  chan struct{}
+	runtimeCollectors  map[string]CollectorFn
+	collection         []*collector
+	now                func() time.Time
 
 	log *log.PrefixLogger
-}
-
-type collectionWake struct {
-	done chan struct{}
 }
 
 func NewManager(
@@ -66,20 +59,17 @@ func NewManager(
 	collectionInterval util.Duration,
 ) *manager {
 	m := &manager{
-		exec:                 exec,
-		readWriter:           readWriter,
-		dataDir:              dataDir,
-		infoKeys:             infoKeys,
-		customKeys:           customKeys,
-		collectionTimeout:    time.Duration(collectionTimeout),
-		collectionInterval:   time.Duration(collectionInterval),
-		intervalChanged:      make(chan struct{}, 1),
-		collectionRequested:  make(chan struct{}, 1),
-		forceCollection:      make(chan collectionWake),
-		runtimeCollectors:    make(map[string]CollectorFn),
-		refreshCustomSources: customKeys == nil || len(customKeys) > 0,
-		now:                  time.Now,
-		log:                  log,
+		exec:               exec,
+		readWriter:         readWriter,
+		dataDir:            dataDir,
+		infoKeys:           infoKeys,
+		customKeys:         customKeys,
+		collectionTimeout:  time.Duration(collectionTimeout),
+		collectionInterval: time.Duration(collectionInterval),
+		collectionChanged:  make(chan struct{}, 1),
+		runtimeCollectors:  make(map[string]CollectorFn),
+		now:                time.Now,
+		log:                log,
 	}
 	m.rebuildCollectors()
 	return m
@@ -143,9 +133,10 @@ func (m *manager) ReloadConfig(ctx context.Context, cfg *config.Config) error {
 		m.log.Infof("Updating custom system info keys: %v -> %v", m.customKeys, cfg.SystemInfoCustom)
 		m.infoKeys = cfg.SystemInfo
 		m.customKeys = cfg.SystemInfoCustom
-		m.refreshCustomSources = cfg.SystemInfoCustom == nil || len(cfg.SystemInfoCustom) > 0
-		m.rebuildCollectors()
 	}
+	// Reload custom script definitions on every SIGHUP, even when the
+	// configured keys are unchanged.
+	m.rebuildCollectors()
 
 	timeout := time.Duration(cfg.SystemInfoTimeout)
 	if m.collectionTimeout != timeout {
@@ -153,20 +144,16 @@ func (m *manager) ReloadConfig(ctx context.Context, cfg *config.Config) error {
 		m.collectionTimeout = timeout
 	}
 
-	intervalChanged := false
+	collectionChanged := selectionChanged
 	interval := time.Duration(cfg.SystemInfoCollectionInterval())
 	if m.collectionInterval != interval {
 		m.log.Infof("Updating system info collection interval: %v -> %v", m.collectionInterval, interval)
 		m.collectionInterval = interval
-		intervalChanged = true
-		select {
-		case m.intervalChanged <- struct{}{}:
-		default:
-		}
+		collectionChanged = true
 	}
-	if selectionChanged && !intervalChanged {
+	if collectionChanged {
 		select {
-		case m.collectionRequested <- struct{}{}:
+		case m.collectionChanged <- struct{}{}:
 		default:
 		}
 	}
@@ -192,30 +179,11 @@ func (m *manager) Status(ctx context.Context, deviceStatus *v1beta1.DeviceStatus
 		opt(&collectorOpts)
 	}
 	if collectorOpts.Force {
-		if err := m.requestCollection(ctx); err != nil {
-			return err
-		}
+		m.collect(ctx)
 	}
 	deviceStatus.SystemInfo, deviceStatus.SystemInfoStatus = m.systemInfoFromCache()
 
 	return nil
-}
-
-// requestCollection waits for the collection worker to complete a new cycle.
-func (m *manager) requestCollection(ctx context.Context) error {
-	wake := collectionWake{done: make(chan struct{})}
-	select {
-	case m.forceCollection <- wake:
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-
-	select {
-	case <-wake.done:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
 }
 
 // Run starts periodic system info collection and stops when ctx is cancelled.
@@ -247,16 +215,11 @@ func (m *manager) Run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-m.intervalChanged:
+		case <-m.collectionChanged:
 			m.mu.Lock()
 			resetTicker(m.collectionInterval)
 			m.mu.Unlock()
 			m.collect(ctx)
-		case <-m.collectionRequested:
-			m.collect(ctx)
-		case wake := <-m.forceCollection:
-			m.collect(ctx)
-			close(wake.done)
 		case <-ticks:
 			m.collect(ctx)
 		}
@@ -286,32 +249,37 @@ func managerCollectionRequest(infoKeys, customKeys []string) collectionRequest {
 }
 
 func (m *manager) collect(ctx context.Context) {
-	m.mu.Lock()
-	timeout := m.collectionTimeout
-	m.mu.Unlock()
-	if timeout <= 0 {
-		m.collectAndCache(ctx)
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	m.collectAndCache(ctx)
+	m.collectConfigured(ctx, false)
 }
 
-func (m *manager) collectAndCache(ctx context.Context) {
+// RefreshPendingCollectors collects sources that have not yet been collected.
+func (m *manager) RefreshPendingCollectors(ctx context.Context) {
+	m.collectConfigured(ctx, true)
+}
+
+func (m *manager) collectConfigured(ctx context.Context, pendingOnly bool) {
 	m.collectionMu.Lock()
 	defer m.collectionMu.Unlock()
 
 	m.mu.Lock()
-	if m.refreshCustomSources {
-		// Rebuild custom entries for every cycle so newly executable discovered
-		// scripts appear and removed scripts disappear without requiring a reload.
-		m.rebuildCollectors()
-	}
+	timeout := m.collectionTimeout
 	sources := slices.Clone(m.collection)
+	if pendingOnly {
+		sources = slices.DeleteFunc(sources, func(source *collector) bool {
+			return !source.pending()
+		})
+	}
 	m.mu.Unlock()
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
 
+	m.collectSources(ctx, sources)
+}
+
+func (m *manager) collectSources(ctx context.Context, sources []*collector) {
 	for _, source := range sources {
 		if ctx.Err() != nil {
 			return
@@ -331,11 +299,6 @@ func (m *manager) collectAndCache(ctx context.Context) {
 			return
 		}
 	}
-}
-
-// RefreshRuntimeCollectors collects sources registered after bootstrap.
-func (m *manager) RefreshRuntimeCollectors(ctx context.Context) {
-	m.collect(ctx)
 }
 
 func (m *manager) infoFromCache() *Info {
@@ -387,7 +350,10 @@ func (m *manager) systemInfoFromCache() (v1beta1.DeviceSystemInfo, *v1beta1.Devi
 				unknown = true
 				continue
 			}
-			entry := v1beta1.SystemInfoSourceStatus{LastTransitionTime: exec.lastTransitionTime, Status: v1beta1.SystemInfoSourceStatusHealthy}
+			entry := v1beta1.SystemInfoSourceStatus{
+				LastTransitionTime: exec.lastTransitionTime,
+				Status:             v1beta1.SystemInfoSourceStatusHealthy,
+			}
 			if exec.failed {
 				entry.Message = new(exec.message)
 				entry.Status = v1beta1.SystemInfoSourceStatusError
@@ -478,10 +444,6 @@ func (m *manager) RegisterCollector(ctx context.Context, key string, fn Collecto
 	m.runtimeCollectors[key] = fn
 	if slices.Contains(m.infoKeys, key) {
 		m.rebuildCollectors()
-		select {
-		case m.collectionRequested <- struct{}{}:
-		default:
-		}
 	}
 }
 

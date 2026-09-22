@@ -45,8 +45,8 @@ type Manager interface {
 	BootTime() string
 	// RegisterCollector registers a system info collector
 	RegisterCollector(ctx context.Context, key string, fn CollectorFn)
-	// RefreshRuntimeCollectors updates cached runtime collector values without running built-in collectors.
-	RefreshRuntimeCollectors(ctx context.Context)
+	// RefreshPendingCollectors collects sources that have not yet been collected.
+	RefreshPendingCollectors(ctx context.Context)
 	// Run starts periodic system info collection. Blocks until ctx is cancelled.
 	Run(ctx context.Context)
 	status.Exporter
@@ -564,7 +564,7 @@ func Collect(ctx context.Context, log *log.PrefixLogger, exec executer.Executer,
 		),
 		now: time.Now,
 	}
-	m.collectAndCache(ctx)
+	m.collect(ctx)
 	return m.infoFromCache(), nil
 }
 

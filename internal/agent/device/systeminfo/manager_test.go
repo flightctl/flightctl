@@ -3,6 +3,7 @@ package systeminfo
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -171,13 +172,12 @@ func TestReloadConfig(t *testing.T) {
 
 func TestRunCollectsOnItsPeriodicSchedule(t *testing.T) {
 	require := require.New(t)
-	collected := make(chan struct{}, 1)
+	collected := make(chan struct{}, 2)
 	manager := &manager{
-		collectionTimeout:   time.Second,
-		collectionInterval:  time.Millisecond,
-		intervalChanged:     make(chan struct{}, 1),
-		collectionRequested: make(chan struct{}, 1),
-		now:                 time.Now,
+		collectionTimeout:  time.Second,
+		collectionInterval: time.Millisecond,
+		collectionChanged:  make(chan struct{}, 1),
+		now:                time.Now,
 		collection: []*collector{{
 			source: &sourceDefinition{},
 			collect: func(context.Context, *Info) error {
@@ -201,6 +201,11 @@ func TestRunCollectsOnItsPeriodicSchedule(t *testing.T) {
 	case <-collected:
 	case <-time.After(time.Second):
 		require.FailNow("timed out waiting for periodic collection")
+	}
+	select {
+	case <-collected:
+	case <-time.After(time.Second):
+		require.FailNow("timed out waiting for the next periodic collection")
 	}
 
 	cancel()
@@ -233,11 +238,8 @@ func TestStatusWithForceRequestsCollection(t *testing.T) {
 	require := require.New(t)
 	collected := make(chan struct{}, 1)
 	manager := &manager{
-		collectionTimeout:   time.Second,
-		intervalChanged:     make(chan struct{}, 1),
-		collectionRequested: make(chan struct{}, 1),
-		forceCollection:     make(chan collectionWake),
-		now:                 time.Now,
+		collectionTimeout: time.Second,
+		now:               time.Now,
 		collection: []*collector{{
 			source: &sourceDefinition{},
 			collect: func(context.Context, *Info) error {
@@ -247,13 +249,6 @@ func TestStatusWithForceRequestsCollection(t *testing.T) {
 		}},
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		manager.Run(ctx)
-		close(done)
-	}()
-
 	deviceStatus := &v1beta1.DeviceStatus{}
 	require.NoError(manager.Status(context.Background(), deviceStatus, status.WithForceCollect()))
 	select {
@@ -262,12 +257,80 @@ func TestStatusWithForceRequestsCollection(t *testing.T) {
 		require.FailNow("timed out waiting for forced collection")
 	}
 
-	cancel()
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		require.FailNow("Run did not stop after context cancellation")
+}
+
+func TestRefreshPendingCollectorsCollectsOnlyUnattemptedSources(t *testing.T) {
+	require := require.New(t)
+	oldCalls := 0
+	newCalls := 0
+	oldKey := common.TPMVendorInfoKey
+	newKey := common.ManagementCertSerialKey
+	manager := &manager{
+		collectionTimeout: time.Second,
+		now:               time.Now,
 	}
+	entries := []sourceEntry{
+		{key: oldKey, kind: systemInfoSource, definition: runtimeDefinition(oldKey, func(context.Context) string {
+			oldCalls++
+			return "old"
+		})},
+		{key: newKey, kind: systemInfoSource, definition: runtimeDefinition(newKey, func(context.Context) string {
+			newCalls++
+			return "new"
+		})},
+	}
+	manager.collection = collectorsForEntries(
+		log.NewPrefixLogger("test"),
+		nil,
+		nil,
+		"",
+		entries[:1],
+		nil,
+	)
+
+	manager.collect(context.Background())
+	require.Equal(1, oldCalls)
+	require.Zero(newCalls)
+
+	manager.collection = collectorsForEntries(
+		log.NewPrefixLogger("test"),
+		nil,
+		nil,
+		"",
+		entries,
+		manager.collection,
+	)
+	manager.RefreshPendingCollectors(context.Background())
+
+	require.Equal(1, oldCalls)
+	require.Equal(1, newCalls)
+	manager.RefreshPendingCollectors(context.Background())
+	require.Equal(1, oldCalls)
+	require.Equal(1, newCalls)
+}
+
+func TestRefreshPendingCollectorsDoesNotRetryFailedSources(t *testing.T) {
+	require := require.New(t)
+	calls := 0
+	manager := &manager{
+		collectionTimeout: time.Second,
+		now:               time.Now,
+		log:               log.NewPrefixLogger("test"),
+		collection: []*collector{{
+			source: &sourceDefinition{},
+			collect: func(context.Context, *Info) error {
+				calls++
+				return errors.New("failed")
+			},
+			executors: []*cachedExecutor{{key: "failed", kind: systemInfoSource}},
+		}},
+	}
+
+	manager.RefreshPendingCollectors(context.Background())
+	manager.RefreshPendingCollectors(context.Background())
+
+	require.Equal(1, calls)
+	require.True(manager.collection[0].executors[0].attempted)
 }
 
 func TestStatusCachesCustomScriptResults(t *testing.T) {
@@ -307,7 +370,7 @@ func TestStatusCachesCustomScriptResults(t *testing.T) {
 	}
 	collect := func() *v1beta1.DeviceStatus {
 		deviceStatus := &v1beta1.DeviceStatus{}
-		manager.collectAndCache(context.Background())
+		manager.collect(context.Background())
 		require.NoError(manager.Status(context.Background(), deviceStatus))
 		return deviceStatus
 	}
@@ -361,7 +424,7 @@ func TestStatusCachesCustomScriptResults(t *testing.T) {
 	require.Equal(v1beta1.SystemInfoSourceStatusHealthy, recovered.SystemInfoStatus.Statuses.CustomInfo["site"].Status)
 }
 
-func TestStatusDiscoversDefaultCustomScriptsOnEachCollection(t *testing.T) {
+func TestStatusDiscoversDefaultCustomScriptsOnReload(t *testing.T) {
 	require := require.New(t)
 	tmpDir := t.TempDir()
 	readWriter := fileio.NewReadWriter(
@@ -382,7 +445,7 @@ func TestStatusDiscoversDefaultCustomScriptsOnEachCollection(t *testing.T) {
 	)
 	collect := func() *v1beta1.DeviceStatus {
 		deviceStatus := &v1beta1.DeviceStatus{}
-		manager.collectAndCache(context.Background())
+		manager.collect(context.Background())
 		require.NoError(manager.Status(context.Background(), deviceStatus))
 		return deviceStatus
 	}
@@ -400,12 +463,21 @@ func TestStatusDiscoversDefaultCustomScriptsOnEachCollection(t *testing.T) {
 		[]byte("#!/bin/sh\necho ignored\n"),
 		0644,
 	))
+	beforeReload := collect()
+	require.Empty(beforeReload.SystemInfoStatus.Statuses.CustomInfo)
+
+	require.NoError(manager.ReloadConfig(context.Background(), &config.Config{
+		SystemInfoTimeout: util.Duration(time.Second),
+	}))
 	discovered := collect()
 	require.Contains(discovered.SystemInfoStatus.Statuses.CustomInfo, "discovered")
 	require.NotContains(discovered.SystemInfoStatus.Statuses.CustomInfo, "ignored")
 	require.Equal("discovered", (*discovered.SystemInfo.CustomInfo)["discovered"])
 
 	require.NoError(readWriter.RemoveFile(filepath.Join(config.SystemInfoCustomScriptDir, "discovered.sh")))
+	require.NoError(manager.ReloadConfig(context.Background(), &config.Config{
+		SystemInfoTimeout: util.Duration(time.Second),
+	}))
 	require.Empty(collect().SystemInfoStatus.Statuses.CustomInfo)
 }
 
@@ -429,7 +501,7 @@ func TestStatusReportsMissingAllowListedCustomScript(t *testing.T) {
 		0,
 	)
 	deviceStatus := &v1beta1.DeviceStatus{}
-	manager.collectAndCache(context.Background())
+	manager.collect(context.Background())
 	require.NoError(manager.Status(context.Background(), deviceStatus))
 
 	require.Nil(deviceStatus.SystemInfo.CustomInfo)
@@ -471,7 +543,7 @@ func TestStatusClearsAnAllowListedValueWhenTheScriptIsMissingAfterReload(t *test
 	}
 	collect := func() *v1beta1.DeviceStatus {
 		deviceStatus := &v1beta1.DeviceStatus{}
-		manager.collectAndCache(context.Background())
+		manager.collect(context.Background())
 		require.NoError(manager.Status(context.Background(), deviceStatus))
 		return deviceStatus
 	}
@@ -505,7 +577,7 @@ func TestStatusReportsSelectedBuiltInSources(t *testing.T) {
 		0,
 	)
 	deviceStatus := &v1beta1.DeviceStatus{}
-	manager.collectAndCache(context.Background())
+	manager.collect(context.Background())
 	require.NoError(manager.Status(context.Background(), deviceStatus))
 
 	require.Equal(runtime.GOARCH, deviceStatus.SystemInfo.AdditionalProperties[common.ArchitectureKey])
