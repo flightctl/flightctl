@@ -258,6 +258,90 @@ func TestFleetSelectorUpdated_EnrollmentHooksGate(t *testing.T) {
 		// (any unexpected call would fail the test).
 	})
 
+	t.Run("When an orphaned device has EnrollmentHooks False it should skip ownership recomputation", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockDeviceSvc := deviceservice.NewMockService(ctrl)
+		mockFleetSvc := fleetservice.NewMockService(ctrl)
+
+		fleetName := "test-fleet"
+		labels := map[string]string{"env": "prod"}
+		fleet := &domain.Fleet{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(fleetName)},
+			Spec:     domain.FleetSpec{Selector: &domain.LabelSelector{MatchLabels: &labels}},
+		}
+		gatedDevice := makeDeviceWithEnrollmentHooks("gated-orphaned-dev", map[string]string{"env": "dev"}, fleetName,
+			domain.ConditionStatusFalse, v1beta1.EnrollmentHooksReasonPending)
+
+		event := domain.Event{
+			InvolvedObject: domain.ObjectReference{
+				Kind: domain.FleetKind,
+				Name: fleetName,
+			},
+		}
+
+		gomock.InOrder(
+			mockFleetSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).
+				Return(fleet, domain.StatusOK()),
+			mockDeviceSvc.EXPECT().ListDevices(gomock.Any(), orgId, gomock.Any(), gomock.Any()).
+				Return(&domain.DeviceList{Items: []domain.Device{gatedDevice}}, domain.StatusOK()),
+			mockDeviceSvc.EXPECT().ListDevices(gomock.Any(), orgId, gomock.Any(), gomock.Any()).
+				Return(&domain.DeviceList{Items: []domain.Device{}}, domain.StatusOK()),
+			mockDeviceSvc.EXPECT().ListDevicesByServiceCondition(gomock.Any(), orgId,
+				string(domain.ConditionTypeDeviceMultipleOwners), string(domain.ConditionStatusTrue), gomock.Any()).
+				Return(&domain.DeviceList{Items: []domain.Device{}}, domain.StatusOK()),
+		)
+
+		logic := newTestFleetSelectorLogic(t, mockDeviceSvc, mockFleetSvc, event)
+		err := logic.FleetSelectorUpdated(context.Background())
+		require.NoError(t, err)
+	})
+
+	t.Run("When a multiple-owner device has EnrollmentHooks False it should skip ownership recomputation", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockDeviceSvc := deviceservice.NewMockService(ctrl)
+		mockFleetSvc := fleetservice.NewMockService(ctrl)
+
+		fleetName := "test-fleet"
+		labels := map[string]string{"env": "prod"}
+		fleet := &domain.Fleet{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(fleetName)},
+			Spec:     domain.FleetSpec{Selector: &domain.LabelSelector{MatchLabels: &labels}},
+		}
+		gatedDevice := makeDeviceWithEnrollmentHooks("gated-multiple-owner-dev", labels, fleetName,
+			domain.ConditionStatusFalse, v1beta1.EnrollmentHooksReasonPending)
+		gatedDevice.Status.Conditions = append(gatedDevice.Status.Conditions, domain.Condition{
+			Type:   domain.ConditionTypeDeviceMultipleOwners,
+			Status: domain.ConditionStatusTrue,
+		})
+
+		event := domain.Event{
+			InvolvedObject: domain.ObjectReference{
+				Kind: domain.FleetKind,
+				Name: fleetName,
+			},
+		}
+
+		gomock.InOrder(
+			mockFleetSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).
+				Return(fleet, domain.StatusOK()),
+			mockDeviceSvc.EXPECT().ListDevices(gomock.Any(), orgId, gomock.Any(), gomock.Any()).
+				Return(&domain.DeviceList{Items: []domain.Device{}}, domain.StatusOK()),
+			mockDeviceSvc.EXPECT().ListDevices(gomock.Any(), orgId, gomock.Any(), gomock.Any()).
+				Return(&domain.DeviceList{Items: []domain.Device{}}, domain.StatusOK()),
+			mockDeviceSvc.EXPECT().ListDevicesByServiceCondition(gomock.Any(), orgId,
+				string(domain.ConditionTypeDeviceMultipleOwners), string(domain.ConditionStatusTrue), gomock.Any()).
+				Return(&domain.DeviceList{Items: []domain.Device{gatedDevice}}, domain.StatusOK()),
+		)
+
+		logic := newTestFleetSelectorLogic(t, mockDeviceSvc, mockFleetSvc, event)
+		err := logic.FleetSelectorUpdated(context.Background())
+		require.NoError(t, err)
+	})
+
 	t.Run("When device not found it should return nil (no error)", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
