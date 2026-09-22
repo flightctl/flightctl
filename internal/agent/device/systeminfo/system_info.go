@@ -318,7 +318,10 @@ var (
 
 // systemInfoKeyDefinitions is the single source of truth for built-in system
 // information keys. Keys that use the same source are fetched together, but
-// each key controls its own cached value and Info projection.
+// each key controls its own cached value and Info projection. e.g. enabling
+// cpuProcessor will force collection of all CPU info, but depending on whether
+// the other CPU related fields are configured, only some of the gather cpu info may
+// be displayed
 var systemInfoKeyDefinitions = map[string]collectorDefinition{
 	common.HostnameKey: {
 		source:  hostnameSource,

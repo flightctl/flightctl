@@ -48,8 +48,11 @@ type sourceDefinition struct {
 }
 
 type collectorDefinition struct {
-	source      *sourceDefinition
-	extract     func(*Info) string
+	// source defines the method in which the data should be collected
+	source *sourceDefinition
+	// extract maps the collected Info into a string
+	extract func(*Info) string
+	// projectInfo maps the collected Info into a formatted Info
 	projectInfo func(*Info, *Info)
 }
 
