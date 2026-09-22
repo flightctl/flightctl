@@ -25,7 +25,6 @@ import (
 	"go.opentelemetry.io/collector/otelcol"
 	"go.opentelemetry.io/collector/processor"
 	"go.opentelemetry.io/collector/receiver"
-	"go.opentelemetry.io/collector/receiver/otlpreceiver"
 )
 
 // Option configures how Run builds both the Collector and the OTEL config.
@@ -138,10 +137,9 @@ func Run(ctx context.Context, cfg *config.Config, opts ...Option) error {
 			},
 		},
 		Factories: func() (otelcol.Factories, error) {
-			otlpFactory := otlpreceiver.NewFactory()
-			if ro.deviceListenerReady != nil {
-				otlpFactory = newListenerAwareOTLPFactory(ro.deviceListenerReady)
-			}
+			// Use the same receiver implementation for production and tests. Tests
+			// may provide a callback to observe an ephemeral listener's address.
+			otlpFactory := newListenerAwareOTLPFactory(ro.deviceListenerReady)
 			factories := otelcol.Factories{
 				Receivers: map[component.Type]receiver.Factory{
 					component.MustNewType("otlp"):       otlpFactory,

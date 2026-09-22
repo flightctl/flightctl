@@ -20,9 +20,9 @@ import (
 
 const otlpDataFormatProtobuf = "protobuf"
 
-// newListenerAwareOTLPFactory is used only when a caller needs the address of
-// the receiver's ephemeral listener. The normal collector receiver remains in
-// use for all other callers.
+// newListenerAwareOTLPFactory creates the OTLP receiver used by the telemetry
+// gateway. listenerReady is optional; when set, it reports the address after
+// the receiver binds its listener.
 func newListenerAwareOTLPFactory(listenerReady func(string)) receiver.Factory {
 	standardFactory := otlpreceiver.NewFactory()
 	return receiver.NewFactory(
