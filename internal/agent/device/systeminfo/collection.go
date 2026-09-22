@@ -37,6 +37,12 @@ type collector struct {
 	executors []*cachedExecutor
 }
 
+func (c *collector) pending() bool {
+	return slices.ContainsFunc(c.executors, func(executor *cachedExecutor) bool {
+		return !executor.attempted
+	})
+}
+
 type sourceDefinition struct {
 	collect collectorFunc
 }

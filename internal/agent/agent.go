@@ -494,8 +494,8 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 	)
 
-	// fetch system info for runtime collectors that were registered post bootstrap
-	systemInfoManager.RefreshRuntimeCollectors(ctx)
+	// Populate collectors registered during startup before asynchronous work begins.
+	systemInfoManager.RefreshPendingCollectors(ctx)
 
 	// register reloader with reload manager
 	reloadManager.Register(agent.ReloadConfig)
