@@ -308,7 +308,7 @@ var _ = Describe("PrepareDeltas persist", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			status := workerservice.NewStorePreparingStatus(fleets, devices)
-			Expect(status.Set(ctx, orgId, domain.FleetKind, fleetName, 0, 1)).To(Succeed())
+			Expect(status.SetPreparing(ctx, prep, 0, 1)).To(Succeed())
 			completion, err := deltaprepare.NewCompletionService(deltaPrepareStore, status, eventsSvc)
 			Expect(err).ToNot(HaveOccurred())
 			generationSvc := deltageneration.NewServiceHandler(deltaGenerationStore, log)

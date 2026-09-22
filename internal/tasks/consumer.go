@@ -157,7 +157,7 @@ func (d TaskConsumer) dispatch() queues.ConsumeHandler {
 		}
 		if shouldEnrollmentHookNotify(eventWithOrgId.Event) {
 			taskName = "enrollmentHookNotify"
-			err = runTaskWithMetrics(taskName, workerMetrics, func() error {
+			err = runTaskWithMetrics(taskName, d.WorkerMetrics, func() error {
 				// Stub: actual notify webhook execution is EDM-5707 scope
 				log.Infof("enrollment hook notify: event received for %s/%s (handler not yet implemented)",
 					eventWithOrgId.OrgId, eventWithOrgId.Event.InvolvedObject.Name)
