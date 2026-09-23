@@ -462,6 +462,7 @@ run_build_in_container() {
     -e GOMODCACHE="${container_gomodcache}" \
     -e GOCACHE="${container_gocache}" \
     -e GITHUB_ACTIONS \
+    -e MOCK_CLEANUP \
     -e SOURCE_GIT_TAG \
     -e SOURCE_GIT_TREE_STATE \
     -e SOURCE_GIT_COMMIT \
