@@ -117,6 +117,10 @@ func (d TaskConsumer) dispatch() queues.ConsumeHandler {
 				logic := NewFleetValidateLogic(log, d.FleetSvc, d.TemplateversionSvc, d.DeviceSvc, d.RepositorySvc, d.K8sClient, eventWithOrgId.OrgId, eventWithOrgId.Event)
 				logic.WorkerClient = d.WorkerClient
 				if err := logic.CreateNewTemplateVersionIfFleetValid(ctx); err != nil {
+					if isInvalidFleetConfigError(err) {
+						log.WithError(err).Warn("fleet configuration is invalid; waiting for a fleet or dependency update")
+						return nil
+					}
 					return fmt.Errorf("validate fleet %s/%s: %w",
 						eventWithOrgId.OrgId,
 						eventWithOrgId.Event.InvolvedObject.Name,

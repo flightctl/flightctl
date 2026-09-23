@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -19,6 +20,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
 // The fleet_validate task is triggered when a fleet is updated. It validates the
@@ -48,6 +50,23 @@ type FleetValidateLogic struct {
 	event              domain.Event
 	templateConfig     *[]domain.ConfigProviderSpec
 	WorkerClient       worker_client.WorkerClient
+}
+
+type invalidFleetConfigError struct {
+	cause error
+}
+
+func (e *invalidFleetConfigError) Error() string { return e.cause.Error() }
+
+func (e *invalidFleetConfigError) Unwrap() error { return e.cause }
+
+func newInvalidFleetConfigError(err error) error {
+	return &invalidFleetConfigError{cause: err}
+}
+
+func isInvalidFleetConfigError(err error) bool {
+	var invalidErr *invalidFleetConfigError
+	return errors.As(err, &invalidErr)
 }
 
 func NewFleetValidateLogic(log logrus.FieldLogger, fleetSvc fleetservice.Service, templateversionSvc templateversionservice.Service, _ deviceservice.Service, repositorySvc repositoryservice.Service, k8sClient k8sclient.K8SClient, orgId uuid.UUID, event domain.Event) FleetValidateLogic {
@@ -114,7 +133,7 @@ func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Co
 				emittedName = *existing.Metadata.Name
 			}
 			if err := t.prepareFleetRollout(ctx, fleet, emittedName); err != nil {
-				return t.setStatus(ctx, err)
+				return t.setValidStatusAndReturnError(ctx, err)
 			}
 			return t.setStatus(ctx, nil)
 		}
@@ -125,7 +144,7 @@ func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Co
 		return t.setStatus(ctx, fmt.Errorf("created templateVersion has no name"))
 	}
 	if err := t.prepareFleetRollout(ctx, fleet, *tv.Metadata.Name); err != nil {
-		return t.setStatus(ctx, err)
+		return t.setValidStatusAndReturnError(ctx, err)
 	}
 
 	return t.setStatus(ctx, nil)
@@ -160,6 +179,10 @@ func (t *FleetValidateLogic) emitPrepareDeltas(ctx context.Context, fleetName, t
 	if t.WorkerClient == nil {
 		return fmt.Errorf("worker client is required to emit PrepareDeltas")
 	}
+	reliableClient, ok := t.WorkerClient.(worker_client.ReliableWorkerClient)
+	if !ok {
+		return fmt.Errorf("worker client does not support reliable PrepareDeltas publication")
+	}
 	details := domain.PrepareDeltasDetails{
 		DetailType:      domain.PrepareDeltasDetailsDetailType("PrepareDeltas"),
 		TemplateVersion: &tvName,
@@ -169,7 +192,10 @@ func (t *FleetValidateLogic) emitPrepareDeltas(ctx context.Context, fleetName, t
 	if err := eventDetails.FromPrepareDeltasDetails(details); err != nil {
 		return err
 	}
-	t.WorkerClient.EmitEvent(ctx, t.orgId, domain.GetBaseEvent(ctx, domain.FleetKind, fleetName, domain.EventReasonPrepareDeltas, "Preparing OS image deltas", &eventDetails))
+	event := domain.GetBaseEvent(ctx, domain.FleetKind, fleetName, domain.EventReasonPrepareDeltas, "Preparing OS image deltas", &eventDetails)
+	if err := reliableClient.EmitEventWithError(ctx, t.orgId, event); err != nil {
+		return fmt.Errorf("publishing PrepareDeltas event: %w", err)
+	}
 	return nil
 }
 
@@ -188,8 +214,19 @@ func (t *FleetValidateLogic) setStatus(ctx context.Context, validationErr error)
 	status := t.fleetSvc.UpdateFleetConditions(ctx, t.orgId, t.event.InvolvedObject.Name, []domain.Condition{condition})
 	if status.Code != http.StatusOK {
 		t.log.Errorf("Failed setting condition for fleet %s/%s: %s", t.orgId, t.event.InvolvedObject.Name, status.Message)
+		statusErr := fmt.Errorf("failed setting condition for fleet %s/%s: %s", t.orgId, t.event.InvolvedObject.Name, status.Message)
+		if validationErr != nil {
+			// Do not wrap validationErr: a failed status update must remain retryable
+			// even when the original error describes a permanently invalid config.
+			return fmt.Errorf("%v; %w", validationErr, statusErr)
+		}
+		return statusErr
 	}
 	return validationErr
+}
+
+func (t *FleetValidateLogic) setValidStatusAndReturnError(ctx context.Context, operationErr error) error {
+	return errors.Join(operationErr, t.setStatus(ctx, nil))
 }
 
 func (t *FleetValidateLogic) validateConfig(ctx context.Context) ([]string, error) {
@@ -200,6 +237,8 @@ func (t *FleetValidateLogic) validateConfig(ctx context.Context) ([]string, erro
 	invalidConfigs := []string{}
 	referencedRepos := []string{}
 	var firstError error
+	var retryableError error
+	allErrorsInvalid := true
 	for i := range *t.templateConfig {
 		configItem := (*t.templateConfig)[i]
 		name, repoName, err := t.validateConfigItem(ctx, &configItem)
@@ -213,6 +252,12 @@ func (t *FleetValidateLogic) validateConfig(ctx context.Context) ([]string, erro
 			if len(invalidConfigs) == 1 {
 				firstError = err
 			}
+			if !isInvalidFleetConfigError(err) {
+				allErrorsInvalid = false
+				if retryableError == nil {
+					retryableError = err
+				}
+			}
 		}
 	}
 
@@ -223,7 +268,11 @@ func (t *FleetValidateLogic) validateConfig(ctx context.Context) ([]string, erro
 			configurationStr += "s"
 			errorStr = "First error"
 		}
-		return referencedRepos, fmt.Errorf("%d invalid %s: %s. %s: %v", len(invalidConfigs), configurationStr, strings.Join(invalidConfigs, ", "), errorStr, firstError)
+		validationErr := fmt.Errorf("%d invalid %s: %s. %s: %v", len(invalidConfigs), configurationStr, strings.Join(invalidConfigs, ", "), errorStr, firstError)
+		if allErrorsInvalid {
+			return referencedRepos, newInvalidFleetConfigError(validationErr)
+		}
+		return referencedRepos, fmt.Errorf("%v. Retryable validation error: %w", validationErr, retryableError)
 	}
 
 	return referencedRepos, nil
@@ -232,7 +281,7 @@ func (t *FleetValidateLogic) validateConfig(ctx context.Context) ([]string, erro
 func (t *FleetValidateLogic) validateConfigItem(ctx context.Context, configItem *domain.ConfigProviderSpec) (*string, *string, error) {
 	configType, err := configItem.Type()
 	if err != nil {
-		return nil, nil, fmt.Errorf("%w: failed getting config type: %w", ErrUnknownConfigName, err)
+		return nil, nil, newInvalidFleetConfigError(fmt.Errorf("%w: failed getting config type: %w", ErrUnknownConfigName, err))
 	}
 
 	switch configType {
@@ -245,23 +294,30 @@ func (t *FleetValidateLogic) validateConfigItem(ctx context.Context, configItem 
 	case domain.HttpConfigProviderType:
 		return t.validateHttpProviderConfig(ctx, configItem)
 	default:
-		return nil, nil, fmt.Errorf("%w: unsupported config type %q", ErrUnknownConfigName, configType)
+		return nil, nil, newInvalidFleetConfigError(fmt.Errorf("%w: unsupported config type %q", ErrUnknownConfigName, configType))
 	}
 }
 
 func (t *FleetValidateLogic) validateGitConfig(ctx context.Context, configItem *domain.ConfigProviderSpec) (*string, *string, error) {
 	gitSpec, err := configItem.AsGitConfigProviderSpec()
 	if err != nil {
-		return nil, nil, fmt.Errorf("%w: failed getting config item as GitConfigProviderSpec: %w", ErrUnknownConfigName, err)
+		return nil, nil, newInvalidFleetConfigError(fmt.Errorf("%w: failed getting config item as GitConfigProviderSpec: %w", ErrUnknownConfigName, err))
 	}
 
 	repo, status := t.repositorySvc.GetRepository(ctx, t.orgId, gitSpec.GitRef.Repository)
 	if status.Code != http.StatusOK {
-		return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("failed fetching specified Repository definition %s/%s: %s", t.orgId, gitSpec.GitRef.Repository, status.Message)
+		err := fmt.Errorf("failed fetching specified Repository definition %s/%s: %s", t.orgId, gitSpec.GitRef.Repository, status.Message)
+		if status.Code == http.StatusNotFound {
+			return &gitSpec.Name, &gitSpec.GitRef.Repository, newInvalidFleetConfigError(err)
+		}
+		return &gitSpec.Name, &gitSpec.GitRef.Repository, err
+	}
+	if repo == nil {
+		return &gitSpec.Name, &gitSpec.GitRef.Repository, fmt.Errorf("fetching Repository definition %s/%s returned no object", t.orgId, gitSpec.GitRef.Repository)
 	}
 	_, err = repo.Spec.GetRepoURL()
 	if err != nil {
-		return &gitSpec.Name, &gitSpec.GitRef.Repository, err
+		return &gitSpec.Name, &gitSpec.GitRef.Repository, newInvalidFleetConfigError(err)
 	}
 
 	return &gitSpec.Name, &gitSpec.GitRef.Repository, nil
@@ -270,14 +326,18 @@ func (t *FleetValidateLogic) validateGitConfig(ctx context.Context, configItem *
 func (t *FleetValidateLogic) validateK8sConfig(ctx context.Context, configItem *domain.ConfigProviderSpec) (*string, *string, error) {
 	k8sSpec, err := configItem.AsKubernetesSecretProviderSpec()
 	if err != nil {
-		return nil, nil, fmt.Errorf("%w: failed getting config item as KubernetesSecretProviderSpec: %w", ErrUnknownConfigName, err)
+		return nil, nil, newInvalidFleetConfigError(fmt.Errorf("%w: failed getting config item as KubernetesSecretProviderSpec: %w", ErrUnknownConfigName, err))
 	}
 	if t.k8sClient == nil {
 		return &k8sSpec.Name, nil, fmt.Errorf("kubernetes API is not available")
 	}
 	_, err = t.k8sClient.GetSecret(ctx, k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name)
 	if err != nil {
-		return &k8sSpec.Name, nil, fmt.Errorf("failed getting secret %s/%s: %w", k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name, err)
+		secretErr := fmt.Errorf("failed getting secret %s/%s: %w", k8sSpec.SecretRef.Namespace, k8sSpec.SecretRef.Name, err)
+		if apierrors.IsNotFound(err) {
+			return &k8sSpec.Name, nil, newInvalidFleetConfigError(secretErr)
+		}
+		return &k8sSpec.Name, nil, secretErr
 	}
 
 	return &k8sSpec.Name, nil, nil
@@ -286,7 +346,7 @@ func (t *FleetValidateLogic) validateK8sConfig(ctx context.Context, configItem *
 func (t *FleetValidateLogic) validateInlineConfig(configItem *domain.ConfigProviderSpec) (*string, *string, error) {
 	inlineSpec, err := configItem.AsInlineConfigProviderSpec()
 	if err != nil {
-		return nil, nil, fmt.Errorf("%w: failed getting config item as InlineConfigProviderSpec: %w", ErrUnknownConfigName, err)
+		return nil, nil, newInvalidFleetConfigError(fmt.Errorf("%w: failed getting config item as InlineConfigProviderSpec: %w", ErrUnknownConfigName, err))
 	}
 
 	// Everything was already validated at the API level
@@ -296,16 +356,23 @@ func (t *FleetValidateLogic) validateInlineConfig(configItem *domain.ConfigProvi
 func (t *FleetValidateLogic) validateHttpProviderConfig(ctx context.Context, configItem *domain.ConfigProviderSpec) (*string, *string, error) {
 	httpConfigProviderSpec, err := configItem.AsHttpConfigProviderSpec()
 	if err != nil {
-		return nil, nil, fmt.Errorf("%w: failed getting config item as HttpConfigProviderSpec: %w", ErrUnknownConfigName, err)
+		return nil, nil, newInvalidFleetConfigError(fmt.Errorf("%w: failed getting config item as HttpConfigProviderSpec: %w", ErrUnknownConfigName, err))
 	}
 
 	repo, status := t.repositorySvc.GetRepository(ctx, t.orgId, httpConfigProviderSpec.HttpRef.Repository)
 	if status.Code != http.StatusOK {
-		return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, fmt.Errorf("failed fetching specified Repository definition %s/%s: %s", t.orgId, httpConfigProviderSpec.HttpRef.Repository, status.Message)
+		err := fmt.Errorf("failed fetching specified Repository definition %s/%s: %s", t.orgId, httpConfigProviderSpec.HttpRef.Repository, status.Message)
+		if status.Code == http.StatusNotFound {
+			return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, newInvalidFleetConfigError(err)
+		}
+		return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, err
+	}
+	if repo == nil {
+		return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, fmt.Errorf("fetching Repository definition %s/%s returned no object", t.orgId, httpConfigProviderSpec.HttpRef.Repository)
 	}
 	_, err = repo.Spec.GetRepoURL()
 	if err != nil {
-		return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, err
+		return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, newInvalidFleetConfigError(err)
 	}
 
 	return &httpConfigProviderSpec.Name, &httpConfigProviderSpec.HttpRef.Repository, nil

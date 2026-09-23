@@ -76,7 +76,7 @@ var _ = Describe("FleetValidate", func() {
 		ctrl := gomock.NewController(GinkgoT())
 		producer := queues.NewMockQueueProducer(ctrl)
 		producer.EXPECT().Enqueue(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
-		workerClient = worker_client.NewWorkerClient(producer, log)
+		workerClient = worker_client.NewWorkerClient(producer, log, worker_client.WithDeltaPublisher(producer))
 		kvStore, err := kvstore.NewKVStore(ctx, log, redisHost, redisPort, redisPassword)
 		Expect(err).ToNot(HaveOccurred())
 		eventsSvc := events.NewServiceHandler(eventStore, workerClient, log)

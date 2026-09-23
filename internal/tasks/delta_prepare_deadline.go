@@ -177,10 +177,10 @@ func (t *DeltaPrepareDeadline) identityMatches(ctx context.Context, prep *model.
 			}
 			return false, fmt.Errorf("getting device %s: %s", prep.Name, status.Message)
 		}
-		if device == nil || device.Metadata.Generation == nil {
+		if device == nil || prep.SpecHash == nil || *prep.SpecHash == "" {
 			return false, nil
 		}
-		return prep.SourceResourceVersion == *device.Metadata.Generation, nil
+		return device.SpecHash() == *prep.SpecHash, nil
 	default:
 		return false, fmt.Errorf("unsupported prepare kind %q", prep.Kind)
 	}

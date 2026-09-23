@@ -162,10 +162,17 @@ func TestDeltaPrepareDeadlinePoll(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		deviceSvc := deviceservice.NewMockService(ctrl)
 		generation := int64(7)
+		specHash := "rendered-spec-hash"
+		annotations := map[string]string{domain.DeviceAnnotationRenderedSpecHash: specHash}
 		deviceStatus := domain.NewDeviceStatus()
 		device := &domain.Device{
-			Metadata: domain.ObjectMeta{Name: lo.ToPtr("device-1"), Generation: &generation},
-			Status:   &deviceStatus,
+			Metadata: domain.ObjectMeta{
+				Name:            lo.ToPtr("device-1"),
+				Generation:      &generation,
+				ResourceVersion: lo.ToPtr("13"),
+				Annotations:     &annotations,
+			},
+			Status: &deviceStatus,
 		}
 		deviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, "device-1").Return(device, domain.StatusOK()).AnyTimes()
 		deviceSvc.EXPECT().ReplaceServiceOwnedStatus(gomock.Any(), orgId, "device-1", gomock.Any()).Return(device, domain.StatusOK())
@@ -175,7 +182,8 @@ func TestDeltaPrepareDeadlinePoll(t *testing.T) {
 			OrgID:                 orgId,
 			Kind:                  domain.DeviceKind,
 			Name:                  "device-1",
-			SourceResourceVersion: generation,
+			SourceResourceVersion: 12,
+			SpecHash:              &specHash,
 			Status:                model.DeltaPrepareWaiting,
 		}
 		store := &fakeDeadlineStore{waiting: []model.DeltaPrepare{prep}}
@@ -185,6 +193,37 @@ func TestDeltaPrepareDeadlinePoll(t *testing.T) {
 		assert.Equal(t, model.DeltaPrepareFailed, store.waiting[0].Status)
 		require.Len(t, rec.events, 1)
 		assert.Equal(t, domain.EventReasonDeltaGenerationCompleted, rec.events[0].Reason)
+	})
+
+	t.Run("When a device prepare has a stale spec hash it should not emit completion", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		deviceSvc := deviceservice.NewMockService(ctrl)
+		generation := int64(7)
+		annotations := map[string]string{domain.DeviceAnnotationRenderedSpecHash: "current-spec-hash"}
+		device := &domain.Device{
+			Metadata: domain.ObjectMeta{
+				Name:        lo.ToPtr("device-1"),
+				Generation:  &generation,
+				Annotations: &annotations,
+			},
+		}
+		deviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, "device-1").Return(device, domain.StatusOK())
+		rec := &deadlineEventRecorder{}
+		prep := model.DeltaPrepare{
+			ID:                    uuid.New(),
+			OrgID:                 orgId,
+			Kind:                  domain.DeviceKind,
+			Name:                  "device-1",
+			SourceResourceVersion: 12,
+			SpecHash:              lo.ToPtr("old-spec-hash"),
+			Status:                model.DeltaPrepareWaiting,
+		}
+		store := &fakeDeadlineStore{waiting: []model.DeltaPrepare{prep}}
+		task := &DeltaPrepareDeadline{log: log, deltaStore: store, deviceSvc: deviceSvc, eventSvc: rec}
+
+		task.Poll(context.Background())
+		assert.Equal(t, model.DeltaPrepareFailed, store.waiting[0].Status)
+		assert.Empty(t, rec.events)
 	})
 
 	t.Run("When the failure claim loses its CAS it should not emit", func(t *testing.T) {
