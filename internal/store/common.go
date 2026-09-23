@@ -277,9 +277,6 @@ func AddPaginationToQuery(query *gorm.DB, limit int, cont *Continue, listParams 
 	}
 
 	columns, _, op := getSortColumns(listParams)
-	if len(columns) != len(cont.Names) {
-		return query.Where("FALSE")
-	}
 	if predicate, args, ok := nullableAliasPredicate(columns, cont.Names, op); ok {
 		return query.Where(predicate, args...)
 	}
@@ -339,8 +336,11 @@ func NullableSortValue(value *string) string {
 	return *value
 }
 
+// nullableAliasPredicate builds the continuation predicate for (alias, name)
+// ordering with NULL aliases sorted last. A plain tuple comparison cannot be
+// used because comparing a NULL alias yields UNKNOWN and drops those rows.
 func nullableAliasPredicate(columns []SortColumn, values []string, op string) (string, []any, bool) {
-	if len(columns) != 2 || columns[0] != SortByAlias {
+	if len(columns) != 2 || len(values) != 2 || columns[0] != SortByAlias {
 		return "", nil, false
 	}
 
