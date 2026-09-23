@@ -207,6 +207,8 @@ func TestCollectPlatformGPUs(t *testing.T) {
 			wantFirst: &GPUDeviceInfo{
 				Index:    0,
 				DeviceID: "unknown,gpu-chip",
+				Vendor:   "unknown",
+				Model:    "gpu-chip",
 			},
 		},
 		{
