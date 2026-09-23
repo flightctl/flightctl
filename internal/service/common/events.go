@@ -537,6 +537,56 @@ func GetFleetApplicationLifecycleChangedEvent(ctx context.Context, fleetName str
 	})
 }
 
+// GetEnrollmentHookSucceededEvent creates an event when enrollment hooks complete successfully.
+func GetEnrollmentHookSucceededEvent(ctx context.Context, deviceName string) *domain.Event {
+	return getBaseEvent(ctx, resourceEvent{
+		resourceKind: domain.DeviceKind,
+		resourceName: deviceName,
+		reason:       domain.EventReasonEnrollmentHookSucceeded,
+		message:      "Enrollment hooks completed successfully.",
+		details:      nil,
+	})
+}
+
+// GetEnrollmentHookFailedEvent creates an event when enrollment hooks fail with Block policy.
+func GetEnrollmentHookFailedEvent(ctx context.Context, deviceName string, message string) *domain.Event {
+	msg := fmt.Sprintf("Enrollment hook failed: %s.", message)
+
+	return getBaseEvent(ctx, resourceEvent{
+		resourceKind: domain.DeviceKind,
+		resourceName: deviceName,
+		reason:       domain.EventReasonEnrollmentHookFailed,
+		message:      msg,
+		details:      nil,
+	})
+}
+
+// GetEnrollmentHookNotifyFailedEvent creates an event when enrollment hook notification fails
+// under Continue policy (worker patches Pending, agent proceeds).
+func GetEnrollmentHookNotifyFailedEvent(ctx context.Context, deviceName string, message string) *domain.Event {
+	msg := fmt.Sprintf("Enrollment hook notification failed: %s.", message)
+
+	return getBaseEvent(ctx, resourceEvent{
+		resourceKind: domain.DeviceKind,
+		resourceName: deviceName,
+		reason:       domain.EventReasonEnrollmentHookNotifyFailed,
+		message:      msg,
+		details:      nil,
+	})
+}
+
+// GetEnrollmentHookManualOverrideEvent creates an event when an operator manually overrides
+// a failed enrollment hook condition.
+func GetEnrollmentHookManualOverrideEvent(ctx context.Context, deviceName string) *domain.Event {
+	return getBaseEvent(ctx, resourceEvent{
+		resourceKind: domain.DeviceKind,
+		resourceName: deviceName,
+		reason:       domain.EventReasonEnrollmentHookManualOverride,
+		message:      "Enrollment hook failure was manually overridden by an operator.",
+		details:      nil,
+	})
+}
+
 // GetFleetRolloutBatchDispatchedEvent creates an event for fleet rollout batch dispatch
 func GetFleetRolloutBatchDispatchedEvent(ctx context.Context, fleetName string, templateVersion string, batch string) *domain.Event {
 	details := domain.FleetRolloutBatchDispatchedDetails{

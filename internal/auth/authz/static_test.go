@@ -328,6 +328,42 @@ func TestStaticAuthZ_CheckPermission(t *testing.T) {
 			op:       "delete",
 			expected: false,
 		},
+		// Enrollment hook override RBAC
+		{
+			name:     "When admin updates enrollment hook override it should succeed",
+			roles:    []string{v1beta1.RoleAdmin},
+			resource: "devices/enrollmenthooks/override",
+			op:       "update",
+			expected: true,
+		},
+		{
+			name:     "When org-admin updates enrollment hook override it should succeed",
+			roles:    []string{v1beta1.RoleOrgAdmin},
+			resource: "devices/enrollmenthooks/override",
+			op:       "update",
+			expected: true,
+		},
+		{
+			name:     "When operator updates enrollment hook override it should succeed",
+			roles:    []string{v1beta1.RoleOperator},
+			resource: "devices/enrollmenthooks/override",
+			op:       "update",
+			expected: true,
+		},
+		{
+			name:     "When viewer updates enrollment hook override it should be denied",
+			roles:    []string{v1beta1.RoleViewer},
+			resource: "devices/enrollmenthooks/override",
+			op:       "update",
+			expected: false,
+		},
+		{
+			name:     "When installer updates enrollment hook override it should be denied",
+			roles:    []string{v1beta1.RoleInstaller},
+			resource: "devices/enrollmenthooks/override",
+			op:       "update",
+			expected: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -400,6 +436,10 @@ func TestStaticAuthZ_GetUserPermissions(t *testing.T) {
 				},
 				{
 					Resource:   "devices/applications/lifecycle",
+					Operations: []string{"update"},
+				},
+				{
+					Resource:   "devices/enrollmenthooks/override",
 					Operations: []string{"update"},
 				},
 				{
@@ -477,6 +517,10 @@ func TestStaticAuthZ_GetUserPermissions(t *testing.T) {
 					Operations: []string{}, // Explicitly denied
 				},
 				{
+					Resource:   "devices/enrollmenthooks/override",
+					Operations: []string{}, // Explicitly denied - ManualOverride requires operator or admin role
+				},
+				{
 					Resource:   "imageexports/download",
 					Operations: []string{}, // Explicitly denied
 				},
@@ -534,6 +578,10 @@ func TestStaticAuthZ_GetUserPermissions(t *testing.T) {
 				},
 				{
 					Resource:   "devices/console",
+					Operations: []string{}, // Explicitly denied by viewer, installer does not grant it
+				},
+				{
+					Resource:   "devices/enrollmenthooks/override",
 					Operations: []string{}, // Explicitly denied by viewer, installer does not grant it
 				},
 				{

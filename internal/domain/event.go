@@ -103,6 +103,10 @@ const (
 	EventReasonPrepareDeltas                   = v1beta1.EventReasonPrepareDeltas
 	EventReasonDeltaGenerationProgress         = v1beta1.EventReasonDeltaGenerationProgress
 	EventReasonDeltaGenerationCompleted        = v1beta1.EventReasonDeltaGenerationCompleted
+	EventReasonEnrollmentHookSucceeded         = v1beta1.EventReasonEnrollmentHookSucceeded
+	EventReasonEnrollmentHookFailed            = v1beta1.EventReasonEnrollmentHookFailed
+	EventReasonEnrollmentHookNotifyFailed      = v1beta1.EventReasonEnrollmentHookNotifyFailed
+	EventReasonEnrollmentHookManualOverride    = v1beta1.EventReasonEnrollmentHookManualOverride
 )
 
 const EventReasonGenerateDelta EventReason = "GenerateDelta"
@@ -202,6 +206,8 @@ var warningReasons = map[EventReason]struct{}{
 	EventReasonResourceSyncSyncFailed:          {},
 	EventReasonFleetRolloutFailed:              {},
 	EventReasonDependencySyncProbeFailed:       {},
+	EventReasonEnrollmentHookFailed:            {},
+	EventReasonEnrollmentHookNotifyFailed:      {},
 }
 
 // GetEventType determines the event type based on the event reason

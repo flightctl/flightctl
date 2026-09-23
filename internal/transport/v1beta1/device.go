@@ -157,6 +157,13 @@ func (h *TransportHandler) RestartDeviceApplication(w http.ResponseWriter, r *ht
 	h.SetResponse(w, apiResult, status)
 }
 
+// (POST /api/v1/devices/{name}/enrollmenthooks/override)
+func (h *TransportHandler) OverrideDeviceEnrollmentHook(w http.ResponseWriter, r *http.Request, name string) {
+	body, status := h.device.OverrideDeviceEnrollmentHook(r.Context(), transport.OrgIDFromContext(r.Context()), name)
+	apiResult := h.converter.Device().FromDomain(body)
+	h.SetResponse(w, apiResult, status)
+}
+
 // (POST /api/v1/deviceactions/resume)
 func (h *TransportHandler) ResumeDevices(w http.ResponseWriter, r *http.Request) {
 	var request apiv1beta1.DeviceResumeRequest
