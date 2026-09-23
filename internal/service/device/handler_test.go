@@ -1201,6 +1201,32 @@ func TestGetRenderedDevice(t *testing.T) {
 	result, status := svc.GetRenderedDevice(ctx, orgId, "foo", domain.GetRenderedDeviceParams{})
 	require.Equal(t, int32(http.StatusOK), status.Code)
 	require.Equal(t, "foo", lo.FromPtr(result.Metadata.Name))
+	require.Equal(t, 1, st.device.getRenderedCalls)
+	require.Zero(t, st.device.getCalls, "rendered-device lookup should not issue a separate Get")
+}
+
+func TestGetRenderedDevice_EnrollmentHooksGateWhenRenderedSpecIsUnavailable(t *testing.T) {
+	st, _, svc := newTestHandler()
+	ctx := context.Background()
+	orgId := uuid.New()
+	device := domain.Device{
+		Metadata: domain.ObjectMeta{Name: lo.ToPtr("gate-test")},
+		Status: &domain.DeviceStatus{Conditions: []domain.Condition{{
+			Type:   domain.ConditionTypeDeviceEnrollmentHooks,
+			Status: domain.ConditionStatusFalse,
+			Reason: domain.EnrollmentHooksReasonPending,
+		}}},
+	}
+	_, err := st.device.Create(ctx, orgId, &device, nil)
+	require.NoError(t, err)
+	st.device.getRenderedErr = flterrors.ErrNoRenderedVersion
+
+	result, status := svc.GetRenderedDevice(ctx, orgId, "gate-test", domain.GetRenderedDeviceParams{})
+	require.Nil(t, result)
+	require.Equal(t, int32(http.StatusConflict), status.Code)
+	require.Contains(t, status.Message, "device is gated by enrollment hooks (reason: Pending)")
+	require.Equal(t, 1, st.device.getRenderedCalls)
+	require.Equal(t, 1, st.device.getCalls)
 }
 
 func TestGetRenderedDevice_EnrollmentHooksGate(t *testing.T) {
