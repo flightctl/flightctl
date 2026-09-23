@@ -321,15 +321,68 @@ To preserve data across system reboots, ensure these directories are backed up r
 
 ## Configuring Telemetry Gateway Forwarding (Optional)
 
-By default, the Telemetry Gateway exports metrics for local Prometheus scraping. You can optionally configure forwarding to send telemetry data to an upstream OTLP/gRPC backend.
+By default, the Telemetry Gateway exports metrics for local Prometheus scraping. You can optionally configure forwarding to send telemetry data to an upstream OTLP backend.
+
+The gateway supports two forwarding protocols:
+
+- **OTLP/gRPC** (default): Used when the endpoint is a bare `host:port` (e.g., `otlp.example.com:4317`). Typically used with mTLS authentication.
+- **OTLP/HTTP**: Used when the endpoint starts with `http://` or `https://` (e.g., `https://abc123.live.dynatrace.com/api/v2/otlp`). Supports custom HTTP headers for token-based authentication.
+
+The protocol is auto-detected from the endpoint format.
 
 Use forwarding when you:
 
-- Have an existing observability infrastructure (e.g., Grafana Cloud, Datadog, New Relic)
+- Have an existing observability infrastructure that accepts OTLP
 - Want to centralize telemetry from multiple Flight Control deployments
 - Need to integrate with organization-wide monitoring systems
 
-To configure forwarding with Mutual TLS (mTLS), follow the procedure below.
+### Forwarding via OTLP/HTTP with Token Authentication
+
+Use this method to forward to SaaS observability backends that accept OTLP/HTTP with API token authentication.
+
+Procedure:
+
+1. Create a Podman secret with the API token:
+
+   ```console
+   printf '%s' 'dt0c01.XXXXXXXX.XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX' | \
+     sudo podman secret create flightctl-tg-forward-token -
+   ```
+
+2. Edit `/etc/flightctl/service-config.yaml` to configure the forwarding endpoint:
+
+   ```yaml
+   telemetryGateway:
+     forward:
+       endpoint: "https://abc123.live.dynatrace.com/api/v2/otlp"
+       headers:
+         Authorization: "Api-Token ${FLIGHTCTL_FORWARD_TOKEN}"
+   ```
+
+   Header values support `${ENV_VAR}` expansion, so the token is injected from the
+   Podman secret at runtime and never appears in the config file.
+
+   The same configuration mechanism can be used with other OTLP/HTTP-compatible
+   backends. Replace the endpoint and header format according to your provider's
+   documentation.
+
+3. Uncomment the `Secret=` line in the quadlet container file to inject the secret as an environment variable:
+
+   ```console
+   sudo sed -i 's/^# Secret=flightctl-tg-forward-token/Secret=flightctl-tg-forward-token/' \
+     /etc/containers/systemd/flightctl-telemetry-gateway.container
+   ```
+
+4. Reload systemd and restart the telemetry gateway:
+
+   ```console
+   sudo systemctl daemon-reload
+   sudo systemctl restart flightctl-telemetry-gateway.service
+   ```
+
+### Forwarding via OTLP/gRPC with mTLS
+
+Use this method to forward to an upstream OTLP/gRPC collector with mutual TLS authentication.
 
 Procedure:
 
@@ -368,7 +421,7 @@ Procedure:
    sudo systemctl restart flightctl-telemetry-gateway.service
    ```
 
-Verification:
+### Verification
 
 1. Check the telemetry gateway logs to verify successful forwarding:
 
@@ -381,6 +434,13 @@ Verification:
    ```json
    {"level":"info","msg":"Successfully forwarded metrics batch","endpoint":"otlp.example.com:4317","batch_size":100}
    ```
+
+### Port Reference
+
+| Port | Protocol | Description |
+|------|----------|-------------|
+| 4317 | gRPC | OTLP ingest (devices send telemetry here) |
+| 9464 | HTTP | Prometheus metrics export endpoint |
 
 ## Next Steps
 
