@@ -440,9 +440,9 @@ var _ = Describe("PrepareDeltas holds device-selection member specs", func() {
 
 		gotFleet, err := fleetStore.Get(ctx, orgId, fleetName)
 		Expect(err).ToNot(HaveOccurred())
-		if gotFleet.Metadata.Annotations != nil {
-			_, hasTV := (*gotFleet.Metadata.Annotations)[api.FleetAnnotationTemplateVersion]
-			Expect(hasTV).To(BeFalse())
-		}
+		Expect(gotFleet.Metadata.Annotations).ToNot(BeNil())
+		_, hasTV := (*gotFleet.Metadata.Annotations)[api.FleetAnnotationTemplateVersion]
+		Expect(hasTV).To(BeFalse())
+		Expect((*gotFleet.Metadata.Annotations)[api.FleetAnnotationDeltaPrepareResourceVersion]).ToNot(BeEmpty())
 	})
 })

@@ -92,6 +92,9 @@ func (p *Handler) Prepare(ctx context.Context, ev worker_client.EventWithOrgId) 
 	if err != nil {
 		return err
 	}
+	if result.Superseded {
+		return nil
+	}
 	if result.Skip {
 		return p.finishSkip(ctx, ev.OrgId, kind, name, identity)
 	}

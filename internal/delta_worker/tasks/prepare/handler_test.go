@@ -576,15 +576,34 @@ func TestPrepare_TerminalAndDevice(t *testing.T) {
 		assert.Equal(t, domain.EventReasonGenerateDelta, emit.events[0].Reason)
 	})
 
-	t.Run("When a fleet template version differs from the event it should reject the event", func(t *testing.T) {
+	t.Run("When a fleet prepare event is superseded it should not emit completion", func(t *testing.T) {
 		store := newFakePrepareStore()
 		fleet := &domain.Fleet{Metadata: domain.ObjectMeta{Name: lo.ToPtr("fleet-1")}, Spec: domain.FleetSpec{}}
-		p := newTestPreparer(t, store, eligibleFleetResolver(fleet, deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, &resumeSpy{}, &emitSpy{})
+		status := &statusSpy{}
+		emit := &emitSpy{}
+		resolver := eligibleFleetResolver(fleet, deviceWithOS("d1", true, prepareTestSrc))
+		resolver.TemplateVersionService = mockTemplateVersionService(
+			func(_ context.Context, _ uuid.UUID, fleet, name string) (*domain.TemplateVersion, error) {
+				return &domain.TemplateVersion{
+					Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+					Spec:     domain.TemplateVersionSpec{Fleet: fleet},
+				}, nil
+			},
+			func(_ context.Context, _ uuid.UUID, fleet string) (*domain.TemplateVersion, error) {
+				return &domain.TemplateVersion{
+					Metadata: domain.ObjectMeta{Name: lo.ToPtr("tv-current")},
+					Spec:     domain.TemplateVersionSpec{Fleet: fleet},
+				}, nil
+			},
+		)
+		p := newTestPreparer(t, store, resolver, status, &resumeSpy{}, emit)
 
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-from-event"))
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "template version changed")
+		require.NoError(t, err)
 		assert.Empty(t, store.prepares)
+		assert.Empty(t, status.sets)
+		assert.Empty(t, status.clears)
+		assert.Empty(t, emit.events)
 	})
 
 	t.Run("When a standalone device Prepare runs it should use deployment wait and timeout", func(t *testing.T) {
@@ -1149,11 +1168,10 @@ func firstPrepare(store *fakePrepareStore) *model.DeltaPrepare {
 	return nil
 }
 
-func fleetWithTV(name, tv string) *domain.Fleet {
+func fleetWithTV(name, _ string) *domain.Fleet {
 	return &domain.Fleet{
 		Metadata: domain.ObjectMeta{
-			Name:        lo.ToPtr(name),
-			Annotations: &map[string]string{domain.FleetAnnotationTemplateVersion: tv},
+			Name: lo.ToPtr(name),
 		},
 		Spec: domain.FleetSpec{},
 	}

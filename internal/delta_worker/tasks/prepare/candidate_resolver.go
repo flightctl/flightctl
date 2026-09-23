@@ -28,6 +28,7 @@ type DeltaCandidate struct {
 type DeltaCandidateResult struct {
 	Candidates []DeltaCandidate
 	Skip       bool
+	Superseded bool
 	Fleet      *domain.Fleet
 }
 
@@ -44,6 +45,22 @@ type Resolver struct {
 }
 
 func (r *Resolver) DeltaCandidates(ctx context.Context, ev worker_client.EventWithOrgId) (DeltaCandidateResult, error) {
+	var (
+		fleetTemplate *domain.TemplateVersion
+		fleet         *domain.Fleet
+	)
+	if ev.Event.InvolvedObject.Kind == domain.FleetKind {
+		var superseded bool
+		var err error
+		fleetTemplate, fleet, superseded, err = r.currentFleetTemplateVersion(ctx, ev)
+		if err != nil {
+			return DeltaCandidateResult{}, err
+		}
+		if superseded {
+			return DeltaCandidateResult{Superseded: true}, nil
+		}
+	}
+
 	limit := int32(1)
 	fieldSelector := "spec.deltaStorageTarget=true"
 	repositories, status := r.RepositoryService.ListRepositories(ctx, ev.OrgId, domain.ListRepositoriesParams{
@@ -55,12 +72,12 @@ func (r *Resolver) DeltaCandidates(ctx context.Context, ev worker_client.EventWi
 	}
 
 	if (repositories == nil || len(repositories.Items) == 0) && generateTask.WriteSpecFromConfig(r.Config) == nil {
-		return DeltaCandidateResult{Skip: true}, nil
+		return DeltaCandidateResult{Skip: true, Fleet: fleet}, nil
 	}
 
 	switch ev.Event.InvolvedObject.Kind {
 	case domain.FleetKind:
-		return r.candidatesForFleetEvent(ctx, ev)
+		return r.candidatesForFleetEvent(ctx, ev, fleetTemplate, fleet)
 	case domain.DeviceKind:
 		return r.candidatesForDeviceEvent(ctx, ev)
 	default:
@@ -68,39 +85,68 @@ func (r *Resolver) DeltaCandidates(ctx context.Context, ev worker_client.EventWi
 	}
 }
 
-func (r *Resolver) candidatesForFleetEvent(ctx context.Context, ev worker_client.EventWithOrgId) (DeltaCandidateResult, error) {
+func (r *Resolver) currentFleetTemplateVersion(ctx context.Context, ev worker_client.EventWithOrgId) (*domain.TemplateVersion, *domain.Fleet, bool, error) {
 	eventTemplateVersion, err := prepareEventTemplateVersion(ev)
 	if err != nil {
-		return DeltaCandidateResult{}, err
+		return nil, nil, false, err
+	}
+	if r.TemplateVersionService == nil {
+		return nil, nil, false, fmt.Errorf("template version service is required for fleet prepare events")
 	}
 	tv, status := r.TemplateVersionService.GetTemplateVersion(ctx, ev.OrgId, ev.Event.InvolvedObject.Name, *eventTemplateVersion)
+	if status.Code == http.StatusNotFound {
+		return nil, nil, true, nil
+	}
 	if status.Code != http.StatusOK {
-		return DeltaCandidateResult{}, fmt.Errorf("get template version %s/%s/%s: %s", ev.OrgId, ev.Event.InvolvedObject.Name, *eventTemplateVersion, status.Message)
+		return nil, nil, false, fmt.Errorf("get template version %s/%s/%s: %s", ev.OrgId, ev.Event.InvolvedObject.Name, *eventTemplateVersion, status.Message)
 	}
 	if tv == nil {
-		return DeltaCandidateResult{}, fmt.Errorf("get template version %s/%s/%s returned no resource", ev.OrgId, ev.Event.InvolvedObject.Name, *eventTemplateVersion)
+		return nil, nil, false, fmt.Errorf("get template version %s/%s/%s returned no resource", ev.OrgId, ev.Event.InvolvedObject.Name, *eventTemplateVersion)
 	}
 	if tv.Spec.Fleet == "" {
-		return DeltaCandidateResult{}, fmt.Errorf("template version %q has no owning fleet", *eventTemplateVersion)
+		return nil, nil, false, fmt.Errorf("template version %q has no owning fleet", *eventTemplateVersion)
 	}
 	if tv.Spec.Fleet != ev.Event.InvolvedObject.Name {
-		return DeltaCandidateResult{}, fmt.Errorf("template version %q belongs to fleet %q, event targets fleet %q", *eventTemplateVersion, tv.Spec.Fleet, ev.Event.InvolvedObject.Name)
+		return nil, nil, false, fmt.Errorf("template version %q belongs to fleet %q, event targets fleet %q", *eventTemplateVersion, tv.Spec.Fleet, ev.Event.InvolvedObject.Name)
 	}
 
+	latest, status := r.TemplateVersionService.GetLatestTemplateVersion(ctx, ev.OrgId, ev.Event.InvolvedObject.Name)
+	if status.Code == http.StatusNotFound {
+		return nil, nil, true, nil
+	}
+	if status.Code != http.StatusOK {
+		return nil, nil, false, fmt.Errorf("get latest template version for fleet %s/%s: %s", ev.OrgId, ev.Event.InvolvedObject.Name, status.Message)
+	}
+	if latest == nil || latest.Metadata.Name == nil || *latest.Metadata.Name == "" {
+		return nil, nil, false, fmt.Errorf("get latest template version for fleet %s/%s returned no named resource", ev.OrgId, ev.Event.InvolvedObject.Name)
+	}
+	if *latest.Metadata.Name != *eventTemplateVersion {
+		return nil, nil, true, nil
+	}
+	if latest.Spec.Fleet != "" && latest.Spec.Fleet != ev.Event.InvolvedObject.Name {
+		return nil, nil, false, fmt.Errorf("latest template version %q belongs to fleet %q, event targets fleet %q", *latest.Metadata.Name, latest.Spec.Fleet, ev.Event.InvolvedObject.Name)
+	}
+
+	if r.FleetService == nil {
+		return nil, nil, false, fmt.Errorf("fleet service is required for fleet prepare events")
+	}
 	fleet, status := r.FleetService.GetFleet(ctx, ev.OrgId, tv.Spec.Fleet, domain.GetFleetParams{})
 	if status.Code != http.StatusOK {
-		return DeltaCandidateResult{}, fmt.Errorf("get fleet %s/%s: %s", ev.OrgId, tv.Spec.Fleet, status.Message)
+		return nil, nil, false, fmt.Errorf("get fleet %s/%s: %s", ev.OrgId, tv.Spec.Fleet, status.Message)
 	}
-	currentTemplateVersion, ok := fleetTemplateVersion(fleet)
-	if !ok || currentTemplateVersion != *eventTemplateVersion {
-		return DeltaCandidateResult{}, fmt.Errorf("fleet %s template version changed: event=%q current=%q", ev.Event.InvolvedObject.Name, *eventTemplateVersion, currentTemplateVersion)
+	if fleet == nil {
+		return nil, nil, false, fmt.Errorf("get fleet %s/%s returned no resource", ev.OrgId, ev.Event.InvolvedObject.Name)
 	}
+	return tv, fleet, false, nil
+}
+
+func (r *Resolver) candidatesForFleetEvent(ctx context.Context, ev worker_client.EventWithOrgId, tv *domain.TemplateVersion, fleet *domain.Fleet) (DeltaCandidateResult, error) {
 	if fleet.Spec.RolloutPolicy != nil && fleet.Spec.RolloutPolicy.DeltaGeneration != nil && fleet.Spec.RolloutPolicy.DeltaGeneration.GenerateDelta != nil && !*fleet.Spec.RolloutPolicy.DeltaGeneration.GenerateDelta {
 		return DeltaCandidateResult{Skip: true, Fleet: fleet}, nil
 	}
 
 	limit := int32(tasks.ItemsPerPage)
-	owner := util.SetResourceOwner(domain.FleetKind, tv.Spec.Fleet)
+	owner := util.SetResourceOwner(domain.FleetKind, ev.Event.InvolvedObject.Name)
 	fieldSelector := fmt.Sprintf("metadata.owner=%s,status.systemInfo.deltaEligible=true", *owner)
 	params := domain.ListDevicesParams{Limit: &limit, FieldSelector: &fieldSelector}
 
@@ -178,14 +224,6 @@ func prepareEventTemplateVersion(ev worker_client.EventWithOrgId) (*string, erro
 		return nil, fmt.Errorf("fleet prepare deltas event requires templateVersion")
 	}
 	return details.TemplateVersion, nil
-}
-
-func fleetTemplateVersion(fleet *domain.Fleet) (string, bool) {
-	if fleet == nil || fleet.Metadata.Annotations == nil {
-		return "", false
-	}
-	templateVersion, ok := (*fleet.Metadata.Annotations)[domain.FleetAnnotationTemplateVersion]
-	return templateVersion, ok && templateVersion != ""
 }
 
 func deviceSpecHashFromEvent(ev worker_client.EventWithOrgId) (string, error) {

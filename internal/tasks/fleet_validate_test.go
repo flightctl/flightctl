@@ -11,7 +11,6 @@ import (
 	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
@@ -45,6 +44,7 @@ func TestFleetValidateLogic_CreateNewTemplateVersionIfFleetValid_EmitsPrepareDel
 
 			fleetName := "test-fleet"
 			fleet := createTestFleet(fleetName, tt.rolloutPolicy)
+			fleet.Metadata.ResourceVersion = lo.ToPtr("1")
 			event := createTestEvent(domain.FleetKind, "some-reason", fleetName)
 			orgId := uuid.New()
 			log := logrus.New()
@@ -67,9 +67,8 @@ func TestFleetValidateLogic_CreateNewTemplateVersionIfFleetValid_EmitsPrepareDel
 					}, domain.Status{Code: http.StatusCreated}
 				})
 			mockFleetSvc.EXPECT().UpdateFleetAnnotations(gomock.Any(), gomock.Any(), fleetName, map[string]string{
-				domain.FleetAnnotationTemplateVersion: "test-tv",
+				domain.FleetAnnotationDeltaPrepareResourceVersion: "1",
 			}, nil).Return(domain.Status{Code: http.StatusOK})
-			mockDeviceSvc.EXPECT().SetOutOfDate(gomock.Any(), gomock.Any(), util.ResourceOwner(domain.FleetKind, fleetName)).Return(nil)
 			mockFleetSvc.EXPECT().UpdateFleetConditions(gomock.Any(), gomock.Any(), fleetName, gomock.Any()).Return(domain.Status{Code: http.StatusOK})
 
 			logic := NewFleetValidateLogic(log, mockFleetSvc, mockTemplateVersionSvc, mockDeviceSvc, mockRepositorySvc, mockK8SClient, orgId, event)
@@ -84,6 +83,7 @@ func TestFleetValidateLogic_CreateNewTemplateVersionIfFleetValid_EmitsPrepareDel
 			details, err := emit.events[0].Details.AsPrepareDeltasDetails()
 			require.NoError(t, err)
 			assert.Equal(t, "test-tv", lo.FromPtr(details.TemplateVersion))
+			assert.Equal(t, "1", lo.FromPtr(details.ResourceVersion))
 		})
 	}
 }
@@ -92,6 +92,7 @@ func TestFleetValidateLogic_WhenTemplateVersionAlreadyExistsItRecoversPrepareDel
 	ctrl := gomock.NewController(t)
 	fleetName := "test-fleet"
 	fleet := createTestFleet(fleetName, nil)
+	fleet.Metadata.ResourceVersion = lo.ToPtr("1")
 	event := createTestEvent(domain.FleetKind, "some-reason", fleetName)
 	orgID := uuid.New()
 	emit := &prepareDeltasEmitter{}
@@ -107,9 +108,8 @@ func TestFleetValidateLogic_WhenTemplateVersionAlreadyExistsItRecoversPrepareDel
 	mockTemplateVersionSvc.EXPECT().CreateTemplateVersion(gomock.Any(), orgID, gomock.Any(), gomock.Any()).Return(nil, domain.Status{Code: http.StatusConflict})
 	mockTemplateVersionSvc.EXPECT().GetTemplateVersion(gomock.Any(), orgID, fleetName, gomock.Any()).Return(&domain.TemplateVersion{Metadata: domain.ObjectMeta{Name: lo.ToPtr("test-tv")}}, domain.Status{Code: http.StatusOK})
 	mockFleetSvc.EXPECT().UpdateFleetAnnotations(gomock.Any(), orgID, fleetName, map[string]string{
-		domain.FleetAnnotationTemplateVersion: "test-tv",
+		domain.FleetAnnotationDeltaPrepareResourceVersion: "1",
 	}, nil).Return(domain.Status{Code: http.StatusOK})
-	mockDeviceSvc.EXPECT().SetOutOfDate(gomock.Any(), orgID, util.ResourceOwner(domain.FleetKind, fleetName)).Return(nil)
 	mockFleetSvc.EXPECT().UpdateFleetConditions(gomock.Any(), orgID, fleetName, gomock.Any()).Return(domain.Status{Code: http.StatusOK})
 
 	logic := NewFleetValidateLogic(logrus.New(), mockFleetSvc, mockTemplateVersionSvc, mockDeviceSvc, mockRepositorySvc, mockK8SClient, orgID, event)

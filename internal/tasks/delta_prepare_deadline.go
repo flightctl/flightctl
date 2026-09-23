@@ -212,7 +212,7 @@ func (t *DeltaPrepareDeadline) emitFleetResume(ctx context.Context, prep *model.
 	}
 	status = t.fleetSvc.UpdateFleetAnnotations(ctx, prep.OrgID, prep.Name, map[string]string{
 		domain.FleetAnnotationTemplateVersion: tv,
-	}, nil)
+	}, []string{domain.FleetAnnotationDeltaPrepareResourceVersion})
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("setting fleet template version annotation: %s", status.Message)
 	}

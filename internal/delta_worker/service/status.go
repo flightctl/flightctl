@@ -11,7 +11,9 @@ import (
 	storepkg "github.com/flightctl/flightctl/internal/store"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 )
 
 type fleetStatusStore interface {
@@ -52,6 +54,7 @@ type ResumeResult struct {
 type deviceStatusStore interface {
 	Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.Device, apply devicestore.DeviceApplyFunc, opts ...devicestore.MutateOption) (*domain.Device, *domain.Device, bool, error)
 	ResumeDeltaIfCurrent(ctx context.Context, orgID uuid.UUID, name, specHash string) (bool, error)
+	SetOutOfDate(ctx context.Context, orgID uuid.UUID, owner string) error
 }
 
 // StorePreparingStatus owns the Fleet and Device status mutations used by the
@@ -61,10 +64,15 @@ type deviceStatusStore interface {
 type StorePreparingStatus struct {
 	fleets  fleetStatusStore
 	devices deviceStatusStore
+	log     logrus.FieldLogger
 }
 
-func NewStorePreparingStatus(fleets fleetStatusStore, devices deviceStatusStore) *StorePreparingStatus {
-	return &StorePreparingStatus{fleets: fleets, devices: devices}
+func NewStorePreparingStatus(fleets fleetStatusStore, devices deviceStatusStore, loggers ...logrus.FieldLogger) *StorePreparingStatus {
+	var log logrus.FieldLogger
+	if len(loggers) > 0 {
+		log = loggers[0]
+	}
+	return &StorePreparingStatus{fleets: fleets, devices: devices, log: log}
 }
 
 // SetPreparing records the initial resource-side marker for a newly admitted
@@ -135,6 +143,11 @@ func (s *StorePreparingStatus) resumeFleetIfCurrent(ctx context.Context, orgID u
 	if updated == nil {
 		return ResumeResult{}, nil
 	}
+	if s.devices != nil {
+		if err := s.devices.SetOutOfDate(ctx, orgID, util.ResourceOwner(domain.FleetKind, name)); err != nil && s.log != nil {
+			s.log.WithError(err).Warnf("failed marking devices out-of-date after delta preparation for fleet %s/%s", orgID, name)
+		}
+	}
 	return ResumeResult{Matched: true, Fleet: updated}, nil
 }
 
@@ -171,9 +184,6 @@ func (s *StorePreparingStatus) setFleet(ctx context.Context, orgId uuid.UUID, na
 		if annotations == nil {
 			annotations = map[string]string{}
 			m.Fleet.Metadata.Annotations = &annotations
-		}
-		if annotations[domain.FleetAnnotationTemplateVersion] != *identity.TemplateVersion {
-			return storepkg.ErrMutateSkipWrite
 		}
 		currentSourceResourceVersion, exists := annotations[domain.FleetAnnotationDeltaPrepareResourceVersion]
 		if initialize {

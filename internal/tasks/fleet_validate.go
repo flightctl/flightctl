@@ -42,7 +42,6 @@ type FleetValidateLogic struct {
 	log                logrus.FieldLogger
 	fleetSvc           fleetservice.Service
 	templateversionSvc templateversionservice.Service
-	deviceSvc          deviceservice.Service
 	repositorySvc      repositoryservice.Service
 	k8sClient          k8sclient.K8SClient
 	orgId              uuid.UUID
@@ -51,12 +50,11 @@ type FleetValidateLogic struct {
 	WorkerClient       worker_client.WorkerClient
 }
 
-func NewFleetValidateLogic(log logrus.FieldLogger, fleetSvc fleetservice.Service, templateversionSvc templateversionservice.Service, deviceSvc deviceservice.Service, repositorySvc repositoryservice.Service, k8sClient k8sclient.K8SClient, orgId uuid.UUID, event domain.Event) FleetValidateLogic {
+func NewFleetValidateLogic(log logrus.FieldLogger, fleetSvc fleetservice.Service, templateversionSvc templateversionservice.Service, _ deviceservice.Service, repositorySvc repositoryservice.Service, k8sClient k8sclient.K8SClient, orgId uuid.UUID, event domain.Event) FleetValidateLogic {
 	return FleetValidateLogic{
 		log:                log,
 		fleetSvc:           fleetSvc,
 		templateversionSvc: templateversionSvc,
-		deviceSvc:          deviceSvc,
 		repositorySvc:      repositorySvc,
 		k8sClient:          k8sClient,
 		orgId:              orgId,
@@ -133,24 +131,26 @@ func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Co
 	return t.setStatus(ctx, nil)
 }
 
-// prepareFleetRollout makes the newly-created template version current on the
-// fleet and marks its devices out of date before queueing delta preparation.
-// Keeping these state changes before PrepareDeltas ensures the completion CAS
-// can match the same template-version identity and that a queued event always
-// observes the desired resource state.
+// prepareFleetRollout records the source resource version before queueing delta
+// preparation. The template-version annotation and device rollout state are
+// applied only after preparation resumes the fleet.
 func (t *FleetValidateLogic) prepareFleetRollout(ctx context.Context, fleet *domain.Fleet, templateVersionName string) error {
 	fleetName := *fleet.Metadata.Name
-	status := t.fleetSvc.UpdateFleetAnnotations(ctx, t.orgId, fleetName, map[string]string{
-		domain.FleetAnnotationTemplateVersion: templateVersionName,
-	}, nil)
-	if status.Code != http.StatusOK {
-		return fmt.Errorf("failed setting fleet annotation with templateVersion: %s", status.Message)
+	if fleet.Metadata.ResourceVersion == nil || *fleet.Metadata.ResourceVersion == "" {
+		return fmt.Errorf("fleet %s has no resource version", fleetName)
+	}
+	sourceResourceVersion, err := strconv.ParseInt(*fleet.Metadata.ResourceVersion, 10, 64)
+	if err != nil || sourceResourceVersion <= 0 {
+		return fmt.Errorf("fleet %s has invalid resource version %q", fleetName, *fleet.Metadata.ResourceVersion)
 	}
 
-	if err := t.deviceSvc.SetOutOfDate(ctx, t.orgId, util.ResourceOwner(domain.FleetKind, fleetName)); err != nil {
-		// Warn only. It is better to continue processing than to fail fleet
-		// validation and leave the PrepareDeltas event unpublished.
-		t.log.Warnf("failed marking devices out-of-date after new template version created: %v", err)
+	// Fence any older completion while this PrepareDeltas event is queued, but
+	// do not make the new template version visible to rollout consumers yet.
+	status := t.fleetSvc.UpdateFleetAnnotations(ctx, t.orgId, fleetName, map[string]string{
+		domain.FleetAnnotationDeltaPrepareResourceVersion: strconv.FormatInt(sourceResourceVersion, 10),
+	}, nil)
+	if status.Code != http.StatusOK {
+		return fmt.Errorf("failed setting fleet delta prepare resource version: %s", status.Message)
 	}
 
 	return t.emitPrepareDeltas(ctx, fleetName, templateVersionName, fleet.Metadata.ResourceVersion)
