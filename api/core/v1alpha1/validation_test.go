@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 )
@@ -1897,6 +1898,100 @@ func TestValidateReplacesGraph(t *testing.T) {
 					}
 				}
 				require.True(found, "expected error containing %q, got %v", tt.errContains, errs)
+			} else {
+				require.Empty(errs)
+			}
+		})
+	}
+}
+
+func TestCatalogItemDeviceFeaturesValidation(t *testing.T) {
+	require := require.New(t)
+
+	baseArtifacts := []CatalogItemArtifact{
+		{Type: CatalogItemArtifactTypeContainer, Uri: "quay.io/example/app"},
+	}
+	makeItem := func(features *DeviceFeatures) CatalogItem {
+		return CatalogItem{
+			ApiVersion: "flightctl.io/v1alpha1",
+			Kind:       "CatalogItem",
+			Metadata:   CatalogItemMeta{Name: lo.ToPtr("test-item")},
+			Spec: CatalogItemSpec{
+				Type:      CatalogItemTypeContainer,
+				Artifacts: baseArtifacts,
+				Versions: []CatalogItemVersion{{
+					Version:        "1.0.0",
+					References:     map[CatalogItemArtifactType]string{"container": "v1.0.0"},
+					Channels:       []string{"stable"},
+					DeviceFeatures: features,
+				}},
+			},
+		}
+	}
+
+	tests := []struct {
+		name        string
+		features    *DeviceFeatures
+		wantErr     bool
+		errContains string
+	}{
+		{
+			name:     "When deviceFeatures is absent it should pass validation",
+			features: nil,
+		},
+		{
+			name: "When all device features use valid values it should pass validation",
+			features: &DeviceFeatures{
+				GpuPresent: lo.ToPtr(DeviceFeatureBooleanTrue),
+				KvmEnabled: lo.ToPtr(DeviceFeatureBooleanFalse),
+				OsMode:     lo.ToPtr(v1beta1.OsModeImage),
+			},
+		},
+		{
+			name: "When os.mode is package it should pass validation",
+			features: &DeviceFeatures{
+				OsMode: lo.ToPtr(v1beta1.OsModePackage),
+			},
+		},
+		{
+			name: "When gpu.present has an invalid value it should return an error",
+			features: &DeviceFeatures{
+				GpuPresent: lo.ToPtr(DeviceFeatureBoolean("maybe")),
+			},
+			wantErr:     true,
+			errContains: `"gpu.present": invalid value`,
+		},
+		{
+			name: "When kvm.enabled has an invalid value it should return an error",
+			features: &DeviceFeatures{
+				KvmEnabled: lo.ToPtr(DeviceFeatureBoolean("yes")),
+			},
+			wantErr:     true,
+			errContains: `"kvm.enabled": invalid value`,
+		},
+		{
+			name: "When os.mode has an invalid value it should return an error",
+			features: &DeviceFeatures{
+				OsMode: lo.ToPtr(v1beta1.OsModeType("hybrid")),
+			},
+			wantErr:     true,
+			errContains: `"os.mode": invalid value`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			errs := makeItem(tt.features).Validate()
+			if tt.wantErr {
+				require.NotEmpty(errs)
+				found := false
+				for _, e := range errs {
+					if strings.Contains(e.Error(), tt.errContains) {
+						found = true
+						break
+					}
+				}
+				require.True(found, "expected an error containing %q, got: %v", tt.errContains, errs)
 			} else {
 				require.Empty(errs)
 			}

@@ -2030,6 +2030,10 @@ components:
               example: ">=1.0.0 <1.3.0"
             deprecation:
               $ref: '#/components/schemas/CatalogItemDeprecation'
+            deviceFeatures:
+              allOf:
+                - $ref: '#/components/schemas/DeviceFeatures'
+              description: 'Device feature requirements that a target device must satisfy for this version to be considered compatible.'
           required:
             - version
             - channels
@@ -2168,6 +2172,36 @@ components:
           example: nginx-plus
       required:
         - message
+      additionalProperties: false
+    DeviceFeatureBoolean:
+      type: string
+      description: 'Value of a boolean device feature requirement, expressed as the string "true" or "false".'
+      enum:
+        - "true"
+        - "false"
+      x-enum-varnames:
+        - DeviceFeatureBooleanTrue
+        - DeviceFeatureBooleanFalse
+    DeviceFeatures:
+      type: object
+      description: >-
+        Device feature requirements declared by a catalog item version. Each field names a
+        device feature that a target device must provide with a matching value for this
+        version to be considered compatible. Only the feature names defined here are
+        permitted, and each is constrained to its allowed values.
+      properties:
+        gpu.present:
+          allOf:
+            - $ref: '#/components/schemas/DeviceFeatureBoolean'
+          description: 'Whether the target device is required to have a GPU present.'
+        kvm.enabled:
+          allOf:
+            - $ref: '#/components/schemas/DeviceFeatureBoolean'
+          description: 'Whether the target device is required to have KVM enabled.'
+        os.mode:
+          allOf:
+            - $ref: '../v1beta1/openapi.yaml#/components/schemas/OsModeType'
+          description: 'The OS management mode the target device is required to run.'
       additionalProperties: false
     Status:
       type: object

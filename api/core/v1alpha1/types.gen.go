@@ -41,6 +41,12 @@ const (
 	CatalogItemTypeQuadlet   CatalogItemType = "quadlet"
 )
 
+// Defines values for DeviceFeatureBoolean.
+const (
+	DeviceFeatureBooleanFalse DeviceFeatureBoolean = "false"
+	DeviceFeatureBooleanTrue  DeviceFeatureBoolean = "true"
+)
+
 // Defines values for VulnerabilitySeverity.
 const (
 	VulnerabilitySeverityCritical VulnerabilitySeverity = "Critical"
@@ -383,6 +389,9 @@ type CatalogItemVersion struct {
 	// Deprecation Deprecation information for a catalog item or version. Presence indicates deprecated status.
 	Deprecation *CatalogItemDeprecation `json:"deprecation,omitempty"`
 
+	// DeviceFeatures Device feature requirements that a target device must satisfy for this version to be considered compatible.
+	DeviceFeatures *DeviceFeatures `json:"deviceFeatures,omitempty"`
+
 	// Readme Detailed documentation, preferably in markdown format.
 	Readme *string `json:"readme,omitempty"`
 
@@ -487,6 +496,21 @@ type DeviceCountsBySeverity struct {
 
 	// Unknown Number of devices whose highest severity finding is unknown.
 	Unknown int64 `json:"unknown"`
+}
+
+// DeviceFeatureBoolean Value of a boolean device feature requirement, expressed as the string "true" or "false".
+type DeviceFeatureBoolean string
+
+// DeviceFeatures Device feature requirements declared by a catalog item version. Each field names a device feature that a target device must provide with a matching value for this version to be considered compatible. Only the feature names defined here are permitted, and each is constrained to its allowed values.
+type DeviceFeatures struct {
+	// GpuPresent Whether the target device is required to have a GPU present.
+	GpuPresent *DeviceFeatureBoolean `json:"gpu.present,omitempty"`
+
+	// KvmEnabled Whether the target device is required to have KVM enabled.
+	KvmEnabled *DeviceFeatureBoolean `json:"kvm.enabled,omitempty"`
+
+	// OsMode The OS management mode the target device is required to run.
+	OsMode *externalRef0.OsModeType `json:"os.mode,omitempty"`
 }
 
 // DeviceVulnerabilitySummaryResponse Severity summary for a single device.
