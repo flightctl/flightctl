@@ -231,7 +231,7 @@ type serviceImagesConfig struct {
 
 const (
 	defaultPodmanImage            = "quay.io/podman/stable:v5.7.1"
-	defaultBootcImageBuilderImage = "quay.io/centos-bootc/bootc-image-builder@sha256:773019f6b11766ca48170a4a7bf898be4268f3c2acfd0ec1db612408b3092a90"
+	defaultBootcImageBuilderImage = "ghcr.io/osbuild/bootc-image-builder@sha256:e7aadce6b3f5639cd47d83354791931ea219891a0d113c2fe74a0f0d352b165c"
 	defaultSyftImage              = "docker.io/anchore/syft:v1.44.0"
 )
 
