@@ -547,11 +547,12 @@ const (
 
 // Defines values for ResourceUpdatedDetailsUpdatedFields.
 const (
-	Labels       ResourceUpdatedDetailsUpdatedFields = "labels"
-	Owner        ResourceUpdatedDetailsUpdatedFields = "owner"
-	Spec         ResourceUpdatedDetailsUpdatedFields = "spec"
-	SpecSelector ResourceUpdatedDetailsUpdatedFields = "spec.selector"
-	SpecTemplate ResourceUpdatedDetailsUpdatedFields = "spec.template"
+	Labels                          ResourceUpdatedDetailsUpdatedFields = "labels"
+	Owner                           ResourceUpdatedDetailsUpdatedFields = "owner"
+	Spec                            ResourceUpdatedDetailsUpdatedFields = "spec"
+	SpecSelector                    ResourceUpdatedDetailsUpdatedFields = "spec.selector"
+	SpecTemplate                    ResourceUpdatedDetailsUpdatedFields = "spec.template"
+	StatusConditionsEnrollmentHooks ResourceUpdatedDetailsUpdatedFields = "status.conditions.EnrollmentHooks"
 )
 
 // Defines values for Rfc7662IntrospectionSpecType.

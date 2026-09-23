@@ -252,7 +252,7 @@ func shouldReconcileDeviceOwnership(ctx context.Context, event domain.Event, log
 
 	// If a device's labels were updated, return true
 	if event.Reason == domain.EventReasonResourceUpdated && event.InvolvedObject.Kind == domain.DeviceKind {
-		return hasUpdatedFields(event.Details, log, domain.Labels)
+		return hasUpdatedFields(event.Details, log, domain.Labels, domain.UpdatedFieldEnrollmentHooksCondition)
 	}
 
 	return false

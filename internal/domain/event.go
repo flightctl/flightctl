@@ -155,11 +155,12 @@ const (
 	ApplicationLifecycleActionRestart = v1beta1.ApplicationLifecycleActionRestart
 
 	// Updated field constants with prefix (descriptive)
-	UpdatedFieldLabels       = v1beta1.Labels
-	UpdatedFieldOwner        = v1beta1.Owner
-	UpdatedFieldSpec         = v1beta1.Spec
-	UpdatedFieldSpecSelector = v1beta1.SpecSelector
-	UpdatedFieldSpecTemplate = v1beta1.SpecTemplate
+	UpdatedFieldLabels                   = v1beta1.Labels
+	UpdatedFieldOwner                    = v1beta1.Owner
+	UpdatedFieldSpec                     = v1beta1.Spec
+	UpdatedFieldSpecSelector             = v1beta1.SpecSelector
+	UpdatedFieldSpecTemplate             = v1beta1.SpecTemplate
+	UpdatedFieldEnrollmentHooksCondition = v1beta1.StatusConditionsEnrollmentHooks
 
 	// Direct aliases for compatibility
 	Labels       = v1beta1.Labels

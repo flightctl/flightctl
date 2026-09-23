@@ -8713,7 +8713,7 @@ components:
           type: array
           items:
             type: string
-            enum: [owner, labels, spec, spec.selector, spec.template]
+            enum: [owner, labels, spec, spec.selector, spec.template, status.conditions.EnrollmentHooks]
           description: List of fields that were updated in the resource.
         previousOwner:
           type: string

@@ -342,6 +342,55 @@ func TestFleetSelectorUpdated_EnrollmentHooksGate(t *testing.T) {
 		require.NoError(t, err)
 	})
 
+	t.Run("When a gated device is owned by a deleted or empty-selector fleet it should defer ownership recomputation", func(t *testing.T) {
+		fleetName := "test-fleet"
+		gatedDevice := makeDeviceWithEnrollmentHooks("gated-owned-dev", map[string]string{"env": "prod"}, fleetName,
+			domain.ConditionStatusFalse, v1beta1.EnrollmentHooksReasonPending)
+
+		tests := []struct {
+			name        string
+			fleet       *domain.Fleet
+			fleetStatus domain.Status
+		}{
+			{
+				name:        "deleted fleet",
+				fleetStatus: domain.Status{Code: http.StatusNotFound},
+			},
+			{
+				name: "empty selector",
+				fleet: &domain.Fleet{
+					Metadata: domain.ObjectMeta{Name: lo.ToPtr(fleetName)},
+				},
+				fleetStatus: domain.StatusOK(),
+			},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				ctrl := gomock.NewController(t)
+				defer ctrl.Finish()
+
+				mockDeviceSvc := deviceservice.NewMockService(ctrl)
+				mockFleetSvc := fleetservice.NewMockService(ctrl)
+				event := domain.Event{
+					InvolvedObject: domain.ObjectReference{Kind: domain.FleetKind, Name: fleetName},
+				}
+
+				mockFleetSvc.EXPECT().GetFleet(gomock.Any(), orgId, fleetName, gomock.Any()).
+					Return(tt.fleet, tt.fleetStatus)
+				mockDeviceSvc.EXPECT().ListDevices(gomock.Any(), orgId, gomock.Any(), gomock.Any()).
+					Return(&domain.DeviceList{Items: []domain.Device{gatedDevice}}, domain.StatusOK())
+				mockDeviceSvc.EXPECT().ListDevicesByServiceCondition(gomock.Any(), orgId,
+					string(domain.ConditionTypeDeviceMultipleOwners), string(domain.ConditionStatusTrue), gomock.Any()).
+					Return(&domain.DeviceList{Items: []domain.Device{}}, domain.StatusOK())
+
+				logic := newTestFleetSelectorLogic(t, mockDeviceSvc, mockFleetSvc, event)
+				err := logic.FleetSelectorUpdated(context.Background())
+				require.NoError(t, err)
+			})
+		}
+	})
+
 	t.Run("When device not found it should return nil (no error)", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()

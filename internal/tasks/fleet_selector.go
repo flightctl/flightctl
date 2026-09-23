@@ -300,6 +300,11 @@ func (f FleetSelectorMatchingLogic) clearFleetOwnershipFromDevices(ctx context.C
 		}
 
 		for _, device := range devices.Items {
+			if domain.IsDeviceEnrollmentHooksGated(&device) {
+				f.log.Infof("Skipping ownership recomputation for device %s/%s: enrollment hooks gate is active", f.orgId, lo.FromPtr(device.Metadata.Name))
+				continue
+			}
+
 			// Recompute matching fleets for this device
 			allFleets, err := allFleetsFetcher()
 			if err != nil {

@@ -950,6 +950,21 @@ func replaceServiceConditionsOnDevice(device *domain.Device, serviceConds []doma
 
 // diffAndEmitConditionEvents compares old and new conditions and emits events for condition changes
 func (h *DeviceServiceHandler) diffAndEmitConditionEvents(ctx context.Context, orgId uuid.UUID, device *domain.Device, oldConditions, newConditions []domain.Condition) {
+	oldEnrollmentHooksCondition := domain.FindStatusCondition(oldConditions, domain.ConditionTypeDeviceEnrollmentHooks)
+	newEnrollmentHooksCondition := domain.FindStatusCondition(newConditions, domain.ConditionTypeDeviceEnrollmentHooks)
+	wasEnrollmentHooksGated := oldEnrollmentHooksCondition != nil && oldEnrollmentHooksCondition.Status == domain.ConditionStatusFalse
+	isEnrollmentHooksGated := newEnrollmentHooksCondition != nil && newEnrollmentHooksCondition.Status == domain.ConditionStatusFalse
+	if wasEnrollmentHooksGated && !isEnrollmentHooksGated {
+		updates := &domain.ResourceUpdatedDetails{
+			UpdatedFields: []domain.ResourceUpdatedDetailsUpdatedFields{domain.UpdatedFieldEnrollmentHooksCondition},
+		}
+		event := common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, false, domain.DeviceKind,
+			lo.FromPtr(device.Metadata.Name), updates, h.log, lo.FromPtr(device.Metadata.Annotations))
+		if event != nil {
+			h.events.CreateEvent(ctx, orgId, event)
+		}
+	}
+
 	// Track condition changes for MultipleOwners
 	oldMultipleOwnersCondition := domain.FindStatusCondition(oldConditions, domain.ConditionTypeDeviceMultipleOwners)
 	newMultipleOwnersCondition := domain.FindStatusCondition(newConditions, domain.ConditionTypeDeviceMultipleOwners)

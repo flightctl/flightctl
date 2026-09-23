@@ -969,6 +969,64 @@ func TestSetDeviceServiceConditions(t *testing.T) {
 		require.Len(t, ev.created, 1)
 	})
 
+	t.Run("When EnrollmentHooks changes from False to True it should emit an ownership reconciliation event", func(t *testing.T) {
+		st, ev, svc := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		_, err := st.device.Create(ctx, orgId, &domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")},
+			Status: &domain.DeviceStatus{Conditions: []domain.Condition{{
+				Type:   domain.ConditionTypeDeviceEnrollmentHooks,
+				Status: domain.ConditionStatusFalse,
+				Reason: domain.EnrollmentHooksReasonPending,
+			}}},
+		}, nil)
+		require.NoError(t, err)
+
+		status := svc.SetDeviceServiceConditions(ctx, orgId, "foo", []domain.Condition{{
+			Type:   domain.ConditionTypeDeviceEnrollmentHooks,
+			Status: domain.ConditionStatusTrue,
+			Reason: domain.EnrollmentHooksReasonSucceeded,
+		}})
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.Len(t, ev.created, 1)
+		event := ev.created[0]
+		require.Equal(t, domain.EventReasonResourceUpdated, event.Reason)
+		require.Equal(t, domain.DeviceKind, event.InvolvedObject.Kind)
+		require.Equal(t, "foo", event.InvolvedObject.Name)
+		require.NotNil(t, event.Details)
+		details, err := event.Details.AsResourceUpdatedDetails()
+		require.NoError(t, err)
+		require.Equal(t, []domain.ResourceUpdatedDetailsUpdatedFields{
+			domain.UpdatedFieldEnrollmentHooksCondition,
+		}, details.UpdatedFields)
+	})
+
+	t.Run("When EnrollmentHooks remains False it should not emit an ownership reconciliation event", func(t *testing.T) {
+		st, ev, svc := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		_, err := st.device.Create(ctx, orgId, &domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")},
+			Status: &domain.DeviceStatus{Conditions: []domain.Condition{{
+				Type:    domain.ConditionTypeDeviceEnrollmentHooks,
+				Status:  domain.ConditionStatusFalse,
+				Reason:  domain.EnrollmentHooksReasonPending,
+				Message: "hooks are pending",
+			}}},
+		}, nil)
+		require.NoError(t, err)
+
+		status := svc.SetDeviceServiceConditions(ctx, orgId, "foo", []domain.Condition{{
+			Type:    domain.ConditionTypeDeviceEnrollmentHooks,
+			Status:  domain.ConditionStatusFalse,
+			Reason:  domain.EnrollmentHooksReasonFailed,
+			Message: "hooks failed",
+		}})
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.Empty(t, ev.created)
+	})
+
 	t.Run("When a service condition is updated it should preserve agent-owned conditions", func(t *testing.T) {
 		st, _, svc := newTestHandler()
 		ctx := context.Background()
