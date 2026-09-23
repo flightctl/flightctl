@@ -568,7 +568,10 @@ func Collect(ctx context.Context, log *log.PrefixLogger, exec executer.Executer,
 		),
 		now: time.Now,
 	}
-	m.collect(ctx)
+	// Collect only the configured info sources; the standalone helper returns
+	// infoFromCache and does not report GPU or KVM information, so there is no
+	// need to scan for them here.
+	m.collectConfigured(ctx, false)
 	return m.infoFromCache(), nil
 }
 
