@@ -169,11 +169,10 @@ jobs:
           key: ${{ runner.os }}-buildah-${{ github.run_id }}
 
   validate-fips:
-    # Must run on self-hosted runner: fips-validator uses "podman unshare" +
-    # "podman image mount" which require rootless podman with proper subuid/
-    # subgid mappings and overlay storage — not reliably available on stock
-    # GitHub-hosted ubuntu-24.04 runners.
-    runs-on: flightctl-ci-runner
+    # Runs on a stock GitHub-hosted runner, mirroring the FIPS validation in
+    # publish-containers.yaml, which runs the same "podman unshare -- fips-validator
+    # image" command on ubuntu-24.04.
+    runs-on: ubuntu-24.04
     needs: build-backend-containers
     # Skipped when validate_fips is false (e.g. baseline builds whose checked-out
     # ref predates the fips-validate Makefile target); PR builds validate normally.
@@ -206,9 +205,9 @@ jobs:
         run: |
           set -euo pipefail
           go install github.com/flightctl/fips-validator@latest
-          # The self-hosted flightctl-ci-runner does not have $(go env GOPATH)/bin
-          # on PATH, so expose the freshly-installed binary to the subsequent
-          # "make fips-validate" step (which resolves it via command -v).
+          # GitHub-hosted runners do not have $(go env GOPATH)/bin on PATH, so
+          # expose the freshly-installed binary to the subsequent "make
+          # fips-validate" step (which resolves it via command -v).
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Validate FIPS compliance
