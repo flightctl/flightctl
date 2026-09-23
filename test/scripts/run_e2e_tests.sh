@@ -252,6 +252,21 @@ E2E_AUX_HOST="${E2E_AUX_HOST:-$(get_ext_ip)}"
 export E2E_AUX_HOST
 echo "E2E_AUX_HOST: ${E2E_AUX_HOST}"
 
+# Use the local auxiliary registry for the OTLP test collector when the mirrored
+# image is present. This keeps disconnected OCP runs from pulling the collector
+# from registry.access.redhat.com without breaking reused registries created by
+# older test runs.
+if [[ -z "${E2E_TELEMETRY_COLLECTOR_IMAGE:-}" && -n "${REGISTRY_ENDPOINT:-}" ]]; then
+    local_collector_image="${REGISTRY_ENDPOINT}/ubi9/python-312:latest"
+    if skopeo inspect --tls-verify=false "docker://${local_collector_image}" >/dev/null 2>&1; then
+        E2E_TELEMETRY_COLLECTOR_IMAGE="${local_collector_image}"
+        export E2E_TELEMETRY_COLLECTOR_IMAGE
+        echo "E2E_TELEMETRY_COLLECTOR_IMAGE: ${E2E_TELEMETRY_COLLECTOR_IMAGE}"
+    else
+        echo "Local OTLP test collector image is not present; using the default collector image"
+    fi
+fi
+
 # Set PAM authentication credentials for Quadlet environments
 if [[ "${E2E_ENVIRONMENT}" == "quadlet" ]]; then
     # Default PAM admin user credentials for E2E tests

@@ -96,6 +96,9 @@ telemetrygateway:
 	if httpExp["endpoint"] != "https://abc123.live.dynatrace.com/api/v2/otlp" {
 		t.Errorf("unexpected endpoint: %v", httpExp["endpoint"])
 	}
+	if _, ok := httpExp["metrics_endpoint"]; ok {
+		t.Error("unexpected explicit metrics endpoint for backend base URL")
+	}
 
 	headers, ok := httpExp["headers"].(map[string]string)
 	if !ok {
@@ -123,6 +126,9 @@ telemetrygateway:
 
 	exporters := root["exporters"].(map[string]any)
 	httpExp := exporters["otlphttp"].(map[string]any)
+	if httpExp["metrics_endpoint"] != "https://collector.example.com/v1/metrics" {
+		t.Errorf("unexpected metrics endpoint: %v", httpExp["metrics_endpoint"])
+	}
 	tlsCfg, ok := httpExp["tls"].(map[string]any)
 	if !ok {
 		t.Fatal("expected tls config in otlphttp exporter")
@@ -312,6 +318,12 @@ telemetrygateway:
 
 	exporters := root["exporters"].(map[string]any)
 	httpExp := exporters["otlphttp"].(map[string]any)
+	if httpExp["endpoint"] != "https://collector.example.com/api/v2/otlp" {
+		t.Errorf("unexpected endpoint: %v", httpExp["endpoint"])
+	}
+	if _, ok := httpExp["metrics_endpoint"]; ok {
+		t.Error("unexpected explicit metrics endpoint for backend base URL")
+	}
 	tlsCfg, ok := httpExp["tls"].(map[string]any)
 	if !ok {
 		t.Fatal("expected tls config in otlphttp exporter")
