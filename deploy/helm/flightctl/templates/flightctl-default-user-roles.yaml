@@ -158,6 +158,7 @@ rules:
       - flightctl.io
     resources:
       - devices/applications/lifecycle
+      - devices/enrollmenthooks/override
       - fleets/applications/lifecycle
 
 ---

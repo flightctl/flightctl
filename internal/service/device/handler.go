@@ -548,9 +548,28 @@ func applyDeviceStatusPatch(ctx context.Context, current *domain.Device, patch d
 	if !reflect.DeepEqual(current.Spec, patched.Spec) {
 		return nil, errors.New("spec is immutable")
 	}
+	// Prevent setting ManualOverride reason via generic PatchDeviceStatus.
+	// ManualOverride must go through the dedicated OverrideDeviceEnrollmentHook endpoint
+	// which enforces stricter RBAC and transition validation.
+	if err := rejectManualOverrideViaStatusPatch(patched); err != nil {
+		return nil, err
+	}
 	common.NilOutManagedObjectMetaProperties(&patched.Metadata)
 	patched.Metadata.ResourceVersion = nil
 	return patched, nil
+}
+
+// rejectManualOverrideViaStatusPatch returns an error if the patched device carries
+// a ManualOverride reason on the EnrollmentHooks condition.
+func rejectManualOverrideViaStatusPatch(device *domain.Device) error {
+	if device == nil || device.Status == nil {
+		return nil
+	}
+	cond := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceEnrollmentHooks)
+	if cond != nil && cond.Reason == domain.EnrollmentHooksReasonManualOverride {
+		return errors.New("ManualOverride cannot be set via status patch; use the dedicated enrollment hook override endpoint")
+	}
+	return nil
 }
 
 func (h *DeviceServiceHandler) GetRenderedDevice(ctx context.Context, orgId uuid.UUID, name string, params domain.GetRenderedDeviceParams) (*domain.Device, domain.Status) {
@@ -998,6 +1017,18 @@ func (h *DeviceServiceHandler) diffAndEmitConditionEvents(ctx context.Context, o
 		common.EmitSpecValidEvents(ctx, device, oldSpecValidCondition, newSpecValidCondition,
 			createEvent, common.GetDeviceSpecValidEvent, common.GetDeviceSpecInvalidEvent,
 			h.log)
+	}
+
+	// Track condition changes for EnrollmentHooks
+	oldEnrollmentHooksCondition := domain.FindStatusCondition(oldConditions, domain.ConditionTypeDeviceEnrollmentHooks)
+	newEnrollmentHooksCondition := domain.FindStatusCondition(newConditions, domain.ConditionTypeDeviceEnrollmentHooks)
+
+	enrollmentHooksConditionChanged := common.HasConditionChanged(oldEnrollmentHooksCondition, newEnrollmentHooksCondition)
+
+	if enrollmentHooksConditionChanged {
+		createEvent := func(c context.Context, e *domain.Event) { h.events.CreateEvent(c, orgId, e) }
+		common.EmitEnrollmentHookEvents(ctx, device, oldEnrollmentHooksCondition, newEnrollmentHooksCondition,
+			createEvent, h.log)
 	}
 }
 

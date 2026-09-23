@@ -208,6 +208,9 @@ type ClientInterface interface {
 
 	DecommissionDevice(ctx context.Context, name string, body DecommissionDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// OverrideDeviceEnrollmentHook request
+	OverrideDeviceEnrollmentHook(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetDeviceLastSeen request
 	GetDeviceLastSeen(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -931,6 +934,18 @@ func (c *Client) DecommissionDeviceWithBody(ctx context.Context, name string, co
 
 func (c *Client) DecommissionDevice(ctx context.Context, name string, body DecommissionDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewDecommissionDeviceRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) OverrideDeviceEnrollmentHook(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewOverrideDeviceEnrollmentHookRequest(c.Server, name)
 	if err != nil {
 		return nil, err
 	}
@@ -3235,6 +3250,40 @@ func NewDecommissionDeviceRequestWithBody(server string, name string, contentTyp
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewOverrideDeviceEnrollmentHookRequest generates requests for OverrideDeviceEnrollmentHook
+func NewOverrideDeviceEnrollmentHookRequest(server string, name string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/devices/%s/enrollmenthooks/override", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	return req, nil
 }
@@ -6198,6 +6247,9 @@ type ClientWithResponsesInterface interface {
 
 	DecommissionDeviceWithResponse(ctx context.Context, name string, body DecommissionDeviceJSONRequestBody, reqEditors ...RequestEditorFn) (*DecommissionDeviceResponse, error)
 
+	// OverrideDeviceEnrollmentHookWithResponse request
+	OverrideDeviceEnrollmentHookWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*OverrideDeviceEnrollmentHookResponse, error)
+
 	// GetDeviceLastSeenWithResponse request
 	GetDeviceLastSeenWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetDeviceLastSeenResponse, error)
 
@@ -7449,6 +7501,43 @@ func (r DecommissionDeviceResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r DecommissionDeviceResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type OverrideDeviceEnrollmentHookResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *Device
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON409      *Status
+	JSON429      *Status
+	JSON503      *Status
+}
+
+// Status returns HTTPResponse.Status
+func (r OverrideDeviceEnrollmentHookResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r OverrideDeviceEnrollmentHookResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r OverrideDeviceEnrollmentHookResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -9838,6 +9927,15 @@ func (c *ClientWithResponses) DecommissionDeviceWithResponse(ctx context.Context
 		return nil, err
 	}
 	return ParseDecommissionDeviceResponse(rsp)
+}
+
+// OverrideDeviceEnrollmentHookWithResponse request returning *OverrideDeviceEnrollmentHookResponse
+func (c *ClientWithResponses) OverrideDeviceEnrollmentHookWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*OverrideDeviceEnrollmentHookResponse, error) {
+	rsp, err := c.OverrideDeviceEnrollmentHook(ctx, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseOverrideDeviceEnrollmentHookResponse(rsp)
 }
 
 // GetDeviceLastSeenWithResponse request returning *GetDeviceLastSeenResponse
@@ -12414,6 +12512,81 @@ func ParseDecommissionDeviceResponse(rsp *http.Response) (*DecommissionDeviceRes
 	}
 
 	response := &DecommissionDeviceResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Device
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseOverrideDeviceEnrollmentHookResponse parses an HTTP response from a OverrideDeviceEnrollmentHookWithResponse call
+func ParseOverrideDeviceEnrollmentHookResponse(rsp *http.Response) (*OverrideDeviceEnrollmentHookResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &OverrideDeviceEnrollmentHookResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
