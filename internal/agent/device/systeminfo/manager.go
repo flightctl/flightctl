@@ -47,6 +47,12 @@ type manager struct {
 	now                func() time.Time
 	rng                *rand.Rand
 
+	// gpus and kvm cache the collected GPU inventory and KVM availability. They
+	// are refreshed during the collection cycle rather than on every status
+	// generation, and are read under mu.
+	gpus *[]v1beta1.DeviceGpu
+	kvm  *v1beta1.DeviceKvm
+
 	log *log.PrefixLogger
 }
 
@@ -186,6 +192,8 @@ func (m *manager) Status(ctx context.Context, deviceStatus *v1beta1.DeviceStatus
 		m.collect(ctx)
 	}
 	deviceStatus.SystemInfo, deviceStatus.SystemInfoStatus = m.systemInfoFromCache()
+	m.applyGPU(&deviceStatus.SystemInfo)
+	m.applyKVM(&deviceStatus.SystemInfo)
 
 	return nil
 }
@@ -265,6 +273,8 @@ func managerCollectionRequest(infoKeys, customKeys []string) collectionRequest {
 
 func (m *manager) collect(ctx context.Context) {
 	m.collectConfigured(ctx, false)
+	m.refreshGPU(ctx)
+	m.refreshKVM(ctx)
 }
 
 // CollectPending collects sources that have not yet been collected.
@@ -410,6 +420,66 @@ func (m *manager) systemInfoFromCache() (v1beta1.DeviceSystemInfo, *v1beta1.Devi
 		Statuses: statuses,
 		Summary:  v1beta1.DeviceSystemInfoSummaryStatus{Status: summary},
 	}
+}
+
+// refreshGPU collects the GPU inventory and caches it so Status reports a
+// snapshot rather than scanning the filesystem on every status generation. It is
+// called from the collection cycle (see collect).
+//
+// It must be called WITHOUT holding m.mu: it calls infoFromCache (which acquires
+// m.mu) and performs best-effort filesystem reads before taking the lock to
+// store the result. readWriter is nil only in unit tests that construct the
+// manager struct directly; skip the scan in that case.
+func (m *manager) refreshGPU(ctx context.Context) {
+	if m.readWriter == nil || ctx.Err() != nil {
+		return
+	}
+	info := m.infoFromCache()
+	hardwareMapPath := filepath.Join(m.dataDir, HardwareMapFileName)
+	gpus := collectGPUSystemInfo(m.log, m.readWriter, hardwareMapPath, info)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// Preserve the previously cached inventory when a GPU scan fails (nil) so a
+	// transient failure does not clear the reported GPU inventory.
+	if gpus != nil {
+		m.gpus = gpus
+	}
+}
+
+// refreshKVM collects KVM availability and caches it so Status reports a
+// snapshot rather than scanning the filesystem on every status generation. It is
+// called from the collection cycle (see collect).
+//
+// readWriter is nil only in unit tests that construct the manager struct
+// directly; skip the scan in that case.
+func (m *manager) refreshKVM(ctx context.Context) {
+	if m.readWriter == nil || ctx.Err() != nil {
+		return
+	}
+	kvm := collectKVMSystemInfo(m.log, m.readWriter)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.kvm = kvm
+}
+
+// applyGPU records the GPU inventory on the system info. It is always reported,
+// regardless of which info keys are configured. The value is read from the cache
+// populated by refreshGPU during collection.
+func (m *manager) applyGPU(systemInfo *v1beta1.DeviceSystemInfo) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	systemInfo.Gpus = m.gpus
+}
+
+// applyKVM records KVM availability on the system info. It is always reported,
+// regardless of which info keys are configured. The value is read from the cache
+// populated by refreshKVM during collection.
+func (m *manager) applyKVM(systemInfo *v1beta1.DeviceSystemInfo) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	systemInfo.Kvm = m.kvm
 }
 
 // defaultSystemInfo returns the default system info.

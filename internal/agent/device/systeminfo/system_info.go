@@ -180,16 +180,16 @@ type GPUInfo struct {
 
 // GPUDeviceInfo contains information about a GPU device
 type GPUDeviceInfo struct {
-	Index       int      `json:"index"`
-	Vendor      string   `json:"vendor"`
-	Model       string   `json:"model"`
-	DeviceID    string   `json:"deviceId,omitempty"`
-	PCIAddress  string   `json:"pciAddress,omitempty"`
-	RevisionID  string   `json:"revisionId,omitempty"`
-	VendorID    string   `json:"vendorId,omitempty"`
-	MemoryBytes uint64   `json:"memoryBytes,omitempty"`
-	Arch        string   `json:"architecture,omitempty"`
-	Features    []string `json:"features,omitempty"`
+	Index         int      `json:"index"`
+	Vendor        string   `json:"vendor"`
+	Model         string   `json:"model"`
+	PCIDeviceID   string   `json:"pciDeviceId,omitempty"`
+	PCIAddress    string   `json:"pciAddress,omitempty"`
+	PCIRevisionID string   `json:"pciRevisionId,omitempty"`
+	PCIVendorID   string   `json:"pciVendorId,omitempty"`
+	MemoryBytes   uint64   `json:"memoryBytes,omitempty"`
+	Arch          string   `json:"architecture,omitempty"`
+	Features      []string `json:"features,omitempty"`
 }
 
 // PCIVendorInfo contains mapping information for vendors and models
@@ -570,7 +570,10 @@ func Collect(ctx context.Context, log *log.PrefixLogger, exec executer.Executer,
 		now: time.Now,
 		rng: rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())), //nolint:gosec // G404 - shuffling does not require crypto-strength randomness
 	}
-	m.collect(ctx)
+	// Collect only the configured info sources; the standalone helper returns
+	// infoFromCache and does not report GPU or KVM information, so there is no
+	// need to scan for them here.
+	m.collectConfigured(ctx, false)
 	return m.infoFromCache(), nil
 }
 

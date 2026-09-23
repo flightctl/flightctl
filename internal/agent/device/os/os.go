@@ -151,6 +151,11 @@ func (m *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, _ ..
 	return nil
 }
 
+// ApplyDeltaSystemInfo populates the capability-derived fields of the device
+// system info: OCI delta eligibility, the bootc and oci-delta tool versions,
+// and the OS management mode. OsMode is only reported when it is a recognized
+// mode; when the mode is unknown the field is cleared so any stale value is
+// omitted from status.
 func ApplyDeltaSystemInfo(info *v1beta1.DeviceSystemInfo, caps Capabilities) {
 	eligible := caps.DeltaEligible
 	info.DeltaEligible = &eligible
@@ -161,6 +166,25 @@ func ApplyDeltaSystemInfo(info *v1beta1.DeviceSystemInfo, caps Capabilities) {
 	if caps.OCIDeltaVersion != "" {
 		v := caps.OCIDeltaVersion
 		info.OciDeltaVersion = &v
+	}
+	if mode, ok := systemInfoOsMode(caps.OsMode); ok {
+		info.OsMode = &mode
+	} else {
+		// Clear any stale value so an unrecognized mode is omitted from status
+		// rather than leaving a previously reported mode in place.
+		info.OsMode = nil
+	}
+}
+
+// systemInfoOsMode returns the OS management mode to report via systemInfo and
+// whether it is a recognized mode. Unrecognized (including empty) modes are not
+// reported so the field is omitted from status.
+func systemInfoOsMode(mode v1beta1.OsModeType) (v1beta1.OsModeType, bool) {
+	switch mode {
+	case v1beta1.OsModeImage, v1beta1.OsModePackage:
+		return mode, true
+	default:
+		return "", false
 	}
 }
 
