@@ -26,7 +26,7 @@ RUN ARCH=$(uname -m) && \
     echo -e "[centos-baseos]\nname=CentOS Stream 10 - BaseOS\nbaseurl=https://mirror.stream.centos.org/10-stream/BaseOS/${ARCH}/os/\nenabled=1\ngpgcheck=0" > /runtime-root/etc/yum.repos.d/centos.repo && \
     echo -e "[centos-appstream]\nname=CentOS Stream 10 - AppStream\nbaseurl=https://mirror.stream.centos.org/10-stream/AppStream/${ARCH}/os/\nenabled=1\ngpgcheck=0" >> /runtime-root/etc/yum.repos.d/centos.repo && \
     dnf install -y --installroot=/runtime-root --releasever=10 --setopt=install_weak_deps=False \
-        pam shadow-utils sssd-client && \
+        pam shadow-utils sssd-client openssl-libs tzdata && \
     dnf --installroot=/runtime-root clean all && \
     rm -rf /runtime-root/var/cache/dnf
 
@@ -62,7 +62,7 @@ RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
     make build-pam-issuer
 
-FROM quay.io/flightctl/flightctl-base:10.1-1769518576
+FROM registry.access.redhat.com/ubi10/ubi-micro:10.1-1769518576
 WORKDIR /app
 LABEL \
   com.redhat.component="flightctl-pam-issuer-container" \

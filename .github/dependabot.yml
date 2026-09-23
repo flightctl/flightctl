@@ -34,3 +34,17 @@ updates:
       interval: weekly
     commit-message:
       prefix: "NO-ISSUE"
+
+  - package-ecosystem: "docker"
+    directory: "/packaging/images/el9"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "NO-ISSUE"
+
+  - package-ecosystem: "docker"
+    directory: "/packaging/images/el10"
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "NO-ISSUE"
