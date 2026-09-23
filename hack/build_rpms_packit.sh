@@ -4,6 +4,9 @@ set -e
 ROOT=""
 PACKIT_OUTPUT_DIR="$(uname -m)"
 TAIL_PID=""
+SPEC_PATH="packaging/rpm/flightctl.spec"
+# Populated from the spec after prepare_workspace (see load_expected_rpm_packages).
+EXPECTED_RPM_PACKAGES=()
 
 if [[ "${1-}" == "--root" && -n "${2-}" ]]; then
   ROOT="$2"
@@ -13,7 +16,7 @@ fi
 
 cleanup() {
   # Restore original spec
-  cp /tmp/flightctl.spec packaging/rpm/flightctl.spec || true
+  cp /tmp/flightctl.spec "$SPEC_PATH" || true
 
   # Stop tail if it is running
   if [[ -n "${TAIL_PID:-}" ]]; then
@@ -38,7 +41,30 @@ prepare_workspace() {
   mkdir -p bin/rpm
 
   # Save the spec as packit will modify it locally to inject versioning
-  cp packaging/rpm/flightctl.spec /tmp
+  cp "$SPEC_PATH" /tmp/flightctl.spec
+}
+
+# Binary RPMs come from %package entries. The main Name: package has no %files
+# and is not built; .src.rpm is not required by consumers of bin/rpm/.
+load_expected_rpm_packages() {
+  local spec="$1"
+  local name subpkg
+  name="$(awk '/^Name:/{print $2; exit}' "$spec")"
+  if [[ -z "$name" ]]; then
+    echo "Error: could not read Name from ${spec}" >&2
+    exit 1
+  fi
+
+  EXPECTED_RPM_PACKAGES=()
+  while read -r subpkg; do
+    [[ -n "$subpkg" ]] || continue
+    EXPECTED_RPM_PACKAGES+=("${name}-${subpkg}")
+  done < <(awk '/^%package[[:space:]]+/ {print $2}' "$spec")
+
+  if ((${#EXPECTED_RPM_PACKAGES[@]} == 0)); then
+    echo "Error: no %package entries found in ${spec}" >&2
+    exit 1
+  fi
 }
 
 run_mock_build() {
@@ -64,9 +90,27 @@ run_mock_build() {
   return "$build_rc"
 }
 
-artifacts_available() {
-  ls "$PACKIT_OUTPUT_DIR"/flightctl-*.rpm >/dev/null 2>&1 \
-    || ls noarch/flightctl-*.rpm >/dev/null 2>&1
+rpm_exists() {
+  local pkg="$1"
+  ls "$PACKIT_OUTPUT_DIR"/"${pkg}"-*.rpm >/dev/null 2>&1 \
+    || ls noarch/"${pkg}"-*.rpm >/dev/null 2>&1
+}
+
+missing_rpms() {
+  local pkg
+  local missing=()
+  for pkg in "${EXPECTED_RPM_PACKAGES[@]}"; do
+    if ! rpm_exists "$pkg"; then
+      missing+=("$pkg")
+    fi
+  done
+  printf '%s\n' "${missing[@]}"
+}
+
+artifacts_complete() {
+  local missing
+  missing="$(missing_rpms)"
+  [[ -z "$missing" ]]
 }
 
 run_local_build() {
@@ -75,8 +119,11 @@ run_local_build() {
 }
 
 move_artifacts() {
-  if ! artifacts_available; then
-    echo "Error: No RPMs found in ${PACKIT_OUTPUT_DIR} or noarch/" >&2
+  if ! artifacts_complete; then
+    echo "Error: Incomplete RPM set in ${PACKIT_OUTPUT_DIR} or noarch/" >&2
+    local missing
+    missing="$(missing_rpms | tr '\n' ' ')"
+    echo "Missing expected packages: ${missing}" >&2
     exit 1
   fi
 
@@ -100,6 +147,9 @@ cleanup_packaging_artifacts() {
 echo "::group::Preparing RPM build environment"
 install_packit
 prepare_workspace
+# Use the saved pre-packit spec so package discovery is stable.
+load_expected_rpm_packages /tmp/flightctl.spec
+echo "Expecting RPM packages: ${EXPECTED_RPM_PACKAGES[*]}"
 echo "::endgroup::"
 
 BUILD_RC=0
@@ -112,20 +162,21 @@ else
 fi
 echo "::endgroup::"
 
-if artifacts_available; then
+if artifacts_complete; then
   move_artifacts
   cleanup_packaging_artifacts
   if [[ "$BUILD_RC" -ne 0 ]]; then
-    echo "WARNING: packit exited with code ${BUILD_RC} (often mock chroot cleanup after a successful build), but RPMs were installed to bin/rpm/" >&2
+    echo "WARNING: packit exited with code ${BUILD_RC} (often mock chroot cleanup after a successful build), but the full RPM set was installed to bin/rpm/" >&2
   fi
   echo "Build completed successfully"
   exit 0
 fi
 
+MISSING="$(missing_rpms | tr '\n' ' ')"
 if [[ "$BUILD_RC" -ne 0 ]]; then
-  echo "packit build failed with exit code ${BUILD_RC} and no RPMs were produced in ${PACKIT_OUTPUT_DIR}" >&2
+  echo "packit build failed with exit code ${BUILD_RC}; incomplete RPM set in ${PACKIT_OUTPUT_DIR} (missing: ${MISSING})" >&2
   exit "$BUILD_RC"
 fi
 
-echo "Error: No RPMs found in ${PACKIT_OUTPUT_DIR}" >&2
+echo "Error: Incomplete RPM set in ${PACKIT_OUTPUT_DIR} (missing: ${MISSING})" >&2
 exit 1
