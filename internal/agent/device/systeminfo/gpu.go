@@ -270,17 +270,18 @@ func collectPlatformGPUs(log *log.PrefixLogger, reader fileio.Reader, startIndex
 			}
 		}
 
-		if matchedCompat == "" {
-			log.Tracef("Platform device %s has OF_NAME=gpu but no known compatible string", entry.Name())
-			continue
+		gpu := GPUDeviceInfo{
+			Index: startIndex,
 		}
 
-		gpu := GPUDeviceInfo{
-			Index:    startIndex,
-			Vendor:   matched.Vendor,
-			Model:    matched.Model,
-			Arch:     matched.Arch,
-			DeviceID: matchedCompat,
+		if matchedCompat != "" {
+			gpu.Vendor = matched.Vendor
+			gpu.Model = matched.Model
+			gpu.Arch = matched.Arch
+			gpu.DeviceID = matchedCompat
+		} else {
+			log.Tracef("Platform device %s has OF_NAME=gpu but no known compatible string", entry.Name())
+			gpu.DeviceID = uevent["OF_COMPATIBLE_0"]
 		}
 		gpu.MemoryBytes = getGPUMemory(devicePath, reader, log)
 

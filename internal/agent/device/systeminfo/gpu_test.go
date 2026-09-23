@@ -189,7 +189,7 @@ func TestCollectPlatformGPUs(t *testing.T) {
 			wantCount:  0,
 		},
 		{
-			name: "When a platform device has OF_NAME=gpu but an unknown compatible string it should be skipped",
+			name: "When a platform device has OF_NAME=gpu but an unknown compatible string it should still report with generic info",
 			setup: func(t *testing.T, rw fileio.ReadWriter) {
 				require := require.New(t)
 				err := rw.MkdirAll(filepath.Join(platformDevicesPath, "17000000.gpu"), fileio.DefaultDirectoryPermissions)
@@ -203,7 +203,11 @@ func TestCollectPlatformGPUs(t *testing.T) {
 				require.NoError(err)
 			},
 			startIndex: 0,
-			wantCount:  0,
+			wantCount:  1,
+			wantFirst: &GPUDeviceInfo{
+				Index:    0,
+				DeviceID: "unknown,gpu-chip",
+			},
 		},
 		{
 			name: "When a platform device is not a GPU it should be ignored",
