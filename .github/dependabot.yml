@@ -29,7 +29,6 @@ updates:
 
   - package-ecosystem: docker
     directories:
-      - "/"
       - "/hack"
       - "/internal/imagebuilder_worker/tasks/templates"
       - "/packaging/images"
