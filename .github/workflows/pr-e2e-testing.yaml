@@ -68,22 +68,26 @@ jobs:
 
   reuse-e2e:
     runs-on: ubuntu-latest
+    # Reuse is an optimization; failures must fall back to running E2E.
+    continue-on-error: true
     permissions:
       contents: read
       actions: read
     outputs:
-      reused: ${{ steps.find-run.outputs.reused }}
-      source_run: ${{ steps.find-run.outputs.source_run }}
-      source_pr: ${{ steps.find-run.outputs.source_pr }}
+      reused: ${{ steps.find-run.outputs.reused || 'false' }}
+      source_run: ${{ steps.find-run.outputs.source_run || '' }}
+      source_pr: ${{ steps.find-run.outputs.source_pr || '' }}
     steps:
       - name: Checkout merge group
         if: github.event_name == 'merge_group'
+        continue-on-error: true
         uses: actions/checkout@v5
         with:
           ref: ${{ github.sha }}
 
       - name: Find a successful E2E run for the same tree
         id: find-run
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -183,9 +187,21 @@ jobs:
             echo "source_pr=${source_pr}"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Report reuse lookup failure
+        if: ${{ always() && steps.find-run.outcome == 'failure' }}
+        run: |
+          echo "::warning::E2E proof lookup failed; the merge-group E2E job will run instead"
+          {
+            echo "## E2E proof lookup"
+            echo
+            echo "The proof lookup failed. The merge-group E2E job will run as a fallback."
+          } >> "$GITHUB_STEP_SUMMARY"
+
   build-images-and-charts:
     needs: [compute-tag, reuse-e2e]
     if: |
+      !cancelled() &&
+      needs.compute-tag.result == 'success' &&
       needs.compute-tag.outputs.any_changed == 'true' &&
       needs.reuse-e2e.outputs.reused != 'true' &&
       (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run-e2e'))
@@ -206,6 +222,8 @@ jobs:
   build-rpms:
     needs: [compute-tag, reuse-e2e]
     if: |
+      !cancelled() &&
+      needs.compute-tag.result == 'success' &&
       needs.compute-tag.outputs.any_changed == 'true' &&
       needs.reuse-e2e.outputs.reused != 'true' &&
       (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run-e2e'))
@@ -239,6 +257,8 @@ jobs:
   discover-e2e-tests:
     needs: [compute-tag, reuse-e2e]
     if: |
+      !cancelled() &&
+      needs.compute-tag.result == 'success' &&
       needs.compute-tag.outputs.any_changed == 'true' &&
       needs.reuse-e2e.outputs.reused != 'true' &&
       (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run-e2e'))
