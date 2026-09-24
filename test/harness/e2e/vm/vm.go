@@ -23,6 +23,21 @@ const sshWaitTimeout time.Duration = 180 * time.Second
 // cannot exceed the overall WaitForSSHToBeReady deadline by blocking forever.
 const sshProbeAttemptTimeout = 10 * time.Second
 
+const (
+	// EnvLibvirtURI selects the libvirt connection. Default is qemu:///session.
+	// Example: qemu+ssh://kni@192.168.122.1/system?keyfile=/home/kni/.ssh/id_rsa
+	EnvLibvirtURI = "E2E_LIBVIRT_URI"
+	// EnvVMNetwork attaches the guest to this libvirt network (bridged/LAN) instead of
+	// QEMU user-net. When set, tests SSH to the guest DHCP address on port 22.
+	EnvVMNetwork = "E2E_VM_NETWORK"
+	// EnvVMDiskDir is the directory for overlay disks and cloud-init ISOs. When guests
+	// run on a remote hypervisor this must be a path qemu on that host can open
+	// (for example an NFS mount of /var/lib/libvirt/images/flightctl-e2e).
+	EnvVMDiskDir   = "E2E_VM_DISK_DIR"
+	defaultSSHHost = "127.0.0.1"
+	bridgedSSHPort = 22
+)
+
 type TestVM struct {
 	TestDir           string
 	VMName            string
@@ -34,16 +49,24 @@ type TestVM struct {
 	CloudInitData     bool
 	SSHPassword       string
 	SSHPrivateKeyPath util.SSHPrivateKeyPath // Path to SSH private key for key-based auth (alternative to SSHPassword)
-	SSHPort           int
-	Cmd               []string
-	RemoveVm          bool
-	pidFile           string
-	hasCloudInit      bool
-	cloudInitArgs     string
-	MemoryFilePath    string // Path for external snapshot memory file
-	MemoryMiB         int    // VM memory in MiB; 0 means use default (2048)
-	DiskSizeGB        int
-	TPMDevice         string // Host TPM device path for passthrough (e.g., /dev/tpmrm0); empty uses swtpm emulator
+	// SSHHost is the address the test process uses to reach guest sshd.
+	// Nested e2e uses 127.0.0.1 (QEMU user-net hostfwd). Bridged guests use the
+	// DHCP address discovered from libvirt after boot.
+	SSHHost string
+	SSHPort int
+	// NetworkName is a libvirt network to attach (virtio). Empty keeps QEMU user-net.
+	NetworkName string
+	// NvramPath is the OVMF vars file for nested (session UEFI) guests.
+	NvramPath      string
+	Cmd            []string
+	RemoveVm       bool
+	pidFile        string
+	hasCloudInit   bool
+	cloudInitArgs  string
+	MemoryFilePath string // Path for external snapshot memory file
+	MemoryMiB      int    // VM memory in MiB; 0 means use default (2048)
+	DiskSizeGB     int
+	TPMDevice      string // Host TPM device path for passthrough (e.g., /dev/tpmrm0); empty uses swtpm emulator
 	// SSHWaitTimeout is how long to wait for SSH to become ready. Zero uses the default (180s).
 	// Use a longer value for first-boot VMs (e.g. imagebuild workflow) where cloud-init or sshd may start late.
 	SSHWaitTimeout time.Duration
@@ -94,7 +117,7 @@ func (v *TestVM) WaitForSSHToBeReady() error {
 		timeout = sshWaitTimeout
 	}
 	deadline := time.Now().Add(timeout)
-	sshAddr := fmt.Sprintf("127.0.0.1:%d", v.SSHPort)
+	sshAddr := fmt.Sprintf("%s:%d", v.sshHost(), v.SSHPort)
 	logrus.Infof("Waiting for VM SSH to be ready via RunSSH on %s (timeout %s)", sshAddr, timeout)
 	var lastErr error
 	for time.Now().Before(deadline) {
@@ -128,8 +151,8 @@ func (v *TestVM) SSHCommandWithUser(inputArgs []string, user string) *exec.Cmd {
 }
 
 func (v *TestVM) sshCommandWithUserContext(ctx context.Context, inputArgs []string, user string) *exec.Cmd {
-	// Use 127.0.0.1 to match WaitForSSHToBeReady (localhost can cause connection closed during handshake).
-	sshDestination := user + "@127.0.0.1"
+	// Prefer 127.0.0.1 over localhost (localhost can close the connection during handshake).
+	sshDestination := user + "@" + v.sshHost()
 	port := strconv.Itoa(v.SSHPort)
 
 	// Common SSH args
@@ -164,6 +187,44 @@ func (v *TestVM) sshCommandWithUserContext(ctx context.Context, inputArgs []stri
 
 	logrus.Debugf("Running ssh command: %s", cmd.String())
 	return cmd
+}
+
+func (v *TestVM) sshHost() string {
+	if v.SSHHost != "" {
+		return v.SSHHost
+	}
+	return defaultSSHHost
+}
+
+func envOr(key, fallback string) string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// firstGuestIPv4 returns the first non-loopback IPv4 from libvirt interface addresses.
+func firstGuestIPv4(ifaces []guestIfaceAddrs) string {
+	for _, iface := range ifaces {
+		if strings.HasPrefix(iface.Name, "lo") {
+			continue
+		}
+		for _, addr := range iface.Addrs {
+			if addr == "" || strings.HasPrefix(addr, "127.") {
+				continue
+			}
+			if strings.Contains(addr, ":") {
+				continue
+			}
+			return addr
+		}
+	}
+	return ""
+}
+
+type guestIfaceAddrs struct {
+	Name  string
+	Addrs []string
 }
 
 // RunSSH runs a command over ssh or starts an interactive ssh connection if no command is provided
@@ -256,6 +317,96 @@ func (v *TestVM) GetServiceLogs(serviceName string) (string, error) {
 		return "", fmt.Errorf("failed to get service logs for %s: %w", serviceName, err)
 	}
 	return stdout.String(), nil
+}
+
+func diskTargetXML(_ string) string {
+	// bootc/CS9 initramfs waits on the root UUID via virtio-blk. SATA was used
+	// only to help system OVMF see the ESP; SeaBIOS + virtio matches nested e2e.
+	return `<target bus="virtio" dev="vda"/>`
+}
+
+func cpuXML(networkName string) string {
+	if networkName != "" {
+		return `<cpu mode='host-model'/>`
+	}
+	return `<cpu mode='custom' check='none'>
+    <model>Haswell-noTSX-IBRS</model>
+    <feature name='vmx' policy='optional'/>
+    <feature name='svm' policy='optional'/>
+  </cpu>`
+}
+
+func networkDeviceXML(networkName string) string {
+	if networkName == "" {
+		return ""
+	}
+	return fmt.Sprintf(`<interface type='network'>
+      <source network='%s'/>
+      <model type='virtio'/>
+      <rom enabled='no'/>
+    </interface>`, networkName)
+}
+
+func osXML(networkName, nvramPath string) string {
+	if networkName != "" {
+		// virt-install --import on RHEL system libvirt uses SeaBIOS. RHEL
+		// OVMF_CODE.fd with empty VARS boots Firmware Setup instead of the disk.
+		return `<os>
+    <type machine='q35'>hvm</type>
+    <bootmenu enable='no'/>
+  </os>`
+	}
+	return fmt.Sprintf(`<os firmware='efi'>
+    <type machine='q35'>hvm</type>
+    <bootmenu enable='no'/>
+    <firmware>
+      <feature enabled='%s' name='secure-boot'/>
+      <feature enabled='%s' name='enrolled-keys'/>
+    </firmware>
+    %s
+  </os>`, firmwareSecureBoot(""), firmwareEnrolledKeys(""), nvramXML(nvramPath))
+}
+
+func qemuCommandline(networkName string, sshPort int) string {
+	if networkName != "" {
+		return ""
+	}
+	return fmt.Sprintf(`<qemu:commandline>
+    <qemu:arg value='-netdev'/>
+    <qemu:arg value='user,id=n0,hostfwd=tcp::%d-:22'/>
+    <qemu:arg value='-device' />
+    <qemu:arg value='virtio-net-pci,netdev=n0,bus=pcie.0,addr=0x10' />
+  </qemu:commandline>`, sshPort)
+}
+
+func nvramXML(path string) string {
+	if path == "" {
+		return ""
+	}
+	return fmt.Sprintf("<nvram>%s</nvram>", path)
+}
+
+func firmwareSecureBoot(networkName string) string {
+	if networkName != "" {
+		return "no"
+	}
+	return "yes"
+}
+
+func firmwareEnrolledKeys(_ string) string {
+	return "no"
+}
+
+func applyVMDefaults(params *TestVM) {
+	if params.LibvirtUri == "" {
+		params.LibvirtUri = envOr(EnvLibvirtURI, "qemu:///session")
+	}
+	if params.NetworkName == "" {
+		params.NetworkName = strings.TrimSpace(os.Getenv(EnvVMNetwork))
+	}
+	if params.NetworkName != "" {
+		params.SSHPort = bridgedSSHPort
+	}
 }
 
 func StartAndWaitForSSH(params TestVM) (vm TestVMInterface, err error) {

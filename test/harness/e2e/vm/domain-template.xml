@@ -10,30 +10,11 @@
     <acpi></acpi>
     <apic></apic>
   </features>
-  <cpu mode='custom' check='none'>
-    <!-- this oddly specific CPU model is used because it works well with github CI and locally,
-         it limits the feature set exposure of the CPU, avoiding a kernel crash at boot when
-         secureboot is enabled -->
-    <!-- Note: for CentOS Stream 10, we need a x64 v3 CPU model -->
-    <model>Haswell-noTSX-IBRS</model>
-    <!-- expose VMX/SVM to enable nested KVM inside the guest (/dev/kvm); optional so
-         environments without nested-virt support still work -->
-    <feature name='vmx' policy='optional'/>
-    <feature name='svm' policy='optional'/>
-  </cpu>
+  {{.CPU}}
   <on_poweroff>destroy</on_poweroff>
   <on_reboot>restart</on_reboot>
   <on_crash>destroy</on_crash>
-  <os firmware='efi'>
-    <type machine='q35'>hvm</type>
-    <boot dev='hd'/>
-    <firmware>
-      <feature enabled='yes' name='secure-boot'/>
-      <!-- we enable secureboot to make sure that attestation is happening, but don't enroll the keys to avoid
-	   issues booting vms in fedora -->
-      <feature enabled='no' name='enrolled-keys'/>
-   </firmware>
-  </os>
+  {{.OS}}
   <devices>
     <serial type='pty'>
       <target type='isa-serial' port='0'>
@@ -48,7 +29,8 @@
     <disk device="disk" type="file" snapshot='external'>
       <driver name="qemu" type="qcow2"></driver>
       <source file="{{.DiskImagePath}}"></source>
-      <target bus="virtio" dev="vda"></target>
+      {{.DiskTarget}}
+      <boot order='1'/>
     </disk>
     {{.CloudInitCDRom}}
     <rng model='virtio'>
@@ -56,13 +38,8 @@
       <alias name='rng0'/>
       <address type='pci' domain='0x0000' bus='0x06' slot='0x00' function='0x0'/>
     </rng>
+    {{.NetworkDevice}}
     {{.TPMConfig}}
   </devices>
-  <qemu:commandline>
-    <qemu:arg value='-netdev'/>
-    <qemu:arg value='user,id=n0,hostfwd=tcp::{{.Port}}-:22'/>
-    <qemu:arg value='-device' />
-    <qemu:arg value='virtio-net-pci,netdev=n0,bus=pcie.0,addr=0x10' />
-    {{.SMBios}}
-  </qemu:commandline>
+  {{.QemuCommandline}}
 </domain>
