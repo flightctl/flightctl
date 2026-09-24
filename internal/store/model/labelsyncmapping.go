@@ -85,7 +85,7 @@ func (m *LabelSyncMapping) ToApiResource(_ ...APIResourceOption) (*domain.LabelS
 		status = m.Status.Data
 	}
 	return &domain.LabelSyncMapping{
-		ApiVersion: domain.LabelSyncMappingAPIVersion,
+		ApiVersion: LabelSyncMappingAPIVersion(),
 		Kind:       domain.LabelSyncMappingKind,
 		Metadata: domain.ObjectMeta{
 			Name:              lo.ToPtr(m.Name),

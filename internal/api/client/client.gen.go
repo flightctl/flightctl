@@ -9287,6 +9287,7 @@ type ListLabelSyncMappingsResponse struct {
 	JSON400      *Status
 	JSON401      *Status
 	JSON403      *Status
+	JSON404      *Status
 	JSON429      *Status
 	JSON503      *Status
 }
@@ -15912,6 +15913,13 @@ func ParseListLabelSyncMappingsResponse(rsp *http.Response) (*ListLabelSyncMappi
 			return nil, err
 		}
 		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest Status

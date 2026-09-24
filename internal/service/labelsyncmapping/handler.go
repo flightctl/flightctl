@@ -58,7 +58,7 @@ func ReplaceLabelSyncMappingFromUntrusted(ctx context.Context, svc Service, orgI
 func setPendingCondition(mapping *domain.LabelSyncMapping, generation int64) {
 	mapping.Status = &domain.LabelSyncMappingStatus{Conditions: &[]domain.Condition{}}
 	domain.SetStatusCondition(mapping.Status.Conditions, domain.Condition{
-		Type:               domain.ConditionType("Ready"),
+		Type:               domain.ConditionTypeLabelSyncMappingReady,
 		Status:             domain.ConditionStatusFalse,
 		Reason:             "Pending",
 		Message:            "Mapping propagation is pending",
@@ -140,7 +140,14 @@ func (h *ServiceHandler) validateExpression(ctx context.Context, mapping domain.
 }
 
 func (h *ServiceHandler) DeleteLabelSyncMapping(ctx context.Context, orgID uuid.UUID, name string) domain.Status {
-	_, err := h.store.Delete(ctx, orgID, name)
+	deleted, err := h.store.Delete(ctx, orgID, name)
+	if err != nil {
+		return common.StoreErrorToApiStatus(err, false, domain.LabelSyncMappingKind, &name)
+	}
+	if !deleted {
+		return domain.StatusOK()
+	}
+	_, err = h.store.FinalizeDelete(ctx, orgID, name)
 	return common.StoreErrorToApiStatus(err, false, domain.LabelSyncMappingKind, &name)
 }
 

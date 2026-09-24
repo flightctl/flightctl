@@ -428,7 +428,7 @@ func sameKey(left, right *string) bool {
 
 func pendingStatus(generation int64) domain.LabelSyncMappingStatus {
 	conditions := []domain.Condition{{
-		Type:               domain.ConditionType("Ready"),
+		Type:               domain.ConditionTypeLabelSyncMappingReady,
 		Status:             domain.ConditionStatusFalse,
 		Reason:             "Pending",
 		Message:            "Mapping propagation is pending",

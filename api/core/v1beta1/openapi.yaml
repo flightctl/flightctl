@@ -5168,6 +5168,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
@@ -8726,6 +8732,7 @@ components:
       - 'Accessible'            # ResourceSync
       - 'ResourceParsed'        # ResourceSync
       - 'Synced'                # ResourceSync
+      - 'Ready'                 # LabelSyncMapping
       - 'Valid'                 # Fleet
       - 'RolloutInProgress'     # Fleet
       - 'Updating'              # Device
@@ -8746,6 +8753,7 @@ components:
       - ResourceSyncAccessible
       - ResourceSyncResourceParsed
       - ResourceSyncSynced
+      - LabelSyncMappingReady
       - FleetValid
       - FleetRolloutInProgress
       - DeviceUpdating
@@ -10186,6 +10194,8 @@ components:
           type: string
           enum:
             - LabelSyncMapping
+          x-enum-varnames:
+            - LabelSyncMappingKindLabelSyncMapping
           description: Kind is a string value representing this resource type.
         metadata:
           $ref: '#/components/schemas/ObjectMeta'
@@ -10207,6 +10217,8 @@ components:
           type: string
           enum:
             - Device
+          x-enum-varnames:
+            - LabelSyncMappingSpecResourceTypeDevice
           description: Immutable resource type evaluated by the mapping.
         key:
           type: string

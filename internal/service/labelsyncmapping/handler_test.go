@@ -17,7 +17,10 @@ import (
 )
 
 type fakeStore struct {
-	mappings map[uuid.UUID]map[string]*domain.LabelSyncMapping
+	mappings            map[uuid.UUID]map[string]*domain.LabelSyncMapping
+	deleteErr           error
+	finalizeDeleteErr   error
+	finalizeDeleteCalls int
 }
 
 type rejectingExpressionValidator struct{ err error }
@@ -79,6 +82,9 @@ func (s *fakeStore) List(_ context.Context, orgID uuid.UUID, _ store.ListParams)
 }
 
 func (s *fakeStore) Delete(_ context.Context, orgID uuid.UUID, name string) (bool, error) {
+	if s.deleteErr != nil {
+		return false, s.deleteErr
+	}
 	mapping, found := s.mappings[orgID][name]
 	if !found {
 		return false, nil
@@ -87,7 +93,7 @@ func (s *fakeStore) Delete(_ context.Context, orgID uuid.UUID, name string) (boo
 	mapping.Metadata.DeletionTimestamp = &now
 	mapping.Metadata.ResourceVersion = lo.ToPtr("3")
 	mapping.Status = &domain.LabelSyncMappingStatus{Conditions: &[]domain.Condition{{
-		Type:               domain.ConditionType("Ready"),
+		Type:               domain.ConditionTypeLabelSyncMappingReady,
 		Status:             domain.ConditionStatusFalse,
 		Reason:             "Pending",
 		ObservedGeneration: mapping.Metadata.Generation,
@@ -99,8 +105,9 @@ func (*fakeStore) Revision(context.Context, uuid.UUID, domain.LabelSyncMappingRe
 	return 0, nil
 }
 
-func (*fakeStore) FinalizeDelete(context.Context, uuid.UUID, string) (bool, error) {
-	return false, nil
+func (s *fakeStore) FinalizeDelete(context.Context, uuid.UUID, string) (bool, error) {
+	s.finalizeDeleteCalls++
+	return false, s.finalizeDeleteErr
 }
 
 func mapping(name string) domain.LabelSyncMapping {
@@ -168,7 +175,7 @@ func TestLabelSyncMappingLifecycle(t *testing.T) {
 	t.Run("When metadata changes without a spec change it should preserve condition and generation", func(t *testing.T) {
 		current := store.mappings[firstOrg]["architecture"]
 		current.Status = &domain.LabelSyncMappingStatus{Conditions: &[]domain.Condition{{
-			Type:               domain.ConditionType("Ready"),
+			Type:               domain.ConditionTypeLabelSyncMappingReady,
 			Status:             domain.ConditionStatusTrue,
 			Reason:             "Success",
 			ObservedGeneration: lo.ToPtr(int64(2)),
@@ -187,9 +194,41 @@ func TestLabelSyncMappingLifecycle(t *testing.T) {
 	t.Run("When a mapping is deleted it should remain readable during cleanup", func(t *testing.T) {
 		status := handler.DeleteLabelSyncMapping(ctx, firstOrg, "architecture")
 		require.EqualValues(t, 200, status.Code)
+		assert.Equal(t, 1, store.finalizeDeleteCalls)
 		deleted, status := handler.GetLabelSyncMapping(ctx, firstOrg, "architecture")
 		require.EqualValues(t, 200, status.Code)
 		assert.NotNil(t, deleted.Metadata.DeletionTimestamp)
 		assert.Equal(t, "Pending", lo.FromPtr(deleted.Status.Conditions)[0].Reason)
+	})
+
+	t.Run("When deletion fails it should not attempt finalization", func(t *testing.T) {
+		deleteStore := newFakeStore()
+		deleteStore.deleteErr = errors.New("delete failed")
+		deleteHandler := NewServiceHandler(deleteStore)
+
+		status := deleteHandler.DeleteLabelSyncMapping(ctx, firstOrg, "architecture")
+		assert.EqualValues(t, 500, status.Code)
+		assert.Zero(t, deleteStore.finalizeDeleteCalls)
+	})
+
+	t.Run("When the mapping is not found it should not attempt finalization", func(t *testing.T) {
+		missingStore := newFakeStore()
+		missingHandler := NewServiceHandler(missingStore)
+
+		status := missingHandler.DeleteLabelSyncMapping(ctx, firstOrg, "missing")
+		assert.EqualValues(t, 200, status.Code)
+		assert.Zero(t, missingStore.finalizeDeleteCalls)
+	})
+
+	t.Run("When finalization fails it should return an internal server error", func(t *testing.T) {
+		finalizeStore := newFakeStore()
+		finalizeHandler := NewServiceHandler(finalizeStore)
+		_, createStatus := finalizeHandler.CreateLabelSyncMapping(ctx, firstOrg, mapping("finalize-failure"))
+		require.EqualValues(t, 201, createStatus.Code)
+		finalizeStore.finalizeDeleteErr = errors.New("finalization failed")
+
+		status := finalizeHandler.DeleteLabelSyncMapping(ctx, firstOrg, "finalize-failure")
+		assert.EqualValues(t, 500, status.Code)
+		assert.Equal(t, 1, finalizeStore.finalizeDeleteCalls)
 	})
 }

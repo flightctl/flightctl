@@ -124,6 +124,7 @@ const (
 	ConditionTypeFleetDeltaPreparing                  ConditionType = "FleetDeltaPreparing"
 	ConditionTypeFleetRolloutInProgress               ConditionType = "RolloutInProgress"
 	ConditionTypeFleetValid                           ConditionType = "Valid"
+	ConditionTypeLabelSyncMappingReady                ConditionType = "Ready"
 	ConditionTypeRepositoryAccessible                 ConditionType = "Accessible"
 	ConditionTypeResourceSyncAccessible               ConditionType = "Accessible"
 	ConditionTypeResourceSyncResourceParsed           ConditionType = "ResourceParsed"
