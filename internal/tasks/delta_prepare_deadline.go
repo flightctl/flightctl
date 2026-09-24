@@ -12,6 +12,7 @@ import (
 	deltapreparestore "github.com/flightctl/flightctl/internal/delta_worker/store/deltaprepare"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/service/common"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	eventservice "github.com/flightctl/flightctl/internal/service/event"
@@ -57,6 +58,9 @@ func NewDeltaPrepareDeadline(log logrus.FieldLogger, deltaStore prepareDeadlineS
 
 func (t *DeltaPrepareDeadline) Poll(ctx context.Context) {
 	t.log.Info("Running DeltaPrepareDeadline Polling")
+	ctx, span := tracing.StartSpan(ctx, "flightctl/tasks", "DeltaPrepareDeadline.Poll")
+	defer span.End()
+
 	rows, err := t.deltaStore.ListWaitingPastDeadline(ctx, deltapreparestore.MaxListWaitingPastDeadline, time.Now())
 	if err != nil {
 		t.log.WithError(err).Error("listing waiting delta prepares past deadline")

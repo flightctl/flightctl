@@ -16,16 +16,21 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
 	gomock "go.uber.org/mock/gomock"
 )
 
 type fakeDeadlineStore struct {
-	waiting []model.DeltaPrepare
-	casTo   map[uuid.UUID]string
-	casErr  error
+	waiting   []model.DeltaPrepare
+	casTo     map[uuid.UUID]string
+	casErr    error
+	spanValid bool
 }
 
-func (f *fakeDeadlineStore) ListWaitingPastDeadline(_ context.Context, _ int, _ time.Time) ([]model.DeltaPrepare, error) {
+func (f *fakeDeadlineStore) ListWaitingPastDeadline(ctx context.Context, _ int, _ time.Time) ([]model.DeltaPrepare, error) {
+	f.spanValid = trace.SpanFromContext(ctx).SpanContext().IsValid()
 	out := make([]model.DeltaPrepare, len(f.waiting))
 	copy(out, f.waiting)
 	return out, nil
@@ -76,6 +81,22 @@ func TestDeltaPrepareDeadlinePoll(t *testing.T) {
 	orgId := uuid.New()
 	log := logrus.New()
 	log.SetLevel(logrus.ErrorLevel)
+
+	t.Run("When polling it should pass a valid tracing span to the store", func(t *testing.T) {
+		previousTracerProvider := otel.GetTracerProvider()
+		tracerProvider := sdktrace.NewTracerProvider()
+		otel.SetTracerProvider(tracerProvider)
+		t.Cleanup(func() {
+			otel.SetTracerProvider(previousTracerProvider)
+			_ = tracerProvider.Shutdown(context.Background())
+		})
+
+		store := &fakeDeadlineStore{}
+		task := &DeltaPrepareDeadline{log: log, deltaStore: store}
+		task.Poll(context.Background())
+
+		require.True(t, store.spanValid)
+	})
 
 	t.Run("When a waiting prepare is past deadline it should CAS-fail and emit FleetRolloutStarted", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
