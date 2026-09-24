@@ -189,7 +189,7 @@ For backup and restore procedures applicable to development deployments, see [Ba
 
 The E2E workflow starts for every pull request. It runs the E2E test jobs only when the pull request has the `run-e2e` label; otherwise, its `e2e` check succeeds without running those tests. The merge queue runs E2E by default.
 
-When a labeled pull request passes the E2E test jobs, the workflow records the tested Git tree in a short-lived artifact. The merge queue reuses that result only if its checkout has the same Git tree and the source workflow run completed successfully. In that case, the queue's `e2e` check links to the original run in its job summary. If the tree differs, the source run is unavailable, or the lookup fails, the queue runs E2E normally. The artifact expires after seven days. Matching trees establish identical source files; commit-derived version metadata can still differ.
+When a labeled pull request passes both E2E and API tests, it records a proof candidate. A separate `workflow_run` workflow on the default branch validates the source jobs, confirms the PR did not change workflow or action files, and checks that the candidate matches the tested PR merge commit before publishing trusted proof. The merge queue reuses that result only if its checkout has the same Git tree. Its `e2e` check links to the original PR run in the job summary. If validation fails, the tree differs, or proof is unavailable, the queue runs E2E normally. Trusted proof expires after seven days. Matching trees establish identical source files; commit-derived version metadata can still differ.
 
 ## Metrics
 

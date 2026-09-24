@@ -1,0 +1,44 @@
+name: "E2E proof attestation"
+
+# GitHub runs workflow_run workflows from the default branch. Keep this as a
+# separate workflow so a PR cannot publish its own trusted reuse proof.
+on:
+  workflow_run:
+    workflows: ["E2E testing (Parallel Build)"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: read
+
+jobs:
+  attest:
+    if: >
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout trusted default-branch workflow
+        uses: actions/checkout@v5
+
+      - name: Verify source run and create proof
+        id: attest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          SOURCE_EVENT: ${{ github.event.workflow_run.event }}
+          SOURCE_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          SOURCE_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          SOURCE_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          SOURCE_HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+        run: .github/scripts/attest-e2e-run.sh
+
+      - name: Publish trusted E2E proof
+        if: steps.attest.outputs.attested == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-proof-tree-v2-${{ steps.attest.outputs.tree }}
+          path: e2e-proof.json
+          retention-days: 7
