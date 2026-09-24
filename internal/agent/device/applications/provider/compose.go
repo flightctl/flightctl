@@ -225,7 +225,7 @@ func (p *composeProvider) Install(ctx context.Context) error {
 		}
 	}
 
-	if err := writeENVFile(p.spec.Path, p.readWriter, p.spec.EnvVars); err != nil {
+	if err := writeENVFile(p.spec.Path, p.readWriter, p.spec.EnvVars, composeEnvReplacer); err != nil {
 		return fmt.Errorf("writing env file: %w", err)
 	}
 

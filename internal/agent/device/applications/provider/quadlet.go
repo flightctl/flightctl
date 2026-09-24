@@ -296,7 +296,7 @@ func (p *quadletProvider) Install(ctx context.Context) error {
 		}
 	}
 
-	if err := writeENVFile(p.spec.Path, p.readWriter, p.spec.EnvVars); err != nil {
+	if err := writeENVFile(p.spec.Path, p.readWriter, p.spec.EnvVars, systemdEnvReplacer); err != nil {
 		return fmt.Errorf("writing env file: %w", err)
 	}
 
