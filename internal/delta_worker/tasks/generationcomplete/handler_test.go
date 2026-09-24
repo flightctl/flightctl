@@ -23,6 +23,8 @@ func (completionStatusStore) ResumeDeltaIfCurrent(context.Context, uuid.UUID, st
 	return true, nil
 }
 
+func (completionStatusStore) SetOutOfDate(context.Context, uuid.UUID, string) error { return nil }
+
 func (completionStatusStore) Mutate(_ context.Context, _ uuid.UUID, _ string, _ *domain.Device, apply devicestore.DeviceApplyFunc, _ ...devicestore.MutateOption) (*domain.Device, *domain.Device, bool, error) {
 	resourceVersion := "3"
 	device := &domain.Device{
@@ -82,7 +84,11 @@ func (s *completionStore) CreateOrReplaceWaitingDeltaPrepare(context.Context, *m
 	return deltapreparestore.PrepareAdmission{}, nil
 }
 
-func (s *completionStore) GetDeltaPrepare(context.Context, deltapreparestore.PrepareKey, ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error) {
+func (s *completionStore) GetDeltaPrepareByID(context.Context, uuid.UUID, ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error) {
+	return nil, nil
+}
+
+func (s *completionStore) GetLatestDeltaPrepareForResource(context.Context, uuid.UUID, string, string, ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error) {
 	return nil, nil
 }
 
@@ -110,6 +116,8 @@ type progressStatusStore struct {
 func (s *progressStatusStore) ResumeDeltaIfCurrent(context.Context, uuid.UUID, string, string) (bool, error) {
 	return false, nil
 }
+
+func (*progressStatusStore) SetOutOfDate(context.Context, uuid.UUID, string) error { return nil }
 
 func (s *progressStatusStore) Mutate(_ context.Context, _ uuid.UUID, _ string, _ *domain.Device, apply devicestore.DeviceApplyFunc, _ ...devicestore.MutateOption) (*domain.Device, *domain.Device, bool, error) {
 	resourceVersion := "3"

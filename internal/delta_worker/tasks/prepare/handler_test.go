@@ -39,17 +39,59 @@ func TestPrepare_SkipPaths(t *testing.T) {
 
 	t.Run("When generateDelta is false it should Resume without inserting", func(t *testing.T) {
 		store := newFakePrepareStore()
-		status := &statusSpy{}
+		var order []string
+		status := &statusSpy{order: &order}
 		resume := &resumeSpy{}
-		emit := &emitSpy{}
+		emit := &emitSpy{order: &order}
 		p := newTestPreparer(t, store, skipGenerateDeltaResolver(), status, resume, emit)
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
 		require.NoError(t, err)
 		assert.Empty(t, store.prepares)
-		assert.Empty(t, status.sets)
+		require.Len(t, status.sets, 1)
+		assert.Equal(t, domain.FleetKind, status.sets[0].kind)
+		assert.Equal(t, "fleet-1", status.sets[0].name)
+		assert.Equal(t, 0, status.sets[0].completed)
+		assert.Equal(t, 0, status.sets[0].total)
+		assert.Equal(t, int64(1), status.sets[0].sourceResourceVersion)
+		assert.Equal(t, "tv-1", lo.FromPtr(status.sets[0].templateVersion))
 		assert.Empty(t, status.clears)
 		require.Len(t, emit.events, 1)
 		assert.Equal(t, domain.EventReasonDeltaPrepareComplete, emit.events[0].Reason)
+		assert.Equal(t, []string{"status", "emit"}, order)
+	})
+
+	t.Run("When a device skip has no prepare it should persist preparing status before completion", func(t *testing.T) {
+		store := newFakePrepareStore()
+		var order []string
+		status := &statusSpy{order: &order}
+		emit := &emitSpy{order: &order}
+		device := deviceWithOS("d1", false, prepareTestSrc)
+		p := newTestPreparer(t, store, eligibleDeviceResolver(device), status, &resumeSpy{}, emit)
+
+		err := p.Prepare(ctx, devicePrepareEventWithSpecHashAndResourceVersion(orgId, "d1", prepareTestHash, "2"))
+		require.NoError(t, err)
+		assert.Empty(t, store.prepares)
+		require.Len(t, status.sets, 1)
+		assert.Equal(t, domain.DeviceKind, status.sets[0].kind)
+		assert.Equal(t, "d1", status.sets[0].name)
+		assert.Equal(t, 0, status.sets[0].completed)
+		assert.Equal(t, 0, status.sets[0].total)
+		assert.Equal(t, int64(2), status.sets[0].sourceResourceVersion)
+		assert.Equal(t, prepareTestHash, lo.FromPtr(status.sets[0].specHash))
+		require.Len(t, emit.events, 1)
+		assert.Equal(t, domain.EventReasonDeltaPrepareComplete, emit.events[0].Reason)
+		assert.Equal(t, []string{"status", "emit"}, order)
+	})
+
+	t.Run("When persisting skipped preparing status fails it should not emit completion", func(t *testing.T) {
+		store := newFakePrepareStore()
+		emit := &emitSpy{}
+		status := &statusSpy{err: errors.New("status store unavailable")}
+		p := newTestPreparer(t, store, skipGenerateDeltaResolver(), status, &resumeSpy{}, emit)
+
+		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
+		require.EqualError(t, err, "set skipped delta preparing status: status store unavailable")
+		assert.Empty(t, emit.events)
 	})
 
 	t.Run("When generateDelta is false and a wait is in flight it should fail the waiting prepare", func(t *testing.T) {
@@ -576,15 +618,34 @@ func TestPrepare_TerminalAndDevice(t *testing.T) {
 		assert.Equal(t, domain.EventReasonGenerateDelta, emit.events[0].Reason)
 	})
 
-	t.Run("When a fleet template version differs from the event it should reject the event", func(t *testing.T) {
+	t.Run("When a fleet prepare event is superseded it should not emit completion", func(t *testing.T) {
 		store := newFakePrepareStore()
 		fleet := &domain.Fleet{Metadata: domain.ObjectMeta{Name: lo.ToPtr("fleet-1")}, Spec: domain.FleetSpec{}}
-		p := newTestPreparer(t, store, eligibleFleetResolver(fleet, deviceWithOS("d1", true, prepareTestSrc)), &statusSpy{}, &resumeSpy{}, &emitSpy{})
+		status := &statusSpy{}
+		emit := &emitSpy{}
+		resolver := eligibleFleetResolver(fleet, deviceWithOS("d1", true, prepareTestSrc))
+		resolver.TemplateVersionService = mockTemplateVersionService(
+			func(_ context.Context, _ uuid.UUID, fleet, name string) (*domain.TemplateVersion, error) {
+				return &domain.TemplateVersion{
+					Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+					Spec:     domain.TemplateVersionSpec{Fleet: fleet},
+				}, nil
+			},
+			func(_ context.Context, _ uuid.UUID, fleet string) (*domain.TemplateVersion, error) {
+				return &domain.TemplateVersion{
+					Metadata: domain.ObjectMeta{Name: lo.ToPtr("tv-current")},
+					Spec:     domain.TemplateVersionSpec{Fleet: fleet},
+				}, nil
+			},
+		)
+		p := newTestPreparer(t, store, resolver, status, &resumeSpy{}, emit)
 
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-from-event"))
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "template version changed")
+		require.NoError(t, err)
 		assert.Empty(t, store.prepares)
+		assert.Empty(t, status.sets)
+		assert.Empty(t, status.clears)
+		assert.Empty(t, emit.events)
 	})
 
 	t.Run("When a standalone device Prepare runs it should use deployment wait and timeout", func(t *testing.T) {
@@ -856,16 +917,17 @@ func (f *fakePrepareService) CreateOrReplaceWaitingDeltaPrepare(ctx context.Cont
 	return deltapreparestore.PrepareAdmission{Prepare: &copy, Accepted: true, Replaced: replaced}, nil
 }
 
-func (f *fakePrepareService) GetDeltaPrepare(ctx context.Context, key deltapreparestore.PrepareKey, _ ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error) {
-	if key.ID == uuid.Nil {
-		return f.store.getWaitingPrepare(ctx, key.OrgID, key.Kind, key.Name)
-	}
-	prepare := f.store.prepares[key.ID]
+func (f *fakePrepareService) GetDeltaPrepareByID(_ context.Context, id uuid.UUID, _ ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error) {
+	prepare := f.store.prepares[id]
 	if prepare == nil {
 		return nil, flterrors.ErrResourceNotFound
 	}
 	copy := *prepare
 	return &copy, nil
+}
+
+func (f *fakePrepareService) GetLatestDeltaPrepareForResource(ctx context.Context, orgID uuid.UUID, kind, name string, _ ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error) {
+	return f.store.getWaitingPrepare(ctx, orgID, kind, name)
 }
 
 func (f *fakePrepareService) ListDeltaPrepares(_ context.Context, ids []uuid.UUID) ([]model.DeltaPrepare, error) {
@@ -1044,6 +1106,7 @@ type statusSpy struct {
 	sets   []statusCall
 	clears []statusCall
 	order  *[]string
+	err    error
 }
 
 type statusCall struct {
@@ -1066,7 +1129,7 @@ func (s *statusSpy) SetPreparing(_ context.Context, prepare *model.DeltaPrepare,
 		templateVersion:       prepare.TemplateVersion,
 		specHash:              prepare.SpecHash,
 	})
-	return nil
+	return s.err
 }
 
 func (s *statusSpy) Clear(_ context.Context, _ uuid.UUID, kind, name string) error {
@@ -1149,11 +1212,10 @@ func firstPrepare(store *fakePrepareStore) *model.DeltaPrepare {
 	return nil
 }
 
-func fleetWithTV(name, tv string) *domain.Fleet {
+func fleetWithTV(name, _ string) *domain.Fleet {
 	return &domain.Fleet{
 		Metadata: domain.ObjectMeta{
-			Name:        lo.ToPtr(name),
-			Annotations: &map[string]string{domain.FleetAnnotationTemplateVersion: tv},
+			Name: lo.ToPtr(name),
 		},
 		Spec: domain.FleetSpec{},
 	}

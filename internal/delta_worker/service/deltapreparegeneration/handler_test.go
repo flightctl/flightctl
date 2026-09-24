@@ -46,7 +46,10 @@ func (f *fakePrepareService) CreateDeltaPrepare(context.Context, *model.DeltaPre
 func (f *fakePrepareService) CreateOrReplaceWaitingDeltaPrepare(context.Context, *model.DeltaPrepare) (deltapreparestore.PrepareAdmission, error) {
 	return deltapreparestore.PrepareAdmission{}, nil
 }
-func (f *fakePrepareService) GetDeltaPrepare(context.Context, deltapreparestore.PrepareKey, ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error) {
+func (f *fakePrepareService) GetDeltaPrepareByID(context.Context, uuid.UUID, ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error) {
+	return f.prepare, nil
+}
+func (f *fakePrepareService) GetLatestDeltaPrepareForResource(context.Context, uuid.UUID, string, string, ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error) {
 	return f.prepare, nil
 }
 func (f *fakePrepareService) ListDeltaPrepares(context.Context, []uuid.UUID) ([]model.DeltaPrepare, error) {

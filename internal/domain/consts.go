@@ -72,6 +72,7 @@ const (
 const (
 	FleetAnnotationTemplateVersion             = v1beta1.FleetAnnotationTemplateVersion
 	FleetAnnotationDeltaPrepareResourceVersion = v1beta1.FleetAnnotationDeltaPrepareResourceVersion
+	FleetAnnotationDeltaPrepareGeneration      = v1beta1.FleetAnnotationDeltaPrepareGeneration
 	FleetAnnotationDeployingTemplateVersion    = v1beta1.FleetAnnotationDeployingTemplateVersion
 	FleetAnnotationBatchNumber                 = v1beta1.FleetAnnotationBatchNumber
 	FleetAnnotationRolloutApproved             = v1beta1.FleetAnnotationRolloutApproved

@@ -68,15 +68,37 @@ func (m *deviceServiceMock) ListDevices(ctx context.Context, orgID uuid.UUID, pa
 
 type templateVersionServiceMock struct {
 	templateversionservice.Service
-	get func(context.Context, uuid.UUID, string, string) (*domain.TemplateVersion, error)
+	get       func(context.Context, uuid.UUID, string, string) (*domain.TemplateVersion, error)
+	getLatest func(context.Context, uuid.UUID, string) (*domain.TemplateVersion, error)
+	last      *domain.TemplateVersion
 }
 
 func (m *templateVersionServiceMock) GetTemplateVersion(ctx context.Context, orgID uuid.UUID, fleet, name string) (*domain.TemplateVersion, domain.Status) {
 	tv, err := m.get(ctx, orgID, fleet, name)
-	if tv != nil && tv.Spec.Fleet == "" {
-		tv.Spec.Fleet = fleet
+	if tv != nil {
+		if tv.Metadata.Name == nil {
+			tv.Metadata.Name = lo.ToPtr(name)
+		}
+		if tv.Spec.Fleet == "" {
+			tv.Spec.Fleet = fleet
+		}
+		m.last = tv
 	}
 	return tv, resolverServiceStatus(err)
+}
+
+func (m *templateVersionServiceMock) GetLatestTemplateVersion(ctx context.Context, orgID uuid.UUID, fleet string) (*domain.TemplateVersion, domain.Status) {
+	if m.getLatest != nil {
+		tv, err := m.getLatest(ctx, orgID, fleet)
+		if tv != nil && tv.Spec.Fleet == "" {
+			tv.Spec.Fleet = fleet
+		}
+		return tv, resolverServiceStatus(err)
+	}
+	if m.last == nil {
+		return nil, domain.StatusInternalServerError("latest template version was not configured")
+	}
+	return m.last, domain.StatusOK()
 }
 
 func resolverServiceStatus(err error) domain.Status {
@@ -94,8 +116,15 @@ func mockDeviceService(get func(context.Context, uuid.UUID, string) (*domain.Dev
 	return &deviceServiceMock{get: get, list: list}
 }
 
-func mockTemplateVersionService(get func(context.Context, uuid.UUID, string, string) (*domain.TemplateVersion, error)) templateversionservice.Service {
-	return &templateVersionServiceMock{get: get}
+func mockTemplateVersionService(
+	get func(context.Context, uuid.UUID, string, string) (*domain.TemplateVersion, error),
+	getLatest ...func(context.Context, uuid.UUID, string) (*domain.TemplateVersion, error),
+) templateversionservice.Service {
+	mock := &templateVersionServiceMock{get: get}
+	if len(getLatest) > 0 {
+		mock.getLatest = getLatest[0]
+	}
+	return mock
 }
 
 type repositoryServiceMock struct {
@@ -131,20 +160,31 @@ func TestDeltaCandidates_SkipPaths(t *testing.T) {
 	orgId := uuid.New()
 	ctx := context.Background()
 
-	t.Run("When the fleet template version differs from the event it should fail", func(t *testing.T) {
+	t.Run("When the event template version is superseded it should skip even without a write target", func(t *testing.T) {
 		r := Resolver{
-			FleetService: mockFleetService(func(_ context.Context, _ uuid.UUID, _ string) (*domain.Fleet, error) {
-				return fleetWithTV("fleet-1", "tv-current"), nil
+			TemplateVersionService: mockTemplateVersionService(
+				func(_ context.Context, _ uuid.UUID, fleet, name string) (*domain.TemplateVersion, error) {
+					return &domain.TemplateVersion{
+						Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+						Spec:     domain.TemplateVersionSpec{Fleet: fleet},
+					}, nil
+				},
+				func(_ context.Context, _ uuid.UUID, fleet string) (*domain.TemplateVersion, error) {
+					return &domain.TemplateVersion{
+						Metadata: domain.ObjectMeta{Name: lo.ToPtr("tv-current")},
+						Spec:     domain.TemplateVersionSpec{Fleet: fleet},
+					}, nil
+				},
+			),
+			RepositoryService: mockRepositoryService(func(_ context.Context, _ uuid.UUID, _ domain.ListRepositoriesParams) (*domain.RepositoryList, error) {
+				return &domain.RepositoryList{}, nil
 			}),
-			TemplateVersionService: mockTemplateVersionService(func(_ context.Context, _ uuid.UUID, _, _ string) (*domain.TemplateVersion, error) {
-				return &domain.TemplateVersion{Spec: domain.TemplateVersionSpec{Fleet: "fleet-1"}}, nil
-			}),
-			RepositoryService: testRepositoryService(),
-			Config:            &deltaconfig.DeltaGenerationConfig{},
+			Config: &deltaconfig.DeltaGenerationConfig{},
 		}
-		_, err := r.DeltaCandidates(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-event"))
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "template version changed")
+		result, err := r.DeltaCandidates(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-event"))
+		require.NoError(t, err)
+		assert.True(t, result.Superseded)
+		assert.False(t, result.Skip)
 	})
 
 	t.Run("When generateDelta is false it should skip", func(t *testing.T) {
@@ -170,6 +210,12 @@ func TestDeltaCandidates_SkipPaths(t *testing.T) {
 		r := Resolver{
 			FleetService: mockFleetService(func(_ context.Context, _ uuid.UUID, _ string) (*domain.Fleet, error) {
 				return fleetWithTV("fleet-1", "tv-1"), nil
+			}),
+			TemplateVersionService: mockTemplateVersionService(func(_ context.Context, _ uuid.UUID, fleet, name string) (*domain.TemplateVersion, error) {
+				return &domain.TemplateVersion{
+					Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+					Spec:     domain.TemplateVersionSpec{Fleet: fleet},
+				}, nil
 			}),
 			RepositoryService: mockRepositoryService(func(_ context.Context, _ uuid.UUID, _ domain.ListRepositoriesParams) (*domain.RepositoryList, error) {
 				return &domain.RepositoryList{}, nil
@@ -266,6 +312,15 @@ func TestDeltaCandidates_SkipPaths(t *testing.T) {
 
 	t.Run("When write target loading fails it should fail the call", func(t *testing.T) {
 		r := Resolver{
+			FleetService: mockFleetService(func(_ context.Context, _ uuid.UUID, _ string) (*domain.Fleet, error) {
+				return fleetWithTV("fleet-1", "tv-1"), nil
+			}),
+			TemplateVersionService: mockTemplateVersionService(func(_ context.Context, _ uuid.UUID, fleet, name string) (*domain.TemplateVersion, error) {
+				return &domain.TemplateVersion{
+					Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+					Spec:     domain.TemplateVersionSpec{Fleet: fleet},
+				}, nil
+			}),
 			RepositoryService: mockRepositoryService(func(_ context.Context, _ uuid.UUID, _ domain.ListRepositoriesParams) (*domain.RepositoryList, error) {
 				return nil, fmt.Errorf("org lookup failed")
 			}),

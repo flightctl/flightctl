@@ -69,10 +69,18 @@ func (h *ServiceHandler) CreateOrReplaceWaitingDeltaPrepare(ctx context.Context,
 	return admission, nil
 }
 
-func (h *ServiceHandler) GetDeltaPrepare(ctx context.Context, key deltapreparestore.PrepareKey, opts ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error) {
-	prepare, err := h.store.GetDeltaPrepare(ctx, key, opts...)
+func (h *ServiceHandler) GetDeltaPrepareByID(ctx context.Context, id uuid.UUID, opts ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error) {
+	prepare, err := h.store.GetDeltaPrepareByID(ctx, id, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("get delta prepare: %w", err)
+		return nil, fmt.Errorf("get delta prepare by ID: %w", err)
+	}
+	return prepare, nil
+}
+
+func (h *ServiceHandler) GetLatestDeltaPrepareForResource(ctx context.Context, orgID uuid.UUID, kind, name string, opts ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error) {
+	prepare, err := h.store.GetLatestDeltaPrepareForResource(ctx, orgID, kind, name, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("get latest delta prepare for resource: %w", err)
 	}
 	return prepare, nil
 }

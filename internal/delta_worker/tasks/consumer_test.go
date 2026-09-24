@@ -107,7 +107,15 @@ func (r *recordingCompletionStore) CreateOrReplaceWaitingDeltaPrepare(context.Co
 	return deltapreparestore.PrepareAdmission{}, nil
 }
 
-func (r *recordingCompletionStore) GetDeltaPrepare(_ context.Context, _ deltapreparestore.PrepareKey, _ ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error) {
+func (r *recordingCompletionStore) GetDeltaPrepareByID(context.Context, uuid.UUID, ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error) {
+	return r.getPrepare()
+}
+
+func (r *recordingCompletionStore) GetLatestDeltaPrepareForResource(context.Context, uuid.UUID, string, string, ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error) {
+	return r.getPrepare()
+}
+
+func (r *recordingCompletionStore) getPrepare() (*model.DeltaPrepare, error) {
 	if r.prepare == nil {
 		return nil, nil
 	}
@@ -135,6 +143,8 @@ type completionStatusStore struct{}
 func (completionStatusStore) ResumeDeltaIfCurrent(context.Context, uuid.UUID, string, string) (bool, error) {
 	return true, nil
 }
+
+func (completionStatusStore) SetOutOfDate(context.Context, uuid.UUID, string) error { return nil }
 
 func (completionStatusStore) Mutate(_ context.Context, _ uuid.UUID, _ string, _ *domain.Device, apply devicestore.DeviceApplyFunc, _ ...devicestore.MutateOption) (*domain.Device, *domain.Device, bool, error) {
 	resourceVersion := "3"

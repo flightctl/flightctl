@@ -95,10 +95,22 @@ func (_d *TracedService) DecrementPendingGenerationsForGeneration(ctx context.Co
 	return pa1, err
 }
 
-func (_d *TracedService) GetDeltaPrepare(ctx context.Context, key deltapreparestore.PrepareKey, opts ...deltapreparestore.PrepareGetOption) (dp1 *model.DeltaPrepare, err error) {
-	ctx, span := startSpan(ctx, "GetDeltaPrepare")
+func (_d *TracedService) GetDeltaPrepareByID(ctx context.Context, id uuid.UUID, opts ...deltapreparestore.PrepareGetOption) (dp1 *model.DeltaPrepare, err error) {
+	ctx, span := startSpan(ctx, "GetDeltaPrepareByID")
 
-	dp1, err = _d.inner.GetDeltaPrepare(ctx, key, opts...)
+	dp1, err = _d.inner.GetDeltaPrepareByID(ctx, id, opts...)
+	st := domain.StatusOK()
+	if err != nil {
+		st = domain.StatusInternalServerError(err.Error())
+	}
+	endSpan(span, st)
+	return dp1, err
+}
+
+func (_d *TracedService) GetLatestDeltaPrepareForResource(ctx context.Context, orgID uuid.UUID, kind string, name string, opts ...deltapreparestore.PrepareGetOption) (dp1 *model.DeltaPrepare, err error) {
+	ctx, span := startSpan(ctx, "GetLatestDeltaPrepareForResource")
+
+	dp1, err = _d.inner.GetLatestDeltaPrepareForResource(ctx, orgID, kind, name, opts...)
 	st := domain.StatusOK()
 	if err != nil {
 		st = domain.StatusInternalServerError(err.Error())

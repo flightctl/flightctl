@@ -92,6 +92,9 @@ func (p *Handler) Prepare(ctx context.Context, ev worker_client.EventWithOrgId) 
 	if err != nil {
 		return err
 	}
+	if result.Superseded {
+		return nil
+	}
 	if result.Skip {
 		return p.finishSkip(ctx, ev.OrgId, kind, name, identity)
 	}
@@ -190,7 +193,7 @@ func (p *Handler) isCurrentPrepare(ctx context.Context, orgID uuid.UUID, kind, n
 	// This is an optimistic read, not a database lock. The admission
 	// transaction has already committed and released its row lock; this check
 	// only prevents stale work from continuing after a newer prepare replaces it.
-	current, err := p.prepareService.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{OrgID: orgID, Kind: kind, Name: name}, deltapreparestore.WithPrepareStatus(model.DeltaPrepareWaiting))
+	current, err := p.prepareService.GetLatestDeltaPrepareForResource(ctx, orgID, kind, name, deltapreparestore.WithPrepareStatus(model.DeltaPrepareWaiting))
 	if err != nil {
 		return false, err
 	}
@@ -232,19 +235,23 @@ func (p *Handler) admitPrepare(ctx context.Context, orgId uuid.UUID, kind, name 
 }
 
 func (p *Handler) finishSkip(ctx context.Context, orgId uuid.UUID, kind, name string, identity prepareIdentity) error {
-	latest, err := p.prepareService.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{OrgID: orgId, Kind: kind, Name: name})
+	latest, err := p.prepareService.GetLatestDeltaPrepareForResource(ctx, orgId, kind, name)
 	if err != nil {
 		return err
 	}
 	if latest == nil {
-		return p.emitPrepareCompletion(ctx, &model.DeltaPrepare{
+		completion := &model.DeltaPrepare{
 			OrgID:                 orgId,
 			Kind:                  kind,
 			Name:                  name,
 			TemplateVersion:       identity.templateVersion,
 			SpecHash:              identity.specHash,
 			SourceResourceVersion: identity.resourceVersion,
-		})
+		}
+		if err := p.prepareService.SetDeltaPreparingStatus(ctx, completion, 0, 0); err != nil {
+			return fmt.Errorf("set skipped delta preparing status: %w", err)
+		}
+		return p.emitPrepareCompletion(ctx, completion)
 	}
 	if latest.SourceResourceVersion > identity.resourceVersion {
 		return nil

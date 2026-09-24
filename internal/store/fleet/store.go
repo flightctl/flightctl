@@ -114,12 +114,11 @@ func NewFleetStore(db *gorm.DB, log logrus.FieldLogger) *FleetStore {
 	return &FleetStore{dbHandler: db, log: log, genericStore: genericStore}
 }
 
-// ResumeDeltaIfCurrent clears the fleet's delta-preparing state when the fleet
-// still points at the template version that produced the prepare and its
-// marker is not newer than that prepare. The preparing condition is part of
-// the predicate so a redelivered completion event cannot claim the same
-// resource twice; a newer marker prevents an older completion from clearing
-// the current prepare.
+// ResumeDeltaIfCurrent clears the fleet's delta-preparing state and makes the
+// prepared template version current only while the Fleet spec generation still
+// matches validation and its source resource marker is not newer than the
+// prepare. The preparing condition prevents a redelivered completion event
+// from claiming the same resource twice.
 func (s *FleetStore) ResumeDeltaIfCurrent(ctx context.Context, orgID uuid.UUID, name, templateVersion string, sourceResourceVersion int64) (*domain.Fleet, error) {
 	var fleet model.Fleet
 	result := s.getDB(ctx).Raw(`
@@ -139,14 +138,21 @@ func (s *FleetStore) ResumeDeltaIfCurrent(ctx context.Context, orgID uuid.UUID, 
 				- 'deltaGeneration'
 			),
 			resource_version = resource_version + 1,
-			annotations = annotations - @source_resource_version_annotation
+			annotations = (
+				COALESCE(annotations, '{}'::jsonb)
+				|| jsonb_build_object(CAST(@template_version_annotation AS text), CAST(@template_version AS text))
+			) - @source_resource_version_annotation - @source_generation_annotation
 		WHERE org_id = @org_id
 		  AND name = @name
 		  AND deleted_at IS NULL
-		  AND annotations->>@template_version_annotation = @template_version
 		  AND CASE
 				WHEN annotations->>@source_resource_version_annotation ~ '^[0-9]+$'
 				THEN (annotations->>@source_resource_version_annotation)::numeric <= @source_resource_version
+				ELSE FALSE
+		  END
+		  AND CASE
+				WHEN annotations->>@source_generation_annotation ~ '^[0-9]+$'
+				THEN (annotations->>@source_generation_annotation)::numeric = generation
 				ELSE FALSE
 			  END
 		  AND EXISTS (
@@ -162,6 +168,7 @@ func (s *FleetStore) ResumeDeltaIfCurrent(ctx context.Context, orgID uuid.UUID, 
 		"template_version_annotation":        domain.FleetAnnotationTemplateVersion,
 		"source_resource_version":            fmt.Sprintf("%d", sourceResourceVersion),
 		"source_resource_version_annotation": domain.FleetAnnotationDeltaPrepareResourceVersion,
+		"source_generation_annotation":       domain.FleetAnnotationDeltaPrepareGeneration,
 		"condition_type":                     string(domain.ConditionTypeFleetDeltaPreparing),
 	}).Scan(&fleet)
 	if result.Error != nil {

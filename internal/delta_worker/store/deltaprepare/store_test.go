@@ -68,7 +68,7 @@ func TestDecrementPendingGenerationsForGeneration(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	stored, err := prepareStore.GetDeltaPrepare(ctx, PrepareKey{ID: prepare.ID})
+	stored, err := prepareStore.GetDeltaPrepareByID(ctx, prepare.ID)
 	require.NoError(t, err)
 	require.Equal(t, 2, stored.PendingGenerationsCount)
 
@@ -77,7 +77,7 @@ func TestDecrementPendingGenerationsForGeneration(t *testing.T) {
 	claimed, err := prepareStore.DecrementPendingGenerationsForGeneration(ctx, alreadyTerminalKey, model.DeltaGenerationSucceeded)
 	require.NoError(t, err)
 	require.Empty(t, claimed)
-	stored, err = prepareStore.GetDeltaPrepare(ctx, PrepareKey{ID: prepare.ID})
+	stored, err = prepareStore.GetDeltaPrepareByID(ctx, prepare.ID)
 	require.NoError(t, err)
 	require.Equal(t, 2, stored.PendingGenerationsCount)
 
@@ -99,7 +99,7 @@ func TestDecrementPendingGenerationsForGeneration(t *testing.T) {
 	claimed, err = prepareStore.DecrementPendingGenerationsForGeneration(ctx, pendingKey, model.DeltaGenerationSucceeded)
 	require.NoError(t, err)
 	require.Empty(t, claimed)
-	stored, err = prepareStore.GetDeltaPrepare(ctx, PrepareKey{ID: prepare.ID})
+	stored, err = prepareStore.GetDeltaPrepareByID(ctx, prepare.ID)
 	require.NoError(t, err)
 	require.Equal(t, 1, stored.PendingGenerationsCount)
 
@@ -125,7 +125,7 @@ func TestDecrementPendingGenerationsForGeneration(t *testing.T) {
 		{PrepareID: newPrepare.ID, OrgID: newPendingKey.OrgID, ImageRepository: newPendingKey.ImageRepository, SourceDigest: newPendingKey.SourceDigest, TargetDigest: newPendingKey.TargetDigest},
 	})
 	require.NoError(t, err)
-	newStored, err := prepareStore.GetDeltaPrepare(ctx, PrepareKey{ID: newPrepare.ID})
+	newStored, err := prepareStore.GetDeltaPrepareByID(ctx, newPrepare.ID)
 	require.NoError(t, err)
 	require.Equal(t, model.DeltaPrepareWaiting, newStored.Status)
 	require.Equal(t, 1, newStored.PendingGenerationsCount)
@@ -159,7 +159,7 @@ func TestDecrementPendingGenerationsForGeneration(t *testing.T) {
 		SourceDigest: alreadyTerminalKey.SourceDigest, TargetDigest: alreadyTerminalKey.TargetDigest,
 	}})
 	require.NoError(t, err)
-	stored, err = prepareStore.GetDeltaPrepare(ctx, PrepareKey{ID: terminalPrepare.ID})
+	stored, err = prepareStore.GetDeltaPrepareByID(ctx, terminalPrepare.ID)
 	require.NoError(t, err)
 	require.Equal(t, model.DeltaPrepareComplete, stored.Status)
 	require.Equal(t, 0, stored.PendingGenerationsCount)
@@ -231,4 +231,51 @@ func TestDecrementPendingGenerationsForGenerationSkipsStaleTerminalEvent(t *test
 	require.NoError(t, err)
 	require.Len(t, claimed, 1)
 	require.Equal(t, model.DeltaPrepareComplete, claimed[0].Prepare.Status)
+}
+
+func TestGetLatestDeltaPrepareForResource_WhenOrgIDIsDefaultItShouldFilterByOrgID(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:default-org-prepare-lookup?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	prepareStore := NewStore(db, logrus.New())
+	require.NoError(t, prepareStore.InitialMigration(ctx))
+
+	defaultOrgPrepare := &model.DeltaPrepare{
+		ID:                    uuid.New(),
+		OrgID:                 uuid.Nil,
+		Kind:                  "fleet",
+		Name:                  "same-name",
+		SourceResourceVersion: 1,
+		Status:                model.DeltaPrepareWaiting,
+	}
+	otherOrgPrepare := &model.DeltaPrepare{
+		ID:                    uuid.New(),
+		OrgID:                 uuid.New(),
+		Kind:                  "fleet",
+		Name:                  "same-name",
+		SourceResourceVersion: 2,
+		Status:                model.DeltaPrepareWaiting,
+	}
+	require.NoError(t, prepareStore.CreateDeltaPrepare(ctx, defaultOrgPrepare))
+	require.NoError(t, prepareStore.CreateDeltaPrepare(ctx, otherOrgPrepare))
+
+	got, err := prepareStore.GetLatestDeltaPrepareForResource(ctx, uuid.Nil, "fleet", "same-name")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Equal(t, defaultOrgPrepare.ID, got.ID)
+}
+
+func TestGetDeltaPrepareLookups_WhenRequiredSelectorFieldsAreMissingItShouldError(t *testing.T) {
+	ctx := context.Background()
+	prepareStore := NewStore(nil, logrus.New())
+
+	_, err := prepareStore.GetDeltaPrepareByID(ctx, uuid.Nil)
+	require.EqualError(t, err, "prepare ID is required")
+
+	_, err = prepareStore.GetLatestDeltaPrepareForResource(ctx, uuid.Nil, "", "some-name")
+	require.EqualError(t, err, "prepare resource lookup requires kind and name")
+
+	_, err = prepareStore.GetLatestDeltaPrepareForResource(ctx, uuid.Nil, "fleet", "")
+	require.EqualError(t, err, "prepare resource lookup requires kind and name")
 }

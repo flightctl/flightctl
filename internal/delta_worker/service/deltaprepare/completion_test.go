@@ -19,6 +19,8 @@ func (completionStatusStore) ResumeDeltaIfCurrent(context.Context, uuid.UUID, st
 	return true, nil
 }
 
+func (completionStatusStore) SetOutOfDate(context.Context, uuid.UUID, string) error { return nil }
+
 func (completionStatusStore) Mutate(_ context.Context, _ uuid.UUID, _ string, _ *domain.Device, apply devicestore.DeviceApplyFunc, _ ...devicestore.MutateOption) (*domain.Device, *domain.Device, bool, error) {
 	resourceVersion := "3"
 	device := &domain.Device{

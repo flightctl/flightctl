@@ -6,6 +6,9 @@ import (
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	eventservice "github.com/flightctl/flightctl/internal/service/event"
+	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
+	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
@@ -13,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 func createTestEventWithDetails(kind domain.ResourceKind, reason domain.EventReason, name string, details *domain.EventDetails) domain.Event {
@@ -352,7 +356,7 @@ func TestShouldRenderDevice(t *testing.T) {
 		{
 			name:     "DeltaGenerationCompleted",
 			event:    createTestEvent(domain.DeviceKind, domain.EventReasonDeltaGenerationCompleted, "device1"),
-			expected: false,
+			expected: true,
 		},
 	}
 
@@ -520,7 +524,7 @@ func TestDispatchTasks_WithNilMetrics(t *testing.T) {
 	mockConsumer.On("Complete", mock.Anything, "entry-123", payload, mock.MatchedBy(func(e error) bool { return e == nil })).Return(nil)
 
 	// Create dispatcher with nil metrics
-	handler := dispatchTasks(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	handler := TaskConsumer{}.dispatch()
 
 	// Execute handler
 	err = handler(ctx, payload, "entry-123", mockConsumer, log)
@@ -555,7 +559,7 @@ func TestDispatchTasks_WithNilMetrics_SuccessfulProcessing(t *testing.T) {
 	mockConsumer.On("Complete", mock.Anything, "entry-123", payload, mock.MatchedBy(func(e error) bool { return e == nil })).Return(nil)
 
 	// Create dispatcher with nil metrics
-	handler := dispatchTasks(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	handler := TaskConsumer{}.dispatch()
 
 	// Execute handler
 	err = handler(ctx, payload, "entry-123", mockConsumer, log)
@@ -563,6 +567,88 @@ func TestDispatchTasks_WithNilMetrics_SuccessfulProcessing(t *testing.T) {
 	// Should complete successfully
 	assert.NoError(t, err)
 	mockConsumer.AssertExpectations(t)
+}
+
+func TestDispatchTasks_FleetValidationAcknowledgesInvalidConfigAndRetriesOperationalErrors(t *testing.T) {
+	tests := []struct {
+		name             string
+		repositoryStatus domain.Status
+		lookupRepository bool
+		wantQueueRetry   bool
+	}{
+		{
+			name: "When Fleet configuration is invalid it should acknowledge the event",
+		},
+		{
+			name:             "When referenced repository is missing it should acknowledge the event",
+			repositoryStatus: domain.StatusResourceNotFound(domain.RepositoryKind, "repo-1"),
+			lookupRepository: true,
+		},
+		{
+			name:             "When repository lookup fails it should retry the event",
+			repositoryStatus: domain.StatusInternalServerError("repository store unavailable"),
+			lookupRepository: true,
+			wantQueueRetry:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			fleetName := "test-fleet"
+			fleet := createTestFleet(fleetName, nil)
+			configs := []domain.ConfigProviderSpec{{}}
+			if tt.lookupRepository {
+				configs = []domain.ConfigProviderSpec{makeGitConfigItem(t, "repo-config", "repo-1", "main")}
+			}
+			fleet.Spec.Template.Spec.Config = &configs
+			orgID := uuid.New()
+
+			mockFleetSvc := fleetservice.NewMockService(ctrl)
+			mockRepositorySvc := repositoryservice.NewMockService(ctrl)
+			mockEventSvc := eventservice.NewMockService(ctrl)
+			mockFleetSvc.EXPECT().GetFleet(gomock.Any(), orgID, fleetName, gomock.Any()).Return(fleet, domain.StatusOK())
+			mockFleetSvc.EXPECT().OverwriteFleetRepositoryRefs(gomock.Any(), orgID, fleetName, gomock.Any()).Return(domain.StatusOK())
+			mockFleetSvc.EXPECT().UpdateFleetConditions(gomock.Any(), orgID, fleetName, gomock.Any()).Return(domain.StatusOK())
+			if tt.lookupRepository {
+				mockRepositorySvc.EXPECT().GetRepository(gomock.Any(), orgID, "repo-1").Return(nil, tt.repositoryStatus)
+			}
+			if tt.wantQueueRetry {
+				mockEventSvc.EXPECT().CreateEvent(gomock.Any(), orgID, gomock.Any())
+			}
+
+			eventWithOrgID := worker_client.EventWithOrgId{
+				OrgId: orgID,
+				Event: createTestEvent(domain.FleetKind, domain.EventReasonDependencyChangeDetected, fleetName),
+			}
+			payload, err := json.Marshal(eventWithOrgID)
+			require.NoError(t, err)
+
+			mockConsumer := &MockConsumer{}
+			var queueErr error
+			mockConsumer.On("Complete", mock.Anything, "entry-123", payload, mock.Anything).
+				Run(func(args mock.Arguments) {
+					queueErr, _ = args.Get(3).(error)
+				}).Return(nil).Once()
+
+			handler := TaskConsumer{
+				FleetSvc:      mockFleetSvc,
+				RepositorySvc: mockRepositorySvc,
+				EventSvc:      mockEventSvc,
+			}.dispatch()
+			err = handler(context.Background(), payload, "entry-123", mockConsumer, logrus.New())
+
+			if tt.wantQueueRetry {
+				require.Error(t, err)
+				require.Error(t, queueErr)
+				assert.ErrorContains(t, err, "repository store unavailable")
+			} else {
+				require.NoError(t, err)
+				assert.NoError(t, queueErr)
+			}
+			mockConsumer.AssertExpectations(t)
+		})
+	}
 }
 
 func TestDispatchTasks_WithNilMetrics_InvalidPayload(t *testing.T) {
@@ -578,7 +664,7 @@ func TestDispatchTasks_WithNilMetrics_InvalidPayload(t *testing.T) {
 	mockConsumer.On("Complete", mock.Anything, "entry-123", payload, nil).Return(nil)
 
 	// Create dispatcher with nil metrics
-	handler := dispatchTasks(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	handler := TaskConsumer{}.dispatch()
 
 	// Execute handler
 	err := handler(ctx, payload, "entry-123", mockConsumer, log)

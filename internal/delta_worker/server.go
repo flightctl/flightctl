@@ -73,7 +73,7 @@ func New(log logrus.FieldLogger, cfg *deltaconfig.DeltaGenerationConfig, db *gor
 	templateVersionStore := tvstore.NewTemplateVersionStore(db, log.WithField("pkg", "templateversion-store"))
 
 	eventSvc := events.NewServiceHandler(eventStore, nil, log)
-	status := workerservice.NewStorePreparingStatus(fleetStore, deviceStore)
+	status := workerservice.NewStorePreparingStatus(fleetStore, deviceStore, log)
 	deviceSvc := deviceservice.WrapWithTracing(deviceservice.NewDeviceServiceHandler(deviceStore, nil, fleetStore, eventSvc, kvStore, "", log))
 	fleetSvc := fleetservice.WrapWithTracing(fleetservice.NewServiceHandler(fleetStore, nil, eventSvc, log))
 	repositorySvc := repositoryservice.WrapWithTracing(repositoryservice.NewServiceHandler(repositoryStore, eventSvc, log))
