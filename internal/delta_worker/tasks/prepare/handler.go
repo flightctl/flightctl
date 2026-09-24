@@ -240,14 +240,18 @@ func (p *Handler) finishSkip(ctx context.Context, orgId uuid.UUID, kind, name st
 		return err
 	}
 	if latest == nil {
-		return p.emitPrepareCompletion(ctx, &model.DeltaPrepare{
+		completion := &model.DeltaPrepare{
 			OrgID:                 orgId,
 			Kind:                  kind,
 			Name:                  name,
 			TemplateVersion:       identity.templateVersion,
 			SpecHash:              identity.specHash,
 			SourceResourceVersion: identity.resourceVersion,
-		})
+		}
+		if err := p.prepareService.SetDeltaPreparingStatus(ctx, completion, 0, 0); err != nil {
+			return fmt.Errorf("set skipped delta preparing status: %w", err)
+		}
+		return p.emitPrepareCompletion(ctx, completion)
 	}
 	if latest.SourceResourceVersion > identity.resourceVersion {
 		return nil
