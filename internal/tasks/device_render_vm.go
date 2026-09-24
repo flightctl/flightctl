@@ -20,14 +20,17 @@ import (
 )
 
 const (
-	vmToQuadletBinary                   = "vm-to-quadlet"
-	vmWorkloadTypeAnnotationKey         = "flightctl.io/workload-type"
-	vmWorkloadTypeAnnotationValue       = "vm"
-	vmYamlFileName                      = "vm.yaml"
-	maxStderrLen                        = 512
-	maxStdoutBytes                      = 16 * 1024 * 1024 // 16 MiB
-	maxStderrBytes                      = 64 * 1024        // 64 KiB
-	maxTarEntryBytes              int64 = 1 * 1024 * 1024  // 1 MiB per TAR entry
+	vmToQuadletBinary                       = "vm-to-quadlet"
+	vmWorkloadTypeAnnotationKey             = "flightctl.io/workload-type"
+	vmWorkloadTypeAnnotationValue           = "vm"
+	vmYamlFileName                          = "vm.yaml"
+	virtHandlerDirInitContainerSuffix       = "virt-handler-dir-init.container"
+	vmPrivateEmptyMountPath                 = "/emptydir/private"
+	vmStateInitMountPath                    = "/vm-state-init"
+	maxStderrLen                            = 512
+	maxStdoutBytes                          = 16 * 1024 * 1024 // 16 MiB
+	maxStderrBytes                          = 64 * 1024        // 64 KiB
+	maxTarEntryBytes                  int64 = 1 * 1024 * 1024  // 1 MiB per TAR entry
 )
 
 // VmRenderOptions controls vm-to-quadlet conversion for VmApplications.
@@ -249,6 +252,9 @@ func renderVmApplication(ctx context.Context, vmApp domain.VmApplication, conver
 	if name == "" {
 		return nil, fmt.Errorf("VmApplication must have a non-empty name")
 	}
+	if err := addRunAsVolumeOwnership(quadletFiles, string(vmApp.RunAs)); err != nil {
+		return nil, err
+	}
 
 	var publishPorts []string
 	if vmApp.PublishPorts != nil {
@@ -284,6 +290,77 @@ func renderVmApplication(ctx context.Context, vmApp domain.VmApplication, conver
 	}
 
 	return &appSpec, nil
+}
+
+// addRunAsVolumeOwnership makes the VM initialization volumes writable by the
+// init container's configured user for non-root applications. Podman otherwise
+// creates named volumes owned by the rootless Podman user, preventing the init
+// container from creating its libvirt and VM-state directories.
+func addRunAsVolumeOwnership(files map[string]string, runAs string) error {
+	if runAs == "" || runAs == "root" {
+		return nil
+	}
+
+	for filename, content := range files {
+		if !isVmDirInitContainer(filename, content) {
+			continue
+		}
+
+		unit, err := quadlet.NewUnit([]byte(content))
+		if err != nil {
+			return fmt.Errorf("applying runAs volume ownership: parsing %q: %w", filename, err)
+		}
+		foundMounts := make(map[string]bool, 2)
+		if err := unit.Transform(quadlet.ContainerGroup, quadlet.VolumeKey, func(value string) (string, error) {
+			updated, destination := addRunAsOwnershipOption(value)
+			if destination != "" {
+				foundMounts[destination] = true
+			}
+			return updated, nil
+		}); err != nil {
+			return fmt.Errorf("applying runAs volume ownership to %q: %w", filename, err)
+		}
+		for _, destination := range []string{vmPrivateEmptyMountPath, vmStateInitMountPath} {
+			if !foundMounts[destination] {
+				return fmt.Errorf("applying runAs volume ownership to %q: missing Volume mount for %q", filename, destination)
+			}
+		}
+		updated, err := unit.Write()
+		if err != nil {
+			return fmt.Errorf("applying runAs volume ownership: serializing %q: %w", filename, err)
+		}
+		files[filename] = string(updated)
+	}
+
+	return nil
+}
+
+func isVmDirInitContainer(filename, content string) bool {
+	hasInitCommand := strings.Contains(content, vmPrivateEmptyMountPath+"/libvirt") && strings.Contains(content, vmStateInitMountPath+"/nvram")
+	hasInitVolumes := strings.Contains(content, ":"+vmPrivateEmptyMountPath) && strings.Contains(content, ":"+vmStateInitMountPath)
+	return strings.HasSuffix(filename, virtHandlerDirInitContainerSuffix) || hasInitCommand || hasInitVolumes
+}
+
+func addRunAsOwnershipOption(value string) (string, string) {
+	source, destinationAndOptions, found := strings.Cut(value, ":")
+	if !found {
+		return value, ""
+	}
+	destination, options, hasOptions := strings.Cut(destinationAndOptions, ":")
+	if destination != vmPrivateEmptyMountPath && destination != vmStateInitMountPath {
+		return value, ""
+	}
+	if hasOptions {
+		for _, option := range strings.Split(options, ",") {
+			if option == "U" {
+				return value, destination
+			}
+		}
+	}
+	if hasOptions && options != "" {
+		options += ","
+	}
+	return source + ":" + destination + ":" + options + "U", destination
 }
 
 // injectPublishPorts adds PublishPort= entries to the [Pod] section of the
