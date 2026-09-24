@@ -104,7 +104,16 @@ var _ = Describe("PrepareDeltas persist", func() {
 			)
 
 			testutil.CreateTestFleet(ctx, fleets, orgId, fleetName, nil, nil)
-			_, err := templateVersions.Create(ctx, orgId, &domain.TemplateVersion{
+			_, _, _, err := fleets.Mutate(ctx, orgId, fleetName, nil, func(m *fleetstore.FleetMutation) error {
+				annotations := map[string]string{
+					domain.FleetAnnotationDeltaPrepareResourceVersion: "1",
+					domain.FleetAnnotationDeltaPrepareGeneration:      "1",
+				}
+				m.Fleet.Metadata.Annotations = &annotations
+				return nil
+			})
+			Expect(err).ToNot(HaveOccurred())
+			_, err = templateVersions.Create(ctx, orgId, &domain.TemplateVersion{
 				Metadata: domain.ObjectMeta{
 					Name:  lo.ToPtr(tvName),
 					Owner: util.SetResourceOwner(domain.FleetKind, fleetName),
@@ -212,6 +221,7 @@ var _ = Describe("PrepareDeltas persist", func() {
 			_, _, _, err := fleets.Mutate(ctx, orgId, fleetName, nil, func(m *fleetstore.FleetMutation) error {
 				annotations := map[string]string{
 					domain.FleetAnnotationDeltaPrepareResourceVersion: sourceResourceVersion,
+					domain.FleetAnnotationDeltaPrepareGeneration:      "1",
 				}
 				m.Fleet.Metadata.Annotations = &annotations
 				m.Fleet.Status = &domain.FleetStatus{
@@ -234,6 +244,7 @@ var _ = Describe("PrepareDeltas persist", func() {
 			Expect(updated).ToNot(BeNil())
 			Expect(domain.FindStatusCondition(updated.Status.Conditions, domain.ConditionTypeFleetDeltaPreparing)).To(BeNil())
 			Expect((*updated.Metadata.Annotations)[domain.FleetAnnotationDeltaPrepareResourceVersion]).To(BeEmpty())
+			Expect((*updated.Metadata.Annotations)[domain.FleetAnnotationDeltaPrepareGeneration]).To(BeEmpty())
 			Expect((*updated.Metadata.Annotations)[domain.FleetAnnotationTemplateVersion]).To(Equal(tvName))
 		})
 
@@ -250,6 +261,59 @@ var _ = Describe("PrepareDeltas persist", func() {
 			Expect((*current.Metadata.Annotations)[domain.FleetAnnotationDeltaPrepareResourceVersion]).To(Equal("12"))
 			Expect((*current.Metadata.Annotations)[domain.FleetAnnotationTemplateVersion]).To(BeEmpty())
 		})
+
+		It("should not resume after a newer Fleet spec generation is stored", func() {
+			setPreparingMarker("11")
+			_, _, _, err := fleets.Mutate(ctx, orgId, fleetName, nil, func(m *fleetstore.FleetMutation) error {
+				m.Fleet.Spec.Template.Spec.Os = &domain.DeviceOsSpec{Image: "quay.io/acme/new-os:v2"}
+				return nil
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			updated, err := fleets.ResumeDeltaIfCurrent(ctx, orgId, fleetName, tvName, 11)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(updated).To(BeNil())
+			current, err := fleets.Get(ctx, orgId, fleetName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(*current.Metadata.Generation).To(Equal(int64(2)))
+			Expect((*current.Metadata.Annotations)[domain.FleetAnnotationTemplateVersion]).To(BeEmpty())
+		})
+	})
+
+	When("a Fleet spec changes before its skipped prepare sets status", func() {
+		It("should reject the stale marker and completion atomically", func() {
+			const fleetName = "fleet-stale-skip"
+			testutil.CreateTestFleet(ctx, fleets, orgId, fleetName, nil, nil)
+			_, _, _, err := fleets.Mutate(ctx, orgId, fleetName, nil, func(m *fleetstore.FleetMutation) error {
+				annotations := map[string]string{
+					domain.FleetAnnotationDeltaPrepareResourceVersion: "1",
+					domain.FleetAnnotationDeltaPrepareGeneration:      "1",
+				}
+				m.Fleet.Metadata.Annotations = &annotations
+				return nil
+			})
+			Expect(err).ToNot(HaveOccurred())
+			_, _, _, err = fleets.Mutate(ctx, orgId, fleetName, nil, func(m *fleetstore.FleetMutation) error {
+				m.Fleet.Spec.Template.Spec.Os = &domain.DeviceOsSpec{Image: "quay.io/acme/new-os:v2"}
+				return nil
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			tv := "tv-old"
+			prep := &model.DeltaPrepare{OrgID: orgId, Kind: domain.FleetKind, Name: fleetName, TemplateVersion: &tv, SourceResourceVersion: 1}
+			status := workerservice.NewStorePreparingStatus(fleets, devices)
+			Expect(status.SetPreparing(ctx, prep, 0, 0)).To(Succeed())
+			result, err := status.ResumeIfCurrent(ctx, orgId, domain.FleetKind, fleetName, workerservice.ResumeIdentityForPrepare(prep))
+			Expect(err).ToNot(HaveOccurred())
+			Expect(result.Matched).To(BeFalse())
+			current, err := fleets.Get(ctx, orgId, fleetName)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(*current.Metadata.Generation).To(Equal(int64(2)))
+			if current.Status != nil {
+				Expect(domain.FindStatusCondition(current.Status.Conditions, domain.ConditionTypeFleetDeltaPreparing)).To(BeNil())
+			}
+			Expect((*current.Metadata.Annotations)[domain.FleetAnnotationTemplateVersion]).To(BeEmpty())
+		})
 	})
 
 	When("the last joined generation pair becomes terminal", func() {
@@ -263,6 +327,12 @@ var _ = Describe("PrepareDeltas persist", func() {
 			)
 
 			testutil.CreateTestFleet(ctx, fleets, orgId, fleetName, nil, nil)
+			_, _, _, err := fleets.Mutate(ctx, orgId, fleetName, nil, func(m *fleetstore.FleetMutation) error {
+				annotations := map[string]string{domain.FleetAnnotationDeltaPrepareGeneration: "1"}
+				m.Fleet.Metadata.Annotations = &annotations
+				return nil
+			})
+			Expect(err).ToNot(HaveOccurred())
 			tvs := templateversionstore.NewTemplateVersionStore(db, log.WithField("pkg", "tv-store"))
 			Expect(testutil.CreateTestTemplateVersion(ctx, tvs, orgId, fleetName, tvName, &domain.TemplateVersionStatus{
 				Os: &domain.DeviceOsSpec{Image: "quay.io/acme/os:v2"},
@@ -279,7 +349,7 @@ var _ = Describe("PrepareDeltas persist", func() {
 				SourceDigest:    srcDigest,
 				TargetDigest:    tgtDigest,
 			}
-			_, err := deltaGenerationStore.InsertDeltaGenerations(ctx, []*model.DeltaGeneration{{
+			_, err = deltaGenerationStore.InsertDeltaGenerations(ctx, []*model.DeltaGeneration{{
 				OrgID:           orgId,
 				ImageRepository: repoName,
 				SourceDigest:    srcDigest,

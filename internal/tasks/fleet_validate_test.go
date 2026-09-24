@@ -69,9 +69,7 @@ func TestFleetValidateLogic_CreateNewTemplateVersionIfFleetValid_EmitsPrepareDel
 						},
 					}, domain.Status{Code: http.StatusCreated}
 				})
-			mockFleetSvc.EXPECT().UpdateFleetAnnotations(gomock.Any(), gomock.Any(), fleetName, map[string]string{
-				domain.FleetAnnotationDeltaPrepareResourceVersion: "1",
-			}, nil).Return(domain.Status{Code: http.StatusOK})
+			mockFleetSvc.EXPECT().SetDeltaPrepareIdentity(gomock.Any(), gomock.Any(), fleetName, int64(1), int64(1)).Return(true, domain.StatusOK())
 			mockFleetSvc.EXPECT().UpdateFleetConditions(gomock.Any(), gomock.Any(), fleetName, gomock.Any()).Return(domain.Status{Code: http.StatusOK})
 
 			logic := NewFleetValidateLogic(log, mockFleetSvc, mockTemplateVersionSvc, mockDeviceSvc, mockRepositorySvc, mockK8SClient, orgId, event)
@@ -110,9 +108,7 @@ func TestFleetValidateLogic_WhenTemplateVersionAlreadyExistsItRecoversPrepareDel
 	mockFleetSvc.EXPECT().OverwriteFleetRepositoryRefs(gomock.Any(), orgID, fleetName, gomock.Any()).Return(domain.Status{Code: http.StatusOK})
 	mockTemplateVersionSvc.EXPECT().CreateTemplateVersion(gomock.Any(), orgID, gomock.Any(), gomock.Any()).Return(nil, domain.Status{Code: http.StatusConflict})
 	mockTemplateVersionSvc.EXPECT().GetTemplateVersion(gomock.Any(), orgID, fleetName, gomock.Any()).Return(&domain.TemplateVersion{Metadata: domain.ObjectMeta{Name: lo.ToPtr("test-tv")}}, domain.Status{Code: http.StatusOK})
-	mockFleetSvc.EXPECT().UpdateFleetAnnotations(gomock.Any(), orgID, fleetName, map[string]string{
-		domain.FleetAnnotationDeltaPrepareResourceVersion: "1",
-	}, nil).Return(domain.Status{Code: http.StatusOK})
+	mockFleetSvc.EXPECT().SetDeltaPrepareIdentity(gomock.Any(), orgID, fleetName, int64(1), int64(1)).Return(true, domain.StatusOK())
 	mockFleetSvc.EXPECT().UpdateFleetConditions(gomock.Any(), orgID, fleetName, gomock.Any()).Return(domain.Status{Code: http.StatusOK})
 
 	logic := NewFleetValidateLogic(logrus.New(), mockFleetSvc, mockTemplateVersionSvc, mockDeviceSvc, mockRepositorySvc, mockK8SClient, orgID, event)
@@ -123,6 +119,24 @@ func TestFleetValidateLogic_WhenTemplateVersionAlreadyExistsItRecoversPrepareDel
 	details, err := emit.events[0].Details.AsPrepareDeltasDetails()
 	require.NoError(t, err)
 	assert.Equal(t, "test-tv", lo.FromPtr(details.TemplateVersion))
+}
+
+func TestFleetValidateLogic_WhenPrepareIdentityWasSupersededItShouldNotEmit(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	fleetSvc := fleetservice.NewMockService(ctrl)
+	fleetName := "test-fleet"
+	fleetSvc.EXPECT().SetDeltaPrepareIdentity(gomock.Any(), gomock.Any(), fleetName, int64(1), int64(1)).Return(false, domain.StatusOK())
+	emit := &prepareDeltasEmitter{}
+	logic := NewFleetValidateLogic(logrus.New(), fleetSvc, nil, nil, nil, nil, uuid.New(), domain.Event{})
+	logic.WorkerClient = emit
+
+	err := logic.prepareFleetRollout(context.Background(), &domain.Fleet{Metadata: domain.ObjectMeta{
+		Name:            lo.ToPtr(fleetName),
+		ResourceVersion: lo.ToPtr("1"),
+		Generation:      lo.ToPtr(int64(1)),
+	}}, "tv-stale")
+	require.NoError(t, err)
+	assert.Empty(t, emit.events)
 }
 
 func TestFleetValidateLogic_WhenPrepareDeltasPublicationFailsItReturnsError(t *testing.T) {
@@ -145,7 +159,7 @@ func TestFleetValidateLogic_WhenPrepareDeltasPublicationFailsItReturnsError(t *t
 	mockFleetSvc.EXPECT().OverwriteFleetRepositoryRefs(gomock.Any(), orgID, fleetName, gomock.Any()).Return(domain.StatusOK())
 	mockTemplateVersionSvc.EXPECT().CreateTemplateVersion(gomock.Any(), orgID, gomock.Any(), gomock.Any()).Return(
 		&domain.TemplateVersion{Metadata: domain.ObjectMeta{Name: lo.ToPtr("test-tv")}}, domain.StatusCreated())
-	mockFleetSvc.EXPECT().UpdateFleetAnnotations(gomock.Any(), orgID, fleetName, gomock.Any(), nil).Return(domain.StatusOK())
+	mockFleetSvc.EXPECT().SetDeltaPrepareIdentity(gomock.Any(), orgID, fleetName, int64(1), int64(1)).Return(true, domain.StatusOK())
 	mockFleetSvc.EXPECT().UpdateFleetConditions(gomock.Any(), orgID, fleetName, gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ uuid.UUID, _ string, conditions []domain.Condition) domain.Status {
 			require.Len(t, conditions, 1)

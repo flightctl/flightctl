@@ -59,6 +59,7 @@ const (
 
 	FleetAnnotationTemplateVersion             = "fleet-controller/templateVersion"
 	FleetAnnotationDeltaPrepareResourceVersion = "delta-worker/sourceResourceVersion"
+	FleetAnnotationDeltaPrepareGeneration      = "delta-worker/sourceGeneration"
 	// The last template version that has been processed by device selection reconciler.  It is used for new rollout detection
 	FleetAnnotationDeployingTemplateVersion = "fleet-controller/deployingTemplateVersion"
 	// The index to the current batch.  Contains an integer

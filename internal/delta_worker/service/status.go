@@ -76,8 +76,8 @@ func NewStorePreparingStatus(fleets fleetStatusStore, devices deviceStatusStore,
 }
 
 // SetPreparing records the initial resource-side marker for a newly admitted
-// prepare. A newer Fleet source resource version may replace an older marker;
-// an older prepare cannot replace a newer marker.
+// prepare. The Fleet spec generation must still match validation. A newer
+// source resource version may replace an older marker, but not vice versa.
 func (s *StorePreparingStatus) SetPreparing(ctx context.Context, prepare *model.DeltaPrepare, completed, total int) error {
 	if prepare == nil {
 		return fmt.Errorf("delta prepare is required")
@@ -184,6 +184,11 @@ func (s *StorePreparingStatus) setFleet(ctx context.Context, orgId uuid.UUID, na
 		if annotations == nil {
 			annotations = map[string]string{}
 			m.Fleet.Metadata.Annotations = &annotations
+		}
+		// The validation marker belongs to a specific spec generation. Check it
+		// inside Mutate so its optimistic retry observes concurrent Fleet writes.
+		if m.Fleet.Metadata.Generation == nil || annotations[domain.FleetAnnotationDeltaPrepareGeneration] != strconv.FormatInt(*m.Fleet.Metadata.Generation, 10) {
+			return storepkg.ErrMutateSkipWrite
 		}
 		currentSourceResourceVersion, exists := annotations[domain.FleetAnnotationDeltaPrepareResourceVersion]
 		if initialize {

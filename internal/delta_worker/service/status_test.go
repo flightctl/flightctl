@@ -25,8 +25,9 @@ func TestStorePreparingStatus_Fleet(t *testing.T) {
 	fleets := &fakeFleetStatusStore{fleet: &domain.Fleet{
 		Metadata: domain.ObjectMeta{
 			Name:            lo.ToPtr("fleet-1"),
+			Generation:      lo.ToPtr(int64(1)),
 			ResourceVersion: lo.ToPtr("1"),
-			Annotations:     &map[string]string{"existing": "value"},
+			Annotations:     &map[string]string{"existing": "value", domain.FleetAnnotationDeltaPrepareGeneration: "1"},
 		},
 		Status: &domain.FleetStatus{},
 	}}
@@ -53,13 +54,14 @@ func TestStorePreparingStatus_Fleet(t *testing.T) {
 		assert.Nil(t, fleets.fleet.Status.DeltaGeneration)
 		assert.Nil(t, domain.FindStatusCondition(fleets.fleet.Status.Conditions, domain.ConditionTypeFleetDeltaPreparing))
 		assert.Empty(t, (*fleets.fleet.Metadata.Annotations)[domain.FleetAnnotationDeltaPrepareResourceVersion])
+		assert.Equal(t, "1", (*fleets.fleet.Metadata.Annotations)[domain.FleetAnnotationDeltaPrepareGeneration])
 	})
 
 	t.Run("When ResumeIfCurrent is called it should clear status for the matching template version", func(t *testing.T) {
 		tv := "tv-2"
 		fleets.fleet.Metadata.ResourceVersion = lo.ToPtr("2")
 		fleets.fleet.Metadata.Annotations = &map[string]string{
-			"existing": "value",
+			"existing": "value", domain.FleetAnnotationDeltaPrepareGeneration: "1",
 		}
 		prepare := &model.DeltaPrepare{OrgID: orgId, Kind: domain.FleetKind, Name: "fleet-1", TemplateVersion: &tv, SourceResourceVersion: 2}
 		err := s.SetPreparing(context.Background(), prepare, 1, 1)
@@ -76,6 +78,7 @@ func TestStorePreparingStatus_Fleet(t *testing.T) {
 		assert.Equal(t, tv, (*fleets.fleet.Metadata.Annotations)[domain.FleetAnnotationTemplateVersion])
 		assert.Equal(t, "value", (*fleets.fleet.Metadata.Annotations)["existing"])
 		assert.Empty(t, (*fleets.fleet.Metadata.Annotations)[domain.FleetAnnotationDeltaPrepareResourceVersion])
+		assert.Empty(t, (*fleets.fleet.Metadata.Annotations)[domain.FleetAnnotationDeltaPrepareGeneration])
 		assert.Equal(t, 1, devices.outOfDateCalls)
 		assert.Equal(t, util.ResourceOwner(domain.FleetKind, "fleet-1"), devices.outOfDateOwner)
 
@@ -91,7 +94,7 @@ func TestStorePreparingStatus_Fleet(t *testing.T) {
 		currentTV := "tv-current"
 		staleTV := "tv-stale"
 		fleets.fleet.Metadata.ResourceVersion = lo.ToPtr("3")
-		fleets.fleet.Metadata.Annotations = &map[string]string{domain.FleetAnnotationDeltaPrepareResourceVersion: "4"}
+		fleets.fleet.Metadata.Annotations = &map[string]string{domain.FleetAnnotationDeltaPrepareResourceVersion: "4", domain.FleetAnnotationDeltaPrepareGeneration: "1"}
 		_ = s.SetPreparing(context.Background(), &model.DeltaPrepare{
 			OrgID: orgId, Kind: domain.FleetKind, Name: "fleet-1", TemplateVersion: &currentTV, SourceResourceVersion: 4,
 		}, 1, 1)
@@ -118,12 +121,22 @@ func TestStorePreparingStatus_Fleet(t *testing.T) {
 	t.Run("When SetIfCurrent sees a newer source resource version it should leave the fleet unchanged", func(t *testing.T) {
 		currentTV := "tv-current"
 		fleets.fleet.Metadata.ResourceVersion = lo.ToPtr("11")
-		fleets.fleet.Metadata.Annotations = &map[string]string{}
+		fleets.fleet.Metadata.Annotations = &map[string]string{domain.FleetAnnotationDeltaPrepareGeneration: "1"}
 		current := &model.DeltaPrepare{OrgID: orgId, Kind: domain.FleetKind, Name: "fleet-1", TemplateVersion: &currentTV, SourceResourceVersion: 11}
 		stale := ResumeIdentity{TemplateVersion: &currentTV, SourceResourceVersion: 10}
 		require.NoError(t, s.SetPreparing(context.Background(), current, 2, 3))
 		require.NoError(t, s.SetIfCurrent(context.Background(), orgId, domain.FleetKind, "fleet-1", stale, 1, 3))
 		assert.Equal(t, int64(2), fleets.fleet.Status.DeltaGeneration.Completed)
+		assert.Equal(t, "11", (*fleets.fleet.Metadata.Annotations)[domain.FleetAnnotationDeltaPrepareResourceVersion])
+	})
+
+	t.Run("When a Fleet spec update precedes a skipped prepare it should not set the marker", func(t *testing.T) {
+		fleets.fleet.Metadata.Generation = lo.ToPtr(int64(2))
+		fleets.fleet.Metadata.Annotations = &map[string]string{domain.FleetAnnotationDeltaPrepareGeneration: "1", domain.FleetAnnotationDeltaPrepareResourceVersion: "11"}
+		fleets.fleet.Status = &domain.FleetStatus{}
+		err := s.SetPreparing(context.Background(), prepare, 0, 0)
+		require.NoError(t, err)
+		assert.Nil(t, domain.FindStatusCondition(fleets.fleet.Status.Conditions, domain.ConditionTypeFleetDeltaPreparing))
 		assert.Equal(t, "11", (*fleets.fleet.Metadata.Annotations)[domain.FleetAnnotationDeltaPrepareResourceVersion])
 	})
 }
@@ -133,9 +146,11 @@ func TestStorePreparingStatus_FleetResumeContinuesWhenOutOfDateUpdateFails(t *te
 	templateVersion := "tv-1"
 	fleet := &domain.Fleet{
 		Metadata: domain.ObjectMeta{
-			Name: lo.ToPtr("fleet-1"),
+			Name:       lo.ToPtr("fleet-1"),
+			Generation: lo.ToPtr(int64(1)),
 			Annotations: &map[string]string{
 				domain.FleetAnnotationDeltaPrepareResourceVersion: "1",
+				domain.FleetAnnotationDeltaPrepareGeneration:      "1",
 			},
 		},
 		Status: &domain.FleetStatus{Conditions: []domain.Condition{{
@@ -241,6 +256,7 @@ type fakeFleetStatusStore struct {
 func (f *fakeFleetStatusStore) ResumeDeltaIfCurrent(_ context.Context, _ uuid.UUID, _ string, templateVersion string, sourceResourceVersion int64) (*domain.Fleet, error) {
 	if f.fleet == nil || f.fleet.Metadata.Annotations == nil ||
 		(*f.fleet.Metadata.Annotations)[domain.FleetAnnotationDeltaPrepareResourceVersion] != fmt.Sprintf("%d", sourceResourceVersion) ||
+		f.fleet.Metadata.Generation == nil || (*f.fleet.Metadata.Annotations)[domain.FleetAnnotationDeltaPrepareGeneration] != fmt.Sprintf("%d", *f.fleet.Metadata.Generation) ||
 		domain.FindStatusCondition(f.fleet.Status.Conditions, domain.ConditionTypeFleetDeltaPreparing) == nil {
 		return nil, nil
 	}
@@ -249,6 +265,7 @@ func (f *fakeFleetStatusStore) ResumeDeltaIfCurrent(_ context.Context, _ uuid.UU
 	annotations := *f.fleet.Metadata.Annotations
 	annotations[domain.FleetAnnotationTemplateVersion] = templateVersion
 	delete(annotations, domain.FleetAnnotationDeltaPrepareResourceVersion)
+	delete(annotations, domain.FleetAnnotationDeltaPrepareGeneration)
 	*f.fleet.Metadata.Annotations = annotations
 	return f.fleet, nil
 }

@@ -162,14 +162,18 @@ func (t *FleetValidateLogic) prepareFleetRollout(ctx context.Context, fleet *dom
 	if err != nil || sourceResourceVersion <= 0 {
 		return fmt.Errorf("fleet %s has invalid resource version %q", fleetName, *fleet.Metadata.ResourceVersion)
 	}
+	if fleet.Metadata.Generation == nil || *fleet.Metadata.Generation <= 0 {
+		return fmt.Errorf("fleet %s has no valid generation", fleetName)
+	}
 
 	// Fence any older completion while this PrepareDeltas event is queued, but
 	// do not make the new template version visible to rollout consumers yet.
-	status := t.fleetSvc.UpdateFleetAnnotations(ctx, t.orgId, fleetName, map[string]string{
-		domain.FleetAnnotationDeltaPrepareResourceVersion: strconv.FormatInt(sourceResourceVersion, 10),
-	}, nil)
+	accepted, status := t.fleetSvc.SetDeltaPrepareIdentity(ctx, t.orgId, fleetName, sourceResourceVersion, *fleet.Metadata.Generation)
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("failed setting fleet delta prepare resource version: %s", status.Message)
+	}
+	if !accepted {
+		return nil
 	}
 
 	return t.emitPrepareDeltas(ctx, fleetName, templateVersionName, fleet.Metadata.ResourceVersion)
