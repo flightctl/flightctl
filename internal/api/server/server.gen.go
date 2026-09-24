@@ -220,6 +220,24 @@ type ServerInterface interface {
 
 	// (GET /labels)
 	ListLabels(w http.ResponseWriter, r *http.Request, params ListLabelsParams)
+
+	// (GET /labelsyncmappings)
+	ListLabelSyncMappings(w http.ResponseWriter, r *http.Request, params ListLabelSyncMappingsParams)
+
+	// (POST /labelsyncmappings)
+	CreateLabelSyncMapping(w http.ResponseWriter, r *http.Request)
+
+	// (DELETE /labelsyncmappings/{name})
+	DeleteLabelSyncMapping(w http.ResponseWriter, r *http.Request, name string)
+
+	// (GET /labelsyncmappings/{name})
+	GetLabelSyncMapping(w http.ResponseWriter, r *http.Request, name string)
+
+	// (PATCH /labelsyncmappings/{name})
+	PatchLabelSyncMapping(w http.ResponseWriter, r *http.Request, name string)
+
+	// (PUT /labelsyncmappings/{name})
+	ReplaceLabelSyncMapping(w http.ResponseWriter, r *http.Request, name string)
 	// List organizations
 	// (GET /organizations)
 	ListOrganizations(w http.ResponseWriter, r *http.Request, params ListOrganizationsParams)
@@ -612,6 +630,36 @@ func (_ Unimplemented) ReplaceFleetStatus(w http.ResponseWriter, r *http.Request
 
 // (GET /labels)
 func (_ Unimplemented) ListLabels(w http.ResponseWriter, r *http.Request, params ListLabelsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /labelsyncmappings)
+func (_ Unimplemented) ListLabelSyncMappings(w http.ResponseWriter, r *http.Request, params ListLabelSyncMappingsParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (POST /labelsyncmappings)
+func (_ Unimplemented) CreateLabelSyncMapping(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (DELETE /labelsyncmappings/{name})
+func (_ Unimplemented) DeleteLabelSyncMapping(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /labelsyncmappings/{name})
+func (_ Unimplemented) GetLabelSyncMapping(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PATCH /labelsyncmappings/{name})
+func (_ Unimplemented) PatchLabelSyncMapping(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (PUT /labelsyncmappings/{name})
+func (_ Unimplemented) ReplaceLabelSyncMapping(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -2964,6 +3012,244 @@ func (siw *ServerInterfaceWrapper) ListLabels(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
+// ListLabelSyncMappings operation middleware
+func (siw *ServerInterfaceWrapper) ListLabelSyncMappings(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, OrgIdScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListLabelSyncMappingsParams
+
+	// ------------- Optional query parameter "continue" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "continue", r.URL.Query(), &params.Continue, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "continue"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "continue", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "labelSelector" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "labelSelector", r.URL.Query(), &params.LabelSelector, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "labelSelector"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "labelSelector", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "fieldSelector" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "fieldSelector", r.URL.Query(), &params.FieldSelector, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "fieldSelector"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "fieldSelector", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListLabelSyncMappings(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateLabelSyncMapping operation middleware
+func (siw *ServerInterfaceWrapper) CreateLabelSyncMapping(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, OrgIdScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateLabelSyncMapping(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteLabelSyncMapping operation middleware
+func (siw *ServerInterfaceWrapper) DeleteLabelSyncMapping(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, OrgIdScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteLabelSyncMapping(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetLabelSyncMapping operation middleware
+func (siw *ServerInterfaceWrapper) GetLabelSyncMapping(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, OrgIdScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetLabelSyncMapping(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PatchLabelSyncMapping operation middleware
+func (siw *ServerInterfaceWrapper) PatchLabelSyncMapping(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, OrgIdScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PatchLabelSyncMapping(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReplaceLabelSyncMapping operation middleware
+func (siw *ServerInterfaceWrapper) ReplaceLabelSyncMapping(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, OrgIdScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReplaceLabelSyncMapping(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListOrganizations operation middleware
 func (siw *ServerInterfaceWrapper) ListOrganizations(w http.ResponseWriter, r *http.Request) {
 
@@ -3846,6 +4132,24 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/labels", wrapper.ListLabels)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/labelsyncmappings", wrapper.ListLabelSyncMappings)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/labelsyncmappings", wrapper.CreateLabelSyncMapping)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/labelsyncmappings/{name}", wrapper.DeleteLabelSyncMapping)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/labelsyncmappings/{name}", wrapper.GetLabelSyncMapping)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/labelsyncmappings/{name}", wrapper.PatchLabelSyncMapping)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/labelsyncmappings/{name}", wrapper.ReplaceLabelSyncMapping)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/organizations", wrapper.ListOrganizations)

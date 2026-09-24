@@ -68,6 +68,7 @@ rules:
       - imageexports/log
       - imagepromotions
       - labels
+      - labelsyncmappings
       - organizations
       - repositories
       - repositories/check-oci-image
@@ -110,6 +111,7 @@ rules:
       - imagebuilds
       - imageexports
       - imagepromotions
+      - labelsyncmappings
       - repositories
       - resourcesyncs
   - verbs:

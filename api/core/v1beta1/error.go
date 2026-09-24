@@ -45,6 +45,10 @@ func StatusBadRequest(message string) Status {
 	return NewFailureStatus(http.StatusBadRequest, http.StatusText(http.StatusBadRequest), message)
 }
 
+func StatusUnprocessableEntity(message string) Status {
+	return NewFailureStatus(http.StatusUnprocessableEntity, http.StatusText(http.StatusUnprocessableEntity), message)
+}
+
 func StatusUnauthorized(message string) Status {
 	return NewFailureStatus(http.StatusUnauthorized, http.StatusText(http.StatusUnauthorized), message)
 }

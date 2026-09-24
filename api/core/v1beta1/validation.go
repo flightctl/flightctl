@@ -2690,6 +2690,42 @@ func (p *EnrollmentHookPolicy) Validate() []error {
 	return allErrs
 }
 
+// Validate validates a LabelSyncMapping resource.
+func (m *LabelSyncMapping) Validate() []error {
+	if m == nil {
+		return nil
+	}
+
+	allErrs := validation.ValidateResourceName(m.Metadata.Name)
+	allErrs = append(allErrs, validation.ValidateLabels(m.Metadata.Labels)...)
+	allErrs = append(allErrs, validation.ValidateAnnotations(m.Metadata.Annotations)...)
+	if m.Spec.ResourceType != LabelSyncMappingSpecResourceTypeDevice {
+		allErrs = append(allErrs, fmt.Errorf("spec.resourceType must be %q", LabelSyncMappingSpecResourceTypeDevice))
+	}
+	if m.Spec.Expression == "" {
+		allErrs = append(allErrs, errors.New("spec.expression must not be empty"))
+	}
+	if m.Spec.Key != nil && len(validation.ValidateLabelKey(*m.Spec.Key)) > 0 {
+		allErrs = append(allErrs, fmt.Errorf("spec.key must be a valid qualified label key"))
+	}
+	return allErrs
+}
+
+// ValidateUpdate ensures resource identity and type remain immutable.
+func (m *LabelSyncMapping) ValidateUpdate(newObj *LabelSyncMapping) []error {
+	if newObj == nil {
+		return []error{errors.New("updated LabelSyncMapping must not be nil")}
+	}
+	var err []error
+	if newObj.Metadata.Name != nil && (m.Metadata.Name == nil || *m.Metadata.Name != *newObj.Metadata.Name) {
+		err = append(err, errors.New("metadata.name is immutable"))
+	}
+	if m.Spec.ResourceType != newObj.Spec.ResourceType {
+		err = append(err, errors.New("spec.resourceType is immutable"))
+	}
+	return err
+}
+
 func validateEnrollmentHookAction(action *EnrollmentHookHttpAction, orig EnrollmentHookHttpAction, prefix string) []error {
 	var allErrs []error
 

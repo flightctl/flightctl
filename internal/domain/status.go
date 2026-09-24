@@ -14,6 +14,7 @@ var (
 	StatusCreated                 = v1beta1.StatusCreated
 	StatusNoContent               = v1beta1.StatusNoContent
 	StatusBadRequest              = v1beta1.StatusBadRequest
+	StatusUnprocessableEntity     = v1beta1.StatusUnprocessableEntity
 	StatusUnauthorized            = v1beta1.StatusUnauthorized
 	StatusForbidden               = v1beta1.StatusForbidden
 	StatusResourceNotFound        = v1beta1.StatusResourceNotFound

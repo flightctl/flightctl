@@ -35,6 +35,7 @@ const (
 	API_RESOURCE_FLEETS_STATUS = "fleets/status"
 	API_RESOURCE_FLEETS_TEMPLATEVERSIONS = "fleets/templateversions"
 	API_RESOURCE_LABELS = "labels"
+	API_RESOURCE_LABELSYNCMAPPINGS = "labelsyncmappings"
 	API_RESOURCE_ORGANIZATIONS = "organizations"
 	API_RESOURCE_REPOSITORIES = "repositories"
 	API_RESOURCE_REPOSITORIES_CHECK_OCI_IMAGE = "repositories/check-oci-image"
@@ -733,6 +734,54 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 		OperationID: "listLabels",
 		Resource:    "labels",
 		Action:      "list",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
+	},
+	"GET:/labelsyncmappings": {
+		OperationID: "listLabelSyncMappings",
+		Resource:    "labelsyncmappings",
+		Action:      "list",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
+	},
+	"POST:/labelsyncmappings": {
+		OperationID: "createLabelSyncMapping",
+		Resource:    "labelsyncmappings",
+		Action:      "create",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
+	},
+	"DELETE:/labelsyncmappings/{name}": {
+		OperationID: "deleteLabelSyncMapping",
+		Resource:    "labelsyncmappings",
+		Action:      "delete",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
+	},
+	"GET:/labelsyncmappings/{name}": {
+		OperationID: "getLabelSyncMapping",
+		Resource:    "labelsyncmappings",
+		Action:      "get",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
+	},
+	"PATCH:/labelsyncmappings/{name}": {
+		OperationID: "patchLabelSyncMapping",
+		Resource:    "labelsyncmappings",
+		Action:      "patch",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
+	},
+	"PUT:/labelsyncmappings/{name}": {
+		OperationID: "replaceLabelSyncMapping",
+		Resource:    "labelsyncmappings",
+		Action:      "update",
 		Versions: []apimetadata.EndpointMetadataVersion{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
