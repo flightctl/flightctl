@@ -564,9 +564,20 @@ func applyDeviceStatusPatch(ctx context.Context, current *domain.Device, patch d
 }
 
 // validateEnrollmentHooksStatusPatch enforces EnrollmentHooks transition rules on
-// status PATCH (design §4.7): ManualOverride only from Failed, never by agents;
-// the condition itself cannot be removed.
+// status PATCH (design §4.7): the only allowed mutation is Failed → True/ManualOverride
+// by a non-agent caller. Worker/service paths use SetDeviceServiceConditions instead.
+// Duplicate EnrollmentHooks entries are rejected (FindStatusCondition only sees the first).
 func validateEnrollmentHooksStatusPatch(ctx context.Context, current, patched *domain.Device) error {
+	beforeCount := countEnrollmentHooksConditions(current)
+	afterCount := countEnrollmentHooksConditions(patched)
+	if afterCount > 1 {
+		return errors.New("EnrollmentHooks condition must appear at most once")
+	}
+	if beforeCount > 1 {
+		// Corrupt persisted state: still block further mutation via status patch.
+		return errors.New("EnrollmentHooks condition must appear at most once")
+	}
+
 	var before, after *domain.Condition
 	if current != nil && current.Status != nil {
 		before = domain.FindStatusCondition(current.Status.Conditions, domain.ConditionTypeDeviceEnrollmentHooks)
@@ -580,19 +591,29 @@ func validateEnrollmentHooksStatusPatch(ctx context.Context, current, patched *d
 	if after == nil {
 		return errors.New("EnrollmentHooks condition cannot be removed via status patch")
 	}
-	if after.Reason != domain.EnrollmentHooksReasonManualOverride {
-		return nil
-	}
 	if _, isAgent := ctx.Value(consts.AgentCtxKey).(string); isAgent {
-		return errors.New("agent cannot set ManualOverride on EnrollmentHooks condition")
+		return errors.New("agent cannot modify EnrollmentHooks condition via status patch")
+	}
+	if after.Reason != domain.EnrollmentHooksReasonManualOverride || after.Status != domain.ConditionStatusTrue {
+		return errors.New("EnrollmentHooks condition can only be changed to True/ManualOverride via status patch")
 	}
 	if before == nil || before.Status != domain.ConditionStatusFalse || before.Reason != domain.EnrollmentHooksReasonFailed {
 		return errors.New("ManualOverride is only allowed when EnrollmentHooks condition is Failed")
 	}
-	if after.Status != domain.ConditionStatusTrue {
-		return errors.New("ManualOverride requires EnrollmentHooks status True")
-	}
 	return nil
+}
+
+func countEnrollmentHooksConditions(device *domain.Device) int {
+	if device == nil || device.Status == nil {
+		return 0
+	}
+	count := 0
+	for _, c := range device.Status.Conditions {
+		if c.Type == domain.ConditionTypeDeviceEnrollmentHooks {
+			count++
+		}
+	}
+	return count
 }
 
 func (h *DeviceServiceHandler) GetRenderedDevice(ctx context.Context, orgId uuid.UUID, name string, params domain.GetRenderedDeviceParams) (*domain.Device, domain.Status) {

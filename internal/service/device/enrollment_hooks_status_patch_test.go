@@ -121,13 +121,13 @@ func TestPatchDeviceStatus_EnrollmentHooksManualOverride(t *testing.T) {
 
 		dev, status := h.PatchDeviceStatus(agentCtx, orgId, deviceName, manualOverridePatch(conditionPath))
 		require.Equal(int32(http.StatusBadRequest), status.Code)
-		require.Contains(status.Message, "agent cannot set ManualOverride")
+		require.Contains(status.Message, "agent cannot modify EnrollmentHooks")
 		require.Nil(dev)
 	})
 
-	t.Run("When agent patches Succeeded it should succeed", func(t *testing.T) {
+	t.Run("When agent patches Succeeded it should reject", func(t *testing.T) {
 		require := require.New(t)
-		h, _, ev, orgId, deviceName := newEnrollmentHookTestDevice(t,
+		h, _, _, orgId, deviceName := newEnrollmentHookTestDevice(t,
 			domain.ConditionStatusFalse, domain.EnrollmentHooksReasonPending)
 		conditionPath := enrollmentHooksConditionPatchPath(t, h, orgId, deviceName)
 		agentCtx := context.WithValue(ctx, consts.AgentCtxKey, "true")
@@ -139,18 +139,52 @@ func TestPatchDeviceStatus_EnrollmentHooksManualOverride(t *testing.T) {
 		}
 
 		dev, status := h.PatchDeviceStatus(agentCtx, orgId, deviceName, patch)
-		require.Equal(int32(http.StatusOK), status.Code)
-		require.NotNil(dev)
-		cond := domain.FindStatusCondition(dev.Status.Conditions, domain.ConditionTypeDeviceEnrollmentHooks)
-		require.Equal(domain.EnrollmentHooksReasonSucceeded, cond.Reason)
+		require.Equal(int32(http.StatusBadRequest), status.Code)
+		require.Contains(status.Message, "agent cannot modify EnrollmentHooks")
+		require.Nil(dev)
+	})
 
-		var sawSucceeded bool
-		for _, e := range ev.created {
-			if e.Reason == domain.EventReasonEnrollmentHookSucceeded {
-				sawSucceeded = true
-			}
+	t.Run("When operator patches Failed to Succeeded it should reject", func(t *testing.T) {
+		require := require.New(t)
+		h, _, _, orgId, deviceName := newEnrollmentHookTestDevice(t,
+			domain.ConditionStatusFalse, domain.EnrollmentHooksReasonFailed)
+		conditionPath := enrollmentHooksConditionPatchPath(t, h, orgId, deviceName)
+		var succeededStatus any = domain.ConditionStatusTrue
+		var succeededReason any = domain.EnrollmentHooksReasonSucceeded
+		patch := domain.PatchRequest{
+			{Op: "replace", Path: conditionPath + "/status", Value: &succeededStatus},
+			{Op: "replace", Path: conditionPath + "/reason", Value: &succeededReason},
 		}
-		require.True(sawSucceeded)
+
+		dev, status := h.PatchDeviceStatus(ctx, orgId, deviceName, patch)
+		require.Equal(int32(http.StatusBadRequest), status.Code)
+		require.Contains(status.Message, "True/ManualOverride")
+		require.Nil(dev)
+	})
+
+	t.Run("When a patch appends a duplicate EnrollmentHooks condition it should reject", func(t *testing.T) {
+		require := require.New(t)
+		h, _, _, orgId, deviceName := newEnrollmentHookTestDevice(t,
+			domain.ConditionStatusFalse, domain.EnrollmentHooksReasonFailed)
+		device, getStatus := h.GetDevice(ctx, orgId, deviceName)
+		require.Equal(int32(http.StatusOK), getStatus.Code)
+		require.NotNil(device.Status)
+
+		dup := domain.Condition{
+			Type:   domain.ConditionTypeDeviceEnrollmentHooks,
+			Status: domain.ConditionStatusTrue,
+			Reason: domain.EnrollmentHooksReasonSucceeded,
+		}
+		conditions := append(append([]domain.Condition{}, device.Status.Conditions...), dup)
+		var conditionsValue any = conditions
+		patch := domain.PatchRequest{
+			{Op: "replace", Path: "/status/conditions", Value: &conditionsValue},
+		}
+
+		dev, status := h.PatchDeviceStatus(ctx, orgId, deviceName, patch)
+		require.Equal(int32(http.StatusBadRequest), status.Code)
+		require.Contains(status.Message, "at most once")
+		require.Nil(dev)
 	})
 
 	t.Run("When a patch removes the condition it should reject", func(t *testing.T) {
