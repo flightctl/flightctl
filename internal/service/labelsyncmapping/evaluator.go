@@ -9,13 +9,13 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/flightctl/flightctl/api/core/v1beta1"
+	"cel.dev/cel-go/cel"
+	"cel.dev/cel-go/common/types"
+	"cel.dev/cel-go/common/types/ref"
+	"cel.dev/cel-go/common/types/traits"
+	"cel.dev/cel-go/ext"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/util/validation"
-	"github.com/google/cel-go/cel"
-	"github.com/google/cel-go/common/types"
-	"github.com/google/cel-go/common/types/ref"
-	"github.com/google/cel-go/common/types/traits"
-	"github.com/google/cel-go/ext"
 )
 
 const (
@@ -86,9 +86,13 @@ func (e *EvaluationError) Unwrap() error {
 	return e.err
 }
 
+// Activation is a value passed to CEL when evaluating an expression.
+type Activation interface{}
+
 type Evaluator interface {
 	ValidateExpressionIs(expression string, expectedKind ResultKind) error
-	Evaluate(expression string, device v1beta1.Device) (Result, error)
+	// Evaluate evaluates an expression using a prebuilt activation.
+	Evaluate(expression string, activation Activation) (Result, error)
 }
 
 type evaluator struct {
@@ -126,7 +130,11 @@ func NewEvaluator() (Evaluator, error) {
 	}, nil
 }
 
-func (e *evaluator) Evaluate(expression string, device v1beta1.Device) (Result, error) {
+func (e *evaluator) Evaluate(expression string, activation Activation) (Result, error) {
+	if activation == nil {
+		return nil, evaluationError(FailureInvalidActivation, "using CEL activation", fmt.Errorf("activation is nil"))
+	}
+
 	program, outputType, err := e.program(expression)
 	if err != nil {
 		return nil, err
@@ -134,12 +142,6 @@ func (e *evaluator) Evaluate(expression string, device v1beta1.Device) (Result, 
 	if !validOutputType(outputType) {
 		return nil, evaluationError(FailureInvalidExpression, "checking CEL output shape", fmt.Errorf("expression type %q is not a supported scalar or map result", outputType))
 	}
-
-	activation, err := activation(device)
-	if err != nil {
-		return nil, evaluationError(FailureInvalidActivation, "building CEL activation", err)
-	}
-
 	value, _, err := program.Eval(activation)
 	if err != nil {
 		if isMissingError(err) {
@@ -440,11 +442,12 @@ func formatEntryFailures(failures []EntryFailure) string {
 	return strings.Join(details, "; ")
 }
 
-func activation(device v1beta1.Device) (map[string]any, error) {
+// ActivateDevice builds a CEL activation from the supported device roots.
+func ActivateDevice(device domain.Device) (Activation, error) {
 	type deviceRoots struct {
-		Metadata v1beta1.ObjectMeta    `json:"metadata"`
-		Spec     *v1beta1.DeviceSpec   `json:"spec,omitempty"`
-		Status   *v1beta1.DeviceStatus `json:"status,omitempty"`
+		Metadata domain.ObjectMeta    `json:"metadata"`
+		Spec     *domain.DeviceSpec   `json:"spec,omitempty"`
+		Status   *domain.DeviceStatus `json:"status,omitempty"`
 	}
 	type decodedRoots struct {
 		Metadata any `json:"metadata"`
@@ -458,12 +461,12 @@ func activation(device v1beta1.Device) (map[string]any, error) {
 		Status:   device.Status,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("marshaling device roots: %w", err)
+		return nil, evaluationError(FailureInvalidActivation, "building CEL activation", fmt.Errorf("marshaling device roots: %w", err))
 	}
 
 	var roots decodedRoots
 	if err := json.Unmarshal(data, &roots); err != nil {
-		return nil, fmt.Errorf("unmarshaling device roots: %w", err)
+		return nil, evaluationError(FailureInvalidActivation, "building CEL activation", fmt.Errorf("unmarshaling device roots: %w", err))
 	}
 	return map[string]any{
 		"metadata": roots.Metadata,

@@ -6,8 +6,8 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/flightctl/flightctl/api/core/v1beta1"
-	"github.com/google/cel-go/common/types"
+	"cel.dev/cel-go/common/types"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/stretchr/testify/require"
 )
 
@@ -15,7 +15,7 @@ func TestEvaluatorEvaluate(t *testing.T) {
 	testCases := []struct {
 		name                       string
 		expression                 string
-		device                     v1beta1.Device
+		device                     domain.Device
 		expectedScalar             bool
 		expectedMap                map[string]string
 		expectedEvaluationFailures []string
@@ -289,7 +289,8 @@ func TestEvaluatorEvaluate(t *testing.T) {
 
 	for _, tt := range testCases {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := evaluator.Evaluate(tt.expression, tt.device)
+			activation := testActivation(t, tt.device)
+			result, err := evaluator.Evaluate(tt.expression, activation)
 
 			if tt.expectedEvaluationError != "" {
 				require.Error(t, err)
@@ -318,6 +319,61 @@ func TestEvaluatorEvaluate(t *testing.T) {
 			require.Equal(t, MapResult(tt.expectedMap), result)
 		})
 	}
+}
+
+func TestEvaluatorEvaluateReusesActivation(t *testing.T) {
+	evaluator, err := NewEvaluator()
+	require.NoError(t, err)
+
+	activation, err := ActivateDevice(testDevice("amd64", map[string]string{"site": "west"}))
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name       string
+		expression string
+		expected   Result
+	}{
+		{
+			name:       "When evaluating metadata from a reused activation it should return the scalar",
+			expression: "metadata.name",
+			expected:   ScalarResult("edge-01"),
+		},
+		{
+			name:       "When evaluating spec from a reused activation it should return the scalar",
+			expression: "spec.os.image",
+			expected:   ScalarResult("fedora"),
+		},
+		{
+			name:       "When evaluating status from a reused activation it should return the scalar",
+			expression: "status.systemInfo.customInfo.site",
+			expected:   ScalarResult("west"),
+		},
+		{
+			name:       "When evaluating a map from a reused activation it should return the map",
+			expression: `{"site": status.systemInfo.customInfo.site}`,
+			expected:   MapResult{"site": "west"},
+		},
+	}
+
+	for _, tt := range testCases {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := evaluator.Evaluate(tt.expression, activation)
+			require.NoError(t, err)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestEvaluatorEvaluateRejectsNilActivation(t *testing.T) {
+	evaluator, err := NewEvaluator()
+	require.NoError(t, err)
+
+	result, err := evaluator.Evaluate(`"value"`, nil)
+	require.Error(t, err)
+	require.Nil(t, result)
+	var evaluationError *EvaluationError
+	require.True(t, errors.As(err, &evaluationError))
+	require.Equal(t, FailureInvalidActivation, evaluationError.Kind)
 }
 
 func TestEvaluatorValidateExpressionIs(t *testing.T) {
@@ -447,14 +503,15 @@ func TestEvaluatorProgramCache(t *testing.T) {
 
 	implementation := evaluatorInterface.(*evaluator)
 	device := testDevice("amd64", nil)
+	activation := testActivation(t, device)
 	for index := range maxCachedPrograms {
-		_, err := evaluatorInterface.Evaluate(fmt.Sprintf(`"%d"`, index), device)
+		_, err := evaluatorInterface.Evaluate(fmt.Sprintf(`"%d"`, index), activation)
 		require.NoError(t, err)
 	}
 
-	_, err = evaluatorInterface.Evaluate(`"0"`, device)
+	_, err = evaluatorInterface.Evaluate(`"0"`, activation)
 	require.NoError(t, err)
-	_, err = evaluatorInterface.Evaluate(fmt.Sprintf(`"%d"`, maxCachedPrograms), device)
+	_, err = evaluatorInterface.Evaluate(fmt.Sprintf(`"%d"`, maxCachedPrograms), activation)
 	require.NoError(t, err)
 
 	implementation.mu.Lock()
@@ -473,11 +530,13 @@ func TestEvaluatorProgramCacheSupportsDynamicResultShapes(t *testing.T) {
 	require.NoError(t, err)
 	expression := `status.systemInfo.architecture == "amd64" ? dyn("scalar") : dyn({"site": "east"})`
 
-	scalarResult, err := evaluatorInterface.Evaluate(expression, testDevice("amd64", nil))
+	scalarActivation := testActivation(t, testDevice("amd64", nil))
+	scalarResult, err := evaluatorInterface.Evaluate(expression, scalarActivation)
 	require.NoError(t, err)
 	require.Equal(t, ScalarResult("scalar"), scalarResult)
 
-	mapResult, err := evaluatorInterface.Evaluate(expression, testDevice("arm64", nil))
+	mapActivation := testActivation(t, testDevice("arm64", nil))
+	mapResult, err := evaluatorInterface.Evaluate(expression, mapActivation)
 	require.NoError(t, err)
 	require.Equal(t, MapResult{"site": "east"}, mapResult)
 	require.Len(t, evaluatorInterface.(*evaluator).programs, 1)
@@ -490,7 +549,8 @@ func TestEvaluatorEnforcesCostLimit(t *testing.T) {
 	device := testDevice("amd64", nil)
 	patterns := make([]string, maxExpressionCost+100)
 	device.Spec.Systemd.MatchPatterns = &patterns
-	_, err = evaluator.Evaluate(`spec.systemd.matchPatterns.exists(pattern, pattern == "not-present")`, device)
+	activation := testActivation(t, device)
+	_, err = evaluator.Evaluate(`spec.systemd.matchPatterns.exists(pattern, pattern == "not-present")`, activation)
 	require.Error(t, err)
 	var evaluationError *EvaluationError
 	require.True(t, errors.As(err, &evaluationError))
@@ -505,7 +565,8 @@ func TestEvaluatorEnforcesMapCardinalityLimit(t *testing.T) {
 	for index := range maxMapEntries + 1 {
 		customInfo[fmt.Sprintf("site-%d", index)] = "east"
 	}
-	_, err = evaluator.Evaluate("status.systemInfo.customInfo", testDevice("amd64", customInfo))
+	activation := testActivation(t, testDevice("amd64", customInfo))
+	_, err = evaluator.Evaluate("status.systemInfo.customInfo", activation)
 	require.Error(t, err)
 	var evaluationError *EvaluationError
 	require.True(t, errors.As(err, &evaluationError))
@@ -559,22 +620,22 @@ func entryFailureSignatures(failures []EntryFailure) []string {
 	return signatures
 }
 
-func testDevice(architecture string, customInfo map[string]string) v1beta1.Device {
+func testDevice(architecture string, customInfo map[string]string) domain.Device {
 	name := "edge-01"
 	labels := map[string]string{"environment": "production"}
-	device := v1beta1.Device{
-		Metadata: v1beta1.ObjectMeta{
+	device := domain.Device{
+		Metadata: domain.ObjectMeta{
 			Name:   &name,
 			Labels: &labels,
 		},
-		Status: &v1beta1.DeviceStatus{},
+		Status: &domain.DeviceStatus{},
 	}
 	device.Status.SystemInfo.Architecture = architecture
 	device.Status.SystemInfo.AgentVersion = "v1.3.0"
 	device.Status.SystemInfo.AdditionalProperties = map[string]string{"siteClass": "edge"}
 	matchPatterns := []string{"ssh.service", "podman.service"}
-	device.Spec = &v1beta1.DeviceSpec{
-		Os: &v1beta1.DeviceOsSpec{Image: "fedora"},
+	device.Spec = &domain.DeviceSpec{
+		Os: &domain.DeviceOsSpec{Image: "fedora"},
 		Systemd: &struct {
 			MatchPatterns *[]string `json:"matchPatterns,omitempty"`
 		}{
@@ -582,8 +643,15 @@ func testDevice(architecture string, customInfo map[string]string) v1beta1.Devic
 		},
 	}
 	if customInfo != nil {
-		info := v1beta1.CustomDeviceInfo(customInfo)
+		info := domain.CustomDeviceInfo(customInfo)
 		device.Status.SystemInfo.CustomInfo = &info
 	}
 	return device
+}
+
+func testActivation(t *testing.T, device domain.Device) Activation {
+	t.Helper()
+	activation, err := ActivateDevice(device)
+	require.NoError(t, err)
+	return activation
 }

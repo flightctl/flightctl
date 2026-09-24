@@ -6,10 +6,10 @@ import (
 	"strings"
 	"unicode"
 
+	"cel.dev/cel-go/cel"
+	"cel.dev/cel-go/common/types"
+	"cel.dev/cel-go/common/types/ref"
 	semver "github.com/coreos/go-semver/semver"
-	"github.com/google/cel-go/cel"
-	"github.com/google/cel-go/common/types"
-	"github.com/google/cel-go/common/types/ref"
 )
 
 var semverCELType = cel.ObjectType("flightctl.Semver")
