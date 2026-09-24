@@ -3,6 +3,7 @@ package labelsyncmapping
 import (
 	"container/list"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -22,18 +23,6 @@ const (
 	maxCachedPrograms = 256
 	maxExpressionCost = 1_000
 	maxMapEntries     = 50
-)
-
-type FailureKind string
-
-const (
-	FailureComplexValue      FailureKind = "ComplexValue"
-	FailureEvaluation        FailureKind = "Evaluation"
-	FailureInvalidActivation FailureKind = "InvalidActivation"
-	FailureInvalidExpression FailureKind = "InvalidExpression"
-	FailureInvalidMapEntry   FailureKind = "InvalidMapEntry"
-	FailureCardinality       FailureKind = "Cardinality"
-	FailureSanitization      FailureKind = "Sanitization"
 )
 
 // Result is a scalar value, map, or successful evaluation with no value.
@@ -65,26 +54,6 @@ func (MapResult) isResult() {}
 type NoResult struct{}
 
 func (NoResult) isResult() {}
-
-type EntryFailure struct {
-	Key     string
-	Kind    FailureKind
-	Message string
-}
-
-type EvaluationError struct {
-	Kind          FailureKind
-	EntryFailures []EntryFailure
-	err           error
-}
-
-func (e *EvaluationError) Error() string {
-	return e.err.Error()
-}
-
-func (e *EvaluationError) Unwrap() error {
-	return e.err
-}
 
 // Activation is a value passed to CEL when evaluating an expression.
 type Activation interface{}
@@ -120,7 +89,7 @@ func NewEvaluator() (Evaluator, error) {
 		cel.ParserExpressionSizeLimit(maxExpressionCost),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("creating CEL environment: %w", err)
+		return nil, err
 	}
 
 	return &evaluator{
@@ -132,7 +101,7 @@ func NewEvaluator() (Evaluator, error) {
 
 func (e *evaluator) Evaluate(expression string, activation Activation) (Result, error) {
 	if activation == nil {
-		return nil, evaluationError(FailureInvalidActivation, "using CEL activation", fmt.Errorf("activation is nil"))
+		return nil, errors.New("activation is nil")
 	}
 
 	program, outputType, err := e.program(expression)
@@ -140,14 +109,14 @@ func (e *evaluator) Evaluate(expression string, activation Activation) (Result, 
 		return nil, err
 	}
 	if !validOutputType(outputType) {
-		return nil, evaluationError(FailureInvalidExpression, "checking CEL output shape", fmt.Errorf("expression type %q is not a supported scalar or map result", outputType))
+		return nil, fmt.Errorf("expression type %q is not a supported scalar or map result", outputType)
 	}
 	value, _, err := program.Eval(activation)
 	if err != nil {
 		if isMissingError(err) {
 			return NoResult{}, nil
 		}
-		return nil, evaluationError(FailureEvaluation, "evaluating CEL expression", err)
+		return nil, fmt.Errorf("evaluating CEL expression: %w", err)
 	}
 	if optional, ok := value.(*types.Optional); ok {
 		if !optional.HasValue() {
@@ -157,10 +126,13 @@ func (e *evaluator) Evaluate(expression string, activation Activation) (Result, 
 	}
 
 	if types.IsError(value) {
-		if valueError, ok := value.(error); ok && isMissingError(valueError) {
-			return NoResult{}, nil
+		if valueError, ok := value.(error); ok {
+			if isMissingError(valueError) {
+				return NoResult{}, nil
+			}
+			return nil, fmt.Errorf("evaluating CEL expression: %w", valueError)
 		}
-		return nil, evaluationError(FailureEvaluation, "evaluating CEL expression", fmt.Errorf("%v", value))
+		return nil, fmt.Errorf("%v", value)
 	}
 
 	if _, isNull := value.(types.Null); isNull {
@@ -179,13 +151,13 @@ func (e *evaluator) ValidateExpressionIs(expression string, expectedKind ResultK
 		return err
 	}
 	if !validOutputType(outputType) {
-		return evaluationError(FailureInvalidExpression, "checking CEL output shape", fmt.Errorf("expression type %q is not a supported scalar or map result", outputType))
+		return fmt.Errorf("expression type %q is not a supported scalar or map result", outputType)
 	}
 	if expectedKind != ResultKindScalar && expectedKind != ResultKindMap {
-		return evaluationError(FailureInvalidExpression, "checking CEL expected result kind", fmt.Errorf("unsupported expected result kind %q", expectedKind))
+		return fmt.Errorf("unsupported expected result kind %q", expectedKind)
 	}
 	if actualKind, isKnown := knownOutputKind(outputType); isKnown && actualKind != expectedKind {
-		return evaluationError(FailureInvalidExpression, "checking CEL expected result kind", fmt.Errorf("expression type %q produces %s, expected %s", outputType, actualKind, expectedKind))
+		return fmt.Errorf("expression type %q produces %s, expected %s", outputType, actualKind, expectedKind)
 	}
 	return nil
 }
@@ -214,21 +186,17 @@ func (e *evaluator) program(expression string) (cel.Program, *cel.Type, error) {
 func (e *evaluator) compile(expression string) (cel.Program, *cel.Type, error) {
 	parsed, issues := e.env.Parse(expression)
 	if issues != nil && issues.Err() != nil {
-		return nil, nil, evaluationError(FailureInvalidExpression, "parsing CEL expression", issues.Err())
+		return nil, nil, fmt.Errorf("parsing CEL expression: %w", issues.Err())
 	}
 
 	checked, issues := e.env.Check(parsed)
 	if issues != nil && issues.Err() != nil {
-		failureKind := FailureInvalidExpression
-		if strings.Contains(issues.Err().Error(), "undeclared reference") {
-			failureKind = FailureInvalidActivation
-		}
-		return nil, nil, evaluationError(failureKind, "checking CEL expression", issues.Err())
+		return nil, nil, fmt.Errorf("checking CEL expression: %w", issues.Err())
 	}
 
 	program, err := e.env.Program(checked, cel.CostLimit(maxExpressionCost))
 	if err != nil {
-		return nil, nil, evaluationError(FailureInvalidExpression, "building CEL program", err)
+		return nil, nil, fmt.Errorf("building CEL program: %w", err)
 	}
 	return program, checked.OutputType(), nil
 }
@@ -308,7 +276,7 @@ func indeterminateType(valueType *cel.Type) bool {
 func scalarResult(value ref.Val) (Result, error) {
 	raw, err := scalarString(value)
 	if err != nil {
-		return nil, evaluationError(FailureComplexValue, "converting CEL scalar result", err)
+		return nil, err
 	}
 	if raw == "" {
 		return NoResult{}, nil
@@ -316,7 +284,7 @@ func scalarResult(value ref.Val) (Result, error) {
 
 	sanitized := validation.SanitizeLabelValue(raw)
 	if sanitized == "" {
-		return nil, evaluationError(FailureSanitization, "sanitizing CEL scalar result", fmt.Errorf("scalar result %q sanitizes to an empty label value", raw))
+		return nil, fmt.Errorf("scalar result %q sanitizes to an empty label value", raw)
 	}
 	return ScalarResult(sanitized), nil
 }
@@ -343,56 +311,59 @@ func scalarString(value ref.Val) (string, error) {
 func mapResult(value ref.Val) (Result, error) {
 	mapper, ok := value.(traits.Mapper)
 	if !ok {
-		return nil, evaluationError(FailureComplexValue, "converting CEL map result", fmt.Errorf("expected map result, got %q", value.Type().TypeName()))
+		return nil, fmt.Errorf("expected map result, got %q", value.Type().TypeName())
 	}
 	sizeValue := mapper.Size()
 	if types.IsError(sizeValue) {
-		return nil, evaluationError(FailureEvaluation, "checking CEL map result size", fmt.Errorf("%v", sizeValue))
+		return nil, fmt.Errorf("%v", sizeValue)
 	}
 	size, ok := sizeValue.(types.Int)
 	if !ok {
-		return nil, evaluationError(FailureEvaluation, "checking CEL map result size", fmt.Errorf("unexpected map size type %q", sizeValue.Type().TypeName()))
+		return nil, fmt.Errorf("unexpected map size type %q", sizeValue.Type().TypeName())
 	}
 	if int64(size) > maxMapEntries {
-		return nil, evaluationError(FailureCardinality, "converting CEL map result", fmt.Errorf("map result has %d entries; limit is %d", size, maxMapEntries))
+		return nil, fmt.Errorf("map result has %d entries; limit is %d", size, maxMapEntries)
 	}
 
 	result := make(MapResult, int(size))
-	var entryFailures []EntryFailure
+	var entryErrors []string
+	addEntryError := func(key, message string) {
+		entryErrors = append(entryErrors, fmt.Sprintf("%q: %s", key, message))
+	}
 	iterator := mapper.Iterator()
 	for {
 		hasNext := iterator.HasNext()
 		if types.IsError(hasNext) {
-			return nil, evaluationError(FailureEvaluation, "iterating CEL map result", fmt.Errorf("%v", hasNext))
+			return nil, fmt.Errorf("%v", hasNext)
 		}
 		more, ok := hasNext.(types.Bool)
 		if !ok {
-			return nil, evaluationError(FailureEvaluation, "iterating CEL map result", fmt.Errorf("unexpected iterator state %q", hasNext.Type().TypeName()))
+			return nil, fmt.Errorf("unexpected iterator state %q", hasNext.Type().TypeName())
 		}
 		if !bool(more) {
 			break
 		}
 		keyValue := iterator.Next()
 		if types.IsError(keyValue) {
-			return nil, evaluationError(FailureEvaluation, "iterating CEL map result", fmt.Errorf("%v", keyValue))
+			return nil, fmt.Errorf("%v", keyValue)
 		}
 		keyLabel := fmt.Sprintf("%v", keyValue)
 		entryValue, found := mapper.Find(keyValue)
 		if !found {
-			entryFailures = append(entryFailures, EntryFailure{Key: keyLabel, Kind: FailureInvalidMapEntry, Message: "map entry could not be read"})
+			addEntryError(keyLabel, "map entry could not be read")
 			continue
 		}
 		if types.IsError(entryValue) {
-			entryFailures = append(entryFailures, EntryFailure{Key: keyLabel, Kind: FailureInvalidMapEntry, Message: fmt.Sprintf("reading map entry: %v", entryValue)})
+			addEntryError(keyLabel, fmt.Sprintf("reading map entry: %v", entryValue))
 			continue
 		}
 		key, isString := keyValue.(types.String)
 		if !isString {
-			entryFailures = append(entryFailures, EntryFailure{Key: keyLabel, Kind: FailureInvalidMapEntry, Message: fmt.Sprintf("map key has unsupported type %q", keyValue.Type().TypeName())})
+			addEntryError(keyLabel, fmt.Sprintf("map key has unsupported type %q", keyValue.Type().TypeName()))
 			continue
 		}
 		if keyErrors := validation.ValidateLabelKey(string(key)); len(keyErrors) > 0 {
-			entryFailures = append(entryFailures, EntryFailure{Key: string(key), Kind: FailureInvalidMapEntry, Message: strings.Join(keyErrors, "; ")})
+			addEntryError(string(key), strings.Join(keyErrors, "; "))
 			continue
 		}
 		if _, isNull := entryValue.(types.Null); isNull {
@@ -401,7 +372,7 @@ func mapResult(value ref.Val) (Result, error) {
 
 		raw, err := scalarString(entryValue)
 		if err != nil {
-			entryFailures = append(entryFailures, EntryFailure{Key: string(key), Kind: FailureInvalidMapEntry, Message: err.Error()})
+			addEntryError(string(key), err.Error())
 			continue
 		}
 		if raw == "" {
@@ -409,37 +380,16 @@ func mapResult(value ref.Val) (Result, error) {
 		}
 		sanitized := validation.SanitizeLabelValue(raw)
 		if sanitized == "" {
-			entryFailures = append(entryFailures, EntryFailure{Key: string(key), Kind: FailureSanitization, Message: fmt.Sprintf("map value %q sanitizes to an empty label value", raw)})
+			addEntryError(string(key), fmt.Sprintf("map value %q sanitizes to an empty label value", raw))
 			continue
 		}
 		result[string(key)] = sanitized
 	}
-	if len(entryFailures) > 0 {
-		sort.Slice(entryFailures, func(i, j int) bool {
-			if entryFailures[i].Key != entryFailures[j].Key {
-				return entryFailures[i].Key < entryFailures[j].Key
-			}
-			return entryFailures[i].Kind < entryFailures[j].Kind
-		})
-		return nil, entryFailuresEvaluationError(FailureInvalidMapEntry, "converting CEL map result", entryFailures)
+	if len(entryErrors) > 0 {
+		sort.Strings(entryErrors)
+		return nil, errors.New(strings.Join(entryErrors, "; "))
 	}
 	return result, nil
-}
-
-func entryFailuresEvaluationError(kind FailureKind, operation string, failures []EntryFailure) *EvaluationError {
-	return &EvaluationError{
-		Kind:          kind,
-		EntryFailures: failures,
-		err:           fmt.Errorf("%s: %s", operation, formatEntryFailures(failures)),
-	}
-}
-
-func formatEntryFailures(failures []EntryFailure) string {
-	details := make([]string, 0, len(failures))
-	for _, failure := range failures {
-		details = append(details, fmt.Sprintf("%q: %s", failure.Key, failure.Message))
-	}
-	return strings.Join(details, "; ")
 }
 
 // ActivateDevice builds a CEL activation from the supported device roots.
@@ -461,25 +411,18 @@ func ActivateDevice(device domain.Device) (Activation, error) {
 		Status:   device.Status,
 	})
 	if err != nil {
-		return nil, evaluationError(FailureInvalidActivation, "building CEL activation", fmt.Errorf("marshaling device roots: %w", err))
+		return nil, fmt.Errorf("marshaling device roots: %w", err)
 	}
 
 	var roots decodedRoots
 	if err := json.Unmarshal(data, &roots); err != nil {
-		return nil, evaluationError(FailureInvalidActivation, "building CEL activation", fmt.Errorf("unmarshaling device roots: %w", err))
+		return nil, fmt.Errorf("unmarshaling device roots: %w", err)
 	}
 	return map[string]any{
 		"metadata": roots.Metadata,
 		"spec":     roots.Spec,
 		"status":   roots.Status,
 	}, nil
-}
-
-func evaluationError(kind FailureKind, operation string, err error) error {
-	return &EvaluationError{
-		Kind: kind,
-		err:  fmt.Errorf("%s: %w", operation, err),
-	}
 }
 
 func isMissingError(err error) bool {

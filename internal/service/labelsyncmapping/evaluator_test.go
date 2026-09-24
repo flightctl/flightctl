@@ -1,9 +1,7 @@
 package labelsyncmapping
 
 import (
-	"errors"
 	"fmt"
-	"sort"
 	"testing"
 
 	"cel.dev/cel-go/common/types"
@@ -13,13 +11,12 @@ import (
 
 func TestEvaluatorEvaluate(t *testing.T) {
 	testCases := []struct {
-		name                       string
-		expression                 string
-		device                     domain.Device
-		expectedScalar             bool
-		expectedMap                map[string]string
-		expectedEvaluationFailures []string
-		expectedEvaluationError    FailureKind
+		name                  string
+		expression            string
+		device                domain.Device
+		expectedScalar        bool
+		expectedMap           map[string]string
+		expectedErrorContains []string
 	}{
 		{
 			name:           "When evaluating a direct systemInfo field in scalar mode it should return its value",
@@ -151,17 +148,17 @@ func TestEvaluatorEvaluate(t *testing.T) {
 			expectedScalar: true,
 		},
 		{
-			name:                    "When a statically known list is returned it should reject the expression",
-			expression:              `[status.systemInfo.architecture]`,
-			device:                  testDevice("amd64", nil),
-			expectedScalar:          true,
-			expectedEvaluationError: FailureInvalidExpression,
+			name:                  "When a statically known list is returned it should reject the expression",
+			expression:            `[status.systemInfo.architecture]`,
+			device:                testDevice("amd64", nil),
+			expectedScalar:        true,
+			expectedErrorContains: []string{"not a supported scalar or map result"},
 		},
 		{
-			name:                    "When a nested object is returned it should reject the map entries",
-			expression:              "status.systemInfo",
-			device:                  testDevice("amd64", map[string]string{"site": "east"}),
-			expectedEvaluationError: FailureInvalidMapEntry,
+			name:                  "When a nested object is returned it should reject the map entries",
+			expression:            "status.systemInfo",
+			device:                testDevice("amd64", map[string]string{"site": "east"}),
+			expectedErrorContains: []string{"unsupported CEL scalar type"},
 		},
 		{
 			name:        "When a dynamic map is returned it should produce a map result",
@@ -170,32 +167,32 @@ func TestEvaluatorEvaluate(t *testing.T) {
 			expectedMap: map[string]string{"site": "east"},
 		},
 		{
-			name:                    "When a non-empty scalar sanitizes to empty it should return a failure without a value",
-			expression:              `"!!!"`,
-			device:                  testDevice("amd64", nil),
-			expectedScalar:          true,
-			expectedEvaluationError: FailureSanitization,
+			name:                  "When a non-empty scalar sanitizes to empty it should return a failure without a value",
+			expression:            `"!!!"`,
+			device:                testDevice("amd64", nil),
+			expectedScalar:        true,
+			expectedErrorContains: []string{"sanitizes to an empty label value"},
 		},
 		{
-			name:                    "When an expression uses an undeclared root it should reject the activation",
-			expression:              "device.status.systemInfo.architecture",
-			device:                  testDevice("amd64", nil),
-			expectedScalar:          true,
-			expectedEvaluationError: FailureInvalidActivation,
+			name:                  "When an expression uses an undeclared root it should reject the activation",
+			expression:            "device.status.systemInfo.architecture",
+			device:                testDevice("amd64", nil),
+			expectedScalar:        true,
+			expectedErrorContains: []string{"checking CEL expression", "undeclared reference"},
 		},
 		{
-			name:                    "When an expression uses apiVersion it should reject the activation",
-			expression:              "apiVersion",
-			device:                  testDevice("amd64", nil),
-			expectedScalar:          true,
-			expectedEvaluationError: FailureInvalidActivation,
+			name:                  "When an expression uses apiVersion it should reject the activation",
+			expression:            "apiVersion",
+			device:                testDevice("amd64", nil),
+			expectedScalar:        true,
+			expectedErrorContains: []string{"checking CEL expression", "undeclared reference"},
 		},
 		{
-			name:                    "When an expression uses kind it should reject the activation",
-			expression:              "kind",
-			device:                  testDevice("amd64", nil),
-			expectedScalar:          true,
-			expectedEvaluationError: FailureInvalidActivation,
+			name:                  "When an expression uses kind it should reject the activation",
+			expression:            "kind",
+			device:                testDevice("amd64", nil),
+			expectedScalar:        true,
+			expectedErrorContains: []string{"checking CEL expression", "undeclared reference"},
 		},
 		{
 			name:        "When evaluating a map it should return complete keys and scalar values",
@@ -237,10 +234,10 @@ func TestEvaluatorEvaluate(t *testing.T) {
 			device:     testDevice("amd64", map[string]string{}),
 		},
 		{
-			name:                    "When a dynamic list is returned it should reject the runtime value",
-			expression:              `dyn(["not", "a", "map"])`,
-			device:                  testDevice("amd64", nil),
-			expectedEvaluationError: FailureComplexValue,
+			name:                  "When a dynamic list is returned it should reject the runtime value",
+			expression:            `dyn(["not", "a", "map"])`,
+			device:                testDevice("amd64", nil),
+			expectedErrorContains: []string{"unsupported CEL scalar type"},
 		},
 		{
 			name:           "When a dynamic scalar is returned it should produce a scalar result",
@@ -257,30 +254,28 @@ func TestEvaluatorEvaluate(t *testing.T) {
 			expectedMap:    map[string]string{"value": "not-a-map"},
 		},
 		{
-			name:                    "When a map has non-string keys it should reject the expression",
-			expression:              `{1: "not a string key"}`,
-			device:                  testDevice("amd64", nil),
-			expectedEvaluationError: FailureInvalidExpression,
+			name:                  "When a map has non-string keys it should reject the expression",
+			expression:            `{1: "not a string key"}`,
+			device:                testDevice("amd64", nil),
+			expectedErrorContains: []string{"not a supported scalar or map result"},
 		},
 		{
-			name:                    "When a map has nested map values it should reject the expression",
-			expression:              `{"outer": {"inner": "value"}}`,
-			device:                  testDevice("amd64", nil),
-			expectedEvaluationError: FailureInvalidExpression,
+			name:                  "When a map has nested map values it should reject the expression",
+			expression:            `{"outer": {"inner": "value"}}`,
+			device:                testDevice("amd64", nil),
+			expectedErrorContains: []string{"not a supported scalar or map result"},
 		},
 		{
-			name:                       "When a dynamic map contains invalid entries it should reject the entire result and report each failure",
-			expression:                 `dyn({"good": "east coast", "number": 42, "empty": null, "bad key": "omitted", "nested": {"site": "omitted"}, "list": [1]})`,
-			device:                     testDevice("amd64", nil),
-			expectedEvaluationError:    FailureInvalidMapEntry,
-			expectedEvaluationFailures: []string{"bad key|InvalidMapEntry", "list|InvalidMapEntry", "nested|InvalidMapEntry"},
+			name:                  "When a dynamic map contains invalid entries it should reject the entire result and report each failure",
+			expression:            `dyn({"good": "east coast", "number": 42, "empty": null, "bad key": "omitted", "nested": {"site": "omitted"}, "list": [1]})`,
+			device:                testDevice("amd64", nil),
+			expectedErrorContains: []string{`"bad key"`, `"list"`, `"nested"`},
 		},
 		{
-			name:                       "When a map value sanitizes to empty it should reject the entire result and report the failure",
-			expression:                 `{"good": "east", "bad": "!!!"}`,
-			device:                     testDevice("amd64", nil),
-			expectedEvaluationError:    FailureInvalidMapEntry,
-			expectedEvaluationFailures: []string{"bad|Sanitization"},
+			name:                  "When a map value sanitizes to empty it should reject the entire result and report the failure",
+			expression:            `{"good": "east", "bad": "!!!"}`,
+			device:                testDevice("amd64", nil),
+			expectedErrorContains: []string{`"bad"`, "sanitizes to an empty label value"},
 		},
 	}
 
@@ -292,14 +287,11 @@ func TestEvaluatorEvaluate(t *testing.T) {
 			activation := testActivation(t, tt.device)
 			result, err := evaluator.Evaluate(tt.expression, activation)
 
-			if tt.expectedEvaluationError != "" {
+			if tt.expectedErrorContains != nil {
 				require.Error(t, err)
 				require.Nil(t, result)
-				var evaluationError *EvaluationError
-				require.True(t, errors.As(err, &evaluationError))
-				require.Equal(t, tt.expectedEvaluationError, evaluationError.Kind)
-				if tt.expectedEvaluationFailures != nil {
-					require.ElementsMatch(t, tt.expectedEvaluationFailures, entryFailureSignatures(evaluationError.EntryFailures))
+				for _, expected := range tt.expectedErrorContains {
+					require.ErrorContains(t, err, expected)
 				}
 				return
 			}
@@ -371,17 +363,15 @@ func TestEvaluatorEvaluateRejectsNilActivation(t *testing.T) {
 	result, err := evaluator.Evaluate(`"value"`, nil)
 	require.Error(t, err)
 	require.Nil(t, result)
-	var evaluationError *EvaluationError
-	require.True(t, errors.As(err, &evaluationError))
-	require.Equal(t, FailureInvalidActivation, evaluationError.Kind)
+	require.ErrorContains(t, err, "activation is nil")
 }
 
 func TestEvaluatorValidateExpressionIs(t *testing.T) {
 	testCases := []struct {
-		name                    string
-		expression              string
-		expectedKind            ResultKind
-		expectedValidationError FailureKind
+		name                  string
+		expression            string
+		expectedKind          ResultKind
+		expectedErrorContains []string
 	}{
 		{
 			name:         "When a scalar expression is validated as scalar it should accept the output",
@@ -399,10 +389,10 @@ func TestEvaluatorValidateExpressionIs(t *testing.T) {
 			expectedKind: ResultKindScalar,
 		},
 		{
-			name:                    "When an optional scalar expression is validated as map it should reject the mismatch",
-			expression:              `optional.of("east")`,
-			expectedKind:            ResultKindMap,
-			expectedValidationError: FailureInvalidExpression,
+			name:                  "When an optional scalar expression is validated as map it should reject the mismatch",
+			expression:            `optional.of("east")`,
+			expectedKind:          ResultKindMap,
+			expectedErrorContains: []string{"produces scalar, expected map"},
 		},
 		{
 			name:         "When an absent optional is validated as map it should accept the unknown output shape",
@@ -435,46 +425,46 @@ func TestEvaluatorValidateExpressionIs(t *testing.T) {
 			expectedKind: ResultKindMap,
 		},
 		{
-			name:                    "When invalid CEL syntax is validated it should return an expression error",
-			expression:              "status..systemInfo",
-			expectedKind:            ResultKindScalar,
-			expectedValidationError: FailureInvalidExpression,
+			name:                  "When invalid CEL syntax is validated it should return an expression error",
+			expression:            "status..systemInfo",
+			expectedKind:          ResultKindScalar,
+			expectedErrorContains: []string{"parsing CEL expression"},
 		},
 		{
-			name:                    "When an undeclared root is validated it should return an activation error",
-			expression:              "device.status.systemInfo",
-			expectedKind:            ResultKindMap,
-			expectedValidationError: FailureInvalidActivation,
+			name:                  "When an undeclared root is validated it should return an activation error",
+			expression:            "device.status.systemInfo",
+			expectedKind:          ResultKindMap,
+			expectedErrorContains: []string{"checking CEL expression", "undeclared reference"},
 		},
 		{
-			name:                    "When a known scalar expression is validated as map it should reject the mismatch",
-			expression:              `"east"`,
-			expectedKind:            ResultKindMap,
-			expectedValidationError: FailureInvalidExpression,
+			name:                  "When a known scalar expression is validated as map it should reject the mismatch",
+			expression:            `"east"`,
+			expectedKind:          ResultKindMap,
+			expectedErrorContains: []string{"produces scalar, expected map"},
 		},
 		{
-			name:                    "When a known map expression is validated as scalar it should reject the mismatch",
-			expression:              `{"site": "east"}`,
-			expectedKind:            ResultKindScalar,
-			expectedValidationError: FailureInvalidExpression,
+			name:                  "When a known map expression is validated as scalar it should reject the mismatch",
+			expression:            `{"site": "east"}`,
+			expectedKind:          ResultKindScalar,
+			expectedErrorContains: []string{"produces map, expected scalar"},
 		},
 		{
-			name:                    "When a statically known list expression is validated it should reject the output shape",
-			expression:              `["east"]`,
-			expectedKind:            ResultKindMap,
-			expectedValidationError: FailureInvalidExpression,
+			name:                  "When a statically known list expression is validated it should reject the output shape",
+			expression:            `["east"]`,
+			expectedKind:          ResultKindMap,
+			expectedErrorContains: []string{"not a supported scalar or map result"},
 		},
 		{
-			name:                    "When a map with nested values is validated it should reject the output shape",
-			expression:              `{"nested": {"site": "east"}}`,
-			expectedKind:            ResultKindMap,
-			expectedValidationError: FailureInvalidExpression,
+			name:                  "When a map with nested values is validated it should reject the output shape",
+			expression:            `{"nested": {"site": "east"}}`,
+			expectedKind:          ResultKindMap,
+			expectedErrorContains: []string{"not a supported scalar or map result"},
 		},
 		{
-			name:                    "When an unsupported result kind is requested it should return an error",
-			expression:              `"east"`,
-			expectedKind:            ResultKind("other"),
-			expectedValidationError: FailureInvalidExpression,
+			name:                  "When an unsupported result kind is requested it should return an error",
+			expression:            `"east"`,
+			expectedKind:          ResultKind("other"),
+			expectedErrorContains: []string{"unsupported expected result kind"},
 		},
 	}
 
@@ -484,15 +474,15 @@ func TestEvaluatorValidateExpressionIs(t *testing.T) {
 	for _, tt := range testCases {
 		t.Run(tt.name, func(t *testing.T) {
 			err := evaluator.ValidateExpressionIs(tt.expression, tt.expectedKind)
-			if tt.expectedValidationError == "" {
+			if tt.expectedErrorContains == nil {
 				require.NoError(t, err)
 				return
 			}
 
 			require.Error(t, err)
-			var evaluationError *EvaluationError
-			require.True(t, errors.As(err, &evaluationError))
-			require.Equal(t, tt.expectedValidationError, evaluationError.Kind)
+			for _, expected := range tt.expectedErrorContains {
+				require.ErrorContains(t, err, expected)
+			}
 		})
 	}
 }
@@ -552,9 +542,7 @@ func TestEvaluatorEnforcesCostLimit(t *testing.T) {
 	activation := testActivation(t, device)
 	_, err = evaluator.Evaluate(`spec.systemd.matchPatterns.exists(pattern, pattern == "not-present")`, activation)
 	require.Error(t, err)
-	var evaluationError *EvaluationError
-	require.True(t, errors.As(err, &evaluationError))
-	require.Equal(t, FailureEvaluation, evaluationError.Kind)
+	require.ErrorContains(t, err, "evaluating CEL expression")
 }
 
 func TestEvaluatorEnforcesMapCardinalityLimit(t *testing.T) {
@@ -568,9 +556,7 @@ func TestEvaluatorEnforcesMapCardinalityLimit(t *testing.T) {
 	activation := testActivation(t, testDevice("amd64", customInfo))
 	_, err = evaluator.Evaluate("status.systemInfo.customInfo", activation)
 	require.Error(t, err)
-	var evaluationError *EvaluationError
-	require.True(t, errors.As(err, &evaluationError))
-	require.Equal(t, FailureCardinality, evaluationError.Kind)
+	require.ErrorContains(t, err, "map result has 51 entries")
 }
 
 func TestParseSemver(t *testing.T) {
@@ -609,15 +595,6 @@ func TestParseSemver(t *testing.T) {
 			require.Equal(t, tt.expected, version.String())
 		})
 	}
-}
-
-func entryFailureSignatures(failures []EntryFailure) []string {
-	signatures := make([]string, 0, len(failures))
-	for _, failure := range failures {
-		signatures = append(signatures, fmt.Sprintf("%s|%s", failure.Key, failure.Kind))
-	}
-	sort.Strings(signatures)
-	return signatures
 }
 
 func testDevice(architecture string, customInfo map[string]string) domain.Device {
