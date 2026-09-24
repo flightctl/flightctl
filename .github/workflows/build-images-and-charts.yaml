@@ -40,7 +40,7 @@ jobs:
       git_tag: ${{ steps.compute-tag.outputs.git_tag }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
@@ -61,7 +61,7 @@ jobs:
         run: echo "BUILDAH_CACHE_PATH=${TMPDIR:-/var/tmp}/buildah-cache-$(id -u)" >> "$GITHUB_ENV"
 
       - name: Restore buildah cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: ${{ env.BUILDAH_CACHE_PATH }}
           key: ${{ runner.os }}-buildah-${{ github.run_id }}
@@ -131,7 +131,7 @@ jobs:
           echo "count=$(echo "$IMAGES" | wc -l)" >> "$GITHUB_OUTPUT"
 
       - name: Upload images bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: flightctl-images-bundle-${{ steps.compute-tag.outputs.git_tag }}
           path: ${{ steps.bundle-images.outputs.bundle_file }}
@@ -162,7 +162,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Save buildah cache
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         if: github.ref == 'refs/heads/main'
         with:
           path: ${{ env.BUILDAH_CACHE_PATH }}
@@ -179,13 +179,13 @@ jobs:
     if: ${{ inputs.validate_fips }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
 
       - name: Download backend images bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: flightctl-images-bundle-${{ needs.build-backend-containers.outputs.git_tag }}
           path: artifacts
@@ -217,7 +217,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
@@ -250,7 +250,7 @@ jobs:
           echo "chart_file=$CHART_FILE" >> "$GITHUB_OUTPUT"
 
       - name: Upload helm chart artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: helm-chart-${{ steps.compute-tag.outputs.git_tag }}
           path: ${{ steps.build-charts.outputs.chart_file }}
@@ -264,7 +264,7 @@ jobs:
       git_tag: ${{ steps.compute-tag.outputs.git_tag }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
@@ -277,7 +277,7 @@ jobs:
 
       - name: Restore Go cache
         id: cache-go-restore
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: |
             ~/.cache/go-build
@@ -295,7 +295,7 @@ jobs:
           echo "::endgroup::"
 
       - name: Upload CLI binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: flightctl-linux-amd64-${{ steps.compute-tag.outputs.git_tag }}
           path: flightctl-linux-amd64
@@ -304,7 +304,7 @@ jobs:
           retention-days: 1
 
       - name: Save Go cache
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         # Same key across every PR/branch (hashFiles('**/go.sum') rarely changes), but Actions
         # cache save is scoped per-ref, so an unconditional save here leaves one throwaway
         # ~1GB copy behind per PR/branch that nothing else can ever restore from and nothing
@@ -325,7 +325,7 @@ jobs:
       git_tag: ${{ steps.compute-tag.outputs.git_tag }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
@@ -338,7 +338,7 @@ jobs:
 
       - name: Restore Go cache
         id: cache-go-restore
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: |
             ~/.cache/go-build
@@ -356,7 +356,7 @@ jobs:
           echo "::endgroup::"
 
       - name: Upload restore binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: flightctl-restore-linux-amd64-${{ steps.compute-tag.outputs.git_tag }}
           path: flightctl-restore-linux-amd64
@@ -365,7 +365,7 @@ jobs:
           retention-days: 1
 
       - name: Save Go cache
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         # See the "Save Go cache" step in build-cli above for why this is main-only and
         # skips on cache-hit.
         if: always() && github.ref == 'refs/heads/main' && steps.cache-go-restore.outputs.cache-hit != 'true'
@@ -379,7 +379,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           repository: ${{ inputs.repository }}
           ref: ${{ inputs.ref }}
@@ -392,7 +392,7 @@ jobs:
         uses: ./.github/actions/compute-tag
 
       - name: Restore Go cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: |
             ~/.cache/go-build
@@ -409,7 +409,7 @@ jobs:
           echo "::endgroup::"
 
       - name: Upload simulator binary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: devicesimulator-${{ steps.compute-tag.outputs.git_tag }}
           path: bin/devicesimulator
