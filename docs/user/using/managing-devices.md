@@ -61,9 +61,19 @@ Once approved, the device will get issued its initial management certificate and
 
 If an enrollment hook fails, the device's `EnrollmentHooks` condition is `False` with reason `Failed`. The device remains excluded from fleet matching and rendered specification delivery.
 
-An authorized administrator or operator can send a `POST` request to `/api/v1/devices/<device_name>/enrollmenthooks/override`. This sets the condition to `True` with reason `ManualOverride` and clears the gate. The request does not re-approve enrollment, rotate the device's management certificate, or rerun notification.
+An authorized administrator or operator can patch the device status to set the `EnrollmentHooks` condition to `True` with reason `ManualOverride`. This clears the gate. The change does not re-approve enrollment, rotate the device's management certificate, or rerun notification.
 
-The `EnrollmentHooks` condition is service-owned. A generic device-status patch cannot change or remove it.
+Agents must not set `ManualOverride`. Viewer and installer roles cannot update device status, so they cannot perform this override.
+
+Example JSON patch against `/api/v1/devices/<device_name>/status` (adjust the condition array index after reading the device):
+
+```json
+[
+  { "op": "replace", "path": "/status/conditions/0/status", "value": "True" },
+  { "op": "replace", "path": "/status/conditions/0/reason", "value": "ManualOverride" },
+  { "op": "replace", "path": "/status/conditions/0/message", "value": "Enrollment hook failure was manually overridden by an operator." }
+]
+```
 
 ## Viewing the Device Inventory and Device Details
 

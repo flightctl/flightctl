@@ -510,6 +510,13 @@ func (h *DeviceServiceHandler) PatchDeviceStatus(ctx context.Context, orgId uuid
 		_ = common.UpdateServiceSideStatus(ctx, orgId, m.Device, h.fleetStore, h.log)
 		return nil
 	}, devicestore.WithTimestamp())
+	if err == nil && result != nil && before != nil {
+		// EnrollmentHooks (and other service conditions) emit from this path so
+		// operator ManualOverride via status PATCH triggers the same events as
+		// SetDeviceServiceConditions.
+		h.diffAndEmitConditionEvents(ctx, orgId, result,
+			serviceConditionsFromDevice(before), serviceConditionsFromDevice(result))
+	}
 	h.callEventCallback(ctx, h.callbackDeviceUpdated, orgId, name, before, result, false, err)
 	if err != nil && callbackStatus.Code != 0 {
 		return result, callbackStatus
@@ -548,8 +555,7 @@ func applyDeviceStatusPatch(ctx context.Context, current *domain.Device, patch d
 	if !reflect.DeepEqual(current.Spec, patched.Spec) {
 		return nil, errors.New("spec is immutable")
 	}
-	// EnrollmentHooks is service-owned and must not be changed through generic status patches.
-	if err := rejectEnrollmentHooksChangeViaStatusPatch(current, patched); err != nil {
+	if err := validateEnrollmentHooksStatusPatch(ctx, current, patched); err != nil {
 		return nil, err
 	}
 	common.NilOutManagedObjectMetaProperties(&patched.Metadata)
@@ -557,7 +563,10 @@ func applyDeviceStatusPatch(ctx context.Context, current *domain.Device, patch d
 	return patched, nil
 }
 
-func rejectEnrollmentHooksChangeViaStatusPatch(current, patched *domain.Device) error {
+// validateEnrollmentHooksStatusPatch enforces EnrollmentHooks transition rules on
+// status PATCH (design §4.7): ManualOverride only from Failed, never by agents;
+// the condition itself cannot be removed.
+func validateEnrollmentHooksStatusPatch(ctx context.Context, current, patched *domain.Device) error {
 	var before, after *domain.Condition
 	if current != nil && current.Status != nil {
 		before = domain.FindStatusCondition(current.Status.Conditions, domain.ConditionTypeDeviceEnrollmentHooks)
@@ -565,8 +574,23 @@ func rejectEnrollmentHooksChangeViaStatusPatch(current, patched *domain.Device) 
 	if patched != nil && patched.Status != nil {
 		after = domain.FindStatusCondition(patched.Status.Conditions, domain.ConditionTypeDeviceEnrollmentHooks)
 	}
-	if !reflect.DeepEqual(before, after) {
-		return errors.New("EnrollmentHooks condition cannot be modified via status patch; use the dedicated enrollment hook override endpoint")
+	if reflect.DeepEqual(before, after) {
+		return nil
+	}
+	if after == nil {
+		return errors.New("EnrollmentHooks condition cannot be removed via status patch")
+	}
+	if after.Reason != domain.EnrollmentHooksReasonManualOverride {
+		return nil
+	}
+	if _, isAgent := ctx.Value(consts.AgentCtxKey).(string); isAgent {
+		return errors.New("agent cannot set ManualOverride on EnrollmentHooks condition")
+	}
+	if before == nil || before.Status != domain.ConditionStatusFalse || before.Reason != domain.EnrollmentHooksReasonFailed {
+		return errors.New("ManualOverride is only allowed when EnrollmentHooks condition is Failed")
+	}
+	if after.Status != domain.ConditionStatusTrue {
+		return errors.New("ManualOverride requires EnrollmentHooks status True")
 	}
 	return nil
 }

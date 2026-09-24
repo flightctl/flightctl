@@ -20,7 +20,6 @@ const (
 	API_RESOURCE_DEVICES_APPLICATIONS_LIFECYCLE = "devices/applications/lifecycle"
 	API_RESOURCE_DEVICES_CONSOLE = "devices/console"
 	API_RESOURCE_DEVICES_DECOMMISSION = "devices/decommission"
-	API_RESOURCE_DEVICES_ENROLLMENTHOOKS_OVERRIDE = "devices/enrollmenthooks/override"
 	API_RESOURCE_DEVICES_LASTSEEN = "devices/lastseen"
 	API_RESOURCE_DEVICES_RENDERED = "devices/rendered"
 	API_RESOURCE_DEVICES_RESUME = "devices/resume"
@@ -429,14 +428,6 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 	"PUT:/devices/{name}/decommission": {
 		OperationID: "decommissionDevice",
 		Resource:    "devices/decommission",
-		Action:      "update",
-		Versions: []apimetadata.EndpointMetadataVersion{
-			{Version: "v1beta1", DeprecatedAt: nil},
-		},
-	},
-	"POST:/devices/{name}/enrollmenthooks/override": {
-		OperationID: "overrideDeviceEnrollmentHook",
-		Resource:    "devices/enrollmenthooks/override",
 		Action:      "update",
 		Versions: []apimetadata.EndpointMetadataVersion{
 			{Version: "v1beta1", DeprecatedAt: nil},

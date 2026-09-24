@@ -82,10 +82,10 @@ var requests []TestRequest = []TestRequest{
 		op:       "get",
 	},
 	{
-		url:      "https://fctl.io/api/v1/devices/foo/enrollmenthooks/override",
-		method:   http.MethodPost,
-		resource: "devices/enrollmenthooks/override",
-		op:       "update",
+		url:      "https://fctl.io/api/v1/devices/foo/status",
+		method:   http.MethodPatch,
+		resource: "devices/status",
+		op:       "patch",
 	},
 	{
 		url:      "https://fctl.io/api/v1/devices/foo/lastseen",

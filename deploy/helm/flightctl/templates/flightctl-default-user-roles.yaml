@@ -138,7 +138,6 @@ rules:
       - devices/lastseen
       - devices/rendered
       - devices/resume
-      - devices/status
       - enrollmentconfig
       - enrollmentrequests
       - enrollmentrequests/approval
@@ -153,12 +152,20 @@ rules:
       - version
       - vulnerabilities
   - verbs:
+      - get
+      - list
+      - patch
+      - update
+    apiGroups:
+      - flightctl.io
+    resources:
+      - devices/status
+  - verbs:
       - update
     apiGroups:
       - flightctl.io
     resources:
       - devices/applications/lifecycle
-      - devices/enrollmenthooks/override
       - fleets/applications/lifecycle
 
 ---
