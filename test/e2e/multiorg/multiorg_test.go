@@ -3,6 +3,7 @@ package multiorg_test
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -25,6 +26,8 @@ const (
 	deviceEnrollTimeout  = 120 * time.Second
 	deviceEnrollPolling  = 2 * time.Second
 	simulatorStopTimeout = 10 * time.Second
+	rbacAppName          = "rbac-app"
+	rbacAppImagePath     = "flightctl-tests/nginx:1.28-alpine-slim"
 
 	// OCP-oriented defaults; on quadlet, testUserCreds() provides prefixed names.
 	adminUser     = "admin"
@@ -358,22 +361,15 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			Expect(status).To(Equal(http.StatusForbidden), "Expected 403 Forbidden for viewer enrollment approval")
 		})
 
-		It("should enforce application lifecycle and console access by role for standalone and fleet-owned devices", Label("90251", "agent"), func() {
+		It("should enforce application lifecycle and console access by role for standalone and fleet-owned devices", Label("90251", "agent", e2e.NeedVMLabel), func() {
 			testID := harness.GetTestIDFromContext()
 			deferOrgSimulatorConfig(harness, users)
-			const rbacAppName = "rbac-app"
 
-			By("Creating a device via simulator as admin")
+			By("Enrolling a VM device as admin")
 			err := loginAndSetOrg(harness, users.admin.name, users.admin.password)
 			Expect(err).ToNot(HaveOccurred())
-			setupSharedOrgSimulatorConfig(harness)
 
-			simCmd, simErr := harness.StartLabeledSimulator(harness.Context, testID, "lifecycle-console-rbac", 0, 1)
-			Expect(simErr).ToNot(HaveOccurred())
-			simulatorCmds = append(simulatorCmds, simCmd)
-
-			deviceName, err := harness.WaitForLabeledSimulatorDevice(testID, 0, deviceEnrollTimeout, deviceEnrollPolling)
-			Expect(err).ToNot(HaveOccurred())
+			deviceName := harness.StartVMAndEnroll()
 			GinkgoWriter.Printf("Device for lifecycle and console RBAC test: %s\n", deviceName)
 			DeferCleanup(func() {
 				Expect(loginAndSetOrg(harness, users.admin.name, users.admin.password)).To(Succeed())
@@ -382,7 +378,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 
 			appSpec, err := e2e.NewContainerApplicationSpecWithRunAs(
 				rbacAppName,
-				"quay.io/flightctl-tests/nginx:1.28-alpine-slim",
+				fmt.Sprintf("%s/%s", net.JoinHostPort(auxSvcs.Registry.Host, auxSvcs.Registry.Port), rbacAppImagePath),
 				nil, nil, nil, nil,
 				"flightctl",
 			)
@@ -394,7 +390,8 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 				device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{appSpec}
 			})
 			Expect(err).ToNot(HaveOccurred())
-			waitForAgentReportedApp(harness, deviceName, rbacAppName)
+			err = harness.WaitForApplicationStatus(deviceName, rbacAppName, v1beta1.ApplicationStatusRunning, util.DURATION_TIMEOUT, util.POLLING)
+			Expect(err).ToNot(HaveOccurred())
 
 			standaloneTarget := "device/" + deviceName
 			for _, tc := range rbacAppAccessCases(users) {
@@ -404,7 +401,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 				assertLifecycleAccess(harness, standaloneTarget, rbacAppName, []string{"stop", "start", "restart"}, tc.lifecycleAllowed)
 
 				By(fmt.Sprintf("Testing standalone device console as %s", tc.role))
-				assertSimulatorConsoleAccess(harness, deviceName, tc.consoleAllowed)
+				assertConsoleAccess(harness, deviceName, tc.consoleAllowed)
 
 				By(fmt.Sprintf("Testing standalone application console as %s", tc.role))
 				assertAppConsoleAccess(harness, deviceName, rbacAppName, tc.consoleAllowed)
@@ -447,7 +444,8 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			harness.WaitForDeviceContents(deviceName, "device owned by fleet", func(device *v1beta1.Device) bool {
 				return device.Metadata.Owner != nil && *device.Metadata.Owner == "Fleet/"+fleetName
 			}, e2e.TIMEOUT)
-			waitForAgentReportedApp(harness, deviceName, rbacAppName)
+			err = harness.WaitForApplicationStatus(deviceName, rbacAppName, v1beta1.ApplicationStatusRunning, util.DURATION_TIMEOUT, util.POLLING)
+			Expect(err).ToNot(HaveOccurred())
 
 			for _, tc := range rbacAppAccessCases(users) {
 				By(fmt.Sprintf("Testing fleet-owned device lifecycle as %s", tc.role))
@@ -456,7 +454,7 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 				assertLifecycleAccess(harness, standaloneTarget, rbacAppName, []string{"stop", "start", "restart"}, tc.lifecycleAllowed)
 
 				By(fmt.Sprintf("Testing fleet-owned device console as %s", tc.role))
-				assertSimulatorConsoleAccess(harness, deviceName, tc.consoleAllowed)
+				assertConsoleAccess(harness, deviceName, tc.consoleAllowed)
 
 				By(fmt.Sprintf("Testing fleet-owned application console as %s", tc.role))
 				assertAppConsoleAccess(harness, deviceName, rbacAppName, tc.consoleAllowed)
@@ -798,25 +796,6 @@ func rbacAppAccessCases(users testUserSet) []rbacAppAccessCase {
 	}
 }
 
-func waitForAgentReportedApp(harness *e2e.Harness, deviceName, appName string) {
-	GinkgoHelper()
-	harness.WaitForDeviceContents(deviceName, "agent reported application "+appName, func(device *v1beta1.Device) bool {
-		return deviceHasNamedAppStatus(device, appName)
-	}, e2e.TIMEOUT)
-}
-
-func deviceHasNamedAppStatus(device *v1beta1.Device, appName string) bool {
-	if device == nil || device.Status == nil {
-		return false
-	}
-	for _, app := range device.Status.Applications {
-		if app.Name == appName && app.Status != "" {
-			return true
-		}
-	}
-	return false
-}
-
 func remoteSessionAnnotation(harness *e2e.Harness, deviceName string) string {
 	device, err := harness.GetDevice(deviceName)
 	if err != nil || device.Metadata.Annotations == nil {
@@ -890,26 +869,6 @@ func assertAppConsoleAccess(harness *e2e.Harness, deviceName, appName string, al
 		return
 	}
 	Fail(fmt.Sprintf("authorized app console failed unexpectedly: %v\n%s", res.err, res.out))
-}
-
-// assertSimulatorConsoleAccess verifies devices/console RBAC on a simulator device.
-func assertSimulatorConsoleAccess(harness *e2e.Harness, deviceName string, allowed bool) {
-	GinkgoHelper()
-	out, err := harness.RunConsoleCommand(deviceName, []string{"--notty"}, "true")
-	if !allowed {
-		Expect(err).To(HaveOccurred(), "Console should fail for unauthorized role")
-		Expect(out).To(Or(
-			ContainSubstring(http403Substring),
-			ContainSubstring(forbiddenSubstring),
-		), "Expected 403 Forbidden for console access")
-		return
-	}
-	Expect(out).ToNot(Or(
-		ContainSubstring(http403Substring),
-		ContainSubstring(forbiddenSubstring),
-	), "authorized role must not receive 403 for console")
-	Expect(err).To(HaveOccurred(), "authorized simulator console cannot run as flightctl-console")
-	Expect(out).To(ContainSubstring("unknown user flightctl-console"), "authorized console should reach the agent")
 }
 
 // assertConsoleAccess verifies devices/console RBAC via flightctl console.
