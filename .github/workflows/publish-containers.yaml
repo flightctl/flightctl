@@ -212,6 +212,7 @@ jobs:
         uses: redhat-actions/buildah-build@v3
         with:
           image: flightctl-${{ matrix.image }}-${{ matrix.os }}
+          squash: false
           tags: _build
           labels: |
             io.flightctl.flightctl-${{ matrix.image }}-${{ matrix.os }}.github.repository=${{ github.repository }}
