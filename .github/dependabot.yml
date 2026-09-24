@@ -4,47 +4,40 @@
 # https://docs.github.com/github/administering-a-repository/configuration-options-for-dependency-updates
 
 version: 2
+multi-ecosystem-groups:
+  all-updates:
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "NO-ISSUE"
+
 updates:
   - package-ecosystem: gomod
     directory: /
-    schedule:
-      interval: weekly
-    groups:
-      k8s:
-        patterns:
-          - "k8s.io/*"
-      gomega:
-        patterns:
-          - "github.com/onsi/ginkgo"
-          - "github.com/onsi/gomega"
-    commit-message:
-      prefix: "NO-ISSUE"
-
+    patterns:
+      - "*"
+    multi-ecosystem-group: all-updates
 
   - package-ecosystem: github-actions
     directory: /
-    schedule:
-      interval: weekly
-    commit-message:
-      prefix: "NO-ISSUE"
+    patterns:
+      - "*"
+    multi-ecosystem-group: all-updates
 
   - package-ecosystem: "docker"
     directory: "/"
-    schedule:
-      interval: weekly
-    commit-message:
-      prefix: "NO-ISSUE"
+    patterns:
+      - "*"
+    multi-ecosystem-group: all-updates
 
   - package-ecosystem: "docker"
     directory: "/packaging/images/el9"
-    schedule:
-      interval: weekly
-    commit-message:
-      prefix: "NO-ISSUE"
+    patterns:
+      - "*"
+    multi-ecosystem-group: all-updates
 
   - package-ecosystem: "docker"
     directory: "/packaging/images/el10"
-    schedule:
-      interval: weekly
-    commit-message:
-      prefix: "NO-ISSUE"
+    patterns:
+      - "*"
+    multi-ecosystem-group: all-updates
