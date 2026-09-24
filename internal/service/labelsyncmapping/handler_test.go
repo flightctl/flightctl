@@ -17,10 +17,11 @@ import (
 )
 
 type fakeStore struct {
-	mappings            map[uuid.UUID]map[string]*domain.LabelSyncMapping
-	deleteErr           error
-	finalizeDeleteErr   error
-	finalizeDeleteCalls int
+	mappings              map[uuid.UUID]map[string]*domain.LabelSyncMapping
+	deviceLabelReferences map[uuid.UUID]map[string]int
+	deleteErr             error
+	finalizeDeleteErr     error
+	finalizeDeleteCalls   int
 }
 
 type rejectingExpressionValidator struct{ err error }
@@ -30,7 +31,17 @@ func (v rejectingExpressionValidator) ValidateLabelSyncMapping(context.Context, 
 }
 
 func newFakeStore() *fakeStore {
-	return &fakeStore{mappings: make(map[uuid.UUID]map[string]*domain.LabelSyncMapping)}
+	return &fakeStore{
+		mappings:              make(map[uuid.UUID]map[string]*domain.LabelSyncMapping),
+		deviceLabelReferences: make(map[uuid.UUID]map[string]int),
+	}
+}
+
+func (s *fakeStore) addDeviceLabelReference(orgID uuid.UUID, name string) {
+	if s.deviceLabelReferences[orgID] == nil {
+		s.deviceLabelReferences[orgID] = make(map[string]int)
+	}
+	s.deviceLabelReferences[orgID][name]++
 }
 
 func (*fakeStore) InitialMigration(context.Context) error { return nil }
@@ -105,9 +116,20 @@ func (*fakeStore) Revision(context.Context, uuid.UUID, domain.LabelSyncMappingRe
 	return 0, nil
 }
 
-func (s *fakeStore) FinalizeDelete(context.Context, uuid.UUID, string) (bool, error) {
+func (s *fakeStore) FinalizeDelete(_ context.Context, orgID uuid.UUID, name string) (bool, error) {
 	s.finalizeDeleteCalls++
-	return false, s.finalizeDeleteErr
+	if s.finalizeDeleteErr != nil {
+		return false, s.finalizeDeleteErr
+	}
+	mapping, found := s.mappings[orgID][name]
+	if !found || mapping.Metadata.DeletionTimestamp == nil {
+		return false, nil
+	}
+	if s.deviceLabelReferences[orgID][name] > 0 {
+		return false, nil
+	}
+	delete(s.mappings[orgID], name)
+	return true, nil
 }
 
 func mapping(name string) domain.LabelSyncMapping {
@@ -191,7 +213,8 @@ func TestLabelSyncMappingLifecycle(t *testing.T) {
 		assert.Equal(t, domain.ConditionStatusTrue, condition.Status)
 	})
 
-	t.Run("When a mapping is deleted it should remain readable during cleanup", func(t *testing.T) {
+	t.Run("When a mapping owns device labels it should remain readable during cleanup", func(t *testing.T) {
+		store.addDeviceLabelReference(firstOrg, "architecture")
 		status := handler.DeleteLabelSyncMapping(ctx, firstOrg, "architecture")
 		require.EqualValues(t, 200, status.Code)
 		assert.Equal(t, 1, store.finalizeDeleteCalls)
@@ -199,6 +222,20 @@ func TestLabelSyncMappingLifecycle(t *testing.T) {
 		require.EqualValues(t, 200, status.Code)
 		assert.NotNil(t, deleted.Metadata.DeletionTimestamp)
 		assert.Equal(t, "Pending", lo.FromPtr(deleted.Status.Conditions)[0].Reason)
+	})
+
+	t.Run("When an unowned mapping is deleted it should be removed during finalization", func(t *testing.T) {
+		unownedStore := newFakeStore()
+		unownedHandler := NewServiceHandler(unownedStore)
+		_, createStatus := unownedHandler.CreateLabelSyncMapping(ctx, firstOrg, mapping("unowned"))
+		require.EqualValues(t, 201, createStatus.Code)
+
+		status := unownedHandler.DeleteLabelSyncMapping(ctx, firstOrg, "unowned")
+		assert.EqualValues(t, 200, status.Code)
+		assert.Equal(t, 1, unownedStore.finalizeDeleteCalls)
+
+		_, getStatus := unownedHandler.GetLabelSyncMapping(ctx, firstOrg, "unowned")
+		assert.EqualValues(t, 404, getStatus.Code)
 	})
 
 	t.Run("When deletion fails it should not attempt finalization", func(t *testing.T) {
