@@ -22,6 +22,10 @@ const E2ESetupAbortStderrMarker = "FLIGHTCTL_E2E_SETUP_ABORT=1"
 // otherwise use a no-VM harness by default.
 const NeedVMLabel = "needvm"
 
+// NeedContainerLabel marks specs that should use a container-backed device
+// instead of a VM.
+const NeedContainerLabel = "needcontainer"
+
 var (
 	// Per-worker storage
 	workerHarnesses sync.Map // map[int]*Harness
@@ -63,6 +67,49 @@ func SetupWorkerHarness() (*Harness, context.Context, error) {
 // prints E2ESetupAbortStderrMarker so CI can report FAILURE (not UNSTABLE). Test failures use exit 1.
 func SetupWorkerHarnessOrAbort() (*Harness, context.Context) {
 	harness, ctx, err := SetupWorkerHarness()
+	if err != nil {
+		msg := fmt.Sprintf("E2E environment precondition not met: %v\nAborting suite so the job fails immediately (no point running specs).\n", err)
+		fmt.Fprint(os.Stderr, msg)
+		fmt.Fprint(os.Stderr, E2ESetupAbortStderrMarker+"\n")
+		os.Exit(E2ESetupAbortExitCode)
+	}
+	return harness, ctx
+}
+
+// SetupWorkerHarnessWithContainerDevice sets up a harness for container-backed device specs for
+// the current worker. The device itself is created per spec by SetupContainerFromPool. This should
+// be called in BeforeSuite by suites that don't need a real
+// OS-image-switch/reboot device - see test/harness/e2e/harness_container.go's Container Device
+// Pattern doc comment and the container-backed-device-migration plan for which suites qualify.
+func SetupWorkerHarnessWithContainerDevice() (*Harness, context.Context, error) {
+	workerID := ginkgo.GinkgoParallelProcess()
+	logrus.Infof("🔄 [SetupWorkerHarnessWithContainerDevice] Worker %d: Setting up container-backed harness", workerID)
+
+	if err := validateContainerDevicePrerequisites(); err != nil {
+		return nil, nil, fmt.Errorf("failed to validate container device prerequisites for worker %d: %w", workerID, err)
+	}
+
+	suiteCtx := context.Background()
+
+	// Container devices are created for each spec, unlike VMs which are pooled and reset. Keep the
+	// suite-level harness device-free so BeforeSuite does not start a container that BeforeEach
+	// would immediately discard.
+	harness, err := newTestHarnessBase(suiteCtx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create harness for worker %d: %w", workerID, err)
+	}
+
+	workerHarnesses.Store(workerID, harness)
+	workerContexts.Store(workerID, suiteCtx)
+
+	logrus.Infof("✅ [SetupWorkerHarnessWithContainerDevice] Worker %d: Container-backed harness setup completed", workerID)
+	return harness, suiteCtx, nil
+}
+
+// SetupWorkerHarnessWithContainerDeviceOrAbort calls SetupWorkerHarnessWithContainerDevice and
+// exits the process on error - mirrors SetupWorkerHarnessOrAbort's fail-fast behavior for the VM path.
+func SetupWorkerHarnessWithContainerDeviceOrAbort() (*Harness, context.Context) {
+	harness, ctx, err := SetupWorkerHarnessWithContainerDevice()
 	if err != nil {
 		msg := fmt.Sprintf("E2E environment precondition not met: %v\nAborting suite so the job fails immediately (no point running specs).\n", err)
 		fmt.Fprint(os.Stderr, msg)

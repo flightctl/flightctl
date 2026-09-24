@@ -2,6 +2,7 @@ package quadlets_test
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -43,12 +44,16 @@ var _ = BeforeEach(func() {
 	_, err := login.LoginToAPIWithToken(harness)
 	Expect(err).ToNot(HaveOccurred())
 
-	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up quadlet test with VM from pool\n", workerID)
-
 	ctx := testutil.StartSpecTracerForGinkgo(suiteCtx)
 	harness.SetTestContext(ctx)
 
-	err = harness.SetupVMFromPoolAndStartAgent(workerID)
+	if slices.Contains(CurrentSpecReport().Labels(), e2e.NeedContainerLabel) {
+		GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up quadlet test with container device from pool\n", workerID)
+		err = harness.SetupContainerFromPoolAndStartAgent(workerID)
+	} else {
+		GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up quadlet test with VM from pool\n", workerID)
+		err = harness.SetupVMFromPoolAndStartAgent(workerID)
+	}
 	Expect(err).ToNot(HaveOccurred())
 
 	out, err := harness.VM.RunSSH([]string{"sudo", "systemctl", "is-active", "flightctl-agent"}, nil)
