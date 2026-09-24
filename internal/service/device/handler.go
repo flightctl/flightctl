@@ -557,42 +557,6 @@ func (h *DeviceServiceHandler) GetRenderedDevice(ctx context.Context, orgId uuid
 		processedAwaitReconnect = h.processAwaitingReconnectIfNeeded(ctx, orgId, name, params.KnownRenderedVersion)
 	}
 
-	checkEnrollmentHooksGate := func(device *domain.Device) *domain.Status {
-		if !domain.IsDeviceEnrollmentHooksGated(device) {
-			return nil
-		}
-		reason := ""
-		if cond := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceEnrollmentHooks); cond != nil {
-			reason = cond.Reason
-		}
-		status := domain.StatusConflict(fmt.Sprintf("device is gated by enrollment hooks (reason: %s)", reason))
-		return &status
-	}
-
-	// Read the rendered device before waiting so its service conditions can gate
-	// the agent without a separate database read. Reuse this snapshot below unless
-	// a notification indicates the rendered spec or console state has changed.
-	result, err := h.deviceStore.GetRendered(ctx, orgId, name, nil, h.agentEndpoint)
-	if err != nil {
-		// Fall back to the regular device read for the gate. For long-polls, defer
-		// returning the rendered-read error until a notification requires a response,
-		// preserving the existing 204 behavior when no rendered spec is available.
-		device, deviceErr := h.deviceStore.Get(ctx, orgId, name)
-		if deviceErr != nil {
-			h.log.Errorf("GetRenderedDevice %s/%s: failed to get device for gate check: %v", orgId, name, deviceErr)
-			return nil, common.StoreErrorToApiStatus(deviceErr, false, domain.DeviceKind, &name)
-		}
-		if status := checkEnrollmentHooksGate(device); status != nil {
-			return nil, *status
-		}
-		if params.KnownRenderedVersion == nil || processedAwaitReconnect {
-			h.log.Errorf("GetRenderedDevice %s/%s: failed to get rendered device: %v", orgId, name, err)
-			return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
-		}
-	} else if status := checkEnrollmentHooksGate(result); status != nil {
-		return nil, *status
-	}
-
 	if params.KnownRenderedVersion != nil && !processedAwaitReconnect {
 		n, gotNotification, err := rendered.Bus.Instance().WaitForNotification(ctx, orgId, name, *params.KnownRenderedVersion)
 		if err != nil {
@@ -602,24 +566,12 @@ func (h *DeviceServiceHandler) GetRenderedDevice(ctx context.Context, orgId uuid
 		if !gotNotification {
 			return nil, domain.StatusNoContent()
 		}
-		refreshRenderedDevice := result == nil
 		switch n.Type {
 		case rendered.NotificationTypeSpecUpdated:
 			kvRenderedVersion = n.RenderedVersion
-			refreshRenderedDevice = refreshRenderedDevice || result.Version() != kvRenderedVersion
 		case rendered.NotificationTypeConsole:
 			if err := rendered.Bus.Instance().ClearConsoleNotification(ctx, orgId, name); err != nil {
 				h.log.Warnf("GetRenderedDevice %s/%s: failed to clear console notification: %v", orgId, name, err)
-			}
-			refreshRenderedDevice = true
-		default:
-			refreshRenderedDevice = true
-		}
-		if refreshRenderedDevice {
-			result, err = h.deviceStore.GetRendered(ctx, orgId, name, nil, h.agentEndpoint)
-			if err != nil {
-				h.log.Errorf("GetRenderedDevice %s/%s: failed to get rendered device: %v", orgId, name, err)
-				return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 			}
 		}
 	}
@@ -632,6 +584,20 @@ func (h *DeviceServiceHandler) GetRenderedDevice(ctx context.Context, orgId uuid
 		}
 	}
 
+	// Gate on the existing rendered-device read so idle long-polls keep returning
+	// 204 without an extra store round-trip.
+	result, err := h.deviceStore.GetRendered(ctx, orgId, name, nil, h.agentEndpoint)
+	if err != nil {
+		h.log.Errorf("GetRenderedDevice %s/%s: failed to get rendered device: %v", orgId, name, err)
+		return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
+	}
+	if domain.IsDeviceEnrollmentHooksGated(result) {
+		reason := ""
+		if cond := domain.FindStatusCondition(result.Status.Conditions, domain.ConditionTypeDeviceEnrollmentHooks); cond != nil {
+			reason = cond.Reason
+		}
+		return nil, domain.StatusConflict(fmt.Sprintf("device is gated by enrollment hooks (reason: %s)", reason))
+	}
 	newVersion := result.Version()
 	if kvRenderedVersion != "" && newVersion != "" && kvRenderedVersion != newVersion {
 		// If the rendered version in the KV store is different from the one we just fetched,

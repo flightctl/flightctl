@@ -1221,12 +1221,15 @@ func TestGetRenderedDevice_EnrollmentHooksGateWhenRenderedSpecIsUnavailable(t *t
 	require.NoError(t, err)
 	st.device.getRenderedErr = flterrors.ErrNoRenderedVersion
 
+	// Gate runs only on a successful GetRendered result so we do not add a
+	// fallback Get on this hot path. No rendered version keeps the existing
+	// store-error status.
 	result, status := svc.GetRenderedDevice(ctx, orgId, "gate-test", domain.GetRenderedDeviceParams{})
 	require.Nil(t, result)
 	require.Equal(t, int32(http.StatusConflict), status.Code)
-	require.Contains(t, status.Message, "device is gated by enrollment hooks (reason: Pending)")
+	require.Equal(t, flterrors.ErrNoRenderedVersion.Error(), status.Message)
 	require.Equal(t, 1, st.device.getRenderedCalls)
-	require.Equal(t, 1, st.device.getCalls)
+	require.Zero(t, st.device.getCalls, "rendered-device lookup should not issue a separate Get")
 }
 
 func TestGetRenderedDevice_EnrollmentHooksGate(t *testing.T) {
@@ -1306,6 +1309,8 @@ func TestGetRenderedDevice_EnrollmentHooksGate(t *testing.T) {
 			// Non-agent caller: skips healthchecker/rendered.Bus singletons
 			result, status := svc.GetRenderedDevice(ctx, orgId, "gate-test", domain.GetRenderedDeviceParams{})
 			require.Equal(t, tt.wantCode, status.Code)
+			require.Equal(t, 1, st.device.getRenderedCalls)
+			require.Zero(t, st.device.getCalls, "gate should reuse GetRendered without a separate Get")
 			if tt.wantCode == http.StatusConflict {
 				require.Nil(t, result)
 				require.Contains(t, status.Message, tt.wantMessage)
