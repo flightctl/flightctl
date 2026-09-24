@@ -2,6 +2,7 @@ package device
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -10,6 +11,11 @@ import (
 	"github.com/flightctl/flightctl/internal/service/common"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	"github.com/google/uuid"
+)
+
+var (
+	errNoEnrollmentHooksCondition = errors.New("device has no EnrollmentHooks condition; nothing to override")
+	errOverrideNotAllowed         = errors.New("ManualOverride is only allowed when EnrollmentHooks condition is Failed")
 )
 
 // OverrideDeviceEnrollmentHook manually overrides a failed enrollment hook
@@ -23,16 +29,18 @@ func (h *DeviceServiceHandler) OverrideDeviceEnrollmentHook(ctx context.Context,
 			return err
 		}
 
-		// Look up the current EnrollmentHooks condition.
-		currentCondition := domain.FindStatusCondition(m.Device.Status.Conditions, domain.ConditionTypeDeviceEnrollmentHooks)
+		var currentCondition *domain.Condition
+		if m.Device.Status != nil {
+			currentCondition = domain.FindStatusCondition(m.Device.Status.Conditions, domain.ConditionTypeDeviceEnrollmentHooks)
+		}
 		if currentCondition == nil {
-			return fmt.Errorf("device has no EnrollmentHooks condition; nothing to override")
+			return errNoEnrollmentHooksCondition
 		}
 
 		// Only allow override when the condition indicates failure (Status=False, Reason=Failed).
 		if currentCondition.Status != domain.ConditionStatusFalse || currentCondition.Reason != domain.EnrollmentHooksReasonFailed {
 			return fmt.Errorf(
-				"ManualOverride is only allowed when EnrollmentHooks condition is Failed; current status=%s reason=%s",
+				"%w; current status=%s reason=%s", errOverrideNotAllowed,
 				currentCondition.Status, currentCondition.Reason,
 			)
 		}
@@ -58,10 +66,13 @@ func (h *DeviceServiceHandler) OverrideDeviceEnrollmentHook(ctx context.Context,
 		return nil
 	})
 	if err != nil {
+		if errors.Is(err, errNoEnrollmentHooksCondition) || errors.Is(err, errOverrideNotAllowed) {
+			return nil, domain.StatusBadRequest(err.Error())
+		}
 		status := common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 		if status.Code == http.StatusInternalServerError {
-			// Transition-validation errors are user errors, not server errors.
-			return nil, domain.StatusBadRequest(err.Error())
+			h.log.WithError(err).Error("failed to override enrollment hook")
+			return nil, domain.StatusInternalServerError("failed to override enrollment hook")
 		}
 		return nil, status
 	}

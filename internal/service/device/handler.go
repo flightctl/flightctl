@@ -548,10 +548,8 @@ func applyDeviceStatusPatch(ctx context.Context, current *domain.Device, patch d
 	if !reflect.DeepEqual(current.Spec, patched.Spec) {
 		return nil, errors.New("spec is immutable")
 	}
-	// Prevent setting ManualOverride reason via generic PatchDeviceStatus.
-	// ManualOverride must go through the dedicated OverrideDeviceEnrollmentHook endpoint
-	// which enforces stricter RBAC and transition validation.
-	if err := rejectManualOverrideViaStatusPatch(patched); err != nil {
+	// EnrollmentHooks is service-owned and must not be changed through generic status patches.
+	if err := rejectEnrollmentHooksChangeViaStatusPatch(current, patched); err != nil {
 		return nil, err
 	}
 	common.NilOutManagedObjectMetaProperties(&patched.Metadata)
@@ -559,15 +557,16 @@ func applyDeviceStatusPatch(ctx context.Context, current *domain.Device, patch d
 	return patched, nil
 }
 
-// rejectManualOverrideViaStatusPatch returns an error if the patched device carries
-// a ManualOverride reason on the EnrollmentHooks condition.
-func rejectManualOverrideViaStatusPatch(device *domain.Device) error {
-	if device == nil || device.Status == nil {
-		return nil
+func rejectEnrollmentHooksChangeViaStatusPatch(current, patched *domain.Device) error {
+	var before, after *domain.Condition
+	if current != nil && current.Status != nil {
+		before = domain.FindStatusCondition(current.Status.Conditions, domain.ConditionTypeDeviceEnrollmentHooks)
 	}
-	cond := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceEnrollmentHooks)
-	if cond != nil && cond.Reason == domain.EnrollmentHooksReasonManualOverride {
-		return errors.New("ManualOverride cannot be set via status patch; use the dedicated enrollment hook override endpoint")
+	if patched != nil && patched.Status != nil {
+		after = domain.FindStatusCondition(patched.Status.Conditions, domain.ConditionTypeDeviceEnrollmentHooks)
+	}
+	if !reflect.DeepEqual(before, after) {
+		return errors.New("EnrollmentHooks condition cannot be modified via status patch; use the dedicated enrollment hook override endpoint")
 	}
 	return nil
 }
