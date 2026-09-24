@@ -201,6 +201,53 @@ export E2E_AUX_HOST=192.168.122.10   # VM IP on the OCP network
 make run-e2e-test
 ```
 
+To run **agent guests on the hypervisor** (not nested inside the test VM), attach them to a libvirt network on that host and put overlay disks on a **shared directory** both the test process and hypervisor qemu can use:
+
+```bash
+export E2E_LIBVIRT_URI='qemu+ssh://kni@192.168.122.1/system?keyfile=/home/kni/.ssh/id_rsa'
+export E2E_VM_NETWORK=flightctl-net          # virsh net-list on the hypervisor
+export E2E_VM_DISK_DIR=/var/lib/libvirt/images/flightctl-e2e
+export E2E_AUX_HOST=192.168.122.10           # test-vm IP on that network
+
+make run-e2e-test GO_E2E_DIRS=test/e2e/agent GINKGO_FOCUS="Verify VM agent"
+```
+
+The harness uses a virtio NIC on `E2E_VM_NETWORK`, waits for a DHCP lease, and SSHes to that address on port 22. Leave these unset for the default nested QEMU user-net setup.
+
+There are two SSH trust boundaries:
+
+- **Libvirt** (`E2E_LIBVIRT_URI`): keep host-key verification enabled (`known_hosts`). `no_verify=1` on that URI is only for an isolated lab network.
+- **Guest**: nested guests are reached at `127.0.0.1` through a local QEMU port forward, and that path does not check the guest host key. Bridged guests are reached at their DHCP address on port 22. A new guest has no host key until it boots, so the harness creates a `known_hosts` file and records the key on the first SSH, under the VM name rather than the DHCP address. A later connection to that VM must present the same key. A new fresh overlay generates a new host key, so the pool removes that VM's saved key before the first SSH to the new disk. Set `E2E_VM_SSH_KNOWN_HOSTS` to choose the file; the harness creates it if it is missing. `E2E_VM_SSH_INSECURE=1` disables the check and sends the guest password to whatever answers at that address; use it only on an isolated lab network.
+
+`E2E_LIBVIRT_URI` and `E2E_VM_NETWORK` apply to pool guests only. Direct `NewVM` callers, including the imagebuild workflow, stay on local `qemu:///session` and user-net. `NewVM` rejects a remote URI when the disk or test directory is outside `E2E_VM_DISK_DIR`.
+
+Bridged guests use the same EFI firmware (secure boot enabled) and software TPM emulator as nested guests. A passthrough TPM device replaces the emulator. The network name does not remove the TPM or switch the guest to SeaBIOS. The hypervisor must provide swtpm; domain definition fails if that emulator is missing.
+
+### Shared disk directory (`E2E_VM_DISK_DIR`)
+
+QEMU on the hypervisor opens the overlay qcow2 by **absolute path**. The test process (usually `kni` on the test VM) creates that file. Those must be the **same path** on both machines, typically an NFS export of `/var/lib/libvirt/images/flightctl-e2e`.
+
+- The test user must be able to `mkdir` worker dirs under that path (`flightctl-e2e-worker-*`).
+- Hypervisor qemu must be able to read and write the resulting disks.
+
+A working NFS export maps all client writes to the qemu uid on the hypervisor (replace `107` with `id -u qemu` / `id -g qemu` on that host). Limit the client field to the test VM address or a trusted subnet (not `*`), and do not expose this export beyond that network:
+
+```
+/var/lib/libvirt/images/flightctl-e2e 192.168.122.10(rw,sync,no_subtree_check,all_squash,anonuid=107,anongid=107)
+```
+
+```bash
+# hypervisor
+sudo mkdir -p /var/lib/libvirt/images/flightctl-e2e
+sudo chown qemu:qemu /var/lib/libvirt/images/flightctl-e2e
+sudo chmod 755 /var/lib/libvirt/images/flightctl-e2e
+sudo exportfs -ra
+```
+
+Mount that export at the **same** path on the test VM. `no_root_squash` alone is not enough: tests do not run as root, and disks owned by `kni` are not writable by qemu.
+
+The pool copies `bin/output/qcow2/disk.qcow2` to `$E2E_VM_DISK_DIR/shared-base-disk.qcow2` and creates overlays next to it. The copy is written to a temporary file in that directory and renamed into place. An existing shared base disk with the same size as the golden image is reused. After changing the golden image, remove `shared-base-disk.qcow2` and the worker dirs so the pool publishes a new copy and stale overlays are not reused.
+
 ## OCP test VM (imagebuilder / non-suitable host)
 
 If your host is not suitable for the bootc image builder:

@@ -35,13 +35,14 @@ import (
 //
 // Runtime prerequisites (documented, not enforced here):
 //   - Specs that actually enroll (E1, E4) require the API endpoint to be
-//     reachable from inside the single-NIC SLIRP guest (via the 10.0.2.2 NAT
-//     gateway) and the endpoint to present a certificate the wizard accepts with
-//     TLS verification disabled (WizardSetTLSInsecure).
+//     reachable from the guest and the endpoint to present a certificate the
+//     wizard accepts with TLS verification disabled (WizardSetTLSInsecure).
+//     Nested SLIRP reaches the API through the 10.0.2.2 gateway. A bridged
+//     guest uses its DHCP default route.
 //   - The suite deliberately does not run setup-network.sh, so the VM has no
 //     flightctl-onboarding-ethernet *setup* profile; on a single-NIC rollback
-//     (E6) SSH/cockpit survival relies on the base SLIRP connection restoring
-//     10.0.2.15 via DHCP.
+//     (E6) SSH/cockpit survival relies on the base connection restoring its
+//     DHCP address.
 
 const (
 	// existingCertSentinel is a recognizable, non-secret base64 blob written into
@@ -420,14 +421,13 @@ var _ = Describe("Onboarding enrollment and completion flow", func() {
 		// a systemd-run transient unit (run-apply-enroll.sh → apply-and-enroll.sh),
 		// while multi-NIC runs those steps inline in the Cockpit bridge. This spec
 		// forces the single-NIC path via StartCockpitTunnelViaInterface so the browser
-		// reaches Cockpit through the guest's real eth0 (10.0.2.15, navigated via
+		// reaches Cockpit through the guest's real NIC (navigated via
 		// 127.0.0.2 so the origin host is not localhost) and WizardSelectNIC selects
 		// that same interface. The transient unit is a child of PID 1, so it is
 		// unaffected by the browser/cockpit-bridge going away — exactly the
 		// completion-after-disconnect behaviour under test.
-		workerID := GinkgoParallelProcess()
-		sshPort := sshPortBase + workerID
-		cockpitAddr, tunnelCleanup, err := e2e.StartCockpitTunnelViaInterface(sshPort, vmUser, vmPassword, slirpStaticIP)
+		nic := currentGuestIPv4(harness)
+		cockpitAddr, tunnelCleanup, err := openCockpitTunnel(harness, nic.Address)
 		Expect(err).ToNot(HaveOccurred(), "failed to start Cockpit SSH tunnel")
 		DeferCleanup(tunnelCleanup)
 
@@ -538,12 +538,13 @@ var _ = Describe("Onboarding enrollment and completion flow", func() {
 		// *does* surface after network activation is a required connectivity check
 		// against an unreachable host: the apply activates the network profile first,
 		// then the connectivity step fails, triggering the rollback path. A static IPv4
-		// profile is configured (keeping the SLIRP address so the control channel
-		// survives) specifically so there is a flightctl-onboarding NM profile for the
-		// rollback to remove.
+		// profile is configured (keeping the guest's current address so the control
+		// channel survives) specifically so there is a flightctl-onboarding NM
+		// profile for the rollback to remove.
+		nic := currentGuestIPv4(harness)
 		Expect(browser.WizardSelectNIC()).To(Succeed())
 		Expect(browser.WizardConfigureStaticIPv4(
-			slirpStaticIP, slirpStaticMask, slirpStaticGateway, "8.8.8.8",
+			nic.Address, nic.Mask, nic.Gateway, "8.8.8.8",
 		)).To(Succeed())
 		Expect(browser.WizardClickNext()).To(Succeed()) // Network → Network Services
 		Expect(browser.WizardClickNext()).To(Succeed()) // Network Services → Enrollment
@@ -628,11 +629,10 @@ var _ = Describe("Onboarding enrollment and completion flow", func() {
 		// in the Cockpit bridge's own namespace, where the bind is invisible and the
 		// real flightctl-enroll.sh runs instead (observed in CI: the completion marker
 		// appeared but the mock sentinel never did). So force the single-NIC delegated
-		// path via StartCockpitTunnelViaInterface — the same way E5 (90430) does — and
-		// verify the mock's record over SSH.
-		workerID := GinkgoParallelProcess()
-		sshPort := sshPortBase + workerID
-		cockpitAddr, tunnelCleanup, err := e2e.StartCockpitTunnelViaInterface(sshPort, vmUser, vmPassword, slirpStaticIP)
+		// path by forwarding Cockpit to the guest NIC, the same way E5 (90430) does,
+		// and verify the mock's record over SSH.
+		nic := currentGuestIPv4(harness)
+		cockpitAddr, tunnelCleanup, err := openCockpitTunnel(harness, nic.Address)
 		Expect(err).ToNot(HaveOccurred(), "failed to start Cockpit SSH tunnel")
 		DeferCleanup(tunnelCleanup)
 
