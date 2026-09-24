@@ -462,6 +462,21 @@ linters:
       - text: "non-constant format string in call to"
         linters:
           - govet
+      # These request tests use AddCookie to exercise the Cookie header; it omits cookie attributes.
+      - path: 'internal/auth/authn/multiauth_test\.go$'
+        text: '^G124: http\.Cookie missing or has insecure Secure, HttpOnly, or SameSite attribute'
+        linters:
+          - gosec
+      # Keep the existing reflect.Ptr usages while limiting this new govet finding to those paths.
+      - path: '(internal/cli/(edit|get|helpers)\.go|internal/instrumentation/encryption/gorm_plugin\.go|internal/store/model/selectors_test\.go|internal/util/deepequal\.go)$'
+        text: '^inline: Constant reflect\.Ptr should be inlined$'
+        linters:
+          - govet
+      # Revisit when TPM key conversion and hash fixtures migrate off ECDSA coordinate fields.
+      - path: '(internal/tpm/client(_test)?\.go|pkg/crypto/key_test\.go)$'
+        text: '^SA1019: \(crypto/ecdsa\.PublicKey\)\.(X|Y) has been deprecated since Go 1\.26'
+        linters:
+          - staticcheck
     paths:
       - bin
       - deploy
