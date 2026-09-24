@@ -484,7 +484,7 @@ registry is reachable from both the prep machine and the cluster.
 |---|---|---|
 | FlightCtl imagebuilder images | `quay.io/flightctl/flightctl-imagebuilder-{api,worker}-el9` | Worker and API pods |
 | podman builder image | `quay.io/podman/stable:v5.7.1` | Inner `podman build` container |
-| bootc-image-builder image | `quay.io/centos-bootc/bootc-image-builder@sha256:773019f…` | Converts bootc image to disk formats |
+| bootc-image-builder image | `ghcr.io/osbuild/bootc-image-builder@sha256:e7aadce…` | Converts bootc image to disk formats |
 | Syft image | `docker.io/anchore/syft:v1.44.0` | SBOM generation (disable if not needed) |
 | Base OS image | e.g. `quay.io/centos-bootc/centos-bootc:stream9` | `FROM` line in the generated Containerfile |
 | FlightCtl RPM repository | `https://rpm.flightctl.io` | `flightctl-agent` installed into the image |
@@ -511,7 +511,7 @@ skopeo copy \
 
 # bootc-image-builder (use the same digest as the binary default)
 skopeo copy \
-  docker://quay.io/centos-bootc/bootc-image-builder@sha256:773019f6b11766ca48170a4a7bf898be4268f3c2acfd0ec1db612408b3092a90 \
+  docker://ghcr.io/osbuild/bootc-image-builder@sha256:e7aadce6b3f5639cd47d83354791931ea219891a0d113c2fe74a0f0d352b165c \
   docker://${INTERNAL}/centos-bootc/bootc-image-builder:latest
 
 # Syft — skip if SBOM generation is disabled
