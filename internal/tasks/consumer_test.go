@@ -180,6 +180,12 @@ func TestShouldReconcileDeviceOwnership(t *testing.T) {
 			expected: true,
 		},
 		{
+			name: "DeviceUpdatedWithEnrollmentHooksGateCleared",
+			event: createTestEventWithDetails(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1",
+				createResourceUpdatedDetails(t, domain.UpdatedFieldEnrollmentHooksCondition)),
+			expected: true,
+		},
+		{
 			name:     "DeviceUpdatedWithOtherFields",
 			event:    createTestEventWithDetails(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, domain.Spec)),
 			expected: false,

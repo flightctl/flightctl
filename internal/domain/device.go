@@ -202,6 +202,20 @@ func NewDeviceStatus() DeviceStatus {
 	}
 }
 
+// IsDeviceEnrollmentHooksGated returns true when the device has an
+// EnrollmentHooks condition with status False, meaning enrollment hooks
+// have not reached a terminal success state and the device should be
+// excluded from fleet matching and rendered spec delivery.
+// Devices with no EnrollmentHooks condition (no policy at approve time)
+// are not gated and return false.
+func IsDeviceEnrollmentHooksGated(device *Device) bool {
+	if device == nil || device.Status == nil {
+		return false
+	}
+	cond := FindStatusCondition(device.Status.Conditions, ConditionTypeDeviceEnrollmentHooks)
+	return cond != nil && cond.Status == ConditionStatusFalse
+}
+
 // GetNextDeviceRenderedVersion calculates the next rendered version for a device.
 // It takes the maximum of the service-side rendered version (from annotations)
 // and the device-reported version (from status), then increments by 1.

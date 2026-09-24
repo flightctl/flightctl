@@ -584,10 +584,19 @@ func (h *DeviceServiceHandler) GetRenderedDevice(ctx context.Context, orgId uuid
 		}
 	}
 
+	// Gate on the existing rendered-device read so idle long-polls keep returning
+	// 204 without an extra store round-trip.
 	result, err := h.deviceStore.GetRendered(ctx, orgId, name, nil, h.agentEndpoint)
 	if err != nil {
 		h.log.Errorf("GetRenderedDevice %s/%s: failed to get rendered device: %v", orgId, name, err)
 		return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
+	}
+	if domain.IsDeviceEnrollmentHooksGated(result) {
+		reason := ""
+		if cond := domain.FindStatusCondition(result.Status.Conditions, domain.ConditionTypeDeviceEnrollmentHooks); cond != nil {
+			reason = cond.Reason
+		}
+		return nil, domain.StatusConflict(fmt.Sprintf("device is gated by enrollment hooks (reason: %s)", reason))
 	}
 	newVersion := result.Version()
 	if kvRenderedVersion != "" && newVersion != "" && kvRenderedVersion != newVersion {
@@ -933,6 +942,21 @@ func replaceServiceConditionsOnDevice(device *domain.Device, serviceConds []doma
 
 // diffAndEmitConditionEvents compares old and new conditions and emits events for condition changes
 func (h *DeviceServiceHandler) diffAndEmitConditionEvents(ctx context.Context, orgId uuid.UUID, device *domain.Device, oldConditions, newConditions []domain.Condition) {
+	oldEnrollmentHooksCondition := domain.FindStatusCondition(oldConditions, domain.ConditionTypeDeviceEnrollmentHooks)
+	newEnrollmentHooksCondition := domain.FindStatusCondition(newConditions, domain.ConditionTypeDeviceEnrollmentHooks)
+	wasEnrollmentHooksGated := oldEnrollmentHooksCondition != nil && oldEnrollmentHooksCondition.Status == domain.ConditionStatusFalse
+	isEnrollmentHooksGated := newEnrollmentHooksCondition != nil && newEnrollmentHooksCondition.Status == domain.ConditionStatusFalse
+	if wasEnrollmentHooksGated && !isEnrollmentHooksGated {
+		updates := &domain.ResourceUpdatedDetails{
+			UpdatedFields: []domain.ResourceUpdatedDetailsUpdatedFields{domain.UpdatedFieldEnrollmentHooksCondition},
+		}
+		event := common.GetResourceCreatedOrUpdatedSuccessEvent(ctx, false, domain.DeviceKind,
+			lo.FromPtr(device.Metadata.Name), updates, h.log, lo.FromPtr(device.Metadata.Annotations))
+		if event != nil {
+			h.events.CreateEvent(ctx, orgId, event)
+		}
+	}
+
 	// Track condition changes for MultipleOwners
 	oldMultipleOwnersCondition := domain.FindStatusCondition(oldConditions, domain.ConditionTypeDeviceMultipleOwners)
 	newMultipleOwnersCondition := domain.FindStatusCondition(newConditions, domain.ConditionTypeDeviceMultipleOwners)
