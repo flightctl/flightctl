@@ -95,12 +95,12 @@ func (m *managedFile) isUpToDate() (bool, error) {
 		return false, fmt.Errorf("failed to retrieve UID and GID")
 	}
 
-	uid, err := safecast.ToUint32(m.uid)
+	uid, err := safecast.Convert[uint32](m.uid)
 	if err != nil {
 		return false, fmt.Errorf("converting uid %d for file %w: %w", m.uid, errors.WithElement(m.Path()), err)
 	}
 
-	gid, err := safecast.ToUint32(m.gid)
+	gid, err := safecast.Convert[uint32](m.gid)
 	if err != nil {
 		return false, fmt.Errorf("converting gid %d for file %w: %w", m.gid, errors.WithElement(m.Path()), err)
 	}
@@ -164,7 +164,7 @@ func (m *managedFile) Write() error {
 func intToFileMode(i *int) (os.FileMode, error) {
 	mode := DefaultFilePermissions
 	if i != nil {
-		filemode, err := safecast.ToUint32(*i)
+		filemode, err := safecast.Convert[uint32](*i)
 		if err != nil {
 			return 0, err
 		}

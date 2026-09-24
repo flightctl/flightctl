@@ -72,7 +72,7 @@ func (g *GitServer) Start(ctx context.Context, network string, reuse bool) error
 	if err != nil {
 		return fmt.Errorf("failed to get git server port: %w", err)
 	}
-	g.Port = port.Int()
+	g.Port = int(port.Num())
 	g.InternalPort = g.Port
 	g.URL = fmt.Sprintf("ssh://user@%s", net.JoinHostPort(g.Host, strconv.Itoa(g.Port)))
 	logrus.Infof("Git server container started: %s", g.URL)
