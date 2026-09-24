@@ -13,9 +13,12 @@ import (
 )
 
 type recordingStore struct {
-	prepare *model.DeltaPrepare
-	ids     []uuid.UUID
-	gets    int
+	prepare      *model.DeltaPrepare
+	ids          []uuid.UUID
+	gets         int
+	resourceOrg  uuid.UUID
+	resourceKind string
+	resourceName string
 }
 
 func (s *recordingStore) CreateDeltaPrepare(_ context.Context, prepare *model.DeltaPrepare) error {
@@ -28,8 +31,16 @@ func (s *recordingStore) CreateOrReplaceWaitingDeltaPrepare(_ context.Context, p
 	return deltapreparestore.PrepareAdmission{Prepare: prepare, Accepted: true}, nil
 }
 
-func (s *recordingStore) GetDeltaPrepare(context.Context, deltapreparestore.PrepareKey, ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error) {
+func (s *recordingStore) GetDeltaPrepareByID(context.Context, uuid.UUID, ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error) {
 	s.gets++
+	return s.prepare, nil
+}
+
+func (s *recordingStore) GetLatestDeltaPrepareForResource(_ context.Context, orgID uuid.UUID, kind, name string, _ ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error) {
+	s.gets++
+	s.resourceOrg = orgID
+	s.resourceKind = kind
+	s.resourceName = name
 	return s.prepare, nil
 }
 
@@ -56,9 +67,17 @@ func TestServiceDelegatesPrepareOperations(t *testing.T) {
 	h := NewServiceHandler(store, nil)
 
 	require.NoError(t, h.CreateDeltaPrepare(ctx, prepare))
-	got, err := h.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{ID: prepare.ID})
+	got, err := h.GetDeltaPrepareByID(ctx, prepare.ID)
 	require.NoError(t, err)
 	require.Same(t, prepare, got)
+
+	resourceOrg := uuid.Nil
+	got, err = h.GetLatestDeltaPrepareForResource(ctx, resourceOrg, "fleet", "example")
+	require.NoError(t, err)
+	require.Same(t, prepare, got)
+	require.Equal(t, resourceOrg, store.resourceOrg)
+	require.Equal(t, "fleet", store.resourceKind)
+	require.Equal(t, "example", store.resourceName)
 
 	ids := []uuid.UUID{prepare.ID}
 	_, err = h.ListDeltaPrepares(ctx, ids)
@@ -85,7 +104,10 @@ func (s *errorStore) CreateDeltaPrepare(context.Context, *model.DeltaPrepare) er
 func (s *errorStore) CreateOrReplaceWaitingDeltaPrepare(context.Context, *model.DeltaPrepare) (deltapreparestore.PrepareAdmission, error) {
 	return deltapreparestore.PrepareAdmission{}, s.err
 }
-func (s *errorStore) GetDeltaPrepare(context.Context, deltapreparestore.PrepareKey, ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error) {
+func (s *errorStore) GetDeltaPrepareByID(context.Context, uuid.UUID, ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error) {
+	return nil, s.err
+}
+func (s *errorStore) GetLatestDeltaPrepareForResource(context.Context, uuid.UUID, string, string, ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error) {
 	return nil, s.err
 }
 func (s *errorStore) ListDeltaPrepares(context.Context, []uuid.UUID) ([]model.DeltaPrepare, error) {

@@ -107,7 +107,15 @@ func (r *recordingCompletionStore) CreateOrReplaceWaitingDeltaPrepare(context.Co
 	return deltapreparestore.PrepareAdmission{}, nil
 }
 
-func (r *recordingCompletionStore) GetDeltaPrepare(_ context.Context, _ deltapreparestore.PrepareKey, _ ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error) {
+func (r *recordingCompletionStore) GetDeltaPrepareByID(context.Context, uuid.UUID, ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error) {
+	return r.getPrepare()
+}
+
+func (r *recordingCompletionStore) GetLatestDeltaPrepareForResource(context.Context, uuid.UUID, string, string, ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error) {
+	return r.getPrepare()
+}
+
+func (r *recordingCompletionStore) getPrepare() (*model.DeltaPrepare, error) {
 	if r.prepare == nil {
 		return nil, nil
 	}

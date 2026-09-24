@@ -276,7 +276,7 @@ var _ = Describe("Delta stores", func() {
 			Expect(second.Accepted).To(BeTrue())
 			Expect(second.Replaced).To(BeTrue())
 
-			oldStored, err := deltaPrepareStore.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{ID: old.ID})
+			oldStored, err := deltaPrepareStore.GetDeltaPrepareByID(ctx, old.ID)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(oldStored.Status).To(Equal(model.DeltaPrepareFailed))
 
@@ -333,7 +333,7 @@ var _ = Describe("Delta stores", func() {
 			Expect(createDeltaPrepareGenerations(ctx, prep.ID, keys)).To(Succeed())
 			Expect(createDeltaPrepareGenerations(ctx, prep.ID, keys)).To(Succeed())
 
-			got, err := deltaPrepareStore.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{ID: prep.ID})
+			got, err := deltaPrepareStore.GetDeltaPrepareByID(ctx, prep.ID)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(got.Kind).To(Equal(domain.FleetKind))
 			Expect(got.Name).To(Equal("myfleet"))
@@ -403,7 +403,7 @@ var _ = Describe("Delta stores", func() {
 			prep := fleetPrepare("myfleet", nil)
 			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, prep)).To(Succeed())
 
-			got, err := deltaPrepareStore.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{OrgID: orgId, Kind: domain.FleetKind, Name: "myfleet"}, deltapreparestore.WithPrepareStatus(model.DeltaPrepareWaiting))
+			got, err := deltaPrepareStore.GetLatestDeltaPrepareForResource(ctx, orgId, domain.FleetKind, "myfleet", deltapreparestore.WithPrepareStatus(model.DeltaPrepareWaiting))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(got).ToNot(BeNil())
 			Expect(got.ID).To(Equal(prep.ID))
@@ -411,7 +411,7 @@ var _ = Describe("Delta stores", func() {
 		})
 
 		It("should return nil when no waiting row exists", func() {
-			got, err := deltaPrepareStore.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{OrgID: orgId, Kind: domain.FleetKind, Name: "missing"}, deltapreparestore.WithPrepareStatus(model.DeltaPrepareWaiting))
+			got, err := deltaPrepareStore.GetLatestDeltaPrepareForResource(ctx, orgId, domain.FleetKind, "missing", deltapreparestore.WithPrepareStatus(model.DeltaPrepareWaiting))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(got).To(BeNil())
 		})
@@ -425,18 +425,18 @@ var _ = Describe("Delta stores", func() {
 			failed.Status = model.DeltaPrepareFailed
 			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, failed)).To(Succeed())
 
-			gotComplete, err := deltaPrepareStore.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{OrgID: orgId, Kind: domain.FleetKind, Name: "done"}, deltapreparestore.WithPrepareStatus(model.DeltaPrepareWaiting))
+			gotComplete, err := deltaPrepareStore.GetLatestDeltaPrepareForResource(ctx, orgId, domain.FleetKind, "done", deltapreparestore.WithPrepareStatus(model.DeltaPrepareWaiting))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(gotComplete).To(BeNil())
 
-			gotFailed, err := deltaPrepareStore.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{OrgID: orgId, Kind: domain.FleetKind, Name: "failed"}, deltapreparestore.WithPrepareStatus(model.DeltaPrepareWaiting))
+			gotFailed, err := deltaPrepareStore.GetLatestDeltaPrepareForResource(ctx, orgId, domain.FleetKind, "failed", deltapreparestore.WithPrepareStatus(model.DeltaPrepareWaiting))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(gotFailed).To(BeNil())
 		})
 
 		It("should not return a waiting row of a different kind", func() {
 			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, fleetPrepare("shared", nil))).To(Succeed())
-			got, err := deltaPrepareStore.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{OrgID: orgId, Kind: domain.DeviceKind, Name: "shared"}, deltapreparestore.WithPrepareStatus(model.DeltaPrepareWaiting))
+			got, err := deltaPrepareStore.GetLatestDeltaPrepareForResource(ctx, orgId, domain.DeviceKind, "shared", deltapreparestore.WithPrepareStatus(model.DeltaPrepareWaiting))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(got).To(BeNil())
 		})
@@ -454,11 +454,11 @@ var _ = Describe("Delta stores", func() {
 			}
 			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, devicePrep)).To(Succeed())
 
-			gotFleet, err := deltaPrepareStore.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{ID: fleetPrep.ID})
+			gotFleet, err := deltaPrepareStore.GetDeltaPrepareByID(ctx, fleetPrep.ID)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(gotFleet.Kind).To(Equal(domain.FleetKind))
 
-			gotDevice, err := deltaPrepareStore.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{ID: devicePrep.ID})
+			gotDevice, err := deltaPrepareStore.GetDeltaPrepareByID(ctx, devicePrep.ID)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(gotDevice.Kind).To(Equal(domain.DeviceKind))
 		})
@@ -541,21 +541,19 @@ var _ = Describe("Delta stores", func() {
 
 	Context("When getting a missing prepare", func() {
 		It("should return ErrResourceNotFound", func() {
-			_, err := deltaPrepareStore.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{ID: uuid.New()})
+			_, err := deltaPrepareStore.GetDeltaPrepareByID(ctx, uuid.New())
 			Expect(err).To(MatchError(flterrors.ErrResourceNotFound))
 		})
 
-		It("should reject incomplete keys", func() {
-			keys := []deltapreparestore.PrepareKey{
-				{},
-				{OrgID: orgId},
-				{Kind: domain.FleetKind, Name: "myfleet"},
-				{ID: uuid.New(), Name: "myfleet"},
-			}
-			for _, key := range keys {
-				_, err := deltaPrepareStore.GetDeltaPrepare(ctx, key)
-				Expect(err).To(MatchError("prepare key requires either ID or org, kind and name"))
-			}
+		It("should reject missing lookup fields", func() {
+			_, err := deltaPrepareStore.GetDeltaPrepareByID(ctx, uuid.Nil)
+			Expect(err).To(MatchError("prepare ID is required"))
+
+			_, err = deltaPrepareStore.GetLatestDeltaPrepareForResource(ctx, orgId, "", "myfleet")
+			Expect(err).To(MatchError("prepare resource lookup requires kind and name"))
+
+			_, err = deltaPrepareStore.GetLatestDeltaPrepareForResource(ctx, orgId, domain.FleetKind, "")
+			Expect(err).To(MatchError("prepare resource lookup requires kind and name"))
 		})
 	})
 
@@ -611,7 +609,7 @@ var _ = Describe("Delta stores", func() {
 			updated, err := deltaPrepareStore.UpdateDeltaPrepare(ctx, prep.ResourceVersion, prep)
 			Expect(err).ToNot(HaveOccurred())
 
-			got, err := deltaPrepareStore.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{ID: prep.ID})
+			got, err := deltaPrepareStore.GetDeltaPrepareByID(ctx, prep.ID)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(got.Status).To(Equal(model.DeltaPrepareComplete))
 
@@ -684,7 +682,7 @@ var _ = Describe("Delta stores", func() {
 			prep := fleetPrepare("myfleet", nil)
 			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, prep)).To(Succeed())
 
-			stored, err := deltaPrepareStore.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{ID: prep.ID})
+			stored, err := deltaPrepareStore.GetDeltaPrepareByID(ctx, prep.ID)
 			Expect(err).ToNot(HaveOccurred())
 			stored.Status = model.DeltaPrepareComplete
 			updated, err := deltaPrepareStore.UpdateDeltaPrepare(ctx, stored.ResourceVersion, stored)
@@ -703,7 +701,7 @@ var _ = Describe("Delta stores", func() {
 			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, prep)).To(Succeed())
 			initialRV := prep.ResourceVersion
 
-			updated, err := deltaPrepareStore.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{ID: prep.ID})
+			updated, err := deltaPrepareStore.GetDeltaPrepareByID(ctx, prep.ID)
 			Expect(err).ToNot(HaveOccurred())
 			updated.Status = model.DeltaPrepareComplete
 			updated, err = deltaPrepareStore.UpdateDeltaPrepare(ctx, initialRV, updated)

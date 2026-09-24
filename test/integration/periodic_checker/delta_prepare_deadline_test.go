@@ -136,7 +136,7 @@ var _ = Describe("Delta prepare deadline poll", func() {
 
 		deadline.Poll(ctx)
 
-		got, err := prepareStore.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{ID: prep.ID})
+		got, err := prepareStore.GetDeltaPrepareByID(ctx, prep.ID)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(got.Status).To(Equal(model.DeltaPrepareFailed))
 
@@ -161,7 +161,7 @@ var _ = Describe("Delta prepare deadline poll", func() {
 
 		deadline.Poll(ctx)
 
-		got, err := prepareStore.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{ID: prep.ID})
+		got, err := prepareStore.GetDeltaPrepareByID(ctx, prep.ID)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(got.Status).To(Equal(model.DeltaPrepareWaiting))
 		Expect(eventReasons()).NotTo(ContainElement(domain.EventReasonFleetRolloutStarted))

@@ -178,7 +178,7 @@ var _ = Describe("PrepareDeltas persist", func() {
 
 			Expect(p.Prepare(ctx, fleetPrepareEvent(orgId, fleetName, tvName))).To(Succeed())
 
-			waiting, err := deltaPrepareStore.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{OrgID: orgId, Kind: domain.FleetKind, Name: fleetName}, deltapreparestore.WithPrepareStatus(model.DeltaPrepareWaiting))
+			waiting, err := deltaPrepareStore.GetLatestDeltaPrepareForResource(ctx, orgId, domain.FleetKind, fleetName, deltapreparestore.WithPrepareStatus(model.DeltaPrepareWaiting))
 			Expect(err).ToNot(HaveOccurred())
 			Expect(waiting).ToNot(BeNil())
 			Expect(waiting.Status).To(Equal(model.DeltaPrepareWaiting))
@@ -318,7 +318,7 @@ var _ = Describe("PrepareDeltas persist", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(completionTask.Handle(ctx, worker_client.EventWithOrgId{OrgId: orgId, Event: *completeEvent})).To(Succeed())
 
-			got, err := deltaPrepareStore.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{ID: prep.ID})
+			got, err := deltaPrepareStore.GetDeltaPrepareByID(ctx, prep.ID)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(got.Status).To(Equal(model.DeltaPrepareComplete))
 

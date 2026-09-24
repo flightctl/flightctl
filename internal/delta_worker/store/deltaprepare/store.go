@@ -30,7 +30,8 @@ const (
 type Store interface {
 	CreateDeltaPrepare(ctx context.Context, prepare *model.DeltaPrepare) error
 	CreateOrReplaceWaitingDeltaPrepare(ctx context.Context, prepare *model.DeltaPrepare) (PrepareAdmission, error)
-	GetDeltaPrepare(ctx context.Context, key PrepareKey, opts ...PrepareGetOption) (*model.DeltaPrepare, error)
+	GetDeltaPrepareByID(ctx context.Context, id uuid.UUID, opts ...PrepareGetOption) (*model.DeltaPrepare, error)
+	GetLatestDeltaPrepareForResource(ctx context.Context, orgID uuid.UUID, kind, name string, opts ...PrepareGetOption) (*model.DeltaPrepare, error)
 	ListDeltaPrepares(ctx context.Context, ids []uuid.UUID) ([]model.DeltaPrepare, error)
 	UpdateDeltaPrepare(ctx context.Context, expectedResourceVersion int64, prepare *model.DeltaPrepare) (*model.DeltaPrepare, error)
 	// DecrementPendingGenerationsForGeneration atomically advances every waiting
@@ -43,13 +44,6 @@ type Store interface {
 }
 
 var _ Store = (*PrepareStore)(nil)
-
-type PrepareKey struct {
-	ID    uuid.UUID
-	OrgID uuid.UUID
-	Kind  string
-	Name  string
-}
 
 // PrepareAdmission describes the result of atomically making a prepare the
 // current waiting prepare for a resource.
@@ -227,41 +221,43 @@ func equalStringPtr(a, b *string) bool {
 	return *a == *b
 }
 
-func (s *PrepareStore) GetDeltaPrepare(ctx context.Context, key PrepareKey, opts ...PrepareGetOption) (*model.DeltaPrepare, error) {
+func prepareGetConfig(opts []PrepareGetOption) *prepareGet {
 	cfg := &prepareGet{}
 	for _, opt := range opts {
 		opt(cfg)
 	}
-	if key.ID == uuid.Nil {
-		if key.OrgID == uuid.Nil || key.Kind == "" || key.Name == "" {
-			return nil, fmt.Errorf("prepare key requires either ID or org, kind and name")
-		}
-	} else if key.OrgID != uuid.Nil || key.Kind != "" || key.Name != "" {
-		return nil, fmt.Errorf("prepare key requires either ID or org, kind and name")
+	return cfg
+}
+
+// GetDeltaPrepareByID retrieves the exact prepare record identified by its primary key.
+func (s *PrepareStore) GetDeltaPrepareByID(ctx context.Context, id uuid.UUID, opts ...PrepareGetOption) (*model.DeltaPrepare, error) {
+	if id == uuid.Nil {
+		return nil, fmt.Errorf("prepare ID is required")
 	}
-	q := s.getDB(ctx).Where("1 = 1")
-	if key.ID != uuid.Nil {
-		q = q.Where("id = ?", key.ID)
-	}
-	if key.OrgID != uuid.Nil {
-		q = q.Where("org_id = ?", key.OrgID)
-	}
-	if key.Kind != "" {
-		q = q.Where("kind = ?", key.Kind)
-	}
-	if key.Name != "" {
-		q = q.Where("name = ?", key.Name)
-	}
+	cfg := prepareGetConfig(opts)
+	q := s.getDB(ctx).Where("id = ?", id)
 	if cfg.status != nil {
 		q = q.Where("status = ?", *cfg.status)
 	}
-	if key.ID != uuid.Nil {
-		var prep model.DeltaPrepare
-		result := q.Take(&prep)
-		if result.Error != nil {
-			return nil, store.ErrorFromGormError(result.Error)
-		}
-		return &prep, nil
+	var prep model.DeltaPrepare
+	result := q.Take(&prep)
+	if result.Error != nil {
+		return nil, store.ErrorFromGormError(result.Error)
+	}
+	return &prep, nil
+}
+
+// GetLatestDeltaPrepareForResource returns the newest prepare for the exact
+// resource identity. OrgID is always part of the query; uuid.Nil identifies
+// the default organization and must not be treated as an omitted filter.
+func (s *PrepareStore) GetLatestDeltaPrepareForResource(ctx context.Context, orgID uuid.UUID, kind, name string, opts ...PrepareGetOption) (*model.DeltaPrepare, error) {
+	if kind == "" || name == "" {
+		return nil, fmt.Errorf("prepare resource lookup requires kind and name")
+	}
+	cfg := prepareGetConfig(opts)
+	q := s.getDB(ctx).Where("org_id = ? AND kind = ? AND name = ?", orgID, kind, name)
+	if cfg.status != nil {
+		q = q.Where("status = ?", *cfg.status)
 	}
 	var prepares []model.DeltaPrepare
 	result := q.Order("source_resource_version DESC, created_at DESC, id DESC").Limit(1).Find(&prepares)

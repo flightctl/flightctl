@@ -875,16 +875,17 @@ func (f *fakePrepareService) CreateOrReplaceWaitingDeltaPrepare(ctx context.Cont
 	return deltapreparestore.PrepareAdmission{Prepare: &copy, Accepted: true, Replaced: replaced}, nil
 }
 
-func (f *fakePrepareService) GetDeltaPrepare(ctx context.Context, key deltapreparestore.PrepareKey, _ ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error) {
-	if key.ID == uuid.Nil {
-		return f.store.getWaitingPrepare(ctx, key.OrgID, key.Kind, key.Name)
-	}
-	prepare := f.store.prepares[key.ID]
+func (f *fakePrepareService) GetDeltaPrepareByID(_ context.Context, id uuid.UUID, _ ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error) {
+	prepare := f.store.prepares[id]
 	if prepare == nil {
 		return nil, flterrors.ErrResourceNotFound
 	}
 	copy := *prepare
 	return &copy, nil
+}
+
+func (f *fakePrepareService) GetLatestDeltaPrepareForResource(ctx context.Context, orgID uuid.UUID, kind, name string, _ ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error) {
+	return f.store.getWaitingPrepare(ctx, orgID, kind, name)
 }
 
 func (f *fakePrepareService) ListDeltaPrepares(_ context.Context, ids []uuid.UUID) ([]model.DeltaPrepare, error) {

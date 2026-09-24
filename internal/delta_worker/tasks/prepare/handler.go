@@ -193,7 +193,7 @@ func (p *Handler) isCurrentPrepare(ctx context.Context, orgID uuid.UUID, kind, n
 	// This is an optimistic read, not a database lock. The admission
 	// transaction has already committed and released its row lock; this check
 	// only prevents stale work from continuing after a newer prepare replaces it.
-	current, err := p.prepareService.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{OrgID: orgID, Kind: kind, Name: name}, deltapreparestore.WithPrepareStatus(model.DeltaPrepareWaiting))
+	current, err := p.prepareService.GetLatestDeltaPrepareForResource(ctx, orgID, kind, name, deltapreparestore.WithPrepareStatus(model.DeltaPrepareWaiting))
 	if err != nil {
 		return false, err
 	}
@@ -235,7 +235,7 @@ func (p *Handler) admitPrepare(ctx context.Context, orgId uuid.UUID, kind, name 
 }
 
 func (p *Handler) finishSkip(ctx context.Context, orgId uuid.UUID, kind, name string, identity prepareIdentity) error {
-	latest, err := p.prepareService.GetDeltaPrepare(ctx, deltapreparestore.PrepareKey{OrgID: orgId, Kind: kind, Name: name})
+	latest, err := p.prepareService.GetLatestDeltaPrepareForResource(ctx, orgId, kind, name)
 	if err != nil {
 		return err
 	}

@@ -84,7 +84,11 @@ func (s *completionStore) CreateOrReplaceWaitingDeltaPrepare(context.Context, *m
 	return deltapreparestore.PrepareAdmission{}, nil
 }
 
-func (s *completionStore) GetDeltaPrepare(context.Context, deltapreparestore.PrepareKey, ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error) {
+func (s *completionStore) GetDeltaPrepareByID(context.Context, uuid.UUID, ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error) {
+	return nil, nil
+}
+
+func (s *completionStore) GetLatestDeltaPrepareForResource(context.Context, uuid.UUID, string, string, ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error) {
 	return nil, nil
 }
 

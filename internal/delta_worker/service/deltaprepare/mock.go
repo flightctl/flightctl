@@ -101,24 +101,44 @@ func (mr *MockServiceMockRecorder) DecrementPendingGenerationsForGeneration(ctx,
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DecrementPendingGenerationsForGeneration", reflect.TypeOf((*MockService)(nil).DecrementPendingGenerationsForGeneration), ctx, key, expectedStatus)
 }
 
-// GetDeltaPrepare mocks base method.
-func (m *MockService) GetDeltaPrepare(ctx context.Context, key deltaprepare.PrepareKey, opts ...deltaprepare.PrepareGetOption) (*model.DeltaPrepare, error) {
+// GetDeltaPrepareByID mocks base method.
+func (m *MockService) GetDeltaPrepareByID(ctx context.Context, id uuid.UUID, opts ...deltaprepare.PrepareGetOption) (*model.DeltaPrepare, error) {
 	m.ctrl.T.Helper()
-	varargs := []any{ctx, key}
+	varargs := []any{ctx, id}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
-	ret := m.ctrl.Call(m, "GetDeltaPrepare", varargs...)
+	ret := m.ctrl.Call(m, "GetDeltaPrepareByID", varargs...)
 	ret0, _ := ret[0].(*model.DeltaPrepare)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// GetDeltaPrepare indicates an expected call of GetDeltaPrepare.
-func (mr *MockServiceMockRecorder) GetDeltaPrepare(ctx, key any, opts ...any) *gomock.Call {
+// GetDeltaPrepareByID indicates an expected call of GetDeltaPrepareByID.
+func (mr *MockServiceMockRecorder) GetDeltaPrepareByID(ctx, id any, opts ...any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	varargs := append([]any{ctx, key}, opts...)
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeltaPrepare", reflect.TypeOf((*MockService)(nil).GetDeltaPrepare), varargs...)
+	varargs := append([]any{ctx, id}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeltaPrepareByID", reflect.TypeOf((*MockService)(nil).GetDeltaPrepareByID), varargs...)
+}
+
+// GetLatestDeltaPrepareForResource mocks base method.
+func (m *MockService) GetLatestDeltaPrepareForResource(ctx context.Context, orgID uuid.UUID, kind, name string, opts ...deltaprepare.PrepareGetOption) (*model.DeltaPrepare, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, orgID, kind, name}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "GetLatestDeltaPrepareForResource", varargs...)
+	ret0, _ := ret[0].(*model.DeltaPrepare)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetLatestDeltaPrepareForResource indicates an expected call of GetLatestDeltaPrepareForResource.
+func (mr *MockServiceMockRecorder) GetLatestDeltaPrepareForResource(ctx, orgID, kind, name any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, orgID, kind, name}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLatestDeltaPrepareForResource", reflect.TypeOf((*MockService)(nil).GetLatestDeltaPrepareForResource), varargs...)
 }
 
 // ListDeltaPrepares mocks base method.
