@@ -31,6 +31,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/prometheus/common/expfmt"
+	"github.com/prometheus/common/model"
 	collectormetrics "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/metrics/v1"
@@ -986,7 +987,7 @@ func receiveTestMetrics(ctx context.Context, promAddr string) error {
 		return fmt.Errorf("expected 200 OK, got %s", resp.Status)
 	}
 
-	var parser expfmt.TextParser
+	parser := expfmt.NewTextParser(model.UTF8Validation)
 	fams, err := parser.TextToMetricFamilies(resp.Body)
 	if err != nil {
 		return fmt.Errorf("parse prometheus text: %w", err)

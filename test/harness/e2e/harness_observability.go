@@ -19,6 +19,7 @@ import (
 	"github.com/flightctl/flightctl/test/e2e/infra/setup"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/prometheus/common/expfmt"
+	"github.com/prometheus/common/model"
 	"github.com/sirupsen/logrus"
 )
 
@@ -604,7 +605,7 @@ func (h *Harness) waitForPrometheusBackendReady(baseURL, bearerToken string) err
 }
 
 func parsePrometheusMetrics(body string) (map[string]*dto.MetricFamily, error) {
-	parser := expfmt.TextParser{}
+	parser := expfmt.NewTextParser(model.UTF8Validation)
 	return parser.TextToMetricFamilies(strings.NewReader(body))
 }
 
