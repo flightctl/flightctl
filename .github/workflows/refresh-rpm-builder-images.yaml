@@ -25,7 +25,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up dependencies
         uses: ./.github/actions/setup-dependencies
@@ -63,7 +63,7 @@ jobs:
           echo "tags=$tags" >> "$GITHUB_OUTPUT"
 
       - name: Push all RPM builder images to Quay.io
-        uses: redhat-actions/push-to-registry@v2.7
+        uses: redhat-actions/push-to-registry@v2.8
         with:
           image: packit-builder
           tags: ${{ steps.tags.outputs.tags }}

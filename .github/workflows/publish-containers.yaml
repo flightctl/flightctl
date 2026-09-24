@@ -29,7 +29,7 @@ jobs:
       os_matrix: ${{ steps.build-matrix.outputs.os }}
       image_matrix: ${{ steps.build-matrix.outputs.images }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -98,7 +98,7 @@ jobs:
     runs-on: "ubuntu-24.04"
     needs: [create-manifest-lists, generate-tags]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup all dependencies
         uses: ./.github/actions/setup-dependencies
@@ -146,7 +146,7 @@ jobs:
     needs: [generate-tags]
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -181,13 +181,13 @@ jobs:
           echo "  SOURCE_GIT_COMMIT: ${SOURCE_GIT_COMMIT}"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
         with:
           driver-opts: |
             image=moby/buildkit:v0.12.4
 
       - name: Cache Go modules
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cache/go-build
@@ -197,7 +197,7 @@ jobs:
             ${{ runner.os }}-${{ matrix.arch }}-go-
 
       - name: Cache DNF packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             /var/cache/dnf
@@ -209,7 +209,7 @@ jobs:
 
       - name: Build
         id: build
-        uses: redhat-actions/buildah-build@v2
+        uses: redhat-actions/buildah-build@v3
         with:
           image: flightctl-${{ matrix.image }}-${{ matrix.os }}
           tags: _build
@@ -245,7 +245,7 @@ jobs:
             "oci-archive:/tmp/image-archives/${{ matrix.os }}-${{ matrix.image }}-${{ matrix.arch }}.tar"
 
       - name: Upload image archive
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: image-${{ matrix.os }}-${{ matrix.image }}-${{ matrix.arch }}
           path: /tmp/image-archives/${{ matrix.os }}-${{ matrix.image }}-${{ matrix.arch }}.tar
@@ -257,7 +257,7 @@ jobs:
     runs-on: "ubuntu-24.04"
     steps:
       - name: Download all image archives
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: /tmp/image-archives
           pattern: image-*
