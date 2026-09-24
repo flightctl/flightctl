@@ -79,6 +79,7 @@ type fakeDeviceStore struct {
 	getCalls         int
 	getRenderedCalls int
 	getRenderedErr   error
+	mutateErr        error
 }
 
 func (s *fakeDeviceStore) rememberLastSeen(name string, device *domain.Device) {
@@ -142,6 +143,9 @@ func (s *fakeDeviceStore) GetWithTimestamp(ctx context.Context, orgId uuid.UUID,
 }
 
 func (s *fakeDeviceStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.Device, apply devicestore.DeviceApplyFunc, opts ...devicestore.MutateOption) (*domain.Device, *domain.Device, bool, error) {
+	if s.mutateErr != nil {
+		return nil, nil, false, s.mutateErr
+	}
 	old, ok := s.devices[name]
 	creating := !ok
 	var before *domain.Device

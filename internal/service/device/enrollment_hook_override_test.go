@@ -2,10 +2,13 @@ package device
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -43,6 +46,19 @@ func newEnrollmentHookTestDevice(t *testing.T, condStatus domain.ConditionStatus
 	require.NoError(t, err)
 
 	return h, st, ev, orgId, deviceName
+}
+
+func enrollmentHooksConditionPatchPath(t *testing.T, h Service, orgId uuid.UUID, deviceName string) string {
+	t.Helper()
+	device, status := h.GetDevice(context.Background(), orgId, deviceName)
+	require.Equal(t, int32(http.StatusOK), status.Code)
+	for index, condition := range device.Status.Conditions {
+		if condition.Type == domain.ConditionTypeDeviceEnrollmentHooks {
+			return fmt.Sprintf("/status/conditions/%d", index)
+		}
+	}
+	t.Fatal("device has no EnrollmentHooks condition")
+	return ""
 }
 
 func TestOverrideDeviceEnrollmentHook(t *testing.T) {
@@ -99,80 +115,156 @@ func TestOverrideDeviceEnrollmentHook(t *testing.T) {
 		require.Nil(dev)
 	})
 
+	t.Run("When device has no EnrollmentHooks condition it should reject the override", func(t *testing.T) {
+		require := require.New(t)
+		h, st, _, orgId, deviceName := newEnrollmentHookTestDevice(t,
+			domain.ConditionStatusFalse, domain.EnrollmentHooksReasonFailed)
+		st.device.devices[deviceName].Status.Conditions = nil
+
+		dev, status := h.OverrideDeviceEnrollmentHook(ctx, orgId, deviceName)
+		require.Equal(int32(http.StatusBadRequest), status.Code)
+		require.Nil(dev)
+	})
+
+	t.Run("When device status is absent it should reject the override", func(t *testing.T) {
+		require := require.New(t)
+		h, st, _, orgId, deviceName := newEnrollmentHookTestDevice(t,
+			domain.ConditionStatusFalse, domain.EnrollmentHooksReasonFailed)
+		st.device.devices[deviceName].Status = nil
+
+		dev, status := h.OverrideDeviceEnrollmentHook(ctx, orgId, deviceName)
+		require.Equal(int32(http.StatusBadRequest), status.Code)
+		require.Nil(dev)
+	})
+
 	t.Run("When device does not exist it should return not found", func(t *testing.T) {
 		require := require.New(t)
 		h, _, _, orgId, _ := newEnrollmentHookTestDevice(t,
 			domain.ConditionStatusFalse, domain.EnrollmentHooksReasonFailed)
 
 		dev, status := h.OverrideDeviceEnrollmentHook(ctx, orgId, "nonexistent")
-		require.NotEqual(int32(http.StatusOK), status.Code)
+		require.Equal(int32(http.StatusNotFound), status.Code)
 		require.Nil(dev)
+	})
+
+	t.Run("When the store reports a conflict it should preserve that status", func(t *testing.T) {
+		require := require.New(t)
+		h, st, _, orgId, deviceName := newEnrollmentHookTestDevice(t,
+			domain.ConditionStatusFalse, domain.EnrollmentHooksReasonFailed)
+		st.device.mutateErr = flterrors.ErrNoRowsUpdated
+
+		dev, status := h.OverrideDeviceEnrollmentHook(ctx, orgId, deviceName)
+		require.Equal(int32(http.StatusConflict), status.Code)
+		require.Nil(dev)
+	})
+
+	t.Run("When the store fails it should return 500 without exposing details", func(t *testing.T) {
+		require := require.New(t)
+		h, st, ev, orgId, deviceName := newEnrollmentHookTestDevice(t,
+			domain.ConditionStatusFalse, domain.EnrollmentHooksReasonFailed)
+		st.device.mutateErr = errors.New("database connection detail")
+
+		dev, status := h.OverrideDeviceEnrollmentHook(ctx, orgId, deviceName)
+		require.Equal(int32(http.StatusInternalServerError), status.Code)
+		require.NotContains(status.Message, "database connection detail")
+		require.Nil(dev)
+		require.Empty(ev.created)
 	})
 }
 
-func TestRejectManualOverrideViaStatusPatch(t *testing.T) {
-	t.Run("When device has ManualOverride reason it should reject", func(t *testing.T) {
+func TestPatchDeviceStatusEnrollmentHooks(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("When the override is already set it should allow unrelated status patches", func(t *testing.T) {
 		require := require.New(t)
-		status := domain.NewDeviceStatus()
-		status.Conditions = []domain.Condition{
-			{
-				Type:   domain.ConditionTypeDeviceEnrollmentHooks,
-				Status: domain.ConditionStatusTrue,
-				Reason: domain.EnrollmentHooksReasonManualOverride,
-			},
+		h, _, _, orgId, deviceName := newEnrollmentHookTestDevice(t,
+			domain.ConditionStatusFalse, domain.EnrollmentHooksReasonFailed)
+		_, status := h.OverrideDeviceEnrollmentHook(ctx, orgId, deviceName)
+		require.Equal(int32(http.StatusOK), status.Code)
+
+		var agentVersion any = "v2"
+		patch := domain.PatchRequest{{Op: "replace", Path: "/status/systemInfo/agentVersion", Value: &agentVersion}}
+		dev, status := h.PatchDeviceStatus(ctx, orgId, deviceName, patch)
+		require.Equal(int32(http.StatusOK), status.Code)
+		require.Equal("v2", dev.Status.SystemInfo.AgentVersion)
+		cond := domain.FindStatusCondition(dev.Status.Conditions, domain.ConditionTypeDeviceEnrollmentHooks)
+		require.NotNil(cond)
+		require.Equal(domain.ConditionStatusTrue, cond.Status)
+		require.Equal(domain.EnrollmentHooksReasonManualOverride, cond.Reason)
+	})
+
+	t.Run("When the condition is unchanged it should allow unrelated status patches", func(t *testing.T) {
+		require := require.New(t)
+		h, _, _, orgId, deviceName := newEnrollmentHookTestDevice(t,
+			domain.ConditionStatusFalse, domain.EnrollmentHooksReasonFailed)
+		var agentVersion any = "v2"
+		patch := domain.PatchRequest{{Op: "replace", Path: "/status/systemInfo/agentVersion", Value: &agentVersion}}
+
+		dev, status := h.PatchDeviceStatus(ctx, orgId, deviceName, patch)
+		require.Equal(int32(http.StatusOK), status.Code)
+		require.Equal("v2", dev.Status.SystemInfo.AgentVersion)
+		cond := domain.FindStatusCondition(dev.Status.Conditions, domain.ConditionTypeDeviceEnrollmentHooks)
+		require.NotNil(cond)
+		require.Equal(domain.ConditionStatusFalse, cond.Status)
+		require.Equal(domain.EnrollmentHooksReasonFailed, cond.Reason)
+	})
+
+	t.Run("When a generic patch forges success it should reject without changing the device", func(t *testing.T) {
+		require := require.New(t)
+		h, _, _, orgId, deviceName := newEnrollmentHookTestDevice(t,
+			domain.ConditionStatusFalse, domain.EnrollmentHooksReasonFailed)
+		conditionPath := enrollmentHooksConditionPatchPath(t, h, orgId, deviceName)
+		var succeededStatus any = domain.ConditionStatusTrue
+		var succeededReason any = domain.EnrollmentHooksReasonSucceeded
+		patch := domain.PatchRequest{
+			{Op: "replace", Path: conditionPath + "/status", Value: &succeededStatus},
+			{Op: "replace", Path: conditionPath + "/reason", Value: &succeededReason},
 		}
-		device := &domain.Device{Status: &status}
 
-		err := rejectManualOverrideViaStatusPatch(device)
-		require.Error(err)
-		require.Contains(err.Error(), "ManualOverride cannot be set via status patch")
+		dev, status := h.PatchDeviceStatus(ctx, orgId, deviceName, patch)
+		require.Equal(int32(http.StatusBadRequest), status.Code)
+		require.Contains(status.Message, "EnrollmentHooks condition cannot be modified via status patch")
+		require.Nil(dev)
+		stored, getStatus := h.GetDevice(ctx, orgId, deviceName)
+		require.Equal(int32(http.StatusOK), getStatus.Code)
+		cond := domain.FindStatusCondition(stored.Status.Conditions, domain.ConditionTypeDeviceEnrollmentHooks)
+		require.NotNil(cond)
+		require.Equal(domain.ConditionStatusFalse, cond.Status)
+		require.Equal(domain.EnrollmentHooksReasonFailed, cond.Reason)
 	})
 
-	t.Run("When device has Succeeded reason it should allow", func(t *testing.T) {
+	t.Run("When a generic patch removes the condition it should reject", func(t *testing.T) {
 		require := require.New(t)
-		status := domain.NewDeviceStatus()
-		status.Conditions = []domain.Condition{
-			{
-				Type:   domain.ConditionTypeDeviceEnrollmentHooks,
-				Status: domain.ConditionStatusTrue,
-				Reason: domain.EnrollmentHooksReasonSucceeded,
-			},
+		h, _, _, orgId, deviceName := newEnrollmentHookTestDevice(t,
+			domain.ConditionStatusFalse, domain.EnrollmentHooksReasonFailed)
+		conditionPath := enrollmentHooksConditionPatchPath(t, h, orgId, deviceName)
+		patch := domain.PatchRequest{{Op: "remove", Path: conditionPath}}
+
+		dev, status := h.PatchDeviceStatus(ctx, orgId, deviceName, patch)
+		require.Equal(int32(http.StatusBadRequest), status.Code)
+		require.Contains(status.Message, "EnrollmentHooks condition cannot be modified via status patch")
+		require.Nil(dev)
+		stored, getStatus := h.GetDevice(ctx, orgId, deviceName)
+		require.Equal(int32(http.StatusOK), getStatus.Code)
+		require.NotNil(domain.FindStatusCondition(stored.Status.Conditions, domain.ConditionTypeDeviceEnrollmentHooks))
+	})
+
+	t.Run("When a generic patch sets ManualOverride it should reject", func(t *testing.T) {
+		require := require.New(t)
+		h, _, _, orgId, deviceName := newEnrollmentHookTestDevice(t,
+			domain.ConditionStatusFalse, domain.EnrollmentHooksReasonFailed)
+		conditionPath := enrollmentHooksConditionPatchPath(t, h, orgId, deviceName)
+		var overriddenStatus any = domain.ConditionStatusTrue
+		var overriddenReason any = domain.EnrollmentHooksReasonManualOverride
+		patch := domain.PatchRequest{
+			{Op: "replace", Path: conditionPath + "/status", Value: &overriddenStatus},
+			{Op: "replace", Path: conditionPath + "/reason", Value: &overriddenReason},
 		}
-		device := &domain.Device{Status: &status}
 
-		err := rejectManualOverrideViaStatusPatch(device)
-		require.NoError(err)
-	})
-
-	t.Run("When device has Failed reason it should allow", func(t *testing.T) {
-		require := require.New(t)
-		status := domain.NewDeviceStatus()
-		status.Conditions = []domain.Condition{
-			{
-				Type:   domain.ConditionTypeDeviceEnrollmentHooks,
-				Status: domain.ConditionStatusFalse,
-				Reason: domain.EnrollmentHooksReasonFailed,
-			},
-		}
-		device := &domain.Device{Status: &status}
-
-		err := rejectManualOverrideViaStatusPatch(device)
-		require.NoError(err)
-	})
-
-	t.Run("When device has no EnrollmentHooks condition it should allow", func(t *testing.T) {
-		require := require.New(t)
-		status := domain.NewDeviceStatus()
-		device := &domain.Device{Status: &status}
-
-		err := rejectManualOverrideViaStatusPatch(device)
-		require.NoError(err)
-	})
-
-	t.Run("When device is nil it should allow", func(t *testing.T) {
-		require := require.New(t)
-		err := rejectManualOverrideViaStatusPatch(nil)
-		require.NoError(err)
+		dev, status := h.PatchDeviceStatus(ctx, orgId, deviceName, patch)
+		require.Equal(int32(http.StatusBadRequest), status.Code)
+		require.Contains(status.Message, "EnrollmentHooks condition cannot be modified via status patch")
+		require.Nil(dev)
 	})
 }
 
