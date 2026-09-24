@@ -56,9 +56,13 @@ var (
 var _ = BeforeSuite(func() {
 	auxFuture := e2e.StartAuxServicesAsync(context.Background())
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
-	_, _, err := e2e.SetupWorkerHarnessWithoutVM()
-	Expect(err).ToNot(HaveOccurred())
+	// Unlike the VM path, starting a container device pulls its image from the aux registry
+	// right away, so aux must be ready first - wait on it before setup instead of overlapping
+	// (see StartAuxServicesAsync's doc comment, which only holds for the VM path).
 	auxSvcs = auxFuture.Wait()
+	// Most CLI specs only exercise the API and a running agent, so use a container-backed
+	// device by default. Specs explicitly labeled needvm switch to a real VM in BeforeEach.
+	e2e.SetupWorkerHarnessWithContainerDeviceOrAbort()
 })
 
 var _ = BeforeEach(func() {
@@ -76,18 +80,17 @@ var _ = BeforeEach(func() {
 	harness.SetTestContext(ctx)
 
 	needsVM := e2e.CurrentSpecNeedsVM()
-	if !needsVM {
-		harness.VM = nil
-	}
-
 	_, err := ensureFlightctlLogin(harness)
 	Expect(err).ToNot(HaveOccurred())
 
 	if needsVM {
 		GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up VM from pool\n", workerID)
 		err = setupCLIWorkerVMWithRefreshedAgentConfig(workerID, harness)
-		Expect(err).ToNot(HaveOccurred())
+	} else {
+		GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up container device from pool\n", workerID)
+		err = harness.SetupContainerFromPoolAndStartAgent(workerID)
 	}
+	Expect(err).ToNot(HaveOccurred())
 
 	GinkgoWriter.Printf("✅ [BeforeEach] Worker %d: Test setup completed\n", workerID)
 })

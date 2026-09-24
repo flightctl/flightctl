@@ -1,6 +1,8 @@
 package containers
 
 import (
+	"context"
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
@@ -86,6 +88,31 @@ func ContainerExistsByName(name string) bool {
 	return strings.TrimSpace(string(out)) != ""
 }
 
+// ContainerExistsByNameContext checks for a container by name without allowing a stalled runtime
+// CLI to outlive the caller's deadline.
+func ContainerExistsByNameContext(ctx context.Context, name string) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	cli := RuntimeCLIName()
+	filter := NamePSFilter(cli, name)
+	cmd := exec.CommandContext(ctx, cli, "ps", "-a", "--filter", filter, "--format", "{{.Names}}")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return false, ctxErr
+		}
+		logrus.Debugf("containerExistsByName %s: %v %s", name, err, string(out))
+		return false, fmt.Errorf("failed to check whether container %s exists: %w", name, err)
+	}
+	for _, existingName := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if strings.TrimPrefix(existingName, "/") == name {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // ContainerRunningByName returns true if a container with the given name exists and is running.
 // Uses the same CLI selection as ContainerExistsByName (see auxiliary.Registry.Reused / E2E aux).
 func ContainerRunningByName(name string) bool {
@@ -110,4 +137,21 @@ func RemoveContainerByName(name string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+// RemoveContainerByNameContext force-removes a container by name, bounded by the caller's context.
+func RemoveContainerByNameContext(ctx context.Context, name string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	cli := RuntimeCLIName()
+	cmd := exec.CommandContext(ctx, cli, "rm", "-f", "-v", name)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		return fmt.Errorf("failed to remove container %s: %w: %s", name, err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
