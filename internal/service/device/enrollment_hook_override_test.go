@@ -63,9 +63,10 @@ func TestOverrideDeviceEnrollmentHook(t *testing.T) {
 		require.Equal(domain.ConditionStatusTrue, cond.Status)
 		require.Equal(domain.EnrollmentHooksReasonManualOverride, cond.Reason)
 
-		// Verify event was emitted.
-		require.Len(ev.created, 1)
-		require.Equal(domain.EventReasonEnrollmentHookManualOverride, ev.created[0].Reason)
+		// Clearing the gate triggers ownership reconciliation as well as the override event.
+		require.Len(ev.created, 2)
+		require.Equal(domain.EventReasonResourceUpdated, ev.created[0].Reason)
+		require.Equal(domain.EventReasonEnrollmentHookManualOverride, ev.created[1].Reason)
 	})
 
 	t.Run("When device condition is Pending it should reject the override", func(t *testing.T) {
@@ -192,8 +193,9 @@ func TestSetDeviceServiceConditions_EnrollmentHookEvents(t *testing.T) {
 		status := h.SetDeviceServiceConditions(ctx, orgId, deviceName, []domain.Condition{succeededCondition})
 		require.Equal(int32(http.StatusOK), status.Code)
 
-		require.Len(ev.created, 1)
-		require.Equal(domain.EventReasonEnrollmentHookSucceeded, ev.created[0].Reason)
+		require.Len(ev.created, 2)
+		require.Equal(domain.EventReasonResourceUpdated, ev.created[0].Reason)
+		require.Equal(domain.EventReasonEnrollmentHookSucceeded, ev.created[1].Reason)
 	})
 
 	t.Run("When EnrollmentHooks transitions to Failed it should emit EnrollmentHookFailed event", func(t *testing.T) {
@@ -229,8 +231,9 @@ func TestSetDeviceServiceConditions_EnrollmentHookEvents(t *testing.T) {
 		status := h.SetDeviceServiceConditions(ctx, orgId, deviceName, []domain.Condition{overrideCondition})
 		require.Equal(int32(http.StatusOK), status.Code)
 
-		require.Len(ev.created, 1)
-		require.Equal(domain.EventReasonEnrollmentHookManualOverride, ev.created[0].Reason)
+		require.Len(ev.created, 2)
+		require.Equal(domain.EventReasonResourceUpdated, ev.created[0].Reason)
+		require.Equal(domain.EventReasonEnrollmentHookManualOverride, ev.created[1].Reason)
 	})
 
 	t.Run("When condition does not change it should not emit any events", func(t *testing.T) {

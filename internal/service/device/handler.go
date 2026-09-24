@@ -1020,9 +1020,6 @@ func (h *DeviceServiceHandler) diffAndEmitConditionEvents(ctx context.Context, o
 	}
 
 	// Track condition changes for EnrollmentHooks
-	oldEnrollmentHooksCondition := domain.FindStatusCondition(oldConditions, domain.ConditionTypeDeviceEnrollmentHooks)
-	newEnrollmentHooksCondition := domain.FindStatusCondition(newConditions, domain.ConditionTypeDeviceEnrollmentHooks)
-
 	enrollmentHooksConditionChanged := common.HasConditionChanged(oldEnrollmentHooksCondition, newEnrollmentHooksCondition)
 
 	if enrollmentHooksConditionChanged {
