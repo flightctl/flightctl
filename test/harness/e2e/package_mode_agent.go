@@ -15,10 +15,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docker/docker/api/types/container"
 	agentcfg "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/test/harness/containers"
 	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/moby/moby/api/types/container"
 	"github.com/sirupsen/logrus"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"

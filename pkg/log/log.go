@@ -153,7 +153,7 @@ func (f *PrefixFormatter) Format(entry *logrus.Entry) ([]byte, error) {
 	}
 
 	// caller if available and not an info level log
-	if entry.HasCaller() && entry.Level != logrus.InfoLevel {
+	if entry.Caller != nil && entry.Level != logrus.InfoLevel {
 		sb.WriteString(`file="`)
 		sb.WriteString(trimCallerLevels(entry.Caller.File, 3))
 		sb.WriteString(":")

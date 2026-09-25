@@ -60,8 +60,8 @@ func CreateTestRedis(ctx context.Context, log *logrus.Logger) (host string, port
 		}
 	}
 
-	log.Infof("Started ephemeral Redis container on %s:%d", host, mapped.Int())
-	return host, uint(mapped.Int()), password, cleanup, nil
+	log.Infof("Started ephemeral Redis container on %s:%d", host, mapped.Num())
+	return host, uint(mapped.Num()), password, cleanup, nil
 }
 
 // CreateTestDB creates a temporary test database by cloning from the migrated 'flightctl' database.

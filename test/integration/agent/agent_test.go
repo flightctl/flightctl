@@ -693,7 +693,7 @@ func waitForFile(path, devName, testDirPath string, contents *string, mode *int)
 	Expect(fileInfo.IsDir()).To(Equal(false))
 
 	if mode != nil {
-		filemode, err := safecast.ToUint32(*mode)
+		filemode, err := safecast.Convert[uint32](*mode)
 		Expect(err).To(BeNil())
 		Expect(fileInfo.Mode().Perm()).To(Equal(os.FileMode(filemode).Perm()))
 		if *mode&0o1000 != 0 {

@@ -17,8 +17,8 @@ import (
 	"sync"
 	"time"
 
-	dockercontainer "github.com/docker/docker/api/types/container"
 	"github.com/flightctl/flightctl/test/harness/containers"
+	dockercontainer "github.com/moby/moby/api/types/container"
 	"github.com/sirupsen/logrus"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
