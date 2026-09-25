@@ -40,7 +40,13 @@ Then, it executes `flightctl-agent health` command with following options:
 - `--timeout="${FLIGHTCTL_HEALTH_CHECK_TIMEOUT}s"` to override default 150s timeout value
 - `--verbose` to increase verbosity of the output
 
-Internally, `flightctl-agent health` performs a two-phase health check:
+If the management certificate is absent at `/var/lib/flightctl/certs/agent.crt`,
+the device is treated as not yet enrolled and the health check passes
+immediately. This avoids greenboot boot-loops during late-binding bring-up
+before enrollment completes.
+
+When the certificate is present, `flightctl-agent health` performs a
+two-phase health check:
 
 | Phase | Duration | Description |
 |-------|----------|-------------|
@@ -48,9 +54,13 @@ Internally, `flightctl-agent health` performs a two-phase health check:
 | Phase 2 | 60s | Monitor service stability (detect crash loops) |
 
 The health checker verifies:
+- The device is **enrolled** (management certificate exists)
 - The service unit file is **enabled**
 - The service becomes **active** within the timeout
 - The service **remains stable** for the stability window
+
+`FLIGHTCTL_MANAGEMENT_CERT` in the greenboot script defaults to the path
+above and can be overridden via `/etc/greenboot/greenboot.conf`.
 
 ### Testing
 
@@ -72,12 +82,13 @@ Usage of health:
   Performs health checks on the flightctl-agent service.
 
 Checks performed:
+  - Enrollment state (management certificate presence)
   - Service status (enabled/active)
   - Reports agent's self-reported connectivity status (informational)
 
 Exit codes:
-  0  Service is active
-  1  Service check failed
+  0  Service is active, or device is not yet enrolled
+  1  Service check failed (enrolled device with unhealthy agent)
 
   -timeout duration
         Maximum time to wait for checks. (default 2m30s)

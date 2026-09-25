@@ -159,10 +159,11 @@ func (s *systemInfoCmd) Execute() error {
 }
 
 type healthCmd struct {
-	timeout         time.Duration
-	stabilityWindow time.Duration
-	pollInterval    time.Duration
-	verbose         bool
+	timeout            time.Duration
+	stabilityWindow    time.Duration
+	pollInterval       time.Duration
+	verbose            bool
+	managementCertPath string
 }
 
 // NewHealthCommand creates a new health check command.
@@ -174,18 +175,24 @@ func NewHealthCommand() *healthCmd {
 	fs.DurationVar(&cmd.stabilityWindow, "stability-window", 60*time.Second, "How long the service must remain active after becoming healthy before the boot is considered stable.")
 	fs.DurationVar(&cmd.pollInterval, "poll-interval", 5*time.Second, "How often to poll service status.")
 	fs.BoolVar(&cmd.verbose, "verbose", false, "Print detailed check results.")
+	fs.StringVar(&cmd.managementCertPath, "management-cert", health.DefaultManagementCertPath, "Path to the management certificate. If absent, the device is not yet enrolled and health check passes.")
 
 	if hasHelpFlag(os.Args[2:]) {
 		fmt.Println("Usage of health:")
 		fmt.Println("  Performs health checks on the flightctl-agent service.")
 		fmt.Println()
+		fmt.Println("  If the device is not yet enrolled (no management certificate),")
+		fmt.Println("  the health check passes immediately — an unenrolled device is")
+		fmt.Println("  in a valid pre-enrollment state, not a failure.")
+		fmt.Println()
 		fmt.Println("Checks performed:")
+		fmt.Println("  - Enrollment state (management certificate presence)")
 		fmt.Println("  - Service status (enabled/active)")
 		fmt.Println("  - Reports agent's self-reported connectivity status (informational)")
 		fmt.Println()
 		fmt.Println("Exit codes:")
-		fmt.Println("  0  Service is active")
-		fmt.Println("  1  Service check failed")
+		fmt.Println("  0  Service is active, or device is not yet enrolled")
+		fmt.Println("  1  Service check failed (enrolled device with unhealthy agent)")
 		fmt.Println()
 		fs.PrintDefaults()
 		os.Exit(0)
@@ -210,6 +217,7 @@ func (h *healthCmd) Execute() error {
 		health.WithPollInterval(h.pollInterval),
 		health.WithVerbose(h.verbose),
 		health.WithOutput(os.Stdout),
+		health.WithManagementCertPath(h.managementCertPath),
 	)
 	return checker.Run(context.Background())
 }
