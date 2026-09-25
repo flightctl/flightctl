@@ -132,6 +132,11 @@ func TestStoreErrorToApiStatus(t *testing.T) {
 			expectedCode: 409,
 		},
 		{
+			name:         "When err is a label-sync reservation conflict it should return 409",
+			err:          flterrors.ErrLabelSyncConflict,
+			expectedCode: 409,
+		},
+		{
 			name:         "When err is ErrDuplicateDeltaStorageTarget it should return 409",
 			err:          flterrors.ErrDuplicateDeltaStorageTarget,
 			expectedCode: 409,

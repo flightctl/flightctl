@@ -34,6 +34,8 @@ tags:
     description: Operations on Fleet resources.
   - name: label
     description: Operations for retrieving labels across different resources.
+  - name: labelsyncmapping
+    description: Operations on LabelSyncMapping resources.
   - name: organization
     description: Operations for retrieving Organization resources.
   - name: repository
@@ -5106,6 +5108,405 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+  /labelsyncmappings:
+    x-resource: labelsyncmappings
+    get:
+      tags:
+        - labelsyncmapping
+      description: List LabelSyncMapping resources.
+      operationId: listLabelSyncMappings
+      security:
+        - bearerAuth: []
+          orgId: []
+      parameters:
+        - name: continue
+          in: query
+          description: An optional parameter to query more results from the server. The value of the parameter must match the value of the 'continue' field in the previous list response.
+          required: false
+          schema:
+            type: string
+        - name: labelSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their labels. Defaults to everything.
+          schema:
+            type: string
+        - name: fieldSelector
+          in: query
+          description: A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!='.
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: The maximum number of results returned in the list response.
+          schema:
+            type: integer
+            format: int32
+            minimum: 0
+            maximum: 1000
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabelSyncMappingList'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+    post:
+      tags:
+        - labelsyncmapping
+      description: Create a LabelSyncMapping resource.
+      operationId: createLabelSyncMapping
+      security:
+        - bearerAuth: []
+          orgId: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LabelSyncMapping'
+        required: true
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabelSyncMapping'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /labelsyncmappings/{name}:
+    x-resource: labelsyncmappings
+    get:
+      tags:
+        - labelsyncmapping
+      description: Get a LabelSyncMapping resource.
+      operationId: getLabelSyncMapping
+      security:
+        - bearerAuth: []
+          orgId: []
+      parameters:
+        - name: name
+          in: path
+          description: The name of the LabelSyncMapping resource to get.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabelSyncMapping'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+    put:
+      tags:
+        - labelsyncmapping
+      description: Update a LabelSyncMapping resource.
+      operationId: replaceLabelSyncMapping
+      security:
+        - bearerAuth: []
+          orgId: []
+      parameters:
+        - name: name
+          in: path
+          description: The name of the LabelSyncMapping resource to update.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LabelSyncMapping'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabelSyncMapping'
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabelSyncMapping'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+    delete:
+      tags:
+        - labelsyncmapping
+      description: Delete a LabelSyncMapping resource.
+      operationId: deleteLabelSyncMapping
+      security:
+        - bearerAuth: []
+          orgId: []
+      parameters:
+        - name: name
+          in: path
+          description: The name of the LabelSyncMapping resource to delete.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+    patch:
+      tags:
+        - labelsyncmapping
+      description: Patch a LabelSyncMapping resource.
+      operationId: patchLabelSyncMapping
+      security:
+        - bearerAuth: []
+          orgId: []
+      parameters:
+        - name: name
+          in: path
+          description: The name of the LabelSyncMapping resource to patch.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json-patch+json:
+            schema:
+              $ref: '#/components/schemas/PatchRequest'
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabelSyncMapping'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "409":
+          description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /authproviders:
     x-resource: authproviders
     get:
@@ -8331,6 +8732,7 @@ components:
       - 'Accessible'            # ResourceSync
       - 'ResourceParsed'        # ResourceSync
       - 'Synced'                # ResourceSync
+      - 'Ready'                 # LabelSyncMapping
       - 'Valid'                 # Fleet
       - 'RolloutInProgress'     # Fleet
       - 'Updating'              # Device
@@ -8351,6 +8753,7 @@ components:
       - ResourceSyncAccessible
       - ResourceSyncResourceParsed
       - ResourceSyncSynced
+      - LabelSyncMappingReady
       - FleetValid
       - FleetRolloutInProgress
       - DeviceUpdating
@@ -9782,6 +10185,84 @@ components:
         - metadata
         - items
       description: EnrollmentHookPolicyList is a list of EnrollmentHookPolicy resources.
+    LabelSyncMapping:
+      type: object
+      properties:
+        apiVersion:
+          $ref: '#/components/schemas/ApiVersion'
+        kind:
+          type: string
+          enum:
+            - LabelSyncMapping
+          x-enum-varnames:
+            - LabelSyncMappingKindLabelSyncMapping
+          description: Kind is a string value representing this resource type.
+        metadata:
+          $ref: '#/components/schemas/ObjectMeta'
+        spec:
+          $ref: '#/components/schemas/LabelSyncMappingSpec'
+        status:
+          $ref: '#/components/schemas/LabelSyncMappingStatus'
+      required:
+        - apiVersion
+        - kind
+        - metadata
+        - spec
+      description: LabelSyncMapping defines an organization-scoped device label mapping.
+    LabelSyncMappingSpec:
+      type: object
+      description: Desired state for a label synchronization mapping.
+      properties:
+        resourceType:
+          type: string
+          enum:
+            - Device
+          x-enum-varnames:
+            - LabelSyncMappingSpecResourceTypeDevice
+          description: Immutable resource type evaluated by the mapping.
+        key:
+          type: string
+          nullable: true
+          maxLength: 317
+          pattern: '^(?:[a-z0-9](?:[-a-z0-9]*[a-z0-9])?(?:\.[a-z0-9](?:[-a-z0-9]*[a-z0-9])?)*/)?[A-Za-z0-9](?:[-A-Za-z0-9_.]*[A-Za-z0-9])?$'
+          description: Complete destination label key for scalar mode. Omitted or null selects map mode; no prefix is added.
+        expression:
+          type: string
+          minLength: 1
+          description: CEL expression evaluated for the selected resource type.
+      required:
+        - resourceType
+        - expression
+    LabelSyncMappingStatus:
+      type: object
+      description: Current propagation state for a label synchronization mapping.
+      properties:
+        conditions:
+          type: array
+          description: The Ready condition reports Pending, Degraded, or Success state.
+          items:
+            $ref: '#/components/schemas/Condition'
+    LabelSyncMappingList:
+      type: object
+      properties:
+        apiVersion:
+          $ref: '#/components/schemas/ApiVersion'
+        kind:
+          type: string
+          description: Kind is a string value representing the REST resource this object represents.
+        metadata:
+          $ref: '#/components/schemas/ListMeta'
+        items:
+          type: array
+          description: List of LabelSyncMapping resources.
+          items:
+            $ref: '#/components/schemas/LabelSyncMapping'
+      required:
+        - apiVersion
+        - kind
+        - metadata
+        - items
+      description: LabelSyncMappingList is a list of LabelSyncMapping resources.
     PermissionList:
       type: object
       description: List of available permissions for a user.

@@ -15,6 +15,7 @@ var (
 	ErrResourceNotEmpty                    = errors.New("resource cannot be deleted because it contains child resources")
 	ErrResourceInUse                       = errors.New("resource cannot be modified or deleted because it is in use by devices")
 	ErrDuplicateName                       = errors.New("a resource with this name already exists")
+	ErrLabelSyncConflict                   = errors.New("label key is already reserved or managed")
 	ErrResourceVersionConflict             = errors.New("the object has been modified; please apply your changes to the latest version and try again")
 	ErrIllegalResourceVersionFormat        = errors.New("resource version does not match the required integer format")
 	ErrNoRowsUpdated                       = errors.New("no rows were updated; assuming resource version was updated or resource was deleted")

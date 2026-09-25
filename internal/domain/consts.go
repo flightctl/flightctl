@@ -108,6 +108,14 @@ const (
 	EnrollmentHookPolicyListKind   = v1beta1.EnrollmentHookPolicyListKind
 )
 
+// ========== LabelSyncMapping ==========
+
+const (
+	LabelSyncMappingAPIVersion = v1beta1.LabelSyncMappingAPIVersion
+	LabelSyncMappingKind       = v1beta1.LabelSyncMappingKindValue
+	LabelSyncMappingListKind   = v1beta1.LabelSyncMappingListKind
+)
+
 // ========== AuthProvider ==========
 
 const (

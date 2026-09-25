@@ -124,6 +124,7 @@ const (
 	ConditionTypeFleetDeltaPreparing                  ConditionType = "FleetDeltaPreparing"
 	ConditionTypeFleetRolloutInProgress               ConditionType = "RolloutInProgress"
 	ConditionTypeFleetValid                           ConditionType = "Valid"
+	ConditionTypeLabelSyncMappingReady                ConditionType = "Ready"
 	ConditionTypeRepositoryAccessible                 ConditionType = "Accessible"
 	ConditionTypeResourceSyncAccessible               ConditionType = "Accessible"
 	ConditionTypeResourceSyncResourceParsed           ConditionType = "ResourceParsed"
@@ -432,6 +433,16 @@ const (
 // Defines values for K8sProviderSpecProviderType.
 const (
 	K8s K8sProviderSpecProviderType = "k8s"
+)
+
+// Defines values for LabelSyncMappingKind.
+const (
+	LabelSyncMappingKindLabelSyncMapping LabelSyncMappingKind = "LabelSyncMapping"
+)
+
+// Defines values for LabelSyncMappingSpecResourceType.
+const (
+	LabelSyncMappingSpecResourceTypeDevice LabelSyncMappingSpecResourceType = "Device"
 )
 
 // Defines values for MatchExpressionOperator.
@@ -2737,6 +2748,63 @@ type LabelSelector struct {
 	MatchLabels *map[string]string `json:"matchLabels,omitempty"`
 }
 
+// LabelSyncMapping LabelSyncMapping defines an organization-scoped device label mapping.
+type LabelSyncMapping struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion ApiVersion `json:"apiVersion"`
+
+	// Kind Kind is a string value representing this resource type.
+	Kind LabelSyncMappingKind `json:"kind"`
+
+	// Metadata ObjectMeta is metadata that all persisted resources must have, which includes all objects users must create.
+	Metadata ObjectMeta `json:"metadata"`
+
+	// Spec Desired state for a label synchronization mapping.
+	Spec LabelSyncMappingSpec `json:"spec"`
+
+	// Status Current propagation state for a label synchronization mapping.
+	Status *LabelSyncMappingStatus `json:"status,omitempty"`
+}
+
+// LabelSyncMappingKind Kind is a string value representing this resource type.
+type LabelSyncMappingKind string
+
+// LabelSyncMappingList LabelSyncMappingList is a list of LabelSyncMapping resources.
+type LabelSyncMappingList struct {
+	// ApiVersion APIVersion defines the versioned schema of this representation of an object. Servers should convert recognized schemas to the latest internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources.
+	ApiVersion ApiVersion `json:"apiVersion"`
+
+	// Items List of LabelSyncMapping resources.
+	Items []LabelSyncMapping `json:"items"`
+
+	// Kind Kind is a string value representing the REST resource this object represents.
+	Kind string `json:"kind"`
+
+	// Metadata ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
+	Metadata ListMeta `json:"metadata"`
+}
+
+// LabelSyncMappingSpec Desired state for a label synchronization mapping.
+type LabelSyncMappingSpec struct {
+	// Expression CEL expression evaluated for the selected resource type.
+	Expression string `json:"expression"`
+
+	// Key Complete destination label key for scalar mode. Omitted or null selects map mode; no prefix is added.
+	Key *string `json:"key,omitempty"`
+
+	// ResourceType Immutable resource type evaluated by the mapping.
+	ResourceType LabelSyncMappingSpecResourceType `json:"resourceType"`
+}
+
+// LabelSyncMappingSpecResourceType Immutable resource type evaluated by the mapping.
+type LabelSyncMappingSpecResourceType string
+
+// LabelSyncMappingStatus Current propagation state for a label synchronization mapping.
+type LabelSyncMappingStatus struct {
+	// Conditions The Ready condition reports Pending, Degraded, or Success state.
+	Conditions *[]Condition `json:"conditions,omitempty"`
+}
+
 // ListMeta ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
 type ListMeta struct {
 	// Continue May be set if the user set a limit on the number of items returned, and indicates that the server has more data available. The value is opaque and may be used to issue another request to the endpoint that served this list to retrieve the next set of available objects. Continuing a consistent list may not be possible if the server configuration has changed or more than a few minutes have passed. The resourceVersion field returned when using this continue value will be identical to the value in the first response, unless you have received this token from an error message.
@@ -3844,6 +3912,21 @@ type ListLabelsParams struct {
 // ListLabelsParamsKind defines parameters for ListLabels.
 type ListLabelsParamsKind string
 
+// ListLabelSyncMappingsParams defines parameters for ListLabelSyncMappings.
+type ListLabelSyncMappingsParams struct {
+	// Continue An optional parameter to query more results from the server. The value of the parameter must match the value of the 'continue' field in the previous list response.
+	Continue *string `form:"continue,omitempty" json:"continue,omitempty"`
+
+	// LabelSelector A selector to restrict the list of returned objects by their labels. Defaults to everything.
+	LabelSelector *string `form:"labelSelector,omitempty" json:"labelSelector,omitempty"`
+
+	// FieldSelector A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!='.
+	FieldSelector *string `form:"fieldSelector,omitempty" json:"fieldSelector,omitempty"`
+
+	// Limit The maximum number of results returned in the list response.
+	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // ListOrganizationsParams defines parameters for ListOrganizations.
 type ListOrganizationsParams struct {
 	// FieldSelector A selector to restrict the list of returned objects by their fields, supporting operators like '=', '==', and '!=' (e.g., "key1=value1,key2!=value2").
@@ -3981,6 +4064,15 @@ type PatchFleetStatusApplicationJSONPatchPlusJSONRequestBody = PatchRequest
 
 // ReplaceFleetStatusJSONRequestBody defines body for ReplaceFleetStatus for application/json ContentType.
 type ReplaceFleetStatusJSONRequestBody = Fleet
+
+// CreateLabelSyncMappingJSONRequestBody defines body for CreateLabelSyncMapping for application/json ContentType.
+type CreateLabelSyncMappingJSONRequestBody = LabelSyncMapping
+
+// PatchLabelSyncMappingApplicationJSONPatchPlusJSONRequestBody defines body for PatchLabelSyncMapping for application/json-patch+json ContentType.
+type PatchLabelSyncMappingApplicationJSONPatchPlusJSONRequestBody = PatchRequest
+
+// ReplaceLabelSyncMappingJSONRequestBody defines body for ReplaceLabelSyncMapping for application/json ContentType.
+type ReplaceLabelSyncMappingJSONRequestBody = LabelSyncMapping
 
 // CreateRepositoryJSONRequestBody defines body for CreateRepository for application/json ContentType.
 type CreateRepositoryJSONRequestBody = Repository

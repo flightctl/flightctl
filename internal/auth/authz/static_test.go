@@ -415,6 +415,10 @@ func TestStaticAuthZ_GetUserPermissions(t *testing.T) {
 					Operations: []string{"update"},
 				},
 				{
+					Resource:   "labelsyncmappings",
+					Operations: []string{"create", "delete", "get", "list", "patch", "update"},
+				},
+				{
 					Resource:   "imagebuilds",
 					Operations: []string{"create", "delete", "get", "list", "patch", "update"},
 				},
