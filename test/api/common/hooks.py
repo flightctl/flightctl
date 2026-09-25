@@ -24,33 +24,6 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 tracecov.schemathesis.install()
 
-# Patch TraceCov handler to also save JSON coverage report alongside HTML.
-# TraceCov only saves HTML by default; JSON is needed by report.py.
-# The @cli.handler() decorator returns None and appends to CUSTOM_HANDLERS,
-# so we look up the class by name from the registry.
-from schemathesis.cli.commands.run.executor import CUSTOM_HANDLERS
-from schemathesis.engine import events as _engine_events
-
-_TracecovHandler = next(h for h in CUSTOM_HANDLERS if h.__name__ == "TracecovHandler")
-_orig_handle_event = _TracecovHandler.handle_event
-
-
-def _handle_event_with_json(self, ctx, event):
-    _orig_handle_event(self, ctx, event)
-    if isinstance(event, _engine_events.EngineFinished) and self.coverage_map is not None:
-        json_report = self.coverage_map.generate_report(format="json")
-        html_path = (
-            self.report_path
-            or os.environ.get("SCHEMATHESIS_COVERAGE_REPORT_HTML_PATH")
-            or "./schema-coverage.html"
-        )
-        json_path = html_path.replace(".html", ".json")
-        with open(json_path, "w") as f:
-            f.write(json_report)
-
-
-_TracecovHandler.handle_event = _handle_event_with_json
-
 # ---------------------------------------------------------------------------
 # Configuration from environment
 # ---------------------------------------------------------------------------

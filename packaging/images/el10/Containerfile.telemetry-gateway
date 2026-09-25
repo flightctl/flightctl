@@ -1,4 +1,4 @@
-FROM registry.access.redhat.com/ubi10/go-toolset:1.26.7-1787775323 as build
+FROM registry.access.redhat.com/ubi10/go-toolset:1790231542 as build
 WORKDIR /app
 
 # Switch to root for build operations
@@ -43,7 +43,7 @@ RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
     make build-telemetry-gateway
 
-FROM registry.access.redhat.com/ubi10/ubi-micro:10.1-1769518576
+FROM registry.access.redhat.com/ubi10/ubi-micro:1787684528
 WORKDIR /app
 LABEL \
   com.redhat.component="flightctl-telemetry-gateway-container" \
