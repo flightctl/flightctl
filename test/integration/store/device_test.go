@@ -442,6 +442,75 @@ var _ = Describe("DeviceStore create", func() {
 			}
 		})
 
+		It("When paging by alias it should order NULL aliases last", func() {
+			testutil.CreateTestDevice(ctx, devStore, orgId, "mydevice-4", nil, nil, nil)
+			aliases := map[string]any{
+				"mydevice-1": "alpha",
+				"mydevice-2": "",
+				"mydevice-3": nil,
+				"mydevice-4": nil,
+			}
+			for name, alias := range aliases {
+				result := db.Model(&model.Device{}).
+					Where("org_id = ? AND name = ?", orgId, name).
+					Update("alias", alias)
+				Expect(result.Error).ToNot(HaveOccurred())
+				Expect(result.RowsAffected).To(Equal(int64(1)))
+			}
+
+			boundaryPage, err := devStore.List(ctx, orgId, devicestore.DeviceListParams{
+				ListParams: store.ListParams{Limit: 3},
+			})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(boundaryPage.Metadata.RemainingItemCount).ToNot(BeNil())
+			Expect(*boundaryPage.Metadata.RemainingItemCount).To(Equal(int64(1)))
+
+			listParams := devicestore.DeviceListParams{ListParams: store.ListParams{Limit: 1}}
+			var foundNames []string
+			var remainingCounts []int64
+			var nullAliasContinue *store.Continue
+			for {
+				devices, err := devStore.List(ctx, orgId, listParams)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(devices.Items).To(HaveLen(1))
+				foundNames = append(foundNames, lo.FromPtr(devices.Items[0].Metadata.Name))
+				if devices.Metadata.RemainingItemCount != nil {
+					remainingCounts = append(remainingCounts, *devices.Metadata.RemainingItemCount)
+				}
+
+				if devices.Metadata.Continue == nil {
+					break
+				}
+				cont, err := store.ParseContinueString(devices.Metadata.Continue)
+				Expect(err).ToNot(HaveOccurred())
+				if len(foundNames) == 2 {
+					nullAliasContinue = cont
+				}
+				listParams.Continue = cont
+			}
+
+			Expect(foundNames).To(Equal([]string{"mydevice-2", "mydevice-1", "mydevice-3", "mydevice-4"}))
+			Expect(remainingCounts).To(Equal([]int64{3, 2, 1}))
+			Expect(nullAliasContinue).ToNot(BeNil())
+			Expect(nullAliasContinue.Names[0]).ToNot(Equal(""))
+		})
+
+		It("When paging with a legacy name-only token it should continue by name", func() {
+			listParams := devicestore.DeviceListParams{ListParams: store.ListParams{
+				Limit:    1,
+				Continue: &store.Continue{Version: store.CurrentContinueVersion, Names: []string{"mydevice-2"}, Count: 2},
+			}}
+
+			devices, err := devStore.List(ctx, orgId, listParams)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(devices.Items).To(HaveLen(1))
+			Expect(lo.FromPtr(devices.Items[0].Metadata.Name)).To(Equal("mydevice-2"))
+
+			cont, err := store.ParseContinueString(devices.Metadata.Continue)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(cont.Names).To(HaveLen(1))
+		})
+
 		It("List with paging", func() {
 			listParams := devicestore.DeviceListParams{
 				ListParams: store.ListParams{
