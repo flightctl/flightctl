@@ -2,9 +2,12 @@ package labelsyncmapping
 
 import (
 	"fmt"
+	"strings"
+	"sync"
 	"testing"
 
 	"cel.dev/cel-go/common/types"
+	"cel.dev/cel-go/common/types/ref"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/stretchr/testify/require"
 )
@@ -86,6 +89,20 @@ func TestEvaluatorEvaluate(t *testing.T) {
 			device:         testDevice("amd64", nil),
 			expectedScalar: true,
 			expectedMap:    map[string]string{"version-match": "true"},
+		},
+		{
+			name:           "When an RC version is compared with its release it should be less than the release",
+			expression:     `semver("v1.2.3-rc1").compareTo(semver("1.2.3")) < 0`,
+			device:         testDevice("amd64", nil),
+			expectedScalar: true,
+			expectedMap:    map[string]string{"rc-before-release": "true"},
+		},
+		{
+			name:           "When an RC version is compared with the previous patch it should be greater than the previous patch",
+			expression:     `semver("v1.2.3-rc1").compareTo(semver("1.2.2")) > 0`,
+			device:         testDevice("amd64", nil),
+			expectedScalar: true,
+			expectedMap:    map[string]string{"rc-after-previous-patch": "true"},
 		},
 		{
 			name:           "When evaluating metadata it should use the normalized metadata root",
@@ -515,6 +532,39 @@ func TestEvaluatorProgramCache(t *testing.T) {
 	require.True(t, found)
 }
 
+func TestEvaluatorProgramCacheConcurrentCompilation(t *testing.T) {
+	evaluatorInterface, err := NewEvaluator()
+	require.NoError(t, err)
+	implementation := evaluatorInterface.(*evaluator)
+	expression := strings.Repeat("1 + ", 100) + "1"
+
+	const concurrentCalls = 32
+	start := make(chan struct{})
+	errors := make(chan error, concurrentCalls)
+	var waitGroup sync.WaitGroup
+	for range concurrentCalls {
+		waitGroup.Add(1)
+		go func() {
+			defer waitGroup.Done()
+			<-start
+			_, _, err := implementation.program(expression)
+			errors <- err
+		}()
+	}
+	close(start)
+	waitGroup.Wait()
+	close(errors)
+
+	for err := range errors {
+		require.NoError(t, err)
+	}
+
+	implementation.mu.Lock()
+	defer implementation.mu.Unlock()
+	require.Len(t, implementation.programs, 1)
+	require.Equal(t, 1, implementation.lru.Len())
+}
+
 func TestEvaluatorProgramCacheSupportsDynamicResultShapes(t *testing.T) {
 	evaluatorInterface, err := NewEvaluator()
 	require.NoError(t, err)
@@ -561,35 +611,65 @@ func TestEvaluatorEnforcesMapCardinalityLimit(t *testing.T) {
 
 func TestParseSemver(t *testing.T) {
 	testCases := []struct {
-		name     string
-		input    string
-		expected string
+		name                string
+		input               ref.Val
+		expected            string
+		wantError           bool
+		expectedErrorString string
 	}{
 		{
 			name:     "When a version has a lowercase v prefix it should normalize it",
-			input:    "v1.2.3",
+			input:    types.String("v1.2.3"),
 			expected: "1.2.3",
 		},
 		{
 			name:     "When a version has an uppercase V prefix it should normalize it",
-			input:    "V1.2.3",
+			input:    types.String("V1.2.3"),
 			expected: "1.2.3",
 		},
 		{
 			name:     "When a version has a release prefix it should normalize it",
-			input:    "release-1.2.3",
+			input:    types.String("release-1.2.3"),
 			expected: "1.2.3",
 		},
 		{
+			name:     "When a version has an RC suffix it should preserve prerelease semantics",
+			input:    types.String("v1.2.3-rc1"),
+			expected: "1.2.3-rc1",
+		},
+		{
 			name:     "When a version has surrounding whitespace it should normalize it",
-			input:    "  1.2.3\t",
+			input:    types.String("  1.2.3\t"),
 			expected: "1.2.3",
+		},
+		{
+			name:      "When a version is incomplete it should return an error",
+			input:     types.String("v1.2"),
+			wantError: true,
+		},
+		{
+			name:      "When a version has no numeric version it should return an error",
+			input:     types.String("not-semver"),
+			wantError: true,
+		},
+		{
+			name:                "When a non-string CEL value is passed it should return a type error",
+			input:               types.Int(123),
+			wantError:           true,
+			expectedErrorString: "semantic version must be a string",
 		},
 	}
 
 	for _, tt := range testCases {
 		t.Run(tt.name, func(t *testing.T) {
-			version, err := parseSemver(types.String(tt.input))
+			version, err := parseSemver(tt.input)
+			if tt.wantError {
+				require.Error(t, err)
+				if tt.expectedErrorString != "" {
+					require.ErrorContains(t, err, tt.expectedErrorString)
+				}
+				return
+			}
 
 			require.NoError(t, err)
 			require.Equal(t, tt.expected, version.String())

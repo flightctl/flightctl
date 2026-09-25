@@ -164,6 +164,17 @@ func (e *evaluator) ValidateExpressionIs(expression string, expectedKind ResultK
 
 func (e *evaluator) program(expression string) (cel.Program, *cel.Type, error) {
 	e.mu.Lock()
+	if element, ok := e.programs[expression]; ok {
+		e.lru.MoveToFront(element)
+		cached := element.Value.(*cachedProgram)
+		e.mu.Unlock()
+		return cached.program, cached.outputType, cached.err
+	}
+	e.mu.Unlock()
+
+	program, outputType, err := e.compile(expression)
+
+	e.mu.Lock()
 	defer e.mu.Unlock()
 	if element, ok := e.programs[expression]; ok {
 		e.lru.MoveToFront(element)
@@ -171,7 +182,6 @@ func (e *evaluator) program(expression string) (cel.Program, *cel.Type, error) {
 		return cached.program, cached.outputType, cached.err
 	}
 
-	program, outputType, err := e.compile(expression)
 	element := e.lru.PushFront(&cachedProgram{expression: expression, program: program, outputType: outputType, err: err})
 	e.programs[expression] = element
 	if e.lru.Len() > maxCachedPrograms {
