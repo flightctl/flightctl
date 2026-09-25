@@ -24,17 +24,18 @@ import (
 )
 
 const (
-	sysVirtualNetDir = "/sys/devices/virtual/net"
-	sysClassNetDir   = "/sys/class/net"
-	dmiClassPath     = "/sys/class/dmi/id"
-	pciDevicesPath   = "/sys/bus/pci/devices"
-	osReleasePath    = "/etc/os-release"
-	resolveConfPath  = "/etc/resolv.conf"
-	cpuInfoPath      = "/proc/cpuinfo"
-	memInfoPath      = "/proc/meminfo"
-	ipv4RoutePath    = "/proc/net/route"
-	ipv6RoutePath    = "/proc/net/ipv6_route"
-	bootIDPath       = "/proc/sys/kernel/random/boot_id"
+	sysVirtualNetDir    = "/sys/devices/virtual/net"
+	sysClassNetDir      = "/sys/class/net"
+	dmiClassPath        = "/sys/class/dmi/id"
+	pciDevicesPath      = "/sys/bus/pci/devices"
+	platformDevicesPath = "/sys/bus/platform/devices"
+	osReleasePath       = "/etc/os-release"
+	resolveConfPath     = "/etc/resolv.conf"
+	cpuInfoPath         = "/proc/cpuinfo"
+	memInfoPath         = "/proc/meminfo"
+	ipv4RoutePath       = "/proc/net/route"
+	ipv6RoutePath       = "/proc/net/ipv6_route"
+	bootIDPath          = "/proc/sys/kernel/random/boot_id"
 
 	// SystemFileName is the name of the file where the system boot status is stored in the data-dir.
 	SystemFileName = "system.json"
