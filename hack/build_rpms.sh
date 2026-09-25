@@ -132,7 +132,7 @@ collect_git_worktree_mounts() {
 }
 
 current_commit() {
-  (cd "${REPO_ROOT}" && git rev-parse --short "HEAD^{commit}" 2>/dev/null) || echo "unknown"
+  ( (cd "${REPO_ROOT}" && git rev-parse "HEAD^{commit}" 2>/dev/null) || echo "unknown") | cut -c1-9
 }
 
 ensure_version_env() {
@@ -462,6 +462,7 @@ run_build_in_container() {
     -e GOMODCACHE="${container_gomodcache}" \
     -e GOCACHE="${container_gocache}" \
     -e GITHUB_ACTIONS \
+    -e MOCK_CLEANUP \
     -e SOURCE_GIT_TAG \
     -e SOURCE_GIT_TREE_STATE \
     -e SOURCE_GIT_COMMIT \

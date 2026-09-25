@@ -8,6 +8,9 @@ import (
 	"errors"
 	"time"
 
+	deltagenerationstore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
+	deltapreparestore "github.com/flightctl/flightctl/internal/delta_worker/store/deltaprepare"
+	deltapreparegenerationstore "github.com/flightctl/flightctl/internal/delta_worker/store/deltapreparegeneration"
 	"github.com/flightctl/flightctl/internal/domain"
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/store"
@@ -18,6 +21,8 @@ import (
 	checkpointstore "github.com/flightctl/flightctl/internal/store/checkpoint"
 	dependencyrefstore "github.com/flightctl/flightctl/internal/store/dependencyref"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	enrollmenthooknotifysecretsstore "github.com/flightctl/flightctl/internal/store/enrollmenthooknotifysecrets"
+	enrollmenthookpolicystore "github.com/flightctl/flightctl/internal/store/enrollmenthookpolicy"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
@@ -36,13 +41,15 @@ import (
 // ErrDryRunComplete signals that migrations validated successfully in dry-run mode.
 var ErrDryRunComplete = errors.New("dry-run complete")
 
-// Run executes all database migrations within a single transaction.
-// If dryRun is true, the transaction is rolled back after successful validation.
+// Run executes schema migrations within a single transaction, then runs the
+// vulnerability-source data backfill in bounded transactions. If dryRun is
+// true, the schema migration transaction is rolled back after validation and
+// the data backfill is skipped.
 // The provided db must be connected as a user with migration privileges.
 func Run(ctx context.Context, db *gorm.DB, log logrus.FieldLogger, dryRun bool) error {
 	ctx = store.WithBypassSpanCheck(ctx)
 
-	return db.Transaction(func(tx *gorm.DB) error {
+	err := db.Transaction(func(tx *gorm.DB) error {
 		txLog := log.WithFields(logrus.Fields{
 			"pkg":     "migration-store-tx",
 			"dry_run": dryRun,
@@ -63,6 +70,11 @@ func Run(ctx context.Context, db *gorm.DB, log logrus.FieldLogger, dryRun bool) 
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+
+	return backfillVulnerabilitySource(ctx, db)
 }
 
 // runMainStoreMigrations runs schema migrations for every resource's own store, in the same
@@ -89,6 +101,12 @@ func runMainStoreMigrations(ctx context.Context, tx *gorm.DB, log logrus.FieldLo
 		return err
 	}
 	if err := repositorystore.NewRepositoryStore(tx, log).InitialMigration(ctx); err != nil {
+		return err
+	}
+	if err := enrollmenthookpolicystore.NewStore(tx, log).InitialMigration(ctx); err != nil {
+		return err
+	}
+	if err := enrollmenthooknotifysecretsstore.NewStore(tx, log).InitialMigration(ctx); err != nil {
 		return err
 	}
 	if err := resourcesyncstore.NewResourceSyncStore(tx, log).InitialMigration(ctx); err != nil {
@@ -119,6 +137,15 @@ func runMainStoreMigrations(ctx context.Context, tx *gorm.DB, log logrus.FieldLo
 		return err
 	}
 	if err := canarystore.NewCanaryStore(tx, log).InitialMigration(ctx); err != nil {
+		return err
+	}
+	if err := deltagenerationstore.NewStore(tx, log).InitialMigration(ctx); err != nil {
+		return err
+	}
+	if err := deltapreparestore.NewStore(tx, log).InitialMigration(ctx); err != nil {
+		return err
+	}
+	if err := deltapreparegenerationstore.NewStore(tx, log).InitialMigration(ctx); err != nil {
 		return err
 	}
 

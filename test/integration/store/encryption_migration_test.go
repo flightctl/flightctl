@@ -103,6 +103,15 @@ var _ = Describe("Encryption migration", func() {
 		).Error).To(Succeed())
 	}
 
+	seedPlaintextEnrollmentHookNotifySecret := func(deviceName string, actionIndex int, bearerToken string) {
+		GinkgoHelper()
+		Expect(db.WithContext(ctx).Exec(
+			`INSERT INTO enrollment_hook_notify_secrets (org_id, device_name, action_index, bearer_token, created_at)
+			 VALUES (?, ?, ?, ?, NOW())`,
+			orgId, deviceName, actionIndex, bearerToken,
+		).Error).To(Succeed())
+	}
+
 	newMigrator := func() *tasks.EncryptionMigrator {
 		GinkgoHelper()
 		cp := checkpointstore.NewCheckpointStore(db, log.WithField("pkg", "checkpoint-store"))
@@ -123,11 +132,15 @@ var _ = Describe("Encryption migration", func() {
 	It("When Repository and AuthProvider specs are plaintext it should migrate them to the active key", func() {
 		seedPlaintextRepository("repo-plain", "repo-secret")
 		seedPlaintextAuthProvider("ap-plain", "auth-secret")
+		seedPlaintextEnrollmentHookNotifySecret("notify-device", 0, "notify-secret-0")
+		seedPlaintextEnrollmentHookNotifySecret("notify-device", 1, "notify-secret-1")
 		migrator := newMigrator()
 
 		runUntilComplete(migrator, domain.RepositoryKind, orgId)
 		runUntilComplete(migrator, domain.AuthProviderKind, orgId)
 		runUntilComplete(migrator, domain.DeviceKind, orgId)
+		runUntilComplete(migrator, domain.EnrollmentHookPolicyKind, orgId)
+		runUntilComplete(migrator, model.EnrollmentHookNotifySecretKind, orgId)
 
 		var repo model.Repository
 		Expect(db.WithContext(ctx).First(&repo, "org_id = ? AND name = ?", orgId, "repo-plain").Error).To(Succeed())
@@ -142,6 +155,13 @@ var _ = Describe("Encryption migration", func() {
 		Expect(err).ToNot(HaveOccurred())
 		Expect(string(apJSON)).ToNot(ContainSubstring("auth-secret"))
 		Expect(string(apJSON)).To(ContainSubstring("enc:v1:default:"))
+
+		for actionIndex, bearerToken := range map[int]string{0: "notify-secret-0", 1: "notify-secret-1"} {
+			var secret model.EnrollmentHookNotifySecret
+			Expect(db.WithContext(ctx).First(&secret, "org_id = ? AND device_name = ? AND action_index = ?", orgId, "notify-device", actionIndex).Error).To(Succeed())
+			Expect(secret.BearerToken).To(ContainSubstring("enc:v1:default:"))
+			Expect(decryptString(secret.BearerToken)).To(Equal(bearerToken))
+		}
 
 		work, err := migrator.IncompleteWork(ctx)
 		Expect(err).ToNot(HaveOccurred())

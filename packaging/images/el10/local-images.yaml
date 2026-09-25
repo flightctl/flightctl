@@ -7,6 +7,9 @@ periodic:
 worker:
   image: flightctl-worker-el10
   tag: latest
+delta-worker:
+  image: flightctl-delta-worker-el10
+  tag: latest
 alert-exporter:
   image: flightctl-alert-exporter-el10
   tag: latest

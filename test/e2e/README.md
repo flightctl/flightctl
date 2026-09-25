@@ -107,6 +107,7 @@ When running e2e against a Quadlet deployment (e.g. after `make deploy-quadlets`
 | Variable | Description |
 |----------|-------------|
 | `REGISTRY_ENDPOINT` | Set by e2e infra (e.g. from aux) for deploy/scripts. Usually not set manually. |
+| `E2E_TELEMETRY_COLLECTOR_IMAGE` | Optional OTLP test collector image override. E2E defaults to the local auxiliary registry copy when `REGISTRY_ENDPOINT` is available. |
 
 ## Filtering the e2e run
 

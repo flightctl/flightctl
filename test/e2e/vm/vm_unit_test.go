@@ -8,6 +8,36 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestParseLsblkDisks(t *testing.T) {
+	tests := []struct {
+		name string
+		out  string
+		want []string
+	}{
+		{
+			name: "When paste-joined names it should keep each disk",
+			out:  "vda,vdb,vdc,vdd",
+			want: []string{"vda", "vdb", "vdc", "vdd"},
+		},
+		{
+			name: "When names have surrounding space it should trim fields",
+			out:  " vda , vdb ",
+			want: []string{"vda", "vdb"},
+		},
+		{
+			name: "When output is empty it should return no disks",
+			out:  "",
+			want: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, parseLsblkDisks(tt.out))
+		})
+	}
+}
+
 const (
 	expectedVMAppTargetUnitName     = "test-vm-425604-flightctl-quadlet-app.target"
 	expectedVMAppComputeServiceName = "test-vm-425604-virt-launcher-test-vm-compute.service"

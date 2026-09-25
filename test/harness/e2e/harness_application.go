@@ -1143,6 +1143,16 @@ func (h *Harness) GetContainerPorts() (string, error) {
 // VM operations
 // =============================================================================
 
+// VirshOnCompute runs virsh inside the virt-launcher compute container on the device.
+func (h *Harness) VirshOnCompute(container string, virshArgs ...string) (string, error) {
+	args := append([]string{"sudo", "podman", "exec", container, "virsh"}, virshArgs...)
+	out, err := h.VM.RunSSH(args, nil)
+	if err != nil {
+		return "", fmt.Errorf("virsh %s in %q: %w", strings.Join(virshArgs, " "), container, err)
+	}
+	return strings.TrimSpace(out.String()), nil
+}
+
 // CurlOnDevice GETs url from inside the device VM using curl --fail.
 func (h *Harness) CurlOnDevice(url, connectTimeout, maxTime string) error {
 	if h.VM == nil {
@@ -1169,7 +1179,18 @@ func (h *Harness) CurlOnDevice(url, connectTimeout, maxTime string) error {
 
 // RunSSHOnDeviceLocalPort runs ssh on the device host to localhost:port using password auth.
 // This exercises VM publishPorts mappings (e.g. host 2222 to guest 22).
+// Nested SSH can mix device profile noise onto stdout, so only the last non-empty
+// line is returned. Use RunSSHOnDeviceLocalPortRaw for multi-line guest commands.
 func (h *Harness) RunSSHOnDeviceLocalPort(port int, user, password string, remoteArgs ...string) (string, error) {
+	return h.runSSHOnDeviceLocalPort(port, user, password, true, remoteArgs...)
+}
+
+// RunSSHOnDeviceLocalPortRaw is like RunSSHOnDeviceLocalPort but returns the full guest stdout.
+func (h *Harness) RunSSHOnDeviceLocalPortRaw(port int, user, password string, remoteArgs ...string) (string, error) {
+	return h.runSSHOnDeviceLocalPort(port, user, password, false, remoteArgs...)
+}
+
+func (h *Harness) runSSHOnDeviceLocalPort(port int, user, password string, lastLineOnly bool, remoteArgs ...string) (string, error) {
 	if h.VM == nil {
 		return "", fmt.Errorf("device VM is not configured")
 	}
@@ -1228,7 +1249,11 @@ fi`,
 			port, user, strings.Join(remoteArgs, " "), err,
 		))
 	}
-	return trimSSHCommandOutput(out.String()), nil
+	stdout := out.String()
+	if lastLineOnly {
+		return trimSSHCommandOutput(stdout), nil
+	}
+	return strings.TrimSpace(stdout), nil
 }
 
 var (

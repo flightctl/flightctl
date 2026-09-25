@@ -73,11 +73,11 @@ metadata:
   labels:
     {{- include "flightctl.standardLabels" $ | nindent 4 }}
 rules:
-  - verbs: [get, list, delete]
+  - verbs: [get, list, delete, watch]
     apiGroups: ['']
     resources:
       - persistentvolumeclaims
-  - verbs: [get, list, delete]
+  - verbs: [get, list, delete, watch]
     apiGroups: ['batch']
     resources:
       - jobs

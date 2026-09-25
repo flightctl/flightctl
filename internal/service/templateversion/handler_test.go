@@ -41,16 +41,13 @@ func newFakeTemplateVersionStore() *fakeTemplateVersionStore {
 
 func (f *fakeTemplateVersionStore) InitialMigration(ctx context.Context) error { return nil }
 
-func (f *fakeTemplateVersionStore) Create(ctx context.Context, orgId uuid.UUID, tv *domain.TemplateVersion, eventCallback store.EventCallback) (*domain.TemplateVersion, error) {
+func (f *fakeTemplateVersionStore) Create(ctx context.Context, orgId uuid.UUID, tv *domain.TemplateVersion) (*domain.TemplateVersion, error) {
 	_, fleet, _ := util.GetResourceOwner(tv.Metadata.Owner)
 	key := tvKey{fleet: fleet, name: lo.FromPtr(tv.Metadata.Name)}
 	if _, exists := f.items[key]; exists {
 		return nil, flterrors.ErrDuplicateName
 	}
 	f.items[key] = tv
-	if eventCallback != nil {
-		eventCallback(ctx, domain.TemplateVersionKind, orgId, key.name, nil, tv, true, nil)
-	}
 	return tv, nil
 }
 
@@ -70,15 +67,12 @@ func (f *fakeTemplateVersionStore) List(ctx context.Context, orgId uuid.UUID, li
 	return &domain.TemplateVersionList{Items: items}, nil
 }
 
-func (f *fakeTemplateVersionStore) Delete(ctx context.Context, orgId uuid.UUID, fleet string, name string, eventCallback store.EventCallback) (bool, error) {
+func (f *fakeTemplateVersionStore) Delete(ctx context.Context, orgId uuid.UUID, fleet string, name string) (bool, error) {
 	key := tvKey{fleet: fleet, name: name}
 	if _, exists := f.items[key]; !exists {
 		return false, nil
 	}
 	delete(f.items, key)
-	if eventCallback != nil {
-		eventCallback(ctx, domain.TemplateVersionKind, orgId, name, nil, nil, false, nil)
-	}
 	return true, nil
 }
 
@@ -165,7 +159,7 @@ func testTemplateVersion(fleet, name string) domain.TemplateVersion {
 }
 
 func TestCreateTemplateVersion(t *testing.T) {
-	t.Run("When the resource is valid it should create it and emit a fleet rollout started event", func(t *testing.T) {
+	t.Run("When the resource is valid it should create it without emitting fleet rollout started", func(t *testing.T) {
 		h, fakeStore, _, fakeEvents := newTestHandler()
 		tv := testTemplateVersion("myfleet", "v1")
 
@@ -173,13 +167,11 @@ func TestCreateTemplateVersion(t *testing.T) {
 		require.Equal(t, statusCreatedCode, status.Code)
 		require.NotNil(t, result)
 		require.Contains(t, fakeStore.items, tvKey{fleet: "myfleet", name: "v1"})
-		// CreateTemplateVersion emits both the fleet-rollout-started event and the
-		// template version's own ResourceCreated event.
 		var reasons []domain.EventReason
 		for _, e := range fakeEvents.created {
 			reasons = append(reasons, e.Reason)
 		}
-		require.Contains(t, reasons, domain.EventReasonFleetRolloutStarted)
+		require.NotContains(t, reasons, domain.EventReasonFleetRolloutStarted)
 		require.Contains(t, reasons, domain.EventReasonResourceCreated)
 	})
 

@@ -33,6 +33,11 @@ type Writer interface {
 	WriteFile(name string, data []byte, perm fs.FileMode, opts ...FileOption) error
 	// RemoveFile removes the file at the given path
 	RemoveFile(file string) error
+	// RemoveEmptyDir removes the directory at the given path only if it is empty,
+	// reporting whether it was actually removed. It is a no-op (removed=false) if
+	// the directory does not exist, is a symlink or non-directory, or still
+	// contains entries.
+	RemoveEmptyDir(dir string) (bool, error)
 	// RemoveAll removes the file or directory at the given path
 	RemoveAll(path string) error
 	// Rename renames (moves) oldpath to newpath

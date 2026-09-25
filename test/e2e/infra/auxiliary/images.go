@@ -51,16 +51,10 @@ const (
 	bundleCopyRetryWait = 5 * time.Second
 )
 
-// externalTestImages are quay.io/flightctl-tests fixture images that e2e specs
-// reference directly (not built locally, so they never appear in an app/agent
-// bundle - see UploadImages). Without mirroring, every fresh VM pulls each of these
-// straight from the real quay.io the first time a spec needs it, which is slow and
-// adds a hard external dependency to the test run. Mirroring them into the local
-// registry once here lets the device-side registry remap
-// (quay.io/flightctl-tests -> local registry, see inject_agent_files_into_qcow.sh)
-// serve them locally instead. Keep this list in sync with the literal
-// "quay.io/flightctl-tests/..." refs used under test/. Deliberately excludes
-// quay.io/flightctl-tests/does-not-exist:never, which tests rely on staying absent.
+// externalTestImages are external images used by e2e infrastructure or specs
+// that are not built locally, so they do not appear in an app/agent bundle (see
+// UploadImages). Mirroring them into the local registry avoids runtime pulls
+// from external registries, which is required for disconnected profiles.
 var externalTestImages = []string{
 	"quay.io/flightctl-tests/alpine:v1",
 	"quay.io/flightctl-tests/nginx:v1",
@@ -72,6 +66,7 @@ var externalTestImages = []string{
 	"quay.io/flightctl-tests/quadlet-test/quadlet-app-artifact:with-image-ref",
 	"quay.io/flightctl-tests/model-artifact:latest",
 	"quay.io/flightctl-tests/busybox-dummy-artifact:latest",
+	"registry.access.redhat.com/ubi9/python-312:latest",
 }
 
 // MirrorExternalTestImages copies each image in externalTestImages from the real

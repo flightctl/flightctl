@@ -1,18 +1,23 @@
 package telemetry_gateway_test
 
 import (
+	"compress/gzip"
 	"context"
 	"crypto"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -32,12 +37,15 @@ import (
 	resourcepb "go.opentelemetry.io/proto/otlp/resource/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/protobuf/proto"
 	"sigs.k8s.io/yaml"
 )
 
 const (
-	timeout = 10 * time.Second
-	polling = 250 * time.Millisecond
+	timeout                     = 10 * time.Second
+	polling                     = 250 * time.Millisecond
+	gatewayStartupAttempts      = 5
+	gatewayReadinessDialTimeout = 200 * time.Millisecond
 )
 
 var (
@@ -63,10 +71,12 @@ var _ = Describe("Telemetry Gateway", func() {
 		caClient *icrypto.CAClient
 
 		// config plumbing
-		baseCfg     *config.Config
-		cfgMutators []func(*config.Config)
-		testDirPath string
-		runOpts     []telemetrygateway.Option
+		baseCfg               *config.Config
+		cfgMutators           []func(*config.Config)
+		refreshPortAllocators []func()
+		testDirPath           string
+		runOpts               []telemetrygateway.Option
+		gatewayReadyTLS       *tls.Config
 	)
 
 	BeforeEach(func() {
@@ -98,62 +108,42 @@ var _ = Describe("Telemetry Gateway", func() {
 		Expect(os.WriteFile(serverCrt, certPEM, 0o600)).To(Succeed())
 		Expect(os.WriteFile(serverKey, keyPEM, 0o600)).To(Succeed())
 
-		// ports
-		otlpAddr = localAddr()
+		// The Prometheus exporter address is set only by contexts that exercise
+		// that exporter. The test discovers the OTLP listener after OTel binds it.
 		promAddr = ""
 
 		// base config + reset mutators
-		baseCfg = createConfig(serverCrt, serverKey, caPath, otlpAddr)
+		baseCfg = createConfig(serverCrt, serverKey, caPath, "127.0.0.1:0")
 		cfgMutators = nil
+		refreshPortAllocators = nil
 
-		// Use random port for OTel internal metrics to avoid port 8888 conflicts during parallel test execution
-		otelMetricsPort := localAddr() // returns "localhost:port"
-		_, port, _ := net.SplitHostPort(otelMetricsPort)
 		runOpts = []telemetrygateway.Option{
 			telemetrygateway.WithSkipSettingGRPCLogger(true), // kill grpclog race in tests
-			telemetrygateway.WithOTelYAMLOverlay(fmt.Sprintf(`
+			telemetrygateway.WithOTelYAMLOverlay(`
 service:
   telemetry:
     metrics:
-      readers:
-        - pull:
-            exporter:
-              prometheus:
-                host: localhost
-                port: %s
-`, port)),
+      level: none
+`),
 		}
+
+		gatewayReadyTLS, err = newGatewayClientTLSConfig(ctx, caClient, "client-telemetry-gateway-readiness")
+		Expect(err).ToNot(HaveOccurred())
 	})
 
-	// Start the gateway after all mutators from nested BeforeEach have run
+	// Start the gateway after all mutators from nested BeforeEach have run.
 	JustBeforeEach(func() {
-		// apply per-test tweaks
-		cfg := *baseCfg // shallow copy of struct
-		for _, m := range cfgMutators {
-			m(&cfg)
-		}
-
-		// (optional) persist for debugging
-		cfgBytes, err := yaml.Marshal(&cfg)
+		var err error
+		otlpAddr, gwCancel, gwDone, err = startTelemetryGateway(
+			ctx,
+			baseCfg,
+			cfgMutators,
+			refreshPortAllocators,
+			runOpts,
+			gatewayReadyTLS,
+			testDirPath,
+		)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(os.WriteFile(filepath.Join(testDirPath, "config.yaml"), cfgBytes, 0o600)).To(Succeed())
-
-		gwCtx, cancel := context.WithCancel(ctx)
-		gwCancel = cancel
-		gwDone = make(chan error, 1)
-		go func() {
-			gwDone <- telemetrygateway.Run(gwCtx, &cfg, runOpts...)
-		}()
-
-		// wait OTLP up
-		Eventually(func() bool {
-			conn, err := net.DialTimeout("tcp", otlpAddr, 200*time.Millisecond)
-			if err != nil {
-				return false
-			}
-			_ = conn.Close()
-			return true
-		}, timeout, polling).Should(BeTrue())
 	})
 
 	AfterEach(func() {
@@ -174,12 +164,13 @@ service:
 
 	Context("with a custom Prometheus listen address", func() {
 		BeforeEach(func() {
-			// change prom listen addr in this context only
-			newProm := localAddr()
-			promAddr = newProm
+			// Refresh the Prometheus endpoint before every gateway startup attempt.
+			refreshPortAllocators = append(refreshPortAllocators, func() {
+				promAddr = localAddr()
+			})
 			cfgMutators = append(cfgMutators, func(c *config.Config) {
 				// assuming your config struct has TelemetryGateway.Export.Prometheus (string)
-				snippet := fmt.Appendf(nil, "telemetrygateway:\n  export:\n    prometheus: %q\n", newProm)
+				snippet := fmt.Appendf(nil, "telemetrygateway:\n  export:\n    prometheus: %q\n", promAddr)
 				_ = yaml.Unmarshal(snippet, c)
 			})
 		})
@@ -306,15 +297,16 @@ service:
 			defer cancel()
 			Expect(exportTestMetrics(rpcCtx, cc)).To(Succeed())
 
-			// Assert the downstream collector received it
+			// Assert the downstream collector received it with device attributes
+			var forwardedReq *collectormetrics.ExportMetricsServiceRequest
 			Eventually(func() bool {
 				select {
 				case req := <-forwardMC.ch:
-					// sanity: does it contain "test_tg_metric"?
 					for _, rm := range req.ResourceMetrics {
 						for _, sm := range rm.ScopeMetrics {
 							for _, m := range sm.Metrics {
 								if m.GetName() == "test_tg_metric" {
+									forwardedReq = req
 									return true
 								}
 							}
@@ -325,6 +317,293 @@ service:
 					return false
 				}
 			}, timeout, polling).Should(BeTrue(), "downstream collector did not receive forwarded metric")
+
+			verifyDeviceAttrs(forwardedReq, "test_tg_metric", "testdevice")
+		})
+	})
+
+	Context("HTTP forwarding", func() {
+		var (
+			httpStop func()
+			httpMC   *mockHTTPOTLPCollector
+		)
+
+		BeforeEach(func() {
+			dsPriv, dsCert, err := makeKeyPairAndCSR(ctx, caClient, caClient.Cfg.ServerSvcSignerName, "svc-http-collector", 365)
+			Expect(err).ToNot(HaveOccurred())
+
+			endpoint, stop, mc, startErr := startMockHTTPCollector(dsCert, dsPriv)
+			Expect(startErr).ToNot(HaveOccurred())
+			httpStop, httpMC = stop, mc
+
+			cfgMutators = append(cfgMutators, func(c *config.Config) {
+				snippet := fmt.Appendf(nil,
+					"telemetrygateway:\n  export: null\n  forward:\n    endpoint: %q\n    headers:\n      Authorization: \"Api-Token test-token-123\"\n      X-Custom-Header: \"custom-value\"\n    tls:\n      insecureSkipTlsVerify: true\n",
+					endpoint,
+				)
+				_ = yaml.Unmarshal(snippet, c)
+			})
+		})
+
+		AfterEach(func() {
+			if httpStop != nil {
+				httpStop()
+			}
+		})
+
+		It("forwards metrics via OTLP/HTTP with custom headers", func() {
+			clientPrivateKey, clientCert, err := makeKeyPairAndCSR(ctx, caClient, caClient.Cfg.DeviceSvcClientSignerName, "client-testdevice", 365)
+			Expect(err).ToNot(HaveOccurred())
+
+			caPool := x509.NewCertPool()
+			for _, cert := range caClient.GetCABundleX509() {
+				caPool.AddCert(cert)
+			}
+
+			tlsCfg := &tls.Config{
+				MinVersion: tls.VersionTLS12,
+				RootCAs:    caPool,
+				Certificates: []tls.Certificate{{
+					Certificate: [][]byte{clientCert.Raw},
+					PrivateKey:  clientPrivateKey,
+				}},
+				ServerName: "localhost",
+			}
+
+			creds := credentials.NewTLS(tlsCfg)
+			cc, err := grpc.NewClient(otlpAddr, grpc.WithTransportCredentials(creds))
+			Expect(err).ToNot(HaveOccurred())
+			defer cc.Close()
+
+			rpcCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			Expect(exportTestMetrics(rpcCtx, cc)).To(Succeed())
+
+			Eventually(func() *httpOTLPRequest {
+				return httpMC.findRequestByMetric("test_tg_metric")
+			}, timeout, polling).ShouldNot(BeNil(), "HTTP collector did not receive forwarded metric")
+
+			req := httpMC.findRequestByMetric("test_tg_metric")
+			Expect(req.headers.Get("Authorization")).To(Equal("Api-Token test-token-123"))
+			Expect(req.headers.Get("X-Custom-Header")).To(Equal("custom-value"))
+			verifyDeviceAttrs(req.metrics, "test_tg_metric", "testdevice")
+		})
+	})
+
+	Context("HTTP forwarding with env var expansion in headers", func() {
+		var (
+			httpStop func()
+			httpMC   *mockHTTPOTLPCollector
+		)
+
+		BeforeEach(func() {
+			dsPriv, dsCert, err := makeKeyPairAndCSR(ctx, caClient, caClient.Cfg.ServerSvcSignerName, "svc-http-collector", 365)
+			Expect(err).ToNot(HaveOccurred())
+
+			endpoint, stop, mc, startErr := startMockHTTPCollector(dsCert, dsPriv)
+			Expect(startErr).ToNot(HaveOccurred())
+			httpStop, httpMC = stop, mc
+
+			GinkgoT().Setenv("TEST_FORWARD_TOKEN", "secret-token-from-env")
+
+			cfgMutators = append(cfgMutators, func(c *config.Config) {
+				snippet := fmt.Appendf(nil,
+					"telemetrygateway:\n  export: null\n  forward:\n    endpoint: %q\n    headers:\n      Authorization: \"Api-Token ${TEST_FORWARD_TOKEN}\"\n    tls:\n      insecureSkipTlsVerify: true\n",
+					endpoint,
+				)
+				_ = yaml.Unmarshal(snippet, c)
+			})
+		})
+
+		AfterEach(func() {
+			if httpStop != nil {
+				httpStop()
+			}
+		})
+
+		It("When a header uses ${VAR} syntax it should resolve the env var and forward the value", func() {
+			clientPrivateKey, clientCert, err := makeKeyPairAndCSR(ctx, caClient, caClient.Cfg.DeviceSvcClientSignerName, "client-testdevice", 365)
+			Expect(err).ToNot(HaveOccurred())
+
+			caPool := x509.NewCertPool()
+			for _, cert := range caClient.GetCABundleX509() {
+				caPool.AddCert(cert)
+			}
+
+			tlsCfg := &tls.Config{
+				MinVersion: tls.VersionTLS12,
+				RootCAs:    caPool,
+				Certificates: []tls.Certificate{{
+					Certificate: [][]byte{clientCert.Raw},
+					PrivateKey:  clientPrivateKey,
+				}},
+				ServerName: "localhost",
+			}
+
+			creds := credentials.NewTLS(tlsCfg)
+			cc, err := grpc.NewClient(otlpAddr, grpc.WithTransportCredentials(creds))
+			Expect(err).ToNot(HaveOccurred())
+			defer cc.Close()
+
+			rpcCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			Expect(exportTestMetrics(rpcCtx, cc)).To(Succeed())
+
+			Eventually(func() *httpOTLPRequest {
+				return httpMC.findRequestByMetric("test_tg_metric")
+			}, timeout, polling).ShouldNot(BeNil(), "HTTP collector did not receive forwarded metric")
+
+			req := httpMC.findRequestByMetric("test_tg_metric")
+			Expect(req.headers.Get("Authorization")).To(Equal("Api-Token secret-token-from-env"))
+			verifyDeviceAttrs(req.metrics, "test_tg_metric", "testdevice")
+		})
+	})
+
+	Context("HTTP forwarding without custom headers", func() {
+		var (
+			httpStop func()
+			httpMC   *mockHTTPOTLPCollector
+		)
+
+		BeforeEach(func() {
+			dsPriv, dsCert, err := makeKeyPairAndCSR(ctx, caClient, caClient.Cfg.ServerSvcSignerName, "svc-http-collector", 365)
+			Expect(err).ToNot(HaveOccurred())
+
+			endpoint, stop, mc, startErr := startMockHTTPCollector(dsCert, dsPriv)
+			Expect(startErr).ToNot(HaveOccurred())
+			httpStop, httpMC = stop, mc
+
+			cfgMutators = append(cfgMutators, func(c *config.Config) {
+				snippet := fmt.Appendf(nil,
+					"telemetrygateway:\n  export: null\n  forward:\n    endpoint: %q\n    tls:\n      insecureSkipTlsVerify: true\n",
+					endpoint,
+				)
+				_ = yaml.Unmarshal(snippet, c)
+			})
+		})
+
+		AfterEach(func() {
+			if httpStop != nil {
+				httpStop()
+			}
+		})
+
+		It("forwards metrics via OTLP/HTTP without headers", func() {
+			clientPrivateKey, clientCert, err := makeKeyPairAndCSR(ctx, caClient, caClient.Cfg.DeviceSvcClientSignerName, "client-testdevice", 365)
+			Expect(err).ToNot(HaveOccurred())
+
+			caPool := x509.NewCertPool()
+			for _, cert := range caClient.GetCABundleX509() {
+				caPool.AddCert(cert)
+			}
+
+			tlsCfg := &tls.Config{
+				MinVersion: tls.VersionTLS12,
+				RootCAs:    caPool,
+				Certificates: []tls.Certificate{{
+					Certificate: [][]byte{clientCert.Raw},
+					PrivateKey:  clientPrivateKey,
+				}},
+				ServerName: "localhost",
+			}
+
+			creds := credentials.NewTLS(tlsCfg)
+			cc, err := grpc.NewClient(otlpAddr, grpc.WithTransportCredentials(creds))
+			Expect(err).ToNot(HaveOccurred())
+			defer cc.Close()
+
+			rpcCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			Expect(exportTestMetrics(rpcCtx, cc)).To(Succeed())
+
+			Eventually(func() *httpOTLPRequest {
+				return httpMC.findRequestByMetric("test_tg_metric")
+			}, timeout, polling).ShouldNot(BeNil(), "HTTP collector did not receive forwarded metric")
+
+			verifyDeviceAttrs(httpMC.findRequestByMetric("test_tg_metric").metrics, "test_tg_metric", "testdevice")
+		})
+	})
+
+	Context("HTTP forwarding with mTLS", func() {
+		var (
+			httpStop func()
+			httpMC   *mockHTTPOTLPCollector
+		)
+
+		BeforeEach(func() {
+			// Server cert for downstream HTTP collector
+			dsPriv, dsCert, err := makeKeyPairAndCSR(ctx, caClient, caClient.Cfg.ServerSvcSignerName, "svc-http-mtls-collector", 365)
+			Expect(err).ToNot(HaveOccurred())
+
+			// Start mock HTTP collector that requires client certs
+			clientCAPool := x509.NewCertPool()
+			for _, c := range caClient.GetCABundleX509() {
+				clientCAPool.AddCert(c)
+			}
+			endpoint, stop, mc, startErr := startMockHTTPCollectorWithClientAuth(dsCert, dsPriv, clientCAPool)
+			Expect(startErr).ToNot(HaveOccurred())
+			httpStop, httpMC = stop, mc
+
+			// Client cert for the gateway when dialing downstream
+			fwdCliPriv, fwdCliCert, err := makeKeyPairAndCSR(ctx, caClient, caClient.Cfg.DeviceSvcClientSignerName, "client-gateway-http-forwarder", 365)
+			Expect(err).ToNot(HaveOccurred())
+
+			caPath := filepath.Join(testDirPath, "etc", "flightctl", "certs", "ca.crt")
+			forwardCrt := filepath.Join(testDirPath, "etc", "flightctl", "certs", fmt.Sprintf("fwd-http-%d.crt", time.Now().UnixNano()))
+			forwardKey := filepath.Join(testDirPath, "etc", "flightctl", "certs", fmt.Sprintf("fwd-http-%d.key", time.Now().UnixNano()))
+			certPEM, _ := fccrypto.EncodeCertificatePEM(fwdCliCert)
+			keyPEM, _ := fccrypto.PEMEncodeKey(fwdCliPriv)
+			Expect(os.WriteFile(forwardCrt, certPEM, 0o600)).To(Succeed())
+			Expect(os.WriteFile(forwardKey, keyPEM, 0o600)).To(Succeed())
+
+			cfgMutators = append(cfgMutators, func(c *config.Config) {
+				snippet := fmt.Appendf(nil,
+					"telemetrygateway:\n  export: null\n  forward:\n    endpoint: %q\n    tls:\n      certFile: %q\n      keyFile: %q\n      caFile: %q\n",
+					endpoint, forwardCrt, forwardKey, caPath,
+				)
+				_ = yaml.Unmarshal(snippet, c)
+			})
+		})
+
+		AfterEach(func() {
+			if httpStop != nil {
+				httpStop()
+			}
+		})
+
+		It("forwards metrics via OTLP/HTTP using client certificates", func() {
+			clientPrivateKey, clientCert, err := makeKeyPairAndCSR(ctx, caClient, caClient.Cfg.DeviceSvcClientSignerName, "client-testdevice", 365)
+			Expect(err).ToNot(HaveOccurred())
+
+			caPool := x509.NewCertPool()
+			for _, cert := range caClient.GetCABundleX509() {
+				caPool.AddCert(cert)
+			}
+
+			tlsCfg := &tls.Config{
+				MinVersion: tls.VersionTLS12,
+				RootCAs:    caPool,
+				Certificates: []tls.Certificate{{
+					Certificate: [][]byte{clientCert.Raw},
+					PrivateKey:  clientPrivateKey,
+				}},
+				ServerName: "localhost",
+			}
+
+			creds := credentials.NewTLS(tlsCfg)
+			cc, err := grpc.NewClient(otlpAddr, grpc.WithTransportCredentials(creds))
+			Expect(err).ToNot(HaveOccurred())
+			defer cc.Close()
+
+			rpcCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			Expect(exportTestMetrics(rpcCtx, cc)).To(Succeed())
+
+			Eventually(func() *httpOTLPRequest {
+				return httpMC.findRequestByMetric("test_tg_metric")
+			}, timeout, polling).ShouldNot(BeNil(), "HTTP mTLS collector did not receive forwarded metric")
+
+			verifyDeviceAttrs(httpMC.findRequestByMetric("test_tg_metric").metrics, "test_tg_metric", "testdevice")
 		})
 	})
 
@@ -359,8 +638,10 @@ service:
 			Expect(os.WriteFile(forwardCrt, certPEM, 0o600)).To(Succeed())
 			Expect(os.WriteFile(forwardKey, keyPEM, 0o600)).To(Succeed())
 
-			// Choose Prometheus endpoint for this test
-			promAddr = localAddr()
+			// Refresh the Prometheus endpoint before every gateway startup attempt.
+			refreshPortAllocators = append(refreshPortAllocators, func() {
+				promAddr = localAddr()
+			})
 			// Ensure exporter exists in base config (so build map doesn’t error);
 			// overlay will *also* set exporters and add otlp.
 			cfgMutators = append(cfgMutators, func(c *config.Config) {
@@ -431,7 +712,8 @@ service:
 				return receiveTestMetrics(ctx, promAddr)
 			}, timeout, polling).Should(BeNil())
 
-			// Assert downstream collector received it via forward
+			// Assert downstream collector received it via forward with device attributes
+			var overlayForwardedReq *collectormetrics.ExportMetricsServiceRequest
 			Eventually(func() bool {
 				select {
 				case req := <-forwardMC.ch:
@@ -439,6 +721,7 @@ service:
 						for _, sm := range rm.ScopeMetrics {
 							for _, m := range sm.Metrics {
 								if m.GetName() == "test_tg_metric" {
+									overlayForwardedReq = req
 									return true
 								}
 							}
@@ -449,9 +732,156 @@ service:
 					return false
 				}
 			}, timeout, polling).Should(BeTrue(), "downstream collector did not receive forwarded metric")
+
+			verifyDeviceAttrs(overlayForwardedReq, "test_tg_metric", "testdevice")
 		})
 	})
 })
+
+var _ = Describe("Telemetry Gateway startup failure", func() {
+	It("When TLS cert files do not exist it should fail to start", func() {
+		ctx := testutil.StartSpecTracerForGinkgo(suiteCtx)
+		testDirPath := GinkgoT().TempDir()
+
+		// CA
+		caCfg := ca.NewDefault(testDirPath)
+		caClient, _, err := icrypto.EnsureCA(caCfg)
+		Expect(err).ToNot(HaveOccurred())
+
+		// CA bundle on disk
+		caPath := filepath.Join(testDirPath, "etc", "flightctl", "certs", "ca.crt")
+		Expect(os.MkdirAll(filepath.Dir(caPath), 0o755)).To(Succeed())
+		caBundle, err := caClient.GetCABundle()
+		Expect(err).ToNot(HaveOccurred())
+		Expect(os.WriteFile(caPath, caBundle, 0o600)).To(Succeed())
+
+		// Server keypair
+		serverPriv, serverCert, err := makeKeyPairAndCSR(ctx, caClient, caClient.Cfg.ServerSvcSignerName, "svc-telemetry-gateway", 365)
+		Expect(err).ToNot(HaveOccurred())
+		serverCrt := filepath.Join(testDirPath, "etc", "flightctl", "certs", "telemetry-gateway.crt")
+		serverKey := filepath.Join(testDirPath, "etc", "flightctl", "certs", "telemetry-gateway.key")
+		certPEM, _ := fccrypto.EncodeCertificatePEM(serverCert)
+		keyPEM, _ := fccrypto.PEMEncodeKey(serverPriv)
+		Expect(os.WriteFile(serverCrt, certPEM, 0o600)).To(Succeed())
+		Expect(os.WriteFile(serverKey, keyPEM, 0o600)).To(Succeed())
+
+		cfg := createConfig(serverCrt, serverKey, caPath, "127.0.0.1:0")
+
+		// Configure forward with TLS cert paths that do not exist
+		snippet := fmt.Appendf(nil,
+			"telemetrygateway:\n  export: null\n  forward:\n    endpoint: \"collector.example.com:4317\"\n    tls:\n      certFile: \"/nonexistent/path/client.crt\"\n      keyFile: \"/nonexistent/path/client.key\"\n      caFile: \"/nonexistent/path/ca.crt\"\n",
+		)
+		Expect(yaml.Unmarshal(snippet, cfg)).To(Succeed())
+
+		gwDone := make(chan error, 1)
+		gwCtx, gwCancel := context.WithCancel(ctx)
+		defer gwCancel()
+		go func() {
+			gwDone <- telemetrygateway.Run(gwCtx, cfg,
+				telemetrygateway.WithSkipSettingGRPCLogger(true),
+				telemetrygateway.WithOTelYAMLOverlay("service:\n  telemetry:\n    metrics:\n      level: none\n"),
+			)
+		}()
+
+		var gwErr error
+		Eventually(gwDone, timeout).Should(Receive(&gwErr))
+		Expect(gwErr).To(HaveOccurred())
+		Expect(errors.Is(gwErr, os.ErrNotExist)).To(BeTrue(), "expected file-not-found error, got: %v", gwErr)
+	})
+
+	It("When a header references an undefined env var it should fail to start", func() {
+		ctx := testutil.StartSpecTracerForGinkgo(suiteCtx)
+		testDirPath := GinkgoT().TempDir()
+
+		// CA
+		caCfg := ca.NewDefault(testDirPath)
+		caClient, _, err := icrypto.EnsureCA(caCfg)
+		Expect(err).ToNot(HaveOccurred())
+
+		// CA bundle on disk
+		caPath := filepath.Join(testDirPath, "etc", "flightctl", "certs", "ca.crt")
+		Expect(os.MkdirAll(filepath.Dir(caPath), 0o755)).To(Succeed())
+		caBundle, err := caClient.GetCABundle()
+		Expect(err).ToNot(HaveOccurred())
+		Expect(os.WriteFile(caPath, caBundle, 0o600)).To(Succeed())
+
+		// Server keypair
+		serverPriv, serverCert, err := makeKeyPairAndCSR(ctx, caClient, caClient.Cfg.ServerSvcSignerName, "svc-telemetry-gateway", 365)
+		Expect(err).ToNot(HaveOccurred())
+		serverCrt := filepath.Join(testDirPath, "etc", "flightctl", "certs", "telemetry-gateway.crt")
+		serverKey := filepath.Join(testDirPath, "etc", "flightctl", "certs", "telemetry-gateway.key")
+		certPEM, _ := fccrypto.EncodeCertificatePEM(serverCert)
+		keyPEM, _ := fccrypto.PEMEncodeKey(serverPriv)
+		Expect(os.WriteFile(serverCrt, certPEM, 0o600)).To(Succeed())
+		Expect(os.WriteFile(serverKey, keyPEM, 0o600)).To(Succeed())
+
+		cfg := createConfig(serverCrt, serverKey, caPath, "127.0.0.1:0")
+
+		// Configure HTTP forward with an undefined env var in header
+		snippet := fmt.Appendf(nil,
+			"telemetrygateway:\n  export: null\n  forward:\n    endpoint: \"https://collector.example.com/api/v2/otlp\"\n    headers:\n      Authorization: \"Bearer ${UNDEFINED_SECRET_VAR}\"\n    tls:\n      insecureSkipTlsVerify: true\n",
+		)
+		Expect(yaml.Unmarshal(snippet, cfg)).To(Succeed())
+
+		gwDone := make(chan error, 1)
+		gwCtx, gwCancel := context.WithCancel(ctx)
+		defer gwCancel()
+		go func() {
+			gwDone <- telemetrygateway.Run(gwCtx, cfg,
+				telemetrygateway.WithSkipSettingGRPCLogger(true),
+				telemetrygateway.WithOTelYAMLOverlay("service:\n  telemetry:\n    metrics:\n      level: none\n"),
+			)
+		}()
+
+		var gwErr error
+		Eventually(gwDone, timeout).Should(Receive(&gwErr))
+		Expect(gwErr).To(HaveOccurred())
+		Expect(gwErr.Error()).To(ContainSubstring("UNDEFINED_SECRET_VAR"))
+	})
+})
+
+func verifyDeviceAttrs(req *collectormetrics.ExportMetricsServiceRequest, metricName, expectedDeviceID string) {
+	GinkgoHelper()
+	Expect(req).ToNot(BeNil())
+	found := false
+	for _, rm := range req.ResourceMetrics {
+		var deviceID, orgID string
+		for _, attr := range rm.Resource.Attributes {
+			switch attr.Key {
+			case "device_id":
+				deviceID = attr.Value.GetStringValue()
+			case "org_id":
+				orgID = attr.Value.GetStringValue()
+			}
+		}
+		Expect(deviceID).To(Equal(expectedDeviceID), "resource attribute device_id mismatch")
+		Expect(orgID).ToNot(BeEmpty(), "resource attribute org_id should not be empty")
+
+		for _, sm := range rm.ScopeMetrics {
+			for _, m := range sm.Metrics {
+				if m.GetName() != metricName {
+					continue
+				}
+				found = true
+				dp := m.GetSum().GetDataPoints()
+				Expect(dp).ToNot(BeEmpty())
+				attrs := dp[0].GetAttributes()
+				var dpDevice, dpOrg string
+				for _, a := range attrs {
+					switch a.Key {
+					case "device_id":
+						dpDevice = a.Value.GetStringValue()
+					case "org_id":
+						dpOrg = a.Value.GetStringValue()
+					}
+				}
+				Expect(dpDevice).To(Equal(expectedDeviceID), "data point device_id mismatch")
+				Expect(dpOrg).ToNot(BeEmpty(), "data point org_id should not be empty")
+			}
+		}
+	}
+	Expect(found).To(BeTrue(), "metric %q not found in request", metricName)
+}
 
 func createConfig(serverCrt string, serverKey string, caPath string, otlpAddr string) *config.Config {
 	config := config.NewDefault()
@@ -601,6 +1031,360 @@ func localAddr() string {
 	Expect(err).ToNot(HaveOccurred())
 	defer l.Close()
 	return l.Addr().String()
+}
+
+func newGatewayClientTLSConfig(ctx context.Context, caClient *icrypto.CAClient, subjectName string) (*tls.Config, error) {
+	privateKey, cert, err := makeKeyPairAndCSR(ctx, caClient, caClient.Cfg.DeviceSvcClientSignerName, subjectName, 365)
+	if err != nil {
+		return nil, err
+	}
+
+	caPool := x509.NewCertPool()
+	for _, caCert := range caClient.GetCABundleX509() {
+		caPool.AddCert(caCert)
+	}
+
+	return &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		RootCAs:    caPool,
+		Certificates: []tls.Certificate{{
+			Certificate: [][]byte{cert.Raw},
+			PrivateKey:  privateKey,
+		}},
+		ServerName: "localhost",
+	}, nil
+}
+
+func startTelemetryGateway(
+	ctx context.Context,
+	baseCfg *config.Config,
+	cfgMutators []func(*config.Config),
+	refreshPortAllocators []func(),
+	baseOpts []telemetrygateway.Option,
+	readinessTLS *tls.Config,
+	testDirPath string,
+) (string, context.CancelFunc, chan error, error) {
+	startupCtx, startupCancel := context.WithTimeout(ctx, timeout)
+	defer startupCancel()
+
+	var lastStartupErr error
+	for attempt := 0; attempt < gatewayStartupAttempts; attempt++ {
+		for _, refresh := range refreshPortAllocators {
+			refresh()
+		}
+
+		cfg := *baseCfg // shallow copy of struct
+		for _, mutate := range cfgMutators {
+			mutate(&cfg)
+		}
+
+		opts := append([]telemetrygateway.Option(nil), baseOpts...)
+
+		cfgBytes, err := yaml.Marshal(&cfg)
+		if err != nil {
+			return "", nil, nil, err
+		}
+		if err := os.WriteFile(filepath.Join(testDirPath, "config.yaml"), cfgBytes, 0o600); err != nil {
+			return "", nil, nil, err
+		}
+
+		listenersBefore, err := currentProcessTCPListeners()
+		if err != nil {
+			return "", nil, nil, err
+		}
+
+		gwCtx, cancel := context.WithCancel(ctx)
+		gwDone := make(chan error, 1)
+		go func() {
+			gwDone <- telemetrygateway.Run(gwCtx, &cfg, opts...)
+		}()
+
+		otlpAddr, startupErr := waitForGatewayReady(startupCtx, listenersBefore, readinessTLS, gwDone)
+		if startupErr == nil {
+			return otlpAddr, cancel, gwDone, nil
+		}
+		lastStartupErr = startupErr
+
+		cancel()
+		if !isAddressInUse(startupErr) {
+			select {
+			case <-gwDone:
+			case <-time.After(2 * time.Second):
+			}
+			return "", nil, nil, fmt.Errorf("telemetry gateway failed to become ready: %w", startupErr)
+		}
+	}
+
+	if startupCtx.Err() != nil {
+		return "", nil, nil, fmt.Errorf("telemetry gateway failed to become ready: %w", startupCtx.Err())
+	}
+	return "", nil, nil, fmt.Errorf("telemetry gateway could not acquire ports after %d attempts: %w", gatewayStartupAttempts, lastStartupErr)
+}
+
+func isAddressInUse(err error) bool {
+	return errors.Is(err, syscall.EADDRINUSE) || strings.Contains(strings.ToLower(err.Error()), "address already in use")
+}
+
+func waitForGatewayReady(
+	ctx context.Context,
+	listenersBefore map[string]string,
+	clientTLS *tls.Config,
+	done <-chan error,
+) (string, error) {
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+
+	ticker := time.NewTicker(polling)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case err := <-done:
+			if err == nil {
+				return "", errors.New("telemetry gateway exited before binding its device listener")
+			}
+			return "", err
+		case <-ticker.C:
+			listeners, err := currentProcessTCPListeners()
+			if err != nil {
+				return "", err
+			}
+			for inode, addr := range listeners {
+				if _, existed := listenersBefore[inode]; existed {
+					continue
+				}
+
+				addr = dialableAddress(addr)
+				conn, err := tls.DialWithDialer(&net.Dialer{Timeout: gatewayReadinessDialTimeout}, "tcp", addr, clientTLS.Clone())
+				if err == nil {
+					defer func() {
+						if closeErr := conn.Close(); closeErr != nil {
+							fmt.Fprintf(GinkgoWriter, "[gateway] failed to close readiness connection: %v\n", closeErr)
+						}
+					}()
+					return addr, nil
+				}
+			}
+		case <-deadline.C:
+			return "", errors.New("telemetry gateway did not become TLS-ready")
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
+}
+
+// currentProcessTCPListeners returns listening TCP sockets owned by this test
+// process. OTel binds port 0 internally and does not expose the selected port;
+// the test identifies the new listener and verifies it with the gateway's mTLS
+// handshake.
+func currentProcessTCPListeners() (map[string]string, error) {
+	fdEntries, err := os.ReadDir("/proc/self/fd")
+	if err != nil {
+		return nil, fmt.Errorf("read process file descriptors: %w", err)
+	}
+
+	socketInodes := make(map[string]struct{})
+	for _, entry := range fdEntries {
+		target, err := os.Readlink(filepath.Join("/proc/self/fd", entry.Name()))
+		if err != nil {
+			// The descriptor can close between ReadDir and Readlink.
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return nil, fmt.Errorf("read process file descriptor %s: %w", entry.Name(), err)
+		}
+		if strings.HasPrefix(target, "socket:[") && strings.HasSuffix(target, "]") {
+			inode := strings.TrimSuffix(strings.TrimPrefix(target, "socket:["), "]")
+			socketInodes[inode] = struct{}{}
+		}
+	}
+
+	tcpTable, err := os.ReadFile("/proc/net/tcp")
+	if err != nil {
+		return nil, fmt.Errorf("read TCP socket table: %w", err)
+	}
+
+	listeners := make(map[string]string)
+	for _, line := range strings.Split(string(tcpTable), "\n")[1:] {
+		fields := strings.Fields(line)
+		if len(fields) < 10 || fields[3] != "0A" {
+			continue
+		}
+
+		inode := fields[9]
+		if _, owned := socketInodes[inode]; !owned {
+			continue
+		}
+
+		addr, err := parseProcTCPAddress(fields[1])
+		if err != nil {
+			return nil, err
+		}
+		listeners[inode] = addr
+	}
+
+	return listeners, nil
+}
+
+func parseProcTCPAddress(encoded string) (string, error) {
+	parts := strings.Split(encoded, ":")
+	if len(parts) != 2 {
+		return "", fmt.Errorf("invalid TCP address %q", encoded)
+	}
+
+	encodedIP, err := strconv.ParseUint(parts[0], 16, 32)
+	if err != nil {
+		return "", fmt.Errorf("parse TCP address %q: %w", encoded, err)
+	}
+	port, err := strconv.ParseUint(parts[1], 16, 16)
+	if err != nil {
+		return "", fmt.Errorf("parse TCP port %q: %w", encoded, err)
+	}
+
+	host := net.IPv4(
+		byte(encodedIP),
+		byte(encodedIP>>8),
+		byte(encodedIP>>16),
+		byte(encodedIP>>24),
+	).String()
+	return net.JoinHostPort(host, strconv.Itoa(int(port))), nil
+}
+
+func dialableAddress(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err == nil && host == "0.0.0.0" {
+		return net.JoinHostPort("127.0.0.1", port)
+	}
+	return addr
+}
+
+// ---- Mock downstream OTLP HTTP collector (TLS, no client certs) ----
+
+type httpOTLPRequest struct {
+	metrics *collectormetrics.ExportMetricsServiceRequest
+	headers http.Header
+}
+
+type mockHTTPOTLPCollector struct {
+	mu   sync.Mutex
+	reqs []httpOTLPRequest
+}
+
+func (m *mockHTTPOTLPCollector) findRequestByMetric(name string) *httpOTLPRequest {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.reqs {
+		for _, rm := range m.reqs[i].metrics.ResourceMetrics {
+			for _, sm := range rm.ScopeMetrics {
+				for _, metric := range sm.Metrics {
+					if metric.GetName() == name {
+						req := m.reqs[i]
+						req.headers = req.headers.Clone()
+						return &req
+					}
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (m *mockHTTPOTLPCollector) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	var reader io.Reader = r.Body
+	if r.Header.Get("Content-Encoding") == "gzip" {
+		gz, err := gzip.NewReader(r.Body)
+		if err != nil {
+			http.Error(w, "gzip reader", http.StatusBadRequest)
+			return
+		}
+		defer gz.Close()
+		reader = gz
+	}
+	body, err := io.ReadAll(reader)
+	if err != nil {
+		http.Error(w, "read body", http.StatusBadRequest)
+		return
+	}
+
+	var req collectormetrics.ExportMetricsServiceRequest
+	if err := proto.Unmarshal(body, &req); err != nil {
+		http.Error(w, "unmarshal proto", http.StatusBadRequest)
+		return
+	}
+
+	m.mu.Lock()
+	m.reqs = append(m.reqs, httpOTLPRequest{metrics: &req, headers: r.Header.Clone()})
+	m.mu.Unlock()
+
+	resp := &collectormetrics.ExportMetricsServiceResponse{}
+	out, _ := proto.Marshal(resp)
+	w.Header().Set("Content-Type", "application/x-protobuf")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(out)
+}
+
+func startMockHTTPCollector(serverCert *x509.Certificate, serverKey crypto.PrivateKey) (endpoint string, stop func(), mc *mockHTTPOTLPCollector, err error) {
+	mc = &mockHTTPOTLPCollector{}
+
+	tlsCert := tls.Certificate{
+		Certificate: [][]byte{serverCert.Raw},
+		PrivateKey:  serverKey,
+	}
+	tcfg := &tls.Config{
+		MinVersion:   tls.VersionTLS12,
+		Certificates: []tls.Certificate{tlsCert},
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle("/v1/metrics", mc)
+
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "", nil, nil, err
+	}
+	tlsLis := tls.NewListener(lis, tcfg)
+	_, portStr, _ := net.SplitHostPort(lis.Addr().String())
+	endpoint = fmt.Sprintf("https://localhost:%s", portStr)
+
+	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	go func() { _ = srv.Serve(tlsLis) }()
+	stop = func() {
+		_ = srv.Close()
+	}
+	return endpoint, stop, mc, nil
+}
+
+func startMockHTTPCollectorWithClientAuth(serverCert *x509.Certificate, serverKey crypto.PrivateKey, clientCAPool *x509.CertPool) (endpoint string, stop func(), mc *mockHTTPOTLPCollector, err error) {
+	mc = &mockHTTPOTLPCollector{}
+
+	tlsCert := tls.Certificate{
+		Certificate: [][]byte{serverCert.Raw},
+		PrivateKey:  serverKey,
+	}
+	tcfg := &tls.Config{
+		MinVersion:   tls.VersionTLS12,
+		Certificates: []tls.Certificate{tlsCert},
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+		ClientCAs:    clientCAPool,
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle("/v1/metrics", mc)
+
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "", nil, nil, err
+	}
+	tlsLis := tls.NewListener(lis, tcfg)
+	_, portStr, _ := net.SplitHostPort(lis.Addr().String())
+	endpoint = fmt.Sprintf("https://localhost:%s", portStr)
+
+	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	go func() { _ = srv.Serve(tlsLis) }()
+	stop = func() {
+		_ = srv.Close()
+	}
+	return endpoint, stop, mc, nil
 }
 
 // ---- Mock downstream OTLP gRPC collector (TLS + mTLS) ----

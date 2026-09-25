@@ -161,10 +161,8 @@ var _ = Describe("DataStore Migration Tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Simulate the user intentionally deleting the default catalog.
-			noopCallback := store.RemoveOwnerCallback(func(_ context.Context, _ *gorm.DB, _ uuid.UUID, _ string) error {
-				return nil
-			})
-			Expect(catalogStore.Delete(freshCtx, store.NullOrgId, domain.DefaultCatalogName, noopCallback, nil)).To(Succeed())
+			_, err = catalogStore.Delete(freshCtx, store.NullOrgId, domain.DefaultCatalogName)
+			Expect(err).To(Succeed())
 
 			// Confirm it is gone.
 			_, err = catalogStore.Get(freshCtx, store.NullOrgId, domain.DefaultCatalogName)
@@ -318,6 +316,63 @@ var _ = Describe("DataStore Migration Tests", func() {
 			err := migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("would share issuer"))
+		})
+	})
+
+	Context("Vulnerability finding source backfill", func() {
+		It("When upgrading, it should add a nullable source column and backfill pre-existing rows to trustify in batches", func() {
+			freshCtx := testutil.StartSpecTracerForGinkgo(suiteCtx)
+			freshLog := flightlog.InitLogs()
+
+			orgID := uuid.New()
+			freshCfg, freshDbName, freshGormDb := createFreshDBWithOrgs(freshCtx, freshLog, []uuid.UUID{orgID})
+			defer func() {
+				Expect(testdb.DeleteTestDB(freshCtx, freshLog, freshCfg, freshGormDb, freshDbName)).To(Succeed())
+			}()
+
+			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)).To(Succeed())
+
+			db := freshGormDb.WithContext(freshCtx)
+
+			// The source column must exist after migration.
+			Expect(db.Migrator().HasColumn(&model.VulnerabilityFinding{}, "source")).To(BeTrue())
+
+			// Reset the once-only guard so the backfill re-runs against the row
+			// we insert below (the initial run had no findings to backfill).
+			Expect(db.Where("key = ?", "backfill_vulnerability_source_v1").Delete(&model.SchemaMigration{}).Error).To(Succeed())
+
+			const legacyFindingCount = 1001
+
+			// Insert more than one backfill batch of rows written before the source
+			// column existed, so every row initially has a NULL source.
+			Expect(db.Exec(`
+				INSERT INTO vulnerability_findings (image_digest, cve_id, status, severity, first_seen_at, updated_at)
+				SELECT
+					'sha256:legacy-' || n,
+					'CVE-2020-' || n,
+					'affected',
+					'High',
+					NOW(),
+					NOW()
+				FROM generate_series(1, ?) AS n`, legacyFindingCount).Error).To(Succeed())
+
+			var missingSources int64
+			Expect(db.Model(&model.VulnerabilityFinding{}).Where("source IS NULL").Count(&missingSources).Error).To(Succeed())
+			Expect(missingSources).To(Equal(int64(legacyFindingCount)))
+
+			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)).To(Succeed())
+
+			Expect(db.Model(&model.VulnerabilityFinding{}).Where("source IS NULL").Count(&missingSources).Error).To(Succeed())
+			Expect(missingSources).To(BeZero())
+
+			var backfilledSources int64
+			Expect(db.Model(&model.VulnerabilityFinding{}).
+				Where("source = ?", config.VulnerabilityBackendTrustify).
+				Count(&backfilledSources).Error).To(Succeed())
+			Expect(backfilledSources).To(Equal(int64(legacyFindingCount)))
+
+			var marker model.SchemaMigration
+			Expect(db.Where("key = ?", "backfill_vulnerability_source_v1").First(&marker).Error).To(Succeed())
 		})
 	})
 })

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -13,9 +14,12 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/service/common"
+	"github.com/flightctl/flightctl/internal/service/repository"
 	flightctlstore "github.com/flightctl/flightctl/internal/store"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
+	"github.com/stretchr/testify/require"
 )
 
 // DummyImageBuildStore is a mock implementation of store.ImageBuildStore
@@ -377,6 +381,7 @@ func (s *DummyImageExportStore) GetLogs(ctx context.Context, orgId uuid.UUID, na
 
 // DummyRepositoryStore is a mock implementation of flightctlstore.Repository
 type DummyRepositoryStore struct {
+	repository.Service
 	repositories map[string]*domain.Repository // key: name
 }
 
@@ -390,7 +395,7 @@ func (s *DummyRepositoryStore) InitialMigration(ctx context.Context) error {
 	return nil
 }
 
-func (s *DummyRepositoryStore) Create(ctx context.Context, orgId uuid.UUID, repository *domain.Repository, eventCallback flightctlstore.EventCallback) (*domain.Repository, error) {
+func (s *DummyRepositoryStore) Create(ctx context.Context, orgId uuid.UUID, repository *domain.Repository) (*domain.Repository, error) {
 	name := lo.FromPtr(repository.Metadata.Name)
 	if _, exists := s.repositories[name]; exists {
 		return nil, flterrors.ErrDuplicateName
@@ -401,18 +406,18 @@ func (s *DummyRepositoryStore) Create(ctx context.Context, orgId uuid.UUID, repo
 	return &created, nil
 }
 
-func (s *DummyRepositoryStore) Update(ctx context.Context, orgId uuid.UUID, repository *domain.Repository, eventCallback flightctlstore.EventCallback) (*domain.Repository, error) {
+func (s *DummyRepositoryStore) Update(ctx context.Context, orgId uuid.UUID, repository *domain.Repository) (*domain.Repository, *domain.Repository, error) {
 	name := lo.FromPtr(repository.Metadata.Name)
 	if _, exists := s.repositories[name]; !exists {
-		return nil, flterrors.ErrResourceNotFound
+		return nil, nil, flterrors.ErrResourceNotFound
 	}
 	var updated domain.Repository
 	deepCopy(repository, &updated)
 	s.repositories[name] = &updated
-	return &updated, nil
+	return &updated, nil, nil
 }
 
-func (s *DummyRepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *domain.Repository, eventCallback flightctlstore.EventCallback) (*domain.Repository, bool, error) {
+func (s *DummyRepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, repository *domain.Repository) (*domain.Repository, *domain.Repository, bool, error) {
 	name := lo.FromPtr(repository.Metadata.Name)
 	created := false
 	if _, exists := s.repositories[name]; !exists {
@@ -421,7 +426,7 @@ func (s *DummyRepositoryStore) CreateOrUpdate(ctx context.Context, orgId uuid.UU
 	var result domain.Repository
 	deepCopy(repository, &result)
 	s.repositories[name] = &result
-	return &result, created, nil
+	return &result, nil, created, nil
 }
 
 func (s *DummyRepositoryStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Repository, error) {
@@ -434,16 +439,21 @@ func (s *DummyRepositoryStore) Get(ctx context.Context, orgId uuid.UUID, name st
 	return &result, nil
 }
 
+func (s *DummyRepositoryStore) GetRepository(ctx context.Context, orgId uuid.UUID, name string) (*domain.Repository, domain.Status) {
+	result, err := s.Get(ctx, orgId, name)
+	return result, common.StoreErrorToApiStatus(err, false, domain.RepositoryKind, &name)
+}
+
 func (s *DummyRepositoryStore) List(ctx context.Context, orgId uuid.UUID, listParams flightctlstore.ListParams) (*domain.RepositoryList, error) {
 	return &domain.RepositoryList{}, nil
 }
 
-func (s *DummyRepositoryStore) Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback flightctlstore.EventCallback) error {
-	return nil
+func (s *DummyRepositoryStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
+	return true, nil
 }
 
-func (s *DummyRepositoryStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Repository, eventCallback flightctlstore.EventCallback) (*domain.Repository, error) {
-	return nil, nil
+func (s *DummyRepositoryStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, resource *domain.Repository) (*domain.Repository, *domain.Repository, error) {
+	return nil, nil, nil
 }
 
 func (s *DummyRepositoryStore) GetFleetRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.FleetList, error) {
@@ -462,13 +472,47 @@ func (s *DummyRepositoryStore) CountByOrg(ctx context.Context, orgId *uuid.UUID)
 	return nil, nil
 }
 
+func (s *DummyRepositoryStore) GetDeltaStorageTarget(ctx context.Context, orgId uuid.UUID) (*domain.Repository, error) {
+	return nil, nil
+}
+
+func mustFromOciRepoSpec(t *testing.T, spec *v1beta1.RepositorySpec, oci v1beta1.OciRepoSpec) {
+	t.Helper()
+	require.NoError(t, spec.FromOciRepoSpec(oci))
+}
+
+func requireRepositoryCreate(t *testing.T, repoStore *DummyRepositoryStore, ctx context.Context, orgId uuid.UUID, repo *v1beta1.Repository) {
+	t.Helper()
+	_, err := repoStore.Create(ctx, orgId, repo)
+	require.NoError(t, err)
+}
+
 // newOciRepository creates a test OCI repository with the specified access mode
-func newOciRepository(name string, accessMode v1beta1.OciRepoSpecAccessMode) *v1beta1.Repository {
+func newOciRepository(t *testing.T, name string, accessMode v1beta1.OciRepoSpecAccessMode) *v1beta1.Repository {
 	spec := v1beta1.RepositorySpec{}
-	_ = spec.FromOciRepoSpec(v1beta1.OciRepoSpec{
+	mustFromOciRepoSpec(t, &spec, v1beta1.OciRepoSpec{
 		Registry:   "quay.io",
 		Type:       v1beta1.OciRepoSpecTypeOci,
 		AccessMode: &accessMode,
+	})
+	return &v1beta1.Repository{
+		ApiVersion: "flightctl.io/v1beta1",
+		Kind:       string(v1beta1.ResourceKindRepository),
+		Metadata: v1beta1.ObjectMeta{
+			Name: lo.ToPtr(name),
+		},
+		Spec: spec,
+	}
+}
+
+func newOciRepositoryCustom(t *testing.T, name string, accessMode v1beta1.OciRepoSpecAccessMode, repository, namespace *string) *v1beta1.Repository {
+	spec := v1beta1.RepositorySpec{}
+	mustFromOciRepoSpec(t, &spec, v1beta1.OciRepoSpec{
+		Registry:   "quay.io",
+		Type:       v1beta1.OciRepoSpecTypeOci,
+		AccessMode: &accessMode,
+		Repository: repository,
+		Namespace:  namespace,
 	})
 	return &v1beta1.Repository{
 		ApiVersion: "flightctl.io/v1beta1",

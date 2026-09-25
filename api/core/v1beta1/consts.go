@@ -57,7 +57,9 @@ const (
 	FleetKind       = "Fleet"
 	FleetListKind   = "FleetList"
 
-	FleetAnnotationTemplateVersion = "fleet-controller/templateVersion"
+	FleetAnnotationTemplateVersion             = "fleet-controller/templateVersion"
+	FleetAnnotationDeltaPrepareResourceVersion = "delta-worker/sourceResourceVersion"
+	FleetAnnotationDeltaPrepareGeneration      = "delta-worker/sourceGeneration"
 	// The last template version that has been processed by device selection reconciler.  It is used for new rollout detection
 	FleetAnnotationDeployingTemplateVersion = "fleet-controller/deployingTemplateVersion"
 	// The index to the current batch.  Contains an integer
@@ -89,6 +91,10 @@ const (
 	RepositoryAPIVersion = "v1beta1"
 	RepositoryKind       = "Repository"
 	RepositoryListKind   = "RepositoryList"
+
+	EnrollmentHookPolicyAPIVersion = "v1beta1"
+	EnrollmentHookPolicyKind       = "EnrollmentHookPolicy"
+	EnrollmentHookPolicyListKind   = "EnrollmentHookPolicyList"
 
 	AuthProviderAPIVersion = "v1beta1"
 	AuthProviderKind       = "AuthProvider"
@@ -197,6 +203,14 @@ const (
 
 	// ResourceSync New Hash Detected Reason
 	ResourceSyncNewHashDetectedReason = "NewHashDetected"
+
+	// EnrollmentHooks Condition Reasons
+	EnrollmentHooksReasonNotifyPending  = "NotifyPending"
+	EnrollmentHooksReasonPending        = "Pending"
+	EnrollmentHooksReasonFailed         = "Failed"
+	EnrollmentHooksReasonSucceeded      = "Succeeded"
+	EnrollmentHooksReasonContinued      = "Continued"
+	EnrollmentHooksReasonManualOverride = "ManualOverride"
 )
 
 const (

@@ -72,6 +72,9 @@ jobs:
     with:
       repository: flightctl/flightctl
       ref: ${{ github.base_ref || 'main' }}
+      # The baseline ref is the target branch, which predates the fips-validate
+      # Makefile target; FIPS validation only applies to the PR's images.
+      validate_fips: false
 
   build-pr:
     needs: [check-changes]
@@ -125,7 +128,8 @@ jobs:
         id: get-ip
         run: |
           source ./test/scripts/functions
-          BASE_DOMAIN=$(get_ext_ip).nip.io
+          IP=$(get_ext_ip)
+          BASE_DOMAIN="${IP}.nip.io"
           echo "$BASE_DOMAIN"
           echo "base-domain=$BASE_DOMAIN" >> "$GITHUB_OUTPUT"
 
@@ -376,12 +380,19 @@ jobs:
             echo ""
           done
 
-          # Check for orphaned PVs that were bound to flightctl claims
-          ORPHANED_PVS=$(kubectl get pv --no-headers 2>/dev/null \
-            | { grep -E "flightctl-(external|internal)" || true; } | wc -l)
-          if [ "$ORPHANED_PVS" -ne 0 ]; then
-            echo "FAIL: $ORPHANED_PVS PV(s) referencing flightctl namespaces still exist:"
-            kubectl get pv | grep -E "flightctl-(external|internal)"
+          # PVC deletion and PV reclaim are asynchronous. Give the provisioner a
+          # short window to delete released PVs before treating them as orphaned.
+          ORPHANED_PVS=""
+          for ((attempt = 1; attempt <= 10; attempt++)); do
+            PV_LIST=$(kubectl get pv --no-headers)
+            ORPHANED_PVS=$(printf '%s\n' "$PV_LIST" | grep -E "flightctl-(external|internal)" || true)
+            [ -z "$ORPHANED_PVS" ] && break
+            [ "$attempt" -lt 10 ] && sleep 1
+          done
+
+          if [ -n "$ORPHANED_PVS" ]; then
+            echo "FAIL: PV(s) referencing flightctl namespaces still exist after 10s:"
+            printf '%s\n' "$ORPHANED_PVS"
             FAILED=true
           else
             echo "✓ No orphaned PVs referencing flightctl namespaces"

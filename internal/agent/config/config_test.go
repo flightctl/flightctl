@@ -4,8 +4,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
@@ -437,4 +439,196 @@ func TestLoadWithOverrides_DropinErrorHandling(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestPreEnrollmentFailurePolicy(t *testing.T) {
+	require := require.New(t)
+
+	t.Run("When no failurePolicy specified it should default to Continue", func(t *testing.T) {
+		cfg := NewDefault()
+		require.NoError(cfg.Complete())
+		require.Equal("Continue", cfg.Enrollment.PreEnrollment.FailurePolicy)
+	})
+
+	t.Run("When failurePolicy is Block it should survive config load", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		configDir := filepath.Join(tmpDir, "etc", "flightctl")
+		dataDir := filepath.Join(tmpDir, "var", "lib", "flightctl")
+		require.NoError(os.MkdirAll(configDir, 0o755))
+		require.NoError(os.MkdirAll(dataDir, 0o755))
+
+		configFile := filepath.Join(configDir, "config.yaml")
+		content := `enrollment-service:
+  service:
+    server: https://enrollment.endpoint
+    certificate-authority-data: abcd
+  authentication:
+    client-certificate-data: efgh
+    client-key-data: ijkl
+status-update-interval: 0m10s
+enrollment:
+  preEnrollment:
+    failurePolicy: Block
+`
+		require.NoError(os.WriteFile(configFile, []byte(content), 0o600))
+
+		cfg := NewDefault()
+		cfg.ConfigDir = configDir
+		cfg.DataDir = dataDir
+		cfg.readWriter = fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
+		require.NoError(cfg.LoadWithOverrides(configFile))
+		require.NoError(cfg.Complete())
+		require.Equal("Block", cfg.Enrollment.PreEnrollment.FailurePolicy)
+	})
+
+	t.Run("When drop-in overrides failurePolicy it should take precedence", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		configDir := filepath.Join(tmpDir, "etc", "flightctl")
+		dataDir := filepath.Join(tmpDir, "var", "lib", "flightctl")
+		require.NoError(os.MkdirAll(configDir, 0o755))
+		require.NoError(os.MkdirAll(dataDir, 0o755))
+
+		configFile := filepath.Join(configDir, "config.yaml")
+		content := `enrollment-service:
+  service:
+    server: https://enrollment.endpoint
+    certificate-authority-data: abcd
+  authentication:
+    client-certificate-data: efgh
+    client-key-data: ijkl
+status-update-interval: 0m10s
+enrollment:
+  preEnrollment:
+    failurePolicy: Continue
+`
+		require.NoError(os.WriteFile(configFile, []byte(content), 0o600))
+
+		dropinDir := filepath.Join(configDir, "conf.d")
+		require.NoError(os.MkdirAll(dropinDir, 0o755))
+		require.NoError(os.WriteFile(
+			filepath.Join(dropinDir, "10-block.yaml"),
+			[]byte("enrollment:\n  preEnrollment:\n    failurePolicy: Block\n"), 0o600))
+
+		cfg := NewDefault()
+		cfg.ConfigDir = configDir
+		cfg.DataDir = dataDir
+		cfg.readWriter = fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
+		require.NoError(cfg.LoadWithOverrides(configFile))
+		require.NoError(cfg.Complete())
+		require.Equal("Block", cfg.Enrollment.PreEnrollment.FailurePolicy)
+	})
+
+	t.Run("When failurePolicy is invalid it should fail Complete", func(t *testing.T) {
+		cfg := NewDefault()
+		cfg.Enrollment.PreEnrollment.FailurePolicy = "block"
+		err := cfg.Complete()
+		require.Error(err)
+		require.Contains(err.Error(), "failurePolicy")
+	})
+}
+
+func TestSystemInfoCollectionInterval(t *testing.T) {
+	t.Run("When no drop-ins exist and system-info-periodic interval is below the minimum it should fail loading", func(t *testing.T) {
+		require := require.New(t)
+
+		configDir := t.TempDir()
+		dataDir := filepath.Join(configDir, "data")
+		readWriter := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
+		require.NoError(readWriter.MkdirAll(dataDir, 0o755))
+		configFile := filepath.Join(configDir, "config.yaml")
+		require.NoError(readWriter.WriteFile(configFile, []byte(yamlConfig+`
+system-info-periodic:
+  interval: 1s
+`), 0o600))
+
+		cfg := NewDefault()
+		cfg.ConfigDir = configDir
+		cfg.DataDir = dataDir
+		cfg.readWriter = readWriter
+		err := cfg.LoadWithOverrides(configFile)
+		require.ErrorContains(err, "minimum system info periodic interval is 2s have 1s")
+	})
+
+	t.Run("When a drop-in sets system-info-periodic interval it should override the base interval", func(t *testing.T) {
+		require := require.New(t)
+
+		configDir := t.TempDir()
+		dataDir := filepath.Join(configDir, "data")
+		readWriter := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
+		require.NoError(readWriter.MkdirAll(dataDir, 0o755))
+		configFile := filepath.Join(configDir, "config.yaml")
+		require.NoError(readWriter.WriteFile(configFile, []byte(yamlConfig+`
+system-info-periodic:
+  interval: 1m
+`), 0o600))
+
+		dropinDir := filepath.Join(configDir, "conf.d")
+		require.NoError(readWriter.MkdirAll(dropinDir, 0o755))
+		require.NoError(readWriter.WriteFile(filepath.Join(dropinDir, "10-system-info-periodic.yaml"), []byte("system-info-periodic:\n  interval: 5m\n"), 0o600))
+
+		cfg := NewDefault()
+		cfg.ConfigDir = configDir
+		cfg.DataDir = dataDir
+		cfg.readWriter = readWriter
+		require.NoError(cfg.LoadWithOverrides(configFile))
+		require.Equal(util.Duration(5*time.Minute), cfg.SystemInfoCollectionInterval())
+	})
+
+	t.Run("When system-info-periodic interval is set it should use that interval", func(t *testing.T) {
+		require := require.New(t)
+
+		cfg := NewDefault()
+		customInterval := util.Duration(5 * time.Minute)
+		cfg.SystemInfoPeriodic.Interval = customInterval
+
+		result := cfg.SystemInfoCollectionInterval()
+		require.Equal(customInterval, result)
+	})
+
+	t.Run("When system-info-periodic interval is zero it should fall back to StatusUpdateInterval", func(t *testing.T) {
+		require := require.New(t)
+
+		cfg := NewDefault()
+		// SystemInfoPeriodic.Interval is zero by default
+
+		result := cfg.SystemInfoCollectionInterval()
+		require.Equal(cfg.StatusUpdateInterval, result)
+	})
+
+	t.Run("When system-info-periodic interval is absent it should fall back to StatusUpdateInterval", func(t *testing.T) {
+		require := require.New(t)
+
+		cfg := NewDefault()
+		cfg.StatusUpdateInterval = util.Duration(30 * time.Second)
+
+		result := cfg.SystemInfoCollectionInterval()
+		require.Equal(util.Duration(30*time.Second), result)
+	})
+
+	t.Run("When system-info-periodic interval is below the minimum it should fail validation", func(t *testing.T) {
+		require := require.New(t)
+
+		cfg := NewDefault()
+		cfg.SystemInfoPeriodic.Interval = util.Duration(time.Second)
+		err := cfg.validateSyncIntervals()
+		require.ErrorContains(err, "minimum system info periodic interval is 2s have 1s")
+	})
+
+	t.Run("When system-info-periodic interval is negative it should fail validation", func(t *testing.T) {
+		require := require.New(t)
+
+		cfg := NewDefault()
+		cfg.SystemInfoPeriodic.Interval = util.Duration(-time.Minute)
+		err := cfg.validateSyncIntervals()
+		require.ErrorContains(err, "minimum system info periodic interval is 2s have -1m0s")
+	})
+
+	t.Run("When system-info-periodic interval is zero no validation should occur", func(t *testing.T) {
+		require := require.New(t)
+
+		cfg := NewDefault()
+		cfg.SystemInfoPeriodic.Interval = util.Duration(0)
+		err := cfg.validateSyncIntervals()
+		require.NoError(err)
+	})
 }

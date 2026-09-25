@@ -32,6 +32,31 @@ data:
     telemetryGateway:
       listen: { device: "0.0.0.0:4317" }
       export: { prometheus: "0.0.0.0:9464" }
+      {{- if .Values.telemetryGateway.forward.endpoint }}
+      forward:
+        endpoint: {{ .Values.telemetryGateway.forward.endpoint | quote }}
+        {{- with .Values.telemetryGateway.forward.headers }}
+        headers:
+          {{- range $key, $val := . }}
+          {{ $key }}: {{ $val | quote }}
+          {{- end }}
+        {{- end }}
+        {{- if or .Values.telemetryGateway.forward.tls.insecureSkipTlsVerify .Values.telemetryGateway.forward.tls.caFile .Values.telemetryGateway.forward.tls.certFile .Values.telemetryGateway.forward.tls.keyFile }}
+        tls:
+          {{- if .Values.telemetryGateway.forward.tls.insecureSkipTlsVerify }}
+          insecureSkipTlsVerify: true
+          {{- end }}
+          {{- if .Values.telemetryGateway.forward.tls.caFile }}
+          caFile: {{ .Values.telemetryGateway.forward.tls.caFile | quote }}
+          {{- end }}
+          {{- if .Values.telemetryGateway.forward.tls.certFile }}
+          certFile: {{ .Values.telemetryGateway.forward.tls.certFile | quote }}
+          {{- end }}
+          {{- if .Values.telemetryGateway.forward.tls.keyFile }}
+          keyFile: {{ .Values.telemetryGateway.forward.tls.keyFile | quote }}
+          {{- end }}
+        {{- end }}
+      {{- end }}
     {{- if (default dict .Values.dev).tracing }}
     tracing:
         enabled: true

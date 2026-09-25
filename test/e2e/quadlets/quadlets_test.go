@@ -118,8 +118,8 @@ var _ = Describe("Quadlets application type support", Label("quadlets"), func() 
 			appPath := quadletSystemdPath + "/" + quadletAppNameComplex
 			out, err := harness.VM.RunSSH([]string{"cat", appPath + "/.env"}, nil)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(out.String()).To(ContainSubstring("FOO=FOOO"))
-			Expect(out.String()).To(ContainSubstring("SIMPLE=VALUE"))
+			Expect(out.String()).To(ContainSubstring(`FOO="FOOO"`))
+			Expect(out.String()).To(ContainSubstring(`SIMPLE="VALUE"`))
 
 			By("Checking containers are running")
 			names, err := harness.RunPodmanPsContainerNames(false)

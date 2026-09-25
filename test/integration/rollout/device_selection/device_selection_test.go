@@ -153,7 +153,7 @@ var _ = Describe("Rollout batch sequence test", func() {
 			Spec:   api.TemplateVersionSpec{Fleet: ownerName},
 			Status: &api.TemplateVersionStatus{},
 		}
-		tv, err := tvStore.Create(ctx, store.NullOrgId, &templateVersion, nil)
+		tv, err := tvStore.Create(ctx, store.NullOrgId, &templateVersion)
 		Expect(err).ToNot(HaveOccurred())
 		tvName = *tv.Metadata.Name
 		annotations := map[string]string{

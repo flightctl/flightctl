@@ -224,6 +224,21 @@ func (mr *MockServiceMockRecorder) ReplaceFleetStatus(ctx, orgId, name, fleet an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceFleetStatus", reflect.TypeOf((*MockService)(nil).ReplaceFleetStatus), ctx, orgId, name, fleet)
 }
 
+// SetDeltaPrepareIdentity mocks base method.
+func (m *MockService) SetDeltaPrepareIdentity(ctx context.Context, orgId uuid.UUID, name string, sourceResourceVersion, sourceGeneration int64) (bool, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetDeltaPrepareIdentity", ctx, orgId, name, sourceResourceVersion, sourceGeneration)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// SetDeltaPrepareIdentity indicates an expected call of SetDeltaPrepareIdentity.
+func (mr *MockServiceMockRecorder) SetDeltaPrepareIdentity(ctx, orgId, name, sourceResourceVersion, sourceGeneration any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetDeltaPrepareIdentity", reflect.TypeOf((*MockService)(nil).SetDeltaPrepareIdentity), ctx, orgId, name, sourceResourceVersion, sourceGeneration)
+}
+
 // StartFleetApplication mocks base method.
 func (m *MockService) StartFleetApplication(ctx context.Context, orgId uuid.UUID, name, appName string) (*domain.Fleet, domain.Status) {
 	m.ctrl.T.Helper()
@@ -252,6 +267,20 @@ func (m *MockService) StopFleetApplication(ctx context.Context, orgId uuid.UUID,
 func (mr *MockServiceMockRecorder) StopFleetApplication(ctx, orgId, name, appName any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "StopFleetApplication", reflect.TypeOf((*MockService)(nil).StopFleetApplication), ctx, orgId, name, appName)
+}
+
+// UnsetOwner mocks base method.
+func (m *MockService) UnsetOwner(ctx context.Context, orgId uuid.UUID, owner string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UnsetOwner", ctx, orgId, owner)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UnsetOwner indicates an expected call of UnsetOwner.
+func (mr *MockServiceMockRecorder) UnsetOwner(ctx, orgId, owner any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UnsetOwner", reflect.TypeOf((*MockService)(nil).UnsetOwner), ctx, orgId, owner)
 }
 
 // UpdateFleetAnnotations mocks base method.

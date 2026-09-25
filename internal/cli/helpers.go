@@ -35,6 +35,7 @@ const (
 	ImageBuildKind                ResourceKind = "imagebuild"
 	ImageExportKind               ResourceKind = "imageexport"
 	ImagePromotionKind            ResourceKind = "imagepromotion"
+	EnrollmentHookPolicyKind      ResourceKind = "enrollmenthookpolicy"
 	OrganizationKind              ResourceKind = "organization"
 	RepositoryKind                ResourceKind = "repository"
 	ResourceSyncKind              ResourceKind = "resourcesync"
@@ -70,6 +71,7 @@ var (
 		CatalogItemKind:               {},
 		CertificateSigningRequestKind: {},
 		DeviceKind:                    {},
+		EnrollmentHookPolicyKind:      {},
 		EnrollmentRequestKind:         {},
 		EventKind:                     {},
 		AuthProviderKind:              {},
@@ -91,6 +93,7 @@ var (
 		"catalogitems":               CatalogItemKind,
 		"certificatesigningrequests": CertificateSigningRequestKind,
 		"devices":                    DeviceKind,
+		"enrollmenthookpolicies":     EnrollmentHookPolicyKind,
 		"enrollmentrequests":         EnrollmentRequestKind,
 		"events":                     EventKind,
 		"authproviders":              AuthProviderKind,
@@ -110,6 +113,7 @@ var (
 		CatalogItemKind:               "catalogitems",
 		CertificateSigningRequestKind: "certificatesigningrequests",
 		DeviceKind:                    "devices",
+		EnrollmentHookPolicyKind:      "enrollmenthookpolicies",
 		EnrollmentRequestKind:         "enrollmentrequests",
 		EventKind:                     "events",
 		AuthProviderKind:              "authproviders",
@@ -129,6 +133,7 @@ var (
 		"ci":   CatalogItemKind,
 		"csr":  CertificateSigningRequestKind,
 		"dev":  DeviceKind,
+		"ehp":  EnrollmentHookPolicyKind,
 		"er":   EnrollmentRequestKind,
 		"ev":   EventKind,
 		"ap":   AuthProviderKind,
@@ -398,6 +403,8 @@ func GetSingleResource(ctx context.Context, c *client.Client, kind ResourceKind,
 		return c.GetCertificateSigningRequestWithResponse(ctx, name)
 	case AuthProviderKind:
 		return c.GetAuthProviderWithResponse(ctx, name)
+	case EnrollmentHookPolicyKind:
+		return c.GetEnrollmentHookPolicyWithResponse(ctx, name)
 	default:
 		return nil, fmt.Errorf("unsupported resource kind: %s", kind)
 	}

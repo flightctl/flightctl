@@ -10,27 +10,57 @@ updates:
     schedule:
       interval: weekly
     groups:
-      k8s:
+      go:
         patterns:
-          - "k8s.io/*"
-      gomega:
-        patterns:
-          - "github.com/onsi/ginkgo"
-          - "github.com/onsi/gomega"
+          - "*"
     commit-message:
       prefix: "NO-ISSUE"
-
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    groups:
+      actions:
+        patterns:
+          - "*"
     commit-message:
       prefix: "NO-ISSUE"
 
-  - package-ecosystem: "docker"
-    directory: "/"
+  - package-ecosystem: docker
+    directories:
+      - "/hack"
+      - "/internal/imagebuilder_worker/tasks/templates"
+      - "/packaging/images"
+      - "/packaging/images/el9"
+      - "/packaging/images/el10"
+      - "/test/api"
+      - "/test/integration/tasks/vmrender"
+      - "/test/scripts"
+      - "/test/scripts/agent-images/apps"
+      - "/test/scripts/agent-images/containerfiles/cs10-bootc"
+      - "/test/scripts/agent-images/containerfiles/cs10-bootc-redhat"
+      - "/test/scripts/agent-images/containerfiles/cs9-bootc"
+      - "/test/scripts/agent-images/containerfiles/cs9-bootc-redhat"
+      - "/test/scripts/agent-images/containerfiles/fedora-bootc"
+      - "/test/scripts/agent-images/variants/package"
+      - "/test/scripts/agent-images/variants/v2"
+      - "/test/scripts/agent-images/variants/v3"
+      - "/test/scripts/agent-images/variants/v4"
+      - "/test/scripts/agent-images/variants/v5"
+      - "/test/scripts/agent-images/variants/v6"
+      - "/test/scripts/agent-images/variants/v7"
+      - "/test/scripts/agent-images/variants/v8"
+      - "/test/scripts/agent-images/variants/v9"
+      - "/test/scripts/agent-images/variants/v10"
+      - "/test/scripts/agent-images/variants/v11"
+      - "/test/scripts/agent-images/variants/v12"
+      - "/test/scripts/services-images"
     schedule:
       interval: weekly
+    groups:
+      docker:
+        patterns:
+          - "*"
     commit-message:
       prefix: "NO-ISSUE"

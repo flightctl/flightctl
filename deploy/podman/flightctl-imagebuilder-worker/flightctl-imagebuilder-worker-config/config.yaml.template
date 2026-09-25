@@ -30,6 +30,8 @@ imageBuilderWorker:
   logLevel: {{if .imagebuilderWorker.logLevel}}{{.imagebuilderWorker.logLevel}}{{else}}info{{end}}
   maxConcurrentBuilds: {{if .imagebuilderWorker.maxConcurrentBuilds}}{{.imagebuilderWorker.maxConcurrentBuilds}}{{else}}2{{end}}
   defaultTTL: {{if .imagebuilderWorker.defaultTTL}}{{.imagebuilderWorker.defaultTTL}}{{else}}168h{{end}}
+  imageBuilderTimeout: {{if .imagebuilderWorker.imageBuilderTimeout}}{{.imagebuilderWorker.imageBuilderTimeout}}{{else}}3m{{end}}
+  timeoutCheckTaskInterval: {{if .imagebuilderWorker.timeoutCheckTaskInterval}}{{.imagebuilderWorker.timeoutCheckTaskInterval}}{{else}}1m{{end}}
   {{- if .imagebuilderWorker.rpmRepoUrl}}
   rpmRepoUrl: {{.imagebuilderWorker.rpmRepoUrl}}
   {{- end}}
@@ -106,6 +108,9 @@ imageBuilderWorker:
 vulnerabilityReporting:
   enabled: true
   syncInterval: {{if .vulnerabilityReporting.syncInterval}}{{.vulnerabilityReporting.syncInterval}}{{else}}15m{{end}}
+  {{- if .vulnerabilityReporting.backend}}
+  backend: {{.vulnerabilityReporting.backend}}
+  {{- end}}
   {{- if .vulnerabilityReporting.trustify}}
   trustify:
     endpoint: {{.vulnerabilityReporting.trustify.endpoint}}
@@ -115,6 +120,12 @@ vulnerabilityReporting:
       {{- if .vulnerabilityReporting.trustify.auth.oidcIssuerUrl}}
       oidcIssuerUrl: {{.vulnerabilityReporting.trustify.auth.oidcIssuerUrl}}
       {{- end}}
+    {{- end}}
+    {{- if .vulnerabilityReporting.trustify.caFile}}
+    caFile: {{.vulnerabilityReporting.trustify.caFile}}
+    {{- end}}
+    {{- if .vulnerabilityReporting.trustify.skipTlsVerify}}
+    skipTlsVerify: true
     {{- end}}
   {{- end}}
 {{- end}}

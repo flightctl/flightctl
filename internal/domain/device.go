@@ -26,9 +26,13 @@ type DeviceUpdatedStatus = v1beta1.DeviceUpdatedStatus
 type DeviceResourceStatus = v1beta1.DeviceResourceStatus
 type DeviceLastSeen = v1beta1.DeviceLastSeen
 type DeviceOsStatus = v1beta1.DeviceOsStatus
+type DeviceDeltaApplyStatus = v1beta1.DeviceDeltaApplyStatus
 type DeviceSystemInfo = v1beta1.DeviceSystemInfo
 type CustomDeviceInfo = v1beta1.CustomDeviceInfo
 type DeviceCapabilities = v1beta1.DeviceCapabilities
+type DeviceEnrollmentHooksStatus = v1beta1.DeviceEnrollmentHooksStatus
+type EnrollmentHookSnapshot = v1beta1.EnrollmentHookSnapshot
+type EnrollmentHookSnapshotAction = v1beta1.EnrollmentHookSnapshotAction
 
 // ========== Spec Subtypes ==========
 
@@ -197,6 +201,20 @@ func NewDeviceStatus() DeviceStatus {
 			Status: DeviceLifecycleStatusUnknown,
 		},
 	}
+}
+
+// IsDeviceEnrollmentHooksGated returns true when the device has an
+// EnrollmentHooks condition with status False, meaning enrollment hooks
+// have not reached a terminal success state and the device should be
+// excluded from fleet matching and rendered spec delivery.
+// Devices with no EnrollmentHooks condition (no policy at approve time)
+// are not gated and return false.
+func IsDeviceEnrollmentHooksGated(device *Device) bool {
+	if device == nil || device.Status == nil {
+		return false
+	}
+	cond := FindStatusCondition(device.Status.Conditions, ConditionTypeDeviceEnrollmentHooks)
+	return cond != nil && cond.Status == ConditionStatusFalse
 }
 
 // GetNextDeviceRenderedVersion calculates the next rendered version for a device.

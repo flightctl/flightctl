@@ -19,7 +19,7 @@ Flight Control is a service for declarative management of fleets of edge devices
 ## Build and development
 
 - **Build:** `make build` (requires Go ≥1.26, podman, and other deps; see [docs/developer/README.md](docs/developer/README.md)).
-- **Generate API/client code and mocks:** `make generate` (requires mockgen: `go install go.uber.org/mock/mockgen@v0.4.0`).
+- **Generate API/client code and mocks:** `make generate`; use the repository's `go:generate` directives, which invoke generators from the pinned Go module files.
 - **Proto generation:** `make generate-proto` for `api/grpc/`.
 - **Unit tests:** `make unit-test` (requires gotestsum: `go install gotest.tools/gotestsum@latest`). Avoid `make test`; prefer `make unit-test` (and `make integration-test` separately if needed). When verifying changes, first run unit tests on the specific files changed, then run `make unit-test` for the full suite. Two opt-out flags are available for faster local iteration: `RACE=0` disables the race detector and `COVERAGE=0` disables the coverage profile (e.g. `make unit-test RACE=0 COVERAGE=0`). Both default to `1` so CI always runs with race detection and coverage enabled.
 - **Integration tests:** `make integration-test` (uses testcontainers for Postgres/Redis/Alertmanager; requires Podman). Key options: `INTEGRATION_PROCS=N` for parallelism, `TEST_DIR=./test/integration/store` for specific suites, `INTEGRATION_GINKGO_FOCUS="pattern"` for specific tests.
@@ -44,7 +44,19 @@ Flight Control is a service for declarative management of fleets of edge devices
 - **Testing:** Use table-driven tests. Name test cases with "When ... it should ..." format for clarity.
 - **API changes:** Edit OpenAPI YAML and hand-maintained types (e.g. `api/core/v1beta1/types.go`), then `make generate`. Do not edit `*.gen.go` by hand.
 - **Documentation:** User docs under `docs/user/`, developer docs under `docs/developer/`. Run `make lint-docs` and `make spellcheck-docs` for user docs.
-- **Commits:** All commits must be signed (GPG or SSH). Commit messages must be prefixed with Jira issue key (e.g., `EDM-1234: Description`) or `NO-ISSUE:` for trivial changes.
+- **Commits:** All commits must be signed (GPG or SSH). Commit messages must be prefixed with Jira issue key (e.g., `<PROJECT>-<NUMBER>: Description`) or `NO-ISSUE:` for trivial changes.
+- **Jira references:** Do not include Jira issue keys or Jira URLs in source code, comments, test names, or user-facing documentation. Track work in commit messages, pull requests, and Jira instead.
+
+## Architecture and package layout
+
+- Keep workflow control flow near its entrypoint. Services own business rules
+  and events, stores own persistence and atomicity, and tasks orchestrate
+  services and external work.
+- Reuse existing mechanisms and preserve established layouts unless migration
+  is explicitly in scope.
+- Server-side code uses legacy/shared and component-based layouts. See
+  [internal/AGENTS.md](internal/AGENTS.md) for runtime ownership, package
+  layout, mutation-result, interface, and constructor guidance.
 
 ## Before committing
 

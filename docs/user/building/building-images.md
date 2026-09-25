@@ -293,7 +293,7 @@ sudo podman run --rm -it --privileged --pull=newer \
     --security-opt label=type:unconfined_t \
     -v "${PWD}/output":/output \
     -v /var/lib/containers/storage:/var/lib/containers/storage \
-    quay.io/centos-bootc/bootc-image-builder:latest \
+    ghcr.io/osbuild/bootc-image-builder:v83.0.0 \
     --type iso \
     ${OCI_IMAGE_REPO}:${OCI_IMAGE_TAG}
 ```
@@ -424,7 +424,7 @@ sudo podman run --rm -it --privileged --pull=newer \
     --security-opt label=type:unconfined_t \
     -v "${PWD}/output":/output \
     -v /var/lib/containers/storage:/var/lib/containers/storage \
-    quay.io/centos-bootc/bootc-image-builder:latest \
+    ghcr.io/osbuild/bootc-image-builder:v83.0.0 \
     --type qcow2 \
     ${OCI_IMAGE_REPO}:${OCI_IMAGE_TAG}
 ```
@@ -491,7 +491,7 @@ sudo podman run --rm -it --privileged --pull=newer \
     --security-opt label=type:unconfined_t \
     -v "${PWD}/output":/output \
     -v /var/lib/containers/storage:/var/lib/containers/storage \
-    quay.io/centos-bootc/bootc-image-builder:latest \
+    ghcr.io/osbuild/bootc-image-builder:v83.0.0 \
     --type vmdk \
     ${OCI_IMAGE_REPO}:${OCI_IMAGE_TAG}
 ```

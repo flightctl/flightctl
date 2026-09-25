@@ -30,6 +30,7 @@ func TestDefaultPprofOptions(t *testing.T) {
 		DefaultPortImageBuilderWorker,
 		DefaultPortTelemetryGateway,
 		DefaultPortPAMIssuer,
+		DefaultPortDeltaWorker,
 	}
 	seen := map[int]bool{}
 	for _, p := range ports {

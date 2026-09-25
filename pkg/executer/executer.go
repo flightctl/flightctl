@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os/exec"
 	"os/user"
 	"strconv"
@@ -17,6 +18,9 @@ type Executer interface {
 	Execute(command string, args ...string) (stdout string, stderr string, exitCode int)
 	ExecuteWithContext(ctx context.Context, command string, args ...string) (stdout string, stderr string, exitCode int)
 	ExecuteWithContextFromDir(ctx context.Context, workingDir string, command string, args []string, env ...string) (stdout string, stderr string, exitCode int)
+	// ExecuteWithBoundedOutputFromDir limits stdout and stderr capture independently
+	// to maxCombinedOutputBytes/2 bytes each. Zero or negative means unlimited.
+	ExecuteWithBoundedOutputFromDir(ctx context.Context, workingDir string, command string, args []string, maxCombinedOutputBytes int, env ...string) (stdout string, stderr string, exitCode int)
 }
 
 type commonExecuter struct {
@@ -97,7 +101,40 @@ func (e *commonExecuter) ExecuteWithContextFromDir(ctx context.Context, workingD
 	if len(env) > 0 {
 		cmd.Env = env
 	}
-	return e.execute(ctx, cmd)
+	return e.runCmd(ctx, cmd, 0)
+}
+
+func (e *commonExecuter) ExecuteWithBoundedOutputFromDir(ctx context.Context, workingDir string, command string, args []string, maxCombinedOutputBytes int, env ...string) (stdout string, stderr string, exitCode int) {
+	cmd := e.CommandContext(ctx, command, args...)
+	cmd.Dir = workingDir
+	if len(env) > 0 {
+		cmd.Env = env
+	}
+	return e.runCmd(ctx, cmd, maxCombinedOutputBytes)
+}
+
+func (e *commonExecuter) runCmd(ctx context.Context, cmd *exec.Cmd, maxCombinedOutput int) (stdout string, stderr string, exitCode int) {
+	var stdoutBytes, stderrBytes bytes.Buffer
+	if maxCombinedOutput > 0 {
+		perStream := maxCombinedOutput / 2
+		if perStream == 0 {
+			perStream = 1
+		}
+		cmd.Stdout = &limitWriter{w: &stdoutBytes, n: int64(perStream)}
+		cmd.Stderr = &limitWriter{w: &stderrBytes, n: int64(perStream)}
+	} else {
+		cmd.Stdout = &stdoutBytes
+		cmd.Stderr = &stderrBytes
+	}
+
+	if err := cmd.Run(); err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return stdoutBytes.String(), context.DeadlineExceeded.Error(), 124
+		}
+		return stdoutBytes.String(), getErrorStr(err, &stderrBytes), getExitCode(err)
+	}
+
+	return stdoutBytes.String(), stderrBytes.String(), 0
 }
 
 func getExitCode(err error) int {
@@ -108,9 +145,8 @@ func getExitCode(err error) int {
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) {
 		if state, ok := exitErr.ProcessState.Sys().(syscall.WaitStatus); ok {
-			// sigkill is seen during upgrade reboot
 			if state.Signal() == syscall.SIGKILL {
-				return 137 // 128 + 9 (SIGKILL)
+				return 137
 			}
 		}
 		return exitErr.ExitCode()
@@ -123,9 +159,29 @@ func getErrorStr(err error, stderr *bytes.Buffer) string {
 	b := stderr.Bytes()
 	if len(b) > 0 {
 		return string(b)
-	} else if err != nil {
+	}
+	if err != nil {
 		return err.Error()
 	}
 
 	return ""
+}
+
+// limitWriter is a bytes.Buffer wrapper that discards writes beyond n bytes.
+type limitWriter struct {
+	w io.Writer
+	n int64
+}
+
+func (l *limitWriter) Write(p []byte) (int, error) {
+	n := len(p)
+	if l.n <= 0 {
+		return n, nil
+	}
+	if int64(n) > l.n {
+		p = p[:l.n]
+	}
+	written, err := l.w.Write(p)
+	l.n -= int64(written)
+	return n, err
 }

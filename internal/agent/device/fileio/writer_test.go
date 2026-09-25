@@ -617,3 +617,81 @@ func TestWriterForUser(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorContains(t, err, "chown")
 }
+
+func TestRemoveEmptyDir(t *testing.T) {
+	tests := []struct {
+		name string
+		// setup prepares the directory tree under rootDir and returns the
+		// relative path passed to RemoveEmptyDir.
+		setup       func(t *testing.T, rootDir string) string
+		wantRemoved bool
+		wantExists  bool
+	}{
+		{
+			name: "When the directory is empty it should be removed",
+			setup: func(t *testing.T, rootDir string) string {
+				require.NoError(t, os.MkdirAll(filepath.Join(rootDir, "empty"), 0755))
+				return "empty"
+			},
+			wantRemoved: true,
+			wantExists:  false,
+		},
+		{
+			name: "When the directory still holds an entry it should be preserved",
+			setup: func(t *testing.T, rootDir string) string {
+				require.NoError(t, os.MkdirAll(filepath.Join(rootDir, "full"), 0755))
+				require.NoError(t, os.WriteFile(filepath.Join(rootDir, "full", "keep.txt"), []byte("x"), 0600))
+				return "full"
+			},
+			wantRemoved: false,
+			wantExists:  true,
+		},
+		{
+			name: "When the directory does not exist it should be a no-op",
+			setup: func(t *testing.T, rootDir string) string {
+				return "missing"
+			},
+			wantRemoved: false,
+			wantExists:  false,
+		},
+		{
+			name: "When the path is a symlink to an empty directory it should be preserved",
+			setup: func(t *testing.T, rootDir string) string {
+				require.NoError(t, os.MkdirAll(filepath.Join(rootDir, "target"), 0755))
+				require.NoError(t, os.Symlink(filepath.Join(rootDir, "target"), filepath.Join(rootDir, "link")))
+				return "link"
+			},
+			wantRemoved: false,
+			wantExists:  true,
+		},
+		{
+			name: "When the path is a regular file it should be preserved",
+			setup: func(t *testing.T, rootDir string) string {
+				require.NoError(t, os.WriteFile(filepath.Join(rootDir, "file.txt"), []byte("x"), 0600))
+				return "file.txt"
+			},
+			wantRemoved: false,
+			wantExists:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			rootDir := t.TempDir()
+			dir := tt.setup(t, rootDir)
+
+			w := NewWriter(WithWriterRootDir(rootDir))
+			removed, err := w.RemoveEmptyDir(dir)
+			require.NoError(err)
+			require.Equal(tt.wantRemoved, removed)
+
+			_, err = os.Stat(filepath.Join(rootDir, dir))
+			if tt.wantExists {
+				require.NoError(err)
+			} else {
+				require.True(os.IsNotExist(err))
+			}
+		})
+	}
+}

@@ -1964,6 +1964,21 @@ func (h *Harness) SetupVMFromPoolAndStartAgent(workerID int) error {
 	return h.StartAgentWithRetry()
 }
 
+// SetupVMFromPoolWithCurrentOrgAgent restores a pool VM, installs enrollment
+// credentials generated for the currently selected organization, and starts the agent.
+func (h *Harness) SetupVMFromPoolWithCurrentOrgAgent(workerID int) error {
+	if _, err := h.SetupDeviceSimulatorAgentConfig(0, 0); err != nil {
+		return fmt.Errorf("preparing agent config for current organization: %w", err)
+	}
+	if err := h.SetupVMFromPool(workerID); err != nil {
+		return err
+	}
+	if err := h.InstallPreparedAgentFilesOnVM(); err != nil {
+		return err
+	}
+	return h.StartAgentWithRetry()
+}
+
 // StartAgentWithRetry starts flightctl-agent after snapshot restore and retries
 // transient systemd start failures caused by VM resume timing.
 func (h *Harness) StartAgentWithRetry() error {

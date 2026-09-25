@@ -7,6 +7,8 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/delta_worker/model"
+	"github.com/flightctl/flightctl/internal/delta_worker/service/deltaprepare"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	periodicmetrics "github.com/flightctl/flightctl/internal/instrumentation/metrics/periodic"
@@ -23,10 +25,11 @@ import (
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	resourcesyncservice "github.com/flightctl/flightctl/internal/service/resourcesync"
 	syncstateservice "github.com/flightctl/flightctl/internal/service/syncstate"
-	vulnerabilityfindingstore "github.com/flightctl/flightctl/internal/store/vulnerabilityfinding"
+	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
+	vulnerabilityfindingservice "github.com/flightctl/flightctl/internal/service/vulnerabilityfinding"
 	"github.com/flightctl/flightctl/internal/tasks"
-	trustifyv2 "github.com/flightctl/flightctl/internal/trustify/v2"
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/internal/vulnerability"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/flightctl/flightctl/pkg/reqid"
@@ -52,6 +55,7 @@ const (
 	PeriodicTaskTypeVulnerabilitySync      PeriodicTaskType = "vulnerability-sync"
 	PeriodicTaskTypeDependencySyncGit      PeriodicTaskType = "dependency-sync-git"
 	PeriodicTaskTypeDependencySyncHttp     PeriodicTaskType = "dependency-sync-http"
+	PeriodicTaskTypeDeltaPrepareDeadline   PeriodicTaskType = "delta-prepare-deadline"
 )
 
 type PeriodicTaskMetadata struct {
@@ -70,6 +74,7 @@ var periodicTasks = map[PeriodicTaskType]PeriodicTaskMetadata{
 	PeriodicTaskTypeVulnerabilitySync:      {Interval: tasks.VulnerabilitySyncInterval, SystemWide: true},
 	PeriodicTaskTypeDependencySyncGit:      {Interval: config.DefaultDependencySyncTaskInterval, SystemWide: false},
 	PeriodicTaskTypeDependencySyncHttp:     {Interval: config.DefaultDependencySyncTaskInterval, SystemWide: false},
+	PeriodicTaskTypeDeltaPrepareDeadline:   {Interval: tasks.DeltaPrepareDeadlinePollingInterval, SystemWide: true},
 }
 
 // MergeTasksWithConfig merges configured task intervals with defaults.
@@ -219,6 +224,23 @@ func (e *EventCleanupExecutor) Execute(ctx context.Context, log logrus.FieldLogg
 	eventCleanup.Poll(taskCtx)
 }
 
+type DeltaPrepareDeadlineExecutor struct {
+	log        logrus.FieldLogger
+	deltaStore interface {
+		ListWaitingPastDeadline(context.Context, int, time.Time) ([]model.DeltaPrepare, error)
+	}
+	prepareSvc deltaprepare.Service
+	fleetSvc   fleetservice.Service
+	deviceSvc  deviceservice.Service
+	tvSvc      templateversionservice.Service
+	eventSvc   eventservice.Service
+}
+
+func (e *DeltaPrepareDeadlineExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
+	taskCtx := createTaskContext(ctx, PeriodicTaskTypeDeltaPrepareDeadline)
+	tasks.NewDeltaPrepareDeadline(e.log, e.deltaStore, e.prepareSvc, e.fleetSvc, e.deviceSvc, e.tvSvc, e.eventSvc).Poll(taskCtx)
+}
+
 type QueueMaintenanceExecutor struct {
 	log             logrus.FieldLogger
 	checkpointSvc   checkpointservice.Service
@@ -243,16 +265,19 @@ func (e *QueueMaintenanceExecutor) Execute(ctx context.Context, log logrus.Field
 
 type VulnerabilitySyncExecutor struct {
 	log           logrus.FieldLogger
-	vulnClient    trustifyv2.VulnerabilityClient
-	findingStore  vulnerabilityfindingstore.Store
+	scanner       vulnerability.Scanner
+	findingSvc    vulnerabilityfindingservice.Service
 	checkpointSvc checkpointservice.Service
 	eventSvc      eventservice.Service
+	// backend is the resolved vulnerability backend whose name is stamped as
+	// the source on every finding produced by the sync.
+	backend config.VulnerabilityBackend
 }
 
 func (e *VulnerabilitySyncExecutor) Execute(ctx context.Context, log logrus.FieldLogger, orgId uuid.UUID) {
 	taskCtx := createTaskContext(ctx, PeriodicTaskTypeVulnerabilitySync)
 	checkpoint := &serviceCheckpointAdapter{svc: e.checkpointSvc}
-	vulnSync := tasks.NewVulnerabilitySync(e.log, e.vulnClient, e.findingStore, checkpoint, e.eventSvc)
+	vulnSync := tasks.NewVulnerabilitySync(e.log, e.scanner, e.findingSvc, checkpoint, e.eventSvc, e.backend)
 	vulnSync.Poll(taskCtx)
 }
 
@@ -333,9 +358,14 @@ func InitializeTaskExecutors(
 	queuesProvider queues.Provider,
 	workerClient worker_client.WorkerClient,
 	workerMetrics *worker.WorkerCollector,
-	findingStore vulnerabilityfindingstore.Store,
-	vulnClient trustifyv2.VulnerabilityClient,
+	findingSvc vulnerabilityfindingservice.Service,
+	scanner vulnerability.Scanner,
 	depSyncMetrics *periodicmetrics.DependencySyncCollector,
+	deltaStore interface {
+		ListWaitingPastDeadline(context.Context, int, time.Time) ([]model.DeltaPrepare, error)
+	},
+	prepareSvc deltaprepare.Service,
+	tvSvc templateversionservice.Service,
 ) map[PeriodicTaskType]PeriodicTaskExecutor {
 	executors := map[PeriodicTaskType]PeriodicTaskExecutor{
 		PeriodicTaskTypeRepositoryTester: &RepositoryTesterExecutor{
@@ -371,6 +401,15 @@ func InitializeTaskExecutors(
 			eventSvc:             eventSvc,
 			eventRetentionPeriod: cfg.Service.EventRetentionPeriod,
 		},
+		PeriodicTaskTypeDeltaPrepareDeadline: &DeltaPrepareDeadlineExecutor{
+			log:        log.WithField("pkg", "delta-prepare-deadline"),
+			deltaStore: deltaStore,
+			prepareSvc: prepareSvc,
+			fleetSvc:   fleetSvc,
+			deviceSvc:  deviceSvc,
+			tvSvc:      tvSvc,
+			eventSvc:   eventSvc,
+		},
 		PeriodicTaskTypeQueueMaintenance: &QueueMaintenanceExecutor{
 			log:             log.WithField("pkg", "queue-maintenance"),
 			checkpointSvc:   checkpointSvc,
@@ -382,13 +421,14 @@ func InitializeTaskExecutors(
 		},
 	}
 
-	if cfg.VulnerabilityReporting != nil && cfg.VulnerabilityReporting.Enabled && vulnClient != nil && findingStore != nil {
+	if cfg.VulnerabilityReporting != nil && cfg.VulnerabilityReporting.Enabled && scanner != nil && findingSvc != nil {
 		executors[PeriodicTaskTypeVulnerabilitySync] = &VulnerabilitySyncExecutor{
 			log:           log.WithField("pkg", "vulnerability-sync"),
-			vulnClient:    vulnClient,
-			findingStore:  findingStore,
+			scanner:       scanner,
+			findingSvc:    findingSvc,
 			checkpointSvc: checkpointSvc,
 			eventSvc:      eventSvc,
+			backend:       cfg.VulnerabilityReporting.EffectiveBackend(),
 		}
 	}
 

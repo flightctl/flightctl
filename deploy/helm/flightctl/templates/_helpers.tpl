@@ -582,6 +582,70 @@ Usage: {{- include "flightctl.dbSslVolumes" . | nindent X }}
 {{- end }}
 {{- end }}
 
+{{- /*
+CA certificate volume mount for the Trustify vulnerability backend.
+Usage: {{- include "flightctl.vulnerabilityTrustifyCaVolumeMounts" . | nindent X }}
+*/}}
+{{- define "flightctl.vulnerabilityTrustifyCaVolumeMounts" -}}
+{{- $vuln := default dict .Values.vulnerabilityReporting }}
+{{- $trustify := default dict $vuln.trustify }}
+{{- if and (default false $vuln.enabled) $trustify.caCertConfigMapName }}
+- name: vuln-trustify-ca
+  mountPath: /etc/ssl/vulnerability/trustify
+  readOnly: true
+{{- end }}
+{{- end }}
+
+{{- /*
+CA certificate volume for the Trustify vulnerability backend.
+Usage: {{- include "flightctl.vulnerabilityTrustifyCaVolumes" . | nindent X }}
+*/}}
+{{- define "flightctl.vulnerabilityTrustifyCaVolumes" -}}
+{{- $vuln := default dict .Values.vulnerabilityReporting }}
+{{- $trustify := default dict $vuln.trustify }}
+{{- if and (default false $vuln.enabled) $trustify.caCertConfigMapName }}
+- name: vuln-trustify-ca
+  configMap:
+    name: {{ $trustify.caCertConfigMapName }}
+    items:
+    - key: ca-cert.pem
+      path: ca-cert.pem
+      mode: 0444
+{{- end }}
+{{- end }}
+
+{{- /*
+CA certificate volume mount for the Quay vulnerability backend.
+Usage: {{- include "flightctl.vulnerabilityQuayCaVolumeMounts" . | nindent X }}
+*/}}
+{{- define "flightctl.vulnerabilityQuayCaVolumeMounts" -}}
+{{- $vuln := default dict .Values.vulnerabilityReporting }}
+{{- $quay := default dict $vuln.quay }}
+{{- if and (default false $vuln.enabled) $quay.caCertConfigMapName }}
+- name: vuln-quay-ca
+  mountPath: /etc/ssl/vulnerability/quay
+  readOnly: true
+{{- end }}
+{{- end }}
+
+{{- /*
+CA certificate volume for the Quay vulnerability backend.
+Usage: {{- include "flightctl.vulnerabilityQuayCaVolumes" . | nindent X }}
+*/}}
+{{- define "flightctl.vulnerabilityQuayCaVolumes" -}}
+{{- $vuln := default dict .Values.vulnerabilityReporting }}
+{{- $quay := default dict $vuln.quay }}
+{{- if and (default false $vuln.enabled) $quay.caCertConfigMapName }}
+- name: vuln-quay-ca
+  configMap:
+    name: {{ $quay.caCertConfigMapName }}
+    items:
+    - key: ca-cert.pem
+      path: ca-cert.pem
+      mode: 0444
+{{- end }}
+{{- end }}
+
 {{- define "flightctl.dbAppUserSecret" -}}
 {{- if eq .Values.db.type "external" }}
   {{- .Values.db.external.applicationUserSecretName }}

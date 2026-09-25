@@ -71,6 +71,8 @@ const (
 // Fleet annotation keys
 const (
 	FleetAnnotationTemplateVersion             = v1beta1.FleetAnnotationTemplateVersion
+	FleetAnnotationDeltaPrepareResourceVersion = v1beta1.FleetAnnotationDeltaPrepareResourceVersion
+	FleetAnnotationDeltaPrepareGeneration      = v1beta1.FleetAnnotationDeltaPrepareGeneration
 	FleetAnnotationDeployingTemplateVersion    = v1beta1.FleetAnnotationDeployingTemplateVersion
 	FleetAnnotationBatchNumber                 = v1beta1.FleetAnnotationBatchNumber
 	FleetAnnotationRolloutApproved             = v1beta1.FleetAnnotationRolloutApproved
@@ -96,6 +98,14 @@ const (
 	RepositoryAPIVersion = v1beta1.RepositoryAPIVersion
 	RepositoryKind       = v1beta1.RepositoryKind
 	RepositoryListKind   = v1beta1.RepositoryListKind
+)
+
+// ========== EnrollmentHookPolicy ==========
+
+const (
+	EnrollmentHookPolicyAPIVersion = v1beta1.EnrollmentHookPolicyAPIVersion
+	EnrollmentHookPolicyKind       = v1beta1.EnrollmentHookPolicyKind
+	EnrollmentHookPolicyListKind   = v1beta1.EnrollmentHookPolicyListKind
 )
 
 // ========== AuthProvider ==========
@@ -244,6 +254,17 @@ const (
 // ========== ResourceSync Reasons ==========
 
 const ResourceSyncNewHashDetectedReason = v1beta1.ResourceSyncNewHashDetectedReason
+
+// ========== EnrollmentHooks Condition Reasons ==========
+
+const (
+	EnrollmentHooksReasonNotifyPending  = v1beta1.EnrollmentHooksReasonNotifyPending
+	EnrollmentHooksReasonPending        = v1beta1.EnrollmentHooksReasonPending
+	EnrollmentHooksReasonFailed         = v1beta1.EnrollmentHooksReasonFailed
+	EnrollmentHooksReasonSucceeded      = v1beta1.EnrollmentHooksReasonSucceeded
+	EnrollmentHooksReasonContinued      = v1beta1.EnrollmentHooksReasonContinued
+	EnrollmentHooksReasonManualOverride = v1beta1.EnrollmentHooksReasonManualOverride
+)
 
 // ========== Device Text ==========
 

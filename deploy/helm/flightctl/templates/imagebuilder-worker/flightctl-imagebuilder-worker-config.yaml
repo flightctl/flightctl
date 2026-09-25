@@ -42,6 +42,8 @@ data:
         logLevel: {{ default "info" .Values.imageBuilderWorker.logLevel }}
         maxConcurrentBuilds: {{ default 2 .Values.imageBuilderWorker.maxConcurrentBuilds }}
         defaultTTL: {{ default "168h" .Values.imageBuilderWorker.defaultTTL }}
+        imageBuilderTimeout: {{ default "3m" .Values.imageBuilderWorker.imageBuilderTimeout }}
+        timeoutCheckTaskInterval: {{ default "1m" .Values.imageBuilderWorker.timeoutCheckTaskInterval }}
         {{- if .Values.imageBuilderWorker.rpmRepoUrl }}
         rpmRepoUrl: {{ .Values.imageBuilderWorker.rpmRepoUrl | quote }}
         {{- end }}
@@ -118,6 +120,9 @@ data:
     vulnerabilityReporting:
         enabled: true
         syncInterval: {{ $vuln.syncInterval | default "15m" | quote }}
+        {{- if $vuln.backend }}
+        backend: {{ $vuln.backend | quote }}
+        {{- end }}
         {{- if $vuln.trustify }}
         trustify:
             endpoint: {{ $trustify.endpoint | quote }}
@@ -127,6 +132,14 @@ data:
                 {{- if $auth.oidcIssuerUrl }}
                 oidcIssuerUrl: {{ $auth.oidcIssuerUrl | quote }}
                 {{- end }}
+            {{- end }}
+            {{- if $trustify.caCertConfigMapName }}
+            caFile: /etc/ssl/vulnerability/trustify/ca-cert.pem
+            {{- else if $trustify.caFile }}
+            caFile: {{ $trustify.caFile | quote }}
+            {{- end }}
+            {{- if $trustify.skipTlsVerify }}
+            skipTlsVerify: true
             {{- end }}
         {{- end }}
     {{- end }}

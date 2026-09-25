@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/config"
+	workerservice "github.com/flightctl/flightctl/internal/delta_worker/service"
+	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
 	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
 	"github.com/flightctl/flightctl/internal/kvstore"
@@ -77,13 +79,20 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	defer publisher.Close()
 
+	deltaPublisher, err := worker_client.DeltaQueuePublisher(ctx, s.queuesProvider)
+	if err != nil {
+		s.log.WithError(err).Error("failed to create delta queue publisher")
+		return err
+	}
+	defer deltaPublisher.Close()
+
 	kvStore, err := kvstore.NewKVStore(ctx, s.log, s.cfg.KV.Hostname, s.cfg.KV.Port, s.cfg.KV.Password)
 	if err != nil {
 		s.log.WithError(err).Error("failed to create kvStore")
 		return err
 	}
 
-	workerClient := worker_client.NewWorkerClient(publisher, s.log)
+	workerClient := worker_client.NewWorkerClient(publisher, s.log, worker_client.WithDeltaPublisher(deltaPublisher))
 	if err = rendered.Bus.Initialize(ctx, kvStore, s.queuesProvider, time.Duration(s.cfg.Service.RenderedWaitTimeout), s.log); err != nil {
 		s.log.WithError(err).Error("failed to create rendered version manager")
 		return err
@@ -103,6 +112,7 @@ func (s *Server) Run(ctx context.Context) error {
 	canaryStore := canarystore.NewCanaryStore(s.db, s.log.WithField("pkg", "canary-store"))
 	canarySvc := canaryservice.WrapWithTracing(canaryservice.NewServiceHandler(canaryStore))
 	catStore := catalogstore.NewCatalogStore(s.db, s.log.WithField("pkg", "catalog-store"))
+	deltaStore := deltastore.NewStore(s.db, s.log.WithField("pkg", "delta-store"))
 
 	eventsSvc := events.NewServiceHandler(eventStore, workerClient, s.log)
 
@@ -125,7 +135,24 @@ func (s *Server) Run(ctx context.Context) error {
 		s.log.WithField("pkg", "encryption-migration"),
 	)
 
-	if err = tasks.LaunchConsumers(ctx, s.queuesProvider, fleetSvc, templateVersionSvc, deviceSvc, dependencyrefSvc, repositorySvc, catalogSvc, eventSvc, s.k8sClient, kvStore, s.cfg, 1, 1, s.workerMetrics, encryptionMigrator, publisher); err != nil {
+	if err = tasks.LaunchConsumers(ctx, s.queuesProvider, tasks.TaskConsumer{
+		FleetSvc:           fleetSvc,
+		TemplateversionSvc: templateVersionSvc,
+		DeviceSvc:          deviceSvc,
+		DependencyrefSvc:   dependencyrefSvc,
+		RepositorySvc:      repositorySvc,
+		CatalogSvc:         catalogSvc,
+		EventSvc:           eventSvc,
+		K8sClient:          s.k8sClient,
+		KVStore:            kvStore,
+		Cfg:                s.cfg,
+		WorkerMetrics:      s.workerMetrics,
+		EncryptionMigrator: encryptionMigrator,
+		QueuePublisher:     publisher,
+		WorkerClient:       workerClient,
+		DeltaStore:         deltaStore,
+		Preparing:          workerservice.NewStorePreparingStatus(fleetStore, deviceStore),
+	}, 1, 1); err != nil {
 		s.log.WithError(err).Error("failed to launch consumers")
 		return err
 	}

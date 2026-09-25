@@ -40,6 +40,20 @@ func (m *MockManager) EXPECT() *MockManagerMockRecorder {
 	return m.recorder
 }
 
+// OnAfterEnrolling mocks base method.
+func (m *MockManager) OnAfterEnrolling(ctx context.Context, enrollCtx *EnrollmentContext) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OnAfterEnrolling", ctx, enrollCtx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// OnAfterEnrolling indicates an expected call of OnAfterEnrolling.
+func (mr *MockManagerMockRecorder) OnAfterEnrolling(ctx, enrollCtx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OnAfterEnrolling", reflect.TypeOf((*MockManager)(nil).OnAfterEnrolling), ctx, enrollCtx)
+}
+
 // OnAfterRebooting mocks base method.
 func (m *MockManager) OnAfterRebooting(ctx context.Context) error {
 	m.ctrl.T.Helper()
@@ -66,6 +80,20 @@ func (m *MockManager) OnAfterUpdating(ctx context.Context, current, desired *v1b
 func (mr *MockManagerMockRecorder) OnAfterUpdating(ctx, current, desired, systemRebooted any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OnAfterUpdating", reflect.TypeOf((*MockManager)(nil).OnAfterUpdating), ctx, current, desired, systemRebooted)
+}
+
+// OnBeforeEnrolling mocks base method.
+func (m *MockManager) OnBeforeEnrolling(ctx context.Context, enrollCtx *EnrollmentContext) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "OnBeforeEnrolling", ctx, enrollCtx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// OnBeforeEnrolling indicates an expected call of OnBeforeEnrolling.
+func (mr *MockManagerMockRecorder) OnBeforeEnrolling(ctx, enrollCtx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "OnBeforeEnrolling", reflect.TypeOf((*MockManager)(nil).OnBeforeEnrolling), ctx, enrollCtx)
 }
 
 // OnBeforeRebooting mocks base method.

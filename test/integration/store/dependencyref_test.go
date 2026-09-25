@@ -347,7 +347,7 @@ var _ = Describe("DependencyRefStore", func() {
 				Metadata:   domain.ObjectMeta{Name: lo.ToPtr(name)},
 				Spec:       spec,
 			}
-			_, err := repositoryStore.Create(ctx, orgId, repo, nil)
+			_, err := repositoryStore.Create(ctx, orgId, repo)
 			Expect(err).ToNot(HaveOccurred())
 		}
 

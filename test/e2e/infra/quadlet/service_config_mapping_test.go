@@ -33,6 +33,8 @@ imageBuilderWorker:
   logLevel: info
   maxConcurrentBuilds: 4
   defaultTTL: 168h
+  imageBuilderTimeout: 30m
+  timeoutCheckTaskInterval: 2m
   rpmRepoUrl: ""
   rpmRepoAdd: true
   rpmRepoEnable: ""
@@ -119,6 +121,8 @@ imagebuilderWorker:
   logLevel: info
   maxConcurrentBuilds: 2
   defaultTTL: 168h
+  imageBuilderTimeout: 30m
+  timeoutCheckTaskInterval: 2m
 telemetryGateway:
   forward:
     endpoint:
@@ -173,6 +177,8 @@ vulnerabilityReporting:
 					s, ok := section.(map[string]interface{})
 					require.True(t, ok)
 					assert.Equal(t, float64(6), s["maxConcurrentBuilds"])
+					assert.Equal(t, "30m", s["imageBuilderTimeout"])
+					assert.Equal(t, "2m", s["timeoutCheckTaskInterval"])
 				}
 			case infra.ServiceTelemetryGateway:
 				sectionKey = "telemetryGateway"
@@ -272,6 +278,8 @@ func TestApplyServiceConfigMappings_ImageBuilderWorker(t *testing.T) {
 	// YAML unmarshaling produces float64 for numbers
 	assert.Equal(t, float64(4), sub["maxConcurrentBuilds"])
 	assert.Equal(t, "168h", sub["defaultTTL"])
+	assert.Equal(t, "30m", sub["imageBuilderTimeout"])
+	assert.Equal(t, "2m", sub["timeoutCheckTaskInterval"])
 	assert.Equal(t, true, sub["rpmRepoAdd"])
 	serviceImages, ok := sub["serviceImages"].(map[string]interface{})
 	require.True(t, ok)
@@ -552,6 +560,7 @@ func TestEncryptionConfigSurvivesRender(t *testing.T) {
 	encryptionServices := []string{
 		"flightctl-api",
 		"flightctl-worker",
+		"flightctl-delta-worker",
 		"flightctl-periodic",
 		"flightctl-alert-exporter",
 		"flightctl-alertmanager-proxy",

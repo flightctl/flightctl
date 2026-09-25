@@ -17,14 +17,24 @@ type WorkerClient interface {
 	EmitEvent(ctx context.Context, orgId uuid.UUID, event *domain.Event)
 }
 
+// ReliableWorkerClient is implemented by the concrete client when callers
+// need to observe publication failures instead of only logging them.
+type ReliableWorkerClient interface {
+	WorkerClient
+	EmitEventWithError(ctx context.Context, orgId uuid.UUID, event *domain.Event) error
+}
+
 type EventWithOrgId struct {
 	OrgId uuid.UUID    `json:"orgId"`
 	Event domain.Event `json:"event"`
 }
 
+type ClientOption func(*workerClient)
+
 type workerClient struct {
-	publisher queues.QueueProducer
-	log       logrus.FieldLogger
+	publisher      queues.QueueProducer
+	deltaPublisher queues.QueueProducer
+	log            logrus.FieldLogger
 }
 
 func QueuePublisher(ctx context.Context, queuesProvider queues.Provider) (queues.QueueProducer, error) {
@@ -35,43 +45,89 @@ func QueuePublisher(ctx context.Context, queuesProvider queues.Provider) (queues
 	return publisher, nil
 }
 
-func NewWorkerClient(publisher queues.QueueProducer, log logrus.FieldLogger) WorkerClient {
-	return &workerClient{
-		publisher: publisher,
-		log:       log,
+// DeltaQueuePublisher returns a producer for the delta-generation task queue.
+func DeltaQueuePublisher(ctx context.Context, queuesProvider queues.Provider) (queues.QueueProducer, error) {
+	publisher, err := queuesProvider.NewQueueProducer(ctx, consts.DeltaGenerationTaskQueue)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create delta publisher: %w", err)
+	}
+	return publisher, nil
+}
+
+// WithDeltaPublisher configures a worker client to publish delta-generation events.
+func WithDeltaPublisher(p queues.QueueProducer) ClientOption {
+	return func(c *workerClient) {
+		c.deltaPublisher = p
 	}
 }
 
+func NewWorkerClient(publisher queues.QueueProducer, log logrus.FieldLogger, opts ...ClientOption) WorkerClient {
+	c := &workerClient{
+		publisher: publisher,
+		log:       log,
+	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
+}
+
 func (t *workerClient) EmitEvent(ctx context.Context, orgId uuid.UUID, event *domain.Event) {
+	if event != nil {
+		if _, isDelta := deltaEventReasons[event.Reason]; isDelta && t.deltaPublisher == nil {
+			t.log.WithFields(logrus.Fields{
+				"orgId":  orgId,
+				"reason": event.Reason,
+			}).Warn("delta-generation publisher is not configured; dropping event")
+			return
+		}
+	}
+	if err := t.EmitEventWithError(ctx, orgId, event); err != nil {
+		t.log.WithError(err).Error("failed to emit event for workers")
+	}
+}
+
+// EmitEventWithError publishes an event and returns queue or configuration
+// failures to callers that have a retryable path.
+func (t *workerClient) EmitEventWithError(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
 	if event == nil {
-		return
+		return nil
+	}
+	if _, isDelta := deltaEventReasons[event.Reason]; isDelta {
+		if t.deltaPublisher == nil {
+			return fmt.Errorf("delta-generation publisher is not configured for %s/%s", orgId, event.Reason)
+		}
+		return t.enqueueWithError(ctx, orgId, event, t.deltaPublisher)
 	}
 	if !shouldEmitEvent(event.Reason) {
-		return
+		return nil
 	}
+	return t.enqueueWithError(ctx, orgId, event, t.publisher)
+}
 
+func (t *workerClient) enqueueWithError(ctx context.Context, orgId uuid.UUID, event *domain.Event, producer queues.QueueProducer) error {
+	if producer == nil {
+		return fmt.Errorf("worker queue publisher is not configured")
+	}
 	b, err := json.Marshal(EventWithOrgId{
 		OrgId: orgId,
 		Event: *event,
 	})
 	if err != nil {
-		t.log.WithError(err).Error("failed to marshal event for workers")
-		return
+		return fmt.Errorf("failed to marshal event for workers: %w", err)
 	}
-	// Use creation timestamp if available, otherwise use current time
 	var timestamp int64
 	if event.Metadata.CreationTimestamp != nil {
 		timestamp = event.Metadata.CreationTimestamp.UnixMicro()
 	} else {
 		timestamp = time.Now().UnixMicro()
 	}
-
-	if err = t.publisher.Enqueue(ctx, b, timestamp); err != nil {
-		t.log.WithError(err).Error("failed to enqueue event for workers")
+	if err = producer.Enqueue(ctx, b, timestamp); err != nil {
+		return fmt.Errorf("failed to enqueue event for workers: %w", err)
 	}
+	return nil
 }
 
-// eventReasons contains all event reasons that should be sent to the workers
 var eventReasons = map[domain.EventReason]struct{}{
 	domain.EventReasonResourceCreated:             {},
 	domain.EventReasonResourceUpdated:             {},
@@ -84,6 +140,21 @@ var eventReasons = map[domain.EventReason]struct{}{
 	domain.EventReasonDeviceConflictResolved:      {},
 	domain.EventReasonDeviceDecommissioned:        {},
 	domain.EventReasonApplicationLifecycleChanged: {},
+	domain.EventReasonDeltaGenerationCompleted:    {},
+	domain.EventReasonEnrollmentRequestApproved:   {},
+}
+
+var deltaEventReasons = map[domain.EventReason]struct{}{
+	domain.EventReasonPrepareDeltas:           {},
+	domain.EventReasonGenerateDelta:           {},
+	domain.EventReasonDeltaGenerationComplete: {},
+	domain.EventReasonDeltaPrepareComplete:    {},
+}
+
+// IsDeltaGenerationQueueEvent reports whether reason belongs on DeltaGenerationTaskQueue.
+func IsDeltaGenerationQueueEvent(reason domain.EventReason) bool {
+	_, ok := deltaEventReasons[reason]
+	return ok
 }
 
 func shouldEmitEvent(reason domain.EventReason) bool {

@@ -20,9 +20,12 @@ import (
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	enrollmenthooknotifysecretsstore "github.com/flightctl/flightctl/internal/store/enrollmenthooknotifysecrets"
+	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -46,39 +49,33 @@ func newFakeEnrollmentRequestStore() *fakeEnrollmentRequestStore {
 
 func (f *fakeEnrollmentRequestStore) InitialMigration(ctx context.Context) error { return nil }
 
-func (f *fakeEnrollmentRequestStore) Create(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest, callbackEvent store.EventCallback) (*domain.EnrollmentRequest, error) {
+func (f *fakeEnrollmentRequestStore) Create(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest) (*domain.EnrollmentRequest, error) {
 	name := lo.FromPtr(req.Metadata.Name)
 	if _, exists := f.items[name]; exists {
 		return nil, flterrors.ErrDuplicateName
 	}
 	f.items[name] = req
-	if callbackEvent != nil {
-		callbackEvent(ctx, domain.EnrollmentRequestKind, orgId, name, nil, req, true, nil)
-	}
 	return req, nil
 }
 
-func (f *fakeEnrollmentRequestStore) Update(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest, callbackEvent store.EventCallback) (*domain.EnrollmentRequest, error) {
+func (f *fakeEnrollmentRequestStore) Update(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, error) {
 	name := lo.FromPtr(req.Metadata.Name)
 	old, exists := f.items[name]
 	if !exists {
-		return nil, flterrors.ErrResourceNotFound
+		return nil, nil, flterrors.ErrResourceNotFound
 	}
 	f.items[name] = req
-	if callbackEvent != nil {
-		callbackEvent(ctx, domain.EnrollmentRequestKind, orgId, name, old, req, false, nil)
-	}
-	return req, nil
+	return req, old, nil
 }
 
-func (f *fakeEnrollmentRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest, callbackEvent store.EventCallback) (*domain.EnrollmentRequest, bool, error) {
+func (f *fakeEnrollmentRequestStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, bool, error) {
 	name := lo.FromPtr(req.Metadata.Name)
 	if _, exists := f.items[name]; exists {
-		result, err := f.Update(ctx, orgId, req, callbackEvent)
-		return result, false, err
+		result, old, err := f.Update(ctx, orgId, req)
+		return result, old, false, err
 	}
-	result, err := f.Create(ctx, orgId, req, callbackEvent)
-	return result, true, err
+	result, err := f.Create(ctx, orgId, req)
+	return result, nil, true, err
 }
 
 func (f *fakeEnrollmentRequestStore) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.EnrollmentRequest, error) {
@@ -97,32 +94,26 @@ func (f *fakeEnrollmentRequestStore) List(ctx context.Context, orgId uuid.UUID, 
 	return &domain.EnrollmentRequestList{Items: items}, nil
 }
 
-func (f *fakeEnrollmentRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string, callbackEvent store.EventCallback) error {
+func (f *fakeEnrollmentRequestStore) Delete(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
 	if _, exists := f.items[name]; !exists {
-		return nil
+		return false, nil
 	}
 	delete(f.items, name)
-	if callbackEvent != nil {
-		callbackEvent(ctx, domain.EnrollmentRequestKind, orgId, name, nil, nil, false, nil)
-	}
-	return nil
+	return true, nil
 }
 
-func (f *fakeEnrollmentRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest, callbackEvent store.EventCallback) (*domain.EnrollmentRequest, error) {
+func (f *fakeEnrollmentRequestStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, req *domain.EnrollmentRequest) (*domain.EnrollmentRequest, *domain.EnrollmentRequest, error) {
 	name := lo.FromPtr(req.Metadata.Name)
-	if _, exists := f.items[name]; !exists {
-		return nil, flterrors.ErrResourceNotFound
+	old, exists := f.items[name]
+	if !exists {
+		return nil, nil, flterrors.ErrResourceNotFound
 	}
 	f.items[name] = req
-	if callbackEvent != nil {
-		callbackEvent(ctx, domain.EnrollmentRequestKind, orgId, name, nil, req, false, nil)
-	}
-	return req, nil
+	return req, old, nil
 }
 
-// fakeDeviceStore embeds devicestore.Store (nil) and overrides only Get and Create,
-// the methods this handler's allowCreationOrUpdate/deviceExists/createDeviceFromEnrollmentRequest
-// call sites use.
+// fakeDeviceStore embeds devicestore.Store (nil) and overrides Get/Create/CreateOrUpdate
+// used by allowCreationOrUpdate/deviceExists/createDeviceFromEnrollmentRequest.
 type fakeDeviceStore struct {
 	devicestore.Store
 	items map[string]*domain.Device
@@ -147,6 +138,35 @@ func (f *fakeDeviceStore) Create(ctx context.Context, orgId uuid.UUID, device *d
 	}
 	f.items[name] = device
 	return device, nil
+}
+
+func (f *fakeDeviceStore) WithTransaction(ctx context.Context, fn func(context.Context) error) error {
+	itemsBeforeTransaction := make(map[string]*domain.Device, len(f.items))
+	for name, device := range f.items {
+		itemsBeforeTransaction[name] = device
+	}
+	if err := fn(ctx); err != nil {
+		f.items = itemsBeforeTransaction
+		return err
+	}
+	return nil
+}
+
+func (f *fakeDeviceStore) CreateOrUpdate(ctx context.Context, orgId uuid.UUID, device *domain.Device, fieldsToUnset []string) (*domain.Device, *domain.Device, bool, error) {
+	name := lo.FromPtr(device.Metadata.Name)
+	existing := f.items[name]
+	created := existing == nil
+	f.items[name] = device
+	return device, existing, created, nil
+}
+
+type fakeNotifySecretsStore struct {
+	enrollmenthooknotifysecretsstore.Store
+	createBatchErr error
+}
+
+func (f *fakeNotifySecretsStore) CreateBatch(_ context.Context, _ uuid.UUID, _ []model.EnrollmentHookNotifySecret) error {
+	return f.createBatchErr
 }
 
 // fakeKVStore embeds kvstore.KVStore (nil) and overrides only SetNX, the sole method
@@ -207,7 +227,7 @@ func newTestHandler(t *testing.T) (*ServiceHandler, *fakeEnrollmentRequestStore,
 	ev := &fakeEventsService{}
 	caClient := newTestCA(t)
 	logger := logrus.New()
-	return NewServiceHandler(erStore, devStore, nil, caClient, kv, ev, logger, nil, "", ""), erStore, devStore, kv, ev
+	return NewServiceHandler(erStore, devStore, nil, caClient, kv, ev, logger, nil, "", "", nil, nil), erStore, devStore, kv, ev
 }
 
 func adminContext() context.Context {
@@ -717,8 +737,8 @@ func TestCreateDeviceFromEnrollmentRequestSystemInfo(t *testing.T) {
 // TestCreateDeviceFromEnrollmentRequestNeverManaged is a regression guard for the deviceOnlyStore
 // adapter's safety invariant: createDeviceFromEnrollmentRequest must never set Metadata.Owner on
 // the device it builds. deviceOnlyStore only overrides Device() on its embedded nil store.Store;
-// every other accessor (including Fleet()) panics if called. common.UpdateServiceSideStatus only
-// calls st.Fleet() when the device IsManaged() (i.e. has a non-nil Owner), so if this invariant
+// every other accessor panics if called. UpdateServiceSideStatus only calls fleet.Service.GetFleet
+// when the device IsManaged() (i.e. has a non-nil Owner), so if this invariant
 // were ever broken, this test would fail with a panic instead of a production nil-pointer panic.
 func TestCreateDeviceFromEnrollmentRequestNeverManaged(t *testing.T) {
 	h, _, fakeDevices, _, _ := newTestHandler(t)
@@ -739,4 +759,83 @@ func TestCreateDeviceFromEnrollmentRequestNeverManaged(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, device.Metadata.Owner)
 	require.False(t, device.IsManaged())
+}
+
+func TestCreateDeviceFromEnrollmentRequest(t *testing.T) {
+	t.Run("When a device with the same name already exists it should refuse overwrite", func(t *testing.T) {
+		h, _, fakeDevices, _, fakeEvents := newTestHandler(t)
+		ctx := context.Background()
+		orgId := uuid.New()
+		name := "existing-device"
+
+		existing := &domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+			Status:   lo.ToPtr(domain.NewDeviceStatus()),
+		}
+		existing.Status.Lifecycle.Status = "AlreadyEnrolled"
+		fakeDevices.items[name] = existing
+
+		er := &domain.EnrollmentRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+			Spec:     domain.EnrollmentRequestSpec{Csr: "TestCSR", DeviceStatus: lo.ToPtr(domain.NewDeviceStatus())},
+		}
+
+		err := h.createDeviceFromEnrollmentRequest(ctx, orgId, er)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "already exists and cannot be overwritten during enrollment request approval")
+
+		stored, getErr := fakeDevices.Get(ctx, orgId, name)
+		require.NoError(t, getErr)
+		require.Equal(t, domain.DeviceLifecycleStatusType("AlreadyEnrolled"), stored.Status.Lifecycle.Status)
+		require.Empty(t, fakeEvents.createdWithReason(domain.EventReasonResourceCreated))
+	})
+
+	t.Run("When the device does not exist it should create it and emit a created event", func(t *testing.T) {
+		h, _, fakeDevices, _, fakeEvents := newTestHandler(t)
+		ctx := context.Background()
+		orgId := uuid.New()
+		name := "new-device"
+
+		er := &domain.EnrollmentRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+			Spec:     domain.EnrollmentRequestSpec{Csr: "TestCSR", DeviceStatus: lo.ToPtr(domain.NewDeviceStatus())},
+		}
+
+		err := h.createDeviceFromEnrollmentRequest(ctx, orgId, er)
+		require.NoError(t, err)
+
+		stored, getErr := fakeDevices.Get(ctx, orgId, name)
+		require.NoError(t, getErr)
+		require.NotNil(t, stored)
+		require.Len(t, fakeEvents.createdWithReason(domain.EventReasonResourceCreated), 1)
+	})
+
+	t.Run("When notify secret persistence fails it should not create the device or emit an event", func(t *testing.T) {
+		h, _, fakeDevices, _, fakeEvents := newTestHandler(t)
+		ctx := context.Background()
+		orgId := uuid.New()
+		name := "notify-secret-failure"
+		h.ehPolicySvc = &fakePolicyService{policy: &domain.EnrollmentHookPolicy{
+			Spec: domain.EnrollmentHookPolicySpec{
+				AfterEnrolling: domain.EnrollmentHookStageSpec{
+					ControlPlaneActions: &[]domain.EnrollmentHookHttpAction{{
+						Url:  "https://hooks.example.com/notify",
+						Auth: &domain.EnrollmentHookAuth{BearerToken: lo.ToPtr("bearer-token")},
+					}},
+				},
+			},
+		}}
+		h.notifySecretsStore = &fakeNotifySecretsStore{createBatchErr: assert.AnError}
+
+		er := &domain.EnrollmentRequest{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
+			Spec:     domain.EnrollmentRequestSpec{Csr: "TestCSR", DeviceStatus: lo.ToPtr(domain.NewDeviceStatus())},
+		}
+
+		err := h.createDeviceFromEnrollmentRequest(ctx, orgId, er)
+		require.ErrorIs(t, err, assert.AnError)
+		_, getErr := fakeDevices.Get(ctx, orgId, name)
+		require.ErrorIs(t, getErr, flterrors.ErrResourceNotFound)
+		require.Empty(t, fakeEvents.createdWithReason(domain.EventReasonResourceCreated))
+	})
 }

@@ -695,8 +695,8 @@ The following table shows the application runtimes and formats supported by Flig
 
 | Specification                                                                                                      | Format            | Source / Delivery              |
 |--------------------------------------------------------------------------------------------------------------------|-------------------|--------------------------------|
-| Compose specification (via [`podman-compose`](https://github.com/containers/podman-compose))                       | OCI Image         | OCI registry                   |
-| Compose specification (via [`podman-compose`](https://github.com/containers/podman-compose))                       | Unpackaged Inline | Inline in device specification |
+| [Compose specification](https://github.com/compose-spec/compose-spec/blob/main/spec.md) (via a compose provider)  | OCI Image         | OCI registry                   |
+| [Compose specification](https://github.com/compose-spec/compose-spec/blob/main/spec.md) (via a compose provider)  | Unpackaged Inline | Inline in device specification |
 | Quadlet specification (via [Podman Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html)) | OCI Image         | OCI registry                   |
 | Quadlet specification (via [Podman Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html)) | Unpackaged Inline | Inline in device specification |
 | Simplified container specification                                                                                 | OCI Image         | OCI registry                   |
@@ -714,7 +714,14 @@ The following table shows the application runtimes and formats supported by Flig
 | Virtual machine definition | Unpackaged inline | Inline in device specification |
 
 > [!NOTE]
-> Compose applications require `podman-compose` to be installed on the device.
+> Compose applications require a compose provider to be installed on the device.
+> [`podman-compose`](https://github.com/containers/podman-compose) is recommended
+> and is the only provider validated by the Flight Control project.
+> The agent also accepts standalone
+> [`docker-compose`](https://github.com/docker/compose) v2 as an alternative
+> provider; `docker-compose` does not require Docker Engine and works through
+> the Podman compose interface. However, `docker-compose` is not tested or
+> supported by Flight Control.
 
 > [!NOTE]
 > `quadlet`, `container`, and `vm` applications require podman version 5.0 or above.
@@ -736,6 +743,8 @@ To deploy an application to a device, create a new entry in the "applications" s
 | Image     | A reference to an application package in an OCI registry.                                                                       |
 | AppType   | The application format type. Currently supported types: `compose`, `quadlet`, `container`, `helm`, `vm`.                       |
 | EnvVars   | (Optional) A list of key/value-pairs that will be passed to the deployment tool as environment variables or command line flags. |
+
+For requirements to run a supported application as a non-root user, see [Running applications as non-root](running-applications-as-non-root.md).
 
 For each application in the "applications" section of the device's specification, there exist a corresponding device status information that contains the following information:
 
@@ -816,7 +825,10 @@ To deploy a VM application, add an entry to the `applications` section of the de
 | `name` | Required. Application name. Must match `metadata.name` inside the `vm.yaml` file. |
 | `appType` | Must be `vm` for VM applications. |
 | `inline` | Required. Exactly one file named `vm.yaml`. The file must be a KubeVirt `VirtualMachine` manifest with `apiVersion: kubevirt.io/v1`, `kind: VirtualMachine`, and `metadata.name` matching the application name. |
+| `runAs` | Optional. The system user under which the VM application runs on the device. Defaults to the user running the agent, generally `root`. Before using a non-root user, see [Running applications as non-root](running-applications-as-non-root.md). |
 | `publishPorts` | Optional. List of host-to-guest port mappings. Each entry must use the format `"hostPort:guestPort"` or `"hostPort:guestPort/protocol"` (for example, `"8080:80"` or `"8080:80/tcp"`). |
+
+Published host ports are unique per device and protocol across VM, container, and inline Quadlet `.container` applications. The API rejects a configuration when two applications request the same host port for the same protocol; an omitted protocol is treated as TCP.
 
 > [!NOTE]
 > The control plane converts the `vm.yaml` manifest into Quadlet units before the agent deploys it. The agent does not run the KubeVirt manifest directly. You can configure a default virt-launcher image, optional per-OS images, and passt workarounds used for that conversion; see [Configuring VM application rendering](../installing/configuring-vm-render.md).
@@ -1421,22 +1433,17 @@ spec:
 ```
 
 > [!NOTE]
-> Inline compose applications can have at most two paths. The first should be named `podman-compose.yaml`, and the second (override) must be named `podman-compose.override.yaml`.
+> Inline compose applications can have at most two paths. The agent searches for a base file from `docker-compose.yaml`, `docker-compose.yml`, `podman-compose.yaml`, or `podman-compose.yml` (in that order). An optional override file follows the same naming convention (for example, `docker-compose.override.yaml` or `podman-compose.override.yaml`).
 
 ### Creating Quadlet Applications
 
 Quadlet applications use [Podman Quadlet](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html) to manage containers as native systemd services. This allows full integration with systemd's dependency management, restart policies, resource limits, and logging.
 
-We recommend running regular workloads under a rootless podman instance under the provided
-`flightctl` user's systemd instance on the agent machine. This user is automatically created when
-installing the `flightctl-agent` package. You do this by specifying the `runAs: flightctl` option in
-the application yaml config. If `runAs` is not specified, the application will run under the root
-podman and systemd instance.
-
-You may also provision your own user to run rootless applications under, but it is necessary to run
-`loginctl enable-linger <username>` to ensure the systemd instance for that user runs in the
-background without the user being logged in. Also, the user needs to have a home directory set and
-writable by that user.
+For Quadlet applications, `runAs` determines which Podman and systemd instances manage the
+generated Quadlet units. If `runAs` is omitted or set to `root`, the root Podman and systemd
+instances are used. If `runAs` selects a non-root user, that user's rootless Podman and user-level
+systemd instances are used. Before setting `runAs` to a non-root user, complete the [rootless
+application device configuration](running-applications-as-non-root.md).
 
 Reasons for running an application under the root podman include:
 
@@ -1445,11 +1452,6 @@ Reasons for running an application under the root podman include:
 - [Other limitations to be aware of](https://github.com/containers/podman/blob/main/rootless.md#shortcomings-of-rootless-podman)
 
 But many applications should not need access to the root podman instance.
-
-> [!NOTE]
-> If you want to set cpu limits on your rootless quadlet application, you might need to add
-> configuration to systemd to allow delegation of cpu cgroups to non-root users. See [this
-> troubleshooting guide for more details](https://github.com/containers/podman/blob/main/troubleshooting.md#26-running-containers-with-resource-limits-fails-with-a-permissions-error).
 
 #### Supported Quadlet File Types
 
@@ -1686,9 +1688,10 @@ applications, quadlet definitions are the recommended approach.
 * **Image** - Required - Reference to OCI runnable image
 * **RunAs** - Optional - This determines which container runtime the application will run under. By
   default it runs under the root podman/systemd instance. If set to a non-root user, it runs under a
-  rootless podman instance for that user.
+  rootless podman instance for that user. Before using a non-root user, see the
+  [`runAs` application prerequisites](running-applications-as-non-root.md).
 * **Environment Variables** - Optional - Variables to be injected into the running container
-* **Port Mappings** - Optional - Must be in the format `hostPort:containerPort`, with each port limited in the range of `1-65535`
+* **Port Mappings** - Optional - Must be in the format `hostPort:containerPort[/protocol]`, with each port limited in the range of `1-65535`. Published host ports are unique per device and protocol across VM, container, and inline Quadlet `.container` applications; an omitted protocol is treated as TCP.
 * **CPU Limits** - Optional - Positive decimal number (e.g., `"1.5"`, `"2"`, `"0.5"`)
 * **Memory Limits** - Optional - Number followed by optional unit - `b` (bytes), `k` (kibibytes), `m` (mebibytes), or `g` (gibibytes). Examples: `"512m"`, `"2g"`, `"1024k"`
 * **Named Volume Mounts** - Optional - Persistent volumes mounted within the container
@@ -1863,7 +1866,7 @@ The following are required on the device to support application volumes:
 
 **Compose Applications:**
 
-* `podman-compose` installed.
+* A compose provider installed. `podman-compose` is recommended; `docker-compose` v2 (standalone) is also accepted but is not validated by Flight Control.
 
 ## Using Device Lifecycle Hooks
 

@@ -74,8 +74,7 @@ var _ = Describe("Encryption key rotation", func() {
 			},
 			Spec: spec,
 		}
-		callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-		created, err := repositoryStore.Create(ctx, orgId, repo, callback)
+		created, err := repositoryStore.Create(ctx, orgId, repo)
 		Expect(err).ToNot(HaveOccurred())
 		return created
 	}
@@ -103,8 +102,7 @@ var _ = Describe("Encryption key rotation", func() {
 
 		repo, err := repositoryStore.Get(ctx, orgId, "rotation-test")
 		Expect(err).ToNot(HaveOccurred())
-		callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-		_, err = repositoryStore.Update(ctx, orgId, repo, callback)
+		_, _, err = repositoryStore.Update(ctx, orgId, repo)
 		Expect(err).ToNot(HaveOccurred())
 
 		rawAfter := readRawSpec("rotation-test")
@@ -165,8 +163,7 @@ var _ = Describe("Encryption key rotation", func() {
 
 		repo, err := repositoryStore.Get(ctx, orgId, "canary-test")
 		Expect(err).ToNot(HaveOccurred())
-		callback := store.EventCallback(func(context.Context, api.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {})
-		_, err = repositoryStore.Update(ctx, orgId, repo, callback)
+		_, _, err = repositoryStore.Update(ctx, orgId, repo)
 		Expect(err).ToNot(HaveOccurred())
 
 		newCanary, err := cs.Get(ctx, "v1", "rot-rotated")

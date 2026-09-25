@@ -127,6 +127,7 @@ rollbacks
 rollout
 redboot
 RunAs
+runAs
 post-mortem
 150s
 pre-rollback
@@ -432,6 +433,10 @@ CRI-O
  ImageContentSourcePolicy
  walkthrough
  arg
+ hardcoding
+ vendored
+ ulimits
+ ulimit
  - docs/user/references/cli-commands.md
 VNC
 stdin

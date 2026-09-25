@@ -50,6 +50,9 @@ const (
 	// lets systemd restart it (see agent.go's enrollment backoff). Matches the
 	// pre-config hardcoded Steps of 6.
 	DefaultEnrollmentVerifySteps = 6
+
+	// DefaultPreEnrollmentFailurePolicy is the default failure policy for pre-enrollment hooks.
+	DefaultPreEnrollmentFailurePolicy = "Continue"
 	// DefaultSystemInfoTimeout is the default timeout for collecting system info
 	DefaultSystemInfoTimeout = util.Duration(2 * time.Minute)
 	// MaxSystemInfoTimeout is the maximum timeout for collecting system info
@@ -185,6 +188,9 @@ type Config struct {
 	// SystemInfoTimeout is the timeout for collecting system info.
 	SystemInfoTimeout util.Duration `json:"system-info-timeout,omitempty"`
 
+	// SystemInfoPeriodic configures independent periodic systeminfo collection.
+	SystemInfoPeriodic SystemInfoPeriodicConfig `json:"system-info-periodic,omitempty"`
+
 	// PullTimeout is the max duration a single OCI target will try to pull.
 	PullTimeout util.Duration `json:"pull-timeout,omitempty"`
 
@@ -199,6 +205,9 @@ type Config struct {
 
 	// ImagePruning holds all image/artifact pruning-related configuration
 	ImagePruning ImagePruning `json:"image-pruning,omitempty"`
+
+	// Enrollment holds enrollment-related agent settings.
+	Enrollment EnrollmentConfig `json:"enrollment,omitempty"`
 
 	// Warnings collects non-fatal issues encountered during config loading
 	// (e.g., skipped drop-ins) so they can be surfaced in device status.
@@ -222,6 +231,26 @@ type ImagePruning struct {
 	// Enabled controls whether automatic pruning is enabled.
 	// Default: false
 	Enabled *bool `json:"enabled,omitempty"`
+}
+
+// PreEnrollmentConfig holds pre-enrollment hook behavior settings.
+type PreEnrollmentConfig struct {
+	// FailurePolicy controls behavior when BeforeEnrolling hooks fail.
+	// "Continue" (default): submit ER with preEnrollment.success=false.
+	// "Block": retry hooks with backoff (cap 5m); never submit ER until success.
+	FailurePolicy string `json:"failurePolicy,omitempty"`
+}
+
+// EnrollmentConfig groups enrollment-related agent settings.
+type EnrollmentConfig struct {
+	PreEnrollment PreEnrollmentConfig `json:"preEnrollment,omitempty"`
+}
+
+// SystemInfoPeriodicConfig configures periodic systeminfo collection.
+type SystemInfoPeriodicConfig struct {
+	// Interval is the collection interval for periodic systeminfo gathering.
+	// When zero or absent, the agent falls back to StatusUpdateInterval.
+	Interval util.Duration `json:"interval,omitempty"`
 }
 
 // DefaultSystemInfo defines the list of system information keys that are included
@@ -324,6 +353,16 @@ func (cfg *Config) GetManagementCertMetricsCallback() mgmtcertcommon.ManagementC
 	return cfg.managementCertMetricsCallback
 }
 
+// SystemInfoCollectionInterval returns the effective collection interval
+// for periodic systeminfo gathering. If system-info-periodic.interval is
+// configured, it is used; otherwise StatusUpdateInterval is the fallback.
+func (cfg *Config) SystemInfoCollectionInterval() util.Duration {
+	if cfg.SystemInfoPeriodic.Interval > 0 {
+		return cfg.SystemInfoPeriodic.Interval
+	}
+	return cfg.StatusUpdateInterval
+}
+
 // Complete fills in defaults for fields not set by the config file
 func (cfg *Config) Complete() error {
 	// If the enrollment service hasn't been specified, attempt using the default local dev env.
@@ -366,6 +405,14 @@ func (cfg *Config) Complete() error {
 	if cfg.StatusUpdateJitter == nil {
 		jitter := cfg.StatusUpdateInterval
 		cfg.StatusUpdateJitter = &jitter
+	}
+	if cfg.Enrollment.PreEnrollment.FailurePolicy == "" {
+		cfg.Enrollment.PreEnrollment.FailurePolicy = DefaultPreEnrollmentFailurePolicy
+	}
+	switch cfg.Enrollment.PreEnrollment.FailurePolicy {
+	case "Continue", "Block":
+	default:
+		return fmt.Errorf("invalid enrollment.preEnrollment.failurePolicy %q: must be Continue or Block", cfg.Enrollment.PreEnrollment.FailurePolicy)
 	}
 	return nil
 }
@@ -519,6 +566,9 @@ func (cfg *Config) validateSyncIntervals() error {
 	if cfg.StatusUpdateInterval < MinSyncInterval {
 		return fmt.Errorf("minimum status update interval is %s have %s", MinSyncInterval, cfg.StatusUpdateInterval)
 	}
+	if cfg.SystemInfoPeriodic.Interval != 0 && cfg.SystemInfoPeriodic.Interval < MinSyncInterval {
+		return fmt.Errorf("minimum system info periodic interval is %s have %s", MinSyncInterval, cfg.SystemInfoPeriodic.Interval)
+	}
 	if cfg.StatusUpdateJitter != nil && *cfg.StatusUpdateJitter < 0 {
 		return fmt.Errorf("status update jitter must be >= 0 have %s", *cfg.StatusUpdateJitter)
 	}
@@ -552,7 +602,10 @@ func (cfg *Config) LoadWithOverrides(configFile string) error {
 	entries, err := cfg.readWriter.ReadDir(confSubdir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return cfg.Complete()
+			if err := cfg.Complete(); err != nil {
+				return err
+			}
+			return cfg.Validate()
 		}
 		return err
 	}
@@ -611,6 +664,7 @@ func mergeConfigs(base, override *Config) {
 	overrideSliceIfNotNil(&base.SystemInfo, override.SystemInfo)
 	overrideSliceIfNotNil(&base.SystemInfoCustom, override.SystemInfoCustom)
 	overrideIfNotEmpty(&base.SystemInfoTimeout, override.SystemInfoTimeout)
+	overrideIfNotEmpty(&base.SystemInfoPeriodic.Interval, override.SystemInfoPeriodic.Interval)
 
 	// tpm
 	overrideIfNotEmpty(&base.TPM.Enabled, override.TPM.Enabled)
@@ -631,6 +685,9 @@ func mergeConfigs(base, override *Config) {
 	// Note: This means a dropin without a pruning section won't change the base value,
 	// but a dropin with image-pruning.enabled: false will override to false.
 	overrideIfNotEmpty(&base.ImagePruning.Enabled, override.ImagePruning.Enabled)
+
+	// enrollment
+	overrideIfNotEmpty(&base.Enrollment.PreEnrollment.FailurePolicy, override.Enrollment.PreEnrollment.FailurePolicy)
 
 	maps.Copy(base.DefaultLabels, override.DefaultLabels)
 	maps.Copy(base.LabelFromSystemInfo, override.LabelFromSystemInfo)

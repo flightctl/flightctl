@@ -69,6 +69,7 @@ choose_image() {
 # Override FlightCtl service images to use localhost registry with EL9 suffix and fallback support
 API_IMAGE=$(choose_image "localhost/flightctl-api-el9" "localhost/flightctl-api")
 WORKER_IMAGE=$(choose_image "localhost/flightctl-worker-el9" "localhost/flightctl-worker")
+DELTA_WORKER_IMAGE=$(choose_image "localhost/flightctl-delta-worker-el9" "localhost/flightctl-delta-worker")
 PERIODIC_IMAGE=$(choose_image "localhost/flightctl-periodic-el9" "localhost/flightctl-periodic")
 ALERT_EXPORTER_IMAGE=$(choose_image "localhost/flightctl-alert-exporter-el9" "localhost/flightctl-alert-exporter")
 ALERTMANAGER_PROXY_IMAGE=$(choose_image "localhost/flightctl-alertmanager-proxy-el9" "localhost/flightctl-alertmanager-proxy")
@@ -81,6 +82,7 @@ REMOTE_ACCESS_IMAGE=$(choose_image "localhost/flightctl-remote-access-el9" "loca
 
 SERVICE_IMAGE_ARGS="--set api.image.image=${API_IMAGE} --set api.image.tag=latest"
 SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set worker.image.image=${WORKER_IMAGE} --set worker.image.tag=latest"
+SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set deltaWorker.image.image=${DELTA_WORKER_IMAGE} --set deltaWorker.image.tag=latest"
 SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set periodic.image.image=${PERIODIC_IMAGE} --set periodic.image.tag=latest"
 SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set alertExporter.image.image=${ALERT_EXPORTER_IMAGE} --set alertExporter.image.tag=latest"
 SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set alertmanagerProxy.image.image=${ALERTMANAGER_PROXY_IMAGE} --set alertmanagerProxy.image.tag=latest"
@@ -100,8 +102,22 @@ kubectl create namespace flightctl-e2e      --context kind-kind 2>/dev/null || t
 # if we are only deploying the database, we don't need inject the server container
 if [ -z "$ONLY_DB" ]; then
 
-  for suffix in periodic api worker alert-exporter alertmanager-proxy cli-artifacts db-setup telemetry-gateway imagebuilder-api imagebuilder-worker remote-access ; do
-    kind_load_image localhost/flightctl-${suffix}-el9:latest
+  # Load the images choose_image selected (el9 or fallback)
+  for image in \
+    "${API_IMAGE}" \
+    "${WORKER_IMAGE}" \
+    "${DELTA_WORKER_IMAGE}" \
+    "${PERIODIC_IMAGE}" \
+    "${ALERT_EXPORTER_IMAGE}" \
+    "${ALERTMANAGER_PROXY_IMAGE}" \
+    "${CLI_ARTIFACTS_IMAGE}" \
+    "${DB_SETUP_IMAGE}" \
+    "${TELEMETRY_GATEWAY_IMAGE}" \
+    "${IMAGEBUILDER_API_IMAGE}" \
+    "${IMAGEBUILDER_WORKER_IMAGE}" \
+    "${REMOTE_ACCESS_IMAGE}"
+  do
+    kind_load_image "${image}:latest"
   done
 
   kind_load_image "${KV_IMAGE}:${KV_VERSION}" keep-tar
@@ -150,6 +166,11 @@ if [[ "$IP" == *":"* ]]; then
   BASE_DOMAIN="$(echo $IP | tr ':' '-').sslip.io"
 else
   BASE_DOMAIN="${IP}.nip.io"
+fi
+
+# In CI, set up local DNS to avoid flaky external nip.io lookups.
+if [[ "${GITHUB_ACTIONS:-}" == "true" ]] && [[ "$IP" != *":"* ]]; then
+  "${SCRIPT_DIR}/setup_local_dns.sh" "${IP}"
 fi
 
 helm upgrade --install --namespace flightctl-external \

@@ -209,6 +209,52 @@ var _ = Describe("FleetSelector", func() {
 	}
 
 	Context("FleetSelector", func() {
+		It("should reconcile fleet ownership when EnrollmentHooks changes from False to True", func() {
+			fleetName := "hooks-complete-fleet"
+			deviceName := "hooks-complete-device"
+			labels := map[string]string{"env": "prod"}
+			testutil.CreateTestFleet(ctx, fleetStore, orgId, fleetName, &labels, nil)
+			testutil.CreateTestDevice(ctx, deviceStore, orgId, deviceName, nil, nil, &labels)
+
+			status := deviceSvc.SetDeviceServiceConditions(ctx, orgId, deviceName, []api.Condition{{
+				Type:   api.ConditionTypeDeviceEnrollmentHooks,
+				Status: api.ConditionStatusFalse,
+				Reason: api.EnrollmentHooksReasonPending,
+			}})
+			Expect(status.Code).To(Equal(int32(200)))
+
+			status = deviceSvc.SetDeviceServiceConditions(ctx, orgId, deviceName, []api.Condition{{
+				Type:   api.ConditionTypeDeviceEnrollmentHooks,
+				Status: api.ConditionStatusTrue,
+				Reason: api.EnrollmentHooksReasonSucceeded,
+			}})
+			Expect(status.Code).To(Equal(int32(200)))
+
+			var gateClearedEvent *api.Event
+			deviceEvents := getEventsForResource(api.DeviceKind, deviceName)
+			for i := range deviceEvents {
+				event := &deviceEvents[i]
+				if event.Reason != api.EventReasonResourceUpdated || event.Details == nil {
+					continue
+				}
+				details, err := event.Details.AsResourceUpdatedDetails()
+				Expect(err).NotTo(HaveOccurred())
+				if lo.Contains(details.UpdatedFields, api.StatusConditionsEnrollmentHooks) {
+					gateClearedEvent = event
+					break
+				}
+			}
+			Expect(gateClearedEvent).NotTo(BeNil())
+
+			deviceLogic := tasks.NewFleetSelectorMatchingLogic(log, deviceSvc, fleetSvc, orgId, *gateClearedEvent)
+			deviceLogic.SetItemsPerPage(2)
+			Expect(deviceLogic.DeviceLabelsUpdated(ctx)).To(Succeed())
+
+			device, err := deviceStore.Get(ctx, orgId, deviceName)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(lo.FromPtr(device.Metadata.Owner)).To(Equal("Fleet/" + fleetName))
+		})
+
 		It("Fleet selector with event validation", func() {
 			testutil.CreateTestFleet(ctx, fleetStore, orgId, "fleet", &map[string]string{"key": "value"}, nil)
 			testutil.CreateTestFleet(ctx, fleetStore, orgId, "otherfleet", &map[string]string{"otherkey": "othervalue"}, nil)
@@ -352,7 +398,17 @@ var _ = Describe("FleetSelector", func() {
 			Expect(len(devices.Items)).To(Equal(7))
 			for _, device := range devices.Items {
 				condition := api.Condition{Type: api.ConditionTypeDeviceMultipleOwners, Status: api.ConditionStatusTrue, Message: "fleet2,fleet3"}
-				err = deviceStore.SetServiceConditions(ctx, orgId, *device.Metadata.Name, []api.Condition{condition}, nil)
+				_, _, _, err = deviceStore.Mutate(ctx, orgId, *device.Metadata.Name, nil, func(m *devicestore.DeviceMutation) error {
+					if err := m.RequireExisting(); err != nil {
+						return err
+					}
+					if m.Device.Status == nil {
+						st := api.NewDeviceStatus()
+						m.Device.Status = &st
+					}
+					api.SetStatusCondition(&m.Device.Status.Conditions, condition)
+					return nil
+				})
 				Expect(err).ToNot(HaveOccurred())
 			}
 
@@ -431,7 +487,17 @@ var _ = Describe("FleetSelector", func() {
 			noLabelsNoOwnerDevice := "nolabels-noowner"
 			testutil.CreateTestDevice(ctx, deviceStore, orgId, noLabelsNoOwnerDevice, nil, nil, &map[string]string{})
 			condition := api.Condition{Type: api.ConditionTypeDeviceMultipleOwners, Status: api.ConditionStatusTrue, Message: "fleet1,fleet2"}
-			err := deviceStore.SetServiceConditions(ctx, orgId, noLabelsNoOwnerDevice, []api.Condition{condition}, nil)
+			_, _, _, err := deviceStore.Mutate(ctx, orgId, noLabelsNoOwnerDevice, nil, func(m *devicestore.DeviceMutation) error {
+				if err := m.RequireExisting(); err != nil {
+					return err
+				}
+				if m.Device.Status == nil {
+					st := api.NewDeviceStatus()
+					m.Device.Status = &st
+				}
+				api.SetStatusCondition(&m.Device.Status.Conditions, condition)
+				return nil
+			})
 			Expect(err).ToNot(HaveOccurred())
 
 			listParams := devicestore.DeviceListParams{ListParams: store.ListParams{Limit: 0}}

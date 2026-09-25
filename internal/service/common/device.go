@@ -165,7 +165,11 @@ func updateServerSideLifecycleStatus(device *domain.Device) bool {
 	lastLifecycleStatus := device.Status.Lifecycle.Status
 	lastLifecycleInfo := device.Status.Lifecycle.Info
 
-	// check device-reported Conditions to see if lifecycle status needs update
+	// Decommissioned is a terminal state — no transitions allowed
+	if lastLifecycleStatus == domain.DeviceLifecycleStatusDecommissioned {
+		return false
+	}
+
 	condition := domain.FindStatusCondition(device.Status.Conditions, domain.ConditionTypeDeviceDecommissioning)
 	if condition == nil {
 		return false
@@ -176,22 +180,21 @@ func updateServerSideLifecycleStatus(device *domain.Device) bool {
 			Info:   lo.ToPtr("Device has errored while decommissioning"),
 			Status: domain.DeviceLifecycleStatusDecommissioned,
 		}
-	}
-
-	if condition.IsDecomComplete() {
+	} else if condition.IsDecomComplete() {
 		device.Status.Lifecycle = domain.DeviceLifecycleStatus{
 			Info:   lo.ToPtr("Device has completed decommissioning"),
 			Status: domain.DeviceLifecycleStatusDecommissioned,
 		}
-	}
-
-	if condition.IsDecomStarted() {
-		device.Status.Lifecycle = domain.DeviceLifecycleStatus{
-			Info:   lo.ToPtr("Device has acknowledged decommissioning request"),
-			Status: domain.DeviceLifecycleStatusDecommissioning,
+	} else if condition.IsDecomStarted() {
+		// Only allow transition to Decommissioning from a non-Decommissioning state
+		if lastLifecycleStatus != domain.DeviceLifecycleStatusDecommissioning {
+			device.Status.Lifecycle = domain.DeviceLifecycleStatus{
+				Info:   lo.ToPtr("Device has acknowledged decommissioning request"),
+				Status: domain.DeviceLifecycleStatusDecommissioning,
+			}
 		}
 	}
-	return device.Status.Lifecycle.Status != lastLifecycleStatus && device.Status.Lifecycle.Info != lastLifecycleInfo
+	return device.Status.Lifecycle.Status != lastLifecycleStatus || lo.FromPtr(device.Status.Lifecycle.Info) != lo.FromPtr(lastLifecycleInfo)
 }
 
 func updateServerSideDeviceUpdatedStatus(device *domain.Device, ctx context.Context, fleetStore fleetstore.Store, log logrus.FieldLogger, orgId uuid.UUID) bool {
@@ -312,6 +315,22 @@ func updateServerSideApplicationStatus(device *domain.Device) bool {
 	return device.Status.ApplicationsSummary.Status != lastApplicationSummaryStatus
 }
 
+func keepOSLastDeltaSize(device, dbDevice *domain.Device) {
+	dbLast := dbDevice.Status.Os.LastDelta
+	if dbLast == nil {
+		return
+	}
+	if device.Status.Os.LastDelta == nil {
+		copied := *dbLast
+		device.Status.Os.LastDelta = &copied
+		return
+	}
+	if device.Status.Os.LastDelta.Size != nil {
+		return
+	}
+	device.Status.Os.LastDelta.Size = dbLast.Size
+}
+
 // do not overwrite valid service-side statuses with placeholder device-side status
 func KeepDBDeviceStatus(device, dbDevice *domain.Device) {
 	if device.Status.Summary.Status == domain.DeviceSummaryStatusUnknown {
@@ -329,6 +348,7 @@ func KeepDBDeviceStatus(device, dbDevice *domain.Device) {
 	if device.Status.Integrity.Status == domain.DeviceIntegrityStatusUnknown {
 		device.Status.Integrity = dbDevice.Status.Integrity
 	}
+	keepOSLastDeltaSize(device, dbDevice)
 
 	// Preserve service-side statuses that should take precedence over agent-reported status
 	// These statuses are set by the service based on annotations and should not be overwritten
@@ -336,6 +356,11 @@ func KeepDBDeviceStatus(device, dbDevice *domain.Device) {
 		dbDevice.Status.Summary.Status == domain.DeviceSummaryStatusConflictPaused {
 		device.Status.Summary.Status = dbDevice.Status.Summary.Status
 		device.Status.Summary.Info = dbDevice.Status.Summary.Info
+	}
+
+	// Preserve server-owned enrollment hook snapshot; the agent never reports this field.
+	if dbDevice.Status.EnrollmentHooks != nil {
+		device.Status.EnrollmentHooks = dbDevice.Status.EnrollmentHooks
 	}
 }
 

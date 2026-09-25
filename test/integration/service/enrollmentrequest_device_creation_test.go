@@ -294,12 +294,49 @@ var _ = Describe("EnrollmentRequest Device Creation Unit Tests", func() {
 			Expect(device.Status.Capabilities).ToNot(BeNil())
 			Expect(device.Status.Capabilities.OsMode).ToNot(BeNil())
 			Expect(*device.Status.Capabilities.OsMode).To(Equal(api.OsModePackage))
+			Expect(device.Status.SystemInfo.DeltaEligible).To(BeNil())
+		})
+
+		It("When deltaEligible is false it should copy false onto the device", func() {
+			er := CreateTestER()
+			erName := lo.FromPtr(er.Metadata.Name)
+			ds := api.NewDeviceStatus()
+			ds.SystemInfo.DeltaEligible = lo.ToPtr(false)
+			er.Spec.OsMode = lo.ToPtr(api.OsModeImage)
+			er.Spec.DeviceStatus = &ds
+
+			By("creating enrollment request with deltaEligible=false")
+			created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+			Expect(created).ToNot(BeNil())
+
+			By("approving the enrollment request")
+			approval := api.EnrollmentRequestApproval{
+				Approved: true,
+				Labels:   &map[string]string{"approved": "true"},
+			}
+			_, st := suite.EnrollmentRequest.ApproveEnrollmentRequest(suite.Ctx, suite.OrgID, erName, approval)
+			Expect(st.Code).To(BeEquivalentTo(http.StatusOK))
+
+			By("verifying device systemInfo")
+			device, status := suite.Device.GetDevice(suite.Ctx, suite.OrgID, erName)
+			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+			Expect(device.Status.Capabilities).ToNot(BeNil())
+			Expect(device.Status.Capabilities.OsMode).ToNot(BeNil())
+			Expect(*device.Status.Capabilities.OsMode).To(Equal(api.OsModeImage))
+			Expect(device.Status.SystemInfo.DeltaEligible).ToNot(BeNil())
+			Expect(*device.Status.SystemInfo.DeltaEligible).To(BeFalse())
 		})
 
 		It("When osMode is image it should set device capabilities.osMode to image", func() {
 			er := CreateTestER()
 			erName := lo.FromPtr(er.Metadata.Name)
+			ds := api.NewDeviceStatus()
+			ds.SystemInfo.DeltaEligible = lo.ToPtr(true)
+			ds.SystemInfo.BootcVersion = lo.ToPtr("bootc 1.15.0")
+			ds.SystemInfo.OciDeltaVersion = lo.ToPtr("oci-delta 0.2.1")
 			er.Spec.OsMode = lo.ToPtr(api.OsModeImage)
+			er.Spec.DeviceStatus = &ds
 
 			By("creating enrollment request with osMode=image")
 			created, status := suite.EnrollmentRequest.CreateEnrollmentRequest(suite.Ctx, suite.OrgID, er)
@@ -320,6 +357,12 @@ var _ = Describe("EnrollmentRequest Device Creation Unit Tests", func() {
 			Expect(device.Status.Capabilities).ToNot(BeNil())
 			Expect(device.Status.Capabilities.OsMode).ToNot(BeNil())
 			Expect(*device.Status.Capabilities.OsMode).To(Equal(api.OsModeImage))
+			Expect(device.Status.SystemInfo.DeltaEligible).ToNot(BeNil())
+			Expect(*device.Status.SystemInfo.DeltaEligible).To(BeTrue())
+			Expect(device.Status.SystemInfo.BootcVersion).ToNot(BeNil())
+			Expect(*device.Status.SystemInfo.BootcVersion).To(Equal("bootc 1.15.0"))
+			Expect(device.Status.SystemInfo.OciDeltaVersion).ToNot(BeNil())
+			Expect(*device.Status.SystemInfo.OciDeltaVersion).To(Equal("oci-delta 0.2.1"))
 		})
 
 		It("When osMode is absent it should leave device capabilities nil", func() {

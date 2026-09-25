@@ -21,6 +21,7 @@ import (
 	coredomain "github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
+	"github.com/flightctl/flightctl/internal/oci"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/google/uuid"
@@ -78,16 +79,16 @@ func newImageExportWithImageBuildSource(name, imageBuildRef string) api.ImageExp
 	}
 }
 
-func setupRepositoriesForImageExport(repoStore *DummyRepositoryStore, ctx context.Context, orgId uuid.UUID, includeSource bool) {
+func setupRepositoriesForImageExport(t *testing.T, repoStore *DummyRepositoryStore, ctx context.Context, orgId uuid.UUID, includeSource bool) {
 	if includeSource {
 		// Create source repository (Read is fine for source)
-		sourceRepo := newOciRepository("source-registry", v1beta1.Read)
-		_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
+		sourceRepo := newOciRepository(t, "source-registry", v1beta1.Read)
+		requireRepositoryCreate(t, repoStore, ctx, orgId, sourceRepo)
 	}
 
 	// Create destination repository (must be ReadWrite)
-	destRepo := newOciRepository("output-registry", v1beta1.ReadWrite)
-	_, _ = repoStore.Create(ctx, orgId, destRepo, nil)
+	destRepo := newOciRepository(t, "output-registry", v1beta1.ReadWrite)
+	requireRepositoryCreate(t, repoStore, ctx, orgId, destRepo)
 }
 
 // setupImageBuildForExport creates the ImageBuild that newValidImageExport references
@@ -103,7 +104,7 @@ func TestCreateImageExport(t *testing.T) {
 
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
-	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	setupRepositoriesForImageBuild(t, repoStore, ctx, orgId)
 	imageBuildStore := NewDummyImageBuildStore()
 
 	// Create the ImageBuild that will be referenced
@@ -128,7 +129,7 @@ func TestCreateImageExportDuplicate(t *testing.T) {
 
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
-	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	setupRepositoriesForImageBuild(t, repoStore, ctx, orgId)
 	imageBuildStore := NewDummyImageBuildStore()
 
 	// Create the ImageBuild that will be referenced
@@ -158,7 +159,7 @@ func TestCreateImageExportMissingFormats(t *testing.T) {
 
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
-	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	setupRepositoriesForImageBuild(t, repoStore, ctx, orgId)
 	imageBuildStore := NewDummyImageBuildStore()
 
 	// Create the ImageBuild that will be referenced
@@ -183,7 +184,7 @@ func TestCreateImageExportWithImageBuildRef(t *testing.T) {
 
 	// Set up repositories (destination only, source comes from ImageBuild)
 	repoStore := NewDummyRepositoryStore()
-	setupRepositoriesForImageExport(repoStore, ctx, orgId, false)
+	setupRepositoriesForImageExport(t, repoStore, ctx, orgId, false)
 	svc := NewImageExportService(NewDummyImageExportStore(), imageBuildStore, repoStore, nil, nil, nil, config.NewDefaultImageBuilderServiceConfig(), log.InitLogs())
 
 	// First create the ImageBuild that will be referenced
@@ -220,7 +221,7 @@ func TestGetImageExport(t *testing.T) {
 
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
-	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	setupRepositoriesForImageBuild(t, repoStore, ctx, orgId)
 	imageBuildStore := NewDummyImageBuildStore()
 
 	// Create the ImageBuild that will be referenced
@@ -259,7 +260,7 @@ func TestListImageExports(t *testing.T) {
 
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
-	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	setupRepositoriesForImageBuild(t, repoStore, ctx, orgId)
 	imageBuildStore := NewDummyImageBuildStore()
 
 	// Create the ImageBuild that will be referenced
@@ -290,7 +291,7 @@ func TestListImageExportsWithLimit(t *testing.T) {
 
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
-	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	setupRepositoriesForImageBuild(t, repoStore, ctx, orgId)
 	imageBuildStore := NewDummyImageBuildStore()
 
 	// Create the ImageBuild that will be referenced
@@ -323,9 +324,9 @@ func newShortTimeoutConfig() *config.ImageBuilderServiceConfig {
 }
 
 // Helper to set up service with KVStore and short timeout for delete tests
-func setupDeleteTestService(ctx context.Context, orgId uuid.UUID, kvStore *DummyKVStore) (ImageExportService, *DummyImageExportStore, *DummyImageBuildStore) {
+func setupDeleteTestService(t *testing.T, ctx context.Context, orgId uuid.UUID, kvStore *DummyKVStore) (ImageExportService, *DummyImageExportStore, *DummyImageBuildStore) {
 	repoStore := NewDummyRepositoryStore()
-	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	setupRepositoriesForImageBuild(t, repoStore, ctx, orgId)
 	imageBuildStore := NewDummyImageBuildStore()
 	imageExportStore := NewDummyImageExportStore()
 
@@ -377,7 +378,7 @@ func TestDeleteImageExport_Pending_CancelSuccess(t *testing.T) {
 	orgId := uuid.New()
 
 	kvStore := NewDummyKVStore()
-	svc, _, _ := setupDeleteTestService(ctx, orgId, kvStore)
+	svc, _, _ := setupDeleteTestService(t, ctx, orgId, kvStore)
 
 	// Create ImageExport (starts in Pending state)
 	imageExport := newValidImageExport("delete-pending-success")
@@ -403,7 +404,7 @@ func TestDeleteImageExport_Converting_CancelSuccess(t *testing.T) {
 	orgId := uuid.New()
 
 	kvStore := NewDummyKVStore()
-	svc, imageExportStore, _ := setupDeleteTestService(ctx, orgId, kvStore)
+	svc, imageExportStore, _ := setupDeleteTestService(t, ctx, orgId, kvStore)
 
 	// Create ImageExport and set to Converting state
 	created := createImageExportWithStatus(ctx, svc, imageExportStore, orgId, "delete-converting-success", api.ImageExportConditionReasonConverting)
@@ -428,7 +429,7 @@ func TestDeleteImageExport_Pushing_CancelSuccess(t *testing.T) {
 	orgId := uuid.New()
 
 	kvStore := NewDummyKVStore()
-	svc, imageExportStore, _ := setupDeleteTestService(ctx, orgId, kvStore)
+	svc, imageExportStore, _ := setupDeleteTestService(t, ctx, orgId, kvStore)
 
 	// Create ImageExport and set to Pushing state
 	created := createImageExportWithStatus(ctx, svc, imageExportStore, orgId, "delete-pushing-success", api.ImageExportConditionReasonPushing)
@@ -453,7 +454,7 @@ func TestDeleteImageExport_CancelTimeout(t *testing.T) {
 	orgId := uuid.New()
 
 	kvStore := NewDummyKVStore()
-	svc, _, _ := setupDeleteTestService(ctx, orgId, kvStore)
+	svc, _, _ := setupDeleteTestService(t, ctx, orgId, kvStore)
 
 	// Create ImageExport (starts in Pending state - cancelable)
 	imageExport := newValidImageExport("delete-timeout")
@@ -484,7 +485,7 @@ func TestDeleteImageExport_Completed_NoCancelAttempt(t *testing.T) {
 	orgId := uuid.New()
 
 	kvStore := NewDummyKVStore()
-	svc, imageExportStore, _ := setupDeleteTestService(ctx, orgId, kvStore)
+	svc, imageExportStore, _ := setupDeleteTestService(t, ctx, orgId, kvStore)
 
 	// Create ImageExport and set to Completed state (not cancelable)
 	imageExport := newValidImageExport("delete-completed")
@@ -529,7 +530,7 @@ func TestDeleteImageExport_Failed_NoCancelAttempt(t *testing.T) {
 	orgId := uuid.New()
 
 	kvStore := NewDummyKVStore()
-	svc, imageExportStore, _ := setupDeleteTestService(ctx, orgId, kvStore)
+	svc, imageExportStore, _ := setupDeleteTestService(t, ctx, orgId, kvStore)
 
 	// Create ImageExport and set to Failed state (not cancelable)
 	created := createImageExportWithStatus(ctx, svc, imageExportStore, orgId, "delete-failed", api.ImageExportConditionReasonFailed)
@@ -556,7 +557,7 @@ func TestDeleteImageExport_Canceled_NoCancelAttempt(t *testing.T) {
 	orgId := uuid.New()
 
 	kvStore := NewDummyKVStore()
-	svc, imageExportStore, _ := setupDeleteTestService(ctx, orgId, kvStore)
+	svc, imageExportStore, _ := setupDeleteTestService(t, ctx, orgId, kvStore)
 
 	// Create ImageExport and set to Canceled state (not cancelable)
 	created := createImageExportWithStatus(ctx, svc, imageExportStore, orgId, "delete-canceled", api.ImageExportConditionReasonCanceled)
@@ -583,7 +584,7 @@ func TestDeleteImageExport_Canceling_NoCancelAttempt(t *testing.T) {
 	orgId := uuid.New()
 
 	kvStore := NewDummyKVStore()
-	svc, imageExportStore, _ := setupDeleteTestService(ctx, orgId, kvStore)
+	svc, imageExportStore, _ := setupDeleteTestService(t, ctx, orgId, kvStore)
 
 	// Create ImageExport and set to Canceling state (not cancelable - already canceling)
 	created := createImageExportWithStatus(ctx, svc, imageExportStore, orgId, "delete-canceling", api.ImageExportConditionReasonCanceling)
@@ -610,7 +611,7 @@ func TestDeleteImageExportNotFound(t *testing.T) {
 	orgId := uuid.New()
 
 	kvStore := NewDummyKVStore()
-	svc, _, _ := setupDeleteTestService(ctx, orgId, kvStore)
+	svc, _, _ := setupDeleteTestService(t, ctx, orgId, kvStore)
 
 	// Delete is idempotent - deleting non-existent resource returns success
 	status := svc.Delete(ctx, orgId, "nonexistent")
@@ -624,7 +625,7 @@ func TestUpdateImageExportStatus(t *testing.T) {
 
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
-	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	setupRepositoriesForImageBuild(t, repoStore, ctx, orgId)
 	imageBuildStore := NewDummyImageBuildStore()
 
 	// Create the ImageBuild that will be referenced
@@ -701,7 +702,7 @@ func TestDownloadImageExportNotReadyNoStatus(t *testing.T) {
 
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
-	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	setupRepositoriesForImageBuild(t, repoStore, ctx, orgId)
 	imageBuildStore := NewDummyImageBuildStore()
 	setupImageBuildForExport(imageBuildStore, ctx, orgId)
 	imageExportStore := NewDummyImageExportStore()
@@ -724,7 +725,7 @@ func TestDownloadImageExportNotReadyNoConditions(t *testing.T) {
 
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
-	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	setupRepositoriesForImageBuild(t, repoStore, ctx, orgId)
 	imageBuildStore := NewDummyImageBuildStore()
 	setupImageBuildForExport(imageBuildStore, ctx, orgId)
 	imageExportStore := NewDummyImageExportStore()
@@ -750,7 +751,7 @@ func TestDownloadImageExportNotReadyNoReadyCondition(t *testing.T) {
 
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
-	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	setupRepositoriesForImageBuild(t, repoStore, ctx, orgId)
 	imageBuildStore := NewDummyImageBuildStore()
 	setupImageBuildForExport(imageBuildStore, ctx, orgId)
 	imageExportStore := NewDummyImageExportStore()
@@ -784,7 +785,7 @@ func TestDownloadImageExportNotReadyFalseStatus(t *testing.T) {
 
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
-	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	setupRepositoriesForImageBuild(t, repoStore, ctx, orgId)
 	imageBuildStore := NewDummyImageBuildStore()
 	setupImageBuildForExport(imageBuildStore, ctx, orgId)
 	imageExportStore := NewDummyImageExportStore()
@@ -821,7 +822,7 @@ func TestDownloadImageExportMissingManifestDigest(t *testing.T) {
 
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
-	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	setupRepositoriesForImageBuild(t, repoStore, ctx, orgId)
 	imageBuildStore := NewDummyImageBuildStore()
 	setupImageBuildForExport(imageBuildStore, ctx, orgId)
 	imageExportStore := NewDummyImageExportStore()
@@ -856,7 +857,7 @@ func TestDownloadImageExportEmptyManifestDigest(t *testing.T) {
 
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
-	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	setupRepositoriesForImageBuild(t, repoStore, ctx, orgId)
 	imageBuildStore := NewDummyImageBuildStore()
 	setupImageBuildForExport(imageBuildStore, ctx, orgId)
 	imageExportStore := NewDummyImageExportStore()
@@ -892,8 +893,8 @@ func TestDownloadImageExportDestinationRepositoryNotFound(t *testing.T) {
 
 	// Set up repositories - don't create destination repository
 	repoStore := NewDummyRepositoryStore()
-	sourceRepo := newOciRepository("input-registry", v1beta1.Read)
-	_, _ = repoStore.Create(ctx, orgId, sourceRepo, nil)
+	sourceRepo := newOciRepository(t, "input-registry", v1beta1.Read)
+	requireRepositoryCreate(t, repoStore, ctx, orgId, sourceRepo)
 
 	// Create ImageBuild with destination repository that doesn't exist
 	imageBuildStore := NewDummyImageBuildStore()
@@ -915,6 +916,69 @@ func TestDownloadImageExportDestinationRepositoryNotFound(t *testing.T) {
 	require.True(errors.Is(err, ErrRepositoryNotFound))
 }
 
+func TestDownloadImageExportDestinationNamespaceRejected(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	repoStore := NewDummyRepositoryStore()
+	sourceRepo := newOciRepository(t, "input-registry", v1beta1.Read)
+	requireRepositoryCreate(t, repoStore, ctx, orgId, sourceRepo)
+	destRepo := newOciRepositoryCustom(t, "output-registry", v1beta1.ReadWrite, nil, lo.ToPtr("my-org"))
+	requireRepositoryCreate(t, repoStore, ctx, orgId, destRepo)
+
+	imageBuildStore := NewDummyImageBuildStore()
+	imageBuild := newValidImageBuild("test-image-build")
+	_, err := imageBuildStore.Create(ctx, orgId, &imageBuild)
+	require.NoError(err)
+
+	imageExportStore := NewDummyImageExportStore()
+	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, nil, config.NewDefaultImageBuilderServiceConfig(), log.InitLogs())
+
+	imageExport := newReadyImageExport("test-export", "sha256:abc123")
+	_, err = imageExportStore.Create(ctx, orgId, &imageExport)
+	require.NoError(err)
+
+	_, err = svc.Download(ctx, orgId, "test-export")
+	require.Error(err)
+	require.ErrorIs(err, ErrInvalidImageDest)
+	require.Contains(err.Error(), "namespace")
+}
+
+func TestDownloadImageExportDestinationRepositoryMismatchRejected(t *testing.T) {
+	require := require.New(t)
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	repoStore := NewDummyRepositoryStore()
+	sourceRepo := newOciRepository(t, "input-registry", v1beta1.Read)
+	requireRepositoryCreate(t, repoStore, ctx, orgId, sourceRepo)
+	destRepo := newOciRepositoryCustom(t, "output-registry", v1beta1.ReadWrite, lo.ToPtr("my-org/diffs"), nil)
+	requireRepositoryCreate(t, repoStore, ctx, orgId, destRepo)
+
+	imageBuildStore := NewDummyImageBuildStore()
+	imageBuild := newValidImageBuild("test-image-build")
+	_, err := imageBuildStore.Create(ctx, orgId, &imageBuild)
+	require.NoError(err)
+
+	imageExportStore := NewDummyImageExportStore()
+	svc := NewImageExportService(imageExportStore, imageBuildStore, repoStore, nil, nil, nil, config.NewDefaultImageBuilderServiceConfig(), log.InitLogs())
+
+	imageExport := newReadyImageExport("test-export", "sha256:abc123")
+	_, err = imageExportStore.Create(ctx, orgId, &imageExport)
+	require.NoError(err)
+
+	_, err = svc.Download(ctx, orgId, "test-export")
+	require.Error(err)
+	require.ErrorIs(err, ErrInvalidImageDest)
+	require.Contains(err.Error(), "imageName")
+}
+
+func TestImageExportRegistryOnlyDestRef(t *testing.T) {
+	require := require.New(t)
+	require.Equal("quay.io/output-image", oci.RepoDestRef("quay.io", "output-image"))
+}
+
 func TestDownloadImageExportInvalidManifestDigest(t *testing.T) {
 	require := require.New(t)
 	ctx := context.Background()
@@ -922,7 +986,7 @@ func TestDownloadImageExportInvalidManifestDigest(t *testing.T) {
 
 	// Set up repositories
 	repoStore := NewDummyRepositoryStore()
-	setupRepositoriesForImageBuild(repoStore, ctx, orgId)
+	setupRepositoriesForImageBuild(t, repoStore, ctx, orgId)
 	imageBuildStore := NewDummyImageBuildStore()
 
 	// Create the ImageBuild that will be referenced
@@ -1034,7 +1098,7 @@ func TestDownloadImageExportWithRedirect(t *testing.T) {
 	// Set up repositories pointing to test server
 	repoStore := NewDummyRepositoryStore()
 	destRepo := newOciRepositoryWithRegistry("output-registry", v1beta1.ReadWrite, registryHostname, &scheme, true)
-	_, err = repoStore.Create(ctx, orgId, destRepo, nil)
+	_, err = repoStore.Create(ctx, orgId, destRepo)
 	require.NoError(err)
 
 	// Create ImageBuild with destination
@@ -1129,7 +1193,7 @@ func TestDownloadImageExportWithBlobReader(t *testing.T) {
 	// Set up repositories pointing to test server
 	repoStore := NewDummyRepositoryStore()
 	destRepo := newOciRepositoryWithRegistry("output-registry", v1beta1.ReadWrite, registryHostname, &scheme, true)
-	_, err = repoStore.Create(ctx, orgId, destRepo, nil)
+	_, err = repoStore.Create(ctx, orgId, destRepo)
 	require.NoError(err)
 
 	// Create ImageBuild with destination
@@ -1224,7 +1288,7 @@ func TestDownloadImageExportManifestWrongLayerCount(t *testing.T) {
 	// Set up repositories pointing to test server
 	repoStore := NewDummyRepositoryStore()
 	destRepo := newOciRepositoryWithRegistry("output-registry", v1beta1.ReadWrite, registryHostname, &scheme, true)
-	_, err = repoStore.Create(ctx, orgId, destRepo, nil)
+	_, err = repoStore.Create(ctx, orgId, destRepo)
 	require.NoError(err)
 
 	// Create ImageBuild with destination
@@ -1777,7 +1841,7 @@ func TestDownloadImageExportWithBasicAuth(t *testing.T) {
 
 	repoStore := NewDummyRepositoryStore()
 	destRepo := newOciRepositoryWithRegistryAndAuth(t, "output-registry", v1beta1.ReadWrite, registryHostname, &scheme, true, username, password)
-	_, err = repoStore.Create(ctx, orgId, destRepo, nil)
+	_, err = repoStore.Create(ctx, orgId, destRepo)
 	require.NoError(err)
 
 	imageBuildStore := NewDummyImageBuildStore()
@@ -1872,7 +1936,7 @@ func TestDownloadImageExportWithBasicAuthWrongCredentials(t *testing.T) {
 
 	repoStore := NewDummyRepositoryStore()
 	destRepo := newOciRepositoryWithRegistryAndAuth(t, "output-registry", v1beta1.ReadWrite, registryHostname, &scheme, true, "wronguser", "wrongpass")
-	_, cerr := repoStore.Create(ctx, orgId, destRepo, nil)
+	_, cerr := repoStore.Create(ctx, orgId, destRepo)
 	require.NoError(cerr)
 
 	imageBuildStore := NewDummyImageBuildStore()
@@ -1992,7 +2056,7 @@ func TestDownloadImageExportWithBearerAuth(t *testing.T) {
 
 	repoStore := NewDummyRepositoryStore()
 	destRepo := newOciRepositoryWithRegistryAndAuth(t, "output-registry", v1beta1.ReadWrite, registryHostname, &scheme, true, username, password)
-	_, err = repoStore.Create(ctx, orgId, destRepo, nil)
+	_, err = repoStore.Create(ctx, orgId, destRepo)
 	require.NoError(err)
 
 	imageBuildStore := NewDummyImageBuildStore()

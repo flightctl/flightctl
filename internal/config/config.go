@@ -13,6 +13,7 @@ import (
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	authprovider "github.com/flightctl/flightctl/internal/auth/provider"
 	"github.com/flightctl/flightctl/internal/config/ca"
+	deltaconfig "github.com/flightctl/flightctl/internal/delta_worker/config"
 	"github.com/flightctl/flightctl/internal/org"
 	"github.com/flightctl/flightctl/internal/util"
 	"sigs.k8s.io/yaml"
@@ -23,27 +24,28 @@ const (
 )
 
 type Config struct {
-	Database               *dbConfig                  `json:"database,omitempty"`
-	Service                *svcConfig                 `json:"service,omitempty"`
-	RemoteAccessService    *RemoteAccessServiceConfig `json:"remoteAccessService,omitempty"`
-	ImageBuilderService    *ImageBuilderServiceConfig `json:"imageBuilderService,omitempty"`
-	ImageBuilderWorker     *imageBuilderWorkerConfig  `json:"imageBuilderWorker,omitempty"`
-	Worker                 *workerConfig              `json:"worker,omitempty"`
-	KV                     *kvConfig                  `json:"kv,omitempty"`
-	Alertmanager           *alertmanagerConfig        `json:"alertmanager,omitempty"`
-	Auth                   *authConfig                `json:"auth,omitempty"`
-	Metrics                *metricsConfig             `json:"metrics,omitempty"`
-	CA                     *ca.Config                 `json:"ca,omitempty"`
-	Tracing                *TracingConfig             `json:"tracing,omitempty"`
-	Profiling              *ProfilingConfig           `json:"profiling,omitempty"`
-	GitOps                 *gitOpsConfig              `json:"gitOps,omitempty"`
-	CryptoPolicy           *CryptoPolicyConfig        `json:"cryptoPolicy,omitempty"`
-	Periodic               *periodicConfig            `json:"periodic,omitempty"`
-	Organizations          *organizationsConfig       `json:"organizations,omitempty"`
-	TelemetryGateway       *telemetryGatewayConfig    `json:"telemetrygateway,omitempty"`
-	VulnerabilityReporting *VulnerabilityConfig       `json:"vulnerabilityReporting,omitempty"`
-	DependenciesSync       *DependenciesSyncConfig    `json:"dependenciesSync,omitempty"`
-	Encryption             *EncryptionConfig          `json:"encryption,omitempty"`
+	Database               *dbConfig                          `json:"database,omitempty"`
+	Service                *svcConfig                         `json:"service,omitempty"`
+	RemoteAccessService    *RemoteAccessServiceConfig         `json:"remoteAccessService,omitempty"`
+	ImageBuilderService    *ImageBuilderServiceConfig         `json:"imageBuilderService,omitempty"`
+	ImageBuilderWorker     *imageBuilderWorkerConfig          `json:"imageBuilderWorker,omitempty"`
+	Worker                 *workerConfig                      `json:"worker,omitempty"`
+	KV                     *kvConfig                          `json:"kv,omitempty"`
+	Alertmanager           *alertmanagerConfig                `json:"alertmanager,omitempty"`
+	Auth                   *authConfig                        `json:"auth,omitempty"`
+	Metrics                *metricsConfig                     `json:"metrics,omitempty"`
+	CA                     *ca.Config                         `json:"ca,omitempty"`
+	Tracing                *TracingConfig                     `json:"tracing,omitempty"`
+	Profiling              *ProfilingConfig                   `json:"profiling,omitempty"`
+	GitOps                 *gitOpsConfig                      `json:"gitOps,omitempty"`
+	CryptoPolicy           *CryptoPolicyConfig                `json:"cryptoPolicy,omitempty"`
+	Periodic               *periodicConfig                    `json:"periodic,omitempty"`
+	Organizations          *organizationsConfig               `json:"organizations,omitempty"`
+	TelemetryGateway       *telemetryGatewayConfig            `json:"telemetrygateway,omitempty"`
+	VulnerabilityReporting *VulnerabilityConfig               `json:"vulnerabilityReporting,omitempty"`
+	DeltaGeneration        *deltaconfig.DeltaGenerationConfig `json:"deltaGeneration,omitempty"`
+	DependenciesSync       *DependenciesSyncConfig            `json:"dependenciesSync,omitempty"`
+	Encryption             *EncryptionConfig                  `json:"encryption,omitempty"`
 }
 
 // CryptoPolicyConfig contains cryptographic policy configuration for all protocols.
@@ -229,7 +231,7 @@ type serviceImagesConfig struct {
 
 const (
 	defaultPodmanImage            = "quay.io/podman/stable:v5.7.1"
-	defaultBootcImageBuilderImage = "quay.io/centos-bootc/bootc-image-builder@sha256:773019f6b11766ca48170a4a7bf898be4268f3c2acfd0ec1db612408b3092a90"
+	defaultBootcImageBuilderImage = "ghcr.io/osbuild/bootc-image-builder@sha256:e7aadce6b3f5639cd47d83354791931ea219891a0d113c2fe74a0f0d352b165c"
 	defaultSyftImage              = "docker.io/anchore/syft:v1.44.0"
 )
 
@@ -407,9 +409,17 @@ func (c *imageBuilderWorkerConfig) EffectiveSyftSkipTLSVerify() bool {
 
 const DefaultVirtLauncherImage = "quay.io/kubevirt/virt-launcher:v1.9.0"
 
+// DefaultRenderTimeout is the default time budget for a single device render
+// operation (config + application rendering + DB writes). It replaces the
+// shared EventProcessingTimeout for render tasks so that devices with
+// multiple VM applications have enough time for sequential vm-to-quadlet
+// subprocess invocations.
+const DefaultRenderTimeout = 60 * time.Second
+
 // workerConfig holds configuration for the flightctl-worker service.
 type workerConfig struct {
-	VmRender *vmRenderConfig `json:"vmRender,omitempty"`
+	RenderTimeout util.Duration   `json:"renderTimeout,omitempty"`
+	VmRender      *vmRenderConfig `json:"vmRender,omitempty"`
 }
 
 // vmRenderConfig holds options for converting VmApplications to Quadlet units
@@ -449,6 +459,14 @@ func (c *Config) EffectiveVmPasstWorkarounds() bool {
 	return c.Worker.EffectivePasstWorkarounds()
 }
 
+// EffectiveRenderTimeout returns the time budget for a single device render operation.
+func (c *Config) EffectiveRenderTimeout() time.Duration {
+	if c == nil || c.Worker == nil {
+		return DefaultRenderTimeout
+	}
+	return c.Worker.EffectiveRenderTimeout()
+}
+
 // EffectiveLauncherImage returns the virt-launcher image for osKey.
 func (c *workerConfig) EffectiveLauncherImage(osKey string) string {
 	if c == nil || c.VmRender == nil {
@@ -471,6 +489,14 @@ func (c *workerConfig) EffectivePasstWorkarounds() bool {
 		return *c.VmRender.PasstWorkarounds
 	}
 	return false
+}
+
+// EffectiveRenderTimeout returns the configured render timeout for the worker.
+func (c *workerConfig) EffectiveRenderTimeout() time.Duration {
+	if c != nil && c.RenderTimeout > 0 {
+		return time.Duration(c.RenderTimeout)
+	}
+	return DefaultRenderTimeout
 }
 
 // IsSBOMEnabled returns whether SBOM generation is enabled.
@@ -793,7 +819,42 @@ type VulnerabilityBackend string
 const (
 	// VulnerabilityBackendTrustify selects the Trustify (TPA) backend.
 	VulnerabilityBackendTrustify VulnerabilityBackend = "trustify"
+	// VulnerabilityBackendQuay selects the Quay Security API backend.
+	VulnerabilityBackendQuay VulnerabilityBackend = "quay"
 )
+
+// ParseVulnerabilityBackend validates and returns the backend enum value for the
+// given string. Empty string is allowed (maps to empty VulnerabilityBackend).
+// Returns an error for unknown non-empty values.
+func ParseVulnerabilityBackend(s string) (VulnerabilityBackend, error) {
+	if s == "" {
+		return "", nil
+	}
+	switch VulnerabilityBackend(s) {
+	case VulnerabilityBackendTrustify, VulnerabilityBackendQuay:
+		return VulnerabilityBackend(s), nil
+	default:
+		return "", fmt.Errorf("unknown vulnerability backend %q (known: trustify, quay)", s)
+	}
+}
+
+// UnmarshalJSON validates the backend value during JSON deserialization.
+func (v *VulnerabilityBackend) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	parsed, err := ParseVulnerabilityBackend(s)
+	if err != nil {
+		return err
+	}
+	*v = parsed
+	return nil
+}
+
+// DefaultQuayMaxConcurrentRequests bounds concurrent Quay Security API requests
+// when the Quay config does not specify a value.
+const DefaultQuayMaxConcurrentRequests = 5
 
 // VulnerabilityConfig holds configuration for the vulnerability integration feature.
 type VulnerabilityConfig struct {
@@ -807,6 +868,56 @@ type VulnerabilityConfig struct {
 	Backend VulnerabilityBackend `json:"backend,omitempty"`
 	// Trustify holds the Trustify connection details (periodic service only).
 	Trustify *TrustifyConfig `json:"trustify,omitempty"`
+	// Quay holds the Quay Security API connection details (periodic service only).
+	Quay *QuayConfig `json:"quay,omitempty"`
+}
+
+// EffectiveBackend resolves the configured backend, applying the empty-backend
+// default so all callers share one rule: an explicit Backend is returned as-is;
+// an empty Backend falls back to Trustify when a Trustify config with a
+// non-empty endpoint is present; otherwise it returns an empty backend. It does
+// not log or mutate the config.
+func (v *VulnerabilityConfig) EffectiveBackend() VulnerabilityBackend {
+	if v == nil {
+		return ""
+	}
+	if v.Backend != "" {
+		return v.Backend
+	}
+	if v.Trustify != nil && strings.TrimSpace(v.Trustify.Endpoint) != "" {
+		return VulnerabilityBackendTrustify
+	}
+	return ""
+}
+
+// Validate checks the VulnerabilityConfig for invalid values and returns an
+// error if any are found.
+func (v *VulnerabilityConfig) Validate() error {
+	if v == nil {
+		return nil
+	}
+	if v.Quay != nil && v.Quay.MaxConcurrentRequests < 0 {
+		return fmt.Errorf("vulnerability.quay.maxConcurrentRequests must be non-negative, got %d", v.Quay.MaxConcurrentRequests)
+	}
+	return nil
+}
+
+// QuayConfig holds Quay Security API connection and authentication details.
+// Quay authenticates with a bearer token rather than OIDC client credentials.
+type QuayConfig struct {
+	// Endpoint is the Quay API base URL (e.g. "https://quay.io").
+	Endpoint string `json:"endpoint,omitempty"`
+	// Token is the bearer token used to authenticate to the Quay Security API.
+	Token api.SecureString `json:"token,omitempty"`
+	// MaxConcurrentRequests bounds concurrent Quay API requests.
+	// Defaults to DefaultQuayMaxConcurrentRequests when unset.
+	MaxConcurrentRequests int `json:"maxConcurrentRequests,omitempty"`
+	// CAFile is the path to a CA bundle for verifying the Quay server certificate.
+	// Optional. If unset, system roots are used.
+	CAFile string `json:"caFile,omitempty"`
+	// SkipTLSVerify disables TLS certificate verification (insecure, for lab/air-gap only).
+	// Defaults to false.
+	SkipTLSVerify bool `json:"skipTlsVerify,omitempty"`
 }
 
 // TrustifyConfig holds Trustify API connection and authentication details.
@@ -816,6 +927,12 @@ type TrustifyConfig struct {
 	Endpoint string `json:"endpoint,omitempty"`
 	// Auth configures how the periodic service authenticates to Trustify.
 	Auth *TrustifyAuthConfig `json:"auth,omitempty"`
+	// CAFile is the path to a CA bundle for verifying the Trustify server certificate.
+	// Optional. If unset, system roots are used.
+	CAFile string `json:"caFile,omitempty"`
+	// SkipTLSVerify disables TLS certificate verification (insecure, for lab/air-gap only).
+	// Defaults to false.
+	SkipTLSVerify bool `json:"skipTlsVerify,omitempty"`
 }
 
 // TrustifyAuthConfig configures authentication against the Trustify API.
@@ -854,6 +971,7 @@ type telemetryGatewayExport struct {
 
 type telemetryGatewayForward struct {
 	Endpoint string                      `json:"endpoint,omitempty"`
+	Headers  map[string]api.SecureString `json:"headers,omitempty"`
 	TLS      *telemetryGatewayForwardTLS `json:"tls,omitempty"`
 }
 
@@ -1148,8 +1266,15 @@ func Load(cfgFile string) (*Config, error) {
 	}
 
 	applyEnvVarOverrides(c)
+	applyVulnerabilityReportingDefaults(c)
 	if err := applyAuthDefaults(c); err != nil {
 		return nil, fmt.Errorf("applying auth defaults: %w", err)
+	}
+
+	if c.VulnerabilityReporting != nil {
+		if err := c.VulnerabilityReporting.Validate(); err != nil {
+			return nil, fmt.Errorf("invalid vulnerability configuration: %w", err)
+		}
 	}
 
 	return c, nil
@@ -1186,6 +1311,7 @@ func applyEnvVarOverrides(c *Config) {
 		c.Database.MigrationPassword = api.SecureString(dbMigrationPass)
 	}
 	applyVulnerabilityReportingEnvVarOverrides(c)
+	applyDeltaGenerationEnvVarOverrides(c)
 	// CRYPTO_FORCE_FIPS environment variable sets the global crypto policy FIPS mode.
 	// This overrides auto-detection and applies to all cryptographic protocols.
 	// Valid values: "true", "1" (enable), "false", "0" (disable)
@@ -1220,9 +1346,19 @@ func applyVulnerabilityReportingEnvVarOverrides(c *Config) {
 	trustifyOIDCIssuerURL := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_OIDC_ISSUER_URL")
 	trustifyClientID := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_CLIENT_ID")
 	trustifyClientSecret := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_CLIENT_SECRET")
+	trustifyCAFile := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_CA_FILE")
+	trustifySkipTLSVerify := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_SKIP_TLS_VERIFY")
+	quayEndpoint := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_QUAY_ENDPOINT")
+	quayToken := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_QUAY_TOKEN")
+	quayMaxConcurrent := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_QUAY_MAX_CONCURRENT_REQUESTS")
+	quayCAFile := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_QUAY_CA_FILE")
+	quaySkipTLSVerify := os.Getenv("FLIGHTCTL_VULNERABILITY_REPORTING_QUAY_SKIP_TLS_VERIFY")
 
 	if enabled == "" && syncInterval == "" && backend == "" && trustifyEndpoint == "" && trustifyAuthMode == "" &&
-		trustifyOIDCIssuerURL == "" && trustifyClientID == "" && trustifyClientSecret == "" {
+		trustifyOIDCIssuerURL == "" && trustifyClientID == "" && trustifyClientSecret == "" &&
+		trustifyCAFile == "" && trustifySkipTLSVerify == "" &&
+		quayEndpoint == "" && quayToken == "" && quayMaxConcurrent == "" &&
+		quayCAFile == "" && quaySkipTLSVerify == "" {
 		return
 	}
 
@@ -1231,7 +1367,12 @@ func applyVulnerabilityReportingEnvVarOverrides(c *Config) {
 	}
 
 	if backend != "" {
-		c.VulnerabilityReporting.Backend = VulnerabilityBackend(backend)
+		parsed, err := ParseVulnerabilityBackend(backend)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Invalid FLIGHTCTL_VULNERABILITY_REPORTING_BACKEND value %q: %v, ignoring\n", backend, err)
+		} else {
+			c.VulnerabilityReporting.Backend = parsed
+		}
 	}
 
 	switch enabled {
@@ -1253,11 +1394,82 @@ func applyVulnerabilityReportingEnvVarOverrides(c *Config) {
 		}
 	}
 
-	applyVulnerabilityReportingTrustifyEnvVarOverrides(c.VulnerabilityReporting, trustifyEndpoint, trustifyAuthMode, trustifyOIDCIssuerURL, trustifyClientID, trustifyClientSecret)
+	applyVulnerabilityReportingTrustifyEnvVarOverrides(c.VulnerabilityReporting, trustifyEndpoint, trustifyAuthMode, trustifyOIDCIssuerURL, trustifyClientID, trustifyClientSecret, trustifyCAFile, trustifySkipTLSVerify)
+	applyVulnerabilityReportingQuayEnvVarOverrides(c.VulnerabilityReporting, quayEndpoint, quayToken, quayMaxConcurrent, quayCAFile, quaySkipTLSVerify)
 }
 
-func applyVulnerabilityReportingTrustifyEnvVarOverrides(v *VulnerabilityConfig, endpoint, authMode, oidcIssuerURL, clientID, clientSecret string) {
-	if endpoint == "" && authMode == "" && oidcIssuerURL == "" && clientID == "" && clientSecret == "" {
+func applyVulnerabilityReportingQuayEnvVarOverrides(v *VulnerabilityConfig, endpoint, token, maxConcurrent, caFile, skipTLSVerify string) {
+	if endpoint == "" && token == "" && maxConcurrent == "" && caFile == "" && skipTLSVerify == "" {
+		return
+	}
+	if v.Quay == nil {
+		v.Quay = &QuayConfig{}
+	}
+	if endpoint != "" {
+		v.Quay.Endpoint = endpoint
+	}
+	if token != "" {
+		v.Quay.Token = api.SecureString(token)
+	}
+	if maxConcurrent != "" {
+		n, err := strconv.Atoi(maxConcurrent)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Invalid FLIGHTCTL_VULNERABILITY_REPORTING_QUAY_MAX_CONCURRENT_REQUESTS value %q: %v, ignoring\n", maxConcurrent, err)
+		} else if n < 0 {
+			fmt.Fprintf(os.Stderr, "Warning: FLIGHTCTL_VULNERABILITY_REPORTING_QUAY_MAX_CONCURRENT_REQUESTS must be non-negative, got %d, ignoring\n", n)
+		} else {
+			v.Quay.MaxConcurrentRequests = n
+		}
+	}
+	if caFile != "" {
+		v.Quay.CAFile = caFile
+	}
+	if skipTLSVerify != "" {
+		switch skipTLSVerify {
+		case "true", "1":
+			v.Quay.SkipTLSVerify = true
+		case "false", "0":
+			v.Quay.SkipTLSVerify = false
+		default:
+			fmt.Fprintf(os.Stderr, "Warning: Invalid FLIGHTCTL_VULNERABILITY_REPORTING_QUAY_SKIP_TLS_VERIFY value %q (expected: true/1/false/0), ignoring\n", skipTLSVerify)
+		}
+	}
+}
+
+// applyVulnerabilityReportingDefaults fills in defaults for vulnerability
+// reporting sub-configs that are present but under-specified.
+func applyVulnerabilityReportingDefaults(c *Config) {
+	v := c.VulnerabilityReporting
+	if v == nil || v.Quay == nil {
+		return
+	}
+	if v.Quay.MaxConcurrentRequests == 0 {
+		v.Quay.MaxConcurrentRequests = DefaultQuayMaxConcurrentRequests
+	}
+}
+
+func applyDeltaGenerationEnvVarOverrides(c *Config) {
+	username := os.Getenv("DELTA_GENERATION_DEFAULT_REPOSITORY_USERNAME")
+	password := os.Getenv("DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD")
+	if username == "" && password == "" {
+		return
+	}
+	if c.DeltaGeneration == nil {
+		c.DeltaGeneration = &deltaconfig.DeltaGenerationConfig{}
+	}
+	if c.DeltaGeneration.DefaultRepository == nil {
+		c.DeltaGeneration.DefaultRepository = &deltaconfig.DefaultRepositoryConfig{}
+	}
+	if username != "" {
+		c.DeltaGeneration.DefaultRepository.Username = username
+	}
+	if password != "" {
+		c.DeltaGeneration.DefaultRepository.Password = api.SecureString(password)
+	}
+}
+
+func applyVulnerabilityReportingTrustifyEnvVarOverrides(v *VulnerabilityConfig, endpoint, authMode, oidcIssuerURL, clientID, clientSecret, caFile, skipTLSVerify string) {
+	if endpoint == "" && authMode == "" && oidcIssuerURL == "" && clientID == "" && clientSecret == "" && caFile == "" && skipTLSVerify == "" {
 		return
 	}
 	if v.Trustify == nil {
@@ -1265,6 +1477,19 @@ func applyVulnerabilityReportingTrustifyEnvVarOverrides(v *VulnerabilityConfig, 
 	}
 	if endpoint != "" {
 		v.Trustify.Endpoint = endpoint
+	}
+	if caFile != "" {
+		v.Trustify.CAFile = caFile
+	}
+	if skipTLSVerify != "" {
+		switch skipTLSVerify {
+		case "true", "1":
+			v.Trustify.SkipTLSVerify = true
+		case "false", "0":
+			v.Trustify.SkipTLSVerify = false
+		default:
+			fmt.Fprintf(os.Stderr, "Warning: Invalid FLIGHTCTL_VULNERABILITY_REPORTING_TRUSTIFY_SKIP_TLS_VERIFY value %q (expected: true/1/false/0), ignoring\n", skipTLSVerify)
+		}
 	}
 	if authMode == "" && oidcIssuerURL == "" && clientID == "" && clientSecret == "" {
 		return
@@ -1507,10 +1732,12 @@ func Validate(cfg *Config) error {
 		}
 	}
 
-	if cfg.ImageBuilderWorker != nil {
-		if time.Duration(cfg.ImageBuilderWorker.TimeoutCheckTaskInterval) <= 0 {
-			return fmt.Errorf("imageBuilderWorker.timeoutCheckTaskInterval must be greater than 0")
-		}
+	if err := validateImageBuilderWorker(cfg.ImageBuilderWorker); err != nil {
+		return err
+	}
+
+	if err := validateDeltaGeneration(cfg); err != nil {
+		return err
 	}
 
 	// Validate OIDC and OAuth2 provider role assignments
@@ -1528,6 +1755,26 @@ func Validate(cfg *Config) error {
 	}
 
 	return nil
+}
+
+func validateImageBuilderWorker(cfg *imageBuilderWorkerConfig) error {
+	if cfg == nil {
+		return nil
+	}
+	if time.Duration(cfg.ImageBuilderTimeout) <= 0 {
+		return fmt.Errorf("imageBuilderWorker.imageBuilderTimeout must be greater than 0")
+	}
+	if time.Duration(cfg.TimeoutCheckTaskInterval) <= 0 {
+		return fmt.Errorf("imageBuilderWorker.timeoutCheckTaskInterval must be greater than 0")
+	}
+	return nil
+}
+
+func validateDeltaGeneration(cfg *Config) error {
+	if cfg == nil {
+		return nil
+	}
+	return cfg.DeltaGeneration.Validate()
 }
 
 func validateAuthProviderRoleAssignment(roleAssignment api.AuthRoleAssignment, providerType string) error {
@@ -1606,6 +1853,11 @@ func (cfg *Config) sanitizeForLogging() *Config {
 		if sanitized.Auth.PAMOIDCIssuer != nil && sanitized.Auth.PAMOIDCIssuer.ClientSecret != "" {
 			sanitized.Auth.PAMOIDCIssuer.ClientSecret = "[REDACTED]"
 		}
+	}
+
+	if sanitized.DeltaGeneration != nil && sanitized.DeltaGeneration.DefaultRepository != nil && sanitized.DeltaGeneration.DefaultRepository.CaCrt != nil {
+		redacted := "[REDACTED]"
+		sanitized.DeltaGeneration.DefaultRepository.CaCrt = &redacted
 	}
 
 	return &sanitized

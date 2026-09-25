@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"fmt"
-	stdexec "os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -175,9 +174,9 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// create os client
 	osClient := os.NewClient(a.log, exec)
-
-	osMode := os.DetectMode(stdexec.LookPath)
-	a.log.Infof("OS mode detected: %s", osMode)
+	caps := osClient.Capabilities(ctx)
+	a.log.Infof("OS mode detected: %s", caps.OsMode)
+	a.log.Infof("delta eligible: %t bootc=%q oci-delta=%q", caps.DeltaEligible, caps.BootcVersion, caps.OCIDeltaVersion)
 
 	// create podman client
 	podmanClientFactory := client.NewPodmanFactory(a.log, pollBackoff, rwFactory)
@@ -217,13 +216,8 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.config.SystemInfo,
 		a.config.SystemInfoCustom,
 		a.config.SystemInfoTimeout,
+		a.config.SystemInfoCollectionInterval(),
 	)
-	if err := systemInfoManager.Initialize(ctx); err != nil {
-		return err
-	}
-
-	// create shutdown manager
-	shutdownManager := shutdown.NewManager(a.log, rootSystemdClient, rootReadWriter, gracefulShutdownTimeout, cancel)
 
 	if tpmClient != nil {
 		systemInfoManager.RegisterCollector(ctx, systeminfocommon.TPMVendorInfoKey, tpmClient.VendorInfoCollector)
@@ -233,6 +227,12 @@ func (a *Agent) Run(ctx context.Context) error {
 			}
 		}()
 	}
+	if err := systemInfoManager.Initialize(ctx); err != nil {
+		return err
+	}
+
+	// create shutdown manager
+	shutdownManager := shutdown.NewManager(a.log, rootSystemdClient, rootReadWriter, gracefulShutdownTimeout, cancel)
 
 	reloadManager := reload.NewManager(a.configFile, a.log)
 
@@ -266,7 +266,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		policyManager,
 		rootReadWriter,
 		osClient,
-		osMode,
+		caps,
 		pollBackoff,
 		specFetchErrorBackoff,
 		deviceNotFoundHandler,
@@ -307,7 +307,22 @@ func (a *Agent) Run(ctx context.Context) error {
 	shutdownManager.Register("applications", applicationsManager.Shutdown)
 
 	// create os manager
-	osManager := os.NewManager(a.log, osClient, osMode, rootReadWriter, rootPodmanClient, pullConfigResolver)
+	rootSkopeoClient, err := skopeoClientFactory("")
+	if err != nil {
+		return fmt.Errorf("initialize root Skopeo client: %w", err)
+	}
+
+	osManager := os.NewManager(
+		a.log,
+		osClient,
+		caps,
+		rootReadWriter,
+		rootPodmanClient,
+		pullConfigResolver,
+		client.NewOCIDelta(a.log, exec, time.Duration(a.config.PullTimeout)),
+		rootSkopeoClient,
+		time.Duration(a.config.PullTimeout),
+	)
 
 	// create prefetch manager
 	prefetchManager := dependency.NewPrefetchManager(
@@ -339,10 +354,12 @@ func (a *Agent) Run(ctx context.Context) error {
 		csr,
 		a.config.DefaultLabels,
 		a.config.LabelFromSystemInfo,
-		osMode,
+		caps,
 		statusManager,
 		rootSystemdClient,
 		identityProvider,
+		hookManager,
+		a.config.Enrollment.PreEnrollment.FailurePolicy,
 		backoff,
 		a.log,
 	)
@@ -361,6 +378,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	// create config controller
 	configController := config.NewController(
 		rootReadWriter,
+		a.config.DataDir,
 		a.log,
 	)
 
@@ -471,10 +489,13 @@ func (a *Agent) Run(ctx context.Context) error {
 		prefetchManager,
 		pullConfigResolver,
 		pruningManager,
-		osMode,
+		caps,
 		backoff,
 		a.log,
 	)
+
+	// fetch system info for runtime collectors that were registered post bootstrap
+	systemInfoManager.RefreshRuntimeCollectors(ctx)
 
 	// register reloader with reload manager
 	reloadManager.Register(agent.ReloadConfig)
@@ -493,6 +514,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	startAsync(reloadManager.Run)
 	startAsync(resourceManager.Run)
 	startAsync(prefetchManager.Run)
+	startAsync(systemInfoManager.Run)
 	appConsoleWatcher := specManager.Watch()
 	startAsync(consoleManager.Run)
 	startAsync(func(ctx context.Context) { applicationsManager.RunConsole(ctx, appConsoleWatcher) })

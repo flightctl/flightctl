@@ -123,6 +123,30 @@ auth:
 vulnerabilityReporting:
   enabled: true
 {{- end}}
+{{- with .deltaGeneration }}
+{{- with .defaultRepository }}
+{{- if .registry }}
+deltaGeneration:
+  defaultRepository:
+    registry: {{ printf "%q" .registry }}
+    {{- if .repository }}
+    repository: {{ printf "%q" .repository }}
+    {{- end }}
+    {{- if .namespace }}
+    namespace: {{ printf "%q" .namespace }}
+    {{- end }}
+    {{- if .scheme }}
+    scheme: {{ printf "%q" .scheme }}
+    {{- end }}
+    {{- if .skipServerVerification }}
+    skipServerVerification: true
+    {{- end }}
+    {{- if .caCrt }}
+    ca.crt: {{ printf "%q" .caCrt }}
+    {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
 
 {{- with .profiling }}
 {{- $pprof := .pprof }}

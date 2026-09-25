@@ -24,7 +24,7 @@ VERBOSE ?= false
 
 SOURCE_GIT_TAG ?=$(shell $(ROOT_DIR)/hack/current-version)
 SOURCE_GIT_TREE_STATE ?=$(shell ( ( [ ! -d "$(ROOT_DIR)/.git/" ] || git -C $(ROOT_DIR) diff --quiet ) && echo 'clean' ) || echo 'dirty')
-SOURCE_GIT_COMMIT ?=$(shell git -C $(ROOT_DIR) rev-parse --short "HEAD^{commit}" 2>/dev/null || echo "unknown")
+SOURCE_GIT_COMMIT ?=$(shell (git -C $(ROOT_DIR) rev-parse "HEAD^{commit}" 2>/dev/null || echo "unknown") | cut -c1-9)
 BIN_TIMESTAMP ?=$(shell date +'%Y%m%d')
 SOURCE_GIT_TAG_NO_V = $(shell echo $(SOURCE_GIT_TAG) | sed 's/^v//')
 MAJOR = $(shell echo $(SOURCE_GIT_TAG_NO_V) | awk -F'[._~-]' '{print $$1}')
@@ -102,6 +102,7 @@ help:
 	@echo "    start-trustify:  start E2E Trustify (vulnerability scanner) containers"
 	@echo "    start-aux: start all E2E aux containers (registry, git-server, prometheus)"
 	@echo "    rebuild-containers: force rebuild all containers"
+	@echo "    fips-validate:     validate FIPS compliance of built container images"
 	@echo "    bundle-containers: bundle all flightctl containers into tar archive"
 	@echo "    cluster:         create a kind cluster and load the flightctl-server image"
 	@echo "    clean-cluster:   kill the kind cluster only"
@@ -141,6 +142,7 @@ build: bin build-cli build-pam-issuer
 		./cmd/flightctl-periodic \
 		./cmd/flightctl-remote-access \
 		./cmd/flightctl-worker \
+		./cmd/flightctl-delta-worker \
 		./cmd/flightctl-alert-exporter \
 		./cmd/flightctl-alertmanager-proxy \
 		./cmd/flightctl-userinfo-proxy \
@@ -184,6 +186,16 @@ build-backup: bin
 
 build-worker: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-worker
+
+build-delta-worker: bin
+	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-delta-worker
+
+# libostree requires CGO; tags match the oci-delta RPM (skip unused graph-driver headers).
+OCI_DELTA_REF ?= 45baae628ce3fa5fa2071a702426487dcf1f5e0b
+OCI_DELTA_TAGS ?= exclude_graphdriver_aufs exclude_graphdriver_btrfs exclude_graphdriver_zfs
+
+install-oci-delta: bin
+	$(GOENV) CGO_ENABLED=1 GOOS=$(GOOS) GOARCH=$(GOARCH) GOBIN=$(GOBIN) go install -tags "$(OCI_DELTA_TAGS)" github.com/containers/oci-delta@$(OCI_DELTA_REF)
 
 build-periodic: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-periodic
@@ -264,6 +276,13 @@ flightctl-worker-container: packaging/images/$(OS)/Containerfile.worker go.mod g
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
 		-f packaging/images/$(OS)/Containerfile.worker -t flightctl-worker-$(OS):latest -t quay.io/flightctl/flightctl-worker-$(OS):$(SOURCE_GIT_TAG) .
 
+flightctl-delta-worker-container: packaging/images/$(OS)/Containerfile.delta-worker go.mod go.sum $(GO_FILES)
+	podman build \
+		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
+		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
+		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
+		-f packaging/images/$(OS)/Containerfile.delta-worker -t flightctl-delta-worker-$(OS):latest -t quay.io/flightctl/flightctl-delta-worker-$(OS):$(SOURCE_GIT_TAG) .
+
 flightctl-periodic-container: packaging/images/$(OS)/Containerfile.periodic go.mod go.sum $(GO_FILES)
 	podman build \
 		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
@@ -327,7 +346,7 @@ flightctl-remote-access-container: packaging/images/$(OS)/Containerfile.remote-a
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
 		-f packaging/images/$(OS)/Containerfile.remote-access -t flightctl-remote-access-$(OS):latest -t quay.io/flightctl/flightctl-remote-access-$(OS):$(SOURCE_GIT_TAG) .
 
-.PHONY: flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container flightctl-imagebuilder-api-container flightctl-imagebuilder-worker-container flightctl-remote-access-container
+.PHONY: flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-delta-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container flightctl-imagebuilder-api-container flightctl-imagebuilder-worker-container flightctl-remote-access-container
 
 # --- Registry Operations ---
 # The login target expects REGISTRY_USER via environment variable and
@@ -348,6 +367,7 @@ push-containers: login
 	podman push flightctl-pam-issuer:latest
 	podman push flightctl-db-setup:latest
 	podman push flightctl-worker:latest
+	podman push flightctl-delta-worker-$(OS):latest
 	podman push flightctl-periodic:latest
 	podman push flightctl-alert-exporter:latest
 	podman push flightctl-alertmanager-proxy:latest
@@ -369,12 +389,58 @@ rebuild-containers: clean-containers build-containers
 clean-containers:
 	- podman images --filter "reference=flightctl-*-$(OS):latest" --format "{{.Repository}}:{{.Tag}}" | xargs -r podman rmi || true
 
-build-containers: flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container flightctl-imagebuilder-api-container flightctl-imagebuilder-worker-container flightctl-remote-access-container
+build-containers: flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-delta-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container flightctl-imagebuilder-api-container flightctl-imagebuilder-worker-container flightctl-remote-access-container
 
 bundle-containers:
 	test/scripts/agent-images/scripts/bundle.sh \
 		--image-pattern 'quay.io/flightctl/.*-$(OS):$(SOURCE_GIT_TAG)' \
 		--output-path 'flightctl-images-bundle.tar'
+
+# FIPS compliance validation — validates container images for FIPS-compliant crypto.
+# Requires: fips-validator (go install github.com/flightctl/fips-validator@latest)
+# Usage:
+#   make build-containers && make fips-validate           # local validation
+#   make fips-validate FIPS_IMAGE_PATTERN='custom-.*:tag' # custom pattern
+FIPS_IMAGE_PATTERN ?= flightctl-.*-$(OS):latest
+
+.PHONY: fips-validate
+fips-validate:
+	@validator_path="$$(command -v fips-validator 2>/dev/null || true)"; \
+	if [ -z "$$validator_path" ]; then \
+		for d in "$$(go env GOBIN 2>/dev/null)" "$$(go env GOPATH 2>/dev/null)/bin" "$$HOME/go/bin"; do \
+			if [ -n "$$d" ] && [ -x "$$d/fips-validator" ]; then validator_path="$$d/fips-validator"; break; fi; \
+		done; \
+	fi; \
+	if [ -z "$$validator_path" ]; then \
+		echo "ERROR: fips-validator not found. Install with: go install github.com/flightctl/fips-validator@latest"; \
+		exit 1; \
+	fi; \
+	echo "Using fips-validator: $$validator_path"; \
+	echo "Validating FIPS compliance for images matching: $(FIPS_IMAGE_PATTERN)"; \
+	failed=0; \
+	images=$$(podman images --format '{{.Repository}}:{{.Tag}}' | grep '$(FIPS_IMAGE_PATTERN)'); \
+	if [ -z "$$images" ]; then \
+		echo "ERROR: No images found matching pattern: $(FIPS_IMAGE_PATTERN)"; \
+		echo "Available images:"; \
+		podman images --format '{{.Repository}}:{{.Tag}}' | grep -i flightctl || echo "  (none)"; \
+		exit 1; \
+	fi; \
+	count=0; \
+	for img in $$images; do \
+		count=$$((count + 1)); \
+		echo "--- Validating FIPS: $$img ---"; \
+		if podman unshare -- "$$validator_path" image "$$img"; then \
+			echo "PASS: $$img"; \
+		else \
+			echo "FAIL: $$img"; \
+			failed=1; \
+		fi; \
+	done; \
+	if [ "$$failed" -ne 0 ]; then \
+		echo "ERROR: One or more images failed FIPS validation"; \
+		exit 1; \
+	fi; \
+	echo "All $$count images passed FIPS validation"
 
 .PHONY: build-containers bundle-containers build-cli build-multiarch-clis
 
@@ -398,7 +464,7 @@ bin/.rpm: $(shell find $(ROOT_DIR)/ -name "*.go" -not -path "$(ROOT_DIR)/packagi
 
 rpm: bin/.rpm
 
-.PHONY: rpm build build-api build-pam-issuer build-periodic build-worker build-alert-exporter build-alertmanager-proxy build-userinfo-proxy build-standalone build-imagebuilder-api build-imagebuilder-worker build-remote-access generate-mirror-embed build-mirror-images
+.PHONY: rpm build build-api build-pam-issuer build-periodic build-worker build-delta-worker install-oci-delta build-alert-exporter build-alertmanager-proxy build-userinfo-proxy build-standalone build-imagebuilder-api build-imagebuilder-worker build-remote-access generate-mirror-embed build-mirror-images
 
 # cross-building for deb pkg
 bin/amd64:
@@ -447,7 +513,7 @@ clean-quadlets:
 	sudo deploy/scripts/clean_quadlets.sh
 
 
-.PHONY: tools flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container flightctl-remote-access-container
+.PHONY: tools flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-delta-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container flightctl-remote-access-container
 
 # Use custom golangci-lint container with libvirt support
 LINT_IMAGE := flightctl-lint:latest

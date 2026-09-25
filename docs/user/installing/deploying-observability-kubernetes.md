@@ -215,7 +215,7 @@ Procedure:
     EOF
     ```
 
-4. Create a `NetworkPolicy` to allow the Grafana Operator to access the Grafana instance:
+4. Create a `NetworkPolicy` that allows the Grafana Operator and the OpenShift ingress router to reach Grafana:
 
     ```console
     oc create -f - <<EOF
@@ -235,11 +235,16 @@ Procedure:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: openshift-operators
+        - namespaceSelector:
+            matchLabels:
+              policy-group.network.openshift.io/ingress: ""
         ports:
           - protocol: TCP
             port: 3000
     EOF
     ```
+
+    The Flight Control Helm chart restricts ingress to the `flightctl` namespace. Without a rule for the OpenShift ingress namespace, the Grafana route is unreachable.
 
 5. Create a `GrafanaDatasource` pointing to the Prometheus instance:
 

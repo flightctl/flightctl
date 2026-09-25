@@ -42,6 +42,10 @@ var embeddedBuildManifest = []byte(`
           "tag": ""
         },
         {
+          "ref": "quay.io/flightctl/flightctl-delta-worker-el10",
+          "tag": ""
+        },
+        {
           "ref": "quay.io/flightctl/flightctl-imagebuilder-api-el10",
           "tag": ""
         },
@@ -145,6 +149,10 @@ var embeddedBuildManifest = []byte(`
         },
         {
           "ref": "quay.io/flightctl/flightctl-db-setup-el9",
+          "tag": ""
+        },
+        {
+          "ref": "quay.io/flightctl/flightctl-delta-worker-el9",
           "tag": ""
         },
         {
@@ -270,6 +278,10 @@ var embeddedBuildManifest = []byte(`
           "tag": ""
         },
         {
+          "ref": "registry.redhat.io/rhem/flightctl-delta-worker-rhel10",
+          "tag": ""
+        },
+        {
           "ref": "registry.redhat.io/rhem/flightctl-imagebuilder-api-rhel10",
           "tag": ""
         },
@@ -369,6 +381,10 @@ var embeddedBuildManifest = []byte(`
         },
         {
           "ref": "registry.redhat.io/rhem/flightctl-db-setup-rhel9",
+          "tag": ""
+        },
+        {
+          "ref": "registry.redhat.io/rhem/flightctl-delta-worker-rhel9",
           "tag": ""
         },
         {

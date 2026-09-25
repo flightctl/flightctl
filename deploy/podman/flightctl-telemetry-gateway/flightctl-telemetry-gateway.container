@@ -21,6 +21,11 @@ Volume=/etc/flightctl/pki/ca-bundle.crt:/etc/telemetry-gateway/certs/ca.crt:ro,z
 Volume=/etc/flightctl/pki/db:/root/.flightctl/certs/db:ro,z
 Volume=/etc/flightctl/flightctl-telemetry-gateway/forward:/etc/flightctl/flightctl-telemetry-gateway/forward:ro,z
 
+# Optional: inject forward auth token from a Podman secret as an env var.
+# Create with: podman secret create flightctl-tg-forward-token - <<< "your-token"
+# Then reference ${FLIGHTCTL_FORWARD_TOKEN} in header values.
+# Secret=flightctl-tg-forward-token,type=env,target=FLIGHTCTL_FORWARD_TOKEN
+
 [Service]
 Restart=on-failure
 ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-telemetry-gateway/config.yaml.template --output-file /etc/flightctl/flightctl-telemetry-gateway/config.yaml

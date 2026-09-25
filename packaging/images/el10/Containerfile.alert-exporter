@@ -4,6 +4,11 @@ WORKDIR /app
 # Switch to root for build operations
 USER 0
 
+# Install runtime dependencies into a separate root for the final image
+RUN dnf install -y --installroot=/runtime-root --setopt=install_weak_deps=False --nodocs \
+      openssl-libs tzdata && \
+    dnf --installroot=/runtime-root clean all
+
 # Copy dependencies first (most stable)
 COPY go.mod go.sum ./
 
@@ -38,7 +43,7 @@ RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
     make build-alert-exporter
 
-FROM quay.io/flightctl/flightctl-base:10.1-1769518576
+FROM registry.access.redhat.com/ubi10/ubi-micro:10.1-1769518576
 WORKDIR /app
 LABEL \
   com.redhat.component="flightctl-alert-exporter-container" \
@@ -47,5 +52,6 @@ LABEL \
   io.k8s.display-name="Flight Control Alert Exporter" \
   name="flightctl-alert-exporter" \
   summary="Flight Control Edge management service, alert exporter"
+COPY --from=build /runtime-root/ /
 COPY --from=build /app/bin/flightctl-alert-exporter .
 CMD ["./flightctl-alert-exporter"]
