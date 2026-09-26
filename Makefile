@@ -457,6 +457,7 @@ bin/.rpm: $(shell find $(ROOT_DIR)/ -name "*.go" -not -path "$(ROOT_DIR)/packagi
           | bin
 	@sudo GOMODCACHE="$(shell go env GOMODCACHE)" \
 	     GOCACHE="$(shell go env GOCACHE)" \
+	     MOCK_CLEANUP="$(MOCK_CLEANUP)" \
 	     "$(ROOT_DIR)/hack/build_rpms.sh" \
 	     --root "$(if $(RPM_MOCK_ROOT),$(RPM_MOCK_ROOT),$(RPM_MOCK_ROOT_DEFAULT))"
 	@sudo chown -R $(shell id -u):$(shell id -g) bin/rpm/
