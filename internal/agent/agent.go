@@ -368,9 +368,11 @@ func (a *Agent) Run(ctx context.Context) error {
 	statusManager.RegisterStatusExporter(applicationsManager)
 	statusManager.RegisterStatusExporter(rootSystemdManager)
 	statusManager.RegisterStatusExporter(resourceManager)
-	statusManager.RegisterStatusExporter(osManager)
 	statusManager.RegisterStatusExporter(specManager)
 	statusManager.RegisterStatusExporter(systemInfoManager)
+	// The OS exporter adds delta capability fields to SystemInfo, so run it after
+	// the system-info exporter replaces SystemInfo with its cached snapshot.
+	statusManager.RegisterStatusExporter(osManager)
 	if len(a.config.Warnings) > 0 {
 		statusManager.RegisterStatusExporter(newConfigWarningExporter(a.config.Warnings))
 	}

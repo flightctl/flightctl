@@ -409,7 +409,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | kv.maxmemory | string | `"1gb"` | Maximum memory usage for Valkey |
 | kv.maxmemoryPolicy | string | `"allkeys-lru"` | Valkey memory eviction policy |
 | kv.passwordSecretName | string | `""` | Secret containing password for Valkey (leave empty for auto-generation) |
-| periodic | object | `{"clusterLevelSecretAccess":false,"consumers":5,"image":{"image":"quay.io/flightctl/flightctl-periodic-el9","pullPolicy":"","tag":""},"metrics":{"address":":15690","enabled":true}}` | Periodic Configuration |
+| periodic | object | `{"clusterLevelSecretAccess":false,"consumers":5,"image":{"image":"quay.io/flightctl/flightctl-periodic-el9","pullPolicy":"","tag":""},"metrics":{"address":":15690","enabled":true},"tasks":{"deltaPrepareDeadline":{"schedule":{"interval":"1m"}}}}` | Periodic Configuration |
 | periodic.clusterLevelSecretAccess | bool | `false` | Allow flightctl-periodic to list/watch secrets at the cluster level for change detection |
 | periodic.consumers | int | `5` | Number of periodic consumers |
 | periodic.image.image | string | `"quay.io/flightctl/flightctl-periodic-el9"` | Periodic container image |
@@ -418,6 +418,8 @@ For more detailed configuration options, see the [Values](#values) section below
 | periodic.metrics | object | `{"address":":15690","enabled":true}` | Metrics configuration for flightctl-periodic |
 | periodic.metrics.address | string | `":15690"` | Address for the metrics HTTP server |
 | periodic.metrics.enabled | bool | `true` | Enable Prometheus metrics endpoint |
+| periodic.tasks.deltaPrepareDeadline | object | `{"schedule":{"interval":"1m"}}` | Delta prepare deadline sweep schedule |
+| periodic.tasks.deltaPrepareDeadline.schedule.interval | string | `"1m"` | How often flightctl-periodic checks for expired delta prepares |
 | remoteAccess | object | `{"enabled":true,"env":{},"image":{"image":"quay.io/flightctl/flightctl-remote-access-el9","pullPolicy":"","tag":""},"logLevel":"info","resources":{"limits":{"cpu":"500m","memory":"256Mi"},"requests":{"cpu":"100m","memory":"128Mi"}}}` | Remote Access Configuration |
 | remoteAccess.enabled | bool | `true` | Enable remote access service |
 | remoteAccess.env | object | `{}` | Additional environment variables for the remote access container |

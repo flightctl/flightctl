@@ -114,6 +114,11 @@ func MergeTasksWithConfig(cfg *config.Config) map[PeriodicTaskType]PeriodicTaskM
 			meta.Interval = time.Duration(periodicTasks.RepositoryTester.Schedule.Interval)
 			merged[PeriodicTaskTypeRepositoryTester] = meta
 		}
+		if periodicTasks.DeltaPrepareDeadline.Schedule.Interval > 0 {
+			meta := merged[PeriodicTaskTypeDeltaPrepareDeadline]
+			meta.Interval = time.Duration(periodicTasks.DeltaPrepareDeadline.Schedule.Interval)
+			merged[PeriodicTaskTypeDeltaPrepareDeadline] = meta
+		}
 	}
 
 	if vulnEnabled && cfg.VulnerabilityReporting.SyncInterval > 0 {

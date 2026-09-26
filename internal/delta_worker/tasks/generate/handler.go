@@ -16,6 +16,7 @@ import (
 	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/flightctl/flightctl/internal/oci"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	"github.com/flightctl/flightctl/internal/worker_client"
@@ -59,6 +60,7 @@ type Handler struct {
 	generations    deltageneration.Service
 	progress       *deltapreparegeneration.ProgressHandler
 	emit           EventEmitter
+	kvStore        kvstore.KVStore
 	existenceCheck existenceChecker
 	generateDelta  deltaGenerator
 }
@@ -70,8 +72,9 @@ func NewHandler(
 	generations deltageneration.Service,
 	progress *deltapreparegeneration.ProgressHandler,
 	emit EventEmitter,
+	kvStore kvstore.KVStore,
 ) (*Handler, error) {
-	return newHandler(cfg, log, repositories, generations, nil, nil, progress, emit)
+	return newHandler(cfg, log, repositories, generations, nil, nil, progress, emit, kvStore)
 }
 
 func newHandler(
@@ -83,7 +86,11 @@ func newHandler(
 	generateDelta deltaGenerator,
 	progress *deltapreparegeneration.ProgressHandler,
 	emit EventEmitter,
+	kvStore kvstore.KVStore,
 ) (*Handler, error) {
+	if log == nil {
+		return nil, fmt.Errorf("logger is required")
+	}
 	if repositories == nil {
 		return nil, fmt.Errorf("repository service is required")
 	}
@@ -103,6 +110,7 @@ func newHandler(
 		generations:  generations,
 		progress:     progress,
 		emit:         emit,
+		kvStore:      kvStore,
 	}
 	if existenceCheck == nil {
 		existenceCheck = h.defaultExistenceCheck
@@ -137,6 +145,9 @@ func (c *Handler) Handle(ctx context.Context, ev worker_client.EventWithOrgId, l
 	}
 	if generation.Status != model.DeltaGenerationPending {
 		if isTerminalGenerationStatus(generation.Status) {
+			if err := c.cacheSuccessfulGeneration(ctx, generation); err != nil {
+				c.log.WithError(err).Warn("failed caching completed delta generation hint")
+			}
 			return c.emitGenerationComplete(ctx, generation)
 		}
 		log.Infof("did not claim %s generation for %s", generation.Status, key.ImageRepository)
@@ -347,7 +358,33 @@ func (c *Handler) completeGeneration(ctx context.Context, generation *model.Delt
 	if updated != nil {
 		generation = updated
 	}
+	if err := c.cacheSuccessfulGeneration(writeCtx, generation); err != nil {
+		c.log.WithError(err).Warn("failed caching completed delta generation hint")
+	}
 	return c.emitGenerationComplete(writeCtx, generation)
+}
+
+func (c *Handler) cacheSuccessfulGeneration(ctx context.Context, generation *model.DeltaGeneration) error {
+	if c.kvStore == nil || generation == nil || generation.Status != model.DeltaGenerationSucceeded || generation.DeltaRef == nil || *generation.DeltaRef == "" {
+		return nil
+	}
+	value, err := json.Marshal(kvstore.DeltaGenerationHint{
+		DeltaRef:  *generation.DeltaRef,
+		SizeBytes: generation.SizeBytes,
+	})
+	if err != nil {
+		return fmt.Errorf("marshal completed delta generation hint: %w", err)
+	}
+	key := (&kvstore.DeltaGenerationHintKey{
+		OrgID:           generation.OrgID,
+		ImageRepository: generation.ImageRepository,
+		SourceDigest:    generation.SourceDigest,
+		TargetDigest:    generation.TargetDigest,
+	}).ComposeKey()
+	if err := c.kvStore.Set(ctx, key, value, kvstore.DeltaGenerationHintTTL); err != nil {
+		return fmt.Errorf("store completed delta generation hint: %w", err)
+	}
+	return nil
 }
 
 func persistContext(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -355,6 +392,16 @@ func persistContext(ctx context.Context) (context.Context, context.CancelFunc) {
 }
 
 func (c *Handler) failGeneration(ctx context.Context, generation *model.DeltaGeneration, cause error) error {
+	fields := logrus.Fields{
+		"imageRepository": generation.ImageRepository,
+		"sourceDigest":    generation.SourceDigest,
+		"targetDigest":    generation.TargetDigest,
+	}
+	if generation.Phase != nil {
+		fields["phase"] = *generation.Phase
+	}
+	c.log.WithFields(fields).WithError(cause).Error("delta generation failed")
+
 	writeCtx, cancel := persistContext(ctx)
 	defer cancel()
 	generation.Status = model.DeltaGenerationFailed
