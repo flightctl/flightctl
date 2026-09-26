@@ -7,8 +7,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/flightctl/flightctl/internal/delta_worker/model"
-	delta "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
+	deltamodel "github.com/flightctl/flightctl/internal/delta_worker/model"
+	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/google/uuid"
@@ -19,11 +19,11 @@ import (
 type stubGenerationLookup struct {
 	mu    sync.Mutex
 	calls int
-	gen   *model.DeltaGeneration
+	gen   *deltamodel.DeltaGeneration
 	err   error
 }
 
-func (s *stubGenerationLookup) GetDeltaGeneration(_ context.Context, _ delta.GenerationKey, _ ...delta.GenerationGetOption) (*model.DeltaGeneration, error) {
+func (s *stubGenerationLookup) GetDeltaGeneration(_ context.Context, _ deltastore.GenerationKey, _ ...deltastore.GenerationGetOption) (*deltamodel.DeltaGeneration, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.calls++
@@ -39,8 +39,8 @@ func (s *stubGenerationLookup) callCount() int {
 	return s.calls
 }
 
-func testGenerationKey() delta.GenerationKey {
-	return delta.GenerationKey{
+func testGenerationKey() deltastore.GenerationKey {
+	return deltastore.GenerationKey{
 		OrgID:           uuid.MustParse("11111111-1111-1111-1111-111111111111"),
 		ImageRepository: "quay.io/acme/os",
 		SourceDigest:    "sha256:aaa",
@@ -78,8 +78,8 @@ func TestHintFromGeneration(t *testing.T) {
 	full := int64(1 << 30)
 
 	t.Run("When generation succeeded it should hint deltaRef and IEC size_bytes", func(t *testing.T) {
-		img, sz := hintFromGeneration(&model.DeltaGeneration{
-			Status:    model.DeltaGenerationSucceeded,
+		img, sz := hintFromGeneration(&deltamodel.DeltaGeneration{
+			Status:    deltamodel.DeltaGenerationSucceeded,
 			DeltaRef:  &deltaRef,
 			SizeBytes: &size,
 		}, nil)
@@ -88,8 +88,8 @@ func TestHintFromGeneration(t *testing.T) {
 	})
 
 	t.Run("When generation is rejected it should not hint and should use size_bytes", func(t *testing.T) {
-		img, sz := hintFromGeneration(&model.DeltaGeneration{
-			Status:    model.DeltaGenerationRejected,
+		img, sz := hintFromGeneration(&deltamodel.DeltaGeneration{
+			Status:    deltamodel.DeltaGenerationRejected,
 			SizeBytes: &size,
 		}, nil)
 		require.Nil(t, img)
@@ -103,7 +103,7 @@ func TestHintFromGeneration(t *testing.T) {
 	})
 
 	t.Run("When generation failed without size_bytes it should use fallback size", func(t *testing.T) {
-		img, sz := hintFromGeneration(&model.DeltaGeneration{Status: model.DeltaGenerationFailed}, &full)
+		img, sz := hintFromGeneration(&deltamodel.DeltaGeneration{Status: deltamodel.DeltaGenerationFailed}, &full)
 		require.Nil(t, img)
 		require.Equal(t, lo.ToPtr("1 GiB"), sz)
 	})
@@ -132,12 +132,12 @@ func TestFormatIECBytes(t *testing.T) {
 func TestLookupCachedGeneration(t *testing.T) {
 	ctx := context.Background()
 	key := testGenerationKey()
-	row := &model.DeltaGeneration{
+	row := &deltamodel.DeltaGeneration{
 		OrgID:           key.OrgID,
 		ImageRepository: key.ImageRepository,
 		SourceDigest:    key.SourceDigest,
 		TargetDigest:    key.TargetDigest,
-		Status:          model.DeltaGenerationSucceeded,
+		Status:          deltamodel.DeltaGenerationSucceeded,
 		DeltaRef:        lo.ToPtr("quay.io/acme/os@sha256:delta"),
 		SizeBytes:       lo.ToPtr(int64(47185920)),
 	}
