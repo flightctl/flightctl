@@ -8,6 +8,20 @@ SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "${SCRIPT_DIR}"/functions
 source "${SCRIPT_DIR}"/detect_container_runtime.sh
 
+E2E_PACKAGE_MODE_LAYOUT=""
+cleanup_package_mode_layout() {
+    if [[ -n "${E2E_PACKAGE_MODE_LAYOUT}" ]]; then
+        rm -rf -- "${E2E_PACKAGE_MODE_LAYOUT}" || true
+        E2E_PACKAGE_MODE_LAYOUT=""
+    fi
+}
+
+cleanup_e2e_runtime() {
+    cleanup_package_mode_layout
+    stop_testcontainers_podman_service
+}
+trap cleanup_e2e_runtime EXIT
+
 REPORTS=${1}
 GO_E2E_DIRS=("${@:2}")
 GINKGO_FOCUS=${GINKGO_FOCUS:-""}
@@ -103,33 +117,25 @@ find_package_mode_bundle() {
 }
 
 preload_package_mode_image() {
-    local bundle package_ref runtime source_package_ref
+    local archive archive_digest archive_ref bundle config_digest expected_digest image_id layout loaded_digest package_ref runtime source_package_ref src
 
     if ! should_preload_package_mode_image; then
         return 0
     fi
 
-    configure_testcontainers_docker_host
-    runtime="$(detect_testcontainers_runtime)"
-    source_package_ref="quay.io/flightctl/flightctl-device:package"
-    package_ref="${E2E_PACKAGE_MODE_IMAGE:-quay.io/flightctl/flightctl-device:package}"
-
-    if [[ "${runtime}" == "podman" && -n "${DOCKER_HOST:-}" ]]; then
-        if podman --url "${DOCKER_HOST}" image exists "${package_ref}" >/dev/null 2>&1; then
-            echo "Package-mode helper image already present in Podman runtime: ${package_ref}"
-            export E2E_PACKAGE_MODE_IMAGE="${package_ref}"
-            return 0
-        fi
-    elif [[ "${runtime}" == "docker" ]]; then
-        if docker image inspect "${package_ref}" >/dev/null 2>&1; then
-            echo "Package-mode helper image already present in Docker daemon: ${package_ref}"
-            export E2E_PACKAGE_MODE_IMAGE="${package_ref}"
-            return 0
-        fi
-    fi
-
     if ! bundle="$(find_package_mode_bundle)"; then
         echo "ERROR: package-mode suite requires an agent image bundle under bin/agent-artifacts/"
+        return 1
+    fi
+
+    source_package_ref="quay.io/flightctl/flightctl-device:package"
+    package_ref="${E2E_PACKAGE_MODE_IMAGE:-quay.io/flightctl/flightctl-device:package}"
+    if ! ensure_testcontainers_podman_runtime; then
+        return 1
+    fi
+    runtime="$(detect_testcontainers_runtime)"
+    if [[ "${runtime}" != "podman" || -z "${DOCKER_HOST:-}" ]]; then
+        echo "ERROR: package-mode OCI image staging requires the Podman runtime"
         return 1
     fi
 
@@ -138,20 +144,41 @@ preload_package_mode_image() {
     echo "Package-mode bundle source ref: ${source_package_ref}"
     echo "Detected testcontainers runtime: ${runtime} (DOCKER_HOST=${DOCKER_HOST:-unset})"
 
-    if [[ "${runtime}" == "podman" ]]; then
-        if [[ -z "${DOCKER_HOST:-}" ]]; then
-            echo "ERROR: package-mode preload requires DOCKER_HOST for Podman runtime"
-            return 1
-        fi
-        podman --url "${DOCKER_HOST}" load -i "${bundle}"
-        podman --url "${DOCKER_HOST}" image exists "${source_package_ref}"
-        if [[ "${package_ref}" != "${source_package_ref}" ]]; then
-            podman --url "${DOCKER_HOST}" tag "${source_package_ref}" "${package_ref}"
-        fi
-        podman --url "${DOCKER_HOST}" image exists "${package_ref}"
-    else
-        skopeo copy "docker-archive:${bundle}:${source_package_ref}" "docker-daemon:${package_ref}"
+    layout="$(mktemp -d)"
+    E2E_PACKAGE_MODE_LAYOUT="${layout}"
+    if ! tar -xf "${bundle}" -C "${layout}"; then
+        cleanup_package_mode_layout
+        return 1
     fi
+    src="oci:${layout}/oci:package"
+    expected_digest="$(skopeo inspect --format '{{.Digest}}' "${src}")"
+    config_digest="$(skopeo inspect --raw "${src}" | jq -er '.config.digest')"
+    archive="${layout}/package.oci.tar"
+    archive_ref="oci-archive:${archive}:package"
+    if ! skopeo copy --preserve-digests "${src}" "${archive_ref}"; then
+        cleanup_package_mode_layout
+        return 1
+    fi
+    archive_digest="$(skopeo inspect --format '{{.Digest}}' "${archive_ref}")"
+    if [[ "${archive_digest}" != "${expected_digest}" ]]; then
+        echo "ERROR: OCI archive changed manifest digest: source ${expected_digest}, archive ${archive_digest}"
+        cleanup_package_mode_layout
+        return 1
+    fi
+    if ! podman --url "${DOCKER_HOST}" load -i "${archive}"; then
+        cleanup_package_mode_layout
+        return 1
+    fi
+    image_id="${config_digest#sha256:}"
+    loaded_digest="$(podman --url "${DOCKER_HOST}" image inspect --format '{{.Digest}}' "${image_id}")"
+    if [[ "${loaded_digest}" != "${expected_digest}" ]]; then
+        echo "ERROR: Podman load changed manifest digest: source ${expected_digest}, loaded ${loaded_digest}"
+        cleanup_package_mode_layout
+        return 1
+    fi
+    cleanup_package_mode_layout
+    podman --url "${DOCKER_HOST}" tag "${image_id}" "${package_ref}"
+    podman --url "${DOCKER_HOST}" image exists "${package_ref}"
 
     export E2E_PACKAGE_MODE_IMAGE="${package_ref}"
 }

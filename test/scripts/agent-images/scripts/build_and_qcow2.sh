@@ -69,6 +69,7 @@ LOG_DIR="${ARTIFACTS_OUTPUT_DIR}/logs-${OS_ID}"
 mkdir -p "${LOG_DIR}"
 variants_log="${LOG_DIR}/variants.log"
 qcow2_log="${LOG_DIR}/qcow2.log"
+BUNDLE_STAGING_DIR=""
 
 echo "Building variants, bundle, and qcow2 for ${OS_ID}"
 echo "Variants log: ${variants_log}"
@@ -90,24 +91,18 @@ create_bundle() {
   local -a refs=()
   printf '%s\n' "----------" "Creating bundle" "----------"
 
-  list_device_refs() {
-    local filter="$1"
-    listing="$(sudo podman images --format '{{.Repository}}:{{.Tag}}' \
-      --filter "label=io.flightctl.e2e.component=device" \
-      --filter "reference=${filter}")" || {
-      echo "::error::Failed to list device images for ${filter}" | tee -a "${variants_log}"
-      exit 1
-    }
-    while IFS= read -r line; do
-      [ -n "${line}" ] || continue
-      [ "${line}" = "<none>:<none>" ] && continue
-      refs+=("${line}")
-    done <<< "${listing}"
+  listing="$(sudo podman images --format '{{.Repository}}:{{.Tag}}' \
+    --filter "label=io.flightctl.e2e.component=device")" || {
+    echo "::error::Failed to list device images" | tee -a "${variants_log}"
+    exit 1
   }
-
-  list_device_refs "${IMAGE_REPO}:*-${OS_ID}-*"
-  list_device_refs "${IMAGE_REPO}:package"
-  list_device_refs "${IMAGE_REPO}:package-${OS_ID}"
+  while IFS= read -r line; do
+    [ -n "${line}" ] || continue
+    [ "${line}" = "<none>:<none>" ] && continue
+    case "${line}" in
+      "${IMAGE_REPO}:"*) refs+=("${line}") ;;
+    esac
+  done <<< "${listing}"
 
   mapfile -t refs < <(printf '%s\n' "${refs[@]}" | sort -u)
   if [ "${#refs[@]}" -eq 0 ] || [ -z "${refs[0]:-}" ]; then
@@ -115,13 +110,28 @@ create_bundle() {
     exit 1
   fi
   {
-    echo "Bundling ${#refs[@]} images:"
+    echo "Bundling ${#refs[@]} images (OCI layout, preserve-digests):"
     for ref in "${refs[@]}"; do
       printf '\t- %s\n' "${ref}"
     done
   } | tee -a "${variants_log}"
+
+  BUNDLE_STAGING_DIR="$(mktemp -d)"
+  local staging="${BUNDLE_STAGING_DIR}"
+  mkdir -p "${staging}/oci"
+  : > "${staging}/e2e-refs.tsv"
+  local ref tag
+  for ref in "${refs[@]}"; do
+    tag="${ref##*:}"
+    sudo skopeo copy --preserve-digests \
+      "containers-storage:${ref}" "oci:${staging}/oci:${tag}" 2>&1 | tee -a "${variants_log}"
+    printf '%s\t%s\n' "${tag}" "${ref}" >> "${staging}/e2e-refs.tsv"
+  done
   rm -f "${bundle_tar}"
-  sudo podman save --multi-image-archive -o "${bundle_tar}" "${refs[@]}" 2>&1 | tee -a "${variants_log}"
+  sudo chown -R "$(id -un)":"$(id -gn)" "${staging}"
+  tar -C "${staging}" -cf "${bundle_tar}" oci e2e-refs.tsv
+  rm -rf "${staging}"
+  BUNDLE_STAGING_DIR=""
   sudo chown -R "$(id -un)":"$(id -gn)" "${ARTIFACTS_OUTPUT_DIR}" || true
 
   if [ "${DO_PUSH}" = "true" ]; then
@@ -138,6 +148,9 @@ QCOW2_PID=""
 cleanup_background_builds() {
   local pid
   local status
+  if [ -n "${BUNDLE_STAGING_DIR}" ]; then
+    rm -rf -- "${BUNDLE_STAGING_DIR}"
+  fi
   for pid in "${QCOW2_PID}" "${VARIANTS_PID}"; do
     if [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null; then
       kill "${pid}" 2>/dev/null

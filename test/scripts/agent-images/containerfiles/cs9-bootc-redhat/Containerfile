@@ -6,8 +6,17 @@
 #   - base:    final base image starting from prebase and layering flightctl RPMs
 #
 
+FROM registry.redhat.io/ubi9/go-toolset@sha256:0a4666f7a4eb0644c97a73cba198eb268691b270d97831822689e7a2088f87be AS oci-delta-build
+USER 0
+RUN yum install -y gcc pkgconf-pkg-config ostree-devel && yum clean all && \
+    mkdir -p /out && chown 1001:0 /out
+USER 1001
+RUN CGO_ENABLED=1 GOBIN=/out go install -tags "exclude_graphdriver_aufs exclude_graphdriver_btrfs exclude_graphdriver_zfs" github.com/containers/oci-delta@45baae628ce3fa5fa2071a702426487dcf1f5e0b
+
 # ---------- Stage: prebase ----------
 FROM registry.redhat.io/rhel9/rhel-bootc:latest AS prebase
+
+COPY --from=oci-delta-build /out/oci-delta /usr/bin/oci-delta
 
 # Enable EPEL repos (no EPEL Next for Red Hat Enterprise Linux)
 RUN --mount=type=cache,target=/var/cache/dnf \
