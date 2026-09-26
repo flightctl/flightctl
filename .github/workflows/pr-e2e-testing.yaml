@@ -66,10 +66,144 @@ jobs:
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         uses: ./.github/actions/compute-tag
 
+  reuse-e2e:
+    runs-on: ubuntu-latest
+    # Reuse is an optimization; failures must fall back to running E2E.
+    continue-on-error: true
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      reused: ${{ steps.find-run.outputs.reused || 'false' }}
+      source_run: ${{ steps.find-run.outputs.source_run || '' }}
+      source_pr: ${{ steps.find-run.outputs.source_pr || '' }}
+    steps:
+      - name: Checkout merge group
+        if: github.event_name == 'merge_group'
+        continue-on-error: true
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Find a successful E2E run for the same tree
+        id: find-run
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          reused=false
+          source_run=
+          source_pr=
+
+          if [[ "${GITHUB_EVENT_NAME}" == "merge_group" ]]; then
+            tree=$(git rev-parse 'HEAD^{tree}')
+            artifact_name="e2e-proof-tree-v2-${tree}"
+            echo "Looking for trusted E2E proof for tree ${tree}"
+
+            find_proof() {
+              local run_ids run run_id proof_dir proof_file proof
+              if ! run_ids=$(gh api --paginate --jq '.artifacts[] | select(.expired == false) | .workflow_run.id' \
+                "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=${artifact_name}&per_page=100"); then
+                echo "::warning::Could not query E2E proof artifacts"
+                return 0
+              fi
+
+              while IFS= read -r run_id; do
+                [[ -n "${run_id}" ]] || continue
+                if ! run=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}"); then
+                  echo "::warning::Could not inspect E2E attestation run ${run_id}; trying another run"
+                  continue
+                fi
+
+                if ! jq -e --arg repo "${GITHUB_REPOSITORY}" '
+                  .event == "workflow_run" and
+                  .status == "completed" and
+                  .conclusion == "success" and
+                  .repository.full_name == $repo and
+                  (.path == ".github/workflows/e2e-success-attestation.yaml" or
+                   (.path | startswith(".github/workflows/e2e-success-attestation.yaml@")))
+                ' <<< "$run" > /dev/null; then
+                  continue
+                fi
+
+                proof_dir="${RUNNER_TEMP}/e2e-proof-${run_id}"
+                mkdir -p "${proof_dir}"
+                if ! gh run download "${run_id}" --repo "${GITHUB_REPOSITORY}" \
+                  --name "${artifact_name}" --dir "${proof_dir}"; then
+                  echo "::warning::Could not download E2E proof from attestation run ${run_id}; trying another run"
+                  continue
+                fi
+                proof_file=$(find "${proof_dir}" -type f -name e2e-proof.json -print -quit)
+                [[ -n "${proof_file}" ]] || continue
+                if ! jq -e --arg tree "${tree}" --arg attestor_run_id "${run_id}" '
+                  .version == 2 and
+                  .tree == $tree and
+                  .e2e_result == "success" and
+                  .api_result == "success" and
+                  (.source_run_id | type) == "string" and
+                  (.source_run_id | test("^[0-9]+$")) and
+                  (.source_run_attempt | type) == "string" and
+                  (.source_pr_number | type) == "number" and
+                  .attestor_run_id == $attestor_run_id
+                ' "${proof_file}" > /dev/null; then
+                  echo "::warning::Attestation run ${run_id} did not contain valid proof for tree ${tree}"
+                  continue
+                fi
+
+                proof=$(cat "${proof_file}")
+                source_run=$(jq -r '.source_run_id' <<< "${proof}")
+                source_pr=$(jq -r '.source_pr_number' <<< "${proof}")
+                reused=true
+                return 0
+              done <<< "${run_ids}"
+            }
+
+            # The trusted workflow_run attestor starts just after the PR workflow
+            # completes. Wait briefly only when a candidate exists; an untrusted
+            # candidate can delay this job, but can never authorize reuse.
+            candidate_name="e2e-candidate-tree-v2-${tree}"
+            if gh api "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=${candidate_name}&per_page=1" \
+              --jq '.total_count > 0' | grep -qx true; then
+              for attempt in {1..12}; do
+                find_proof
+                [[ "${reused}" == "true" ]] && break
+                [[ "${attempt}" -eq 12 ]] || sleep 5
+              done
+            else
+              find_proof
+            fi
+
+            if [[ "${reused}" == "true" ]]; then
+              echo "Reusing E2E results from PR #${source_pr}: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${source_run}"
+            else
+              echo "No trusted successful PR E2E proof matched this merge group's tree"
+            fi
+          fi
+
+          {
+            echo "reused=${reused}"
+            echo "source_run=${source_run}"
+            echo "source_pr=${source_pr}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Report reuse lookup failure
+        if: ${{ always() && steps.find-run.outcome == 'failure' }}
+        run: |
+          echo "::warning::E2E proof lookup failed; the merge-group E2E job will run instead"
+          {
+            echo "## E2E proof lookup"
+            echo
+            echo "The proof lookup failed. The merge-group E2E job will run as a fallback."
+          } >> "$GITHUB_STEP_SUMMARY"
+
   build-images-and-charts:
-    needs: compute-tag
+    needs: [compute-tag, reuse-e2e]
     if: |
+      !cancelled() &&
+      needs.compute-tag.result == 'success' &&
       needs.compute-tag.outputs.any_changed == 'true' &&
+      needs.reuse-e2e.outputs.reused != 'true' &&
       (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run-e2e'))
     uses: ./.github/workflows/build-images-and-charts.yaml
 
@@ -86,9 +220,12 @@ jobs:
         run: echo "CLI artifact produced by build-images-and-charts"
 
   build-rpms:
-    needs: compute-tag
+    needs: [compute-tag, reuse-e2e]
     if: |
+      !cancelled() &&
+      needs.compute-tag.result == 'success' &&
       needs.compute-tag.outputs.any_changed == 'true' &&
+      needs.reuse-e2e.outputs.reused != 'true' &&
       (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run-e2e'))
     strategy:
       matrix:
@@ -118,9 +255,12 @@ jobs:
       tag: ${{ needs.compute-tag.outputs.tag }}
 
   discover-e2e-tests:
-    needs: compute-tag
+    needs: [compute-tag, reuse-e2e]
     if: |
+      !cancelled() &&
+      needs.compute-tag.result == 'success' &&
       needs.compute-tag.outputs.any_changed == 'true' &&
+      needs.reuse-e2e.outputs.reused != 'true' &&
       (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run-e2e'))
     runs-on: ubuntu-latest
     strategy:
@@ -245,7 +385,7 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
-    needs: [ compute-tag, e2e-tests, api-tests ]
+    needs: [ compute-tag, reuse-e2e, e2e-tests, api-tests ]
     if: always()
     steps:
       - name: Check E2E Test Results
@@ -261,6 +401,14 @@ jobs:
             echo "E2E tests skipped for this PR (add the 'run-e2e' label to run e2e, merge queue always runs)"
             exit 0
           fi
+          if [[ "${{ needs.reuse-e2e.outputs.reused }}" == "true" ]]; then
+            SOURCE_RUN="${{ needs.reuse-e2e.outputs.source_run }}"
+            SOURCE_PR="${{ needs.reuse-e2e.outputs.source_pr }}"
+            SOURCE_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN}"
+            echo "E2E tests reused from ${SOURCE_URL}"
+            echo "E2E and API results reused from [PR #${SOURCE_PR}'s successful run](${SOURCE_URL}) for the exact same Git tree." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           E2E_RESULT="${{ needs.e2e-tests.result }}"
           API_RESULT="${{ needs.api-tests.result }}"
           # At this point we are past the early-exit guards, so tests were expected to run.
@@ -274,3 +422,57 @@ jobs:
             echo "Tests failed, were cancelled, or were skipped due to a dependency failure (e2e: $E2E_RESULT, api: $API_RESULT)"
             exit 1
           fi
+
+      # This candidate is not trusted directly by merge-group runs. A workflow_run
+      # attestor on the default branch validates the source jobs and PR workflow diff
+      # before publishing reusable proof.
+      - name: Checkout tested tree
+        if: |
+          github.event_name == 'pull_request' &&
+          contains(github.event.pull_request.labels.*.name, 'run-e2e') &&
+          needs.e2e-tests.result == 'success' &&
+          needs.api-tests.result == 'success'
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Record E2E proof candidate
+        id: tested-tree
+        if: |
+          github.event_name == 'pull_request' &&
+          contains(github.event.pull_request.labels.*.name, 'run-e2e') &&
+          needs.e2e-tests.result == 'success' &&
+          needs.api-tests.result == 'success'
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          tree=$(git rev-parse 'HEAD^{tree}')
+          echo "tree=${tree}" >> "$GITHUB_OUTPUT"
+          candidate_dir="${RUNNER_TEMP}/e2e-candidate"
+          mkdir -p "$candidate_dir"
+          candidate_file="${candidate_dir}/e2e-candidate.json"
+          rm -f "$candidate_file"
+          jq -n \
+            --arg tree "${tree}" \
+            --arg tested_sha "${GITHUB_SHA}" \
+            --arg base_sha "${PR_BASE_SHA}" \
+            --arg head_sha "${PR_HEAD_SHA}" \
+            --arg source_run_id "${GITHUB_RUN_ID}" \
+            --arg source_run_attempt "${GITHUB_RUN_ATTEMPT}" \
+            '{version: 2, tree: $tree, tested_sha: $tested_sha, base_sha: $base_sha,
+              head_sha: $head_sha, source_run_id: $source_run_id,
+              source_run_attempt: $source_run_attempt}' > "$candidate_file"
+
+      - name: Upload E2E proof candidate
+        if: |
+          github.event_name == 'pull_request' &&
+          contains(github.event.pull_request.labels.*.name, 'run-e2e') &&
+          needs.e2e-tests.result == 'success' &&
+          needs.api-tests.result == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-candidate-tree-v2-${{ steps.tested-tree.outputs.tree }}
+          path: ${{ runner.temp }}/e2e-candidate/e2e-candidate.json
+          retention-days: 7
+          overwrite: true
