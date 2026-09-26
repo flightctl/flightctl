@@ -622,6 +622,20 @@
                   }
                 }
               }
+            },
+            "deltaPrepareDeadline": {
+              "type": "object",
+              "description": "Deadline sweep schedule for delta prepares",
+              "additionalProperties": false,
+              "properties": {
+                "schedule": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "interval": { "type": "string", "description": "Interval for the delta prepare deadline sweep" }
+                  }
+                }
+              }
             }
           }
         }

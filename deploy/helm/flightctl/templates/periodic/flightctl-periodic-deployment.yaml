@@ -15,6 +15,8 @@ spec:
     type: Recreate
   template:
     metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/periodic/flightctl-periodic-config.yaml") . | sha256sum }}
       labels:
         flightctl.service: flightctl-periodic
         {{- include "flightctl.standardLabels" . | nindent 8 }}

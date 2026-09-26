@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -eo pipefail
+set -euo pipefail
 
 # Load shared functions first to get the constant directory paths
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
@@ -12,6 +12,7 @@ echo "Starting Deployment"
 
 # Host directory for TPM manufacturer / swtpm CA PEMs (mounted read-only into flightctl-api)
 install -d -m 0755 /etc/flightctl/tpm-cas
+install -d -m 0755 /etc/flightctl/flightctl-worker/registries.conf.d
 install -d -m 0755 /etc/flightctl/flightctl-delta-worker/registries.conf.d
 
 # Render quadlet files

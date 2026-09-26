@@ -56,6 +56,7 @@ type Server struct {
 	progressSvc    *deltapreparegeneration.ProgressHandler
 	prepareHandler *deltaprepare.ServiceHandler
 	status         *workerservice.StorePreparingStatus
+	kvStore        kvstore.KVStore
 	repositorySvc  repositoryservice.Service
 	eventsHandler  *events.ServiceHandler
 	resolver       *preparetask.Resolver
@@ -99,6 +100,7 @@ func New(log logrus.FieldLogger, cfg *deltaconfig.DeltaGenerationConfig, db *gor
 		progressSvc:    progressSvc,
 		prepareHandler: prepareHandler,
 		status:         status,
+		kvStore:        kvStore,
 		repositorySvc:  repositorySvc,
 		resolver:       serviceResolver(cfg, fleetSvc, deviceSvc, templateVersionSvc, repositorySvc, catalogSvc, kvStore, log),
 		eventsHandler:  eventSvc,
@@ -137,6 +139,7 @@ func (s *Server) Run(ctx context.Context) error {
 		func(ctx context.Context, orgID uuid.UUID, event *domain.Event) error {
 			return enqueueDeltaWorkerEvent(ctx, deltaPublisher, orgID, event)
 		},
+		s.kvStore,
 	)
 	if err != nil {
 		return err

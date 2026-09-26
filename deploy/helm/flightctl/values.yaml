@@ -356,6 +356,12 @@ periodic:
   consumers: 5
   # -- Allow flightctl-periodic to list/watch secrets at the cluster level for change detection
   clusterLevelSecretAccess: false
+  tasks:
+    # -- Delta prepare deadline sweep schedule
+    deltaPrepareDeadline:
+      schedule:
+        # -- How often flightctl-periodic checks for expired delta prepares
+        interval: 1m
   # -- Metrics configuration for flightctl-periodic
   metrics:
     # -- Enable Prometheus metrics endpoint
