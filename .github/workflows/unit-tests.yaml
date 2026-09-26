@@ -21,13 +21,13 @@ jobs:
     runs-on: "ubuntu-24.04"
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: Get changed files
         id: changed-files
-        uses: tj-actions/changed-files@v46
+        uses: tj-actions/changed-files@v47
         with:
           since_last_remote_commit: 'true'
           files_ignore: |
@@ -52,7 +52,7 @@ jobs:
 
       - name: Upload JUnit results
         if: always() && steps.changed-files.outputs.any_changed == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: junit-unit-test
           path: reports/junit_unit_test.xml

@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -32,7 +32,7 @@ jobs:
 
       - name: Restore bootc-image-builder cache
         id: cache-bootc-restore
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: |
             bin/dnf-cache
@@ -44,7 +44,7 @@ jobs:
             ${{ runner.os }}-bootc-cache-e2e-
             
       - name: Download RPM artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: rpms-${{ inputs.rpm_suffix }}
           path: bin/rpm
@@ -87,7 +87,7 @@ jobs:
           echo "::endgroup::"
 
       - name: Upload agent images bundle (per flavor)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: agent-images-bundle-${{ inputs.os_id }}-${{ inputs.tag }}
           path: bin/agent-artifacts/agent-images-bundle-${{ inputs.os_id }}.tar
@@ -96,7 +96,7 @@ jobs:
           retention-days: 1
 
       - name: Upload qcow2 image (per flavor)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: agent-qcow2-image-${{ inputs.os_id }}-${{ inputs.tag }}
           path: bin/output/qcow2/disk.qcow2
@@ -183,7 +183,7 @@ jobs:
         # modules cache" step in pr-smoke-testing.yaml for why (restrict writes to main,
         # avoid re-archiving on a hit).
         if: always() && github.ref == 'refs/heads/main' && steps.cache-bootc-restore.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: |
             bin/dnf-cache

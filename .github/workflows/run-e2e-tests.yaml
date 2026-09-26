@@ -56,7 +56,7 @@ jobs:
     steps:
       # ========== PREPARE ENVIRONMENT ==========
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -97,7 +97,7 @@ jobs:
 
       # ========== DOWNLOAD E2E TEST ARTIFACTS ==========
       - name: Download test artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: agent-*-${{ inputs.os_id }}-${{ inputs.tag }}
           path: test-artifacts
@@ -174,7 +174,7 @@ jobs:
 
       # ========== RUN E2E TESTS ==========
       - name: Restore Go cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: |
             ~/.cache/go-build
@@ -194,7 +194,7 @@ jobs:
           echo "Hash: ${HASH}"
 
       - name: Download test discovery
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: e2e-discovery-${{ steps.compute-hash.outputs.hash }}-${{ inputs.tag }}
           path: .
@@ -229,7 +229,7 @@ jobs:
       # ========== UPLOAD TEST RESULTS ==========
       - name: Upload test report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: junit-results-${{ steps.compute-hash.outputs.hash }}-node-${{ matrix.ginkgo_node }}
           path: reports/junit_e2e_test.xml
@@ -239,7 +239,7 @@ jobs:
 
       - name: Upload deployment logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: deployment-logs-${{ steps.compute-hash.outputs.hash }}-node-${{ matrix.ginkgo_node }}
           path: artifacts/deployment-logs/
