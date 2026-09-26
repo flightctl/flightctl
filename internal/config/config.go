@@ -570,6 +570,7 @@ type authConfig struct {
 	InsecureSkipTlsVerify   bool                       `json:"insecureSkipTlsVerify,omitempty"`
 	PAMOIDCIssuer           *PAMOIDCIssuer             `json:"pamOidcIssuer,omitempty"`           // this is the issuer implementation configuration
 	DynamicProviderCacheTTL util.Duration              `json:"dynamicProviderCacheTTL,omitempty"` // TTL for dynamic auth provider cache (default: 5s)
+	AAPIdentityCacheTTL     util.Duration              `json:"aapIdentityCacheTTL,omitempty"`     // TTL for AAP identity cache (default: 45s)
 }
 
 // PAMOIDCIssuer represents an OIDC issuer that uses Linux PAM for authentication
@@ -1011,6 +1012,7 @@ func WithOIDCAuth(issuer, clientId string, enabled bool) ConfigOption {
 		if c.Auth == nil {
 			c.Auth = &authConfig{
 				DynamicProviderCacheTTL: util.Duration(5 * time.Second),
+				AAPIdentityCacheTTL:     util.Duration(45 * time.Second),
 			}
 		}
 		c.Auth.OIDC = &api.OIDCProviderSpec{
@@ -1028,6 +1030,7 @@ func WithOAuth2Auth(authorizationUrl, tokenUrl, userinfoUrl, issuer, clientId st
 		if c.Auth == nil {
 			c.Auth = &authConfig{
 				DynamicProviderCacheTTL: util.Duration(5 * time.Second),
+				AAPIdentityCacheTTL:     util.Duration(45 * time.Second),
 			}
 		}
 		c.Auth.OAuth2 = &api.OAuth2ProviderSpec{
@@ -1047,6 +1050,7 @@ func WithK8sAuth(apiUrl, rbacNs string) ConfigOption {
 		if c.Auth == nil {
 			c.Auth = &authConfig{
 				DynamicProviderCacheTTL: util.Duration(5 * time.Second),
+				AAPIdentityCacheTTL:     util.Duration(45 * time.Second),
 			}
 		}
 		enabled := true
@@ -1064,6 +1068,7 @@ func WithAAPAuth(apiUrl, externalApiUrl string) ConfigOption {
 		if c.Auth == nil {
 			c.Auth = &authConfig{
 				DynamicProviderCacheTTL: util.Duration(5 * time.Second),
+				AAPIdentityCacheTTL:     util.Duration(45 * time.Second),
 			}
 		}
 		enabled := true
@@ -1211,6 +1216,7 @@ func NewDefault(opts ...ConfigOption) *Config {
 		},
 		Auth: &authConfig{
 			DynamicProviderCacheTTL: util.Duration(5 * time.Second),
+			AAPIdentityCacheTTL:     util.Duration(45 * time.Second),
 		},
 		Encryption: &EncryptionConfig{
 			Keys: []EncryptionKeyConfig{
