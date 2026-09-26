@@ -526,7 +526,7 @@ var _ = Describe("cli operation", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(clientVersion).ToNot(BeEmpty(), "client version should be found")
 			Expect(serverVersion).ToNot(BeEmpty(), "server version should be found")
-			Expect(agentVersion).To(BeEmpty(), "agent version lookup should be skipped when the VM is not initialized")
+			Expect(agentVersion).ToNot(BeEmpty(), "agent version should be found when a device is provisioned")
 
 			GinkgoWriter.Printf("Client version: %s\n", clientVersion)
 			GinkgoWriter.Printf("Server version: %s\n", serverVersion)
