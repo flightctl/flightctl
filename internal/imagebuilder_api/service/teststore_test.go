@@ -606,6 +606,10 @@ func (s *DummyKVStore) SetExpire(ctx context.Context, key string, expiration tim
 	return nil
 }
 
+func (s *DummyKVStore) Set(ctx context.Context, key string, value []byte, expiration time.Duration) error {
+	return nil
+}
+
 func (s *DummyKVStore) StreamRange(ctx context.Context, key string, start, stop string) ([]kvstore.StreamEntry, error) {
 	return nil, nil
 }

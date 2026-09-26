@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -eo pipefail
+set -euo pipefail
 
 # Load shared functions first to get the constant directory paths
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
