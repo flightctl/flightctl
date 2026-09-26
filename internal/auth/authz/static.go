@@ -33,6 +33,7 @@ var resourcePermissions = map[string]map[string][]string{
 	v1beta1.RoleOperator: {
 		// Operator has full CRUD on these resources (specific entries override wildcard)
 		"devices":                        {"get", "list", "create", "update", "patch", "delete"},
+		"devices/status":                 {"get", "list", "update", "patch"}, // ManualOverride of EnrollmentHooks is PATCH-only (update/PUT does not write service_conditions)
 		"fleets":                         {"get", "list", "create", "update", "patch", "delete"},
 		"resourcesyncs":                  {"get", "list", "create", "update", "patch", "delete"},
 		"repositories":                   {"get", "list", "create", "update", "patch", "delete"},

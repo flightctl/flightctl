@@ -8568,6 +8568,10 @@ components:
             - PrepareDeltas
             - DeltaGenerationProgress
             - DeltaGenerationCompleted
+            - EnrollmentHookSucceeded
+            - EnrollmentHookFailed
+            - EnrollmentHookNotifyFailed
+            - EnrollmentHookManualOverride
         message:
           type: string
           description: A human-readable description of the status of this operation.

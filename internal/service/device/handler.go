@@ -510,6 +510,13 @@ func (h *DeviceServiceHandler) PatchDeviceStatus(ctx context.Context, orgId uuid
 		_ = common.UpdateServiceSideStatus(ctx, orgId, m.Device, h.fleetStore, h.log)
 		return nil
 	}, devicestore.WithTimestamp())
+	if err == nil && result != nil && before != nil {
+		// EnrollmentHooks (and other service conditions) emit from this path so
+		// operator ManualOverride via status PATCH triggers the same events as
+		// SetDeviceServiceConditions.
+		h.diffAndEmitConditionEvents(ctx, orgId, result,
+			serviceConditionsFromDevice(before), serviceConditionsFromDevice(result))
+	}
 	h.callEventCallback(ctx, h.callbackDeviceUpdated, orgId, name, before, result, false, err)
 	if err != nil && callbackStatus.Code != 0 {
 		return result, callbackStatus
@@ -548,9 +555,65 @@ func applyDeviceStatusPatch(ctx context.Context, current *domain.Device, patch d
 	if !reflect.DeepEqual(current.Spec, patched.Spec) {
 		return nil, errors.New("spec is immutable")
 	}
+	if err := validateEnrollmentHooksStatusPatch(ctx, current, patched); err != nil {
+		return nil, err
+	}
 	common.NilOutManagedObjectMetaProperties(&patched.Metadata)
 	patched.Metadata.ResourceVersion = nil
 	return patched, nil
+}
+
+// validateEnrollmentHooksStatusPatch enforces EnrollmentHooks transition rules on
+// status PATCH (design §4.7): the only allowed mutation is Failed → True/ManualOverride
+// by a non-agent caller. Worker/service paths use SetDeviceServiceConditions instead.
+// Duplicate EnrollmentHooks entries are rejected (FindStatusCondition only sees the first).
+func validateEnrollmentHooksStatusPatch(ctx context.Context, current, patched *domain.Device) error {
+	beforeCount := countEnrollmentHooksConditions(current)
+	afterCount := countEnrollmentHooksConditions(patched)
+	if afterCount > 1 {
+		return errors.New("EnrollmentHooks condition must appear at most once")
+	}
+	if beforeCount > 1 {
+		// Corrupt persisted state: still block further mutation via status patch.
+		return errors.New("EnrollmentHooks condition must appear at most once")
+	}
+
+	var before, after *domain.Condition
+	if current != nil && current.Status != nil {
+		before = domain.FindStatusCondition(current.Status.Conditions, domain.ConditionTypeDeviceEnrollmentHooks)
+	}
+	if patched != nil && patched.Status != nil {
+		after = domain.FindStatusCondition(patched.Status.Conditions, domain.ConditionTypeDeviceEnrollmentHooks)
+	}
+	if reflect.DeepEqual(before, after) {
+		return nil
+	}
+	if after == nil {
+		return errors.New("EnrollmentHooks condition cannot be removed via status patch")
+	}
+	if _, isAgent := ctx.Value(consts.AgentCtxKey).(string); isAgent {
+		return errors.New("agent cannot modify EnrollmentHooks condition via status patch")
+	}
+	if after.Reason != domain.EnrollmentHooksReasonManualOverride || after.Status != domain.ConditionStatusTrue {
+		return errors.New("EnrollmentHooks condition can only be changed to True/ManualOverride via status patch")
+	}
+	if before == nil || before.Status != domain.ConditionStatusFalse || before.Reason != domain.EnrollmentHooksReasonFailed {
+		return errors.New("ManualOverride is only allowed when EnrollmentHooks condition is Failed")
+	}
+	return nil
+}
+
+func countEnrollmentHooksConditions(device *domain.Device) int {
+	if device == nil || device.Status == nil {
+		return 0
+	}
+	count := 0
+	for _, c := range device.Status.Conditions {
+		if c.Type == domain.ConditionTypeDeviceEnrollmentHooks {
+			count++
+		}
+	}
+	return count
 }
 
 func (h *DeviceServiceHandler) GetRenderedDevice(ctx context.Context, orgId uuid.UUID, name string, params domain.GetRenderedDeviceParams) (*domain.Device, domain.Status) {
@@ -998,6 +1061,15 @@ func (h *DeviceServiceHandler) diffAndEmitConditionEvents(ctx context.Context, o
 		common.EmitSpecValidEvents(ctx, device, oldSpecValidCondition, newSpecValidCondition,
 			createEvent, common.GetDeviceSpecValidEvent, common.GetDeviceSpecInvalidEvent,
 			h.log)
+	}
+
+	// Track condition changes for EnrollmentHooks
+	enrollmentHooksConditionChanged := common.HasConditionChanged(oldEnrollmentHooksCondition, newEnrollmentHooksCondition)
+
+	if enrollmentHooksConditionChanged {
+		createEvent := func(c context.Context, e *domain.Event) { h.events.CreateEvent(c, orgId, e) }
+		common.EmitEnrollmentHookEvents(ctx, device, oldEnrollmentHooksCondition, newEnrollmentHooksCondition,
+			createEvent, h.log)
 	}
 }
 

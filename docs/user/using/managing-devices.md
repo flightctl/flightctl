@@ -57,6 +57,24 @@ NAME                                                  APPROVAL  APPROVER  APPROV
 
 Once approved, the device will get issued its initial management certificate and get registered to the device inventory and is now ready to be managed.
 
+### Overriding a failed enrollment hook
+
+If an enrollment hook fails, the device's `EnrollmentHooks` condition is `False` with reason `Failed`. The device remains excluded from fleet matching and rendered specification delivery.
+
+An authorized administrator or operator can patch the device status to set the `EnrollmentHooks` condition to `True` with reason `ManualOverride`. This clears the gate. The change does not re-approve enrollment, rotate the device's management certificate, or rerun notification. Use status PATCH only: a status PUT does not write service-owned conditions such as `EnrollmentHooks`. Status PATCH may change this condition only from `False`/`Failed` to `True`/`ManualOverride`; other transitions (including forging `Succeeded`) are rejected.
+
+Agents must not modify the `EnrollmentHooks` condition via status PATCH. Viewer and installer roles cannot update device status, so they cannot perform this override.
+
+Example JSON patch against `/api/v1/devices/<device_name>/status` (adjust the condition array index after reading the device):
+
+```json
+[
+  { "op": "replace", "path": "/status/conditions/0/status", "value": "True" },
+  { "op": "replace", "path": "/status/conditions/0/reason", "value": "ManualOverride" },
+  { "op": "replace", "path": "/status/conditions/0/message", "value": "Enrollment hook failure was manually overridden by an operator." }
+]
+```
+
 ## Viewing the Device Inventory and Device Details
 
 Flight Control automatically gathers system information from each device to help identify its hardware, OS, and environment. This data is shown in the `status.systemInfo` field. Fields can optionally be promoted to labels during the enrollment process, this must be done manually or through external automation. Promoting fields to labels enables powerful grouping and querying capabilities, such as filtering devices by region or OS version. You can also define your own fields in `status.systemInfo.customInfo`, allowing the agent to collect user-defined metadata through custom commands.

@@ -602,3 +602,44 @@ func EmitSpecValidEvents(ctx context.Context, device *domain.Device, oldConditio
 		createEvent(ctx, getDeviceSpecInvalidEvent(ctx, deviceName, message))
 	}
 }
+
+// EmitEnrollmentHookEvents emits events for EnrollmentHooks condition changes.
+// Events are selected based on the new condition reason:
+//   - Succeeded  → EnrollmentHookSucceeded
+//   - Failed     → EnrollmentHookFailed
+//   - ManualOverride → EnrollmentHookManualOverride
+//
+// NotifyFailed is emitted directly by the worker's notify path (not via condition diff).
+func EmitEnrollmentHookEvents(ctx context.Context, device *domain.Device, oldCondition, newCondition *domain.Condition,
+	createEvent func(context.Context, *domain.Event),
+	log logrus.FieldLogger,
+) {
+	deviceName := *device.Metadata.Name
+
+	if newCondition == nil {
+		return
+	}
+
+	log.Infof("Device %s: EnrollmentHooks transition: old=%v, new=%v/%s",
+		deviceName,
+		oldCondition != nil,
+		newCondition.Status,
+		newCondition.Reason,
+	)
+
+	switch newCondition.Reason {
+	case domain.EnrollmentHooksReasonSucceeded:
+		log.Infof("Device %s: Emitting EnrollmentHookSucceededEvent", deviceName)
+		createEvent(ctx, GetEnrollmentHookSucceededEvent(ctx, deviceName))
+	case domain.EnrollmentHooksReasonFailed:
+		log.Infof("Device %s: Emitting EnrollmentHookFailedEvent", deviceName)
+		message := "Unknown"
+		if newCondition.Message != "" {
+			message = newCondition.Message
+		}
+		createEvent(ctx, GetEnrollmentHookFailedEvent(ctx, deviceName, message))
+	case domain.EnrollmentHooksReasonManualOverride:
+		log.Infof("Device %s: Emitting EnrollmentHookManualOverrideEvent", deviceName)
+		createEvent(ctx, GetEnrollmentHookManualOverrideEvent(ctx, deviceName))
+	}
+}

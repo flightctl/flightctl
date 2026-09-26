@@ -328,6 +328,42 @@ func TestStaticAuthZ_CheckPermission(t *testing.T) {
 			op:       "delete",
 			expected: false,
 		},
+		// Device status update RBAC (ManualOverride uses PATCH devices/status)
+		{
+			name:     "When admin patches device status it should succeed",
+			roles:    []string{v1beta1.RoleAdmin},
+			resource: "devices/status",
+			op:       "patch",
+			expected: true,
+		},
+		{
+			name:     "When org-admin patches device status it should succeed",
+			roles:    []string{v1beta1.RoleOrgAdmin},
+			resource: "devices/status",
+			op:       "patch",
+			expected: true,
+		},
+		{
+			name:     "When operator patches device status it should succeed",
+			roles:    []string{v1beta1.RoleOperator},
+			resource: "devices/status",
+			op:       "patch",
+			expected: true,
+		},
+		{
+			name:     "When viewer patches device status it should be denied",
+			roles:    []string{v1beta1.RoleViewer},
+			resource: "devices/status",
+			op:       "patch",
+			expected: false,
+		},
+		{
+			name:     "When installer patches device status it should be denied",
+			roles:    []string{v1beta1.RoleInstaller},
+			resource: "devices/status",
+			op:       "patch",
+			expected: false,
+		},
 	}
 
 	for _, tt := range tests {
@@ -401,6 +437,10 @@ func TestStaticAuthZ_GetUserPermissions(t *testing.T) {
 				{
 					Resource:   "devices/applications/lifecycle",
 					Operations: []string{"update"},
+				},
+				{
+					Resource:   "devices/status",
+					Operations: []string{"get", "list", "patch", "update"},
 				},
 				{
 					Resource:   "enrollmenthookpolicies",

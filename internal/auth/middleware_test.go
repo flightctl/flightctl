@@ -82,6 +82,12 @@ var requests []TestRequest = []TestRequest{
 		op:       "get",
 	},
 	{
+		url:      "https://fctl.io/api/v1/devices/foo/status",
+		method:   http.MethodPatch,
+		resource: "devices/status",
+		op:       "patch",
+	},
+	{
 		url:      "https://fctl.io/api/v1/devices/foo/lastseen",
 		method:   http.MethodGet,
 		resource: "devices/lastseen",
