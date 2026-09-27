@@ -799,10 +799,14 @@ func (p *InfraProvider) mergeAndWriteServiceConfig(updates map[string]interface{
 
 // writeHostFile writes content to a path on the Quadlet host using the provider's command transport.
 func (p *InfraProvider) writeHostFile(path string, content []byte) error {
+	return p.writeHostFileContext(context.Background(), path, content)
+}
+
+func (p *InfraProvider) writeHostFileContext(ctx context.Context, path string, content []byte) error {
 	b64 := base64.StdEncoding.EncodeToString(content)
 	escaped := strings.ReplaceAll(b64, "'", "'\"'\"'")
 	script := fmt.Sprintf("printf '%%s' '%s' | base64 -d > %s", escaped, quoteForRemoteShell(path))
-	if _, err := p.runCommand("sh", "-c", script); err != nil {
+	if _, err := p.runCommandWithOptionalStdinContext(ctx, nil, "sh", "-c", script); err != nil {
 		return fmt.Errorf("write remote file %s: %w", path, err)
 	}
 	return nil

@@ -88,6 +88,11 @@ var serviceConfigSectionMappings = map[infra.ServiceName][]SectionMapping{
 			Transform:        nil,
 		},
 		{
+			RenderedKey:      "periodic",
+			ServiceConfigKey: "periodic",
+			Transform:        nil,
+		},
+		{
 			RenderedKey:      "dependenciesSync",
 			ServiceConfigKey: "dependenciesSync",
 			Transform:        nil,
