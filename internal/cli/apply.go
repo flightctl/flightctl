@@ -260,6 +260,11 @@ func applySingleResource(ctx context.Context, c *client.Client, ibClient *client
 	if err := validateResourceAPIVersion(resource, kind); err != nil {
 		return []error{fmt.Errorf("%s: %w", filename, err)}
 	}
+	if kind == DeviceKind {
+		// Device status is read-only on the resource API. GET output includes
+		// status, so discard it to keep get-edit-apply workflows working.
+		delete(resource, "status")
+	}
 
 	if dryRun {
 		fmt.Printf("%s: applying %s/%s (dry run only)\n", filename, strings.ToLower(kindLike), resourceName)
