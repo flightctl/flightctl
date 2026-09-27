@@ -408,20 +408,18 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	// update volume status
 	a.volume.Status(a.status)
 
-	// Collect image digests from the provider's parent image and workload
-	// container images. The parent digest is captured during the OCI
-	// collection phase (parentIsAvailable); workload digests come from the
-	// container runtime events.
+	// Collect image references and known digests from the parent image and
+	// workload container images. The manager merges a parent digest from the OCI
+	// target cache because OCI collection uses temporary provider instances.
 	a.collectImageDigests()
 
 	return a.status, summary, nil
 }
 
 // collectImageDigests populates status.ImageDigests from the application's
-// known image references and their digests. The parent image digest is
-// captured by the OCI collection phase (parentIsAvailable); workload images
-// come from the runtime monitors. Entries with an empty digest are included
-// when no known digest exists for that reference so the control plane can
+// known image references and workload images observed by the runtime monitors.
+// The manager merges the cached parent-image digest after collecting monitor
+// status. Entries with an unknown digest are included so the control plane can
 // identify images that require a full pull.
 func (a *application) collectImageDigests() {
 	byImage := make(map[string]map[string]struct{})

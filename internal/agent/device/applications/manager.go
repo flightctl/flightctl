@@ -89,10 +89,23 @@ func (m *manager) newAppFromProvider(p provider.Provider) Application {
 	return NewApplication(p)
 }
 
+func (m *manager) populateCachedParentImageDigest(p provider.Provider) {
+	spec := p.Spec()
+	if m.ociTargetCache == nil || spec.Image == "" {
+		return
+	}
+
+	entry, found := m.ociTargetCache.Get(p.ID())
+	if found && entry.Parent.Reference == spec.Image && entry.Parent.Digest != "" {
+		spec.ImageDigest = entry.Parent.Digest
+	}
+}
+
 func (m *manager) Ensure(ctx context.Context, provider provider.Provider) error {
 	if err := m.validateProviderDeps(ctx, provider); err != nil {
 		return err
 	}
+	m.populateCachedParentImageDigest(provider)
 	appType := provider.Spec().AppType
 	switch appType {
 	case v1beta1.AppTypeCompose, v1beta1.AppTypeQuadlet, v1beta1.AppTypeContainer:
@@ -154,6 +167,7 @@ func (m *manager) Update(ctx context.Context, provider provider.Provider) error 
 	if err := m.validateProviderDeps(ctx, provider); err != nil {
 		return err
 	}
+	m.populateCachedParentImageDigest(provider)
 	appType := provider.Spec().AppType
 	switch appType {
 	case v1beta1.AppTypeCompose, v1beta1.AppTypeQuadlet, v1beta1.AppTypeContainer:
@@ -255,10 +269,64 @@ func (m *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, opts
 	}
 	allResults = append(allResults, k8sResults...)
 
+	addCachedParentImageDigests(allResults, m.ociTargetCache)
+
 	statuses, summary := aggregateAppStatuses(allResults)
 	status.ApplicationsSummary = summary
 	status.Applications = statuses
 	return nil
+}
+
+// addCachedParentImageDigests merges parent digests resolved by OCI collection
+// into monitor status. Collection uses temporary providers, so their resolved
+// digests must be joined to the live application snapshot by ID and image ref.
+func addCachedParentImageDigests(results []AppStatusResult, cache *provider.OCITargetCache) {
+	if cache == nil {
+		return
+	}
+
+	for i := range results {
+		entry, found := cache.Get(results[i].ID)
+		if !found || entry.Parent.Reference == "" || entry.Parent.Digest == "" || results[i].Status.ImageDigests == nil {
+			continue
+		}
+
+		digests := append([]v1beta1.ApplicationImageDigest(nil), (*results[i].Status.ImageDigests)...)
+		parentReferenceFound := false
+		parentDigestFound := false
+		for j := range digests {
+			if digests[j].Image != entry.Parent.Reference {
+				continue
+			}
+			parentReferenceFound = true
+			if digests[j].Digest == entry.Parent.Digest {
+				parentDigestFound = true
+				break
+			}
+			if digests[j].Digest == "" {
+				digests[j].Digest = entry.Parent.Digest
+				parentDigestFound = true
+				break
+			}
+		}
+		if !parentReferenceFound {
+			continue
+		}
+		if !parentDigestFound {
+			digests = append(digests, v1beta1.ApplicationImageDigest{
+				Image:  entry.Parent.Reference,
+				Digest: entry.Parent.Digest,
+			})
+		}
+
+		sort.Slice(digests, func(i, j int) bool {
+			if digests[i].Image != digests[j].Image {
+				return digests[i].Image < digests[j].Image
+			}
+			return digests[i].Digest < digests[j].Digest
+		})
+		results[i].Status.ImageDigests = &digests
+	}
 }
 
 func aggregateAppStatuses(results []AppStatusResult) ([]v1beta1.DeviceApplicationStatus, v1beta1.DeviceApplicationsSummaryStatus) {
@@ -340,8 +408,7 @@ func (m *manager) Shutdown(ctx context.Context, state shutdown.State) error {
 // Phase 2: Extract nested images from base images (after base images are fetched)
 // The dependency manager calls this iteratively, fetching targets between calls.
 //
-// Caching: Nested targets are cached by application name. Cache entries store the parent
-// image digest (for image-based apps) or children list (for inline apps) for invalidation.
+// Caching: Parent references/digests and nested targets are cached by application ID.
 func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1beta1.DeviceSpec, opts ...dependency.OCICollectOpt) (*dependency.OCICollection, error) {
 	o := dependency.ApplyOCICollectOpts(opts...)
 	osUpdatePending := o.OSUpdatePending()

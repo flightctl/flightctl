@@ -140,6 +140,7 @@ func newQuadletProvider(
 			ID:                appID,
 			User:              user,
 			AppType:           v1beta1.AppTypeQuadlet,
+			Image:             imageRef,
 			Path:              appPath,
 			EnvVars:           envVars,
 			QuadletApp:        &quadletApp,

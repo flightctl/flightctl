@@ -539,6 +539,7 @@ func (m *PodmanMonitor) Status() ([]AppStatusResult, error) {
 			continue
 		}
 		results = append(results, AppStatusResult{
+			ID:      app.ID(),
 			Status:  *appStatus,
 			Summary: appSummary,
 		})

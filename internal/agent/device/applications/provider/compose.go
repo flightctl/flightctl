@@ -108,6 +108,7 @@ func newComposeProvider(
 			User:              user,
 			ID:                lifecycle.GenerateAppID(appName, user),
 			AppType:           v1beta1.AppTypeCompose,
+			Image:             imageRef,
 			Path:              appPath,
 			EnvVars:           envVars,
 			ComposeApp:        &composeApp,
