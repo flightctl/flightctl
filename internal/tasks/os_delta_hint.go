@@ -243,7 +243,7 @@ func lookupCachedGenerationWithMemo(ctx context.Context, kv kvstore.KVStore, sto
 				} else if err == nil {
 					writeMissingGenerationMemo(ctx, kv, key)
 					// Prefer a newly published worker hint for this render too.
-					if current, hit, err := lookupWorkerGenerationHint(ctx, kv, key); hit {
+					if current, hit, _ := lookupWorkerGenerationHint(ctx, kv, key); hit {
 						return current, nil
 					}
 				}
