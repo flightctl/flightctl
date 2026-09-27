@@ -11,6 +11,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -111,7 +112,7 @@ func resolveRetryConfig(action domain.EnrollmentHookSnapshotAction) (maxAttempts
 	timeout = defaultTimeout
 
 	if action.Timeout != nil {
-		if d, err := time.ParseDuration(*action.Timeout); err == nil {
+		if d, err := time.ParseDuration(*action.Timeout); err == nil && d > 0 {
 			timeout = d
 		}
 	}
@@ -125,17 +126,17 @@ func resolveRetryConfig(action domain.EnrollmentHookSnapshotAction) (maxAttempts
 		maxAttempts = *r.MaxAttempts
 	}
 	if r.Deadline != nil {
-		if d, err := time.ParseDuration(*r.Deadline); err == nil {
+		if d, err := time.ParseDuration(*r.Deadline); err == nil && d > 0 {
 			deadline = d
 		}
 	}
 	if r.MaxBackoff != nil {
-		if d, err := time.ParseDuration(*r.MaxBackoff); err == nil {
+		if d, err := time.ParseDuration(*r.MaxBackoff); err == nil && d > 0 {
 			maxBackoff = d
 		}
 	}
 	if r.BackoffDelay != nil {
-		if d, err := time.ParseDuration(*r.BackoffDelay); err == nil {
+		if d, err := time.ParseDuration(*r.BackoffDelay); err == nil && d > 0 {
 			backoffDelay = d
 		}
 	}
@@ -146,9 +147,10 @@ func resolveRetryConfig(action domain.EnrollmentHookSnapshotAction) (maxAttempts
 // executeNotifyAction performs a single webhook POST with retry.
 // It returns nil on 2xx success and an error otherwise.
 func executeNotifyAction(ctx context.Context, action domain.EnrollmentHookSnapshotAction, bearerToken string, payload []byte, deliveryID string, log logrus.FieldLogger, httpClient *http.Client) error {
-	// HTTPS-only runtime guard
-	if strings.HasPrefix(strings.ToLower(action.Url), "http://") {
-		return fmt.Errorf("insecure HTTP URL rejected: %s", action.Url)
+	// HTTPS-only runtime guard (reject http, missing scheme, and non-https schemes).
+	parsedURL, err := url.Parse(action.Url)
+	if err != nil || parsedURL.Scheme != "https" {
+		return &nonRetryableError{fmt.Errorf("insecure or invalid URL rejected: %s", action.Url)}
 	}
 
 	maxAttempts, deadline, maxBackoff, backoffDelay, timeout := resolveRetryConfig(action)
@@ -161,7 +163,7 @@ func executeNotifyAction(ctx context.Context, action domain.EnrollmentHookSnapsh
 		}
 
 		reqCtx, reqCancel := context.WithTimeout(deadlineCtx, timeout)
-		err := doNotifyRequest(reqCtx, httpClient, action.Url, bearerToken, payload, deliveryID, attempt, log)
+		err = doNotifyRequest(reqCtx, httpClient, action.Url, bearerToken, payload, deliveryID, attempt, log)
 		reqCancel()
 
 		if err == nil {
@@ -274,6 +276,22 @@ func enrollmentHookNotify(
 	eventSvc eventservice.Service,
 	log logrus.FieldLogger,
 ) error {
+	return enrollmentHookNotifyWithClient(ctx, orgId, event, deviceSvc, enrollmentRequestSvc, notifySecretsStore, eventSvc, log, newNotifyHTTPClient())
+}
+
+// enrollmentHookNotifyWithClient is the same as enrollmentHookNotify but allows
+// injecting an HTTP client (used by tests with httptest TLS servers).
+func enrollmentHookNotifyWithClient(
+	ctx context.Context,
+	orgId uuid.UUID,
+	event domain.Event,
+	deviceSvc deviceservice.Service,
+	enrollmentRequestSvc enrollmentrequestservice.Service,
+	notifySecretsStore enrollmenthooknotifysecrets.Store,
+	eventSvc eventservice.Service,
+	log logrus.FieldLogger,
+	httpClient *http.Client,
+) error {
 	erName := event.InvolvedObject.Name
 
 	// Load the device to get the enrollment hooks snapshot.
@@ -298,8 +316,7 @@ func enrollmentHookNotify(
 	snapshot := device.Status.EnrollmentHooks.Snapshot
 	if snapshot.ControlPlaneActions == nil || len(*snapshot.ControlPlaneActions) == 0 {
 		log.Infof("enrollment hook notify: device %s has no control plane actions, marking Pending", erName)
-		setNotifyCondition(ctx, deviceSvc, orgId, erName, domain.EnrollmentHooksReasonPending, "", log)
-		return nil
+		return setNotifyCondition(ctx, deviceSvc, orgId, erName, domain.EnrollmentHooksReasonPending, "", log)
 	}
 
 	// Load the enrollment request for the certificate serial.
@@ -331,7 +348,6 @@ func enrollmentHookNotify(
 	}
 
 	// Execute each action with fail-fast on first failure.
-	httpClient := newNotifyHTTPClient()
 	for _, action := range *snapshot.ControlPlaneActions {
 		deliveryID := fmt.Sprintf("%s/%d", erName, action.Index)
 		bearerToken := secretMap[action.Index]
@@ -345,8 +361,7 @@ func enrollmentHookNotify(
 
 	// All actions succeeded: transition to Pending.
 	log.Infof("enrollment hook notify: all actions succeeded for device %s", erName)
-	setNotifyCondition(ctx, deviceSvc, orgId, erName, domain.EnrollmentHooksReasonPending, "", log)
-	return nil
+	return setNotifyCondition(ctx, deviceSvc, orgId, erName, domain.EnrollmentHooksReasonPending, "", log)
 }
 
 // handleNotifyFailure updates the device condition based on the failure policy.
@@ -364,19 +379,25 @@ func handleNotifyFailure(
 	case domain.FailurePolicyBlock:
 		// Block + failure: SetDeviceServiceConditions(Failed) ONLY.
 		// EnrollmentHookFailed event is auto-emitted by diffAndEmitConditionEvents.
-		setNotifyCondition(ctx, deviceSvc, orgId, deviceName, domain.EnrollmentHooksReasonFailed, notifyErr.Error(), log)
+		if err := setNotifyCondition(ctx, deviceSvc, orgId, deviceName, domain.EnrollmentHooksReasonFailed, notifyErr.Error(), log); err != nil {
+			return err
+		}
 		return notifyErr
 
 	case domain.FailurePolicyContinue:
 		// Continue + failure: SetDeviceServiceConditions(Pending) FIRST,
 		// then CreateEvent(NotifyFailed). Condition-first for redelivery safety.
-		setNotifyCondition(ctx, deviceSvc, orgId, deviceName, domain.EnrollmentHooksReasonPending, "", log)
+		if err := setNotifyCondition(ctx, deviceSvc, orgId, deviceName, domain.EnrollmentHooksReasonPending, "", log); err != nil {
+			return err
+		}
 		eventSvc.CreateEvent(ctx, orgId, common.GetEnrollmentHookNotifyFailedEvent(ctx, deviceName, notifyErr.Error()))
 		return nil // Continue policy: return nil so enrollment proceeds
 
 	default:
 		// Default to Block behavior for unknown policies.
-		setNotifyCondition(ctx, deviceSvc, orgId, deviceName, domain.EnrollmentHooksReasonFailed, notifyErr.Error(), log)
+		if err := setNotifyCondition(ctx, deviceSvc, orgId, deviceName, domain.EnrollmentHooksReasonFailed, notifyErr.Error(), log); err != nil {
+			return err
+		}
 		return notifyErr
 	}
 }
@@ -390,7 +411,7 @@ func setNotifyCondition(
 	reason string,
 	message string,
 	log logrus.FieldLogger,
-) {
+) error {
 	condition := domain.Condition{
 		Type:    domain.ConditionTypeDeviceEnrollmentHooks,
 		Status:  domain.ConditionStatusFalse,
@@ -400,7 +421,9 @@ func setNotifyCondition(
 	status := deviceSvc.SetDeviceServiceConditions(ctx, orgId, deviceName, []domain.Condition{condition})
 	if status.Code != http.StatusOK {
 		log.Errorf("enrollment hook notify: failed to set condition for device %s: %s", deviceName, status.Message)
+		return fmt.Errorf("failed to set EnrollmentHooks condition for device %s: %s", deviceName, status.Message)
 	}
+	return nil
 }
 
 // condReasonOrEmpty safely returns the reason from a condition, or empty string if nil.

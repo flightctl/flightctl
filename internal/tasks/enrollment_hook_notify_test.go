@@ -258,6 +258,23 @@ func TestResolveRetryConfig(t *testing.T) {
 		assert.Equal(t, 10, maxAttempts)
 		assert.Equal(t, 10*time.Minute, deadline) // default
 	})
+
+	t.Run("When durations are zero or negative it should keep defaults", func(t *testing.T) {
+		action := domain.EnrollmentHookSnapshotAction{
+			Url:     "https://example.com",
+			Timeout: lo.ToPtr("0s"),
+			Retry: &domain.EnrollmentHookRetryPolicy{
+				Deadline:     lo.ToPtr("-1s"),
+				MaxBackoff:   lo.ToPtr("0s"),
+				BackoffDelay: lo.ToPtr("-5ms"),
+			},
+		}
+		_, deadline, maxBackoff, backoffDelay, timeout := resolveRetryConfig(action)
+		assert.Equal(t, 10*time.Minute, deadline)
+		assert.Equal(t, 2*time.Minute, maxBackoff)
+		assert.Equal(t, 2*time.Second, backoffDelay)
+		assert.Equal(t, 30*time.Second, timeout)
+	})
 }
 
 func TestExecuteNotifyAction_HTTPSOnly(t *testing.T) {
@@ -268,7 +285,19 @@ func TestExecuteNotifyAction_HTTPSOnly(t *testing.T) {
 		log := logrus.NewEntry(logrus.New())
 		err := executeNotifyAction(context.Background(), action, "", nil, "test/0", log, newNotifyHTTPClient())
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), "insecure HTTP URL rejected")
+		assert.True(t, isNonRetryableError(err))
+		assert.Contains(t, err.Error(), "insecure or invalid URL rejected")
+	})
+
+	t.Run("When URL has no scheme it should reject as non-retryable", func(t *testing.T) {
+		action := domain.EnrollmentHookSnapshotAction{
+			Url: "example.com/hook",
+		}
+		log := logrus.NewEntry(logrus.New())
+		err := executeNotifyAction(context.Background(), action, "", nil, "test/0", log, newNotifyHTTPClient())
+		require.Error(t, err)
+		assert.True(t, isNonRetryableError(err))
+		assert.Contains(t, err.Error(), "insecure or invalid URL rejected")
 	})
 }
 
@@ -398,13 +427,77 @@ func TestExecuteNotifyAction_WithTLSServer(t *testing.T) {
 }
 
 func TestDeliveryIDStability(t *testing.T) {
-	t.Run("When same event name and action index it should produce same delivery ID", func(t *testing.T) {
+	t.Run("When notify runs twice with different event names it should send the same delivery ID", func(t *testing.T) {
+		orgId := uuid.New()
 		erName := "my-device-123"
-		actionIndex := 2
-		id1 := fmt.Sprintf("%s/%d", erName, actionIndex)
-		id2 := fmt.Sprintf("%s/%d", erName, actionIndex)
-		assert.Equal(t, id1, id2)
-		assert.Equal(t, "my-device-123/2", id1)
+		log := logrus.NewEntry(logrus.New())
+		statusOK := domain.StatusOK()
+
+		var deliveryIDs []string
+		server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			deliveryIDs = append(deliveryIDs, r.Header.Get("X-Flightctl-Delivery-Id"))
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		device := &domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(erName)},
+			Status: &domain.DeviceStatus{
+				Conditions: []domain.Condition{{
+					Type:   domain.ConditionTypeDeviceEnrollmentHooks,
+					Status: domain.ConditionStatusFalse,
+					Reason: domain.EnrollmentHooksReasonNotifyPending,
+				}},
+				EnrollmentHooks: &domain.DeviceEnrollmentHooksStatus{
+					Snapshot: &domain.EnrollmentHookSnapshot{
+						FailurePolicy: domain.FailurePolicyContinue,
+						ControlPlaneActions: &[]domain.EnrollmentHookSnapshotAction{{
+							Index:   2,
+							Url:     server.URL,
+							Timeout: lo.ToPtr("5s"),
+							Retry:   &domain.EnrollmentHookRetryPolicy{MaxAttempts: lo.ToPtr(1)},
+						}},
+					},
+				},
+			},
+		}
+
+		runNotify := func(eventName string) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockDeviceSvc := deviceservice.NewMockService(ctrl)
+			mockERSvc := enrollmentrequestservice.NewMockService(ctrl)
+			mockSecrets := enrollmenthooknotifysecrets.NewMockStore(ctrl)
+			mockEventSvc := eventservice.NewMockService(ctrl)
+
+			mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, erName).Return(device, statusOK)
+			mockERSvc.EXPECT().GetEnrollmentRequest(gomock.Any(), orgId, erName).
+				Return(nil, domain.StatusResourceNotFound("EnrollmentRequest", erName))
+			mockSecrets.EXPECT().ListByDevice(gomock.Any(), orgId, erName).Return(nil, nil)
+			mockDeviceSvc.EXPECT().SetDeviceServiceConditions(gomock.Any(), orgId, erName, gomock.Any()).
+				Return(statusOK)
+
+			event := domain.Event{
+				Metadata: domain.ObjectMeta{Name: lo.ToPtr(eventName)},
+				InvolvedObject: domain.ObjectReference{
+					Kind: domain.EnrollmentRequestKind,
+					Name: erName,
+				},
+				Reason: domain.EventReasonEnrollmentRequestApproved,
+			}
+
+			// Use the TLS test server's client so the notify worker trusts the cert.
+			err := enrollmentHookNotifyWithClient(context.Background(), orgId, event, mockDeviceSvc, mockERSvc, mockSecrets, mockEventSvc, log, server.Client())
+			require.NoError(t, err)
+		}
+
+		runNotify("event-aaa")
+		runNotify("event-bbb")
+
+		require.Len(t, deliveryIDs, 2)
+		assert.Equal(t, "my-device-123/2", deliveryIDs[0])
+		assert.Equal(t, deliveryIDs[0], deliveryIDs[1])
 	})
 }
 
@@ -530,6 +623,22 @@ func TestEnrollmentHookNotify_EndToEnd(t *testing.T) {
 		err := handleNotifyFailure(context.Background(), mockDeviceSvc, mockEventSvc, orgId, erName,
 			domain.FailurePolicyBlock, fmt.Errorf("test failure"), log)
 		require.Error(t, err)
+	})
+
+	t.Run("When condition update fails it should return the error", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockDeviceSvc := deviceservice.NewMockService(ctrl)
+		mockEventSvc := eventservice.NewMockService(ctrl)
+
+		mockDeviceSvc.EXPECT().SetDeviceServiceConditions(gomock.Any(), orgId, erName, gomock.Any()).
+			Return(domain.StatusInternalServerError("db unavailable"))
+
+		err := handleNotifyFailure(context.Background(), mockDeviceSvc, mockEventSvc, orgId, erName,
+			domain.FailurePolicyBlock, fmt.Errorf("test failure"), log)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to set EnrollmentHooks condition")
 	})
 
 	t.Run("When Continue policy and action fails it should set Pending and emit NotifyFailed", func(t *testing.T) {
