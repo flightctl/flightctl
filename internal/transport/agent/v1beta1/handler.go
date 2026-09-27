@@ -120,14 +120,14 @@ func (s *AgentTransportHandler) ReplaceDeviceStatus(w http.ResponseWriter, r *ht
 		return
 	}
 
-	var deviceBody api.Device
-	if err := json.NewDecoder(r.Body).Decode(&deviceBody); err != nil {
+	var device api.Device
+	if err := json.NewDecoder(r.Body).Decode(&device); err != nil {
 		s.SetParseFailureResponse(w, err)
 		return
 	}
 
-	domainDevice := s.converter.Device().ToDomain(deviceBody)
-	body, status := device.ReplaceDeviceStatusFromUntrusted(ctx, s.device, transport.OrgIDFromContext(ctx), fingerprint, domainDevice, true)
+	domainDevice := s.converter.Device().ToDomain(device)
+	body, status := s.device.ReplaceDeviceStatus(ctx, transport.OrgIDFromContext(ctx), fingerprint, domainDevice, true)
 	apiResult := s.converter.Device().FromDomain(body)
 	s.SetResponse(w, apiResult, status)
 }
@@ -168,7 +168,7 @@ func (s *AgentTransportHandler) PatchDeviceStatus(w http.ResponseWriter, r *http
 	}
 
 	domainPatch := s.converter.Common().PatchRequestToDomain(patch)
-	body, status := device.PatchDeviceStatusFromUntrusted(ctx, s.device, transport.OrgIDFromContext(ctx), fingerprint, domainPatch)
+	body, status := s.device.PatchDeviceStatus(ctx, transport.OrgIDFromContext(ctx), fingerprint, domainPatch)
 	apiResult := s.converter.Device().FromDomain(body)
 	s.SetResponse(w, apiResult, status)
 }
