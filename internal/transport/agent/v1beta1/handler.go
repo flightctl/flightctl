@@ -14,7 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
-	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	"github.com/flightctl/flightctl/internal/service/device"
 	"github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/transport"
 	"github.com/flightctl/flightctl/internal/util"
@@ -27,7 +27,7 @@ import (
 // status) before creating/auto-approving the CSR, so it needs both the device and
 // certificatesigningrequest fields.
 type AgentTransportHandler struct {
-	device                    deviceservice.Service
+	device                    device.Service
 	enrollmentrequest         enrollmentrequest.Service
 	certificatesigningrequest certificatesigningrequest.Service
 	converter                 convertv1beta1.Converter
@@ -39,7 +39,7 @@ type AgentTransportHandler struct {
 var _ agentServer.Transport = (*AgentTransportHandler)(nil)
 
 func NewAgentTransportHandler(
-	deviceSvc deviceservice.Service,
+	deviceSvc device.Service,
 	enrollmentrequestSvc enrollmentrequest.Service,
 	certificatesigningrequestSvc certificatesigningrequest.Service,
 	converter convertv1beta1.Converter,
@@ -120,14 +120,14 @@ func (s *AgentTransportHandler) ReplaceDeviceStatus(w http.ResponseWriter, r *ht
 		return
 	}
 
-	var device api.Device
-	if err := json.NewDecoder(r.Body).Decode(&device); err != nil {
+	var deviceBody api.Device
+	if err := json.NewDecoder(r.Body).Decode(&deviceBody); err != nil {
 		s.SetParseFailureResponse(w, err)
 		return
 	}
 
-	domainDevice := s.converter.Device().ToDomain(device)
-	body, status := deviceservice.ReplaceDeviceStatusFromUntrusted(ctx, s.device, transport.OrgIDFromContext(ctx), fingerprint, domainDevice, true)
+	domainDevice := s.converter.Device().ToDomain(deviceBody)
+	body, status := device.ReplaceDeviceStatusFromUntrusted(ctx, s.device, transport.OrgIDFromContext(ctx), fingerprint, domainDevice, true)
 	apiResult := s.converter.Device().FromDomain(body)
 	s.SetResponse(w, apiResult, status)
 }
@@ -168,7 +168,7 @@ func (s *AgentTransportHandler) PatchDeviceStatus(w http.ResponseWriter, r *http
 	}
 
 	domainPatch := s.converter.Common().PatchRequestToDomain(patch)
-	body, status := deviceservice.PatchDeviceStatusFromUntrusted(ctx, s.device, transport.OrgIDFromContext(ctx), fingerprint, domainPatch)
+	body, status := device.PatchDeviceStatusFromUntrusted(ctx, s.device, transport.OrgIDFromContext(ctx), fingerprint, domainPatch)
 	apiResult := s.converter.Device().FromDomain(body)
 	s.SetResponse(w, apiResult, status)
 }
