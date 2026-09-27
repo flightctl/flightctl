@@ -198,44 +198,65 @@ func deltaGenerationLookupMemoKey(key delta.GenerationKey) string {
 func lookupOSDeltaGeneration(ctx context.Context, kv kvstore.KVStore, store generationLookup, key delta.GenerationKey, opts ...delta.GenerationGetOption) (*model.DeltaGeneration, error) {
 	// Check the delta-worker-owned success hint before the device-render memo,
 	// so a published success takes precedence over a stale cached database miss.
-	if gen, found, err := lookupWorkerGenerationHint(ctx, kv, key); found {
+	if gen, found := lookupOSDeltaGenerationMemo(ctx, kv, key); found {
 		return gen, nil
-	} else if err == nil {
-		if gen, missing, found := lookupGenerationMemo(ctx, kv, key); found {
-			if !missing {
-				return gen, nil
-			}
-			// The delta worker may have populated its key while the memo was read.
-			if current, hit, err := lookupWorkerGenerationHint(ctx, kv, key); hit {
-				return current, nil
-			} else if err == nil {
-				return nil, nil
-			}
-		}
 	}
 
 	gen, err := store.GetDeltaGeneration(ctx, key, opts...)
-	if err != nil {
-		if errors.Is(err, flterrors.ErrResourceNotFound) {
-			// Recheck the worker-owned key after the DB read. A generation may
-			// have succeeded and been cached while this lookup was in flight.
-			if current, hit, err := lookupWorkerGenerationHint(ctx, kv, key); hit {
-				return current, nil
-			} else if err == nil {
-				writeMissingGenerationMemo(ctx, kv, key)
-				// Prefer a newly published worker hint for this render too.
-				if current, hit, _ := lookupWorkerGenerationHint(ctx, kv, key); hit {
-					return current, nil
-				}
-			}
+	if err != nil && !errors.Is(err, flterrors.ErrResourceNotFound) {
+		return nil, err
+	}
+	if errors.Is(err, flterrors.ErrResourceNotFound) {
+		// Recheck the worker-owned key after the DB read. A generation may have
+		// succeeded and been cached while this lookup was in flight.
+		cached, found, cacheErr := lookupWorkerGenerationHint(ctx, kv, key)
+		if found {
+			return cached, nil
+		}
+		if cacheErr != nil {
 			return nil, nil
 		}
-		return nil, err
+
+		writeMissingGenerationMemo(ctx, kv, key)
+		// Prefer a newly published worker hint for this render too.
+		cached, found, _ = lookupWorkerGenerationHint(ctx, kv, key)
+		if found {
+			return cached, nil
+		}
+		return nil, nil
 	}
 	if gen != nil && gen.Status == model.DeltaGenerationSucceeded && gen.DeltaRef != nil && *gen.DeltaRef != "" {
 		writeSuccessfulGenerationMemo(ctx, kv, key, gen)
 	}
 	return gen, nil
+}
+
+func lookupOSDeltaGenerationMemo(ctx context.Context, kv kvstore.KVStore, key delta.GenerationKey) (*model.DeltaGeneration, bool) {
+	gen, found, err := lookupWorkerGenerationHint(ctx, kv, key)
+	if err != nil {
+		return nil, false
+	}
+	if found {
+		return gen, true
+	}
+
+	gen, missing, found := lookupGenerationMemo(ctx, kv, key)
+	if !found {
+		return nil, false
+	}
+	if !missing {
+		return gen, true
+	}
+
+	// The delta worker may have populated its key while the memo was read.
+	gen, found, err = lookupWorkerGenerationHint(ctx, kv, key)
+	if err != nil {
+		return nil, false
+	}
+	if found {
+		return gen, true
+	}
+	return nil, true
 }
 
 func lookupWorkerGenerationHint(ctx context.Context, kv kvstore.KVStore, key delta.GenerationKey) (*model.DeltaGeneration, bool, error) {
