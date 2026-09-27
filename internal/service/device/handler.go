@@ -91,43 +91,35 @@ func CreateDeviceFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID
 	return svc.CreateDevice(ctx, orgId, device)
 }
 
-// ReplaceDeviceFromUntrusted sanitizes an untrusted device document, then replaces it.
+// ReplaceDeviceFromUntrusted rejects status writes and sanitizes managed
+// metadata before replacing the device.
 func ReplaceDeviceFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string, enforceOwnership bool, enforceCapabilities bool) (*domain.Device, domain.Status) {
+	if device.Status != nil {
+		return nil, domain.StatusBadRequest("device status is read-only on this API")
+	}
 	SanitizeDevice(&device)
 	return svc.ReplaceDevice(ctx, orgId, name, device, fieldsToUnset, enforceOwnership, enforceCapabilities)
 }
 
-// PatchDeviceFromUntrusted rejects patches to device status fields owned by
-// the service. Conditions are a mixed-ownership array, so patches to the array
-// are rejected as a whole rather than risking edits by array index.
+// PatchDeviceFromUntrusted rejects patches to device status, which is read-only
+// on the device resource API.
 func PatchDeviceFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, name string, patch domain.PatchRequest, enforceOwnership bool, enforceCapabilities bool) (*domain.Device, domain.Status) {
 	for _, operation := range patch {
-		if devicePatchTouchesServiceOwnedFields(operation.Path) {
-			return nil, domain.StatusBadRequest(fmt.Sprintf("patch path %q targets service-owned device status", operation.Path))
+		if devicePatchTouchesStatus(operation.Path) {
+			return nil, domain.StatusBadRequest(fmt.Sprintf("patch path %q targets read-only device status", operation.Path))
 		}
 	}
 	return svc.PatchDevice(ctx, orgId, name, patch, enforceOwnership, enforceCapabilities)
 }
 
-func devicePatchTouchesServiceOwnedFields(path string) bool {
+func devicePatchTouchesStatus(path string) bool {
 	if path == "" {
-		// Replacing the document root could change any status field.
+		// Replacing the document root could change device status.
 		return true
 	}
 
 	segments := strings.Split(strings.TrimPrefix(path, "/"), "/")
-	if segments[0] != "status" {
-		return false
-	}
-	if len(segments) == 1 {
-		return true
-	}
-	switch segments[1] {
-	case "conditions", "dependencySync", "deltaGeneration", "enrollmentHooks":
-		return true
-	default:
-		return false
-	}
+	return segments[0] == "status"
 }
 
 func (h *DeviceServiceHandler) CreateDevice(ctx context.Context, orgId uuid.UUID, device domain.Device) (*domain.Device, domain.Status) {
