@@ -268,9 +268,6 @@ func lookupWorkerGenerationHint(ctx context.Context, kv kvstore.KVStore, key del
 	if err := json.Unmarshal(raw, &hint); err != nil || hint.DeltaRef == "" {
 		return nil, false, nil
 	}
-	if err := kv.SetExpire(ctx, cacheKey, kvstore.DeltaGenerationHintTTL); err != nil {
-		logrus.StandardLogger().WithError(err).Warnf("failed extending delta generation hint TTL org=%s repo=%s sourceDigest=%s targetDigest=%s", key.OrgID, key.ImageRepository, key.SourceDigest, key.TargetDigest)
-	}
 	return &model.DeltaGeneration{
 		OrgID:           key.OrgID,
 		ImageRepository: key.ImageRepository,
