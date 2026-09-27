@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"sort"
 	"strconv"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -137,13 +138,20 @@ type Application interface {
 // Workload represents an application workload tracked by a Monitor.
 type Workload struct {
 	ID       string
-	Image    string
+	Images   []WorkloadImage // Image references reported for this workload.
 	Name     string
 	Status   StatusType
 	Restarts int
 	// RequiresHealth is set when a VM workload has emitted health_status events.
 	// Gated workloads stay Degraded on start/starting until healthy.
 	RequiresHealth bool
+}
+
+// WorkloadImage describes an image used by a workload and its content digest
+// when the runtime can resolve one.
+type WorkloadImage struct {
+	Image  string
+	Digest string
 }
 
 type application struct {
@@ -244,7 +252,9 @@ func (a *application) Workload(name string) (*Workload, bool) {
 }
 
 func (a *application) AddWorkload(workload *Workload) {
-	a.workloads = append(a.workloads, *workload)
+	workloadCopy := *workload
+	workloadCopy.Images = slices.Clone(workload.Images)
+	a.workloads = append(a.workloads, workloadCopy)
 }
 
 func (a *application) RemoveWorkload(name string) bool {
@@ -259,7 +269,10 @@ func (a *application) RemoveWorkload(name string) bool {
 
 func (a *application) Workloads() []Workload {
 	result := make([]Workload, len(a.workloads))
-	copy(result, a.workloads)
+	for i := range a.workloads {
+		result[i] = a.workloads[i]
+		result[i].Images = slices.Clone(a.workloads[i].Images)
+	}
 	return result
 }
 
@@ -407,38 +420,54 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 // collectImageDigests populates status.ImageDigests from the application's
 // known image references and their digests. The parent image digest is
 // captured by the OCI collection phase (parentIsAvailable); workload images
-// carry their container image refs. Entries with an empty digest are included
-// so the control plane can identify which images this application uses (a
-// missing digest means the image is not yet in storage — full pull).
+// come from the runtime monitors. Entries with an empty digest are included
+// when no known digest exists for that reference so the control plane can
+// identify images that require a full pull.
 func (a *application) collectImageDigests() {
-	seen := make(map[string]struct{})
-	var digests []v1beta1.ApplicationImageDigest
+	byImage := make(map[string]map[string]struct{})
+	add := func(image, digest string) {
+		if image == "" {
+			return
+		}
+		if _, ok := byImage[image]; !ok {
+			byImage[image] = make(map[string]struct{})
+		}
+		if digest != "" {
+			byImage[image][digest] = struct{}{}
+		}
+	}
 
 	// Parent image from the provider spec, with digest from parentIsAvailable.
-	if a.imageRef != "" {
-		seen[a.imageRef] = struct{}{}
-		digests = append(digests, v1beta1.ApplicationImageDigest{
-			Image:  a.imageRef,
-			Digest: a.imageDigest,
-		})
-	}
+	add(a.imageRef, a.imageDigest)
 
 	// Workload container images from the runtime.
 	for _, w := range a.workloads {
-		if w.Image == "" {
-			continue
+		for _, image := range w.Images {
+			add(image.Image, image.Digest)
 		}
-		if _, ok := seen[w.Image]; ok {
-			continue
-		}
-		seen[w.Image] = struct{}{}
-		digests = append(digests, v1beta1.ApplicationImageDigest{
-			Image: w.Image,
-		})
 	}
+
+	var digests []v1beta1.ApplicationImageDigest
+	for image, knownDigests := range byImage {
+		if len(knownDigests) == 0 {
+			digests = append(digests, v1beta1.ApplicationImageDigest{Image: image})
+			continue
+		}
+		for digest := range knownDigests {
+			digests = append(digests, v1beta1.ApplicationImageDigest{Image: image, Digest: digest})
+		}
+	}
+	sort.Slice(digests, func(i, j int) bool {
+		if digests[i].Image != digests[j].Image {
+			return digests[i].Image < digests[j].Image
+		}
+		return digests[i].Digest < digests[j].Digest
+	})
 
 	if len(digests) > 0 {
 		a.status.ImageDigests = &digests
+	} else {
+		a.status.ImageDigests = nil
 	}
 }
 

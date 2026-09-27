@@ -490,6 +490,56 @@ func newTestKubernetesMonitor(log *log.PrefixLogger, mockExec executer.Executer,
 	return NewKubernetesMonitor(log, cliClients, rwFactory)
 }
 
+func TestKubernetesMonitorUpdatePodStatusCollectsImageSnapshot(t *testing.T) {
+	app := &application{workloads: []Workload{{
+		ID:   "old-uid",
+		Name: "app-pod",
+		Images: []WorkloadImage{{
+			Image: "quay.io/acme/old:v1",
+		}},
+	}}}
+	monitor := &KubernetesMonitor{monitor: &monitor{log: log.NewPrefixLogger("test")}}
+	pod := &kubernetesPod{}
+	pod.Kind = "Pod"
+	pod.Metadata.Name = "app-pod"
+	pod.Metadata.UID = "new-uid"
+	pod.Spec.Containers = []kubernetesContainerSpec{{Name: "web", Image: "quay.io/acme/web:latest"}}
+	pod.Spec.InitContainers = []kubernetesContainerSpec{{Name: "setup", Image: "quay.io/acme/setup:v2"}}
+	pod.Status.Phase = podPhaseRunning
+	pod.Status.ContainerStatuses = []kubernetesContainerStatus{{
+		Name:    "web",
+		ImageID: "docker-pullable://quay.io/acme/web@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		Ready:   true,
+	}}
+	pod.Status.InitContainerStatuses = []kubernetesContainerStatus{{
+		Name:    "setup",
+		ImageID: "containerd://sha256:opaque",
+		Ready:   true,
+	}}
+
+	monitor.updatePodStatus(app, pod)
+
+	workload, ok := app.Workload("app-pod")
+	require.True(t, ok)
+	require.Equal(t, "new-uid", workload.ID)
+	require.Equal(t, []WorkloadImage{
+		{Image: "quay.io/acme/web:latest", Digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"},
+		{Image: "quay.io/acme/setup:v2"},
+	}, workload.Images)
+
+	// A later pod snapshot replaces the old set so removed containers cannot
+	// leave image references in the application status.
+	pod.Spec.Containers = []kubernetesContainerSpec{{Name: "web", Image: "quay.io/acme/web:v2"}}
+	pod.Spec.InitContainers = nil
+	pod.Status.InitContainerStatuses = nil
+	pod.Status.ContainerStatuses = []kubernetesContainerStatus{{Name: "web", Ready: true}}
+	monitor.updatePodStatus(app, pod)
+
+	workload, ok = app.Workload("app-pod")
+	require.True(t, ok)
+	require.Equal(t, []WorkloadImage{{Image: "quay.io/acme/web:v2"}}, workload.Images)
+}
+
 // testKubeCLIClients implements client.CLIClients for KubernetesMonitor tests.
 type testKubeCLIClients struct {
 	kube *client.Kube

@@ -242,7 +242,7 @@ func serviceResolver(cfg *deltaconfig.DeltaGenerationConfig, fleets fleetservice
 			return logic.RenderSpec(ctx, spec)
 		},
 		Expand: func(ctx context.Context, orgId uuid.UUID, device *domain.Device, rendered internaltasks.RenderedSpec, candidates []preparetask.DeltaCandidate) []preparetask.DeltaCandidate {
-			return expandAppCandidates(ctx, orgId, device, rendered, candidates, func(ctx context.Context, orgId uuid.UUID, image string) (string, error) {
+			return expandAppCandidates(ctx, log.WithField("pkg", "app-expand"), orgId, device, rendered, candidates, func(ctx context.Context, orgId uuid.UUID, image string) (string, error) {
 				return oci.CachedImageDigest(ctx, kvStore, orgId, image, func(ctx context.Context) (string, error) {
 					spec, err := generateTask.ResolveDeltaTargetRepo(ctx, repos, cfg, orgId)
 					if err != nil {

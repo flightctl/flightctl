@@ -3,6 +3,7 @@ package delta_worker
 import (
 	"context"
 	"encoding/json"
+	"slices"
 
 	"github.com/containers/image/v5/docker/reference"
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -12,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 )
 
 // inspectFn resolves an image reference to its content digest.
@@ -25,6 +27,7 @@ type inspectFn func(ctx context.Context, orgId uuid.UUID, image string) (string,
 // and resolves the new digest via registry inspect.
 func expandAppCandidates(
 	ctx context.Context,
+	logger logrus.FieldLogger,
 	orgId uuid.UUID,
 	device *domain.Device,
 	rendered tasks.RenderedSpec,
@@ -37,6 +40,10 @@ func expandAppCandidates(
 
 	var apps []domain.ApplicationProviderSpec
 	if err := json.Unmarshal(rendered.Applications, &apps); err != nil {
+		logger.WithError(err).WithFields(logrus.Fields{
+			"orgId":      orgId,
+			"deviceName": applicationDeviceName(device),
+		}).Warn("failed to unmarshal rendered applications for delta expansion")
 		return candidates
 	}
 
@@ -45,69 +52,98 @@ func expandAppCandidates(
 	for i := range apps {
 		refs := extractNewImageRefs(&apps[i])
 		for _, ref := range refs {
-			cand, ok := pairCandidate(ctx, orgId, ref, digestIndex, inspect)
-			if ok {
-				candidates = append(candidates, cand)
-			}
+			candidates = append(candidates, pairCandidates(ctx, logger, orgId, applicationDeviceName(device), ref, digestIndex, inspect)...)
 		}
 	}
 	return candidates
 }
 
-// buildDigestIndex builds a lookup from image reference to digest from the
-// device's current application statuses.
-func buildDigestIndex(device *domain.Device) map[string]string {
+// buildDigestIndex builds a lookup from image repository to current digests
+// from the device's current application statuses.
+func buildDigestIndex(device *domain.Device) map[string][]string {
 	if device == nil || device.Status == nil {
 		return nil
 	}
-	idx := make(map[string]string)
+	idx := make(map[string][]string)
 	for _, app := range device.Status.Applications {
 		if app.ImageDigests == nil {
 			continue
 		}
 		for _, entry := range *app.ImageDigests {
 			if entry.Image != "" && entry.Digest != "" {
-				idx[entry.Image] = entry.Digest
+				repo, err := applicationImageRepository(entry.Image)
+				if err != nil {
+					continue
+				}
+				if !slices.Contains(idx[repo], entry.Digest) {
+					idx[repo] = append(idx[repo], entry.Digest)
+				}
 			}
 		}
+	}
+	for repo := range idx {
+		slices.Sort(idx[repo])
 	}
 	return idx
 }
 
-// pairCandidate pairs a new image reference with its current digest and
-// resolves the new digest via inspect. Returns false if the pair should be
-// skipped (missing current digest, inspect failure, or same digest).
-func pairCandidate(
+// pairCandidates pairs a new image reference with every known current digest
+// for its repository. It inspects the new image once and skips identical pairs.
+func pairCandidates(
 	ctx context.Context,
+	logger logrus.FieldLogger,
 	orgId uuid.UUID,
+	deviceName string,
 	newImageRef string,
-	digestIndex map[string]string,
+	digestIndex map[string][]string,
 	inspect inspectFn,
-) (preparetask.DeltaCandidate, bool) {
-	currentDigest, ok := digestIndex[newImageRef]
-	if !ok || currentDigest == "" {
-		return preparetask.DeltaCandidate{}, false
-	}
-
+) []preparetask.DeltaCandidate {
 	repo, err := applicationImageRepository(newImageRef)
 	if err != nil {
-		return preparetask.DeltaCandidate{}, false
+		logger.WithError(err).WithFields(logrus.Fields{
+			"orgId":      orgId,
+			"deviceName": deviceName,
+			"image":      newImageRef,
+		}).Warn("failed to parse rendered application image reference for delta expansion")
+		return nil
+	}
+	currentDigests := digestIndex[repo]
+	if len(currentDigests) == 0 {
+		return nil
 	}
 
 	newDigest, err := inspect(ctx, orgId, newImageRef)
-	if err != nil || newDigest == "" {
-		return preparetask.DeltaCandidate{}, false
+	if err != nil {
+		logger.WithError(err).WithFields(logrus.Fields{
+			"orgId":      orgId,
+			"deviceName": deviceName,
+			"image":      newImageRef,
+		}).Warn("failed to inspect rendered application image for delta expansion")
+		return nil
+	}
+	if newDigest == "" {
+		return nil
 	}
 
-	if currentDigest == newDigest {
-		return preparetask.DeltaCandidate{}, false
+	var candidates []preparetask.DeltaCandidate
+	for _, currentDigest := range currentDigests {
+		if currentDigest == newDigest {
+			continue
+		}
+		candidates = append(candidates, preparetask.DeltaCandidate{
+			ImageRepository: repo,
+			CurrentDigest:   currentDigest,
+			NewDigest:       newDigest,
+		})
 	}
+	return candidates
+}
 
-	return preparetask.DeltaCandidate{
-		ImageRepository: repo,
-		CurrentDigest:   currentDigest,
-		NewDigest:       newDigest,
-	}, true
+func applicationDeviceName(device *domain.Device) string {
+	if device == nil || device.Metadata.Name == nil {
+		return ""
+	}
+	return *device.Metadata.Name
 }
 
 func applicationImageRepository(image string) (string, error) {

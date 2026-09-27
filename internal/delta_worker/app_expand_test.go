@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"testing"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -12,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,6 +21,7 @@ import (
 func TestExpandAppCandidates(t *testing.T) {
 	ctx := context.Background()
 	orgId := uuid.New()
+	logger := quietTestLogger()
 
 	inspectOK := func(_ context.Context, _ uuid.UUID, image string) (string, error) {
 		return "sha256:new_" + image, nil
@@ -29,7 +32,7 @@ func TestExpandAppCandidates(t *testing.T) {
 
 	t.Run("When rendered spec has no applications it should return OS candidates unchanged", func(t *testing.T) {
 		osCand := preparetask.DeltaCandidate{ImageRepository: "quay.io/acme/os", CurrentDigest: "sha256:aaa", NewDigest: "sha256:bbb"}
-		result := expandAppCandidates(ctx, orgId, nil, tasks.RenderedSpec{}, []preparetask.DeltaCandidate{osCand}, inspectOK)
+		result := expandAppCandidates(ctx, logger, orgId, nil, tasks.RenderedSpec{}, []preparetask.DeltaCandidate{osCand}, inspectOK)
 		require.Len(t, result, 1)
 		assert.Equal(t, osCand, result[0])
 	})
@@ -39,11 +42,44 @@ func TestExpandAppCandidates(t *testing.T) {
 		rendered := renderedWithApps(t, app)
 		device := deviceWithImageDigests("test-app", "quay.io/acme/nginx:v2", "sha256:old_nginx")
 
-		result := expandAppCandidates(ctx, orgId, device, rendered, nil, inspectOK)
+		result := expandAppCandidates(ctx, logger, orgId, device, rendered, nil, inspectOK)
 		require.Len(t, result, 1)
 		assert.Equal(t, "quay.io/acme/nginx", result[0].ImageRepository)
 		assert.Equal(t, "sha256:old_nginx", result[0].CurrentDigest)
 		assert.Equal(t, "sha256:new_quay.io/acme/nginx:v2", result[0].NewDigest)
+	})
+
+	t.Run("When an image tag changes it should pair by repository", func(t *testing.T) {
+		app := containerApp("quay.io/acme/nginx:v2")
+		rendered := renderedWithApps(t, app)
+		device := deviceWithImageDigests("test-app", "quay.io/acme/nginx:v1", "sha256:old_nginx")
+
+		result := expandAppCandidates(ctx, logger, orgId, device, rendered, nil, inspectOK)
+		require.Len(t, result, 1)
+		assert.Equal(t, "quay.io/acme/nginx", result[0].ImageRepository)
+		assert.Equal(t, "sha256:old_nginx", result[0].CurrentDigest)
+		assert.Equal(t, "sha256:new_quay.io/acme/nginx:v2", result[0].NewDigest)
+	})
+
+	t.Run("When multiple workloads use the same repository it should pair with each current digest", func(t *testing.T) {
+		app := containerApp("quay.io/acme/nginx:v3")
+		rendered := renderedWithApps(t, app)
+		device := deviceWithMultipleDigests(map[string]string{
+			"quay.io/acme/nginx:v2": "sha256:zzz",
+			"quay.io/acme/nginx:v1": "sha256:aaa",
+			"quay.io/acme/nginx:v0": "sha256:aaa",
+		})
+		var inspectCalls int
+		inspect := func(_ context.Context, _ uuid.UUID, _ string) (string, error) {
+			inspectCalls++
+			return "sha256:new", nil
+		}
+
+		result := expandAppCandidates(ctx, logger, orgId, device, rendered, nil, inspect)
+
+		require.Len(t, result, 2)
+		assert.Equal(t, []string{"sha256:aaa", "sha256:zzz"}, []string{result[0].CurrentDigest, result[1].CurrentDigest})
+		assert.Equal(t, 1, inspectCalls, "the new image should be inspected once")
 	})
 
 	t.Run("When imageDigests is missing for an image it should skip that pair", func(t *testing.T) {
@@ -51,7 +87,7 @@ func TestExpandAppCandidates(t *testing.T) {
 		rendered := renderedWithApps(t, app)
 		device := deviceWithImageDigests("other-app", "quay.io/other/image:v1", "sha256:xxx")
 
-		result := expandAppCandidates(ctx, orgId, device, rendered, nil, inspectOK)
+		result := expandAppCandidates(ctx, logger, orgId, device, rendered, nil, inspectOK)
 		assert.Empty(t, result)
 	})
 
@@ -59,7 +95,7 @@ func TestExpandAppCandidates(t *testing.T) {
 		app := containerApp("quay.io/acme/nginx:v2")
 		rendered := renderedWithApps(t, app)
 
-		result := expandAppCandidates(ctx, orgId, nil, rendered, nil, inspectOK)
+		result := expandAppCandidates(ctx, logger, orgId, nil, rendered, nil, inspectOK)
 		assert.Empty(t, result)
 	})
 
@@ -68,7 +104,7 @@ func TestExpandAppCandidates(t *testing.T) {
 		rendered := renderedWithApps(t, app)
 		device := deviceWithImageDigests("test-app", "quay.io/acme/nginx:v2", "sha256:old")
 
-		result := expandAppCandidates(ctx, orgId, device, rendered, nil, inspectFail)
+		result := expandAppCandidates(ctx, logger, orgId, device, rendered, nil, inspectFail)
 		assert.Empty(t, result)
 	})
 
@@ -80,7 +116,7 @@ func TestExpandAppCandidates(t *testing.T) {
 			return "sha256:same", nil
 		}
 
-		result := expandAppCandidates(ctx, orgId, device, rendered, nil, sameInspect)
+		result := expandAppCandidates(ctx, logger, orgId, device, rendered, nil, sameInspect)
 		assert.Empty(t, result)
 	})
 
@@ -92,7 +128,7 @@ func TestExpandAppCandidates(t *testing.T) {
 			"quay.io/acme/svc-b:v2": "sha256:old_b",
 		})
 
-		result := expandAppCandidates(ctx, orgId, device, rendered, nil, inspectOK)
+		result := expandAppCandidates(ctx, logger, orgId, device, rendered, nil, inspectOK)
 		require.Len(t, result, 2)
 	})
 
@@ -104,7 +140,7 @@ func TestExpandAppCandidates(t *testing.T) {
 			"quay.io/acme/svc-a:v2":       "sha256:old_svc_a",
 		})
 
-		result := expandAppCandidates(ctx, orgId, device, rendered, nil, inspectOK)
+		result := expandAppCandidates(ctx, logger, orgId, device, rendered, nil, inspectOK)
 		require.Len(t, result, 2, "should produce candidates for both parent artifact and nested service")
 	})
 
@@ -113,7 +149,7 @@ func TestExpandAppCandidates(t *testing.T) {
 		rendered := renderedWithApps(t, app)
 		device := deviceWithImageDigests("quad-app", "quay.io/acme/worker:v2", "sha256:old_worker")
 
-		result := expandAppCandidates(ctx, orgId, device, rendered, nil, inspectOK)
+		result := expandAppCandidates(ctx, logger, orgId, device, rendered, nil, inspectOK)
 		require.Len(t, result, 1)
 		assert.Equal(t, "sha256:old_worker", result[0].CurrentDigest)
 	})
@@ -123,14 +159,14 @@ func TestExpandAppCandidates(t *testing.T) {
 		rendered := renderedWithApps(t, app)
 		device := deviceWithImageDigests("helm-app", "quay.io/acme/chart:v2", "sha256:old_chart")
 
-		result := expandAppCandidates(ctx, orgId, device, rendered, nil, inspectOK)
+		result := expandAppCandidates(ctx, logger, orgId, device, rendered, nil, inspectOK)
 		require.Len(t, result, 1)
 	})
 
 	t.Run("When applications JSON is invalid it should return candidates unchanged", func(t *testing.T) {
 		rendered := tasks.RenderedSpec{Applications: []byte("invalid json")}
 		osCand := preparetask.DeltaCandidate{ImageRepository: "quay.io/acme/os", CurrentDigest: "sha256:aaa", NewDigest: "sha256:bbb"}
-		result := expandAppCandidates(ctx, orgId, nil, rendered, []preparetask.DeltaCandidate{osCand}, inspectOK)
+		result := expandAppCandidates(ctx, logger, orgId, nil, rendered, []preparetask.DeltaCandidate{osCand}, inspectOK)
 		require.Len(t, result, 1)
 		assert.Equal(t, osCand, result[0])
 	})
@@ -143,7 +179,7 @@ func TestExpandAppCandidates(t *testing.T) {
 			"quay.io/acme/data:v2":  "sha256:old_data",
 		})
 
-		result := expandAppCandidates(ctx, orgId, device, rendered, nil, inspectOK)
+		result := expandAppCandidates(ctx, logger, orgId, device, rendered, nil, inspectOK)
 		require.Len(t, result, 2)
 	})
 }
@@ -161,13 +197,68 @@ func TestBuildDigestIndex(t *testing.T) {
 
 	t.Run("When device has imageDigests it should index them", func(t *testing.T) {
 		device := deviceWithMultipleDigests(map[string]string{
-			"quay.io/a:v1": "sha256:aaa",
-			"quay.io/b:v1": "sha256:bbb",
+			"quay.io/acme/a:v1":     "sha256:zzz",
+			"quay.io/acme/a:v2":     "sha256:aaa",
+			"quay.io/acme/a:v3":     "sha256:aaa",
+			"quay.io/acme/b:v1":     "sha256:bbb",
+			"quay.io/acme/empty:v1": "",
+			"invalid image ref":     "sha256:invalid",
 		})
 		idx := buildDigestIndex(device)
 		require.Len(t, idx, 2)
-		assert.Equal(t, "sha256:aaa", idx["quay.io/a:v1"])
-		assert.Equal(t, "sha256:bbb", idx["quay.io/b:v1"])
+		assert.Equal(t, []string{"sha256:aaa", "sha256:zzz"}, idx["quay.io/acme/a"])
+		assert.Equal(t, []string{"sha256:bbb"}, idx["quay.io/acme/b"])
+	})
+}
+
+func TestExpandAppCandidatesLogsSkippedErrors(t *testing.T) {
+	ctx := context.Background()
+	orgId := uuid.New()
+
+	t.Run("When rendered applications JSON is malformed it should log with device identity", func(t *testing.T) {
+		hook := &capturedLogHook{}
+		logger := quietTestLogger()
+		logger.AddHook(hook)
+		device := deviceWithImageDigests("test-app", "quay.io/acme/nginx:v1", "sha256:old")
+		device.Metadata.Name = lo.ToPtr("device-1")
+
+		result := expandAppCandidates(ctx, logger, orgId, device, tasks.RenderedSpec{Applications: []byte("invalid json")}, nil, nil)
+
+		require.Empty(t, result)
+		require.Len(t, hook.entries, 1)
+		assert.Equal(t, logrus.WarnLevel, hook.entries[0].Level)
+		assert.Equal(t, orgId, hook.entries[0].Data["orgId"])
+		assert.Equal(t, "device-1", hook.entries[0].Data["deviceName"])
+		assert.NotContains(t, hook.entries[0].Data, "image")
+		assert.Contains(t, hook.entries[0].Message, "unmarshal rendered applications")
+		loggedError, ok := hook.entries[0].Data[logrus.ErrorKey].(error)
+		require.True(t, ok)
+		require.Error(t, loggedError)
+	})
+
+	t.Run("When image inspection fails it should log image and device identity", func(t *testing.T) {
+		hook := &capturedLogHook{}
+		logger := quietTestLogger()
+		logger.AddHook(hook)
+		app := containerApp("quay.io/acme/nginx:v2")
+		device := deviceWithImageDigests("test-app", "quay.io/acme/nginx:v1", "sha256:old")
+		device.Metadata.Name = lo.ToPtr("device-1")
+		inspectFail := func(_ context.Context, _ uuid.UUID, _ string) (string, error) {
+			return "", fmt.Errorf("registry down")
+		}
+
+		result := expandAppCandidates(ctx, logger, orgId, device, renderedWithApps(t, app), nil, inspectFail)
+
+		require.Empty(t, result)
+		require.Len(t, hook.entries, 1)
+		assert.Equal(t, logrus.WarnLevel, hook.entries[0].Level)
+		assert.Equal(t, orgId, hook.entries[0].Data["orgId"])
+		assert.Equal(t, "device-1", hook.entries[0].Data["deviceName"])
+		assert.Equal(t, "quay.io/acme/nginx:v2", hook.entries[0].Data["image"])
+		assert.Contains(t, hook.entries[0].Message, "inspect rendered application image")
+		loggedError, ok := hook.entries[0].Data[logrus.ErrorKey].(error)
+		require.True(t, ok)
+		require.Error(t, loggedError)
 	})
 }
 
@@ -322,6 +413,25 @@ func renderedWithApps(t *testing.T, apps ...domain.ApplicationProviderSpec) task
 	b, err := json.Marshal(apps)
 	require.NoError(t, err)
 	return tasks.RenderedSpec{Applications: b}
+}
+
+func quietTestLogger() *logrus.Logger {
+	logger := logrus.New()
+	logger.SetOutput(io.Discard)
+	return logger
+}
+
+type capturedLogHook struct {
+	entries []*logrus.Entry
+}
+
+func (h *capturedLogHook) Levels() []logrus.Level {
+	return logrus.AllLevels
+}
+
+func (h *capturedLogHook) Fire(entry *logrus.Entry) error {
+	h.entries = append(h.entries, entry)
+	return nil
 }
 
 func deviceWithImageDigests(appName, image, digest string) *domain.Device {

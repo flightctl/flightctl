@@ -664,7 +664,16 @@ func isFinishedStatus(status StatusType) bool {
 	return ok
 }
 
-func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.PodmanEvent, status StatusType, restarts int) {
+func (m *PodmanMonitor) updateApplicationStatus(
+	ctx context.Context,
+	app Application,
+	event *client.PodmanEvent,
+	status StatusType,
+	restarts int,
+	podmanClient *client.Podman,
+) {
+	image, hasImage := m.resolveWorkloadImage(ctx, app, event, podmanClient)
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -675,7 +684,18 @@ func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.P
 			status = StatusUnhealthy
 		}
 		container.Status = status
+		if hasImage {
+			container.Images = []WorkloadImage{image}
+		}
 		if event.ID != "" {
+			if event.ID != container.ID && !hasImage {
+				// The event identifies a new container but has no image reference
+				// with which to refresh the digest. Keep the last reference and
+				// mark its digest unknown until a later event supplies the image.
+				for i := range container.Images {
+					container.Images[i].Digest = ""
+				}
+			}
 			container.ID = event.ID
 		}
 		if restarts > container.Restarts {
@@ -685,14 +705,72 @@ func (m *PodmanMonitor) updateApplicationStatus(app Application, event *client.P
 		return
 	}
 
+	var images []WorkloadImage
+	if hasImage {
+		images = []WorkloadImage{image}
+	}
 	// add new container
 	m.log.Debugf("Adding container: %s to app %s", event.Name, app.Name())
 	app.AddWorkload(&Workload{
 		ID:       event.ID,
+		Images:   images,
 		Name:     event.Name,
 		Status:   status,
 		Restarts: restarts,
 	})
+}
+
+func (m *PodmanMonitor) resolveWorkloadImage(
+	ctx context.Context,
+	app Application,
+	event *client.PodmanEvent,
+	podmanClient *client.Podman,
+) (WorkloadImage, bool) {
+	if event.Image == "" {
+		return WorkloadImage{}, false
+	}
+
+	image := WorkloadImage{Image: event.Image}
+	if digest := digestFromReference(event.Image); digest != "" {
+		image.Digest = digest
+		return image, true
+	}
+
+	// A container restart may resolve the same mutable tag to different content.
+	// Reuse a known digest only while both the container ID and image reference
+	// match. An empty digest is retried on a later event in case the image became
+	// available after the first lookup.
+	m.mu.Lock()
+	if workload, ok := app.Workload(event.Name); ok && workload.ID == event.ID {
+		for _, previous := range workload.Images {
+			if previous.Image == event.Image && previous.Digest != "" {
+				m.mu.Unlock()
+				return previous, true
+			}
+		}
+	}
+	m.mu.Unlock()
+
+	if podmanClient == nil {
+		if m.clientFactory == nil {
+			m.log.Warnf("Cannot resolve digest for workload image %q: podman client factory is not configured", event.Image)
+			return image, true
+		}
+		var err error
+		podmanClient, err = m.clientFactory(app.User())
+		if err != nil {
+			m.log.Warnf("Failed to create podman client to resolve workload image %q: %v", event.Image, err)
+			return image, true
+		}
+	}
+
+	digest, err := podmanClient.ImageDigest(ctx, event.Image)
+	if err != nil {
+		m.log.Warnf("Failed to resolve digest for workload image %q: %v", event.Image, err)
+		return image, true
+	}
+	image.Digest = digest
+	return image, true
 }
 
 func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Application, event *client.PodmanEvent) {
@@ -735,7 +813,7 @@ func (m *PodmanMonitor) updateQuadletContainerStatus(ctx context.Context, app Ap
 	if isFinishedStatus(status) && lo.FromPtrOr(event.ContainerExitCode, -1) == 0 {
 		status = StatusExited
 	}
-	m.updateApplicationStatus(app, event, status, restartCount)
+	m.updateApplicationStatus(ctx, app, event, status, restartCount, nil)
 }
 
 func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Application, event *client.PodmanEvent) {
@@ -769,7 +847,7 @@ func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Ap
 		return
 	}
 
-	m.updateApplicationStatus(app, event, status, restarts)
+	m.updateApplicationStatus(ctx, app, event, status, restarts, client)
 }
 
 func (m *PodmanMonitor) getContainerRestarts(inspectData []client.PodmanInspect) (int, error) {
