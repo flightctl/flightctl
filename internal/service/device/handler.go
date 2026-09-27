@@ -460,6 +460,7 @@ func (h *DeviceServiceHandler) ReplaceDeviceStatus(ctx context.Context, orgId uu
 
 	common.KeepDBDeviceStatus(&incomingDevice, deviceToStore)
 	deviceToStore.Status = incomingDevice.Status
+	preserveServiceOwnedStatus(deviceToStore, originalDevice)
 	_ = common.UpdateServiceSideStatus(ctx, orgId, deviceToStore, h.fleetStore, h.log)
 
 	result, before, err := h.deviceStore.UpdateStatus(ctx, orgId, deviceToStore, originalDevice)
@@ -550,6 +551,7 @@ func applyDeviceStatusPatch(ctx context.Context, current *domain.Device, patch d
 	}
 	common.NilOutManagedObjectMetaProperties(&patched.Metadata)
 	patched.Metadata.ResourceVersion = nil
+	preserveServiceOwnedStatus(patched, current)
 	return patched, nil
 }
 
@@ -935,6 +937,30 @@ func serviceConditionsFromDevice(device *domain.Device) []domain.Condition {
 		}
 	}
 	return out
+}
+
+// preserveServiceOwnedStatus restores the server-owned fields from the stored status.
+func preserveServiceOwnedStatus(device, stored *domain.Device) {
+	if device == nil {
+		return
+	}
+	if device.Status == nil {
+		status := domain.NewDeviceStatus()
+		device.Status = &status
+	}
+
+	var serviceConditions []domain.Condition
+	if stored != nil && stored.Status != nil {
+		serviceConditions = serviceConditionsFromDevice(stored)
+		device.Status.DependencySync = stored.Status.DependencySync
+		device.Status.DeltaGeneration = stored.Status.DeltaGeneration
+		device.Status.EnrollmentHooks = stored.Status.EnrollmentHooks
+	} else {
+		device.Status.DependencySync = nil
+		device.Status.DeltaGeneration = nil
+		device.Status.EnrollmentHooks = nil
+	}
+	replaceServiceConditionsOnDevice(device, serviceConditions)
 }
 
 // replaceServiceConditionsOnDevice swaps service-owned conditions on Status while
