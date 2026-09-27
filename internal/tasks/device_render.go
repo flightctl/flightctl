@@ -17,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/api/core/v1alpha1"
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
+	delta "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
@@ -50,13 +51,14 @@ import (
 // This design ensures the task can be retried safely, detects mid-write inconsistencies,
 // and avoids unnecessary reprocessing when the output is already up to date.
 
-func deviceRender(ctx context.Context, orgId uuid.UUID, event domain.Event, deviceSvc deviceservice.Service, repositorySvc repositoryservice.Service, catalogSvc catalogservice.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, deltaStore generationLookup, preparing preparingClearer, cfg *config.Config, log logrus.FieldLogger) error {
-	logic := NewDeviceRenderLogic(log, deviceSvc, repositorySvc, catalogSvc, k8sClient, kvStore, cfg, orgId, event)
-	logic.deltaLookup = deltaStore
-	logic.preparing = preparing
+func deviceRender(ctx context.Context, orgId uuid.UUID, event domain.Event, deviceSvc deviceservice.Service, repositorySvc repositoryservice.Service, catalogSvc catalogservice.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, deltaStore generationLookup, cfg *config.Config, log logrus.FieldLogger) error {
 	if event.InvolvedObject.Kind != domain.DeviceKind {
 		log.Errorf("DeviceRender called with unexpected kind %s and op %s", event.InvolvedObject.Kind, event.Reason)
 		return nil
+	}
+	logic, err := newDeviceRenderLogicWithDeltaLookup(log, deviceSvc, repositorySvc, catalogSvc, k8sClient, kvStore, deltaStore, cfg, orgId, event)
+	if err != nil {
+		return fmt.Errorf("create device render logic: %w", err)
 	}
 
 	// Detach from the parent's EventProcessingTimeout so that the render
@@ -74,7 +76,7 @@ func deviceRender(ctx context.Context, orgId uuid.UUID, event domain.Event, devi
 		}
 	}()
 
-	err := logic.RenderDevice(renderCtx)
+	err = logic.RenderDevice(renderCtx)
 	if err != nil {
 		log.Errorf("failed rendering device %s/%s: %v", orgId, event.InvolvedObject.Name, err)
 	} else {
@@ -100,7 +102,6 @@ type DeviceRenderLogic struct {
 	customVmConverter bool
 	deltaLookup       generationLookup
 	osManifestSize    func(context.Context, string) (*int64, error)
-	preparing         preparingClearer
 }
 
 func NewDeviceRenderLogic(log logrus.FieldLogger, deviceSvc deviceservice.Service, repositorySvc repositoryservice.Service, catalogSvc catalogservice.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, cfg *config.Config, orgId uuid.UUID, event domain.Event) DeviceRenderLogic {
@@ -118,6 +119,25 @@ func NewDeviceRenderLogic(log logrus.FieldLogger, deviceSvc deviceservice.Servic
 		vmConverter:     NewVmConverter(vmToQuadletBinary, opts),
 		vmRenderOptions: opts,
 	}
+}
+
+// NewDeviceRenderLogicWithDeltaStore creates device-render logic with the
+// dependencies required to look up OS delta hints. NewDeviceRenderLogic is
+// also used for spec-only rendering, which does not need a delta store.
+func NewDeviceRenderLogicWithDeltaStore(log logrus.FieldLogger, deviceSvc deviceservice.Service, repositorySvc repositoryservice.Service, catalogSvc catalogservice.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, deltaStore delta.Store, cfg *config.Config, orgId uuid.UUID, event domain.Event) (DeviceRenderLogic, error) {
+	return newDeviceRenderLogicWithDeltaLookup(log, deviceSvc, repositorySvc, catalogSvc, k8sClient, kvStore, deltaStore, cfg, orgId, event)
+}
+
+func newDeviceRenderLogicWithDeltaLookup(log logrus.FieldLogger, deviceSvc deviceservice.Service, repositorySvc repositoryservice.Service, catalogSvc catalogservice.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, deltaLookup generationLookup, cfg *config.Config, orgId uuid.UUID, event domain.Event) (DeviceRenderLogic, error) {
+	if kvStore == nil {
+		return DeviceRenderLogic{}, errors.New("KV store is required for device rendering")
+	}
+	if deltaLookup == nil {
+		return DeviceRenderLogic{}, errors.New("delta generation lookup is required for device rendering")
+	}
+	logic := NewDeviceRenderLogic(log, deviceSvc, repositorySvc, catalogSvc, k8sClient, kvStore, cfg, orgId, event)
+	logic.deltaLookup = deltaLookup
+	return logic, nil
 }
 
 // WithVmConverter returns a copy of DeviceRenderLogic using the given converter
@@ -279,24 +299,7 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 	if err := common.ApiStatusToErr(status); err != nil {
 		return t.setErrorStatus(ctx, err)
 	}
-	t.clearStandalonePreparing(ctx, device)
 	return nil
-}
-
-type preparingClearer interface {
-	Clear(ctx context.Context, orgId uuid.UUID, kind, name string) error
-}
-
-func (t *DeviceRenderLogic) clearStandalonePreparing(ctx context.Context, device *domain.Device) {
-	if t.preparing == nil || device == nil {
-		return
-	}
-	if device.Metadata.Owner != nil && *device.Metadata.Owner != "" {
-		return
-	}
-	if err := t.preparing.Clear(ctx, t.orgId, domain.DeviceKind, t.event.InvolvedObject.Name); err != nil {
-		t.log.Warnf("failed clearing leftover DeviceDeltaPreparing for device %s/%s: %v", t.orgId, t.event.InvolvedObject.Name, err)
-	}
 }
 
 var errIgnitionConversion = errors.New("failed converting ignition config to rendered config")

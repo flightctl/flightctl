@@ -35,6 +35,18 @@ clean_files() {
         echo "Removing generated delta-worker drop-in"
         rm -f "$delta_dropin"
     fi
+
+    local registry_ca_dropins=(
+        "/etc/containers/systemd/flightctl-delta-worker.container.d/e2e-registry-ca.conf"
+        "/etc/containers/systemd/flightctl-worker.container.d/e2e-registry-ca.conf"
+    )
+    local dropin
+    for dropin in "${registry_ca_dropins[@]}"; do
+        if [[ -f "$dropin" ]]; then
+            echo "Removing E2E registry CA mount drop-in: $dropin"
+            rm -f "$dropin" || echo "Warning: Failed to remove E2E registry CA mount drop-in $dropin"
+        fi
+    done
 }
 
 clean_volumes() {

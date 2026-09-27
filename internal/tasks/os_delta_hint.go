@@ -17,19 +17,21 @@ import (
 	"github.com/flightctl/flightctl/internal/oci"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
 )
-
-const generationMemoTTL = 15 * time.Minute
 
 type generationLookup interface {
 	GetDeltaGeneration(ctx context.Context, key delta.GenerationKey, opts ...delta.GenerationGetOption) (*model.DeltaGeneration, error)
 }
 
-type generationMemo struct {
-	Missing   bool    `json:"missing,omitempty"`
-	Status    string  `json:"status,omitempty"`
-	DeltaRef  *string `json:"deltaRef,omitempty"`
-	SizeBytes *int64  `json:"sizeBytes,omitempty"`
+const deltaGenerationMissingMemoTTL = time.Minute
+
+type deltaGenerationLookupMemo struct {
+	Missing           bool    `json:"missing,omitempty"`
+	Status            string  `json:"status,omitempty"`
+	DeltaRef          *string `json:"deltaRef,omitempty"`
+	SizeBytes         *int64  `json:"sizeBytes,omitempty"`
+	ExpiresAtUnixNano int64   `json:"expiresAtUnixNano,omitempty"`
 }
 
 func FormatIECBytes(n int64) string {
@@ -53,11 +55,6 @@ func FormatIECBytes(n int64) string {
 		rounded = 1
 	}
 	return fmt.Sprintf("%d %s", rounded, units[unit])
-}
-
-func (t DeviceRenderLogic) WithDeltaLookup(lookup delta.Store) DeviceRenderLogic {
-	t.deltaLookup = lookup
-	return t
 }
 
 func ImageRepositoryFromRef(imageRef string) (string, error) {
@@ -110,7 +107,7 @@ func (t *DeviceRenderLogic) resolveOSDeltaHint(ctx context.Context, device *doma
 		fallback, _ = t.osManifestSize(ctx, rendered.OsImage)
 	}
 	repo, err := ImageRepositoryFromRef(rendered.OsImage)
-	if err != nil || t.deltaLookup == nil {
+	if err != nil {
 		_, size := hintFromGeneration(nil, fallback)
 		if size == nil {
 			return nil
@@ -157,7 +154,7 @@ func (t *DeviceRenderLogic) resolveOSDeltaHint(ctx context.Context, device *doma
 	}
 	t.log.Infof("os delta hint query device=%s/%s repo=%s sourceDigest=%s targetDigest=%s osImage=%s",
 		t.orgId, t.event.InvolvedObject.Name, repo, src, tgt, rendered.OsImage)
-	gen, err := lookupCachedGeneration(ctx, t.kvStore, t.deltaLookup, key, "", delta.WithStatus(model.DeltaGenerationSucceeded))
+	gen, err := lookupOSDeltaGeneration(ctx, t.kvStore, t.deltaLookup, key, delta.WithStatus(model.DeltaGenerationSucceeded))
 	if err != nil {
 		t.log.Warnf("os delta hint lookup failed device=%s/%s repo=%s sourceDigest=%s targetDigest=%s: %v",
 			t.orgId, t.event.InvolvedObject.Name, repo, src, tgt, err)
@@ -185,45 +182,121 @@ func (t *DeviceRenderLogic) resolveOSDeltaHint(ctx context.Context, device *doma
 	return &deviceservice.RenderedOSHints{DeltaImage: img, UpdatedSize: size}
 }
 
-func generationMemoKey(key delta.GenerationKey, ref string) string {
-	return fmt.Sprintf("deltaHint/%s/%s/%s/%s/%s", key.OrgID, key.ImageRepository, key.SourceDigest, key.TargetDigest, ref)
+func deltaGenerationHintKey(key delta.GenerationKey) string {
+	return (&kvstore.DeltaGenerationHintKey{
+		OrgID:           key.OrgID,
+		ImageRepository: key.ImageRepository,
+		SourceDigest:    key.SourceDigest,
+		TargetDigest:    key.TargetDigest,
+	}).ComposeKey()
 }
 
-func lookupCachedGeneration(ctx context.Context, kv kvstore.KVStore, store generationLookup, key delta.GenerationKey, ref string, opts ...delta.GenerationGetOption) (*model.DeltaGeneration, error) {
-	if kv != nil {
-		raw, err := kv.Get(ctx, generationMemoKey(key, ref))
-		if err == nil && len(raw) > 0 {
-			var memo generationMemo
-			if err := json.Unmarshal(raw, &memo); err == nil {
-				return generationFromMemo(key, memo), nil
-			}
-		}
+func deltaGenerationLookupMemoKey(key delta.GenerationKey) string {
+	return fmt.Sprintf("deltaHintMemo/%s/%s/%s/%s/", key.OrgID, key.ImageRepository, key.SourceDigest, key.TargetDigest)
+}
+
+func lookupOSDeltaGeneration(ctx context.Context, kv kvstore.KVStore, store generationLookup, key delta.GenerationKey, opts ...delta.GenerationGetOption) (*model.DeltaGeneration, error) {
+	// Check the delta-worker-owned success hint before the device-render memo,
+	// so a published success takes precedence over a stale cached database miss.
+	if gen, found := lookupOSDeltaGenerationMemo(ctx, kv, key); found {
+		return gen, nil
 	}
 
-	if store == nil {
-		return nil, nil
-	}
 	gen, err := store.GetDeltaGeneration(ctx, key, opts...)
-	if err != nil {
-		if errors.Is(err, flterrors.ErrResourceNotFound) {
-			_ = writeGenerationMemo(ctx, kv, key, ref, generationMemo{Missing: true})
-			return nil, nil
-		}
+	if err != nil && !errors.Is(err, flterrors.ErrResourceNotFound) {
 		return nil, err
 	}
-	if gen != nil {
-		_ = writeGenerationMemo(ctx, kv, key, ref, generationMemo{
-			Status:    gen.Status,
-			DeltaRef:  gen.DeltaRef,
-			SizeBytes: gen.SizeBytes,
-		})
+	if errors.Is(err, flterrors.ErrResourceNotFound) {
+		// Recheck the worker-owned key after the DB read. A generation may have
+		// succeeded and been cached while this lookup was in flight.
+		cached, found, cacheErr := lookupWorkerGenerationHint(ctx, kv, key)
+		if found {
+			return cached, nil
+		}
+		if cacheErr != nil {
+			return nil, nil
+		}
+
+		writeMissingGenerationMemo(ctx, kv, key)
+		// Prefer a newly published worker hint for this render too.
+		cached, found, _ = lookupWorkerGenerationHint(ctx, kv, key)
+		if found {
+			return cached, nil
+		}
+		return nil, nil
+	}
+	if gen != nil && gen.Status == model.DeltaGenerationSucceeded && gen.DeltaRef != nil && *gen.DeltaRef != "" {
+		writeSuccessfulGenerationMemo(ctx, kv, key, gen)
 	}
 	return gen, nil
 }
 
-func generationFromMemo(key delta.GenerationKey, memo generationMemo) *model.DeltaGeneration {
+func lookupOSDeltaGenerationMemo(ctx context.Context, kv kvstore.KVStore, key delta.GenerationKey) (*model.DeltaGeneration, bool) {
+	gen, found, err := lookupWorkerGenerationHint(ctx, kv, key)
+	if err != nil {
+		return nil, false
+	}
+	if found {
+		return gen, true
+	}
+
+	gen, missing, found := lookupGenerationMemo(ctx, kv, key)
+	if !found {
+		return nil, false
+	}
+	if !missing {
+		return gen, true
+	}
+
+	// The delta worker may have populated its key while the memo was read.
+	gen, found, err = lookupWorkerGenerationHint(ctx, kv, key)
+	if err != nil {
+		return nil, false
+	}
+	if found {
+		return gen, true
+	}
+	return nil, true
+}
+
+func lookupWorkerGenerationHint(ctx context.Context, kv kvstore.KVStore, key delta.GenerationKey) (*model.DeltaGeneration, bool, error) {
+	cacheKey := deltaGenerationHintKey(key)
+	raw, err := kv.Get(ctx, cacheKey)
+	if err != nil || len(raw) == 0 {
+		return nil, false, err
+	}
+	var hint kvstore.DeltaGenerationHint
+	if err := json.Unmarshal(raw, &hint); err != nil || hint.DeltaRef == "" {
+		return nil, false, nil
+	}
+	return &model.DeltaGeneration{
+		OrgID:           key.OrgID,
+		ImageRepository: key.ImageRepository,
+		SourceDigest:    key.SourceDigest,
+		TargetDigest:    key.TargetDigest,
+		Status:          model.DeltaGenerationSucceeded,
+		DeltaRef:        lo.ToPtr(hint.DeltaRef),
+		SizeBytes:       hint.SizeBytes,
+	}, true, nil
+}
+
+func lookupGenerationMemo(ctx context.Context, kv kvstore.KVStore, key delta.GenerationKey) (*model.DeltaGeneration, bool, bool) {
+	raw, err := kv.Get(ctx, deltaGenerationLookupMemoKey(key))
+	if err != nil || len(raw) == 0 {
+		return nil, false, false
+	}
+	var memo deltaGenerationLookupMemo
+	if err := json.Unmarshal(raw, &memo); err != nil {
+		return nil, false, false
+	}
 	if memo.Missing {
-		return nil
+		if memo.ExpiresAtUnixNano == 0 || time.Now().UnixNano() >= memo.ExpiresAtUnixNano {
+			return nil, false, false
+		}
+		return nil, true, true
+	}
+	if memo.Status != model.DeltaGenerationSucceeded || memo.DeltaRef == nil || *memo.DeltaRef == "" {
+		return nil, false, false
 	}
 	return &model.DeltaGeneration{
 		OrgID:           key.OrgID,
@@ -233,20 +306,45 @@ func generationFromMemo(key delta.GenerationKey, memo generationMemo) *model.Del
 		Status:          memo.Status,
 		DeltaRef:        memo.DeltaRef,
 		SizeBytes:       memo.SizeBytes,
+	}, false, true
+}
+
+func writeSuccessfulGenerationMemo(ctx context.Context, kv kvstore.KVStore, key delta.GenerationKey, gen *model.DeltaGeneration) {
+	raw, err := json.Marshal(deltaGenerationLookupMemo{
+		Status:    gen.Status,
+		DeltaRef:  gen.DeltaRef,
+		SizeBytes: gen.SizeBytes,
+	})
+	if err != nil {
+		logrus.StandardLogger().WithError(err).Warn("failed marshaling successful delta generation lookup memo")
+		return
+	}
+	if err := kv.Set(ctx, deltaGenerationLookupMemoKey(key), raw, kvstore.DeltaGenerationHintTTL); err != nil {
+		logrus.StandardLogger().WithError(err).Warn("failed caching successful delta generation lookup memo")
 	}
 }
 
-func writeGenerationMemo(ctx context.Context, kv kvstore.KVStore, key delta.GenerationKey, ref string, memo generationMemo) error {
-	if kv == nil {
-		return nil
-	}
-	raw, err := json.Marshal(memo)
+func writeMissingGenerationMemo(ctx context.Context, kv kvstore.KVStore, key delta.GenerationKey) {
+	raw, err := json.Marshal(deltaGenerationLookupMemo{
+		Missing:           true,
+		ExpiresAtUnixNano: time.Now().Add(deltaGenerationMissingMemoTTL).UnixNano(),
+	})
 	if err != nil {
-		return err
+		logrus.StandardLogger().WithError(err).Warn("failed marshaling missing delta generation lookup memo")
+		return
 	}
-	cacheKey := generationMemoKey(key, ref)
-	if _, err := kv.SetNX(ctx, cacheKey, raw); err != nil {
-		return err
+	memoKey := deltaGenerationLookupMemoKey(key)
+	added, err := kv.SetNX(ctx, memoKey, raw)
+	if err != nil {
+		logrus.StandardLogger().WithError(err).Warn("failed caching missing delta generation lookup memo")
+		return
 	}
-	return kv.SetExpire(ctx, cacheKey, generationMemoTTL)
+	if !added {
+		return
+	}
+	if err := kv.SetExpire(ctx, memoKey, deltaGenerationMissingMemoTTL); err != nil {
+		// ExpiresAtUnixNano keeps a failed EXPIRE from turning this into a
+		// permanent negative memo.
+		logrus.StandardLogger().WithError(err).Warn("failed setting missing delta generation lookup memo TTL")
+	}
 }

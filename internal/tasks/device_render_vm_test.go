@@ -132,6 +132,10 @@ func (f *fakeKVStore) PrintAllKeys(_ context.Context)                           
 func (f *fakeKVStore) DeleteAllKeys(_ context.Context) error                          { return nil }
 func (f *fakeKVStore) DeleteKeysForTemplateVersion(_ context.Context, _ string) error { return nil }
 func (f *fakeKVStore) Delete(_ context.Context, key string) error                     { delete(f.data, key); return nil }
+func (f *fakeKVStore) Set(_ context.Context, key string, value []byte, _ time.Duration) error {
+	f.data[key] = value
+	return nil
+}
 func (f *fakeKVStore) SetIfGreater(_ context.Context, _ string, _ int64) (bool, error) {
 	return false, nil
 }

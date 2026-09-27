@@ -213,6 +213,13 @@ prometheus:
 # dependenciesSync:
 #   pollInterval: 15m
 
+# Periodic task schedule overrides (optional).
+# periodic:
+#   tasks:
+#     deltaPrepareDeadline:
+#       schedule:
+#         interval: 1m
+
 # Profiling (optional). Uncomment to enable loopback pprof and/or Pyroscope push
 # for long-running services that load this shared config. See
 # docs/user/installing/configuring-service-tracing.md.

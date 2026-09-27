@@ -2,6 +2,7 @@ package tasks
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/delta_worker/model"
 	delta "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	"github.com/flightctl/flightctl/internal/kvstore"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
@@ -127,7 +129,7 @@ func TestFormatIECBytes(t *testing.T) {
 	}
 }
 
-func TestLookupCachedGeneration(t *testing.T) {
+func TestLookupOSDeltaGeneration(t *testing.T) {
 	ctx := context.Background()
 	key := testGenerationKey()
 	row := &model.DeltaGeneration{
@@ -140,51 +142,60 @@ func TestLookupCachedGeneration(t *testing.T) {
 		SizeBytes:       lo.ToPtr(int64(47185920)),
 	}
 
-	t.Run("When the cache is empty it should load from the store and return the row", func(t *testing.T) {
+	t.Run("When the cache is empty it should load from the store and memoize the successful result", func(t *testing.T) {
 		kv := newTestKVStore()
 		store := &stubGenerationLookup{gen: row}
 
-		got, err := lookupCachedGeneration(ctx, kv, store, key, "")
+		got, err := lookupOSDeltaGeneration(ctx, kv, store, key)
 		require.NoError(t, err)
 		require.Equal(t, row, got)
 		require.Equal(t, 1, store.callCount())
-		require.True(t, kv.has(generationMemoKey(key, "")))
+		require.False(t, kv.has(deltaGenerationHintKey(key)))
+		require.True(t, kv.has(deltaGenerationLookupMemoKey(key)))
+
+		got, err = lookupOSDeltaGeneration(ctx, kv, store, key)
+		require.NoError(t, err)
+		require.Equal(t, row, got)
+		require.Equal(t, 1, store.callCount())
 	})
 
-	t.Run("When the cache is populated it should not query the store again", func(t *testing.T) {
+	t.Run("When the cache has a successful hint it should use it without querying the store", func(t *testing.T) {
 		kv := newTestKVStore()
 		store := &stubGenerationLookup{gen: row}
-
-		_, err := lookupCachedGeneration(ctx, kv, store, key, "")
+		value, err := json.Marshal(kvstore.DeltaGenerationHint{DeltaRef: *row.DeltaRef, SizeBytes: row.SizeBytes})
 		require.NoError(t, err)
-		got, err := lookupCachedGeneration(ctx, kv, store, key, "")
+		kv.seed(deltaGenerationHintKey(key), value)
+
+		got, err := lookupOSDeltaGeneration(ctx, kv, store, key)
 		require.NoError(t, err)
 		require.Equal(t, row.Status, got.Status)
 		require.Equal(t, row.DeltaRef, got.DeltaRef)
 		require.Equal(t, row.SizeBytes, got.SizeBytes)
-		require.Equal(t, 1, store.callCount())
+		require.Equal(t, 0, store.callCount())
 	})
 
-	t.Run("When the store has no row it should cache the miss", func(t *testing.T) {
+	t.Run("When the store has no row it should memoize the miss", func(t *testing.T) {
 		kv := newTestKVStore()
 		store := &stubGenerationLookup{err: flterrors.ErrResourceNotFound}
 
-		got, err := lookupCachedGeneration(ctx, kv, store, key, "")
+		got, err := lookupOSDeltaGeneration(ctx, kv, store, key)
 		require.NoError(t, err)
 		require.Nil(t, got)
-		got, err = lookupCachedGeneration(ctx, kv, store, key, "")
+		require.True(t, kv.has(deltaGenerationLookupMemoKey(key)))
+		got, err = lookupOSDeltaGeneration(ctx, kv, store, key)
 		require.NoError(t, err)
 		require.Nil(t, got)
 		require.Equal(t, 1, store.callCount())
+		require.False(t, kv.has(deltaGenerationHintKey(key)))
 	})
 
 	t.Run("When the store fails it should not cache the error", func(t *testing.T) {
 		kv := newTestKVStore()
 		store := &stubGenerationLookup{err: errors.New("db down")}
 
-		_, err := lookupCachedGeneration(ctx, kv, store, key, "")
+		_, err := lookupOSDeltaGeneration(ctx, kv, store, key)
 		require.Error(t, err)
-		_, err = lookupCachedGeneration(ctx, kv, store, key, "")
+		_, err = lookupOSDeltaGeneration(ctx, kv, store, key)
 		require.Error(t, err)
 		require.Equal(t, 2, store.callCount())
 	})

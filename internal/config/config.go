@@ -776,6 +776,8 @@ type periodicTasksConfig struct {
 	// RepositoryTester overrides the interval for the repository-tester periodic task,
 	// which probes Repository resources and sets their Accessible condition.
 	RepositoryTester periodicTaskConfig `json:"repositoryTester,omitempty"`
+	// DeltaPrepareDeadline overrides the interval for the delta prepare deadline sweep.
+	DeltaPrepareDeadline periodicTaskConfig `json:"deltaPrepareDeadline,omitempty"`
 }
 
 type periodicConfig struct {

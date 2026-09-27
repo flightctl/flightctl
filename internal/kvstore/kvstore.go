@@ -20,6 +20,7 @@ type StreamEntry struct {
 
 type KVStore interface {
 	Close()
+	Set(ctx context.Context, key string, value []byte, expiration time.Duration) error
 	SetNX(ctx context.Context, key string, value []byte) (bool, error)
 	SetIfGreater(ctx context.Context, key string, newVal int64) (bool, error)
 	Get(ctx context.Context, key string) ([]byte, error)
@@ -100,6 +101,14 @@ func (s *kvStore) Close() {
 	if err != nil {
 		s.log.Errorf("failed closing connection to KV store: %v", err)
 	}
+}
+
+// Set stores a value and its expiration atomically, replacing any existing value.
+func (s *kvStore) Set(ctx context.Context, key string, value []byte, expiration time.Duration) error {
+	if err := s.client.Set(ctx, key, value, expiration).Err(); err != nil {
+		return fmt.Errorf("failed storing key: %w", err)
+	}
+	return nil
 }
 
 func (s *kvStore) DeleteAllKeys(ctx context.Context) error {

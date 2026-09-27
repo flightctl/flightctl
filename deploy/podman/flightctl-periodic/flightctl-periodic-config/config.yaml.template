@@ -27,6 +27,49 @@ metrics:
   enabled: true
   address: ":15690"
 service: {}
+{{- with .periodic }}
+periodic:
+{{- if .consumers }}
+  consumers: {{.consumers}}
+{{- end}}
+{{- if .clusterLevelSecretAccess }}
+  clusterLevelSecretAccess: true
+{{- end}}
+{{- if .releaseNamespace }}
+  releaseNamespace: {{.releaseNamespace}}
+{{- end}}
+{{- with .tasks }}
+  tasks:
+{{- with .resourceSync }}
+{{- with .schedule.interval }}
+    resourceSync:
+      schedule:
+        interval: {{.}}
+{{- end}}
+{{- end}}
+{{- with .dependencySync }}
+{{- with .schedule.interval }}
+    dependencySync:
+      schedule:
+        interval: {{.}}
+{{- end}}
+{{- end}}
+{{- with .repositoryTester }}
+{{- with .schedule.interval }}
+    repositoryTester:
+      schedule:
+        interval: {{.}}
+{{- end}}
+{{- end}}
+{{- with .deltaPrepareDeadline }}
+{{- with .schedule.interval }}
+    deltaPrepareDeadline:
+      schedule:
+        interval: {{.}}
+{{- end}}
+{{- end}}
+{{- end}}
+{{- end}}
 {{- if eq .vulnerabilityReporting.enabled true}}
 vulnerabilityReporting:
   enabled: true

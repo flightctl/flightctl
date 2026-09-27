@@ -1328,8 +1328,8 @@ var _ = Describe("DeviceRender", func() {
 				Reason:         api.EventReasonResourceUpdated,
 				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
 			}
-			logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil, orgId, event).
-				WithDeltaLookup(deltaStore)
+			logic, err := tasks.NewDeviceRenderLogicWithDeltaStore(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, deltaStore, nil, orgId, event)
+			Expect(err).ToNot(HaveOccurred())
 			Expect(logic.RenderDevice(ctx)).To(Succeed())
 
 			renderedDevice, status := deviceSvc.GetRenderedDevice(ctx, orgId, testDeviceName, api.GetRenderedDeviceParams{})

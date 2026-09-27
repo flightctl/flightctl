@@ -46,7 +46,6 @@ type TaskConsumer struct {
 	QueuePublisher     queues.QueueProducer
 	WorkerClient       worker_client.WorkerClient
 	DeltaStore         generationLookup
-	Preparing          preparingClearer
 }
 
 func (d TaskConsumer) dispatch() queues.ConsumeHandler {
@@ -143,7 +142,7 @@ func (d TaskConsumer) dispatch() queues.ConsumeHandler {
 		if shouldRenderDevice(ctx, eventWithOrgId.Event, log) {
 			taskName = "deviceRender"
 			err = runTaskWithMetrics(taskName, d.WorkerMetrics, func() error {
-				return deviceRender(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, d.DeviceSvc, d.RepositorySvc, d.CatalogSvc, d.K8sClient, d.KVStore, d.DeltaStore, d.Preparing, d.Cfg, log)
+				return deviceRender(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, d.DeviceSvc, d.RepositorySvc, d.CatalogSvc, d.K8sClient, d.KVStore, d.DeltaStore, d.Cfg, log)
 			})
 			errorMessages = appendErrorMessage(errorMessages, taskName, err)
 		}
