@@ -989,7 +989,7 @@ func TestSetDeviceServiceConditions(t *testing.T) {
 			Reason: domain.EnrollmentHooksReasonSucceeded,
 		}})
 		require.Equal(t, int32(http.StatusOK), status.Code)
-		require.Len(t, ev.created, 1)
+		require.Len(t, ev.created, 2)
 		event := ev.created[0]
 		require.Equal(t, domain.EventReasonResourceUpdated, event.Reason)
 		require.Equal(t, domain.DeviceKind, event.InvolvedObject.Kind)
@@ -1000,6 +1000,7 @@ func TestSetDeviceServiceConditions(t *testing.T) {
 		require.Equal(t, []domain.ResourceUpdatedDetailsUpdatedFields{
 			domain.UpdatedFieldEnrollmentHooksCondition,
 		}, details.UpdatedFields)
+		require.Equal(t, domain.EventReasonEnrollmentHookSucceeded, ev.created[1].Reason)
 	})
 
 	t.Run("When EnrollmentHooks remains False it should not emit an ownership reconciliation event", func(t *testing.T) {
@@ -1024,7 +1025,8 @@ func TestSetDeviceServiceConditions(t *testing.T) {
 			Message: "hooks failed",
 		}})
 		require.Equal(t, int32(http.StatusOK), status.Code)
-		require.Empty(t, ev.created)
+		require.Len(t, ev.created, 1)
+		require.Equal(t, domain.EventReasonEnrollmentHookFailed, ev.created[0].Reason)
 	})
 
 	t.Run("When a service condition is updated it should preserve agent-owned conditions", func(t *testing.T) {

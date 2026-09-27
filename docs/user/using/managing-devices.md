@@ -57,6 +57,14 @@ NAME                                                  APPROVAL  APPROVER  APPROV
 
 Once approved, the device will get issued its initial management certificate and get registered to the device inventory and is now ready to be managed.
 
+### Overriding a failed enrollment hook
+
+If an enrollment hook fails, the device's `EnrollmentHooks` condition is `False` with reason `Failed`. The device remains excluded from fleet matching and rendered specification delivery.
+
+An authorized administrator or operator can send a `POST` request to `/api/v1/devices/<device_name>/enrollmenthooks/override`. This sets the condition to `True` with reason `ManualOverride` and clears the gate. The request does not re-approve enrollment, rotate the device's management certificate, or rerun notification.
+
+The `EnrollmentHooks` condition is service-owned. A generic device-status patch cannot change or remove it.
+
 ## Viewing the Device Inventory and Device Details
 
 Flight Control automatically gathers system information from each device to help identify its hardware, OS, and environment. This data is shown in the `status.systemInfo` field. Fields can optionally be promoted to labels during the enrollment process, this must be done manually or through external automation. Promoting fields to labels enables powerful grouping and querying capabilities, such as filtering devices by region or OS version. You can also define your own fields in `status.systemInfo.customInfo`, allowing the agent to collect user-defined metadata through custom commands.

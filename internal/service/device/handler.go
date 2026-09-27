@@ -548,9 +548,27 @@ func applyDeviceStatusPatch(ctx context.Context, current *domain.Device, patch d
 	if !reflect.DeepEqual(current.Spec, patched.Spec) {
 		return nil, errors.New("spec is immutable")
 	}
+	// EnrollmentHooks is service-owned and must not be changed through generic status patches.
+	if err := rejectEnrollmentHooksChangeViaStatusPatch(current, patched); err != nil {
+		return nil, err
+	}
 	common.NilOutManagedObjectMetaProperties(&patched.Metadata)
 	patched.Metadata.ResourceVersion = nil
 	return patched, nil
+}
+
+func rejectEnrollmentHooksChangeViaStatusPatch(current, patched *domain.Device) error {
+	var before, after *domain.Condition
+	if current != nil && current.Status != nil {
+		before = domain.FindStatusCondition(current.Status.Conditions, domain.ConditionTypeDeviceEnrollmentHooks)
+	}
+	if patched != nil && patched.Status != nil {
+		after = domain.FindStatusCondition(patched.Status.Conditions, domain.ConditionTypeDeviceEnrollmentHooks)
+	}
+	if !reflect.DeepEqual(before, after) {
+		return errors.New("EnrollmentHooks condition cannot be modified via status patch; use the dedicated enrollment hook override endpoint")
+	}
+	return nil
 }
 
 func (h *DeviceServiceHandler) GetRenderedDevice(ctx context.Context, orgId uuid.UUID, name string, params domain.GetRenderedDeviceParams) (*domain.Device, domain.Status) {
@@ -998,6 +1016,15 @@ func (h *DeviceServiceHandler) diffAndEmitConditionEvents(ctx context.Context, o
 		common.EmitSpecValidEvents(ctx, device, oldSpecValidCondition, newSpecValidCondition,
 			createEvent, common.GetDeviceSpecValidEvent, common.GetDeviceSpecInvalidEvent,
 			h.log)
+	}
+
+	// Track condition changes for EnrollmentHooks
+	enrollmentHooksConditionChanged := common.HasConditionChanged(oldEnrollmentHooksCondition, newEnrollmentHooksCondition)
+
+	if enrollmentHooksConditionChanged {
+		createEvent := func(c context.Context, e *domain.Event) { h.events.CreateEvent(c, orgId, e) }
+		common.EmitEnrollmentHookEvents(ctx, device, oldEnrollmentHooksCondition, newEnrollmentHooksCondition,
+			createEvent, h.log)
 	}
 }
 

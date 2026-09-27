@@ -207,6 +207,14 @@ func (_d *TracedDeviceService) MarkDevicesRolloutSelection(ctx context.Context, 
 	return s1
 }
 
+func (_d *TracedDeviceService) OverrideDeviceEnrollmentHook(ctx context.Context, orgId uuid.UUID, name string) (dp1 *domain.Device, s1 domain.Status) {
+	ctx, span := startSpan(ctx, "OverrideDeviceEnrollmentHook")
+
+	dp1, s1 = _d.inner.OverrideDeviceEnrollmentHook(ctx, orgId, name)
+	endSpan(span, s1)
+	return dp1, s1
+}
+
 func (_d *TracedDeviceService) OverwriteDeviceRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) (s1 domain.Status) {
 	ctx, span := startSpan(ctx, "OverwriteDeviceRepositoryRefs")
 
