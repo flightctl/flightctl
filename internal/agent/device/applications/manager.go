@@ -279,7 +279,7 @@ func (m *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, opts
 
 // addCachedParentImageDigests merges parent digests resolved by OCI collection
 // into monitor status. Collection uses temporary providers, so their resolved
-// digests must be joined to the live application snapshot by ID and image ref.
+// digests must be joined to the live application snapshot by ID.
 func addCachedParentImageDigests(results []AppStatusResult, cache *provider.OCITargetCache) {
 	if cache == nil {
 		return
@@ -287,18 +287,20 @@ func addCachedParentImageDigests(results []AppStatusResult, cache *provider.OCIT
 
 	for i := range results {
 		entry, found := cache.Get(results[i].ID)
-		if !found || entry.Parent.Reference == "" || entry.Parent.Digest == "" || results[i].Status.ImageDigests == nil {
+		if !found || entry.Parent.Reference == "" || entry.Parent.Digest == "" {
 			continue
 		}
 
-		digests := append([]v1beta1.ApplicationImageDigest(nil), (*results[i].Status.ImageDigests)...)
-		parentReferenceFound := false
+		var digests []v1beta1.ApplicationImageDigest
+		if results[i].Status.ImageDigests != nil {
+			digests = append(digests, (*results[i].Status.ImageDigests)...)
+		}
+
 		parentDigestFound := false
 		for j := range digests {
 			if digests[j].Image != entry.Parent.Reference {
 				continue
 			}
-			parentReferenceFound = true
 			if digests[j].Digest == entry.Parent.Digest {
 				parentDigestFound = true
 				break
@@ -308,9 +310,6 @@ func addCachedParentImageDigests(results []AppStatusResult, cache *provider.OCIT
 				parentDigestFound = true
 				break
 			}
-		}
-		if !parentReferenceFound {
-			continue
 		}
 		if !parentDigestFound {
 			digests = append(digests, v1beta1.ApplicationImageDigest{
