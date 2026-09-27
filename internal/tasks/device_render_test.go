@@ -1498,14 +1498,14 @@ func TestRenderDevice_SucceededGenerationSetsDeltaImageAndSize(t *testing.T) {
 	})
 
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
-	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, nil, nil, newTestKVStore(), &config.Config{}, orgId, event)
-	logic.deltaLookup = &stubGenerationLookup{
+	logic, err := newDeviceRenderLogicWithDeltaLookup(logrus.New(), mockDeviceSvc, nil, nil, nil, newTestKVStore(), &stubGenerationLookup{
 		gen: &model.DeltaGeneration{
 			Status:    model.DeltaGenerationSucceeded,
 			DeltaRef:  &deltaRef,
 			SizeBytes: &size,
 		},
-	}
+	}, &config.Config{}, orgId, event)
+	require.NoError(t, err)
 
 	require.NoError(t, logic.RenderDevice(context.Background()))
 }
@@ -1542,7 +1542,7 @@ func TestDeviceRender_DetachedContextSurvivesParentDeadline(t *testing.T) {
 	defer cancel()
 	<-expiredCtx.Done()
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
-	err := deviceRender(expiredCtx, orgId, event, mockSvc, nil, nil, nil, nil, nil, &config.Config{}, logrus.New())
+	err := deviceRender(expiredCtx, orgId, event, mockSvc, nil, nil, nil, newTestKVStore(), &stubGenerationLookup{}, &config.Config{}, logrus.New())
 	require.NoError(t, err)
 }
 
@@ -1567,7 +1567,7 @@ func TestDeviceRender_ExplicitCancelPropagates(t *testing.T) {
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
 	done := make(chan struct{})
 	go func() {
-		_ = deviceRender(parentCtx, orgId, event, mockSvc, nil, nil, nil, nil, nil, &config.Config{}, logrus.New())
+		_ = deviceRender(parentCtx, orgId, event, mockSvc, nil, nil, nil, newTestKVStore(), &stubGenerationLookup{}, &config.Config{}, logrus.New())
 		close(done)
 	}()
 	select {
