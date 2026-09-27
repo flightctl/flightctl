@@ -21,17 +21,6 @@ const (
 	maxReferrerPages         = 100
 )
 
-type deltaArtifact struct {
-	Ref              string
-	Manifest         ocispec.Descriptor
-	PayloadSizeBytes int64
-}
-
-type deltaExistence struct {
-	Exists   bool
-	Artifact deltaArtifact
-}
-
 func checkExistingDelta(ctx context.Context, deltaRepository, sourceDigest, targetDigest string, spec *domain.OciRepoSpec) (*existingDelta, error) {
 	if spec == nil {
 		return nil, fmt.Errorf("OCI write target is required for existence check")
@@ -54,16 +43,10 @@ func checkExistingDelta(ctx context.Context, deltaRepository, sourceDigest, targ
 	if err != nil {
 		return nil, fmt.Errorf("existence check: %w", err)
 	}
-	if !existence.Exists {
-		return nil, nil
-	}
-	return &existingDelta{
-		Ref:       existence.Artifact.Ref,
-		SizeBytes: existence.Artifact.PayloadSizeBytes,
-	}, nil
+	return existence, nil
 }
 
-func checkDeltaExists(ctx context.Context, repo registry.Repository, deltaRepository string, sourceDigest, targetDigest digest.Digest) (deltaExistence, error) {
+func checkDeltaExists(ctx context.Context, repo registry.Repository, deltaRepository string, sourceDigest, targetDigest digest.Digest) (*existingDelta, error) {
 	var match *ocispec.Descriptor
 	err := repo.Referrers(ctx, ocispec.Descriptor{Digest: targetDigest}, ociDeltaArtifactType, func(referrers []ocispec.Descriptor) error {
 		if match != nil {
@@ -75,38 +58,34 @@ func checkDeltaExists(ctx context.Context, repo registry.Repository, deltaReposi
 		return nil
 	})
 	if err != nil {
-		return deltaExistence{}, fmt.Errorf("list referrers: %w", err)
+		return nil, fmt.Errorf("list referrers: %w", err)
 	}
 	if match == nil {
-		return deltaExistence{}, nil
+		return nil, nil
 	}
 	if match.Size < 0 || match.Size > maxRegistryResponseBytes {
-		return deltaExistence{}, fmt.Errorf("delta manifest size %d exceeds %d bytes", match.Size, maxRegistryResponseBytes)
+		return nil, fmt.Errorf("delta manifest size %d exceeds %d bytes", match.Size, maxRegistryResponseBytes)
 	}
 	manifestBytes, err := content.FetchAll(ctx, repo, *match)
 	if err != nil {
-		return deltaExistence{}, fmt.Errorf("fetch delta manifest: %w", err)
+		return nil, fmt.Errorf("fetch delta manifest: %w", err)
 	}
 	var manifest ocispec.Manifest
 	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
-		return deltaExistence{}, fmt.Errorf("invalid delta manifest: %w", err)
+		return nil, fmt.Errorf("invalid delta manifest: %w", err)
 	}
 	if err := validateDeltaManifest(manifest); err != nil {
-		return deltaExistence{}, err
+		return nil, err
 	}
 	if manifest.Subject == nil || manifest.Subject.Digest != targetDigest {
-		return deltaExistence{}, fmt.Errorf("delta subject does not match target %s", targetDigest)
+		return nil, fmt.Errorf("delta subject does not match target %s", targetDigest)
 	}
 	if manifest.Annotations[ociDeltaSourceAnnotation] != sourceDigest.String() {
-		return deltaExistence{}, fmt.Errorf("delta source does not match source %s", sourceDigest)
+		return nil, fmt.Errorf("delta source does not match source %s", sourceDigest)
 	}
-	return deltaExistence{
-		Exists: true,
-		Artifact: deltaArtifact{
-			Ref:              deltaRepository + "@" + match.Digest.String(),
-			Manifest:         *match,
-			PayloadSizeBytes: deltaPayloadSize(manifest),
-		},
+	return &existingDelta{
+		Ref:       deltaRepository + "@" + match.Digest.String(),
+		SizeBytes: deltaPayloadSize(manifest),
 	}, nil
 }
 

@@ -18,7 +18,8 @@ import (
 	deltaconfig "github.com/flightctl/flightctl/internal/delta_worker/config"
 	"github.com/flightctl/flightctl/internal/delta_worker/model"
 	"github.com/flightctl/flightctl/internal/delta_worker/service/deltageneration"
-	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store"
+	"github.com/flightctl/flightctl/internal/delta_worker/service/deltapreparegeneration"
+	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
@@ -132,7 +133,7 @@ func emptyRepositoryService(t *testing.T) repositoryservice.Service {
 	return mock
 }
 
-func newTestHandler(t *testing.T, store *fakeGenerationService, cfg *deltaconfig.DeltaGenerationConfig, check func(context.Context, uuid.UUID, string, string, string) (*existingDelta, error), generate func(context.Context, uuid.UUID, string, string, string) (string, int64, error)) *Handler {
+func newTestHandler(t *testing.T, store *fakeGenerationService, cfg *deltaconfig.DeltaGenerationConfig, check func(context.Context, uuid.UUID, string, string, string) (*existingDelta, error), generate func(context.Context, uuid.UUID, string, string, string) (string, int64, error), emit EventEmitter) *Handler {
 	t.Helper()
 	var existenceCheck existenceChecker
 	if check != nil {
@@ -146,9 +147,14 @@ func newTestHandler(t *testing.T, store *fakeGenerationService, cfg *deltaconfig
 			return generate(ctx, generation.OrgID, sourceRef, targetRef, pushPath)
 		}
 	}
-	handler, err := newHandler(cfg, logrus.New(), emptyRepositoryService(t), store, existenceCheck, deltaGenerator)
+	progress := deltapreparegeneration.NewProgressHandler(nil, nil, nil)
+	handler, err := newHandler(cfg, logrus.New(), emptyRepositoryService(t), store, existenceCheck, deltaGenerator, progress, emit, nil)
 	require.NoError(t, err)
 	return handler
+}
+
+func noOpEventEmitter(context.Context, uuid.UUID, *domain.Event) error {
+	return nil
 }
 
 func TestHandleGenerateDelta(t *testing.T) {
@@ -165,7 +171,7 @@ func TestHandleGenerateDelta(t *testing.T) {
 		c := newTestHandler(t, store, &deltaconfig.DeltaGenerationConfig{Timeout: util.Duration(time.Minute)}, func(context.Context, uuid.UUID, string, string, string) (*existingDelta, error) {
 			t.Fatal("existence check must not run")
 			return nil, nil
-		}, nil)
+		}, nil, noOpEventEmitter)
 		err := c.Handle(context.Background(), worker_client.EventWithOrgId{
 			OrgId: org,
 			Event: domain.Event{Reason: domain.EventReasonPrepareDeltas},
@@ -183,7 +189,7 @@ func TestHandleGenerateDelta(t *testing.T) {
 		}, func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
 			generated = true
 			return "", 0, nil
-		})
+		}, noOpEventEmitter)
 		req.NoError(c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log))
 		req.False(generated)
 		req.Len(store.updates, 2)
@@ -191,6 +197,48 @@ func TestHandleGenerateDelta(t *testing.T) {
 		req.Equal("write.example/os@sha256:existing", *store.updates[1].DeltaRef)
 		req.Equal(int64(77), *store.updates[1].SizeBytes)
 		req.Zero(store.createCalls)
+	})
+
+	t.Run("When generation completes it should emit a terminal generation event", func(t *testing.T) {
+		req := require.New(t)
+		store := &fakeGenerationService{}
+		var emitted []*domain.Event
+		c := newTestHandler(t, store, &deltaconfig.DeltaGenerationConfig{Timeout: util.Duration(time.Minute)}, func(context.Context, uuid.UUID, string, string, string) (*existingDelta, error) {
+			return &existingDelta{Ref: "write.example/os@sha256:existing", SizeBytes: 77}, nil
+		}, nil, func(_ context.Context, _ uuid.UUID, event *domain.Event) error {
+			emitted = append(emitted, event)
+			return nil
+		})
+
+		req.NoError(c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log))
+		req.Len(emitted, 1)
+		req.Equal(domain.EventReasonDeltaGenerationComplete, emitted[0].Reason)
+		key, _, err := deltageneration.ParseGenerationCompleteEvent(org, emitted[0].Message)
+		req.NoError(err)
+		req.Equal(deltastore.GenerationKey{OrgID: org, ImageRepository: repo, SourceDigest: src, TargetDigest: tgt}, key)
+	})
+
+	t.Run("When generation is already terminal it should re-emit the terminal event", func(t *testing.T) {
+		req := require.New(t)
+		key := deltastore.GenerationKey{OrgID: org, ImageRepository: repo, SourceDigest: src, TargetDigest: tgt}
+		store := &fakeGenerationService{generations: map[deltastore.GenerationKey]*model.DeltaGeneration{
+			key: {
+				OrgID:           org,
+				ImageRepository: repo,
+				SourceDigest:    src,
+				TargetDigest:    tgt,
+				Status:          model.DeltaGenerationSucceeded,
+			},
+		}}
+		var emitted []*domain.Event
+		c := newTestHandler(t, store, &deltaconfig.DeltaGenerationConfig{Timeout: util.Duration(time.Minute)}, nil, nil, func(_ context.Context, _ uuid.UUID, event *domain.Event) error {
+			emitted = append(emitted, event)
+			return nil
+		})
+
+		req.NoError(c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log))
+		req.Len(emitted, 1)
+		req.Equal(domain.EventReasonDeltaGenerationComplete, emitted[0].Reason)
 	})
 
 	t.Run("When existence check fails it should return retryable error", func(t *testing.T) {
@@ -201,7 +249,7 @@ func TestHandleGenerateDelta(t *testing.T) {
 		}, func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
 			t.Fatal("generate must not run")
 			return "", 0, nil
-		})
+		}, noOpEventEmitter)
 		err := c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log)
 		req.Error(err)
 		req.Contains(err.Error(), "registry unavailable")
@@ -226,7 +274,7 @@ func TestHandleGenerateDelta(t *testing.T) {
 			req.Equal(repo+"@"+tgt, targetRef)
 			req.Equal("write.example/os", pushPath)
 			return "write.example/os@sha256:delta", 12, nil
-		})
+		}, noOpEventEmitter)
 		req.NoError(c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log))
 		req.Zero(store.createCalls)
 		req.Equal(1, store.claimed)
@@ -239,14 +287,25 @@ func TestHandleGenerateDelta(t *testing.T) {
 	t.Run("When generate fails it should update failed", func(t *testing.T) {
 		req := require.New(t)
 		store := &fakeGenerationService{}
+		var logOutput bytes.Buffer
+		failureLog := logrus.New()
+		failureLog.SetOutput(&logOutput)
+		failureLog.SetLevel(logrus.ErrorLevel)
 		c := newTestHandler(t, store, &deltaconfig.DeltaGenerationConfig{Timeout: util.Duration(time.Minute)}, func(context.Context, uuid.UUID, string, string, string) (*existingDelta, error) {
 			return nil, nil
 		}, func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
 			return "", 0, errors.New("oci-delta exploded")
-		})
+		}, noOpEventEmitter)
+		c.log = failureLog
 		req.NoError(c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log))
 		req.Len(store.updates, 2)
 		req.Equal(model.DeltaGenerationFailed, store.updates[1].Status)
+		req.Contains(logOutput.String(), "delta generation failed")
+		req.Contains(logOutput.String(), "oci-delta exploded")
+		req.Contains(logOutput.String(), repo)
+		req.Contains(logOutput.String(), src)
+		req.Contains(logOutput.String(), tgt)
+		req.Contains(logOutput.String(), "phase=checkingExisting")
 	})
 
 	t.Run("When claim is in_progress it should not steal", func(t *testing.T) {
@@ -257,7 +316,7 @@ func TestHandleGenerateDelta(t *testing.T) {
 		}, func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
 			t.Fatal("generate must not run")
 			return "", 0, nil
-		})
+		}, noOpEventEmitter)
 		req.NoError(c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log))
 		req.Empty(store.updates)
 	})
@@ -271,7 +330,7 @@ func TestHandleGenerateDelta(t *testing.T) {
 		}, func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
 			generated = true
 			return "ref", 1, nil
-		})
+		}, noOpEventEmitter)
 		err := c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log)
 		req.ErrorContains(err, "claim generation: claim store unavailable")
 		req.False(generated)
@@ -287,7 +346,7 @@ func TestHandleGenerateDelta(t *testing.T) {
 		}, func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
 			generated = true
 			return "ref", 1, nil
-		})
+		}, noOpEventEmitter)
 		req.NoError(c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log))
 		req.True(generated)
 		req.Len(store.updates, 2)
@@ -302,7 +361,7 @@ func TestHandleGenerateDelta(t *testing.T) {
 		}, func(ctx context.Context, _ uuid.UUID, _, _, _ string) (string, int64, error) {
 			<-ctx.Done()
 			return "", 0, ctx.Err()
-		})
+		}, noOpEventEmitter)
 		req.NoError(c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log))
 		req.Len(store.updates, 2)
 		req.Equal(model.DeltaGenerationFailed, store.updates[1].Status)
@@ -317,7 +376,7 @@ func TestHandleGenerateDelta(t *testing.T) {
 		}, func(context.Context, uuid.UUID, string, string, string) (string, int64, error) {
 			generated = true
 			return "ref", 1, nil
-		})
+		}, noOpEventEmitter)
 		req.NoError(c.Handle(context.Background(), generateEvent(org, repo, src, tgt), log))
 		req.True(generated)
 		req.Len(store.updates, 1)
@@ -656,7 +715,7 @@ func TestReferenceForResolve_WhenDigestRefItShouldReturnDigest(t *testing.T) {
 	req.Equal(dgst, got)
 }
 
-func TestCopyDeltaGraph_WhenSubjectIsNotInDestinationItShouldCopyRootWithoutSubjectGraph(t *testing.T) {
+func TestCopyDeltaGraph_WhenSubjectManifestIsAlsoLayerItShouldPublishLayerWithoutSubjectGraph(t *testing.T) {
 	req := require.New(t)
 	ctx := context.Background()
 	layoutDir := t.TempDir()
@@ -679,9 +738,17 @@ func TestCopyDeltaGraph_WhenSubjectIsNotInDestinationItShouldCopyRootWithoutSubj
 		Layers: []ocispec.Descriptor{subjectLayer},
 	})
 	req.NoError(err)
+	subjectReader, err := src.Fetch(ctx, subject)
+	req.NoError(err)
+	subjectManifestBytes, err := io.ReadAll(subjectReader)
+	req.NoError(err)
+	req.NoError(subjectReader.Close())
 
 	layout, err := ocistore.New(layoutDir)
 	req.NoError(err)
+	req.NoError(layout.Push(ctx, subject, bytes.NewReader(subjectManifestBytes)))
+	targetManifestLayer := subject
+	targetManifestLayer.Annotations = map[string]string{"io.github.containers.delta.content": "image-manifest"}
 	deltaPayload := []byte("delta-layer")
 	deltaLayer := ocispec.Descriptor{
 		MediaType: ocispec.MediaTypeImageLayer,
@@ -691,7 +758,7 @@ func TestCopyDeltaGraph_WhenSubjectIsNotInDestinationItShouldCopyRootWithoutSubj
 	req.NoError(layout.Push(ctx, deltaLayer, bytes.NewReader(deltaPayload)))
 	layoutManifest, err := oras.PackManifest(ctx, layout, oras.PackManifestVersion1_1, ociDeltaArtifactType, oras.PackManifestOptions{
 		Subject: &subject,
-		Layers:  []ocispec.Descriptor{deltaLayer},
+		Layers:  []ocispec.Descriptor{targetManifestLayer, deltaLayer},
 		ManifestAnnotations: map[string]string{
 			ociDeltaSourceAnnotation: sourceDigest,
 		},
@@ -702,7 +769,7 @@ func TestCopyDeltaGraph_WhenSubjectIsNotInDestinationItShouldCopyRootWithoutSubj
 	loaded, err := loadDeltaLayout(ctx, layoutDir)
 	req.NoError(err)
 	req.NoError(loaded.matchesPair(sourceDigest, subject.Digest.String()))
-	req.NoError(copyDeltaGraph(ctx, loaded, dest))
+	req.NoError(copyDeltaGraph(ctx, loaded, dest, dest))
 
 	rc, err := dest.Fetch(ctx, loaded.root)
 	req.NoError(err)
@@ -714,7 +781,18 @@ func TestCopyDeltaGraph_WhenSubjectIsNotInDestinationItShouldCopyRootWithoutSubj
 	req.NotNil(manifest.Subject)
 	req.Equal(subject.Digest, manifest.Subject.Digest)
 	req.Equal(loaded.root.Digest, digest.FromBytes(b))
-	exists, err := dest.Exists(ctx, subject)
+	req.Len(manifest.Layers, 2)
+	req.Equal(subject.Digest, manifest.Layers[0].Digest)
+	req.Equal("image-manifest", manifest.Layers[0].Annotations["io.github.containers.delta.content"])
+
+	rc, err = dest.Fetch(ctx, subject)
+	req.NoError(err)
+	gotSubjectManifest, err := io.ReadAll(rc)
+	req.NoError(err)
+	req.NoError(rc.Close())
+	req.Equal(subjectManifestBytes, gotSubjectManifest)
+
+	exists, err := dest.Exists(ctx, subjectLayer)
 	req.NoError(err)
 	req.False(exists)
 }

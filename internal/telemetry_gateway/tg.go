@@ -263,6 +263,13 @@ func buildOTelConfigMap(cfg *config.Config) (map[string]any, error) {
 			if err := validateHTTPEndpoint(fwd.Endpoint); err != nil {
 				return nil, fmt.Errorf("forward endpoint: %w", err)
 			}
+			// The HTTP exporter appends /v1/metrics to endpoint. Use an
+			// explicit metrics endpoint only when the configured URL already
+			// contains that signal path, otherwise preserve backend base paths.
+			if isOTLPHTTPMetricsEndpoint(fwd.Endpoint) {
+				delete(exporterCfg, "endpoint")
+				exporterCfg["metrics_endpoint"] = fwd.Endpoint
+			}
 			if len(fwd.Headers) > 0 {
 				headers := make(map[string]string, len(fwd.Headers))
 				for k, v := range fwd.Headers {
@@ -316,4 +323,13 @@ func buildOTelConfigMap(cfg *config.Config) (map[string]any, error) {
 		},
 	}
 	return root, nil
+}
+
+// isOTLPHTTPMetricsEndpoint reports whether endpoint already targets the OTLP/HTTP metrics path.
+func isOTLPHTTPMetricsEndpoint(endpoint string) bool {
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return false
+	}
+	return strings.HasSuffix(strings.TrimRight(u.Path, "/"), "/v1/metrics")
 }

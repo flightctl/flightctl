@@ -139,8 +139,8 @@ var _ = Describe("VM Applications", Ordered, ContinueOnFailure, func() {
 	// After recovery, serial console exclusivity is checked: a second connect without
 	// --force is rejected, and --force takes over the active session.
 	// Then the guest domain is suspended inside the still-running compute container:
-	// the app stays Running while applicationsSummary becomes Degraded, and resume
-	// returns Healthy with SSH working.
+	// applicationsSummary becomes Degraded and the app reports Starting (health-degraded
+	// VMs are Starting, not Running). Resume returns Healthy with SSH working.
 	It("recovers Running and Healthy after an unexpected virt-launcher compute crash", Label("vm", "90232", "90239", "90246"), func() {
 		By("Deploying the VM application")
 		err := harness.UpdateDeviceAndWaitForVersion(deviceID, func(device *v1beta1.Device) {
@@ -207,13 +207,13 @@ var _ = Describe("VM Applications", Ordered, ContinueOnFailure, func() {
 		Expect(getPodmanContainerID(harness, computeContainerAfter)).To(Equal(containerIDAfter),
 			"compute container should keep running after guest suspend")
 
-		By("Waiting for applications summary Degraded while the app stays Running")
+		By("Waiting for applications summary Degraded while the app reports Starting")
 		err = harness.WaitForApplicationSummary(deviceID, testutil.LONG_TIMEOUT, testutil.POLLING, v1beta1.ApplicationsSummaryStatusDegraded)
 		if err != nil {
 			logVMApplicationUnitStatus(harness, vmAppName)
 		}
 		Expect(err).ToNot(HaveOccurred())
-		err = harness.WaitForApplicationStatus(deviceID, vmAppName, v1beta1.ApplicationStatusRunning, testutil.LONG_TIMEOUT, testutil.POLLING)
+		err = harness.WaitForApplicationStatus(deviceID, vmAppName, v1beta1.ApplicationStatusStarting, testutil.LONG_TIMEOUT, testutil.POLLING)
 		if err != nil {
 			logVMApplicationUnitStatus(harness, vmAppName)
 		}

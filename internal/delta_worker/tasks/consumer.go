@@ -9,6 +9,8 @@ import (
 	"github.com/flightctl/flightctl/internal/consts"
 	deltaconfig "github.com/flightctl/flightctl/internal/delta_worker/config"
 	generateTask "github.com/flightctl/flightctl/internal/delta_worker/tasks/generate"
+	generationcomplete "github.com/flightctl/flightctl/internal/delta_worker/tasks/generationcomplete"
+	preparecomplete "github.com/flightctl/flightctl/internal/delta_worker/tasks/preparecomplete"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
 	"github.com/flightctl/flightctl/internal/worker_client"
@@ -20,11 +22,13 @@ const ackTimeout = 5 * time.Second
 
 // Consumer handles incoming jobs from the delta-generation task queue.
 type Consumer struct {
-	cfg           *deltaconfig.DeltaGenerationConfig
-	workerMetrics *worker.WorkerCollector
-	log           logrus.FieldLogger
-	preparer      PrepareDeltasHandler
-	generator     GenerateDeltaHandler
+	cfg             *deltaconfig.DeltaGenerationConfig
+	workerMetrics   *worker.WorkerCollector
+	log             logrus.FieldLogger
+	preparer        PrepareDeltasHandler
+	generator       GenerateDeltaHandler
+	completion      GenerationCompleteHandler
+	prepareComplete PrepareCompleteHandler
 }
 
 type PrepareDeltasHandler interface {
@@ -35,10 +39,20 @@ type GenerateDeltaHandler interface {
 	Handle(ctx context.Context, ev worker_client.EventWithOrgId, log logrus.FieldLogger) error
 }
 
-// ConsumerWiring configures the two task handlers used by the generic consumer.
+type GenerationCompleteHandler interface {
+	Handle(context.Context, worker_client.EventWithOrgId) error
+}
+
+type PrepareCompleteHandler interface {
+	Handle(context.Context, worker_client.EventWithOrgId) error
+}
+
+// ConsumerWiring configures the task handlers used by the generic consumer.
 type ConsumerWiring struct {
-	Preparer  PrepareDeltasHandler
-	Generator GenerateDeltaHandler
+	Preparer        PrepareDeltasHandler
+	Generator       GenerateDeltaHandler
+	Completion      GenerationCompleteHandler
+	PrepareComplete PrepareCompleteHandler
 }
 
 // NewConsumer creates a new Consumer instance.
@@ -51,6 +65,8 @@ func NewConsumer(cfg *deltaconfig.DeltaGenerationConfig, workerMetrics *worker.W
 	if wiring != nil {
 		c.preparer = wiring.Preparer
 		c.generator = wiring.Generator
+		c.completion = wiring.Completion
+		c.prepareComplete = wiring.PrepareComplete
 	}
 	return c
 }
@@ -97,6 +113,28 @@ func (c *Consumer) Consume(ctx context.Context, payload []byte, entryID string, 
 			}
 			if c.workerMetrics != nil {
 				c.workerMetrics.ObserveTaskExecutionDuration(taskType, time.Since(taskStart))
+			}
+		}
+	case domain.EventReasonDeltaGenerationComplete:
+		if c.workerMetrics != nil {
+			c.workerMetrics.IncTasksByType(taskType)
+		}
+		if c.completion != nil {
+			procErr = c.completion.Handle(ctx, event)
+			if generationcomplete.IsInvalidPayload(procErr) {
+				log.WithError(procErr).Error("invalid DeltaGenerationComplete payload")
+				return completePoisonMessage(consumer, c.workerMetrics, log, entryID, payload)
+			}
+		}
+	case domain.EventReasonDeltaPrepareComplete:
+		if c.workerMetrics != nil {
+			c.workerMetrics.IncTasksByType(taskType)
+		}
+		if c.prepareComplete != nil {
+			procErr = c.prepareComplete.Handle(ctx, event)
+			if preparecomplete.IsInvalidPayload(procErr) {
+				log.WithError(procErr).Error("invalid DeltaPrepareComplete payload")
+				return completePoisonMessage(consumer, c.workerMetrics, log, entryID, payload)
 			}
 		}
 	default:

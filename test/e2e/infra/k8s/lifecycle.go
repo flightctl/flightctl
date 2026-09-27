@@ -277,7 +277,7 @@ func (p *ServiceLifecycleProvider) SetDeploymentEnv(service infra.ServiceName, e
 	}
 
 	p.infraP.InvalidateExposeCache(service)
-	logrus.Infof("K8s: set env %s=%s on deployment %s in namespace %s", envName, envValue, deploymentName, ns)
+	logrus.Infof("K8s: set env %s on deployment %s in namespace %s", envName, deploymentName, ns)
 
 	return p.WaitForReady(service, 5*time.Minute)
 }

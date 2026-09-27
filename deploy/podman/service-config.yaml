@@ -135,6 +135,8 @@ prometheus:
 #   logLevel: info
 #   maxConcurrentBuilds: 2
 #   defaultTTL: 168h
+#   imageBuilderTimeout: 3m
+#   timeoutCheckTaskInterval: 1m
 #   rpmRepoUrl: ""
 #   rpmRepoAdd: true
 #   rpmRepoEnable: ""
@@ -210,6 +212,13 @@ prometheus:
 # Controls the global polling interval for git/HTTP dependency probes.
 # dependenciesSync:
 #   pollInterval: 15m
+
+# Periodic task schedule overrides (optional).
+# periodic:
+#   tasks:
+#     deltaPrepareDeadline:
+#       schedule:
+#         interval: 1m
 
 # Profiling (optional). Uncomment to enable loopback pprof and/or Pyroscope push
 # for long-running services that load this shared config. See

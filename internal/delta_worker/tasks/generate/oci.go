@@ -265,13 +265,17 @@ func pushOCILayoutWithSize(ctx context.Context, spec *domain.OciRepoSpec, layout
 		return "", 0, fmt.Errorf("configure destination repository: %w", err)
 	}
 	dst.SkipReferrersGC = true
-	if err := copyDeltaGraph(ctx, layout, dst); err != nil {
+	if err := copyDeltaGraph(ctx, layout, dst, dst.Blobs()); err != nil {
 		return "", 0, fmt.Errorf("copy delta layout: %w", err)
 	}
 	return destRef + "@" + layout.root.Digest.String(), deltaPayloadSize(layout.manifest), nil
 }
 
-func copyDeltaGraph(ctx context.Context, layout *deltaLayout, dst content.Storage) error {
+func copyDeltaGraph(ctx context.Context, layout *deltaLayout, dst content.Storage, dstBlobs content.Storage) error {
+	if err := pushSubjectLayerAsBlob(ctx, layout, dstBlobs); err != nil {
+		return fmt.Errorf("push delta subject layer as blob: %w", err)
+	}
+
 	root := layout.root
 	manifest := layout.manifest
 	copyOptions := oras.DefaultCopyGraphOptions
@@ -289,6 +293,31 @@ func copyDeltaGraph(ctx context.Context, layout *deltaLayout, dst content.Storag
 		return filtered, nil
 	}
 	return oras.CopyGraph(ctx, layout.store, dst, root, copyOptions)
+}
+
+// pushSubjectLayerAsBlob copies the embedded subject manifest into the
+// destination blob store without copying its image graph. Delta artifacts
+// reference the target image manifest both as their subject and as a layer.
+// The main graph copy omits that descriptor to avoid recopying the target
+// image graph, so it must be copied separately as a leaf.
+func pushSubjectLayerAsBlob(ctx context.Context, layout *deltaLayout, dst content.Storage) error {
+	if layout.manifest.Subject == nil {
+		return nil
+	}
+	for _, layer := range layout.manifest.Layers {
+		if !content.Equal(layer, *layout.manifest.Subject) {
+			continue
+		}
+		copyOptions := oras.DefaultCopyGraphOptions
+		copyOptions.FindSuccessors = func(context.Context, content.Fetcher, ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+			return nil, nil
+		}
+		if err := oras.CopyGraph(ctx, layout.store, dst, layer, copyOptions); err != nil {
+			return fmt.Errorf("copy subject layer %s: %w", layer.Digest, err)
+		}
+		return nil
+	}
+	return nil
 }
 
 type deltaLayout struct {

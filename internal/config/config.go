@@ -231,7 +231,7 @@ type serviceImagesConfig struct {
 
 const (
 	defaultPodmanImage            = "quay.io/podman/stable:v5.7.1"
-	defaultBootcImageBuilderImage = "quay.io/centos-bootc/bootc-image-builder@sha256:773019f6b11766ca48170a4a7bf898be4268f3c2acfd0ec1db612408b3092a90"
+	defaultBootcImageBuilderImage = "ghcr.io/osbuild/bootc-image-builder@sha256:e7aadce6b3f5639cd47d83354791931ea219891a0d113c2fe74a0f0d352b165c"
 	defaultSyftImage              = "docker.io/anchore/syft:v1.44.0"
 )
 
@@ -776,6 +776,8 @@ type periodicTasksConfig struct {
 	// RepositoryTester overrides the interval for the repository-tester periodic task,
 	// which probes Repository resources and sets their Accessible condition.
 	RepositoryTester periodicTaskConfig `json:"repositoryTester,omitempty"`
+	// DeltaPrepareDeadline overrides the interval for the delta prepare deadline sweep.
+	DeltaPrepareDeadline periodicTaskConfig `json:"deltaPrepareDeadline,omitempty"`
 }
 
 type periodicConfig struct {
@@ -1732,10 +1734,8 @@ func Validate(cfg *Config) error {
 		}
 	}
 
-	if cfg.ImageBuilderWorker != nil {
-		if time.Duration(cfg.ImageBuilderWorker.TimeoutCheckTaskInterval) <= 0 {
-			return fmt.Errorf("imageBuilderWorker.timeoutCheckTaskInterval must be greater than 0")
-		}
+	if err := validateImageBuilderWorker(cfg.ImageBuilderWorker); err != nil {
+		return err
 	}
 
 	if err := validateDeltaGeneration(cfg); err != nil {
@@ -1756,6 +1756,19 @@ func Validate(cfg *Config) error {
 		}
 	}
 
+	return nil
+}
+
+func validateImageBuilderWorker(cfg *imageBuilderWorkerConfig) error {
+	if cfg == nil {
+		return nil
+	}
+	if time.Duration(cfg.ImageBuilderTimeout) <= 0 {
+		return fmt.Errorf("imageBuilderWorker.imageBuilderTimeout must be greater than 0")
+	}
+	if time.Duration(cfg.TimeoutCheckTaskInterval) <= 0 {
+		return fmt.Errorf("imageBuilderWorker.timeoutCheckTaskInterval must be greater than 0")
+	}
 	return nil
 }
 

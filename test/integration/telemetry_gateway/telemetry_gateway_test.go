@@ -14,8 +14,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -40,8 +42,10 @@ import (
 )
 
 const (
-	timeout = 10 * time.Second
-	polling = 250 * time.Millisecond
+	timeout                     = 10 * time.Second
+	polling                     = 250 * time.Millisecond
+	gatewayStartupAttempts      = 5
+	gatewayReadinessDialTimeout = 200 * time.Millisecond
 )
 
 var (
@@ -67,10 +71,12 @@ var _ = Describe("Telemetry Gateway", func() {
 		caClient *icrypto.CAClient
 
 		// config plumbing
-		baseCfg     *config.Config
-		cfgMutators []func(*config.Config)
-		testDirPath string
-		runOpts     []telemetrygateway.Option
+		baseCfg               *config.Config
+		cfgMutators           []func(*config.Config)
+		refreshPortAllocators []func()
+		testDirPath           string
+		runOpts               []telemetrygateway.Option
+		gatewayReadyTLS       *tls.Config
 	)
 
 	BeforeEach(func() {
@@ -102,62 +108,42 @@ var _ = Describe("Telemetry Gateway", func() {
 		Expect(os.WriteFile(serverCrt, certPEM, 0o600)).To(Succeed())
 		Expect(os.WriteFile(serverKey, keyPEM, 0o600)).To(Succeed())
 
-		// ports
-		otlpAddr = localAddr()
+		// The Prometheus exporter address is set only by contexts that exercise
+		// that exporter. The test discovers the OTLP listener after OTel binds it.
 		promAddr = ""
 
 		// base config + reset mutators
-		baseCfg = createConfig(serverCrt, serverKey, caPath, otlpAddr)
+		baseCfg = createConfig(serverCrt, serverKey, caPath, "127.0.0.1:0")
 		cfgMutators = nil
+		refreshPortAllocators = nil
 
-		// Use random port for OTel internal metrics to avoid port 8888 conflicts during parallel test execution
-		otelMetricsPort := localAddr() // returns "localhost:port"
-		_, port, _ := net.SplitHostPort(otelMetricsPort)
 		runOpts = []telemetrygateway.Option{
 			telemetrygateway.WithSkipSettingGRPCLogger(true), // kill grpclog race in tests
-			telemetrygateway.WithOTelYAMLOverlay(fmt.Sprintf(`
+			telemetrygateway.WithOTelYAMLOverlay(`
 service:
   telemetry:
     metrics:
-      readers:
-        - pull:
-            exporter:
-              prometheus:
-                host: localhost
-                port: %s
-`, port)),
+      level: none
+`),
 		}
+
+		gatewayReadyTLS, err = newGatewayClientTLSConfig(ctx, caClient, "client-telemetry-gateway-readiness")
+		Expect(err).ToNot(HaveOccurred())
 	})
 
-	// Start the gateway after all mutators from nested BeforeEach have run
+	// Start the gateway after all mutators from nested BeforeEach have run.
 	JustBeforeEach(func() {
-		// apply per-test tweaks
-		cfg := *baseCfg // shallow copy of struct
-		for _, m := range cfgMutators {
-			m(&cfg)
-		}
-
-		// (optional) persist for debugging
-		cfgBytes, err := yaml.Marshal(&cfg)
+		var err error
+		otlpAddr, gwCancel, gwDone, err = startTelemetryGateway(
+			ctx,
+			baseCfg,
+			cfgMutators,
+			refreshPortAllocators,
+			runOpts,
+			gatewayReadyTLS,
+			testDirPath,
+		)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(os.WriteFile(filepath.Join(testDirPath, "config.yaml"), cfgBytes, 0o600)).To(Succeed())
-
-		gwCtx, cancel := context.WithCancel(ctx)
-		gwCancel = cancel
-		gwDone = make(chan error, 1)
-		go func() {
-			gwDone <- telemetrygateway.Run(gwCtx, &cfg, runOpts...)
-		}()
-
-		// wait OTLP up
-		Eventually(func() bool {
-			conn, err := net.DialTimeout("tcp", otlpAddr, 200*time.Millisecond)
-			if err != nil {
-				return false
-			}
-			_ = conn.Close()
-			return true
-		}, timeout, polling).Should(BeTrue())
 	})
 
 	AfterEach(func() {
@@ -178,12 +164,13 @@ service:
 
 	Context("with a custom Prometheus listen address", func() {
 		BeforeEach(func() {
-			// change prom listen addr in this context only
-			newProm := localAddr()
-			promAddr = newProm
+			// Refresh the Prometheus endpoint before every gateway startup attempt.
+			refreshPortAllocators = append(refreshPortAllocators, func() {
+				promAddr = localAddr()
+			})
 			cfgMutators = append(cfgMutators, func(c *config.Config) {
 				// assuming your config struct has TelemetryGateway.Export.Prometheus (string)
-				snippet := fmt.Appendf(nil, "telemetrygateway:\n  export:\n    prometheus: %q\n", newProm)
+				snippet := fmt.Appendf(nil, "telemetrygateway:\n  export:\n    prometheus: %q\n", promAddr)
 				_ = yaml.Unmarshal(snippet, c)
 			})
 		})
@@ -651,8 +638,10 @@ service:
 			Expect(os.WriteFile(forwardCrt, certPEM, 0o600)).To(Succeed())
 			Expect(os.WriteFile(forwardKey, keyPEM, 0o600)).To(Succeed())
 
-			// Choose Prometheus endpoint for this test
-			promAddr = localAddr()
+			// Refresh the Prometheus endpoint before every gateway startup attempt.
+			refreshPortAllocators = append(refreshPortAllocators, func() {
+				promAddr = localAddr()
+			})
 			// Ensure exporter exists in base config (so build map doesn’t error);
 			// overlay will *also* set exporters and add otlp.
 			cfgMutators = append(cfgMutators, func(c *config.Config) {
@@ -776,8 +765,7 @@ var _ = Describe("Telemetry Gateway startup failure", func() {
 		Expect(os.WriteFile(serverCrt, certPEM, 0o600)).To(Succeed())
 		Expect(os.WriteFile(serverKey, keyPEM, 0o600)).To(Succeed())
 
-		otlpAddr := localAddr()
-		cfg := createConfig(serverCrt, serverKey, caPath, otlpAddr)
+		cfg := createConfig(serverCrt, serverKey, caPath, "127.0.0.1:0")
 
 		// Configure forward with TLS cert paths that do not exist
 		snippet := fmt.Appendf(nil,
@@ -785,26 +773,13 @@ var _ = Describe("Telemetry Gateway startup failure", func() {
 		)
 		Expect(yaml.Unmarshal(snippet, cfg)).To(Succeed())
 
-		otelMetricsPort := localAddr()
-		_, port, _ := net.SplitHostPort(otelMetricsPort)
-
 		gwDone := make(chan error, 1)
 		gwCtx, gwCancel := context.WithCancel(ctx)
 		defer gwCancel()
 		go func() {
 			gwDone <- telemetrygateway.Run(gwCtx, cfg,
 				telemetrygateway.WithSkipSettingGRPCLogger(true),
-				telemetrygateway.WithOTelYAMLOverlay(fmt.Sprintf(`
-service:
-  telemetry:
-    metrics:
-      readers:
-        - pull:
-            exporter:
-              prometheus:
-                host: localhost
-                port: %s
-`, port)),
+				telemetrygateway.WithOTelYAMLOverlay("service:\n  telemetry:\n    metrics:\n      level: none\n"),
 			)
 		}()
 
@@ -840,8 +815,7 @@ service:
 		Expect(os.WriteFile(serverCrt, certPEM, 0o600)).To(Succeed())
 		Expect(os.WriteFile(serverKey, keyPEM, 0o600)).To(Succeed())
 
-		otlpAddr := localAddr()
-		cfg := createConfig(serverCrt, serverKey, caPath, otlpAddr)
+		cfg := createConfig(serverCrt, serverKey, caPath, "127.0.0.1:0")
 
 		// Configure HTTP forward with an undefined env var in header
 		snippet := fmt.Appendf(nil,
@@ -849,26 +823,13 @@ service:
 		)
 		Expect(yaml.Unmarshal(snippet, cfg)).To(Succeed())
 
-		otelMetricsPort := localAddr()
-		_, port, _ := net.SplitHostPort(otelMetricsPort)
-
 		gwDone := make(chan error, 1)
 		gwCtx, gwCancel := context.WithCancel(ctx)
 		defer gwCancel()
 		go func() {
 			gwDone <- telemetrygateway.Run(gwCtx, cfg,
 				telemetrygateway.WithSkipSettingGRPCLogger(true),
-				telemetrygateway.WithOTelYAMLOverlay(fmt.Sprintf(`
-service:
-  telemetry:
-    metrics:
-      readers:
-        - pull:
-            exporter:
-              prometheus:
-                host: localhost
-                port: %s
-`, port)),
+				telemetrygateway.WithOTelYAMLOverlay("service:\n  telemetry:\n    metrics:\n      level: none\n"),
 			)
 		}()
 
@@ -1070,6 +1031,231 @@ func localAddr() string {
 	Expect(err).ToNot(HaveOccurred())
 	defer l.Close()
 	return l.Addr().String()
+}
+
+func newGatewayClientTLSConfig(ctx context.Context, caClient *icrypto.CAClient, subjectName string) (*tls.Config, error) {
+	privateKey, cert, err := makeKeyPairAndCSR(ctx, caClient, caClient.Cfg.DeviceSvcClientSignerName, subjectName, 365)
+	if err != nil {
+		return nil, err
+	}
+
+	caPool := x509.NewCertPool()
+	for _, caCert := range caClient.GetCABundleX509() {
+		caPool.AddCert(caCert)
+	}
+
+	return &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		RootCAs:    caPool,
+		Certificates: []tls.Certificate{{
+			Certificate: [][]byte{cert.Raw},
+			PrivateKey:  privateKey,
+		}},
+		ServerName: "localhost",
+	}, nil
+}
+
+func startTelemetryGateway(
+	ctx context.Context,
+	baseCfg *config.Config,
+	cfgMutators []func(*config.Config),
+	refreshPortAllocators []func(),
+	baseOpts []telemetrygateway.Option,
+	readinessTLS *tls.Config,
+	testDirPath string,
+) (string, context.CancelFunc, chan error, error) {
+	startupCtx, startupCancel := context.WithTimeout(ctx, timeout)
+	defer startupCancel()
+
+	var lastStartupErr error
+	for attempt := 0; attempt < gatewayStartupAttempts; attempt++ {
+		for _, refresh := range refreshPortAllocators {
+			refresh()
+		}
+
+		cfg := *baseCfg // shallow copy of struct
+		for _, mutate := range cfgMutators {
+			mutate(&cfg)
+		}
+
+		opts := append([]telemetrygateway.Option(nil), baseOpts...)
+
+		cfgBytes, err := yaml.Marshal(&cfg)
+		if err != nil {
+			return "", nil, nil, err
+		}
+		if err := os.WriteFile(filepath.Join(testDirPath, "config.yaml"), cfgBytes, 0o600); err != nil {
+			return "", nil, nil, err
+		}
+
+		listenersBefore, err := currentProcessTCPListeners()
+		if err != nil {
+			return "", nil, nil, err
+		}
+
+		gwCtx, cancel := context.WithCancel(ctx)
+		gwDone := make(chan error, 1)
+		go func() {
+			gwDone <- telemetrygateway.Run(gwCtx, &cfg, opts...)
+		}()
+
+		otlpAddr, startupErr := waitForGatewayReady(startupCtx, listenersBefore, readinessTLS, gwDone)
+		if startupErr == nil {
+			return otlpAddr, cancel, gwDone, nil
+		}
+		lastStartupErr = startupErr
+
+		cancel()
+		if !isAddressInUse(startupErr) {
+			select {
+			case <-gwDone:
+			case <-time.After(2 * time.Second):
+			}
+			return "", nil, nil, fmt.Errorf("telemetry gateway failed to become ready: %w", startupErr)
+		}
+	}
+
+	if startupCtx.Err() != nil {
+		return "", nil, nil, fmt.Errorf("telemetry gateway failed to become ready: %w", startupCtx.Err())
+	}
+	return "", nil, nil, fmt.Errorf("telemetry gateway could not acquire ports after %d attempts: %w", gatewayStartupAttempts, lastStartupErr)
+}
+
+func isAddressInUse(err error) bool {
+	return errors.Is(err, syscall.EADDRINUSE) || strings.Contains(strings.ToLower(err.Error()), "address already in use")
+}
+
+func waitForGatewayReady(
+	ctx context.Context,
+	listenersBefore map[string]string,
+	clientTLS *tls.Config,
+	done <-chan error,
+) (string, error) {
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+
+	ticker := time.NewTicker(polling)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case err := <-done:
+			if err == nil {
+				return "", errors.New("telemetry gateway exited before binding its device listener")
+			}
+			return "", err
+		case <-ticker.C:
+			listeners, err := currentProcessTCPListeners()
+			if err != nil {
+				return "", err
+			}
+			for inode, addr := range listeners {
+				if _, existed := listenersBefore[inode]; existed {
+					continue
+				}
+
+				addr = dialableAddress(addr)
+				conn, err := tls.DialWithDialer(&net.Dialer{Timeout: gatewayReadinessDialTimeout}, "tcp", addr, clientTLS.Clone())
+				if err == nil {
+					defer func() {
+						if closeErr := conn.Close(); closeErr != nil {
+							fmt.Fprintf(GinkgoWriter, "[gateway] failed to close readiness connection: %v\n", closeErr)
+						}
+					}()
+					return addr, nil
+				}
+			}
+		case <-deadline.C:
+			return "", errors.New("telemetry gateway did not become TLS-ready")
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
+}
+
+// currentProcessTCPListeners returns listening TCP sockets owned by this test
+// process. OTel binds port 0 internally and does not expose the selected port;
+// the test identifies the new listener and verifies it with the gateway's mTLS
+// handshake.
+func currentProcessTCPListeners() (map[string]string, error) {
+	fdEntries, err := os.ReadDir("/proc/self/fd")
+	if err != nil {
+		return nil, fmt.Errorf("read process file descriptors: %w", err)
+	}
+
+	socketInodes := make(map[string]struct{})
+	for _, entry := range fdEntries {
+		target, err := os.Readlink(filepath.Join("/proc/self/fd", entry.Name()))
+		if err != nil {
+			// The descriptor can close between ReadDir and Readlink.
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return nil, fmt.Errorf("read process file descriptor %s: %w", entry.Name(), err)
+		}
+		if strings.HasPrefix(target, "socket:[") && strings.HasSuffix(target, "]") {
+			inode := strings.TrimSuffix(strings.TrimPrefix(target, "socket:["), "]")
+			socketInodes[inode] = struct{}{}
+		}
+	}
+
+	tcpTable, err := os.ReadFile("/proc/net/tcp")
+	if err != nil {
+		return nil, fmt.Errorf("read TCP socket table: %w", err)
+	}
+
+	listeners := make(map[string]string)
+	for _, line := range strings.Split(string(tcpTable), "\n")[1:] {
+		fields := strings.Fields(line)
+		if len(fields) < 10 || fields[3] != "0A" {
+			continue
+		}
+
+		inode := fields[9]
+		if _, owned := socketInodes[inode]; !owned {
+			continue
+		}
+
+		addr, err := parseProcTCPAddress(fields[1])
+		if err != nil {
+			return nil, err
+		}
+		listeners[inode] = addr
+	}
+
+	return listeners, nil
+}
+
+func parseProcTCPAddress(encoded string) (string, error) {
+	parts := strings.Split(encoded, ":")
+	if len(parts) != 2 {
+		return "", fmt.Errorf("invalid TCP address %q", encoded)
+	}
+
+	encodedIP, err := strconv.ParseUint(parts[0], 16, 32)
+	if err != nil {
+		return "", fmt.Errorf("parse TCP address %q: %w", encoded, err)
+	}
+	port, err := strconv.ParseUint(parts[1], 16, 16)
+	if err != nil {
+		return "", fmt.Errorf("parse TCP port %q: %w", encoded, err)
+	}
+
+	host := net.IPv4(
+		byte(encodedIP),
+		byte(encodedIP>>8),
+		byte(encodedIP>>16),
+		byte(encodedIP>>24),
+	).String()
+	return net.JoinHostPort(host, strconv.Itoa(int(port))), nil
+}
+
+func dialableAddress(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err == nil && host == "0.0.0.0" {
+		return net.JoinHostPort("127.0.0.1", port)
+	}
+	return addr
 }
 
 // ---- Mock downstream OTLP HTTP collector (TLS, no client certs) ----

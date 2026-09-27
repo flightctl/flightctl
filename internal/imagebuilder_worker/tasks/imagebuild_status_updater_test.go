@@ -152,6 +152,10 @@ func (m *mockKVStore) SetExpire(ctx context.Context, key string, expiration time
 	return nil
 }
 
+func (m *mockKVStore) Set(ctx context.Context, key string, value []byte, expiration time.Duration) error {
+	return nil
+}
+
 func (m *mockKVStore) getStreamAddCalls() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()

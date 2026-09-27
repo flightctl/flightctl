@@ -140,6 +140,14 @@ func (_d *TracedService) ReplaceFleetStatus(ctx context.Context, orgId uuid.UUID
 	return fp1, s1
 }
 
+func (_d *TracedService) SetDeltaPrepareIdentity(ctx context.Context, orgId uuid.UUID, name string, sourceResourceVersion int64, sourceGeneration int64) (b1 bool, s1 domain.Status) {
+	ctx, span := startSpan(ctx, "SetDeltaPrepareIdentity")
+
+	b1, s1 = _d.inner.SetDeltaPrepareIdentity(ctx, orgId, name, sourceResourceVersion, sourceGeneration)
+	endSpan(span, s1)
+	return b1, s1
+}
+
 func (_d *TracedService) StartFleetApplication(ctx context.Context, orgId uuid.UUID, name string, appName string) (fp1 *domain.Fleet, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "StartFleetApplication")
 

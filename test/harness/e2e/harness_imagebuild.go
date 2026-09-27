@@ -1290,6 +1290,11 @@ func (h *Harness) GenerateEnrollmentConfig(csrName string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to request certificate: %w", err)
 	}
+	configStart := strings.Index(configOutput, "enrollment-service:")
+	if configStart < 0 {
+		return "", fmt.Errorf("certificate request output does not contain an enrollment configuration")
+	}
+	configOutput = configOutput[configStart:]
 
 	// Add agent configuration settings for faster polling in tests
 	fullConfig := configOutput + `

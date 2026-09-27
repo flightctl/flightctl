@@ -255,6 +255,14 @@ func (_d *TracedDeviceService) ReplaceDeviceStatus(ctx context.Context, orgId uu
 	return dp1, s1
 }
 
+func (_d *TracedDeviceService) ReplaceServiceOwnedStatus(ctx context.Context, orgId uuid.UUID, name string, device domain.Device) (dp1 *domain.Device, s1 domain.Status) {
+	ctx, span := startSpan(ctx, "ReplaceServiceOwnedStatus")
+
+	dp1, s1 = _d.inner.ReplaceServiceOwnedStatus(ctx, orgId, name, device)
+	endSpan(span, s1)
+	return dp1, s1
+}
+
 func (_d *TracedDeviceService) RestartDeviceApplication(ctx context.Context, orgId uuid.UUID, name string, appName string) (dp1 *domain.Device, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "RestartDeviceApplication")
 
@@ -343,10 +351,10 @@ func (_d *TracedDeviceService) UpdateDeviceAnnotations(ctx context.Context, orgI
 	return s1
 }
 
-func (_d *TracedDeviceService) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name string, renderedConfig string, renderedApplications string, specHash string, osImage string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool) (s1 domain.Status) {
+func (_d *TracedDeviceService) UpdateRenderedDevice(ctx context.Context, orgId uuid.UUID, name string, renderedConfig string, renderedApplications string, specHash string, osImage string, configFingerprints []domain.DependencySyncConfigRefStatus, forceUpdate bool, osHints *RenderedOSHints) (s1 domain.Status) {
 	ctx, span := startSpan(ctx, "UpdateRenderedDevice")
 
-	s1 = _d.inner.UpdateRenderedDevice(ctx, orgId, name, renderedConfig, renderedApplications, specHash, osImage, configFingerprints, forceUpdate)
+	s1 = _d.inner.UpdateRenderedDevice(ctx, orgId, name, renderedConfig, renderedApplications, specHash, osImage, configFingerprints, forceUpdate, osHints)
 	endSpan(span, s1)
 	return s1
 }

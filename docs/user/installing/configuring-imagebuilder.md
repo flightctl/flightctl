@@ -225,6 +225,8 @@ sudo systemctl restart flightctl-imagebuilder-worker.service
 | `imageBuilderWorker.logLevel` | string | `"info"` | Log level for the worker |
 | `imageBuilderWorker.maxConcurrentBuilds` | int | `2` | Maximum number of concurrent image builds |
 | `imageBuilderWorker.defaultTTL` | string | `"168h"` | Default time-to-live for build resources |
+| `imageBuilderWorker.imageBuilderTimeout` | duration | `"3m"` | Inactivity timeout for image builds and exports |
+| `imageBuilderWorker.timeoutCheckTaskInterval` | duration | `"1m"` | Interval between image build and export timeout checks |
 | `imageBuilderWorker.privileged` | bool | `true` | Run container in privileged mode (required for image builds) |
 | `imageBuilderWorker.serviceImages` | object | — | Builder images (podman, bootc-image-builder, Syft). Each has `image` (override image, leave empty for default) and `skipTlsVerify` (set to true to skip TLS verification when pulling that image). |
 | `imageBuilderWorker.serviceImages.pullSecretName` | string | `""` | Kubernetes secret containing a key `auth.json` with registry credentials for pulling serviceImages. Mounted at `/root/.config/containers/auth.json`. Required when serviceImages are in an authenticated or air-gapped registry. |
@@ -244,6 +246,8 @@ imagebuilderWorker:
   logLevel: info
   maxConcurrentBuilds: 2
   defaultTTL: 168h
+  imageBuilderTimeout: 3m       # Inactivity timeout for image builds and exports
+  timeoutCheckTaskInterval: 1m  # Interval between timeout checks
   rpmRepoUrl: ""      # Custom RPM repository URL (optional)
   rpmRepoAdd: true    # Set to false for downstream/subscription-managed repos
   rpmRepoEnable: ""   # RPM repo name for --enablerepo (optional)
@@ -480,7 +484,7 @@ registry is reachable from both the prep machine and the cluster.
 |---|---|---|
 | FlightCtl imagebuilder images | `quay.io/flightctl/flightctl-imagebuilder-{api,worker}-el9` | Worker and API pods |
 | podman builder image | `quay.io/podman/stable:v5.7.1` | Inner `podman build` container |
-| bootc-image-builder image | `quay.io/centos-bootc/bootc-image-builder@sha256:773019f…` | Converts bootc image to disk formats |
+| bootc-image-builder image | `ghcr.io/osbuild/bootc-image-builder@sha256:e7aadce…` | Converts bootc image to disk formats |
 | Syft image | `docker.io/anchore/syft:v1.44.0` | SBOM generation (disable if not needed) |
 | Base OS image | e.g. `quay.io/centos-bootc/centos-bootc:stream9` | `FROM` line in the generated Containerfile |
 | FlightCtl RPM repository | `https://rpm.flightctl.io` | `flightctl-agent` installed into the image |
@@ -507,7 +511,7 @@ skopeo copy \
 
 # bootc-image-builder (use the same digest as the binary default)
 skopeo copy \
-  docker://quay.io/centos-bootc/bootc-image-builder@sha256:773019f6b11766ca48170a4a7bf898be4268f3c2acfd0ec1db612408b3092a90 \
+  docker://ghcr.io/osbuild/bootc-image-builder@sha256:e7aadce6b3f5639cd47d83354791931ea219891a0d113c2fe74a0f0d352b165c \
   docker://${INTERNAL}/centos-bootc/bootc-image-builder:latest
 
 # Syft — skip if SBOM generation is disabled

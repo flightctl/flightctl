@@ -22,7 +22,7 @@ import (
 )
 
 const (
-	vmToQuadletImage = "quay.io/flightctl/vm-to-quadlet:1acc159"
+	vmToQuadletImage = "quay.io/flightctl/vm-to-quadlet:2d2a64d59c10bbe33943e1c74835e5063177c3fb"
 )
 
 var (

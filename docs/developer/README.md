@@ -185,6 +185,12 @@ bin/devicesimulator --count=100
 
 For backup and restore procedures applicable to development deployments, see [Backup and Restore](../user/installing/backup-restore.md). Development deployments using kind or quadlets can use the same `flightctl-backup` and `flightctl-restore` commands documented for production environments.
 
+## E2E checks in the merge queue
+
+The E2E workflow starts for every pull request. It runs the E2E test jobs only when the pull request has the `run-e2e` label; otherwise, its `e2e` check succeeds without running those tests. The merge queue runs E2E by default.
+
+When a labeled pull request passes both E2E and API tests, it records a proof candidate. A separate `workflow_run` workflow on the default branch validates the source jobs, confirms the PR did not change workflow or action files, and checks that the candidate matches the tested PR merge commit before publishing trusted proof. The merge queue reuses that result only if its checkout has the same Git tree. Its `e2e` check links to the original PR run in the job summary. If validation fails, the tree differs, or proof is unavailable, the queue runs E2E normally. Trusted proof expires after seven days. Matching trees establish identical source files; commit-derived version metadata can still differ.
+
 ## Metrics
 
 The observability stack (Prometheus) is managed by **testcontainers** in [test/e2e/infra/](../../test/e2e/infra/) and starts automatically when you run E2E tests.

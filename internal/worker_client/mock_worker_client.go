@@ -52,3 +52,52 @@ func (mr *MockWorkerClientMockRecorder) EmitEvent(ctx, orgId, event any) *gomock
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EmitEvent", reflect.TypeOf((*MockWorkerClient)(nil).EmitEvent), ctx, orgId, event)
 }
+
+// MockReliableWorkerClient is a mock of ReliableWorkerClient interface.
+type MockReliableWorkerClient struct {
+	ctrl     *gomock.Controller
+	recorder *MockReliableWorkerClientMockRecorder
+}
+
+// MockReliableWorkerClientMockRecorder is the mock recorder for MockReliableWorkerClient.
+type MockReliableWorkerClientMockRecorder struct {
+	mock *MockReliableWorkerClient
+}
+
+// NewMockReliableWorkerClient creates a new mock instance.
+func NewMockReliableWorkerClient(ctrl *gomock.Controller) *MockReliableWorkerClient {
+	mock := &MockReliableWorkerClient{ctrl: ctrl}
+	mock.recorder = &MockReliableWorkerClientMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockReliableWorkerClient) EXPECT() *MockReliableWorkerClientMockRecorder {
+	return m.recorder
+}
+
+// EmitEvent mocks base method.
+func (m *MockReliableWorkerClient) EmitEvent(ctx context.Context, orgId uuid.UUID, event *domain.Event) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "EmitEvent", ctx, orgId, event)
+}
+
+// EmitEvent indicates an expected call of EmitEvent.
+func (mr *MockReliableWorkerClientMockRecorder) EmitEvent(ctx, orgId, event any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EmitEvent", reflect.TypeOf((*MockReliableWorkerClient)(nil).EmitEvent), ctx, orgId, event)
+}
+
+// EmitEventWithError mocks base method.
+func (m *MockReliableWorkerClient) EmitEventWithError(ctx context.Context, orgId uuid.UUID, event *domain.Event) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "EmitEventWithError", ctx, orgId, event)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// EmitEventWithError indicates an expected call of EmitEventWithError.
+func (mr *MockReliableWorkerClientMockRecorder) EmitEventWithError(ctx, orgId, event any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "EmitEventWithError", reflect.TypeOf((*MockReliableWorkerClient)(nil).EmitEventWithError), ctx, orgId, event)
+}

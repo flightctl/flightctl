@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/flightctl/flightctl/internal/delta_worker/model"
-	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store"
+	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
 	"github.com/flightctl/flightctl/internal/domain"
 )
 

@@ -315,6 +315,22 @@ func updateServerSideApplicationStatus(device *domain.Device) bool {
 	return device.Status.ApplicationsSummary.Status != lastApplicationSummaryStatus
 }
 
+func keepOSLastDeltaSize(device, dbDevice *domain.Device) {
+	dbLast := dbDevice.Status.Os.LastDelta
+	if dbLast == nil {
+		return
+	}
+	if device.Status.Os.LastDelta == nil {
+		copied := *dbLast
+		device.Status.Os.LastDelta = &copied
+		return
+	}
+	if device.Status.Os.LastDelta.Size != nil {
+		return
+	}
+	device.Status.Os.LastDelta.Size = dbLast.Size
+}
+
 // do not overwrite valid service-side statuses with placeholder device-side status
 func KeepDBDeviceStatus(device, dbDevice *domain.Device) {
 	if device.Status.Summary.Status == domain.DeviceSummaryStatusUnknown {
@@ -332,6 +348,7 @@ func KeepDBDeviceStatus(device, dbDevice *domain.Device) {
 	if device.Status.Integrity.Status == domain.DeviceIntegrityStatusUnknown {
 		device.Status.Integrity = dbDevice.Status.Integrity
 	}
+	keepOSLastDeltaSize(device, dbDevice)
 
 	// Preserve service-side statuses that should take precedence over agent-reported status
 	// These statuses are set by the service based on annotations and should not be overwritten
@@ -339,6 +356,11 @@ func KeepDBDeviceStatus(device, dbDevice *domain.Device) {
 		dbDevice.Status.Summary.Status == domain.DeviceSummaryStatusConflictPaused {
 		device.Status.Summary.Status = dbDevice.Status.Summary.Status
 		device.Status.Summary.Info = dbDevice.Status.Summary.Info
+	}
+
+	// Preserve server-owned enrollment hook snapshot; the agent never reports this field.
+	if dbDevice.Status.EnrollmentHooks != nil {
+		device.Status.EnrollmentHooks = dbDevice.Status.EnrollmentHooks
 	}
 }
 

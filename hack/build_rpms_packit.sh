@@ -44,6 +44,17 @@ run_mock_build() {
   mkdir -p "$PACKIT_OUTPUT_DIR"
   : > "$PACKIT_OUTPUT_DIR/build.log"
 
+  # Set MOCK_CLEANUP=false to disable mock's own cleanup
+  # This prevents the "Device or resource busy" error when tmpfs plugin unmounts
+  if [[ "${MOCK_CLEANUP:-true}" != "true" ]]; then
+    mkdir -p /etc/mock
+    cat >> /etc/mock/site-defaults.cfg <<'MOCKCFG'
+config_opts['cleanup_on_success'] = False
+config_opts['cleanup_on_failure'] = False
+MOCKCFG
+    echo "Mock post-build cleanup disabled (set MOCK_CLEANUP=true to re-enable)"
+  fi
+
   echo "Starting packit build in-mock (root=$ROOT), resultdir=$PACKIT_OUTPUT_DIR"
 
   # Run packit in background so we can tail the log

@@ -17,6 +17,11 @@ on:
         required: false
         type: string
         default: ""
+      validate_fips:
+        description: "Run FIPS validation on the built images. Set to false for baseline builds whose ref may predate the fips-validate Makefile target."
+        required: false
+        type: boolean
+        default: true
     outputs:
       git_tag:
         description: "Computed git tag for artifacts"
@@ -162,6 +167,51 @@ jobs:
         with:
           path: ${{ env.BUILDAH_CACHE_PATH }}
           key: ${{ runner.os }}-buildah-${{ github.run_id }}
+
+  validate-fips:
+    # Runs on a stock GitHub-hosted runner, mirroring the FIPS validation in
+    # publish-containers.yaml, which runs the same "podman unshare -- fips-validator
+    # image" command on ubuntu-24.04.
+    runs-on: ubuntu-24.04
+    needs: build-backend-containers
+    # Skipped when validate_fips is false (e.g. baseline builds whose checked-out
+    # ref predates the fips-validate Makefile target); PR builds validate normally.
+    if: ${{ inputs.validate_fips }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ inputs.repository }}
+          ref: ${{ inputs.ref }}
+
+      - name: Download backend images bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: flightctl-images-bundle-${{ needs.build-backend-containers.outputs.git_tag }}
+          path: artifacts
+
+      - name: Load images into podman
+        run: |
+          set -euo pipefail
+          echo "::group::Loading images from bundle"
+          podman load -i artifacts/flightctl-images-bundle.tar
+          echo "::endgroup::"
+
+          echo "::group::Loaded images"
+          podman images --format '{{.Repository}}:{{.Tag}}' | grep flightctl || true
+          echo "::endgroup::"
+
+      - name: Install fips-validator
+        run: |
+          set -euo pipefail
+          go install github.com/flightctl/fips-validator@latest
+          # GitHub-hosted runners do not have $(go env GOPATH)/bin on PATH, so
+          # expose the freshly-installed binary to the subsequent "make
+          # fips-validate" step (which resolves it via command -v).
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - name: Validate FIPS compliance
+        run: make fips-validate FIPS_IMAGE_PATTERN='quay\.io/flightctl/flightctl-.*-el9'
 
   build-helm-charts:
     runs-on: ubuntu-24.04

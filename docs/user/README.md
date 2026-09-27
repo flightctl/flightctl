@@ -74,6 +74,7 @@ Welcome to the Flight Control user documentation.
   * [Monitoring Device Resources](using/managing-devices.md#monitoring-device-resources)
   * [Accessing Devices Remotely](using/managing-devices.md#accessing-devices-remotely)
   * [Scheduling Updates and Downloads](using/managing-devices.md#scheduling-updates-and-downloads)
+  * [Running applications as non-root](using/running-applications-as-non-root.md)
   * [Troubleshooting](using/troubleshooting.md)
 * **[Managing Device Fleets](using/managing-fleets.md)** - How to manage fleets of devices.
   * [Understanding Fleets](using/managing-fleets.md#understanding-fleets)

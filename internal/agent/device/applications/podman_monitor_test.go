@@ -1674,6 +1674,39 @@ func TestPodmanMonitorResolveConsole(t *testing.T) {
 		sess.Run(t.Context(), streamClient)
 	})
 
+	t.Run("When the app has runAs it should create the console Podman client for that user", func(t *testing.T) {
+		require := require.New(t)
+		ctrl := gomock.NewController(t)
+		testLog := log.NewPrefixLogger("test")
+		tmpDir := t.TempDir()
+		readWriter := fileio.NewReadWriter(
+			fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+			fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+		)
+		execMock := executer.NewMockExecuter(ctrl)
+		podman := client.NewPodman(testLog, execMock, readWriter, util.NewPollConfig())
+		requestedUser := v1beta1.CurrentProcessUsername
+		podmanFactory := func(user v1beta1.Username) (*client.Podman, error) {
+			requestedUser = user
+			return podman, nil
+		}
+		systemdMgr := systemd.NewMockManager(ctrl)
+		systemdMgr.EXPECT().AddExclusions(gomock.Any()).AnyTimes()
+		systemdMgr.EXPECT().RemoveExclusions(gomock.Any()).AnyTimes()
+		systemdFactory := func(_ v1beta1.Username) (systemd.Manager, error) { return systemdMgr, nil }
+		rwFactory := func(_ v1beta1.Username) (fileio.ReadWriter, error) { return readWriter, nil }
+		m := NewPodmanMonitor(testLog, podmanFactory, systemdFactory, "", rwFactory)
+
+		appUser := v1beta1.Username("flightctl")
+		app := createTestVMApplication(require, "my-vm", v1beta1.ApplicationStatusRunning, appUser)
+		require.NoError(m.Ensure(t.Context(), app))
+		app.AddWorkload(&Workload{Name: "systemd-my-vm-compute", Status: StatusRunning})
+
+		_, err := m.resolveConsole("my-vm", "serial")
+		require.NoError(err)
+		require.Equal(appUser, requestedUser)
+	})
+
 	t.Run("When the app is VM serial with no running workload it should return an error", func(t *testing.T) {
 		require := require.New(t)
 		m, _, ctrl := newMonitor(t)

@@ -74,6 +74,9 @@ func (f *fakeDeviceStore) ListDevicesByVolumeCatalogItemRef(_ context.Context, _
 }
 
 func (f *fakeDeviceStore) InitialMigration(context.Context) error { panic("not implemented") }
+func (f *fakeDeviceStore) WithTransaction(ctx context.Context, fn func(context.Context) error) error {
+	return fn(ctx)
+}
 func (f *fakeDeviceStore) Create(context.Context, uuid.UUID, *domain.Device, *devicestore.DeviceRendered) (*domain.Device, error) {
 	panic("not implemented")
 }
@@ -81,6 +84,9 @@ func (f *fakeDeviceStore) Mutate(context.Context, uuid.UUID, string, *domain.Dev
 	panic("not implemented")
 }
 func (f *fakeDeviceStore) UpdateStatus(context.Context, uuid.UUID, *domain.Device, *domain.Device) (*domain.Device, *domain.Device, error) {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) ReplaceServiceOwnedStatus(context.Context, uuid.UUID, *domain.Device) (*domain.Device, *domain.Device, error) {
 	panic("not implemented")
 }
 func (f *fakeDeviceStore) UpdateAnnotations(context.Context, uuid.UUID, string, map[string]string, []string) error {

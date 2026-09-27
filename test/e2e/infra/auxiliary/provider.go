@@ -50,7 +50,7 @@ var WithHostAccess = containers.WithHostAccess
 func CreateContainer(ctx context.Context, req testcontainers.ContainerRequest, reuse bool, opts ...ContainerRequestOption) (testcontainers.Container, error) {
 	c, err := containers.GenericStart(ctx, req, reuse, opts...)
 	if err != nil {
-		return nil, err
+		return c, err
 	}
 	RegisterContainer(c)
 	return c, nil

@@ -28,6 +28,7 @@ import (
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	enrollmenthooknotifysecretsstore "github.com/flightctl/flightctl/internal/store/enrollmenthooknotifysecrets"
 	enrollmenthookpolicystore "github.com/flightctl/flightctl/internal/store/enrollmenthookpolicy"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
@@ -86,10 +87,11 @@ type ServiceTestSuite struct {
 
 	// Focused stores/services consumed directly by specs. Only the resources
 	// actually exercised by this suite's consumer test files are exposed here.
-	AuthProviderStore authproviderstore.Store
-	EventStore        eventstore.Store
-	DeviceStore       devicestore.Store
-	OrganizationStore organizationstore.Store
+	AuthProviderStore  authproviderstore.Store
+	EventStore         eventstore.Store
+	DeviceStore        devicestore.Store
+	OrganizationStore  organizationstore.Store
+	NotifySecretsStore enrollmenthooknotifysecretsstore.Store
 
 	AuthProvider              authproviderservice.Service
 	Catalog                   catalogservice.Service
@@ -170,11 +172,13 @@ func (s *ServiceTestSuite) Setup() {
 	s.AuthProvider = authproviderservice.NewServiceHandler(s.AuthProviderStore, eventsSvc, s.Log)
 	s.Catalog = catalogservice.NewServiceHandler(catalogStore, s.DeviceStore, fleetStore, eventsSvc, s.Log)
 	s.Device = deviceservice.NewDeviceServiceHandler(s.DeviceStore, catalogStore, fleetStore, eventsSvc, kvStore, "", s.Log)
-	s.EnrollmentRequest = enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, s.DeviceStore, csrStore, s.caClient, kvStore, eventsSvc, s.Log, []string{}, "", "")
+	s.EnrollmentHookPolicy = enrollmenthookpolicyservice.NewServiceHandler(enrollmentHookPolicyStore, eventsSvc, s.Log)
+	notifySecretsStore := enrollmenthooknotifysecretsstore.NewStore(s.DB, s.Log.WithField("pkg", "enrollmenthooknotifysecrets-store"))
+	s.NotifySecretsStore = notifySecretsStore
+	s.EnrollmentRequest = enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, s.DeviceStore, csrStore, s.caClient, kvStore, eventsSvc, s.Log, []string{}, "", "", s.EnrollmentHookPolicy, notifySecretsStore)
 	s.CertificateSigningRequest = certificatesigningrequestservice.NewServiceHandler(csrStore, tpmcsr.NewVerifier(s.EnrollmentRequest), s.caClient, eventsSvc, s.Log, "", "")
 	s.Fleet = fleetservice.NewServiceHandler(fleetStore, catalogStore, eventsSvc, s.Log)
 	s.Repository = repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, s.Log)
-	s.EnrollmentHookPolicy = enrollmenthookpolicyservice.NewServiceHandler(enrollmentHookPolicyStore, eventsSvc, s.Log)
 
 	// Default org for integration tests
 	s.OrgID = store.NullOrgId

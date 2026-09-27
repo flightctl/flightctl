@@ -8,7 +8,9 @@ import (
 	"errors"
 	"time"
 
-	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store"
+	deltagenerationstore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
+	deltapreparestore "github.com/flightctl/flightctl/internal/delta_worker/store/deltaprepare"
+	deltapreparegenerationstore "github.com/flightctl/flightctl/internal/delta_worker/store/deltapreparegeneration"
 	"github.com/flightctl/flightctl/internal/domain"
 	imagebuilderstore "github.com/flightctl/flightctl/internal/imagebuilder_api/store"
 	"github.com/flightctl/flightctl/internal/store"
@@ -19,6 +21,7 @@ import (
 	checkpointstore "github.com/flightctl/flightctl/internal/store/checkpoint"
 	dependencyrefstore "github.com/flightctl/flightctl/internal/store/dependencyref"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	enrollmenthooknotifysecretsstore "github.com/flightctl/flightctl/internal/store/enrollmenthooknotifysecrets"
 	enrollmenthookpolicystore "github.com/flightctl/flightctl/internal/store/enrollmenthookpolicy"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
@@ -103,6 +106,9 @@ func runMainStoreMigrations(ctx context.Context, tx *gorm.DB, log logrus.FieldLo
 	if err := enrollmenthookpolicystore.NewStore(tx, log).InitialMigration(ctx); err != nil {
 		return err
 	}
+	if err := enrollmenthooknotifysecretsstore.NewStore(tx, log).InitialMigration(ctx); err != nil {
+		return err
+	}
 	if err := resourcesyncstore.NewResourceSyncStore(tx, log).InitialMigration(ctx); err != nil {
 		return err
 	}
@@ -133,7 +139,13 @@ func runMainStoreMigrations(ctx context.Context, tx *gorm.DB, log logrus.FieldLo
 	if err := canarystore.NewCanaryStore(tx, log).InitialMigration(ctx); err != nil {
 		return err
 	}
-	if err := deltastore.NewStore(tx, log).InitialMigration(ctx); err != nil {
+	if err := deltagenerationstore.NewStore(tx, log).InitialMigration(ctx); err != nil {
+		return err
+	}
+	if err := deltapreparestore.NewStore(tx, log).InitialMigration(ctx); err != nil {
+		return err
+	}
+	if err := deltapreparegenerationstore.NewStore(tx, log).InitialMigration(ctx); err != nil {
 		return err
 	}
 

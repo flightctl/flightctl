@@ -9,7 +9,8 @@ import (
 	"errors"
 
 	"github.com/flightctl/flightctl/internal/delta_worker/model"
-	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store"
+	deltagenerationstore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
+	deltapreparestore "github.com/flightctl/flightctl/internal/delta_worker/store/deltaprepare"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/google/uuid"
@@ -58,18 +59,6 @@ func (_d *TracedService) ClearDeltaPreparingStatus(ctx context.Context, orgID uu
 	return err
 }
 
-func (_d *TracedService) CountDeltaPrepareGenerations(ctx context.Context, prepareID uuid.UUID) (completed int, total int, err error) {
-	ctx, span := startSpan(ctx, "CountDeltaPrepareGenerations")
-
-	completed, total, err = _d.inner.CountDeltaPrepareGenerations(ctx, prepareID)
-	st := domain.StatusOK()
-	if err != nil {
-		st = domain.StatusInternalServerError(err.Error())
-	}
-	endSpan(span, st)
-	return completed, total, err
-}
-
 func (_d *TracedService) CreateDeltaPrepare(ctx context.Context, prepare *model.DeltaPrepare) (err error) {
 	ctx, span := startSpan(ctx, "CreateDeltaPrepare")
 
@@ -82,7 +71,7 @@ func (_d *TracedService) CreateDeltaPrepare(ctx context.Context, prepare *model.
 	return err
 }
 
-func (_d *TracedService) CreateOrReplaceWaitingDeltaPrepare(ctx context.Context, prepare *model.DeltaPrepare) (p1 deltastore.PrepareAdmission, err error) {
+func (_d *TracedService) CreateOrReplaceWaitingDeltaPrepare(ctx context.Context, prepare *model.DeltaPrepare) (p1 deltapreparestore.PrepareAdmission, err error) {
 	ctx, span := startSpan(ctx, "CreateOrReplaceWaitingDeltaPrepare")
 
 	p1, err = _d.inner.CreateOrReplaceWaitingDeltaPrepare(ctx, prepare)
@@ -94,10 +83,34 @@ func (_d *TracedService) CreateOrReplaceWaitingDeltaPrepare(ctx context.Context,
 	return p1, err
 }
 
-func (_d *TracedService) GetDeltaPrepare(ctx context.Context, key deltastore.PrepareKey, opts ...deltastore.PrepareGetOption) (dp1 *model.DeltaPrepare, err error) {
-	ctx, span := startSpan(ctx, "GetDeltaPrepare")
+func (_d *TracedService) DecrementPendingGenerationsForGeneration(ctx context.Context, key deltagenerationstore.GenerationKey, expectedStatus string) (pa1 []deltapreparestore.PrepareProgress, err error) {
+	ctx, span := startSpan(ctx, "DecrementPendingGenerationsForGeneration")
 
-	dp1, err = _d.inner.GetDeltaPrepare(ctx, key, opts...)
+	pa1, err = _d.inner.DecrementPendingGenerationsForGeneration(ctx, key, expectedStatus)
+	st := domain.StatusOK()
+	if err != nil {
+		st = domain.StatusInternalServerError(err.Error())
+	}
+	endSpan(span, st)
+	return pa1, err
+}
+
+func (_d *TracedService) GetDeltaPrepareByID(ctx context.Context, id uuid.UUID, opts ...deltapreparestore.PrepareGetOption) (dp1 *model.DeltaPrepare, err error) {
+	ctx, span := startSpan(ctx, "GetDeltaPrepareByID")
+
+	dp1, err = _d.inner.GetDeltaPrepareByID(ctx, id, opts...)
+	st := domain.StatusOK()
+	if err != nil {
+		st = domain.StatusInternalServerError(err.Error())
+	}
+	endSpan(span, st)
+	return dp1, err
+}
+
+func (_d *TracedService) GetLatestDeltaPrepareForResource(ctx context.Context, orgID uuid.UUID, kind string, name string, opts ...deltapreparestore.PrepareGetOption) (dp1 *model.DeltaPrepare, err error) {
+	ctx, span := startSpan(ctx, "GetLatestDeltaPrepareForResource")
+
+	dp1, err = _d.inner.GetLatestDeltaPrepareForResource(ctx, orgID, kind, name, opts...)
 	st := domain.StatusOK()
 	if err != nil {
 		st = domain.StatusInternalServerError(err.Error())
@@ -118,10 +131,10 @@ func (_d *TracedService) ListDeltaPrepares(ctx context.Context, ids []uuid.UUID)
 	return da1, err
 }
 
-func (_d *TracedService) SetDeltaPreparingStatus(ctx context.Context, orgID uuid.UUID, kind string, name string, completed int, total int) (err error) {
+func (_d *TracedService) SetDeltaPreparingStatus(ctx context.Context, prepare *model.DeltaPrepare, completed int, total int) (err error) {
 	ctx, span := startSpan(ctx, "SetDeltaPreparingStatus")
 
-	err = _d.inner.SetDeltaPreparingStatus(ctx, orgID, kind, name, completed, total)
+	err = _d.inner.SetDeltaPreparingStatus(ctx, prepare, completed, total)
 	st := domain.StatusOK()
 	if err != nil {
 		st = domain.StatusInternalServerError(err.Error())

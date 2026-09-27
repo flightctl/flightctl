@@ -12,10 +12,14 @@ import (
 	"github.com/flightctl/flightctl/internal/delta_worker/service/deltageneration"
 	"github.com/flightctl/flightctl/internal/delta_worker/service/deltaprepare"
 	"github.com/flightctl/flightctl/internal/delta_worker/service/deltapreparegeneration"
-	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store"
+	deltagenerationstore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
+	deltapreparestore "github.com/flightctl/flightctl/internal/delta_worker/store/deltaprepare"
+	deltapreparegenerationstore "github.com/flightctl/flightctl/internal/delta_worker/store/deltapreparegeneration"
 	"github.com/flightctl/flightctl/internal/delta_worker/tasks"
 	generateTask "github.com/flightctl/flightctl/internal/delta_worker/tasks/generate"
+	generationcomplete "github.com/flightctl/flightctl/internal/delta_worker/tasks/generationcomplete"
 	preparetask "github.com/flightctl/flightctl/internal/delta_worker/tasks/prepare"
+	preparecomplete "github.com/flightctl/flightctl/internal/delta_worker/tasks/preparecomplete"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/metrics/worker"
 	"github.com/flightctl/flightctl/internal/kvstore"
@@ -49,12 +53,19 @@ type Server struct {
 	generationSvc  deltageneration.Service
 	prepareSvc     deltaprepare.Service
 	prepareGenSvc  deltapreparegeneration.Service
+	progressSvc    *deltapreparegeneration.ProgressHandler
+	prepareHandler *deltaprepare.ServiceHandler
+	status         *workerservice.StorePreparingStatus
+	kvStore        kvstore.KVStore
 	repositorySvc  repositoryservice.Service
+	eventsHandler  *events.ServiceHandler
 	resolver       *preparetask.Resolver
 }
 
-func New(log logrus.FieldLogger, cfg *deltaconfig.DeltaGenerationConfig, db *gorm.DB, kvStore kvstore.KVStore, queuesProvider queues.Provider, workerMetrics *worker.WorkerCollector) *Server {
-	deltaStore := deltastore.NewStore(db, log.WithField("pkg", "delta-store"))
+func New(log logrus.FieldLogger, cfg *deltaconfig.DeltaGenerationConfig, db *gorm.DB, kvStore kvstore.KVStore, queuesProvider queues.Provider, workerMetrics *worker.WorkerCollector) (*Server, error) {
+	deltaPrepareStore := deltapreparestore.NewStore(db, log.WithField("pkg", "delta-prepare-store"))
+	deltaGenerationStore := deltagenerationstore.NewStore(db, log.WithField("pkg", "delta-generation-store"))
+	deltaPrepareGenerationStore := deltapreparegenerationstore.NewStore(db, log.WithField("pkg", "delta-prepare-generation-store"))
 	deviceStore := devicestore.NewDeviceStore(db, log.WithField("pkg", "device-store"))
 	eventStore := eventstore.NewEventStore(db, log.WithField("pkg", "event-store"))
 	fleetStore := fleetstore.NewFleetStore(db, log.WithField("pkg", "fleet-store"))
@@ -63,15 +74,20 @@ func New(log logrus.FieldLogger, cfg *deltaconfig.DeltaGenerationConfig, db *gor
 	templateVersionStore := tvstore.NewTemplateVersionStore(db, log.WithField("pkg", "templateversion-store"))
 
 	eventSvc := events.NewServiceHandler(eventStore, nil, log)
-	status := workerservice.NewStorePreparingStatus(fleetStore, deviceStore)
+	status := workerservice.NewStorePreparingStatus(fleetStore, deviceStore, log)
 	deviceSvc := deviceservice.WrapWithTracing(deviceservice.NewDeviceServiceHandler(deviceStore, nil, fleetStore, eventSvc, kvStore, "", log))
 	fleetSvc := fleetservice.WrapWithTracing(fleetservice.NewServiceHandler(fleetStore, nil, eventSvc, log))
 	repositorySvc := repositoryservice.WrapWithTracing(repositoryservice.NewServiceHandler(repositoryStore, eventSvc, log))
 	catalogSvc := catalogservice.WrapWithTracing(catalogservice.NewServiceHandler(catalogStore, deviceStore, fleetStore, eventSvc, log))
 	templateVersionSvc := templateversionservice.WrapWithTracing(templateversionservice.NewServiceHandler(templateVersionStore, kvStore, eventSvc, log))
-	generationSvc := deltageneration.WrapWithTracing(deltageneration.NewServiceHandler(deltaStore, deltaStore, deltaStore, eventSvc, status, log))
-	prepareSvc := deltaprepare.WrapWithTracing(deltaprepare.NewServiceHandler(deltaStore, status))
-	prepareGenerationSvc := deltapreparegeneration.WrapWithTracing(deltapreparegeneration.NewServiceHandler(deltaStore, generationSvc, prepareSvc, eventSvc))
+	prepareHandler, err := deltaprepare.NewCompletionService(deltaPrepareStore, status, eventSvc)
+	if err != nil {
+		return nil, fmt.Errorf("create delta prepare service: %w", err)
+	}
+	prepareSvc := deltaprepare.WrapWithTracing(prepareHandler)
+	progressSvc := deltapreparegeneration.NewProgressHandler(deltaPrepareGenerationStore, prepareSvc, eventSvc)
+	generationSvc := deltageneration.WrapWithTracing(deltageneration.NewServiceHandler(deltaGenerationStore, log))
+	prepareGenerationSvc := deltapreparegeneration.WrapWithTracing(deltapreparegeneration.NewServiceHandler(deltaPrepareGenerationStore, generationSvc, eventSvc))
 
 	return &Server{
 		cfg:            cfg,
@@ -81,13 +97,36 @@ func New(log logrus.FieldLogger, cfg *deltaconfig.DeltaGenerationConfig, db *gor
 		generationSvc:  generationSvc,
 		prepareSvc:     prepareSvc,
 		prepareGenSvc:  prepareGenerationSvc,
+		progressSvc:    progressSvc,
+		prepareHandler: prepareHandler,
+		status:         status,
+		kvStore:        kvStore,
 		repositorySvc:  repositorySvc,
 		resolver:       serviceResolver(cfg, fleetSvc, deviceSvc, templateVersionSvc, repositorySvc, catalogSvc, kvStore, log),
-	}
+		eventsHandler:  eventSvc,
+	}, nil
 }
 
 func (s *Server) Run(ctx context.Context) error {
-	preparer, err := s.newPreparer(ctx)
+	workerPublisher, err := worker_client.QueuePublisher(ctx, s.queuesProvider)
+	if err != nil {
+		return fmt.Errorf("worker publisher: %w", err)
+	}
+	defer workerPublisher.Close()
+	deltaPublisher, err := worker_client.DeltaQueuePublisher(ctx, s.queuesProvider)
+	if err != nil {
+		return fmt.Errorf("delta publisher: %w", err)
+	}
+	defer deltaPublisher.Close()
+	if s.eventsHandler != nil {
+		s.eventsHandler.SetWorkerClient(worker_client.NewWorkerClient(
+			workerPublisher,
+			s.log,
+			worker_client.WithDeltaPublisher(deltaPublisher),
+		))
+	}
+
+	preparer, err := s.newPreparer(ctx, deltaPublisher)
 	if err != nil {
 		return err
 	}
@@ -96,13 +135,28 @@ func (s *Server) Run(ctx context.Context) error {
 		s.log.WithField("pkg", "generate-task"),
 		s.repositorySvc,
 		s.generationSvc,
+		s.progressSvc,
+		func(ctx context.Context, orgID uuid.UUID, event *domain.Event) error {
+			return enqueueDeltaWorkerEvent(ctx, deltaPublisher, orgID, event)
+		},
+		s.kvStore,
 	)
 	if err != nil {
 		return err
 	}
+	completion, err := generationcomplete.NewHandler(s.prepareHandler, s.status)
+	if err != nil {
+		return fmt.Errorf("create generation-complete handler: %w", err)
+	}
+	prepareCompletion, err := preparecomplete.NewHandler(s.prepareHandler)
+	if err != nil {
+		return fmt.Errorf("create prepare-complete handler: %w", err)
+	}
 	wiring := &tasks.ConsumerWiring{
-		Preparer:  preparer,
-		Generator: generator,
+		Preparer:        preparer,
+		Generator:       generator,
+		Completion:      completion,
+		PrepareComplete: prepareCompletion,
 	}
 	if err := tasks.LaunchConsumers(ctx, s.queuesProvider, s.cfg, s.workerMetrics, s.log, wiring); err != nil {
 		s.log.WithError(err).Error("failed to launch delta-generation consumers")
@@ -116,11 +170,7 @@ func (s *Server) Run(ctx context.Context) error {
 	return nil
 }
 
-func (s *Server) newPreparer(ctx context.Context) (*preparetask.Handler, error) {
-	publisher, err := worker_client.DeltaQueuePublisher(ctx, s.queuesProvider)
-	if err != nil {
-		return nil, fmt.Errorf("delta publisher: %w", err)
-	}
+func (s *Server) newPreparer(ctx context.Context, publisher queues.QueueProducer) (*preparetask.Handler, error) {
 	deployWait := s.cfg.EffectiveMaxWaitForDelta()
 	deployTimeout := s.cfg.EffectiveTimeout()
 	preparer, err := preparetask.NewHandler(

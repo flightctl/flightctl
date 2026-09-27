@@ -224,6 +224,21 @@ func (mr *MockServiceMockRecorder) ReplaceFleetStatus(ctx, orgId, name, fleet an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReplaceFleetStatus", reflect.TypeOf((*MockService)(nil).ReplaceFleetStatus), ctx, orgId, name, fleet)
 }
 
+// SetDeltaPrepareIdentity mocks base method.
+func (m *MockService) SetDeltaPrepareIdentity(ctx context.Context, orgId uuid.UUID, name string, sourceResourceVersion, sourceGeneration int64) (bool, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetDeltaPrepareIdentity", ctx, orgId, name, sourceResourceVersion, sourceGeneration)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// SetDeltaPrepareIdentity indicates an expected call of SetDeltaPrepareIdentity.
+func (mr *MockServiceMockRecorder) SetDeltaPrepareIdentity(ctx, orgId, name, sourceResourceVersion, sourceGeneration any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetDeltaPrepareIdentity", reflect.TypeOf((*MockService)(nil).SetDeltaPrepareIdentity), ctx, orgId, name, sourceResourceVersion, sourceGeneration)
+}
+
 // StartFleetApplication mocks base method.
 func (m *MockService) StartFleetApplication(ctx context.Context, orgId uuid.UUID, name, appName string) (*domain.Fleet, domain.Status) {
 	m.ctrl.T.Helper()

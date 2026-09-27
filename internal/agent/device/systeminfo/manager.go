@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -35,12 +36,14 @@ type manager struct {
 	readWriter fileio.ReadWriter
 	dataDir    string
 
-	mu                sync.Mutex
-	infoKeys          []string
-	customKeys        []string
-	collectionTimeout time.Duration
-	collectors        map[string]CollectorFn
-	collected         bool
+	mu                 sync.Mutex
+	infoKeys           []string
+	customKeys         []string
+	collectionTimeout  time.Duration
+	collectionInterval time.Duration
+	intervalChanged    chan struct{}
+	collectors         map[string]CollectorFn
+	cachedSystemInfo   *v1beta1.DeviceSystemInfo
 
 	log *log.PrefixLogger
 }
@@ -53,16 +56,19 @@ func NewManager(
 	infoKeys []string,
 	customKeys []string,
 	collectionTimeout util.Duration,
+	collectionInterval util.Duration,
 ) *manager {
 	return &manager{
-		exec:              exec,
-		readWriter:        readWriter,
-		dataDir:           dataDir,
-		infoKeys:          infoKeys,
-		customKeys:        customKeys,
-		collectionTimeout: time.Duration(collectionTimeout),
-		collectors:        make(map[string]CollectorFn),
-		log:               log,
+		exec:               exec,
+		readWriter:         readWriter,
+		dataDir:            dataDir,
+		infoKeys:           infoKeys,
+		customKeys:         customKeys,
+		collectionTimeout:  time.Duration(collectionTimeout),
+		collectionInterval: time.Duration(collectionInterval),
+		intervalChanged:    make(chan struct{}, 1),
+		collectors:         make(map[string]CollectorFn),
+		log:                log,
 	}
 }
 
@@ -103,6 +109,8 @@ func (m *manager) Initialize(ctx context.Context) (err error) {
 		}
 	}
 
+	m.collect(ctx)
+
 	return nil
 }
 
@@ -118,60 +126,7 @@ func (m *manager) ReloadConfig(ctx context.Context, cfg *config.Config) error {
 
 	if !reflect.DeepEqual(m.infoKeys, cfg.SystemInfo) {
 		m.log.Infof("Updating system info keys: %v -> %v", m.infoKeys, cfg.SystemInfo)
-
-		oldConfig := collectCfg{}
-
-		// Ignore errors for previous and new. We're just trying to diff the two to see if there
-		// is something new that should be collected
-		opts, _ := collectionOptsFromInfoKeys(m.infoKeys)
-		for _, opt := range opts {
-			opt(&oldConfig)
-		}
-
-		newConfig := collectCfg{}
-		opts, _ = collectionOptsFromInfoKeys(cfg.SystemInfo)
-		for _, opt := range opts {
-			opt(&newConfig)
-		}
-
-		// Snapshot old/new key sets (string keys), so we can detect newly added keys.
-		oldKeys := make(map[string]struct{}, len(m.infoKeys))
-		for _, k := range m.infoKeys {
-			oldKeys[k] = struct{}{}
-		}
-		newKeys := make(map[string]struct{}, len(cfg.SystemInfo))
-		for _, k := range cfg.SystemInfo {
-			newKeys[k] = struct{}{}
-		}
-
 		m.infoKeys = cfg.SystemInfo
-
-		// If the newConfig only removes required collectors but doesn't add any
-		// new collectors, there is no need to trigger a recollection
-		hasNewCollectors := false
-		for cType := range newConfig.enabledTypes {
-			if !oldConfig.hasCollector(cType) {
-				hasNewCollectors = true
-				break
-			}
-		}
-
-		if !hasNewCollectors {
-			for k := range newKeys {
-				if _, existed := oldKeys[k]; existed {
-					continue
-				}
-				if _, ok := m.collectors[k]; ok {
-					// Runtime collector already registered -> can collect immediately.
-					hasNewCollectors = true
-					break
-				}
-			}
-		}
-
-		if hasNewCollectors {
-			m.collected = false
-		}
 	}
 
 	if !reflect.DeepEqual(m.customKeys, cfg.SystemInfoCustom) {
@@ -183,6 +138,16 @@ func (m *manager) ReloadConfig(ctx context.Context, cfg *config.Config) error {
 	if m.collectionTimeout != timeout {
 		m.log.Infof("Updating system info collection timeout: %v -> %v", m.collectionTimeout, timeout)
 		m.collectionTimeout = timeout
+	}
+
+	interval := time.Duration(cfg.SystemInfoCollectionInterval())
+	if m.collectionInterval != interval {
+		m.log.Infof("Updating system info collection interval: %v -> %v", m.collectionInterval, interval)
+		m.collectionInterval = interval
+		select {
+		case m.intervalChanged <- struct{}{}:
+		default:
+		}
 	}
 
 	return nil
@@ -200,31 +165,51 @@ func (m *manager) BootTime() string {
 	return m.bootTime
 }
 
-func (m *manager) Status(ctx context.Context, deviceStatus *v1beta1.DeviceStatus, opts ...status.CollectorOpt) error {
-	collectorOpts := status.CollectorOpts{}
-	for _, opt := range opts {
-		opt(&collectorOpts)
-	}
+// Run starts periodic system info collection in a blocking loop.
+// It collects at each collectionInterval tick. Stops when ctx is cancelled.
+func (m *manager) Run(ctx context.Context) {
 	m.mu.Lock()
+	interval := m.collectionInterval
+	m.mu.Unlock()
 
-	if m.collected && !collectorOpts.Force {
-		m.mu.Unlock()
-		return nil
+	m.log.Debugf("Starting systeminfo collection loop (interval=%s)", interval)
+
+	if interval <= 0 {
+		m.log.Debugf("Systeminfo collection disabled (no interval)")
+		return
 	}
 
-	// set collected to true even if there is an error this is to prevent
-	// collecting system info multiple times
-	m.collected = true
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
 
-	// reduce scope of the mutex
+	for {
+		select {
+		case <-ctx.Done():
+			m.log.Debugf("Systeminfo collection loop stopped")
+			return
+		case <-m.intervalChanged:
+			m.mu.Lock()
+			interval = m.collectionInterval
+			m.mu.Unlock()
+			if interval <= 0 {
+				m.log.Debugf("Systeminfo collection disabled (no interval)")
+				return
+			}
+			ticker.Reset(interval)
+		case <-ticker.C:
+			m.collect(ctx)
+		}
+	}
+}
+
+// collect performs a single collection cycle, storing results in the cache.
+func (m *manager) collect(ctx context.Context) {
+	m.mu.Lock()
 	timeout := m.collectionTimeout
 	infoKeys := slices.Clone(m.infoKeys)
 	customKeys := slices.Clone(m.customKeys)
 	bootID := m.bootID
-	collectors := make(map[string]CollectorFn, len(m.collectors))
-	for k, v := range m.collectors {
-		collectors[k] = v
-	}
+	collectors := maps.Clone(m.collectors)
 	dataDir := m.dataDir
 	m.mu.Unlock()
 
@@ -243,13 +228,77 @@ func (m *manager) Status(ctx context.Context, deviceStatus *v1beta1.DeviceStatus
 		filepath.Join(dataDir, HardwareMapFileName),
 	)
 
-	if err != nil {
-		deviceStatus.SystemInfo = m.defaultSystemInfo()
-		return err
-	}
-	deviceStatus.SystemInfo = systemInfo
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
+	if err != nil {
+		m.log.Warnf("System info collection failed: %v", err)
+		if m.cachedSystemInfo == nil {
+			m.cachedSystemInfo = new(m.defaultSystemInfo())
+		}
+		return
+	}
+	m.cachedSystemInfo = &systemInfo
+}
+
+func (m *manager) Status(ctx context.Context, deviceStatus *v1beta1.DeviceStatus, opts ...status.CollectorOpt) error {
+	var options status.CollectorOpts
+	for _, opt := range opts {
+		opt(&options)
+	}
+	if options.Force {
+		m.collect(ctx)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.cachedSystemInfo == nil {
+		deviceStatus.SystemInfo = m.defaultSystemInfo()
+		return nil
+	}
+	deviceStatus.SystemInfo = *m.cachedSystemInfo
 	return nil
+}
+
+// RefreshRuntimeCollectors updates the cached values from registered runtime collectors.
+// It intentionally skips built-in system-info collection, which can be expensive.
+func (m *manager) RefreshRuntimeCollectors(ctx context.Context) {
+	m.mu.Lock()
+	timeout := m.collectionTimeout
+	infoKeys := slices.Clone(m.infoKeys)
+	collectors := maps.Clone(m.collectors)
+	m.mu.Unlock()
+
+	runtimeKeys := make([]string, 0, len(collectors))
+	for _, key := range infoKeys {
+		if _, ok := collectors[key]; ok {
+			runtimeKeys = append(runtimeKeys, key)
+		}
+	}
+	if len(runtimeKeys) == 0 {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	runtimeInfo := getSystemInfoMap(ctx, m.log, &Info{}, runtimeKeys, collectors)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var cachedSystemInfo v1beta1.DeviceSystemInfo
+	if m.cachedSystemInfo == nil {
+		cachedSystemInfo = m.defaultSystemInfo()
+	} else {
+		cachedSystemInfo = *m.cachedSystemInfo
+		cachedSystemInfo.AdditionalProperties = maps.Clone(cachedSystemInfo.AdditionalProperties)
+	}
+	if cachedSystemInfo.AdditionalProperties == nil {
+		cachedSystemInfo.AdditionalProperties = make(map[string]string)
+	}
+	maps.Copy(cachedSystemInfo.AdditionalProperties, runtimeInfo)
+	m.cachedSystemInfo = &cachedSystemInfo
 }
 
 // defaultSystemInfo returns the default system info.
@@ -304,7 +353,6 @@ func (m *manager) RegisterCollector(ctx context.Context, key string, fn Collecto
 	}
 
 	m.collectors[key] = fn
-	m.collected = false
 }
 
 // collectDeviceSystemInfo collects the system information from the device and returns it as a DeviceSystemInfo object.

@@ -423,6 +423,7 @@ linters:
             - "!**/internal/migration/**"
             - "!**/internal/instrumentation/metrics/**"
             - "!**/internal/api_server/server.go"
+            - "!**/internal/periodic_checker/server.go"
             - "!**/internal/worker_server/server.go"
             - "!**/test/**"
           deny:

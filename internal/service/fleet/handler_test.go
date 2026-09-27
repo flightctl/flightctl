@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
@@ -879,6 +880,58 @@ func TestUpdateFleetAnnotations(t *testing.T) {
 
 		status := h.UpdateFleetAnnotations(context.Background(), uuid.New(), "missing", map[string]string{"k": "v"}, nil)
 		require.Equal(t, statusNotFoundCode, status.Code)
+	})
+}
+
+func TestSetDeltaPrepareIdentity(t *testing.T) {
+	t.Run("When the Fleet generation matches it should set the prepare identity", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		fl := createTestFleet("f1", nil)
+		fl.Metadata.Generation = lo.ToPtr(int64(3))
+		fl.Metadata.ResourceVersion = lo.ToPtr("7")
+		fakeStore.fleets["f1"] = &fl
+
+		accepted, status := h.SetDeltaPrepareIdentity(context.Background(), uuid.New(), "f1", 7, 3)
+		require.Equal(t, statusSuccessCode, status.Code)
+		require.True(t, accepted)
+		annotations := lo.FromPtr(fakeStore.fleets["f1"].Metadata.Annotations)
+		assert.Equal(t, "7", annotations[domain.FleetAnnotationDeltaPrepareResourceVersion])
+		assert.Equal(t, "3", annotations[domain.FleetAnnotationDeltaPrepareGeneration])
+	})
+
+	t.Run("When the Fleet generation changed it should preserve the newer marker", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		fl := createTestFleet("f1", nil)
+		fl.Metadata.Generation = lo.ToPtr(int64(4))
+		fl.Metadata.Annotations = &map[string]string{
+			domain.FleetAnnotationDeltaPrepareResourceVersion: "8",
+			domain.FleetAnnotationDeltaPrepareGeneration:      "4",
+		}
+		fakeStore.fleets["f1"] = &fl
+
+		accepted, status := h.SetDeltaPrepareIdentity(context.Background(), uuid.New(), "f1", 7, 3)
+		require.Equal(t, statusSuccessCode, status.Code)
+		assert.False(t, accepted)
+		annotations := lo.FromPtr(fakeStore.fleets["f1"].Metadata.Annotations)
+		assert.Equal(t, "8", annotations[domain.FleetAnnotationDeltaPrepareResourceVersion])
+		assert.Equal(t, "4", annotations[domain.FleetAnnotationDeltaPrepareGeneration])
+	})
+
+	t.Run("When an older resource version is set it should preserve the newer marker", func(t *testing.T) {
+		h, fakeStore, _ := newTestHandler()
+		fl := createTestFleet("f1", nil)
+		fl.Metadata.Generation = lo.ToPtr(int64(3))
+		fl.Metadata.Annotations = &map[string]string{
+			domain.FleetAnnotationDeltaPrepareResourceVersion: "8",
+			domain.FleetAnnotationDeltaPrepareGeneration:      "3",
+		}
+		fakeStore.fleets["f1"] = &fl
+
+		accepted, status := h.SetDeltaPrepareIdentity(context.Background(), uuid.New(), "f1", 7, 3)
+		require.Equal(t, statusSuccessCode, status.Code)
+		assert.False(t, accepted)
+		annotations := lo.FromPtr(fakeStore.fleets["f1"].Metadata.Annotations)
+		assert.Equal(t, "8", annotations[domain.FleetAnnotationDeltaPrepareResourceVersion])
 	})
 }
 

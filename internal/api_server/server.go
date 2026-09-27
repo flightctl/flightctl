@@ -47,6 +47,7 @@ import (
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	certificatesigningrequeststore "github.com/flightctl/flightctl/internal/store/certificatesigningrequest"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	enrollmenthooknotifysecretsstore "github.com/flightctl/flightctl/internal/store/enrollmenthooknotifysecrets"
 	enrollmenthookpolicystore "github.com/flightctl/flightctl/internal/store/enrollmenthookpolicy"
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
@@ -214,17 +215,18 @@ func (s *Server) Run(ctx context.Context) error {
 		deviceservice.NewDeviceServiceHandler(deviceStore, catalogStore, fleetStore, eventsSvc, kvStore, s.cfg.Service.BaseAgentEndpointUrl, s.log))
 	fleetSvc := fleetservice.WrapWithTracing(
 		fleetservice.NewServiceHandler(fleetStore, catalogStore, eventsSvc, s.log))
+	enrollmentHookPolicyStore := enrollmenthookpolicystore.NewStore(s.db, s.log.WithField("pkg", "enrollmenthookpolicy-store"))
+	enrollmentHookPolicySvc := enrollmenthookpolicyservice.WrapWithTracing(
+		enrollmenthookpolicyservice.NewServiceHandler(enrollmentHookPolicyStore, eventsSvc, s.log))
+	notifySecretsStore := enrollmenthooknotifysecretsstore.NewStore(s.db, s.log.WithField("pkg", "enrollmenthooknotifysecrets-store"))
 	enrollmentRequestSvc := enrollmentrequestservice.WrapWithTracing(
-		enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, deviceStore, csrStore, s.ca, kvStore, eventsSvc, s.log, s.cfg.Service.TPMCAPaths, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl))
+		enrollmentrequestservice.NewServiceHandler(enrollmentRequestStore, deviceStore, csrStore, s.ca, kvStore, eventsSvc, s.log, s.cfg.Service.TPMCAPaths, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl, enrollmentHookPolicySvc, notifySecretsStore))
 	csrSvc := certificatesigningrequestservice.WrapWithTracing(
 		certificatesigningrequestservice.NewServiceHandler(csrStore, tpmcsr.NewVerifier(enrollmentRequestSvc), s.ca, eventsSvc, s.log, s.cfg.Service.BaseAgentEndpointUrl, s.cfg.Service.BaseUIUrl))
 	templateVersionSvc := templateversionservice.WrapWithTracing(
 		templateversionservice.NewServiceHandler(templateVersionStore, kvStore, eventsSvc, s.log))
 	repositorySvc := repositoryservice.WrapWithTracing(
 		repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, s.log))
-	enrollmentHookPolicyStore := enrollmenthookpolicystore.NewStore(s.db, s.log.WithField("pkg", "enrollmenthookpolicy-store"))
-	enrollmentHookPolicySvc := enrollmenthookpolicyservice.WrapWithTracing(
-		enrollmenthookpolicyservice.NewServiceHandler(enrollmentHookPolicyStore, eventsSvc, s.log))
 	catalogSvc := catalogservice.WrapWithTracing(
 		catalogservice.NewServiceHandler(catalogStore, deviceStore, fleetStore, eventsSvc, s.log))
 	resourceSyncSvc := resourcesyncservice.WrapWithTracing(

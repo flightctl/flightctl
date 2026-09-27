@@ -129,6 +129,7 @@ func NewEncryptionMigrator(lifecycleCtx context.Context, db *gorm.DB, manager *e
 	m.RegisterResource(newAuthProviderEncryptionResource(db, manager))
 	m.RegisterResource(newDeviceEncryptionResource(db, manager))
 	m.RegisterResource(newEnrollmentHookPolicyEncryptionResource(db, manager))
+	m.RegisterResource(newEnrollmentHookNotifySecretEncryptionResource(db, manager))
 	return m
 }
 

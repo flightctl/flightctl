@@ -1,12 +1,37 @@
 package v1beta1
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestVmApplicationRunAsRoundTrip(t *testing.T) {
+	vmApp := VmApplication{
+		AppType: AppTypeVm,
+		Name:    lo.ToPtr("my-vm"),
+		RunAs:   Username("flightctl"),
+	}
+	require.NoError(t, vmApp.FromInlineApplicationProviderSpec(InlineApplicationProviderSpec{
+		Inline: []ApplicationContent{{Path: "vm.yaml", Content: lo.ToPtr(validVmYaml("my-vm"))}},
+	}))
+
+	var spec ApplicationProviderSpec
+	require.NoError(t, spec.FromVmApplication(vmApp))
+
+	encoded, err := json.Marshal(spec)
+	require.NoError(t, err)
+	assert.Contains(t, string(encoded), `"runAs":"flightctl"`)
+
+	var decodedSpec ApplicationProviderSpec
+	require.NoError(t, json.Unmarshal(encoded, &decodedSpec))
+	decodedVmApp, err := decodedSpec.AsVmApplication()
+	require.NoError(t, err)
+	assert.Equal(t, Username("flightctl"), decodedVmApp.RunAs)
+}
 
 // newTestContainerAppWithLifecycle builds a ContainerApplication with the given
 // desiredState/restartGeneration values set directly, simulating the annotation overlay the

@@ -4,8 +4,7 @@ import (
 	"context"
 
 	"github.com/flightctl/flightctl/internal/delta_worker/model"
-	workerservice "github.com/flightctl/flightctl/internal/delta_worker/service"
-	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store"
+	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
 )
 
 type Service interface {
@@ -14,5 +13,3 @@ type Service interface {
 	ListDeltaGenerations(ctx context.Context, keys []deltastore.GenerationKey) ([]model.DeltaGeneration, error)
 	UpdateDeltaGeneration(ctx context.Context, expectedResourceVersion int64, generation *model.DeltaGeneration) (*model.DeltaGeneration, error)
 }
-
-type StatusService = workerservice.PreparingStatus

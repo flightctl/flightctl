@@ -40,6 +40,13 @@ func (f *fakeKVStore) has(key string) bool {
 
 func (f *fakeKVStore) Close() {}
 
+func (f *fakeKVStore) Set(_ context.Context, key string, value []byte, _ time.Duration) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.data[key] = value
+	return nil
+}
+
 func (f *fakeKVStore) Get(_ context.Context, key string) ([]byte, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

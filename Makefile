@@ -102,6 +102,7 @@ help:
 	@echo "    start-trustify:  start E2E Trustify (vulnerability scanner) containers"
 	@echo "    start-aux: start all E2E aux containers (registry, git-server, prometheus)"
 	@echo "    rebuild-containers: force rebuild all containers"
+	@echo "    fips-validate:     validate FIPS compliance of built container images"
 	@echo "    bundle-containers: bundle all flightctl containers into tar archive"
 	@echo "    cluster:         create a kind cluster and load the flightctl-server image"
 	@echo "    clean-cluster:   kill the kind cluster only"
@@ -394,6 +395,52 @@ bundle-containers:
 	test/scripts/agent-images/scripts/bundle.sh \
 		--image-pattern 'quay.io/flightctl/.*-$(OS):$(SOURCE_GIT_TAG)' \
 		--output-path 'flightctl-images-bundle.tar'
+
+# FIPS compliance validation — validates container images for FIPS-compliant crypto.
+# Requires: fips-validator (go install github.com/flightctl/fips-validator@latest)
+# Usage:
+#   make build-containers && make fips-validate           # local validation
+#   make fips-validate FIPS_IMAGE_PATTERN='custom-.*:tag' # custom pattern
+FIPS_IMAGE_PATTERN ?= flightctl-.*-$(OS):latest
+
+.PHONY: fips-validate
+fips-validate:
+	@validator_path="$$(command -v fips-validator 2>/dev/null || true)"; \
+	if [ -z "$$validator_path" ]; then \
+		for d in "$$(go env GOBIN 2>/dev/null)" "$$(go env GOPATH 2>/dev/null)/bin" "$$HOME/go/bin"; do \
+			if [ -n "$$d" ] && [ -x "$$d/fips-validator" ]; then validator_path="$$d/fips-validator"; break; fi; \
+		done; \
+	fi; \
+	if [ -z "$$validator_path" ]; then \
+		echo "ERROR: fips-validator not found. Install with: go install github.com/flightctl/fips-validator@latest"; \
+		exit 1; \
+	fi; \
+	echo "Using fips-validator: $$validator_path"; \
+	echo "Validating FIPS compliance for images matching: $(FIPS_IMAGE_PATTERN)"; \
+	failed=0; \
+	images=$$(podman images --format '{{.Repository}}:{{.Tag}}' | grep '$(FIPS_IMAGE_PATTERN)'); \
+	if [ -z "$$images" ]; then \
+		echo "ERROR: No images found matching pattern: $(FIPS_IMAGE_PATTERN)"; \
+		echo "Available images:"; \
+		podman images --format '{{.Repository}}:{{.Tag}}' | grep -i flightctl || echo "  (none)"; \
+		exit 1; \
+	fi; \
+	count=0; \
+	for img in $$images; do \
+		count=$$((count + 1)); \
+		echo "--- Validating FIPS: $$img ---"; \
+		if podman unshare -- "$$validator_path" image "$$img"; then \
+			echo "PASS: $$img"; \
+		else \
+			echo "FAIL: $$img"; \
+			failed=1; \
+		fi; \
+	done; \
+	if [ "$$failed" -ne 0 ]; then \
+		echo "ERROR: One or more images failed FIPS validation"; \
+		exit 1; \
+	fi; \
+	echo "All $$count images passed FIPS validation"
 
 .PHONY: build-containers bundle-containers build-cli build-multiarch-clis
 

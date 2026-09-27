@@ -35,7 +35,7 @@ sudo podman run --rm \
                 -v "${ROOT_DIR}"/dnf-cache:/var/cache/dnf:Z \
                 -v "${ROOT_DIR}"/osbuild-cache:/var/cache/osbuild:Z \
                 -v /var/lib/containers/storage:/var/lib/containers/storage \
-                quay.io/centos-bootc/bootc-image-builder:latest \
+                ghcr.io/osbuild/bootc-image-builder:v83.0.0 \
                 build \
                 --type qcow2 \
                 "${BIB_EXTRA_ARGS[@]}" \

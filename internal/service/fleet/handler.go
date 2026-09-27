@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"reflect"
+	"strconv"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -292,6 +293,51 @@ func (h *ServiceHandler) UpdateFleetAnnotations(ctx context.Context, orgId uuid.
 	result, before, err := h.store.UpdateAnnotations(ctx, orgId, name, annotations, deleteKeys)
 	h.callEventCallback(ctx, h.callbackFleetUpdated, orgId, name, before, result, false, err)
 	return common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
+}
+
+// SetDeltaPrepareIdentity records the generation and resource version that
+// validation prepared. The generation and current marker are checked inside
+// the same optimistic mutation so an older validation cannot replace a newer
+// marker.
+func (h *ServiceHandler) SetDeltaPrepareIdentity(ctx context.Context, orgId uuid.UUID, name string, sourceResourceVersion, sourceGeneration int64) (bool, domain.Status) {
+	accepted := false
+	result, before, _, err := h.store.Mutate(ctx, orgId, name, nil, func(m *fleetstore.FleetMutation) error {
+		accepted = false
+		if err := m.RequireExisting(); err != nil {
+			return err
+		}
+		if sourceResourceVersion <= 0 || sourceGeneration <= 0 || m.Fleet.Metadata.Generation == nil || *m.Fleet.Metadata.Generation != sourceGeneration {
+			return store.ErrMutateSkipWrite
+		}
+
+		annotations := lo.FromPtr(m.Fleet.Metadata.Annotations)
+		if annotations == nil {
+			annotations = map[string]string{}
+		}
+		if currentResourceVersion, exists := annotations[domain.FleetAnnotationDeltaPrepareResourceVersion]; exists {
+			current, err := strconv.ParseInt(currentResourceVersion, 10, 64)
+			if err != nil || current > sourceResourceVersion {
+				return store.ErrMutateSkipWrite
+			}
+		}
+
+		resourceVersion := strconv.FormatInt(sourceResourceVersion, 10)
+		generation := strconv.FormatInt(sourceGeneration, 10)
+		if annotations[domain.FleetAnnotationDeltaPrepareResourceVersion] == resourceVersion && annotations[domain.FleetAnnotationDeltaPrepareGeneration] == generation {
+			accepted = true
+			return store.ErrMutateSkipWrite
+		}
+		annotations[domain.FleetAnnotationDeltaPrepareResourceVersion] = resourceVersion
+		annotations[domain.FleetAnnotationDeltaPrepareGeneration] = generation
+		m.Fleet.Metadata.Annotations = &annotations
+		accepted = true
+		return nil
+	})
+	h.callEventCallback(ctx, h.callbackFleetUpdated, orgId, name, before, result, false, err)
+	if err != nil {
+		return false, common.StoreErrorToApiStatus(err, false, domain.FleetKind, &name)
+	}
+	return accepted, domain.StatusOK()
 }
 
 func (h *ServiceHandler) OverwriteFleetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) domain.Status {

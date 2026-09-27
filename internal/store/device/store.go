@@ -54,6 +54,7 @@ type DeviceListParams struct {
 
 type Store interface {
 	InitialMigration(ctx context.Context) error
+	WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error
 
 	// Exposed to users
 	// Create inserts a device. Duplicate names return ErrDuplicateName.
@@ -71,6 +72,9 @@ type Store interface {
 	// UpdateStatus writes status + resource_version only (service_conditions unchanged).
 	// previous is optional (first attempt only). No events; caller uses before/updated.
 	UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, previous *domain.Device) (updated *domain.Device, before *domain.Device, err error)
+	// ReplaceServiceOwnedStatus updates service-owned status fields without
+	// replacing the device's desired state or agent-owned status.
+	ReplaceServiceOwnedStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device) (updated *domain.Device, before *domain.Device, err error)
 	// UpdateAnnotations merges annotations (and applies deleteKeys) via Mutate.
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error)
@@ -122,6 +126,14 @@ type DeviceRendered struct {
 	Config       string
 	Applications string
 	OsImage      string
+	OsDeltaImage *string
+}
+
+func renderedOsSpec(rendered *DeviceRendered) domain.DeviceOsSpec {
+	if rendered == nil {
+		return domain.DeviceOsSpec{}
+	}
+	return domain.DeviceOsSpec{Image: rendered.OsImage, DeltaImage: rendered.OsDeltaImage}
 }
 
 // DeviceMutation is the unit apply mutates. Handlers decide all field changes.
@@ -199,7 +211,7 @@ var _ store.ResourceMutation[domain.Device] = (*DeviceMutation)(nil)
 // Make sure we conform to the Store interface
 var _ Store = (*DeviceStore)(nil)
 
-func NewDeviceStore(db *gorm.DB, log logrus.FieldLogger) Store {
+func NewDeviceStore(db *gorm.DB, log logrus.FieldLogger) *DeviceStore {
 	genericStore := store.NewGenericStore[*model.Device, model.Device, domain.Device, domain.DeviceList](
 		db,
 		log,
@@ -208,6 +220,50 @@ func NewDeviceStore(db *gorm.DB, log logrus.FieldLogger) Store {
 		model.DevicesToApiResource,
 	)
 	return &DeviceStore{dbHandler: db, log: log, genericStore: genericStore}
+}
+
+// ResumeDeltaIfCurrent clears the device's delta-preparing state only when
+// its rendered spec hash still matches the prepare. The preparing condition is
+// part of the predicate so a redelivered completion event cannot claim the
+// same resource twice.
+func (s *DeviceStore) ResumeDeltaIfCurrent(ctx context.Context, orgID uuid.UUID, name, specHash string) (bool, error) {
+	result := s.getDB(ctx).Exec(`
+		UPDATE devices
+		SET service_conditions = (
+				jsonb_set(
+					COALESCE(service_conditions, '{}'::jsonb),
+					'{conditions}',
+					COALESCE((
+						SELECT jsonb_agg(condition_json ORDER BY ordinal)
+						FROM jsonb_array_elements(COALESCE(service_conditions->'conditions', '[]'::jsonb))
+							WITH ORDINALITY AS condition_rows(condition_json, ordinal)
+						WHERE condition_json->>'type' <> @condition_type
+					), '[]'::jsonb),
+					true
+				)
+				- 'deltaGeneration'
+			),
+			resource_version = resource_version + 1
+		WHERE org_id = @org_id
+		  AND name = @name
+		  AND deleted_at IS NULL
+		  AND annotations->>@spec_hash_annotation = @spec_hash
+		  AND EXISTS (
+				SELECT 1
+				FROM jsonb_array_elements(COALESCE(service_conditions->'conditions', '[]'::jsonb)) AS condition_rows(condition_json)
+				WHERE condition_json->>'type' = @condition_type
+		  )
+	`, map[string]interface{}{
+		"org_id":               orgID,
+		"name":                 name,
+		"spec_hash":            specHash,
+		"spec_hash_annotation": domain.DeviceAnnotationRenderedSpecHash,
+		"condition_type":       string(domain.ConditionTypeDeviceDeltaPreparing),
+	})
+	if result.Error != nil {
+		return false, store.ErrorFromGormError(result.Error)
+	}
+	return result.RowsAffected > 0, nil
 }
 
 func (s *DeviceStore) callEventCallback(ctx context.Context, eventCallback store.EventCallback, orgId uuid.UUID, name string, oldDevice, newDevice *domain.Device, created bool, err error) {
@@ -221,7 +277,11 @@ func (s *DeviceStore) callEventCallback(ctx context.Context, eventCallback store
 }
 
 func (s *DeviceStore) getDB(ctx context.Context) *gorm.DB {
-	return s.dbHandler.WithContext(ctx)
+	return store.DB(ctx, s.dbHandler)
+}
+
+func (s *DeviceStore) WithTransaction(ctx context.Context, fn func(ctx context.Context) error) error {
+	return store.WithTransaction(ctx, s.dbHandler, fn)
 }
 
 func (s *DeviceStore) SetIntegrationTestCreateOrUpdateCallback(c store.IntegrationTestCallback) {
@@ -623,6 +683,33 @@ func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, device 
 	return updated, before, err
 }
 
+// ReplaceServiceOwnedStatus persists the service-owned portions of a device's
+// status while retaining the rest of the resource from the CAS-fresh row.
+// Callers provide a device loaded by the service layer and may update service
+// conditions (for example, delta-preparing) without changing the desired spec
+// or agent-owned status fields.
+func (s *DeviceStore) ReplaceServiceOwnedStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device) (*domain.Device, *domain.Device, error) {
+	if device == nil || device.Metadata.Name == nil {
+		return nil, nil, flterrors.ErrResourceIsNil
+	}
+	name := *device.Metadata.Name
+	updated, before, _, err := s.Mutate(ctx, orgId, name, nil, func(m *DeviceMutation) error {
+		if err := m.RequireExisting(); err != nil {
+			return err
+		}
+		if device.Status == nil {
+			return nil
+		}
+		if m.Device.Status == nil {
+			m.Device.Status = &domain.DeviceStatus{}
+		}
+		m.Device.Status.Conditions = device.Status.Conditions
+		m.Device.Status.DeltaGeneration = device.Status.DeltaGeneration
+		return nil
+	}, WithTimestamp())
+	return updated, before, err
+}
+
 // UpdateAnnotations merges annotations via Mutate.
 func (s *DeviceStore) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error {
 	_, _, _, err := s.Mutate(ctx, orgId, name, nil, func(m *DeviceMutation) error {
@@ -660,7 +747,7 @@ func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, device *domai
 			apps = "[]"
 		}
 		deviceModel.RenderedApplications = model.MakeJSONField(json.RawMessage(apps))
-		deviceModel.RenderedOs = model.MakeJSONField(domain.DeviceOsSpec{Image: rendered.OsImage})
+		deviceModel.RenderedOs = model.MakeJSONField(renderedOsSpec(rendered))
 		deviceModel.RenderTimestamp = time.Now()
 	}
 
@@ -721,7 +808,7 @@ func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, before, devic
 		}
 		updates["rendered_config"] = &cfg
 		updates["rendered_applications"] = &apps
-		updates["rendered_os"] = model.MakeJSONField(domain.DeviceOsSpec{Image: rendered.OsImage})
+		updates["rendered_os"] = model.MakeJSONField(renderedOsSpec(rendered))
 		updates["render_timestamp"] = time.Now()
 	}
 
@@ -959,10 +1046,33 @@ func (s *DeviceStore) Labels(ctx context.Context, orgId uuid.UUID, listParams st
 }
 
 func (s *DeviceStore) Delete(ctx context.Context, orgId uuid.UUID, name string, eventCallback store.EventCallback) (bool, error) {
-	deleted, err := s.genericStore.Delete(
-		ctx,
-		model.Device{Resource: model.Resource{OrgID: orgId, Name: name}},
-		store.Resource{Table: "enrollment_requests", OrgID: orgId.String(), Name: name})
+	var rowsAffected int64
+	err := s.getDB(ctx).Transaction(func(innerTx *gorm.DB) error {
+		// Delete the device
+		result := innerTx.Unscoped().Delete(&model.Device{Resource: model.Resource{OrgID: orgId, Name: name}})
+		if result.Error != nil {
+			return store.ErrorFromGormError(result.Error)
+		}
+		rowsAffected = result.RowsAffected
+
+		// Delete associated enrollment requests
+		if err := innerTx.Unscoped().
+			Table("enrollment_requests").
+			Where("org_id = ? AND name = ? AND spec IS NOT NULL", orgId.String(), name).
+			Delete(nil).Error; err != nil {
+			return store.ErrorFromGormError(err)
+		}
+
+		// Purge enrollment hook notify secrets (uses device_name, not name)
+		if err := innerTx.
+			Where("org_id = ? AND device_name = ?", orgId, name).
+			Delete(&model.EnrollmentHookNotifySecret{}).Error; err != nil {
+			return store.ErrorFromGormError(err)
+		}
+
+		return nil
+	})
+	deleted := err == nil && rowsAffected != 0
 	if deleted && eventCallback != nil {
 		s.callEventCallback(ctx, eventCallback, orgId, name, nil, nil, false, err)
 	}

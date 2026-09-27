@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
@@ -131,6 +132,10 @@ func (f *fakeKVStore) PrintAllKeys(_ context.Context)                           
 func (f *fakeKVStore) DeleteAllKeys(_ context.Context) error                          { return nil }
 func (f *fakeKVStore) DeleteKeysForTemplateVersion(_ context.Context, _ string) error { return nil }
 func (f *fakeKVStore) Delete(_ context.Context, key string) error                     { delete(f.data, key); return nil }
+func (f *fakeKVStore) Set(_ context.Context, key string, value []byte, _ time.Duration) error {
+	f.data[key] = value
+	return nil
+}
 func (f *fakeKVStore) SetIfGreater(_ context.Context, _ string, _ int64) (bool, error) {
 	return false, nil
 }
@@ -354,6 +359,24 @@ func TestRenderVmApplication_PreservesLifecycleFields(t *testing.T) {
 	assert.Equal(t, domain.ApplicationDesiredStateStopped, *quadlet.DesiredState)
 	require.NotNil(t, quadlet.RestartGeneration)
 	assert.Equal(t, 3, *quadlet.RestartGeneration)
+}
+
+func TestRenderVmApplication_PreservesRunAs(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	appSpec := newTestVmInlineApp(t, "my-vm", map[string]string{"vm.yaml": minimalVmYAML("my-vm")}, nil)
+	vmApp, err := appSpec.AsVmApplication()
+	require.NoError(t, err)
+	vmApp.RunAs = v1beta1.Username("flightctl")
+
+	result, err := renderVmApplication(ctx, vmApp, stubbedConverter(fakeQuadletFiles), DefaultVmRenderOptions(), newFakeKVStore())
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	quadlet, err := result.AsQuadletApplication()
+	require.NoError(t, err)
+	assert.Equal(t, v1beta1.Username("flightctl"), quadlet.RunAs)
 }
 
 // TestRenderVmApplication_CachePopulatedOnMiss verifies that after a cache miss

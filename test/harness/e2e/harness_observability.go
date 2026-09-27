@@ -87,8 +87,8 @@ func (h *Harness) FetchMetrics(url string) (string, error) {
 // OTelcolActiveStatus returns a closure for Eventually to check otelcol status.
 func (h *Harness) OTelcolActiveStatus() func() string {
 	return func() string {
-		stdout, err := h.VM.RunSSH([]string{"sudo", "systemctl", "is-active", "otelcol"}, nil)
-		if err != nil {
+		stdout, err := h.VM.RunSSH([]string{"sudo", "systemctl", "show", "otelcol", "-p", "ActiveState", "--value"}, nil)
+		if err != nil || stdout == nil {
 			return ""
 		}
 		return strings.TrimSpace(stdout.String())

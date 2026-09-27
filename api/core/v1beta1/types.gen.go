@@ -115,6 +115,7 @@ const (
 	ConditionTypeCertificateSigningRequestTPMVerified ConditionType = "TPMVerified"
 	ConditionTypeDeviceDecommissioning                ConditionType = "DeviceDecommissioning"
 	ConditionTypeDeviceDeltaPreparing                 ConditionType = "DeviceDeltaPreparing"
+	ConditionTypeDeviceEnrollmentHooks                ConditionType = "EnrollmentHooks"
 	ConditionTypeDeviceMultipleOwners                 ConditionType = "MultipleOwners"
 	ConditionTypeDeviceSpecValid                      ConditionType = "SpecValid"
 	ConditionTypeDeviceUpdating                       ConditionType = "Updating"
@@ -546,11 +547,12 @@ const (
 
 // Defines values for ResourceUpdatedDetailsUpdatedFields.
 const (
-	Labels       ResourceUpdatedDetailsUpdatedFields = "labels"
-	Owner        ResourceUpdatedDetailsUpdatedFields = "owner"
-	Spec         ResourceUpdatedDetailsUpdatedFields = "spec"
-	SpecSelector ResourceUpdatedDetailsUpdatedFields = "spec.selector"
-	SpecTemplate ResourceUpdatedDetailsUpdatedFields = "spec.template"
+	Labels                          ResourceUpdatedDetailsUpdatedFields = "labels"
+	Owner                           ResourceUpdatedDetailsUpdatedFields = "owner"
+	Spec                            ResourceUpdatedDetailsUpdatedFields = "spec"
+	SpecSelector                    ResourceUpdatedDetailsUpdatedFields = "spec.selector"
+	SpecTemplate                    ResourceUpdatedDetailsUpdatedFields = "spec.template"
+	StatusConditionsEnrollmentHooks ResourceUpdatedDetailsUpdatedFields = "status.conditions.EnrollmentHooks"
 )
 
 // Defines values for Rfc7662IntrospectionSpecType.
@@ -1419,6 +1421,12 @@ type DeviceDeltaApplyStatus struct {
 	Size *string `json:"size,omitempty"`
 }
 
+// DeviceEnrollmentHooksStatus Enrollment hooks state for a device.
+type DeviceEnrollmentHooksStatus struct {
+	// Snapshot Immutable non-secret copy of EnrollmentHookPolicy fields captured at approval time.
+	Snapshot *EnrollmentHookSnapshot `json:"snapshot,omitempty"`
+}
+
 // DeviceIntegrityCheckStatus DeviceIntegrityCheckStatus represents the status of the integrity check performed on the device.
 type DeviceIntegrityCheckStatus struct {
 	// Info Human-readable information about the integrity check status.
@@ -1652,6 +1660,9 @@ type DeviceStatus struct {
 
 	// DependencySync DependencySyncStatus represents the synchronization fingerprints for external dependencies of a device, captured at render time.
 	DependencySync *DependencySyncStatus `json:"dependencySync,omitempty"`
+
+	// EnrollmentHooks Enrollment hooks state for a device.
+	EnrollmentHooks *DeviceEnrollmentHooksStatus `json:"enrollmentHooks,omitempty"`
 
 	// Integrity Summary status of the integrity of the device.
 	Integrity DeviceIntegrityStatus `json:"integrity"`
@@ -1917,6 +1928,30 @@ type EnrollmentHookRetryPolicy struct {
 
 	// MaxBackoff Maximum backoff duration (e.g. "2m"). Defaults to "2m".
 	MaxBackoff *string `json:"maxBackoff,omitempty"`
+}
+
+// EnrollmentHookSnapshot Immutable non-secret copy of EnrollmentHookPolicy fields captured at approval time.
+type EnrollmentHookSnapshot struct {
+	// ControlPlaneActions Non-secret copies of control-plane actions from the policy at approval time.
+	ControlPlaneActions *[]EnrollmentHookSnapshotAction `json:"controlPlaneActions,omitempty"`
+
+	// FailurePolicy Determines behavior when a hook action fails.
+	FailurePolicy FailurePolicyType `json:"failurePolicy"`
+}
+
+// EnrollmentHookSnapshotAction Non-secret copy of an enrollment hook HTTP action. Excludes auth/bearerToken.
+type EnrollmentHookSnapshotAction struct {
+	// Index Original action index in the policy.
+	Index int `json:"index"`
+
+	// Retry Retry policy for an enrollment hook action.
+	Retry *EnrollmentHookRetryPolicy `json:"retry,omitempty"`
+
+	// Timeout Timeout duration (e.g. "30s").
+	Timeout *string `json:"timeout,omitempty"`
+
+	// Url The HTTPS URL to call.
+	Url string `json:"url"`
 }
 
 // EnrollmentHookStageSpec Configuration for a stage of enrollment hooks.
@@ -3617,7 +3652,10 @@ type VmApplication struct {
 
 	// RestartGeneration Counter incremented by the restart device API each time the application is restarted. Read-only: cannot be set directly by apply; only present in the rendered application spec delivered to the agent.
 	RestartGeneration *int `json:"restartGeneration,omitempty"`
-	union             json.RawMessage
+
+	// RunAs The username of the system user this application should be run under. This is not the same as the user within any containers of the application (if applicable). Defaults to the user that the agent runs as (generally root) if not specified.
+	RunAs Username `json:"runAs,omitempty"`
+	union json.RawMessage
 }
 
 // VolumeMount Mount configuration for a volume.
@@ -7303,6 +7341,12 @@ func (t VmApplication) MarshalJSON() ([]byte, error) {
 			return nil, fmt.Errorf("error marshaling 'restartGeneration': %w", err)
 		}
 	}
+
+	object["runAs"], err = json.Marshal(t.RunAs)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'runAs': %w", err)
+	}
+
 	b, err = json.Marshal(object)
 	return b, err
 }
@@ -7357,6 +7401,13 @@ func (t *VmApplication) UnmarshalJSON(b []byte) error {
 		err = json.Unmarshal(raw, &t.RestartGeneration)
 		if err != nil {
 			return fmt.Errorf("error reading 'restartGeneration': %w", err)
+		}
+	}
+
+	if raw, found := object["runAs"]; found {
+		err = json.Unmarshal(raw, &t.RunAs)
+		if err != nil {
+			return fmt.Errorf("error reading 'runAs': %w", err)
 		}
 	}
 

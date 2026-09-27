@@ -28,6 +28,7 @@ const (
 	ConditionTypeCertificateSigningRequestFailed      = v1beta1.ConditionTypeCertificateSigningRequestFailed
 	ConditionTypeCertificateSigningRequestTPMVerified = v1beta1.ConditionTypeCertificateSigningRequestTPMVerified
 	ConditionTypeDeviceDecommissioning                = v1beta1.ConditionTypeDeviceDecommissioning
+	ConditionTypeDeviceEnrollmentHooks                = v1beta1.ConditionTypeDeviceEnrollmentHooks
 	ConditionTypeDeviceMultipleOwners                 = v1beta1.ConditionTypeDeviceMultipleOwners
 	ConditionTypeDeviceSpecValid                      = v1beta1.ConditionTypeDeviceSpecValid
 	ConditionTypeDeviceUpdating                       = v1beta1.ConditionTypeDeviceUpdating

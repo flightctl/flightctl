@@ -1171,12 +1171,28 @@ func hasQuadletFiles(readWriter fileio.ReadWriter, dirPath string) (bool, error)
 	return false, nil
 }
 
-// writeENVFile writes the environment variables to a .env file in the appPath
-func writeENVFile(appPath string, writer fileio.Writer, envVars map[string]string) error {
+// systemdEnvReplacer escapes backslashes, double-quotes, and dollar signs for
+// systemd EnvironmentFile and Quadlet .env files. Systemd interprets $
+// as variable expansion, so dollar signs must be escaped.
+var systemdEnvReplacer = strings.NewReplacer(`\`, `\\`, `"`, `\"`, `$`, `\$`)
+
+// composeEnvReplacer escapes backslashes and double-quotes but leaves dollar
+// signs unescaped. python-dotenv (used by podman-compose) does NOT decode \$
+// in double-quoted values, so escaping $ would leave literal backslashes in
+// the value.
+var composeEnvReplacer = strings.NewReplacer(`\`, `\\`, `"`, `\"`)
+
+// writeENVFile writes the environment variables to a .env file in the appPath.
+// Values are double-quoted so that special characters (colons, hashes, spaces,
+// etc.) are treated as literal strings. The caller supplies a replacer that
+// matches the target runtime:
+//   - systemdEnvReplacer for systemd/Quadlet (escapes \, ", $)
+//   - composeEnvReplacer for Compose/python-dotenv (escapes \, " only)
+func writeENVFile(appPath string, writer fileio.Writer, envVars map[string]string, replacer *strings.Replacer) error {
 	if len(envVars) > 0 {
 		var env strings.Builder
 		for k, v := range envVars {
-			env.WriteString(fmt.Sprintf("%s=%s\n", k, v))
+			env.WriteString(fmt.Sprintf("%s=\"%s\"\n", k, replacer.Replace(v)))
 		}
 		envPath := fmt.Sprintf("%s/.env", appPath)
 		if err := writer.WriteFile(envPath, []byte(env.String()), fileio.DefaultFilePermissions); err != nil {

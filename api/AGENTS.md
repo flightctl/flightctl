@@ -37,11 +37,3 @@ This directory contains the API definitions and generated code for Flight Contro
 ## Server and client implementation
 
 - Generated server stubs and client code live under `internal/api/server/`, `internal/api/client/`, and `internal/api/convert/` (version conversion). After changing OpenAPI or configs, run `make generate` and update any hand-written server handlers or converters as needed.
-
-## Summary
-
-1. **Design:** Flight Control APIs are declarative and Kubernetes-style; follow the [Kubernetes API conventions](https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md) and use well-known Kubernetes APIs as inspiration.
-2. Change **OpenAPI YAML** or **hand-maintained types** (e.g. `types.go`), not `*.gen.go`.
-3. Run **`make generate`** (or **`make generate-proto`** for gRPC) after edits.
-4. Run **`make generate`** and **`make lint-openapi`** before committing when touching OpenAPI or API types.
-5. Prefer **v1beta1** for core API changes; respect existing versioning and compatibility docs.

@@ -167,7 +167,7 @@ var _ = Describe("VmApplicationRender", func() {
 	}
 
 	Context("when a VmApplication with an inline vm.yaml is rendered", func() {
-		It("should produce a QuadletApplication with native quadlet files", func() {
+		It("should produce a QuadletApplication with native quadlet files and preserve runAs", func() {
 			vmYAML := fmt.Sprintf(`apiVersion: kubevirt.io/v1
 kind: VirtualMachine
 metadata:
@@ -199,6 +199,7 @@ spec:
 `, deviceName)
 
 			vmApp := newInlineVmApp(deviceName, vmYAML)
+			vmApp.RunAs = api.Username("flightctl")
 
 			apps := buildAndRenderVmDevice(vmApp)
 			Expect(apps).To(HaveLen(1))
@@ -206,6 +207,7 @@ spec:
 			quadlet, err := apps[0].AsQuadletApplication()
 			Expect(err).ToNot(HaveOccurred())
 			Expect(quadlet.AppType).To(Equal(api.AppTypeQuadlet))
+			Expect(quadlet.RunAs).To(Equal(api.Username("flightctl")))
 
 			inline, err := quadlet.AsInlineApplicationProviderSpec()
 			Expect(err).ToNot(HaveOccurred())

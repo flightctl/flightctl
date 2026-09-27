@@ -269,6 +269,7 @@ func renderVmApplication(ctx context.Context, vmApp domain.VmApplication, conver
 	quadlet := domain.QuadletApplication{
 		AppType:           domain.AppTypeQuadlet,
 		Name:              vmApp.Name,
+		RunAs:             vmApp.RunAs,
 		Annotations:       &annotations,
 		DesiredState:      vmApp.DesiredState,
 		RestartGeneration: vmApp.RestartGeneration,

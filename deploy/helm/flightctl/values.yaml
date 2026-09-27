@@ -356,6 +356,12 @@ periodic:
   consumers: 5
   # -- Allow flightctl-periodic to list/watch secrets at the cluster level for change detection
   clusterLevelSecretAccess: false
+  tasks:
+    # -- Delta prepare deadline sweep schedule
+    deltaPrepareDeadline:
+      schedule:
+        # -- How often flightctl-periodic checks for expired delta prepares
+        interval: 1m
   # -- Metrics configuration for flightctl-periodic
   metrics:
     # -- Enable Prometheus metrics endpoint
@@ -452,6 +458,10 @@ imageBuilderWorker:
   maxConcurrentBuilds: 2
   # -- Default TTL for image build resources
   defaultTTL: 168h
+  # -- Inactivity timeout for image builds and exports
+  imageBuilderTimeout: 3m
+  # -- Interval between image build and export timeout checks
+  timeoutCheckTaskInterval: 1m
   # -- Enable privileged mode for container-in-container builds
   privileged: true
   # -- Secret name containing yum repository configuration files, mounted at /etc/yum.repos.d

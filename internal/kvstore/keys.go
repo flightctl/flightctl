@@ -18,6 +18,19 @@ func (k *TemplateVersionKey) ComposeKey() string {
 	return fmt.Sprintf("v1/%s/%s/%s/", k.OrgID, k.Fleet, k.TemplateVersion)
 }
 
+// DeltaGenerationHintKey identifies a completed delta-generation hint for an
+// image pair. The delta worker writes it and device rendering reads it.
+type DeltaGenerationHintKey struct {
+	OrgID           uuid.UUID
+	ImageRepository string
+	SourceDigest    string
+	TargetDigest    string
+}
+
+func (k *DeltaGenerationHintKey) ComposeKey() string {
+	return fmt.Sprintf("deltaHint/%s/%s/%s/%s/", k.OrgID, k.ImageRepository, k.SourceDigest, k.TargetDigest)
+}
+
 type RepositoryUrlKey struct {
 	OrgID           uuid.UUID
 	Fleet           string

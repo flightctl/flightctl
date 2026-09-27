@@ -11,6 +11,8 @@ import (
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/delta_worker/service/deltaprepare"
+	deltapreparestore "github.com/flightctl/flightctl/internal/delta_worker/store/deltaprepare"
 	periodicmetrics "github.com/flightctl/flightctl/internal/instrumentation/metrics/periodic"
 	"github.com/flightctl/flightctl/internal/instrumentation/tracing"
 	"github.com/flightctl/flightctl/internal/kvstore"
@@ -27,6 +29,7 @@ import (
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	resourcesyncservice "github.com/flightctl/flightctl/internal/service/resourcesync"
 	syncstateservice "github.com/flightctl/flightctl/internal/service/syncstate"
+	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
 	vulnerabilityfindingservice "github.com/flightctl/flightctl/internal/service/vulnerabilityfinding"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	checkpointstore "github.com/flightctl/flightctl/internal/store/checkpoint"
@@ -38,6 +41,7 @@ import (
 	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
 	resourcesyncstore "github.com/flightctl/flightctl/internal/store/resourcesync"
 	syncstatestore "github.com/flightctl/flightctl/internal/store/syncstate"
+	templateversionstore "github.com/flightctl/flightctl/internal/store/templateversion"
 	vulnerabilityfindingstore "github.com/flightctl/flightctl/internal/store/vulnerabilityfinding"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/flightctl/flightctl/internal/util"
@@ -119,6 +123,7 @@ func (s *Server) Run(ctx context.Context) error {
 	organizationStore := organizationstore.NewOrganizationStore(s.db)
 	dependencyRefStore := dependencyrefstore.NewDependencyRefStore(s.db, s.log.WithField("pkg", "dependencyref-store"))
 	syncStateStore := syncstatestore.NewSyncStateStore(s.db, s.log.WithField("pkg", "syncstate-store"))
+	tvStore := templateversionstore.NewTemplateVersionStore(s.db, s.log.WithField("pkg", "templateversion-store"))
 	vulnerabilityFindingStore := vulnerabilityfindingstore.NewVulnerabilityFindingStore(s.db, s.log.WithField("pkg", "vulnerabilityfinding-store"))
 
 	eventsSvc := events.NewServiceHandler(eventStore, workerClient, s.log)
@@ -133,6 +138,7 @@ func (s *Server) Run(ctx context.Context) error {
 	organizationSvc := organizationservice.WrapWithTracing(organizationservice.NewServiceHandler(organizationStore))
 	dependencyrefSvc := dependencyrefservice.WrapWithTracing(dependencyrefservice.NewServiceHandler(dependencyRefStore, s.log))
 	syncstateSvc := syncstateservice.WrapWithTracing(syncstateservice.NewServiceHandler(syncStateStore))
+	tvSvc := templateversionservice.WrapWithTracing(templateversionservice.NewServiceHandler(tvStore, kvStore, eventsSvc, s.log))
 
 	var secretInformerClientset kubernetes.Interface
 	if s.cfg.Periodic != nil && s.cfg.Periodic.ClusterLevelSecretAccess {
@@ -169,10 +175,12 @@ func (s *Server) Run(ctx context.Context) error {
 		vulnerabilityfindingservice.NewServiceHandler(vulnerabilityFindingStore, deviceSvc, fleetSvc, eventsSvc, s.cfg.VulnerabilityReporting != nil && s.cfg.VulnerabilityReporting.Enabled, s.log))
 
 	// Initialize the task executors.
+	deltaPrepareStore := deltapreparestore.NewStore(s.db, s.log.WithField("pkg", "delta-prepare-store"))
+	deltaPrepareSvc := deltaprepare.WrapWithTracing(deltaprepare.NewServiceHandler(deltaPrepareStore, nil))
 	periodicTaskExecutors := InitializeTaskExecutors(s.log,
 		repositorySvc, fleetSvc, resourceSyncSvc, catalogSvc, deviceSvc, eventSvc,
 		checkpointSvc, organizationSvc, dependencyrefSvc, syncstateSvc,
-		s.cfg, queuesProvider, workerClient, nil, findingSvc, scanner, depSyncMetrics)
+		s.cfg, queuesProvider, workerClient, nil, findingSvc, scanner, depSyncMetrics, deltaPrepareStore, deltaPrepareSvc, tvSvc)
 
 	// Create channel manager for task distribution
 	channelManagerConfig := ChannelManagerConfig{
