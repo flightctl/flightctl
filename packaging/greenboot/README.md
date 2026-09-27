@@ -81,6 +81,10 @@ $ flightctl-agent health --help
 Usage of health:
   Performs health checks on the flightctl-agent service.
 
+  If the device is not yet enrolled (no management certificate),
+  the health check passes immediately — an unenrolled device is
+  in a valid pre-enrollment state, not a failure.
+
 Checks performed:
   - Enrollment state (management certificate presence)
   - Service status (enabled/active)
@@ -90,11 +94,21 @@ Exit codes:
   0  Service is active, or device is not yet enrolled
   1  Service check failed (enrolled device with unhealthy agent)
 
+  -management-cert string
+        Path to the management certificate. If absent, the device is not yet enrolled and health check passes. (default "/var/lib/flightctl/certs/agent.crt")
+  -poll-interval duration
+        How often to poll service status. (default 5s)
+  -stability-window duration
+        How long the service must remain active after becoming healthy before the boot is considered stable. (default 1m0s)
   -timeout duration
         Maximum time to wait for checks. (default 2m30s)
   -verbose
         Print detailed check results.
 ```
+
+When running `flightctl-agent health` directly, pass `--management-cert` for a
+custom certificate path. `FLIGHTCTL_MANAGEMENT_CERT` in
+`/etc/greenboot/greenboot.conf` applies only to the greenboot script.
 
 ## Agent Service Failure
 
