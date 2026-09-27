@@ -91,12 +91,10 @@ func CreateDeviceFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID
 	return svc.CreateDevice(ctx, orgId, device)
 }
 
-// ReplaceDeviceFromUntrusted rejects status writes and sanitizes managed
-// metadata before replacing the device.
+// ReplaceDeviceFromUntrusted ignores caller-provided status and sanitizes
+// managed metadata before replacing the device.
 func ReplaceDeviceFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string, enforceOwnership bool, enforceCapabilities bool) (*domain.Device, domain.Status) {
-	if device.Status != nil {
-		return nil, domain.StatusBadRequest("device status is read-only on this API")
-	}
+	device.Status = nil
 	SanitizeDevice(&device)
 	return svc.ReplaceDevice(ctx, orgId, name, device, fieldsToUnset, enforceOwnership, enforceCapabilities)
 }

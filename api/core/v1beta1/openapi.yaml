@@ -1409,8 +1409,8 @@ paths:
       tags:
         - device
       description: >-
-        Update a Device resource. Status is read-only through this endpoint;
-        requests that include status are rejected.
+        Update a Device resource. Status is server-managed through this
+        endpoint; any status included in the request is ignored.
       operationId: replaceDevice
       parameters:
         - name: name
