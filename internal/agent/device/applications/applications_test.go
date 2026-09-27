@@ -401,6 +401,63 @@ func TestApplicationStatus(t *testing.T) {
 	}
 }
 
+func TestCollectImageDigests(t *testing.T) {
+	t.Run("When the collected image set is empty it should clear stale status", func(t *testing.T) {
+		previous := []v1beta1.ApplicationImageDigest{{
+			Image:  "quay.io/acme/nginx:v1",
+			Digest: "sha256:old",
+		}}
+		app := &application{
+			status: &v1beta1.DeviceApplicationStatus{ImageDigests: &previous},
+		}
+
+		app.collectImageDigests()
+
+		require.Nil(t, app.status.ImageDigests)
+	})
+
+	t.Run("When parent and workloads report image pairs it should deduplicate and sort them", func(t *testing.T) {
+		const nginx = "quay.io/acme/nginx:latest"
+		app := &application{
+			imageRef:    nginx,
+			imageDigest: "sha256:parent",
+			workloads: []Workload{
+				{Images: []WorkloadImage{
+					{Image: nginx},
+					{Image: nginx, Digest: "sha256:old"},
+					{Image: nginx, Digest: "sha256:old"},
+					{Image: "quay.io/acme/redis:latest"},
+				}},
+			},
+			status: &v1beta1.DeviceApplicationStatus{},
+		}
+
+		app.collectImageDigests()
+
+		require.NotNil(t, app.status.ImageDigests)
+		require.Equal(t, []v1beta1.ApplicationImageDigest{
+			{Image: nginx, Digest: "sha256:old"},
+			{Image: nginx, Digest: "sha256:parent"},
+			{Image: "quay.io/acme/redis:latest"},
+		}, *app.status.ImageDigests)
+	})
+}
+
+func TestWorkloadImageSnapshotsAreCopied(t *testing.T) {
+	images := []WorkloadImage{{Image: "quay.io/acme/app:v1", Digest: "sha256:one"}}
+	app := &application{}
+	app.AddWorkload(&Workload{Name: "container", Images: images})
+
+	images[0].Digest = "sha256:input-mutated"
+	workloads := app.Workloads()
+	require.Equal(t, "sha256:one", workloads[0].Images[0].Digest)
+
+	workloads[0].Images[0].Digest = "sha256:copy-mutated"
+	stored, ok := app.Workload("container")
+	require.True(t, ok)
+	require.Equal(t, "sha256:one", stored.Images[0].Digest)
+}
+
 func TestNewAppFromProvider(t *testing.T) {
 	require := require.New(t)
 	ctrl := gomock.NewController(t)

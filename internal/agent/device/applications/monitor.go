@@ -73,6 +73,7 @@ type handlerRegistration struct {
 
 // AppStatusResult holds the status result for a single application.
 type AppStatusResult struct {
+	ID      string
 	Status  v1beta1.DeviceApplicationStatus
 	Summary v1beta1.DeviceApplicationsSummaryStatus
 }
@@ -448,6 +449,7 @@ func (m *monitor) Status() ([]AppStatusResult, error) {
 			continue
 		}
 		results = append(results, AppStatusResult{
+			ID:      app.ID(),
 			Status:  *appStatus,
 			Summary: appSummary,
 		})

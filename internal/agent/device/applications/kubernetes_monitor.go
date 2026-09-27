@@ -366,16 +366,29 @@ type kubernetesPod struct {
 		UID       string            `json:"uid"`
 		Labels    map[string]string `json:"labels,omitempty"`
 	} `json:"metadata"`
+	Spec   kubernetesPodSpec   `json:"spec"`
 	Status kubernetesPodStatus `json:"status"`
 }
 
+type kubernetesPodSpec struct {
+	Containers     []kubernetesContainerSpec `json:"containers,omitempty"`
+	InitContainers []kubernetesContainerSpec `json:"initContainers,omitempty"`
+}
+
+type kubernetesContainerSpec struct {
+	Name  string `json:"name"`
+	Image string `json:"image"`
+}
+
 type kubernetesPodStatus struct {
-	Phase             string                      `json:"phase"`
-	ContainerStatuses []kubernetesContainerStatus `json:"containerStatuses,omitempty"`
+	Phase                 string                      `json:"phase"`
+	ContainerStatuses     []kubernetesContainerStatus `json:"containerStatuses,omitempty"`
+	InitContainerStatuses []kubernetesContainerStatus `json:"initContainerStatuses,omitempty"`
 }
 
 type kubernetesContainerStatus struct {
 	Name         string                       `json:"name"`
+	ImageID      string                       `json:"imageID,omitempty"`
 	Ready        bool                         `json:"ready"`
 	RestartCount int                          `json:"restartCount"`
 	State        kubernetesContainerStateInfo `json:"state,omitempty"`
@@ -451,6 +464,7 @@ func (m *KubernetesMonitor) removeWorkload(app Application, pod *kubernetesPod) 
 func (m *KubernetesMonitor) updatePodStatus(app Application, pod *kubernetesPod) {
 	status := m.mapPodPhaseToStatus(pod)
 	restarts := m.getPodRestartCount(pod)
+	images := collectPodImages(pod)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -458,6 +472,7 @@ func (m *KubernetesMonitor) updatePodStatus(app Application, pod *kubernetesPod)
 	workload, exists := app.Workload(pod.Metadata.Name)
 	if exists {
 		workload.Status = status
+		workload.Images = images
 		if pod.Metadata.UID != workload.ID {
 			workload.ID = pod.Metadata.UID
 			workload.Restarts = restarts
@@ -470,10 +485,36 @@ func (m *KubernetesMonitor) updatePodStatus(app Application, pod *kubernetesPod)
 	m.log.Debugf("Adding pod: %s to app %s", pod.Metadata.Name, app.Name())
 	app.AddWorkload(&Workload{
 		ID:       pod.Metadata.UID,
+		Images:   images,
 		Name:     pod.Metadata.Name,
 		Status:   status,
 		Restarts: restarts,
 	})
+}
+
+func collectPodImages(pod *kubernetesPod) []WorkloadImage {
+	statuses := make(map[string]kubernetesContainerStatus, len(pod.Status.ContainerStatuses)+len(pod.Status.InitContainerStatuses))
+	for _, status := range pod.Status.ContainerStatuses {
+		statuses[status.Name] = status
+	}
+	for _, status := range pod.Status.InitContainerStatuses {
+		statuses[status.Name] = status
+	}
+
+	containers := make([]kubernetesContainerSpec, 0, len(pod.Spec.Containers)+len(pod.Spec.InitContainers))
+	containers = append(containers, pod.Spec.Containers...)
+	containers = append(containers, pod.Spec.InitContainers...)
+	images := make([]WorkloadImage, 0, len(containers))
+	for _, container := range containers {
+		if container.Image == "" {
+			continue
+		}
+		images = append(images, WorkloadImage{
+			Image:  container.Image,
+			Digest: digestFromKubernetesImageID(container.Image, statuses[container.Name].ImageID),
+		})
+	}
+	return images
 }
 
 func (m *KubernetesMonitor) mapPodPhaseToStatus(pod *kubernetesPod) StatusType {

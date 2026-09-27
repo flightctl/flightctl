@@ -710,6 +710,15 @@ type ApplicationEnvVars struct {
 	EnvVars *map[string]string `json:"envVars,omitempty"`
 }
 
+// ApplicationImageDigest An image reference and, when known, its content digest in local storage.
+type ApplicationImageDigest struct {
+	// Digest Content digest of the image in local storage (e.g. sha256:abc...). Omitted when the local digest is unknown.
+	Digest string `json:"digest,omitempty"`
+
+	// Image Image reference as it appears in the rendered application spec.
+	Image string `json:"image"`
+}
+
 // ApplicationLifecycleChangedDetails defines model for ApplicationLifecycleChangedDetails.
 type ApplicationLifecycleChangedDetails struct {
 	// Action The lifecycle action that was requested.
@@ -1354,6 +1363,9 @@ type DeviceApplicationStatus struct {
 
 	// Embedded Whether the application is embedded in the bootc image.
 	Embedded bool `json:"embedded"`
+
+	// ImageDigests Image references this application uses and their known content digests in local storage. image is the ref from the current rendered spec (tag or digest). digest is omitted when the local digest is unknown. When image is already a digest ref, digest matches the ref's digest.
+	ImageDigests *[]ApplicationImageDigest `json:"imageDigests,omitempty"`
 
 	// LastDelta Result of the most recent delta apply attempt for this update target.
 	LastDelta *DeviceDeltaApplyStatus `json:"lastDelta,omitempty"`

@@ -83,6 +83,8 @@ type ApplicationSpec struct {
 
 	// Image is the resolved OCI image reference for the application.
 	Image string
+	// ImageDigest is the known content digest of Image in local storage, when available.
+	ImageDigest string
 
 	// App-type-specific specs (only one will be set based on AppType)
 	ContainerApp *v1beta1.ContainerApplication
@@ -273,6 +275,15 @@ func collectNestedForProvider(
 		log.Debugf("Cache invalidated for app %s: reference or digest changed", p.Name())
 	}
 
+	cacheEntry := CacheEntry{
+		Name:  p.ID(),
+		Owner: p.Spec().User,
+		Parent: dependency.OCIPullTarget{
+			Reference: ref,
+			Digest:    digest,
+		},
+	}
+
 	appData, err := p.extractNestedTargets(ctx, configProvider)
 	if err != nil {
 		if errors.IsRetryable(err) {
@@ -283,19 +294,14 @@ func collectNestedForProvider(
 	}
 
 	if appData == nil {
+		ociCache.Set(cacheEntry)
 		return nil, false, nil
 	}
 
+	cacheEntry.Children = appData.Targets
+	ociCache.Set(cacheEntry)
 	if len(appData.Targets) > 0 {
 		appDataCache[p.ID()] = appData
-		ociCache.Set(CacheEntry{
-			Name: p.ID(),
-			Parent: dependency.OCIPullTarget{
-				Reference: ref,
-				Digest:    digest,
-			},
-			Children: appData.Targets,
-		})
 		log.Debugf("Cached %d nested targets for app %s", len(appData.Targets), p.Name())
 	} else {
 		if err := appData.Cleanup(); err != nil {
