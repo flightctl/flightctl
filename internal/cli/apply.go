@@ -260,7 +260,6 @@ func applySingleResource(ctx context.Context, c *client.Client, ibClient *client
 	if err := validateResourceAPIVersion(resource, kind); err != nil {
 		return []error{fmt.Errorf("%s: %w", filename, err)}
 	}
-
 	if dryRun {
 		fmt.Printf("%s: applying %s/%s (dry run only)\n", filename, strings.ToLower(kindLike), resourceName)
 		return nil

@@ -1408,7 +1408,9 @@ paths:
     put:
       tags:
         - device
-      description: Update a Device resource.
+      description: >-
+        Update a Device resource. Status is server-managed through this
+        endpoint; any status included in the request is ignored.
       operationId: replaceDevice
       parameters:
         - name: name
@@ -1536,7 +1538,9 @@ paths:
     patch:
       tags:
         - device
-      description: Patch a Device resource.
+      description: >-
+        Patch a Device resource. Status is read-only through this endpoint;
+        patch operations targeting status are rejected.
       operationId: patchDevice
       parameters:
         - name: name

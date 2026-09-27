@@ -103,7 +103,7 @@ func (h *TransportHandler) PatchDevice(w http.ResponseWriter, r *http.Request, n
 	}
 
 	domainPatch := h.converter.Common().PatchRequestToDomain(patch)
-	body, status := h.device.PatchDevice(r.Context(), transport.OrgIDFromContext(r.Context()), name, domainPatch, true, true)
+	body, status := deviceservice.PatchDeviceFromUntrusted(r.Context(), h.device, transport.OrgIDFromContext(r.Context()), name, domainPatch, true, true)
 	apiResult := h.converter.Device().FromDomain(body)
 	h.SetResponse(w, apiResult, status)
 }

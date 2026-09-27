@@ -7,6 +7,7 @@ import (
 	"maps"
 	"net/http"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/consts"
@@ -90,10 +91,33 @@ func CreateDeviceFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID
 	return svc.CreateDevice(ctx, orgId, device)
 }
 
-// ReplaceDeviceFromUntrusted sanitizes an untrusted device document, then replaces it.
+// ReplaceDeviceFromUntrusted ignores caller-provided status and sanitizes
+// managed metadata before replacing the device.
 func ReplaceDeviceFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string, enforceOwnership bool, enforceCapabilities bool) (*domain.Device, domain.Status) {
+	device.Status = nil
 	SanitizeDevice(&device)
 	return svc.ReplaceDevice(ctx, orgId, name, device, fieldsToUnset, enforceOwnership, enforceCapabilities)
+}
+
+// PatchDeviceFromUntrusted rejects patches to device status, which is read-only
+// on the device resource API.
+func PatchDeviceFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, name string, patch domain.PatchRequest, enforceOwnership bool, enforceCapabilities bool) (*domain.Device, domain.Status) {
+	for _, operation := range patch {
+		if devicePatchTouchesStatus(operation.Path) {
+			return nil, domain.StatusBadRequest(fmt.Sprintf("patch path %q targets read-only device status", operation.Path))
+		}
+	}
+	return svc.PatchDevice(ctx, orgId, name, patch, enforceOwnership, enforceCapabilities)
+}
+
+func devicePatchTouchesStatus(path string) bool {
+	if path == "" {
+		// Replacing the document root could change device status.
+		return true
+	}
+
+	segments := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	return segments[0] == "status"
 }
 
 func (h *DeviceServiceHandler) CreateDevice(ctx context.Context, orgId uuid.UUID, device domain.Device) (*domain.Device, domain.Status) {
