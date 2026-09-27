@@ -288,7 +288,7 @@ func createCsr(o *CertificateOptions, name string, organization string, priv cry
 	if err != nil {
 		return nil, err
 	}
-	expirationSeconds, err := safecast.ToInt32(days * secondsInDay)
+	expirationSeconds, err := safecast.Convert[int32](days * secondsInDay)
 	if err != nil {
 		return nil, err
 	}

@@ -176,7 +176,7 @@ func getDirUsage(dir string) (*DiskUsage, error) {
 		return nil, err
 	}
 
-	bsize, err := safecast.ToUint64(stat.Bsize)
+	bsize, err := safecast.Convert[uint64](stat.Bsize)
 	if err != nil {
 		return nil, err
 	}

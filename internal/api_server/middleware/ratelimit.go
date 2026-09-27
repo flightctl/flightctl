@@ -29,12 +29,10 @@ func InstallRateLimiter(r chi.Router, opts RateLimitOptions) {
 	}
 
 	// 2) Build a limiter: N req per window, keyed by client IP
-	limiter := httprate.Limit(
+	limiter := httprate.LimitBy(
 		opts.Requests, // e.g. 60
 		opts.Window,   // e.g. time.Minute
-		httprate.WithKeyFuncs( // bucket by r.RemoteAddr (after RealIP)
-			httprate.KeyByIP,
-		),
+		RateLimitKeyByRemoteAddr,
 		httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
 			// build your API status
 			status := api.Status{
@@ -53,6 +51,15 @@ func InstallRateLimiter(r chi.Router, opts RateLimitOptions) {
 
 	// 3) Register it for all routes (user + agent routers)
 	r.Use(limiter)
+}
+
+// RateLimitKeyByRemoteAddr uses the resolved remote address as the rate limit key.
+func RateLimitKeyByRemoteAddr(r *http.Request) (string, error) {
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		ip = r.RemoteAddr
+	}
+	return httprate.CanonicalizeIP(ip), nil
 }
 
 // TrustedRealIP only rewrites RemoteAddr when the immediate peer is in one of your LB CIDRs

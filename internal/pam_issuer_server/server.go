@@ -63,12 +63,10 @@ func installOAuth2RateLimiter(r chi.Router, opts fcmiddleware.RateLimitOptions) 
 	}
 
 	// 2) Build a limiter: N req per window, keyed by client IP
-	limiter := httprate.Limit(
+	limiter := httprate.LimitBy(
 		opts.Requests, // e.g. 300
 		opts.Window,   // e.g. time.Minute
-		httprate.WithKeyFuncs( // bucket by r.RemoteAddr (after RealIP)
-			httprate.KeyByIP,
-		),
+		fcmiddleware.RateLimitKeyByRemoteAddr,
 		httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
 			// Return OAuth2 error format (RFC 6749 Section 5.2)
 			oauth2Error := &pamapi.OAuth2Error{
