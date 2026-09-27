@@ -37,9 +37,10 @@ Exiting the health check with a non-zero status declares the boot as failed. The
 | Validation | Pass | Fail |
 |------------|------|------|
 | Check script runs with root permissions | Next | exit 1 |
+| Device not enrolled (no management cert at `/var/lib/flightctl/certs/agent.crt`) | pass (exit 0) | — |
 | Check `flightctl-agent.service` is enabled | Next | exit 1 |
 | Wait for service to become active (up to 150s) | Next | exit 1 |
-| Monitor service stability for 60 seconds | Next | exit 1 |
+| Monitor service stability for 60 seconds | pass (exit 0) | exit 1 |
 
 > If the system is not booted using `bootc`, the health check still runs, but
 > no rollback is possible. On package-mode hosts, installing

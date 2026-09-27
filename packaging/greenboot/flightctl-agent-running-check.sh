@@ -31,7 +31,13 @@ FLIGHTCTL_HEALTH_STABILITY_WINDOW=60
 # Poll interval used during both phases, in seconds.
 FLIGHTCTL_HEALTH_POLL_INTERVAL=5
 
-# Allow the three values above to be tuned via greenboot.conf, same as
+# Path to the management certificate. If absent, the device is not yet enrolled
+# and the health check passes immediately instead of triggering a boot-loop.
+# Matches health.DefaultManagementCertPath; override in greenboot.conf when
+# using a non-default DataDir or custom cert path.
+FLIGHTCTL_MANAGEMENT_CERT="/var/lib/flightctl/certs/agent.crt"
+
+# Allow the values above to be tuned via greenboot.conf, same as
 # GREENBOOT_MAX_BOOT_ATTEMPTS and other greenboot settings.
 if [ -f "$GREENBOOT_CONF" ]; then
     # shellcheck disable=SC1090
@@ -57,6 +63,7 @@ if ! flightctl-agent health \
     --timeout="${FLIGHTCTL_HEALTH_CHECK_TIMEOUT}s" \
     --stability-window="${FLIGHTCTL_HEALTH_STABILITY_WINDOW}s" \
     --poll-interval="${FLIGHTCTL_HEALTH_POLL_INTERVAL}s" \
+    --management-cert="${FLIGHTCTL_MANAGEMENT_CERT}" \
     --verbose; then
     log_error "flightctl-agent health check failed"
     exit 1
