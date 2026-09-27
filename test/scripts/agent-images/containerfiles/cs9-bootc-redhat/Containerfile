@@ -20,9 +20,14 @@ RUN --mount=type=cache,target=/var/cache/dnf \
     dnf install -y python-dotenv
 
 # Base services and tooling that don't depend on our RPMs
+# fuse-overlayfs: only needed so nested podman (inside a ContainerDevice e2e test double for this
+# image, or a quadlet-app suite's own nested podman) can use the overlay driver on top of a
+# filesystem the outer runtime already presents as overlayfs - containers/storage otherwise
+# rejects that combination outright ("'overlay' is not supported over overlayfs, a mount_program
+# is required"). A no-op on a real VM, where the qcow2 root filesystem is a plain block device.
 RUN --mount=type=cache,target=/var/cache/dnf \
     --mount=type=cache,target=/var/lib/dnf \
-    dnf install -y greenboot greenboot-default-health-checks podman-compose && \
+    dnf install -y greenboot greenboot-default-health-checks podman-compose fuse-overlayfs && \
     dnf install -y firewalld && \
     systemctl enable firewalld.service && \
     systemctl enable podman.service

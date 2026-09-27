@@ -2,6 +2,7 @@ package rootless_test
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -40,12 +41,17 @@ var _ = BeforeEach(func() {
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
 
-	GinkgoWriter.Printf("[BeforeEach] Worker %d: Setting up rootless test with VM from pool\n", workerID)
-
 	ctx := testutil.StartSpecTracerForGinkgo(suiteCtx)
 	harness.SetTestContext(ctx)
 
-	err := harness.SetupVMFromPoolAndStartAgent(workerID)
+	var err error
+	if slices.Contains(CurrentSpecReport().Labels(), e2e.NeedContainerLabel) {
+		GinkgoWriter.Printf("[BeforeEach] Worker %d: Setting up rootless test with container device from pool\n", workerID)
+		err = harness.SetupContainerFromPoolAndStartAgent(workerID)
+	} else {
+		GinkgoWriter.Printf("[BeforeEach] Worker %d: Setting up rootless test with VM from pool\n", workerID)
+		err = harness.SetupVMFromPoolAndStartAgent(workerID)
+	}
 	Expect(err).ToNot(HaveOccurred())
 	out, err := harness.VM.RunSSH([]string{"sudo", "systemctl", "is-active", "flightctl-agent"}, nil)
 	Expect(err).ToNot(HaveOccurred())

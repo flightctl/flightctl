@@ -73,7 +73,10 @@ var _ = SynchronizedBeforeSuite(func() []byte {
 	return []byte(originalConfigYAML)
 }, func(data []byte) {
 	originalConfigYAML = string(data)
-	e2e.SetupWorkerHarnessOrAbort()
+	// This suite only exercises config/secret/git sync onto the device - it never switches
+	// the device's OS image or reboots it, so it doesn't need a real VM (see the
+	// container-backed-device-migration plan). Use a container-backed device instead.
+	e2e.SetupWorkerHarnessWithContainerDeviceOrAbort()
 })
 
 var _ = SynchronizedAfterSuite(func() {

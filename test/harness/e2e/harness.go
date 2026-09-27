@@ -1878,6 +1878,10 @@ func NewTestHarnessWithVMOnly(ctx context.Context, workerID int) (*Harness, erro
 // GetVMFromPool retrieves a VM from the pool for the given worker ID.
 // VMs are created on-demand if they don't already exist in the pool.
 func (h *Harness) GetVMFromPool(workerID int) (vm.TestVMInterface, error) {
+	if err := h.cleanupCurrentContainerDevice(); err != nil {
+		return nil, fmt.Errorf("failed to remove previous container-backed device: %w", err)
+	}
+
 	// Get VM from the global pool (created on-demand if needed)
 	testVM, err := SetupVMForWorker(workerID, os.TempDir(), 2233)
 	if err != nil {
@@ -2813,8 +2817,21 @@ func (h *Harness) EditWithRetry(format, editor, resource string) (string, error)
 
 // printAgentFilesForVM prints all agent files for debugging
 // This is a shared helper function used by harness and vm_pool.go
-func printAgentFilesForVM(vm vm.TestVMInterface, context string) {
-	fmt.Printf("🔍 [%s] Printing agent files:\n", context)
+func printAgentFilesForVM(vm vm.TestVMInterface, description string) {
+	printAgentFilesWithRunner(vm.RunSSH, description)
+}
+
+// printAgentFilesForVMWithContext preserves the same diagnostics while allowing container-backed
+// setup to cancel in-flight runtime execs when its setup deadline expires.
+func printAgentFilesForVMWithContext(ctx context.Context, device vm.TestVMInterface, description string) {
+	runSSH := func(args []string, stdin *bytes.Buffer) (*bytes.Buffer, error) {
+		return device.RunSSHContext(ctx, args, stdin)
+	}
+	printAgentFilesWithRunner(runSSH, description)
+}
+
+func printAgentFilesWithRunner(runSSH func([]string, *bytes.Buffer) (*bytes.Buffer, error), description string) {
+	fmt.Printf("🔍 [%s] Printing agent files:\n", description)
 
 	// Define agent file paths
 	agentFiles := map[string]string{
@@ -2824,21 +2841,21 @@ func printAgentFilesForVM(vm vm.TestVMInterface, context string) {
 	}
 
 	for fileType, filePath := range agentFiles {
-		fmt.Printf("📄 [%s] %s:\n", context, fileType)
+		fmt.Printf("📄 [%s] %s:\n", description, fileType)
 
 		// Regular file handling
-		stdout, err := vm.RunSSH([]string{"sudo", "cat", filePath}, nil)
+		stdout, err := runSSH([]string{"sudo", "cat", filePath}, nil)
 		if err != nil {
 			// Missing agent state files are expected before the agent is started.
 			if strings.Contains(err.Error(), "No such file or directory") {
-				fmt.Printf("✅ [%s] %s is absent (expected before agent start)\n", context, fileType)
+				fmt.Printf("✅ [%s] %s is absent (expected before agent start)\n", description, fileType)
 			} else {
-				fmt.Printf("❌ [%s] Failed to read %s: %v\n", context, fileType, err)
+				fmt.Printf("❌ [%s] Failed to read %s: %v\n", description, fileType, err)
 			}
 		} else {
 			content := stdout.String()
 			if content == "" {
-				fmt.Printf("📄 [%s] %s: (empty or does not exist)\n", context, fileType)
+				fmt.Printf("📄 [%s] %s: (empty or does not exist)\n", description, fileType)
 			} else {
 				fmt.Printf("%s\n", content)
 			}

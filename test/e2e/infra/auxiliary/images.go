@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -118,11 +119,13 @@ func (s *Services) copyExternalImage(ctx context.Context, ref string) error {
 		copyCtx, cancel := context.WithTimeout(ctx, perCopyTimeout)
 		copyCmd := exec.CommandContext(copyCtx, "skopeo", "copy", "--dest-tls-verify=false", src, dst)
 		output, err := copyCmd.CombinedOutput()
-		timedOut := copyCtx.Err() != nil
+		copyErr := copyCtx.Err()
 		cancel()
 
-		if timedOut {
-			lastErr = fmt.Errorf("skopeo copy for %s did not complete within %s: %w", ref, perCopyTimeout, copyCtx.Err())
+		if errors.Is(copyErr, context.DeadlineExceeded) {
+			lastErr = fmt.Errorf("skopeo copy for %s did not complete within %s: %w", ref, perCopyTimeout, copyErr)
+		} else if copyErr != nil {
+			lastErr = fmt.Errorf("skopeo copy for %s canceled: %w", ref, copyErr)
 		} else if err != nil {
 			lastErr = fmt.Errorf("skopeo copy failed for %s: %w, output: %s", ref, err, string(output))
 		} else {
@@ -293,6 +296,62 @@ func extractImageRefs(bundlePath string) ([]string, error) {
 
 type manifestEntry struct {
 	RepoTags []string `json:"RepoTags"`
+}
+
+// ResolveAgentDeviceImageTag returns the exact "base" image tag (e.g.
+// "base-cs10-bootc-v1.3.0-main-332-g250be75c") that was actually bundled for a container-backed
+// device to pull, by reading it back out of the same agent-images-bundle-*.tar UploadImages just
+// pushed from (see uploadBundle/copyImageFromBundle above).
+//
+// This exists because build.sh tags every image with several local aliases
+// (${IMAGE_REPO}:base-${OS_ID}, :base-${TAG}, :base-${OS_ID}-${TAG}, :base), but
+// build_and_qcow2.sh's bundle.sh --filter "reference=${IMAGE_REPO}:*-${OS_ID}-*" only bundles (and
+// therefore only pushes to the registry) the aliases matching that pattern, i.e. just
+// base-${OS_ID}-${TAG} - the bare base-${OS_ID} alias container_pool.go used to assume is never
+// actually pushed, and ${TAG} (the git-describe version string) isn't otherwise propagated to the
+// test binary's env. Reading it out of the bundle instead of guessing keeps this self-consistent
+// with whatever UploadImages actually pushed.
+//
+// osIDHint, if non-empty, is used to pick the right bundle file when more than one exists on disk
+// (e.g. a local dev machine that built both cs9-bootc and cs10-bootc); CI only ever stages the one
+// bundle matching the current shard's os_id input, so it's optional there.
+func ResolveAgentDeviceImageTag(osIDHint string) (string, error) {
+	if strings.ContainsAny(osIDHint, `/\*?[]`) {
+		return "", fmt.Errorf("invalid os ID hint %q: must not contain path separators or glob metacharacters", osIDHint)
+	}
+	projectRoot, err := getProjectRoot()
+	if err != nil {
+		return "", fmt.Errorf("failed to get project root: %w", err)
+	}
+	pattern := agentBundlePattern
+	if osIDHint != "" {
+		pattern = fmt.Sprintf("agent-images-bundle-%s.tar", osIDHint)
+	}
+	agentArtifactsDir := filepath.Join(projectRoot, "bin", "agent-artifacts")
+	matches, err := filepath.Glob(filepath.Join(agentArtifactsDir, pattern))
+	if err != nil {
+		return "", fmt.Errorf("failed to glob agent image bundles: %w", err)
+	}
+	if len(matches) != 1 {
+		return "", fmt.Errorf("expected exactly one agent image bundle matching %s/%s, found %v", agentArtifactsDir, pattern, matches)
+	}
+
+	refs, err := extractImageRefs(matches[0])
+	if err != nil {
+		return "", fmt.Errorf("failed to read image refs from bundle %s: %w", matches[0], err)
+	}
+	for _, ref := range refs {
+		// Last ':' separates tag from host:port/path (Cut would split on the port colon).
+		idx := strings.LastIndex(ref, ":")
+		if idx == -1 {
+			continue
+		}
+		tag := ref[idx+1:]
+		if strings.HasPrefix(tag, "base-") {
+			return tag, nil
+		}
+	}
+	return "", fmt.Errorf("no base-tagged image found in bundle %s (refs: %v)", matches[0], refs)
 }
 
 func parseManifestJSON(r io.Reader) ([]string, error) {

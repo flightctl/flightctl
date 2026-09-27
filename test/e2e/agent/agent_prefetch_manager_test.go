@@ -23,7 +23,7 @@ const (
 	logStatusPushed         = "Completed pushing device status"
 )
 
-var _ = Describe("Non-blocking OCI dependency prefetch manager", func() {
+var _ = Describe("Non-blocking OCI dependency prefetch manager", Label(e2e.NeedContainerLabel), func() {
 	var (
 		harness  *e2e.Harness
 		deviceID string
