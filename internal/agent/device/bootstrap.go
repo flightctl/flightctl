@@ -25,6 +25,19 @@ const (
 	BootstrapComplete = "Bootstrap complete"
 )
 
+var (
+	errEnrollmentHooksFailed  = fmt.Errorf("post-enrollment hooks failed")
+	errEnrollmentHooksTimeout = fmt.Errorf("post-enrollment hooks timed out waiting for server notification")
+)
+
+// ensurePostEnrollmentHooks reads the Device's EnrollmentHooks condition,
+// waits for server-side notification if needed, runs OnAfterEnrolling hooks,
+// and PATCHes the condition outcome back.
+// Stub: will be fully implemented in a follow-up commit.
+func (b *Bootstrap) ensurePostEnrollmentHooks(_ context.Context) error {
+	return fmt.Errorf("ensurePostEnrollmentHooks: not yet implemented")
+}
+
 type Bootstrap struct {
 	deviceName        string
 	executer          executer.Executer
