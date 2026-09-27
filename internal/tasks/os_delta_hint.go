@@ -297,9 +297,6 @@ func lookupGenerationMemo(ctx context.Context, kv kvstore.KVStore, key delta.Gen
 	if memo.Status != model.DeltaGenerationSucceeded || memo.DeltaRef == nil || *memo.DeltaRef == "" {
 		return nil, false, false
 	}
-	if err := kv.SetExpire(ctx, deltaGenerationLookupMemoKey(key), kvstore.DeltaGenerationHintTTL); err != nil {
-		logrus.StandardLogger().WithError(err).Warnf("failed extending delta generation lookup memo TTL org=%s repo=%s sourceDigest=%s targetDigest=%s", key.OrgID, key.ImageRepository, key.SourceDigest, key.TargetDigest)
-	}
 	return &model.DeltaGeneration{
 		OrgID:           key.OrgID,
 		ImageRepository: key.ImageRepository,
