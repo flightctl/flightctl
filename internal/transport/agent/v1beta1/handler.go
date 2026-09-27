@@ -14,7 +14,7 @@ import (
 	"github.com/flightctl/flightctl/internal/crypto"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/service/certificatesigningrequest"
-	"github.com/flightctl/flightctl/internal/service/device"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	"github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/transport"
 	"github.com/flightctl/flightctl/internal/util"
@@ -27,7 +27,7 @@ import (
 // status) before creating/auto-approving the CSR, so it needs both the device and
 // certificatesigningrequest fields.
 type AgentTransportHandler struct {
-	device                    device.Service
+	device                    deviceservice.Service
 	enrollmentrequest         enrollmentrequest.Service
 	certificatesigningrequest certificatesigningrequest.Service
 	converter                 convertv1beta1.Converter
@@ -39,7 +39,7 @@ type AgentTransportHandler struct {
 var _ agentServer.Transport = (*AgentTransportHandler)(nil)
 
 func NewAgentTransportHandler(
-	deviceSvc device.Service,
+	deviceSvc deviceservice.Service,
 	enrollmentrequestSvc enrollmentrequest.Service,
 	certificatesigningrequestSvc certificatesigningrequest.Service,
 	converter convertv1beta1.Converter,
@@ -127,7 +127,7 @@ func (s *AgentTransportHandler) ReplaceDeviceStatus(w http.ResponseWriter, r *ht
 	}
 
 	domainDevice := s.converter.Device().ToDomain(device)
-	body, status := s.device.ReplaceDeviceStatus(ctx, transport.OrgIDFromContext(ctx), fingerprint, domainDevice, true)
+	body, status := deviceservice.ReplaceDeviceStatusFromUntrusted(ctx, s.device, transport.OrgIDFromContext(ctx), fingerprint, domainDevice, true)
 	apiResult := s.converter.Device().FromDomain(body)
 	s.SetResponse(w, apiResult, status)
 }
@@ -168,7 +168,7 @@ func (s *AgentTransportHandler) PatchDeviceStatus(w http.ResponseWriter, r *http
 	}
 
 	domainPatch := s.converter.Common().PatchRequestToDomain(patch)
-	body, status := s.device.PatchDeviceStatus(ctx, transport.OrgIDFromContext(ctx), fingerprint, domainPatch)
+	body, status := deviceservice.PatchDeviceStatusFromUntrusted(ctx, s.device, transport.OrgIDFromContext(ctx), fingerprint, domainPatch)
 	apiResult := s.converter.Device().FromDomain(body)
 	s.SetResponse(w, apiResult, status)
 }

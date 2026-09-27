@@ -7,6 +7,7 @@ import (
 	"maps"
 	"net/http"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/consts"
@@ -94,6 +95,55 @@ func CreateDeviceFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID
 func ReplaceDeviceFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, name string, device domain.Device, fieldsToUnset []string, enforceOwnership bool, enforceCapabilities bool) (*domain.Device, domain.Status) {
 	SanitizeDevice(&device)
 	return svc.ReplaceDevice(ctx, orgId, name, device, fieldsToUnset, enforceOwnership, enforceCapabilities)
+}
+
+// ReplaceDeviceStatusFromUntrusted preserves server-owned status fields before
+// forwarding an untrusted status document. Trusted service callers can use
+// ReplaceDeviceStatus directly when they need to update those fields.
+func ReplaceDeviceStatusFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, name string, device domain.Device, refreshLastSeen bool) (*domain.Device, domain.Status) {
+	if device.Metadata.Name == nil || *device.Metadata.Name == "" || *device.Metadata.Name != name || device.Status == nil {
+		return svc.ReplaceDeviceStatus(ctx, orgId, name, device, refreshLastSeen)
+	}
+
+	stored, status := svc.GetDeviceStatus(ctx, orgId, name)
+	if status.Code != http.StatusOK {
+		return nil, status
+	}
+	preserveServiceOwnedStatus(&device, stored)
+	return svc.ReplaceDeviceStatus(ctx, orgId, name, device, refreshLastSeen)
+}
+
+// PatchDeviceStatusFromUntrusted rejects patches to status fields that are
+// service-owned. Conditions are a mixed-ownership array, so patches to the
+// array are rejected as a whole rather than risking edits by array index.
+func PatchDeviceStatusFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.Device, domain.Status) {
+	for _, operation := range patch {
+		if deviceStatusPatchTouchesServiceOwnedFields(operation.Path) {
+			return nil, domain.StatusBadRequest(fmt.Sprintf("patch path %q targets server-owned device status", operation.Path))
+		}
+	}
+	return svc.PatchDeviceStatus(ctx, orgId, name, patch)
+}
+
+func deviceStatusPatchTouchesServiceOwnedFields(path string) bool {
+	if path == "" {
+		// Replacing the document root could change any status field.
+		return true
+	}
+
+	segments := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	if segments[0] != "status" {
+		return false
+	}
+	if len(segments) == 1 {
+		return true
+	}
+	switch segments[1] {
+	case "conditions", "dependencySync", "deltaGeneration", "enrollmentHooks":
+		return true
+	default:
+		return false
+	}
 }
 
 func (h *DeviceServiceHandler) CreateDevice(ctx context.Context, orgId uuid.UUID, device domain.Device) (*domain.Device, domain.Status) {
@@ -460,7 +510,6 @@ func (h *DeviceServiceHandler) ReplaceDeviceStatus(ctx context.Context, orgId uu
 
 	common.KeepDBDeviceStatus(&incomingDevice, deviceToStore)
 	deviceToStore.Status = incomingDevice.Status
-	preserveServiceOwnedStatus(deviceToStore, originalDevice)
 	_ = common.UpdateServiceSideStatus(ctx, orgId, deviceToStore, h.fleetStore, h.log)
 
 	result, before, err := h.deviceStore.UpdateStatus(ctx, orgId, deviceToStore, originalDevice)
@@ -551,7 +600,6 @@ func applyDeviceStatusPatch(ctx context.Context, current *domain.Device, patch d
 	}
 	common.NilOutManagedObjectMetaProperties(&patched.Metadata)
 	patched.Metadata.ResourceVersion = nil
-	preserveServiceOwnedStatus(patched, current)
 	return patched, nil
 }
 
@@ -939,14 +987,11 @@ func serviceConditionsFromDevice(device *domain.Device) []domain.Condition {
 	return out
 }
 
-// preserveServiceOwnedStatus restores the server-owned fields from the stored status.
+// preserveServiceOwnedStatus filters server-owned fields from an untrusted
+// status document by restoring their stored values.
 func preserveServiceOwnedStatus(device, stored *domain.Device) {
-	if device == nil {
+	if device == nil || device.Status == nil {
 		return
-	}
-	if device.Status == nil {
-		status := domain.NewDeviceStatus()
-		device.Status = &status
 	}
 
 	var serviceConditions []domain.Condition
