@@ -97,35 +97,19 @@ func ReplaceDeviceFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUI
 	return svc.ReplaceDevice(ctx, orgId, name, device, fieldsToUnset, enforceOwnership, enforceCapabilities)
 }
 
-// ReplaceDeviceStatusFromUntrusted preserves server-owned status fields before
-// forwarding an untrusted status document. Trusted service callers can use
-// ReplaceDeviceStatus directly when they need to update those fields.
-func ReplaceDeviceStatusFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, name string, device domain.Device, refreshLastSeen bool) (*domain.Device, domain.Status) {
-	if device.Metadata.Name == nil || *device.Metadata.Name == "" || *device.Metadata.Name != name || device.Status == nil {
-		return svc.ReplaceDeviceStatus(ctx, orgId, name, device, refreshLastSeen)
-	}
-
-	stored, status := svc.GetDeviceStatus(ctx, orgId, name)
-	if status.Code != http.StatusOK {
-		return nil, status
-	}
-	preserveServiceOwnedStatus(&device, stored)
-	return svc.ReplaceDeviceStatus(ctx, orgId, name, device, refreshLastSeen)
-}
-
-// PatchDeviceStatusFromUntrusted rejects patches to status fields that are
-// service-owned. Conditions are a mixed-ownership array, so patches to the
-// array are rejected as a whole rather than risking edits by array index.
-func PatchDeviceStatusFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.Device, domain.Status) {
+// PatchDeviceFromUntrusted rejects patches to device status fields owned by
+// the service. Conditions are a mixed-ownership array, so patches to the array
+// are rejected as a whole rather than risking edits by array index.
+func PatchDeviceFromUntrusted(ctx context.Context, svc Service, orgId uuid.UUID, name string, patch domain.PatchRequest, enforceOwnership bool, enforceCapabilities bool) (*domain.Device, domain.Status) {
 	for _, operation := range patch {
-		if deviceStatusPatchTouchesServiceOwnedFields(operation.Path) {
-			return nil, domain.StatusBadRequest(fmt.Sprintf("patch path %q targets server-owned device status", operation.Path))
+		if devicePatchTouchesServiceOwnedFields(operation.Path) {
+			return nil, domain.StatusBadRequest(fmt.Sprintf("patch path %q targets service-owned device status", operation.Path))
 		}
 	}
-	return svc.PatchDeviceStatus(ctx, orgId, name, patch)
+	return svc.PatchDevice(ctx, orgId, name, patch, enforceOwnership, enforceCapabilities)
 }
 
-func deviceStatusPatchTouchesServiceOwnedFields(path string) bool {
+func devicePatchTouchesServiceOwnedFields(path string) bool {
 	if path == "" {
 		// Replacing the document root could change any status field.
 		return true
@@ -985,27 +969,6 @@ func serviceConditionsFromDevice(device *domain.Device) []domain.Condition {
 		}
 	}
 	return out
-}
-
-// preserveServiceOwnedStatus filters server-owned fields from an untrusted
-// status document by restoring their stored values.
-func preserveServiceOwnedStatus(device, stored *domain.Device) {
-	if device == nil || device.Status == nil {
-		return
-	}
-
-	var serviceConditions []domain.Condition
-	if stored != nil && stored.Status != nil {
-		serviceConditions = serviceConditionsFromDevice(stored)
-		device.Status.DependencySync = stored.Status.DependencySync
-		device.Status.DeltaGeneration = stored.Status.DeltaGeneration
-		device.Status.EnrollmentHooks = stored.Status.EnrollmentHooks
-	} else {
-		device.Status.DependencySync = nil
-		device.Status.DeltaGeneration = nil
-		device.Status.EnrollmentHooks = nil
-	}
-	replaceServiceConditionsOnDevice(device, serviceConditions)
 }
 
 // replaceServiceConditionsOnDevice swaps service-owned conditions on Status while
