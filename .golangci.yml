@@ -274,6 +274,7 @@ linters:
             - "!**/internal/api_server/server.go"
             - "!**/internal/api_server/agentserver/server.go"
             - "!**/internal/imagebuilder_worker/worker.go"
+            - "!**/internal/worker_server/server.go"
             - "!**/test/**"
           deny:
             - pkg: "github.com/flightctl/flightctl/internal/store/enrollmentrequest$"

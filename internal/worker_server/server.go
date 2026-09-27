@@ -18,6 +18,7 @@ import (
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	dependencyrefservice "github.com/flightctl/flightctl/internal/service/dependencyref"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	eventservice "github.com/flightctl/flightctl/internal/service/event"
 	"github.com/flightctl/flightctl/internal/service/events"
 	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
@@ -28,6 +29,8 @@ import (
 	checkpointstore "github.com/flightctl/flightctl/internal/store/checkpoint"
 	dependencyrefstore "github.com/flightctl/flightctl/internal/store/dependencyref"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	enrollmenthooknotifysecrets "github.com/flightctl/flightctl/internal/store/enrollmenthooknotifysecrets"
+	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
@@ -111,6 +114,9 @@ func (s *Server) Run(ctx context.Context) error {
 	canarySvc := canaryservice.WrapWithTracing(canaryservice.NewServiceHandler(canaryStore))
 	catStore := catalogstore.NewCatalogStore(s.db, s.log.WithField("pkg", "catalog-store"))
 
+	enrollmentRequestStore := enrollmentrequeststore.NewEnrollmentRequestStore(s.db, s.log.WithField("pkg", "enrollmentrequest-store"))
+	notifySecretsStore := enrollmenthooknotifysecrets.NewStore(s.db, s.log.WithField("pkg", "enrollmenthooknotifysecret-store"))
+
 	eventsSvc := events.NewServiceHandler(eventStore, workerClient, s.log)
 
 	fleetSvc := fleetservice.WrapWithTracing(fleetservice.NewServiceHandler(fleetStore, catStore, eventsSvc, s.log))
@@ -120,6 +126,9 @@ func (s *Server) Run(ctx context.Context) error {
 	repositorySvc := repositoryservice.WrapWithTracing(repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, s.log))
 	catalogSvc := catalogservice.WrapWithTracing(catalogservice.NewServiceHandler(catStore, deviceStore, fleetStore, eventsSvc, s.log))
 	eventSvc := eventservice.WrapWithTracing(eventservice.NewServiceHandler(eventStore, eventsSvc))
+	enrollmentRequestSvc := enrollmentrequestservice.WrapWithTracing(enrollmentrequestservice.NewServiceHandler(
+		enrollmentRequestStore, deviceStore, nil, nil, kvStore, eventsSvc, s.log, nil, "", "", nil, notifySecretsStore,
+	))
 
 	encryptionMigrator := tasks.NewEncryptionMigrator(
 		ctx,
@@ -133,20 +142,22 @@ func (s *Server) Run(ctx context.Context) error {
 	)
 
 	if err = tasks.LaunchConsumers(ctx, s.queuesProvider, tasks.TaskConsumer{
-		FleetSvc:           fleetSvc,
-		TemplateversionSvc: templateVersionSvc,
-		DeviceSvc:          deviceSvc,
-		DependencyrefSvc:   dependencyrefSvc,
-		RepositorySvc:      repositorySvc,
-		CatalogSvc:         catalogSvc,
-		EventSvc:           eventSvc,
-		K8sClient:          s.k8sClient,
-		KVStore:            kvStore,
-		Cfg:                s.cfg,
-		WorkerMetrics:      s.workerMetrics,
-		EncryptionMigrator: encryptionMigrator,
-		QueuePublisher:     publisher,
-		WorkerClient:       workerClient,
+		FleetSvc:             fleetSvc,
+		TemplateversionSvc:   templateVersionSvc,
+		DeviceSvc:            deviceSvc,
+		DependencyrefSvc:     dependencyrefSvc,
+		RepositorySvc:        repositorySvc,
+		CatalogSvc:           catalogSvc,
+		EventSvc:             eventSvc,
+		EnrollmentRequestSvc: enrollmentRequestSvc,
+		NotifySecretsStore:   notifySecretsStore,
+		K8sClient:            s.k8sClient,
+		KVStore:              kvStore,
+		Cfg:                  s.cfg,
+		WorkerMetrics:        s.workerMetrics,
+		EncryptionMigrator:   encryptionMigrator,
+		QueuePublisher:       publisher,
+		WorkerClient:         workerClient,
 	}, 1, 1); err != nil {
 		s.log.WithError(err).Error("failed to launch consumers")
 		return err

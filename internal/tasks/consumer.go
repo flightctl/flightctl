@@ -17,10 +17,12 @@ import (
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	dependencyrefservice "github.com/flightctl/flightctl/internal/service/dependencyref"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	eventservice "github.com/flightctl/flightctl/internal/service/event"
 	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
+	enrollmenthooknotifysecrets "github.com/flightctl/flightctl/internal/store/enrollmenthooknotifysecrets"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -31,20 +33,22 @@ import (
 )
 
 type TaskConsumer struct {
-	FleetSvc           fleetservice.Service
-	TemplateversionSvc templateversionservice.Service
-	DeviceSvc          deviceservice.Service
-	DependencyrefSvc   dependencyrefservice.Service
-	RepositorySvc      repositoryservice.Service
-	CatalogSvc         catalogservice.Service
-	EventSvc           eventservice.Service
-	K8sClient          k8sclient.K8SClient
-	KVStore            kvstore.KVStore
-	Cfg                *config.Config
-	WorkerMetrics      *worker.WorkerCollector
-	EncryptionMigrator *EncryptionMigrator
-	QueuePublisher     queues.QueueProducer
-	WorkerClient       worker_client.WorkerClient
+	FleetSvc             fleetservice.Service
+	TemplateversionSvc   templateversionservice.Service
+	DeviceSvc            deviceservice.Service
+	DependencyrefSvc     dependencyrefservice.Service
+	RepositorySvc        repositoryservice.Service
+	CatalogSvc           catalogservice.Service
+	EventSvc             eventservice.Service
+	EnrollmentRequestSvc enrollmentrequestservice.Service
+	NotifySecretsStore   enrollmenthooknotifysecrets.Store
+	K8sClient            k8sclient.K8SClient
+	KVStore              kvstore.KVStore
+	Cfg                  *config.Config
+	WorkerMetrics        *worker.WorkerCollector
+	EncryptionMigrator   *EncryptionMigrator
+	QueuePublisher       queues.QueueProducer
+	WorkerClient         worker_client.WorkerClient
 }
 
 func (d TaskConsumer) dispatch() queues.ConsumeHandler {
@@ -162,10 +166,8 @@ func (d TaskConsumer) dispatch() queues.ConsumeHandler {
 		if shouldEnrollmentHookNotify(eventWithOrgId.Event) {
 			taskName = "enrollmentHookNotify"
 			err = runTaskWithMetrics(taskName, d.WorkerMetrics, func() error {
-				// Stub: actual notify webhook execution is EDM-5707 scope
-				log.Infof("enrollment hook notify: event received for %s/%s (handler not yet implemented)",
-					eventWithOrgId.OrgId, eventWithOrgId.Event.InvolvedObject.Name)
-				return nil
+				return enrollmentHookNotify(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event,
+					d.DeviceSvc, d.EnrollmentRequestSvc, d.NotifySecretsStore, d.EventSvc, log)
 			})
 			errorMessages = appendErrorMessage(errorMessages, taskName, err)
 		}
