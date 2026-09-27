@@ -134,6 +134,10 @@ func (b *Bootstrap) Initialize(ctx context.Context) error {
 		return err
 	}
 
+	if err := b.ensurePostEnrollmentHooks(ctx); err != nil {
+		return err
+	}
+
 	if err := b.ensureBootstrap(ctx); err != nil {
 		infoMsg := fmt.Sprintf("Bootstrap failed: %v", err)
 		_, updateErr := b.statusManager.Update(ctx, status.SetDeviceSummary(v1beta1.DeviceSummaryStatus{
