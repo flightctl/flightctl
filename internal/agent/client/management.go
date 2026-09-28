@@ -40,6 +40,29 @@ func (m *management) SetRPCMetricsCallback(cb RPCMetricsCallback) {
 	m.rpcMetricsCallbackFunc = cb
 }
 
+// GetDevice returns the device resource for the given device name.
+func (m *management) GetDevice(ctx context.Context, name string, rcb ...client.RequestEditorFn) (*v1beta1.Device, int, error) {
+	start := time.Now()
+	resp, err := m.client.ReadDeviceWithResponse(ctx, name, rcb...)
+
+	if m.rpcMetricsCallbackFunc != nil {
+		m.rpcMetricsCallbackFunc("get_device_duration", time.Since(start).Seconds(), err)
+	}
+
+	if err != nil {
+		return nil, http.StatusInternalServerError, err
+	}
+	if resp.HTTPResponse != nil {
+		defer func() { _ = resp.HTTPResponse.Body.Close() }()
+	}
+
+	if resp.JSON200 != nil {
+		return resp.JSON200, resp.StatusCode(), nil
+	}
+
+	return nil, resp.StatusCode(), nil
+}
+
 // UpdateDeviceStatus updates the status of the device with the given name.
 func (m *management) UpdateDeviceStatus(ctx context.Context, name string, device v1beta1.Device, rcb ...client.RequestEditorFn) error {
 	start := time.Now()

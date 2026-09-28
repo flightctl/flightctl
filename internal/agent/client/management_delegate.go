@@ -101,6 +101,18 @@ func (d *ManagementDelegate) mgmt() (Management, error) {
 
 // ---- Management passthrough ----
 
+func (d *ManagementDelegate) GetDevice(
+	ctx context.Context,
+	name string,
+	rcb ...agentclient.RequestEditorFn,
+) (*api.Device, int, error) {
+	m, err := d.mgmt()
+	if err != nil {
+		return nil, 0, err
+	}
+	return m.GetDevice(ctx, name, rcb...)
+}
+
 func (d *ManagementDelegate) SetRPCMetricsCallback(cb RPCMetricsCallback) {
 	// Persist for future Reload() calls.
 	d.rpcCB.Store(cb)

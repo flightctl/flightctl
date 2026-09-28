@@ -55,6 +55,7 @@ func NewFromConfig(config *baseclient.Config, log *log.PrefixLogger, opts ...HTT
 
 // Management is the client interface for managing devices.
 type Management interface {
+	GetDevice(ctx context.Context, name string, rcb ...client.RequestEditorFn) (*v1beta1.Device, int, error)
 	UpdateDeviceStatus(ctx context.Context, name string, device v1beta1.Device, rcb ...client.RequestEditorFn) error
 	GetRenderedDevice(ctx context.Context, name string, params *v1beta1.GetRenderedDeviceParams, rcb ...client.RequestEditorFn) (*v1beta1.Device, int, error)
 	PatchDeviceStatus(ctx context.Context, name string, patch v1beta1.PatchRequest, rcb ...client.RequestEditorFn) error

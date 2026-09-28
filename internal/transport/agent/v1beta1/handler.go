@@ -56,6 +56,40 @@ func NewAgentTransportHandler(
 	}
 }
 
+// (GET /api/v1/devices/{name})
+func (s *AgentTransportHandler) ReadDevice(w http.ResponseWriter, r *http.Request, name string) {
+	ctx := r.Context()
+
+	// Extract device fingerprint from context (set by middleware)
+	val := ctx.Value(consts.IdentityCtxKey)
+	if val == nil {
+		s.log.Error("agent identity is missing from context")
+		status := api.StatusUnauthorized(http.StatusText(http.StatusUnauthorized))
+		s.SetResponse(w, status, status)
+		return
+	}
+	identity, ok := val.(*middleware.AgentIdentity)
+	if !ok {
+		s.log.Error("invalid agent identity type in context")
+		status := api.StatusInternalServerError(http.StatusText(http.StatusInternalServerError))
+		s.SetResponse(w, status, status)
+		return
+	}
+	fingerprint := identity.GetUsername() // This is the device fingerprint for agents
+
+	// Validate that the authenticated device matches the requested device name
+	if fingerprint != name {
+		s.log.Errorf("attempt to access device %q with certificate fingerprint %q has been detected", name, fingerprint)
+		status := api.StatusUnauthorized(http.StatusText(http.StatusUnauthorized))
+		s.SetResponse(w, status, status)
+		return
+	}
+
+	body, status := s.device.GetDevice(ctx, transport.OrgIDFromContext(ctx), fingerprint)
+	apiResult := s.converter.Device().FromDomain(body)
+	s.SetResponse(w, apiResult, status)
+}
+
 // (GET /api/v1/devices/{name}/rendered)
 func (s *AgentTransportHandler) GetRenderedDevice(w http.ResponseWriter, r *http.Request, name string, params api.GetRenderedDeviceParams) {
 	ctx := r.Context()

@@ -84,6 +84,27 @@ func (mr *MockManagementMockRecorder) GetCertificateSigningRequest(ctx, name any
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetCertificateSigningRequest", reflect.TypeOf((*MockManagement)(nil).GetCertificateSigningRequest), varargs...)
 }
 
+// GetDevice mocks base method.
+func (m *MockManagement) GetDevice(ctx context.Context, name string, rcb ...client.RequestEditorFn) (*v1beta1.Device, int, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, name}
+	for _, a := range rcb {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "GetDevice", varargs...)
+	ret0, _ := ret[0].(*v1beta1.Device)
+	ret1, _ := ret[1].(int)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// GetDevice indicates an expected call of GetDevice.
+func (mr *MockManagementMockRecorder) GetDevice(ctx, name any, rcb ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, name}, rcb...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDevice", reflect.TypeOf((*MockManagement)(nil).GetDevice), varargs...)
+}
+
 // GetRenderedDevice mocks base method.
 func (m *MockManagement) GetRenderedDevice(ctx context.Context, name string, params *v1beta1.GetRenderedDeviceParams, rcb ...client.RequestEditorFn) (*v1beta1.Device, int, error) {
 	m.ctrl.T.Helper()
