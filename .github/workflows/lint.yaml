@@ -53,6 +53,18 @@ jobs:
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         uses: ./.github/actions/setup-dependencies
 
+      # Always run when Go is available via setup-dependencies, otherwise use a
+      # lightweight setup-go so docs-only PRs still get the policy check.
+      - name: Setup Go for comment-artifact check
+        if: ${{ steps.changed-files.outputs.any_changed != 'true' }}
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Check Go comments for plan/design artifact markers
+        run: make lint-comment-artifacts
+
       - name: Check that generated files have been updated and that go.mod is tidy
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: |

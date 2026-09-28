@@ -46,8 +46,8 @@ const (
 	reasonForbidden               = "forbidden"
 )
 
-// Structured log event names emitted by the Quay backend (design §6). They are
-// carried in the "event" log field so operators can filter by outcome.
+// Structured log event names emitted by the Quay backend. They are carried in
+// the "event" log field so operators can filter by outcome.
 const (
 	eventScanCompleted = "quay_scan_completed"
 	eventScanSkipped   = "quay_scan_skipped"

@@ -638,7 +638,7 @@ func TestScanImages_ScanCompletedEvent(t *testing.T) {
 
 func TestScanImages_ParentContextCancelled(t *testing.T) {
 	// A cancelled parent context must surface as an error, never as a partial map
-	// the caller would mistake for a complete scan (design §4.6 ctx.Done respect).
+	// the caller would mistake for a complete scan.
 	srv := newMockQuayServer(t, &mockQuayServer{response: scannedResponse()})
 	s, _ := newTestScanner(t, srv.URL, 2, srv.Client())
 
