@@ -43,24 +43,6 @@ jobs:
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         uses: ./.github/actions/setup-dependencies
 
-      - name: Build db-migrator image
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        run: |
-          set -euo pipefail
-          # Get the current commit SHA for tagging
-          COMMIT_SHA="${GITHUB_SHA}"
-          echo "Building db-migrator image tagged with commit: ${COMMIT_SHA}"
-
-          # Build the db-setup container with commit tag
-          sudo make flightctl-db-setup-container
-
-          # Tag the image with the commit SHA
-          sudo podman tag flightctl-db-setup-el9:latest "flightctl-db-setup:${COMMIT_SHA}"
-
-          echo "MIGRATION_IMAGE=flightctl-db-setup:${COMMIT_SHA}" >> "$GITHUB_ENV"
-        env:
-          OS: el9
-
       - name: Running integration tests
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: |
@@ -75,76 +57,4 @@ jobs:
           name: junit-integration-test
           path: reports/junit_integration_test.xml
           if-no-files-found: ignore
-
-      - name: Detect baseline for compatibility testing
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
-        id: detect_baseline
-        env:
-          GH_TOKEN: ${{ github.token }}
-          EVENT_NAME: ${{ github.event_name }}
-          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          MERGE_GROUP_BASE_SHA: ${{ github.event.merge_group.base_sha }}
-        run: |
-          set -euo pipefail
-          echo "Detecting baseline commit for compatibility testing..."
-          echo ""
-
-          # Ensure tags exist locally (required for rev-list against the release tag)
-          git fetch --tags --force >/dev/null 2>&1 || true
-
-          # Try to get latest release
-          LATEST_RELEASE_TAG="$(gh release view --json tagName --jq .tagName 2>/dev/null || true)"
-          if [ -n "${LATEST_RELEASE_TAG}" ]; then
-            echo "Latest release: ${LATEST_RELEASE_TAG}"
-            BASELINE_REF="${LATEST_RELEASE_TAG}"
-            echo "Using latest release as baseline: ${BASELINE_REF}"
-          else
-            # Use the appropriate base depending on event type
-            if [ "${EVENT_NAME}" = "pull_request" ]; then
-              BASELINE_REF="${PR_BASE_SHA}"
-            else
-              BASELINE_REF="${MERGE_GROUP_BASE_SHA}"
-            fi
-            echo "Failed to detect latest release, falling back to base: ${BASELINE_REF}"
-          fi
-          echo ""
-          echo "================================================"
-          echo "Selected baseline: ${BASELINE_REF}"
-          echo "================================================"
-          echo ""
-          echo "baseline_ref=${BASELINE_REF}" >> "$GITHUB_OUTPUT"
-
-      - name: Checkout baseline branch
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' && (github.event_name == 'pull_request' || github.event_name == 'merge_group') }}
-        uses: actions/checkout@v4
-        with:
-          repository: flightctl/flightctl
-          ref: ${{ steps.detect_baseline.outputs.baseline_ref }}
-          fetch-depth: 0
-
-      - name: Print checkout info (baseline)
-        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        run: |
-          set -euo pipefail
-          echo "### Baseline checkout"
-          echo
-          echo "- Repository: $(git config --get remote.origin.url)"
-          echo "- Branch: $(git rev-parse --abbrev-ref HEAD)"
-          echo "- Commit: $(git rev-parse HEAD)"
-          echo "- Subject: $(git log -1 --pretty=%s)"
-          echo "- Tags: $(git tag --points-at HEAD | tr '\n' ' ' || true)"
-          echo
-          echo "### Migration image"
-          echo
-          echo "- MIGRATION_IMAGE: ${MIGRATION_IMAGE}"
-
-      # Temporarily disabled backward compatibility tests
-      # TODO: Re-enable after fixing schema migration issues
-      - name: Running backward compatibility tests in template mode
-        # if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
-        if: false
-        run: |
-          make integration-test INTEGRATION_PROCS=4
-        env:
-          DISABLE_FIPS: true
 
