@@ -607,12 +607,21 @@ func newAppImagePair(imageRef string, currentDigests map[string]string) *appImag
 				currentRefs = append(currentRefs, currentRef)
 			}
 			sort.Strings(currentRefs)
+			var repositoryDigest string
+			ambiguous := false
 			for _, currentRef := range currentRefs {
 				currentRepository, err := ImageRepositoryFromRef(currentRef)
 				if err == nil && currentRepository == targetRepository && currentDigests[currentRef] != "" {
-					currentDigest = currentDigests[currentRef]
-					break
+					if repositoryDigest == "" {
+						repositoryDigest = currentDigests[currentRef]
+					} else if repositoryDigest != currentDigests[currentRef] {
+						ambiguous = true
+						break
+					}
 				}
+			}
+			if !ambiguous {
+				currentDigest = repositoryDigest
 			}
 		}
 	}
@@ -635,19 +644,9 @@ func collectComposeInlinePairs(contents []v1beta1.ApplicationContent, currentDig
 }
 
 func collectQuadletInlinePairs(contents []v1beta1.ApplicationContent, currentDigests map[string]string) []appImagePair {
-	quadlets, err := agentclient.ParseQuadletReferencesFromSpec(contents)
+	imageRefs, err := agentclient.ParseQuadletImageReferencesFromSpec(contents)
 	if err != nil {
 		return nil
-	}
-	var imageRefs []string
-	for _, quad := range quadlets {
-		if quad == nil {
-			continue
-		}
-		if quad.Image != nil {
-			imageRefs = append(imageRefs, *quad.Image)
-		}
-		imageRefs = append(imageRefs, quad.MountImages...)
 	}
 	return collectImagePairs(imageRefs, currentDigests)
 }
@@ -667,10 +666,9 @@ func collectImagePairs(imageRefs []string, currentDigests map[string]string) []a
 			continue
 		}
 		seen[imageRef] = struct{}{}
-		pairs = append(pairs, appImagePair{
-			imageRef:      imageRef,
-			currentDigest: currentDigests[imageRef],
-		})
+		if pair := newAppImagePair(imageRef, currentDigests); pair != nil {
+			pairs = append(pairs, *pair)
+		}
 	}
 	return pairs
 }

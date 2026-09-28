@@ -9,7 +9,6 @@ import (
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	apphelm "github.com/flightctl/flightctl/internal/agent/device/applications/helm"
-	"github.com/flightctl/flightctl/internal/api/common"
 	preparetask "github.com/flightctl/flightctl/internal/delta_worker/tasks/prepare"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/tasks"
@@ -223,6 +222,8 @@ func extractNewImageRefs(app *domain.ApplicationProviderSpec) []string {
 		refs = extractQuadletRefs(app)
 	case domain.AppTypeHelm:
 		refs = extractHelmRefs(app)
+	case domain.AppTypeVm:
+		refs = extractVmRefs(app)
 	}
 
 	refs = append(refs, extractVolumeImageRefs(app)...)
@@ -272,9 +273,9 @@ func extractComposeRefs(app *domain.ApplicationProviderSpec) []string {
 }
 
 // extractQuadletRefs extracts all image references from a rendered quadlet
-// application: the parent artifact image (when image-based) and every Image=
-// reference inside inline quadlet unit files. Rendered quadlet apps always
-// carry inline content.
+// application: the parent artifact image (when image-based), references in
+// inline quadlet units, and images in Pod YAML referenced by .kube units.
+// Rendered quadlet apps always carry inline content.
 func extractQuadletRefs(app *domain.ApplicationProviderSpec) []string {
 	quadlet, err := (*app).AsQuadletApplication()
 	if err != nil {
@@ -314,6 +315,20 @@ func extractHelmRefs(app *domain.ApplicationProviderSpec) []string {
 	return []string{imageSpec.Image}
 }
 
+// extractVmRefs extracts an image-backed VM application image. Inline VM apps
+// are rendered as Quadlet applications before delta candidates are prepared.
+func extractVmRefs(app *domain.ApplicationProviderSpec) []string {
+	vm, err := (*app).AsVmApplication()
+	if err != nil {
+		return nil
+	}
+	imageSpec, err := vm.AsImageApplicationProviderSpec()
+	if err != nil || imageSpec.Image == "" {
+		return nil
+	}
+	return []string{imageSpec.Image}
+}
+
 // extractVolumeImageRefs extracts OCI image references from application volumes.
 func extractVolumeImageRefs(app *domain.ApplicationProviderSpec) []string {
 	// Volumes are on the typed app specs. Try each type.
@@ -333,12 +348,21 @@ func extractVolumeImageRefs(app *domain.ApplicationProviderSpec) []string {
 
 	var refs []string
 	for _, vol := range *volumes {
-		imgVol, err := vol.AsImageVolumeProviderSpec()
+		volType, err := vol.Type()
 		if err != nil {
 			continue
 		}
-		if imgVol.Image.Reference != "" {
-			refs = append(refs, imgVol.Image.Reference)
+		switch volType {
+		case v1beta1.ImageApplicationVolumeProviderType:
+			imgVol, err := vol.AsImageVolumeProviderSpec()
+			if err == nil && imgVol.Image.Reference != "" {
+				refs = append(refs, imgVol.Image.Reference)
+			}
+		case v1beta1.ImageMountApplicationVolumeProviderType:
+			imgVol, err := vol.AsImageMountVolumeProviderSpec()
+			if err == nil && imgVol.Image.Reference != "" {
+				refs = append(refs, imgVol.Image.Reference)
+			}
 		}
 	}
 	return refs
@@ -360,33 +384,12 @@ func parseComposeServiceImages(contents []v1beta1.ApplicationContent) []string {
 	return images
 }
 
-// parseQuadletImageRefs parses quadlet unit files and returns all Image=
-// references.
+// parseQuadletImageRefs returns external images referenced by inline Quadlet
+// units and any Pod YAML referenced by .kube units.
 func parseQuadletImageRefs(contents []v1beta1.ApplicationContent) []string {
-	quads, err := client.ParseQuadletReferencesFromSpec(contents)
+	images, err := client.ParseQuadletImageReferencesFromSpec(contents)
 	if err != nil {
 		return nil
-	}
-	var images []string
-	for _, quad := range quads {
-		images = append(images, quadletImages(quad)...)
-	}
-	return images
-}
-
-// quadletImages returns all image references from a parsed quadlet.
-func quadletImages(quad *common.QuadletReferences) []string {
-	if quad == nil {
-		return nil
-	}
-	var images []string
-	if quad.Image != nil && *quad.Image != "" {
-		images = append(images, *quad.Image)
-	}
-	for _, img := range quad.MountImages {
-		if img != "" {
-			images = append(images, img)
-		}
 	}
 	return images
 }
