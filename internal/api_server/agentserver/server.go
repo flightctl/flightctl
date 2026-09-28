@@ -140,7 +140,7 @@ func (s *AgentServer) init(ctx context.Context) error {
 	s.organizationSvc = organizationservice.WrapWithTracing(
 		organizationservice.NewServiceHandler(organizationStore))
 
-	s.agentGrpcServer = NewAgentGrpcServer(s.log, s.cfg, s.enrollmentRequestSvc)
+	s.agentGrpcServer = NewAgentGrpcServer(s.log, s.cfg, s.ca, s.enrollmentRequestSvc, s.deviceSvc)
 	return nil
 }
 

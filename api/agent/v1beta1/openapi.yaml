@@ -19,44 +19,6 @@ tags:
   - name: enrollmentrequest
     description: Operations on EnrollmentRequest resources.
 paths:
-  /devices/{name}:
-    get:
-      tags:
-        - device
-      description: Read a Device resource.
-      operationId: readDevice
-      parameters:
-        - name: name
-          in: path
-          description: The name of the Device resource to read.
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Device'
-        "401":
-          description: Unauthorized
-          content:
-            application/json:
-              schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
-        "404":
-          description: Not Found
-          content:
-            application/json:
-              schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
-        "429":
-          description: Too Many Requests
-          content:
-            application/json:
-              schema:
-                $ref: '../../core/v1beta1/openapi.yaml#/components/schemas/Status'
   /devices/{name}/status:
     put:
       tags:

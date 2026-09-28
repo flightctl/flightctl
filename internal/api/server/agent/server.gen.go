@@ -25,9 +25,6 @@ type ServerInterface interface {
 	// (GET /certificatesigningrequests/{name})
 	GetCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string)
 
-	// (GET /devices/{name})
-	ReadDevice(w http.ResponseWriter, r *http.Request, name string)
-
 	// (GET /devices/{name}/rendered)
 	GetRenderedDevice(w http.ResponseWriter, r *http.Request, name string, params GetRenderedDeviceParams)
 
@@ -55,11 +52,6 @@ func (_ Unimplemented) CreateCertificateSigningRequest(w http.ResponseWriter, r 
 
 // (GET /certificatesigningrequests/{name})
 func (_ Unimplemented) GetCertificateSigningRequest(w http.ResponseWriter, r *http.Request, name string) {
-	w.WriteHeader(http.StatusNotImplemented)
-}
-
-// (GET /devices/{name})
-func (_ Unimplemented) ReadDevice(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -128,32 +120,6 @@ func (siw *ServerInterfaceWrapper) GetCertificateSigningRequest(w http.ResponseW
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetCertificateSigningRequest(w, r, name)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// ReadDevice operation middleware
-func (siw *ServerInterfaceWrapper) ReadDevice(w http.ResponseWriter, r *http.Request) {
-
-	var err error
-	_ = err
-
-	// ------------- Path parameter "name" -------------
-	var name string
-
-	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
-	if err != nil {
-		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
-		return
-	}
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.ReadDevice(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -415,9 +381,6 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/certificatesigningrequests/{name}", wrapper.GetCertificateSigningRequest)
-	})
-	r.Group(func(r chi.Router) {
-		r.Get(options.BaseURL+"/devices/{name}", wrapper.ReadDevice)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/devices/{name}/rendered", wrapper.GetRenderedDevice)

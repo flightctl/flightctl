@@ -935,8 +935,29 @@ func (h *DeviceServiceHandler) SetDeviceServiceConditions(ctx context.Context, o
 	}
 	if result != nil {
 		h.diffAndEmitConditionEvents(ctx, orgId, result, oldConditions, newConditions)
+		if enrollmentHooksConditionChanged(oldConditions, newConditions) {
+			if err := rendered.Bus.Instance().NotifyEnrollmentHooks(ctx, orgId, name); err != nil {
+				h.log.Errorf("Failed to notify enrollment hooks watchers for device %s/%s: %v", orgId, name, err)
+			}
+		}
 	}
 	return domain.StatusOK()
+}
+
+// enrollmentHooksConditionChanged reports whether the EnrollmentHooks condition
+// reason, status, or message differs between old and new service conditions.
+func enrollmentHooksConditionChanged(oldConditions, newConditions []domain.Condition) bool {
+	oldCond := domain.FindStatusCondition(oldConditions, domain.ConditionTypeDeviceEnrollmentHooks)
+	newCond := domain.FindStatusCondition(newConditions, domain.ConditionTypeDeviceEnrollmentHooks)
+	if oldCond == nil && newCond == nil {
+		return false
+	}
+	if oldCond == nil || newCond == nil {
+		return true
+	}
+	return oldCond.Reason != newCond.Reason ||
+		oldCond.Status != newCond.Status ||
+		oldCond.Message != newCond.Message
 }
 
 // serviceConditionsFromDevice returns service-owned conditions from

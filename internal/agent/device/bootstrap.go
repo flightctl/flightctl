@@ -5,11 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
+	"io"
 	"os"
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
+	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
@@ -36,12 +37,25 @@ var (
 )
 
 // defaultEnrollmentHooksBackoff is the ER-style exponential backoff used to
-// poll for enrollment-hook readiness.
+// reconnect the enrollment-hooks gRPC watch on transient failures, and for
+// PATCH retries.
 var defaultEnrollmentHooksBackoff = wait.Backoff{
 	Steps:    10,
 	Duration: 5 * time.Second,
 	Factor:   2.0,
 	Cap:      5 * time.Minute,
+}
+
+// enrollmentHooksState is the resolved EnrollmentHooks condition after the
+// gRPC watch completes (or from a test override).
+type enrollmentHooksState struct {
+	conditionAbsent bool
+	reason          string
+	status          v1beta1.ConditionStatus
+	message         string
+	condIdx         int
+	failurePolicy   v1beta1.FailurePolicyType
+	labels          map[string]string
 }
 
 type Bootstrap struct {
@@ -62,9 +76,12 @@ type Bootstrap struct {
 	managementMetricsCallback client.RPCMetricsCallback
 	identityProvider          identity.Provider
 
-	// enrollmentHooksBackoff overrides the default polling backoff for
-	// post-enrollment hooks. Zero value means use defaultEnrollmentHooksBackoff.
+	// enrollmentHooksBackoff overrides the default reconnect/PATCH backoff for
+	// post-enrollment hooks. Nil means use defaultEnrollmentHooksBackoff.
 	enrollmentHooksBackoff *wait.Backoff
+
+	// waitEnrollmentHooksReadyFn overrides the gRPC watch for tests.
+	waitEnrollmentHooksReadyFn func(ctx context.Context) (*enrollmentHooksState, error)
 
 	log *log.PrefixLogger
 }
@@ -357,26 +374,26 @@ func (b *Bootstrap) enrollmentBackoff() wait.Backoff {
 	return defaultEnrollmentHooksBackoff
 }
 
-// ensurePostEnrollmentHooks reads the Device's EnrollmentHooks condition,
+// ensurePostEnrollmentHooks watches the Device's EnrollmentHooks condition,
 // waits for server-side notification if needed, runs OnAfterEnrolling hooks,
 // and PATCHes the condition outcome back.
 func (b *Bootstrap) ensurePostEnrollmentHooks(ctx context.Context) error {
-	device, condition, condIdx, err := b.pollEnrollmentHooksReady(ctx)
+	state, err := b.waitEnrollmentHooksReady(ctx)
 	if err != nil {
 		return err
 	}
 
 	// No EnrollmentHooks condition means no policy was applied at approval.
-	if condition == nil {
+	if state.conditionAbsent {
 		b.log.Info("No enrollment hooks condition found, proceeding")
 		return nil
 	}
 
-	switch condition.Reason {
+	switch state.reason {
 	case v1beta1.EnrollmentHooksReasonSucceeded,
 		v1beta1.EnrollmentHooksReasonContinued,
 		v1beta1.EnrollmentHooksReasonManualOverride:
-		b.log.Infof("Enrollment hooks condition is %s, proceeding", condition.Reason)
+		b.log.Infof("Enrollment hooks condition is %s, proceeding", state.reason)
 		return nil
 
 	case v1beta1.EnrollmentHooksReasonFailed:
@@ -387,11 +404,11 @@ func (b *Bootstrap) ensurePostEnrollmentHooks(ctx context.Context) error {
 	case v1beta1.EnrollmentHooksReasonPending:
 		// Notify complete (or none configured); run AfterEnrolling below.
 	default:
-		b.log.Warnf("Unknown enrollment hooks reason %q, proceeding", condition.Reason)
+		b.log.Warnf("Unknown enrollment hooks reason %q, proceeding", state.reason)
 		return nil
 	}
 
-	enrollCtx, err := b.buildEnrollmentContext(ctx, device)
+	enrollCtx, err := b.buildEnrollmentContext(ctx, state)
 	if err != nil {
 		b.log.Warnf("Failed to build enrollment context: %v", err)
 		// Non-fatal: proceed with partial context.
@@ -400,11 +417,14 @@ func (b *Bootstrap) ensurePostEnrollmentHooks(ctx context.Context) error {
 	b.log.Info("Running AfterEnrolling hooks")
 	hookErr := b.hookManager.OnAfterEnrolling(ctx, enrollCtx)
 
-	failurePolicy := b.getFailurePolicy(device)
+	failurePolicy := state.failurePolicy
+	if failurePolicy == "" {
+		failurePolicy = v1beta1.FailurePolicyBlock
+	}
 	if hookErr != nil {
 		b.log.Warnf("AfterEnrolling hooks failed: %v", hookErr)
 		if failurePolicy == v1beta1.FailurePolicyContinue {
-			if patchErr := b.patchEnrollmentHooksCondition(ctx, condIdx,
+			if patchErr := b.patchEnrollmentHooksCondition(ctx, state.condIdx,
 				v1beta1.ConditionStatusTrue,
 				v1beta1.EnrollmentHooksReasonContinued,
 				fmt.Sprintf("hooks failed but policy is Continue: %v", hookErr),
@@ -413,7 +433,7 @@ func (b *Bootstrap) ensurePostEnrollmentHooks(ctx context.Context) error {
 			}
 			return nil
 		}
-		if patchErr := b.patchEnrollmentHooksCondition(ctx, condIdx,
+		if patchErr := b.patchEnrollmentHooksCondition(ctx, state.condIdx,
 			v1beta1.ConditionStatusFalse,
 			v1beta1.EnrollmentHooksReasonFailed,
 			fmt.Sprintf("hooks failed: %v", hookErr),
@@ -423,7 +443,7 @@ func (b *Bootstrap) ensurePostEnrollmentHooks(ctx context.Context) error {
 		return fmt.Errorf("post-enrollment hooks failed with Block policy: %w", errEnrollmentHooksFailed)
 	}
 
-	if patchErr := b.patchEnrollmentHooksCondition(ctx, condIdx,
+	if patchErr := b.patchEnrollmentHooksCondition(ctx, state.condIdx,
 		v1beta1.ConditionStatusTrue,
 		v1beta1.EnrollmentHooksReasonSucceeded,
 		"hooks completed successfully",
@@ -433,77 +453,110 @@ func (b *Bootstrap) ensurePostEnrollmentHooks(ctx context.Context) error {
 	return nil
 }
 
-// pollEnrollmentHooksReady polls GetDevice until the EnrollmentHooks condition
-// is no longer NotifyPending. Returns the device, the condition (nil if absent),
-// the condition index, and any error.
-func (b *Bootstrap) pollEnrollmentHooksReady(ctx context.Context) (*v1beta1.Device, *v1beta1.Condition, int, error) {
-	var (
-		resultDevice    *v1beta1.Device
-		resultCondition *v1beta1.Condition
-		resultIdx       int
-	)
-
-	backoff := b.enrollmentBackoff()
-	pollErr := wait.ExponentialBackoffWithContext(ctx, backoff, func(_ context.Context) (bool, error) {
-		device, statusCode, err := b.managementClient.GetDevice(ctx, b.deviceName)
-		if err != nil {
-			b.log.Warnf("Failed to get device for enrollment hooks: %v", err)
-			return false, nil // retry
-		}
-		if statusCode != http.StatusOK {
-			b.log.Warnf("GetDevice returned status %d for enrollment hooks", statusCode)
-			return false, nil // retry
-		}
-		if device == nil || device.Status == nil {
-			b.log.Warn("GetDevice returned nil device or status")
-			return false, nil // retry
-		}
-
-		condition := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceEnrollmentHooks)
-		if condition == nil {
-			resultDevice = device
-			resultCondition = nil
-			resultIdx = -1
-			return true, nil
-		}
-
-		if condition.Reason == v1beta1.EnrollmentHooksReasonNotifyPending {
-			b.log.Info("Enrollment hooks condition is NotifyPending, waiting for server notification")
-			return false, nil // keep polling
-		}
-
-		// Condition has moved past NotifyPending.
-		resultDevice = device
-		resultCondition = condition
-		for i := range device.Status.Conditions {
-			if device.Status.Conditions[i].Type == v1beta1.ConditionTypeDeviceEnrollmentHooks {
-				resultIdx = i
-				break
-			}
-		}
-		return true, nil
-	})
-
-	if pollErr != nil {
-		if errors.Is(pollErr, context.Canceled) || errors.Is(pollErr, context.DeadlineExceeded) {
-			return nil, nil, -1, fmt.Errorf("waiting for enrollment hooks readiness: %w", pollErr)
-		}
-		return nil, nil, -1, fmt.Errorf("waiting for enrollment hooks readiness: %w", errEnrollmentHooksTimeout)
+// waitEnrollmentHooksReady opens a gRPC watch (snapshot + updates) until the
+// EnrollmentHooks condition leaves NotifyPending. Retries on transient stream
+// errors using the enrollment-hooks backoff.
+func (b *Bootstrap) waitEnrollmentHooksReady(ctx context.Context) (*enrollmentHooksState, error) {
+	if b.waitEnrollmentHooksReadyFn != nil {
+		return b.waitEnrollmentHooksReadyFn(ctx)
 	}
 
-	return resultDevice, resultCondition, resultIdx, nil
+	backoff := b.enrollmentBackoff()
+	timeout := backoff.Cap
+	if timeout <= 0 {
+		timeout = 5 * time.Minute
+	}
+	watchCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	var result *enrollmentHooksState
+	waitErr := wait.ExponentialBackoffWithContext(watchCtx, backoff, func(ctx context.Context) (bool, error) {
+		state, err := b.watchEnrollmentHooksOnce(ctx)
+		if err != nil {
+			b.log.Warnf("Enrollment hooks watch failed (will retry): %v", err)
+			return false, nil
+		}
+		result = state
+		return true, nil
+	})
+	if waitErr != nil {
+		if errors.Is(waitErr, context.Canceled) {
+			return nil, fmt.Errorf("waiting for enrollment hooks readiness: %w", waitErr)
+		}
+		if errors.Is(waitErr, context.DeadlineExceeded) {
+			return nil, fmt.Errorf("waiting for enrollment hooks readiness: %w", errEnrollmentHooksTimeout)
+		}
+		return nil, fmt.Errorf("waiting for enrollment hooks readiness: %w", errEnrollmentHooksTimeout)
+	}
+	return result, nil
+}
+
+// watchEnrollmentHooksOnce opens one WatchEnrollmentHooks stream and returns
+// the terminal event (condition absent or reason != NotifyPending).
+func (b *Bootstrap) watchEnrollmentHooksOnce(ctx context.Context) (*enrollmentHooksState, error) {
+	enrollmentClient, err := b.identityProvider.CreateEnrollmentGRPCClient(b.managementServiceConfig)
+	if err != nil {
+		return nil, fmt.Errorf("create enrollment gRPC client: %w", err)
+	}
+
+	stream, err := enrollmentClient.WatchEnrollmentHooks(ctx, &grpc_v1.WatchEnrollmentHooksRequest{
+		DeviceName: b.deviceName,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("open enrollment hooks watch: %w", err)
+	}
+
+	var last *enrollmentHooksState
+	for {
+		event, recvErr := stream.Recv()
+		if recvErr != nil {
+			if errors.Is(recvErr, io.EOF) {
+				if last != nil && (last.conditionAbsent || last.reason != v1beta1.EnrollmentHooksReasonNotifyPending) {
+					return last, nil
+				}
+				return nil, fmt.Errorf("enrollment hooks watch ended before ready")
+			}
+			return nil, fmt.Errorf("recv enrollment hooks event: %w", recvErr)
+		}
+		last = enrollmentHooksStateFromEvent(event)
+		if last.conditionAbsent || last.reason != v1beta1.EnrollmentHooksReasonNotifyPending {
+			return last, nil
+		}
+		b.log.Info("Enrollment hooks condition is NotifyPending, waiting for server notification")
+	}
+}
+
+func enrollmentHooksStateFromEvent(event *grpc_v1.EnrollmentHooksEvent) *enrollmentHooksState {
+	if event == nil {
+		return &enrollmentHooksState{conditionAbsent: true, condIdx: -1, failurePolicy: v1beta1.FailurePolicyBlock}
+	}
+	state := &enrollmentHooksState{
+		conditionAbsent: event.GetConditionAbsent(),
+		reason:          event.GetReason(),
+		status:          v1beta1.ConditionStatus(event.GetStatus()),
+		message:         event.GetMessage(),
+		condIdx:         int(event.GetConditionIndex()),
+		failurePolicy:   v1beta1.FailurePolicyType(event.GetFailurePolicy()),
+		labels:          event.GetLabels(),
+	}
+	if state.failurePolicy == "" {
+		state.failurePolicy = v1beta1.FailurePolicyBlock
+	}
+	if state.labels == nil {
+		state.labels = make(map[string]string)
+	}
+	return state
 }
 
 // buildEnrollmentContext constructs the EnrollmentContext for OnAfterEnrolling.
-func (b *Bootstrap) buildEnrollmentContext(ctx context.Context, device *v1beta1.Device) (*hook.EnrollmentContext, error) {
+func (b *Bootstrap) buildEnrollmentContext(ctx context.Context, state *enrollmentHooksState) (*hook.EnrollmentContext, error) {
 	enrollCtx := &hook.EnrollmentContext{
 		DeviceName: b.deviceName,
 		Labels:     make(map[string]string),
 	}
 
-	// Labels from device.Metadata.Labels.
-	if device.Metadata.Labels != nil {
-		for k, v := range *device.Metadata.Labels {
+	if state != nil {
+		for k, v := range state.labels {
 			enrollCtx.Labels[k] = v
 		}
 	}
@@ -533,17 +586,6 @@ func (b *Bootstrap) buildEnrollmentContext(ctx context.Context, device *v1beta1.
 	enrollCtx.ManagementCertificate = certMeta
 
 	return enrollCtx, nil
-}
-
-// getFailurePolicy extracts the failure policy from the device's enrollment
-// hooks snapshot. Defaults to Block if absent.
-func (b *Bootstrap) getFailurePolicy(device *v1beta1.Device) v1beta1.FailurePolicyType {
-	if device.Status != nil &&
-		device.Status.EnrollmentHooks != nil &&
-		device.Status.EnrollmentHooks.Snapshot != nil {
-		return device.Status.EnrollmentHooks.Snapshot.FailurePolicy
-	}
-	return v1beta1.FailurePolicyBlock
 }
 
 // patchEnrollmentHooksCondition sends an RFC 6902 JSON Patch to update the

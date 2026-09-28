@@ -102,9 +102,6 @@ type ClientInterface interface {
 	// GetCertificateSigningRequest request
 	GetCertificateSigningRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ReadDevice request
-	ReadDevice(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
-
 	// GetRenderedDevice request
 	GetRenderedDevice(ctx context.Context, name string, params *GetRenderedDeviceParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -153,18 +150,6 @@ func (c *Client) CreateCertificateSigningRequest(ctx context.Context, body Creat
 
 func (c *Client) GetCertificateSigningRequest(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewGetCertificateSigningRequestRequest(c.Server, name)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-func (c *Client) ReadDevice(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewReadDeviceRequest(c.Server, name)
 	if err != nil {
 		return nil, err
 	}
@@ -328,40 +313,6 @@ func NewGetCertificateSigningRequestRequest(server string, name string) (*http.R
 	}
 
 	operationPath := fmt.Sprintf("/certificatesigningrequests/%s", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewReadDeviceRequest generates requests for ReadDevice
-func NewReadDeviceRequest(server string, name string) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/devices/%s", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -659,9 +610,6 @@ type ClientWithResponsesInterface interface {
 	// GetCertificateSigningRequestWithResponse request
 	GetCertificateSigningRequestWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetCertificateSigningRequestResponse, error)
 
-	// ReadDeviceWithResponse request
-	ReadDeviceWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadDeviceResponse, error)
-
 	// GetRenderedDeviceWithResponse request
 	GetRenderedDeviceWithResponse(ctx context.Context, name string, params *GetRenderedDeviceParams, reqEditors ...RequestEditorFn) (*GetRenderedDeviceResponse, error)
 
@@ -749,39 +697,6 @@ func (r GetCertificateSigningRequestResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r GetCertificateSigningRequestResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type ReadDeviceResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	JSON200      *externalRef0.Device
-	JSON401      *externalRef0.Status
-	JSON404      *externalRef0.Status
-	JSON429      *externalRef0.Status
-}
-
-// Status returns HTTPResponse.Status
-func (r ReadDeviceResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r ReadDeviceResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r ReadDeviceResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -989,15 +904,6 @@ func (c *ClientWithResponses) GetCertificateSigningRequestWithResponse(ctx conte
 	return ParseGetCertificateSigningRequestResponse(rsp)
 }
 
-// ReadDeviceWithResponse request returning *ReadDeviceResponse
-func (c *ClientWithResponses) ReadDeviceWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*ReadDeviceResponse, error) {
-	rsp, err := c.ReadDevice(ctx, name, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseReadDeviceResponse(rsp)
-}
-
 // GetRenderedDeviceWithResponse request returning *GetRenderedDeviceResponse
 func (c *ClientWithResponses) GetRenderedDeviceWithResponse(ctx context.Context, name string, params *GetRenderedDeviceParams, reqEditors ...RequestEditorFn) (*GetRenderedDeviceResponse, error) {
 	rsp, err := c.GetRenderedDevice(ctx, name, params, reqEditors...)
@@ -1190,53 +1096,6 @@ func ParseGetCertificateSigningRequestResponse(rsp *http.Response) (*GetCertific
 			return nil, err
 		}
 		response.JSON503 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseReadDeviceResponse parses an HTTP response from a ReadDeviceWithResponse call
-func ParseReadDeviceResponse(rsp *http.Response) (*ReadDeviceResponse, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &ReadDeviceResponse{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest externalRef0.Device
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest externalRef0.Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest externalRef0.Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
-		var dest externalRef0.Status
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON429 = &dest
 
 	}
 

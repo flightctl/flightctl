@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"testing"
 	"time"
 
@@ -26,17 +25,6 @@ import (
 	"go.uber.org/mock/gomock"
 	"k8s.io/apimachinery/pkg/util/wait"
 )
-
-// deviceWithNoEnrollmentHooksCondition returns a Device with no EnrollmentHooks
-// condition, used by TestInitialization to satisfy the ensurePostEnrollmentHooks
-// call in Initialize.
-func deviceWithNoEnrollmentHooksCondition() *v1beta1.Device {
-	name := "test-device"
-	return &v1beta1.Device{
-		Metadata: v1beta1.ObjectMeta{Name: &name},
-		Status:   &v1beta1.DeviceStatus{},
-	}
-}
 
 func TestInitialization(t *testing.T) {
 	require := require.New(t)
@@ -83,8 +71,7 @@ func TestInitialization(t *testing.T) {
 					mockIdentityProvider.EXPECT().CreateManagementClient(gomock.Any(), gomock.Any()).Return(mockManagement, nil),
 					mockStatusManager.EXPECT().SetClient(gomock.Any()),
 					mockSpecManager.EXPECT().SetClient(gomock.Any()),
-					// ensurePostEnrollmentHooks: GetDevice returns no condition → proceed
-					mockManagement.EXPECT().GetDevice(gomock.Any(), gomock.Any()).Return(deviceWithNoEnrollmentHooksCondition(), http.StatusOK, nil),
+					// ensurePostEnrollmentHooks uses waitEnrollmentHooksReadyFn (set in test body)
 					mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(false),
 					mockSpecManager.EXPECT().IsUpgrading().Return(false),
 					mockSpecManager.EXPECT().GetRollbackInfo().Return(spec.RollbackInfo{}, nil),
@@ -120,8 +107,7 @@ func TestInitialization(t *testing.T) {
 					mockIdentityProvider.EXPECT().CreateManagementClient(gomock.Any(), gomock.Any()).Return(mockManagement, nil),
 					mockStatusManager.EXPECT().SetClient(gomock.Any()),
 					mockSpecManager.EXPECT().SetClient(gomock.Any()),
-					// ensurePostEnrollmentHooks: GetDevice returns no condition → proceed
-					mockManagement.EXPECT().GetDevice(gomock.Any(), gomock.Any()).Return(deviceWithNoEnrollmentHooksCondition(), http.StatusOK, nil),
+					// ensurePostEnrollmentHooks uses waitEnrollmentHooksReadyFn (set in test body)
 					mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(true),
 					mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return(bootedOSVersion, true, nil),
 					mockSystemInfoManager.EXPECT().IsRebooted().Return(false),
@@ -154,8 +140,7 @@ func TestInitialization(t *testing.T) {
 					mockIdentityProvider.EXPECT().CreateManagementClient(gomock.Any(), gomock.Any()).Return(mockManagement, nil),
 					mockStatusManager.EXPECT().SetClient(gomock.Any()),
 					mockSpecManager.EXPECT().SetClient(gomock.Any()),
-					// ensurePostEnrollmentHooks: GetDevice returns no condition → proceed
-					mockManagement.EXPECT().GetDevice(gomock.Any(), gomock.Any()).Return(deviceWithNoEnrollmentHooksCondition(), http.StatusOK, nil),
+					// ensurePostEnrollmentHooks uses waitEnrollmentHooksReadyFn (set in test body)
 					mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(false),
 					mockSpecManager.EXPECT().IsUpgrading().Return(false),
 					mockSpecManager.EXPECT().GetRollbackInfo().Return(spec.RollbackInfo{}, nil),
@@ -208,6 +193,9 @@ func TestInitialization(t *testing.T) {
 				systemdClient:           systemdClient,
 				identityProvider:        mockIdentityProvider,
 				enrollmentHooksBackoff:  fastBackoff,
+				waitEnrollmentHooksReadyFn: func(context.Context) (*enrollmentHooksState, error) {
+					return &enrollmentHooksState{conditionAbsent: true, condIdx: -1}, nil
+				},
 				log:                     log,
 			}
 
@@ -533,17 +521,6 @@ func TestEnsureBootedOS(t *testing.T) {
 	}
 }
 
-// conditionIndex returns the index of a condition with the given type in the
-// conditions slice, or -1 if not found.
-func conditionIndex(conditions []v1beta1.Condition, ct v1beta1.ConditionType) int {
-	for i := range conditions {
-		if conditions[i].Type == ct {
-			return i
-		}
-	}
-	return -1
-}
-
 // patchOpsForCondition builds a gomock.Cond-compatible matcher (func(any) bool)
 // that validates the JSON Patch contains test+replace ops for an enrollment
 // hooks condition at the given index with the expected status and reason.
@@ -602,48 +579,24 @@ func TestEnsurePostEnrollmentHooks(t *testing.T) {
 	require := require.New(t)
 
 	testDeviceName := "test-device-fp"
-	testLabels := &map[string]string{"env": "prod", "role": "edge"}
+	testLabels := map[string]string{"env": "prod", "role": "edge"}
 	testCertPEM := []byte("") // empty cert = nil CertificateMetadata, acceptable for tests
+	const condIdx = 1
 
-	// Helper: build a device with an EnrollmentHooks condition at the given
-	// reason/status, and with the given failurePolicy in the snapshot.
-	buildDevice := func(reason string, condStatus v1beta1.ConditionStatus, failurePolicy v1beta1.FailurePolicyType) *v1beta1.Device {
-		return &v1beta1.Device{
-			Metadata: v1beta1.ObjectMeta{
-				Name:   &testDeviceName,
-				Labels: testLabels,
-			},
-			Status: &v1beta1.DeviceStatus{
-				Conditions: []v1beta1.Condition{
-					{Type: v1beta1.ConditionTypeDeviceUpdating, Status: v1beta1.ConditionStatusFalse, Reason: "Updated"},
-					{Type: v1beta1.ConditionTypeDeviceEnrollmentHooks, Status: condStatus, Reason: reason},
-				},
-				EnrollmentHooks: &v1beta1.DeviceEnrollmentHooksStatus{
-					Snapshot: &v1beta1.EnrollmentHookSnapshot{
-						FailurePolicy: failurePolicy,
-					},
-				},
-			},
-		}
-	}
-
-	// Helper: build a device with no EnrollmentHooks condition at all.
-	buildDeviceNoCondition := func() *v1beta1.Device {
-		return &v1beta1.Device{
-			Metadata: v1beta1.ObjectMeta{
-				Name:   &testDeviceName,
-				Labels: testLabels,
-			},
-			Status: &v1beta1.DeviceStatus{
-				Conditions: []v1beta1.Condition{
-					{Type: v1beta1.ConditionTypeDeviceUpdating, Status: v1beta1.ConditionStatusFalse, Reason: "Updated"},
-				},
-			},
+	stateFor := func(reason string, condStatus v1beta1.ConditionStatus, failurePolicy v1beta1.FailurePolicyType) *enrollmentHooksState {
+		return &enrollmentHooksState{
+			reason:        reason,
+			status:        condStatus,
+			condIdx:       condIdx,
+			failurePolicy: failurePolicy,
+			labels:        testLabels,
 		}
 	}
 
 	testCases := []struct {
 		name       string
+		readyState *enrollmentHooksState
+		readyErr   error
 		setupMocks func(
 			mockManagement *client.MockManagement,
 			mockHookManager *hook.MockManager,
@@ -651,60 +604,41 @@ func TestEnsurePostEnrollmentHooks(t *testing.T) {
 			mockIdentityProvider *identity.MockProvider,
 		)
 		expectedError  error
-		expectContinue bool // true if bootstrap should proceed after hooks
+		expectContinue bool
 	}{
 		{
 			name: "When no enrollment hooks condition exists it should proceed without running hooks",
+			readyState: &enrollmentHooksState{conditionAbsent: true, condIdx: -1},
 			setupMocks: func(
-				mockManagement *client.MockManagement,
+				_ *client.MockManagement,
 				_ *hook.MockManager,
 				_ *status.MockManager,
 				_ *identity.MockProvider,
 			) {
-				// GetDevice returns a device with no EnrollmentHooks condition
-				mockManagement.EXPECT().GetDevice(gomock.Any(), testDeviceName).
-					Return(buildDeviceNoCondition(), http.StatusOK, nil)
-				// No hook execution, no PATCH
 			},
 			expectContinue: true,
 		},
 		{
-			name: "When condition is NotifyPending then transitions to Pending it should run hooks and PATCH Succeeded",
+			name:       "When condition transitions to Pending it should run hooks and PATCH Succeeded",
+			readyState: stateFor(v1beta1.EnrollmentHooksReasonPending, v1beta1.ConditionStatusFalse, v1beta1.FailurePolicyBlock),
 			setupMocks: func(
 				mockManagement *client.MockManagement,
 				mockHookManager *hook.MockManager,
 				mockStatusManager *status.MockManager,
 				mockIdentityProvider *identity.MockProvider,
 			) {
-				pendingDevice := buildDevice(v1beta1.EnrollmentHooksReasonPending, v1beta1.ConditionStatusFalse, v1beta1.FailurePolicyBlock)
-
-				// First poll returns NotifyPending
-				notifyPendingDevice := buildDevice(v1beta1.EnrollmentHooksReasonNotifyPending, v1beta1.ConditionStatusFalse, v1beta1.FailurePolicyBlock)
-				gomock.InOrder(
-					mockManagement.EXPECT().GetDevice(gomock.Any(), testDeviceName).
-						Return(notifyPendingDevice, http.StatusOK, nil),
-					// Second poll returns Pending (server notification done)
-					mockManagement.EXPECT().GetDevice(gomock.Any(), testDeviceName).
-						Return(pendingDevice, http.StatusOK, nil),
-				)
-
-				// Expect enrollment context population and hook execution
 				mockStatusManager.EXPECT().Get(gomock.Any()).Return(&v1beta1.DeviceStatus{
 					SystemInfo: v1beta1.DeviceSystemInfo{Architecture: "x86_64"},
 				})
 				mockIdentityProvider.EXPECT().GetCertificate().Return(testCertPEM, nil)
 				mockHookManager.EXPECT().OnAfterEnrolling(gomock.Any(), gomock.Any()).
 					DoAndReturn(func(_ context.Context, enrollCtx *hook.EnrollmentContext) error {
-						// Verify enrollment context population
 						require.Equal(testDeviceName, enrollCtx.DeviceName)
 						require.NotNil(enrollCtx.Labels)
 						require.Equal("prod", enrollCtx.Labels["env"])
 						require.NotNil(enrollCtx.SystemInfo)
 						return nil
 					})
-
-				// Expect PATCH with Succeeded status
-				condIdx := conditionIndex(pendingDevice.Status.Conditions, v1beta1.ConditionTypeDeviceEnrollmentHooks)
 				mockManagement.EXPECT().PatchDeviceStatus(gomock.Any(), testDeviceName,
 					gomock.Cond(patchOpsForCondition(condIdx, v1beta1.ConditionStatusTrue, v1beta1.EnrollmentHooksReasonSucceeded)),
 				).Return(nil)
@@ -712,56 +646,26 @@ func TestEnsurePostEnrollmentHooks(t *testing.T) {
 			expectContinue: true,
 		},
 		{
-			name: "When condition is NotifyPending then transitions to Failed it should skip hooks and halt",
-			setupMocks: func(
-				mockManagement *client.MockManagement,
-				_ *hook.MockManager,
-				_ *status.MockManager,
-				_ *identity.MockProvider,
-			) {
-				// First poll returns NotifyPending
-				notifyPendingDevice := buildDevice(v1beta1.EnrollmentHooksReasonNotifyPending, v1beta1.ConditionStatusFalse, v1beta1.FailurePolicyBlock)
-				failedDevice := buildDevice(v1beta1.EnrollmentHooksReasonFailed, v1beta1.ConditionStatusFalse, v1beta1.FailurePolicyBlock)
-				gomock.InOrder(
-					mockManagement.EXPECT().GetDevice(gomock.Any(), testDeviceName).
-						Return(notifyPendingDevice, http.StatusOK, nil),
-					// Second poll returns Failed (server-side notification failed)
-					mockManagement.EXPECT().GetDevice(gomock.Any(), testDeviceName).
-						Return(failedDevice, http.StatusOK, nil),
-				)
-				// No hook execution, no PATCH — halt
-			},
+			name:          "When condition transitions to Failed it should skip hooks and halt",
+			readyState:    stateFor(v1beta1.EnrollmentHooksReasonFailed, v1beta1.ConditionStatusFalse, v1beta1.FailurePolicyBlock),
+			setupMocks:    func(*client.MockManagement, *hook.MockManager, *status.MockManager, *identity.MockProvider) {},
 			expectedError: errEnrollmentHooksFailed,
 		},
 		{
-			name: "When condition stays NotifyPending until timeout it should error and halt",
-			setupMocks: func(
-				mockManagement *client.MockManagement,
-				_ *hook.MockManager,
-				_ *status.MockManager,
-				_ *identity.MockProvider,
-			) {
-				// All polls return NotifyPending — timeout will be exhausted
-				notifyPendingDevice := buildDevice(v1beta1.EnrollmentHooksReasonNotifyPending, v1beta1.ConditionStatusFalse, v1beta1.FailurePolicyBlock)
-				mockManagement.EXPECT().GetDevice(gomock.Any(), testDeviceName).
-					Return(notifyPendingDevice, http.StatusOK, nil).
-					AnyTimes()
-			},
+			name:          "When watch times out it should error and halt",
+			readyErr:      errEnrollmentHooksTimeout,
+			setupMocks:    func(*client.MockManagement, *hook.MockManager, *status.MockManager, *identity.MockProvider) {},
 			expectedError: errEnrollmentHooksTimeout,
 		},
 		{
-			name: "When condition is Pending it should run hooks and PATCH Succeeded on success",
+			name:       "When condition is Pending it should run hooks and PATCH Succeeded on success",
+			readyState: stateFor(v1beta1.EnrollmentHooksReasonPending, v1beta1.ConditionStatusFalse, v1beta1.FailurePolicyBlock),
 			setupMocks: func(
 				mockManagement *client.MockManagement,
 				mockHookManager *hook.MockManager,
 				mockStatusManager *status.MockManager,
 				mockIdentityProvider *identity.MockProvider,
 			) {
-				pendingDevice := buildDevice(v1beta1.EnrollmentHooksReasonPending, v1beta1.ConditionStatusFalse, v1beta1.FailurePolicyBlock)
-				mockManagement.EXPECT().GetDevice(gomock.Any(), testDeviceName).
-					Return(pendingDevice, http.StatusOK, nil)
-
-				// Expect enrollment context population
 				mockStatusManager.EXPECT().Get(gomock.Any()).Return(&v1beta1.DeviceStatus{
 					SystemInfo: v1beta1.DeviceSystemInfo{Architecture: "x86_64"},
 				})
@@ -774,9 +678,6 @@ func TestEnsurePostEnrollmentHooks(t *testing.T) {
 						require.NotNil(enrollCtx.SystemInfo)
 						return nil
 					})
-
-				// Expect PATCH with Succeeded (True)
-				condIdx := conditionIndex(pendingDevice.Status.Conditions, v1beta1.ConditionTypeDeviceEnrollmentHooks)
 				mockManagement.EXPECT().PatchDeviceStatus(gomock.Any(), testDeviceName,
 					gomock.Cond(patchOpsForCondition(condIdx, v1beta1.ConditionStatusTrue, v1beta1.EnrollmentHooksReasonSucceeded)),
 				).Return(nil)
@@ -784,24 +685,19 @@ func TestEnsurePostEnrollmentHooks(t *testing.T) {
 			expectContinue: true,
 		},
 		{
-			name: "When PATCH fails once then succeeds it should retry and proceed",
+			name:       "When PATCH fails once then succeeds it should retry and proceed",
+			readyState: stateFor(v1beta1.EnrollmentHooksReasonPending, v1beta1.ConditionStatusFalse, v1beta1.FailurePolicyBlock),
 			setupMocks: func(
 				mockManagement *client.MockManagement,
 				mockHookManager *hook.MockManager,
 				mockStatusManager *status.MockManager,
 				mockIdentityProvider *identity.MockProvider,
 			) {
-				pendingDevice := buildDevice(v1beta1.EnrollmentHooksReasonPending, v1beta1.ConditionStatusFalse, v1beta1.FailurePolicyBlock)
-				mockManagement.EXPECT().GetDevice(gomock.Any(), testDeviceName).
-					Return(pendingDevice, http.StatusOK, nil)
-
 				mockStatusManager.EXPECT().Get(gomock.Any()).Return(&v1beta1.DeviceStatus{
 					SystemInfo: v1beta1.DeviceSystemInfo{Architecture: "x86_64"},
 				})
 				mockIdentityProvider.EXPECT().GetCertificate().Return(testCertPEM, nil)
 				mockHookManager.EXPECT().OnAfterEnrolling(gomock.Any(), gomock.Any()).Return(nil)
-
-				condIdx := conditionIndex(pendingDevice.Status.Conditions, v1beta1.ConditionTypeDeviceEnrollmentHooks)
 				gomock.InOrder(
 					mockManagement.EXPECT().PatchDeviceStatus(gomock.Any(), testDeviceName,
 						gomock.Cond(patchOpsForCondition(condIdx, v1beta1.ConditionStatusTrue, v1beta1.EnrollmentHooksReasonSucceeded)),
@@ -814,26 +710,20 @@ func TestEnsurePostEnrollmentHooks(t *testing.T) {
 			expectContinue: true,
 		},
 		{
-			name: "When condition is Pending and hook fails with Block policy it should PATCH Failed and halt",
+			name:       "When condition is Pending and hook fails with Block policy it should PATCH Failed and halt",
+			readyState: stateFor(v1beta1.EnrollmentHooksReasonPending, v1beta1.ConditionStatusFalse, v1beta1.FailurePolicyBlock),
 			setupMocks: func(
 				mockManagement *client.MockManagement,
 				mockHookManager *hook.MockManager,
 				mockStatusManager *status.MockManager,
 				mockIdentityProvider *identity.MockProvider,
 			) {
-				pendingDevice := buildDevice(v1beta1.EnrollmentHooksReasonPending, v1beta1.ConditionStatusFalse, v1beta1.FailurePolicyBlock)
-				mockManagement.EXPECT().GetDevice(gomock.Any(), testDeviceName).
-					Return(pendingDevice, http.StatusOK, nil)
-
 				mockStatusManager.EXPECT().Get(gomock.Any()).Return(&v1beta1.DeviceStatus{
 					SystemInfo: v1beta1.DeviceSystemInfo{Architecture: "x86_64"},
 				})
 				mockIdentityProvider.EXPECT().GetCertificate().Return(testCertPEM, nil)
 				mockHookManager.EXPECT().OnAfterEnrolling(gomock.Any(), gomock.Any()).
 					Return(errors.New("hook script exited with code 1"))
-
-				// Expect PATCH with Failed (False) because policy is Block
-				condIdx := conditionIndex(pendingDevice.Status.Conditions, v1beta1.ConditionTypeDeviceEnrollmentHooks)
 				mockManagement.EXPECT().PatchDeviceStatus(gomock.Any(), testDeviceName,
 					gomock.Cond(patchOpsForCondition(condIdx, v1beta1.ConditionStatusFalse, v1beta1.EnrollmentHooksReasonFailed)),
 				).Return(nil)
@@ -841,26 +731,20 @@ func TestEnsurePostEnrollmentHooks(t *testing.T) {
 			expectedError: errEnrollmentHooksFailed,
 		},
 		{
-			name: "When condition is Pending and hook fails with Continue policy it should PATCH Continued and proceed",
+			name:       "When condition is Pending and hook fails with Continue policy it should PATCH Continued and proceed",
+			readyState: stateFor(v1beta1.EnrollmentHooksReasonPending, v1beta1.ConditionStatusFalse, v1beta1.FailurePolicyContinue),
 			setupMocks: func(
 				mockManagement *client.MockManagement,
 				mockHookManager *hook.MockManager,
 				mockStatusManager *status.MockManager,
 				mockIdentityProvider *identity.MockProvider,
 			) {
-				pendingDevice := buildDevice(v1beta1.EnrollmentHooksReasonPending, v1beta1.ConditionStatusFalse, v1beta1.FailurePolicyContinue)
-				mockManagement.EXPECT().GetDevice(gomock.Any(), testDeviceName).
-					Return(pendingDevice, http.StatusOK, nil)
-
 				mockStatusManager.EXPECT().Get(gomock.Any()).Return(&v1beta1.DeviceStatus{
 					SystemInfo: v1beta1.DeviceSystemInfo{Architecture: "x86_64"},
 				})
 				mockIdentityProvider.EXPECT().GetCertificate().Return(testCertPEM, nil)
 				mockHookManager.EXPECT().OnAfterEnrolling(gomock.Any(), gomock.Any()).
 					Return(errors.New("hook script exited with code 1"))
-
-				// Expect PATCH with Continued (True) because policy is Continue
-				condIdx := conditionIndex(pendingDevice.Status.Conditions, v1beta1.ConditionTypeDeviceEnrollmentHooks)
 				mockManagement.EXPECT().PatchDeviceStatus(gomock.Any(), testDeviceName,
 					gomock.Cond(patchOpsForCondition(condIdx, v1beta1.ConditionStatusTrue, v1beta1.EnrollmentHooksReasonContinued)),
 				).Return(nil)
@@ -868,63 +752,27 @@ func TestEnsurePostEnrollmentHooks(t *testing.T) {
 			expectContinue: true,
 		},
 		{
-			name: "When condition is already Failed it should skip hooks and halt",
-			setupMocks: func(
-				mockManagement *client.MockManagement,
-				_ *hook.MockManager,
-				_ *status.MockManager,
-				_ *identity.MockProvider,
-			) {
-				failedDevice := buildDevice(v1beta1.EnrollmentHooksReasonFailed, v1beta1.ConditionStatusFalse, v1beta1.FailurePolicyBlock)
-				mockManagement.EXPECT().GetDevice(gomock.Any(), testDeviceName).
-					Return(failedDevice, http.StatusOK, nil)
-				// No hook execution, no PATCH — halt
-			},
+			name:          "When condition is already Failed it should skip hooks and halt",
+			readyState:    stateFor(v1beta1.EnrollmentHooksReasonFailed, v1beta1.ConditionStatusFalse, v1beta1.FailurePolicyBlock),
+			setupMocks:    func(*client.MockManagement, *hook.MockManager, *status.MockManager, *identity.MockProvider) {},
 			expectedError: errEnrollmentHooksFailed,
 		},
 		{
-			name: "When condition is already Succeeded it should proceed without running hooks",
-			setupMocks: func(
-				mockManagement *client.MockManagement,
-				_ *hook.MockManager,
-				_ *status.MockManager,
-				_ *identity.MockProvider,
-			) {
-				succeededDevice := buildDevice(v1beta1.EnrollmentHooksReasonSucceeded, v1beta1.ConditionStatusTrue, v1beta1.FailurePolicyBlock)
-				mockManagement.EXPECT().GetDevice(gomock.Any(), testDeviceName).
-					Return(succeededDevice, http.StatusOK, nil)
-				// No hook execution, no PATCH — proceed
-			},
+			name:           "When condition is already Succeeded it should proceed without running hooks",
+			readyState:     stateFor(v1beta1.EnrollmentHooksReasonSucceeded, v1beta1.ConditionStatusTrue, v1beta1.FailurePolicyBlock),
+			setupMocks:     func(*client.MockManagement, *hook.MockManager, *status.MockManager, *identity.MockProvider) {},
 			expectContinue: true,
 		},
 		{
-			name: "When condition is already Continued it should proceed without running hooks",
-			setupMocks: func(
-				mockManagement *client.MockManagement,
-				_ *hook.MockManager,
-				_ *status.MockManager,
-				_ *identity.MockProvider,
-			) {
-				continuedDevice := buildDevice(v1beta1.EnrollmentHooksReasonContinued, v1beta1.ConditionStatusTrue, v1beta1.FailurePolicyContinue)
-				mockManagement.EXPECT().GetDevice(gomock.Any(), testDeviceName).
-					Return(continuedDevice, http.StatusOK, nil)
-				// No hook execution, no PATCH — proceed
-			},
+			name:           "When condition is already Continued it should proceed without running hooks",
+			readyState:     stateFor(v1beta1.EnrollmentHooksReasonContinued, v1beta1.ConditionStatusTrue, v1beta1.FailurePolicyContinue),
+			setupMocks:     func(*client.MockManagement, *hook.MockManager, *status.MockManager, *identity.MockProvider) {},
 			expectContinue: true,
 		},
 		{
-			name: "When condition is ManualOverride it should proceed without running hooks",
-			setupMocks: func(
-				mockManagement *client.MockManagement,
-				_ *hook.MockManager,
-				_ *status.MockManager,
-				_ *identity.MockProvider,
-			) {
-				overrideDevice := buildDevice(v1beta1.EnrollmentHooksReasonManualOverride, v1beta1.ConditionStatusTrue, v1beta1.FailurePolicyBlock)
-				mockManagement.EXPECT().GetDevice(gomock.Any(), testDeviceName).
-					Return(overrideDevice, http.StatusOK, nil)
-				// No hook execution, no PATCH — proceed
-			},
+			name:           "When condition is ManualOverride it should proceed without running hooks",
+			readyState:     stateFor(v1beta1.EnrollmentHooksReasonManualOverride, v1beta1.ConditionStatusTrue, v1beta1.FailurePolicyBlock),
+			setupMocks:     func(*client.MockManagement, *hook.MockManager, *status.MockManager, *identity.MockProvider) {},
 			expectContinue: true,
 		},
 	}
@@ -938,7 +786,6 @@ func TestEnsurePostEnrollmentHooks(t *testing.T) {
 			mockStatusManager := status.NewMockManager(ctrl)
 			mockIdentityProvider := identity.NewMockProvider(ctrl)
 
-			// Use a fast backoff for tests so they don't sleep.
 			fastBackoff := &wait.Backoff{
 				Steps:    3,
 				Duration: 1 * time.Millisecond,
@@ -953,10 +800,14 @@ func TestEnsurePostEnrollmentHooks(t *testing.T) {
 				statusManager:          mockStatusManager,
 				identityProvider:       mockIdentityProvider,
 				enrollmentHooksBackoff: fastBackoff,
-				log:                    log.NewPrefixLogger("test"),
+				waitEnrollmentHooksReadyFn: func(context.Context) (*enrollmentHooksState, error) {
+					if tt.readyErr != nil {
+						return nil, tt.readyErr
+					}
+					return tt.readyState, nil
+				},
+				log: log.NewPrefixLogger("test"),
 			}
-
-			ctx := context.TODO()
 
 			tt.setupMocks(
 				mockManagement,
@@ -965,7 +816,7 @@ func TestEnsurePostEnrollmentHooks(t *testing.T) {
 				mockIdentityProvider,
 			)
 
-			err := b.ensurePostEnrollmentHooks(ctx)
+			err := b.ensurePostEnrollmentHooks(context.TODO())
 			if tt.expectedError != nil {
 				require.ErrorIs(err, tt.expectedError)
 				return
@@ -977,33 +828,17 @@ func TestEnsurePostEnrollmentHooks(t *testing.T) {
 
 func TestEnsurePostEnrollmentHooks_ContextCanceled(t *testing.T) {
 	require := require.New(t)
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	deviceName := "test-device"
-	mockManagement := client.NewMockManagement(ctrl)
-	notifyPendingDevice := &v1beta1.Device{
-		Metadata: v1beta1.ObjectMeta{Name: &deviceName},
-		Status: &v1beta1.DeviceStatus{
-			Conditions: []v1beta1.Condition{{
-				Type:   v1beta1.ConditionTypeDeviceEnrollmentHooks,
-				Status: v1beta1.ConditionStatusFalse,
-				Reason: v1beta1.EnrollmentHooksReasonNotifyPending,
-			}},
-		},
-	}
-	mockManagement.EXPECT().GetDevice(gomock.Any(), deviceName).
-		Return(notifyPendingDevice, http.StatusOK, nil).
-		AnyTimes()
 
 	b := &Bootstrap{
-		deviceName:       deviceName,
-		managementClient: mockManagement,
+		deviceName: "test-device",
 		enrollmentHooksBackoff: &wait.Backoff{
 			Steps:    10,
 			Duration: 50 * time.Millisecond,
 			Factor:   1.0,
 			Cap:      50 * time.Millisecond,
+		},
+		waitEnrollmentHooksReadyFn: func(ctx context.Context) (*enrollmentHooksState, error) {
+			return nil, fmt.Errorf("waiting for enrollment hooks readiness: %w", ctx.Err())
 		},
 		log: log.NewPrefixLogger("test"),
 	}
@@ -1048,7 +883,7 @@ func TestBootstrapInitializePostEnrollmentOrdering(t *testing.T) {
 				mockManagement *client.MockManagement,
 				_ *fileio.MockReadWriter,
 			) {
-				// Verify the ordering: SetClient → GetDevice → ShouldApplyOSImageUpdate (ensureBootstrap)
+				// Verify the ordering: SetClient → waitEnrollmentHooks → ShouldApplyOSImageUpdate (ensureBootstrap)
 				gomock.InOrder(
 					mockExecutor.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.4.2", "", 0),
 					mockSpecManager.EXPECT().Ensure().Return(nil),
@@ -1059,8 +894,7 @@ func TestBootstrapInitializePostEnrollmentOrdering(t *testing.T) {
 					// setManagementClient
 					mockStatusManager.EXPECT().SetClient(gomock.Any()),
 					mockSpecManager.EXPECT().SetClient(gomock.Any()),
-					// ensurePostEnrollmentHooks: GetDevice returns no condition → proceed
-					mockManagement.EXPECT().GetDevice(gomock.Any(), testDeviceName).Return(deviceWithNoEnrollmentHooksCondition(), http.StatusOK, nil),
+					// ensurePostEnrollmentHooks uses waitEnrollmentHooksReadyFn (set in test body)
 					// ensureBootstrap: ensureBootedOS is reached
 					mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(false),
 					mockSpecManager.EXPECT().IsUpgrading().Return(false),
@@ -1087,21 +921,6 @@ func TestBootstrapInitializePostEnrollmentOrdering(t *testing.T) {
 				mockManagement *client.MockManagement,
 				_ *fileio.MockReadWriter,
 			) {
-				failedDeviceName := testDeviceName
-				failedDevice := &v1beta1.Device{
-					Metadata: v1beta1.ObjectMeta{Name: &failedDeviceName},
-					Status: &v1beta1.DeviceStatus{
-						Conditions: []v1beta1.Condition{
-							{Type: v1beta1.ConditionTypeDeviceEnrollmentHooks, Status: v1beta1.ConditionStatusFalse, Reason: v1beta1.EnrollmentHooksReasonFailed},
-						},
-						EnrollmentHooks: &v1beta1.DeviceEnrollmentHooksStatus{
-							Snapshot: &v1beta1.EnrollmentHookSnapshot{
-								FailurePolicy: v1beta1.FailurePolicyBlock,
-							},
-						},
-					},
-				}
-
 				gomock.InOrder(
 					mockExecutor.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.4.2", "", 0),
 					mockSpecManager.EXPECT().Ensure().Return(nil),
@@ -1112,8 +931,6 @@ func TestBootstrapInitializePostEnrollmentOrdering(t *testing.T) {
 					// setManagementClient
 					mockStatusManager.EXPECT().SetClient(gomock.Any()),
 					mockSpecManager.EXPECT().SetClient(gomock.Any()),
-					// ensurePostEnrollmentHooks: GetDevice returns Failed → halt
-					mockManagement.EXPECT().GetDevice(gomock.Any(), testDeviceName).Return(failedDevice, http.StatusOK, nil),
 				)
 				// ShouldApplyOSImageUpdate is NOT expected — ensureBootstrap must not be reached
 			},
@@ -1146,6 +963,20 @@ func TestBootstrapInitializePostEnrollmentOrdering(t *testing.T) {
 				Cap:      10 * time.Millisecond,
 			}
 
+			waitFn := func(context.Context) (*enrollmentHooksState, error) {
+				return &enrollmentHooksState{conditionAbsent: true, condIdx: -1}, nil
+			}
+			if tt.expectedError != nil {
+				waitFn = func(context.Context) (*enrollmentHooksState, error) {
+					return &enrollmentHooksState{
+						reason:        v1beta1.EnrollmentHooksReasonFailed,
+						status:        v1beta1.ConditionStatusFalse,
+						condIdx:       0,
+						failurePolicy: v1beta1.FailurePolicyBlock,
+					}, nil
+				}
+			}
+
 			b := &Bootstrap{
 				deviceName:              testDeviceName,
 				statusManager:           mockStatusManager,
@@ -1159,6 +990,7 @@ func TestBootstrapInitializePostEnrollmentOrdering(t *testing.T) {
 				systemdClient:           systemdClient,
 				identityProvider:        mockIdentityProvider,
 				enrollmentHooksBackoff:  fastBackoff,
+				waitEnrollmentHooksReadyFn: waitFn,
 				log:                     log,
 			}
 

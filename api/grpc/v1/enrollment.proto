@@ -8,6 +8,39 @@ option go_package = "github.com/flightctl/flightctl/api/grpc/v1/grpc-v1";
 service Enrollment {
   // TPMChallenge establishes a bidirectional stream to conduct the TPM challenge-response.
   rpc TPMChallenge(stream AgentChallenge) returns (stream ServerChallenge);
+
+  // WatchEnrollmentHooks streams the Device EnrollmentHooks condition. The first
+  // event is a snapshot of the current state; further events are sent when the
+  // condition changes. The stream ends once the reason is no longer NotifyPending
+  // (or the condition is absent).
+  rpc WatchEnrollmentHooks(WatchEnrollmentHooksRequest) returns (stream EnrollmentHooksEvent);
+}
+
+// WatchEnrollmentHooksRequest identifies the device whose EnrollmentHooks
+// condition should be watched.
+message WatchEnrollmentHooksRequest {
+  // The name of the Device resource (must match the authenticated client identity).
+  string device_name = 1;
+}
+
+// EnrollmentHooksEvent carries the current EnrollmentHooks condition state.
+message EnrollmentHooksEvent {
+  // Condition reason (e.g. NotifyPending, Pending, Failed). Empty when the
+  // condition is absent.
+  string reason = 1;
+  // Condition status (True/False/Unknown). Empty when the condition is absent.
+  string status = 2;
+  // Condition message.
+  string message = 3;
+  // Index of the EnrollmentHooks condition in status.conditions for PATCH.
+  // -1 when the condition is absent.
+  int32 condition_index = 4;
+  // Failure policy from the enrollment-hooks snapshot (Block/Continue).
+  string failure_policy = 5;
+  // Device labels for AfterEnrolling hook context.
+  map<string, string> labels = 6;
+  // True when no EnrollmentHooks condition exists on the device.
+  bool condition_absent = 7;
 }
 
 // AgentChallenge is a wrapper for all possible messages the agent can send.

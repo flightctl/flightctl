@@ -24,6 +24,7 @@ type VersionManager struct {
 	subscriber          Subscriber
 	broadcaster         Publisher
 	subscribers         sync.Map
+	ehSubscribers       sync.Map // EnrollmentHooks watchers; separate from GetRenderedDevice
 	renderedWaitTimeout time.Duration
 	log                 logrus.FieldLogger
 }
@@ -83,6 +84,18 @@ func (m *VersionManager) subscribe(orgId uuid.UUID, name string, notifier chan N
 
 func (m *VersionManager) unsubscribe(orgId uuid.UUID, name string) {
 	m.subscribers.Delete(m.key(orgId, name))
+}
+
+func (m *VersionManager) ehKey(orgId uuid.UUID, name string) string {
+	return fmt.Sprintf("v1/%s/device/%s/enrollment-hooks", orgId.String(), name)
+}
+
+func (m *VersionManager) subscribeEnrollmentHooks(orgId uuid.UUID, name string, notifier chan Notification) {
+	m.ehSubscribers.Store(m.ehKey(orgId, name), notifier)
+}
+
+func (m *VersionManager) unsubscribeEnrollmentHooks(orgId uuid.UUID, name string) {
+	m.ehSubscribers.Delete(m.ehKey(orgId, name))
 }
 
 // WaitForNotification blocks until a Notification occurs, then returns it.
@@ -163,7 +176,44 @@ func (m *VersionManager) ClearConsoleNotification(ctx context.Context, orgId uui
 	return m.kvStore.Delete(ctx, m.consolePendingKey(orgId, name))
 }
 
+// NotifyEnrollmentHooks publishes an EnrollmentHooks notification so a waiting
+// WatchEnrollmentHooks stream is unblocked immediately.
+func (m *VersionManager) NotifyEnrollmentHooks(ctx context.Context, orgId uuid.UUID, name string) error {
+	if name == "" {
+		return fmt.Errorf("device name is required to notify enrollment hooks")
+	}
+	if m.broadcaster == nil {
+		// Bus not initialized (e.g. unit tests); nothing to publish.
+		return nil
+	}
+	return m.broadcaster.Publish(ctx, orgId, name, Notification{Type: NotificationTypeEnrollmentHooks})
+}
+
+// WaitForEnrollmentHooksNotification blocks until an EnrollmentHooks notification
+// arrives or the wait times out. Returns (true, nil) when a notification was
+// received, (false, nil) on timeout.
+func (m *VersionManager) WaitForEnrollmentHooksNotification(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
+	ch := make(chan Notification, 1)
+	m.subscribeEnrollmentHooks(orgId, name, ch)
+	defer m.unsubscribeEnrollmentHooks(orgId, name)
+
+	timeout := time.NewTimer(m.renderedWaitTimeout)
+	defer timeout.Stop()
+	select {
+	case <-ctx.Done():
+		return false, ctx.Err()
+	case <-timeout.C:
+		return false, nil
+	case <-ch:
+		return true, nil
+	}
+}
+
 func (m *VersionManager) consumeHandler(ctx context.Context, orgId uuid.UUID, name string, n Notification) error {
+	if n.Type == NotificationTypeEnrollmentHooks {
+		return m.deliverEnrollmentHooks(orgId, name, n)
+	}
+
 	notifier, ok := m.subscribers.Load(m.key(orgId, name))
 	if !ok {
 		return nil
@@ -177,6 +227,24 @@ func (m *VersionManager) consumeHandler(ctx context.Context, orgId uuid.UUID, na
 	case ch <- n:
 	default:
 		m.log.Warnf("GetRenderedDevice: channel for %s/%s is full, skipping notification", orgId, name)
+	}
+	return nil
+}
+
+func (m *VersionManager) deliverEnrollmentHooks(orgId uuid.UUID, name string, n Notification) error {
+	notifier, ok := m.ehSubscribers.Load(m.ehKey(orgId, name))
+	if !ok {
+		return nil
+	}
+	ch, isChan := notifier.(chan Notification)
+	if !isChan {
+		m.log.Errorf("EnrollmentHooks: notifier for %s/%s is not a channel, skipping notification", orgId, name)
+		return nil
+	}
+	select {
+	case ch <- n:
+	default:
+		m.log.Warnf("EnrollmentHooks: channel for %s/%s is full, skipping notification", orgId, name)
 	}
 	return nil
 }

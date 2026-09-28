@@ -96,6 +96,21 @@ func (mr *MockProviderMockRecorder) CreateGRPCClient(config any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateGRPCClient", reflect.TypeOf((*MockProvider)(nil).CreateGRPCClient), config)
 }
 
+// CreateEnrollmentGRPCClient mocks base method.
+func (m *MockProvider) CreateEnrollmentGRPCClient(config *client0.Config) (grpc_v1.EnrollmentClient, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CreateEnrollmentGRPCClient", config)
+	ret0, _ := ret[0].(grpc_v1.EnrollmentClient)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CreateEnrollmentGRPCClient indicates an expected call of CreateEnrollmentGRPCClient.
+func (mr *MockProviderMockRecorder) CreateEnrollmentGRPCClient(config any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateEnrollmentGRPCClient", reflect.TypeOf((*MockProvider)(nil).CreateEnrollmentGRPCClient), config)
+}
+
 // CreateManagementClient mocks base method.
 func (m *MockProvider) CreateManagementClient(config *client0.Config, metricsCallback client.RPCMetricsCallback) (client.Management, error) {
 	m.ctrl.T.Helper()

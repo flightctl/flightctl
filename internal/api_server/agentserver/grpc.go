@@ -13,6 +13,8 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/console"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/crypto"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	grpcAuth "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/auth"
 	"github.com/sirupsen/logrus"
@@ -30,7 +32,9 @@ type AgentGrpcServer struct {
 	pb.UnimplementedEnrollmentServer
 	log            logrus.FieldLogger
 	cfg            *config.Config
+	ca             *crypto.CAClient
 	service        enrollmentrequestservice.Service
+	deviceSvc      deviceservice.Service
 	pendingStreams *sync.Map
 	server         *grpc.Server
 }
@@ -39,12 +43,16 @@ type AgentGrpcServer struct {
 func NewAgentGrpcServer(
 	log logrus.FieldLogger,
 	cfg *config.Config,
+	ca *crypto.CAClient,
 	svc enrollmentrequestservice.Service,
+	deviceSvc deviceservice.Service,
 ) *AgentGrpcServer {
 	agentServer := &AgentGrpcServer{
 		log:            log,
 		cfg:            cfg,
+		ca:             ca,
 		service:        svc,
+		deviceSvc:      deviceSvc,
 		pendingStreams: &sync.Map{},
 	}
 	agentServer.prepareGRPCService()

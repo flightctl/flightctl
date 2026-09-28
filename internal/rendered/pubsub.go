@@ -17,8 +17,9 @@ const queueName = "rendered_version_notifier"
 type NotificationType string
 
 const (
-	NotificationTypeSpecUpdated NotificationType = "spec-updated"
-	NotificationTypeConsole     NotificationType = "console"
+	NotificationTypeSpecUpdated     NotificationType = "spec-updated"
+	NotificationTypeConsole         NotificationType = "console"
+	NotificationTypeEnrollmentHooks NotificationType = "enrollment-hooks"
 )
 
 // Notification is the internal signal sent over the pub/sub channel to unblock
