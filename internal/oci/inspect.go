@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/google/uuid"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote"
@@ -118,22 +119,18 @@ func imagePayloadSize(ctx context.Context, repo *remote.Repository, desc ocispec
 	if depth > maxImageIndexDepth {
 		return 0, fmt.Errorf("image index nesting exceeds %d", maxImageIndexDepth)
 	}
-	data, err := content.FetchAll(ctx, repo, desc)
-	if err != nil {
-		return 0, fmt.Errorf("fetch image manifest: %w", err)
-	}
 	switch desc.MediaType {
 	case ocispec.MediaTypeImageIndex, dockerManifestListMediaType:
-		var index ocispec.Index
-		if err := json.Unmarshal(data, &index); err != nil {
-			return 0, fmt.Errorf("decode image index: %w", err)
-		}
-		manifest, err := selectPlatformManifest(index.Manifests, platform)
+		manifest, err := selectPlatformManifest(ctx, repo, desc, platform)
 		if err != nil {
 			return 0, err
 		}
 		return imagePayloadSize(ctx, repo, manifest, platform, depth+1)
 	case ocispec.MediaTypeImageManifest, dockerManifestV2MediaType:
+		data, err := content.FetchAll(ctx, repo, desc)
+		if err != nil {
+			return 0, fmt.Errorf("fetch image manifest: %w", err)
+		}
 		var manifest ocispec.Manifest
 		if err := json.Unmarshal(data, &manifest); err != nil {
 			return 0, fmt.Errorf("decode image manifest: %w", err)
@@ -147,49 +144,51 @@ func imagePayloadSize(ctx context.Context, repo *remote.Repository, desc ocispec
 	}
 }
 
-func selectPlatformManifest(manifests []ocispec.Descriptor, platform *ocispec.Platform) (ocispec.Descriptor, error) {
-	if len(manifests) == 0 {
-		return ocispec.Descriptor{}, fmt.Errorf("image index contains no manifests")
-	}
-	if len(manifests) == 1 {
-		if platform != nil && platform.OS != "" && platform.Architecture != "" && manifests[0].Platform != nil &&
-			!platformMatches(*platform, *manifests[0].Platform) {
-			return ocispec.Descriptor{}, fmt.Errorf("image index has no manifest matching platform %s/%s", platform.OS, platform.Architecture)
+func selectPlatformManifest(ctx context.Context, repo *remote.Repository, indexDesc ocispec.Descriptor, platform *ocispec.Platform) (ocispec.Descriptor, error) {
+	if platform == nil || platform.OS == "" || platform.Architecture == "" {
+		manifests, err := fetchIndexManifests(ctx, repo, indexDesc)
+		if err != nil {
+			return ocispec.Descriptor{}, err
+		}
+		if len(manifests) != 1 {
+			return ocispec.Descriptor{}, fmt.Errorf("image index has multiple manifests and device platform is unavailable")
 		}
 		return manifests[0], nil
 	}
-	if platform == nil || platform.OS == "" || platform.Architecture == "" {
-		return ocispec.Descriptor{}, fmt.Errorf("image index has multiple manifests and device platform is unavailable")
+
+	// WithTargetPlatform installs ORAS's manifest selector. Calling MapRoot
+	// performs that selection without copying image layer content.
+	var opts oras.CopyOptions
+	opts.WithTargetPlatform(platform)
+	manifest, err := opts.MapRoot(ctx, repo, indexDesc)
+	if err == nil {
+		return manifest, nil
 	}
 
-	var matches []ocispec.Descriptor
-	for _, manifest := range manifests {
-		if manifest.Platform != nil && platformMatches(*platform, *manifest.Platform) {
-			matches = append(matches, manifest)
-		}
+	// Preserve support for a single-manifest index that omits platform metadata.
+	manifests, readErr := fetchIndexManifests(ctx, repo, indexDesc)
+	if readErr != nil {
+		return ocispec.Descriptor{}, readErr
 	}
-	if len(matches) != 1 {
-		return ocispec.Descriptor{}, fmt.Errorf("image index has %d manifests matching platform %s/%s", len(matches), platform.OS, platform.Architecture)
+	if len(manifests) == 1 && manifests[0].Platform == nil {
+		return manifests[0], nil
 	}
-	return matches[0], nil
+	return ocispec.Descriptor{}, fmt.Errorf("select image manifest for platform %s/%s: %w", platform.OS, platform.Architecture, err)
 }
 
-func platformMatches(want, got ocispec.Platform) bool {
-	if !strings.EqualFold(want.OS, got.OS) || !strings.EqualFold(normalizeArchitecture(want.Architecture), normalizeArchitecture(got.Architecture)) {
-		return false
+func fetchIndexManifests(ctx context.Context, repo *remote.Repository, indexDesc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+	data, err := content.FetchAll(ctx, repo, indexDesc)
+	if err != nil {
+		return nil, fmt.Errorf("fetch image index: %w", err)
 	}
-	return want.Variant == "" || strings.EqualFold(want.Variant, got.Variant)
-}
-
-func normalizeArchitecture(architecture string) string {
-	switch strings.ToLower(architecture) {
-	case "x86_64":
-		return "amd64"
-	case "aarch64":
-		return "arm64"
-	default:
-		return strings.ToLower(architecture)
+	var index ocispec.Index
+	if err := json.Unmarshal(data, &index); err != nil {
+		return nil, fmt.Errorf("decode image index: %w", err)
 	}
+	if len(index.Manifests) == 0 {
+		return nil, fmt.Errorf("image index contains no manifests")
+	}
+	return index.Manifests, nil
 }
 
 func manifestPayloadSize(manifest ocispec.Manifest) (int64, error) {
