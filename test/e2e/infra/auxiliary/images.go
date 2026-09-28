@@ -350,7 +350,7 @@ func skopeoDigestWithRetry(ctx context.Context, image string, insecureTLS bool) 
 			logrus.Warnf("Retrying bundle image manifest inspection for %s (attempt %d/%d): %v", image, attempt, bundleCopyRetries, lastErr)
 			select {
 			case <-ctx.Done():
-				return "", lastErr
+				return "", fmt.Errorf("context: %w", ctx.Err())
 			case <-time.After(bundleCopyRetryWait):
 			}
 		}
