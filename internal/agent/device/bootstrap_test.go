@@ -27,6 +27,17 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 )
 
+// deviceWithNoEnrollmentHooksCondition returns a Device with no EnrollmentHooks
+// condition, used by TestInitialization to satisfy the ensurePostEnrollmentHooks
+// call in Initialize.
+func deviceWithNoEnrollmentHooksCondition() *v1beta1.Device {
+	name := "test-device"
+	return &v1beta1.Device{
+		Metadata: v1beta1.ObjectMeta{Name: &name},
+		Status:   &v1beta1.DeviceStatus{},
+	}
+}
+
 func TestInitialization(t *testing.T) {
 	require := require.New(t)
 	tmpDir := t.TempDir()
@@ -45,6 +56,7 @@ func TestInitialization(t *testing.T) {
 			mockLifecycleInitializer *lifecycle.MockInitializer,
 			mockExecutor *executer.MockExecuter,
 			mockIdentityProvider *identity.MockProvider,
+			mockManagement *client.MockManagement,
 		)
 		expectedError error
 	}{
@@ -53,13 +65,14 @@ func TestInitialization(t *testing.T) {
 			setupMocks: func(
 				mockStatusManager *status.MockManager,
 				mockSpecManager *spec.MockManager,
-				mockReadWriter *fileio.MockReadWriter,
-				mockHookManager *hook.MockManager,
+				_ *fileio.MockReadWriter,
+				_ *hook.MockManager,
 				_ *client.MockEnrollment,
 				mockSystemInfoManager *systeminfo.MockManager,
 				mockLifecycleInitializer *lifecycle.MockInitializer,
 				mockExecutor *executer.MockExecuter,
 				mockIdentityProvider *identity.MockProvider,
+				mockManagement *client.MockManagement,
 			) {
 				gomock.InOrder(
 					mockExecutor.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.4.2", "", 0),
@@ -67,9 +80,11 @@ func TestInitialization(t *testing.T) {
 					mockStatusManager.EXPECT().Collect(gomock.Any()).Return(nil),
 					mockStatusManager.EXPECT().Get(gomock.Any()).Return(&v1beta1.DeviceStatus{}),
 					mockLifecycleInitializer.EXPECT().Initialize(gomock.Any(), gomock.Any()).Return(nil),
-					mockIdentityProvider.EXPECT().CreateManagementClient(gomock.Any(), gomock.Any()).Return(nil, nil),
+					mockIdentityProvider.EXPECT().CreateManagementClient(gomock.Any(), gomock.Any()).Return(mockManagement, nil),
 					mockStatusManager.EXPECT().SetClient(gomock.Any()),
 					mockSpecManager.EXPECT().SetClient(gomock.Any()),
+					// ensurePostEnrollmentHooks: GetDevice returns no condition → proceed
+					mockManagement.EXPECT().GetDevice(gomock.Any(), gomock.Any()).Return(deviceWithNoEnrollmentHooksCondition(), http.StatusOK, nil),
 					mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(false),
 					mockSpecManager.EXPECT().IsUpgrading().Return(false),
 					mockSpecManager.EXPECT().GetRollbackInfo().Return(spec.RollbackInfo{}, nil),
@@ -86,13 +101,14 @@ func TestInitialization(t *testing.T) {
 			setupMocks: func(
 				mockStatusManager *status.MockManager,
 				mockSpecManager *spec.MockManager,
-				mockReadWriter *fileio.MockReadWriter,
-				mockHookManager *hook.MockManager,
+				_ *fileio.MockReadWriter,
+				_ *hook.MockManager,
 				_ *client.MockEnrollment,
 				mockSystemInfoManager *systeminfo.MockManager,
 				mockLifecycleInitializer *lifecycle.MockInitializer,
 				mockExecutor *executer.MockExecuter,
 				mockIdentityProvider *identity.MockProvider,
+				mockManagement *client.MockManagement,
 			) {
 				bootedOSVersion := "2.0.0"
 				gomock.InOrder(
@@ -101,9 +117,11 @@ func TestInitialization(t *testing.T) {
 					mockStatusManager.EXPECT().Collect(gomock.Any()).Return(nil),
 					mockStatusManager.EXPECT().Get(gomock.Any()).Return(&v1beta1.DeviceStatus{}),
 					mockLifecycleInitializer.EXPECT().Initialize(gomock.Any(), gomock.Any()).Return(nil),
-					mockIdentityProvider.EXPECT().CreateManagementClient(gomock.Any(), gomock.Any()).Return(nil, nil),
+					mockIdentityProvider.EXPECT().CreateManagementClient(gomock.Any(), gomock.Any()).Return(mockManagement, nil),
 					mockStatusManager.EXPECT().SetClient(gomock.Any()),
 					mockSpecManager.EXPECT().SetClient(gomock.Any()),
+					// ensurePostEnrollmentHooks: GetDevice returns no condition → proceed
+					mockManagement.EXPECT().GetDevice(gomock.Any(), gomock.Any()).Return(deviceWithNoEnrollmentHooksCondition(), http.StatusOK, nil),
 					mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(true),
 					mockSpecManager.EXPECT().CheckOsReconciliation(gomock.Any()).Return(bootedOSVersion, true, nil),
 					mockSystemInfoManager.EXPECT().IsRebooted().Return(false),
@@ -118,13 +136,14 @@ func TestInitialization(t *testing.T) {
 			setupMocks: func(
 				mockStatusManager *status.MockManager,
 				mockSpecManager *spec.MockManager,
-				mockReadWriter *fileio.MockReadWriter,
-				mockHookManager *hook.MockManager,
-				mockEnrollmentClient *client.MockEnrollment,
+				_ *fileio.MockReadWriter,
+				_ *hook.MockManager,
+				_ *client.MockEnrollment,
 				mockSystemInfoManager *systeminfo.MockManager,
 				mockLifecycleInitializer *lifecycle.MockInitializer,
 				mockExecutor *executer.MockExecuter,
 				mockIdentityProvider *identity.MockProvider,
+				mockManagement *client.MockManagement,
 			) {
 				gomock.InOrder(
 					mockExecutor.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.4.2", "", 0),
@@ -132,9 +151,11 @@ func TestInitialization(t *testing.T) {
 					mockStatusManager.EXPECT().Collect(gomock.Any()).Return(nil),
 					mockStatusManager.EXPECT().Get(gomock.Any()).Return(&v1beta1.DeviceStatus{}),
 					mockLifecycleInitializer.EXPECT().Initialize(gomock.Any(), gomock.Any()).Return(nil),
-					mockIdentityProvider.EXPECT().CreateManagementClient(gomock.Any(), gomock.Any()).Return(nil, nil),
+					mockIdentityProvider.EXPECT().CreateManagementClient(gomock.Any(), gomock.Any()).Return(mockManagement, nil),
 					mockStatusManager.EXPECT().SetClient(gomock.Any()),
 					mockSpecManager.EXPECT().SetClient(gomock.Any()),
+					// ensurePostEnrollmentHooks: GetDevice returns no condition → proceed
+					mockManagement.EXPECT().GetDevice(gomock.Any(), gomock.Any()).Return(deviceWithNoEnrollmentHooksCondition(), http.StatusOK, nil),
 					mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(false),
 					mockSpecManager.EXPECT().IsUpgrading().Return(false),
 					mockSpecManager.EXPECT().GetRollbackInfo().Return(spec.RollbackInfo{}, nil),
@@ -161,10 +182,19 @@ func TestInitialization(t *testing.T) {
 			mockLifecycleInitializer := lifecycle.NewMockInitializer(ctrl)
 			mockExecutor := executer.NewMockExecuter(ctrl)
 			mockIdentityProvider := identity.NewMockProvider(ctrl)
+			mockManagement := client.NewMockManagement(ctrl)
 
 			log := log.NewPrefixLogger("test")
 			podmanClient := client.NewPodman(log, mockExecutor, mockReadWriter, util.NewPollConfig())
 			systemdClient := client.NewSystemd(mockExecutor, v1beta1.RootUsername)
+
+			// Fast backoff for tests so ensurePostEnrollmentHooks doesn't sleep.
+			fastBackoff := &wait.Backoff{
+				Steps:    3,
+				Duration: 1 * time.Millisecond,
+				Factor:   1.0,
+				Cap:      10 * time.Millisecond,
+			}
 
 			b := &Bootstrap{
 				statusManager:           mockStatusManager,
@@ -177,6 +207,7 @@ func TestInitialization(t *testing.T) {
 				podmanClient:            podmanClient,
 				systemdClient:           systemdClient,
 				identityProvider:        mockIdentityProvider,
+				enrollmentHooksBackoff:  fastBackoff,
 				log:                     log,
 			}
 
@@ -192,6 +223,7 @@ func TestInitialization(t *testing.T) {
 				mockLifecycleInitializer,
 				mockExecutor,
 				mockIdentityProvider,
+				mockManagement,
 			)
 
 			err := b.Initialize(ctx)
@@ -904,6 +936,176 @@ func TestEnsurePostEnrollmentHooks(t *testing.T) {
 			)
 
 			err := b.ensurePostEnrollmentHooks(ctx)
+			if tt.expectedError != nil {
+				require.ErrorIs(err, tt.expectedError)
+				return
+			}
+			require.NoError(err)
+		})
+	}
+}
+
+func TestBootstrapInitializePostEnrollmentOrdering(t *testing.T) {
+	require := require.New(t)
+	testDeviceName := "test-device"
+
+	testCases := []struct {
+		name       string
+		setupMocks func(
+			mockStatusManager *status.MockManager,
+			mockSpecManager *spec.MockManager,
+			mockHookManager *hook.MockManager,
+			mockSystemInfoManager *systeminfo.MockManager,
+			mockLifecycleInitializer *lifecycle.MockInitializer,
+			mockExecutor *executer.MockExecuter,
+			mockIdentityProvider *identity.MockProvider,
+			mockManagement *client.MockManagement,
+			mockReadWriter *fileio.MockReadWriter,
+		)
+		expectedError error
+	}{
+		{
+			name: "When post-enrollment hooks succeed it should proceed through ensureBootstrap in order",
+			setupMocks: func(
+				mockStatusManager *status.MockManager,
+				mockSpecManager *spec.MockManager,
+				_ *hook.MockManager,
+				mockSystemInfoManager *systeminfo.MockManager,
+				mockLifecycleInitializer *lifecycle.MockInitializer,
+				mockExecutor *executer.MockExecuter,
+				mockIdentityProvider *identity.MockProvider,
+				mockManagement *client.MockManagement,
+				_ *fileio.MockReadWriter,
+			) {
+				// Verify the ordering: SetClient → GetDevice → ShouldApplyOSImageUpdate (ensureBootstrap)
+				gomock.InOrder(
+					mockExecutor.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.4.2", "", 0),
+					mockSpecManager.EXPECT().Ensure().Return(nil),
+					mockStatusManager.EXPECT().Collect(gomock.Any()).Return(nil),
+					mockStatusManager.EXPECT().Get(gomock.Any()).Return(&v1beta1.DeviceStatus{}),
+					mockLifecycleInitializer.EXPECT().Initialize(gomock.Any(), gomock.Any()).Return(nil),
+					mockIdentityProvider.EXPECT().CreateManagementClient(gomock.Any(), gomock.Any()).Return(mockManagement, nil),
+					// setManagementClient
+					mockStatusManager.EXPECT().SetClient(gomock.Any()),
+					mockSpecManager.EXPECT().SetClient(gomock.Any()),
+					// ensurePostEnrollmentHooks: GetDevice returns no condition → proceed
+					mockManagement.EXPECT().GetDevice(gomock.Any(), testDeviceName).Return(deviceWithNoEnrollmentHooksCondition(), http.StatusOK, nil),
+					// ensureBootstrap: ensureBootedOS is reached
+					mockSpecManager.EXPECT().ShouldApplyOSImageUpdate().Return(false),
+					mockSpecManager.EXPECT().IsUpgrading().Return(false),
+					mockSpecManager.EXPECT().GetRollbackInfo().Return(spec.RollbackInfo{}, nil),
+					mockSystemInfoManager.EXPECT().IsRebooted().Return(false),
+					// updateStatus
+					mockSpecManager.EXPECT().IsUpgrading().Return(false),
+					mockSpecManager.EXPECT().GetRollbackInfo().Return(spec.RollbackInfo{}, nil),
+					mockSpecManager.EXPECT().RenderedVersion(spec.Current).Return("1"),
+					mockStatusManager.EXPECT().Update(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil),
+				)
+			},
+		},
+		{
+			name: "When post-enrollment hooks condition is Failed with Block policy it should prevent ensureBootstrap from running",
+			setupMocks: func(
+				mockStatusManager *status.MockManager,
+				mockSpecManager *spec.MockManager,
+				_ *hook.MockManager,
+				_ *systeminfo.MockManager,
+				mockLifecycleInitializer *lifecycle.MockInitializer,
+				mockExecutor *executer.MockExecuter,
+				mockIdentityProvider *identity.MockProvider,
+				mockManagement *client.MockManagement,
+				_ *fileio.MockReadWriter,
+			) {
+				failedDeviceName := testDeviceName
+				failedDevice := &v1beta1.Device{
+					Metadata: v1beta1.ObjectMeta{Name: &failedDeviceName},
+					Status: &v1beta1.DeviceStatus{
+						Conditions: []v1beta1.Condition{
+							{Type: v1beta1.ConditionTypeDeviceEnrollmentHooks, Status: v1beta1.ConditionStatusFalse, Reason: v1beta1.EnrollmentHooksReasonFailed},
+						},
+						EnrollmentHooks: &v1beta1.DeviceEnrollmentHooksStatus{
+							Snapshot: &v1beta1.EnrollmentHookSnapshot{
+								FailurePolicy: v1beta1.FailurePolicyBlock,
+							},
+						},
+					},
+				}
+
+				gomock.InOrder(
+					mockExecutor.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.4.2", "", 0),
+					mockSpecManager.EXPECT().Ensure().Return(nil),
+					mockStatusManager.EXPECT().Collect(gomock.Any()).Return(nil),
+					mockStatusManager.EXPECT().Get(gomock.Any()).Return(&v1beta1.DeviceStatus{}),
+					mockLifecycleInitializer.EXPECT().Initialize(gomock.Any(), gomock.Any()).Return(nil),
+					mockIdentityProvider.EXPECT().CreateManagementClient(gomock.Any(), gomock.Any()).Return(mockManagement, nil),
+					// setManagementClient
+					mockStatusManager.EXPECT().SetClient(gomock.Any()),
+					mockSpecManager.EXPECT().SetClient(gomock.Any()),
+					// ensurePostEnrollmentHooks: GetDevice returns Failed → halt
+					mockManagement.EXPECT().GetDevice(gomock.Any(), testDeviceName).Return(failedDevice, http.StatusOK, nil),
+				)
+				// ShouldApplyOSImageUpdate is NOT expected — ensureBootstrap must not be reached
+			},
+			expectedError: errEnrollmentHooksFailed,
+		},
+	}
+	for _, tt := range testCases {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			mockStatusManager := status.NewMockManager(ctrl)
+			mockSpecManager := spec.NewMockManager(ctrl)
+			mockReadWriter := fileio.NewMockReadWriter(ctrl)
+			mockHookManager := hook.NewMockManager(ctrl)
+			mockSystemInfoManager := systeminfo.NewMockManager(ctrl)
+			mockLifecycleInitializer := lifecycle.NewMockInitializer(ctrl)
+			mockExecutor := executer.NewMockExecuter(ctrl)
+			mockIdentityProvider := identity.NewMockProvider(ctrl)
+			mockManagement := client.NewMockManagement(ctrl)
+
+			log := log.NewPrefixLogger("test")
+			podmanClient := client.NewPodman(log, mockExecutor, mockReadWriter, util.NewPollConfig())
+			systemdClient := client.NewSystemd(mockExecutor, v1beta1.RootUsername)
+
+			fastBackoff := &wait.Backoff{
+				Steps:    3,
+				Duration: 1 * time.Millisecond,
+				Factor:   1.0,
+				Cap:      10 * time.Millisecond,
+			}
+
+			b := &Bootstrap{
+				deviceName:              testDeviceName,
+				statusManager:           mockStatusManager,
+				specManager:             mockSpecManager,
+				hookManager:             mockHookManager,
+				lifecycle:               mockLifecycleInitializer,
+				deviceReadWriter:        mockReadWriter,
+				managementServiceConfig: &baseclient.Config{},
+				systemInfoManager:       mockSystemInfoManager,
+				podmanClient:            podmanClient,
+				systemdClient:           systemdClient,
+				identityProvider:        mockIdentityProvider,
+				enrollmentHooksBackoff:  fastBackoff,
+				log:                     log,
+			}
+
+			ctx := context.TODO()
+
+			tt.setupMocks(
+				mockStatusManager,
+				mockSpecManager,
+				mockHookManager,
+				mockSystemInfoManager,
+				mockLifecycleInitializer,
+				mockExecutor,
+				mockIdentityProvider,
+				mockManagement,
+				mockReadWriter,
+			)
+
+			err := b.Initialize(ctx)
 			if tt.expectedError != nil {
 				require.ErrorIs(err, tt.expectedError)
 				return
