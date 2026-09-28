@@ -134,6 +134,21 @@ func (s *Server) Run(ctx context.Context) error {
 		s.log.WithField("pkg", "encryption-migration"),
 	)
 
+	deviceRenderer, err := tasks.NewDeviceRenderLogicWithDeltaStore(
+		s.log.WithField("pkg", "device-render"),
+		deviceSvc,
+		repositorySvc,
+		catalogSvc,
+		s.k8sClient,
+		kvStore,
+		deltaStore,
+		s.cfg,
+	)
+	if err != nil {
+		s.log.WithError(err).Error("failed to create device render logic")
+		return err
+	}
+
 	if err = tasks.LaunchConsumers(ctx, s.queuesProvider, tasks.TaskConsumer{
 		FleetSvc:           fleetSvc,
 		TemplateversionSvc: templateVersionSvc,
@@ -149,7 +164,7 @@ func (s *Server) Run(ctx context.Context) error {
 		EncryptionMigrator: encryptionMigrator,
 		QueuePublisher:     publisher,
 		WorkerClient:       workerClient,
-		DeltaStore:         deltaStore,
+		DeviceRenderer:     deviceRenderer,
 	}, 1, 1); err != nil {
 		s.log.WithError(err).Error("failed to launch consumers")
 		return err

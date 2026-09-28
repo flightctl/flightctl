@@ -139,9 +139,9 @@ var _ = Describe("VmApplicationRender", func() {
 			InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: deviceName},
 		}
 
-		logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil, orgId, event).
+		logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil).
 			WithVmConverter(vmConverter)
-		Expect(logic.RenderDevice(ctx)).To(Succeed())
+		Expect(logic.RenderDevice(ctx, orgId, event)).To(Succeed())
 
 		rendered, err := deviceStore.GetRendered(ctx, orgId, deviceName, nil, "")
 		Expect(err).ToNot(HaveOccurred())

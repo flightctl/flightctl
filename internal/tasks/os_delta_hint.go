@@ -89,8 +89,8 @@ func deltaWriteSpec(cfg *config.Config) *domain.OciRepoSpec {
 	return defaultRepository
 }
 
-func (t *DeviceRenderLogic) resolveTargetDigest(ctx context.Context, osImage string) (string, error) {
-	return oci.CachedImageDigest(ctx, t.kvStore, t.orgId, osImage, func(ctx context.Context) (string, error) {
+func (t *DeviceRenderLogic) resolveTargetDigest(ctx context.Context, orgId uuid.UUID, osImage string) (string, error) {
+	return oci.CachedImageDigest(ctx, t.kvStore, orgId, osImage, func(ctx context.Context) (string, error) {
 		return oci.InspectImageDigest(ctx, osImage, deltaWriteSpec(t.cfg))
 	})
 }
@@ -111,7 +111,7 @@ func hintFromGeneration(gen *deltamodel.DeltaGeneration, fallbackSize *int64) (d
 	return deltaImage, sizeIEC
 }
 
-func (t *DeviceRenderLogic) resolveOSDeltaHint(ctx context.Context, device *domain.Device, rendered RenderedSpec) *deviceservice.RenderedOSHints {
+func (t *deviceRenderState) resolveOSDeltaHint(ctx context.Context, device *domain.Device, rendered RenderedSpec) *deviceservice.RenderedOSHints {
 	if rendered.OsImage == "" {
 		return nil
 	}
@@ -140,7 +140,7 @@ func (t *DeviceRenderLogic) resolveOSDeltaHint(ctx context.Context, device *doma
 		}
 		return &deviceservice.RenderedOSHints{UpdatedSize: size}
 	}
-	tgt, err := t.resolveTargetDigest(ctx, rendered.OsImage)
+	tgt, err := t.resolveTargetDigest(ctx, t.orgId, rendered.OsImage)
 	if err != nil {
 		t.log.Infof("os delta hint skipped device=%s/%s reason=inspect-target-digest osImage=%q err=%v",
 			t.orgId, t.event.InvolvedObject.Name, rendered.OsImage, err)
@@ -807,7 +807,7 @@ func deviceImagePlatform(device *domain.Device) *ocispec.Platform {
 // resolveRenderedAppDeltaHints resolves per-device hints against the agent's
 // current application image digests. RenderSpec remains device-independent;
 // RenderDevice calls this after rendering the target applications.
-func (t *DeviceRenderLogic) resolveRenderedAppDeltaHints(ctx context.Context, device *domain.Device, rendered *RenderedSpec) error {
+func (t *deviceRenderState) resolveRenderedAppDeltaHints(ctx context.Context, device *domain.Device, rendered *RenderedSpec) error {
 	if device == nil || len(rendered.Applications) == 0 {
 		return nil
 	}
@@ -834,7 +834,7 @@ func (t *DeviceRenderLogic) resolveRenderedAppDeltaHints(ctx context.Context, de
 // resolveAppDeltaHints iterates over rendered applications, resolves delta
 // hints for each one, writes parent and nested hints into the image or inline
 // provider, and returns a map of app-name → IEC size string.
-func (t *DeviceRenderLogic) resolveAppDeltaHints(ctx context.Context, device *domain.Device, apps []domain.ApplicationProviderSpec) (map[string]*string, error) {
+func (t *deviceRenderState) resolveAppDeltaHints(ctx context.Context, device *domain.Device, apps []domain.ApplicationProviderSpec) (map[string]*string, error) {
 	if device == nil {
 		return nil, nil
 	}
@@ -846,7 +846,7 @@ func (t *DeviceRenderLogic) resolveAppDeltaHints(ctx context.Context, device *do
 		deltaLookup: t.deltaLookup,
 		kvStore:     t.kvStore,
 		resolveDigest: func(ctx context.Context, imageRef string) (string, error) {
-			return t.resolveTargetDigest(ctx, imageRef)
+			return t.resolveTargetDigest(ctx, t.orgId, imageRef)
 		},
 		resolveImageSize: func(ctx context.Context, imageRef, targetDigest string) (*int64, error) {
 			return oci.InspectImagePayloadSize(ctx, imageRef, targetDigest, repositorySpec, platform)

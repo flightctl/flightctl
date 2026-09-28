@@ -160,6 +160,7 @@ var _ = Describe("PrepareDeltas persist", func() {
 			deviceService := deviceservice.NewDeviceServiceHandler(devices, nil, fleets, nil, nil, "", log)
 			repositoryService := repositoryservice.NewServiceHandler(repos, nil, log)
 			templateVersionService := templateversionservice.NewServiceHandler(templateVersions, nil, nil, log)
+			specRenderer := tasks.NewDeviceRenderLogic(log, deviceService, repositoryService, nil, nil, nil, nil)
 			p, err := preparetask.NewHandler(
 				&preparetask.Resolver{
 					FleetService:           fleetService,
@@ -168,8 +169,7 @@ var _ = Describe("PrepareDeltas persist", func() {
 					TemplateVersionService: templateVersionService,
 					Config:                 &deltaconfig.DeltaGenerationConfig{},
 					Render: func(ctx context.Context, org uuid.UUID, spec *domain.DeviceSpec) (tasks.RenderedSpec, error) {
-						logic := tasks.NewDeviceRenderLogic(log, deviceService, repositoryService, nil, nil, nil, nil, org, domain.Event{})
-						return logic.RenderSpec(ctx, spec)
+						return specRenderer.RenderSpec(ctx, org, spec)
 					},
 					Inspect: func(_ context.Context, _ uuid.UUID, image string) (string, error) {
 						Expect(image).To(Equal(newImage))
