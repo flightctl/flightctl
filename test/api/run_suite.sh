@@ -15,7 +15,7 @@ export PYTHONWARNINGS="ignore:::urllib3"
 ln -sf "$CONFIG" /app/schemathesis.toml
 
 # Build the schemathesis run command
-ST_CMD="schemathesis run $SPEC --report junit --report-dir $RESULTS"
+ST_CMD="schemathesis run $SPEC --mode positive --report junit --report-dir $RESULTS"
 [ -n "${CI:-}" ] && ST_CMD="$ST_CMD --output-sanitize true"
 
 # Step 1: Run schemathesis CLI tests (stateful, passive checks, coverage)
