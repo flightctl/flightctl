@@ -8,6 +8,7 @@ import (
 	"github.com/containers/image/v5/docker/reference"
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	apphelm "github.com/flightctl/flightctl/internal/agent/device/applications/helm"
 	"github.com/flightctl/flightctl/internal/api/common"
 	preparetask "github.com/flightctl/flightctl/internal/delta_worker/tasks/prepare"
 	"github.com/flightctl/flightctl/internal/domain"
@@ -51,11 +52,61 @@ func expandAppCandidates(
 
 	for i := range apps {
 		refs := extractNewImageRefs(&apps[i])
+		if appType, err := apps[i].GetAppType(); err == nil && appType == domain.AppTypeHelm {
+			refs = deduplicateStrings(append(refs, reportedHelmImageRefs(device, &apps[i])...))
+		}
 		for _, ref := range refs {
 			candidates = append(candidates, pairCandidates(ctx, logger, orgId, applicationDeviceName(device), ref, digestIndex, inspect)...)
 		}
 	}
 	return candidates
+}
+
+// reportedHelmImageRefs returns the workload image references currently
+// reported for a Helm application. The rendered server-side spec contains the
+// chart reference and values, but not the images produced by Helm templates.
+// These references let delta preparation cover mutable workload tags that the
+// desired chart continues to use; the agent ignores hints for references that
+// are absent from the rendered chart.
+func reportedHelmImageRefs(device *domain.Device, app *domain.ApplicationProviderSpec) []string {
+	if device == nil || device.Status == nil {
+		return nil
+	}
+	appName, err := app.GetName()
+	if err != nil {
+		return nil
+	}
+	name := ""
+	if appName != nil {
+		name = *appName
+	}
+	if name == "" {
+		helmApp, err := app.AsHelmApplication()
+		if err != nil {
+			return nil
+		}
+		imageSpec, err := helmApp.AsImageApplicationProviderSpec()
+		if err != nil {
+			return nil
+		}
+		name, err = apphelm.SanitizeReleaseName(imageSpec.Image)
+		if err != nil {
+			return nil
+		}
+	}
+	for _, appStatus := range device.Status.Applications {
+		if appStatus.Name != name || appStatus.ImageDigests == nil {
+			continue
+		}
+		var refs []string
+		for _, image := range *appStatus.ImageDigests {
+			if image.Image != "" && image.Digest != "" {
+				refs = append(refs, image.Image)
+			}
+		}
+		return deduplicateStrings(refs)
+	}
+	return nil
 }
 
 // buildDigestIndex builds a lookup from image repository to current digests
@@ -248,11 +299,9 @@ func extractQuadletRefs(app *domain.ApplicationProviderSpec) []string {
 }
 
 // extractHelmRefs extracts image references from a rendered helm application.
-// The chart image is always included. Helm template output (which would reveal
-// pod/container images) is not available in the rendered spec — extracting
-// those images requires running helm template on the worker with timeout and
-// resource limits (design §4.5). Those nested images are handled when helm
-// template runs during generation.
+// The chart image is always included. Helm workload images are added separately
+// from current application status because they are not present in the rendered
+// chart spec.
 func extractHelmRefs(app *domain.ApplicationProviderSpec) []string {
 	helm, err := (*app).AsHelmApplication()
 	if err != nil {

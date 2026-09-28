@@ -6411,7 +6411,8 @@ components:
               type: array
               description: >-
                 Optional hints for nested OCI images referenced by this inline
-                application. Each entry maps a target digest to its delta artifact.
+                application. Each entry identifies a target image reference and
+                digest and names its delta artifact.
               items:
                 $ref: '#/components/schemas/ImageDeltaHint'
           required:
@@ -9994,8 +9995,8 @@ components:
           description: >-
             Optional hints for nested images within this application
             (e.g. service images in a compose app, OCI volume images).
-            Each entry maps a target digest to its delta artifact
-            reference.
+            Each entry identifies a target image reference and digest and names
+            its delta artifact reference.
           type: array
           items:
             $ref: '#/components/schemas/ImageDeltaHint'
@@ -10005,6 +10006,9 @@ components:
       type: object
       description: A delta hint for a nested image within an application.
       properties:
+        targetImage:
+          description: The target image reference this delta applies to.
+          type: string
         targetDigest:
           description: The content digest of the target image.
           type: string

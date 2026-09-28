@@ -12,6 +12,7 @@ import (
 	"github.com/containers/image/v5/docker/reference"
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	agentclient "github.com/flightctl/flightctl/internal/agent/client"
+	apphelm "github.com/flightctl/flightctl/internal/agent/device/applications/helm"
 	"github.com/flightctl/flightctl/internal/config"
 	deltamodel "github.com/flightctl/flightctl/internal/delta_worker/model"
 	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
@@ -372,6 +373,7 @@ type appImagePair struct {
 
 // appDeltaResult holds the resolution outcome for one appImagePair.
 type appDeltaResult struct {
+	imageRef     string
 	targetDigest string
 	deltaRef     *string
 	sizeBytes    *int64
@@ -424,7 +426,7 @@ func (r *appDeltaResolver) resolveImagePair(ctx context.Context, pair appImagePa
 			repo, pair.currentDigest, targetDigest, err)
 		return nil
 	}
-	result := &appDeltaResult{targetDigest: targetDigest}
+	result := &appDeltaResult{imageRef: pair.imageRef, targetDigest: targetDigest}
 	if gen != nil {
 		result.sizeBytes = gen.SizeBytes
 		if gen.Status == deltamodel.DeltaGenerationSucceeded && gen.DeltaRef != nil && *gen.DeltaRef != "" {
@@ -471,12 +473,13 @@ func (r *appDeltaResolver) resolveApp(ctx context.Context, parent *appImagePair,
 			haveSizeData = true
 		}
 	}
-	seenTargetDigests := make(map[string]struct{}, len(nestedResults))
+	seenTargetImages := make(map[string]struct{}, len(nestedResults))
 	for _, nr := range nestedResults {
 		if nr.deltaRef != nil {
-			if _, ok := seenTargetDigests[nr.targetDigest]; !ok {
-				seenTargetDigests[nr.targetDigest] = struct{}{}
+			if _, ok := seenTargetImages[nr.imageRef]; !ok {
+				seenTargetImages[nr.imageRef] = struct{}{}
 				hints.nestedDeltas = append(hints.nestedDeltas, v1beta1.ImageDeltaHint{
+					TargetImage:  lo.ToPtr(nr.imageRef),
 					TargetDigest: nr.targetDigest,
 					DeltaImage:   *nr.deltaRef,
 				})
@@ -557,7 +560,24 @@ func collectHelmAppPairs(app v1beta1.HelmApplication, currentDigests map[string]
 	if err != nil {
 		return nil, nil
 	}
-	return newAppImagePair(imgSpec.Image, currentDigests), nil
+	var parent *appImagePair
+	if imgSpec.Image != "" {
+		// A Helm chart isn't a container image, so only use its own reported
+		// digest if a future provider starts reporting one. Do not pair it with
+		// a same-repository workload digest.
+		parent = &appImagePair{imageRef: imgSpec.Image, currentDigest: currentDigests[imgSpec.Image]}
+	}
+	// Helm workload images are only known after the chart is rendered on the
+	// device. Reuse currently reported workload references as possible targets;
+	// the agent will apply a hint only when the rendered chart still uses that
+	// exact reference.
+	var workloadImageRefs []string
+	for imageRef := range currentDigests {
+		if imageRef != imgSpec.Image {
+			workloadImageRefs = append(workloadImageRefs, imageRef)
+		}
+	}
+	return parent, collectImagePairs(workloadImageRefs, currentDigests)
 }
 
 func collectVmAppPairs(app v1beta1.VmApplication, currentDigests map[string]string) (*appImagePair, []appImagePair) {
@@ -574,9 +594,31 @@ func newAppImagePair(imageRef string, currentDigests map[string]string) *appImag
 	if imageRef == "" {
 		return nil
 	}
+	currentDigest := currentDigests[imageRef]
+	if currentDigest == "" {
+		// Image references commonly change tags between application versions.
+		// If the exact target reference has no status entry, use a reported
+		// source digest from the same repository; delta generation pairs images
+		// by repository and digest, not by tag.
+		targetRepository, err := ImageRepositoryFromRef(imageRef)
+		if err == nil {
+			currentRefs := make([]string, 0, len(currentDigests))
+			for currentRef := range currentDigests {
+				currentRefs = append(currentRefs, currentRef)
+			}
+			sort.Strings(currentRefs)
+			for _, currentRef := range currentRefs {
+				currentRepository, err := ImageRepositoryFromRef(currentRef)
+				if err == nil && currentRepository == targetRepository && currentDigests[currentRef] != "" {
+					currentDigest = currentDigests[currentRef]
+					break
+				}
+			}
+		}
+	}
 	return &appImagePair{
 		imageRef:      imageRef,
-		currentDigest: currentDigests[imageRef],
+		currentDigest: currentDigest,
 	}
 }
 
@@ -864,25 +906,57 @@ func appNameFromProvider(app *domain.ApplicationProviderSpec) string {
 		if err != nil {
 			return ""
 		}
-		return util.DefaultIfNil(a.Name, "")
+		if name := util.DefaultIfNil(a.Name, ""); name != "" {
+			return name
+		}
+		imageSpec, err := a.AsImageApplicationProviderSpec()
+		if err == nil {
+			return imageSpec.Image
+		}
+		return ""
 	case domain.AppTypeCompose:
 		a, err := app.AsComposeApplication()
 		if err != nil {
 			return ""
 		}
-		return util.DefaultIfNil(a.Name, "")
+		if name := util.DefaultIfNil(a.Name, ""); name != "" {
+			return name
+		}
+		imageSpec, err := a.AsImageApplicationProviderSpec()
+		if err == nil {
+			return imageSpec.Image
+		}
+		return ""
 	case domain.AppTypeQuadlet:
 		a, err := app.AsQuadletApplication()
 		if err != nil {
 			return ""
 		}
-		return util.DefaultIfNil(a.Name, "")
+		if name := util.DefaultIfNil(a.Name, ""); name != "" {
+			return name
+		}
+		imageSpec, err := a.AsImageApplicationProviderSpec()
+		if err == nil {
+			return imageSpec.Image
+		}
+		return ""
 	case domain.AppTypeHelm:
 		a, err := app.AsHelmApplication()
 		if err != nil {
 			return ""
 		}
-		return util.DefaultIfNil(a.Name, "")
+		if name := util.DefaultIfNil(a.Name, ""); name != "" {
+			return name
+		}
+		imageSpec, err := a.AsImageApplicationProviderSpec()
+		if err != nil {
+			return ""
+		}
+		name, err := apphelm.SanitizeReleaseName(imageSpec.Image)
+		if err != nil {
+			return ""
+		}
+		return name
 	case domain.AppTypeVm:
 		a, err := app.AsVmApplication()
 		if err != nil {
