@@ -147,8 +147,8 @@ var _ = Describe("Application lifecycle overlay at render time", func() {
 		Expect(rolloutLogic.RolloutDevice(ctx)).To(Succeed())
 
 		By("rendering the device for the first time with no lifecycle override")
-		renderLogic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil, orgId, event)
-		Expect(renderLogic.RenderDevice(ctx)).To(Succeed())
+		renderLogic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil)
+		Expect(renderLogic.RenderDevice(ctx, orgId, event)).To(Succeed())
 
 		renderedDevice, status := deviceSvc.GetRenderedDevice(ctx, orgId, deviceName, api.GetRenderedDeviceParams{})
 		Expect(status.Code).To(Equal(int32(200)))
@@ -174,8 +174,7 @@ var _ = Describe("Application lifecycle overlay at render time", func() {
 				Name: deviceName,
 			},
 		}
-		renderLogic = tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil, orgId, lifecycleEvent)
-		Expect(renderLogic.RenderDevice(ctx)).To(Succeed())
+		Expect(renderLogic.RenderDevice(ctx, orgId, lifecycleEvent)).To(Succeed())
 
 		renderedDevice, status = deviceSvc.GetRenderedDevice(ctx, orgId, deviceName, api.GetRenderedDeviceParams{})
 		Expect(status.Code).To(Equal(int32(200)))
@@ -192,8 +191,7 @@ var _ = Describe("Application lifecycle overlay at render time", func() {
 		_, restartStatus := deviceSvc.RestartDeviceApplication(ctx, orgId, deviceName, "app-1")
 		Expect(restartStatus.Code).To(Equal(int32(200)))
 
-		renderLogic = tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil, orgId, lifecycleEvent)
-		Expect(renderLogic.RenderDevice(ctx)).To(Succeed())
+		Expect(renderLogic.RenderDevice(ctx, orgId, lifecycleEvent)).To(Succeed())
 
 		renderedDevice, status = deviceSvc.GetRenderedDevice(ctx, orgId, deviceName, api.GetRenderedDeviceParams{})
 		Expect(status.Code).To(Equal(int32(200)))
@@ -205,8 +203,7 @@ var _ = Describe("Application lifecycle overlay at render time", func() {
 		_, startStatus := deviceSvc.StartDeviceApplication(ctx, orgId, deviceName, "app-1")
 		Expect(startStatus.Code).To(Equal(int32(200)))
 
-		renderLogic = tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil, orgId, lifecycleEvent)
-		Expect(renderLogic.RenderDevice(ctx)).To(Succeed())
+		Expect(renderLogic.RenderDevice(ctx, orgId, lifecycleEvent)).To(Succeed())
 
 		renderedDevice, status = deviceSvc.GetRenderedDevice(ctx, orgId, deviceName, api.GetRenderedDeviceParams{})
 		Expect(status.Code).To(Equal(int32(200)))
@@ -218,8 +215,7 @@ var _ = Describe("Application lifecycle overlay at render time", func() {
 		_, restartStatus = deviceSvc.RestartDeviceApplication(ctx, orgId, deviceName, "app-1")
 		Expect(restartStatus.Code).To(Equal(int32(200)))
 
-		renderLogic = tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil, orgId, lifecycleEvent)
-		Expect(renderLogic.RenderDevice(ctx)).To(Succeed())
+		Expect(renderLogic.RenderDevice(ctx, orgId, lifecycleEvent)).To(Succeed())
 
 		renderedDevice, status = deviceSvc.GetRenderedDevice(ctx, orgId, deviceName, api.GetRenderedDeviceParams{})
 		Expect(status.Code).To(Equal(int32(200)))
@@ -256,9 +252,9 @@ var _ = Describe("Application lifecycle overlay at render time", func() {
 				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: name},
 			}
 		}
+		renderLogic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil)
 		renderDevice := func(event api.Event) {
-			renderLogic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil, orgId, event)
-			Expect(renderLogic.RenderDevice(ctx)).To(Succeed())
+			Expect(renderLogic.RenderDevice(ctx, orgId, event)).To(Succeed())
 		}
 		rolloutAndRender := func(name string, event api.Event) {
 			Expect(tasks.NewFleetRolloutsLogic(log, fleetSvc, templateVersionSvc, deviceSvc, dependencyrefSvc, orgId, event).RolloutDevice(ctx)).To(Succeed())

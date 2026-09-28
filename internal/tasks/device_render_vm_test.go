@@ -477,8 +477,8 @@ func TestNewVmConverter_EmptyLauncherImageUsesDefault(t *testing.T) {
 	}, strings.Split(strings.TrimSpace(string(argsBytes)), "\n"))
 }
 
-// TestVmRenderOptionsFromConfig verifies NewDeviceRenderLogic wires Worker.VmRender
-// into the options used for conversion.
+// TestVmRenderOptionsFromConfig verifies Worker.VmRender supplies the options
+// used by each render invocation.
 func TestVmRenderOptionsFromConfig(t *testing.T) {
 	t.Parallel()
 
@@ -492,11 +492,12 @@ func TestVmRenderOptionsFromConfig(t *testing.T) {
 		}
 	}`), cfg))
 
-	logic := NewDeviceRenderLogic(logrus.New(), nil, nil, nil, nil, nil, cfg, [16]byte{}, domain.Event{})
-	assert.Equal(t, "registry.example.com/kubevirt/virt-launcher:custom", logic.vmRenderOptions.LauncherImage)
-	assert.False(t, logic.vmRenderOptions.PasstWorkarounds)
+	logic := NewDeviceRenderLogic(logrus.New(), nil, nil, nil, nil, nil, cfg)
+	state := logic.newRenderState([16]byte{}, domain.Event{})
+	assert.Equal(t, "registry.example.com/kubevirt/virt-launcher:custom", state.vmRenderOptions.LauncherImage)
+	assert.False(t, state.vmRenderOptions.PasstWorkarounds)
 
-	defaults := NewDeviceRenderLogic(logrus.New(), nil, nil, nil, nil, nil, &config.Config{}, [16]byte{}, domain.Event{})
+	defaults := NewDeviceRenderLogic(logrus.New(), nil, nil, nil, nil, nil, &config.Config{}).newRenderState([16]byte{}, domain.Event{})
 	assert.Equal(t, config.DefaultVirtLauncherImage, defaults.vmRenderOptions.LauncherImage)
 	assert.False(t, defaults.vmRenderOptions.PasstWorkarounds)
 }
@@ -570,7 +571,7 @@ func TestBindVmLauncher_SelectsPerOSImage(t *testing.T) {
 		}
 	}`), cfg))
 
-	logic := NewDeviceRenderLogic(logrus.New(), nil, nil, nil, nil, nil, cfg, [16]byte{}, domain.Event{})
+	logic := NewDeviceRenderLogic(logrus.New(), nil, nil, nil, nil, nil, cfg).newRenderState([16]byte{}, domain.Event{})
 	device := &domain.Device{Status: &domain.DeviceStatus{}}
 	device.Status.SystemInfo.Set(deviceDistroIdKey, "rhel")
 	device.Status.SystemInfo.Set(deviceDistroVersionKey, "10.0 (Coughlan)")
@@ -592,7 +593,7 @@ func TestBindVmLauncher_UnknownOSUsesDefault(t *testing.T) {
 		}
 	}`), cfg))
 
-	logic := NewDeviceRenderLogic(logrus.New(), nil, nil, nil, nil, nil, cfg, [16]byte{}, domain.Event{})
+	logic := NewDeviceRenderLogic(logrus.New(), nil, nil, nil, nil, nil, cfg).newRenderState([16]byte{}, domain.Event{})
 	device := &domain.Device{Status: &domain.DeviceStatus{}}
 	device.Status.SystemInfo.Set(deviceDistroIdKey, "fedora")
 	device.Status.SystemInfo.Set(deviceDistroVersionKey, "42 (Adams)")

@@ -170,11 +170,12 @@ func newFleetOwnedLogic(
 	orgId uuid.UUID,
 	event domain.Event,
 	fleet, templateVersion string,
-) DeviceRenderLogic {
-	l := NewDeviceRenderLogic(logrus.New(), nil, repositorySvc, nil, k8s, kv, &config.Config{}, orgId, event)
-	l.ownerFleet = &fleet
-	l.templateVersion = &templateVersion
-	return l
+) *deviceRenderState {
+	logic := NewDeviceRenderLogic(logrus.New(), nil, repositorySvc, nil, k8s, kv, &config.Config{})
+	state := logic.newRenderState(orgId, event)
+	state.ownerFleet = &fleet
+	state.templateVersion = &templateVersion
+	return state
 }
 
 // emptyIgnitionConfig returns an empty ignition config suitable as the initial
@@ -233,8 +234,9 @@ func TestGetDepChangeDetails(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			l := DeviceRenderLogic{log: logrus.New(), orgId: orgId, event: tt.event}
-			fp, rk := l.getDepChangeDetails()
+			logic := NewDeviceRenderLogic(logrus.New(), nil, nil, nil, nil, nil, nil)
+			state := logic.newRenderState(orgId, tt.event)
+			fp, rk := state.getDepChangeDetails()
 			assert.Equal(t, tt.expectedFingerprint, fp)
 			assert.Equal(t, tt.expectedResourceKey, rk)
 		})
@@ -752,9 +754,9 @@ func TestRenderDevice_PermanentError(t *testing.T) {
 	mockSvc.EXPECT().UpdateServerSideDeviceStatus(gomock.Any(), orgId, deviceName).Return(nil)
 
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonFleetRolloutDeviceSelected, deviceName)
-	logic := NewDeviceRenderLogic(logrus.New(), mockSvc, nil, nil, nil, newTestKVStore(), &config.Config{}, orgId, event)
+	logic := NewDeviceRenderLogic(logrus.New(), mockSvc, nil, nil, nil, newTestKVStore(), &config.Config{})
 
-	err := logic.RenderDevice(context.Background())
+	err := logic.RenderDevice(context.Background(), orgId, event)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrUnknownConfigName)
 }
@@ -792,9 +794,9 @@ func TestRenderDevice_RetryableError(t *testing.T) {
 	mockK8S.EXPECT().GetSecret(gomock.Any(), namespace, secretName).Return(nil, fmt.Errorf("connection to apiserver: %w", io.EOF))
 
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
-	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, nil, mockK8S, newTestKVStore(), &config.Config{}, orgId, event)
+	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, nil, mockK8S, newTestKVStore(), &config.Config{})
 
-	err := logic.RenderDevice(context.Background())
+	err := logic.RenderDevice(context.Background(), orgId, event)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "EOF")
 }
@@ -832,9 +834,9 @@ func TestRenderDevice_PermanentError_StandaloneDevice(t *testing.T) {
 	mockSvc.EXPECT().UpdateServerSideDeviceStatus(gomock.Any(), orgId, deviceName).Return(nil)
 
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
-	logic := NewDeviceRenderLogic(logrus.New(), mockSvc, nil, nil, nil, newTestKVStore(), &config.Config{}, orgId, event)
+	logic := NewDeviceRenderLogic(logrus.New(), mockSvc, nil, nil, nil, newTestKVStore(), &config.Config{})
 
-	err := logic.RenderDevice(context.Background())
+	err := logic.RenderDevice(context.Background(), orgId, event)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrUnknownConfigName)
 }
@@ -881,9 +883,9 @@ func TestRenderDevice_ExternalError_FleetOwned_NoAnnotations(t *testing.T) {
 	mockSvc.EXPECT().UpdateServerSideDeviceStatus(gomock.Any(), orgId, deviceName).Return(nil)
 
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonFleetRolloutDeviceSelected, deviceName)
-	logic := NewDeviceRenderLogic(logrus.New(), mockSvc, nil, nil, nil, newTestKVStore(), &config.Config{}, orgId, event)
+	logic := NewDeviceRenderLogic(logrus.New(), mockSvc, nil, nil, nil, newTestKVStore(), &config.Config{})
 
-	err := logic.RenderDevice(context.Background())
+	err := logic.RenderDevice(context.Background(), orgId, event)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "kubernetes API is not available")
 }
@@ -921,9 +923,9 @@ func TestRenderDevice_PermanentAppError(t *testing.T) {
 	mockSvc.EXPECT().UpdateServerSideDeviceStatus(gomock.Any(), orgId, deviceName).Return(nil)
 
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
-	logic := NewDeviceRenderLogic(logrus.New(), mockSvc, nil, nil, nil, newTestKVStore(), &config.Config{}, orgId, event)
+	logic := NewDeviceRenderLogic(logrus.New(), mockSvc, nil, nil, nil, newTestKVStore(), &config.Config{})
 
-	err := logic.RenderDevice(context.Background())
+	err := logic.RenderDevice(context.Background(), orgId, event)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrUnknownApplicationType)
 }
@@ -1012,9 +1014,9 @@ func TestRenderDevice_CatalogItemRef_ResolvesOsImage(t *testing.T) {
 	mockDeviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), expectedOsImage, gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK)
 
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
-	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, mockCatalogSvc, nil, newTestKVStore(), &config.Config{}, orgId, event)
+	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, mockCatalogSvc, nil, newTestKVStore(), &config.Config{})
 
-	err := logic.RenderDevice(context.Background())
+	err := logic.RenderDevice(context.Background(), orgId, event)
 	require.NoError(t, err)
 }
 
@@ -1047,16 +1049,16 @@ func TestRenderDevice_NoCatalogItemRef_PassesPlainOsImage(t *testing.T) {
 	mockDeviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), plainImage, gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK)
 
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
-	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, nil, nil, newTestKVStore(), &config.Config{}, orgId, event)
+	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, nil, nil, newTestKVStore(), &config.Config{})
 
-	err := logic.RenderDevice(context.Background())
+	err := logic.RenderDevice(context.Background(), orgId, event)
 	require.NoError(t, err)
 }
 
 // TestRenderDevice_CatalogRefAndPlainImage_ResolveIndependently verifies that
 // a catalog-item-ref OS spec resolves to the catalog artifact image and a
-// plain-image OS spec passes the image through directly. Each render uses a
-// fresh DeviceRenderLogic so no persisted state carries between them.
+// plain-image OS spec passes the image through directly. Reusing the renderer
+// verifies request-specific state does not carry between renders.
 func TestRenderDevice_CatalogRefAndPlainImage_ResolveIndependently(t *testing.T) {
 	const (
 		deviceName   = "device-catalog-to-plain"
@@ -1086,8 +1088,8 @@ func TestRenderDevice_CatalogRefAndPlainImage_ResolveIndependently(t *testing.T)
 	mockDeviceSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), expectedCatalogOsImage, gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK)
 
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
-	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, mockCatalogSvc, nil, newTestKVStore(), &config.Config{}, orgId, event)
-	require.NoError(t, logic.RenderDevice(context.Background()))
+	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, mockCatalogSvc, nil, newTestKVStore(), &config.Config{})
+	require.NoError(t, logic.RenderDevice(context.Background(), orgId, event))
 
 	// Plain-image spec: passes the image through directly.
 	plainDevice := &domain.Device{
@@ -1106,8 +1108,7 @@ func TestRenderDevice_CatalogRefAndPlainImage_ResolveIndependently(t *testing.T)
 	)
 
 	event2 := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
-	logic2 := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, mockCatalogSvc, nil, newTestKVStore(), &config.Config{}, orgId, event2)
-	require.NoError(t, logic2.RenderDevice(context.Background()))
+	require.NoError(t, logic.RenderDevice(context.Background(), orgId, event2))
 }
 
 // TestRenderDevice_CatalogItemRef_WrongType verifies that a catalog item ref
@@ -1136,9 +1137,9 @@ func TestRenderDevice_CatalogItemRef_WrongType(t *testing.T) {
 	mockDeviceSvc.EXPECT().UpdateServerSideDeviceStatus(gomock.Any(), orgId, deviceName).Return(nil)
 
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
-	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, mockCatalogSvc, nil, newTestKVStore(), &config.Config{}, orgId, event)
+	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, mockCatalogSvc, nil, newTestKVStore(), &config.Config{})
 
-	err := logic.RenderDevice(context.Background())
+	err := logic.RenderDevice(context.Background(), orgId, event)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot use catalog item of type")
 }
@@ -1168,9 +1169,9 @@ func TestRenderDevice_CatalogItemRef_UnknownVersion(t *testing.T) {
 	mockDeviceSvc.EXPECT().UpdateServerSideDeviceStatus(gomock.Any(), orgId, deviceName).Return(nil)
 
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
-	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, mockCatalogSvc, nil, newTestKVStore(), &config.Config{}, orgId, event)
+	logic := NewDeviceRenderLogic(logrus.New(), mockDeviceSvc, nil, mockCatalogSvc, nil, newTestKVStore(), &config.Config{})
 
-	err := logic.RenderDevice(context.Background())
+	err := logic.RenderDevice(context.Background(), orgId, event)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown version 99.0.0")
 }
@@ -1407,8 +1408,7 @@ func TestRenderSpec_WhenCatalogItemRefItShouldResolveOsImageWithoutPersisting(t 
 	mockCatalogSvc := catalogservice.NewMockService(ctrl)
 	mockCatalogSvc.EXPECT().GetCatalogItem(gomock.Any(), orgId, catalogName, itemName).Return(catalogItem, statusOK)
 
-	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, "device-1")
-	logic := NewDeviceRenderLogic(logrus.New(), nil, nil, mockCatalogSvc, nil, newTestKVStore(), &config.Config{}, orgId, event)
+	logic := NewDeviceRenderLogic(logrus.New(), nil, nil, mockCatalogSvc, nil, newTestKVStore(), &config.Config{})
 
 	spec := &domain.DeviceSpec{
 		Os: &domain.DeviceOsSpec{
@@ -1420,7 +1420,7 @@ func TestRenderSpec_WhenCatalogItemRefItShouldResolveOsImageWithoutPersisting(t 
 		},
 	}
 
-	rendered, err := logic.RenderSpec(context.Background(), spec)
+	rendered, err := logic.RenderSpec(context.Background(), orgId, spec)
 	require.NoError(t, err)
 	assert.Equal(t, artifactUri+":"+containerRef, rendered.OsImage)
 }
@@ -1457,7 +1457,7 @@ func TestRenderSpec_WhenHTTPConfigItShouldIncludeFetchedBodyWithoutPersisting(t 
 		Config: &[]domain.ConfigProviderSpec{item},
 	}
 
-	rendered, err := logic.RenderSpec(context.Background(), spec)
+	rendered, err := logic.renderSpec(context.Background(), spec)
 	require.NoError(t, err)
 	assert.Equal(t, "quay.io/os/base:latest", rendered.OsImage)
 	assert.Contains(t, string(rendered.Config), base64.StdEncoding.EncodeToString([]byte(body)))
@@ -1504,18 +1504,17 @@ func TestRenderDevice_SucceededGenerationSetsDeltaImageAndSize(t *testing.T) {
 			DeltaRef:  &deltaRef,
 			SizeBytes: &size,
 		},
-	}, &config.Config{}, orgId, event)
+	}, &config.Config{})
 	require.NoError(t, err)
 
-	require.NoError(t, logic.RenderDevice(context.Background()))
+	require.NoError(t, logic.RenderDevice(context.Background(), orgId, event))
 }
 
 func TestDeviceRender_NonDeviceKind(t *testing.T) {
 	orgId := uuid.New()
 	event := createTestEvent(domain.FleetKind, domain.EventReasonResourceUpdated, "some-fleet")
-	cfg := &config.Config{}
 
-	err := deviceRender(context.Background(), orgId, event, nil, nil, nil, nil, nil, nil, cfg, logrus.New())
+	err := deviceRender(context.Background(), orgId, event, nil, logrus.New())
 	require.NoError(t, err)
 }
 
@@ -1542,7 +1541,9 @@ func TestDeviceRender_DetachedContextSurvivesParentDeadline(t *testing.T) {
 	defer cancel()
 	<-expiredCtx.Done()
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
-	err := deviceRender(expiredCtx, orgId, event, mockSvc, nil, nil, nil, newTestKVStore(), &stubGenerationLookup{}, &config.Config{}, logrus.New())
+	renderer, err := newDeviceRenderLogicWithDeltaLookup(logrus.New(), mockSvc, nil, nil, nil, newTestKVStore(), &stubGenerationLookup{}, &config.Config{})
+	require.NoError(t, err)
+	err = deviceRender(expiredCtx, orgId, event, renderer, logrus.New())
 	require.NoError(t, err)
 }
 
@@ -1565,9 +1566,11 @@ func TestDeviceRender_ExplicitCancelPropagates(t *testing.T) {
 	mockSvc.EXPECT().UpdateRenderedDevice(gomock.Any(), orgId, deviceName, gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK).AnyTimes()
 
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
+	renderer, err := newDeviceRenderLogicWithDeltaLookup(logrus.New(), mockSvc, nil, nil, nil, newTestKVStore(), &stubGenerationLookup{}, &config.Config{})
+	require.NoError(t, err)
 	done := make(chan struct{})
 	go func() {
-		_ = deviceRender(parentCtx, orgId, event, mockSvc, nil, nil, nil, newTestKVStore(), &stubGenerationLookup{}, &config.Config{}, logrus.New())
+		_ = deviceRender(parentCtx, orgId, event, renderer, logrus.New())
 		close(done)
 	}()
 	select {

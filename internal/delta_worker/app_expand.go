@@ -8,7 +8,7 @@ import (
 	"github.com/containers/image/v5/docker/reference"
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
-	"github.com/flightctl/flightctl/internal/api/common"
+	apphelm "github.com/flightctl/flightctl/internal/agent/device/applications/helm"
 	preparetask "github.com/flightctl/flightctl/internal/delta_worker/tasks/prepare"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/tasks"
@@ -51,11 +51,61 @@ func expandAppCandidates(
 
 	for i := range apps {
 		refs := extractNewImageRefs(&apps[i])
+		if appType, err := apps[i].GetAppType(); err == nil && appType == domain.AppTypeHelm {
+			refs = deduplicateStrings(append(refs, reportedHelmImageRefs(device, &apps[i])...))
+		}
 		for _, ref := range refs {
 			candidates = append(candidates, pairCandidates(ctx, logger, orgId, applicationDeviceName(device), ref, digestIndex, inspect)...)
 		}
 	}
 	return candidates
+}
+
+// reportedHelmImageRefs returns the workload image references currently
+// reported for a Helm application. The rendered server-side spec contains the
+// chart reference and values, but not the images produced by Helm templates.
+// These references let delta preparation cover mutable workload tags that the
+// desired chart continues to use; the agent ignores hints for references that
+// are absent from the rendered chart.
+func reportedHelmImageRefs(device *domain.Device, app *domain.ApplicationProviderSpec) []string {
+	if device == nil || device.Status == nil {
+		return nil
+	}
+	appName, err := app.GetName()
+	if err != nil {
+		return nil
+	}
+	name := ""
+	if appName != nil {
+		name = *appName
+	}
+	if name == "" {
+		helmApp, err := app.AsHelmApplication()
+		if err != nil {
+			return nil
+		}
+		imageSpec, err := helmApp.AsImageApplicationProviderSpec()
+		if err != nil {
+			return nil
+		}
+		name, err = apphelm.SanitizeReleaseName(imageSpec.Image)
+		if err != nil {
+			return nil
+		}
+	}
+	for _, appStatus := range device.Status.Applications {
+		if appStatus.Name != name || appStatus.ImageDigests == nil {
+			continue
+		}
+		var refs []string
+		for _, image := range *appStatus.ImageDigests {
+			if image.Image != "" && image.Digest != "" {
+				refs = append(refs, image.Image)
+			}
+		}
+		return deduplicateStrings(refs)
+	}
+	return nil
 }
 
 // buildDigestIndex builds a lookup from image repository to current digests
@@ -172,6 +222,8 @@ func extractNewImageRefs(app *domain.ApplicationProviderSpec) []string {
 		refs = extractQuadletRefs(app)
 	case domain.AppTypeHelm:
 		refs = extractHelmRefs(app)
+	case domain.AppTypeVm:
+		refs = extractVmRefs(app)
 	}
 
 	refs = append(refs, extractVolumeImageRefs(app)...)
@@ -221,9 +273,9 @@ func extractComposeRefs(app *domain.ApplicationProviderSpec) []string {
 }
 
 // extractQuadletRefs extracts all image references from a rendered quadlet
-// application: the parent artifact image (when image-based) and every Image=
-// reference inside inline quadlet unit files. Rendered quadlet apps always
-// carry inline content.
+// application: the parent artifact image (when image-based), references in
+// inline quadlet units, and images in Pod YAML referenced by .kube units.
+// Rendered quadlet apps always carry inline content.
 func extractQuadletRefs(app *domain.ApplicationProviderSpec) []string {
 	quadlet, err := (*app).AsQuadletApplication()
 	if err != nil {
@@ -251,14 +303,28 @@ func extractQuadletRefs(app *domain.ApplicationProviderSpec) []string {
 // The chart image is always included. Helm template output (which would reveal
 // pod/container images) is not available in the rendered spec — extracting
 // those images requires running helm template on the worker with timeout and
-// resource limits (design §4.5). Those nested images are handled when helm
-// template runs during generation.
+// resource limits. Those nested images are handled when helm template runs
+// during generation.
 func extractHelmRefs(app *domain.ApplicationProviderSpec) []string {
 	helm, err := (*app).AsHelmApplication()
 	if err != nil {
 		return nil
 	}
 	imageSpec, err := helm.AsImageApplicationProviderSpec()
+	if err != nil || imageSpec.Image == "" {
+		return nil
+	}
+	return []string{imageSpec.Image}
+}
+
+// extractVmRefs extracts an image-backed VM application image. Inline VM apps
+// are rendered as Quadlet applications before delta candidates are prepared.
+func extractVmRefs(app *domain.ApplicationProviderSpec) []string {
+	vm, err := (*app).AsVmApplication()
+	if err != nil {
+		return nil
+	}
+	imageSpec, err := vm.AsImageApplicationProviderSpec()
 	if err != nil || imageSpec.Image == "" {
 		return nil
 	}
@@ -284,12 +350,21 @@ func extractVolumeImageRefs(app *domain.ApplicationProviderSpec) []string {
 
 	var refs []string
 	for _, vol := range *volumes {
-		imgVol, err := vol.AsImageVolumeProviderSpec()
+		volType, err := vol.Type()
 		if err != nil {
 			continue
 		}
-		if imgVol.Image.Reference != "" {
-			refs = append(refs, imgVol.Image.Reference)
+		switch volType {
+		case v1beta1.ImageApplicationVolumeProviderType:
+			imgVol, err := vol.AsImageVolumeProviderSpec()
+			if err == nil && imgVol.Image.Reference != "" {
+				refs = append(refs, imgVol.Image.Reference)
+			}
+		case v1beta1.ImageMountApplicationVolumeProviderType:
+			imgVol, err := vol.AsImageMountVolumeProviderSpec()
+			if err == nil && imgVol.Image.Reference != "" {
+				refs = append(refs, imgVol.Image.Reference)
+			}
 		}
 	}
 	return refs
@@ -311,33 +386,12 @@ func parseComposeServiceImages(contents []v1beta1.ApplicationContent) []string {
 	return images
 }
 
-// parseQuadletImageRefs parses quadlet unit files and returns all Image=
-// references.
+// parseQuadletImageRefs returns external images referenced by inline Quadlet
+// units and any Pod YAML referenced by .kube units.
 func parseQuadletImageRefs(contents []v1beta1.ApplicationContent) []string {
-	quads, err := client.ParseQuadletReferencesFromSpec(contents)
+	images, err := client.ParseQuadletImageReferencesFromSpec(contents)
 	if err != nil {
 		return nil
-	}
-	var images []string
-	for _, quad := range quads {
-		images = append(images, quadletImages(quad)...)
-	}
-	return images
-}
-
-// quadletImages returns all image references from a parsed quadlet.
-func quadletImages(quad *common.QuadletReferences) []string {
-	if quad == nil {
-		return nil
-	}
-	var images []string
-	if quad.Image != nil && *quad.Image != "" {
-		images = append(images, *quad.Image)
-	}
-	for _, img := range quad.MountImages {
-		if img != "" {
-			images = append(images, img)
-		}
 	}
 	return images
 }

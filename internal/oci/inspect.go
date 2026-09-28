@@ -2,13 +2,18 @@ package oci
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
 	"github.com/containers/image/v5/docker/reference"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/google/uuid"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"oras.land/oras-go/v2"
+	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote"
 )
@@ -81,6 +86,126 @@ func InspectImageDigest(ctx context.Context, image string, spec *domain.OciRepoS
 		return "", fmt.Errorf("resolve image digest for %s: %w", image, err)
 	}
 	return desc.Digest.String(), nil
+}
+
+// InspectImagePayloadSize returns the config and layer payload size for an OCI
+// image. When targetDigest is set, it is used instead of resolving imageRef so
+// a mutable tag cannot change between digest and size inspection.
+func InspectImagePayloadSize(ctx context.Context, imageRef, targetDigest string, spec *domain.OciRepoSpec, platform *ocispec.Platform) (*int64, error) {
+	repo, ref, err := RemoteRepository(ctx, spec, imageRef)
+	if err != nil {
+		return nil, err
+	}
+	if targetDigest != "" {
+		ref = targetDigest
+	}
+	desc, err := repo.Resolve(ctx, ref)
+	if err != nil {
+		return nil, fmt.Errorf("resolve image manifest for %s: %w", imageRef, err)
+	}
+	size, err := imagePayloadSize(ctx, repo, desc, platform, 0)
+	if err != nil {
+		return nil, fmt.Errorf("inspect image payload size for %s: %w", imageRef, err)
+	}
+	return &size, nil
+}
+
+const maxImageIndexDepth = 8
+
+const dockerManifestListMediaType = "application/vnd.docker.distribution.manifest.list.v2+json"
+const dockerManifestV2MediaType = "application/vnd.docker.distribution.manifest.v2+json"
+
+func imagePayloadSize(ctx context.Context, repo *remote.Repository, desc ocispec.Descriptor, platform *ocispec.Platform, depth int) (int64, error) {
+	if depth > maxImageIndexDepth {
+		return 0, fmt.Errorf("image index nesting exceeds %d", maxImageIndexDepth)
+	}
+	switch desc.MediaType {
+	case ocispec.MediaTypeImageIndex, dockerManifestListMediaType:
+		manifest, err := selectPlatformManifest(ctx, repo, desc, platform)
+		if err != nil {
+			return 0, err
+		}
+		return imagePayloadSize(ctx, repo, manifest, platform, depth+1)
+	case ocispec.MediaTypeImageManifest, dockerManifestV2MediaType:
+		data, err := content.FetchAll(ctx, repo, desc)
+		if err != nil {
+			return 0, fmt.Errorf("fetch image manifest: %w", err)
+		}
+		var manifest ocispec.Manifest
+		if err := json.Unmarshal(data, &manifest); err != nil {
+			return 0, fmt.Errorf("decode image manifest: %w", err)
+		}
+		if manifest.Config.Digest == "" {
+			return 0, fmt.Errorf("image manifest has no config descriptor")
+		}
+		return manifestPayloadSize(manifest)
+	default:
+		return 0, fmt.Errorf("unsupported image manifest media type %q", desc.MediaType)
+	}
+}
+
+func selectPlatformManifest(ctx context.Context, repo *remote.Repository, indexDesc ocispec.Descriptor, platform *ocispec.Platform) (ocispec.Descriptor, error) {
+	if platform == nil || platform.OS == "" || platform.Architecture == "" {
+		manifests, err := fetchIndexManifests(ctx, repo, indexDesc)
+		if err != nil {
+			return ocispec.Descriptor{}, err
+		}
+		if len(manifests) != 1 {
+			return ocispec.Descriptor{}, fmt.Errorf("image index has multiple manifests and device platform is unavailable")
+		}
+		return manifests[0], nil
+	}
+
+	// WithTargetPlatform installs ORAS's manifest selector. Calling MapRoot
+	// performs that selection without copying image layer content.
+	var opts oras.CopyOptions
+	opts.WithTargetPlatform(platform)
+	manifest, err := opts.MapRoot(ctx, repo, indexDesc)
+	if err == nil {
+		return manifest, nil
+	}
+
+	// Preserve support for a single-manifest index that omits platform metadata.
+	manifests, readErr := fetchIndexManifests(ctx, repo, indexDesc)
+	if readErr != nil {
+		return ocispec.Descriptor{}, readErr
+	}
+	if len(manifests) == 1 && manifests[0].Platform == nil {
+		return manifests[0], nil
+	}
+	return ocispec.Descriptor{}, fmt.Errorf("select image manifest for platform %s/%s: %w", platform.OS, platform.Architecture, err)
+}
+
+func fetchIndexManifests(ctx context.Context, repo *remote.Repository, indexDesc ocispec.Descriptor) ([]ocispec.Descriptor, error) {
+	data, err := content.FetchAll(ctx, repo, indexDesc)
+	if err != nil {
+		return nil, fmt.Errorf("fetch image index: %w", err)
+	}
+	var index ocispec.Index
+	if err := json.Unmarshal(data, &index); err != nil {
+		return nil, fmt.Errorf("decode image index: %w", err)
+	}
+	if len(index.Manifests) == 0 {
+		return nil, fmt.Errorf("image index contains no manifests")
+	}
+	return index.Manifests, nil
+}
+
+func manifestPayloadSize(manifest ocispec.Manifest) (int64, error) {
+	if manifest.Config.Size < 0 {
+		return 0, fmt.Errorf("image manifest has a negative config size")
+	}
+	total := manifest.Config.Size
+	for _, layer := range manifest.Layers {
+		if layer.Size < 0 {
+			return 0, fmt.Errorf("image manifest has a negative layer size")
+		}
+		if total > math.MaxInt64-layer.Size {
+			return 0, fmt.Errorf("image payload size overflows int64")
+		}
+		total += layer.Size
+	}
+	return total, nil
 }
 
 func imageDigestCacheKey(orgID uuid.UUID, imageRef string) (string, error) {

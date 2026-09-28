@@ -213,8 +213,8 @@ var _ = Describe("DeviceRender", func() {
 					Reason:         api.EventReasonResourceUpdated,
 					InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
 				}
-				logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, mockK8s, kvStoreInst, nil, orgId, event)
-				err = logic.RenderDevice(ctx)
+				logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, mockK8s, kvStoreInst, nil)
+				err = logic.RenderDevice(ctx, orgId, event)
 
 				// Should succeed - safe paths pass validation
 				Expect(err).ToNot(HaveOccurred())
@@ -248,8 +248,8 @@ var _ = Describe("DeviceRender", func() {
 					Reason:         api.EventReasonResourceUpdated,
 					InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
 				}
-				logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, mockK8s, kvStoreInst, nil, orgId, event)
-				err = logic.RenderDevice(ctx)
+				logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, mockK8s, kvStoreInst, nil)
+				err = logic.RenderDevice(ctx, orgId, event)
 
 				// Should fail - derived paths under forbidden root are rejected
 				Expect(err).To(HaveOccurred())
@@ -295,8 +295,8 @@ var _ = Describe("DeviceRender", func() {
 					Reason:         api.EventReasonResourceUpdated,
 					InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
 				}
-				logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, mockK8s, kvStoreInst, nil, orgId, event)
-				err = logic.RenderDevice(ctx)
+				logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, mockK8s, kvStoreInst, nil)
+				err = logic.RenderDevice(ctx, orgId, event)
 
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring("forbidden device path"))
@@ -627,8 +627,8 @@ var _ = Describe("DeviceRender", func() {
 				Reason:         api.EventReasonResourceUpdated,
 				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
 			}
-			logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil, orgId, event)
-			err = logic.RenderDevice(ctx)
+			logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil)
+			err = logic.RenderDevice(ctx, orgId, event)
 			Expect(err).ToNot(HaveOccurred())
 
 			device, err = deviceStore.Get(ctx, orgId, testDeviceName)
@@ -669,8 +669,8 @@ var _ = Describe("DeviceRender", func() {
 				Reason:         api.EventReasonResourceUpdated,
 				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
 			}
-			logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil, orgId, event)
-			err = logic.RenderDevice(ctx)
+			logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil)
+			err = logic.RenderDevice(ctx, orgId, event)
 			Expect(err).ToNot(HaveOccurred())
 
 			device, err = deviceStore.Get(ctx, orgId, testDeviceName)
@@ -715,8 +715,8 @@ var _ = Describe("DeviceRender", func() {
 				Reason:         api.EventReasonResourceUpdated,
 				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
 			}
-			logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil, orgId, event)
-			err = logic.RenderDevice(ctx)
+			logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil)
+			err = logic.RenderDevice(ctx, orgId, event)
 			Expect(err).ToNot(HaveOccurred())
 
 			device, err = deviceStore.Get(ctx, orgId, testDeviceName)
@@ -755,8 +755,8 @@ var _ = Describe("DeviceRender", func() {
 				Reason:         api.EventReasonResourceUpdated,
 				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
 			}
-			logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &failingK8sClient{}, kvStoreInst, nil, orgId, event)
-			err = logic.RenderDevice(ctx)
+			logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &failingK8sClient{}, kvStoreInst, nil)
+			err = logic.RenderDevice(ctx, orgId, event)
 			Expect(err).To(HaveOccurred())
 
 			device, err = deviceStore.Get(ctx, orgId, testDeviceName)
@@ -864,8 +864,8 @@ var _ = Describe("DeviceRender", func() {
 				Reason:         api.EventReasonResourceUpdated,
 				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
 			}
-			logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, catalogSvc, &mockK8sClient{}, kvStoreInst, nil, orgId, event)
-			err = logic.RenderDevice(ctx)
+			logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, catalogSvc, &mockK8sClient{}, kvStoreInst, nil)
+			err = logic.RenderDevice(ctx, orgId, event)
 			Expect(err).ToNot(HaveOccurred())
 
 			rendered, err := deviceStore.GetRendered(ctx, orgId, testDeviceName, nil, "")
@@ -910,8 +910,8 @@ var _ = Describe("DeviceRender", func() {
 				Reason:         api.EventReasonResourceUpdated,
 				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
 			}
-			logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, catalogSvc, &mockK8sClient{}, kvStoreInst, nil, orgId, event)
-			err = logic.RenderDevice(ctx)
+			logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, catalogSvc, &mockK8sClient{}, kvStoreInst, nil)
+			err = logic.RenderDevice(ctx, orgId, event)
 			Expect(err).ToNot(HaveOccurred())
 
 			rendered, err := deviceStore.GetRendered(ctx, orgId, testDeviceName, nil, "")
@@ -969,8 +969,8 @@ var _ = Describe("DeviceRender", func() {
 				Reason:         api.EventReasonResourceUpdated,
 				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
 			}
-			logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, catalogSvc, &mockK8sClient{}, kvStoreInst, nil, orgId, event)
-			err = logic.RenderDevice(ctx)
+			logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, catalogSvc, &mockK8sClient{}, kvStoreInst, nil)
+			err = logic.RenderDevice(ctx, orgId, event)
 			Expect(err).ToNot(HaveOccurred())
 
 			rendered, err := deviceStore.GetRendered(ctx, orgId, testDeviceName, nil, "")
@@ -1012,8 +1012,8 @@ var _ = Describe("DeviceRender", func() {
 				Reason:         api.EventReasonResourceUpdated,
 				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
 			}
-			logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, catalogSvc, &mockK8sClient{}, kvStoreInst, nil, orgId, event)
-			err = logic.RenderDevice(ctx)
+			logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, catalogSvc, &mockK8sClient{}, kvStoreInst, nil)
+			err = logic.RenderDevice(ctx, orgId, event)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("invalid catalog item reference"))
 		})
@@ -1042,8 +1042,8 @@ var _ = Describe("DeviceRender", func() {
 				Reason:         api.EventReasonResourceUpdated,
 				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
 			}
-			logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, catalogSvc, &mockK8sClient{}, kvStoreInst, nil, orgId, event)
-			err = logic.RenderDevice(ctx)
+			logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, catalogSvc, &mockK8sClient{}, kvStoreInst, nil)
+			err = logic.RenderDevice(ctx, orgId, event)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("cannot use catalog item of type"))
 		})
@@ -1072,8 +1072,8 @@ var _ = Describe("DeviceRender", func() {
 				Reason:         api.EventReasonResourceUpdated,
 				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
 			}
-			logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, catalogSvc, &mockK8sClient{}, kvStoreInst, nil, orgId, event)
-			err = logic.RenderDevice(ctx)
+			logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, catalogSvc, &mockK8sClient{}, kvStoreInst, nil)
+			err = logic.RenderDevice(ctx, orgId, event)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("unknown version 99.0.0"))
 		})
@@ -1138,8 +1138,8 @@ var _ = Describe("DeviceRender", func() {
 			status := deviceSvc.UpdateDeviceAnnotations(ctx, orgId, testDeviceName, annotations, nil)
 			Expect(status.Code).To(Equal(int32(200)))
 
-			logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil, orgId, firstEvent)
-			err = logic.RenderDevice(ctx)
+			logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil)
+			err = logic.RenderDevice(ctx, orgId, firstEvent)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Verify renderedVersion was set (render completed)
@@ -1170,8 +1170,7 @@ var _ = Describe("DeviceRender", func() {
 				Reason:         api.EventReasonFleetRolloutDeviceSelected,
 				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
 			}
-			logic = tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil, orgId, secondEvent)
-			err = logic.RenderDevice(ctx)
+			err = logic.RenderDevice(ctx, orgId, secondEvent)
 			Expect(err).ToNot(HaveOccurred())
 
 			// Verify rendering proceeded: renderedVersion should bump to "2" and
@@ -1253,8 +1252,8 @@ var _ = Describe("DeviceRender", func() {
 				Reason:         api.EventReasonResourceCreated,
 				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
 			}
-			logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil, orgId, firstEvent)
-			err = logic.RenderDevice(ctx)
+			logic := tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil)
+			err = logic.RenderDevice(ctx, orgId, firstEvent)
 			Expect(err).ToNot(HaveOccurred())
 
 			device, err = deviceStore.Get(ctx, orgId, testDeviceName)
@@ -1268,8 +1267,7 @@ var _ = Describe("DeviceRender", func() {
 				Reason:         api.EventReasonFleetRolloutDeviceSelected,
 				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
 			}
-			logic = tasks.NewDeviceRenderLogic(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, nil, orgId, redundantEvent)
-			err = logic.RenderDevice(ctx)
+			err = logic.RenderDevice(ctx, orgId, redundantEvent)
 			Expect(err).ToNot(HaveOccurred())
 
 			device, err = deviceStore.Get(ctx, orgId, testDeviceName)
@@ -1328,9 +1326,9 @@ var _ = Describe("DeviceRender", func() {
 				Reason:         api.EventReasonResourceUpdated,
 				InvolvedObject: api.ObjectReference{Kind: api.DeviceKind, Name: testDeviceName},
 			}
-			logic, err := tasks.NewDeviceRenderLogicWithDeltaStore(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, deltaStore, nil, orgId, event)
+			logic, err := tasks.NewDeviceRenderLogicWithDeltaStore(log, deviceSvc, repositorySvc, nil, &mockK8sClient{}, kvStoreInst, deltaStore, nil)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(logic.RenderDevice(ctx)).To(Succeed())
+			Expect(logic.RenderDevice(ctx, orgId, event)).To(Succeed())
 
 			renderedDevice, status := deviceSvc.GetRenderedDevice(ctx, orgId, testDeviceName, api.GetRenderedDeviceParams{})
 			Expect(status.Code).To(BeEquivalentTo(http.StatusOK))

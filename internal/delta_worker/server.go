@@ -222,6 +222,7 @@ func enqueueDeltaWorkerEvent(ctx context.Context, producer queues.QueueProducer,
 }
 
 func serviceResolver(cfg *deltaconfig.DeltaGenerationConfig, fleets fleetservice.Service, devices deviceservice.Service, tvs templateversionservice.Service, repos repositoryservice.Service, catalogs catalogservice.Service, kvStore kvstore.KVStore, log logrus.FieldLogger) *preparetask.Resolver {
+	specRenderer := internaltasks.NewDeviceRenderLogic(log, devices, repos, catalogs, nil, kvStore, nil)
 	return &preparetask.Resolver{
 		FleetService:           fleets,
 		DeviceService:          devices,
@@ -238,8 +239,7 @@ func serviceResolver(cfg *deltaconfig.DeltaGenerationConfig, fleets fleetservice
 			})
 		},
 		Render: func(ctx context.Context, orgId uuid.UUID, spec *domain.DeviceSpec) (internaltasks.RenderedSpec, error) {
-			logic := internaltasks.NewDeviceRenderLogic(log, devices, repos, catalogs, nil, kvStore, nil, orgId, domain.Event{})
-			return logic.RenderSpec(ctx, spec)
+			return specRenderer.RenderSpec(ctx, orgId, spec)
 		},
 		Expand: func(ctx context.Context, orgId uuid.UUID, device *domain.Device, rendered internaltasks.RenderedSpec, candidates []preparetask.DeltaCandidate) []preparetask.DeltaCandidate {
 			return expandAppCandidates(ctx, log.WithField("pkg", "app-expand"), orgId, device, rendered, candidates, func(ctx context.Context, orgId uuid.UUID, image string) (string, error) {
