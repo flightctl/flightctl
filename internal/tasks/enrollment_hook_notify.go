@@ -2,16 +2,11 @@ package tasks
 
 import (
 	"context"
-	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
-	"errors"
 	"fmt"
-	"io"
-	"math"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -21,19 +16,9 @@ import (
 	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	eventservice "github.com/flightctl/flightctl/internal/service/event"
 	enrollmenthooknotifysecrets "github.com/flightctl/flightctl/internal/store/enrollmenthooknotifysecrets"
+	"github.com/flightctl/flightctl/internal/webhookdelivery"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
-)
-
-const (
-	maxResponseBodySize = 4096 // 4 KiB cap for empty-body validation
-
-	// Default retry policy values (matching API-level defaults).
-	defaultMaxAttempts  = 5
-	defaultDeadline     = 10 * time.Minute
-	defaultMaxBackoff   = 2 * time.Minute
-	defaultBackoffDelay = 2 * time.Second
-	defaultTimeout      = 30 * time.Second
 )
 
 // enrollmentApprovedPayload is the JSON body POSTed to webhook endpoints.
@@ -43,26 +28,6 @@ type enrollmentApprovedPayload struct {
 	DeviceName        string             `json:"deviceName"`
 	Labels            *map[string]string `json:"labels,omitempty"`
 	CertificateSerial string             `json:"certificateSerial,omitempty"`
-}
-
-// classifyHTTPStatus determines whether an HTTP response status code is
-// retryable and returns a human-readable description.
-func classifyHTTPStatus(statusCode int) (retryable bool, message string) {
-	switch {
-	case statusCode >= 200 && statusCode < 300:
-		return false, ""
-	case statusCode == http.StatusBadRequest,
-		statusCode == http.StatusUnauthorized,
-		statusCode == http.StatusForbidden,
-		statusCode == http.StatusNotFound:
-		return false, fmt.Sprintf("non-retryable HTTP %d", statusCode)
-	case statusCode == http.StatusTooManyRequests:
-		return true, fmt.Sprintf("retryable HTTP %d", statusCode)
-	case statusCode >= 500:
-		return true, fmt.Sprintf("retryable HTTP %d", statusCode)
-	default:
-		return false, fmt.Sprintf("non-retryable HTTP %d", statusCode)
-	}
 }
 
 // buildEnrollmentApprovedPayload constructs the JSON payload for the
@@ -102,166 +67,49 @@ func parseCertificateSerial(certPEM string) (string, error) {
 	return strings.Join(parts, ":"), nil
 }
 
-// resolveRetryConfig extracts retry parameters from a snapshot action,
-// falling back to defaults where unset.
-func resolveRetryConfig(action domain.EnrollmentHookSnapshotAction) (maxAttempts int, deadline, maxBackoff, backoffDelay, timeout time.Duration) {
-	maxAttempts = defaultMaxAttempts
-	deadline = defaultDeadline
-	maxBackoff = defaultMaxBackoff
-	backoffDelay = defaultBackoffDelay
-	timeout = defaultTimeout
+// deliveryConfigFromAction maps an enrollment-hook snapshot action onto the
+// shared webhook delivery config (string durations → time.Duration).
+func deliveryConfigFromAction(action domain.EnrollmentHookSnapshotAction) webhookdelivery.Config {
+	cfg := webhookdelivery.Config{URL: action.Url}
 
 	if action.Timeout != nil {
 		if d, err := time.ParseDuration(*action.Timeout); err == nil && d > 0 {
-			timeout = d
+			cfg.Timeout = d
 		}
 	}
-
 	if action.Retry == nil {
-		return
+		return cfg
 	}
 
 	r := action.Retry
 	if r.MaxAttempts != nil && *r.MaxAttempts > 0 {
-		maxAttempts = *r.MaxAttempts
+		cfg.MaxAttempts = *r.MaxAttempts
 	}
 	if r.Deadline != nil {
 		if d, err := time.ParseDuration(*r.Deadline); err == nil && d > 0 {
-			deadline = d
+			cfg.Deadline = d
 		}
 	}
 	if r.MaxBackoff != nil {
 		if d, err := time.ParseDuration(*r.MaxBackoff); err == nil && d > 0 {
-			maxBackoff = d
+			cfg.MaxBackoff = d
 		}
 	}
 	if r.BackoffDelay != nil {
 		if d, err := time.ParseDuration(*r.BackoffDelay); err == nil && d > 0 {
-			backoffDelay = d
+			cfg.BackoffDelay = d
 		}
 	}
-
-	return
+	return cfg
 }
 
-// executeNotifyAction performs a single webhook POST with retry.
-// It returns nil on 2xx success and an error otherwise.
 func executeNotifyAction(ctx context.Context, action domain.EnrollmentHookSnapshotAction, bearerToken string, payload []byte, deliveryID string, log logrus.FieldLogger, httpClient *http.Client) error {
-	// HTTPS-only runtime guard (reject http, missing scheme, and non-https schemes).
-	parsedURL, err := url.Parse(action.Url)
-	if err != nil || parsedURL.Scheme != "https" {
-		return &nonRetryableError{fmt.Errorf("insecure or invalid URL rejected: %s", action.Url)}
-	}
-
-	maxAttempts, deadline, maxBackoff, backoffDelay, timeout := resolveRetryConfig(action)
-	deadlineCtx, cancel := context.WithTimeout(ctx, deadline)
-	defer cancel()
-
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		if err := deadlineCtx.Err(); err != nil {
-			return fmt.Errorf("deadline exceeded after %d attempts: %w", attempt-1, err)
-		}
-
-		reqCtx, reqCancel := context.WithTimeout(deadlineCtx, timeout)
-		err = doNotifyRequest(reqCtx, httpClient, action.Url, bearerToken, payload, deliveryID, attempt, log)
-		reqCancel()
-
-		if err == nil {
-			return nil
-		}
-
-		// Check if this is a non-retryable error
-		if isNonRetryableError(err) {
-			return err
-		}
-
-		if attempt < maxAttempts {
-			backoff := computeBackoff(attempt, backoffDelay, maxBackoff)
-			log.Infof("notify action %s: attempt %d/%d failed (%v), retrying in %s", deliveryID, attempt, maxAttempts, err, backoff)
-
-			select {
-			case <-deadlineCtx.Done():
-				return fmt.Errorf("deadline exceeded during backoff after %d attempts: %w", attempt, deadlineCtx.Err())
-			case <-time.After(backoff):
-			}
-		} else {
-			return fmt.Errorf("all %d attempts exhausted: %w", maxAttempts, err)
-		}
-	}
-
-	return fmt.Errorf("all %d attempts exhausted", maxAttempts)
-}
-
-// nonRetryableError wraps an error to signal that it should not be retried.
-type nonRetryableError struct {
-	err error
-}
-
-func (e *nonRetryableError) Error() string { return e.err.Error() }
-func (e *nonRetryableError) Unwrap() error { return e.err }
-
-func isNonRetryableError(err error) bool {
-	var nre *nonRetryableError
-	return errors.As(err, &nre)
-}
-
-// doNotifyRequest performs a single HTTP POST and returns nil on 2xx.
-func doNotifyRequest(ctx context.Context, client *http.Client, url, bearerToken string, payload []byte, deliveryID string, attempt int, log logrus.FieldLogger) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, strings.NewReader(string(payload)))
-	if err != nil {
-		return &nonRetryableError{fmt.Errorf("failed to create request: %w", err)}
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Flightctl-Delivery-Id", deliveryID)
-	req.Header.Set("X-Flightctl-Delivery-Attempt", fmt.Sprintf("%d", attempt))
-	if bearerToken != "" {
-		req.Header.Set("Authorization", "Bearer "+bearerToken)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		// Network errors and TLS errors are retryable
-		return fmt.Errorf("HTTP request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Cap response body read at 4 KiB
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxResponseBodySize))
-
-	retryable, msg := classifyHTTPStatus(resp.StatusCode)
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		log.Infof("notify action %s: attempt %d succeeded with HTTP %d", deliveryID, attempt, resp.StatusCode)
-		return nil
-	}
-	if !retryable {
-		return &nonRetryableError{fmt.Errorf("%s from %s", msg, url)}
-	}
-	return fmt.Errorf("%s from %s", msg, url)
-}
-
-// computeBackoff calculates exponential backoff with a cap.
-func computeBackoff(attempt int, baseDelay, maxBackoff time.Duration) time.Duration {
-	backoff := time.Duration(float64(baseDelay) * math.Pow(2, float64(attempt-1)))
-	if backoff > maxBackoff {
-		backoff = maxBackoff
-	}
-	return backoff
-}
-
-// newNotifyHTTPClient creates an HTTP client configured for webhook delivery:
-// TLS verification enabled, redirects disabled.
-func newNotifyHTTPClient() *http.Client {
-	return &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				MinVersion: tls.VersionTLS12,
-			},
-		},
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
+	return webhookdelivery.Deliver(ctx, httpClient, webhookdelivery.Delivery{
+		Config:      deliveryConfigFromAction(action),
+		BearerToken: bearerToken,
+		Payload:     payload,
+		DeliveryID:  deliveryID,
+	}, log)
 }
 
 // enrollmentHookNotify is the main worker task that executes enrollment
@@ -276,7 +124,7 @@ func enrollmentHookNotify(
 	eventSvc eventservice.Service,
 	log logrus.FieldLogger,
 ) error {
-	return enrollmentHookNotifyWithClient(ctx, orgId, event, deviceSvc, enrollmentRequestSvc, notifySecretsStore, eventSvc, log, newNotifyHTTPClient())
+	return enrollmentHookNotifyWithClient(ctx, orgId, event, deviceSvc, enrollmentRequestSvc, notifySecretsStore, eventSvc, log, webhookdelivery.NewClient())
 }
 
 // enrollmentHookNotifyWithClient is the same as enrollmentHookNotify but allows
