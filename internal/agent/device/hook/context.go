@@ -59,7 +59,7 @@ type CertificateMetadata struct {
 	// (e.g. "46:E5:42:26:2B:79:34:F2").
 	SerialNumber string `json:"serialNumber"`
 	// NotAfter is the certificate expiry time formatted as RFC 3339
-	// (e.g. "2027-09-06T00:00:00Z"). Required by design §4.2.
+	// (e.g. "2027-09-06T00:00:00Z").
 	NotAfter string `json:"notAfter"`
 	// SHA256 is the lowercase hex SHA-256 fingerprint of the DER-encoded certificate.
 	SHA256 string `json:"sha256"`

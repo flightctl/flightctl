@@ -118,7 +118,7 @@ func (m *manager) OnBeforeEnrolling(ctx context.Context, enrollCtx *EnrollmentCo
 }
 
 // OnAfterEnrolling writes hook-context.json, then runs AfterEnrolling hooks
-// from the image directory only (no /etc overlay per design §4.2).
+// from the image directory only (no /etc overlay).
 func (m *manager) OnAfterEnrolling(ctx context.Context, enrollCtx *EnrollmentContext) error {
 	hookType := api.DeviceLifecycleHookAfterEnrolling
 
@@ -130,7 +130,6 @@ func (m *manager) OnAfterEnrolling(ctx context.Context, enrollCtx *EnrollmentCon
 
 	actionCtx := newEnrollmentActionContext(hookType, string(jsonBytes))
 
-	// 1.4: AfterEnrolling image-only per design §4.2 — no /etc overlay
 	return m.loadAndExecuteActionsFromDirs(ctx, actionCtx, []string{ReadOnlyConfigDir})
 }
 

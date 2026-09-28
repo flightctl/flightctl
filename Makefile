@@ -73,6 +73,7 @@ help:
 	@echo "    generate:        regenerate all generated files"
 	@echo "    tidy:            tidy go mod"
 	@echo "    lint:            run golangci-lint"
+	@echo "    lint-comment-artifacts: fail on plan/design/AC tags in Go comments"
 	@echo "    rpmlint:         run rpmlint on RPM spec file"
 	@echo "    lint-openapi:    run spectral to lint and rulecheck the OpenAPI spec"
 	@echo "    lint-docs:       run markdownlint on documentation"
@@ -541,6 +542,10 @@ tools:
 .PHONY: lint
 lint: .output/stamps/lint-image
 	$(LINT_CONTAINER) golangci-lint run -v
+
+.PHONY: lint-comment-artifacts
+lint-comment-artifacts:
+	hack/check-comment-artifacts.sh
 
 .PHONY: lint-fix
 lint-fix: .output/stamps/lint-image

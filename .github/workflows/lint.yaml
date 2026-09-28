@@ -49,6 +49,11 @@ jobs:
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         run: hack/check-commits.sh
 
+      # Always run: cheap, no Go toolchain required, and should catch plan/AC/design
+      # section citations in comments even on docs-only PRs that still touch Go.
+      - name: Check Go comments for plan/design artifact markers
+        run: hack/check-comment-artifacts.sh
+
       - name: Setup all dependencies
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         uses: ./.github/actions/setup-dependencies
