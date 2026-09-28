@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -787,12 +788,13 @@ func NewGRPCClientFromConfig(config *Config, endpoint string) (grpc_v1.RouterSer
 }
 
 // NewEnrollmentGRPCClientFromConfig returns a new gRPC Enrollment client from the given config.
-func NewEnrollmentGRPCClientFromConfig(config *Config, endpoint string) (grpc_v1.EnrollmentClient, error) {
+// The caller must Close the returned closer to release the underlying connection.
+func NewEnrollmentGRPCClientFromConfig(config *Config, endpoint string) (grpc_v1.EnrollmentClient, io.Closer, error) {
 	conn, err := dialGRPCFromConfig(config, endpoint)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return grpc_v1.NewEnrollmentClient(conn), nil
+	return grpc_v1.NewEnrollmentClient(conn), conn, nil
 }
 
 // DefaultFlightctlClientConfigPath returns the default path to the Flight Control client config file.

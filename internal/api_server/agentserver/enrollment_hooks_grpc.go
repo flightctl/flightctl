@@ -38,6 +38,11 @@ func (s *AgentGrpcServer) WatchEnrollmentHooks(
 		return status.Error(codes.PermissionDenied, "certificate does not match requested device")
 	}
 
+	// Subscribe before the snapshot read so a transition between the DB read
+	// and the wait cannot be dropped.
+	notifyCh, unsub := rendered.Bus.Instance().SubscribeEnrollmentHooks(orgID, fingerprint)
+	defer unsub()
+
 	event, err := s.enrollmentHooksEvent(ctx, orgID, fingerprint)
 	if err != nil {
 		return err
@@ -52,7 +57,7 @@ func (s *AgentGrpcServer) WatchEnrollmentHooks(
 	for {
 		// Timeout and notification both fall through to a DB re-read so a
 		// missed wake still converges on current condition state.
-		_, waitErr := rendered.Bus.Instance().WaitForEnrollmentHooksNotification(ctx, orgID, fingerprint)
+		_, waitErr := rendered.Bus.Instance().WaitOnEnrollmentHooksChannel(ctx, notifyCh)
 		if waitErr != nil {
 			if ctx.Err() != nil {
 				return status.Error(codes.Canceled, "watch cancelled")

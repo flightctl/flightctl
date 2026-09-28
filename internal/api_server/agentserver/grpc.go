@@ -67,6 +67,13 @@ func (s *AgentGrpcServer) prepareGRPCService() {
 			MaxConnectionIdle: 15 * time.Minute, // Close idle connections after 15 minutes
 			Time:              2 * time.Minute,  // Send keepalive ping every 2 minutes
 			Timeout:           20 * time.Second, // Wait 20s for client response before closing
+		}),
+		// Agent clients ping every 30s with PermitWithoutStream; accept that
+		// interval so idle WatchEnrollmentHooks streams are not closed with
+		// too_many_pings (grpc-go default MinTime is 5m).
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             30 * time.Second,
+			PermitWithoutStream: true,
 		}))
 	pb.RegisterRouterServiceServer(s.server, s)
 	pb.RegisterEnrollmentServer(s.server, s)

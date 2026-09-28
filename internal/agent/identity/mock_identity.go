@@ -11,6 +11,7 @@ package identity
 
 import (
 	context "context"
+	io "io"
 	reflect "reflect"
 
 	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
@@ -82,12 +83,13 @@ func (m *MockProvider) EXPECT() *MockProviderMockRecorder {
 }
 
 // CreateEnrollmentGRPCClient mocks base method.
-func (m *MockProvider) CreateEnrollmentGRPCClient(config *client0.Config) (grpc_v1.EnrollmentClient, error) {
+func (m *MockProvider) CreateEnrollmentGRPCClient(config *client0.Config) (grpc_v1.EnrollmentClient, io.Closer, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "CreateEnrollmentGRPCClient", config)
 	ret0, _ := ret[0].(grpc_v1.EnrollmentClient)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
+	ret1, _ := ret[1].(io.Closer)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
 }
 
 // CreateEnrollmentGRPCClient indicates an expected call of CreateEnrollmentGRPCClient.

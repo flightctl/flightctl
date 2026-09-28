@@ -6,6 +6,7 @@ import (
 	"encoding/base32"
 	"errors"
 	"fmt"
+	"io"
 	"path/filepath"
 	"strings"
 
@@ -88,8 +89,9 @@ type Provider interface {
 	CreateManagementClient(config *base_client.Config, metricsCallback client.RPCMetricsCallback) (client.Management, error)
 	// CreateGRPCClient creates a fully configured gRPC RouterService client with this identity
 	CreateGRPCClient(config *base_client.Config) (grpc_v1.RouterServiceClient, error)
-	// CreateEnrollmentGRPCClient creates a fully configured gRPC Enrollment client with this identity
-	CreateEnrollmentGRPCClient(config *base_client.Config) (grpc_v1.EnrollmentClient, error)
+	// CreateEnrollmentGRPCClient creates a fully configured gRPC Enrollment client with this identity.
+	// The caller must Close the returned closer to release the underlying connection.
+	CreateEnrollmentGRPCClient(config *base_client.Config) (grpc_v1.EnrollmentClient, io.Closer, error)
 	// WipeCredentials securely removes all stored credentials (certificates and keys)
 	WipeCredentials() error
 	// WipeCertificateOnly securely removes only the certificate (not keys or CSR)

@@ -775,6 +775,18 @@ func TestEnsurePostEnrollmentHooks(t *testing.T) {
 			setupMocks:     func(*client.MockManagement, *hook.MockManager, *status.MockManager, *identity.MockProvider) {},
 			expectContinue: true,
 		},
+		{
+			name:          "When condition has unknown reason with status False it should halt",
+			readyState:    stateFor("SomeFutureReason", v1beta1.ConditionStatusFalse, v1beta1.FailurePolicyBlock),
+			setupMocks:    func(*client.MockManagement, *hook.MockManager, *status.MockManager, *identity.MockProvider) {},
+			expectedError: errEnrollmentHooksFailed,
+		},
+		{
+			name:           "When condition has unknown reason with status True it should proceed without running hooks",
+			readyState:     stateFor("SomeFutureReason", v1beta1.ConditionStatusTrue, v1beta1.FailurePolicyBlock),
+			setupMocks:     func(*client.MockManagement, *hook.MockManager, *status.MockManager, *identity.MockProvider) {},
+			expectContinue: true,
+		},
 	}
 	for _, tt := range testCases {
 		t.Run(tt.name, func(t *testing.T) {

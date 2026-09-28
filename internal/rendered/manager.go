@@ -189,14 +189,18 @@ func (m *VersionManager) NotifyEnrollmentHooks(ctx context.Context, orgId uuid.U
 	return m.broadcaster.Publish(ctx, orgId, name, Notification{Type: NotificationTypeEnrollmentHooks})
 }
 
-// WaitForEnrollmentHooksNotification blocks until an EnrollmentHooks notification
-// arrives or the wait times out. Returns (true, nil) when a notification was
-// received, (false, nil) on timeout.
-func (m *VersionManager) WaitForEnrollmentHooksNotification(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
+// SubscribeEnrollmentHooks registers a buffered EnrollmentHooks notifier for the
+// lifetime of a watch. The caller must invoke the returned cancel function.
+func (m *VersionManager) SubscribeEnrollmentHooks(orgId uuid.UUID, name string) (<-chan Notification, func()) {
 	ch := make(chan Notification, 1)
 	m.subscribeEnrollmentHooks(orgId, name, ch)
-	defer m.unsubscribeEnrollmentHooks(orgId, name)
+	return ch, func() { m.unsubscribeEnrollmentHooks(orgId, name) }
+}
 
+// WaitOnEnrollmentHooksChannel blocks until a notification arrives on ch or the
+// wait times out. Returns (true, nil) when a notification was received,
+// (false, nil) on timeout.
+func (m *VersionManager) WaitOnEnrollmentHooksChannel(ctx context.Context, ch <-chan Notification) (bool, error) {
 	timeout := time.NewTimer(m.renderedWaitTimeout)
 	defer timeout.Stop()
 	select {
@@ -207,6 +211,15 @@ func (m *VersionManager) WaitForEnrollmentHooksNotification(ctx context.Context,
 	case <-ch:
 		return true, nil
 	}
+}
+
+// WaitForEnrollmentHooksNotification blocks until an EnrollmentHooks notification
+// arrives or the wait times out. Returns (true, nil) when a notification was
+// received, (false, nil) on timeout.
+func (m *VersionManager) WaitForEnrollmentHooksNotification(ctx context.Context, orgId uuid.UUID, name string) (bool, error) {
+	ch, cancel := m.SubscribeEnrollmentHooks(orgId, name)
+	defer cancel()
+	return m.WaitOnEnrollmentHooksChannel(ctx, ch)
 }
 
 func (m *VersionManager) consumeHandler(ctx context.Context, orgId uuid.UUID, name string, n Notification) error {

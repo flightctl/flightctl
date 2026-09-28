@@ -437,8 +437,11 @@ func TestWaitForEnrollmentHooksNotification_UnblocksViaConsumeHandler(t *testing
 		ch <- result{got, err}
 	}()
 
-	time.Sleep(5 * time.Millisecond)
-	_ = vm.consumeHandler(context.Background(), orgId, "dev", Notification{Type: NotificationTypeEnrollmentHooks})
+	require.Eventually(t, func() bool {
+		_, ok := vm.ehSubscribers.Load(vm.ehKey(orgId, "dev"))
+		return ok
+	}, time.Second, time.Millisecond)
+	require.NoError(t, vm.consumeHandler(context.Background(), orgId, "dev", Notification{Type: NotificationTypeEnrollmentHooks}))
 
 	r := <-ch
 	require.NoError(t, r.err)
@@ -462,8 +465,11 @@ func TestWaitForEnrollmentHooksNotification_DoesNotShareRenderedSubscriber(t *te
 		renderedCh <- result{got, err}
 	}()
 
-	time.Sleep(5 * time.Millisecond)
-	_ = vm.consumeHandler(context.Background(), orgId, "dev", Notification{Type: NotificationTypeEnrollmentHooks})
+	require.Eventually(t, func() bool {
+		_, ok := vm.subscribers.Load(vm.key(orgId, "dev"))
+		return ok
+	}, time.Second, time.Millisecond)
+	require.NoError(t, vm.consumeHandler(context.Background(), orgId, "dev", Notification{Type: NotificationTypeEnrollmentHooks}))
 
 	r := <-renderedCh
 	require.NoError(t, r.err)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto"
 	"fmt"
+	"io"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
@@ -173,9 +174,9 @@ func (f *fileProvider) CreateGRPCClient(config *baseclient.Config) (grpc_v1.Rout
 	return baseclient.NewGRPCClientFromConfig(config, "")
 }
 
-func (f *fileProvider) CreateEnrollmentGRPCClient(config *baseclient.Config) (grpc_v1.EnrollmentClient, error) {
+func (f *fileProvider) CreateEnrollmentGRPCClient(config *baseclient.Config) (grpc_v1.EnrollmentClient, io.Closer, error) {
 	if err := f.ensureManagementCert(config); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	return baseclient.NewEnrollmentGRPCClientFromConfig(config, "")
 }

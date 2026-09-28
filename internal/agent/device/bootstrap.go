@@ -404,7 +404,14 @@ func (b *Bootstrap) ensurePostEnrollmentHooks(ctx context.Context) error {
 	case v1beta1.EnrollmentHooksReasonPending:
 		// Notify complete (or none configured); run AfterEnrolling below.
 	default:
-		b.log.Warnf("Unknown enrollment hooks reason %q, proceeding", state.reason)
+		// Fail closed when the service still gates the device (status False).
+		// Known True terminal reasons are handled above; an unknown False
+		// reason must not skip hooks or unblock bootstrap.
+		if state.status == v1beta1.ConditionStatusFalse {
+			b.log.Warnf("Unknown enrollment hooks reason %q with status False, halting", state.reason)
+			return fmt.Errorf("enrollment hooks in unknown False state %q: %w", state.reason, errEnrollmentHooksFailed)
+		}
+		b.log.Warnf("Unknown enrollment hooks reason %q with status %s, proceeding", state.reason, state.status)
 		return nil
 	}
 
@@ -494,10 +501,15 @@ func (b *Bootstrap) waitEnrollmentHooksReady(ctx context.Context) (*enrollmentHo
 // watchEnrollmentHooksOnce opens one WatchEnrollmentHooks stream and returns
 // the terminal event (condition absent or reason != NotifyPending).
 func (b *Bootstrap) watchEnrollmentHooksOnce(ctx context.Context) (*enrollmentHooksState, error) {
-	enrollmentClient, err := b.identityProvider.CreateEnrollmentGRPCClient(b.managementServiceConfig)
+	enrollmentClient, closer, err := b.identityProvider.CreateEnrollmentGRPCClient(b.managementServiceConfig)
 	if err != nil {
 		return nil, fmt.Errorf("create enrollment gRPC client: %w", err)
 	}
+	defer func() {
+		if cerr := closer.Close(); cerr != nil {
+			b.log.Debugf("closing enrollment gRPC connection: %v", cerr)
+		}
+	}()
 
 	stream, err := enrollmentClient.WatchEnrollmentHooks(ctx, &grpc_v1.WatchEnrollmentHooksRequest{
 		DeviceName: b.deviceName,

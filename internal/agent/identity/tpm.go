@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -477,12 +478,12 @@ func (t *tpmProvider) CreateGRPCClient(config *base_client.Config) (grpc_v1.Rout
 	return grpc_v1.NewRouterServiceClient(conn), nil
 }
 
-func (t *tpmProvider) CreateEnrollmentGRPCClient(config *base_client.Config) (grpc_v1.EnrollmentClient, error) {
+func (t *tpmProvider) CreateEnrollmentGRPCClient(config *base_client.Config) (grpc_v1.EnrollmentClient, io.Closer, error) {
 	conn, err := t.dialManagementGRPC(config)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return grpc_v1.NewEnrollmentClient(conn), nil
+	return grpc_v1.NewEnrollmentClient(conn), conn, nil
 }
 
 func (t *tpmProvider) dialManagementGRPC(config *base_client.Config) (*grpc.ClientConn, error) {
