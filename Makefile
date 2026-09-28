@@ -545,7 +545,7 @@ lint: .output/stamps/lint-image
 
 .PHONY: lint-comment-artifacts
 lint-comment-artifacts:
-	hack/check-comment-artifacts.sh
+	cd tools/check-comment-artifacts && go run . -root ../..
 
 .PHONY: lint-fix
 lint-fix: .output/stamps/lint-image
