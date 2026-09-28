@@ -176,6 +176,7 @@ func (t *deviceRenderState) bindVmLauncher(device *domain.Device) {
 
 // RenderDevice processes one device event. orgId and event are call-scoped so
 // the renderer's startup-owned dependencies can be reused across events.
+//
 //nolint:gocyclo
 func (t *DeviceRenderLogic) RenderDevice(ctx context.Context, orgId uuid.UUID, event domain.Event) error {
 	return t.renderDevice(ctx, orgId, event, t.log)
