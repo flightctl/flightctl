@@ -35,7 +35,7 @@ fi
 # Step 2: Run pytest-based version probe tests
 export SPEC_PATH="$SPEC"
 export API_VERSION=$(basename $(dirname "$CONFIG"))
-timeout 600 pytest /app/config/test_version_probes.py \
+timeout 600 pytest /app/config/test_version_probes.py /app/config/test_hooks.py \
     -p no:cacheprovider \
     -W ignore::hypothesis.errors.HypothesisSideeffectWarning \
     -W ignore::urllib3.exceptions.InsecureRequestWarning \

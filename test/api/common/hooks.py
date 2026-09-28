@@ -231,9 +231,14 @@ def before_init_operation(context, operation):
 # Shared helpers
 # ---------------------------------------------------------------------------
 def _kind_for_path(path):
-    """Return the resource kind for a given path template."""
+    """Return the resource kind for collection and item resource paths."""
     for prefix in sorted(_PATH_TO_KIND, key=len, reverse=True):
-        if path == prefix or path.startswith(prefix + "/"):
+        if path == prefix:
+            return _PATH_TO_KIND[prefix]
+        if not path.startswith(prefix + "/"):
+            continue
+        suffix = path[len(prefix) + 1 :]
+        if suffix.startswith("{") and suffix.endswith("}") and "/" not in suffix:
             return _PATH_TO_KIND[prefix]
     return None
 
@@ -379,6 +384,8 @@ def fix_post_body(ctx, case, **kwargs):
 @schemathesis.hook("before_call").apply_to(method="PUT")
 def sync_put_name(ctx, case, **kwargs):
     if not case.body or not isinstance(case.body, dict):
+        return
+    if not _kind_for_path(ctx.operation.path):
         return
     path_name = (case.path_parameters or {}).get("name")
     if path_name:
