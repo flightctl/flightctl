@@ -102,9 +102,6 @@ type DeviceRenderLogic struct {
 	customVmConverter bool
 	deltaLookup       generationLookup
 	osManifestSize    func(context.Context, string) (*int64, error)
-	// device is the device being rendered, used to look up current image digests
-	// when resolving application delta hints.
-	device *domain.Device
 }
 
 func NewDeviceRenderLogic(log logrus.FieldLogger, deviceSvc deviceservice.Service, repositorySvc repositoryservice.Service, catalogSvc catalogservice.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, cfg *config.Config, orgId uuid.UUID, event domain.Event) DeviceRenderLogic {
@@ -169,7 +166,6 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 		return fmt.Errorf("failed getting device %s/%s: %s", t.orgId, t.event.InvolvedObject.Name, status.Message)
 	}
 
-	t.device = device
 	t.bindVmLauncher(device)
 
 	// Calculate hash including device spec and selected virt-launcher image.
@@ -274,6 +270,9 @@ func (t *DeviceRenderLogic) RenderDevice(ctx context.Context) error {
 	}
 
 	rendered, renderErr := t.renderSpec(ctx, spec)
+	if renderErr == nil {
+		renderErr = t.resolveRenderedAppDeltaHints(ctx, device, &rendered)
+	}
 	if errors.Is(renderErr, errIgnitionConversion) {
 		return t.setErrorStatus(ctx, renderErr)
 	}
@@ -367,12 +366,11 @@ func (t *DeviceRenderLogic) renderSpec(ctx context.Context, spec *domain.DeviceS
 		}
 	}
 
-	renderedApplications, appSizes, err := t.renderApplications(ctx, applications)
+	renderedApplications, err := t.renderApplications(ctx, applications)
 	if err != nil {
 		return result, err
 	}
 	result.Applications = renderedApplications
-	result.appSizes = appSizes
 	return result, nil
 }
 
@@ -409,9 +407,9 @@ func (t *DeviceRenderLogic) setErrorStatus(ctx context.Context, renderErr error)
 	return renderErr
 }
 
-func (t *DeviceRenderLogic) renderApplications(ctx context.Context, applications *[]domain.ApplicationProviderSpec) ([]byte, map[string]*string, error) {
+func (t *DeviceRenderLogic) renderApplications(ctx context.Context, applications *[]domain.ApplicationProviderSpec) ([]byte, error) {
 	if applications == nil {
-		return nil, nil, nil
+		return nil, nil
 	}
 
 	var invalidApplications []string
@@ -443,21 +441,15 @@ func (t *DeviceRenderLogic) renderApplications(ctx context.Context, applications
 			pluralSuffix = "s"
 			errorPrefix = "First error"
 		}
-		return nil, nil, fmt.Errorf("%d invalid application%s: %s. %s: %w", len(invalidApplications), pluralSuffix, strings.Join(invalidApplications, ", "), errorPrefix, firstError)
-	}
-
-	// Resolve application delta hints against the device's current image digests.
-	appSizes, err := t.resolveAppDeltaHints(ctx, t.device, renderedApplications)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed resolving application delta hints: %w", err)
+		return nil, fmt.Errorf("%d invalid application%s: %s. %s: %w", len(invalidApplications), pluralSuffix, strings.Join(invalidApplications, ", "), errorPrefix, firstError)
 	}
 
 	renderedApplicationBytes, err := json.Marshal(renderedApplications)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed marshalling applications: %w", err)
+		return nil, fmt.Errorf("failed marshalling applications: %w", err)
 	}
 
-	return renderedApplicationBytes, appSizes, nil
+	return renderedApplicationBytes, nil
 }
 
 func (t *DeviceRenderLogic) renderConfig(ctx context.Context, deviceConfig *[]domain.ConfigProviderSpec) (*config_latest_types.Config, []string, []ConfigRefFingerprint, error) {

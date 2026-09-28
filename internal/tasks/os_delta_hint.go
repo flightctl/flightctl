@@ -804,6 +804,33 @@ func deviceImagePlatform(device *domain.Device) *ocispec.Platform {
 	}
 }
 
+// resolveRenderedAppDeltaHints resolves per-device hints against the agent's
+// current application image digests. RenderSpec remains device-independent;
+// RenderDevice calls this after rendering the target applications.
+func (t *DeviceRenderLogic) resolveRenderedAppDeltaHints(ctx context.Context, device *domain.Device, rendered *RenderedSpec) error {
+	if device == nil || len(rendered.Applications) == 0 {
+		return nil
+	}
+
+	var applications []domain.ApplicationProviderSpec
+	if err := json.Unmarshal(rendered.Applications, &applications); err != nil {
+		return fmt.Errorf("decode rendered applications: %w", err)
+	}
+
+	appSizes, err := t.resolveAppDeltaHints(ctx, device, applications)
+	if err != nil {
+		return fmt.Errorf("failed resolving application delta hints: %w", err)
+	}
+	renderedApplications, err := json.Marshal(applications)
+	if err != nil {
+		return fmt.Errorf("encode rendered applications with delta hints: %w", err)
+	}
+
+	rendered.Applications = renderedApplications
+	rendered.appSizes = appSizes
+	return nil
+}
+
 // resolveAppDeltaHints iterates over rendered applications, resolves delta
 // hints for each one, writes parent and nested hints into the image or inline
 // provider, and returns a map of app-name → IEC size string.
