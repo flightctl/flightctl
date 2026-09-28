@@ -7,7 +7,7 @@ This script builds RPMs using packit inside a Podman container. Supports both
 local builds and mock chroot builds for different distributions.
 
 Usage:
-  sudo ./hack/build_rpms.sh [--root MOCK_ROOT] [--rebuild-image] [--pull] [--help]
+  ./hack/build_rpms.sh [--root MOCK_ROOT] [--rebuild-image] [--pull] [--help]
 
 Options:
   --root MOCK_ROOT    Use specific mock chroot (enables in-mock build with logs)
@@ -18,12 +18,12 @@ Options:
   --help              Show this help message
 
 Examples:
-  sudo ./hack/build_rpms.sh                                               # Local build
-  sudo ./hack/build_rpms.sh --root centos-stream+epel-next-9-x86_64       # CentOS Stream 9
-  sudo ./hack/build_rpms.sh --root epel-10-x86_64                         # RHEL 10 / Fedora 43
-  sudo ./hack/build_rpms.sh --pull                                        # Local build with forced image pull
-  sudo ./hack/build_rpms.sh --rebuild-image                               # Rebuild base + all cache images
-  sudo ./hack/build_rpms.sh --rebuild-image --root epel-10-x86_64         # Rebuild base + epel-10 cache
+  ./hack/build_rpms.sh                                               # Local build
+  ./hack/build_rpms.sh --root centos-stream+epel-next-9-x86_64       # CentOS Stream 9
+  ./hack/build_rpms.sh --root epel-10-x86_64                         # RHEL 10 / Fedora 43
+  ./hack/build_rpms.sh --pull                                        # Local build with forced image pull
+  ./hack/build_rpms.sh --rebuild-image                               # Rebuild base + all cache images
+  ./hack/build_rpms.sh --rebuild-image --root epel-10-x86_64         # Rebuild base + epel-10 cache
 "
 
 ##############################################################################
@@ -157,11 +157,34 @@ print_help_if_requested() {
   done
 }
 
-require_root() {
-  if [[ "$EUID" -ne 0 ]]; then
-    echo "This script must be run as root (use sudo)." >&2
+check_podman_context() {
+  if [[ "$EUID" -eq 0 ]]; then
+    echo "Using rootful Podman storage for the RPM build."
+    return
+  fi
+
+  if ! command -v podman >/dev/null 2>&1; then
+    echo "ERROR: Rootless RPM builds require Podman. Install and configure Podman for the current user." >&2
     exit 1
   fi
+
+  if [[ -n "${CONTAINER_HOST:-}" || -n "${CONTAINER_CONNECTION:-}" ]]; then
+    echo "ERROR: Rootless RPM builds require the local Podman store. Unset CONTAINER_HOST and CONTAINER_CONNECTION, then retry." >&2
+    exit 1
+  fi
+
+  local podman_context
+  if ! podman_context="$(podman info --format '{{.Host.Security.Rootless}} {{.Host.ServiceIsRemote}}' 2>/dev/null)"; then
+    echo "ERROR: Could not query the current user's Podman runtime. Start/configure local rootless Podman and retry." >&2
+    exit 1
+  fi
+  if [[ "${podman_context}" != "true false" ]]; then
+    echo "ERROR: Rootless RPM builds require this user's local rootless Podman service (current context: ${podman_context:-unknown})." >&2
+    echo "Run with the current user's local rootless Podman connection; this script will not use sudo or a remote image store." >&2
+    exit 1
+  fi
+
+  echo "Using rootless Podman storage for the RPM build."
 }
 
 parse_args() {
@@ -433,16 +456,51 @@ run_build_in_container() {
     echo "Local packit build (no mock root)"
   fi
 
-  # Reuse Go build/module caches from the host to speed up builds
+  # Rootless Mock builds cannot write through the host cache bind mounts as
+  # Mock's non-root build user. Preserve the original rootful build behavior.
+  local use_host_go_cache_in_mock=true
+  if [[ -n "${ROOT}" && "${EUID}" -ne 0 ]]; then
+    use_host_go_cache_in_mock=false
+    echo "Mock build: using buildroot-local Go caches because Mock's build user cannot write to host cache mounts."
+  fi
+
   local host_gomodcache host_gocache
+  local -a cache_mount_args=()
+  local -a cache_env_args=()
   host_gomodcache="${GOMODCACHE:-$HOME/go/pkg/mod}"
   host_gocache="${GOCACHE:-$HOME/.cache/go-build}"
-  mkdir -p "${host_gomodcache}" "${host_gocache}"
+
+  if [[ "${EUID}" -ne 0 ]]; then
+    ensure_user_cache_dir "GOMODCACHE" "${host_gomodcache}"
+    ensure_user_cache_dir "GOCACHE" "${host_gocache}"
+  else
+    mkdir -p "${host_gomodcache}" "${host_gocache}"
+  fi
 
   local container_gopath container_gomodcache container_gocache
   container_gopath="/root/go"
   container_gomodcache="${container_gopath}/pkg/mod"
   container_gocache="/root/.cache/go-build"
+
+  # Keep host caches available in the builder container (also for its
+  # preflight checks), but only bind them into Mock's buildroot when its build
+  # user can write to them.
+  cache_mount_args=(
+    -v "${host_gomodcache}:${container_gomodcache}:z"
+    -v "${host_gocache}:${container_gocache}:z"
+  )
+  cache_env_args=(
+    -e "GOMODCACHE=${container_gomodcache}"
+    -e "GOCACHE=${container_gocache}"
+  )
+  if [[ "${use_host_go_cache_in_mock}" == false ]]; then
+    # The Mock site-defaults file uses this internal setting to omit its cache
+    # bind mounts. It is read by Mock inside the builder container.
+    cache_env_args+=(-e FLIGHTCTL_RPM_USE_HOST_GO_CACHE_IN_MOCK=false)
+  fi
+  if [[ "${EUID}" -ne 0 ]]; then
+    cache_env_args+=(-e FLIGHTCTL_RPM_ROOTLESS=true)
+  fi
 
   # Get the repository root directory (parent of hack/)
   local repo_root="${REPO_ROOT}"
@@ -456,11 +514,9 @@ run_build_in_container() {
     --network=host \
     -v "${repo_root}:/work:z" \
     ${git_mount_args[@]+"${git_mount_args[@]}"} \
-    -v "${host_gomodcache}:${container_gomodcache}" \
-    -v "${host_gocache}:${container_gocache}" \
+    ${cache_mount_args[@]+"${cache_mount_args[@]}"} \
     -e GOPATH="${container_gopath}" \
-    -e GOMODCACHE="${container_gomodcache}" \
-    -e GOCACHE="${container_gocache}" \
+    ${cache_env_args[@]+"${cache_env_args[@]}"} \
     -e GITHUB_ACTIONS \
     -e MOCK_CLEANUP \
     -e SOURCE_GIT_TAG \
@@ -471,13 +527,29 @@ run_build_in_container() {
     ./hack/build_rpms_packit.sh ${ROOT_OPTS[@]+"${ROOT_OPTS[@]}"}
 }
 
+ensure_user_cache_dir() {
+  local variable_name="$1"
+  local cache_dir="$2"
+
+  if ! mkdir -p "${cache_dir}"; then
+    echo "ERROR: Cannot create ${variable_name} directory ${cache_dir} as uid ${EUID}." >&2
+    echo "Set ${variable_name} to a writable path owned by the current user; this build will not use sudo." >&2
+    exit 1
+  fi
+  if [[ ! -O "${cache_dir}" || ! -w "${cache_dir}" ]]; then
+    echo "ERROR: Rootless RPM builds need ${variable_name} directory ${cache_dir} to be writable and owned by uid ${EUID}." >&2
+    echo "Set ${variable_name} to a user-owned path or fix the directory ownership before retrying." >&2
+    exit 1
+  fi
+}
+
 ##############################################################################
 # Entry point
 ##############################################################################
 
 print_help_if_requested "$@"
-require_root
 parse_args "$@"
+check_podman_context
 ensure_version_env
 init_image_names "${PACKIT_BUILDER_IMAGE}"
 

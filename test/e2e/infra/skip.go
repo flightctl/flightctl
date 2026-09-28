@@ -60,7 +60,8 @@ func observabilityPrometheusSkipMessage(envType string) string {
 	switch envType {
 	case EnvironmentQuadlet:
 		return "flightctl-observability stack not running (flightctl-prometheus is not active); " +
-			"install flightctl-observability and run: systemctl enable --now flightctl-observability.target"
+			"install flightctl-observability and start flightctl-observability.target with the matching systemd manager " +
+			"(systemctl --user for user scope, systemctl for system scope)"
 	case EnvironmentOCP:
 		return "COO MonitoringStack not found (flightctl-monitoring-stack-prometheus service missing); " +
 			"install flightctl-monitoring-stack"

@@ -225,7 +225,7 @@ func (c *Consumer) processImageBuild(ctx context.Context, eventWithOrgId worker_
 			}
 			return err
 		}
-		if err := installCACertInWorker(buildCtx, ociSpec.CaCrt, podmanWorker.ContainerName, ociSpec.Registry, log); err != nil {
+		if err := podmanWorker.installCACert(buildCtx, ociSpec.CaCrt, ociSpec.Registry, log); err != nil {
 			err = fmt.Errorf("failed to install CA cert for %q: %w", repoRef, err)
 			if c.handleBuildError(ctx, orgID, imageBuildName, err, statusUpdater, log) {
 				return nil
@@ -639,6 +639,12 @@ type podmanWorker struct {
 	TmpDir              string
 	TmpOutDir           string
 	TmpContainerStorage string
+	TmpAuthDir          string
+	StorageConfigPath   string
+	PodmanRuntimeDir    string
+	AuthFilePath        string
+	RegistryCertDirs    map[string]string
+	Rootless            bool
 	Cleanup             func()
 	statusUpdater       *statusUpdater // Reference to status updater for output reporting
 	HasEntitlementCerts bool           // Whether entitlement certs are mounted (for RHEL subscription repos)
@@ -683,18 +689,24 @@ func validateImageRefComponents(imageName, imageTag string) error {
 // It streams output to the status updater to track progress
 // envVars is a map of environment variable names to values (e.g., {"REGISTRY_AUTH_FILE": "/build/auth.json"})
 func (w *podmanWorker) runInWorker(ctx context.Context, log logrus.FieldLogger, phaseName string, envVars map[string]string, args ...string) error {
-	// We use "podman exec" to run inside the running container
-	execArgs := []string{"exec"}
+	var cmd *exec.Cmd
+	if w.Rootless {
+		cmd = w.podmanCommand(ctx, args...)
+		cmd.Env = w.podmanEnvironment(envVars)
+	} else {
+		// We use "podman exec" to run inside the running container
+		execArgs := []string{"exec"}
 
-	// Add environment variables using -e flag
-	// Iterating over a nil map is safe in Go (no-op)
-	for key, value := range envVars {
-		execArgs = append(execArgs, "-e", fmt.Sprintf("%s=%s", key, value))
+		// Add environment variables using -e flag
+		// Iterating over a nil map is safe in Go (no-op)
+		for key, value := range envVars {
+			execArgs = append(execArgs, "-e", fmt.Sprintf("%s=%s", key, value))
+		}
+
+		execArgs = append(execArgs, w.ContainerName, "podman")
+		execArgs = append(execArgs, args...)
+		cmd = exec.CommandContext(ctx, "podman", execArgs...)
 	}
-
-	execArgs = append(execArgs, w.ContainerName, "podman")
-	execArgs = append(execArgs, args...)
-	cmd := exec.CommandContext(ctx, "podman", execArgs...)
 
 	// Create a shared buffer for the final output
 	var outputBuffer bytes.Buffer
@@ -766,7 +778,14 @@ func (c *Consumer) startPodmanWorker(
 	if c.cfg == nil || c.cfg.ImageBuilderWorker == nil {
 		return nil, fmt.Errorf("config or ImageBuilderWorker config is nil")
 	}
-	podmanImage := c.cfg.ImageBuilderWorker.EffectivePodmanImage()
+	rootless := isRootlessRuntime()
+	log.WithField("rootless", rootless).Info("Selecting image build execution mode")
+	var podmanImage string
+	if !rootless {
+		podmanImage = c.cfg.ImageBuilderWorker.EffectivePodmanImage()
+	}
+	_, entitlementStatErr := os.Stat(entitlementCertsPath)
+	hasEntitlementCerts := entitlementStatErr == nil
 
 	// Create temporary directories for the worker
 	tmpDir, err := os.MkdirTemp("", "imagebuild-*")
@@ -784,7 +803,68 @@ func (c *Consumer) startPodmanWorker(
 	// It ensures no caching between jobs.
 	tmpContainerStorage, err := os.MkdirTemp(buildStorageBaseDir, "storage-*")
 	if err != nil {
+		os.RemoveAll(tmpDir)
+		os.RemoveAll(tmpOutDir)
 		return nil, err
+	}
+	if rootless {
+		tmpAuthDir, err := os.MkdirTemp("", "imagebuild-runtime-*")
+		if err != nil {
+			os.RemoveAll(tmpDir)
+			os.RemoveAll(tmpOutDir)
+			os.RemoveAll(tmpContainerStorage)
+			return nil, fmt.Errorf("failed to create private Podman runtime directory: %w", err)
+		}
+		podmanRuntimeDir := filepath.Join(tmpAuthDir, "runtime")
+		graphRoot := filepath.Join(tmpContainerStorage, "storage")
+		runRoot := filepath.Join(tmpContainerStorage, "runroot")
+		for _, dir := range []string{podmanRuntimeDir, graphRoot, runRoot} {
+			if err := os.MkdirAll(dir, 0700); err != nil {
+				os.RemoveAll(tmpDir)
+				os.RemoveAll(tmpOutDir)
+				os.RemoveAll(tmpContainerStorage)
+				os.RemoveAll(tmpAuthDir)
+				return nil, fmt.Errorf("failed to create rootless Podman directory %q: %w", dir, err)
+			}
+		}
+
+		storageConfPath := filepath.Join(tmpAuthDir, "storage.conf")
+		storageConfContent := fmt.Sprintf(`[storage]
+driver = "vfs"
+graphroot = %q
+runroot = %q
+[storage.options]
+ignore_chown_errors = "true"
+`, graphRoot, runRoot)
+		if err := os.WriteFile(storageConfPath, []byte(storageConfContent), 0600); err != nil {
+			os.RemoveAll(tmpDir)
+			os.RemoveAll(tmpOutDir)
+			os.RemoveAll(tmpContainerStorage)
+			os.RemoveAll(tmpAuthDir)
+			return nil, fmt.Errorf("failed to write rootless storage.conf: %w", err)
+		}
+
+		cleanup := func() {
+			for _, dir := range []string{tmpDir, tmpOutDir, tmpContainerStorage, tmpAuthDir} {
+				if err := os.RemoveAll(dir); err != nil {
+					log.WithError(err).WithField("path", dir).Warn("Failed to remove rootless image build directory")
+				}
+			}
+		}
+		return &podmanWorker{
+			TmpDir:              tmpDir,
+			TmpOutDir:           tmpOutDir,
+			TmpContainerStorage: tmpContainerStorage,
+			TmpAuthDir:          tmpAuthDir,
+			StorageConfigPath:   storageConfPath,
+			PodmanRuntimeDir:    podmanRuntimeDir,
+			AuthFilePath:        filepath.Join(tmpAuthDir, "auth.json"),
+			RegistryCertDirs:    make(map[string]string),
+			Rootless:            true,
+			Cleanup:             cleanup,
+			statusUpdater:       statusUpdater,
+			HasEntitlementCerts: hasEntitlementCerts,
+		}, nil
 	}
 	// 1. Create a clean storage.conf on the host
 	storageConfPath := filepath.Join(tmpDir, "storage.conf")
@@ -837,10 +917,8 @@ ignore_chown_errors = "true"
 	}
 
 	// Auto-detect and mount entitlement certs if present (for RHEL subscription repos)
-	hasEntitlementCerts := false
-	if _, err := os.Stat(entitlementCertsPath); err == nil {
+	if hasEntitlementCerts {
 		startArgs = append(startArgs, "-v", fmt.Sprintf("%s:%s:ro,Z", entitlementCertsPath, entitlementCertsPath))
-		hasEntitlementCerts = true
 		log.Debug("Mounting entitlement certificates (auto-detected)")
 	}
 
@@ -904,6 +982,19 @@ ignore_chown_errors = "true"
 // installCACertInWorker installs a base64-encoded CA certificate into the worker
 // container's default podman cert directory at /etc/containers/certs.d/<registry>/ca.crt.
 func installCACertInWorker(ctx context.Context, caCrt *string, containerName string, registryHostname string, log logrus.FieldLogger) error {
+	return installCACertInWorkerWithCommand(ctx, caCrt, containerName, registryHostname, log, func(ctx context.Context, args ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, "podman", args...)
+	})
+}
+
+func installCACertInWorkerWithCommand(
+	ctx context.Context,
+	caCrt *string,
+	containerName string,
+	registryHostname string,
+	log logrus.FieldLogger,
+	command func(context.Context, ...string) *exec.Cmd,
+) error {
 	if caCrt == nil || *caCrt == "" {
 		return nil
 	}
@@ -915,13 +1006,13 @@ func installCACertInWorker(ctx context.Context, caCrt *string, containerName str
 
 	certDir := fmt.Sprintf("/etc/containers/certs.d/%s", registryHostname)
 
-	mkdirCmd := exec.CommandContext(ctx, "podman", "exec", containerName, "mkdir", "-p", certDir)
+	mkdirCmd := command(ctx, "exec", containerName, "mkdir", "-p", certDir)
 	if out, err := mkdirCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to create cert dir in container: %w: %s", err, string(out))
 	}
 
 	certPath := fmt.Sprintf("%s/ca.crt", certDir)
-	teeCmd := exec.CommandContext(ctx, "podman", "exec", "-i", containerName, "tee", certPath)
+	teeCmd := command(ctx, "exec", "-i", containerName, "tee", certPath)
 	teeCmd.Stdin = bytes.NewReader(ca)
 	if out, err := teeCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to write CA cert in container: %w: %s", err, string(out))
@@ -932,6 +1023,42 @@ func installCACertInWorker(ctx context.Context, caCrt *string, containerName str
 		"registryHostname": registryHostname,
 	}).Debug("Installed CA certificate in worker container")
 
+	return nil
+}
+
+func (w *podmanWorker) installCACert(ctx context.Context, caCrt *string, registryHostname string, log logrus.FieldLogger) error {
+	if !w.Rootless {
+		return installCACertInWorker(ctx, caCrt, w.ContainerName, registryHostname, log)
+	}
+	if caCrt == nil || *caCrt == "" {
+		return nil
+	}
+	if registryHostname == "" || registryHostname == "." || registryHostname == ".." || strings.ContainsAny(registryHostname, "/\\\x00") {
+		return fmt.Errorf("invalid registry hostname for certificate path")
+	}
+
+	ca, err := base64.StdEncoding.DecodeString(*caCrt)
+	if err != nil {
+		return fmt.Errorf("failed to decode CA certificate: %w", err)
+	}
+
+	certRoot := filepath.Join(w.TmpAuthDir, "certs")
+	certDir := filepath.Join(certRoot, registryHostname)
+	if err := os.MkdirAll(certDir, 0700); err != nil {
+		return fmt.Errorf("failed to create certificate directory: %w", err)
+	}
+	certPath := filepath.Join(certDir, "ca.crt")
+	if err := os.WriteFile(certPath, ca, 0600); err != nil {
+		return fmt.Errorf("failed to write CA certificate: %w", err)
+	}
+	if w.RegistryCertDirs == nil {
+		w.RegistryCertDirs = make(map[string]string)
+	}
+	w.RegistryCertDirs[registryHostname] = certRoot
+	log.WithFields(logrus.Fields{
+		"certPath":         certPath,
+		"registryHostname": registryHostname,
+	}).Debug("Installed CA certificate for rootless Podman")
 	return nil
 }
 
@@ -998,7 +1125,23 @@ func (c *Consumer) loginToRegistry(
 
 	log.WithField("registry", registryHostname).Debug("Logging into registry with podman login")
 
-	loginArgs := buildLoginArgs(podmanWorker.ContainerName, username, registryHostname, ociSpec)
+	var loginCmd *exec.Cmd
+	if podmanWorker.Rootless {
+		loginArgs := []string{"login", "--authfile", podmanWorker.authFilePath()}
+		if certDir := podmanWorker.registryCertDir(registryHostname); certDir != "" {
+			loginArgs = append(loginArgs, "--cert-dir", certDir)
+		}
+		if ociSpec != nil && ociSpec.Scheme != nil && *ociSpec.Scheme == coredomain.OciRepoSchemeHttp {
+			loginArgs = append(loginArgs, "--tls-verify=false")
+		} else if ociSpec != nil && ociSpec.SkipServerVerification != nil && *ociSpec.SkipServerVerification {
+			loginArgs = append(loginArgs, "--tls-verify=false")
+		}
+		loginArgs = append(loginArgs, "-u", username, "--password-stdin", registryHostname)
+		loginCmd = podmanWorker.podmanCommand(ctx, loginArgs...)
+	} else {
+		loginArgs := buildLoginArgs(podmanWorker.ContainerName, username, registryHostname, ociSpec)
+		loginCmd = exec.CommandContext(ctx, "podman", loginArgs...)
+	}
 
 	if ociSpec != nil && ociSpec.Scheme != nil && *ociSpec.Scheme == coredomain.OciRepoSchemeHttp {
 		log.Debug("Using --tls-verify=false for HTTP registry login")
@@ -1006,7 +1149,6 @@ func (c *Consumer) loginToRegistry(
 		log.Debug("Using --tls-verify=false due to SkipServerVerification for login")
 	}
 	// G204: Inputs are validated above to prevent command injection. exec.CommandContext uses separate arguments (not shell), making this safe.
-	loginCmd := exec.CommandContext(ctx, "podman", loginArgs...)
 
 	// Write password to stdin
 	loginCmd.Stdin = strings.NewReader(password)
@@ -1135,6 +1277,7 @@ func (c *Consumer) buildImageWithPodman(
 
 	// Container paths
 	containerBuildDir := "/build"
+	workerBuildDir := podmanWorker.workerContainerPath(containerBuildDir)
 
 	// ociSpec.Registry is already the hostname (no scheme)
 	sourceRegistryHostname := ociSpec.Registry
@@ -1157,7 +1300,7 @@ func (c *Consumer) buildImageWithPodman(
 		}
 	}
 
-	containerContainerfilePath := filepath.Join(containerBuildDir, "Containerfile")
+	containerContainerfilePath := filepath.Join(workerBuildDir, "Containerfile")
 
 	// ---------------------------------------------------------
 	// PHASE 1: BUILD (Manifest + Build)
@@ -1181,6 +1324,14 @@ func (c *Consumer) buildImageWithPodman(
 		"build",
 		"--platform", platform,
 		"--manifest", imageRef,
+	}
+	if podmanWorker.Rootless {
+		// Rootless Podman must use the worker pod's network namespace; creating
+		// another network namespace would require helpers and host capabilities.
+		podmanBuildArgs = append(podmanBuildArgs, "--network=host")
+		if certDir := podmanWorker.registryCertDir(sourceRegistryHostname); certDir != "" {
+			podmanBuildArgs = append(podmanBuildArgs, "--cert-dir", certDir)
+		}
 	}
 
 	// Disable TLS verification for HTTP source registries or when explicitly requested
@@ -1216,10 +1367,10 @@ func (c *Consumer) buildImageWithPodman(
 
 	podmanBuildArgs = append(podmanBuildArgs,
 		"-f", containerContainerfilePath,
-		containerBuildDir,
+		workerBuildDir,
 	)
 
-	buildEnvVars := authFileEnv()
+	buildEnvVars := podmanWorker.authFileEnvironment()
 	if err := podmanWorker.runInWorker(ctx, log, "build", buildEnvVars, podmanBuildArgs...); err != nil {
 		return err
 	}
@@ -1287,8 +1438,13 @@ func (c *Consumer) pushImageWithPodman(
 	// Note: We push the MANIFEST (imageRef), which pushes all layers
 	// Authentication is handled via podman login above
 	const digestFileName = "push-digest.txt"
-	workerDigestPath := filepath.Join("/output", digestFileName)
+	workerDigestPath := podmanWorker.workerContainerPath(filepath.Join("/output", digestFileName))
 	pushArgs := []string{"push", "--digestfile", workerDigestPath}
+	if podmanWorker.Rootless {
+		if certDir := podmanWorker.registryCertDir(destRegistryHostname); certDir != "" {
+			pushArgs = append(pushArgs, "--cert-dir", certDir)
+		}
+	}
 
 	// Disable TLS verification for HTTP registries or when explicitly requested
 	if ociSpec.Scheme != nil && *ociSpec.Scheme == coredomain.OciRepoSchemeHttp {
@@ -1300,7 +1456,7 @@ func (c *Consumer) pushImageWithPodman(
 	}
 
 	pushArgs = append(pushArgs, imageRef)
-	pushEnvVars := authFileEnv()
+	pushEnvVars := podmanWorker.authFileEnvironment()
 	if err := podmanWorker.runInWorker(ctx, log, "push", pushEnvVars, pushArgs...); err != nil {
 		return "", "", err
 	}

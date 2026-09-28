@@ -782,6 +782,20 @@
         "rhsmSecretName": { "type": "string", "description": "Secret name containing RHEL subscription manager configuration, mounted at /etc/rhsm" },
         "rhsmCaSecretName": { "type": "string", "description": "Secret name containing RHSM CA certificates, mounted at /etc/rhsm/ca" },
         "privileged": { "type": "boolean", "description": "Enable privileged mode for container-in-container builds" },
+        "kvmDevice": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "description": "Expose /dev/kvm to the ImageBuilder worker" }
+          }
+        },
+        "hostDevices": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "description": "Expose host /sys, /dev, and /lib/modules to the ImageBuilder worker" }
+          }
+        },
         "serviceImages": {
           "type": "object",
           "description": "Builder images (podman, bootc-image-builder, syft) and skip-TLS options",

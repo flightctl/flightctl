@@ -10,10 +10,10 @@ Image={{ .AlertmanagerProxy.Image }}:{{ .AlertmanagerProxy.Tag }}
 Pull=missing
 Network=flightctl.network
 AddHost=%H:host-gateway
-EnvironmentFile=/etc/flightctl/flightctl-alertmanager-proxy/env
-Volume=/etc/flightctl/flightctl-alertmanager-proxy/config.yaml:/root/.flightctl/config.yaml:ro,z
-Volume=/etc/flightctl/encryption:/root/.flightctl/encryption:ro,z
-Volume=/etc/flightctl/pki/db:/root/.flightctl/certs/db:ro,z
+EnvironmentFile=%E/flightctl/flightctl-alertmanager-proxy/env
+Volume=%E/flightctl/flightctl-alertmanager-proxy/config.yaml:/root/.flightctl/config.yaml:ro,z
+Volume=%E/flightctl/encryption:/root/.flightctl/encryption:ro,z
+Volume=%E/flightctl/pki/db:/root/.flightctl/certs/db:ro,z
 Secret=flightctl-postgresql-user-password,type=env,target=DB_PASSWORD
 Environment=DB_USER=flightctl_app
 
@@ -21,10 +21,10 @@ Environment=DB_USER=flightctl_app
 Restart=always
 RestartSec=30
 
-ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-alertmanager-proxy/config.yaml.template --output-file /etc/flightctl/flightctl-alertmanager-proxy/config.yaml
-ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-alertmanager-proxy/env.template --output-file /etc/flightctl/flightctl-alertmanager-proxy/env
+ExecStartPre=/usr/bin/env PATH=%D/flightctl/bin:/usr/bin:/bin flightctl-standalone render template --config %E/flightctl/service-config.yaml --input-file %D/flightctl/flightctl-alertmanager-proxy/config.yaml.template --output-file %E/flightctl/flightctl-alertmanager-proxy/config.yaml
+ExecStartPre=/usr/bin/env PATH=%D/flightctl/bin:/usr/bin:/bin flightctl-standalone render template --config %E/flightctl/service-config.yaml --input-file %D/flightctl/flightctl-alertmanager-proxy/env.template --output-file %E/flightctl/flightctl-alertmanager-proxy/env
 
-ExecStartPost=bash -c '! systemctl is-active --quiet flightctl-gateway || podman exec flightctl-gateway nginx -s reload'
+ExecStartPost=/bin/bash -o pipefail -c 'if podman ps --filter name=flightctl-gateway --filter status=running --quiet | grep -q .; then podman exec flightctl-gateway nginx -s reload; else [ $$? -eq 1 ]; fi'
 
 [Install]
 WantedBy=flightctl.target

@@ -99,7 +99,7 @@ function registry_address() {
     # Quadlet: registry on test host
     if [[ "${E2E_ENVIRONMENT:-}" == "quadlet" ]] || \
        { ! kubectl config current-context &>/dev/null && \
-         (systemctl is-active flightctl-api.service &>/dev/null || sudo systemctl is-active flightctl-api.service &>/dev/null); }; then
+         quadlet_systemctl is-active flightctl-api.service &>/dev/null; }; then
         echo "${addr}"
         return
     fi
@@ -115,6 +115,14 @@ function in_kind() {
         return 0 # true
     else
         return 1 # false
+    fi
+}
+
+function quadlet_api_port() {
+    if quadlet_uses_system_scope; then
+        echo 443
+    else
+        echo 9443
     fi
 }
 
@@ -182,11 +190,16 @@ function find_route_name() {
 }
 
 function get_endpoints() {
+  local configured_api_endpoint="${E2E_API_ENDPOINT:-${API_ENDPOINT:-}}"
+  if [[ -n "${configured_api_endpoint}" ]]; then
+    export FLIGHTCTL_API_ENDPOINT=${FLIGHTCTL_API_ENDPOINT:-${configured_api_endpoint}}
+  fi
+
   # Check if running in Quadlet/standalone mode
   if [[ "${E2E_ENVIRONMENT:-}" == "quadlet" ]] || \
      [[ -n "${E2E_SSH_HOST:-}" ]] || \
      { ! kubectl config current-context &>/dev/null && \
-       (systemctl is-active flightctl-api.service &>/dev/null || sudo systemctl is-active flightctl-api.service &>/dev/null); }; then
+       quadlet_systemctl is-active flightctl-api.service &>/dev/null; }; then
     # Quadlet/standalone mode - use E2E_SSH_HOST when set (remote Quadlet), else hostname (VM will have /etc/hosts entry injected)
     local QUADLET_HOST
     if [[ -n "${E2E_SSH_HOST:-}" ]]; then
@@ -194,9 +207,18 @@ function get_endpoints() {
     else
       QUADLET_HOST=$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo "localhost")
     fi
-    export FLIGHTCTL_API_ENDPOINT=${FLIGHTCTL_API_ENDPOINT:-https://${QUADLET_HOST}}
-    export FLIGHTCTL_AGENT_ENDPOINT=${FLIGHTCTL_AGENT_ENDPOINT:-https://${QUADLET_HOST}:7443}
-    export FLIGHTCTL_UI_ENDPOINT=${FLIGHTCTL_UI_ENDPOINT:-https://${QUADLET_HOST}:9001}
+    local QUADLET_API_HOST API_PORT_SUFFIX
+    QUADLET_API_HOST="${QUADLET_HOST}"
+    if [[ "${QUADLET_API_HOST}" == *":"* && "${QUADLET_API_HOST}" != \[* ]]; then
+      QUADLET_API_HOST="[${QUADLET_API_HOST}]"
+    fi
+    API_PORT_SUFFIX=""
+    if [[ "$(quadlet_api_port)" != "443" ]]; then
+      API_PORT_SUFFIX=":$(quadlet_api_port)"
+    fi
+    export FLIGHTCTL_API_ENDPOINT=${FLIGHTCTL_API_ENDPOINT:-https://${QUADLET_API_HOST}${API_PORT_SUFFIX}}
+    export FLIGHTCTL_AGENT_ENDPOINT=${FLIGHTCTL_AGENT_ENDPOINT:-https://${QUADLET_API_HOST}:7443}
+    export FLIGHTCTL_UI_ENDPOINT=${FLIGHTCTL_UI_ENDPOINT:-https://${QUADLET_API_HOST}:9001}
     echo "Using Quadlet endpoints: API=${FLIGHTCTL_API_ENDPOINT}, Agent=${FLIGHTCTL_AGENT_ENDPOINT}"
   else
     # K8s mode - use routes/ingress
@@ -243,7 +265,7 @@ function run_on_quadlet() {
   remote_lc_cmd="$(printf 'bash -lc %q' "${inner}")"
 
   if { : >&3; } 2>/dev/null; then
-    if [[ -n "${E2E_SSH_HOST:-}" ]] && [[ "${E2E_SSH_HOST}" != "localhost" ]]; then
+    if quadlet_is_remote; then
       if [[ -n "${E2E_SSH_PASSWORD:-}" ]]; then
         printf '%s\n' "🔄 [Startup] run_on_quadlet: SSHPASS=<redacted> sshpass -e ssh -o StrictHostKeyChecking=no ${ssh_user}@${E2E_SSH_HOST} ${remote_lc_cmd}" >&3
       elif [[ -n "${E2E_SSH_KEY_PATH:-}" ]]; then
@@ -256,7 +278,7 @@ function run_on_quadlet() {
     fi
   fi
 
-  if [[ -n "${E2E_SSH_HOST:-}" ]] && [[ "${E2E_SSH_HOST}" != "localhost" ]]; then
+  if quadlet_is_remote; then
     if [[ -n "${E2E_SSH_PASSWORD:-}" ]]; then
       SSHPASS="${E2E_SSH_PASSWORD}" sshpass -e ssh -o StrictHostKeyChecking=no "${ssh_user}@${E2E_SSH_HOST}" "${remote_lc_cmd}"
     elif [[ -n "${E2E_SSH_KEY_PATH:-}" ]]; then
@@ -269,6 +291,57 @@ function run_on_quadlet() {
   "$@"
 }
 
+function quadlet_is_remote() {
+  local host="${E2E_SSH_HOST:-}"
+  [[ -n "${host}" ]] || return 1
+  host="${host#\[}"
+  host="${host%]}"
+  case "${host,,}" in
+    localhost|127.*|::1) return 1 ;;
+  esac
+  return 0
+}
+
+function quadlet_uses_system_scope() {
+  if [[ "${E2E_USE_SUDO:-false}" == "true" || "${E2E_USE_SUDO:-false}" == "1" ]]; then
+    return 0
+  fi
+  if quadlet_is_remote; then
+    [[ "${E2E_SSH_USER:-${USER:-}}" == "root" ]]
+  else
+    [[ "$(id -u)" -eq 0 ]]
+  fi
+}
+
+function quadlet_needs_sudo() {
+  [[ "${E2E_USE_SUDO:-false}" == "true" || "${E2E_USE_SUDO:-false}" == "1" ]] || return 1
+  if quadlet_is_remote; then
+    [[ "${E2E_SSH_USER:-${USER:-}}" != "root" ]]
+  else
+    [[ "$(id -u)" -ne 0 ]]
+  fi
+}
+
+function quadlet_systemctl() {
+  if quadlet_uses_system_scope; then
+    if quadlet_needs_sudo; then
+      run_on_quadlet sudo systemctl "$@"
+    else
+      run_on_quadlet systemctl "$@"
+    fi
+  else
+    run_on_quadlet systemctl --user "$@"
+  fi
+}
+
+function quadlet_podman() {
+  if quadlet_needs_sudo; then
+    run_on_quadlet sudo podman "$@"
+  else
+    run_on_quadlet podman "$@"
+  fi
+}
+
 # Sets up the PAM admin user for Quadlet/standalone deployments
 # This creates the flightctl-admin group and admin user if they don't exist
 # Following the documentation at docs/user/installing/configuring-auth/auth-pam.md
@@ -279,7 +352,7 @@ function setup_pam_admin_user() {
   echo "Setting up PAM admin user '${pam_user}' for Quadlet E2E tests..."
 
   local pam_names=""
-  if ! pam_names=$(run_on_quadlet sudo podman ps --format '{{.Names}}' 2>/dev/null); then
+  if ! pam_names=$(quadlet_podman ps --format '{{.Names}}' 2>/dev/null); then
     pam_names=""
   fi
   if ! echo "${pam_names}" | grep -q '^flightctl-pam-issuer$'; then
@@ -289,32 +362,32 @@ function setup_pam_admin_user() {
 
   # Create the flightctl-admin group if it doesn't exist
   echo "Creating flightctl-admin group..."
-  run_on_quadlet sudo podman exec -i flightctl-pam-issuer groupadd flightctl-admin 2>/dev/null || true
+  quadlet_podman exec -i flightctl-pam-issuer groupadd flightctl-admin 2>/dev/null || true
 
   # Check if user already exists
-  if run_on_quadlet sudo podman exec flightctl-pam-issuer id "${pam_user}" &>/dev/null; then
+  if quadlet_podman exec flightctl-pam-issuer id "${pam_user}" &>/dev/null; then
     echo "User '${pam_user}' already exists in PAM issuer"
   else
     # Create the user
     echo "Creating user '${pam_user}'..."
-    run_on_quadlet sudo podman exec flightctl-pam-issuer adduser "${pam_user}" 2>/dev/null || true
+    quadlet_podman exec flightctl-pam-issuer adduser "${pam_user}" 2>/dev/null || true
   fi
 
   # Set the password (always update to ensure it matches expected value)
   echo "Setting password for '${pam_user}'..."
-  if ! run_on_quadlet sudo podman exec -i flightctl-pam-issuer sh -c "echo '${pam_user}:${pam_pass}' | chpasswd"; then
+  if ! quadlet_podman exec -i flightctl-pam-issuer sh -c "echo '${pam_user}:${pam_pass}' | chpasswd"; then
     echo "Warning: failed to set password for '${pam_user}' in PAM issuer" >&2
     return 1
   fi
 
   # Add user to flightctl-admin group
   echo "Adding '${pam_user}' to flightctl-admin group..."
-  run_on_quadlet sudo podman exec -i flightctl-pam-issuer usermod -aG flightctl-admin "${pam_user}" 2>/dev/null || true
+  quadlet_podman exec -i flightctl-pam-issuer usermod -aG flightctl-admin "${pam_user}" 2>/dev/null || true
 
   # Verify the setup
   echo "Verifying user setup..."
   local groups
-  groups=$(run_on_quadlet sudo podman exec flightctl-pam-issuer groups "${pam_user}" 2>/dev/null || echo "")
+  groups=$(quadlet_podman exec flightctl-pam-issuer groups "${pam_user}" 2>/dev/null || echo "")
   if echo "$groups" | grep -q "flightctl-admin"; then
     echo "PAM admin user '${pam_user}' is ready (groups: ${groups})"
     return 0
@@ -336,7 +409,7 @@ function try_login() {
     local is_quadlet=false
     if [[ "${E2E_ENVIRONMENT:-}" == "quadlet" ]] || \
        { ! kubectl config current-context &>/dev/null && \
-         (systemctl is-active flightctl-api.service &>/dev/null || sudo systemctl is-active flightctl-api.service &>/dev/null); }; then
+         quadlet_systemctl is-active flightctl-api.service &>/dev/null; }; then
       is_quadlet=true
     fi
 

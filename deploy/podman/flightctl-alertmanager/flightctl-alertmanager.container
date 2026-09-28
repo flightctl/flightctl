@@ -18,7 +18,7 @@ PodmanArgs=--userns=keep-id:uid=999,gid=999 --sdnotify=conmon
 
 # Persistent storage and config
 Volume=flightctl-alertmanager:/var/lib/alertmanager:Z,U
-Volume=/usr/share/flightctl/flightctl-alertmanager/alertmanager.yml:/usr/local/etc/alertmanager/alertmanager.yml:ro,Z
+Volume=%D/flightctl/flightctl-alertmanager/alertmanager.yml:/usr/local/etc/alertmanager/alertmanager.yml:ro,Z
 
 [Service]
 Type=notify

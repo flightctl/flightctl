@@ -7,7 +7,7 @@ Wants=flightctl-certs-init.service
 [Service]
 Type=oneshot
 RemainAfterExit=true
-ExecStart=-/usr/bin/flightctl-standalone aap create-oauth-application
+ExecStart=-/usr/bin/env PATH=%D/flightctl/bin:/usr/bin:/bin flightctl-standalone aap create-oauth-application --config %E/flightctl/service-config.yaml --output-file %E/flightctl/pki/aap-client-id --ca-cert-file %E/flightctl/pki/auth/ca.crt
 StandardOutput=journal
 StandardError=journal
 

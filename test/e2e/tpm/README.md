@@ -34,8 +34,8 @@ GINKGO_LABEL_FILTER=tpm-sw go test ./test/e2e/tpm/...
 ### Real Hardware TPM
 
 The real TPM tests pass the host's `/dev/tpm0` device into a QEMU VM via
-libvirt TPM passthrough. The test is automatically skipped if `/dev/tpm0`
-is not present on the host.
+libvirt TPM passthrough. The test is automatically skipped if `/dev/tpm0` is
+absent or the current user cannot open it for read/write access.
 
 > **Important: `/dev/tpm0` vs `/dev/tpmrm0` for passthrough**
 >

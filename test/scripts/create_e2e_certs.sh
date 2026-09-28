@@ -4,6 +4,7 @@
 # private Docker registry targetting the local IP
 
 set -x -euo pipefail
+umask 077
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 
 source "${SCRIPT_DIR}"/functions
@@ -26,6 +27,7 @@ mkdir -p "${CERT_DIR}"
 # Generate CA if it doesn't exist
 if [[ -f "${CERT_DIR}/ca.key" ]]; then
     echo "CA key already exists, skipping CA generation"
+    chmod 0600 "${CERT_DIR}/ca.key"
 else
     echo "Creating CA for e2e tests..."
     openssl genrsa -out "${CERT_DIR}/ca.key" 2048
@@ -47,6 +49,8 @@ mkdir -p bin/.ssh/
 if [ ! -f bin/.ssh/id_rsa ]; then
   echo "bin/.ssh/id_rsa does not exist, creating ssh-keygen"
   ssh-keygen -t rsa -b 4096 -f bin/.ssh/id_rsa -N "" -C "e2e test key"
+else
+  chmod 0600 bin/.ssh/id_rsa
 fi
 
 # SSH keys remain in bin/.ssh/ for testcontainers git server

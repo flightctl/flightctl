@@ -58,7 +58,7 @@ func deleteAuthProvider(harness *e2e.Harness, name string) error {
 // It delegates to InfraProvider.SetEncryptionKey, which:
 //   - On K8s/OCP: patches the flightctl-encryption-key Secret and triggers a rollout restart
 //     of the service's deployment so pods mount the updated (read-only projected) Secret.
-//   - On Quadlet: writes the key file directly to the host at /etc/flightctl/encryption/<keyFileName>,
+//   - On Quadlet: writes the key file directly to the host under the deployment config directory,
 //     which is bind-mounted into the container.
 func writeKeyToService(svc infra.ServiceName, keyFileName string, keyBytes []byte) error {
 	if keyFileName == "" {

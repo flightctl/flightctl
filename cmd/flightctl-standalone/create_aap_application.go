@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	standaloneconfig "github.com/flightctl/flightctl/internal/config/standalone"
 	"github.com/flightctl/flightctl/internal/quadlet/renderer"
@@ -45,6 +46,7 @@ func NewAAPCommand() *cobra.Command {
 
 func NewCreateAAPApplicationCommand() *cobra.Command {
 	opts := &CreateAAPApplicationOptions{}
+	defaultConfigDir := renderer.NewRendererConfig().WriteableConfigOutputDir
 
 	cmd := &cobra.Command{
 		Use:   "create-oauth-application",
@@ -63,9 +65,9 @@ The command is idempotent: it will skip creation if:
 		},
 	}
 
-	cmd.Flags().StringVar(&opts.Config, "config", renderer.DefaultServiceConfigPath, "Path to the service configuration file")
-	cmd.Flags().StringVar(&opts.OutputFile, "output-file", renderer.DefaultAAPClientIDPath, "Output file path for the client_id")
-	cmd.Flags().StringVar(&opts.CACertFile, "ca-cert-file", renderer.DefaultAuthCACertPath, "Path to CA certificate file for AAP TLS verification")
+	cmd.Flags().StringVar(&opts.Config, "config", filepath.Join(defaultConfigDir, "service-config.yaml"), "Path to the service configuration file")
+	cmd.Flags().StringVar(&opts.OutputFile, "output-file", filepath.Join(defaultConfigDir, "pki", "aap-client-id"), "Output file path for the client_id")
+	cmd.Flags().StringVar(&opts.CACertFile, "ca-cert-file", filepath.Join(defaultConfigDir, "pki", "auth", "ca.crt"), "Path to CA certificate file for AAP TLS verification")
 	cmd.Flags().StringVar(&opts.AppName, "app-name", defaultAAPOAuthAppName, "Name for the OAuth application")
 	cmd.Flags().IntVar(&opts.Organization, "organization", aap.DefaultOrganizationID, "AAP organization ID")
 

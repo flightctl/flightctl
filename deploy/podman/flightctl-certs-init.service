@@ -9,7 +9,9 @@ Type=oneshot
 RemainAfterExit=true
 Restart=on-failure
 RestartSec=5s
-ExecStart=/usr/share/flightctl/init_certs.sh
+Environment="FLIGHTCTL_CONFIG_DIR=%E/flightctl"
+Environment="FLIGHTCTL_ASSET_DIR=%D/flightctl"
+ExecStart=%D/flightctl/init_certs.sh
 StandardOutput=journal
 StandardError=journal
 

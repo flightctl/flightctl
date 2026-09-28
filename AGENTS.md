@@ -34,8 +34,8 @@ Flight Control is a service for declarative management of fleets of edge devices
 ## Running locally
 
 - **Deploy to kind:** `make deploy` (creates cluster, builds containers, deploys Helm, prepares agent config). Optional: `DB_SIZE=small-1k` or `medium-10k` for larger DB.
-- **Quadlets (systemd + Podman):** `make deploy-quadlets`. Certs and client config under `$HOME/.flightctl/`.
-- **CLI:** After deploy, `bin/flightctl login <server> --web --certificate-authority ~/.flightctl/certs/ca.crt`, then `bin/flightctl apply -f examples/fleet.yaml`, `bin/flightctl get fleets`, etc.
+- **Quadlets (systemd + Podman):** `make deploy-quadlets`. Regular users store service configuration and certificates under `${XDG_CONFIG_HOME:-$HOME/.config}/flightctl`; UID 0 uses `/etc/flightctl`. The CLI client configuration uses `${XDG_CONFIG_HOME:-$HOME/.config}/flightctl/client.yaml`.
+- **CLI:** After a regular-user Quadlet deploy, use the published API endpoint and `${XDG_CONFIG_HOME:-$HOME/.config}/flightctl/pki/ca.crt` with `bin/flightctl login`; UID 0 deployments use host port `443` and `/etc/flightctl/pki/ca.crt`. Then run `bin/flightctl apply -f examples/fleet.yaml`, `bin/flightctl get fleets`, etc.
 - **Agent VM (Linux host):** `make agent-vm` / `make agent-vm-console`; see [docs/developer/README.md](docs/developer/README.md).
 
 ## Key conventions

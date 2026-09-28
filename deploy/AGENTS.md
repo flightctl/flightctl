@@ -16,11 +16,13 @@ This directory contains everything needed to deploy the Flight Control service: 
    - `make deploy` – Create kind cluster (if needed), build containers, deploy Helm, prepare agent config.  
    - Uses `test/scripts/install_kind.sh`, `test/scripts/create_cluster.sh`, `test/scripts/deploy_with_helm.sh`.  
    - Optional: `DB_SIZE=small-1k` or `medium-10k`; `SKIP_BUILD=1` to skip container builds.
+   - The effective UID selects the runtime scope: regular users use rootless Podman kind and a delegated user cgroup scope; UID 0 uses the rootful provider. The worker needs KVM for rootless ImageExport; rootless ImageBuild runs Podman directly. Both worker paths still require runtime validation.
 
 2. **Quadlets (systemd + Podman)**  
-   - `make deploy-quadlets` – Build containers (unless `SKIP_BUILD=1`), copy images to root podman, run `deploy/scripts/deploy_quadlets.sh`.  
-   - Certs and client config end up in `$HOME/.flightctl/`.  
-   - Cleanup: `make clean-quadlets` (runs `deploy/scripts/clean_quadlets.sh`).
+   - `make deploy-quadlets` – Build containers (unless `SKIP_BUILD=1`) in the invoking user's Podman store and run `deploy/scripts/deploy_quadlets.sh` in the matching systemd scope. It does not copy images to another Podman store.
+   - Regular users use `systemctl --user`, XDG paths, and publish the gateway on host port 9443. UID 0 uses system systemd, system paths, and publishes the gateway on host port 443. Image-builder build paths use a separate generated drop-in. Rootless ImageExport needs KVM access; Quadlets preserve the user's supplementary groups, while Kind mounts `/dev/kvm` into the node. A named-user host ACL for the invoking UID may be needed for the nested worker when the KVM group is unmapped; host ACL, SELinux, and device-cgroup behavior still need runtime validation.
+   - Cleanup: `make clean-quadlets` runs `deploy/scripts/clean_quadlets.sh` in the invoking UID's scope.
+   - See [rootless local development](../docs/developer/rootless-development-plan.md) for host prerequisites, clean behavior, and remaining image-builder validation.
 
 3. **Database / KV only (for integration tests)**  
    - `make deploy-db` – DB via quadlet script.  
