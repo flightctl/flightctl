@@ -60,6 +60,8 @@ var (
 	ErrDynamicOrgMappingAdminOnly            = errors.New("only flightctl-admin users are allowed to create auth providers with dynamic organization mapping")
 	ErrPerUserOrgMappingAdminOnly            = errors.New("only flightctl-admin users are allowed to create auth providers with per-user organization mapping")
 	ErrStaticRoleMappingAdminOnly            = errors.New("only flightctl-admin users are allowed to create static role mappings for flightctl-admin")
+	ociImageDigestWithDefaultSha256Fmt       = `(?:` + validation.OciImageDigestFmt + `|[[:xdigit:]]{32,})`
+	ociImageDigestWithDefaultSha256Regexp    = regexp.MustCompile(`^` + ociImageDigestWithDefaultSha256Fmt + `$`)
 )
 
 type Validator interface {
@@ -1954,12 +1956,16 @@ func validateApplicationDeltaHints(
 		allErrs = append(allErrs, validateOciImageReference(&hint.TargetImage, hintPath+".targetImage", fleetTemplate)...)
 		allErrs = append(allErrs, validateOciImageReference(&hint.DeltaImage, hintPath+".deltaImage", fleetTemplate)...)
 
-		digest := hint.TargetDigest
-		if !strings.Contains(digest, ":") {
-			digest = "sha256:" + digest
-		}
-		targetDigestRef := "example.com/image@" + digest
-		allErrs = append(allErrs, validateOciImageReference(&targetDigestRef, hintPath+".targetDigest", false)...)
+		allErrs = append(allErrs, validation.ValidateString(
+			&hint.TargetDigest,
+			hintPath+".targetDigest",
+			1,
+			validation.OciImageReferenceMaxLength,
+			ociImageDigestWithDefaultSha256Regexp,
+			ociImageDigestWithDefaultSha256Fmt,
+			"sha256:"+strings.Repeat("a", 64),
+			strings.Repeat("a", 64),
+		)...)
 	}
 	return allErrs
 }

@@ -21,10 +21,11 @@ func TestApplicationDeltaPrefetch(t *testing.T) {
 	const candidate = "quay.io/acme/delta@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
 	tests := []struct {
-		name         string
-		delta        *OCIDeltaTarget
-		setup        func(*executer.MockExecuter)
-		wantFallback bool
+		name               string
+		delta              *OCIDeltaTarget
+		setup              func(*executer.MockExecuter)
+		retryAfterFallback bool
+		wantFallback       bool
 	}{
 		{
 			name:  "hinted image imports into container storage",
@@ -50,6 +51,19 @@ func TestApplicationDeltaPrefetch(t *testing.T) {
 				exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", image).Return("", "", 0)
 			},
 			wantFallback: true,
+		},
+		{
+			name:               "successful retry delta import clears previous fallback",
+			delta:              &OCIDeltaTarget{Hint: candidate, Application: "app"},
+			retryAfterFallback: true,
+			setup: func(exec *executer.MockExecuter) {
+				firstCopy := exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("", "", 0)
+				firstImport := exec.EXPECT().ExecuteWithContext(gomock.Any(), "oci-delta", "apply", "--container-storage", gomock.Any(), image).Return("", "import failed", 1)
+				firstFullPull := exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", image).Return("", "pull failed", 1)
+				secondCopy := exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("", "", 0)
+				secondImport := exec.EXPECT().ExecuteWithContext(gomock.Any(), "oci-delta", "apply", "--container-storage", gomock.Any(), image).Return("", "", 0)
+				gomock.InOrder(firstCopy, firstImport, firstFullPull, secondCopy, secondImport)
+			},
 		},
 	}
 
@@ -80,7 +94,13 @@ func TestApplicationDeltaPrefetch(t *testing.T) {
 				deltaFallbackReasons: make(map[string]string),
 			}
 
-			err := manager.pullApplicationImage(context.Background(), target, task, podman, skopeo, client.Timeout(time.Minute))
+			pull := func() error {
+				return manager.pullApplicationImage(context.Background(), target, task, podman, skopeo, client.Timeout(time.Minute))
+			}
+			if tt.retryAfterFallback {
+				require.Error(t, pull())
+			}
+			err := pull()
 			deviceStatus := &v1beta1.DeviceStatus{
 				Applications: []v1beta1.DeviceApplicationStatus{{Name: "app"}},
 			}
