@@ -196,7 +196,7 @@ func TestInitialization(t *testing.T) {
 				waitEnrollmentHooksReadyFn: func(context.Context) (*enrollmentHooksState, error) {
 					return &enrollmentHooksState{conditionAbsent: true, condIdx: -1}, nil
 				},
-				log:                     log,
+				log: log,
 			}
 
 			ctx := context.TODO()
@@ -607,7 +607,7 @@ func TestEnsurePostEnrollmentHooks(t *testing.T) {
 		expectContinue bool
 	}{
 		{
-			name: "When no enrollment hooks condition exists it should proceed without running hooks",
+			name:       "When no enrollment hooks condition exists it should proceed without running hooks",
 			readyState: &enrollmentHooksState{conditionAbsent: true, condIdx: -1},
 			setupMocks: func(
 				_ *client.MockManagement,
@@ -978,20 +978,20 @@ func TestBootstrapInitializePostEnrollmentOrdering(t *testing.T) {
 			}
 
 			b := &Bootstrap{
-				deviceName:              testDeviceName,
-				statusManager:           mockStatusManager,
-				specManager:             mockSpecManager,
-				hookManager:             mockHookManager,
-				lifecycle:               mockLifecycleInitializer,
-				deviceReadWriter:        mockReadWriter,
-				managementServiceConfig: &baseclient.Config{},
-				systemInfoManager:       mockSystemInfoManager,
-				podmanClient:            podmanClient,
-				systemdClient:           systemdClient,
-				identityProvider:        mockIdentityProvider,
-				enrollmentHooksBackoff:  fastBackoff,
+				deviceName:                 testDeviceName,
+				statusManager:              mockStatusManager,
+				specManager:                mockSpecManager,
+				hookManager:                mockHookManager,
+				lifecycle:                  mockLifecycleInitializer,
+				deviceReadWriter:           mockReadWriter,
+				managementServiceConfig:    &baseclient.Config{},
+				systemInfoManager:          mockSystemInfoManager,
+				podmanClient:               podmanClient,
+				systemdClient:              systemdClient,
+				identityProvider:           mockIdentityProvider,
+				enrollmentHooksBackoff:     fastBackoff,
 				waitEnrollmentHooksReadyFn: waitFn,
-				log:                     log,
+				log:                        log,
 			}
 
 			ctx := context.TODO()

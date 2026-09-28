@@ -50,16 +50,14 @@ func (s *AgentGrpcServer) WatchEnrollmentHooks(
 	}
 
 	for {
-		got, waitErr := rendered.Bus.Instance().WaitForEnrollmentHooksNotification(ctx, orgID, fingerprint)
+		// Timeout and notification both fall through to a DB re-read so a
+		// missed wake still converges on current condition state.
+		_, waitErr := rendered.Bus.Instance().WaitForEnrollmentHooksNotification(ctx, orgID, fingerprint)
 		if waitErr != nil {
 			if ctx.Err() != nil {
 				return status.Error(codes.Canceled, "watch cancelled")
 			}
 			return status.Errorf(codes.Internal, "waiting for enrollment hooks notification: %v", waitErr)
-		}
-		if !got {
-			// Timeout: re-read without emitting a duplicate unless state changed.
-			// Fall through to load and compare.
 		}
 
 		next, err := s.enrollmentHooksEvent(ctx, orgID, fingerprint)
