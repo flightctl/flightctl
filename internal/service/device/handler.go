@@ -962,8 +962,12 @@ func (h *DeviceServiceHandler) SetDeviceServiceConditions(ctx context.Context, o
 	if result != nil {
 		h.diffAndEmitConditionEvents(ctx, orgId, result, oldConditions, newConditions)
 		if enrollmentHooksConditionChanged(oldConditions, newConditions) {
-			if err := rendered.Bus.Instance().NotifyEnrollmentHooks(ctx, orgId, name); err != nil {
-				h.log.Errorf("Failed to notify enrollment hooks watchers for device %s/%s: %v", orgId, name, err)
+			// Use Load() so unit/integration tests that never Initialize the
+			// Bus do not plant an empty singleton that blocks later Initialize.
+			if vm := rendered.Bus.Load(); vm != nil {
+				if err := vm.NotifyEnrollmentHooks(ctx, orgId, name); err != nil {
+					h.log.Errorf("Failed to notify enrollment hooks watchers for device %s/%s: %v", orgId, name, err)
+				}
 			}
 		}
 	}

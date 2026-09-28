@@ -186,8 +186,8 @@ type fakeWatchEnrollmentHooksStream struct {
 func (f *fakeWatchEnrollmentHooksStream) Context() context.Context { return f.ctx }
 
 func (f *fakeWatchEnrollmentHooksStream) Send(event *pb.EnrollmentHooksEvent) error {
-	cp := *event
-	f.sent = append(f.sent, &cp)
+	// Keep the pointer; do not value-copy the protobuf (embeds sync.Mutex).
+	f.sent = append(f.sent, event)
 	return nil
 }
 

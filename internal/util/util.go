@@ -314,6 +314,12 @@ func (s *Singleton[T]) Instance() *T {
 	return s.GetOrInit(&empty)
 }
 
+// Load returns the initialized instance, or nil if Initialize/GetOrInit has
+// not run. Unlike Instance(), it never plants an empty placeholder.
+func (s *Singleton[T]) Load() *T {
+	return s.value.Load()
+}
+
 func (s *Singleton[T]) GetOrInit(t *T) *T {
 	_ = s.value.CompareAndSwap(nil, t)
 	return s.value.Load()
