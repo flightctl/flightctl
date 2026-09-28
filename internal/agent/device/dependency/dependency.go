@@ -153,7 +153,7 @@ func selectApplicationDeltaCandidate(targetImage string, delta *OCIDeltaTarget, 
 	if delta.Hint != "" {
 		return delta.Hint
 	}
-	if index == nil {
+	if delta.SourceDigest == "" || index == nil {
 		return ""
 	}
 	repo := imageRepository(targetImage)
@@ -327,6 +327,7 @@ type prefetchManager struct {
 	deltaDesired         *v1beta1.DeviceSpec
 	deltaGeneration      uint64
 	deltaFallbackReasons map[string]string
+	deltaFallbackTargets map[string]imageRef
 }
 
 type prefetchTask struct {
@@ -372,6 +373,7 @@ func NewPrefetchManager(
 		tasks:                make(map[imageRef]*prefetchTask),
 		queue:                make(chan imageRef, maxQueueSize),
 		deltaFallbackReasons: make(map[string]string),
+		deltaFallbackTargets: make(map[string]imageRef),
 	}
 	for _, opt := range opts {
 		opt(m)
@@ -445,6 +447,7 @@ func (m *prefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1
 		m.deltaDesired = desired
 		m.deltaGeneration++
 		m.deltaFallbackReasons = make(map[string]string)
+		m.deltaFallbackTargets = make(map[string]imageRef)
 	}
 	collectors := slices.Clone(m.collectors)
 	m.mu.Unlock()
@@ -665,7 +668,7 @@ func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, tas
 	}
 
 	candidate := task.delta.Hint
-	if candidate == "" {
+	if candidate == "" && task.delta.SourceDigest != "" {
 		index, err := skopeo.ListReferrers(ctx, target.image, opts...)
 		if err != nil {
 			m.log.Debugf("application delta referrers unavailable for %s: %v", target.image, err)
@@ -676,6 +679,9 @@ func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, tas
 	if candidate == "" {
 		_, err := cri.Pull(ctx, target.image, opts...)
 		return err
+	}
+	if err := validateApplicationDeltaCandidate(candidate); err != nil {
+		return m.applicationCRIDeltaFallback(ctx, target, task, err, opts...)
 	}
 	if _, _, digestPinned, err := normalizedCRIImageReferences(target.image); err != nil {
 		return m.applicationCRIDeltaFallback(ctx, target, task, err, opts...)
@@ -728,6 +734,7 @@ func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, tas
 	if !cri.ImageExists(ctx, target.image, opts...) {
 		return m.applicationCRIDeltaFallback(ctx, target, task, fmt.Errorf("delta import did not make %s available in the CRI runtime", target.image), opts...)
 	}
+	m.clearDeltaFallback(target, task)
 	return nil
 }
 
@@ -806,7 +813,7 @@ func (m *prefetchManager) pullApplicationImage(ctx context.Context, target image
 	}
 
 	candidate := task.delta.Hint
-	if candidate == "" {
+	if candidate == "" && task.delta.SourceDigest != "" {
 		index, err := skopeo.ListReferrers(ctx, target.image, opts...)
 		if err != nil {
 			m.log.Debugf("application delta referrers unavailable for %s: %v", target.image, err)
@@ -818,6 +825,9 @@ func (m *prefetchManager) pullApplicationImage(ctx context.Context, target image
 	if candidate == "" {
 		_, err := podman.Pull(ctx, target.image, opts...)
 		return err
+	}
+	if err := validateApplicationDeltaCandidate(candidate); err != nil {
+		return m.applicationDeltaFallback(ctx, target, task, podman, err, opts...)
 	}
 
 	tmpDir, err := m.readWriter.MkdirTemp("application-delta")
@@ -833,6 +843,7 @@ func (m *prefetchManager) pullApplicationImage(ctx context.Context, target image
 	if err := m.ociDelta.Import(ctx, deltaFile, target.image); err != nil {
 		return m.applicationDeltaFallback(ctx, target, task, podman, err, opts...)
 	}
+	m.clearDeltaFallback(target, task)
 	return nil
 }
 
@@ -848,6 +859,13 @@ func (m *prefetchManager) removeApplicationDeltaTempDir(path string) {
 	if err := m.readWriter.RemoveAll(path); err != nil {
 		m.log.Warnf("remove application delta temporary directory %s: %v", path, err)
 	}
+}
+
+func validateApplicationDeltaCandidate(candidate string) error {
+	if errs := validation.ValidateOciImageReference(&candidate, "application.deltaImage"); len(errs) > 0 {
+		return fmt.Errorf("invalid application delta image reference %q: %w", candidate, errs[0])
+	}
+	return nil
 }
 
 func (m *prefetchManager) recordDeltaFallback(target imageRef, task *prefetchTask, deltaErr error) {
@@ -869,8 +887,36 @@ func (m *prefetchManager) recordDeltaFallback(target imageRef, task *prefetchTas
 	if m.deltaFallbackReasons == nil {
 		m.deltaFallbackReasons = make(map[string]string)
 	}
+	if m.deltaFallbackTargets == nil {
+		m.deltaFallbackTargets = make(map[string]imageRef)
+	}
 	for _, application := range applications {
 		m.deltaFallbackReasons[application] = deltaErr.Error()
+		m.deltaFallbackTargets[application] = target
+	}
+}
+
+func (m *prefetchManager) clearDeltaFallback(target imageRef, task *prefetchTask) {
+	if task == nil || task.delta == nil {
+		return
+	}
+	applications := deltaApplications(task.delta)
+	if len(applications) == 0 {
+		return
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	current, exists := m.tasks[target]
+	if !exists || current != task || task.deltaGeneration != m.deltaGeneration {
+		return
+	}
+	for _, application := range applications {
+		if fallbackTarget, exists := m.deltaFallbackTargets[application]; exists && fallbackTarget == target {
+			delete(m.deltaFallbackReasons, application)
+			delete(m.deltaFallbackTargets, application)
+		}
 	}
 }
 

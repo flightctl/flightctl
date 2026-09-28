@@ -38,7 +38,6 @@ func TestApplicationDeltaPrefetch(t *testing.T) {
 			name:  "missing candidate full-pulls without fallback",
 			delta: &OCIDeltaTarget{Application: "app"},
 			setup: func(exec *executer.MockExecuter) {
-				exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", gomock.Any(), gomock.Any(), gomock.Any()).Return(`{"manifests":[]}`, "", 0)
 				exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", image).Return("", "", 0)
 			},
 		},

@@ -918,6 +918,7 @@ func (a ApplicationProviderSpec) Validate() []error {
 
 func (a InlineApplicationProviderSpec) Validate(appType AppType, fleetTemplate bool) []error {
 	allErrs := []error{}
+	allErrs = append(allErrs, validateApplicationDeltaHints(nil, a.DeltaImages, "spec.applications[]", fleetTemplate)...)
 
 	var appValidator applicationValidator
 	switch appType {
@@ -1245,6 +1246,7 @@ func validateContainerApplication(app ApplicationProviderSpec, appName string, f
 			allErrs = append(allErrs, fmt.Errorf("invalid container image provider: %w", err))
 		} else {
 			allErrs = append(allErrs, validateOciImageReference(&spec.Image, pathPrefix+".image", fleetTemplate)...)
+			allErrs = append(allErrs, validateApplicationDeltaHints(spec.DeltaImage, spec.DeltaImages, pathPrefix, fleetTemplate)...)
 		}
 		catalogItemRefSpec, _ := container.AsCatalogItemRefApplicationProviderSpec()
 		allErrs = append(allErrs, validateExclusiveAppSource(spec.Image, catalogItemRefSpec.CatalogItemRef)...)
@@ -1304,6 +1306,7 @@ func validateHelmApplication(app ApplicationProviderSpec, appName string, fleetT
 			allErrs = append(allErrs, fmt.Errorf("invalid helm image provider: %w", err))
 		} else {
 			allErrs = append(allErrs, validateOciImageReference(&spec.Image, pathPrefix+".image", fleetTemplate)...)
+			allErrs = append(allErrs, validateApplicationDeltaHints(spec.DeltaImage, spec.DeltaImages, pathPrefix, fleetTemplate)...)
 		}
 		catalogItemRefSpec, _ := helm.AsCatalogItemRefApplicationProviderSpec()
 		allErrs = append(allErrs, validateExclusiveAppSource(spec.Image, catalogItemRefSpec.CatalogItemRef)...)
@@ -1351,6 +1354,7 @@ func validateComposeApplication(app ApplicationProviderSpec, appName string, fle
 			allErrs = append(allErrs, fmt.Errorf("invalid compose image provider: %w", err))
 		} else {
 			allErrs = append(allErrs, validateOciImageReference(&imageSpec.Image, pathPrefix+".image", fleetTemplate)...)
+			allErrs = append(allErrs, validateApplicationDeltaHints(imageSpec.DeltaImage, imageSpec.DeltaImages, pathPrefix, fleetTemplate)...)
 		}
 		catalogItemRefSpec, _ := compose.AsCatalogItemRefApplicationProviderSpec()
 		allErrs = append(allErrs, validateExclusiveAppSource(imageSpec.Image, catalogItemRefSpec.CatalogItemRef)...)
@@ -1399,6 +1403,7 @@ func validateQuadletApplication(app ApplicationProviderSpec, appName string, fle
 			allErrs = append(allErrs, fmt.Errorf("invalid quadlet image provider: %w", err))
 		} else {
 			allErrs = append(allErrs, validateOciImageReference(&imageSpec.Image, pathPrefix+".image", fleetTemplate)...)
+			allErrs = append(allErrs, validateApplicationDeltaHints(imageSpec.DeltaImage, imageSpec.DeltaImages, pathPrefix, fleetTemplate)...)
 		}
 		catalogItemRefSpec, _ := quadlet.AsCatalogItemRefApplicationProviderSpec()
 		allErrs = append(allErrs, validateExclusiveAppSource(imageSpec.Image, catalogItemRefSpec.CatalogItemRef)...)
@@ -1537,12 +1542,14 @@ func validateVmApplication(app ApplicationProviderSpec, appName string, fleetTem
 			allErrs = append(allErrs, fmt.Errorf("invalid vm image provider: %w", err))
 		} else {
 			allErrs = append(allErrs, validateOciImageReference(&imageSpec.Image, pathPrefix+".image", fleetTemplate)...)
+			allErrs = append(allErrs, validateApplicationDeltaHints(imageSpec.DeltaImage, imageSpec.DeltaImages, pathPrefix, fleetTemplate)...)
 		}
 	case InlineApplicationProviderType:
 		inlineSpec, err := vm.AsInlineApplicationProviderSpec()
 		if err != nil {
 			allErrs = append(allErrs, fmt.Errorf("invalid vm inline provider: %w", err))
 		} else {
+			allErrs = append(allErrs, validateApplicationDeltaHints(nil, inlineSpec.DeltaImages, pathPrefix, fleetTemplate)...)
 			v := &vmValidator{appName: appName}
 			seenPath := make(map[string]struct{}, len(inlineSpec.Inline))
 			for i := range inlineSpec.Inline {
@@ -1925,6 +1932,35 @@ func validateOciImageReference(imageRef *string, path string, fleetTemplate bool
 		allErrs = append(allErrs, validation.ValidateOciImageReferenceWithTemplates(imageRef, path)...)
 	}
 
+	return allErrs
+}
+
+func validateApplicationDeltaHints(
+	deltaImage *string,
+	deltaImages *[]ImageDeltaHint,
+	pathPrefix string,
+	fleetTemplate bool,
+) []error {
+	var allErrs []error
+	if deltaImage != nil && *deltaImage != "" {
+		allErrs = append(allErrs, validateOciImageReference(deltaImage, pathPrefix+".deltaImage", fleetTemplate)...)
+	}
+	if deltaImages == nil {
+		return allErrs
+	}
+
+	for i, hint := range *deltaImages {
+		hintPath := fmt.Sprintf("%s.deltaImages[%d]", pathPrefix, i)
+		allErrs = append(allErrs, validateOciImageReference(&hint.TargetImage, hintPath+".targetImage", fleetTemplate)...)
+		allErrs = append(allErrs, validateOciImageReference(&hint.DeltaImage, hintPath+".deltaImage", fleetTemplate)...)
+
+		digest := hint.TargetDigest
+		if !strings.Contains(digest, ":") {
+			digest = "sha256:" + digest
+		}
+		targetDigestRef := "example.com/image@" + digest
+		allErrs = append(allErrs, validateOciImageReference(&targetDigestRef, hintPath+".targetDigest", false)...)
+	}
 	return allErrs
 }
 
