@@ -878,6 +878,10 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams Devi
 		} else {
 			listParams.SortColumns = []store.SortColumn{store.SortByAlias, store.SortByName}
 		}
+	} else if len(listParams.SortColumns) == 1 && listParams.SortColumns[0] == store.SortByAlias {
+		// Aliases are not unique and may be NULL; add name as a tie-breaker so
+		// pagination uses the NULL-aware (alias, name) predicate.
+		listParams.SortColumns = []store.SortColumn{store.SortByAlias, store.SortByName}
 	}
 
 	// Build base query with selectors
