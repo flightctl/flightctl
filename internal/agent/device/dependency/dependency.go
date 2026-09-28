@@ -86,7 +86,64 @@ type ClientOptsFn func() []client.ClientOption
 type OCIDeltaTarget struct {
 	Hint         string
 	SourceDigest string
-	Application  string
+	Application  string   // application supplying Hint and SourceDigest
+	Applications []string // applications sharing this image target
+}
+
+func mergeOCIDeltaTargets(first, second *OCIDeltaTarget) *OCIDeltaTarget {
+	if first == nil {
+		return cloneOCIDeltaTarget(second)
+	}
+	if second == nil {
+		return cloneOCIDeltaTarget(first)
+	}
+
+	selected := first
+	if deltaTargetLess(second, first) {
+		selected = second
+	}
+	merged := *selected
+	merged.Applications = append(deltaApplications(first), deltaApplications(second)...)
+	slices.Sort(merged.Applications)
+	merged.Applications = slices.Compact(merged.Applications)
+	return &merged
+}
+
+func cloneOCIDeltaTarget(target *OCIDeltaTarget) *OCIDeltaTarget {
+	if target == nil {
+		return nil
+	}
+	cloned := *target
+	cloned.Applications = deltaApplications(target)
+	return &cloned
+}
+
+func deltaApplications(target *OCIDeltaTarget) []string {
+	if target == nil {
+		return nil
+	}
+	applications := slices.Clone(target.Applications)
+	if target.Application != "" {
+		applications = append(applications, target.Application)
+	}
+	slices.Sort(applications)
+	applications = slices.Compact(applications)
+	return applications
+}
+
+// Shared image refs use one prefetch task. Prefer explicit hints, then choose
+// by hint, source digest, and application name to make candidate selection stable.
+func deltaTargetLess(candidate, current *OCIDeltaTarget) bool {
+	if (candidate.Hint != "") != (current.Hint != "") {
+		return candidate.Hint != ""
+	}
+	if candidate.Hint != current.Hint {
+		return candidate.Hint < current.Hint
+	}
+	if candidate.SourceDigest != current.SourceDigest {
+		return candidate.SourceDigest < current.SourceDigest
+	}
+	return candidate.Application < current.Application
 }
 
 func selectApplicationDeltaCandidate(targetImage string, delta *OCIDeltaTarget, index *client.OCIIndex) string {
@@ -403,17 +460,25 @@ func (m *prefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1
 		}
 	}
 
-	seenTargets := make(map[imageRef]struct{})
-	var newTargets OCIPullTargetsByUser
+	targetsByRef := make(map[imageRef]OCIPullTarget)
 	for user, target := range allTargets.Iter() {
 		ref := imageRef{
 			image: target.Reference,
 			owner: user,
 		}
-		if _, seen := seenTargets[ref]; !seen {
-			newTargets = newTargets.Add(user, target)
-			seenTargets[ref] = struct{}{}
+		if existing, seen := targetsByRef[ref]; seen {
+			existing.Delta = mergeOCIDeltaTargets(existing.Delta, target.Delta)
+			targetsByRef[ref] = existing
+			continue
 		}
+		targetsByRef[ref] = target
+	}
+
+	seenTargets := make(map[imageRef]struct{}, len(targetsByRef))
+	var newTargets OCIPullTargetsByUser
+	for ref, target := range targetsByRef {
+		newTargets = newTargets.Add(ref.owner, target)
+		seenTargets[ref] = struct{}{}
 	}
 
 	m.log.Debugf("Collected %d unique OCI targets", len(seenTargets))
@@ -642,7 +707,7 @@ func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, tas
 	if err != nil {
 		return m.applicationCRIDeltaFallback(ctx, target, task, fmt.Errorf("create application delta temporary directory: %w", err), opts...)
 	}
-	defer func() { _ = m.readWriter.RemoveAll(tmpDir) }()
+	defer m.removeApplicationDeltaTempDir(tmpDir)
 
 	deltaFile := filepath.Join(tmpDir, "delta.oci")
 	if err := skopeo.Copy(ctx, "docker://"+candidate, "oci-archive:"+deltaFile, opts...); err != nil {
@@ -759,7 +824,7 @@ func (m *prefetchManager) pullApplicationImage(ctx context.Context, target image
 	if err != nil {
 		return m.applicationDeltaFallback(ctx, target, task, podman, fmt.Errorf("create application delta temporary directory: %w", err), opts...)
 	}
-	defer func() { _ = m.readWriter.RemoveAll(tmpDir) }()
+	defer m.removeApplicationDeltaTempDir(tmpDir)
 
 	deltaFile := filepath.Join(tmpDir, "delta.oci")
 	if err := skopeo.Copy(ctx, "docker://"+candidate, "oci-archive:"+deltaFile, opts...); err != nil {
@@ -779,8 +844,18 @@ func (m *prefetchManager) applicationDeltaFallback(ctx context.Context, target i
 	return nil
 }
 
+func (m *prefetchManager) removeApplicationDeltaTempDir(path string) {
+	if err := m.readWriter.RemoveAll(path); err != nil {
+		m.log.Warnf("remove application delta temporary directory %s: %v", path, err)
+	}
+}
+
 func (m *prefetchManager) recordDeltaFallback(target imageRef, task *prefetchTask, deltaErr error) {
-	if task == nil || task.delta == nil || deltaErr == nil || task.delta.Application == "" {
+	if task == nil || task.delta == nil || deltaErr == nil {
+		return
+	}
+	applications := deltaApplications(task.delta)
+	if len(applications) == 0 {
 		return
 	}
 
@@ -794,7 +869,9 @@ func (m *prefetchManager) recordDeltaFallback(target imageRef, task *prefetchTas
 	if m.deltaFallbackReasons == nil {
 		m.deltaFallbackReasons = make(map[string]string)
 	}
-	m.deltaFallbackReasons[task.delta.Application] = deltaErr.Error()
+	for _, application := range applications {
+		m.deltaFallbackReasons[application] = deltaErr.Error()
+	}
 }
 
 func (m *prefetchManager) setResult(target imageRef, err error) {
