@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/containers/image/v5/docker/reference"
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
@@ -277,7 +278,7 @@ type prefetchTask struct {
 // PrefetchManagerOption configures optional prefetch integrations.
 type PrefetchManagerOption func(*prefetchManager)
 
-// WithOCIDelta enables application delta reconstruction in containers/storage.
+// WithOCIDelta enables application image delta reconstruction during prefetch.
 func WithOCIDelta(ociDelta *client.OCIDelta) PrefetchManagerOption {
 	return func(m *prefetchManager) { m.ociDelta = ociDelta }
 }
@@ -545,7 +546,7 @@ func (m *prefetchManager) pull(ctx context.Context, target imageRef, task *prefe
 	case OCITypePodmanImage:
 		err = m.pullApplicationImage(ctx, target, task, podman, skopeo, opts...)
 	case OCITypeCRIImage:
-		_, err = m.cliClients.CRI().Pull(ctx, target.image, opts...)
+		err = m.pullCRIImage(ctx, target, task, skopeo, opts...)
 	case OCITypePodmanArtifact:
 		_, err = podman.PullArtifact(ctx, target.image, opts...)
 	case OCITypeHelmChart:
@@ -576,6 +577,156 @@ func (m *prefetchManager) pull(ctx context.Context, target imageRef, task *prefe
 		return fmt.Errorf("invalid oci type %s", ociType)
 	}
 	return err
+}
+
+func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, task *prefetchTask, skopeo *client.Skopeo, opts ...client.ClientOption) error {
+	cri := m.cliClients.CRI()
+	if task.delta == nil || m.ociDelta == nil {
+		_, err := cri.Pull(ctx, target.image, opts...)
+		return err
+	}
+
+	candidate := task.delta.Hint
+	if candidate == "" {
+		index, err := skopeo.ListReferrers(ctx, target.image, opts...)
+		if err != nil {
+			m.log.Debugf("application delta referrers unavailable for %s: %v", target.image, err)
+		} else {
+			candidate = selectApplicationDeltaCandidate(target.image, task.delta, index)
+		}
+	}
+	if candidate == "" {
+		if task.delta.ResultFn != nil {
+			task.delta.ResultFn(nil)
+		}
+		_, err := cri.Pull(ctx, target.image, opts...)
+		return err
+	}
+	if _, _, digestPinned, err := normalizedCRIImageReferences(target.image); err != nil {
+		return m.applicationCRIDeltaFallback(ctx, target, task, err, opts...)
+	} else if digestPinned {
+		return m.applicationCRIDeltaFallback(
+			ctx,
+			target,
+			task,
+			fmt.Errorf("delta reconstruction may change the manifest digest of digest-pinned image %s", target.image),
+			opts...,
+		)
+	}
+
+	runtimeInfo, err := cri.RuntimeInfo(ctx, opts...)
+	if err != nil {
+		return m.applicationCRIDeltaFallback(ctx, target, task, err, opts...)
+	}
+	if runtimeInfo.Name != client.CRIRuntimeCRIO && runtimeInfo.Name != client.CRIRuntimeContainerd {
+		return m.applicationCRIDeltaFallback(
+			ctx,
+			target,
+			task,
+			fmt.Errorf("delta import is unsupported for CRI runtime %q", runtimeInfo.Name),
+			opts...,
+		)
+	}
+
+	tmpDir, err := m.readWriter.MkdirTemp("application-delta")
+	if err != nil {
+		return m.applicationCRIDeltaFallback(ctx, target, task, fmt.Errorf("create application delta temporary directory: %w", err), opts...)
+	}
+	defer func() { _ = m.readWriter.RemoveAll(tmpDir) }()
+
+	deltaFile := filepath.Join(tmpDir, "delta.oci")
+	if err := skopeo.Copy(ctx, "docker://"+candidate, "oci-archive:"+deltaFile, opts...); err != nil {
+		return m.applicationCRIDeltaFallback(ctx, target, task, err, opts...)
+	}
+
+	switch runtimeInfo.Name {
+	case client.CRIRuntimeCRIO:
+		if err := m.ociDelta.Import(ctx, deltaFile, target.image); err != nil {
+			return m.applicationCRIDeltaFallback(ctx, target, task, err, opts...)
+		}
+	case client.CRIRuntimeContainerd:
+		if err := m.applyContainerdImageDelta(ctx, target.image, candidate, deltaFile, tmpDir, runtimeInfo.Endpoint, task.delta.SourceDigest, skopeo, opts...); err != nil {
+			return m.applicationCRIDeltaFallback(ctx, target, task, err, opts...)
+		}
+	}
+
+	if !cri.ImageExists(ctx, target.image, opts...) {
+		return m.applicationCRIDeltaFallback(ctx, target, task, fmt.Errorf("delta import did not make %s available in the CRI runtime", target.image), opts...)
+	}
+	if task.delta.ResultFn != nil {
+		task.delta.ResultFn(nil)
+	}
+	return nil
+}
+
+func (m *prefetchManager) applyContainerdImageDelta(
+	ctx context.Context,
+	targetImage, deltaImage, deltaFile, tmpDir, endpoint, sourceDigest string,
+	skopeo *client.Skopeo,
+	opts ...client.ClientOption,
+) error {
+	if sourceDigest == "" {
+		manifest, err := skopeo.InspectManifest(ctx, deltaImage, opts...)
+		if err != nil {
+			return fmt.Errorf("inspect application delta manifest: %w", err)
+		}
+		sourceDigest = manifest.Annotations[ociDeltaSourceAnnotation]
+	}
+	sourceDigest = normalizeDigest(sourceDigest)
+	if sourceDigest == "" {
+		return fmt.Errorf("application delta does not identify its source image digest")
+	}
+
+	repository, targetRef, _, err := normalizedCRIImageReferences(targetImage)
+	if err != nil {
+		return err
+	}
+	sourceRef := repository + "@" + sourceDigest
+
+	sourceRootfs := filepath.Join(tmpDir, "source")
+	if err := m.readWriter.MkdirAll(sourceRootfs, fileio.DefaultDirectoryPermissions); err != nil {
+		return fmt.Errorf("create containerd source mountpoint: %w", err)
+	}
+	cri := m.cliClients.CRI()
+	if err := cri.MountContainerdImage(ctx, endpoint, sourceRef, sourceRootfs, opts...); err != nil {
+		return fmt.Errorf("mount containerd source image %s: %w", sourceRef, err)
+	}
+	defer func() {
+		if err := cri.UnmountContainerdImage(context.WithoutCancel(ctx), endpoint, sourceRootfs); err != nil {
+			m.log.Warnf("unmount containerd source image %s: %v", sourceRef, err)
+		}
+	}()
+
+	targetArchive := filepath.Join(tmpDir, "target.oci-archive")
+	if err := m.ociDelta.ApplyFromDirectory(ctx, sourceRootfs, deltaFile, "oci-archive:"+targetArchive); err != nil {
+		return err
+	}
+
+	importBase := repository + "/flightctl-delta-" + strings.ToLower(filepath.Base(tmpDir))
+	if err := cri.ImportContainerdImage(ctx, endpoint, targetArchive, importBase, targetRef, opts...); err != nil {
+		return err
+	}
+	return nil
+}
+
+func normalizedCRIImageReferences(image string) (string, string, bool, error) {
+	named, err := reference.ParseNormalizedNamed(image)
+	if err != nil {
+		return "", "", false, fmt.Errorf("parse CRI image reference %q: %w", image, err)
+	}
+	target := reference.TagNameOnly(named)
+	_, digestPinned := named.(reference.Digested)
+	return reference.TrimNamed(target).String(), target.String(), digestPinned, nil
+}
+
+func (m *prefetchManager) applicationCRIDeltaFallback(ctx context.Context, target imageRef, task *prefetchTask, deltaErr error, opts ...client.ClientOption) error {
+	if task.delta.ResultFn != nil {
+		task.delta.ResultFn(deltaErr)
+	}
+	if _, err := m.cliClients.CRI().Pull(ctx, target.image, opts...); err != nil {
+		return fmt.Errorf("application delta failed: %w; full CRI image pull failed: %w", deltaErr, err)
+	}
+	return nil
 }
 
 func (m *prefetchManager) pullApplicationImage(ctx context.Context, target imageRef, task *prefetchTask, podman *client.Podman, skopeo *client.Skopeo, opts ...client.ClientOption) error {

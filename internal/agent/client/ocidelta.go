@@ -49,6 +49,28 @@ func (d *OCIDelta) Apply(ctx context.Context, deltaRef, dest string) error {
 	return nil
 }
 
+// ApplyFromDirectory reconstructs an OCI image from a delta using source
+// content in an unpacked root filesystem. dest is an oci-delta output
+// reference (oci:PATH or oci-archive:PATH).
+func (d *OCIDelta) ApplyFromDirectory(ctx context.Context, sourceDir, deltaRef, dest string) error {
+	ctx, cancel := context.WithTimeout(ctx, d.timeout)
+	defer cancel()
+
+	_, stderr, exitCode := d.exec.ExecuteWithContext(
+		ctx,
+		ociDeltaCmd,
+		"apply",
+		"--directory",
+		sourceDir,
+		deltaRef,
+		dest,
+	)
+	if exitCode != 0 {
+		return fmt.Errorf("oci-delta directory apply: %w", errors.FromStderr(stderr, exitCode))
+	}
+	return nil
+}
+
 // Import reconstructs an OCI image directly in containers/storage.
 func (d *OCIDelta) Import(ctx context.Context, deltaRef, targetRef string) error {
 	ctx, cancel := context.WithTimeout(ctx, d.timeout)
