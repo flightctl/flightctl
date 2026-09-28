@@ -300,9 +300,11 @@ func extractQuadletRefs(app *domain.ApplicationProviderSpec) []string {
 }
 
 // extractHelmRefs extracts image references from a rendered helm application.
-// The chart image is always included. Helm workload images are added separately
-// from current application status because they are not present in the rendered
-// chart spec.
+// The chart image is always included. Helm template output (which would reveal
+// pod/container images) is not available in the rendered spec — extracting
+// those images requires running helm template on the worker with timeout and
+// resource limits. Those nested images are handled when helm template runs
+// during generation.
 func extractHelmRefs(app *domain.ApplicationProviderSpec) []string {
 	helm, err := (*app).AsHelmApplication()
 	if err != nil {
