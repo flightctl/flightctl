@@ -17,10 +17,12 @@ import (
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	dependencyrefservice "github.com/flightctl/flightctl/internal/service/dependencyref"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
+	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	eventservice "github.com/flightctl/flightctl/internal/service/event"
 	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
+	enrollmenthooknotifysecrets "github.com/flightctl/flightctl/internal/store/enrollmenthooknotifysecrets"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/k8sclient"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -31,21 +33,23 @@ import (
 )
 
 type TaskConsumer struct {
-	FleetSvc           fleetservice.Service
-	TemplateversionSvc templateversionservice.Service
-	DeviceSvc          deviceservice.Service
-	DependencyrefSvc   dependencyrefservice.Service
-	RepositorySvc      repositoryservice.Service
-	CatalogSvc         catalogservice.Service
-	EventSvc           eventservice.Service
-	K8sClient          k8sclient.K8SClient
-	KVStore            kvstore.KVStore
-	Cfg                *config.Config
-	WorkerMetrics      *worker.WorkerCollector
-	EncryptionMigrator *EncryptionMigrator
-	QueuePublisher     queues.QueueProducer
-	WorkerClient       worker_client.WorkerClient
-	DeviceRenderer     *DeviceRenderLogic
+	FleetSvc             fleetservice.Service
+	TemplateversionSvc   templateversionservice.Service
+	DeviceSvc            deviceservice.Service
+	DependencyrefSvc     dependencyrefservice.Service
+	RepositorySvc        repositoryservice.Service
+	CatalogSvc           catalogservice.Service
+	EventSvc             eventservice.Service
+	EnrollmentRequestSvc enrollmentrequestservice.Service
+	NotifySecretsStore   enrollmenthooknotifysecrets.Store
+	K8sClient            k8sclient.K8SClient
+	KVStore              kvstore.KVStore
+	Cfg                  *config.Config
+	WorkerMetrics        *worker.WorkerCollector
+	EncryptionMigrator   *EncryptionMigrator
+	QueuePublisher       queues.QueueProducer
+	WorkerClient         worker_client.WorkerClient
+	DeviceRenderer       *DeviceRenderLogic
 }
 
 func (d TaskConsumer) dispatch() queues.ConsumeHandler {
@@ -58,7 +62,11 @@ func (d TaskConsumer) dispatch() queues.ConsumeHandler {
 			defer d.WorkerMetrics.DecMessagesInProgress()
 		}
 
-		// Add timeout for the entire event processing
+		// Preserve the worker root context before applying the per-event
+		// processing timeout. Long-running tasks (enrollment hook notify) use
+		// workerCtx so they keep shutdown cancellation without inheriting the
+		// short EventProcessingTimeout deadline.
+		workerCtx := ctx
 		ctx, cancel := context.WithTimeout(ctx, EventProcessingTimeout)
 		defer cancel()
 
@@ -163,10 +171,10 @@ func (d TaskConsumer) dispatch() queues.ConsumeHandler {
 		if shouldEnrollmentHookNotify(eventWithOrgId.Event) {
 			taskName = "enrollmentHookNotify"
 			err = runTaskWithMetrics(taskName, d.WorkerMetrics, func() error {
-				// Stub: actual notify webhook execution is EDM-5707 scope
-				log.Infof("enrollment hook notify: event received for %s/%s (handler not yet implemented)",
-					eventWithOrgId.OrgId, eventWithOrgId.Event.InvolvedObject.Name)
-				return nil
+				// Use workerCtx (not the 10s event ctx) so notify can honor its
+				// own deadline while still stopping on worker shutdown.
+				return enrollmentHookNotify(workerCtx, eventWithOrgId.OrgId, eventWithOrgId.Event,
+					d.DeviceSvc, d.EnrollmentRequestSvc, d.NotifySecretsStore, d.EventSvc, log)
 			})
 			errorMessages = appendErrorMessage(errorMessages, taskName, err)
 		}

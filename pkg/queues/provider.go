@@ -11,12 +11,20 @@ import (
 // ErrCheckpointMissing indicates that the checkpoint key is missing from Redis
 var ErrCheckpointMissing = errors.New("checkpoint key missing from Redis")
 
+// ErrMessageNotTimedOut tells ProcessTimedOutMessages to leave a pending
+// message alone because it has not reached its effective processing timeout.
+var ErrMessageNotTimedOut = errors.New("message has not reached its processing timeout")
+
 type Provider interface {
 	NewQueueConsumer(ctx context.Context, queueName string) (QueueConsumer, error)
 	NewQueueProducer(ctx context.Context, queueName string) (QueueProducer, error)
 	NewPubSubPublisher(ctx context.Context, channelName string) (PubSubPublisher, error)
 	NewPubSubSubscriber(ctx context.Context, channelName string) (PubSubSubscriber, error)
-	ProcessTimedOutMessages(ctx context.Context, queueName string, timeout time.Duration, handler func(entryID string, body []byte) error) (int, error)
+	// ProcessTimedOutMessages finds pending messages idle for at least timeout
+	// and invokes handler with the message idle duration. Returning
+	// ErrMessageNotTimedOut leaves the message pending; any other handler
+	// outcome still moves the message to the failed set (existing behavior).
+	ProcessTimedOutMessages(ctx context.Context, queueName string, timeout time.Duration, handler func(entryID string, body []byte, idle time.Duration) error) (int, error)
 	RetryFailedMessages(ctx context.Context, queueName string, config RetryConfig, handler func(entryID string, body []byte, retryCount int) error) (int, error)
 	Stop()
 	Wait()

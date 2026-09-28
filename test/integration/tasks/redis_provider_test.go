@@ -822,7 +822,7 @@ var _ = Describe("Redis Provider Integration Tests", FlakeAttempts(5), func() {
 			time.Sleep(100 * time.Millisecond)
 
 			// Process timed out messages with a reasonable timeout (increased from 50ms)
-			timeoutCount, err := provider.ProcessTimedOutMessages(ctx, queueName, 80*time.Millisecond, func(entryID string, body []byte) error {
+			timeoutCount, err := provider.ProcessTimedOutMessages(ctx, queueName, 80*time.Millisecond, func(entryID string, body []byte, idle time.Duration) error {
 				timeoutHandlerCalled <- struct {
 					entryID string
 					body    []byte

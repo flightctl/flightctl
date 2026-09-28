@@ -16,6 +16,12 @@ const (
 	ItemsPerPage           = 1000
 	EventProcessingTimeout = 10 * time.Second
 	AckTimeout             = 5 * time.Second
+
+	// EnrollmentHookNotifyProcessingTimeout is the time budget and queue-lease
+	// allowance for enrollment hook webhook delivery. It matches
+	// webhookdelivery.DefaultDeadline so delivery is not canceled or reclaimed
+	// by the shared EventProcessingTimeout.
+	EnrollmentHookNotifyProcessingTimeout = 10 * time.Minute
 )
 
 var (

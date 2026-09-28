@@ -144,7 +144,7 @@ func (mr *MockProviderMockRecorder) NewQueueProducer(ctx, queueName any) *gomock
 }
 
 // ProcessTimedOutMessages mocks base method.
-func (m *MockProvider) ProcessTimedOutMessages(ctx context.Context, queueName string, timeout time.Duration, handler func(string, []byte) error) (int, error) {
+func (m *MockProvider) ProcessTimedOutMessages(ctx context.Context, queueName string, timeout time.Duration, handler func(string, []byte, time.Duration) error) (int, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "ProcessTimedOutMessages", ctx, queueName, timeout, handler)
 	ret0, _ := ret[0].(int)
