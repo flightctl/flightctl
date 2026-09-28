@@ -371,6 +371,11 @@ type appImagePair struct {
 	currentDigest string
 }
 
+// ambiguousCurrentDigest marks image references with multiple reported source
+// digests. The current nested-hint API cannot associate a hint with a source
+// digest, so these references must not be used to select a delta.
+const ambiguousCurrentDigest = "\x00ambiguous"
+
 // appDeltaResult holds the resolution outcome for one appImagePair.
 type appDeltaResult struct {
 	imageRef     string
@@ -512,7 +517,22 @@ func collectCurrentDigests(device *domain.Device, appName string) map[string]str
 		}
 		m := make(map[string]string, len(*appStatus.ImageDigests))
 		for _, d := range *appStatus.ImageDigests {
-			m[d.Image] = d.Digest
+			if d.Image == "" {
+				continue
+			}
+			previous, found := m[d.Image]
+			if !found {
+				m[d.Image] = d.Digest
+				continue
+			}
+			if previous == ambiguousCurrentDigest || d.Digest == "" || d.Digest == previous {
+				continue
+			}
+			if previous == "" {
+				m[d.Image] = d.Digest
+				continue
+			}
+			m[d.Image] = ambiguousCurrentDigest
 		}
 		return m
 	}
@@ -561,7 +581,7 @@ func collectHelmAppPairs(app v1beta1.HelmApplication, currentDigests map[string]
 		return nil, nil
 	}
 	var parent *appImagePair
-	if imgSpec.Image != "" {
+	if imgSpec.Image != "" && currentDigests[imgSpec.Image] != "" && currentDigests[imgSpec.Image] != ambiguousCurrentDigest {
 		// A Helm chart isn't a container image, so only use its own reported
 		// digest if a future provider starts reporting one. Do not pair it with
 		// a same-repository workload digest.
@@ -595,6 +615,9 @@ func newAppImagePair(imageRef string, currentDigests map[string]string) *appImag
 		return nil
 	}
 	currentDigest := currentDigests[imageRef]
+	if currentDigest == ambiguousCurrentDigest {
+		return nil
+	}
 	if currentDigest == "" {
 		// Image references commonly change tags between application versions.
 		// If the exact target reference has no status entry, use a reported
@@ -612,6 +635,10 @@ func newAppImagePair(imageRef string, currentDigests map[string]string) *appImag
 			for _, currentRef := range currentRefs {
 				currentRepository, err := ImageRepositoryFromRef(currentRef)
 				if err == nil && currentRepository == targetRepository && currentDigests[currentRef] != "" {
+					if currentDigests[currentRef] == ambiguousCurrentDigest {
+						ambiguous = true
+						break
+					}
 					if repositoryDigest == "" {
 						repositoryDigest = currentDigests[currentRef]
 					} else if repositoryDigest != currentDigests[currentRef] {
