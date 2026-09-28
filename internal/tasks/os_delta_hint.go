@@ -532,7 +532,7 @@ func (r *appDeltaResolver) resolveApp(ctx context.Context, parent *appImagePair,
 			if _, ok := seenTargetImages[nr.imageRef]; !ok {
 				seenTargetImages[nr.imageRef] = struct{}{}
 				hints.nestedDeltas = append(hints.nestedDeltas, v1beta1.ImageDeltaHint{
-					TargetImage:  lo.ToPtr(nr.imageRef),
+					TargetImage:  nr.imageRef,
 					TargetDigest: nr.targetDigest,
 					DeltaImage:   *nr.deltaRef,
 				})

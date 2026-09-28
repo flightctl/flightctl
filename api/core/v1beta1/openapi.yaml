@@ -10017,6 +10017,7 @@ components:
           description: Reference to the delta artifact for this nested image.
           type: string
       required:
+        - targetImage
         - targetDigest
         - deltaImage
       additionalProperties: false

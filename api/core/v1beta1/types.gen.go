@@ -2582,7 +2582,7 @@ type ImageDeltaHint struct {
 	TargetDigest string `json:"targetDigest"`
 
 	// TargetImage The target image reference this delta applies to.
-	TargetImage *string `json:"targetImage,omitempty"`
+	TargetImage string `json:"targetImage"`
 }
 
 // ImageMountVolumeProviderSpec Volume from OCI image mounted at specified path.
