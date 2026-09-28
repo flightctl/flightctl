@@ -6,19 +6,19 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"go/scanner"
 	"go/token"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
 )
 
-// tools/ is intentionally omitted: this checker and its tests contain marker
-// fixtures on purpose.
-var scanRoots = []string{"api", "cmd", "internal", "pkg", "test", "scripts"}
+const toolDir = "tools/check-comment-artifacts"
 
 // Forbidden markers inside Go comments.
 var forbidden = regexp.MustCompile(
@@ -92,35 +92,59 @@ func ensureRoot(root string) error {
 }
 
 func scanRepo(root string) ([]hit, error) {
-	var hits []hit
-	for _, name := range scanRoots {
-		base := filepath.Join(root, name)
-		if _, err := os.Stat(base); err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
-			return nil, err
+	rels, err := listTrackedGoFiles(root)
+	if err != nil {
+		return nil, err
+	}
+	return scanFiles(root, rels)
+}
+
+func listTrackedGoFiles(root string) ([]string, error) {
+	cmd := exec.Command("git", "-C", root, "ls-files", "-z", "--", "*.go")
+	out, err := cmd.Output()
+	if err != nil {
+		if ee, ok := err.(*exec.ExitError); ok {
+			return nil, fmt.Errorf("git ls-files: %w: %s", err, bytes.TrimSpace(ee.Stderr))
 		}
-		err := filepath.WalkDir(base, func(path string, d os.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if d.IsDir() {
-				return nil
-			}
-			if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, ".gen.go") {
-				return nil
-			}
-			fileHits, err := scanFile(root, path)
-			if err != nil {
-				return err
-			}
-			hits = append(hits, fileHits...)
-			return nil
-		})
+		return nil, fmt.Errorf("git ls-files: %w", err)
+	}
+
+	var rels []string
+	for _, rel := range bytes.Split(out, []byte{0}) {
+		if len(rel) == 0 {
+			continue
+		}
+		path := filepath.ToSlash(string(rel))
+		if !shouldScan(path) {
+			continue
+		}
+		rels = append(rels, path)
+	}
+	return rels, nil
+}
+
+func shouldScan(rel string) bool {
+	rel = filepath.ToSlash(rel)
+	if !strings.HasSuffix(rel, ".go") || strings.HasSuffix(rel, ".gen.go") {
+		return false
+	}
+	if rel == toolDir || strings.HasPrefix(rel, toolDir+"/") {
+		return false
+	}
+	return true
+}
+
+func scanFiles(root string, relPaths []string) ([]hit, error) {
+	var hits []hit
+	for _, rel := range relPaths {
+		if !shouldScan(rel) {
+			continue
+		}
+		fileHits, err := scanFile(root, filepath.Join(root, filepath.FromSlash(rel)))
 		if err != nil {
 			return nil, err
 		}
+		hits = append(hits, fileHits...)
 	}
 	return hits, nil
 }

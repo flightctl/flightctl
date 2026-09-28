@@ -2,13 +2,14 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 )
 
-func TestScanFile_CatchesAllCommentForms(t *testing.T) {
+func TestScanFiles_CatchesAllCommentForms(t *testing.T) {
 	dir := t.TempDir()
 	pkg := filepath.Join(dir, "internal", "pkg")
 	if err := os.MkdirAll(pkg, 0o755); err != nil {
@@ -35,12 +36,12 @@ func D() {}
 // This is fine: no artifact markers
 func E() {}
 `
-	path := filepath.Join(pkg, "sample.go")
-	if err := os.WriteFile(path, []byte(src), 0o644); err != nil {
+	rel := "internal/pkg/sample.go"
+	if err := os.WriteFile(filepath.Join(dir, filepath.FromSlash(rel)), []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	hits, err := scanRepo(dir)
+	hits, err := scanFiles(dir, []string{rel})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,41 +72,58 @@ func E() {}
 	}
 }
 
-func TestScanFile_SkipsGenerated(t *testing.T) {
-	dir := t.TempDir()
-	pkg := filepath.Join(dir, "api")
-	if err := os.MkdirAll(pkg, 0o755); err != nil {
-		t.Fatal(err)
+func TestShouldScan_FiltersGeneratedAndToolFixtures(t *testing.T) {
+	cases := []struct {
+		path string
+		want bool
+	}{
+		{"internal/foo.go", true},
+		{"client/client.go", true},
+		{"tools/verify-backports/main.go", true},
+		{"api/types.gen.go", false},
+		{"tools/check-comment-artifacts/main.go", false},
+		{"tools/check-comment-artifacts/main_test.go", false},
+		{"readme.md", false},
 	}
-	if err := os.WriteFile(filepath.Join(pkg, "types.gen.go"), []byte("package api\n// D4: generated\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	hits, err := scanRepo(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(hits) != 0 {
-		t.Fatalf("expected no hits for .gen.go, got %+v", hits)
+	for _, tc := range cases {
+		if got := shouldScan(tc.path); got != tc.want {
+			t.Errorf("shouldScan(%q) = %v, want %v", tc.path, got, tc.want)
+		}
 	}
 }
 
-func TestScanFile_IncludesScripts(t *testing.T) {
+func TestScanRepo_UsesGitTrackedFiles(t *testing.T) {
 	dir := t.TempDir()
-	pkg := filepath.Join(dir, "scripts", "air-gap")
-	if err := os.MkdirAll(pkg, 0o755); err != nil {
-		t.Fatal(err)
+	write := map[string]string{
+		"client/client.go":                             "package client\n// D4: tracked client\n",
+		"api/types.gen.go":                             "package api\n// D4: generated\n",
+		"tools/check-comment-artifacts/fixture_test.go": "package main\n// D4: fixture\n",
+		"internal/ok.go":                               "package internal\n// fine\n",
 	}
-	if err := os.WriteFile(filepath.Join(pkg, "main.go"), []byte("package main\n// D4: in scripts\n"), 0o644); err != nil {
-		t.Fatal(err)
+	for rel, body := range write {
+		path := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
+	runGit(t, dir, "init")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	runGit(t, dir, "config", "user.name", "test")
+	runGit(t, dir, "add", ".")
+	runGit(t, dir, "commit", "-m", "init")
 
 	hits, err := scanRepo(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(hits) != 1 {
-		t.Fatalf("expected hit under scripts/, got %+v", hits)
+		t.Fatalf("got %d hits, want 1 (client only): %+v", len(hits), hits)
+	}
+	if hits[0].path != "client/client.go" {
+		t.Fatalf("path = %q, want client/client.go", hits[0].path)
 	}
 }
 
@@ -119,5 +137,14 @@ func TestEnsureRoot_RejectsMissing(t *testing.T) {
 func TestEnsureRoot_AcceptsDir(t *testing.T) {
 	if err := ensureRoot(t.TempDir()); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
 	}
 }
