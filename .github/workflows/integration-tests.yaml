@@ -112,10 +112,14 @@ jobs:
         with:
           repository: flightctl/flightctl
           ref: ${{ steps.detect_baseline.outputs.baseline_ref }}
+          # Preserve the PR checkout: the runner reloads local composite
+          # action metadata during post-job cleanup.
+          path: baseline
           fetch-depth: 0
 
       - name: Print checkout info (baseline)
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        working-directory: baseline
         run: |
           set -euo pipefail
           echo "### Baseline checkout"
@@ -135,8 +139,8 @@ jobs:
       - name: Running backward compatibility tests in template mode
         # if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         if: false
+        working-directory: baseline
         run: |
           make integration-test INTEGRATION_PROCS=8
         env:
           DISABLE_FIPS: true
-
