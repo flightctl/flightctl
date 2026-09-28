@@ -447,7 +447,10 @@ func (t *DeviceRenderLogic) renderApplications(ctx context.Context, applications
 	}
 
 	// Resolve application delta hints against the device's current image digests.
-	appSizes := t.resolveAppDeltaHints(ctx, t.device, renderedApplications)
+	appSizes, err := t.resolveAppDeltaHints(ctx, t.device, renderedApplications)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed resolving application delta hints: %w", err)
+	}
 
 	renderedApplicationBytes, err := json.Marshal(renderedApplications)
 	if err != nil {

@@ -23,6 +23,7 @@ import (
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/google/uuid"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 )
@@ -378,10 +379,11 @@ const ambiguousCurrentDigest = "\x00ambiguous"
 
 // appDeltaResult holds the resolution outcome for one appImagePair.
 type appDeltaResult struct {
-	imageRef     string
-	targetDigest string
-	deltaRef     *string
-	sizeBytes    *int64
+	imageRef      string
+	targetDigest  string
+	deltaRef      *string
+	sizeBytes     *int64
+	needsDownload bool
 }
 
 // appDeltaHints is the aggregate result of resolving all image pairs for a
@@ -395,29 +397,39 @@ type appDeltaHints struct {
 // appDeltaResolver looks up delta generation records and resolves per-image
 // delta hints for rendered applications.
 type appDeltaResolver struct {
-	log           logrus.FieldLogger
-	orgID         uuid.UUID
-	deltaLookup   generationLookup
-	kvStore       kvstore.KVStore
-	resolveDigest func(ctx context.Context, imageRef string) (string, error)
+	log              logrus.FieldLogger
+	orgID            uuid.UUID
+	deltaLookup      generationLookup
+	kvStore          kvstore.KVStore
+	resolveDigest    func(ctx context.Context, imageRef string) (string, error)
+	resolveImageSize func(ctx context.Context, imageRef, targetDigest string) (*int64, error)
 }
 
 func (r *appDeltaResolver) resolveImagePair(ctx context.Context, pair appImagePair) *appDeltaResult {
-	if pair.currentDigest == "" || pair.imageRef == "" {
+	if pair.imageRef == "" {
 		return nil
+	}
+	result := &appDeltaResult{imageRef: pair.imageRef, needsDownload: true}
+	if pair.currentDigest == "" || pair.currentDigest == ambiguousCurrentDigest {
+		result.sizeBytes = r.fullImageSize(ctx, pair.imageRef, "")
+		return result
 	}
 	repo, err := ImageRepositoryFromRef(pair.imageRef)
 	if err != nil {
 		r.log.Infof("app delta hint: failed parsing repo from %q: %v", pair.imageRef, err)
-		return nil
+		result.sizeBytes = r.fullImageSize(ctx, pair.imageRef, "")
+		return result
 	}
 	targetDigest, err := r.resolveDigest(ctx, pair.imageRef)
 	if err != nil || targetDigest == "" {
 		r.log.Infof("app delta hint: failed resolving target digest for %q: %v", pair.imageRef, err)
-		return nil
+		result.sizeBytes = r.fullImageSize(ctx, pair.imageRef, "")
+		return result
 	}
+	result.targetDigest = targetDigest
 	if pair.currentDigest == targetDigest {
-		return nil
+		result.needsDownload = false
+		return result
 	}
 	key := deltastore.GenerationKey{
 		OrgID:           r.orgID,
@@ -429,16 +441,35 @@ func (r *appDeltaResolver) resolveImagePair(ctx context.Context, pair appImagePa
 	if err != nil {
 		r.log.Infof("app delta hint: lookup failed repo=%s src=%s tgt=%s: %v",
 			repo, pair.currentDigest, targetDigest, err)
-		return nil
+		result.sizeBytes = r.fullImageSize(ctx, pair.imageRef, targetDigest)
+		return result
 	}
-	result := &appDeltaResult{imageRef: pair.imageRef, targetDigest: targetDigest}
 	if gen != nil {
 		result.sizeBytes = gen.SizeBytes
 		if gen.Status == deltamodel.DeltaGenerationSucceeded && gen.DeltaRef != nil && *gen.DeltaRef != "" {
 			result.deltaRef = gen.DeltaRef
 		}
 	}
+	if result.sizeBytes == nil || *result.sizeBytes < 0 {
+		result.sizeBytes = r.fullImageSize(ctx, pair.imageRef, targetDigest)
+	}
 	return result
+}
+
+func (r *appDeltaResolver) fullImageSize(ctx context.Context, imageRef, targetDigest string) *int64 {
+	if r.resolveImageSize == nil {
+		return nil
+	}
+	size, err := r.resolveImageSize(ctx, imageRef, targetDigest)
+	if err != nil {
+		r.log.Infof("app delta hint: failed resolving full image size for %q: %v", imageRef, err)
+		return nil
+	}
+	if size == nil || *size < 0 {
+		r.log.Infof("app delta hint: full image size unavailable for %q", imageRef)
+		return nil
+	}
+	return size
 }
 
 func (r *appDeltaResolver) resolveApp(ctx context.Context, parent *appImagePair, nested []appImagePair) *appDeltaHints {
@@ -461,22 +492,39 @@ func (r *appDeltaResolver) resolveApp(ctx context.Context, parent *appImagePair,
 			nestedResults = append(nestedResults, result)
 		}
 	}
-	if parentResult == nil && len(nestedResults) == 0 {
+	if parent == nil && len(nested) == 0 {
 		return nil
 	}
 
 	hints := &appDeltaHints{}
 	var totalBytes int64
-	haveSizeData := false
+	allSizesKnown := true
+	hasDownload := false
+	addSize := func(result *appDeltaResult) {
+		if result == nil {
+			return
+		}
+		if result.needsDownload {
+			hasDownload = true
+		}
+		if result.sizeBytes == nil {
+			if result.needsDownload {
+				allSizesKnown = false
+			}
+			return
+		}
+		if *result.sizeBytes < 0 || totalBytes > math.MaxInt64-*result.sizeBytes {
+			allSizesKnown = false
+			return
+		}
+		totalBytes += *result.sizeBytes
+	}
 
 	if parentResult != nil {
 		if parentResult.deltaRef != nil {
 			hints.parentDelta = parentResult.deltaRef
 		}
-		if parentResult.sizeBytes != nil {
-			totalBytes += *parentResult.sizeBytes
-			haveSizeData = true
-		}
+		addSize(parentResult)
 	}
 	seenTargetImages := make(map[string]struct{}, len(nestedResults))
 	for _, nr := range nestedResults {
@@ -490,12 +538,9 @@ func (r *appDeltaResolver) resolveApp(ctx context.Context, parent *appImagePair,
 				})
 			}
 		}
-		if nr.sizeBytes != nil {
-			totalBytes += *nr.sizeBytes
-			haveSizeData = true
-		}
+		addSize(nr)
 	}
-	if haveSizeData {
+	if hasDownload && allSizesKnown {
 		hints.totalSize = lo.ToPtr(FormatIECBytes(totalBytes))
 	}
 	if hints.parentDelta == nil && len(hints.nestedDeltas) == 0 && hints.totalSize == nil {
@@ -615,9 +660,6 @@ func newAppImagePair(imageRef string, currentDigests map[string]string) *appImag
 		return nil
 	}
 	currentDigest := currentDigests[imageRef]
-	if currentDigest == ambiguousCurrentDigest {
-		return nil
-	}
 	if currentDigest == "" {
 		// Image references commonly change tags between application versions.
 		// If the exact target reference has no status entry, use a reported
@@ -748,13 +790,29 @@ func applyDeltaHintsToImageSpec(spec v1beta1.ImageSpec, hints *appDeltaHints) v1
 	return spec
 }
 
+func deviceImagePlatform(device *domain.Device) *ocispec.Platform {
+	if device == nil || device.Status == nil {
+		return nil
+	}
+	info := device.Status.SystemInfo
+	if info.OperatingSystem == "" || info.Architecture == "" {
+		return nil
+	}
+	return &ocispec.Platform{
+		OS:           info.OperatingSystem,
+		Architecture: info.Architecture,
+	}
+}
+
 // resolveAppDeltaHints iterates over rendered applications, resolves delta
 // hints for each one, writes parent and nested hints into the image or inline
 // provider, and returns a map of app-name → IEC size string.
-func (t *DeviceRenderLogic) resolveAppDeltaHints(ctx context.Context, device *domain.Device, apps []domain.ApplicationProviderSpec) map[string]*string {
+func (t *DeviceRenderLogic) resolveAppDeltaHints(ctx context.Context, device *domain.Device, apps []domain.ApplicationProviderSpec) (map[string]*string, error) {
 	if device == nil {
-		return nil
+		return nil, nil
 	}
+	platform := deviceImagePlatform(device)
+	repositorySpec := deltaWriteSpec(t.cfg)
 	resolver := &appDeltaResolver{
 		log:         t.log,
 		orgID:       t.orgId,
@@ -763,6 +821,9 @@ func (t *DeviceRenderLogic) resolveAppDeltaHints(ctx context.Context, device *do
 		resolveDigest: func(ctx context.Context, imageRef string) (string, error) {
 			return t.resolveTargetDigest(ctx, imageRef)
 		},
+		resolveImageSize: func(ctx context.Context, imageRef, targetDigest string) (*int64, error) {
+			return oci.InspectImagePayloadSize(ctx, imageRef, targetDigest, repositorySpec, platform)
+		},
 	}
 
 	var appSizes map[string]*string
@@ -770,7 +831,7 @@ func (t *DeviceRenderLogic) resolveAppDeltaHints(ctx context.Context, device *do
 		app := &apps[i]
 		appType, err := app.GetAppType()
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("get type for application at index %d: %w", i, err)
 		}
 		appName := appNameFromProvider(app)
 		if appName == "" {
@@ -788,31 +849,31 @@ func (t *DeviceRenderLogic) resolveAppDeltaHints(ctx context.Context, device *do
 		case domain.AppTypeContainer:
 			container, err := app.AsContainerApplication()
 			if err != nil {
-				continue
+				return nil, fmt.Errorf("parse container application %q: %w", appName, err)
 			}
 			parent, nested = collectContainerAppPairs(container, currentDigests)
 		case domain.AppTypeCompose:
 			compose, err := app.AsComposeApplication()
 			if err != nil {
-				continue
+				return nil, fmt.Errorf("parse compose application %q: %w", appName, err)
 			}
 			parent, nested = collectComposeAppPairs(compose, currentDigests)
 		case domain.AppTypeQuadlet:
 			quadlet, err := app.AsQuadletApplication()
 			if err != nil {
-				continue
+				return nil, fmt.Errorf("parse quadlet application %q: %w", appName, err)
 			}
 			parent, nested = collectQuadletAppPairs(quadlet, currentDigests)
 		case domain.AppTypeHelm:
 			helm, err := app.AsHelmApplication()
 			if err != nil {
-				continue
+				return nil, fmt.Errorf("parse helm application %q: %w", appName, err)
 			}
 			parent, nested = collectHelmAppPairs(helm, currentDigests)
 		case domain.AppTypeVm:
 			vm, err := app.AsVmApplication()
 			if err != nil {
-				continue
+				return nil, fmt.Errorf("parse VM application %q: %w", appName, err)
 			}
 			parent, nested = collectVmAppPairs(vm, currentDigests)
 		default:
@@ -823,7 +884,9 @@ func (t *DeviceRenderLogic) resolveAppDeltaHints(ctx context.Context, device *do
 		if hints == nil {
 			continue
 		}
-		applyHintsToApp(app, appType, hints)
+		if err := applyHintsToApp(app, appType, hints); err != nil {
+			return nil, fmt.Errorf("apply delta hints to application %q: %w", appName, err)
+		}
 		if hints.totalSize != nil {
 			if appSizes == nil {
 				appSizes = make(map[string]*string)
@@ -831,50 +894,73 @@ func (t *DeviceRenderLogic) resolveAppDeltaHints(ctx context.Context, device *do
 			appSizes[appName] = hints.totalSize
 		}
 	}
-	return appSizes
+	return appSizes, nil
 }
 
-func applyHintsToApp(app *domain.ApplicationProviderSpec, appType domain.AppType, hints *appDeltaHints) {
-	if hints == nil {
-		return
+func applyHintsToApp(app *domain.ApplicationProviderSpec, appType domain.AppType, hints *appDeltaHints) error {
+	if hints == nil || (hints.parentDelta == nil && len(hints.nestedDeltas) == 0) {
+		return nil
 	}
 	switch appType {
 	case domain.AppTypeContainer:
 		container, err := app.AsContainerApplication()
 		if err != nil {
-			return
+			return fmt.Errorf("parse container application: %w", err)
 		}
-		applyHintsToApplicationProvider(&container, hints)
-		_ = app.MergeContainerApplication(container)
+		if err := applyHintsToApplicationProvider(&container, hints); err != nil {
+			return fmt.Errorf("apply container provider hints: %w", err)
+		}
+		if err := app.MergeContainerApplication(container); err != nil {
+			return fmt.Errorf("merge container application: %w", err)
+		}
 	case domain.AppTypeCompose:
 		compose, err := app.AsComposeApplication()
 		if err != nil {
-			return
+			return fmt.Errorf("parse compose application: %w", err)
 		}
-		applyHintsToApplicationProvider(&compose, hints)
-		_ = app.MergeComposeApplication(compose)
+		if err := applyHintsToApplicationProvider(&compose, hints); err != nil {
+			return fmt.Errorf("apply compose provider hints: %w", err)
+		}
+		if err := app.MergeComposeApplication(compose); err != nil {
+			return fmt.Errorf("merge compose application: %w", err)
+		}
 	case domain.AppTypeQuadlet:
 		quadlet, err := app.AsQuadletApplication()
 		if err != nil {
-			return
+			return fmt.Errorf("parse quadlet application: %w", err)
 		}
-		applyHintsToApplicationProvider(&quadlet, hints)
-		_ = app.MergeQuadletApplication(quadlet)
+		if err := applyHintsToApplicationProvider(&quadlet, hints); err != nil {
+			return fmt.Errorf("apply quadlet provider hints: %w", err)
+		}
+		if err := app.MergeQuadletApplication(quadlet); err != nil {
+			return fmt.Errorf("merge quadlet application: %w", err)
+		}
 	case domain.AppTypeHelm:
 		helm, err := app.AsHelmApplication()
 		if err != nil {
-			return
+			return fmt.Errorf("parse helm application: %w", err)
 		}
-		applyHintsToApplicationProvider(&helm, hints)
-		_ = app.MergeHelmApplication(helm)
+		if err := applyHintsToApplicationProvider(&helm, hints); err != nil {
+			return fmt.Errorf("apply helm provider hints: %w", err)
+		}
+		if err := app.MergeHelmApplication(helm); err != nil {
+			return fmt.Errorf("merge helm application: %w", err)
+		}
 	case domain.AppTypeVm:
 		vm, err := app.AsVmApplication()
 		if err != nil {
-			return
+			return fmt.Errorf("parse VM application: %w", err)
 		}
-		applyHintsToApplicationProvider(&vm, hints)
-		_ = app.MergeVmApplication(vm)
+		if err := applyHintsToApplicationProvider(&vm, hints); err != nil {
+			return fmt.Errorf("apply VM provider hints: %w", err)
+		}
+		if err := app.MergeVmApplication(vm); err != nil {
+			return fmt.Errorf("merge VM application: %w", err)
+		}
+	default:
+		return fmt.Errorf("unsupported application type %q", appType)
 	}
+	return nil
 }
 
 type imageHintProvider interface {
@@ -887,37 +973,51 @@ type inlineHintProvider interface {
 	FromInlineApplicationProviderSpec(v1beta1.InlineApplicationProviderSpec) error
 }
 
-func applyHintsToApplicationProvider(provider any, hints *appDeltaHints) {
+func applyHintsToApplicationProvider(provider any, hints *appDeltaHints) error {
+	if hints == nil || (hints.parentDelta == nil && len(hints.nestedDeltas) == 0) {
+		return nil
+	}
 	providerWithType, ok := provider.(interface {
 		Type() v1beta1.ApplicationProviderType
 	})
-	if !ok || hints == nil {
-		return
+	if !ok {
+		return fmt.Errorf("provider %T does not expose a provider type", provider)
 	}
-	switch providerWithType.Type() {
+	providerType := providerWithType.Type()
+	switch providerType {
 	case v1beta1.ImageApplicationProviderType:
 		imageProvider, ok := provider.(imageHintProvider)
 		if !ok {
-			return
+			return fmt.Errorf("image provider %T does not support image hint conversion", provider)
 		}
 		imageSpec, err := imageProvider.AsImageApplicationProviderSpec()
 		if err != nil {
-			return
+			return fmt.Errorf("read image provider spec: %w", err)
 		}
 		imageSpec = applyDeltaHintsToImageSpec(imageSpec, hints)
-		_ = imageProvider.FromImageApplicationProviderSpec(imageSpec)
+		if err := imageProvider.FromImageApplicationProviderSpec(imageSpec); err != nil {
+			return fmt.Errorf("write image provider spec: %w", err)
+		}
 	case v1beta1.InlineApplicationProviderType:
+		if hints.parentDelta != nil {
+			return fmt.Errorf("inline provider cannot store a parent delta hint")
+		}
 		inlineProvider, ok := provider.(inlineHintProvider)
-		if !ok || len(hints.nestedDeltas) == 0 {
-			return
+		if !ok {
+			return fmt.Errorf("inline provider %T does not support inline hint conversion", provider)
 		}
 		inlineSpec, err := inlineProvider.AsInlineApplicationProviderSpec()
 		if err != nil {
-			return
+			return fmt.Errorf("read inline provider spec: %w", err)
 		}
 		inlineSpec.DeltaImages = &hints.nestedDeltas
-		_ = inlineProvider.FromInlineApplicationProviderSpec(inlineSpec)
+		if err := inlineProvider.FromInlineApplicationProviderSpec(inlineSpec); err != nil {
+			return fmt.Errorf("write inline provider spec: %w", err)
+		}
+	default:
+		return fmt.Errorf("application provider type %q does not support delta hints", providerType)
 	}
+	return nil
 }
 
 func appNameFromProvider(app *domain.ApplicationProviderSpec) string {

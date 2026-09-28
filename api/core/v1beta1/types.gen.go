@@ -1382,7 +1382,7 @@ type DeviceApplicationStatus struct {
 	// RunAs The username of the system user this application is runing under. If blank, the application is run as the same user as the agent (generally root).
 	RunAs Username `json:"runAs,omitempty"`
 
-	// Size Expected total download size for this application update in IEC units (e.g. "245.3 MiB", "1 GiB"). Computed as the sum of all image pair sizes (parent + nested + volumes), using delta size when available or full manifest size otherwise. Absent when no size information is available.
+	// Size Expected total download size for this application update in IEC units (e.g. "245.3 MiB", "1 GiB"). Computed as the sum of all required image pair sizes (parent + nested + volumes), using delta payload size when available or full image payload size otherwise. Absent when no image download is required or any required image size is unknown.
 	Size *string `json:"size,omitempty"`
 
 	// Status Status of a single application on the device.
@@ -2611,7 +2611,7 @@ type ImageSpec struct {
 	// DeltaImage Optional hint: a reference to a delta artifact for the main image. Set by the control plane when a successful delta generation record exists for the current-to-target digest transition.
 	DeltaImage *string `json:"deltaImage,omitempty"`
 
-	// DeltaImages Optional hints for nested images within this application (e.g. service images in a compose app, OCI volume images). Each entry maps a target digest to its delta artifact reference.
+	// DeltaImages Optional hints for nested images within this application (e.g. service images in a compose app, OCI volume images). Each entry identifies a target image reference and digest and names its delta artifact reference.
 	DeltaImages *[]ImageDeltaHint `json:"deltaImages,omitempty"`
 
 	// Image Reference to an OCI image or artifact with tag.
@@ -2638,7 +2638,7 @@ type ImageVolumeSource struct {
 
 // InlineApplicationProviderSpec defines model for InlineApplicationProviderSpec.
 type InlineApplicationProviderSpec struct {
-	// DeltaImages Optional hints for nested OCI images referenced by this inline application. Each entry maps a target digest to its delta artifact.
+	// DeltaImages Optional hints for nested OCI images referenced by this inline application. Each entry identifies a target image reference and digest and names its delta artifact.
 	DeltaImages *[]ImageDeltaHint `json:"deltaImages,omitempty"`
 
 	// Inline A list of application content.

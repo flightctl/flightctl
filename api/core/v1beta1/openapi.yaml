@@ -7105,9 +7105,10 @@ components:
           description: >-
             Expected total download size for this application update in
             IEC units (e.g. "245.3 MiB", "1 GiB"). Computed as the sum
-            of all image pair sizes (parent + nested + volumes), using
-            delta size when available or full manifest size otherwise.
-            Absent when no size information is available.
+            of all required image pair sizes (parent + nested + volumes), using
+            delta payload size when available or full image payload size otherwise.
+            Absent when no image download is required or any required image size
+            is unknown.
     ApplicationImageDigest:
       type: object
       description: An image reference and, when known, its content digest in local storage.
