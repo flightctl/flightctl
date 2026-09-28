@@ -1,6 +1,14 @@
-# Rootless local development
+# Rootless deployment and local workflows
 
-This document records the rootless design, implementation status, prerequisites, and remaining runtime validation for the local Make targets.
+This document records rootless support in FlightCtl's deployment and ImageBuilder paths, and how the local Make and E2E workflows use that support. It covers the current design, host prerequisites, limitations, and remaining runtime validation.
+
+## Supported deployment paths
+
+- **Quadlets:** A regular-user deployment uses that user's rootless Podman store, user systemd manager, and XDG paths. UID 0 continues to use system systemd, the rootful Podman store, and system paths. The same Quadlet source files serve both managers.
+- **Kind:** The local Kind cluster can run on the invoking user's rootless Podman store. Its Helm deployment configures the ImageBuilder worker for the rootless export path and mounts KVM instead of the broad host device paths used by rootful export.
+- **ImageBuilder:** The worker has rootless execution paths for ImageBuild and a KVM-backed native `--in-vm` ImageExport. The worker is deployed by both Kind and Quadlets, so these paths apply to both. The worker service and BIB job-container privilege settings remain as documented under [Image-builder constraint](#image-builder-constraint).
+
+The local Make targets select and exercise these paths based on effective UID; they do not introduce a separate rootless mode flag.
 
 ## Execution contract
 
@@ -8,7 +16,7 @@ The effective UID selects the execution scope. A non-root invocation uses that a
 
 Rootless cleanup only removes resources in the invoking user's scope. It cannot remove root-owned containers, system Quadlets, or files. Run cleanup as root to clean root-owned deployment state.
 
-## Target coverage
+## Local workflow coverage
 
 | Target | Rootless behavior | Remaining validation |
 |---|---|---|

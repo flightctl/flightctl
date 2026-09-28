@@ -86,7 +86,7 @@ The service can be deployed locally in kind with the following command:
 make deploy
 ```
 
-Run the Make targets as the account that should own the local deployment. A regular-user invocation uses rootless Podman and kind; running the same command as UID 0 keeps the rootful setup. See the [rootless local development guide](rootless-development-plan.md) for host prerequisites and current image-builder limitations.
+Rootless deployment support covers user-scope Quadlets and the ImageBuilder paths used by Quadlets and rootless Kind. Run the Make targets as the account that should own the local deployment; the effective UID selects the matching scope, and UID 0 keeps the rootful setup. See the [rootless deployment and local workflows guide](rootless-development-plan.md) for host prerequisites and current ImageBuilder limitations.
 
 Note: An update to firewalld may need to be made if the agent is unable to connect to the api instance:
 

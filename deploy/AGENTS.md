@@ -22,7 +22,7 @@ This directory contains everything needed to deploy the Flight Control service: 
    - `make deploy-quadlets` – Build containers (unless `SKIP_BUILD=1`) in the invoking user's Podman store and run `deploy/scripts/deploy_quadlets.sh` in the matching systemd scope. It does not copy images to another Podman store.
    - Regular users use `systemctl --user`, XDG paths, and publish the gateway on host port 9443. UID 0 uses system systemd, system paths, and publishes the gateway on host port 443. Image-builder build paths use a separate generated drop-in. Rootless ImageExport needs KVM access; Quadlets preserve the user's supplementary groups, while Kind mounts `/dev/kvm` into the node. A named-user host ACL for the invoking UID may be needed for the nested worker when the KVM group is unmapped; host ACL, SELinux, and device-cgroup behavior still need runtime validation.
    - Cleanup: `make clean-quadlets` runs `deploy/scripts/clean_quadlets.sh` in the invoking UID's scope.
-   - See [rootless local development](../docs/developer/rootless-development-plan.md) for host prerequisites, clean behavior, and remaining image-builder validation.
+   - See [rootless deployment and local workflows](../docs/developer/rootless-development-plan.md) for host prerequisites, clean behavior, and remaining image-builder validation.
 
 3. **Database / KV only (for integration tests)**  
    - `make deploy-db` – DB via quadlet script.  
