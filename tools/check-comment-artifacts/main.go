@@ -7,6 +7,8 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"go/scanner"
@@ -16,9 +18,13 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
-const toolDir = "tools/check-comment-artifacts"
+const (
+	toolDir        = "tools/check-comment-artifacts"
+	gitListTimeout = 30 * time.Second
+)
 
 // Forbidden markers inside Go comments.
 var forbidden = regexp.MustCompile(
@@ -100,9 +106,15 @@ func scanRepo(root string) ([]hit, error) {
 }
 
 func listTrackedGoFiles(root string) ([]string, error) {
-	cmd := exec.Command("git", "-C", root, "ls-files", "-z", "--", "*.go")
+	ctx, cancel := context.WithTimeout(context.Background(), gitListTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "git", "-C", root, "ls-files", "-z", "--", "*.go")
 	out, err := cmd.Output()
 	if err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return nil, fmt.Errorf("git ls-files: timed out after %s", gitListTimeout)
+		}
 		if ee, ok := err.(*exec.ExitError); ok {
 			return nil, fmt.Errorf("git ls-files: %w: %s", err, bytes.TrimSpace(ee.Stderr))
 		}
@@ -142,6 +154,10 @@ func scanFiles(root string, relPaths []string) ([]hit, error) {
 		}
 		fileHits, err := scanFile(root, filepath.Join(root, filepath.FromSlash(rel)))
 		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				// Index still lists the path after an unstaged deletion.
+				continue
+			}
 			return nil, err
 		}
 		hits = append(hits, fileHits...)

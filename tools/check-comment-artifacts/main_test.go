@@ -95,10 +95,10 @@ func TestShouldScan_FiltersGeneratedAndToolFixtures(t *testing.T) {
 func TestScanRepo_UsesGitTrackedFiles(t *testing.T) {
 	dir := t.TempDir()
 	write := map[string]string{
-		"client/client.go":                             "package client\n// D4: tracked client\n",
-		"api/types.gen.go":                             "package api\n// D4: generated\n",
+		"client/client.go": "package client\n// D4: tracked client\n",
+		"api/types.gen.go": "package api\n// D4: generated\n",
 		"tools/check-comment-artifacts/fixture_test.go": "package main\n// D4: fixture\n",
-		"internal/ok.go":                               "package internal\n// fine\n",
+		"internal/ok.go": "package internal\n// fine\n",
 	}
 	for rel, body := range write {
 		path := filepath.Join(dir, filepath.FromSlash(rel))
@@ -115,6 +115,12 @@ func TestScanRepo_UsesGitTrackedFiles(t *testing.T) {
 	runGit(t, dir, "add", ".")
 	runGit(t, dir, "commit", "-m", "init")
 
+	// Untracked marked file must not affect results (proves git ls-files, not walk).
+	untracked := filepath.Join(dir, "untracked.go")
+	if err := os.WriteFile(untracked, []byte("package main\n// D4: untracked\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
 	hits, err := scanRepo(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -124,6 +130,26 @@ func TestScanRepo_UsesGitTrackedFiles(t *testing.T) {
 	}
 	if hits[0].path != "client/client.go" {
 		t.Fatalf("path = %q, want client/client.go", hits[0].path)
+	}
+}
+
+func TestScanFiles_SkipsMissingTrackedPaths(t *testing.T) {
+	dir := t.TempDir()
+	rel := "client/client.go"
+	path := filepath.Join(dir, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("package client\n// D4: present\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	hits, err := scanFiles(dir, []string{rel, "gone/deleted.go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hits) != 1 || hits[0].path != rel {
+		t.Fatalf("got %+v, want single hit on %s", hits, rel)
 	}
 }
 
