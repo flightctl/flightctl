@@ -433,59 +433,6 @@ func TestEnrollmentHookNotify_EndToEnd(t *testing.T) {
 		assert.Contains(t, err.Error(), "failed to get device")
 	})
 
-	t.Run("When worker context stays alive it should complete slow webhook beyond EventProcessingTimeout", func(t *testing.T) {
-		ctrl := gomock.NewController(t)
-		defer ctrl.Finish()
-
-		mockDeviceSvc := deviceservice.NewMockService(ctrl)
-		mockERSvc := enrollmentrequestservice.NewMockService(ctrl)
-		mockSecrets := enrollmenthooknotifysecrets.NewMockStore(ctrl)
-		mockEventSvc := eventservice.NewMockService(ctrl)
-
-		server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			time.Sleep(150 * time.Millisecond)
-			w.WriteHeader(http.StatusOK)
-		}))
-		defer server.Close()
-
-		device := &domain.Device{
-			Metadata: domain.ObjectMeta{Name: lo.ToPtr(erName)},
-			Status: &domain.DeviceStatus{
-				Conditions: []domain.Condition{{
-					Type:   domain.ConditionTypeDeviceEnrollmentHooks,
-					Status: domain.ConditionStatusFalse,
-					Reason: domain.EnrollmentHooksReasonNotifyPending,
-				}},
-				EnrollmentHooks: &domain.DeviceEnrollmentHooksStatus{
-					Snapshot: &domain.EnrollmentHookSnapshot{
-						FailurePolicy: domain.FailurePolicyContinue,
-						ControlPlaneActions: &[]domain.EnrollmentHookSnapshotAction{{
-							Index:   0,
-							Url:     server.URL,
-							Timeout: lo.ToPtr("5s"),
-							Retry:   &domain.EnrollmentHookRetryPolicy{MaxAttempts: lo.ToPtr(1)},
-						}},
-					},
-				},
-			},
-		}
-
-		mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, erName).Return(device, statusOK)
-		mockERSvc.EXPECT().GetEnrollmentRequest(gomock.Any(), orgId, erName).
-			Return(nil, domain.StatusResourceNotFound("EnrollmentRequest", erName))
-		mockSecrets.EXPECT().ListByDevice(gomock.Any(), orgId, erName).Return(nil, nil)
-		mockDeviceSvc.EXPECT().SetDeviceServiceConditions(gomock.Any(), orgId, erName, gomock.Any()).
-			DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, conditions []domain.Condition) domain.Status {
-				require.Len(t, conditions, 1)
-				assert.Equal(t, domain.EnrollmentHooksReasonPending, conditions[0].Reason)
-				return statusOK
-			})
-
-		// Consumer passes the worker root context (not the 10s event timeout).
-		err := enrollmentHookNotifyWithClient(context.Background(), orgId, makeEvent(), mockDeviceSvc, mockERSvc, mockSecrets, mockEventSvc, log, server.Client())
-		require.NoError(t, err)
-	})
-
 	t.Run("When worker context is canceled it should abort notify", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()

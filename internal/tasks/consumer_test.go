@@ -4,14 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	eventservice "github.com/flightctl/flightctl/internal/service/event"
 	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -497,6 +500,54 @@ func (m *MockConsumer) Complete(ctx context.Context, entryID string, body []byte
 
 func (m *MockConsumer) Close() {
 	m.Called()
+}
+
+func TestDispatchTasks_EnrollmentHookNotifyUsesWorkerContext(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	orgId := uuid.New()
+	erName := "test-device"
+	log := logrus.New()
+	mockConsumer := &MockConsumer{}
+	mockDeviceSvc := deviceservice.NewMockService(ctrl)
+
+	eventWithOrgId := worker_client.EventWithOrgId{
+		OrgId: orgId,
+		Event: domain.Event{
+			InvolvedObject: domain.ObjectReference{
+				Kind: domain.EnrollmentRequestKind,
+				Name: erName,
+			},
+			Reason: domain.EventReasonEnrollmentRequestApproved,
+		},
+	}
+	payload, err := json.Marshal(eventWithOrgId)
+	require.NoError(t, err)
+
+	mockConsumer.On("Complete", mock.Anything, "entry-123", payload, mock.MatchedBy(func(e error) bool { return e == nil })).Return(nil)
+
+	// Device with no enrollment-hooks snapshot: notify returns after GetDevice.
+	// Assert the context deadline is the notify budget (~10m), not the 10s event timeout.
+	mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, erName).
+		DoAndReturn(func(ctx context.Context, _ uuid.UUID, _ string) (*domain.Device, domain.Status) {
+			deadline, ok := ctx.Deadline()
+			require.True(t, ok, "notify context should have a deadline")
+			remaining := time.Until(deadline)
+			assert.Greater(t, remaining, EventProcessingTimeout,
+				"deadline remaining %v looks like the per-event timeout; dispatch should pass workerCtx", remaining)
+			assert.InDelta(t, EnrollmentHookNotifyProcessingTimeout.Seconds(), remaining.Seconds(), 5.0,
+				"deadline remaining should be ~%v (notify processing timeout)", EnrollmentHookNotifyProcessingTimeout)
+			return &domain.Device{
+				Metadata: domain.ObjectMeta{Name: lo.ToPtr(erName)},
+				Status:   &domain.DeviceStatus{},
+			}, domain.StatusOK()
+		})
+
+	handler := TaskConsumer{DeviceSvc: mockDeviceSvc}.dispatch()
+	err = handler(context.Background(), payload, "entry-123", mockConsumer, log)
+	require.NoError(t, err)
+	mockConsumer.AssertExpectations(t)
 }
 
 func TestDispatchTasks_WithNilMetrics(t *testing.T) {
