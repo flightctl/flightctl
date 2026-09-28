@@ -669,19 +669,6 @@ func TestEnsurePostEnrollmentHooks(t *testing.T) {
 			expectContinue: true,
 		},
 		{
-			name: "When GetDevice returns 404 it should proceed without running hooks",
-			setupMocks: func(
-				mockManagement *client.MockManagement,
-				_ *hook.MockManager,
-				_ *status.MockManager,
-				_ *identity.MockProvider,
-			) {
-				mockManagement.EXPECT().GetDevice(gomock.Any(), testDeviceName).
-					Return(nil, http.StatusNotFound, nil)
-			},
-			expectContinue: true,
-		},
-		{
 			name: "When condition is NotifyPending then transitions to Pending it should run hooks and PATCH Succeeded",
 			setupMocks: func(
 				mockManagement *client.MockManagement,

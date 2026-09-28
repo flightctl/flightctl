@@ -450,14 +450,6 @@ func (b *Bootstrap) pollEnrollmentHooksReady(ctx context.Context) (*v1beta1.Devi
 			b.log.Warnf("Failed to get device for enrollment hooks: %v", err)
 			return false, nil // retry
 		}
-		// Older control planes may lack GET /devices/{name}; treat like no policy.
-		if statusCode == http.StatusNotFound {
-			b.log.Info("GetDevice returned 404; treating as no enrollment hooks condition")
-			resultDevice = nil
-			resultCondition = nil
-			resultIdx = -1
-			return true, nil
-		}
 		if statusCode != http.StatusOK {
 			b.log.Warnf("GetDevice returned status %d for enrollment hooks", statusCode)
 			return false, nil // retry
