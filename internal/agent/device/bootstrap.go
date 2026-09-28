@@ -3,6 +3,7 @@ package device
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -360,83 +361,74 @@ func (b *Bootstrap) enrollmentBackoff() wait.Backoff {
 // waits for server-side notification if needed, runs OnAfterEnrolling hooks,
 // and PATCHes the condition outcome back.
 func (b *Bootstrap) ensurePostEnrollmentHooks(ctx context.Context) error {
-	// Step 1: poll until the condition leaves NotifyPending (or is absent).
 	device, condition, condIdx, err := b.pollEnrollmentHooksReady(ctx)
 	if err != nil {
 		return err
 	}
 
-	// D4: nil condition → proceed (no policy).
+	// No EnrollmentHooks condition means no policy was applied at approval.
 	if condition == nil {
 		b.log.Info("No enrollment hooks condition found, proceeding")
 		return nil
 	}
 
-	// State machine on the condition reason.
 	switch condition.Reason {
 	case v1beta1.EnrollmentHooksReasonSucceeded,
 		v1beta1.EnrollmentHooksReasonContinued,
 		v1beta1.EnrollmentHooksReasonManualOverride:
-		// D5/D9: terminal success states → proceed.
 		b.log.Infof("Enrollment hooks condition is %s, proceeding", condition.Reason)
 		return nil
 
 	case v1beta1.EnrollmentHooksReasonFailed:
-		// D8: Failed → skip hooks AND halt.
+		// Block path already recorded; do not re-run hooks or start the publisher.
 		b.log.Warn("Enrollment hooks condition is Failed, halting")
 		return fmt.Errorf("enrollment hooks in Failed state: %w", errEnrollmentHooksFailed)
 
 	case v1beta1.EnrollmentHooksReasonPending:
-		// Continue below to run hooks.
+		// Notify complete (or none configured); run AfterEnrolling below.
 	default:
 		b.log.Warnf("Unknown enrollment hooks reason %q, proceeding", condition.Reason)
 		return nil
 	}
 
-	// Step 2: build EnrollmentContext per D12.
 	enrollCtx, err := b.buildEnrollmentContext(ctx, device)
 	if err != nil {
 		b.log.Warnf("Failed to build enrollment context: %v", err)
 		// Non-fatal: proceed with partial context.
 	}
 
-	// Step 3: run OnAfterEnrolling hooks.
 	b.log.Info("Running AfterEnrolling hooks")
 	hookErr := b.hookManager.OnAfterEnrolling(ctx, enrollCtx)
 
-	// Step 4: determine outcome and PATCH.
 	failurePolicy := b.getFailurePolicy(device)
 	if hookErr != nil {
 		b.log.Warnf("AfterEnrolling hooks failed: %v", hookErr)
 		if failurePolicy == v1beta1.FailurePolicyContinue {
-			// D6: Continued (True) — proceed.
 			if patchErr := b.patchEnrollmentHooksCondition(ctx, condIdx,
 				v1beta1.ConditionStatusTrue,
 				v1beta1.EnrollmentHooksReasonContinued,
 				fmt.Sprintf("hooks failed but policy is Continue: %v", hookErr),
 			); patchErr != nil {
-				b.log.Warnf("Failed to PATCH enrollment hooks condition: %v", patchErr)
+				return fmt.Errorf("reporting Continued after hook failure: %w", patchErr)
 			}
 			return nil
 		}
-		// D6: Failed (False) — halt.
 		if patchErr := b.patchEnrollmentHooksCondition(ctx, condIdx,
 			v1beta1.ConditionStatusFalse,
 			v1beta1.EnrollmentHooksReasonFailed,
 			fmt.Sprintf("hooks failed: %v", hookErr),
 		); patchErr != nil {
-			b.log.Warnf("Failed to PATCH enrollment hooks condition: %v", patchErr)
+			b.log.Warnf("Failed to PATCH Failed enrollment hooks condition: %v", patchErr)
 		}
 		return fmt.Errorf("post-enrollment hooks failed with Block policy: %w", errEnrollmentHooksFailed)
 	}
 
-	// D6: Succeeded (True) — proceed.
 	if patchErr := b.patchEnrollmentHooksCondition(ctx, condIdx,
 		v1beta1.ConditionStatusTrue,
 		v1beta1.EnrollmentHooksReasonSucceeded,
 		"hooks completed successfully",
 	); patchErr != nil {
-		b.log.Warnf("Failed to PATCH enrollment hooks condition: %v", patchErr)
+		return fmt.Errorf("reporting Succeeded after hooks: %w", patchErr)
 	}
 	return nil
 }
@@ -458,6 +450,14 @@ func (b *Bootstrap) pollEnrollmentHooksReady(ctx context.Context) (*v1beta1.Devi
 			b.log.Warnf("Failed to get device for enrollment hooks: %v", err)
 			return false, nil // retry
 		}
+		// Older control planes may lack GET /devices/{name}; treat like no policy.
+		if statusCode == http.StatusNotFound {
+			b.log.Info("GetDevice returned 404; treating as no enrollment hooks condition")
+			resultDevice = nil
+			resultCondition = nil
+			resultIdx = -1
+			return true, nil
+		}
 		if statusCode != http.StatusOK {
 			b.log.Warnf("GetDevice returned status %d for enrollment hooks", statusCode)
 			return false, nil // retry
@@ -469,7 +469,6 @@ func (b *Bootstrap) pollEnrollmentHooksReady(ctx context.Context) (*v1beta1.Devi
 
 		condition := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceEnrollmentHooks)
 		if condition == nil {
-			// D4: no condition → done (proceed).
 			resultDevice = device
 			resultCondition = nil
 			resultIdx = -1
@@ -494,15 +493,16 @@ func (b *Bootstrap) pollEnrollmentHooksReady(ctx context.Context) (*v1beta1.Devi
 	})
 
 	if pollErr != nil {
-		// Backoff exhausted or context cancelled.
+		if errors.Is(pollErr, context.Canceled) || errors.Is(pollErr, context.DeadlineExceeded) {
+			return nil, nil, -1, fmt.Errorf("waiting for enrollment hooks readiness: %w", pollErr)
+		}
 		return nil, nil, -1, fmt.Errorf("waiting for enrollment hooks readiness: %w", errEnrollmentHooksTimeout)
 	}
 
 	return resultDevice, resultCondition, resultIdx, nil
 }
 
-// buildEnrollmentContext constructs the EnrollmentContext for OnAfterEnrolling
-// hooks per decision D12.
+// buildEnrollmentContext constructs the EnrollmentContext for OnAfterEnrolling.
 func (b *Bootstrap) buildEnrollmentContext(ctx context.Context, device *v1beta1.Device) (*hook.EnrollmentContext, error) {
 	enrollCtx := &hook.EnrollmentContext{
 		DeviceName: b.deviceName,
@@ -557,6 +557,7 @@ func (b *Bootstrap) getFailurePolicy(device *v1beta1.Device) v1beta1.FailurePoli
 // patchEnrollmentHooksCondition sends an RFC 6902 JSON Patch to update the
 // EnrollmentHooks condition at the given index. Uses test+replace ops to
 // ensure the condition at that index is still the EnrollmentHooks type.
+// Retries with the enrollment-hooks backoff on transient failures.
 func (b *Bootstrap) patchEnrollmentHooksCondition(
 	ctx context.Context,
 	condIdx int,
@@ -587,5 +588,25 @@ func (b *Bootstrap) patchEnrollmentHooksCondition(
 			Value: message,
 		},
 	}
-	return b.managementClient.PatchDeviceStatus(ctx, b.deviceName, patch)
+
+	var lastErr error
+	backoff := b.enrollmentBackoff()
+	err := wait.ExponentialBackoffWithContext(ctx, backoff, func(_ context.Context) (bool, error) {
+		if err := b.managementClient.PatchDeviceStatus(ctx, b.deviceName, patch); err != nil {
+			lastErr = err
+			b.log.Warnf("Failed to PATCH enrollment hooks condition (will retry): %v", err)
+			return false, nil
+		}
+		return true, nil
+	})
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return fmt.Errorf("patching enrollment hooks condition: %w", err)
+		}
+		if lastErr != nil {
+			return fmt.Errorf("patching enrollment hooks condition: %w", lastErr)
+		}
+		return fmt.Errorf("patching enrollment hooks condition: %w", err)
+	}
+	return nil
 }
