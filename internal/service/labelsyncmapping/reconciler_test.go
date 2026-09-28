@@ -3,6 +3,7 @@ package labelsyncmapping
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -141,6 +142,32 @@ func TestDesiredDeviceLabelsPreservesUserLabelsAndTakesOverMatchingKeys(t *testi
 	assert.Len(t, outcomes, 2)
 	assert.NoError(t, outcomes[0].Err)
 	assert.NoError(t, outcomes[1].Err)
+}
+
+func TestDesiredDeviceLabelsRestoresUserValueWhenMappingOutputsExceedLimit(t *testing.T) {
+	mappingID := uuid.New()
+	mapping := testDeviceMapping(mappingID, "large-map", "large-map-result", nil)
+	outputs := make(map[string]string, maxManagedDeviceLabels+1)
+	outputs["takeover"] = "mapped-value"
+	for i := 0; i < maxManagedDeviceLabels; i++ {
+		outputs[fmt.Sprintf("mapped-%03d", i)] = "mapped-value"
+	}
+	snapshot := deviceReconciliationSnapshot{
+		Device:   deviceLabelSnapshot("edge-01", "1", map[string]string{"manual": "preserve", "takeover": "user-value"}, nil),
+		Mappings: []labelsyncmappingstore.DeviceMapping{mapping},
+	}
+	evaluator := &reconciliationEvaluator{responses: map[string]evaluatorResponse{
+		"large-map-result": {result: MapResult(outputs)},
+	}}
+
+	desired, outcomes, err := desiredDeviceLabels(snapshot, evaluator)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]domain.DesiredDeviceLabel{
+		"manual":   {Value: "preserve"},
+		"takeover": {Value: "user-value"},
+	}, desired)
+	require.Len(t, outcomes, 1)
+	assert.ErrorContains(t, outcomes[0].Err, "exceeds the device managed-label limit")
 }
 
 func TestDesiredDeviceLabelsRetainsAllPreviousOutputsWhenMapEvaluationFails(t *testing.T) {

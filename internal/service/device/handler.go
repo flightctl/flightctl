@@ -7,6 +7,7 @@ import (
 	"maps"
 	"net/http"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/consts"
@@ -685,6 +686,10 @@ func (h *DeviceServiceHandler) PatchDevice(ctx context.Context, orgId uuid.UUID,
 	if status := validateDevicePatch(ctx, orgId, h.catalogStore, currentObj, patch, name); status.Code != http.StatusOK {
 		return nil, status
 	}
+	mutateOptions := []devicestore.MutateOption{devicestore.WithTimestamp()}
+	if explicitRemovals, ok := managedLabelMapReplacement(patch); ok {
+		mutateOptions = append(mutateOptions, devicestore.WithManagedLabelMapReplacement(explicitRemovals))
+	}
 
 	var callbackStatus domain.Status
 	result, before, _, err := h.deviceStore.Mutate(ctx, orgId, name, currentObj, func(m *devicestore.DeviceMutation) error {
@@ -718,7 +723,7 @@ func (h *DeviceServiceHandler) PatchDevice(ctx context.Context, orgId uuid.UUID,
 		}
 		_ = common.UpdateServiceSideStatus(ctx, orgId, current, h.fleetStore, h.log)
 		return pruneLifecycleOnCurrent(h.log, current)
-	}, devicestore.WithTimestamp())
+	}, mutateOptions...)
 	h.callEventCallback(ctx, h.callbackDeviceUpdated, orgId, name, before, result, false, err)
 	if err != nil && callbackStatus.Code != 0 {
 		return result, callbackStatus
@@ -755,6 +760,22 @@ func applyDevicePatch(ctx context.Context, current *domain.Device, patch domain.
 	common.NilOutManagedObjectMetaProperties(&patched.Metadata)
 	patched.Metadata.ResourceVersion = nil
 	return patched, nil
+}
+
+func managedLabelMapReplacement(patch domain.PatchRequest) ([]string, bool) {
+	hasReplacement := false
+	var explicitRemovals []string
+	for _, operation := range patch {
+		switch {
+		case operation.Path == "/metadata/labels" && operation.Op == "remove":
+			return nil, false
+		case operation.Path == "/metadata/labels" && (operation.Op == "add" || operation.Op == "replace"):
+			hasReplacement = true
+		case operation.Op == "remove" && strings.HasPrefix(operation.Path, "/metadata/labels/"):
+			explicitRemovals = append(explicitRemovals, operation.Path)
+		}
+	}
+	return explicitRemovals, hasReplacement
 }
 
 func (h *DeviceServiceHandler) SetOutOfDate(ctx context.Context, orgId uuid.UUID, owner string) error {
@@ -839,7 +860,7 @@ func (h *DeviceServiceHandler) DecommissionDevice(ctx context.Context, orgId uui
 		// Former store DecommissionDevice did not bump generation; keep that contract.
 		m.PreserveGeneration = true
 		return nil
-	})
+	}, devicestore.WithDecommissionManagedLabelCleanup())
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 	}
@@ -865,6 +886,12 @@ func applyDeviceDecommission(device *domain.Device, decom domain.DeviceDecommiss
 
 	device.Metadata.Owner = nil
 	device.Metadata.Labels = nil
+	if annotations := lo.FromPtr(device.Metadata.Annotations); annotations != nil {
+		delete(annotations, domain.DeviceAnnotationManagedLabels)
+		if len(annotations) == 0 {
+			device.Metadata.Annotations = nil
+		}
+	}
 }
 
 func (h *DeviceServiceHandler) UpdateDeviceAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) domain.Status {

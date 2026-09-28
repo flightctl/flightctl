@@ -137,6 +137,11 @@ func TestStoreErrorToApiStatus(t *testing.T) {
 			expectedCode: 409,
 		},
 		{
+			name:         "When err is a managed-label ownership conflict it should return 409",
+			err:          flterrors.ErrManagedLabelConflict,
+			expectedCode: 409,
+		},
+		{
 			name:         "When err is ErrDuplicateDeltaStorageTarget it should return 409",
 			err:          flterrors.ErrDuplicateDeltaStorageTarget,
 			expectedCode: 409,

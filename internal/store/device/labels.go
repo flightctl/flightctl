@@ -7,6 +7,7 @@ import (
 	"maps"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -297,4 +298,92 @@ func sameDeviceLabelOwner(left, right *uuid.UUID) bool {
 		return left == nil && right == nil
 	}
 	return *left == *right
+}
+
+func (s *DeviceStore) rejectManagedLabelChanges(ctx context.Context, orgID uuid.UUID, deviceName string, before, after map[string]string) error {
+	changedKeys := changedDeviceLabelKeys(before, after)
+	if len(changedKeys) == 0 {
+		return nil
+	}
+	var ownedCount int64
+	if err := s.getDB(ctx).Model(&model.DeviceLabel{}).
+		Where("org_id = ? AND device_name = ? AND label_key IN ? AND label_sync_mapping_id IS NOT NULL", orgID, deviceName, changedKeys).
+		Count(&ownedCount).Error; err != nil {
+		return store.ErrorFromGormError(err)
+	}
+	if ownedCount > 0 {
+		return flterrors.ErrManagedLabelConflict
+	}
+	return nil
+}
+
+func (s *DeviceStore) preserveOmittedManagedLabels(
+	ctx context.Context,
+	orgID uuid.UUID,
+	existing, updated *model.Device,
+	device *domain.Device,
+	explicitRemovalPaths map[string]struct{},
+) error {
+	var managedLabels []model.DeviceLabel
+	if err := s.getDB(ctx).
+		Select("label_key").
+		Where("org_id = ? AND device_name = ? AND label_sync_mapping_id IS NOT NULL", orgID, existing.Name).
+		Find(&managedLabels).Error; err != nil {
+		return store.ErrorFromGormError(err)
+	}
+	if len(managedLabels) == 0 {
+		return nil
+	}
+
+	labels := make(model.JSONMap[string, string], len(updated.Labels)+len(managedLabels))
+	for key, value := range updated.Labels {
+		labels[key] = value
+	}
+	changed := false
+	for _, managed := range managedLabels {
+		path := "/metadata/labels/" + strings.ReplaceAll(strings.ReplaceAll(managed.LabelKey, "~", "~0"), "/", "~1")
+		if _, explicitlyRemoved := explicitRemovalPaths[path]; explicitlyRemoved {
+			continue
+		}
+		if _, exists := labels[managed.LabelKey]; exists {
+			continue
+		}
+		value, exists := existing.Labels[managed.LabelKey]
+		if !exists {
+			continue
+		}
+		labels[managed.LabelKey] = value
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
+
+	updated.Labels = labels
+	apiLabels := make(map[string]string, len(labels))
+	for key, value := range labels {
+		apiLabels[key] = value
+	}
+	device.Metadata.Labels = &apiLabels
+	return nil
+}
+
+func changedDeviceLabelKeys(before, after map[string]string) []string {
+	keys := make(map[string]struct{}, len(before)+len(after))
+	for key := range before {
+		keys[key] = struct{}{}
+	}
+	for key := range after {
+		keys[key] = struct{}{}
+	}
+	changed := make([]string, 0, len(keys))
+	for key := range keys {
+		beforeValue, beforeExists := before[key]
+		afterValue, afterExists := after[key]
+		if beforeExists != afterExists || beforeValue != afterValue {
+			changed = append(changed, key)
+		}
+	}
+	sort.Strings(changed)
+	return changed
 }
