@@ -236,6 +236,43 @@ func TestLabelSyncMappingLifecycle(t *testing.T) {
 		assert.Equal(t, "Pending", lo.FromPtr(deleted.Status.Conditions)[0].Reason)
 	})
 
+	t.Run("When a mapping is being deleted it should reject replace and patch requests", func(t *testing.T) {
+		for _, requestType := range []string{"replace", "patch"} {
+			t.Run(requestType, func(t *testing.T) {
+				deletingStore := newFakeStore()
+				deletingHandler := newTestServiceHandler(t, deletingStore)
+				initial := mapping("deleting")
+				initial.ApiVersion = domain.APIGroup + "/" + domain.LabelSyncMappingAPIVersion
+				initial.Kind = domain.LabelSyncMappingKind
+				created, createStatus := deletingHandler.CreateLabelSyncMapping(ctx, firstOrg, initial)
+				require.EqualValues(t, 201, createStatus.Code)
+
+				deletingStore.addDeviceLabelReference(firstOrg, "deleting")
+				deleteStatus := deletingHandler.DeleteLabelSyncMapping(ctx, firstOrg, "deleting")
+				require.EqualValues(t, 200, deleteStatus.Code)
+				require.NotNil(t, created.Metadata.DeletionTimestamp)
+
+				var result *domain.LabelSyncMapping
+				var status domain.Status
+				if requestType == "replace" {
+					updated := mapping("deleting")
+					updated.Spec.ResourceType = "Fleet"
+					updated.Spec.Expression = "status.systemInfo.architecture + '-v2'"
+					result, status = deletingHandler.ReplaceLabelSyncMapping(ctx, firstOrg, "deleting", updated)
+				} else {
+					var value interface{} = "status.systemInfo.architecture + '-v2'"
+					patch := domain.PatchRequest{{Op: "replace", Path: "/spec/expression", Value: &value}}
+					result, status = deletingHandler.PatchLabelSyncMapping(ctx, firstOrg, "deleting", patch)
+				}
+
+				require.Nil(t, result)
+				assert.EqualValues(t, 409, status.Code, status.Message)
+				assert.NotNil(t, deletingStore.mappings[firstOrg]["deleting"].Metadata.DeletionTimestamp)
+				assert.Equal(t, "status.systemInfo.architecture", deletingStore.mappings[firstOrg]["deleting"].Spec.Expression)
+			})
+		}
+	})
+
 	t.Run("When an unowned mapping is deleted it should be removed during finalization", func(t *testing.T) {
 		unownedStore := newFakeStore()
 		unownedHandler := newTestServiceHandler(t, unownedStore)

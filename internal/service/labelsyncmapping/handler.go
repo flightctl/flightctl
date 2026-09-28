@@ -108,6 +108,9 @@ func (h *ServiceHandler) ReplaceLabelSyncMapping(ctx context.Context, orgID uuid
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, false, domain.LabelSyncMappingKind, &name)
 	}
+	if existing.Metadata.DeletionTimestamp != nil {
+		return nil, domain.StatusConflict("LabelSyncMapping is being deleted")
+	}
 	if errs := existing.ValidateUpdate(&mapping); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
@@ -154,6 +157,9 @@ func (h *ServiceHandler) PatchLabelSyncMapping(ctx context.Context, orgID uuid.U
 	current, err := h.store.Get(ctx, orgID, name)
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, false, domain.LabelSyncMappingKind, &name)
+	}
+	if current.Metadata.DeletionTimestamp != nil {
+		return nil, domain.StatusConflict("LabelSyncMapping is being deleted")
 	}
 	updated := &domain.LabelSyncMapping{}
 	if err := common.ApplyJSONPatch(ctx, current, updated, patch, "/labelsyncmappings/"+name); err != nil {

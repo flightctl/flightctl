@@ -304,8 +304,8 @@ func (s *labelSyncMappingStore) FinalizeDelete(ctx context.Context, orgID uuid.U
 
 func (s *labelSyncMappingStore) Revision(ctx context.Context, orgID uuid.UUID, resourceType domain.LabelSyncMappingResourceType) (int64, error) {
 	state := model.LabelSyncState{}
-	err := s.getDB(ctx).Where("org_id = ? AND resource_type = ?", orgID, resourceType).Take(&state).Error
-	if err == gorm.ErrRecordNotFound {
+	err := store.DB(ctx, s.db).Where("org_id = ? AND resource_type = ?", orgID, resourceType).Take(&state).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return 0, nil
 	}
 	return state.Revision, err
@@ -359,8 +359,4 @@ func cloneInt64(value *int64) *int64 {
 	}
 	clone := *value
 	return &clone
-}
-
-func (s *labelSyncMappingStore) getDB(ctx context.Context) *gorm.DB {
-	return s.db.WithContext(ctx)
 }

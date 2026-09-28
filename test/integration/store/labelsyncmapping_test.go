@@ -70,6 +70,20 @@ var _ = Describe("LabelSyncMappingStore", func() {
 		Expect(list.Items).To(HaveLen(2))
 	})
 
+	It("When a mapping is created in an active transaction it should be visible through revision reads", func() {
+		var revision int64
+		err := store.WithTransaction(ctx, db, func(txCtx context.Context) error {
+			if _, err := mappingStore.Create(txCtx, orgID, newLabelSyncMapping("transactional", "architecture")); err != nil {
+				return err
+			}
+			var err error
+			revision, err = mappingStore.Revision(txCtx, orgID, api.LabelSyncMappingSpecResourceTypeDevice)
+			return err
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(revision).To(Equal(int64(1)))
+	})
+
 	It("When mappings are stored it should persist stable identity, lifecycle revisions, and DeviceLabel ownership", func() {
 		for _, column := range []string{"id", "failure_revision", "deletion_revision", "deletion_timestamp"} {
 			Expect(db.Migrator().HasColumn("label_sync_mappings", column)).To(BeTrue(), "missing label_sync_mappings.%s", column)
