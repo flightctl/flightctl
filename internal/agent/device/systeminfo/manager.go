@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -24,7 +23,6 @@ import (
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/version"
-	"github.com/samber/lo"
 )
 
 type manager struct {
@@ -37,13 +35,15 @@ type manager struct {
 	dataDir    string
 
 	mu                 sync.Mutex
+	collectionMu       sync.Mutex
 	infoKeys           []string
 	customKeys         []string
 	collectionTimeout  time.Duration
 	collectionInterval time.Duration
-	intervalChanged    chan struct{}
-	collectors         map[string]CollectorFn
-	cachedSystemInfo   *v1beta1.DeviceSystemInfo
+	collectionChanged  chan struct{}
+	runtimeCollectors  map[string]CollectorFn
+	collection         []*collector
+	now                func() time.Time
 
 	log *log.PrefixLogger
 }
@@ -58,7 +58,7 @@ func NewManager(
 	collectionTimeout util.Duration,
 	collectionInterval util.Duration,
 ) *manager {
-	return &manager{
+	m := &manager{
 		exec:               exec,
 		readWriter:         readWriter,
 		dataDir:            dataDir,
@@ -66,10 +66,13 @@ func NewManager(
 		customKeys:         customKeys,
 		collectionTimeout:  time.Duration(collectionTimeout),
 		collectionInterval: time.Duration(collectionInterval),
-		intervalChanged:    make(chan struct{}, 1),
-		collectors:         make(map[string]CollectorFn),
+		collectionChanged:  make(chan struct{}, 1),
+		runtimeCollectors:  make(map[string]CollectorFn),
+		now:                time.Now,
 		log:                log,
 	}
+	m.rebuildCollectors()
+	return m
 }
 
 func (m *manager) Initialize(ctx context.Context) (err error) {
@@ -128,11 +131,14 @@ func (m *manager) ReloadConfig(ctx context.Context, cfg *config.Config) error {
 		m.log.Infof("Updating system info keys: %v -> %v", m.infoKeys, cfg.SystemInfo)
 		m.infoKeys = cfg.SystemInfo
 	}
-
 	if !reflect.DeepEqual(m.customKeys, cfg.SystemInfoCustom) {
 		m.log.Infof("Updating custom system info keys: %v -> %v", m.customKeys, cfg.SystemInfoCustom)
 		m.customKeys = cfg.SystemInfoCustom
 	}
+	// Reload custom script definitions on every SIGHUP, even when the
+	// configured keys are unchanged.
+	m.rebuildCollectors()
+	collectionChanged := true
 
 	timeout := time.Duration(cfg.SystemInfoTimeout)
 	if m.collectionTimeout != timeout {
@@ -144,8 +150,11 @@ func (m *manager) ReloadConfig(ctx context.Context, cfg *config.Config) error {
 	if m.collectionInterval != interval {
 		m.log.Infof("Updating system info collection interval: %v -> %v", m.collectionInterval, interval)
 		m.collectionInterval = interval
+		collectionChanged = true
+	}
+	if collectionChanged {
 		select {
-		case m.intervalChanged <- struct{}{}:
+		case m.collectionChanged <- struct{}{}:
 		default:
 		}
 	}
@@ -165,140 +174,232 @@ func (m *manager) BootTime() string {
 	return m.bootTime
 }
 
-// Run starts periodic system info collection in a blocking loop.
-// It collects at each collectionInterval tick. Stops when ctx is cancelled.
-func (m *manager) Run(ctx context.Context) {
-	m.mu.Lock()
-	interval := m.collectionInterval
-	m.mu.Unlock()
-
-	m.log.Debugf("Starting systeminfo collection loop (interval=%s)", interval)
-
-	if interval <= 0 {
-		m.log.Debugf("Systeminfo collection disabled (no interval)")
-		return
+func (m *manager) Status(ctx context.Context, deviceStatus *v1beta1.DeviceStatus, opts ...status.CollectorOpt) error {
+	collectorOpts := status.CollectorOpts{}
+	for _, opt := range opts {
+		opt(&collectorOpts)
 	}
+	if collectorOpts.Force {
+		m.collect(ctx)
+	}
+	deviceStatus.SystemInfo, deviceStatus.SystemInfoStatus = m.systemInfoFromCache()
 
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
+	return nil
+}
+
+// Run starts periodic system info collection and stops when ctx is cancelled.
+func (m *manager) Run(ctx context.Context) {
+	var (
+		interval time.Duration
+		ticker   *time.Ticker
+		ticks    <-chan time.Time
+	)
+	updateTicker := func() {
+		m.mu.Lock()
+		updatedInterval := m.collectionInterval
+		m.mu.Unlock()
+		if updatedInterval != interval {
+			if updatedInterval <= 0 {
+				if ticker != nil {
+					ticker.Stop()
+					ticker = nil
+					ticks = nil
+				}
+				m.log.Debugf("Systeminfo collection disabled (no interval)")
+			} else if ticker == nil {
+				ticker = time.NewTicker(updatedInterval)
+				ticks = ticker.C
+				m.log.Debugf("Starting systeminfo collection loop (interval=%s)", updatedInterval)
+			} else {
+				ticker.Reset(updatedInterval)
+				m.log.Debugf("Systeminfo collection loop changed (interval=%s)", updatedInterval)
+			}
+		}
+		interval = updatedInterval
+	}
+	updateTicker()
+	defer func() {
+		if ticker != nil {
+			ticker.Stop()
+		}
+	}()
 
 	for {
 		select {
 		case <-ctx.Done():
 			m.log.Debugf("Systeminfo collection loop stopped")
 			return
-		case <-m.intervalChanged:
-			m.mu.Lock()
-			interval = m.collectionInterval
-			m.mu.Unlock()
-			if interval <= 0 {
-				m.log.Debugf("Systeminfo collection disabled (no interval)")
-				return
-			}
-			ticker.Reset(interval)
-		case <-ticker.C:
+		case <-m.collectionChanged:
+			updateTicker()
+			m.collect(ctx)
+		case <-ticks:
 			m.collect(ctx)
 		}
 	}
 }
 
-// collect performs a single collection cycle, storing results in the cache.
-func (m *manager) collect(ctx context.Context) {
-	m.mu.Lock()
-	timeout := m.collectionTimeout
-	infoKeys := slices.Clone(m.infoKeys)
-	customKeys := slices.Clone(m.customKeys)
-	bootID := m.bootID
-	collectors := maps.Clone(m.collectors)
-	dataDir := m.dataDir
-	m.mu.Unlock()
-
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	systemInfo, err := collectDeviceSystemInfo(
-		ctx,
+func (m *manager) rebuildCollectors() {
+	m.collection = buildCollectors(
 		m.log,
 		m.exec,
 		m.readWriter,
-		infoKeys,
-		customKeys,
-		bootID,
-		collectors,
-		filepath.Join(dataDir, HardwareMapFileName),
+		filepath.Join(m.dataDir, HardwareMapFileName),
+		managerCollectionRequest(m.infoKeys, m.customKeys),
+		m.runtimeCollectors,
+		m.collection,
 	)
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if err != nil {
-		m.log.Warnf("System info collection failed: %v", err)
-		if m.cachedSystemInfo == nil {
-			m.cachedSystemInfo = new(m.defaultSystemInfo())
-		}
-		return
-	}
-	m.cachedSystemInfo = &systemInfo
 }
 
-func (m *manager) Status(ctx context.Context, deviceStatus *v1beta1.DeviceStatus, opts ...status.CollectorOpt) error {
-	var options status.CollectorOpts
-	for _, opt := range opts {
-		opt(&options)
+func managerCollectionRequest(infoKeys, customKeys []string) collectionRequest {
+	custom := customCollectionRequest{mode: customCollectionDisabled}
+	if customKeys == nil {
+		custom.mode = customCollectionDiscover
+	} else if len(customKeys) > 0 {
+		custom = customCollectionRequest{mode: customCollectionConfigured, keys: customKeys}
 	}
-	if options.Force {
-		m.collect(ctx)
-	}
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.cachedSystemInfo == nil {
-		deviceStatus.SystemInfo = m.defaultSystemInfo()
-		return nil
-	}
-	deviceStatus.SystemInfo = *m.cachedSystemInfo
-	return nil
+	return collectionRequest{infoKeys: infoKeys, custom: custom}
 }
 
-// RefreshRuntimeCollectors updates the cached values from registered runtime collectors.
-// It intentionally skips built-in system-info collection, which can be expensive.
-func (m *manager) RefreshRuntimeCollectors(ctx context.Context) {
+func (m *manager) collect(ctx context.Context) {
+	m.collectConfigured(ctx, false)
+}
+
+// CollectPending collects sources that have not yet been collected.
+func (m *manager) CollectPending(ctx context.Context) {
+	m.collectConfigured(ctx, true)
+}
+
+func (m *manager) collectConfigured(ctx context.Context, pendingOnly bool) {
+	m.collectionMu.Lock()
+	defer m.collectionMu.Unlock()
+
 	m.mu.Lock()
 	timeout := m.collectionTimeout
-	infoKeys := slices.Clone(m.infoKeys)
-	collectors := maps.Clone(m.collectors)
+	sources := slices.Clone(m.collection)
+	if pendingOnly {
+		sources = slices.DeleteFunc(sources, func(source *collector) bool {
+			return !source.pending()
+		})
+	}
 	m.mu.Unlock()
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
 
-	runtimeKeys := make([]string, 0, len(collectors))
-	for _, key := range infoKeys {
-		if _, ok := collectors[key]; ok {
-			runtimeKeys = append(runtimeKeys, key)
+	m.collectSources(ctx, sources)
+}
+
+func (m *manager) collectSources(ctx context.Context, sources []*collector) {
+	for _, source := range sources {
+		if ctx.Err() != nil {
+			return
+		}
+		info := &Info{Hardware: HardwareFacts{}}
+		err := source.collect(ctx, info)
+		if err == nil && ctx.Err() != nil {
+			err = ctx.Err()
+		}
+		if err != nil && !errors.IsContext(err) {
+			m.log.Warningf("System info collector failed: %v", err)
+		}
+		m.mu.Lock()
+		source.apply(info, err, m.now())
+		m.mu.Unlock()
+		if ctx.Err() != nil {
+			return
 		}
 	}
-	if len(runtimeKeys) == 0 {
-		return
-	}
+}
 
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	runtimeInfo := getSystemInfoMap(ctx, m.log, &Info{}, runtimeKeys, collectors)
-
+func (m *manager) infoFromCache() *Info {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	var cachedSystemInfo v1beta1.DeviceSystemInfo
-	if m.cachedSystemInfo == nil {
-		cachedSystemInfo = m.defaultSystemInfo()
-	} else {
-		cachedSystemInfo = *m.cachedSystemInfo
-		cachedSystemInfo.AdditionalProperties = maps.Clone(cachedSystemInfo.AdditionalProperties)
+	info := &Info{
+		CollectedAt: time.Now().Format(time.RFC3339),
+		Hardware:    HardwareFacts{},
+		Metadata: map[string]interface{}{
+			"collector_version": version.Get().String(),
+			"collector_type":    "flightctl-agent",
+		},
 	}
-	if cachedSystemInfo.AdditionalProperties == nil {
-		cachedSystemInfo.AdditionalProperties = make(map[string]string)
+	for _, source := range m.collection {
+		if source.raw == nil {
+			continue
+		}
+		for _, executor := range source.executors {
+			if executor.projectInfo != nil {
+				executor.projectInfo(info, source.raw)
+			}
+		}
 	}
-	maps.Copy(cachedSystemInfo.AdditionalProperties, runtimeInfo)
-	m.cachedSystemInfo = &cachedSystemInfo
+	return info
+}
+
+func (m *manager) systemInfoFromCache() (v1beta1.DeviceSystemInfo, *v1beta1.DeviceSystemInfoStatus) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	systemInfo := m.defaultSystemInfo()
+	systemInfo.AdditionalProperties = make(map[string]string)
+	customInfo := make(v1beta1.CustomDeviceInfo)
+	statuses := v1beta1.DeviceSystemInfoStatuses{
+		SystemInfo: make(map[string]v1beta1.SystemInfoSourceStatus),
+		CustomInfo: make(map[string]v1beta1.SystemInfoSourceStatus),
+	}
+	failed := 0
+	total := 0
+	unknown := false
+	for _, source := range m.collection {
+		for _, exec := range source.executors {
+			if exec.kind == hiddenSource {
+				continue
+			}
+			total++
+			if !exec.attempted {
+				unknown = true
+				continue
+			}
+			entry := v1beta1.SystemInfoSourceStatus{
+				LastTransitionTime: exec.lastTransitionTime,
+				Status:             v1beta1.SystemInfoSourceStatusHealthy,
+			}
+			if exec.failed {
+				entry.Message = new(exec.message)
+				entry.Status = v1beta1.SystemInfoSourceStatusError
+				failed++
+			}
+			if exec.kind == systemInfoSource {
+				statuses.SystemInfo[exec.key] = entry
+				if exec.hasValue {
+					systemInfo.AdditionalProperties[exec.key] = exec.value
+				}
+			} else {
+				statuses.CustomInfo[exec.key] = entry
+				if exec.hasValue {
+					customInfo[exec.key] = exec.value
+				}
+			}
+		}
+	}
+	if len(customInfo) > 0 {
+		systemInfo.CustomInfo = &customInfo
+	}
+
+	summary := v1beta1.SystemInfoSummaryStatusHealthy
+	if total == 0 || unknown {
+		summary = v1beta1.SystemInfoSummaryStatusUnknown
+	} else if failed == total {
+		summary = v1beta1.SystemInfoSummaryStatusError
+	} else if failed > 0 {
+		summary = v1beta1.SystemInfoSummaryStatusDegraded
+	}
+	return systemInfo, &v1beta1.DeviceSystemInfoStatus{
+		Statuses: statuses,
+		Summary:  v1beta1.DeviceSystemInfoSummaryStatus{Status: summary},
+	}
 }
 
 // defaultSystemInfo returns the default system info.
@@ -324,14 +425,14 @@ func (m *manager) RegisterCollector(ctx context.Context, key string, fn Collecto
 		return
 	}
 
-	if !common.IsKnownKey(key) {
+	if !common.IsRuntimeKey(key) {
 		if m.log != nil {
 			m.log.Errorf("Unknown system info collector key: %q", key)
 		}
 		return
 	}
 
-	if common.IsBuiltInKey(key) {
+	if _, isBuiltIn := collectorForInfoKey(key); isBuiltIn {
 		if m.log != nil {
 			m.log.Errorf("BuiltIn system info key must not be registered as a runtime collector: %q", key)
 		}
@@ -345,55 +446,17 @@ func (m *manager) RegisterCollector(ctx context.Context, key string, fn Collecto
 		m.log.Debugf("Registering system info collector: %s", key)
 	}
 
-	if _, ok := m.collectors[key]; ok {
+	if _, ok := m.runtimeCollectors[key]; ok {
 		if m.log != nil {
 			m.log.Errorf("Collector %s already registered", key)
 		}
 		return
 	}
 
-	m.collectors[key] = fn
-}
-
-// collectDeviceSystemInfo collects the system information from the device and returns it as a DeviceSystemInfo object.
-func collectDeviceSystemInfo(
-	ctx context.Context,
-	log *log.PrefixLogger,
-	exec executer.Executer,
-	reader fileio.Reader,
-	infoKeys []string,
-	customKeys []string,
-	bootID string,
-	collectors map[string]CollectorFn,
-	hardwareMapPath string,
-) (v1beta1.DeviceSystemInfo, error) {
-	agentVersion := version.Get()
-
-	collectionOpts, err := collectionOptsFromInfoKeys(infoKeys)
-	// Don't block collection for a few unknown keys. Try our best to grab everything we can
-	if err != nil {
-		log.Warnf("Failed to handle system info keys: %v", err)
+	m.runtimeCollectors[key] = fn
+	if slices.Contains(m.infoKeys, key) {
+		m.rebuildCollectors()
 	}
-
-	info, err := Collect(ctx, log, exec, reader, customKeys, hardwareMapPath, collectionOpts...)
-	if err != nil {
-		log.Errorf("Failed to collect system info: %v", err)
-		return v1beta1.DeviceSystemInfo{}, err
-	}
-
-	systemInfoMap := getSystemInfoMap(ctx, log, info, infoKeys, collectors)
-	log.Tracef("system info map: %v", systemInfoMap)
-	s := v1beta1.DeviceSystemInfo{
-		Architecture:         info.Architecture,
-		OperatingSystem:      info.OperatingSystem,
-		BootID:               bootID,
-		AgentVersion:         agentVersion.GitVersion,
-		AdditionalProperties: systemInfoMap,
-	}
-	if len(info.Custom) > 0 {
-		s.CustomInfo = lo.ToPtr(v1beta1.CustomDeviceInfo(info.Custom))
-	}
-	return s, nil
 }
 
 // getBoot returns the boot status from disk.

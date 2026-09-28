@@ -69,6 +69,18 @@ func (mr *MockManagerMockRecorder) BootTime() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "BootTime", reflect.TypeOf((*MockManager)(nil).BootTime))
 }
 
+// CollectPending mocks base method.
+func (m *MockManager) CollectPending(ctx context.Context) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "CollectPending", ctx)
+}
+
+// CollectPending indicates an expected call of CollectPending.
+func (mr *MockManagerMockRecorder) CollectPending(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CollectPending", reflect.TypeOf((*MockManager)(nil).CollectPending), ctx)
+}
+
 // IsRebooted mocks base method.
 func (m *MockManager) IsRebooted() bool {
 	m.ctrl.T.Helper()
@@ -81,18 +93,6 @@ func (m *MockManager) IsRebooted() bool {
 func (mr *MockManagerMockRecorder) IsRebooted() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsRebooted", reflect.TypeOf((*MockManager)(nil).IsRebooted))
-}
-
-// RefreshRuntimeCollectors mocks base method.
-func (m *MockManager) RefreshRuntimeCollectors(ctx context.Context) {
-	m.ctrl.T.Helper()
-	m.ctrl.Call(m, "RefreshRuntimeCollectors", ctx)
-}
-
-// RefreshRuntimeCollectors indicates an expected call of RefreshRuntimeCollectors.
-func (mr *MockManagerMockRecorder) RefreshRuntimeCollectors(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RefreshRuntimeCollectors", reflect.TypeOf((*MockManager)(nil).RefreshRuntimeCollectors), ctx)
 }
 
 // RegisterCollector mocks base method.

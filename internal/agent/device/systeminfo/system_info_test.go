@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/config"
-	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/systeminfo/common"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -38,7 +37,7 @@ func BenchmarkCollectInfo(b *testing.B) {
 	}
 }
 
-func TestGetCustomInfoMap(t *testing.T) {
+func TestCollectCustomInfo(t *testing.T) {
 	require := require.New(t)
 
 	tests := []struct {
@@ -159,7 +158,7 @@ func TestGetCustomInfoMap(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel()
 
-			details, err := getCustomInfoMap(ctx, log, tt.keys, rw, exec)
+			info, err := Collect(ctx, log, exec, rw, tt.keys, "")
 			if tt.wantError != nil {
 				require.Error(err)
 				require.ErrorIs(err, tt.wantError)
@@ -167,11 +166,43 @@ func TestGetCustomInfoMap(t *testing.T) {
 			}
 			require.NoError(err)
 
-			value, exists := details[tt.lookupKey]
+			value, exists := info.Custom[tt.lookupKey]
 			require.Equal(tt.expectedExists, exists, "key existence mismatch")
 			require.Equal(tt.expectedValue, value, "value mismatch")
 		})
 	}
+}
+
+func TestCollectDiscoversExecutableCustomScripts(t *testing.T) {
+	require := require.New(t)
+	tmpDir := t.TempDir()
+	readWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+	)
+	require.NoError(readWriter.MkdirAll(config.SystemInfoCustomScriptDir, fileio.DefaultDirectoryPermissions))
+	require.NoError(readWriter.WriteFile(
+		filepath.Join(config.SystemInfoCustomScriptDir, "site.sh"),
+		[]byte("#!/bin/sh\necho site\n"),
+		fileio.DefaultExecutablePermissions,
+	))
+	require.NoError(readWriter.WriteFile(
+		filepath.Join(config.SystemInfoCustomScriptDir, "ignored.sh"),
+		[]byte("#!/bin/sh\necho ignored\n"),
+		0644,
+	))
+
+	ctrl := gomock.NewController(t)
+	exec := executer.NewMockExecuter(ctrl)
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "uptime", "-s").Return("2024-12-13 11:01:08", "", 0)
+	exec.EXPECT().ExecuteWithContext(
+		gomock.Any(),
+		filepath.Join(readWriter.PathFor(config.SystemInfoCustomScriptDir), "site.sh"),
+	).Return("site\n", "", 0)
+
+	info, err := Collect(context.Background(), log.NewPrefixLogger("test"), exec, readWriter, nil, "", WithAllCustom())
+	require.NoError(err)
+	require.Equal(map[string]string{"site": "site"}, info.Custom)
 }
 
 func generateScriptBytes(sleepms int, output string, exitCode int) []byte {
@@ -187,94 +218,27 @@ func generateScriptBytes(sleepms int, output string, exitCode int) []byte {
 
 func TestGetCollectionOptsFromInfoKeys(t *testing.T) {
 	tests := []struct {
-		name          string
-		infoKeys      []string
-		expectCPU     bool
-		expectGPU     bool
-		expectMemory  bool
-		expectNetwork bool
-		expectBIOS    bool
-		expectSystem  bool
-		expectKernel  bool
-		expectDistro  bool
-		expectErr     bool
+		name      string
+		infoKeys  []string
+		expected  []string
+		expectErr bool
 	}{
+		{name: "empty infoKeys"},
 		{
-			name:     "empty infoKeys",
-			infoKeys: []string{},
+			name:     "selected keys are retained without source expansion",
+			infoKeys: []string{common.ProductNameKey, common.ProductNameKey, common.NetIPDefaultKey},
+			expected: []string{common.ProductNameKey, common.NetIPDefaultKey},
 		},
 		{
-			name:      "CPU keys",
-			infoKeys:  []string{common.CPUCoresKey, common.CPUProcessorsKey, common.CPUModelKey},
-			expectCPU: true,
-		},
-		{
-			name:      "GPU keys",
-			infoKeys:  []string{common.GPUKey},
-			expectGPU: true,
-		},
-		{
-			name:         "memory keys",
-			infoKeys:     []string{common.MemoryTotalKbKey},
-			expectMemory: true,
-		},
-		{
-			name:          "network keys",
-			infoKeys:      []string{common.NetInterfaceDefaultKey, common.NetIPDefaultKey, common.NetMACDefaultKey},
-			expectNetwork: true,
-		},
-		{
-			name:       "BIOS keys",
-			infoKeys:   []string{common.BIOSVendorKey, common.BIOSVersionKey},
-			expectBIOS: true,
-		},
-		{
-			name:         "system keys",
-			infoKeys:     []string{common.ProductNameKey, common.ProductSerialKey, common.ProductUUIDKey},
-			expectSystem: true,
-		},
-		{
-			name:         "kernel key",
-			infoKeys:     []string{common.KernelKey},
-			expectKernel: true,
-		},
-		{
-			name:         "distribution keys",
-			infoKeys:     []string{common.DistroNameKey, common.DistroVersionKey, common.DistroIdKey},
-			expectDistro: true,
-		},
-		{
-			name:          "mixed keys",
-			infoKeys:      []string{common.CPUCoresKey, common.GPUKey, common.NetIPDefaultKey, common.ProductNameKey},
-			expectCPU:     true,
-			expectGPU:     true,
-			expectNetwork: true,
-			expectSystem:  true,
-		},
-		{
-			name:      "unknown keys",
+			name:      "unknown keys are rejected",
 			infoKeys:  []string{"unknownKey", "anotherUnknown"},
 			expectErr: true,
 		},
 		{
-			name:      "mixed known and unknown",
+			name:      "known keys survive unknown keys",
 			infoKeys:  []string{common.CPUCoresKey, "unknownKey", common.GPUKey},
-			expectCPU: true,
-			expectGPU: true,
+			expected:  []string{common.CPUCoresKey, common.GPUKey},
 			expectErr: true,
-		},
-		{
-			name:      "hostname key should be supported",
-			infoKeys:  []string{common.HostnameKey},
-			expectErr: false, // Fixed: hostname is now properly supported
-		},
-		{
-			name:          "default system info with hostname key",
-			infoKeys:      config.DefaultSystemInfo, // This includes "hostname" which is now supported
-			expectKernel:  true,                     // kernel is in default config
-			expectDistro:  true,                     // distro keys are in default config
-			expectSystem:  true,                     // product keys are in default config
-			expectNetwork: true,                     // network keys are in default config
 		},
 	}
 
@@ -293,128 +257,45 @@ func TestGetCollectionOptsFromInfoKeys(t *testing.T) {
 				opt(cfg)
 			}
 
-			require.Equal(t, tt.expectCPU, cfg.hasCollector(collectorCPU), "CPU collection mismatch")
-			require.Equal(t, tt.expectGPU, cfg.hasCollector(collectorGPU), "GPU collection mismatch")
-			require.Equal(t, tt.expectMemory, cfg.hasCollector(collectorMemory), "Memory collection mismatch")
-			require.Equal(t, tt.expectNetwork, cfg.hasCollector(collectorNetwork), "Network collection mismatch")
-			require.Equal(t, tt.expectBIOS, cfg.hasCollector(collectorBIOS), "BIOS collection mismatch")
-			require.Equal(t, tt.expectSystem, cfg.hasCollector(collectorSystem), "System collection mismatch")
-			require.Equal(t, tt.expectKernel, cfg.hasCollector(collectorKernel), "Kernel collection mismatch")
-			require.Equal(t, tt.expectDistro, cfg.hasCollector(collectorDistribution), "Distribution collection mismatch")
+			require.Equal(t, tt.expected, cfg.infoKeys)
 		})
 	}
 }
 
-func TestCollectOptFunctions(t *testing.T) {
-	t.Run("WithAll enables all collections", func(t *testing.T) {
-		cfg := &collectCfg{}
-		WithAll()(cfg)
+func TestWithAllSelectsEveryBuiltInKey(t *testing.T) {
+	cfg := &collectCfg{}
+	WithAll()(cfg)
 
-		require.True(t, cfg.hasCollector(collectorCPU))
-		require.True(t, cfg.hasCollector(collectorGPU))
-		require.True(t, cfg.hasCollector(collectorMemory))
-		require.True(t, cfg.hasCollector(collectorNetwork))
-		require.True(t, cfg.hasCollector(collectorBIOS))
-		require.True(t, cfg.hasCollector(collectorSystem))
-		require.True(t, cfg.hasCollector(collectorKernel))
-		require.True(t, cfg.hasCollector(collectorDistribution))
-		require.True(t, cfg.collectAllCustom)
-	})
+	require.True(t, cfg.collectAllCustom)
+	require.Len(t, cfg.infoKeys, len(systemInfoKeyDefinitions))
+	for key := range systemInfoKeyDefinitions {
+		require.True(t, cfg.hasInfoKey(key))
+	}
+}
 
-	t.Run("individual collection options", func(t *testing.T) {
-		tests := []struct {
-			name  string
-			opt   CollectOpt
-			check collectorType
-		}{
-			{"withCPUCollector", withCollector(collectorCPU, collectCPUFunc), collectorCPU},
-			{"withGPUCollector", withCollector(collectorGPU, collectGPUFunc), collectorGPU},
-			{"withMemoryCollector", withCollector(collectorMemory, collectMemoryFunc), collectorMemory},
-			{"withNetworkCollector", withCollector(collectorNetwork, collectNetworkFunc), collectorNetwork},
-			{"withBIOSCollector", withCollector(collectorBIOS, collectBIOSFunc), collectorBIOS},
-			{"withSystemCollector", withCollector(collectorSystem, collectSystemFunc), collectorSystem},
-			{"withKernelCollector", withCollector(collectorKernel, collectKernelFunc), collectorKernel},
-			{"withDistributionCollector", withCollector(collectorDistribution, collectDistributionFunc), collectorDistribution},
+func TestBuildCollectorsGroupsSelectedKeysBySource(t *testing.T) {
+	require := require.New(t)
+	collectors := buildCollectors(
+		log.NewPrefixLogger("test"),
+		nil,
+		nil,
+		"",
+		collectionRequest{infoKeys: []string{common.ProductNameKey, common.ProductSerialKey}},
+		nil,
+		nil,
+	)
+
+	require.Len(collectors, 2, "boot and the one selected shared system source")
+	for _, source := range collectors {
+		if source.source != systemSource {
+			continue
 		}
-
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				cfg := &collectCfg{}
-				tt.opt(cfg)
-				require.True(t, cfg.hasCollector(tt.check), "Option should enable its corresponding collection")
-			})
-		}
-	})
-
-	t.Run("combining options", func(t *testing.T) {
-		tests := []struct {
-			name      string
-			opts      []CollectOpt
-			expected  map[collectorType]bool
-			allCustom bool
-		}{
-			{
-				name: "CPU and GPU only",
-				opts: []CollectOpt{withCollector(collectorCPU, collectCPUFunc), withCollector(collectorGPU, collectGPUFunc)},
-				expected: map[collectorType]bool{
-					collectorCPU:          true,
-					collectorGPU:          true,
-					collectorMemory:       false,
-					collectorNetwork:      false,
-					collectorBIOS:         false,
-					collectorSystem:       false,
-					collectorKernel:       false,
-					collectorDistribution: false,
-				},
-				allCustom: false,
-			},
-			{
-				name: "Hardware collectors",
-				opts: []CollectOpt{withCollector(collectorCPU, collectCPUFunc), withCollector(collectorMemory, collectMemoryFunc), withCollector(collectorBIOS, collectBIOSFunc), withCollector(collectorSystem, collectSystemFunc)},
-				expected: map[collectorType]bool{
-					collectorCPU:          true,
-					collectorMemory:       true,
-					collectorBIOS:         true,
-					collectorSystem:       true,
-					collectorGPU:          false,
-					collectorNetwork:      false,
-					collectorKernel:       false,
-					collectorDistribution: false,
-				},
-				allCustom: false,
-			},
-			{
-				name: "With custom collection",
-				opts: []CollectOpt{withCollector(collectorNetwork, collectNetworkFunc), WithAllCustom()},
-				expected: map[collectorType]bool{
-					collectorNetwork:      true,
-					collectorCPU:          false,
-					collectorGPU:          false,
-					collectorMemory:       false,
-					collectorBIOS:         false,
-					collectorSystem:       false,
-					collectorKernel:       false,
-					collectorDistribution: false,
-				},
-				allCustom: true,
-			},
-		}
-
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				cfg := &collectCfg{}
-				for _, opt := range tt.opts {
-					opt(cfg)
-				}
-
-				for collectorType, expected := range tt.expected {
-					require.Equal(t, expected, cfg.hasCollector(collectorType),
-						"Collector type %v should be %v", collectorType, expected)
-				}
-				require.Equal(t, tt.allCustom, cfg.collectAllCustom)
-			})
-		}
-	})
+		require.Len(source.executors, 2)
+		require.Equal(common.ProductNameKey, source.executors[0].key)
+		require.Equal(common.ProductSerialKey, source.executors[1].key)
+		return
+	}
+	t.Fatal("system source was not constructed")
 }
 
 func TestCollect_AllDisabled(t *testing.T) {
@@ -501,17 +382,13 @@ func TestGetCustomInfoContextTimeout(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel()
 
-			entries, err := rw.ReadDir(config.SystemInfoCustomScriptDir)
-			require.NoError(err)
-
 			start := time.Now()
-			value, err := getCustomInfoValue(ctx, "slowScript", rw, exec, entries)
+			info, err := Collect(ctx, log.NewPrefixLogger("test"), exec, rw, []string{"slowScript"}, "")
 			elapsed := time.Since(start)
 
 			require.Less(elapsed, 200*time.Millisecond, "timeout quickly")
-			require.Error(err)
-			require.True(errors.IsContext(err), "context error")
-			require.Empty(value, "empty on timeout")
+			require.NoError(err)
+			require.Empty(info.Custom["slowScript"], "empty on timeout")
 		})
 	}
 }
