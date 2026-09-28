@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -23,6 +24,7 @@ import (
 	"github.com/flightctl/flightctl/test/util"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 func TestInitialization(t *testing.T) {
@@ -874,13 +876,22 @@ func TestEnsurePostEnrollmentHooks(t *testing.T) {
 			mockStatusManager := status.NewMockManager(ctrl)
 			mockIdentityProvider := identity.NewMockProvider(ctrl)
 
+			// Use a fast backoff for tests so they don't sleep.
+			fastBackoff := &wait.Backoff{
+				Steps:    3,
+				Duration: 1 * time.Millisecond,
+				Factor:   1.0,
+				Cap:      10 * time.Millisecond,
+			}
+
 			b := &Bootstrap{
-				deviceName:       testDeviceName,
-				managementClient: mockManagement,
-				hookManager:      mockHookManager,
-				statusManager:    mockStatusManager,
-				identityProvider: mockIdentityProvider,
-				log:              log.NewPrefixLogger("test"),
+				deviceName:             testDeviceName,
+				managementClient:       mockManagement,
+				hookManager:            mockHookManager,
+				statusManager:          mockStatusManager,
+				identityProvider:       mockIdentityProvider,
+				enrollmentHooksBackoff: fastBackoff,
+				log:                    log.NewPrefixLogger("test"),
 			}
 
 			ctx := context.TODO()
