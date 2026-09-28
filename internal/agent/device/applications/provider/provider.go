@@ -307,31 +307,66 @@ func decorateApplicationTargets(
 }
 
 func applicationDeltaHints(spec *ApplicationSpec) (*string, []v1beta1.ImageDeltaHint) {
-	var imageSpec v1beta1.ImageApplicationProviderSpec
-	found := false
-	var err error
 	switch {
 	case spec.ContainerApp != nil:
-		imageSpec, err = spec.ContainerApp.AsImageApplicationProviderSpec()
-		found = true
-	case spec.ComposeApp != nil && spec.ComposeApp.Type() == v1beta1.ImageApplicationProviderType:
-		imageSpec, err = spec.ComposeApp.AsImageApplicationProviderSpec()
-		found = true
+		imageSpec, err := spec.ContainerApp.AsImageApplicationProviderSpec()
+		if err != nil {
+			return nil, nil
+		}
+		return imageProviderDeltaHints(imageSpec)
+	case spec.ComposeApp != nil:
+		switch spec.ComposeApp.Type() {
+		case v1beta1.ImageApplicationProviderType:
+			imageSpec, err := spec.ComposeApp.AsImageApplicationProviderSpec()
+			if err != nil {
+				return nil, nil
+			}
+			return imageProviderDeltaHints(imageSpec)
+		case v1beta1.InlineApplicationProviderType:
+			inlineSpec, err := spec.ComposeApp.AsInlineApplicationProviderSpec()
+			if err != nil {
+				return nil, nil
+			}
+			return inlineProviderDeltaHints(inlineSpec)
+		}
 	case spec.HelmApp != nil:
-		imageSpec, err = spec.HelmApp.AsImageApplicationProviderSpec()
-		found = true
-	case spec.QuadletApp != nil && spec.QuadletApp.Type() == v1beta1.ImageApplicationProviderType:
-		imageSpec, err = spec.QuadletApp.AsImageApplicationProviderSpec()
-		found = true
+		imageSpec, err := spec.HelmApp.AsImageApplicationProviderSpec()
+		if err != nil {
+			return nil, nil
+		}
+		return imageProviderDeltaHints(imageSpec)
+	case spec.QuadletApp != nil:
+		switch spec.QuadletApp.Type() {
+		case v1beta1.ImageApplicationProviderType:
+			imageSpec, err := spec.QuadletApp.AsImageApplicationProviderSpec()
+			if err != nil {
+				return nil, nil
+			}
+			return imageProviderDeltaHints(imageSpec)
+		case v1beta1.InlineApplicationProviderType:
+			inlineSpec, err := spec.QuadletApp.AsInlineApplicationProviderSpec()
+			if err != nil {
+				return nil, nil
+			}
+			return inlineProviderDeltaHints(inlineSpec)
+		}
 	}
-	if err != nil || !found {
-		return nil, nil
-	}
+	return nil, nil
+}
+
+func imageProviderDeltaHints(imageSpec v1beta1.ImageApplicationProviderSpec) (*string, []v1beta1.ImageDeltaHint) {
 	var nested []v1beta1.ImageDeltaHint
 	if imageSpec.DeltaImages != nil {
 		nested = *imageSpec.DeltaImages
 	}
 	return imageSpec.DeltaImage, nested
+}
+
+func inlineProviderDeltaHints(inlineSpec v1beta1.InlineApplicationProviderSpec) (*string, []v1beta1.ImageDeltaHint) {
+	if inlineSpec.DeltaImages == nil {
+		return nil, nil
+	}
+	return nil, *inlineSpec.DeltaImages
 }
 
 func digestFromReference(reference string) string {
