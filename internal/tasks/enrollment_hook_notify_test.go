@@ -433,7 +433,7 @@ func TestEnrollmentHookNotify_EndToEnd(t *testing.T) {
 		assert.Contains(t, err.Error(), "failed to get device")
 	})
 
-	t.Run("When parent EventProcessingTimeout expires it should still complete slow webhook", func(t *testing.T) {
+	t.Run("When worker context stays alive it should complete slow webhook beyond EventProcessingTimeout", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		defer ctrl.Finish()
 
@@ -481,12 +481,78 @@ func TestEnrollmentHookNotify_EndToEnd(t *testing.T) {
 				return statusOK
 			})
 
-		// Simulate the consumer's short EventProcessingTimeout expiring while
-		// the webhook is still in flight; notify must keep running.
-		parentCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-		defer cancel()
-
-		err := enrollmentHookNotifyWithClient(parentCtx, orgId, makeEvent(), mockDeviceSvc, mockERSvc, mockSecrets, mockEventSvc, log, server.Client())
+		// Consumer passes the worker root context (not the 10s event timeout).
+		err := enrollmentHookNotifyWithClient(context.Background(), orgId, makeEvent(), mockDeviceSvc, mockERSvc, mockSecrets, mockEventSvc, log, server.Client())
 		require.NoError(t, err)
+	})
+
+	t.Run("When worker context is canceled it should abort notify", func(t *testing.T) {
+		ctrl := gomock.NewController(t)
+		defer ctrl.Finish()
+
+		mockDeviceSvc := deviceservice.NewMockService(ctrl)
+		mockERSvc := enrollmentrequestservice.NewMockService(ctrl)
+		mockSecrets := enrollmenthooknotifysecrets.NewMockStore(ctrl)
+		mockEventSvc := eventservice.NewMockService(ctrl)
+
+		started := make(chan struct{})
+		server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			close(started)
+			time.Sleep(5 * time.Second)
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		device := &domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(erName)},
+			Status: &domain.DeviceStatus{
+				Conditions: []domain.Condition{{
+					Type:   domain.ConditionTypeDeviceEnrollmentHooks,
+					Status: domain.ConditionStatusFalse,
+					Reason: domain.EnrollmentHooksReasonNotifyPending,
+				}},
+				EnrollmentHooks: &domain.DeviceEnrollmentHooksStatus{
+					Snapshot: &domain.EnrollmentHookSnapshot{
+						FailurePolicy: domain.FailurePolicyBlock,
+						ControlPlaneActions: &[]domain.EnrollmentHookSnapshotAction{{
+							Index:   0,
+							Url:     server.URL,
+							Timeout: lo.ToPtr("5s"),
+							Retry: &domain.EnrollmentHookRetryPolicy{
+								MaxAttempts:  lo.ToPtr(1),
+								BackoffDelay: lo.ToPtr("1ms"),
+							},
+						}},
+					},
+				},
+			},
+		}
+
+		mockDeviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, erName).Return(device, statusOK)
+		mockERSvc.EXPECT().GetEnrollmentRequest(gomock.Any(), orgId, erName).
+			Return(nil, domain.StatusResourceNotFound("EnrollmentRequest", erName))
+		mockSecrets.EXPECT().ListByDevice(gomock.Any(), orgId, erName).Return(nil, nil)
+		mockDeviceSvc.EXPECT().SetDeviceServiceConditions(gomock.Any(), orgId, erName, gomock.Any()).
+			Return(statusOK).AnyTimes()
+
+		workerCtx, cancelWorker := context.WithCancel(context.Background())
+		errCh := make(chan error, 1)
+		go func() {
+			errCh <- enrollmentHookNotifyWithClient(workerCtx, orgId, makeEvent(), mockDeviceSvc, mockERSvc, mockSecrets, mockEventSvc, log, server.Client())
+		}()
+
+		select {
+		case <-started:
+		case <-time.After(2 * time.Second):
+			t.Fatal("webhook was not reached")
+		}
+		cancelWorker()
+
+		select {
+		case err := <-errCh:
+			require.Error(t, err)
+		case <-time.After(2 * time.Second):
+			t.Fatal("notify did not abort after worker cancel")
+		}
 	})
 }

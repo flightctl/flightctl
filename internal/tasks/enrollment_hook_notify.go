@@ -5,7 +5,6 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -143,20 +142,11 @@ func enrollmentHookNotifyWithClient(
 	log logrus.FieldLogger,
 	httpClient *http.Client,
 ) error {
-	// Detach from the parent's EventProcessingTimeout so notify delivery can
-	// honor its own retry deadline. Explicit parent cancellation (shutdown)
-	// still propagates.
-	notifyCtx, cancelNotify := context.WithTimeout(context.WithoutCancel(ctx), EnrollmentHookNotifyProcessingTimeout)
+	// ctx is the worker root context from the consumer (not the per-event
+	// EventProcessingTimeout). Apply the notify deadline here so delivery can
+	// run up to the retry policy while still stopping on worker shutdown.
+	notifyCtx, cancelNotify := context.WithTimeout(ctx, EnrollmentHookNotifyProcessingTimeout)
 	defer cancelNotify()
-	go func() {
-		select {
-		case <-ctx.Done():
-			if errors.Is(ctx.Err(), context.Canceled) {
-				cancelNotify()
-			}
-		case <-notifyCtx.Done():
-		}
-	}()
 
 	erName := event.InvolvedObject.Name
 

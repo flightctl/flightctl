@@ -62,7 +62,11 @@ func (d TaskConsumer) dispatch() queues.ConsumeHandler {
 			defer d.WorkerMetrics.DecMessagesInProgress()
 		}
 
-		// Add timeout for the entire event processing
+		// Preserve the worker root context before applying the per-event
+		// processing timeout. Long-running tasks (enrollment hook notify) use
+		// workerCtx so they keep shutdown cancellation without inheriting the
+		// short EventProcessingTimeout deadline.
+		workerCtx := ctx
 		ctx, cancel := context.WithTimeout(ctx, EventProcessingTimeout)
 		defer cancel()
 
@@ -167,7 +171,9 @@ func (d TaskConsumer) dispatch() queues.ConsumeHandler {
 		if shouldEnrollmentHookNotify(eventWithOrgId.Event) {
 			taskName = "enrollmentHookNotify"
 			err = runTaskWithMetrics(taskName, d.WorkerMetrics, func() error {
-				return enrollmentHookNotify(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event,
+				// Use workerCtx (not the 10s event ctx) so notify can honor its
+				// own deadline while still stopping on worker shutdown.
+				return enrollmentHookNotify(workerCtx, eventWithOrgId.OrgId, eventWithOrgId.Event,
 					d.DeviceSvc, d.EnrollmentRequestSvc, d.NotifySecretsStore, d.EventSvc, log)
 			})
 			errorMessages = appendErrorMessage(errorMessages, taskName, err)
