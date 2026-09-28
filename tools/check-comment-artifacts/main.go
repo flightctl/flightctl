@@ -16,7 +16,9 @@ import (
 	"strings"
 )
 
-var scanRoots = []string{"api", "cmd", "internal", "pkg", "test"}
+// tools/ is intentionally omitted: this checker and its tests contain marker
+// fixtures on purpose.
+var scanRoots = []string{"api", "cmd", "internal", "pkg", "test", "scripts"}
 
 // Forbidden markers inside Go comments.
 var forbidden = regexp.MustCompile(
@@ -35,6 +37,10 @@ func main() {
 
 	root, err := resolveRoot(*rootFlag)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		os.Exit(2)
+	}
+	if err := ensureRoot(root); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(2)
 	}
@@ -72,6 +78,17 @@ func resolveRoot(explicit string) (string, error) {
 		return filepath.Abs(filepath.Join(wd, "../.."))
 	}
 	return filepath.Abs(wd)
+}
+
+func ensureRoot(root string) error {
+	fi, err := os.Stat(root)
+	if err != nil {
+		return fmt.Errorf("root %q: %w", root, err)
+	}
+	if !fi.IsDir() {
+		return fmt.Errorf("root %q is not a directory", root)
+	}
+	return nil
 }
 
 func scanRepo(root string) ([]hit, error) {
@@ -133,24 +150,36 @@ func scanFile(root, path string) ([]hit, error) {
 		if tok != token.COMMENT {
 			continue
 		}
-		if !forbidden.MatchString(lit) {
+		loc := matchLocation(lit)
+		if loc == nil {
 			continue
 		}
 		position := fset.Position(pos)
-		snippet := firstLine(lit)
 		hits = append(hits, hit{
 			path:    filepath.ToSlash(rel),
-			line:    position.Line,
-			snippet: snippet,
+			line:    position.Line + loc.lineOffset,
+			snippet: loc.snippet,
 		})
 	}
 	return hits, nil
 }
 
-func firstLine(lit string) string {
-	lit = strings.TrimSpace(lit)
-	if i := strings.IndexByte(lit, '\n'); i >= 0 {
-		lit = lit[:i]
+type matchLoc struct {
+	lineOffset int
+	snippet    string
+}
+
+// matchLocation finds the first forbidden marker in a comment token and
+// returns its line offset within the token plus that line as the snippet.
+// Block comments are a single token starting at /*; the marker may be later.
+func matchLocation(lit string) *matchLoc {
+	idx := forbidden.FindStringIndex(lit)
+	if idx == nil {
+		return nil
 	}
-	return strings.TrimSpace(lit)
+	prefix := lit[:idx[0]]
+	lineOffset := strings.Count(prefix, "\n")
+	lines := strings.Split(lit, "\n")
+	snippet := strings.TrimSpace(lines[lineOffset])
+	return &matchLoc{lineOffset: lineOffset, snippet: snippet}
 }
