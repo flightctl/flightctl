@@ -251,8 +251,8 @@ func extractQuadletRefs(app *domain.ApplicationProviderSpec) []string {
 // The chart image is always included. Helm template output (which would reveal
 // pod/container images) is not available in the rendered spec — extracting
 // those images requires running helm template on the worker with timeout and
-// resource limits (design §4.5). Those nested images are handled when helm
-// template runs during generation.
+// resource limits. Those nested images are handled when helm template runs
+// during generation.
 func extractHelmRefs(app *domain.ApplicationProviderSpec) []string {
 	helm, err := (*app).AsHelmApplication()
 	if err != nil {

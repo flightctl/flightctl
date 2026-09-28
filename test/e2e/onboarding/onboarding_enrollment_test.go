@@ -366,8 +366,8 @@ var _ = Describe("Onboarding enrollment and completion flow", func() {
 		// synchronously is a *required* connectivity check against an unreachable
 		// host, which runs before the enrollment step. So we configure a real (valid)
 		// enrollment and force that pre-enrollment connectivity check to fail,
-		// exercising the same error → correct → re-apply recovery flow AC4 describes
-		// and still ending in a real device enrollment on the corrected attempt.
+		// exercising the same error → correct → re-apply recovery flow and still
+		// ending in a real device enrollment on the corrected attempt.
 		navigateToEnrollmentStep(browser)
 		Expect(browser.WizardConfigureEnrollment(endpoint, token)).To(Succeed())
 		Expect(browser.WizardSetTLSInsecure()).To(Succeed())
@@ -424,7 +424,7 @@ var _ = Describe("Onboarding enrollment and completion flow", func() {
 		// 127.0.0.2 so the origin host is not localhost) and WizardSelectNIC selects
 		// that same interface. The transient unit is a child of PID 1, so it is
 		// unaffected by the browser/cockpit-bridge going away — exactly the
-		// completion-after-disconnect behaviour AC5 asserts.
+		// completion-after-disconnect behaviour under test.
 		workerID := GinkgoParallelProcess()
 		sshPort := sshPortBase + workerID
 		cockpitAddr, tunnelCleanup, err := e2e.StartCockpitTunnelViaInterface(sshPort, vmUser, vmPassword, slirpStaticIP)
@@ -480,8 +480,8 @@ var _ = Describe("Onboarding enrollment and completion flow", func() {
 		// The transient unit is a child of PID 1, so closing Chrome now cannot affect
 		// it; completion must proceed in the background. The connectivity + NTP-sync +
 		// finalize steps still have minutes to run, so the drop lands well before the
-		// marker is written — exactly the completion-after-disconnect behaviour AC5
-		// asserts.
+		// marker is written — exactly the completion-after-disconnect behaviour under
+		// test.
 		GinkgoWriter.Printf("wizard state at browser drop: %s\n", browser.WizardDebugState())
 		browser.Close()
 
@@ -537,10 +537,10 @@ var _ = Describe("Onboarding enrollment and completion flow", func() {
 		// rejected later by the agent — confirmed in CI). The failure the wizard
 		// *does* surface after network activation is a required connectivity check
 		// against an unreachable host: the apply activates the network profile first,
-		// then the connectivity step fails, triggering the same rollback path AC6
-		// describes. A static IPv4 profile is configured (keeping the SLIRP address so
-		// the control channel survives) specifically so there is a flightctl-onboarding
-		// NM profile for the rollback to remove.
+		// then the connectivity step fails, triggering the rollback path. A static IPv4
+		// profile is configured (keeping the SLIRP address so the control channel
+		// survives) specifically so there is a flightctl-onboarding NM profile for the
+		// rollback to remove.
 		Expect(browser.WizardSelectNIC()).To(Succeed())
 		Expect(browser.WizardConfigureStaticIPv4(
 			slirpStaticIP, slirpStaticMask, slirpStaticGateway, "8.8.8.8",
@@ -615,9 +615,9 @@ var _ = Describe("Onboarding enrollment and completion flow", func() {
 		// The deployed onboarding package defers enrollment exit-code handling to the
 		// agent: a non-zero enrollment-script exit does NOT fail the wizard
 		// synchronously (verified in CI — an exit-3 mock still completed the wizard).
-		// So this spec asserts the part of AC7 the wizard actually exercises: the
-		// third-party script is invoked and receives a non-empty credential params
-		// file. The mock exits 0 so the wizard completes normally.
+		// So this spec asserts what the wizard actually exercises: the third-party
+		// script is invoked and receives a non-empty credential params file. The mock
+		// exits 0 so the wizard completes normally.
 		setEnrollMockExitCode(harness, 0)
 
 		// installEnrollmentMock bind-mounts the mock over the packaged enrollment
