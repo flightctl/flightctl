@@ -299,7 +299,7 @@ func decorateApplicationTargets(
 
 func nestedDeltaHintForTarget(target dependency.OCIPullTarget, nestedHints []v1beta1.ImageDeltaHint) string {
 	for _, nestedHint := range nestedHints {
-		if nestedHint.TargetImage != nil && *nestedHint.TargetImage == target.Reference {
+		if nestedHint.TargetImage != "" && nestedHint.TargetImage == target.Reference {
 			return nestedHint.DeltaImage
 		}
 	}

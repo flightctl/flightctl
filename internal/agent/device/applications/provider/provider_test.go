@@ -258,7 +258,7 @@ func TestDecorateApplicationTargets(t *testing.T) {
 
 	targets := []dependency.OCIPullTarget{
 		{Reference: "quay.io/acme/app@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
-		{Reference: "quay.io/acme/child@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},
+		{Reference: "quay.io/acme/child:latest"},
 		{Reference: "quay.io/acme/other:latest"},
 	}
 
@@ -266,6 +266,7 @@ func TestDecorateApplicationTargets(t *testing.T) {
 		targets,
 		&parentHint,
 		[]v1beta1.ImageDeltaHint{{
+			TargetImage:  "quay.io/acme/child:latest",
 			TargetDigest: "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
 			DeltaImage:   childHint,
 		}},
