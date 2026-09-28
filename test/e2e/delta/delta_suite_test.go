@@ -27,7 +27,7 @@ import (
 
 func TestDelta(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "OS Delta E2E Suite")
+	RunSpecs(t, "OS and Application Delta E2E Suite")
 }
 
 var auxSvcs *auxiliary.Services
