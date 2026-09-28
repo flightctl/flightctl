@@ -17,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
+	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -86,7 +87,6 @@ type OCIDeltaTarget struct {
 	Hint         string
 	SourceDigest string
 	Application  string
-	ResultFn     func(error)
 }
 
 func selectApplicationDeltaCandidate(targetImage string, delta *OCIDeltaTarget, index *client.OCIIndex) string {
@@ -182,12 +182,14 @@ type OCICollection struct {
 
 // PrefetchStatus provides the current status of prefetch operations
 type PrefetchStatus struct {
-	TotalImages    int
-	PendingImages  []string
-	RetryingImages []string
+	TotalImages          int
+	PendingImages        []string
+	RetryingImages       []string
+	DeltaFallbackReasons map[string]string
 }
 
 var _ PrefetchManager = (*prefetchManager)(nil)
+var _ status.Exporter = (*prefetchManager)(nil)
 
 // PrefetchManager orchestrates OCI target collection and prefetching
 type PrefetchManager interface {
@@ -264,15 +266,20 @@ type prefetchManager struct {
 	tasks      map[imageRef]*prefetchTask
 	queue      chan imageRef
 	collectors []OCICollector
+
+	deltaDesired         *v1beta1.DeviceSpec
+	deltaGeneration      uint64
+	deltaFallbackReasons map[string]string
 }
 
 type prefetchTask struct {
-	clientOptsFn ClientOptsFn
-	ociType      OCIType
-	delta        *OCIDeltaTarget
-	err          error
-	done         bool
-	cancelFn     context.CancelFunc
+	clientOptsFn    ClientOptsFn
+	ociType         OCIType
+	delta           *OCIDeltaTarget
+	deltaGeneration uint64
+	err             error
+	done            bool
+	cancelFn        context.CancelFunc
 }
 
 // PrefetchManagerOption configures optional prefetch integrations.
@@ -297,16 +304,17 @@ func NewPrefetchManager(
 	opts ...PrefetchManagerOption,
 ) *prefetchManager {
 	m := &prefetchManager{
-		log:             log,
-		podmanFactory:   podmanFactory,
-		skopeoFactory:   skopeoFactory,
-		cliClients:      cliClients,
-		readWriter:      readWriter,
-		pullTimeout:     time.Duration(pullTimeout),
-		pollConfig:      &pollConfig,
-		resourceManager: resourceManager,
-		tasks:           make(map[imageRef]*prefetchTask),
-		queue:           make(chan imageRef, maxQueueSize),
+		log:                  log,
+		podmanFactory:        podmanFactory,
+		skopeoFactory:        skopeoFactory,
+		cliClients:           cliClients,
+		readWriter:           readWriter,
+		pullTimeout:          time.Duration(pullTimeout),
+		pollConfig:           &pollConfig,
+		resourceManager:      resourceManager,
+		tasks:                make(map[imageRef]*prefetchTask),
+		queue:                make(chan imageRef, maxQueueSize),
+		deltaFallbackReasons: make(map[string]string),
 	}
 	for _, opt := range opts {
 		opt(m)
@@ -376,6 +384,11 @@ func (m *prefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1
 	allTargets := make(OCIPullTargetsByUser)
 	var requeueNeeded bool
 	m.mu.Lock()
+	if m.deltaDesired != desired {
+		m.deltaDesired = desired
+		m.deltaGeneration++
+		m.deltaFallbackReasons = make(map[string]string)
+	}
 	collectors := slices.Clone(m.collectors)
 	m.mu.Unlock()
 
@@ -596,9 +609,6 @@ func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, tas
 		}
 	}
 	if candidate == "" {
-		if task.delta.ResultFn != nil {
-			task.delta.ResultFn(nil)
-		}
 		_, err := cri.Pull(ctx, target.image, opts...)
 		return err
 	}
@@ -652,9 +662,6 @@ func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, tas
 
 	if !cri.ImageExists(ctx, target.image, opts...) {
 		return m.applicationCRIDeltaFallback(ctx, target, task, fmt.Errorf("delta import did not make %s available in the CRI runtime", target.image), opts...)
-	}
-	if task.delta.ResultFn != nil {
-		task.delta.ResultFn(nil)
 	}
 	return nil
 }
@@ -720,9 +727,7 @@ func normalizedCRIImageReferences(image string) (string, string, bool, error) {
 }
 
 func (m *prefetchManager) applicationCRIDeltaFallback(ctx context.Context, target imageRef, task *prefetchTask, deltaErr error, opts ...client.ClientOption) error {
-	if task.delta.ResultFn != nil {
-		task.delta.ResultFn(deltaErr)
-	}
+	m.recordDeltaFallback(target, task, deltaErr)
 	if _, err := m.cliClients.CRI().Pull(ctx, target.image, opts...); err != nil {
 		return fmt.Errorf("application delta failed: %w; full CRI image pull failed: %w", deltaErr, err)
 	}
@@ -746,9 +751,6 @@ func (m *prefetchManager) pullApplicationImage(ctx context.Context, target image
 	}
 
 	if candidate == "" {
-		if task.delta.ResultFn != nil {
-			task.delta.ResultFn(nil)
-		}
 		_, err := podman.Pull(ctx, target.image, opts...)
 		return err
 	}
@@ -766,20 +768,33 @@ func (m *prefetchManager) pullApplicationImage(ctx context.Context, target image
 	if err := m.ociDelta.Import(ctx, deltaFile, target.image); err != nil {
 		return m.applicationDeltaFallback(ctx, target, task, podman, err, opts...)
 	}
-	if task.delta.ResultFn != nil {
-		task.delta.ResultFn(nil)
-	}
 	return nil
 }
 
 func (m *prefetchManager) applicationDeltaFallback(ctx context.Context, target imageRef, task *prefetchTask, podman *client.Podman, deltaErr error, opts ...client.ClientOption) error {
-	if task.delta.ResultFn != nil {
-		task.delta.ResultFn(deltaErr)
-	}
+	m.recordDeltaFallback(target, task, deltaErr)
 	if _, err := podman.Pull(ctx, target.image, opts...); err != nil {
 		return fmt.Errorf("application delta failed: %w; full image pull failed: %w", deltaErr, err)
 	}
 	return nil
+}
+
+func (m *prefetchManager) recordDeltaFallback(target imageRef, task *prefetchTask, deltaErr error) {
+	if task == nil || task.delta == nil || deltaErr == nil || task.delta.Application == "" {
+		return
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	current, exists := m.tasks[target]
+	if !exists || current != task || task.deltaGeneration != m.deltaGeneration {
+		return
+	}
+	if m.deltaFallbackReasons == nil {
+		m.deltaFallbackReasons = make(map[string]string)
+	}
+	m.deltaFallbackReasons[task.delta.Application] = deltaErr.Error()
 }
 
 func (m *prefetchManager) setResult(target imageRef, err error) {
@@ -890,9 +905,10 @@ func (m *prefetchManager) prepareTask(ctx context.Context, target imageRef, ociT
 	}
 
 	task := &prefetchTask{
-		ociType:      ociType,
-		clientOptsFn: clientOptsFn,
-		delta:        delta,
+		ociType:         ociType,
+		clientOptsFn:    clientOptsFn,
+		delta:           delta,
+		deltaGeneration: m.deltaGeneration,
 	}
 	m.tasks[target] = task
 	return true, nil
@@ -1056,6 +1072,21 @@ func (m *prefetchManager) StatusMessage(ctx context.Context) string {
 	}
 }
 
+// Status adds application delta fallback results collected by prefetch tasks.
+func (m *prefetchManager) Status(ctx context.Context, deviceStatus *v1beta1.DeviceStatus, _ ...status.CollectorOpt) error {
+	prefetchStatus := m.status(ctx)
+
+	for i := range deviceStatus.Applications {
+		reason, exists := prefetchStatus.DeltaFallbackReasons[deviceStatus.Applications[i].Name]
+		if !exists {
+			continue
+		}
+		fallbackReason := reason
+		deviceStatus.Applications[i].LastDelta = &v1beta1.DeviceDeltaApplyStatus{FallbackReason: &fallbackReason}
+	}
+	return nil
+}
+
 func (m *prefetchManager) status(ctx context.Context) PrefetchStatus {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1076,10 +1107,15 @@ func (m *prefetchManager) status(ctx context.Context) PrefetchStatus {
 	// sort for consistent ordering
 	slices.Sort(pendingImages)
 	slices.Sort(retryingImages)
+	deltaFallbackReasons := make(map[string]string, len(m.deltaFallbackReasons))
+	for application, reason := range m.deltaFallbackReasons {
+		deltaFallbackReasons[application] = reason
+	}
 
 	return PrefetchStatus{
-		TotalImages:    len(m.tasks),
-		PendingImages:  pendingImages,
-		RetryingImages: retryingImages,
+		TotalImages:          len(m.tasks),
+		PendingImages:        pendingImages,
+		RetryingImages:       retryingImages,
+		DeltaFallbackReasons: deltaFallbackReasons,
 	}
 }

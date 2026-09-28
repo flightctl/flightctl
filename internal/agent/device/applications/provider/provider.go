@@ -131,7 +131,6 @@ type collectConfig struct {
 	configProvider dependency.PullConfigResolver
 	ociCache       *OCITargetCache
 	appDataCache   map[string]*AppData
-	deltaResult    func(string, error)
 }
 
 // WithPullConfigResolver sets the pull configuration provider for OCI operations.
@@ -153,11 +152,6 @@ func WithAppData(cache map[string]*AppData) CollectOpt {
 	return func(c *collectConfig) {
 		c.appDataCache = cache
 	}
-}
-
-// WithDeltaResult receives the result of an application's delta attempt.
-func WithDeltaResult(result func(string, error)) CollectOpt {
-	return func(c *collectConfig) { c.deltaResult = result }
 }
 
 // CollectOCITargets collects all OCI targets from the device spec, including:
@@ -205,7 +199,7 @@ func CollectOCITargets(
 	}
 
 	providers := append(embeddedProviders, appProviders...)
-	return collectProviderTargets(ctx, log, providers, cfg.configProvider, cfg.ociCache, cfg.appDataCache, cfg.deltaResult)
+	return collectProviderTargets(ctx, log, providers, cfg.configProvider, cfg.ociCache, cfg.appDataCache)
 }
 
 func collectProviderTargets(
@@ -215,7 +209,6 @@ func collectProviderTargets(
 	configProvider dependency.PullConfigResolver,
 	ociCache *OCITargetCache,
 	appDataCache map[string]*AppData,
-	deltaResult func(string, error),
 ) (*dependency.OCICollection, error) {
 	var targets dependency.OCIPullTargetsByUser
 	var activeNames []string
@@ -240,7 +233,7 @@ func collectProviderTargets(
 		}
 		parentHint, nestedHints := applicationDeltaHints(p.Spec())
 		for user, userTargets := range baseTargets {
-			baseTargets[user] = decorateApplicationTargets(userTargets, parentHint, nestedHints, p.Name(), deltaResult)
+			baseTargets[user] = decorateApplicationTargets(userTargets, parentHint, nestedHints, p.Name())
 		}
 		targets = targets.MergeWith(baseTargets)
 
@@ -252,7 +245,7 @@ func collectProviderTargets(
 			needsRequeue = true
 		}
 		_, nestedHints = applicationDeltaHints(p.Spec())
-		nestedTargets = decorateApplicationTargets(nestedTargets, nil, nestedHints, p.Name(), deltaResult)
+		nestedTargets = decorateApplicationTargets(nestedTargets, nil, nestedHints, p.Name())
 		targets = targets.Add(p.Spec().User, nestedTargets...)
 	}
 
@@ -269,7 +262,6 @@ func decorateApplicationTargets(
 	parentHint *string,
 	nestedHints []v1beta1.ImageDeltaHint,
 	application string,
-	deltaResult func(string, error),
 ) []dependency.OCIPullTarget {
 	for i := range targets {
 		target := &targets[i]
@@ -287,11 +279,6 @@ func decorateApplicationTargets(
 			Hint:         hint,
 			SourceDigest: sourceDigest,
 			Application:  application,
-			ResultFn: func(err error) {
-				if deltaResult != nil {
-					deltaResult(application, err)
-				}
-			},
 		}
 	}
 	return targets

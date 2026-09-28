@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -27,7 +28,7 @@ func TestApplicationDeltaPrefetch(t *testing.T) {
 	}{
 		{
 			name:  "hinted image imports into container storage",
-			delta: &OCIDeltaTarget{Hint: candidate},
+			delta: &OCIDeltaTarget{Hint: candidate, Application: "app"},
 			setup: func(exec *executer.MockExecuter) {
 				exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("", "", 0)
 				exec.EXPECT().ExecuteWithContext(gomock.Any(), "oci-delta", "apply", "--container-storage", gomock.Any(), image).Return("", "", 0)
@@ -35,7 +36,7 @@ func TestApplicationDeltaPrefetch(t *testing.T) {
 		},
 		{
 			name:  "missing candidate full-pulls without fallback",
-			delta: &OCIDeltaTarget{},
+			delta: &OCIDeltaTarget{Application: "app"},
 			setup: func(exec *executer.MockExecuter) {
 				exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", gomock.Any(), gomock.Any(), gomock.Any()).Return(`{"manifests":[]}`, "", 0)
 				exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", image).Return("", "", 0)
@@ -43,7 +44,7 @@ func TestApplicationDeltaPrefetch(t *testing.T) {
 		},
 		{
 			name:  "failed delta falls back to full pull",
-			delta: &OCIDeltaTarget{Hint: candidate},
+			delta: &OCIDeltaTarget{Hint: candidate, Application: "app"},
 			setup: func(exec *executer.MockExecuter) {
 				exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return("", "", 0)
 				exec.EXPECT().ExecuteWithContext(gomock.Any(), "oci-delta", "apply", "--container-storage", gomock.Any(), image).Return("", "import failed", 1)
@@ -68,22 +69,29 @@ func TestApplicationDeltaPrefetch(t *testing.T) {
 			logger := log.NewPrefixLogger("test")
 			podman := client.NewPodman(logger, exec, rw, poll.NewConfig(time.Millisecond, 2))
 			skopeo := client.NewSkopeo(logger, exec, rw)
-			resultCh := make(chan error, 1)
-			if tt.delta != nil {
-				tt.delta.ResultFn = func(err error) { resultCh <- err }
-			}
+			target := imageRef{image: image}
+			task := &prefetchTask{delta: tt.delta, deltaGeneration: 1}
 			manager := &prefetchManager{
-				log:         logger,
-				readWriter:  rw,
-				pullTimeout: time.Minute,
-				ociDelta:    client.NewOCIDelta(logger, exec, time.Minute),
+				log:                  logger,
+				readWriter:           rw,
+				pullTimeout:          time.Minute,
+				ociDelta:             client.NewOCIDelta(logger, exec, time.Minute),
+				tasks:                map[imageRef]*prefetchTask{target: task},
+				deltaGeneration:      1,
+				deltaFallbackReasons: make(map[string]string),
 			}
 
-			err := manager.pullApplicationImage(context.Background(), imageRef{image: image}, &prefetchTask{delta: tt.delta}, podman, skopeo, client.Timeout(time.Minute))
+			err := manager.pullApplicationImage(context.Background(), target, task, podman, skopeo, client.Timeout(time.Minute))
+			deviceStatus := &v1beta1.DeviceStatus{
+				Applications: []v1beta1.DeviceApplicationStatus{{Name: "app"}},
+			}
+			require.NoError(t, manager.Status(context.Background(), deviceStatus))
 			if tt.wantFallback {
-				require.Error(t, <-resultCh)
-			} else if tt.delta != nil {
-				require.NoError(t, <-resultCh)
+				require.NotNil(t, deviceStatus.Applications[0].LastDelta)
+				require.NotNil(t, deviceStatus.Applications[0].LastDelta.FallbackReason)
+				require.Contains(t, *deviceStatus.Applications[0].LastDelta.FallbackReason, "import failed")
+			} else {
+				require.Nil(t, deviceStatus.Applications[0].LastDelta)
 			}
 			require.NoError(t, err)
 			matches, globErr := filepath.Glob(filepath.Join(root, "tmp", "application-delta*"))
