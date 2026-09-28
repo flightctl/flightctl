@@ -277,16 +277,7 @@ func decorateApplicationTargets(
 		if i == 0 && parentHint != nil {
 			hint = *parentHint
 		} else {
-			digest := target.Digest
-			if digest == "" {
-				digest = digestFromReference(target.Reference)
-			}
-			for _, nestedHint := range nestedHints {
-				if nestedHint.TargetDigest == digest {
-					hint = nestedHint.DeltaImage
-					break
-				}
-			}
+			hint = nestedDeltaHintForTarget(*target, nestedHints)
 		}
 		sourceDigest := target.Digest
 		if sourceDigest == "" {
@@ -304,6 +295,28 @@ func decorateApplicationTargets(
 		}
 	}
 	return targets
+}
+
+func nestedDeltaHintForTarget(target dependency.OCIPullTarget, nestedHints []v1beta1.ImageDeltaHint) string {
+	for _, nestedHint := range nestedHints {
+		if nestedHint.TargetImage != nil && *nestedHint.TargetImage == target.Reference {
+			return nestedHint.DeltaImage
+		}
+	}
+
+	digest := target.Digest
+	if digest == "" {
+		digest = digestFromReference(target.Reference)
+	}
+	if digest == "" {
+		return ""
+	}
+	for _, nestedHint := range nestedHints {
+		if nestedHint.TargetDigest == digest {
+			return nestedHint.DeltaImage
+		}
+	}
+	return ""
 }
 
 func applicationDeltaHints(spec *ApplicationSpec) (*string, []v1beta1.ImageDeltaHint) {

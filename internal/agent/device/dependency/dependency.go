@@ -566,7 +566,7 @@ func (m *prefetchManager) pull(ctx context.Context, target imageRef, task *prefe
 
 		switch detectedType {
 		case OCITypePodmanImage:
-			_, err = podman.Pull(ctx, target.image, opts...)
+			err = m.pullApplicationImage(ctx, target, task, podman, skopeo, opts...)
 		case OCITypePodmanArtifact:
 			_, err = podman.PullArtifact(ctx, target.image, opts...)
 		default:
