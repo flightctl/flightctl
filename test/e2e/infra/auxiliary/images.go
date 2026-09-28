@@ -264,7 +264,7 @@ func (s *Services) copyPreserveDigest(ctx context.Context, src, originalRef stri
 	if err != nil {
 		return fmt.Errorf("inspect source %s: %w", src, err)
 	}
-	got, err := skopeoDigest(ctx, dst, true)
+	got, err := skopeoDigestWithRetry(ctx, dst, true)
 	if err != nil {
 		return fmt.Errorf("inspect dest %s: %w", dst, err)
 	}
@@ -333,6 +333,29 @@ func skopeoDigest(ctx context.Context, image string, insecureTLS bool) (string, 
 		return "", fmt.Errorf("%w: %s", err, string(out))
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+// skopeoDigestWithRetry retries destination manifest reads because the local
+// registry can briefly return HTTP 500 after accepting an image copy.
+func skopeoDigestWithRetry(ctx context.Context, image string, insecureTLS bool) (string, error) {
+	var lastErr error
+	for attempt := 1; attempt <= bundleCopyRetries; attempt++ {
+		digest, err := skopeoDigest(ctx, image, insecureTLS)
+		if err == nil {
+			return digest, nil
+		}
+		lastErr = err
+
+		if attempt < bundleCopyRetries {
+			logrus.Warnf("Retrying bundle image manifest inspection for %s (attempt %d/%d): %v", image, attempt, bundleCopyRetries, lastErr)
+			select {
+			case <-ctx.Done():
+				return "", fmt.Errorf("context: %w", ctx.Err())
+			case <-time.After(bundleCopyRetryWait):
+			}
+		}
+	}
+	return "", lastErr
 }
 
 func extractImageRefs(bundlePath string) ([]string, error) {
