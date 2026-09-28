@@ -46,6 +46,7 @@ var resourcePermissions = map[string]map[string][]string{
 		"imageexports/cancel":              {"create"},
 		"imageexports/download":            {"get"},
 		"imagepromotions":                  {"get", "list", "create", "update", "patch", "delete"},
+		"labelsyncmappings":                {"get", "list", "create", "update", "patch", "delete"},
 		"repositories/check-oci-tag":       {"create"},
 		"repositories/check-oci-image":     {"create"},
 		"devices/applications/lifecycle":   {"update"},      // stop/start/restart a device's application

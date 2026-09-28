@@ -36,6 +36,7 @@ const (
 	ConditionTypeEnrollmentRequestTPMVerified         = v1beta1.ConditionTypeEnrollmentRequestTPMVerified
 	ConditionTypeFleetDeltaPreparing                  = v1beta1.ConditionTypeFleetDeltaPreparing
 	ConditionTypeDeviceDeltaPreparing                 = v1beta1.ConditionTypeDeviceDeltaPreparing
+	ConditionTypeLabelSyncMappingReady                = v1beta1.ConditionTypeLabelSyncMappingReady
 	ConditionTypeFleetRolloutInProgress               = v1beta1.ConditionTypeFleetRolloutInProgress
 	ConditionTypeFleetValid                           = v1beta1.ConditionTypeFleetValid
 	ConditionTypeRepositoryAccessible                 = v1beta1.ConditionTypeRepositoryAccessible
