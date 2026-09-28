@@ -6407,6 +6407,13 @@ components:
               description: A list of application content.
               items:
                 $ref: "#/components/schemas/ApplicationContent"
+            deltaImages:
+              type: array
+              description: >-
+                Optional hints for nested OCI images referenced by this inline
+                application. Each entry maps a target digest to its delta artifact.
+              items:
+                $ref: '#/components/schemas/ImageDeltaHint'
           required:
             - inline
     ApplicationVolumeProviderSpec:

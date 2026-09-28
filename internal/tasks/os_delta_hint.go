@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"time"
 
 	"github.com/containers/image/v5/docker/reference"
 	"github.com/flightctl/flightctl/api/core/v1beta1"
+	agentclient "github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/config"
 	deltamodel "github.com/flightctl/flightctl/internal/delta_worker/model"
 	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
@@ -439,7 +441,15 @@ func (r *appDeltaResolver) resolveApp(ctx context.Context, parent *appImagePair,
 	if parent != nil {
 		parentResult = r.resolveImagePair(ctx, *parent)
 	}
+	seenImages := make(map[string]struct{}, len(nested))
 	for i := range nested {
+		if nested[i].imageRef == "" || (parent != nil && nested[i].imageRef == parent.imageRef) {
+			continue
+		}
+		if _, ok := seenImages[nested[i].imageRef]; ok {
+			continue
+		}
+		seenImages[nested[i].imageRef] = struct{}{}
 		if result := r.resolveImagePair(ctx, nested[i]); result != nil {
 			nestedResults = append(nestedResults, result)
 		}
@@ -461,12 +471,16 @@ func (r *appDeltaResolver) resolveApp(ctx context.Context, parent *appImagePair,
 			haveSizeData = true
 		}
 	}
+	seenTargetDigests := make(map[string]struct{}, len(nestedResults))
 	for _, nr := range nestedResults {
 		if nr.deltaRef != nil {
-			hints.nestedDeltas = append(hints.nestedDeltas, v1beta1.ImageDeltaHint{
-				TargetDigest: nr.targetDigest,
-				DeltaImage:   *nr.deltaRef,
-			})
+			if _, ok := seenTargetDigests[nr.targetDigest]; !ok {
+				seenTargetDigests[nr.targetDigest] = struct{}{}
+				hints.nestedDeltas = append(hints.nestedDeltas, v1beta1.ImageDeltaHint{
+					TargetDigest: nr.targetDigest,
+					DeltaImage:   *nr.deltaRef,
+				})
+			}
 		}
 		if nr.sizeBytes != nil {
 			totalBytes += *nr.sizeBytes
@@ -504,12 +518,9 @@ func collectCurrentDigests(device *domain.Device, appName string) map[string]str
 
 func collectContainerAppPairs(app v1beta1.ContainerApplication, currentDigests map[string]string) (*appImagePair, []appImagePair) {
 	imgSpec, err := app.AsImageApplicationProviderSpec()
-	if err != nil || imgSpec.Image == "" {
-		return nil, nil
-	}
-	parent := &appImagePair{
-		imageRef:      imgSpec.Image,
-		currentDigest: currentDigests[imgSpec.Image],
+	var parent *appImagePair
+	if err == nil {
+		parent = newAppImagePair(imgSpec.Image, currentDigests)
 	}
 	nested := collectVolumePairs(app.Volumes, currentDigests)
 	return parent, nested
@@ -517,49 +528,116 @@ func collectContainerAppPairs(app v1beta1.ContainerApplication, currentDigests m
 
 func collectComposeAppPairs(app v1beta1.ComposeApplication, currentDigests map[string]string) (*appImagePair, []appImagePair) {
 	imgSpec, err := app.AsImageApplicationProviderSpec()
-	if err == nil && imgSpec.Image != "" {
-		parent := &appImagePair{
-			imageRef:      imgSpec.Image,
-			currentDigest: currentDigests[imgSpec.Image],
-		}
-		nested := collectVolumePairs(app.Volumes, currentDigests)
-		return parent, nested
+	var parent *appImagePair
+	if err == nil {
+		parent = newAppImagePair(imgSpec.Image, currentDigests)
 	}
 	nested := collectVolumePairs(app.Volumes, currentDigests)
-	return nil, nested
+	if inlineSpec, err := app.AsInlineApplicationProviderSpec(); err == nil {
+		nested = append(nested, collectComposeInlinePairs(inlineSpec.Inline, currentDigests)...)
+	}
+	return parent, nested
 }
 
 func collectQuadletAppPairs(app v1beta1.QuadletApplication, currentDigests map[string]string) (*appImagePair, []appImagePair) {
 	imgSpec, err := app.AsImageApplicationProviderSpec()
-	if err == nil && imgSpec.Image != "" {
-		parent := &appImagePair{
-			imageRef:      imgSpec.Image,
-			currentDigest: currentDigests[imgSpec.Image],
-		}
-		nested := collectVolumePairs(app.Volumes, currentDigests)
-		return parent, nested
+	var parent *appImagePair
+	if err == nil {
+		parent = newAppImagePair(imgSpec.Image, currentDigests)
 	}
 	nested := collectVolumePairs(app.Volumes, currentDigests)
-	return nil, nested
+	if inlineSpec, err := app.AsInlineApplicationProviderSpec(); err == nil {
+		nested = append(nested, collectQuadletInlinePairs(inlineSpec.Inline, currentDigests)...)
+	}
+	return parent, nested
 }
 
 func collectHelmAppPairs(app v1beta1.HelmApplication, currentDigests map[string]string) (*appImagePair, []appImagePair) {
 	imgSpec, err := app.AsImageApplicationProviderSpec()
-	if err != nil || imgSpec.Image == "" {
+	if err != nil {
 		return nil, nil
 	}
-	parent := &appImagePair{
-		imageRef:      imgSpec.Image,
-		currentDigest: currentDigests[imgSpec.Image],
+	return newAppImagePair(imgSpec.Image, currentDigests), nil
+}
+
+func collectVmAppPairs(app v1beta1.VmApplication, currentDigests map[string]string) (*appImagePair, []appImagePair) {
+	// Inline VM apps are expanded to Quadlet apps before this hint pass runs.
+	// This also handles the image-backed VM provider if that render path is used.
+	imgSpec, err := app.AsImageApplicationProviderSpec()
+	if err != nil {
+		return nil, nil
 	}
-	return parent, nil
+	return newAppImagePair(imgSpec.Image, currentDigests), nil
+}
+
+func newAppImagePair(imageRef string, currentDigests map[string]string) *appImagePair {
+	if imageRef == "" {
+		return nil
+	}
+	return &appImagePair{
+		imageRef:      imageRef,
+		currentDigest: currentDigests[imageRef],
+	}
+}
+
+func collectComposeInlinePairs(contents []v1beta1.ApplicationContent, currentDigests map[string]string) []appImagePair {
+	composeSpec, err := agentclient.ParseComposeFromSpec(contents)
+	if err != nil || composeSpec == nil {
+		return nil
+	}
+	var imageRefs []string
+	for _, service := range composeSpec.Services {
+		imageRefs = append(imageRefs, service.Image)
+	}
+	return collectImagePairs(imageRefs, currentDigests)
+}
+
+func collectQuadletInlinePairs(contents []v1beta1.ApplicationContent, currentDigests map[string]string) []appImagePair {
+	quadlets, err := agentclient.ParseQuadletReferencesFromSpec(contents)
+	if err != nil {
+		return nil
+	}
+	var imageRefs []string
+	for _, quad := range quadlets {
+		if quad == nil {
+			continue
+		}
+		if quad.Image != nil {
+			imageRefs = append(imageRefs, *quad.Image)
+		}
+		imageRefs = append(imageRefs, quad.MountImages...)
+	}
+	return collectImagePairs(imageRefs, currentDigests)
+}
+
+func collectImagePairs(imageRefs []string, currentDigests map[string]string) []appImagePair {
+	if len(imageRefs) == 0 {
+		return nil
+	}
+	sort.Strings(imageRefs)
+	pairs := make([]appImagePair, 0, len(imageRefs))
+	seen := make(map[string]struct{}, len(imageRefs))
+	for _, imageRef := range imageRefs {
+		if imageRef == "" {
+			continue
+		}
+		if _, ok := seen[imageRef]; ok {
+			continue
+		}
+		seen[imageRef] = struct{}{}
+		pairs = append(pairs, appImagePair{
+			imageRef:      imageRef,
+			currentDigest: currentDigests[imageRef],
+		})
+	}
+	return pairs
 }
 
 func collectVolumePairs(volumes *[]v1beta1.ApplicationVolume, currentDigests map[string]string) []appImagePair {
 	if volumes == nil {
 		return nil
 	}
-	var pairs []appImagePair
+	var imageRefs []string
 	for _, vol := range *volumes {
 		volType, err := vol.Type()
 		if err != nil {
@@ -585,12 +663,9 @@ func collectVolumePairs(volumes *[]v1beta1.ApplicationVolume, currentDigests map
 		if imageRef == "" {
 			continue
 		}
-		pairs = append(pairs, appImagePair{
-			imageRef:      imageRef,
-			currentDigest: currentDigests[imageRef],
-		})
+		imageRefs = append(imageRefs, imageRef)
 	}
-	return pairs
+	return collectImagePairs(imageRefs, currentDigests)
 }
 
 func applyDeltaHintsToImageSpec(spec v1beta1.ImageSpec, hints *appDeltaHints) v1beta1.ImageSpec {
@@ -607,8 +682,8 @@ func applyDeltaHintsToImageSpec(spec v1beta1.ImageSpec, hints *appDeltaHints) v1
 }
 
 // resolveAppDeltaHints iterates over rendered applications, resolves delta
-// hints for each one, writes deltaImage/deltaImages into the application's
-// ImageSpec, and returns a map of app-name → IEC size string.
+// hints for each one, writes parent and nested hints into the image or inline
+// provider, and returns a map of app-name → IEC size string.
 func (t *DeviceRenderLogic) resolveAppDeltaHints(ctx context.Context, device *domain.Device, apps []domain.ApplicationProviderSpec) map[string]*string {
 	if device == nil {
 		return nil
@@ -667,6 +742,12 @@ func (t *DeviceRenderLogic) resolveAppDeltaHints(ctx context.Context, device *do
 				continue
 			}
 			parent, nested = collectHelmAppPairs(helm, currentDigests)
+		case domain.AppTypeVm:
+			vm, err := app.AsVmApplication()
+			if err != nil {
+				continue
+			}
+			parent, nested = collectVmAppPairs(vm, currentDigests)
 		default:
 			continue
 		}
@@ -696,57 +777,79 @@ func applyHintsToApp(app *domain.ApplicationProviderSpec, appType domain.AppType
 		if err != nil {
 			return
 		}
-		imgSpec, err := container.AsImageApplicationProviderSpec()
-		if err != nil || imgSpec.Image == "" {
-			return
-		}
-		imgSpec = applyDeltaHintsToImageSpec(imgSpec, hints)
-		if err := container.FromImageApplicationProviderSpec(imgSpec); err != nil {
-			return
-		}
+		applyHintsToApplicationProvider(&container, hints)
 		_ = app.MergeContainerApplication(container)
 	case domain.AppTypeCompose:
 		compose, err := app.AsComposeApplication()
 		if err != nil {
 			return
 		}
-		imgSpec, err := compose.AsImageApplicationProviderSpec()
-		if err != nil || imgSpec.Image == "" {
-			return
-		}
-		imgSpec = applyDeltaHintsToImageSpec(imgSpec, hints)
-		if err := compose.FromImageApplicationProviderSpec(imgSpec); err != nil {
-			return
-		}
+		applyHintsToApplicationProvider(&compose, hints)
 		_ = app.MergeComposeApplication(compose)
 	case domain.AppTypeQuadlet:
 		quadlet, err := app.AsQuadletApplication()
 		if err != nil {
 			return
 		}
-		imgSpec, err := quadlet.AsImageApplicationProviderSpec()
-		if err != nil || imgSpec.Image == "" {
-			return
-		}
-		imgSpec = applyDeltaHintsToImageSpec(imgSpec, hints)
-		if err := quadlet.FromImageApplicationProviderSpec(imgSpec); err != nil {
-			return
-		}
+		applyHintsToApplicationProvider(&quadlet, hints)
 		_ = app.MergeQuadletApplication(quadlet)
 	case domain.AppTypeHelm:
 		helm, err := app.AsHelmApplication()
 		if err != nil {
 			return
 		}
-		imgSpec, err := helm.AsImageApplicationProviderSpec()
-		if err != nil || imgSpec.Image == "" {
-			return
-		}
-		imgSpec = applyDeltaHintsToImageSpec(imgSpec, hints)
-		if err := helm.FromImageApplicationProviderSpec(imgSpec); err != nil {
-			return
-		}
+		applyHintsToApplicationProvider(&helm, hints)
 		_ = app.MergeHelmApplication(helm)
+	case domain.AppTypeVm:
+		vm, err := app.AsVmApplication()
+		if err != nil {
+			return
+		}
+		applyHintsToApplicationProvider(&vm, hints)
+		_ = app.MergeVmApplication(vm)
+	}
+}
+
+type imageHintProvider interface {
+	AsImageApplicationProviderSpec() (v1beta1.ImageApplicationProviderSpec, error)
+	FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec) error
+}
+
+type inlineHintProvider interface {
+	AsInlineApplicationProviderSpec() (v1beta1.InlineApplicationProviderSpec, error)
+	FromInlineApplicationProviderSpec(v1beta1.InlineApplicationProviderSpec) error
+}
+
+func applyHintsToApplicationProvider(provider any, hints *appDeltaHints) {
+	providerWithType, ok := provider.(interface {
+		Type() v1beta1.ApplicationProviderType
+	})
+	if !ok || hints == nil {
+		return
+	}
+	switch providerWithType.Type() {
+	case v1beta1.ImageApplicationProviderType:
+		imageProvider, ok := provider.(imageHintProvider)
+		if !ok {
+			return
+		}
+		imageSpec, err := imageProvider.AsImageApplicationProviderSpec()
+		if err != nil {
+			return
+		}
+		imageSpec = applyDeltaHintsToImageSpec(imageSpec, hints)
+		_ = imageProvider.FromImageApplicationProviderSpec(imageSpec)
+	case v1beta1.InlineApplicationProviderType:
+		inlineProvider, ok := provider.(inlineHintProvider)
+		if !ok || len(hints.nestedDeltas) == 0 {
+			return
+		}
+		inlineSpec, err := inlineProvider.AsInlineApplicationProviderSpec()
+		if err != nil {
+			return
+		}
+		inlineSpec.DeltaImages = &hints.nestedDeltas
+		_ = inlineProvider.FromInlineApplicationProviderSpec(inlineSpec)
 	}
 }
 
@@ -776,6 +879,12 @@ func appNameFromProvider(app *domain.ApplicationProviderSpec) string {
 		return util.DefaultIfNil(a.Name, "")
 	case domain.AppTypeHelm:
 		a, err := app.AsHelmApplication()
+		if err != nil {
+			return ""
+		}
+		return util.DefaultIfNil(a.Name, "")
+	case domain.AppTypeVm:
+		a, err := app.AsVmApplication()
 		if err != nil {
 			return ""
 		}

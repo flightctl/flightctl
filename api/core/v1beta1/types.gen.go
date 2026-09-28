@@ -2635,6 +2635,9 @@ type ImageVolumeSource struct {
 
 // InlineApplicationProviderSpec defines model for InlineApplicationProviderSpec.
 type InlineApplicationProviderSpec struct {
+	// DeltaImages Optional hints for nested OCI images referenced by this inline application. Each entry maps a target digest to its delta artifact.
+	DeltaImages *[]ImageDeltaHint `json:"deltaImages,omitempty"`
+
 	// Inline A list of application content.
 	Inline []ApplicationContent `json:"inline"`
 }
