@@ -90,8 +90,8 @@ func (t *QueueMaintenanceTask) Execute(ctx context.Context) error {
 
 // processTimedOutMessages processes timed out messages and emits appropriate events
 func (t *QueueMaintenanceTask) processTimedOutMessages(ctx context.Context, log logrus.FieldLogger) (int, error) {
-	return t.queuesProvider.ProcessTimedOutMessages(ctx, consts.TaskQueue, EventProcessingTimeout, func(entryID string, body []byte) error {
-		log.WithField("entryID", entryID).Debug("Processing timed out message")
+	return t.queuesProvider.ProcessTimedOutMessages(ctx, consts.TaskQueue, EventProcessingTimeout, func(entryID string, body []byte, idle time.Duration) error {
+		log.WithField("entryID", entryID).WithField("idle", idle).Debug("Processing timed out message")
 
 		// Try to extract the original event from the message body
 		var originalEvent domain.Event
@@ -102,13 +102,24 @@ func (t *QueueMaintenanceTask) processTimedOutMessages(ctx context.Context, log 
 			// Successfully parsed the original event
 			originalEvent = eventWithOrgId.Event
 
+			// Enrollment hook notify may run for up to the notify processing
+			// timeout; leave those messages pending until that lease expires.
+			if shouldEnrollmentHookNotify(originalEvent) && idle < EnrollmentHookNotifyProcessingTimeout {
+				return queues.ErrMessageNotTimedOut
+			}
+
+			timeoutMsg := EventProcessingTimeout
+			if shouldEnrollmentHookNotify(originalEvent) {
+				timeoutMsg = EnrollmentHookNotifyProcessingTimeout
+			}
+
 			// Use the original event's resource information for better context
 			resourceKind := originalEvent.InvolvedObject.Kind
 			resourceName := originalEvent.InvolvedObject.Name
 
 			// Emit InternalTaskFailedEvent using the original event
 			EmitInternalTaskFailedEvent(ctx, eventWithOrgId.OrgId,
-				fmt.Sprintf("Message processing timed out after %v", EventProcessingTimeout),
+				fmt.Sprintf("Message processing timed out after %v", timeoutMsg),
 				originalEvent,
 				t.eventSvc)
 

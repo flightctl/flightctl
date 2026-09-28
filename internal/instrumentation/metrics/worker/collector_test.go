@@ -42,7 +42,7 @@ func (m *MockQueuesProvider) NewPubSubSubscriber(ctx context.Context, channelNam
 	return nil, nil
 }
 
-func (m *MockQueuesProvider) ProcessTimedOutMessages(ctx context.Context, queueName string, timeout time.Duration, handler func(entryID string, body []byte) error) (int, error) {
+func (m *MockQueuesProvider) ProcessTimedOutMessages(ctx context.Context, queueName string, timeout time.Duration, handler func(entryID string, body []byte, idle time.Duration) error) (int, error) {
 	return 0, nil
 }
 

@@ -147,7 +147,7 @@ func (t *testProvider) Complete(ctx context.Context, entryID string, body []byte
 	return nil
 }
 
-func (t *testProvider) ProcessTimedOutMessages(ctx context.Context, queueName string, timeout time.Duration, handler func(entryID string, body []byte) error) (int, error) {
+func (t *testProvider) ProcessTimedOutMessages(ctx context.Context, queueName string, timeout time.Duration, handler func(entryID string, body []byte, idle time.Duration) error) (int, error) {
 	// For test provider, this is a no-op since we don't track in-flight messages
 	return 0, nil
 }

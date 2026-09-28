@@ -446,7 +446,7 @@ func (r *redisProvider) SetCheckpointTimestamp(ctx context.Context, timestamp ti
 	return nil
 }
 
-func (r *redisProvider) ProcessTimedOutMessages(ctx context.Context, queueName string, timeout time.Duration, handler func(entryID string, body []byte) error) (int, error) {
+func (r *redisProvider) ProcessTimedOutMessages(ctx context.Context, queueName string, timeout time.Duration, handler func(entryID string, body []byte, idle time.Duration) error) (int, error) {
 	// Find existing queue or create a temporary one
 	queue := r.findExistingQueue(queueName)
 
@@ -1018,7 +1018,7 @@ func (r *redisQueue) Close() {
 // ProcessTimedOutMessages processes timed out pending messages and moves them to the failed messages set.
 // Note: Some pending messages may no longer exist in the stream (e.g., if they were already processed
 // and deleted by another process). In such cases, we acknowledge them to remove them from the pending list.
-func (r *redisQueue) ProcessTimedOutMessages(ctx context.Context, timeout time.Duration, handler func(entryID string, body []byte) error) (int, error) {
+func (r *redisQueue) ProcessTimedOutMessages(ctx context.Context, timeout time.Duration, handler func(entryID string, body []byte, idle time.Duration) error) (int, error) {
 	if r.closed.Load() {
 		return 0, errors.New("queue is closed")
 	}
@@ -1103,9 +1103,15 @@ func (r *redisQueue) ProcessTimedOutMessages(ctx context.Context, timeout time.D
 			continue
 		}
 
-		// Call the provided handler before processing
+		// Call the provided handler before processing.
 		if handler != nil {
-			if err := handler(pendingMsg.ID, body); err != nil {
+			if err := handler(pendingMsg.ID, body, pendingMsg.Idle); err != nil {
+				if errors.Is(err, ErrMessageNotTimedOut) {
+					r.log.WithField("entryID", pendingMsg.ID).
+						WithField("idle", pendingMsg.Idle).
+						Debug("pending message not yet past its effective timeout, leaving in place")
+					continue
+				}
 				r.log.WithField("entryID", pendingMsg.ID).WithField("processID", r.processID).WithError(err).Warn("handler failed for timed out message, continuing")
 				// Continue processing other messages even if handler fails
 			}

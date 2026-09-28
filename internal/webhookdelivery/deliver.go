@@ -44,12 +44,17 @@ func Deliver(ctx context.Context, client *http.Client, d Delivery, log logrus.Fi
 	cfg := d.Config.WithDefaults()
 
 	parsedURL, err := url.Parse(cfg.URL)
-	if err != nil || parsedURL.Scheme != "https" {
+	if err != nil || parsedURL.Scheme != "https" || parsedURL.Host == "" || parsedURL.Hostname() == "" {
 		return NonRetryablef("insecure or invalid URL rejected: %s", cfg.URL)
 	}
 
+	ownedClient := false
 	if client == nil {
 		client = NewClient()
+		ownedClient = true
+	}
+	if ownedClient {
+		defer client.CloseIdleConnections()
 	}
 
 	deadlineCtx, cancel := context.WithTimeout(ctx, cfg.Deadline)

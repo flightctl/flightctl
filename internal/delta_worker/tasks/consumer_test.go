@@ -70,7 +70,7 @@ func (p *recordingProvider) NewPubSubPublisher(_ context.Context, _ string) (que
 func (p *recordingProvider) NewPubSubSubscriber(_ context.Context, _ string) (queues.PubSubSubscriber, error) {
 	return nil, nil
 }
-func (p *recordingProvider) ProcessTimedOutMessages(_ context.Context, _ string, _ time.Duration, _ func(string, []byte) error) (int, error) {
+func (p *recordingProvider) ProcessTimedOutMessages(_ context.Context, _ string, _ time.Duration, _ func(string, []byte, time.Duration) error) (int, error) {
 	return 0, nil
 }
 func (p *recordingProvider) RetryFailedMessages(_ context.Context, _ string, _ queues.RetryConfig, _ func(string, []byte, int) error) (int, error) {

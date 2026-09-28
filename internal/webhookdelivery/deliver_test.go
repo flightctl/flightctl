@@ -105,6 +105,16 @@ func TestDeliver_HTTPSOnly(t *testing.T) {
 		assert.True(t, IsNonRetryable(err))
 		assert.Contains(t, err.Error(), "insecure or invalid URL rejected")
 	})
+
+	t.Run("When URL has https scheme but no host it should reject as non-retryable", func(t *testing.T) {
+		err := Deliver(context.Background(), NewClient(), Delivery{
+			Config:     Config{URL: "https:hook"},
+			DeliveryID: "test/0",
+		}, log)
+		require.Error(t, err)
+		assert.True(t, IsNonRetryable(err))
+		assert.Contains(t, err.Error(), "insecure or invalid URL rejected")
+	})
 }
 
 func TestDeliver_WithTLSServer(t *testing.T) {

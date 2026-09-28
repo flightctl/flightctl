@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -124,7 +125,9 @@ func enrollmentHookNotify(
 	eventSvc eventservice.Service,
 	log logrus.FieldLogger,
 ) error {
-	return enrollmentHookNotifyWithClient(ctx, orgId, event, deviceSvc, enrollmentRequestSvc, notifySecretsStore, eventSvc, log, webhookdelivery.NewClient())
+	httpClient := webhookdelivery.NewClient()
+	defer httpClient.CloseIdleConnections()
+	return enrollmentHookNotifyWithClient(ctx, orgId, event, deviceSvc, enrollmentRequestSvc, notifySecretsStore, eventSvc, log, httpClient)
 }
 
 // enrollmentHookNotifyWithClient is the same as enrollmentHookNotify but allows
@@ -140,10 +143,25 @@ func enrollmentHookNotifyWithClient(
 	log logrus.FieldLogger,
 	httpClient *http.Client,
 ) error {
+	// Detach from the parent's EventProcessingTimeout so notify delivery can
+	// honor its own retry deadline. Explicit parent cancellation (shutdown)
+	// still propagates.
+	notifyCtx, cancelNotify := context.WithTimeout(context.WithoutCancel(ctx), EnrollmentHookNotifyProcessingTimeout)
+	defer cancelNotify()
+	go func() {
+		select {
+		case <-ctx.Done():
+			if errors.Is(ctx.Err(), context.Canceled) {
+				cancelNotify()
+			}
+		case <-notifyCtx.Done():
+		}
+	}()
+
 	erName := event.InvolvedObject.Name
 
 	// Load the device to get the enrollment hooks snapshot.
-	device, status := deviceSvc.GetDevice(ctx, orgId, erName)
+	device, status := deviceSvc.GetDevice(notifyCtx, orgId, erName)
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("failed to get device %s: %s", erName, status.Message)
 	}
@@ -164,12 +182,12 @@ func enrollmentHookNotifyWithClient(
 	snapshot := device.Status.EnrollmentHooks.Snapshot
 	if snapshot.ControlPlaneActions == nil || len(*snapshot.ControlPlaneActions) == 0 {
 		log.Infof("enrollment hook notify: device %s has no control plane actions, marking Pending", erName)
-		return setNotifyCondition(ctx, deviceSvc, orgId, erName, domain.EnrollmentHooksReasonPending, "", log)
+		return setNotifyCondition(notifyCtx, deviceSvc, orgId, erName, domain.EnrollmentHooksReasonPending, "", log)
 	}
 
 	// Load the enrollment request for the certificate serial.
 	certSerial := ""
-	er, erStatus := enrollmentRequestSvc.GetEnrollmentRequest(ctx, orgId, erName)
+	er, erStatus := enrollmentRequestSvc.GetEnrollmentRequest(notifyCtx, orgId, erName)
 	if erStatus.Code == http.StatusOK && er.Status != nil && er.Status.Certificate != nil {
 		serial, err := parseCertificateSerial(*er.Status.Certificate)
 		if err != nil {
@@ -186,7 +204,7 @@ func enrollmentHookNotifyWithClient(
 	}
 
 	// Load secrets (bearer tokens).
-	secrets, err := notifySecretsStore.ListByDevice(ctx, orgId, erName)
+	secrets, err := notifySecretsStore.ListByDevice(notifyCtx, orgId, erName)
 	if err != nil {
 		return fmt.Errorf("failed to load notify secrets for %s: %w", erName, err)
 	}
@@ -201,15 +219,15 @@ func enrollmentHookNotifyWithClient(
 		bearerToken := secretMap[action.Index]
 
 		log.Infof("enrollment hook notify: executing action %s for device %s", deliveryID, erName)
-		if err := executeNotifyAction(ctx, action, bearerToken, payload, deliveryID, log, httpClient); err != nil {
+		if err := executeNotifyAction(notifyCtx, action, bearerToken, payload, deliveryID, log, httpClient); err != nil {
 			log.WithError(err).Errorf("enrollment hook notify: action %s failed for device %s", deliveryID, erName)
-			return handleNotifyFailure(ctx, deviceSvc, eventSvc, orgId, erName, snapshot.FailurePolicy, err, log)
+			return handleNotifyFailure(notifyCtx, deviceSvc, eventSvc, orgId, erName, snapshot.FailurePolicy, err, log)
 		}
 	}
 
 	// All actions succeeded: transition to Pending.
 	log.Infof("enrollment hook notify: all actions succeeded for device %s", erName)
-	return setNotifyCondition(ctx, deviceSvc, orgId, erName, domain.EnrollmentHooksReasonPending, "", log)
+	return setNotifyCondition(notifyCtx, deviceSvc, orgId, erName, domain.EnrollmentHooksReasonPending, "", log)
 }
 
 // handleNotifyFailure updates the device condition based on the failure policy.
