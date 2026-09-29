@@ -195,9 +195,12 @@ func TestCollectDiscoversExecutableCustomScripts(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	exec := executer.NewMockExecuter(ctrl)
 	exec.EXPECT().ExecuteWithContext(gomock.Any(), "uptime", "-s").Return("2024-12-13 11:01:08", "", 0)
-	exec.EXPECT().ExecuteWithContext(
+	exec.EXPECT().ExecuteWithBoundedOutputFromDir(
 		gomock.Any(),
+		"",
 		filepath.Join(readWriter.PathFor(config.SystemInfoCustomScriptDir), "site.sh"),
+		gomock.Nil(),
+		maxCustomCollectorOutput,
 	).Return("site\n", "", 0)
 
 	info, err := Collect(context.Background(), log.NewPrefixLogger("test"), exec, readWriter, nil, "", WithAllCustom())
@@ -287,11 +290,11 @@ func TestManagerCollectCustomKeysThreeState(t *testing.T) {
 
 			// Boot time collection always happens
 			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "uptime", "-s").Return("2024-12-13 11:01:08", "", 0).Times(1)
-			// Custom scripts use ExecuteWithContext(ctx, scriptPath) — allow any
-			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), gomock.Any()).DoAndReturn(
-				func(ctx context.Context, cmd string, args ...string) (string, string, int) {
+			// Custom scripts use ExecuteWithBoundedOutputFromDir — allow any
+			mockExec.EXPECT().ExecuteWithBoundedOutputFromDir(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+				func(ctx context.Context, workingDir string, cmd string, args []string, maxOutput int, env ...string) (string, string, int) {
 					realExec := executer.NewCommonExecuter()
-					return realExec.ExecuteWithContext(ctx, cmd, args...)
+					return realExec.ExecuteWithBoundedOutputFromDir(ctx, workingDir, cmd, args, maxOutput, env...)
 				},
 			).AnyTimes()
 
