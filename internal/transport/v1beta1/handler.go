@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/service/event"
 	"github.com/flightctl/flightctl/internal/service/fleet"
+	"github.com/flightctl/flightctl/internal/service/labelsyncmapping"
 	"github.com/flightctl/flightctl/internal/service/organization"
 	"github.com/flightctl/flightctl/internal/service/repository"
 	"github.com/flightctl/flightctl/internal/service/resourcesync"
@@ -33,6 +34,7 @@ type TransportHandler struct {
 	certificatesigningrequest certificatesigningrequest.Service
 	device                    device.Service
 	enrollmenthookpolicy      enrollmenthookpolicy.Service
+	labelsyncmapping          labelsyncmapping.Service
 	enrollmentrequest         enrollmentrequest.Service
 	enrollmentconfig          enrollmentconfig.Service
 	event                     event.Service
@@ -62,6 +64,7 @@ func NewTransportHandler(
 	certificatesigningrequestSvc certificatesigningrequest.Service,
 	deviceSvc device.Service,
 	enrollmenthookpolicySvc enrollmenthookpolicy.Service,
+	labelsyncmappingSvc labelsyncmapping.Service,
 	enrollmentrequestSvc enrollmentrequest.Service,
 	enrollmentconfigSvc enrollmentconfig.Service,
 	eventSvc event.Service,
@@ -81,6 +84,7 @@ func NewTransportHandler(
 		certificatesigningrequest: certificatesigningrequestSvc,
 		device:                    deviceSvc,
 		enrollmenthookpolicy:      enrollmenthookpolicySvc,
+		labelsyncmapping:          labelsyncmappingSvc,
 		enrollmentrequest:         enrollmentrequestSvc,
 		enrollmentconfig:          enrollmentconfigSvc,
 		event:                     eventSvc,

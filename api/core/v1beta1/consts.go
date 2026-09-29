@@ -96,6 +96,10 @@ const (
 	EnrollmentHookPolicyKind       = "EnrollmentHookPolicy"
 	EnrollmentHookPolicyListKind   = "EnrollmentHookPolicyList"
 
+	LabelSyncMappingAPIVersion = "v1beta1"
+	LabelSyncMappingKindValue  = "LabelSyncMapping"
+	LabelSyncMappingListKind   = "LabelSyncMappingList"
+
 	AuthProviderAPIVersion = "v1beta1"
 	AuthProviderKind       = "AuthProvider"
 	AuthProviderListKind   = "AuthProviderList"

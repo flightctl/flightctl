@@ -77,10 +77,11 @@ type DeviceTypePtr interface {
 }
 
 type DeviceLabel struct {
-	OrgID      uuid.UUID `gorm:"primaryKey;type:uuid;index:,composite:device_label_org_device" selector:"metadata.orgid,hidden,private"`
-	DeviceName string    `gorm:"primaryKey;index:,composite:device_label_org_device" selector:"metadata.name"`
-	LabelKey   string    `gorm:"primaryKey;index:,composite:device_label_key" selector:"metadata.labels.key"`
-	LabelValue string    `gorm:"index" selector:"metadata.labels.value"`
+	OrgID              uuid.UUID  `gorm:"primaryKey;type:uuid;index:,composite:device_label_org_device" selector:"metadata.orgid,hidden,private"`
+	DeviceName         string     `gorm:"primaryKey;index:,composite:device_label_org_device" selector:"metadata.name"`
+	LabelKey           string     `gorm:"primaryKey;index:,composite:device_label_key" selector:"metadata.labels.key"`
+	LabelValue         string     `gorm:"index" selector:"metadata.labels.value"`
+	LabelSyncMappingID *uuid.UUID `gorm:"type:uuid"`
 
 	// Foreign Key Constraint with CASCADE DELETE
 	Device Device `gorm:"foreignKey:OrgID,DeviceName;references:OrgID,Name;constraint:OnDelete:CASCADE"`
