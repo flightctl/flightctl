@@ -1288,10 +1288,13 @@ func (h *DeviceServiceHandler) processAwaitingReconnectIfNeeded(ctx context.Cont
 // remediation path for a stuck package-mode device. Unrelated updates that retain
 // the existing OS target are also not conflicts.
 func isPackageModeOsTargetConflict(existing *domain.Device, incoming *domain.Device) bool {
-	if existing.Status == nil || existing.Status.Capabilities == nil || existing.Status.Capabilities.OsMode == nil {
+	if existing.Status == nil {
 		return false
 	}
-	if *existing.Status.Capabilities.OsMode != domain.OsModePackage {
+	// Prefer status.systemInfo.osMode, falling back to the deprecated
+	// status.capabilities.osMode for devices reported by older agents.
+	osMode := domain.DeviceStatusOsMode(existing.Status)
+	if osMode == nil || *osMode != domain.OsModePackage {
 		return false
 	}
 
