@@ -20,7 +20,7 @@ type Source interface {
 
 // Destination is the terminal component of a pipeline.
 //
-// A destination may be shared by multiple pipelines. PipelineID identifies
+// A destination may be shared by multiple pipelines. The pipelineID identifies
 // whose desired state is being reconciled, allowing the destination to isolate
 // ownership, drift repair, and pruning.
 //
@@ -48,6 +48,21 @@ type Destination interface {
 type Extension interface {
 	Start(ctx context.Context, host Host) error
 	Shutdown(ctx context.Context) error
+}
+
+// Readiness is an optional capability that extensions may implement to
+// participate in the service readiness lifecycle.
+//
+// After all extensions have started, the service discovers extensions that
+// implement this interface. It calls Ready after every configured source
+// goroutine has entered its run wrapper, and calls NotReady before extension
+// shutdown begins.
+//
+// Extensions that do not implement Readiness are unaffected by the readiness
+// lifecycle.
+type Readiness interface {
+	Ready()
+	NotReady()
 }
 
 // Host provides components and extensions with access to configured shared

@@ -1855,3 +1855,446 @@ func TestNew_SummaryLogDestinationCount(t *testing.T) {
 	assert.Equal(t, 2, entries[0].Data["destination_count"],
 		"destination_count must reflect len(destinations)")
 }
+
+// =============================================================================
+// Readiness lifecycle tests
+//
+// These tests verify the readiness signaling integration without importing any
+// concrete extension package. A generic fakeReadinessExtension implements both
+// catalogcollector.Extension and catalogcollector.Readiness.
+// =============================================================================
+
+// fakeReadinessExtension implements Extension and Readiness for tests.
+type fakeReadinessExtension struct {
+	mu          sync.Mutex
+	startCount  int
+	shutdownSeq *[]string
+	readyCalls  []string // "ready" or "not_ready" appended in order
+	startErr    error
+	shutdownErr error
+	onStart     func(host catalogcollector.Host)
+}
+
+func (e *fakeReadinessExtension) Start(_ context.Context, host catalogcollector.Host) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.startCount++
+	if e.onStart != nil {
+		e.onStart(host)
+	}
+	return e.startErr
+}
+
+func (e *fakeReadinessExtension) Shutdown(_ context.Context) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.shutdownSeq != nil {
+		*e.shutdownSeq = append(*e.shutdownSeq, "shutdown")
+	}
+	return e.shutdownErr
+}
+
+func (e *fakeReadinessExtension) Ready() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.readyCalls = append(e.readyCalls, "ready")
+}
+
+func (e *fakeReadinessExtension) NotReady() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.readyCalls = append(e.readyCalls, "not_ready")
+}
+
+func (e *fakeReadinessExtension) getReadyCalls() []string {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	result := make([]string, len(e.readyCalls))
+	copy(result, e.readyCalls)
+	return result
+}
+
+// readinessExtensionFactory wraps fakeReadinessExtension in a factory.
+type readinessExtensionFactory struct {
+	typeName   catalogcollector.ComponentType
+	createFunc func(ctx context.Context, settings catalogcollector.Settings, cfg catalogcollector.ComponentConfig) (catalogcollector.Extension, error)
+}
+
+func (f *readinessExtensionFactory) Type() catalogcollector.ComponentType { return f.typeName }
+func (f *readinessExtensionFactory) CreateDefaultConfig() catalogcollector.ComponentConfig {
+	return nil
+}
+func (f *readinessExtensionFactory) CreateExtension(ctx context.Context, settings catalogcollector.Settings, cfg catalogcollector.ComponentConfig) (catalogcollector.Extension, error) {
+	return f.createFunc(ctx, settings, cfg)
+}
+
+func TestRun_ReadinessMarkedAfterSourceRunLoopsLaunched(t *testing.T) {
+	readinessExt := &fakeReadinessExtension{}
+	sourceStarted := make(chan struct{})
+
+	cfg := &config.Config{
+		Sources:      map[string]config.ComponentConfig{"fake-source": cc("fake-source")},
+		Destinations: map[string]config.ComponentConfig{"fake-dest": cc("fake-dest")},
+		Extensions:   map[string]config.ComponentConfig{"healthext": cc("healthext")},
+		Pipelines:    map[string]config.PipelineConfig{"p": {Source: "fake-source", Destination: "fake-dest"}},
+	}
+
+	svc, err := New(context.Background(), cfg, catalogcollector.Factories{
+		Sources: []catalogcollector.SourceFactory{
+			&fakeSourceFactory{typeName: "fake-source", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig, _ catalogcollector.Consumer) (catalogcollector.Source, error) {
+				return &blockingSource{started: sourceStarted}, nil
+			}},
+		},
+		Destinations: []catalogcollector.DestinationFactory{
+			&fakeDestinationFactory{typeName: "fake-dest", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Destination, error) {
+				return &recordingConsumer{}, nil
+			}},
+		},
+		Extensions: []catalogcollector.ExtensionFactory{
+			&readinessExtensionFactory{typeName: "healthext", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Extension, error) {
+				return readinessExt, nil
+			}},
+		},
+	}, testSettings())
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- svc.Run(ctx) }()
+
+	// Wait for the source to start its run loop.
+	select {
+	case <-sourceStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("source did not start")
+	}
+
+	// After the source has entered its run loop, the service should
+	// have signaled Ready. Allow a brief moment for the barrier to
+	// complete and Ready to be called.
+	require.Eventually(t, func() bool {
+		calls := readinessExt.getReadyCalls()
+		for _, c := range calls {
+			if c == "ready" {
+				return true
+			}
+		}
+		return false
+	}, 2*time.Second, 10*time.Millisecond, "Ready must be called after source enters run loop")
+
+	cancel()
+	require.NoError(t, <-done)
+}
+
+func TestRun_NotReadyBeforeExtensionShutdown(t *testing.T) {
+	readinessExt := &fakeReadinessExtension{}
+	var shutdownSeq []string
+	readinessExt.shutdownSeq = &shutdownSeq
+
+	cfg := minimalPipelineCfg()
+	cfg.Extensions = map[string]config.ComponentConfig{"healthext": cc("healthext")}
+
+	svc, err := New(context.Background(), cfg, catalogcollector.Factories{
+		Sources: []catalogcollector.SourceFactory{
+			&fakeSourceFactory{typeName: "fake-source", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig, _ catalogcollector.Consumer) (catalogcollector.Source, error) {
+				return &blockingSource{started: make(chan struct{})}, nil
+			}},
+		},
+		Destinations: []catalogcollector.DestinationFactory{
+			&fakeDestinationFactory{typeName: "fake-dest", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Destination, error) {
+				return &recordingConsumer{}, nil
+			}},
+		},
+		Extensions: []catalogcollector.ExtensionFactory{
+			&readinessExtensionFactory{typeName: "healthext", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Extension, error) {
+				return readinessExt, nil
+			}},
+		},
+	}, testSettings())
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- svc.Run(ctx) }()
+
+	// Allow sources to start and Ready to be called.
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	require.NoError(t, <-done)
+
+	calls := readinessExt.getReadyCalls()
+	// The sequence must be: ..., "ready", ..., "not_ready"
+	// Verify that not_ready appears after ready and before or at shutdown.
+	readyIdx := -1
+	notReadyIdx := -1
+	for i, c := range calls {
+		if c == "ready" && readyIdx == -1 {
+			readyIdx = i
+		}
+		if c == "not_ready" {
+			notReadyIdx = i
+		}
+	}
+	require.NotEqual(t, -1, readyIdx, "Ready must have been called")
+	require.NotEqual(t, -1, notReadyIdx, "NotReady must have been called")
+	assert.Greater(t, notReadyIdx, readyIdx, "NotReady must be called after Ready")
+}
+
+func TestRun_FatalSourceErrorTransitionsToNotReady(t *testing.T) {
+	readinessExt := &fakeReadinessExtension{}
+	fatalErr := errors.New("source crashed")
+
+	cfg := &config.Config{
+		Sources: map[string]config.ComponentConfig{
+			"blocking/good": cc("blocking/good"),
+			"failing/bad":   cc("failing/bad"),
+		},
+		Destinations: map[string]config.ComponentConfig{"fake-dest": cc("fake-dest")},
+		Extensions:   map[string]config.ComponentConfig{"healthext": cc("healthext")},
+		Pipelines: map[string]config.PipelineConfig{
+			"pipeline-good": {Source: "blocking/good", Destination: "fake-dest"},
+			"pipeline-bad":  {Source: "failing/bad", Destination: "fake-dest"},
+		},
+	}
+
+	svc, err := New(context.Background(), cfg, catalogcollector.Factories{
+		Sources: []catalogcollector.SourceFactory{
+			&fakeSourceFactory{typeName: "blocking", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig, _ catalogcollector.Consumer) (catalogcollector.Source, error) {
+				return &blockingSource{started: make(chan struct{})}, nil
+			}},
+			&fakeSourceFactory{typeName: "failing", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig, _ catalogcollector.Consumer) (catalogcollector.Source, error) {
+				return &failingSource{err: fatalErr}, nil
+			}},
+		},
+		Destinations: []catalogcollector.DestinationFactory{
+			&fakeDestinationFactory{typeName: "fake-dest", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Destination, error) {
+				return &recordingConsumer{}, nil
+			}},
+		},
+		Extensions: []catalogcollector.ExtensionFactory{
+			&readinessExtensionFactory{typeName: "healthext", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Extension, error) {
+				return readinessExt, nil
+			}},
+		},
+	}, testSettings())
+	require.NoError(t, err)
+
+	runErr := svc.Run(context.Background())
+	require.ErrorIs(t, runErr, fatalErr)
+
+	calls := readinessExt.getReadyCalls()
+	// The last call must be not_ready.
+	require.NotEmpty(t, calls, "readiness calls must not be empty")
+	assert.Equal(t, "not_ready", calls[len(calls)-1], "last readiness call must be not_ready after source error")
+}
+
+func TestRun_CallerCancellationTransitionsToNotReady(t *testing.T) {
+	readinessExt := &fakeReadinessExtension{}
+
+	cfg := minimalPipelineCfg()
+	cfg.Extensions = map[string]config.ComponentConfig{"healthext": cc("healthext")}
+
+	svc, err := New(context.Background(), cfg, catalogcollector.Factories{
+		Sources: []catalogcollector.SourceFactory{
+			&fakeSourceFactory{typeName: "fake-source", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig, _ catalogcollector.Consumer) (catalogcollector.Source, error) {
+				return &blockingSource{started: make(chan struct{})}, nil
+			}},
+		},
+		Destinations: []catalogcollector.DestinationFactory{
+			&fakeDestinationFactory{typeName: "fake-dest", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Destination, error) {
+				return &recordingConsumer{}, nil
+			}},
+		},
+		Extensions: []catalogcollector.ExtensionFactory{
+			&readinessExtensionFactory{typeName: "healthext", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Extension, error) {
+				return readinessExt, nil
+			}},
+		},
+	}, testSettings())
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- svc.Run(ctx) }()
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	require.NoError(t, <-done)
+
+	calls := readinessExt.getReadyCalls()
+	require.NotEmpty(t, calls, "readiness calls must not be empty")
+	assert.Equal(t, "not_ready", calls[len(calls)-1], "last readiness call must be not_ready after cancellation")
+}
+
+func TestRun_ExtensionsNotImplementingReadinessUnaffected(t *testing.T) {
+	// Use a plain fakeExtension (no Readiness interface) alongside a Readiness
+	// extension. The service must not panic or skip the plain extension.
+	plainExt := &fakeExtension{}
+	readinessExt := &fakeReadinessExtension{}
+
+	cfg := minimalPipelineCfg()
+	cfg.Extensions = map[string]config.ComponentConfig{
+		"plain/a":  cc("plain/a"),
+		"health/b": cc("health/b"),
+	}
+
+	svc, err := New(context.Background(), cfg, catalogcollector.Factories{
+		Sources: []catalogcollector.SourceFactory{
+			&fakeSourceFactory{typeName: "fake-source", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig, _ catalogcollector.Consumer) (catalogcollector.Source, error) {
+				return &blockingSource{started: make(chan struct{})}, nil
+			}},
+		},
+		Destinations: []catalogcollector.DestinationFactory{
+			&fakeDestinationFactory{typeName: "fake-dest", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Destination, error) {
+				return &recordingConsumer{}, nil
+			}},
+		},
+		Extensions: []catalogcollector.ExtensionFactory{
+			&fakeExtensionFactory{typeName: "plain", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Extension, error) {
+				return plainExt, nil
+			}},
+			&readinessExtensionFactory{typeName: "health", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Extension, error) {
+				return readinessExt, nil
+			}},
+		},
+	}, testSettings())
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- svc.Run(ctx) }()
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	require.NoError(t, <-done)
+
+	// Plain extension must have been started and shut down normally.
+	plainExt.mu.Lock()
+	assert.Equal(t, 1, plainExt.startCount, "plain extension must be started")
+	assert.Equal(t, 1, plainExt.shutdownCount, "plain extension must be shut down")
+	plainExt.mu.Unlock()
+
+	// Readiness extension must have received both Ready and NotReady.
+	calls := readinessExt.getReadyCalls()
+	hasReady := false
+	hasNotReady := false
+	for _, c := range calls {
+		if c == "ready" {
+			hasReady = true
+		}
+		if c == "not_ready" {
+			hasNotReady = true
+		}
+	}
+	assert.True(t, hasReady, "readiness extension must have received Ready")
+	assert.True(t, hasNotReady, "readiness extension must have received NotReady")
+}
+
+func TestRun_StartFailureMarksNotReadyOnStartedReadinessExtensions(t *testing.T) {
+	// Extension "aaa-health/ok" (readiness) starts successfully.
+	// Extension "zzz-failing/bad" fails to start (sorted after aaa-health).
+	// The service must call NotReady on the readiness extension before
+	// shutting it down.
+	readinessExt := &fakeReadinessExtension{}
+	failingExt := &fakeExtension{startErr: errors.New("init failed")}
+
+	cfg := minimalPipelineCfg()
+	cfg.Extensions = map[string]config.ComponentConfig{
+		"aaa-health/ok":  cc("aaa-health/ok"),
+		"zzz-failing/bad": cc("zzz-failing/bad"),
+	}
+
+	svc, err := New(context.Background(), cfg, catalogcollector.Factories{
+		Sources: []catalogcollector.SourceFactory{
+			&fakeSourceFactory{typeName: "fake-source", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig, _ catalogcollector.Consumer) (catalogcollector.Source, error) {
+				return &blockingSource{started: make(chan struct{})}, nil
+			}},
+		},
+		Destinations: []catalogcollector.DestinationFactory{
+			&fakeDestinationFactory{typeName: "fake-dest", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Destination, error) {
+				return &recordingConsumer{}, nil
+			}},
+		},
+		Extensions: []catalogcollector.ExtensionFactory{
+			&readinessExtensionFactory{typeName: "aaa-health", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Extension, error) {
+				return readinessExt, nil
+			}},
+			&fakeExtensionFactory{typeName: "zzz-failing", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Extension, error) {
+				return failingExt, nil
+			}},
+		},
+	}, testSettings())
+	require.NoError(t, err)
+
+	runErr := svc.Run(context.Background())
+	require.Error(t, runErr)
+
+	calls := readinessExt.getReadyCalls()
+	// Must have received at least one not_ready call.
+	hasNotReady := false
+	for _, c := range calls {
+		if c == "not_ready" {
+			hasNotReady = true
+		}
+	}
+	assert.True(t, hasNotReady, "readiness extension must receive NotReady when a subsequent extension fails to start")
+}
+
+func TestRun_MultipleReadinessExtensionsAllSignaled(t *testing.T) {
+	readinessA := &fakeReadinessExtension{}
+	readinessB := &fakeReadinessExtension{}
+
+	cfg := minimalPipelineCfg()
+	cfg.Extensions = map[string]config.ComponentConfig{
+		"health/a": cc("health/a"),
+		"health/b": cc("health/b"),
+	}
+
+	extMap := map[string]*fakeReadinessExtension{
+		"a": readinessA,
+		"b": readinessB,
+	}
+
+	svc, err := New(context.Background(), cfg, catalogcollector.Factories{
+		Sources: []catalogcollector.SourceFactory{
+			&fakeSourceFactory{typeName: "fake-source", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig, _ catalogcollector.Consumer) (catalogcollector.Source, error) {
+				return &blockingSource{started: make(chan struct{})}, nil
+			}},
+		},
+		Destinations: []catalogcollector.DestinationFactory{
+			&fakeDestinationFactory{typeName: "fake-dest", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Destination, error) {
+				return &recordingConsumer{}, nil
+			}},
+		},
+		Extensions: []catalogcollector.ExtensionFactory{
+			&readinessExtensionFactory{typeName: "health", createFunc: func(_ context.Context, settings catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Extension, error) {
+				return extMap[settings.ID.Name], nil
+			}},
+		},
+	}, testSettings())
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- svc.Run(ctx) }()
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	require.NoError(t, <-done)
+
+	for name, ext := range extMap {
+		calls := ext.getReadyCalls()
+		hasReady := false
+		hasNotReady := false
+		for _, c := range calls {
+			if c == "ready" {
+				hasReady = true
+			}
+			if c == "not_ready" {
+				hasNotReady = true
+			}
+		}
+		assert.True(t, hasReady, "readiness extension %s must have received Ready", name)
+		assert.True(t, hasNotReady, "readiness extension %s must have received NotReady", name)
+	}
+}
