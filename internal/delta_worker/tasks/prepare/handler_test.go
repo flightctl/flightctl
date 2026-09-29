@@ -90,7 +90,7 @@ func TestPrepare_SkipPaths(t *testing.T) {
 		p := newTestPreparer(t, store, skipGenerateDeltaResolver(), status, &resumeSpy{}, emit)
 
 		err := p.Prepare(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
-		require.EqualError(t, err, "set skipped delta preparing status: status store unavailable")
+		require.EqualError(t, err, "set delta preparing status before completion: status store unavailable")
 		assert.Empty(t, emit.events)
 	})
 
@@ -148,6 +148,29 @@ func TestPrepare_SkipPaths(t *testing.T) {
 		assert.Equal(t, "d1", status.sets[0].name)
 		assert.Equal(t, 0, status.sets[0].completed)
 		assert.Equal(t, 0, status.sets[0].total)
+		assert.Equal(t, int64(2), status.sets[0].sourceResourceVersion)
+		assert.Equal(t, "new-spec-hash", lo.FromPtr(status.sets[0].specHash))
+		require.Len(t, emit.events, 1)
+		completion, err := deltaprepare.ParsePrepareCompletionEvent(orgId, emit.events[0].Message)
+		require.NoError(t, err)
+		assert.Equal(t, int64(2), completion.SourceResourceVersion)
+		assert.Equal(t, "new-spec-hash", lo.FromPtr(completion.SpecHash))
+	})
+
+	t.Run("When a newer device skip follows a completed prepare it should use the current identity", func(t *testing.T) {
+		store := newFakePrepareStore()
+		old := store.seedWaiting(orgId, domain.DeviceKind, "d1", nil, lo.ToPtr("old-spec-hash"), time.Now())
+		old.Status = model.DeltaPrepareComplete
+		delete(store.waiting, store.identityKey(orgId, domain.DeviceKind, "d1"))
+		device := deviceWithOS("d1", true, "")
+		(*device.Metadata.Annotations)[domain.DeviceAnnotationRenderedSpecHash] = "new-spec-hash"
+		status := &statusSpy{}
+		emit := &emitSpy{}
+		p := newTestPreparer(t, store, eligibleDeviceResolver(device), status, &resumeSpy{}, emit)
+
+		err := p.Prepare(ctx, devicePrepareEventWithSpecHashAndResourceVersion(orgId, "d1", "new-spec-hash", "2"))
+		require.NoError(t, err)
+		require.Len(t, status.sets, 1)
 		assert.Equal(t, int64(2), status.sets[0].sourceResourceVersion)
 		assert.Equal(t, "new-spec-hash", lo.FromPtr(status.sets[0].specHash))
 		require.Len(t, emit.events, 1)
@@ -299,7 +322,9 @@ func TestPrepare_Deadlines(t *testing.T) {
 		assert.Equal(t, domain.EventReasonDeltaPrepareComplete, emit.events[1].Reason)
 		assert.Equal(t, model.DeltaPrepareComplete, firstPrepare(store).Status)
 		assert.Equal(t, now, *firstPrepare(store).Deadline)
-		assert.Empty(t, status.sets)
+		require.Len(t, status.sets, 1)
+		assert.Equal(t, 0, status.sets[0].completed)
+		assert.Equal(t, 1, status.sets[0].total)
 		assert.Empty(t, status.clears)
 	})
 
@@ -460,8 +485,43 @@ func TestPrepare_TerminalAndDevice(t *testing.T) {
 		assert.Equal(t, domain.EventReasonDeltaPrepareComplete, emit.events[0].Reason)
 		assert.Equal(t, model.DeltaPrepareComplete, firstPrepare(store).Status)
 		assert.Len(t, store.joins, 1)
-		assert.Empty(t, status.sets)
+		require.Len(t, status.sets, 1)
+		assert.Equal(t, 1, status.sets[0].completed)
+		assert.Equal(t, 1, status.sets[0].total)
 		assert.Empty(t, status.clears)
+	})
+
+	t.Run("When a device delta is already succeeded it should mark preparing before completion", func(t *testing.T) {
+		store := newFakePrepareStore()
+		store.generations[deltastore.GenerationKey{
+			OrgID:           orgId,
+			ImageRepository: prepareTestRepo,
+			SourceDigest:    prepareTestSrc,
+			TargetDigest:    prepareTestTgt,
+		}] = &model.DeltaGeneration{
+			OrgID:           orgId,
+			ImageRepository: prepareTestRepo,
+			SourceDigest:    prepareTestSrc,
+			TargetDigest:    prepareTestTgt,
+			Status:          model.DeltaGenerationSucceeded,
+		}
+		var order []string
+		status := &statusSpy{order: &order}
+		emit := &emitSpy{order: &order}
+		device := deviceWithOS("d1", true, prepareTestSrc)
+		device.Spec.Os.Image = prepareTestImage
+		p := newTestPreparer(t, store, eligibleDeviceResolver(device), status, &resumeSpy{}, emit)
+
+		err := p.Prepare(ctx, devicePrepareEventWithSpecHashAndResourceVersion(orgId, "d1", prepareTestHash, "2"))
+		require.NoError(t, err)
+		require.Len(t, emit.events, 1)
+		assert.Equal(t, domain.EventReasonDeltaPrepareComplete, emit.events[0].Reason)
+		require.Len(t, status.sets, 1)
+		assert.Equal(t, domain.DeviceKind, status.sets[0].kind)
+		assert.Equal(t, prepareTestHash, lo.FromPtr(status.sets[0].specHash))
+		assert.Equal(t, 1, status.sets[0].completed)
+		assert.Equal(t, 1, status.sets[0].total)
+		assert.Equal(t, []string{"status", "emit"}, order)
 	})
 
 	t.Run("When every pair is already terminal including failed it should not reset failed", func(t *testing.T) {
@@ -751,19 +811,6 @@ func (f *fakePrepareStore) seedWaiting(orgID uuid.UUID, kind, name string, tv, s
 	return prep
 }
 
-func (f *fakePrepareStore) getWaitingPrepare(_ context.Context, orgID uuid.UUID, kind, name string) (*model.DeltaPrepare, error) {
-	id, ok := f.waiting[f.identityKey(orgID, kind, name)]
-	if !ok {
-		return nil, nil
-	}
-	prep := f.prepares[id]
-	if prep == nil || prep.Status != model.DeltaPrepareWaiting {
-		return nil, nil
-	}
-	cp := *prep
-	return &cp, nil
-}
-
 func (f *fakePrepareStore) insertPrepare(_ context.Context, prep *model.DeltaPrepare) error {
 	if f.insertErr != nil {
 		return f.insertErr
@@ -927,7 +974,20 @@ func (f *fakePrepareService) GetDeltaPrepareByID(_ context.Context, id uuid.UUID
 }
 
 func (f *fakePrepareService) GetLatestDeltaPrepareForResource(ctx context.Context, orgID uuid.UUID, kind, name string, _ ...deltapreparestore.PrepareGetOption) (*model.DeltaPrepare, error) {
-	return f.store.getWaitingPrepare(ctx, orgID, kind, name)
+	var latest *model.DeltaPrepare
+	for _, candidate := range f.store.prepares {
+		if candidate.OrgID != orgID || candidate.Kind != kind || candidate.Name != name {
+			continue
+		}
+		if latest == nil || candidate.SourceResourceVersion > latest.SourceResourceVersion {
+			latest = candidate
+		}
+	}
+	if latest == nil {
+		return nil, nil
+	}
+	copy := *latest
+	return &copy, nil
 }
 
 func (f *fakePrepareService) ListDeltaPrepares(_ context.Context, ids []uuid.UUID) ([]model.DeltaPrepare, error) {
@@ -1252,7 +1312,7 @@ func eligibleFleetResolver(fleet *domain.Fleet, devices ...*domain.Device) *Reso
 		}),
 		RepositoryService: testRepositoryService(),
 		Config:            &deltaconfig.DeltaGenerationConfig{},
-		Render: func(_ context.Context, _ uuid.UUID, spec *domain.DeviceSpec) (tasks.RenderedSpec, error) {
+		Render: func(_ context.Context, _ uuid.UUID, _ *domain.Device, spec *domain.DeviceSpec) (tasks.RenderedSpec, error) {
 			return tasks.RenderedSpec{OsImage: spec.Os.Image}, nil
 		},
 		Inspect: func(_ context.Context, _ uuid.UUID, _ string) (string, error) {
@@ -1268,7 +1328,7 @@ func eligibleDeviceResolver(device *domain.Device) *Resolver {
 		}, nil),
 		RepositoryService: testRepositoryService(),
 		Config:            &deltaconfig.DeltaGenerationConfig{},
-		Render: func(_ context.Context, _ uuid.UUID, spec *domain.DeviceSpec) (tasks.RenderedSpec, error) {
+		Render: func(_ context.Context, _ uuid.UUID, _ *domain.Device, spec *domain.DeviceSpec) (tasks.RenderedSpec, error) {
 			return tasks.RenderedSpec{OsImage: spec.Os.Image}, nil
 		},
 		Inspect: func(_ context.Context, _ uuid.UUID, _ string) (string, error) {

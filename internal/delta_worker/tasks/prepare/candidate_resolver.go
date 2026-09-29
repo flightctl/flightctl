@@ -17,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/google/uuid"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 type DeltaCandidate struct {
@@ -39,9 +40,16 @@ type Resolver struct {
 	TemplateVersionService templateversionservice.Service
 	Config                 *deltaconfig.DeltaGenerationConfig
 
-	Inspect func(ctx context.Context, orgId uuid.UUID, image string) (string, error)
-	Render  func(ctx context.Context, orgId uuid.UUID, spec *domain.DeviceSpec) (tasks.RenderedSpec, error)
-	Expand  func(context.Context, uuid.UUID, *domain.Device, tasks.RenderedSpec, []DeltaCandidate) []DeltaCandidate
+	Inspect          func(ctx context.Context, orgId uuid.UUID, image string) (string, error)
+	InspectForSource func(
+		ctx context.Context,
+		orgId uuid.UUID,
+		image string,
+		sourceDigest string,
+		fallbackPlatform *ocispec.Platform,
+	) (resolvedSourceDigest, targetDigest string, err error)
+	Render func(ctx context.Context, orgId uuid.UUID, device *domain.Device, spec *domain.DeviceSpec) (tasks.RenderedSpec, error)
+	Expand func(context.Context, uuid.UUID, *domain.Device, tasks.RenderedSpec, []DeltaCandidate) []DeltaCandidate
 }
 
 func (r *Resolver) DeltaCandidates(ctx context.Context, ev worker_client.EventWithOrgId) (DeltaCandidateResult, error) {
@@ -259,7 +267,7 @@ func (r *Resolver) candidatesForDevice(ctx context.Context, orgId uuid.UUID, dev
 	if r.Render == nil {
 		return nil, fmt.Errorf("render is required")
 	}
-	rendered, err := r.Render(ctx, orgId, spec)
+	rendered, err := r.Render(ctx, orgId, device, spec)
 	if err != nil {
 		return nil, nil
 	}
@@ -292,18 +300,37 @@ func (r *Resolver) osCandidate(ctx context.Context, orgId uuid.UUID, device *dom
 	if err != nil {
 		return DeltaCandidate{}, false, nil
 	}
-	if r.Inspect == nil {
+	if r.Inspect == nil && r.InspectForSource == nil {
 		return DeltaCandidate{}, false, fmt.Errorf("inspect is required")
 	}
-	newDigest, err := r.Inspect(ctx, orgId, rendered.OsImage)
+	resolvedSource, newDigest := current, ""
+	if r.InspectForSource != nil {
+		resolvedSource, newDigest, err = r.InspectForSource(ctx, orgId, rendered.OsImage, current, deviceImagePlatform(device))
+	} else {
+		newDigest, err = r.Inspect(ctx, orgId, rendered.OsImage)
+	}
 	if err != nil {
 		return DeltaCandidate{}, false, err
 	}
+	if resolvedSource == "" || newDigest == "" || resolvedSource == newDigest {
+		return DeltaCandidate{}, false, nil
+	}
 	return DeltaCandidate{
 		ImageRepository: repo,
-		CurrentDigest:   current,
+		CurrentDigest:   resolvedSource,
 		NewDigest:       newDigest,
 	}, true, nil
+}
+
+func deviceImagePlatform(device *domain.Device) *ocispec.Platform {
+	if device == nil || device.Status == nil {
+		return nil
+	}
+	info := device.Status.SystemInfo
+	if info.OperatingSystem == "" || info.Architecture == "" {
+		return nil
+	}
+	return &ocispec.Platform{OS: info.OperatingSystem, Architecture: info.Architecture}
 }
 
 func imageRepository(osImage string) (string, error) {

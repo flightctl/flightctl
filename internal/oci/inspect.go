@@ -2,6 +2,8 @@ package oci
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -86,6 +88,237 @@ func InspectImageDigest(ctx context.Context, image string, spec *domain.OciRepoS
 		return "", fmt.Errorf("resolve image digest for %s: %w", image, err)
 	}
 	return desc.Digest.String(), nil
+}
+
+// ImageDigestPair contains the platform-specific source and target manifests
+// used for OCI delta generation.
+type ImageDigestPair struct {
+	SourceDigest string `json:"sourceDigest"`
+	TargetDigest string `json:"targetDigest"`
+}
+
+// InspectImageDigestPair resolves sourceDigest to its platform-specific image
+// manifest, then resolves imageRef to a manifest for the same platform. If the
+// source digest is an image index, fallbackPlatform identifies the instance
+// selected by the device runtime.
+func InspectImageDigestPair(
+	ctx context.Context,
+	imageRef string,
+	sourceDigest string,
+	spec *domain.OciRepoSpec,
+	fallbackPlatform *ocispec.Platform,
+) (ImageDigestPair, error) {
+	repo, targetRef, err := RemoteRepository(ctx, spec, imageRef)
+	if err != nil {
+		return ImageDigestPair{}, err
+	}
+
+	sourceDesc, err := repo.Resolve(ctx, sourceDigest)
+	if err != nil {
+		return ImageDigestPair{}, fmt.Errorf("resolve source image digest %s: %w", sourceDigest, err)
+	}
+	sourceManifest, err := resolveImageManifest(ctx, repo, sourceDesc, fallbackPlatform, 0)
+	if err != nil {
+		return ImageDigestPair{}, fmt.Errorf("select source image manifest for %s: %w", sourceDigest, err)
+	}
+	sourcePlatform, err := imageManifestPlatform(ctx, repo, sourceManifest, fallbackPlatform)
+	if err != nil {
+		return ImageDigestPair{}, fmt.Errorf("inspect source image platform for %s: %w", sourceDigest, err)
+	}
+
+	targetDesc, err := repo.Resolve(ctx, targetRef)
+	if err != nil {
+		return ImageDigestPair{}, fmt.Errorf("resolve target image %s: %w", imageRef, err)
+	}
+	targetManifest, err := resolveImageManifest(ctx, repo, targetDesc, sourcePlatform, 0)
+	if err != nil {
+		return ImageDigestPair{}, fmt.Errorf("select target image manifest for %s on platform %+v: %w", imageRef, sourcePlatform, err)
+	}
+	targetPlatform, err := imageManifestPlatform(ctx, repo, targetManifest, nil)
+	if err != nil {
+		return ImageDigestPair{}, fmt.Errorf("inspect target image platform for %s: %w", imageRef, err)
+	}
+	if !platformsCompatible(sourcePlatform, targetPlatform) {
+		return ImageDigestPair{}, fmt.Errorf("source platform %+v is incompatible with target platform %+v for %s", sourcePlatform, targetPlatform, imageRef)
+	}
+
+	return ImageDigestPair{
+		SourceDigest: sourceManifest.Digest.String(),
+		TargetDigest: targetManifest.Digest.String(),
+	}, nil
+}
+
+func resolveImageManifest(
+	ctx context.Context,
+	repo *remote.Repository,
+	desc ocispec.Descriptor,
+	platform *ocispec.Platform,
+	depth int,
+) (ocispec.Descriptor, error) {
+	if depth > maxImageIndexDepth {
+		return ocispec.Descriptor{}, fmt.Errorf("image index nesting exceeds %d", maxImageIndexDepth)
+	}
+	switch desc.MediaType {
+	case ocispec.MediaTypeImageIndex, dockerManifestListMediaType:
+		manifest, err := selectPlatformManifest(ctx, repo, desc, platform)
+		if err != nil {
+			return ocispec.Descriptor{}, err
+		}
+		return resolveImageManifest(ctx, repo, manifest, platform, depth+1)
+	case ocispec.MediaTypeImageManifest, dockerManifestV2MediaType:
+		return desc, nil
+	default:
+		return ocispec.Descriptor{}, fmt.Errorf("unsupported image manifest media type %q", desc.MediaType)
+	}
+}
+
+func imageManifestPlatform(
+	ctx context.Context,
+	repo *remote.Repository,
+	desc ocispec.Descriptor,
+	fallback *ocispec.Platform,
+) (*ocispec.Platform, error) {
+	data, err := content.FetchAll(ctx, repo, desc)
+	if err != nil {
+		return nil, fmt.Errorf("fetch image manifest: %w", err)
+	}
+	var manifest ocispec.Manifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return nil, fmt.Errorf("decode image manifest: %w", err)
+	}
+	if manifest.Config.Digest == "" {
+		return nil, fmt.Errorf("image manifest has no config descriptor")
+	}
+	configData, err := content.FetchAll(ctx, repo, manifest.Config)
+	if err != nil {
+		return nil, fmt.Errorf("fetch image config: %w", err)
+	}
+	var image ocispec.Image
+	if err := json.Unmarshal(configData, &image); err != nil {
+		return nil, fmt.Errorf("decode image config: %w", err)
+	}
+	// The manifest's config describes the actual image. Index metadata is a
+	// useful fallback when a config omits platform fields, and the requested
+	// platform is the final fallback for images without either source.
+	platform := &ocispec.Platform{}
+	if desc.Platform != nil {
+		*platform = *desc.Platform
+	}
+	if image.OS != "" {
+		platform.OS = image.OS
+	}
+	if image.Architecture != "" {
+		platform.Architecture = image.Architecture
+	}
+	if image.OSVersion != "" {
+		platform.OSVersion = image.OSVersion
+	}
+	if image.Variant != "" {
+		platform.Variant = image.Variant
+	}
+	if len(image.OSFeatures) > 0 {
+		platform.OSFeatures = image.OSFeatures
+	}
+	if fallback != nil {
+		if platform.OS == "" {
+			platform.OS = fallback.OS
+		}
+		if platform.Architecture == "" {
+			platform.Architecture = fallback.Architecture
+		}
+		if platform.Variant == "" {
+			platform.Variant = fallback.Variant
+		}
+		if platform.OSVersion == "" {
+			platform.OSVersion = fallback.OSVersion
+		}
+		if len(platform.OSFeatures) == 0 {
+			platform.OSFeatures = fallback.OSFeatures
+		}
+	}
+	if platform.OS == "" || platform.Architecture == "" {
+		return nil, fmt.Errorf("image config does not specify an OS and architecture")
+	}
+	return platform, nil
+}
+
+func platformsCompatible(source, target *ocispec.Platform) bool {
+	if source == nil || target == nil || source.OS != target.OS || source.Architecture != target.Architecture {
+		return false
+	}
+	return source.Variant == "" || target.Variant == "" || source.Variant == target.Variant
+}
+
+// CachedImageDigestPair caches by the source digest and fallback platform as
+// well as the target reference. A multi-platform target tag resolves to a
+// different leaf digest for different source platforms.
+func CachedImageDigestPair(
+	ctx context.Context,
+	cache DigestCache,
+	orgID uuid.UUID,
+	imageRef string,
+	sourceDigest string,
+	fallbackPlatform *ocispec.Platform,
+	resolve func(context.Context) (ImageDigestPair, error),
+) (ImageDigestPair, error) {
+	if sourceDigest == "" {
+		return ImageDigestPair{}, fmt.Errorf("resolve image digest pair for %s: source digest is required", imageRef)
+	}
+	key, err := imageDigestPairCacheKey(orgID, imageRef, sourceDigest, fallbackPlatform)
+	if err != nil {
+		return ImageDigestPair{}, err
+	}
+	if cache != nil {
+		raw, err := cache.Get(ctx, key)
+		if err != nil {
+			return ImageDigestPair{}, err
+		}
+		if len(raw) > 0 {
+			var pair ImageDigestPair
+			if err := json.Unmarshal(raw, &pair); err != nil {
+				return ImageDigestPair{}, fmt.Errorf("decode cached image digest pair: %w", err)
+			}
+			if pair.SourceDigest != "" && pair.TargetDigest != "" {
+				return pair, nil
+			}
+		}
+	}
+	if resolve == nil {
+		return ImageDigestPair{}, fmt.Errorf("resolve image digest pair for %s: resolver is required", imageRef)
+	}
+	pair, err := resolve(ctx)
+	if err != nil {
+		return ImageDigestPair{}, err
+	}
+	if pair.SourceDigest == "" || pair.TargetDigest == "" {
+		return ImageDigestPair{}, fmt.Errorf("resolve image digest pair for %s: empty source or target digest", imageRef)
+	}
+	if cache != nil {
+		raw, err := json.Marshal(pair)
+		if err != nil {
+			return ImageDigestPair{}, fmt.Errorf("encode image digest pair: %w", err)
+		}
+		if _, err := cache.SetNX(ctx, key, raw); err != nil {
+			return ImageDigestPair{}, err
+		}
+		if err := cache.SetExpire(ctx, key, ImageDigestCacheTTL); err != nil {
+			return ImageDigestPair{}, err
+		}
+	}
+	return pair, nil
+}
+
+func imageDigestPairCacheKey(orgID uuid.UUID, imageRef, sourceDigest string, platform *ocispec.Platform) (string, error) {
+	key, err := imageDigestCacheKey(orgID, imageRef)
+	if err != nil {
+		return "", err
+	}
+	platformJSON, err := json.Marshal(platform)
+	if err != nil {
+		return "", fmt.Errorf("encode image platform cache key: %w", err)
+	}
+	platformHash := sha256.Sum256(platformJSON)
+	return key + "/source/" + sourceDigest + "/platform/" + hex.EncodeToString(platformHash[:]), nil
 }
 
 // InspectImagePayloadSize returns the config and layer payload size for an OCI

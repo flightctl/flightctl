@@ -1,25 +1,36 @@
 # OS and application delta e2e
 
-Ginkgo suite for control-plane OS delta generation and application delta usage. The standalone and fleet-owned application specs each update one container, inline Compose, inline Quadlet, Helm, and VM app using valid delta artifacts. Helm charts resolve normally; their nested workload images use the CRI delta importer. Both specs use supplied deltas for container, Compose, Quadlet, and Helm workload images, and verify a control-plane-generated VM hint on the rendered Quadlet workload. A separate Compose spec verifies fallback when its nested delta artifact is unavailable.
+Ginkgo suite for control-plane OS delta generation and application delta usage. The application tests are split into two groups:
 
-Rebuild agent images after the base Containerfile change so the VM has `oci-delta`:
+- The non-Helm application specs run on the delta-capable bootc base image and update container, inline Compose, inline Quadlet, and VM applications. They do not change the OS or configure MicroShift. V2 uses newly built, full target images with an added layer; the target refs stay in the registry while the test verifies they are absent from the device before prefetch. The desired specs contain no delta hints. After the server reports successful generation, the test reads the rendered device spec and requires the generated hints before it waits for agent-reported status. It then checks the target image digests, `Running`/`Healthy` status, and agent logs confirming delta application and registry-reference refresh for Podman-backed apps.
+- Compose includes two images. Quadlet exercises image discovery from a `.container` unit, a referenced `.image` unit, an image-backed `.volume`, and a `.kube` Pod manifest. The standalone and fleet cases also update a VM app and retain its expected `Running`/`Healthy` assertions. A separate Compose case pauses the agent, waits for the server-generated hint, removes that delta artifact, and then verifies full-pull fallback reporting. Another case applies the same source-to-target delta in a later prepare and checks that the rendered spec reuses the existing delta artifact without a second generation event.
+- The Helm specs update a Helm application separately. They migrate the device to the V12 MicroShift-capable image and wait for MicroShift readiness before installing the chart. Helm charts resolve normally; their nested workload images use the CRI delta importer.
+
+Both groups use the auxiliary OCI registry and test fixtures. The non-Helm application specs also need a VM image with `oci-delta`, `skopeo`, and `crictl` available. The suite clears delta preparation/generation state and old delta/target tags before each spec while preserving the bundled fixture tags. Rebuild agent images after the base Containerfile change:
 
 ```bash
 make e2e-agent-images
 ```
 
-Run:
+Run the full suite:
 
 ```bash
 make run-e2e-test GO_E2E_DIRS=test/e2e/delta
 ```
 
-Run only the standalone or fleet-owned application delta spec:
+Run only the application delta specs without Helm or MicroShift setup:
 
 ```bash
-make run-e2e-test GO_E2E_DIRS=test/e2e/delta GINKGO_FOCUS="standalone device updates all application types"
-make run-e2e-test GO_E2E_DIRS=test/e2e/delta GINKGO_FOCUS="fleet updates all application types"
-make run-e2e-test GO_E2E_DIRS=test/e2e/delta GINKGO_FOCUS="nested application delta artifact is unavailable"
+make run-e2e-test GO_E2E_DIRS=test/e2e/delta GINKGO_LABEL_FILTER='delta && vm && !microshift'
 ```
 
-The application specs require the V12 MicroShift-capable device image, the auxiliary OCI registry and Helm chart fixtures, plus a VM image with `oci-delta`, `skopeo`, and `crictl` available. They clean up test-owned target and delta tags; shared application fixtures remain intact. The specs are labeled `delta`, `microshift`, `slow`, and `vm` and run serially.
+Run a specific non-Helm application spec:
+
+```bash
+make run-e2e-test GO_E2E_DIRS=test/e2e/delta GINKGO_LABEL_FILTER='delta && vm && !microshift' GINKGO_FOCUS="standalone device updates container, Compose, Quadlet, and VM applications"
+make run-e2e-test GO_E2E_DIRS=test/e2e/delta GINKGO_LABEL_FILTER='delta && vm && !microshift' GINKGO_FOCUS="fleet updates container, Compose, Quadlet, and VM applications"
+make run-e2e-test GO_E2E_DIRS=test/e2e/delta GINKGO_LABEL_FILTER='delta && vm && !microshift' GINKGO_FOCUS="nested application delta artifact is unavailable"
+make run-e2e-test GO_E2E_DIRS=test/e2e/delta GINKGO_LABEL_FILTER='delta && vm && !microshift' GINKGO_FOCUS="later application prepare requests an already generated image delta"
+```
+
+The application specs run serially. They clean up test-owned target and delta tags; shared application fixture tags remain intact.

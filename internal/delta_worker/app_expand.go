@@ -13,11 +13,28 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/google/uuid"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sirupsen/logrus"
 )
 
 // inspectFn resolves an image reference to its content digest.
 type inspectFn func(ctx context.Context, orgId uuid.UUID, image string) (string, error)
+type inspectSourceFn func(
+	ctx context.Context,
+	orgId uuid.UUID,
+	image string,
+	sourceDigest string,
+	fallbackPlatform *ocispec.Platform,
+) (resolvedSourceDigest, targetDigest string, err error)
+
+type appCandidatePairer func(
+	ctx context.Context,
+	logger logrus.FieldLogger,
+	orgId uuid.UUID,
+	device *domain.Device,
+	imageRef string,
+	digestIndex map[string][]string,
+) []preparetask.DeltaCandidate
 
 // expandAppCandidates extracts application image pairs from the rendered spec
 // and appends them to the existing (OS) candidates. The rendered spec carries
@@ -33,6 +50,57 @@ func expandAppCandidates(
 	rendered tasks.RenderedSpec,
 	candidates []preparetask.DeltaCandidate,
 	inspect inspectFn,
+) []preparetask.DeltaCandidate {
+	return expandAppCandidatesUsing(ctx, logger, orgId, device, rendered, candidates, func(
+		ctx context.Context,
+		logger logrus.FieldLogger,
+		orgId uuid.UUID,
+		device *domain.Device,
+		imageRef string,
+		digestIndex map[string][]string,
+	) []preparetask.DeltaCandidate {
+		return pairCandidates(ctx, logger, orgId, applicationDeviceName(device), imageRef, digestIndex, inspect)
+	})
+}
+
+func expandAppCandidatesForSource(
+	ctx context.Context,
+	logger logrus.FieldLogger,
+	orgId uuid.UUID,
+	device *domain.Device,
+	rendered tasks.RenderedSpec,
+	candidates []preparetask.DeltaCandidate,
+	inspect inspectSourceFn,
+) []preparetask.DeltaCandidate {
+	return expandAppCandidatesUsing(ctx, logger, orgId, device, rendered, candidates, func(
+		ctx context.Context,
+		logger logrus.FieldLogger,
+		orgId uuid.UUID,
+		device *domain.Device,
+		imageRef string,
+		digestIndex map[string][]string,
+	) []preparetask.DeltaCandidate {
+		return pairCandidatesForSource(
+			ctx,
+			logger,
+			orgId,
+			applicationDeviceName(device),
+			imageRef,
+			digestIndex,
+			applicationImagePlatform(device),
+			inspect,
+		)
+	})
+}
+
+func expandAppCandidatesUsing(
+	ctx context.Context,
+	logger logrus.FieldLogger,
+	orgId uuid.UUID,
+	device *domain.Device,
+	rendered tasks.RenderedSpec,
+	candidates []preparetask.DeltaCandidate,
+	pairer appCandidatePairer,
 ) []preparetask.DeltaCandidate {
 	if len(rendered.Applications) == 0 {
 		return candidates
@@ -55,10 +123,21 @@ func expandAppCandidates(
 			refs = deduplicateStrings(append(refs, reportedHelmImageRefs(device, &apps[i])...))
 		}
 		for _, ref := range refs {
-			candidates = append(candidates, pairCandidates(ctx, logger, orgId, applicationDeviceName(device), ref, digestIndex, inspect)...)
+			candidates = append(candidates, pairer(ctx, logger, orgId, device, ref, digestIndex)...)
 		}
 	}
 	return candidates
+}
+
+func applicationImagePlatform(device *domain.Device) *ocispec.Platform {
+	if device == nil || device.Status == nil {
+		return nil
+	}
+	info := device.Status.SystemInfo
+	if info.OperatingSystem == "" || info.Architecture == "" {
+		return nil
+	}
+	return &ocispec.Platform{OS: info.OperatingSystem, Architecture: info.Architecture}
 }
 
 // reportedHelmImageRefs returns the workload image references currently
@@ -184,6 +263,54 @@ func pairCandidates(
 			ImageRepository: repo,
 			CurrentDigest:   currentDigest,
 			NewDigest:       newDigest,
+		})
+	}
+	return candidates
+}
+
+func pairCandidatesForSource(
+	ctx context.Context,
+	logger logrus.FieldLogger,
+	orgId uuid.UUID,
+	deviceName string,
+	newImageRef string,
+	digestIndex map[string][]string,
+	fallbackPlatform *ocispec.Platform,
+	inspect inspectSourceFn,
+) []preparetask.DeltaCandidate {
+	repo, err := applicationImageRepository(newImageRef)
+	if err != nil {
+		logger.WithError(err).WithFields(logrus.Fields{
+			"orgId":      orgId,
+			"deviceName": deviceName,
+			"image":      newImageRef,
+		}).Warn("failed to parse rendered application image reference for delta expansion")
+		return nil
+	}
+	currentDigests := digestIndex[repo]
+	if len(currentDigests) == 0 {
+		return nil
+	}
+
+	var candidates []preparetask.DeltaCandidate
+	for _, currentDigest := range currentDigests {
+		resolvedSource, targetDigest, err := inspect(ctx, orgId, newImageRef, currentDigest, fallbackPlatform)
+		if err != nil {
+			logger.WithError(err).WithFields(logrus.Fields{
+				"orgId":        orgId,
+				"deviceName":   deviceName,
+				"image":        newImageRef,
+				"sourceDigest": currentDigest,
+			}).Warn("failed to inspect rendered application image for source platform")
+			continue
+		}
+		if resolvedSource == "" || targetDigest == "" || resolvedSource == targetDigest {
+			continue
+		}
+		candidates = append(candidates, preparetask.DeltaCandidate{
+			ImageRepository: repo,
+			CurrentDigest:   resolvedSource,
+			NewDigest:       targetDigest,
 		})
 	}
 	return candidates

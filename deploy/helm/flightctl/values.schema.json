@@ -503,7 +503,7 @@
         },
         "vmRender": {
           "type": "object",
-          "description": "VM application render options passed to vm-to-quadlet",
+          "description": "VM application render options passed to vm-to-quadlet by both worker services",
           "additionalProperties": false,
           "properties": {
             "launcherImage": {

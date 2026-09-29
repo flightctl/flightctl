@@ -361,6 +361,14 @@ func (t *DeviceRenderLogic) RenderSpec(ctx context.Context, orgId uuid.UUID, spe
 	return t.newRenderState(orgId, domain.Event{}).renderSpec(ctx, spec)
 }
 
+// RenderSpecForDevice resolves a spec using the VM render options selected for
+// the device's reported OS, matching the options used by RenderDevice.
+func (t *DeviceRenderLogic) RenderSpecForDevice(ctx context.Context, orgId uuid.UUID, device *domain.Device, spec *domain.DeviceSpec) (RenderedSpec, error) {
+	state := t.newRenderState(orgId, domain.Event{})
+	state.bindVmLauncher(device)
+	return state.renderSpec(ctx, spec)
+}
+
 func (t *deviceRenderState) renderSpec(ctx context.Context, spec *domain.DeviceSpec) (RenderedSpec, error) {
 	var deviceConfig *[]domain.ConfigProviderSpec
 	var applications *[]domain.ApplicationProviderSpec

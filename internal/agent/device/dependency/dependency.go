@@ -307,13 +307,15 @@ func (i imageRef) String() string {
 }
 
 type prefetchManager struct {
-	log             *log.PrefixLogger
-	podmanFactory   client.PodmanFactory
-	skopeoFactory   client.SkopeoFactory
-	cliClients      client.CLIClients
-	ociDelta        *client.OCIDelta
-	readWriter      fileio.ReadWriter
-	resourceManager resource.Manager
+	log               *log.PrefixLogger
+	podmanFactory     client.PodmanFactory
+	skopeoFactory     client.SkopeoFactory
+	cliClients        client.CLIClients
+	ociDelta          *client.OCIDelta
+	ociDeltaFactory   client.OCIDeltaFactory
+	readWriter        fileio.ReadWriter
+	readWriterFactory fileio.ReadWriterFactory
+	resourceManager   resource.Manager
 	// pullTimeout is the duration that each target will wait unless it
 	// encounters an error
 	pullTimeout time.Duration
@@ -346,6 +348,18 @@ type PrefetchManagerOption func(*prefetchManager)
 // WithOCIDelta enables application image delta reconstruction during prefetch.
 func WithOCIDelta(ociDelta *client.OCIDelta) PrefetchManagerOption {
 	return func(m *prefetchManager) { m.ociDelta = ociDelta }
+}
+
+// WithOCIDeltaFactory creates OCI delta clients that use each application's
+// Podman storage owner.
+func WithOCIDeltaFactory(factory client.OCIDeltaFactory) PrefetchManagerOption {
+	return func(m *prefetchManager) { m.ociDeltaFactory = factory }
+}
+
+// WithReadWriterFactory provides per-user temporary workspaces for application
+// delta artifacts.
+func WithReadWriterFactory(factory fileio.ReadWriterFactory) PrefetchManagerOption {
+	return func(m *prefetchManager) { m.readWriterFactory = factory }
 }
 
 // NewPrefetchManager creates a new prefetch manager instance
@@ -713,7 +727,7 @@ func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, tas
 	if err != nil {
 		return m.applicationCRIDeltaFallback(ctx, target, task, fmt.Errorf("create application delta temporary directory: %w", err), opts...)
 	}
-	defer m.removeApplicationDeltaTempDir(tmpDir)
+	defer m.removeApplicationDeltaTempDir(m.readWriter, tmpDir)
 
 	deltaFile := filepath.Join(tmpDir, "delta.oci")
 	if err := skopeo.Copy(ctx, "docker://"+candidate, "oci-archive:"+deltaFile, opts...); err != nil {
@@ -735,6 +749,7 @@ func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, tas
 		return m.applicationCRIDeltaFallback(ctx, target, task, fmt.Errorf("delta import did not make %s available in the CRI runtime", target.image), opts...)
 	}
 	m.clearDeltaFallback(target, task)
+	m.log.Infof("Applied OCI delta for application image %s from %s", target.image, candidate)
 	return nil
 }
 
@@ -807,14 +822,20 @@ func (m *prefetchManager) applicationCRIDeltaFallback(ctx context.Context, targe
 }
 
 func (m *prefetchManager) pullApplicationImage(ctx context.Context, target imageRef, task *prefetchTask, podman *client.Podman, skopeo *client.Skopeo, opts ...client.ClientOption) error {
-	if task.delta == nil || m.ociDelta == nil {
+	if task.delta == nil || (m.ociDelta == nil && m.ociDeltaFactory == nil) {
 		_, err := podman.Pull(ctx, target.image, opts...)
 		return err
 	}
+	ociDelta, err := m.applicationOCIDelta(target.owner)
+	if err != nil {
+		return m.applicationDeltaFallback(ctx, target, task, podman, err, opts...)
+	}
+	deltaOpts := append([]client.ClientOption(nil), opts...)
+	deltaOpts = append(deltaOpts, client.WithDefaultAuth())
 
 	candidate := task.delta.Hint
 	if candidate == "" && task.delta.SourceDigest != "" {
-		index, err := skopeo.ListReferrers(ctx, target.image, opts...)
+		index, err := skopeo.ListReferrers(ctx, target.image, deltaOpts...)
 		if err != nil {
 			m.log.Debugf("application delta referrers unavailable for %s: %v", target.image, err)
 		} else {
@@ -830,21 +851,53 @@ func (m *prefetchManager) pullApplicationImage(ctx context.Context, target image
 		return m.applicationDeltaFallback(ctx, target, task, podman, err, opts...)
 	}
 
-	tmpDir, err := m.readWriter.MkdirTemp("application-delta")
+	tmpReadWriter, err := m.applicationDeltaReadWriter(target.owner)
+	if err != nil {
+		return m.applicationDeltaFallback(ctx, target, task, podman, err, opts...)
+	}
+	tmpDir, err := tmpReadWriter.MkdirTemp("application-delta")
 	if err != nil {
 		return m.applicationDeltaFallback(ctx, target, task, podman, fmt.Errorf("create application delta temporary directory: %w", err), opts...)
 	}
-	defer m.removeApplicationDeltaTempDir(tmpDir)
+	defer m.removeApplicationDeltaTempDir(tmpReadWriter, tmpDir)
 
 	deltaFile := filepath.Join(tmpDir, "delta.oci")
-	if err := skopeo.Copy(ctx, "docker://"+candidate, "oci-archive:"+deltaFile, opts...); err != nil {
+	if err := skopeo.Copy(ctx, "docker://"+candidate, "oci-archive:"+deltaFile, deltaOpts...); err != nil {
 		return m.applicationDeltaFallback(ctx, target, task, podman, err, opts...)
 	}
-	if err := m.ociDelta.Import(ctx, deltaFile, target.image); err != nil {
+	if err := ociDelta.Import(ctx, deltaFile, target.image); err != nil {
 		return m.applicationDeltaFallback(ctx, target, task, podman, err, opts...)
+	}
+
+	m.log.Infof("Applied OCI delta for application image %s from %s", target.image, candidate)
+
+	// Pull the registry reference after importing the reconstructed image so
+	// container storage records the registry's canonical manifest digest. The
+	// blobs already present from delta reconstruction are reused by digest.
+	if _, err := podman.Pull(ctx, target.image, opts...); err != nil {
+		return m.applicationDeltaFallback(ctx, target, task, podman,
+			fmt.Errorf("refresh registry manifest after delta import: %w", err), opts...)
 	}
 	m.clearDeltaFallback(target, task)
+	m.log.Infof("Refreshed registry reference for application image %s after OCI delta import", target.image)
 	return nil
+}
+
+func (m *prefetchManager) applicationOCIDelta(owner v1beta1.Username) (*client.OCIDelta, error) {
+	if m.ociDeltaFactory != nil {
+		ociDelta, err := m.ociDeltaFactory(owner)
+		if err != nil {
+			return nil, fmt.Errorf("create OCI delta client for user %s: %w", owner, err)
+		}
+		if ociDelta == nil {
+			return nil, fmt.Errorf("create OCI delta client for user %s: factory returned nil", owner)
+		}
+		return ociDelta, nil
+	}
+	if applicationTargetUsesAgentStorage(owner) && m.ociDelta != nil {
+		return m.ociDelta, nil
+	}
+	return nil, fmt.Errorf("OCI delta factory is not configured for RunAs user %s", owner)
 }
 
 func (m *prefetchManager) applicationDeltaFallback(ctx context.Context, target imageRef, task *prefetchTask, podman *client.Podman, deltaErr error, opts ...client.ClientOption) error {
@@ -855,8 +908,30 @@ func (m *prefetchManager) applicationDeltaFallback(ctx context.Context, target i
 	return nil
 }
 
-func (m *prefetchManager) removeApplicationDeltaTempDir(path string) {
-	if err := m.readWriter.RemoveAll(path); err != nil {
+func applicationTargetUsesAgentStorage(owner v1beta1.Username) bool {
+	// The agent runs as root; an empty RunAs uses that same process user.
+	return owner.IsCurrentProcessUser() || owner.IsRootUser()
+}
+
+func (m *prefetchManager) applicationDeltaReadWriter(owner v1beta1.Username) (fileio.ReadWriter, error) {
+	if m.readWriterFactory != nil {
+		readWriter, err := m.readWriterFactory(owner)
+		if err != nil {
+			return nil, fmt.Errorf("create application delta workspace for user %s: %w", owner, err)
+		}
+		if readWriter == nil {
+			return nil, fmt.Errorf("create application delta workspace for user %s: factory returned nil", owner)
+		}
+		return readWriter, nil
+	}
+	if applicationTargetUsesAgentStorage(owner) {
+		return m.readWriter, nil
+	}
+	return nil, fmt.Errorf("read-writer factory is required to transfer application delta to user %s storage", owner)
+}
+
+func (m *prefetchManager) removeApplicationDeltaTempDir(readWriter fileio.ReadWriter, path string) {
+	if err := readWriter.RemoveAll(path); err != nil {
 		m.log.Warnf("remove application delta temporary directory %s: %v", path, err)
 	}
 }

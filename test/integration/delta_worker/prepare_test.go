@@ -168,8 +168,8 @@ var _ = Describe("PrepareDeltas persist", func() {
 					RepositoryService:      repositoryService,
 					TemplateVersionService: templateVersionService,
 					Config:                 &deltaconfig.DeltaGenerationConfig{},
-					Render: func(ctx context.Context, org uuid.UUID, spec *domain.DeviceSpec) (tasks.RenderedSpec, error) {
-						return specRenderer.RenderSpec(ctx, org, spec)
+					Render: func(ctx context.Context, org uuid.UUID, device *domain.Device, spec *domain.DeviceSpec) (tasks.RenderedSpec, error) {
+						return specRenderer.RenderSpecForDevice(ctx, org, device, spec)
 					},
 					Inspect: func(_ context.Context, _ uuid.UUID, image string) (string, error) {
 						Expect(image).To(Equal(newImage))

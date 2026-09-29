@@ -20,6 +20,7 @@ import (
 	deltamodel "github.com/flightctl/flightctl/internal/delta_worker/model"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/oci"
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
@@ -1498,7 +1499,12 @@ func TestRenderDevice_SucceededGenerationSetsDeltaImageAndSize(t *testing.T) {
 	})
 
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
-	logic, err := newDeviceRenderLogicWithDeltaLookup(logrus.New(), mockDeviceSvc, nil, nil, nil, newTestKVStore(), &stubGenerationLookup{
+	kv := newTestKVStore()
+	_, err := oci.CachedImageDigestPair(context.Background(), kv, orgId, osImage, src, nil, func(context.Context) (oci.ImageDigestPair, error) {
+		return oci.ImageDigestPair{SourceDigest: src, TargetDigest: tgt}, nil
+	})
+	require.NoError(t, err)
+	logic, err := newDeviceRenderLogicWithDeltaLookup(logrus.New(), mockDeviceSvc, nil, nil, nil, kv, &stubGenerationLookup{
 		gen: &deltamodel.DeltaGeneration{
 			Status:    deltamodel.DeltaGenerationSucceeded,
 			DeltaRef:  &deltaRef,

@@ -89,9 +89,15 @@ func deltaWriteSpec(cfg *config.Config) *domain.OciRepoSpec {
 	return defaultRepository
 }
 
-func (t *DeviceRenderLogic) resolveTargetDigest(ctx context.Context, orgId uuid.UUID, osImage string) (string, error) {
-	return oci.CachedImageDigest(ctx, t.kvStore, orgId, osImage, func(ctx context.Context) (string, error) {
-		return oci.InspectImageDigest(ctx, osImage, deltaWriteSpec(t.cfg))
+func (t *DeviceRenderLogic) resolveImageDigestPair(
+	ctx context.Context,
+	orgId uuid.UUID,
+	imageRef string,
+	sourceDigest string,
+	fallbackPlatform *ocispec.Platform,
+) (oci.ImageDigestPair, error) {
+	return oci.CachedImageDigestPair(ctx, t.kvStore, orgId, imageRef, sourceDigest, fallbackPlatform, func(ctx context.Context) (oci.ImageDigestPair, error) {
+		return oci.InspectImageDigestPair(ctx, imageRef, sourceDigest, deltaWriteSpec(t.cfg), fallbackPlatform)
 	})
 }
 
@@ -140,9 +146,9 @@ func (t *deviceRenderState) resolveOSDeltaHint(ctx context.Context, device *doma
 		}
 		return &deviceservice.RenderedOSHints{UpdatedSize: size}
 	}
-	tgt, err := t.resolveTargetDigest(ctx, t.orgId, rendered.OsImage)
+	pair, err := t.resolveImageDigestPair(ctx, t.orgId, rendered.OsImage, src, deviceImagePlatform(device))
 	if err != nil {
-		t.log.Infof("os delta hint skipped device=%s/%s reason=inspect-target-digest osImage=%q err=%v",
+		t.log.Infof("os delta hint skipped device=%s/%s reason=inspect-source-target-platform-digests osImage=%q err=%v",
 			t.orgId, t.event.InvolvedObject.Name, rendered.OsImage, err)
 		_, size := hintFromGeneration(nil, fallback)
 		if size == nil {
@@ -150,7 +156,9 @@ func (t *deviceRenderState) resolveOSDeltaHint(ctx context.Context, device *doma
 		}
 		return &deviceservice.RenderedOSHints{UpdatedSize: size}
 	}
-	if tgt == "" {
+	src = pair.SourceDigest
+	tgt := pair.TargetDigest
+	if src == "" || tgt == "" {
 		t.log.Infof("os delta hint skipped device=%s/%s reason=empty-target-digest osImage=%q repo=%s",
 			t.orgId, t.event.InvolvedObject.Name, rendered.OsImage, repo)
 		_, size := hintFromGeneration(nil, fallback)
@@ -397,12 +405,13 @@ type appDeltaHints struct {
 // appDeltaResolver looks up delta generation records and resolves per-image
 // delta hints for rendered applications.
 type appDeltaResolver struct {
-	log              logrus.FieldLogger
-	orgID            uuid.UUID
-	deltaLookup      generationLookup
-	kvStore          kvstore.KVStore
-	resolveDigest    func(ctx context.Context, imageRef string) (string, error)
-	resolveImageSize func(ctx context.Context, imageRef, targetDigest string) (*int64, error)
+	log                    logrus.FieldLogger
+	orgID                  uuid.UUID
+	deltaLookup            generationLookup
+	kvStore                kvstore.KVStore
+	resolveDigest          func(ctx context.Context, imageRef string) (string, error)
+	resolveDigestForSource func(ctx context.Context, imageRef, sourceDigest string) (oci.ImageDigestPair, error)
+	resolveImageSize       func(ctx context.Context, imageRef, targetDigest string) (*int64, error)
 }
 
 func (r *appDeltaResolver) resolveImagePair(ctx context.Context, pair appImagePair) *appDeltaResult {
@@ -420,27 +429,50 @@ func (r *appDeltaResolver) resolveImagePair(ctx context.Context, pair appImagePa
 		result.sizeBytes = r.fullImageSize(ctx, pair.imageRef, "")
 		return result
 	}
-	targetDigest, err := r.resolveDigest(ctx, pair.imageRef)
-	if err != nil || targetDigest == "" {
-		r.log.Infof("app delta hint: failed resolving target digest for %q: %v", pair.imageRef, err)
+	sourceDigest := pair.currentDigest
+	var targetDigest string
+	if r.resolveDigestForSource != nil {
+		resolvedPair, err := r.resolveDigestForSource(ctx, pair.imageRef, pair.currentDigest)
+		if err != nil {
+			r.log.Infof("app delta hint: failed resolving source-platform digests for %q: %v", pair.imageRef, err)
+			result.sizeBytes = r.fullImageSize(ctx, pair.imageRef, "")
+			return result
+		}
+		if resolvedPair.SourceDigest == "" || resolvedPair.TargetDigest == "" {
+			r.log.Infof("app delta hint: source-platform digest resolution returned an empty digest for %q", pair.imageRef)
+			result.sizeBytes = r.fullImageSize(ctx, pair.imageRef, "")
+			return result
+		}
+		sourceDigest, targetDigest = resolvedPair.SourceDigest, resolvedPair.TargetDigest
+	} else {
+		var err error
+		targetDigest, err = r.resolveDigest(ctx, pair.imageRef)
+		if err != nil || targetDigest == "" {
+			r.log.Infof("app delta hint: failed resolving target digest for %q: %v", pair.imageRef, err)
+			result.sizeBytes = r.fullImageSize(ctx, pair.imageRef, "")
+			return result
+		}
+	}
+	if targetDigest == "" || sourceDigest == "" {
+		r.log.Infof("app delta hint: failed resolving source-platform digests for %q", pair.imageRef)
 		result.sizeBytes = r.fullImageSize(ctx, pair.imageRef, "")
 		return result
 	}
 	result.targetDigest = targetDigest
-	if pair.currentDigest == targetDigest {
+	if sourceDigest == targetDigest {
 		result.needsDownload = false
 		return result
 	}
 	key := deltastore.GenerationKey{
 		OrgID:           r.orgID,
 		ImageRepository: repo,
-		SourceDigest:    pair.currentDigest,
+		SourceDigest:    sourceDigest,
 		TargetDigest:    targetDigest,
 	}
 	gen, err := lookupOSDeltaGeneration(ctx, r.kvStore, r.deltaLookup, key)
 	if err != nil {
 		r.log.Infof("app delta hint: lookup failed repo=%s src=%s tgt=%s: %v",
-			repo, pair.currentDigest, targetDigest, err)
+			repo, sourceDigest, targetDigest, err)
 		result.sizeBytes = r.fullImageSize(ctx, pair.imageRef, targetDigest)
 		return result
 	}
@@ -845,8 +877,8 @@ func (t *deviceRenderState) resolveAppDeltaHints(ctx context.Context, device *do
 		orgID:       t.orgId,
 		deltaLookup: t.deltaLookup,
 		kvStore:     t.kvStore,
-		resolveDigest: func(ctx context.Context, imageRef string) (string, error) {
-			return t.resolveTargetDigest(ctx, t.orgId, imageRef)
+		resolveDigestForSource: func(ctx context.Context, imageRef, sourceDigest string) (oci.ImageDigestPair, error) {
+			return t.resolveImageDigestPair(ctx, t.orgId, imageRef, sourceDigest, platform)
 		},
 		resolveImageSize: func(ctx context.Context, imageRef, targetDigest string) (*int64, error) {
 			return oci.InspectImagePayloadSize(ctx, imageRef, targetDigest, repositorySpec, platform)

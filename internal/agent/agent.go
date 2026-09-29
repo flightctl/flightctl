@@ -344,6 +344,8 @@ func (a *Agent) Run(ctx context.Context) error {
 		resourceManager,
 		pollBackoff,
 		dependency.WithOCIDelta(client.NewOCIDelta(a.log, exec, time.Duration(a.config.PullTimeout))),
+		dependency.WithOCIDeltaFactory(client.NewOCIDeltaFactory(a.log, time.Duration(a.config.PullTimeout))),
+		dependency.WithReadWriterFactory(rwFactory),
 	)
 
 	// create lifecycle manager

@@ -32,6 +32,7 @@ const (
 
 type collector struct {
 	source    *sourceDefinition
+	logger    *log.PrefixLogger
 	collect   func(context.Context, *Info) error
 	raw       *Info
 	executors []*cachedExecutor
@@ -332,6 +333,19 @@ func (e *cachedExecutor) apply(info *Info, err error, now time.Time) {
 }
 
 func (c *collector) apply(info *Info, err error, now time.Time) {
+	if err == nil && c.source == networkSource && c.logger != nil {
+		var previousRoute, currentRoute *DefaultRoute
+		if c.raw != nil && c.raw.Hardware.Network != nil {
+			previousRoute = c.raw.Hardware.Network.DefaultRoute
+		}
+		if info.Hardware.Network != nil {
+			currentRoute = info.Hardware.Network.DefaultRoute
+		}
+		if currentRoute != nil && (previousRoute == nil || *currentRoute != *previousRoute) {
+			c.logger.Infof("Detected default route: %s via %s", currentRoute.Gateway, currentRoute.Interface)
+		}
+	}
+
 	var collectionErr *collectionError
 	if err == nil || c.raw == nil || (stderrors.As(err, &collectionErr) && collectionErr.clearValue) {
 		c.raw = info
@@ -393,6 +407,7 @@ func collectorsForEntries(logger *log.PrefixLogger, exec executer.Executer, read
 func newCollectorForSource(logger *log.PrefixLogger, exec executer.Executer, reader fileio.Reader, hardwareMapPath string, source *sourceDefinition) *collector {
 	return &collector{
 		source: source,
+		logger: logger,
 		collect: func(ctx context.Context, info *Info) error {
 			return source.collect(ctx, &collectContext{
 				log:                 logger,

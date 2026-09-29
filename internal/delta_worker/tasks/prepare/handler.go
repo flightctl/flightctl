@@ -107,7 +107,7 @@ func (p *Handler) Prepare(ctx context.Context, ev worker_client.EventWithOrgId) 
 		return nil
 	}
 	if prep.Status == model.DeltaPrepareComplete {
-		return p.emitPrepareCompletion(ctx, prep)
+		return p.emitPrepareCompletion(ctx, prep, 0, 0)
 	}
 	return p.processCandidates(ctx, ev, identity, prep, result)
 }
@@ -159,7 +159,7 @@ func (p *Handler) processCandidates(ctx context.Context, ev worker_client.EventW
 		return nil
 	}
 	if updatedPrepare.Status == model.DeltaPrepareComplete {
-		return p.emitPrepareCompletion(ctx, &updatedPrepare)
+		return p.emitPrepareCompletion(ctx, &updatedPrepare, completed, len(keys))
 	}
 	if updatedPrepare.Status != model.DeltaPrepareWaiting {
 		return nil
@@ -177,7 +177,7 @@ func (p *Handler) processCandidates(ctx context.Context, ev worker_client.EventW
 		if err := p.enqueuePending(ctx, ev.OrgId, result.Fleet, pendingGenerationKeys(generations)); err != nil {
 			return err
 		}
-		return p.completeNow(ctx, prep)
+		return p.completeNow(ctx, prep, completed, len(keys))
 	}
 	// Persist the resource-side marker before publishing generation work. A
 	// generation can complete immediately after it is enqueued; the completion
@@ -248,10 +248,7 @@ func (p *Handler) finishSkip(ctx context.Context, orgId uuid.UUID, kind, name st
 			SpecHash:              identity.specHash,
 			SourceResourceVersion: identity.resourceVersion,
 		}
-		if err := p.prepareService.SetDeltaPreparingStatus(ctx, completion, 0, 0); err != nil {
-			return fmt.Errorf("set skipped delta preparing status: %w", err)
-		}
-		return p.emitPrepareCompletion(ctx, completion)
+		return p.emitPrepareCompletion(ctx, completion, 0, 0)
 	}
 	if latest.SourceResourceVersion > identity.resourceVersion {
 		return nil
@@ -266,8 +263,8 @@ func (p *Handler) finishSkip(ctx context.Context, orgId uuid.UUID, kind, name st
 			return err
 		}
 	}
-	if latest.Status == model.DeltaPrepareComplete {
-		return p.emitPrepareCompletion(ctx, latest)
+	if latest.Status == model.DeltaPrepareComplete && latest.SourceResourceVersion == identity.resourceVersion {
+		return p.emitPrepareCompletion(ctx, latest, 0, 0)
 	}
 	completion := &model.DeltaPrepare{
 		OrgID:                 orgId,
@@ -277,17 +274,7 @@ func (p *Handler) finishSkip(ctx context.Context, orgId uuid.UUID, kind, name st
 		SpecHash:              identity.specHash,
 		SourceResourceVersion: identity.resourceVersion,
 	}
-	if latest.SourceResourceVersion < identity.resourceVersion {
-		// A newer skip event can supersede a waiting prepare without going
-		// through admission, leaving the resource marker keyed to the older
-		// prepare. Re-establish the marker with the newer identity so the
-		// completion handler can perform its normal conditional cleanup. The
-		// status setter fences against a resource state newer than this event.
-		if err := p.prepareService.SetDeltaPreparingStatus(ctx, completion, 0, 0); err != nil {
-			return fmt.Errorf("rebind skipped delta preparing status: %w", err)
-		}
-	}
-	return p.emitPrepareCompletion(ctx, completion)
+	return p.emitPrepareCompletion(ctx, completion, 0, 0)
 }
 
 func (p *Handler) failWaiting(ctx context.Context, waiting *model.DeltaPrepare) error {
@@ -365,7 +352,7 @@ func (p *Handler) enqueuePending(ctx context.Context, orgId uuid.UUID, fleet *do
 	return nil
 }
 
-func (p *Handler) completeNow(ctx context.Context, prep *model.DeltaPrepare) error {
+func (p *Handler) completeNow(ctx context.Context, prep *model.DeltaPrepare, completed, total int) error {
 	prep.Status = model.DeltaPrepareComplete
 	updated, err := p.prepareService.UpdateDeltaPrepare(ctx, prep.ResourceVersion, prep)
 	if err != nil {
@@ -377,10 +364,16 @@ func (p *Handler) completeNow(ctx context.Context, prep *model.DeltaPrepare) err
 	if updated != nil {
 		prep = updated
 	}
-	return p.emitPrepareCompletion(ctx, prep)
+	return p.emitPrepareCompletion(ctx, prep, completed, total)
 }
 
-func (p *Handler) emitPrepareCompletion(ctx context.Context, prep *model.DeltaPrepare) error {
+func (p *Handler) emitPrepareCompletion(ctx context.Context, prep *model.DeltaPrepare, completed, total int) error {
+	// ResumeDeltaIfCurrent requires a resource-side preparing marker. Establish it
+	// before publishing completion on every path, including cached deltas,
+	// skipped deltas, and zero-wait prepares.
+	if err := p.prepareService.SetDeltaPreparingStatus(ctx, prep, completed, total); err != nil {
+		return fmt.Errorf("set delta preparing status before completion: %w", err)
+	}
 	event, err := deltaprepare.NewPrepareCompletionEvent(prep)
 	if err != nil {
 		return err

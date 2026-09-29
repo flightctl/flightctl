@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -19,6 +20,20 @@ type OCIDelta struct {
 	exec    executer.Executer
 	log     *log.PrefixLogger
 	timeout time.Duration
+}
+
+// OCIDeltaFactory creates an OCI delta client for the given storage owner.
+type OCIDeltaFactory func(v1beta1.Username) (*OCIDelta, error)
+
+// NewOCIDeltaFactory creates OCI delta clients that run as the storage owner.
+func NewOCIDeltaFactory(log *log.PrefixLogger, timeout time.Duration) OCIDeltaFactory {
+	return func(username v1beta1.Username) (*OCIDelta, error) {
+		exec, err := ExecuterForUser(username)
+		if err != nil {
+			return nil, fmt.Errorf("create oci-delta executor for user %s: %w", username, err)
+		}
+		return NewOCIDelta(log, exec, timeout), nil
+	}
 }
 
 func NewOCIDelta(log *log.PrefixLogger, exec executer.Executer, timeout time.Duration) *OCIDelta {
@@ -79,13 +94,13 @@ func (d *OCIDelta) Import(ctx context.Context, deltaRef, targetRef string) error
 	_, stderr, exitCode := d.exec.ExecuteWithContext(
 		ctx,
 		ociDeltaCmd,
-		"apply",
-		"--container-storage",
-		deltaRef,
+		"import",
+		"--tag",
 		targetRef,
+		deltaRef,
 	)
 	if exitCode != 0 {
-		return fmt.Errorf("oci-delta container-storage import: %w", errors.FromStderr(stderr, exitCode))
+		return fmt.Errorf("oci-delta import: %w", errors.FromStderr(stderr, exitCode))
 	}
 	return nil
 }

@@ -416,14 +416,14 @@ const DefaultVirtLauncherImage = "quay.io/kubevirt/virt-launcher:v1.9.0"
 // subprocess invocations.
 const DefaultRenderTimeout = 60 * time.Second
 
-// workerConfig holds configuration for the flightctl-worker service.
+// workerConfig holds flightctl-worker settings; vmRender is shared with the delta worker.
 type workerConfig struct {
 	RenderTimeout util.Duration   `json:"renderTimeout,omitempty"`
 	VmRender      *vmRenderConfig `json:"vmRender,omitempty"`
 }
 
-// vmRenderConfig holds options for converting VmApplications to Quadlet units
-// via vm-to-quadlet.
+// vmRenderConfig holds shared options for converting VmApplications to Quadlet
+// units via vm-to-quadlet in both worker services.
 type vmRenderConfig struct {
 	LauncherImage    string            `json:"launcherImage,omitempty"`
 	LauncherImages   map[string]string `json:"launcherImages,omitempty"`

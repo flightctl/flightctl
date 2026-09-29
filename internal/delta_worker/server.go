@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/flightctl/flightctl/internal/config"
 	deltaconfig "github.com/flightctl/flightctl/internal/delta_worker/config"
 	workerservice "github.com/flightctl/flightctl/internal/delta_worker/service"
 	"github.com/flightctl/flightctl/internal/delta_worker/service/deltageneration"
@@ -40,6 +41,7 @@ import (
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
 	"github.com/google/uuid"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
@@ -62,7 +64,11 @@ type Server struct {
 	resolver       *preparetask.Resolver
 }
 
-func New(log logrus.FieldLogger, cfg *deltaconfig.DeltaGenerationConfig, db *gorm.DB, kvStore kvstore.KVStore, queuesProvider queues.Provider, workerMetrics *worker.WorkerCollector) (*Server, error) {
+func New(log logrus.FieldLogger, cfg *config.Config, db *gorm.DB, kvStore kvstore.KVStore, queuesProvider queues.Provider, workerMetrics *worker.WorkerCollector) (*Server, error) {
+	var deltaConfig *deltaconfig.DeltaGenerationConfig
+	if cfg != nil {
+		deltaConfig = cfg.DeltaGeneration
+	}
 	deltaPrepareStore := deltapreparestore.NewStore(db, log.WithField("pkg", "delta-prepare-store"))
 	deltaGenerationStore := deltagenerationstore.NewStore(db, log.WithField("pkg", "delta-generation-store"))
 	deltaPrepareGenerationStore := deltapreparegenerationstore.NewStore(db, log.WithField("pkg", "delta-prepare-generation-store"))
@@ -90,7 +96,7 @@ func New(log logrus.FieldLogger, cfg *deltaconfig.DeltaGenerationConfig, db *gor
 	prepareGenerationSvc := deltapreparegeneration.WrapWithTracing(deltapreparegeneration.NewServiceHandler(deltaPrepareGenerationStore, generationSvc, eventSvc))
 
 	return &Server{
-		cfg:            cfg,
+		cfg:            deltaConfig,
 		log:            log,
 		queuesProvider: queuesProvider,
 		workerMetrics:  workerMetrics,
@@ -221,36 +227,43 @@ func enqueueDeltaWorkerEvent(ctx context.Context, producer queues.QueueProducer,
 	return nil
 }
 
-func serviceResolver(cfg *deltaconfig.DeltaGenerationConfig, fleets fleetservice.Service, devices deviceservice.Service, tvs templateversionservice.Service, repos repositoryservice.Service, catalogs catalogservice.Service, kvStore kvstore.KVStore, log logrus.FieldLogger) *preparetask.Resolver {
-	specRenderer := internaltasks.NewDeviceRenderLogic(log, devices, repos, catalogs, nil, kvStore, nil)
+func serviceResolver(cfg *config.Config, fleets fleetservice.Service, devices deviceservice.Service, tvs templateversionservice.Service, repos repositoryservice.Service, catalogs catalogservice.Service, kvStore kvstore.KVStore, log logrus.FieldLogger) *preparetask.Resolver {
+	var deltaConfig *deltaconfig.DeltaGenerationConfig
+	if cfg != nil {
+		deltaConfig = cfg.DeltaGeneration
+	}
+	specRenderer := internaltasks.NewDeviceRenderLogic(log, devices, repos, catalogs, nil, kvStore, cfg)
+	inspectForSource := func(
+		ctx context.Context,
+		orgId uuid.UUID,
+		image string,
+		sourceDigest string,
+		fallbackPlatform *ocispec.Platform,
+	) (string, string, error) {
+		spec, err := generateTask.ResolveDeltaTargetRepo(ctx, repos, deltaConfig, orgId)
+		if err != nil {
+			return "", "", err
+		}
+		pair, err := oci.CachedImageDigestPair(ctx, kvStore, orgId, image, sourceDigest, fallbackPlatform, func(ctx context.Context) (oci.ImageDigestPair, error) {
+			return oci.InspectImageDigestPair(ctx, image, sourceDigest, spec, fallbackPlatform)
+		})
+		if err != nil {
+			return "", "", err
+		}
+		return pair.SourceDigest, pair.TargetDigest, nil
+	}
 	return &preparetask.Resolver{
 		FleetService:           fleets,
 		DeviceService:          devices,
 		RepositoryService:      repos,
 		TemplateVersionService: tvs,
-		Config:                 cfg,
-		Inspect: func(ctx context.Context, orgId uuid.UUID, image string) (string, error) {
-			return oci.CachedImageDigest(ctx, kvStore, orgId, image, func(ctx context.Context) (string, error) {
-				spec, err := generateTask.ResolveDeltaTargetRepo(ctx, repos, cfg, orgId)
-				if err != nil {
-					return "", err
-				}
-				return oci.InspectImageDigest(ctx, image, spec)
-			})
-		},
-		Render: func(ctx context.Context, orgId uuid.UUID, spec *domain.DeviceSpec) (internaltasks.RenderedSpec, error) {
-			return specRenderer.RenderSpec(ctx, orgId, spec)
+		Config:                 deltaConfig,
+		InspectForSource:       inspectForSource,
+		Render: func(ctx context.Context, orgId uuid.UUID, device *domain.Device, spec *domain.DeviceSpec) (internaltasks.RenderedSpec, error) {
+			return specRenderer.RenderSpecForDevice(ctx, orgId, device, spec)
 		},
 		Expand: func(ctx context.Context, orgId uuid.UUID, device *domain.Device, rendered internaltasks.RenderedSpec, candidates []preparetask.DeltaCandidate) []preparetask.DeltaCandidate {
-			return expandAppCandidates(ctx, log.WithField("pkg", "app-expand"), orgId, device, rendered, candidates, func(ctx context.Context, orgId uuid.UUID, image string) (string, error) {
-				return oci.CachedImageDigest(ctx, kvStore, orgId, image, func(ctx context.Context) (string, error) {
-					spec, err := generateTask.ResolveDeltaTargetRepo(ctx, repos, cfg, orgId)
-					if err != nil {
-						return "", err
-					}
-					return oci.InspectImageDigest(ctx, image, spec)
-				})
-			})
+			return expandAppCandidatesForSource(ctx, log.WithField("pkg", "app-expand"), orgId, device, rendered, candidates, inspectForSource)
 		},
 	}
 }
