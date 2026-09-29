@@ -21,9 +21,6 @@ type ReconciliationDeviceStore interface {
 }
 
 func (h *ServiceHandler) ReconcileDeviceLabels(ctx context.Context, orgID uuid.UUID, deviceName string) (ReconciliationResult, error) {
-	if h == nil || h.store == nil || h.deviceStore == nil || h.evaluator == nil || h.events == nil {
-		return ReconciliationResult{}, errors.New("label-sync reconciliation is not configured")
-	}
 	if store.InTransaction(ctx) {
 		return ReconciliationResult{}, errors.New("label-sync reconciliation cannot run inside an existing store transaction")
 	}

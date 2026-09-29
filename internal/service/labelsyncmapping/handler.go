@@ -23,8 +23,21 @@ type ServiceHandler struct {
 }
 
 // NewServiceHandler constructs the label-sync mapping service, including CEL
-// validation for CRUD operations and device-label reconciliation.
-func NewServiceHandler(store labelsyncmappingstore.Store, deviceStore ReconciliationDeviceStore, evaluator Evaluator, events eventservice.Service, log logrus.FieldLogger) *ServiceHandler {
+// validation for CRUD operations and device-label reconciliation. It returns
+// an error if any required dependency is nil.
+func NewServiceHandler(store labelsyncmappingstore.Store, deviceStore ReconciliationDeviceStore, evaluator Evaluator, events eventservice.Service, log logrus.FieldLogger) (*ServiceHandler, error) {
+	if store == nil {
+		return nil, errors.New("label-sync mapping store is required")
+	}
+	if deviceStore == nil {
+		return nil, errors.New("device store is required for label-sync reconciliation")
+	}
+	if evaluator == nil {
+		return nil, errors.New("label-sync mapping evaluator is required")
+	}
+	if events == nil {
+		return nil, errors.New("event service is required for label-sync reconciliation")
+	}
 	if log == nil {
 		log = logrus.New()
 	}
@@ -34,7 +47,7 @@ func NewServiceHandler(store labelsyncmappingstore.Store, deviceStore Reconcilia
 		evaluator:   evaluator,
 		events:      events,
 		log:         log,
-	}
+	}, nil
 }
 
 var _ Service = (*ServiceHandler)(nil)
@@ -137,9 +150,6 @@ func (h *ServiceHandler) ReplaceLabelSyncMapping(ctx context.Context, orgID uuid
 func (h *ServiceHandler) validateExpression(ctx context.Context, mapping domain.LabelSyncMapping) domain.Status {
 	if err := ctx.Err(); err != nil {
 		return domain.StatusUnprocessableEntity(err.Error())
-	}
-	if h.evaluator == nil {
-		return domain.StatusInternalServerError("label-sync mapping evaluator is not configured")
 	}
 	expectedKind := ResultKindMap
 	if mapping.Spec.Key != nil {

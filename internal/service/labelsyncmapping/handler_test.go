@@ -9,6 +9,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
+	eventservice "github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
 	labelsyncmappingstore "github.com/flightctl/flightctl/internal/store/labelsyncmapping"
 	"github.com/google/uuid"
@@ -35,8 +36,11 @@ func (handlerTestEvaluator) Evaluate(string, Activation) (Result, error) {
 	return NoResult{}, nil
 }
 
-func newCRUDServiceHandler(store labelsyncmappingstore.Store, evaluator Evaluator) *ServiceHandler {
-	return NewServiceHandler(store, nil, evaluator, nil, nil)
+func newCRUDServiceHandler(t *testing.T, store labelsyncmappingstore.Store, evaluator Evaluator) *ServiceHandler {
+	t.Helper()
+	handler, err := NewServiceHandler(store, &reconciliationDeviceStub{}, evaluator, eventservice.Service(reconciliationEventsStub{}), nil)
+	require.NoError(t, err)
+	return handler
 }
 
 func newFakeStore() *fakeStore {
@@ -152,29 +156,70 @@ func mapping(name string) domain.LabelSyncMapping {
 	}
 }
 
+func TestNewServiceHandlerRequiresDependencies(t *testing.T) {
+	validStore := newFakeStore()
+	validDeviceStore := &reconciliationDeviceStub{}
+	validEvaluator := handlerTestEvaluator{}
+	validEvents := eventservice.Service(reconciliationEventsStub{})
+	tests := []struct {
+		name        string
+		store       labelsyncmappingstore.Store
+		deviceStore ReconciliationDeviceStore
+		evaluator   Evaluator
+		events      eventservice.Service
+		wantError   string
+	}{
+		{
+			name:        "When the label-sync mapping store is missing it should reject construction",
+			deviceStore: validDeviceStore,
+			evaluator:   validEvaluator,
+			events:      validEvents,
+			wantError:   "label-sync mapping store is required",
+		},
+		{
+			name:      "When the device store is missing it should reject construction",
+			store:     validStore,
+			evaluator: validEvaluator,
+			events:    validEvents,
+			wantError: "device store is required",
+		},
+		{
+			name:        "When the evaluator is missing it should reject construction",
+			store:       validStore,
+			deviceStore: validDeviceStore,
+			events:      validEvents,
+			wantError:   "mapping evaluator is required",
+		},
+		{
+			name:        "When the event service is missing it should reject construction",
+			store:       validStore,
+			deviceStore: validDeviceStore,
+			evaluator:   validEvaluator,
+			wantError:   "event service is required",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewServiceHandler(tt.store, tt.deviceStore, tt.evaluator, tt.events, nil)
+			require.ErrorContains(t, err, tt.wantError)
+		})
+	}
+}
+
 func TestLabelSyncMappingLifecycle(t *testing.T) {
 	ctx := context.Background()
 	firstOrg := uuid.New()
 	secondOrg := uuid.New()
 	store := newFakeStore()
-	handler := newCRUDServiceHandler(store, handlerTestEvaluator{})
+	handler := newCRUDServiceHandler(t, store, handlerTestEvaluator{})
 
 	t.Run("When the expression validator rejects a mapping it should return 422 without persisting", func(t *testing.T) {
 		validationStore := newFakeStore()
-		validationHandler := newCRUDServiceHandler(validationStore, handlerTestEvaluator{validationErr: errors.New("expression output does not match map mode")})
+		validationHandler := newCRUDServiceHandler(t, validationStore, handlerTestEvaluator{validationErr: errors.New("expression output does not match map mode")})
 		created, status := validationHandler.CreateLabelSyncMapping(ctx, firstOrg, mapping("invalid-expression"))
 		require.Nil(t, created)
 		assert.EqualValues(t, 422, status.Code)
 		assert.Contains(t, status.Message, "map mode")
-		assert.Empty(t, validationStore.mappings[firstOrg])
-	})
-
-	t.Run("When the evaluator is missing it should not skip expression validation", func(t *testing.T) {
-		validationStore := newFakeStore()
-		validationHandler := newCRUDServiceHandler(validationStore, nil)
-		created, status := validationHandler.CreateLabelSyncMapping(ctx, firstOrg, mapping("missing-evaluator"))
-		require.Nil(t, created)
-		assert.EqualValues(t, 500, status.Code)
 		assert.Empty(t, validationStore.mappings[firstOrg])
 	})
 
@@ -244,7 +289,7 @@ func TestLabelSyncMappingLifecycle(t *testing.T) {
 
 	t.Run("When an unowned mapping is deleted it should be removed during finalization", func(t *testing.T) {
 		unownedStore := newFakeStore()
-		unownedHandler := newCRUDServiceHandler(unownedStore, handlerTestEvaluator{})
+		unownedHandler := newCRUDServiceHandler(t, unownedStore, handlerTestEvaluator{})
 		_, createStatus := unownedHandler.CreateLabelSyncMapping(ctx, firstOrg, mapping("unowned"))
 		require.EqualValues(t, 201, createStatus.Code)
 
@@ -259,7 +304,7 @@ func TestLabelSyncMappingLifecycle(t *testing.T) {
 	t.Run("When deletion fails it should not attempt finalization", func(t *testing.T) {
 		deleteStore := newFakeStore()
 		deleteStore.deleteErr = errors.New("delete failed")
-		deleteHandler := newCRUDServiceHandler(deleteStore, handlerTestEvaluator{})
+		deleteHandler := newCRUDServiceHandler(t, deleteStore, handlerTestEvaluator{})
 
 		status := deleteHandler.DeleteLabelSyncMapping(ctx, firstOrg, "architecture")
 		assert.EqualValues(t, 500, status.Code)
@@ -268,7 +313,7 @@ func TestLabelSyncMappingLifecycle(t *testing.T) {
 
 	t.Run("When the mapping is not found it should not attempt finalization", func(t *testing.T) {
 		missingStore := newFakeStore()
-		missingHandler := newCRUDServiceHandler(missingStore, handlerTestEvaluator{})
+		missingHandler := newCRUDServiceHandler(t, missingStore, handlerTestEvaluator{})
 
 		status := missingHandler.DeleteLabelSyncMapping(ctx, firstOrg, "missing")
 		assert.EqualValues(t, 200, status.Code)
@@ -277,7 +322,7 @@ func TestLabelSyncMappingLifecycle(t *testing.T) {
 
 	t.Run("When finalization fails it should return an internal server error", func(t *testing.T) {
 		finalizeStore := newFakeStore()
-		finalizeHandler := newCRUDServiceHandler(finalizeStore, handlerTestEvaluator{})
+		finalizeHandler := newCRUDServiceHandler(t, finalizeStore, handlerTestEvaluator{})
 		_, createStatus := finalizeHandler.CreateLabelSyncMapping(ctx, firstOrg, mapping("finalize-failure"))
 		require.EqualValues(t, 201, createStatus.Code)
 		finalizeStore.finalizeDeleteErr = errors.New("finalization failed")

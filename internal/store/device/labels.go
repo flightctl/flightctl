@@ -96,46 +96,20 @@ func newLabelApplyPlan(name string, snapshot domain.DeviceLabelSnapshot, desired
 		return labelApplyPlan{}, flterrors.ErrIllegalResourceVersionFormat
 	}
 
-	labels := make(map[string]string, len(desired))
-	for key, label := range desired {
-		labels[key] = label.Value
-	}
-	managedValue, err := managedLabelsValue(desired)
-	if err != nil {
-		return labelApplyPlan{}, err
-	}
+	labels := deviceLabelValues(desired)
 	annotations := maps.Clone(lo.FromPtr(snapshot.Device.Metadata.Annotations))
 	if annotations == nil {
 		annotations = make(map[string]string)
 	}
-	oldManagedValue, hadManagedValue := annotations[domain.DeviceAnnotationManagedLabels]
-	if managedValue == nil {
-		delete(annotations, domain.DeviceAnnotationManagedLabels)
-	} else {
-		annotations[domain.DeviceAnnotationManagedLabels] = *managedValue
+	managedLabelsChanged, err := updateManagedLabelsAnnotation(annotations, desired)
+	if err != nil {
+		return labelApplyPlan{}, err
 	}
-	newManagedValue, hasManagedValue := annotations[domain.DeviceAnnotationManagedLabels]
-	managedLabelsChanged := hadManagedValue != hasManagedValue || oldManagedValue != newManagedValue
 	labelsChanged := !maps.Equal(lo.FromPtr(snapshot.Device.Metadata.Labels), labels)
 	visibleChanged := labelsChanged || managedLabelsChanged
 	currentRows := deviceLabelOwnersByKey(snapshot.Labels)
 	currentLabels := lo.FromPtr(snapshot.Device.Metadata.Labels)
-	ownershipChanged := false
-	for key, label := range desired {
-		previous, exists := currentRows[key]
-		if !exists {
-			ownershipChanged = ownershipChanged || label.MappingID != nil
-		} else if !sameDeviceLabelOwner(previous.MappingID, label.MappingID) {
-			ownershipChanged = true
-		}
-	}
-	for key, previous := range currentRows {
-		_, existsInDevice := currentLabels[key]
-		_, remainsDesired := desired[key]
-		if existsInDevice && !remainsDesired && previous.MappingID != nil {
-			ownershipChanged = true
-		}
-	}
+	ownershipChanged := deviceLabelOwnershipChanged(currentRows, currentLabels, desired)
 
 	updated := snapshot.Device
 	updated.Metadata.Labels = &labels
@@ -156,6 +130,49 @@ func newLabelApplyPlan(name string, snapshot domain.DeviceLabelSnapshot, desired
 			OwnershipChanged:     ownershipChanged,
 		},
 	}, nil
+}
+
+func deviceLabelValues(desired map[string]domain.DesiredDeviceLabel) map[string]string {
+	labels := make(map[string]string, len(desired))
+	for key, label := range desired {
+		labels[key] = label.Value
+	}
+	return labels
+}
+
+func updateManagedLabelsAnnotation(annotations map[string]string, desired map[string]domain.DesiredDeviceLabel) (bool, error) {
+	managedValue, err := managedLabelsValue(desired)
+	if err != nil {
+		return false, err
+	}
+	oldValue, hadValue := annotations[domain.DeviceAnnotationManagedLabels]
+	if managedValue == nil {
+		delete(annotations, domain.DeviceAnnotationManagedLabels)
+	} else {
+		annotations[domain.DeviceAnnotationManagedLabels] = *managedValue
+	}
+	newValue, hasValue := annotations[domain.DeviceAnnotationManagedLabels]
+	return hadValue != hasValue || oldValue != newValue, nil
+}
+
+func deviceLabelOwnershipChanged(currentRows map[string]domain.DeviceLabelOwnership, currentLabels map[string]string, desired map[string]domain.DesiredDeviceLabel) bool {
+	for key, label := range desired {
+		previous, exists := currentRows[key]
+		if !exists && label.MappingID != nil {
+			return true
+		}
+		if exists && !sameDeviceLabelOwner(previous.MappingID, label.MappingID) {
+			return true
+		}
+	}
+	for key, previous := range currentRows {
+		_, existsInDevice := currentLabels[key]
+		_, remainsDesired := desired[key]
+		if existsInDevice && !remainsDesired && previous.MappingID != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *DeviceStore) applyLabelsInTransaction(tx *gorm.DB, orgID uuid.UUID, name string, snapshot domain.DeviceLabelSnapshot, desired map[string]domain.DesiredDeviceLabel, plan labelApplyPlan) error {

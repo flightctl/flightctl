@@ -154,7 +154,16 @@ var _ = Describe("LabelSyncMapping reconciliation", func() {
 		Expect(err).NotTo(HaveOccurred())
 		device, err = deviceStore.Get(ctx, orgID, "managed-device")
 		Expect(err).NotTo(HaveOccurred())
-		Expect(lo.FromPtr(device.Metadata.Annotations)[domain.DeviceAnnotationManagedLabels]).To(Equal(`["promoted","same"]`))
+		Expect(lo.FromPtr(device.Metadata.Annotations)[domain.DeviceAnnotationManagedLabels]).To(Equal(`[]`))
+
+		snapshot, err = deviceStore.GetLabelSnapshot(ctx, orgID, "managed-device")
+		Expect(err).NotTo(HaveOccurred())
+		repaired, err := deviceStore.ApplyLabels(ctx, orgID, "managed-device", snapshot, desired)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(repaired.LabelsChanged).To(BeFalse())
+		Expect(repaired.ManagedLabelsChanged).To(BeTrue())
+		Expect(repaired.OwnershipChanged).To(BeFalse())
+		Expect(lo.FromPtr(repaired.Device.Metadata.Annotations)[domain.DeviceAnnotationManagedLabels]).To(Equal(`["promoted","same"]`))
 
 		snapshot, err = deviceStore.GetLabelSnapshot(ctx, orgID, "managed-device")
 		Expect(err).NotTo(HaveOccurred())
@@ -456,7 +465,8 @@ var _ = Describe("LabelSyncMapping reconciliation", func() {
 
 func newReconciliationService(deviceStore devicestore.Store, mappingStore labelsyncmappingstore.Store, evaluator *scriptedEvaluator, log *logrus.Logger) (labelsyncmappingservice.Service, *recordingEvents) {
 	events := &recordingEvents{}
-	service := labelsyncmappingservice.NewServiceHandler(mappingStore, deviceStore, evaluator, events, log)
+	service, err := labelsyncmappingservice.NewServiceHandler(mappingStore, deviceStore, evaluator, events, log)
+	Expect(err).NotTo(HaveOccurred())
 	return service, events
 }
 

@@ -101,8 +101,11 @@ func (reconciliationEventsStub) CreateEvent(context.Context, uuid.UUID, *domain.
 func (reconciliationEventsStub) HandleGenericResourceDeletedEvents(context.Context, domain.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {
 }
 
-func newReconcilerService(mappingStore labelsyncmappingstore.Store, devices ReconciliationDeviceStore, evaluator Evaluator) *ServiceHandler {
-	return NewServiceHandler(mappingStore, devices, evaluator, eventservice.Service(reconciliationEventsStub{}), logrus.New())
+func newReconcilerService(t *testing.T, mappingStore labelsyncmappingstore.Store, devices ReconciliationDeviceStore, evaluator Evaluator) *ServiceHandler {
+	t.Helper()
+	service, err := NewServiceHandler(mappingStore, devices, evaluator, eventservice.Service(reconciliationEventsStub{}), logrus.New())
+	require.NoError(t, err)
+	return service
 }
 
 func TestDesiredDeviceLabelsPreservesUserLabelsAndTakesOverMatchingKeys(t *testing.T) {
@@ -179,7 +182,7 @@ func TestReconcileDeviceLabelsRetriesDeviceVersionConflict(t *testing.T) {
 		},
 	}
 	evaluator := &reconciliationEvaluator{responses: map[string]evaluatorResponse{"mapped": {result: ScalarResult("x86_64")}}}
-	service := newReconcilerService(mappingStore, devices, evaluator)
+	service := newReconcilerService(t, mappingStore, devices, evaluator)
 
 	result, err := service.ReconcileDeviceLabels(context.Background(), orgID, "edge-01")
 	require.NoError(t, err)
@@ -204,7 +207,7 @@ func TestReconcileDeviceLabelsRetriesDatabaseDeadlock(t *testing.T) {
 		},
 	}
 	evaluator := &reconciliationEvaluator{responses: map[string]evaluatorResponse{"mapped": {result: ScalarResult("x86_64")}}}
-	service := newReconcilerService(mappingStore, devices, evaluator)
+	service := newReconcilerService(t, mappingStore, devices, evaluator)
 
 	result, err := service.ReconcileDeviceLabels(context.Background(), orgID, "edge-01")
 	require.NoError(t, err)
@@ -232,7 +235,7 @@ func TestReconcileDeviceLabelsRetriesWhenMappingRevisionChangesAfterWrite(t *tes
 		},
 	}
 	evaluator := &reconciliationEvaluator{responses: map[string]evaluatorResponse{"mapped": {result: ScalarResult("x86_64")}}}
-	service := newReconcilerService(mappingStore, devices, evaluator)
+	service := newReconcilerService(t, mappingStore, devices, evaluator)
 
 	result, err := service.ReconcileDeviceLabels(context.Background(), orgID, "edge-01")
 	require.NoError(t, err)
@@ -255,7 +258,7 @@ func TestReconcileDeviceLabelsDoesNotRepeatOwnerOnlyTransfer(t *testing.T) {
 		applies:   []deviceApplyResponse{{result: domain.DeviceLabelApplyResult{OwnershipChanged: true}}},
 	}
 	evaluator := &reconciliationEvaluator{responses: map[string]evaluatorResponse{"mapped": {result: ScalarResult("x86_64")}}}
-	service := newReconcilerService(mappingStore, devices, evaluator)
+	service := newReconcilerService(t, mappingStore, devices, evaluator)
 
 	_, err := service.ReconcileDeviceLabels(context.Background(), orgID, "edge-01")
 	require.NoError(t, err)
