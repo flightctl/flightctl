@@ -28,10 +28,13 @@ func NormalizeCapabilityCounts(counts map[string]int64) map[string]int64 {
 }
 
 func deviceOsModeCountKey(status *domain.DeviceStatus) string {
-	if status == nil || status.Capabilities == nil || status.Capabilities.OsMode == nil {
+	// Prefer status.systemInfo.osMode, falling back to the deprecated
+	// status.capabilities.osMode for devices reported by older agents.
+	mode := domain.DeviceStatusOsMode(status)
+	if mode == nil || *mode == "" {
 		return CapabilityCountUnknown
 	}
-	return string(*status.Capabilities.OsMode)
+	return string(*mode)
 }
 
 // NewDevicesSummaryCapabilities builds the capabilities breakdown for a DevicesSummary,
