@@ -101,10 +101,11 @@ func TestCPUMonitor(t *testing.T) {
 			collector := &fakeCPUCollector{snapshots: tt.snapshots}
 
 			cpuMonitor := &CPUMonitor{
-				log:       log,
-				alerts:    make(map[v1beta1.ResourceAlertSeverityType]*Alert),
-				collector: collector,
-				prevUsage: tt.prev,
+				log:                log,
+				alerts:             make(map[v1beta1.ResourceAlertSeverityType]*Alert),
+				collector:          collector,
+				prevUsage:          tt.prev,
+				criticalNotifyFunc: func() {},
 			}
 			var maxDuration time.Duration
 			for _, rule := range tt.alertRules {

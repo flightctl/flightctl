@@ -22,7 +22,7 @@ func TestDiskMonitor(t *testing.T) {
 	defer cancel()
 
 	log := log.NewPrefixLogger("test")
-	diskMonitor := NewDiskMonitor(log)
+	diskMonitor := NewDiskMonitor(log, nil)
 
 	go diskMonitor.Run(ctx)
 
