@@ -274,9 +274,18 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.log,
 	)
 
-	// create resource manager
+	// create status manager with critical-change channel
+	criticalCh := make(chan struct{}, 1)
+	statusManager := status.NewManager(
+		deviceName,
+		a.log,
+		status.WithCriticalCh(criticalCh),
+	)
+
+	// create resource manager with injected notifier
 	resourceManager := resource.NewManager(
 		a.log,
+		statusManager.CriticalChangeNotifier(),
 	)
 
 	// create hook manager
@@ -337,12 +346,6 @@ func (a *Agent) Run(ctx context.Context) error {
 		dependency.WithOCIDelta(client.NewOCIDelta(a.log, exec, time.Duration(a.config.PullTimeout))),
 	)
 
-	// create status manager
-	statusManager := status.NewManager(
-		deviceName,
-		a.log,
-	)
-
 	// create lifecycle manager
 	lifecycleManager := lifecycle.NewManager(
 		deviceName,
@@ -371,6 +374,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	statusManager.RegisterStatusExporter(prefetchManager)
 	statusManager.RegisterStatusExporter(rootSystemdManager)
 	statusManager.RegisterStatusExporter(resourceManager)
+	statusManager.RegisterCriticalExporter(resourceManager)
 	statusManager.RegisterStatusExporter(specManager)
 	statusManager.RegisterStatusExporter(systemInfoManager)
 	// The OS exporter adds delta capability fields to SystemInfo, so run it after
@@ -495,6 +499,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		pullConfigResolver,
 		pruningManager,
 		caps,
+		criticalCh,
 		backoff,
 		a.log,
 	)

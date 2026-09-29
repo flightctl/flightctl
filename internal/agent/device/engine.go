@@ -18,6 +18,10 @@ type Engine struct {
 	pushStatusInterval util.Duration
 	pushStatusFn       func(context.Context)
 
+	// criticalChangeCh signals that a critical exporter has new data to push.
+	criticalChangeCh <-chan struct{}
+	criticalPushFn   func(context.Context)
+
 	// statusStartupDelay waits this long after Run starts before the first
 	// status push (and before the status ticker). NewEngine picks a random
 	// value in [0, pushStatusInterval) to desynchronize fleets after restart.
@@ -36,6 +40,8 @@ func NewEngine(
 	pushStatusInterval util.Duration,
 	pushStatusFn func(context.Context),
 	statusJitterMax time.Duration,
+	criticalChangeCh <-chan struct{},
+	criticalPushFn func(context.Context),
 ) *Engine {
 	var startupDelay time.Duration
 	if statusJitterMax > 0 {
@@ -45,6 +51,8 @@ func NewEngine(
 		syncSpecFn:         syncSpecFn,
 		pushStatusInterval: pushStatusInterval,
 		pushStatusFn:       pushStatusFn,
+		criticalChangeCh:   criticalChangeCh,
+		criticalPushFn:     criticalPushFn,
 		statusStartupDelay: startupDelay,
 		clock:              &realClock{},
 		startedCh:          make(chan struct{}),
@@ -97,6 +105,8 @@ func (e *Engine) Run(ctx context.Context) error {
 				return nil
 			}
 			e.pushStatusFn(ctx)
+		case <-e.criticalChangeCh:
+			e.criticalPushFn(ctx)
 		}
 	}
 }
