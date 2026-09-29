@@ -247,9 +247,9 @@ func (f *TableFormatter) printDevicesLastSeenTable(w *tabwriter.Writer, lastSeen
 
 func (f *TableFormatter) printDevicesTable(w *tabwriter.Writer, wide bool, devices ...api.Device) error {
 	if wide {
-		f.printHeaderRowLn(w, "NAME", "ALIAS", "OWNER", "SYSTEM", "UPDATED", "APPLICATIONS", "LABELS")
+		f.printHeaderRowLn(w, "NAME", "ALIAS", "OWNER", "SYSTEM", "UPDATED", "APPLICATIONS", "SYSTEM INFO", "LABELS")
 	} else {
-		f.printHeaderRowLn(w, "NAME", "ALIAS", "OWNER", "SYSTEM", "UPDATED", "APPLICATIONS")
+		f.printHeaderRowLn(w, "NAME", "ALIAS", "OWNER", "SYSTEM", "UPDATED", "APPLICATIONS", "SYSTEM INFO")
 	}
 	for _, d := range devices {
 		alias := ""
@@ -261,10 +261,14 @@ func (f *TableFormatter) printDevicesTable(w *tabwriter.Writer, wide bool, devic
 		summaryStatus := "Unknown"
 		updatedStatus := "Unknown"
 		applicationsStatus := "Unknown"
+		systemInfoStatus := "Unknown"
 		if d.Status != nil {
 			summaryStatus = string(d.Status.Summary.Status)
 			updatedStatus = string(d.Status.Updated.Status)
 			applicationsStatus = string(d.Status.ApplicationsSummary.Status)
+			if d.Status.SystemInfoStatus != nil {
+				systemInfoStatus = string(d.Status.SystemInfoStatus.Summary.Status)
+			}
 		}
 
 		f.printTableRow(w,
@@ -274,6 +278,7 @@ func (f *TableFormatter) printDevicesTable(w *tabwriter.Writer, wide bool, devic
 			summaryStatus,
 			updatedStatus,
 			applicationsStatus,
+			systemInfoStatus,
 		)
 		if wide {
 			f.printTableRowLn(w, "", strings.Join(util.LabelMapToArray(d.Metadata.Labels), ","))
