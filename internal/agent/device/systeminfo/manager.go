@@ -252,7 +252,7 @@ func (m *manager) rebuildCollectors() {
 
 func managerCollectionRequest(infoKeys, customKeys []string) collectionRequest {
 	custom := customCollectionRequest{mode: customCollectionDisabled}
-	if customKeys == nil {
+	if customKeys == nil || slices.Contains(customKeys, "*") {
 		custom.mode = customCollectionDiscover
 	} else if len(customKeys) > 0 {
 		custom = customCollectionRequest{mode: customCollectionConfigured, keys: customKeys}

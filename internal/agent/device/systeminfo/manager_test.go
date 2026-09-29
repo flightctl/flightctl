@@ -430,7 +430,7 @@ func TestStatusCachesCustomScriptResults(t *testing.T) {
 	require.Equal(v1beta1.SystemInfoSourceStatusHealthy, recovered.SystemInfoStatus.Statuses.CustomInfo["site"].Status)
 }
 
-func TestStatusDiscoversDefaultCustomScriptsOnReload(t *testing.T) {
+func TestStatusReloadDiscoversConfiguredAndDefaultCustomScripts(t *testing.T) {
 	require := require.New(t)
 	tmpDir := t.TempDir()
 	readWriter := fileio.NewReadWriter(
@@ -445,7 +445,7 @@ func TestStatusDiscoversDefaultCustomScriptsOnReload(t *testing.T) {
 		readWriter,
 		"etc/flightctl",
 		nil,
-		nil,
+		[]string{},
 		util.Duration(time.Second),
 		0,
 	)
@@ -471,6 +471,15 @@ func TestStatusDiscoversDefaultCustomScriptsOnReload(t *testing.T) {
 	))
 	beforeReload := collect()
 	require.Empty(beforeReload.SystemInfoStatus.Statuses.CustomInfo)
+
+	require.NoError(manager.ReloadConfig(context.Background(), &config.Config{
+		SystemInfoCustom:  []string{"*"},
+		SystemInfoTimeout: util.Duration(time.Second),
+	}))
+	wildcardDiscovered := collect()
+	require.Contains(wildcardDiscovered.SystemInfoStatus.Statuses.CustomInfo, "discovered")
+	require.NotContains(wildcardDiscovered.SystemInfoStatus.Statuses.CustomInfo, "ignored")
+	require.Equal("discovered", (*wildcardDiscovered.SystemInfo.CustomInfo)["discovered"])
 
 	require.NoError(manager.ReloadConfig(context.Background(), &config.Config{
 		SystemInfoTimeout: util.Duration(time.Second),
