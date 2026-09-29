@@ -13,8 +13,6 @@ import (
 )
 
 func TestAlertSyncEdgeTransition(t *testing.T) {
-	require := require.New(t)
-
 	tests := []struct {
 		name            string
 		initialFiring   bool
@@ -64,6 +62,7 @@ func TestAlertSyncEdgeTransition(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
 			alert := &Alert{
 				ResourceAlertRule: v1beta1.ResourceAlertRule{
 					Severity:   v1beta1.ResourceAlertSeverityTypeCritical,
@@ -168,7 +167,6 @@ func TestNotifyOnlyCriticalSeverity(t *testing.T) {
 }
 
 func TestMonitorMemoryCallbackWiring(t *testing.T) {
-	require := require.New(t)
 	logger := log.NewPrefixLogger("test")
 	logger.Logger.SetLevel(logrus.TraceLevel)
 
@@ -242,6 +240,7 @@ func TestMonitorMemoryCallbackWiring(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
 			var notifyCount atomic.Int32
 			monitor := NewMemoryMonitor(logger, func() { notifyCount.Add(1) })
 			monitor.alerts = tc.alerts
@@ -255,7 +254,6 @@ func TestMonitorMemoryCallbackWiring(t *testing.T) {
 }
 
 func TestMonitorDiskCallbackWiring(t *testing.T) {
-	require := require.New(t)
 	logger := log.NewPrefixLogger("test")
 	logger.Logger.SetLevel(logrus.TraceLevel)
 
@@ -329,6 +327,7 @@ func TestMonitorDiskCallbackWiring(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
 			var notifyCount atomic.Int32
 			monitor := NewDiskMonitor(logger, func() { notifyCount.Add(1) })
 			monitor.alerts = tc.alerts
@@ -342,7 +341,6 @@ func TestMonitorDiskCallbackWiring(t *testing.T) {
 }
 
 func TestMonitorCPUCallbackWiring(t *testing.T) {
-	require := require.New(t)
 	logger := log.NewPrefixLogger("test")
 	logger.Logger.SetLevel(logrus.TraceLevel)
 
@@ -431,6 +429,7 @@ func TestMonitorCPUCallbackWiring(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
 			var notifyCount atomic.Int32
 			ctx := context.Background()
 			collector := &fakeCPUCollector{snapshots: tc.snapshots}
