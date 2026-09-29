@@ -168,6 +168,39 @@ func TestDesiredDeviceLabelsRetainsAllPreviousOutputsWhenMapEvaluationFails(t *t
 	assert.Error(t, outcomes[0].Err)
 }
 
+func TestDesiredDeviceLabelsDiscardsAllOutputsWhenAnyMapKeyConflicts(t *testing.T) {
+	firstID := uuid.New()
+	secondID := uuid.New()
+	first := testDeviceMapping(firstID, "first", "first-map", nil)
+	second := testDeviceMapping(secondID, "second", "second-map", nil)
+	snapshot := deviceReconciliationSnapshot{
+		Device: deviceLabelSnapshot("edge-01", "1", map[string]string{
+			"owned-first": "previous-one",
+			"owned-last":  "previous-two",
+			"manual":      "preserve",
+		}, []domain.DeviceLabelOwnership{
+			{Key: "owned-first", Value: "previous-one", MappingID: &firstID},
+			{Key: "owned-last", Value: "previous-two", MappingID: &firstID},
+		}),
+		Mappings: []labelsyncmappingstore.DeviceMapping{first, second},
+	}
+	evaluator := &reconciliationEvaluator{responses: map[string]evaluatorResponse{
+		"first-map":  {result: MapResult{"a-conflict": "first", "z-new": "discard"}},
+		"second-map": {result: MapResult{"a-conflict": "second"}},
+	}}
+
+	desired, outcomes, err := desiredDeviceLabels(snapshot, evaluator)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]domain.DesiredDeviceLabel{
+		"owned-first": {Value: "previous-one", MappingID: &firstID},
+		"owned-last":  {Value: "previous-two", MappingID: &firstID},
+		"manual":      {Value: "preserve"},
+	}, desired)
+	require.Len(t, outcomes, 2)
+	assert.Error(t, outcomes[0].Err)
+	assert.Error(t, outcomes[1].Err)
+}
+
 func TestReconcileDeviceLabelsRetriesDeviceVersionConflict(t *testing.T) {
 	orgID := uuid.New()
 	mappingID := uuid.New()

@@ -105,7 +105,6 @@ func (s *desiredLabelState) evaluateMappings(evaluator Evaluator, activation Act
 		if err != nil {
 			mappingName := lo.FromPtr(entry.Mapping.Metadata.Name)
 			s.failures[entry.ID] = append(s.failures[entry.ID], fmt.Errorf("evaluating mapping %q: %w", mappingName, err))
-			s.retainMappingOutputs(entry.ID)
 			continue
 		}
 		s.outputsByMapping[entry.ID] = outputs
@@ -123,47 +122,71 @@ func (s *desiredLabelState) evaluateMappings(evaluator Evaluator, activation Act
 }
 
 func (s *desiredLabelState) resolveCandidates() {
-	keys := make([]string, 0, len(s.candidatesByKey))
-	for key := range s.candidatesByKey {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		candidates := s.candidatesByKey[key]
-		s.resolveKey(key, candidates)
-	}
-}
-
-func (s *desiredLabelState) resolveKey(key string, candidates []mappingCandidate) {
-	if len(candidates) > 1 {
-		err := fmt.Errorf("label key %q is emitted by multiple mappings", key)
-		for _, candidate := range candidates {
-			s.recordCandidateFailure(candidate, err)
+	for {
+		previousFailures := len(s.failures)
+		desired := s.unmanagedLabels()
+		for mappingID := range s.failures {
+			s.retainMappingOutputsIn(desired, mappingID)
 		}
-		s.retainCollidingOwner(key, candidates)
-		return
+
+		keys := make([]string, 0, len(s.candidatesByKey))
+		for key := range s.candidatesByKey {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			candidates := s.activeCandidates(key)
+			if len(candidates) == 0 {
+				continue
+			}
+			if len(candidates) > 1 {
+				err := fmt.Errorf("label key %q is emitted by multiple mappings", key)
+				for _, candidate := range candidates {
+					s.recordCandidateFailure(candidate, err)
+				}
+				continue
+			}
+
+			candidate := candidates[0]
+			if candidate.mapMode {
+				if reservedBy, exists := s.scalarReservations[key]; exists && reservedBy != candidate.mappingID {
+					s.recordCandidateFailure(candidate, fmt.Errorf("map output %q conflicts with a scalar reservation", key))
+					continue
+				}
+			}
+			if existing, exists := desired[key]; exists && existing.MappingID != nil && *existing.MappingID != candidate.mappingID {
+				s.recordCandidateFailure(candidate, fmt.Errorf("label key %q is retained by another mapping", key))
+				continue
+			}
+			desired[key] = domain.DesiredDeviceLabel{Value: candidate.value, MappingID: lo.ToPtr(candidate.mappingID)}
+		}
+
+		if len(s.failures) == previousFailures {
+			s.desired = desired
+			return
+		}
 	}
-	s.resolveCandidate(key, candidates[0])
 }
 
-func (s *desiredLabelState) resolveCandidate(key string, candidate mappingCandidate) {
-	if candidate.mapMode && s.mapCandidateBlocked(key, candidate) {
-		return
+func (s *desiredLabelState) unmanagedLabels() map[string]domain.DesiredDeviceLabel {
+	desired := make(map[string]domain.DesiredDeviceLabel, len(s.currentLabels))
+	for key, value := range s.currentLabels {
+		owner, found := s.currentOwners[key]
+		if !found || owner == nil {
+			desired[key] = domain.DesiredDeviceLabel{Value: value}
+		}
 	}
-	if existing, exists := s.desired[key]; exists && existing.MappingID != nil && *existing.MappingID != candidate.mappingID {
-		s.recordCandidateFailure(candidate, fmt.Errorf("label key %q is retained by another mapping", key))
-		return
-	}
-	s.desired[key] = domain.DesiredDeviceLabel{Value: candidate.value, MappingID: lo.ToPtr(candidate.mappingID)}
+	return desired
 }
 
-func (s *desiredLabelState) mapCandidateBlocked(key string, candidate mappingCandidate) bool {
-	if reservedBy, exists := s.scalarReservations[key]; exists && reservedBy != candidate.mappingID {
-		s.recordCandidateFailure(candidate, fmt.Errorf("map output %q conflicts with a scalar reservation", key))
-		s.retainMappingKey(key, candidate.mappingID)
-		return true
+func (s *desiredLabelState) activeCandidates(key string) []mappingCandidate {
+	var active []mappingCandidate
+	for _, candidate := range s.candidatesByKey[key] {
+		if len(s.failures[candidate.mappingID]) == 0 {
+			active = append(active, candidate)
+		}
 	}
-	return false
+	return active
 }
 
 func (s *desiredLabelState) enforceManagedLabelLimit() {
@@ -224,31 +247,12 @@ func mappingOutputs(evaluator Evaluator, mapping domain.LabelSyncMapping, activa
 }
 
 func (s *desiredLabelState) retainMappingOutputs(mappingID uuid.UUID) {
+	s.retainMappingOutputsIn(s.desired, mappingID)
+}
+
+func (s *desiredLabelState) retainMappingOutputsIn(desired map[string]domain.DesiredDeviceLabel, mappingID uuid.UUID) {
 	for _, label := range s.currentOwnedByMap[mappingID] {
-		s.desired[label.Key] = domain.DesiredDeviceLabel{Value: label.Value, MappingID: lo.ToPtr(mappingID)}
-	}
-}
-
-func (s *desiredLabelState) retainMappingKey(key string, mappingID uuid.UUID) {
-	owner := s.currentOwners[key]
-	if owner == nil || *owner != mappingID {
-		return
-	}
-	if value, exists := s.currentLabels[key]; exists {
-		s.desired[key] = domain.DesiredDeviceLabel{Value: value, MappingID: lo.ToPtr(mappingID)}
-	}
-}
-
-func (s *desiredLabelState) retainCollidingOwner(key string, candidates []mappingCandidate) {
-	owner := s.currentOwners[key]
-	if owner == nil {
-		return
-	}
-	for _, candidate := range candidates {
-		if candidate.mappingID == *owner {
-			s.retainMappingKey(key, *owner)
-			return
-		}
+		desired[label.Key] = domain.DesiredDeviceLabel{Value: label.Value, MappingID: lo.ToPtr(mappingID)}
 	}
 }
 
