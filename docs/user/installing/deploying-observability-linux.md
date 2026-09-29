@@ -336,7 +336,7 @@ Use forwarding when you:
 - Want to centralize telemetry from multiple Flight Control deployments
 - Need to integrate with organization-wide monitoring systems
 
-### Forwarding via OTLP/HTTP with Token Authentication
+### Forwarding via OTLP/HTTP with token authentication
 
 Use this method to forward to SaaS observability backends that accept OTLP/HTTP with API token authentication.
 
@@ -366,11 +366,14 @@ Procedure:
    backends. Replace the endpoint and header format according to your provider's
    documentation.
 
-3. Uncomment the `Secret=` line in the quadlet container file to inject the secret as an environment variable:
+3. Create a Quadlet drop-in to inject the Podman secret as an environment variable:
 
    ```console
-   sudo sed -i 's/^# Secret=flightctl-tg-forward-token/Secret=flightctl-tg-forward-token/' \
-     /etc/containers/systemd/flightctl-telemetry-gateway.container
+   sudo mkdir -p /etc/containers/systemd/flightctl-telemetry-gateway.container.d
+   cat <<'EOF' | sudo tee /etc/containers/systemd/flightctl-telemetry-gateway.container.d/forward-token.conf
+   [Container]
+   Secret=flightctl-tg-forward-token,type=env,target=FLIGHTCTL_FORWARD_TOKEN
+   EOF
    ```
 
 4. Reload systemd and restart the telemetry gateway:
@@ -379,6 +382,11 @@ Procedure:
    sudo systemctl daemon-reload
    sudo systemctl restart flightctl-telemetry-gateway.service
    ```
+
+> [!NOTE]
+> Consult your observability backend's documentation for the required API token
+> permissions or scopes and the supported data formats (for example, metric
+> temporality and signal types).
 
 ### Forwarding via OTLP/gRPC with mTLS
 
@@ -435,7 +443,7 @@ Procedure:
    {"level":"info","msg":"Successfully forwarded metrics batch","endpoint":"otlp.example.com:4317","batch_size":100}
    ```
 
-### Port Reference
+### Port reference
 
 | Port | Protocol | Description |
 |------|----------|-------------|

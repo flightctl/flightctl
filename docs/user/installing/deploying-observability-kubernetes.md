@@ -380,7 +380,7 @@ Use forwarding when you:
 - Want to centralize telemetry from multiple Flight Control deployments
 - Need to integrate with organization-wide monitoring systems
 
-### Forwarding via OTLP/HTTP with Token Authentication
+### Forwarding via OTLP/HTTP with token authentication
 
 Use this method to forward to SaaS observability backends that accept OTLP/HTTP with API token authentication. The example below uses Dynatrace; the same configuration mechanism can be used with other OTLP/HTTP-compatible backends.
 
@@ -423,6 +423,11 @@ Procedure:
    helm upgrade flightctl oci://quay.io/flightctl/charts/flightctl:${FC_VERSION} \
      -n flightctl -f values.yaml --reset-then-reuse-values
    ```
+
+> [!NOTE]
+> Consult your observability backend's documentation for the required API token
+> permissions or scopes and the supported data formats (for example, metric
+> temporality and signal types).
 
 ### Forwarding via OTLP/gRPC with mTLS
 
@@ -499,7 +504,7 @@ Procedure:
     {"level":"info","msg":"Successfully forwarded metrics batch","endpoint":"otlp.example.com:4317","batch_size":100}
     ```
 
-### Port Reference
+### Port reference
 
 | Port | Protocol | Description |
 |------|----------|-------------|
