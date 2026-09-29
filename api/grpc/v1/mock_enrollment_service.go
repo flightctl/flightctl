@@ -60,6 +60,26 @@ func (mr *MockEnrollmentClientMockRecorder) TPMChallenge(ctx any, opts ...any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TPMChallenge", reflect.TypeOf((*MockEnrollmentClient)(nil).TPMChallenge), varargs...)
 }
 
+// WatchEnrollmentHooks mocks base method.
+func (m *MockEnrollmentClient) WatchEnrollmentHooks(ctx context.Context, in *WatchEnrollmentHooksRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[EnrollmentHooksEvent], error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, in}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "WatchEnrollmentHooks", varargs...)
+	ret0, _ := ret[0].(grpc.ServerStreamingClient[EnrollmentHooksEvent])
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// WatchEnrollmentHooks indicates an expected call of WatchEnrollmentHooks.
+func (mr *MockEnrollmentClientMockRecorder) WatchEnrollmentHooks(ctx, in any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, in}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WatchEnrollmentHooks", reflect.TypeOf((*MockEnrollmentClient)(nil).WatchEnrollmentHooks), varargs...)
+}
+
 // MockEnrollmentServer is a mock of EnrollmentServer interface.
 type MockEnrollmentServer struct {
 	ctrl     *gomock.Controller
@@ -95,6 +115,20 @@ func (m *MockEnrollmentServer) TPMChallenge(arg0 grpc.BidiStreamingServer[AgentC
 func (mr *MockEnrollmentServerMockRecorder) TPMChallenge(arg0 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TPMChallenge", reflect.TypeOf((*MockEnrollmentServer)(nil).TPMChallenge), arg0)
+}
+
+// WatchEnrollmentHooks mocks base method.
+func (m *MockEnrollmentServer) WatchEnrollmentHooks(arg0 *WatchEnrollmentHooksRequest, arg1 grpc.ServerStreamingServer[EnrollmentHooksEvent]) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "WatchEnrollmentHooks", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// WatchEnrollmentHooks indicates an expected call of WatchEnrollmentHooks.
+func (mr *MockEnrollmentServerMockRecorder) WatchEnrollmentHooks(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "WatchEnrollmentHooks", reflect.TypeOf((*MockEnrollmentServer)(nil).WatchEnrollmentHooks), arg0, arg1)
 }
 
 // mustEmbedUnimplementedEnrollmentServer mocks base method.

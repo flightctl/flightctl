@@ -565,10 +565,36 @@ func rejectEnrollmentHooksChangeViaStatusPatch(current, patched *domain.Device) 
 	if patched != nil && patched.Status != nil {
 		after = domain.FindStatusCondition(patched.Status.Conditions, domain.ConditionTypeDeviceEnrollmentHooks)
 	}
-	if !reflect.DeepEqual(before, after) {
-		return errors.New("EnrollmentHooks condition cannot be modified via status patch; use the dedicated enrollment hook override endpoint")
+	if reflect.DeepEqual(before, after) {
+		return nil
 	}
-	return nil
+	if allowedAgentEnrollmentHooksOutcome(before, after) {
+		return nil
+	}
+	return errors.New("EnrollmentHooks condition cannot be modified via status patch; use the dedicated enrollment hook override endpoint")
+}
+
+// allowedAgentEnrollmentHooksOutcome permits the agent to report hook completion
+// from Pending to Succeeded / Failed / Continued over the generic status PATCH.
+// ManualOverride and all other mutations remain rejected.
+func allowedAgentEnrollmentHooksOutcome(before, after *domain.Condition) bool {
+	if before == nil || after == nil {
+		return false
+	}
+	if before.Type != domain.ConditionTypeDeviceEnrollmentHooks || after.Type != domain.ConditionTypeDeviceEnrollmentHooks {
+		return false
+	}
+	if before.Reason != domain.EnrollmentHooksReasonPending {
+		return false
+	}
+	switch after.Reason {
+	case domain.EnrollmentHooksReasonSucceeded, domain.EnrollmentHooksReasonContinued:
+		return after.Status == domain.ConditionStatusTrue
+	case domain.EnrollmentHooksReasonFailed:
+		return after.Status == domain.ConditionStatusFalse
+	default:
+		return false
+	}
 }
 
 func (h *DeviceServiceHandler) GetRenderedDevice(ctx context.Context, orgId uuid.UUID, name string, params domain.GetRenderedDeviceParams) (*domain.Device, domain.Status) {
@@ -935,8 +961,33 @@ func (h *DeviceServiceHandler) SetDeviceServiceConditions(ctx context.Context, o
 	}
 	if result != nil {
 		h.diffAndEmitConditionEvents(ctx, orgId, result, oldConditions, newConditions)
+		if enrollmentHooksConditionChanged(oldConditions, newConditions) {
+			// Use Load() so unit/integration tests that never Initialize the
+			// Bus do not plant an empty singleton that blocks later Initialize.
+			if vm := rendered.Bus.Load(); vm != nil {
+				if err := vm.NotifyEnrollmentHooks(ctx, orgId, name); err != nil {
+					h.log.Errorf("Failed to notify enrollment hooks watchers for device %s/%s: %v", orgId, name, err)
+				}
+			}
+		}
 	}
 	return domain.StatusOK()
+}
+
+// enrollmentHooksConditionChanged reports whether the EnrollmentHooks condition
+// reason, status, or message differs between old and new service conditions.
+func enrollmentHooksConditionChanged(oldConditions, newConditions []domain.Condition) bool {
+	oldCond := domain.FindStatusCondition(oldConditions, domain.ConditionTypeDeviceEnrollmentHooks)
+	newCond := domain.FindStatusCondition(newConditions, domain.ConditionTypeDeviceEnrollmentHooks)
+	if oldCond == nil && newCond == nil {
+		return false
+	}
+	if oldCond == nil || newCond == nil {
+		return true
+	}
+	return oldCond.Reason != newCond.Reason ||
+		oldCond.Status != newCond.Status ||
+		oldCond.Message != newCond.Message
 }
 
 // serviceConditionsFromDevice returns service-owned conditions from

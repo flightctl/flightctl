@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -470,6 +471,22 @@ func (t *tpmProvider) CreateManagementClient(config *base_client.Config, metrics
 }
 
 func (t *tpmProvider) CreateGRPCClient(config *base_client.Config) (grpc_v1.RouterServiceClient, error) {
+	conn, err := t.dialManagementGRPC(config)
+	if err != nil {
+		return nil, err
+	}
+	return grpc_v1.NewRouterServiceClient(conn), nil
+}
+
+func (t *tpmProvider) CreateEnrollmentGRPCClient(config *base_client.Config) (grpc_v1.EnrollmentClient, io.Closer, error) {
+	conn, err := t.dialManagementGRPC(config)
+	if err != nil {
+		return nil, nil, err
+	}
+	return grpc_v1.NewEnrollmentClient(conn), conn, nil
+}
+
+func (t *tpmProvider) dialManagementGRPC(config *base_client.Config) (*grpc.ClientConn, error) {
 	tlsCert, err := t.createCertificate()
 	if err != nil {
 		return nil, err
@@ -484,9 +501,7 @@ func (t *tpmProvider) CreateGRPCClient(config *base_client.Config) (grpc_v1.Rout
 	if err != nil {
 		return nil, fmt.Errorf("creating gRPC client: %w", err)
 	}
-
-	router := grpc_v1.NewRouterServiceClient(conn)
-	return router, nil
+	return conn, nil
 }
 
 func (t *tpmProvider) WipeCredentials() error {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto"
 	"fmt"
+	"io"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
@@ -167,17 +168,28 @@ func (f *fileProvider) CreateManagementClient(config *baseclient.Config, metrics
 }
 
 func (f *fileProvider) CreateGRPCClient(config *baseclient.Config) (grpc_v1.RouterServiceClient, error) {
-	// check if management certificate exists
+	if err := f.ensureManagementCert(config); err != nil {
+		return nil, err
+	}
+	return baseclient.NewGRPCClientFromConfig(config, "")
+}
+
+func (f *fileProvider) CreateEnrollmentGRPCClient(config *baseclient.Config) (grpc_v1.EnrollmentClient, io.Closer, error) {
+	if err := f.ensureManagementCert(config); err != nil {
+		return nil, nil, err
+	}
+	return baseclient.NewEnrollmentGRPCClientFromConfig(config, "")
+}
+
+func (f *fileProvider) ensureManagementCert(config *baseclient.Config) error {
 	managementCertExists, err := f.rw.PathExists(config.GetClientCertificatePath())
 	if err != nil {
-		return nil, fmt.Errorf("checking certificate file %q: %w", config.GetClientCertificatePath(), err)
+		return fmt.Errorf("checking certificate file %q: %w", config.GetClientCertificatePath(), err)
 	}
-
 	if !managementCertExists {
-		return nil, fmt.Errorf("management client certificate does not exist at %q - device needs re-enrollment", config.GetClientCertificatePath())
+		return fmt.Errorf("management client certificate does not exist at %q - device needs re-enrollment", config.GetClientCertificatePath())
 	}
-
-	return baseclient.NewGRPCClientFromConfig(config, "")
+	return nil
 }
 
 func (f *fileProvider) WipeCredentials() error {

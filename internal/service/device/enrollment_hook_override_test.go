@@ -209,7 +209,7 @@ func TestPatchDeviceStatusEnrollmentHooks(t *testing.T) {
 		require.Equal(domain.EnrollmentHooksReasonFailed, cond.Reason)
 	})
 
-	t.Run("When a generic patch forges success it should reject without changing the device", func(t *testing.T) {
+	t.Run("When a generic patch forges success from Failed it should reject without changing the device", func(t *testing.T) {
 		require := require.New(t)
 		h, _, _, orgId, deviceName := newEnrollmentHookTestDevice(t,
 			domain.ConditionStatusFalse, domain.EnrollmentHooksReasonFailed)
@@ -228,6 +228,52 @@ func TestPatchDeviceStatusEnrollmentHooks(t *testing.T) {
 		stored, getStatus := h.GetDevice(ctx, orgId, deviceName)
 		require.Equal(int32(http.StatusOK), getStatus.Code)
 		cond := domain.FindStatusCondition(stored.Status.Conditions, domain.ConditionTypeDeviceEnrollmentHooks)
+		require.NotNil(cond)
+		require.Equal(domain.ConditionStatusFalse, cond.Status)
+		require.Equal(domain.EnrollmentHooksReasonFailed, cond.Reason)
+	})
+
+	t.Run("When a generic patch reports Succeeded from Pending it should accept", func(t *testing.T) {
+		require := require.New(t)
+		h, _, _, orgId, deviceName := newEnrollmentHookTestDevice(t,
+			domain.ConditionStatusFalse, domain.EnrollmentHooksReasonPending)
+		conditionPath := enrollmentHooksConditionPatchPath(t, h, orgId, deviceName)
+		var succeededStatus any = domain.ConditionStatusTrue
+		var succeededReason any = domain.EnrollmentHooksReasonSucceeded
+		var message any = "hooks completed successfully"
+		patch := domain.PatchRequest{
+			{Op: "replace", Path: conditionPath + "/status", Value: &succeededStatus},
+			{Op: "replace", Path: conditionPath + "/reason", Value: &succeededReason},
+			{Op: "replace", Path: conditionPath + "/message", Value: &message},
+		}
+
+		dev, status := h.PatchDeviceStatus(ctx, orgId, deviceName, patch)
+		require.Equal(int32(http.StatusOK), status.Code)
+		require.NotNil(dev)
+		cond := domain.FindStatusCondition(dev.Status.Conditions, domain.ConditionTypeDeviceEnrollmentHooks)
+		require.NotNil(cond)
+		require.Equal(domain.ConditionStatusTrue, cond.Status)
+		require.Equal(domain.EnrollmentHooksReasonSucceeded, cond.Reason)
+	})
+
+	t.Run("When a generic patch reports Failed from Pending it should accept", func(t *testing.T) {
+		require := require.New(t)
+		h, _, _, orgId, deviceName := newEnrollmentHookTestDevice(t,
+			domain.ConditionStatusFalse, domain.EnrollmentHooksReasonPending)
+		conditionPath := enrollmentHooksConditionPatchPath(t, h, orgId, deviceName)
+		var failedStatus any = domain.ConditionStatusFalse
+		var failedReason any = domain.EnrollmentHooksReasonFailed
+		var message any = "hooks failed"
+		patch := domain.PatchRequest{
+			{Op: "replace", Path: conditionPath + "/status", Value: &failedStatus},
+			{Op: "replace", Path: conditionPath + "/reason", Value: &failedReason},
+			{Op: "replace", Path: conditionPath + "/message", Value: &message},
+		}
+
+		dev, status := h.PatchDeviceStatus(ctx, orgId, deviceName, patch)
+		require.Equal(int32(http.StatusOK), status.Code)
+		require.NotNil(dev)
+		cond := domain.FindStatusCondition(dev.Status.Conditions, domain.ConditionTypeDeviceEnrollmentHooks)
 		require.NotNil(cond)
 		require.Equal(domain.ConditionStatusFalse, cond.Status)
 		require.Equal(domain.EnrollmentHooksReasonFailed, cond.Reason)

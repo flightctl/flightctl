@@ -13,6 +13,8 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/console"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/crypto"
+	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	grpcAuth "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/auth"
 	"github.com/sirupsen/logrus"
@@ -30,7 +32,9 @@ type AgentGrpcServer struct {
 	pb.UnimplementedEnrollmentServer
 	log            logrus.FieldLogger
 	cfg            *config.Config
+	ca             *crypto.CAClient
 	service        enrollmentrequestservice.Service
+	deviceSvc      deviceservice.Service
 	pendingStreams *sync.Map
 	server         *grpc.Server
 }
@@ -39,12 +43,16 @@ type AgentGrpcServer struct {
 func NewAgentGrpcServer(
 	log logrus.FieldLogger,
 	cfg *config.Config,
+	ca *crypto.CAClient,
 	svc enrollmentrequestservice.Service,
+	deviceSvc deviceservice.Service,
 ) *AgentGrpcServer {
 	agentServer := &AgentGrpcServer{
 		log:            log,
 		cfg:            cfg,
+		ca:             ca,
 		service:        svc,
+		deviceSvc:      deviceSvc,
 		pendingStreams: &sync.Map{},
 	}
 	agentServer.prepareGRPCService()
@@ -59,6 +67,13 @@ func (s *AgentGrpcServer) prepareGRPCService() {
 			MaxConnectionIdle: 15 * time.Minute, // Close idle connections after 15 minutes
 			Time:              2 * time.Minute,  // Send keepalive ping every 2 minutes
 			Timeout:           20 * time.Second, // Wait 20s for client response before closing
+		}),
+		// Agent clients ping every 30s with PermitWithoutStream; accept that
+		// interval so idle WatchEnrollmentHooks streams are not closed with
+		// too_many_pings (grpc-go default MinTime is 5m).
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             30 * time.Second,
+			PermitWithoutStream: true,
 		}))
 	pb.RegisterRouterServiceServer(s.server, s)
 	pb.RegisterEnrollmentServer(s.server, s)

@@ -399,3 +399,88 @@ func TestConsolePendingKey_Format(t *testing.T) {
 		vm.consolePendingKey(orgId, "my-device"),
 	)
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// EnrollmentHooks notify/wait tests
+// ──────────────────────────────────────────────────────────────────────────────
+
+func TestNotifyEnrollmentHooks_PublishesNotification(t *testing.T) {
+	kv := newFakeKVStore()
+	pub := &recordingPublisher{}
+	vm := newTestVersionManager(kv, pub)
+
+	orgId := uuid.New()
+	require.NoError(t, vm.NotifyEnrollmentHooks(context.Background(), orgId, "dev"))
+
+	last := pub.lastNotification()
+	require.NotNil(t, last)
+	assert.Equal(t, NotificationTypeEnrollmentHooks, last.Type)
+}
+
+func TestNotifyEnrollmentHooks_NilBroadcasterIsNoop(t *testing.T) {
+	vm := &VersionManager{}
+	require.NoError(t, vm.NotifyEnrollmentHooks(context.Background(), uuid.New(), "dev"))
+}
+
+func TestWaitForEnrollmentHooksNotification_UnblocksViaConsumeHandler(t *testing.T) {
+	kv := newFakeKVStore()
+	vm := newTestVersionManager(kv, &recordingPublisher{})
+
+	orgId := uuid.New()
+	type result struct {
+		got bool
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		got, err := vm.WaitForEnrollmentHooksNotification(context.Background(), orgId, "dev")
+		ch <- result{got, err}
+	}()
+
+	require.Eventually(t, func() bool {
+		_, ok := vm.ehSubscribers.Load(vm.ehKey(orgId, "dev"))
+		return ok
+	}, time.Second, time.Millisecond)
+	require.NoError(t, vm.consumeHandler(context.Background(), orgId, "dev", Notification{Type: NotificationTypeEnrollmentHooks}))
+
+	r := <-ch
+	require.NoError(t, r.err)
+	assert.True(t, r.got)
+}
+
+func TestWaitForEnrollmentHooksNotification_DoesNotShareRenderedSubscriber(t *testing.T) {
+	// EnrollmentHooks notifications must not unblock GetRenderedDevice waiters.
+	kv := newFakeKVStore()
+	vm := newTestVersionManager(kv, &recordingPublisher{})
+	orgId := uuid.New()
+	kv.preset(vm.key(orgId, "dev"), []byte("1"))
+
+	type result struct {
+		got bool
+		err error
+	}
+	renderedCh := make(chan result, 1)
+	go func() {
+		_, got, err := vm.WaitForNotification(context.Background(), orgId, "dev", "1")
+		renderedCh <- result{got, err}
+	}()
+
+	require.Eventually(t, func() bool {
+		_, ok := vm.subscribers.Load(vm.key(orgId, "dev"))
+		return ok
+	}, time.Second, time.Millisecond)
+	require.NoError(t, vm.consumeHandler(context.Background(), orgId, "dev", Notification{Type: NotificationTypeEnrollmentHooks}))
+
+	r := <-renderedCh
+	require.NoError(t, r.err)
+	assert.False(t, r.got, "EnrollmentHooks notify must not wake GetRenderedDevice waiters")
+}
+
+func TestWaitForEnrollmentHooksNotification_ReturnsTimeoutWhenNoEvent(t *testing.T) {
+	kv := newFakeKVStore()
+	vm := newTestVersionManager(kv, &recordingPublisher{})
+
+	got, err := vm.WaitForEnrollmentHooksNotification(context.Background(), uuid.New(), "dev")
+	require.NoError(t, err)
+	assert.False(t, got)
+}
