@@ -53,6 +53,7 @@ type Agent struct {
 	pruningManager         imagepruning.Manager
 	caps                   os.Capabilities
 
+	criticalCh           <-chan struct{}
 	statusUpdateInterval util.Duration
 	statusUpdateJitter   util.Duration
 
@@ -85,6 +86,7 @@ func NewAgent(
 	pullConfigResolver dependency.PullConfigResolver,
 	pruningManager imagepruning.Manager,
 	caps os.Capabilities,
+	criticalCh <-chan struct{},
 	backoff wait.Backoff,
 	log *log.PrefixLogger,
 ) *Agent {
@@ -112,6 +114,7 @@ func NewAgent(
 		pullConfigResolver:     pullConfigResolver,
 		pruningManager:         pruningManager,
 		caps:                   caps,
+		criticalCh:             criticalCh,
 		backoff:                backoff,
 		log:                    log,
 	}
@@ -119,12 +122,19 @@ func NewAgent(
 
 // Run starts the device agent reconciliation loop.
 func (a *Agent) Run(ctx context.Context) error {
-	// orchestrates periodic fetching of device specs and pushing status updates
+	criticalPushFn := func(ctx context.Context) {
+		if err := a.statusManager.UpdateCritical(ctx); err != nil {
+			a.log.Errorf("Critical status push: %v", err)
+		}
+	}
+
 	engine := NewEngine(
 		a.syncDeviceSpec,
 		a.statusUpdateInterval,
 		a.statusUpdate,
 		time.Duration(a.statusUpdateJitter),
+		a.criticalCh,
+		criticalPushFn,
 	)
 
 	return engine.Run(ctx)

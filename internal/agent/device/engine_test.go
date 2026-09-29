@@ -128,6 +128,162 @@ func TestEngineStatusStartupJitter(t *testing.T) {
 	}
 }
 
+func TestEngineCriticalPushFires(t *testing.T) {
+	require := require.New(t)
+
+	startTime := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	mockClock := newMockClock(startTime)
+
+	var (
+		mu            sync.Mutex
+		statusCount   int
+		criticalCount int
+	)
+
+	criticalChangeCh := make(chan struct{}, 1)
+	engine := Engine{
+		syncSpecFn:         func(context.Context) {},
+		pushStatusInterval: util.Duration(60 * time.Second),
+		pushStatusFn: func(context.Context) {
+			mu.Lock()
+			defer mu.Unlock()
+			statusCount++
+		},
+		criticalChangeCh: criticalChangeCh,
+		criticalPushFn: func(context.Context) {
+			mu.Lock()
+			defer mu.Unlock()
+			criticalCount++
+		},
+		clock:     mockClock,
+		startedCh: make(chan struct{}),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		require.NoError(engine.Run(ctx))
+	}()
+	<-engine.startedCh
+
+	// initial status push at t=0
+	time.Sleep(10 * time.Millisecond)
+	mu.Lock()
+	require.Equal(1, statusCount, "initial status push")
+	mu.Unlock()
+
+	// Fire critical signal — should call criticalPushFn unconditionally
+	criticalChangeCh <- struct{}{}
+	time.Sleep(10 * time.Millisecond)
+	mu.Lock()
+	require.Equal(1, criticalCount, "critical push should fire on signal")
+	mu.Unlock()
+}
+
+func TestEngineAlertPushDoesNotResetPeriodicTimer(t *testing.T) {
+	require := require.New(t)
+
+	startTime := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	mockClock := newMockClock(startTime)
+
+	var (
+		mu            sync.Mutex
+		statusCount   int
+		criticalCount int
+	)
+
+	criticalChangeCh := make(chan struct{}, 1)
+	engine := Engine{
+		syncSpecFn:         func(context.Context) {},
+		pushStatusInterval: util.Duration(60 * time.Second),
+		pushStatusFn: func(context.Context) {
+			mu.Lock()
+			defer mu.Unlock()
+			statusCount++
+		},
+		criticalChangeCh: criticalChangeCh,
+		criticalPushFn: func(context.Context) {
+			mu.Lock()
+			defer mu.Unlock()
+			criticalCount++
+		},
+		clock:     mockClock,
+		startedCh: make(chan struct{}),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		require.NoError(engine.Run(ctx))
+	}()
+	<-engine.startedCh
+
+	// initial status push at t=0
+	time.Sleep(10 * time.Millisecond)
+	mu.Lock()
+	require.Equal(1, statusCount, "initial status push")
+	mu.Unlock()
+
+	// Advance to t=30s and fire alert — PATCH fires
+	mockClock.Advance(30 * time.Second)
+	time.Sleep(5 * time.Millisecond)
+	criticalChangeCh <- struct{}{}
+	time.Sleep(10 * time.Millisecond)
+	mu.Lock()
+	require.Equal(1, criticalCount, "alert PATCH at t=30s")
+	mu.Unlock()
+
+	// Advance to t=60s — periodic timer was NOT reset, so periodic fires
+	mockClock.Advance(30 * time.Second)
+	time.Sleep(10 * time.Millisecond)
+	mu.Lock()
+	require.Equal(2, statusCount, "periodic push at t=60s (timer was not reset by alert)")
+	mu.Unlock()
+}
+
+func TestEngineAlertPushNilChannel(t *testing.T) {
+	require := require.New(t)
+
+	startTime := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	mockClock := newMockClock(startTime)
+
+	var (
+		mu          sync.Mutex
+		statusCount int
+	)
+
+	// nil criticalChangeCh — engine should behave exactly as before
+	engine := Engine{
+		syncSpecFn:         func(context.Context) {},
+		pushStatusInterval: util.Duration(60 * time.Second),
+		pushStatusFn: func(context.Context) {
+			mu.Lock()
+			defer mu.Unlock()
+			statusCount++
+		},
+		clock:     mockClock,
+		startedCh: make(chan struct{}),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		require.NoError(engine.Run(ctx))
+	}()
+	<-engine.startedCh
+
+	time.Sleep(10 * time.Millisecond)
+	mu.Lock()
+	require.Equal(1, statusCount, "initial status push should happen with nil alert channel")
+	mu.Unlock()
+
+	mockClock.Advance(60 * time.Second)
+	time.Sleep(10 * time.Millisecond)
+	mu.Lock()
+	require.Equal(2, statusCount, "periodic push should fire with nil alert channel")
+	mu.Unlock()
+}
+
 type mockClock struct {
 	mu     sync.Mutex
 	now    time.Time

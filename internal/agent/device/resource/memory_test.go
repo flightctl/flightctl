@@ -83,7 +83,7 @@ func TestMemoryMonitor(t *testing.T) {
 	require.NoError(err)
 
 	log := log.NewPrefixLogger("test")
-	memoryMonitor := NewMemoryMonitor(log)
+	memoryMonitor := NewMemoryMonitor(log, nil)
 	memoryMonitor.memInfoPath = fakeMemInfoPath
 
 	go memoryMonitor.Run(ctx)

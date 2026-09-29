@@ -23,20 +23,26 @@ type DiskMonitor struct {
 	alerts map[v1beta1.ResourceAlertSeverityType]*Alert
 	path   string
 
-	updateIntervalCh chan time.Duration
-	samplingInterval time.Duration
+	updateIntervalCh   chan time.Duration
+	samplingInterval   time.Duration
+	criticalNotifyFunc func()
 
 	log *log.PrefixLogger
 }
 
 func NewDiskMonitor(
 	log *log.PrefixLogger,
+	criticalNotifyFunc func(),
 ) *DiskMonitor {
+	if criticalNotifyFunc == nil {
+		criticalNotifyFunc = func() {}
+	}
 	return &DiskMonitor{
-		alerts:           make(map[v1beta1.ResourceAlertSeverityType]*Alert),
-		updateIntervalCh: make(chan time.Duration, 1),
-		samplingInterval: DefaultSamplingInterval,
-		log:              log,
+		alerts:             make(map[v1beta1.ResourceAlertSeverityType]*Alert),
+		updateIntervalCh:   make(chan time.Duration, 1),
+		samplingInterval:   DefaultSamplingInterval,
+		criticalNotifyFunc: criticalNotifyFunc,
+		log:                log,
 	}
 }
 
@@ -141,8 +147,11 @@ func (m *DiskMonitor) ensureAlerts(percentageUsed int64) {
 	defer m.mu.Unlock()
 
 	m.log.Tracef("Disk usage: %d%%", percentageUsed)
-	for _, alert := range m.alerts {
-		alert.Sync(percentageUsed)
+	for severity, alert := range m.alerts {
+		if changed := alert.Sync(percentageUsed); changed &&
+			severity == v1beta1.ResourceAlertSeverityTypeCritical {
+			m.criticalNotifyFunc()
+		}
 	}
 }
 
