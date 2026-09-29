@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"context"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -164,4 +165,289 @@ func TestNotifyOnlyCriticalSeverity(t *testing.T) {
 	require.True(warningAlert.IsFiring(), "warning alert should be firing")
 	// The monitor only calls criticalNotifyFunc for Critical severity —
 	// warning transitions do not trigger it (tested in monitor sync loops)
+}
+
+func TestMonitorMemoryCallbackWiring(t *testing.T) {
+	require := require.New(t)
+	logger := log.NewPrefixLogger("test")
+	logger.Logger.SetLevel(logrus.TraceLevel)
+
+	tests := []struct {
+		name               string
+		alerts             map[v1beta1.ResourceAlertSeverityType]*Alert
+		percentages        []int64
+		expectedNotifyCall int32
+	}{
+		{
+			name: "When critical alert transitions to firing it should call criticalNotifyFunc",
+			alerts: map[v1beta1.ResourceAlertSeverityType]*Alert{
+				v1beta1.ResourceAlertSeverityTypeCritical: {
+					ResourceAlertRule: v1beta1.ResourceAlertRule{
+						Severity:   v1beta1.ResourceAlertSeverityTypeCritical,
+						Percentage: 90,
+						Duration:   "0s",
+					},
+					duration: 0,
+				},
+			},
+			percentages:        []int64{95},
+			expectedNotifyCall: 1,
+		},
+		{
+			name: "When critical alert transitions to firing then resolves it should call criticalNotifyFunc twice",
+			alerts: map[v1beta1.ResourceAlertSeverityType]*Alert{
+				v1beta1.ResourceAlertSeverityTypeCritical: {
+					ResourceAlertRule: v1beta1.ResourceAlertRule{
+						Severity:   v1beta1.ResourceAlertSeverityTypeCritical,
+						Percentage: 90,
+						Duration:   "0s",
+					},
+					duration: 0,
+				},
+			},
+			percentages:        []int64{95, 50},
+			expectedNotifyCall: 2,
+		},
+		{
+			name: "When only warning alert transitions it should not call criticalNotifyFunc",
+			alerts: map[v1beta1.ResourceAlertSeverityType]*Alert{
+				v1beta1.ResourceAlertSeverityTypeWarning: {
+					ResourceAlertRule: v1beta1.ResourceAlertRule{
+						Severity:   v1beta1.ResourceAlertSeverityTypeWarning,
+						Percentage: 80,
+						Duration:   "0s",
+					},
+					duration: 0,
+				},
+			},
+			percentages:        []int64{95},
+			expectedNotifyCall: 0,
+		},
+		{
+			name: "When critical alert stays firing it should not call criticalNotifyFunc",
+			alerts: map[v1beta1.ResourceAlertSeverityType]*Alert{
+				v1beta1.ResourceAlertSeverityTypeCritical: {
+					ResourceAlertRule: v1beta1.ResourceAlertRule{
+						Severity:   v1beta1.ResourceAlertSeverityTypeCritical,
+						Percentage: 90,
+						Duration:   "0s",
+					},
+					duration: 0,
+				},
+			},
+			percentages:        []int64{95, 96},
+			expectedNotifyCall: 1,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var notifyCount atomic.Int32
+			monitor := NewMemoryMonitor(logger, func() { notifyCount.Add(1) })
+			monitor.alerts = tc.alerts
+
+			for _, pct := range tc.percentages {
+				monitor.ensureAlerts(pct)
+			}
+			require.Equal(tc.expectedNotifyCall, notifyCount.Load())
+		})
+	}
+}
+
+func TestMonitorDiskCallbackWiring(t *testing.T) {
+	require := require.New(t)
+	logger := log.NewPrefixLogger("test")
+	logger.Logger.SetLevel(logrus.TraceLevel)
+
+	tests := []struct {
+		name               string
+		alerts             map[v1beta1.ResourceAlertSeverityType]*Alert
+		percentages        []int64
+		expectedNotifyCall int32
+	}{
+		{
+			name: "When critical alert transitions to firing it should call criticalNotifyFunc",
+			alerts: map[v1beta1.ResourceAlertSeverityType]*Alert{
+				v1beta1.ResourceAlertSeverityTypeCritical: {
+					ResourceAlertRule: v1beta1.ResourceAlertRule{
+						Severity:   v1beta1.ResourceAlertSeverityTypeCritical,
+						Percentage: 90,
+						Duration:   "0s",
+					},
+					duration: 0,
+				},
+			},
+			percentages:        []int64{95},
+			expectedNotifyCall: 1,
+		},
+		{
+			name: "When critical alert transitions to firing then resolves it should call criticalNotifyFunc twice",
+			alerts: map[v1beta1.ResourceAlertSeverityType]*Alert{
+				v1beta1.ResourceAlertSeverityTypeCritical: {
+					ResourceAlertRule: v1beta1.ResourceAlertRule{
+						Severity:   v1beta1.ResourceAlertSeverityTypeCritical,
+						Percentage: 90,
+						Duration:   "0s",
+					},
+					duration: 0,
+				},
+			},
+			percentages:        []int64{95, 50},
+			expectedNotifyCall: 2,
+		},
+		{
+			name: "When only warning alert transitions it should not call criticalNotifyFunc",
+			alerts: map[v1beta1.ResourceAlertSeverityType]*Alert{
+				v1beta1.ResourceAlertSeverityTypeWarning: {
+					ResourceAlertRule: v1beta1.ResourceAlertRule{
+						Severity:   v1beta1.ResourceAlertSeverityTypeWarning,
+						Percentage: 80,
+						Duration:   "0s",
+					},
+					duration: 0,
+				},
+			},
+			percentages:        []int64{95},
+			expectedNotifyCall: 0,
+		},
+		{
+			name: "When critical alert stays firing it should not call criticalNotifyFunc",
+			alerts: map[v1beta1.ResourceAlertSeverityType]*Alert{
+				v1beta1.ResourceAlertSeverityTypeCritical: {
+					ResourceAlertRule: v1beta1.ResourceAlertRule{
+						Severity:   v1beta1.ResourceAlertSeverityTypeCritical,
+						Percentage: 90,
+						Duration:   "0s",
+					},
+					duration: 0,
+				},
+			},
+			percentages:        []int64{95, 96},
+			expectedNotifyCall: 1,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var notifyCount atomic.Int32
+			monitor := NewDiskMonitor(logger, func() { notifyCount.Add(1) })
+			monitor.alerts = tc.alerts
+
+			for _, pct := range tc.percentages {
+				monitor.ensureAlerts(pct)
+			}
+			require.Equal(tc.expectedNotifyCall, notifyCount.Load())
+		})
+	}
+}
+
+func TestMonitorCPUCallbackWiring(t *testing.T) {
+	require := require.New(t)
+	logger := log.NewPrefixLogger("test")
+	logger.Logger.SetLevel(logrus.TraceLevel)
+
+	tests := []struct {
+		name               string
+		alerts             map[v1beta1.ResourceAlertSeverityType]*Alert
+		prev               *CPUUsage
+		snapshots          []*CPUUsage
+		expectedNotifyCall int32
+	}{
+		{
+			name: "When critical alert transitions to firing it should call criticalNotifyFunc",
+			alerts: map[v1beta1.ResourceAlertSeverityType]*Alert{
+				v1beta1.ResourceAlertSeverityTypeCritical: {
+					ResourceAlertRule: v1beta1.ResourceAlertRule{
+						Severity:   v1beta1.ResourceAlertSeverityTypeCritical,
+						Percentage: 50,
+						Duration:   "0s",
+					},
+					duration: 0,
+				},
+			},
+			prev: &CPUUsage{User: 1000, System: 1000, Idle: 8000},
+			snapshots: []*CPUUsage{
+				{User: 1030, System: 1030, Idle: 8040}, // 60% usage
+			},
+			expectedNotifyCall: 1,
+		},
+		{
+			name: "When critical alert transitions to firing then resolves it should call criticalNotifyFunc twice",
+			alerts: map[v1beta1.ResourceAlertSeverityType]*Alert{
+				v1beta1.ResourceAlertSeverityTypeCritical: {
+					ResourceAlertRule: v1beta1.ResourceAlertRule{
+						Severity:   v1beta1.ResourceAlertSeverityTypeCritical,
+						Percentage: 50,
+						Duration:   "0s",
+					},
+					duration: 0,
+				},
+			},
+			prev: &CPUUsage{User: 1000, System: 1000, Idle: 8000},
+			snapshots: []*CPUUsage{
+				{User: 1030, System: 1030, Idle: 8040}, // 60% usage - fires
+				{User: 1031, System: 1031, Idle: 8138}, // 2% usage - resolves
+			},
+			expectedNotifyCall: 2,
+		},
+		{
+			name: "When only warning alert transitions it should not call criticalNotifyFunc",
+			alerts: map[v1beta1.ResourceAlertSeverityType]*Alert{
+				v1beta1.ResourceAlertSeverityTypeWarning: {
+					ResourceAlertRule: v1beta1.ResourceAlertRule{
+						Severity:   v1beta1.ResourceAlertSeverityTypeWarning,
+						Percentage: 50,
+						Duration:   "0s",
+					},
+					duration: 0,
+				},
+			},
+			prev: &CPUUsage{User: 1000, System: 1000, Idle: 8000},
+			snapshots: []*CPUUsage{
+				{User: 1030, System: 1030, Idle: 8040}, // 60% usage
+			},
+			expectedNotifyCall: 0,
+		},
+		{
+			name: "When critical alert stays firing it should not call criticalNotifyFunc",
+			alerts: map[v1beta1.ResourceAlertSeverityType]*Alert{
+				v1beta1.ResourceAlertSeverityTypeCritical: {
+					ResourceAlertRule: v1beta1.ResourceAlertRule{
+						Severity:   v1beta1.ResourceAlertSeverityTypeCritical,
+						Percentage: 50,
+						Duration:   "0s",
+					},
+					duration: 0,
+				},
+			},
+			prev: &CPUUsage{User: 1000, System: 1000, Idle: 8000},
+			snapshots: []*CPUUsage{
+				{User: 1030, System: 1030, Idle: 8040}, // 60% usage - fires
+				{User: 1060, System: 1060, Idle: 8080}, // 60% usage - stays firing
+			},
+			expectedNotifyCall: 1,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var notifyCount atomic.Int32
+			ctx := context.Background()
+			collector := &fakeCPUCollector{snapshots: tc.snapshots}
+
+			monitor := &CPUMonitor{
+				log:                logger,
+				alerts:             tc.alerts,
+				collector:          collector,
+				prevUsage:          tc.prev,
+				criticalNotifyFunc: func() { notifyCount.Add(1) },
+			}
+
+			for range tc.snapshots {
+				usage := &CPUUsage{}
+				monitor.sync(ctx, usage)
+			}
+			require.Equal(tc.expectedNotifyCall, notifyCount.Load())
+		})
+	}
 }
