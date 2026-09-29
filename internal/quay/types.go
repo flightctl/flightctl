@@ -2,6 +2,12 @@
 // Clair vulnerability scan results for images hosted on a Quay instance.
 package quay
 
+import (
+	"bytes"
+	"encoding/json"
+	"strconv"
+)
+
 // Response is the top-level payload returned by the Quay Security API
 // (GET /api/v1/repository/{namespace}/{repo}/manifest/{digest}/security).
 // Status reports the scan state; only "scanned" carries vulnerability data.
@@ -60,4 +66,42 @@ type NVD struct {
 type CVSS struct {
 	Vectors string  `json:"Vectors,omitempty"`
 	Score   float64 `json:"Score,omitempty"`
+}
+
+// UnmarshalJSON accepts both the numeric and string representations returned
+// by different versions of the Quay Security API for CVSS scores.
+func (c *CVSS) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Vectors string          `json:"Vectors,omitempty"`
+		Score   json.RawMessage `json:"Score,omitempty"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+
+	c.Vectors = raw.Vectors
+	score := bytes.TrimSpace(raw.Score)
+	if len(score) == 0 || bytes.Equal(score, []byte("null")) {
+		c.Score = 0
+		return nil
+	}
+
+	if score[0] == '"' {
+		var value string
+		if err := json.Unmarshal(score, &value); err != nil {
+			return err
+		}
+		if value == "" {
+			c.Score = 0
+			return nil
+		}
+		parsed, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			return err
+		}
+		c.Score = parsed
+		return nil
+	}
+
+	return json.Unmarshal(score, &c.Score)
 }
