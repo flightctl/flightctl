@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"sync"
 	"time"
 
 	catalogcollector "github.com/flightctl/flightctl/pkg/catalogcollector"
@@ -537,8 +538,9 @@ func New(
 // source instances concurrently and blocks until they have stopped. Extensions
 // are shut down in reverse start order after sources finish.
 //
-// If an extension fails to start, already-started extensions are shut down in
-// reverse order and Run returns without starting any source.
+// If an extension fails to start, already-started readiness extensions are
+// marked not ready, then all already-started extensions are shut down in
+// reverse order. No source is started.
 //
 // If a source returns a non-nil error, the remaining sources are cancelled and
 // Run returns an error identifying the failed source. Errors returned while a
@@ -556,9 +558,15 @@ func (s *Service) Run(ctx context.Context) error {
 		).Info("starting extension")
 
 		if err := extension.extension.Start(ctx, s.host); err != nil {
+			startedExtensions := s.extensions[:index]
+
+			for _, readiness := range s.discoverReadiness(startedExtensions) {
+				readiness.NotReady()
+			}
+
 			shutdownErr := s.shutdownExtensions(
 				ctx,
-				s.extensions[:index],
+				startedExtensions,
 			)
 			return errors.Join(
 				fmt.Errorf(
@@ -571,7 +579,16 @@ func (s *Service) Run(ctx context.Context) error {
 		}
 	}
 
+	// Discover extensions that participate in the readiness lifecycle.
+	readinessExtensions := s.discoverReadiness(s.extensions)
+
 	group, groupContext := errgroup.WithContext(ctx)
+
+	// Startup barrier: every source signals when it has entered its Run
+	// wrapper. This proves that every source goroutine has been launched; it
+	// does not claim that a source-specific external dependency is healthy.
+	var startupBarrier sync.WaitGroup
+	startupBarrier.Add(len(s.sources))
 
 	for _, configuredSource := range s.sources {
 		s.log.WithField(
@@ -580,6 +597,8 @@ func (s *Service) Run(ctx context.Context) error {
 		).Info("starting source")
 
 		group.Go(func() error {
+			startupBarrier.Done()
+
 			if err := configuredSource.source.Run(groupContext); err != nil {
 				return fmt.Errorf(
 					"source %q failed: %w",
@@ -596,7 +615,25 @@ func (s *Service) Run(ctx context.Context) error {
 		})
 	}
 
+	// Signal readiness only after every source goroutine has entered its Run
+	// wrapper and neither the caller nor the source group has already been
+	// cancelled. A source that fails immediately cancels groupContext and must
+	// not allow a transient ready state to be published.
+	startupBarrier.Wait()
+	if ctx.Err() == nil && groupContext.Err() == nil {
+		for _, readiness := range readinessExtensions {
+			readiness.Ready()
+		}
+	}
+
 	sourceErr := group.Wait()
+
+	// Signal not-ready before shutting down extensions, regardless of whether
+	// sources stopped cleanly or with an error.
+	for _, readiness := range readinessExtensions {
+		readiness.NotReady()
+	}
+
 	if sourceErr != nil {
 		s.log.WithError(sourceErr).
 			Warn("sources stopped with error, initiating extension shutdown")
@@ -613,6 +650,39 @@ func (s *Service) Run(ctx context.Context) error {
 	}
 
 	return errors.Join(sourceErr, shutdownErr)
+}
+
+// discoverReadiness returns the subset of extensions that implement
+// [catalogcollector.Readiness]. The service does not import any concrete
+// extension package; discovery is purely interface-based.
+//
+// Callers pass only extensions that have started successfully when handling a
+// partial startup failure. This prevents lifecycle methods from being invoked
+// on an extension whose Start method failed.
+func (s *Service) discoverReadiness(
+	extensions []runningExtension,
+) []catalogcollector.Readiness {
+	result := make(
+		[]catalogcollector.Readiness,
+		0,
+		len(extensions),
+	)
+
+	for _, extension := range extensions {
+		readiness, ok := extension.extension.(catalogcollector.Readiness)
+		if !ok {
+			continue
+		}
+
+		s.log.WithField(
+			"extension_id",
+			extension.id.String(),
+		).Debug("extension participates in readiness lifecycle")
+
+		result = append(result, readiness)
+	}
+
+	return result
 }
 
 // shutdownExtensions shuts down the given extensions in reverse order.

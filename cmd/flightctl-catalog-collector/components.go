@@ -5,6 +5,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/catalogcollector/destination/debugdestination"
 	"github.com/flightctl/flightctl/pkg/catalogcollector/destination/flightctldestination"
 	"github.com/flightctl/flightctl/pkg/catalogcollector/extension/bearertokenauthextension"
+	"github.com/flightctl/flightctl/pkg/catalogcollector/extension/healthcheckextension"
 	"github.com/flightctl/flightctl/pkg/catalogcollector/extension/oauth2clientauthextension"
 	"github.com/flightctl/flightctl/pkg/catalogcollector/processor/catalognameprocessor"
 	"github.com/flightctl/flightctl/pkg/catalogcollector/source/httpsource"
@@ -33,6 +34,7 @@ func components() catalogcollector.Factories {
 			flightctldestination.NewFactory(),
 		},
 		Extensions: []catalogcollector.ExtensionFactory{
+			healthcheckextension.NewFactory(),
 			bearertokenauthextension.NewFactory(),
 			oauth2clientauthextension.NewFactory(),
 		},
