@@ -73,9 +73,20 @@ if [[ -n "${API_ENDPOINT:-}" ]]; then
                 echo "✅ [Startup] CLI login successful (no-auth)"
             else
                 echo "🔄 [Startup] No-auth failed, trying token login (kubectl create token)..."
-                FLIGHTCTL_NS_FOR_TOKEN="${FLIGHTCTL_NS:-flightctl-external}"
+                # FLIGHTCTL_NS is the logical application namespace used by the
+                # shared shell helpers. On Kind, the API runs in the external
+                # namespace instead, so fall back when the logical namespace does
+                # not exist.
+                FLIGHTCTL_NS_FOR_TOKEN="${FLIGHTCTL_NS_FOR_TOKEN:-}"
+                if [[ -z "${FLIGHTCTL_NS_FOR_TOKEN}" ]]; then
+                    if [[ -n "${FLIGHTCTL_NS:-}" ]] && kubectl get ns "${FLIGHTCTL_NS}" &>/dev/null; then
+                        FLIGHTCTL_NS_FOR_TOKEN="${FLIGHTCTL_NS}"
+                    elif kubectl get ns flightctl-external &>/dev/null; then
+                        FLIGHTCTL_NS_FOR_TOKEN="flightctl-external"
+                    fi
+                fi
                 TOKEN=""
-                if kubectl get ns "${FLIGHTCTL_NS_FOR_TOKEN}" &>/dev/null; then
+                if [[ -n "${FLIGHTCTL_NS_FOR_TOKEN}" ]] && kubectl get ns "${FLIGHTCTL_NS_FOR_TOKEN}" &>/dev/null; then
                     if command -v oc &>/dev/null; then
                         TOKEN=$(get_token 2>/dev/null || true)
                     else
