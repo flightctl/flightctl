@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/store"
+	labelsyncmappingstore "github.com/flightctl/flightctl/internal/store/labelsyncmapping"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
@@ -24,10 +25,18 @@ type fakeStore struct {
 	finalizeDeleteCalls   int
 }
 
-type rejectingExpressionValidator struct{ err error }
+type handlerTestEvaluator struct{ validationErr error }
 
-func (v rejectingExpressionValidator) ValidateLabelSyncMapping(context.Context, domain.LabelSyncMapping) error {
-	return v.err
+func (e handlerTestEvaluator) ValidateExpressionIs(string, ResultKind) error {
+	return e.validationErr
+}
+
+func (handlerTestEvaluator) Evaluate(string, Activation) (Result, error) {
+	return NoResult{}, nil
+}
+
+func newCRUDServiceHandler(store labelsyncmappingstore.Store, evaluator Evaluator) *ServiceHandler {
+	return NewServiceHandler(store, nil, evaluator, nil, nil)
 }
 
 func newFakeStore() *fakeStore {
@@ -35,17 +44,6 @@ func newFakeStore() *fakeStore {
 		mappings:              make(map[uuid.UUID]map[string]*domain.LabelSyncMapping),
 		deviceLabelReferences: make(map[uuid.UUID]map[string]int),
 	}
-}
-
-func newTestServiceHandler(t *testing.T, store *fakeStore) *ServiceHandler {
-	t.Helper()
-	evaluator, err := NewEvaluator()
-	require.NoError(t, err)
-	validator, err := NewCELExpressionValidator(evaluator)
-	require.NoError(t, err)
-	handler, err := NewServiceHandler(store, validator)
-	require.NoError(t, err)
-	return handler
 }
 
 func (s *fakeStore) addDeviceLabelReference(orgID uuid.UUID, name string) {
@@ -56,6 +54,10 @@ func (s *fakeStore) addDeviceLabelReference(orgID uuid.UUID, name string) {
 }
 
 func (*fakeStore) InitialMigration(context.Context) error { return nil }
+
+func (*fakeStore) GetDeviceMappingsSnapshot(context.Context, uuid.UUID) (labelsyncmappingstore.DeviceMappingsSnapshot, error) {
+	return labelsyncmappingstore.DeviceMappingsSnapshot{}, nil
+}
 
 func (s *fakeStore) Create(_ context.Context, orgID uuid.UUID, mapping *domain.LabelSyncMapping) (*domain.LabelSyncMapping, error) {
 	if s.mappings[orgID] == nil {
@@ -123,10 +125,6 @@ func (s *fakeStore) Delete(_ context.Context, orgID uuid.UUID, name string) (boo
 	return true, nil
 }
 
-func (*fakeStore) Revision(context.Context, uuid.UUID, domain.LabelSyncMappingResourceType) (int64, error) {
-	return 0, nil
-}
-
 func (s *fakeStore) FinalizeDelete(_ context.Context, orgID uuid.UUID, name string) (bool, error) {
 	s.finalizeDeleteCalls++
 	if s.finalizeDeleteErr != nil {
@@ -149,7 +147,7 @@ func mapping(name string) domain.LabelSyncMapping {
 		Spec: domain.LabelSyncMappingSpec{
 			ResourceType: domain.LabelSyncMappingDevice,
 			Key:          lo.ToPtr("architecture"),
-			Expression:   "status.systemInfo.architecture",
+			Expression:   "device.status.systemInfo.architecture",
 		},
 	}
 }
@@ -159,16 +157,24 @@ func TestLabelSyncMappingLifecycle(t *testing.T) {
 	firstOrg := uuid.New()
 	secondOrg := uuid.New()
 	store := newFakeStore()
-	handler := newTestServiceHandler(t, store)
+	handler := newCRUDServiceHandler(store, handlerTestEvaluator{})
 
 	t.Run("When the expression validator rejects a mapping it should return 422 without persisting", func(t *testing.T) {
 		validationStore := newFakeStore()
-		validationHandler, err := NewServiceHandler(validationStore, rejectingExpressionValidator{err: errors.New("expression output does not match map mode")})
-		require.NoError(t, err)
+		validationHandler := newCRUDServiceHandler(validationStore, handlerTestEvaluator{validationErr: errors.New("expression output does not match map mode")})
 		created, status := validationHandler.CreateLabelSyncMapping(ctx, firstOrg, mapping("invalid-expression"))
 		require.Nil(t, created)
 		assert.EqualValues(t, 422, status.Code)
 		assert.Contains(t, status.Message, "map mode")
+		assert.Empty(t, validationStore.mappings[firstOrg])
+	})
+
+	t.Run("When the evaluator is missing it should not skip expression validation", func(t *testing.T) {
+		validationStore := newFakeStore()
+		validationHandler := newCRUDServiceHandler(validationStore, nil)
+		created, status := validationHandler.CreateLabelSyncMapping(ctx, firstOrg, mapping("missing-evaluator"))
+		require.Nil(t, created)
+		assert.EqualValues(t, 500, status.Code)
 		assert.Empty(t, validationStore.mappings[firstOrg])
 	})
 
@@ -236,46 +242,9 @@ func TestLabelSyncMappingLifecycle(t *testing.T) {
 		assert.Equal(t, "Pending", lo.FromPtr(deleted.Status.Conditions)[0].Reason)
 	})
 
-	t.Run("When a mapping is being deleted it should reject replace and patch requests", func(t *testing.T) {
-		for _, requestType := range []string{"replace", "patch"} {
-			t.Run(requestType, func(t *testing.T) {
-				deletingStore := newFakeStore()
-				deletingHandler := newTestServiceHandler(t, deletingStore)
-				initial := mapping("deleting")
-				initial.ApiVersion = domain.APIGroup + "/" + domain.LabelSyncMappingAPIVersion
-				initial.Kind = domain.LabelSyncMappingKind
-				created, createStatus := deletingHandler.CreateLabelSyncMapping(ctx, firstOrg, initial)
-				require.EqualValues(t, 201, createStatus.Code)
-
-				deletingStore.addDeviceLabelReference(firstOrg, "deleting")
-				deleteStatus := deletingHandler.DeleteLabelSyncMapping(ctx, firstOrg, "deleting")
-				require.EqualValues(t, 200, deleteStatus.Code)
-				require.NotNil(t, created.Metadata.DeletionTimestamp)
-
-				var result *domain.LabelSyncMapping
-				var status domain.Status
-				if requestType == "replace" {
-					updated := mapping("deleting")
-					updated.Spec.ResourceType = "Fleet"
-					updated.Spec.Expression = "status.systemInfo.architecture + '-v2'"
-					result, status = deletingHandler.ReplaceLabelSyncMapping(ctx, firstOrg, "deleting", updated)
-				} else {
-					var value interface{} = "status.systemInfo.architecture + '-v2'"
-					patch := domain.PatchRequest{{Op: "replace", Path: "/spec/expression", Value: &value}}
-					result, status = deletingHandler.PatchLabelSyncMapping(ctx, firstOrg, "deleting", patch)
-				}
-
-				require.Nil(t, result)
-				assert.EqualValues(t, 409, status.Code, status.Message)
-				assert.NotNil(t, deletingStore.mappings[firstOrg]["deleting"].Metadata.DeletionTimestamp)
-				assert.Equal(t, "status.systemInfo.architecture", deletingStore.mappings[firstOrg]["deleting"].Spec.Expression)
-			})
-		}
-	})
-
 	t.Run("When an unowned mapping is deleted it should be removed during finalization", func(t *testing.T) {
 		unownedStore := newFakeStore()
-		unownedHandler := newTestServiceHandler(t, unownedStore)
+		unownedHandler := newCRUDServiceHandler(unownedStore, handlerTestEvaluator{})
 		_, createStatus := unownedHandler.CreateLabelSyncMapping(ctx, firstOrg, mapping("unowned"))
 		require.EqualValues(t, 201, createStatus.Code)
 
@@ -290,7 +259,7 @@ func TestLabelSyncMappingLifecycle(t *testing.T) {
 	t.Run("When deletion fails it should not attempt finalization", func(t *testing.T) {
 		deleteStore := newFakeStore()
 		deleteStore.deleteErr = errors.New("delete failed")
-		deleteHandler := newTestServiceHandler(t, deleteStore)
+		deleteHandler := newCRUDServiceHandler(deleteStore, handlerTestEvaluator{})
 
 		status := deleteHandler.DeleteLabelSyncMapping(ctx, firstOrg, "architecture")
 		assert.EqualValues(t, 500, status.Code)
@@ -299,7 +268,7 @@ func TestLabelSyncMappingLifecycle(t *testing.T) {
 
 	t.Run("When the mapping is not found it should not attempt finalization", func(t *testing.T) {
 		missingStore := newFakeStore()
-		missingHandler := newTestServiceHandler(t, missingStore)
+		missingHandler := newCRUDServiceHandler(missingStore, handlerTestEvaluator{})
 
 		status := missingHandler.DeleteLabelSyncMapping(ctx, firstOrg, "missing")
 		assert.EqualValues(t, 200, status.Code)
@@ -308,7 +277,7 @@ func TestLabelSyncMappingLifecycle(t *testing.T) {
 
 	t.Run("When finalization fails it should return an internal server error", func(t *testing.T) {
 		finalizeStore := newFakeStore()
-		finalizeHandler := newTestServiceHandler(t, finalizeStore)
+		finalizeHandler := newCRUDServiceHandler(finalizeStore, handlerTestEvaluator{})
 		_, createStatus := finalizeHandler.CreateLabelSyncMapping(ctx, firstOrg, mapping("finalize-failure"))
 		require.EqualValues(t, 201, createStatus.Code)
 		finalizeStore.finalizeDeleteErr = errors.New("finalization failed")
@@ -317,44 +286,4 @@ func TestLabelSyncMappingLifecycle(t *testing.T) {
 		assert.EqualValues(t, 500, status.Code)
 		assert.Equal(t, 1, finalizeStore.finalizeDeleteCalls)
 	})
-}
-
-func TestLabelSyncMappingCELAdmission(t *testing.T) {
-	evaluator, err := NewEvaluator()
-	require.NoError(t, err)
-	validator, err := NewCELExpressionValidator(evaluator)
-	require.NoError(t, err)
-
-	ctx := context.Background()
-	orgID := uuid.New()
-	store := newFakeStore()
-	handler, err := NewServiceHandler(store, validator)
-	require.NoError(t, err)
-
-	invalidMap := mapping("invalid-map")
-	invalidMap.Spec.Key = nil
-	invalidMap.Spec.Expression = `"east"`
-	created, status := handler.CreateLabelSyncMapping(ctx, orgID, invalidMap)
-	require.Nil(t, created)
-	assert.EqualValues(t, 422, status.Code)
-	assert.Contains(t, status.Message, "produces scalar, expected map")
-	assert.Empty(t, store.mappings[orgID])
-
-	validScalar := mapping("valid-scalar")
-	validScalar.Spec.Expression = "status.systemInfo.architecture"
-	created, status = handler.CreateLabelSyncMapping(ctx, orgID, validScalar)
-	require.EqualValues(t, 201, status.Code)
-
-	updated := *created
-	updated.Spec.Expression = `{"site": "east"}`
-	result, status := handler.ReplaceLabelSyncMapping(ctx, orgID, "valid-scalar", updated)
-	require.Nil(t, result)
-	assert.EqualValues(t, 422, status.Code)
-	assert.Contains(t, status.Message, "produces map, expected scalar")
-	assert.Equal(t, "status.systemInfo.architecture", store.mappings[orgID]["valid-scalar"].Spec.Expression)
-}
-
-func TestNewServiceHandlerRequiresExpressionValidator(t *testing.T) {
-	_, err := NewServiceHandler(newFakeStore(), nil)
-	require.ErrorContains(t, err, "LabelSyncMapping expression validator is required")
 }

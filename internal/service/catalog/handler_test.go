@@ -95,6 +95,12 @@ func (f *fakeDeviceStore) UpdateAnnotations(context.Context, uuid.UUID, string, 
 func (f *fakeDeviceStore) Get(context.Context, uuid.UUID, string) (*domain.Device, error) {
 	panic("not implemented")
 }
+func (f *fakeDeviceStore) GetLabelSnapshot(context.Context, uuid.UUID, string) (domain.DeviceLabelSnapshot, error) {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) ApplyLabels(context.Context, uuid.UUID, string, domain.DeviceLabelSnapshot, map[string]domain.DesiredDeviceLabel) (domain.DeviceLabelApplyResult, error) {
+	panic("not implemented")
+}
 func (f *fakeDeviceStore) List(context.Context, uuid.UUID, devicestore.DeviceListParams) (*domain.DeviceList, error) {
 	panic("not implemented")
 }

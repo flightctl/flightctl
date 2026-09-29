@@ -84,6 +84,18 @@ func (_d *TracedService) PatchLabelSyncMapping(ctx context.Context, u1 uuid.UUID
 	return lp1, s2
 }
 
+func (_d *TracedService) ReconcileDeviceLabels(ctx context.Context, u1 uuid.UUID, s1 string) (r1 ReconciliationResult, err error) {
+	ctx, span := startSpan(ctx, "ReconcileDeviceLabels")
+
+	r1, err = _d.inner.ReconcileDeviceLabels(ctx, u1, s1)
+	st := domain.StatusOK()
+	if err != nil {
+		st = domain.StatusInternalServerError(err.Error())
+	}
+	endSpan(span, st)
+	return r1, err
+}
+
 func (_d *TracedService) ReplaceLabelSyncMapping(ctx context.Context, u1 uuid.UUID, s1 string, l1 domain.LabelSyncMapping) (lp1 *domain.LabelSyncMapping, s2 domain.Status) {
 	ctx, span := startSpan(ctx, "ReplaceLabelSyncMapping")
 

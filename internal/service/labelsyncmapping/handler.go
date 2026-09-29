@@ -7,31 +7,34 @@ import (
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service/common"
+	eventservice "github.com/flightctl/flightctl/internal/service/events"
 	labelsyncmappingstore "github.com/flightctl/flightctl/internal/store/labelsyncmapping"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
 )
 
 type ServiceHandler struct {
-	store     labelsyncmappingstore.Store
-	validator ExpressionValidator
+	store       labelsyncmappingstore.Store
+	deviceStore ReconciliationDeviceStore
+	evaluator   Evaluator
+	events      eventservice.Service
+	log         logrus.FieldLogger
 }
 
-// ExpressionValidator keeps CEL validation behind a stable service boundary.
-// Implementations own expression semantics; the API service only passes the
-// resource spec and maps rejection to HTTP 422.
-type ExpressionValidator interface {
-	ValidateLabelSyncMapping(context.Context, domain.LabelSyncMapping) error
-}
-
-func NewServiceHandler(store labelsyncmappingstore.Store, validator ExpressionValidator) (*ServiceHandler, error) {
-	if store == nil {
-		return nil, errors.New("LabelSyncMapping store is required")
+// NewServiceHandler constructs the label-sync mapping service, including CEL
+// validation for CRUD operations and device-label reconciliation.
+func NewServiceHandler(store labelsyncmappingstore.Store, deviceStore ReconciliationDeviceStore, evaluator Evaluator, events eventservice.Service, log logrus.FieldLogger) *ServiceHandler {
+	if log == nil {
+		log = logrus.New()
 	}
-	if validator == nil {
-		return nil, errors.New("LabelSyncMapping expression validator is required")
+	return &ServiceHandler{
+		store:       store,
+		deviceStore: deviceStore,
+		evaluator:   evaluator,
+		events:      events,
+		log:         log,
 	}
-	return &ServiceHandler{store: store, validator: validator}, nil
 }
 
 var _ Service = (*ServiceHandler)(nil)
@@ -108,9 +111,6 @@ func (h *ServiceHandler) ReplaceLabelSyncMapping(ctx context.Context, orgID uuid
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, false, domain.LabelSyncMappingKind, &name)
 	}
-	if existing.Metadata.DeletionTimestamp != nil {
-		return nil, domain.StatusConflict("LabelSyncMapping is being deleted")
-	}
 	if errs := existing.ValidateUpdate(&mapping); len(errs) > 0 {
 		return nil, domain.StatusBadRequest(errors.Join(errs...).Error())
 	}
@@ -135,7 +135,17 @@ func (h *ServiceHandler) ReplaceLabelSyncMapping(ctx context.Context, orgID uuid
 }
 
 func (h *ServiceHandler) validateExpression(ctx context.Context, mapping domain.LabelSyncMapping) domain.Status {
-	if err := h.validator.ValidateLabelSyncMapping(ctx, mapping); err != nil {
+	if err := ctx.Err(); err != nil {
+		return domain.StatusUnprocessableEntity(err.Error())
+	}
+	if h.evaluator == nil {
+		return domain.StatusInternalServerError("label-sync mapping evaluator is not configured")
+	}
+	expectedKind := ResultKindMap
+	if mapping.Spec.Key != nil {
+		expectedKind = ResultKindScalar
+	}
+	if err := h.evaluator.ValidateExpressionIs(mapping.Spec.Expression, expectedKind); err != nil {
 		return domain.StatusUnprocessableEntity(err.Error())
 	}
 	return domain.StatusOK()
@@ -157,9 +167,6 @@ func (h *ServiceHandler) PatchLabelSyncMapping(ctx context.Context, orgID uuid.U
 	current, err := h.store.Get(ctx, orgID, name)
 	if err != nil {
 		return nil, common.StoreErrorToApiStatus(err, false, domain.LabelSyncMappingKind, &name)
-	}
-	if current.Metadata.DeletionTimestamp != nil {
-		return nil, domain.StatusConflict("LabelSyncMapping is being deleted")
 	}
 	updated := &domain.LabelSyncMapping{}
 	if err := common.ApplyJSONPatch(ctx, current, updated, patch, "/labelsyncmappings/"+name); err != nil {

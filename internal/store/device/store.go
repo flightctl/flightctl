@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"strconv"
 	"strings"
 	"time"
@@ -77,6 +78,8 @@ type Store interface {
 	ReplaceServiceOwnedStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device) (updated *domain.Device, before *domain.Device, err error)
 	// UpdateAnnotations merges annotations (and applies deleteKeys) via Mutate.
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
+	GetLabelSnapshot(ctx context.Context, orgId uuid.UUID, name string) (domain.DeviceLabelSnapshot, error)
+	ApplyLabels(ctx context.Context, orgId uuid.UUID, name string, snapshot domain.DeviceLabelSnapshot, desired map[string]domain.DesiredDeviceLabel) (domain.DeviceLabelApplyResult, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams DeviceListParams) (*domain.DeviceList, error)
 	Labels(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (domain.LabelList, error)
@@ -729,6 +732,13 @@ func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, device *domai
 	if device == nil {
 		return nil, flterrors.ErrResourceIsNil
 	}
+	annotations := maps.Clone(lo.FromPtr(device.Metadata.Annotations))
+	delete(annotations, domain.DeviceAnnotationManagedLabels)
+	if len(annotations) == 0 {
+		device.Metadata.Annotations = nil
+	} else {
+		device.Metadata.Annotations = &annotations
+	}
 	deviceModel, err := model.NewDeviceFromApiResource(device)
 	if err != nil {
 		return nil, err
@@ -761,6 +771,22 @@ func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, device *domai
 // Update writes a device update. Returns retry=true on lost optimistic lock / deadlock.
 // rendered is optional; when nil, rendered_* columns are left unchanged.
 func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, before, device *domain.Device, rendered *DeviceRendered, preserveGeneration bool) (bool, error) {
+	if before != nil && device != nil {
+		annotations := maps.Clone(lo.FromPtr(device.Metadata.Annotations))
+		if annotations == nil {
+			annotations = make(map[string]string)
+		}
+		if managedValue, exists := lo.FromPtr(before.Metadata.Annotations)[domain.DeviceAnnotationManagedLabels]; exists {
+			annotations[domain.DeviceAnnotationManagedLabels] = managedValue
+		} else {
+			delete(annotations, domain.DeviceAnnotationManagedLabels)
+		}
+		if len(annotations) == 0 {
+			device.Metadata.Annotations = nil
+		} else {
+			device.Metadata.Annotations = &annotations
+		}
+	}
 	existing, err := model.NewDeviceFromApiResource(before)
 	if err != nil {
 		return false, err
