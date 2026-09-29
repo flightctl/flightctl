@@ -395,7 +395,12 @@ var _ = Describe("LabelSyncMapping reconciliation", func() {
 		})
 		Expect(err).NotTo(HaveOccurred())
 		close(evaluator.release)
-		Expect(<-reconcileResult).NotTo(HaveOccurred())
+		select {
+		case err := <-reconcileResult:
+			Expect(err).NotTo(HaveOccurred())
+		case <-testCtx.Done():
+			Fail(fmt.Sprintf("reconciliation did not finish: %v", testCtx.Err()))
+		}
 
 		device, err := deviceStore.Get(ctx, orgID, "operator-race")
 		Expect(err).NotTo(HaveOccurred())
@@ -434,7 +439,12 @@ var _ = Describe("LabelSyncMapping reconciliation", func() {
 		_, _, err = mappingStore.Update(testCtx, orgID, created)
 		Expect(err).NotTo(HaveOccurred())
 		close(evaluator.release)
-		Expect(<-resultCh).NotTo(HaveOccurred())
+		select {
+		case err := <-resultCh:
+			Expect(err).NotTo(HaveOccurred())
+		case <-testCtx.Done():
+			Fail(fmt.Sprintf("reconciliation did not finish: %v", testCtx.Err()))
+		}
 
 		device, err := deviceStore.Get(ctx, orgID, "mapping-race")
 		Expect(err).NotTo(HaveOccurred())

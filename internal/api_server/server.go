@@ -232,7 +232,7 @@ func (s *Server) Run(ctx context.Context) error {
 	labelSyncMappingStore := labelsyncmappingstore.NewStore(s.db, s.log.WithField("pkg", "labelsyncmapping-store"))
 	labelSyncMappingEvaluator, err := labelsyncmappingservice.NewEvaluator()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed initializing label-sync mapping evaluator: %w", err)
 	}
 	labelSyncMappingSvc := labelsyncmappingservice.WrapWithTracing(
 		labelsyncmappingservice.NewServiceHandler(labelSyncMappingStore, deviceStore, labelSyncMappingEvaluator, eventsSvc, s.log))

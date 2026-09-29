@@ -28,7 +28,7 @@ type DeviceMappingsSnapshot struct {
 // repeatable-read snapshot.
 func (s *labelSyncMappingStore) GetDeviceMappingsSnapshot(ctx context.Context, orgID uuid.UUID) (DeviceMappingsSnapshot, error) {
 	snapshot := DeviceMappingsSnapshot{Mappings: []DeviceMapping{}}
-	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := store.DB(ctx, s.db).Transaction(func(tx *gorm.DB) error {
 		var mappings []model.LabelSyncMapping
 		if err := tx.Where("org_id = ? AND spec IS NOT NULL AND spec->>'resourceType' = ?", orgID, domain.LabelSyncMappingDevice).
 			Order("name ASC").Find(&mappings).Error; err != nil {
