@@ -155,6 +155,7 @@ TBD
 TemplateVersion
 TemplateVersions
 templating
+temporality
 timestamp
 timestamps
 TLS
@@ -356,7 +357,8 @@ dashboarding
 scraping
 Prometheus
 Grafana
-Datadog
+Dynatrace
+SaaS
 CRDs
 wildcard
 Istio
