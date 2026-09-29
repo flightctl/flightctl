@@ -374,10 +374,72 @@ func TestCollectHelmAppPairs(t *testing.T) {
 		helm, err := app.AsHelmApplication()
 		require.NoError(t, err)
 		digests := map[string]string{"quay.io/acme/chart:v1": "sha256:fff"}
-		parent, nested := collectHelmAppPairs(helm, digests)
+		parent, nested := collectHelmAppPairs(helm, digests, nil)
 		require.NotNil(t, parent)
 		require.Empty(t, nested)
 	})
+
+	t.Run("When the target chart uses a new tag it should pair with the unique reported source digest", func(t *testing.T) {
+		app := makeDeltaHelmApp(t, "chart", "quay.io/acme/chart:v2")
+		helm, err := app.AsHelmApplication()
+		require.NoError(t, err)
+		digests := map[string]string{"quay.io/acme/web:v1": "sha256:source"}
+
+		parent, nested := collectHelmAppPairs(helm, digests, []string{"quay.io/acme/web:v2"})
+
+		require.Nil(t, parent)
+		require.Len(t, nested, 1)
+		require.Equal(t, "quay.io/acme/web:v2", nested[0].imageRef)
+		require.Equal(t, "sha256:source", nested[0].currentDigest)
+	})
+
+	t.Run("When the target image repository has multiple source digests it should skip the ambiguous pair", func(t *testing.T) {
+		app := makeDeltaHelmApp(t, "chart", "quay.io/acme/chart:v2")
+		helm, err := app.AsHelmApplication()
+		require.NoError(t, err)
+		digests := map[string]string{
+			"quay.io/acme/web:v1": "sha256:source-one",
+			"quay.io/acme/web:v0": "sha256:source-two",
+		}
+
+		_, nested := collectHelmAppPairs(helm, digests, []string{"quay.io/acme/web:v2"})
+
+		require.Empty(t, nested)
+	})
+}
+
+type helmImageRendererStub struct {
+	refs         []string
+	device       *domain.Device
+	config       []byte
+	registrySpec *domain.OciRepoSpec
+	called       bool
+}
+
+func (s *helmImageRendererStub) ImageRefs(_ context.Context, _ api.HelmApplication, device *domain.Device, renderedConfig []byte, registrySpec *domain.OciRepoSpec) ([]string, error) {
+	s.called = true
+	s.device = device
+	s.config = append([]byte(nil), renderedConfig...)
+	s.registrySpec = registrySpec
+	return s.refs, nil
+}
+
+func TestRenderHelmImageRefs(t *testing.T) {
+	app, err := makeDeltaHelmApp(t, "chart", "quay.io/acme/chart:v2").AsHelmApplication()
+	require.NoError(t, err)
+	device := &domain.Device{}
+	config := []byte("[]")
+	renderer := &helmImageRendererStub{refs: []string{"quay.io/acme/web:v2"}}
+	logic := NewDeviceRenderLogic(logrus.New(), nil, nil, nil, nil, nil, nil).WithHelmImageRenderer(renderer)
+
+	refs, err := logic.RenderHelmImageRefs(context.Background(), uuid.New(), device, app, config)
+
+	require.NoError(t, err)
+	require.Equal(t, []string{"quay.io/acme/web:v2"}, refs)
+	require.True(t, renderer.called)
+	require.Same(t, device, renderer.device)
+	require.Equal(t, config, renderer.config)
+	require.Nil(t, renderer.registrySpec)
 }
 
 func TestResolveApp(t *testing.T) {

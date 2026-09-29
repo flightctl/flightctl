@@ -249,8 +249,11 @@ func platformsCompatible(source, target *ocispec.Platform) bool {
 	return source.Variant == "" || target.Variant == "" || source.Variant == target.Variant
 }
 
-// CachedImageDigestPair caches by the source digest and fallback platform as
-// well as the target reference. A multi-platform target tag resolves to a
+// CachedImageDigestPair caches pairs only for immutable target references.
+// Mutable tags can change at any time, so caching their resolved target digest
+// could cause delta preparation and rendered hints to use a stale target. For
+// immutable digest references, the cache key also includes the source digest
+// and fallback platform because a multi-platform target can resolve to a
 // different leaf digest for different source platforms.
 func CachedImageDigestPair(
 	ctx context.Context,
@@ -264,11 +267,19 @@ func CachedImageDigestPair(
 	if sourceDigest == "" {
 		return ImageDigestPair{}, fmt.Errorf("resolve image digest pair for %s: source digest is required", imageRef)
 	}
-	key, err := imageDigestPairCacheKey(orgID, imageRef, sourceDigest, fallbackPlatform)
+	targetDigest, err := DigestFromImageRef(imageRef)
 	if err != nil {
 		return ImageDigestPair{}, err
 	}
-	if cache != nil {
+	cacheable := targetDigest != ""
+	var key string
+	if cacheable {
+		key, err = imageDigestPairCacheKey(orgID, imageRef, sourceDigest, fallbackPlatform)
+		if err != nil {
+			return ImageDigestPair{}, err
+		}
+	}
+	if cacheable && cache != nil {
 		raw, err := cache.Get(ctx, key)
 		if err != nil {
 			return ImageDigestPair{}, err
@@ -293,7 +304,7 @@ func CachedImageDigestPair(
 	if pair.SourceDigest == "" || pair.TargetDigest == "" {
 		return ImageDigestPair{}, fmt.Errorf("resolve image digest pair for %s: empty source or target digest", imageRef)
 	}
-	if cache != nil {
+	if cacheable && cache != nil {
 		raw, err := json.Marshal(pair)
 		if err != nil {
 			return ImageDigestPair{}, fmt.Errorf("encode image digest pair: %w", err)

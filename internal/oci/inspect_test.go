@@ -59,6 +59,49 @@ func TestCachedImageDigestScopesCacheByOrganization(t *testing.T) {
 	require.Len(t, cache.values, 2)
 }
 
+func TestCachedImageDigestPair(t *testing.T) {
+	t.Run("When target reference is a mutable tag it should resolve again on every call", func(t *testing.T) {
+		cache := &digestCache{values: make(map[string][]byte)}
+		orgID := uuid.New()
+		var resolveCalls int
+		resolve := func(context.Context) (ImageDigestPair, error) {
+			resolveCalls++
+			return ImageDigestPair{SourceDigest: "sha256:source", TargetDigest: fmt.Sprintf("sha256:target-%d", resolveCalls)}, nil
+		}
+
+		first, err := CachedImageDigestPair(context.Background(), cache, orgID, "quay.io/example/app:stable", "sha256:source", nil, resolve)
+		require.NoError(t, err)
+		second, err := CachedImageDigestPair(context.Background(), cache, orgID, "quay.io/example/app:stable", "sha256:source", nil, resolve)
+		require.NoError(t, err)
+
+		require.Equal(t, "sha256:target-1", first.TargetDigest)
+		require.Equal(t, "sha256:target-2", second.TargetDigest)
+		require.Equal(t, 2, resolveCalls)
+		require.Empty(t, cache.values)
+	})
+
+	t.Run("When target reference is pinned by digest it should use the cache", func(t *testing.T) {
+		cache := &digestCache{values: make(map[string][]byte)}
+		orgID := uuid.New()
+		targetDigest := "sha256:" + strings.Repeat("a", 64)
+		var resolveCalls int
+		resolve := func(context.Context) (ImageDigestPair, error) {
+			resolveCalls++
+			return ImageDigestPair{SourceDigest: "sha256:source", TargetDigest: targetDigest}, nil
+		}
+		imageRef := "quay.io/example/app@" + targetDigest
+
+		first, err := CachedImageDigestPair(context.Background(), cache, orgID, imageRef, "sha256:source", nil, resolve)
+		require.NoError(t, err)
+		second, err := CachedImageDigestPair(context.Background(), cache, orgID, imageRef, "sha256:source", nil, resolve)
+		require.NoError(t, err)
+
+		require.Equal(t, first, second)
+		require.Equal(t, 1, resolveCalls)
+		require.Len(t, cache.values, 1)
+	})
+}
+
 type testOCIManifest struct {
 	desc ocispec.Descriptor
 	data []byte

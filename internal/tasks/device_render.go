@@ -19,6 +19,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	delta "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
 	"github.com/flightctl/flightctl/internal/domain"
+	helmruntime "github.com/flightctl/flightctl/internal/helm"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	"github.com/flightctl/flightctl/internal/service/common"
@@ -90,8 +91,13 @@ type DeviceRenderLogic struct {
 	kvStore             kvstore.KVStore
 	cfg                 *config.Config
 	vmConverterOverride VmConverterFn
+	helmRenderer        helmImageRenderer
 	deltaLookup         generationLookup
 	osManifestSize      func(context.Context, string) (*int64, error)
+}
+
+type helmImageRenderer interface {
+	ImageRefs(context.Context, v1beta1.HelmApplication, *domain.Device, []byte, *domain.OciRepoSpec) ([]string, error)
 }
 
 func NewDeviceRenderLogic(log logrus.FieldLogger, deviceSvc deviceservice.Service, repositorySvc repositoryservice.Service, catalogSvc catalogservice.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, cfg *config.Config) *DeviceRenderLogic {
@@ -103,7 +109,47 @@ func NewDeviceRenderLogic(log logrus.FieldLogger, deviceSvc deviceservice.Servic
 		k8sClient:     k8sClient,
 		kvStore:       kvStore,
 		cfg:           cfg,
+		helmRenderer:  helmruntime.NewRenderer(nil, log),
 	}
+}
+
+// RenderHelmImageRefs renders a target Helm application using the resolved
+// config files that will be delivered to the device and returns its workload
+// image references. The same method is used during delta preparation and when
+// attaching delta hints to a rendered device spec.
+func (t *DeviceRenderLogic) RenderHelmImageRefs(
+	ctx context.Context,
+	orgID uuid.UUID,
+	device *domain.Device,
+	app v1beta1.HelmApplication,
+	renderedConfig []byte,
+) ([]string, error) {
+	if t.helmRenderer == nil {
+		return nil, errors.New("Helm image renderer is not configured")
+	}
+	imageSpec, err := app.AsImageApplicationProviderSpec()
+	if err != nil {
+		return nil, fmt.Errorf("get Helm chart image reference: %w", err)
+	}
+	registrySpec, err := helmruntime.ResolveOCIRepositorySpec(
+		ctx,
+		t.repositorySvc,
+		orgID,
+		imageSpec.Image,
+		deltaWriteSpec(t.cfg),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return t.helmRenderer.ImageRefs(ctx, app, device, renderedConfig, registrySpec)
+}
+
+// WithHelmImageRenderer returns a copy configured with a renderer implementation.
+// This keeps Helm command execution injectable in unit tests.
+func (t *DeviceRenderLogic) WithHelmImageRenderer(renderer helmImageRenderer) *DeviceRenderLogic {
+	clone := *t
+	clone.helmRenderer = renderer
+	return &clone
 }
 
 // NewDeviceRenderLogicWithDeltaStore creates device-render logic with the

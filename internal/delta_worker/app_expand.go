@@ -36,6 +36,14 @@ type appCandidatePairer func(
 	digestIndex map[string][]string,
 ) []preparetask.DeltaCandidate
 
+type helmImageRefsFn func(
+	ctx context.Context,
+	orgId uuid.UUID,
+	device *domain.Device,
+	app v1beta1.HelmApplication,
+	renderedConfig []byte,
+) ([]string, error)
+
 // expandAppCandidates extracts application image pairs from the rendered spec
 // and appends them to the existing (OS) candidates. The rendered spec carries
 // fully expanded applications (inline content already resolved). For each
@@ -51,7 +59,7 @@ func expandAppCandidates(
 	candidates []preparetask.DeltaCandidate,
 	inspect inspectFn,
 ) []preparetask.DeltaCandidate {
-	return expandAppCandidatesUsing(ctx, logger, orgId, device, rendered, candidates, func(
+	return expandAppCandidatesUsing(ctx, logger, orgId, device, rendered, candidates, nil, func(
 		ctx context.Context,
 		logger logrus.FieldLogger,
 		orgId uuid.UUID,
@@ -63,7 +71,7 @@ func expandAppCandidates(
 	})
 }
 
-func expandAppCandidatesForSource(
+func expandAppCandidatesForSourceWithHelm(
 	ctx context.Context,
 	logger logrus.FieldLogger,
 	orgId uuid.UUID,
@@ -71,8 +79,9 @@ func expandAppCandidatesForSource(
 	rendered tasks.RenderedSpec,
 	candidates []preparetask.DeltaCandidate,
 	inspect inspectSourceFn,
+	helmImageRefs helmImageRefsFn,
 ) []preparetask.DeltaCandidate {
-	return expandAppCandidatesUsing(ctx, logger, orgId, device, rendered, candidates, func(
+	return expandAppCandidatesUsing(ctx, logger, orgId, device, rendered, candidates, helmImageRefs, func(
 		ctx context.Context,
 		logger logrus.FieldLogger,
 		orgId uuid.UUID,
@@ -100,6 +109,7 @@ func expandAppCandidatesUsing(
 	device *domain.Device,
 	rendered tasks.RenderedSpec,
 	candidates []preparetask.DeltaCandidate,
+	helmImageRefs helmImageRefsFn,
 	pairer appCandidatePairer,
 ) []preparetask.DeltaCandidate {
 	if len(rendered.Applications) == 0 {
@@ -120,8 +130,31 @@ func expandAppCandidatesUsing(
 	for i := range apps {
 		refs := extractNewImageRefs(&apps[i])
 		if appType, err := apps[i].GetAppType(); err == nil && appType == domain.AppTypeHelm {
-			refs = deduplicateStrings(append(refs, reportedHelmImageRefs(device, &apps[i])...))
+			if helmImageRefs == nil {
+				refs = append(refs, reportedHelmImageRefs(device, &apps[i])...)
+			} else {
+				helmApp, err := apps[i].AsHelmApplication()
+				if err != nil {
+					logger.WithError(err).WithFields(logrus.Fields{
+						"orgId":      orgId,
+						"deviceName": applicationDeviceName(device),
+					}).Warn("failed to decode Helm application for delta expansion")
+					refs = append(refs, reportedHelmImageRefs(device, &apps[i])...)
+				} else {
+					targetRefs, renderErr := helmImageRefs(ctx, orgId, device, helmApp, rendered.Config)
+					if renderErr != nil {
+						logger.WithError(renderErr).WithFields(logrus.Fields{
+							"orgId":      orgId,
+							"deviceName": applicationDeviceName(device),
+						}).Warn("failed to render target Helm chart images for delta expansion; using currently reported images")
+						refs = append(refs, reportedHelmImageRefs(device, &apps[i])...)
+					} else {
+						refs = append(refs, targetRefs...)
+					}
+				}
+			}
 		}
+		refs = deduplicateStrings(refs)
 		for _, ref := range refs {
 			candidates = append(candidates, pairer(ctx, logger, orgId, device, ref, digestIndex)...)
 		}
@@ -426,12 +459,9 @@ func extractQuadletRefs(app *domain.ApplicationProviderSpec) []string {
 	return refs
 }
 
-// extractHelmRefs extracts image references from a rendered helm application.
-// The chart image is always included. Helm template output (which would reveal
-// pod/container images) is not available in the rendered spec — extracting
-// those images requires running helm template on the worker with timeout and
-// resource limits. Those nested images are handled when helm template runs
-// during generation.
+// extractHelmRefs extracts the chart OCI reference from a rendered Helm
+// application. Workload image references are added by rendering the chart with
+// its target values in the delta worker.
 func extractHelmRefs(app *domain.ApplicationProviderSpec) []string {
 	helm, err := (*app).AsHelmApplication()
 	if err != nil {

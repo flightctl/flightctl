@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
 	deltaconfig "github.com/flightctl/flightctl/internal/delta_worker/config"
 	workerservice "github.com/flightctl/flightctl/internal/delta_worker/service"
@@ -263,7 +264,18 @@ func serviceResolver(cfg *config.Config, fleets fleetservice.Service, devices de
 			return specRenderer.RenderSpecForDevice(ctx, orgId, device, spec)
 		},
 		Expand: func(ctx context.Context, orgId uuid.UUID, device *domain.Device, rendered internaltasks.RenderedSpec, candidates []preparetask.DeltaCandidate) []preparetask.DeltaCandidate {
-			return expandAppCandidatesForSource(ctx, log.WithField("pkg", "app-expand"), orgId, device, rendered, candidates, inspectForSource)
+			return expandAppCandidatesForSourceWithHelm(
+				ctx,
+				log.WithField("pkg", "app-expand"),
+				orgId,
+				device,
+				rendered,
+				candidates,
+				inspectForSource,
+				func(ctx context.Context, orgId uuid.UUID, device *domain.Device, app v1beta1.HelmApplication, renderedConfig []byte) ([]string, error) {
+					return specRenderer.RenderHelmImageRefs(ctx, orgId, device, app, renderedConfig)
+				},
+			)
 		},
 	}
 }

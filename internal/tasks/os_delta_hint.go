@@ -652,7 +652,7 @@ func collectQuadletAppPairs(app v1beta1.QuadletApplication, currentDigests map[s
 	return parent, nested
 }
 
-func collectHelmAppPairs(app v1beta1.HelmApplication, currentDigests map[string]string) (*appImagePair, []appImagePair) {
+func collectHelmAppPairs(app v1beta1.HelmApplication, currentDigests map[string]string, targetImageRefs []string) (*appImagePair, []appImagePair) {
 	imgSpec, err := app.AsImageApplicationProviderSpec()
 	if err != nil {
 		return nil, nil
@@ -664,17 +664,25 @@ func collectHelmAppPairs(app v1beta1.HelmApplication, currentDigests map[string]
 		// a same-repository workload digest.
 		parent = &appImagePair{imageRef: imgSpec.Image, currentDigest: currentDigests[imgSpec.Image]}
 	}
-	// Helm workload images are only known after the chart is rendered on the
-	// device. Reuse currently reported workload references as possible targets;
-	// the agent will apply a hint only when the rendered chart still uses that
-	// exact reference.
-	var workloadImageRefs []string
-	for imageRef := range currentDigests {
-		if imageRef != imgSpec.Image {
-			workloadImageRefs = append(workloadImageRefs, imageRef)
+	// Target workload references come from rendering the target chart with the
+	// target values. If rendering could not be completed, use the currently
+	// reported references as a best-effort fallback for unchanged workloads.
+	if targetImageRefs == nil {
+		for imageRef := range currentDigests {
+			if imageRef != imgSpec.Image {
+				targetImageRefs = append(targetImageRefs, imageRef)
+			}
 		}
 	}
-	return parent, collectImagePairs(workloadImageRefs, currentDigests)
+	imagePairs := collectImagePairs(targetImageRefs, currentDigests)
+	nested := make([]appImagePair, 0, len(imagePairs))
+	for _, imagePair := range imagePairs {
+		if imagePair.currentDigest == "" || imagePair.currentDigest == ambiguousCurrentDigest {
+			continue
+		}
+		nested = append(nested, imagePair)
+	}
+	return parent, nested
 }
 
 func collectVmAppPairs(app v1beta1.VmApplication, currentDigests map[string]string) (*appImagePair, []appImagePair) {
@@ -849,7 +857,7 @@ func (t *deviceRenderState) resolveRenderedAppDeltaHints(ctx context.Context, de
 		return fmt.Errorf("decode rendered applications: %w", err)
 	}
 
-	appSizes, err := t.resolveAppDeltaHints(ctx, device, applications)
+	appSizes, err := t.resolveAppDeltaHints(ctx, device, applications, rendered.Config)
 	if err != nil {
 		return fmt.Errorf("failed resolving application delta hints: %w", err)
 	}
@@ -866,7 +874,7 @@ func (t *deviceRenderState) resolveRenderedAppDeltaHints(ctx context.Context, de
 // resolveAppDeltaHints iterates over rendered applications, resolves delta
 // hints for each one, writes parent and nested hints into the image or inline
 // provider, and returns a map of app-name → IEC size string.
-func (t *deviceRenderState) resolveAppDeltaHints(ctx context.Context, device *domain.Device, apps []domain.ApplicationProviderSpec) (map[string]*string, error) {
+func (t *deviceRenderState) resolveAppDeltaHints(ctx context.Context, device *domain.Device, apps []domain.ApplicationProviderSpec, renderedConfig []byte) (map[string]*string, error) {
 	if device == nil {
 		return nil, nil
 	}
@@ -928,7 +936,17 @@ func (t *deviceRenderState) resolveAppDeltaHints(ctx context.Context, device *do
 			if err != nil {
 				return nil, fmt.Errorf("parse helm application %q: %w", appName, err)
 			}
-			parent, nested = collectHelmAppPairs(helm, currentDigests)
+			var targetImageRefs []string
+			imageRefs, renderErr := t.DeviceRenderLogic.RenderHelmImageRefs(ctx, t.orgId, device, helm, renderedConfig)
+			if renderErr != nil {
+				t.log.WithError(renderErr).WithFields(logrus.Fields{
+					"device":      t.event.InvolvedObject.Name,
+					"application": appName,
+				}).Warn("failed to render target Helm chart images for delta hints; using currently reported images")
+			} else {
+				targetImageRefs = imageRefs
+			}
+			parent, nested = collectHelmAppPairs(helm, currentDigests, targetImageRefs)
 		case domain.AppTypeVm:
 			vm, err := app.AsVmApplication()
 			if err != nil {
