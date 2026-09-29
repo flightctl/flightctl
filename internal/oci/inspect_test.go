@@ -23,6 +23,33 @@ type digestCache struct {
 	values map[string][]byte
 }
 
+func TestSpecForRegistry(t *testing.T) {
+	t.Run("When the system registry is marked insecure it should skip TLS verification", func(t *testing.T) {
+		got := specForRegistry("registry.example.com:5000", nil, true)
+
+		require.Equal(t, "registry.example.com:5000", got.Registry)
+		require.NotNil(t, got.SkipServerVerification)
+		require.True(t, *got.SkipServerVerification)
+	})
+
+	t.Run("When no insecure registry setting exists it should retain TLS verification", func(t *testing.T) {
+		got := specForRegistry("registry.example.com:5000", nil, false)
+
+		require.Equal(t, "registry.example.com:5000", got.Registry)
+		require.Nil(t, got.SkipServerVerification)
+	})
+
+	t.Run("When an explicit repository spec matches it should take precedence", func(t *testing.T) {
+		skipVerification := false
+		explicit := &domain.OciRepoSpec{Registry: "registry.example.com:5000", SkipServerVerification: &skipVerification}
+
+		got := specForRegistry("registry.example.com:5000", explicit, true)
+
+		require.Same(t, explicit, got)
+		require.False(t, *got.SkipServerVerification)
+	})
+}
+
 func (c *digestCache) Get(_ context.Context, key string) ([]byte, error) {
 	return c.values[key], nil
 }

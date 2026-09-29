@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/containers/image/v5/docker/reference"
+	"github.com/containers/image/v5/pkg/sysregistriesv2"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/google/uuid"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
@@ -29,11 +30,24 @@ type DigestCache interface {
 }
 
 func SpecForRegistry(host string, spec *domain.OciRepoSpec) *domain.OciRepoSpec {
-	empty := &domain.OciRepoSpec{Type: domain.OciRepoSpecTypeOci}
-	if spec == nil || spec.Registry != host {
-		return empty
+	if spec != nil && spec.Registry == host {
+		return spec
 	}
-	return spec
+
+	registry, err := sysregistriesv2.FindRegistry(nil, host)
+	return specForRegistry(host, nil, err == nil && registry != nil && registry.Insecure)
+}
+
+func specForRegistry(host string, spec *domain.OciRepoSpec, insecure bool) *domain.OciRepoSpec {
+	if spec != nil && spec.Registry == host {
+		return spec
+	}
+	result := &domain.OciRepoSpec{Type: domain.OciRepoSpecTypeOci, Registry: host}
+	if insecure {
+		skipServerVerification := true
+		result.SkipServerVerification = &skipServerVerification
+	}
+	return result
 }
 
 func RemoteRepository(ctx context.Context, spec *domain.OciRepoSpec, imageRef string) (*remote.Repository, string, error) {
