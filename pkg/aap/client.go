@@ -129,13 +129,15 @@ func getWithPagination[T any](a *AAPGatewayClient, ctx context.Context, endpoint
 	items := result.Results
 
 	if result.Next != nil && *result.Next != "" {
-		// AAP returns absolute URLs for pagination, so parse the full URL
+		// Parse and resolve the next-page URL against the gateway base URL.
+		// ResolveReference handles both absolute and relative URLs per RFC 3986.
 		nextURL, err := url.Parse(*result.Next)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse next page URL: %w", err)
 		}
 
-		nextResult, err := getWithPagination[T](a, ctx, nextURL, token)
+		resolvedURL := a.gatewayURL.ResolveReference(nextURL)
+		nextResult, err := getWithPagination[T](a, ctx, resolvedURL, token)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get next page: %w", err)
 		}
