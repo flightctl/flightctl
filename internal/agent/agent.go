@@ -334,6 +334,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		a.config.PullTimeout,
 		resourceManager,
 		pollBackoff,
+		dependency.WithOCIDelta(client.NewOCIDelta(a.log, exec, time.Duration(a.config.PullTimeout))),
 	)
 
 	// create status manager
@@ -366,6 +367,8 @@ func (a *Agent) Run(ctx context.Context) error {
 
 	// register status exporters
 	statusManager.RegisterStatusExporter(applicationsManager)
+	// The prefetch exporter enriches application status with delta fallback reasons.
+	statusManager.RegisterStatusExporter(prefetchManager)
 	statusManager.RegisterStatusExporter(rootSystemdManager)
 	statusManager.RegisterStatusExporter(resourceManager)
 	statusManager.RegisterStatusExporter(specManager)

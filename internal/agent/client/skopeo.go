@@ -22,10 +22,11 @@ const (
 
 // OCIManifest represents the minimal OCI manifest structure needed for type detection
 type OCIManifest struct {
-	MediaType    string          `json:"mediaType"`
-	ArtifactType string          `json:"artifactType,omitempty"`
-	Config       *OCIDescriptor  `json:"config,omitempty"`
-	Manifests    json.RawMessage `json:"manifests,omitempty"`
+	MediaType    string            `json:"mediaType"`
+	ArtifactType string            `json:"artifactType,omitempty"`
+	Annotations  map[string]string `json:"annotations,omitempty"`
+	Config       *OCIDescriptor    `json:"config,omitempty"`
+	Manifests    json.RawMessage   `json:"manifests,omitempty"`
 }
 
 // OCIDescriptor represents a content descriptor in an OCI manifest

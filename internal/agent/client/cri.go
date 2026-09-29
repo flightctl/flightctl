@@ -15,12 +15,32 @@ import (
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/poll"
+	"gopkg.in/yaml.v3"
 )
 
 const (
-	crictlCmd         = "crictl"
-	defaultCRITimeout = 2 * time.Minute
+	crictlCmd                 = "crictl"
+	ctrCmd                    = "ctr"
+	defaultCRITimeout         = 2 * time.Minute
+	defaultCRIConfigPath      = "/etc/crictl.yaml"
+	defaultContainerdEndpoint = "/run/containerd/containerd.sock"
+	containerdKubernetesNS    = "k8s.io"
+	ociDeltaLayoutImageTag    = "img"
 )
+
+const (
+	// CRIRuntimeCRIO is the RuntimeName value reported by CRI-O.
+	CRIRuntimeCRIO = "cri-o"
+	// CRIRuntimeContainerd is the RuntimeName value reported by containerd.
+	CRIRuntimeContainerd = "containerd"
+)
+
+// CRIRuntimeInfo describes the local CRI implementation and the containerd
+// socket used by Kubernetes, when applicable.
+type CRIRuntimeInfo struct {
+	Name     string
+	Endpoint string
+}
 
 // CRI provides a client for executing crictl CLI commands.
 type CRI struct {
@@ -193,6 +213,181 @@ func (c *CRI) ImageExists(ctx context.Context, image string, opts ...ClientOptio
 	output := strings.TrimSpace(stdout)
 	lines := strings.Split(output, "\n")
 	return len(lines) > 1
+}
+
+// RuntimeInfo returns the runtime connected to crictl and, for containerd, its
+// socket path for ctr imports.
+func (c *CRI) RuntimeInfo(ctx context.Context, opts ...ClientOption) (*CRIRuntimeInfo, error) {
+	options := &clientOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	timeout := c.timeout
+	if options.timeout > 0 {
+		timeout = options.timeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	args := []string{}
+	if options.criConfigPath != "" {
+		exists, err := c.readWriter.PathExists(options.criConfigPath)
+		if err != nil {
+			return nil, fmt.Errorf("check crictl config path: %w", err)
+		}
+		if exists {
+			args = append(args, "--config", options.criConfigPath)
+		}
+	}
+	args = append(args, "version")
+
+	stdout, stderr, exitCode := c.exec.ExecuteWithContext(ctx, crictlCmd, args...)
+	if exitCode != 0 {
+		return nil, fmt.Errorf("crictl version: %w", errors.FromStderr(stderr, exitCode))
+	}
+
+	var runtimeName string
+	for _, line := range strings.Split(stdout, "\n") {
+		key, value, ok := strings.Cut(line, ":")
+		if ok && strings.TrimSpace(key) == "RuntimeName" {
+			runtimeName = strings.ToLower(strings.TrimSpace(value))
+			break
+		}
+	}
+	if runtimeName == "" {
+		return nil, fmt.Errorf("crictl version did not report RuntimeName")
+	}
+
+	info := &CRIRuntimeInfo{Name: runtimeName}
+	if runtimeName == CRIRuntimeContainerd {
+		endpoint, err := c.containerdEndpoint(options)
+		if err != nil {
+			return nil, err
+		}
+		info.Endpoint = endpoint
+	}
+	return info, nil
+}
+
+type crictlConfig struct {
+	RuntimeEndpoint string `yaml:"runtime-endpoint"`
+	ImageEndpoint   string `yaml:"image-endpoint"`
+}
+
+func (c *CRI) containerdEndpoint(options *clientOptions) (string, error) {
+	configPath := options.criConfigPath
+	if configPath == "" {
+		configPath = defaultCRIConfigPath
+	}
+
+	endpoint := ""
+	configPaths := []string{configPath}
+	if configPath != defaultCRIConfigPath {
+		configPaths = append(configPaths, defaultCRIConfigPath)
+	}
+	for _, path := range configPaths {
+		exists, err := c.readWriter.PathExists(path)
+		if err != nil {
+			return "", fmt.Errorf("check crictl config path: %w", err)
+		}
+		if !exists {
+			continue
+		}
+		data, err := c.readWriter.ReadFile(path)
+		if err != nil {
+			return "", fmt.Errorf("read crictl config: %w", err)
+		}
+		var config crictlConfig
+		if err := yaml.Unmarshal(data, &config); err != nil {
+			return "", fmt.Errorf("parse crictl config: %w", err)
+		}
+		endpoint = config.RuntimeEndpoint
+		if endpoint == "" {
+			endpoint = config.ImageEndpoint
+		}
+		break
+	}
+	if endpoint == "" {
+		endpoint = "unix://" + defaultContainerdEndpoint
+	}
+
+	if strings.HasPrefix(endpoint, "unix://") {
+		endpoint = strings.TrimPrefix(endpoint, "unix://")
+	} else if strings.Contains(endpoint, "://") {
+		return "", fmt.Errorf("unsupported containerd endpoint %q", endpoint)
+	}
+	if endpoint == "" || !strings.HasPrefix(endpoint, "/") {
+		return "", fmt.Errorf("containerd endpoint must be an absolute unix socket path: %q", endpoint)
+	}
+	return endpoint, nil
+}
+
+// MountContainerdImage mounts a locally cached image from containerd so
+// oci-delta can use it as source data when reconstructing changed layers.
+func (c *CRI) MountContainerdImage(ctx context.Context, endpoint, image, mountPath string, opts ...ClientOption) error {
+	return c.executeContainerd(ctx, endpoint, []string{"images", "mount", image, mountPath}, opts...)
+}
+
+// UnmountContainerdImage releases a source image mount created by
+// MountContainerdImage.
+func (c *CRI) UnmountContainerdImage(ctx context.Context, endpoint, mountPath string, opts ...ClientOption) error {
+	return c.executeContainerd(ctx, endpoint, []string{"images", "unmount", mountPath}, opts...)
+}
+
+// ImportContainerdImage imports a reconstructed OCI archive into Kubernetes'
+// containerd namespace, then assigns the reference used by the workload.
+func (c *CRI) ImportContainerdImage(ctx context.Context, endpoint, archivePath, importBase, targetImage string, opts ...ClientOption) error {
+	temporaryRef := importBase + ":" + ociDeltaLayoutImageTag
+	if err := c.executeContainerd(
+		ctx,
+		endpoint,
+		[]string{
+			"images", "import",
+			"--base-name", importBase,
+			"--index-name", temporaryRef,
+			archivePath,
+		},
+		opts...,
+	); err != nil {
+		c.cleanupContainerdImage(ctx, endpoint, temporaryRef, opts...)
+		return err
+	}
+
+	if err := c.executeContainerd(ctx, endpoint, []string{"images", "tag", "--force", temporaryRef, targetImage}, opts...); err != nil {
+		c.cleanupContainerdImage(ctx, endpoint, temporaryRef, opts...)
+		return err
+	}
+	c.cleanupContainerdImage(ctx, endpoint, temporaryRef, opts...)
+	return nil
+}
+
+func (c *CRI) executeContainerd(ctx context.Context, endpoint string, args []string, opts ...ClientOption) error {
+	options := &clientOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+	timeout := c.timeout
+	if options.timeout > 0 {
+		timeout = options.timeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	commandArgs := []string{"--address", endpoint, "--namespace", containerdKubernetesNS}
+	commandArgs = append(commandArgs, args...)
+	_, stderr, exitCode := c.exec.ExecuteWithContext(ctx, ctrCmd, commandArgs...)
+	if exitCode != 0 {
+		return fmt.Errorf("ctr %s: %w", strings.Join(args[:2], " "), errors.FromStderr(stderr, exitCode))
+	}
+	return nil
+}
+
+func (c *CRI) cleanupContainerdImage(ctx context.Context, endpoint, image string, opts ...ClientOption) {
+	cleanupCtx := context.WithoutCancel(ctx)
+	if err := c.executeContainerd(cleanupCtx, endpoint, []string{"images", "rm", image}, opts...); err != nil {
+		c.log.Warnf("remove temporary containerd image reference %s: %v", image, err)
+	}
 }
 
 // getAuthStringForImage retrieves the base64-encoded auth string for a specific image from an auth file.

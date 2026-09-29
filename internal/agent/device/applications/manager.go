@@ -411,7 +411,6 @@ func (m *manager) Shutdown(ctx context.Context, state shutdown.State) error {
 func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1beta1.DeviceSpec, opts ...dependency.OCICollectOpt) (*dependency.OCICollection, error) {
 	o := dependency.ApplyOCICollectOpts(opts...)
 	osUpdatePending := o.OSUpdatePending()
-
 	collection, err := provider.CollectOCITargets(
 		ctx,
 		m.log,

@@ -1132,6 +1132,10 @@ runtime-endpoint: unix:///run/containerd/containerd.sock
 image-endpoint: unix:///run/containerd/containerd.sock
 ```
 
+When an OCI delta is available for a Helm workload image, the agent reconstructs it and imports it into the local CRI runtime. Containerd hosts use `ctr` and the `k8s.io` namespace. Digest-pinned workload images use a regular pull because reconstruction can change the manifest digest. If delta import is unavailable or fails, the agent falls back to `crictl pull`.
+
+Kubernetes can use the imported image without contacting the registry when the workload's `imagePullPolicy` allows local reuse. With `Always`, Kubernetes asks the runtime to resolve the image remotely, which can fetch layers whose digests differ from the reconstructed image.
+
 #### Helm Application Specification
 
 To deploy a Helm application, add an entry to the `applications` section of the device specification with `appType: helm`:
