@@ -25,7 +25,9 @@ type DeviceMappingsSnapshot struct {
 }
 
 // GetDeviceMappingsSnapshot reads mappings and the revision from one
-// repeatable-read snapshot.
+// repeatable-read snapshot. Callers must pass a context without an existing
+// store transaction; otherwise the nested transaction will not establish the
+// requested isolation level.
 func (s *labelSyncMappingStore) GetDeviceMappingsSnapshot(ctx context.Context, orgID uuid.UUID) (DeviceMappingsSnapshot, error) {
 	snapshot := DeviceMappingsSnapshot{Mappings: []DeviceMapping{}}
 	err := store.DB(ctx, s.db).Transaction(func(tx *gorm.DB) error {
