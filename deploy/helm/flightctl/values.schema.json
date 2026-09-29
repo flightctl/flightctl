@@ -185,7 +185,8 @@
                   "type": "array",
                   "description": "List of OAuth2 scopes to request",
                   "items": { "type": "string" }
-                }
+                },
+                "identityCacheTTL": { "type": "string", "description": "TTL for AAP identity cache (Go duration string, e.g. 45s, 2m)" }
               }
             },
             "openshift": {

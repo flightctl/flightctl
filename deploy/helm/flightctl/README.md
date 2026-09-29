@@ -320,6 +320,7 @@ For more detailed configuration options, see the [Values](#values) section below
 | global.auth.aap.clientSecret | string | `""` | OAuth2 client secret (prefer mounting from a secret) |
 | global.auth.aap.enabled | bool | `true` | Whether the AAP provider is enabled |
 | global.auth.aap.externalApiUrl | string | `""` | The URL of the AAP Gateway API endpoint that is reachable by clients |
+| global.auth.aap.identityCacheTTL | string | `"45s"` | TTL for AAP identity cache (Go duration string, e.g. "45s", "2m") |
 | global.auth.aap.organizationNamePrefix | string | `""` | Optional prefix for org names from this provider (e.g. "aap-"). Incoming org names are exposed as prefix + name. |
 | global.auth.aap.scopes | list | `["read","write"]` | List of OAuth2 scopes to request |
 | global.auth.aap.tokenUrl | string | `""` | OAuth2 token endpoint URL |

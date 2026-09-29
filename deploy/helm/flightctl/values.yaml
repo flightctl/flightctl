@@ -111,6 +111,8 @@ global:
         - "write"
       # -- Optional prefix for org names from this provider (e.g. "aap-"). Incoming org names are exposed as prefix + name.
       organizationNamePrefix: ""
+      # -- TTL for AAP identity cache (Go duration string, e.g. "45s", "2m")
+      identityCacheTTL: "45s"
     openshift:
       # -- Create default flightctl-admin ServiceAccount with admin access
       createAdminUser: true
