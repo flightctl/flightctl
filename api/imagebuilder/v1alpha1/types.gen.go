@@ -221,7 +221,7 @@ type ImageBuildCondition struct {
 	// LastTransitionTime The last time the condition transitioned from one status to another.
 	LastTransitionTime time.Time `json:"lastTransitionTime"`
 
-	// Message A human-readable message describing the condition, including details or progress for people. Consumers should not parse this field.
+	// Message A human-readable message describing the condition, including details or progress. Consumers should not parse this field.
 	Message string `json:"message"`
 
 	// ObservedGeneration The .metadata.generation that the condition was set based upon.
@@ -374,7 +374,7 @@ type ImageExportCondition struct {
 	// LastTransitionTime The last time the condition transitioned from one status to another.
 	LastTransitionTime time.Time `json:"lastTransitionTime"`
 
-	// Message A human-readable message describing the condition, including details or progress for people. Consumers should not parse this field.
+	// Message A human-readable message describing the condition, including details or progress. Consumers should not parse this field.
 	Message string `json:"message"`
 
 	// ObservedGeneration The .metadata.generation that the condition was set based upon.
@@ -466,7 +466,7 @@ type ImagePromotionCondition struct {
 	// LastTransitionTime The last time the condition transitioned from one status to another.
 	LastTransitionTime time.Time `json:"lastTransitionTime"`
 
-	// Message A human-readable message describing the condition, including details or progress for people. Consumers should not parse this field.
+	// Message A human-readable message describing the condition, including details or progress. Consumers should not parse this field.
 	Message string `json:"message"`
 
 	// ObservedGeneration The .metadata.generation that the condition was set based upon.
