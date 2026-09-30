@@ -38,6 +38,7 @@ const (
 	DeviceAnnotationConsole                   = v1beta1.DeviceAnnotationConsole
 	DeviceAnnotationRemoteSession             = v1beta1.DeviceAnnotationRemoteSession
 	DeviceAnnotationRenderedVersion           = v1beta1.DeviceAnnotationRenderedVersion
+	DeviceAnnotationManagedLabels             = v1beta1.DeviceAnnotationManagedLabels
 	DeviceAnnotationAwaitingReconnect         = v1beta1.DeviceAnnotationAwaitingReconnect
 	DeviceAnnotationConflictPaused            = v1beta1.DeviceAnnotationConflictPaused
 	DeviceAnnotationTemplateVersion           = v1beta1.DeviceAnnotationTemplateVersion

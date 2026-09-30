@@ -27,7 +27,7 @@ type Store interface {
 	List(context.Context, uuid.UUID, store.ListParams) (*domain.LabelSyncMappingList, error)
 	Delete(context.Context, uuid.UUID, string) (bool, error)
 	FinalizeDelete(context.Context, uuid.UUID, string) (bool, error)
-	Revision(context.Context, uuid.UUID, domain.LabelSyncMappingResourceType) (int64, error)
+	GetDeviceMappingsSnapshot(context.Context, uuid.UUID) (DeviceMappingsSnapshot, error)
 }
 
 type labelSyncMappingStore struct {
@@ -300,15 +300,6 @@ func (s *labelSyncMappingStore) FinalizeDelete(ctx context.Context, orgID uuid.U
 		return false, nil
 	}
 	return finalized, err
-}
-
-func (s *labelSyncMappingStore) Revision(ctx context.Context, orgID uuid.UUID, resourceType domain.LabelSyncMappingResourceType) (int64, error) {
-	state := model.LabelSyncState{}
-	err := store.DB(ctx, s.db).Where("org_id = ? AND resource_type = ?", orgID, resourceType).Take(&state).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return 0, nil
-	}
-	return state.Revision, err
 }
 
 func (s *labelSyncMappingStore) incrementRevision(tx *gorm.DB, orgID uuid.UUID, resourceType domain.LabelSyncMappingResourceType) error {

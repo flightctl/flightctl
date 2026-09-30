@@ -115,6 +115,21 @@ func (mr *MockServiceMockRecorder) PatchLabelSyncMapping(arg0, arg1, arg2, arg3 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PatchLabelSyncMapping", reflect.TypeOf((*MockService)(nil).PatchLabelSyncMapping), arg0, arg1, arg2, arg3)
 }
 
+// ReconcileDeviceLabels mocks base method.
+func (m *MockService) ReconcileDeviceLabels(arg0 context.Context, arg1 uuid.UUID, arg2 string) (ReconciliationResult, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ReconcileDeviceLabels", arg0, arg1, arg2)
+	ret0, _ := ret[0].(ReconciliationResult)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ReconcileDeviceLabels indicates an expected call of ReconcileDeviceLabels.
+func (mr *MockServiceMockRecorder) ReconcileDeviceLabels(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReconcileDeviceLabels", reflect.TypeOf((*MockService)(nil).ReconcileDeviceLabels), arg0, arg1, arg2)
+}
+
 // ReplaceLabelSyncMapping mocks base method.
 func (m *MockService) ReplaceLabelSyncMapping(arg0 context.Context, arg1 uuid.UUID, arg2 string, arg3 domain.LabelSyncMapping) (*domain.LabelSyncMapping, domain.Status) {
 	m.ctrl.T.Helper()

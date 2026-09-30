@@ -14,4 +14,5 @@ type Service interface {
 	ReplaceLabelSyncMapping(context.Context, uuid.UUID, string, domain.LabelSyncMapping) (*domain.LabelSyncMapping, domain.Status)
 	PatchLabelSyncMapping(context.Context, uuid.UUID, string, domain.PatchRequest) (*domain.LabelSyncMapping, domain.Status)
 	DeleteLabelSyncMapping(context.Context, uuid.UUID, string) domain.Status
+	ReconcileDeviceLabels(context.Context, uuid.UUID, string) (ReconciliationResult, error)
 }

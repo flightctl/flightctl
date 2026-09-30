@@ -77,6 +77,8 @@ type Store interface {
 	ReplaceServiceOwnedStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device) (updated *domain.Device, before *domain.Device, err error)
 	// UpdateAnnotations merges annotations (and applies deleteKeys) via Mutate.
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
+	GetLabelSnapshot(ctx context.Context, orgId uuid.UUID, name string) (domain.DeviceLabelSnapshot, error)
+	ApplyLabels(ctx context.Context, orgId uuid.UUID, name string, snapshot domain.DeviceLabelSnapshot, desired map[string]domain.DesiredDeviceLabel) (domain.DeviceLabelApplyResult, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams DeviceListParams) (*domain.DeviceList, error)
 	Labels(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (domain.LabelList, error)
