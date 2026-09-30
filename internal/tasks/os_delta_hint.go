@@ -32,7 +32,10 @@ type generationLookup interface {
 	GetDeltaGeneration(ctx context.Context, key deltastore.GenerationKey, opts ...deltastore.GenerationGetOption) (*deltamodel.DeltaGeneration, error)
 }
 
-const deltaGenerationMissingMemoTTL = time.Minute
+const (
+	deltaGenerationMissingMemoTTL = time.Minute
+	helmDeltaHintRenderTimeout    = time.Minute
+)
 
 type deltaGenerationLookupMemo struct {
 	Missing           bool    `json:"missing,omitempty"`
@@ -129,7 +132,7 @@ func (t *deviceRenderState) resolveOSDeltaHint(ctx context.Context, device *doma
 			t.orgId, t.event.InvolvedObject.Name, rendered.OsImage, repo)
 		return nil
 	}
-	pair, err := t.resolveImageDigestPair(ctx, t.orgId, rendered.OsImage, src, deviceImagePlatform(device))
+	pair, err := t.resolveImageDigestPair(ctx, t.orgId, rendered.OsImage, src, oci.DeviceImagePlatform(device))
 	if err != nil {
 		t.log.Infof("os delta hint skipped device=%s/%s reason=inspect-source-target-platform-digests osImage=%q err=%v",
 			t.orgId, t.event.InvolvedObject.Name, rendered.OsImage, err)
@@ -768,20 +771,6 @@ func applyDeltaHintsToImageSpec(spec v1beta1.ImageSpec, hints *appDeltaHints) v1
 	return spec
 }
 
-func deviceImagePlatform(device *domain.Device) *ocispec.Platform {
-	if device == nil || device.Status == nil {
-		return nil
-	}
-	info := device.Status.SystemInfo
-	if info.OperatingSystem == "" || info.Architecture == "" {
-		return nil
-	}
-	return &ocispec.Platform{
-		OS:           info.OperatingSystem,
-		Architecture: info.Architecture,
-	}
-}
-
 // resolveRenderedAppDeltaHints resolves per-device hints against the agent's
 // current application image digests. RenderSpec remains device-independent;
 // RenderDevice calls this after rendering the target applications.
@@ -816,7 +805,7 @@ func (t *deviceRenderState) resolveAppDeltaHints(ctx context.Context, device *do
 	if device == nil {
 		return nil, nil
 	}
-	platform := deviceImagePlatform(device)
+	platform := oci.DeviceImagePlatform(device)
 	resolver := &appDeltaResolver{
 		log:         t.log,
 		orgID:       t.orgId,
@@ -871,7 +860,9 @@ func (t *deviceRenderState) resolveAppDeltaHints(ctx context.Context, device *do
 				return nil, fmt.Errorf("parse helm application %q: %w", appName, err)
 			}
 			var targetImageRefs []string
-			imageRefs, renderErr := t.DeviceRenderLogic.RenderHelmImageRefs(ctx, t.orgId, device, helm, renderedConfig)
+			helmRenderCtx, cancel := context.WithTimeout(ctx, helmDeltaHintRenderTimeout)
+			imageRefs, renderErr := t.DeviceRenderLogic.RenderHelmImageRefs(helmRenderCtx, t.orgId, device, helm, renderedConfig)
+			cancel()
 			if renderErr != nil {
 				t.log.WithError(renderErr).WithFields(logrus.Fields{
 					"device":      t.event.InvolvedObject.Name,

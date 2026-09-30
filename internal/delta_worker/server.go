@@ -241,11 +241,11 @@ func serviceResolver(cfg *config.Config, fleets fleetservice.Service, devices de
 		sourceDigest string,
 		fallbackPlatform *ocispec.Platform,
 	) (string, string, error) {
-		spec, err := generateTask.ResolveDeltaTargetRepo(ctx, repos, deltaConfig, orgId)
-		if err != nil {
-			return "", "", err
-		}
 		pair, err := oci.CachedImageDigestPair(ctx, kvStore, orgId, image, sourceDigest, fallbackPlatform, func(ctx context.Context) (oci.ImageDigestPair, error) {
+			spec, err := generateTask.ResolveDeltaTargetRepo(ctx, repos, deltaConfig, orgId)
+			if err != nil {
+				return oci.ImageDigestPair{}, err
+			}
 			return oci.InspectImageDigestPair(ctx, image, sourceDigest, spec, fallbackPlatform)
 		})
 		if err != nil {

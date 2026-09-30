@@ -1306,7 +1306,9 @@ func validateHelmApplication(app ApplicationProviderSpec, appName string, fleetT
 			allErrs = append(allErrs, fmt.Errorf("invalid helm image provider: %w", err))
 		} else {
 			allErrs = append(allErrs, validateOciImageReference(&spec.Image, pathPrefix+".image", fleetTemplate)...)
-			allErrs = append(allErrs, validateApplicationDeltaHintsReadOnly(spec.DeltaImage, spec.DeltaImages, pathPrefix)...)
+			if !allowLifecycleFields {
+				allErrs = append(allErrs, validateApplicationDeltaHintsReadOnly(spec.DeltaImage, spec.DeltaImages, pathPrefix)...)
+			}
 		}
 		catalogItemRefSpec, _ := helm.AsCatalogItemRefApplicationProviderSpec()
 		allErrs = append(allErrs, validateExclusiveAppSource(spec.Image, catalogItemRefSpec.CatalogItemRef)...)

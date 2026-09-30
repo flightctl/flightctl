@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -23,10 +24,28 @@ import (
 
 const ImageDigestCacheTTL = 15 * time.Minute
 
+// ErrSourceDigestUnresolved marks failures while resolving or inspecting the
+// source digest, allowing delta preparation to skip only that device.
+var ErrSourceDigestUnresolved = errors.New("source image digest cannot be resolved")
+
 type DigestCache interface {
 	Get(ctx context.Context, key string) ([]byte, error)
 	SetNX(ctx context.Context, key string, value []byte) (bool, error)
 	SetExpire(ctx context.Context, key string, expiration time.Duration) error
+}
+
+// DeviceImagePlatform returns the OS and architecture reported by a device.
+// A missing status or incomplete platform is represented by nil so callers can
+// use their existing single-manifest fallback behavior.
+func DeviceImagePlatform(device *domain.Device) *ocispec.Platform {
+	if device == nil || device.Status == nil {
+		return nil
+	}
+	info := device.Status.SystemInfo
+	if info.OperatingSystem == "" || info.Architecture == "" {
+		return nil
+	}
+	return &ocispec.Platform{OS: info.OperatingSystem, Architecture: info.Architecture}
 }
 
 func SpecForRegistry(host string, spec *domain.OciRepoSpec) *domain.OciRepoSpec {
@@ -129,37 +148,34 @@ func InspectImageDigestPair(
 
 	sourceDesc, err := repo.Resolve(ctx, sourceDigest)
 	if err != nil {
-		return ImageDigestPair{}, fmt.Errorf("resolve source image digest %s: %w", sourceDigest, err)
+		return ImageDigestPair{}, sourceDigestResolutionError(fmt.Sprintf("resolve source image digest %s", sourceDigest), err)
 	}
 	sourceManifest, err := resolveImageManifest(ctx, repo, sourceDesc, fallbackPlatform, 0)
 	if err != nil {
-		return ImageDigestPair{}, fmt.Errorf("select source image manifest for %s: %w", sourceDigest, err)
+		return ImageDigestPair{}, sourceDigestResolutionError(fmt.Sprintf("select source image manifest for %s", sourceDigest), err)
 	}
 	sourcePlatform, err := imageManifestPlatform(ctx, repo, sourceManifest, fallbackPlatform)
 	if err != nil {
-		return ImageDigestPair{}, fmt.Errorf("inspect source image platform for %s: %w", sourceDigest, err)
+		return ImageDigestPair{}, sourceDigestResolutionError(fmt.Sprintf("inspect source image platform for %s", sourceDigest), err)
 	}
 
 	targetDesc, err := repo.Resolve(ctx, targetRef)
 	if err != nil {
 		return ImageDigestPair{}, fmt.Errorf("resolve target image %s: %w", imageRef, err)
 	}
-	targetManifest, err := resolveImageManifest(ctx, repo, targetDesc, sourcePlatform, 0)
+	targetManifest, targetPlatform, err := resolveCompatibleTargetManifest(ctx, repo, targetDesc, sourcePlatform, 0)
 	if err != nil {
 		return ImageDigestPair{}, fmt.Errorf("select target image manifest for %s on platform %+v: %w", imageRef, sourcePlatform, err)
-	}
-	targetPlatform, err := imageManifestPlatform(ctx, repo, targetManifest, nil)
-	if err != nil {
-		return ImageDigestPair{}, fmt.Errorf("inspect target image platform for %s: %w", imageRef, err)
-	}
-	if !platformsCompatible(sourcePlatform, targetPlatform) {
-		return ImageDigestPair{}, fmt.Errorf("source platform %+v is incompatible with target platform %+v for %s", sourcePlatform, targetPlatform, imageRef)
 	}
 
 	return ImageDigestPair{
 		SourceDigest: sourceManifest.Digest.String(),
 		TargetDigest: targetManifest.Digest.String(),
 	}, nil
+}
+
+func sourceDigestResolutionError(stage string, err error) error {
+	return fmt.Errorf("%s: %w: %w", stage, ErrSourceDigestUnresolved, err)
 }
 
 func resolveImageManifest(
@@ -263,6 +279,95 @@ func platformsCompatible(source, target *ocispec.Platform) bool {
 	return source.Variant == "" || target.Variant == "" || source.Variant == target.Variant
 }
 
+// resolveCompatibleTargetManifest selects a target manifest that is compatible
+// with the source image platform. Index descriptors often omit optional fields
+// that are present in image configs, so selection prioritizes an exact variant
+// when available, permits a descriptor with no variant, and validates the
+// actual image config before accepting a manifest. OS version and feature
+// metadata are not used to select an update target.
+func resolveCompatibleTargetManifest(
+	ctx context.Context,
+	repo *remote.Repository,
+	desc ocispec.Descriptor,
+	sourcePlatform *ocispec.Platform,
+	depth int,
+) (ocispec.Descriptor, *ocispec.Platform, error) {
+	if depth > maxImageIndexDepth {
+		return ocispec.Descriptor{}, nil, fmt.Errorf("image index nesting exceeds %d", maxImageIndexDepth)
+	}
+	switch desc.MediaType {
+	case ocispec.MediaTypeImageIndex, dockerManifestListMediaType:
+		candidates, err := compatibleTargetManifestCandidates(ctx, repo, desc, sourcePlatform)
+		if err != nil {
+			return ocispec.Descriptor{}, nil, err
+		}
+		if len(candidates) == 0 {
+			return ocispec.Descriptor{}, nil, fmt.Errorf("image index has no manifest compatible with platform %s/%s", sourcePlatform.OS, sourcePlatform.Architecture)
+		}
+
+		var lastErr error
+		for _, candidate := range candidates {
+			manifest, platform, err := resolveCompatibleTargetManifest(ctx, repo, candidate, sourcePlatform, depth+1)
+			if err == nil {
+				return manifest, platform, nil
+			}
+			lastErr = err
+		}
+		return ocispec.Descriptor{}, nil, fmt.Errorf("no compatible target manifest: %w", lastErr)
+	case ocispec.MediaTypeImageManifest, dockerManifestV2MediaType:
+		platform, err := imageManifestPlatform(ctx, repo, desc, nil)
+		if err != nil {
+			return ocispec.Descriptor{}, nil, fmt.Errorf("inspect target image platform: %w", err)
+		}
+		if !platformsCompatible(sourcePlatform, platform) {
+			return ocispec.Descriptor{}, nil, fmt.Errorf("source platform %+v is incompatible with target platform %+v", sourcePlatform, platform)
+		}
+		return desc, platform, nil
+	default:
+		return ocispec.Descriptor{}, nil, fmt.Errorf("unsupported image manifest media type %q", desc.MediaType)
+	}
+}
+
+func compatibleTargetManifestCandidates(
+	ctx context.Context,
+	repo *remote.Repository,
+	indexDesc ocispec.Descriptor,
+	sourcePlatform *ocispec.Platform,
+) ([]ocispec.Descriptor, error) {
+	manifests, err := fetchIndexManifests(ctx, repo, indexDesc)
+	if err != nil {
+		return nil, err
+	}
+
+	var exactVariant []ocispec.Descriptor
+	var compatibleVariant []ocispec.Descriptor
+	var platformUnknown []ocispec.Descriptor
+	for _, manifest := range manifests {
+		platform := manifest.Platform
+		if platform == nil || platform.OS == "" || platform.Architecture == "" {
+			platformUnknown = append(platformUnknown, manifest)
+			continue
+		}
+		if platform.OS != sourcePlatform.OS || platform.Architecture != sourcePlatform.Architecture {
+			continue
+		}
+		if sourcePlatform.Variant != "" && platform.Variant != "" && platform.Variant != sourcePlatform.Variant {
+			continue
+		}
+		if sourcePlatform.Variant != "" && platform.Variant == sourcePlatform.Variant {
+			exactVariant = append(exactVariant, manifest)
+		} else {
+			compatibleVariant = append(compatibleVariant, manifest)
+		}
+	}
+
+	candidates := make([]ocispec.Descriptor, 0, len(exactVariant)+len(compatibleVariant)+len(platformUnknown))
+	candidates = append(candidates, exactVariant...)
+	candidates = append(candidates, compatibleVariant...)
+	candidates = append(candidates, platformUnknown...)
+	return candidates, nil
+}
+
 // CachedImageDigestPair caches pairs only for immutable target references.
 // Mutable tags can change at any time, so caching their resolved target digest
 // could cause delta preparation and rendered hints to use a stale target. For
@@ -323,14 +428,26 @@ func CachedImageDigestPair(
 		if err != nil {
 			return ImageDigestPair{}, fmt.Errorf("encode image digest pair: %w", err)
 		}
-		if _, err := cache.SetNX(ctx, key, raw); err != nil {
-			return ImageDigestPair{}, err
-		}
-		if err := cache.SetExpire(ctx, key, ImageDigestCacheTTL); err != nil {
-			return ImageDigestPair{}, err
-		}
+		writeDigestCache(ctx, cache, key, raw)
 	}
 	return pair, nil
+}
+
+func writeDigestCache(ctx context.Context, cache DigestCache, key string, value []byte) {
+	if cache == nil {
+		return
+	}
+	cacheWithTTL, ok := cache.(interface {
+		Set(context.Context, string, []byte, time.Duration) error
+	})
+	if !ok {
+		// A cache implementation without atomic set-with-TTL support is safe to
+		// read from, but should not receive entries that could outlive their TTL.
+		return
+	}
+	// Cache writes are an optimization. Do not fail a valid image inspection
+	// because the cache is temporarily unavailable.
+	_ = cacheWithTTL.Set(ctx, key, value, ImageDigestCacheTTL)
 }
 
 func imageDigestPairCacheKey(orgID uuid.UUID, imageRef, sourceDigest string, platform *ocispec.Platform) (string, error) {
@@ -512,11 +629,6 @@ func CachedImageDigest(ctx context.Context, cache DigestCache, orgID uuid.UUID, 
 	if err != nil {
 		return "", err
 	}
-	if _, err := cache.SetNX(ctx, key, []byte(dgst)); err != nil {
-		return "", err
-	}
-	if err := cache.SetExpire(ctx, key, ImageDigestCacheTTL); err != nil {
-		return "", err
-	}
+	writeDigestCache(ctx, cache, key, []byte(dgst))
 	return dgst, nil
 }

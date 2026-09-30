@@ -11,9 +11,9 @@ import (
 	apphelm "github.com/flightctl/flightctl/internal/agent/device/applications/helm"
 	preparetask "github.com/flightctl/flightctl/internal/delta_worker/tasks/prepare"
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/oci"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/google/uuid"
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sirupsen/logrus"
 )
 
@@ -96,7 +96,7 @@ func expandAppCandidatesForSourceWithHelm(
 			applicationDeviceName(device),
 			imageRef,
 			digestIndex,
-			applicationImagePlatform(device),
+			oci.DeviceImagePlatform(device),
 			inspect,
 		)
 	})
@@ -160,17 +160,6 @@ func expandAppCandidatesUsing(
 		}
 	}
 	return candidates
-}
-
-func applicationImagePlatform(device *domain.Device) *ocispec.Platform {
-	if device == nil || device.Status == nil {
-		return nil
-	}
-	info := device.Status.SystemInfo
-	if info.OperatingSystem == "" || info.Architecture == "" {
-		return nil
-	}
-	return &ocispec.Platform{OS: info.OperatingSystem, Architecture: info.Architecture}
 }
 
 // reportedHelmImageRefs returns the workload image references currently

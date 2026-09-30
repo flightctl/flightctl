@@ -62,6 +62,11 @@ func (c *digestCache) SetNX(_ context.Context, key string, value []byte) (bool, 
 	return true, nil
 }
 
+func (c *digestCache) Set(_ context.Context, key string, value []byte, _ time.Duration) error {
+	c.values[key] = append([]byte(nil), value...)
+	return nil
+}
+
 func (c *digestCache) SetExpire(_ context.Context, _ string, _ time.Duration) error {
 	return nil
 }

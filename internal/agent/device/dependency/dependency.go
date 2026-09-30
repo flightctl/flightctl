@@ -1594,7 +1594,7 @@ func (m *prefetchManager) status(ctx context.Context) PrefetchStatus {
 
 	pendingDeltaApplications := make(map[string]struct{})
 	for _, task := range m.tasks {
-		if task.done || task.delta == nil {
+		if task.done || task.err != nil || task.delta == nil {
 			continue
 		}
 		for _, application := range deltaApplications(task.delta) {

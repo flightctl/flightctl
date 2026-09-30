@@ -2,6 +2,7 @@ package prepare
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -9,6 +10,7 @@ import (
 	deltaconfig "github.com/flightctl/flightctl/internal/delta_worker/config"
 	generateTask "github.com/flightctl/flightctl/internal/delta_worker/tasks/generate"
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/oci"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
@@ -17,7 +19,6 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/google/uuid"
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 type DeltaCandidate struct {
@@ -305,11 +306,14 @@ func (r *Resolver) osCandidate(ctx context.Context, orgId uuid.UUID, device *dom
 	}
 	resolvedSource, newDigest := current, ""
 	if r.InspectForSource != nil {
-		resolvedSource, newDigest, err = r.InspectForSource(ctx, orgId, rendered.OsImage, current, deviceImagePlatform(device))
+		resolvedSource, newDigest, err = r.InspectForSource(ctx, orgId, rendered.OsImage, current, oci.DeviceImagePlatform(device))
 	} else {
 		newDigest, err = r.Inspect(ctx, orgId, rendered.OsImage)
 	}
 	if err != nil {
+		if errors.Is(err, oci.ErrSourceDigestUnresolved) {
+			return DeltaCandidate{}, false, nil
+		}
 		return DeltaCandidate{}, false, err
 	}
 	if resolvedSource == "" || newDigest == "" || resolvedSource == newDigest {
@@ -320,17 +324,6 @@ func (r *Resolver) osCandidate(ctx context.Context, orgId uuid.UUID, device *dom
 		CurrentDigest:   resolvedSource,
 		NewDigest:       newDigest,
 	}, true, nil
-}
-
-func deviceImagePlatform(device *domain.Device) *ocispec.Platform {
-	if device == nil || device.Status == nil {
-		return nil
-	}
-	info := device.Status.SystemInfo
-	if info.OperatingSystem == "" || info.Architecture == "" {
-		return nil
-	}
-	return &ocispec.Platform{OS: info.OperatingSystem, Architecture: info.Architecture}
 }
 
 func imageRepository(osImage string) (string, error) {

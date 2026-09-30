@@ -107,7 +107,7 @@ func (p *Handler) Prepare(ctx context.Context, ev worker_client.EventWithOrgId) 
 		return nil
 	}
 	if prep.Status == model.DeltaPrepareComplete {
-		return p.emitPrepareCompletion(ctx, prep, 0, 0)
+		return p.emitStoredPrepareCompletion(ctx, prep)
 	}
 	return p.processCandidates(ctx, ev, identity, prep, result)
 }
@@ -264,7 +264,7 @@ func (p *Handler) finishSkip(ctx context.Context, orgId uuid.UUID, kind, name st
 		}
 	}
 	if latest.Status == model.DeltaPrepareComplete && latest.SourceResourceVersion == identity.resourceVersion {
-		return p.emitPrepareCompletion(ctx, latest, 0, 0)
+		return p.emitStoredPrepareCompletion(ctx, latest)
 	}
 	completion := &model.DeltaPrepare{
 		OrgID:                 orgId,
@@ -379,6 +379,20 @@ func (p *Handler) emitPrepareCompletion(ctx context.Context, prep *model.DeltaPr
 		return err
 	}
 	return p.emit(ctx, prep.OrgID, event)
+}
+
+func (p *Handler) emitStoredPrepareCompletion(ctx context.Context, prep *model.DeltaPrepare) error {
+	joins, err := p.prepareGenerationService.ListDeltaPrepareGenerations(ctx, deltapreparegenerationstore.ListFilter{PrepareID: &prep.ID})
+	if err != nil {
+		return fmt.Errorf("list generations for completed prepare %s: %w", prep.ID, err)
+	}
+	completed := 0
+	for _, join := range joins {
+		if join.Completed {
+			completed++
+		}
+	}
+	return p.emitPrepareCompletion(ctx, prep, completed, len(joins))
 }
 
 func (p *Handler) createPrepareGenerations(ctx context.Context, prepareID uuid.UUID, keys []deltagenerationstore.GenerationKey) (deltapreparegenerationstore.CreateDeltaPrepareGenerationsResult, error) {
