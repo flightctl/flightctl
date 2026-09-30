@@ -14,3 +14,24 @@ deployments:
     failOnStart: false
     delayBeforeFail: 0
     resources: {}
+
+# Optional workloads let e2e tests exercise distinct Kubernetes image paths.
+initContainer:
+  enabled: false
+  image: ""
+
+sidecar:
+  enabled: false
+  image: ""
+
+standalonePod:
+  enabled: false
+  image: ""
+
+job:
+  enabled: false
+  image: ""
+
+cronJob:
+  enabled: false
+  image: ""

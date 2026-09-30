@@ -519,6 +519,11 @@ func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1beta1.Devi
 	if err != nil {
 		return fmt.Errorf("checking OS update pending: %w", err)
 	}
+	// Reconcile OS delta status even for app-only updates, where the OS manager
+	// may not be registered as an OCI collector.
+	if err := a.osManager.BeforeUpdate(ctx, current.Spec, desired.Spec); err != nil {
+		return fmt.Errorf("%w: %w", errors.ErrComponentOS, err)
+	}
 
 	if err := a.prefetchManager.BeforeUpdate(ctx, current.Spec, desired.Spec,
 		dependency.WithOSUpdatePending(osUpdatePending)); err != nil {

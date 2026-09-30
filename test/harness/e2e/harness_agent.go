@@ -37,7 +37,7 @@ const (
 )
 
 func vmShellCommandArgs(command string) []string {
-	return []string{"bash -lc " + strconv.Quote(command)}
+	return []string{"bash -lc " + shellQuote(command)}
 }
 
 // RunScriptOnVM executes a bash script on the VM without relying on direct shell quoting

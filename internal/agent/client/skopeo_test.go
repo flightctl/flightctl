@@ -326,12 +326,13 @@ func TestSkopeoListReferrers(t *testing.T) {
 	}`
 
 	tests := []struct {
-		name          string
-		image         string
-		withAuth      bool
-		setupMocks    func(*executer.MockExecuter)
-		wantDigest    string
-		expectedError bool
+		name            string
+		image           string
+		withAuth        bool
+		withDefaultAuth bool
+		setupMocks      func(*executer.MockExecuter)
+		wantDigest      string
+		expectedError   bool
 	}{
 		{
 			name:  "When list-referrers succeeds it should return the index",
@@ -414,6 +415,12 @@ func TestSkopeoListReferrers(t *testing.T) {
 			withAuth:   true,
 			wantDigest: deltaDigest,
 		},
+		{
+			name:            "When default auth is enabled it should use process credentials",
+			image:           targetImage,
+			withDefaultAuth: true,
+			wantDigest:      deltaDigest,
+		},
 	}
 
 	for _, tt := range tests {
@@ -436,6 +443,11 @@ func TestSkopeoListReferrers(t *testing.T) {
 				mockExec.EXPECT().
 					ExecuteWithContext(gomock.Any(), "skopeo", "list-referrers", dockerTarget, "--authfile", tmpFile).
 					Return(indexJSON, "", 0)
+			} else if tt.withDefaultAuth {
+				opts = append(opts, WithDefaultAuth())
+				mockExec.EXPECT().
+					ExecuteWithContext(gomock.Any(), "skopeo", "list-referrers", dockerTarget).
+					Return(indexJSON, "", 0)
 			} else {
 				tt.setupMocks(mockExec)
 			}
@@ -452,4 +464,32 @@ func TestSkopeoListReferrers(t *testing.T) {
 			require.Equal(t, tt.wantDigest, result.Manifests[0].Digest)
 		})
 	}
+}
+
+func TestSkopeoCopyWithDefaultAuth(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockExec := executer.NewMockExecuter(ctrl)
+	skopeo := NewSkopeo(
+		log.NewPrefixLogger("test"),
+		mockExec,
+		fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter()),
+	)
+	mockExec.EXPECT().
+		ExecuteWithContext(
+			gomock.Any(),
+			"skopeo",
+			"copy",
+			"docker://quay.io/acme/delta:latest",
+			"oci-archive:/tmp/delta.oci",
+		).
+		Return("", "", 0)
+
+	require.NoError(t, skopeo.Copy(
+		context.Background(),
+		"docker://quay.io/acme/delta:latest",
+		"oci-archive:/tmp/delta.oci",
+		WithDefaultAuth(),
+	))
 }

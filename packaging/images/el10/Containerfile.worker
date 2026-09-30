@@ -10,6 +10,21 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     cd /src && git checkout ${VM_TO_QUADLET_COMMIT} && \
     CGO_ENABLED=0 GOOS=linux go build -buildvcs=false -trimpath -ldflags="-s -w" -o /out/vm-to-quadlet ./cmd/vm-to-quadlet
 
+# ── Helm CLI stage ───────────────────────────────────────────────────────────
+FROM registry.access.redhat.com/ubi10/go-toolset:1.26.7-1787775323 as helm-build
+USER 0
+RUN set -eu; \
+    case "$(uname -m)" in \
+      x86_64) HELM_ARCH=amd64; HELM_SHA256=5d4c7623283e6dfb1971957f4b755468ab64917066a8567dd50464af298f4031 ;; \
+      aarch64) HELM_ARCH=arm64; HELM_SHA256=02a5fb7742469d2d132e24cb7c3f52885894043576588c6788b6813297629edd ;; \
+      *) echo "unsupported Helm build architecture: $(uname -m)" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://get.helm.sh/helm-v4.1.1-linux-${HELM_ARCH}.tar.gz" -o /tmp/helm.tar.gz; \
+    printf '%s  %s\n' "$HELM_SHA256" /tmp/helm.tar.gz | sha256sum -c -; \
+    tar -xzf /tmp/helm.tar.gz -C /tmp "linux-${HELM_ARCH}/helm"; \
+    mkdir -p /out; \
+    install -m 0755 "/tmp/linux-${HELM_ARCH}/helm" /out/helm
+
 # ── flightctl worker build stage ─────────────────────────────────────────────
 FROM registry.access.redhat.com/ubi10/go-toolset:1.26.7-1787775323 as build
 WORKDIR /app
@@ -68,5 +83,6 @@ LABEL \
 COPY --from=build /runtime-root/ /
 COPY --from=build /app/bin/flightctl-worker .
 COPY --from=vm-to-quadlet-build /out/vm-to-quadlet /usr/local/bin/vm-to-quadlet
+COPY --from=helm-build /out/helm /usr/local/bin/helm
 
 CMD ["./flightctl-worker"]

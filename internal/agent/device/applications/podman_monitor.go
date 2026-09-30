@@ -732,10 +732,6 @@ func (m *PodmanMonitor) resolveWorkloadImage(
 	}
 
 	image := WorkloadImage{Image: event.Image}
-	if digest := digestFromReference(event.Image); digest != "" {
-		image.Digest = digest
-		return image, true
-	}
 
 	// A container restart may resolve the same mutable tag to different content.
 	// Reuse a known digest only while both the container ID and image reference

@@ -32,7 +32,23 @@ type generationLookup interface {
 	GetDeltaGeneration(ctx context.Context, key deltastore.GenerationKey, opts ...deltastore.GenerationGetOption) (*deltamodel.DeltaGeneration, error)
 }
 
-const deltaGenerationMissingMemoTTL = time.Minute
+const (
+	deltaGenerationMissingMemoTTL = time.Minute
+	helmDeltaHintRenderTimeout    = 15 * time.Second
+	helmDeltaHintRenderReserve    = 30 * time.Second
+)
+
+func helmDeltaHintRenderBudget(remaining time.Duration, hasDeadline bool) (time.Duration, bool) {
+	if !hasDeadline {
+		return helmDeltaHintRenderTimeout, true
+	}
+	if remaining <= helmDeltaHintRenderReserve {
+		return 0, false
+	}
+
+	timeout := min(helmDeltaHintRenderTimeout, remaining-helmDeltaHintRenderReserve)
+	return timeout, timeout > 0
+}
 
 type deltaGenerationLookupMemo struct {
 	Missing           bool    `json:"missing,omitempty"`
@@ -89,43 +105,43 @@ func deltaWriteSpec(cfg *config.Config) *domain.OciRepoSpec {
 	return defaultRepository
 }
 
-func (t *DeviceRenderLogic) resolveTargetDigest(ctx context.Context, orgId uuid.UUID, osImage string) (string, error) {
-	return oci.CachedImageDigest(ctx, t.kvStore, orgId, osImage, func(ctx context.Context) (string, error) {
-		return oci.InspectImageDigest(ctx, osImage, deltaWriteSpec(t.cfg))
-	})
+func (t *DeviceRenderLogic) resolveImageDigestPair(
+	ctx context.Context,
+	orgId uuid.UUID,
+	imageRef string,
+	sourceDigest string,
+	fallbackPlatform *ocispec.Platform,
+) (oci.ImageDigestPair, error) {
+	spec := deltaWriteSpec(t.cfg)
+	return oci.CachedImageDigestPair(
+		ctx, t.log, t.kvStore, orgId, imageRef, sourceDigest, fallbackPlatform, t.cfg.EffectiveImageDigestCacheTTL(),
+		func(ctx context.Context) (string, error) {
+			return oci.InspectImageDigest(ctx, imageRef, spec)
+		},
+		func(ctx context.Context, resolvedImage string) (oci.ImageDigestPair, error) {
+			return oci.InspectImageDigestPair(ctx, resolvedImage, sourceDigest, spec, fallbackPlatform)
+		},
+	)
 }
 
-func hintFromGeneration(gen *deltamodel.DeltaGeneration, fallbackSize *int64) (deltaImage *string, sizeIEC *string) {
-	var sizeBytes *int64
-	if gen != nil && gen.SizeBytes != nil {
-		sizeBytes = gen.SizeBytes
-	} else {
-		sizeBytes = fallbackSize
+func hintFromGeneration(gen *deltamodel.DeltaGeneration) (deltaImage *string, deltaSizeIEC *string) {
+	if gen == nil || gen.Status != deltamodel.DeltaGenerationSucceeded || gen.DeltaRef == nil || *gen.DeltaRef == "" {
+		return nil, nil
 	}
-	if sizeBytes != nil {
-		sizeIEC = lo.ToPtr(FormatIECBytes(*sizeBytes))
+	deltaImage = gen.DeltaRef
+	if gen.SizeBytes != nil && *gen.SizeBytes >= 0 {
+		deltaSizeIEC = lo.ToPtr(FormatIECBytes(*gen.SizeBytes))
 	}
-	if gen != nil && gen.Status == deltamodel.DeltaGenerationSucceeded && gen.DeltaRef != nil && *gen.DeltaRef != "" {
-		deltaImage = gen.DeltaRef
-	}
-	return deltaImage, sizeIEC
+	return deltaImage, deltaSizeIEC
 }
 
 func (t *deviceRenderState) resolveOSDeltaHint(ctx context.Context, device *domain.Device, rendered RenderedSpec) *deviceservice.RenderedOSHints {
 	if rendered.OsImage == "" {
 		return nil
 	}
-	var fallback *int64
-	if t.osManifestSize != nil {
-		fallback, _ = t.osManifestSize(ctx, rendered.OsImage)
-	}
 	repo, err := ImageRepositoryFromRef(rendered.OsImage)
 	if err != nil {
-		_, size := hintFromGeneration(nil, fallback)
-		if size == nil {
-			return nil
-		}
-		return &deviceservice.RenderedOSHints{UpdatedSize: size}
+		return nil
 	}
 	src := ""
 	if device != nil && device.Status != nil {
@@ -134,30 +150,20 @@ func (t *deviceRenderState) resolveOSDeltaHint(ctx context.Context, device *doma
 	if src == "" {
 		t.log.Infof("os delta hint skipped device=%s/%s reason=empty-source-digest osImage=%q repo=%s",
 			t.orgId, t.event.InvolvedObject.Name, rendered.OsImage, repo)
-		_, size := hintFromGeneration(nil, fallback)
-		if size == nil {
-			return nil
-		}
-		return &deviceservice.RenderedOSHints{UpdatedSize: size}
+		return nil
 	}
-	tgt, err := t.resolveTargetDigest(ctx, t.orgId, rendered.OsImage)
+	pair, err := t.resolveImageDigestPair(ctx, t.orgId, rendered.OsImage, src, oci.DeviceImagePlatform(device))
 	if err != nil {
-		t.log.Infof("os delta hint skipped device=%s/%s reason=inspect-target-digest osImage=%q err=%v",
+		t.log.Infof("os delta hint skipped device=%s/%s reason=inspect-source-target-platform-digests osImage=%q err=%v",
 			t.orgId, t.event.InvolvedObject.Name, rendered.OsImage, err)
-		_, size := hintFromGeneration(nil, fallback)
-		if size == nil {
-			return nil
-		}
-		return &deviceservice.RenderedOSHints{UpdatedSize: size}
+		return nil
 	}
-	if tgt == "" {
+	src = pair.SourceDigest
+	tgt := pair.TargetDigest
+	if src == "" || tgt == "" {
 		t.log.Infof("os delta hint skipped device=%s/%s reason=empty-target-digest osImage=%q repo=%s",
 			t.orgId, t.event.InvolvedObject.Name, rendered.OsImage, repo)
-		_, size := hintFromGeneration(nil, fallback)
-		if size == nil {
-			return nil
-		}
-		return &deviceservice.RenderedOSHints{UpdatedSize: size}
+		return nil
 	}
 	key := deltastore.GenerationKey{
 		OrgID:           t.orgId,
@@ -171,13 +177,9 @@ func (t *deviceRenderState) resolveOSDeltaHint(ctx context.Context, device *doma
 	if err != nil {
 		t.log.Warnf("os delta hint lookup failed device=%s/%s repo=%s sourceDigest=%s targetDigest=%s: %v",
 			t.orgId, t.event.InvolvedObject.Name, repo, src, tgt, err)
-		_, size := hintFromGeneration(nil, fallback)
-		if size == nil {
-			return nil
-		}
-		return &deviceservice.RenderedOSHints{UpdatedSize: size}
+		return nil
 	}
-	img, size := hintFromGeneration(gen, fallback)
+	img, deltaSize := hintFromGeneration(gen)
 	if gen == nil {
 		t.log.Infof("os delta hint miss device=%s/%s repo=%s sourceDigest=%s targetDigest=%s",
 			t.orgId, t.event.InvolvedObject.Name, repo, src, tgt)
@@ -189,10 +191,10 @@ func (t *deviceRenderState) resolveOSDeltaHint(ctx context.Context, device *doma
 		t.log.Infof("os delta hint hit device=%s/%s repo=%s sourceDigest=%s targetDigest=%s status=%s deltaRef=%s sizeBytes=%v",
 			t.orgId, t.event.InvolvedObject.Name, repo, src, tgt, gen.Status, deltaRef, gen.SizeBytes)
 	}
-	if img == nil && size == nil {
+	if img == nil {
 		return nil
 	}
-	return &deviceservice.RenderedOSHints{DeltaImage: img, UpdatedSize: size}
+	return &deviceservice.RenderedOSHints{DeltaImage: img, DeltaSize: deltaSize}
 }
 
 func deltaGenerationHintKey(key deltastore.GenerationKey) string {
@@ -227,7 +229,7 @@ func lookupOSDeltaGeneration(ctx context.Context, kv kvstore.KVStore, store gene
 			return cached, nil
 		}
 		if cacheErr != nil {
-			return nil, nil
+			return nil, cacheErr
 		}
 
 		writeMissingGenerationMemo(ctx, kv, key)
@@ -379,11 +381,10 @@ const ambiguousCurrentDigest = "\x00ambiguous"
 
 // appDeltaResult holds the resolution outcome for one appImagePair.
 type appDeltaResult struct {
-	imageRef      string
-	targetDigest  string
-	deltaRef      *string
-	sizeBytes     *int64
-	needsDownload bool
+	imageRef       string
+	targetDigest   string
+	deltaRef       *string
+	deltaSizeBytes *int64
 }
 
 // appDeltaHints is the aggregate result of resolving all image pairs for a
@@ -391,85 +392,81 @@ type appDeltaResult struct {
 type appDeltaHints struct {
 	parentDelta  *string
 	nestedDeltas []v1beta1.ImageDeltaHint
-	totalSize    *string
+	deltaSize    *string
 }
 
 // appDeltaResolver looks up delta generation records and resolves per-image
 // delta hints for rendered applications.
 type appDeltaResolver struct {
-	log              logrus.FieldLogger
-	orgID            uuid.UUID
-	deltaLookup      generationLookup
-	kvStore          kvstore.KVStore
-	resolveDigest    func(ctx context.Context, imageRef string) (string, error)
-	resolveImageSize func(ctx context.Context, imageRef, targetDigest string) (*int64, error)
+	log                    logrus.FieldLogger
+	orgID                  uuid.UUID
+	deltaLookup            generationLookup
+	kvStore                kvstore.KVStore
+	resolveDigest          func(ctx context.Context, imageRef string) (string, error)
+	resolveDigestForSource func(ctx context.Context, imageRef, sourceDigest string) (oci.ImageDigestPair, error)
 }
 
 func (r *appDeltaResolver) resolveImagePair(ctx context.Context, pair appImagePair) *appDeltaResult {
 	if pair.imageRef == "" {
 		return nil
 	}
-	result := &appDeltaResult{imageRef: pair.imageRef, needsDownload: true}
+	result := &appDeltaResult{imageRef: pair.imageRef}
 	if pair.currentDigest == "" || pair.currentDigest == ambiguousCurrentDigest {
-		result.sizeBytes = r.fullImageSize(ctx, pair.imageRef, "")
 		return result
 	}
 	repo, err := ImageRepositoryFromRef(pair.imageRef)
 	if err != nil {
 		r.log.Infof("app delta hint: failed parsing repo from %q: %v", pair.imageRef, err)
-		result.sizeBytes = r.fullImageSize(ctx, pair.imageRef, "")
 		return result
 	}
-	targetDigest, err := r.resolveDigest(ctx, pair.imageRef)
-	if err != nil || targetDigest == "" {
-		r.log.Infof("app delta hint: failed resolving target digest for %q: %v", pair.imageRef, err)
-		result.sizeBytes = r.fullImageSize(ctx, pair.imageRef, "")
+	sourceDigest := pair.currentDigest
+	var targetDigest string
+	if r.resolveDigestForSource != nil {
+		resolvedPair, err := r.resolveDigestForSource(ctx, pair.imageRef, pair.currentDigest)
+		if err != nil {
+			r.log.Infof("app delta hint: failed resolving source-platform digests for %q: %v", pair.imageRef, err)
+			return result
+		}
+		if resolvedPair.SourceDigest == "" || resolvedPair.TargetDigest == "" {
+			r.log.Infof("app delta hint: source-platform digest resolution returned an empty digest for %q", pair.imageRef)
+			return result
+		}
+		sourceDigest, targetDigest = resolvedPair.SourceDigest, resolvedPair.TargetDigest
+	} else {
+		var err error
+		targetDigest, err = r.resolveDigest(ctx, pair.imageRef)
+		if err != nil || targetDigest == "" {
+			r.log.Infof("app delta hint: failed resolving target digest for %q: %v", pair.imageRef, err)
+			return result
+		}
+	}
+	if targetDigest == "" || sourceDigest == "" {
+		r.log.Infof("app delta hint: failed resolving source-platform digests for %q", pair.imageRef)
 		return result
 	}
 	result.targetDigest = targetDigest
-	if pair.currentDigest == targetDigest {
-		result.needsDownload = false
+	if sourceDigest == targetDigest {
 		return result
 	}
 	key := deltastore.GenerationKey{
 		OrgID:           r.orgID,
 		ImageRepository: repo,
-		SourceDigest:    pair.currentDigest,
+		SourceDigest:    sourceDigest,
 		TargetDigest:    targetDigest,
 	}
 	gen, err := lookupOSDeltaGeneration(ctx, r.kvStore, r.deltaLookup, key)
 	if err != nil {
 		r.log.Infof("app delta hint: lookup failed repo=%s src=%s tgt=%s: %v",
-			repo, pair.currentDigest, targetDigest, err)
-		result.sizeBytes = r.fullImageSize(ctx, pair.imageRef, targetDigest)
+			repo, sourceDigest, targetDigest, err)
 		return result
 	}
-	if gen != nil {
-		result.sizeBytes = gen.SizeBytes
-		if gen.Status == deltamodel.DeltaGenerationSucceeded && gen.DeltaRef != nil && *gen.DeltaRef != "" {
-			result.deltaRef = gen.DeltaRef
+	if gen != nil && gen.Status == deltamodel.DeltaGenerationSucceeded && gen.DeltaRef != nil && *gen.DeltaRef != "" {
+		result.deltaRef = gen.DeltaRef
+		if gen.SizeBytes != nil && *gen.SizeBytes >= 0 {
+			result.deltaSizeBytes = gen.SizeBytes
 		}
 	}
-	if result.sizeBytes == nil || *result.sizeBytes < 0 {
-		result.sizeBytes = r.fullImageSize(ctx, pair.imageRef, targetDigest)
-	}
 	return result
-}
-
-func (r *appDeltaResolver) fullImageSize(ctx context.Context, imageRef, targetDigest string) *int64 {
-	if r.resolveImageSize == nil {
-		return nil
-	}
-	size, err := r.resolveImageSize(ctx, imageRef, targetDigest)
-	if err != nil {
-		r.log.Infof("app delta hint: failed resolving full image size for %q: %v", imageRef, err)
-		return nil
-	}
-	if size == nil || *size < 0 {
-		r.log.Infof("app delta hint: full image size unavailable for %q", imageRef)
-		return nil
-	}
-	return size
 }
 
 func (r *appDeltaResolver) resolveApp(ctx context.Context, parent *appImagePair, nested []appImagePair) *appDeltaHints {
@@ -497,34 +494,30 @@ func (r *appDeltaResolver) resolveApp(ctx context.Context, parent *appImagePair,
 	}
 
 	hints := &appDeltaHints{}
-	var totalBytes int64
-	allSizesKnown := true
-	hasDownload := false
-	addSize := func(result *appDeltaResult) {
-		if result == nil {
+	var deltaSizeBytes int64
+	allDeltaSizesKnown := true
+	hasGeneratedDelta := false
+	addDeltaSize := func(result *appDeltaResult) {
+		if result == nil || result.deltaRef == nil || *result.deltaRef == "" {
 			return
 		}
-		if result.needsDownload {
-			hasDownload = true
-		}
-		if result.sizeBytes == nil {
-			if result.needsDownload {
-				allSizesKnown = false
-			}
+		hasGeneratedDelta = true
+		if result.deltaSizeBytes == nil || *result.deltaSizeBytes < 0 {
+			allDeltaSizesKnown = false
 			return
 		}
-		if *result.sizeBytes < 0 || totalBytes > math.MaxInt64-*result.sizeBytes {
-			allSizesKnown = false
+		if deltaSizeBytes > math.MaxInt64-*result.deltaSizeBytes {
+			allDeltaSizesKnown = false
 			return
 		}
-		totalBytes += *result.sizeBytes
+		deltaSizeBytes += *result.deltaSizeBytes
 	}
 
 	if parentResult != nil {
 		if parentResult.deltaRef != nil {
 			hints.parentDelta = parentResult.deltaRef
 		}
-		addSize(parentResult)
+		addDeltaSize(parentResult)
 	}
 	seenTargetImages := make(map[string]struct{}, len(nestedResults))
 	for _, nr := range nestedResults {
@@ -538,12 +531,12 @@ func (r *appDeltaResolver) resolveApp(ctx context.Context, parent *appImagePair,
 				})
 			}
 		}
-		addSize(nr)
+		addDeltaSize(nr)
 	}
-	if hasDownload && allSizesKnown {
-		hints.totalSize = lo.ToPtr(FormatIECBytes(totalBytes))
+	if hasGeneratedDelta && allDeltaSizesKnown {
+		hints.deltaSize = lo.ToPtr(FormatIECBytes(deltaSizeBytes))
 	}
-	if hints.parentDelta == nil && len(hints.nestedDeltas) == 0 && hints.totalSize == nil {
+	if hints.parentDelta == nil && len(hints.nestedDeltas) == 0 {
 		return nil
 	}
 	return hints
@@ -620,7 +613,7 @@ func collectQuadletAppPairs(app v1beta1.QuadletApplication, currentDigests map[s
 	return parent, nested
 }
 
-func collectHelmAppPairs(app v1beta1.HelmApplication, currentDigests map[string]string) (*appImagePair, []appImagePair) {
+func collectHelmAppPairs(app v1beta1.HelmApplication, currentDigests map[string]string, targetImageRefs []string) (*appImagePair, []appImagePair) {
 	imgSpec, err := app.AsImageApplicationProviderSpec()
 	if err != nil {
 		return nil, nil
@@ -632,17 +625,25 @@ func collectHelmAppPairs(app v1beta1.HelmApplication, currentDigests map[string]
 		// a same-repository workload digest.
 		parent = &appImagePair{imageRef: imgSpec.Image, currentDigest: currentDigests[imgSpec.Image]}
 	}
-	// Helm workload images are only known after the chart is rendered on the
-	// device. Reuse currently reported workload references as possible targets;
-	// the agent will apply a hint only when the rendered chart still uses that
-	// exact reference.
-	var workloadImageRefs []string
-	for imageRef := range currentDigests {
-		if imageRef != imgSpec.Image {
-			workloadImageRefs = append(workloadImageRefs, imageRef)
+	// Target workload references come from rendering the target chart with the
+	// target values. If rendering could not be completed, use the currently
+	// reported references as a best-effort fallback for unchanged workloads.
+	if targetImageRefs == nil {
+		for imageRef := range currentDigests {
+			if imageRef != imgSpec.Image {
+				targetImageRefs = append(targetImageRefs, imageRef)
+			}
 		}
 	}
-	return parent, collectImagePairs(workloadImageRefs, currentDigests)
+	imagePairs := collectImagePairs(targetImageRefs, currentDigests)
+	nested := make([]appImagePair, 0, len(imagePairs))
+	for _, imagePair := range imagePairs {
+		if imagePair.currentDigest == "" || imagePair.currentDigest == ambiguousCurrentDigest {
+			continue
+		}
+		nested = append(nested, imagePair)
+	}
+	return parent, nested
 }
 
 func collectVmAppPairs(app v1beta1.VmApplication, currentDigests map[string]string) (*appImagePair, []appImagePair) {
@@ -790,20 +791,6 @@ func applyDeltaHintsToImageSpec(spec v1beta1.ImageSpec, hints *appDeltaHints) v1
 	return spec
 }
 
-func deviceImagePlatform(device *domain.Device) *ocispec.Platform {
-	if device == nil || device.Status == nil {
-		return nil
-	}
-	info := device.Status.SystemInfo
-	if info.OperatingSystem == "" || info.Architecture == "" {
-		return nil
-	}
-	return &ocispec.Platform{
-		OS:           info.OperatingSystem,
-		Architecture: info.Architecture,
-	}
-}
-
 // resolveRenderedAppDeltaHints resolves per-device hints against the agent's
 // current application image digests. RenderSpec remains device-independent;
 // RenderDevice calls this after rendering the target applications.
@@ -817,7 +804,7 @@ func (t *deviceRenderState) resolveRenderedAppDeltaHints(ctx context.Context, de
 		return fmt.Errorf("decode rendered applications: %w", err)
 	}
 
-	appSizes, err := t.resolveAppDeltaHints(ctx, device, applications)
+	appDeltaSizes, err := t.resolveAppDeltaHints(ctx, device, applications, rendered.Config)
 	if err != nil {
 		return fmt.Errorf("failed resolving application delta hints: %w", err)
 	}
@@ -827,33 +814,29 @@ func (t *deviceRenderState) resolveRenderedAppDeltaHints(ctx context.Context, de
 	}
 
 	rendered.Applications = renderedApplications
-	rendered.appSizes = appSizes
+	rendered.appDeltaSizes = appDeltaSizes
 	return nil
 }
 
 // resolveAppDeltaHints iterates over rendered applications, resolves delta
 // hints for each one, writes parent and nested hints into the image or inline
-// provider, and returns a map of app-name → IEC size string.
-func (t *deviceRenderState) resolveAppDeltaHints(ctx context.Context, device *domain.Device, apps []domain.ApplicationProviderSpec) (map[string]*string, error) {
+// provider, and returns a map of app-name → control-plane delta-size string.
+func (t *deviceRenderState) resolveAppDeltaHints(ctx context.Context, device *domain.Device, apps []domain.ApplicationProviderSpec, renderedConfig []byte) (map[string]*string, error) {
 	if device == nil {
 		return nil, nil
 	}
-	platform := deviceImagePlatform(device)
-	repositorySpec := deltaWriteSpec(t.cfg)
+	platform := oci.DeviceImagePlatform(device)
 	resolver := &appDeltaResolver{
 		log:         t.log,
 		orgID:       t.orgId,
 		deltaLookup: t.deltaLookup,
 		kvStore:     t.kvStore,
-		resolveDigest: func(ctx context.Context, imageRef string) (string, error) {
-			return t.resolveTargetDigest(ctx, t.orgId, imageRef)
-		},
-		resolveImageSize: func(ctx context.Context, imageRef, targetDigest string) (*int64, error) {
-			return oci.InspectImagePayloadSize(ctx, imageRef, targetDigest, repositorySpec, platform)
+		resolveDigestForSource: func(ctx context.Context, imageRef, sourceDigest string) (oci.ImageDigestPair, error) {
+			return t.resolveImageDigestPair(ctx, t.orgId, imageRef, sourceDigest, platform)
 		},
 	}
 
-	var appSizes map[string]*string
+	var appDeltaSizes map[string]*string
 	for i := range apps {
 		app := &apps[i]
 		appType, err := app.GetAppType()
@@ -896,7 +879,36 @@ func (t *deviceRenderState) resolveAppDeltaHints(ctx context.Context, device *do
 			if err != nil {
 				return nil, fmt.Errorf("parse helm application %q: %w", appName, err)
 			}
-			parent, nested = collectHelmAppPairs(helm, currentDigests)
+			var targetImageRefs []string
+			deadline, hasDeadline := ctx.Deadline()
+			remaining := time.Duration(0)
+			if hasDeadline {
+				remaining = time.Until(deadline)
+			}
+			renderTimeout, canRender := helmDeltaHintRenderBudget(remaining, hasDeadline)
+			if !canRender {
+				// An empty result prevents collectHelmAppPairs from falling back to
+				// potentially stale workload references reported for the old release.
+				targetImageRefs = []string{}
+				t.log.WithFields(logrus.Fields{
+					"device":      t.event.InvolvedObject.Name,
+					"application": appName,
+				}).Warn("skipping target Helm chart render for delta hints because insufficient device render time remains")
+			} else {
+				helmRenderCtx, cancel := context.WithTimeout(ctx, renderTimeout)
+				imageRefs, renderErr := t.DeviceRenderLogic.RenderHelmImageRefs(helmRenderCtx, t.orgId, device, helm, renderedConfig)
+				cancel()
+				if renderErr != nil {
+					targetImageRefs = []string{}
+					t.log.WithError(renderErr).WithFields(logrus.Fields{
+						"device":      t.event.InvolvedObject.Name,
+						"application": appName,
+					}).Warn("failed to render target Helm chart images for delta hints; skipping hints for this Helm application")
+				} else {
+					targetImageRefs = imageRefs
+				}
+			}
+			parent, nested = collectHelmAppPairs(helm, currentDigests, targetImageRefs)
 		case domain.AppTypeVm:
 			vm, err := app.AsVmApplication()
 			if err != nil {
@@ -914,14 +926,14 @@ func (t *deviceRenderState) resolveAppDeltaHints(ctx context.Context, device *do
 		if err := applyHintsToApp(app, appType, hints); err != nil {
 			return nil, fmt.Errorf("apply delta hints to application %q: %w", appName, err)
 		}
-		if hints.totalSize != nil {
-			if appSizes == nil {
-				appSizes = make(map[string]*string)
+		if hints.deltaSize != nil {
+			if appDeltaSizes == nil {
+				appDeltaSizes = make(map[string]*string)
 			}
-			appSizes[appName] = hints.totalSize
+			appDeltaSizes[appName] = hints.deltaSize
 		}
 	}
-	return appSizes, nil
+	return appDeltaSizes, nil
 }
 
 func applyHintsToApp(app *domain.ApplicationProviderSpec, appType domain.AppType, hints *appDeltaHints) error {

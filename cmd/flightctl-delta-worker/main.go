@@ -129,7 +129,7 @@ func main() {
 		}
 	}
 
-	server, err := deltaworker.New(log, cfg.DeltaGeneration, db, kvStore, provider, workerCollector)
+	server, err := deltaworker.New(log, cfg, db, kvStore, provider, workerCollector)
 	if err != nil {
 		log.Fatalf("creating delta-worker server: %v", err)
 	}

@@ -20,6 +20,7 @@ import (
 	deltamodel "github.com/flightctl/flightctl/internal/delta_worker/model"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/oci"
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
@@ -142,6 +143,90 @@ func (s *testKVStore) StreamRead(_ context.Context, _ string, _ string, _ time.D
 func (s *testKVStore) SetExpire(_ context.Context, _ string, _ time.Duration) error { return nil }
 
 var _ kvstore.KVStore = (*testKVStore)(nil)
+
+type testHelmImageRenderer struct {
+	calls int
+	refs  []string
+}
+
+func (r *testHelmImageRenderer) ImageRefs(context.Context, api.HelmApplication, *domain.Device, []byte, *domain.OciRepoSpec) ([]string, error) {
+	r.calls++
+	return append([]string(nil), r.refs...), nil
+}
+
+func TestRenderHelmImageRefsUsesCache(t *testing.T) {
+	ctx := context.Background()
+	orgID := uuid.New()
+	kv := newTestKVStore()
+	renderer := &testHelmImageRenderer{refs: []string{"quay.io/acme/app:v1"}}
+	logic := NewDeviceRenderLogic(logrus.New(), nil, nil, nil, nil, kv, &config.Config{}).
+		WithHelmImageRenderer(renderer)
+	app := api.HelmApplication{
+		AppType: api.AppTypeHelm,
+		Name:    lo.ToPtr("release"),
+		Values:  lo.ToPtr(map[string]interface{}{"imageTag": "v1"}),
+	}
+	require.NoError(t, app.FromImageApplicationProviderSpec(api.ImageSpec{Image: "oci://registry.example/charts/app:1.2.3"}))
+
+	first, err := logic.RenderHelmImageRefs(ctx, orgID, nil, app, []byte("rendered config"))
+	require.NoError(t, err)
+	second, err := logic.RenderHelmImageRefs(ctx, orgID, nil, app, []byte("rendered config"))
+	require.NoError(t, err)
+	require.Equal(t, renderer.refs, first)
+	require.Equal(t, first, second)
+	require.Equal(t, 1, renderer.calls, "identical render inputs should reuse cached image refs")
+
+	changedValues := app
+	changedValues.Values = lo.ToPtr(map[string]interface{}{"imageTag": "v2"})
+	_, err = logic.RenderHelmImageRefs(ctx, orgID, nil, changedValues, []byte("rendered config"))
+	require.NoError(t, err)
+	require.Equal(t, 2, renderer.calls, "changed chart values should trigger a fresh render")
+
+	_, err = logic.RenderHelmImageRefs(ctx, orgID, nil, app, []byte("changed rendered config"))
+	require.NoError(t, err)
+	require.Equal(t, 3, renderer.calls, "changed rendered config should trigger a fresh render")
+
+	t.Run("When the rendered chart has no workload images it should cache and return an empty list", func(t *testing.T) {
+		kv := newTestKVStore()
+		renderer := &testHelmImageRenderer{}
+		logic := NewDeviceRenderLogic(logrus.New(), nil, nil, nil, nil, kv, &config.Config{}).
+			WithHelmImageRenderer(renderer)
+
+		first, err := logic.RenderHelmImageRefs(ctx, orgID, nil, app, []byte("rendered config"))
+		require.NoError(t, err)
+		second, err := logic.RenderHelmImageRefs(ctx, orgID, nil, app, []byte("rendered config"))
+		require.NoError(t, err)
+
+		require.NotNil(t, first)
+		require.Empty(t, first)
+		require.NotNil(t, second)
+		require.Empty(t, second)
+		require.Equal(t, 1, renderer.calls, "a successful empty render should be cached")
+	})
+}
+
+func TestRenderHelmImageRefsCacheHitSkipsRepositoryLookup(t *testing.T) {
+	ctx := context.Background()
+	orgID := uuid.New()
+	ctrl := gomock.NewController(t)
+	repositorySvc := repositoryservice.NewMockService(ctrl)
+	repositorySvc.EXPECT().ListRepositories(gomock.Any(), orgID, gomock.Any()).
+		Return(&domain.RepositoryList{}, domain.StatusOK()).Times(1)
+	renderer := &testHelmImageRenderer{refs: []string{"quay.io/acme/app:v1"}}
+	logic := NewDeviceRenderLogic(logrus.New(), nil, repositorySvc, nil, nil, newTestKVStore(), &config.Config{}).
+		WithHelmImageRenderer(renderer)
+	app := api.HelmApplication{AppType: api.AppTypeHelm, Name: lo.ToPtr("release")}
+	require.NoError(t, app.FromImageApplicationProviderSpec(api.ImageSpec{Image: "oci://registry.example/charts/app:1.2.3"}))
+
+	first, err := logic.RenderHelmImageRefs(ctx, orgID, nil, app, []byte("rendered config"))
+	require.NoError(t, err)
+	second, err := logic.RenderHelmImageRefs(ctx, orgID, nil, app, []byte("rendered config"))
+	require.NoError(t, err)
+
+	require.Equal(t, renderer.refs, first)
+	require.Equal(t, first, second)
+	require.Equal(t, 1, renderer.calls)
+}
 
 // newDepChangeEvent constructs a DependencyChangeDetected event for testing.
 func newDepChangeEvent(deviceName, resourceKey, fingerprint string) domain.Event {
@@ -1463,7 +1548,7 @@ func TestRenderSpec_WhenHTTPConfigItShouldIncludeFetchedBodyWithoutPersisting(t 
 	assert.Contains(t, string(rendered.Config), base64.StdEncoding.EncodeToString([]byte(body)))
 }
 
-func TestRenderDevice_SucceededGenerationSetsDeltaImageAndSize(t *testing.T) {
+func TestRenderDevice_SucceededGenerationSetsDeltaImageAndDeltaSize(t *testing.T) {
 	const deviceName = "device-delta-hint"
 	src := "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	tgt := "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
@@ -1493,12 +1578,17 @@ func TestRenderDevice_SucceededGenerationSetsDeltaImageAndSize(t *testing.T) {
 	).DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, _, _, _, _ string, _ []domain.DependencySyncConfigRefStatus, _ bool, hints *deviceservice.RenderedOSHints) domain.Status {
 		require.NotNil(t, hints)
 		require.Equal(t, deltaRef, lo.FromPtr(hints.DeltaImage))
-		require.Equal(t, "45 MiB", lo.FromPtr(hints.UpdatedSize))
+		require.Equal(t, "45 MiB", lo.FromPtr(hints.DeltaSize))
 		return statusOK
 	})
 
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
-	logic, err := newDeviceRenderLogicWithDeltaLookup(logrus.New(), mockDeviceSvc, nil, nil, nil, newTestKVStore(), &stubGenerationLookup{
+	kv := newTestKVStore()
+	_, err := oci.CachedImageDigestPair(context.Background(), logrus.New(), kv, orgId, osImage, src, nil, 15*time.Minute, nil, func(context.Context, string) (oci.ImageDigestPair, error) {
+		return oci.ImageDigestPair{SourceDigest: src, TargetDigest: tgt}, nil
+	})
+	require.NoError(t, err)
+	logic, err := newDeviceRenderLogicWithDeltaLookup(logrus.New(), mockDeviceSvc, nil, nil, nil, kv, &stubGenerationLookup{
 		gen: &deltamodel.DeltaGeneration{
 			Status:    deltamodel.DeltaGenerationSucceeded,
 			DeltaRef:  &deltaRef,

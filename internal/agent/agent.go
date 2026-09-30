@@ -12,9 +12,11 @@ import (
 	agent_config "github.com/flightctl/flightctl/internal/agent/config"
 	"github.com/flightctl/flightctl/internal/agent/device"
 	"github.com/flightctl/flightctl/internal/agent/device/applications"
+	applicationprovider "github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/certmanager"
 	"github.com/flightctl/flightctl/internal/agent/device/config"
 	"github.com/flightctl/flightctl/internal/agent/device/console"
+	"github.com/flightctl/flightctl/internal/agent/device/deltastatus"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/hook"
@@ -112,6 +114,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("initialize root read/writer: %w", err)
 	}
+	deltaStatusStore := deltastatus.New(rootReadWriter, a.config.DataDir, a.log)
 
 	tpmClient, err := a.tryLoadTPM(rootReadWriter)
 	if err != nil {
@@ -331,6 +334,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		client.NewOCIDelta(a.log, exec, time.Duration(a.config.PullTimeout)),
 		rootSkopeoClient,
 		time.Duration(a.config.PullTimeout),
+		os.WithDeltaStatusStore(deltaStatusStore),
 	)
 
 	// create prefetch manager
@@ -344,6 +348,10 @@ func (a *Agent) Run(ctx context.Context) error {
 		resourceManager,
 		pollBackoff,
 		dependency.WithOCIDelta(client.NewOCIDelta(a.log, exec, time.Duration(a.config.PullTimeout))),
+		dependency.WithOCIDeltaFactory(client.NewOCIDeltaFactory(a.log, time.Duration(a.config.PullTimeout))),
+		dependency.WithReadWriterFactory(rwFactory),
+		dependency.WithDeltaStatusStore(deltaStatusStore),
+		dependency.WithApplicationNameResolver(applicationprovider.ResolveImageAppName),
 	)
 
 	// create lifecycle manager

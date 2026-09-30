@@ -19,6 +19,7 @@ import (
 	"github.com/flightctl/flightctl/internal/config"
 	delta "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
 	"github.com/flightctl/flightctl/internal/domain"
+	helmruntime "github.com/flightctl/flightctl/internal/helm"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	"github.com/flightctl/flightctl/internal/service/common"
@@ -90,8 +91,12 @@ type DeviceRenderLogic struct {
 	kvStore             kvstore.KVStore
 	cfg                 *config.Config
 	vmConverterOverride VmConverterFn
+	helmRenderer        helmImageRenderer
 	deltaLookup         generationLookup
-	osManifestSize      func(context.Context, string) (*int64, error)
+}
+
+type helmImageRenderer interface {
+	ImageRefs(context.Context, v1beta1.HelmApplication, *domain.Device, []byte, *domain.OciRepoSpec) ([]string, error)
 }
 
 func NewDeviceRenderLogic(log logrus.FieldLogger, deviceSvc deviceservice.Service, repositorySvc repositoryservice.Service, catalogSvc catalogservice.Service, k8sClient k8sclient.K8SClient, kvStore kvstore.KVStore, cfg *config.Config) *DeviceRenderLogic {
@@ -103,7 +108,91 @@ func NewDeviceRenderLogic(log logrus.FieldLogger, deviceSvc deviceservice.Servic
 		k8sClient:     k8sClient,
 		kvStore:       kvStore,
 		cfg:           cfg,
+		helmRenderer:  helmruntime.NewRenderer(nil, log),
 	}
+}
+
+// RenderHelmImageRefs renders a target Helm application using the resolved
+// config files that will be delivered to the device and returns its workload
+// image references. The same method is used during delta preparation and when
+// attaching delta hints to a rendered device spec.
+func (t *DeviceRenderLogic) RenderHelmImageRefs(
+	ctx context.Context,
+	orgID uuid.UUID,
+	device *domain.Device,
+	app v1beta1.HelmApplication,
+	renderedConfig []byte,
+) ([]string, error) {
+	if t.helmRenderer == nil {
+		return nil, errors.New("Helm image renderer is not configured")
+	}
+	imageSpec, err := app.AsImageApplicationProviderSpec()
+	if err != nil {
+		return nil, fmt.Errorf("get Helm chart image reference: %w", err)
+	}
+	cacheTTL := t.cfg.EffectiveHelmImageRefsCacheTTL()
+	cacheKey := ""
+	if t.kvStore != nil && cacheTTL > 0 {
+		key, keyErr := helmruntime.ImageRefsCacheKey(orgID, app, device, renderedConfig, cacheTTL)
+		if keyErr != nil {
+			t.log.WithError(keyErr).Warn("failed to build Helm image refs cache key; rendering chart without cache")
+		} else {
+			cacheKey = key
+			cached, cacheErr := t.kvStore.Get(ctx, cacheKey)
+			if cacheErr != nil {
+				t.log.WithError(cacheErr).Warn("failed to read Helm image refs cache; rendering chart")
+			} else if len(cached) > 0 {
+				var imageRefs []string
+				if err := json.Unmarshal(cached, &imageRefs); err != nil || imageRefs == nil {
+					if err == nil {
+						err = errors.New("cached Helm image refs are null")
+					}
+					t.log.WithError(err).Warn("invalid Helm image refs cache entry; rendering chart")
+				} else {
+					t.log.Debug("using cached Helm workload image references")
+					return imageRefs, nil
+				}
+			}
+		}
+	}
+
+	// Repository lookup supplies chart-pull credentials and transport settings,
+	// but does not change rendered workload images. Delay the paginated lookup
+	// until after a cache miss.
+	registrySpec, err := helmruntime.ResolveOCIRepositorySpec(
+		ctx,
+		t.repositorySvc,
+		orgID,
+		imageSpec.Image,
+		deltaWriteSpec(t.cfg),
+	)
+	if err != nil {
+		return nil, err
+	}
+	imageRefs, err := t.helmRenderer.ImageRefs(ctx, app, device, renderedConfig, registrySpec)
+	if err != nil {
+		return nil, err
+	}
+	if imageRefs == nil {
+		imageRefs = []string{}
+	}
+	if cacheKey != "" {
+		cached, marshalErr := json.Marshal(imageRefs)
+		if marshalErr != nil {
+			t.log.WithError(marshalErr).Warn("failed to encode Helm image refs cache entry")
+		} else if cacheErr := t.kvStore.Set(ctx, cacheKey, cached, cacheTTL); cacheErr != nil {
+			t.log.WithError(cacheErr).Warn("failed to write Helm image refs cache entry")
+		}
+	}
+	return imageRefs, nil
+}
+
+// WithHelmImageRenderer returns a copy configured with a renderer implementation.
+// This keeps Helm command execution injectable in unit tests.
+func (t *DeviceRenderLogic) WithHelmImageRenderer(renderer helmImageRenderer) *DeviceRenderLogic {
+	clone := *t
+	clone.helmRenderer = renderer
+	return &clone
 }
 
 // NewDeviceRenderLogicWithDeltaStore creates device-render logic with the
@@ -330,11 +419,11 @@ func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 	}
 
 	osHints := t.resolveOSDeltaHint(ctx, device, rendered)
-	if len(rendered.appSizes) > 0 {
+	if len(rendered.appDeltaSizes) > 0 {
 		if osHints == nil {
 			osHints = &deviceservice.RenderedOSHints{}
 		}
-		osHints.AppSizes = rendered.appSizes
+		osHints.AppDeltaSizes = rendered.appDeltaSizes
 	}
 	status = t.deviceSvc.UpdateRenderedDevice(ctx, t.orgId, t.event.InvolvedObject.Name, string(rendered.Config), string(rendered.Applications), specHash, rendered.OsImage, syncRefs, bypassHashCheck, osHints)
 	if err := common.ApiStatusToErr(status); err != nil {
@@ -352,13 +441,22 @@ type RenderedSpec struct {
 
 	referencedRepos    []string
 	configFingerprints []ConfigRefFingerprint
-	// appSizes maps application name to its IEC-formatted download size.
-	appSizes map[string]*string
+	// appDeltaSizes maps application name to its IEC-formatted control-plane
+	// delta payload size.
+	appDeltaSizes map[string]*string
 }
 
 // RenderSpec resolves a spec for orgId without device-event state.
 func (t *DeviceRenderLogic) RenderSpec(ctx context.Context, orgId uuid.UUID, spec *domain.DeviceSpec) (RenderedSpec, error) {
 	return t.newRenderState(orgId, domain.Event{}).renderSpec(ctx, spec)
+}
+
+// RenderSpecForDevice resolves a spec using the VM render options selected for
+// the device's reported OS, matching the options used by RenderDevice.
+func (t *DeviceRenderLogic) RenderSpecForDevice(ctx context.Context, orgId uuid.UUID, device *domain.Device, spec *domain.DeviceSpec) (RenderedSpec, error) {
+	state := t.newRenderState(orgId, domain.Event{})
+	state.bindVmLauncher(device)
+	return state.renderSpec(ctx, spec)
 }
 
 func (t *deviceRenderState) renderSpec(ctx context.Context, spec *domain.DeviceSpec) (RenderedSpec, error) {

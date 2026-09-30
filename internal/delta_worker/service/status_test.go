@@ -18,6 +18,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestPreparingCondition(t *testing.T) {
+	tests := []struct {
+		name     string
+		condType domain.ConditionType
+	}{
+		{name: "fleet", condType: domain.ConditionTypeFleetDeltaPreparing},
+		{name: "device", condType: domain.ConditionTypeDeviceDeltaPreparing},
+	}
+
+	for _, tt := range tests {
+		t.Run("When preparing a "+tt.name+" delta it should report progress", func(t *testing.T) {
+			condition := preparingCondition(tt.condType, 1, 2)
+			assert.Equal(t, tt.condType, condition.Type)
+			assert.Equal(t, domain.ConditionStatusTrue, condition.Status)
+			assert.Equal(t, "DeltaGenerationInProgress", condition.Reason)
+			assert.Equal(t, "Delta generation in progress (1/2)", condition.Message)
+		})
+	}
+}
+
 func TestStorePreparingStatus_Fleet(t *testing.T) {
 	orgId := uuid.New()
 	tv := "tv-1"
@@ -44,7 +64,7 @@ func TestStorePreparingStatus_Fleet(t *testing.T) {
 		cond := domain.FindStatusCondition(fleets.fleet.Status.Conditions, domain.ConditionTypeFleetDeltaPreparing)
 		require.NotNil(t, cond)
 		assert.Equal(t, domain.ConditionStatusTrue, cond.Status)
-		assert.Equal(t, "1/3", cond.Message)
+		assert.Equal(t, "Delta generation in progress (1/3)", cond.Message)
 		assert.Equal(t, "1", (*fleets.fleet.Metadata.Annotations)[domain.FleetAnnotationDeltaPrepareResourceVersion])
 	})
 
@@ -190,7 +210,7 @@ func TestStorePreparingStatus_Device(t *testing.T) {
 		require.NoError(t, err)
 		cond := domain.FindStatusCondition(devices.device.Status.Conditions, domain.ConditionTypeDeviceDeltaPreparing)
 		require.NotNil(t, cond)
-		assert.Equal(t, "0/1", cond.Message)
+		assert.Equal(t, "Delta generation in progress (0/1)", cond.Message)
 		require.NotNil(t, devices.device.Status.DeltaGeneration)
 	})
 

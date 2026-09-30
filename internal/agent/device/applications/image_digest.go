@@ -19,31 +19,41 @@ func digestFromReference(image string) string {
 	return digested.Digest().String()
 }
 
-// digestFromKubernetesImageID returns a registry digest from a pullable image ID
-// only when it refers to the same repository as the pod's declared image. CRI
-// runtime IDs can instead identify a config object, which is not usable for a
-// registry delta lookup.
+// digestFromKubernetesImageID prefers a repository-qualified runtime digest
+// when it refers to the same repository as the pod's declared image. If the
+// runtime ID is opaque, an immutable declared reference remains a usable
+// fallback; CRI IDs can identify config objects rather than registry manifests.
 func digestFromKubernetesImageID(imageRef, imageID string) string {
-	if digest := digestFromReference(imageRef); digest != "" {
-		return digest
-	}
-
 	const pullableImagePrefix = "docker-pullable://"
-	if !strings.HasPrefix(imageID, pullableImagePrefix) {
+	isPullableReference := strings.HasPrefix(imageID, pullableImagePrefix)
+	if isPullableReference {
+		imageID = strings.TrimPrefix(imageID, pullableImagePrefix)
+	}
+
+	// CRI implementations may report either a runtime-specific opaque ID or a
+	// repository-qualified digest (for example, quay.io/acme/app@sha256:...).
+	// Only the latter identifies a registry manifest we can use as a source.
+	observed, err := reference.ParseNormalizedNamed(imageID)
+	if err == nil {
+		if digested, ok := observed.(reference.Digested); ok {
+			declared, err := reference.ParseNormalizedNamed(imageRef)
+			if err != nil || observed.Name() != declared.Name() {
+				return ""
+			}
+			// The runtime's pullable ID identifies the manifest selected from an
+			// index. Prefer it to the declared digest, which can name the index.
+			return digested.Digest().String()
+		}
+	}
+
+	// Preserve the old handling of an explicitly pullable ID: if it does not
+	// contain a matching repository digest, do not infer one from the spec.
+	if isPullableReference {
 		return ""
 	}
 
-	declared, err := reference.ParseNormalizedNamed(imageRef)
-	if err != nil {
-		return ""
-	}
-	observed, err := reference.ParseNormalizedNamed(strings.TrimPrefix(imageID, pullableImagePrefix))
-	if err != nil || observed.Name() != declared.Name() {
-		return ""
-	}
-	digested, ok := observed.(reference.Digested)
-	if !ok {
-		return ""
-	}
-	return digested.Digest().String()
+	// An opaque runtime ID (for example containerd://<config-digest>) cannot be
+	// used as a registry source digest; keep an immutable declared reference as
+	// the fallback when one is available.
+	return digestFromReference(imageRef)
 }

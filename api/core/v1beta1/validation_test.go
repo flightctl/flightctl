@@ -1492,6 +1492,111 @@ func TestValidateApplications(t *testing.T) {
 	}
 }
 
+func TestValidateApplicationsRejectsClientDeltaHints(t *testing.T) {
+	for _, appType := range []AppType{AppTypeContainer, AppTypeHelm, AppTypeCompose, AppTypeQuadlet, AppTypeVm} {
+		t.Run("When a client supplies deltaImage on a "+string(appType)+" application it should reject it as read-only", func(t *testing.T) {
+			app := newTestImageApplicationWithDeltaImage(t, appType)
+			errs := validateApplications([]ApplicationProviderSpec{app}, false)
+			require.Len(t, errs, 1)
+			require.ErrorContains(t, errs[0], "spec.applications[app1].deltaImage is read-only")
+		})
+	}
+
+	for _, appType := range []AppType{AppTypeCompose, AppTypeQuadlet, AppTypeVm} {
+		t.Run("When a client supplies deltaImages on an inline "+string(appType)+" application it should reject them as read-only", func(t *testing.T) {
+			app := newTestInlineApplicationWithDeltaImages(t, appType)
+			errs := validateApplications([]ApplicationProviderSpec{app}, false)
+			joinedErrs := make([]string, len(errs))
+			for i, err := range errs {
+				joinedErrs[i] = err.Error()
+			}
+			require.Contains(t, strings.Join(joinedErrs, "\n"), ".deltaImages is read-only")
+		})
+	}
+}
+
+func newTestImageApplicationWithDeltaImage(t *testing.T, appType AppType) ApplicationProviderSpec {
+	t.Helper()
+
+	const name = "app1"
+	imageSpec := ImageApplicationProviderSpec{
+		Image:      "quay.io/acme/app:v1",
+		DeltaImage: lo.ToPtr("quay.io/acme/app-delta:v1"),
+	}
+	var app ApplicationProviderSpec
+	switch appType {
+	case AppTypeContainer:
+		provider := ContainerApplication{Name: lo.ToPtr(name), AppType: appType}
+		require.NoError(t, provider.FromImageApplicationProviderSpec(imageSpec))
+		require.NoError(t, app.FromContainerApplication(provider))
+	case AppTypeHelm:
+		provider := HelmApplication{Name: lo.ToPtr(name), AppType: appType}
+		require.NoError(t, provider.FromImageApplicationProviderSpec(imageSpec))
+		require.NoError(t, app.FromHelmApplication(provider))
+	case AppTypeCompose:
+		provider := ComposeApplication{Name: lo.ToPtr(name), AppType: appType}
+		require.NoError(t, provider.FromImageApplicationProviderSpec(imageSpec))
+		require.NoError(t, app.FromComposeApplication(provider))
+	case AppTypeQuadlet:
+		provider := QuadletApplication{Name: lo.ToPtr(name), AppType: appType}
+		require.NoError(t, provider.FromImageApplicationProviderSpec(imageSpec))
+		require.NoError(t, app.FromQuadletApplication(provider))
+	case AppTypeVm:
+		provider := VmApplication{Name: lo.ToPtr(name), AppType: appType}
+		require.NoError(t, provider.FromImageApplicationProviderSpec(imageSpec))
+		require.NoError(t, app.FromVmApplication(provider))
+	default:
+		t.Fatalf("unsupported application type %q", appType)
+	}
+	return app
+}
+
+func newTestInlineApplicationWithDeltaImages(t *testing.T, appType AppType) ApplicationProviderSpec {
+	t.Helper()
+
+	deltaImages := []ImageDeltaHint{{
+		TargetImage:  "quay.io/acme/nested:v1",
+		TargetDigest: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		DeltaImage:   "quay.io/acme/nested-delta:v1",
+	}}
+	inlineSpec := InlineApplicationProviderSpec{DeltaImages: &deltaImages}
+	switch appType {
+	case AppTypeCompose:
+		inlineSpec.Inline = []ApplicationContent{{
+			Path:    "docker-compose.yaml",
+			Content: lo.ToPtr("version: '3'\nservices:\n  app:\n    image: quay.io/acme/app:v1\n"),
+		}}
+		provider := ComposeApplication{Name: lo.ToPtr("app1"), AppType: appType}
+		require.NoError(t, provider.FromInlineApplicationProviderSpec(inlineSpec))
+		var app ApplicationProviderSpec
+		require.NoError(t, app.FromComposeApplication(provider))
+		return app
+	case AppTypeQuadlet:
+		inlineSpec.Inline = []ApplicationContent{{
+			Path:    "app.container",
+			Content: lo.ToPtr("[Container]\nImage=quay.io/acme/app:v1\n"),
+		}}
+		provider := QuadletApplication{Name: lo.ToPtr("app1"), AppType: appType}
+		require.NoError(t, provider.FromInlineApplicationProviderSpec(inlineSpec))
+		var app ApplicationProviderSpec
+		require.NoError(t, app.FromQuadletApplication(provider))
+		return app
+	case AppTypeVm:
+		inlineSpec.Inline = []ApplicationContent{{
+			Path:    "vm.yaml",
+			Content: lo.ToPtr(validVmYaml("app1")),
+		}}
+		provider := VmApplication{Name: lo.ToPtr("app1"), AppType: appType}
+		require.NoError(t, provider.FromInlineApplicationProviderSpec(inlineSpec))
+		var app ApplicationProviderSpec
+		require.NoError(t, app.FromVmApplication(provider))
+		return app
+	default:
+		t.Fatalf("unsupported inline application type %q", appType)
+		return ApplicationProviderSpec{}
+	}
+}
+
 func newTestApplication(require *require.Assertions, name string, appImage, volImage string, volumeNames ...string) ApplicationProviderSpec {
 	var app ApplicationProviderSpec
 
@@ -3582,21 +3687,22 @@ func TestDeviceSpecValidate_OsSpec(t *testing.T) {
 			errorStrings: []string{"spec.os.image"},
 		},
 		{
-			name: "When os has a valid deltaImage it should pass",
+			name: "When os deltaImage is client supplied it should fail as read-only",
 			os: &DeviceOsSpec{
 				Image:      "quay.io/org/image:latest",
 				DeltaImage: lo.ToPtr("quay.io/org/os:delta"),
 			},
-			wantErr: false,
+			wantErr:      true,
+			errorStrings: []string{"spec.os.deltaImage is read-only"},
 		},
 		{
-			name: "When os has an invalid deltaImage it should fail",
+			name: "When os deltaImage is client supplied with an invalid ref it should fail as read-only",
 			os: &DeviceOsSpec{
 				Image:      "quay.io/org/image:latest",
 				DeltaImage: lo.ToPtr("invalid image!!!"),
 			},
 			wantErr:      true,
-			errorStrings: []string{"spec.os.deltaImage"},
+			errorStrings: []string{"spec.os.deltaImage is read-only"},
 		},
 		{
 			name: "When os has a catalog item ref with missing fields it should fail",
