@@ -850,17 +850,7 @@ func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, before, devic
 	if rendered != nil {
 		applyRenderedDeltaEstimates(fromAPI, rendered.DeltaEstimates)
 	} else {
-		serviceConditions := model.ServiceConditions{}
-		if fromAPI.ServiceConditions != nil {
-			serviceConditions = fromAPI.ServiceConditions.Data
-		}
-		// Preserve the server-owned estimates from the mutation snapshot. The
-		// resource-version condition on the update below retries if they changed
-		// after this snapshot was loaded.
-		if existing.ServiceConditions != nil && existing.ServiceConditions.Data.DeltaEstimates != nil {
-			serviceConditions.DeltaEstimates = existing.ServiceConditions.Data.DeltaEstimates
-		}
-		fromAPI.ServiceConditions = model.MakeJSONField(serviceConditions)
+		preserveDeltaEstimatesFromSnapshot(fromAPI, existing)
 	}
 	var renderedStatus *domain.DeviceStatus
 	if rendered != nil {
@@ -928,6 +918,24 @@ func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, before, devic
 	device.Metadata.Generation = lo.ToPtr(generation)
 	device.Metadata.ResourceVersion = lo.ToPtr(strconv.FormatInt(lo.FromPtr(existing.ResourceVersion)+1, 10))
 	return false, nil
+}
+
+// preserveDeltaEstimatesFromSnapshot keeps delta estimates service-owned for
+// non-render updates, including when the stored snapshot has no estimates.
+func preserveDeltaEstimatesFromSnapshot(updated, existing *model.Device) {
+	serviceConditions := model.ServiceConditions{}
+	if updated.ServiceConditions != nil {
+		serviceConditions = updated.ServiceConditions.Data
+	}
+	// Copy the value unconditionally: nil in the snapshot must clear any
+	// caller-supplied estimates extracted from the mutated API status. The
+	// resource-version check retries if the snapshot changed during this update.
+	if existing != nil && existing.ServiceConditions != nil {
+		serviceConditions.DeltaEstimates = existing.ServiceConditions.Data.DeltaEstimates
+	} else {
+		serviceConditions.DeltaEstimates = nil
+	}
+	updated.ServiceConditions = model.MakeJSONField(serviceConditions)
 }
 
 func (s *DeviceStore) getWithTimestamp(ctx context.Context, orgId uuid.UUID, name string, opts ...model.APIResourceOption) (*domain.Device, error) {
