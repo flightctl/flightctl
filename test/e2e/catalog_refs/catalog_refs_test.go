@@ -109,28 +109,12 @@ var _ = Describe("Catalog item references", Ordered, Label("EDM-4813", "catalog-
 		})
 		Expect(err).ToNot(HaveOccurred())
 
-		By("Verifying render succeeds and rendered version increments for v1")
-		var v1RenderedVersion int
-		harness.WaitForDeviceContents(deviceId, "SpecValid=True and renderedVersion incremented for OS catalog ref v1",
-			func(device *v1beta1.Device) bool {
-				if device.Status == nil {
-					return false
-				}
-				cond := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceSpecValid)
-				if cond == nil || cond.Status != v1beta1.ConditionStatusTrue {
-					return false
-				}
-				ver, verErr := e2e.GetRenderedVersion(device)
-				if verErr != nil || ver < baselineVersion {
-					return false
-				}
-				v1RenderedVersion = ver
-				return true
-			}, e2e.TIMEOUT)
-		Expect(v1RenderedVersion).To(BeNumerically(">=", baselineVersion))
+		By("Verifying device applies resolved OS catalog ref v1")
+		err = harness.WaitForDeviceNewRenderedVersionWithReboot(deviceId, baselineVersion)
+		Expect(err).ToNot(HaveOccurred())
 
 		By("Updating catalogItemRef version to v2")
-		expectedV2 := v1RenderedVersion + 1
+		expectedV2 := baselineVersion + 1
 		err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 			device.Spec.Os = &v1beta1.DeviceOsSpec{
 				CatalogItemRef: &v1beta1.CatalogItemRefSpec{
@@ -142,22 +126,9 @@ var _ = Describe("Catalog item references", Ordered, Label("EDM-4813", "catalog-
 		})
 		Expect(err).ToNot(HaveOccurred())
 
-		By("Verifying render succeeds and rendered version increments again for v2")
-		harness.WaitForDeviceContents(deviceId, "SpecValid=True and renderedVersion incremented for OS catalog ref v2",
-			func(device *v1beta1.Device) bool {
-				if device.Status == nil {
-					return false
-				}
-				cond := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceSpecValid)
-				if cond == nil || cond.Status != v1beta1.ConditionStatusTrue {
-					return false
-				}
-				ver, verErr := e2e.GetRenderedVersion(device)
-				if verErr != nil {
-					return false
-				}
-				return ver >= expectedV2
-			}, e2e.TIMEOUT)
+		By("Verifying device applies resolved OS catalog ref v2")
+		err = harness.WaitForDeviceNewRenderedVersionWithReboot(deviceId, expectedV2)
+		Expect(err).ToNot(HaveOccurred())
 	})
 
 	It("deploys and removes application via catalog ref", Label("OCP-90124"), func() {
