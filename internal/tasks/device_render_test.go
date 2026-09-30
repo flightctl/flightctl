@@ -1500,7 +1500,7 @@ func TestRenderDevice_SucceededGenerationSetsDeltaImageAndDeltaSize(t *testing.T
 
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
 	kv := newTestKVStore()
-	_, err := oci.CachedImageDigestPair(context.Background(), kv, orgId, osImage, src, nil, func(context.Context) (oci.ImageDigestPair, error) {
+	_, err := oci.CachedImageDigestPair(context.Background(), kv, orgId, osImage, src, nil, nil, func(context.Context, string) (oci.ImageDigestPair, error) {
 		return oci.ImageDigestPair{SourceDigest: src, TargetDigest: tgt}, nil
 	})
 	require.NoError(t, err)

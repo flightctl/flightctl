@@ -241,13 +241,39 @@ func serviceResolver(cfg *config.Config, fleets fleetservice.Service, devices de
 		sourceDigest string,
 		fallbackPlatform *ocispec.Platform,
 	) (string, string, error) {
-		pair, err := oci.CachedImageDigestPair(ctx, kvStore, orgId, image, sourceDigest, fallbackPlatform, func(ctx context.Context) (oci.ImageDigestPair, error) {
+		var (
+			targetRepoSpec       *domain.OciRepoSpec
+			targetRepoSpecLoaded bool
+		)
+		resolveTargetRepo := func(ctx context.Context) (*domain.OciRepoSpec, error) {
+			if targetRepoSpecLoaded {
+				return targetRepoSpec, nil
+			}
+			targetRepoSpecLoaded = true
 			spec, err := generateTask.ResolveDeltaTargetRepo(ctx, repos, deltaConfig, orgId)
 			if err != nil {
-				return oci.ImageDigestPair{}, err
+				return nil, err
 			}
-			return oci.InspectImageDigestPair(ctx, image, sourceDigest, spec, fallbackPlatform)
-		})
+			targetRepoSpec = spec
+			return targetRepoSpec, nil
+		}
+		pair, err := oci.CachedImageDigestPair(
+			ctx, kvStore, orgId, image, sourceDigest, fallbackPlatform,
+			func(ctx context.Context) (string, error) {
+				spec, err := resolveTargetRepo(ctx)
+				if err != nil {
+					return "", err
+				}
+				return oci.InspectImageDigest(ctx, image, spec)
+			},
+			func(ctx context.Context, resolvedImage string) (oci.ImageDigestPair, error) {
+				spec, err := resolveTargetRepo(ctx)
+				if err != nil {
+					return oci.ImageDigestPair{}, err
+				}
+				return oci.InspectImageDigestPair(ctx, resolvedImage, sourceDigest, spec, fallbackPlatform)
+			},
+		)
 		if err != nil {
 			return "", "", err
 		}

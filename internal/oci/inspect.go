@@ -15,6 +15,7 @@ import (
 	"github.com/containers/image/v5/pkg/sysregistriesv2"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/google/uuid"
+	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content"
@@ -102,6 +103,26 @@ func DigestFromImageRef(imageRef string) (string, error) {
 		return "", nil
 	}
 	return digested.Digest().String(), nil
+}
+
+func imageRefWithDigest(imageRef, targetDigest string) (string, error) {
+	rewritten, err := RewriteImageRef(imageRef)
+	if err != nil {
+		return "", err
+	}
+	named, err := reference.ParseNormalizedNamed(strings.TrimPrefix(rewritten, "docker://"))
+	if err != nil {
+		return "", err
+	}
+	dgst, err := digest.Parse(targetDigest)
+	if err != nil {
+		return "", fmt.Errorf("parse target image digest %q: %w", targetDigest, err)
+	}
+	pinned, err := reference.WithDigest(reference.TrimNamed(named), dgst)
+	if err != nil {
+		return "", fmt.Errorf("pin image reference %s to digest %s: %w", imageRef, targetDigest, err)
+	}
+	return pinned.String(), nil
 }
 
 func InspectImageDigest(ctx context.Context, image string, spec *domain.OciRepoSpec) (string, error) {
@@ -368,12 +389,12 @@ func compatibleTargetManifestCandidates(
 	return candidates, nil
 }
 
-// CachedImageDigestPair caches pairs only for immutable target references.
-// Mutable tags can change at any time, so caching their resolved target digest
-// could cause delta preparation and rendered hints to use a stale target. For
-// immutable digest references, the cache key also includes the source digest
-// and fallback platform because a multi-platform target can resolve to a
-// different leaf digest for different source platforms.
+// CachedImageDigestPair resolves mutable target references through the
+// short-lived image digest cache, then caches the pair by immutable target
+// digest. The tag lookup can be stale for at most ImageDigestCacheTTL. The pair
+// cache key also includes the source digest and fallback platform because a
+// multi-platform target can resolve to a different leaf digest for different
+// source platforms.
 func CachedImageDigestPair(
 	ctx context.Context,
 	cache DigestCache,
@@ -381,7 +402,8 @@ func CachedImageDigestPair(
 	imageRef string,
 	sourceDigest string,
 	fallbackPlatform *ocispec.Platform,
-	resolve func(context.Context) (ImageDigestPair, error),
+	resolveImageDigest func(context.Context) (string, error),
+	resolvePair func(context.Context, string) (ImageDigestPair, error),
 ) (ImageDigestPair, error) {
 	if sourceDigest == "" {
 		return ImageDigestPair{}, fmt.Errorf("resolve image digest pair for %s: source digest is required", imageRef)
@@ -390,15 +412,21 @@ func CachedImageDigestPair(
 	if err != nil {
 		return ImageDigestPair{}, err
 	}
-	cacheable := targetDigest != ""
-	var key string
-	if cacheable {
-		key, err = imageDigestPairCacheKey(orgID, imageRef, sourceDigest, fallbackPlatform)
+	if targetDigest == "" {
+		targetDigest, err = CachedImageDigest(ctx, cache, orgID, imageRef, resolveImageDigest)
 		if err != nil {
 			return ImageDigestPair{}, err
 		}
 	}
-	if cacheable && cache != nil {
+	resolvedImageRef, err := imageRefWithDigest(imageRef, targetDigest)
+	if err != nil {
+		return ImageDigestPair{}, err
+	}
+	key, err := imageDigestPairCacheKey(orgID, resolvedImageRef, sourceDigest, fallbackPlatform)
+	if err != nil {
+		return ImageDigestPair{}, err
+	}
+	if cache != nil {
 		raw, err := cache.Get(ctx, key)
 		if err != nil {
 			return ImageDigestPair{}, err
@@ -413,17 +441,17 @@ func CachedImageDigestPair(
 			}
 		}
 	}
-	if resolve == nil {
+	if resolvePair == nil {
 		return ImageDigestPair{}, fmt.Errorf("resolve image digest pair for %s: resolver is required", imageRef)
 	}
-	pair, err := resolve(ctx)
+	pair, err := resolvePair(ctx, resolvedImageRef)
 	if err != nil {
 		return ImageDigestPair{}, err
 	}
 	if pair.SourceDigest == "" || pair.TargetDigest == "" {
 		return ImageDigestPair{}, fmt.Errorf("resolve image digest pair for %s: empty source or target digest", imageRef)
 	}
-	if cacheable && cache != nil {
+	if cache != nil {
 		raw, err := json.Marshal(pair)
 		if err != nil {
 			return ImageDigestPair{}, fmt.Errorf("encode image digest pair: %w", err)

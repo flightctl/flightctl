@@ -99,9 +99,16 @@ func (t *DeviceRenderLogic) resolveImageDigestPair(
 	sourceDigest string,
 	fallbackPlatform *ocispec.Platform,
 ) (oci.ImageDigestPair, error) {
-	return oci.CachedImageDigestPair(ctx, t.kvStore, orgId, imageRef, sourceDigest, fallbackPlatform, func(ctx context.Context) (oci.ImageDigestPair, error) {
-		return oci.InspectImageDigestPair(ctx, imageRef, sourceDigest, deltaWriteSpec(t.cfg), fallbackPlatform)
-	})
+	spec := deltaWriteSpec(t.cfg)
+	return oci.CachedImageDigestPair(
+		ctx, t.kvStore, orgId, imageRef, sourceDigest, fallbackPlatform,
+		func(ctx context.Context) (string, error) {
+			return oci.InspectImageDigest(ctx, imageRef, spec)
+		},
+		func(ctx context.Context, resolvedImage string) (oci.ImageDigestPair, error) {
+			return oci.InspectImageDigestPair(ctx, resolvedImage, sourceDigest, spec, fallbackPlatform)
+		},
+	)
 }
 
 func hintFromGeneration(gen *deltamodel.DeltaGeneration) (deltaImage *string, deltaSizeIEC *string) {

@@ -20,7 +20,8 @@ import (
 )
 
 type digestCache struct {
-	values map[string][]byte
+	values      map[string][]byte
+	expirations map[string]time.Duration
 }
 
 func TestSpecForRegistry(t *testing.T) {
@@ -62,8 +63,12 @@ func (c *digestCache) SetNX(_ context.Context, key string, value []byte) (bool, 
 	return true, nil
 }
 
-func (c *digestCache) Set(_ context.Context, key string, value []byte, _ time.Duration) error {
+func (c *digestCache) Set(_ context.Context, key string, value []byte, expiration time.Duration) error {
 	c.values[key] = append([]byte(nil), value...)
+	if c.expirations == nil {
+		c.expirations = make(map[string]time.Duration)
+	}
+	c.expirations[key] = expiration
 	return nil
 }
 
@@ -92,40 +97,72 @@ func TestCachedImageDigestScopesCacheByOrganization(t *testing.T) {
 }
 
 func TestCachedImageDigestPair(t *testing.T) {
-	t.Run("When target reference is a mutable tag it should resolve again on every call", func(t *testing.T) {
+	t.Run("When target reference is a mutable tag it should cache the resolved digest for the TTL", func(t *testing.T) {
 		cache := &digestCache{values: make(map[string][]byte)}
 		orgID := uuid.New()
-		var resolveCalls int
-		resolve := func(context.Context) (ImageDigestPair, error) {
-			resolveCalls++
-			return ImageDigestPair{SourceDigest: "sha256:source", TargetDigest: fmt.Sprintf("sha256:target-%d", resolveCalls)}, nil
+		imageRef := "quay.io/example/app:stable"
+		indexDigest1 := "sha256:" + strings.Repeat("1", 64)
+		indexDigest2 := "sha256:" + strings.Repeat("2", 64)
+		currentIndexDigest := indexDigest1
+		var (
+			digestResolveCalls int
+			pairResolveCalls   int
+			resolvedRefs       []string
+		)
+		resolveImageDigest := func(context.Context) (string, error) {
+			digestResolveCalls++
+			return currentIndexDigest, nil
+		}
+		resolvePair := func(_ context.Context, resolvedImage string) (ImageDigestPair, error) {
+			pairResolveCalls++
+			resolvedRefs = append(resolvedRefs, resolvedImage)
+			return ImageDigestPair{SourceDigest: "sha256:source", TargetDigest: fmt.Sprintf("sha256:target-%d", pairResolveCalls)}, nil
 		}
 
-		first, err := CachedImageDigestPair(context.Background(), cache, orgID, "quay.io/example/app:stable", "sha256:source", nil, resolve)
+		first, err := CachedImageDigestPair(context.Background(), cache, orgID, imageRef, "sha256:source", nil, resolveImageDigest, resolvePair)
 		require.NoError(t, err)
-		second, err := CachedImageDigestPair(context.Background(), cache, orgID, "quay.io/example/app:stable", "sha256:source", nil, resolve)
+		tagKey, err := imageDigestCacheKey(orgID, imageRef)
+		require.NoError(t, err)
+		require.Equal(t, ImageDigestCacheTTL, cache.expirations[tagKey])
+
+		// The registry tag moves, but the TTL cache keeps this call pinned to the
+		// digest observed by the first lookup.
+		currentIndexDigest = indexDigest2
+		second, err := CachedImageDigestPair(context.Background(), cache, orgID, imageRef, "sha256:source", nil, resolveImageDigest, resolvePair)
 		require.NoError(t, err)
 
 		require.Equal(t, "sha256:target-1", first.TargetDigest)
-		require.Equal(t, "sha256:target-2", second.TargetDigest)
-		require.Equal(t, 2, resolveCalls)
-		require.Empty(t, cache.values)
+		require.Equal(t, first, second)
+		require.Equal(t, 1, digestResolveCalls)
+		require.Equal(t, 1, pairResolveCalls)
+		require.Equal(t, []string{"quay.io/example/app@" + indexDigest1}, resolvedRefs)
+
+		// Simulate TTL expiration. A fresh registry resolution now produces and
+		// caches the pair for the new immutable target digest.
+		delete(cache.values, tagKey)
+		third, err := CachedImageDigestPair(context.Background(), cache, orgID, imageRef, "sha256:source", nil, resolveImageDigest, resolvePair)
+		require.NoError(t, err)
+		require.Equal(t, "sha256:target-2", third.TargetDigest)
+		require.Equal(t, 2, digestResolveCalls)
+		require.Equal(t, 2, pairResolveCalls)
+		require.Equal(t, []string{"quay.io/example/app@" + indexDigest1, "quay.io/example/app@" + indexDigest2}, resolvedRefs)
 	})
 
 	t.Run("When target reference is pinned by digest it should use the cache", func(t *testing.T) {
 		cache := &digestCache{values: make(map[string][]byte)}
 		orgID := uuid.New()
 		targetDigest := "sha256:" + strings.Repeat("a", 64)
+		imageRef := "quay.io/example/app@" + targetDigest
 		var resolveCalls int
-		resolve := func(context.Context) (ImageDigestPair, error) {
+		resolve := func(_ context.Context, resolvedImage string) (ImageDigestPair, error) {
 			resolveCalls++
+			require.Equal(t, imageRef, resolvedImage)
 			return ImageDigestPair{SourceDigest: "sha256:source", TargetDigest: targetDigest}, nil
 		}
-		imageRef := "quay.io/example/app@" + targetDigest
 
-		first, err := CachedImageDigestPair(context.Background(), cache, orgID, imageRef, "sha256:source", nil, resolve)
+		first, err := CachedImageDigestPair(context.Background(), cache, orgID, imageRef, "sha256:source", nil, nil, resolve)
 		require.NoError(t, err)
-		second, err := CachedImageDigestPair(context.Background(), cache, orgID, imageRef, "sha256:source", nil, resolve)
+		second, err := CachedImageDigestPair(context.Background(), cache, orgID, imageRef, "sha256:source", nil, nil, resolve)
 		require.NoError(t, err)
 
 		require.Equal(t, first, second)
