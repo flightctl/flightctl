@@ -1,7 +1,6 @@
 package os
 
 import (
-	"bytes"
 	"context"
 	"debug/buildinfo"
 	"fmt"
@@ -11,7 +10,6 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
-	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -43,11 +41,7 @@ func collectOCIDelta(ctx context.Context, lookPath func(string) (string, error),
 func ociDeltaBuildVersion(path string) string {
 	// The pinned oci-delta build does not implement --version. Its Go module
 	// version is embedded in the executable by `go install`.
-	binary, err := fileio.NewReader().ReadFile(path)
-	if err != nil {
-		return ""
-	}
-	info, err := buildinfo.Read(bytes.NewReader(binary))
+	info, err := buildinfo.ReadFile(path)
 	if err != nil || info.Main.Path != ociDeltaModulePath || info.Main.Version == "" || info.Main.Version == "(devel)" {
 		return ""
 	}

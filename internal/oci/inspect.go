@@ -163,7 +163,7 @@ func InspectImageDigestPair(
 	if err != nil {
 		return ImageDigestPair{}, fmt.Errorf("resolve target image %s: %w", imageRef, err)
 	}
-	targetManifest, targetPlatform, err := resolveCompatibleTargetManifest(ctx, repo, targetDesc, sourcePlatform, 0)
+	targetManifest, _, err := resolveCompatibleTargetManifest(ctx, repo, targetDesc, sourcePlatform, 0)
 	if err != nil {
 		return ImageDigestPair{}, fmt.Errorf("select target image manifest for %s on platform %+v: %w", imageRef, sourcePlatform, err)
 	}

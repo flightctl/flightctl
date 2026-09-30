@@ -56,5 +56,6 @@ spec:
         - name: {{ $.Chart.Name }}-sidecar
           image: {{ $.Values.sidecar.image | quote }}
           imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          command: ["sh", "-c", "sleep infinity"]
       {{ end }}
 {{- end }}
