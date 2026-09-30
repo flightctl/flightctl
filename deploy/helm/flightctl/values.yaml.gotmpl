@@ -318,7 +318,11 @@ worker:
   clusterLevelSecretAccess: false
   # -- Time budget for a single device render operation including VM conversion and DB writes (default "60s")
   renderTimeout: "60s"
-  # -- VM application render options passed to vm-to-quadlet
+  # -- Maximum age of cached OCI image digest resolutions used during delta preparation (default "15m")
+  imageDigestCacheTTL: "15m"
+  # -- Maximum age of cached Helm workload image references before the chart is rendered again (default "15m")
+  helmImageRefsCacheTTL: "15m"
+  # -- VM application render options passed to vm-to-quadlet by both worker services
   vmRender:
     # -- virt-launcher image used when converting VmApplications to Quadlet units (leave empty to use the worker default)
     launcherImage: ""

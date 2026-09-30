@@ -472,8 +472,18 @@ func observeOSDeltaUpdate(harness *e2e.Harness, fleetName, deviceId string, expe
 	if observedProgress {
 		tracker.lastLifecycleProgress = time.Now()
 	}
-	if expectation.expectsDeltaHint() && device.Status.Os.LastDelta != nil && device.Status.Os.LastDelta.FallbackReason != nil {
-		return snapshot, StopTrying(fmt.Sprintf("device %s fell back: %s", deviceId, *device.Status.Os.LastDelta.FallbackReason))
+	if expectation.expectsDeltaHint() && device.Status.Os.LastDelta != nil {
+		lastDelta := device.Status.Os.LastDelta
+		if lastDelta.Outcome == v1beta1.DeviceDeltaApplyOutcomeFallback {
+			reason := ""
+			if lastDelta.FallbackReason != nil {
+				reason = ": " + *lastDelta.FallbackReason
+			}
+			return snapshot, StopTrying(fmt.Sprintf("device %s reported delta outcome %q%s", deviceId, lastDelta.Outcome, reason))
+		}
+		if lastDelta.FallbackReason != nil {
+			return snapshot, StopTrying(fmt.Sprintf("device %s fell back: %s", deviceId, *lastDelta.FallbackReason))
+		}
 	}
 
 	snapshot.device = device
@@ -539,6 +549,19 @@ func validateSettledOSDeltaUpdate(snapshot deltaUpdateSnapshot, rendered *v1beta
 	delta := renderedDeltaImage(rendered)
 	if expectation.expectsDeltaHint() && (delta == "" || delta == v2Image) {
 		return StopTrying(fmt.Sprintf("device %s reached the target state without an OS delta hint", deviceId))
+	}
+	if expectation.expectsDeltaHint() {
+		deltaSize := snapshot.device.Status.Os.DeltaSize
+		if deltaSize == nil || *deltaSize == "" {
+			return retrySettledEvent(fmt.Errorf("device %s has not reported the control-plane OS delta size", deviceId), settledAt)
+		}
+		lastDelta := snapshot.device.Status.Os.LastDelta
+		if lastDelta == nil {
+			return retrySettledEvent(fmt.Errorf("device %s has not reported an OS delta outcome", deviceId), settledAt)
+		}
+		if lastDelta.Outcome != v1beta1.DeviceDeltaApplyOutcomeApplied {
+			return StopTrying(fmt.Sprintf("device %s reported OS delta outcome %q, expected %q", deviceId, lastDelta.Outcome, v1beta1.DeviceDeltaApplyOutcomeApplied))
+		}
 	}
 	if !expectation.expectsDeltaHint() && delta != "" {
 		return StopTrying(fmt.Sprintf("device %s has unexpected OS delta hint %q", deviceId, delta))

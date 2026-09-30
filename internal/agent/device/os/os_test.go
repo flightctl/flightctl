@@ -9,6 +9,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/deltastatus"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/container"
@@ -45,12 +46,14 @@ func TestManagerStatus(t *testing.T) {
 		name              string
 		caps              Capabilities
 		fallbackReason    *string
+		deltaOutcome      *v1beta1.DeviceDeltaApplyOutcomeType
 		bootedImage       string
 		bootedImageDigest string
 		expectedImage     string
 		expectedDigest    string
 		expectedEligible  bool
 		expectedReason    *string
+		expectedOutcome   *v1beta1.DeviceDeltaApplyOutcomeType
 	}{
 		{
 			name:              "When image mode and delta eligible it should populate os fields and DeltaEligible true",
@@ -83,12 +86,36 @@ func TestManagerStatus(t *testing.T) {
 			name:              "When fallback reason is set it should copy it to status",
 			caps:              Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.15.0", OCIDeltaVersion: "oci-delta 0.2.1"},
 			fallbackReason:    lo.ToPtr(fallbackReasonApply),
+			deltaOutcome:      lo.ToPtr(v1beta1.DeviceDeltaApplyOutcomeFallback),
 			bootedImage:       "quay.io/centos-bootc/centos-bootc:stream9",
 			bootedImageDigest: "sha256:a0b1c2d3",
 			expectedImage:     "quay.io/centos-bootc/centos-bootc:stream9",
 			expectedDigest:    "sha256:a0b1c2d3",
 			expectedEligible:  true,
 			expectedReason:    lo.ToPtr(fallbackReasonApply),
+			expectedOutcome:   lo.ToPtr(v1beta1.DeviceDeltaApplyOutcomeFallback),
+		},
+		{
+			name:              "When delta apply succeeds it should report the applied outcome",
+			caps:              Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.15.0", OCIDeltaVersion: "oci-delta 0.2.1"},
+			deltaOutcome:      lo.ToPtr(v1beta1.DeviceDeltaApplyOutcomeApplied),
+			bootedImage:       "quay.io/centos-bootc/centos-bootc:stream9",
+			bootedImageDigest: "sha256:a0b1c2d3",
+			expectedImage:     "quay.io/centos-bootc/centos-bootc:stream9",
+			expectedDigest:    "sha256:a0b1c2d3",
+			expectedEligible:  true,
+			expectedOutcome:   lo.ToPtr(v1beta1.DeviceDeltaApplyOutcomeApplied),
+		},
+		{
+			name:              "When the delta is not used it should report NotUsed",
+			caps:              Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.15.0", OCIDeltaVersion: "oci-delta 0.2.1"},
+			deltaOutcome:      lo.ToPtr(v1beta1.DeviceDeltaApplyOutcomeNotUsed),
+			bootedImage:       "quay.io/centos-bootc/centos-bootc:stream9",
+			bootedImageDigest: "sha256:a0b1c2d3",
+			expectedImage:     "quay.io/centos-bootc/centos-bootc:stream9",
+			expectedDigest:    "sha256:a0b1c2d3",
+			expectedEligible:  true,
+			expectedOutcome:   lo.ToPtr(v1beta1.DeviceDeltaApplyOutcomeNotUsed),
 		},
 		{
 			name:              "When fallback reason is nil it should omit lastDelta fallbackReason",
@@ -118,6 +145,7 @@ func TestManagerStatus(t *testing.T) {
 				client:         mockClient,
 				caps:           tc.caps,
 				fallbackReason: tc.fallbackReason,
+				deltaOutcome:   tc.deltaOutcome,
 			}
 
 			ctx := context.Background()
@@ -137,6 +165,7 @@ func TestManagerStatus(t *testing.T) {
 			require.NotNil(status.SystemInfo.OciDeltaVersion)
 			require.Equal("oci-delta 0.2.1", *status.SystemInfo.OciDeltaVersion)
 			require.Equal(tc.expectedReason, osLastDeltaFallback(status))
+			require.Equal(tc.expectedOutcome, osLastDeltaOutcome(status))
 		})
 	}
 }
@@ -159,6 +188,51 @@ func TestManagerStatusWhenClientFails(t *testing.T) {
 	err := m.Status(context.Background(), status)
 	require.ErrorIs(err, clientErr)
 	require.Nil(status.Capabilities)
+}
+
+func TestOSDeltaStatusPersistsAcrossRestartAndClearsForNewTarget(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockClient := NewMockClient(ctrl)
+	mockClient.EXPECT().Status(gomock.Any()).
+		Return(bootcStatus(testDesiredImage, testSourceDigest), nil).Times(3)
+
+	firstManager := newTestManager(t, mockClient, executer.NewMockExecuter(ctrl), nil, Capabilities{})
+	firstManager.deltaStatusStore = deltastatus.New(firstManager.readWriter, "/var/lib/flightctl", firstManager.log)
+
+	target := &v1beta1.DeviceOsSpec{Image: testDesiredImage, DeltaImage: lo.ToPtr(testDeltaRef)}
+	firstManager.startImageAttempt(target)
+	firstManager.recordDeltaResult(v1beta1.DeviceDeltaApplyOutcomeApplied, "", false)
+
+	// A new store and manager simulate restarting the agent process.
+	restartedStore := deltastatus.New(firstManager.readWriter, "/var/lib/flightctl", firstManager.log)
+	restartedManager := &manager{
+		client:           mockClient,
+		caps:             Capabilities{OsMode: v1beta1.OsModeImage},
+		log:              firstManager.log,
+		deltaStatusStore: restartedStore,
+	}
+	ctx := context.Background()
+	require.NoError(t, restartedManager.BeforeUpdate(ctx, nil, &v1beta1.DeviceSpec{Os: target}))
+
+	status := &v1beta1.DeviceStatus{}
+	require.NoError(t, restartedManager.Status(ctx, status))
+	require.NotNil(t, status.Os.LastDelta)
+	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeApplied, status.Os.LastDelta.Outcome)
+
+	// A hint refresh for the same desired image does not make its persisted
+	// application outcome stale.
+	refreshedHint := &v1beta1.DeviceOsSpec{Image: testDesiredImage, DeltaImage: lo.ToPtr("quay.io/acme/os-delta:v3")}
+	require.NoError(t, restartedManager.BeforeUpdate(ctx, &v1beta1.DeviceSpec{Os: target}, &v1beta1.DeviceSpec{Os: refreshedHint}))
+	status = &v1beta1.DeviceStatus{}
+	require.NoError(t, restartedManager.Status(ctx, status))
+	require.NotNil(t, status.Os.LastDelta)
+	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeApplied, status.Os.LastDelta.Outcome)
+
+	newTarget := &v1beta1.DeviceOsSpec{Image: "quay.io/acme/os:v3", DeltaImage: lo.ToPtr("quay.io/acme/os-delta:v3")}
+	require.NoError(t, restartedManager.BeforeUpdate(ctx, &v1beta1.DeviceSpec{Os: refreshedHint}, &v1beta1.DeviceSpec{Os: newTarget}))
+	status = &v1beta1.DeviceStatus{}
+	require.NoError(t, restartedManager.Status(ctx, status))
+	require.Nil(t, status.Os.LastDelta)
 }
 
 func TestCollectOCITargets(t *testing.T) {
@@ -568,6 +642,13 @@ func osLastDeltaFallback(status *v1beta1.DeviceStatus) *string {
 		return nil
 	}
 	return status.Os.LastDelta.FallbackReason
+}
+
+func osLastDeltaOutcome(status *v1beta1.DeviceStatus) *v1beta1.DeviceDeltaApplyOutcomeType {
+	if status.Os.LastDelta == nil {
+		return nil
+	}
+	return &status.Os.LastDelta.Outcome
 }
 
 func expectPullConfig(t *testing.T, mockResolver *dependency.MockPullConfigResolver) {

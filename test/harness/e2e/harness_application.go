@@ -1092,7 +1092,7 @@ func (h *Harness) getUserOnVM(user string) (uid, home string, err error) {
 func (h *Harness) RunShellAsUserOnVM(user, command string) (string, error) {
 	var remote string
 	if user == "root" {
-		remote = fmt.Sprintf("sudo sh -c %q", command)
+		remote = fmt.Sprintf("sudo sh -c %s", shellQuote(command))
 	} else {
 		uid, home, err := h.getUserOnVM(user)
 		if err != nil {
@@ -1100,8 +1100,8 @@ func (h *Harness) RunShellAsUserOnVM(user, command string) (string, error) {
 		}
 		// Bake in the numeric UID. $(id -u) is expanded by the outer bash -lc as the
 		// SSH user, not the target user, so it cannot be used here.
-		inner := fmt.Sprintf("cd /tmp && env HOME=%q XDG_RUNTIME_DIR=/run/user/%s %s", home, uid, command)
-		remote = fmt.Sprintf("sudo -u %q sh -c %q", user, inner)
+		inner := fmt.Sprintf("cd /tmp && env HOME=%s XDG_RUNTIME_DIR=/run/user/%s %s", shellQuote(home), uid, command)
+		remote = fmt.Sprintf("sudo -u %s sh -c %s", shellQuote(user), shellQuote(inner))
 	}
 	out, err := h.VM.RunSSH(vmShellCommandArgs(remote), nil)
 	if err != nil {

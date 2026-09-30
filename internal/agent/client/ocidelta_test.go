@@ -97,10 +97,10 @@ func TestOCIDeltaImport(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(
 					gomock.Any(),
 					"oci-delta",
-					"apply",
-					"--container-storage",
-					deltaRef,
+					"import",
+					"--tag",
 					targetRef,
+					deltaRef,
 				).Return("", "", 0)
 			},
 		},
@@ -110,10 +110,10 @@ func TestOCIDeltaImport(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(
 					gomock.Any(),
 					"oci-delta",
-					"apply",
-					"--container-storage",
-					deltaRef,
+					"import",
+					"--tag",
 					targetRef,
+					deltaRef,
 				).Return("", "Error: diff_id mismatch", 1)
 			},
 			expectedError: true,

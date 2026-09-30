@@ -30,6 +30,12 @@ data:
         {{- if .Values.worker.renderTimeout }}
         renderTimeout: {{ .Values.worker.renderTimeout | quote }}
         {{- end }}
+        {{- if .Values.worker.imageDigestCacheTTL }}
+        imageDigestCacheTTL: {{ .Values.worker.imageDigestCacheTTL | quote }}
+        {{- end }}
+        {{- if .Values.worker.helmImageRefsCacheTTL }}
+        helmImageRefsCacheTTL: {{ .Values.worker.helmImageRefsCacheTTL | quote }}
+        {{- end }}
         vmRender:
             {{- $vmRender := (.Values.worker).vmRender | default dict }}
             {{- if $vmRender.launcherImage }}

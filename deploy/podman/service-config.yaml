@@ -115,7 +115,10 @@ grafana:
 
 prometheus:
 
-# Worker VM render options (optional). Uncomment to override defaults.
+# Shared worker options for flightctl-worker and flightctl-delta-worker.
+# Uncomment to override defaults.
+# imageDigestCacheTTL and helmImageRefsCacheTTL bound how long mutable image
+# references and Helm chart outputs can remain cached in the shared KV store.
 # Leave launcherImage unset to use the worker built-in default
 # (quay.io/kubevirt/virt-launcher:v1.9.0). launcherImages selects by os-release
 # ID and major from status.systemInfo (e.g. rhel + "9.5 (Plow)" -> "rhel-9").
@@ -125,6 +128,8 @@ prometheus:
 # Enable passtWorkarounds only when using older virt-launcher images that need it.
 # worker:
 #   renderTimeout: 60s
+#   imageDigestCacheTTL: 15m
+#   helmImageRefsCacheTTL: 15m
 #   vmRender:
 #     launcherImage: ""
 #     launcherImages:

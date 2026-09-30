@@ -225,6 +225,11 @@ func TestShouldValidateFleet(t *testing.T) {
 			expected: true,
 		},
 		{
+			name:     "FleetUpdatedWithGenericSpec",
+			event:    createTestEventWithDetails(domain.FleetKind, domain.EventReasonResourceUpdated, "fleet1", createResourceUpdatedDetails(t, domain.Spec)),
+			expected: true,
+		},
+		{
 			name:     "FleetUpdatedWithOtherFields",
 			event:    createTestEventWithDetails(domain.FleetKind, domain.EventReasonResourceUpdated, "fleet1", createResourceUpdatedDetails(t, domain.SpecSelector)),
 			expected: false,

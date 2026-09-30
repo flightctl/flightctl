@@ -28,6 +28,12 @@ worker:
   {{- if and .worker .worker.renderTimeout }}
   renderTimeout: {{.worker.renderTimeout}}
   {{- end }}
+  {{- if and .worker .worker.imageDigestCacheTTL }}
+  imageDigestCacheTTL: {{.worker.imageDigestCacheTTL}}
+  {{- end }}
+  {{- if and .worker .worker.helmImageRefsCacheTTL }}
+  helmImageRefsCacheTTL: {{.worker.helmImageRefsCacheTTL}}
+  {{- end }}
   vmRender:
     {{- if and .worker .worker.vmRender .worker.vmRender.launcherImage }}
     launcherImage: {{.worker.vmRender.launcherImage}}

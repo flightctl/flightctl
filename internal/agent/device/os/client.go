@@ -2,6 +2,7 @@ package os
 
 import (
 	"context"
+	"debug/buildinfo"
 	"fmt"
 	stdexec "os/exec"
 	"strings"
@@ -14,7 +15,10 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
-const versionCmdTimeout = 10 * time.Second
+const (
+	versionCmdTimeout  = 10 * time.Second
+	ociDeltaModulePath = "github.com/containers/oci-delta"
+)
 
 func collectBootcVersion(ctx context.Context, lookPath func(string) (string, error), bootcVersion func(context.Context) (string, error)) string {
 	if _, err := lookPath("bootc"); err != nil {
@@ -24,10 +28,24 @@ func collectBootcVersion(ctx context.Context, lookPath func(string) (string, err
 }
 
 func collectOCIDelta(ctx context.Context, lookPath func(string) (string, error), ociDeltaVersion func(context.Context) (string, error)) (string, bool) {
-	if _, err := lookPath("oci-delta"); err != nil {
+	path, err := lookPath("oci-delta")
+	if err != nil {
 		return "", false
 	}
-	return versionString(ctx, ociDeltaVersion), true
+	if version := versionString(ctx, ociDeltaVersion); version != "" {
+		return version, true
+	}
+	return ociDeltaBuildVersion(path), true
+}
+
+func ociDeltaBuildVersion(path string) string {
+	// The pinned oci-delta build does not implement --version. Its Go module
+	// version is embedded in the executable by `go install`.
+	info, err := buildinfo.ReadFile(path)
+	if err != nil || info.Main.Path != ociDeltaModulePath || info.Main.Version == "" || info.Main.Version == "(devel)" {
+		return ""
+	}
+	return "oci-delta " + info.Main.Version
 }
 
 func versionString(ctx context.Context, fn func(context.Context) (string, error)) string {

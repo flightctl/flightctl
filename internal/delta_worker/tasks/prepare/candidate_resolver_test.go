@@ -281,7 +281,7 @@ func TestDeltaCandidates_SkipPaths(t *testing.T) {
 			}, nil),
 			RepositoryService: testRepositoryService(),
 			Config:            &deltaconfig.DeltaGenerationConfig{},
-			Render: func(_ context.Context, _ uuid.UUID, _ *domain.DeviceSpec) (tasks.RenderedSpec, error) {
+			Render: func(_ context.Context, _ uuid.UUID, _ *domain.Device, _ *domain.DeviceSpec) (tasks.RenderedSpec, error) {
 				t.Fatal("render must not run for an ineligible device")
 				return tasks.RenderedSpec{}, nil
 			},
@@ -299,7 +299,7 @@ func TestDeltaCandidates_SkipPaths(t *testing.T) {
 			}, nil),
 			RepositoryService: testRepositoryService(),
 			Config:            &deltaconfig.DeltaGenerationConfig{},
-			Render: func(_ context.Context, _ uuid.UUID, _ *domain.DeviceSpec) (tasks.RenderedSpec, error) {
+			Render: func(_ context.Context, _ uuid.UUID, _ *domain.Device, _ *domain.DeviceSpec) (tasks.RenderedSpec, error) {
 				t.Fatal("render must not run when current digest is missing and Expand is nil")
 				return tasks.RenderedSpec{}, nil
 			},
@@ -477,7 +477,7 @@ func TestDeltaCandidates_ResolveOSFromUnsavedRender(t *testing.T) {
 			}),
 			RepositoryService: testRepositoryService(),
 			Config:            &deltaconfig.DeltaGenerationConfig{},
-			Render: func(_ context.Context, _ uuid.UUID, spec *domain.DeviceSpec) (tasks.RenderedSpec, error) {
+			Render: func(_ context.Context, _ uuid.UUID, _ *domain.Device, spec *domain.DeviceSpec) (tasks.RenderedSpec, error) {
 				return tasks.RenderedSpec{OsImage: spec.Os.Image}, nil
 			},
 			Inspect: func(_ context.Context, _ uuid.UUID, image string) (string, error) {
@@ -570,7 +570,7 @@ func TestDeltaCandidates_ResolveOSFromUnsavedRender(t *testing.T) {
 				Status:   &domain.TemplateVersionStatus{Os: &domain.DeviceOsSpec{Image: "quay.io/acme/os:{{ .metadata.name }}"}},
 			}, nil
 		})
-		r.Render = func(_ context.Context, _ uuid.UUID, spec *domain.DeviceSpec) (tasks.RenderedSpec, error) {
+		r.Render = func(_ context.Context, _ uuid.UUID, _ *domain.Device, spec *domain.DeviceSpec) (tasks.RenderedSpec, error) {
 			if spec.Os.Image == "quay.io/acme/os:bad" {
 				return tasks.RenderedSpec{}, fmt.Errorf("git fetch failed")
 			}
@@ -617,7 +617,7 @@ func TestDeltaCandidates_ResolveOSFromUnsavedRender(t *testing.T) {
 				deviceWithOS("good", true, currentDig),
 			}, nil
 		})
-		r.Render = func(_ context.Context, _ uuid.UUID, spec *domain.DeviceSpec) (tasks.RenderedSpec, error) {
+		r.Render = func(_ context.Context, _ uuid.UUID, _ *domain.Device, spec *domain.DeviceSpec) (tasks.RenderedSpec, error) {
 			if spec.Os.Image == "bad" {
 				return tasks.RenderedSpec{OsImage: "not a valid image!!!"}, nil
 			}
@@ -638,7 +638,7 @@ func TestDeltaCandidates_ResolveOSFromUnsavedRender(t *testing.T) {
 		r.DeviceService = mockDeviceService(nil, func(_ context.Context, _ uuid.UUID, _ string) ([]*domain.Device, error) {
 			return []*domain.Device{deviceWithOS("d1", true, currentDig)}, nil
 		})
-		r.Render = func(_ context.Context, _ uuid.UUID, _ *domain.DeviceSpec) (tasks.RenderedSpec, error) {
+		r.Render = func(_ context.Context, _ uuid.UUID, _ *domain.Device, _ *domain.DeviceSpec) (tasks.RenderedSpec, error) {
 			return tasks.RenderedSpec{OsImage: "not a valid image!!!"}, nil
 		}
 		r.Inspect = func(_ context.Context, _ uuid.UUID, _ string) (string, error) {
@@ -675,7 +675,7 @@ func TestDeltaCandidates_ResolveOSFromUnsavedRender(t *testing.T) {
 		r.DeviceService = mockDeviceService(nil, func(_ context.Context, _ uuid.UUID, _ string) ([]*domain.Device, error) {
 			return []*domain.Device{deviceWithOS("d1", true, currentDig)}, nil
 		})
-		r.Render = func(_ context.Context, _ uuid.UUID, _ *domain.DeviceSpec) (tasks.RenderedSpec, error) {
+		r.Render = func(_ context.Context, _ uuid.UUID, _ *domain.Device, _ *domain.DeviceSpec) (tasks.RenderedSpec, error) {
 			return tasks.RenderedSpec{}, nil
 		}
 		result, err := r.DeltaCandidates(ctx, fleetPrepareEvent(orgId, "fleet-1", "tv-1"))
@@ -769,7 +769,7 @@ func TestDeltaCandidates_DedupInOrg(t *testing.T) {
 		}),
 		RepositoryService: testRepositoryService(),
 		Config:            &deltaconfig.DeltaGenerationConfig{},
-		Render: func(_ context.Context, _ uuid.UUID, spec *domain.DeviceSpec) (tasks.RenderedSpec, error) {
+		Render: func(_ context.Context, _ uuid.UUID, _ *domain.Device, spec *domain.DeviceSpec) (tasks.RenderedSpec, error) {
 			return tasks.RenderedSpec{OsImage: spec.Os.Image}, nil
 		},
 		Inspect: func(_ context.Context, _ uuid.UUID, _ string) (string, error) {

@@ -169,6 +169,14 @@ const (
 	DeviceDecommissionTargetTypeUnenroll     DeviceDecommissionTargetType = "Unenroll"
 )
 
+// Defines values for DeviceDeltaApplyOutcomeType.
+const (
+	DeviceDeltaApplyOutcomeApplied  DeviceDeltaApplyOutcomeType = "Applied"
+	DeviceDeltaApplyOutcomeFallback DeviceDeltaApplyOutcomeType = "Fallback"
+	DeviceDeltaApplyOutcomeNotUsed  DeviceDeltaApplyOutcomeType = "NotUsed"
+	DeviceDeltaApplyOutcomePartial  DeviceDeltaApplyOutcomeType = "Partial"
+)
+
 // Defines values for DeviceIntegrityCheckStatusType.
 const (
 	DeviceIntegrityCheckStatusFailed      DeviceIntegrityCheckStatusType = "Failed"
@@ -736,9 +744,9 @@ type ApplicationEnvVars struct {
 	EnvVars *map[string]string `json:"envVars,omitempty"`
 }
 
-// ApplicationImageDigest An image reference and, when known, its content digest in local storage.
+// ApplicationImageDigest An image reference and its known registry image digest.
 type ApplicationImageDigest struct {
-	// Digest Content digest of the image in local storage (e.g. sha256:abc...). Omitted when the local digest is unknown.
+	// Digest Registry digest associated with this image. If the runtime identifies a platform-specific image, this may differ from the digest in the image reference. Omitted when unavailable.
 	Digest string `json:"digest,omitempty"`
 
 	// Image Image reference as it appears in the rendered application spec.
@@ -1159,13 +1167,13 @@ type Condition struct {
 	// LastTransitionTime The last time the condition transitioned from one status to another.
 	LastTransitionTime time.Time `json:"lastTransitionTime"`
 
-	// Message Human readable message indicating details about last transition.
+	// Message A human-readable message describing the condition, including details or progress. Consumers should not parse this field.
 	Message string `json:"message"`
 
 	// ObservedGeneration The .metadata.generation that the condition was set based upon.
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
 
-	// Reason A (brief) reason for the condition's last transition.
+	// Reason A brief, machine-readable reason for the condition's last transition. Use a stable CamelCase identifier and put human-readable details in message.
 	Reason string `json:"reason"`
 
 	// Status Status of the condition, one of True, False, Unknown.
@@ -1180,13 +1188,13 @@ type ConditionBase struct {
 	// LastTransitionTime The last time the condition transitioned from one status to another.
 	LastTransitionTime time.Time `json:"lastTransitionTime"`
 
-	// Message Human readable message indicating details about last transition.
+	// Message A human-readable message describing the condition, including details or progress. Consumers should not parse this field.
 	Message string `json:"message"`
 
 	// ObservedGeneration The .metadata.generation that the condition was set based upon.
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
 
-	// Reason A (brief) reason for the condition's last transition.
+	// Reason A brief, machine-readable reason for the condition's last transition. Use a stable CamelCase identifier and put human-readable details in message.
 	Reason string `json:"reason"`
 
 	// Status Status of the condition, one of True, False, Unknown.
@@ -1387,13 +1395,16 @@ type DeviceApplicationStatus struct {
 	// AppType The type of the application.
 	AppType AppType `json:"appType"`
 
+	// DeltaSize Expected total size of control-plane generated delta images for this application update in IEC units (e.g. "245.3 MiB", "1 GiB"). Computed as the sum of generated delta image sizes across the application. Absent when no delta image was generated or any generated delta image size is unknown. Full image sizes are not included.
+	DeltaSize *string `json:"deltaSize,omitempty"`
+
 	// Embedded Whether the application is embedded in the bootc image.
 	Embedded bool `json:"embedded"`
 
-	// ImageDigests Image references this application uses and their known content digests in local storage. image is the ref from the current rendered spec (tag or digest). digest is omitted when the local digest is unknown. When image is already a digest ref, digest matches the ref's digest.
+	// ImageDigests Image references this application uses and the registry digest associated with each image. image is the ref from the current rendered spec (tag or digest). For a multi-platform index, digest is the platform-specific manifest selected by the runtime when available; if the runtime exposes only an opaque ID, an immutable image reference's digest may be reported. digest is omitted when no registry digest is known.
 	ImageDigests *[]ApplicationImageDigest `json:"imageDigests,omitempty"`
 
-	// LastDelta Result of the most recent delta apply attempt for this update target.
+	// LastDelta Agent-reported result for delta apply attempts for this update target. For an application with multiple image targets, the outcome is aggregated across image targets. The lastDelta field is omitted until the agent reports an outcome; server-side delta preparation is reported separately.
 	LastDelta *DeviceDeltaApplyStatus `json:"lastDelta,omitempty"`
 
 	// Name Human readable name of the application.
@@ -1407,9 +1418,6 @@ type DeviceApplicationStatus struct {
 
 	// RunAs The username of the system user this application is runing under. If blank, the application is run as the same user as the agent (generally root).
 	RunAs Username `json:"runAs,omitempty"`
-
-	// Size Expected total download size for this application update in IEC units (e.g. "245.3 MiB", "1 GiB"). Computed as the sum of all required image pair sizes (parent + nested + volumes), using delta payload size when available or full image payload size otherwise. Absent when no image download is required or any required image size is unknown.
-	Size *string `json:"size,omitempty"`
 
 	// Status Status of a single application on the device.
 	Status ApplicationStatusType `json:"status"`
@@ -1457,13 +1465,16 @@ type DeviceDecommission struct {
 // DeviceDecommissionTargetType Specifies the desired decommissioning method of the device.
 type DeviceDecommissionTargetType string
 
-// DeviceDeltaApplyStatus Result of the most recent delta apply attempt for this update target.
+// DeviceDeltaApplyOutcomeType Result reported by the agent for an update target. NotUsed means the agent skipped delta application without a delta-apply failure; it may still use a full image pull. Applied means all delta work for the target succeeded. Fallback means a delta attempt failed and the agent attempted a full image pull. Partial means an application applied at least one delta while another image target used a full image pull or skipped delta application.
+type DeviceDeltaApplyOutcomeType string
+
+// DeviceDeltaApplyStatus Agent-reported result for delta apply attempts for this update target. For an application with multiple image targets, the outcome is aggregated across image targets. The lastDelta field is omitted until the agent reports an outcome; server-side delta preparation is reported separately.
 type DeviceDeltaApplyStatus struct {
-	// FallbackReason Set when the most recent update attempt fell back from a delta to a full image pull. Absent if no delta was attempted or the delta succeeded. Cleared when the next update attempt for this target starts.
+	// FallbackReason Set when one or more delta attempts failed and the agent attempted a full image pull. For an application with multiple image targets, this reports one representative failure reason.
 	FallbackReason *string `json:"fallbackReason,omitempty"`
 
-	// Size Expected delta size in IEC units (KiB, MiB, GiB, or TiB). Absent when the size is not yet known.
-	Size *string `json:"size,omitempty"`
+	// Outcome Result reported by the agent for an update target. NotUsed means the agent skipped delta application without a delta-apply failure; it may still use a full image pull. Applied means all delta work for the target succeeded. Fallback means a delta attempt failed and the agent attempted a full image pull. Partial means an application applied at least one delta while another image target used a full image pull or skipped delta application.
+	Outcome DeviceDeltaApplyOutcomeType `json:"outcome"`
 }
 
 // DeviceEnrollmentHooksStatus Enrollment hooks state for a device.
@@ -1582,7 +1593,7 @@ type DeviceOsSpec struct {
 	// CatalogItemRef A reference to a catalog item, along with its configuration.
 	CatalogItemRef *CatalogItemRefSpec `json:"catalogItemRef,omitempty"`
 
-	// DeltaImage Optional hint: a reference to a delta artifact the control plane's generation records indicate may be applicable to reach `image` from this device's current image. Absent does not imply no delta exists — the device independently discovers candidate delta artifacts (e.g. deltas published by a customer's own CI) regardless of this field, and falls back to a full pull only if none is usable.
+	// DeltaImage Optional hint: a reference to a delta artifact the control plane's generation records indicate may be applicable to reach `image` from this device's current image. Absent does not imply no delta exists — the device independently discovers candidate delta artifacts (e.g. deltas published by a customer's own CI) regardless of this field, and falls back to a full pull only if none is usable. Read-only: generated by the control plane and only present in the rendered device spec delivered to the agent.
 	DeltaImage *string `json:"deltaImage,omitempty"`
 
 	// Image Reference to an OCI image or artifact with tag.
@@ -1591,13 +1602,16 @@ type DeviceOsSpec struct {
 
 // DeviceOsStatus Current status of the device OS.
 type DeviceOsStatus struct {
+	// DeltaSize Size of the control-plane generated OS delta image in IEC units (e.g. "245.3 MiB", "1 GiB"). Absent when no delta image was generated or its size is unknown.
+	DeltaSize *string `json:"deltaSize,omitempty"`
+
 	// Image Version of the OS image.
 	Image string `json:"image"`
 
 	// ImageDigest The digest of the OS image (e.g. sha256:a0...).
 	ImageDigest string `json:"imageDigest"`
 
-	// LastDelta Result of the most recent delta apply attempt for this update target.
+	// LastDelta Agent-reported result for delta apply attempts for this update target. For an application with multiple image targets, the outcome is aggregated across image targets. The lastDelta field is omitted until the agent reports an outcome; server-side delta preparation is reported separately.
 	LastDelta *DeviceDeltaApplyStatus `json:"lastDelta,omitempty"`
 }
 
@@ -1772,7 +1786,7 @@ type DeviceSystemInfo struct {
 	// DeltaEligible Whether this device can consume OCI deltas. True when the oci-delta binary is present. False when it is not. Omitted when an older agent does not report the field.
 	DeltaEligible *bool `json:"deltaEligible,omitempty"`
 
-	// OciDeltaVersion Version reported by `oci-delta --version`. Absent when oci-delta is not installed or the version command fails.
+	// OciDeltaVersion Version reported by `oci-delta --version`, or from Go module build information when that flag is unsupported. Absent when oci-delta is not installed or its version cannot be determined.
 	OciDeltaVersion *string `json:"ociDeltaVersion,omitempty"`
 
 	// OperatingSystem The Operating System reported by the device.
@@ -2626,7 +2640,7 @@ type HttpRepoSpecType string
 // ImageApplicationProviderSpec Reference to an OCI image or artifact with tag.
 type ImageApplicationProviderSpec = ImageSpec
 
-// ImageDeltaHint A delta hint for a nested image within an application.
+// ImageDeltaHint A control-plane-generated delta hint for a nested image within an application. Present only in rendered application specs delivered to the agent.
 type ImageDeltaHint struct {
 	// DeltaImage Reference to the delta artifact for this nested image.
 	DeltaImage string `json:"deltaImage"`
@@ -2661,10 +2675,10 @@ type ImagePullPolicy string
 
 // ImageSpec Reference to an OCI image or artifact with tag.
 type ImageSpec struct {
-	// DeltaImage Optional hint: a reference to a delta artifact for the main image. Set by the control plane when a successful delta generation record exists for the current-to-target digest transition.
+	// DeltaImage Optional hint: a reference to a delta artifact for the main image. Set by the control plane when a successful delta generation record exists for the current-to-target digest transition. Read-only: generated by the control plane and only present in the rendered application spec delivered to the agent.
 	DeltaImage *string `json:"deltaImage,omitempty"`
 
-	// DeltaImages Optional hints for nested images within this application (e.g. service images in a compose app, OCI volume images). Each entry identifies a target image reference and digest and names its delta artifact reference.
+	// DeltaImages Optional hints for nested images within this application (e.g. service images in a compose app, OCI volume images). Each entry identifies a target image reference and digest and names its delta artifact reference. Read-only: generated by the control plane and only present in the rendered application spec delivered to the agent.
 	DeltaImages *[]ImageDeltaHint `json:"deltaImages,omitempty"`
 
 	// Image Reference to an OCI image or artifact with tag.
@@ -2691,7 +2705,7 @@ type ImageVolumeSource struct {
 
 // InlineApplicationProviderSpec defines model for InlineApplicationProviderSpec.
 type InlineApplicationProviderSpec struct {
-	// DeltaImages Optional hints for nested OCI images referenced by this inline application. Each entry identifies a target image reference and digest and names its delta artifact.
+	// DeltaImages Optional hints for nested OCI images referenced by this inline application. Each entry identifies a target image reference and digest and names its delta artifact. Read-only: generated by the control plane and only present in the rendered application spec delivered to the agent.
 	DeltaImages *[]ImageDeltaHint `json:"deltaImages,omitempty"`
 
 	// Inline A list of application content.

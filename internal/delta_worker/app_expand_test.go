@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/google/uuid"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -161,6 +162,59 @@ func TestExpandAppCandidates(t *testing.T) {
 
 		result := expandAppCandidates(ctx, logger, orgId, device, rendered, nil, inspectOK)
 		require.Len(t, result, 1)
+	})
+
+	t.Run("When target Helm rendering reveals a changed workload tag it should produce a candidate", func(t *testing.T) {
+		app := helmApp("quay.io/acme/chart:v2")
+		rendered := renderedWithApps(t, app)
+		rendered.Config = []byte("[]")
+		device := deviceWithImageDigests("helm-app", "quay.io/acme/web:v1", "sha256:source")
+		var renderCalls int
+		var inspectCalls int
+		inspect := func(_ context.Context, _ uuid.UUID, image string, sourceDigest string, _ *ocispec.Platform) (string, string, error) {
+			inspectCalls++
+			assert.Equal(t, "quay.io/acme/web:v2", image)
+			assert.Equal(t, "sha256:source", sourceDigest)
+			return sourceDigest, "sha256:target", nil
+		}
+		renderHelm := func(_ context.Context, _ uuid.UUID, _ *domain.Device, helm v1beta1.HelmApplication, config []byte) ([]string, error) {
+			renderCalls++
+			assert.Equal(t, "[]", string(config))
+			assert.Equal(t, "helm-app", lo.FromPtr(helm.Name))
+			return []string{"quay.io/acme/web:v2"}, nil
+		}
+
+		result := expandAppCandidatesForSourceWithHelm(ctx, logger, orgId, device, rendered, nil, inspect, renderHelm)
+
+		require.Len(t, result, 1)
+		assert.Equal(t, "quay.io/acme/web", result[0].ImageRepository)
+		assert.Equal(t, "sha256:source", result[0].CurrentDigest)
+		assert.Equal(t, "sha256:target", result[0].NewDigest)
+		assert.Equal(t, 1, renderCalls)
+		assert.Equal(t, 1, inspectCalls)
+	})
+
+	t.Run("When target Helm rendering fails it should skip stale reported workload images", func(t *testing.T) {
+		app := helmApp("quay.io/acme/chart:v2")
+		rendered := renderedWithApps(t, app)
+		rendered.Config = []byte("[]")
+		device := deviceWithImageDigests("helm-app", "quay.io/acme/web:v1", "sha256:source")
+		var renderCalls int
+		var inspectCalls int
+		inspect := func(_ context.Context, _ uuid.UUID, _ string, _ string, _ *ocispec.Platform) (string, string, error) {
+			inspectCalls++
+			return "sha256:source", "sha256:target", nil
+		}
+		renderHelm := func(_ context.Context, _ uuid.UUID, _ *domain.Device, _ v1beta1.HelmApplication, _ []byte) ([]string, error) {
+			renderCalls++
+			return nil, fmt.Errorf("chart unavailable")
+		}
+
+		result := expandAppCandidatesForSourceWithHelm(ctx, logger, orgId, device, rendered, nil, inspect, renderHelm)
+
+		assert.Empty(t, result)
+		assert.Equal(t, 1, renderCalls)
+		assert.Zero(t, inspectCalls)
 	})
 
 	t.Run("When applications JSON is invalid it should return candidates unchanged", func(t *testing.T) {
