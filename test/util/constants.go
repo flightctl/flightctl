@@ -7,6 +7,7 @@ const (
 	Device                    = "device"
 	Fleet                     = "fleet"
 	EnrollmentRequest         = "enrollmentrequest"
+	EnrollmentHookPolicy      = "enrollmenthookpolicy"
 	Repository                = "repository"
 	ResourceSync              = "resourcesync"
 	CertificateSigningRequest = "certificatesigningrequest"
@@ -75,6 +76,7 @@ var ResourceTypes = [...]string{
 	Fleet,
 	Device,
 	EnrollmentRequest,
+	EnrollmentHookPolicy,
 	Repository,
 	CertificateSigningRequest,
 }

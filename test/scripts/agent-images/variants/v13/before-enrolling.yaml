@@ -1,0 +1,1 @@
+- run: /usr/lib/flightctl/e2e-hooks/e2e-before-enrolling.sh
