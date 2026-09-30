@@ -3166,9 +3166,6 @@ paths:
         - enrollmenthookpolicy
       description: List EnrollmentHookPolicy resources.
       operationId: listEnrollmentHookPolicies
-      security:
-        - bearerAuth: []
-          orgId: []
       parameters:
         - name: continue
           in: query
@@ -3237,9 +3234,6 @@ paths:
         - enrollmenthookpolicy
       description: Create an EnrollmentHookPolicy resource.
       operationId: createEnrollmentHookPolicy
-      security:
-        - bearerAuth: []
-          orgId: []
       requestBody:
         content:
           application/json:
@@ -3309,9 +3303,6 @@ paths:
         - enrollmenthookpolicy
       description: Get an EnrollmentHookPolicy resource.
       operationId: getEnrollmentHookPolicy
-      security:
-        - bearerAuth: []
-          orgId: []
       parameters:
         - name: name
           in: path
@@ -3367,9 +3358,6 @@ paths:
         - enrollmenthookpolicy
       description: Update an EnrollmentHookPolicy resource.
       operationId: replaceEnrollmentHookPolicy
-      security:
-        - bearerAuth: []
-          orgId: []
       parameters:
         - name: name
           in: path
@@ -3443,9 +3431,6 @@ paths:
         - enrollmenthookpolicy
       description: Delete an EnrollmentHookPolicy resource.
       operationId: deleteEnrollmentHookPolicy
-      security:
-        - bearerAuth: []
-          orgId: []
       parameters:
         - name: name
           in: path
@@ -3501,9 +3486,6 @@ paths:
         - enrollmenthookpolicy
       description: Patch an EnrollmentHookPolicy resource.
       operationId: patchEnrollmentHookPolicy
-      security:
-        - bearerAuth: []
-          orgId: []
       parameters:
         - name: name
           in: path
