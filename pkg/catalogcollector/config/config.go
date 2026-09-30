@@ -14,6 +14,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"regexp"
 	"sort"
@@ -23,6 +24,16 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+// MetricsConfig holds configuration for the internal Prometheus metrics
+// endpoint. When Endpoint is empty, the default localhost:8888 is used.
+// Metrics are disabled only when the entire service.metrics block is absent
+// (i.e. the pointer in ServiceConfig is nil).
+type MetricsConfig struct {
+	// Endpoint is the host:port for the Prometheus metrics HTTP server.
+	// An empty value defaults to localhost:8888.
+	Endpoint string
+}
+
 // ServiceConfig holds service-level settings that are applied before any
 // component is constructed. All fields are optional.
 type ServiceConfig struct {
@@ -30,6 +41,11 @@ type ServiceConfig struct {
 	// collector. Accepted values: debug, info, warn, error. Absent means
 	// the caller's logger level is preserved unchanged.
 	LogLevel *string
+
+	// Metrics configures the internal Prometheus metrics endpoint.
+	// A nil pointer (absent service.metrics block) disables metrics.
+	// A non-nil pointer with an empty Endpoint defaults to localhost:8888.
+	Metrics *MetricsConfig
 }
 
 // Config is the fully parsed and validated collector configuration.
@@ -63,10 +79,17 @@ type PipelineConfig struct {
 	Destination string   `json:"destination"`
 }
 
+// rawMetricsConfig mirrors MetricsConfig for YAML deserialization through
+// rawConfig. Unknown fields are rejected by yaml.UnmarshalStrict.
+type rawMetricsConfig struct {
+	Endpoint string `json:"endpoint,omitempty"`
+}
+
 // rawServiceConfig is the intermediate representation for the service block.
 // Unknown fields are rejected by yaml.UnmarshalStrict through rawConfig.
 type rawServiceConfig struct {
-	LogLevel *string `json:"logLevel,omitempty"`
+	LogLevel *string           `json:"logLevel,omitempty"`
+	Metrics  *rawMetricsConfig `json:"metrics,omitempty"`
 }
 
 // rawConfig is the intermediate representation for two-pass YAML decoding.
@@ -131,9 +154,25 @@ func Parse(yamlBytes []byte) (*Config, error) {
 		return nil, err
 	}
 
+	// Translate the raw metrics pointer into the public config.
+	// nil raw pointer → nil public pointer (metrics disabled).
+	// non-nil raw pointer → non-nil public pointer; empty endpoint
+	// defaults to localhost:8888.
+	var metricsPtr *MetricsConfig
+	if raw.Service.Metrics != nil {
+		endpoint := raw.Service.Metrics.Endpoint
+		if endpoint == "" {
+			endpoint = "localhost:8888"
+		}
+		metricsPtr = &MetricsConfig{
+			Endpoint: endpoint,
+		}
+	}
+
 	cfg := &Config{
 		Service: ServiceConfig{
 			LogLevel: raw.Service.LogLevel,
+			Metrics:  metricsPtr,
 		},
 		Sources:      sources,
 		Processors:   processors,
@@ -407,6 +446,31 @@ func (c *Config) validate() error {
 				"service.logLevel %q is not supported; expected one of: debug, info, warn, error",
 				level,
 			)
+		}
+	}
+
+	if c.Service.Metrics != nil {
+		if endpoint := c.Service.Metrics.Endpoint; endpoint != "" {
+			host, port, err := net.SplitHostPort(endpoint)
+			if err != nil {
+				return fmt.Errorf(
+					"service.metrics.endpoint %q is not a valid host:port: %w",
+					endpoint,
+					err,
+				)
+			}
+			if host == "" {
+				return fmt.Errorf(
+					"service.metrics.endpoint %q has an empty host; both host and port are required",
+					endpoint,
+				)
+			}
+			if port == "" {
+				return fmt.Errorf(
+					"service.metrics.endpoint %q has an empty port; both host and port are required",
+					endpoint,
+				)
+			}
 		}
 	}
 

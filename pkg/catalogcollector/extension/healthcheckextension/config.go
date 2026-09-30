@@ -88,9 +88,23 @@ func validateProbePath(field, path string) error {
 			path,
 		)
 	}
-	if strings.TrimSpace(path) != path {
+	if strings.Contains(path, "%") {
 		return fmt.Errorf(
-			"%q %q must not contain leading or trailing whitespace",
+			"%q %q must not contain percent-encoded characters",
+			field,
+			path,
+		)
+	}
+	if strings.ContainsAny(path, "{}") {
+		return fmt.Errorf(
+			"%q %q must not contain '{' or '}' (ServeMux wildcards are not supported)",
+			field,
+			path,
+		)
+	}
+	if strings.ContainsAny(path, " \t\r\n") {
+		return fmt.Errorf(
+			"%q %q must not contain whitespace",
 			field,
 			path,
 		)

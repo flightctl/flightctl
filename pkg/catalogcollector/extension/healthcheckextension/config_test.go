@@ -98,7 +98,32 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name:      "When readyPath has trailing whitespace it should be rejected",
 			mutate:    func(c *Config) { c.ReadyPath = "/readyz " },
-			wantError: "leading or trailing whitespace",
+			wantError: "must not contain whitespace",
+		},
+		{
+			name:      "When livePath contains ServeMux wildcard braces it should be rejected",
+			mutate:    func(c *Config) { c.LivePath = "/livez/{id}" },
+			wantError: "ServeMux wildcards are not supported",
+		},
+		{
+			name:      "When readyPath contains ServeMux wildcard braces it should be rejected",
+			mutate:    func(c *Config) { c.ReadyPath = "/readyz/{id}" },
+			wantError: "ServeMux wildcards are not supported",
+		},
+		{
+			name:      "When livePath contains percent-encoded characters it should be rejected",
+			mutate:    func(c *Config) { c.LivePath = "/live%7A" },
+			wantError: "percent-encoded characters",
+		},
+		{
+			name:      "When readyPath contains percent-encoded characters it should be rejected",
+			mutate:    func(c *Config) { c.ReadyPath = "/ready%7A" },
+			wantError: "percent-encoded characters",
+		},
+		{
+			name:      "When livePath contains internal whitespace it should be rejected",
+			mutate:    func(c *Config) { c.LivePath = "/live z" },
+			wantError: "must not contain whitespace",
 		},
 	}
 

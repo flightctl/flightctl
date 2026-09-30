@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -19,6 +20,8 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/metric/noop"
 )
 
 // --- Test helpers ---
@@ -2013,6 +2016,7 @@ func TestRun_NotReadyBeforeExtensionShutdown(t *testing.T) {
 	readinessExt := &fakeReadinessExtension{}
 	var shutdownSeq []string
 	readinessExt.shutdownSeq = &shutdownSeq
+	sourceStarted := make(chan struct{})
 
 	cfg := minimalPipelineCfg()
 	cfg.Extensions = map[string]config.ComponentConfig{"healthext": cc("healthext")}
@@ -2020,7 +2024,7 @@ func TestRun_NotReadyBeforeExtensionShutdown(t *testing.T) {
 	svc, err := New(context.Background(), cfg, catalogcollector.Factories{
 		Sources: []catalogcollector.SourceFactory{
 			&fakeSourceFactory{typeName: "fake-source", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig, _ catalogcollector.Consumer) (catalogcollector.Source, error) {
-				return &blockingSource{started: make(chan struct{})}, nil
+				return &blockingSource{started: sourceStarted}, nil
 			}},
 		},
 		Destinations: []catalogcollector.DestinationFactory{
@@ -2040,8 +2044,23 @@ func TestRun_NotReadyBeforeExtensionShutdown(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- svc.Run(ctx) }()
 
-	// Allow sources to start and Ready to be called.
-	time.Sleep(50 * time.Millisecond)
+	// Wait for the source to enter its run loop.
+	select {
+	case <-sourceStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("source did not start")
+	}
+
+	// Wait for Ready to be called after the startup barrier completes.
+	require.Eventually(t, func() bool {
+		for _, c := range readinessExt.getReadyCalls() {
+			if c == "ready" {
+				return true
+			}
+		}
+		return false
+	}, 2*time.Second, 10*time.Millisecond, "Ready must be called after source enters run loop")
+
 	cancel()
 	require.NoError(t, <-done)
 
@@ -2113,6 +2132,7 @@ func TestRun_FatalSourceErrorTransitionsToNotReady(t *testing.T) {
 
 func TestRun_CallerCancellationTransitionsToNotReady(t *testing.T) {
 	readinessExt := &fakeReadinessExtension{}
+	sourceStarted := make(chan struct{})
 
 	cfg := minimalPipelineCfg()
 	cfg.Extensions = map[string]config.ComponentConfig{"healthext": cc("healthext")}
@@ -2120,7 +2140,7 @@ func TestRun_CallerCancellationTransitionsToNotReady(t *testing.T) {
 	svc, err := New(context.Background(), cfg, catalogcollector.Factories{
 		Sources: []catalogcollector.SourceFactory{
 			&fakeSourceFactory{typeName: "fake-source", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig, _ catalogcollector.Consumer) (catalogcollector.Source, error) {
-				return &blockingSource{started: make(chan struct{})}, nil
+				return &blockingSource{started: sourceStarted}, nil
 			}},
 		},
 		Destinations: []catalogcollector.DestinationFactory{
@@ -2140,7 +2160,23 @@ func TestRun_CallerCancellationTransitionsToNotReady(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- svc.Run(ctx) }()
 
-	time.Sleep(50 * time.Millisecond)
+	// Wait for the source to enter its run loop.
+	select {
+	case <-sourceStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("source did not start")
+	}
+
+	// Wait for Ready to be called after the startup barrier completes.
+	require.Eventually(t, func() bool {
+		for _, c := range readinessExt.getReadyCalls() {
+			if c == "ready" {
+				return true
+			}
+		}
+		return false
+	}, 2*time.Second, 10*time.Millisecond, "Ready must be called after source enters run loop")
+
 	cancel()
 	require.NoError(t, <-done)
 
@@ -2154,6 +2190,7 @@ func TestRun_ExtensionsNotImplementingReadinessUnaffected(t *testing.T) {
 	// extension. The service must not panic or skip the plain extension.
 	plainExt := &fakeExtension{}
 	readinessExt := &fakeReadinessExtension{}
+	sourceStarted := make(chan struct{})
 
 	cfg := minimalPipelineCfg()
 	cfg.Extensions = map[string]config.ComponentConfig{
@@ -2164,7 +2201,7 @@ func TestRun_ExtensionsNotImplementingReadinessUnaffected(t *testing.T) {
 	svc, err := New(context.Background(), cfg, catalogcollector.Factories{
 		Sources: []catalogcollector.SourceFactory{
 			&fakeSourceFactory{typeName: "fake-source", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig, _ catalogcollector.Consumer) (catalogcollector.Source, error) {
-				return &blockingSource{started: make(chan struct{})}, nil
+				return &blockingSource{started: sourceStarted}, nil
 			}},
 		},
 		Destinations: []catalogcollector.DestinationFactory{
@@ -2187,7 +2224,23 @@ func TestRun_ExtensionsNotImplementingReadinessUnaffected(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- svc.Run(ctx) }()
 
-	time.Sleep(50 * time.Millisecond)
+	// Wait for the source to enter its run loop.
+	select {
+	case <-sourceStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("source did not start")
+	}
+
+	// Wait for Ready to be called after the startup barrier completes.
+	require.Eventually(t, func() bool {
+		for _, c := range readinessExt.getReadyCalls() {
+			if c == "ready" {
+				return true
+			}
+		}
+		return false
+	}, 2*time.Second, 10*time.Millisecond, "Ready must be called after source enters run loop")
+
 	cancel()
 	require.NoError(t, <-done)
 
@@ -2223,7 +2276,7 @@ func TestRun_StartFailureMarksNotReadyOnStartedReadinessExtensions(t *testing.T)
 
 	cfg := minimalPipelineCfg()
 	cfg.Extensions = map[string]config.ComponentConfig{
-		"aaa-health/ok":  cc("aaa-health/ok"),
+		"aaa-health/ok":   cc("aaa-health/ok"),
 		"zzz-failing/bad": cc("zzz-failing/bad"),
 	}
 
@@ -2266,6 +2319,7 @@ func TestRun_StartFailureMarksNotReadyOnStartedReadinessExtensions(t *testing.T)
 func TestRun_MultipleReadinessExtensionsAllSignaled(t *testing.T) {
 	readinessA := &fakeReadinessExtension{}
 	readinessB := &fakeReadinessExtension{}
+	sourceStarted := make(chan struct{})
 
 	cfg := minimalPipelineCfg()
 	cfg.Extensions = map[string]config.ComponentConfig{
@@ -2281,7 +2335,7 @@ func TestRun_MultipleReadinessExtensionsAllSignaled(t *testing.T) {
 	svc, err := New(context.Background(), cfg, catalogcollector.Factories{
 		Sources: []catalogcollector.SourceFactory{
 			&fakeSourceFactory{typeName: "fake-source", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig, _ catalogcollector.Consumer) (catalogcollector.Source, error) {
-				return &blockingSource{started: make(chan struct{})}, nil
+				return &blockingSource{started: sourceStarted}, nil
 			}},
 		},
 		Destinations: []catalogcollector.DestinationFactory{
@@ -2301,7 +2355,30 @@ func TestRun_MultipleReadinessExtensionsAllSignaled(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- svc.Run(ctx) }()
 
-	time.Sleep(50 * time.Millisecond)
+	// Wait for the source to enter its run loop.
+	select {
+	case <-sourceStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("source did not start")
+	}
+
+	// Wait for both readiness extensions to receive Ready.
+	require.Eventually(t, func() bool {
+		for _, ext := range extMap {
+			hasReady := false
+			for _, c := range ext.getReadyCalls() {
+				if c == "ready" {
+					hasReady = true
+					break
+				}
+			}
+			if !hasReady {
+				return false
+			}
+		}
+		return true
+	}, 2*time.Second, 10*time.Millisecond, "all readiness extensions must receive Ready")
+
 	cancel()
 	require.NoError(t, <-done)
 
@@ -2319,5 +2396,233 @@ func TestRun_MultipleReadinessExtensionsAllSignaled(t *testing.T) {
 		}
 		assert.True(t, hasReady, "readiness extension %s must have received Ready", name)
 		assert.True(t, hasNotReady, "readiness extension %s must have received NotReady", name)
+	}
+}
+
+// =============================================================================
+// Metrics integration tests
+// =============================================================================
+
+func TestNew_FactoryReceivesMeterProvider(t *testing.T) {
+	var srcMP, dstMP, procMP, extMP metric.MeterProvider
+
+	cfg := &config.Config{
+		Sources:      map[string]config.ComponentConfig{"fake-source": cc("fake-source")},
+		Processors:   map[string]config.ComponentConfig{"fake-proc": cc("fake-proc")},
+		Destinations: map[string]config.ComponentConfig{"fake-dest": cc("fake-dest")},
+		Extensions:   map[string]config.ComponentConfig{"auth": cc("auth")},
+		Pipelines:    map[string]config.PipelineConfig{"p": {Source: "fake-source", Processors: []string{"fake-proc"}, Destination: "fake-dest"}},
+	}
+
+	_, err := New(context.Background(), cfg, catalogcollector.Factories{
+		Sources: []catalogcollector.SourceFactory{
+			&fakeSourceFactory{typeName: "fake-source", createFunc: func(_ context.Context, settings catalogcollector.Settings, _ catalogcollector.ComponentConfig, _ catalogcollector.Consumer) (catalogcollector.Source, error) {
+				srcMP = settings.MeterProvider
+				return &blockingSource{started: make(chan struct{})}, nil
+			}},
+		},
+		Processors: []catalogcollector.ProcessorFactory{
+			&fakeProcessorFactory{typeName: "fake-proc", createFunc: func(_ context.Context, settings catalogcollector.Settings, _ catalogcollector.ComponentConfig, next catalogcollector.Consumer) (catalogcollector.Consumer, error) {
+				procMP = settings.MeterProvider
+				return &recordingProcessor{next: next}, nil
+			}},
+		},
+		Destinations: []catalogcollector.DestinationFactory{
+			&fakeDestinationFactory{typeName: "fake-dest", createFunc: func(_ context.Context, settings catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Destination, error) {
+				dstMP = settings.MeterProvider
+				return &recordingConsumer{}, nil
+			}},
+		},
+		Extensions: []catalogcollector.ExtensionFactory{
+			&fakeExtensionFactory{typeName: "auth", createFunc: func(_ context.Context, settings catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Extension, error) {
+				extMP = settings.MeterProvider
+				return &fakeExtension{}, nil
+			}},
+		},
+	}, testSettings())
+	require.NoError(t, err)
+
+	// All components must receive the same non-nil MeterProvider.
+	require.NotNil(t, srcMP, "source must receive a MeterProvider")
+	require.NotNil(t, dstMP, "destination must receive a MeterProvider")
+	require.NotNil(t, procMP, "processor must receive a MeterProvider")
+	require.NotNil(t, extMP, "extension must receive a MeterProvider")
+	// When metrics are disabled (nil config), noop.MeterProvider is a value
+	// type that cannot be compared with assert.Same. Use equality instead.
+	assert.Equal(t, srcMP, dstMP, "all components must receive the same MeterProvider")
+	assert.Equal(t, srcMP, procMP)
+	assert.Equal(t, srcMP, extMP)
+}
+
+func TestNew_DisabledMetricsUsesNoopMeterProvider(t *testing.T) {
+	var srcMP metric.MeterProvider
+
+	cfg := minimalPipelineCfg()
+	// No metrics config → disabled.
+
+	_, err := New(context.Background(), cfg, catalogcollector.Factories{
+		Sources: []catalogcollector.SourceFactory{
+			&fakeSourceFactory{typeName: "fake-source", createFunc: func(_ context.Context, settings catalogcollector.Settings, _ catalogcollector.ComponentConfig, _ catalogcollector.Consumer) (catalogcollector.Source, error) {
+				srcMP = settings.MeterProvider
+				return &blockingSource{started: make(chan struct{})}, nil
+			}},
+		},
+		Destinations: []catalogcollector.DestinationFactory{
+			&fakeDestinationFactory{typeName: "fake-dest", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Destination, error) {
+				return &recordingConsumer{}, nil
+			}},
+		},
+	}, testSettings())
+	require.NoError(t, err)
+
+	require.NotNil(t, srcMP)
+	_, isNoop := srcMP.(noop.MeterProvider)
+	assert.True(t, isNoop, "disabled metrics must pass noop.MeterProvider to components")
+}
+
+func TestNew_ConstructionFailureDoesNotRetainMetricsPort(t *testing.T) {
+	probe, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	address := probe.Addr().String()
+	require.NoError(t, probe.Close())
+
+	cfg := minimalPipelineCfg()
+	cfg.Service.Metrics = &config.MetricsConfig{Endpoint: address}
+
+	// No factories are registered, so construction must fail after the meter
+	// provider has been created.
+	_, err = New(
+		context.Background(),
+		cfg,
+		catalogcollector.Factories{},
+		testSettings(),
+	)
+	require.Error(t, err)
+
+	listener, listenErr := net.Listen("tcp", address)
+	require.NoError(
+		t,
+		listenErr,
+		"failed service construction must not retain the metrics port",
+	)
+	require.NoError(t, listener.Close())
+}
+
+func TestRun_MetricsBindFailurePreventsSourceStart(t *testing.T) {
+	occupied, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, occupied.Close())
+	}()
+
+	sourceStarted := make(chan struct{})
+	cfg := minimalPipelineCfg()
+	cfg.Service.Metrics = &config.MetricsConfig{Endpoint: occupied.Addr().String()}
+
+	svc, err := New(context.Background(), cfg, catalogcollector.Factories{
+		Sources: []catalogcollector.SourceFactory{
+			&fakeSourceFactory{typeName: "fake-source", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig, _ catalogcollector.Consumer) (catalogcollector.Source, error) {
+				return &blockingSource{started: sourceStarted}, nil
+			}},
+		},
+		Destinations: []catalogcollector.DestinationFactory{
+			&fakeDestinationFactory{typeName: "fake-dest", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Destination, error) {
+				return &recordingConsumer{}, nil
+			}},
+		},
+	}, testSettings())
+	require.NoError(t, err)
+
+	runErr := svc.Run(context.Background())
+	require.Error(t, runErr)
+	require.ErrorContains(t, runErr, "starting metrics endpoint")
+
+	select {
+	case <-sourceStarted:
+		t.Fatal("source started despite metrics bind failure")
+	default:
+	}
+}
+
+func TestRun_UnexpectedMetricsServerExitStopsSources(t *testing.T) {
+	sourceStarted := make(chan struct{})
+	cfg := minimalPipelineCfg()
+	cfg.Service.Metrics = &config.MetricsConfig{Endpoint: "127.0.0.1:0"}
+
+	svc, err := New(context.Background(), cfg, catalogcollector.Factories{
+		Sources: []catalogcollector.SourceFactory{
+			&fakeSourceFactory{typeName: "fake-source", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig, _ catalogcollector.Consumer) (catalogcollector.Source, error) {
+				return &blockingSource{started: sourceStarted}, nil
+			}},
+		},
+		Destinations: []catalogcollector.DestinationFactory{
+			&fakeDestinationFactory{typeName: "fake-dest", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Destination, error) {
+				return &recordingConsumer{}, nil
+			}},
+		},
+	}, testSettings())
+	require.NoError(t, err)
+
+	done := make(chan error, 1)
+	go func() {
+		done <- svc.Run(context.Background())
+	}()
+
+	select {
+	case <-sourceStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("source did not start")
+	}
+
+	// Simulate an unexpected listener failure without invoking the runtime's
+	// normal Shutdown path.
+	require.NoError(t, svc.metrics.listener.Close())
+
+	select {
+	case runErr := <-done:
+		require.Error(t, runErr)
+		require.ErrorContains(t, runErr, "metrics endpoint stopped unexpectedly")
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not stop after metrics endpoint failure")
+	}
+}
+
+func TestRun_CallerCancellationWithMetricsIsGraceful(t *testing.T) {
+	sourceStarted := make(chan struct{})
+	cfg := minimalPipelineCfg()
+	cfg.Service.Metrics = &config.MetricsConfig{Endpoint: "127.0.0.1:0"}
+
+	svc, err := New(context.Background(), cfg, catalogcollector.Factories{
+		Sources: []catalogcollector.SourceFactory{
+			&fakeSourceFactory{typeName: "fake-source", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig, _ catalogcollector.Consumer) (catalogcollector.Source, error) {
+				return &blockingSource{started: sourceStarted}, nil
+			}},
+		},
+		Destinations: []catalogcollector.DestinationFactory{
+			&fakeDestinationFactory{typeName: "fake-dest", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Destination, error) {
+				return &recordingConsumer{}, nil
+			}},
+		},
+	}, testSettings())
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- svc.Run(ctx)
+	}()
+
+	select {
+	case <-sourceStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("source did not start")
+	}
+	cancel()
+
+	select {
+	case runErr := <-done:
+		require.NoError(t, runErr)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return after caller cancellation")
 	}
 }

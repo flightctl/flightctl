@@ -14,7 +14,12 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const defaultReadHeaderTimeout = 5 * time.Second
+const (
+	defaultReadHeaderTimeout = 5 * time.Second
+	defaultReadTimeout       = 5 * time.Second
+	defaultWriteTimeout      = 10 * time.Second
+	defaultIdleTimeout       = 60 * time.Second
+)
 
 var (
 	_ catalogcollector.Extension = (*extension)(nil)
@@ -78,6 +83,9 @@ func (e *extension) Start(
 	e.server = &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: defaultReadHeaderTimeout,
+		ReadTimeout:       defaultReadTimeout,
+		WriteTimeout:      defaultWriteTimeout,
+		IdleTimeout:       defaultIdleTimeout,
 	}
 
 	go e.serve()
