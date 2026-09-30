@@ -1786,7 +1786,7 @@ type DeviceSystemInfo struct {
 	// DeltaEligible Whether this device can consume OCI deltas. True when the oci-delta binary is present. False when it is not. Omitted when an older agent does not report the field.
 	DeltaEligible *bool `json:"deltaEligible,omitempty"`
 
-	// OciDeltaVersion Version reported by `oci-delta --version`. Absent when oci-delta is not installed or the version command fails.
+	// OciDeltaVersion Version reported by `oci-delta --version`, or from Go module build information when that flag is unsupported. Absent when oci-delta is not installed or its version cannot be determined.
 	OciDeltaVersion *string `json:"ociDeltaVersion,omitempty"`
 
 	// OperatingSystem The Operating System reported by the device.

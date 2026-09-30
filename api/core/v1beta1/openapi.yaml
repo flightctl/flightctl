@@ -7306,8 +7306,9 @@ components:
         ociDeltaVersion:
           type: string
           description: >-
-            Version reported by `oci-delta --version`. Absent when oci-delta is
-            not installed or the version command fails.
+            Version reported by `oci-delta --version`, or from Go module build
+            information when that flag is unsupported. Absent when oci-delta is
+            not installed or its version cannot be determined.
         deltaEligible:
           type: boolean
           description: >-
