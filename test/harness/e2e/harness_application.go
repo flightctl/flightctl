@@ -1204,6 +1204,16 @@ func (h *Harness) GetContainerPorts() (string, error) {
 // VM operations
 // =============================================================================
 
+// VirshOnCompute runs virsh inside the virt-launcher compute container on the device.
+func (h *Harness) VirshOnCompute(container string, virshArgs ...string) (string, error) {
+	args := append([]string{"sudo", "podman", "exec", container, "virsh"}, virshArgs...)
+	out, err := h.VM.RunSSH(args, nil)
+	if err != nil {
+		return "", fmt.Errorf("virsh %s in %q: %w", strings.Join(virshArgs, " "), container, err)
+	}
+	return strings.TrimSpace(out.String()), nil
+}
+
 // RunSSHOnDeviceLocalPort runs ssh on the device host to localhost:port using password auth.
 // This exercises VM publishPorts mappings (e.g. host 2222 to guest 22).
 func (h *Harness) RunSSHOnDeviceLocalPort(port int, user, password string, remoteArgs ...string) (string, error) {
