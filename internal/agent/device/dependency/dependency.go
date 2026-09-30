@@ -561,7 +561,7 @@ func (m *prefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1
 	} else {
 		m.deltaAppTargetKeys = nil
 	}
-	m.deltaApplyResults = restoredResults
+	m.deltaApplyResults = mergeApplicationDeltaResults(m.deltaApplyResults, restoredResults)
 	m.deltaCollectionComplete = !requeueNeeded
 	m.mu.Unlock()
 
@@ -702,6 +702,28 @@ func (m *prefetchManager) restoreApplicationDeltaResults(
 		}
 	}
 	return results
+}
+
+func mergeApplicationDeltaResults(
+	current, restored map[string]map[imageRef]applicationDeltaApplyResult,
+) map[string]map[imageRef]applicationDeltaApplyResult {
+	if current == nil {
+		current = make(map[string]map[imageRef]applicationDeltaApplyResult)
+	}
+	for application, restoredResults := range restored {
+		currentResults := current[application]
+		if currentResults == nil {
+			currentResults = make(map[imageRef]applicationDeltaApplyResult)
+			current[application] = currentResults
+		}
+		for target, result := range restoredResults {
+			if _, exists := currentResults[target]; exists {
+				continue
+			}
+			currentResults[target] = result
+		}
+	}
+	return current
 }
 
 func sameStringMap(first, second map[string]string) bool {

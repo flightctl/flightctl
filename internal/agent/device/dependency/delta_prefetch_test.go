@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/deltastatus"
+	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/util"
@@ -375,6 +376,103 @@ func TestApplicationDeltaStatusPersistsAcrossRestartAndClearsForChangedSpec(t *t
 	appResults := restartedStore.ApplicationResults("app")
 	require.NotContains(t, appResults, targetID)
 	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeNotUsed, appResults[newTargetID].Status.Outcome)
+}
+
+func TestBeforeUpdatePreservesCurrentDeltaResultsAcrossRetries(t *testing.T) {
+	const (
+		image        = "quay.io/acme/app:target"
+		targetDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		candidate    = "quay.io/acme/delta@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		sourceDigest = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	)
+
+	tests := []struct {
+		name                  string
+		withStatusStore       bool
+		withoutApplicationKey bool
+	}{
+		{
+			name: "When persistence is disabled it should preserve the in-memory result",
+		},
+		{
+			name:                  "When no persisted target key is available it should preserve the in-memory result",
+			withStatusStore:       true,
+			withoutApplicationKey: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(root)),
+				fileio.NewWriter(fileio.WithWriterRootDir(root)),
+			)
+			logger := log.NewPrefixLogger("test")
+			ctrl := gomock.NewController(t)
+			mockExec := executer.NewMockExecuter(ctrl)
+			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", image).Return("", "", 1)
+			mockResources := resource.NewMockManager(ctrl)
+			mockResources.EXPECT().IsCriticalAlert(gomock.Any()).Return(false).Times(2)
+			podman := client.NewPodman(logger, mockExec, rw, poll.NewConfig(time.Millisecond, 2))
+
+			var options []PrefetchManagerOption
+			if tt.withStatusStore {
+				options = append(options, WithDeltaStatusStore(deltastatus.New(rw, "/var/lib/flightctl", logger)))
+			}
+			manager := NewPrefetchManager(
+				logger,
+				func(v1beta1.Username) (*client.Podman, error) { return podman, nil },
+				func(v1beta1.Username) (*client.Skopeo, error) { return nil, nil },
+				client.NewCLIClients(),
+				rw,
+				util.Duration(time.Minute),
+				mockResources,
+				poll.Config{},
+				options...,
+			)
+			defer manager.Cleanup()
+
+			application := v1beta1.ContainerApplication{Name: lo.ToPtr("app"), AppType: v1beta1.AppTypeContainer}
+			require.NoError(t, application.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: image}))
+			var applicationSpec v1beta1.ApplicationProviderSpec
+			require.NoError(t, applicationSpec.FromContainerApplication(application))
+			desired := &v1beta1.DeviceSpec{Applications: lo.ToPtr([]v1beta1.ApplicationProviderSpec{applicationSpec})}
+
+			target := OCIPullTarget{
+				Type:      OCITypePodmanImage,
+				Reference: image,
+				Digest:    targetDigest,
+				Delta: &OCIDeltaTarget{
+					Hint:         candidate,
+					SourceDigest: sourceDigest,
+					Application:  "app",
+				},
+			}
+			manager.RegisterOCICollector(newTestOCICollector(func(context.Context, *v1beta1.DeviceSpec, *v1beta1.DeviceSpec, ...OCICollectOpt) (*OCICollection, error) {
+				return &OCICollection{Targets: OCIPullTargetsByUser{v1beta1.CurrentProcessUsername: {target}}}, nil
+			}))
+
+			ctx := context.Background()
+			require.ErrorIs(t, manager.BeforeUpdate(ctx, nil, desired), errors.ErrPrefetchNotReady)
+			ref := imageRef{image: image, owner: v1beta1.CurrentProcessUsername}
+			task := manager.tasks[ref]
+			require.NotNil(t, task)
+			if tt.withoutApplicationKey {
+				manager.mu.Lock()
+				manager.deltaAppTargetKeys = nil
+				manager.mu.Unlock()
+			}
+			manager.recordDeltaApplied(ref, task)
+			manager.setResult(ref, nil)
+
+			require.NoError(t, manager.BeforeUpdate(ctx, desired, desired))
+			deviceStatus := &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: "app"}}}
+			require.NoError(t, manager.Status(ctx, deviceStatus))
+			require.NotNil(t, deviceStatus.Applications[0].LastDelta)
+			require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeApplied, deviceStatus.Applications[0].LastDelta.Outcome)
+		})
+	}
 }
 
 func TestApplicationDeltaPrefetchRunsAsRunAsUser(t *testing.T) {
