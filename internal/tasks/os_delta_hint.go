@@ -229,7 +229,7 @@ func lookupOSDeltaGeneration(ctx context.Context, kv kvstore.KVStore, store gene
 			return cached, nil
 		}
 		if cacheErr != nil {
-			return nil, nil
+			return nil, cacheErr
 		}
 
 		writeMissingGenerationMemo(ctx, kv, key)
@@ -899,10 +899,11 @@ func (t *deviceRenderState) resolveAppDeltaHints(ctx context.Context, device *do
 				imageRefs, renderErr := t.DeviceRenderLogic.RenderHelmImageRefs(helmRenderCtx, t.orgId, device, helm, renderedConfig)
 				cancel()
 				if renderErr != nil {
+					targetImageRefs = []string{}
 					t.log.WithError(renderErr).WithFields(logrus.Fields{
 						"device":      t.event.InvolvedObject.Name,
 						"application": appName,
-					}).Warn("failed to render target Helm chart images for delta hints; using currently reported images")
+					}).Warn("failed to render target Helm chart images for delta hints; skipping hints for this Helm application")
 				} else {
 					targetImageRefs = imageRefs
 				}
