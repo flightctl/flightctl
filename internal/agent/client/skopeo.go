@@ -127,16 +127,10 @@ func (s *Skopeo) InspectManifest(ctx context.Context, image string, opts ...Clie
 }
 
 func (s *Skopeo) Copy(ctx context.Context, src, dest string, opts ...ClientOption) error {
-	return s.copy(ctx, src, dest, false, opts...)
+	return s.copy(ctx, src, dest, opts...)
 }
 
-// CopyPreservingDigests copies an image while requiring the manifest and blob
-// digests to remain unchanged.
-func (s *Skopeo) CopyPreservingDigests(ctx context.Context, src, dest string, opts ...ClientOption) error {
-	return s.copy(ctx, src, dest, true, opts...)
-}
-
-func (s *Skopeo) copy(ctx context.Context, src, dest string, preserveDigests bool, opts ...ClientOption) error {
+func (s *Skopeo) copy(ctx context.Context, src, dest string, opts ...ClientOption) error {
 	options := &clientOptions{}
 	for _, opt := range opts {
 		opt(options)
@@ -150,11 +144,7 @@ func (s *Skopeo) copy(ctx context.Context, src, dest string, preserveDigests boo
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	args := []string{"copy"}
-	if preserveDigests {
-		args = append(args, "--preserve-digests")
-	}
-	args = append(args, src, dest)
+	args := []string{"copy", src, dest}
 	if options.pullSecretPath != "" {
 		exists, err := s.readWriter.PathExists(options.pullSecretPath)
 		if err != nil {

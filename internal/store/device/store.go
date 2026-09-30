@@ -850,23 +850,15 @@ func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, before, devic
 	if rendered != nil {
 		applyRenderedDeltaEstimates(fromAPI, rendered.DeltaEstimates)
 	} else {
-		var persisted model.Device
-		result := s.getDB(ctx).Model(&model.Device{}).
-			Select("service_conditions").
-			Where("org_id = ? AND name = ? AND resource_version = ?", orgId, existing.Name, existing.ResourceVersion).
-			Take(&persisted)
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return true, flterrors.ErrNoRowsUpdated
-		}
-		if result.Error != nil {
-			return false, store.ErrorFromGormError(result.Error)
-		}
 		serviceConditions := model.ServiceConditions{}
 		if fromAPI.ServiceConditions != nil {
 			serviceConditions = fromAPI.ServiceConditions.Data
 		}
-		if persisted.ServiceConditions != nil && persisted.ServiceConditions.Data.DeltaEstimates != nil {
-			serviceConditions.DeltaEstimates = persisted.ServiceConditions.Data.DeltaEstimates
+		// Preserve the server-owned estimates from the mutation snapshot. The
+		// resource-version condition on the update below retries if they changed
+		// after this snapshot was loaded.
+		if existing.ServiceConditions != nil && existing.ServiceConditions.Data.DeltaEstimates != nil {
+			serviceConditions.DeltaEstimates = existing.ServiceConditions.Data.DeltaEstimates
 		}
 		fromAPI.ServiceConditions = model.MakeJSONField(serviceConditions)
 	}

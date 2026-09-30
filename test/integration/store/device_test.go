@@ -334,6 +334,51 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(got.Status.Applications[0].DeltaSize).To(Equal(lo.ToPtr("12 MiB")))
 		})
 
+		It("When a non-render update omits delta estimates it should preserve stored estimates", func() {
+			name := "delta-size-preserved-on-update"
+			device := api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(name)},
+				Spec: &api.DeviceSpec{Os: &api.DeviceOsSpec{
+					Image: "quay.io/acme/os:v2",
+				}},
+				Status: lo.ToPtr(api.NewDeviceStatus()),
+			}
+			device.Status.Applications = []api.DeviceApplicationStatus{{
+				Name:    "app",
+				AppType: api.AppTypeContainer,
+			}}
+			rendered := &devicestore.DeviceRendered{
+				OsImage: "quay.io/acme/os:v2",
+				DeltaEstimates: &devicestore.DeviceDeltaEstimates{
+					OSDeltaSize: lo.ToPtr("45 MiB"),
+					ApplicationDeltaSizes: map[string]*string{
+						"app": lo.ToPtr("12 MiB"),
+					},
+				},
+			}
+			_, err := devStore.Create(ctx, orgId, &device, rendered)
+			Expect(err).ToNot(HaveOccurred())
+
+			_, _, _, err = devStore.Mutate(ctx, orgId, name, nil, func(m *devicestore.DeviceMutation) error {
+				if err := m.RequireExisting(); err != nil {
+					return err
+				}
+				m.Device.Metadata.Owner = lo.ToPtr("metadata-update")
+				m.Device.Status.Os.DeltaSize = nil
+				for i := range m.Device.Status.Applications {
+					m.Device.Status.Applications[i].DeltaSize = nil
+				}
+				return nil
+			})
+			Expect(err).ToNot(HaveOccurred())
+
+			got, err := devStore.Get(ctx, orgId, name)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(got.Status.Os.DeltaSize).To(Equal(lo.ToPtr("45 MiB")))
+			Expect(got.Status.Applications).To(HaveLen(1))
+			Expect(got.Status.Applications[0].DeltaSize).To(Equal(lo.ToPtr("12 MiB")))
+		})
+
 		It("When a rendered OS deltaImage is set it should appear only in the rendered spec", func() {
 			name := "delta-image-set"
 			image := "quay.io/acme/os:latest"

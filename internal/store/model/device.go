@@ -148,11 +148,6 @@ func agentDeltaApplyResult(lastDelta *domain.DeviceDeltaApplyStatus) *domain.Dev
 		return nil
 	}
 	result := *lastDelta
-	if result.Outcome == "Pending" {
-		// Pending is represented by the separate server-owned preparation state,
-		// not as an agent-reported delta-apply result.
-		return nil
-	}
 	if result.Outcome == "" {
 		if result.FallbackReason == nil || *result.FallbackReason == "" {
 			return nil

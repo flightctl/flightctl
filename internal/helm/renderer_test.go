@@ -20,6 +20,7 @@ type helmTestExecuter struct {
 	t             *testing.T
 	chartName     string
 	manifest      string
+	templateError string
 	calls         map[string][][]string
 	templateArgs  []string
 	templateFiles []string
@@ -54,6 +55,9 @@ func (e *helmTestExecuter) ExecuteWithContextFromDir(_ context.Context, _ string
 				require.NoError(e.t, err)
 				e.templateData = append(e.templateData, contents)
 			}
+		}
+		if e.templateError != "" {
+			return "", e.templateError, 1
 		}
 		return e.manifest, "", 0
 	case "dependency":
@@ -132,6 +136,36 @@ func TestRendererImageRefs(t *testing.T) {
 	})
 	require.Len(t, exec.templateFiles, 3, "inline values should be applied after chart-relative files")
 	require.Contains(t, string(exec.templateData[2]), "replicaCount: 2")
+}
+
+func TestRendererImageRefsReturnsTemplateError(t *testing.T) {
+	app := v1beta1.HelmApplication{
+		AppType: v1beta1.AppTypeHelm,
+		Name:    lo.ToPtr("release"),
+	}
+	require.NoError(t, app.FromImageApplicationProviderSpec(v1beta1.ImageSpec{Image: "oci://registry.example/charts/app:1.2.3"}))
+	device := &domain.Device{Status: &domain.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: "release"}}}}
+	exec := &helmTestExecuter{
+		t:             t,
+		chartName:     "app",
+		templateError: "invalid chart values",
+		calls:         make(map[string][][]string),
+	}
+	renderer := NewRenderer(exec, nil)
+	scheme := domain.OciRepoSchemeHttp
+	registrySpec := &domain.OciRepoSpec{Registry: "registry.example", Scheme: &scheme}
+	config, err := json.Marshal([]domain.FileSpec{
+		{Path: helmRegistryConfig, Content: `{"auths":{"registry.example":{}}}`},
+		{Path: helmRepositoryConfig, Content: "repositories: []\n"},
+	})
+	require.NoError(t, err)
+
+	images, err := renderer.ImageRefs(context.Background(), app, device, config, registrySpec)
+
+	require.Nil(t, images)
+	require.ErrorContains(t, err, "render target chart")
+	require.ErrorContains(t, err, "invalid chart values")
+	require.Len(t, exec.calls["template"], 1)
 }
 
 func argumentValue(args []string, name string) string {

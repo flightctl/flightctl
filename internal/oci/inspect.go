@@ -31,8 +31,6 @@ var ErrSourceDigestUnresolved = errors.New("source image digest cannot be resolv
 
 type DigestCache interface {
 	Get(ctx context.Context, key string) ([]byte, error)
-	SetNX(ctx context.Context, key string, value []byte) (bool, error)
-	SetExpire(ctx context.Context, key string, expiration time.Duration) error
 }
 
 // DeviceImagePlatform returns the OS and architecture reported by a device.
@@ -55,13 +53,10 @@ func SpecForRegistry(host string, spec *domain.OciRepoSpec) *domain.OciRepoSpec 
 	}
 
 	registry, err := sysregistriesv2.FindRegistry(nil, host)
-	return specForRegistry(host, nil, err == nil && registry != nil && registry.Insecure)
+	return specForRegistry(host, err == nil && registry != nil && registry.Insecure)
 }
 
-func specForRegistry(host string, spec *domain.OciRepoSpec, insecure bool) *domain.OciRepoSpec {
-	if spec != nil && spec.Registry == host {
-		return spec
-	}
+func specForRegistry(host string, insecure bool) *domain.OciRepoSpec {
 	result := &domain.OciRepoSpec{Type: domain.OciRepoSpecTypeOci, Registry: host}
 	if insecure {
 		skipServerVerification := true

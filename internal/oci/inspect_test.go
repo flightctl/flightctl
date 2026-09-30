@@ -26,7 +26,7 @@ type digestCache struct {
 
 func TestSpecForRegistry(t *testing.T) {
 	t.Run("When the system registry is marked insecure it should skip TLS verification", func(t *testing.T) {
-		got := specForRegistry("registry.example.com:5000", nil, true)
+		got := specForRegistry("registry.example.com:5000", true)
 
 		require.Equal(t, "registry.example.com:5000", got.Registry)
 		require.NotNil(t, got.SkipServerVerification)
@@ -34,7 +34,7 @@ func TestSpecForRegistry(t *testing.T) {
 	})
 
 	t.Run("When no insecure registry setting exists it should retain TLS verification", func(t *testing.T) {
-		got := specForRegistry("registry.example.com:5000", nil, false)
+		got := specForRegistry("registry.example.com:5000", false)
 
 		require.Equal(t, "registry.example.com:5000", got.Registry)
 		require.Nil(t, got.SkipServerVerification)
@@ -44,7 +44,7 @@ func TestSpecForRegistry(t *testing.T) {
 		skipVerification := false
 		explicit := &domain.OciRepoSpec{Registry: "registry.example.com:5000", SkipServerVerification: &skipVerification}
 
-		got := specForRegistry("registry.example.com:5000", explicit, true)
+		got := SpecForRegistry("registry.example.com:5000", explicit)
 
 		require.Same(t, explicit, got)
 		require.False(t, *got.SkipServerVerification)
@@ -55,24 +55,12 @@ func (c *digestCache) Get(_ context.Context, key string) ([]byte, error) {
 	return c.values[key], nil
 }
 
-func (c *digestCache) SetNX(_ context.Context, key string, value []byte) (bool, error) {
-	if _, ok := c.values[key]; ok {
-		return false, nil
-	}
-	c.values[key] = append([]byte(nil), value...)
-	return true, nil
-}
-
 func (c *digestCache) Set(_ context.Context, key string, value []byte, expiration time.Duration) error {
 	c.values[key] = append([]byte(nil), value...)
 	if c.expirations == nil {
 		c.expirations = make(map[string]time.Duration)
 	}
 	c.expirations[key] = expiration
-	return nil
-}
-
-func (c *digestCache) SetExpire(_ context.Context, _ string, _ time.Duration) error {
 	return nil
 }
 
@@ -313,5 +301,11 @@ func TestInspectImagePayloadSizeUsesTargetDigestAndPlatform(t *testing.T) {
 	t.Run("When a multi-platform index has no device platform it should return an error", func(t *testing.T) {
 		_, err := InspectImagePayloadSize(context.Background(), imageRef, index.desc.Digest.String(), repositorySpec, nil)
 		require.ErrorContains(t, err, "device platform is unavailable")
+	})
+
+	t.Run("When the target manifest cannot be resolved it should return an error", func(t *testing.T) {
+		missingImage := registry + "/example/app:missing"
+		_, err := InspectImagePayloadSize(context.Background(), missingImage, "", repositorySpec, &ocispec.Platform{OS: "linux", Architecture: "amd64"})
+		require.ErrorContains(t, err, "resolve image manifest")
 	})
 }
