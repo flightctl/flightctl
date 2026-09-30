@@ -25,6 +25,8 @@ func (h *ServiceHandler) ReconcileDeviceLabels(ctx context.Context, orgID uuid.U
 		return ReconciliationResult{}, errors.New("label-sync reconciliation cannot run inside an existing store transaction")
 	}
 
+	var result ReconciliationResult
+
 	for attempt := 0; attempt < maxReconciliationAttempts; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return ReconciliationResult{}, err
@@ -41,7 +43,7 @@ func (h *ServiceHandler) ReconcileDeviceLabels(ctx context.Context, orgID uuid.U
 		// Decommissioning clears labels. If it races this read, ApplyLabels' resource-version
 		// CAS forces a retry, which observes the decommissioning state here.
 		if deviceSnapshot.Device.Spec != nil && deviceSnapshot.Device.Spec.Decommissioning != nil {
-			return ReconciliationResult{}, nil
+			return result, nil
 		}
 		snapshot := deviceReconciliationSnapshot{
 			Device:          deviceSnapshot,
@@ -64,6 +66,9 @@ func (h *ServiceHandler) ReconcileDeviceLabels(ctx context.Context, orgID uuid.U
 			}
 			return ReconciliationResult{}, retryErr
 		}
+		result.LabelsChanged = result.LabelsChanged || applied.LabelsChanged
+		result.ManagedLabelsChanged = result.ManagedLabelsChanged || applied.ManagedLabelsChanged
+		result.OwnershipChanged = result.OwnershipChanged || applied.OwnershipChanged
 		if applied.LabelsChanged || applied.ManagedLabelsChanged {
 			updates := &domain.ResourceUpdatedDetails{
 				UpdatedFields: []domain.ResourceUpdatedDetailsUpdatedFields{domain.Labels},
@@ -82,12 +87,8 @@ func (h *ServiceHandler) ReconcileDeviceLabels(ctx context.Context, orgID uuid.U
 			continue
 		}
 
-		return ReconciliationResult{
-			LabelsChanged:        applied.LabelsChanged,
-			ManagedLabelsChanged: applied.ManagedLabelsChanged,
-			OwnershipChanged:     applied.OwnershipChanged,
-			MappingOutcomes:      outcomes,
-		}, nil
+		result.MappingOutcomes = outcomes
+		return result, nil
 	}
 	return ReconciliationResult{}, flterrors.ErrResourceVersionConflict
 }

@@ -308,7 +308,7 @@ func TestReconcileDeviceLabelsRetriesWhenMappingRevisionChangesAfterWrite(t *tes
 	devices := &reconciliationDeviceStub{
 		snapshots: []domain.DeviceLabelSnapshot{snapshot},
 		applies: []deviceApplyResponse{
-			{result: domain.DeviceLabelApplyResult{LabelsChanged: true}},
+			{result: domain.DeviceLabelApplyResult{LabelsChanged: true, ManagedLabelsChanged: true, OwnershipChanged: true}},
 			{result: domain.DeviceLabelApplyResult{}},
 		},
 	}
@@ -318,6 +318,9 @@ func TestReconcileDeviceLabelsRetriesWhenMappingRevisionChangesAfterWrite(t *tes
 	result, err := service.ReconcileDeviceLabels(context.Background(), orgID, "edge-01")
 	require.NoError(t, err)
 	assert.Len(t, devices.applyArgs, 2)
+	assert.True(t, result.LabelsChanged)
+	assert.True(t, result.ManagedLabelsChanged)
+	assert.True(t, result.OwnershipChanged)
 	assert.Len(t, result.MappingOutcomes, 1)
 	assert.Equal(t, mappingID, result.MappingOutcomes[0].MappingID)
 	assert.Equal(t, 4, mappingStore.reads)
