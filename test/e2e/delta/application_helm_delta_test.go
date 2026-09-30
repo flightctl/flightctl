@@ -12,12 +12,63 @@ import (
 
 var applicationDeltaHelmAppNames = []string{applicationDeltaHelmName}
 
+type helmDeltaImages struct {
+	deployment    string
+	sidecar       string
+	initContainer string
+	pod           string
+	job           string
+	cronJob       string
+}
+
+type helmDeltaTargets struct {
+	deployment    applicationDeltaTarget
+	sidecar       applicationDeltaTarget
+	initContainer applicationDeltaTarget
+	pod           applicationDeltaTarget
+	job           applicationDeltaTarget
+	cronJob       applicationDeltaTarget
+}
+
+func (targets helmDeltaTargets) all() []applicationDeltaTarget {
+	return []applicationDeltaTarget{
+		targets.deployment,
+		targets.sidecar,
+		targets.initContainer,
+		targets.pod,
+		targets.job,
+		targets.cronJob,
+	}
+}
+
+// podBackedWorkloads excludes the suspended CronJob, which has no Pod status.
+func (targets helmDeltaTargets) podBackedWorkloads() []applicationDeltaTarget {
+	return []applicationDeltaTarget{
+		targets.deployment,
+		targets.sidecar,
+		targets.initContainer,
+		targets.pod,
+		targets.job,
+	}
+}
+
+func (targets helmDeltaTargets) images() helmDeltaImages {
+	return helmDeltaImages{
+		deployment:    targets.deployment.image,
+		sidecar:       targets.sidecar.image,
+		initContainer: targets.initContainer.image,
+		pod:           targets.pod.image,
+		job:           targets.job.image,
+		cronJob:       targets.cronJob.image,
+	}
+}
+
 var _ = Describe("application delta Helm", Label("delta", "microshift", "slow", "helm"), Serial, func() {
-	It("When a standalone device updates a Helm application it should apply its delta and remain healthy", Label("standalone"), func() {
+	It("When a standalone device updates a Helm application with multiple images it should apply each delta and remain healthy", Label("standalone"), func() {
 		runHelmApplicationDeltaTest(false)
 	})
 
-	It("When a fleet updates a Helm application it should apply its delta and remain healthy", Label("fleet"), func() {
+	It("When a fleet updates a Helm application with multiple images it should apply each delta and remain healthy", Label("fleet"), func() {
 		runHelmApplicationDeltaTest(true)
 	})
 })
@@ -47,7 +98,19 @@ func runHelmApplicationDeltaTest(fleetOwned bool) {
 	if fleetOwned {
 		fleetName = "delta-helm-" + strings.TrimPrefix(applicationDeltaArtifactTag(harness), "e2e-")
 	}
-	v1Apps, err := applicationDeltaSpecsForNames(registry, applicationDeltaVersionV1, applicationDeltaOverrides{}, applicationDeltaHelmAppNames)
+	sourceImages := helmDeltaImages{
+		deployment:    applicationImageReference(registry, "flightctl-tests/alpine", "v1"),
+		sidecar:       applicationImageReference(registry, "flightctl-tests/nginx", "v1"),
+		initContainer: applicationImageReference(registry, "flightctl-tests/alpine", "v1"),
+		pod:           applicationImageReference(registry, "flightctl-tests/alpine", "v1"),
+		job:           applicationImageReference(registry, "flightctl-tests/alpine", "v1"),
+		cronJob:       applicationImageReference(registry, "flightctl-tests/nginx", "v1"),
+	}
+	v1HelmValues, err := helmDeltaChartValues(sourceImages)
+	Expect(err).NotTo(HaveOccurred())
+	v1Apps, err := applicationDeltaSpecsForNames(registry, applicationDeltaVersionV1, applicationDeltaOverrides{
+		HelmValues: v1HelmValues,
+	}, applicationDeltaHelmAppNames)
 	Expect(err).NotTo(HaveOccurred())
 	if fleetOwned {
 		By("applying the V1 Helm application through fleet ownership")
@@ -67,24 +130,54 @@ func runHelmApplicationDeltaTest(fleetOwned bool) {
 	Expect(err).NotTo(HaveOccurred())
 	before := getDeltaDevice(harness, deviceID)
 
-	By("building a full target image for the Helm chart update and leaving delta generation to the control plane")
+	By("building a full target image for each Helm workload image reference")
 	tagPrefix := applicationDeltaArtifactTag(harness)
 	if fleetOwned {
 		tagPrefix += "-fleet"
 	}
-	helmTarget, err := buildApplicationDeltaTargetImage(
-		harness, registry, tagPrefix+"-helm", "flightctl-tests/alpine",
-		applicationImageReference(registry, "flightctl-tests/alpine", "v1"),
+	deploymentTarget, err := buildApplicationDeltaTargetImage(
+		harness, registry, tagPrefix+"-helm-deployment", "flightctl-tests/alpine", sourceImages.deployment,
 	)
 	Expect(err).NotTo(HaveOccurred())
-	requireCRIImageAbsent(harness, helmTarget.image)
+	sidecarTarget, err := buildApplicationDeltaTargetImage(
+		harness, registry, tagPrefix+"-helm-sidecar", "flightctl-tests/nginx", sourceImages.sidecar,
+	)
+	Expect(err).NotTo(HaveOccurred())
+	initContainerTarget, err := buildApplicationDeltaTargetImage(
+		harness, registry, tagPrefix+"-helm-init", "flightctl-tests/alpine", sourceImages.initContainer,
+	)
+	Expect(err).NotTo(HaveOccurred())
+	podTarget, err := buildApplicationDeltaTargetImage(
+		harness, registry, tagPrefix+"-helm-pod", "flightctl-tests/alpine", sourceImages.pod,
+	)
+	Expect(err).NotTo(HaveOccurred())
+	jobTarget, err := buildApplicationDeltaTargetImage(
+		harness, registry, tagPrefix+"-helm-job", "flightctl-tests/alpine", sourceImages.job,
+	)
+	Expect(err).NotTo(HaveOccurred())
+	cronJobTarget, err := buildApplicationDeltaTargetImage(
+		harness, registry, tagPrefix+"-helm-cronjob", "flightctl-tests/nginx", sourceImages.cronJob,
+	)
+	Expect(err).NotTo(HaveOccurred())
+	helmTargets := helmDeltaTargets{
+		deployment:    deploymentTarget,
+		sidecar:       sidecarTarget,
+		initContainer: initContainerTarget,
+		pod:           podTarget,
+		job:           jobTarget,
+		cronJob:       cronJobTarget,
+	}
+	By("checking every new workload image is absent from CRI before delta prefetch")
+	for _, target := range helmTargets.all() {
+		requireCRIImageAbsent(harness, target.image)
+	}
+	v2HelmValues, err := helmDeltaChartValues(helmTargets.images())
+	Expect(err).NotTo(HaveOccurred())
 	v2Apps, err := applicationDeltaSpecsForNames(registry, applicationDeltaVersionV2, applicationDeltaOverrides{
-		Helm: &helmTarget,
+		HelmValues: v2HelmValues,
 	}, applicationDeltaHelmAppNames)
 	Expect(err).NotTo(HaveOccurred())
 	assertNoDesiredApplicationDeltaHints(v2Apps)
-	agentLogSince, err := harness.JournalSinceFromPrimaryVM()
-	Expect(err).NotTo(HaveOccurred())
 
 	if fleetOwned {
 		By("updating the fleet-owned Helm application")
@@ -96,16 +189,33 @@ func runHelmApplicationDeltaTest(fleetOwned bool) {
 			device.Spec.Applications = &v2Apps
 		})).To(Succeed())
 	}
-	waitForApplicationDeltaGenerationEvents(harness, fleetName, deviceID, eventBaseline, applicationDeltaTargets(helmTarget)...)
-	helmHint := waitForRenderedNestedDeltaHint(harness, deviceID, applicationDeltaHelmName, v1beta1.AppTypeHelm, helmTarget)
-	registerApplicationDeltaArtifactsCleanup([]v1beta1.ImageDeltaHint{helmHint})
+	waitForApplicationDeltaGenerationEvents(harness, fleetName, deviceID, eventBaseline, applicationDeltaTargets(helmTargets.all()...)...)
+	helmHints := waitForRenderedNestedDeltaHints(harness, deviceID, applicationDeltaHelmName, v1beta1.AppTypeHelm, helmTargets.all())
+	registerApplicationDeltaArtifactsCleanup(helmHints)
 
-	By("checking Helm application health and delta application before device status")
+	By("checking all rendered Helm image hints and reported application delta outcome")
 	waitForApplicationDeltaApps(harness, deviceID, applicationDeltaHelmAppNames)
 	waitForApplicationDeltaContentUpToDateEvent(harness, deviceID, eventBaseline)
 	waitDeviceUpToDate(harness, deviceID, "device UpToDate with the V2 Helm application")
-	waitForApplicationDeltaOutcome(harness, deviceID, applicationDeltaHelmName, helmTarget, false)
-	waitForApplicationDeltaAppliedLogs(harness, agentLogSince, []v1beta1.ImageDeltaHint{helmHint}, false)
+	for _, target := range helmTargets.podBackedWorkloads() {
+		waitForApplicationDeltaOutcome(harness, deviceID, applicationDeltaHelmName, target, v1beta1.DeviceDeltaApplyOutcomeApplied)
+	}
+	for _, target := range helmTargets.all() {
+		requireCRIImagePresent(harness, target.image)
+	}
 	after := getDeltaDevice(harness, deviceID)
 	Expect(after.Status.Os.LastDelta).To(Equal(before.Status.Os.LastDelta), "application updates must not change OS delta status")
+}
+
+func helmDeltaChartValues(images helmDeltaImages) (map[string]any, error) {
+	values, err := helmImageValues(images.deployment)
+	if err != nil {
+		return nil, err
+	}
+	values["sidecar"] = map[string]any{"enabled": true, "image": images.sidecar}
+	values["initContainer"] = map[string]any{"enabled": true, "image": images.initContainer}
+	values["standalonePod"] = map[string]any{"enabled": true, "image": images.pod}
+	values["job"] = map[string]any{"enabled": true, "image": images.job}
+	values["cronJob"] = map[string]any{"enabled": true, "image": images.cronJob}
+	return values, nil
 }

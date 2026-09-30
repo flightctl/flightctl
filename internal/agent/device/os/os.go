@@ -100,6 +100,7 @@ type manager struct {
 
 	mu                 sync.Mutex
 	fallbackReason     *string
+	deltaOutcome       *v1beta1.DeviceDeltaApplyOutcomeType
 	lastAttemptedImage string
 	stagedDeltaImage   string
 }
@@ -113,10 +114,19 @@ func (m *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, _ ..
 	status.Os.Image = bootcInfo.GetBootedImage()
 	status.Os.ImageDigest = bootcInfo.GetBootedImageDigest()
 	m.mu.Lock()
-	reason := m.fallbackReason
+	var reason *string
+	if m.fallbackReason != nil {
+		copiedReason := *m.fallbackReason
+		reason = &copiedReason
+	}
+	var outcome *v1beta1.DeviceDeltaApplyOutcomeType
+	if m.deltaOutcome != nil {
+		copiedOutcome := *m.deltaOutcome
+		outcome = &copiedOutcome
+	}
 	m.mu.Unlock()
-	if reason != nil {
-		status.Os.LastDelta = &v1beta1.DeviceDeltaApplyStatus{FallbackReason: reason}
+	if outcome != nil {
+		status.Os.LastDelta = &v1beta1.DeviceDeltaApplyStatus{FallbackReason: reason, Outcome: *outcome}
 	}
 	osMode := m.caps.OsMode
 	status.Capabilities = &v1beta1.DeviceCapabilities{OsMode: &osMode}
@@ -179,21 +189,25 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1bet
 	}
 	if isDesiredImageRunning {
 		m.log.Debugf("Desired OS image is currently booted: %s", osImage)
+		m.setDeltaNotUsedIfUnset()
 		return &dependency.OCICollection{}, nil
 	}
 
 	if m.podmanClient.ImageExists(ctx, osImage) {
 		m.log.Debugf("OS image already exists in container storage: %s", osImage)
+		m.setDeltaNotUsedIfUnset()
 		return &dependency.OCICollection{}, nil
 	}
 
 	optsFn := m.osPullOptsFn()
 	if !m.canApplyOSDelta() {
+		m.setDeltaNotUsedIfUnset()
 		return m.fullImageCollection(osImage, optsFn), nil
 	}
 
 	candidate := m.discoverOSDelta(ctx, desired, bootcStatus.GetBootedImageDigest(), optsFn)
 	if candidate == "" {
+		m.setDeltaNotUsedIfUnset()
 		return m.fullImageCollection(osImage, optsFn), nil
 	}
 
@@ -234,6 +248,7 @@ func (m *manager) startImageAttempt(osImage string) {
 	if m.lastAttemptedImage != osImage {
 		m.lastAttemptedImage = osImage
 		m.fallbackReason = nil
+		m.deltaOutcome = nil
 	}
 	if m.stagedDeltaImage != "" && m.stagedDeltaImage != osImage {
 		m.stagedDeltaImage = ""
@@ -256,6 +271,7 @@ func (m *manager) discoverOSDelta(ctx context.Context, desired *v1beta1.DeviceSp
 func (m *manager) pullAndApplyOSDelta(ctx context.Context, candidate, osImage string, optsFn dependency.ClientOptsFn) error {
 	tmpDir, err := m.readWriter.MkdirTemp(osDeltaTempPrefix)
 	if err != nil {
+		m.setFallbackReason(fallbackReasonApply)
 		return fmt.Errorf("create delta temporary directory: %w", err)
 	}
 	defer func() { _ = m.readWriter.RemoveAll(tmpDir) }()
@@ -281,6 +297,8 @@ func (m *manager) pullAndApplyOSDelta(ctx context.Context, candidate, osImage st
 	m.mu.Lock()
 	m.stagedDeltaImage = osImage
 	m.fallbackReason = nil
+	outcome := v1beta1.DeviceDeltaApplyOutcomeApplied
+	m.deltaOutcome = &outcome
 	m.mu.Unlock()
 	return nil
 }
@@ -294,7 +312,19 @@ func (m *manager) setFallbackReason(reason string) {
 	r := reason
 	m.mu.Lock()
 	m.fallbackReason = &r
+	outcome := v1beta1.DeviceDeltaApplyOutcomeFallback
+	m.deltaOutcome = &outcome
 	m.mu.Unlock()
+}
+
+func (m *manager) setDeltaNotUsedIfUnset() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.deltaOutcome != nil {
+		return
+	}
+	outcome := v1beta1.DeviceDeltaApplyOutcomeNotUsed
+	m.deltaOutcome = &outcome
 }
 
 func (m *manager) AfterUpdate(ctx context.Context, desired *v1beta1.DeviceSpec) error {

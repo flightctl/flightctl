@@ -110,8 +110,6 @@ var _ = Describe("application delta applications", Label("delta", "slow", "vm"),
 		}, applicationDeltaNonHelmAppNames)
 		Expect(err).NotTo(HaveOccurred())
 		assertNoDesiredApplicationDeltaHints(v2Apps)
-		agentLogSince, err := harness.JournalSinceFromPrimaryVM()
-		Expect(err).NotTo(HaveOccurred())
 		By("updating the four non-Helm application definitions in one device mutation")
 		Expect(harness.UpdateDeviceWithRetries(deviceID, func(device *v1beta1.Device) {
 			device.Spec.Applications = &v2Apps
@@ -135,13 +133,12 @@ var _ = Describe("application delta applications", Label("delta", "slow", "vm"),
 		waitForApplicationDeltaApps(harness, deviceID, applicationDeltaNonHelmAppNames)
 		waitForApplicationDeltaContentUpToDateEvent(harness, deviceID, eventBaseline)
 		waitDeviceUpToDate(harness, deviceID, "device UpToDate with the four non-Helm V2 applications")
-		waitForApplicationDeltaOutcome(harness, deviceID, applicationDeltaContainerName, nginxTarget, false)
+		waitForApplicationDeltaOutcome(harness, deviceID, applicationDeltaContainerName, nginxTarget, v1beta1.DeviceDeltaApplyOutcomeApplied)
 		for _, target := range []applicationDeltaTarget{nginxTarget, alpineTarget} {
-			waitForApplicationDeltaOutcome(harness, deviceID, applicationDeltaComposeName, target, false)
+			waitForApplicationDeltaOutcome(harness, deviceID, applicationDeltaComposeName, target, v1beta1.DeviceDeltaApplyOutcomeApplied)
 		}
-		waitForApplicationDeltaOutcome(harness, deviceID, applicationDeltaQuadletName, nginxTarget, false)
-		waitForApplicationDeltaOutcome(harness, deviceID, applicationDeltaVMName, applicationDeltaTarget{image: vmV2Image, repository: applicationImageRepository(vmV2Image), targetDigest: vmHint.TargetDigest}, false)
-		waitForApplicationDeltaAppliedLogs(harness, agentLogSince, allHints, true)
+		waitForApplicationDeltaOutcome(harness, deviceID, applicationDeltaQuadletName, nginxTarget, v1beta1.DeviceDeltaApplyOutcomeApplied)
+		waitForApplicationDeltaOutcome(harness, deviceID, applicationDeltaVMName, applicationDeltaTarget{image: vmV2Image, repository: applicationImageRepository(vmV2Image), targetDigest: vmHint.TargetDigest}, v1beta1.DeviceDeltaApplyOutcomeApplied)
 		after := getDeltaDevice(harness, deviceID)
 		Expect(after.Status.Os.LastDelta).To(Equal(before.Status.Os.LastDelta), "application updates must not change OS delta status")
 	})
@@ -223,8 +220,6 @@ var _ = Describe("application delta applications", Label("delta", "slow", "vm"),
 		assertNoDesiredApplicationDeltaHints(v2Apps)
 		v2FleetSpec := applicationDeltaFleetSpec(harness, fleetName, v2Apps, "")
 
-		agentLogSince, err := harness.JournalSinceFromPrimaryVM()
-		Expect(err).NotTo(HaveOccurred())
 		Expect(harness.CreateOrUpdateTestFleet(fleetName, v2FleetSpec)).To(Succeed())
 		generationTargets := applicationDeltaTargets(allImageTargets...)
 		generationTargets = append(generationTargets, applicationDeltaGenerationTarget{repository: applicationImageRepository(vmV2Image)})
@@ -245,13 +240,12 @@ var _ = Describe("application delta applications", Label("delta", "slow", "vm"),
 		waitForApplicationDeltaApps(harness, deviceID, applicationDeltaNonHelmAppNames)
 		waitForApplicationDeltaContentUpToDateEvent(harness, deviceID, eventBaseline)
 		waitDeviceUpToDate(harness, deviceID, "fleet-owned device UpToDate with the four non-Helm V2 applications")
-		waitForApplicationDeltaOutcome(harness, deviceID, applicationDeltaContainerName, nginxTarget, false)
+		waitForApplicationDeltaOutcome(harness, deviceID, applicationDeltaContainerName, nginxTarget, v1beta1.DeviceDeltaApplyOutcomeApplied)
 		for _, target := range []applicationDeltaTarget{nginxTarget, alpineTarget} {
-			waitForApplicationDeltaOutcome(harness, deviceID, applicationDeltaComposeName, target, false)
+			waitForApplicationDeltaOutcome(harness, deviceID, applicationDeltaComposeName, target, v1beta1.DeviceDeltaApplyOutcomeApplied)
 		}
-		waitForApplicationDeltaOutcome(harness, deviceID, applicationDeltaQuadletName, nginxTarget, false)
-		waitForApplicationDeltaOutcome(harness, deviceID, applicationDeltaVMName, applicationDeltaTarget{image: vmV2Image, repository: applicationImageRepository(vmV2Image), targetDigest: vmHint.TargetDigest}, false)
-		waitForApplicationDeltaAppliedLogs(harness, agentLogSince, allHints, true)
+		waitForApplicationDeltaOutcome(harness, deviceID, applicationDeltaQuadletName, nginxTarget, v1beta1.DeviceDeltaApplyOutcomeApplied)
+		waitForApplicationDeltaOutcome(harness, deviceID, applicationDeltaVMName, applicationDeltaTarget{image: vmV2Image, repository: applicationImageRepository(vmV2Image), targetDigest: vmHint.TargetDigest}, v1beta1.DeviceDeltaApplyOutcomeApplied)
 		after := getDeltaDevice(harness, deviceID)
 		Expect(after.Status.Os.LastDelta).To(Equal(before.Status.Os.LastDelta), "application updates must not change OS delta status")
 	})
@@ -308,7 +302,7 @@ var _ = Describe("application delta applications", Label("delta", "slow", "vm"),
 		waitForApplicationNames(harness, deviceID, []string{applicationDeltaComposeName})
 		waitForApplicationDeltaContentUpToDateEvent(harness, deviceID, eventBaseline)
 		waitDeviceUpToDate(harness, deviceID, "device UpToDate after Compose delta fallback")
-		waitForApplicationDeltaOutcome(harness, deviceID, applicationDeltaComposeName, target, true)
+		waitForApplicationDeltaOutcome(harness, deviceID, applicationDeltaComposeName, target, v1beta1.DeviceDeltaApplyOutcomeFallback)
 		after := getDeltaDevice(harness, deviceID)
 		Expect(after.Status.Os.LastDelta).To(Equal(before.Status.Os.LastDelta), "application fallback must not change OS delta status")
 	})
@@ -350,8 +344,6 @@ var _ = Describe("application delta applications", Label("delta", "slow", "vm"),
 		Expect(err).NotTo(HaveOccurred())
 		firstApps := []v1beta1.ApplicationProviderSpec{firstContainerV2, composeV1}
 		assertNoDesiredApplicationDeltaHints(firstApps)
-		firstLogSince, err := harness.JournalSinceFromPrimaryVM()
-		Expect(err).NotTo(HaveOccurred())
 		Expect(harness.UpdateDeviceWithRetries(deviceID, func(device *v1beta1.Device) {
 			device.Spec.Applications = &firstApps
 		})).To(Succeed())
@@ -361,8 +353,7 @@ var _ = Describe("application delta applications", Label("delta", "slow", "vm"),
 		registerApplicationDeltaArtifactsCleanup([]v1beta1.ImageDeltaHint{firstHint})
 		waitForApplicationDeltaApps(harness, deviceID, appNames)
 		waitForApplicationDeltaContentUpToDateEvent(harness, deviceID, firstBaseline)
-		waitForApplicationDeltaOutcome(harness, deviceID, applicationDeltaContainerName, firstTarget, false)
-		waitForApplicationDeltaAppliedLogs(harness, firstLogSince, []v1beta1.ImageDeltaHint{firstHint}, true)
+		waitForApplicationDeltaOutcome(harness, deviceID, applicationDeltaContainerName, firstTarget, v1beta1.DeviceDeltaApplyOutcomeApplied)
 
 		secondBaseline, err := captureDeltaEventBaseline(harness, "", deviceID)
 		Expect(err).NotTo(HaveOccurred())
@@ -370,8 +361,6 @@ var _ = Describe("application delta applications", Label("delta", "slow", "vm"),
 		Expect(err).NotTo(HaveOccurred())
 		secondApps := []v1beta1.ApplicationProviderSpec{firstContainerV2, secondComposeV2}
 		assertNoDesiredApplicationDeltaHints(secondApps)
-		secondLogSince, err := harness.JournalSinceFromPrimaryVM()
-		Expect(err).NotTo(HaveOccurred())
 		Expect(harness.UpdateDeviceWithRetries(deviceID, func(device *v1beta1.Device) {
 			device.Spec.Applications = &secondApps
 		})).To(Succeed())
@@ -382,8 +371,7 @@ var _ = Describe("application delta applications", Label("delta", "slow", "vm"),
 		waitForApplicationDeltaApps(harness, deviceID, appNames)
 		waitForApplicationDeltaContentUpToDateEvent(harness, deviceID, secondBaseline)
 		expectNoNewApplicationDeltaGenerationEvent(harness, deviceID, secondBaseline, secondTarget)
-		waitForApplicationDeltaOutcome(harness, deviceID, applicationDeltaComposeName, secondTarget, false)
-		waitForApplicationDeltaAppliedLogs(harness, secondLogSince, secondHints, true)
+		waitForApplicationDeltaOutcome(harness, deviceID, applicationDeltaComposeName, secondTarget, v1beta1.DeviceDeltaApplyOutcomeApplied)
 		waitDeviceUpToDate(harness, deviceID, "device UpToDate after the later Compose delta prepare")
 		Expect(getDeltaDevice(harness, deviceID).Status.Os.LastDelta).To(Equal(before.Status.Os.LastDelta), "application updates must not change OS delta status")
 	})
@@ -409,7 +397,7 @@ type applicationDeltaOverrides struct {
 	QuadletImage  *applicationDeltaTarget
 	QuadletVolume *applicationDeltaTarget
 	QuadletKube   *applicationDeltaTarget
-	Helm          *applicationDeltaTarget
+	HelmValues    map[string]any
 }
 
 type applicationDeltaGenerationTarget struct {
@@ -507,10 +495,6 @@ func applicationDeltaSpecs(registry string, version applicationDeltaVersion, ove
 	if overrides.QuadletKube != nil {
 		quadletKubeImage = overrides.QuadletKube.image
 	}
-	if overrides.Helm != nil {
-		helmImage = overrides.Helm.image
-	}
-
 	containerSpec, err := e2e.NewContainerApplicationSpec(applicationDeltaContainerName, containerImage, nil, nil, nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("container application spec: %w", err)
@@ -566,9 +550,12 @@ spec:
 	}
 
 	chartRef := fmt.Sprintf("%s/flightctl/charts/test-app:%s", registry, chartVersion)
-	helmValues, err := helmImageValues(helmImage)
-	if err != nil {
-		return nil, fmt.Errorf("helm image values: %w", err)
+	helmValues := overrides.HelmValues
+	if helmValues == nil {
+		helmValues, err = helmImageValues(helmImage)
+		if err != nil {
+			return nil, fmt.Errorf("helm image values: %w", err)
+		}
 	}
 	helmSpec, err := e2e.NewHelmApplicationSpecWithValues(applicationDeltaHelmName, chartRef, applicationDeltaNamespace, helmValues)
 	if err != nil {
@@ -780,7 +767,7 @@ func hasSuccessfulApplicationDeltaGeneration(events []v1beta1.Event, target appl
 	return false, nil
 }
 
-func waitForApplicationDeltaOutcome(harness *e2e.Harness, deviceID, appName string, target applicationDeltaTarget, expectFallback bool) {
+func waitForApplicationDeltaOutcome(harness *e2e.Harness, deviceID, appName string, target applicationDeltaTarget, expectedOutcome v1beta1.DeviceDeltaApplyOutcomeType) {
 	Eventually(func() error {
 		device, err := harness.GetDevice(deviceID)
 		if err != nil {
@@ -805,14 +792,21 @@ func waitForApplicationDeltaOutcome(harness *e2e.Harness, deviceID, appName stri
 		if !applicationStatusHasImageDigest(appStatus, target.image, target.targetDigest) {
 			return fmt.Errorf("application %s has not reported target image %s with registry digest %s", appName, target.image, target.targetDigest)
 		}
-		if expectFallback {
-			if appStatus.LastDelta == nil || appStatus.LastDelta.FallbackReason == nil || *appStatus.LastDelta.FallbackReason == "" {
-				return fmt.Errorf("application %s has not reported a delta fallback", appName)
-			}
-			return nil
+		if appStatus.Size == nil || *appStatus.Size == "" {
+			return fmt.Errorf("application %s has not reported its download size outside lastDelta", appName)
 		}
-		if appStatus.LastDelta != nil && appStatus.LastDelta.FallbackReason != nil {
-			return StopTrying(fmt.Sprintf("application %s fell back from delta apply: %s", appName, *appStatus.LastDelta.FallbackReason))
+		if appStatus.LastDelta == nil {
+			return fmt.Errorf("application %s has not reported a delta apply outcome", appName)
+		}
+		if appStatus.LastDelta.Outcome != expectedOutcome {
+			reason := ""
+			if appStatus.LastDelta.FallbackReason != nil {
+				reason = ": " + *appStatus.LastDelta.FallbackReason
+			}
+			return StopTrying(fmt.Sprintf("application %s reported delta outcome %q, expected %q%s", appName, appStatus.LastDelta.Outcome, expectedOutcome, reason))
+		}
+		if expectedOutcome == v1beta1.DeviceDeltaApplyOutcomeFallback && (appStatus.LastDelta.FallbackReason == nil || *appStatus.LastDelta.FallbackReason == "") {
+			return fmt.Errorf("application %s reported delta fallback without a reason", appName)
 		}
 		return nil
 	}, util.LONG_TIMEOUT, util.POLLING).Should(Succeed())
@@ -996,6 +990,12 @@ func requireCRIImageAbsent(harness *e2e.Harness, image string) {
 	Expect(strings.TrimSpace(output)).To(Equal("absent"), "target image %s must be absent from the CRI runtime before delta prefetch", image)
 }
 
+func requireCRIImagePresent(harness *e2e.Harness, image string) {
+	output, err := harness.RunShellAsUserOnVM("root", fmt.Sprintf("if crictl inspecti %s >/dev/null 2>&1; then echo present; else echo absent; fi", shellQuote(image)))
+	Expect(err).NotTo(HaveOccurred())
+	Expect(strings.TrimSpace(output)).To(Equal("present"), "target image %s must be present in the CRI runtime after delta prefetch", image)
+}
+
 func copyApplicationImageToRegistry(harness *e2e.Harness, registry, tag, targetRepository, sourceImage string) (applicationDeltaTarget, error) {
 	targetTag := applicationDeltaTargetTag(tag)
 	registerApplicationImageCleanup(targetRepository, targetTag)
@@ -1138,41 +1138,6 @@ func applicationDeltaTargets(targets ...applicationDeltaTarget) []applicationDel
 		result = append(result, applicationDeltaGenerationTarget{repository: target.repository, digest: target.targetDigest})
 	}
 	return result
-}
-
-func waitForApplicationDeltaAppliedLogs(harness *e2e.Harness, since string, hints []v1beta1.ImageDeltaHint, expectRegistryRefresh bool) {
-	Eventually(func() error {
-		logs, err := harness.ReadPrimaryVMAgentLogs(since, util.FLIGHTCTL_AGENT_SERVICE)
-		if err != nil {
-			return err
-		}
-		var missing []string
-		seen := make(map[string]struct{}, len(hints))
-		for _, hint := range hints {
-			if hint.TargetImage == "" || hint.DeltaImage == "" {
-				continue
-			}
-			key := hint.TargetImage + "@" + hint.DeltaImage
-			if _, ok := seen[key]; ok {
-				continue
-			}
-			seen[key] = struct{}{}
-			applied := fmt.Sprintf("Applied OCI delta for application image %s from %s", hint.TargetImage, hint.DeltaImage)
-			if !strings.Contains(logs, applied) {
-				missing = append(missing, applied)
-			}
-			if expectRegistryRefresh {
-				refreshed := fmt.Sprintf("Refreshed registry reference for application image %s after OCI delta import", hint.TargetImage)
-				if !strings.Contains(logs, refreshed) {
-					missing = append(missing, refreshed)
-				}
-			}
-		}
-		if len(missing) > 0 {
-			return fmt.Errorf("waiting for agent delta logs: %s", strings.Join(missing, "; "))
-		}
-		return nil
-	}, util.LONG_TIMEOUT, util.POLLING).Should(Succeed())
 }
 
 func applicationRegistryEndpoint() string {

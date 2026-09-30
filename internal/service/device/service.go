@@ -68,8 +68,10 @@ type Service interface {
 }
 
 // RenderedOSHints is applied when persisting a rendered spec: optional OS
-// deltaImage on the rendered OS spec and status.updated.size. It also carries
-// per-application size hints for DeviceApplicationStatus.Size.
+// deltaImage on the rendered OS spec and control-plane size estimates for OS
+// and application updates. The device store merges these estimates into the
+// corresponding OS and application status fields when returning a device
+// resource.
 type RenderedOSHints struct {
 	DeltaImage  *string
 	UpdatedSize *string

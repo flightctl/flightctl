@@ -169,6 +169,14 @@ const (
 	DeviceDecommissionTargetTypeUnenroll     DeviceDecommissionTargetType = "Unenroll"
 )
 
+// Defines values for DeviceDeltaApplyOutcomeType.
+const (
+	DeviceDeltaApplyOutcomeApplied  DeviceDeltaApplyOutcomeType = "Applied"
+	DeviceDeltaApplyOutcomeFallback DeviceDeltaApplyOutcomeType = "Fallback"
+	DeviceDeltaApplyOutcomeNotUsed  DeviceDeltaApplyOutcomeType = "NotUsed"
+	DeviceDeltaApplyOutcomePartial  DeviceDeltaApplyOutcomeType = "Partial"
+)
+
 // Defines values for DeviceIntegrityCheckStatusType.
 const (
 	DeviceIntegrityCheckStatusFailed      DeviceIntegrityCheckStatusType = "Failed"
@@ -1393,7 +1401,7 @@ type DeviceApplicationStatus struct {
 	// ImageDigests Image references this application uses and the registry digest associated with each image. image is the ref from the current rendered spec (tag or digest). For a multi-platform index, digest is the platform-specific manifest selected by the runtime when available; if the runtime exposes only an opaque ID, an immutable image reference's digest may be reported. digest is omitted when no registry digest is known.
 	ImageDigests *[]ApplicationImageDigest `json:"imageDigests,omitempty"`
 
-	// LastDelta Result of the most recent delta apply attempt for this update target.
+	// LastDelta Agent-reported result for delta apply attempts for this update target. For an application with multiple image targets, the outcome is aggregated across image targets. The lastDelta field is omitted until the agent reports an outcome; server-side delta preparation is reported separately.
 	LastDelta *DeviceDeltaApplyStatus `json:"lastDelta,omitempty"`
 
 	// Name Human readable name of the application.
@@ -1457,13 +1465,16 @@ type DeviceDecommission struct {
 // DeviceDecommissionTargetType Specifies the desired decommissioning method of the device.
 type DeviceDecommissionTargetType string
 
-// DeviceDeltaApplyStatus Result of the most recent delta apply attempt for this update target.
+// DeviceDeltaApplyOutcomeType Result reported by the agent for an update target. NotUsed means the agent skipped delta application without a delta-apply failure; it may still use a full image pull. Applied means all delta work for the target succeeded. Fallback means a delta attempt failed and the agent attempted a full image pull. Partial means an application applied at least one delta while another image target used a full image pull or skipped delta application.
+type DeviceDeltaApplyOutcomeType string
+
+// DeviceDeltaApplyStatus Agent-reported result for delta apply attempts for this update target. For an application with multiple image targets, the outcome is aggregated across image targets. The lastDelta field is omitted until the agent reports an outcome; server-side delta preparation is reported separately.
 type DeviceDeltaApplyStatus struct {
-	// FallbackReason Set when the most recent update attempt fell back from a delta to a full image pull. Absent if no delta was attempted or the delta succeeded. Cleared when the next update attempt for this target starts.
+	// FallbackReason Set when one or more delta attempts failed and the agent attempted a full image pull. For an application with multiple image targets, this reports one representative failure reason.
 	FallbackReason *string `json:"fallbackReason,omitempty"`
 
-	// Size Expected delta size in IEC units (KiB, MiB, GiB, or TiB). Absent when the size is not yet known.
-	Size *string `json:"size,omitempty"`
+	// Outcome Result reported by the agent for an update target. NotUsed means the agent skipped delta application without a delta-apply failure; it may still use a full image pull. Applied means all delta work for the target succeeded. Fallback means a delta attempt failed and the agent attempted a full image pull. Partial means an application applied at least one delta while another image target used a full image pull or skipped delta application.
+	Outcome DeviceDeltaApplyOutcomeType `json:"outcome"`
 }
 
 // DeviceEnrollmentHooksStatus Enrollment hooks state for a device.
@@ -1597,8 +1608,11 @@ type DeviceOsStatus struct {
 	// ImageDigest The digest of the OS image (e.g. sha256:a0...).
 	ImageDigest string `json:"imageDigest"`
 
-	// LastDelta Result of the most recent delta apply attempt for this update target.
+	// LastDelta Agent-reported result for delta apply attempts for this update target. For an application with multiple image targets, the outcome is aggregated across image targets. The lastDelta field is omitted until the agent reports an outcome; server-side delta preparation is reported separately.
 	LastDelta *DeviceDeltaApplyStatus `json:"lastDelta,omitempty"`
+
+	// Size Expected total download size for this OS update in IEC units (e.g. "245.3 MiB", "1 GiB"). Uses the delta payload size when available, or the full image payload size otherwise. Absent when the size is unknown.
+	Size *string `json:"size,omitempty"`
 }
 
 // DeviceOwnershipChangedDetails defines model for DeviceOwnershipChangedDetails.

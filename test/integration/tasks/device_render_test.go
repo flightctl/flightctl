@@ -12,6 +12,7 @@ import (
 	deltamodel "github.com/flightctl/flightctl/internal/delta_worker/model"
 	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/oci"
 	"github.com/flightctl/flightctl/internal/rendered"
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	dependencyrefservice "github.com/flightctl/flightctl/internal/service/dependencyref"
@@ -1321,6 +1322,10 @@ var _ = Describe("DeviceRender", func() {
 				SizeBytes:       &sizeBytes,
 			}})
 			Expect(err).ToNot(HaveOccurred())
+			_, err = oci.CachedImageDigestPair(ctx, kvStoreInst, orgId, osImage, srcDigest, nil, func(context.Context) (oci.ImageDigestPair, error) {
+				return oci.ImageDigestPair{SourceDigest: srcDigest, TargetDigest: tgtDigest}, nil
+			})
+			Expect(err).ToNot(HaveOccurred())
 
 			event := api.Event{
 				Reason:         api.EventReasonResourceUpdated,
@@ -1337,8 +1342,9 @@ var _ = Describe("DeviceRender", func() {
 			Expect(renderedDevice.Spec.Os).ToNot(BeNil())
 			Expect(lo.FromPtr(renderedDevice.Spec.Os.DeltaImage)).To(Equal(deltaRef))
 			Expect(renderedDevice.Status).ToNot(BeNil())
-			Expect(renderedDevice.Status.Os.LastDelta).ToNot(BeNil())
-			Expect(lo.FromPtr(renderedDevice.Status.Os.LastDelta.Size)).To(Equal("45 MiB"))
+			Expect(renderedDevice.Status.Os.Size).ToNot(BeNil())
+			Expect(lo.FromPtr(renderedDevice.Status.Os.Size)).To(Equal("45 MiB"))
+			Expect(renderedDevice.Status.Os.LastDelta).To(BeNil())
 		})
 	})
 

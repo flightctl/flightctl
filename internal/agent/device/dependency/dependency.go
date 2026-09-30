@@ -239,10 +239,15 @@ type OCICollection struct {
 
 // PrefetchStatus provides the current status of prefetch operations
 type PrefetchStatus struct {
-	TotalImages          int
-	PendingImages        []string
-	RetryingImages       []string
-	DeltaFallbackReasons map[string]string
+	TotalImages        int
+	PendingImages      []string
+	RetryingImages     []string
+	DeltaApplyStatuses map[string]v1beta1.DeviceDeltaApplyStatus
+}
+
+type applicationDeltaApplyResult struct {
+	outcome        v1beta1.DeviceDeltaApplyOutcomeType
+	fallbackReason string
 }
 
 var _ PrefetchManager = (*prefetchManager)(nil)
@@ -326,10 +331,9 @@ type prefetchManager struct {
 	queue      chan imageRef
 	collectors []OCICollector
 
-	deltaDesired         *v1beta1.DeviceSpec
-	deltaGeneration      uint64
-	deltaFallbackReasons map[string]string
-	deltaFallbackTargets map[string]imageRef
+	deltaDesired      *v1beta1.DeviceSpec
+	deltaGeneration   uint64
+	deltaApplyResults map[string]map[imageRef]applicationDeltaApplyResult
 }
 
 type prefetchTask struct {
@@ -376,18 +380,17 @@ func NewPrefetchManager(
 	opts ...PrefetchManagerOption,
 ) *prefetchManager {
 	m := &prefetchManager{
-		log:                  log,
-		podmanFactory:        podmanFactory,
-		skopeoFactory:        skopeoFactory,
-		cliClients:           cliClients,
-		readWriter:           readWriter,
-		pullTimeout:          time.Duration(pullTimeout),
-		pollConfig:           &pollConfig,
-		resourceManager:      resourceManager,
-		tasks:                make(map[imageRef]*prefetchTask),
-		queue:                make(chan imageRef, maxQueueSize),
-		deltaFallbackReasons: make(map[string]string),
-		deltaFallbackTargets: make(map[string]imageRef),
+		log:               log,
+		podmanFactory:     podmanFactory,
+		skopeoFactory:     skopeoFactory,
+		cliClients:        cliClients,
+		readWriter:        readWriter,
+		pullTimeout:       time.Duration(pullTimeout),
+		pollConfig:        &pollConfig,
+		resourceManager:   resourceManager,
+		tasks:             make(map[imageRef]*prefetchTask),
+		queue:             make(chan imageRef, maxQueueSize),
+		deltaApplyResults: make(map[string]map[imageRef]applicationDeltaApplyResult),
 	}
 	for _, opt := range opts {
 		opt(m)
@@ -460,8 +463,7 @@ func (m *prefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1
 	if m.deltaDesired != desired {
 		m.deltaDesired = desired
 		m.deltaGeneration++
-		m.deltaFallbackReasons = make(map[string]string)
-		m.deltaFallbackTargets = make(map[string]imageRef)
+		m.deltaApplyResults = make(map[string]map[imageRef]applicationDeltaApplyResult)
 	}
 	collectors := slices.Clone(m.collectors)
 	m.mu.Unlock()
@@ -678,6 +680,9 @@ func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, tas
 	cri := m.cliClients.CRI()
 	if task.delta == nil || m.ociDelta == nil {
 		_, err := cri.Pull(ctx, target.image, opts...)
+		if task.delta != nil {
+			m.recordDeltaNotUsed(target, task)
+		}
 		return err
 	}
 
@@ -692,6 +697,7 @@ func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, tas
 	}
 	if candidate == "" {
 		_, err := cri.Pull(ctx, target.image, opts...)
+		m.recordDeltaNotUsed(target, task)
 		return err
 	}
 	if err := validateApplicationDeltaCandidate(candidate); err != nil {
@@ -748,8 +754,19 @@ func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, tas
 	if !cri.ImageExists(ctx, target.image, opts...) {
 		return m.applicationCRIDeltaFallback(ctx, target, task, fmt.Errorf("delta import did not make %s available in the CRI runtime", target.image), opts...)
 	}
-	m.clearDeltaFallback(target, task)
+
+	// Pull the registry reference after importing the reconstructed image so
+	// CRI records the registry's canonical manifest digest. The image blobs are
+	// already in the runtime storage from delta reconstruction and can be reused
+	// by digest.
+	if _, err := cri.Pull(ctx, target.image, opts...); err != nil {
+		return m.applicationCRIDeltaFallback(ctx, target, task,
+			fmt.Errorf("refresh registry manifest after delta import: %w", err), opts...)
+	}
+
+	m.recordDeltaApplied(target, task)
 	m.log.Infof("Applied OCI delta for application image %s from %s", target.image, candidate)
+	m.log.Infof("Refreshed registry reference for application image %s after OCI delta import", target.image)
 	return nil
 }
 
@@ -822,8 +839,13 @@ func (m *prefetchManager) applicationCRIDeltaFallback(ctx context.Context, targe
 }
 
 func (m *prefetchManager) pullApplicationImage(ctx context.Context, target imageRef, task *prefetchTask, podman *client.Podman, skopeo *client.Skopeo, opts ...client.ClientOption) error {
-	if task.delta == nil || (m.ociDelta == nil && m.ociDeltaFactory == nil) {
+	if task.delta == nil {
 		_, err := podman.Pull(ctx, target.image, opts...)
+		return err
+	}
+	if m.ociDelta == nil && m.ociDeltaFactory == nil {
+		_, err := podman.Pull(ctx, target.image, opts...)
+		m.recordDeltaNotUsed(target, task)
 		return err
 	}
 	ociDelta, err := m.applicationOCIDelta(target.owner)
@@ -845,6 +867,7 @@ func (m *prefetchManager) pullApplicationImage(ctx context.Context, target image
 
 	if candidate == "" {
 		_, err := podman.Pull(ctx, target.image, opts...)
+		m.recordDeltaNotUsed(target, task)
 		return err
 	}
 	if err := validateApplicationDeltaCandidate(candidate); err != nil {
@@ -878,7 +901,7 @@ func (m *prefetchManager) pullApplicationImage(ctx context.Context, target image
 		return m.applicationDeltaFallback(ctx, target, task, podman,
 			fmt.Errorf("refresh registry manifest after delta import: %w", err), opts...)
 	}
-	m.clearDeltaFallback(target, task)
+	m.recordDeltaApplied(target, task)
 	m.log.Infof("Refreshed registry reference for application image %s after OCI delta import", target.image)
 	return nil
 }
@@ -947,51 +970,47 @@ func (m *prefetchManager) recordDeltaFallback(target imageRef, task *prefetchTas
 	if task == nil || task.delta == nil || deltaErr == nil {
 		return
 	}
-	applications := deltaApplications(task.delta)
-	if len(applications) == 0 {
-		return
-	}
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	current, exists := m.tasks[target]
-	if !exists || current != task || task.deltaGeneration != m.deltaGeneration {
-		return
-	}
-	if m.deltaFallbackReasons == nil {
-		m.deltaFallbackReasons = make(map[string]string)
-	}
-	if m.deltaFallbackTargets == nil {
-		m.deltaFallbackTargets = make(map[string]imageRef)
-	}
-	for _, application := range applications {
-		m.deltaFallbackReasons[application] = deltaErr.Error()
-		m.deltaFallbackTargets[application] = target
-	}
+	m.recordDeltaApplyResult(target, task, v1beta1.DeviceDeltaApplyOutcomeFallback, deltaErr.Error())
 }
 
-func (m *prefetchManager) clearDeltaFallback(target imageRef, task *prefetchTask) {
+func (m *prefetchManager) recordDeltaApplied(target imageRef, task *prefetchTask) {
+	m.recordDeltaApplyResult(target, task, v1beta1.DeviceDeltaApplyOutcomeApplied, "")
+}
+
+func (m *prefetchManager) recordDeltaNotUsed(target imageRef, task *prefetchTask) {
+	m.recordDeltaApplyResult(target, task, v1beta1.DeviceDeltaApplyOutcomeNotUsed, "")
+}
+
+func (m *prefetchManager) recordDeltaApplyResult(target imageRef, task *prefetchTask, outcome v1beta1.DeviceDeltaApplyOutcomeType, fallbackReason string) {
 	if task == nil || task.delta == nil {
 		return
 	}
 	applications := deltaApplications(task.delta)
-	if len(applications) == 0 {
-		return
-	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.recordDeltaApplyResultLocked(target, task, applications, outcome, fallbackReason)
+}
+
+func (m *prefetchManager) recordDeltaApplyResultLocked(target imageRef, task *prefetchTask, applications []string, outcome v1beta1.DeviceDeltaApplyOutcomeType, fallbackReason string) {
+	if task == nil || task.delta == nil || len(applications) == 0 {
+		return
+	}
 
 	current, exists := m.tasks[target]
 	if !exists || current != task || task.deltaGeneration != m.deltaGeneration {
 		return
 	}
+	if m.deltaApplyResults == nil {
+		m.deltaApplyResults = make(map[string]map[imageRef]applicationDeltaApplyResult)
+	}
 	for _, application := range applications {
-		if fallbackTarget, exists := m.deltaFallbackTargets[application]; exists && fallbackTarget == target {
-			delete(m.deltaFallbackReasons, application)
-			delete(m.deltaFallbackTargets, application)
+		results := m.deltaApplyResults[application]
+		if results == nil {
+			results = make(map[imageRef]applicationDeltaApplyResult)
+			m.deltaApplyResults[application] = results
 		}
+		results[target] = applicationDeltaApplyResult{outcome: outcome, fallbackReason: fallbackReason}
 	}
 }
 
@@ -1094,10 +1113,21 @@ func (m *prefetchManager) prepareTask(ctx context.Context, target imageRef, ociT
 
 	if targetExists {
 		m.log.Debugf("Scheduled prefetch target already exists: %s", target)
-		m.tasks[target] = &prefetchTask{
-			ociType: ociType,
-			done:    true,
-			err:     nil,
+		task := &prefetchTask{
+			ociType:         ociType,
+			done:            true,
+			delta:           delta,
+			deltaGeneration: m.deltaGeneration,
+		}
+		m.tasks[target] = task
+		if delta != nil {
+			m.recordDeltaApplyResultLocked(
+				target,
+				task,
+				deltaApplications(delta),
+				v1beta1.DeviceDeltaApplyOutcomeNotUsed,
+				"",
+			)
 		}
 		return false, nil
 	}
@@ -1270,17 +1300,17 @@ func (m *prefetchManager) StatusMessage(ctx context.Context) string {
 	}
 }
 
-// Status adds application delta fallback results collected by prefetch tasks.
+// Status adds application delta results collected by prefetch tasks.
 func (m *prefetchManager) Status(ctx context.Context, deviceStatus *v1beta1.DeviceStatus, _ ...status.CollectorOpt) error {
 	prefetchStatus := m.status(ctx)
 
 	for i := range deviceStatus.Applications {
-		reason, exists := prefetchStatus.DeltaFallbackReasons[deviceStatus.Applications[i].Name]
+		deltaStatus, exists := prefetchStatus.DeltaApplyStatuses[deviceStatus.Applications[i].Name]
 		if !exists {
 			continue
 		}
-		fallbackReason := reason
-		deviceStatus.Applications[i].LastDelta = &v1beta1.DeviceDeltaApplyStatus{FallbackReason: &fallbackReason}
+		applicationDeltaStatus := deltaStatus
+		deviceStatus.Applications[i].LastDelta = &applicationDeltaStatus
 	}
 	return nil
 }
@@ -1305,15 +1335,73 @@ func (m *prefetchManager) status(ctx context.Context) PrefetchStatus {
 	// sort for consistent ordering
 	slices.Sort(pendingImages)
 	slices.Sort(retryingImages)
-	deltaFallbackReasons := make(map[string]string, len(m.deltaFallbackReasons))
-	for application, reason := range m.deltaFallbackReasons {
-		deltaFallbackReasons[application] = reason
+
+	pendingDeltaApplications := make(map[string]struct{})
+	for _, task := range m.tasks {
+		if task.done || task.delta == nil {
+			continue
+		}
+		for _, application := range deltaApplications(task.delta) {
+			pendingDeltaApplications[application] = struct{}{}
+		}
+	}
+
+	deltaApplyStatuses := make(map[string]v1beta1.DeviceDeltaApplyStatus, len(m.deltaApplyResults))
+	for application, results := range m.deltaApplyResults {
+		if _, pending := pendingDeltaApplications[application]; pending {
+			continue
+		}
+		if deltaStatus := aggregateApplicationDeltaApplyResults(results); deltaStatus != nil {
+			deltaApplyStatuses[application] = *deltaStatus
+		}
 	}
 
 	return PrefetchStatus{
-		TotalImages:          len(m.tasks),
-		PendingImages:        pendingImages,
-		RetryingImages:       retryingImages,
-		DeltaFallbackReasons: deltaFallbackReasons,
+		TotalImages:        len(m.tasks),
+		PendingImages:      pendingImages,
+		RetryingImages:     retryingImages,
+		DeltaApplyStatuses: deltaApplyStatuses,
 	}
+}
+
+func aggregateApplicationDeltaApplyResults(results map[imageRef]applicationDeltaApplyResult) *v1beta1.DeviceDeltaApplyStatus {
+	var appliedCount, fallbackCount, notUsedCount int
+	var fallbackReasons []string
+	for _, result := range results {
+		switch result.outcome {
+		case v1beta1.DeviceDeltaApplyOutcomeApplied:
+			appliedCount++
+		case v1beta1.DeviceDeltaApplyOutcomeFallback:
+			fallbackCount++
+			if result.fallbackReason != "" {
+				fallbackReasons = append(fallbackReasons, result.fallbackReason)
+			}
+		case v1beta1.DeviceDeltaApplyOutcomeNotUsed:
+			notUsedCount++
+		}
+	}
+
+	if appliedCount+fallbackCount+notUsedCount == 0 {
+		return nil
+	}
+
+	var outcome v1beta1.DeviceDeltaApplyOutcomeType
+	switch {
+	case appliedCount > 0 && (fallbackCount > 0 || notUsedCount > 0):
+		outcome = v1beta1.DeviceDeltaApplyOutcomePartial
+	case appliedCount > 0:
+		outcome = v1beta1.DeviceDeltaApplyOutcomeApplied
+	case fallbackCount > 0:
+		outcome = v1beta1.DeviceDeltaApplyOutcomeFallback
+	default:
+		outcome = v1beta1.DeviceDeltaApplyOutcomeNotUsed
+	}
+
+	deltaStatus := &v1beta1.DeviceDeltaApplyStatus{Outcome: outcome}
+	if len(fallbackReasons) > 0 {
+		slices.Sort(fallbackReasons)
+		fallbackReason := fallbackReasons[0]
+		deltaStatus.FallbackReason = &fallbackReason
+	}
+	return deltaStatus
 }

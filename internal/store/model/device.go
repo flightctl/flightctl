@@ -91,6 +91,118 @@ type ServiceConditions struct {
 	Conditions      *[]domain.Condition           `json:"conditions,omitempty"`
 	DependencySync  *domain.DependencySyncStatus  `json:"dependencySync,omitempty"`
 	DeltaGeneration *domain.DeltaGenerationStatus `json:"deltaGeneration,omitempty"`
+	DeltaEstimates  *DeviceDeltaEstimates         `json:"deltaEstimates,omitempty"`
+}
+
+// DeviceDeltaEstimates stores control-plane size estimates separately from
+// agent-reported device status.
+type DeviceDeltaEstimates struct {
+	OS           *DeviceDeltaEstimate           `json:"os,omitempty"`
+	Applications map[string]DeviceDeltaEstimate `json:"applications,omitempty"`
+}
+
+// DeviceDeltaEstimate is the server-computed size estimate for one update target.
+type DeviceDeltaEstimate struct {
+	Size *string `json:"size,omitempty"`
+}
+
+func extractDeviceDeltaEstimates(status *domain.DeviceStatus) *DeviceDeltaEstimates {
+	if status == nil {
+		return nil
+	}
+
+	estimates := &DeviceDeltaEstimates{}
+	if status.Os.Size != nil {
+		estimates.OS = &DeviceDeltaEstimate{Size: clonePtr(status.Os.Size)}
+		status.Os.Size = nil
+	}
+	if status.Os.LastDelta != nil {
+		status.Os.LastDelta = agentDeltaApplyResult(status.Os.LastDelta)
+	}
+
+	if len(status.Applications) > 0 {
+		status.Applications = append([]domain.DeviceApplicationStatus(nil), status.Applications...)
+	}
+	applicationEstimates := make(map[string]DeviceDeltaEstimate)
+	for i := range status.Applications {
+		application := &status.Applications[i]
+		size := application.Size
+		if size != nil && application.Name != "" {
+			applicationEstimates[application.Name] = DeviceDeltaEstimate{Size: clonePtr(size)}
+		}
+		application.Size = nil
+		application.LastDelta = agentDeltaApplyResult(application.LastDelta)
+	}
+	if len(applicationEstimates) > 0 {
+		estimates.Applications = applicationEstimates
+	}
+	if estimates.OS == nil && len(estimates.Applications) == 0 {
+		return nil
+	}
+	return estimates
+}
+
+func agentDeltaApplyResult(lastDelta *domain.DeviceDeltaApplyStatus) *domain.DeviceDeltaApplyStatus {
+	if lastDelta == nil {
+		return nil
+	}
+	result := *lastDelta
+	if result.Outcome == "Pending" {
+		// Pending is represented by the separate server-owned preparation state,
+		// not as an agent-reported delta-apply result.
+		return nil
+	}
+	if result.Outcome == "" {
+		if result.FallbackReason == nil || *result.FallbackReason == "" {
+			return nil
+		}
+		result.Outcome = "Fallback"
+	}
+	return &result
+}
+
+func mergeDeviceDeltaEstimates(status *domain.DeviceStatus, estimates *DeviceDeltaEstimates) {
+	if status == nil || estimates == nil {
+		return
+	}
+	if estimates.OS != nil && estimates.OS.Size != nil {
+		status.Os.Size = clonePtr(estimates.OS.Size)
+	}
+	for i := range status.Applications {
+		application := &status.Applications[i]
+		estimate, exists := estimates.Applications[application.Name]
+		if !exists || estimate.Size == nil {
+			continue
+		}
+		application.Size = clonePtr(estimate.Size)
+	}
+}
+
+func (d *Device) mergeServiceConditions(status *domain.DeviceStatus) {
+	legacyDeltaEstimates := extractDeviceDeltaEstimates(status)
+	status.Conditions = lo.Filter(status.Conditions, func(c domain.Condition, _ int) bool {
+		return !c.Type.IsServiceConditionType()
+	})
+	status.DeltaGeneration = nil
+
+	var deltaEstimates *DeviceDeltaEstimates
+	if d.ServiceConditions != nil {
+		if d.ServiceConditions.Data.Conditions != nil {
+			if status.Conditions == nil {
+				status.Conditions = []domain.Condition{}
+			}
+			status.Conditions = append(status.Conditions, *d.ServiceConditions.Data.Conditions...)
+		}
+		if d.ServiceConditions.Data.DependencySync != nil {
+			status.DependencySync = d.ServiceConditions.Data.DependencySync
+		}
+		status.DeltaGeneration = d.ServiceConditions.Data.DeltaGeneration
+		deltaEstimates = d.ServiceConditions.Data.DeltaEstimates
+	}
+	if deltaEstimates == nil {
+		deltaEstimates = legacyDeltaEstimates
+	}
+	mergeDeviceDeltaEstimates(status, deltaEstimates)
 }
 
 func (d Device) String() string {
@@ -112,10 +224,11 @@ func NewDeviceFromApiResource(resource *domain.Device) (*Device, error) {
 	if resource.Status != nil {
 		status = *resource.Status
 	}
+	serviceConditions := ServiceConditions{}
+	serviceConditions.DeltaEstimates = extractDeviceDeltaEstimates(&status)
 	if status.Conditions == nil {
 		status.Conditions = []domain.Condition{}
 	}
-	var serviceConditions ServiceConditions
 	serviceConditions.Conditions = lo.ToPtr(lo.Filter(status.Conditions, func(c domain.Condition, _ int) bool {
 		return c.Type.IsServiceConditionType()
 	}))
@@ -274,23 +387,7 @@ func (d *Device) ToApiResource(opts ...APIResourceOption) (*domain.Device, error
 	if d.Status != nil {
 		status = d.Status.Data
 	}
-	status.Conditions = lo.Filter(status.Conditions, func(c domain.Condition, _ int) bool {
-		return !c.Type.IsServiceConditionType()
-	})
-	status.DeltaGeneration = nil
-
-	if d.ServiceConditions != nil {
-		if d.ServiceConditions.Data.Conditions != nil {
-			if status.Conditions == nil {
-				status.Conditions = []domain.Condition{}
-			}
-			status.Conditions = append(status.Conditions, *d.ServiceConditions.Data.Conditions...)
-		}
-		if d.ServiceConditions.Data.DependencySync != nil {
-			status.DependencySync = d.ServiceConditions.Data.DependencySync
-		}
-		status.DeltaGeneration = d.ServiceConditions.Data.DeltaGeneration
-	}
+	d.mergeServiceConditions(&status)
 
 	var resourceVersion *string
 	if d.ResourceVersion != nil {

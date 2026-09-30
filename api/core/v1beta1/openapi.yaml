@@ -7665,20 +7665,43 @@ components:
     DeviceDeltaApplyStatus:
       type: object
       description: >-
-        Result of the most recent delta apply attempt for this update target.
+        Agent-reported result for delta apply attempts for this update target.
+        For an application with multiple image targets, the outcome is
+        aggregated across image targets. The lastDelta field is omitted until
+        the agent reports an outcome; server-side delta preparation is reported
+        separately.
       additionalProperties: false
+      required:
+        - outcome
       properties:
+        outcome:
+          $ref: "#/components/schemas/DeviceDeltaApplyOutcomeType"
         fallbackReason:
           type: string
           description: >-
-            Set when the most recent update attempt fell back from a delta to a
-            full image pull. Absent if no delta was attempted or the delta
-            succeeded. Cleared when the next update attempt for this target starts.
-        size:
-          type: string
-          description: >-
-            Expected delta size in IEC units (KiB, MiB, GiB, or TiB).
-            Absent when the size is not yet known.
+            Set when one or more delta attempts failed and the agent attempted
+            a full image pull. For an application with multiple image targets,
+            this reports one representative failure reason.
+    DeviceDeltaApplyOutcomeType:
+      type: string
+      description: >-
+        Result reported by the agent for an update target. NotUsed means the
+        agent skipped delta application without a delta-apply failure; it may
+        still use a full image pull. Applied means all delta work for the target
+        succeeded. Fallback means a delta attempt failed and the agent attempted
+        a full image pull. Partial means an application applied at least one
+        delta while another image target used a full image pull or skipped delta
+        application.
+      enum:
+        - NotUsed
+        - Applied
+        - Fallback
+        - Partial
+      x-enum-varnames:
+        - DeviceDeltaApplyOutcomeNotUsed
+        - DeviceDeltaApplyOutcomeApplied
+        - DeviceDeltaApplyOutcomeFallback
+        - DeviceDeltaApplyOutcomePartial
     DeviceOsStatus:
       type: object
       description: Current status of the device OS.
@@ -7692,6 +7715,13 @@ components:
         imageDigest:
           type: string
           description: The digest of the OS image (e.g. sha256:a0...).
+        size:
+          type: string
+          description: >-
+            Expected total download size for this OS update in IEC units
+            (e.g. "245.3 MiB", "1 GiB"). Uses the delta payload size when
+            available, or the full image payload size otherwise. Absent when
+            the size is unknown.
         lastDelta:
           $ref: "#/components/schemas/DeviceDeltaApplyStatus"
     DeviceConfigStatus:

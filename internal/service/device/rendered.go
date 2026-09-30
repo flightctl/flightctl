@@ -58,21 +58,14 @@ func applyRenderedUpdate(
 		OsImage:      osImage,
 	}
 	if osHints != nil {
-		m.Rendered.OsDeltaImage = osHints.DeltaImage
-		if osHints.UpdatedSize != nil {
-			if device.Status.Os.LastDelta == nil {
-				device.Status.Os.LastDelta = &domain.DeviceDeltaApplyStatus{}
-			}
-			device.Status.Os.LastDelta.Size = osHints.UpdatedSize
-		}
+		m.Rendered.DeltaImage = osHints.DeltaImage
 	}
-	for i := range device.Status.Applications {
-		application := &device.Status.Applications[i]
-		application.Size = nil
-		if osHints != nil {
-			application.Size = osHints.AppSizes[application.Name]
-		}
+	estimates := &devicestore.DeviceDeltaEstimates{}
+	if osHints != nil {
+		estimates.OSSize = osHints.UpdatedSize
+		estimates.ApplicationSizes = osHints.AppSizes
 	}
+	m.Rendered.DeltaEstimates = estimates
 	return next, nil
 }
 
