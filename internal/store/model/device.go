@@ -101,9 +101,10 @@ type DeviceDeltaEstimates struct {
 	Applications map[string]DeviceDeltaEstimate `json:"applications,omitempty"`
 }
 
-// DeviceDeltaEstimate is the server-computed size estimate for one update target.
+// DeviceDeltaEstimate is the control-plane generated delta-size estimate for
+// one update target.
 type DeviceDeltaEstimate struct {
-	Size *string `json:"size,omitempty"`
+	DeltaSize *string `json:"deltaSize,omitempty"`
 }
 
 func extractDeviceDeltaEstimates(status *domain.DeviceStatus) *DeviceDeltaEstimates {
@@ -112,9 +113,9 @@ func extractDeviceDeltaEstimates(status *domain.DeviceStatus) *DeviceDeltaEstima
 	}
 
 	estimates := &DeviceDeltaEstimates{}
-	if status.Os.Size != nil {
-		estimates.OS = &DeviceDeltaEstimate{Size: clonePtr(status.Os.Size)}
-		status.Os.Size = nil
+	if status.Os.DeltaSize != nil {
+		estimates.OS = &DeviceDeltaEstimate{DeltaSize: clonePtr(status.Os.DeltaSize)}
+		status.Os.DeltaSize = nil
 	}
 	if status.Os.LastDelta != nil {
 		status.Os.LastDelta = agentDeltaApplyResult(status.Os.LastDelta)
@@ -126,11 +127,11 @@ func extractDeviceDeltaEstimates(status *domain.DeviceStatus) *DeviceDeltaEstima
 	applicationEstimates := make(map[string]DeviceDeltaEstimate)
 	for i := range status.Applications {
 		application := &status.Applications[i]
-		size := application.Size
-		if size != nil && application.Name != "" {
-			applicationEstimates[application.Name] = DeviceDeltaEstimate{Size: clonePtr(size)}
+		deltaSize := application.DeltaSize
+		if deltaSize != nil && application.Name != "" {
+			applicationEstimates[application.Name] = DeviceDeltaEstimate{DeltaSize: clonePtr(deltaSize)}
 		}
-		application.Size = nil
+		application.DeltaSize = nil
 		application.LastDelta = agentDeltaApplyResult(application.LastDelta)
 	}
 	if len(applicationEstimates) > 0 {
@@ -165,16 +166,16 @@ func mergeDeviceDeltaEstimates(status *domain.DeviceStatus, estimates *DeviceDel
 	if status == nil || estimates == nil {
 		return
 	}
-	if estimates.OS != nil && estimates.OS.Size != nil {
-		status.Os.Size = clonePtr(estimates.OS.Size)
+	if estimates.OS != nil && estimates.OS.DeltaSize != nil {
+		status.Os.DeltaSize = clonePtr(estimates.OS.DeltaSize)
 	}
 	for i := range status.Applications {
 		application := &status.Applications[i]
 		estimate, exists := estimates.Applications[application.Name]
-		if !exists || estimate.Size == nil {
+		if !exists || estimate.DeltaSize == nil {
 			continue
 		}
-		application.Size = clonePtr(estimate.Size)
+		application.DeltaSize = clonePtr(estimate.DeltaSize)
 	}
 }
 

@@ -1464,7 +1464,7 @@ func TestRenderSpec_WhenHTTPConfigItShouldIncludeFetchedBodyWithoutPersisting(t 
 	assert.Contains(t, string(rendered.Config), base64.StdEncoding.EncodeToString([]byte(body)))
 }
 
-func TestRenderDevice_SucceededGenerationSetsDeltaImageAndSize(t *testing.T) {
+func TestRenderDevice_SucceededGenerationSetsDeltaImageAndDeltaSize(t *testing.T) {
 	const deviceName = "device-delta-hint"
 	src := "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	tgt := "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
@@ -1494,7 +1494,7 @@ func TestRenderDevice_SucceededGenerationSetsDeltaImageAndSize(t *testing.T) {
 	).DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, _, _, _, _ string, _ []domain.DependencySyncConfigRefStatus, _ bool, hints *deviceservice.RenderedOSHints) domain.Status {
 		require.NotNil(t, hints)
 		require.Equal(t, deltaRef, lo.FromPtr(hints.DeltaImage))
-		require.Equal(t, "45 MiB", lo.FromPtr(hints.UpdatedSize))
+		require.Equal(t, "45 MiB", lo.FromPtr(hints.DeltaSize))
 		return statusOK
 	})
 

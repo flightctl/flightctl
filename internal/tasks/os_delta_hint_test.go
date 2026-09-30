@@ -78,37 +78,49 @@ func TestImageRepositoryFromRef(t *testing.T) {
 func TestHintFromGeneration(t *testing.T) {
 	deltaRef := "quay.io/acme/os@sha256:delta"
 	size := int64(47185920)
-	full := int64(1 << 30)
 
-	t.Run("When generation succeeded it should hint deltaRef and IEC size_bytes", func(t *testing.T) {
-		img, sz := hintFromGeneration(&deltamodel.DeltaGeneration{
+	t.Run("When generation succeeded with a delta image it should report deltaImage and deltaSize", func(t *testing.T) {
+		img, deltaSize := hintFromGeneration(&deltamodel.DeltaGeneration{
 			Status:    deltamodel.DeltaGenerationSucceeded,
 			DeltaRef:  &deltaRef,
 			SizeBytes: &size,
-		}, nil)
+		})
 		require.Equal(t, &deltaRef, img)
-		require.Equal(t, lo.ToPtr("45 MiB"), sz)
+		require.Equal(t, lo.ToPtr("45 MiB"), deltaSize)
 	})
 
-	t.Run("When generation is rejected it should not hint and should use size_bytes", func(t *testing.T) {
-		img, sz := hintFromGeneration(&deltamodel.DeltaGeneration{
+	t.Run("When generation is rejected it should not report deltaImage or deltaSize", func(t *testing.T) {
+		img, deltaSize := hintFromGeneration(&deltamodel.DeltaGeneration{
 			Status:    deltamodel.DeltaGenerationRejected,
+			DeltaRef:  &deltaRef,
 			SizeBytes: &size,
-		}, nil)
+		})
 		require.Nil(t, img)
-		require.Equal(t, lo.ToPtr("45 MiB"), sz)
+		require.Nil(t, deltaSize)
 	})
 
-	t.Run("When generation is missing it should not hint and should use fallback size", func(t *testing.T) {
-		img, sz := hintFromGeneration(nil, &full)
+	t.Run("When generation is missing it should not report deltaImage or deltaSize", func(t *testing.T) {
+		img, deltaSize := hintFromGeneration(nil)
 		require.Nil(t, img)
-		require.Equal(t, lo.ToPtr("1 GiB"), sz)
+		require.Nil(t, deltaSize)
 	})
 
-	t.Run("When generation failed without size_bytes it should use fallback size", func(t *testing.T) {
-		img, sz := hintFromGeneration(&deltamodel.DeltaGeneration{Status: deltamodel.DeltaGenerationFailed}, &full)
+	t.Run("When generation succeeded without a delta image it should not report deltaSize", func(t *testing.T) {
+		img, deltaSize := hintFromGeneration(&deltamodel.DeltaGeneration{
+			Status:    deltamodel.DeltaGenerationSucceeded,
+			SizeBytes: &size,
+		})
 		require.Nil(t, img)
-		require.Equal(t, lo.ToPtr("1 GiB"), sz)
+		require.Nil(t, deltaSize)
+	})
+
+	t.Run("When generation has a delta image without a known size it should omit deltaSize", func(t *testing.T) {
+		img, deltaSize := hintFromGeneration(&deltamodel.DeltaGeneration{
+			Status:   deltamodel.DeltaGenerationSucceeded,
+			DeltaRef: &deltaRef,
+		})
+		require.Equal(t, &deltaRef, img)
+		require.Nil(t, deltaSize)
 	})
 }
 
@@ -444,10 +456,10 @@ func TestRenderHelmImageRefs(t *testing.T) {
 
 func TestResolveApp(t *testing.T) {
 	ctx := context.Background()
-	deltaSize := int64(5 * 1024 * 1024)
 	deltaRef := "quay.io/acme/web@sha256:delta123"
 
-	t.Run("When delta generation succeeded it should set parent delta and size", func(t *testing.T) {
+	t.Run("When delta generation succeeded it should set parent delta and deltaSize", func(t *testing.T) {
+		deltaSize := int64(5 * 1024 * 1024)
 		resolver := newTestResolver(
 			map[string]*deltamodel.DeltaGeneration{
 				"sha256:old→sha256:new": {Status: deltamodel.DeltaGenerationSucceeded, DeltaRef: lo.ToPtr(deltaRef), SizeBytes: &deltaSize},
@@ -458,10 +470,11 @@ func TestResolveApp(t *testing.T) {
 		hints := resolver.resolveApp(ctx, parent, nil)
 		require.NotNil(t, hints)
 		require.Equal(t, &deltaRef, hints.parentDelta)
-		require.Equal(t, lo.ToPtr("5 MiB"), hints.totalSize)
+		require.Equal(t, lo.ToPtr("5 MiB"), hints.deltaSize)
 	})
 
-	t.Run("When delta generation was rejected it should have size but no hint", func(t *testing.T) {
+	t.Run("When delta generation was rejected it should not report deltaSize", func(t *testing.T) {
+		deltaSize := int64(5 * 1024 * 1024)
 		resolver := newTestResolver(
 			map[string]*deltamodel.DeltaGeneration{
 				"sha256:old→sha256:new": {Status: deltamodel.DeltaGenerationRejected, SizeBytes: &deltaSize},
@@ -469,27 +482,22 @@ func TestResolveApp(t *testing.T) {
 			map[string]string{"quay.io/acme/web:v2": "sha256:new"},
 		)
 		parent := &appImagePair{imageRef: "quay.io/acme/web:v2", currentDigest: "sha256:old"}
-		hints := resolver.resolveApp(ctx, parent, nil)
-		require.NotNil(t, hints)
-		require.Nil(t, hints.parentDelta)
-		require.Equal(t, lo.ToPtr("5 MiB"), hints.totalSize)
+		require.Nil(t, resolver.resolveApp(ctx, parent, nil))
 	})
 
 	t.Run("When no delta generation record exists it should return nil", func(t *testing.T) {
 		resolver := newTestResolver(map[string]*deltamodel.DeltaGeneration{}, map[string]string{"quay.io/acme/web:v2": "sha256:new"})
 		parent := &appImagePair{imageRef: "quay.io/acme/web:v2", currentDigest: "sha256:old"}
-		hints := resolver.resolveApp(ctx, parent, nil)
-		require.Nil(t, hints)
+		require.Nil(t, resolver.resolveApp(ctx, parent, nil))
 	})
 
 	t.Run("When current and target digests are the same it should return nil", func(t *testing.T) {
 		resolver := newTestResolver(map[string]*deltamodel.DeltaGeneration{}, map[string]string{"quay.io/acme/web:v2": "sha256:same"})
 		parent := &appImagePair{imageRef: "quay.io/acme/web:v2", currentDigest: "sha256:same"}
-		hints := resolver.resolveApp(ctx, parent, nil)
-		require.Nil(t, hints)
+		require.Nil(t, resolver.resolveApp(ctx, parent, nil))
 	})
 
-	t.Run("When parent and nested both have deltas it should accumulate size and set nested hints", func(t *testing.T) {
+	t.Run("When parent and nested both have deltas it should sum deltaSize and set nested hints", func(t *testing.T) {
 		parentSize := int64(10 * 1024 * 1024)
 		nestedSize := int64(3 * 1024 * 1024)
 		nestedRef := "quay.io/acme/vol@sha256:deltanested"
@@ -509,59 +517,30 @@ func TestResolveApp(t *testing.T) {
 		require.Equal(t, "quay.io/acme/vol:v1", hints.nestedDeltas[0].TargetImage)
 		require.Equal(t, "sha256:newn", hints.nestedDeltas[0].TargetDigest)
 		require.Equal(t, nestedRef, hints.nestedDeltas[0].DeltaImage)
-		require.Equal(t, lo.ToPtr("13 MiB"), hints.totalSize)
+		require.Equal(t, lo.ToPtr("13 MiB"), hints.deltaSize)
 	})
 
-	t.Run("When a generation has no usable size it should fall back to full image size", func(t *testing.T) {
-		fullSize := int64(23 * 1024 * 1024)
+	t.Run("When a generated delta has no known size it should omit deltaSize", func(t *testing.T) {
 		generationDeltaRef := "quay.io/acme/web@sha256:delta123"
-		tests := []struct {
-			name        string
-			generations map[string]*deltamodel.DeltaGeneration
-			wantDelta   *string
-		}{
-			{
-				name: "When a generation has no size it should use the full image size",
-				generations: map[string]*deltamodel.DeltaGeneration{
-					"sha256:old→sha256:new": {
-						Status:   deltamodel.DeltaGenerationSucceeded,
-						DeltaRef: &generationDeltaRef,
-					},
+		imageRef := "quay.io/acme/web:v2"
+		resolver := newTestResolver(
+			map[string]*deltamodel.DeltaGeneration{
+				"sha256:old→sha256:new": {
+					Status:   deltamodel.DeltaGenerationSucceeded,
+					DeltaRef: &generationDeltaRef,
 				},
-				wantDelta: &generationDeltaRef,
 			},
-			{
-				name:        "When a generation is missing it should use the full image size",
-				generations: map[string]*deltamodel.DeltaGeneration{},
-			},
-		}
+			map[string]string{imageRef: "sha256:new"},
+		)
 
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				imageRef := "quay.io/acme/web:v2"
-				resolver := newTestResolver(tt.generations, map[string]string{imageRef: "sha256:new"})
-				var gotImageRef, gotTargetDigest string
-				sizeLookups := 0
-				resolver.resolveImageSize = func(_ context.Context, image, targetDigest string) (*int64, error) {
-					sizeLookups++
-					gotImageRef = image
-					gotTargetDigest = targetDigest
-					return &fullSize, nil
-				}
+		hints := resolver.resolveApp(ctx, &appImagePair{imageRef: imageRef, currentDigest: "sha256:old"}, nil)
 
-				hints := resolver.resolveApp(ctx, &appImagePair{imageRef: imageRef, currentDigest: "sha256:old"}, nil)
-
-				require.NotNil(t, hints)
-				require.Equal(t, tt.wantDelta, hints.parentDelta)
-				require.Equal(t, lo.ToPtr("23 MiB"), hints.totalSize)
-				require.Equal(t, 1, sizeLookups)
-				require.Equal(t, imageRef, gotImageRef)
-				require.Equal(t, "sha256:new", gotTargetDigest)
-			})
-		}
+		require.NotNil(t, hints)
+		require.Equal(t, &generationDeltaRef, hints.parentDelta)
+		require.Nil(t, hints.deltaSize)
 	})
 
-	t.Run("When any required image size is unknown it should omit the total size", func(t *testing.T) {
+	t.Run("When only one application image has a generated delta it should report that delta size only", func(t *testing.T) {
 		parentSize := int64(5 * 1024 * 1024)
 		parentDeltaRef := "quay.io/acme/web@sha256:deltaparent"
 		parentImage := "quay.io/acme/web:v2"
@@ -576,12 +555,6 @@ func TestResolveApp(t *testing.T) {
 			},
 			map[string]string{parentImage: "sha256:new-parent", nestedImage: "sha256:new-volume"},
 		)
-		sizeLookups := 0
-		resolver.resolveImageSize = func(_ context.Context, image, _ string) (*int64, error) {
-			sizeLookups++
-			require.Equal(t, nestedImage, image)
-			return nil, errors.New("manifest unavailable")
-		}
 
 		hints := resolver.resolveApp(
 			ctx,
@@ -591,42 +564,41 @@ func TestResolveApp(t *testing.T) {
 
 		require.NotNil(t, hints)
 		require.Equal(t, &parentDeltaRef, hints.parentDelta)
-		require.Nil(t, hints.totalSize)
-		require.Equal(t, 1, sizeLookups)
+		require.Empty(t, hints.nestedDeltas)
+		require.Equal(t, lo.ToPtr("5 MiB"), hints.deltaSize)
 	})
 
-	t.Run("When an image already has the target digest it should skip its size", func(t *testing.T) {
+	t.Run("When any generated delta size is unknown it should omit aggregate deltaSize", func(t *testing.T) {
 		nestedSize := int64(3 * 1024 * 1024)
-		nestedDeltaRef := "quay.io/acme/volume@sha256:deltavolume"
 		parentImage := "quay.io/acme/web:v2"
 		nestedImage := "quay.io/acme/volume:v1"
+		parentDeltaRef := "quay.io/acme/web@sha256:deltaparent"
+		nestedDeltaRef := "quay.io/acme/volume@sha256:deltavolume"
 		resolver := newTestResolver(
 			map[string]*deltamodel.DeltaGeneration{
+				"sha256:old-parent→sha256:new-parent": {
+					Status:   deltamodel.DeltaGenerationSucceeded,
+					DeltaRef: &parentDeltaRef,
+				},
 				"sha256:old-volume→sha256:new-volume": {
 					Status:    deltamodel.DeltaGenerationSucceeded,
 					DeltaRef:  &nestedDeltaRef,
 					SizeBytes: &nestedSize,
 				},
 			},
-			map[string]string{parentImage: "sha256:already-current", nestedImage: "sha256:new-volume"},
+			map[string]string{parentImage: "sha256:new-parent", nestedImage: "sha256:new-volume"},
 		)
-		sizeLookups := 0
-		resolver.resolveImageSize = func(context.Context, string, string) (*int64, error) {
-			sizeLookups++
-			return nil, errors.New("size lookup should be skipped for an up-to-date image")
-		}
 
 		hints := resolver.resolveApp(
 			ctx,
-			&appImagePair{imageRef: parentImage, currentDigest: "sha256:already-current"},
+			&appImagePair{imageRef: parentImage, currentDigest: "sha256:old-parent"},
 			[]appImagePair{{imageRef: nestedImage, currentDigest: "sha256:old-volume"}},
 		)
 
 		require.NotNil(t, hints)
-		require.Nil(t, hints.parentDelta)
+		require.Equal(t, &parentDeltaRef, hints.parentDelta)
 		require.Len(t, hints.nestedDeltas, 1)
-		require.Equal(t, lo.ToPtr("3 MiB"), hints.totalSize)
-		require.Zero(t, sizeLookups)
+		require.Nil(t, hints.deltaSize)
 	})
 }
 

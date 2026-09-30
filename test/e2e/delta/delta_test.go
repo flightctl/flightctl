@@ -551,9 +551,9 @@ func validateSettledOSDeltaUpdate(snapshot deltaUpdateSnapshot, rendered *v1beta
 		return StopTrying(fmt.Sprintf("device %s reached the target state without an OS delta hint", deviceId))
 	}
 	if expectation.expectsDeltaHint() {
-		size := snapshot.device.Status.Os.Size
-		if size == nil || *size == "" {
-			return retrySettledEvent(fmt.Errorf("device %s has not reported the OS download size outside lastDelta", deviceId), settledAt)
+		deltaSize := snapshot.device.Status.Os.DeltaSize
+		if deltaSize == nil || *deltaSize == "" {
+			return retrySettledEvent(fmt.Errorf("device %s has not reported the control-plane OS delta size", deviceId), settledAt)
 		}
 		lastDelta := snapshot.device.Status.Os.LastDelta
 		if lastDelta == nil {

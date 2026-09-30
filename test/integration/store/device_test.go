@@ -284,7 +284,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(got.Status.Applications[0].LastDelta.Outcome).To(Equal(api.DeviceDeltaApplyOutcomeApplied))
 		})
 
-		It("When agent reports delta outcomes it should preserve control plane size estimates", func() {
+		It("When agent reports delta outcomes it should preserve control plane delta size estimates", func() {
 			name := "delta-size-estimate-merge"
 			device := api.Device{
 				Metadata: api.ObjectMeta{Name: lo.ToPtr(name)},
@@ -296,8 +296,8 @@ var _ = Describe("DeviceStore create", func() {
 			rendered := &devicestore.DeviceRendered{
 				OsImage: "quay.io/acme/os:v2",
 				DeltaEstimates: &devicestore.DeviceDeltaEstimates{
-					OSSize: lo.ToPtr("45 MiB"),
-					ApplicationSizes: map[string]*string{
+					OSDeltaSize: lo.ToPtr("45 MiB"),
+					ApplicationDeltaSizes: map[string]*string{
 						"app": lo.ToPtr("12 MiB"),
 					},
 				},
@@ -322,16 +322,16 @@ var _ = Describe("DeviceStore create", func() {
 			}
 			updated, _, err := devStore.UpdateStatus(ctx, orgId, &update, nil)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(updated.Status.Os.Size).To(Equal(lo.ToPtr("45 MiB")))
+			Expect(updated.Status.Os.DeltaSize).To(Equal(lo.ToPtr("45 MiB")))
 			Expect(updated.Status.Os.LastDelta.Outcome).To(Equal(api.DeviceDeltaApplyOutcomeApplied))
 			Expect(updated.Status.Applications).To(HaveLen(1))
-			Expect(updated.Status.Applications[0].Size).To(Equal(lo.ToPtr("12 MiB")))
+			Expect(updated.Status.Applications[0].DeltaSize).To(Equal(lo.ToPtr("12 MiB")))
 			Expect(updated.Status.Applications[0].LastDelta.Outcome).To(Equal(api.DeviceDeltaApplyOutcomeApplied))
 
 			got, err := devStore.Get(ctx, orgId, name)
 			Expect(err).ToNot(HaveOccurred())
-			Expect(got.Status.Os.Size).To(Equal(lo.ToPtr("45 MiB")))
-			Expect(got.Status.Applications[0].Size).To(Equal(lo.ToPtr("12 MiB")))
+			Expect(got.Status.Os.DeltaSize).To(Equal(lo.ToPtr("45 MiB")))
+			Expect(got.Status.Applications[0].DeltaSize).To(Equal(lo.ToPtr("12 MiB")))
 		})
 
 		It("When a rendered OS deltaImage is set it should appear only in the rendered spec", func() {

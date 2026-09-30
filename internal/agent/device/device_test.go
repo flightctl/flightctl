@@ -361,6 +361,7 @@ func TestSync(t *testing.T) {
 			mockSpecManager := spec.NewMockManager(ctrl)
 			mockPrefetchManager := dependency.NewMockPrefetchManager(ctrl)
 			mockOSManager := os.NewMockManager(ctrl)
+			mockOSManager.EXPECT().BeforeUpdate(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 			mockPruningManager := imagepruning.NewMockManager(ctrl)
 			mockPullConfigResolver := dependency.NewMockPullConfigResolver(ctrl)
 			tc.setupMocks(
@@ -735,6 +736,7 @@ func TestOSRollback(t *testing.T) {
 			mockManagementClient := client.NewMockManagement(ctrl)
 			mockHookManager := hook.NewMockManager(ctrl)
 			mockOSManager := os.NewMockManager(ctrl)
+			mockOSManager.EXPECT().BeforeUpdate(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 			mockPrefetchManager := dependency.NewMockPrefetchManager(ctrl)
 			mockPullConfigResolver := dependency.NewMockPullConfigResolver(ctrl)
 
@@ -961,6 +963,7 @@ func TestSyncDeviceSpecPackageModeRejection(t *testing.T) {
 		mockSystemdManager := systemd.NewMockManager(ctrl)
 		mockPrefetchManager := dependency.NewMockPrefetchManager(ctrl)
 		mockOSManager := os.NewMockManager(ctrl)
+		mockOSManager.EXPECT().BeforeUpdate(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
 		mockPruningManager := imagepruning.NewMockManager(ctrl)
 		mockPullConfigResolver := dependency.NewMockPullConfigResolver(ctrl)
 		mockExec := executer.NewMockExecuter(ctrl)

@@ -1279,7 +1279,7 @@ var _ = Describe("DeviceRender", func() {
 	})
 
 	Context("OS delta hint after prepare resume", func() {
-		It("When a succeeded generation exists GetRenderedDevice should expose deltaImage and IEC updated size", func() {
+		It("When a succeeded generation exists GetRenderedDevice should expose deltaImage and deltaSize", func() {
 			const (
 				srcDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 				tgtDigest = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
@@ -1342,8 +1342,8 @@ var _ = Describe("DeviceRender", func() {
 			Expect(renderedDevice.Spec.Os).ToNot(BeNil())
 			Expect(lo.FromPtr(renderedDevice.Spec.Os.DeltaImage)).To(Equal(deltaRef))
 			Expect(renderedDevice.Status).ToNot(BeNil())
-			Expect(renderedDevice.Status.Os.Size).ToNot(BeNil())
-			Expect(lo.FromPtr(renderedDevice.Status.Os.Size)).To(Equal("45 MiB"))
+			Expect(renderedDevice.Status.Os.DeltaSize).ToNot(BeNil())
+			Expect(lo.FromPtr(renderedDevice.Status.Os.DeltaSize)).To(Equal("45 MiB"))
 			Expect(renderedDevice.Status.Os.LastDelta).To(BeNil())
 		})
 	})

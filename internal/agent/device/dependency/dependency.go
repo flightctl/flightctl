@@ -2,6 +2,7 @@ package dependency
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"iter"
@@ -14,6 +15,7 @@ import (
 	"github.com/containers/image/v5/docker/reference"
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/deltastatus"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
@@ -331,23 +333,34 @@ type prefetchManager struct {
 	queue      chan imageRef
 	collectors []OCICollector
 
-	deltaDesired      *v1beta1.DeviceSpec
-	deltaGeneration   uint64
-	deltaApplyResults map[string]map[imageRef]applicationDeltaApplyResult
+	deltaDesired            *v1beta1.DeviceSpec
+	deltaGeneration         uint64
+	deltaApplyResults       map[string]map[imageRef]applicationDeltaApplyResult
+	deltaStatusStore        *deltastatus.Store
+	applicationNameResolver ApplicationNameResolver
+	deltaAppSpecKeys        map[string]string
+	deltaAppTargetKeys      map[string]map[string]string
+	deltaCollectionComplete bool
 }
 
 type prefetchTask struct {
-	clientOptsFn    ClientOptsFn
-	ociType         OCIType
-	delta           *OCIDeltaTarget
-	deltaGeneration uint64
-	err             error
-	done            bool
-	cancelFn        context.CancelFunc
+	clientOptsFn         ClientOptsFn
+	ociType              OCIType
+	targetDigest         string
+	applicationTargetKey string
+	delta                *OCIDeltaTarget
+	deltaGeneration      uint64
+	err                  error
+	done                 bool
+	cancelFn             context.CancelFunc
 }
 
 // PrefetchManagerOption configures optional prefetch integrations.
 type PrefetchManagerOption func(*prefetchManager)
+
+// ApplicationNameResolver resolves the same stable name used by application
+// OCI collectors and application status reporting.
+type ApplicationNameResolver func(*v1beta1.ApplicationProviderSpec) (string, error)
 
 // WithOCIDelta enables application image delta reconstruction during prefetch.
 func WithOCIDelta(ociDelta *client.OCIDelta) PrefetchManagerOption {
@@ -364,6 +377,17 @@ func WithOCIDeltaFactory(factory client.OCIDeltaFactory) PrefetchManagerOption {
 // delta artifacts.
 func WithReadWriterFactory(factory fileio.ReadWriterFactory) PrefetchManagerOption {
 	return func(m *prefetchManager) { m.readWriterFactory = factory }
+}
+
+// WithDeltaStatusStore persists the last result for each application image target.
+func WithDeltaStatusStore(store *deltastatus.Store) PrefetchManagerOption {
+	return func(m *prefetchManager) { m.deltaStatusStore = store }
+}
+
+// WithApplicationNameResolver resolves names for application specs that omit
+// an explicit name, keeping persisted delta results aligned with app status.
+func WithApplicationNameResolver(resolve ApplicationNameResolver) PrefetchManagerOption {
+	return func(m *prefetchManager) { m.applicationNameResolver = resolve }
 }
 
 // NewPrefetchManager creates a new prefetch manager instance
@@ -456,15 +480,33 @@ func (m *prefetchManager) isTargetsChanged(seenTargets map[imageRef]struct{}) bo
 
 func (m *prefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1beta1.DeviceSpec, opts ...OCICollectOpt) error {
 	m.log.Debug("Collecting OCI targets from all dependency sources")
+	appSpecKeys := make(map[string]string)
+	canPersistDeltaStatus := m.deltaStatusStore != nil
+	if m.deltaStatusStore != nil {
+		var err error
+		appSpecKeys, err = applicationDeltaSpecKeys(desired, m.applicationNameResolver)
+		if err != nil {
+			m.log.Warnf("Failed to fingerprint application delta targets: %v", err)
+			appSpecKeys = make(map[string]string)
+			canPersistDeltaStatus = false
+		}
+		if canPersistDeltaStatus {
+			if err := m.deltaStatusStore.ReconcileApplicationSpecs(appSpecKeys); err != nil {
+				m.log.Warnf("Failed to reconcile persisted application delta specs: %v", err)
+			}
+		}
+	}
 
 	allTargets := make(OCIPullTargetsByUser)
 	var requeueNeeded bool
 	m.mu.Lock()
-	if m.deltaDesired != desired {
+	if m.deltaDesired != desired || !sameStringMap(m.deltaAppSpecKeys, appSpecKeys) {
 		m.deltaDesired = desired
 		m.deltaGeneration++
 		m.deltaApplyResults = make(map[string]map[imageRef]applicationDeltaApplyResult)
 	}
+	m.deltaAppSpecKeys = appSpecKeys
+	m.deltaCollectionComplete = false
 	collectors := slices.Clone(m.collectors)
 	m.mu.Unlock()
 
@@ -492,6 +534,12 @@ func (m *prefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1
 		}
 		targetsByRef[ref] = target
 	}
+	appTargetKeys, targetRefs := applicationTargetIdentities(targetsByRef)
+	if canPersistDeltaStatus {
+		if err := m.deltaStatusStore.ReconcileApplicationTargets(appTargetKeys, !requeueNeeded); err != nil {
+			m.log.Warnf("Failed to reconcile persisted application delta targets: %v", err)
+		}
+	}
 
 	seenTargets := make(map[imageRef]struct{}, len(targetsByRef))
 	var newTargets OCIPullTargetsByUser
@@ -500,14 +548,32 @@ func (m *prefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1
 		seenTargets[ref] = struct{}{}
 	}
 
+	// Restore completed image results before scheduling. If the image is already
+	// present, the synthetic NotUsed result from prepareTask must not erase the
+	// result persisted for this same target.
+	var restoredResults map[string]map[imageRef]applicationDeltaApplyResult
+	if canPersistDeltaStatus {
+		restoredResults = m.restoreApplicationDeltaResults(appTargetKeys, targetRefs)
+	}
+	m.mu.Lock()
+	if canPersistDeltaStatus {
+		m.deltaAppTargetKeys = appTargetKeys
+	} else {
+		m.deltaAppTargetKeys = nil
+	}
+	m.deltaApplyResults = restoredResults
+	m.deltaCollectionComplete = !requeueNeeded
+	m.mu.Unlock()
+
 	m.log.Debugf("Collected %d unique OCI targets", len(seenTargets))
 
 	// clean up stale prefetch tasks if targets have changed
 	m.mu.Lock()
-	if m.isTargetsChanged(seenTargets) {
+	if m.isTargetsChanged(seenTargets) || m.hasChangedTasks(targetsByRef) {
 		m.log.Debug("OCI targets changed, cleaning up stale prefetch tasks")
-		m.cleanupStaleTasks(seenTargets)
 	}
+	m.cleanupStaleTasks(seenTargets)
+	m.cleanupChangedTasks(targetsByRef)
 	m.mu.Unlock()
 
 	if len(newTargets) > 0 {
@@ -531,6 +597,123 @@ func (m *prefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1
 	}
 
 	return nil
+}
+
+func applicationDeltaSpecKeys(desired *v1beta1.DeviceSpec, resolveName ApplicationNameResolver) (map[string]string, error) {
+	keys := make(map[string]string)
+	if desired == nil || desired.Applications == nil {
+		return keys, nil
+	}
+	for i, application := range *desired.Applications {
+		var name string
+		var err error
+		if resolveName != nil {
+			name, err = resolveName(&application)
+		} else {
+			var explicitName *string
+			explicitName, err = application.GetName()
+			if explicitName != nil {
+				name = *explicitName
+			}
+		}
+		if err != nil {
+			return nil, fmt.Errorf("resolve application %d name: %w", i, err)
+		}
+		if name == "" {
+			return nil, fmt.Errorf("application %d has no name", i)
+		}
+		data, err := application.MarshalJSON()
+		if err != nil {
+			return nil, fmt.Errorf("marshal application %s: %w", name, err)
+		}
+		var normalizedFields map[string]json.RawMessage
+		if err := json.Unmarshal(data, &normalizedFields); err != nil {
+			return nil, fmt.Errorf("decode application %s: %w", name, err)
+		}
+		for _, key := range []string{"desiredState", "restartGeneration", "deltaImage", "deltaImages"} {
+			delete(normalizedFields, key)
+		}
+		normalized, err := json.Marshal(normalizedFields)
+		if err != nil {
+			return nil, fmt.Errorf("normalize application %s: %w", name, err)
+		}
+		keys[name] = deltastatus.Fingerprint(string(normalized))
+	}
+	return keys, nil
+}
+
+func applicationTargetIdentities(targets map[imageRef]OCIPullTarget) (map[string]map[string]string, map[string]imageRef) {
+	applicationTargets := make(map[string]map[string]string)
+	targetRefs := make(map[string]imageRef)
+	for ref, target := range targets {
+		applications := deltaApplications(target.Delta)
+		if len(applications) == 0 {
+			continue
+		}
+		targetID := deltastatus.Fingerprint(string(ref.owner), ref.image)
+		targetKey := applicationImageTargetKey(ref, target)
+		targetRefs[targetID] = ref
+		for _, application := range applications {
+			if applicationTargets[application] == nil {
+				applicationTargets[application] = make(map[string]string)
+			}
+			applicationTargets[application][targetID] = targetKey
+		}
+	}
+	return applicationTargets, targetRefs
+}
+
+func applicationImageTargetKey(ref imageRef, target OCIPullTarget) string {
+	return applicationImageTargetKeyFor(ref, target.Digest, target.Type)
+}
+
+func applicationImageTargetKeyFor(ref imageRef, digest string, ociType OCIType) string {
+	return deltastatus.Fingerprint(string(ref.owner), ref.image, digest, string(ociType))
+}
+
+func (m *prefetchManager) restoreApplicationDeltaResults(
+	applicationTargets map[string]map[string]string,
+	targetRefs map[string]imageRef,
+) map[string]map[imageRef]applicationDeltaApplyResult {
+	results := make(map[string]map[imageRef]applicationDeltaApplyResult)
+	if m.deltaStatusStore == nil {
+		return results
+	}
+	for application, targets := range applicationTargets {
+		for targetID, persisted := range m.deltaStatusStore.ApplicationResults(application) {
+			if targets[targetID] != persisted.TargetKey {
+				continue
+			}
+			target, exists := targetRefs[targetID]
+			if !exists {
+				continue
+			}
+			if results[application] == nil {
+				results[application] = make(map[imageRef]applicationDeltaApplyResult)
+			}
+			fallbackReason := ""
+			if persisted.Status.FallbackReason != nil {
+				fallbackReason = *persisted.Status.FallbackReason
+			}
+			results[application][target] = applicationDeltaApplyResult{
+				outcome:        persisted.Status.Outcome,
+				fallbackReason: fallbackReason,
+			}
+		}
+	}
+	return results
+}
+
+func sameStringMap(first, second map[string]string) bool {
+	if len(first) != len(second) {
+		return false
+	}
+	for key, value := range first {
+		if second[key] != value {
+			return false
+		}
+	}
+	return true
 }
 
 func (m *prefetchManager) checkReady(ctx context.Context) error {
@@ -1005,12 +1188,42 @@ func (m *prefetchManager) recordDeltaApplyResultLocked(target imageRef, task *pr
 		m.deltaApplyResults = make(map[string]map[imageRef]applicationDeltaApplyResult)
 	}
 	for _, application := range applications {
+		targetID := deltastatus.Fingerprint(string(target.owner), target.image)
+		persistedTargetKey := ""
+		if m.deltaStatusStore != nil && m.deltaAppTargetKeys != nil {
+			persistedTargetKey = m.deltaAppTargetKeys[application][targetID]
+			if persistedTargetKey != "" && persistedTargetKey != task.applicationTargetKey {
+				continue
+			}
+		}
 		results := m.deltaApplyResults[application]
 		if results == nil {
 			results = make(map[imageRef]applicationDeltaApplyResult)
 			m.deltaApplyResults[application] = results
 		}
-		results[target] = applicationDeltaApplyResult{outcome: outcome, fallbackReason: fallbackReason}
+		if outcome == v1beta1.DeviceDeltaApplyOutcomeNotUsed {
+			if _, exists := results[target]; exists {
+				continue
+			}
+		}
+		result := applicationDeltaApplyResult{outcome: outcome, fallbackReason: fallbackReason}
+		results[target] = result
+		if m.deltaStatusStore != nil && persistedTargetKey == task.applicationTargetKey {
+			status := v1beta1.DeviceDeltaApplyStatus{Outcome: outcome}
+			if fallbackReason != "" {
+				reason := fallbackReason
+				status.FallbackReason = &reason
+			}
+			if err := m.deltaStatusStore.RecordApplicationResult(
+				application,
+				m.deltaAppSpecKeys[application],
+				targetID,
+				task.applicationTargetKey,
+				status,
+			); err != nil {
+				m.log.Warnf("Failed to persist delta result for application %s image %s: %v", application, target.image, err)
+			}
+		}
 	}
 }
 
@@ -1040,7 +1253,7 @@ func (m *prefetchManager) setError(target imageRef, err error) {
 func (m *prefetchManager) Schedule(ctx context.Context, targets OCIPullTargetsByUser) error {
 	for user, target := range targets.Iter() {
 		ref := imageRef{image: target.Reference, owner: user}
-		if err := m.schedule(ctx, ref, target.Type, target.ClientOptsFn, target.Delta); err != nil {
+		if err := m.schedule(ctx, ref, target.Type, target.Digest, target.ClientOptsFn, target.Delta); err != nil {
 			return fmt.Errorf("prefetch schedule %w: %w", errors.WithElement(target.Reference), err)
 		}
 	}
@@ -1048,8 +1261,8 @@ func (m *prefetchManager) Schedule(ctx context.Context, targets OCIPullTargetsBy
 	return nil
 }
 
-func (m *prefetchManager) schedule(ctx context.Context, target imageRef, ociType OCIType, clientOptsFn ClientOptsFn, delta *OCIDeltaTarget) error {
-	needsQueue, err := m.prepareTask(ctx, target, ociType, clientOptsFn, delta)
+func (m *prefetchManager) schedule(ctx context.Context, target imageRef, ociType OCIType, targetDigest string, clientOptsFn ClientOptsFn, delta *OCIDeltaTarget) error {
+	needsQueue, err := m.prepareTask(ctx, target, ociType, targetDigest, clientOptsFn, delta)
 	if err != nil {
 		return err
 	}
@@ -1073,7 +1286,7 @@ func (m *prefetchManager) schedule(ctx context.Context, target imageRef, ociType
 	}
 }
 
-func (m *prefetchManager) prepareTask(ctx context.Context, target imageRef, ociType OCIType, clientOptsFn ClientOptsFn, delta *OCIDeltaTarget) (bool, error) {
+func (m *prefetchManager) prepareTask(ctx context.Context, target imageRef, ociType OCIType, targetDigest string, clientOptsFn ClientOptsFn, delta *OCIDeltaTarget) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -1114,10 +1327,12 @@ func (m *prefetchManager) prepareTask(ctx context.Context, target imageRef, ociT
 	if targetExists {
 		m.log.Debugf("Scheduled prefetch target already exists: %s", target)
 		task := &prefetchTask{
-			ociType:         ociType,
-			done:            true,
-			delta:           delta,
-			deltaGeneration: m.deltaGeneration,
+			ociType:              ociType,
+			targetDigest:         targetDigest,
+			applicationTargetKey: applicationImageTargetKeyFor(target, targetDigest, ociType),
+			done:                 true,
+			delta:                delta,
+			deltaGeneration:      m.deltaGeneration,
 		}
 		m.tasks[target] = task
 		if delta != nil {
@@ -1133,10 +1348,12 @@ func (m *prefetchManager) prepareTask(ctx context.Context, target imageRef, ociT
 	}
 
 	task := &prefetchTask{
-		ociType:         ociType,
-		clientOptsFn:    clientOptsFn,
-		delta:           delta,
-		deltaGeneration: m.deltaGeneration,
+		ociType:              ociType,
+		targetDigest:         targetDigest,
+		applicationTargetKey: applicationImageTargetKeyFor(target, targetDigest, ociType),
+		clientOptsFn:         clientOptsFn,
+		delta:                delta,
+		deltaGeneration:      m.deltaGeneration,
 	}
 	m.tasks[target] = task
 	return true, nil
@@ -1167,21 +1384,59 @@ func (m *prefetchManager) IsReady(ctx context.Context) bool {
 
 // cleanupStaleTasks removes tasks not in the provided target set
 // caller must hold m.mu lock
+func (m *prefetchManager) hasChangedTasks(targets map[imageRef]OCIPullTarget) bool {
+	for ref, task := range m.tasks {
+		target, exists := targets[ref]
+		if !exists || !samePrefetchTarget(task, target) {
+			return true
+		}
+	}
+	return false
+}
+
 func (m *prefetchManager) cleanupStaleTasks(seenTargets map[imageRef]struct{}) {
 	var removed int
 	for ref, task := range m.tasks {
-		if _, exists := seenTargets[ref]; !exists {
-			if task.cancelFn != nil {
-				task.cancelFn()
-			}
-			delete(m.tasks, ref)
-			removed++
+		if _, exists := seenTargets[ref]; exists {
+			continue
 		}
+		if task.cancelFn != nil {
+			task.cancelFn()
+		}
+		delete(m.tasks, ref)
+		removed++
 	}
 
 	if removed > 0 {
 		m.log.Debugf("Cleaned up %d stale prefetch tasks", removed)
 	}
+}
+
+func (m *prefetchManager) cleanupChangedTasks(targets map[imageRef]OCIPullTarget) {
+	for ref, task := range m.tasks {
+		target, exists := targets[ref]
+		if !exists || samePrefetchTarget(task, target) {
+			continue
+		}
+		if task.cancelFn != nil {
+			task.cancelFn()
+		}
+		delete(m.tasks, ref)
+	}
+}
+
+func samePrefetchTarget(task *prefetchTask, target OCIPullTarget) bool {
+	return task != nil && task.ociType == target.Type && task.targetDigest == target.Digest && sameDeltaTarget(task.delta, target.Delta)
+}
+
+func sameDeltaTarget(first, second *OCIDeltaTarget) bool {
+	if first == nil || second == nil {
+		return first == second
+	}
+	return first.Hint == second.Hint &&
+		first.SourceDigest == second.SourceDigest &&
+		first.Application == second.Application &&
+		slices.Equal(first.Applications, second.Applications)
 }
 
 func (m *prefetchManager) Cleanup() {
@@ -1305,6 +1560,7 @@ func (m *prefetchManager) Status(ctx context.Context, deviceStatus *v1beta1.Devi
 	prefetchStatus := m.status(ctx)
 
 	for i := range deviceStatus.Applications {
+		deviceStatus.Applications[i].LastDelta = nil
 		deltaStatus, exists := prefetchStatus.DeltaApplyStatuses[deviceStatus.Applications[i].Name]
 		if !exists {
 			continue
@@ -1343,6 +1599,13 @@ func (m *prefetchManager) status(ctx context.Context) PrefetchStatus {
 		}
 		for _, application := range deltaApplications(task.delta) {
 			pendingDeltaApplications[application] = struct{}{}
+		}
+	}
+	if m.deltaStatusStore != nil && !m.deltaCollectionComplete {
+		return PrefetchStatus{
+			TotalImages:    len(m.tasks),
+			PendingImages:  pendingImages,
+			RetryingImages: retryingImages,
 		}
 	}
 

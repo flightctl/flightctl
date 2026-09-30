@@ -62,8 +62,8 @@ func applyRenderedUpdate(
 	}
 	estimates := &devicestore.DeviceDeltaEstimates{}
 	if osHints != nil {
-		estimates.OSSize = osHints.UpdatedSize
-		estimates.ApplicationSizes = osHints.AppSizes
+		estimates.OSDeltaSize = osHints.DeltaSize
+		estimates.ApplicationDeltaSizes = osHints.AppDeltaSizes
 	}
 	m.Rendered.DeltaEstimates = estimates
 	return next, nil

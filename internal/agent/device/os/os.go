@@ -9,6 +9,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/deltastatus"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
@@ -73,8 +74,9 @@ func NewManager(
 	ociDelta *client.OCIDelta,
 	skopeo *client.Skopeo,
 	pullTimeout time.Duration,
+	opts ...Option,
 ) Manager {
-	return &manager{
+	m := &manager{
 		client:             client,
 		caps:               caps,
 		podmanClient:       podmanClient,
@@ -85,6 +87,18 @@ func NewManager(
 		pullTimeout:        pullTimeout,
 		log:                log,
 	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// Option configures optional OS manager integrations.
+type Option func(*manager)
+
+// WithDeltaStatusStore persists OS delta outcomes across agent restarts.
+func WithDeltaStatusStore(store *deltastatus.Store) Option {
+	return func(m *manager) { m.deltaStatusStore = store }
 }
 
 type manager struct {
@@ -97,12 +111,14 @@ type manager struct {
 	skopeo             *client.Skopeo
 	pullTimeout        time.Duration
 	log                *log.PrefixLogger
+	deltaStatusStore   *deltastatus.Store
 
-	mu                 sync.Mutex
-	fallbackReason     *string
-	deltaOutcome       *v1beta1.DeviceDeltaApplyOutcomeType
-	lastAttemptedImage string
-	stagedDeltaImage   string
+	mu                   sync.Mutex
+	fallbackReason       *string
+	deltaOutcome         *v1beta1.DeviceDeltaApplyOutcomeType
+	activeDeltaTargetKey string
+	lastAttemptedImage   string
+	stagedDeltaImage     string
 }
 
 func (m *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, _ ...status.CollectorOpt) error {
@@ -113,6 +129,7 @@ func (m *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, _ ..
 
 	status.Os.Image = bootcInfo.GetBootedImage()
 	status.Os.ImageDigest = bootcInfo.GetBootedImageDigest()
+	status.Os.LastDelta = nil
 	m.mu.Lock()
 	var reason *string
 	if m.fallbackReason != nil {
@@ -155,21 +172,24 @@ func (m *manager) canApplyOSDelta() bool {
 }
 
 func (m *manager) BeforeUpdate(ctx context.Context, current, desired *v1beta1.DeviceSpec) error {
-	if desired.Os == nil {
+	if desired == nil || desired.Os == nil {
+		m.startImageAttempt(nil)
 		return nil
 	}
+	m.startImageAttempt(desired.Os)
 	m.log.Debugf("OS image %s will be scheduled for prefetching", desired.Os.Image)
 	return nil
 }
 
 func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1beta1.DeviceSpec, _ ...dependency.OCICollectOpt) (*dependency.OCICollection, error) {
-	if desired.Os == nil {
+	if desired == nil || desired.Os == nil {
+		m.startImageAttempt(nil)
 		m.log.Debug("No OS spec to collect OCI targets from")
 		return &dependency.OCICollection{}, nil
 	}
 
 	osImage := desired.Os.Image
-	m.startImageAttempt(osImage)
+	m.startImageAttempt(desired.Os)
 
 	m.mu.Lock()
 	deltaStaged := m.stagedDeltaImage == osImage
@@ -242,17 +262,41 @@ func (m *manager) fullImageCollection(osImage string, optsFn dependency.ClientOp
 	}
 }
 
-func (m *manager) startImageAttempt(osImage string) {
+func (m *manager) startImageAttempt(osSpec *v1beta1.DeviceOsSpec) {
+	var osImage string
+	var targetKey string
+	if osSpec != nil {
+		osImage = osSpec.Image
+		targetKey = deltastatus.Fingerprint(osSpec.Image)
+	}
+
+	var persisted *v1beta1.DeviceDeltaApplyStatus
+	if m.deltaStatusStore != nil {
+		if err := m.deltaStatusStore.SetOSTarget(targetKey); err != nil {
+			m.log.Warnf("Failed to reconcile persisted OS delta target: %v", err)
+		}
+		persisted = m.deltaStatusStore.OSResult(targetKey)
+	}
+
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.lastAttemptedImage != osImage {
-		m.lastAttemptedImage = osImage
+	targetChanged := m.activeDeltaTargetKey != targetKey || m.lastAttemptedImage != osImage
+	if targetChanged {
 		m.fallbackReason = nil
 		m.deltaOutcome = nil
 	}
+	m.activeDeltaTargetKey = targetKey
+	m.lastAttemptedImage = osImage
 	if m.stagedDeltaImage != "" && m.stagedDeltaImage != osImage {
 		m.stagedDeltaImage = ""
 	}
+	if persisted != nil {
+		m.deltaOutcome = &persisted.Outcome
+		if persisted.FallbackReason != nil {
+			reason := *persisted.FallbackReason
+			m.fallbackReason = &reason
+		}
+	}
+	m.mu.Unlock()
 }
 
 func (m *manager) discoverOSDelta(ctx context.Context, desired *v1beta1.DeviceSpec, sourceDigest string, optsFn dependency.ClientOptsFn) string {
@@ -296,10 +340,8 @@ func (m *manager) pullAndApplyOSDelta(ctx context.Context, candidate, osImage st
 	}
 	m.mu.Lock()
 	m.stagedDeltaImage = osImage
-	m.fallbackReason = nil
-	outcome := v1beta1.DeviceDeltaApplyOutcomeApplied
-	m.deltaOutcome = &outcome
 	m.mu.Unlock()
+	m.recordDeltaResult(v1beta1.DeviceDeltaApplyOutcomeApplied, "", false)
 	return nil
 }
 
@@ -309,22 +351,38 @@ func (m *manager) failApply(err error) error {
 }
 
 func (m *manager) setFallbackReason(reason string) {
-	r := reason
-	m.mu.Lock()
-	m.fallbackReason = &r
-	outcome := v1beta1.DeviceDeltaApplyOutcomeFallback
-	m.deltaOutcome = &outcome
-	m.mu.Unlock()
+	m.recordDeltaResult(v1beta1.DeviceDeltaApplyOutcomeFallback, reason, false)
 }
 
 func (m *manager) setDeltaNotUsedIfUnset() {
+	m.recordDeltaResult(v1beta1.DeviceDeltaApplyOutcomeNotUsed, "", true)
+}
+
+func (m *manager) recordDeltaResult(outcome v1beta1.DeviceDeltaApplyOutcomeType, fallbackReason string, onlyIfUnset bool) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.deltaOutcome != nil {
+	if onlyIfUnset && m.deltaOutcome != nil {
+		m.mu.Unlock()
 		return
 	}
-	outcome := v1beta1.DeviceDeltaApplyOutcomeNotUsed
+	var reason *string
+	if fallbackReason != "" {
+		copied := fallbackReason
+		reason = &copied
+	}
+	m.fallbackReason = reason
 	m.deltaOutcome = &outcome
+	targetKey := m.activeDeltaTargetKey
+	m.mu.Unlock()
+
+	if m.deltaStatusStore == nil || targetKey == "" {
+		return
+	}
+	if err := m.deltaStatusStore.RecordOSResult(targetKey, v1beta1.DeviceDeltaApplyStatus{
+		Outcome:        outcome,
+		FallbackReason: reason,
+	}); err != nil {
+		m.log.Warnf("Failed to persist OS delta result: %v", err)
+	}
 }
 
 func (m *manager) AfterUpdate(ctx context.Context, desired *v1beta1.DeviceSpec) error {
@@ -344,6 +402,7 @@ func (m *manager) Rollback(ctx context.Context, desired *v1beta1.DeviceSpec) err
 	if desired == nil || desired.Os == nil || desired.Os.Image == "" {
 		return fmt.Errorf("rollback spec has no OS image")
 	}
+	m.startImageAttempt(desired.Os)
 
 	expectedImage := desired.Os.Image
 	status, err := m.client.Status(ctx)

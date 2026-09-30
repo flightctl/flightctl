@@ -9,6 +9,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/deltastatus"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/container"
@@ -187,6 +188,51 @@ func TestManagerStatusWhenClientFails(t *testing.T) {
 	err := m.Status(context.Background(), status)
 	require.ErrorIs(err, clientErr)
 	require.Nil(status.Capabilities)
+}
+
+func TestOSDeltaStatusPersistsAcrossRestartAndClearsForNewTarget(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	mockClient := NewMockClient(ctrl)
+	mockClient.EXPECT().Status(gomock.Any()).
+		Return(bootcStatus(testDesiredImage, testSourceDigest), nil).Times(3)
+
+	firstManager := newTestManager(t, mockClient, executer.NewMockExecuter(ctrl), nil, Capabilities{})
+	firstManager.deltaStatusStore = deltastatus.New(firstManager.readWriter, "/var/lib/flightctl", firstManager.log)
+
+	target := &v1beta1.DeviceOsSpec{Image: testDesiredImage, DeltaImage: lo.ToPtr(testDeltaRef)}
+	firstManager.startImageAttempt(target)
+	firstManager.recordDeltaResult(v1beta1.DeviceDeltaApplyOutcomeApplied, "", false)
+
+	// A new store and manager simulate restarting the agent process.
+	restartedStore := deltastatus.New(firstManager.readWriter, "/var/lib/flightctl", firstManager.log)
+	restartedManager := &manager{
+		client:           mockClient,
+		caps:             Capabilities{OsMode: v1beta1.OsModeImage},
+		log:              firstManager.log,
+		deltaStatusStore: restartedStore,
+	}
+	ctx := context.Background()
+	require.NoError(t, restartedManager.BeforeUpdate(ctx, nil, &v1beta1.DeviceSpec{Os: target}))
+
+	status := &v1beta1.DeviceStatus{}
+	require.NoError(t, restartedManager.Status(ctx, status))
+	require.NotNil(t, status.Os.LastDelta)
+	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeApplied, status.Os.LastDelta.Outcome)
+
+	// A hint refresh for the same desired image does not make its persisted
+	// application outcome stale.
+	refreshedHint := &v1beta1.DeviceOsSpec{Image: testDesiredImage, DeltaImage: lo.ToPtr("quay.io/acme/os-delta:v3")}
+	require.NoError(t, restartedManager.BeforeUpdate(ctx, &v1beta1.DeviceSpec{Os: target}, &v1beta1.DeviceSpec{Os: refreshedHint}))
+	status = &v1beta1.DeviceStatus{}
+	require.NoError(t, restartedManager.Status(ctx, status))
+	require.NotNil(t, status.Os.LastDelta)
+	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeApplied, status.Os.LastDelta.Outcome)
+
+	newTarget := &v1beta1.DeviceOsSpec{Image: "quay.io/acme/os:v3", DeltaImage: lo.ToPtr("quay.io/acme/os-delta:v3")}
+	require.NoError(t, restartedManager.BeforeUpdate(ctx, &v1beta1.DeviceSpec{Os: refreshedHint}, &v1beta1.DeviceSpec{Os: newTarget}))
+	status = &v1beta1.DeviceStatus{}
+	require.NoError(t, restartedManager.Status(ctx, status))
+	require.Nil(t, status.Os.LastDelta)
 }
 
 func TestCollectOCITargets(t *testing.T) {

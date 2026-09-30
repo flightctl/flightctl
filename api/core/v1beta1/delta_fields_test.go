@@ -66,17 +66,17 @@ func TestDeviceDeltaApplyStatusJSON(t *testing.T) {
 		name            string
 		jsonInput       string
 		wantReason      *string
-		wantSize        *string
+		wantDeltaSize   *string
 		wantOutcome     *DeviceDeltaApplyOutcomeType
 		marshalSource   DeviceOsStatus
 		wantMarshalOmit string
 		wantMarshalJSON string
 	}{
 		{
-			name:       "When lastDelta is absent it should leave LastDelta nil",
-			jsonInput:  `{"image":"quay.io/acme/os:latest","imageDigest":"sha256:bbb"}`,
-			wantReason: nil,
-			wantSize:   nil,
+			name:          "When lastDelta is absent it should leave LastDelta nil",
+			jsonInput:     `{"image":"quay.io/acme/os:latest","imageDigest":"sha256:bbb"}`,
+			wantReason:    nil,
+			wantDeltaSize: nil,
 		},
 		{
 			name:        "When lastDelta.fallbackReason is set it should unmarshal the reason",
@@ -85,9 +85,9 @@ func TestDeviceDeltaApplyStatusJSON(t *testing.T) {
 			wantOutcome: lo.ToPtr(DeviceDeltaApplyOutcomeFallback),
 		},
 		{
-			name:      "When OS size is set without lastDelta it should unmarshal the IEC size",
-			jsonInput: `{"image":"quay.io/acme/os:latest","imageDigest":"sha256:bbb","size":"45 MiB"}`,
-			wantSize:  lo.ToPtr("45 MiB"),
+			name:          "When deltaSize is set without lastDelta it should unmarshal the IEC size",
+			jsonInput:     `{"image":"quay.io/acme/os:latest","imageDigest":"sha256:bbb","deltaSize":"45 MiB"}`,
+			wantDeltaSize: lo.ToPtr("45 MiB"),
 		},
 		{
 			name:        "When lastDelta.outcome is set it should unmarshal the outcome",
@@ -105,13 +105,13 @@ func TestDeviceDeltaApplyStatusJSON(t *testing.T) {
 			wantMarshalOmit: "lastDelta",
 		},
 		{
-			name: "When OS size is set it should serialize beside lastDelta",
+			name: "When deltaSize is set it should serialize beside lastDelta",
 			marshalSource: DeviceOsStatus{
 				Image: "quay.io/acme/os:latest", ImageDigest: "sha256:bbb",
-				Size:      lo.ToPtr("45 MiB"),
+				DeltaSize: lo.ToPtr("45 MiB"),
 				LastDelta: &DeviceDeltaApplyStatus{Outcome: DeviceDeltaApplyOutcomeFallback, FallbackReason: lo.ToPtr("delta apply failed")},
 			},
-			wantMarshalJSON: `"size":"45 MiB"`,
+			wantMarshalJSON: `"deltaSize":"45 MiB"`,
 		},
 		{
 			name: "When LastDelta outcome is set it should include the outcome in JSON",
@@ -128,7 +128,7 @@ func TestDeviceDeltaApplyStatusJSON(t *testing.T) {
 			if tt.jsonInput != "" {
 				var status DeviceOsStatus
 				require.NoError(t, json.Unmarshal([]byte(tt.jsonInput), &status))
-				assert.Equal(t, tt.wantSize, status.Size)
+				assert.Equal(t, tt.wantDeltaSize, status.DeltaSize)
 				if tt.wantReason == nil && tt.wantOutcome == nil {
 					assert.Nil(t, status.LastDelta)
 					return
@@ -155,8 +155,8 @@ func TestDeviceDeltaApplyStatusJSON(t *testing.T) {
 
 func TestDeviceApplicationDeltaApplyStatusJSON(t *testing.T) {
 	var status DeviceApplicationStatus
-	require.NoError(t, json.Unmarshal([]byte(`{"name":"app","size":"45 MiB","lastDelta":{"outcome":"Applied"}}`), &status))
-	assert.Equal(t, lo.ToPtr("45 MiB"), status.Size)
+	require.NoError(t, json.Unmarshal([]byte(`{"name":"app","deltaSize":"45 MiB","lastDelta":{"outcome":"Applied"}}`), &status))
+	assert.Equal(t, lo.ToPtr("45 MiB"), status.DeltaSize)
 	require.NotNil(t, status.LastDelta)
 	assert.Equal(t, DeviceDeltaApplyOutcomeApplied, status.LastDelta.Outcome)
 
@@ -167,11 +167,11 @@ func TestDeviceApplicationDeltaApplyStatusJSON(t *testing.T) {
 		Status:    ApplicationStatusRunning,
 		Embedded:  false,
 		AppType:   AppTypeContainer,
-		Size:      lo.ToPtr("45 MiB"),
+		DeltaSize: lo.ToPtr("45 MiB"),
 		LastDelta: &DeviceDeltaApplyStatus{Outcome: DeviceDeltaApplyOutcomeApplied},
 	})
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"name":"app","ready":"1/1","restarts":0,"status":"Running","embedded":false,"appType":"container","size":"45 MiB","lastDelta":{"outcome":"Applied"}}`, string(data))
+	assert.JSONEq(t, `{"name":"app","ready":"1/1","restarts":0,"status":"Running","embedded":false,"appType":"container","deltaSize":"45 MiB","lastDelta":{"outcome":"Applied"}}`, string(data))
 }
 
 func TestDeviceSystemInfoDeltaFieldsJSON(t *testing.T) {

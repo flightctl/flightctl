@@ -1395,6 +1395,9 @@ type DeviceApplicationStatus struct {
 	// AppType The type of the application.
 	AppType AppType `json:"appType"`
 
+	// DeltaSize Expected total size of control-plane generated delta images for this application update in IEC units (e.g. "245.3 MiB", "1 GiB"). Computed as the sum of generated delta image sizes across the application. Absent when no delta image was generated or any generated delta image size is unknown. Full image sizes are not included.
+	DeltaSize *string `json:"deltaSize,omitempty"`
+
 	// Embedded Whether the application is embedded in the bootc image.
 	Embedded bool `json:"embedded"`
 
@@ -1415,9 +1418,6 @@ type DeviceApplicationStatus struct {
 
 	// RunAs The username of the system user this application is runing under. If blank, the application is run as the same user as the agent (generally root).
 	RunAs Username `json:"runAs,omitempty"`
-
-	// Size Expected total download size for this application update in IEC units (e.g. "245.3 MiB", "1 GiB"). Computed as the sum of all required image pair sizes (parent + nested + volumes), using delta payload size when available or full image payload size otherwise. Absent when no image download is required or any required image size is unknown.
-	Size *string `json:"size,omitempty"`
 
 	// Status Status of a single application on the device.
 	Status ApplicationStatusType `json:"status"`
@@ -1602,6 +1602,9 @@ type DeviceOsSpec struct {
 
 // DeviceOsStatus Current status of the device OS.
 type DeviceOsStatus struct {
+	// DeltaSize Size of the control-plane generated OS delta image in IEC units (e.g. "245.3 MiB", "1 GiB"). Absent when no delta image was generated or its size is unknown.
+	DeltaSize *string `json:"deltaSize,omitempty"`
+
 	// Image Version of the OS image.
 	Image string `json:"image"`
 
@@ -1610,9 +1613,6 @@ type DeviceOsStatus struct {
 
 	// LastDelta Agent-reported result for delta apply attempts for this update target. For an application with multiple image targets, the outcome is aggregated across image targets. The lastDelta field is omitted until the agent reports an outcome; server-side delta preparation is reported separately.
 	LastDelta *DeviceDeltaApplyStatus `json:"lastDelta,omitempty"`
-
-	// Size Expected total download size for this OS update in IEC units (e.g. "245.3 MiB", "1 GiB"). Uses the delta payload size when available, or the full image payload size otherwise. Absent when the size is unknown.
-	Size *string `json:"size,omitempty"`
 }
 
 // DeviceOwnershipChangedDetails defines model for DeviceOwnershipChangedDetails.

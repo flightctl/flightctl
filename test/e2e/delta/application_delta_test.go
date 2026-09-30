@@ -792,8 +792,8 @@ func waitForApplicationDeltaOutcome(harness *e2e.Harness, deviceID, appName stri
 		if !applicationStatusHasImageDigest(appStatus, target.image, target.targetDigest) {
 			return fmt.Errorf("application %s has not reported target image %s with registry digest %s", appName, target.image, target.targetDigest)
 		}
-		if appStatus.Size == nil || *appStatus.Size == "" {
-			return fmt.Errorf("application %s has not reported its download size outside lastDelta", appName)
+		if appStatus.DeltaSize == nil || *appStatus.DeltaSize == "" {
+			return fmt.Errorf("application %s has not reported the control-plane delta size", appName)
 		}
 		if appStatus.LastDelta == nil {
 			return fmt.Errorf("application %s has not reported a delta apply outcome", appName)

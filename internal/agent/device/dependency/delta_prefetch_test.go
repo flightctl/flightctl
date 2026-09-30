@@ -8,7 +8,10 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/deltastatus"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/agent/device/resource"
+	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/poll"
@@ -205,6 +208,173 @@ func TestAggregateApplicationDeltaApplyResults(t *testing.T) {
 			require.Equal(t, tt.wantFallback, status.FallbackReason)
 		})
 	}
+}
+
+func TestApplicationDeltaSpecKeyIgnoresOnlyRenderedStatusAndDeltaHints(t *testing.T) {
+	makeDesired := func(desiredState v1beta1.ApplicationDesiredState, restartGeneration int, deltaImage, nestedDelta string, nestedValue string) *v1beta1.DeviceSpec {
+		values := map[string]interface{}{"desiredState": nestedValue, "restartGeneration": 7, "deltaImage": "user-chart-value"}
+		application := v1beta1.HelmApplication{
+			Name:              lo.ToPtr("app"),
+			AppType:           v1beta1.AppTypeHelm,
+			DesiredState:      lo.ToPtr(desiredState),
+			RestartGeneration: lo.ToPtr(restartGeneration),
+			Values:            &values,
+		}
+		require.NoError(t, application.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{
+			Image:      "quay.io/acme/chart:v1",
+			DeltaImage: lo.ToPtr(deltaImage),
+			DeltaImages: &[]v1beta1.ImageDeltaHint{{
+				TargetImage:  "quay.io/acme/workload:v1",
+				TargetDigest: "sha256:target",
+				DeltaImage:   nestedDelta,
+			}},
+		}))
+		var spec v1beta1.ApplicationProviderSpec
+		require.NoError(t, spec.FromHelmApplication(application))
+		return &v1beta1.DeviceSpec{Applications: &[]v1beta1.ApplicationProviderSpec{spec}}
+	}
+
+	first, err := applicationDeltaSpecKeys(makeDesired(v1beta1.ApplicationDesiredStateRunning, 1, "quay.io/acme/delta:v1", "quay.io/acme/nested-delta:v1", "chart-value"), nil)
+	require.NoError(t, err)
+	second, err := applicationDeltaSpecKeys(makeDesired(v1beta1.ApplicationDesiredStateStopped, 2, "quay.io/acme/delta:v2", "quay.io/acme/nested-delta:v2", "chart-value"), nil)
+	require.NoError(t, err)
+	require.Equal(t, first["app"], second["app"])
+
+	changedChartValue, err := applicationDeltaSpecKeys(makeDesired(v1beta1.ApplicationDesiredStateRunning, 1, "quay.io/acme/delta:v1", "quay.io/acme/nested-delta:v1", "changed-chart-value"), nil)
+	require.NoError(t, err)
+	require.NotEqual(t, first["app"], changedChartValue["app"])
+}
+
+func TestApplicationDeltaSpecKeyUsesResolvedNameWhenNameIsOmitted(t *testing.T) {
+	application := v1beta1.ContainerApplication{AppType: v1beta1.AppTypeContainer}
+	require.NoError(t, application.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: "quay.io/acme/app:v1"}))
+	var spec v1beta1.ApplicationProviderSpec
+	require.NoError(t, spec.FromContainerApplication(application))
+	desired := &v1beta1.DeviceSpec{Applications: &[]v1beta1.ApplicationProviderSpec{spec}}
+
+	keys, err := applicationDeltaSpecKeys(desired, func(*v1beta1.ApplicationProviderSpec) (string, error) {
+		return "quay.io/acme/app:v1", nil
+	})
+	require.NoError(t, err)
+	require.Contains(t, keys, "quay.io/acme/app:v1")
+}
+
+func TestApplicationDeltaStatusPersistsAcrossRestartAndClearsForChangedSpec(t *testing.T) {
+	const (
+		imageV2       = "quay.io/acme/app:v2"
+		imageV3       = "quay.io/acme/app:v3"
+		imageDigestV2 = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		imageDigestV3 = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+		deltaV2       = "quay.io/acme/delta@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		deltaV3       = "quay.io/acme/delta@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+	)
+
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(root)),
+		fileio.NewWriter(fileio.WithWriterRootDir(root)),
+	)
+	logger := log.NewPrefixLogger("test")
+	store := deltastatus.New(rw, "/var/lib/flightctl", logger)
+
+	makeApplication := func(image string) v1beta1.ApplicationProviderSpec {
+		application := v1beta1.ContainerApplication{
+			Name:    lo.ToPtr("app"),
+			AppType: v1beta1.AppTypeContainer,
+		}
+		require.NoError(t, application.FromImageApplicationProviderSpec(v1beta1.ImageApplicationProviderSpec{Image: image}))
+		var spec v1beta1.ApplicationProviderSpec
+		require.NoError(t, spec.FromContainerApplication(application))
+		return spec
+	}
+
+	makeTarget := func(image, digest, deltaImage, sourceDigest string) (imageRef, OCIPullTarget) {
+		ref := imageRef{image: image}
+		return ref, OCIPullTarget{
+			Type:      OCITypePodmanImage,
+			Reference: image,
+			Digest:    digest,
+			Delta: &OCIDeltaTarget{
+				Hint:         deltaImage,
+				SourceDigest: sourceDigest,
+				Application:  "app",
+			},
+		}
+	}
+
+	refV2, targetV2 := makeTarget(imageV2, imageDigestV2, deltaV2, "sha256:source-v1")
+	desiredV2 := &v1beta1.DeviceSpec{Applications: &[]v1beta1.ApplicationProviderSpec{makeApplication(imageV2)}}
+	specKeys, err := applicationDeltaSpecKeys(desiredV2, nil)
+	require.NoError(t, err)
+	targetID := deltastatus.Fingerprint(string(refV2.owner), refV2.image)
+	targetKeyV2 := applicationImageTargetKey(refV2, targetV2)
+	require.NoError(t, store.ReconcileApplicationSpecs(specKeys))
+	require.NoError(t, store.ReconcileApplicationTargets(map[string]map[string]string{
+		"app": {targetID: targetKeyV2},
+	}, true))
+	require.NoError(t, store.RecordApplicationResult(
+		"app", specKeys["app"], targetID, targetKeyV2,
+		v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied},
+	))
+
+	// Re-read the state through a new Store to simulate an agent restart.
+	restartedStore := deltastatus.New(rw, "/var/lib/flightctl", logger)
+	ctrl := gomock.NewController(t)
+	mockExec := executer.NewMockExecuter(ctrl)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", imageV2).Return("", "", 0)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", imageV2).Return("", "", 0)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", imageV3).Return("", "", 0)
+	mockResources := resource.NewMockManager(ctrl)
+	mockResources.EXPECT().IsCriticalAlert(gomock.Any()).Return(false).Times(3)
+	podman := client.NewPodman(logger, mockExec, rw, poll.NewConfig(time.Millisecond, 2))
+	manager := NewPrefetchManager(
+		logger,
+		func(v1beta1.Username) (*client.Podman, error) { return podman, nil },
+		func(v1beta1.Username) (*client.Skopeo, error) { return nil, nil },
+		client.NewCLIClients(),
+		rw,
+		util.Duration(time.Minute),
+		mockResources,
+		poll.Config{},
+		WithDeltaStatusStore(restartedStore),
+	)
+	var target OCIPullTarget
+	manager.RegisterOCICollector(newTestOCICollector(func(context.Context, *v1beta1.DeviceSpec, *v1beta1.DeviceSpec, ...OCICollectOpt) (*OCICollection, error) {
+		return &OCICollection{Targets: OCIPullTargetsByUser{v1beta1.CurrentProcessUsername: {target}}}, nil
+	}))
+	target = targetV2
+	ctx := context.Background()
+	require.NoError(t, manager.BeforeUpdate(ctx, nil, desiredV2))
+
+	deviceStatus := &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: "app"}}}
+	require.NoError(t, manager.Status(ctx, deviceStatus))
+	require.NotNil(t, deviceStatus.Applications[0].LastDelta)
+	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeApplied, deviceStatus.Applications[0].LastDelta.Outcome)
+
+	// A changed delta hint for the same target does not erase the fact that the
+	// current image was reconstructed with a delta before the restart.
+	_, targetWithNewHint := makeTarget(imageV2, imageDigestV2, deltaV3, "sha256:source-v2")
+	target = targetWithNewHint
+	require.NoError(t, manager.BeforeUpdate(ctx, desiredV2, desiredV2))
+	deviceStatus = &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: "app"}}}
+	require.NoError(t, manager.Status(ctx, deviceStatus))
+	require.NotNil(t, deviceStatus.Applications[0].LastDelta)
+	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeApplied, deviceStatus.Applications[0].LastDelta.Outcome)
+
+	// A new application target clears the old result. Its already-cached image
+	// is reported as NotUsed, rather than inheriting v2's Applied outcome.
+	refV3, targetV3 := makeTarget(imageV3, imageDigestV3, deltaV3, "sha256:source-v2")
+	target = targetV3
+	desiredV3 := &v1beta1.DeviceSpec{Applications: &[]v1beta1.ApplicationProviderSpec{makeApplication(imageV3)}}
+	require.NoError(t, manager.BeforeUpdate(ctx, desiredV2, desiredV3))
+	deviceStatus = &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: "app"}}}
+	require.NoError(t, manager.Status(ctx, deviceStatus))
+	require.NotNil(t, deviceStatus.Applications[0].LastDelta)
+	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeNotUsed, deviceStatus.Applications[0].LastDelta.Outcome)
+	newTargetID := deltastatus.Fingerprint(string(refV3.owner), refV3.image)
+	appResults := restartedStore.ApplicationResults("app")
+	require.NotContains(t, appResults, targetID)
+	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeNotUsed, appResults[newTargetID].Status.Outcome)
 }
 
 func TestApplicationDeltaPrefetchRunsAsRunAsUser(t *testing.T) {

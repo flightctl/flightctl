@@ -135,8 +135,8 @@ type DeviceRendered struct {
 // DeviceDeltaEstimates carries control-plane size estimates through a render
 // mutation into the service-owned status store.
 type DeviceDeltaEstimates struct {
-	OSSize           *string
-	ApplicationSizes map[string]*string
+	OSDeltaSize           *string
+	ApplicationDeltaSizes map[string]*string
 }
 
 func renderedOsSpec(rendered *DeviceRendered) domain.DeviceOsSpec {
@@ -157,18 +157,18 @@ func applyRenderedDeltaEstimates(device *model.Device, estimates *DeviceDeltaEst
 
 	storedEstimates := &model.DeviceDeltaEstimates{}
 	if estimates != nil {
-		if estimates.OSSize != nil {
-			size := *estimates.OSSize
-			storedEstimates.OS = &model.DeviceDeltaEstimate{Size: &size}
+		if estimates.OSDeltaSize != nil {
+			deltaSize := *estimates.OSDeltaSize
+			storedEstimates.OS = &model.DeviceDeltaEstimate{DeltaSize: &deltaSize}
 		}
-		if len(estimates.ApplicationSizes) > 0 {
-			storedEstimates.Applications = make(map[string]model.DeviceDeltaEstimate, len(estimates.ApplicationSizes))
-			for application, size := range estimates.ApplicationSizes {
-				if size == nil {
+		if len(estimates.ApplicationDeltaSizes) > 0 {
+			storedEstimates.Applications = make(map[string]model.DeviceDeltaEstimate, len(estimates.ApplicationDeltaSizes))
+			for application, deltaSize := range estimates.ApplicationDeltaSizes {
+				if deltaSize == nil {
 					continue
 				}
-				copiedSize := *size
-				storedEstimates.Applications[application] = model.DeviceDeltaEstimate{Size: &copiedSize}
+				copiedDeltaSize := *deltaSize
+				storedEstimates.Applications[application] = model.DeviceDeltaEstimate{DeltaSize: &copiedDeltaSize}
 			}
 		}
 	}
@@ -210,20 +210,20 @@ func (m *DeviceMutation) Clone() (store.ResourceMutation[domain.Device], error) 
 		rendered := *m.Rendered
 		if m.Rendered.DeltaEstimates != nil {
 			estimates := *m.Rendered.DeltaEstimates
-			if estimates.ApplicationSizes != nil {
-				estimates.ApplicationSizes = make(map[string]*string, len(m.Rendered.DeltaEstimates.ApplicationSizes))
-				for application, size := range m.Rendered.DeltaEstimates.ApplicationSizes {
-					if size == nil {
-						estimates.ApplicationSizes[application] = nil
+			if estimates.ApplicationDeltaSizes != nil {
+				estimates.ApplicationDeltaSizes = make(map[string]*string, len(m.Rendered.DeltaEstimates.ApplicationDeltaSizes))
+				for application, deltaSize := range m.Rendered.DeltaEstimates.ApplicationDeltaSizes {
+					if deltaSize == nil {
+						estimates.ApplicationDeltaSizes[application] = nil
 						continue
 					}
-					copiedSize := *size
-					estimates.ApplicationSizes[application] = &copiedSize
+					copiedDeltaSize := *deltaSize
+					estimates.ApplicationDeltaSizes[application] = &copiedDeltaSize
 				}
 			}
-			if estimates.OSSize != nil {
-				copiedSize := *estimates.OSSize
-				estimates.OSSize = &copiedSize
+			if estimates.OSDeltaSize != nil {
+				copiedDeltaSize := *estimates.OSDeltaSize
+				estimates.OSDeltaSize = &copiedDeltaSize
 			}
 			rendered.DeltaEstimates = &estimates
 		}

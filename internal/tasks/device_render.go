@@ -93,7 +93,6 @@ type DeviceRenderLogic struct {
 	vmConverterOverride VmConverterFn
 	helmRenderer        helmImageRenderer
 	deltaLookup         generationLookup
-	osManifestSize      func(context.Context, string) (*int64, error)
 }
 
 type helmImageRenderer interface {
@@ -376,11 +375,11 @@ func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 	}
 
 	osHints := t.resolveOSDeltaHint(ctx, device, rendered)
-	if len(rendered.appSizes) > 0 {
+	if len(rendered.appDeltaSizes) > 0 {
 		if osHints == nil {
 			osHints = &deviceservice.RenderedOSHints{}
 		}
-		osHints.AppSizes = rendered.appSizes
+		osHints.AppDeltaSizes = rendered.appDeltaSizes
 	}
 	status = t.deviceSvc.UpdateRenderedDevice(ctx, t.orgId, t.event.InvolvedObject.Name, string(rendered.Config), string(rendered.Applications), specHash, rendered.OsImage, syncRefs, bypassHashCheck, osHints)
 	if err := common.ApiStatusToErr(status); err != nil {
@@ -398,8 +397,9 @@ type RenderedSpec struct {
 
 	referencedRepos    []string
 	configFingerprints []ConfigRefFingerprint
-	// appSizes maps application name to its IEC-formatted download size.
-	appSizes map[string]*string
+	// appDeltaSizes maps application name to its IEC-formatted control-plane
+	// delta payload size.
+	appDeltaSizes map[string]*string
 }
 
 // RenderSpec resolves a spec for orgId without device-event state.
