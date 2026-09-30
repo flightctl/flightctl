@@ -210,7 +210,8 @@ status:
     bootID: 037750f7-f293-4c5b-b06e-481eef4e883f
     operatingSystem: linux
   systemInfoStatus:                          # <-- health status of system info collection
-    summary: Healthy
+    summary:
+      status: Healthy
   summary:
     info: ""
     status: Online                           # <-- online status of the device
