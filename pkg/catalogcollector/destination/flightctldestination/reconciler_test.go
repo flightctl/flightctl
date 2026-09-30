@@ -901,11 +901,16 @@ func TestConsume_ConcurrentSafety(t *testing.T) {
 
 	c := newTestDestination(t, server)
 
+	const n = 5
+	errs := make([]error, n)
 	var wg sync.WaitGroup
-	for i := 0; i < 5; i++ {
+	for i := 0; i < n; i++ {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
+			// Use distinct pipeline IDs to avoid concurrent reconcile operations
+			// from deleting each other's resources via the prune step.
+			pipelineID := fmt.Sprintf("pipeline-%d", idx)
 			snapshot := &catalogcollector.CatalogSnapshot{
 				Revision: fmt.Sprintf("rev-%d", idx),
 				Catalogs: []apiv1alpha1.Catalog{
@@ -915,10 +920,23 @@ func TestConsume_ConcurrentSafety(t *testing.T) {
 					testCatalogItem(fmt.Sprintf("catalog-%d", idx), "item", "Item"),
 				},
 			}
-			_ = c.Reconcile(context.Background(), "test", snapshot)
+			errs[idx] = c.Reconcile(context.Background(), pipelineID, snapshot)
 		}(i)
 	}
 	wg.Wait()
+
+	// Verify that no goroutine panicked and all calls completed without error.
+	for i, err := range errs {
+		require.NoError(t, err, "concurrent Reconcile call %d returned an error", i)
+	}
+
+	// Verify the server received resources from all concurrent goroutines.
+	fs.mu.Lock()
+	defer fs.mu.Unlock()
+	for i := 0; i < n; i++ {
+		catalogName := fmt.Sprintf("catalog-%d", i)
+		require.Contains(t, fs.catalogs, catalogName, "catalog-%d must be present on server", i)
+	}
 }
 
 func TestConsume_CredentialsNeverInErrors(t *testing.T) {
@@ -975,13 +993,22 @@ func TestConsume_EmptySnapshot(t *testing.T) {
 func TestConsume_ClearsServerManagedFields(t *testing.T) {
 	fs := newFakeServer()
 	handler := fs.handler()
+	// Use a channel to capture validation errors from the HTTP handler goroutine
+	// instead of calling require/assert directly (which would panic from a non-test goroutine).
+	handlerErrs := make(chan string, 10)
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPut {
 			body, _ := io.ReadAll(r.Body)
 			bodyStr := string(body)
-			require.NotContains(t, bodyStr, "resourceVersion")
-			require.NotContains(t, bodyStr, "generation")
-			require.NotContains(t, bodyStr, "owner")
+			if strings.Contains(bodyStr, "resourceVersion") {
+				handlerErrs <- "body contains resourceVersion"
+			}
+			if strings.Contains(bodyStr, "generation") {
+				handlerErrs <- "body contains generation"
+			}
+			if strings.Contains(bodyStr, "owner") {
+				handlerErrs <- "body contains owner"
+			}
 			r.Body = io.NopCloser(strings.NewReader(bodyStr))
 		}
 		handler.ServeHTTP(w, r)
@@ -1001,6 +1028,12 @@ func TestConsume_ClearsServerManagedFields(t *testing.T) {
 	}
 	err := c.Reconcile(context.Background(), "test", snapshot)
 	require.NoError(t, err)
+
+	// Drain and assert handler errors captured via channel.
+	close(handlerErrs)
+	for errMsg := range handlerErrs {
+		t.Errorf("PUT body validation failed: %s", errMsg)
+	}
 }
 
 func TestConsume_TokenFileMissing(t *testing.T) {

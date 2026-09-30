@@ -86,7 +86,7 @@ func TestFactory_CreateProcessor_TypeMismatch(t *testing.T) {
 	f := NewFactory()
 	id, _ := catalogcollector.ParseComponentID("catalogname")
 	settings := catalogcollector.Settings{ID: id}
-	_, err := f.(catalogcollector.ProcessorFactory).CreateProcessor(
+	_, err := f.CreateProcessor(
 		context.Background(), settings, "not-a-config", &recordingConsumer{},
 	)
 	require.Error(t, err)
@@ -98,7 +98,7 @@ func TestFactory_CreateProcessor_ValidConfig(t *testing.T) {
 	id, _ := catalogcollector.ParseComponentID("catalogname")
 	settings := catalogcollector.Settings{ID: id}
 	cfg := &Config{Mappings: map[string]string{"a": "b"}}
-	consumer, err := f.(catalogcollector.ProcessorFactory).CreateProcessor(
+	consumer, err := f.CreateProcessor(
 		context.Background(), settings, cfg, &recordingConsumer{},
 	)
 	require.NoError(t, err)

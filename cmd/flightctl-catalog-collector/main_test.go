@@ -248,7 +248,15 @@ pipelines:
 	// factory correctly through the full binary path.
 
 	// Give the service time to start and validate configuration.
-	time.Sleep(200 * time.Millisecond)
+	// Use a select on done-channel with a timeout rather than sleeping.
+	select {
+	case err := <-done:
+		// Service exited early (maybe an error during startup)
+		require.NoError(t, err, "service exited unexpectedly during startup")
+		return
+	case <-time.After(500 * time.Millisecond):
+		// Service is still running — means it started successfully
+	}
 
 	cancel()
 

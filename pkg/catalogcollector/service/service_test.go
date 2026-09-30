@@ -1074,8 +1074,12 @@ func TestRun_ExtensionsStartInDeterministicOrder(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- svc.Run(ctx) }()
 
-	// Give Run a moment to start extensions.
-	time.Sleep(20 * time.Millisecond)
+	// Wait for both extensions to start.
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(startOrder) == 2
+	}, 2*time.Second, 5*time.Millisecond, "both extensions must start")
 	cancel()
 	<-done
 
@@ -1124,7 +1128,16 @@ func TestRun_ExtensionsShutdownInReverseOrder(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- svc.Run(ctx) }()
 
-	time.Sleep(20 * time.Millisecond)
+	// Wait for both extensions to have started before cancelling.
+	require.Eventually(t, func() bool {
+		extA.mu.Lock()
+		aStarted := extA.startCount > 0
+		extA.mu.Unlock()
+		extB.mu.Lock()
+		bStarted := extB.startCount > 0
+		extB.mu.Unlock()
+		return aStarted && bStarted
+	}, 2*time.Second, 5*time.Millisecond, "both extensions must start")
 	cancel()
 	require.NoError(t, <-done)
 
@@ -1270,7 +1283,12 @@ func TestRun_ExtensionsShutdownAfterCancellation(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- svc.Run(ctx) }()
 
-	time.Sleep(20 * time.Millisecond)
+	// Wait for the extension to have started before cancelling.
+	require.Eventually(t, func() bool {
+		ext.mu.Lock()
+		defer ext.mu.Unlock()
+		return ext.startCount > 0
+	}, 2*time.Second, 5*time.Millisecond, "extension must start")
 	cancel()
 	require.NoError(t, <-done)
 
@@ -1336,7 +1354,12 @@ func TestRun_ExtensionShutdownCalledExactlyOnce(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- svc.Run(ctx) }()
 
-	time.Sleep(20 * time.Millisecond)
+	// Wait for the extension to have started before cancelling.
+	require.Eventually(t, func() bool {
+		ext.mu.Lock()
+		defer ext.mu.Unlock()
+		return ext.startCount > 0
+	}, 2*time.Second, 5*time.Millisecond, "extension must start")
 	cancel()
 	require.NoError(t, <-done)
 

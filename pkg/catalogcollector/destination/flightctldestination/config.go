@@ -34,6 +34,9 @@ func (c *Config) Validate() error {
 	if c.Auth != nil && c.Auth.Authenticator == "" {
 		return fmt.Errorf("auth.authenticator must not be empty when auth is configured")
 	}
+	if c.Timeout != nil && time.Duration(*c.Timeout) <= 0 {
+		return fmt.Errorf("timeout must be positive when set, got %s", time.Duration(*c.Timeout))
+	}
 	if c.OrgID != "" {
 		if _, err := uuid.Parse(c.OrgID); err != nil {
 			return fmt.Errorf("orgId %q is not a valid UUID: %w", c.OrgID, err)

@@ -16,6 +16,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"time"
 
 	apiv1alpha1 "github.com/flightctl/flightctl/api/core/v1alpha1"
 	catalogcollector "github.com/flightctl/flightctl/pkg/catalogcollector"
@@ -42,8 +43,11 @@ func (s *server) Run(ctx context.Context) error {
 	mux.HandleFunc(s.cfg.Path, s.handleSnapshot)
 
 	srv := &http.Server{
-		Handler:     mux,
-		BaseContext: func(_ net.Listener) context.Context { return ctx },
+		Handler:           mux,
+		BaseContext:       func(_ net.Listener) context.Context { return ctx },
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	ln, err := net.Listen("tcp", s.cfg.ListenAddress)
@@ -69,7 +73,12 @@ func (s *server) Run(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 		s.log.Info("context cancelled, shutting down HTTP server")
-		srv.Close()
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownCancel()
+		if shutdownErr := srv.Shutdown(shutdownCtx); shutdownErr != nil {
+			s.log.WithError(shutdownErr).Warn("graceful shutdown failed, forcing close")
+			srv.Close()
+		}
 		<-errCh
 		s.log.Info("source stopped")
 		return nil

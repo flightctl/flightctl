@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"time"
 
 	catalogcollector "github.com/flightctl/flightctl/pkg/catalogcollector"
 	"github.com/flightctl/flightctl/pkg/catalogcollector/config"
@@ -623,7 +624,8 @@ func (s *Service) shutdownExtensions(
 	ctx context.Context,
 	extensions []runningExtension,
 ) error {
-	shutdownContext := context.WithoutCancel(ctx)
+	shutdownContext, shutdownCancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer shutdownCancel()
 	var errs []error
 
 	for index := len(extensions) - 1; index >= 0; index-- {

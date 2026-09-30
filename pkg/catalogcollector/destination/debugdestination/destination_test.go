@@ -395,14 +395,10 @@ func TestReconcile_ConcurrentSafety(t *testing.T) {
 	wg.Wait()
 }
 
-// --- Registration test ---
-
-func TestFactory_RegisteredInComponents(t *testing.T) {
-	// This test imports the binary's components function indirectly by
-	// verifying that the factory's type constant matches what would be
-	// registered.
-	require.Equal(t, catalogcollector.ComponentType("debug"), Type)
-}
+// TestFactory_RegisteredInComponents is covered by
+// TestComponents_DebugDestinationRegistered in main_test.go which
+// verifies the factory is actually registered in the binary's
+// component set. A type-constant equality check here adds no value.
 
 func TestReconcile_NormalEmptySnapshotYieldsEmptyLists(t *testing.T) {
 	logger, hook := testLoggerWithHook()

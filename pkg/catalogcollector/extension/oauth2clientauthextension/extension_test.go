@@ -323,12 +323,12 @@ func TestToken_Expiry(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(1), callCount.Load())
 
-	// Wait for the token to expire (expires_in=1s, expiryBuffer=0)
-	time.Sleep(2 * time.Second)
-
-	_, err = doGet(t, rt, api1.URL)
-	require.NoError(t, err)
-	require.Equal(t, int64(2), callCount.Load(), "expired token should trigger a second fetch")
+	// Wait for the token to expire (expires_in=1s, expiryBuffer=0), then
+	// poll until a second token fetch occurs instead of using a fixed sleep.
+	require.Eventually(t, func() bool {
+		_, err := doGet(t, rt, api1.URL)
+		return err == nil && callCount.Load() >= 2
+	}, 5*time.Second, 200*time.Millisecond, "expired token should trigger a second fetch")
 }
 
 func TestToken_EndpointFailure_NoPoison(t *testing.T) {
@@ -415,15 +415,14 @@ func TestToken_SecretFileRotation(t *testing.T) {
 	_, err = doGet(t, rt, api1.URL)
 	require.NoError(t, err)
 
-	// Rotate the secret and wait for the token to expire
+	// Rotate the secret and poll for a second token fetch instead of sleeping.
 	require.NoError(t, os.WriteFile(secretFile, []byte("secret-v2"), 0600))
-	time.Sleep(2 * time.Second)
 
-	// Second request — should re-read the file and use secret-v2
-	_, err = doGet(t, rt, api1.URL)
-	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		_, err := doGet(t, rt, api1.URL)
+		return err == nil && callCount.Load() >= 2
+	}, 5*time.Second, 200*time.Millisecond, "rotated secret should trigger a second token fetch")
 
-	require.Equal(t, int64(2), callCount.Load())
 	mu.Lock()
 	defer mu.Unlock()
 	require.Equal(t, []string{"secret-v1", "secret-v2"}, capturedSecrets)

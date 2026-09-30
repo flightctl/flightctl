@@ -75,7 +75,7 @@ func startSource(t *testing.T, consumer *fakeConsumer) (string, context.CancelFu
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		resp, err := http.Post("http://"+addr+"/v1/snapshots", "application/json",
+		resp, err := http.Post("http://"+addr+"/v1/snapshots", "application/json", //nolint:gosec // G107: URL is test-local loopback from freeAddr
 			strings.NewReader(`{"revision":"probe","catalogs":[],"catalogItems":[]}`))
 		if err == nil {
 			resp.Body.Close()
@@ -91,8 +91,8 @@ func startSource(t *testing.T, consumer *fakeConsumer) (string, context.CancelFu
 		cancel()
 		select {
 		case <-errCh:
-		case <-time.After(5 * time.Second):
-			t.Error("source did not stop within 5s")
+		case <-time.After(10 * time.Second):
+			t.Error("source did not stop within 10s")
 		}
 	}
 
@@ -115,7 +115,7 @@ func TestSuccessfulPost(t *testing.T) {
 		"catalogs": [{"apiVersion":"flightctl.io/v1alpha1","kind":"Catalog","metadata":{"name":"test-catalog"},"spec":{"displayName":"Test"}}],
 		"catalogItems": []
 	}`
-	resp, err := http.Post(url, "application/json", strings.NewReader(body))
+	resp, err := http.Post(url, "application/json", strings.NewReader(body)) //nolint:gosec // G107: URL is test-local loopback from startSource
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusNoContent, resp.StatusCode)
@@ -132,7 +132,7 @@ func TestMissingRevision(t *testing.T) {
 	url, cleanup := startSource(t, consumer)
 	defer cleanup()
 
-	resp, err := http.Post(url, "application/json", strings.NewReader(`{"catalogs":[]}`))
+	resp, err := http.Post(url, "application/json", strings.NewReader(`{"catalogs":[]}`)) //nolint:gosec // G107: URL is test-local loopback from startSource
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
@@ -144,7 +144,7 @@ func TestMalformedJSON(t *testing.T) {
 	url, cleanup := startSource(t, consumer)
 	defer cleanup()
 
-	resp, err := http.Post(url, "application/json", strings.NewReader(`{invalid`))
+	resp, err := http.Post(url, "application/json", strings.NewReader(`{invalid`)) //nolint:gosec // G107: URL is test-local loopback from startSource
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
@@ -156,7 +156,7 @@ func TestUnknownRequestField(t *testing.T) {
 	url, cleanup := startSource(t, consumer)
 	defer cleanup()
 
-	resp, err := http.Post(url, "application/json",
+	resp, err := http.Post(url, "application/json", //nolint:gosec // G107: URL is test-local loopback from startSource
 		strings.NewReader(`{"revision":"r1","unknownField":"x"}`))
 	require.NoError(t, err)
 	defer resp.Body.Close()
@@ -169,7 +169,7 @@ func TestTrailingJSON(t *testing.T) {
 	url, cleanup := startSource(t, consumer)
 	defer cleanup()
 
-	resp, err := http.Post(url, "application/json",
+	resp, err := http.Post(url, "application/json", //nolint:gosec // G107: URL is test-local loopback from startSource
 		strings.NewReader(`{"revision":"r1"}{"revision":"r2"}`))
 	require.NoError(t, err)
 	defer resp.Body.Close()
@@ -183,7 +183,7 @@ func TestOversizedBody(t *testing.T) {
 	defer cleanup()
 
 	huge := `{"revision":"r1","catalogs":[` + strings.Repeat(`{},`, maxBodySize) + `{}]}`
-	resp, err := http.Post(url, "application/json", strings.NewReader(huge))
+	resp, err := http.Post(url, "application/json", strings.NewReader(huge)) //nolint:gosec // G107: URL is test-local loopback from startSource
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
@@ -195,7 +195,7 @@ func TestWrongHTTPMethod(t *testing.T) {
 	url, cleanup := startSource(t, consumer)
 	defer cleanup()
 
-	resp, err := http.Get(url)
+	resp, err := http.Get(url) //nolint:gosec // G107: URL is test-local loopback from startSource
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode)
@@ -207,7 +207,7 @@ func TestDownstreamConsumerFailure(t *testing.T) {
 	url, cleanup := startSource(t, consumer)
 	defer cleanup()
 
-	resp, err := http.Post(url, "application/json",
+	resp, err := http.Post(url, "application/json", //nolint:gosec // G107: URL is test-local loopback from startSource
 		strings.NewReader(`{"revision":"r1","catalogs":[],"catalogItems":[]}`))
 	require.NoError(t, err)
 	defer resp.Body.Close()
@@ -227,7 +227,7 @@ func TestConcurrentRequests(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			body := fmt.Sprintf(`{"revision":"rev-%d","catalogs":[],"catalogItems":[]}`, idx)
-			resp, err := http.Post(url, "application/json", strings.NewReader(body))
+			resp, err := http.Post(url, "application/json", strings.NewReader(body)) //nolint:gosec // G107: URL is test-local loopback from startSource
 			if err != nil {
 				failures.Add(1)
 				return
@@ -275,7 +275,7 @@ func TestRequiredFields(t *testing.T) {
 			url, cleanup := startSource(t, consumer)
 			defer cleanup()
 
-			resp, err := http.Post(url, "application/json", strings.NewReader(tc.body))
+			resp, err := http.Post(url, "application/json", strings.NewReader(tc.body)) //nolint:gosec // G107: URL is test-local loopback from startSource
 			require.NoError(t, err)
 			defer resp.Body.Close()
 			require.Equal(t, http.StatusBadRequest, resp.StatusCode)
@@ -291,7 +291,7 @@ func TestEmptyArraysForwardedToConsumer(t *testing.T) {
 	url, cleanup := startSource(t, consumer)
 	defer cleanup()
 
-	resp, err := http.Post(url, "application/json",
+	resp, err := http.Post(url, "application/json", //nolint:gosec // G107: URL is test-local loopback from startSource
 		strings.NewReader(`{"revision":"empty","catalogs":[],"catalogItems":[]}`))
 	require.NoError(t, err)
 	defer resp.Body.Close()

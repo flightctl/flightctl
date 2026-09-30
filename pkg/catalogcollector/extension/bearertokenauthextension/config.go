@@ -2,6 +2,7 @@ package bearertokenauthextension
 
 import (
 	"fmt"
+	"strings"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 )
@@ -14,8 +15,8 @@ type Config struct {
 }
 
 func (c *Config) Validate() error {
-	hasToken := c.Token.Value() != ""
-	hasFile := c.TokenFile != ""
+	hasToken := strings.TrimSpace(c.Token.Value()) != ""
+	hasFile := strings.TrimSpace(c.TokenFile) != ""
 	if hasToken && hasFile {
 		return fmt.Errorf("\"token\" and \"tokenFile\" are mutually exclusive")
 	}

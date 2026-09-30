@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync"
 	"testing"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
@@ -24,13 +25,20 @@ func testLogger() *logrus.Entry {
 // of the last request received.
 func captureServer(t *testing.T) (*httptest.Server, func() string) {
 	t.Helper()
+	var mu sync.Mutex
 	var lastAuth string
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
 		lastAuth = r.Header.Get("Authorization")
+		mu.Unlock()
 		w.WriteHeader(http.StatusOK)
 	}))
 	t.Cleanup(server.Close)
-	return server, func() string { return lastAuth }
+	return server, func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		return lastAuth
+	}
 }
 
 func makeRoundTripper(t *testing.T, cfg *Config, base http.RoundTripper) http.RoundTripper {

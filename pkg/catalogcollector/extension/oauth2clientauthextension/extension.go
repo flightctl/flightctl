@@ -100,7 +100,7 @@ func (s *fileCredentialTokenSource) Token() (*oauth2.Token, error) {
 	s.oauthConfig.ClientSecret = clientSecret
 
 	tokenContext := context.WithValue(
-		s.ctx,
+		context.WithoutCancel(s.ctx),
 		oauth2.HTTPClient,
 		s.tokenHTTPClient,
 	)

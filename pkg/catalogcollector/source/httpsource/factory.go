@@ -38,6 +38,15 @@ func (f *factory) CreateSource(
 	if !ok {
 		return nil, fmt.Errorf("source %q: unexpected config type %T", settings.ID, cfg)
 	}
+	if c.ListenAddress == "" {
+		return nil, fmt.Errorf("source %q: listenAddress must not be empty", settings.ID)
+	}
+	if c.Path == "" || c.Path[0] != '/' {
+		return nil, fmt.Errorf("source %q: path must be a non-empty absolute path (start with /)", settings.ID)
+	}
+	if settings.Logger == nil {
+		return nil, fmt.Errorf("source %q: logger must not be nil", settings.ID)
+	}
 	return &server{
 		cfg:  c,
 		id:   settings.ID,
