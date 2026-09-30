@@ -8905,10 +8905,10 @@ components:
           description: The last time the condition transitioned from one status to another.
         message:
           type: string
-          description: Human readable message indicating details about last transition.
+          description: A human-readable message describing the condition, including details or progress. Consumers should not parse this field.
         reason:
           type: string
-          description: A (brief) reason for the condition's last transition.
+          description: A brief, machine-readable reason for the condition's last transition. Use a stable CamelCase identifier and put human-readable details in message.
     Condition:
       description: Condition contains details for one aspect of the current state of this API Resource.
       allOf:

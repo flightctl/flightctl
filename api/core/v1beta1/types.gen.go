@@ -1167,13 +1167,13 @@ type Condition struct {
 	// LastTransitionTime The last time the condition transitioned from one status to another.
 	LastTransitionTime time.Time `json:"lastTransitionTime"`
 
-	// Message Human readable message indicating details about last transition.
+	// Message A human-readable message describing the condition, including details or progress for people. Consumers should not parse this field.
 	Message string `json:"message"`
 
 	// ObservedGeneration The .metadata.generation that the condition was set based upon.
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
 
-	// Reason A (brief) reason for the condition's last transition.
+	// Reason A brief, machine-readable reason for the condition's last transition. Use a stable CamelCase identifier and put human-readable details in message.
 	Reason string `json:"reason"`
 
 	// Status Status of the condition, one of True, False, Unknown.
@@ -1188,13 +1188,13 @@ type ConditionBase struct {
 	// LastTransitionTime The last time the condition transitioned from one status to another.
 	LastTransitionTime time.Time `json:"lastTransitionTime"`
 
-	// Message Human readable message indicating details about last transition.
+	// Message A human-readable message describing the condition, including details or progress for people. Consumers should not parse this field.
 	Message string `json:"message"`
 
 	// ObservedGeneration The .metadata.generation that the condition was set based upon.
 	ObservedGeneration *int64 `json:"observedGeneration,omitempty"`
 
-	// Reason A (brief) reason for the condition's last transition.
+	// Reason A brief, machine-readable reason for the condition's last transition. Use a stable CamelCase identifier and put human-readable details in message.
 	Reason string `json:"reason"`
 
 	// Status Status of the condition, one of True, False, Unknown.
