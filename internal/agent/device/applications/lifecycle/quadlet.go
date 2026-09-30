@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -108,6 +109,11 @@ func (q *Quadlet) add(ctx context.Context, action Action, systemctl systemd.Mana
 			}
 			return err
 		}
+	}
+
+	// Verify the Quadlet generator processed the new source files.
+	if err := q.verifyQuadletGeneration(ctx, action, services, systemctl, batchTime); err != nil {
+		return err
 	}
 
 	requiresActionCleanup := true
@@ -442,4 +448,74 @@ func targetName(appID string) (string, error) {
 		return "", fmt.Errorf("empty appID")
 	}
 	return quadlet.NamespaceResource(appID, QuadletTargetName), nil
+}
+
+// QuadletVersionKey is the X- key added to the [Unit] section of the flightctl drop-in.
+const QuadletVersionKey = "X-FlightctlVersion"
+
+// QuadletHashFile is the file where the content hash of quadlet source files is stored.
+const QuadletHashFile = ".flightctl-quadlet-hash"
+
+// verifyQuadletGeneration compares the X-FlightctlVersion hash in the
+// generated .service file(s) against the expected hash on disk.
+// Missing hash file or missing key is allowed for backwards compatibility.
+func (q *Quadlet) verifyQuadletGeneration(ctx context.Context, action Action, services []string, systemctl systemd.Manager, batchTime time.Time) error {
+	rw, err := q.rwFactory(action.User)
+	if err != nil {
+		return fmt.Errorf("creating read/writer for quadlet verification: %w", err)
+	}
+
+	hashPath := filepath.Join(action.Path, QuadletHashFile)
+	expectedHashBytes, err := rw.ReadFile(hashPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			q.log.Debugf("Quadlet hash file not found at %s, skipping generation verification", hashPath)
+			return nil
+		}
+		return fmt.Errorf("reading quadlet hash file %s: %w", hashPath, err)
+	}
+	expectedHash := strings.TrimSpace(string(expectedHashBytes))
+	if expectedHash == "" {
+		return nil
+	}
+
+	for _, service := range services {
+		if filepath.Ext(service) == ".target" {
+			continue
+		}
+
+		content, err := systemctl.Cat(ctx, service)
+		if err != nil {
+			return fmt.Errorf("reading unit %s for hash verification: %w", service, err)
+		}
+
+		unit, err := quadlet.NewUnit([]byte(content))
+		if err != nil {
+			return fmt.Errorf("parsing unit %s for hash verification: %w", service, err)
+		}
+
+		actualHash, err := unit.Lookup("Unit", QuadletVersionKey)
+		if err != nil {
+			q.log.Debugf("No %s key found in unit %s, allowing", QuadletVersionKey, service)
+			continue
+		}
+
+		if actualHash != expectedHash {
+			q.log.Infof("Quadlet generation verification failed for %s: expected hash %s, got %s", service, expectedHash, actualHash)
+
+			generatorLogs, logsErr := systemctl.Logs(ctx, client.WithLogTag("quadlet-generator"), client.WithLogSince(batchTime))
+			if logsErr != nil {
+				q.log.Warnf("Failed to fetch quadlet-generator logs: %v", logsErr)
+			}
+			if len(generatorLogs) > 0 {
+				q.log.Errorf("Quadlet generator output:\n%s", strings.Join(generatorLogs, "\n"))
+			}
+
+			return fmt.Errorf("quadlet service generation failed for %w: check the syntax of the quadlet source files",
+				errors.WithElement(action.Name))
+		}
+		q.log.Debugf("Quadlet hash verification passed for %s: %s", service, expectedHash)
+	}
+
+	return nil
 }

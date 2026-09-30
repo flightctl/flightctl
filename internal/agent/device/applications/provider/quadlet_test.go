@@ -2557,3 +2557,127 @@ spec:
 		})
 	}
 }
+
+func TestComputeQuadletHash(t *testing.T) {
+	tests := []struct {
+		name          string
+		files         map[string][]byte
+		expectSameAs  string // test name to compare against for determinism
+		expectDiffAs  string // test name that should differ
+		expectNonZero bool
+	}{
+		{
+			name: "When a single container file exists it should produce a non-zero hash",
+			files: map[string][]byte{
+				"web.container": []byte("[Container]\nImage=nginx:latest\n"),
+			},
+			expectNonZero: true,
+		},
+		{
+			name: "When multiple quadlet files exist it should produce a non-zero hash",
+			files: map[string][]byte{
+				"web.container": []byte("[Container]\nImage=nginx:latest\n"),
+				"data.volume":   []byte("[Volume]\n"),
+			},
+			expectNonZero: true,
+		},
+		{
+			name: "When non-quadlet files are present they should be excluded from hash",
+			files: map[string][]byte{
+				"web.container": []byte("[Container]\nImage=nginx:latest\n"),
+				".env":          []byte("FOO=bar\n"),
+				"pod.yaml":      []byte("apiVersion: v1\n"),
+			},
+			expectSameAs: "When a single container file exists it should produce a non-zero hash",
+		},
+		{
+			name: "When file content changes it should produce a different hash",
+			files: map[string][]byte{
+				"web.container": []byte("[Container]\nImage=nginx:v2\n"),
+			},
+			expectDiffAs:  "When a single container file exists it should produce a non-zero hash",
+			expectNonZero: true,
+		},
+		{
+			name: "When no quadlet files exist it should produce a zero hash",
+			files: map[string][]byte{
+				".env":     []byte("FOO=bar\n"),
+				"pod.yaml": []byte("apiVersion: v1\n"),
+			},
+			expectNonZero: false,
+		},
+	}
+
+	hashes := make(map[string]string)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			tmpDir := t.TempDir()
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
+
+			appPath := "/app"
+			require.NoError(rw.MkdirAll(appPath, fileio.DefaultDirectoryPermissions))
+			for name, content := range tt.files {
+				require.NoError(rw.WriteFile(filepath.Join(appPath, name), content, fileio.DefaultFilePermissions))
+			}
+
+			hash, err := computeQuadletHash(rw, appPath)
+			require.NoError(err)
+			hashes[tt.name] = hash
+
+			if tt.expectNonZero {
+				require.NotEmpty(hash)
+				require.Len(hash, 8, "CRC32 hash should be 8 hex chars")
+				require.NotEqual("00000000", hash)
+			}
+
+			if tt.expectSameAs != "" {
+				other, ok := hashes[tt.expectSameAs]
+				require.True(ok, "reference test %q must run before this test", tt.expectSameAs)
+				require.Equal(other, hash)
+			}
+
+			if tt.expectDiffAs != "" {
+				other, ok := hashes[tt.expectDiffAs]
+				require.True(ok, "reference test %q must run before this test", tt.expectDiffAs)
+				require.NotEqual(other, hash)
+			}
+		})
+	}
+}
+
+func TestInstallQuadletWritesHashFileAndVersionKey(t *testing.T) {
+	require := require.New(t)
+	tmpDir := t.TempDir()
+	rw := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+	)
+	logger := log.NewPrefixLogger("test")
+
+	appPath := "/testapp"
+	require.NoError(rw.MkdirAll(appPath, fileio.DefaultDirectoryPermissions))
+
+	targetPath := "/systemd-targets/testapp.target"
+	require.NoError(rw.MkdirAll(filepath.Dir(targetPath), fileio.DefaultDirectoryPermissions))
+
+	require.NoError(rw.WriteFile(filepath.Join(appPath, "web.container"), []byte("[Container]\nImage=nginx:latest\n"), fileio.DefaultFilePermissions))
+
+	err := installQuadlet(rw, logger, appPath, targetPath, "myapp")
+	require.NoError(err)
+
+	// Verify the hash file was written
+	hashContent, err := rw.ReadFile(filepath.Join(appPath, lifecycle.QuadletHashFile))
+	require.NoError(err)
+	hash := strings.TrimSpace(string(hashContent))
+	require.Len(hash, 8, "CRC32 hash should be 8 hex chars")
+
+	// Verify X-FlightctlVersion is in the drop-in file
+	dropInContent, err := rw.ReadFile(filepath.Join(appPath, "myapp-.container.d", quadletDropInFile))
+	require.NoError(err)
+	contentStr := string(dropInContent)
+	require.Contains(contentStr, lifecycle.QuadletVersionKey+"="+hash)
+}

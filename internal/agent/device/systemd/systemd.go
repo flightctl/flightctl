@@ -45,6 +45,8 @@ type Manager interface {
 	Logs(ctx context.Context, options ...client.LogOptions) ([]string, error)
 	// Show gets information about the specified unit
 	Show(ctx context.Context, unit string, options ...client.SystemdShowOptions) ([]string, error)
+	// Cat returns the full unit file content of a unit, including all drop-in overrides.
+	Cat(ctx context.Context, unit string) (string, error)
 	status.Exporter
 }
 
@@ -139,6 +141,10 @@ func (m *manager) Logs(ctx context.Context, options ...client.LogOptions) ([]str
 
 func (m *manager) Show(ctx context.Context, unit string, options ...client.SystemdShowOptions) ([]string, error) {
 	return m.client.Show(ctx, unit, options...)
+}
+
+func (m *manager) Cat(ctx context.Context, unit string) (string, error) {
+	return m.client.Cat(ctx, unit)
 }
 
 func (m *manager) normalizeEnabledStateValue(val v1beta1.SystemdEnableStateType) v1beta1.SystemdEnableStateType {
