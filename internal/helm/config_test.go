@@ -59,3 +59,31 @@ func TestPrepareHelmConfig(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, chartCA, gotCA)
 }
+
+func TestPrepareHelmConfigDoesNotUseWorkerCredentials(t *testing.T) {
+	workerConfigHome := t.TempDir()
+	workerRegistryConfig := filepath.Join(workerConfigHome, "registry", "config.json")
+	workerRepositoryConfig := filepath.Join(workerConfigHome, "repositories.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(workerRegistryConfig), 0o700))
+	require.NoError(t, os.WriteFile(workerRegistryConfig, []byte(`{"auths":{"private.example":{"auth":"worker-secret"}}}`), 0o600))
+	require.NoError(t, os.WriteFile(workerRepositoryConfig, []byte("repositories:\n- name: private\n  url: https://private.example\n  username: worker\n  password: worker-secret\n"), 0o600))
+	t.Setenv("HELM_REGISTRY_CONFIG", workerRegistryConfig)
+	t.Setenv("HELM_REPOSITORY_CONFIG", workerRepositoryConfig)
+
+	workDir := t.TempDir()
+	configHome := filepath.Join(workDir, "isolated-config")
+	registryConfigPath, repositoryConfigPath, _, err := prepareHelmConfig(
+		context.Background(),
+		workDir,
+		configHome,
+		nil,
+		nil,
+		"oci://registry.example/team/chart:1.0",
+	)
+
+	require.NoError(t, err)
+	require.Empty(t, registryConfigPath)
+	require.Empty(t, repositoryConfigPath)
+	require.NoDirExists(t, filepath.Join(configHome, "registry"))
+	require.NoFileExists(t, filepath.Join(configHome, "repositories.yaml"))
+}

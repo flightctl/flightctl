@@ -883,17 +883,23 @@ func (m *prefetchManager) pull(ctx context.Context, target imageRef, task *prefe
 
 func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, task *prefetchTask, skopeo *client.Skopeo, opts ...client.ClientOption) error {
 	cri := m.cliClients.CRI()
-	if task.delta == nil || m.ociDelta == nil {
+	if task.delta == nil {
 		_, err := cri.Pull(ctx, target.image, opts...)
-		if task.delta != nil {
-			m.recordDeltaNotUsed(target, task)
-		}
 		return err
 	}
+	if m.ociDelta == nil {
+		// CRI imports use the rootful client that targets the runtime's storage.
+		// The per-user factory serves Podman-backed application storage only.
+		_, err := cri.Pull(ctx, target.image, opts...)
+		m.recordDeltaNotUsed(target, task)
+		return err
+	}
+	deltaOpts := append([]client.ClientOption(nil), opts...)
+	deltaOpts = append(deltaOpts, client.WithDefaultAuth())
 
 	candidate := task.delta.Hint
 	if candidate == "" && task.delta.SourceDigest != "" {
-		index, err := skopeo.ListReferrers(ctx, target.image, opts...)
+		index, err := skopeo.ListReferrers(ctx, target.image, deltaOpts...)
 		if err != nil {
 			m.log.Debugf("application delta referrers unavailable for %s: %v", target.image, err)
 		} else {
@@ -911,6 +917,10 @@ func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, tas
 	if _, _, digestPinned, err := normalizedCRIImageReferences(target.image); err != nil {
 		return m.applicationCRIDeltaFallback(ctx, target, task, err, opts...)
 	} else if digestPinned {
+		// The CRI reconstruction path may materialize a manifest with a digest
+		// different from the immutable requested reference, so preserve the
+		// reference's exact content by taking the full-pull path. Podman imports
+		// against the full reference and then refreshes that same reference.
 		return m.applicationCRIDeltaFallback(
 			ctx,
 			target,
@@ -941,7 +951,7 @@ func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, tas
 	defer m.removeApplicationDeltaTempDir(m.readWriter, tmpDir)
 
 	deltaFile := filepath.Join(tmpDir, "delta.oci")
-	if err := skopeo.Copy(ctx, "docker://"+candidate, "oci-archive:"+deltaFile, opts...); err != nil {
+	if err := skopeo.Copy(ctx, "docker://"+candidate, "oci-archive:"+deltaFile, deltaOpts...); err != nil {
 		return m.applicationCRIDeltaFallback(ctx, target, task, err, opts...)
 	}
 
@@ -951,7 +961,7 @@ func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, tas
 			return m.applicationCRIDeltaFallback(ctx, target, task, err, opts...)
 		}
 	case client.CRIRuntimeContainerd:
-		if err := m.applyContainerdImageDelta(ctx, target.image, candidate, deltaFile, tmpDir, runtimeInfo.Endpoint, task.delta.SourceDigest, skopeo, opts...); err != nil {
+		if err := m.applyContainerdImageDelta(ctx, target.image, candidate, deltaFile, tmpDir, runtimeInfo.Endpoint, task.delta.SourceDigest, skopeo, deltaOpts...); err != nil {
 			return m.applicationCRIDeltaFallback(ctx, target, task, err, opts...)
 		}
 	}

@@ -284,7 +284,18 @@ func serviceResolver(cfg *config.Config, fleets fleetservice.Service, devices de
 		Config:                 deltaConfig,
 		InspectForSource:       inspectForSource,
 		Render: func(ctx context.Context, orgId uuid.UUID, device *domain.Device, spec *domain.DeviceSpec) (internaltasks.RenderedSpec, error) {
-			return specRenderer.RenderSpecForDevice(ctx, orgId, device, spec)
+			rendered, err := specRenderer.RenderSpecForDevice(ctx, orgId, device, spec)
+			if err != nil {
+				deviceName := ""
+				if device != nil && device.Metadata.Name != nil {
+					deviceName = *device.Metadata.Name
+				}
+				log.WithError(err).WithFields(logrus.Fields{
+					"orgID":  orgId,
+					"device": deviceName,
+				}).Warn("skipping device from delta preparation because its desired spec could not be rendered")
+			}
+			return rendered, err
 		},
 		Expand: func(ctx context.Context, orgId uuid.UUID, device *domain.Device, rendered internaltasks.RenderedSpec, candidates []preparetask.DeltaCandidate) []preparetask.DeltaCandidate {
 			return expandAppCandidatesForSourceWithHelm(

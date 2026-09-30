@@ -58,14 +58,10 @@ func prepareHelmRegistryConfig(ctx context.Context, configHome string, files []d
 		}
 		return path, nil
 	}
-	path, err := copyFirstExistingHelmConfig(
-		configHome,
-		append(defaultHelmRegistryConfigPaths(), defaultContainerAuthPaths()...)...,
-	)
-	if err != nil {
-		return "", fmt.Errorf("copy Helm registry configuration: %w", err)
-	}
-	return path, nil
+	// Do not reuse the worker process's registry credentials. Device-rendered
+	// config and organization-scoped Repository credentials are the only
+	// credentials permitted for a device's Helm render.
+	return "", nil
 }
 
 func prepareHelmRepositoryConfig(configHome string, files []domain.FileSpec) (string, error) {
@@ -80,11 +76,9 @@ func prepareHelmRepositoryConfig(configHome string, files []domain.FileSpec) (st
 		}
 		return path, nil
 	}
-	path, err := copyFirstExistingHelmConfig(configHome, defaultHelmRepositoryConfigPaths()...)
-	if err != nil {
-		return "", fmt.Errorf("copy Helm repository configuration: %w", err)
-	}
-	return path, nil
+	// HELM_CONFIG_HOME is isolated for each render. Leave its repository config
+	// empty rather than copying repositories or credentials from the worker.
+	return "", nil
 }
 
 func prepareHelmTransportArgs(workDir string, files []domain.FileSpec, registrySpec *domain.OciRepoSpec, chartRef string) ([]string, error) {
@@ -172,68 +166,6 @@ func firstConfigFile(files []domain.FileSpec, paths ...string) ([]byte, bool, er
 		}
 	}
 	return nil, false, nil
-}
-
-func defaultHelmRegistryConfigPaths() []string {
-	if configured := os.Getenv("HELM_REGISTRY_CONFIG"); configured != "" {
-		return []string{configured}
-	}
-	helmConfigHome := os.Getenv("HELM_CONFIG_HOME")
-	if helmConfigHome == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil
-		}
-		helmConfigHome = filepath.Join(home, ".config", "helm")
-	}
-	return []string{filepath.Join(helmConfigHome, "registry", "config.json")}
-}
-
-func defaultContainerAuthPaths() []string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil
-	}
-	return []string{filepath.Join(home, ".config", "containers", "auth.json")}
-}
-
-func defaultHelmRepositoryConfigPaths() []string {
-	if configured := os.Getenv("HELM_REPOSITORY_CONFIG"); configured != "" {
-		return []string{configured}
-	}
-	helmConfigHome := os.Getenv("HELM_CONFIG_HOME")
-	if helmConfigHome == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil
-		}
-		helmConfigHome = filepath.Join(home, ".config", "helm")
-	}
-	return []string{filepath.Join(helmConfigHome, "repositories.yaml")}
-}
-
-func copyFirstExistingHelmConfig(configHome string, paths ...string) (string, error) {
-	for _, path := range paths {
-		if path == "" {
-			continue
-		}
-		contents, err := os.ReadFile(path)
-		if err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
-			return "", err
-		}
-		destination := filepath.Join(configHome, filepath.Base(path))
-		if filepath.Base(path) == "config.json" {
-			destination = filepath.Join(configHome, "registry", "config.json")
-		}
-		if err := writeHelmConfig(destination, contents); err != nil {
-			return "", err
-		}
-		return destination, nil
-	}
-	return "", nil
 }
 
 func configFile(files []domain.FileSpec, path string) ([]byte, bool, error) {

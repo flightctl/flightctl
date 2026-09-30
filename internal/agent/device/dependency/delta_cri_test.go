@@ -49,7 +49,7 @@ func TestApplicationDeltaPrefetchCRIRefreshesRegistryReference(t *testing.T) {
 
 			runtimeInfo := exec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", "version").Return("RuntimeName: cri-o\n", "", 0)
 			copyDelta := exec.EXPECT().ExecuteWithContext(
-				gomock.Any(), "skopeo", "copy", "docker://"+candidate, gomock.Any(), "--src-no-creds",
+				gomock.Any(), "skopeo", "copy", "docker://"+candidate, gomock.Any(),
 			).Return("", "", 0)
 			importDelta := exec.EXPECT().ExecuteWithContext(
 				gomock.Any(), "oci-delta", "import", "--tag", image, gomock.Any(),

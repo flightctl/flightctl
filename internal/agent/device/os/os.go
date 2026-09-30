@@ -267,6 +267,8 @@ func (m *manager) startImageAttempt(osSpec *v1beta1.DeviceOsSpec) {
 	var targetKey string
 	if osSpec != nil {
 		osImage = osSpec.Image
+		// LastDelta describes the desired OS image result; refreshing the
+		// control-plane hint alone does not change that image target.
 		targetKey = deltastatus.Fingerprint(osSpec.Image)
 	}
 
