@@ -271,6 +271,21 @@ func TestReconcileDeviceLabelsStopsAfterDecommissionWinsSnapshotRace(t *testing.
 	assert.Equal(t, 2, devices.gets)
 }
 
+func TestReconcileDeviceLabelsSkipsDeviceStoreWhenNoMappings(t *testing.T) {
+	orgID := uuid.New()
+	mappingStore := &reconciliationStoreStub{snapshots: []labelsyncmappingstore.DeviceMappingsSnapshot{{}}}
+	devices := &reconciliationDeviceStub{}
+	service := newReconcilerService(t, mappingStore, devices, &reconciliationEvaluator{})
+
+	result, err := service.ReconcileDeviceLabels(context.Background(), orgID, "edge-01")
+
+	require.NoError(t, err)
+	assert.Empty(t, result.MappingOutcomes)
+	assert.Equal(t, 1, mappingStore.reads)
+	assert.Zero(t, devices.gets)
+	assert.Empty(t, devices.applyArgs)
+}
+
 func TestReconcileDeviceLabelsRetriesDatabaseDeadlock(t *testing.T) {
 	orgID := uuid.New()
 	mappingID := uuid.New()

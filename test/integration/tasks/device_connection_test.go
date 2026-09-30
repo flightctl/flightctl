@@ -148,7 +148,8 @@ var _ = Describe("DeviceConnection", func() {
 		})
 
 		It("should mark disconnected devices as unknown", func() {
-			workerClient.EXPECT().EmitEvent(gomock.Any(), gomock.Any(), gomock.Any()).Times(3)
+			// Each changed status emits the identity-only reconciliation event and the focused disconnect event.
+			workerClient.EXPECT().EmitEvent(gomock.Any(), gomock.Any(), gomock.Any()).Times(6)
 			connectionTask.Poll(ctx, orgId)
 
 			// Check that all devices are marked as unknown
@@ -210,7 +211,8 @@ var _ = Describe("DeviceConnection", func() {
 		})
 
 		It("should only mark disconnected devices as unknown", func() {
-			workerClient.EXPECT().EmitEvent(gomock.Any(), gomock.Any(), gomock.Any()).Times(3)
+			// Each changed status emits the identity-only reconciliation event and the focused disconnect event.
+			workerClient.EXPECT().EmitEvent(gomock.Any(), gomock.Any(), gomock.Any()).Times(6)
 			connectionTask.Poll(ctx, orgId)
 
 			// Check connected devices remain online
@@ -301,7 +303,8 @@ var _ = Describe("DeviceConnection", func() {
 		})
 
 		It("should use field selector to efficiently query only disconnected devices", func() {
-			workerClient.EXPECT().EmitEvent(gomock.Any(), gomock.Any(), gomock.Any()).Times(1)
+			// The single changed status emits both the identity-only and focused event.
+			workerClient.EXPECT().EmitEvent(gomock.Any(), gomock.Any(), gomock.Any()).Times(2)
 			connectionTask.Poll(ctx, orgId)
 
 			// Recent device should remain online

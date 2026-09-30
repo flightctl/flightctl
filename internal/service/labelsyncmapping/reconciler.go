@@ -3,12 +3,15 @@ package labelsyncmapping
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store"
+	labelsyncmappingstore "github.com/flightctl/flightctl/internal/store/labelsyncmapping"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 )
 
 const maxReconciliationAttempts = 5
@@ -36,8 +39,14 @@ func (h *ServiceHandler) ReconcileDeviceLabels(ctx context.Context, orgID uuid.U
 		if err != nil {
 			return ReconciliationResult{}, err
 		}
+		if len(mappings.Mappings) == 0 {
+			return ReconciliationResult{}, nil
+		}
 		deviceSnapshot, err := h.deviceStore.GetLabelSnapshot(ctx, orgID, deviceName)
 		if err != nil {
+			if !errors.Is(err, flterrors.ErrResourceNotFound) {
+				return ReconciliationResult{MappingOutcomes: failedDeviceOutcomes(mappings.Mappings, nil, err)}, err
+			}
 			return ReconciliationResult{}, err
 		}
 		// Decommissioning clears labels. If it races this read, ApplyLabels' resource-version
@@ -52,7 +61,7 @@ func (h *ServiceHandler) ReconcileDeviceLabels(ctx context.Context, orgID uuid.U
 		}
 		desired, outcomes, err := desiredDeviceLabels(snapshot, h.evaluator)
 		if err != nil {
-			return ReconciliationResult{}, err
+			return ReconciliationResult{MappingOutcomes: failedDeviceOutcomes(snapshot.Mappings, nil, err)}, err
 		}
 
 		applied, err := h.deviceStore.ApplyLabels(ctx, orgID, deviceName, deviceSnapshot, desired)
@@ -60,11 +69,11 @@ func (h *ServiceHandler) ReconcileDeviceLabels(ctx context.Context, orgID uuid.U
 			retry, retryErr := h.shouldRetryApply(ctx, orgID, mappings.Revision, err)
 			if retry {
 				if attempt+1 == maxReconciliationAttempts {
-					return ReconciliationResult{}, retryErr
+					return ReconciliationResult{MappingOutcomes: failedDeviceOutcomes(snapshot.Mappings, outcomes, retryErr)}, retryErr
 				}
 				continue
 			}
-			return ReconciliationResult{}, retryErr
+			return ReconciliationResult{MappingOutcomes: failedDeviceOutcomes(snapshot.Mappings, outcomes, retryErr)}, retryErr
 		}
 		result.LabelsChanged = result.LabelsChanged || applied.LabelsChanged
 		result.ManagedLabelsChanged = result.ManagedLabelsChanged || applied.ManagedLabelsChanged
@@ -81,7 +90,7 @@ func (h *ServiceHandler) ReconcileDeviceLabels(ctx context.Context, orgID uuid.U
 
 		latestMappings, err := h.store.GetDeviceMappingsSnapshot(ctx, orgID)
 		if err != nil {
-			return ReconciliationResult{}, err
+			return ReconciliationResult{MappingOutcomes: failedDeviceOutcomes(snapshot.Mappings, outcomes, err)}, err
 		}
 		if latestMappings.Revision != mappings.Revision {
 			continue
@@ -91,6 +100,49 @@ func (h *ServiceHandler) ReconcileDeviceLabels(ctx context.Context, orgID uuid.U
 		return result, nil
 	}
 	return ReconciliationResult{}, flterrors.ErrResourceVersionConflict
+}
+
+func failedDeviceOutcomes(mappings []labelsyncmappingstore.DeviceMapping, current []MappingOutcome, err error) []MappingOutcome {
+	byID := make(map[uuid.UUID]MappingOutcome, len(current))
+	for _, outcome := range current {
+		byID[outcome.MappingID] = outcome
+	}
+	outcomes := make([]MappingOutcome, 0, len(mappings))
+	for _, mapping := range mappings {
+		if mapping.Mapping.Spec.ResourceType != domain.LabelSyncMappingDevice || mapping.Mapping.Metadata.DeletionTimestamp != nil {
+			continue
+		}
+		outcome := byID[mapping.ID]
+		outcome.MappingID = mapping.ID
+		outcome.Generation = lo.FromPtr(mapping.Mapping.Metadata.Generation)
+		outcome.ResourceVersion = lo.FromPtr(mapping.Mapping.Metadata.ResourceVersion)
+		outcome.Err = errors.Join(outcome.Err, err)
+		outcomes = append(outcomes, outcome)
+	}
+	return outcomes
+}
+
+func (h *ServiceHandler) RecordDeviceLabelReconciliationFailures(ctx context.Context, orgID uuid.UUID, outcomes []MappingOutcome) error {
+	var recordErrors []error
+	for _, outcome := range outcomes {
+		if outcome.Err == nil {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			recordErrors = append(recordErrors, err)
+			break
+		}
+		_, err := h.store.RecordReconciliationFailure(ctx, orgID, labelsyncmappingstore.ReconciliationFailure{
+			MappingID:       outcome.MappingID,
+			Generation:      outcome.Generation,
+			ResourceVersion: outcome.ResourceVersion,
+			Message:         outcome.Err.Error(),
+		})
+		if err != nil {
+			recordErrors = append(recordErrors, fmt.Errorf("record reconciliation failure for mapping %s: %w", outcome.MappingID, err))
+		}
+	}
+	return errors.Join(recordErrors...)
 }
 
 func (h *ServiceHandler) shouldRetryApply(ctx context.Context, orgID uuid.UUID, revision int64, applyErr error) (bool, error) {
@@ -122,8 +174,10 @@ func isPostgresDeadlock(err error) bool {
 }
 
 type MappingOutcome struct {
-	MappingID uuid.UUID
-	Err       error
+	MappingID       uuid.UUID
+	Generation      int64
+	ResourceVersion string
+	Err             error
 }
 
 type ReconciliationResult struct {

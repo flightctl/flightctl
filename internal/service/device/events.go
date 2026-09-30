@@ -2,6 +2,7 @@ package device
 
 import (
 	"context"
+	"reflect"
 
 	"github.com/flightctl/flightctl/internal/consts"
 	"github.com/flightctl/flightctl/internal/domain"
@@ -33,6 +34,14 @@ func EmitDeviceUpdatedEvent(ctx context.Context, eventsService events.Service, l
 
 	// Only generate status change events when the device is not being created
 	if !created {
+		if oldDevice != nil && newDevice != nil && !reflect.DeepEqual(oldDevice.Status, newDevice.Status) {
+			// Emit an identity-only update so the worker can reconcile from committed state.
+			// Focused events below describe known status transitions; mapped label changes
+			// are only known after all current mappings have been evaluated.
+			event := domain.GetBaseEvent(ctx, domain.DeviceKind, name, domain.EventReasonResourceUpdated, "Device status changed", nil)
+			eventsService.CreateEvent(ctx, orgId, event)
+		}
+
 		statusUpdates := common.ComputeDeviceStatusChanges(ctx, oldDevice, newDevice, orgId)
 
 		// Deduplicate DeviceDisconnected events - if multiple status fields changed to Unknown,

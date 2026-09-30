@@ -314,10 +314,10 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			_, status = suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, deviceWithCriticalResources, true)
 			Expect(status.Code).To(Equal(int32(200)))
 
-			// Verify events were generated for CPU and Memory issues but NOT for Disk
-			// We should have: ResourceCreated + DeviceCPUCritical + DeviceMemoryWarning + DeviceApplicationHealthy + DeviceContentUpToDate
+			// Verify events were generated for CPU and Memory issues but NOT for Disk.
+			// The status change also emits an identity-only ResourceUpdated event for label reconciliation.
 			events := getEventsForDevice(deviceName)
-			Expect(len(events)).To(Equal(4))
+			Expect(len(events)).To(Equal(5))
 
 			// Check that we have the right events
 			eventReasons := make([]string, len(events))
@@ -326,6 +326,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 			Expect(eventReasons).To(ContainElements(
 				"ResourceCreated",
+				"ResourceUpdated",
 				"DeviceCPUCritical",
 				"DeviceMemoryWarning",
 				"DeviceApplicationHealthy",
@@ -356,10 +357,10 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			_, status = suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, deviceWithHealthyResources, true)
 			Expect(status.Code).To(Equal(int32(200)))
 
-			// Verify events were generated for CPU and Memory recovery
-			// We should now have: ResourceCreated + DeviceCPUCritical + DeviceMemoryWarning + DeviceApplicationHealthy + ResourceUpdated + DeviceCPUNormal + DeviceMemoryNormal
+			// Verify events were generated for CPU and Memory recovery.
+			// Each status update contributes an identity-only ResourceUpdated event.
 			events = getEventsForDevice(deviceName)
-			Expect(len(events)).To(Equal(7))
+			Expect(len(events)).To(Equal(9))
 
 			// Check that we have the recovery events
 			eventReasons = make([]string, len(events))
@@ -368,6 +369,8 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			}
 			Expect(eventReasons).To(ContainElements(
 				"ResourceCreated",
+				"ResourceUpdated",
+				"ResourceUpdated",
 				"DeviceCPUCritical",
 				"DeviceMemoryWarning",
 				"DeviceApplicationHealthy",
