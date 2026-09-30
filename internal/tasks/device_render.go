@@ -140,7 +140,45 @@ func (t *DeviceRenderLogic) RenderHelmImageRefs(
 	if err != nil {
 		return nil, err
 	}
-	return t.helmRenderer.ImageRefs(ctx, app, device, renderedConfig, registrySpec)
+	cacheTTL := t.cfg.EffectiveHelmImageRefsCacheTTL()
+	cacheKey := ""
+	if t.kvStore != nil && cacheTTL > 0 {
+		key, keyErr := helmruntime.ImageRefsCacheKey(orgID, app, device, renderedConfig, registrySpec, cacheTTL)
+		if keyErr != nil {
+			t.log.WithError(keyErr).Warn("failed to build Helm image refs cache key; rendering chart without cache")
+		} else {
+			cacheKey = key
+			cached, cacheErr := t.kvStore.Get(ctx, cacheKey)
+			if cacheErr != nil {
+				t.log.WithError(cacheErr).Warn("failed to read Helm image refs cache; rendering chart")
+			} else if len(cached) > 0 {
+				var imageRefs []string
+				if err := json.Unmarshal(cached, &imageRefs); err != nil || imageRefs == nil {
+					if err == nil {
+						err = errors.New("cached Helm image refs are null")
+					}
+					t.log.WithError(err).Warn("invalid Helm image refs cache entry; rendering chart")
+				} else {
+					t.log.Debug("using cached Helm workload image references")
+					return imageRefs, nil
+				}
+			}
+		}
+	}
+
+	imageRefs, err := t.helmRenderer.ImageRefs(ctx, app, device, renderedConfig, registrySpec)
+	if err != nil {
+		return nil, err
+	}
+	if cacheKey != "" {
+		cached, marshalErr := json.Marshal(imageRefs)
+		if marshalErr != nil {
+			t.log.WithError(marshalErr).Warn("failed to encode Helm image refs cache entry")
+		} else if cacheErr := t.kvStore.Set(ctx, cacheKey, cached, cacheTTL); cacheErr != nil {
+			t.log.WithError(cacheErr).Warn("failed to write Helm image refs cache entry")
+		}
+	}
+	return imageRefs, nil
 }
 
 // WithHelmImageRenderer returns a copy configured with a renderer implementation.

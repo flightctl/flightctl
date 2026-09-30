@@ -27,6 +27,12 @@ data:
         {{- end }}
     service: {}
     worker:
+        {{- if .Values.worker.imageDigestCacheTTL }}
+        imageDigestCacheTTL: {{ .Values.worker.imageDigestCacheTTL | quote }}
+        {{- end }}
+        {{- if .Values.worker.helmImageRefsCacheTTL }}
+        helmImageRefsCacheTTL: {{ .Values.worker.helmImageRefsCacheTTL | quote }}
+        {{- end }}
         vmRender:
             {{- $vmRender := (.Values.worker).vmRender | default dict }}
             {{- if $vmRender.launcherImage }}

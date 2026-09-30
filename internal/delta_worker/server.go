@@ -243,22 +243,19 @@ func serviceResolver(cfg *config.Config, fleets fleetservice.Service, devices de
 	) (string, string, error) {
 		var (
 			targetRepoSpec       *domain.OciRepoSpec
+			targetRepoErr        error
 			targetRepoSpecLoaded bool
 		)
 		resolveTargetRepo := func(ctx context.Context) (*domain.OciRepoSpec, error) {
 			if targetRepoSpecLoaded {
-				return targetRepoSpec, nil
+				return targetRepoSpec, targetRepoErr
 			}
 			targetRepoSpecLoaded = true
-			spec, err := generateTask.ResolveDeltaTargetRepo(ctx, repos, deltaConfig, orgId)
-			if err != nil {
-				return nil, err
-			}
-			targetRepoSpec = spec
-			return targetRepoSpec, nil
+			targetRepoSpec, targetRepoErr = generateTask.ResolveDeltaTargetRepo(ctx, repos, deltaConfig, orgId)
+			return targetRepoSpec, targetRepoErr
 		}
 		pair, err := oci.CachedImageDigestPair(
-			ctx, kvStore, orgId, image, sourceDigest, fallbackPlatform,
+			ctx, kvStore, orgId, image, sourceDigest, fallbackPlatform, cfg.EffectiveImageDigestCacheTTL(),
 			func(ctx context.Context) (string, error) {
 				spec, err := resolveTargetRepo(ctx)
 				if err != nil {

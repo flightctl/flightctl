@@ -101,7 +101,7 @@ func (t *DeviceRenderLogic) resolveImageDigestPair(
 ) (oci.ImageDigestPair, error) {
 	spec := deltaWriteSpec(t.cfg)
 	return oci.CachedImageDigestPair(
-		ctx, t.kvStore, orgId, imageRef, sourceDigest, fallbackPlatform,
+		ctx, t.kvStore, orgId, imageRef, sourceDigest, fallbackPlatform, t.cfg.EffectiveImageDigestCacheTTL(),
 		func(ctx context.Context) (string, error) {
 			return oci.InspectImageDigest(ctx, imageRef, spec)
 		},

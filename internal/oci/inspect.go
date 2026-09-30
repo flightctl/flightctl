@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,8 +23,6 @@ import (
 	"oras.land/oras-go/v2/registry"
 	"oras.land/oras-go/v2/registry/remote"
 )
-
-const ImageDigestCacheTTL = 15 * time.Minute
 
 // ErrSourceDigestUnresolved marks failures while resolving or inspecting the
 // source digest, allowing delta preparation to skip only that device.
@@ -386,8 +385,8 @@ func compatibleTargetManifestCandidates(
 
 // CachedImageDigestPair resolves mutable target references through the
 // short-lived image digest cache, then caches the pair by immutable target
-// digest. The tag lookup can be stale for at most ImageDigestCacheTTL. The pair
-// cache key also includes the source digest and fallback platform because a
+// digest. The tag lookup can be stale for at most cacheTTL. The pair cache key
+// also includes the source digest and fallback platform because a
 // multi-platform target can resolve to a different leaf digest for different
 // source platforms.
 func CachedImageDigestPair(
@@ -397,6 +396,7 @@ func CachedImageDigestPair(
 	imageRef string,
 	sourceDigest string,
 	fallbackPlatform *ocispec.Platform,
+	cacheTTL time.Duration,
 	resolveImageDigest func(context.Context) (string, error),
 	resolvePair func(context.Context, string) (ImageDigestPair, error),
 ) (ImageDigestPair, error) {
@@ -408,7 +408,7 @@ func CachedImageDigestPair(
 		return ImageDigestPair{}, err
 	}
 	if targetDigest == "" {
-		targetDigest, err = CachedImageDigest(ctx, cache, orgID, imageRef, resolveImageDigest)
+		targetDigest, err = CachedImageDigest(ctx, cache, orgID, imageRef, cacheTTL, resolveImageDigest)
 		if err != nil {
 			return ImageDigestPair{}, err
 		}
@@ -417,11 +417,13 @@ func CachedImageDigestPair(
 	if err != nil {
 		return ImageDigestPair{}, err
 	}
-	key, err := imageDigestPairCacheKey(orgID, resolvedImageRef, sourceDigest, fallbackPlatform)
-	if err != nil {
-		return ImageDigestPair{}, err
-	}
-	if cache != nil {
+	useCache := cache != nil && cacheTTL > 0
+	var key string
+	if useCache {
+		key, err = imageDigestPairCacheKey(orgID, resolvedImageRef, sourceDigest, fallbackPlatform, cacheTTL)
+		if err != nil {
+			return ImageDigestPair{}, err
+		}
 		raw, err := cache.Get(ctx, key)
 		if err != nil {
 			return ImageDigestPair{}, err
@@ -446,18 +448,18 @@ func CachedImageDigestPair(
 	if pair.SourceDigest == "" || pair.TargetDigest == "" {
 		return ImageDigestPair{}, fmt.Errorf("resolve image digest pair for %s: empty source or target digest", imageRef)
 	}
-	if cache != nil {
+	if useCache {
 		raw, err := json.Marshal(pair)
 		if err != nil {
 			return ImageDigestPair{}, fmt.Errorf("encode image digest pair: %w", err)
 		}
-		writeDigestCache(ctx, cache, key, raw)
+		writeDigestCache(ctx, cache, key, raw, cacheTTL)
 	}
 	return pair, nil
 }
 
-func writeDigestCache(ctx context.Context, cache DigestCache, key string, value []byte) {
-	if cache == nil {
+func writeDigestCache(ctx context.Context, cache DigestCache, key string, value []byte, ttl time.Duration) {
+	if cache == nil || ttl <= 0 {
 		return
 	}
 	cacheWithTTL, ok := cache.(interface {
@@ -470,11 +472,11 @@ func writeDigestCache(ctx context.Context, cache DigestCache, key string, value 
 	}
 	// Cache writes are an optimization. Do not fail a valid image inspection
 	// because the cache is temporarily unavailable.
-	_ = cacheWithTTL.Set(ctx, key, value, ImageDigestCacheTTL)
+	_ = cacheWithTTL.Set(ctx, key, value, ttl)
 }
 
-func imageDigestPairCacheKey(orgID uuid.UUID, imageRef, sourceDigest string, platform *ocispec.Platform) (string, error) {
-	key, err := imageDigestCacheKey(orgID, imageRef)
+func imageDigestPairCacheKey(orgID uuid.UUID, imageRef, sourceDigest string, platform *ocispec.Platform, ttl time.Duration) (string, error) {
+	key, err := imageDigestCacheKey(orgID, imageRef, ttl)
 	if err != nil {
 		return "", err
 	}
@@ -606,15 +608,15 @@ func manifestPayloadSize(manifest ocispec.Manifest) (int64, error) {
 	return total, nil
 }
 
-func imageDigestCacheKey(orgID uuid.UUID, imageRef string) (string, error) {
+func imageDigestCacheKey(orgID uuid.UUID, imageRef string, ttl time.Duration) (string, error) {
 	rewritten, err := RewriteImageRef(imageRef)
 	if err != nil {
 		return "", err
 	}
-	return "osInspect/" + orgID.String() + "/" + rewritten, nil
+	return "ociDigest/v2/" + orgID.String() + "/ttl/" + strconv.FormatInt(ttl.Nanoseconds(), 10) + "/" + rewritten, nil
 }
 
-func CachedImageDigest(ctx context.Context, cache DigestCache, orgID uuid.UUID, image string, resolve func(context.Context) (string, error)) (string, error) {
+func CachedImageDigest(ctx context.Context, cache DigestCache, orgID uuid.UUID, image string, cacheTTL time.Duration, resolve func(context.Context) (string, error)) (string, error) {
 	dgst, err := DigestFromImageRef(image)
 	if err != nil {
 		return "", err
@@ -622,8 +624,10 @@ func CachedImageDigest(ctx context.Context, cache DigestCache, orgID uuid.UUID, 
 	if dgst != "" {
 		return dgst, nil
 	}
-	if cache != nil {
-		key, err := imageDigestCacheKey(orgID, image)
+	useCache := cache != nil && cacheTTL > 0
+	var key string
+	if useCache {
+		key, err = imageDigestCacheKey(orgID, image, cacheTTL)
 		if err != nil {
 			return "", err
 		}
@@ -645,13 +649,9 @@ func CachedImageDigest(ctx context.Context, cache DigestCache, orgID uuid.UUID, 
 	if dgst == "" {
 		return "", fmt.Errorf("resolve image digest for %s: empty digest", image)
 	}
-	if cache == nil {
+	if !useCache {
 		return dgst, nil
 	}
-	key, err := imageDigestCacheKey(orgID, image)
-	if err != nil {
-		return "", err
-	}
-	writeDigestCache(ctx, cache, key, []byte(dgst))
+	writeDigestCache(ctx, cache, key, []byte(dgst), cacheTTL)
 	return dgst, nil
 }

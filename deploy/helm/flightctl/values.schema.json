@@ -501,6 +501,14 @@
           "type": "string",
           "description": "Time budget for a single device render operation including VM conversion and DB writes (default 60s)"
         },
+        "imageDigestCacheTTL": {
+          "type": "string",
+          "description": "Maximum age of cached OCI image digest resolutions used during delta preparation (default 15m)"
+        },
+        "helmImageRefsCacheTTL": {
+          "type": "string",
+          "description": "Maximum age of cached Helm workload image references before the chart is rendered again (default 15m)"
+        },
         "vmRender": {
           "type": "object",
           "description": "VM application render options passed to vm-to-quadlet by both worker services",

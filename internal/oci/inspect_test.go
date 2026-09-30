@@ -24,6 +24,8 @@ type digestCache struct {
 	expirations map[string]time.Duration
 }
 
+const testDigestCacheTTL = 15 * time.Minute
+
 func TestSpecForRegistry(t *testing.T) {
 	t.Run("When the system registry is marked insecure it should skip TLS verification", func(t *testing.T) {
 		got := specForRegistry("registry.example.com:5000", true)
@@ -70,13 +72,13 @@ func TestCachedImageDigestScopesCacheByOrganization(t *testing.T) {
 	orgA := uuid.New()
 	orgB := uuid.New()
 
-	gotA, err := CachedImageDigest(context.Background(), cache, orgA, image, func(context.Context) (string, error) {
+	gotA, err := CachedImageDigest(context.Background(), cache, orgA, image, testDigestCacheTTL, func(context.Context) (string, error) {
 		return "sha256:aaa", nil
 	})
 	require.NoError(t, err)
 	require.Equal(t, "sha256:aaa", gotA)
 
-	gotB, err := CachedImageDigest(context.Background(), cache, orgB, image, func(context.Context) (string, error) {
+	gotB, err := CachedImageDigest(context.Background(), cache, orgB, image, testDigestCacheTTL, func(context.Context) (string, error) {
 		return "sha256:bbb", nil
 	})
 	require.NoError(t, err)
@@ -107,16 +109,16 @@ func TestCachedImageDigestPair(t *testing.T) {
 			return ImageDigestPair{SourceDigest: "sha256:source", TargetDigest: fmt.Sprintf("sha256:target-%d", pairResolveCalls)}, nil
 		}
 
-		first, err := CachedImageDigestPair(context.Background(), cache, orgID, imageRef, "sha256:source", nil, resolveImageDigest, resolvePair)
+		first, err := CachedImageDigestPair(context.Background(), cache, orgID, imageRef, "sha256:source", nil, testDigestCacheTTL, resolveImageDigest, resolvePair)
 		require.NoError(t, err)
-		tagKey, err := imageDigestCacheKey(orgID, imageRef)
+		tagKey, err := imageDigestCacheKey(orgID, imageRef, testDigestCacheTTL)
 		require.NoError(t, err)
-		require.Equal(t, ImageDigestCacheTTL, cache.expirations[tagKey])
+		require.Equal(t, testDigestCacheTTL, cache.expirations[tagKey])
 
 		// The registry tag moves, but the TTL cache keeps this call pinned to the
 		// digest observed by the first lookup.
 		currentIndexDigest = indexDigest2
-		second, err := CachedImageDigestPair(context.Background(), cache, orgID, imageRef, "sha256:source", nil, resolveImageDigest, resolvePair)
+		second, err := CachedImageDigestPair(context.Background(), cache, orgID, imageRef, "sha256:source", nil, testDigestCacheTTL, resolveImageDigest, resolvePair)
 		require.NoError(t, err)
 
 		require.Equal(t, "sha256:target-1", first.TargetDigest)
@@ -128,7 +130,7 @@ func TestCachedImageDigestPair(t *testing.T) {
 		// Simulate TTL expiration. A fresh registry resolution now produces and
 		// caches the pair for the new immutable target digest.
 		delete(cache.values, tagKey)
-		third, err := CachedImageDigestPair(context.Background(), cache, orgID, imageRef, "sha256:source", nil, resolveImageDigest, resolvePair)
+		third, err := CachedImageDigestPair(context.Background(), cache, orgID, imageRef, "sha256:source", nil, testDigestCacheTTL, resolveImageDigest, resolvePair)
 		require.NoError(t, err)
 		require.Equal(t, "sha256:target-2", third.TargetDigest)
 		require.Equal(t, 2, digestResolveCalls)
@@ -148,9 +150,9 @@ func TestCachedImageDigestPair(t *testing.T) {
 			return ImageDigestPair{SourceDigest: "sha256:source", TargetDigest: targetDigest}, nil
 		}
 
-		first, err := CachedImageDigestPair(context.Background(), cache, orgID, imageRef, "sha256:source", nil, nil, resolve)
+		first, err := CachedImageDigestPair(context.Background(), cache, orgID, imageRef, "sha256:source", nil, testDigestCacheTTL, nil, resolve)
 		require.NoError(t, err)
-		second, err := CachedImageDigestPair(context.Background(), cache, orgID, imageRef, "sha256:source", nil, nil, resolve)
+		second, err := CachedImageDigestPair(context.Background(), cache, orgID, imageRef, "sha256:source", nil, testDigestCacheTTL, nil, resolve)
 		require.NoError(t, err)
 
 		require.Equal(t, first, second)

@@ -1323,7 +1323,7 @@ var _ = Describe("DeviceRender", func() {
 			}})
 			Expect(err).ToNot(HaveOccurred())
 			_, err = oci.CachedImageDigestPair(
-				ctx, kvStoreInst, orgId, osImage, srcDigest, nil, nil,
+				ctx, kvStoreInst, orgId, osImage, srcDigest, nil, 15*time.Minute, nil,
 				func(context.Context, string) (oci.ImageDigestPair, error) {
 					return oci.ImageDigestPair{SourceDigest: srcDigest, TargetDigest: tgtDigest}, nil
 				},

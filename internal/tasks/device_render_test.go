@@ -144,6 +144,49 @@ func (s *testKVStore) SetExpire(_ context.Context, _ string, _ time.Duration) er
 
 var _ kvstore.KVStore = (*testKVStore)(nil)
 
+type testHelmImageRenderer struct {
+	calls int
+	refs  []string
+}
+
+func (r *testHelmImageRenderer) ImageRefs(context.Context, api.HelmApplication, *domain.Device, []byte, *domain.OciRepoSpec) ([]string, error) {
+	r.calls++
+	return append([]string(nil), r.refs...), nil
+}
+
+func TestRenderHelmImageRefsUsesCache(t *testing.T) {
+	ctx := context.Background()
+	orgID := uuid.New()
+	kv := newTestKVStore()
+	renderer := &testHelmImageRenderer{refs: []string{"quay.io/acme/app:v1"}}
+	logic := NewDeviceRenderLogic(logrus.New(), nil, nil, nil, nil, kv, &config.Config{}).
+		WithHelmImageRenderer(renderer)
+	app := api.HelmApplication{
+		AppType: api.AppTypeHelm,
+		Name:    lo.ToPtr("release"),
+		Values:  lo.ToPtr(map[string]interface{}{"imageTag": "v1"}),
+	}
+	require.NoError(t, app.FromImageApplicationProviderSpec(api.ImageSpec{Image: "oci://registry.example/charts/app:1.2.3"}))
+
+	first, err := logic.RenderHelmImageRefs(ctx, orgID, nil, app, []byte("rendered config"))
+	require.NoError(t, err)
+	second, err := logic.RenderHelmImageRefs(ctx, orgID, nil, app, []byte("rendered config"))
+	require.NoError(t, err)
+	require.Equal(t, renderer.refs, first)
+	require.Equal(t, first, second)
+	require.Equal(t, 1, renderer.calls, "identical render inputs should reuse cached image refs")
+
+	changedValues := app
+	changedValues.Values = lo.ToPtr(map[string]interface{}{"imageTag": "v2"})
+	_, err = logic.RenderHelmImageRefs(ctx, orgID, nil, changedValues, []byte("rendered config"))
+	require.NoError(t, err)
+	require.Equal(t, 2, renderer.calls, "changed chart values should trigger a fresh render")
+
+	_, err = logic.RenderHelmImageRefs(ctx, orgID, nil, app, []byte("changed rendered config"))
+	require.NoError(t, err)
+	require.Equal(t, 3, renderer.calls, "changed rendered config should trigger a fresh render")
+}
+
 // newDepChangeEvent constructs a DependencyChangeDetected event for testing.
 func newDepChangeEvent(deviceName, resourceKey, fingerprint string) domain.Event {
 	details := domain.DependencyChangeDetectedDetails{
@@ -1500,7 +1543,7 @@ func TestRenderDevice_SucceededGenerationSetsDeltaImageAndDeltaSize(t *testing.T
 
 	event := createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, deviceName)
 	kv := newTestKVStore()
-	_, err := oci.CachedImageDigestPair(context.Background(), kv, orgId, osImage, src, nil, nil, func(context.Context, string) (oci.ImageDigestPair, error) {
+	_, err := oci.CachedImageDigestPair(context.Background(), kv, orgId, osImage, src, nil, 15*time.Minute, nil, func(context.Context, string) (oci.ImageDigestPair, error) {
 		return oci.ImageDigestPair{SourceDigest: src, TargetDigest: tgt}, nil
 	})
 	require.NoError(t, err)

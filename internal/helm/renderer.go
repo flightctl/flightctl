@@ -2,7 +2,9 @@ package helm
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -18,6 +20,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/pkg/executer"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 )
@@ -77,12 +80,9 @@ func (r *Renderer) ImageRefs(
 	if chartName == "." || chartName == ".." || filepath.Base(chartName) != chartName {
 		return nil, fmt.Errorf("invalid chart name %q in reference %q", chartName, imageSpec.Image)
 	}
-	releaseName := loFromPtr(app.Name)
-	if releaseName == "" {
-		releaseName, err = apphelm.SanitizeReleaseName(imageSpec.Image)
-		if err != nil {
-			return nil, fmt.Errorf("create release name: %w", err)
-		}
+	releaseName, err := releaseNameForApp(app, imageSpec.Image)
+	if err != nil {
+		return nil, err
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, r.timeout)
@@ -180,6 +180,70 @@ func (r *Renderer) ImageRefs(
 	return images, nil
 }
 
+// ImageRefsCacheKey returns a content-addressed key for the extracted image
+// references of a Helm application. The key includes all inputs that affect
+// templating, including whether the release is installed, and the cache TTL so
+// changing the configured TTL cannot reuse an entry written under another TTL.
+func ImageRefsCacheKey(
+	orgID uuid.UUID,
+	app v1beta1.HelmApplication,
+	device *domain.Device,
+	renderedConfig []byte,
+	registrySpec *domain.OciRepoSpec,
+	ttl time.Duration,
+) (string, error) {
+	imageSpec, err := app.AsImageApplicationProviderSpec()
+	if err != nil {
+		return "", fmt.Errorf("get chart image reference: %w", err)
+	}
+	releaseName, err := releaseNameForApp(app, imageSpec.Image)
+	if err != nil {
+		return "", err
+	}
+	appJSON, err := json.Marshal(app)
+	if err != nil {
+		return "", fmt.Errorf("encode Helm application for image refs cache key: %w", err)
+	}
+	registryJSON, err := json.Marshal(registrySpec)
+	if err != nil {
+		return "", fmt.Errorf("encode Helm registry config for image refs cache key: %w", err)
+	}
+	appHash := sha256.Sum256(appJSON)
+	configHash := sha256.Sum256(renderedConfig)
+	registryHash := sha256.Sum256(registryJSON)
+	keyMaterial, err := json.Marshal(struct {
+		OrgID              string
+		AppHash            string
+		ConfigHash         string
+		RegistryHash       string
+		ReleaseIsInstalled bool
+		TTL                int64
+	}{
+		OrgID:              orgID.String(),
+		AppHash:            hex.EncodeToString(appHash[:]),
+		ConfigHash:         hex.EncodeToString(configHash[:]),
+		RegistryHash:       hex.EncodeToString(registryHash[:]),
+		ReleaseIsInstalled: releaseIsInstalled(device, releaseName),
+		TTL:                int64(ttl),
+	})
+	if err != nil {
+		return "", fmt.Errorf("encode Helm image refs cache key: %w", err)
+	}
+	keyHash := sha256.Sum256(keyMaterial)
+	return "helmImageRefs/v1/" + orgID.String() + "/" + hex.EncodeToString(keyHash[:]), nil
+}
+
+func releaseNameForApp(app v1beta1.HelmApplication, chartRef string) (string, error) {
+	if app.Name != nil && *app.Name != "" {
+		return *app.Name, nil
+	}
+	releaseName, err := apphelm.SanitizeReleaseName(chartRef)
+	if err != nil {
+		return "", fmt.Errorf("create release name: %w", err)
+	}
+	return releaseName, nil
+}
+
 func (r *Renderer) run(ctx context.Context, workDir string, env []string, args ...string) error {
 	_, stderr, exitCode := r.exec.ExecuteWithContextFromDir(ctx, workDir, "helm", args, env...)
 	if exitCode != 0 {
@@ -263,13 +327,6 @@ func releaseIsInstalled(device *domain.Device, releaseName string) bool {
 		}
 	}
 	return false
-}
-
-func loFromPtr(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
 }
 
 func chartRegistryHost(chartRef string) (string, error) {
