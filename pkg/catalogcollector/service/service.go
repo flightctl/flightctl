@@ -15,6 +15,7 @@ import (
 	catalogcollector "github.com/flightctl/flightctl/pkg/catalogcollector"
 	"github.com/flightctl/flightctl/pkg/catalogcollector/config"
 	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/metric"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -150,6 +151,7 @@ type Service struct {
 	extensions []runningExtension
 	host       *serviceHost
 	log        *logrus.Logger
+	metrics    *metricsRuntime
 }
 
 type factoryMaps struct {
@@ -227,6 +229,31 @@ func New(
 	log := settings.Logger
 	log.Info("building pipeline graph")
 
+	// Create the metrics runtime before any component so that the meter
+	// provider is available for instrumentation and component settings.
+	metricsRT, err := newMetricsRuntime(cfg.Service.Metrics, log)
+	if err != nil {
+		return nil, fmt.Errorf("initializing metrics: %w", err)
+	}
+	metricsOwned := true
+	defer func() {
+		if metricsOwned {
+			_ = metricsRT.Shutdown(context.Background())
+		}
+	}()
+
+	meterProvider := metricsRT.provider
+
+	sourceInstr, err := newSourceInstruments(meterProvider)
+	if err != nil {
+		return nil, fmt.Errorf("creating source instruments: %w", err)
+	}
+
+	pipelineInstr, err := newPipelineInstruments(meterProvider)
+	if err != nil {
+		return nil, fmt.Errorf("creating pipeline instruments: %w", err)
+	}
+
 	fm, err := buildFactoryMaps(factories)
 	if err != nil {
 		return nil, err
@@ -270,6 +297,7 @@ func New(
 				host,
 				"extension",
 				extensionConfig.ID,
+				meterProvider,
 			),
 			typedConfig,
 		)
@@ -367,6 +395,7 @@ func New(
 					host,
 					"destination",
 					destinationConfig.ID,
+					meterProvider,
 				),
 				typedConfig,
 			)
@@ -420,6 +449,7 @@ func New(
 				host,
 				"processor",
 				processorConfig.ID,
+				meterProvider,
 			)
 			processorSettings.Logger = processorSettings.Logger.WithField(
 				"pipeline_id",
@@ -456,13 +486,22 @@ func New(
 			"destination_id": cfg.Destinations[pipelineConfig.Destination].ID.String(),
 		}).Info("pipeline constructed")
 
+		// Wrap the pipeline head consumer with instrumentation that records
+		// sync count, duration, and resource counts per pipeline.
+		instrumented := catalogcollector.Consumer(&instrumentedBranch{
+			inner:         next,
+			pipelineID:    pipelineID,
+			destinationID: cfg.Destinations[pipelineConfig.Destination].ID.String(),
+			instruments:   pipelineInstr,
+		})
+
 		// next is now the head consumer for this pipeline: either its first
 		// processor or its destination when no processors are configured.
 		branchesBySource[pipelineConfig.Source] = append(
 			branchesBySource[pipelineConfig.Source],
 			pipelineBranch{
 				pipelineID: pipelineID,
-				consumer:   next,
+				consumer:   instrumented,
 			},
 		)
 	}
@@ -490,7 +529,15 @@ func New(
 			)
 		}
 
-		downstream := newFanoutConsumer(branchesBySource[sourceKey])
+		fanout := newFanoutConsumer(branchesBySource[sourceKey])
+
+		// Wrap the fan-out with source-boundary instrumentation that records
+		// snapshot count and resource counts per source.
+		downstream := catalogcollector.Consumer(&instrumentedFanoutConsumer{
+			inner:       fanout,
+			sourceID:    sourceConfig.ID.String(),
+			instruments: sourceInstr,
+		})
 
 		source, createErr := sourceFactory.CreateSource(
 			ctx,
@@ -499,6 +546,7 @@ func New(
 				host,
 				"source",
 				sourceConfig.ID,
+				meterProvider,
 			),
 			typedConfig,
 			downstream,
@@ -525,12 +573,15 @@ func New(
 		"destination_count":        len(destinations),
 	}).Info("pipeline graph built successfully")
 
-	return &Service{
+	result := &Service{
 		sources:    sources,
 		extensions: extensions,
 		host:       host,
 		log:        settings.Logger,
-	}, nil
+		metrics:    metricsRT,
+	}
+	metricsOwned = false
+	return result, nil
 }
 
 // Run starts configured extensions in deterministic order, then starts all
@@ -549,6 +600,32 @@ func New(
 // Caller cancellation is treated as graceful shutdown. Source implementations
 // must stop and return nil when their context is cancelled.
 func (s *Service) Run(ctx context.Context) error {
+	// Start the metrics HTTP server before extensions and sources so that a
+	// bind failure prevents any component from starting.
+	metricsErrCh, err := s.metrics.Start()
+	if err != nil {
+		shutdownErr := s.metrics.Shutdown(ctx)
+		return errors.Join(
+			fmt.Errorf("starting metrics endpoint: %w", err),
+			shutdownErr,
+		)
+	}
+
+	metricsServeFinished := false
+	finishMetrics := func() error {
+		shutdownErr := s.metrics.Shutdown(ctx)
+		if metricsErrCh == nil || metricsServeFinished {
+			return shutdownErr
+		}
+
+		serveErr := <-metricsErrCh
+		metricsServeFinished = true
+		if serveErr != nil {
+			serveErr = fmt.Errorf("serving metrics endpoint: %w", serveErr)
+		}
+		return errors.Join(shutdownErr, serveErr)
+	}
+
 	// Start extensions in deterministic order.
 	for index, extension := range s.extensions {
 		s.log.WithField(
@@ -567,6 +644,7 @@ func (s *Service) Run(ctx context.Context) error {
 				ctx,
 				startedExtensions,
 			)
+			metricsErr := finishMetrics()
 			return errors.Join(
 				fmt.Errorf(
 					"starting extension %q: %w",
@@ -574,6 +652,7 @@ func (s *Service) Run(ctx context.Context) error {
 					err,
 				),
 				shutdownErr,
+				metricsErr,
 			)
 		}
 	}
@@ -581,7 +660,9 @@ func (s *Service) Run(ctx context.Context) error {
 	// Discover extensions that participate in the readiness lifecycle.
 	readinessExtensions := s.discoverReadiness(s.extensions)
 
-	group, groupContext := errgroup.WithContext(ctx)
+	runContext, cancelRun := context.WithCancel(ctx)
+	defer cancelRun()
+	group, groupContext := errgroup.WithContext(runContext)
 
 	// Startup barrier: every source signals when it has entered its Run
 	// wrapper. This proves that every source goroutine has been launched; it
@@ -625,7 +706,37 @@ func (s *Service) Run(ctx context.Context) error {
 		}
 	}
 
-	sourceErr := group.Wait()
+	sourceErrCh := make(chan error, 1)
+	go func() {
+		sourceErrCh <- group.Wait()
+	}()
+
+	var sourceErr error
+	var metricsServeErr error
+	if metricsErrCh == nil {
+		sourceErr = <-sourceErrCh
+	} else {
+		select {
+		case sourceErr = <-sourceErrCh:
+		case serveErr := <-metricsErrCh:
+			metricsServeFinished = true
+			if serveErr == nil {
+				metricsServeErr = errors.New(
+					"metrics endpoint stopped unexpectedly",
+				)
+			} else {
+				metricsServeErr = fmt.Errorf(
+					"serving metrics endpoint: %w",
+					serveErr,
+				)
+			}
+
+			s.log.WithError(metricsServeErr).
+				Error("metrics endpoint failed, stopping sources")
+			cancelRun()
+			sourceErr = <-sourceErrCh
+		}
+	}
 
 	// Signal not-ready before shutting down extensions, regardless of whether
 	// sources stopped cleanly or with an error.
@@ -644,11 +755,23 @@ func (s *Service) Run(ctx context.Context) error {
 	if shutdownErr != nil {
 		s.log.WithError(shutdownErr).
 			Warn("extension shutdown completed with errors")
-	} else {
+	}
+
+	// Shut down the metrics endpoint after extensions so that metrics remain
+	// scrapable during the extension shutdown window.
+	metricsErr := finishMetrics()
+
+	if sourceErr == nil && shutdownErr == nil &&
+		metricsServeErr == nil && metricsErr == nil {
 		s.log.Info("graceful shutdown complete")
 	}
 
-	return errors.Join(sourceErr, shutdownErr)
+	return errors.Join(
+		sourceErr,
+		shutdownErr,
+		metricsServeErr,
+		metricsErr,
+	)
 }
 
 // discoverReadiness returns the subset of extensions that implement
@@ -825,6 +948,7 @@ func newComponentSettings(
 	host catalogcollector.Host,
 	kind string,
 	id catalogcollector.ComponentID,
+	mp metric.MeterProvider,
 ) catalogcollector.Settings {
 	return catalogcollector.Settings{
 		ID:   id,
@@ -833,6 +957,7 @@ func newComponentSettings(
 			"component_kind": kind,
 			"component_id":   id.String(),
 		}),
+		MeterProvider: mp,
 	}
 }
 
