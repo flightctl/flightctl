@@ -93,6 +93,11 @@ func (h *ServiceHandler) ReconcileDeviceLabels(ctx context.Context, orgID uuid.U
 			return ReconciliationResult{MappingOutcomes: failedDeviceOutcomes(snapshot.Mappings, outcomes, err)}, err
 		}
 		if latestMappings.Revision != mappings.Revision {
+			if attempt+1 == maxReconciliationAttempts {
+				return ReconciliationResult{
+					MappingOutcomes: failedDeviceOutcomes(snapshot.Mappings, outcomes, flterrors.ErrResourceVersionConflict),
+				}, flterrors.ErrResourceVersionConflict
+			}
 			continue
 		}
 
