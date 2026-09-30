@@ -194,6 +194,29 @@ func TestExpandAppCandidates(t *testing.T) {
 		assert.Equal(t, 1, inspectCalls)
 	})
 
+	t.Run("When target Helm rendering fails it should skip stale reported workload images", func(t *testing.T) {
+		app := helmApp("quay.io/acme/chart:v2")
+		rendered := renderedWithApps(t, app)
+		rendered.Config = []byte("[]")
+		device := deviceWithImageDigests("helm-app", "quay.io/acme/web:v1", "sha256:source")
+		var renderCalls int
+		var inspectCalls int
+		inspect := func(_ context.Context, _ uuid.UUID, _ string, _ string, _ *ocispec.Platform) (string, string, error) {
+			inspectCalls++
+			return "sha256:source", "sha256:target", nil
+		}
+		renderHelm := func(_ context.Context, _ uuid.UUID, _ *domain.Device, _ v1beta1.HelmApplication, _ []byte) ([]string, error) {
+			renderCalls++
+			return nil, fmt.Errorf("chart unavailable")
+		}
+
+		result := expandAppCandidatesForSourceWithHelm(ctx, logger, orgId, device, rendered, nil, inspect, renderHelm)
+
+		assert.Empty(t, result)
+		assert.Equal(t, 1, renderCalls)
+		assert.Zero(t, inspectCalls)
+	})
+
 	t.Run("When applications JSON is invalid it should return candidates unchanged", func(t *testing.T) {
 		rendered := tasks.RenderedSpec{Applications: []byte("invalid json")}
 		osCand := preparetask.DeltaCandidate{ImageRepository: "quay.io/acme/os", CurrentDigest: "sha256:aaa", NewDigest: "sha256:bbb"}

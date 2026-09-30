@@ -139,16 +139,16 @@ func expandAppCandidatesUsing(
 					logger.WithError(err).WithFields(logrus.Fields{
 						"orgId":      orgId,
 						"deviceName": applicationDeviceName(device),
-					}).Warn("failed to decode Helm application for delta expansion")
-					refs = append(refs, reportedHelmImageRefs(device, &apps[i])...)
+					}).Warn("failed to decode Helm application for delta expansion; skipping this Helm application")
+					refs = nil
 				} else {
 					targetRefs, renderErr := helmImageRefs(ctx, orgId, device, helmApp, rendered.Config)
 					if renderErr != nil {
 						logger.WithError(renderErr).WithFields(logrus.Fields{
 							"orgId":      orgId,
 							"deviceName": applicationDeviceName(device),
-						}).Warn("failed to render target Helm chart images for delta expansion; using currently reported images")
-						refs = append(refs, reportedHelmImageRefs(device, &apps[i])...)
+						}).Warn("failed to render target Helm chart images for delta expansion; skipping this Helm application")
+						refs = nil
 					} else {
 						refs = append(refs, targetRefs...)
 					}
