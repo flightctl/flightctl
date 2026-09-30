@@ -6706,8 +6706,6 @@ components:
               example:
                 - "values-production.yaml"
                 - "values-overrides.yml"
-          required:
-            - image
 
     VmApplication:
       type: object
