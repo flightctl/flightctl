@@ -34,8 +34,21 @@ type generationLookup interface {
 
 const (
 	deltaGenerationMissingMemoTTL = time.Minute
-	helmDeltaHintRenderTimeout    = time.Minute
+	helmDeltaHintRenderTimeout    = 15 * time.Second
+	helmDeltaHintRenderReserve    = 30 * time.Second
 )
+
+func helmDeltaHintRenderBudget(remaining time.Duration, hasDeadline bool) (time.Duration, bool) {
+	if !hasDeadline {
+		return helmDeltaHintRenderTimeout, true
+	}
+	if remaining <= helmDeltaHintRenderReserve {
+		return 0, false
+	}
+
+	timeout := min(helmDeltaHintRenderTimeout, remaining-helmDeltaHintRenderReserve)
+	return timeout, timeout > 0
+}
 
 type deltaGenerationLookupMemo struct {
 	Missing           bool    `json:"missing,omitempty"`
@@ -867,16 +880,32 @@ func (t *deviceRenderState) resolveAppDeltaHints(ctx context.Context, device *do
 				return nil, fmt.Errorf("parse helm application %q: %w", appName, err)
 			}
 			var targetImageRefs []string
-			helmRenderCtx, cancel := context.WithTimeout(ctx, helmDeltaHintRenderTimeout)
-			imageRefs, renderErr := t.DeviceRenderLogic.RenderHelmImageRefs(helmRenderCtx, t.orgId, device, helm, renderedConfig)
-			cancel()
-			if renderErr != nil {
-				t.log.WithError(renderErr).WithFields(logrus.Fields{
+			deadline, hasDeadline := ctx.Deadline()
+			remaining := time.Duration(0)
+			if hasDeadline {
+				remaining = time.Until(deadline)
+			}
+			renderTimeout, canRender := helmDeltaHintRenderBudget(remaining, hasDeadline)
+			if !canRender {
+				// An empty result prevents collectHelmAppPairs from falling back to
+				// potentially stale workload references reported for the old release.
+				targetImageRefs = []string{}
+				t.log.WithFields(logrus.Fields{
 					"device":      t.event.InvolvedObject.Name,
 					"application": appName,
-				}).Warn("failed to render target Helm chart images for delta hints; using currently reported images")
+				}).Warn("skipping target Helm chart render for delta hints because insufficient device render time remains")
 			} else {
-				targetImageRefs = imageRefs
+				helmRenderCtx, cancel := context.WithTimeout(ctx, renderTimeout)
+				imageRefs, renderErr := t.DeviceRenderLogic.RenderHelmImageRefs(helmRenderCtx, t.orgId, device, helm, renderedConfig)
+				cancel()
+				if renderErr != nil {
+					t.log.WithError(renderErr).WithFields(logrus.Fields{
+						"device":      t.event.InvolvedObject.Name,
+						"application": appName,
+					}).Warn("failed to render target Helm chart images for delta hints; using currently reported images")
+				} else {
+					targetImageRefs = imageRefs
+				}
 			}
 			parent, nested = collectHelmAppPairs(helm, currentDigests, targetImageRefs)
 		case domain.AppTypeVm:

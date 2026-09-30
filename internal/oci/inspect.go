@@ -434,9 +434,10 @@ func CachedImageDigestPair(
 		} else if len(raw) > 0 {
 			var pair ImageDigestPair
 			if err := json.Unmarshal(raw, &pair); err != nil {
-				return ImageDigestPair{}, fmt.Errorf("decode cached image digest pair: %w", err)
-			}
-			if pair.SourceDigest != "" && pair.TargetDigest != "" {
+				if logger != nil {
+					logger.WithError(err).Warn("invalid OCI image digest pair cache entry; resolving image digests")
+				}
+			} else if pair.SourceDigest != "" && pair.TargetDigest != "" {
 				return pair, nil
 			}
 		}

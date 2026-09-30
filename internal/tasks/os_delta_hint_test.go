@@ -6,6 +6,7 @@ import (
 	"errors"
 	"sync"
 	"testing"
+	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	deltamodel "github.com/flightctl/flightctl/internal/delta_worker/model"
@@ -463,6 +464,50 @@ func TestRenderHelmImageRefs(t *testing.T) {
 	require.Same(t, device, renderer.device)
 	require.Equal(t, config, renderer.config)
 	require.Nil(t, renderer.registrySpec)
+}
+
+func TestHelmDeltaHintRenderBudget(t *testing.T) {
+	tests := []struct {
+		name        string
+		remaining   time.Duration
+		hasDeadline bool
+		wantTimeout time.Duration
+		wantRender  bool
+	}{
+		{
+			name:        "When there is no parent deadline it should use the capped hint timeout",
+			wantTimeout: helmDeltaHintRenderTimeout,
+			wantRender:  true,
+		},
+		{
+			name:        "When enough time remains it should cap hint rendering at fifteen seconds",
+			remaining:   time.Minute,
+			hasDeadline: true,
+			wantTimeout: 15 * time.Second,
+			wantRender:  true,
+		},
+		{
+			name:        "When only a short render window remains it should preserve the device render reserve",
+			remaining:   40 * time.Second,
+			hasDeadline: true,
+			wantTimeout: 10 * time.Second,
+			wantRender:  true,
+		},
+		{
+			name:        "When the remaining time is reserved for device persistence it should skip hint rendering",
+			remaining:   helmDeltaHintRenderReserve,
+			hasDeadline: true,
+			wantRender:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotTimeout, gotRender := helmDeltaHintRenderBudget(tt.remaining, tt.hasDeadline)
+			require.Equal(t, tt.wantTimeout, gotTimeout)
+			require.Equal(t, tt.wantRender, gotRender)
+		})
+	}
 }
 
 func TestResolveApp(t *testing.T) {

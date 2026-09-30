@@ -205,6 +205,40 @@ func TestCachedImageDigestPairFallsBackWhenCacheReadsFail(t *testing.T) {
 	require.Equal(t, 1, pairResolveCalls)
 }
 
+func TestCachedImageDigestPairFallsBackWhenCachedPairIsInvalid(t *testing.T) {
+	targetDigest := "sha256:" + strings.Repeat("a", 64)
+	imageRef := "quay.io/example/app@" + targetDigest
+	orgID := uuid.New()
+	cache := &digestCache{values: make(map[string][]byte)}
+	key, err := imageDigestPairCacheKey(orgID, imageRef, "sha256:source", nil, testDigestCacheTTL)
+	require.NoError(t, err)
+	cache.values[key] = []byte("not-json")
+
+	var resolveCalls int
+	pair, err := CachedImageDigestPair(
+		context.Background(),
+		newDiscardLogger(),
+		cache,
+		orgID,
+		imageRef,
+		"sha256:source",
+		nil,
+		testDigestCacheTTL,
+		nil,
+		func(context.Context, string) (ImageDigestPair, error) {
+			resolveCalls++
+			return ImageDigestPair{SourceDigest: "sha256:source", TargetDigest: targetDigest}, nil
+		},
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, ImageDigestPair{SourceDigest: "sha256:source", TargetDigest: targetDigest}, pair)
+	require.Equal(t, 1, resolveCalls)
+	var cachedPair ImageDigestPair
+	require.NoError(t, json.Unmarshal(cache.values[key], &cachedPair))
+	require.Equal(t, pair, cachedPair)
+}
+
 type testOCIManifest struct {
 	desc ocispec.Descriptor
 	data []byte
