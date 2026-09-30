@@ -105,6 +105,42 @@ func TestFactoryType(t *testing.T) {
 	require.Equal(t, catalogcollector.ComponentType("http"), f.Type())
 }
 
+func TestCreateSourceRejectsWildcardPath(t *testing.T) {
+	f := NewFactory()
+	cases := []struct {
+		name string
+		path string
+	}{
+		{
+			name: "When path contains opening brace it should return error",
+			path: "/{",
+		},
+		{
+			name: "When path contains closing brace it should return error",
+			path: "/}",
+		},
+		{
+			name: "When path contains a ServeMux wildcard it should return error",
+			path: "/items/{id}",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := f.CreateSource(
+				context.Background(),
+				catalogcollector.Settings{
+					ID:     catalogcollector.ComponentID{Type: Type, Name: "test"},
+					Logger: testLogger(),
+				},
+				&Config{ListenAddress: "127.0.0.1:8080", Path: tc.path},
+				&fakeConsumer{},
+			)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "must not contain")
+		})
+	}
+}
+
 func TestSuccessfulPost(t *testing.T) {
 	consumer := &fakeConsumer{}
 	url, cleanup := startSource(t, consumer)
