@@ -134,6 +134,13 @@ The **auth-provider** suite (`test/e2e/authprovider`) uses Keycloak to test the 
 
 Registry is at `${IP}:5000` / `localhost:5000` (TLS). The test host is configured to treat it as an insecure registry; agents use the CA from `test/scripts/create_e2e_certs.sh`. See [Agent Images](../scripts/agent-images/README.md) for how agent images are built and pushed.
 
+The hooks E2E suite uses the `v13` agent image fixture. Build and push the
+agent images before running `test/e2e/hooks`; the suite updates a disposable VM
+to `v13`, decommissions it, and then validates the fresh enrollment flow. The
+notify-webhook case requires the VM harness to reach the E2E host IP and is
+therefore run in the VM/Quadlet profile; OCP runs cover the gate and image-hook
+cases when the profile provides a reachable host endpoint.
+
 Git server: SSH on port 2222, user `user`, key `bin/.ssh/id_rsa`. Example `~/.ssh/config` (with flightctl in `~/flightctl`):
 
 ```
