@@ -18,6 +18,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/sirupsen/logrus"
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/registry"
@@ -391,6 +392,7 @@ func compatibleTargetManifestCandidates(
 // source platforms.
 func CachedImageDigestPair(
 	ctx context.Context,
+	logger logrus.FieldLogger,
 	cache DigestCache,
 	orgID uuid.UUID,
 	imageRef string,
@@ -408,7 +410,7 @@ func CachedImageDigestPair(
 		return ImageDigestPair{}, err
 	}
 	if targetDigest == "" {
-		targetDigest, err = CachedImageDigest(ctx, cache, orgID, imageRef, cacheTTL, resolveImageDigest)
+		targetDigest, err = CachedImageDigest(ctx, logger, cache, orgID, imageRef, cacheTTL, resolveImageDigest)
 		if err != nil {
 			return ImageDigestPair{}, err
 		}
@@ -424,11 +426,12 @@ func CachedImageDigestPair(
 		if err != nil {
 			return ImageDigestPair{}, err
 		}
-		raw, err := cache.Get(ctx, key)
-		if err != nil {
-			return ImageDigestPair{}, err
-		}
-		if len(raw) > 0 {
+		raw, cacheErr := cache.Get(ctx, key)
+		if cacheErr != nil {
+			if logger != nil {
+				logger.WithError(cacheErr).Warn("failed reading OCI image digest pair cache; resolving image digests")
+			}
+		} else if len(raw) > 0 {
 			var pair ImageDigestPair
 			if err := json.Unmarshal(raw, &pair); err != nil {
 				return ImageDigestPair{}, fmt.Errorf("decode cached image digest pair: %w", err)
@@ -616,7 +619,7 @@ func imageDigestCacheKey(orgID uuid.UUID, imageRef string, ttl time.Duration) (s
 	return "ociDigest/v2/" + orgID.String() + "/ttl/" + strconv.FormatInt(ttl.Nanoseconds(), 10) + "/" + rewritten, nil
 }
 
-func CachedImageDigest(ctx context.Context, cache DigestCache, orgID uuid.UUID, image string, cacheTTL time.Duration, resolve func(context.Context) (string, error)) (string, error) {
+func CachedImageDigest(ctx context.Context, logger logrus.FieldLogger, cache DigestCache, orgID uuid.UUID, image string, cacheTTL time.Duration, resolve func(context.Context) (string, error)) (string, error) {
 	dgst, err := DigestFromImageRef(image)
 	if err != nil {
 		return "", err
@@ -631,11 +634,12 @@ func CachedImageDigest(ctx context.Context, cache DigestCache, orgID uuid.UUID, 
 		if err != nil {
 			return "", err
 		}
-		raw, err := cache.Get(ctx, key)
-		if err != nil {
-			return "", err
-		}
-		if len(raw) > 0 {
+		raw, cacheErr := cache.Get(ctx, key)
+		if cacheErr != nil {
+			if logger != nil {
+				logger.WithError(cacheErr).Warn("failed reading OCI image digest cache; resolving image reference")
+			}
+		} else if len(raw) > 0 {
 			return string(raw), nil
 		}
 	}

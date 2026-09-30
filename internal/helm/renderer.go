@@ -189,7 +189,6 @@ func ImageRefsCacheKey(
 	app v1beta1.HelmApplication,
 	device *domain.Device,
 	renderedConfig []byte,
-	registrySpec *domain.OciRepoSpec,
 	ttl time.Duration,
 ) (string, error) {
 	imageSpec, err := app.AsImageApplicationProviderSpec()
@@ -204,25 +203,18 @@ func ImageRefsCacheKey(
 	if err != nil {
 		return "", fmt.Errorf("encode Helm application for image refs cache key: %w", err)
 	}
-	registryJSON, err := json.Marshal(registrySpec)
-	if err != nil {
-		return "", fmt.Errorf("encode Helm registry config for image refs cache key: %w", err)
-	}
 	appHash := sha256.Sum256(appJSON)
 	configHash := sha256.Sum256(renderedConfig)
-	registryHash := sha256.Sum256(registryJSON)
 	keyMaterial, err := json.Marshal(struct {
 		OrgID              string
 		AppHash            string
 		ConfigHash         string
-		RegistryHash       string
 		ReleaseIsInstalled bool
 		TTL                int64
 	}{
 		OrgID:              orgID.String(),
 		AppHash:            hex.EncodeToString(appHash[:]),
 		ConfigHash:         hex.EncodeToString(configHash[:]),
-		RegistryHash:       hex.EncodeToString(registryHash[:]),
 		ReleaseIsInstalled: releaseIsInstalled(device, releaseName),
 		TTL:                int64(ttl),
 	})
@@ -230,7 +222,7 @@ func ImageRefsCacheKey(
 		return "", fmt.Errorf("encode Helm image refs cache key: %w", err)
 	}
 	keyHash := sha256.Sum256(keyMaterial)
-	return "helmImageRefs/v1/" + orgID.String() + "/" + hex.EncodeToString(keyHash[:]), nil
+	return "helmImageRefs/v2/" + orgID.String() + "/" + hex.EncodeToString(keyHash[:]), nil
 }
 
 func releaseNameForApp(app v1beta1.HelmApplication, chartRef string) (string, error) {

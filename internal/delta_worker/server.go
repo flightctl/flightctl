@@ -255,7 +255,7 @@ func serviceResolver(cfg *config.Config, fleets fleetservice.Service, devices de
 			return targetRepoSpec, targetRepoErr
 		}
 		pair, err := oci.CachedImageDigestPair(
-			ctx, kvStore, orgId, image, sourceDigest, fallbackPlatform, cfg.EffectiveImageDigestCacheTTL(),
+			ctx, log, kvStore, orgId, image, sourceDigest, fallbackPlatform, cfg.EffectiveImageDigestCacheTTL(),
 			func(ctx context.Context) (string, error) {
 				spec, err := resolveTargetRepo(ctx)
 				if err != nil {

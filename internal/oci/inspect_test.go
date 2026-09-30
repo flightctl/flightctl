@@ -3,7 +3,9 @@ package oci
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -16,15 +18,23 @@ import (
 	"github.com/opencontainers/go-digest"
 	"github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
 
 type digestCache struct {
 	values      map[string][]byte
 	expirations map[string]time.Duration
+	getErr      error
 }
 
 const testDigestCacheTTL = 15 * time.Minute
+
+func newDiscardLogger() *logrus.Logger {
+	logger := logrus.New()
+	logger.SetOutput(io.Discard)
+	return logger
+}
 
 func TestSpecForRegistry(t *testing.T) {
 	t.Run("When the system registry is marked insecure it should skip TLS verification", func(t *testing.T) {
@@ -54,6 +64,9 @@ func TestSpecForRegistry(t *testing.T) {
 }
 
 func (c *digestCache) Get(_ context.Context, key string) ([]byte, error) {
+	if c.getErr != nil {
+		return nil, c.getErr
+	}
 	return c.values[key], nil
 }
 
@@ -72,13 +85,13 @@ func TestCachedImageDigestScopesCacheByOrganization(t *testing.T) {
 	orgA := uuid.New()
 	orgB := uuid.New()
 
-	gotA, err := CachedImageDigest(context.Background(), cache, orgA, image, testDigestCacheTTL, func(context.Context) (string, error) {
+	gotA, err := CachedImageDigest(context.Background(), nil, cache, orgA, image, testDigestCacheTTL, func(context.Context) (string, error) {
 		return "sha256:aaa", nil
 	})
 	require.NoError(t, err)
 	require.Equal(t, "sha256:aaa", gotA)
 
-	gotB, err := CachedImageDigest(context.Background(), cache, orgB, image, testDigestCacheTTL, func(context.Context) (string, error) {
+	gotB, err := CachedImageDigest(context.Background(), nil, cache, orgB, image, testDigestCacheTTL, func(context.Context) (string, error) {
 		return "sha256:bbb", nil
 	})
 	require.NoError(t, err)
@@ -109,7 +122,7 @@ func TestCachedImageDigestPair(t *testing.T) {
 			return ImageDigestPair{SourceDigest: "sha256:source", TargetDigest: fmt.Sprintf("sha256:target-%d", pairResolveCalls)}, nil
 		}
 
-		first, err := CachedImageDigestPair(context.Background(), cache, orgID, imageRef, "sha256:source", nil, testDigestCacheTTL, resolveImageDigest, resolvePair)
+		first, err := CachedImageDigestPair(context.Background(), nil, cache, orgID, imageRef, "sha256:source", nil, testDigestCacheTTL, resolveImageDigest, resolvePair)
 		require.NoError(t, err)
 		tagKey, err := imageDigestCacheKey(orgID, imageRef, testDigestCacheTTL)
 		require.NoError(t, err)
@@ -118,7 +131,7 @@ func TestCachedImageDigestPair(t *testing.T) {
 		// The registry tag moves, but the TTL cache keeps this call pinned to the
 		// digest observed by the first lookup.
 		currentIndexDigest = indexDigest2
-		second, err := CachedImageDigestPair(context.Background(), cache, orgID, imageRef, "sha256:source", nil, testDigestCacheTTL, resolveImageDigest, resolvePair)
+		second, err := CachedImageDigestPair(context.Background(), nil, cache, orgID, imageRef, "sha256:source", nil, testDigestCacheTTL, resolveImageDigest, resolvePair)
 		require.NoError(t, err)
 
 		require.Equal(t, "sha256:target-1", first.TargetDigest)
@@ -130,7 +143,7 @@ func TestCachedImageDigestPair(t *testing.T) {
 		// Simulate TTL expiration. A fresh registry resolution now produces and
 		// caches the pair for the new immutable target digest.
 		delete(cache.values, tagKey)
-		third, err := CachedImageDigestPair(context.Background(), cache, orgID, imageRef, "sha256:source", nil, testDigestCacheTTL, resolveImageDigest, resolvePair)
+		third, err := CachedImageDigestPair(context.Background(), nil, cache, orgID, imageRef, "sha256:source", nil, testDigestCacheTTL, resolveImageDigest, resolvePair)
 		require.NoError(t, err)
 		require.Equal(t, "sha256:target-2", third.TargetDigest)
 		require.Equal(t, 2, digestResolveCalls)
@@ -150,15 +163,46 @@ func TestCachedImageDigestPair(t *testing.T) {
 			return ImageDigestPair{SourceDigest: "sha256:source", TargetDigest: targetDigest}, nil
 		}
 
-		first, err := CachedImageDigestPair(context.Background(), cache, orgID, imageRef, "sha256:source", nil, testDigestCacheTTL, nil, resolve)
+		first, err := CachedImageDigestPair(context.Background(), nil, cache, orgID, imageRef, "sha256:source", nil, testDigestCacheTTL, nil, resolve)
 		require.NoError(t, err)
-		second, err := CachedImageDigestPair(context.Background(), cache, orgID, imageRef, "sha256:source", nil, testDigestCacheTTL, nil, resolve)
+		second, err := CachedImageDigestPair(context.Background(), nil, cache, orgID, imageRef, "sha256:source", nil, testDigestCacheTTL, nil, resolve)
 		require.NoError(t, err)
 
 		require.Equal(t, first, second)
 		require.Equal(t, 1, resolveCalls)
 		require.Len(t, cache.values, 1)
 	})
+}
+
+func TestCachedImageDigestPairFallsBackWhenCacheReadsFail(t *testing.T) {
+	targetDigest := "sha256:" + strings.Repeat("a", 64)
+	cache := &digestCache{values: make(map[string][]byte), getErr: errors.New("cache unavailable")}
+	var digestResolveCalls, pairResolveCalls int
+
+	pair, err := CachedImageDigestPair(
+		context.Background(),
+		newDiscardLogger(),
+		cache,
+		uuid.New(),
+		"quay.io/example/app:stable",
+		"sha256:source",
+		nil,
+		testDigestCacheTTL,
+		func(context.Context) (string, error) {
+			digestResolveCalls++
+			return targetDigest, nil
+		},
+		func(context.Context, string) (ImageDigestPair, error) {
+			pairResolveCalls++
+			return ImageDigestPair{SourceDigest: "sha256:source", TargetDigest: targetDigest}, nil
+		},
+	)
+
+	require.NoError(t, err)
+	require.Equal(t, "sha256:source", pair.SourceDigest)
+	require.Equal(t, targetDigest, pair.TargetDigest)
+	require.Equal(t, 1, digestResolveCalls)
+	require.Equal(t, 1, pairResolveCalls)
 }
 
 type testOCIManifest struct {

@@ -418,6 +418,17 @@ func TestCollectHelmAppPairs(t *testing.T) {
 
 		require.Empty(t, nested)
 	})
+
+	t.Run("When the target chart has no workload images it should not fall back to reported source images", func(t *testing.T) {
+		app := makeDeltaHelmApp(t, "chart", "quay.io/acme/chart:v2")
+		helm, err := app.AsHelmApplication()
+		require.NoError(t, err)
+		digests := map[string]string{"quay.io/acme/web:v1": "sha256:source"}
+
+		_, nested := collectHelmAppPairs(helm, digests, []string{})
+
+		require.Empty(t, nested)
+	})
 }
 
 type helmImageRendererStub struct {

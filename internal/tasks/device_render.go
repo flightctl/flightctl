@@ -130,20 +130,10 @@ func (t *DeviceRenderLogic) RenderHelmImageRefs(
 	if err != nil {
 		return nil, fmt.Errorf("get Helm chart image reference: %w", err)
 	}
-	registrySpec, err := helmruntime.ResolveOCIRepositorySpec(
-		ctx,
-		t.repositorySvc,
-		orgID,
-		imageSpec.Image,
-		deltaWriteSpec(t.cfg),
-	)
-	if err != nil {
-		return nil, err
-	}
 	cacheTTL := t.cfg.EffectiveHelmImageRefsCacheTTL()
 	cacheKey := ""
 	if t.kvStore != nil && cacheTTL > 0 {
-		key, keyErr := helmruntime.ImageRefsCacheKey(orgID, app, device, renderedConfig, registrySpec, cacheTTL)
+		key, keyErr := helmruntime.ImageRefsCacheKey(orgID, app, device, renderedConfig, cacheTTL)
 		if keyErr != nil {
 			t.log.WithError(keyErr).Warn("failed to build Helm image refs cache key; rendering chart without cache")
 		} else {
@@ -166,9 +156,25 @@ func (t *DeviceRenderLogic) RenderHelmImageRefs(
 		}
 	}
 
+	// Repository lookup supplies chart-pull credentials and transport settings,
+	// but does not change rendered workload images. Delay the paginated lookup
+	// until after a cache miss.
+	registrySpec, err := helmruntime.ResolveOCIRepositorySpec(
+		ctx,
+		t.repositorySvc,
+		orgID,
+		imageSpec.Image,
+		deltaWriteSpec(t.cfg),
+	)
+	if err != nil {
+		return nil, err
+	}
 	imageRefs, err := t.helmRenderer.ImageRefs(ctx, app, device, renderedConfig, registrySpec)
 	if err != nil {
 		return nil, err
+	}
+	if imageRefs == nil {
+		imageRefs = []string{}
 	}
 	if cacheKey != "" {
 		cached, marshalErr := json.Marshal(imageRefs)
