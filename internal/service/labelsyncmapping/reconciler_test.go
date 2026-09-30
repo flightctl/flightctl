@@ -226,6 +226,51 @@ func TestReconcileDeviceLabelsRetriesDeviceVersionConflict(t *testing.T) {
 	assert.Equal(t, domain.DesiredDeviceLabel{Value: "x86_64", MappingID: &mappingID}, devices.applyArgs[0]["architecture"])
 }
 
+func TestReconcileDeviceLabelsSkipsDecommissionedDevice(t *testing.T) {
+	orgID := uuid.New()
+	mappingID := uuid.New()
+	mapping := testDeviceMapping(mappingID, "architecture", "mapped", loPtr("architecture"))
+	mappingStore := &reconciliationStoreStub{snapshots: []labelsyncmappingstore.DeviceMappingsSnapshot{{Mappings: []labelsyncmappingstore.DeviceMapping{mapping}, Revision: 1}}}
+	decommissioning := domain.DeviceDecommission{}
+	snapshot := deviceLabelSnapshot("edge-01", "2", map[string]string{}, nil)
+	snapshot.Device.Spec = &domain.DeviceSpec{Decommissioning: &decommissioning}
+	snapshot.Device.Metadata.Labels = nil
+	devices := &reconciliationDeviceStub{snapshots: []domain.DeviceLabelSnapshot{snapshot}}
+	evaluator := &reconciliationEvaluator{responses: map[string]evaluatorResponse{"mapped": {result: ScalarResult("x86_64")}}}
+	service := newReconcilerService(t, mappingStore, devices, evaluator)
+
+	result, err := service.ReconcileDeviceLabels(context.Background(), orgID, "edge-01")
+	require.NoError(t, err)
+	assert.Equal(t, ReconciliationResult{}, result)
+	assert.Empty(t, evaluator.called)
+	assert.Empty(t, devices.applyArgs)
+}
+
+func TestReconcileDeviceLabelsStopsAfterDecommissionWinsSnapshotRace(t *testing.T) {
+	orgID := uuid.New()
+	mappingID := uuid.New()
+	mapping := testDeviceMapping(mappingID, "architecture", "mapped", loPtr("architecture"))
+	mappingStore := &reconciliationStoreStub{snapshots: []labelsyncmappingstore.DeviceMappingsSnapshot{{Mappings: []labelsyncmappingstore.DeviceMapping{mapping}, Revision: 1}}}
+	activeSnapshot := deviceLabelSnapshot("edge-01", "1", map[string]string{"manual": "keep"}, nil)
+	decommissioning := domain.DeviceDecommission{}
+	decommissionedSnapshot := deviceLabelSnapshot("edge-01", "2", map[string]string{}, nil)
+	decommissionedSnapshot.Device.Spec = &domain.DeviceSpec{Decommissioning: &decommissioning}
+	decommissionedSnapshot.Device.Metadata.Labels = nil
+	devices := &reconciliationDeviceStub{
+		snapshots: []domain.DeviceLabelSnapshot{activeSnapshot, decommissionedSnapshot},
+		applies:   []deviceApplyResponse{{err: flterrors.ErrResourceVersionConflict}},
+	}
+	evaluator := &reconciliationEvaluator{responses: map[string]evaluatorResponse{"mapped": {result: ScalarResult("x86_64")}}}
+	service := newReconcilerService(t, mappingStore, devices, evaluator)
+
+	result, err := service.ReconcileDeviceLabels(context.Background(), orgID, "edge-01")
+	require.NoError(t, err)
+	assert.Equal(t, ReconciliationResult{}, result)
+	assert.Equal(t, []string{"mapped"}, evaluator.called)
+	assert.Len(t, devices.applyArgs, 1)
+	assert.Equal(t, 2, devices.gets)
+}
+
 func TestReconcileDeviceLabelsRetriesDatabaseDeadlock(t *testing.T) {
 	orgID := uuid.New()
 	mappingID := uuid.New()

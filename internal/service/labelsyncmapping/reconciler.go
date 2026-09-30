@@ -38,6 +38,11 @@ func (h *ServiceHandler) ReconcileDeviceLabels(ctx context.Context, orgID uuid.U
 		if err != nil {
 			return ReconciliationResult{}, err
 		}
+		// Decommissioning clears labels. If it races this read, ApplyLabels' resource-version
+		// CAS forces a retry, which observes the decommissioning state here.
+		if deviceSnapshot.Device.Spec != nil && deviceSnapshot.Device.Spec.Decommissioning != nil {
+			return ReconciliationResult{}, nil
+		}
 		snapshot := deviceReconciliationSnapshot{
 			Device:          deviceSnapshot,
 			Mappings:        mappings.Mappings,
