@@ -311,7 +311,7 @@ func preparingCondition(condType domain.ConditionType, completed, total int) dom
 	return domain.Condition{
 		Type:    condType,
 		Status:  domain.ConditionStatusTrue,
-		Reason:  string(condType),
+		Reason:  "Delta generation in progress",
 		Message: fmt.Sprintf("%d/%d", completed, total),
 	}
 }

@@ -18,6 +18,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestPreparingConditionReason(t *testing.T) {
+	tests := []struct {
+		name     string
+		condType domain.ConditionType
+	}{
+		{name: "fleet", condType: domain.ConditionTypeFleetDeltaPreparing},
+		{name: "device", condType: domain.ConditionTypeDeviceDeltaPreparing},
+	}
+
+	for _, tt := range tests {
+		t.Run("When preparing a "+tt.name+" delta it should report progress", func(t *testing.T) {
+			condition := preparingCondition(tt.condType, 1, 2)
+			assert.Equal(t, "Delta generation in progress", condition.Reason)
+		})
+	}
+}
+
 func TestStorePreparingStatus_Fleet(t *testing.T) {
 	orgId := uuid.New()
 	tv := "tv-1"

@@ -299,9 +299,11 @@ func shouldReconcileDeviceOwnership(ctx context.Context, event domain.Event, log
 }
 
 func shouldValidateFleet(ctx context.Context, event domain.Event, log logrus.FieldLogger) bool {
-	// If a fleet's template was updated, return true
+	// Fleet template updates always need validation. A generic spec update can
+	// signal a delta-generation policy change that must supersede an in-flight
+	// prepare.
 	if event.Reason == domain.EventReasonResourceUpdated && event.InvolvedObject.Kind == domain.FleetKind {
-		return hasUpdatedFields(event.Details, log, domain.SpecTemplate)
+		return hasUpdatedFields(event.Details, log, domain.SpecTemplate, domain.Spec)
 	}
 
 	// If a fleet was created, return true

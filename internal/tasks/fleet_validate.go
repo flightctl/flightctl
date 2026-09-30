@@ -86,6 +86,9 @@ func (t *FleetValidateLogic) CreateNewTemplateVersionIfFleetValid(ctx context.Co
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("failed getting fleet %s/%s: %s", t.orgId, t.event.InvolvedObject.Name, status.Message)
 	}
+	if t.isUnclassifiedFleetSpecUpdate() && !fleetHasPendingDeltaPrepare(fleet) {
+		return nil
+	}
 
 	fingerprint := t.getFingerprint()
 	templateVersionName := generateTemplateVersionName(fleet, fingerprint)
@@ -403,4 +406,32 @@ func generateTemplateVersionName(fleet *domain.Fleet, fingerprint string) string
 	// contain quotes and Last-Modified headers contain spaces/colons.
 	h := sha256.Sum256([]byte(fingerprint))
 	return base + "-" + hex.EncodeToString(h[:4])
+}
+
+func (t *FleetValidateLogic) isUnclassifiedFleetSpecUpdate() bool {
+	return t.event.Reason == domain.EventReasonResourceUpdated &&
+		t.event.InvolvedObject.Kind == domain.FleetKind &&
+		hasUpdatedFields(t.event.Details, t.log, domain.Spec) &&
+		!hasUpdatedFields(t.event.Details, t.log, domain.SpecTemplate)
+}
+
+func fleetHasPendingDeltaPrepare(fleet *domain.Fleet) bool {
+	if fleet == nil {
+		return false
+	}
+	if fleet.Status != nil {
+		if fleet.Status.DeltaGeneration != nil {
+			return true
+		}
+		condition := domain.FindStatusCondition(fleet.Status.Conditions, domain.ConditionTypeFleetDeltaPreparing)
+		if condition != nil {
+			return true
+		}
+	}
+	if fleet.Metadata.Annotations == nil {
+		return false
+	}
+	annotations := *fleet.Metadata.Annotations
+	return annotations[domain.FleetAnnotationDeltaPrepareResourceVersion] != "" ||
+		annotations[domain.FleetAnnotationDeltaPrepareGeneration] != ""
 }
