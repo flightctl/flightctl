@@ -43,7 +43,7 @@ RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
     make build-userinfo-proxy
 
-FROM registry.access.redhat.com/ubi9/ubi-micro:1789345925
+FROM registry.access.redhat.com/ubi9/ubi-micro:9.8-1789345812
 WORKDIR /app
 LABEL \
   com.redhat.component="flightctl-userinfo-proxy-container" \
