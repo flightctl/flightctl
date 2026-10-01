@@ -2,12 +2,14 @@ package validation
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	corev1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
 	apiserver "github.com/flightctl/flightctl/internal/api_server"
@@ -232,6 +234,97 @@ var _ = Describe("API Validation Tests", func() {
 				ContainSubstring("invalidproperty"),
 				ContainSubstring("unsupported"),
 			))
+		})
+
+		It("should accept a Device whose helm application references a catalog item without an image", func() {
+			// Regression: the HelmApplication schema previously carried an orphaned
+			// "required: [image]" on one of its allOf members. Because allOf members are
+			// validated independently, that requirement was enforced regardless of which
+			// provider branch (image vs catalogItemRef) matched, so a helm application
+			// sourced from a catalog item (and therefore carrying no image) could never
+			// pass validation and was rejected with HTTP 400. It must now be accepted.
+			deviceWithHelmCatalogItem := map[string]interface{}{
+				"apiVersion": "flightctl.io/v1beta1",
+				"kind":       "Device",
+				"metadata": map[string]interface{}{
+					"name": "validation-test-helm-catalog-device",
+				},
+				"spec": map[string]interface{}{
+					"applications": []map[string]interface{}{
+						{
+							"name":    "nginx",
+							"appType": "helm",
+							"catalogItemRef": map[string]interface{}{
+								"catalog": "default",
+								"item":    "nginx",
+								"version": "25.2.1",
+								"channel": "stable",
+							},
+						},
+					},
+				},
+			}
+
+			deviceJSON, err := json.Marshal(deviceWithHelmCatalogItem)
+			Expect(err).ToNot(HaveOccurred())
+
+			url := svr.URL + "/api/v1/devices"
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(deviceJSON))
+			Expect(err).ToNot(HaveOccurred())
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := svr.Client().Do(req) // #nosec G107
+			Expect(err).ToNot(HaveOccurred())
+			defer func() {
+				Expect(resp.Body.Close()).To(Succeed())
+			}()
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(resp.StatusCode).To(Equal(http.StatusCreated), "expected the request to pass validation; response body: %s", string(body))
+		})
+
+		It("should accept a Device whose helm application references an image", func() {
+			// The image-based helm application source must continue to validate after
+			// the orphaned "required: [image]" removal.
+			deviceWithHelmImage := map[string]interface{}{
+				"apiVersion": "flightctl.io/v1beta1",
+				"kind":       "Device",
+				"metadata": map[string]interface{}{
+					"name": "validation-test-helm-image-device",
+				},
+				"spec": map[string]interface{}{
+					"applications": []map[string]interface{}{
+						{
+							"name":    "nginx",
+							"appType": "helm",
+							"image":   "quay.io/flightctl/nginx-helm:latest",
+						},
+					},
+				},
+			}
+
+			deviceJSON, err := json.Marshal(deviceWithHelmImage)
+			Expect(err).ToNot(HaveOccurred())
+
+			url := svr.URL + "/api/v1/devices"
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(deviceJSON))
+			Expect(err).ToNot(HaveOccurred())
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := svr.Client().Do(req) // #nosec G107
+			Expect(err).ToNot(HaveOccurred())
+			defer func() {
+				Expect(resp.Body.Close()).To(Succeed())
+			}()
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(resp.StatusCode).To(Equal(http.StatusCreated), "expected the request to pass validation; response body: %s", string(body))
 		})
 
 		// Note: DeviceSpec cannot have strict validation (additionalProperties: false)
