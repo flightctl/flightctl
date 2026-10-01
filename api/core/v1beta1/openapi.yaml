@@ -2243,7 +2243,11 @@ paths:
     get:
       tags:
         - device
-      description: Get current LabelSyncMapping ownership for the promoted label keys on a Device.
+      description: >-
+        Get current LabelSyncMapping ownership for a Device. Return only keys
+        with current DeviceLabel ownership by active mappings, sorted by key.
+        An existing Device with no currently owned keys returns an empty items
+        array. Label values are not returned.
       operationId: getDeviceLabelSyncProvenance
       parameters:
         - name: name
@@ -5228,12 +5232,19 @@ paths:
     get:
       tags:
         - labelsyncmapping
-      description: Resolve exact label keys to their current owning LabelSyncMapping names.
+      description: >-
+        Resolve exact label keys to their current owning LabelSyncMapping names
+        in the request organization. Return one item per supplied key in request
+        order, including repeated keys. Keys with no current mapping owner have
+        an empty owners array. Label values are not returned.
       operationId: getLabelSyncProvenance
       parameters:
         - name: labelKeys
           in: query
-          description: Exact label keys to resolve. Supply between 1 and 50 repeated labelKeys parameters.
+          description: >-
+            Exact label keys to resolve. Supply between 1 and 50 repeated
+            labelKeys parameters. Repeated key values are preserved as repeated
+            response items in request order.
           required: true
           style: form
           explode: true
@@ -10587,7 +10598,10 @@ components:
       properties:
         items:
           type: array
-          description: One result per requested key, or one per currently owned key for a Device query.
+          description: >-
+            For organization queries, one item per supplied key in request
+            order, including duplicates. For Device queries, one item per
+            currently owned key, sorted by key.
           items:
             $ref: '#/components/schemas/LabelSyncProvenanceItem'
       required:

@@ -52,6 +52,11 @@ func (h *ServiceHandler) GetLabelSyncProvenance(ctx context.Context, orgID uuid.
 	if len(labelKeys) == 0 || len(labelKeys) > MaxProvenanceLabelKeys {
 		return nil, domain.StatusBadRequest("labelKeys must contain between 1 and 50 keys")
 	}
+	for _, key := range labelKeys {
+		if key == "" {
+			return nil, domain.StatusBadRequest("labelKeys must not contain empty keys")
+		}
+	}
 
 	ownerIDsByKey, err := h.deviceStore.GetLabelSyncMappingIDsByKeys(ctx, orgID, labelKeys)
 	if err != nil {

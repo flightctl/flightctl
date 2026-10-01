@@ -144,13 +144,14 @@ func TestGetLabelSyncProvenance(t *testing.T) {
 	assert.Equal(t, [][]string{keys}, devices.queriedKeys)
 }
 
-func TestGetLabelSyncProvenanceRejectsInvalidBatchSizes(t *testing.T) {
+func TestGetLabelSyncProvenanceRejectsInvalidRequests(t *testing.T) {
 	tests := []struct {
 		name string
 		keys []string
 	}{
 		{name: "When no keys are supplied it should reject the request"},
 		{name: "When more than 50 keys are supplied it should reject the request", keys: make([]string, 51)},
+		{name: "When an empty key is supplied it should reject the request", keys: []string{"key", ""}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -2907,7 +2907,7 @@ type LabelSyncProvenanceItem struct {
 
 // LabelSyncProvenanceList Current LabelSyncMapping ownership grouped by exact label key.
 type LabelSyncProvenanceList struct {
-	// Items One result per requested key, or one per currently owned key for a Device query.
+	// Items For organization queries, one item per supplied key in request order, including duplicates. For Device queries, one item per currently owned key, sorted by key.
 	Items []LabelSyncProvenanceItem `json:"items"`
 }
 
@@ -4047,7 +4047,7 @@ type ListLabelSyncMappingsParams struct {
 
 // GetLabelSyncProvenanceParams defines parameters for GetLabelSyncProvenance.
 type GetLabelSyncProvenanceParams struct {
-	// LabelKeys Exact label keys to resolve. Supply between 1 and 50 repeated labelKeys parameters.
+	// LabelKeys Exact label keys to resolve. Supply between 1 and 50 repeated labelKeys parameters. Repeated key values are preserved as repeated response items in request order.
 	LabelKeys []string `form:"labelKeys" json:"labelKeys"`
 }
 
