@@ -28,6 +28,9 @@ type Store interface {
 	Delete(context.Context, uuid.UUID, string) (bool, error)
 	FinalizeDelete(context.Context, uuid.UUID, string) (bool, error)
 	GetDeviceMappingsSnapshot(context.Context, uuid.UUID) (DeviceMappingsSnapshot, error)
+	ListMappingScanTargets(context.Context, uuid.UUID) ([]MappingScanRecord, error)
+	RecordMappingScanFailure(context.Context, uuid.UUID, MappingScanRecord, string) (MappingScanRecord, bool, error)
+	CompleteMappingScan(context.Context, uuid.UUID, []MappingScanRecord) (map[uuid.UUID]bool, error)
 }
 
 type labelSyncMappingStore struct {

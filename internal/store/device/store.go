@@ -78,7 +78,7 @@ type Store interface {
 	// UpdateAnnotations merges annotations (and applies deleteKeys) via Mutate.
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
 	GetLabelSnapshot(ctx context.Context, orgId uuid.UUID, name string) (domain.DeviceLabelSnapshot, error)
-	ApplyLabels(ctx context.Context, orgId uuid.UUID, name string, snapshot domain.DeviceLabelSnapshot, desired map[string]domain.DesiredDeviceLabel) (domain.DeviceLabelApplyResult, error)
+	ApplyLabels(ctx context.Context, orgId uuid.UUID, name string, snapshot domain.DeviceLabelSnapshot, desired map[string]domain.DesiredDeviceLabel, condition *domain.Condition) (domain.DeviceLabelApplyResult, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams DeviceListParams) (*domain.DeviceList, error)
 	Labels(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (domain.LabelList, error)
@@ -1653,16 +1653,16 @@ func (s *DeviceStore) ListDevicesByServiceCondition(ctx context.Context, orgId u
 	var nextContinue *string
 	var numRemaining *int64
 
+	// Decommissioning devices are outside mapping rollouts and may retain stale conditions until deletion.
 	// Build the raw SQL query with proper pagination support for JSONB
 	baseSQL := `
 		SELECT * FROM devices
 		WHERE org_id = ?
 			AND deleted_at IS NULL
+			AND spec->'decommissioning' IS NULL
 			AND service_conditions IS NOT NULL
-			AND EXISTS (
-				SELECT 1 FROM jsonb_array_elements(service_conditions->'conditions') AS elem
-				WHERE elem->>'type' = ? AND elem->>'status' = ?
-			)`
+			AND (service_conditions->'conditions') @>
+				jsonb_build_array(jsonb_build_object('type', ?::text, 'status', ?::text))`
 
 	// Handle pagination - add WHERE condition before ORDER BY
 	var args []interface{}
@@ -1693,11 +1693,11 @@ func (s *DeviceStore) ListDevicesByServiceCondition(ctx context.Context, orgId u
 			SELECT COUNT(*) FROM devices
 			WHERE org_id = ?
 				AND deleted_at IS NULL
+				AND spec->'decommissioning' IS NULL
 				AND service_conditions IS NOT NULL
-				AND EXISTS (
-					SELECT 1 FROM jsonb_array_elements(service_conditions->'conditions') AS elem
-					WHERE elem->>'type' = ? AND elem->>'status' = ?
-				) AND name > ?`
+				AND (service_conditions->'conditions') @>
+					jsonb_build_array(jsonb_build_object('type', ?::text, 'status', ?::text))
+				AND name > ?`
 
 		countArgs := []interface{}{orgId, conditionType, conditionStatus, devices[len(devices)-1].Name}
 		if err := s.getDB(ctx).Raw(countSQL, countArgs...).Scan(&count).Error; err != nil {

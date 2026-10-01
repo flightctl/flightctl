@@ -68,6 +68,19 @@ periodic:
         interval: {{.}}
 {{- end}}
 {{- end}}
+{{- with .labelMappingScan }}
+    labelMappingScan:
+{{- with .schedule.interval }}
+      schedule:
+        interval: {{.}}
+{{- end}}
+{{- with .pageSize }}
+      pageSize: {{.}}
+{{- end}}
+{{- with .timeBudget }}
+      timeBudget: {{.}}
+{{- end}}
+{{- end}}
 {{- end}}
 {{- end}}
 {{- if eq .vulnerabilityReporting.enabled true}}

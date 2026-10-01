@@ -8937,6 +8937,7 @@ components:
       - 'Updating'              # Device
       - 'SpecValid'             # Device (service condition)
       - 'MultipleOwners'        # Device (service condition)
+      - 'LabelsSynced'          # Device (service condition)
       - 'DeviceDecommissioning' # Device
       - 'FleetDeltaPreparing'   # Fleet
       - 'DeviceDeltaPreparing'  # Device
@@ -8958,6 +8959,7 @@ components:
       - DeviceUpdating
       - DeviceSpecValid
       - DeviceMultipleOwners
+      - DeviceLabelsSynced
       - DeviceDecommissioning
       - FleetDeltaPreparing
       - DeviceDeltaPreparing

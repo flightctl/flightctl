@@ -15,4 +15,7 @@ type Service interface {
 	PatchLabelSyncMapping(context.Context, uuid.UUID, string, domain.PatchRequest) (*domain.LabelSyncMapping, domain.Status)
 	DeleteLabelSyncMapping(context.Context, uuid.UUID, string) domain.Status
 	ReconcileDeviceLabels(context.Context, uuid.UUID, string) (ReconciliationResult, error)
+	ListMappingScanTargets(context.Context, uuid.UUID) ([]MappingScanToken, error)
+	RecordMappingScanFailure(context.Context, uuid.UUID, MappingScanToken, string) (MappingScanToken, bool, error)
+	CompleteMappingScan(context.Context, uuid.UUID, []MappingScanToken) (map[uuid.UUID]bool, error)
 }

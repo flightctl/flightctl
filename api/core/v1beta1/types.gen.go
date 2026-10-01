@@ -116,6 +116,7 @@ const (
 	ConditionTypeDeviceDecommissioning                ConditionType = "DeviceDecommissioning"
 	ConditionTypeDeviceDeltaPreparing                 ConditionType = "DeviceDeltaPreparing"
 	ConditionTypeDeviceEnrollmentHooks                ConditionType = "EnrollmentHooks"
+	ConditionTypeDeviceLabelsSynced                   ConditionType = "LabelsSynced"
 	ConditionTypeDeviceMultipleOwners                 ConditionType = "MultipleOwners"
 	ConditionTypeDeviceSpecValid                      ConditionType = "SpecValid"
 	ConditionTypeDeviceUpdating                       ConditionType = "Updating"
