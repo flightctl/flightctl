@@ -84,6 +84,7 @@ _collect_junit: $(REPORTS)
 	done
 
 unit-test:
+	cd "$(ROOT_DIR)/test/scripts" && go test $(if $(filter 1,$(RACE)),-race) -timeout $(TIMEOUT) ./...
 	$(ENV_TRACE_FLAGS) $(MAKE) _unit_test TEST="$(or $(TEST),$(shell go list ./pkg/... ./internal/... ./cmd/... ./deploy/helm/...))"
 
 run-integration-test:
