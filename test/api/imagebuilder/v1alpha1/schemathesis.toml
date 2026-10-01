@@ -74,6 +74,9 @@ include-path = "/api/v1/imageexports/{name}/download"
 [operations.checks.ensure_resource_availability]
 enabled = false
 
+[reports]
+directory = "/app/results"
+
 [reports.vcr]
 enabled = true
 

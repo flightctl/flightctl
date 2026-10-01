@@ -89,6 +89,9 @@ include-path = "/vulnerabilities/fleets/{name}/summary"
 [operations.checks.not_a_server_error]
 enabled = false
 
+[reports]
+directory = "/app/results"
+
 [reports.vcr]
 enabled = true
 
