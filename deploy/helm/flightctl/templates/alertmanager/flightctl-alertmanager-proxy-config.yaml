@@ -49,6 +49,7 @@ data:
     {{- include "flightctl.authConfig" . | nindent 4 }}
     organizations:
       enabled: true
+      initialLabelSyncMappingsFile: {{ include "flightctl.initialLabelSyncMappingsFile" . }}
     {{ if (default dict .Values.dev).tracing }}
     tracing:
         enabled: true
@@ -58,4 +59,3 @@ data:
 {{ include "flightctl.profiling" . | nindent 4 }}
 {{- include "flightctl.encryptionConfig" . | nindent 4 }}
 {{- end }}
-

@@ -7,6 +7,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service/catalog"
 	"github.com/flightctl/flightctl/internal/service/common"
+	labelsyncmappingservice "github.com/flightctl/flightctl/internal/service/labelsyncmapping"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -21,16 +22,36 @@ type OrgProvisionerInterface interface {
 // It is called by IdentityMapper only when new organizations are created,
 // so each org is provisioned at most once per identity-mapper cache TTL.
 type OrgProvisioner struct {
-	catalogs catalog.Service
-	log      logrus.FieldLogger
+	catalogs        catalog.Service
+	initialMappings *labelsyncmappingservice.InitialLabelSyncMappingProvisioner
+	log             logrus.FieldLogger
 }
 
 // Ensure OrgProvisioner satisfies the interface.
 var _ OrgProvisionerInterface = (*OrgProvisioner)(nil)
 
 // NewOrgProvisioner creates a new OrgProvisioner.
-func NewOrgProvisioner(catalogs catalog.Service, log logrus.FieldLogger) *OrgProvisioner {
-	return &OrgProvisioner{catalogs: catalogs, log: log}
+func NewOrgProvisioner(catalogs catalog.Service, log logrus.FieldLogger, initialMappings ...*labelsyncmappingservice.InitialLabelSyncMappingProvisioner) *OrgProvisioner {
+	provisioner := &OrgProvisioner{catalogs: catalogs, log: log}
+	if len(initialMappings) > 0 {
+		provisioner.initialMappings = initialMappings[0]
+	}
+	return provisioner
+}
+
+// NewOrgProvisionerWithInitialMappings creates an organization provisioner that
+// seeds deployment-provided label-sync mappings for each newly-created organization.
+func NewOrgProvisionerWithInitialMappings(
+	catalogs catalog.Service,
+	mappings labelsyncmappingservice.Service,
+	filePath string,
+	log logrus.FieldLogger,
+) (*OrgProvisioner, error) {
+	initialMappings, err := labelsyncmappingservice.NewInitialLabelSyncMappingProvisioner(filePath, mappings, log)
+	if err != nil {
+		return nil, err
+	}
+	return NewOrgProvisioner(catalogs, log, initialMappings), nil
 }
 
 // EnsureDefaults creates default resources for the given newly-created organizations.
@@ -39,6 +60,9 @@ func NewOrgProvisioner(catalogs catalog.Service, log logrus.FieldLogger) *OrgPro
 func (p *OrgProvisioner) EnsureDefaults(ctx context.Context, orgs []*model.Organization) {
 	for _, o := range orgs {
 		p.ensureDefaultCatalog(ctx, o.ID)
+		if p.initialMappings != nil {
+			p.initialMappings.Provision(ctx, o.ID)
+		}
 	}
 }
 

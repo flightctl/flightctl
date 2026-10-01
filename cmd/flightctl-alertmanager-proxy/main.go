@@ -39,11 +39,13 @@ import (
 	canaryservice "github.com/flightctl/flightctl/internal/service/canary"
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	"github.com/flightctl/flightctl/internal/service/events"
+	labelsyncmappingservice "github.com/flightctl/flightctl/internal/service/labelsyncmapping"
 	organizationservice "github.com/flightctl/flightctl/internal/service/organization"
 	"github.com/flightctl/flightctl/internal/store"
 	authproviderstore "github.com/flightctl/flightctl/internal/store/authprovider"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
+	labelsyncmappingstore "github.com/flightctl/flightctl/internal/store/labelsyncmapping"
 	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
 	fclog "github.com/flightctl/flightctl/pkg/log"
 	"github.com/go-chi/chi/v5"
@@ -238,6 +240,11 @@ func main() {
 	authProviderStore := authproviderstore.NewAuthProviderStore(db, logger.WithField("pkg", "authprovider-store"))
 	eventStore := eventstore.NewEventStore(db, logger.WithField("pkg", "event-store"))
 	eventsSvc := events.NewServiceHandler(eventStore, nil, logger)
+	labelSyncMappingStore := labelsyncmappingstore.NewStore(db, logger.WithField("pkg", "labelsyncmapping-store"))
+	labelSyncMappingSvc, err := labelsyncmappingservice.NewService(labelSyncMappingStore, nil, nil, logger)
+	if err != nil {
+		logger.Fatalf("Failed to initialize label-sync mapping service: %v", err)
+	}
 	catalogSvc := catalogservice.WrapWithTracing(catalogservice.NewServiceHandler(catalogStore, nil, nil, eventsSvc, logger))
 	organizationSvc := organizationservice.WrapWithTracing(organizationservice.NewServiceHandler(organizationStore))
 
@@ -270,7 +277,15 @@ func main() {
 	}
 
 	// Create identity mapper for mapping identities to database objects
-	orgProvisioner := service.NewOrgProvisioner(catalogSvc, logger)
+	orgProvisioner, err := service.NewOrgProvisionerWithInitialMappings(
+		catalogSvc,
+		labelSyncMappingSvc,
+		cfg.Organizations.InitialLabelSyncMappingsFile,
+		logger,
+	)
+	if err != nil {
+		logger.Fatalf("Failed to create organization provisioner: %v", err)
+	}
 	identityMapper := service.NewIdentityMapper(organizationSvc, orgProvisioner, logger)
 	identityMapper.Start()
 	defer identityMapper.Stop()

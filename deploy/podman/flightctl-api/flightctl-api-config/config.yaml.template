@@ -20,6 +20,8 @@ database:
   port: 5432
   name: flightctl
 {{- end}}
+organizations:
+  initialLabelSyncMappingsFile: /etc/flightctl/label-sync/mappings.yaml
 service:
   address: flightctl-api:3080
   agentEndpointAddress: unix:///var/run/flightctl-listeners/api-agent.sock

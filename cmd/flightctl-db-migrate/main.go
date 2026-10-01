@@ -66,7 +66,7 @@ func main() {
 		log.Info("Running database migrations with migration user")
 	}
 
-	if err = migration.Run(ctx, migrationDB, log, *dryRun); err != nil {
+	if err = migration.RunWithInitialLabelSyncMappings(ctx, migrationDB, log, *dryRun, cfg.Organizations.InitialLabelSyncMappingsFile); err != nil {
 		if errors.Is(err, migration.ErrDryRunComplete) {
 			log.Info("Dry-run completed successfully; no changes were committed.")
 			return
