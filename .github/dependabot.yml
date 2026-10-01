@@ -58,24 +58,6 @@ updates:
       - "/test/scripts/services-images"
     schedule:
       interval: weekly
-    ignore:
-      # Red Hat publishes numeric aliases alongside versioned tags. These rules
-      # also apply to security updates; matching current aliases share digests.
-      - dependency-name: "ubi9/go-toolset"
-        versions:
-          - ">= 1000000000"
-      - dependency-name: "ubi10/go-toolset"
-        versions:
-          - ">= 1000000000"
-      - dependency-name: "ubi9/ubi-*"
-        versions:
-          - ">= 1000000000"
-      - dependency-name: "ubi10/ubi-*"
-        versions:
-          - ">= 1000000000"
-      - dependency-name: "ubi9/nginx-126"
-        versions:
-          - ">= 1000000000"
     groups:
       docker:
         patterns:
