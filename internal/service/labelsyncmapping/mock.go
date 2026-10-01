@@ -70,6 +70,21 @@ func (mr *MockServiceMockRecorder) DeleteLabelSyncMapping(arg0, arg1, arg2 any) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteLabelSyncMapping", reflect.TypeOf((*MockService)(nil).DeleteLabelSyncMapping), arg0, arg1, arg2)
 }
 
+// GetDeviceLabelSyncProvenance mocks base method.
+func (m *MockService) GetDeviceLabelSyncProvenance(arg0 context.Context, arg1 uuid.UUID, arg2 string) (*domain.LabelSyncProvenanceList, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetDeviceLabelSyncProvenance", arg0, arg1, arg2)
+	ret0, _ := ret[0].(*domain.LabelSyncProvenanceList)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// GetDeviceLabelSyncProvenance indicates an expected call of GetDeviceLabelSyncProvenance.
+func (mr *MockServiceMockRecorder) GetDeviceLabelSyncProvenance(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetDeviceLabelSyncProvenance", reflect.TypeOf((*MockService)(nil).GetDeviceLabelSyncProvenance), arg0, arg1, arg2)
+}
+
 // GetLabelSyncMapping mocks base method.
 func (m *MockService) GetLabelSyncMapping(arg0 context.Context, arg1 uuid.UUID, arg2 string) (*domain.LabelSyncMapping, domain.Status) {
 	m.ctrl.T.Helper()
@@ -83,6 +98,21 @@ func (m *MockService) GetLabelSyncMapping(arg0 context.Context, arg1 uuid.UUID, 
 func (mr *MockServiceMockRecorder) GetLabelSyncMapping(arg0, arg1, arg2 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLabelSyncMapping", reflect.TypeOf((*MockService)(nil).GetLabelSyncMapping), arg0, arg1, arg2)
+}
+
+// GetLabelSyncProvenance mocks base method.
+func (m *MockService) GetLabelSyncProvenance(arg0 context.Context, arg1 uuid.UUID, arg2 []string) (*domain.LabelSyncProvenanceList, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetLabelSyncProvenance", arg0, arg1, arg2)
+	ret0, _ := ret[0].(*domain.LabelSyncProvenanceList)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// GetLabelSyncProvenance indicates an expected call of GetLabelSyncProvenance.
+func (mr *MockServiceMockRecorder) GetLabelSyncProvenance(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLabelSyncProvenance", reflect.TypeOf((*MockService)(nil).GetLabelSyncProvenance), arg0, arg1, arg2)
 }
 
 // ListLabelSyncMappings mocks base method.

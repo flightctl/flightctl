@@ -60,12 +60,28 @@ func (_d *TracedService) DeleteLabelSyncMapping(ctx context.Context, u1 uuid.UUI
 	return s2
 }
 
+func (_d *TracedService) GetDeviceLabelSyncProvenance(ctx context.Context, u1 uuid.UUID, s1 string) (lp1 *domain.LabelSyncProvenanceList, s2 domain.Status) {
+	ctx, span := startSpan(ctx, "GetDeviceLabelSyncProvenance")
+
+	lp1, s2 = _d.inner.GetDeviceLabelSyncProvenance(ctx, u1, s1)
+	endSpan(span, s2)
+	return lp1, s2
+}
+
 func (_d *TracedService) GetLabelSyncMapping(ctx context.Context, u1 uuid.UUID, s1 string) (lp1 *domain.LabelSyncMapping, s2 domain.Status) {
 	ctx, span := startSpan(ctx, "GetLabelSyncMapping")
 
 	lp1, s2 = _d.inner.GetLabelSyncMapping(ctx, u1, s1)
 	endSpan(span, s2)
 	return lp1, s2
+}
+
+func (_d *TracedService) GetLabelSyncProvenance(ctx context.Context, u1 uuid.UUID, sa1 []string) (lp1 *domain.LabelSyncProvenanceList, s1 domain.Status) {
+	ctx, span := startSpan(ctx, "GetLabelSyncProvenance")
+
+	lp1, s1 = _d.inner.GetLabelSyncProvenance(ctx, u1, sa1)
+	endSpan(span, s1)
+	return lp1, s1
 }
 
 func (_d *TracedService) ListLabelSyncMappings(ctx context.Context, u1 uuid.UUID, l1 domain.ListLabelSyncMappingsParams) (lp1 *domain.LabelSyncMappingList, s1 domain.Status) {
