@@ -58,6 +58,14 @@ updates:
       - "/test/scripts/services-images"
     schedule:
       interval: weekly
+    ignore:
+      # Keep Dependabot on Go-version-prefixed tags instead of Red Hat's numeric build aliases.
+      - dependency-name: "ubi9/go-toolset"
+        versions:
+          - ">= 1000000000"
+      - dependency-name: "ubi10/go-toolset"
+        versions:
+          - ">= 1000000000"
     groups:
       docker:
         patterns:
