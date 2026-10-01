@@ -3,7 +3,6 @@ package labelsyncmapping
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -125,29 +124,6 @@ func failedDeviceOutcomes(mappings []labelsyncmappingstore.DeviceMapping, curren
 		outcomes = append(outcomes, outcome)
 	}
 	return outcomes
-}
-
-func (h *ServiceHandler) RecordDeviceLabelReconciliationFailures(ctx context.Context, orgID uuid.UUID, outcomes []MappingOutcome) error {
-	var recordErrors []error
-	for _, outcome := range outcomes {
-		if outcome.Err == nil {
-			continue
-		}
-		if err := ctx.Err(); err != nil {
-			recordErrors = append(recordErrors, err)
-			break
-		}
-		_, err := h.store.RecordReconciliationFailure(ctx, orgID, labelsyncmappingstore.ReconciliationFailure{
-			MappingID:       outcome.MappingID,
-			Generation:      outcome.Generation,
-			ResourceVersion: outcome.ResourceVersion,
-			Message:         outcome.Err.Error(),
-		})
-		if err != nil {
-			recordErrors = append(recordErrors, fmt.Errorf("record reconciliation failure for mapping %s: %w", outcome.MappingID, err))
-		}
-	}
-	return errors.Join(recordErrors...)
 }
 
 func (h *ServiceHandler) shouldRetryApply(ctx context.Context, orgID uuid.UUID, revision int64, applyErr error) (bool, error) {

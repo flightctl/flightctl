@@ -48,21 +48,7 @@ func (l DeviceLabelReconciliationLogic) Reconcile(ctx context.Context) error {
 			l.log.Infof("Skipping label reconciliation for missing device %s/%s", l.orgID, deviceName)
 			return nil
 		}
-		recordErr := l.recordFailures(ctx, result.MappingOutcomes)
-		if recordErr != nil {
-			return fmt.Errorf("reconcile device labels for %s/%s: %w", l.orgID, deviceName, errors.Join(err, recordErr))
-		}
 		return fmt.Errorf("reconcile device labels for %s/%s: %w", l.orgID, deviceName, err)
-	}
-	return l.recordFailures(ctx, result.MappingOutcomes)
-}
-
-func (l DeviceLabelReconciliationLogic) recordFailures(ctx context.Context, outcomes []labelsyncmappingservice.MappingOutcome) error {
-	if len(outcomes) == 0 {
-		return nil
-	}
-	if err := l.service.RecordDeviceLabelReconciliationFailures(ctx, l.orgID, outcomes); err != nil {
-		return fmt.Errorf("record device label reconciliation failures: %w", err)
 	}
 	return nil
 }

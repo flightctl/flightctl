@@ -63,10 +63,6 @@ func (*fakeStore) GetDeviceMappingsSnapshot(context.Context, uuid.UUID) (labelsy
 	return labelsyncmappingstore.DeviceMappingsSnapshot{}, nil
 }
 
-func (*fakeStore) RecordReconciliationFailure(context.Context, uuid.UUID, labelsyncmappingstore.ReconciliationFailure) (bool, error) {
-	return false, nil
-}
-
 func (s *fakeStore) Create(_ context.Context, orgID uuid.UUID, mapping *domain.LabelSyncMapping) (*domain.LabelSyncMapping, error) {
 	if s.mappings[orgID] == nil {
 		s.mappings[orgID] = make(map[string]*domain.LabelSyncMapping)

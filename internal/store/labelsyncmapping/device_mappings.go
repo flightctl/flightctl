@@ -24,14 +24,6 @@ type DeviceMappingsSnapshot struct {
 	Revision int64
 }
 
-// ReconciliationFailure describes a fenced mapping condition update from a worker.
-type ReconciliationFailure struct {
-	MappingID       uuid.UUID
-	Generation      int64
-	ResourceVersion string
-	Message         string
-}
-
 // GetDeviceMappingsSnapshot reads mappings and the revision from one
 // repeatable-read snapshot. Callers must pass a context without an existing
 // store transaction; otherwise the nested transaction will not establish the

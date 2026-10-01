@@ -320,22 +320,35 @@ var _ = Describe("Device label reconciliation worker", func() {
 		Expect(lo.FromPtr(persisted.Metadata.Labels)).NotTo(HaveKey("stale"))
 	})
 
-	It("degrades only failed mappings and leaves worker-owned success state untouched", func() {
+	It("leaves mapping rollout state unchanged for per-device mapping errors", func() {
 		name := "isolated-failure-device"
 		good := createMapping("healthy-mapping", "architecture", "status.systemInfo.architecture")
 		broken := createMapping("broken-mapping", "broken", "string(int(status.systemInfo.architecture))")
 		createDevice(name, "amd64", map[string]string{}, nil)
+		initialGood, status := mappingSvc.GetLabelSyncMapping(ctx, orgID, lo.FromPtr(good.Metadata.Name))
+		Expect(status.Code).To(Equal(int32(200)))
+		initialBroken, status := mappingSvc.GetLabelSyncMapping(ctx, orgID, lo.FromPtr(broken.Metadata.Name))
+		Expect(status.Code).To(Equal(int32(200)))
+		initialReadyConditions := map[string]domain.Condition{
+			"healthy-mapping": readyCondition(initialGood),
+			"broken-mapping":  readyCondition(initialBroken),
+		}
+		var initialMappingRows []model.LabelSyncMapping
+		Expect(db.WithContext(ctx).Where("org_id = ?", orgID).Find(&initialMappingRows).Error).To(Succeed())
+		initialFailureRevisions := make(map[string]int64, len(initialMappingRows))
+		for _, row := range initialMappingRows {
+			initialFailureRevisions[row.Name] = row.FailureRevision
+		}
 
 		service := newLabelSyncMappingService(mustNewEvaluator())
 		Expect(newWorkerLogic(service, createEventForDevice(name)).Reconcile(ctx)).To(Succeed())
 
-		good, status := mappingSvc.GetLabelSyncMapping(ctx, orgID, lo.FromPtr(good.Metadata.Name))
+		good, status = mappingSvc.GetLabelSyncMapping(ctx, orgID, lo.FromPtr(good.Metadata.Name))
 		Expect(status.Code).To(Equal(int32(200)))
 		broken, status = mappingSvc.GetLabelSyncMapping(ctx, orgID, lo.FromPtr(broken.Metadata.Name))
 		Expect(status.Code).To(Equal(int32(200)))
-		Expect(readyCondition(good).Reason).To(Equal("Pending"))
-		Expect(readyCondition(broken).Reason).To(Equal("Degraded"))
-		Expect(readyCondition(broken).Status).To(Equal(domain.ConditionStatusFalse))
+		Expect(readyCondition(good)).To(Equal(initialReadyConditions["healthy-mapping"]))
+		Expect(readyCondition(broken)).To(Equal(initialReadyConditions["broken-mapping"]))
 
 		var mappingRows []model.LabelSyncMapping
 		Expect(db.WithContext(ctx).Where("org_id = ?", orgID).Find(&mappingRows).Error).To(Succeed())
@@ -343,8 +356,7 @@ var _ = Describe("Device label reconciliation worker", func() {
 		for _, row := range mappingRows {
 			failureRevisions[row.Name] = row.FailureRevision
 		}
-		Expect(failureRevisions["healthy-mapping"]).To(BeZero())
-		Expect(failureRevisions["broken-mapping"]).To(Equal(int64(1)))
+		Expect(failureRevisions).To(Equal(initialFailureRevisions))
 		persisted, err := deviceStore.Get(ctx, orgID, name)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(lo.FromPtr(persisted.Metadata.Labels)).To(HaveKeyWithValue("architecture", "amd64"))

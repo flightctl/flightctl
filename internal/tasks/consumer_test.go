@@ -787,8 +787,6 @@ func TestDispatchTasks_DeviceLabelReconciliationCompletesAfterReconcilerReturns(
 			return labelsyncmappingservice.ReconciliationResult{MappingOutcomes: outcomes}, nil
 		},
 	)
-	service.EXPECT().RecordDeviceLabelReconciliationFailures(gomock.Any(), orgID, outcomes).Return(nil)
-
 	eventWithOrgID := worker_client.EventWithOrgId{
 		OrgId: orgID,
 		Event: createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1"),
@@ -806,19 +804,17 @@ func TestDispatchTasks_DeviceLabelReconciliationCompletesAfterReconcilerReturns(
 	mockConsumer.AssertExpectations(t)
 }
 
-func TestDispatchTasks_DeviceLabelReconciliationRetriesFailureRecordingErrors(t *testing.T) {
+func TestDispatchTasks_DeviceLabelReconciliationRetriesReconciliationErrors(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	orgID := uuid.New()
 	mappingID := uuid.New()
 	mappingErr := errors.New("mapping evaluation failed")
 	reconcileErr := errors.New("reconciliation conflict")
-	recordErr := errors.New("failure condition write failed")
 	outcomes := []labelsyncmappingservice.MappingOutcome{{MappingID: mappingID, Err: mappingErr}}
 	service := labelsyncmappingservice.NewMockService(ctrl)
 	service.EXPECT().ReconcileDeviceLabels(gomock.Any(), orgID, "device1").Return(
 		labelsyncmappingservice.ReconciliationResult{MappingOutcomes: outcomes}, reconcileErr,
 	)
-	service.EXPECT().RecordDeviceLabelReconciliationFailures(gomock.Any(), orgID, outcomes).Return(recordErr)
 
 	eventWithOrgID := worker_client.EventWithOrgId{
 		OrgId: orgID,
@@ -837,8 +833,8 @@ func TestDispatchTasks_DeviceLabelReconciliationRetriesFailureRecordingErrors(t 
 
 	handler := TaskConsumer{EventSvc: mockEventSvc, LabelSyncMappingSvc: service}.dispatch()
 	err = handler(context.Background(), payload, "entry-123", mockConsumer, logrus.New())
-	require.ErrorContains(t, err, "failure condition write failed")
-	require.ErrorContains(t, queueErr, "failure condition write failed")
+	require.ErrorContains(t, err, "reconciliation conflict")
+	require.ErrorContains(t, queueErr, "reconciliation conflict")
 	mockConsumer.AssertExpectations(t)
 }
 
