@@ -52,6 +52,34 @@ func (s *DeviceStore) GetLabelSnapshot(ctx context.Context, orgID uuid.UUID, nam
 	return snapshot, nil
 }
 
+// GetLabelSyncMappingIDsByKeys returns distinct current mapping IDs for exact label keys in orgID.
+func (s *DeviceStore) GetLabelSyncMappingIDsByKeys(ctx context.Context, orgID uuid.UUID, labelKeys []string) (map[string][]uuid.UUID, error) {
+	ownersByKey := make(map[string][]uuid.UUID)
+	keys := lo.Uniq(labelKeys)
+	if len(keys) == 0 {
+		return ownersByKey, nil
+	}
+
+	var labels []model.DeviceLabel
+	if err := s.getDB(ctx).
+		Model(&model.DeviceLabel{}).
+		Select("label_key, label_sync_mapping_id").
+		Distinct().
+		Where("org_id = ? AND label_key IN ? AND label_sync_mapping_id IS NOT NULL", orgID, keys).
+		Order("label_key ASC, label_sync_mapping_id ASC").
+		Find(&labels).Error; err != nil {
+		return nil, store.ErrorFromGormError(err)
+	}
+
+	for _, label := range labels {
+		if label.LabelSyncMappingID == nil {
+			continue
+		}
+		ownersByKey[label.LabelKey] = append(ownersByKey[label.LabelKey], *label.LabelSyncMappingID)
+	}
+	return ownersByKey, nil
+}
+
 type labelApplyPlan struct {
 	resourceVersion int64
 	labels          map[string]string

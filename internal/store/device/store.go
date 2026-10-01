@@ -78,6 +78,7 @@ type Store interface {
 	// UpdateAnnotations merges annotations (and applies deleteKeys) via Mutate.
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
 	GetLabelSnapshot(ctx context.Context, orgId uuid.UUID, name string) (domain.DeviceLabelSnapshot, error)
+	GetLabelSyncMappingIDsByKeys(ctx context.Context, orgId uuid.UUID, labelKeys []string) (map[string][]uuid.UUID, error)
 	ApplyLabels(ctx context.Context, orgId uuid.UUID, name string, snapshot domain.DeviceLabelSnapshot, desired map[string]domain.DesiredDeviceLabel) (domain.DeviceLabelApplyResult, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams DeviceListParams) (*domain.DeviceList, error)

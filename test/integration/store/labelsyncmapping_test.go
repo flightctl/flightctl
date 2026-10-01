@@ -86,6 +86,77 @@ var _ = Describe("LabelSyncMapping reconciliation", func() {
 		Expect(byName["architecture"].Mapping.Metadata.DeletionTimestamp).To(BeNil())
 	})
 
+	It("When ownership is queried for multiple keys it should return exact current organization-scoped mapping IDs", func() {
+		_, err := mappingStore.Create(ctx, orgID, mapLabelSyncMapping("map-owner"))
+		Expect(err).NotTo(HaveOccurred())
+		_, err = mappingStore.Create(ctx, orgID, newLabelSyncMapping("scalar-owner", "scalar.current"))
+		Expect(err).NotTo(HaveOccurred())
+		_, err = mappingStore.Create(ctx, orgID, newLabelSyncMapping("reservation-only", "configured.only"))
+		Expect(err).NotTo(HaveOccurred())
+		_, err = mappingStore.Create(ctx, orgID, mapLabelSyncMapping("second-map-owner"))
+		Expect(err).NotTo(HaveOccurred())
+		_, err = mappingStore.Create(ctx, otherOrgID, mapLabelSyncMapping("map-owner"))
+		Expect(err).NotTo(HaveOccurred())
+
+		mapOwnerID := mappingID(ctx, db, orgID, "map-owner")
+		scalarOwnerID := mappingID(ctx, db, orgID, "scalar-owner")
+		secondMapOwnerID := mappingID(ctx, db, orgID, "second-map-owner")
+		otherOrgMapOwnerID := mappingID(ctx, db, otherOrgID, "map-owner")
+		createDeviceWithOwnership := func(targetOrgID uuid.UUID, name string, labels map[string]string, owners map[string]uuid.UUID) {
+			testutil.CreateTestDevice(ctx, deviceStore, targetOrgID, name, nil, nil, &labels)
+			snapshot, err := deviceStore.GetLabelSnapshot(ctx, targetOrgID, name)
+			Expect(err).NotTo(HaveOccurred())
+			desired := make(map[string]domain.DesiredDeviceLabel, len(labels))
+			for key, value := range labels {
+				desired[key] = domain.DesiredDeviceLabel{Value: value}
+				if mappingID, found := owners[key]; found {
+					ownerID := mappingID
+					desired[key] = domain.DesiredDeviceLabel{Value: value, MappingID: &ownerID}
+				}
+			}
+			_, err = deviceStore.ApplyLabels(ctx, targetOrgID, name, snapshot, desired)
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		createDeviceWithOwnership(orgID, "owner-one", map[string]string{
+			"shared.key": "first", "map.only": "value", "operator.key": "manual",
+		}, map[string]uuid.UUID{
+			"shared.key": mapOwnerID, "map.only": mapOwnerID,
+		})
+		createDeviceWithOwnership(orgID, "owner-two", map[string]string{
+			"shared.key": "second", "scalar.current": "value",
+		}, map[string]uuid.UUID{
+			"shared.key": mapOwnerID, "scalar.current": scalarOwnerID,
+		})
+		createDeviceWithOwnership(orgID, "owner-three", map[string]string{
+			"shared.key": "second-mapping",
+		}, map[string]uuid.UUID{"shared.key": secondMapOwnerID})
+		createDeviceWithOwnership(otherOrgID, "owner-one", map[string]string{
+			"shared.key": "other-org",
+		}, map[string]uuid.UUID{"shared.key": otherOrgMapOwnerID})
+
+		actual, err := deviceStore.GetLabelSyncMappingIDsByKeys(ctx, orgID, []string{
+			"shared.key", "map.only", "scalar.current", "operator.key", "configured.only", "missing.key",
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(actual["shared.key"]).To(HaveLen(2))
+		Expect(actual["shared.key"]).To(ContainElement(mapOwnerID))
+		Expect(actual["shared.key"]).To(ContainElement(secondMapOwnerID))
+		Expect(actual["map.only"]).To(Equal([]uuid.UUID{mapOwnerID}))
+		Expect(actual["scalar.current"]).To(Equal([]uuid.UUID{scalarOwnerID}))
+		Expect(actual).NotTo(HaveKey("operator.key"))
+		Expect(actual).NotTo(HaveKey("configured.only"))
+		Expect(actual).NotTo(HaveKey("missing.key"))
+
+		otherOrgActual, err := deviceStore.GetLabelSyncMappingIDsByKeys(ctx, otherOrgID, []string{"shared.key"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(otherOrgActual["shared.key"]).To(Equal([]uuid.UUID{otherOrgMapOwnerID}))
+
+		empty, err := deviceStore.GetLabelSyncMappingIDsByKeys(ctx, orgID, nil)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(empty).To(BeEmpty())
+	})
+
 	It("When labels are applied it should atomically write takeover ownership and sorted managed metadata", func() {
 		_, err := mappingStore.Create(ctx, orgID, mapLabelSyncMapping("first"))
 		Expect(err).NotTo(HaveOccurred())
