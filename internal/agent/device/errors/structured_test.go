@@ -170,9 +170,10 @@ func TestFormatErrorWithElement(t *testing.T) {
 
 func TestMessage(t *testing.T) {
 	testCases := []struct {
-		name     string
-		err      error
-		contains []string
+		name        string
+		err         error
+		contains    []string
+		notContains []string
 	}{
 		{
 			name: "full chain",
@@ -193,6 +194,28 @@ func TestMessage(t *testing.T) {
 				fmt.Errorf("%w: %w", ErrComponentConfig, ErrPermissionDenied)),
 			contains: []string{"While ApplyingUpdate", "config failed:", "permission denied"},
 		},
+		{
+			// When a device is updating while a CPU/Memory monitor is in a critical
+			// alert state, beforeUpdate() returns ErrCriticalResourceAlert wrapped with
+			// the "Preparing" phase, "resources" component, and a "Memory"/"CPU"
+			// element (see device.go beforeUpdate). The rendered message must describe
+			// the update being deferred, not a generic component failure, since the
+			// update itself did not fail: it is retried once the alert clears.
+			name: "critical memory resource alert reports update deferral, not a failure",
+			err: fmt.Errorf("%w: %w", ErrPhasePreparing,
+				fmt.Errorf("%w: %w", ErrComponentResources,
+					fmt.Errorf("%w: %w", WithElement("Memory"), ErrCriticalResourceAlert))),
+			contains:    []string{"Update deferred", "Memory", "will retry"},
+			notContains: []string{"failed", "While Preparing"},
+		},
+		{
+			// The disk critical-alert path (dependency.go BeforeUpdate) wraps
+			// ErrCriticalResourceAlert directly without a phase/component/element.
+			name:        "critical disk resource alert without an element falls back to a generic resource label",
+			err:         ErrCriticalResourceAlert,
+			contains:    []string{"Update deferred", "system", "will retry"},
+			notContains: []string{"failed"},
+		},
 	}
 
 	for _, tc := range testCases {
@@ -203,6 +226,9 @@ func TestMessage(t *testing.T) {
 
 			for _, s := range tc.contains {
 				require.True(strings.Contains(msg, s), "expected %q in %q", s, msg)
+			}
+			for _, s := range tc.notContains {
+				require.False(strings.Contains(msg, s), "expected %q NOT in %q", s, msg)
 			}
 		})
 	}
