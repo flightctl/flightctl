@@ -159,44 +159,44 @@ func TestApplicationDeltaPrefetch(t *testing.T) {
 }
 
 func TestAggregateApplicationDeltaApplyResults(t *testing.T) {
-	imageA := imageRef{image: "quay.io/acme/app-a:target"}
-	imageB := imageRef{image: "quay.io/acme/app-b:target"}
+	targetA := "target-a"
+	targetB := "target-b"
 	tests := []struct {
 		name         string
-		results      map[imageRef]applicationDeltaApplyResult
+		results      map[string]applicationDeltaApplyResult
 		wantOutcome  v1beta1.DeviceDeltaApplyOutcomeType
 		wantFallback *string
 	}{
 		{
 			name: "When all image deltas apply it should report Applied",
-			results: map[imageRef]applicationDeltaApplyResult{
-				imageA: {outcome: v1beta1.DeviceDeltaApplyOutcomeApplied},
-				imageB: {outcome: v1beta1.DeviceDeltaApplyOutcomeApplied},
+			results: map[string]applicationDeltaApplyResult{
+				targetA: {outcome: v1beta1.DeviceDeltaApplyOutcomeApplied},
+				targetB: {outcome: v1beta1.DeviceDeltaApplyOutcomeApplied},
 			},
 			wantOutcome: v1beta1.DeviceDeltaApplyOutcomeApplied,
 		},
 		{
 			name: "When all image deltas fall back it should report Fallback",
-			results: map[imageRef]applicationDeltaApplyResult{
-				imageA: {outcome: v1beta1.DeviceDeltaApplyOutcomeFallback, fallbackReason: "import failed"},
+			results: map[string]applicationDeltaApplyResult{
+				targetA: {outcome: v1beta1.DeviceDeltaApplyOutcomeFallback, fallbackReason: "import failed"},
 			},
 			wantOutcome:  v1beta1.DeviceDeltaApplyOutcomeFallback,
 			wantFallback: lo.ToPtr("import failed"),
 		},
 		{
 			name: "When image targets have mixed delta results it should report Partial",
-			results: map[imageRef]applicationDeltaApplyResult{
-				imageA: {outcome: v1beta1.DeviceDeltaApplyOutcomeApplied},
-				imageB: {outcome: v1beta1.DeviceDeltaApplyOutcomeFallback, fallbackReason: "import failed"},
+			results: map[string]applicationDeltaApplyResult{
+				targetA: {outcome: v1beta1.DeviceDeltaApplyOutcomeApplied},
+				targetB: {outcome: v1beta1.DeviceDeltaApplyOutcomeFallback, fallbackReason: "import failed"},
 			},
 			wantOutcome:  v1beta1.DeviceDeltaApplyOutcomePartial,
 			wantFallback: lo.ToPtr("import failed"),
 		},
 		{
 			name: "When no image target uses a delta it should report NotUsed",
-			results: map[imageRef]applicationDeltaApplyResult{
-				imageA: {outcome: v1beta1.DeviceDeltaApplyOutcomeNotUsed},
-				imageB: {outcome: v1beta1.DeviceDeltaApplyOutcomeNotUsed},
+			results: map[string]applicationDeltaApplyResult{
+				targetA: {outcome: v1beta1.DeviceDeltaApplyOutcomeNotUsed},
+				targetB: {outcome: v1beta1.DeviceDeltaApplyOutcomeNotUsed},
 			},
 			wantOutcome: v1beta1.DeviceDeltaApplyOutcomeNotUsed,
 		},

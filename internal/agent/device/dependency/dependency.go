@@ -1685,10 +1685,10 @@ func (m *prefetchManager) applicationDeltaApplyStatuses() map[string]v1beta1.Dev
 }
 
 func (m *prefetchManager) collectApplicationDeltaApplyResults() (
-	map[string]map[imageRef]applicationDeltaApplyResult,
+	map[string]map[string]applicationDeltaApplyResult,
 	map[string]struct{},
 ) {
-	applicationResults := make(map[string]map[imageRef]applicationDeltaApplyResult)
+	applicationResults := make(map[string]map[string]applicationDeltaApplyResult)
 	pendingApplications := make(map[string]struct{})
 	if m.deltaAppTargetKeys == nil {
 		for target, task := range m.tasks {
@@ -1702,9 +1702,10 @@ func (m *prefetchManager) collectApplicationDeltaApplyResults() (
 					continue
 				}
 				if applicationResults[application] == nil {
-					applicationResults[application] = make(map[imageRef]applicationDeltaApplyResult)
+					applicationResults[application] = make(map[string]applicationDeltaApplyResult)
 				}
-				applicationResults[application][target] = result
+				targetID := deltastatus.Fingerprint(string(target.owner), target.image)
+				applicationResults[application][targetID] = result
 			}
 		}
 		return applicationResults, pendingApplications
@@ -1718,9 +1719,9 @@ func (m *prefetchManager) collectApplicationDeltaApplyResults() (
 				continue
 			}
 			if applicationResults[application] == nil {
-				applicationResults[application] = make(map[imageRef]applicationDeltaApplyResult)
+				applicationResults[application] = make(map[string]applicationDeltaApplyResult)
 			}
-			applicationResults[application][imageRef{image: targetID}] = result
+			applicationResults[application][targetID] = result
 		}
 	}
 	return applicationResults, pendingApplications
@@ -1742,7 +1743,7 @@ func (m *prefetchManager) persistedApplicationDeltaApplyStatuses() map[string]v1
 
 func (m *prefetchManager) persistedApplicationDeltaResults(
 	application, specKey string,
-) (map[imageRef]applicationDeltaApplyResult, bool) {
+) (map[string]applicationDeltaApplyResult, bool) {
 	expectedTargets, exists := m.deltaAppTargetKeys[application]
 	if !exists || len(expectedTargets) == 0 {
 		return nil, false
@@ -1752,7 +1753,7 @@ func (m *prefetchManager) persistedApplicationDeltaResults(
 		return nil, false
 	}
 
-	results := make(map[imageRef]applicationDeltaApplyResult, len(snapshot.Targets))
+	results := make(map[string]applicationDeltaApplyResult, len(snapshot.Targets))
 	for targetID, targetKey := range snapshot.Targets {
 		result, hasResult := applicationDeltaResultFromSnapshot(snapshot, targetID, targetKey)
 		if !hasResult {
@@ -1761,7 +1762,7 @@ func (m *prefetchManager) persistedApplicationDeltaResults(
 		if !hasResult {
 			return nil, false
 		}
-		results[imageRef{image: targetID}] = result
+		results[targetID] = result
 	}
 	return results, true
 }
@@ -1804,7 +1805,7 @@ func (m *prefetchManager) currentApplicationDeltaResult(
 	return applicationDeltaApplyResult{}, false
 }
 
-func aggregateApplicationDeltaApplyResults(results map[imageRef]applicationDeltaApplyResult) *v1beta1.DeviceDeltaApplyStatus {
+func aggregateApplicationDeltaApplyResults(results map[string]applicationDeltaApplyResult) *v1beta1.DeviceDeltaApplyStatus {
 	var appliedCount, fallbackCount, notUsedCount int
 	var fallbackReasons []string
 	for _, result := range results {
