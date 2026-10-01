@@ -560,6 +560,7 @@ overrides:
       responses-resource-patch-allowed: off
   - files:
       - "**#/paths/~1labels"
+      - "**#/paths/~1labelsyncprovenance"
       - "**#/paths/~1events"
       - "**#/paths/~1enrollmentconfig"
       - "**#/paths/~1organizations"

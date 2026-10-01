@@ -2238,6 +2238,63 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+  /devices/{name}/labelsyncprovenance:
+    x-resource: devices
+    get:
+      tags:
+        - device
+      description: Get current LabelSyncMapping ownership for the promoted label keys on a Device.
+      operationId: getDeviceLabelSyncProvenance
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Device resource.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabelSyncProvenanceList'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /devices/{name}/lastseen:
     x-resource: devices/lastseen
     get:
@@ -5136,6 +5193,64 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/OrganizationList'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+  /labelsyncprovenance:
+    x-resource: labelsyncmappings
+    get:
+      tags:
+        - labelsyncmapping
+      description: Resolve exact label keys to their current owning LabelSyncMapping names.
+      operationId: getLabelSyncProvenance
+      parameters:
+        - name: labelKeys
+          in: query
+          description: Exact label keys to resolve. Supply between 1 and 50 repeated labelKeys parameters.
+          required: true
+          style: form
+          explode: true
+          schema:
+            type: array
+            minItems: 1
+            maxItems: 50
+            items:
+              type: string
+              minLength: 1
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabelSyncProvenanceList'
         "400":
           description: Bad Request
           content:
@@ -10466,6 +10581,32 @@ components:
         - metadata
         - items
       description: LabelSyncMappingList is a list of LabelSyncMapping resources.
+    LabelSyncProvenanceList:
+      type: object
+      description: Current LabelSyncMapping ownership grouped by exact label key.
+      properties:
+        items:
+          type: array
+          description: One result per requested key, or one per currently owned key for a Device query.
+          items:
+            $ref: '#/components/schemas/LabelSyncProvenanceItem'
+      required:
+        - items
+    LabelSyncProvenanceItem:
+      type: object
+      description: Current owning LabelSyncMapping names for one exact label key.
+      properties:
+        key:
+          type: string
+          description: Exact label key.
+        owners:
+          type: array
+          description: Names of current owning LabelSyncMapping resources. An empty array means the key has no current mapping owner.
+          items:
+            type: string
+      required:
+        - key
+        - owners
     PermissionList:
       type: object
       description: List of available permissions for a user.

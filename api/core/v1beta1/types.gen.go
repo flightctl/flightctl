@@ -2896,6 +2896,21 @@ type LabelSyncMappingStatus struct {
 	Conditions *[]Condition `json:"conditions,omitempty"`
 }
 
+// LabelSyncProvenanceItem Current owning LabelSyncMapping names for one exact label key.
+type LabelSyncProvenanceItem struct {
+	// Key Exact label key.
+	Key string `json:"key"`
+
+	// Owners Names of current owning LabelSyncMapping resources. An empty array means the key has no current mapping owner.
+	Owners []string `json:"owners"`
+}
+
+// LabelSyncProvenanceList Current LabelSyncMapping ownership grouped by exact label key.
+type LabelSyncProvenanceList struct {
+	// Items One result per requested key, or one per currently owned key for a Device query.
+	Items []LabelSyncProvenanceItem `json:"items"`
+}
+
 // ListMeta ListMeta describes metadata that synthetic resources must have, including lists and various status objects. A resource may have only one of {ObjectMeta, ListMeta}.
 type ListMeta struct {
 	// Continue May be set if the user set a limit on the number of items returned, and indicates that the server has more data available. The value is opaque and may be used to issue another request to the endpoint that served this list to retrieve the next set of available objects. Continuing a consistent list may not be possible if the server configuration has changed or more than a few minutes have passed. The resourceVersion field returned when using this continue value will be identical to the value in the first response, unless you have received this token from an error message.
@@ -4028,6 +4043,12 @@ type ListLabelSyncMappingsParams struct {
 
 	// Limit The maximum number of results returned in the list response.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// GetLabelSyncProvenanceParams defines parameters for GetLabelSyncProvenance.
+type GetLabelSyncProvenanceParams struct {
+	// LabelKeys Exact label keys to resolve. Supply between 1 and 50 repeated labelKeys parameters.
+	LabelKeys []string `form:"labelKeys" json:"labelKeys"`
 }
 
 // ListOrganizationsParams defines parameters for ListOrganizations.

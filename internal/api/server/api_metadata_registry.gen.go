@@ -443,6 +443,14 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
 	},
+	"GET:/devices/{name}/labelsyncprovenance": {
+		OperationID: "getDeviceLabelSyncProvenance",
+		Resource:    "devices",
+		Action:      "get",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
+	},
 	"GET:/devices/{name}/lastseen": {
 		OperationID: "getDeviceLastSeen",
 		Resource:    "devices/lastseen",
@@ -791,6 +799,14 @@ var APIMetadataMap = map[string]*apimetadata.EndpointMetadata{
 		OperationID: "replaceLabelSyncMapping",
 		Resource:    "labelsyncmappings",
 		Action:      "update",
+		Versions: []apimetadata.EndpointMetadataVersion{
+			{Version: "v1beta1", DeprecatedAt: nil},
+		},
+	},
+	"GET:/labelsyncprovenance": {
+		OperationID: "getLabelSyncProvenance",
+		Resource:    "labelsyncmappings",
+		Action:      "list",
 		Versions: []apimetadata.EndpointMetadataVersion{
 			{Version: "v1beta1", DeprecatedAt: nil},
 		},
