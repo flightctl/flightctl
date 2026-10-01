@@ -768,6 +768,8 @@ func managedLabelMapReplacement(patch domain.PatchRequest) ([]string, bool) {
 	for _, operation := range patch {
 		switch {
 		case operation.Path == "/metadata/labels" && operation.Op == "remove":
+			// A whole-map removal is an explicit clear request. Leave managed keys absent
+			// so the store guard rejects clearing them.
 			return nil, false
 		case operation.Path == "/metadata/labels" && (operation.Op == "add" || operation.Op == "replace"):
 			hasReplacement = true
@@ -885,6 +887,7 @@ func applyDeviceDecommission(device *domain.Device, decom domain.DeviceDecommiss
 	device.Status = &status
 
 	device.Metadata.Owner = nil
+	// Clearing labels deletes their device_labels rows through the store trigger.
 	device.Metadata.Labels = nil
 	if annotations := lo.FromPtr(device.Metadata.Annotations); annotations != nil {
 		delete(annotations, domain.DeviceAnnotationManagedLabels)

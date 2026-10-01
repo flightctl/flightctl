@@ -343,6 +343,8 @@ func (s *DeviceStore) preserveOmittedManagedLabels(
 	for _, managed := range managedLabels {
 		path := "/metadata/labels/" + strings.ReplaceAll(strings.ReplaceAll(managed.LabelKey, "~", "~0"), "/", "~1")
 		if _, explicitlyRemoved := explicitRemovalPaths[path]; explicitlyRemoved {
+			// Keep an explicit removal absent so the managed-label guard rejects it
+			// instead of silently restoring the value.
 			continue
 		}
 		if _, exists := labels[managed.LabelKey]; exists {
