@@ -85,6 +85,9 @@ spec:
               name: flightctl-remote-access-config
               subPath: config.yaml
               readOnly: true
+            - mountPath: {{ include "flightctl.initialLabelSyncMappingsDirectory" . }}
+              name: {{ include "flightctl.initialLabelSyncMappingsConfigMapName" . }}
+              readOnly: true
             - mountPath: /root/.flightctl/certs/server.crt
               name: flightctl-remote-access-server-tls
               subPath: tls.crt
@@ -106,6 +109,9 @@ spec:
         - name: flightctl-remote-access-config
           configMap:
             name: flightctl-remote-access-config
+        - name: {{ include "flightctl.initialLabelSyncMappingsConfigMapName" . }}
+          configMap:
+            name: {{ include "flightctl.initialLabelSyncMappingsConfigMapName" . }}
         - name: flightctl-remote-access-server-tls
           secret:
             secretName: flightctl-remote-access-server-tls

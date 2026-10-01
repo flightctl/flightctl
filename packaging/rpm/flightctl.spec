@@ -334,6 +334,7 @@ fi
 %install
     mkdir -p %{buildroot}/usr/bin
     mkdir -p %{buildroot}/etc/flightctl
+    install -Dpm 0644 packaging/flightctl/label-sync/mappings.yaml %{buildroot}/etc/flightctl/label-sync/mappings.yaml
     cp bin/flightctl %{buildroot}/usr/bin
     cp bin/flightctl-backup %{buildroot}/usr/bin
     cp bin/flightctl-restore %{buildroot}/usr/bin
@@ -651,6 +652,7 @@ fi
     %defattr(0644,root,root,-)
     # Files mounted to system config
     %dir %{_sysconfdir}/flightctl
+    %dir %{_sysconfdir}/flightctl/label-sync
     %dir %{_sysconfdir}/flightctl/encryption
     %dir %{_sysconfdir}/flightctl/pki
     %dir %{_sysconfdir}/flightctl/pki/flightctl-api
@@ -682,6 +684,7 @@ fi
     %dir %{_sysconfdir}/flightctl/flightctl-telemetry-gateway/forward
     %dir %{_sysconfdir}/flightctl/ssh
     %config(noreplace) %{_sysconfdir}/flightctl/service-config.yaml
+    %config(noreplace) %{_sysconfdir}/flightctl/label-sync/mappings.yaml
     %config(noreplace) %{_sysconfdir}/flightctl/flightctl-services-install.conf
     %config(noreplace) %{_sysconfdir}/flightctl/ssh/known_hosts
     %ghost /etc/flightctl/flightctl-telemetry-gateway/config.yaml

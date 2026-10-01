@@ -48,6 +48,16 @@ var ErrDryRunComplete = errors.New("dry-run complete")
 // the data backfill is skipped.
 // The provided db must be connected as a user with migration privileges.
 func Run(ctx context.Context, db *gorm.DB, log logrus.FieldLogger, dryRun bool) error {
+	return run(ctx, db, log, dryRun, "", false)
+}
+
+// RunWithInitialLabelSyncMappings runs migrations and attempts to seed the configured
+// mappings for organizations that already exist.
+func RunWithInitialLabelSyncMappings(ctx context.Context, db *gorm.DB, log logrus.FieldLogger, dryRun bool, filePath string) error {
+	return run(ctx, db, log, dryRun, filePath, true)
+}
+
+func run(ctx context.Context, db *gorm.DB, log logrus.FieldLogger, dryRun bool, initialMappingsFilePath string, seedInitialMappings bool) error {
 	ctx = store.WithBypassSpanCheck(ctx)
 
 	err := db.Transaction(func(tx *gorm.DB) error {
@@ -73,6 +83,11 @@ func Run(ctx context.Context, db *gorm.DB, log logrus.FieldLogger, dryRun bool) 
 	})
 	if err != nil {
 		return err
+	}
+	if seedInitialMappings {
+		if err := seedInitialLabelSyncMappings(ctx, db, initialMappingsFilePath, log); err != nil {
+			return err
+		}
 	}
 
 	return backfillVulnerabilitySource(ctx, db)

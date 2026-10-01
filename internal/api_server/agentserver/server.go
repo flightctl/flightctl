@@ -28,6 +28,7 @@ import (
 	enrollmenthookpolicyservice "github.com/flightctl/flightctl/internal/service/enrollmenthookpolicy"
 	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	"github.com/flightctl/flightctl/internal/service/events"
+	labelsyncmappingservice "github.com/flightctl/flightctl/internal/service/labelsyncmapping"
 	organizationservice "github.com/flightctl/flightctl/internal/service/organization"
 	"github.com/flightctl/flightctl/internal/service/tpmcsr"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
@@ -38,6 +39,7 @@ import (
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
+	labelsyncmappingstore "github.com/flightctl/flightctl/internal/store/labelsyncmapping"
 	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
 	agenttransportv1beta1 "github.com/flightctl/flightctl/internal/transport/agent/v1beta1"
 	"github.com/flightctl/flightctl/internal/worker_client"
@@ -65,6 +67,7 @@ type AgentServer struct {
 	csrSvc                   certificatesigningrequestservice.Service
 	catalogSvc               catalogservice.Service
 	organizationSvc          organizationservice.Service
+	orgProvisioner           *service.OrgProvisioner
 	kvStore                  kvstore.KVStore
 	identityMapper           *service.IdentityMapper
 	agentAuthMiddleware      *fcmiddleware.AgentAuthMiddleware
@@ -123,6 +126,11 @@ func (s *AgentServer) init(ctx context.Context) error {
 	workerClient := worker_client.NewWorkerClient(publisher, s.log)
 
 	eventsSvc := events.NewServiceHandler(eventStore, workerClient, s.log)
+	labelSyncMappingStore := labelsyncmappingstore.NewStore(s.db, s.log.WithField("pkg", "labelsyncmapping-store"))
+	labelSyncMappingSvc, err := labelsyncmappingservice.NewService(labelSyncMappingStore, deviceStore, eventsSvc, s.log)
+	if err != nil {
+		return fmt.Errorf("failed initializing LabelSyncMapping service: %w", err)
+	}
 
 	s.deviceSvc = deviceservice.WrapWithTracing(
 		deviceservice.NewDeviceServiceHandler(deviceStore, nil, fleetStore, eventsSvc, s.kvStore, s.cfg.Service.AgentEndpointAddress, s.log))
@@ -139,6 +147,15 @@ func (s *AgentServer) init(ctx context.Context) error {
 		catalogservice.NewServiceHandler(catalogStore, deviceStore, fleetStore, eventsSvc, s.log))
 	s.organizationSvc = organizationservice.WrapWithTracing(
 		organizationservice.NewServiceHandler(organizationStore))
+	s.orgProvisioner, err = service.NewOrgProvisionerWithInitialMappings(
+		s.catalogSvc,
+		labelSyncMappingSvc,
+		s.cfg.Organizations.InitialLabelSyncMappingsFile,
+		s.log,
+	)
+	if err != nil {
+		return fmt.Errorf("creating organization provisioner: %w", err)
+	}
 
 	s.agentGrpcServer = NewAgentGrpcServer(s.log, s.cfg, s.ca, s.enrollmentRequestSvc, s.deviceSvc)
 	return nil
@@ -268,8 +285,7 @@ func (s *AgentServer) prepareHTTPHandler(ctx context.Context) (http.Handler, err
 	go s.enrollmentAuthMiddleware.Start()
 
 	// Create identity mapping middleware (handles both user and agent identities)
-	orgProvisioner := service.NewOrgProvisioner(s.catalogSvc, s.log)
-	s.identityMapper = service.NewIdentityMapper(s.organizationSvc, orgProvisioner, s.log)
+	s.identityMapper = service.NewIdentityMapper(s.organizationSvc, s.orgProvisioner, s.log)
 	s.identityMapper.Start()
 	identityMappingMiddleware := fcmiddleware.NewIdentityMappingMiddleware(s.identityMapper, s.log)
 

@@ -29,6 +29,9 @@ type ReconciliationDeviceStore interface {
 var ErrConditionPersistence = errors.New("label reconciliation condition was not persisted")
 
 func (h *ServiceHandler) ReconcileDeviceLabels(ctx context.Context, orgID uuid.UUID, deviceName string) (ReconciliationResult, error) {
+	if h.deviceStore == nil || h.events == nil {
+		return ReconciliationResult{}, errors.New("device-label reconciliation is not configured")
+	}
 	if store.InTransaction(ctx) {
 		return ReconciliationResult{}, errors.New("label-sync reconciliation cannot run inside an existing store transaction")
 	}

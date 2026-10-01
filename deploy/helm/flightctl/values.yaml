@@ -255,6 +255,51 @@ alertmanager:
     # -- Label selector for binding this PVC to a pre-provisioned PersistentVolume by matching labels on the PV. Same immutability caveat as volumeName applies. Leave empty to disable label-based selection.
     matchLabels: {}
 
+# -- Initial LabelSyncMapping provisioning configuration
+organizations:
+  # -- YAML sequence of LabelSyncMapping resources attempted for each new or existing organization. Replaces the defaults; set to [] to disable automatic mapping creation.
+  initialLabelSyncMappings:
+    # BEGIN GENERATED INITIAL LABEL SYNC MAPPINGS
+    - apiVersion: flightctl.io/v1beta1
+      kind: LabelSyncMapping
+      metadata:
+        name: system-info
+      spec:
+        resourceType: Device
+        expression: >-
+          status.systemInfo.transformMapEntry(
+            k,
+            v,
+            k in [
+              "agentVersion",
+              "architecture",
+              "cpuCores",
+              "cpuModel",
+              "cpuProcessors",
+              "deltaEligible",
+              "distroId",
+              "distroVersion",
+              "productName"
+            ],
+            {"systeminfo/" + k: v}
+          )
+    - apiVersion: flightctl.io/v1beta1
+      kind: LabelSyncMapping
+      metadata:
+        name: custom-info
+      spec:
+        resourceType: Device
+        expression: >-
+          (has(status.systemInfo.customInfo) && status.systemInfo.customInfo != null
+            ? status.systemInfo.customInfo
+            : {}).transformMapEntry(
+            k,
+            v,
+            {"custominfo/" + k: v}
+          )
+
+    # END GENERATED INITIAL LABEL SYNC MAPPINGS
+
 
 # -- API Server Configuration
 api:
