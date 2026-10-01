@@ -231,7 +231,7 @@ def before_init_operation(context, operation):
 # Shared helpers
 # ---------------------------------------------------------------------------
 def _kind_for_path(path):
-    """Return the resource kind for collection and item resource paths."""
+    """Return the resource kind for collection, item, and status resource paths."""
     for prefix in sorted(_PATH_TO_KIND, key=len, reverse=True):
         if path == prefix:
             return _PATH_TO_KIND[prefix]
@@ -239,6 +239,8 @@ def _kind_for_path(path):
             continue
         suffix = path[len(prefix) + 1 :]
         if suffix.startswith("{") and suffix.endswith("}") and "/" not in suffix:
+            return _PATH_TO_KIND[prefix]
+        if suffix == "{name}/status":
             return _PATH_TO_KIND[prefix]
     return None
 
