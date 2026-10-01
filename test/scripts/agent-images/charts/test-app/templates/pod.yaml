@@ -13,5 +13,6 @@ spec:
     - name: {{ .Chart.Name }}-standalone
       image: {{ .Values.standalonePod.image | quote }}
       imagePullPolicy: IfNotPresent
+      {{- include "test-app.containerSecurityContext" . | nindent 6 }}
       command: ["sh", "-c", "sleep infinity"]
 {{- end }}

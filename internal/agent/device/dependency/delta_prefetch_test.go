@@ -114,13 +114,14 @@ func TestApplicationDeltaPrefetch(t *testing.T) {
 			target := imageRef{image: image}
 			task := &prefetchTask{delta: tt.delta, deltaGeneration: 1}
 			manager := &prefetchManager{
-				log:               logger,
-				readWriter:        rw,
-				pullTimeout:       time.Minute,
-				ociDelta:          client.NewOCIDelta(logger, exec, time.Minute),
-				tasks:             map[imageRef]*prefetchTask{target: task},
-				deltaGeneration:   1,
-				deltaApplyResults: make(map[string]map[imageRef]applicationDeltaApplyResult),
+				log:                   logger,
+				readWriter:            rw,
+				pullTimeout:           time.Minute,
+				ociDelta:              client.NewOCIDelta(logger, exec, time.Minute),
+				tasks:                 map[imageRef]*prefetchTask{target: task},
+				deltaGeneration:       1,
+				deltaApplyResults:     make(map[string]map[imageRef]applicationDeltaApplyResult),
+				deltaTargetsScheduled: true,
 			}
 
 			pull := func() error {
@@ -209,6 +210,78 @@ func TestAggregateApplicationDeltaApplyResults(t *testing.T) {
 			require.Equal(t, tt.wantFallback, status.FallbackReason)
 		})
 	}
+}
+
+func TestApplicationDeltaStatusWaitsForAllTargetsToHaveResults(t *testing.T) {
+	const application = "app"
+	manager := &prefetchManager{
+		tasks:             make(map[imageRef]*prefetchTask),
+		deltaApplyResults: map[string]map[imageRef]applicationDeltaApplyResult{application: make(map[imageRef]applicationDeltaApplyResult)},
+	}
+
+	for _, image := range []string{
+		"quay.io/acme/workload-1:target",
+		"quay.io/acme/workload-2:target",
+		"quay.io/acme/workload-3:target",
+		"quay.io/acme/workload-4:target",
+		"quay.io/acme/workload-5:target",
+	} {
+		target := imageRef{image: image}
+		manager.tasks[target] = &prefetchTask{delta: &OCIDeltaTarget{Application: application}, done: true}
+		manager.deltaApplyResults[application][target] = applicationDeltaApplyResult{outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}
+	}
+
+	deviceStatus := &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: application}}}
+	require.NoError(t, manager.Status(context.Background(), deviceStatus))
+	require.Nil(t, deviceStatus.Applications[0].LastDelta)
+
+	lastTarget := imageRef{image: "quay.io/acme/workload-6:target"}
+	lastTask := &prefetchTask{delta: &OCIDeltaTarget{Application: application}}
+	manager.tasks[lastTarget] = lastTask
+	manager.deltaTargetsScheduled = true
+	deviceStatus = &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: application}}}
+	require.NoError(t, manager.Status(context.Background(), deviceStatus))
+	require.Nil(t, deviceStatus.Applications[0].LastDelta)
+
+	manager.deltaApplyResults[application][lastTarget] = applicationDeltaApplyResult{
+		outcome:        v1beta1.DeviceDeltaApplyOutcomeFallback,
+		fallbackReason: "delta import failed",
+	}
+	lastTask.done = true
+	deviceStatus = &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: application}}}
+	require.NoError(t, manager.Status(context.Background(), deviceStatus))
+	require.NotNil(t, deviceStatus.Applications[0].LastDelta)
+	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomePartial, deviceStatus.Applications[0].LastDelta.Outcome)
+}
+
+func TestPrepareTaskReusedCompletedTargetReportsNotUsedForNewGeneration(t *testing.T) {
+	const (
+		application = "app"
+		image       = "quay.io/acme/workload:target"
+		digest      = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	)
+
+	target := imageRef{image: image}
+	delta := &OCIDeltaTarget{Hint: "quay.io/acme/delta:target", Application: application}
+	task := &prefetchTask{
+		ociType:              OCITypePodmanImage,
+		targetDigest:         digest,
+		applicationTargetKey: applicationImageTargetKeyFor(target, digest, OCITypePodmanImage),
+		delta:                delta,
+		deltaGeneration:      1,
+		done:                 true,
+	}
+	manager := &prefetchManager{
+		tasks:             map[imageRef]*prefetchTask{target: task},
+		deltaGeneration:   2,
+		deltaApplyResults: make(map[string]map[imageRef]applicationDeltaApplyResult),
+	}
+
+	needsQueue, err := manager.prepareTask(context.Background(), target, OCITypePodmanImage, digest, nil, delta)
+	require.NoError(t, err)
+	require.False(t, needsQueue)
+	require.Equal(t, uint64(2), task.deltaGeneration)
+	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeNotUsed, manager.deltaApplyResults[application][target].outcome)
 }
 
 func TestApplicationDeltaSpecKeyIgnoresOnlyRenderedStatusAndDeltaHints(t *testing.T) {
@@ -362,6 +435,16 @@ func TestApplicationDeltaStatusPersistsAcrossRestartAndClearsForChangedSpec(t *t
 	require.NotNil(t, deviceStatus.Applications[0].LastDelta)
 	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeApplied, deviceStatus.Applications[0].LastDelta.Outcome)
 
+	// The last outcome remains reportable after transient prefetch tasks are
+	// discarded at the end of reconciliation.
+	manager.mu.Lock()
+	manager.tasks = make(map[imageRef]*prefetchTask)
+	manager.mu.Unlock()
+	deviceStatus = &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: "app"}}}
+	require.NoError(t, manager.Status(ctx, deviceStatus))
+	require.NotNil(t, deviceStatus.Applications[0].LastDelta)
+	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeApplied, deviceStatus.Applications[0].LastDelta.Outcome)
+
 	// A new application target clears the old result. Its already-cached image
 	// is reported as NotUsed, rather than inheriting v2's Applied outcome.
 	refV3, targetV3 := makeTarget(imageV3, imageDigestV3, deltaV3, "sha256:source-v2")
@@ -502,10 +585,11 @@ func TestApplicationDeltaPrefetchRunsAsRunAsUser(t *testing.T) {
 			require.Equal(t, runAsUser, username)
 			return client.NewOCIDelta(logger, userExec, time.Minute), nil
 		},
-		pullTimeout:       time.Minute,
-		tasks:             make(map[imageRef]*prefetchTask),
-		deltaGeneration:   1,
-		deltaApplyResults: make(map[string]map[imageRef]applicationDeltaApplyResult),
+		pullTimeout:           time.Minute,
+		tasks:                 make(map[imageRef]*prefetchTask),
+		deltaGeneration:       1,
+		deltaApplyResults:     make(map[string]map[imageRef]applicationDeltaApplyResult),
+		deltaTargetsScheduled: true,
 	}
 	target := imageRef{image: image, owner: runAsUser}
 	task := &prefetchTask{delta: &OCIDeltaTarget{Hint: candidate, Application: "app"}, deltaGeneration: 1}
@@ -562,10 +646,11 @@ func TestApplicationDeltaPrefetchRunAsDeltaImportFailureFallsBackToFullPull(t *t
 			require.Equal(t, runAsUser, username)
 			return client.NewOCIDelta(logger, userExec, time.Minute), nil
 		},
-		pullTimeout:       time.Minute,
-		tasks:             make(map[imageRef]*prefetchTask),
-		deltaGeneration:   1,
-		deltaApplyResults: make(map[string]map[imageRef]applicationDeltaApplyResult),
+		pullTimeout:           time.Minute,
+		tasks:                 make(map[imageRef]*prefetchTask),
+		deltaGeneration:       1,
+		deltaApplyResults:     make(map[string]map[imageRef]applicationDeltaApplyResult),
+		deltaTargetsScheduled: true,
 	}
 	target := imageRef{image: image, owner: runAsUser}
 	task := &prefetchTask{delta: &OCIDeltaTarget{Hint: candidate, Application: "app"}, deltaGeneration: 1}

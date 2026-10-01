@@ -281,6 +281,18 @@ func TestDecorateApplicationTargets(t *testing.T) {
 	require.Empty(t, got[2].Delta.Hint)
 }
 
+func TestDecorateApplicationTargetsDoesNotTrackHelmChartAsWorkloadDelta(t *testing.T) {
+	parentHint := "quay.io/acme/deltas/chart@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+	chart := dependency.OCIPullTarget{
+		Type:      dependency.OCITypeHelmChart,
+		Reference: "quay.io/acme/charts/app:2.0.0",
+	}
+
+	got := decorateApplicationTargets([]dependency.OCIPullTarget{chart}, &parentHint, nil, "helm-app")
+
+	require.Nil(t, got[0].Delta)
+}
+
 func TestCollectProviderTargetsDeferredDependencies(t *testing.T) {
 	tests := []struct {
 		name                string
