@@ -70,3 +70,18 @@ func (mr *MockReconciliationDeviceStoreMockRecorder) GetLabelSnapshot(arg0, arg1
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLabelSnapshot", reflect.TypeOf((*MockReconciliationDeviceStore)(nil).GetLabelSnapshot), arg0, arg1, arg2)
 }
+
+// GetLabelSyncMappingIDsByKeys mocks base method.
+func (m *MockReconciliationDeviceStore) GetLabelSyncMappingIDsByKeys(arg0 context.Context, arg1 uuid.UUID, arg2 []string) (map[string][]uuid.UUID, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetLabelSyncMappingIDsByKeys", arg0, arg1, arg2)
+	ret0, _ := ret[0].(map[string][]uuid.UUID)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetLabelSyncMappingIDsByKeys indicates an expected call of GetLabelSyncMappingIDsByKeys.
+func (mr *MockReconciliationDeviceStoreMockRecorder) GetLabelSyncMappingIDsByKeys(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetLabelSyncMappingIDsByKeys", reflect.TypeOf((*MockReconciliationDeviceStore)(nil).GetLabelSyncMappingIDsByKeys), arg0, arg1, arg2)
+}

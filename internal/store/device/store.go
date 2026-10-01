@@ -1709,11 +1709,13 @@ func (s *DeviceStore) ListDevicesByServiceCondition(ctx context.Context, orgId u
 	var nextContinue *string
 	var numRemaining *int64
 
+	// Decommissioning devices are outside mapping rollouts and may retain stale conditions until deletion.
 	// Build the raw SQL query with proper pagination support for JSONB
 	baseSQL := `
 		SELECT * FROM devices
 		WHERE org_id = ?
 			AND deleted_at IS NULL
+			AND spec->'decommissioning' IS NULL
 			AND service_conditions IS NOT NULL
 			AND (service_conditions->'conditions') @>
 				jsonb_build_array(jsonb_build_object('type', ?::text, 'status', ?::text))`
@@ -1747,6 +1749,7 @@ func (s *DeviceStore) ListDevicesByServiceCondition(ctx context.Context, orgId u
 			SELECT COUNT(*) FROM devices
 			WHERE org_id = ?
 				AND deleted_at IS NULL
+				AND spec->'decommissioning' IS NULL
 				AND service_conditions IS NOT NULL
 				AND (service_conditions->'conditions') @>
 					jsonb_build_array(jsonb_build_object('type', ?::text, 'status', ?::text))
