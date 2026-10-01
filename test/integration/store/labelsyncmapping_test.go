@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -38,7 +39,7 @@ var _ = Describe("LabelSyncMapping reconciliation", func() {
 		db           *gorm.DB
 		orgID        uuid.UUID
 		otherOrgID   uuid.UUID
-		deviceStore  devicestore.Store
+		deviceStore  *devicestore.DeviceStore
 		mappingStore labelsyncmappingstore.Store
 	)
 
@@ -59,6 +60,123 @@ var _ = Describe("LabelSyncMapping reconciliation", func() {
 
 	AfterEach(func() {
 		Expect(testdb.DeleteTestDB(ctx, log, cfg, db, dbName)).To(Succeed())
+	})
+
+	It("When label reconciliation observations change it should preserve conditions and fence stale success and failure", func() {
+		device := newLabelSyncDevice("condition-device", nil)
+		device.Status = lo.ToPtr(domain.NewDeviceStatus())
+		domain.SetStatusCondition(&device.Status.Conditions, domain.Condition{Type: domain.ConditionTypeDeviceSpecValid, Status: domain.ConditionStatusTrue, Reason: "Valid"})
+		created, err := deviceStore.Create(ctx, orgID, device, nil)
+		Expect(err).NotTo(HaveOccurred())
+		observe := func(resource *domain.Device, status domain.ConditionStatus) (domain.DeviceLabelApplyResult, error) {
+			condition := domain.Condition{Type: domain.ConditionTypeDeviceLabelsSynced, Status: status, Reason: "Reconciled", Message: "Device labels are reconciled"}
+			if status == domain.ConditionStatusFalse {
+				condition.Reason, condition.Message = "ReconciliationFailed", "invalid output"
+			}
+			snapshot, err := deviceStore.GetLabelSnapshot(ctx, orgID, "condition-device")
+			Expect(err).NotTo(HaveOccurred())
+			snapshot.Device = *resource
+			return deviceStore.ApplyLabels(ctx, orgID, "condition-device", snapshot, map[string]domain.DesiredDeviceLabel{}, &condition)
+		}
+		absent, err := observe(created, domain.ConditionStatusTrue)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(absent.Device.Metadata.ResourceVersion).To(Equal(created.Metadata.ResourceVersion))
+		Expect(domain.FindStatusCondition(absent.Device.Status.Conditions, domain.ConditionTypeDeviceLabelsSynced)).To(BeNil())
+		failed, err := observe(created, domain.ConditionStatusFalse)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(domain.FindStatusCondition(failed.Device.Status.Conditions, domain.ConditionTypeDeviceSpecValid)).NotTo(BeNil())
+		repeated, err := observe(failed.Device, domain.ConditionStatusFalse)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(repeated.Device.Metadata.ResourceVersion).To(Equal(failed.Device.Metadata.ResourceVersion))
+		_, err = observe(created, domain.ConditionStatusTrue)
+		Expect(err).To(MatchError(flterrors.ErrResourceVersionConflict))
+		recovered, err := observe(failed.Device, domain.ConditionStatusTrue)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(domain.FindStatusCondition(recovered.Device.Status.Conditions, domain.ConditionTypeDeviceLabelsSynced).Status).To(Equal(domain.ConditionStatusTrue))
+		_, err = observe(failed.Device, domain.ConditionStatusFalse)
+		Expect(err).To(MatchError(flterrors.ErrResourceVersionConflict))
+		unchanged, err := observe(recovered.Device, domain.ConditionStatusTrue)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(unchanged.Device.Metadata.ResourceVersion).To(Equal(recovered.Device.Metadata.ResourceVersion))
+		replacement := *unchanged.Device
+		replacement.Status = lo.ToPtr(domain.NewDeviceStatus())
+		_, _, err = deviceStore.UpdateStatus(ctx, orgID, &replacement, unchanged.Device)
+		Expect(err).NotTo(HaveOccurred())
+		updated, err := deviceStore.Get(ctx, orgID, "condition-device")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(domain.FindStatusCondition(updated.Status.Conditions, domain.ConditionTypeDeviceLabelsSynced).Status).To(Equal(domain.ConditionStatusTrue))
+		Expect(domain.FindStatusCondition(updated.Status.Conditions, domain.ConditionTypeDeviceSpecValid)).NotTo(BeNil())
+	})
+
+	It("When False devices are queried it should use an index-compatible predicate and paginate within the organization", func() {
+		for _, name := range []string{"a", "b", "healthy", "absent"} {
+			device := newLabelSyncDevice(name, nil)
+			if name != "absent" {
+				device.Status = lo.ToPtr(domain.NewDeviceStatus())
+				status := domain.ConditionStatusFalse
+				if name == "healthy" {
+					status = domain.ConditionStatusTrue
+				}
+				domain.SetStatusCondition(&device.Status.Conditions, domain.Condition{Type: domain.ConditionTypeDeviceLabelsSynced, Status: status, Reason: "Test"})
+			}
+			_, err := deviceStore.Create(ctx, orgID, device, nil)
+			Expect(err).NotTo(HaveOccurred())
+		}
+		other := newLabelSyncDevice("other", nil)
+		other.Status = lo.ToPtr(domain.NewDeviceStatus())
+		domain.SetStatusCondition(&other.Status.Conditions, domain.Condition{Type: domain.ConditionTypeDeviceLabelsSynced, Status: domain.ConditionStatusFalse, Reason: "Test"})
+		_, err := deviceStore.Create(ctx, otherOrgID, other, nil)
+		Expect(err).NotTo(HaveOccurred())
+		first, err := deviceStore.ListDevicesByServiceCondition(ctx, orgID, "LabelsSynced", "False", store.ListParams{Limit: 1})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(first.Items).To(HaveLen(1))
+		Expect(*first.Items[0].Metadata.Name).To(Equal("a"))
+		cursor, err := store.ParseContinueString(first.Metadata.Continue)
+		Expect(err).NotTo(HaveOccurred())
+		second, err := deviceStore.ListDevicesByServiceCondition(ctx, orgID, "LabelsSynced", "False", store.ListParams{Limit: 1, Continue: cursor})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(second.Items).To(HaveLen(1))
+		Expect(*second.Items[0].Metadata.Name).To(Equal("b"))
+		Expect(second.Metadata.Continue).To(BeNil())
+		// A small fixture can favor a sequential scan; disabling it proves
+		// that the condition predicate can use the existing expression index.
+		var plan []string
+		Expect(db.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Exec("SET LOCAL enable_seqscan = off").Error; err != nil {
+				return err
+			}
+			return tx.Raw(`EXPLAIN SELECT name FROM devices WHERE service_conditions IS NOT NULL AND (service_conditions->'conditions') @> jsonb_build_array(jsonb_build_object('type', ?::text, 'status', ?::text))`, "LabelsSynced", "False").Scan(&plan).Error
+		})).To(Succeed())
+		Expect(strings.Join(plan, "\n")).To(ContainSubstring("idx_devices_service_conditions"))
+		GinkgoWriter.Printf("condition query plan:\n%s\n", strings.Join(plan, "\n"))
+	})
+
+	It("When label ownership fails it should roll back labels and the reconciliation condition together", func() {
+		created, err := deviceStore.Create(ctx, orgID, newLabelSyncDevice("atomic-device", nil), nil)
+		Expect(err).NotTo(HaveOccurred())
+		snapshot, err := deviceStore.GetLabelSnapshot(ctx, orgID, "atomic-device")
+		Expect(err).NotTo(HaveOccurred())
+		missingOwner := uuid.New()
+		desired := map[string]domain.DesiredDeviceLabel{"architecture": {Value: "x86_64", MappingID: &missingOwner}}
+		condition := domain.Condition{Type: domain.ConditionTypeDeviceLabelsSynced, Status: domain.ConditionStatusFalse, Reason: "ReconciliationFailed", Message: "failed mapping"}
+		_, err = deviceStore.ApplyLabels(ctx, orgID, "atomic-device", snapshot, desired, &condition)
+		Expect(err).To(HaveOccurred())
+		unchanged, err := deviceStore.Get(ctx, orgID, "atomic-device")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(unchanged.Metadata.ResourceVersion).To(Equal(created.Metadata.ResourceVersion))
+		Expect(lo.FromPtr(unchanged.Metadata.Labels)).To(BeEmpty())
+		Expect(domain.FindStatusCondition(unchanged.Status.Conditions, domain.ConditionTypeDeviceLabelsSynced)).To(BeNil())
+
+		desired["architecture"] = domain.DesiredDeviceLabel{Value: "x86_64"}
+		applied, err := deviceStore.ApplyLabels(ctx, orgID, "atomic-device", snapshot, desired, &condition)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(applied.Device.Metadata.ResourceVersion).To(Equal(lo.ToPtr("2")))
+		Expect(lo.FromPtr(applied.Device.Metadata.Labels)).To(HaveKeyWithValue("architecture", "x86_64"))
+		Expect(domain.FindStatusCondition(applied.Device.Status.Conditions, domain.ConditionTypeDeviceLabelsSynced).Status).To(Equal(domain.ConditionStatusFalse))
+		persisted, err := deviceStore.Get(ctx, orgID, "atomic-device")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(persisted.Metadata.ResourceVersion).To(Equal(applied.Device.Metadata.ResourceVersion))
+		Expect(domain.FindStatusCondition(persisted.Status.Conditions, domain.ConditionTypeDeviceLabelsSynced).Status).To(Equal(domain.ConditionStatusFalse))
 	})
 
 	It("When mapping state is loaded it should include current and terminating mappings with one revision", func() {
@@ -114,7 +232,7 @@ var _ = Describe("LabelSyncMapping reconciliation", func() {
 					desired[key] = domain.DesiredDeviceLabel{Value: value, MappingID: &ownerID}
 				}
 			}
-			_, err = deviceStore.ApplyLabels(ctx, targetOrgID, name, snapshot, desired)
+			_, err = deviceStore.ApplyLabels(ctx, targetOrgID, name, snapshot, desired, nil)
 			Expect(err).NotTo(HaveOccurred())
 		}
 
@@ -283,6 +401,59 @@ var _ = Describe("LabelSyncMapping reconciliation", func() {
 			{Key: "other-org.key", Owners: []string{"shared-owner"}},
 			{Key: "recreated.key", Owners: []string{}},
 		}))
+	})
+	It("When a mapping scan token changes it should fence only that mapping completion", func() {
+		names := []string{"generation-stale", "failure-stale", "deletion-stale", "current"}
+		namesByID := make(map[uuid.UUID]string, len(names))
+		for _, name := range names {
+			_, err := mappingStore.Create(ctx, orgID, newLabelSyncMapping(name, name))
+			Expect(err).NotTo(HaveOccurred())
+			namesByID[mappingID(ctx, db, orgID, name)] = name
+			status := domain.LabelSyncMappingStatus{Conditions: &[]domain.Condition{{
+				Type:               domain.ConditionTypeLabelSyncMappingReady,
+				Status:             domain.ConditionStatusFalse,
+				Reason:             "Pending",
+				ObservedGeneration: lo.ToPtr(int64(1)),
+			}}}
+			Expect(db.Model(&model.LabelSyncMapping{}).Where("org_id = ? AND name = ?", orgID, name).
+				Update("status", model.MakeJSONField(status)).Error).To(Succeed())
+		}
+
+		targets, err := mappingStore.ListMappingScanTargets(ctx, orgID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(targets).To(HaveLen(len(names)))
+		tokens := make(map[string]labelsyncmappingstore.MappingScanRecord, len(targets))
+		for _, token := range targets {
+			tokens[namesByID[token.MappingID]] = token
+		}
+
+		generationMapping, err := mappingStore.Get(ctx, orgID, "generation-stale")
+		Expect(err).NotTo(HaveOccurred())
+		generationMapping.Spec.Expression += " + '-updated'"
+		_, _, err = mappingStore.Update(ctx, orgID, generationMapping)
+		Expect(err).NotTo(HaveOccurred())
+
+		failureToken, updated, err := mappingStore.RecordMappingScanFailure(ctx, orgID, tokens["failure-stale"], "mapping evaluation failed")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(updated).To(BeTrue())
+		Expect(failureToken.FailureRevision).To(Equal(tokens["failure-stale"].FailureRevision + 1))
+
+		deleted, err := mappingStore.Delete(ctx, orgID, "deletion-stale")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(deleted).To(BeTrue())
+
+		completed, err := mappingStore.CompleteMappingScan(ctx, orgID, targets)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(completed).To(HaveKeyWithValue(tokens["generation-stale"].MappingID, false))
+		Expect(completed).To(HaveKeyWithValue(tokens["failure-stale"].MappingID, false))
+		Expect(completed).To(HaveKeyWithValue(tokens["deletion-stale"].MappingID, false))
+		Expect(completed).To(HaveKeyWithValue(tokens["current"].MappingID, true))
+
+		current, err := mappingStore.Get(ctx, orgID, "current")
+		Expect(err).NotTo(HaveOccurred())
+		ready := domain.FindStatusCondition(lo.FromPtr(current.Status.Conditions), domain.ConditionTypeLabelSyncMappingReady)
+		Expect(ready).NotTo(BeNil())
+		Expect(ready.Reason).To(Equal("Success"))
 	})
 
 	It("When scalar keys are claimed it should enforce exact-key uniqueness within one organization", func() {
@@ -517,7 +688,7 @@ var _ = Describe("LabelSyncMapping reconciliation", func() {
 			"same":     {Value: "unchanged", MappingID: &firstID},
 		}
 
-		applied, err := deviceStore.ApplyLabels(ctx, orgID, "managed-device", snapshot, desired)
+		applied, err := deviceStore.ApplyLabels(ctx, orgID, "managed-device", snapshot, desired, nil)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(applied.LabelsChanged).To(BeTrue())
 		Expect(applied.ManagedLabelsChanged).To(BeTrue())
@@ -540,7 +711,7 @@ var _ = Describe("LabelSyncMapping reconciliation", func() {
 				desired[key] = label
 			}
 		}
-		transferred, err := deviceStore.ApplyLabels(ctx, orgID, "managed-device", snapshot, desired)
+		transferred, err := deviceStore.ApplyLabels(ctx, orgID, "managed-device", snapshot, desired, nil)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(transferred.LabelsChanged).To(BeFalse())
 		Expect(transferred.ManagedLabelsChanged).To(BeFalse())
@@ -551,7 +722,7 @@ var _ = Describe("LabelSyncMapping reconciliation", func() {
 
 		snapshot, err = deviceStore.GetLabelSnapshot(ctx, orgID, "managed-device")
 		Expect(err).NotTo(HaveOccurred())
-		unchanged, err := deviceStore.ApplyLabels(ctx, orgID, "managed-device", snapshot, desired)
+		unchanged, err := deviceStore.ApplyLabels(ctx, orgID, "managed-device", snapshot, desired, nil)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(unchanged.LabelsChanged).To(BeFalse())
 		Expect(unchanged.ManagedLabelsChanged).To(BeFalse())
@@ -570,7 +741,7 @@ var _ = Describe("LabelSyncMapping reconciliation", func() {
 
 		snapshot, err = deviceStore.GetLabelSnapshot(ctx, orgID, "managed-device")
 		Expect(err).NotTo(HaveOccurred())
-		repaired, err := deviceStore.ApplyLabels(ctx, orgID, "managed-device", snapshot, desired)
+		repaired, err := deviceStore.ApplyLabels(ctx, orgID, "managed-device", snapshot, desired, nil)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(repaired.LabelsChanged).To(BeFalse())
 		Expect(repaired.ManagedLabelsChanged).To(BeTrue())
@@ -581,7 +752,7 @@ var _ = Describe("LabelSyncMapping reconciliation", func() {
 		Expect(err).NotTo(HaveOccurred())
 		cleaned, err := deviceStore.ApplyLabels(ctx, orgID, "managed-device", snapshot, map[string]domain.DesiredDeviceLabel{
 			"manual": {Value: "preserved"},
-		})
+		}, nil)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(cleaned.LabelsChanged).To(BeTrue())
 		Expect(cleaned.ManagedLabelsChanged).To(BeTrue())
@@ -606,7 +777,7 @@ var _ = Describe("LabelSyncMapping reconciliation", func() {
 		Expect(err).NotTo(HaveOccurred())
 		_, err = deviceStore.ApplyLabels(ctx, orgID, "owner-transfer-race", snapshot, map[string]domain.DesiredDeviceLabel{
 			"managed": {Value: "value", MappingID: &ownerA},
-		})
+		}, nil)
 		Expect(err).NotTo(HaveOccurred())
 		snapshot, err = deviceStore.GetLabelSnapshot(ctx, orgID, "owner-transfer-race")
 		Expect(err).NotTo(HaveOccurred())
@@ -632,7 +803,7 @@ var _ = Describe("LabelSyncMapping reconciliation", func() {
 		defer cancel()
 		removeResult := make(chan error, 1)
 		go func() {
-			_, err := deviceStore.ApplyLabels(testCtx, orgID, "owner-transfer-race", snapshot, map[string]domain.DesiredDeviceLabel{})
+			_, err := deviceStore.ApplyLabels(testCtx, orgID, "owner-transfer-race", snapshot, map[string]domain.DesiredDeviceLabel{}, nil)
 			removeResult <- err
 		}()
 		select {
@@ -645,7 +816,7 @@ var _ = Describe("LabelSyncMapping reconciliation", func() {
 		Expect(err).NotTo(HaveOccurred())
 		transferred, err := deviceStore.ApplyLabels(testCtx, orgID, "owner-transfer-race", transferSnapshot, map[string]domain.DesiredDeviceLabel{
 			"managed": {Value: "value", MappingID: &ownerB},
-		})
+		}, nil)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(transferred.OwnershipChanged).To(BeTrue())
 		Expect(lo.FromPtr(transferred.Device.Metadata.ResourceVersion)).To(Equal("3"))
@@ -1055,6 +1226,13 @@ func mappingID(ctx context.Context, db *gorm.DB, orgID uuid.UUID, name string) u
 	var mapping model.LabelSyncMapping
 	Expect(db.WithContext(ctx).Select("id").Where("org_id = ? AND name = ?", orgID, name).Take(&mapping).Error).To(Succeed())
 	return mapping.ID
+}
+
+func newLabelSyncDevice(name string, labels map[string]string) *domain.Device {
+	return &domain.Device{
+		Metadata: domain.ObjectMeta{Name: &name, Labels: &labels},
+		Spec:     &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "os"}},
+	}
 }
 
 func newLabelSyncMapping(name, key string) *api.LabelSyncMapping {

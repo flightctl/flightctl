@@ -44,6 +44,18 @@ func endSpan(span trace.Span, st domain.Status) {
 	span.End()
 }
 
+func (_d *TracedService) CompleteMappingScan(ctx context.Context, u1 uuid.UUID, ma1 []MappingScanToken) (m1 map[uuid.UUID]bool, err error) {
+	ctx, span := startSpan(ctx, "CompleteMappingScan")
+
+	m1, err = _d.inner.CompleteMappingScan(ctx, u1, ma1)
+	st := domain.StatusOK()
+	if err != nil {
+		st = domain.StatusInternalServerError(err.Error())
+	}
+	endSpan(span, st)
+	return m1, err
+}
+
 func (_d *TracedService) CreateLabelSyncMapping(ctx context.Context, u1 uuid.UUID, l1 domain.LabelSyncMapping) (lp1 *domain.LabelSyncMapping, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "CreateLabelSyncMapping")
 
@@ -92,6 +104,18 @@ func (_d *TracedService) ListLabelSyncMappings(ctx context.Context, u1 uuid.UUID
 	return lp1, s1
 }
 
+func (_d *TracedService) ListMappingScanTargets(ctx context.Context, u1 uuid.UUID) (ma1 []MappingScanToken, err error) {
+	ctx, span := startSpan(ctx, "ListMappingScanTargets")
+
+	ma1, err = _d.inner.ListMappingScanTargets(ctx, u1)
+	st := domain.StatusOK()
+	if err != nil {
+		st = domain.StatusInternalServerError(err.Error())
+	}
+	endSpan(span, st)
+	return ma1, err
+}
+
 func (_d *TracedService) PatchLabelSyncMapping(ctx context.Context, u1 uuid.UUID, s1 string, p1 domain.PatchRequest) (lp1 *domain.LabelSyncMapping, s2 domain.Status) {
 	ctx, span := startSpan(ctx, "PatchLabelSyncMapping")
 
@@ -110,6 +134,18 @@ func (_d *TracedService) ReconcileDeviceLabels(ctx context.Context, u1 uuid.UUID
 	}
 	endSpan(span, st)
 	return r1, err
+}
+
+func (_d *TracedService) RecordMappingScanFailure(ctx context.Context, u1 uuid.UUID, m1 MappingScanToken, s1 string) (m2 MappingScanToken, b1 bool, err error) {
+	ctx, span := startSpan(ctx, "RecordMappingScanFailure")
+
+	m2, b1, err = _d.inner.RecordMappingScanFailure(ctx, u1, m1, s1)
+	st := domain.StatusOK()
+	if err != nil {
+		st = domain.StatusInternalServerError(err.Error())
+	}
+	endSpan(span, st)
+	return m2, b1, err
 }
 
 func (_d *TracedService) ReplaceLabelSyncMapping(ctx context.Context, u1 uuid.UUID, s1 string, l1 domain.LabelSyncMapping) (lp1 *domain.LabelSyncMapping, s2 domain.Status) {

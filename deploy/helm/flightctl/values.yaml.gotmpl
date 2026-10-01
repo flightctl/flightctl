@@ -368,13 +368,20 @@ periodic:
       schedule:
         # -- How often flightctl-periodic checks for expired delta prepares
         interval: 1m
+    labelMappingScan:
+      schedule:
+        # -- How often to scan devices after a label mapping changes
+        interval: 2m
+      # -- Maximum number of devices in each label mapping scan page (1–1000)
+      pageSize: 1000
+      # -- Maximum work time per label mapping scan invocation
+      timeBudget: 30s
   # -- Metrics configuration for flightctl-periodic
   metrics:
     # -- Enable Prometheus metrics endpoint
     enabled: true
     # -- Address for the metrics HTTP server
     address: ":15690"
-
 # -- Remote Access Configuration
 remoteAccess:
   # -- Enable remote access service

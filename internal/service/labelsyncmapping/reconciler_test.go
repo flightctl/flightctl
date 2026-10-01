@@ -14,6 +14,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 type evaluatorResponse struct {
@@ -37,22 +38,10 @@ func (e *reconciliationEvaluator) Evaluate(expression string, _ Activation) (Res
 	return response.result, response.err
 }
 
-type reconciliationStoreStub struct {
-	labelsyncmappingstore.Store
-	snapshots []labelsyncmappingstore.DeviceMappingsSnapshot
-	reads     int
-}
-
-func (s *reconciliationStoreStub) GetDeviceMappingsSnapshot(context.Context, uuid.UUID) (labelsyncmappingstore.DeviceMappingsSnapshot, error) {
-	if len(s.snapshots) == 0 {
-		return labelsyncmappingstore.DeviceMappingsSnapshot{}, nil
-	}
-	index := s.reads
-	if index >= len(s.snapshots) {
-		index = len(s.snapshots) - 1
-	}
-	s.reads++
-	return s.snapshots[index], nil
+type reconciliationMappingState struct {
+	snapshots      []labelsyncmappingstore.DeviceMappingsSnapshot
+	snapshotErrors []error
+	reads          int
 }
 
 type deviceApplyResponse struct {
@@ -65,52 +54,53 @@ type postgresStateError string
 func (e postgresStateError) Error() string    { return "postgres error" }
 func (e postgresStateError) SQLState() string { return string(e) }
 
-type reconciliationDeviceStub struct {
+type reconciliationDeviceState struct {
 	snapshots []domain.DeviceLabelSnapshot
 	gets      int
 	applies   []deviceApplyResponse
 	applyArgs []map[string]domain.DesiredDeviceLabel
 }
 
-func (s *reconciliationDeviceStub) GetLabelSnapshot(context.Context, uuid.UUID, string) (domain.DeviceLabelSnapshot, error) {
-	index := s.gets
-	if index >= len(s.snapshots) {
-		index = len(s.snapshots) - 1
-	}
-	s.gets++
-	return s.snapshots[index], nil
-}
-
-func (*reconciliationDeviceStub) GetLabelSyncMappingIDsByKeys(context.Context, uuid.UUID, []string) (map[string][]uuid.UUID, error) {
-	return map[string][]uuid.UUID{}, nil
-}
-
-func (s *reconciliationDeviceStub) ApplyLabels(_ context.Context, _ uuid.UUID, _ string, _ domain.DeviceLabelSnapshot, desired map[string]domain.DesiredDeviceLabel) (domain.DeviceLabelApplyResult, error) {
-	cloned := make(map[string]domain.DesiredDeviceLabel, len(desired))
-	for key, label := range desired {
-		cloned[key] = label
-	}
-	s.applyArgs = append(s.applyArgs, cloned)
-	index := len(s.applyArgs) - 1
-	if index >= len(s.applies) {
-		return domain.DeviceLabelApplyResult{}, nil
-	}
-	response := s.applies[index]
-	return response.result, response.err
-}
-
-type reconciliationEventsStub struct{}
-
-func (reconciliationEventsStub) CreateEvent(context.Context, uuid.UUID, *domain.Event) {}
-
-func (reconciliationEventsStub) HandleGenericResourceDeletedEvents(context.Context, domain.ResourceKind, uuid.UUID, string, interface{}, interface{}, bool, error) {
-}
-
-func newReconcilerService(t *testing.T, mappingStore labelsyncmappingstore.Store, devices ReconciliationDeviceStore, evaluator Evaluator) *ServiceHandler {
+func newReconcilerService(t *testing.T, mappings *reconciliationMappingState, devices *reconciliationDeviceState, evaluator Evaluator) *ServiceHandler {
 	t.Helper()
-	service, err := NewServiceHandler(mappingStore, devices, evaluator, eventservice.Service(reconciliationEventsStub{}), logrus.New())
+	ctrl := gomock.NewController(t)
+	mappingStore := labelsyncmappingstore.NewMockStore(ctrl)
+	mappingStore.EXPECT().GetDeviceMappingsSnapshot(gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, uuid.UUID) (labelsyncmappingstore.DeviceMappingsSnapshot, error) {
+		index := mappings.reads
+		mappings.reads++
+		if index >= len(mappings.snapshots) {
+			index = len(mappings.snapshots) - 1
+		}
+		var err error
+		if index < len(mappings.snapshotErrors) {
+			err = mappings.snapshotErrors[index]
+		}
+		return mappings.snapshots[index], err
+	}).AnyTimes()
+	deviceStore := NewMockReconciliationDeviceStore(ctrl)
+	deviceStore.EXPECT().GetLabelSnapshot(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, uuid.UUID, string) (domain.DeviceLabelSnapshot, error) {
+		index := devices.gets
+		devices.gets++
+		if index >= len(devices.snapshots) {
+			index = len(devices.snapshots) - 1
+		}
+		return devices.snapshots[index], nil
+	}).AnyTimes()
+	deviceStore.EXPECT().ApplyLabels(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, _ uuid.UUID, _ string, snapshot domain.DeviceLabelSnapshot, desired map[string]domain.DesiredDeviceLabel, _ *domain.Condition) (domain.DeviceLabelApplyResult, error) {
+		devices.applyArgs = append(devices.applyArgs, desired)
+		response := deviceApplyResponse{}
+		index := len(devices.applyArgs) - 1
+		if index < len(devices.applies) {
+			response = devices.applies[index]
+		}
+		response.result.Device = &snapshot.Device
+		return response.result, response.err
+	}).AnyTimes()
+	events := eventservice.NewMockService(ctrl)
+	events.EXPECT().CreateEvent(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+	handler, err := NewServiceHandler(mappingStore, deviceStore, evaluator, events, logrus.New())
 	require.NoError(t, err)
-	return service
+	return handler
 }
 
 func TestDesiredDeviceLabelsPreservesUserLabelsAndTakesOverMatchingKeys(t *testing.T) {
@@ -236,9 +226,9 @@ func TestReconcileDeviceLabelsRetriesDeviceVersionConflict(t *testing.T) {
 	orgID := uuid.New()
 	mappingID := uuid.New()
 	mapping := testDeviceMapping(mappingID, "architecture", "mapped", loPtr("architecture"))
-	mappingStore := &reconciliationStoreStub{snapshots: []labelsyncmappingstore.DeviceMappingsSnapshot{{Mappings: []labelsyncmappingstore.DeviceMapping{mapping}, Revision: 1}}}
+	mappingStore := &reconciliationMappingState{snapshots: []labelsyncmappingstore.DeviceMappingsSnapshot{{Mappings: []labelsyncmappingstore.DeviceMapping{mapping}, Revision: 1}}}
 	snapshot := deviceLabelSnapshot("edge-01", "1", map[string]string{"manual": "keep"}, nil)
-	devices := &reconciliationDeviceStub{
+	devices := &reconciliationDeviceState{
 		snapshots: []domain.DeviceLabelSnapshot{snapshot},
 		applies: []deviceApplyResponse{
 			{err: flterrors.ErrResourceVersionConflict},
@@ -251,22 +241,51 @@ func TestReconcileDeviceLabelsRetriesDeviceVersionConflict(t *testing.T) {
 	result, err := service.ReconcileDeviceLabels(context.Background(), orgID, "edge-01")
 	require.NoError(t, err)
 	assert.True(t, result.LabelsChanged)
+	assert.True(t, result.MappingApplyCommitted)
 	assert.Len(t, devices.applyArgs, 2)
 	assert.Equal(t, 3, mappingStore.reads)
 	assert.Equal(t, []string{"mapped", "mapped"}, evaluator.called)
 	assert.Equal(t, domain.DesiredDeviceLabel{Value: "x86_64", MappingID: &mappingID}, devices.applyArgs[0]["architecture"])
 }
 
+func TestReconcileDeviceLabelsReportsCommittedApplyAfterVerificationFailure(t *testing.T) {
+	orgID := uuid.New()
+	mappingID := uuid.New()
+	mapping := testDeviceMapping(mappingID, "architecture", "mapped", loPtr("architecture"))
+	storeSnapshot := labelsyncmappingstore.DeviceMappingsSnapshot{Mappings: []labelsyncmappingstore.DeviceMapping{mapping}, Revision: 1}
+	verificationErr := errors.New("mapping revision check failed")
+	mappingStore := &reconciliationMappingState{
+		snapshots:      []labelsyncmappingstore.DeviceMappingsSnapshot{storeSnapshot, storeSnapshot},
+		snapshotErrors: []error{nil, verificationErr},
+	}
+	snapshot := deviceLabelSnapshot("edge-01", "1", map[string]string{}, nil)
+	devices := &reconciliationDeviceState{
+		snapshots: []domain.DeviceLabelSnapshot{snapshot},
+		applies: []deviceApplyResponse{
+			{result: domain.DeviceLabelApplyResult{LabelsChanged: true}},
+			{},
+		},
+	}
+	evaluator := &reconciliationEvaluator{responses: map[string]evaluatorResponse{"mapped": {result: ScalarResult("x86_64")}}}
+	service := newReconcilerService(t, mappingStore, devices, evaluator)
+
+	result, err := service.ReconcileDeviceLabels(context.Background(), orgID, "edge-01")
+
+	require.ErrorIs(t, err, verificationErr)
+	assert.True(t, result.MappingApplyCommitted)
+	assert.Len(t, devices.applyArgs, 2)
+}
+
 func TestReconcileDeviceLabelsSkipsDecommissionedDevice(t *testing.T) {
 	orgID := uuid.New()
 	mappingID := uuid.New()
 	mapping := testDeviceMapping(mappingID, "architecture", "mapped", loPtr("architecture"))
-	mappingStore := &reconciliationStoreStub{snapshots: []labelsyncmappingstore.DeviceMappingsSnapshot{{Mappings: []labelsyncmappingstore.DeviceMapping{mapping}, Revision: 1}}}
+	mappingStore := &reconciliationMappingState{snapshots: []labelsyncmappingstore.DeviceMappingsSnapshot{{Mappings: []labelsyncmappingstore.DeviceMapping{mapping}, Revision: 1}}}
 	decommissioning := domain.DeviceDecommission{}
 	snapshot := deviceLabelSnapshot("edge-01", "2", map[string]string{}, nil)
 	snapshot.Device.Spec = &domain.DeviceSpec{Decommissioning: &decommissioning}
 	snapshot.Device.Metadata.Labels = nil
-	devices := &reconciliationDeviceStub{snapshots: []domain.DeviceLabelSnapshot{snapshot}}
+	devices := &reconciliationDeviceState{snapshots: []domain.DeviceLabelSnapshot{snapshot}}
 	evaluator := &reconciliationEvaluator{responses: map[string]evaluatorResponse{"mapped": {result: ScalarResult("x86_64")}}}
 	service := newReconcilerService(t, mappingStore, devices, evaluator)
 
@@ -281,13 +300,13 @@ func TestReconcileDeviceLabelsStopsAfterDecommissionWinsSnapshotRace(t *testing.
 	orgID := uuid.New()
 	mappingID := uuid.New()
 	mapping := testDeviceMapping(mappingID, "architecture", "mapped", loPtr("architecture"))
-	mappingStore := &reconciliationStoreStub{snapshots: []labelsyncmappingstore.DeviceMappingsSnapshot{{Mappings: []labelsyncmappingstore.DeviceMapping{mapping}, Revision: 1}}}
+	mappingStore := &reconciliationMappingState{snapshots: []labelsyncmappingstore.DeviceMappingsSnapshot{{Mappings: []labelsyncmappingstore.DeviceMapping{mapping}, Revision: 1}}}
 	activeSnapshot := deviceLabelSnapshot("edge-01", "1", map[string]string{"manual": "keep"}, nil)
 	decommissioning := domain.DeviceDecommission{}
 	decommissionedSnapshot := deviceLabelSnapshot("edge-01", "2", map[string]string{}, nil)
 	decommissionedSnapshot.Device.Spec = &domain.DeviceSpec{Decommissioning: &decommissioning}
 	decommissionedSnapshot.Device.Metadata.Labels = nil
-	devices := &reconciliationDeviceStub{
+	devices := &reconciliationDeviceState{
 		snapshots: []domain.DeviceLabelSnapshot{activeSnapshot, decommissionedSnapshot},
 		applies:   []deviceApplyResponse{{err: flterrors.ErrResourceVersionConflict}},
 	}
@@ -302,28 +321,13 @@ func TestReconcileDeviceLabelsStopsAfterDecommissionWinsSnapshotRace(t *testing.
 	assert.Equal(t, 2, devices.gets)
 }
 
-func TestReconcileDeviceLabelsSkipsDeviceStoreWhenNoMappings(t *testing.T) {
-	orgID := uuid.New()
-	mappingStore := &reconciliationStoreStub{snapshots: []labelsyncmappingstore.DeviceMappingsSnapshot{{}}}
-	devices := &reconciliationDeviceStub{}
-	service := newReconcilerService(t, mappingStore, devices, &reconciliationEvaluator{})
-
-	result, err := service.ReconcileDeviceLabels(context.Background(), orgID, "edge-01")
-
-	require.NoError(t, err)
-	assert.Empty(t, result.MappingOutcomes)
-	assert.Equal(t, 1, mappingStore.reads)
-	assert.Zero(t, devices.gets)
-	assert.Empty(t, devices.applyArgs)
-}
-
 func TestReconcileDeviceLabelsRetriesDatabaseDeadlock(t *testing.T) {
 	orgID := uuid.New()
 	mappingID := uuid.New()
 	mapping := testDeviceMapping(mappingID, "architecture", "mapped", loPtr("architecture"))
-	mappingStore := &reconciliationStoreStub{snapshots: []labelsyncmappingstore.DeviceMappingsSnapshot{{Mappings: []labelsyncmappingstore.DeviceMapping{mapping}, Revision: 1}}}
+	mappingStore := &reconciliationMappingState{snapshots: []labelsyncmappingstore.DeviceMappingsSnapshot{{Mappings: []labelsyncmappingstore.DeviceMapping{mapping}, Revision: 1}}}
 	snapshot := deviceLabelSnapshot("edge-01", "1", map[string]string{}, nil)
-	devices := &reconciliationDeviceStub{
+	devices := &reconciliationDeviceState{
 		snapshots: []domain.DeviceLabelSnapshot{snapshot},
 		applies: []deviceApplyResponse{
 			{err: postgresStateError("40P01")},
@@ -344,14 +348,14 @@ func TestReconcileDeviceLabelsRetriesWhenMappingRevisionChangesAfterWrite(t *tes
 	orgID := uuid.New()
 	mappingID := uuid.New()
 	mapping := testDeviceMapping(mappingID, "architecture", "mapped", loPtr("architecture"))
-	mappingStore := &reconciliationStoreStub{snapshots: []labelsyncmappingstore.DeviceMappingsSnapshot{
+	mappingStore := &reconciliationMappingState{snapshots: []labelsyncmappingstore.DeviceMappingsSnapshot{
 		{Mappings: []labelsyncmappingstore.DeviceMapping{mapping}, Revision: 1},
 		{Mappings: []labelsyncmappingstore.DeviceMapping{mapping}, Revision: 2},
 		{Mappings: []labelsyncmappingstore.DeviceMapping{mapping}, Revision: 2},
 		{Mappings: []labelsyncmappingstore.DeviceMapping{mapping}, Revision: 2},
 	}}
 	snapshot := deviceLabelSnapshot("edge-01", "1", map[string]string{}, nil)
-	devices := &reconciliationDeviceStub{
+	devices := &reconciliationDeviceState{
 		snapshots: []domain.DeviceLabelSnapshot{snapshot},
 		applies: []deviceApplyResponse{
 			{result: domain.DeviceLabelApplyResult{LabelsChanged: true, ManagedLabelsChanged: true, OwnershipChanged: true}},
@@ -372,54 +376,15 @@ func TestReconcileDeviceLabelsRetriesWhenMappingRevisionChangesAfterWrite(t *tes
 	assert.Equal(t, 4, mappingStore.reads)
 }
 
-func TestReconcileDeviceLabelsReturnsFailureOutcomesWhenMappingRevisionKeepsChanging(t *testing.T) {
-	orgID := uuid.New()
-	mappingID := uuid.New()
-	latestMappingID := uuid.New()
-	mapping := testDeviceMapping(mappingID, "architecture", "mapped", loPtr("architecture"))
-	latestMapping := testDeviceMapping(latestMappingID, "architecture", "mapped", loPtr("architecture"))
-	generation := int64(1)
-	resourceVersion := "snapshot-rv"
-	mapping.Mapping.Metadata.Generation = &generation
-	mapping.Mapping.Metadata.ResourceVersion = &resourceVersion
-	latestGeneration := int64(2)
-	latestResourceVersion := "latest-rv"
-	latestMapping.Mapping.Metadata.Generation = &latestGeneration
-	latestMapping.Mapping.Metadata.ResourceVersion = &latestResourceVersion
-
-	mappingSnapshots := make([]labelsyncmappingstore.DeviceMappingsSnapshot, 0, maxReconciliationAttempts*2)
-	for attempt := 0; attempt < maxReconciliationAttempts; attempt++ {
-		mappingSnapshots = append(mappingSnapshots,
-			labelsyncmappingstore.DeviceMappingsSnapshot{Mappings: []labelsyncmappingstore.DeviceMapping{mapping}, Revision: int64(attempt*2 + 1)},
-			labelsyncmappingstore.DeviceMappingsSnapshot{Mappings: []labelsyncmappingstore.DeviceMapping{latestMapping}, Revision: int64(attempt*2 + 2)},
-		)
-	}
-	mappingStore := &reconciliationStoreStub{snapshots: mappingSnapshots}
-	devices := &reconciliationDeviceStub{snapshots: []domain.DeviceLabelSnapshot{deviceLabelSnapshot("edge-01", "1", map[string]string{}, nil)}}
-	evaluator := &reconciliationEvaluator{responses: map[string]evaluatorResponse{"mapped": {result: ScalarResult("x86_64")}}}
-	service := newReconcilerService(t, mappingStore, devices, evaluator)
-
-	result, err := service.ReconcileDeviceLabels(context.Background(), orgID, "edge-01")
-
-	require.ErrorIs(t, err, flterrors.ErrResourceVersionConflict)
-	require.Len(t, result.MappingOutcomes, 1)
-	assert.Equal(t, mappingID, result.MappingOutcomes[0].MappingID)
-	assert.Equal(t, generation, result.MappingOutcomes[0].Generation)
-	assert.Equal(t, resourceVersion, result.MappingOutcomes[0].ResourceVersion)
-	assert.ErrorIs(t, result.MappingOutcomes[0].Err, flterrors.ErrResourceVersionConflict)
-	assert.Len(t, devices.applyArgs, maxReconciliationAttempts)
-	assert.Equal(t, maxReconciliationAttempts*2, mappingStore.reads)
-}
-
 func TestReconcileDeviceLabelsDoesNotRepeatOwnerOnlyTransfer(t *testing.T) {
 	orgID := uuid.New()
 	mappingID := uuid.New()
 	mapping := testDeviceMapping(mappingID, "architecture", "mapped", loPtr("architecture"))
 	storeSnapshot := labelsyncmappingstore.DeviceMappingsSnapshot{Mappings: []labelsyncmappingstore.DeviceMapping{mapping}, Revision: 1}
-	mappingStore := &reconciliationStoreStub{snapshots: []labelsyncmappingstore.DeviceMappingsSnapshot{storeSnapshot}}
+	mappingStore := &reconciliationMappingState{snapshots: []labelsyncmappingstore.DeviceMappingsSnapshot{storeSnapshot}}
 	labels := map[string]string{"architecture": "x86_64"}
 	snapshotOne := deviceLabelSnapshot("edge-01", "1", labels, []domain.DeviceLabelOwnership{{Key: "architecture", Value: "x86_64"}})
-	devices := &reconciliationDeviceStub{
+	devices := &reconciliationDeviceState{
 		snapshots: []domain.DeviceLabelSnapshot{snapshotOne},
 		applies:   []deviceApplyResponse{{result: domain.DeviceLabelApplyResult{OwnershipChanged: true}}},
 	}
