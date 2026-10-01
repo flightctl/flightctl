@@ -7315,11 +7315,66 @@ components:
             agent does not report the field.
         customInfo:
           $ref: "#/components/schemas/CustomDeviceInfo"
+        gpus:
+          type: array
+          description: List of GPU devices discovered on the device.
+          items:
+            $ref: "#/components/schemas/DeviceGpu"
+        kvm:
+          $ref: "#/components/schemas/DeviceKvm"
+        osMode:
+          $ref: '#/components/schemas/OsModeType'
       additionalProperties:
         type: string
         description: |
           Optional system attributes exposed by the agent.
           Each key corresponds to a configurable internal capability.
+    DeviceGpu:
+      type: object
+      description: Information about a GPU device discovered on the device.
+      properties:
+        index:
+          type: integer
+          description: The index of the GPU device on the system.
+        vendor:
+          type: string
+          description: The GPU vendor name.
+        model:
+          type: string
+          description: The GPU model name.
+        deviceId:
+          type: string
+          description: The PCI device ID of the GPU.
+        pciAddress:
+          type: string
+          description: The PCI bus address of the GPU.
+        revisionId:
+          type: string
+          description: The PCI revision ID of the GPU.
+        vendorId:
+          type: string
+          description: The PCI vendor ID of the GPU.
+        memoryBytes:
+          type: integer
+          format: int64
+          description: The amount of GPU memory in bytes.
+        arch:
+          type: string
+          description: The GPU architecture.
+        features:
+          type: array
+          description: The list of supported GPU features.
+          items:
+            type: string
+    DeviceKvm:
+      type: object
+      description: KVM virtualization information reported by the device.
+      properties:
+        enabled:
+          type: boolean
+          description: >-
+            Whether KVM virtualization is active and available on the
+            device.
     CustomDeviceInfo:
       type: object
       description: User-defined information about the device.
