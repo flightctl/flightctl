@@ -446,6 +446,12 @@ func (h *DeviceServiceHandler) ReplaceDeviceStatus(ctx context.Context, orgId uu
 			defer h.agentGate.Release(1)
 		}
 		incomingDevice.Status.LastSeen = lo.ToPtr(time.Now())
+		// Agent status updates are an explicit liveness signal. Persist it immediately
+		// because Status.LastSeen is stored outside the status JSON, while rendered
+		// device heartbeats are intentionally batched by the healthchecker.
+		if err := h.deviceStore.Healthcheck(ctx, orgId, []string{name}); err != nil {
+			return nil, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
+		}
 	}
 
 	// UpdateServiceSideStatus() needs to know the latest .metadata.annotations[device-controller/renderedVersion]
