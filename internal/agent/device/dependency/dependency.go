@@ -250,6 +250,7 @@ type PrefetchStatus struct {
 type applicationDeltaApplyResult struct {
 	outcome        v1beta1.DeviceDeltaApplyOutcomeType
 	fallbackReason string
+	targetKey      string
 }
 
 var _ PrefetchManager = (*prefetchManager)(nil)
@@ -556,11 +557,7 @@ func (m *prefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1
 		restoredResults = m.restoreApplicationDeltaResults(appTargetKeys, targetRefs)
 	}
 	m.mu.Lock()
-	if canPersistDeltaStatus {
-		m.deltaAppTargetKeys = appTargetKeys
-	} else {
-		m.deltaAppTargetKeys = nil
-	}
+	m.deltaAppTargetKeys = appTargetKeys
 	m.deltaApplyResults = mergeApplicationDeltaResults(m.deltaApplyResults, restoredResults)
 	m.mu.Unlock()
 
@@ -713,6 +710,7 @@ func (m *prefetchManager) restoreApplicationDeltaResults(
 			results[application][target] = applicationDeltaApplyResult{
 				outcome:        persisted.Status.Outcome,
 				fallbackReason: fallbackReason,
+				targetKey:      targetKey,
 			}
 		}
 	}
@@ -1248,12 +1246,16 @@ func (m *prefetchManager) recordDeltaApplyResultLocked(target imageRef, task *pr
 			results = make(map[imageRef]applicationDeltaApplyResult)
 			m.deltaApplyResults[application] = results
 		}
-		if outcome == v1beta1.DeviceDeltaApplyOutcomeNotUsed {
-			if _, exists := results[target]; exists {
+		if existing, exists := results[target]; outcome == v1beta1.DeviceDeltaApplyOutcomeNotUsed && exists {
+			if existing.targetKey == task.applicationTargetKey {
 				continue
 			}
 		}
-		result := applicationDeltaApplyResult{outcome: outcome, fallbackReason: fallbackReason}
+		result := applicationDeltaApplyResult{
+			outcome:        outcome,
+			fallbackReason: fallbackReason,
+			targetKey:      task.applicationTargetKey,
+		}
 		results[target] = result
 		if m.deltaStatusStore != nil && persistedTargetKey == task.applicationTargetKey {
 			status := v1beta1.DeviceDeltaApplyStatus{Outcome: outcome}
@@ -1652,103 +1654,154 @@ func (m *prefetchManager) status(ctx context.Context) PrefetchStatus {
 	slices.Sort(pendingImages)
 	slices.Sort(retryingImages)
 
-	applicationResults := make(map[string]map[imageRef]applicationDeltaApplyResult)
-	pendingDeltaApplications := make(map[string]struct{})
-	for target, task := range m.tasks {
-		if task.delta == nil {
+	prefetchStatus := PrefetchStatus{
+		TotalImages:    len(m.tasks),
+		PendingImages:  pendingImages,
+		RetryingImages: retryingImages,
+	}
+	if !m.deltaTargetsScheduled {
+		return prefetchStatus
+	}
+	prefetchStatus.DeltaApplyStatuses = m.applicationDeltaApplyStatuses()
+	return prefetchStatus
+}
+
+func (m *prefetchManager) applicationDeltaApplyStatuses() map[string]v1beta1.DeviceDeltaApplyStatus {
+	if m.deltaStatusStore != nil {
+		return m.persistedApplicationDeltaApplyStatuses()
+	}
+
+	applicationResults, pendingApplications := m.collectApplicationDeltaApplyResults()
+	statuses := make(map[string]v1beta1.DeviceDeltaApplyStatus, len(applicationResults))
+	for application, results := range applicationResults {
+		if _, pending := pendingApplications[application]; pending {
 			continue
 		}
-		for _, application := range deltaApplications(task.delta) {
-			result, exists := m.deltaApplyResults[application][target]
+		if deltaStatus := aggregateApplicationDeltaApplyResults(results); deltaStatus != nil {
+			statuses[application] = *deltaStatus
+		}
+	}
+	return statuses
+}
+
+func (m *prefetchManager) collectApplicationDeltaApplyResults() (
+	map[string]map[imageRef]applicationDeltaApplyResult,
+	map[string]struct{},
+) {
+	applicationResults := make(map[string]map[imageRef]applicationDeltaApplyResult)
+	pendingApplications := make(map[string]struct{})
+	if m.deltaAppTargetKeys == nil {
+		for target, task := range m.tasks {
+			if task.delta == nil {
+				continue
+			}
+			for _, application := range deltaApplications(task.delta) {
+				result, exists := m.deltaApplyResults[application][target]
+				if !exists || (result.targetKey != "" && task.applicationTargetKey != "" && result.targetKey != task.applicationTargetKey) {
+					pendingApplications[application] = struct{}{}
+					continue
+				}
+				if applicationResults[application] == nil {
+					applicationResults[application] = make(map[imageRef]applicationDeltaApplyResult)
+				}
+				applicationResults[application][target] = result
+			}
+		}
+		return applicationResults, pendingApplications
+	}
+
+	for application, expectedTargets := range m.deltaAppTargetKeys {
+		for targetID, targetKey := range expectedTargets {
+			result, exists := m.currentApplicationDeltaResult(application, targetID, targetKey)
 			if !exists {
-				pendingDeltaApplications[application] = struct{}{}
+				pendingApplications[application] = struct{}{}
 				continue
 			}
 			if applicationResults[application] == nil {
 				applicationResults[application] = make(map[imageRef]applicationDeltaApplyResult)
 			}
-			applicationResults[application][target] = result
+			applicationResults[application][imageRef{image: targetID}] = result
 		}
 	}
-	if !m.deltaTargetsScheduled {
-		return PrefetchStatus{
-			TotalImages:    len(m.tasks),
-			PendingImages:  pendingImages,
-			RetryingImages: retryingImages,
+	return applicationResults, pendingApplications
+}
+
+func (m *prefetchManager) persistedApplicationDeltaApplyStatuses() map[string]v1beta1.DeviceDeltaApplyStatus {
+	statuses := make(map[string]v1beta1.DeviceDeltaApplyStatus, len(m.deltaAppSpecKeys))
+	for application, specKey := range m.deltaAppSpecKeys {
+		results, complete := m.persistedApplicationDeltaResults(application, specKey)
+		if !complete {
+			continue
 		}
+		if deltaStatus := aggregateApplicationDeltaApplyResults(results); deltaStatus != nil {
+			statuses[application] = *deltaStatus
+		}
+	}
+	return statuses
+}
+
+func (m *prefetchManager) persistedApplicationDeltaResults(
+	application, specKey string,
+) (map[imageRef]applicationDeltaApplyResult, bool) {
+	expectedTargets, exists := m.deltaAppTargetKeys[application]
+	if !exists || len(expectedTargets) == 0 {
+		return nil, false
+	}
+	snapshot := m.deltaStatusStore.ApplicationSnapshot(application)
+	if snapshot == nil || snapshot.SpecKey != specKey || !sameStringMap(snapshot.Targets, expectedTargets) {
+		return nil, false
 	}
 
-	deltaApplyStatuses := make(map[string]v1beta1.DeviceDeltaApplyStatus, len(applicationResults))
-	if m.deltaStatusStore != nil {
-		for application, specKey := range m.deltaAppSpecKeys {
-			expectedTargets, exists := m.deltaAppTargetKeys[application]
-			if !exists || len(expectedTargets) == 0 {
-				continue
-			}
-			snapshot := m.deltaStatusStore.ApplicationSnapshot(application)
-			if snapshot == nil || snapshot.SpecKey != specKey || !sameStringMap(snapshot.Targets, expectedTargets) {
-				continue
-			}
-
-			results := make(map[imageRef]applicationDeltaApplyResult, len(snapshot.Targets))
-			complete := true
-			for targetID, targetKey := range snapshot.Targets {
-				persisted, exists := snapshot.Results[targetID]
-				var result applicationDeltaApplyResult
-				hasResult := exists && persisted.TargetKey == targetKey
-				if hasResult {
-					fallbackReason := ""
-					if persisted.Status.FallbackReason != nil {
-						fallbackReason = *persisted.Status.FallbackReason
-					}
-					result = applicationDeltaApplyResult{
-						outcome:        persisted.Status.Outcome,
-						fallbackReason: fallbackReason,
-					}
-				} else {
-					for ref, inMemoryResult := range m.deltaApplyResults[application] {
-						if deltastatus.Fingerprint(string(ref.owner), ref.image) != targetID {
-							continue
-						}
-						task, taskExists := m.tasks[ref]
-						if !taskExists || task.applicationTargetKey != targetKey {
-							continue
-						}
-						result = inMemoryResult
-						hasResult = true
-						break
-					}
-					if !hasResult {
-						complete = false
-						break
-					}
-				}
-				results[imageRef{image: targetID}] = result
-			}
-			if !complete {
-				continue
-			}
-			if deltaStatus := aggregateApplicationDeltaApplyResults(results); deltaStatus != nil {
-				deltaApplyStatuses[application] = *deltaStatus
-			}
+	results := make(map[imageRef]applicationDeltaApplyResult, len(snapshot.Targets))
+	for targetID, targetKey := range snapshot.Targets {
+		result, hasResult := applicationDeltaResultFromSnapshot(snapshot, targetID, targetKey)
+		if !hasResult {
+			result, hasResult = m.currentApplicationDeltaResult(application, targetID, targetKey)
 		}
-	} else {
-		for application, results := range applicationResults {
-			if _, pending := pendingDeltaApplications[application]; pending {
-				continue
-			}
-			if deltaStatus := aggregateApplicationDeltaApplyResults(results); deltaStatus != nil {
-				deltaApplyStatuses[application] = *deltaStatus
-			}
+		if !hasResult {
+			return nil, false
 		}
+		results[imageRef{image: targetID}] = result
 	}
+	return results, true
+}
 
-	return PrefetchStatus{
-		TotalImages:        len(m.tasks),
-		PendingImages:      pendingImages,
-		RetryingImages:     retryingImages,
-		DeltaApplyStatuses: deltaApplyStatuses,
+func applicationDeltaResultFromSnapshot(
+	snapshot *deltastatus.ApplicationSnapshot,
+	targetID, targetKey string,
+) (applicationDeltaApplyResult, bool) {
+	persisted, exists := snapshot.Results[targetID]
+	if !exists || persisted.TargetKey != targetKey {
+		return applicationDeltaApplyResult{}, false
 	}
+	fallbackReason := ""
+	if persisted.Status.FallbackReason != nil {
+		fallbackReason = *persisted.Status.FallbackReason
+	}
+	return applicationDeltaApplyResult{
+		outcome:        persisted.Status.Outcome,
+		fallbackReason: fallbackReason,
+		targetKey:      targetKey,
+	}, true
+}
+
+func (m *prefetchManager) currentApplicationDeltaResult(
+	application, targetID, targetKey string,
+) (applicationDeltaApplyResult, bool) {
+	for ref, result := range m.deltaApplyResults[application] {
+		if deltastatus.Fingerprint(string(ref.owner), ref.image) != targetID {
+			continue
+		}
+		if result.targetKey != targetKey {
+			continue
+		}
+		task, exists := m.tasks[ref]
+		if exists && task.applicationTargetKey != targetKey {
+			continue
+		}
+		return result, true
+	}
+	return applicationDeltaApplyResult{}, false
 }
 
 func aggregateApplicationDeltaApplyResults(results map[imageRef]applicationDeltaApplyResult) *v1beta1.DeviceDeltaApplyStatus {

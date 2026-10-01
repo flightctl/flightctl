@@ -215,8 +215,13 @@ func TestAggregateApplicationDeltaApplyResults(t *testing.T) {
 func TestApplicationDeltaStatusWaitsForAllTargetsToHaveResults(t *testing.T) {
 	const application = "app"
 	manager := &prefetchManager{
-		tasks:             make(map[imageRef]*prefetchTask),
-		deltaApplyResults: map[string]map[imageRef]applicationDeltaApplyResult{application: make(map[imageRef]applicationDeltaApplyResult)},
+		tasks: make(map[imageRef]*prefetchTask),
+		deltaApplyResults: map[string]map[imageRef]applicationDeltaApplyResult{
+			application: make(map[imageRef]applicationDeltaApplyResult),
+		},
+		deltaAppTargetKeys: map[string]map[string]string{
+			application: make(map[string]string),
+		},
 	}
 
 	for _, image := range []string{
@@ -227,8 +232,17 @@ func TestApplicationDeltaStatusWaitsForAllTargetsToHaveResults(t *testing.T) {
 		"quay.io/acme/workload-5:target",
 	} {
 		target := imageRef{image: image}
-		manager.tasks[target] = &prefetchTask{delta: &OCIDeltaTarget{Application: application}, done: true}
-		manager.deltaApplyResults[application][target] = applicationDeltaApplyResult{outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}
+		targetKey := "target-key:" + image
+		manager.tasks[target] = &prefetchTask{
+			delta:                &OCIDeltaTarget{Application: application},
+			applicationTargetKey: targetKey,
+			done:                 true,
+		}
+		manager.deltaAppTargetKeys[application][deltastatus.Fingerprint(string(target.owner), target.image)] = targetKey
+		manager.deltaApplyResults[application][target] = applicationDeltaApplyResult{
+			outcome:   v1beta1.DeviceDeltaApplyOutcomeApplied,
+			targetKey: targetKey,
+		}
 	}
 
 	deviceStatus := &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: application}}}
@@ -236,8 +250,13 @@ func TestApplicationDeltaStatusWaitsForAllTargetsToHaveResults(t *testing.T) {
 	require.Nil(t, deviceStatus.Applications[0].LastDelta)
 
 	lastTarget := imageRef{image: "quay.io/acme/workload-6:target"}
-	lastTask := &prefetchTask{delta: &OCIDeltaTarget{Application: application}}
+	lastTargetKey := "target-key:" + lastTarget.image
+	lastTask := &prefetchTask{
+		delta:                &OCIDeltaTarget{Application: application},
+		applicationTargetKey: lastTargetKey,
+	}
 	manager.tasks[lastTarget] = lastTask
+	manager.deltaAppTargetKeys[application][deltastatus.Fingerprint(string(lastTarget.owner), lastTarget.image)] = lastTargetKey
 	manager.deltaTargetsScheduled = true
 	deviceStatus = &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: application}}}
 	require.NoError(t, manager.Status(context.Background(), deviceStatus))
@@ -246,12 +265,27 @@ func TestApplicationDeltaStatusWaitsForAllTargetsToHaveResults(t *testing.T) {
 	manager.deltaApplyResults[application][lastTarget] = applicationDeltaApplyResult{
 		outcome:        v1beta1.DeviceDeltaApplyOutcomeFallback,
 		fallbackReason: "delta import failed",
+		targetKey:      lastTargetKey,
 	}
 	lastTask.done = true
 	deviceStatus = &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: application}}}
 	require.NoError(t, manager.Status(context.Background(), deviceStatus))
 	require.NotNil(t, deviceStatus.Applications[0].LastDelta)
 	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomePartial, deviceStatus.Applications[0].LastDelta.Outcome)
+
+	// A later collection can remove a target while leaving its prior result in
+	// memory. Its result must not affect the current application's outcome.
+	delete(manager.deltaAppTargetKeys[application], deltastatus.Fingerprint(string(lastTarget.owner), lastTarget.image))
+	deviceStatus = &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: application}}}
+	require.NoError(t, manager.Status(context.Background(), deviceStatus))
+	require.NotNil(t, deviceStatus.Applications[0].LastDelta)
+	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeApplied, deviceStatus.Applications[0].LastDelta.Outcome)
+
+	manager.tasks = make(map[imageRef]*prefetchTask)
+	deviceStatus = &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: application}}}
+	require.NoError(t, manager.Status(context.Background(), deviceStatus))
+	require.NotNil(t, deviceStatus.Applications[0].LastDelta)
+	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeApplied, deviceStatus.Applications[0].LastDelta.Outcome)
 }
 
 func TestPrepareTaskReusedCompletedTargetReportsNotUsedForNewGeneration(t *testing.T) {
