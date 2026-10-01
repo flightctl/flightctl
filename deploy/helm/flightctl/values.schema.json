@@ -645,6 +645,22 @@
                   }
                 }
               }
+            },
+            "labelMappingScan": {
+              "type": "object",
+              "description": "Periodic label mapping scan configuration",
+              "additionalProperties": false,
+              "properties": {
+                "schedule": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "interval": { "type": "string", "default": "2m", "description": "Interval for the label mapping scan task" }
+                  }
+                },
+                "pageSize": { "type": "integer", "minimum": 1, "maximum": 1000, "default": 1000, "description": "Maximum number of devices in each label mapping scan page" },
+                "timeBudget": { "type": "string", "default": "30s", "description": "Maximum work time per label mapping scan invocation" }
+              }
             }
           }
         }

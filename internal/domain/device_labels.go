@@ -21,7 +21,7 @@ type DesiredDeviceLabel struct {
 	MappingID *uuid.UUID
 }
 
-// DeviceLabelApplyResult describes changes committed by a labels-only apply.
+// DeviceLabelApplyResult describes changes committed by label reconciliation.
 type DeviceLabelApplyResult struct {
 	Device               *Device
 	LabelsChanged        bool

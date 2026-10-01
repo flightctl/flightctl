@@ -66,7 +66,7 @@ func (m *MockDevice) Get(ctx context.Context, orgId uuid.UUID, name string) (*do
 func (m *MockDevice) GetLabelSnapshot(ctx context.Context, orgId uuid.UUID, name string) (domain.DeviceLabelSnapshot, error) {
 	return domain.DeviceLabelSnapshot{}, nil
 }
-func (m *MockDevice) ApplyLabels(ctx context.Context, orgId uuid.UUID, name string, snapshot domain.DeviceLabelSnapshot, desired map[string]domain.DesiredDeviceLabel) (domain.DeviceLabelApplyResult, error) {
+func (m *MockDevice) ApplyLabels(ctx context.Context, orgId uuid.UUID, name string, snapshot domain.DeviceLabelSnapshot, desired map[string]domain.DesiredDeviceLabel, condition *domain.Condition) (domain.DeviceLabelApplyResult, error) {
 	return domain.DeviceLabelApplyResult{}, nil
 }
 func (m *MockDevice) List(ctx context.Context, orgId uuid.UUID, listParams devicestore.DeviceListParams) (*domain.DeviceList, error) {
