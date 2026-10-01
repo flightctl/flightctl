@@ -5,6 +5,7 @@ securityContext:
     drop:
       - ALL
   runAsNonRoot: true
+  runAsUser: 1000
   seccompProfile:
     type: RuntimeDefault
 {{- end -}}
