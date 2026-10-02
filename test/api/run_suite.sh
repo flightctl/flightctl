@@ -15,7 +15,7 @@ export PYTHONWARNINGS="ignore:::urllib3"
 ln -sf "$CONFIG" /app/schemathesis.toml
 
 # Build the schemathesis run command
-ST_CMD="schemathesis run $SPEC --report junit --report-dir $RESULTS"
+ST_CMD="schemathesis run $SPEC --mode positive --report junit --report-dir $RESULTS"
 [ -n "${CI:-}" ] && ST_CMD="$ST_CMD --output-sanitize true"
 
 # Step 1: Run schemathesis CLI tests (stateful, passive checks, coverage)
@@ -35,7 +35,7 @@ fi
 # Step 2: Run pytest-based version probe tests
 export SPEC_PATH="$SPEC"
 export API_VERSION=$(basename $(dirname "$CONFIG"))
-timeout 600 pytest /app/config/test_version_probes.py \
+timeout 600 pytest /app/config/test_version_probes.py /app/config/test_hooks.py \
     -p no:cacheprovider \
     -W ignore::hypothesis.errors.HypothesisSideeffectWarning \
     -W ignore::urllib3.exceptions.InsecureRequestWarning \

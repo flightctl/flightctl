@@ -64,7 +64,9 @@ run_schemathesis() {
         -e "BASE_URL=${base_url}"
         -e "CORE_URL=${core_url}"
         ${CI:+-e "CI=${CI}"}
+        -e "SCHEMATHESIS_COVERAGE_FORMAT=html,json"
         -e "SCHEMATHESIS_COVERAGE_REPORT_HTML_PATH=/app/results/schema-coverage.html"
+        -e "SCHEMATHESIS_COVERAGE_REPORT_JSON_PATH=/app/results/schema-coverage.json"
     )
 
     log_info "Testing ${service}"
