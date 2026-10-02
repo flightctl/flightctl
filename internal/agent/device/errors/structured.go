@@ -74,6 +74,22 @@ func phaseDisplayName(err error) string {
 
 // Message returns the formatted error message string.
 func (se *StructuredError) Message() string {
+	// A critical resource (CPU/Memory/Disk) alert defers the update rather
+	// than failing it (see ErrCriticalResourceAlert, which is the only
+	// sentinel mapped to codes.ResourceExhausted). Use update-process
+	// wording here instead of the generic "<component> failed" template
+	// below, which reads as an unrelated update failure.
+	if se.StatusCode == codes.ResourceExhausted {
+		resource := se.Element
+		if resource == "" {
+			resource = "system"
+		}
+		return fmt.Sprintf("[%s] Update deferred: critical %s resource alert is active; will retry once resource usage returns to normal",
+			se.Timestamp.Format("2006-01-02 15:04:05"),
+			resource,
+		)
+	}
+
 	phase := phaseDisplayName(se.Phase)
 
 	component := "unknown"
