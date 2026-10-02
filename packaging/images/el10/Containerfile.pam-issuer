@@ -1,4 +1,4 @@
-FROM registry.access.redhat.com/ubi10/go-toolset:1.26.7-1790231490 as build
+FROM registry.access.redhat.com/ubi10/go-toolset:1790644755 as build
 WORKDIR /app
 
 

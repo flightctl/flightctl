@@ -36,7 +36,7 @@ RUN --mount=type=cache,target=/opt/app-root/src/.cache/go-build \
     --mount=type=cache,target=/opt/app-root/src/go/pkg/mod \
     make build-db-migrate
 
-FROM registry.access.redhat.com/ubi9/ubi-minimal:9.8-1790074235
+FROM registry.access.redhat.com/ubi9/ubi-minimal:1790754202
 
 WORKDIR /app
 
