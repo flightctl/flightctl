@@ -150,6 +150,8 @@ prometheus:
 #     bootcImageBuilder:
 #       image: ""           # Override bootc-image-builder image (optional)
 #       skipTlsVerify: false  # Set to true to skip TLS verification
+#       # Rootless --in-vm exports also need qemu-system-<arch>, virtiofsd, and
+#       # tomli in the Python package directory mounted into the OSBuild VM.
 #     syft:
 #       image: ""           # Override Syft image for SBOM generation (optional)
 #       skipTlsVerify: false

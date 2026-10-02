@@ -541,7 +541,10 @@ func (c *Consumer) startBootcImageBuilderContainer(
 		"--net=host",
 		"--pull=newer",
 		"--entrypoint", "sleep",
-		"--security-opt", "label=type:unconfined_t",
+		// OSBuild's setfiles stage writes SELinux contexts that are not part of
+		// the host policy. The upstream osbuild-container policy grants the
+		// required capability to this domain.
+		"--security-opt", "label=type:osbuild_container_t",
 		"-v", fmt.Sprintf("%s:%s:Z", tmpOutDir, containerOutDir),
 		"-v", fmt.Sprintf("%s:%s:Z", tmpContainerStorage, containerStorageDir),
 	}

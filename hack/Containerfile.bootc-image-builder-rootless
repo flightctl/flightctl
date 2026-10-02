@@ -1,0 +1,15 @@
+ARG BOOTC_IMAGE_BUILDER_IMAGE=ghcr.io/osbuild/bootc-image-builder@sha256:e7aadce6b3f5639cd47d83354791931ea219891a0d113c2fe74a0f0d352b165c
+FROM ${BOOTC_IMAGE_BUILDER_IMAGE}
+
+ARG QEMU_SYSTEM_PACKAGE=qemu-system-x86-core
+
+RUN dnf -y install "${QEMU_SYSTEM_PACKAGE}" virtiofsd python3-tomli && dnf clean all
+
+# The OSBuild VM mounts the directory containing the osbuild Python package.
+# Fedora installs python3-tomli under /usr/lib64, outside that mounted directory,
+# so copy its pure-Python implementation beside osbuild for the VM's Python.
+RUN OSBUILD_SITE_PACKAGES="$(python3 -c 'import osbuild, pathlib; print(pathlib.Path(osbuild.__file__).resolve().parent.parent)')" \
+    && TOMLI_PACKAGE_DIR="$(python3 -c 'import pathlib, tomli; print(pathlib.Path(tomli.__file__).resolve().parent)')" \
+    && install -d "${OSBUILD_SITE_PACKAGES}/tomli" \
+    && cp "${TOMLI_PACKAGE_DIR}"/*.py "${OSBUILD_SITE_PACKAGES}/tomli/" \
+    && cp "${TOMLI_PACKAGE_DIR}/py.typed" "${OSBUILD_SITE_PACKAGES}/tomli/"

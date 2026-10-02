@@ -35,6 +35,9 @@ Volume=flightctl-worker-storage:/var/lib/containers
 # containing:
 #   [Container]
 #   Volume=/etc/flightctl/service-images-auth.json:/root/.config/containers/auth.json:ro,z
+# Permit nested Podman to see and use the host SELinux policy; the BIB job
+# selects the OSBuild policy domain.
+SecurityLabelNested=true
 PodmanArgs=--privileged
 
 # Sets this container's own RLIMIT_NOFILE, which the imagebuilder-worker process then

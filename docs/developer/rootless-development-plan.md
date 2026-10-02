@@ -42,7 +42,10 @@ The non-root targets need the following host setup:
 - RPM builds use Mock's unprivileged/user-namespace mode. The Packit builder still runs in a Podman container with `--privileged`; this is separate from Mock's `isolation=simple` setting, and removing it has not been validated. Under rootless Podman, that container remains bounded by the invoking user's namespace, but the flag disables normal container isolation. Brew RPM extraction needs `rpm2cpio` and `cpio`.
 - The checkout's `bin/` directory must be writable by the invoking user because Make builds local binaries there. If a root invocation created a root-owned build directory, run `make clean-all` as root or restore write access before switching to rootless builds.
 - Quadlet deployment needs an active user systemd manager. Enable user lingering through the host administrator if services must continue after logout.
-- On enforcing SELinux hosts, rootless bootc-image-builder may need the upstream osbuild SELinux policy installed.
+- On SELinux-enforcing hosts, ImageExport requires the `osbuild-container-selinux` policy. The BIB job requests `label=type:osbuild_container_t`, and the worker Quadlet enables nested SELinux with `SecurityLabelNested=true`. On Fedora, install the policy with `sudo dnf install -y osbuild-container-selinux`.
+- FlightCtl bootc images use custom SELinux types for the agent executable and `/var/lib/flightctl`. Rootless nested Podman may not apply the BIB process type, so the host policy must also define these target types. Build and install the [FlightCtl agent SELinux policy](../../packaging/selinux/README.md) with `make -C packaging/selinux USE_CONTAINER=1` and `sudo semodule -i packaging/selinux/flightctl_agent.pp.bz2`.
+- The rootless `--in-vm` export runner needs `qemu-system-<arch>`, `virtiofsd`, and a TOML parser in the OSBuild Python directory mounted into the VM. The default Fedora 44 BIB image does not contain these runtime dependencies. Build a local compatible image with `podman build -f hack/Containerfile.bootc-image-builder-rootless -t localhost/flightctl-bib-rootless:local .`, then set `imagebuilderWorker.serviceImages.bootcImageBuilder.image` to `localhost/flightctl-bib-rootless:local` in the local service configuration. Set `skipTlsVerify: false` explicitly when specifying the image.
+- The kernel-wide open-file limit must also accommodate OSBuild's layer import. On Fedora 44, `fs.file-max=65536` caused `ENFILE` while importing a 1.3 GB bootc image. Increase the runtime limit with `sudo sysctl -w fs.file-max=1048576`; this does not persist across reboot.
 - If the user was recently added to the KVM group, refresh both the login session and the lingering systemd user manager before rootless Quadlet deployment.
 
 Run the matching lightweight preflight directly, or let the Make target run it:
@@ -60,6 +63,8 @@ The preflight reports missing host prerequisites without invoking `sudo` or chan
 ## Image-builder constraint
 
 The image-builder worker runs in the kind cluster as well as in the Quadlet deployment. Rootless ImageBuild runs Podman directly in the worker and does not require KVM. Rootless QCOW2/VMDK ImageExport uses the unified native `image-builder build --in-vm` CLI shipped in the configured builder image and requires KVM. The pinned v83 CLI sets `InVm` only for the `image` pipeline; its generic ISO target uses a different pipeline and also differs from the existing rootful BIB `iso` output. Rootless ISO ImageExport is therefore rejected until there is a supported, equivalent in-VM path.
+
+The builder image must include the QEMU system binary and `virtiofsd` for the host architecture. The mounted OSBuild module directory must also include a Python TOML parser that the build-tree interpreter can import. The reusable local Fedora image recipe is [Containerfile.bootc-image-builder-rootless](../../hack/Containerfile.bootc-image-builder-rootless).
 
 These settings control different layers:
 
