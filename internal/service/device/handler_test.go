@@ -1194,6 +1194,9 @@ func TestReplaceDeviceStatus(t *testing.T) {
 		require.NotNil(t, result.Status.LastSeen)
 		require.False(t, result.Status.LastSeen.Before(before))
 		require.WithinDuration(t, time.Now(), *result.Status.LastSeen, 5*time.Second)
+		require.Len(t, st.device.healthcheckCalls, 1)
+		require.Equal(t, orgId, st.device.healthcheckCalls[0].orgId)
+		require.Equal(t, []string{"foo"}, st.device.healthcheckCalls[0].names)
 	})
 
 	t.Run("When refreshLastSeen is false it should preserve the caller-provided LastSeen", func(t *testing.T) {
@@ -1218,6 +1221,7 @@ func TestReplaceDeviceStatus(t *testing.T) {
 		require.Equal(t, int32(http.StatusOK), status.Code)
 		require.NotNil(t, result.Status.LastSeen)
 		require.True(t, result.Status.LastSeen.Equal(callerProvidedLastSeen))
+		require.Empty(t, st.device.healthcheckCalls)
 	})
 }
 

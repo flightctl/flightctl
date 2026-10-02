@@ -12,11 +12,6 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
-const (
-	BearerAuthScopes bearerAuthContextKey = "bearerAuth.Scopes"
-	OrgIdScopes      orgIdContextKey      = "orgId.Scopes"
-)
-
 // Defines values for AapProviderSpecProviderType.
 const (
 	Aap AapProviderSpecProviderType = "aap"

@@ -9390,6 +9390,7 @@ type CreateLabelSyncMappingResponse struct {
 	JSON401      *Status
 	JSON403      *Status
 	JSON409      *Status
+	JSON422      *Status
 	JSON429      *Status
 	JSON503      *Status
 }
@@ -9499,6 +9500,7 @@ type PatchLabelSyncMappingResponse struct {
 	JSON403      *Status
 	JSON404      *Status
 	JSON409      *Status
+	JSON422      *Status
 	JSON429      *Status
 	JSON503      *Status
 }
@@ -9537,6 +9539,7 @@ type ReplaceLabelSyncMappingResponse struct {
 	JSON403      *Status
 	JSON404      *Status
 	JSON409      *Status
+	JSON422      *Status
 	JSON429      *Status
 	JSON503      *Status
 }
@@ -16146,6 +16149,13 @@ func ParseCreateLabelSyncMappingResponse(rsp *http.Response) (*CreateLabelSyncMa
 		}
 		response.JSON409 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -16357,6 +16367,13 @@ func ParsePatchLabelSyncMappingResponse(rsp *http.Response) (*PatchLabelSyncMapp
 		}
 		response.JSON409 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -16438,6 +16455,13 @@ func ParseReplaceLabelSyncMappingResponse(rsp *http.Response) (*ReplaceLabelSync
 			return nil, err
 		}
 		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest Status

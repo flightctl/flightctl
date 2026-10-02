@@ -5173,9 +5173,6 @@ paths:
         - labelsyncmapping
       description: List LabelSyncMapping resources.
       operationId: listLabelSyncMappings
-      security:
-        - bearerAuth: []
-          orgId: []
       parameters:
         - name: continue
           in: query
@@ -5239,9 +5236,6 @@ paths:
         - labelsyncmapping
       description: Create a LabelSyncMapping resource.
       operationId: createLabelSyncMapping
-      security:
-        - bearerAuth: []
-          orgId: []
       requestBody:
         content:
           application/json:
@@ -5279,6 +5273,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "422":
+          description: Unprocessable Content
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
@@ -5298,9 +5298,6 @@ paths:
         - labelsyncmapping
       description: Get a LabelSyncMapping resource.
       operationId: getLabelSyncMapping
-      security:
-        - bearerAuth: []
-          orgId: []
       parameters:
         - name: name
           in: path
@@ -5356,9 +5353,6 @@ paths:
         - labelsyncmapping
       description: Update a LabelSyncMapping resource.
       operationId: replaceLabelSyncMapping
-      security:
-        - bearerAuth: []
-          orgId: []
       parameters:
         - name: name
           in: path
@@ -5415,6 +5409,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "422":
+          description: Unprocessable Content
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
@@ -5432,9 +5432,6 @@ paths:
         - labelsyncmapping
       description: Delete a LabelSyncMapping resource.
       operationId: deleteLabelSyncMapping
-      security:
-        - bearerAuth: []
-          orgId: []
       parameters:
         - name: name
           in: path
@@ -5490,9 +5487,6 @@ paths:
         - labelsyncmapping
       description: Patch a LabelSyncMapping resource.
       operationId: patchLabelSyncMapping
-      security:
-        - bearerAuth: []
-          orgId: []
       parameters:
         - name: name
           in: path
@@ -5539,6 +5533,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "409":
           description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "422":
+          description: Unprocessable Content
           content:
             application/json:
               schema:
@@ -6706,8 +6706,6 @@ components:
               example:
                 - "values-production.yaml"
                 - "values-overrides.yml"
-          required:
-            - image
 
     VmApplication:
       type: object

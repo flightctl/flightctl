@@ -4,7 +4,6 @@
 package server
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -3004,14 +3003,6 @@ func (siw *ServerInterfaceWrapper) ListLabelSyncMappings(w http.ResponseWriter, 
 	var err error
 	_ = err
 
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	ctx = context.WithValue(ctx, OrgIdScopes, []string{})
-
-	r = r.WithContext(ctx)
-
 	// Parameter object where we will unmarshal all parameters from the context
 	var params ListLabelSyncMappingsParams
 
@@ -3055,14 +3046,6 @@ func (siw *ServerInterfaceWrapper) ListLabelSyncMappings(w http.ResponseWriter, 
 // CreateLabelSyncMapping operation middleware
 func (siw *ServerInterfaceWrapper) CreateLabelSyncMapping(w http.ResponseWriter, r *http.Request) {
 
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	ctx = context.WithValue(ctx, OrgIdScopes, []string{})
-
-	r = r.WithContext(ctx)
-
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateLabelSyncMapping(w, r)
 	}))
@@ -3088,14 +3071,6 @@ func (siw *ServerInterfaceWrapper) DeleteLabelSyncMapping(w http.ResponseWriter,
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
 		return
 	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	ctx = context.WithValue(ctx, OrgIdScopes, []string{})
-
-	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.DeleteLabelSyncMapping(w, r, name)
@@ -3123,14 +3098,6 @@ func (siw *ServerInterfaceWrapper) GetLabelSyncMapping(w http.ResponseWriter, r 
 		return
 	}
 
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	ctx = context.WithValue(ctx, OrgIdScopes, []string{})
-
-	r = r.WithContext(ctx)
-
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetLabelSyncMapping(w, r, name)
 	}))
@@ -3157,14 +3124,6 @@ func (siw *ServerInterfaceWrapper) PatchLabelSyncMapping(w http.ResponseWriter, 
 		return
 	}
 
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	ctx = context.WithValue(ctx, OrgIdScopes, []string{})
-
-	r = r.WithContext(ctx)
-
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PatchLabelSyncMapping(w, r, name)
 	}))
@@ -3190,14 +3149,6 @@ func (siw *ServerInterfaceWrapper) ReplaceLabelSyncMapping(w http.ResponseWriter
 		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
 		return
 	}
-
-	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
-
-	ctx = context.WithValue(ctx, OrgIdScopes, []string{})
-
-	r = r.WithContext(ctx)
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ReplaceLabelSyncMapping(w, r, name)

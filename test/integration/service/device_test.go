@@ -69,6 +69,43 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 		return nil
 	}
 
+	Context("Agent status liveness", func() {
+		It("should persist lastSeen before connectivity reconciliation can mark the device disconnected", func() {
+			deviceName := "agent-status-last-seen-refresh"
+			_, status := suite.Device.CreateDevice(suite.Ctx, suite.OrgID, api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Spec:     &api.DeviceSpec{},
+			})
+			Expect(status.Code).To(Equal(int32(201)))
+
+			before, err := suite.DeviceStore.GetLastSeen(suite.Ctx, suite.OrgID, deviceName)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(before).To(BeNil())
+
+			_, status = suite.Device.ReplaceDeviceStatus(suite.Ctx, suite.OrgID, deviceName, api.Device{
+				Metadata: api.ObjectMeta{Name: lo.ToPtr(deviceName)},
+				Status: &api.DeviceStatus{
+					Summary: api.DeviceSummaryStatus{Status: api.DeviceSummaryStatusOnline},
+				},
+			}, true)
+			Expect(status.Code).To(Equal(int32(200)))
+
+			after, err := suite.DeviceStore.GetLastSeen(suite.Ctx, suite.OrgID, deviceName)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(after).NotTo(BeNil())
+			Expect(after.After(time.Now().UTC().Add(-time.Minute))).To(BeTrue())
+
+			devices, status := suite.Device.ListConnectivityChangedDevices(
+				suite.Ctx,
+				suite.OrgID,
+				domain.ListDevicesParams{Limit: lo.ToPtr(int32(100))},
+				time.Now().UTC().Add(-domain.DeviceDisconnectedTimeout),
+			)
+			Expect(status.Code).To(Equal(int32(200)))
+			Expect(devices.Items).To(BeEmpty())
+		})
+	})
+
 	Context("New device application status transitions", func() {
 		It("should generate DeviceApplicationError event when new device reports error applications", func() {
 			deviceName := "new-device-with-error-apps"
