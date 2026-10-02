@@ -1,7 +1,13 @@
 #!/bin/bash
-set -eo pipefail
+set -euo pipefail
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "${SCRIPT_DIR}"/functions
+
+FORCE_CLI_REBUILD="${FORCE_CLI_REBUILD:-}"
+if [[ "${FORCE_CLI_REBUILD,,}" == "true" ]]; then
+    echo -e "\e[32mFORCE_CLI_REBUILD is set, removing existing CLI binaries to force a rebuild\e[0m"
+    rm -f bin/flightctl bin/flightctl-restore bin/flightctl-backup
+fi
 
 if [[ -x "bin/flightctl" ]] && [[ -x "bin/flightctl-restore" ]] && [[ -x "bin/flightctl-backup" ]]; then
     echo -e "\e[32mCLI, flightctl-restore, and flightctl-backup already exist in bin/, skipping build\e[0m"
