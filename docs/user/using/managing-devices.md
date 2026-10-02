@@ -77,11 +77,33 @@ Here are key considerations when using this feature:
 
 * **Custom Fields**: You can configure the agent to collect additional custom attributes specific to your environment. These are displayed under `systemInfo.customInfo` and can be used for labeling or grouping devices. See [Installing and configuring the Flight Control Agent](../installing/installing-agent.md) for example usage.
 
-* **Collection Timing**: System info is collected during process bootstrap and then cached. It refreshes only if the agent restarts or receives a reload signal (SIGHUP). This avoids unnecessary overhead during regular status updates.
+* **Collection Timing**: System info is collected at agent startup and then periodically re-collected on a configurable interval (see [`system-info-periodic`](../installing/installing-agent.md#periodic-system-info-collection)). The collection interval defaults to `status-update-interval`. Collection also refreshes when the agent receives a reload signal (SIGHUP).
 
 * **Reboot Awareness**: The agent tracks boot time and boot ID, allowing Flight Control to detect whether the device has rebooted. This is useful for update coordination and lifecycle monitoring.
 
 * **Partial Data**: Not all fields may be available on every device or on every process start. Collection is best-effort missing values errors or timeouts will result in empty values.
+
+### System info collection status
+
+The agent reports the health of system info collection in `status.systemInfoStatus`. The `summary` field provides an overall status with one of the following values: `Healthy`, `Degraded`, `Error`, or `Unknown`.
+
+The `statuses` field contains per-source details organized into two sub-maps:
+
+* `systemInfo`: Status entries for built-in collectors.
+* `customInfo`: Status entries for custom collector scripts.
+
+Each source status entry includes:
+
+| Field                | Description                                                     |
+|----------------------|-----------------------------------------------------------------|
+| `status`             | One of `Healthy`, `Degraded`, `Error`, or `Unknown`.            |
+| `message`            | A human-readable description of the status or error.            |
+| `lastTransitionTime` | Timestamp of the last status change for this source.            |
+
+The `SYSTEM INFO` column in `flightctl get devices` output displays the summary status for quick visibility across the fleet. To see per-source details, view the device in YAML or JSON format.
+
+> [!NOTE]
+> System info collection status is maintained in memory and is not persisted as device labels.
 
 ### OS mode
 
@@ -127,8 +149,8 @@ flightctl get devices
 The output will be a table similar to this:
 
 ```console
-NAME                                                  ALIAS    OWNER   SYSTEM  UPDATED     APPLICATIONS
-54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg  <none>   <none>  Online  Up-to-date  <none>
+NAME                                                  ALIAS    OWNER   SYSTEM  UPDATED     APPLICATIONS  SYSTEM INFO
+54shovu028bvj6stkovjcvovjgo0r48618khdd5huhdjfn6raskg  <none>   <none>  Online  Up-to-date  <none>        Healthy
 ```
 
 You can see one or more specific devices in the inventory using any of these formats:
@@ -187,6 +209,9 @@ status:
     architecture: amd64
     bootID: 037750f7-f293-4c5b-b06e-481eef4e883f
     operatingSystem: linux
+  systemInfoStatus:                          # <-- health status of system info collection
+    summary:
+      status: Healthy
   summary:
     info: ""
     status: Online                           # <-- online status of the device
