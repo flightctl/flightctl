@@ -477,6 +477,35 @@ func TestPatchDeviceStatus(t *testing.T) {
 		require.Equal(t, "a", result.Status.SystemInfo.AgentVersion)
 	})
 
+	t.Run("When a status patch commits it should publish identity-only reconciliation work", func(t *testing.T) {
+		st, ev, svc := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		initialStatus := domain.NewDeviceStatus()
+		device := domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")},
+			Spec:     &domain.DeviceSpec{},
+			Status:   &initialStatus,
+		}
+		_, err := st.device.Create(ctx, orgId, &device, nil)
+		require.NoError(t, err)
+
+		infoMap, err := util.StructToMap(domain.DeviceSystemInfo{Architecture: "aarch64"})
+		require.NoError(t, err)
+		var value interface{} = infoMap
+		patch := domain.PatchRequest{{Op: "replace", Path: "/status/systemInfo", Value: &value}}
+		result, status := svc.PatchDeviceStatus(ctx, orgId, "foo", patch)
+
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.Equal(t, "aarch64", result.Status.SystemInfo.Architecture)
+		require.Len(t, ev.created, 1)
+		event := ev.created[0]
+		require.Equal(t, domain.EventReasonResourceUpdated, event.Reason)
+		require.Equal(t, domain.DeviceKind, event.InvolvedObject.Kind)
+		require.Equal(t, "foo", event.InvolvedObject.Name)
+		require.Nil(t, event.Details)
+	})
+
 	t.Run("When patching an immutable field it should return bad request", func(t *testing.T) {
 		svc, orgId := setup(t)
 		var value interface{} = "newname"

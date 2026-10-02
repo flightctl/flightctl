@@ -23,6 +23,7 @@ import (
 	eventservice "github.com/flightctl/flightctl/internal/service/event"
 	"github.com/flightctl/flightctl/internal/service/events"
 	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
+	labelsyncmappingservice "github.com/flightctl/flightctl/internal/service/labelsyncmapping"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
 	canarystore "github.com/flightctl/flightctl/internal/store/canary"
@@ -34,6 +35,7 @@ import (
 	enrollmentrequeststore "github.com/flightctl/flightctl/internal/store/enrollmentrequest"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
+	labelsyncmappingstore "github.com/flightctl/flightctl/internal/store/labelsyncmapping"
 	repositorystore "github.com/flightctl/flightctl/internal/store/repository"
 	templateversionstore "github.com/flightctl/flightctl/internal/store/templateversion"
 	"github.com/flightctl/flightctl/internal/tasks"
@@ -120,6 +122,18 @@ func (s *Server) Run(ctx context.Context) error {
 	notifySecretsStore := enrollmenthooknotifysecrets.NewStore(s.db, s.log.WithField("pkg", "enrollmenthooknotifysecret-store"))
 
 	eventsSvc := events.NewServiceHandler(eventStore, workerClient, s.log)
+	labelSyncMappingStore := labelsyncmappingstore.NewStore(s.db, s.log.WithField("pkg", "labelsyncmapping-store"))
+	labelSyncMappingEvaluator, err := labelsyncmappingservice.NewEvaluator()
+	if err != nil {
+		s.log.WithError(err).Error("failed to create device label mapping evaluator")
+		return err
+	}
+	labelSyncMappingHandler, err := labelsyncmappingservice.NewServiceHandler(labelSyncMappingStore, deviceStore, labelSyncMappingEvaluator, eventsSvc, s.log)
+	if err != nil {
+		s.log.WithError(err).Error("failed to create device label mapping service")
+		return err
+	}
+	labelSyncMappingSvc := labelsyncmappingservice.WrapWithTracing(labelSyncMappingHandler)
 
 	fleetSvc := fleetservice.WrapWithTracing(fleetservice.NewServiceHandler(fleetStore, catStore, eventsSvc, s.log))
 	templateVersionSvc := templateversionservice.WrapWithTracing(templateversionservice.NewServiceHandler(templateVersionStore, kvStore, eventsSvc, s.log))
@@ -176,6 +190,7 @@ func (s *Server) Run(ctx context.Context) error {
 		QueuePublisher:       publisher,
 		WorkerClient:         workerClient,
 		DeviceRenderer:       deviceRenderer,
+		LabelSyncMappingSvc:  labelSyncMappingSvc,
 	}, 1, 1); err != nil {
 		s.log.WithError(err).Error("failed to launch consumers")
 		return err

@@ -20,6 +20,7 @@ import (
 	enrollmentrequestservice "github.com/flightctl/flightctl/internal/service/enrollmentrequest"
 	eventservice "github.com/flightctl/flightctl/internal/service/event"
 	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
+	labelsyncmappingservice "github.com/flightctl/flightctl/internal/service/labelsyncmapping"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	templateversionservice "github.com/flightctl/flightctl/internal/service/templateversion"
 	enrollmenthooknotifysecrets "github.com/flightctl/flightctl/internal/store/enrollmenthooknotifysecrets"
@@ -50,6 +51,7 @@ type TaskConsumer struct {
 	QueuePublisher       queues.QueueProducer
 	WorkerClient         worker_client.WorkerClient
 	DeviceRenderer       *DeviceRenderLogic
+	LabelSyncMappingSvc  labelsyncmappingservice.Service
 }
 
 func (d TaskConsumer) dispatch() queues.ConsumeHandler {
@@ -113,6 +115,17 @@ func (d TaskConsumer) dispatch() queues.ConsumeHandler {
 			taskName = "fleetSelectorMatching"
 			err = runTaskWithMetrics(taskName, d.WorkerMetrics, func() error {
 				return fleetSelectorMatching(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, d.DeviceSvc, d.FleetSvc, log)
+			})
+			errorMessages = appendErrorMessage(errorMessages, taskName, err)
+		}
+		if shouldReconcileDeviceLabels(ctx, eventWithOrgId.Event) {
+			taskName = "deviceLabelReconciliation"
+			err = runTaskWithMetrics(taskName, d.WorkerMetrics, func() error {
+				logic, logicErr := NewDeviceLabelReconciliationLogic(log, d.LabelSyncMappingSvc, eventWithOrgId.OrgId, eventWithOrgId.Event)
+				if logicErr != nil {
+					return logicErr
+				}
+				return logic.Reconcile(ctx)
 			})
 			errorMessages = appendErrorMessage(errorMessages, taskName, err)
 		}
