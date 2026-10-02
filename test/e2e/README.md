@@ -194,6 +194,44 @@ export E2E_AUX_HOST=192.168.122.10   # VM IP on the OCP network
 make run-e2e-test
 ```
 
+To run **agent guests on the hypervisor** (not nested inside the test VM), attach them to a libvirt network on that host and put overlay disks on a **shared directory** both the test process and hypervisor qemu can use:
+
+```bash
+export E2E_LIBVIRT_URI='qemu+ssh://kni@192.168.122.1/system?keyfile=/home/kni/.ssh/id_rsa'
+export E2E_VM_NETWORK=flightctl-net          # virsh net-list on the hypervisor
+export E2E_VM_DISK_DIR=/var/lib/libvirt/images/flightctl-e2e
+export E2E_AUX_HOST=192.168.122.10           # test-vm IP on that network
+
+make run-e2e-test GO_E2E_DIRS=test/e2e/agent GINKGO_FOCUS="Verify VM agent"
+```
+
+The harness uses a virtio NIC on `E2E_VM_NETWORK`, waits for a DHCP lease, and SSHes to that address on port 22. Leave these unset for the default nested QEMU user-net setup. Keep SSH host-key verification enabled (`known_hosts`); `no_verify=1` on `E2E_LIBVIRT_URI` is only for isolated lab networks.
+
+### Shared disk directory (`E2E_VM_DISK_DIR`)
+
+QEMU on the hypervisor opens the overlay qcow2 by **absolute path**. The test process (usually `kni` on the test VM) creates that file. Those must be the **same path** on both machines, typically an NFS export of `/var/lib/libvirt/images/flightctl-e2e`.
+
+- The test user must be able to `mkdir` worker dirs under that path (`flightctl-e2e-worker-*`).
+- Hypervisor qemu must be able to read and write the resulting disks.
+
+A working NFS export maps all client writes to the qemu uid on the hypervisor (replace `107` with `id -u qemu` / `id -g qemu` on that host). Limit the client field to the test VM address or a trusted subnet (not `*`), and do not expose this export beyond that network:
+
+```
+/var/lib/libvirt/images/flightctl-e2e 192.168.122.10(rw,sync,no_subtree_check,all_squash,anonuid=107,anongid=107)
+```
+
+```bash
+# hypervisor
+sudo mkdir -p /var/lib/libvirt/images/flightctl-e2e
+sudo chown qemu:qemu /var/lib/libvirt/images/flightctl-e2e
+sudo chmod 755 /var/lib/libvirt/images/flightctl-e2e
+sudo exportfs -ra
+```
+
+Mount that export at the **same** path on the test VM. `no_root_squash` alone is not enough: tests do not run as root, and disks owned by `kni` are not writable by qemu.
+
+The pool copies `bin/output/qcow2/disk.qcow2` to `$E2E_VM_DISK_DIR/shared-base-disk.qcow2` and creates overlays next to it. After changing the golden image, remove worker dirs (and recreate `shared-base-disk.qcow2`) so stale overlays are not reused.
+
 ## OCP test VM (imagebuilder / non-suitable host)
 
 If your host is not suitable for the bootc image builder:

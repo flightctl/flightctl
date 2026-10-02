@@ -36,15 +36,8 @@ type VMInLibvirt struct {
 	TestVM
 }
 
-func getLibvirtUri() string {
-	return "qemu:///session"
-}
-
 func NewVM(params TestVM) (vm *VMInLibvirt, err error) {
-
-	if params.LibvirtUri == "" {
-		params.LibvirtUri = getLibvirtUri()
-	}
+	applyVMDefaults(&params)
 
 	// Set default memory file path if not provided
 	if params.MemoryFilePath == "" {
@@ -76,9 +69,13 @@ func (v *VMInLibvirt) CreateDomain() error {
 		if state == libvirt.DOMAIN_RUNNING || state == libvirt.DOMAIN_PAUSED {
 			_ = existingDomain.Destroy()
 		}
-		_ = existingDomain.UndefineFlags(libvirt.DOMAIN_UNDEFINE_SNAPSHOTS_METADATA | libvirt.DOMAIN_UNDEFINE_MANAGED_SAVE | libvirt.DOMAIN_UNDEFINE_NVRAM)
+		if err := existingDomain.UndefineFlags(libvirt.DOMAIN_UNDEFINE_SNAPSHOTS_METADATA | libvirt.DOMAIN_UNDEFINE_MANAGED_SAVE | libvirt.DOMAIN_UNDEFINE_NVRAM); err != nil {
+			logrus.Warnf("undefine %s (including NVRAM) failed: %v", v.TestVM.VMName, err)
+		}
 		_ = existingDomain.Free()
 	}
+
+	v.resetNvramFile()
 
 	domainXML, err := v.parseDomainTemplate()
 	if err != nil {
@@ -94,6 +91,15 @@ func (v *VMInLibvirt) CreateDomain() error {
 
 	logrus.Infof("Created VM domain %s", v.TestVM.VMName)
 	return nil
+}
+
+func (v *VMInLibvirt) resetNvramFile() {
+	if v.TestVM.NvramPath == "" {
+		return
+	}
+	if err := os.Remove(v.TestVM.NvramPath); err != nil && !os.IsNotExist(err) {
+		logrus.Warnf("unable to remove NVRAM %s: %v", v.TestVM.NvramPath, err)
+	}
 }
 
 func (v *VMInLibvirt) Run() error {
@@ -119,6 +125,7 @@ func (v *VMInLibvirt) Run() error {
 		v.domain, err = conn.LookupDomainByName(v.TestVM.VMName)
 		if err != nil {
 			// Domain doesn't exist, create it
+			v.resetNvramFile()
 			domainXML, err := v.parseDomainTemplate()
 			if err != nil {
 				return fmt.Errorf("unable to parse domain template: %w", err)
@@ -319,13 +326,17 @@ func (v *VMInLibvirt) parseDomainTemplate() (domainXML string, err error) {
 		DiskImagePath   string
 		Port            string
 		PIDFile         string
-		SMBios          string
 		Name            string
 		CloudInitCDRom  string
 		CloudInitSMBios string
 		DiskSize        string
 		MemoryMiB       int
 		TPMConfig       string
+		NetworkDevice   string
+		QemuCommandline string
+		OS              string
+		DiskTarget      string
+		CPU             string
 	}
 
 	diskSize := v.TestVM.DiskSizeGB
@@ -345,7 +356,10 @@ func (v *VMInLibvirt) parseDomainTemplate() (domainXML string, err error) {
         </active_pcr_banks>
       </backend>
     </tpm>`
-	if v.TestVM.TPMDevice != "" {
+	if v.TestVM.NetworkName != "" && v.TestVM.TPMDevice == "" {
+		// virt-install bridged guests have no TPM.
+		tpmConfig = ""
+	} else if v.TestVM.TPMDevice != "" {
 		tpmConfig = fmt.Sprintf(`<tpm model='tpm-tis'>
       <backend type='passthrough'>
         <device path='%s'/>
@@ -354,13 +368,18 @@ func (v *VMInLibvirt) parseDomainTemplate() (domainXML string, err error) {
 	}
 
 	templateParams := TemplateParams{
-		DiskImagePath: v.TestVM.DiskImagePath,
-		Port:          strconv.Itoa(v.TestVM.SSHPort),
-		PIDFile:       v.pidFile,
-		Name:          v.TestVM.VMName,
-		DiskSize:      strconv.Itoa(diskSize),
-		MemoryMiB:     memoryMiB,
-		TPMConfig:     tpmConfig,
+		DiskImagePath:   v.TestVM.DiskImagePath,
+		Port:            strconv.Itoa(v.TestVM.SSHPort),
+		PIDFile:         v.pidFile,
+		Name:            v.TestVM.VMName,
+		DiskSize:        strconv.Itoa(diskSize),
+		MemoryMiB:       memoryMiB,
+		TPMConfig:       tpmConfig,
+		NetworkDevice:   networkDeviceXML(v.TestVM.NetworkName),
+		QemuCommandline: qemuCommandline(v.TestVM.NetworkName, v.TestVM.SSHPort),
+		OS:              osXML(v.TestVM.NetworkName, v.TestVM.NvramPath),
+		DiskTarget:      diskTargetXML(v.TestVM.NetworkName),
+		CPU:             cpuXML(v.TestVM.NetworkName),
 	}
 
 	err = v.ParseCloudInit()
@@ -369,14 +388,15 @@ func (v *VMInLibvirt) parseDomainTemplate() (domainXML string, err error) {
 	}
 
 	if v.hasCloudInit {
+		cdromDev := "sda"
 		templateParams.CloudInitCDRom = fmt.Sprintf(`
 			<disk type="file" device="cdrom">
 				<driver name="qemu" type="raw"/>
 				<source file="%s"></source>
-				<target dev="sda" bus="sata"/>
+				<target dev="%s" bus="sata"/>
 				<readonly/>
 			</disk>
-		`, v.cloudInitArgs)
+		`, v.cloudInitArgs, cdromDev)
 	}
 
 	err = tmpl.Execute(&domainXMLBuf, templateParams)
@@ -547,6 +567,86 @@ func (v *VMInLibvirt) IsRunning() (exists bool, err error) {
 	} else {
 		return false, nil
 	}
+}
+
+func (v *VMInLibvirt) WaitForSSHToBeReady() error {
+	timeout := v.SSHWaitTimeout
+	if timeout <= 0 {
+		timeout = sshWaitTimeout
+	}
+	deadline := time.Now().Add(timeout)
+	if v.TestVM.NetworkName != "" {
+		if err := v.waitForGuestIPv4(time.Until(deadline)); err != nil {
+			return err
+		}
+	}
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		return fmt.Errorf("timed out waiting for bridged guest IP before SSH")
+	}
+	orig := v.SSHWaitTimeout
+	v.SSHWaitTimeout = remaining
+	err := v.TestVM.WaitForSSHToBeReady()
+	v.SSHWaitTimeout = orig
+	return err
+}
+
+func (v *VMInLibvirt) waitForGuestIPv4(timeout time.Duration) error {
+	if timeout <= 0 {
+		timeout = sshWaitTimeout
+	}
+	deadline := time.Now().Add(timeout)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		ip, err := v.lookupGuestIPv4()
+		if err != nil {
+			lastErr = err
+			time.Sleep(time.Second)
+			continue
+		}
+		v.TestVM.SSHHost = ip
+		logrus.Infof("Bridged guest %s has DHCP address %s", v.TestVM.VMName, ip)
+		return nil
+	}
+	if lastErr != nil {
+		return fmt.Errorf("guest IPv4 not found in %s: %w", timeout, lastErr)
+	}
+	return fmt.Errorf("guest IPv4 not found in %s", timeout)
+}
+
+func (v *VMInLibvirt) lookupGuestIPv4() (string, error) {
+	if v.domain == nil {
+		return "", fmt.Errorf("VM domain is not initialized")
+	}
+	sources := []libvirt.DomainInterfaceAddressesSource{
+		libvirt.DOMAIN_INTERFACE_ADDRESSES_SRC_LEASE,
+		libvirt.DOMAIN_INTERFACE_ADDRESSES_SRC_ARP,
+	}
+	var lastErr error
+	for _, src := range sources {
+		ifaces, err := v.domain.ListAllInterfaceAddresses(src)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		converted := make([]guestIfaceAddrs, 0, len(ifaces))
+		for _, iface := range ifaces {
+			addrs := make([]string, 0, len(iface.Addrs))
+			for _, addr := range iface.Addrs {
+				if addr.Type == libvirt.IP_ADDR_TYPE_IPV4 {
+					addrs = append(addrs, addr.Addr)
+				}
+			}
+			converted = append(converted, guestIfaceAddrs{Name: iface.Name, Addrs: addrs})
+		}
+		if ip := firstGuestIPv4(converted); ip != "" {
+			return ip, nil
+		}
+	}
+	if lastErr != nil {
+		return "", lastErr
+	}
+	return "", fmt.Errorf("no IPv4 lease for domain %s", v.TestVM.VMName)
 }
 
 func (v *VMInLibvirt) RunAndWaitForSSH() error {

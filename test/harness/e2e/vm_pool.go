@@ -490,9 +490,14 @@ func CreateFreshVMWithTPM(workerID int, tempDir string, sshPortBase int, tpmDevi
 		return nil, fmt.Errorf("failed to get base disk path: %w", err)
 	}
 
+	poolTempDir, err := resolveVMPoolTempDir(tempDir)
+	if err != nil {
+		return nil, err
+	}
+
 	vmPool := GetOrCreateVMPool(VMPoolConfig{
 		BaseDiskPath: baseDiskPath,
-		TempDir:      tempDir,
+		TempDir:      poolTempDir,
 		SSHPortBase:  sshPortBase,
 	})
 
@@ -694,13 +699,46 @@ func SetupVMForWorker(workerID int, tempDir string, sshPortBase int) (vm.TestVMI
 		return nil, fmt.Errorf("failed to get base disk path: %w", err)
 	}
 
+	poolTempDir, err := resolveVMPoolTempDir(tempDir)
+	if err != nil {
+		return nil, err
+	}
+
 	vmPool := GetOrCreateVMPool(VMPoolConfig{
 		BaseDiskPath: baseDiskPath,
-		TempDir:      tempDir,
+		TempDir:      poolTempDir,
 		SSHPortBase:  sshPortBase,
 	})
 
 	return vmPool.GetVMForWorker(workerID)
+}
+
+// resolveVMPoolTempDir returns the directory used for overlay disks and cloud-init
+// ISOs. When E2E_VM_DISK_DIR is set, that value is used instead of explicit.
+func resolveVMPoolTempDir(explicit string) (string, error) {
+	if d := strings.TrimSpace(os.Getenv(vm.EnvVMDiskDir)); d != "" {
+		return sanitizeVMPoolDiskDir(d)
+	}
+	return sanitizeVMPoolDiskDir(explicit)
+}
+
+// sanitizeVMPoolDiskDir requires an absolute path with no ".." components and
+// returns filepath.Clean of that path.
+func sanitizeVMPoolDiskDir(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if !filepath.IsAbs(path) {
+		return "", fmt.Errorf("VM pool disk directory must be an absolute path: %q", path)
+	}
+	for _, seg := range strings.Split(filepath.ToSlash(path), "/") {
+		if seg == ".." {
+			return "", fmt.Errorf("VM pool disk directory must not contain '..' path segments: %q", path)
+		}
+	}
+	cleaned := filepath.Clean(path)
+	if !filepath.IsAbs(cleaned) {
+		return "", fmt.Errorf("VM pool disk directory must be an absolute path: %q", path)
+	}
+	return cleaned, nil
 }
 
 // SetupFreshVMForWorker is a convenience function that initializes the VM pool and returns a fresh VM.
@@ -712,9 +750,14 @@ func SetupFreshVMForWorker(workerID int, tempDir string, sshPortBase int) (vm.Te
 		return nil, fmt.Errorf("failed to get base disk path: %w", err)
 	}
 
+	poolTempDir, err := resolveVMPoolTempDir(tempDir)
+	if err != nil {
+		return nil, err
+	}
+
 	vmPool := GetOrCreateVMPool(VMPoolConfig{
 		BaseDiskPath: baseDiskPath,
-		TempDir:      tempDir,
+		TempDir:      poolTempDir,
 		SSHPortBase:  sshPortBase,
 	})
 
