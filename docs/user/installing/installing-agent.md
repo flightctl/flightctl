@@ -106,7 +106,8 @@ The agent's configuration file `/etc/flightctl/config.yaml` takes the following 
 | `default-labels`         | `object` (`string`) | | Labels (`key: value`-pairs) that the agent requests for the device during enrollment. **Important:** Label values must be valid Kubernetes labels (alphanumeric, `-`, `_`, `.`, max 63 chars). Invalid labels are skipped with an error log. Default: `{}` |
 | `label-from-systeminfo`  | `object` (`string`) | | Maps system information fields to device labels at enrollment time. See [Enrollment-time label mapping](#enrollment-time-label-mapping). Default: `{}` |
 | `system-info`            | `array` (`string`) | | System info that the agent shall include in status updates from built-in collectors. See [Built-in system info collectors](#built-in-system-info-collectors) and [Managed system-info collectors](#managed-system-info-collectors). Default: `["hostname", "kernel", "distroName", "distroVersion", "distroId", "productName", "productUuid", "productSerial", "netInterfaceDefault", "netIpDefault", "netMacDefault", "managementCertNotAfter", "managementCertSerial", "tpmVendorInfo"]` |
-| `system-info-custom`     | `array` (`string`) | | System info that the agent shall include in status updates from user-defined collectors. See [Custom system info collectors](#custom-system-info-collectors). Default: `[]` |
+| `system-info-custom`     | `array` (`string`) | | System info that the agent shall include in status updates from user-defined collectors. When absent or `null`, the agent auto-discovers all scripts in the custom info directory. An empty list `[]` disables custom info collection. A wildcard `['*']` is the explicit equivalent of auto-discovery. Specific entries like `['cpu-temp', 'gpu-info']` run only the named scripts. See [Custom system info collectors](#custom-system-info-collectors). Default: `null` (auto-discover) |
+| `system-info-periodic`   | `object`           | | Configuration for periodic re-collection of system info (built-in and custom). Contains an `interval` sub-key that controls how often system info is collected. Falls back to `status-update-interval` if not set. The interval must be greater than or equal to the agent's minimum sync interval. See [Periodic system info collection](#periodic-system-info-collection). Default: interval from `status-update-interval` |
 | `system-info-timeout`    | `Duration` | | The timeout for collecting system info. Default: `2m`. Maximum: `2m` |
 | `pull-timeout`           | `Duration` | | The timeout for pulling a single OCI target. Default: `10m` |
 | `log-level`              | `string` | | The level of logging: "panic", "fatal", "error", "warn"/"warning", "info", "debug", or "trace". Default: `info` |
@@ -119,7 +120,7 @@ The agent's configuration file `/etc/flightctl/config.yaml` takes the following 
 
 > [!NOTE]
 > The `/etc/flightctl/conf.d/` drop-in directory supports only a subset of the agent configuration. Currently supported keys include:
-> `log-level`, `system-info`, `system-info-custom`, `system-info-timeout`, and `label-from-systeminfo`.
+> `log-level`, `system-info`, `system-info-custom`, `system-info-periodic`, `system-info-timeout`, and `label-from-systeminfo`.
 
 ## Communication Timeouts
 
@@ -216,6 +217,19 @@ They reflect the agent lifecycle state and are updated only when the underlying 
 > [!NOTE]
 > These managed system info fields follow the same configuration and reporting semantics as built-in system information collectors, and can be included or excluded from device status reporting via the `system-info` configuration parameter.
 
+## Periodic system info collection
+
+By default, the agent periodically re-collects all system info (both built-in and custom) on an interval controlled by `system-info-periodic.interval`. If not set, this interval falls back to `status-update-interval`.
+
+To configure a custom collection interval, add the following to the agent's `config.yaml`:
+
+```yaml
+system-info-periodic:
+  interval: 5m
+```
+
+The interval must be greater than or equal to the agent's minimum sync interval. Each collection cycle shuffles the order of sources so that a slow or timing-out collector does not always delay the same set of sources behind it.
+
 ## Custom system info collectors
 
 You can specify custom system info collectors that the agent calls and whose output it includes under `status.systemInfo.customInfo` in the device status.
@@ -224,6 +238,15 @@ To add a key `myInfo`,
 
 1. add an executable with that name to `/usr/lib/flightctl/custom-info.d/` that when it is executed returns the desired value, and
 2. enable the collection and reporting of this info by adding the key `myInfo` to the agent's `config.yaml` under the `system-info-custom` configuration parameter.
+
+The `system-info-custom` parameter supports the following modes:
+
+* **Absent or `null`** (default): Auto-discovers and runs all executable scripts in `/usr/lib/flightctl/custom-info.d/`.
+* **Empty list `[]`**: Disables custom info collection entirely.
+* **Wildcard `['*']`**: Explicit equivalent of auto-discovery; runs all scripts in the custom info directory.
+* **Specific keys** (for example `['fips', 'gpu-temp']`): Runs only the named scripts.
+
+Custom collector scripts are re-executed periodically alongside built-in collectors (see [Periodic system info collection](#periodic-system-info-collection)). Each script's standard output is bounded to 256 bytes; any excess is truncated. Output values are sanitized by stripping non-printable characters.
 
 For example, to have the agent report the system's [FIPS](https://en.wikipedia.org/wiki/FIPS_140-2) mode status, create a file `/usr/lib/flightctl/custom-info.d/fips` with the following content and "executable" file permissions:
 
