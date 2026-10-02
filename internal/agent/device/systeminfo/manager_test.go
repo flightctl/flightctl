@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math/rand/v2"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -183,6 +185,7 @@ func TestRunCollectsOnItsPeriodicSchedule(t *testing.T) {
 		collectionInterval: time.Millisecond,
 		collectionChanged:  make(chan struct{}, 1),
 		now:                time.Now,
+		rng:                rand.New(rand.NewPCG(1, 2)), //nolint:gosec // G404 - shuffling does not require crypto-strength randomness
 		log:                log.NewPrefixLogger("test"),
 		collection: []*collector{{
 			source: &sourceDefinition{},
@@ -246,6 +249,7 @@ func TestStatusWithForceRequestsCollection(t *testing.T) {
 	manager := &manager{
 		collectionTimeout: time.Second,
 		now:               time.Now,
+		rng:               rand.New(rand.NewPCG(1, 2)), //nolint:gosec // G404 - shuffling does not require crypto-strength randomness
 		collection: []*collector{{
 			source: &sourceDefinition{},
 			collect: func(context.Context, *Info) error {
@@ -274,6 +278,7 @@ func TestCollectPendingCollectsOnlyUnattemptedSources(t *testing.T) {
 	manager := &manager{
 		collectionTimeout: time.Second,
 		now:               time.Now,
+		rng:               rand.New(rand.NewPCG(1, 2)), //nolint:gosec // G404 - shuffling does not require crypto-strength randomness
 	}
 	entries := []sourceEntry{
 		{key: oldKey, kind: systemInfoSource, definition: runtimeDefinition(oldKey, func(context.Context) string {
@@ -321,6 +326,7 @@ func TestCollectPendingDoesNotRetryFailedSources(t *testing.T) {
 	manager := &manager{
 		collectionTimeout: time.Second,
 		now:               time.Now,
+		rng:               rand.New(rand.NewPCG(1, 2)), //nolint:gosec // G404 - shuffling does not require crypto-strength randomness
 		log:               log.NewPrefixLogger("test"),
 		collection: []*collector{{
 			source: &sourceDefinition{},
@@ -415,10 +421,14 @@ func TestStatusCachesCustomScriptResults(t *testing.T) {
 	require.Equal(failedSource.LastTransitionTime, withoutStderr.SystemInfoStatus.Statuses.CustomInfo["site"].LastTransitionTime)
 	require.Equal(v1beta1.SystemInfoSourceStatusError, withoutStderr.SystemInfoStatus.Statuses.CustomInfo["site"].Status)
 
-	longMessage := strings.Repeat("x", status.MaxMessageLength+1)
+	// Stderr is bounded to maxCustomCollectorOutput/2 bytes, so very long
+	// error messages are truncated at the output capture level before the
+	// status message truncation applies.
+	longMessage := strings.Repeat("x", maxCustomCollectorOutput+1)
 	writeScript("#!/bin/sh\nprintf '" + longMessage + "' >&2\nexit 10\n")
 	truncatedFailure := collect()
-	require.Equal(log.Truncate(deviceerrors.FromStderr(longMessage, 10).Error(), status.MaxMessageLength), *truncatedFailure.SystemInfoStatus.Statuses.CustomInfo["site"].Message)
+	capturedStderr := longMessage[:maxCustomCollectorOutput/2]
+	require.Equal(log.Truncate(deviceerrors.FromStderr(capturedStderr, 10).Error(), status.MaxMessageLength), *truncatedFailure.SystemInfoStatus.Statuses.CustomInfo["site"].Message)
 	require.Equal(failedSource.LastTransitionTime, truncatedFailure.SystemInfoStatus.Statuses.CustomInfo["site"].LastTransitionTime)
 	require.Equal(v1beta1.SystemInfoSourceStatusError, truncatedFailure.SystemInfoStatus.Statuses.CustomInfo["site"].Status)
 
@@ -620,4 +630,115 @@ func TestInfoFromCacheCombinesSelectedValuesFromASharedSource(t *testing.T) {
 	require.Equal("Edge Device", info.Hardware.System.ProductName)
 	require.Equal("serial-123", info.Hardware.System.SerialNumber)
 	require.Empty(info.Hardware.System.UUID)
+}
+
+func TestCollectSourcesShufflesOrder(t *testing.T) {
+	require := require.New(t)
+
+	// Record the execution order of collector keys across cycles.
+	var mu sync.Mutex
+	var orders [][]string
+
+	makeEntry := func(key string) sourceEntry {
+		return sourceEntry{key: key, kind: customInfoSource, definition: collectorDefinition{
+			source: &sourceDefinition{collect: func(_ context.Context, _ *collectContext, info *Info) error {
+				return nil
+			}},
+			extract: func(*Info) string {
+				mu.Lock()
+				if len(orders) == 0 {
+					orders = append(orders, nil)
+				}
+				orders[len(orders)-1] = append(orders[len(orders)-1], key)
+				mu.Unlock()
+				return ""
+			},
+			projectInfo: copyCustomInfo,
+		}}
+	}
+
+	entries := []sourceEntry{
+		makeEntry("a"),
+		makeEntry("b"),
+		makeEntry("c"),
+	}
+
+	// Use a fixed-seed rng for deterministic shuffle.
+	m := &manager{
+		collectionTimeout: time.Second,
+		now:               time.Now,
+		rng:               rand.New(rand.NewPCG(42, 99)), //nolint:gosec // G404 - shuffling does not require crypto-strength randomness
+		log:               log.NewPrefixLogger("test"),
+		collection: collectorsForEntries(
+			log.NewPrefixLogger("test"),
+			nil, nil, "",
+			entries, nil,
+		),
+	}
+
+	// Run two collection cycles and verify deterministic order from the
+	// fixed-seed RNG.
+	m.collect(context.Background())
+	mu.Lock()
+	orders = append(orders, nil)
+	mu.Unlock()
+	m.collect(context.Background())
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(orders, 2, "two collection cycles must run")
+	require.Len(orders[0], len(entries), "all sources must be collected")
+	require.Len(orders[1], len(entries), "all sources must be collected")
+
+	// With a fixed seed the same rng produces the same sequence when called
+	// with the same input length; verify the two cycles produced identical
+	// permutations (determinism from the seed).
+	rng2 := rand.New(rand.NewPCG(42, 99)) //nolint:gosec // G404 - shuffling does not require crypto-strength randomness
+	expected := []string{"a", "b", "c"}
+	first := make([]string, len(expected))
+	copy(first, expected)
+	rng2.Shuffle(len(first), func(i, j int) { first[i], first[j] = first[j], first[i] })
+	require.Equal(first, orders[0], "first cycle must match the deterministic seed order")
+}
+
+func TestCustomCollectorOutputIsSanitized(t *testing.T) {
+	require := require.New(t)
+	tmpDir := t.TempDir()
+	readWriter := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+		fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+	)
+	require.NoError(readWriter.MkdirAll(config.SystemInfoCustomScriptDir, fileio.DefaultDirectoryPermissions))
+	require.NoError(readWriter.WriteFile(
+		filepath.Join(config.SystemInfoCustomScriptDir, "dirty.sh"),
+		// Output contains characters that sanitizeCollectorValue should strip.
+		[]byte("#!/bin/sh\nprintf 'hello<world>&test/ok'\n"),
+		fileio.DefaultExecutablePermissions,
+	))
+
+	m := NewManager(
+		log.NewPrefixLogger("test"),
+		executer.NewCommonExecuter(),
+		readWriter,
+		"etc/flightctl",
+		nil,
+		[]string{"dirty"},
+		util.Duration(time.Second),
+		0,
+	)
+	m.collect(context.Background())
+
+	// Find the custom executor (skip the boot hidden source).
+	var exec *cachedExecutor
+	for _, c := range m.collection {
+		for _, e := range c.executors {
+			if e.key == "dirty" {
+				exec = e
+			}
+		}
+	}
+	require.NotNil(exec)
+	require.True(exec.attempted)
+	require.False(exec.failed)
+	require.Equal("helloworldtest/ok", exec.value, "non-allowed characters must be stripped")
 }

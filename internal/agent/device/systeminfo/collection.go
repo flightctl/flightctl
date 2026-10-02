@@ -487,6 +487,10 @@ func customEntries(logger *log.PrefixLogger, exec executer.Executer, reader file
 	return entries
 }
 
+// maxCustomCollectorOutput bounds stdout+stderr capture per custom collector
+// script.  This prevents a runaway script from consuming unbounded memory.
+const maxCustomCollectorOutput = 512
+
 func customCollector(exec executer.Executer, key, path string, found bool) func(context.Context, *Info) error {
 	return func(ctx context.Context, info *Info) error {
 		if info.Custom == nil {
@@ -496,14 +500,14 @@ func customCollector(exec executer.Executer, key, path string, found bool) func(
 		if !found {
 			return &collectionError{message: "script not found", clearValue: true}
 		}
-		stdout, stderr, exitCode := exec.ExecuteWithContext(ctx, path)
+		stdout, stderr, exitCode := exec.ExecuteWithBoundedOutputFromDir(ctx, "", path, nil, maxCustomCollectorOutput)
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 		if exitCode != 0 {
 			return deviceerrors.FromStderr(strings.TrimSpace(stderr), exitCode)
 		}
-		info.Custom[key] = strings.TrimSpace(stdout)
+		info.Custom[key] = sanitizeCollectorValue(stdout)
 		return nil
 	}
 }

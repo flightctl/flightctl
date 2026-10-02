@@ -3,6 +3,7 @@ package systeminfo
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"net"
 	"slices"
 	"sort"
@@ -567,6 +568,7 @@ func Collect(ctx context.Context, log *log.PrefixLogger, exec executer.Executer,
 			nil,
 		),
 		now: time.Now,
+		rng: rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())), //nolint:gosec // G404 - shuffling does not require crypto-strength randomness
 	}
 	m.collect(ctx)
 	return m.infoFromCache(), nil
