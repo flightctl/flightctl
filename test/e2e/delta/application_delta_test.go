@@ -664,7 +664,7 @@ func waitForApplicationDeltaGenerationEvents(harness *e2e.Harness, fleetName, de
 			generationEvents = fleetEvents
 			generationKind, generationName = v1beta1.FleetKind, fleetName
 		}
-		observation := deltaLifecycleObservation{}
+		observation := newDeltaLifecycleObservation()
 		if err := observeDeltaGenerationProgress(generationEvents, generationKind, generationName, &observation); err != nil {
 			return err
 		}

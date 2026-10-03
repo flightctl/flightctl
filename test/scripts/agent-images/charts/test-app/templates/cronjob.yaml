@@ -27,5 +27,6 @@ spec:
             - name: {{ .Chart.Name }}-cronjob
               image: {{ .Values.cronJob.image | quote }}
               imagePullPolicy: IfNotPresent
+              {{- include "test-app.containerSecurityContext" . | nindent 14 }}
               command: ["sh", "-c", "echo cron job image"]
 {{- end }}

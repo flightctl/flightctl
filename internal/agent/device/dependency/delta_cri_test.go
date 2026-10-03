@@ -93,14 +93,15 @@ func TestApplicationDeltaPrefetchCRIRefreshesRegistryReference(t *testing.T) {
 				deltaGeneration: 1,
 			}
 			manager := &prefetchManager{
-				log:               logger,
-				cliClients:        client.NewCLIClients(client.WithCRIClient(cri)),
-				readWriter:        rw,
-				pullTimeout:       time.Minute,
-				ociDelta:          client.NewOCIDelta(logger, exec, time.Minute),
-				tasks:             map[imageRef]*prefetchTask{target: task},
-				deltaGeneration:   1,
-				deltaApplyResults: make(map[string]map[imageRef]applicationDeltaApplyResult),
+				log:                   logger,
+				cliClients:            client.NewCLIClients(client.WithCRIClient(cri)),
+				readWriter:            rw,
+				pullTimeout:           time.Minute,
+				ociDelta:              client.NewOCIDelta(logger, exec, time.Minute),
+				tasks:                 map[imageRef]*prefetchTask{target: task},
+				deltaGeneration:       1,
+				deltaApplyResults:     make(map[string]map[imageRef]applicationDeltaApplyResult),
+				deltaTargetsScheduled: true,
 			}
 
 			err := manager.pullCRIImage(context.Background(), target, task, skopeo, client.Timeout(time.Minute))

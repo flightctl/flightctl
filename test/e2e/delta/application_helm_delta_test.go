@@ -63,16 +63,6 @@ func (targets helmDeltaTargets) images() helmDeltaImages {
 	}
 }
 
-var _ = Describe("application delta Helm", Label("delta", "microshift", "slow", "helm"), Serial, func() {
-	It("When a standalone device updates a Helm application with multiple images it should apply each delta and remain healthy", Label("standalone"), func() {
-		runHelmApplicationDeltaTest(false)
-	})
-
-	It("When a fleet updates a Helm application with multiple images it should apply each delta and remain healthy", Label("fleet"), func() {
-		runHelmApplicationDeltaTest(true)
-	})
-})
-
 func prepareHelmApplicationDeltaDevice(harness *e2e.Harness, deviceID string) {
 	waitDeviceUpToDate(harness, deviceID, "device UpToDate before MicroShift migration")
 	v12Image := harness.GetDeviceImageRefForFleet(auxSvcs.Registry.Host, auxSvcs.Registry.Port, util.DeviceTags.V12)
@@ -84,6 +74,16 @@ func prepareHelmApplicationDeltaDevice(harness *e2e.Harness, deviceID string) {
 	waitDeviceUpToDate(harness, deviceID, "device UpToDate on the MicroShift-capable V12 OS")
 }
 
+var _ = Describe("application delta Helm", Label("delta", "microshift", "slow", "helm"), Serial, func() {
+	It("When a standalone device updates a Helm application with multiple images it should apply each delta and remain healthy", Label("standalone"), func() {
+		runHelmApplicationDeltaTest(false)
+	})
+
+	It("When a fleet updates a Helm application with multiple images it should apply each delta and remain healthy", Label("fleet"), func() {
+		runHelmApplicationDeltaTest(true)
+	})
+})
+
 func runHelmApplicationDeltaTest(fleetOwned bool) {
 	harness := e2e.GetWorkerHarness()
 
@@ -91,7 +91,6 @@ func runHelmApplicationDeltaTest(fleetOwned bool) {
 	deviceID, _ := harness.EnrollAndWaitForOnlineStatus()
 	prepareHelmApplicationDeltaDevice(harness, deviceID)
 	createWritableDeltaRepo(harness)
-	requireDeltaGenerationSupport(harness, deviceID)
 
 	registry := applicationRegistryEndpoint()
 	fleetName := ""
@@ -125,6 +124,7 @@ func runHelmApplicationDeltaTest(fleetOwned bool) {
 	}
 	waitForApplicationDeltaApps(harness, deviceID, applicationDeltaHelmAppNames)
 	waitDeviceUpToDate(harness, deviceID, "device UpToDate with the V1 Helm application")
+	requireDeltaGenerationSupport(harness, deviceID)
 
 	eventBaseline, err := captureDeltaEventBaseline(harness, fleetName, deviceID)
 	Expect(err).NotTo(HaveOccurred())
