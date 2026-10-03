@@ -86,6 +86,8 @@ The service can be deployed locally in kind with the following command:
 make deploy
 ```
 
+Rootless deployment support covers user-scope Quadlets and the ImageBuilder paths used by Quadlets and rootless Kind. Run the Make targets as the account that should own the local deployment; the effective UID selects the matching scope, and UID 0 keeps the rootful setup. See the [rootless deployment and local workflows guide](rootless-development-plan.md) for host prerequisites and current ImageBuilder limitations.
+
 Note: An update to firewalld may need to be made if the agent is unable to connect to the api instance:
 
 ```bash
@@ -101,13 +103,21 @@ The service can also be deployed using systemd Quadlets (Podman containers manag
 make deploy-quadlets
 ```
 
-Note it stores its generated CA cert, server cert, and client-bootstrap cert in `$HOME/.flightctl/certs`
-and the client configuration in `$HOME/.flightctl/client.yaml`.
+For a regular-user deployment, writable service configuration and certificates are stored under `${XDG_CONFIG_HOME:-$HOME/.config}/flightctl`, generated service assets under `${XDG_DATA_HOME:-$HOME/.local/share}/flightctl`, and persistent Grafana and Prometheus data under `${XDG_STATE_HOME:-$HOME/.local/state}/flightctl/{grafana,prometheus}`. The API endpoint uses host port 9443 for a regular user and host port 443 for UID 0. The generated Quadlet mapping directs that host port to the service's container-side API listener on 8443. Kind uses host port 8443 for its Alertmanager proxy. Both local stacks also publish ports 3443, 4317, 7443, 7444, and 8445, so Kind and Quadlets cannot run at the same time; run `make clean-cluster` before Quadlets or `make clean-quadlets` before Kind. The shared Quadlet files use systemd path specifiers; the renderer adds an image-builder KVM/group drop-in for user scope. The CLI stores its client configuration under `${XDG_CONFIG_HOME:-$HOME/.config}/flightctl/client.yaml`.
 
 Use the `flightctl` CLI to login and then apply, get, or delete resources:
 
 ```
-bin/flightctl login $(cat ~/.flightctl/client.yaml | grep server | awk '{print $2}') --web --certificate-authority ~/.flightctl/certs/ca.crt
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/flightctl"
+DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/flightctl"
+API_PORT=9443
+if [[ "$(id -u)" -eq 0 ]]; then
+  CONFIG_DIR=/etc/flightctl
+  DATA_DIR=/usr/share/flightctl
+  API_PORT=443
+fi
+API_HOST="$(python3 "${DATA_DIR}/yaml_helpers.py" extract .global.baseDomain "${CONFIG_DIR}/service-config.yaml" --default localhost)"
+bin/flightctl login "https://${API_HOST}:${API_PORT}" --web --certificate-authority "${CONFIG_DIR}/pki/ca.crt"
 bin/flightctl apply -f examples/fleet.yaml
 bin/flightctl get fleets
 bin/flightctl get fleet fleet1 fleet2  # Get multiple specific resources

@@ -6,6 +6,7 @@ package setup
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -117,7 +118,7 @@ func newK8sProviders(config *infra.EnvironmentConfig) (*infra.Providers, error) 
 
 func newQuadletProviders(config *infra.EnvironmentConfig) (*infra.Providers, error) {
 	configDir := config.GetConfigDir()
-	secretDir := "/etc/flightctl/secrets" //nolint:gosec // G101: path to secret files dir, not a credential
+	secretDir := filepath.Join(configDir, "secrets") //nolint:gosec // G101: path to secret files dir, not a credential
 	useSudo := config.UseSudo
 	infraP := quadlet.NewInfraProvider(configDir, secretDir, useSudo)
 	lifecycleP := quadlet.NewServiceLifecycleProvider(infraP, useSudo)

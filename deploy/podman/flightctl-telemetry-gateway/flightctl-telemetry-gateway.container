@@ -10,16 +10,16 @@ Pull=missing
 
 ContainerName=flightctl-telemetry-gateway
 
-Volume=/etc/flightctl/flightctl-telemetry-gateway/config.yaml:/root/.flightctl/config.yaml:ro,z
+Volume=%E/flightctl/flightctl-telemetry-gateway/config.yaml:/root/.flightctl/config.yaml:ro,z
 
 Network=flightctl.network
 AddHost=%H:host-gateway
 
-Volume=/etc/flightctl/pki/flightctl-telemetry-gateway/server.crt:/etc/telemetry-gateway/certs/server.crt:ro,z
-Volume=/etc/flightctl/pki/flightctl-telemetry-gateway/server.key:/etc/telemetry-gateway/certs/server.key:ro,z
-Volume=/etc/flightctl/pki/ca-bundle.crt:/etc/telemetry-gateway/certs/ca.crt:ro,z
-Volume=/etc/flightctl/pki/db:/root/.flightctl/certs/db:ro,z
-Volume=/etc/flightctl/flightctl-telemetry-gateway/forward:/etc/flightctl/flightctl-telemetry-gateway/forward:ro,z
+Volume=%E/flightctl/pki/flightctl-telemetry-gateway/server.crt:/etc/telemetry-gateway/certs/server.crt:ro,z
+Volume=%E/flightctl/pki/flightctl-telemetry-gateway/server.key:/etc/telemetry-gateway/certs/server.key:ro,z
+Volume=%E/flightctl/pki/ca-bundle.crt:/etc/telemetry-gateway/certs/ca.crt:ro,z
+Volume=%E/flightctl/pki/db:/root/.flightctl/certs/db:ro,z
+Volume=%E/flightctl/flightctl-telemetry-gateway/forward:/etc/flightctl/flightctl-telemetry-gateway/forward:ro,z
 
 # Optional: inject forward auth token from a Podman secret as an env var.
 # Create with: podman secret create flightctl-tg-forward-token - <<< "your-token"
@@ -28,9 +28,9 @@ Volume=/etc/flightctl/flightctl-telemetry-gateway/forward:/etc/flightctl/flightc
 
 [Service]
 Restart=on-failure
-ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-telemetry-gateway/config.yaml.template --output-file /etc/flightctl/flightctl-telemetry-gateway/config.yaml
+ExecStartPre=/usr/bin/env PATH=%D/flightctl/bin:/usr/bin:/bin flightctl-standalone render template --config %E/flightctl/service-config.yaml --input-file %D/flightctl/flightctl-telemetry-gateway/config.yaml.template --output-file %E/flightctl/flightctl-telemetry-gateway/config.yaml
 
-ExecStartPost=bash -c '! systemctl is-active --quiet flightctl-gateway || podman exec flightctl-gateway nginx -s reload'
+ExecStartPost=/bin/bash -o pipefail -c 'if podman ps --filter name=flightctl-gateway --filter status=running --quiet | grep -q .; then podman exec flightctl-gateway nginx -s reload; else [ $$? -eq 1 ]; fi'
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target

@@ -470,6 +470,14 @@ imageBuilderWorker:
   timeoutCheckTaskInterval: 1m
   # -- Enable privileged mode for container-in-container builds
   privileged: true
+  # -- Expose /dev/kvm to the worker for native image-builder --in-vm exports
+  kvmDevice:
+    # -- Add the node's /dev/kvm device to the worker pod
+    enabled: false
+  # -- Expose the host /sys, /dev, and /lib/modules paths required by rootful bootc-image-builder exports
+  hostDevices:
+    # -- Add the broad host device mounts required by rootful exports
+    enabled: true
   # -- Secret name containing yum repository configuration files, mounted at /etc/yum.repos.d
   yumReposSecretName: ""
   # -- Secret name containing RHEL subscription manager configuration, mounted at /etc/rhsm

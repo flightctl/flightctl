@@ -1,11 +1,19 @@
 package renderer
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 )
 
+const gatewayTLSContainerPort = 8443
+
 func servicesManifest(config *RendererConfig) []InstallAction {
+	workerStorageHostDir := buildStorageHostDir(config)
+	serviceDataDir := config.VarLibOutputDir
+	if config.UserScope {
+		serviceDataDir = filepath.Join(serviceDataDir, "flightctl")
+	}
 	actions := []InstallAction{
 		// API service
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-api/flightctl-api.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-api.container"), Template: true, Mode: RegularFileMode},
@@ -69,6 +77,8 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 
 		// Gateway service
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-gateway/flightctl-gateway.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-gateway.container"), Template: true, Mode: RegularFileMode},
+		{Action: ActionWriteFile, Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-gateway.container.d", "10-api-host-port.conf"), Content: fmt.Sprintf("[Container]\nPublishPort=%s:%d\n", config.GatewayHostPort, gatewayTLSContainerPort), Mode: RegularFileMode},
+		{Action: ActionWriteFile, Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-gateway.container.d", "20-upstream-checks.conf"), Content: gatewayDependencyChecks(config), Mode: RegularFileMode},
 		{Action: ActionCopyDir, Source: "deploy/podman/flightctl-gateway/flightctl-gateway-config/", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "flightctl-gateway/"), Template: false, Mode: RegularFileMode},
 
 		// ImageBuilder API service
@@ -77,6 +87,7 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 
 		// ImageBuilder Worker service
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-imagebuilder-worker/flightctl-imagebuilder-worker.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-imagebuilder-worker.container"), Template: true, Mode: RegularFileMode},
+		{Action: ActionWriteFile, Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-imagebuilder-worker.container.d", "20-build-storage.conf"), Content: fmt.Sprintf("[Container]\nVolume=%s:/var/tmp/flightctl-builds:rw,z\nVolume=%s:/var/tmp/flightctl-exports:rw,z\n", filepath.Join(workerStorageHostDir, "flightctl-builds"), filepath.Join(workerStorageHostDir, "flightctl-exports")), Mode: RegularFileMode},
 		{Action: ActionCopyDir, Source: "deploy/podman/flightctl-imagebuilder-worker/flightctl-imagebuilder-worker-config/", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "flightctl-imagebuilder-worker/"), Template: false, Mode: RegularFileMode},
 
 		// Remote Access service
@@ -94,7 +105,7 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 		// Grafana service
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-grafana/flightctl-grafana.container", Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-grafana.container"), Template: true, Mode: RegularFileMode},
 		{Action: ActionCopyDir, Source: "deploy/podman/flightctl-grafana/flightctl-grafana-config/", Destination: filepath.Join(config.ReadOnlyConfigOutputDir, "flightctl-grafana/"), Template: false, Mode: RegularFileMode},
-		// Install Grafana provisioning files directly to /etc
+		// Install Grafana provisioning files into the writable configuration tree.
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-grafana/flightctl-grafana-config/grafana-datasources.yaml", Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-grafana", "provisioning", "datasources", "grafana-datasources.yaml"), Template: false, Mode: RegularFileMode},
 		{Action: ActionCopyFile, Source: "deploy/podman/flightctl-grafana/flightctl-grafana-config/grafana-dashboards.yaml", Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-grafana", "provisioning", "dashboards", "grafana-dashboards.yaml"), Template: false, Mode: RegularFileMode},
 		{Action: ActionCopyDir, Source: "contrib/grafana-dashboards/", Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-grafana", "provisioning", "dashboards", "flightctl/"), Template: false, Mode: RegularFileMode},
@@ -170,8 +181,41 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-grafana", "provisioning", "dashboards"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-grafana", "provisioning", "dashboards", "flightctl"), Mode: ExecutableFileMode},
 		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.WriteableConfigOutputDir, "flightctl-grafana", "certs"), Mode: ExecutableFileMode},
-		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.VarLibOutputDir, "grafana"), Mode: ExecutableFileMode},
-		{Action: ActionCreateEmptyDir, Destination: filepath.Join(config.VarLibOutputDir, "prometheus"), Mode: ExecutableFileMode},
+		{Action: ActionCreateEmptyDir, Destination: filepath.Join(serviceDataDir, "grafana"), Mode: ExecutableFileMode},
+		{Action: ActionCreateEmptyDir, Destination: filepath.Join(serviceDataDir, "prometheus"), Mode: ExecutableFileMode},
+	}
+
+	if config.UserScope {
+		actions = append(actions,
+			InstallAction{
+				Action:      ActionCopyFile,
+				Source:      "deploy/podman/flightctl-imagebuilder-worker/flightctl-imagebuilder-worker.container.d/10-rootless-kvm.conf",
+				Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-imagebuilder-worker.container.d", "10-rootless-kvm.conf"),
+				Mode:        RegularFileMode,
+			},
+			InstallAction{
+				Action:      ActionCopyFile,
+				Source:      "deploy/podman/flightctl-grafana/flightctl-grafana.container.d/99-rootless-state.conf",
+				Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-grafana.container.d", "99-rootless-state.conf"),
+				Mode:        RegularFileMode,
+			},
+			InstallAction{
+				Action:      ActionCopyFile,
+				Source:      "deploy/podman/flightctl-prometheus/flightctl-prometheus.container.d/99-rootless-state.conf",
+				Destination: filepath.Join(config.QuadletFilesOutputDir, "flightctl-prometheus.container.d", "99-rootless-state.conf"),
+				Mode:        RegularFileMode,
+			},
+			InstallAction{
+				Action:      ActionCreateSymlink,
+				Source:      "../flightctl.target",
+				Destination: filepath.Join(config.SystemdUnitOutputDir, "default.target.wants", "flightctl.target"),
+			},
+			InstallAction{
+				Action:      ActionCreateSymlink,
+				Source:      "../flightctl-observability.target",
+				Destination: filepath.Join(config.SystemdUnitOutputDir, "default.target.wants", "flightctl-observability.target"),
+			},
+		)
 	}
 
 	// Add KV config file based on image type (Valkey for EL10, Redis for EL9)
@@ -194,4 +238,43 @@ func servicesManifest(config *RendererConfig) []InstallAction {
 	}
 
 	return actions
+}
+
+// buildStorageHostDir returns the runtime host path used by the worker
+// Quadlet. During RPM rendering VarTmpOutputDir points inside %{buildroot} so
+// the directories are staged for packaging, while the installed unit must
+// still bind-mount /var/tmp on the target host.
+func buildStorageHostDir(config *RendererConfig) string {
+	configuredDir := filepath.Clean(config.VarTmpOutputDir)
+	buildroot := systemdBuildroot(config.SystemdUnitOutputDir)
+	if buildroot == "" {
+		return configuredDir
+	}
+	if configuredDir == systemPath(buildroot, "var", "tmp") {
+		return "/var/tmp"
+	}
+	return configuredDir
+}
+
+func gatewayDependencyChecks(config *RendererConfig) string {
+	services := []string{
+		"flightctl-api",
+		"flightctl-telemetry-gateway",
+		"flightctl-ui",
+		"flightctl-pam-issuer",
+		"flightctl-alertmanager-proxy",
+		"flightctl-cli-artifacts",
+	}
+
+	scopeArg := ""
+	if config.UserScope {
+		scopeArg = "--user "
+	}
+
+	var checks strings.Builder
+	checks.WriteString("[Service]\n")
+	for _, service := range services {
+		fmt.Fprintf(&checks, "ExecStartPre=/usr/bin/systemctl %sis-active %s\n", scopeArg, service)
+	}
+	return checks.String()
 }

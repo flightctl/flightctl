@@ -63,6 +63,8 @@ var ServiceRegistry = map[infra.ServiceName]ServiceInfo{
 type InfraProvider struct {
 	// host is the hostname/IP where Quadlet services are running
 	host string
+	// sshHost is set only when the caller explicitly configures a remote SSH target.
+	sshHost string
 	// sshUser is the SSH user for remote connections (empty for local)
 	sshUser string
 	// sshKeyPath is the path to SSH private key (optional)
@@ -71,6 +73,8 @@ type InfraProvider struct {
 	configDir string
 	// secretDir is the base directory for secret files on the target host
 	secretDir string
+	// unitDir is the Quadlet source directory on the target host
+	unitDir string
 	// useSudo indicates whether to use sudo for commands on the target host
 	useSudo bool
 
@@ -83,28 +87,117 @@ type InfraProvider struct {
 }
 
 // NewInfraProvider creates a new Quadlet InfraProvider.
-// For remote hosts, set QUADLET_HOST and E2E_SSH_USER env vars.
+// For remote hosts, set E2E_SSH_HOST and E2E_SSH_USER. QUADLET_HOST sets the
+// service hostname used by API endpoints and does not imply an SSH connection.
 // Auth: set E2E_SSH_KEY_PATH for key-based auth, or E2E_SSH_PASSWORD for password auth (requires sshpass).
 // Registry comes from auxiliary; use auxiliary.Get(ctx).Registry.Host/Registry.Port and Registry.Authenticated for credential-required OCI pulls.
 func NewInfraProvider(configDir, secretDir string, useSudo bool) *InfraProvider {
 	host := os.Getenv("QUADLET_HOST")
+	sshHost := os.Getenv("E2E_SSH_HOST")
 	if host == "" {
-		host = "localhost"
+		if sshHost != "" {
+			host = sshHost
+		} else {
+			host = "localhost"
+		}
+	}
+	sshUser := os.Getenv("E2E_SSH_USER")
+	remote := sshHost != "" && !isLocalHost(sshHost)
+	if sshUser == "" && remote {
+		sshUser = os.Getenv("USER")
+	}
+	systemScope := useSudo || (!remote && os.Geteuid() == 0) || (remote && sshUser == "root")
+	if configDir == "" {
+		configDir = os.Getenv("E2E_CONFIG_DIR")
 	}
 	if configDir == "" {
-		configDir = "/etc/flightctl"
+		if systemScope {
+			configDir = "/etc/flightctl"
+		} else {
+			configDir = filepath.Join(xdgConfigHome(), "flightctl")
+		}
 	}
 	if secretDir == "" {
-		secretDir = "/etc/flightctl/secrets" //nolint:gosec // G101: This is a path, not credentials
+		secretDir = filepath.Join(configDir, "secrets") //nolint:gosec // G101: This is a path, not credentials
+	}
+	unitDir := os.Getenv("QUADLET_FILES_OUTPUT_DIR")
+	if unitDir == "" {
+		if systemScope {
+			unitDir = "/etc/containers/systemd"
+		} else {
+			unitDir = filepath.Join(xdgConfigHome(), "containers", "systemd")
+		}
 	}
 	return &InfraProvider{
 		host:       host,
-		sshUser:    os.Getenv("E2E_SSH_USER"),
+		sshHost:    sshHost,
+		sshUser:    sshUser,
 		sshKeyPath: os.Getenv("E2E_SSH_KEY_PATH"),
 		configDir:  configDir,
 		secretDir:  secretDir,
+		unitDir:    unitDir,
 		useSudo:    useSudo,
 	}
+}
+
+func isLocalHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	return ip != nil && ip.IsLoopback()
+}
+
+func xdgConfigHome() string {
+	if configHome := os.Getenv("XDG_CONFIG_HOME"); configHome != "" {
+		return configHome
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return ".config"
+	}
+	return filepath.Join(homeDir, ".config")
+}
+
+// AAPClientIDPath returns the host path where the Quadlet deployment stores
+// the generated AAP OAuth client ID.
+func (p *InfraProvider) AAPClientIDPath() string {
+	return filepath.Join(p.configDir, "pki", "aap-client-id")
+}
+
+func (p *InfraProvider) quadletDropInDir(containerFile string) string {
+	return filepath.Join(p.unitDir, containerFile+".d")
+}
+
+func (p *InfraProvider) quadletDropInPath(containerFile string) string {
+	return filepath.Join(p.quadletDropInDir(containerFile), "e2e-env-override.conf")
+}
+
+func (p *InfraProvider) usesUserSystemd() bool {
+	if p.useSudo {
+		return false
+	}
+	if p.isRemote() {
+		return p.sshUser != "root"
+	}
+	return os.Geteuid() != 0
+}
+
+func (p *InfraProvider) needsSudo() bool {
+	if !p.useSudo {
+		return false
+	}
+	if p.isRemote() {
+		return p.sshUser != "root"
+	}
+	return os.Geteuid() != 0
+}
+
+func (p *InfraProvider) scopeCommand(command []string) []string {
+	if len(command) == 0 || (command[0] != "systemctl" && command[0] != "journalctl") || !p.usesUserSystemd() {
+		return command
+	}
+	return append([]string{command[0], "--user"}, command[1:]...)
 }
 
 // GetHost returns the host where Quadlet services are running.
@@ -114,7 +207,7 @@ func (p *InfraProvider) GetHost() string {
 
 // isRemote returns true if the Quadlet host is remote (requires SSH).
 func (p *InfraProvider) isRemote() bool {
-	return p.sshUser != "" && p.host != "localhost" && p.host != "127.0.0.1"
+	return p.sshHost != "" && !isLocalHost(p.sshHost)
 }
 
 // RunCommand runs a command on the Quadlet host (with SSH/sudo if configured). Used by SecretsProvider to read Podman secrets via container env.
@@ -173,6 +266,7 @@ func getSSHPassword() string {
 // If ctx is canceled, the command is killed. Returns context.Canceled if ctx was canceled.
 func (p *InfraProvider) runCommandWithOptionalStdinContext(ctx context.Context, stdin io.Reader, command ...string) (string, error) {
 	var cmd *exec.Cmd
+	command = p.scopeCommand(command)
 
 	if p.isRemote() {
 		sshArgs := []string{"-o", "StrictHostKeyChecking=no"}
@@ -183,11 +277,11 @@ func (p *InfraProvider) runCommandWithOptionalStdinContext(ctx context.Context, 
 		} else if !usePassword {
 			sshArgs = append(sshArgs, "-o", "BatchMode=yes")
 		}
-		sshTarget := fmt.Sprintf("%s@%s", p.sshUser, p.host)
+		sshTarget := fmt.Sprintf("%s@%s", p.sshUser, p.sshHost)
 		sshArgs = append(sshArgs, sshTarget)
 
 		remoteParts := make([]string, 0, len(command)+1)
-		if p.useSudo {
+		if p.needsSudo() {
 			remoteParts = append(remoteParts, quoteForRemoteShell("sudo"))
 		}
 		for _, c := range command {
@@ -209,7 +303,7 @@ func (p *InfraProvider) runCommandWithOptionalStdinContext(ctx context.Context, 
 		}
 	} else {
 		// Local execution
-		if p.useSudo {
+		if p.needsSudo() {
 			cmd = exec.CommandContext(ctx, "sudo", command...) //nolint:gosec // G204: command from trusted caller
 		} else {
 			cmd = exec.CommandContext(ctx, command[0], command[1:]...) //nolint:gosec // G204: command from trusted caller
@@ -696,12 +790,14 @@ func quadletServiceConfigDBType(serviceConfigYAML []byte) string {
 	return strings.ToLower(strings.TrimSpace(fmt.Sprintf("%v", tRaw)))
 }
 
-// quadletEncryptionKeyDir is the host-side directory where Quadlet mounts encryption key files.
-// This matches the Volume source in the .container files: /etc/flightctl/encryption:/root/.flightctl/encryption:ro,z
-const quadletEncryptionKeyDir = "/etc/flightctl/encryption"
+// encryptionKeyDir is the host-side directory where Quadlet mounts encryption key files.
+// This matches the renderer's config directory in both user and system scopes.
+func (p *InfraProvider) encryptionKeyDir() string {
+	return filepath.Join(p.configDir, "encryption")
+}
 
-// SetEncryptionKey writes a named encryption key file to the host filesystem at
-// /etc/flightctl/encryption/<keyFileName> so it becomes available to the service container.
+// SetEncryptionKey writes a named encryption key file to the host filesystem under
+// the deployment config directory so it becomes available to the service container.
 // For Quadlet the volume is bind-mounted from the host, so a host-side write is sufficient;
 // there is no need to restart the container for the file to appear inside it.
 func (p *InfraProvider) SetEncryptionKey(_ infra.ServiceName, keyFileName string, keyBytes []byte) error {
@@ -716,7 +812,7 @@ func (p *InfraProvider) SetEncryptionKey(_ infra.ServiceName, keyFileName string
 	}
 	// Write the base64-encoded key so the file format matches generate-encryption-key.sh output
 	// (openssl rand -base64 32). DecodeAES256Key expects a base64-encoded string on disk.
-	hostPath := filepath.Join(quadletEncryptionKeyDir, keyFileName)
+	hostPath := filepath.Join(p.encryptionKeyDir(), keyFileName)
 	encoded := []byte(base64.StdEncoding.EncodeToString(keyBytes))
 	if err := p.writeHostFile(hostPath, encoded); err != nil {
 		return fmt.Errorf("SetEncryptionKey: write %s: %w", hostPath, err)
@@ -727,13 +823,14 @@ func (p *InfraProvider) SetEncryptionKey(_ infra.ServiceName, keyFileName string
 // ResetEncryptionKeys removes all key-* files from the Quadlet encryption key directory,
 // leaving only the original "key" file. Used by test recovery to undo key rotation.
 func (p *InfraProvider) ResetEncryptionKeys() error {
-	out, err := p.runCommand("ls", quadletEncryptionKeyDir)
+	keyDir := p.encryptionKeyDir()
+	out, err := p.runCommand("ls", keyDir)
 	if err != nil {
-		return fmt.Errorf("ResetEncryptionKeys: list %s: %w", quadletEncryptionKeyDir, err)
+		return fmt.Errorf("ResetEncryptionKeys: list %s: %w", keyDir, err)
 	}
 	for _, name := range strings.Fields(out) {
 		if name != "key" && strings.HasPrefix(name, "key-") {
-			hostPath := filepath.Join(quadletEncryptionKeyDir, name)
+			hostPath := filepath.Join(keyDir, name)
 			if err := p.RemoveHostFile(hostPath); err != nil {
 				return fmt.Errorf("ResetEncryptionKeys: remove %s: %w", hostPath, err)
 			}
@@ -843,7 +940,7 @@ func (p *InfraProvider) startRemotePortForward(containerIP string, containerPort
 	} else if !usePassword {
 		sshArgs = append(sshArgs, "-o", "BatchMode=yes")
 	}
-	sshArgs = append(sshArgs, fmt.Sprintf("%s@%s", p.sshUser, p.host))
+	sshArgs = append(sshArgs, fmt.Sprintf("%s@%s", p.sshUser, p.sshHost))
 
 	var cmd *exec.Cmd
 	if usePassword {
@@ -1019,10 +1116,10 @@ func (p *InfraProvider) GetDBConnectionParams() (infra.DBConnectionParams, error
 
 	// The API service config stores cert paths as they appear inside the container
 	// (/root/.flightctl/certs/db/...), but ReadHostFile reads from the host filesystem.
-	// The container volume mount is: /etc/flightctl/pki/db -> /root/.flightctl/certs/db
+	// The container volume mount maps the deployment's pki/db directory to /root/.flightctl/certs/db.
 	// Translate the container path to the host path so ReadHostFile can access the cert.
 	const containerCertPrefix = "/root/.flightctl/certs/db/"
-	const hostCertPrefix = "/etc/flightctl/pki/db/"
+	hostCertPrefix := filepath.Join(p.configDir, "pki", "db") + string(filepath.Separator)
 	if strings.HasPrefix(params.SSLRootCert, containerCertPrefix) {
 		params.SSLRootCert = hostCertPrefix + params.SSLRootCert[len(containerCertPrefix):]
 	}

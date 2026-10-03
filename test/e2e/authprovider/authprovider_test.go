@@ -29,7 +29,6 @@ import (
 	"time"
 
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
-	"github.com/flightctl/flightctl/internal/quadlet/renderer"
 	authproviderhelpers "github.com/flightctl/flightctl/test/e2e/authprovider/helpers"
 	"github.com/flightctl/flightctl/test/e2e/infra"
 	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
@@ -785,7 +784,8 @@ func captureQuadletAAPClientIDSnapshot(provider *quadletinfra.InfraProvider) (*q
 		return nil, fmt.Errorf("quadlet provider is required")
 	}
 
-	content, err := provider.ReadHostFile(renderer.DefaultAAPClientIDPath)
+	clientIDPath := provider.AAPClientIDPath()
+	content, err := provider.ReadHostFile(clientIDPath)
 	if err != nil {
 		if isMissingHostFileError(err) {
 			return &quadletAAPClientIDSnapshot{}, nil
@@ -809,10 +809,10 @@ func restoreQuadletAAPClientIDSnapshot(provider *quadletinfra.InfraProvider, sna
 	}
 
 	if !snapshot.exists {
-		return provider.RemoveHostFile(renderer.DefaultAAPClientIDPath)
+		return provider.RemoveHostFile(provider.AAPClientIDPath())
 	}
 
-	return provider.WriteHostFile(renderer.DefaultAAPClientIDPath, []byte(snapshot.content))
+	return provider.WriteHostFile(provider.AAPClientIDPath(), []byte(snapshot.content))
 }
 
 // isMissingHostFileError reports whether a remote host file operation failed because the file is absent.

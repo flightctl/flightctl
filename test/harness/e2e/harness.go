@@ -474,9 +474,42 @@ func isQuadletEnvironment() bool {
 		logrus.Infof("E2E_ENVIRONMENT is set to %q, isQuadlet=%v", env, isQuadlet)
 		return isQuadlet
 	}
-	isActive := exec.Command("sudo", "systemctl", "is-active", ServiceAPI+".service").Run() == nil
+	var cmd *exec.Cmd
+	if os.Geteuid() == 0 {
+		cmd = exec.Command("systemctl", "is-active", ServiceAPI+".service")
+	} else {
+		cmd = exec.Command("systemctl", "--user", "is-active", ServiceAPI+".service")
+	}
+	isActive := cmd.Run() == nil
+	if !isActive && os.Geteuid() != 0 && useE2ESudo() {
+		isActive = exec.Command("sudo", "systemctl", "is-active", ServiceAPI+".service").Run() == nil
+	}
 	logrus.Infof("E2E_ENVIRONMENT not set, detecting quadlet via systemctl: isActive=%v", isActive)
 	return isActive
+}
+
+func useE2ESudo() bool {
+	return strings.EqualFold(os.Getenv("E2E_USE_SUDO"), "true") || os.Getenv("E2E_USE_SUDO") == "1"
+}
+
+func quadletTargetUsesSystemScope(remote bool, remoteUser string) bool {
+	if useE2ESudo() {
+		return true
+	}
+	if remote {
+		return remoteUser == "root"
+	}
+	return os.Geteuid() == 0
+}
+
+func quadletTargetNeedsSudo(remote bool, remoteUser string) bool {
+	if !useE2ESudo() {
+		return false
+	}
+	if remote {
+		return remoteUser != "root"
+	}
+	return os.Geteuid() != 0
 }
 
 // GetServiceLogs returns the logs from the specified service using journalctl.
@@ -579,15 +612,32 @@ func (h *Harness) captureK8sServiceLogs(artifactDir string, services []string) e
 }
 
 func (h *Harness) captureQuadletServiceLogs(artifactDir string, services []string) error {
-	host := os.Getenv("QUADLET_HOST")
+	host := os.Getenv("E2E_SSH_HOST")
 	sshUser := os.Getenv("E2E_SSH_USER")
+	if sshUser == "" {
+		sshUser = os.Getenv("USER")
+	}
 	sshKeyPath := os.Getenv("E2E_SSH_KEY_PATH")
 	sshPassword := os.Getenv("E2E_SSH_PASSWORD")
-	remote := sshUser != "" && host != "" && host != "localhost" && host != "127.0.0.1"
+	remote := host != "" && !strings.EqualFold(host, "localhost")
+	if ip := net.ParseIP(strings.Trim(host, "[]")); ip != nil && ip.IsLoopback() {
+		remote = false
+	}
+	systemScope := quadletTargetUsesSystemScope(remote, sshUser)
+	needsSudo := quadletTargetNeedsSudo(remote, sshUser)
 
 	var errs []error
 	for _, svc := range services {
 		unit := svc + ".service"
+		journalctlArgs := []string{"journalctl"}
+		if systemScope {
+			if needsSudo {
+				journalctlArgs = append([]string{"sudo"}, journalctlArgs...)
+			}
+		} else {
+			journalctlArgs = append(journalctlArgs, "--user")
+		}
+		journalctlArgs = append(journalctlArgs, "-u", unit, "--no-pager")
 
 		var cmd *exec.Cmd
 		if remote {
@@ -599,7 +649,11 @@ func (h *Harness) captureQuadletServiceLogs(artifactDir string, services []strin
 				sshArgs = append(sshArgs, "-o", "BatchMode=yes")
 			}
 			sshArgs = append(sshArgs, fmt.Sprintf("%s@%s", sshUser, host))
-			sshArgs = append(sshArgs, fmt.Sprintf("sudo journalctl -u %s --no-pager", unit))
+			remoteCommand := make([]string, len(journalctlArgs))
+			for i, arg := range journalctlArgs {
+				remoteCommand[i] = shellQuote(arg)
+			}
+			sshArgs = append(sshArgs, strings.Join(remoteCommand, " "))
 
 			if usePassword {
 				cmd = exec.Command("sshpass", append([]string{"-e", "ssh"}, sshArgs...)...) //nolint:gosec
@@ -608,7 +662,7 @@ func (h *Harness) captureQuadletServiceLogs(artifactDir string, services []strin
 				cmd = exec.Command("ssh", sshArgs...) //nolint:gosec
 			}
 		} else {
-			cmd = exec.Command("sudo", "journalctl", "-u", unit, "--no-pager") //nolint:gosec
+			cmd = exec.Command(journalctlArgs[0], journalctlArgs[1:]...) //nolint:gosec
 		}
 
 		out, err := cmd.Output()

@@ -1,31 +1,21 @@
 #!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 KIND_VERSION=0.26.0
+KIND_BIN="${ROOT_DIR}/bin/kind"
 
-EXISTING_VERSION=$(kind version 2>&1 | awk '{print $2}' | sed 's/v//')
-
-if [ "$EXISTING_VERSION" == "$KIND_VERSION" ]; then
-     echo "Kind v${KIND_VERSION} already installed"
-else
-    echo "Installing kind v${KIND_VERSION}"
-    # Install kind
-    go install sigs.k8s.io/kind@v${KIND_VERSION}
-    sudo cp $(go env GOPATH)/bin/kind /usr/local/bin
+EXISTING_VERSION=""
+if command -v kind >/dev/null 2>&1; then
+    EXISTING_VERSION="$(kind version 2>&1 | awk '{print $2}' | sed 's/^v//' || true)"
+fi
+if [[ "${EXISTING_VERSION}" == "${KIND_VERSION}" ]]; then
+    echo "Kind v${KIND_VERSION} already installed"
+    exit 0
 fi
 
-if which systemctl; then
-
-    if [ -f /etc/systemd/system/user@.service.d/delegate.conf ]; then
-        echo "Kind systemd rootless already configured" && exit 0
-    else
-        echo "Configuring Kind for rootless operation in Linux"
-        # Enable rootless Kind, see https://kind.sigs.k8s.io/docs/user/rootless/
-        sudo mkdir -p /etc/systemd/system/user@.service.d
-        cat << EOF | sudo tee /etc/systemd/system/user@.service.d/delegate.conf > /dev/null
-[Service]
-Delegate=yes
-EOF
-
-        sudo systemctl daemon-reload
-    fi
-fi
-
+echo "Installing kind v${KIND_VERSION} under ${ROOT_DIR}/bin"
+mkdir -p "${ROOT_DIR}/bin"
+GOBIN="${ROOT_DIR}/bin" go install "sigs.k8s.io/kind@v${KIND_VERSION}"
+chmod +x "${KIND_BIN}"

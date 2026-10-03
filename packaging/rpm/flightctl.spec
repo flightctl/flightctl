@@ -676,6 +676,8 @@ fi
     %{_datadir}/containers/systemd/flightctl-pam-issuer.container
     %{_datadir}/containers/systemd/flightctl-pam-issuer-etc.volume
     %{_datadir}/containers/systemd/flightctl-gateway.container
+    %{_datadir}/containers/systemd/flightctl-gateway.container.d/10-api-host-port.conf
+    %{_datadir}/containers/systemd/flightctl-gateway.container.d/20-upstream-checks.conf
     %{_datadir}/containers/systemd/flightctl-ui*.container
     %{_datadir}/containers/systemd/flightctl-ui-certs.volume
     %{_datadir}/containers/systemd/flightctl-imagebuilder*.container
@@ -684,6 +686,7 @@ fi
     %{_datadir}/containers/systemd/flightctl-telemetry-gateway.container
     %{_datadir}/containers/systemd/flightctl.network
     %{_datadir}/containers/systemd/flightctl-listeners.volume
+    %{_datadir}/containers/systemd/flightctl-imagebuilder-worker.container.d/20-build-storage.conf
 
     # Handle permissions for scripts setting host config
     %attr(0755,root,root) %{_datadir}/flightctl/init_db.sh

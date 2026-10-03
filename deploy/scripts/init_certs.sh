@@ -1,13 +1,15 @@
 #!/bin/bash
 set -euo pipefail
 
-CONFIG_FILE="/etc/flightctl/service-config.yaml"
-CERT_DIR="/etc/flightctl/pki"
-ENCRYPTION_DIR="/etc/flightctl/encryption"
-YAML_HELPER="/usr/share/flightctl/yaml_helpers.py"
+CONFIG_DIR="${FLIGHTCTL_CONFIG_DIR:-/etc/flightctl}"
+ASSET_DIR="${FLIGHTCTL_ASSET_DIR:-/usr/share/flightctl}"
+CONFIG_FILE="${CONFIG_DIR}/service-config.yaml"
+CERT_DIR="${CONFIG_DIR}/pki"
+ENCRYPTION_DIR="${CONFIG_DIR}/encryption"
+YAML_HELPER="${ASSET_DIR}/yaml_helpers.py"
 
 # Generate encryption key unconditionally (independent of certificate method)
-/usr/share/flightctl/generate-encryption-key.sh --encryption-dir "$ENCRYPTION_DIR"
+"${ASSET_DIR}/generate-encryption-key.sh" --encryption-dir "$ENCRYPTION_DIR"
 
 CERT_METHOD=$(python3 "$YAML_HELPER" extract .global.generateCertificates "$CONFIG_FILE")
 if [ "$CERT_METHOD" = "builtin" ]; then
@@ -48,7 +50,7 @@ base_domain="${base_domain,,}"
 if ! [[ "$base_domain" =~ ^([a-z0-9]([-a-z0-9]*[a-z0-9])?\.)*[a-z]([-a-z0-9]*[a-z0-9])?$ ]]; then
     echo "ERROR: global.baseDomain '$base_domain' is not a valid hostname or FQDN." 1>&2
     echo "  Hostnames must contain only lowercase letters, digits, and hyphens (e.g. 'example.com')." 1>&2
-    echo "  Fix: set a valid baseDomain in /etc/flightctl/service-config.yaml, or rename the host:" 1>&2
+    echo "  Fix: set a valid baseDomain in ${CONFIG_FILE}, or rename the host:" 1>&2
     echo "    hostnamectl set-hostname <valid-hostname>" 1>&2
     exit 1
 fi
@@ -147,4 +149,4 @@ for san in "${remote_access_sans[@]}"; do
 done
 
 # Generate certificates
-/usr/share/flightctl/generate-certificates.sh "${cert_gen_args[@]}"
+"${ASSET_DIR}/generate-certificates.sh" "${cert_gen_args[@]}"

@@ -75,13 +75,20 @@ echo "Building variants, bundle, and qcow2 for ${OS_ID}"
 echo "Variants log: ${variants_log}"
 echo "QCOW2 log: ${qcow2_log}"
 
-sudo rm -f "${variants_log}" "${qcow2_log}"
+rm -f "${variants_log}" "${qcow2_log}"
+
+chown_artifacts_to_sudo_user() {
+  local path="$1"
+  if [[ "${EUID}" -eq 0 && -n "${SUDO_UID:-}" && "${SUDO_UID}" != "0" ]]; then
+    chown -R "${SUDO_UID}:${SUDO_GID:-${SUDO_UID}}" "${path}" || true
+  fi
+}
 
 (
   set -euo pipefail
   echo "Building variants for ${OS_ID}"
-  sudo -E "${SCRIPT_DIR}/build.sh" --variants 2>&1 | tee "${variants_log}"
-  sudo chown -R "$(id -un)":"$(id -gn)" "${ARTIFACTS_OUTPUT_DIR}" || true
+  "${SCRIPT_DIR}/build.sh" --variants 2>&1 | tee "${variants_log}"
+  chown_artifacts_to_sudo_user "${ARTIFACTS_OUTPUT_DIR}"
 ) &
 VARIANTS_PID=$!
 
@@ -91,7 +98,7 @@ create_bundle() {
   local -a refs=()
   printf '%s\n' "----------" "Creating bundle" "----------"
 
-  listing="$(sudo podman images --format '{{.Repository}}:{{.Tag}}' \
+  listing="$(podman images --format '{{.Repository}}:{{.Tag}}' \
     --filter "label=io.flightctl.e2e.component=device")" || {
     echo "::error::Failed to list device images" | tee -a "${variants_log}"
     exit 1
@@ -123,16 +130,16 @@ create_bundle() {
   local ref tag
   for ref in "${refs[@]}"; do
     tag="${ref##*:}"
-    sudo skopeo copy --preserve-digests \
+    skopeo copy --preserve-digests \
       "containers-storage:${ref}" "oci:${staging}/oci:${tag}" 2>&1 | tee -a "${variants_log}"
     printf '%s\t%s\n' "${tag}" "${ref}" >> "${staging}/e2e-refs.tsv"
   done
   rm -f "${bundle_tar}"
-  sudo chown -R "$(id -un)":"$(id -gn)" "${staging}"
+  chown_artifacts_to_sudo_user "${staging}"
   tar -C "${staging}" -cf "${bundle_tar}" oci e2e-refs.tsv
   rm -rf "${staging}"
   BUNDLE_STAGING_DIR=""
-  sudo chown -R "$(id -un)":"$(id -gn)" "${ARTIFACTS_OUTPUT_DIR}" || true
+  chown_artifacts_to_sudo_user "${ARTIFACTS_OUTPUT_DIR}"
 
   if [ "${DO_PUSH}" = "true" ]; then
     if [ -f "${bundle_tar}" ]; then
@@ -173,7 +180,7 @@ if [ "${SKIP_QCOW_BUILD}" != "true" ]; then
     set -euo pipefail
     echo "Building qcow2 for ${OS_ID}"
     OUTPUT_DIR="${QCOW2_OUTPUT_DIR}" "${SCRIPT_DIR}/qcow2.sh" 2>&1 | tee "${qcow2_log}"
-    sudo chown -R "$(id -un)":"$(id -gn)" "${QCOW2_OUTPUT_DIR}" || true
+    chown_artifacts_to_sudo_user "${QCOW2_OUTPUT_DIR}"
     echo "endgroup"
   ) &
   QCOW2_PID=$!
