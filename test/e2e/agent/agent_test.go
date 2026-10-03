@@ -233,6 +233,22 @@ var _ = Describe("VM Agent behavior", func() {
 			})
 			Expect(err).ToNot(HaveOccurred())
 
+			// The previous successful update can still be reported as
+			// Updating=False/Updated with the previous rendered version. Wait until
+			// this update has actually started before accepting its failure or
+			// rollback status below.
+			harness.WaitForDeviceContents(deviceId, fmt.Sprintf("device should start updating to renderedVersion: %d", newRenderedVersion),
+				func(device *v1beta1.Device) bool {
+					if device == nil || device.Status == nil {
+						return false
+					}
+					condition := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceUpdating)
+					return condition != nil &&
+						condition.Status == v1beta1.ConditionStatusTrue &&
+						condition.Reason == string(v1beta1.UpdateStatePreparing) &&
+						strings.Contains(condition.Message, fmt.Sprintf("renderedVersion: %d", newRenderedVersion))
+				}, TIMEOUT)
+
 			harness.WaitForDeviceContents(deviceId, fmt.Sprintf("device should report update error or rollback for renderedVersion: %s", strconv.Itoa(newRenderedVersion)),
 				func(device *v1beta1.Device) bool {
 					// returning true if it is reported an error status or if the device is rolled back to the previous version
@@ -259,10 +275,15 @@ var _ = Describe("VM Agent behavior", func() {
 			})
 			Expect(err).ToNot(HaveOccurred())
 
-			// Check the http config error is detected.
-			harness.WaitForDeviceContents(deviceId, `Error: failed fetching specified Repository definition`,
+			// Check the invalid repository is rejected with its render error. The
+			// message check prevents a stale SpecValid condition from satisfying
+			// this wait after a later config update.
+			harness.WaitForDeviceContents(deviceId, "device should reject the missing Git repository",
 				func(device *v1beta1.Device) bool {
-					return e2e.ConditionExists(device, v1beta1.ConditionTypeDeviceSpecValid, v1beta1.ConditionStatusFalse, "Invalid")
+					return deviceSpecInvalidWithMessage(device,
+						"failed fetching specified Repository definition",
+						"not-existing-repo",
+					)
 				}, TIMEOUT)
 
 			harness.WaitForDeviceContents(deviceId, fmt.Sprintf("device should report update error for renderedVersion: %s", strconv.Itoa(newRenderedVersion)),
@@ -291,10 +312,11 @@ var _ = Describe("VM Agent behavior", func() {
 			})
 			Expect(err).ToNot(HaveOccurred())
 
-			// Check the http config error is detected.
-			harness.WaitForDeviceContents(deviceId, "Error: sending HTTP Request",
+			// The previous invalid Git repository also leaves SpecValid=False, so
+			// require the HTTP content-fetch error from this update explicitly.
+			harness.WaitForDeviceContents(deviceId, "device should reject the invalid HTTP path",
 				func(device *v1beta1.Device) bool {
-					return e2e.ConditionExists(device, v1beta1.ConditionTypeDeviceSpecValid, v1beta1.ConditionStatusFalse, "Invalid")
+					return deviceSpecInvalidWithMessage(device, "failed fetching data")
 				}, TIMEOUT)
 
 			harness.WaitForDeviceContents(deviceId, fmt.Sprintf("device should report update error for renderedVersion: %s", strconv.Itoa(newRenderedVersion)),
@@ -705,6 +727,23 @@ var httpConfigInvalidPath = v1beta1.HttpConfigProviderSpec{
 		Suffix:     &suffix,
 	},
 	Name: "example-http-config-provider",
+}
+
+func deviceSpecInvalidWithMessage(device *v1beta1.Device, expectedMessageSubstrings ...string) bool {
+	if device == nil || device.Status == nil {
+		return false
+	}
+
+	condition := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceSpecValid)
+	if condition == nil || condition.Status != v1beta1.ConditionStatusFalse || condition.Reason != "Invalid" {
+		return false
+	}
+	for _, substring := range expectedMessageSubstrings {
+		if !strings.Contains(condition.Message, substring) {
+			return false
+		}
+	}
+	return true
 }
 
 // parseImageReference splits an image reference string into the repository and tag components.
