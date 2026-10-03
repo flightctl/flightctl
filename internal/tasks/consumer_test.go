@@ -3,6 +3,7 @@ package tasks
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	eventservice "github.com/flightctl/flightctl/internal/service/event"
 	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
+	labelsyncmappingservice "github.com/flightctl/flightctl/internal/service/labelsyncmapping"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/flightctl/flightctl/pkg/queues"
@@ -209,6 +211,46 @@ func TestShouldReconcileDeviceOwnership(t *testing.T) {
 			log := logrus.New()
 			result := shouldReconcileDeviceOwnership(context.Background(), tt.event, log)
 			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestShouldReconcileDeviceLabels(t *testing.T) {
+	tests := []struct {
+		name     string
+		event    domain.Event
+		expected bool
+	}{
+		{
+			name:     "When a device is created it should reconcile labels",
+			event:    createTestEvent(domain.DeviceKind, domain.EventReasonResourceCreated, "device1"),
+			expected: true,
+		},
+		{
+			name:     "When a device status changes it should reconcile from the identity-only event",
+			event:    createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1"),
+			expected: true,
+		},
+		{
+			name:     "When a device update carries details it should not trigger status reconciliation",
+			event:    createTestEventWithDetails(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1", createResourceUpdatedDetails(t, domain.Labels)),
+			expected: false,
+		},
+		{
+			name:     "When another resource is created it should not reconcile device labels",
+			event:    createTestEvent(domain.FleetKind, domain.EventReasonResourceCreated, "fleet1"),
+			expected: false,
+		},
+		{
+			name:     "When a device is deleted it should not reconcile labels",
+			event:    createTestEvent(domain.DeviceKind, domain.EventReasonResourceDeleted, "device1"),
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, shouldReconcileDeviceLabels(context.Background(), tt.event))
 		})
 	}
 }
@@ -705,6 +747,95 @@ func TestDispatchTasks_FleetValidationAcknowledgesInvalidConfigAndRetriesOperati
 			mockConsumer.AssertExpectations(t)
 		})
 	}
+}
+
+func TestDispatchTasks_DeviceLabelReconciliationRetriesConfigurationFailures(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	orgID := uuid.New()
+	eventWithOrgID := worker_client.EventWithOrgId{
+		OrgId: orgID,
+		Event: createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1"),
+	}
+	payload, err := json.Marshal(eventWithOrgID)
+	require.NoError(t, err)
+
+	mockEventSvc := eventservice.NewMockService(ctrl)
+	mockEventSvc.EXPECT().CreateEvent(gomock.Any(), orgID, gomock.Any()).Times(1)
+	mockConsumer := &MockConsumer{}
+	var queueErr error
+	mockConsumer.On("Complete", mock.Anything, "entry-123", payload, mock.Anything).
+		Run(func(args mock.Arguments) {
+			queueErr, _ = args.Get(3).(error)
+		}).Return(nil).Once()
+
+	handler := TaskConsumer{EventSvc: mockEventSvc}.dispatch()
+	err = handler(context.Background(), payload, "entry-123", mockConsumer, logrus.New())
+	require.ErrorContains(t, err, "device label reconciliation is not configured")
+	require.ErrorContains(t, queueErr, "device label reconciliation is not configured")
+	mockConsumer.AssertExpectations(t)
+}
+
+func TestDispatchTasks_DeviceLabelReconciliationCompletesAfterReconcilerReturns(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	orgID := uuid.New()
+	service := labelsyncmappingservice.NewMockService(ctrl)
+	outcomes := []labelsyncmappingservice.MappingOutcome{{MappingID: uuid.New()}}
+	postWriteChecksComplete := false
+	service.EXPECT().ReconcileDeviceLabels(gomock.Any(), orgID, "device1").DoAndReturn(
+		func(context.Context, uuid.UUID, string) (labelsyncmappingservice.ReconciliationResult, error) {
+			postWriteChecksComplete = true
+			return labelsyncmappingservice.ReconciliationResult{MappingOutcomes: outcomes}, nil
+		},
+	)
+	eventWithOrgID := worker_client.EventWithOrgId{
+		OrgId: orgID,
+		Event: createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1"),
+	}
+	payload, err := json.Marshal(eventWithOrgID)
+	require.NoError(t, err)
+	mockConsumer := &MockConsumer{}
+	mockConsumer.On("Complete", mock.Anything, "entry-123", payload, nil).Run(func(mock.Arguments) {
+		require.True(t, postWriteChecksComplete, "event completed before the label reconciliation post-write checks returned")
+	}).Return(nil).Once()
+
+	handler := TaskConsumer{LabelSyncMappingSvc: service}.dispatch()
+	err = handler(context.Background(), payload, "entry-123", mockConsumer, logrus.New())
+	require.NoError(t, err)
+	mockConsumer.AssertExpectations(t)
+}
+
+func TestDispatchTasks_DeviceLabelReconciliationRetriesReconciliationErrors(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	orgID := uuid.New()
+	mappingID := uuid.New()
+	mappingErr := errors.New("mapping evaluation failed")
+	reconcileErr := errors.New("reconciliation conflict")
+	outcomes := []labelsyncmappingservice.MappingOutcome{{MappingID: mappingID, Err: mappingErr}}
+	service := labelsyncmappingservice.NewMockService(ctrl)
+	service.EXPECT().ReconcileDeviceLabels(gomock.Any(), orgID, "device1").Return(
+		labelsyncmappingservice.ReconciliationResult{MappingOutcomes: outcomes}, reconcileErr,
+	)
+
+	eventWithOrgID := worker_client.EventWithOrgId{
+		OrgId: orgID,
+		Event: createTestEvent(domain.DeviceKind, domain.EventReasonResourceUpdated, "device1"),
+	}
+	payload, err := json.Marshal(eventWithOrgID)
+	require.NoError(t, err)
+	mockEventSvc := eventservice.NewMockService(ctrl)
+	mockEventSvc.EXPECT().CreateEvent(gomock.Any(), orgID, gomock.Any()).Times(1)
+	mockConsumer := &MockConsumer{}
+	var queueErr error
+	mockConsumer.On("Complete", mock.Anything, "entry-123", payload, mock.Anything).
+		Run(func(args mock.Arguments) {
+			queueErr, _ = args.Get(3).(error)
+		}).Return(nil).Once()
+
+	handler := TaskConsumer{EventSvc: mockEventSvc, LabelSyncMappingSvc: service}.dispatch()
+	err = handler(context.Background(), payload, "entry-123", mockConsumer, logrus.New())
+	require.ErrorContains(t, err, "reconciliation conflict")
+	require.ErrorContains(t, queueErr, "reconciliation conflict")
+	mockConsumer.AssertExpectations(t)
 }
 
 func TestDispatchTasks_WithNilMetrics_InvalidPayload(t *testing.T) {

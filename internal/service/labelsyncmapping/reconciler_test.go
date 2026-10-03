@@ -275,6 +275,21 @@ func TestReconcileDeviceLabelsStopsAfterDecommissionWinsSnapshotRace(t *testing.
 	assert.Equal(t, 2, devices.gets)
 }
 
+func TestReconcileDeviceLabelsSkipsDeviceStoreWhenNoMappings(t *testing.T) {
+	orgID := uuid.New()
+	mappingStore := &reconciliationStoreStub{snapshots: []labelsyncmappingstore.DeviceMappingsSnapshot{{}}}
+	devices := &reconciliationDeviceStub{}
+	service := newReconcilerService(t, mappingStore, devices, &reconciliationEvaluator{})
+
+	result, err := service.ReconcileDeviceLabels(context.Background(), orgID, "edge-01")
+
+	require.NoError(t, err)
+	assert.Empty(t, result.MappingOutcomes)
+	assert.Equal(t, 1, mappingStore.reads)
+	assert.Zero(t, devices.gets)
+	assert.Empty(t, devices.applyArgs)
+}
+
 func TestReconcileDeviceLabelsRetriesDatabaseDeadlock(t *testing.T) {
 	orgID := uuid.New()
 	mappingID := uuid.New()
@@ -328,6 +343,45 @@ func TestReconcileDeviceLabelsRetriesWhenMappingRevisionChangesAfterWrite(t *tes
 	assert.Len(t, result.MappingOutcomes, 1)
 	assert.Equal(t, mappingID, result.MappingOutcomes[0].MappingID)
 	assert.Equal(t, 4, mappingStore.reads)
+}
+
+func TestReconcileDeviceLabelsReturnsFailureOutcomesWhenMappingRevisionKeepsChanging(t *testing.T) {
+	orgID := uuid.New()
+	mappingID := uuid.New()
+	latestMappingID := uuid.New()
+	mapping := testDeviceMapping(mappingID, "architecture", "mapped", loPtr("architecture"))
+	latestMapping := testDeviceMapping(latestMappingID, "architecture", "mapped", loPtr("architecture"))
+	generation := int64(1)
+	resourceVersion := "snapshot-rv"
+	mapping.Mapping.Metadata.Generation = &generation
+	mapping.Mapping.Metadata.ResourceVersion = &resourceVersion
+	latestGeneration := int64(2)
+	latestResourceVersion := "latest-rv"
+	latestMapping.Mapping.Metadata.Generation = &latestGeneration
+	latestMapping.Mapping.Metadata.ResourceVersion = &latestResourceVersion
+
+	mappingSnapshots := make([]labelsyncmappingstore.DeviceMappingsSnapshot, 0, maxReconciliationAttempts*2)
+	for attempt := 0; attempt < maxReconciliationAttempts; attempt++ {
+		mappingSnapshots = append(mappingSnapshots,
+			labelsyncmappingstore.DeviceMappingsSnapshot{Mappings: []labelsyncmappingstore.DeviceMapping{mapping}, Revision: int64(attempt*2 + 1)},
+			labelsyncmappingstore.DeviceMappingsSnapshot{Mappings: []labelsyncmappingstore.DeviceMapping{latestMapping}, Revision: int64(attempt*2 + 2)},
+		)
+	}
+	mappingStore := &reconciliationStoreStub{snapshots: mappingSnapshots}
+	devices := &reconciliationDeviceStub{snapshots: []domain.DeviceLabelSnapshot{deviceLabelSnapshot("edge-01", "1", map[string]string{}, nil)}}
+	evaluator := &reconciliationEvaluator{responses: map[string]evaluatorResponse{"mapped": {result: ScalarResult("x86_64")}}}
+	service := newReconcilerService(t, mappingStore, devices, evaluator)
+
+	result, err := service.ReconcileDeviceLabels(context.Background(), orgID, "edge-01")
+
+	require.ErrorIs(t, err, flterrors.ErrResourceVersionConflict)
+	require.Len(t, result.MappingOutcomes, 1)
+	assert.Equal(t, mappingID, result.MappingOutcomes[0].MappingID)
+	assert.Equal(t, generation, result.MappingOutcomes[0].Generation)
+	assert.Equal(t, resourceVersion, result.MappingOutcomes[0].ResourceVersion)
+	assert.ErrorIs(t, result.MappingOutcomes[0].Err, flterrors.ErrResourceVersionConflict)
+	assert.Len(t, devices.applyArgs, maxReconciliationAttempts)
+	assert.Equal(t, maxReconciliationAttempts*2, mappingStore.reads)
 }
 
 func TestReconcileDeviceLabelsDoesNotRepeatOwnerOnlyTransfer(t *testing.T) {

@@ -37,6 +37,71 @@ func TestEmitDeviceUpdatedEvent(t *testing.T) {
 		EmitDeviceUpdatedEvent(context.Background(), ev, logrus.New(), domain.DeviceKind, uuid.New(), "dev1", nil, device, true, nil)
 		require.Len(t, ev.created, 1)
 		require.Equal(t, domain.EventReasonResourceCreated, ev.created[0].Reason)
+		require.Equal(t, domain.DeviceKind, ev.created[0].InvolvedObject.Kind)
+		require.Equal(t, "dev1", ev.created[0].InvolvedObject.Name)
+		require.Nil(t, ev.created[0].Details)
+	})
+
+	t.Run("When status changes it should publish an identity-only reconciliation event", func(t *testing.T) {
+		ev := &fakeEvents{}
+		oldDevice := prepareTestDeviceForEvents("dev1")
+		newDevice := prepareTestDeviceForEvents("dev1")
+		oldDevice.Status.SystemInfo.Architecture = "x86_64"
+		newDevice.Status.SystemInfo.Architecture = "aarch64"
+
+		EmitDeviceUpdatedEvent(context.Background(), ev, logrus.New(), domain.DeviceKind, uuid.New(), "dev1", oldDevice, newDevice, false, nil)
+
+		var reconciliationEvents []*domain.Event
+		for _, event := range ev.created {
+			if event.Reason == domain.EventReasonResourceUpdated && event.Details == nil {
+				reconciliationEvents = append(reconciliationEvents, event)
+			}
+		}
+		require.Len(t, reconciliationEvents, 1)
+		require.Equal(t, domain.DeviceKind, reconciliationEvents[0].InvolvedObject.Kind)
+		require.Equal(t, "dev1", reconciliationEvents[0].InvolvedObject.Name)
+	})
+
+	t.Run("When status is unchanged it should not publish an identity-only reconciliation event", func(t *testing.T) {
+		ev := &fakeEvents{}
+		oldDevice := prepareTestDeviceForEvents("dev1")
+		newDevice := prepareTestDeviceForEvents("dev1")
+		newDevice.Metadata.Labels = &map[string]string{"team": "edge"}
+
+		EmitDeviceUpdatedEvent(context.Background(), ev, logrus.New(), domain.DeviceKind, uuid.New(), "dev1", oldDevice, newDevice, false, nil)
+
+		for _, event := range ev.created {
+			if event.Reason == domain.EventReasonResourceUpdated {
+				require.NotNil(t, event.Details)
+			}
+		}
+	})
+
+	t.Run("When a device spec changes without status it should not publish an identity-only reconciliation event", func(t *testing.T) {
+		ev := &fakeEvents{}
+		oldDevice := prepareTestDeviceForEvents("dev1")
+		newDevice := prepareTestDeviceForEvents("dev1")
+		newDevice.Spec.Os.Image = "new-image"
+
+		EmitDeviceUpdatedEvent(context.Background(), ev, logrus.New(), domain.DeviceKind, uuid.New(), "dev1", oldDevice, newDevice, false, nil)
+
+		for _, event := range ev.created {
+			if event.Reason == domain.EventReasonResourceUpdated {
+				require.NotNil(t, event.Details)
+			}
+		}
+	})
+
+	t.Run("When a status update fails it should not publish reconciliation work", func(t *testing.T) {
+		ev := &fakeEvents{}
+		oldDevice := prepareTestDeviceForEvents("dev1")
+		newDevice := prepareTestDeviceForEvents("dev1")
+		newDevice.Status.SystemInfo.Architecture = "aarch64"
+		EmitDeviceUpdatedEvent(context.Background(), ev, logrus.New(), domain.DeviceKind, uuid.New(), "dev1", oldDevice, newDevice, false, errors.New("write failed"))
+
+		for _, event := range ev.created {
+			require.False(t, event.Reason == domain.EventReasonResourceUpdated && event.Details == nil)
+		}
 	})
 
 	t.Run("When updated with an empty old device it should not panic and should emit a status event", func(t *testing.T) {

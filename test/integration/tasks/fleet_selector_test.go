@@ -110,6 +110,10 @@ var _ = Describe("FleetSelector", func() {
 		found := false
 		for _, event := range events {
 			if event.Reason == api.EventReasonResourceUpdated {
+				// Status-triggered label reconciliation events intentionally have no update details.
+				if event.Details == nil {
+					continue
+				}
 				Expect(event.Type).To(Equal(api.Normal))
 				Expect(event.Details).ToNot(BeNil())
 
