@@ -5,7 +5,8 @@ securityContext:
     drop:
       - ALL
   runAsNonRoot: true
-  runAsUser: 1000
+  # Leave runAsUser unset so OpenShift's restricted SCC can assign a UID from
+  # the namespace's permitted range.
   seccompProfile:
     type: RuntimeDefault
 {{- end -}}
