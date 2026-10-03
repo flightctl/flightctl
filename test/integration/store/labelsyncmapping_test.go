@@ -86,6 +86,205 @@ var _ = Describe("LabelSyncMapping reconciliation", func() {
 		Expect(byName["architecture"].Mapping.Metadata.DeletionTimestamp).To(BeNil())
 	})
 
+	It("When ownership is queried for multiple keys it should return exact current organization-scoped mapping IDs", func() {
+		_, err := mappingStore.Create(ctx, orgID, mapLabelSyncMapping("map-owner"))
+		Expect(err).NotTo(HaveOccurred())
+		_, err = mappingStore.Create(ctx, orgID, newLabelSyncMapping("scalar-owner", "scalar.current"))
+		Expect(err).NotTo(HaveOccurred())
+		_, err = mappingStore.Create(ctx, orgID, newLabelSyncMapping("reservation-only", "configured.only"))
+		Expect(err).NotTo(HaveOccurred())
+		_, err = mappingStore.Create(ctx, orgID, mapLabelSyncMapping("second-map-owner"))
+		Expect(err).NotTo(HaveOccurred())
+		_, err = mappingStore.Create(ctx, otherOrgID, mapLabelSyncMapping("map-owner"))
+		Expect(err).NotTo(HaveOccurred())
+
+		mapOwnerID := mappingID(ctx, db, orgID, "map-owner")
+		scalarOwnerID := mappingID(ctx, db, orgID, "scalar-owner")
+		secondMapOwnerID := mappingID(ctx, db, orgID, "second-map-owner")
+		otherOrgMapOwnerID := mappingID(ctx, db, otherOrgID, "map-owner")
+		createDeviceWithOwnership := func(targetOrgID uuid.UUID, name string, labels map[string]string, owners map[string]uuid.UUID) {
+			testutil.CreateTestDevice(ctx, deviceStore, targetOrgID, name, nil, nil, &labels)
+			snapshot, err := deviceStore.GetLabelSnapshot(ctx, targetOrgID, name)
+			Expect(err).NotTo(HaveOccurred())
+			desired := make(map[string]domain.DesiredDeviceLabel, len(labels))
+			for key, value := range labels {
+				desired[key] = domain.DesiredDeviceLabel{Value: value}
+				if mappingID, found := owners[key]; found {
+					ownerID := mappingID
+					desired[key] = domain.DesiredDeviceLabel{Value: value, MappingID: &ownerID}
+				}
+			}
+			_, err = deviceStore.ApplyLabels(ctx, targetOrgID, name, snapshot, desired)
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		createDeviceWithOwnership(orgID, "owner-one", map[string]string{
+			"shared.key": "first", "map.only": "value", "operator.key": "manual",
+		}, map[string]uuid.UUID{
+			"shared.key": mapOwnerID, "map.only": mapOwnerID,
+		})
+		createDeviceWithOwnership(orgID, "owner-two", map[string]string{
+			"shared.key": "second", "scalar.current": "value",
+		}, map[string]uuid.UUID{
+			"shared.key": mapOwnerID, "scalar.current": scalarOwnerID,
+		})
+		createDeviceWithOwnership(orgID, "owner-three", map[string]string{
+			"shared.key": "second-mapping",
+		}, map[string]uuid.UUID{"shared.key": secondMapOwnerID})
+		createDeviceWithOwnership(otherOrgID, "owner-one", map[string]string{
+			"shared.key": "other-org",
+		}, map[string]uuid.UUID{"shared.key": otherOrgMapOwnerID})
+
+		actual, err := deviceStore.GetLabelSyncMappingIDsByKeys(ctx, orgID, []string{
+			"shared.key", "map.only", "scalar.current", "operator.key", "configured.only", "missing.key",
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(actual["shared.key"]).To(HaveLen(2))
+		Expect(actual["shared.key"]).To(ContainElement(mapOwnerID))
+		Expect(actual["shared.key"]).To(ContainElement(secondMapOwnerID))
+		Expect(actual["map.only"]).To(Equal([]uuid.UUID{mapOwnerID}))
+		Expect(actual["scalar.current"]).To(Equal([]uuid.UUID{scalarOwnerID}))
+		Expect(actual).NotTo(HaveKey("operator.key"))
+		Expect(actual).NotTo(HaveKey("configured.only"))
+		Expect(actual).NotTo(HaveKey("missing.key"))
+
+		otherOrgActual, err := deviceStore.GetLabelSyncMappingIDsByKeys(ctx, otherOrgID, []string{"shared.key"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(otherOrgActual["shared.key"]).To(Equal([]uuid.UUID{otherOrgMapOwnerID}))
+
+		empty, err := deviceStore.GetLabelSyncMappingIDsByKeys(ctx, orgID, nil)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(empty).To(BeEmpty())
+	})
+
+	It("When mapping outputs change or a mapping is recreated it should report only current organization-scoped owners", func() {
+		firstMapping := mapLabelSyncMapping("shared-owner")
+		firstMapping.Spec.Expression = `{"old.key":"old","null.key":"before","shared.key":"first-org"}`
+		_, err := mappingStore.Create(ctx, orgID, firstMapping)
+		Expect(err).NotTo(HaveOccurred())
+		otherOrgMapping := mapLabelSyncMapping("shared-owner")
+		otherOrgMapping.Spec.Expression = `{"other-org.key":"other","shared.key":"other-org"}`
+		_, err = mappingStore.Create(ctx, otherOrgID, otherOrgMapping)
+		Expect(err).NotTo(HaveOccurred())
+		firstID := mappingID(ctx, db, orgID, "shared-owner")
+		otherOrgIDForMapping := mappingID(ctx, db, otherOrgID, "shared-owner")
+		Expect(otherOrgIDForMapping).NotTo(Equal(firstID))
+
+		testutil.CreateTestDevice(ctx, deviceStore, orgID, "shared-device", nil, nil, nil)
+		testutil.CreateTestDevice(ctx, deviceStore, otherOrgID, "shared-device", nil, nil, nil)
+		evaluator, err := labelsyncmappingservice.NewEvaluator()
+		Expect(err).NotTo(HaveOccurred())
+		service, err := labelsyncmappingservice.NewServiceHandler(mappingStore, deviceStore, evaluator, &recordingEvents{}, log)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = service.ReconcileDeviceLabels(ctx, orgID, "shared-device")
+		Expect(err).NotTo(HaveOccurred())
+		_, err = service.ReconcileDeviceLabels(ctx, otherOrgID, "shared-device")
+		Expect(err).NotTo(HaveOccurred())
+
+		initial, status := service.GetLabelSyncProvenance(ctx, orgID, []string{"old.key", "null.key", "shared.key", "other-org.key"})
+		Expect(status.Code).To(Equal(int32(200)))
+		Expect(initial.Items).To(Equal([]domain.LabelSyncProvenanceItem{
+			{Key: "old.key", Owners: []string{"shared-owner"}},
+			{Key: "null.key", Owners: []string{"shared-owner"}},
+			{Key: "shared.key", Owners: []string{"shared-owner"}},
+			{Key: "other-org.key", Owners: []string{}},
+		}))
+		otherOrgInitial, status := service.GetLabelSyncProvenance(ctx, otherOrgID, []string{"other-org.key", "old.key", "shared.key"})
+		Expect(status.Code).To(Equal(int32(200)))
+		Expect(otherOrgInitial.Items).To(Equal([]domain.LabelSyncProvenanceItem{
+			{Key: "other-org.key", Owners: []string{"shared-owner"}},
+			{Key: "old.key", Owners: []string{}},
+			{Key: "shared.key", Owners: []string{"shared-owner"}},
+		}))
+
+		deviceInitial, status := service.GetDeviceLabelSyncProvenance(ctx, orgID, "shared-device")
+		Expect(status.Code).To(Equal(int32(200)))
+		Expect(deviceInitial.Items).To(Equal([]domain.LabelSyncProvenanceItem{
+			{Key: "null.key", Owners: []string{"shared-owner"}},
+			{Key: "old.key", Owners: []string{"shared-owner"}},
+			{Key: "shared.key", Owners: []string{"shared-owner"}},
+		}))
+
+		updated, err := mappingStore.Get(ctx, orgID, "shared-owner")
+		Expect(err).NotTo(HaveOccurred())
+		updated.Spec.Expression = `{"new.key":"new","null.key":null,"shared.key":"updated-first-org"}`
+		_, _, err = mappingStore.Update(ctx, orgID, updated)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = service.ReconcileDeviceLabels(ctx, orgID, "shared-device")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(mappingID(ctx, db, orgID, "shared-owner")).To(Equal(firstID))
+
+		afterUpdate, status := service.GetLabelSyncProvenance(ctx, orgID, []string{"old.key", "null.key", "new.key", "shared.key", "other-org.key"})
+		Expect(status.Code).To(Equal(int32(200)))
+		Expect(afterUpdate.Items).To(Equal([]domain.LabelSyncProvenanceItem{
+			{Key: "old.key", Owners: []string{}},
+			{Key: "null.key", Owners: []string{}},
+			{Key: "new.key", Owners: []string{"shared-owner"}},
+			{Key: "shared.key", Owners: []string{"shared-owner"}},
+			{Key: "other-org.key", Owners: []string{}},
+		}))
+		deviceAfterUpdate, status := service.GetDeviceLabelSyncProvenance(ctx, orgID, "shared-device")
+		Expect(status.Code).To(Equal(int32(200)))
+		Expect(deviceAfterUpdate.Items).To(Equal([]domain.LabelSyncProvenanceItem{
+			{Key: "new.key", Owners: []string{"shared-owner"}},
+			{Key: "shared.key", Owners: []string{"shared-owner"}},
+		}))
+		device, err := deviceStore.Get(ctx, orgID, "shared-device")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(lo.FromPtr(device.Metadata.Labels)).To(Equal(map[string]string{
+			"new.key":    "new",
+			"shared.key": "updated-first-org",
+		}))
+		Expect(lo.FromPtr(device.Metadata.Annotations)[domain.DeviceAnnotationManagedLabels]).To(Equal(`["new.key","shared.key"]`))
+
+		deleted, err := mappingStore.Delete(ctx, orgID, "shared-owner")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(deleted).To(BeTrue())
+		_, err = service.ReconcileDeviceLabels(ctx, orgID, "shared-device")
+		Expect(err).NotTo(HaveOccurred())
+		deletedProvenance, status := service.GetLabelSyncProvenance(ctx, orgID, []string{"new.key", "shared.key"})
+		Expect(status.Code).To(Equal(int32(200)))
+		Expect(deletedProvenance.Items).To(Equal([]domain.LabelSyncProvenanceItem{
+			{Key: "new.key", Owners: []string{}},
+			{Key: "shared.key", Owners: []string{}},
+		}))
+		finalized, err := mappingStore.FinalizeDelete(ctx, orgID, "shared-owner")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(finalized).To(BeTrue())
+
+		recreated := mapLabelSyncMapping("shared-owner")
+		recreated.Spec.Expression = `{"recreated.key":"fresh"}`
+		_, err = mappingStore.Create(ctx, orgID, recreated)
+		Expect(err).NotTo(HaveOccurred())
+		recreatedID := mappingID(ctx, db, orgID, "shared-owner")
+		Expect(recreatedID).NotTo(Equal(firstID))
+		_, err = service.ReconcileDeviceLabels(ctx, orgID, "shared-device")
+		Expect(err).NotTo(HaveOccurred())
+		var recreatedLabel model.DeviceLabel
+		Expect(db.Where("org_id = ? AND device_name = ? AND label_key = ?", orgID, "shared-device", "recreated.key").Take(&recreatedLabel).Error).To(Succeed())
+		Expect(recreatedLabel.LabelSyncMappingID).To(Equal(&recreatedID))
+		recreatedDeviceProvenance, status := service.GetDeviceLabelSyncProvenance(ctx, orgID, "shared-device")
+		Expect(status.Code).To(Equal(int32(200)))
+		Expect(recreatedDeviceProvenance.Items).To(Equal([]domain.LabelSyncProvenanceItem{
+			{Key: "recreated.key", Owners: []string{"shared-owner"}},
+		}))
+		afterRecreate, status := service.GetLabelSyncProvenance(ctx, orgID, []string{"new.key", "shared.key", "recreated.key", "other-org.key"})
+		Expect(status.Code).To(Equal(int32(200)))
+		Expect(afterRecreate.Items).To(Equal([]domain.LabelSyncProvenanceItem{
+			{Key: "new.key", Owners: []string{}},
+			{Key: "shared.key", Owners: []string{}},
+			{Key: "recreated.key", Owners: []string{"shared-owner"}},
+			{Key: "other-org.key", Owners: []string{}},
+		}))
+
+		otherOrgAfterRecreate, status := service.GetLabelSyncProvenance(ctx, otherOrgID, []string{"other-org.key", "recreated.key"})
+		Expect(status.Code).To(Equal(int32(200)))
+		Expect(otherOrgAfterRecreate.Items).To(Equal([]domain.LabelSyncProvenanceItem{
+			{Key: "other-org.key", Owners: []string{"shared-owner"}},
+			{Key: "recreated.key", Owners: []string{}},
+		}))
+	})
+
 	It("When labels are applied it should atomically write takeover ownership and sorted managed metadata", func() {
 		_, err := mappingStore.Create(ctx, orgID, mapLabelSyncMapping("first"))
 		Expect(err).NotTo(HaveOccurred())

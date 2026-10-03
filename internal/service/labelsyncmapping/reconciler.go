@@ -15,10 +15,11 @@ import (
 
 const maxReconciliationAttempts = 5
 
-// ReconciliationDeviceStore exposes only the labels persistence operations
-// needed by the service-led reconciliation flow.
+// ReconciliationDeviceStore exposes the device-label operations used by the
+// service-led reconciliation and provenance flows.
 type ReconciliationDeviceStore interface {
 	GetLabelSnapshot(context.Context, uuid.UUID, string) (domain.DeviceLabelSnapshot, error)
+	GetLabelSyncMappingIDsByKeys(context.Context, uuid.UUID, []string) (map[string][]uuid.UUID, error)
 	ApplyLabels(context.Context, uuid.UUID, string, domain.DeviceLabelSnapshot, map[string]domain.DesiredDeviceLabel) (domain.DeviceLabelApplyResult, error)
 }
 

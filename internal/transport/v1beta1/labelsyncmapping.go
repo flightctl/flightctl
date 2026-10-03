@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	apiv1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/flightctl/flightctl/internal/domain"
 	labelsyncmappingservice "github.com/flightctl/flightctl/internal/service/labelsyncmapping"
 	"github.com/flightctl/flightctl/internal/transport"
 )
@@ -52,4 +53,27 @@ func (h *TransportHandler) PatchLabelSyncMapping(w http.ResponseWriter, r *http.
 	}
 	body, status := h.labelsyncmapping.PatchLabelSyncMapping(r.Context(), transport.OrgIDFromContext(r.Context()), name, h.converter.Common().PatchRequestToDomain(patch))
 	h.SetResponse(w, h.converter.LabelSyncMapping().FromDomain(body), status)
+}
+
+func (h *TransportHandler) GetDeviceLabelSyncProvenance(w http.ResponseWriter, r *http.Request, name string) {
+	body, status := h.labelsyncmapping.GetDeviceLabelSyncProvenance(r.Context(), transport.OrgIDFromContext(r.Context()), name)
+	h.SetResponse(w, labelSyncProvenanceFromDomain(body), status)
+}
+
+func (h *TransportHandler) GetLabelSyncProvenance(w http.ResponseWriter, r *http.Request, params apiv1beta1.GetLabelSyncProvenanceParams) {
+	body, status := h.labelsyncmapping.GetLabelSyncProvenance(r.Context(), transport.OrgIDFromContext(r.Context()), params.LabelKeys)
+	h.SetResponse(w, labelSyncProvenanceFromDomain(body), status)
+}
+
+func labelSyncProvenanceFromDomain(provenance *domain.LabelSyncProvenanceList) *apiv1beta1.LabelSyncProvenanceList {
+	if provenance == nil {
+		return nil
+	}
+
+	items := make([]apiv1beta1.LabelSyncProvenanceItem, len(provenance.Items))
+	for i, item := range provenance.Items {
+		owners := append([]string{}, item.Owners...)
+		items[i] = apiv1beta1.LabelSyncProvenanceItem{Key: item.Key, Owners: owners}
+	}
+	return &apiv1beta1.LabelSyncProvenanceList{Items: items}
 }

@@ -80,6 +80,10 @@ func (s *reconciliationDeviceStub) GetLabelSnapshot(context.Context, uuid.UUID, 
 	return s.snapshots[index], nil
 }
 
+func (*reconciliationDeviceStub) GetLabelSyncMappingIDsByKeys(context.Context, uuid.UUID, []string) (map[string][]uuid.UUID, error) {
+	return map[string][]uuid.UUID{}, nil
+}
+
 func (s *reconciliationDeviceStub) ApplyLabels(_ context.Context, _ uuid.UUID, _ string, _ domain.DeviceLabelSnapshot, desired map[string]domain.DesiredDeviceLabel) (domain.DeviceLabelApplyResult, error) {
 	cloned := make(map[string]domain.DesiredDeviceLabel, len(desired))
 	for key, label := range desired {

@@ -109,6 +109,9 @@ type ServerInterface interface {
 	// (POST /devices/{name}/enrollmenthooks/override)
 	OverrideDeviceEnrollmentHook(w http.ResponseWriter, r *http.Request, name string)
 
+	// (GET /devices/{name}/labelsyncprovenance)
+	GetDeviceLabelSyncProvenance(w http.ResponseWriter, r *http.Request, name string)
+
 	// (GET /devices/{name}/lastseen)
 	GetDeviceLastSeen(w http.ResponseWriter, r *http.Request, name string)
 
@@ -240,6 +243,9 @@ type ServerInterface interface {
 
 	// (PUT /labelsyncmappings/{name})
 	ReplaceLabelSyncMapping(w http.ResponseWriter, r *http.Request, name string)
+
+	// (GET /labelsyncprovenance)
+	GetLabelSyncProvenance(w http.ResponseWriter, r *http.Request, params GetLabelSyncProvenanceParams)
 	// List organizations
 	// (GET /organizations)
 	ListOrganizations(w http.ResponseWriter, r *http.Request, params ListOrganizationsParams)
@@ -447,6 +453,11 @@ func (_ Unimplemented) DecommissionDevice(w http.ResponseWriter, r *http.Request
 
 // (POST /devices/{name}/enrollmenthooks/override)
 func (_ Unimplemented) OverrideDeviceEnrollmentHook(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /devices/{name}/labelsyncprovenance)
+func (_ Unimplemented) GetDeviceLabelSyncProvenance(w http.ResponseWriter, r *http.Request, name string) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -667,6 +678,11 @@ func (_ Unimplemented) PatchLabelSyncMapping(w http.ResponseWriter, r *http.Requ
 
 // (PUT /labelsyncmappings/{name})
 func (_ Unimplemented) ReplaceLabelSyncMapping(w http.ResponseWriter, r *http.Request, name string) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// (GET /labelsyncprovenance)
+func (_ Unimplemented) GetLabelSyncProvenance(w http.ResponseWriter, r *http.Request, params GetLabelSyncProvenanceParams) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -1663,6 +1679,32 @@ func (siw *ServerInterfaceWrapper) OverrideDeviceEnrollmentHook(w http.ResponseW
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.OverrideDeviceEnrollmentHook(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetDeviceLabelSyncProvenance operation middleware
+func (siw *ServerInterfaceWrapper) GetDeviceLabelSyncProvenance(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", chi.URLParam(r, "name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDeviceLabelSyncProvenance(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3161,6 +3203,39 @@ func (siw *ServerInterfaceWrapper) ReplaceLabelSyncMapping(w http.ResponseWriter
 	handler.ServeHTTP(w, r)
 }
 
+// GetLabelSyncProvenance operation middleware
+func (siw *ServerInterfaceWrapper) GetLabelSyncProvenance(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetLabelSyncProvenanceParams
+
+	// ------------- Required query parameter "labelKeys" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, true, "labelKeys", r.URL.Query(), &params.LabelKeys, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "labelKeys"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "labelKeys", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetLabelSyncProvenance(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListOrganizations operation middleware
 func (siw *ServerInterfaceWrapper) ListOrganizations(w http.ResponseWriter, r *http.Request) {
 
@@ -3934,6 +4009,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/devices/{name}/enrollmenthooks/override", wrapper.OverrideDeviceEnrollmentHook)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/devices/{name}/labelsyncprovenance", wrapper.GetDeviceLabelSyncProvenance)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/devices/{name}/lastseen", wrapper.GetDeviceLastSeen)
 	})
 	r.Group(func(r chi.Router) {
@@ -4064,6 +4142,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Put(options.BaseURL+"/labelsyncmappings/{name}", wrapper.ReplaceLabelSyncMapping)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/labelsyncprovenance", wrapper.GetLabelSyncProvenance)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/organizations", wrapper.ListOrganizations)
