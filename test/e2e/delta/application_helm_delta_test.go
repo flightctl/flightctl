@@ -63,6 +63,17 @@ func (targets helmDeltaTargets) images() helmDeltaImages {
 	}
 }
 
+func prepareHelmApplicationDeltaDevice(harness *e2e.Harness, deviceID string) {
+	waitDeviceUpToDate(harness, deviceID, "device UpToDate before MicroShift migration")
+	v12Image := harness.GetDeviceImageRefForFleet(auxSvcs.Registry.Host, auxSvcs.Registry.Port, util.DeviceTags.V12)
+	Expect(harness.UpdateDeviceAndWaitForVersion(deviceID, func(device *v1beta1.Device) {
+		device.Spec.Os = &v1beta1.DeviceOsSpec{Image: v12Image}
+	})).To(Succeed())
+	Expect(harness.EnsureMicroshiftConfigs()).To(Succeed())
+	Expect(harness.WaitForMicroshiftReady(e2e.MicroshiftKubeconfigPath)).To(Succeed())
+	waitDeviceUpToDate(harness, deviceID, "device UpToDate on the MicroShift-capable V12 OS")
+}
+
 var _ = Describe("application delta Helm", Label("delta", "microshift", "slow", "helm"), Serial, func() {
 	It("When a standalone device updates a Helm application with multiple images it should apply each delta and remain healthy", Label("standalone"), func() {
 		runHelmApplicationDeltaTest(false)
@@ -76,9 +87,9 @@ var _ = Describe("application delta Helm", Label("delta", "microshift", "slow", 
 func runHelmApplicationDeltaTest(fleetOwned bool) {
 	harness := e2e.GetWorkerHarness()
 
-	By("enrolling a device before applying the V12 OS and V1 Helm application")
+	By("enrolling a device and preparing the V12 MicroShift environment for Helm")
 	deviceID, _ := harness.EnrollAndWaitForOnlineStatus()
-	waitDeviceUpToDate(harness, deviceID, "device UpToDate before the V12 and Helm application update")
+	prepareHelmApplicationDeltaDevice(harness, deviceID)
 	createWritableDeltaRepo(harness)
 
 	registry := applicationRegistryEndpoint()
@@ -106,10 +117,8 @@ func runHelmApplicationDeltaTest(fleetOwned bool) {
 		Expect(harness.CreateOrUpdateTestFleet(fleetName, v1FleetSpec)).To(Succeed())
 		attachDeviceToApplicationDeltaFleet(harness, deviceID, fleetName)
 	} else {
-		By("applying the V12 OS and installing the V1 Helm application on a standalone device")
-		v12Image := harness.GetDeviceImageRefForFleet(auxSvcs.Registry.Host, auxSvcs.Registry.Port, util.DeviceTags.V12)
+		By("installing the V1 Helm application on a standalone device")
 		Expect(harness.UpdateDeviceAndWaitForVersion(deviceID, func(device *v1beta1.Device) {
-			device.Spec.Os = &v1beta1.DeviceOsSpec{Image: v12Image}
 			device.Spec.Applications = &v1Apps
 		})).To(Succeed())
 	}

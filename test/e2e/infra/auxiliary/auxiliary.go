@@ -89,13 +89,10 @@ func StartServices(ctx context.Context, services []Service) (*Services, error) {
 			if err := s.UploadImages(ctx); err != nil {
 				return nil, fmt.Errorf("failed to upload images: %w", err)
 			}
-			// Charts are packaged from the current source tree. Refresh the tags
-			// even when reusing the registry so local test runs cannot pick up a
-			// stale test-app chart from an earlier checkout.
-			if err := s.UploadCharts(); err != nil {
-				return nil, fmt.Errorf("failed to upload charts: %w", err)
-			}
 			if !s.Registry.Reused {
+				if err := s.UploadCharts(); err != nil {
+					return nil, fmt.Errorf("failed to upload charts: %w", err)
+				}
 				if err := s.UploadQuadlets(); err != nil {
 					return nil, fmt.Errorf("failed to upload quadlets: %w", err)
 				}
@@ -103,7 +100,7 @@ func StartServices(ctx context.Context, services []Service) (*Services, error) {
 					return nil, fmt.Errorf("failed to mirror external test images: %w", err)
 				}
 			} else {
-				logrus.Info("Skipping quadlet/external upload (registry container was reused)")
+				logrus.Info("Skipping chart/quadlet/external upload (registry container was reused)")
 			}
 		case ServiceGitServer:
 			s.GitServer = &GitServer{}

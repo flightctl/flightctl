@@ -259,12 +259,12 @@ func TestPodmanDeployer_BackupPKI_RejectsSymlinks(t *testing.T) {
 func TestPodmanDeployer_BackupConfig(t *testing.T) {
 	log, _ := test.NewNullLogger()
 
-	serviceConfigPath := filepath.Join(t.TempDir(), "service-config.yaml")
-	deployer := NewPodmanDeployer(log, WithServiceConfigPath(serviceConfigPath))
+	deployer := NewPodmanDeployer(log)
 	ctx := context.Background()
 	outputDir := t.TempDir()
 
-	// The explicit test path does not exist, so BackupConfig should return an error.
+	// BackupConfig will attempt to backup from /etc/flightctl/service-config.yaml
+	// In test environment, this file won't exist, so expect an error
 	err := deployer.BackupConfig(ctx, outputDir)
 
 	require.Error(t, err)
