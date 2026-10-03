@@ -243,11 +243,14 @@ var _ = Describe("VM Agent behavior", func() {
 					if device == nil || device.Status == nil {
 						return false
 					}
+					if device.Metadata.Annotations == nil ||
+						(*device.Metadata.Annotations)[v1beta1.DeviceAnnotationRenderedVersion] != strconv.Itoa(newRenderedVersion) {
+						return false
+					}
 					condition := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceUpdating)
 					return condition != nil &&
 						condition.Status == v1beta1.ConditionStatusTrue &&
-						condition.Reason == string(v1beta1.UpdateStatePreparing) &&
-						strings.Contains(condition.Message, fmt.Sprintf("renderedVersion: %d", newRenderedVersion))
+						condition.Reason == string(v1beta1.UpdateStatePreparing)
 				}, TIMEOUT)
 
 			harness.WaitForDeviceContents(deviceId, fmt.Sprintf("device should report update error or rollback for renderedVersion: %s", strconv.Itoa(newRenderedVersion)),
