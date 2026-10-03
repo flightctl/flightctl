@@ -349,6 +349,19 @@ func (s *Systemd) Show(ctx context.Context, unit string, opts ...SystemdShowOpti
 	return lines, nil
 }
 
+// Cat returns the effective unit file content including drop-in overrides.
+func (s *Systemd) Cat(ctx context.Context, unit string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, defaultSystemctlTimeout)
+	defer cancel()
+
+	command, args := s.createArgs("cat", "--no-pager", unit)
+	stdout, stderr, exitCode := s.exec.ExecuteWithContext(ctx, command, args...)
+	if exitCode != 0 {
+		return "", fmt.Errorf("systemctl cat: %w", errors.FromStderr(stderr, exitCode))
+	}
+	return stdout, nil
+}
+
 // SdNotify sends notification messages to systemd via the NOTIFY_SOCKET.
 // The socket path is captured when NewSystemd is called, before bootstrap unsets it.
 func (s *Systemd) SdNotify(ctx context.Context, messages ...string) error {

@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/csv"
 	"fmt"
+	"hash/crc32"
 	"io/fs"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strings"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -511,6 +513,43 @@ func installQuadlet(readWriter fileio.ReadWriter, logger *log.PrefixLogger, appU
 	return q.install()
 }
 
+// computeQuadletHash computes a CRC32 hash over all quadlet source files in
+// the directory, sorted by name. Non-quadlet files are excluded.
+func computeQuadletHash(readWriter fileio.ReadWriter, appUnitPath string) (string, error) {
+	entries, err := readWriter.ReadDir(appUnitPath)
+	if err != nil {
+		return "", fmt.Errorf("reading directory for hash: %w", err)
+	}
+
+	var filenames []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if quadlet.IsQuadletFile(entry.Name()) {
+			filenames = append(filenames, entry.Name())
+		}
+	}
+	sort.Strings(filenames)
+
+	h := crc32.NewIEEE()
+	for _, name := range filenames {
+		content, err := readWriter.ReadFile(filepath.Join(appUnitPath, name))
+		if err != nil {
+			return "", fmt.Errorf("reading %s for hash: %w", name, err)
+		}
+		// Hash filename and content together
+		if _, err := h.Write([]byte(name)); err != nil {
+			return "", fmt.Errorf("hashing filename %s: %w", name, err)
+		}
+		if _, err := h.Write(content); err != nil {
+			return "", fmt.Errorf("hashing content of %s: %w", name, err)
+		}
+	}
+
+	return fmt.Sprintf("%08x", h.Sum32()), nil
+}
+
 func (q *quadletInstaller) install() error {
 	entries, err := q.readWriter.ReadDir(q.appUnitPath)
 	if err != nil {
@@ -598,9 +637,20 @@ func (q *quadletInstaller) install() error {
 		}
 	}
 
+	// Compute content hash for post-daemon-reload verification.
+	contentHash, err := computeQuadletHash(q.readWriter, q.appUnitPath)
+	if err != nil {
+		return fmt.Errorf("computing quadlet content hash: %w", err)
+	}
+
+	hashFilePath := filepath.Join(q.appUnitPath, lifecycle.QuadletHashFile)
+	if err := q.readWriter.WriteFile(hashFilePath, []byte(contentHash), fileio.DefaultFilePermissions); err != nil {
+		return fmt.Errorf("writing quadlet hash file: %w", err)
+	}
+
 	// For any quadlet types that were found, apply flightctl overrides
 	for ext := range foundTypes {
-		if err := q.createQuadletDropIn(ext, hasEnvFile); err != nil {
+		if err := q.createQuadletDropIn(ext, hasEnvFile, contentHash); err != nil {
 			return fmt.Errorf("creating drop-in for %s: %w", ext, err)
 		}
 	}
@@ -774,8 +824,8 @@ func (q *quadletInstaller) namespaceDropInDirectory(dirPath string) error {
 }
 
 // createQuadletDropIn creates a drop-in override directory and configuration file
-// for a specific quadlet type. It adds the project label, PartOf directive, and optionally the EnvironmentFile parameter.
-func (q *quadletInstaller) createQuadletDropIn(extension string, hasEnvFile bool) error {
+// for a specific quadlet type.
+func (q *quadletInstaller) createQuadletDropIn(extension string, hasEnvFile bool, contentHash string) error {
 	q.logger.Tracef("Creating drop-in for %s for app: %s", extension, q.appID)
 	dropInDir := filepath.Join(q.appUnitPath, fmt.Sprintf("%s-%s.d", q.appID, extension))
 	if err := q.readWriter.MkdirAll(dropInDir, fileio.DefaultDirectoryPermissions); err != nil {
@@ -786,6 +836,10 @@ func (q *quadletInstaller) createQuadletDropIn(extension string, hasEnvFile bool
 
 	unit := quadlet.NewEmptyUnit()
 	unit.Add("Unit", "PartOf", quadlet.NamespaceResource(q.appID, lifecycle.QuadletTargetName))
+
+	if contentHash != "" {
+		unit.Add("Unit", lifecycle.QuadletVersionKey, contentHash)
+	}
 
 	// add label for tracking quadlet events by app id
 	switch extension {
