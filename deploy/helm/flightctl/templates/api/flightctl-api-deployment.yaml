@@ -93,6 +93,9 @@ spec:
               name: flightctl-api-config
               subPath: config.yaml
               readOnly: true
+            - mountPath: {{ include "flightctl.initialLabelSyncMappingsDirectory" . }}
+              name: {{ include "flightctl.initialLabelSyncMappingsConfigMapName" . }}
+              readOnly: true
             {{- if .Values.global.auth.k8s.externalApiTokenSecretName }}
             - mountPath: /var/flightctl/k8s
               name: flightctl-api-k8s-token
@@ -133,6 +136,9 @@ spec:
         - name: flightctl-api-config
           configMap:
             name: flightctl-api-config
+        - name: {{ include "flightctl.initialLabelSyncMappingsConfigMapName" . }}
+          configMap:
+            name: {{ include "flightctl.initialLabelSyncMappingsConfigMapName" . }}
         {{- if .Values.global.auth.k8s.externalApiTokenSecretName }}
         - name: flightctl-api-k8s-token
           secret:

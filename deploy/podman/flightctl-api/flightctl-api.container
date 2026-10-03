@@ -21,6 +21,7 @@ Volume=/etc/flightctl/pki/flightctl-api/client-signer.crt:/root/.flightctl/certs
 Volume=/etc/flightctl/pki/flightctl-api/client-signer.key:/root/.flightctl/certs/client-signer.key:ro,z
 Volume=/etc/flightctl/pki/ca-bundle.crt:/root/.flightctl/certs/ca-bundle.crt:ro,z
 Volume=/etc/flightctl/flightctl-api/config.yaml:/root/.flightctl/config.yaml:ro,z
+Volume=/etc/flightctl/label-sync:/etc/flightctl/label-sync:ro,z
 # TPM CA PEMs for enrollment (paths in service.tpmCAPaths must exist inside the container)
 Volume=/etc/flightctl/tpm-cas:/etc/flightctl/tpm-cas:ro,z
 Volume=/etc/flightctl/encryption:/root/.flightctl/encryption:ro,z

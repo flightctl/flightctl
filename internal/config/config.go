@@ -21,6 +21,9 @@ import (
 
 const (
 	appName = "flightctl"
+	// DefaultInitialLabelSyncMappingsFile is the deployment-provided source for
+	// initial organization-scoped label-sync mappings.
+	DefaultInitialLabelSyncMappingsFile = "/etc/flightctl/label-sync/mappings.yaml"
 )
 
 type Config struct {
@@ -832,7 +835,8 @@ type periodicConfig struct {
 }
 
 type organizationsConfig struct {
-	Enabled bool `json:"enabled,omitempty"`
+	Enabled                      bool   `json:"enabled,omitempty"`
+	InitialLabelSyncMappingsFile string `json:"initialLabelSyncMappingsFile,omitempty"`
 }
 
 // DependenciesSyncConfig holds global settings for automated dependency synchronization.
@@ -1258,6 +1262,9 @@ func NewDefault(opts ...ConfigOption) *Config {
 			IgnoreResourceUpdates: []string{
 				"/metadata/resourceVersion",
 			},
+		},
+		Organizations: &organizationsConfig{
+			InitialLabelSyncMappingsFile: DefaultInitialLabelSyncMappingsFile,
 		},
 		Auth: &authConfig{
 			DynamicProviderCacheTTL: util.Duration(5 * time.Second),

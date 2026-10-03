@@ -230,15 +230,10 @@ func (s *Server) Run(ctx context.Context) error {
 	repositorySvc := repositoryservice.WrapWithTracing(
 		repositoryservice.NewServiceHandler(repositoryStore, eventsSvc, s.log))
 	labelSyncMappingStore := labelsyncmappingstore.NewStore(s.db, s.log.WithField("pkg", "labelsyncmapping-store"))
-	labelSyncMappingEvaluator, err := labelsyncmappingservice.NewEvaluator()
-	if err != nil {
-		return fmt.Errorf("failed initializing label-sync mapping evaluator: %w", err)
-	}
-	labelSyncMappingHandler, err := labelsyncmappingservice.NewServiceHandler(labelSyncMappingStore, deviceStore, labelSyncMappingEvaluator, eventsSvc, s.log)
+	labelSyncMappingSvc, err := labelsyncmappingservice.NewService(labelSyncMappingStore, deviceStore, eventsSvc, s.log)
 	if err != nil {
 		return fmt.Errorf("failed initializing label-sync mapping service: %w", err)
 	}
-	labelSyncMappingSvc := labelsyncmappingservice.WrapWithTracing(labelSyncMappingHandler)
 	catalogSvc := catalogservice.WrapWithTracing(
 		catalogservice.NewServiceHandler(catalogStore, deviceStore, fleetStore, eventsSvc, s.log))
 	resourceSyncSvc := resourcesyncservice.WrapWithTracing(
@@ -288,7 +283,15 @@ func (s *Server) Run(ctx context.Context) error {
 	router := chi.NewRouter()
 
 	// Create identity mapping middleware
-	orgProvisioner := service.NewOrgProvisioner(catalogSvc, s.log)
+	orgProvisioner, err := service.NewOrgProvisionerWithInitialMappings(
+		catalogSvc,
+		labelSyncMappingSvc,
+		s.cfg.Organizations.InitialLabelSyncMappingsFile,
+		s.log,
+	)
+	if err != nil {
+		return fmt.Errorf("creating organization provisioner: %w", err)
+	}
 	identityMapper := service.NewIdentityMapper(organizationSvc, orgProvisioner, s.log)
 	identityMapper.Start()
 	defer identityMapper.Stop()

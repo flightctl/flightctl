@@ -3,6 +3,7 @@ package labelsyncmapping
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -22,21 +23,49 @@ type ServiceHandler struct {
 	log         logrus.FieldLogger
 }
 
+// NewService builds the label-sync mapping service with CEL evaluation and tracing.
+// deviceStore and events must either both be provided or both be nil. When nil,
+// device-label reconciliation is unavailable on the returned service.
+func NewService(store labelsyncmappingstore.Store, deviceStore ReconciliationDeviceStore, events eventservice.Service, log logrus.FieldLogger) (Service, error) {
+	if (deviceStore == nil) != (events == nil) {
+		return nil, errors.New("device store and event service must be configured together for label-sync reconciliation")
+	}
+	return newTracedService(store, deviceStore, events, log, deviceStore != nil)
+}
+
+func newTracedService(store labelsyncmappingstore.Store, deviceStore ReconciliationDeviceStore, events eventservice.Service, log logrus.FieldLogger, withReconciliation bool) (Service, error) {
+	evaluator, err := NewEvaluator()
+	if err != nil {
+		return nil, fmt.Errorf("creating label-sync mapping evaluator: %w", err)
+	}
+	handler, err := newServiceHandler(store, deviceStore, evaluator, events, log, withReconciliation)
+	if err != nil {
+		return nil, err
+	}
+	return WrapWithTracing(handler), nil
+}
+
 // NewServiceHandler constructs the label-sync mapping service, including CEL
 // validation for CRUD operations and device-label reconciliation. It returns
 // an error if any required dependency is nil.
 func NewServiceHandler(store labelsyncmappingstore.Store, deviceStore ReconciliationDeviceStore, evaluator Evaluator, events eventservice.Service, log logrus.FieldLogger) (*ServiceHandler, error) {
+	return newServiceHandler(store, deviceStore, evaluator, events, log, true)
+}
+
+func newServiceHandler(store labelsyncmappingstore.Store, deviceStore ReconciliationDeviceStore, evaluator Evaluator, events eventservice.Service, log logrus.FieldLogger, withReconciliation bool) (*ServiceHandler, error) {
 	if store == nil {
 		return nil, errors.New("label-sync mapping store is required")
-	}
-	if deviceStore == nil {
-		return nil, errors.New("device store is required for label-sync reconciliation")
 	}
 	if evaluator == nil {
 		return nil, errors.New("label-sync mapping evaluator is required")
 	}
-	if events == nil {
-		return nil, errors.New("event service is required for label-sync reconciliation")
+	if withReconciliation {
+		if deviceStore == nil {
+			return nil, errors.New("device store is required for label-sync reconciliation")
+		}
+		if events == nil {
+			return nil, errors.New("event service is required for label-sync reconciliation")
+		}
 	}
 	if log == nil {
 		log = logrus.New()
@@ -64,6 +93,15 @@ func SanitizeLabelSyncMapping(mapping *domain.LabelSyncMapping) {
 // CreateLabelSyncMappingFromUntrusted sanitizes an untrusted document before creation.
 func CreateLabelSyncMappingFromUntrusted(ctx context.Context, svc Service, orgID uuid.UUID, mapping domain.LabelSyncMapping) (*domain.LabelSyncMapping, domain.Status) {
 	SanitizeLabelSyncMapping(&mapping)
+	return svc.CreateLabelSyncMapping(ctx, orgID, mapping)
+}
+
+// CreateLabelSyncMappingFromInitialManifest strips server-managed fields while retaining
+// operator-provided annotations from the trusted deployment configuration.
+func CreateLabelSyncMappingFromInitialManifest(ctx context.Context, svc Service, orgID uuid.UUID, mapping domain.LabelSyncMapping) (*domain.LabelSyncMapping, domain.Status) {
+	annotations := mapping.Metadata.Annotations
+	SanitizeLabelSyncMapping(&mapping)
+	mapping.Metadata.Annotations = annotations
 	return svc.CreateLabelSyncMapping(ctx, orgID, mapping)
 }
 
