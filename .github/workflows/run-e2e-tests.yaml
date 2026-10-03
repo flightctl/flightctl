@@ -221,9 +221,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: deployment-logs-${{ steps.compute-hash.outputs.hash }}-node-${{ matrix.ginkgo_node }}
-          path: |
-            artifacts/deployment-logs/
-            artifacts/helm-diagnostics/
+          path: artifacts/deployment-logs/
           if-no-files-found: ignore
           retention-days: 7
 

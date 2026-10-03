@@ -22,7 +22,7 @@ func captureHelmFailureDiagnostics(harness *e2e.Harness) {
 		return
 	}
 
-	artifactDir := filepath.Join(util.GetTopLevelDir(), "artifacts", "helm-diagnostics", testID)
+	artifactDir := filepath.Join(util.GetTopLevelDir(), "artifacts", "deployment-logs", testID)
 	if err := os.MkdirAll(artifactDir, 0o700); err != nil {
 		GinkgoWriter.Printf("Helm failure diagnostics: create %s: %v\n", artifactDir, err)
 		return
