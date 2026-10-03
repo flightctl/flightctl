@@ -15,22 +15,6 @@ import (
 	"github.com/samber/lo"
 )
 
-func switchToMicroshiftAndWaitForReady(harness *e2e.Harness, deviceID string, microshiftOS *v1beta1.DeviceOsSpec) {
-	By("Update OS to one with microshift")
-	err := harness.UpdateDeviceAndWaitForVersion(deviceID, func(device *v1beta1.Device) {
-		device.Spec.Os = microshiftOS
-	})
-	Expect(err).NotTo(HaveOccurred())
-
-	By("Ensuring all microshift configs are generated")
-	err = harness.EnsureMicroshiftConfigs()
-	Expect(err).NotTo(HaveOccurred())
-
-	By("Ensuring microshift is ready")
-	err = harness.WaitForMicroshiftReady(e2e.MicroshiftKubeconfigPath)
-	Expect(err).NotTo(HaveOccurred())
-}
-
 var _ = Describe("VM Agent Helm Application Tests", Ordered, Label("microshift"), func() {
 	var (
 		harness        *e2e.Harness
@@ -56,7 +40,18 @@ var _ = Describe("VM Agent Helm Application Tests", Ordered, Label("microshift")
 
 	Context("helm application", func() {
 		It("should deploy, update, and remove a helm application on microshift", Label("87529", "agent", "slow"), func() {
-			switchToMicroshiftAndWaitForReady(harness, deviceId, microshiftOs)
+			By("Update OS to one with microshift")
+			err := harness.UpdateDeviceAndWaitForVersion(deviceId, func(device *v1beta1.Device) {
+				device.Spec.Os = microshiftOs
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			By("Ensuring all microshift configs are generated")
+			err = harness.EnsureMicroshiftConfigs()
+			Expect(err).NotTo(HaveOccurred())
+			By("Ensuring microshift is ready")
+			err = harness.WaitForMicroshiftReady(e2e.MicroshiftKubeconfigPath)
+			Expect(err).NotTo(HaveOccurred())
 
 			By("Add helm application configuration")
 			helmAppSpec, err := e2e.NewHelmApplicationSpec(helmAppName, testAppChartV1, helmAppNamespace, nil)
@@ -265,9 +260,8 @@ var _ = Describe("VM Agent Helm Application Tests", Ordered, Label("microshift")
 			helmAppSpec, err := e2e.NewHelmApplicationSpecWithValues(helmAppName, testAppChartV1, helmAppNamespace, mixedDeploymentsValues)
 			Expect(err).ToNot(HaveOccurred())
 
-			switchToMicroshiftAndWaitForReady(harness, deviceId, microshiftOs)
-
 			err = harness.UpdateDeviceAndWaitForVersion(deviceId, func(device *v1beta1.Device) {
+				device.Spec.Os = microshiftOs
 				device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{helmAppSpec}
 			})
 			Expect(err).ToNot(HaveOccurred())
@@ -479,8 +473,6 @@ var _ = Describe("VM Agent Helm Application Tests", Ordered, Label("microshift")
 			Expect(err).ToNot(HaveOccurred())
 		})
 		It("runAs flightctl application with auth can be deployed to a device", Label("88004", "sanity", "agent", "slow"), func() {
-			switchToMicroshiftAndWaitForReady(harness, deviceId, microshiftOs)
-
 			By("Deploy a helm app with helm registry credentials")
 			creds := buildAuthJSON(services.Registry.Authenticated.Username, services.Registry.Authenticated.Password, services.Registry.Authenticated.HostPort, authFlightctlRepo)
 
@@ -489,6 +481,7 @@ var _ = Describe("VM Agent Helm Application Tests", Ordered, Label("microshift")
 			helmAuth, err := helmCreds(creds)
 			Expect(err).ToNot(HaveOccurred())
 			err = harness.UpdateDeviceAndWaitForVersion(deviceId, func(device *v1beta1.Device) {
+				device.Spec.Os = microshiftOs
 				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{helmAuth}
 				device.Spec.Applications = &[]v1beta1.ApplicationProviderSpec{helmAppSpec}
 			})
