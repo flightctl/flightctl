@@ -17,19 +17,17 @@ type mappingCandidate struct {
 	mappingID   uuid.UUID
 	mappingName string
 	value       string
-	mapMode     bool
 }
 
 type desiredLabelState struct {
-	currentLabels      map[string]string
-	currentOwners      map[string]*uuid.UUID
-	currentOwnedByMap  map[uuid.UUID][]domain.DeviceLabelOwnership
-	desired            map[string]domain.DesiredDeviceLabel
-	activeMappings     []labelsyncmappingstore.DeviceMapping
-	failures           map[uuid.UUID][]error
-	outputsByMapping   map[uuid.UUID]map[string]string
-	candidatesByKey    map[string][]mappingCandidate
-	scalarReservations map[string]uuid.UUID
+	currentLabels     map[string]string
+	currentOwners     map[string]*uuid.UUID
+	currentOwnedByMap map[uuid.UUID][]domain.DeviceLabelOwnership
+	desired           map[string]domain.DesiredDeviceLabel
+	activeMappings    []labelsyncmappingstore.DeviceMapping
+	failures          map[uuid.UUID][]error
+	outputsByMapping  map[uuid.UUID]map[string]string
+	candidatesByKey   map[string][]mappingCandidate
 }
 
 type deviceReconciliationSnapshot struct {
@@ -54,15 +52,14 @@ func desiredDeviceLabels(snapshot deviceReconciliationSnapshot, evaluator Evalua
 func newDesiredLabelState(snapshot deviceReconciliationSnapshot) *desiredLabelState {
 	currentLabels := lo.FromPtr(snapshot.Device.Device.Metadata.Labels)
 	state := &desiredLabelState{
-		currentLabels:      currentLabels,
-		currentOwners:      make(map[string]*uuid.UUID, len(snapshot.Device.Labels)),
-		currentOwnedByMap:  make(map[uuid.UUID][]domain.DeviceLabelOwnership),
-		desired:            make(map[string]domain.DesiredDeviceLabel, len(currentLabels)),
-		activeMappings:     make([]labelsyncmappingstore.DeviceMapping, 0, len(snapshot.Mappings)),
-		failures:           make(map[uuid.UUID][]error),
-		outputsByMapping:   make(map[uuid.UUID]map[string]string),
-		candidatesByKey:    make(map[string][]mappingCandidate),
-		scalarReservations: make(map[string]uuid.UUID),
+		currentLabels:     currentLabels,
+		currentOwners:     make(map[string]*uuid.UUID, len(snapshot.Device.Labels)),
+		currentOwnedByMap: make(map[uuid.UUID][]domain.DeviceLabelOwnership),
+		desired:           make(map[string]domain.DesiredDeviceLabel, len(currentLabels)),
+		activeMappings:    make([]labelsyncmappingstore.DeviceMapping, 0, len(snapshot.Mappings)),
+		failures:          make(map[uuid.UUID][]error),
+		outputsByMapping:  make(map[uuid.UUID]map[string]string),
+		candidatesByKey:   make(map[string][]mappingCandidate),
 	}
 
 	for _, label := range snapshot.Device.Labels {
@@ -82,21 +79,12 @@ func newDesiredLabelState(snapshot deviceReconciliationSnapshot) *desiredLabelSt
 		if mapping.Spec.ResourceType != domain.LabelSyncMappingDevice {
 			continue
 		}
-		if mapping.Spec.Key != nil {
-			state.addScalarReservation(*mapping.Spec.Key, entry.ID)
-		}
 		if mapping.Metadata.DeletionTimestamp != nil {
 			continue
 		}
 		state.activeMappings = append(state.activeMappings, entry)
 	}
 	return state
-}
-
-func (s *desiredLabelState) addScalarReservation(key string, mappingID uuid.UUID) {
-	// The store's destination-key unique index permits only one scalar mapping
-	// per resource type and key.
-	s.scalarReservations[key] = mappingID
 }
 
 func (s *desiredLabelState) evaluateMappings(evaluator Evaluator, activation Activation) {
@@ -108,14 +96,12 @@ func (s *desiredLabelState) evaluateMappings(evaluator Evaluator, activation Act
 			continue
 		}
 		s.outputsByMapping[entry.ID] = outputs
-		mapMode := entry.Mapping.Spec.Key == nil
 		mappingName := lo.FromPtr(entry.Mapping.Metadata.Name)
 		for key, value := range outputs {
 			s.candidatesByKey[key] = append(s.candidatesByKey[key], mappingCandidate{
 				mappingID:   entry.ID,
 				mappingName: mappingName,
 				value:       value,
-				mapMode:     mapMode,
 			})
 		}
 	}
@@ -135,7 +121,7 @@ func (s *desiredLabelState) resolveCandidates() {
 		}
 		sort.Strings(keys)
 		for _, key := range keys {
-			candidates := s.activeCandidates(key)
+			candidates := s.candidatesByKey[key]
 			if len(candidates) == 0 {
 				continue
 			}
@@ -148,11 +134,8 @@ func (s *desiredLabelState) resolveCandidates() {
 			}
 
 			candidate := candidates[0]
-			if candidate.mapMode {
-				if reservedBy, exists := s.scalarReservations[key]; exists && reservedBy != candidate.mappingID {
-					s.recordCandidateFailure(candidate, fmt.Errorf("map output %q conflicts with a scalar reservation", key))
-					continue
-				}
+			if len(s.failures[candidate.mappingID]) > 0 {
+				continue
 			}
 			if existing, exists := desired[key]; exists && existing.MappingID != nil && *existing.MappingID != candidate.mappingID {
 				s.recordCandidateFailure(candidate, fmt.Errorf("label key %q is retained by another mapping", key))
@@ -177,16 +160,6 @@ func (s *desiredLabelState) unmanagedLabels() map[string]domain.DesiredDeviceLab
 		}
 	}
 	return desired
-}
-
-func (s *desiredLabelState) activeCandidates(key string) []mappingCandidate {
-	var active []mappingCandidate
-	for _, candidate := range s.candidatesByKey[key] {
-		if len(s.failures[candidate.mappingID]) == 0 {
-			active = append(active, candidate)
-		}
-	}
-	return active
 }
 
 func (s *desiredLabelState) enforceManagedLabelLimit() {
@@ -262,13 +235,27 @@ func (s *desiredLabelState) retainMappingOutputsIn(desired map[string]domain.Des
 }
 
 func (s *desiredLabelState) recordCandidateFailure(candidate mappingCandidate, err error) {
-	s.failures[candidate.mappingID] = append(s.failures[candidate.mappingID], fmt.Errorf("mapping %q: %w", candidate.mappingName, err))
+	failure := fmt.Errorf("mapping %q: %w", candidate.mappingName, err)
+	for _, existing := range s.failures[candidate.mappingID] {
+		if existing.Error() == failure.Error() {
+			return
+		}
+	}
+	s.failures[candidate.mappingID] = append(s.failures[candidate.mappingID], failure)
 }
 
 func (s *desiredLabelState) removeMappingOutputs(mappingID uuid.UUID) {
-	for key, label := range s.desired {
-		if label.MappingID != nil && *label.MappingID == mappingID {
-			delete(s.desired, key)
+	for key := range s.outputsByMapping[mappingID] {
+		label, exists := s.desired[key]
+		if !exists || label.MappingID == nil || *label.MappingID != mappingID {
+			continue
+		}
+		delete(s.desired, key)
+		owner, found := s.currentOwners[key]
+		if !found || owner == nil {
+			if value, exists := s.currentLabels[key]; exists {
+				s.desired[key] = domain.DesiredDeviceLabel{Value: value}
+			}
 		}
 	}
 }

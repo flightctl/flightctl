@@ -248,7 +248,10 @@ func (m *DeviceMutation) RequireExisting() error {
 type DeviceApplyFunc func(m *DeviceMutation) error
 
 type mutateConfig struct {
-	withTimestamp bool
+	withTimestamp                        bool
+	allowDecommissionManagedLabelCleanup bool
+	preserveOmittedManagedLabels         bool
+	explicitLabelRemovalPaths            map[string]struct{}
 }
 
 // MutateOption configures DeviceStore.Mutate.
@@ -259,6 +262,27 @@ type MutateOption func(*mutateConfig)
 func WithTimestamp() MutateOption {
 	return func(c *mutateConfig) {
 		c.withTimestamp = true
+	}
+}
+
+// WithDecommissionManagedLabelCleanup allows decommission to remove all labels
+// owned by mappings. The update still has to set lifecycle to Decommissioning
+// and clear every device label.
+func WithDecommissionManagedLabelCleanup() MutateOption {
+	return func(c *mutateConfig) {
+		c.allowDecommissionManagedLabelCleanup = true
+	}
+}
+
+// WithManagedLabelMapReplacement preserves omitted mapping-owned labels during
+// a whole-map device label replacement, except for explicitly removed paths.
+func WithManagedLabelMapReplacement(explicitRemovalPaths []string) MutateOption {
+	return func(c *mutateConfig) {
+		c.preserveOmittedManagedLabels = true
+		c.explicitLabelRemovalPaths = make(map[string]struct{}, len(explicitRemovalPaths))
+		for _, path := range explicitRemovalPaths {
+			c.explicitLabelRemovalPaths[path] = struct{}{}
+		}
 	}
 }
 
@@ -667,7 +691,7 @@ func (s *DeviceStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, 
 		},
 		PersistUpdate: func(ctx context.Context, orgId uuid.UUID, _ string, before *domain.Device, m store.ResourceMutation[domain.Device]) (bool, error) {
 			dm := m.(*DeviceMutation)
-			return s.Update(ctx, orgId, before, dm.Device, dm.Rendered, dm.PreserveGeneration)
+			return s.update(ctx, orgId, before, dm.Device, dm.Rendered, dm.PreserveGeneration, cfg)
 		},
 	}
 	if cfg.withTimestamp {
@@ -839,6 +863,10 @@ func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, device *domai
 // Update writes a device update. Returns retry=true on lost optimistic lock / deadlock.
 // rendered is optional; when nil, rendered_* columns are left unchanged.
 func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, before, device *domain.Device, rendered *DeviceRendered, preserveGeneration bool) (bool, error) {
+	return s.update(ctx, orgId, before, device, rendered, preserveGeneration, &mutateConfig{})
+}
+
+func (s *DeviceStore) update(ctx context.Context, orgId uuid.UUID, before, device *domain.Device, rendered *DeviceRendered, preserveGeneration bool, cfg *mutateConfig) (bool, error) {
 	existing, err := model.NewDeviceFromApiResource(before)
 	if err != nil {
 		return false, err
@@ -850,6 +878,11 @@ func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, before, devic
 		return false, err
 	}
 	fromAPI.OrgID = orgId
+	if cfg.preserveOmittedManagedLabels {
+		if err := s.preserveOmittedManagedLabels(ctx, orgId, existing, fromAPI, device, cfg.explicitLabelRemovalPaths); err != nil {
+			return false, err
+		}
+	}
 	if rendered != nil {
 		applyRenderedDeltaEstimates(fromAPI, rendered.DeltaEstimates)
 	} else {
@@ -903,6 +936,14 @@ func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, before, devic
 		updates["render_timestamp"] = time.Now()
 	}
 
+	decommissionCleanup := cfg.allowDecommissionManagedLabelCleanup && device != nil &&
+		device.Status != nil && device.Status.Lifecycle.Status == domain.DeviceLifecycleStatusDecommissioning &&
+		len(lo.FromPtr(device.Metadata.Labels)) == 0
+	if !decommissionCleanup {
+		if err := s.rejectManagedLabelChanges(ctx, orgId, existing.Name, map[string]string(existing.Labels), map[string]string(fromAPI.Labels)); err != nil {
+			return false, err
+		}
+	}
 	result := s.getDB(ctx).Model(existing).Where("resource_version = ?", lo.FromPtr(existing.ResourceVersion)).Updates(updates)
 	if result.Error != nil {
 		err := store.ErrorFromGormError(result.Error)
