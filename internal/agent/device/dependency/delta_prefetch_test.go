@@ -122,6 +122,7 @@ func TestApplicationDeltaPrefetch(t *testing.T) {
 				deltaGeneration:       1,
 				deltaApplyResults:     make(map[string]map[imageRef]applicationDeltaApplyResult),
 				deltaTargetsScheduled: true,
+				deltaTargetRefs:       map[string]imageRef{deltastatus.Fingerprint(string(target.owner), target.image): target},
 				deltaAppTargetKeys: map[string]map[string]string{
 					"app": {deltastatus.Fingerprint(string(target.owner), target.image): task.applicationTargetKey},
 				},
@@ -227,6 +228,7 @@ func TestApplicationDeltaStatusWaitsForTargetsToBeScheduled(t *testing.T) {
 		deltaAppTargetKeys: map[string]map[string]string{
 			application: {deltastatus.Fingerprint(string(target.owner), target.image): targetKey},
 		},
+		deltaTargetRefs: map[string]imageRef{deltastatus.Fingerprint(string(target.owner), target.image): target},
 	}
 
 	for _, tt := range []struct {
@@ -254,6 +256,7 @@ func TestApplicationDeltaStatusWaitsForAllTargetsToHaveResults(t *testing.T) {
 	const application = "app"
 	manager := &prefetchManager{
 		deltaTargetsScheduled: true,
+		deltaTargetRefs:       make(map[string]imageRef),
 		tasks:                 make(map[imageRef]*prefetchTask),
 		deltaApplyResults: map[string]map[imageRef]applicationDeltaApplyResult{
 			application: make(map[imageRef]applicationDeltaApplyResult),
@@ -278,6 +281,7 @@ func TestApplicationDeltaStatusWaitsForAllTargetsToHaveResults(t *testing.T) {
 			done:                 true,
 		}
 		manager.deltaAppTargetKeys[application][deltastatus.Fingerprint(string(target.owner), target.image)] = targetKey
+		manager.deltaTargetRefs[deltastatus.Fingerprint(string(target.owner), target.image)] = target
 		manager.deltaApplyResults[application][target] = applicationDeltaApplyResult{
 			outcome:   v1beta1.DeviceDeltaApplyOutcomeApplied,
 			targetKey: targetKey,
@@ -297,6 +301,7 @@ func TestApplicationDeltaStatusWaitsForAllTargetsToHaveResults(t *testing.T) {
 	}
 	manager.tasks[lastTarget] = lastTask
 	manager.deltaAppTargetKeys[application][deltastatus.Fingerprint(string(lastTarget.owner), lastTarget.image)] = lastTargetKey
+	manager.deltaTargetRefs[deltastatus.Fingerprint(string(lastTarget.owner), lastTarget.image)] = lastTarget
 	deviceStatus = &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: application}}}
 	require.NoError(t, manager.Status(context.Background(), deviceStatus))
 	require.Nil(t, deviceStatus.Applications[0].LastDelta)
@@ -315,6 +320,7 @@ func TestApplicationDeltaStatusWaitsForAllTargetsToHaveResults(t *testing.T) {
 	// A later collection can remove a target while leaving its prior result in
 	// memory. Its result must not affect the current application's outcome.
 	delete(manager.deltaAppTargetKeys[application], deltastatus.Fingerprint(string(lastTarget.owner), lastTarget.image))
+	delete(manager.deltaTargetRefs, deltastatus.Fingerprint(string(lastTarget.owner), lastTarget.image))
 	deviceStatus = &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: application}}}
 	require.NoError(t, manager.Status(context.Background(), deviceStatus))
 	require.NotNil(t, deviceStatus.Applications[0].LastDelta)
@@ -325,6 +331,69 @@ func TestApplicationDeltaStatusWaitsForAllTargetsToHaveResults(t *testing.T) {
 	require.NoError(t, manager.Status(context.Background(), deviceStatus))
 	require.NotNil(t, deviceStatus.Applications[0].LastDelta)
 	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeApplied, deviceStatus.Applications[0].LastDelta.Outcome)
+}
+
+func TestApplicationDeltaStatusUsesCurrentTargetReferences(t *testing.T) {
+	const application = "app"
+	const targetKey = "current-target"
+	target := imageRef{image: "quay.io/acme/workload:target", owner: "app-user"}
+	targetID := deltastatus.Fingerprint(string(target.owner), target.image)
+
+	for _, tt := range []struct {
+		name        string
+		missingRef  bool
+		otherOwner  bool
+		staleResult bool
+		staleTask   bool
+		withoutTask bool
+		wantStatus  bool
+	}{
+		{name: "When the reference is missing it should withhold LastDelta", missingRef: true},
+		{name: "When another owner has the same image it should withhold LastDelta", otherOwner: true},
+		{name: "When the result belongs to an older target it should withhold LastDelta", staleResult: true},
+		{name: "When the task belongs to an older target it should withhold LastDelta", staleTask: true},
+		{name: "When the completed task is cleaned up it should retain LastDelta", withoutTask: true, wantStatus: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			manager := &prefetchManager{
+				deltaTargetsScheduled: true,
+				deltaAppTargetKeys:    map[string]map[string]string{application: {targetID: targetKey}},
+				deltaTargetRefs:       map[string]imageRef{targetID: target},
+				deltaApplyResults: map[string]map[imageRef]applicationDeltaApplyResult{
+					application: {target: {outcome: v1beta1.DeviceDeltaApplyOutcomeApplied, targetKey: targetKey}},
+				},
+				tasks: map[imageRef]*prefetchTask{target: {applicationTargetKey: targetKey, done: true}},
+			}
+			if tt.missingRef {
+				delete(manager.deltaTargetRefs, targetID)
+			}
+			if tt.otherOwner {
+				otherTarget := imageRef{image: target.image, owner: "other-user"}
+				manager.deltaApplyResults[application][otherTarget] = manager.deltaApplyResults[application][target]
+				delete(manager.deltaApplyResults[application], target)
+			}
+			if tt.staleResult {
+				manager.deltaApplyResults[application][target] = applicationDeltaApplyResult{
+					outcome: v1beta1.DeviceDeltaApplyOutcomeApplied, targetKey: "previous-target",
+				}
+			}
+			if tt.staleTask {
+				manager.tasks[target].applicationTargetKey = "previous-target"
+			}
+			if tt.withoutTask {
+				delete(manager.tasks, target)
+			}
+
+			deviceStatus := &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: application}}}
+			require.NoError(t, manager.Status(context.Background(), deviceStatus))
+			if !tt.wantStatus {
+				require.Nil(t, deviceStatus.Applications[0].LastDelta)
+				return
+			}
+			require.NotNil(t, deviceStatus.Applications[0].LastDelta)
+			require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeApplied, deviceStatus.Applications[0].LastDelta.Outcome)
+		})
+	}
 }
 
 func TestPrepareTaskReusedCompletedTargetReportsNotUsedForNewGeneration(t *testing.T) {
@@ -529,6 +598,7 @@ func TestApplicationDeltaStatusPersistsAcrossRestartAndClearsForChangedSpec(t *t
 	require.NotNil(t, deviceStatus.Applications[0].LastDelta)
 	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeNotUsed, deviceStatus.Applications[0].LastDelta.Outcome)
 	newTargetID := deltastatus.Fingerprint(string(refV3.owner), refV3.image)
+	require.Equal(t, map[string]imageRef{newTargetID: refV3}, manager.deltaTargetRefs)
 	appResults := restartedStore.ApplicationResults("app")
 	require.NotContains(t, appResults, targetID)
 	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeNotUsed, appResults[newTargetID].Status.Outcome)
@@ -670,6 +740,7 @@ func TestApplicationDeltaPrefetchRunsAsRunAsUser(t *testing.T) {
 	manager.deltaAppTargetKeys = map[string]map[string]string{
 		"app": {deltastatus.Fingerprint(string(target.owner), target.image): task.applicationTargetKey},
 	}
+	manager.deltaTargetRefs = map[string]imageRef{deltastatus.Fingerprint(string(target.owner), target.image): target}
 	manager.tasks[target] = task
 
 	deltaFetch := userExec.EXPECT().ExecuteWithContext(
@@ -735,6 +806,7 @@ func TestApplicationDeltaPrefetchRunAsDeltaImportFailureFallsBackToFullPull(t *t
 	manager.deltaAppTargetKeys = map[string]map[string]string{
 		"app": {deltastatus.Fingerprint(string(target.owner), target.image): task.applicationTargetKey},
 	}
+	manager.deltaTargetRefs = map[string]imageRef{deltastatus.Fingerprint(string(target.owner), target.image): target}
 	manager.tasks[target] = task
 
 	deltaFetch := userExec.EXPECT().ExecuteWithContext(

@@ -104,6 +104,7 @@ func TestApplicationDeltaPrefetchCRIRefreshesRegistryReference(t *testing.T) {
 				deltaGeneration:       1,
 				deltaApplyResults:     make(map[string]map[imageRef]applicationDeltaApplyResult),
 				deltaTargetsScheduled: true,
+				deltaTargetRefs:       map[string]imageRef{deltastatus.Fingerprint(string(target.owner), target.image): target},
 				deltaAppTargetKeys: map[string]map[string]string{
 					"app": {deltastatus.Fingerprint(string(target.owner), target.image): task.applicationTargetKey},
 				},

@@ -341,6 +341,7 @@ type prefetchManager struct {
 	applicationNameResolver ApplicationNameResolver
 	deltaAppSpecKeys        map[string]string
 	deltaAppTargetKeys      map[string]map[string]string
+	deltaTargetRefs         map[string]imageRef
 	deltaTargetsScheduled   bool
 }
 
@@ -557,7 +558,10 @@ func (m *prefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1
 		restoredResults = m.restoreApplicationDeltaResults(appTargetKeys, targetRefs)
 	}
 	m.mu.Lock()
+	// Keep both indexes on the same collection so status can resolve results
+	// directly without scanning image references and recomputing fingerprints.
 	m.deltaAppTargetKeys = appTargetKeys
+	m.deltaTargetRefs = targetRefs
 	m.deltaApplyResults = mergeApplicationDeltaResults(m.deltaApplyResults, restoredResults)
 	m.mu.Unlock()
 
@@ -1770,20 +1774,18 @@ func applicationDeltaResultFromSnapshot(
 func (m *prefetchManager) currentApplicationDeltaResult(
 	application, targetID, targetKey string,
 ) (applicationDeltaApplyResult, bool) {
-	for ref, result := range m.deltaApplyResults[application] {
-		if deltastatus.Fingerprint(string(ref.owner), ref.image) != targetID {
-			continue
-		}
-		if result.targetKey != targetKey {
-			continue
-		}
-		task, exists := m.tasks[ref]
-		if exists && task.applicationTargetKey != targetKey {
-			continue
-		}
-		return result, true
+	ref, exists := m.deltaTargetRefs[targetID]
+	if !exists {
+		return applicationDeltaApplyResult{}, false
 	}
-	return applicationDeltaApplyResult{}, false
+	result, exists := m.deltaApplyResults[application][ref]
+	if !exists || result.targetKey != targetKey {
+		return applicationDeltaApplyResult{}, false
+	}
+	if task, exists := m.tasks[ref]; exists && task.applicationTargetKey != targetKey {
+		return applicationDeltaApplyResult{}, false
+	}
+	return result, true
 }
 
 func aggregateApplicationDeltaApplyResults(results map[string]applicationDeltaApplyResult) *v1beta1.DeviceDeltaApplyStatus {
