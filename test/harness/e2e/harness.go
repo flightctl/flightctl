@@ -200,7 +200,9 @@ func (h *Harness) RefreshClient() error {
 	if h.clientWrapper != nil {
 		h.clientWrapper.Stop()
 	}
-	c.Start(h.Context)
+	if err := c.Start(h.Context); err != nil {
+		return fmt.Errorf("failed to start client: %w", err)
+	}
 	h.clientWrapper = c
 	h.Client = c.ClientWithResponses
 
@@ -217,7 +219,9 @@ func (h *Harness) RefreshClient() error {
 		if err != nil {
 			return fmt.Errorf("failed to recreate imagebuilder client: %w", err)
 		}
-		ibClient.Start(h.Context)
+		if err := ibClient.Start(h.Context); err != nil {
+			return fmt.Errorf("failed to start imagebuilder client: %w", err)
+		}
 		h.ImageBuilderClient = ibClient
 	} else {
 		if h.ImageBuilderClient != nil {
@@ -1792,8 +1796,15 @@ func newTestHarnessBase(ctx context.Context) (*Harness, error) {
 		return nil, fmt.Errorf("failed to create git work directory: %w", err)
 	}
 
-	c.Start(ctx)
-	ibClient.Start(ctx)
+	if err := c.Start(ctx); err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to start client: %w", err)
+	}
+	if err := ibClient.Start(ctx); err != nil {
+		c.Stop()
+		cancel()
+		return nil, fmt.Errorf("failed to start imagebuilder client: %w", err)
+	}
 
 	h := &Harness{
 		Client:             c.ClientWithResponses,

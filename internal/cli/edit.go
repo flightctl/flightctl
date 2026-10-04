@@ -174,7 +174,9 @@ func (o *EditOptions) Run(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
-	clientWithResponses.Start(ctx)
+	if err := clientWithResponses.Start(ctx); err != nil {
+		return err
+	}
 	defer clientWithResponses.Stop()
 
 	kind, name, err := parseAndValidateKindName(args[0])
