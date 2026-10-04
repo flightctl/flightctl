@@ -293,7 +293,7 @@ func (m *manager) addVolumeImageDigests(ctx context.Context, results []AppStatus
 
 	for i := range results {
 		application := &results[i].Status
-		if len(application.Volumes) == 0 {
+		if application.Volumes == nil || len(*application.Volumes) == 0 {
 			continue
 		}
 
@@ -301,12 +301,12 @@ func (m *manager) addVolumeImageDigests(ctx context.Context, results []AppStatus
 		if application.ImageDigests != nil {
 			digests = append(digests, (*application.ImageDigests)...)
 		}
-		seen := make(map[string]struct{}, len(digests)+len(application.Volumes))
+		seen := make(map[string]struct{}, len(digests)+len(*application.Volumes))
 		for _, digest := range digests {
 			seen[digest.Image+"\x00"+digest.Digest] = struct{}{}
 		}
 
-		for _, volume := range application.Volumes {
+		for _, volume := range *application.Volumes {
 			if volume.Reference == "" {
 				continue
 			}
@@ -314,9 +314,9 @@ func (m *manager) addVolumeImageDigests(ctx context.Context, results []AppStatus
 			key := volumeImageKey{user: application.RunAs, reference: volume.Reference}
 			digest, inspected := inspectedDigests[key]
 			if !inspected {
+				var err error
 				podman, found := podmanClients[key.user]
 				if !found {
-					var err error
 					if m.podmanFactory == nil {
 						err = fmt.Errorf("podman factory is not configured")
 					} else {
