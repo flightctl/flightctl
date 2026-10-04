@@ -113,6 +113,7 @@ require (
 	github.com/goccy/go-yaml v1.18.0
 	github.com/grafana/pyroscope-go v1.4.1
 	github.com/jackc/pgx/v5 v5.9.2
+	github.com/kubeflow/hub/pkg/openapi v0.3.10
 	github.com/mattbaird/jsonpatch v0.0.0-20240118010651-0ba75a80ca38
 	github.com/msteinert/pam/v2 v2.1.0
 	github.com/open-telemetry/opentelemetry-collector-contrib/exporter/prometheusexporter v0.130.0
