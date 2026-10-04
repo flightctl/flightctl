@@ -692,3 +692,76 @@ func TestParse_ServiceLogLevel(t *testing.T) {
 }
 
 func strPtr(s string) *string { return &s }
+
+// =============================================================================
+// Metrics configuration tests
+// =============================================================================
+
+func TestParse_ServiceMetrics(t *testing.T) {
+	tests := []struct {
+		name         string
+		yaml         string
+		wantNil      bool
+		wantEndpoint string
+		wantErr      string
+	}{
+		{
+			name:    "When metrics block is absent the pointer is nil (disabled)",
+			yaml:    minimalYAML(""),
+			wantNil: true,
+		},
+		{
+			name:    "When service block is empty the pointer is nil (disabled)",
+			yaml:    minimalYAML("service:\n"),
+			wantNil: true,
+		},
+		{
+			name:         "When metrics block is present but empty it should default to localhost:8888",
+			yaml:         minimalYAML("service:\n  metrics: {}\n"),
+			wantEndpoint: "localhost:8888",
+		},
+		{
+			name:         "When metrics block is present with explicit endpoint it should use it",
+			yaml:         minimalYAML("service:\n  metrics:\n    endpoint: 127.0.0.1:9090\n"),
+			wantEndpoint: "127.0.0.1:9090",
+		},
+		{
+			name:    "When metrics endpoint has empty host it should be rejected",
+			yaml:    minimalYAML("service:\n  metrics:\n    endpoint: :9090\n"),
+			wantErr: "service.metrics.endpoint",
+		},
+		{
+			name:    "When metrics endpoint has empty port it should be rejected",
+			yaml:    minimalYAML("service:\n  metrics:\n    endpoint: \"localhost:\"\n"),
+			wantErr: "service.metrics.endpoint",
+		},
+		{
+			name:    "When metrics endpoint is not a valid host:port it should be rejected",
+			yaml:    minimalYAML("service:\n  metrics:\n    endpoint: not-a-hostport\n"),
+			wantErr: "service.metrics.endpoint",
+		},
+		{
+			name:    "When legacy address field is used it should be rejected by strict decoding",
+			yaml:    minimalYAML("service:\n  metrics:\n    address: 127.0.0.1:9090\n"),
+			wantErr: "parsing config",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := Parse([]byte(tc.yaml))
+			if tc.wantErr != "" {
+				require.Error(t, err)
+				require.ErrorContains(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			if tc.wantNil {
+				require.Nil(t, cfg.Service.Metrics, "expected nil Metrics pointer (disabled)")
+			} else {
+				require.NotNil(t, cfg.Service.Metrics, "expected non-nil Metrics pointer (enabled)")
+				require.Equal(t, tc.wantEndpoint, cfg.Service.Metrics.Endpoint)
+			}
+		})
+	}
+}
