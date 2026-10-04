@@ -126,6 +126,7 @@ func validateArtifacts(artifacts []CatalogItemArtifact, pathPrefix string) []err
 			allErrs = append(allErrs, fmt.Errorf("%s.uri is required", artPath))
 		} else {
 			allErrs = append(allErrs, validateArtifactURI(artifact.Uri, artPath+".uri")...)
+			allErrs = append(allErrs, validateArtifactURIHasNoVersionQualifier(artifact.Uri, artPath+".uri")...)
 		}
 	}
 
@@ -182,6 +183,48 @@ func validateArtifactURI(uri string, path string) []error {
 		}
 	}
 
+	return allErrs
+}
+
+// validateArtifactURIHasNoVersionQualifier rejects artifact URIs that already
+// contain a tag (":tag" after the last "/") or digest ("@sha256:...").
+// The version qualifier is applied at catalog item resolution time via the
+// version references, so the base URI must be a bare reference.
+func validateArtifactURIHasNoVersionQualifier(uri string, path string) []error {
+	ref := uri
+	// Strip known scheme prefixes to isolate the reference portion.
+	for _, prefix := range []string{"oci://", "docker://"} {
+		if strings.HasPrefix(ref, prefix) {
+			ref = ref[len(prefix):]
+			break
+		}
+	}
+
+	// Skip validation for non-OCI URIs (HTTP, S3, custom schemes).
+	if strings.Contains(ref, "://") {
+		return nil
+	}
+
+	// In a bare OCI reference like "registry:5000/org/image:tag", a colon
+	// after the last "/" indicates a tag, and "@" indicates a digest.
+	lastSlash := strings.LastIndex(ref, "/")
+	imagePart := ref
+	if lastSlash >= 0 {
+		imagePart = ref[lastSlash+1:]
+	}
+	var allErrs []error
+	nameOnly := imagePart
+	if atIdx := strings.Index(imagePart, "@"); atIdx >= 0 {
+		allErrs = append(allErrs, fmt.Errorf("%s: artifact URI must not contain a digest; remove the digest qualifier", path))
+		nameOnly = imagePart[:atIdx]
+	}
+	if colonIdx := strings.Index(nameOnly, ":"); colonIdx >= 0 {
+		offset := 0
+		if lastSlash >= 0 {
+			offset = lastSlash + 1
+		}
+		allErrs = append(allErrs, fmt.Errorf("%s: artifact URI must not contain a tag; remove the tag (e.g., use %q instead)", path, ref[:offset+colonIdx]))
+	}
 	return allErrs
 }
 
