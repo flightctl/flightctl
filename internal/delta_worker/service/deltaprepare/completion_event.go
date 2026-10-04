@@ -16,7 +16,7 @@ type PrepareCompletionPayload struct {
 	Kind                  string  `json:"kind"`
 	Name                  string  `json:"name"`
 	TemplateVersion       *string `json:"templateVersion,omitempty"`
-	SpecHash              *string `json:"specHash,omitempty"`
+	Generation            *int64  `json:"generation,omitempty"`
 	SourceResourceVersion int64   `json:"sourceResourceVersion"`
 }
 
@@ -37,7 +37,7 @@ func NewPrepareCompletionEvent(prepare *model.DeltaPrepare) (*domain.Event, erro
 		Kind:                  prepare.Kind,
 		Name:                  prepare.Name,
 		TemplateVersion:       prepare.TemplateVersion,
-		SpecHash:              prepare.SpecHash,
+		Generation:            prepare.Generation,
 		SourceResourceVersion: prepare.SourceResourceVersion,
 	}
 	payloadBytes, err := json.Marshal(payload)
@@ -74,7 +74,7 @@ func ParsePrepareCompletionEvent(orgID uuid.UUID, message string) (*model.DeltaP
 		Kind:                  payload.Kind,
 		Name:                  payload.Name,
 		TemplateVersion:       payload.TemplateVersion,
-		SpecHash:              payload.SpecHash,
+		Generation:            payload.Generation,
 		SourceResourceVersion: payload.SourceResourceVersion,
 		Status:                model.DeltaPrepareComplete,
 	}, nil

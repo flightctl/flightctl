@@ -45,7 +45,7 @@ type DeltaPrepare struct {
 	Kind                    string    `gorm:"type:text"`
 	Name                    string    `gorm:"type:text"`
 	TemplateVersion         *string   `gorm:"type:text"`
-	SpecHash                *string
+	Generation              *int64
 	SourceResourceVersion   int64
 	Deadline                *time.Time
 	CreatedAt               time.Time

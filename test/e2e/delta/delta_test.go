@@ -660,8 +660,8 @@ func observeDeltaGenerationProgress(events []v1beta1.Event, kind, name string, o
 				return StopTrying(fmt.Sprintf("fleet %s DeltaGenerationProgress event is missing template version", name))
 			}
 			observation.generationTemplateVersions[*details.TemplateVersion] = struct{}{}
-		} else if details.SpecHash == nil || *details.SpecHash == "" {
-			return StopTrying(fmt.Sprintf("device %s DeltaGenerationProgress event is missing spec hash", name))
+		} else if details.Generation == nil || *details.Generation <= 0 {
+			return StopTrying(fmt.Sprintf("device %s DeltaGenerationProgress event is missing generation", name))
 		}
 
 		switch details.GenerationStatus {

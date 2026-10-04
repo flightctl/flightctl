@@ -440,7 +440,8 @@ func deviceWithOS(name string, eligible bool, digest string) *domain.Device {
 	d := &domain.Device{
 		Metadata: domain.ObjectMeta{
 			Name:        lo.ToPtr(name),
-			Annotations: &map[string]string{domain.DeviceAnnotationRenderedSpecHash: prepareTestHash},
+			Generation:  lo.ToPtr(prepareTestGeneration),
+			Annotations: &map[string]string{domain.DeviceAnnotationRenderedSpecHash: "previous-rendered-hash"},
 		},
 		Spec: &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "quay.io/os/base:latest"}},
 		Status: &domain.DeviceStatus{
@@ -504,6 +505,7 @@ func TestDeltaCandidates_ResolveOSFromUnsavedRender(t *testing.T) {
 
 	t.Run("When the involved object is a device it should render the existing spec", func(t *testing.T) {
 		device := deviceWithOS("d1", true, currentDig)
+		device.Metadata.Annotations = nil
 		device.Spec.Os.Image = newImage
 		r := baseResolver()
 		r.DeviceService = mockDeviceService(func(_ context.Context, _ uuid.UUID, _ string) (*domain.Device, error) {
@@ -518,15 +520,20 @@ func TestDeltaCandidates_ResolveOSFromUnsavedRender(t *testing.T) {
 		assert.Equal(t, newDig, result.Candidates[0].NewDigest)
 	})
 
-	t.Run("When the device spec hash changed it should fail the call", func(t *testing.T) {
+	t.Run("When the device generation changed before rendering it should discard the event", func(t *testing.T) {
 		device := deviceWithOS("d1", true, currentDig)
 		r := baseResolver()
 		r.DeviceService = mockDeviceService(func(_ context.Context, _ uuid.UUID, _ string) (*domain.Device, error) {
 			return device, nil
 		}, nil)
-		_, err := r.DeltaCandidates(ctx, devicePrepareEventWithSpecHash(orgId, "d1", "different-hash"))
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "spec hash changed")
+		r.Render = func(context.Context, uuid.UUID, *domain.Device, *domain.DeviceSpec) (tasks.RenderedSpec, error) {
+			t.Fatal("superseded prepare must not render the device")
+			return tasks.RenderedSpec{}, nil
+		}
+		result, err := r.DeltaCandidates(ctx, devicePrepareEventWithGeneration(orgId, "d1", prepareTestGeneration-1))
+		require.NoError(t, err)
+		assert.True(t, result.Superseded)
+		assert.Empty(t, result.Candidates)
 	})
 
 	t.Run("When current digest is missing it should omit that device", func(t *testing.T) {
@@ -785,12 +792,41 @@ func TestDeltaCandidates_DedupInOrg(t *testing.T) {
 	assert.Equal(t, newDig, result.Candidates[0].NewDigest)
 }
 
-func devicePrepareEvent(orgId uuid.UUID, name string) worker_client.EventWithOrgId {
-	return devicePrepareEventWithSpecHash(orgId, name, prepareTestHash)
+func TestDevicePrepareGeneration(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		generation *int64
+	}{
+		{name: "When generation is absent it should reject the event"},
+		{name: "When generation is zero it should reject the event", generation: lo.ToPtr(int64(0))},
+		{name: "When generation is negative it should reject the event", generation: lo.ToPtr(int64(-1))},
+		{name: "When generation is positive it should accept the event", generation: lo.ToPtr(int64(2))},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ev := devicePrepareEvent(uuid.New(), "d1")
+			details := domain.PrepareDeltasDetails{Generation: tt.generation, ResourceVersion: lo.ToPtr("1")}
+			require.NoError(t, ev.Event.Details.FromPrepareDeltasDetails(details))
+			generation, err := deviceGenerationFromEvent(ev)
+			identity, identityErr := identityFromEvent(ev)
+			if tt.generation == nil || *tt.generation <= 0 {
+				require.ErrorContains(t, err, "positive generation")
+				require.ErrorContains(t, identityErr, "positive generation")
+				return
+			}
+			require.NoError(t, err)
+			require.NoError(t, identityErr)
+			assert.Equal(t, *tt.generation, generation)
+			assert.Equal(t, tt.generation, identity.generation)
+		})
+	}
 }
 
-func devicePrepareEventWithSpecHash(orgId uuid.UUID, name, specHash string) worker_client.EventWithOrgId {
-	details := domain.PrepareDeltasDetails{DetailType: v1beta1.PrepareDeltas, SpecHash: lo.ToPtr(specHash), ResourceVersion: lo.ToPtr("1")}
+func devicePrepareEvent(orgId uuid.UUID, name string) worker_client.EventWithOrgId {
+	return devicePrepareEventWithGeneration(orgId, name, prepareTestGeneration)
+}
+
+func devicePrepareEventWithGeneration(orgId uuid.UUID, name string, generation int64) worker_client.EventWithOrgId {
+	details := domain.PrepareDeltasDetails{DetailType: v1beta1.PrepareDeltas, Generation: lo.ToPtr(generation), ResourceVersion: lo.ToPtr("1")}
 	var eventDetails domain.EventDetails
 	_ = eventDetails.FromPrepareDeltasDetails(details)
 	return worker_client.EventWithOrgId{
@@ -806,8 +842,8 @@ func devicePrepareEventWithSpecHash(orgId uuid.UUID, name, specHash string) work
 	}
 }
 
-func devicePrepareEventWithSpecHashAndResourceVersion(orgId uuid.UUID, name, specHash, resourceVersion string) worker_client.EventWithOrgId {
-	details := domain.PrepareDeltasDetails{DetailType: v1beta1.PrepareDeltas, SpecHash: lo.ToPtr(specHash), ResourceVersion: lo.ToPtr(resourceVersion)}
+func devicePrepareEventWithGenerationAndResourceVersion(orgId uuid.UUID, name string, generation int64, resourceVersion string) worker_client.EventWithOrgId {
+	details := domain.PrepareDeltasDetails{DetailType: v1beta1.PrepareDeltas, Generation: lo.ToPtr(generation), ResourceVersion: lo.ToPtr(resourceVersion)}
 	var eventDetails domain.EventDetails
 	_ = eventDetails.FromPrepareDeltasDetails(details)
 	return worker_client.EventWithOrgId{

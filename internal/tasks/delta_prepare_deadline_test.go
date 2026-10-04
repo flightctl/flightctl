@@ -183,8 +183,7 @@ func TestDeltaPrepareDeadlinePoll(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		deviceSvc := deviceservice.NewMockService(ctrl)
 		generation := int64(7)
-		specHash := "rendered-spec-hash"
-		annotations := map[string]string{domain.DeviceAnnotationRenderedSpecHash: specHash}
+		annotations := map[string]string{domain.DeviceAnnotationRenderedSpecHash: "previous-rendered-hash"}
 		deviceStatus := domain.NewDeviceStatus()
 		device := &domain.Device{
 			Metadata: domain.ObjectMeta{
@@ -204,7 +203,7 @@ func TestDeltaPrepareDeadlinePoll(t *testing.T) {
 			Kind:                  domain.DeviceKind,
 			Name:                  "device-1",
 			SourceResourceVersion: 12,
-			SpecHash:              &specHash,
+			Generation:            &generation,
 			Status:                model.DeltaPrepareWaiting,
 		}
 		store := &fakeDeadlineStore{waiting: []model.DeltaPrepare{prep}}
@@ -216,7 +215,7 @@ func TestDeltaPrepareDeadlinePoll(t *testing.T) {
 		assert.Equal(t, domain.EventReasonDeltaGenerationCompleted, rec.events[0].Reason)
 	})
 
-	t.Run("When a device prepare has a stale spec hash it should not emit completion", func(t *testing.T) {
+	t.Run("When a device prepare has a stale generation it should not emit completion", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		deviceSvc := deviceservice.NewMockService(ctrl)
 		generation := int64(7)
@@ -236,7 +235,7 @@ func TestDeltaPrepareDeadlinePoll(t *testing.T) {
 			Kind:                  domain.DeviceKind,
 			Name:                  "device-1",
 			SourceResourceVersion: 12,
-			SpecHash:              lo.ToPtr("old-spec-hash"),
+			Generation:            lo.ToPtr(int64(6)),
 			Status:                model.DeltaPrepareWaiting,
 		}
 		store := &fakeDeadlineStore{waiting: []model.DeltaPrepare{prep}}

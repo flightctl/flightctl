@@ -201,12 +201,14 @@ func (r *Resolver) candidatesForDeviceEvent(ctx context.Context, ev worker_clien
 	if status.Code != http.StatusOK {
 		return DeltaCandidateResult{}, fmt.Errorf("get device %s/%s: %s", ev.OrgId, ev.Event.InvolvedObject.Name, status.Message)
 	}
-	expectedSpecHash, err := deviceSpecHashFromEvent(ev)
+	expectedGeneration, err := deviceGenerationFromEvent(ev)
 	if err != nil {
 		return DeltaCandidateResult{}, err
 	}
-	if actualSpecHash := device.SpecHash(); actualSpecHash != expectedSpecHash {
-		return DeltaCandidateResult{}, fmt.Errorf("device %s spec hash changed: event=%q current=%q", ev.Event.InvolvedObject.Name, expectedSpecHash, actualSpecHash)
+	// Rendering is held until preparation finishes, so the rendered spec hash
+	// can still describe an earlier desired spec. Generation changes immediately.
+	if device == nil || device.Metadata.Generation == nil || *device.Metadata.Generation != expectedGeneration {
+		return DeltaCandidateResult{Superseded: true}, nil
 	}
 	if !deviceEligible(device) {
 		return DeltaCandidateResult{Skip: true}, nil
@@ -236,18 +238,18 @@ func prepareEventTemplateVersion(ev worker_client.EventWithOrgId) (*string, erro
 	return details.TemplateVersion, nil
 }
 
-func deviceSpecHashFromEvent(ev worker_client.EventWithOrgId) (string, error) {
+func deviceGenerationFromEvent(ev worker_client.EventWithOrgId) (int64, error) {
 	if ev.Event.Details == nil {
-		return "", fmt.Errorf("prepare deltas event is missing details")
+		return 0, fmt.Errorf("prepare deltas event is missing details")
 	}
 	details, err := ev.Event.Details.AsPrepareDeltasDetails()
 	if err != nil {
-		return "", fmt.Errorf("prepare deltas details: %w", err)
+		return 0, fmt.Errorf("prepare deltas details: %w", err)
 	}
-	if details.SpecHash == nil || *details.SpecHash == "" {
-		return "", fmt.Errorf("device prepare deltas event requires specHash")
+	if details.Generation == nil || *details.Generation <= 0 {
+		return 0, fmt.Errorf("device prepare deltas event requires a positive generation")
 	}
-	return *details.SpecHash, nil
+	return *details.Generation, nil
 }
 
 func (r *Resolver) candidatesForDevice(ctx context.Context, orgId uuid.UUID, device *domain.Device, tv *domain.TemplateVersion) ([]DeltaCandidate, error) {

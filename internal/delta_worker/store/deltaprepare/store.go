@@ -211,7 +211,14 @@ func (s *PrepareStore) createOrReplaceWaitingDeltaPrepare(ctx context.Context, p
 }
 
 func samePrepareIdentity(a, b *model.DeltaPrepare) bool {
-	return equalStringPtr(a.TemplateVersion, b.TemplateVersion) && equalStringPtr(a.SpecHash, b.SpecHash)
+	return equalStringPtr(a.TemplateVersion, b.TemplateVersion) && equalInt64Ptr(a.Generation, b.Generation)
+}
+
+func equalInt64Ptr(a, b *int64) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }
 
 func equalStringPtr(a, b *string) bool {
@@ -297,7 +304,7 @@ func (s *PrepareStore) UpdateDeltaPrepare(ctx context.Context, expectedResourceV
 		"kind":                      prepare.Kind,
 		"name":                      prepare.Name,
 		"template_version":          prepare.TemplateVersion,
-		"spec_hash":                 prepare.SpecHash,
+		"generation":                prepare.Generation,
 		"source_resource_version":   prepare.SourceResourceVersion,
 		"deadline":                  prepare.Deadline,
 		"pending_generations_count": prepare.PendingGenerationsCount,

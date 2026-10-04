@@ -280,6 +280,64 @@ var _ = Describe("PrepareDeltas persist", func() {
 		})
 	})
 
+	DescribeTable("When a standalone prepare resumes before rendering", func(renderedHash string, specChanged bool) {
+		const deviceName = "standalone-generation"
+		device := &domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr(deviceName)},
+			Spec:     &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "quay.io/acme/os:v1"}},
+		}
+		if renderedHash != "" {
+			device.Metadata.Annotations = lo.ToPtr(map[string]string{domain.DeviceAnnotationRenderedSpecHash: renderedHash})
+		}
+		device, err := devices.Create(ctx, orgId, device, nil)
+		Expect(err).NotTo(HaveOccurred())
+		prep := &model.DeltaPrepare{
+			OrgID: orgId, Kind: domain.DeviceKind, Name: deviceName,
+			Generation: device.Metadata.Generation, SourceResourceVersion: 1,
+		}
+		status := workerservice.NewStorePreparingStatus(fleets, devices)
+		identity := workerservice.ResumeIdentityForPrepare(prep)
+		Expect(status.SetPreparing(ctx, prep, 0, 1)).To(Succeed())
+		_, _, _, err = devices.Mutate(ctx, orgId, deviceName, nil, func(m *devicestore.DeviceMutation) error {
+			m.Device.Metadata.Labels = lo.ToPtr(map[string]string{"updated": "true"})
+			if specChanged {
+				m.Device.Spec.Os.Image = "quay.io/acme/os:v2"
+			}
+			return nil
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(status.SetIfCurrent(ctx, orgId, domain.DeviceKind, deviceName, identity, 1, 1)).To(Succeed())
+		current, err := devices.Get(ctx, orgId, deviceName)
+		Expect(err).NotTo(HaveOccurred())
+		if specChanged {
+			Expect(*current.Metadata.Generation).To(Equal(int64(2)))
+			Expect(current.Status.DeltaGeneration.Completed).To(Equal(int64(0)))
+		} else {
+			Expect(*current.Metadata.Generation).To(Equal(int64(1)))
+			Expect(current.Status.DeltaGeneration.Completed).To(Equal(int64(1)))
+		}
+		result, err := status.ResumeIfCurrent(ctx, orgId, domain.DeviceKind, deviceName, identity)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(result.Matched).To(Equal(!specChanged))
+		current, err = devices.Get(ctx, orgId, deviceName)
+		Expect(err).NotTo(HaveOccurred())
+		if specChanged {
+			Expect(current.Status.DeltaGeneration).NotTo(BeNil())
+			Expect(domain.FindStatusCondition(current.Status.Conditions, domain.ConditionTypeDeviceDeltaPreparing)).NotTo(BeNil())
+		} else {
+			Expect(current.Status.DeltaGeneration).To(BeNil())
+			Expect(domain.FindStatusCondition(current.Status.Conditions, domain.ConditionTypeDeviceDeltaPreparing)).To(BeNil())
+			result, err = status.ResumeIfCurrent(ctx, orgId, domain.DeviceKind, deviceName, identity)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(result.Matched).To(BeFalse())
+		}
+	},
+		Entry("it should resume a matching generation without a rendered hash", "", false),
+		Entry("it should resume after metadata and progress updates", "previous-rendered-hash", false),
+		Entry("it should ignore a superseded generation without a rendered hash", "", true),
+		Entry("it should ignore a superseded generation with an unchanged rendered hash", "previous-rendered-hash", true),
+	)
+
 	When("a Fleet spec changes before its skipped prepare sets status", func() {
 		It("should reject the stale marker and completion atomically", func() {
 			const fleetName = "fleet-stale-skip"

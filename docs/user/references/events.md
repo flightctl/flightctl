@@ -105,6 +105,20 @@ When [auto-sync](../using/auto-syncing-dependencies.md) is active, Flight Contro
 * `resourceKey` — the dependency that failed
 * `errorMessage` — sanitized error description (credentials redacted)
 
+### Delta preparation events
+
+`PrepareDeltas` and `DeltaGenerationProgress` events identify the desired update in their `details`:
+
+| Resource | Detail field | Meaning |
+|----------|--------------|---------|
+| Fleet | `templateVersion` | The fleet template version being prepared. |
+| Standalone device | `generation` | The device's `metadata.generation` when preparation started. |
+
+For standalone devices, generation identifies the desired spec even while rendering is delayed.
+A newer spec generation supersedes preparation for an older generation.
+Status and annotation updates do not change the spec generation.
+`PrepareDeltas` also carries `resourceVersion` to order prepare events.
+
 ### Encryption Events
 
 | Event Reason | Type | Description |

@@ -14,12 +14,13 @@ import (
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/google/uuid"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 )
 
 type completionStatusStore struct{}
 
-func (completionStatusStore) ResumeDeltaIfCurrent(context.Context, uuid.UUID, string, string) (bool, error) {
+func (completionStatusStore) ResumeDeltaIfCurrent(context.Context, uuid.UUID, string, int64) (bool, error) {
 	return true, nil
 }
 
@@ -30,6 +31,7 @@ func (completionStatusStore) Mutate(_ context.Context, _ uuid.UUID, _ string, _ 
 	device := &domain.Device{
 		Metadata: domain.ObjectMeta{
 			ResourceVersion: &resourceVersion,
+			Generation:      lo.ToPtr(int64(1)),
 			Annotations:     &map[string]string{domain.DeviceAnnotationRenderedSpecHash: "spec-1"},
 		},
 		Status: &domain.DeviceStatus{
@@ -113,7 +115,7 @@ type progressStatusStore struct {
 	total     int64
 }
 
-func (s *progressStatusStore) ResumeDeltaIfCurrent(context.Context, uuid.UUID, string, string) (bool, error) {
+func (s *progressStatusStore) ResumeDeltaIfCurrent(context.Context, uuid.UUID, string, int64) (bool, error) {
 	return false, nil
 }
 
@@ -124,6 +126,7 @@ func (s *progressStatusStore) Mutate(_ context.Context, _ uuid.UUID, _ string, _
 	device := &domain.Device{
 		Metadata: domain.ObjectMeta{
 			ResourceVersion: &resourceVersion,
+			Generation:      lo.ToPtr(int64(1)),
 			Annotations:     &map[string]string{domain.DeviceAnnotationRenderedSpecHash: "spec-1"},
 		},
 		Status: &domain.DeviceStatus{
@@ -195,14 +198,14 @@ func TestNewHandlerRequiresDependencies(t *testing.T) {
 
 func TestHandlerHandleUpdatesProgressForIncompletePrepare(t *testing.T) {
 	orgID := uuid.New()
-	specHash := "spec-1"
+	deviceGeneration := int64(1)
 	prepare := model.DeltaPrepare{
-		ID:       uuid.New(),
-		OrgID:    orgID,
-		Kind:     domain.DeviceKind,
-		Name:     "device-1",
-		SpecHash: &specHash,
-		Status:   model.DeltaPrepareWaiting,
+		ID:         uuid.New(),
+		OrgID:      orgID,
+		Kind:       domain.DeviceKind,
+		Name:       "device-1",
+		Generation: &deviceGeneration,
+		Status:     model.DeltaPrepareWaiting,
 	}
 	generation := &model.DeltaGeneration{
 		OrgID:           orgID,
@@ -229,14 +232,14 @@ func TestHandlerHandleUpdatesProgressForIncompletePrepare(t *testing.T) {
 
 func TestHandlerHandleEmitsTerminalProgressForClaimedPrepare(t *testing.T) {
 	orgID := uuid.New()
-	specHash := "spec-1"
+	deviceGeneration := int64(1)
 	prepare := model.DeltaPrepare{
-		ID:       uuid.New(),
-		OrgID:    orgID,
-		Kind:     domain.DeviceKind,
-		Name:     "device-1",
-		SpecHash: &specHash,
-		Status:   model.DeltaPrepareWaiting,
+		ID:         uuid.New(),
+		OrgID:      orgID,
+		Kind:       domain.DeviceKind,
+		Name:       "device-1",
+		Generation: &deviceGeneration,
+		Status:     model.DeltaPrepareWaiting,
 	}
 	generation := &model.DeltaGeneration{
 		OrgID:           orgID,
@@ -257,4 +260,7 @@ func TestHandlerHandleEmitsTerminalProgressForClaimedPrepare(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, events.created, 1)
 	require.Equal(t, domain.EventReasonDeltaGenerationProgress, events.created[0].Reason)
+	details, err := events.created[0].Details.AsDeltaGenerationProgressDetails()
+	require.NoError(t, err)
+	require.Equal(t, &deviceGeneration, details.Generation)
 }

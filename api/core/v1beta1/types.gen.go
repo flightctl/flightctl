@@ -1279,6 +1279,9 @@ type DeltaGenerationProgressDetails struct {
 	// DetailType The type of detail for discriminator purposes.
 	DetailType DeltaGenerationProgressDetailsDetailType `json:"detailType"`
 
+	// Generation Device only. The desired spec generation this prepare is for.
+	Generation *int64 `json:"generation,omitempty"`
+
 	// GenerationStatus Generation row status for this pair.
 	GenerationStatus DeltaGenerationProgressDetailsGenerationStatus `json:"generationStatus"`
 
@@ -1290,9 +1293,6 @@ type DeltaGenerationProgressDetails struct {
 
 	// SourceDigest Current image digest.
 	SourceDigest string `json:"sourceDigest"`
-
-	// SpecHash Device only. The rendered spec hash this prepare is for.
-	SpecHash *string `json:"specHash,omitempty"`
 
 	// TargetDigest Target image digest.
 	TargetDigest string `json:"targetDigest"`
@@ -3280,11 +3280,11 @@ type PrepareDeltasDetails struct {
 	// DetailType The type of detail for discriminator purposes.
 	DetailType PrepareDeltasDetailsDetailType `json:"detailType"`
 
+	// Generation Device only. The desired spec generation this prepare is for. Required when involvedObject.kind is Device; omitted for Fleet.
+	Generation *int64 `json:"generation,omitempty"`
+
 	// ResourceVersion The resource version of the involved Fleet or Device when this prepare event was created. Used to ignore stale prepare events. May be omitted for retained events created before this field was introduced.
 	ResourceVersion *string `json:"resourceVersion,omitempty"`
-
-	// SpecHash Device only. The rendered spec hash this prepare is for. Required when involvedObject.kind is Device; omitted for Fleet.
-	SpecHash *string `json:"specHash,omitempty"`
 
 	// TemplateVersion Fleet only. The TemplateVersion this prepare is for. Required when involvedObject.kind is Fleet; omitted for Device.
 	TemplateVersion *string `json:"templateVersion,omitempty"`
