@@ -3545,7 +3545,7 @@ type RolloutPolicy struct {
 	// DefaultUpdateTimeout The maximum duration allowed for the action to complete. The duration should be specified as a positive integer followed by a time unit. Supported time units are: `s` for seconds, `m` for minutes, `h` for hours.
 	DefaultUpdateTimeout *Duration `json:"defaultUpdateTimeout,omitempty"`
 
-	// DeltaGeneration Controls OS delta generation for this fleet rollout.
+	// DeltaGeneration Controls control-plane delta generation for OS and application image pairs in this fleet rollout.
 	DeltaGeneration *RolloutPolicyDeltaGeneration `json:"deltaGeneration,omitempty"`
 
 	// DeviceSelection Describes how to select devices for rollout.
@@ -3558,12 +3558,12 @@ type RolloutPolicy struct {
 	SuccessThreshold *Percentage `json:"successThreshold,omitempty"`
 }
 
-// RolloutPolicyDeltaGeneration Controls OS delta generation for this fleet rollout.
+// RolloutPolicyDeltaGeneration Controls control-plane delta generation for OS and application image pairs in this fleet rollout.
 type RolloutPolicyDeltaGeneration struct {
 	// DeltaGenerationTimeout Context deadline for each generation job. Omitted uses DeltaGeneration.timeout.
 	DeltaGenerationTimeout *Duration `json:"deltaGenerationTimeout,omitempty"`
 
-	// GenerateDelta When false, skip control-plane OS delta generation for this fleet. Omitted means true.
+	// GenerateDelta When false, skip control-plane generation of OS and application image deltas for this fleet. Omitted means true.
 	GenerateDelta *bool `json:"generateDelta,omitempty"`
 
 	// MaxWaitForDelta How long a prepare may wait before periodic resume. Omitted uses DeltaGeneration.maxWaitForDelta. Ignored when generateDelta is false. 0s still generates then resumes immediately.

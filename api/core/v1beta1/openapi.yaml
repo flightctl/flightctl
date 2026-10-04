@@ -8461,11 +8461,11 @@ components:
 
     RolloutPolicyDeltaGeneration:
       type: object
-      description: Controls OS delta generation for this fleet rollout.
+      description: Controls control-plane delta generation for OS and application image pairs in this fleet rollout.
       properties:
         generateDelta:
           type: boolean
-          description: When false, skip control-plane OS delta generation for this fleet. Omitted means true.
+          description: When false, skip control-plane generation of OS and application image deltas for this fleet. Omitted means true.
         maxWaitForDelta:
           allOf:
             - $ref: '#/components/schemas/Duration'

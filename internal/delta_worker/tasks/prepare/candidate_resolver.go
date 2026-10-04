@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/containers/image/v5/docker/reference"
+	bootcutil "github.com/flightctl/flightctl/internal/bootc"
 	deltaconfig "github.com/flightctl/flightctl/internal/delta_worker/config"
 	generateTask "github.com/flightctl/flightctl/internal/delta_worker/tasks/generate"
 	"github.com/flightctl/flightctl/internal/domain"
@@ -314,6 +315,12 @@ func (r *Resolver) desiredSpec(device *domain.Device, tv *domain.TemplateVersion
 }
 
 func (r *Resolver) osCandidate(ctx context.Context, orgId uuid.UUID, device *domain.Device, rendered tasks.RenderedSpec) (DeltaCandidate, bool, error) {
+	// DeltaEligible also selects devices for application deltas, so require the
+	// bootc staging feature only when generating an OS candidate.
+	if device.Status.SystemInfo.BootcVersion == nil || !bootcutil.SupportsDownloadOnlySwitch(*device.Status.SystemInfo.BootcVersion) {
+		return DeltaCandidate{}, false, nil
+	}
+
 	current := currentDigest(device)
 	if current == "" || rendered.OsImage == "" {
 		return DeltaCandidate{}, false, nil

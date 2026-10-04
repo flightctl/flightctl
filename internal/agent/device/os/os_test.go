@@ -261,7 +261,7 @@ func TestCollectOCITargets(t *testing.T) {
 	}{
 		{
 			name:    "When there is no OS spec it should return an empty collection",
-			caps:    Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.15.0"},
+			caps:    Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.16.10"},
 			desired: &v1beta1.DeviceSpec{},
 			setup: func(_ *testing.T, _ *executer.MockExecuter, _ *MockClient, _ *dependency.MockPullConfigResolver) {
 			},
@@ -269,7 +269,7 @@ func TestCollectOCITargets(t *testing.T) {
 		},
 		{
 			name:    "When the desired image is already booted it should return an empty collection",
-			caps:    Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.15.0"},
+			caps:    Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.16.10"},
 			desired: desiredSpec(testDesiredImage, nil),
 			setup: func(_ *testing.T, _ *executer.MockExecuter, mockClient *MockClient, _ *dependency.MockPullConfigResolver) {
 				mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testDesiredImage, testSourceDigest), nil)
@@ -278,7 +278,7 @@ func TestCollectOCITargets(t *testing.T) {
 		},
 		{
 			name:    "When the desired image already exists it should return an empty collection",
-			caps:    Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.15.0"},
+			caps:    Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.16.10"},
 			desired: desiredSpec(testDesiredImage, nil),
 			setup: func(_ *testing.T, mockExec *executer.MockExecuter, mockClient *MockClient, _ *dependency.MockPullConfigResolver) {
 				mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil)
@@ -288,7 +288,7 @@ func TestCollectOCITargets(t *testing.T) {
 		},
 		{
 			name:        "When a delta is already staged for the desired image it should skip collection",
-			caps:        Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.15.0"},
+			caps:        Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.16.10"},
 			desired:     desiredSpec(testDesiredImage, nil),
 			stagedDelta: testDesiredImage,
 			setup: func(_ *testing.T, _ *executer.MockExecuter, _ *MockClient, _ *dependency.MockPullConfigResolver) {
@@ -323,8 +323,20 @@ func TestCollectOCITargets(t *testing.T) {
 			wantAttempted: testDesiredImage,
 		},
 		{
+			name:    "When bootc does not support download-only switch it should emit a full-image target without Referrers",
+			caps:    Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.16.9"},
+			desired: desiredSpec(testDesiredImage, lo.ToPtr(testHintedDelta)),
+			setup: func(t *testing.T, mockExec *executer.MockExecuter, mockClient *MockClient, mockResolver *dependency.MockPullConfigResolver) {
+				mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil)
+				expectImageExists(mockExec, testDesiredImage, false)
+				expectPullConfig(t, mockResolver)
+			},
+			wantRefs:      []string{testDesiredImage},
+			wantAttempted: testDesiredImage,
+		},
+		{
 			name:    "When hint is set it should pull and apply the hint without Referrers",
-			caps:    Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.15.0"},
+			caps:    Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.16.10"},
 			desired: desiredSpec(testDesiredImage, lo.ToPtr(testHintedDelta)),
 			setup: func(t *testing.T, mockExec *executer.MockExecuter, mockClient *MockClient, mockResolver *dependency.MockPullConfigResolver) {
 				mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil)
@@ -338,7 +350,7 @@ func TestCollectOCITargets(t *testing.T) {
 		},
 		{
 			name:           "When a later delta attempt for the same image succeeds it should clear a previous fallback reason",
-			caps:           Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.15.0"},
+			caps:           Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.16.10"},
 			desired:        desiredSpec(testDesiredImage, lo.ToPtr(testHintedDelta)),
 			fallbackReason: lo.ToPtr(fallbackReasonPull),
 			lastAttempted:  testDesiredImage,
@@ -354,7 +366,7 @@ func TestCollectOCITargets(t *testing.T) {
 		},
 		{
 			name:    "When no hint and a matching referrer exists it should pull that digest",
-			caps:    Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.15.0"},
+			caps:    Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.16.10"},
 			desired: desiredSpec(testDesiredImage, nil),
 			setup: func(t *testing.T, mockExec *executer.MockExecuter, mockClient *MockClient, mockResolver *dependency.MockPullConfigResolver) {
 				mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil)
@@ -369,7 +381,7 @@ func TestCollectOCITargets(t *testing.T) {
 		},
 		{
 			name:    "When no matching referrer exists it should full pull and leave the fallback reason unset",
-			caps:    Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.15.0"},
+			caps:    Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.16.10"},
 			desired: desiredSpec(testDesiredImage, nil),
 			setup: func(t *testing.T, mockExec *executer.MockExecuter, mockClient *MockClient, mockResolver *dependency.MockPullConfigResolver) {
 				mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil)
@@ -382,7 +394,7 @@ func TestCollectOCITargets(t *testing.T) {
 		},
 		{
 			name:    "When Referrers lookup fails it should full pull and leave the fallback reason unset",
-			caps:    Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.15.0"},
+			caps:    Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.16.10"},
 			desired: desiredSpec(testDesiredImage, nil),
 			setup: func(t *testing.T, mockExec *executer.MockExecuter, mockClient *MockClient, mockResolver *dependency.MockPullConfigResolver) {
 				mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil)
@@ -395,7 +407,7 @@ func TestCollectOCITargets(t *testing.T) {
 		},
 		{
 			name:    "When Copy of the delta artifact fails it should set delta pull failed and emit a full-image target",
-			caps:    Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.15.0"},
+			caps:    Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.16.10"},
 			desired: desiredSpec(testDesiredImage, lo.ToPtr(testHintedDelta)),
 			setup: func(t *testing.T, mockExec *executer.MockExecuter, mockClient *MockClient, mockResolver *dependency.MockPullConfigResolver) {
 				mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil)
@@ -410,7 +422,7 @@ func TestCollectOCITargets(t *testing.T) {
 		},
 		{
 			name:    "When apply fails it should set delta apply failed and emit a full-image target",
-			caps:    Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.15.0"},
+			caps:    Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.16.10"},
 			desired: desiredSpec(testDesiredImage, lo.ToPtr(testHintedDelta)),
 			setup: func(t *testing.T, mockExec *executer.MockExecuter, mockClient *MockClient, mockResolver *dependency.MockPullConfigResolver) {
 				mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil)
@@ -426,7 +438,7 @@ func TestCollectOCITargets(t *testing.T) {
 		},
 		{
 			name:    "When bootc switch from the reconstructed OCI layout fails it should treat it as apply failure and emit a full-image target",
-			caps:    Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.15.0"},
+			caps:    Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.16.10"},
 			desired: desiredSpec(testDesiredImage, lo.ToPtr(testHintedDelta)),
 			setup: func(t *testing.T, mockExec *executer.MockExecuter, mockClient *MockClient, mockResolver *dependency.MockPullConfigResolver) {
 				mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil)
@@ -444,7 +456,7 @@ func TestCollectOCITargets(t *testing.T) {
 		},
 		{
 			name:    "When the registry switch after OCI stage fails it should treat it as apply failure and emit a full-image target",
-			caps:    Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.15.0"},
+			caps:    Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.16.10"},
 			desired: desiredSpec(testDesiredImage, lo.ToPtr(testHintedDelta)),
 			setup: func(t *testing.T, mockExec *executer.MockExecuter, mockClient *MockClient, mockResolver *dependency.MockPullConfigResolver) {
 				mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil)
@@ -463,7 +475,7 @@ func TestCollectOCITargets(t *testing.T) {
 		},
 		{
 			name:           "When the desired image changes it should clear a previous fallback reason before a no-candidate path",
-			caps:           Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.15.0"},
+			caps:           Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.16.10"},
 			desired:        desiredSpec(testDesiredImage, nil),
 			fallbackReason: lo.ToPtr(fallbackReasonApply),
 			lastAttempted:  testBootedImage,

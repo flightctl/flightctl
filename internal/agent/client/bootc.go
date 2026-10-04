@@ -58,14 +58,17 @@ func (b *bootc) Switch(ctx context.Context, image string) error {
 	if err != nil {
 		return err
 	}
-	return b.runSwitch(ctx, "containers-storage", target, true)
+	return b.runSwitch(ctx, "containers-storage", target, true, false)
 }
 
+// SwitchOCI stages a reconstructed OCI layout in download-only mode. A
+// successful registry switch replaces it with the pinned target deployment;
+// a failed registry switch leaves the delta stage unapplied on reboot.
 func (b *bootc) SwitchOCI(ctx context.Context, layoutDir string) error {
 	if layoutDir == "" {
 		return fmt.Errorf("empty oci layout path")
 	}
-	return b.runSwitch(ctx, "oci", layoutDir, true)
+	return b.runSwitch(ctx, "oci", layoutDir, true, true)
 }
 
 func (b *bootc) SwitchRegistry(ctx context.Context, image string) error {
@@ -76,13 +79,16 @@ func (b *bootc) SwitchRegistry(ctx context.Context, image string) error {
 	if err != nil {
 		return fmt.Errorf("convert registry image target: %w", err)
 	}
-	return b.runSwitch(ctx, "registry", target, true)
+	return b.runSwitch(ctx, "registry", target, true, false)
 }
 
-func (b *bootc) runSwitch(ctx context.Context, transport, target string, retain bool) error {
+func (b *bootc) runSwitch(ctx context.Context, transport, target string, retain, downloadOnly bool) error {
 	done := make(chan error, 1)
 	go func() {
 		args := []string{"switch", "--transport", transport}
+		if downloadOnly {
+			args = append(args, "--download-only")
+		}
 		if retain {
 			args = append(args, "--retain")
 		}

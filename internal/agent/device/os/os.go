@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
+	bootcutil "github.com/flightctl/flightctl/internal/bootc"
 	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/pkg/log"
 )
@@ -37,7 +38,8 @@ type Client interface {
 	Status(ctx context.Context) (*Status, error)
 	// Switch prepares the system to switch to the specified OS image
 	Switch(ctx context.Context, image string) error
-	// SwitchOCI stages a reconstructed OCI layout directory for the next boot.
+	// SwitchOCI stages a reconstructed OCI layout in bootc download-only mode so
+	// it cannot be applied on reboot before the registry reference is pinned.
 	SwitchOCI(ctx context.Context, layoutDir string) error
 	// SwitchRegistry stages the registry image so bootc records the spec name.
 	SwitchRegistry(ctx context.Context, image string) error
@@ -165,10 +167,7 @@ func ApplyDeltaSystemInfo(info *v1beta1.DeviceSystemInfo, caps Capabilities) {
 }
 
 func (m *manager) canApplyOSDelta() bool {
-	if !m.caps.DeltaEligible {
-		return false
-	}
-	return m.caps.BootcVersion != ""
+	return m.caps.DeltaEligible && bootcutil.SupportsDownloadOnlySwitch(m.caps.BootcVersion)
 }
 
 func (m *manager) BeforeUpdate(ctx context.Context, current, desired *v1beta1.DeviceSpec) error {

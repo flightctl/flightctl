@@ -108,10 +108,11 @@ type bootc struct {
 
 func (b *bootc) Capabilities(ctx context.Context) Capabilities {
 	ociVer, eligible := collectOCIDelta(ctx, b.lookPath, b.ociDeltaVersion)
+	bootcVersion := collectBootcVersion(ctx, b.lookPath, b.bootcVersion)
 	return Capabilities{
 		OsMode:          v1beta1.OsModeImage,
 		DeltaEligible:   eligible,
-		BootcVersion:    collectBootcVersion(ctx, b.lookPath, b.bootcVersion),
+		BootcVersion:    bootcVersion,
 		OCIDeltaVersion: ociVer,
 	}
 }
