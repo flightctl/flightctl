@@ -1669,3 +1669,48 @@ func TestDeviceRender_ExplicitCancelPropagates(t *testing.T) {
 		t.Fatal("deviceRender did not terminate promptly after explicit parent cancellation")
 	}
 }
+
+func TestRenderDevice_DeltaCompletionGeneration(t *testing.T) {
+	for _, tt := range []struct {
+		name              string
+		currentGeneration *int64
+		eventGeneration   string
+		wantRender        bool
+	}{
+		{name: "When a newer generation is preparing it should drop the old completion", currentGeneration: lo.ToPtr(int64(8)), eventGeneration: "7"},
+		{name: "When the completion matches it should render the current generation", currentGeneration: lo.ToPtr(int64(7)), eventGeneration: "7", wantRender: true},
+		{name: "When the completion has no generation it should not resume rendering", currentGeneration: lo.ToPtr(int64(7))},
+		{name: "When the completion generation is invalid it should not resume rendering", currentGeneration: lo.ToPtr(int64(7)), eventGeneration: "invalid"},
+		{name: "When the device has no generation it should not resume rendering", eventGeneration: "7"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			const name = "delta-device"
+			const image = "quay.io/org/os:v2"
+			orgID := uuid.New()
+			ctrl := gomock.NewController(t)
+			device := &domain.Device{
+				Metadata: domain.ObjectMeta{Name: lo.ToPtr(name), Generation: tt.currentGeneration},
+				Spec:     &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: image}},
+				Status:   &domain.DeviceStatus{},
+			}
+			if !tt.wantRender {
+				domain.SetStatusCondition(&device.Status.Conditions, domain.Condition{Type: domain.ConditionTypeDeviceDeltaPreparing, Status: domain.ConditionStatusTrue})
+			}
+			devices := deviceservice.NewMockService(ctrl)
+			devices.EXPECT().GetDevice(gomock.Any(), orgID, name).Return(device, statusOK)
+			if tt.wantRender {
+				devices.EXPECT().OverwriteDeviceRepositoryRefs(gomock.Any(), orgID, name).Return(statusOK)
+				devices.EXPECT().UpdateRenderedDevice(gomock.Any(), orgID, name, gomock.Any(), gomock.Any(), gomock.Any(), image, gomock.Any(), gomock.Any(), gomock.Any()).Return(statusOK)
+			}
+			event := createTestEvent(domain.DeviceKind, domain.EventReasonDeltaGenerationCompleted, name)
+			if tt.eventGeneration != "" {
+				event.Metadata.Annotations = &map[string]string{domain.EventAnnotationDeltaGeneration: tt.eventGeneration}
+			}
+			logic := NewDeviceRenderLogic(logrus.New(), devices, nil, nil, nil, newTestKVStore(), &config.Config{})
+			require.NoError(t, logic.RenderDevice(context.Background(), orgID, event))
+			if !tt.wantRender {
+				require.True(t, domain.IsStatusConditionTrue(device.Status.Conditions, domain.ConditionTypeDeviceDeltaPreparing))
+			}
+		})
+	}
+}

@@ -201,6 +201,8 @@ func TestDeltaPrepareDeadlinePoll(t *testing.T) {
 		assert.Equal(t, model.DeltaPrepareFailed, store.waiting[0].Status)
 		require.Len(t, rec.events, 1)
 		assert.Equal(t, domain.EventReasonDeltaGenerationCompleted, rec.events[0].Reason)
+		require.NotNil(t, rec.events[0].Metadata.Annotations)
+		assert.Equal(t, "7", (*rec.events[0].Metadata.Annotations)[domain.EventAnnotationDeltaGeneration])
 	})
 
 	t.Run("When a device prepare has a stale generation it should not emit completion", func(t *testing.T) {

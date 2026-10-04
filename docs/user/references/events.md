@@ -119,6 +119,9 @@ A newer spec generation supersedes preparation for an older generation.
 Status and annotation updates do not change the spec generation.
 `PrepareDeltas` also carries `resourceVersion` to order prepare events.
 
+For standalone devices, `DeltaGenerationCompleted` resumes rendering only for the prepared spec generation.
+A delayed completion for an older generation does not resume rendering of a newer spec.
+
 ### Encryption Events
 
 | Event Reason | Type | Description |

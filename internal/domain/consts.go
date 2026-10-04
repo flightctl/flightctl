@@ -91,6 +91,8 @@ const (
 	EventListKind                    = v1beta1.EventListKind
 	EventAnnotationRequestID         = v1beta1.EventAnnotationRequestID
 	EventAnnotationDelayDeviceRender = v1beta1.EventAnnotationDelayDeviceRender
+	// EventAnnotationDeltaGeneration ties a device render notification to its prepared spec.
+	EventAnnotationDeltaGeneration = "flightctl.io/delta-generation"
 )
 
 // ========== Repository ==========

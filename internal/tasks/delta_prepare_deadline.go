@@ -199,7 +199,7 @@ func (t *DeltaPrepareDeadline) emitResume(ctx context.Context, prep *model.Delta
 	case domain.FleetKind:
 		return t.emitFleetResume(ctx, prep)
 	case domain.DeviceKind:
-		t.eventSvc.CreateEvent(ctx, prep.OrgID, domain.GetBaseEvent(ctx, domain.DeviceKind, prep.Name, domain.EventReasonDeltaGenerationCompleted, "Delta generation completed.", nil))
+		t.eventSvc.CreateEvent(ctx, prep.OrgID, domain.GetDeviceDeltaGenerationCompletedEvent(ctx, prep.Name, *prep.Generation))
 		return nil
 	default:
 		return fmt.Errorf("unsupported prepare kind %q", prep.Kind)
