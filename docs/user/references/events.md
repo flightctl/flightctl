@@ -118,8 +118,6 @@ For standalone devices, generation identifies the desired spec even while render
 A newer spec generation supersedes preparation for an older generation.
 Status and annotation updates do not change the spec generation.
 `PrepareDeltas` also carries `resourceVersion` to order prepare events.
-For standalone devices, it carries `deviceCreationTimestamp`, matching `metadata.creationTimestamp`, to distinguish re-enrollment under the same name.
-Preparation from an earlier enrollment cannot change the replacement device's status or resume its rendering.
 
 ### Encryption Events
 

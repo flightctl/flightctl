@@ -281,7 +281,7 @@ var _ = Describe("PrepareDeltas persist", func() {
 		})
 	})
 
-	DescribeTable("When a device changes as its deadline is processed it should preserve current preparation", func(reenrolled bool) {
+	It("should preserve current preparation when a newer spec starts as the deadline is processed", func() {
 		const name = "deadline-device"
 		device, err := devices.Create(ctx, orgId, &domain.Device{
 			Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
@@ -289,7 +289,7 @@ var _ = Describe("PrepareDeltas persist", func() {
 		}, nil)
 		Expect(err).NotTo(HaveOccurred())
 		old := &model.DeltaPrepare{OrgID: orgId, Kind: domain.DeviceKind, Name: name,
-			Generation: device.Metadata.Generation, DeviceCreationTimestamp: device.Metadata.CreationTimestamp,
+			Generation:            device.Metadata.Generation,
 			SourceResourceVersion: 1, Deadline: lo.ToPtr(time.Now().Add(-time.Hour))}
 		Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, old)).To(Succeed())
 		status := workerservice.NewStorePreparingStatus(fleets, devices)
@@ -298,29 +298,18 @@ var _ = Describe("PrepareDeltas persist", func() {
 		deviceSvc := deviceservice.NewMockService(ctrl)
 		eventSvc := eventservice.NewMockService(ctrl)
 		var current model.DeltaPrepare
-		deviceSvc.EXPECT().ClearDeltaPreparingIfCurrent(gomock.Any(), orgId, name, *old.Generation, gomock.Any()).
-			DoAndReturn(func(callCtx context.Context, callOrg uuid.UUID, callName string, generation int64, timestamp time.Time) (bool, domain.Status) {
-				Expect(timestamp.Equal(*old.DeviceCreationTimestamp)).To(BeTrue())
-				var replacement *domain.Device
-				if reenrolled {
-					_, err := devices.Delete(callCtx, orgId, name, nil)
-					Expect(err).NotTo(HaveOccurred())
-					replacement, err = devices.Create(callCtx, orgId, &domain.Device{Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)}, Spec: &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "quay.io/acme/os:v2"}}}, nil)
-					Expect(err).NotTo(HaveOccurred())
-				} else {
-					var err error
-					replacement, _, _, err = devices.Mutate(callCtx, orgId, name, nil, func(m *devicestore.DeviceMutation) error {
-						m.Device.Spec.Os.Image = "quay.io/acme/os:v2"
-						return nil
-					})
-					Expect(err).NotTo(HaveOccurred())
-				}
+		deviceSvc.EXPECT().ClearDeltaPreparingIfCurrent(gomock.Any(), orgId, name, *old.Generation).
+			DoAndReturn(func(callCtx context.Context, callOrg uuid.UUID, callName string, generation int64) (bool, domain.Status) {
+				replacement, _, _, err := devices.Mutate(callCtx, orgId, name, nil, func(m *devicestore.DeviceMutation) error {
+					m.Device.Spec.Os.Image = "quay.io/acme/os:v2"
+					return nil
+				})
+				Expect(err).NotTo(HaveOccurred())
 				current = *old
 				current.Generation = replacement.Metadata.Generation
-				current.DeviceCreationTimestamp = replacement.Metadata.CreationTimestamp
 				Expect(status.SetPreparing(callCtx, &current, 0, 1)).To(Succeed())
 				realService := deviceservice.NewDeviceServiceHandler(devices, nil, fleets, nil, nil, "", log)
-				return realService.ClearDeltaPreparingIfCurrent(callCtx, callOrg, callName, generation, timestamp)
+				return realService.ClearDeltaPreparingIfCurrent(callCtx, callOrg, callName, generation)
 			})
 		deadline := tasks.NewDeltaPrepareDeadline(log, deltapreparestore.NewStore(db, log), deltaprepare.NewServiceHandler(deltaPrepareStore, nil), nil, deviceSvc, nil, eventSvc)
 		deadline.Poll(ctx)
@@ -334,10 +323,7 @@ var _ = Describe("PrepareDeltas persist", func() {
 		result, err := status.ResumeIfCurrent(ctx, orgId, domain.DeviceKind, name, workerservice.ResumeIdentityForPrepare(&current))
 		Expect(err).NotTo(HaveOccurred())
 		Expect(result.Matched).To(BeTrue())
-	},
-		Entry("a newer spec starts", false),
-		Entry("the device re-enrolls at the same generation", true),
-	)
+	})
 
 	It("should resume when a deadline retries after its preparing marker was cleared", func() {
 		const name = "retrying-deadline"
@@ -347,7 +333,7 @@ var _ = Describe("PrepareDeltas persist", func() {
 		}, nil)
 		Expect(err).NotTo(HaveOccurred())
 		prepare := &model.DeltaPrepare{OrgID: orgId, Kind: domain.DeviceKind, Name: name,
-			Generation: device.Metadata.Generation, DeviceCreationTimestamp: device.Metadata.CreationTimestamp,
+			Generation:            device.Metadata.Generation,
 			SourceResourceVersion: 1, Status: model.DeltaPrepareFailing, Deadline: lo.ToPtr(time.Now().Add(-time.Hour))}
 		Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, prepare)).To(Succeed())
 		status := workerservice.NewStorePreparingStatus(fleets, devices)
@@ -371,47 +357,6 @@ var _ = Describe("PrepareDeltas persist", func() {
 		deadline.Poll(ctx)
 	})
 
-	It("should preserve a re-enrolled device marker when old preparation completes", func() {
-		const name = "reenrolled-device"
-		device, err := devices.Create(ctx, orgId, &domain.Device{
-			Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
-			Spec:     &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "quay.io/acme/os:v1"}},
-		}, nil)
-		Expect(err).NotTo(HaveOccurred())
-		old := &model.DeltaPrepare{OrgID: orgId, Kind: domain.DeviceKind, Name: name,
-			Generation: device.Metadata.Generation, DeviceCreationTimestamp: device.Metadata.CreationTimestamp, SourceResourceVersion: 100}
-		status := workerservice.NewStorePreparingStatus(fleets, devices)
-		Expect(status.SetPreparing(ctx, old, 0, 1)).To(Succeed())
-		deleted, err := devices.Delete(ctx, orgId, name, nil)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(deleted).To(BeTrue())
-		replacement, err := devices.Create(ctx, orgId, &domain.Device{
-			Metadata: domain.ObjectMeta{Name: lo.ToPtr(name)},
-			Spec:     &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "quay.io/acme/os:v2"}},
-		}, nil)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(*replacement.Metadata.Generation).To(Equal(*device.Metadata.Generation))
-		current := *old
-		current.DeviceCreationTimestamp = replacement.Metadata.CreationTimestamp
-		current.SourceResourceVersion = 1
-		Expect(status.SetPreparing(ctx, &current, 0, 1)).To(Succeed())
-		Expect(status.SetIfCurrent(ctx, orgId, domain.DeviceKind, name, workerservice.ResumeIdentityForPrepare(old), 1, 1)).To(Succeed())
-		event, err := deltaprepare.NewPrepareCompletionEvent(old)
-		Expect(err).NotTo(HaveOccurred())
-		parsed, err := deltaprepare.ParsePrepareCompletionEvent(orgId, event.Message)
-		Expect(err).NotTo(HaveOccurred())
-		result, err := status.ResumeIfCurrent(ctx, orgId, domain.DeviceKind, name, workerservice.ResumeIdentityForPrepare(parsed))
-		Expect(err).NotTo(HaveOccurred())
-		Expect(result.Matched).To(BeFalse())
-		observed, err := devices.Get(ctx, orgId, name)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(observed.Status.DeltaGeneration.Completed).To(Equal(int64(0)))
-		Expect(domain.FindStatusCondition(observed.Status.Conditions, domain.ConditionTypeDeviceDeltaPreparing)).NotTo(BeNil())
-		result, err = status.ResumeIfCurrent(ctx, orgId, domain.DeviceKind, name, workerservice.ResumeIdentityForPrepare(&current))
-		Expect(err).NotTo(HaveOccurred())
-		Expect(result.Matched).To(BeTrue())
-	})
-
 	DescribeTable("When a standalone prepare resumes before rendering", func(renderedHash string, specChanged bool) {
 		const deviceName = "standalone-generation"
 		device := &domain.Device{
@@ -425,7 +370,7 @@ var _ = Describe("PrepareDeltas persist", func() {
 		Expect(err).NotTo(HaveOccurred())
 		prep := &model.DeltaPrepare{
 			OrgID: orgId, Kind: domain.DeviceKind, Name: deviceName,
-			Generation: device.Metadata.Generation, DeviceCreationTimestamp: device.Metadata.CreationTimestamp, SourceResourceVersion: 1,
+			Generation: device.Metadata.Generation, SourceResourceVersion: 1,
 		}
 		status := workerservice.NewStorePreparingStatus(fleets, devices)
 		identity := workerservice.ResumeIdentityForPrepare(prep)

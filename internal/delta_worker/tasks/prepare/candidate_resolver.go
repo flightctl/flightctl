@@ -228,16 +228,6 @@ func (r *Resolver) candidatesForDeviceEvent(ctx context.Context, ev worker_clien
 		}
 		return DeltaCandidateResult{Superseded: true}, nil
 	}
-	details, err := ev.Event.Details.AsPrepareDeltasDetails()
-	if err != nil {
-		return DeltaCandidateResult{}, err
-	}
-	if details.DeviceCreationTimestamp == nil || details.DeviceCreationTimestamp.IsZero() {
-		return DeltaCandidateResult{}, fmt.Errorf("device prepare deltas event requires deviceCreationTimestamp")
-	}
-	if device.Metadata.CreationTimestamp == nil || !device.Metadata.CreationTimestamp.Equal(*details.DeviceCreationTimestamp) {
-		return DeltaCandidateResult{Superseded: true}, nil
-	}
 	if !deviceEligible(device) {
 		return DeltaCandidateResult{Skip: true}, nil
 	}

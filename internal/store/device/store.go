@@ -90,8 +90,7 @@ type Store interface {
 	GetLastSeen(ctx context.Context, orgId uuid.UUID, name string) (*time.Time, error)
 
 	// Used internally
-	ResumeDeltaIfCurrent(ctx context.Context, orgID uuid.UUID, name string, generation int64, creationTimestamp time.Time) (bool, error)
-	ClearDeltaPreparingIfCurrent(ctx context.Context, orgID uuid.UUID, name string, generation int64, creationTimestamp time.Time) (bool, error)
+	ClearDeltaPreparingIfCurrent(ctx context.Context, orgID uuid.UUID, name string, generation int64) (bool, error)
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, error)
 	RemoveConflictPausedAnnotation(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, []string, error)
@@ -293,18 +292,18 @@ func NewDeviceStore(db *gorm.DB, log logrus.FieldLogger) *DeviceStore {
 // its desired spec generation still matches the prepare. The preparing condition is
 // part of the predicate so a redelivered completion event cannot claim the
 // same resource twice.
-func (s *DeviceStore) ResumeDeltaIfCurrent(ctx context.Context, orgID uuid.UUID, name string, generation int64, creationTimestamp time.Time) (bool, error) {
-	return s.clearDeltaPreparingIfCurrent(ctx, orgID, name, generation, creationTimestamp, true)
+func (s *DeviceStore) ResumeDeltaIfCurrent(ctx context.Context, orgID uuid.UUID, name string, generation int64) (bool, error) {
+	return s.clearDeltaPreparingIfCurrent(ctx, orgID, name, generation, true)
 }
 
 // ClearDeltaPreparingIfCurrent also matches an already-cleared marker, allowing
 // a deadline retry to recover its resume event after a process failure.
-func (s *DeviceStore) ClearDeltaPreparingIfCurrent(ctx context.Context, orgID uuid.UUID, name string, generation int64, creationTimestamp time.Time) (bool, error) {
-	return s.clearDeltaPreparingIfCurrent(ctx, orgID, name, generation, creationTimestamp, false)
+func (s *DeviceStore) ClearDeltaPreparingIfCurrent(ctx context.Context, orgID uuid.UUID, name string, generation int64) (bool, error) {
+	return s.clearDeltaPreparingIfCurrent(ctx, orgID, name, generation, false)
 }
 
-func (s *DeviceStore) clearDeltaPreparingIfCurrent(ctx context.Context, orgID uuid.UUID, name string, generation int64, creationTimestamp time.Time, requirePreparing bool) (bool, error) {
-	if generation <= 0 || creationTimestamp.IsZero() {
+func (s *DeviceStore) clearDeltaPreparingIfCurrent(ctx context.Context, orgID uuid.UUID, name string, generation int64, requirePreparing bool) (bool, error) {
+	if generation <= 0 {
 		return false, nil
 	}
 	result := s.getDB(ctx).Exec(`
@@ -328,19 +327,17 @@ func (s *DeviceStore) clearDeltaPreparingIfCurrent(ctx context.Context, orgID uu
 		  AND name = @name
 		  AND deleted_at IS NULL
 		  AND generation = @generation
-		  AND created_at = @creation_timestamp
 		  AND (NOT @require_preparing OR EXISTS (
 				SELECT 1
 				FROM jsonb_array_elements(COALESCE(service_conditions->'conditions', '[]'::jsonb)) AS condition_rows(condition_json)
 				WHERE condition_json->>'type' = @condition_type
 		  ))
 	`, map[string]interface{}{
-		"org_id":             orgID,
-		"name":               name,
-		"generation":         generation,
-		"creation_timestamp": creationTimestamp,
-		"require_preparing":  requirePreparing,
-		"condition_type":     string(domain.ConditionTypeDeviceDeltaPreparing),
+		"org_id":            orgID,
+		"name":              name,
+		"generation":        generation,
+		"require_preparing": requirePreparing,
+		"condition_type":    string(domain.ConditionTypeDeviceDeltaPreparing),
 	})
 	if result.Error != nil {
 		return false, store.ErrorFromGormError(result.Error)
@@ -830,9 +827,6 @@ func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, device *domai
 	deviceModel.OrgID = orgId
 	deviceModel.Generation = lo.ToPtr(int64(1))
 	deviceModel.ResourceVersion = lo.ToPtr(int64(1))
-	// Match PostgreSQL timestamp precision so the returned incarnation is the
-	// same value observed by subsequent status mutations.
-	deviceModel.CreatedAt = time.Now().UTC().Truncate(time.Microsecond)
 	if rendered != nil {
 		cfg := rendered.Config
 		if strings.TrimSpace(cfg) == "" {

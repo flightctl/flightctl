@@ -86,12 +86,10 @@ func (f *fakeDeviceStore) Mutate(context.Context, uuid.UUID, string, *domain.Dev
 func (f *fakeDeviceStore) UpdateStatus(context.Context, uuid.UUID, *domain.Device, *domain.Device) (*domain.Device, *domain.Device, error) {
 	panic("not implemented")
 }
-func (f *fakeDeviceStore) ClearDeltaPreparingIfCurrent(context.Context, uuid.UUID, string, int64, time.Time) (bool, error) {
+func (f *fakeDeviceStore) ClearDeltaPreparingIfCurrent(context.Context, uuid.UUID, string, int64) (bool, error) {
 	panic("not implemented")
 }
-func (f *fakeDeviceStore) ResumeDeltaIfCurrent(context.Context, uuid.UUID, string, int64, time.Time) (bool, error) {
-	panic("not implemented")
-}
+
 func (f *fakeDeviceStore) ReplaceServiceOwnedStatus(context.Context, uuid.UUID, *domain.Device) (*domain.Device, *domain.Device, error) {
 	panic("not implemented")
 }

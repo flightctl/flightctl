@@ -80,10 +80,10 @@ func (t *DeltaPrepareDeadline) failExpired(ctx context.Context, prep *model.Delt
 	}
 
 	if prep.Kind == domain.DeviceKind {
-		if prep.Generation == nil || prep.DeviceCreationTimestamp == nil {
+		if prep.Generation == nil {
 			return t.markFailed(ctx, prep)
 		}
-		matched, status := t.deviceSvc.ClearDeltaPreparingIfCurrent(ctx, prep.OrgID, prep.Name, *prep.Generation, *prep.DeviceCreationTimestamp)
+		matched, status := t.deviceSvc.ClearDeltaPreparingIfCurrent(ctx, prep.OrgID, prep.Name, *prep.Generation)
 		if status.Code != http.StatusOK {
 			return fmt.Errorf("clearing device preparing status: %s", status.Message)
 		}

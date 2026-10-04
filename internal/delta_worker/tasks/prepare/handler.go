@@ -34,10 +34,9 @@ type Handler struct {
 }
 
 type prepareIdentity struct {
-	templateVersion         *string
-	generation              *int64
-	deviceCreationTimestamp *time.Time
-	resourceVersion         int64
+	templateVersion *string
+	generation      *int64
+	resourceVersion int64
 }
 
 func NewHandler(
@@ -207,16 +206,15 @@ func (p *Handler) isCurrentPrepare(ctx context.Context, orgID uuid.UUID, kind, n
 func (p *Handler) admitPrepare(ctx context.Context, orgId uuid.UUID, kind, name string, identity prepareIdentity, fleet *domain.Fleet) (*model.DeltaPrepare, error) {
 	now := p.now()
 	prep := &model.DeltaPrepare{
-		ID:                      uuid.New(),
-		OrgID:                   orgId,
-		Kind:                    kind,
-		Name:                    name,
-		TemplateVersion:         identity.templateVersion,
-		Generation:              identity.generation,
-		DeviceCreationTimestamp: identity.deviceCreationTimestamp,
-		SourceResourceVersion:   identity.resourceVersion,
-		CreatedAt:               now,
-		Status:                  model.DeltaPrepareWaiting,
+		ID:                    uuid.New(),
+		OrgID:                 orgId,
+		Kind:                  kind,
+		Name:                  name,
+		TemplateVersion:       identity.templateVersion,
+		Generation:            identity.generation,
+		SourceResourceVersion: identity.resourceVersion,
+		CreatedAt:             now,
+		Status:                model.DeltaPrepareWaiting,
 	}
 	if maxWait := p.maxWait(fleet); maxWait != nil {
 		deadline := now.Add(*maxWait)
@@ -243,20 +241,19 @@ func (p *Handler) finishSkip(ctx context.Context, orgId uuid.UUID, kind, name st
 	}
 	if latest == nil {
 		completion := &model.DeltaPrepare{
-			OrgID:                   orgId,
-			Kind:                    kind,
-			Name:                    name,
-			TemplateVersion:         identity.templateVersion,
-			Generation:              identity.generation,
-			DeviceCreationTimestamp: identity.deviceCreationTimestamp,
-			SourceResourceVersion:   identity.resourceVersion,
+			OrgID:                 orgId,
+			Kind:                  kind,
+			Name:                  name,
+			TemplateVersion:       identity.templateVersion,
+			Generation:            identity.generation,
+			SourceResourceVersion: identity.resourceVersion,
 		}
 		return p.emitPrepareCompletion(ctx, completion, 0, 0)
 	}
-	if latest.CompareSource(identity.deviceCreationTimestamp, identity.resourceVersion) > 0 {
+	if latest.SourceResourceVersion > identity.resourceVersion {
 		return nil
 	}
-	if latest.CompareSource(identity.deviceCreationTimestamp, identity.resourceVersion) == 0 {
+	if latest.SourceResourceVersion == identity.resourceVersion {
 		if !samePrepareIdentity(latest, identity) {
 			return fmt.Errorf("conflicting delta prepares have source resource version %d", identity.resourceVersion)
 		}
@@ -266,17 +263,16 @@ func (p *Handler) finishSkip(ctx context.Context, orgId uuid.UUID, kind, name st
 			return err
 		}
 	}
-	if latest.Status == model.DeltaPrepareComplete && samePrepareIdentity(latest, identity) {
+	if latest.Status == model.DeltaPrepareComplete && latest.SourceResourceVersion == identity.resourceVersion {
 		return p.emitStoredPrepareCompletion(ctx, latest)
 	}
 	completion := &model.DeltaPrepare{
-		OrgID:                   orgId,
-		Kind:                    kind,
-		Name:                    name,
-		TemplateVersion:         identity.templateVersion,
-		Generation:              identity.generation,
-		DeviceCreationTimestamp: identity.deviceCreationTimestamp,
-		SourceResourceVersion:   identity.resourceVersion,
+		OrgID:                 orgId,
+		Kind:                  kind,
+		Name:                  name,
+		TemplateVersion:       identity.templateVersion,
+		Generation:            identity.generation,
+		SourceResourceVersion: identity.resourceVersion,
 	}
 	return p.emitPrepareCompletion(ctx, completion, 0, 0)
 }
@@ -465,17 +461,14 @@ func identityFromEvent(ev worker_client.EventWithOrgId) (prepareIdentity, error)
 		if details.Generation == nil || *details.Generation <= 0 {
 			return prepareIdentity{}, fmt.Errorf("device prepare deltas event requires a positive generation")
 		}
-		if details.DeviceCreationTimestamp == nil || details.DeviceCreationTimestamp.IsZero() {
-			return prepareIdentity{}, fmt.Errorf("device prepare deltas event requires deviceCreationTimestamp")
-		}
-		return prepareIdentity{generation: details.Generation, deviceCreationTimestamp: details.DeviceCreationTimestamp, resourceVersion: resourceVersion}, nil
+		return prepareIdentity{generation: details.Generation, resourceVersion: resourceVersion}, nil
 	default:
 		return prepareIdentity{}, fmt.Errorf("unsupported involved object kind %q", ev.Event.InvolvedObject.Kind)
 	}
 }
 
 func samePrepareIdentity(prep *model.DeltaPrepare, id prepareIdentity) bool {
-	return prep.MatchesTarget(id.templateVersion, id.generation, id.deviceCreationTimestamp) && prep.SourceResourceVersion == id.resourceVersion
+	return prep.MatchesTarget(id.templateVersion, id.generation) && prep.SourceResourceVersion == id.resourceVersion
 }
 
 func isTerminalGeneration(status string) bool {

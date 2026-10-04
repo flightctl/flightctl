@@ -46,7 +46,6 @@ type DeltaPrepare struct {
 	Name                    string    `gorm:"type:text"`
 	TemplateVersion         *string   `gorm:"type:text"`
 	Generation              *int64
-	DeviceCreationTimestamp *time.Time
 	SourceResourceVersion   int64
 	Deadline                *time.Time
 	CreatedAt               time.Time
@@ -61,36 +60,8 @@ func (DeltaPrepare) TableName() string {
 
 // MatchesTarget compares the desired fleet template or standalone device generation.
 // SourceResourceVersion is checked separately when ordering prepare events.
-func (p *DeltaPrepare) MatchesTarget(templateVersion *string, generation *int64, deviceCreationTimestamp *time.Time) bool {
-	return equalPointer(p.TemplateVersion, templateVersion) && equalPointer(p.Generation, generation) && equalTime(p.DeviceCreationTimestamp, deviceCreationTimestamp)
-}
-
-// CompareSource orders incarnations before resource versions, which restart on
-// re-enrollment. Nil timestamps belong to fleet prepares or legacy device work.
-func (p *DeltaPrepare) CompareSource(deviceCreationTimestamp *time.Time, resourceVersion int64) int {
-	if !equalTime(p.DeviceCreationTimestamp, deviceCreationTimestamp) {
-		if p.DeviceCreationTimestamp == nil {
-			return -1
-		}
-		if deviceCreationTimestamp == nil {
-			return 1
-		}
-		return p.DeviceCreationTimestamp.Compare(*deviceCreationTimestamp)
-	}
-	if p.SourceResourceVersion < resourceVersion {
-		return -1
-	}
-	if p.SourceResourceVersion > resourceVersion {
-		return 1
-	}
-	return 0
-}
-
-func equalTime(a, b *time.Time) bool {
-	if a == nil || b == nil {
-		return a == b
-	}
-	return a.Equal(*b)
+func (p *DeltaPrepare) MatchesTarget(templateVersion *string, generation *int64) bool {
+	return equalPointer(p.TemplateVersion, templateVersion) && equalPointer(p.Generation, generation)
 }
 
 func equalPointer[T comparable](a, b *T) bool {

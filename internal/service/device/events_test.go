@@ -5,7 +5,6 @@ import (
 	"errors"
 	"strconv"
 	"testing"
-	"time"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/google/uuid"
@@ -19,7 +18,7 @@ func prepareTestDeviceForEvents(name string) *domain.Device {
 	return &domain.Device{
 		ApiVersion: "v1beta1",
 		Kind:       "Device",
-		Metadata:   domain.ObjectMeta{Name: lo.ToPtr(name), CreationTimestamp: lo.ToPtr(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)), Generation: lo.ToPtr(int64(1)), ResourceVersion: lo.ToPtr("1"), Labels: &map[string]string{"labelKey": "labelValue"}},
+		Metadata:   domain.ObjectMeta{Name: lo.ToPtr(name), Generation: lo.ToPtr(int64(1)), ResourceVersion: lo.ToPtr("1"), Labels: &map[string]string{"labelKey": "labelValue"}},
 		Spec:       &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "img"}},
 		Status:     &status,
 	}
@@ -218,7 +217,6 @@ func TestEmitStandalonePrepareDeltasGeneration(t *testing.T) {
 					details, err := event.Details.AsPrepareDeltasDetails()
 					require.NoError(t, err)
 					require.Equal(t, newDevice.Metadata.Generation, details.Generation)
-					require.Equal(t, newDevice.Metadata.CreationTimestamp, details.DeviceCreationTimestamp)
 					require.Equal(t, newDevice.Metadata.ResourceVersion, details.ResourceVersion)
 				}
 				require.Equal(t, 1, prepares)

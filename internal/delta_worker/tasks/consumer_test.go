@@ -140,7 +140,7 @@ var _ deltapreparestore.Store = (*recordingCompletionStore)(nil)
 
 type completionStatusStore struct{}
 
-func (completionStatusStore) ResumeDeltaIfCurrent(context.Context, uuid.UUID, string, int64, time.Time) (bool, error) {
+func (completionStatusStore) ResumeDeltaIfCurrent(context.Context, uuid.UUID, string, int64) (bool, error) {
 	return true, nil
 }
 

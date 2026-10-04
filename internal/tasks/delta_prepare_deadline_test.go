@@ -183,18 +183,16 @@ func TestDeltaPrepareDeadlinePoll(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		deviceSvc := deviceservice.NewMockService(ctrl)
 		generation := int64(7)
-		created := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-		deviceSvc.EXPECT().ClearDeltaPreparingIfCurrent(gomock.Any(), orgId, "device-1", generation, created).Return(true, domain.StatusOK())
+		deviceSvc.EXPECT().ClearDeltaPreparingIfCurrent(gomock.Any(), orgId, "device-1", generation).Return(true, domain.StatusOK())
 		rec := &deadlineEventRecorder{}
 		prep := model.DeltaPrepare{
-			ID:                      uuid.New(),
-			OrgID:                   orgId,
-			Kind:                    domain.DeviceKind,
-			Name:                    "device-1",
-			SourceResourceVersion:   12,
-			Generation:              &generation,
-			DeviceCreationTimestamp: &created,
-			Status:                  model.DeltaPrepareWaiting,
+			ID:                    uuid.New(),
+			OrgID:                 orgId,
+			Kind:                  domain.DeviceKind,
+			Name:                  "device-1",
+			SourceResourceVersion: 12,
+			Generation:            &generation,
+			Status:                model.DeltaPrepareWaiting,
 		}
 		store := &fakeDeadlineStore{waiting: []model.DeltaPrepare{prep}}
 		task := &DeltaPrepareDeadline{log: log, deltaStore: store, deviceSvc: deviceSvc, eventSvc: rec}
@@ -208,18 +206,16 @@ func TestDeltaPrepareDeadlinePoll(t *testing.T) {
 	t.Run("When a device prepare has a stale generation it should not emit completion", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		deviceSvc := deviceservice.NewMockService(ctrl)
-		created := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-		deviceSvc.EXPECT().ClearDeltaPreparingIfCurrent(gomock.Any(), orgId, "device-1", int64(6), created).Return(false, domain.StatusOK())
+		deviceSvc.EXPECT().ClearDeltaPreparingIfCurrent(gomock.Any(), orgId, "device-1", int64(6)).Return(false, domain.StatusOK())
 		rec := &deadlineEventRecorder{}
 		prep := model.DeltaPrepare{
-			ID:                      uuid.New(),
-			OrgID:                   orgId,
-			Kind:                    domain.DeviceKind,
-			Name:                    "device-1",
-			SourceResourceVersion:   12,
-			Generation:              lo.ToPtr(int64(6)),
-			DeviceCreationTimestamp: &created,
-			Status:                  model.DeltaPrepareWaiting,
+			ID:                    uuid.New(),
+			OrgID:                 orgId,
+			Kind:                  domain.DeviceKind,
+			Name:                  "device-1",
+			SourceResourceVersion: 12,
+			Generation:            lo.ToPtr(int64(6)),
+			Status:                model.DeltaPrepareWaiting,
 		}
 		store := &fakeDeadlineStore{waiting: []model.DeltaPrepare{prep}}
 		task := &DeltaPrepareDeadline{log: log, deltaStore: store, deviceSvc: deviceSvc, eventSvc: rec}

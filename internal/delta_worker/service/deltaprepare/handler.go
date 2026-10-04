@@ -62,7 +62,7 @@ func (h *ServiceHandler) CreateOrReplaceWaitingDeltaPrepare(ctx context.Context,
 		return deltapreparestore.PrepareAdmission{}, fmt.Errorf("create or replace waiting delta prepare: %w", err)
 	}
 	if admission.Replaced && h.status != nil {
-		if err := h.status.ClearForPrepare(ctx, prepare); err != nil {
+		if err := h.status.Clear(ctx, prepare.OrgID, prepare.Kind, prepare.Name); err != nil {
 			return deltapreparestore.PrepareAdmission{}, fmt.Errorf("clear replaced delta prepare status: %w", err)
 		}
 	}

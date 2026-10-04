@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	deltaconfig "github.com/flightctl/flightctl/internal/delta_worker/config"
@@ -439,15 +438,12 @@ func fleetPrepareEvent(orgId uuid.UUID, fleet, tv string) worker_client.EventWit
 	}
 }
 
-var prepareTestCreationTimestamp = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-
 func deviceWithOS(name string, eligible bool, digest string) *domain.Device {
 	d := &domain.Device{
 		Metadata: domain.ObjectMeta{
-			Name:              lo.ToPtr(name),
-			Generation:        lo.ToPtr(prepareTestGeneration),
-			CreationTimestamp: &prepareTestCreationTimestamp,
-			Annotations:       &map[string]string{domain.DeviceAnnotationRenderedSpecHash: "previous-rendered-hash"},
+			Name:        lo.ToPtr(name),
+			Generation:  lo.ToPtr(prepareTestGeneration),
+			Annotations: &map[string]string{domain.DeviceAnnotationRenderedSpecHash: "previous-rendered-hash"},
 		},
 		Spec: &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "quay.io/os/base:latest"}},
 		Status: &domain.DeviceStatus{
@@ -810,7 +806,7 @@ func TestDevicePrepareGeneration(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			ev := devicePrepareEvent(uuid.New(), "d1")
-			details := domain.PrepareDeltasDetails{Generation: tt.generation, ResourceVersion: lo.ToPtr("1"), DeviceCreationTimestamp: &prepareTestCreationTimestamp}
+			details := domain.PrepareDeltasDetails{Generation: tt.generation, ResourceVersion: lo.ToPtr("1")}
 			require.NoError(t, ev.Event.Details.FromPrepareDeltasDetails(details))
 			generation, err := deviceGenerationFromEvent(ev)
 			identity, identityErr := identityFromEvent(ev)
@@ -832,7 +828,7 @@ func devicePrepareEvent(orgId uuid.UUID, name string) worker_client.EventWithOrg
 }
 
 func devicePrepareEventWithGeneration(orgId uuid.UUID, name string, generation int64) worker_client.EventWithOrgId {
-	details := domain.PrepareDeltasDetails{DetailType: v1beta1.PrepareDeltas, Generation: lo.ToPtr(generation), ResourceVersion: lo.ToPtr("1"), DeviceCreationTimestamp: &prepareTestCreationTimestamp}
+	details := domain.PrepareDeltasDetails{DetailType: v1beta1.PrepareDeltas, Generation: lo.ToPtr(generation), ResourceVersion: lo.ToPtr("1")}
 	var eventDetails domain.EventDetails
 	_ = eventDetails.FromPrepareDeltasDetails(details)
 	return worker_client.EventWithOrgId{
@@ -849,7 +845,7 @@ func devicePrepareEventWithGeneration(orgId uuid.UUID, name string, generation i
 }
 
 func devicePrepareEventWithGenerationAndResourceVersion(orgId uuid.UUID, name string, generation int64, resourceVersion string) worker_client.EventWithOrgId {
-	details := domain.PrepareDeltasDetails{DetailType: v1beta1.PrepareDeltas, Generation: lo.ToPtr(generation), ResourceVersion: lo.ToPtr(resourceVersion), DeviceCreationTimestamp: &prepareTestCreationTimestamp}
+	details := domain.PrepareDeltasDetails{DetailType: v1beta1.PrepareDeltas, Generation: lo.ToPtr(generation), ResourceVersion: lo.ToPtr(resourceVersion)}
 	var eventDetails domain.EventDetails
 	_ = eventDetails.FromPrepareDeltasDetails(details)
 	return worker_client.EventWithOrgId{
@@ -865,22 +861,20 @@ func devicePrepareEventWithGenerationAndResourceVersion(orgId uuid.UUID, name st
 	}
 }
 
-func TestDevicePrepareDeletedOrReenrolled(t *testing.T) {
+func TestDevicePrepareLookupErrors(t *testing.T) {
 	for _, tt := range []struct {
 		name      string
 		status    domain.Status
-		device    *domain.Device
 		wantError bool
 	}{
 		{name: "When the device was deleted it should drop the event as superseded", status: domain.Status{Code: http.StatusNotFound}},
 		{name: "When the device service fails it should return the error", status: domain.StatusInternalServerError("database unavailable"), wantError: true},
-		{name: "When the device was re-enrolled at the same generation it should drop the old event", status: domain.StatusOK(), device: &domain.Device{Metadata: domain.ObjectMeta{Generation: lo.ToPtr(prepareTestGeneration), CreationTimestamp: lo.ToPtr(prepareTestCreationTimestamp.Add(time.Hour))}}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			devices := deviceservice.NewMockService(ctrl)
 			orgID := uuid.New()
-			devices.EXPECT().GetDevice(gomock.Any(), orgID, "d1").Return(tt.device, tt.status)
+			devices.EXPECT().GetDevice(gomock.Any(), orgID, "d1").Return(nil, tt.status)
 			resolver := &Resolver{DeviceService: devices}
 			result, err := resolver.candidatesForDeviceEvent(context.Background(), devicePrepareEvent(orgID, "d1"))
 			if tt.wantError {
@@ -892,17 +886,5 @@ func TestDevicePrepareDeletedOrReenrolled(t *testing.T) {
 			require.False(t, result.Skip)
 			require.Empty(t, result.Candidates)
 		})
-	}
-}
-
-func TestDevicePrepareRequiresIncarnation(t *testing.T) {
-	for _, timestamp := range []*time.Time{nil, lo.ToPtr(time.Time{})} {
-		ev := devicePrepareEvent(uuid.New(), "d1")
-		details, err := ev.Event.Details.AsPrepareDeltasDetails()
-		require.NoError(t, err)
-		details.DeviceCreationTimestamp = timestamp
-		require.NoError(t, ev.Event.Details.FromPrepareDeltasDetails(details))
-		_, err = identityFromEvent(ev)
-		require.ErrorContains(t, err, "deviceCreationTimestamp")
 	}
 }

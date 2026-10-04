@@ -823,9 +823,6 @@ func (f *fakePrepareStore) seedWaiting(orgID uuid.UUID, kind, name string, tv *s
 		CreatedAt:             created,
 		Status:                model.DeltaPrepareWaiting,
 	}
-	if kind == domain.DeviceKind {
-		prep.DeviceCreationTimestamp = &prepareTestCreationTimestamp
-	}
 	f.prepares[prep.ID] = prep
 	f.waiting[f.identityKey(orgID, kind, name)] = prep.ID
 	return prep
@@ -943,17 +940,17 @@ func (f *fakePrepareService) CreateOrReplaceWaitingDeltaPrepare(ctx context.Cont
 		if candidate.OrgID != prepare.OrgID || candidate.Kind != prepare.Kind || candidate.Name != prepare.Name {
 			continue
 		}
-		if latest == nil || candidate.CompareSource(latest.DeviceCreationTimestamp, latest.SourceResourceVersion) > 0 {
+		if latest == nil || candidate.SourceResourceVersion > latest.SourceResourceVersion {
 			latest = candidate
 		}
 	}
 	if latest != nil {
-		if latest.CompareSource(prepare.DeviceCreationTimestamp, prepare.SourceResourceVersion) > 0 {
+		if prepare.SourceResourceVersion < latest.SourceResourceVersion {
 			copy := *latest
 			return deltapreparestore.PrepareAdmission{Prepare: &copy}, nil
 		}
-		if latest.CompareSource(prepare.DeviceCreationTimestamp, prepare.SourceResourceVersion) == 0 {
-			identity := prepareIdentity{templateVersion: prepare.TemplateVersion, generation: prepare.Generation, deviceCreationTimestamp: prepare.DeviceCreationTimestamp, resourceVersion: prepare.SourceResourceVersion}
+		if prepare.SourceResourceVersion == latest.SourceResourceVersion {
+			identity := prepareIdentity{templateVersion: prepare.TemplateVersion, generation: prepare.Generation, resourceVersion: prepare.SourceResourceVersion}
 			if !samePrepareIdentity(latest, identity) {
 				return deltapreparestore.PrepareAdmission{}, errors.New("conflicting delta prepares")
 			}
@@ -963,7 +960,7 @@ func (f *fakePrepareService) CreateOrReplaceWaitingDeltaPrepare(ctx context.Cont
 	}
 
 	key := f.store.identityKey(prepare.OrgID, prepare.Kind, prepare.Name)
-	replaced := latest != nil && latest.CompareSource(prepare.DeviceCreationTimestamp, prepare.SourceResourceVersion) < 0
+	replaced := latest != nil && prepare.SourceResourceVersion > latest.SourceResourceVersion
 	if id, ok := f.store.waiting[key]; ok {
 		if waiting := f.store.prepares[id]; waiting != nil {
 			waiting.Status = model.DeltaPrepareFailed
@@ -999,7 +996,7 @@ func (f *fakePrepareService) GetLatestDeltaPrepareForResource(ctx context.Contex
 		if candidate.OrgID != orgID || candidate.Kind != kind || candidate.Name != name {
 			continue
 		}
-		if latest == nil || candidate.CompareSource(latest.DeviceCreationTimestamp, latest.SourceResourceVersion) > 0 {
+		if latest == nil || candidate.SourceResourceVersion > latest.SourceResourceVersion {
 			latest = candidate
 		}
 	}

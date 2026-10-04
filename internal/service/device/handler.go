@@ -487,8 +487,8 @@ func (h *DeviceServiceHandler) ReplaceServiceOwnedStatus(ctx context.Context, or
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
-func (h *DeviceServiceHandler) ClearDeltaPreparingIfCurrent(ctx context.Context, orgID uuid.UUID, name string, generation int64, creationTimestamp time.Time) (bool, domain.Status) {
-	matched, err := h.deviceStore.ClearDeltaPreparingIfCurrent(ctx, orgID, name, generation, creationTimestamp)
+func (h *DeviceServiceHandler) ClearDeltaPreparingIfCurrent(ctx context.Context, orgID uuid.UUID, name string, generation int64) (bool, domain.Status) {
+	matched, err := h.deviceStore.ClearDeltaPreparingIfCurrent(ctx, orgID, name, generation)
 	return matched, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 

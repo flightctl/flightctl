@@ -3,7 +3,6 @@ package deltaprepare
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/flightctl/flightctl/internal/delta_worker/model"
 	workerservice "github.com/flightctl/flightctl/internal/delta_worker/service"
@@ -16,7 +15,7 @@ import (
 
 type completionStatusStore struct{}
 
-func (completionStatusStore) ResumeDeltaIfCurrent(context.Context, uuid.UUID, string, int64, time.Time) (bool, error) {
+func (completionStatusStore) ResumeDeltaIfCurrent(context.Context, uuid.UUID, string, int64) (bool, error) {
 	return true, nil
 }
 
