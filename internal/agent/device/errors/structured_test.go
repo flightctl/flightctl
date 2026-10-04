@@ -216,6 +216,13 @@ func TestMessage(t *testing.T) {
 			contains:    []string{"Update deferred", "system", "will retry"},
 			notContains: []string{"failed"},
 		},
+		{
+			name: "no space left keeps the generic failure message",
+			err: fmt.Errorf("%w: %w", ErrPhaseApplyingUpdate,
+				fmt.Errorf("%w: %w", ErrComponentConfig, ErrNoSpaceLeft)),
+			contains:    []string{"While ApplyingUpdate", "config failed", "resource limit exceeded"},
+			notContains: []string{"Update deferred", "will retry"},
+		},
 	}
 
 	for _, tc := range testCases {
