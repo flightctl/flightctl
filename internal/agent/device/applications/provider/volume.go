@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/api/common"
+	"github.com/flightctl/flightctl/internal/appspec"
 	"github.com/flightctl/flightctl/internal/quadlet"
 	"github.com/flightctl/flightctl/pkg/log"
 	"sigs.k8s.io/yaml"
@@ -332,7 +333,7 @@ func extractQuadletVolumes(appID string, quadlets map[string]*common.QuadletRefe
 }
 
 func extractQuadletVolumesFromSpec(appID string, contents []v1beta1.ApplicationContent) ([]*Volume, error) {
-	quadlets, err := client.ParseQuadletReferencesFromSpec(contents)
+	quadlets, err := appspec.ParseQuadletReferencesFromSpec(contents)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errors.ErrParsingQuadletSpec, err)
 	}

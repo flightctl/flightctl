@@ -9,10 +9,10 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
-	"github.com/flightctl/flightctl/internal/agent/device/applications/helm"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/chartutil"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
 	"gopkg.in/yaml.v3"
@@ -109,13 +109,13 @@ func newHelmProvider(
 
 	appName := lo.FromPtr(helmApp.Name)
 	if appName == "" {
-		appName, err = helm.SanitizeReleaseName(imageSpec.Image)
+		appName, err = chartutil.SanitizeReleaseName(imageSpec.Image)
 		if err != nil {
 			return nil, fmt.Errorf("creating release name: %w", err)
 		}
 	}
 
-	namespace := helm.AppNamespace(helmApp.Namespace, appName)
+	namespace := chartutil.AppNamespace(helmApp.Namespace, appName)
 
 	chartPath := clients.Helm().GetChartPath(imageSpec.Image)
 
@@ -320,7 +320,7 @@ func (p *helmProvider) extractNestedTargets(ctx context.Context, configProvider 
 		return nil, err
 	}
 
-	images, err := helm.ExtractImagesFromManifests(manifests)
+	images, err := chartutil.ExtractImagesFromManifests(manifests)
 	if err != nil {
 		return nil, fmt.Errorf("extract images from manifests: %w", err)
 	}

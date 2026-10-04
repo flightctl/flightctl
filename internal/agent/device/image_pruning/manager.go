@@ -17,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/spec"
 	"github.com/flightctl/flightctl/internal/api/common"
+	"github.com/flightctl/flightctl/internal/appspec"
 	"github.com/flightctl/flightctl/internal/quadlet"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
@@ -793,7 +794,7 @@ func (m *manager) extractReferencesFromApplication(_ context.Context, appSpec *v
 
 // extractComposeReferences extracts image reference strings from Compose inline content.
 func (m *manager) extractComposeReferences(contents []v1beta1.ApplicationContent) ([]ImageRef, error) {
-	spec, err := client.ParseComposeFromSpec(contents)
+	spec, err := appspec.ParseComposeFromSpec(contents)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errors.ErrParsingComposeSpec, err)
 	}
@@ -832,7 +833,7 @@ func (m *manager) extractImagesFromQuadletReferences(quadlets map[string]*common
 // extractQuadletReferences extracts image reference strings from Quadlet inline content.
 // Filters out quadlet file references (e.g., "base.image") - only includes actual OCI image references.
 func (m *manager) extractQuadletReferences(contents []v1beta1.ApplicationContent) ([]ImageRef, error) {
-	quadlets, err := client.ParseQuadletReferencesFromSpec(contents)
+	quadlets, err := appspec.ParseQuadletReferencesFromSpec(contents)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errors.ErrParsingQuadletSpec, err)
 	}

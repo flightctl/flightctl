@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/containers/image/v5/docker/reference"
-	agentclient "github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/chartutil"
 	"github.com/flightctl/flightctl/internal/domain"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
 	"github.com/google/uuid"
@@ -79,7 +79,7 @@ func ResolveOCIRepositorySpec(
 }
 
 func chartRepositoryPath(chartRef string) (host, path string, err error) {
-	normalized := agentclient.NormalizeChartRef(chartRef)
+	normalized := chartutil.NormalizeChartRef(chartRef)
 	parsedURL, err := url.Parse(normalized)
 	if err != nil {
 		return "", "", fmt.Errorf("parse Helm chart reference %q: %w", chartRef, err)
