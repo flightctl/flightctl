@@ -45,7 +45,7 @@ type DeltaPrepare struct {
 	Kind                    string    `gorm:"type:text"`
 	Name                    string    `gorm:"type:text"`
 	TemplateVersion         *string   `gorm:"type:text"`
-	SpecHash                *string
+	Generation              *int64
 	SourceResourceVersion   int64
 	Deadline                *time.Time
 	CreatedAt               time.Time
@@ -56,6 +56,19 @@ type DeltaPrepare struct {
 
 func (DeltaPrepare) TableName() string {
 	return "delta_prepares"
+}
+
+// MatchesTarget compares the desired fleet template or standalone device generation.
+// SourceResourceVersion is checked separately when ordering prepare events.
+func (p *DeltaPrepare) MatchesTarget(templateVersion *string, generation *int64) bool {
+	return equalPointer(p.TemplateVersion, templateVersion) && equalPointer(p.Generation, generation)
+}
+
+func equalPointer[T comparable](a, b *T) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }
 
 // DeltaPrepareGeneration is the join row that attaches a DeltaPrepare to the

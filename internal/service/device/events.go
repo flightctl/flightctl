@@ -102,10 +102,7 @@ func emitStandalonePrepareDeltas(ctx context.Context, eventsService events.Servi
 	}
 	if device != nil {
 		details.ResourceVersion = device.Metadata.ResourceVersion
-		specHash := device.SpecHash()
-		if specHash != "" {
-			details.SpecHash = &specHash
-		}
+		details.Generation = device.Metadata.Generation
 	}
 	var eventDetails domain.EventDetails
 	if err := eventDetails.FromPrepareDeltasDetails(details); err != nil {

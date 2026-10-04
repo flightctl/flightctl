@@ -90,6 +90,7 @@ type Store interface {
 	GetLastSeen(ctx context.Context, orgId uuid.UUID, name string) (*time.Time, error)
 
 	// Used internally
+	ClearDeltaPreparingIfCurrent(ctx context.Context, orgID uuid.UUID, name string, generation int64) (bool, error)
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, error)
 	RemoveConflictPausedAnnotation(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, []string, error)
@@ -288,10 +289,23 @@ func NewDeviceStore(db *gorm.DB, log logrus.FieldLogger) *DeviceStore {
 }
 
 // ResumeDeltaIfCurrent clears the device's delta-preparing state only when
-// its rendered spec hash still matches the prepare. The preparing condition is
+// its desired spec generation still matches the prepare. The preparing condition is
 // part of the predicate so a redelivered completion event cannot claim the
 // same resource twice.
-func (s *DeviceStore) ResumeDeltaIfCurrent(ctx context.Context, orgID uuid.UUID, name, specHash string) (bool, error) {
+func (s *DeviceStore) ResumeDeltaIfCurrent(ctx context.Context, orgID uuid.UUID, name string, generation int64) (bool, error) {
+	return s.clearDeltaPreparingIfCurrent(ctx, orgID, name, generation, true)
+}
+
+// ClearDeltaPreparingIfCurrent also matches an already-cleared marker, allowing
+// a deadline retry to recover its resume event after a process failure.
+func (s *DeviceStore) ClearDeltaPreparingIfCurrent(ctx context.Context, orgID uuid.UUID, name string, generation int64) (bool, error) {
+	return s.clearDeltaPreparingIfCurrent(ctx, orgID, name, generation, false)
+}
+
+func (s *DeviceStore) clearDeltaPreparingIfCurrent(ctx context.Context, orgID uuid.UUID, name string, generation int64, requirePreparing bool) (bool, error) {
+	if generation <= 0 {
+		return false, nil
+	}
 	result := s.getDB(ctx).Exec(`
 		UPDATE devices
 		SET service_conditions = (
@@ -312,18 +326,18 @@ func (s *DeviceStore) ResumeDeltaIfCurrent(ctx context.Context, orgID uuid.UUID,
 		WHERE org_id = @org_id
 		  AND name = @name
 		  AND deleted_at IS NULL
-		  AND annotations->>@spec_hash_annotation = @spec_hash
-		  AND EXISTS (
+		  AND generation = @generation
+		  AND (NOT @require_preparing OR EXISTS (
 				SELECT 1
 				FROM jsonb_array_elements(COALESCE(service_conditions->'conditions', '[]'::jsonb)) AS condition_rows(condition_json)
 				WHERE condition_json->>'type' = @condition_type
-		  )
+		  ))
 	`, map[string]interface{}{
-		"org_id":               orgID,
-		"name":                 name,
-		"spec_hash":            specHash,
-		"spec_hash_annotation": domain.DeviceAnnotationRenderedSpecHash,
-		"condition_type":       string(domain.ConditionTypeDeviceDeltaPreparing),
+		"org_id":            orgID,
+		"name":              name,
+		"generation":        generation,
+		"require_preparing": requirePreparing,
+		"condition_type":    string(domain.ConditionTypeDeviceDeltaPreparing),
 	})
 	if result.Error != nil {
 		return false, store.ErrorFromGormError(result.Error)

@@ -71,7 +71,7 @@ func (h *ServiceHandler) emitResume(ctx context.Context, orgID uuid.UUID, kind s
 	case domain.FleetKind:
 		return h.emitFleetResume(ctx, orgID, prepare, fleet)
 	case domain.DeviceKind:
-		return h.createEvent(ctx, orgID, domain.GetBaseEvent(ctx, domain.DeviceKind, prepare.Name, domain.EventReasonDeltaGenerationCompleted, "Delta generation completed.", nil))
+		return h.createEvent(ctx, orgID, domain.GetDeviceDeltaGenerationCompletedEvent(ctx, prepare.Name, *prepare.Generation))
 	default:
 		return fmt.Errorf("unsupported prepare kind %q", kind)
 	}

@@ -8,6 +8,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/deltastatus"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -89,18 +90,24 @@ func TestApplicationDeltaPrefetchCRIRefreshesRegistryReference(t *testing.T) {
 			skopeo := client.NewSkopeo(logger, exec, rw)
 			target := imageRef{image: image}
 			task := &prefetchTask{
-				delta:           &OCIDeltaTarget{Hint: candidate, Application: "app"},
-				deltaGeneration: 1,
+				delta:                &OCIDeltaTarget{Hint: candidate, Application: "app"},
+				deltaGeneration:      1,
+				applicationTargetKey: applicationImageTargetKeyFor(target, "", OCITypeCRIImage),
 			}
 			manager := &prefetchManager{
-				log:               logger,
-				cliClients:        client.NewCLIClients(client.WithCRIClient(cri)),
-				readWriter:        rw,
-				pullTimeout:       time.Minute,
-				ociDelta:          client.NewOCIDelta(logger, exec, time.Minute),
-				tasks:             map[imageRef]*prefetchTask{target: task},
-				deltaGeneration:   1,
-				deltaApplyResults: make(map[string]map[imageRef]applicationDeltaApplyResult),
+				log:                   logger,
+				cliClients:            client.NewCLIClients(client.WithCRIClient(cri)),
+				readWriter:            rw,
+				pullTimeout:           time.Minute,
+				ociDelta:              client.NewOCIDelta(logger, exec, time.Minute),
+				tasks:                 map[imageRef]*prefetchTask{target: task},
+				deltaGeneration:       1,
+				deltaApplyResults:     make(map[string]map[imageRef]applicationDeltaApplyResult),
+				deltaTargetsScheduled: true,
+				deltaTargetRefs:       map[string]imageRef{deltastatus.Fingerprint(string(target.owner), target.image): target},
+				deltaAppTargetKeys: map[string]map[string]string{
+					"app": {deltastatus.Fingerprint(string(target.owner), target.image): task.applicationTargetKey},
+				},
 			}
 
 			err := manager.pullCRIImage(context.Background(), target, task, skopeo, client.Timeout(time.Minute))

@@ -79,6 +79,22 @@ func (t *DeltaPrepareDeadline) failExpired(ctx context.Context, prep *model.Delt
 		return err
 	}
 
+	if prep.Kind == domain.DeviceKind {
+		if prep.Generation == nil {
+			return t.markFailed(ctx, prep)
+		}
+		matched, status := t.deviceSvc.ClearDeltaPreparingIfCurrent(ctx, prep.OrgID, prep.Name, *prep.Generation)
+		if status.Code != http.StatusOK {
+			return fmt.Errorf("clearing device preparing status: %s", status.Message)
+		}
+		if matched {
+			if err := t.emitResume(ctx, prep); err != nil {
+				return err
+			}
+		}
+		return t.markFailed(ctx, prep)
+	}
+
 	matches, err := t.identityMatches(ctx, prep)
 	if err != nil {
 		return err
@@ -173,18 +189,6 @@ func (t *DeltaPrepareDeadline) identityMatches(ctx context.Context, prep *model.
 			return false, nil
 		}
 		return equalStringPtr(prep.TemplateVersion, tv.Metadata.Name), nil
-	case domain.DeviceKind:
-		device, status := t.deviceSvc.GetDevice(ctx, prep.OrgID, prep.Name)
-		if status.Code != http.StatusOK {
-			if status.Code == http.StatusNotFound {
-				return false, nil
-			}
-			return false, fmt.Errorf("getting device %s: %s", prep.Name, status.Message)
-		}
-		if device == nil || prep.SpecHash == nil || *prep.SpecHash == "" {
-			return false, nil
-		}
-		return device.SpecHash() == *prep.SpecHash, nil
 	default:
 		return false, fmt.Errorf("unsupported prepare kind %q", prep.Kind)
 	}
@@ -195,7 +199,7 @@ func (t *DeltaPrepareDeadline) emitResume(ctx context.Context, prep *model.Delta
 	case domain.FleetKind:
 		return t.emitFleetResume(ctx, prep)
 	case domain.DeviceKind:
-		t.eventSvc.CreateEvent(ctx, prep.OrgID, domain.GetBaseEvent(ctx, domain.DeviceKind, prep.Name, domain.EventReasonDeltaGenerationCompleted, "Delta generation completed.", nil))
+		t.eventSvc.CreateEvent(ctx, prep.OrgID, domain.GetDeviceDeltaGenerationCompletedEvent(ctx, prep.Name, *prep.Generation))
 		return nil
 	default:
 		return fmt.Errorf("unsupported prepare kind %q", prep.Kind)
@@ -243,21 +247,6 @@ func (t *DeltaPrepareDeadline) clearPreparing(ctx context.Context, prep *model.D
 		_, status = t.fleetSvc.ReplaceFleetStatus(ctx, prep.OrgID, prep.Name, *fleet)
 		if status.Code != http.StatusOK {
 			return fmt.Errorf("clearing fleet preparing status: %s", status.Message)
-		}
-		return nil
-	case domain.DeviceKind:
-		device, status := t.deviceSvc.GetDevice(ctx, prep.OrgID, prep.Name)
-		if status.Code != http.StatusOK {
-			return fmt.Errorf("getting device %s: %s", prep.Name, status.Message)
-		}
-		if device.Status == nil {
-			return nil
-		}
-		domain.RemoveStatusCondition(&device.Status.Conditions, domain.ConditionTypeDeviceDeltaPreparing)
-		device.Status.DeltaGeneration = nil
-		_, status = t.deviceSvc.ReplaceServiceOwnedStatus(ctx, prep.OrgID, prep.Name, *device)
-		if status.Code != http.StatusOK {
-			return fmt.Errorf("clearing device preparing status: %s", status.Message)
 		}
 		return nil
 	default:

@@ -44,6 +44,21 @@ func (m *MockService) EXPECT() *MockServiceMockRecorder {
 	return m.recorder
 }
 
+// ClearDeltaPreparingIfCurrent mocks base method.
+func (m *MockService) ClearDeltaPreparingIfCurrent(ctx context.Context, orgID uuid.UUID, name string, generation int64) (bool, domain.Status) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClearDeltaPreparingIfCurrent", ctx, orgID, name, generation)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(domain.Status)
+	return ret0, ret1
+}
+
+// ClearDeltaPreparingIfCurrent indicates an expected call of ClearDeltaPreparingIfCurrent.
+func (mr *MockServiceMockRecorder) ClearDeltaPreparingIfCurrent(ctx, orgID, name, generation any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClearDeltaPreparingIfCurrent", reflect.TypeOf((*MockService)(nil).ClearDeltaPreparingIfCurrent), ctx, orgID, name, generation)
+}
+
 // CountDevices mocks base method.
 func (m *MockService) CountDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (int64, domain.Status) {
 	m.ctrl.T.Helper()

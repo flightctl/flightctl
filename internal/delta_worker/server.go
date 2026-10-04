@@ -282,6 +282,7 @@ func serviceResolver(cfg *config.Config, fleets fleetservice.Service, devices de
 		RepositoryService:      repos,
 		TemplateVersionService: tvs,
 		Config:                 deltaConfig,
+		Log:                    log,
 		InspectForSource:       inspectForSource,
 		Render: func(ctx context.Context, orgId uuid.UUID, device *domain.Device, spec *domain.DeviceSpec) (internaltasks.RenderedSpec, error) {
 			rendered, err := specRenderer.RenderSpecForDevice(ctx, orgId, device, spec)

@@ -487,6 +487,11 @@ func (h *DeviceServiceHandler) ReplaceServiceOwnedStatus(ctx context.Context, or
 	return result, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
 }
 
+func (h *DeviceServiceHandler) ClearDeltaPreparingIfCurrent(ctx context.Context, orgID uuid.UUID, name string, generation int64) (bool, domain.Status) {
+	matched, err := h.deviceStore.ClearDeltaPreparingIfCurrent(ctx, orgID, name, generation)
+	return matched, common.StoreErrorToApiStatus(err, false, domain.DeviceKind, &name)
+}
+
 func (h *DeviceServiceHandler) PatchDeviceStatus(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.Device, domain.Status) {
 	currentObj, err := h.deviceStore.Get(ctx, orgId, name)
 	if err != nil {

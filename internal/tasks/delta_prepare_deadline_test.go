@@ -183,20 +183,7 @@ func TestDeltaPrepareDeadlinePoll(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		deviceSvc := deviceservice.NewMockService(ctrl)
 		generation := int64(7)
-		specHash := "rendered-spec-hash"
-		annotations := map[string]string{domain.DeviceAnnotationRenderedSpecHash: specHash}
-		deviceStatus := domain.NewDeviceStatus()
-		device := &domain.Device{
-			Metadata: domain.ObjectMeta{
-				Name:            lo.ToPtr("device-1"),
-				Generation:      &generation,
-				ResourceVersion: lo.ToPtr("13"),
-				Annotations:     &annotations,
-			},
-			Status: &deviceStatus,
-		}
-		deviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, "device-1").Return(device, domain.StatusOK()).AnyTimes()
-		deviceSvc.EXPECT().ReplaceServiceOwnedStatus(gomock.Any(), orgId, "device-1", gomock.Any()).Return(device, domain.StatusOK())
+		deviceSvc.EXPECT().ClearDeltaPreparingIfCurrent(gomock.Any(), orgId, "device-1", generation).Return(true, domain.StatusOK())
 		rec := &deadlineEventRecorder{}
 		prep := model.DeltaPrepare{
 			ID:                    uuid.New(),
@@ -204,7 +191,7 @@ func TestDeltaPrepareDeadlinePoll(t *testing.T) {
 			Kind:                  domain.DeviceKind,
 			Name:                  "device-1",
 			SourceResourceVersion: 12,
-			SpecHash:              &specHash,
+			Generation:            &generation,
 			Status:                model.DeltaPrepareWaiting,
 		}
 		store := &fakeDeadlineStore{waiting: []model.DeltaPrepare{prep}}
@@ -214,21 +201,14 @@ func TestDeltaPrepareDeadlinePoll(t *testing.T) {
 		assert.Equal(t, model.DeltaPrepareFailed, store.waiting[0].Status)
 		require.Len(t, rec.events, 1)
 		assert.Equal(t, domain.EventReasonDeltaGenerationCompleted, rec.events[0].Reason)
+		require.NotNil(t, rec.events[0].Metadata.Annotations)
+		assert.Equal(t, "7", (*rec.events[0].Metadata.Annotations)[domain.EventAnnotationDeltaGeneration])
 	})
 
-	t.Run("When a device prepare has a stale spec hash it should not emit completion", func(t *testing.T) {
+	t.Run("When a device prepare has a stale generation it should not emit completion", func(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		deviceSvc := deviceservice.NewMockService(ctrl)
-		generation := int64(7)
-		annotations := map[string]string{domain.DeviceAnnotationRenderedSpecHash: "current-spec-hash"}
-		device := &domain.Device{
-			Metadata: domain.ObjectMeta{
-				Name:        lo.ToPtr("device-1"),
-				Generation:  &generation,
-				Annotations: &annotations,
-			},
-		}
-		deviceSvc.EXPECT().GetDevice(gomock.Any(), orgId, "device-1").Return(device, domain.StatusOK())
+		deviceSvc.EXPECT().ClearDeltaPreparingIfCurrent(gomock.Any(), orgId, "device-1", int64(6)).Return(false, domain.StatusOK())
 		rec := &deadlineEventRecorder{}
 		prep := model.DeltaPrepare{
 			ID:                    uuid.New(),
@@ -236,7 +216,7 @@ func TestDeltaPrepareDeadlinePoll(t *testing.T) {
 			Kind:                  domain.DeviceKind,
 			Name:                  "device-1",
 			SourceResourceVersion: 12,
-			SpecHash:              lo.ToPtr("old-spec-hash"),
+			Generation:            lo.ToPtr(int64(6)),
 			Status:                model.DeltaPrepareWaiting,
 		}
 		store := &fakeDeadlineStore{waiting: []model.DeltaPrepare{prep}}

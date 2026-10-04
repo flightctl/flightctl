@@ -37,6 +37,8 @@ type Service interface {
 	// ReplaceServiceOwnedStatus writes service_conditions from the device's
 	// service-owned status fields. Agent status JSON is unchanged.
 	ReplaceServiceOwnedStatus(ctx context.Context, orgId uuid.UUID, name string, device domain.Device) (*domain.Device, domain.Status)
+	// ClearDeltaPreparingIfCurrent atomically clears preparation only for the matching device generation.
+	ClearDeltaPreparingIfCurrent(ctx context.Context, orgID uuid.UUID, name string, generation int64) (bool, domain.Status)
 	PatchDeviceStatus(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.Device, domain.Status)
 	GetRenderedDevice(ctx context.Context, orgId uuid.UUID, name string, params domain.GetRenderedDeviceParams) (*domain.Device, domain.Status)
 	PatchDevice(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest, enforceOwnership bool, enforceCapabilities bool) (*domain.Device, domain.Status)

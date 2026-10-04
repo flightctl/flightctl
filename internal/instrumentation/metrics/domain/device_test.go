@@ -57,6 +57,10 @@ func (m *MockDevice) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *
 func (m *MockDevice) ReplaceServiceOwnedStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device) (*domain.Device, *domain.Device, error) {
 	return nil, nil, nil
 }
+func (m *MockDevice) ClearDeltaPreparingIfCurrent(context.Context, uuid.UUID, string, int64) (bool, error) {
+	return false, nil
+}
+
 func (m *MockDevice) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error {
 	return nil
 }

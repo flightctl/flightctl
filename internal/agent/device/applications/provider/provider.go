@@ -265,6 +265,12 @@ func decorateApplicationTargets(
 ) []dependency.OCIPullTarget {
 	for i := range targets {
 		target := &targets[i]
+		if target.Type == dependency.OCITypeHelmChart {
+			// The chart artifact is resolved to render workload manifests. Delta
+			// apply outcomes describe the workload images, not the chart package.
+			target.Delta = nil
+			continue
+		}
 		var hint string
 		if i == 0 && parentHint != nil {
 			hint = *parentHint

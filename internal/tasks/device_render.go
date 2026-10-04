@@ -285,6 +285,14 @@ func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("failed getting device %s/%s: %s", t.orgId, t.event.InvolvedObject.Name, status.Message)
 	}
+	if t.event.Reason == domain.EventReasonDeltaGenerationCompleted {
+		generation := device.Metadata.Generation
+		completedGeneration := lo.FromPtr(t.event.Metadata.Annotations)[domain.EventAnnotationDeltaGeneration]
+		if generation == nil || *generation <= 0 || completedGeneration != strconv.FormatInt(*generation, 10) {
+			t.log.Infof("Dropping delta completion for device %s: prepared generation %q does not match current generation", t.event.InvolvedObject.Name, completedGeneration)
+			return nil
+		}
+	}
 
 	t.bindVmLauncher(device)
 
