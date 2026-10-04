@@ -3,6 +3,7 @@ package deltaprepare
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/delta_worker/model"
 	"github.com/flightctl/flightctl/internal/domain"
@@ -13,11 +14,12 @@ import (
 // its resource. It carries the resource identity needed by the completion
 // task and does not require a prepare-row lookup.
 type PrepareCompletionPayload struct {
-	Kind                  string  `json:"kind"`
-	Name                  string  `json:"name"`
-	TemplateVersion       *string `json:"templateVersion,omitempty"`
-	Generation            *int64  `json:"generation,omitempty"`
-	SourceResourceVersion int64   `json:"sourceResourceVersion"`
+	Kind                    string     `json:"kind"`
+	Name                    string     `json:"name"`
+	TemplateVersion         *string    `json:"templateVersion,omitempty"`
+	Generation              *int64     `json:"generation,omitempty"`
+	DeviceCreationTimestamp *time.Time `json:"deviceCreationTimestamp,omitempty"`
+	SourceResourceVersion   int64      `json:"sourceResourceVersion"`
 }
 
 // NewPrepareCompletionEvent builds an internal notification for the
@@ -34,11 +36,12 @@ func NewPrepareCompletionEvent(prepare *model.DeltaPrepare) (*domain.Event, erro
 		return nil, fmt.Errorf("prepare source resource version must be positive")
 	}
 	payload := PrepareCompletionPayload{
-		Kind:                  prepare.Kind,
-		Name:                  prepare.Name,
-		TemplateVersion:       prepare.TemplateVersion,
-		Generation:            prepare.Generation,
-		SourceResourceVersion: prepare.SourceResourceVersion,
+		Kind:                    prepare.Kind,
+		Name:                    prepare.Name,
+		TemplateVersion:         prepare.TemplateVersion,
+		Generation:              prepare.Generation,
+		DeviceCreationTimestamp: prepare.DeviceCreationTimestamp,
+		SourceResourceVersion:   prepare.SourceResourceVersion,
 	}
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
@@ -70,12 +73,13 @@ func ParsePrepareCompletionEvent(orgID uuid.UUID, message string) (*model.DeltaP
 		return nil, fmt.Errorf("prepare completion payload has invalid source resource version")
 	}
 	return &model.DeltaPrepare{
-		OrgID:                 orgID,
-		Kind:                  payload.Kind,
-		Name:                  payload.Name,
-		TemplateVersion:       payload.TemplateVersion,
-		Generation:            payload.Generation,
-		SourceResourceVersion: payload.SourceResourceVersion,
-		Status:                model.DeltaPrepareComplete,
+		OrgID:                   orgID,
+		Kind:                    payload.Kind,
+		Name:                    payload.Name,
+		TemplateVersion:         payload.TemplateVersion,
+		Generation:              payload.Generation,
+		DeviceCreationTimestamp: payload.DeviceCreationTimestamp,
+		SourceResourceVersion:   payload.SourceResourceVersion,
+		Status:                  model.DeltaPrepareComplete,
 	}, nil
 }

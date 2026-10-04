@@ -3,6 +3,7 @@ package generationcomplete
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/delta_worker/model"
 	workerservice "github.com/flightctl/flightctl/internal/delta_worker/service"
@@ -20,7 +21,7 @@ import (
 
 type completionStatusStore struct{}
 
-func (completionStatusStore) ResumeDeltaIfCurrent(context.Context, uuid.UUID, string, int64) (bool, error) {
+func (completionStatusStore) ResumeDeltaIfCurrent(context.Context, uuid.UUID, string, int64, time.Time) (bool, error) {
 	return true, nil
 }
 
@@ -30,9 +31,10 @@ func (completionStatusStore) Mutate(_ context.Context, _ uuid.UUID, _ string, _ 
 	resourceVersion := "3"
 	device := &domain.Device{
 		Metadata: domain.ObjectMeta{
-			ResourceVersion: &resourceVersion,
-			Generation:      lo.ToPtr(int64(1)),
-			Annotations:     &map[string]string{domain.DeviceAnnotationRenderedSpecHash: "spec-1"},
+			ResourceVersion:   &resourceVersion,
+			Generation:        lo.ToPtr(int64(1)),
+			CreationTimestamp: lo.ToPtr(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)),
+			Annotations:       &map[string]string{domain.DeviceAnnotationRenderedSpecHash: "spec-1"},
 		},
 		Status: &domain.DeviceStatus{
 			Conditions:      []domain.Condition{{Type: domain.ConditionTypeDeviceDeltaPreparing}},
@@ -115,7 +117,7 @@ type progressStatusStore struct {
 	total     int64
 }
 
-func (s *progressStatusStore) ResumeDeltaIfCurrent(context.Context, uuid.UUID, string, int64) (bool, error) {
+func (s *progressStatusStore) ResumeDeltaIfCurrent(context.Context, uuid.UUID, string, int64, time.Time) (bool, error) {
 	return false, nil
 }
 
@@ -125,9 +127,10 @@ func (s *progressStatusStore) Mutate(_ context.Context, _ uuid.UUID, _ string, _
 	resourceVersion := "3"
 	device := &domain.Device{
 		Metadata: domain.ObjectMeta{
-			ResourceVersion: &resourceVersion,
-			Generation:      lo.ToPtr(int64(1)),
-			Annotations:     &map[string]string{domain.DeviceAnnotationRenderedSpecHash: "spec-1"},
+			ResourceVersion:   &resourceVersion,
+			Generation:        lo.ToPtr(int64(1)),
+			CreationTimestamp: lo.ToPtr(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)),
+			Annotations:       &map[string]string{domain.DeviceAnnotationRenderedSpecHash: "spec-1"},
 		},
 		Status: &domain.DeviceStatus{
 			Conditions:      []domain.Condition{{Type: domain.ConditionTypeDeviceDeltaPreparing}},
@@ -200,12 +203,13 @@ func TestHandlerHandleUpdatesProgressForIncompletePrepare(t *testing.T) {
 	orgID := uuid.New()
 	deviceGeneration := int64(1)
 	prepare := model.DeltaPrepare{
-		ID:         uuid.New(),
-		OrgID:      orgID,
-		Kind:       domain.DeviceKind,
-		Name:       "device-1",
-		Generation: &deviceGeneration,
-		Status:     model.DeltaPrepareWaiting,
+		ID:                      uuid.New(),
+		OrgID:                   orgID,
+		Kind:                    domain.DeviceKind,
+		Name:                    "device-1",
+		Generation:              &deviceGeneration,
+		DeviceCreationTimestamp: lo.ToPtr(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)),
+		Status:                  model.DeltaPrepareWaiting,
 	}
 	generation := &model.DeltaGeneration{
 		OrgID:           orgID,
@@ -234,12 +238,13 @@ func TestHandlerHandleEmitsTerminalProgressForClaimedPrepare(t *testing.T) {
 	orgID := uuid.New()
 	deviceGeneration := int64(1)
 	prepare := model.DeltaPrepare{
-		ID:         uuid.New(),
-		OrgID:      orgID,
-		Kind:       domain.DeviceKind,
-		Name:       "device-1",
-		Generation: &deviceGeneration,
-		Status:     model.DeltaPrepareWaiting,
+		ID:                      uuid.New(),
+		OrgID:                   orgID,
+		Kind:                    domain.DeviceKind,
+		Name:                    "device-1",
+		Generation:              &deviceGeneration,
+		DeviceCreationTimestamp: lo.ToPtr(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)),
+		Status:                  model.DeltaPrepareWaiting,
 	}
 	generation := &model.DeltaGeneration{
 		OrgID:           orgID,

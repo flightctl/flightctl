@@ -25,9 +25,10 @@ type fleetStatusStore interface {
 // created. The resource stores use these values directly in their conditional
 // UPDATE predicates.
 type ResumeIdentity struct {
-	TemplateVersion       *string
-	Generation            *int64
-	SourceResourceVersion int64
+	TemplateVersion         *string
+	Generation              *int64
+	DeviceCreationTimestamp *time.Time
+	SourceResourceVersion   int64
 }
 
 // ResumeIdentityForPrepare converts the durable prepare identity into the
@@ -37,9 +38,10 @@ func ResumeIdentityForPrepare(prepare *model.DeltaPrepare) ResumeIdentity {
 		return ResumeIdentity{}
 	}
 	return ResumeIdentity{
-		TemplateVersion:       prepare.TemplateVersion,
-		Generation:            prepare.Generation,
-		SourceResourceVersion: prepare.SourceResourceVersion,
+		TemplateVersion:         prepare.TemplateVersion,
+		Generation:              prepare.Generation,
+		DeviceCreationTimestamp: prepare.DeviceCreationTimestamp,
+		SourceResourceVersion:   prepare.SourceResourceVersion,
 	}
 }
 
@@ -53,7 +55,7 @@ type ResumeResult struct {
 
 type deviceStatusStore interface {
 	Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.Device, apply devicestore.DeviceApplyFunc, opts ...devicestore.MutateOption) (*domain.Device, *domain.Device, bool, error)
-	ResumeDeltaIfCurrent(ctx context.Context, orgID uuid.UUID, name string, generation int64) (bool, error)
+	ResumeDeltaIfCurrent(ctx context.Context, orgID uuid.UUID, name string, generation int64, creationTimestamp time.Time) (bool, error)
 	SetOutOfDate(ctx context.Context, orgID uuid.UUID, owner string) error
 }
 
@@ -112,7 +114,7 @@ func (s *StorePreparingStatus) Clear(ctx context.Context, orgId uuid.UUID, kind,
 	case domain.FleetKind:
 		return s.clearFleet(ctx, orgId, name)
 	case domain.DeviceKind:
-		return s.clearDevice(ctx, orgId, name)
+		return s.clearDevice(ctx, orgId, name, nil)
 	default:
 		return fmt.Errorf("unsupported preparing status kind %q", kind)
 	}
@@ -152,10 +154,10 @@ func (s *StorePreparingStatus) resumeFleetIfCurrent(ctx context.Context, orgID u
 }
 
 func (s *StorePreparingStatus) resumeDeviceIfCurrent(ctx context.Context, orgID uuid.UUID, name string, identity ResumeIdentity) (ResumeResult, error) {
-	if s.devices == nil || identity.Generation == nil || *identity.Generation <= 0 {
+	if s.devices == nil || identity.Generation == nil || *identity.Generation <= 0 || identity.DeviceCreationTimestamp == nil || identity.DeviceCreationTimestamp.IsZero() {
 		return ResumeResult{}, nil
 	}
-	matched, err := s.devices.ResumeDeltaIfCurrent(ctx, orgID, name, *identity.Generation)
+	matched, err := s.devices.ResumeDeltaIfCurrent(ctx, orgID, name, *identity.Generation, *identity.DeviceCreationTimestamp)
 	if err != nil {
 		return ResumeResult{}, fmt.Errorf("resume device status: %w", err)
 	}
@@ -249,7 +251,7 @@ func (s *StorePreparingStatus) setDevice(ctx context.Context, orgId uuid.UUID, n
 	if s.devices == nil {
 		return fmt.Errorf("device store is required")
 	}
-	if identity.Generation == nil || *identity.Generation <= 0 {
+	if identity.Generation == nil || *identity.Generation <= 0 || identity.DeviceCreationTimestamp == nil || identity.DeviceCreationTimestamp.IsZero() {
 		return nil
 	}
 	condition := preparingCondition(domain.ConditionTypeDeviceDeltaPreparing, completed, total)
@@ -258,7 +260,7 @@ func (s *StorePreparingStatus) setDevice(ctx context.Context, orgId uuid.UUID, n
 		if err := m.RequireExisting(); err != nil {
 			return err
 		}
-		if m.Device.Metadata.Generation == nil || *m.Device.Metadata.Generation != *identity.Generation {
+		if m.Device.Metadata.Generation == nil || *m.Device.Metadata.Generation != *identity.Generation || m.Device.Metadata.CreationTimestamp == nil || !m.Device.Metadata.CreationTimestamp.Equal(*identity.DeviceCreationTimestamp) {
 			return storepkg.ErrMutateSkipWrite
 		}
 		if !initialize && (m.Device.Status == nil || domain.FindStatusCondition(m.Device.Status.Conditions, domain.ConditionTypeDeviceDeltaPreparing) == nil) {
@@ -277,13 +279,26 @@ func (s *StorePreparingStatus) setDevice(ctx context.Context, orgId uuid.UUID, n
 	return nil
 }
 
-func (s *StorePreparingStatus) clearDevice(ctx context.Context, orgId uuid.UUID, name string) error {
+// ClearForPrepare clears replaced work only while the resource still matches
+// the newly admitted prepare. Mutate retries re-check the identity.
+func (s *StorePreparingStatus) ClearForPrepare(ctx context.Context, prepare *model.DeltaPrepare) error {
+	if prepare.Kind != domain.DeviceKind {
+		return s.Clear(ctx, prepare.OrgID, prepare.Kind, prepare.Name)
+	}
+	identity := ResumeIdentityForPrepare(prepare)
+	return s.clearDevice(ctx, prepare.OrgID, prepare.Name, &identity)
+}
+
+func (s *StorePreparingStatus) clearDevice(ctx context.Context, orgId uuid.UUID, name string, identity *ResumeIdentity) error {
 	if s.devices == nil {
 		return fmt.Errorf("device store is required")
 	}
 	_, _, _, err := s.devices.Mutate(ctx, orgId, name, nil, func(m *devicestore.DeviceMutation) error {
 		if err := m.RequireExisting(); err != nil {
 			return err
+		}
+		if identity != nil && (identity.Generation == nil || identity.DeviceCreationTimestamp == nil || m.Device.Metadata.Generation == nil || *m.Device.Metadata.Generation != *identity.Generation || m.Device.Metadata.CreationTimestamp == nil || !m.Device.Metadata.CreationTimestamp.Equal(*identity.DeviceCreationTimestamp)) {
+			return storepkg.ErrMutateSkipWrite
 		}
 		if m.Device.Status == nil {
 			return storepkg.ErrMutateSkipWrite

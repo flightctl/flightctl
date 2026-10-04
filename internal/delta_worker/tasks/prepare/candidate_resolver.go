@@ -200,6 +200,9 @@ func (r *Resolver) candidatesForFleetEvent(ctx context.Context, ev worker_client
 
 func (r *Resolver) candidatesForDeviceEvent(ctx context.Context, ev worker_client.EventWithOrgId) (DeltaCandidateResult, error) {
 	device, status := r.DeviceService.GetDevice(ctx, ev.OrgId, ev.Event.InvolvedObject.Name)
+	if status.Code == http.StatusNotFound {
+		return DeltaCandidateResult{Superseded: true}, nil
+	}
 	if status.Code != http.StatusOK {
 		return DeltaCandidateResult{}, fmt.Errorf("get device %s/%s: %s", ev.OrgId, ev.Event.InvolvedObject.Name, status.Message)
 	}
@@ -223,6 +226,16 @@ func (r *Resolver) candidatesForDeviceEvent(ctx context.Context, ev worker_clien
 			}
 			r.Log.WithField("currentGeneration", currentGeneration).Debugf("Dropping superseded prepare deltas event for device %s/%s at generation %d", ev.OrgId, ev.Event.InvolvedObject.Name, expectedGeneration)
 		}
+		return DeltaCandidateResult{Superseded: true}, nil
+	}
+	details, err := ev.Event.Details.AsPrepareDeltasDetails()
+	if err != nil {
+		return DeltaCandidateResult{}, err
+	}
+	if details.DeviceCreationTimestamp == nil || details.DeviceCreationTimestamp.IsZero() {
+		return DeltaCandidateResult{}, fmt.Errorf("device prepare deltas event requires deviceCreationTimestamp")
+	}
+	if device.Metadata.CreationTimestamp == nil || !device.Metadata.CreationTimestamp.Equal(*details.DeviceCreationTimestamp) {
 		return DeltaCandidateResult{Superseded: true}, nil
 	}
 	if !deviceEligible(device) {

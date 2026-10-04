@@ -558,6 +558,43 @@ var _ = Describe("Delta stores", func() {
 		})
 	})
 
+	It("should admit a re-enrolled device despite a retained prepare with a higher resource version", func() {
+		created := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+		old := &model.DeltaPrepare{
+			OrgID: orgId, Kind: domain.DeviceKind, Name: "reenrolled-device",
+			Generation: lo.ToPtr(int64(2)), DeviceCreationTimestamp: &created, SourceResourceVersion: 100,
+		}
+		admission, err := deltaPrepareStore.CreateOrReplaceWaitingDeltaPrepare(ctx, old)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(admission.Accepted).To(BeTrue())
+		replacement := *old
+		replacement.ID = uuid.New()
+		replacement.DeviceCreationTimestamp = lo.ToPtr(created.Add(time.Hour))
+		replacement.SourceResourceVersion = 2
+		admission, err = deltaPrepareStore.CreateOrReplaceWaitingDeltaPrepare(ctx, &replacement)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(admission.Accepted).To(BeTrue())
+		Expect(admission.Replaced).To(BeTrue())
+		latest, err := deltaPrepareStore.GetLatestDeltaPrepareForResource(ctx, orgId, domain.DeviceKind, old.Name)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(latest.ID).To(Equal(replacement.ID))
+		retained, err := deltaPrepareStore.GetDeltaPrepareByID(ctx, old.ID)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(retained.Status).To(Equal(model.DeltaPrepareFailed))
+		// A delayed event from the old enrollment cannot reclaim preparation.
+		stale := *old
+		stale.ID = uuid.New()
+		stale.SourceResourceVersion = 101
+		admission, err = deltaPrepareStore.CreateOrReplaceWaitingDeltaPrepare(ctx, &stale)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(admission.Accepted).To(BeFalse())
+		Expect(admission.Prepare.ID).To(Equal(replacement.ID))
+		admission, err = deltaPrepareStore.CreateOrReplaceWaitingDeltaPrepare(ctx, &replacement)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(admission.Accepted).To(BeTrue())
+		Expect(admission.Prepare.ID).To(Equal(replacement.ID))
+	})
+
 	DescribeTable("When admitting a prepare with a non-positive source resource version", func(sourceResourceVersion int64) {
 		prep := &model.DeltaPrepare{
 			OrgID:                 orgId,

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/flightctl/flightctl/internal/delta_worker/model"
 	"github.com/flightctl/flightctl/internal/domain"
@@ -193,18 +194,20 @@ func TestStorePreparingStatus_FleetResumeContinuesWhenOutOfDateUpdateFails(t *te
 
 func TestStorePreparingStatus_Device(t *testing.T) {
 	orgId := uuid.New()
+	created := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	devices := &fakeDeviceStatusStore{device: &domain.Device{
 		Metadata: domain.ObjectMeta{
-			Name:            lo.ToPtr("d1"),
-			ResourceVersion: lo.ToPtr("5"),
-			Generation:      lo.ToPtr(int64(1)),
-			Annotations:     &map[string]string{domain.DeviceAnnotationRenderedSpecHash: "spec-1"},
+			Name:              lo.ToPtr("d1"),
+			ResourceVersion:   lo.ToPtr("5"),
+			Generation:        lo.ToPtr(int64(1)),
+			CreationTimestamp: &created,
+			Annotations:       &map[string]string{domain.DeviceAnnotationRenderedSpecHash: "spec-1"},
 		},
 		Status: &domain.DeviceStatus{},
 	}}
 	s := NewStorePreparingStatus(nil, devices)
 	generation := int64(1)
-	prepare := &model.DeltaPrepare{OrgID: orgId, Kind: domain.DeviceKind, Name: "d1", Generation: &generation}
+	prepare := &model.DeltaPrepare{OrgID: orgId, Kind: domain.DeviceKind, Name: "d1", Generation: &generation, DeviceCreationTimestamp: &created}
 
 	t.Run("When Set is called for a device it should update the preparation status", func(t *testing.T) {
 		err := s.SetPreparing(context.Background(), prepare, 0, 1)
@@ -225,14 +228,14 @@ func TestStorePreparingStatus_Device(t *testing.T) {
 	t.Run("When ResumeIfCurrent is called it should clear a matching device", func(t *testing.T) {
 		_ = s.SetPreparing(context.Background(), prepare, 1, 1)
 		result, err := s.ResumeIfCurrent(context.Background(), orgId, domain.DeviceKind, "d1", ResumeIdentity{
-			Generation: &generation,
+			Generation: &generation, DeviceCreationTimestamp: &created,
 		})
 		require.NoError(t, err)
 		assert.True(t, result.Matched)
 		assert.Nil(t, devices.device.Status.DeltaGeneration)
 		assert.Nil(t, domain.FindStatusCondition(devices.device.Status.Conditions, domain.ConditionTypeDeviceDeltaPreparing))
 
-		result, err = s.ResumeIfCurrent(context.Background(), orgId, domain.DeviceKind, "d1", ResumeIdentity{Generation: &generation})
+		result, err = s.ResumeIfCurrent(context.Background(), orgId, domain.DeviceKind, "d1", ResumeIdentity{Generation: &generation, DeviceCreationTimestamp: &created})
 		require.NoError(t, err)
 		assert.False(t, result.Matched)
 	})
@@ -240,7 +243,7 @@ func TestStorePreparingStatus_Device(t *testing.T) {
 	t.Run("When ResumeIfCurrent sees a different device generation it should leave status unchanged", func(t *testing.T) {
 		_ = s.SetPreparing(context.Background(), prepare, 1, 1)
 		staleGeneration := int64(2)
-		result, err := s.ResumeIfCurrent(context.Background(), orgId, domain.DeviceKind, "d1", ResumeIdentity{Generation: &staleGeneration})
+		result, err := s.ResumeIfCurrent(context.Background(), orgId, domain.DeviceKind, "d1", ResumeIdentity{Generation: &staleGeneration, DeviceCreationTimestamp: &created})
 		require.NoError(t, err)
 		assert.False(t, result.Matched)
 		assert.NotNil(t, domain.FindStatusCondition(devices.device.Status.Conditions, domain.ConditionTypeDeviceDeltaPreparing))
@@ -249,8 +252,24 @@ func TestStorePreparingStatus_Device(t *testing.T) {
 	t.Run("When SetIfCurrent sees a different device generation it should leave status unchanged", func(t *testing.T) {
 		_ = s.SetPreparing(context.Background(), prepare, 1, 1)
 		staleGeneration := int64(2)
-		require.NoError(t, s.SetIfCurrent(context.Background(), orgId, domain.DeviceKind, "d1", ResumeIdentity{Generation: &staleGeneration}, 0, 1))
+		require.NoError(t, s.SetIfCurrent(context.Background(), orgId, domain.DeviceKind, "d1", ResumeIdentity{Generation: &staleGeneration, DeviceCreationTimestamp: &created}, 0, 1))
 		assert.Equal(t, int64(1), devices.device.Status.DeltaGeneration.Completed)
+	})
+
+	t.Run("When an old incarnation reports progress or completes it should preserve replacement preparation", func(t *testing.T) {
+		require.NoError(t, s.SetPreparing(context.Background(), prepare, 0, 1))
+		oldIdentity := ResumeIdentity{Generation: &generation, DeviceCreationTimestamp: lo.ToPtr(created.Add(-time.Hour))}
+		require.NoError(t, s.SetIfCurrent(context.Background(), orgId, domain.DeviceKind, "d1", oldIdentity, 1, 1))
+		assert.Zero(t, devices.device.Status.DeltaGeneration.Completed)
+		result, err := s.ResumeIfCurrent(context.Background(), orgId, domain.DeviceKind, "d1", oldIdentity)
+		require.NoError(t, err)
+		assert.False(t, result.Matched)
+		oldPrepare := *prepare
+		oldPrepare.DeviceCreationTimestamp = oldIdentity.DeviceCreationTimestamp
+		require.NoError(t, s.SetPreparing(context.Background(), &oldPrepare, 1, 1))
+		require.NoError(t, s.ClearForPrepare(context.Background(), &oldPrepare))
+		assert.Zero(t, devices.device.Status.DeltaGeneration.Completed)
+		assert.NotNil(t, domain.FindStatusCondition(devices.device.Status.Conditions, domain.ConditionTypeDeviceDeltaPreparing))
 	})
 
 	t.Run("When Set is called with an unsupported kind it should return an error", func(t *testing.T) {
@@ -259,13 +278,13 @@ func TestStorePreparingStatus_Device(t *testing.T) {
 	})
 
 	t.Run("When Set is called without a device store it should return an error", func(t *testing.T) {
-		err := NewStorePreparingStatus(nil, nil).SetIfCurrent(context.Background(), orgId, domain.DeviceKind, "d1", ResumeIdentity{Generation: &generation}, 0, 1)
+		err := NewStorePreparingStatus(nil, nil).SetIfCurrent(context.Background(), orgId, domain.DeviceKind, "d1", ResumeIdentity{Generation: &generation, DeviceCreationTimestamp: &created}, 0, 1)
 		require.EqualError(t, err, "device store is required")
 	})
 
 	t.Run("When the device store returns an error it should propagate it", func(t *testing.T) {
 		storeErr := errors.New("device lookup failed")
-		err := NewStorePreparingStatus(nil, &fakeDeviceStatusStore{getErr: storeErr}).SetIfCurrent(context.Background(), orgId, domain.DeviceKind, "d1", ResumeIdentity{Generation: &generation}, 0, 1)
+		err := NewStorePreparingStatus(nil, &fakeDeviceStatusStore{getErr: storeErr}).SetIfCurrent(context.Background(), orgId, domain.DeviceKind, "d1", ResumeIdentity{Generation: &generation, DeviceCreationTimestamp: &created}, 0, 1)
 		require.ErrorIs(t, err, storeErr)
 	})
 }
@@ -317,11 +336,11 @@ func (f *fakeDeviceStatusStore) SetOutOfDate(_ context.Context, _ uuid.UUID, own
 	return f.outOfDateErr
 }
 
-func (f *fakeDeviceStatusStore) ResumeDeltaIfCurrent(_ context.Context, _ uuid.UUID, _ string, generation int64) (bool, error) {
+func (f *fakeDeviceStatusStore) ResumeDeltaIfCurrent(_ context.Context, _ uuid.UUID, _ string, generation int64, creationTimestamp time.Time) (bool, error) {
 	if f.getErr != nil {
 		return false, f.getErr
 	}
-	if f.device == nil || f.device.Metadata.Generation == nil || *f.device.Metadata.Generation != generation || f.device.Status == nil ||
+	if f.device == nil || f.device.Metadata.CreationTimestamp == nil || !f.device.Metadata.CreationTimestamp.Equal(creationTimestamp) || f.device.Metadata.Generation == nil || *f.device.Metadata.Generation != generation || f.device.Status == nil ||
 		domain.FindStatusCondition(f.device.Status.Conditions, domain.ConditionTypeDeviceDeltaPreparing) == nil {
 		return false, nil
 	}

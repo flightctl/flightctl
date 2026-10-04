@@ -158,7 +158,7 @@ func (s *PrepareStore) createOrReplaceWaitingDeltaPrepare(ctx context.Context, p
 	err := s.getDB(ctx).Transaction(func(tx *gorm.DB) error {
 		var latest model.DeltaPrepare
 		result := tx.Where("org_id = ? AND kind = ? AND name = ?", prep.OrgID, prep.Kind, prep.Name).
-			Order("source_resource_version DESC, created_at DESC, id DESC").
+			Order("device_creation_timestamp DESC NULLS LAST, source_resource_version DESC, created_at DESC, id DESC").
 			Clauses(clause.Locking{Strength: "UPDATE"}).
 			First(&latest)
 		if result.Error != nil && !errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -168,10 +168,10 @@ func (s *PrepareStore) createOrReplaceWaitingDeltaPrepare(ctx context.Context, p
 
 		if result.Error == nil {
 			switch {
-			case prep.SourceResourceVersion < latest.SourceResourceVersion:
+			case latest.CompareSource(prep.DeviceCreationTimestamp, prep.SourceResourceVersion) > 0:
 				admission = PrepareAdmission{Prepare: &latest}
 				return nil
-			case prep.SourceResourceVersion == latest.SourceResourceVersion:
+			case latest.CompareSource(prep.DeviceCreationTimestamp, prep.SourceResourceVersion) == 0:
 				if !samePrepareIdentity(&latest, prep) {
 					return fmt.Errorf("conflicting delta prepares have source resource version %d", prep.SourceResourceVersion)
 				}
@@ -181,8 +181,8 @@ func (s *PrepareStore) createOrReplaceWaitingDeltaPrepare(ctx context.Context, p
 		}
 
 		result = tx.Model(&model.DeltaPrepare{}).
-			Where("org_id = ? AND kind = ? AND name = ? AND status = ? AND source_resource_version < ?",
-				prep.OrgID, prep.Kind, prep.Name, model.DeltaPrepareWaiting, prep.SourceResourceVersion).
+			Where("org_id = ? AND kind = ? AND name = ? AND status = ? AND (device_creation_timestamp IS DISTINCT FROM ? OR source_resource_version < ?)",
+				prep.OrgID, prep.Kind, prep.Name, model.DeltaPrepareWaiting, prep.DeviceCreationTimestamp, prep.SourceResourceVersion).
 			Updates(map[string]interface{}{
 				"status":           model.DeltaPrepareFailed,
 				"resource_version": gorm.Expr("resource_version + 1"),
@@ -194,7 +194,7 @@ func (s *PrepareStore) createOrReplaceWaitingDeltaPrepare(ctx context.Context, p
 		// be no waiting row to update in that case, but the resource-side
 		// preparing marker still belongs to the older prepare and must be cleared
 		// before the new prepare can complete without waiting.
-		admission.Replaced = result.RowsAffected > 0 || (hasLatest && prep.SourceResourceVersion > latest.SourceResourceVersion)
+		admission.Replaced = result.RowsAffected > 0 || (hasLatest && latest.CompareSource(prep.DeviceCreationTimestamp, prep.SourceResourceVersion) < 0)
 
 		if err := tx.Create(prep).Error; err != nil {
 			return store.ErrorFromGormError(err)
@@ -211,7 +211,7 @@ func (s *PrepareStore) createOrReplaceWaitingDeltaPrepare(ctx context.Context, p
 }
 
 func samePrepareIdentity(a, b *model.DeltaPrepare) bool {
-	return a.MatchesTarget(b.TemplateVersion, b.Generation)
+	return a.MatchesTarget(b.TemplateVersion, b.Generation, b.DeviceCreationTimestamp)
 }
 
 func prepareGetConfig(opts []PrepareGetOption) *prepareGet {
@@ -253,7 +253,7 @@ func (s *PrepareStore) GetLatestDeltaPrepareForResource(ctx context.Context, org
 		q = q.Where("status = ?", *cfg.status)
 	}
 	var prepares []model.DeltaPrepare
-	result := q.Order("source_resource_version DESC, created_at DESC, id DESC").Limit(1).Find(&prepares)
+	result := q.Order("device_creation_timestamp DESC NULLS LAST, source_resource_version DESC, created_at DESC, id DESC").Limit(1).Find(&prepares)
 	if result.Error != nil {
 		return nil, store.ErrorFromGormError(result.Error)
 	}
@@ -291,6 +291,7 @@ func (s *PrepareStore) UpdateDeltaPrepare(ctx context.Context, expectedResourceV
 		"name":                      prepare.Name,
 		"template_version":          prepare.TemplateVersion,
 		"generation":                prepare.Generation,
+		"device_creation_timestamp": prepare.DeviceCreationTimestamp,
 		"source_resource_version":   prepare.SourceResourceVersion,
 		"deadline":                  prepare.Deadline,
 		"pending_generations_count": prepare.PendingGenerationsCount,

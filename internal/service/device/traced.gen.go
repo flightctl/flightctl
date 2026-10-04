@@ -47,6 +47,14 @@ func endSpan(span trace.Span, st domain.Status) {
 	span.End()
 }
 
+func (_d *TracedDeviceService) ClearDeltaPreparingIfCurrent(ctx context.Context, orgID uuid.UUID, name string, generation int64, creationTimestamp time.Time) (b1 bool, s1 domain.Status) {
+	ctx, span := startSpan(ctx, "ClearDeltaPreparingIfCurrent")
+
+	b1, s1 = _d.inner.ClearDeltaPreparingIfCurrent(ctx, orgID, name, generation, creationTimestamp)
+	endSpan(span, s1)
+	return b1, s1
+}
+
 func (_d *TracedDeviceService) CountDevices(ctx context.Context, orgId uuid.UUID, params domain.ListDevicesParams, annotationSelector *selector.AnnotationSelector) (i1 int64, s1 domain.Status) {
 	ctx, span := startSpan(ctx, "CountDevices")
 

@@ -3280,6 +3280,9 @@ type PrepareDeltasDetails struct {
 	// DetailType The type of detail for discriminator purposes.
 	DetailType PrepareDeltasDetailsDetailType `json:"detailType"`
 
+	// DeviceCreationTimestamp Device only. The immutable creation timestamp of the device this prepare is for. Required when involvedObject.kind is Device; omitted for Fleet.
+	DeviceCreationTimestamp *time.Time `json:"deviceCreationTimestamp,omitempty"`
+
 	// Generation Device only. The desired spec generation this prepare is for. Required when involvedObject.kind is Device; omitted for Fleet.
 	Generation *int64 `json:"generation,omitempty"`
 
