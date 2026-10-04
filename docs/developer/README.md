@@ -199,4 +199,4 @@ To use the Prometheus UI, run the E2E test suite (e.g. `make e2e-test` or `make 
 
 ## Architecture
 
-- [Enrollment hooks](architecture/enrollment-hooks.md) - BeforeEnrolling and AfterEnrolling hook lifecycle, snapshot model, failure handling, and integrator guidance
+- [Enrollment hook architecture](architecture/enrollment-hooks.md)
