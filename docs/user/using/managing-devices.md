@@ -404,7 +404,7 @@ The agent looks for a referrer in the target image repository. If the registry r
 
 The device uses its existing OS image pull credentials to pull the target image and delta. See [Using Image Pull Secrets](#using-image-pull-secrets) for private registries.
 
-If the agent finds no matching delta, it continues with a full image pull and reports `NotUsed`. If pulling or applying a discovered delta fails, it reports `Fallback` with a reason and continues with a full image pull. A successful delta apply reports `Applied`. See [Device Update Status](../references/device-api-statuses.md#device-update-status) for how to inspect these results.
+If the agent finds no matching delta, it continues with a full image pull. It reports `NotUsed` only when no delta outcome is already recorded for that OS image; otherwise, it retains the existing outcome, including a previous `Fallback` and its reason. If pulling or applying a discovered delta fails, it reports `Fallback` with a reason and continues with a full image pull. A successful delta apply reports `Applied`. See [Device Update Status](../references/device-api-statuses.md#device-update-status) for how to inspect these results.
 
 ### Using Image Pull Secrets
 
