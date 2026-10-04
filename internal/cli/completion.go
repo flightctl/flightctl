@@ -255,6 +255,7 @@ func (kna *KindNameAutocomplete) getAutocompleteNames(cmd *cobra.Command, o Clie
 		return nil
 	}
 	if err := c.Start(ctx); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
 		return nil
 	}
 	defer c.Stop()
@@ -392,6 +393,7 @@ func (kna *KindNameAutocomplete) getImageBuilderNames(ctx context.Context, o Cli
 		return nil
 	}
 	if err := ibClient.Start(ctx); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
 		return nil
 	}
 	defer ibClient.Stop()
