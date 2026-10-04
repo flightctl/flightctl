@@ -3,6 +3,8 @@ package healthcheckextension
 import (
 	"fmt"
 	"net"
+	"net/http"
+	"path"
 	"strings"
 )
 
@@ -71,44 +73,61 @@ func (c *Config) Validate() error {
 		)
 	}
 
+	if err := validateWithServeMux(c.LivePath, c.ReadyPath); err != nil {
+		return err
+	}
+
 	return nil
 }
 
-func validateProbePath(field, path string) error {
-	if path == "" {
+func validateProbePath(field, p string) error {
+	if p == "" {
 		return fmt.Errorf("%q must not be empty", field)
 	}
-	if !strings.HasPrefix(path, "/") {
-		return fmt.Errorf("%q %q must start with /", field, path)
+	if !strings.HasPrefix(p, "/") {
+		return fmt.Errorf("%q %q must start with /", field, p)
 	}
-	if strings.ContainsAny(path, "?#") {
+	if strings.ContainsAny(p, "?#") {
 		return fmt.Errorf(
 			"%q %q must not contain a query string or fragment",
 			field,
-			path,
+			p,
 		)
 	}
-	if strings.Contains(path, "%") {
+	if strings.Contains(p, "%") {
 		return fmt.Errorf(
 			"%q %q must not contain percent-encoded characters",
 			field,
-			path,
+			p,
 		)
 	}
-	if strings.ContainsAny(path, "{}") {
+	if strings.ContainsAny(p, "{}") {
 		return fmt.Errorf(
 			"%q %q must not contain '{' or '}' (ServeMux wildcards are not supported)",
 			field,
-			path,
-		)
-	}
-	if strings.ContainsAny(path, " \t\r\n") {
-		return fmt.Errorf(
-			"%q %q must not contain whitespace",
-			field,
-			path,
+			p,
 		)
 	}
 
+	// Reject non-canonical paths (double slashes, dot segments, trailing slashes).
+	cleaned := path.Clean(p)
+	if cleaned != p {
+		return fmt.Errorf("%s %q must be a canonical path (use %q instead)", field, p, cleaned)
+	}
+
+	return nil
+}
+
+func validateWithServeMux(paths ...string) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("invalid healthcheck route: %v", r)
+		}
+	}()
+	mux := http.NewServeMux()
+	noop := func(http.ResponseWriter, *http.Request) {}
+	for _, p := range paths {
+		mux.HandleFunc(p, noop)
+	}
 	return nil
 }

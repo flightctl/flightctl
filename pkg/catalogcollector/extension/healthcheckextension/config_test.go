@@ -98,7 +98,7 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name:      "When readyPath has trailing whitespace it should be rejected",
 			mutate:    func(c *Config) { c.ReadyPath = "/readyz " },
-			wantError: "must not contain whitespace",
+			wantError: "invalid healthcheck route",
 		},
 		{
 			name:      "When livePath contains ServeMux wildcard braces it should be rejected",
@@ -123,7 +123,17 @@ func TestConfig_Validate(t *testing.T) {
 		{
 			name:      "When livePath contains internal whitespace it should be rejected",
 			mutate:    func(c *Config) { c.LivePath = "/live z" },
-			wantError: "must not contain whitespace",
+			wantError: "invalid healthcheck route",
+		},
+		{
+			name:      "When livePath contains double slashes it should be rejected",
+			mutate:    func(c *Config) { c.LivePath = "//livez" },
+			wantError: "must be a canonical path",
+		},
+		{
+			name:      "When readyPath contains dot segments it should be rejected",
+			mutate:    func(c *Config) { c.ReadyPath = "/livez/../probe" },
+			wantError: "must be a canonical path",
 		},
 	}
 
