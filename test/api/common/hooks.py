@@ -14,6 +14,7 @@ Response validation checks live in common/checks.py.
 import os
 import re
 import uuid
+from copy import deepcopy
 from urllib.parse import unquote
 
 import schemathesis
@@ -327,6 +328,8 @@ def mutate_body(ctx, body):
     if not isinstance(body, dict):
         return body
 
+    # Linked bodies can share nested objects with a cached response used by later links.
+    body = deepcopy(body)
     path = ctx.operation.path
     method = ctx.operation.method.upper()
 
@@ -363,6 +366,14 @@ def mutate_query(ctx, query):
 # ===========================================================================
 
 _RFC1123_RE = re.compile(r'^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$')
+
+
+@schemathesis.hook("before_call").apply_to(method=["POST", "PUT"])
+def isolate_request_body(ctx, case, **kwargs):
+    # Stateful links can merge response objects after map_body. Detach them
+    # before any of the following hooks modify metadata or spec in place.
+    if isinstance(case.body, dict):
+        case.body = deepcopy(case.body)
 
 
 # --- POST: ensure protocol + service fields are set (covers Examples phase)
