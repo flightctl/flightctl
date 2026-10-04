@@ -20,6 +20,7 @@ import (
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/google/uuid"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/sirupsen/logrus"
 )
 
 type DeltaCandidate struct {
@@ -41,6 +42,7 @@ type Resolver struct {
 	RepositoryService      repositoryservice.Service
 	TemplateVersionService templateversionservice.Service
 	Config                 *deltaconfig.DeltaGenerationConfig
+	Log                    logrus.FieldLogger
 
 	Inspect          func(ctx context.Context, orgId uuid.UUID, image string) (string, error)
 	InspectForSource func(
@@ -207,7 +209,20 @@ func (r *Resolver) candidatesForDeviceEvent(ctx context.Context, ev worker_clien
 	}
 	// Rendering is held until preparation finishes, so the rendered spec hash
 	// can still describe an earlier desired spec. Generation changes immediately.
-	if device == nil || device.Metadata.Generation == nil || *device.Metadata.Generation != expectedGeneration {
+	if device == nil {
+		if r.Log != nil {
+			r.Log.Debugf("Dropping prepare deltas event for device %s/%s at generation %d: device no longer exists", ev.OrgId, ev.Event.InvolvedObject.Name, expectedGeneration)
+		}
+		return DeltaCandidateResult{Superseded: true}, nil
+	}
+	if device.Metadata.Generation == nil || *device.Metadata.Generation != expectedGeneration {
+		if r.Log != nil {
+			var currentGeneration any
+			if device.Metadata.Generation != nil {
+				currentGeneration = *device.Metadata.Generation
+			}
+			r.Log.WithField("currentGeneration", currentGeneration).Debugf("Dropping superseded prepare deltas event for device %s/%s at generation %d", ev.OrgId, ev.Event.InvolvedObject.Name, expectedGeneration)
+		}
 		return DeltaCandidateResult{Superseded: true}, nil
 	}
 	if !deviceEligible(device) {

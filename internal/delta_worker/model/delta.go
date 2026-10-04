@@ -58,6 +58,19 @@ func (DeltaPrepare) TableName() string {
 	return "delta_prepares"
 }
 
+// MatchesTarget compares the desired fleet template or standalone device generation.
+// SourceResourceVersion is checked separately when ordering prepare events.
+func (p *DeltaPrepare) MatchesTarget(templateVersion *string, generation *int64) bool {
+	return equalPointer(p.TemplateVersion, templateVersion) && equalPointer(p.Generation, generation)
+}
+
+func equalPointer[T comparable](a, b *T) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
+}
+
 // DeltaPrepareGeneration is the join row that attaches a DeltaPrepare to the
 // DeltaGeneration keys it is waiting on. Completed prevents a redelivered
 // terminal-generation notification from decrementing the prepare again.

@@ -468,21 +468,7 @@ func identityFromEvent(ev worker_client.EventWithOrgId) (prepareIdentity, error)
 }
 
 func samePrepareIdentity(prep *model.DeltaPrepare, id prepareIdentity) bool {
-	return equalStringPtr(prep.TemplateVersion, id.templateVersion) && equalInt64Ptr(prep.Generation, id.generation) && prep.SourceResourceVersion == id.resourceVersion
-}
-
-func equalInt64Ptr(a, b *int64) bool {
-	if a == nil || b == nil {
-		return a == b
-	}
-	return *a == *b
-}
-
-func equalStringPtr(a, b *string) bool {
-	if a == nil || b == nil {
-		return a == b
-	}
-	return *a == *b
+	return prep.MatchesTarget(id.templateVersion, id.generation) && prep.SourceResourceVersion == id.resourceVersion
 }
 
 func isTerminalGeneration(status string) bool {

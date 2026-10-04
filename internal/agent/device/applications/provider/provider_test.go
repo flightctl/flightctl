@@ -291,6 +291,25 @@ func TestDecorateApplicationTargetsDoesNotTrackHelmChartAsWorkloadDelta(t *testi
 	got := decorateApplicationTargets([]dependency.OCIPullTarget{chart}, &parentHint, nil, "helm-app")
 
 	require.Nil(t, got[0].Delta)
+
+	const digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const workloadHint = "quay.io/acme/deltas/workload@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	workload := dependency.OCIPullTarget{
+		Reference: "quay.io/acme/workload:2.0.0",
+		Digest:    digest,
+	}
+	const otherDigest = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	otherWorkload := dependency.OCIPullTarget{Reference: "quay.io/acme/other@" + otherDigest}
+	got = decorateApplicationTargets(
+		[]dependency.OCIPullTarget{chart, workload, otherWorkload},
+		&parentHint,
+		[]v1beta1.ImageDeltaHint{{TargetImage: workload.Reference, TargetDigest: digest, DeltaImage: workloadHint}},
+		"helm-app",
+	)
+
+	require.Nil(t, got[0].Delta)
+	require.Equal(t, &dependency.OCIDeltaTarget{Hint: workloadHint, SourceDigest: digest, Application: "helm-app"}, got[1].Delta)
+	require.Equal(t, &dependency.OCIDeltaTarget{SourceDigest: otherDigest, Application: "helm-app"}, got[2].Delta)
 }
 
 func TestCollectProviderTargetsDeferredDependencies(t *testing.T) {

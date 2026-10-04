@@ -1340,6 +1340,8 @@ func (m *prefetchManager) prepareTask(ctx context.Context, target imageRef, ociT
 	defer m.mu.Unlock()
 
 	if existing, exists := m.tasks[target]; exists {
+		// BeforeUpdate runs cleanupChangedTasks before Schedule, so a reused
+		// task still has the current digest, OCI type, delta, and target key.
 		// Reuse a matching task across update generations. If it already
 		// completed successfully, the target is present and no delta was used
 		// for this generation unless a restored result already says otherwise.
@@ -1690,27 +1692,6 @@ func (m *prefetchManager) collectApplicationDeltaApplyResults() (
 ) {
 	applicationResults := make(map[string]map[string]applicationDeltaApplyResult)
 	pendingApplications := make(map[string]struct{})
-	if m.deltaAppTargetKeys == nil {
-		for target, task := range m.tasks {
-			if task.delta == nil {
-				continue
-			}
-			for _, application := range deltaApplications(task.delta) {
-				result, exists := m.deltaApplyResults[application][target]
-				if !exists || (result.targetKey != "" && task.applicationTargetKey != "" && result.targetKey != task.applicationTargetKey) {
-					pendingApplications[application] = struct{}{}
-					continue
-				}
-				if applicationResults[application] == nil {
-					applicationResults[application] = make(map[string]applicationDeltaApplyResult)
-				}
-				targetID := deltastatus.Fingerprint(string(target.owner), target.image)
-				applicationResults[application][targetID] = result
-			}
-		}
-		return applicationResults, pendingApplications
-	}
-
 	for application, expectedTargets := range m.deltaAppTargetKeys {
 		for targetID, targetKey := range expectedTargets {
 			result, exists := m.currentApplicationDeltaResult(application, targetID, targetKey)

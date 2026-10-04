@@ -112,7 +112,7 @@ func TestApplicationDeltaPrefetch(t *testing.T) {
 			podman := client.NewPodman(logger, exec, rw, poll.NewConfig(time.Millisecond, 2))
 			skopeo := client.NewSkopeo(logger, exec, rw)
 			target := imageRef{image: image}
-			task := &prefetchTask{delta: tt.delta, deltaGeneration: 1}
+			task := &prefetchTask{delta: tt.delta, deltaGeneration: 1, applicationTargetKey: applicationImageTargetKeyFor(target, "", OCITypePodmanImage)}
 			manager := &prefetchManager{
 				log:                   logger,
 				readWriter:            rw,
@@ -122,6 +122,9 @@ func TestApplicationDeltaPrefetch(t *testing.T) {
 				deltaGeneration:       1,
 				deltaApplyResults:     make(map[string]map[imageRef]applicationDeltaApplyResult),
 				deltaTargetsScheduled: true,
+				deltaAppTargetKeys: map[string]map[string]string{
+					"app": {deltastatus.Fingerprint(string(target.owner), target.image): task.applicationTargetKey},
+				},
 			}
 
 			pull := func() error {
@@ -212,10 +215,46 @@ func TestAggregateApplicationDeltaApplyResults(t *testing.T) {
 	}
 }
 
+func TestApplicationDeltaStatusWaitsForTargetsToBeScheduled(t *testing.T) {
+	const application = "app"
+	target := imageRef{image: "quay.io/acme/workload:target"}
+	const targetKey = "target-key"
+	manager := &prefetchManager{
+		tasks: make(map[imageRef]*prefetchTask),
+		deltaApplyResults: map[string]map[imageRef]applicationDeltaApplyResult{
+			application: {target: {outcome: v1beta1.DeviceDeltaApplyOutcomeApplied, targetKey: targetKey}},
+		},
+		deltaAppTargetKeys: map[string]map[string]string{
+			application: {deltastatus.Fingerprint(string(target.owner), target.image): targetKey},
+		},
+	}
+
+	for _, tt := range []struct {
+		name      string
+		scheduled bool
+	}{
+		{name: "When targets are still being scheduled it should withhold LastDelta"},
+		{name: "When all targets are scheduled it should publish LastDelta", scheduled: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			manager.deltaTargetsScheduled = tt.scheduled
+			deviceStatus := &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: application}}}
+			require.NoError(t, manager.Status(context.Background(), deviceStatus))
+			if !tt.scheduled {
+				require.Nil(t, deviceStatus.Applications[0].LastDelta)
+				return
+			}
+			require.NotNil(t, deviceStatus.Applications[0].LastDelta)
+			require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeApplied, deviceStatus.Applications[0].LastDelta.Outcome)
+		})
+	}
+}
+
 func TestApplicationDeltaStatusWaitsForAllTargetsToHaveResults(t *testing.T) {
 	const application = "app"
 	manager := &prefetchManager{
-		tasks: make(map[imageRef]*prefetchTask),
+		deltaTargetsScheduled: true,
+		tasks:                 make(map[imageRef]*prefetchTask),
 		deltaApplyResults: map[string]map[imageRef]applicationDeltaApplyResult{
 			application: make(map[imageRef]applicationDeltaApplyResult),
 		},
@@ -247,7 +286,8 @@ func TestApplicationDeltaStatusWaitsForAllTargetsToHaveResults(t *testing.T) {
 
 	deviceStatus := &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: application}}}
 	require.NoError(t, manager.Status(context.Background(), deviceStatus))
-	require.Nil(t, deviceStatus.Applications[0].LastDelta)
+	require.NotNil(t, deviceStatus.Applications[0].LastDelta)
+	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeApplied, deviceStatus.Applications[0].LastDelta.Outcome)
 
 	lastTarget := imageRef{image: "quay.io/acme/workload-6:target"}
 	lastTargetKey := "target-key:" + lastTarget.image
@@ -257,7 +297,6 @@ func TestApplicationDeltaStatusWaitsForAllTargetsToHaveResults(t *testing.T) {
 	}
 	manager.tasks[lastTarget] = lastTask
 	manager.deltaAppTargetKeys[application][deltastatus.Fingerprint(string(lastTarget.owner), lastTarget.image)] = lastTargetKey
-	manager.deltaTargetsScheduled = true
 	deviceStatus = &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: application}}}
 	require.NoError(t, manager.Status(context.Background(), deviceStatus))
 	require.Nil(t, deviceStatus.Applications[0].LastDelta)
@@ -627,6 +666,10 @@ func TestApplicationDeltaPrefetchRunsAsRunAsUser(t *testing.T) {
 	}
 	target := imageRef{image: image, owner: runAsUser}
 	task := &prefetchTask{delta: &OCIDeltaTarget{Hint: candidate, Application: "app"}, deltaGeneration: 1}
+	task.applicationTargetKey = applicationImageTargetKeyFor(target, "", OCITypePodmanImage)
+	manager.deltaAppTargetKeys = map[string]map[string]string{
+		"app": {deltastatus.Fingerprint(string(target.owner), target.image): task.applicationTargetKey},
+	}
 	manager.tasks[target] = task
 
 	deltaFetch := userExec.EXPECT().ExecuteWithContext(
@@ -688,6 +731,10 @@ func TestApplicationDeltaPrefetchRunAsDeltaImportFailureFallsBackToFullPull(t *t
 	}
 	target := imageRef{image: image, owner: runAsUser}
 	task := &prefetchTask{delta: &OCIDeltaTarget{Hint: candidate, Application: "app"}, deltaGeneration: 1}
+	task.applicationTargetKey = applicationImageTargetKeyFor(target, "", OCITypePodmanImage)
+	manager.deltaAppTargetKeys = map[string]map[string]string{
+		"app": {deltastatus.Fingerprint(string(target.owner), target.image): task.applicationTargetKey},
+	}
 	manager.tasks[target] = task
 
 	deltaFetch := userExec.EXPECT().ExecuteWithContext(
