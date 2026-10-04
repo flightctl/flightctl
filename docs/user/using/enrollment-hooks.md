@@ -77,6 +77,8 @@ Each organization can have one enrollment hook policy, named `default`. It appli
 
 Flight Control saves the policy settings when it approves enrollment. Changing or deleting the policy later does not change those settings for devices already approved. Hook commands and rule files remain on the device; the policy does not distribute them.
 
+For command syntax, flags, and examples to inspect, edit, or delete the policy, see [Managing enrollment hook policies](../references/cli-commands.md#managing-enrollment-hook-policies).
+
 ## Notifying external services
 
 You can notify an external service when enrollment is approved. Add HTTPS actions to `spec.afterEnrolling.controlPlaneActions` in the policy, for example:
