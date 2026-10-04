@@ -162,6 +162,95 @@ func TestApplicationDeltaPrefetch(t *testing.T) {
 	}
 }
 
+func TestCachedApplicationImageReportsNotRequiredWhenDigestMatches(t *testing.T) {
+	const (
+		application = "app"
+		image       = "quay.io/acme/app:v2"
+		digest      = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	)
+
+	tests := []struct {
+		name            string
+		previousOutcome v1beta1.DeviceDeltaApplyOutcomeType
+		wantOutcome     v1beta1.DeviceDeltaApplyOutcomeType
+	}{
+		{
+			name:        "When a cached image matches and has no previous result it should report NotRequired",
+			wantOutcome: v1beta1.DeviceDeltaApplyOutcomeNotRequired,
+		},
+		{
+			name:            "When a cached image matches after delta application it should preserve Applied",
+			previousOutcome: v1beta1.DeviceDeltaApplyOutcomeApplied,
+			wantOutcome:     v1beta1.DeviceDeltaApplyOutcomeApplied,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			exec := executer.NewMockExecuter(ctrl)
+			localDigest := exec.EXPECT().ExecuteWithContext(
+				gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", image,
+			).Return(digest, "", 0)
+			requestedDigest := exec.EXPECT().ExecuteWithContext(
+				gomock.Any(), "skopeo", "inspect", "--format", "{{.Digest}}", "docker://"+image,
+			).Return(digest, "", 0)
+			gomock.InOrder(localDigest, requestedDigest)
+
+			root := t.TempDir()
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(root)),
+				fileio.NewWriter(fileio.WithWriterRootDir(root)),
+			)
+			logger := log.NewPrefixLogger("test")
+			podman := client.NewPodman(logger, exec, rw, poll.NewConfig(time.Millisecond, 2))
+			skopeo := client.NewSkopeo(logger, exec, rw)
+			target := imageRef{image: image}
+			targetID := deltastatus.Fingerprint(string(target.owner), target.image)
+			targetKey := applicationImageTargetKeyFor(target, digest, OCITypePodmanImage)
+			task := &prefetchTask{
+				ociType:              OCITypePodmanImage,
+				targetDigest:         digest,
+				applicationTargetKey: targetKey,
+				targetPresent:        true,
+				delta:                &OCIDeltaTarget{Application: application},
+				deltaGeneration:      1,
+			}
+			manager := &prefetchManager{
+				log: logger,
+				podmanFactory: func(v1beta1.Username) (*client.Podman, error) {
+					return podman, nil
+				},
+				skopeoFactory: func(v1beta1.Username) (*client.Skopeo, error) {
+					return skopeo, nil
+				},
+				pullTimeout:           time.Minute,
+				tasks:                 map[imageRef]*prefetchTask{target: task},
+				deltaGeneration:       1,
+				deltaApplyResults:     make(map[string]map[imageRef]applicationDeltaApplyResult),
+				deltaTargetsScheduled: true,
+				deltaTargetRefs:       map[string]imageRef{targetID: target},
+				deltaAppTargetKeys: map[string]map[string]string{
+					application: {targetID: targetKey},
+				},
+			}
+			if tt.previousOutcome != "" {
+				manager.deltaApplyResults[application] = map[imageRef]applicationDeltaApplyResult{
+					target: {outcome: tt.previousOutcome, targetKey: targetKey},
+				}
+			}
+
+			require.NoError(t, manager.pull(context.Background(), target, task))
+			task.done = true
+
+			deviceStatus := &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: application}}}
+			require.NoError(t, manager.Status(context.Background(), deviceStatus))
+			require.NotNil(t, deviceStatus.Applications[0].LastDelta)
+			require.Equal(t, tt.wantOutcome, deviceStatus.Applications[0].LastDelta.Outcome)
+		})
+	}
+}
+
 func TestAggregateApplicationDeltaApplyResults(t *testing.T) {
 	targetA := "target-a"
 	targetB := "target-b"
@@ -178,6 +267,22 @@ func TestAggregateApplicationDeltaApplyResults(t *testing.T) {
 				targetB: {outcome: v1beta1.DeviceDeltaApplyOutcomeApplied},
 			},
 			wantOutcome: v1beta1.DeviceDeltaApplyOutcomeApplied,
+		},
+		{
+			name: "When one image delta applies and another is not required it should report Applied",
+			results: map[string]applicationDeltaApplyResult{
+				targetA: {outcome: v1beta1.DeviceDeltaApplyOutcomeApplied},
+				targetB: {outcome: v1beta1.DeviceDeltaApplyOutcomeNotRequired},
+			},
+			wantOutcome: v1beta1.DeviceDeltaApplyOutcomeApplied,
+		},
+		{
+			name: "When every image target is already at its desired digest it should report NotRequired",
+			results: map[string]applicationDeltaApplyResult{
+				targetA: {outcome: v1beta1.DeviceDeltaApplyOutcomeNotRequired},
+				targetB: {outcome: v1beta1.DeviceDeltaApplyOutcomeNotRequired},
+			},
+			wantOutcome: v1beta1.DeviceDeltaApplyOutcomeNotRequired,
 		},
 		{
 			name: "When all image deltas fall back it should report Fallback",
@@ -520,6 +625,10 @@ func TestApplicationDeltaStatusPersistsAcrossRestartAndClearsForChangedSpec(t *t
 
 	refV2, targetV2 := makeTarget(imageV2, imageDigestV2, deltaV2, "sha256:source-v1")
 	desiredV2 := &v1beta1.DeviceSpec{Applications: &[]v1beta1.ApplicationProviderSpec{makeApplication(imageV2)}}
+	desiredV2WithUnrelatedOSUpdate := &v1beta1.DeviceSpec{
+		Os:           &v1beta1.DeviceOsSpec{Image: "quay.io/acme/os:v2"},
+		Applications: desiredV2.Applications,
+	}
 	specKeys, err := applicationDeltaSpecKeys(desiredV2, nil)
 	require.NoError(t, err)
 	targetID := deltastatus.Fingerprint(string(refV2.owner), refV2.image)
@@ -567,11 +676,11 @@ func TestApplicationDeltaStatusPersistsAcrossRestartAndClearsForChangedSpec(t *t
 	require.NotNil(t, deviceStatus.Applications[0].LastDelta)
 	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeApplied, deviceStatus.Applications[0].LastDelta.Outcome)
 
-	// A changed delta hint for the same target does not erase the fact that the
-	// current image was reconstructed with a delta before the restart.
+	// An unrelated OS update and a changed delta hint do not erase the fact that
+	// the current application image was reconstructed with a delta before restart.
 	_, targetWithNewHint := makeTarget(imageV2, imageDigestV2, deltaV3, "sha256:source-v2")
 	target = targetWithNewHint
-	require.NoError(t, manager.BeforeUpdate(ctx, desiredV2, desiredV2))
+	require.NoError(t, manager.BeforeUpdate(ctx, desiredV2, desiredV2WithUnrelatedOSUpdate))
 	deviceStatus = &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: "app"}}}
 	require.NoError(t, manager.Status(ctx, deviceStatus))
 	require.NotNil(t, deviceStatus.Applications[0].LastDelta)
@@ -591,8 +700,11 @@ func TestApplicationDeltaStatusPersistsAcrossRestartAndClearsForChangedSpec(t *t
 	// is reported as NotUsed, rather than inheriting v2's Applied outcome.
 	refV3, targetV3 := makeTarget(imageV3, imageDigestV3, deltaV3, "sha256:source-v2")
 	target = targetV3
-	desiredV3 := &v1beta1.DeviceSpec{Applications: &[]v1beta1.ApplicationProviderSpec{makeApplication(imageV3)}}
-	require.NoError(t, manager.BeforeUpdate(ctx, desiredV2, desiredV3))
+	desiredV3 := &v1beta1.DeviceSpec{
+		Os:           desiredV2WithUnrelatedOSUpdate.Os,
+		Applications: &[]v1beta1.ApplicationProviderSpec{makeApplication(imageV3)},
+	}
+	require.NoError(t, manager.BeforeUpdate(ctx, desiredV2WithUnrelatedOSUpdate, desiredV3))
 	deviceStatus = &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: "app"}}}
 	require.NoError(t, manager.Status(ctx, deviceStatus))
 	require.NotNil(t, deviceStatus.Applications[0].LastDelta)

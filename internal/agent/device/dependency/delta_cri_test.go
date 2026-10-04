@@ -130,3 +130,64 @@ func TestApplicationDeltaPrefetchCRIRefreshesRegistryReference(t *testing.T) {
 		})
 	}
 }
+
+func TestApplicationDeltaCRICachedImageReportsNotRequiredWhenDigestMatches(t *testing.T) {
+	const (
+		application = "app"
+		image       = "quay.io/acme/app:v2"
+		digest      = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	)
+
+	ctrl := gomock.NewController(t)
+	exec := executer.NewMockExecuter(ctrl)
+	exec.EXPECT().ExecuteWithContext(
+		gomock.Any(), "crictl", "inspecti", "--output", "json", image,
+	).Return(`{"status":{"repoDigests":["quay.io/acme/app@`+digest+`"]}}`, "", 0)
+	exec.EXPECT().ExecuteWithContext(
+		gomock.Any(), "skopeo", "inspect", "--format", "{{.Digest}}", "docker://"+image,
+	).Return(digest, "", 0)
+
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(root)),
+		fileio.NewWriter(fileio.WithWriterRootDir(root)),
+	)
+	logger := log.NewPrefixLogger("test")
+	cri := client.NewCRI(logger, exec, rw, poll.NewConfig(time.Millisecond, 2))
+	skopeo := client.NewSkopeo(logger, exec, rw)
+	target := imageRef{image: image}
+	targetID := deltastatus.Fingerprint(string(target.owner), target.image)
+	targetKey := applicationImageTargetKeyFor(target, digest, OCITypeCRIImage)
+	task := &prefetchTask{
+		ociType:              OCITypeCRIImage,
+		targetDigest:         digest,
+		applicationTargetKey: targetKey,
+		targetPresent:        true,
+		delta:                &OCIDeltaTarget{Application: application},
+		deltaGeneration:      1,
+	}
+	manager := &prefetchManager{
+		log: logger,
+		skopeoFactory: func(v1beta1.Username) (*client.Skopeo, error) {
+			return skopeo, nil
+		},
+		cliClients:            client.NewCLIClients(client.WithCRIClient(cri)),
+		pullTimeout:           time.Minute,
+		tasks:                 map[imageRef]*prefetchTask{target: task},
+		deltaGeneration:       1,
+		deltaApplyResults:     make(map[string]map[imageRef]applicationDeltaApplyResult),
+		deltaTargetsScheduled: true,
+		deltaTargetRefs:       map[string]imageRef{targetID: target},
+		deltaAppTargetKeys: map[string]map[string]string{
+			application: {targetID: targetKey},
+		},
+	}
+
+	require.NoError(t, manager.pull(context.Background(), target, task))
+	task.done = true
+
+	deviceStatus := &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: application}}}
+	require.NoError(t, manager.Status(context.Background(), deviceStatus))
+	require.NotNil(t, deviceStatus.Applications[0].LastDelta)
+	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeNotRequired, deviceStatus.Applications[0].LastDelta.Outcome)
+}

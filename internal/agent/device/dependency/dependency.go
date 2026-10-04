@@ -195,7 +195,7 @@ type OCIPullTarget struct {
 	Reference    string
 	Digest       string
 	PullPolicy   v1beta1.ImagePullPolicy
-	ClientOptsFn ClientOptsFn // Called only when pulling is actually needed
+	ClientOptsFn ClientOptsFn // Resolved when pulling the target or inspecting its registry digest
 	Delta        *OCIDeltaTarget
 }
 
@@ -350,6 +350,7 @@ type prefetchTask struct {
 	ociType              OCIType
 	targetDigest         string
 	applicationTargetKey string
+	targetPresent        bool
 	delta                *OCIDeltaTarget
 	deltaGeneration      uint64
 	err                  error
@@ -845,6 +846,39 @@ func (m *prefetchManager) processTarget(ctx context.Context, target imageRef) {
 func (m *prefetchManager) pull(ctx context.Context, target imageRef, task *prefetchTask) error {
 	ociType := task.ociType
 
+	// Evaluate client options lazily at pull time
+	opts := []client.ClientOption{client.Timeout(m.pullTimeout)}
+	if task.clientOptsFn != nil {
+		opts = append(opts, task.clientOptsFn()...)
+	}
+	if task.targetPresent {
+		outcome := v1beta1.DeviceDeltaApplyOutcomeNotUsed
+		var podman *client.Podman
+		needsPodman := ociType == OCITypePodmanImage || ociType == OCITypeAuto
+		if needsPodman {
+			createdPodman, err := m.podmanFactory(target.owner)
+			if err != nil {
+				m.log.Debugf("Could not create Podman client for %s while checking delta necessity: %v", target, err)
+			} else {
+				podman = createdPodman
+			}
+		}
+		skopeo, err := m.skopeoFactory(target.owner)
+		if err != nil {
+			m.log.Debugf("Could not create Skopeo client for %s while checking delta necessity: %v", target, err)
+		}
+		canCheck := skopeo != nil && (!needsPodman || podman != nil)
+		if task.delta != nil && task.delta.Hint == "" && canCheck && m.applicationImageDigestMatchesTarget(
+			ctx, target, ociType, task.delta, true, podman, skopeo, opts...,
+		) {
+			outcome = v1beta1.DeviceDeltaApplyOutcomeNotRequired
+		}
+		if task.delta != nil {
+			m.recordDeltaApplyResult(target, task, outcome, "")
+		}
+		return nil
+	}
+
 	podman, err := m.podmanFactory(target.owner)
 	if err != nil {
 		return fmt.Errorf("creating podman client: %w", err)
@@ -853,12 +887,6 @@ func (m *prefetchManager) pull(ctx context.Context, target imageRef, task *prefe
 	skopeo, err := m.skopeoFactory(target.owner)
 	if err != nil {
 		return fmt.Errorf("creating skopeo client: %w", err)
-	}
-
-	// Evaluate client options lazily at pull time
-	opts := []client.ClientOption{client.Timeout(m.pullTimeout)}
-	if task.clientOptsFn != nil {
-		opts = append(opts, task.clientOptsFn()...)
 	}
 
 	switch ociType {
@@ -904,6 +932,17 @@ func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, tas
 		_, err := cri.Pull(ctx, target.image, opts...)
 		return err
 	}
+	deltaOpts := append([]client.ClientOption(nil), opts...)
+	deltaOpts = append(deltaOpts, client.WithDefaultAuth())
+	if task.delta.Hint == "" && m.applicationImageDigestMatchesTarget(
+		ctx, target, OCITypeCRIImage, task.delta, false, nil, skopeo, deltaOpts...,
+	) {
+		_, err := cri.Pull(ctx, target.image, opts...)
+		if err == nil {
+			m.recordDeltaNotRequired(target, task)
+		}
+		return err
+	}
 	if m.ociDelta == nil {
 		// CRI imports use the rootful client that targets the runtime's storage.
 		// The per-user factory serves Podman-backed application storage only.
@@ -911,9 +950,6 @@ func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, tas
 		m.recordDeltaNotUsed(target, task)
 		return err
 	}
-	deltaOpts := append([]client.ClientOption(nil), opts...)
-	deltaOpts = append(deltaOpts, client.WithDefaultAuth())
-
 	candidate := task.delta.Hint
 	if candidate == "" && task.delta.SourceDigest != "" {
 		index, err := skopeo.ListReferrers(ctx, target.image, deltaOpts...)
@@ -1075,6 +1111,17 @@ func (m *prefetchManager) pullApplicationImage(ctx context.Context, target image
 		_, err := podman.Pull(ctx, target.image, opts...)
 		return err
 	}
+	deltaOpts := append([]client.ClientOption(nil), opts...)
+	deltaOpts = append(deltaOpts, client.WithDefaultAuth())
+	if task.delta.Hint == "" && m.applicationImageDigestMatchesTarget(
+		ctx, target, OCITypePodmanImage, task.delta, false, podman, skopeo, deltaOpts...,
+	) {
+		_, err := podman.Pull(ctx, target.image, opts...)
+		if err == nil {
+			m.recordDeltaNotRequired(target, task)
+		}
+		return err
+	}
 	if m.ociDelta == nil && m.ociDeltaFactory == nil {
 		_, err := podman.Pull(ctx, target.image, opts...)
 		m.recordDeltaNotUsed(target, task)
@@ -1084,9 +1131,6 @@ func (m *prefetchManager) pullApplicationImage(ctx context.Context, target image
 	if err != nil {
 		return m.applicationDeltaFallback(ctx, target, task, podman, err, opts...)
 	}
-	deltaOpts := append([]client.ClientOption(nil), opts...)
-	deltaOpts = append(deltaOpts, client.WithDefaultAuth())
-
 	candidate := task.delta.Hint
 	if candidate == "" && task.delta.SourceDigest != "" {
 		index, err := skopeo.ListReferrers(ctx, target.image, deltaOpts...)
@@ -1213,6 +1257,10 @@ func (m *prefetchManager) recordDeltaNotUsed(target imageRef, task *prefetchTask
 	m.recordDeltaApplyResult(target, task, v1beta1.DeviceDeltaApplyOutcomeNotUsed, "")
 }
 
+func (m *prefetchManager) recordDeltaNotRequired(target imageRef, task *prefetchTask) {
+	m.recordDeltaApplyResult(target, task, v1beta1.DeviceDeltaApplyOutcomeNotRequired, "")
+}
+
 func (m *prefetchManager) recordDeltaApplyResult(target imageRef, task *prefetchTask, outcome v1beta1.DeviceDeltaApplyOutcomeType, fallbackReason string) {
 	if task == nil || task.delta == nil {
 		return
@@ -1250,8 +1298,12 @@ func (m *prefetchManager) recordDeltaApplyResultLocked(target imageRef, task *pr
 			results = make(map[imageRef]applicationDeltaApplyResult)
 			m.deltaApplyResults[application] = results
 		}
-		if existing, exists := results[target]; outcome == v1beta1.DeviceDeltaApplyOutcomeNotUsed && exists {
-			if existing.targetKey == task.applicationTargetKey {
+		if existing, exists := results[target]; exists && existing.targetKey == task.applicationTargetKey {
+			// Keep the recorded result for an unchanged image target. A verified
+			// NotRequired can upgrade an earlier NotUsed, but must not erase the
+			// outcome that describes how this target was originally applied.
+			if outcome == v1beta1.DeviceDeltaApplyOutcomeNotUsed ||
+				(outcome == v1beta1.DeviceDeltaApplyOutcomeNotRequired && existing.outcome != v1beta1.DeviceDeltaApplyOutcomeNotUsed) {
 				continue
 			}
 		}
@@ -1351,6 +1403,14 @@ func (m *prefetchManager) prepareTask(ctx context.Context, target imageRef, ociT
 		// for this generation unless a restored result already says otherwise.
 		existing.deltaGeneration = m.deltaGeneration
 		if existing.done && existing.err == nil && delta != nil {
+			if delta.Hint == "" && supportsApplicationImageDigestCheck(existing.ociType) {
+				existing.clientOptsFn = clientOptsFn
+				existing.targetPresent = true
+				existing.delta = delta
+				existing.done = false
+				existing.err = nil
+				return true, nil
+			}
 			m.recordDeltaApplyResultLocked(
 				target,
 				existing,
@@ -1398,11 +1458,16 @@ func (m *prefetchManager) prepareTask(ctx context.Context, target imageRef, ociT
 			ociType:              ociType,
 			targetDigest:         targetDigest,
 			applicationTargetKey: applicationImageTargetKeyFor(target, targetDigest, ociType),
-			done:                 true,
+			clientOptsFn:         clientOptsFn,
+			targetPresent:        delta != nil && delta.Hint == "" && supportsApplicationImageDigestCheck(ociType),
+			done:                 delta == nil || delta.Hint != "" || !supportsApplicationImageDigestCheck(ociType),
 			delta:                delta,
 			deltaGeneration:      m.deltaGeneration,
 		}
 		m.tasks[target] = task
+		if task.targetPresent {
+			return true, nil
+		}
 		if delta != nil {
 			m.recordDeltaApplyResultLocked(
 				target,
@@ -1425,6 +1490,118 @@ func (m *prefetchManager) prepareTask(ctx context.Context, target imageRef, ociT
 	}
 	m.tasks[target] = task
 	return true, nil
+}
+
+func supportsApplicationImageDigestCheck(ociType OCIType) bool {
+	switch ociType {
+	case OCITypePodmanImage, OCITypeCRIImage, OCITypeAuto:
+		return true
+	default:
+		return false
+	}
+}
+
+func (m *prefetchManager) applicationImageDigestMatchesTarget(
+	ctx context.Context,
+	target imageRef,
+	ociType OCIType,
+	delta *OCIDeltaTarget,
+	targetPresent bool,
+	podman *client.Podman,
+	skopeo *client.Skopeo,
+	opts ...client.ClientOption,
+) bool {
+	if delta == nil || delta.Hint != "" || !supportsApplicationImageDigestCheck(ociType) {
+		return false
+	}
+	if !targetPresent && delta.SourceDigest == "" {
+		return false
+	}
+	if skopeo == nil {
+		return false
+	}
+
+	timeout := m.pullTimeout
+	if timeout <= 0 {
+		timeout = 2 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	inspectOpts := append([]client.ClientOption(nil), opts...)
+	inspectOpts = append(inspectOpts, client.WithDefaultAuth())
+
+	imageType := ociType
+	if imageType == OCITypeAuto {
+		manifest, err := skopeo.InspectManifest(ctx, target.image, inspectOpts...)
+		if err != nil {
+			m.log.Debugf("Could not inspect target type for %s while checking delta necessity: %v", target, err)
+			return false
+		}
+		imageType, err = detectOCIType(manifest)
+		if err != nil || imageType != OCITypePodmanImage {
+			return false
+		}
+	}
+	if targetPresent && ociType == OCITypeAuto && (podman == nil || !podman.ImageExists(ctx, target.image)) {
+		return false
+	}
+
+	var currentDigests []string
+	if targetPresent {
+		switch imageType {
+		case OCITypePodmanImage:
+			if podman == nil {
+				return false
+			}
+			digest, err := podman.ImageDigest(ctx, target.image)
+			if err != nil {
+				m.log.Debugf("Could not inspect local digest for %s while checking delta necessity: %v", target, err)
+			} else if digest != "" {
+				currentDigests = append(currentDigests, digest)
+			}
+		case OCITypeCRIImage:
+			if m.cliClients == nil || m.cliClients.CRI() == nil {
+				return false
+			}
+			digests, err := m.cliClients.CRI().ImageRepoDigests(ctx, target.image, opts...)
+			if err != nil {
+				m.log.Debugf("Could not inspect local CRI digests for %s while checking delta necessity: %v", target, err)
+			} else {
+				currentDigests = append(currentDigests, digests...)
+			}
+		}
+	}
+	if len(currentDigests) == 0 && delta.SourceDigest != "" {
+		currentDigests = append(currentDigests, delta.SourceDigest)
+	}
+	if len(currentDigests) == 0 {
+		return false
+	}
+
+	targetDigest, err := skopeo.InspectDigest(ctx, target.image, inspectOpts...)
+	if err != nil {
+		m.log.Debugf("Could not inspect requested digest for %s while checking delta necessity: %v", target, err)
+		return false
+	}
+	targetDigest = applicationImageDigest(targetDigest)
+	if targetDigest == "" {
+		m.log.Debugf("Could not inspect requested digest for %s while checking delta necessity: empty digest", target)
+		return false
+	}
+	for _, currentDigest := range currentDigests {
+		if currentDigest := applicationImageDigest(currentDigest); currentDigest != "" && currentDigest == targetDigest {
+			return true
+		}
+	}
+	return false
+}
+
+func applicationImageDigest(digestOrReference string) string {
+	if index := strings.LastIndex(digestOrReference, "@"); index >= 0 {
+		digestOrReference = digestOrReference[index+1:]
+	}
+	return normalizeDigest(digestOrReference)
 }
 
 func (m *prefetchManager) removeTask(target imageRef) {
@@ -1789,7 +1966,7 @@ func (m *prefetchManager) currentApplicationDeltaResult(
 }
 
 func aggregateApplicationDeltaApplyResults(results map[string]applicationDeltaApplyResult) *v1beta1.DeviceDeltaApplyStatus {
-	var appliedCount, fallbackCount, notUsedCount int
+	var appliedCount, fallbackCount, notUsedCount, notRequiredCount int
 	var fallbackReasons []string
 	for _, result := range results {
 		switch result.outcome {
@@ -1802,10 +1979,12 @@ func aggregateApplicationDeltaApplyResults(results map[string]applicationDeltaAp
 			}
 		case v1beta1.DeviceDeltaApplyOutcomeNotUsed:
 			notUsedCount++
+		case v1beta1.DeviceDeltaApplyOutcomeNotRequired:
+			notRequiredCount++
 		}
 	}
 
-	if appliedCount+fallbackCount+notUsedCount == 0 {
+	if appliedCount+fallbackCount+notUsedCount+notRequiredCount == 0 {
 		return nil
 	}
 
@@ -1817,8 +1996,10 @@ func aggregateApplicationDeltaApplyResults(results map[string]applicationDeltaAp
 		outcome = v1beta1.DeviceDeltaApplyOutcomeApplied
 	case fallbackCount > 0:
 		outcome = v1beta1.DeviceDeltaApplyOutcomeFallback
-	default:
+	case notUsedCount > 0:
 		outcome = v1beta1.DeviceDeltaApplyOutcomeNotUsed
+	default:
+		outcome = v1beta1.DeviceDeltaApplyOutcomeNotRequired
 	}
 
 	deltaStatus := &v1beta1.DeviceDeltaApplyStatus{Outcome: outcome}

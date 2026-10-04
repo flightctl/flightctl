@@ -269,12 +269,106 @@ func (m *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, opts
 	}
 	allResults = append(allResults, k8sResults...)
 
+	m.addVolumeImageDigests(ctx, allResults)
 	addCachedParentImageDigests(allResults, m.ociTargetCache)
 
 	statuses, summary := aggregateAppStatuses(allResults)
 	status.ApplicationsSummary = summary
 	status.Applications = statuses
 	return nil
+}
+
+// addVolumeImageDigests adds digests for image-backed application volumes to
+// the application status. Volume status carries the image reference, while
+// ImageDigests is what the control plane uses to find the source image for a
+// delta.
+func (m *manager) addVolumeImageDigests(ctx context.Context, results []AppStatusResult) {
+	type volumeImageKey struct {
+		user      v1beta1.Username
+		reference string
+	}
+
+	podmanClients := make(map[v1beta1.Username]*client.Podman)
+	inspectedDigests := make(map[volumeImageKey]string)
+
+	for i := range results {
+		application := &results[i].Status
+		if len(application.Volumes) == 0 {
+			continue
+		}
+
+		var digests []v1beta1.ApplicationImageDigest
+		if application.ImageDigests != nil {
+			digests = append(digests, (*application.ImageDigests)...)
+		}
+		seen := make(map[string]struct{}, len(digests)+len(application.Volumes))
+		for _, digest := range digests {
+			seen[digest.Image+"\x00"+digest.Digest] = struct{}{}
+		}
+
+		for _, volume := range application.Volumes {
+			if volume.Reference == "" {
+				continue
+			}
+
+			key := volumeImageKey{user: application.RunAs, reference: volume.Reference}
+			digest, inspected := inspectedDigests[key]
+			if !inspected {
+				podman, found := podmanClients[key.user]
+				if !found {
+					var err error
+					if m.podmanFactory == nil {
+						err = fmt.Errorf("podman factory is not configured")
+					} else {
+						podman, err = m.podmanFactory(key.user)
+					}
+					if err == nil && podman == nil {
+						err = fmt.Errorf("podman factory returned nil client")
+					}
+					if err != nil {
+						podmanClients[key.user] = nil
+						m.log.Debugf("could not inspect application volume image %q for digest: %v", key.reference, err)
+						continue
+					}
+					podmanClients[key.user] = podman
+				}
+				if podman == nil {
+					continue
+				}
+
+				digest, err = podman.ImageDigest(ctx, key.reference)
+				inspectedDigests[key] = digest
+				if err != nil {
+					m.log.Debugf("could not inspect application volume image %q for digest: %v", key.reference, err)
+					continue
+				}
+			}
+			if digest == "" {
+				continue
+			}
+
+			dedupeKey := key.reference + "\x00" + digest
+			if _, found := seen[dedupeKey]; found {
+				continue
+			}
+			seen[dedupeKey] = struct{}{}
+			digests = append(digests, v1beta1.ApplicationImageDigest{
+				Image:  key.reference,
+				Digest: digest,
+			})
+		}
+
+		if len(digests) == 0 {
+			continue
+		}
+		sort.Slice(digests, func(i, j int) bool {
+			if digests[i].Image != digests[j].Image {
+				return digests[i].Image < digests[j].Image
+			}
+			return digests[i].Digest < digests[j].Digest
+		})
+		application.ImageDigests = &digests
+	}
 }
 
 // addCachedParentImageDigests merges parent digests resolved by OCI collection
