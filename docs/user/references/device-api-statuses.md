@@ -103,6 +103,25 @@ The `device.status.conditions.Updating.Reason` field contains the current state 
 
 The `device.status.updated.info` field contains a human readable more detailed information about the last state transition.
 
+### OS delta status
+
+You can inspect delta eligibility and the result of an OS delta update in the device's YAML or JSON output. Run:
+
+```console
+flightctl get device <device_name> -o yaml
+```
+
+The following device status fields describe delta capability and the most recent OS delta result:
+
+| Field | Description |
+| ----- | ----------- |
+| `device.status.systemInfo.deltaEligible` | `true` when the agent has the `oci-delta` tool available. This field may be absent when the agent does not report it. OS switches continue to require bootc as before. Delta eligibility does not enforce a bootc 1.15.0 minimum. |
+| `device.status.os.lastDelta.outcome` | The result of the OS delta path. This field is omitted until the agent reports an outcome. `NotUsed` means no compatible delta was used, `Applied` means the delta was applied, and `Fallback` means a delta pull or apply failed and the agent continued with a full image pull. |
+| `device.status.os.lastDelta.fallbackReason` | Present when an attempted delta pull or apply fails and the agent falls back to a full image pull. No matching delta is reported as `NotUsed` without a fallback reason. |
+| `device.status.os.deltaSize` | Payload size in IEC units, such as MiB or GiB, for a control-plane-generated OS delta when known. It does not report the size of a CI-published delta, the full OS image, the total update, or update duration. |
+
+The default and wide device tables do not show these fields. Device summary capability counts include `osMode` only, not delta eligibility. Use YAML or JSON output to inspect per-device delta status. The size field is available only for control-plane-generated deltas with a known size, so it is absent for CI-published deltas.
+
 The following state diagram shows the possible transitions between update statuses and states, including when the corresponding device lifecycle hooks would be called.
 
 ```mermaid
