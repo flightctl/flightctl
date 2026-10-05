@@ -3,12 +3,10 @@ package tasks
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/base64"
 	"fmt"
 	"io"
 	"io/fs"
-	"net/http"
 	"net/url"
 	"path/filepath"
 	"regexp"
@@ -26,7 +24,6 @@ import (
 	gitconfig "github.com/go-git/go-git/v5/config"
 	gitplumbing "github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/transport"
-	gitclient "github.com/go-git/go-git/v5/plumbing/transport/client"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	gitmemory "github.com/go-git/go-git/v5/storage/memory"
@@ -53,11 +50,15 @@ func CloneGitRepo(ctx context.Context, repo *domain.Repository, revision *string
 	if depth != nil {
 		opts.Depth = *depth
 	}
-	auth, err := GetAuth(ctx, repo, cfg)
+	gitOptions, err := getGitOptions(ctx, repo, cfg)
 	if err != nil {
 		return nil, "", err
 	}
-	opts.Auth = auth
+	opts.Auth = gitOptions.Auth
+	opts.InsecureSkipTLS = gitOptions.InsecureSkipTLS
+	opts.ClientCert = gitOptions.ClientCert
+	opts.ClientKey = gitOptions.ClientKey
+	opts.CABundle = gitOptions.CABundle
 	hash := ""
 	if revision != nil {
 		referenceIsHash := gitplumbing.IsHash(*revision)
@@ -96,7 +97,7 @@ func CloneGitRepo(ctx context.Context, repo *domain.Repository, revision *string
 // remote.List call is made regardless of how many refs are requested. The
 // returned map contains only the refs that were found. Error messages are
 // sanitized to prevent credential leakage.
-func GitLsRemote(ctx context.Context, repoURL string, refs []string, auth transport.AuthMethod) (map[string]string, error) {
+func GitLsRemote(ctx context.Context, repoURL string, refs []string, options *git.ListOptions) (map[string]string, error) {
 	if repoURL == "" {
 		return nil, fmt.Errorf("repository URL must not be empty")
 	}
@@ -109,7 +110,10 @@ func GitLsRemote(ctx context.Context, repoURL string, refs []string, auth transp
 		URLs: []string{repoURL},
 	})
 
-	remoteRefs, err := remote.ListContext(ctx, &git.ListOptions{Auth: auth})
+	if options == nil {
+		options = &git.ListOptions{}
+	}
+	remoteRefs, err := remote.ListContext(ctx, options)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list remote refs: %s", sanitizeGitError(err))
 	}
@@ -302,12 +306,6 @@ func GetAuth(ctx context.Context, repository *domain.Repository, cfg *config.Con
 
 	// Handle HTTP authentication
 	if gitSpec.HttpConfig != nil {
-		if strings.HasPrefix(gitSpec.Url, "https") {
-			err := configureRepoHTTPSClient(ctx, *gitSpec.HttpConfig)
-			if err != nil {
-				return nil, err
-			}
-		}
 		if gitSpec.HttpConfig.Token != nil {
 			// Decrypt token (passthrough if plaintext for BC)
 			decryptedToken, _, err := encryption.Decrypt(ctx, encryption.Ciphertext(*gitSpec.HttpConfig.Token))
@@ -337,61 +335,71 @@ func GetAuth(ctx context.Context, repository *domain.Repository, cfg *config.Con
 	return nil, nil
 }
 
-func configureRepoHTTPSClient(ctx context.Context, httpConfig domain.HttpConfig) error {
-	tlsConfig := tls.Config{} //nolint:gosec
+// getGitOptions builds authentication and TLS settings for a single Git operation.
+func getGitOptions(ctx context.Context, repository *domain.Repository, cfg *config.Config) (*git.ListOptions, error) {
+	options := &git.ListOptions{}
+	gitSpec, err := repository.Spec.AsGitRepoSpec()
+	if err != nil {
+		return options, nil
+	}
+
+	if gitSpec.SshConfig == nil && gitSpec.HttpConfig != nil && strings.HasPrefix(gitSpec.Url, "https") {
+		options, err = getRepoHTTPSOptions(ctx, *gitSpec.HttpConfig)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	options.Auth, err = GetAuth(ctx, repository, cfg)
+	if err != nil {
+		return nil, err
+	}
+	return options, nil
+}
+
+func getRepoHTTPSOptions(ctx context.Context, httpConfig domain.HttpConfig) (*git.ListOptions, error) {
+	options := &git.ListOptions{}
 	if httpConfig.SkipServerVerification != nil {
-		tlsConfig.InsecureSkipVerify = *httpConfig.SkipServerVerification //nolint:gosec
+		options.InsecureSkipTLS = *httpConfig.SkipServerVerification
 	}
 
 	if httpConfig.TlsCrt != nil && httpConfig.TlsKey != nil {
 		decryptedCrt, _, err := encryption.Decrypt(ctx, encryption.Ciphertext(*httpConfig.TlsCrt))
 		if err != nil {
-			return fmt.Errorf("decrypt TLS cert: %w", err)
+			return nil, fmt.Errorf("decrypt TLS cert: %w", err)
 		}
 		cert, err := base64.StdEncoding.DecodeString(string(decryptedCrt))
 		if err != nil {
-			return fmt.Errorf("decode TLS cert: %w", err)
+			return nil, fmt.Errorf("decode TLS cert: %w", err)
 		}
 
 		decryptedKey, _, err := encryption.Decrypt(ctx, encryption.Ciphertext(*httpConfig.TlsKey))
 		if err != nil {
-			return fmt.Errorf("decrypt TLS key: %w", err)
+			return nil, fmt.Errorf("decrypt TLS key: %w", err)
 		}
 		key, err := base64.StdEncoding.DecodeString(string(decryptedKey))
 		if err != nil {
-			return fmt.Errorf("decode TLS key: %w", err)
+			return nil, fmt.Errorf("decode TLS key: %w", err)
 		}
 
-		tlsPair, err := tls.X509KeyPair(cert, key)
-		if err != nil {
-			return err
+		if _, err := tls.X509KeyPair(cert, key); err != nil {
+			return nil, err
 		}
 
-		tlsConfig.Certificates = []tls.Certificate{tlsPair}
+		options.ClientCert = cert
+		options.ClientKey = key
 	}
 
 	if httpConfig.CaCrt != nil {
 		ca, err := base64.StdEncoding.DecodeString(*httpConfig.CaCrt)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
-		rootCAs, _ := x509.SystemCertPool()
-		if rootCAs == nil {
-			rootCAs = x509.NewCertPool()
-		}
-		rootCAs.AppendCertsFromPEM(ca)
-		tlsConfig.RootCAs = rootCAs
+		options.CABundle = ca
 	}
 
-	gitclient.InstallProtocol("https", githttp.NewClient(
-		&http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: &tlsConfig,
-			},
-		},
-	))
-	return nil
+	return options, nil
 }
 
 func buildKnownHostsCallback() (ssh.HostKeyCallback, error) {
