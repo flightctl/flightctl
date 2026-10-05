@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -59,31 +60,75 @@ func TestGitHTTPSOptions(t *testing.T) {
 		require.Equal(t, "repository-user", options.Auth.(*githttp.BasicAuth).Username)
 		require.Equal(t, "repository-password", options.Auth.(*githttp.BasicAuth).Password)
 	})
-	t.Run("When the URL uses HTTP it should not apply HTTPS options", func(t *testing.T) {
-		cfg := &domain.HttpConfig{SkipServerVerification: lo.ToPtr(true), CaCrt: lo.ToPtr("invalid-base64")}
-		repo := fixture.repository(t, nil)
-		require.NoError(t, repo.Spec.FromGitRepoSpec(domain.GitRepoSpec{Type: domain.GitRepoSpecTypeGit, Url: "http://example.com/repo.git", HttpConfig: cfg}))
-		options, err := getGitOptions(context.Background(), repo, nil)
-		require.NoError(t, err)
-		require.False(t, options.InsecureSkipTLS)
-		require.Empty(t, options.CABundle)
-	})
+	urlCases := []struct {
+		name  string
+		url   string
+		https bool
+	}{
+		{name: "When the URL uses HTTP it should not apply HTTPS options", url: "http://example.com/repo.git"},
+		{name: "When the URL uses uppercase HTTPS it should apply HTTPS options", url: "HTTPS://example.com/repo.git", https: true},
+		{name: "When the URL uses mixed case HTTPS it should apply HTTPS options", url: "hTtPs://example.com/repo.git", https: true},
+		{name: "When the URL uses an HTTPS lookalike scheme it should not apply HTTPS options", url: "httpsx://example.com/repo.git"},
+		{name: "When the URL is malformed it should not apply HTTPS options", url: "https://[::1/repo.git"},
+	}
+	for _, tc := range urlCases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &domain.HttpConfig{SkipServerVerification: lo.ToPtr(true), CaCrt: lo.ToPtr("invalid-base64")}
+			if tc.https {
+				cfg.CaCrt = lo.ToPtr(base64.StdEncoding.EncodeToString(fixture.caPEM))
+			}
+			repo := fixture.repository(t, nil)
+			require.NoError(t, repo.Spec.FromGitRepoSpec(domain.GitRepoSpec{Type: domain.GitRepoSpecTypeGit, Url: tc.url, HttpConfig: cfg}))
+			options, err := getGitOptions(context.Background(), repo, nil)
+			require.NoError(t, err)
+			require.Equal(t, tc.https, options.InsecureSkipTLS)
+			if tc.https {
+				require.True(t, bytes.Equal(fixture.caPEM, options.CABundle))
+			} else {
+				require.Empty(t, options.CABundle)
+			}
+		})
+	}
 
 	other := newGitHTTPSFixture(t, "client-other")
+	t.Run("When the CA bundle contains multiple certificates it should preserve the complete bundle", func(t *testing.T) {
+		bundle := bytes.Join([][]byte{fixture.caPEM, other.caPEM}, nil)
+		cfg := &domain.HttpConfig{CaCrt: lo.ToPtr(base64.StdEncoding.EncodeToString(bundle))}
+		options, err := getGitOptions(context.Background(), fixture.repository(t, cfg), nil)
+		require.NoError(t, err)
+		require.True(t, bytes.Equal(bundle, options.CABundle))
+	})
 	cases := []struct {
-		name string
-		cfg  *domain.HttpConfig
+		name          string
+		cfg           *domain.HttpConfig
+		errorContext  string
+		base64Failure bool
+		wrappedError  bool
 	}{
-		{name: "When the CA encoding is invalid it should reject the configuration", cfg: &domain.HttpConfig{CaCrt: lo.ToPtr("invalid-base64")}},
-		{name: "When the client certificate encoding is invalid it should reject the configuration", cfg: &domain.HttpConfig{TlsCrt: lo.ToPtr("invalid-base64"), TlsKey: lo.ToPtr(base64.StdEncoding.EncodeToString(fixture.clientKeyPEM))}},
-		{name: "When the client key encoding is invalid it should reject the configuration", cfg: &domain.HttpConfig{TlsCrt: lo.ToPtr(base64.StdEncoding.EncodeToString(fixture.clientCertPEM)), TlsKey: lo.ToPtr("invalid-base64")}},
-		{name: "When the client certificate and key do not match it should reject the configuration", cfg: &domain.HttpConfig{TlsCrt: lo.ToPtr(base64.StdEncoding.EncodeToString(fixture.clientCertPEM)), TlsKey: lo.ToPtr(base64.StdEncoding.EncodeToString(other.clientKeyPEM))}},
+		{name: "When the CA encoding is invalid it should reject the configuration", cfg: &domain.HttpConfig{CaCrt: lo.ToPtr("invalid-base64")}, errorContext: "decode CA bundle", base64Failure: true},
+		{name: "When the CA bundle is empty it should reject the configuration", cfg: &domain.HttpConfig{CaCrt: lo.ToPtr("")}, errorContext: "parse CA bundle: no valid PEM certificates"},
+		{name: "When the CA bundle is not PEM it should reject the configuration", cfg: &domain.HttpConfig{CaCrt: lo.ToPtr(base64.StdEncoding.EncodeToString([]byte("not a certificate")))}, errorContext: "parse CA bundle: no valid PEM certificates"},
+		{name: "When the CA bundle contains an invalid certificate it should reject the configuration", cfg: &domain.HttpConfig{CaCrt: lo.ToPtr(base64.StdEncoding.EncodeToString(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: []byte("invalid certificate")})))}, errorContext: "parse CA bundle: no valid PEM certificates"},
+		{name: "When the CA bundle has no certificate blocks it should reject the configuration", cfg: &domain.HttpConfig{CaCrt: lo.ToPtr(base64.StdEncoding.EncodeToString(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: []byte("not a certificate")})))}, errorContext: "parse CA bundle: no valid PEM certificates"},
+		{name: "When the client certificate encoding is invalid it should reject the configuration", cfg: &domain.HttpConfig{TlsCrt: lo.ToPtr("invalid-base64"), TlsKey: lo.ToPtr(base64.StdEncoding.EncodeToString(fixture.clientKeyPEM))}, base64Failure: true},
+		{name: "When the client key encoding is invalid it should reject the configuration", cfg: &domain.HttpConfig{TlsCrt: lo.ToPtr(base64.StdEncoding.EncodeToString(fixture.clientCertPEM)), TlsKey: lo.ToPtr("invalid-base64")}, base64Failure: true},
+		{name: "When the client certificate and key do not match it should reject the configuration", cfg: &domain.HttpConfig{TlsCrt: lo.ToPtr(base64.StdEncoding.EncodeToString(fixture.clientCertPEM)), TlsKey: lo.ToPtr(base64.StdEncoding.EncodeToString(other.clientKeyPEM))}, errorContext: "validate TLS client certificate/key", wrappedError: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			options, err := getGitOptions(context.Background(), fixture.repository(t, tc.cfg), nil)
 			require.Error(t, err)
 			require.Nil(t, options)
+			if tc.errorContext != "" {
+				require.ErrorContains(t, err, tc.errorContext)
+			}
+			if tc.base64Failure {
+				var decodeErr base64.CorruptInputError
+				require.ErrorAs(t, err, &decodeErr)
+			}
+			if tc.wrappedError {
+				require.NotNil(t, errors.Unwrap(err))
+			}
 		})
 	}
 }
