@@ -21,6 +21,26 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
+func TestKubernetesMonitorUpdateAfterRestart(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	logger := log.NewPrefixLogger("test")
+	monitor := newTestKubernetesMonitor(logger, executer.NewMockExecuter(ctrl), fileio.NewMockReadWriter(ctrl), "/tmp/kubeconfig")
+	volumeManager, err := provider.NewVolumeManager(logger, "app", v1beta1.AppTypeHelm, v1beta1.CurrentProcessUsername, nil)
+	require.NoError(err)
+	app := &application{
+		id: "app", path: "/var/lib/flightctl/helm/charts/app",
+		status: &v1beta1.DeviceApplicationStatus{Name: "app", AppType: v1beta1.AppTypeHelm},
+		volume: volumeManager,
+	}
+	require.NoError(monitor.Update(app))
+	require.Same(app, monitor.apps[app.ID()])
+	require.Len(monitor.actions, 1)
+	require.Equal(lifecycle.ActionUpdate, monitor.actions[0].Type)
+	require.Equal(app.ID(), monitor.actions[0].ID)
+}
+
 func TestKubernetesMonitor_QueueLifecycle(t *testing.T) {
 	const appName = "my-helm-app"
 	const kubeconfigPath = "/tmp/kubeconfig"

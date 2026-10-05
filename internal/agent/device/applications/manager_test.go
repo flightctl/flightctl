@@ -18,12 +18,109 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/poll"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
+
+func TestAddVolumeImageDigests(t *testing.T) {
+	testCases := []struct {
+		name         string
+		nilFactory   bool
+		factoryError bool
+		volumes      []v1beta1.ApplicationVolumeStatus
+		existing     []v1beta1.ApplicationImageDigest
+		setupMocks   func(*executer.MockExecuter)
+		want         []v1beta1.ApplicationImageDigest
+	}{
+		{
+			name:       "When the factory is nil it should preserve existing digests",
+			nilFactory: true,
+			volumes:    []v1beta1.ApplicationVolumeStatus{{Reference: "volume:v1"}},
+			existing:   []v1beta1.ApplicationImageDigest{{Image: "app:v1", Digest: "sha256:app"}},
+			want:       []v1beta1.ApplicationImageDigest{{Image: "app:v1", Digest: "sha256:app"}},
+		},
+		{
+			name:         "When the factory fails it should skip volume digests",
+			factoryError: true,
+			volumes:      []v1beta1.ApplicationVolumeStatus{{Reference: "volume:v1"}, {Reference: "other:v1"}},
+		},
+		{
+			name:    "When ImageDigest fails it should skip the failed volume",
+			volumes: []v1beta1.ApplicationVolumeStatus{{Reference: "volume:v1"}, {Reference: "volume:v1"}},
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "volume:v1").Return("", "inspect failed", 1)
+			},
+		},
+		{
+			name:     "When volumes repeat an existing digest it should deduplicate and inspect once",
+			volumes:  []v1beta1.ApplicationVolumeStatus{{Reference: "volume:v1"}, {Reference: "volume:v1"}},
+			existing: []v1beta1.ApplicationImageDigest{{Image: "volume:v1", Digest: "sha256:volume"}},
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "volume:v1").Return("sha256:volume", "", 0)
+			},
+			want: []v1beta1.ApplicationImageDigest{{Image: "volume:v1", Digest: "sha256:volume"}},
+		},
+		{
+			name:     "When images and digests are unsorted it should sort by image then digest",
+			volumes:  []v1beta1.ApplicationVolumeStatus{{Reference: "z:v1"}, {Reference: "a:v1"}},
+			existing: []v1beta1.ApplicationImageDigest{{Image: "a:v1", Digest: "sha256:z"}},
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "z:v1").Return("sha256:z", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "a:v1").Return("sha256:a", "", 0)
+			},
+			want: []v1beta1.ApplicationImageDigest{{Image: "a:v1", Digest: "sha256:a"}, {Image: "a:v1", Digest: "sha256:z"}, {Image: "z:v1", Digest: "sha256:z"}},
+		},
+		{
+			name:    "When a volume image is present it should add its digest and skip empty references",
+			volumes: []v1beta1.ApplicationVolumeStatus{{Reference: "volume:v1"}, {}},
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "volume:v1").Return("sha256:volume", "", 0)
+			},
+			want: []v1beta1.ApplicationImageDigest{{Image: "volume:v1", Digest: "sha256:volume"}},
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			mockExec := executer.NewMockExecuter(ctrl)
+			if testCase.setupMocks != nil {
+				testCase.setupMocks(mockExec)
+			}
+			logger := log.NewPrefixLogger("test")
+			manager := &manager{log: logger}
+			factoryCalls := 0
+			if !testCase.nilFactory {
+				manager.podmanFactory = func(v1beta1.Username) (*client.Podman, error) {
+					factoryCalls++
+					if testCase.factoryError {
+						return nil, fmt.Errorf("factory failed")
+					}
+					return client.NewPodman(logger, mockExec, fileio.NewMockReadWriter(ctrl), poll.Config{}), nil
+				}
+			}
+			results := []AppStatusResult{{Status: v1beta1.DeviceApplicationStatus{Volumes: &testCase.volumes}}}
+			if testCase.existing != nil {
+				results[0].Status.ImageDigests = &testCase.existing
+			}
+			manager.addVolumeImageDigests(context.Background(), results)
+			if testCase.want == nil {
+				require.Nil(results[0].Status.ImageDigests)
+			} else {
+				require.NotNil(results[0].Status.ImageDigests)
+				require.Equal(testCase.want, *results[0].Status.ImageDigests)
+			}
+			if !testCase.nilFactory {
+				require.Equal(1, factoryCalls)
+			}
+		})
+	}
+}
 
 func TestManager(t *testing.T) {
 	bootTime := time.Now()
@@ -300,6 +397,85 @@ func TestManager(t *testing.T) {
 			if len(tc.wantAppNames) == 0 {
 				require.Empty(manager.podmanMonitor.apps)
 			}
+		})
+	}
+}
+
+func TestManagerUpdateAfterRestart(t *testing.T) {
+	testCases := []struct {
+		name    string
+		current string
+		desired string
+	}{
+		{
+			name:    "When a Compose image changes while the agent is stopped it should update the running application",
+			current: compose1,
+			desired: compose2,
+		},
+		{
+			name:    "When a Compose update is rolled back after restart it should restore the previous application",
+			current: compose2,
+			desired: compose1,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			ctx := t.Context()
+			logger := log.NewPrefixLogger("test")
+			bootTime := time.Now()
+			mockExec := executer.NewMockExecuter(ctrl)
+			mockReadWriter := fileio.NewMockReadWriter(ctrl)
+			podman := client.NewPodman(logger, mockExec, mockReadWriter, testutil.NewPollConfig())
+			podmanFactory := func(v1beta1.Username) (*client.Podman, error) { return podman, nil }
+			tempDir := t.TempDir()
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tempDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
+			)
+			rwFactory := func(v1beta1.Username) (fileio.ReadWriter, error) { return rw, nil }
+			rwMockFactory := func(v1beta1.Username) (fileio.ReadWriter, error) { return mockReadWriter, nil }
+			const appName = "app-restart"
+			current := newTestDeviceWithApplications(t, appName, []testInlineDetails{
+				{Content: tc.current, Path: "podman-compose.yaml"},
+			})
+			desired := newTestDeviceWithApplications(t, appName, []testInlineDetails{
+				{Content: tc.desired, Path: "podman-compose.yaml"},
+			})
+			currentProviders, err := provider.FromDeviceSpec(ctx, logger, podmanFactory, nil, rwFactory, current)
+			require.NoError(err)
+			require.Len(currentProviders, 1)
+			// Keep the installed files, but start with a fresh monitor as on agent restart.
+			require.NoError(currentProviders[0].Install(ctx))
+			desiredProviders, err := provider.FromDeviceSpec(ctx, logger, podmanFactory, nil, rwFactory, desired)
+			require.NoError(err)
+			m := &manager{
+				podmanMonitor:     NewPodmanMonitor(logger, podmanFactory, nil, bootTime.Format(time.RFC3339), rwMockFactory),
+				kubernetesMonitor: NewKubernetesMonitor(logger, client.NewCLIClients(), rwFactory),
+				log:               logger,
+			}
+			t.Cleanup(func() { require.NoError(m.podmanMonitor.Stop()) })
+			id := lifecycle.GenerateAppID(appName, v1beta1.CurrentProcessUsername)
+			require.False(m.podmanMonitor.Has(id))
+			mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).AnyTimes()
+			gomock.InOrder(
+				mockExecPodmanNetworkList(mockExec, appName),
+				mockExecPodmanPodList(mockExec, appName),
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "stop", "--filter", "label=com.docker.compose.project="+id).Return("", "", 0),
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "rm", "--filter", "label=com.docker.compose.project="+id).Return("", "", 0),
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pod", "rm", "pod123").Return("", "", 0),
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "network", "rm", "network123").Return("", "", 0),
+				mockExecComposePodmanVolumeList(mockExec, appName),
+				mockExecPodmanComposeUp(mockExec, appName, true, true),
+				mockExecPodmanEvents(mockExec, bootTime),
+			)
+
+			require.NoError(syncProviders(ctx, logger, m, currentProviders, desiredProviders))
+			require.True(m.podmanMonitor.Has(id))
+			require.NoError(m.AfterUpdate(ctx))
+			require.True(m.podmanMonitor.isRunning(v1beta1.CurrentProcessUsername))
 		})
 	}
 }

@@ -140,6 +140,7 @@ func TestApplicationDeltaCRICachedImageReportsNotRequiredWhenDigestMatches(t *te
 
 	ctrl := gomock.NewController(t)
 	exec := executer.NewMockExecuter(ctrl)
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", "images", image).Return("IMAGE TAG ID\napp v2 image-id", "", 0)
 	exec.EXPECT().ExecuteWithContext(
 		gomock.Any(), "crictl", "inspecti", "--output", "json", image,
 	).Return(`{"status":{"repoDigests":["quay.io/acme/app@`+digest+`"]}}`, "", 0)
@@ -183,8 +184,11 @@ func TestApplicationDeltaCRICachedImageReportsNotRequiredWhenDigestMatches(t *te
 		},
 	}
 
-	require.NoError(t, manager.pull(context.Background(), target, task))
-	task.done = true
+	manager.mu.Lock()
+	needsQueue := manager.checkCachedApplicationTask(context.Background(), target, task)
+	manager.mu.Unlock()
+	require.False(t, needsQueue)
+	require.True(t, task.done)
 
 	deviceStatus := &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: application}}}
 	require.NoError(t, manager.Status(context.Background(), deviceStatus))
@@ -192,7 +196,7 @@ func TestApplicationDeltaCRICachedImageReportsNotRequiredWhenDigestMatches(t *te
 	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeNotRequired, deviceStatus.Applications[0].LastDelta.Outcome)
 }
 
-func TestApplicationDeltaCRIHintedCandidateReportsFallbackWhenDeltaClientIsUnavailable(t *testing.T) {
+func TestApplicationDeltaCRIHintedCandidateReportsNotUsedWhenDeltaClientIsUnavailable(t *testing.T) {
 	const (
 		application = "app"
 		image       = "quay.io/acme/app:target"
@@ -250,9 +254,8 @@ func TestApplicationDeltaCRIHintedCandidateReportsFallbackWhenDeltaClientIsUnava
 	deviceStatus := &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: application}}}
 	require.NoError(t, manager.Status(context.Background(), deviceStatus))
 	require.NotNil(t, deviceStatus.Applications[0].LastDelta)
-	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeFallback, deviceStatus.Applications[0].LastDelta.Outcome)
-	require.NotNil(t, deviceStatus.Applications[0].LastDelta.FallbackReason)
-	require.Contains(t, *deviceStatus.Applications[0].LastDelta.FallbackReason, "OCI delta client is not configured")
+	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeNotUsed, deviceStatus.Applications[0].LastDelta.Outcome)
+	require.Nil(t, deviceStatus.Applications[0].LastDelta.FallbackReason)
 }
 
 func TestApplicationDeltaCRIMissingImageReportsNotUsedWhenSourceDigestMatches(t *testing.T) {
@@ -295,7 +298,8 @@ func TestApplicationDeltaCRIMissingImageReportsNotUsedWhenSourceDigestMatches(t 
 		deltaGeneration:      1,
 	}
 	manager := &prefetchManager{
-		log: logger,
+		log:      logger,
+		ociDelta: client.NewOCIDelta(logger, exec, time.Minute),
 		skopeoFactory: func(v1beta1.Username) (*client.Skopeo, error) {
 			return skopeo, nil
 		},

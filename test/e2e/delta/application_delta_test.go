@@ -477,6 +477,9 @@ func applicationDeltaSpecs(registry string, version applicationDeltaVersion, ove
 		return nil, err
 	}
 
+	// The .kube/Pod YAML fixture was removed because kube-quadlet workloads lack
+	// the application labels needed by the monitor to report image digest snapshots.
+	// Kube-quadlet needs separate delta e2e coverage; .pod quadlets remain covered.
 	quadletPaths := []string{
 		"app.network", "app.pod", "app.container", "model-data.volume", "data.volume",
 		"worker-image.image", "worker.container",

@@ -2,6 +2,7 @@ package dependency
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -37,6 +38,15 @@ func TestApplicationDeltaPrefetch(t *testing.T) {
 		disableDeltaClient bool
 		deltaFactory       client.OCIDeltaFactory
 	}{
+		{
+			name:               "When no delta client exists it should skip discovery and full-pull with NotUsed",
+			delta:              &OCIDeltaTarget{SourceDigest: "sha256:source", Application: "app"},
+			disableDeltaClient: true,
+			wantOutcome:        v1beta1.DeviceDeltaApplyOutcomeNotUsed,
+			setup: func(exec *executer.MockExecuter) {
+				exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", image).Return("", "", 0)
+			},
+		},
 		{
 			name:        "hinted image imports into container storage",
 			delta:       &OCIDeltaTarget{Hint: candidate, Application: "app"},
@@ -75,12 +85,10 @@ func TestApplicationDeltaPrefetch(t *testing.T) {
 			},
 		},
 		{
-			name:               "hinted candidate falls back when the delta client is unavailable",
+			name:               "hinted candidate full-pulls without delta when the delta client is unavailable",
 			delta:              &OCIDeltaTarget{Hint: candidate, Application: "app"},
 			disableDeltaClient: true,
-			wantFallback:       true,
-			wantOutcome:        v1beta1.DeviceDeltaApplyOutcomeFallback,
-			fallbackContains:   "OCI delta factory is not configured",
+			wantOutcome:        v1beta1.DeviceDeltaApplyOutcomeNotUsed,
 			setup: func(exec *executer.MockExecuter) {
 				exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", image).Return("", "", 0)
 			},
@@ -224,6 +232,8 @@ func TestCachedApplicationImageReportsNotRequiredWhenDigestMatches(t *testing.T)
 
 	tests := []struct {
 		name            string
+		localDigest     string
+		repoDigests     []string
 		deltaHint       string
 		sourceDigest    string
 		targetDigest    string
@@ -243,6 +253,12 @@ func TestCachedApplicationImageReportsNotRequiredWhenDigestMatches(t *testing.T)
 		},
 		{
 			name:        "When a cached image matches without delta metadata it should report NotRequired",
+			wantOutcome: v1beta1.DeviceDeltaApplyOutcomeNotRequired,
+		},
+		{
+			name:        "When a cached image repository digest matches despite a different content digest it should report NotRequired",
+			localDigest: staleDigest,
+			repoDigests: []string{"quay.io/acme/app@" + digest},
 			wantOutcome: v1beta1.DeviceDeltaApplyOutcomeNotRequired,
 		},
 		{
@@ -268,13 +284,20 @@ func TestCachedApplicationImageReportsNotRequiredWhenDigestMatches(t *testing.T)
 		t.Run(tt.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			exec := executer.NewMockExecuter(ctrl)
+			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", image).Return("", "", 0)
 			requestedDigestValue := tt.targetDigest
 			if requestedDigestValue == "" {
 				requestedDigestValue = digest
 			}
+			localDigestValue := tt.localDigest
+			if localDigestValue == "" {
+				localDigestValue = digest
+			}
+			inspection, err := json.Marshal(map[string]any{"Digest": localDigestValue, "RepoDigests": tt.repoDigests})
+			require.NoError(t, err)
 			localDigest := exec.EXPECT().ExecuteWithContext(
-				gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", image,
-			).Return(digest, "", 0)
+				gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", image,
+			).Return(string(inspection), "", 0)
 			requestedDigest := exec.EXPECT().ExecuteWithContext(
 				gomock.Any(), "skopeo", "inspect", "--format", "{{.Digest}}", "docker://"+image,
 			).Return(requestedDigestValue, "", 0)
@@ -330,8 +353,14 @@ func TestCachedApplicationImageReportsNotRequiredWhenDigestMatches(t *testing.T)
 				}
 			}
 
-			require.NoError(t, manager.pull(context.Background(), target, task))
-			task.done = true
+			manager.mu.Lock()
+			needsQueue := manager.checkCachedApplicationTask(context.Background(), target, task)
+			manager.mu.Unlock()
+			require.Equal(t, tt.wantFullPull, needsQueue)
+			if needsQueue {
+				require.NoError(t, manager.pull(context.Background(), target, task))
+				task.done = true
+			}
 
 			deviceStatus := &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: application}}}
 			require.NoError(t, manager.Status(context.Background(), deviceStatus))
@@ -352,9 +381,10 @@ func TestCachedApplicationImageWithStaleDigestAttemptsHintedDelta(t *testing.T) 
 
 	ctrl := gomock.NewController(t)
 	exec := executer.NewMockExecuter(ctrl)
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", image).Return("", "", 0)
 	localDigest := exec.EXPECT().ExecuteWithContext(
-		gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", image,
-	).Return(source, "", 0)
+		gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", image,
+	).Return(fmt.Sprintf(`{"Digest": %q}`, source), "", 0)
 	requestedDigest := exec.EXPECT().ExecuteWithContext(
 		gomock.Any(), "skopeo", "inspect", "--format", "{{.Digest}}", "docker://"+image,
 	).Return(target, "", 0)
@@ -413,6 +443,10 @@ func TestCachedApplicationImageWithStaleDigestAttemptsHintedDelta(t *testing.T) 
 		},
 	}
 
+	manager.mu.Lock()
+	needsQueue := manager.checkCachedApplicationTask(context.Background(), imageTarget, task)
+	manager.mu.Unlock()
+	require.True(t, needsQueue)
 	require.NoError(t, manager.pull(context.Background(), imageTarget, task))
 	task.done = true
 
@@ -751,7 +785,7 @@ func TestApplicationTargetIdentitiesTrackTargetsWithoutDeltaHintOrSourceDigest(t
 	require.Equal(t, map[string]imageRef{targetID: target}, targetRefs)
 }
 
-func TestPrepareTaskReusedCompletedTargetRechecksDigestForNewGeneration(t *testing.T) {
+func TestPrepareTaskReusedCompletedTargetKeepsCacheWhenDigestCheckIsUnavailable(t *testing.T) {
 	const (
 		application = "app"
 		image       = "quay.io/acme/workload:target"
@@ -759,6 +793,11 @@ func TestPrepareTaskReusedCompletedTargetRechecksDigestForNewGeneration(t *testi
 	)
 
 	target := imageRef{image: image}
+	ctrl := gomock.NewController(t)
+	exec := executer.NewMockExecuter(ctrl)
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", image).Return("", "", 0)
+	logger := log.NewPrefixLogger("test")
+	podman := client.NewPodman(logger, exec, fileio.NewMockReadWriter(ctrl), poll.NewConfig(time.Millisecond, 2))
 	delta := &OCIDeltaTarget{Hint: "quay.io/acme/delta:target", Application: application}
 	task := &prefetchTask{
 		ociType:              OCITypePodmanImage,
@@ -769,6 +808,8 @@ func TestPrepareTaskReusedCompletedTargetRechecksDigestForNewGeneration(t *testi
 		done:                 true,
 	}
 	manager := &prefetchManager{
+		log:               logger,
+		podmanFactory:     func(v1beta1.Username) (*client.Podman, error) { return podman, nil },
 		tasks:             map[imageRef]*prefetchTask{target: task},
 		deltaGeneration:   2,
 		deltaApplyResults: make(map[string]map[imageRef]applicationDeltaApplyResult),
@@ -776,14 +817,107 @@ func TestPrepareTaskReusedCompletedTargetRechecksDigestForNewGeneration(t *testi
 
 	needsQueue, err := manager.prepareTask(context.Background(), target, OCITypePodmanImage, digest, nil, delta)
 	require.NoError(t, err)
-	require.True(t, needsQueue)
+	require.False(t, needsQueue)
 	require.Equal(t, uint64(2), task.deltaGeneration)
 	require.True(t, task.targetPresent)
-	require.False(t, task.done)
-	require.Empty(t, manager.deltaApplyResults)
+	require.True(t, task.done)
+	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeNotUsed, manager.deltaApplyResults[application][target].outcome)
 }
 
-func TestPrepareTaskChecksExistingImageEvenWhenDeltaHintExists(t *testing.T) {
+func TestPrepareTaskCachedDigestChecks(t *testing.T) {
+	const image = "quay.io/acme/app:target"
+	const currentDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const differentDigest = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	testCases := []struct {
+		name           string
+		localExit      int
+		remoteExit     int
+		remoteDigest   string
+		reused         bool
+		sameGeneration bool
+		missing        bool
+		wantQueue      bool
+		wantOutcome    v1beta1.DeviceDeltaApplyOutcomeType
+	}{
+		{name: "When the cached digest matches it should complete synchronously", remoteDigest: currentDigest, wantOutcome: v1beta1.DeviceDeltaApplyOutcomeNotRequired},
+		{name: "When local inspection fails it should queue a pull", localExit: 1, remoteDigest: differentDigest, wantQueue: true},
+		{name: "When remote inspection fails it should keep the cache synchronously", remoteExit: 1, wantOutcome: v1beta1.DeviceDeltaApplyOutcomeNotUsed},
+		{name: "When the remote digest is empty it should keep the cache synchronously", wantOutcome: v1beta1.DeviceDeltaApplyOutcomeNotUsed},
+		{name: "When the cached digest mismatches it should queue and reuse the resolved digest", remoteDigest: differentDigest, wantQueue: true},
+		{name: "When a reused task changes generation it should recheck its cached digest", remoteDigest: differentDigest, reused: true, wantQueue: true},
+		{name: "When a reused image was pruned it should queue a pull", reused: true, missing: true, remoteDigest: differentDigest, wantQueue: true},
+		{name: "When a reused image was pruned in the same generation it should queue a pull", reused: true, sameGeneration: true, missing: true, remoteDigest: differentDigest, wantQueue: true},
+		{name: "When local inspection of a reused image fails it should queue a pull", reused: true, localExit: 1, remoteDigest: differentDigest, wantQueue: true},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			mockExec := executer.NewMockExecuter(ctrl)
+			existsExit := 0
+			if testCase.missing {
+				existsExit = 1
+			}
+			existsCalls := 1
+			if !testCase.reused {
+				existsCalls++
+			}
+			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", image).Return("", "", existsExit).Times(existsCalls)
+			if testCase.missing {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "inspect", image).Return("", "", 1)
+			}
+			if !testCase.missing {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", image).Return(fmt.Sprintf(`{"Digest": %q}`, currentDigest), "inspect failed", testCase.localExit)
+				if testCase.localExit == 0 {
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--format", "{{.Digest}}", "docker://"+image).Return(testCase.remoteDigest, "inspect failed", testCase.remoteExit)
+				}
+			}
+			logger := log.NewPrefixLogger("test")
+			readWriter := fileio.NewMockReadWriter(ctrl)
+			podman := client.NewPodman(logger, mockExec, readWriter, poll.NewConfig(time.Millisecond, 2))
+			skopeo := client.NewSkopeo(logger, mockExec, readWriter)
+			manager := &prefetchManager{
+				log: logger, tasks: make(map[imageRef]*prefetchTask), deltaGeneration: 2,
+				podmanFactory: func(v1beta1.Username) (*client.Podman, error) { return podman, nil },
+				skopeoFactory: func(v1beta1.Username) (*client.Skopeo, error) { return skopeo, nil },
+				ociDelta:      client.NewOCIDelta(logger, mockExec, time.Minute),
+			}
+			target := imageRef{image: image}
+			delta := &OCIDeltaTarget{Application: "app", SourceDigest: currentDigest}
+			if testCase.reused {
+				manager.tasks[target] = &prefetchTask{ociType: OCITypePodmanImage, done: true, deltaGeneration: 1, resolvedDigest: currentDigest}
+				if testCase.sameGeneration {
+					manager.tasks[target].deltaGeneration = 2
+					manager.tasks[target].delta = delta
+					manager.tasks[target].resolvedDigest = ""
+				}
+			}
+			needsQueue, err := manager.prepareTask(context.Background(), target, OCITypePodmanImage, "", nil, delta)
+			require.NoError(err)
+			require.Equal(testCase.wantQueue, needsQueue)
+			task := manager.tasks[target]
+			require.Equal(!testCase.wantQueue, task.done)
+			if !testCase.wantQueue {
+				require.NoError(manager.checkReady(context.Background()))
+				require.Equal(testCase.wantOutcome, manager.deltaApplyResults["app"][target].outcome)
+				return
+			}
+			require.False(task.targetPresent)
+			if testCase.localExit != 0 || testCase.missing {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--format", "{{.Digest}}", "docker://"+image).Return(differentDigest, "", 0)
+			} else {
+				require.Equal(differentDigest, task.resolvedDigest)
+			}
+			require.ErrorIs(manager.checkReady(context.Background()), errors.ErrPrefetchNotReady)
+			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "list-referrers", "docker://"+image).Return(`{"manifests": []}`, "", 0)
+			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", image).Return("", "", 0)
+			require.NoError(manager.pull(context.Background(), target, task))
+		})
+	}
+}
+
+func TestPrepareTaskCompletesExistingImageWhenDigestCheckIsUnavailable(t *testing.T) {
 	const (
 		image     = "quay.io/acme/workload:target"
 		candidate = "quay.io/acme/delta:target"
@@ -791,7 +925,7 @@ func TestPrepareTaskChecksExistingImageEvenWhenDeltaHintExists(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	exec := executer.NewMockExecuter(ctrl)
-	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", image).Return("", "", 0)
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", image).Return("", "", 0).Times(2)
 
 	root := t.TempDir()
 	rw := fileio.NewReadWriter(
@@ -819,12 +953,13 @@ func TestPrepareTaskChecksExistingImageEvenWhenDeltaHintExists(t *testing.T) {
 		&OCIDeltaTarget{Hint: candidate, Application: "app"},
 	)
 	require.NoError(t, err)
-	require.True(t, needsQueue)
+	require.False(t, needsQueue)
 	require.True(t, manager.tasks[target].targetPresent)
-	require.False(t, manager.tasks[target].done)
+	require.True(t, manager.tasks[target].done)
+	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeNotUsed, manager.deltaApplyResults["app"][target].outcome)
 }
 
-func TestPrepareTaskQueuesExistingArtifactWhenDeltaHintExists(t *testing.T) {
+func TestPrepareTaskSkipsExistingArtifactWhenDeltaHintExists(t *testing.T) {
 	const (
 		image     = "quay.io/acme/artifact:v2"
 		candidate = "quay.io/acme/delta:target"
@@ -860,8 +995,9 @@ func TestPrepareTaskQueuesExistingArtifactWhenDeltaHintExists(t *testing.T) {
 		&OCIDeltaTarget{Hint: candidate, Application: "app"},
 	)
 	require.NoError(t, err)
-	require.True(t, needsQueue)
-	require.False(t, manager.tasks[target].done)
+	require.False(t, needsQueue)
+	require.True(t, manager.tasks[target].done)
+	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeNotUsed, manager.deltaApplyResults["app"][target].outcome)
 
 	manager.tasks[target].done = true
 	needsQueue, err = manager.prepareTask(
@@ -886,8 +1022,8 @@ func TestPrepareTaskQueuesExistingArtifactWhenDeltaHintExists(t *testing.T) {
 		&OCIDeltaTarget{Hint: candidate, Application: "app"},
 	)
 	require.NoError(t, err)
-	require.True(t, needsQueue)
-	require.False(t, manager.tasks[target].done)
+	require.False(t, needsQueue)
+	require.True(t, manager.tasks[target].done)
 }
 
 func TestBeforeUpdateKeepsGenerationForEquivalentDesiredSpecs(t *testing.T) {
@@ -918,14 +1054,18 @@ func TestPrepareTaskReusedCompletedNoHintTargetOnlyRechecksOnNewGeneration(t *te
 			taskGeneration: 2,
 		},
 		{
-			name:           "When the generation changes it should check whether the delta is required",
+			name:           "When the generation changes and inspection is unavailable it should keep the cache",
 			taskGeneration: 1,
-			wantQueue:      true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			exec := executer.NewMockExecuter(ctrl)
+			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", image).Return("", "", 0)
+			logger := log.NewPrefixLogger("test")
+			podman := client.NewPodman(logger, exec, fileio.NewMockReadWriter(ctrl), poll.NewConfig(time.Millisecond, 2))
 			target := imageRef{image: image}
 			delta := &OCIDeltaTarget{SourceDigest: digest, Application: application}
 			task := &prefetchTask{
@@ -938,6 +1078,8 @@ func TestPrepareTaskReusedCompletedNoHintTargetOnlyRechecksOnNewGeneration(t *te
 				done:                 true,
 			}
 			manager := &prefetchManager{
+				log:             logger,
+				podmanFactory:   func(v1beta1.Username) (*client.Podman, error) { return podman, nil },
 				tasks:           map[imageRef]*prefetchTask{target: task},
 				deltaGeneration: 2,
 			}
@@ -945,11 +1087,7 @@ func TestPrepareTaskReusedCompletedNoHintTargetOnlyRechecksOnNewGeneration(t *te
 			needsQueue, err := manager.prepareTask(context.Background(), target, OCITypePodmanImage, digest, nil, delta)
 			require.NoError(t, err)
 			require.Equal(t, tt.wantQueue, needsQueue)
-			if tt.wantQueue {
-				require.True(t, task.targetPresent)
-				require.False(t, task.done)
-				return
-			}
+			require.True(t, task.targetPresent)
 			require.True(t, task.done)
 		})
 	}
@@ -1070,12 +1208,11 @@ func TestApplicationDeltaStatusPersistsAcrossRestartAndClearsForChangedSpec(t *t
 	restartedStore := deltastatus.New(rw, "/var/lib/flightctl", logger)
 	ctrl := gomock.NewController(t)
 	mockExec := executer.NewMockExecuter(ctrl)
-	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", imageV2).Return("", "", 0)
-	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", imageV2).Return("", "", 0)
-	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", imageV3).Return("", "", 0)
-	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", imageV2).Return(imageDigestV2, "", 0).Times(2)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", imageV2).Return("", "", 0).Times(6)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", imageV3).Return("", "", 0).Times(3)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", imageV2).Return(fmt.Sprintf(`{"Digest": %q}`, imageDigestV2), "", 0).Times(2)
 	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--format", "{{.Digest}}", "docker://"+imageV2).Return(imageDigestV2, "", 0).Times(2)
-	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", imageV3).Return(imageDigestV3, "", 0)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", imageV3).Return(fmt.Sprintf(`{"Digest": %q}`, imageDigestV3), "", 0)
 	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--format", "{{.Digest}}", "docker://"+imageV3).Return(imageDigestV3, "", 0)
 	mockResources := resource.NewMockManager(ctrl)
 	mockResources.EXPECT().IsCriticalAlert(gomock.Any()).Return(false).Times(6)
@@ -1099,8 +1236,8 @@ func TestApplicationDeltaStatusPersistsAcrossRestartAndClearsForChangedSpec(t *t
 	target = targetV2
 	ctx := context.Background()
 	completePrefetch := func(target imageRef, current, desired *v1beta1.DeviceSpec) {
-		require.ErrorIs(t, manager.BeforeUpdate(ctx, current, desired), errors.ErrPrefetchNotReady)
-		manager.processTarget(ctx, target)
+		require.NoError(t, manager.BeforeUpdate(ctx, current, desired))
+		require.True(t, manager.tasks[target].done)
 		require.NoError(t, manager.BeforeUpdate(ctx, current, desired))
 	}
 	completePrefetch(refV2, nil, desiredV2)
@@ -1184,8 +1321,9 @@ func TestBeforeUpdatePreservesCurrentDeltaResultsAcrossRetries(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			mockExec := executer.NewMockExecuter(ctrl)
 			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", image).Return("", "", 1)
+			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", image).Return("", "", 0).Times(2)
 			mockResources := resource.NewMockManager(ctrl)
-			mockResources.EXPECT().IsCriticalAlert(gomock.Any()).Return(false).Times(2)
+			mockResources.EXPECT().IsCriticalAlert(gomock.Any()).Return(false).Times(3)
 			podman := client.NewPodman(logger, mockExec, rw, poll.NewConfig(time.Millisecond, 2))
 
 			var options []PrefetchManagerOption
@@ -1239,6 +1377,11 @@ func TestBeforeUpdatePreservesCurrentDeltaResultsAcrossRetries(t *testing.T) {
 			manager.setResult(ref, nil)
 
 			require.NoError(t, manager.BeforeUpdate(ctx, desired, desired))
+			generation := manager.deltaGeneration
+			changed := *desired
+			changed.Os = &v1beta1.DeviceOsSpec{Image: "quay.io/acme/os:changed"}
+			require.NoError(t, manager.BeforeUpdate(ctx, desired, &changed))
+			require.Equal(t, generation, manager.deltaGeneration)
 			deviceStatus := &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: "app"}}}
 			require.NoError(t, manager.Status(ctx, deviceStatus))
 			require.NotNil(t, deviceStatus.Applications[0].LastDelta)
