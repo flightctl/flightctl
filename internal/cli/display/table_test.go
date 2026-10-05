@@ -6,9 +6,22 @@ import (
 	"testing"
 	"text/tabwriter"
 
+	apiv1alpha1 "github.com/flightctl/flightctl/api/core/v1alpha1"
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/stretchr/testify/require"
 )
+
+// lineContaining returns the first line of output that contains the given
+// substring, or "" if none does. Used to assert on a specific row of a
+// multi-section tabwriter table without depending on exact column padding.
+func lineContaining(output, substr string) string {
+	for _, line := range strings.Split(output, "\n") {
+		if strings.Contains(line, substr) {
+			return line
+		}
+	}
+	return ""
+}
 
 // newTestWriter creates a tabwriter backed by a bytes.Buffer for test output
 // capture. Space padchar produces output where byte positions match display
@@ -328,4 +341,139 @@ func TestPrintDevicesTableSystemInfoColumnHeaderPosition(t *testing.T) {
 	require.Greater(t, appsIdx, -1, "APPLICATIONS header should be present")
 	require.Greater(t, systemInfoIdx, -1, "SYSTEM INFO header should be present")
 	require.Greater(t, systemInfoIdx, appsIdx, "SYSTEM INFO should appear after APPLICATIONS")
+}
+
+// catalogItemWithFeatures builds a catalog item with a mix of versions: some
+// declaring device feature requirements and one declaring none. Used by the
+// detail-view tests below.
+func catalogItemWithFeatures() apiv1alpha1.CatalogItem {
+	name := "redis"
+	gpuTrue := apiv1alpha1.DeviceFeatureBooleanTrue
+	kvmFalse := apiv1alpha1.DeviceFeatureBooleanFalse
+	osImage := api.OsModeImage
+
+	return apiv1alpha1.CatalogItem{
+		Metadata: apiv1alpha1.CatalogItemMeta{Name: &name, Catalog: "default"},
+		Spec: apiv1alpha1.CatalogItemSpec{
+			Type: "application",
+			Versions: []apiv1alpha1.CatalogItemVersion{
+				// Multiple requirements must collapse onto one row, joined with
+				// "; " in the canonical feature order.
+				{
+					Version: "1.0.0",
+					DeviceFeatures: &apiv1alpha1.DeviceFeatures{
+						GpuPresent: &gpuTrue,
+						OsMode:     &osImage,
+					},
+				},
+				// Known features come first, then additional properties sorted
+				// by name.
+				{
+					Version: "2.0.0",
+					DeviceFeatures: &apiv1alpha1.DeviceFeatures{
+						KvmEnabled:           &kvmFalse,
+						AdditionalProperties: map[string]interface{}{"zzz.custom": "x"},
+					},
+				},
+				// A version with no requirements must still appear, with "<none>".
+				{Version: "3.0.0"},
+			},
+		},
+	}
+}
+
+func TestPrintCatalogItemsTableDetailShowsFeatureRequirements(t *testing.T) {
+	var buf bytes.Buffer
+	w := newTestWriter(&buf)
+	f := &TableFormatter{}
+
+	// detail=true mirrors the single-item (get catalogitem <name> --catalog ...)
+	// path.
+	err := f.printCatalogItemsTable(w, false, true, catalogItemWithFeatures())
+	require.NoError(t, err)
+	require.NoError(t, w.Flush())
+
+	output := buf.String()
+
+	// The dedicated feature-requirements section has NAME / VERSION / FEATURES
+	// columns. The NAME column keeps the requirements attributable to a specific
+	// catalog item when several are shown.
+	require.Contains(t, output, "VERSION", "VERSION header should be present")
+	require.Contains(t, output, "FEATURES", "FEATURES header should be present")
+	featureHeader := lineContaining(output, "FEATURES")
+	require.NotEmpty(t, featureHeader, "feature requirements header row should be present")
+	require.Contains(t, featureHeader, "NAME",
+		"NAME header should be present in the feature requirements section")
+
+	// One row per version: a version with multiple requirements collapses onto a
+	// single line, semicolon-delimited in canonical order. Every row is prefixed
+	// with the catalog item name.
+	v1 := lineContaining(output, "1.0.0")
+	require.NotEmpty(t, v1, "version 1.0.0 row should be present")
+	require.Contains(t, v1, "redis", "version 1.0.0 row should include the catalog item name")
+	require.Contains(t, v1, "gpu.present=true; os.mode=image",
+		"version 1.0.0 should render both requirements on one row, semicolon-delimited")
+
+	// Known features precede additional properties (sorted by name).
+	v2 := lineContaining(output, "2.0.0")
+	require.NotEmpty(t, v2, "version 2.0.0 row should be present")
+	require.Contains(t, v2, "redis", "version 2.0.0 row should include the catalog item name")
+	require.Contains(t, v2, "kvm.enabled=false; zzz.custom=x",
+		"version 2.0.0 should list known features before additional properties")
+
+	// A version without requirements still appears, showing "<none>" and no "=".
+	v3 := lineContaining(output, "3.0.0")
+	require.NotEmpty(t, v3, "version 3.0.0 row should be present even without requirements")
+	require.Contains(t, v3, "redis", "version 3.0.0 row should include the catalog item name")
+	require.Contains(t, v3, "<none>", "version 3.0.0 features cell should be \"<none>\"")
+	require.NotContains(t, v3, "=", "version 3.0.0 should declare no key=value requirements")
+
+	// Internal Go field names must not leak into user-facing output.
+	for _, absent := range []string{"GpuPresent", "KvmEnabled", "OsMode", "DeviceFeatures"} {
+		require.NotContains(t, output, absent, "internal field name %q should not appear", absent)
+	}
+}
+
+func TestPrintCatalogItemsTableListOmitsFeatureRequirements(t *testing.T) {
+	var buf bytes.Buffer
+	w := newTestWriter(&buf)
+	f := &TableFormatter{}
+
+	// detail=false mirrors the list path (get catalogitems), which must not be
+	// cluttered with per-version requirements.
+	err := f.printCatalogItemsTable(w, false, false, catalogItemWithFeatures())
+	require.NoError(t, err)
+	require.NoError(t, w.Flush())
+
+	output := buf.String()
+	require.NotContains(t, output, "FEATURES",
+		"list view should not render the feature requirements section")
+	require.NotContains(t, output, "gpu.present",
+		"list view should not render per-version feature requirements")
+}
+
+func TestPrintCatalogItemsTableDetailNoFeatureRequirements(t *testing.T) {
+	var buf bytes.Buffer
+	w := newTestWriter(&buf)
+	f := &TableFormatter{}
+
+	name := "nginx"
+	item := apiv1alpha1.CatalogItem{
+		Metadata: apiv1alpha1.CatalogItemMeta{Name: &name, Catalog: "default"},
+		Spec: apiv1alpha1.CatalogItemSpec{
+			Type: "application",
+			Versions: []apiv1alpha1.CatalogItemVersion{
+				{Version: "1.0.0"},
+				{Version: "2.0.0"},
+			},
+		},
+	}
+
+	err := f.printCatalogItemsTable(w, false, true, item)
+	require.NoError(t, err)
+	require.NoError(t, w.Flush())
+
+	output := buf.String()
+	require.NotContains(t, output, "FEATURES",
+		"when no version declares requirements the section should be omitted entirely")
 }
