@@ -2,6 +2,7 @@ package dependency
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -224,6 +225,8 @@ func TestCachedApplicationImageReportsNotRequiredWhenDigestMatches(t *testing.T)
 
 	tests := []struct {
 		name            string
+		localDigest     string
+		repoDigests     []string
 		deltaHint       string
 		sourceDigest    string
 		targetDigest    string
@@ -243,6 +246,12 @@ func TestCachedApplicationImageReportsNotRequiredWhenDigestMatches(t *testing.T)
 		},
 		{
 			name:        "When a cached image matches without delta metadata it should report NotRequired",
+			wantOutcome: v1beta1.DeviceDeltaApplyOutcomeNotRequired,
+		},
+		{
+			name:        "When a cached image repository digest matches despite a different content digest it should report NotRequired",
+			localDigest: staleDigest,
+			repoDigests: []string{"quay.io/acme/app@" + digest},
 			wantOutcome: v1beta1.DeviceDeltaApplyOutcomeNotRequired,
 		},
 		{
@@ -272,9 +281,15 @@ func TestCachedApplicationImageReportsNotRequiredWhenDigestMatches(t *testing.T)
 			if requestedDigestValue == "" {
 				requestedDigestValue = digest
 			}
+			localDigestValue := tt.localDigest
+			if localDigestValue == "" {
+				localDigestValue = digest
+			}
+			inspection, err := json.Marshal(map[string]any{"Digest": localDigestValue, "RepoDigests": tt.repoDigests})
+			require.NoError(t, err)
 			localDigest := exec.EXPECT().ExecuteWithContext(
-				gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", image,
-			).Return(digest, "", 0)
+				gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", image,
+			).Return(string(inspection), "", 0)
 			requestedDigest := exec.EXPECT().ExecuteWithContext(
 				gomock.Any(), "skopeo", "inspect", "--format", "{{.Digest}}", "docker://"+image,
 			).Return(requestedDigestValue, "", 0)
@@ -353,8 +368,8 @@ func TestCachedApplicationImageWithStaleDigestAttemptsHintedDelta(t *testing.T) 
 	ctrl := gomock.NewController(t)
 	exec := executer.NewMockExecuter(ctrl)
 	localDigest := exec.EXPECT().ExecuteWithContext(
-		gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", image,
-	).Return(source, "", 0)
+		gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", image,
+	).Return(fmt.Sprintf(`{"Digest": %q}`, source), "", 0)
 	requestedDigest := exec.EXPECT().ExecuteWithContext(
 		gomock.Any(), "skopeo", "inspect", "--format", "{{.Digest}}", "docker://"+image,
 	).Return(target, "", 0)
@@ -1073,9 +1088,9 @@ func TestApplicationDeltaStatusPersistsAcrossRestartAndClearsForChangedSpec(t *t
 	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", imageV2).Return("", "", 0)
 	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", imageV2).Return("", "", 0)
 	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", imageV3).Return("", "", 0)
-	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", imageV2).Return(imageDigestV2, "", 0).Times(2)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", imageV2).Return(fmt.Sprintf(`{"Digest": %q}`, imageDigestV2), "", 0).Times(2)
 	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--format", "{{.Digest}}", "docker://"+imageV2).Return(imageDigestV2, "", 0).Times(2)
-	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", imageV3).Return(imageDigestV3, "", 0)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", imageV3).Return(fmt.Sprintf(`{"Digest": %q}`, imageDigestV3), "", 0)
 	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--format", "{{.Digest}}", "docker://"+imageV3).Return(imageDigestV3, "", 0)
 	mockResources := resource.NewMockManager(ctrl)
 	mockResources.EXPECT().IsCriticalAlert(gomock.Any()).Return(false).Times(6)

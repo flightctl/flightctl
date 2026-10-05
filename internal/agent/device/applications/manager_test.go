@@ -304,6 +304,85 @@ func TestManager(t *testing.T) {
 	}
 }
 
+func TestManagerUpdateAfterRestart(t *testing.T) {
+	testCases := []struct {
+		name    string
+		current string
+		desired string
+	}{
+		{
+			name:    "When a Compose image changes while the agent is stopped it should update the running application",
+			current: compose1,
+			desired: compose2,
+		},
+		{
+			name:    "When a Compose update is rolled back after restart it should restore the previous application",
+			current: compose2,
+			desired: compose1,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			ctx := t.Context()
+			logger := log.NewPrefixLogger("test")
+			bootTime := time.Now()
+			mockExec := executer.NewMockExecuter(ctrl)
+			mockReadWriter := fileio.NewMockReadWriter(ctrl)
+			podman := client.NewPodman(logger, mockExec, mockReadWriter, testutil.NewPollConfig())
+			podmanFactory := func(v1beta1.Username) (*client.Podman, error) { return podman, nil }
+			tempDir := t.TempDir()
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tempDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
+			)
+			rwFactory := func(v1beta1.Username) (fileio.ReadWriter, error) { return rw, nil }
+			rwMockFactory := func(v1beta1.Username) (fileio.ReadWriter, error) { return mockReadWriter, nil }
+			const appName = "app-restart"
+			current := newTestDeviceWithApplications(t, appName, []testInlineDetails{
+				{Content: tc.current, Path: "podman-compose.yaml"},
+			})
+			desired := newTestDeviceWithApplications(t, appName, []testInlineDetails{
+				{Content: tc.desired, Path: "podman-compose.yaml"},
+			})
+			currentProviders, err := provider.FromDeviceSpec(ctx, logger, podmanFactory, nil, rwFactory, current)
+			require.NoError(err)
+			require.Len(currentProviders, 1)
+			// Keep the installed files, but start with a fresh monitor as on agent restart.
+			require.NoError(currentProviders[0].Install(ctx))
+			desiredProviders, err := provider.FromDeviceSpec(ctx, logger, podmanFactory, nil, rwFactory, desired)
+			require.NoError(err)
+			m := &manager{
+				podmanMonitor:     NewPodmanMonitor(logger, podmanFactory, nil, bootTime.Format(time.RFC3339), rwMockFactory),
+				kubernetesMonitor: NewKubernetesMonitor(logger, client.NewCLIClients(), rwFactory),
+				log:               logger,
+			}
+			t.Cleanup(func() { require.NoError(m.podmanMonitor.Stop()) })
+			id := lifecycle.GenerateAppID(appName, v1beta1.CurrentProcessUsername)
+			require.False(m.podmanMonitor.Has(id))
+			mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).AnyTimes()
+			gomock.InOrder(
+				mockExecPodmanNetworkList(mockExec, appName),
+				mockExecPodmanPodList(mockExec, appName),
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "stop", "--filter", "label=com.docker.compose.project="+id).Return("", "", 0),
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "rm", "--filter", "label=com.docker.compose.project="+id).Return("", "", 0),
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pod", "rm", "pod123").Return("", "", 0),
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "network", "rm", "network123").Return("", "", 0),
+				mockExecComposePodmanVolumeList(mockExec, appName),
+				mockExecPodmanComposeUp(mockExec, appName, true, true),
+				mockExecPodmanEvents(mockExec, bootTime),
+			)
+
+			require.NoError(syncProviders(ctx, logger, m, currentProviders, desiredProviders))
+			require.True(m.podmanMonitor.Has(id))
+			require.NoError(m.AfterUpdate(ctx))
+			require.True(m.podmanMonitor.isRunning(v1beta1.CurrentProcessUsername))
+		})
+	}
+}
+
 func TestManagerRemoveApplication(t *testing.T) {
 	bootTime := time.Now()
 
