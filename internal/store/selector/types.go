@@ -192,6 +192,15 @@ type SelectorOpt = map[string]struct{}
 // the selector is rejected at parse time. A subquery selector also cannot be
 // combined with a JSONB cast, because the cast would wrap the template's boolean
 // predicate in CAST(... AS <type>).
+//
+// Template must not contain a literal '?' anywhere - not as an operator, not
+// inside a string literal, and not inside a JSON path filter expression such as
+// '$.a[*] ? (@.x == 1)'. Every '?' in the generated SQL is a bound placeholder
+// produced from a {name} marker, so an author-supplied '?' would shift the
+// argument ordering. In particular the PostgreSQL JSONB existence operators '?',
+// '?|' and '?&' are unavailable; use jsonb_exists(), jsonb_exists_any() and
+// jsonb_exists_all() instead, and prefer jsonb_path_exists() or a filterless
+// jsonb_path_query() over a '?' filter expression.
 type SubquerySelector struct {
 	Template       string
 	Args           map[string]any

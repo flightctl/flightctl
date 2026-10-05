@@ -476,13 +476,16 @@ func (sp *SQLParser) querySubqueryIn(args ...any) (*FunctionResult, error) {
 	}
 	// Templates must not contain a literal '?'. Every '?' emitted below is a bound
 	// placeholder generated from a {name} marker, so an author-supplied '?' would
-	// silently shift the argument ordering.
+	// silently shift the argument ordering. The check is deliberately broad: it
+	// also covers '?' inside a string literal or a JSON path filter expression
+	// such as '$.a[*] ? (@.x == 1)', which the driver cannot distinguish from a
+	// placeholder either.
 	//
-	// This also blocks the PostgreSQL JSONB existence operators '?', '?|' and '?&',
-	// which is intentional: the database driver cannot tell them apart from a
-	// positional placeholder. Templates that need them must use the function
+	// This blocks the PostgreSQL JSONB existence operators '?', '?|' and '?&',
+	// which is intentional. Templates that need them must use the function
 	// equivalents instead - jsonb_exists(), jsonb_exists_any() and
-	// jsonb_exists_all().
+	// jsonb_exists_all() - and prefer jsonb_path_exists() or a filterless
+	// jsonb_path_query() over a '?' filter expression.
 	if strings.Contains(field.Query, "?") {
 		return nil, fmt.Errorf("subquery template must use named parameters instead of positional placeholders")
 	}
