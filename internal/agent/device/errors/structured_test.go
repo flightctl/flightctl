@@ -201,7 +201,7 @@ func TestMessage(t *testing.T) {
 			// element (see device.go beforeUpdate). The rendered message must describe
 			// the update being deferred, not a generic component failure, since the
 			// update itself did not fail: it is retried once the alert clears.
-			name: "critical memory resource alert reports update deferral, not a failure",
+			name: "When a critical memory resource alert is active it should report update deferral",
 			err: fmt.Errorf("%w: %w", ErrPhasePreparing,
 				fmt.Errorf("%w: %w", ErrComponentResources,
 					fmt.Errorf("%w: %w", WithElement("Memory"), ErrCriticalResourceAlert))),
