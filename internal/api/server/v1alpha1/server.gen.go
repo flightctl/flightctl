@@ -286,6 +286,19 @@ func (siw *ServerInterfaceWrapper) ListAllCatalogItems(w http.ResponseWriter, r 
 		return
 	}
 
+	// ------------- Optional query parameter "fleets" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", false, false, "fleets", r.URL.Query(), &params.Fleets, runtime.BindQueryParameterOptions{Type: "array", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "fleets"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "fleets", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListAllCatalogItems(w, r, params)
 	}))

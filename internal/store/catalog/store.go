@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/flterrors"
@@ -14,6 +15,16 @@ import (
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
+
+// CatalogItemListParams extends store.ListParams with catalog-item-specific
+// filter options.
+type CatalogItemListParams struct {
+	store.ListParams
+
+	// FleetNames restricts the result to the catalog items referenced by at
+	// least one of the named fleets. An empty slice disables the filter.
+	FleetNames []string
+}
 
 type Store interface {
 	InitialMigration(ctx context.Context) error
@@ -30,7 +41,7 @@ type Store interface {
 	UnsetItemOwner(ctx context.Context, tx *gorm.DB, orgId uuid.UUID, owner string) error
 
 	// CatalogItem operations
-	ListAllItems(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.CatalogItemList, error)
+	ListAllItems(ctx context.Context, orgId uuid.UUID, listParams CatalogItemListParams) (*domain.CatalogItemList, error)
 	ListItems(ctx context.Context, orgId uuid.UUID, catalogName string, listParams store.ListParams) (*domain.CatalogItemList, error)
 	GetItem(ctx context.Context, orgId uuid.UUID, catalogName string, itemName string) (*domain.CatalogItem, error)
 	CreateItem(ctx context.Context, orgId uuid.UUID, catalogName string, item *domain.CatalogItem) (*domain.CatalogItem, error)
@@ -206,7 +217,40 @@ func (s *CatalogStore) catalogItemLabelResolver() selector.Resolver {
 	return resolver
 }
 
-func (s *CatalogStore) ListAllItems(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.CatalogItemList, error) {
+// fleetCatalogRefFilter keeps only the catalog items referenced by a set of
+// named fleets, through their OS image, an application image, or an application
+// volume image.
+//
+// The subquery is deliberately non-correlated: it takes the organization as a
+// bound parameter instead of reading catalog_items columns. That lets Postgres
+// unnest each named fleet's spec exactly once and resolve the predicate with a
+// hash semi-join. A correlated form re-walks every selected fleet spec for
+// every candidate catalog item, which is quadratic and unusable at scale.
+var fleetCatalogRefFilter = fmt.Sprintf(`(catalog_items.catalog_name, catalog_items.app_name) IN (
+	SELECT DISTINCT r.ref->>'catalog', r.ref->>'item'
+	FROM fleets f
+	CROSS JOIN LATERAL (
+		SELECT f.spec%[1]s
+		UNION ALL SELECT jsonb_path_query(f.spec, '%[2]s')
+		UNION ALL SELECT jsonb_path_query(f.spec, '%[3]s')
+	) r(ref)
+	WHERE f.org_id = ?
+		AND f.deleted_at IS NULL
+		AND f.name IN ?
+		AND r.ref IS NOT NULL
+)`, store.FleetSpecOsCatalogRefJSONB, store.FleetSpecAppCatalogRefPath, store.FleetSpecVolumeCatalogRefPath)
+
+// applyFleetCatalogRefFilter chains the fleet reference filter onto query when
+// fleetNames is non-empty. Both the list query and the remaining-count query go
+// through it so they can never diverge.
+func applyFleetCatalogRefFilter(query *gorm.DB, orgId uuid.UUID, fleetNames []string) *gorm.DB {
+	if len(fleetNames) == 0 {
+		return query
+	}
+	return query.Where(fleetCatalogRefFilter, orgId, fleetNames)
+}
+
+func (s *CatalogStore) ListAllItems(ctx context.Context, orgId uuid.UUID, listParams CatalogItemListParams) (*domain.CatalogItemList, error) {
 	db := s.getDB(ctx)
 
 	var items []model.CatalogItem
@@ -214,6 +258,7 @@ func (s *CatalogStore) ListAllItems(ctx context.Context, orgId uuid.UUID, listPa
 	var numRemaining *int64
 
 	query := db.Model(&model.CatalogItem{}).Where("org_id = ?", orgId)
+	query = applyFleetCatalogRefFilter(query, orgId, listParams.FleetNames)
 
 	if listParams.FieldSelector != nil {
 		q, p, err := listParams.FieldSelector.Parse(ctx, s.catalogItemLabelResolver())
@@ -256,12 +301,19 @@ func (s *CatalogStore) ListAllItems(ctx context.Context, orgId uuid.UUID, listPa
 			}
 		} else {
 			countQuery := db.Model(&model.CatalogItem{}).Where("org_id = ? AND (catalog_name, app_name) >= (?, ?)", orgId, lastItem.CatalogName, lastItem.AppName)
+			countQuery = applyFleetCatalogRefFilter(countQuery, orgId, listParams.FleetNames)
 			if listParams.FieldSelector != nil {
-				q, p, _ := listParams.FieldSelector.Parse(ctx, s.catalogItemLabelResolver())
+				q, p, err := listParams.FieldSelector.Parse(ctx, s.catalogItemLabelResolver())
+				if err != nil {
+					return nil, err
+				}
 				countQuery = countQuery.Where(q, p...)
 			}
 			if listParams.LabelSelector != nil {
-				q, p, _ := listParams.LabelSelector.Parse(ctx, selector.NewHiddenSelectorName("metadata.labels"), s.catalogItemLabelResolver())
+				q, p, err := listParams.LabelSelector.Parse(ctx, selector.NewHiddenSelectorName("metadata.labels"), s.catalogItemLabelResolver())
+				if err != nil {
+					return nil, err
+				}
 				countQuery = countQuery.Where(q, p...)
 			}
 			if err := countQuery.Count(&numRemainingVal).Error; err != nil {

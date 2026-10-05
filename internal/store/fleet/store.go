@@ -249,27 +249,27 @@ func (s *FleetStore) createFleetOsCatalogRefIndex(db *gorm.DB) error {
 	if db.Dialector.Name() != "postgres" {
 		return nil
 	}
-	return db.Exec(`CREATE INDEX IF NOT EXISTS idx_fleets_os_catalog_ref
-		ON fleets ((spec->'template'->'spec'->'os'->'catalogItemRef'->>'catalog'), (spec->'template'->'spec'->'os'->'catalogItemRef'->>'item'))
-		WHERE deleted_at IS NULL`).Error
+	return db.Exec(fmt.Sprintf(`CREATE INDEX IF NOT EXISTS idx_fleets_os_catalog_ref
+		ON fleets ((spec%[1]s->>'catalog'), (spec%[1]s->>'item'))
+		WHERE deleted_at IS NULL`, store.FleetSpecOsCatalogRefJSONB)).Error
 }
 
 func (s *FleetStore) createFleetAppCatalogRefIndex(db *gorm.DB) error {
 	if db.Dialector.Name() != "postgres" {
 		return nil
 	}
-	return db.Exec(`CREATE INDEX IF NOT EXISTS idx_fleets_app_catalog_refs
-		ON fleets USING GIN ((jsonb_path_query_array(spec, '$.template.spec.applications[*].catalogItemRef')) jsonb_path_ops)
-		WHERE deleted_at IS NULL`).Error
+	return db.Exec(fmt.Sprintf(`CREATE INDEX IF NOT EXISTS idx_fleets_app_catalog_refs
+		ON fleets USING GIN ((jsonb_path_query_array(spec, '%s')) jsonb_path_ops)
+		WHERE deleted_at IS NULL`, store.FleetSpecAppCatalogRefPath)).Error
 }
 
 func (s *FleetStore) createFleetVolumeCatalogRefIndex(db *gorm.DB) error {
 	if db.Dialector.Name() != "postgres" {
 		return nil
 	}
-	return db.Exec(`CREATE INDEX IF NOT EXISTS idx_fleets_volume_catalog_refs
-		ON fleets USING GIN ((jsonb_path_query_array(spec, '$.template.spec.applications[*].volumes[*].image.catalogItemRef')) jsonb_path_ops)
-		WHERE deleted_at IS NULL`).Error
+	return db.Exec(fmt.Sprintf(`CREATE INDEX IF NOT EXISTS idx_fleets_volume_catalog_refs
+		ON fleets USING GIN ((jsonb_path_query_array(spec, '%s')) jsonb_path_ops)
+		WHERE deleted_at IS NULL`, store.FleetSpecVolumeCatalogRefPath)).Error
 }
 
 // Mutate loads the named fleet (or uses previous on the first attempt), runs apply,
@@ -700,12 +700,12 @@ func (s *FleetStore) ListFleetsByOsCatalogItemRef(ctx context.Context, orgId uui
 	var nextContinue *string
 	var numRemaining *int64
 
-	querySQL := `
+	querySQL := fmt.Sprintf(`
 		SELECT * FROM fleets
 		WHERE org_id = ?
 			AND deleted_at IS NULL
-			AND spec->'template'->'spec'->'os'->'catalogItemRef'->>'catalog' = ?
-			AND spec->'template'->'spec'->'os'->'catalogItemRef'->>'item' = ?`
+			AND spec%[1]s->>'catalog' = ?
+			AND spec%[1]s->>'item' = ?`, store.FleetSpecOsCatalogRefJSONB)
 
 	args := []interface{}{orgId, catalog, item}
 
@@ -751,11 +751,11 @@ func (s *FleetStore) ListFleetsByAppCatalogItemRef(ctx context.Context, orgId uu
 	var nextContinue *string
 	var numRemaining *int64
 
-	querySQL := `
+	querySQL := fmt.Sprintf(`
 		SELECT * FROM fleets
 		WHERE org_id = ?
 			AND deleted_at IS NULL
-			AND jsonb_path_query_array(spec, '$.template.spec.applications[*].catalogItemRef') @> ?::jsonb`
+			AND jsonb_path_query_array(spec, '%s') @> ?::jsonb`, store.FleetSpecAppCatalogRefPath)
 
 	catalogRef, err := json.Marshal([]map[string]string{{"catalog": catalog, "item": item}})
 	if err != nil {
@@ -805,11 +805,11 @@ func (s *FleetStore) ListFleetsByVolumeCatalogItemRef(ctx context.Context, orgId
 	var nextContinue *string
 	var numRemaining *int64
 
-	querySQL := `
+	querySQL := fmt.Sprintf(`
 		SELECT * FROM fleets
 		WHERE org_id = ?
 			AND deleted_at IS NULL
-			AND jsonb_path_query_array(spec, '$.template.spec.applications[*].volumes[*].image.catalogItemRef') @> ?::jsonb`
+			AND jsonb_path_query_array(spec, '%s') @> ?::jsonb`, store.FleetSpecVolumeCatalogRefPath)
 
 	catalogRef, err := json.Marshal([]map[string]string{{"catalog": catalog, "item": item}})
 	if err != nil {

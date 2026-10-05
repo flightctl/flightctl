@@ -248,13 +248,37 @@ func (h *ServiceHandler) PatchCatalogStatus(ctx context.Context, orgId uuid.UUID
 	return result, common.StoreErrorToApiStatus(err, false, domain.CatalogKind, &name)
 }
 
+// MaxFleetNameFilterCount bounds the number of fleet names accepted by the
+// catalog item fleet filter. It mirrors the maxItems constraint declared for the
+// "fleets" query parameter in the OpenAPI spec.
+const MaxFleetNameFilterCount = 100
+
+// normalizeFleetNames trims each name, drops empty entries, and removes
+// duplicates while preserving the caller's ordering.
+func normalizeFleetNames(names []string) []string {
+	return lo.Uniq(lo.Compact(lo.Map(names, func(name string, _ int) string {
+		return strings.TrimSpace(name)
+	})))
+}
+
 func (h *ServiceHandler) ListAllCatalogItems(ctx context.Context, orgId uuid.UUID, params domain.ListAllCatalogItemsParams) (*domain.CatalogItemList, domain.Status) {
 	listParams, status := common.PrepareListParams(params.Continue, params.LabelSelector, params.FieldSelector, params.Limit)
 	if status != domain.StatusOK() {
 		return nil, status
 	}
 
-	result, err := h.store.ListAllItems(ctx, orgId, *listParams)
+	itemListParams := catalogstore.CatalogItemListParams{ListParams: *listParams}
+	if params.Fleets != nil {
+		if len(*params.Fleets) > MaxFleetNameFilterCount {
+			return nil, domain.StatusBadRequest(fmt.Sprintf("fleets accepts at most %d fleet names, got %d", MaxFleetNameFilterCount, len(*params.Fleets)))
+		}
+		itemListParams.FleetNames = normalizeFleetNames(*params.Fleets)
+		if len(itemListParams.FleetNames) == 0 {
+			return nil, domain.StatusBadRequest("fleets must contain at least one non-empty fleet name")
+		}
+	}
+
+	result, err := h.store.ListAllItems(ctx, orgId, itemListParams)
 	if err == nil {
 		return result, domain.StatusOK()
 	}

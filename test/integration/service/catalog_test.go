@@ -7,6 +7,9 @@ import (
 	api "github.com/flightctl/flightctl/api/core/v1alpha1"
 	apiv1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
 	apiversioning "github.com/flightctl/flightctl/api/versioning"
+	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
+	testutil "github.com/flightctl/flightctl/test/util"
+	"github.com/google/uuid"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
@@ -566,6 +569,182 @@ var _ = Describe("Catalog Integration Tests", func() {
 	})
 
 	Context("Cross-catalog CatalogItem listing", func() {
+		Context("Fleet filtering", func() {
+			BeforeEach(func() {
+				// Each reference position accepts a different catalog item type:
+				// an OS ref must point at an "os" item, an application ref at a
+				// "container" item, and a volume ref at a "data" item.
+				itemTypes := map[string]api.CatalogItemType{
+					"alpha/shared": api.CatalogItemTypeOS,
+					"alpha/data":   api.CatalogItemTypeOS,
+					"alpha/other":  api.CatalogItemTypeOS,
+					"beta/shared":  api.CatalogItemTypeContainer,
+					"beta/data":    api.CatalogItemTypeData,
+					"beta/other":   api.CatalogItemTypeOS,
+				}
+				createCatalogWithItems := func(orgID uuid.UUID, catalogName string, itemNames ...string) {
+					_, status := suite.Catalog.CreateCatalog(suite.Ctx, orgID, api.Catalog{
+						Metadata: apiv1beta1.ObjectMeta{Name: lo.ToPtr(catalogName)},
+						Spec:     api.CatalogSpec{},
+					})
+					Expect(status.Code).To(BeEquivalentTo(http.StatusCreated))
+					for _, itemName := range itemNames {
+						item := createValidCatalogItem(itemName)
+						item.Spec.Type = itemTypes[catalogName+"/"+itemName]
+						if item.Spec.Type == api.CatalogItemTypeOS {
+							item.Spec.Category = lo.ToPtr(api.CatalogItemCategorySystem)
+						}
+						if itemName == "shared" {
+							item.Metadata.Labels = &map[string]string{"env": "prod"}
+						}
+						_, status = suite.Catalog.CreateCatalogItem(suite.Ctx, orgID, catalogName, item)
+						Expect(status.Code).To(BeEquivalentTo(http.StatusCreated), "item %s/%s: %s", catalogName, itemName, status.Message)
+					}
+				}
+				for _, catalogName := range []string{"alpha", "beta"} {
+					createCatalogWithItems(suite.OrgID, catalogName, "shared", "data", "other")
+				}
+
+				// Fleet fixtures are built from the same typed objects the API
+				// serves, so a rename of a JSON tag on the fleet spec breaks
+				// these tests instead of silently breaking the filter.
+				osSpec := func(catalogName, itemName string) *apiv1beta1.DeviceOsSpec {
+					return &apiv1beta1.DeviceOsSpec{CatalogItemRef: &apiv1beta1.CatalogItemRefSpec{
+						Catalog: catalogName, Item: itemName, Version: "1.0.0",
+					}}
+				}
+				createFleet := func(orgID uuid.UUID, name string, spec apiv1beta1.DeviceSpec) {
+					_, status := suite.Fleet.ReplaceFleet(suite.Ctx, orgID, name, apiv1beta1.Fleet{
+						Metadata: apiv1beta1.ObjectMeta{Name: lo.ToPtr(name)},
+						Spec: apiv1beta1.FleetSpec{
+							Template: struct {
+								Metadata *apiv1beta1.ObjectMeta `json:"metadata,omitempty"`
+								Spec     apiv1beta1.DeviceSpec  `json:"spec"`
+							}{Spec: spec},
+						},
+					}, false)
+					Expect(status.Code).To(BeEquivalentTo(http.StatusCreated), "fleet %s: %s", name, status.Message)
+				}
+
+				volume := apiv1beta1.ApplicationVolume{Name: "data-vol"}
+				Expect(volume.FromImageMountVolumeProviderSpec(apiv1beta1.ImageMountVolumeProviderSpec{
+					Image: apiv1beta1.ImageVolumeSource{CatalogItemRef: &apiv1beta1.CatalogItemRefSpec{
+						Catalog: "beta", Item: "data", Version: "1.0.0",
+					}},
+					Mount: apiv1beta1.VolumeMount{Path: "/mnt/data"},
+				})).To(Succeed())
+				container := apiv1beta1.ContainerApplication{
+					AppType: apiv1beta1.AppTypeContainer,
+					Name:    lo.ToPtr("shared-app"),
+					Volumes: &[]apiv1beta1.ApplicationVolume{volume},
+				}
+				Expect(container.FromCatalogItemRefApplicationProviderSpec(apiv1beta1.CatalogItemRefApplicationProviderSpec{
+					CatalogItemRef: apiv1beta1.CatalogItemRefSpec{Catalog: "beta", Item: "shared", Version: "1.0.0"},
+				})).To(Succeed())
+				var appSpec apiv1beta1.ApplicationProviderSpec
+				Expect(appSpec.FromContainerApplication(container)).To(Succeed())
+
+				createFleet(suite.OrgID, "fleet-a", apiv1beta1.DeviceSpec{
+					Os:           osSpec("alpha", "shared"),
+					Applications: &[]apiv1beta1.ApplicationProviderSpec{appSpec},
+				})
+				createFleet(suite.OrgID, "fleet-b", apiv1beta1.DeviceSpec{Os: osSpec("alpha", "data")})
+				createFleet(suite.OrgID, "fleet-duplicate", apiv1beta1.DeviceSpec{Os: osSpec("alpha", "shared")})
+				createFleet(suite.OrgID, "fleet-no-refs", apiv1beta1.DeviceSpec{Os: &apiv1beta1.DeviceOsSpec{Image: "quay.io/test/os:v1"}})
+
+				// A fleet in a second organization that owns identically named
+				// catalog items, to pin that the filter stays tenant-scoped.
+				otherOrg := uuid.New()
+				Expect(testutil.CreateTestOrganization(suite.Ctx, suite.OrganizationStore, otherOrg)).To(Succeed())
+				createCatalogWithItems(otherOrg, "beta", "other")
+				createFleet(otherOrg, "fleet-foreign", apiv1beta1.DeviceSpec{Os: osSpec("beta", "other")})
+
+				// Deleting a fleet through the service removes the row outright,
+				// so the soft-deleted state the filter guards against can only be
+				// produced directly. The spec itself is still written by the API.
+				createFleet(suite.OrgID, "fleet-deleted", apiv1beta1.DeviceSpec{Os: osSpec("alpha", "other")})
+				Expect(suite.DB.WithContext(suite.Ctx).Exec(
+					"UPDATE fleets SET deleted_at = NOW() WHERE org_id = ? AND name = ?", suite.OrgID, "fleet-deleted").Error).ToNot(HaveOccurred())
+			})
+
+			DescribeTable("should return only referenced catalog items",
+				func(fleets []string, expected []string) {
+					result, status := suite.Catalog.ListAllCatalogItems(suite.Ctx, suite.OrgID, api.ListAllCatalogItemsParams{Fleets: &fleets})
+					Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+					items := make([]string, 0, len(result.Items))
+					for _, item := range result.Items {
+						items = append(items, item.Metadata.Catalog+"/"+*item.Metadata.Name)
+					}
+					Expect(items).To(Equal(expected))
+				},
+				Entry("When a fleet is selected it should include OS, application, and volume refs", []string{"fleet-a"}, []string{"alpha/shared", "beta/data", "beta/shared"}),
+				Entry("When multiple fleets are selected it should return their union without duplicates", []string{"fleet-a", "fleet-b", "fleet-duplicate"}, []string{"alpha/data", "alpha/shared", "beta/data", "beta/shared"}),
+				Entry("When fleet names repeat or are padded it should normalize them", []string{" fleet-b", "fleet-b "}, []string{"alpha/data"}),
+				Entry("When a selected fleet holds no catalog refs it should return no items", []string{"fleet-no-refs"}, []string{}),
+				Entry("When fleets are missing, deleted, or foreign it should return no items", []string{"missing", "fleet-deleted", "fleet-foreign"}, []string{}),
+			)
+
+			It("When fleets holds no usable name it should return a bad-request status", func() {
+				_, status := suite.Catalog.ListAllCatalogItems(suite.Ctx, suite.OrgID, api.ListAllCatalogItemsParams{Fleets: &[]string{"", " "}})
+				Expect(status.Code).To(BeEquivalentTo(http.StatusBadRequest))
+			})
+
+			It("When more fleet names than the limit are given it should return a bad-request status", func() {
+				fleets := make([]string, catalogservice.MaxFleetNameFilterCount+1)
+				for i := range fleets {
+					fleets[i] = fmt.Sprintf("fleet-%d", i)
+				}
+				_, status := suite.Catalog.ListAllCatalogItems(suite.Ctx, suite.OrgID, api.ListAllCatalogItemsParams{Fleets: &fleets})
+				Expect(status.Code).To(BeEquivalentTo(http.StatusBadRequest))
+			})
+
+			It("When fleet filtering is paginated it should count only matching items", func() {
+				params := api.ListAllCatalogItemsParams{Fleets: &[]string{"fleet-a"}, Limit: lo.ToPtr(int32(1))}
+				for _, expected := range []struct {
+					catalog   string
+					item      string
+					remaining int64
+				}{
+					{catalog: "alpha", item: "shared", remaining: 2},
+					{catalog: "beta", item: "data", remaining: 1},
+					{catalog: "beta", item: "shared"},
+				} {
+					result, status := suite.Catalog.ListAllCatalogItems(suite.Ctx, suite.OrgID, params)
+					Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+					Expect(result.Items).To(HaveLen(1))
+					Expect(result.Items[0].Metadata.Catalog).To(Equal(expected.catalog))
+					Expect(*result.Items[0].Metadata.Name).To(Equal(expected.item))
+					if expected.remaining > 0 {
+						Expect(result.Metadata.RemainingItemCount).To(HaveValue(Equal(expected.remaining)))
+						Expect(result.Metadata.Continue).NotTo(BeNil())
+					} else {
+						Expect(result.Metadata.Continue).To(BeNil())
+					}
+					params.Continue = result.Metadata.Continue
+				}
+			})
+
+			It("When fleet and label filters are combined it should apply both", func() {
+				result, status := suite.Catalog.ListAllCatalogItems(suite.Ctx, suite.OrgID, api.ListAllCatalogItemsParams{
+					Fleets: &[]string{"fleet-a"}, LabelSelector: lo.ToPtr("env=prod"), Limit: lo.ToPtr(int32(1)),
+				})
+				Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+				Expect(result.Items).To(HaveLen(1))
+				Expect(result.Items[0].Metadata.Catalog).To(Equal("alpha"))
+				Expect(result.Metadata.RemainingItemCount).To(HaveValue(Equal(int64(1))))
+			})
+
+			It("When fleet and field filters are combined it should apply both", func() {
+				result, status := suite.Catalog.ListAllCatalogItems(suite.Ctx, suite.OrgID, api.ListAllCatalogItemsParams{
+					Fleets: &[]string{"fleet-a"}, FieldSelector: lo.ToPtr("metadata.name=shared"), Limit: lo.ToPtr(int32(1)),
+				})
+				Expect(status.Code).To(BeEquivalentTo(http.StatusOK))
+				Expect(result.Items).To(HaveLen(1))
+				Expect(result.Items[0].Metadata.Catalog).To(Equal("alpha"))
+				Expect(result.Metadata.RemainingItemCount).To(HaveValue(Equal(int64(1))))
+			})
+		})
+
 		It("should list items across all catalogs", func() {
 			// Create two catalogs
 			for _, name := range []string{"alpha-catalog", "beta-catalog"} {

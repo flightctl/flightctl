@@ -642,6 +642,18 @@ func NewListAllCatalogItemsRequest(server string, params *ListAllCatalogItemsPar
 
 		}
 
+		if params.Fleets != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", false, "fleets", *params.Fleets, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "array", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
 		if encoded := queryValues.Encode(); encoded != "" {
 			rawQueryFragments = append(rawQueryFragments, encoded)
 		}

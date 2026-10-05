@@ -283,6 +283,16 @@ To list all items in a specific catalog:
 flightctl get catalogitems --catalog <catalog_name>
 ```
 
+To list catalog items referenced by specific fleets through the API, use the `fleets` query parameter with a comma-separated list of fleet names:
+
+```text
+GET /api/v1/catalogitems?fleets=fleet-a,fleet-b
+```
+
+The response includes items referenced by the fleets' operating systems, applications, and volume images. Items referenced more than once appear only once. The filter can be combined with label selectors, field selectors, and pagination. If `fleets` is omitted, the response includes items from all catalogs.
+
+Leading and trailing spaces are trimmed from each name and repeated names are ignored. At most 100 fleet names are accepted, and the request is rejected with `400 Bad Request` if the parameter is supplied without a single usable name.
+
 ## Importing catalogs using ResourceSync
 
 Instead of creating catalogs and catalog items individually, you can store their definitions in a Git repository and import them automatically using a ResourceSync resource. Flight Control periodically polls the repository and synchronizes any changes, making Git the single source of truth for your catalog definitions.

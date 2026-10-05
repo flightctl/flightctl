@@ -13,6 +13,7 @@ import (
 	"github.com/flightctl/flightctl/internal/flterrors"
 	"github.com/flightctl/flightctl/internal/service/events"
 	"github.com/flightctl/flightctl/internal/store"
+	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	fleetstore "github.com/flightctl/flightctl/internal/store/fleet"
 	"github.com/google/uuid"
@@ -279,6 +280,7 @@ var _ fleetstore.Store = (*fakeFleetStore)(nil)
 // internal/service/teststore_framework_test.go's DummyCatalog (which cannot be imported
 // directly since it lives in a _test.go file in a different package).
 type fakeCatalogStore struct {
+	lastListParams     catalogstore.CatalogItemListParams
 	catalogs           map[string]*domain.Catalog
 	items              map[string]*domain.CatalogItem // key: itemKey(catalogName, itemName)
 	err                error
@@ -397,7 +399,8 @@ func (f *fakeCatalogStore) UnsetItemOwner(ctx context.Context, tx *gorm.DB, orgI
 	return f.err
 }
 
-func (f *fakeCatalogStore) ListAllItems(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (*domain.CatalogItemList, error) {
+func (f *fakeCatalogStore) ListAllItems(ctx context.Context, orgId uuid.UUID, listParams catalogstore.CatalogItemListParams) (*domain.CatalogItemList, error) {
+	f.lastListParams = listParams
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -967,7 +970,52 @@ func TestPatchCatalogStatus(t *testing.T) {
 	})
 }
 
+// generateFleetNames returns count distinct fleet names.
+func generateFleetNames(count int) []string {
+	names := make([]string, count)
+	for i := range names {
+		names[i] = fmt.Sprintf("fleet-%d", i)
+	}
+	return names
+}
+
 func TestListAllCatalogItems(t *testing.T) {
+	for _, testCase := range []struct {
+		name       string
+		fleets     *[]string
+		fleetNames []string
+	}{
+		{name: "When fleets is absent it should leave the fleet filter unset"},
+		{name: "When one fleet is provided it should pass its name to the store", fleets: &[]string{"fleet-a"}, fleetNames: []string{"fleet-a"}},
+		{name: "When multiple fleets are provided it should pass all their names to the store", fleets: &[]string{"fleet-a", "fleet-b", "fleet-n"}, fleetNames: []string{"fleet-a", "fleet-b", "fleet-n"}},
+		{name: "When fleet names are padded with spaces it should trim them", fleets: &[]string{" fleet-a", "fleet-b "}, fleetNames: []string{"fleet-a", "fleet-b"}},
+		{name: "When fleet names contain empty entries it should drop them", fleets: &[]string{"fleet-a", "", "  ", "fleet-b"}, fleetNames: []string{"fleet-a", "fleet-b"}},
+		{name: "When fleet names repeat it should deduplicate them", fleets: &[]string{"fleet-a", "fleet-a", "fleet-b", "fleet-a"}, fleetNames: []string{"fleet-a", "fleet-b"}},
+		{name: "When the number of fleet names is at the limit it should accept them", fleets: lo.ToPtr(generateFleetNames(MaxFleetNameFilterCount)), fleetNames: generateFleetNames(MaxFleetNameFilterCount)},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			h, fakeStore, _ := newTestHandler()
+			_, status := h.ListAllCatalogItems(context.Background(), uuid.New(), domain.ListAllCatalogItemsParams{Fleets: testCase.fleets})
+			require.Equal(t, domain.StatusOK(), status)
+			require.Equal(t, testCase.fleetNames, fakeStore.lastListParams.FleetNames)
+		})
+	}
+
+	for _, testCase := range []struct {
+		name   string
+		fleets *[]string
+	}{
+		{name: "When fleets is present but empty it should return a bad-request status", fleets: &[]string{}},
+		{name: "When fleets holds only empty names it should return a bad-request status", fleets: &[]string{"", " ", ""}},
+		{name: "When more fleet names than the limit are provided it should return a bad-request status", fleets: lo.ToPtr(generateFleetNames(MaxFleetNameFilterCount + 1))},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			h, _, _ := newTestHandler()
+			_, status := h.ListAllCatalogItems(context.Background(), uuid.New(), domain.ListAllCatalogItemsParams{Fleets: testCase.fleets})
+			require.Equal(t, int32(http.StatusBadRequest), status.Code)
+		})
+	}
+
 	t.Run("When the store succeeds it should return the list with StatusOK", func(t *testing.T) {
 		h, fakeStore, _ := newTestHandler()
 		catalog := createTestCatalog("c1", nil)

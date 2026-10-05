@@ -829,6 +829,9 @@ type ListAllCatalogItemsParams struct {
 
 	// Limit The maximum number of results returned in the list response. The server will set the 'continue' field in the list response if more results exist. The continue value may then be specified as parameter in a subsequent query.
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Fleets A list of fleet names. Only catalog items referenced by one of these fleets through its OS image, an application image, or an application volume image are returned. Defaults to all catalog items.
+	Fleets *[]string `form:"fleets,omitempty" json:"fleets,omitempty"`
 }
 
 // ListCatalogsParams defines parameters for ListCatalogs.

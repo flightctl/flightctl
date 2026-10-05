@@ -54,6 +54,21 @@ paths:
             format: int32
             minimum: 0
             maximum: 1000
+        - name: fleets
+          in: query
+          description: A list of fleet names. Only catalog items referenced by one of these fleets through its OS image, an application image, or an application volume image are returned. Defaults to all catalog items.
+          required: false
+          style: form
+          explode: false
+          schema:
+            type: array
+            maxItems: 100
+            items:
+              type: string
+              maxLength: 253
+          example:
+            - my-fleet
+            - my-other-fleet
       responses:
         "200":
           description: OK
