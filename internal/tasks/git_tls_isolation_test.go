@@ -39,6 +39,12 @@ type gitHTTPSFixture struct {
 
 func newGitHTTPSFixture(t *testing.T, clientName string) *gitHTTPSFixture {
 	t.Helper()
+	// An empty Git repository completes TLS negotiation without requiring a packfile.
+	return newGitHTTPSFixtureWithAdvertisement(t, clientName, "001e# service=git-upload-pack\n00000000")
+}
+
+func newGitHTTPSFixtureWithAdvertisement(t *testing.T, clientName, advertisement string) *gitHTTPSFixture {
+	t.Helper()
 	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	require.NoError(t, err)
 	ca := &x509.Certificate{
@@ -70,8 +76,9 @@ func newGitHTTPSFixture(t *testing.T, clientName string) *gitHTTPSFixture {
 		fixture.clients = append(fixture.clients, client)
 		fixture.mu.Unlock()
 		w.Header().Set("Content-Type", "application/x-git-upload-pack-advertisement")
-		// An empty Git repository completes TLS negotiation without requiring a packfile.
-		_, _ = io.WriteString(w, "001e# service=git-upload-pack\n00000000")
+		if _, err := io.WriteString(w, advertisement); err != nil {
+			t.Errorf("write Git advertisement: %v", err)
+		}
 	}))
 	fixture.server.TLS = &tls.Config{
 		MinVersion:   tls.VersionTLS12,
@@ -213,30 +220,13 @@ func testGitHTTPSIsolationConcurrent(t *testing.T, operations []gitHTTPSOperatio
 			first := newGitHTTPSFixture(t, "client-a")
 			second := newGitHTTPSFixture(t, "client-b")
 			repositories := []*domain.Repository{first.repository(t, first.mutualTLSConfig()), second.repository(t, second.mutualTLSConfig())}
-			const pairs = 12
-			failures := make(chan error, pairs*len(repositories))
-			start := make(chan struct{})
-			var wg sync.WaitGroup
-			for range pairs {
-				for _, repo := range repositories {
-					wg.Add(1)
-					go func() {
-						defer wg.Done()
-						<-start
-						if err := operation.run(repo); err == nil || !strings.Contains(err.Error(), transport.ErrEmptyRemoteRepository.Error()) {
-							failures <- fmt.Errorf("unexpected Git response: %v", err)
-						}
-					}()
-				}
+			var calls []gitHTTPSConcurrentOperation
+			for _, repo := range repositories {
+				calls = append(calls, gitHTTPSConcurrentOperation{operation: operation, repository: repo, errorContains: transport.ErrEmptyRemoteRepository.Error()})
 			}
-			close(start)
-			wg.Wait()
-			close(failures)
-			for err := range failures {
-				t.Error(err)
-			}
-			require.Len(t, first.clientNames(), pairs)
-			require.Len(t, second.clientNames(), pairs)
+			runGitHTTPSOperationsConcurrently(t, calls)
+			require.Len(t, first.clientNames(), gitHTTPSConcurrentAttempts)
+			require.Len(t, second.clientNames(), gitHTTPSConcurrentAttempts)
 			for _, client := range first.clientNames() {
 				require.Equal(t, "client-a", client)
 			}
@@ -245,4 +235,79 @@ func testGitHTTPSIsolationConcurrent(t *testing.T, operations []gitHTTPSOperatio
 			}
 		})
 	}
+}
+
+const gitHTTPSConcurrentAttempts = 12
+
+type gitHTTPSConcurrentOperation struct {
+	operation     gitHTTPSOperation
+	repository    *domain.Repository
+	errorContains string
+}
+
+func runGitHTTPSOperationsConcurrently(t *testing.T, calls []gitHTTPSConcurrentOperation) {
+	t.Helper()
+	failures := make(chan error, gitHTTPSConcurrentAttempts*len(calls))
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for range gitHTTPSConcurrentAttempts {
+		for _, call := range calls {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				if err := call.operation.run(call.repository); err == nil || !strings.Contains(err.Error(), call.errorContains) {
+					failures <- fmt.Errorf("%s: unexpected Git response: %v", call.operation.name, err)
+				}
+			}()
+		}
+	}
+	close(start)
+	wg.Wait()
+	close(failures)
+	for err := range failures {
+		t.Error(err)
+	}
+}
+
+func TestGitHTTPSVerificationIsolationConcurrent(t *testing.T) {
+	operations := append(gitHTTPSOperations(), gitHTTPSListOperations()...)
+	for _, operation := range operations {
+		t.Run("When "+operation.name+" operations overlap it should isolate insecure verification", func(t *testing.T) {
+			fixture := newGitHTTPSFixture(t, "client-unused")
+			insecureRepo := fixture.repository(t, &domain.HttpConfig{SkipServerVerification: lo.ToPtr(true)})
+			defaultRepo := fixture.repository(t, nil)
+			runGitHTTPSOperationsConcurrently(t, []gitHTTPSConcurrentOperation{
+				{operation: operation, repository: insecureRepo, errorContains: transport.ErrEmptyRemoteRepository.Error()},
+				{operation: operation, repository: defaultRepo, errorContains: "certificate"},
+			})
+			clients := fixture.clientNames()
+			require.Len(t, clients, gitHTTPSConcurrentAttempts, "only the explicitly insecure repository should reach the server")
+			for _, client := range clients {
+				require.Empty(t, client)
+			}
+		})
+	}
+}
+
+func TestGitHTTPSMixedOperationsConcurrent(t *testing.T) {
+	t.Run("When clone and dependency probes overlap it should isolate CA trust and client identities", func(t *testing.T) {
+		first := newGitHTTPSFixture(t, "client-clone")
+		second := newGitHTTPSFixture(t, "client-probe")
+		clone := gitHTTPSOperations()[0]
+		probe := gitHTTPSListOperations()[1]
+		runGitHTTPSOperationsConcurrently(t, []gitHTTPSConcurrentOperation{
+			{operation: clone, repository: first.repository(t, first.mutualTLSConfig()), errorContains: transport.ErrEmptyRemoteRepository.Error()},
+			{operation: probe, repository: second.repository(t, second.mutualTLSConfig()), errorContains: transport.ErrEmptyRemoteRepository.Error()},
+		})
+		for _, fixture := range []*gitHTTPSFixture{first, second} {
+			require.Len(t, fixture.clientNames(), gitHTTPSConcurrentAttempts)
+		}
+		for _, client := range first.clientNames() {
+			require.Equal(t, "client-clone", client)
+		}
+		for _, client := range second.clientNames() {
+			require.Equal(t, "client-probe", client)
+		}
+	})
 }
