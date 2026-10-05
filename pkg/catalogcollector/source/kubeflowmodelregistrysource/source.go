@@ -204,6 +204,11 @@ func (s *source) fetchAllModels(
 				"listing registered models returned no response",
 			)
 		}
+		if list.Items == nil {
+			return nil, fmt.Errorf(
+				"listing registered models: response missing required items field",
+			)
+		}
 
 		models = append(models, list.Items...)
 
@@ -312,6 +317,14 @@ func (s *source) fetchAllVersions(
 			return nil, fmt.Errorf(
 				"listing versions for registered model id=%s "+
 					"returned no response",
+				modelID,
+			)
+		}
+
+		if list.Items == nil {
+			return nil, fmt.Errorf(
+				"listing versions for registered model id=%s: "+
+					"response missing required items field",
 				modelID,
 			)
 		}
@@ -464,6 +477,14 @@ func (s *source) fetchAllArtifacts(
 			return nil, fmt.Errorf(
 				"listing artifacts for model version id=%s "+
 					"returned no response",
+				versionID,
+			)
+		}
+
+		if list.Items == nil {
+			return nil, fmt.Errorf(
+				"listing artifacts for model version id=%s: "+
+					"response missing required items field",
 				versionID,
 			)
 		}

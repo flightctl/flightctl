@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 
 	mrapi "github.com/kubeflow/hub/pkg/openapi"
@@ -782,6 +783,35 @@ func TestClient_Preflight_ServerError(t *testing.T) {
 	}
 }
 
+// TestClient_Preflight_NilItems_FailsPreflight verifies that preflight
+// detects nil Items in the response and fails rather than silently passing.
+func TestClient_Preflight_NilItems_FailsPreflight(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Return HTTP 200 with {} — no items field at all.
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{}`)) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	c, _ := newOpenapiClient(srv.URL, "1")
+
+	err := c.PreflightRegisteredModels(context.Background())
+	if err == nil {
+		t.Fatal("PreflightRegisteredModels() = nil, want error for nil Items")
+	}
+	if !strings.Contains(err.Error(), "missing required items field") {
+		t.Errorf("error %q should mention missing items field", err.Error())
+	}
+
+	err = c.PreflightModelVersions(context.Background())
+	if err == nil {
+		t.Fatal("PreflightModelVersions() = nil, want error for nil Items")
+	}
+	if !strings.Contains(err.Error(), "missing required items field") {
+		t.Errorf("error %q should mention missing items field", err.Error())
+	}
+}
+
 // TestSource_RepeatedPageToken_FailsCycle verifies that the source detects
 // a server returning the same nextPageToken twice and fails the cycle.
 func TestSource_RepeatedPageToken_RegisteredModels(t *testing.T) {
@@ -824,7 +854,7 @@ type repeatedVersionTokenClient struct {
 func (r *repeatedVersionTokenClient) ListRegisteredModels(_ context.Context, _ string) (*mrapi.RegisteredModelList, error) {
 	r.modelCall++
 	if r.modelCall > 1 {
-		return &mrapi.RegisteredModelList{}, nil
+		return &mrapi.RegisteredModelList{Items: []mrapi.RegisteredModel{}}, nil
 	}
 	return &mrapi.RegisteredModelList{
 		Items: []mrapi.RegisteredModel{makeModel("1", "model-a")},
@@ -840,7 +870,7 @@ func (r *repeatedVersionTokenClient) ListModelVersions(_ context.Context, _ stri
 }
 
 func (r *repeatedVersionTokenClient) ListModelArtifacts(_ context.Context, _ string, _ string) (*mrapi.ArtifactList, error) {
-	return &mrapi.ArtifactList{}, nil
+	return &mrapi.ArtifactList{Items: []mrapi.Artifact{}}, nil
 }
 
 func (r *repeatedVersionTokenClient) PreflightRegisteredModels(_ context.Context) error { return nil }

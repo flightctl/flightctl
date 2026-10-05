@@ -389,7 +389,16 @@ func (h *Helper) advance(current time.Duration) time.Duration {
 	}
 
 	next := time.Duration(float64(current) * h.backoff.Multiplier)
-	if next <= current || next > maximum {
+
+	// When multiplication produces no increase (e.g. multiplier == 1),
+	// preserve the current interval instead of jumping to maximum.
+	if next == current {
+		return current
+	}
+
+	// Guard against overflow: if multiplication wrapped around and produced
+	// a smaller value, or exceeded the cap, clamp to maximum.
+	if next < current || next > maximum {
 		return maximum
 	}
 

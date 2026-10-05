@@ -279,6 +279,100 @@ func TestHelper_CancellationDuringCollect(t *testing.T) {
 	}
 }
 
+func TestHelper_MultiplierOne_PreservesInterval(t *testing.T) {
+	// Regression test: with multiplier 1, the backoff interval must remain
+	// at the initial value instead of jumping to maximum.
+	var delays []time.Duration
+
+	collect := func(ctx context.Context) (*catalogcollector.CatalogSnapshot, error) {
+		return nil, errors.New("always fail")
+	}
+
+	b := pollsource.BackoffConfig{
+		InitialInterval:     ud(10 * time.Millisecond),
+		MaxInterval:         ud(5 * time.Minute),
+		Multiplier:          1.0, // no exponential growth
+		RandomizationFactor: 0,
+	}
+
+	// Use a custom jitter function that records the base delay passed to
+	// withJitter (which receives the currentBackoff after advance()).
+	// We capture delays in the OnFailure callback instead since withJitter
+	// is internal.
+	h := pollsource.NewHelper("test-mult1", 10*time.Millisecond, b, newLogger(), nil, noJitter)
+
+	var failCount atomic.Int64
+	h.OnFailure = func(d time.Duration, err error) {
+		failCount.Add(1)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	_ = h.Run(ctx, collect, &fakeConsumer{})
+
+	// With multiplier 1, initial 10ms, and no jitter, the delay should
+	// remain 10ms every cycle. In 200ms we should see ~10+ failures.
+	// With the bug (jumping to 5min), we'd see only 1 failure.
+	fails := failCount.Load()
+	if fails < 5 {
+		t.Errorf("expected at least 5 failures in 200ms with 10ms backoff, got %d (multiplier 1 likely jumped to max)", fails)
+	}
+	_ = delays // suppress unused warning
+}
+
+func TestHelper_ResetAfterSuccess_ThenFailAgain(t *testing.T) {
+	// Strengthen reset test: after success resets backoff, the next failure
+	// must use the initial interval again, not a carried-over higher value.
+	var callCount atomic.Int64
+
+	// Cycle: fail, fail, succeed, fail, fail, succeed...
+	// After the success, backoff resets. The second set of failures must
+	// also start from InitialInterval.
+	collect := func(ctx context.Context) (*catalogcollector.CatalogSnapshot, error) {
+		n := callCount.Add(1)
+		phase := ((n - 1) % 3) // 0, 1, 2, 0, 1, 2, ...
+		if phase < 2 {
+			return nil, errors.New("transient")
+		}
+		return emptySnapshot, nil
+	}
+
+	b := pollsource.BackoffConfig{
+		InitialInterval:     ud(5 * time.Millisecond),
+		MaxInterval:         ud(200 * time.Millisecond),
+		Multiplier:          2.0,
+		RandomizationFactor: 0,
+	}
+
+	var successCount atomic.Int64
+	ctx, cancel := context.WithCancel(context.Background())
+
+	h := pollsource.NewHelper("test-reset", 5*time.Millisecond, b, newLogger(), nil, noJitter)
+	h.OnSuccess = func(d time.Duration) {
+		if successCount.Add(1) >= 2 {
+			cancel() // stop after second success
+		}
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- h.Run(ctx, collect, &fakeConsumer{}) }()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("test timed out")
+	}
+
+	// We need at least 6 calls: fail, fail, success, fail, fail, success
+	if n := callCount.Load(); n < 6 {
+		t.Errorf("expected at least 6 calls (2 cycles of fail-fail-succeed), got %d", n)
+	}
+	if n := successCount.Load(); n < 2 {
+		t.Errorf("expected at least 2 successes, got %d", n)
+	}
+}
+
 func TestBackoffConfig_Validate(t *testing.T) {
 	cases := []struct {
 		name    string

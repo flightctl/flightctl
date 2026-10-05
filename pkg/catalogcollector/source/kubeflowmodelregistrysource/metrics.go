@@ -37,9 +37,13 @@ type sourceMetrics struct {
 	// completion, so access to this value must be synchronized.
 	lastSuccessTS atomic.Int64
 
-	// Keep the observable instrument associated with this metrics instance for
-	// the lifetime of the source.
+	// Keep the observable instrument and callback registration associated with
+	// this metrics instance for the lifetime of the source. The registration
+	// is retained so each source's callback is independently observed by the
+	// SDK, avoiding the problem where multiple Int64ObservableGauge creations
+	// with WithInt64Callback silently drop all but the first callback.
 	lastSuccessGauge metric.Int64ObservableGauge
+	callbackReg      metric.Registration
 }
 
 func newMetrics(
@@ -94,28 +98,6 @@ func newMetrics(
 			"Unix timestamp in seconds of the last successful collection",
 		),
 		metric.WithUnit("s"),
-		metric.WithInt64Callback(
-			func(
-				_ context.Context,
-				observer metric.Int64Observer,
-			) error {
-				timestamp := metrics.lastSuccessTS.Load()
-				if timestamp == 0 {
-					return nil
-				}
-
-				observer.Observe(
-					timestamp,
-					metric.WithAttributes(
-						attribute.String(
-							sourceIDAttribute,
-							metrics.sourceID,
-						),
-					),
-				)
-				return nil
-			},
-		),
 	)
 	if err != nil {
 		return nil, fmt.Errorf(
@@ -125,6 +107,43 @@ func newMetrics(
 		)
 	}
 	metrics.lastSuccessGauge = gauge
+
+	// Register the callback via meter.RegisterCallback so that each source
+	// gets its own independently-observed callback. Using WithInt64Callback
+	// at gauge-creation time would silently drop all callbacks after the
+	// first registration for the same instrument name.
+	reg, err := meter.RegisterCallback(
+		func(
+			_ context.Context,
+			observer metric.Observer,
+		) error {
+			timestamp := metrics.lastSuccessTS.Load()
+			if timestamp == 0 {
+				return nil
+			}
+
+			observer.ObserveInt64(
+				gauge,
+				timestamp,
+				metric.WithAttributes(
+					attribute.String(
+						sourceIDAttribute,
+						metrics.sourceID,
+					),
+				),
+			)
+			return nil
+		},
+		gauge,
+	)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"registering %s callback: %w",
+			lastSuccessTimestampName,
+			err,
+		)
+	}
+	metrics.callbackReg = reg
 
 	return metrics, nil
 }

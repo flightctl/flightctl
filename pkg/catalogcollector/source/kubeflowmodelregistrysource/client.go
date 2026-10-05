@@ -9,16 +9,20 @@ import (
 
 // httpError wraps an upstream error with the HTTP status code returned by the
 // Model Registry SDK. This lets wrapHTTPError include the status code in
-// sanitized log messages without changing the registryClient interface.
+// diagnostic log messages without changing the registryClient interface.
 type httpError struct {
 	statusCode int
 	err        error
 }
 
-// Error returns a status-only message as defense in depth. The wrapped SDK
-// error (available through Unwrap) may contain upstream response body text
-// that should not appear in operator-facing logs or metrics.
+// Error returns the HTTP status code and the wrapped error's diagnostic text.
+// Registry URLs, filter expressions, and upstream response bodies are useful
+// operator diagnostics; only configured authentication credentials (tokens,
+// passwords) must be excluded — and those are never present in this error chain.
 func (e *httpError) Error() string {
+	if e.err != nil {
+		return fmt.Sprintf("model registry HTTP %d: %s", e.statusCode, e.err.Error())
+	}
 	return fmt.Sprintf("model registry HTTP %d", e.statusCode)
 }
 
@@ -168,11 +172,17 @@ func (c *openapiClient) PreflightRegisteredModels(ctx context.Context) error {
 		request = request.FilterQuery(c.modelFilter)
 	}
 
-	_, resp, err := request.Execute()
+	list, resp, err := request.Execute()
 	if err != nil && resp != nil {
 		return &httpError{statusCode: resp.StatusCode, err: err}
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	if list == nil || list.Items == nil {
+		return fmt.Errorf("preflight registered models: response missing required items field")
+	}
+	return nil
 }
 
 func (c *openapiClient) PreflightModelVersions(ctx context.Context) error {
@@ -185,9 +195,15 @@ func (c *openapiClient) PreflightModelVersions(ctx context.Context) error {
 		request = request.FilterQuery(c.versionFilter)
 	}
 
-	_, resp, err := request.Execute()
+	list, resp, err := request.Execute()
 	if err != nil && resp != nil {
 		return &httpError{statusCode: resp.StatusCode, err: err}
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	if list == nil || list.Items == nil {
+		return fmt.Errorf("preflight model versions: response missing required items field")
+	}
+	return nil
 }

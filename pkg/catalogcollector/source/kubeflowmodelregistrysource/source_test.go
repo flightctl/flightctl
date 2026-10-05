@@ -41,7 +41,7 @@ func (f *fakeRegistryClient) ListRegisteredModels(_ context.Context, token strin
 	}
 	pageIdx := pageIndex(token, f.modelTokens)
 	if pageIdx >= len(f.models) {
-		return &mrapi.RegisteredModelList{}, nil
+		return &mrapi.RegisteredModelList{Items: []mrapi.RegisteredModel{}}, nil
 	}
 	nextToken := ""
 	if pageIdx < len(f.modelTokens) {
@@ -58,7 +58,7 @@ func (f *fakeRegistryClient) ListModelVersions(_ context.Context, modelID string
 	}
 	pages := f.versions[modelID]
 	if pages == nil {
-		return &mrapi.ModelVersionList{}, nil
+		return &mrapi.ModelVersionList{Items: []mrapi.ModelVersion{}}, nil
 	}
 	// simple single-page response for tests
 	_ = token
@@ -73,7 +73,7 @@ func (f *fakeRegistryClient) ListModelArtifacts(_ context.Context, versionID str
 	}
 	pages := f.artifacts[versionID]
 	if pages == nil {
-		return &mrapi.ArtifactList{}, nil
+		return &mrapi.ArtifactList{Items: []mrapi.Artifact{}}, nil
 	}
 	_ = token
 	return &mrapi.ArtifactList{Items: pages[0]}, nil
@@ -291,11 +291,11 @@ func (r *repeatedTokenClient) ListRegisteredModels(_ context.Context, token stri
 }
 
 func (r *repeatedTokenClient) ListModelVersions(_ context.Context, _ string, _ string) (*mrapi.ModelVersionList, error) {
-	return &mrapi.ModelVersionList{}, nil
+	return &mrapi.ModelVersionList{Items: []mrapi.ModelVersion{}}, nil
 }
 
 func (r *repeatedTokenClient) ListModelArtifacts(_ context.Context, _ string, _ string) (*mrapi.ArtifactList, error) {
-	return &mrapi.ArtifactList{}, nil
+	return &mrapi.ArtifactList{Items: []mrapi.Artifact{}}, nil
 }
 
 func (r *repeatedTokenClient) PreflightRegisteredModels(_ context.Context) error { return nil }
@@ -579,6 +579,158 @@ func newTestPoller(s *source) *pollsource.Helper {
 		nil,
 		func(_ time.Duration) time.Duration { return 0 },
 	)
+}
+
+// --- Finding 1: Nil-items validation ----------------------------------------
+
+// nilItemsClient returns list responses with nil Items to simulate a malformed
+// response (HTTP 200 with {} or {"items":null}).
+type nilItemsClient struct {
+	fakeRegistryClient
+	nilModels    bool
+	nilVersions  bool
+	nilArtifacts bool
+}
+
+func (c *nilItemsClient) ListRegisteredModels(_ context.Context, _ string) (*mrapi.RegisteredModelList, error) {
+	if c.nilModels {
+		return &mrapi.RegisteredModelList{Items: nil}, nil
+	}
+	return c.fakeRegistryClient.ListRegisteredModels(context.Background(), "")
+}
+
+func (c *nilItemsClient) ListModelVersions(_ context.Context, modelID string, _ string) (*mrapi.ModelVersionList, error) {
+	if c.nilVersions {
+		return &mrapi.ModelVersionList{Items: nil}, nil
+	}
+	return c.fakeRegistryClient.ListModelVersions(context.Background(), modelID, "")
+}
+
+func (c *nilItemsClient) ListModelArtifacts(_ context.Context, versionID string, _ string) (*mrapi.ArtifactList, error) {
+	if c.nilArtifacts {
+		return &mrapi.ArtifactList{Items: nil}, nil
+	}
+	return c.fakeRegistryClient.ListModelArtifacts(context.Background(), versionID, "")
+}
+
+func TestCollect_NilItemsModels_FailsCycle(t *testing.T) {
+	// When the server returns HTTP 200 with {} or {"items":null} for
+	// registered models, the collection must fail rather than silently
+	// producing an empty snapshot that would authorize pruning.
+	client := &nilItemsClient{nilModels: true}
+	s, _ := newTestSource(client, nil)
+	snap, err := s.collect(context.Background())
+	if err == nil {
+		t.Fatal("expected error for nil Items in model list, got nil")
+	}
+	if snap != nil {
+		t.Error("expected nil snapshot on error")
+	}
+	if !strings.Contains(err.Error(), "missing required items field") {
+		t.Errorf("error %q should mention missing items field", err.Error())
+	}
+}
+
+func TestCollect_NilItemsVersions_FailsCycle(t *testing.T) {
+	// Nil Items in a version list response must fail the cycle.
+	client := &nilItemsClient{
+		fakeRegistryClient: fakeRegistryClient{
+			models: [][]mrapi.RegisteredModel{{makeModel("1", "iris-edge")}},
+		},
+		nilVersions: true,
+	}
+	s, _ := newTestSource(client, nil)
+	snap, err := s.collect(context.Background())
+	if err == nil {
+		t.Fatal("expected error for nil Items in version list, got nil")
+	}
+	if snap != nil {
+		t.Error("expected nil snapshot on error")
+	}
+}
+
+func TestCollect_NilItemsArtifacts_FailsCycle(t *testing.T) {
+	// Nil Items in an artifact list response must fail the cycle.
+	client := &nilItemsClient{
+		fakeRegistryClient: fakeRegistryClient{
+			models:   [][]mrapi.RegisteredModel{{makeModel("1", "iris-edge")}},
+			versions: map[string][][]mrapi.ModelVersion{"1": {{makeVersion("2", "1.0.0")}}},
+		},
+		nilArtifacts: true,
+	}
+	s, _ := newTestSource(client, nil)
+	snap, err := s.collect(context.Background())
+	if err == nil {
+		t.Fatal("expected error for nil Items in artifact list, got nil")
+	}
+	if snap != nil {
+		t.Error("expected nil snapshot on error")
+	}
+}
+
+// malformedLaterPageClient returns valid first pages but nil Items on page 2.
+type malformedLaterPageClient struct {
+	callCount int
+}
+
+func (c *malformedLaterPageClient) ListRegisteredModels(_ context.Context, token string) (*mrapi.RegisteredModelList, error) {
+	c.callCount++
+	if token == "" {
+		return &mrapi.RegisteredModelList{
+			Items:         []mrapi.RegisteredModel{makeModel("1", "model-a")},
+			NextPageToken: "page2",
+		}, nil
+	}
+	// Page 2: malformed nil Items
+	return &mrapi.RegisteredModelList{Items: nil, NextPageToken: ""}, nil
+}
+
+func (c *malformedLaterPageClient) ListModelVersions(_ context.Context, _ string, _ string) (*mrapi.ModelVersionList, error) {
+	return &mrapi.ModelVersionList{Items: []mrapi.ModelVersion{}}, nil
+}
+
+func (c *malformedLaterPageClient) ListModelArtifacts(_ context.Context, _ string, _ string) (*mrapi.ArtifactList, error) {
+	return &mrapi.ArtifactList{Items: []mrapi.Artifact{}}, nil
+}
+
+func (c *malformedLaterPageClient) PreflightRegisteredModels(_ context.Context) error { return nil }
+func (c *malformedLaterPageClient) PreflightModelVersions(_ context.Context) error    { return nil }
+
+func TestCollect_MalformedLaterPage_FailsCycle(t *testing.T) {
+	// A valid first page followed by a malformed second page with nil Items
+	// must fail the cycle rather than silently losing page-2 models.
+	client := &malformedLaterPageClient{}
+	s, _ := newTestSource(client, nil)
+	snap, err := s.collect(context.Background())
+	if err == nil {
+		t.Fatal("expected error for malformed later page, got nil")
+	}
+	if snap != nil {
+		t.Error("expected nil snapshot on malformed page")
+	}
+	if !strings.Contains(err.Error(), "missing required items field") {
+		t.Errorf("error %q should mention missing items field", err.Error())
+	}
+}
+
+func TestCollect_EmptyListPreserved(t *testing.T) {
+	// A legitimate empty items list (items:[]) must produce a valid empty
+	// snapshot without error. This distinguishes a valid empty result from
+	// a malformed nil-items response.
+	client := &fakeRegistryClient{
+		models: [][]mrapi.RegisteredModel{{}}, // items:[] (empty, not nil)
+	}
+	s, _ := newTestSource(client, nil)
+	snap, err := s.collect(context.Background())
+	if err != nil {
+		t.Fatalf("collect() returned unexpected error for empty list: %v", err)
+	}
+	if snap == nil {
+		t.Fatal("expected non-nil snapshot for valid empty list")
+	}
+	if len(snap.CatalogItems) != 0 {
+		t.Errorf("expected 0 items, got %d", len(snap.CatalogItems))
+	}
 }
 
 // --- Fix 1: Graceful shutdown -----------------------------------------------
@@ -973,20 +1125,62 @@ func TestPreflight_ModelErrorTakesPrecedence(t *testing.T) {
 	}
 }
 
-func TestHTTPError_StatusOnly(t *testing.T) {
-	inner := errors.New("response body: secret-token-value")
+func TestHTTPError_IncludesDiagnosticCause(t *testing.T) {
+	inner := errors.New("connection refused")
 	err := &httpError{statusCode: 403, err: inner}
 
 	msg := err.Error()
-	if msg != "model registry HTTP 403" {
-		t.Errorf("httpError.Error() = %q, want %q", msg, "model registry HTTP 403")
+	// Error message must include both the HTTP status and the diagnostic cause.
+	if !strings.Contains(msg, "HTTP 403") {
+		t.Errorf("httpError.Error() = %q, want it to contain HTTP status", msg)
 	}
-	if strings.Contains(msg, "secret-token-value") {
-		t.Errorf("httpError.Error() leaks inner error text: %q", msg)
+	if !strings.Contains(msg, "connection refused") {
+		t.Errorf("httpError.Error() = %q, want it to contain the diagnostic cause", msg)
 	}
 
 	// Unwrap must still return the inner error for classification.
 	if !errors.Is(err, inner) {
 		t.Error("errors.Is(httpError, inner) = false, want true")
+	}
+}
+
+func TestHTTPError_NilErr(t *testing.T) {
+	err := &httpError{statusCode: 500, err: nil}
+	msg := err.Error()
+	if msg != "model registry HTTP 500" {
+		t.Errorf("httpError.Error() = %q, want %q", msg, "model registry HTTP 500")
+	}
+}
+
+func TestHTTPError_BodyReadFailure_PreservesDiagnostics(t *testing.T) {
+	// Regression test: when HTTP 200 headers arrive but reading the body
+	// fails (e.g. io.ErrUnexpectedEOF), the final diagnostic must include
+	// the operation context, the HTTP status code, AND the underlying cause.
+	bodyReadErr := io.ErrUnexpectedEOF
+	httpErr := &httpError{statusCode: 200, err: bodyReadErr}
+
+	s := &source{log: testLogger()}
+	wrapped := s.wrapHTTPError("listing registered models", httpErr)
+
+	msg := wrapped.Error()
+
+	// Must contain operation context.
+	if !strings.Contains(msg, "listing registered models") {
+		t.Errorf("error %q should contain the operation context", msg)
+	}
+
+	// Must contain HTTP status.
+	if !strings.Contains(msg, "HTTP 200") {
+		t.Errorf("error %q should contain HTTP status", msg)
+	}
+
+	// Must contain the underlying cause text.
+	if !strings.Contains(msg, "unexpected EOF") {
+		t.Errorf("error %q should contain the body-read error cause", msg)
+	}
+
+	// Must preserve error identity through the chain.
+	if !errors.Is(wrapped, io.ErrUnexpectedEOF) {
+		t.Error("errors.Is(wrapped, io.ErrUnexpectedEOF) = false; want cause to be identifiable")
 	}
 }
