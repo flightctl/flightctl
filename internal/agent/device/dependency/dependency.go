@@ -578,7 +578,8 @@ func (m *prefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1
 
 	if len(newTargets) > 0 {
 		if m.resourceManager.IsCriticalAlert(resource.DiskMonitorType) {
-			return fmt.Errorf("%w: insufficient disk storage space, please clear storage", errors.ErrCriticalResourceAlert)
+			return fmt.Errorf("%w: %w: insufficient disk storage space, please clear storage",
+				errors.WithElement("Disk"), errors.ErrCriticalResourceAlert)
 		}
 		m.log.Debugf("Scheduling %d new targets for prefetch", len(newTargets))
 		if err := m.Schedule(ctx, newTargets); err != nil {
