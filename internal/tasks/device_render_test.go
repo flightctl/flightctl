@@ -1053,6 +1053,84 @@ func makeCatalogItem(catalogItemType v1alpha1.CatalogItemType, uri, version, con
 	}
 }
 
+func makeCatalogRefApplication(t *testing.T, appType domain.AppType, name, catalog, item, version string) domain.ApplicationProviderSpec {
+	t.Helper()
+	ref := domain.CatalogItemRefApplicationProviderSpec{
+		CatalogItemRef: domain.CatalogItemRefSpec{
+			Catalog: catalog,
+			Item:    item,
+			Version: version,
+		},
+	}
+
+	var app domain.ApplicationProviderSpec
+	switch appType {
+	case domain.AppTypeContainer:
+		container := domain.ContainerApplication{AppType: appType, Name: lo.ToPtr(name)}
+		require.NoError(t, container.FromCatalogItemRefApplicationProviderSpec(ref))
+		require.NoError(t, app.FromContainerApplication(container))
+	case domain.AppTypeHelm:
+		helm := domain.HelmApplication{AppType: appType, Name: lo.ToPtr(name)}
+		require.NoError(t, helm.FromCatalogItemRefApplicationProviderSpec(ref))
+		require.NoError(t, app.FromHelmApplication(helm))
+	case domain.AppTypeCompose:
+		compose := domain.ComposeApplication{AppType: appType, Name: lo.ToPtr(name)}
+		require.NoError(t, compose.FromCatalogItemRefApplicationProviderSpec(ref))
+		require.NoError(t, app.FromComposeApplication(compose))
+	case domain.AppTypeQuadlet:
+		quadlet := domain.QuadletApplication{AppType: appType, Name: lo.ToPtr(name)}
+		require.NoError(t, quadlet.FromCatalogItemRefApplicationProviderSpec(ref))
+		require.NoError(t, app.FromQuadletApplication(quadlet))
+	default:
+		t.Fatalf("unsupported application type %s", appType)
+	}
+	return app
+}
+
+func TestRenderApplication_CatalogItemRef_ResolvesToImageWithoutRetainingRef(t *testing.T) {
+	const (
+		catalogName  = "catalog"
+		itemName     = "application"
+		version      = "1.0.0"
+		artifactUri  = "quay.io/example/application"
+		containerRef = "v1.0.0"
+	)
+
+	for _, tt := range []struct {
+		appType     domain.AppType
+		catalogType v1alpha1.CatalogItemType
+		application string
+	}{
+		{appType: domain.AppTypeContainer, catalogType: v1alpha1.CatalogItemTypeContainer, application: "container-app"},
+		{appType: domain.AppTypeHelm, catalogType: v1alpha1.CatalogItemTypeHelm, application: "helm-app"},
+		{appType: domain.AppTypeCompose, catalogType: v1alpha1.CatalogItemTypeCompose, application: "compose-app"},
+		{appType: domain.AppTypeQuadlet, catalogType: v1alpha1.CatalogItemTypeQuadlet, application: "quadlet-app"},
+	} {
+		t.Run(fmt.Sprintf("When a %s application has a catalog item ref it should resolve to an image without retaining the ref", tt.appType), func(t *testing.T) {
+			orgID := uuid.New()
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+
+			app := makeCatalogRefApplication(t, tt.appType, tt.application, catalogName, itemName, version)
+			catalogItem := makeCatalogItem(tt.catalogType, artifactUri, version, containerRef)
+
+			mockCatalogSvc := catalogservice.NewMockService(ctrl)
+			mockCatalogSvc.EXPECT().GetCatalogItem(gomock.Any(), orgID, catalogName, itemName).Return(catalogItem, statusOK)
+
+			_, rendered, err := renderApplication(context.Background(), &app, nil, DefaultVmRenderOptions(), nil, orgID, mockCatalogSvc)
+			require.NoError(t, err)
+			require.NotNil(t, rendered)
+
+			var renderedJSON map[string]interface{}
+			renderedBytes, err := json.Marshal(rendered)
+			require.NoError(t, err)
+			require.NoError(t, json.Unmarshal(renderedBytes, &renderedJSON))
+			assert.Equal(t, artifactUri+":"+containerRef, renderedJSON["image"])
+			assert.NotContains(t, renderedJSON, "catalogItemRef")
+		})
+	}
+}
+
 // makeDeviceWithCatalogRef builds a standalone device whose OS spec uses a catalog item ref.
 func makeDeviceWithCatalogRef(name, catalog, item, version string) *domain.Device {
 	return &domain.Device{
