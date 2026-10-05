@@ -10,12 +10,11 @@ import (
 	"sort"
 	"time"
 
-	mrapi "github.com/kubeflow/hub/pkg/openapi"
-	"github.com/sirupsen/logrus"
-
 	apiv1alpha1 "github.com/flightctl/flightctl/api/core/v1alpha1"
 	catalogcollector "github.com/flightctl/flightctl/pkg/catalogcollector"
 	"github.com/flightctl/flightctl/pkg/catalogcollector/source/pollsource"
+	mrapi "github.com/kubeflow/hub/pkg/openapi"
+	"github.com/sirupsen/logrus"
 )
 
 // collectionRecorder records the outcome of a single Model Registry
@@ -41,6 +40,27 @@ type source struct {
 }
 
 var _ catalogcollector.Source = (*source)(nil)
+var _ catalogcollector.SourcePreflight = (*source)(nil)
+
+// Preflight validates that the Model Registry is reachable and that the
+// configured selection filters are accepted by the server.
+func (s *source) Preflight(ctx context.Context) error {
+	if err := s.client.PreflightRegisteredModels(ctx); err != nil {
+		return s.wrapHTTPError(
+			"preflight: validating model filter against registered models endpoint",
+			err,
+		)
+	}
+
+	if err := s.client.PreflightModelVersions(ctx); err != nil {
+		return s.wrapHTTPError(
+			"preflight: validating version filter against model versions endpoint",
+			err,
+		)
+	}
+
+	return nil
+}
 
 // Run blocks until the context is cancelled or the polling helper encounters a
 // fatal configuration error.
@@ -87,10 +107,10 @@ func (s *source) collectAndRecord(
 
 // collect performs one complete collection cycle:
 //
-//  1. Fetch every page of LIVE RegisteredModels.
-//  2. Fetch every page of LIVE ModelVersions for each model.
+//  1. Fetch every page of filtered RegisteredModels.
+//  2. Fetch every page of filtered ModelVersions for each model.
 //  3. Fetch every page of model-artifact resources for each version.
-//  4. Select exactly one eligible immutable artifact per LIVE version.
+//  4. Select exactly one eligible immutable artifact per filtered version.
 //  5. Normalize the complete result and produce a deterministic revision.
 //
 // Any error aborts the cycle. No partial snapshot is returned or delivered.
@@ -160,7 +180,7 @@ func (s *source) collect(
 	}, nil
 }
 
-// fetchAllModels retrieves every page of LIVE RegisteredModels.
+// fetchAllModels retrieves every page of filtered RegisteredModels.
 func (s *source) fetchAllModels(
 	ctx context.Context,
 ) ([]mrapi.RegisteredModel, error) {
@@ -479,12 +499,8 @@ func extractModelArtifact(
 	return artifact.ModelArtifact, true
 }
 
-// wrapHTTPError adds operation context while ensuring that Model Registry
-// response bodies, credentials, and Authorization headers are never included.
-//
-// Generated non-2xx responses use GenericOpenAPIError, whose body may contain
-// upstream implementation details. Those errors are deliberately replaced by
-// a sanitized operational error.
+// wrapHTTPError adds operation context and includes the Model Registry response
+// body when supplied by the SDK. Wrapped errors retain their identity.
 func (s *source) wrapHTTPError(
 	operation string,
 	err error,
@@ -493,33 +509,16 @@ func (s *source) wrapHTTPError(
 		return nil
 	}
 
-	if errors.Is(err, context.Canceled) ||
-		errors.Is(err, context.DeadlineExceeded) {
-		return fmt.Errorf("%s: %w", operation, err)
-	}
-
-	var httpErr *httpError
-	if errors.As(err, &httpErr) {
-		return fmt.Errorf(
-			"%s: Model Registry HTTP %d: "+
-				"check endpoint connectivity, credentials, and RBAC",
-			operation,
-			httpErr.statusCode,
-		)
-	}
-
 	var openAPIErr *mrapi.GenericOpenAPIError
-	if errors.As(err, &openAPIErr) {
+	if errors.As(err, &openAPIErr) && len(openAPIErr.Body()) > 0 {
 		return fmt.Errorf(
-			"%s: Model Registry HTTP request failed; "+
-				"check endpoint connectivity, credentials, and RBAC",
+			"%s: %w; response body: %s",
 			operation,
+			err,
+			openAPIErr.Body(),
 		)
 	}
 
-	// Transport, TLS and context errors do not include configured
-	// Authorization headers. Config validation rejects endpoint user
-	// information, query parameters and fragments.
 	return fmt.Errorf("%s: %w", operation, err)
 }
 

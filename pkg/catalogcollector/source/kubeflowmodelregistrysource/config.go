@@ -21,6 +21,21 @@ const (
 	defaultCollectionTimeout = 5 * time.Minute
 )
 
+// SelectionConfig configures server-side filtering for registered models and
+// model versions. Pointer fields distinguish omitted (nil -> use default) from
+// explicitly empty (ptr to "" -> disable filtering).
+type SelectionConfig struct {
+	// ModelFilter is passed as filterQuery to the registered-models endpoint.
+	// When nil, the default "state = 'LIVE'" is used.
+	// When explicitly set to "", filterQuery is omitted from the request.
+	ModelFilter *string `json:"modelFilter,omitempty"`
+
+	// VersionFilter is passed as filterQuery to the model-versions endpoint.
+	// When nil, the default "state = 'LIVE'" is used.
+	// When explicitly set to "", filterQuery is omitted from the request.
+	VersionFilter *string `json:"versionFilter,omitempty"`
+}
+
 // AuthConfig holds a reference to an authentication extension used by this
 // source.
 type AuthConfig struct {
@@ -54,6 +69,10 @@ type Config struct {
 	// CollectionTimeout bounds an entire collection cycle, including all
 	// pagination and normalization. Defaults to 5m.
 	CollectionTimeout *util.Duration `json:"collectionTimeout,omitempty"`
+
+	// Selection configures server-side filtering for registered models and
+	// model versions. When omitted, the default LIVE-state filters apply.
+	Selection *SelectionConfig `json:"selection,omitempty"`
 
 	// Auth optionally references an authentication extension. When omitted,
 	// requests are sent without authentication.
@@ -143,6 +162,11 @@ func (c *Config) Validate() error {
 				"auth.authenticator must be a valid component ID: %w",
 				err,
 			)
+		}
+
+		u, err := url.Parse(c.Endpoint)
+		if err == nil && u.Scheme == "http" {
+			return fmt.Errorf("auth requires an HTTPS endpoint; plain HTTP sends credentials unencrypted")
 		}
 	}
 
@@ -242,4 +266,25 @@ func (c *Config) pageSize() int {
 		return c.PageSize
 	}
 	return defaultPageSize
+}
+
+const defaultModelFilter = "state='LIVE'"
+const defaultVersionFilter = "state='LIVE'"
+
+// modelFilter returns the effective filter for the registered-models endpoint.
+// An empty string means filterQuery should be omitted from the request.
+func (c *Config) modelFilter() string {
+	if c.Selection == nil || c.Selection.ModelFilter == nil {
+		return defaultModelFilter
+	}
+	return *c.Selection.ModelFilter
+}
+
+// versionFilter returns the effective filter for the model-versions endpoint.
+// An empty string means filterQuery should be omitted from the request.
+func (c *Config) versionFilter() string {
+	if c.Selection == nil || c.Selection.VersionFilter == nil {
+		return defaultVersionFilter
+	}
+	return *c.Selection.VersionFilter
 }

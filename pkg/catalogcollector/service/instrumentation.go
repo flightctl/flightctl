@@ -96,6 +96,10 @@ func (c *instrumentedFanoutConsumer) Consume(
 	ctx context.Context,
 	snapshot *catalogcollector.CatalogSnapshot,
 ) error {
+	if snapshot == nil {
+		return fmt.Errorf("source emitted nil snapshot")
+	}
+
 	sourceAttr := attrSourceID.String(c.sourceID)
 
 	c.instruments.snapshots.Add(ctx, 1,

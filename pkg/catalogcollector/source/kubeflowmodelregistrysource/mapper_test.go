@@ -10,8 +10,6 @@ import (
 
 func strp(s string) *string { return &s }
 
-func artifactStatep(s mrapi.ArtifactState) *mrapi.ArtifactState { return &s }
-
 func modelArtifact(uri string, state *mrapi.ArtifactState) *mrapi.ModelArtifact {
 	t := "model-artifact"
 	ma := &mrapi.ModelArtifact{
@@ -20,10 +18,6 @@ func modelArtifact(uri string, state *mrapi.ArtifactState) *mrapi.ModelArtifact 
 		State:        state,
 	}
 	return ma
-}
-
-func wrapArtifact(ma *mrapi.ModelArtifact) mrapi.Artifact {
-	return mrapi.Artifact{ModelArtifact: ma}
 }
 
 func makeVersion(id, name string) mrapi.ModelVersion {
@@ -334,7 +328,7 @@ func TestToSnapshot_SingleModel(t *testing.T) {
 	if len(item.Spec.Versions) != 1 {
 		t.Fatalf("expected 1 version, got %d", len(item.Spec.Versions))
 	}
-	if string(item.Spec.Versions[0].Version) != "1.0.0" {
+	if item.Spec.Versions[0].Version != "1.0.0" {
 		t.Errorf("version = %q, want %q", item.Spec.Versions[0].Version, "1.0.0")
 	}
 	if item.Spec.Versions[0].References["container"] != goodDigest {
@@ -412,6 +406,26 @@ func TestToSnapshot_NoEligibleVersions(t *testing.T) {
 	}
 }
 
+// TestToVersions_OverflowingSemVerDoesNotPanic verifies that a version string
+// whose numeric component overflows int64 (passes the regex but cannot be
+// parsed by gosemver.NewVersion) is rejected with an error rather than causing
+// a panic inside the sort comparator.
+func TestToVersions_OverflowingSemVerDoesNotPanic(t *testing.T) {
+	model := collectedModel{
+		model: makeModel("1", "my-model"),
+		versions: []collectedVersion{
+			{version: makeVersion("1", "1.0.0"), repository: goodRepo, digest: goodDigest},
+			{version: makeVersion("2", "99999999999999999999.0.0"), repository: goodRepo, digest: goodDigest},
+		},
+	}
+
+	// Must not panic; should return an error.
+	_, err := toVersions(model)
+	if err == nil {
+		t.Fatal("expected error for overflowing semver component, got nil")
+	}
+}
+
 // TestToVersions_SemVerOrdering verifies that versions are sorted by semantic
 // versioning rather than lexicographic ordering. Without semver-aware sorting,
 // "1.10.0" would sort before "1.9.0".
@@ -437,7 +451,7 @@ func TestToVersions_SemVerOrdering(t *testing.T) {
 		t.Fatalf("expected %d versions, got %d", len(want), len(versions))
 	}
 	for i, v := range versions {
-		if string(v.Version) != want[i] {
+		if v.Version != want[i] {
 			t.Errorf("version[%d] = %q, want %q", i, v.Version, want[i])
 		}
 	}
@@ -465,7 +479,7 @@ func TestToVersions_SemVerPreRelease(t *testing.T) {
 		t.Fatalf("expected %d versions, got %d", len(want), len(versions))
 	}
 	for i, v := range versions {
-		if string(v.Version) != want[i] {
+		if v.Version != want[i] {
 			t.Errorf("version[%d] = %q, want %q", i, v.Version, want[i])
 		}
 	}
@@ -508,12 +522,12 @@ func TestToVersions_BuildMetadataDeterministic(t *testing.T) {
 
 	want := []string{"1.0.0+build1", "1.0.0+build2", "1.0.0+build3"}
 	for i, v := range v1 {
-		if string(v.Version) != want[i] {
+		if v.Version != want[i] {
 			t.Errorf("order1: version[%d] = %q, want %q", i, v.Version, want[i])
 		}
 	}
 	for i, v := range v2 {
-		if string(v.Version) != want[i] {
+		if v.Version != want[i] {
 			t.Errorf("order2: version[%d] = %q, want %q", i, v.Version, want[i])
 		}
 	}

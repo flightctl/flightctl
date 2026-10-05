@@ -59,6 +59,9 @@ func (f *fixtureClient) ListModelArtifacts(_ context.Context, _ string, _ string
 	return f.artifacts, nil
 }
 
+func (f *fixtureClient) PreflightRegisteredModels(_ context.Context) error { return nil }
+func (f *fixtureClient) PreflightModelVersions(_ context.Context) error    { return nil }
+
 // TestContractFixtures verifies the exact mapping output for the sanitized
 // API response fixtures. It validates catalog identity, item naming, artifact
 // URI splitting, version and channel mapping, revision format, and description
@@ -121,7 +124,7 @@ func TestContractFixtures(t *testing.T) {
 		t.Fatalf("expected 1 version, got %d", len(item.Spec.Versions))
 	}
 	v := item.Spec.Versions[0]
-	if string(v.Version) != "1.0.0" {
+	if v.Version != "1.0.0" {
 		t.Errorf("version = %q, want %q", v.Version, "1.0.0")
 	}
 	const wantDigest = "sha256:bd62d86fc106e620c60f3905ebb1f8d102dc2470d049d845eada1c9b823801ba"

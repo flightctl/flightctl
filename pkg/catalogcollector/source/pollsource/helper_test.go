@@ -7,11 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sirupsen/logrus"
-
 	"github.com/flightctl/flightctl/internal/util"
 	catalogcollector "github.com/flightctl/flightctl/pkg/catalogcollector"
 	"github.com/flightctl/flightctl/pkg/catalogcollector/source/pollsource"
+	"github.com/sirupsen/logrus"
 )
 
 // noJitter returns 0 for all inputs to make tests deterministic.
@@ -34,10 +33,6 @@ func (c *fakeConsumer) Consume(_ context.Context, _ *catalogcollector.CatalogSna
 }
 
 var emptySnapshot = &catalogcollector.CatalogSnapshot{Revision: "test"}
-
-func newTestHelper(pollInterval time.Duration, backoff pollsource.BackoffConfig, log *logrus.Entry) *pollsource.Helper {
-	return pollsource.NewHelper("test", pollInterval, backoff, log, nil, noJitter)
-}
 
 func newLogger() *logrus.Entry {
 	l := logrus.New()

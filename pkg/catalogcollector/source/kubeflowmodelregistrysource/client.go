@@ -7,8 +7,6 @@ import (
 	mrapi "github.com/kubeflow/hub/pkg/openapi"
 )
 
-const liveStateFilter = "state='LIVE'"
-
 // httpError wraps an upstream error with the HTTP status code returned by the
 // Model Registry SDK. This lets wrapHTTPError include the status code in
 // sanitized log messages without changing the registryClient interface.
@@ -38,15 +36,15 @@ func (e *httpError) Unwrap() error {
 // repeated-token detection, complete-cycle failure handling, and sanitized
 // error reporting.
 type registryClient interface {
-	// ListRegisteredModels returns one page of LIVE RegisteredModels ordered
-	// by ID ascending.
+	// ListRegisteredModels returns one page of filtered RegisteredModels
+	// ordered by ID ascending.
 	ListRegisteredModels(
 		ctx context.Context,
 		nextPageToken string,
 	) (*mrapi.RegisteredModelList, error)
 
-	// ListModelVersions returns one page of LIVE ModelVersions belonging to
-	// the specified RegisteredModel, ordered by ID ascending.
+	// ListModelVersions returns one page of filtered ModelVersions belonging
+	// to the specified RegisteredModel, ordered by ID ascending.
 	ListModelVersions(
 		ctx context.Context,
 		modelID string,
@@ -63,16 +61,26 @@ type registryClient interface {
 		versionID string,
 		nextPageToken string,
 	) (*mrapi.ArtifactList, error)
+
+	// PreflightRegisteredModels validates that the configured model filter
+	// is accepted by the registered-models endpoint.
+	PreflightRegisteredModels(ctx context.Context) error
+
+	// PreflightModelVersions validates that the configured version filter
+	// is accepted by the model-versions endpoint.
+	PreflightModelVersions(ctx context.Context) error
 }
 
 // openapiClient adapts the generated Kubeflow Hub Model Registry client to
 // registryClient.
 //
-// It applies the configured page size, deterministic ID ordering, LIVE
+// It applies the configured page size, deterministic ID ordering, configurable
 // model/version filters, and model-artifact type filter on every page.
 type openapiClient struct {
-	api      *mrapi.ModelRegistryServiceAPIService
-	pageSize string
+	api           *mrapi.ModelRegistryServiceAPIService
+	pageSize      string
+	modelFilter   string // effective model filter; "" means omit filterQuery
+	versionFilter string // effective version filter; "" means omit filterQuery
 }
 
 var _ registryClient = (*openapiClient)(nil)
@@ -84,8 +92,11 @@ func (c *openapiClient) ListRegisteredModels(
 	request := c.api.GetRegisteredModels(ctx).
 		PageSize(c.pageSize).
 		OrderBy(mrapi.ORDERBYFIELD_ID).
-		SortOrder(mrapi.SORTORDER_ASC).
-		FilterQuery(liveStateFilter)
+		SortOrder(mrapi.SORTORDER_ASC)
+
+	if c.modelFilter != "" {
+		request = request.FilterQuery(c.modelFilter)
+	}
 
 	if nextPageToken != "" {
 		request = request.NextPageToken(nextPageToken)
@@ -106,8 +117,11 @@ func (c *openapiClient) ListModelVersions(
 	request := c.api.GetRegisteredModelVersions(ctx, modelID).
 		PageSize(c.pageSize).
 		OrderBy(mrapi.ORDERBYFIELD_ID).
-		SortOrder(mrapi.SORTORDER_ASC).
-		FilterQuery(liveStateFilter)
+		SortOrder(mrapi.SORTORDER_ASC)
+
+	if c.versionFilter != "" {
+		request = request.FilterQuery(c.versionFilter)
+	}
 
 	if nextPageToken != "" {
 		request = request.NextPageToken(nextPageToken)
@@ -142,4 +156,38 @@ func (c *openapiClient) ListModelArtifacts(
 		return list, &httpError{statusCode: resp.StatusCode, err: err}
 	}
 	return list, err
+}
+
+func (c *openapiClient) PreflightRegisteredModels(ctx context.Context) error {
+	request := c.api.GetRegisteredModels(ctx).
+		PageSize("1").
+		OrderBy(mrapi.ORDERBYFIELD_ID).
+		SortOrder(mrapi.SORTORDER_ASC)
+
+	if c.modelFilter != "" {
+		request = request.FilterQuery(c.modelFilter)
+	}
+
+	_, resp, err := request.Execute()
+	if err != nil && resp != nil {
+		return &httpError{statusCode: resp.StatusCode, err: err}
+	}
+	return err
+}
+
+func (c *openapiClient) PreflightModelVersions(ctx context.Context) error {
+	request := c.api.GetModelVersions(ctx).
+		PageSize("1").
+		OrderBy(mrapi.ORDERBYFIELD_ID).
+		SortOrder(mrapi.SORTORDER_ASC)
+
+	if c.versionFilter != "" {
+		request = request.FilterQuery(c.versionFilter)
+	}
+
+	_, resp, err := request.Execute()
+	if err != nil && resp != nil {
+		return &httpError{statusCode: resp.StatusCode, err: err}
+	}
+	return err
 }

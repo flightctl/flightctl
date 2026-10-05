@@ -99,6 +99,9 @@ func (c *destinationConsumer) Consume(
 	ctx context.Context,
 	snapshot *catalogcollector.CatalogSnapshot,
 ) error {
+	if err := catalogcollector.ValidateSnapshot(snapshot); err != nil {
+		return fmt.Errorf("snapshot validation failed: %w", err)
+	}
 	return c.destination.Reconcile(ctx, c.pipelineID, snapshot)
 }
 
@@ -593,6 +596,21 @@ func (s *Service) Run(ctx context.Context) error {
 	// Discover extensions that participate in the readiness lifecycle.
 	readinessExtensions := s.discoverReadiness(s.extensions)
 
+	// Preflight: discover and invoke sources implementing SourcePreflight.
+	if err := s.runPreflights(ctx); err != nil {
+		// Caller cancellation during preflight is graceful shutdown.
+		if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
+			err = nil
+		}
+
+		for _, readiness := range readinessExtensions {
+			readiness.NotReady()
+		}
+		shutdownErr := s.shutdownExtensions(ctx, s.extensions)
+		metricsErr := finishMetrics()
+		return errors.Join(err, shutdownErr, metricsErr)
+	}
+
 	runContext, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
 	group, groupContext := errgroup.WithContext(runContext)
@@ -738,6 +756,31 @@ func (s *Service) discoverReadiness(
 	}
 
 	return result
+}
+
+// runPreflights discovers sources implementing SourcePreflight and calls their
+// Preflight method once, in deterministic order. A shared source is
+// preflighted at most once.
+func (s *Service) runPreflights(ctx context.Context) error {
+	seen := make(map[string]bool)
+	for _, rs := range s.sources {
+		pf, ok := rs.source.(catalogcollector.SourcePreflight)
+		if !ok {
+			continue
+		}
+		idStr := rs.id.String()
+		if seen[idStr] {
+			continue // shared source, preflight once
+		}
+		seen[idStr] = true
+
+		s.log.WithField("source_id", rs.id.String()).Info("running source preflight")
+		if err := pf.Preflight(ctx); err != nil {
+			return fmt.Errorf("source %q preflight failed: %w", rs.id, err)
+		}
+		s.log.WithField("source_id", rs.id.String()).Info("source preflight succeeded")
+	}
+	return nil
 }
 
 // shutdownExtensions shuts down the given extensions in reverse order.

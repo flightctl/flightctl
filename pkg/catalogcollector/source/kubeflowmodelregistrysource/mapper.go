@@ -7,11 +7,10 @@ import (
 	"strings"
 
 	gosemver "github.com/coreos/go-semver/semver"
-	mrapi "github.com/kubeflow/hub/pkg/openapi"
-
 	apiv1alpha1 "github.com/flightctl/flightctl/api/core/v1alpha1"
 	apiv1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
 	internalvalidation "github.com/flightctl/flightctl/internal/util/validation"
+	mrapi "github.com/kubeflow/hub/pkg/openapi"
 )
 
 // eligibleArtifactStates contains the ModelArtifact lifecycle states accepted
@@ -222,6 +221,24 @@ func toVersions(
 			)
 		}
 
+		// Verify that the version string can be fully parsed by the
+		// semver library. The regex above is a fast-path filter, but it
+		// cannot catch all invalid inputs (e.g. integer overflow in
+		// numeric components). gosemver.New() used in the sort below
+		// panics when NewVersion returns an error, so we must validate
+		// here first.
+		if _, err := gosemver.NewVersion(versionName); err != nil {
+			return nil, fmt.Errorf(
+				"registered model id=%s name=%q, version id=%s name=%q: "+
+					"version name passes SemVer regex but cannot be parsed: %w",
+				safeID(model.model.Id),
+				model.model.Name,
+				safeID(collected.version.Id),
+				versionName,
+				err,
+			)
+		}
+
 		if previousID, found := seenVersions[versionName]; found {
 			return nil, fmt.Errorf(
 				"registered model id=%s name=%q has duplicate version name %q "+
@@ -236,7 +253,7 @@ func toVersions(
 		seenVersions[versionName] = safeID(collected.version.Id)
 
 		versions = append(versions, apiv1alpha1.CatalogItemVersion{
-			Version:  apiv1alpha1.SemVer(versionName),
+			Version:  versionName,
 			Channels: []string{"stable"},
 			References: map[apiv1alpha1.CatalogItemArtifactType]string{
 				apiv1alpha1.CatalogItemArtifactTypeContainer: collected.digest,
@@ -254,8 +271,8 @@ func toVersions(
 	// as a lexical tie-breaker so that sort.Slice produces identical output
 	// regardless of the input order.
 	sort.Slice(versions, func(i, j int) bool {
-		vi := gosemver.New(string(versions[i].Version))
-		vj := gosemver.New(string(versions[j].Version))
+		vi := gosemver.New(versions[i].Version)
+		vj := gosemver.New(versions[j].Version)
 		if vi.LessThan(*vj) {
 			return true
 		}
@@ -263,7 +280,7 @@ func toVersions(
 			return false
 		}
 		// Semantic precedence is equal; break tie lexically.
-		return string(versions[i].Version) < string(versions[j].Version)
+		return versions[i].Version < versions[j].Version
 	})
 
 	return versions, nil

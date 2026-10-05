@@ -9,12 +9,11 @@ import (
 	"os"
 	"strings"
 
-	mrapi "github.com/kubeflow/hub/pkg/openapi"
-
 	catalogcollector "github.com/flightctl/flightctl/pkg/catalogcollector"
 	"github.com/flightctl/flightctl/pkg/catalogcollector/config"
 	"github.com/flightctl/flightctl/pkg/catalogcollector/extension/extensionauth"
 	"github.com/flightctl/flightctl/pkg/catalogcollector/source/pollsource"
+	mrapi "github.com/kubeflow/hub/pkg/openapi"
 )
 
 // Type is the component type for the Kubeflow Model Registry source.
@@ -98,8 +97,10 @@ func (f *factory) CreateSource(
 	}
 
 	client := &openapiClient{
-		api:      mrapi.NewAPIClient(apiCfg).ModelRegistryServiceAPI,
-		pageSize: fmt.Sprintf("%d", c.pageSize()),
+		api:           mrapi.NewAPIClient(apiCfg).ModelRegistryServiceAPI,
+		pageSize:      fmt.Sprintf("%d", c.pageSize()),
+		modelFilter:   c.modelFilter(),
+		versionFilter: c.versionFilter(),
 	}
 
 	metrics, err := newMetrics(

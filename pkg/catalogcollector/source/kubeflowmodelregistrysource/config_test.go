@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/internal/util"
+	"github.com/flightctl/flightctl/pkg/catalogcollector/config"
 	"github.com/flightctl/flightctl/pkg/catalogcollector/source/pollsource"
 )
 
@@ -68,6 +69,30 @@ func TestConfigValidate(t *testing.T) {
 			mutate:  func(c *Config) { c.Backoff.InitialInterval = 0 },
 			wantErr: true,
 		},
+		{
+			name: "auth with HTTPS endpoint is valid",
+			mutate: func(c *Config) {
+				c.Endpoint = "https://model-registry.example.com"
+				c.Auth = &AuthConfig{Authenticator: "bearertokenauth/mr"}
+			},
+			wantErr: false,
+		},
+		{
+			name: "auth with HTTP endpoint is rejected",
+			mutate: func(c *Config) {
+				c.Endpoint = "http://model-registry.example.com"
+				c.Auth = &AuthConfig{Authenticator: "bearertokenauth/mr"}
+			},
+			wantErr: true,
+		},
+		{
+			name: "no auth with HTTP endpoint is valid",
+			mutate: func(c *Config) {
+				c.Endpoint = "http://model-registry.example.com"
+				c.Auth = nil
+			},
+			wantErr: false,
+		},
 	}
 
 	for _, tc := range cases {
@@ -118,5 +143,185 @@ func TestConfigOverrides(t *testing.T) {
 	}
 	if cfg.collectionTimeout() != 2*time.Minute {
 		t.Errorf("collection timeout = %v, want 2m", cfg.collectionTimeout())
+	}
+}
+
+func stringPtr(s string) *string { return &s }
+
+func TestModelFilter(t *testing.T) {
+	cases := []struct {
+		name     string
+		config   Config
+		expected string
+	}{
+		{
+			name:     "When selection is nil it should return default model filter",
+			config:   validConfig(),
+			expected: defaultModelFilter,
+		},
+		{
+			name: "When modelFilter is nil it should return default model filter",
+			config: func() Config {
+				c := validConfig()
+				c.Selection = &SelectionConfig{}
+				return c
+			}(),
+			expected: defaultModelFilter,
+		},
+		{
+			name: "When modelFilter is explicitly empty it should return empty string",
+			config: func() Config {
+				c := validConfig()
+				c.Selection = &SelectionConfig{ModelFilter: stringPtr("")}
+				return c
+			}(),
+			expected: "",
+		},
+		{
+			name: "When modelFilter is set it should return that value",
+			config: func() Config {
+				c := validConfig()
+				c.Selection = &SelectionConfig{ModelFilter: stringPtr("custom_filter")}
+				return c
+			}(),
+			expected: "custom_filter",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.config.modelFilter()
+			if got != tc.expected {
+				t.Errorf("modelFilter() = %q, want %q", got, tc.expected)
+			}
+		})
+	}
+}
+
+func TestVersionFilter(t *testing.T) {
+	cases := []struct {
+		name     string
+		config   Config
+		expected string
+	}{
+		{
+			name:     "When selection is nil it should return default version filter",
+			config:   validConfig(),
+			expected: defaultVersionFilter,
+		},
+		{
+			name: "When versionFilter is nil it should return default version filter",
+			config: func() Config {
+				c := validConfig()
+				c.Selection = &SelectionConfig{}
+				return c
+			}(),
+			expected: defaultVersionFilter,
+		},
+		{
+			name: "When versionFilter is explicitly empty it should return empty string",
+			config: func() Config {
+				c := validConfig()
+				c.Selection = &SelectionConfig{VersionFilter: stringPtr("")}
+				return c
+			}(),
+			expected: "",
+		},
+		{
+			name: "When versionFilter is set it should return that value",
+			config: func() Config {
+				c := validConfig()
+				c.Selection = &SelectionConfig{VersionFilter: stringPtr("state='ARCHIVED'")}
+				return c
+			}(),
+			expected: "state='ARCHIVED'",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.config.versionFilter()
+			if got != tc.expected {
+				t.Errorf("versionFilter() = %q, want %q", got, tc.expected)
+			}
+		})
+	}
+}
+
+func TestSelectionConfig_StrictDecode(t *testing.T) {
+	cases := []struct {
+		name          string
+		json          string
+		wantModel     string
+		wantVersion   string
+		wantDecodeErr bool
+	}{
+		{
+			name:        "When selection is omitted it should use defaults",
+			json:        `{"endpoint":"https://mr.example.com","catalog":"cat"}`,
+			wantModel:   defaultModelFilter,
+			wantVersion: defaultVersionFilter,
+		},
+		{
+			name:        "When custom filters are set it should override defaults",
+			json:        `{"endpoint":"https://mr.example.com","catalog":"cat","selection":{"modelFilter":"custom_model","versionFilter":"custom_version"}}`,
+			wantModel:   "custom_model",
+			wantVersion: "custom_version",
+		},
+		{
+			name:        "When filters are explicitly empty it should disable filtering",
+			json:        `{"endpoint":"https://mr.example.com","catalog":"cat","selection":{"modelFilter":"","versionFilter":""}}`,
+			wantModel:   "",
+			wantVersion: "",
+		},
+		{
+			name:          "When unknown key is present it should fail decode",
+			json:          `{"endpoint":"https://mr.example.com","catalog":"cat","selection":{"modelFilter":"x","unknownKey":"y"}}`,
+			wantDecodeErr: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &Config{
+				Backoff: pollsource.DefaultBackoffConfig(),
+			}
+			err := config.DecodeComponent(
+				[]byte(tc.json),
+				cfg,
+				"sources.kubeflowmodelregistry/test",
+			)
+			if tc.wantDecodeErr {
+				if err == nil {
+					t.Fatal("expected decode error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("DecodeComponent() error: %v", err)
+			}
+			if cfg.modelFilter() != tc.wantModel {
+				t.Errorf("modelFilter() = %q, want %q", cfg.modelFilter(), tc.wantModel)
+			}
+			if cfg.versionFilter() != tc.wantVersion {
+				t.Errorf("versionFilter() = %q, want %q", cfg.versionFilter(), tc.wantVersion)
+			}
+		})
+	}
+}
+
+func TestSelectionConfig_IndependentFields(t *testing.T) {
+	// Verify that setting one field does not affect the other.
+	cfg := validConfig()
+	cfg.Selection = &SelectionConfig{
+		ModelFilter: stringPtr("custom_model"),
+		// VersionFilter left nil -> uses default.
+	}
+
+	if cfg.modelFilter() != "custom_model" {
+		t.Errorf("modelFilter() = %q, want %q", cfg.modelFilter(), "custom_model")
+	}
+	if cfg.versionFilter() != defaultVersionFilter {
+		t.Errorf("versionFilter() = %q, want %q", cfg.versionFilter(), defaultVersionFilter)
 	}
 }

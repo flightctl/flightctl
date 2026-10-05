@@ -3,18 +3,21 @@ package kubeflowmodelregistrysource
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	mrapi "github.com/kubeflow/hub/pkg/openapi"
-	"github.com/sirupsen/logrus"
-
 	"github.com/flightctl/flightctl/internal/util"
 	catalogcollector "github.com/flightctl/flightctl/pkg/catalogcollector"
 	"github.com/flightctl/flightctl/pkg/catalogcollector/source/pollsource"
+	mrapi "github.com/kubeflow/hub/pkg/openapi"
+	"github.com/sirupsen/logrus"
 )
 
 // --- fakeRegistryClient ----------------------------------------------------
@@ -75,6 +78,9 @@ func (f *fakeRegistryClient) ListModelArtifacts(_ context.Context, versionID str
 	_ = token
 	return &mrapi.ArtifactList{Items: pages[0]}, nil
 }
+
+func (f *fakeRegistryClient) PreflightRegisteredModels(_ context.Context) error { return nil }
+func (f *fakeRegistryClient) PreflightModelVersions(_ context.Context) error    { return nil }
 
 // pageIndex returns the index of the page that matches the given token in the
 // token sequence. token="" → index 0; token=tokens[0] → index 1; etc.
@@ -292,6 +298,9 @@ func (r *repeatedTokenClient) ListModelArtifacts(_ context.Context, _ string, _ 
 	return &mrapi.ArtifactList{}, nil
 }
 
+func (r *repeatedTokenClient) PreflightRegisteredModels(_ context.Context) error { return nil }
+func (r *repeatedTokenClient) PreflightModelVersions(_ context.Context) error    { return nil }
+
 func TestCollect_ContextCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // pre-cancelled
@@ -363,14 +372,192 @@ func TestWrapHTTPError_PreservesHTTPStatusCode(t *testing.T) {
 			if !strings.Contains(msg, tc.wantStatus) {
 				t.Errorf("wrapped error %q does not contain %q", msg, tc.wantStatus)
 			}
-			// Must not contain the original error body.
+			// httpError identity must be preserved through the wrapping chain.
 			var httpErr *httpError
-			if errors.As(tc.err, &httpErr) {
-				if strings.Contains(msg, httpErr.err.Error()) {
-					t.Errorf("wrapped error %q leaks original error body %q", msg, httpErr.err.Error())
-				}
+			if !errors.As(wrapped, &httpErr) {
+				t.Errorf("errors.As(wrapped, &httpError) = false; want httpError to be identifiable through the chain")
 			}
 		})
+	}
+}
+
+func TestWrapHTTPError_TransportError_IncludesDiagnostics(t *testing.T) {
+	// Under the revised logging policy, URLs and filter expressions are included
+	// in diagnostic errors. The wrapped error must also preserve the transport
+	// error's identity for errors.As classification.
+	transportErr := &url.Error{
+		Op:  "Get",
+		URL: "https://registry.example.com/api/model_registry/v1alpha3/registered_models?filterQuery=" + url.QueryEscape("state='LIVE' AND to_flightctl.bool_value = true"),
+		Err: errors.New("connection refused"),
+	}
+
+	s := &source{log: testLogger()}
+	wrapped := s.wrapHTTPError("listing registered models", transportErr)
+	if wrapped == nil {
+		t.Fatal("expected non-nil wrapped error")
+	}
+	msg := wrapped.Error()
+
+	// Operation context must appear.
+	if !strings.Contains(msg, "listing registered models") {
+		t.Errorf("wrapped error %q should contain the operation context", msg)
+	}
+
+	// URL is a useful diagnostic under the revised logging policy.
+	if !strings.Contains(msg, "registry.example.com") {
+		t.Errorf("wrapped error %q should contain the endpoint URL for diagnostics", msg)
+	}
+
+	// Transport error identity must be preserved via errors.As.
+	var urlErr *url.Error
+	if !errors.As(wrapped, &urlErr) {
+		t.Errorf("errors.As(wrapped, &url.Error) = false; want transport error to be identifiable through the chain")
+	}
+}
+
+// TestWrapHTTPError_TransportError_HTTPLevel_IncludesDiagnostics exercises the
+// real error-wrapping path end-to-end. Under the revised logging policy, URLs,
+// filter expressions, and endpoint details are included in diagnostic errors.
+// The test verifies that operation context and endpoint details appear in both
+// the Preflight and collect error paths.
+func TestWrapHTTPError_TransportError_HTTPLevel_IncludesDiagnostics(t *testing.T) {
+	filterExpr := "state='LIVE' AND to_flightctl.bool_value = true"
+
+	cfg := mrapi.NewConfiguration()
+	cfg.Servers = mrapi.ServerConfigurations{
+		{URL: "https://registry.example.com"},
+	}
+	cfg.HTTPClient = &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return nil, fmt.Errorf("connection refused")
+		}),
+	}
+	api := mrapi.NewAPIClient(cfg).ModelRegistryServiceAPI
+	client := &openapiClient{
+		api:           api,
+		pageSize:      "1",
+		modelFilter:   filterExpr,
+		versionFilter: defaultVersionFilter,
+	}
+
+	s := &source{
+		id:                "transport-http-test",
+		catalog:           "test-catalog",
+		collectionTimeout: 30 * time.Second,
+		client:            client,
+		log:               testLogger(),
+	}
+
+	// Preflight path — operation context and endpoint must appear.
+	err := s.Preflight(context.Background())
+	if err == nil {
+		t.Fatal("Preflight() = nil, want error from failing RoundTripper")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "registered models") {
+		t.Errorf("Preflight error %q should contain the operation context", msg)
+	}
+	if !strings.Contains(msg, "registry.example.com") {
+		t.Errorf("Preflight error %q should contain the endpoint URL", msg)
+	}
+
+	// collect path — same diagnostics must appear.
+	_, collectErr := s.collect(context.Background())
+	if collectErr == nil {
+		t.Fatal("collect() = nil, want error from failing RoundTripper")
+	}
+	if !strings.Contains(collectErr.Error(), "registry.example.com") {
+		t.Errorf("collect error %q should contain the endpoint URL", collectErr.Error())
+	}
+}
+
+// roundTripFunc adapts a function to http.RoundTripper.
+type roundTripFunc func(req *http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+// --- Error identity preservation tests ----------------------------------------
+
+func TestWrapHTTPError_ContextCanceled_PreservesIdentity(t *testing.T) {
+	// A *url.Error wrapping context.Canceled must remain recognizable via
+	// errors.Is after wrapHTTPError adds operation context.
+	inner := &url.Error{Op: "Get", URL: "http://registry.example.com", Err: context.Canceled}
+	s := &source{log: testLogger()}
+	wrapped := s.wrapHTTPError("listing registered models", inner)
+	if !errors.Is(wrapped, context.Canceled) {
+		t.Errorf("errors.Is(wrapped, context.Canceled) = false; error: %v", wrapped)
+	}
+}
+
+func TestWrapHTTPError_ContextDeadlineExceeded_PreservesIdentity(t *testing.T) {
+	// A *url.Error wrapping context.DeadlineExceeded must remain recognizable
+	// via errors.Is after wrapHTTPError adds operation context.
+	inner := &url.Error{Op: "Get", URL: "http://registry.example.com", Err: context.DeadlineExceeded}
+	s := &source{log: testLogger()}
+	wrapped := s.wrapHTTPError("listing registered models", inner)
+	if !errors.Is(wrapped, context.DeadlineExceeded) {
+		t.Errorf("errors.Is(wrapped, context.DeadlineExceeded) = false; error: %v", wrapped)
+	}
+}
+
+func TestWrapHTTPError_GenericOpenAPIError_IncludesBody(t *testing.T) {
+	// When the Model Registry returns a non-2xx response with a body (e.g., an
+	// invalid filter expression returns HTTP 400 with an error JSON), the body
+	// must appear in the diagnostic error to aid operations.
+	responseBody := `{"code":400,"message":"invalid filter expression: unexpected token"}`
+
+	cfg := mrapi.NewConfiguration()
+	cfg.Servers = mrapi.ServerConfigurations{{URL: "http://registry.example.com"}}
+	cfg.HTTPClient = &http.Client{
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: 400,
+				Body:       io.NopCloser(strings.NewReader(responseBody)),
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Request:    req,
+			}, nil
+		}),
+	}
+	api := mrapi.NewAPIClient(cfg).ModelRegistryServiceAPI
+	client := &openapiClient{
+		api:           api,
+		pageSize:      "1",
+		modelFilter:   "INVALID!!!",
+		versionFilter: defaultVersionFilter,
+	}
+	s := &source{
+		id:                "openapi-body-test",
+		catalog:           "test-catalog",
+		collectionTimeout: 30 * time.Second,
+		client:            client,
+		log:               testLogger(),
+	}
+
+	err := s.Preflight(context.Background())
+	if err == nil {
+		t.Fatal("Preflight() = nil, want error for non-2xx response")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, responseBody) {
+		t.Errorf("Preflight error %q should contain the response body for diagnostics", msg)
+	}
+	if !strings.Contains(msg, "registered models") {
+		t.Errorf("Preflight error %q should contain the operation context", msg)
+	}
+}
+
+func TestWrapHTTPError_TransportError_PreservesChain(t *testing.T) {
+	// A transport error wrapped by wrapHTTPError must remain classifiable via
+	// errors.As so callers can inspect the transport layer.
+	transportErr := &url.Error{Op: "Get", URL: "http://registry.example.com", Err: errors.New("connection refused")}
+	s := &source{log: testLogger()}
+	wrapped := s.wrapHTTPError("listing registered models", transportErr)
+
+	var urlErr *url.Error
+	if !errors.As(wrapped, &urlErr) {
+		t.Errorf("errors.As(wrapped, &url.Error) = false; want the transport error chain to be preserved")
 	}
 }
 
@@ -706,6 +893,83 @@ func TestRun_DownstreamFailureRecordsCollectionSuccess(t *testing.T) {
 	//    not be attributed to source collection.
 	if failures != 0 {
 		t.Errorf("source failures = %d, want 0 (downstream failure must not affect source metrics)", failures)
+	}
+}
+
+// --- Preflight tests ----------------------------------------------------------
+
+// fakePreflightClient implements both registryClient and preflightRegistryClient.
+type fakePreflightClient struct {
+	fakeRegistryClient
+	preflightModelErr   error
+	preflightVersionErr error
+}
+
+func (f *fakePreflightClient) PreflightRegisteredModels(_ context.Context) error {
+	return f.preflightModelErr
+}
+
+func (f *fakePreflightClient) PreflightModelVersions(_ context.Context) error {
+	return f.preflightVersionErr
+}
+
+func TestPreflight_SucceedsWhenClientSupportsIt(t *testing.T) {
+	client := &fakePreflightClient{}
+	s, _ := newTestSource(client, nil)
+	err := s.Preflight(context.Background())
+	if err != nil {
+		t.Fatalf("Preflight() = %v, want nil", err)
+	}
+}
+
+func TestPreflight_AlwaysExecuted(t *testing.T) {
+	// All registryClient implementations now include preflight methods.
+	// Verify preflight is called and succeeds on a plain fakeRegistryClient.
+	client := &fakeRegistryClient{
+		models: [][]mrapi.RegisteredModel{{}},
+	}
+	s, _ := newTestSource(client, nil)
+	err := s.Preflight(context.Background())
+	if err != nil {
+		t.Fatalf("Preflight() = %v, want nil", err)
+	}
+}
+
+func TestPreflight_ModelFilterError_FailsPreflight(t *testing.T) {
+	client := &fakePreflightClient{
+		preflightModelErr: &httpError{statusCode: 400, err: errors.New("bad filter")},
+	}
+	s, _ := newTestSource(client, nil)
+	err := s.Preflight(context.Background())
+	if err == nil {
+		t.Fatal("Preflight() = nil, want error for model filter failure")
+	}
+}
+
+func TestPreflight_VersionFilterError_FailsPreflight(t *testing.T) {
+	client := &fakePreflightClient{
+		preflightVersionErr: &httpError{statusCode: 400, err: errors.New("bad filter")},
+	}
+	s, _ := newTestSource(client, nil)
+	err := s.Preflight(context.Background())
+	if err == nil {
+		t.Fatal("Preflight() = nil, want error for version filter failure")
+	}
+}
+
+func TestPreflight_ModelErrorTakesPrecedence(t *testing.T) {
+	// If both fail, the model error should be returned first.
+	client := &fakePreflightClient{
+		preflightModelErr:   &httpError{statusCode: 400, err: errors.New("bad model filter")},
+		preflightVersionErr: &httpError{statusCode: 400, err: errors.New("bad version filter")},
+	}
+	s, _ := newTestSource(client, nil)
+	err := s.Preflight(context.Background())
+	if err == nil {
+		t.Fatal("Preflight() = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "registered models") {
+		t.Errorf("Preflight() error = %q, want it to mention registered models", err.Error())
 	}
 }
 

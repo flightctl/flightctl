@@ -39,7 +39,12 @@ func newOpenapiClient(baseURL, pageSize string) (*openapiClient, error) {
 	cfg := mrapi.NewConfiguration()
 	cfg.Servers = mrapi.ServerConfigurations{{URL: baseURL}}
 	api := mrapi.NewAPIClient(cfg).ModelRegistryServiceAPI
-	return &openapiClient{api: api, pageSize: pageSize}, nil
+	return &openapiClient{
+		api:           api,
+		pageSize:      pageSize,
+		modelFilter:   defaultModelFilter,
+		versionFilter: defaultVersionFilter,
+	}, nil
 }
 
 // TestClient_RegisteredModels_FilterQuery verifies that every request to list
@@ -324,6 +329,459 @@ func TestClient_PageSize_SentInEveryRequest(t *testing.T) {
 	}
 }
 
+// TestClient_CustomModelFilter verifies that a custom model filter is sent
+// as filterQuery on every registered-models request.
+func TestClient_CustomModelFilter(t *testing.T) {
+	var reqs []recordedRequest
+	srv := filterServer(t, &reqs, func(_ string) any {
+		return map[string]any{"items": []any{}, "nextPageToken": ""}
+	})
+	defer srv.Close()
+
+	cfg := mrapi.NewConfiguration()
+	cfg.Servers = mrapi.ServerConfigurations{{URL: srv.URL}}
+	api := mrapi.NewAPIClient(cfg).ModelRegistryServiceAPI
+	c := &openapiClient{
+		api:           api,
+		pageSize:      "10",
+		modelFilter:   "external_id='abc'",
+		versionFilter: defaultVersionFilter,
+	}
+
+	_, err := c.ListRegisteredModels(context.Background(), "")
+	if err != nil {
+		t.Fatalf("ListRegisteredModels: %v", err)
+	}
+
+	if len(reqs) != 1 {
+		t.Fatalf("expected 1 request, got %d", len(reqs))
+	}
+	fq := reqs[0].query.Get("filterQuery")
+	if fq != "external_id='abc'" {
+		t.Errorf("filterQuery = %q, want \"external_id='abc'\"", fq)
+	}
+}
+
+// TestClient_EmptyModelFilter_OmitsFilterQuery verifies that an empty model
+// filter causes filterQuery to be omitted from the request.
+func TestClient_EmptyModelFilter_OmitsFilterQuery(t *testing.T) {
+	var reqs []recordedRequest
+	srv := filterServer(t, &reqs, func(_ string) any {
+		return map[string]any{"items": []any{}, "nextPageToken": ""}
+	})
+	defer srv.Close()
+
+	cfg := mrapi.NewConfiguration()
+	cfg.Servers = mrapi.ServerConfigurations{{URL: srv.URL}}
+	api := mrapi.NewAPIClient(cfg).ModelRegistryServiceAPI
+	c := &openapiClient{
+		api:           api,
+		pageSize:      "10",
+		modelFilter:   "",
+		versionFilter: defaultVersionFilter,
+	}
+
+	_, err := c.ListRegisteredModels(context.Background(), "")
+	if err != nil {
+		t.Fatalf("ListRegisteredModels: %v", err)
+	}
+
+	if len(reqs) != 1 {
+		t.Fatalf("expected 1 request, got %d", len(reqs))
+	}
+	if fq := reqs[0].query.Get("filterQuery"); fq != "" {
+		t.Errorf("expected filterQuery to be omitted, got %q", fq)
+	}
+}
+
+// TestClient_EmptyVersionFilter_OmitsFilterQuery verifies that an empty version
+// filter causes filterQuery to be omitted from the versions request.
+func TestClient_EmptyVersionFilter_OmitsFilterQuery(t *testing.T) {
+	var reqs []recordedRequest
+	srv := filterServer(t, &reqs, func(_ string) any {
+		return map[string]any{"items": []any{}, "nextPageToken": ""}
+	})
+	defer srv.Close()
+
+	cfg := mrapi.NewConfiguration()
+	cfg.Servers = mrapi.ServerConfigurations{{URL: srv.URL}}
+	api := mrapi.NewAPIClient(cfg).ModelRegistryServiceAPI
+	c := &openapiClient{
+		api:           api,
+		pageSize:      "10",
+		modelFilter:   defaultModelFilter,
+		versionFilter: "",
+	}
+
+	_, err := c.ListModelVersions(context.Background(), "1", "")
+	if err != nil {
+		t.Fatalf("ListModelVersions: %v", err)
+	}
+
+	if len(reqs) != 1 {
+		t.Fatalf("expected 1 request, got %d", len(reqs))
+	}
+	if fq := reqs[0].query.Get("filterQuery"); fq != "" {
+		t.Errorf("expected filterQuery to be omitted, got %q", fq)
+	}
+}
+
+// TestClient_Preflight_RegisteredModels verifies that the preflight check for
+// registered models hits the exact expected path with pageSize=1, configured
+// model filter, no nextPageToken, and makes exactly one request.
+func TestClient_Preflight_RegisteredModels(t *testing.T) {
+	var reqs []recordedRequest
+	srv := filterServer(t, &reqs, func(_ string) any {
+		return map[string]any{"items": []any{}, "nextPageToken": ""}
+	})
+	defer srv.Close()
+
+	c, _ := newOpenapiClient(srv.URL, "100")
+	err := c.PreflightRegisteredModels(context.Background())
+	if err != nil {
+		t.Fatalf("PreflightRegisteredModels: %v", err)
+	}
+
+	if len(reqs) != 1 {
+		t.Fatalf("expected exactly 1 request, got %d", len(reqs))
+	}
+	req := reqs[0]
+
+	// Assert the exact API path for registered models.
+	const wantPath = "/api/model_registry/v1alpha3/registered_models"
+	if req.path != wantPath {
+		t.Errorf("path = %q, want %q", req.path, wantPath)
+	}
+	if ps := req.query.Get("pageSize"); ps != "1" {
+		t.Errorf("pageSize = %q, want \"1\"", ps)
+	}
+	if fq := req.query.Get("filterQuery"); fq != defaultModelFilter {
+		t.Errorf("filterQuery = %q, want %q", fq, defaultModelFilter)
+	}
+	// Preflight must not carry a nextPageToken.
+	if req.query.Has("nextPageToken") {
+		t.Errorf("preflight must not send nextPageToken, got %q", req.query.Get("nextPageToken"))
+	}
+}
+
+// TestClient_Preflight_ModelVersions verifies that the preflight check for
+// model versions hits the exact expected path with pageSize=1, configured
+// version filter, no nextPageToken, and makes exactly one request.
+func TestClient_Preflight_ModelVersions(t *testing.T) {
+	var reqs []recordedRequest
+	srv := filterServer(t, &reqs, func(_ string) any {
+		return map[string]any{"items": []any{}, "nextPageToken": ""}
+	})
+	defer srv.Close()
+
+	c, _ := newOpenapiClient(srv.URL, "100")
+	err := c.PreflightModelVersions(context.Background())
+	if err != nil {
+		t.Fatalf("PreflightModelVersions: %v", err)
+	}
+
+	if len(reqs) != 1 {
+		t.Fatalf("expected exactly 1 request, got %d", len(reqs))
+	}
+	req := reqs[0]
+
+	// Assert the exact API path for model versions.
+	const wantPath = "/api/model_registry/v1alpha3/model_versions"
+	if req.path != wantPath {
+		t.Errorf("path = %q, want %q", req.path, wantPath)
+	}
+	if ps := req.query.Get("pageSize"); ps != "1" {
+		t.Errorf("pageSize = %q, want \"1\"", ps)
+	}
+	if fq := req.query.Get("filterQuery"); fq != defaultVersionFilter {
+		t.Errorf("filterQuery = %q, want %q", fq, defaultVersionFilter)
+	}
+	// Preflight must not carry a nextPageToken.
+	if req.query.Has("nextPageToken") {
+		t.Errorf("preflight must not send nextPageToken, got %q", req.query.Get("nextPageToken"))
+	}
+}
+
+// TestClient_CombinedFilterExpression verifies that a combined filter
+// expression is sent exactly as filterQuery.
+func TestClient_CombinedFilterExpression(t *testing.T) {
+	var reqs []recordedRequest
+	srv := filterServer(t, &reqs, func(_ string) any {
+		return map[string]any{"items": []any{}, "nextPageToken": ""}
+	})
+	defer srv.Close()
+
+	cfg := mrapi.NewConfiguration()
+	cfg.Servers = mrapi.ServerConfigurations{{URL: srv.URL}}
+	api := mrapi.NewAPIClient(cfg).ModelRegistryServiceAPI
+	c := &openapiClient{
+		api:           api,
+		pageSize:      "10",
+		modelFilter:   "state = 'LIVE' AND to_flightctl.bool_value = true",
+		versionFilter: defaultVersionFilter,
+	}
+
+	_, err := c.ListRegisteredModels(context.Background(), "")
+	if err != nil {
+		t.Fatalf("ListRegisteredModels: %v", err)
+	}
+
+	if len(reqs) != 1 {
+		t.Fatalf("expected 1 request, got %d", len(reqs))
+	}
+	fq := reqs[0].query.Get("filterQuery")
+	if fq != "state = 'LIVE' AND to_flightctl.bool_value = true" {
+		t.Errorf("filterQuery = %q, want %q", fq, "state = 'LIVE' AND to_flightctl.bool_value = true")
+	}
+}
+
+// TestClient_CustomFilterRetainedOnPagination verifies custom model filter
+// is retained on page 2.
+func TestClient_CustomFilterRetainedOnPagination(t *testing.T) {
+	var reqs []recordedRequest
+	page2Token := "page2"
+
+	srv := filterServer(t, &reqs, func(_ string) any {
+		if len(reqs) == 1 {
+			return map[string]any{
+				"items":         []map[string]any{{"id": "1", "name": "m1"}},
+				"nextPageToken": page2Token,
+			}
+		}
+		return map[string]any{"items": []any{}, "nextPageToken": ""}
+	})
+	defer srv.Close()
+
+	cfg := mrapi.NewConfiguration()
+	cfg.Servers = mrapi.ServerConfigurations{{URL: srv.URL}}
+	api := mrapi.NewAPIClient(cfg).ModelRegistryServiceAPI
+	c := &openapiClient{
+		api:           api,
+		pageSize:      "10",
+		modelFilter:   "external_id='abc'",
+		versionFilter: defaultVersionFilter,
+	}
+
+	_, err := c.ListRegisteredModels(context.Background(), "")
+	if err != nil {
+		t.Fatalf("page 1: %v", err)
+	}
+	_, err = c.ListRegisteredModels(context.Background(), page2Token)
+	if err != nil {
+		t.Fatalf("page 2: %v", err)
+	}
+
+	if len(reqs) != 2 {
+		t.Fatalf("expected 2 requests, got %d", len(reqs))
+	}
+	for i, req := range reqs {
+		fq := req.query.Get("filterQuery")
+		if fq != "external_id='abc'" {
+			t.Errorf("request %d: filterQuery = %q, want \"external_id='abc'\"", i+1, fq)
+		}
+	}
+}
+
+// TestClient_EmptyModelFilter_OmitsFilterQuery_HasCheck verifies that an empty
+// model filter causes filterQuery to be truly absent, not just empty-valued.
+func TestClient_EmptyModelFilter_OmitsFilterQuery_HasCheck(t *testing.T) {
+	var reqs []recordedRequest
+	srv := filterServer(t, &reqs, func(_ string) any {
+		return map[string]any{"items": []any{}, "nextPageToken": ""}
+	})
+	defer srv.Close()
+
+	cfg := mrapi.NewConfiguration()
+	cfg.Servers = mrapi.ServerConfigurations{{URL: srv.URL}}
+	api := mrapi.NewAPIClient(cfg).ModelRegistryServiceAPI
+	c := &openapiClient{
+		api:           api,
+		pageSize:      "10",
+		modelFilter:   "",
+		versionFilter: defaultVersionFilter,
+	}
+
+	_, err := c.ListRegisteredModels(context.Background(), "")
+	if err != nil {
+		t.Fatalf("ListRegisteredModels: %v", err)
+	}
+
+	if len(reqs) != 1 {
+		t.Fatalf("expected 1 request, got %d", len(reqs))
+	}
+	if reqs[0].query.Has("filterQuery") {
+		t.Errorf("filterQuery key must be absent from request, but was present with value %q", reqs[0].query.Get("filterQuery"))
+	}
+}
+
+// TestClient_EmptyVersionFilter_OmitsFilterQuery_HasCheck verifies that an
+// empty version filter causes filterQuery to be truly absent.
+func TestClient_EmptyVersionFilter_OmitsFilterQuery_HasCheck(t *testing.T) {
+	var reqs []recordedRequest
+	srv := filterServer(t, &reqs, func(_ string) any {
+		return map[string]any{"items": []any{}, "nextPageToken": ""}
+	})
+	defer srv.Close()
+
+	cfg := mrapi.NewConfiguration()
+	cfg.Servers = mrapi.ServerConfigurations{{URL: srv.URL}}
+	api := mrapi.NewAPIClient(cfg).ModelRegistryServiceAPI
+	c := &openapiClient{
+		api:           api,
+		pageSize:      "10",
+		modelFilter:   defaultModelFilter,
+		versionFilter: "",
+	}
+
+	_, err := c.ListModelVersions(context.Background(), "1", "")
+	if err != nil {
+		t.Fatalf("ListModelVersions: %v", err)
+	}
+
+	if len(reqs) != 1 {
+		t.Fatalf("expected 1 request, got %d", len(reqs))
+	}
+	if reqs[0].query.Has("filterQuery") {
+		t.Errorf("filterQuery key must be absent from request, but was present with value %q", reqs[0].query.Get("filterQuery"))
+	}
+}
+
+// TestClient_Preflight_EmptyModelFilter_OmitsFilterQuery verifies preflight
+// with empty model filter omits filterQuery.
+func TestClient_Preflight_EmptyModelFilter_OmitsFilterQuery(t *testing.T) {
+	var reqs []recordedRequest
+	srv := filterServer(t, &reqs, func(_ string) any {
+		return map[string]any{"items": []any{}, "nextPageToken": ""}
+	})
+	defer srv.Close()
+
+	cfg := mrapi.NewConfiguration()
+	cfg.Servers = mrapi.ServerConfigurations{{URL: srv.URL}}
+	api := mrapi.NewAPIClient(cfg).ModelRegistryServiceAPI
+	c := &openapiClient{
+		api:           api,
+		pageSize:      "10",
+		modelFilter:   "",
+		versionFilter: defaultVersionFilter,
+	}
+
+	err := c.PreflightRegisteredModels(context.Background())
+	if err != nil {
+		t.Fatalf("PreflightRegisteredModels: %v", err)
+	}
+
+	if len(reqs) != 1 {
+		t.Fatalf("expected 1 request, got %d", len(reqs))
+	}
+	if reqs[0].query.Has("filterQuery") {
+		t.Errorf("filterQuery key must be absent from preflight request, but was present")
+	}
+}
+
+// TestClient_Preflight_EmptyVersionFilter_OmitsFilterQuery verifies preflight
+// with empty version filter omits filterQuery.
+func TestClient_Preflight_EmptyVersionFilter_OmitsFilterQuery(t *testing.T) {
+	var reqs []recordedRequest
+	srv := filterServer(t, &reqs, func(_ string) any {
+		return map[string]any{"items": []any{}, "nextPageToken": ""}
+	})
+	defer srv.Close()
+
+	cfg := mrapi.NewConfiguration()
+	cfg.Servers = mrapi.ServerConfigurations{{URL: srv.URL}}
+	api := mrapi.NewAPIClient(cfg).ModelRegistryServiceAPI
+	c := &openapiClient{
+		api:           api,
+		pageSize:      "10",
+		modelFilter:   defaultModelFilter,
+		versionFilter: "",
+	}
+
+	err := c.PreflightModelVersions(context.Background())
+	if err != nil {
+		t.Fatalf("PreflightModelVersions: %v", err)
+	}
+
+	if len(reqs) != 1 {
+		t.Fatalf("expected 1 request, got %d", len(reqs))
+	}
+	if reqs[0].query.Has("filterQuery") {
+		t.Errorf("filterQuery key must be absent from preflight request, but was present")
+	}
+}
+
+// TestClient_Preflight_NoPagination verifies preflight makes exactly one
+// request (no pagination).
+func TestClient_Preflight_NoPagination(t *testing.T) {
+	var reqs []recordedRequest
+	srv := filterServer(t, &reqs, func(_ string) any {
+		return map[string]any{
+			"items":         []map[string]any{{"id": "1", "name": "m1"}},
+			"nextPageToken": "should-not-be-followed",
+		}
+	})
+	defer srv.Close()
+
+	c, _ := newOpenapiClient(srv.URL, "100")
+	err := c.PreflightRegisteredModels(context.Background())
+	if err != nil {
+		t.Fatalf("PreflightRegisteredModels: %v", err)
+	}
+
+	if len(reqs) != 1 {
+		t.Errorf("preflight must make exactly 1 request, got %d", len(reqs))
+	}
+}
+
+// TestClient_Preflight_NoDownstream verifies preflight doesn't touch
+// downstream/artifacts endpoints.
+func TestClient_Preflight_NoDownstream(t *testing.T) {
+	var reqs []recordedRequest
+	srv := filterServer(t, &reqs, func(_ string) any {
+		return map[string]any{"items": []any{}, "nextPageToken": ""}
+	})
+	defer srv.Close()
+
+	c, _ := newOpenapiClient(srv.URL, "100")
+
+	_ = c.PreflightRegisteredModels(context.Background())
+	_ = c.PreflightModelVersions(context.Background())
+
+	// Exactly 2 requests: one for models, one for versions.
+	if len(reqs) != 2 {
+		t.Fatalf("expected 2 requests, got %d", len(reqs))
+	}
+
+	for _, req := range reqs {
+		if req.query.Has("artifactType") {
+			t.Errorf("preflight request %s must not include artifactType filter", req.path)
+		}
+	}
+}
+
+// TestClient_Preflight_ServerError verifies that a server error during
+// preflight propagates as an httpError.
+func TestClient_Preflight_ServerError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	c, _ := newOpenapiClient(srv.URL, "10")
+
+	err := c.PreflightRegisteredModels(context.Background())
+	if err == nil {
+		t.Fatal("expected error from 500 response, got nil")
+	}
+	var httpErr *httpError
+	if !errors.As(err, &httpErr) {
+		t.Fatalf("expected *httpError, got %T: %v", err, err)
+	}
+	if httpErr.statusCode != http.StatusInternalServerError {
+		t.Errorf("status code = %d, want %d", httpErr.statusCode, http.StatusInternalServerError)
+	}
+}
+
 // TestSource_RepeatedPageToken_FailsCycle verifies that the source detects
 // a server returning the same nextPageToken twice and fails the cycle.
 func TestSource_RepeatedPageToken_RegisteredModels(t *testing.T) {
@@ -384,6 +842,9 @@ func (r *repeatedVersionTokenClient) ListModelVersions(_ context.Context, _ stri
 func (r *repeatedVersionTokenClient) ListModelArtifacts(_ context.Context, _ string, _ string) (*mrapi.ArtifactList, error) {
 	return &mrapi.ArtifactList{}, nil
 }
+
+func (r *repeatedVersionTokenClient) PreflightRegisteredModels(_ context.Context) error { return nil }
+func (r *repeatedVersionTokenClient) PreflightModelVersions(_ context.Context) error    { return nil }
 
 // TestSource_LiveVersionWithNoArtifact_FailsCycle verifies fail-closed: a LIVE
 // version with zero eligible artifacts aborts the collection.

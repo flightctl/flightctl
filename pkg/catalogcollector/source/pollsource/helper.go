@@ -9,9 +9,10 @@ package pollsource
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"math"
-	"math/rand/v2"
+	"math/big"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/util"
@@ -156,7 +157,8 @@ func NewHelper(
 			if max <= 0 {
 				return 0
 			}
-			return time.Duration(rand.Int64N(int64(max)))
+			n, _ := rand.Int(rand.Reader, big.NewInt(int64(max)))
+			return time.Duration(n.Int64())
 		}
 	}
 
