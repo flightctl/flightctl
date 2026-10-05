@@ -176,7 +176,7 @@ func (r *rpmOSTree) Switch(ctx context.Context, image string) error {
 }
 
 func (r *rpmOSTree) SwitchOCI(_ context.Context, _ string) error {
-	return fmt.Errorf("oci switch requires bootc")
+	return fmt.Errorf("OCI layout switch requires bootc")
 }
 
 func (r *rpmOSTree) SwitchRegistry(_ context.Context, _ string) error {
@@ -229,7 +229,7 @@ func (d *dummy) Switch(ctx context.Context, image string) error {
 }
 
 func (d *dummy) SwitchOCI(ctx context.Context, layoutDir string) error {
-	d.log.Debugf("Ignoring oci switch to %s from dummy client for package-mode", layoutDir)
+	d.log.Debugf("Ignoring OCI switch to %s from dummy client for package-mode", layoutDir)
 	return nil
 }
 

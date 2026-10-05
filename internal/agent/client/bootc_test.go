@@ -11,44 +11,49 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-func TestBootcSwitchStagingMode(t *testing.T) {
-	const (
-		layoutDir = "/tmp/oci-layout"
-		image     = "quay.io/flightctl/os:v1"
-	)
+func TestBootcSwitchUsesContainersStorage(t *testing.T) {
+	const image = "quay.io/flightctl/os:v1"
 
-	registryTarget, err := container.ImageToBootcTarget(image)
+	target, err := container.ImageToBootcTarget(image)
 	require.NoError(t, err)
 
-	testCases := []struct {
-		name         string
-		args         []any
-		switchTarget func(Bootc) error
-	}{
-		{
-			name: "When staging a reconstructed OCI image it should keep it download-only",
-			args: []any{"switch", "--transport", "oci", "--download-only", "--retain", layoutDir},
-			switchTarget: func(bootc Bootc) error {
-				return bootc.SwitchOCI(context.Background(), layoutDir)
-			},
-		},
-		{
-			name: "When re-pinning the registry image it should finalize the deployment",
-			args: []any{"switch", "--transport", "registry", "--retain", registryTarget},
-			switchTarget: func(bootc Bootc) error {
-				return bootc.SwitchRegistry(context.Background(), image)
-			},
-		},
-	}
+	ctrl := gomock.NewController(t)
+	mockExecuter := executer.NewMockExecuter(ctrl)
+	mockExecuter.EXPECT().ExecuteWithContext(
+		gomock.Any(),
+		BootcCmd,
+		"switch", "--transport", "containers-storage", "--retain", target,
+	).Return("", "", 0)
 
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			ctrl := gomock.NewController(t)
-			mockExecuter := executer.NewMockExecuter(ctrl)
-			mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), BootcCmd, testCase.args...).Return("", "", 0)
+	bootc := NewBootc(log.NewPrefixLogger("test"), mockExecuter)
+	require.NoError(t, bootc.Switch(context.Background(), image))
+}
 
-			bootc := NewBootc(log.NewPrefixLogger("test"), mockExecuter)
-			require.NoError(t, testCase.switchTarget(bootc))
-		})
-	}
+func TestBootcSwitchOCIUsesOCITransportWithoutDownloadOnly(t *testing.T) {
+	const layoutDir = "/var/tmp/os-delta/image"
+	ctrl := gomock.NewController(t)
+	mockExecuter := executer.NewMockExecuter(ctrl)
+	mockExecuter.EXPECT().ExecuteWithContext(
+		gomock.Any(),
+		BootcCmd,
+		"switch", "--transport", "oci", "--retain", layoutDir,
+	).Return("", "", 0)
+
+	bootc := NewBootc(log.NewPrefixLogger("test"), mockExecuter)
+	require.NoError(t, bootc.SwitchOCI(context.Background(), layoutDir))
+}
+
+func TestBootcSwitchRegistryUsesCanonicalRegistryReference(t *testing.T) {
+	const image = "quay.io/flightctl/os:v1"
+
+	ctrl := gomock.NewController(t)
+	mockExecuter := executer.NewMockExecuter(ctrl)
+	mockExecuter.EXPECT().ExecuteWithContext(
+		gomock.Any(),
+		BootcCmd,
+		"switch", "--transport", "registry", "--retain", image,
+	).Return("", "", 0)
+
+	bootc := NewBootc(log.NewPrefixLogger("test"), mockExecuter)
+	require.NoError(t, bootc.SwitchRegistry(context.Background(), image))
 }

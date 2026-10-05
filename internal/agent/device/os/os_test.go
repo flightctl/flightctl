@@ -323,8 +323,8 @@ func TestCollectOCITargets(t *testing.T) {
 			wantAttempted: testDesiredImage,
 		},
 		{
-			name:    "When bootc does not support download-only switch it should emit a full-image target without Referrers",
-			caps:    Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.16.9"},
+			name:    "When the Bootc version is unavailable it should emit a full-image target",
+			caps:    Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true},
 			desired: desiredSpec(testDesiredImage, lo.ToPtr(testHintedDelta)),
 			setup: func(t *testing.T, mockExec *executer.MockExecuter, mockClient *MockClient, mockResolver *dependency.MockPullConfigResolver) {
 				mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil)
@@ -333,6 +333,20 @@ func TestCollectOCITargets(t *testing.T) {
 			},
 			wantRefs:      []string{testDesiredImage},
 			wantAttempted: testDesiredImage,
+		},
+		{
+			name:    "When bootc predates download-only switch it should still apply a delta through OCI transport",
+			caps:    Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.15.0"},
+			desired: desiredSpec(testDesiredImage, lo.ToPtr(testHintedDelta)),
+			setup: func(t *testing.T, mockExec *executer.MockExecuter, mockClient *MockClient, mockResolver *dependency.MockPullConfigResolver) {
+				mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil)
+				expectImageExists(mockExec, testDesiredImage, false)
+				expectPullConfig(t, mockResolver)
+				expectDeltaSuccess(t, mockExec, mockClient, testHintedDelta)
+			},
+			wantEmpty:     true,
+			wantAttempted: testDesiredImage,
+			wantStaged:    lo.ToPtr(testDesiredImage),
 		},
 		{
 			name:    "When hint is set it should pull and apply the hint without Referrers",
@@ -406,7 +420,7 @@ func TestCollectOCITargets(t *testing.T) {
 			wantAttempted: testDesiredImage,
 		},
 		{
-			name:    "When Copy of the delta artifact fails it should set delta pull failed and emit a full-image target",
+			name:    "When Copy of the delta artifact fails it should set delta pull failed and pull the full image",
 			caps:    Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.16.10"},
 			desired: desiredSpec(testDesiredImage, lo.ToPtr(testHintedDelta)),
 			setup: func(t *testing.T, mockExec *executer.MockExecuter, mockClient *MockClient, mockResolver *dependency.MockPullConfigResolver) {
@@ -415,13 +429,15 @@ func TestCollectOCITargets(t *testing.T) {
 				expectPullConfig(t, mockResolver)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "copy", "docker://"+testHintedDelta, gomock.Any(), "--src-no-creds").
 					Return("", "Error: unauthorized", 1)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", testDesiredImage).
+					Return("sha256:image", "", 0)
 			},
-			wantRefs:      []string{testDesiredImage},
+			wantEmpty:     true,
 			wantReason:    lo.ToPtr(fallbackReasonPull),
 			wantAttempted: testDesiredImage,
 		},
 		{
-			name:    "When apply fails it should set delta apply failed and emit a full-image target",
+			name:    "When oci-delta apply fails it should force a full-image pull",
 			caps:    Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.16.10"},
 			desired: desiredSpec(testDesiredImage, lo.ToPtr(testHintedDelta)),
 			setup: func(t *testing.T, mockExec *executer.MockExecuter, mockClient *MockClient, mockResolver *dependency.MockPullConfigResolver) {
@@ -431,13 +447,15 @@ func TestCollectOCITargets(t *testing.T) {
 				expectDeltaCopy(mockExec, testHintedDelta)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "oci-delta", "apply", "--ostree-repo", "/ostree/repo", gomock.Any(), gomock.Any()).
 					Return("", "Error: diff_id mismatch", 1)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", testDesiredImage).
+					Return("sha256:image", "", 0)
 			},
-			wantRefs:      []string{testDesiredImage},
+			wantEmpty:     true,
 			wantReason:    lo.ToPtr(fallbackReasonApply),
 			wantAttempted: testDesiredImage,
 		},
 		{
-			name:    "When bootc switch from the reconstructed OCI layout fails it should treat it as apply failure and emit a full-image target",
+			name:    "When the OCI layout switch fails it should treat it as apply failure and force a full-image pull",
 			caps:    Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.16.10"},
 			desired: desiredSpec(testDesiredImage, lo.ToPtr(testHintedDelta)),
 			setup: func(t *testing.T, mockExec *executer.MockExecuter, mockClient *MockClient, mockResolver *dependency.MockPullConfigResolver) {
@@ -449,13 +467,15 @@ func TestCollectOCITargets(t *testing.T) {
 					Return("", "", 0)
 				mockClient.EXPECT().SwitchOCI(gomock.Any(), gomock.Any()).
 					Return(errors.New("bootc switch failed"))
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", testDesiredImage).
+					Return("sha256:image", "", 0)
 			},
-			wantRefs:      []string{testDesiredImage},
+			wantEmpty:     true,
 			wantReason:    lo.ToPtr(fallbackReasonApply),
 			wantAttempted: testDesiredImage,
 		},
 		{
-			name:    "When the registry switch after OCI stage fails it should treat it as apply failure and emit a full-image target",
+			name:    "When the canonical registry switch fails it should force a full-image pull",
 			caps:    Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.16.10"},
 			desired: desiredSpec(testDesiredImage, lo.ToPtr(testHintedDelta)),
 			setup: func(t *testing.T, mockExec *executer.MockExecuter, mockClient *MockClient, mockResolver *dependency.MockPullConfigResolver) {
@@ -467,9 +487,11 @@ func TestCollectOCITargets(t *testing.T) {
 					Return("", "", 0)
 				mockClient.EXPECT().SwitchOCI(gomock.Any(), gomock.Any()).Return(nil)
 				mockClient.EXPECT().SwitchRegistry(gomock.Any(), testDesiredImage).
-					Return(errors.New("bootc registry switch failed"))
+					Return(errors.New("registry switch failed"))
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", testDesiredImage).
+					Return("sha256:image", "", 0)
 			},
-			wantRefs:      []string{testDesiredImage},
+			wantEmpty:     true,
 			wantReason:    lo.ToPtr(fallbackReasonApply),
 			wantAttempted: testDesiredImage,
 		},
@@ -517,6 +539,7 @@ func TestCollectOCITargets(t *testing.T) {
 				for i, ref := range tt.wantRefs {
 					require.Equal(t, dependency.OCITypePodmanImage, got[i].Type)
 					require.Equal(t, ref, got[i].Reference)
+					require.Equal(t, v1beta1.PullIfNotPresent, got[i].PullPolicy)
 				}
 			}
 			require.Equal(t, tt.wantReason, m.fallbackReason)

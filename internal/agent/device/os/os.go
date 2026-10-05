@@ -13,7 +13,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
-	bootcutil "github.com/flightctl/flightctl/internal/bootc"
 	"github.com/flightctl/flightctl/internal/container"
 	"github.com/flightctl/flightctl/pkg/log"
 )
@@ -38,10 +37,9 @@ type Client interface {
 	Status(ctx context.Context) (*Status, error)
 	// Switch prepares the system to switch to the specified OS image
 	Switch(ctx context.Context, image string) error
-	// SwitchOCI stages a reconstructed OCI layout in bootc download-only mode so
-	// it cannot be applied on reboot before the registry reference is pinned.
+	// SwitchOCI stages a reconstructed OCI layout so bootc imports its layers into OSTree.
 	SwitchOCI(ctx context.Context, layoutDir string) error
-	// SwitchRegistry stages the registry image so bootc records the spec name.
+	// SwitchRegistry updates the staged origin to the desired registry image reference.
 	SwitchRegistry(ctx context.Context, image string) error
 	// Rollback stages the previous deployment and reboots into it
 	Rollback(ctx context.Context) error
@@ -167,7 +165,7 @@ func ApplyDeltaSystemInfo(info *v1beta1.DeviceSystemInfo, caps Capabilities) {
 }
 
 func (m *manager) canApplyOSDelta() bool {
-	return m.caps.DeltaEligible && bootcutil.SupportsDownloadOnlySwitch(m.caps.BootcVersion)
+	return m.caps.OsMode == v1beta1.OsModeImage && m.caps.BootcVersion != "" && m.caps.DeltaEligible
 }
 
 func (m *manager) BeforeUpdate(ctx context.Context, current, desired *v1beta1.DeviceSpec) error {
@@ -230,9 +228,12 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1bet
 		return m.fullImageCollection(osImage, optsFn), nil
 	}
 
-	if err := m.pullAndApplyOSDelta(ctx, candidate, osImage, optsFn); err != nil {
-		m.log.Errorf("OS delta failed, falling back to full pull: %v", err)
-		return m.fullImageCollection(osImage, optsFn), nil
+	if deltaErr := m.pullAndApplyOSDelta(ctx, candidate, osImage, optsFn); deltaErr != nil {
+		m.log.Errorf("OS delta failed, falling back to full pull: %v", deltaErr)
+		if pullErr := m.pullFullImage(ctx, osImage, optsFn); pullErr != nil {
+			return nil, fmt.Errorf("OS delta failed: %w; full image fallback pull failed: %w", deltaErr, pullErr)
+		}
+		return &dependency.OCICollection{}, nil
 	}
 
 	return &dependency.OCICollection{}, nil
@@ -259,6 +260,23 @@ func (m *manager) fullImageCollection(osImage string, optsFn dependency.ClientOp
 			},
 		},
 	}
+}
+
+func (m *manager) pullFullImage(ctx context.Context, osImage string, optsFn dependency.ClientOptsFn) error {
+	target, err := container.ImageToBootcTarget(osImage)
+	if err != nil {
+		return fmt.Errorf("convert OS image reference for full pull: %w", err)
+	}
+	// Podman's default pull policy is always, so this replaces an incomplete
+	// local target that may have been left by the failed delta import.
+	opts := []client.ClientOption{client.Timeout(m.pullTimeout)}
+	if optsFn != nil {
+		opts = append(opts, optsFn()...)
+	}
+	if _, err := m.podmanClient.Pull(ctx, target, opts...); err != nil {
+		return fmt.Errorf("pull image %s: %w", target, err)
+	}
+	return nil
 }
 
 func (m *manager) startImageAttempt(osSpec *v1beta1.DeviceOsSpec) {
@@ -336,6 +354,10 @@ func (m *manager) pullAndApplyOSDelta(ctx context.Context, candidate, osImage st
 	if err := m.client.SwitchOCI(ctx, layoutDir); err != nil {
 		return m.failApply(err)
 	}
+
+	// The OCI layout switch imports reconstructed layers into OSTree, but leaves
+	// the layout path as the deployment origin. Switch to the registry reference
+	// before reboot so bootc records the canonical image and reuses those layers.
 	if err := m.client.SwitchRegistry(ctx, osImage); err != nil {
 		return m.failApply(err)
 	}

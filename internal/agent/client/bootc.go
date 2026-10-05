@@ -51,26 +51,26 @@ func (b *bootc) Status(ctx context.Context) (*container.BootcHost, error) {
 	return &bootcHost, nil
 }
 
-// Switch pulls the specified image and stages it for the next boot while retaining a copy of the most recently booted image.
-// The status will be updated in logger. Switch assumes the os image is available in local container storage.
+// Switch stages the specified image from local container storage for the next boot while retaining a copy of the most recently booted image.
+// The status will be updated in logger. Switch assumes the OS image is available in local container storage.
 func (b *bootc) Switch(ctx context.Context, image string) error {
 	target, err := container.ImageToBootcTarget(image)
 	if err != nil {
 		return err
 	}
-	return b.runSwitch(ctx, "containers-storage", target, true, false)
+	return b.runSwitch(ctx, "containers-storage", target, true)
 }
 
-// SwitchOCI stages a reconstructed OCI layout in download-only mode. A
-// successful registry switch replaces it with the pinned target deployment;
-// a failed registry switch leaves the delta stage unapplied on reboot.
+// SwitchOCI imports an OCI layout into bootc's OSTree repository and stages it for the next boot.
+// Call SwitchRegistry after this to make the registry reference the deployment origin.
 func (b *bootc) SwitchOCI(ctx context.Context, layoutDir string) error {
 	if layoutDir == "" {
-		return fmt.Errorf("empty oci layout path")
+		return fmt.Errorf("empty OCI layout path")
 	}
-	return b.runSwitch(ctx, "oci", layoutDir, true, true)
+	return b.runSwitch(ctx, "oci", layoutDir, true)
 }
 
+// SwitchRegistry stages the registry image so bootc records the canonical image reference.
 func (b *bootc) SwitchRegistry(ctx context.Context, image string) error {
 	if image == "" {
 		return fmt.Errorf("empty image reference")
@@ -79,16 +79,13 @@ func (b *bootc) SwitchRegistry(ctx context.Context, image string) error {
 	if err != nil {
 		return fmt.Errorf("convert registry image target: %w", err)
 	}
-	return b.runSwitch(ctx, "registry", target, true, false)
+	return b.runSwitch(ctx, "registry", target, true)
 }
 
-func (b *bootc) runSwitch(ctx context.Context, transport, target string, retain, downloadOnly bool) error {
+func (b *bootc) runSwitch(ctx context.Context, transport, target string, retain bool) error {
 	done := make(chan error, 1)
 	go func() {
 		args := []string{"switch", "--transport", transport}
-		if downloadOnly {
-			args = append(args, "--download-only")
-		}
 		if retain {
 			args = append(args, "--retain")
 		}

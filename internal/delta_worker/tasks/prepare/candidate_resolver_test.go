@@ -522,7 +522,7 @@ func TestDeltaCandidates_ResolveOSFromUnsavedRender(t *testing.T) {
 		assert.Equal(t, newDig, result.Candidates[0].NewDigest)
 	})
 
-	t.Run("When bootc does not support download-only switch it should preserve application candidates", func(t *testing.T) {
+	t.Run("When bootc predates download-only switch it should still resolve OS candidates", func(t *testing.T) {
 		device := deviceWithOS("d1", true, currentDig)
 		device.Spec.Os.Image = newImage
 		device.Status.SystemInfo.BootcVersion = lo.ToPtr("bootc 1.15.0")
@@ -530,20 +530,19 @@ func TestDeltaCandidates_ResolveOSFromUnsavedRender(t *testing.T) {
 		r.DeviceService = mockDeviceService(func(_ context.Context, _ uuid.UUID, _ string) (*domain.Device, error) {
 			return device, nil
 		}, nil)
-		r.Inspect = func(_ context.Context, _ uuid.UUID, _ string) (string, error) {
-			t.Fatal("OS image inspection must not run when bootc cannot safely stage deltas")
-			return "", nil
-		}
 		applicationCandidate := DeltaCandidate{ImageRepository: "quay.io/apps/web", CurrentDigest: "sha256:ccc", NewDigest: "sha256:ddd"}
 		r.Expand = func(_ context.Context, _ uuid.UUID, _ *domain.Device, _ tasks.RenderedSpec, candidates []DeltaCandidate) []DeltaCandidate {
-			require.Empty(t, candidates)
+			require.Equal(t, []DeltaCandidate{{ImageRepository: repo, CurrentDigest: currentDig, NewDigest: newDig}}, candidates)
 			return append(candidates, applicationCandidate)
 		}
 
 		result, err := r.DeltaCandidates(ctx, devicePrepareEvent(orgId, "d1"))
 		require.NoError(t, err)
 		assert.False(t, result.Skip)
-		require.Equal(t, []DeltaCandidate{applicationCandidate}, result.Candidates)
+		require.Equal(t, []DeltaCandidate{
+			{ImageRepository: repo, CurrentDigest: currentDig, NewDigest: newDig},
+			applicationCandidate,
+		}, result.Candidates)
 	})
 
 	t.Run("When the device generation changed before rendering it should discard the event", func(t *testing.T) {
