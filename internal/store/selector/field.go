@@ -272,6 +272,22 @@ func (fs *FieldSelector) Tokenize(ctx context.Context, input any) (queryparser.T
 				return nil, NewSelectorError(flterrors.ErrFieldSelectorParseFailed,
 					fmt.Errorf("failed to parse selector %q: %w", key, err))
 			}
+			if subquery := resolvedField.Subquery; subquery != nil {
+				if operator != selection.In {
+					return nil, NewSelectorError(flterrors.ErrFieldSelectorParseFailed,
+						fmt.Errorf("operator %q is unsupported for subquery selector %q", operator, key))
+				}
+				if len(values) == 0 || (subquery.MaxValues > 0 && len(values) > subquery.MaxValues) {
+					return nil, NewSelectorError(flterrors.ErrFieldSelectorParseFailed,
+						fmt.Errorf("invalid number of values for selector %q", key))
+				}
+				for _, val := range values {
+					if subquery.MaxValueLength > 0 && len(val.String()) > subquery.MaxValueLength {
+						return nil, NewSelectorError(flterrors.ErrFieldSelectorParseFailed,
+							fmt.Errorf("value for selector %q exceeds %d characters", key, subquery.MaxValueLength))
+					}
+				}
+			}
 
 			var valuesToken queryparser.TokenSet
 			if len(values) > 0 {
@@ -320,6 +336,9 @@ type resolverFunc[T any] func(T) queryparser.TokenSet
 func (fs *FieldSelector) createFieldToken(selectorField *SelectorField) (queryparser.TokenSet, error) {
 	return fs.resolveField(selectorField, func(f string) queryparser.TokenSet {
 		return queryparser.NewTokenSet().AddFunctionToken("K", func() queryparser.TokenSet {
+			if selectorField.Subquery != nil {
+				return queryparser.NewTokenSet().AddValueToken(selectorField.Subquery.Template).AddValueToken(selectorField.Subquery.Args)
+			}
 			return queryparser.NewTokenSet().AddValueToken(f)
 		})
 	})
@@ -456,6 +475,12 @@ func (fs *FieldSelector) resolveValue(
 }
 
 func (fs *FieldSelector) resolveQuery(operator selection.Operator, selectorField *SelectorField, resolve resolverFunc[string]) (queryparser.TokenSet, error) {
+	if selectorField.Subquery != nil {
+		if operator != selection.In {
+			return nil, fmt.Errorf("operator %q is unsupported for subquery selectors", operator)
+		}
+		return resolve("SUBQUERY_IN"), nil
+	}
 	_, exists := operatorsMap[operator]
 	if !exists {
 		return nil, fmt.Errorf("unknown operator %q", operator)
@@ -581,14 +606,23 @@ func (fs *FieldSelector) applyStringOperator(operator selection.Operator, select
 
 // This function was overridden to pass the column name verification of the infrastructure.
 // It is safe since we have already performed all the checks before calling this function.
-func (fs *FieldSelector) queryField(args ...string) (*sql.FunctionResult, error) {
-	if len(args) != 1 {
-		return nil, fmt.Errorf("expected one argument")
+func (fs *FieldSelector) queryField(args ...any) (*sql.FunctionResult, error) {
+	if len(args) < 1 || len(args) > 2 {
+		return nil, fmt.Errorf("expected one or two arguments")
 	}
-
-	return &sql.FunctionResult{
-		Query: args[0],
-	}, nil
+	query, ok := args[0].(string)
+	if !ok {
+		return nil, fmt.Errorf("expected a string field")
+	}
+	result := &sql.FunctionResult{Query: query}
+	if len(args) == 2 {
+		var ok bool
+		result.Args, ok = args[1].([]any)
+		if !ok {
+			return nil, fmt.Errorf("expected subquery arguments")
+		}
+	}
+	return result, nil
 }
 
 // resolveSelectorField attempts to resolve a field using both visible and hidden selectors.

@@ -184,12 +184,23 @@ func (t SelectorType) String() string {
 // SelectorOpt represents a set of options for a selector.
 type SelectorOpt = map[string]struct{}
 
+// SubquerySelector uses the selected values in a non-correlated SQL subquery.
+// Template contains a single {values} marker, replaced with bound placeholders.
+// Args are bound before the selected values.
+type SubquerySelector struct {
+	Template       string
+	Args           []any
+	MaxValues      int
+	MaxValueLength int
+}
+
 type SelectorField struct {
 	Name      SelectorName
 	Type      SelectorType
 	FieldName string
 	FieldType gormschema.DataType
 	Options   SelectorOpt
+	Subquery  *SubquerySelector
 }
 
 // IsJSONBCast returns true if the field's data type is 'jsonb' and the expected type is not Jsonb.

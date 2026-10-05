@@ -198,8 +198,8 @@ func (s *CatalogStore) Count(ctx context.Context, orgId uuid.UUID, listParams st
 	return catalogsCount, nil
 }
 
-func (s *CatalogStore) catalogItemLabelResolver() selector.Resolver {
-	resolver, err := selector.SelectorFieldResolver(&model.CatalogItem{})
+func (s *CatalogStore) catalogItemLabelResolver(orgId uuid.UUID) selector.Resolver {
+	resolver, err := selector.SelectorFieldResolver(&model.CatalogItem{OrgID: orgId})
 	if err != nil {
 		return selector.EmptyResolver{}
 	}
@@ -216,7 +216,7 @@ func (s *CatalogStore) ListAllItems(ctx context.Context, orgId uuid.UUID, listPa
 	query := db.Model(&model.CatalogItem{}).Where("org_id = ?", orgId)
 
 	if listParams.FieldSelector != nil {
-		q, p, err := listParams.FieldSelector.Parse(ctx, s.catalogItemLabelResolver())
+		q, p, err := listParams.FieldSelector.Parse(ctx, s.catalogItemLabelResolver(orgId))
 		if err != nil {
 			return nil, err
 		}
@@ -224,7 +224,7 @@ func (s *CatalogStore) ListAllItems(ctx context.Context, orgId uuid.UUID, listPa
 	}
 
 	if listParams.LabelSelector != nil {
-		q, p, err := listParams.LabelSelector.Parse(ctx, selector.NewHiddenSelectorName("metadata.labels"), s.catalogItemLabelResolver())
+		q, p, err := listParams.LabelSelector.Parse(ctx, selector.NewHiddenSelectorName("metadata.labels"), s.catalogItemLabelResolver(orgId))
 		if err != nil {
 			return nil, err
 		}
@@ -257,11 +257,11 @@ func (s *CatalogStore) ListAllItems(ctx context.Context, orgId uuid.UUID, listPa
 		} else {
 			countQuery := db.Model(&model.CatalogItem{}).Where("org_id = ? AND (catalog_name, app_name) >= (?, ?)", orgId, lastItem.CatalogName, lastItem.AppName)
 			if listParams.FieldSelector != nil {
-				q, p, _ := listParams.FieldSelector.Parse(ctx, s.catalogItemLabelResolver())
+				q, p, _ := listParams.FieldSelector.Parse(ctx, s.catalogItemLabelResolver(orgId))
 				countQuery = countQuery.Where(q, p...)
 			}
 			if listParams.LabelSelector != nil {
-				q, p, _ := listParams.LabelSelector.Parse(ctx, selector.NewHiddenSelectorName("metadata.labels"), s.catalogItemLabelResolver())
+				q, p, _ := listParams.LabelSelector.Parse(ctx, selector.NewHiddenSelectorName("metadata.labels"), s.catalogItemLabelResolver(orgId))
 				countQuery = countQuery.Where(q, p...)
 			}
 			if err := countQuery.Count(&numRemainingVal).Error; err != nil {
@@ -297,7 +297,7 @@ func (s *CatalogStore) ListItems(ctx context.Context, orgId uuid.UUID, catalogNa
 
 	// Apply label selector if provided
 	if listParams.LabelSelector != nil {
-		q, p, err := listParams.LabelSelector.Parse(ctx, selector.NewHiddenSelectorName("metadata.labels"), s.catalogItemLabelResolver())
+		q, p, err := listParams.LabelSelector.Parse(ctx, selector.NewHiddenSelectorName("metadata.labels"), s.catalogItemLabelResolver(orgId))
 		if err != nil {
 			return nil, err
 		}
@@ -334,7 +334,7 @@ func (s *CatalogStore) ListItems(ctx context.Context, orgId uuid.UUID, catalogNa
 			// Count remaining items
 			countQuery := db.Model(&model.CatalogItem{}).Where("org_id = ? AND catalog_name = ? AND app_name >= ?", orgId, catalogName, lastItem.AppName)
 			if listParams.LabelSelector != nil {
-				q, p, _ := listParams.LabelSelector.Parse(ctx, selector.NewHiddenSelectorName("metadata.labels"), s.catalogItemLabelResolver())
+				q, p, _ := listParams.LabelSelector.Parse(ctx, selector.NewHiddenSelectorName("metadata.labels"), s.catalogItemLabelResolver(orgId))
 				countQuery = countQuery.Where(q, p...)
 			}
 			if err := countQuery.Count(&numRemainingVal).Error; err != nil {

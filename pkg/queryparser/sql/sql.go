@@ -176,6 +176,11 @@ func NewSQLParser(options ...SQLParserOption) (queryparser.Parser, error) {
 			Verifications: []verificationHandler{withPrecedingKeyQuery(), withNoValues()},
 			handle:        Wrap(sp.queryIn),
 		},
+		"SUBQUERY_IN": {
+			usedBy:        queryparser.NewSet[string]().Add(queryparser.RootFunc, "AND", "OR"),
+			Verifications: []verificationHandler{withPrecedingKeyQuery(), withNoValues()},
+			handle:        Wrap(sp.querySubqueryIn),
+		},
 		"NOTIN": {
 			usedBy:        queryparser.NewSet[string]().Add(queryparser.RootFunc, "AND", "OR"),
 			Verifications: []verificationHandler{withPrecedingKeyQuery(), withNoValues()},
@@ -239,12 +244,12 @@ func NewSQLParser(options ...SQLParserOption) (queryparser.Parser, error) {
 		},
 		"K": {
 			usedBy: queryparser.NewSet[string]().Add("EQ", "NOTEQ", "LT", "LTE", "GT", "GTE", "IN", "NOTIN", "LIKE",
-				"NOTLIKE", "OVERLAPS", "NOTOVERLAPS", "CONTAINS", "NOTCONTAINS", "JSONB_CONTAINS", "JSONB_NOTCONTAINS", "ISNULL", "ISNOTNULL", "CAST"),
+				"NOTLIKE", "OVERLAPS", "NOTOVERLAPS", "CONTAINS", "NOTCONTAINS", "JSONB_CONTAINS", "JSONB_NOTCONTAINS", "ISNULL", "ISNOTNULL", "CAST", "SUBQUERY_IN"),
 			handle: Wrap(sp.queryKey),
 		},
 		"V": {
 			usedBy: queryparser.NewSet[string]().Add("EQ", "NOTEQ", "LT", "LTE", "GT", "GTE", "IN", "NOTIN", "LIKE",
-				"NOTLIKE", "OVERLAPS", "NOTOVERLAPS", "CONTAINS", "NOTCONTAINS", "JSONB_CONTAINS", "JSONB_NOTCONTAINS", "CAST"),
+				"NOTLIKE", "OVERLAPS", "NOTOVERLAPS", "CONTAINS", "NOTCONTAINS", "JSONB_CONTAINS", "JSONB_NOTCONTAINS", "CAST", "SUBQUERY_IN"),
 			handle: sp.queryValue,
 		},
 	}
@@ -435,6 +440,20 @@ func (sp *SQLParser) queryIn(args ...string) (*FunctionResult, error) {
 	return &FunctionResult{
 		Query: fmt.Sprintf("%s IN (%s)", args[0], strings.Join(args[1:], ", ")),
 	}, nil
+}
+
+func (sp *SQLParser) querySubqueryIn(args ...string) (*FunctionResult, error) {
+	if err := validateArgsCount(args, 2); err != nil {
+		return nil, err
+	}
+	if strings.Count(args[0], "{values}") != 1 {
+		return nil, fmt.Errorf("subquery template must contain exactly one {values} marker")
+	}
+	placeholders := make([]string, len(args)-1)
+	for index := range placeholders {
+		placeholders[index] = args[index+1]
+	}
+	return &FunctionResult{Query: strings.Replace(args[0], "{values}", strings.Join(placeholders, ", "), 1)}, nil
 }
 
 func (sp *SQLParser) queryNotIn(args ...string) (*FunctionResult, error) {

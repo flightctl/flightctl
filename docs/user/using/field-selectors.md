@@ -24,6 +24,7 @@ The following table lists the fields supported for filtering for each resource k
 
 | Kind                            | Fields                                              |
 |---------------------------------|-----------------------------------------------------|
+| **Catalog Item**                | `metadata.name`<br/>`metadata.catalog`<br/>`spec.category`<br/>`spec.type`<br/>`fleet` (only `in`) |
 | **Certificate Signing Request** | `status.certificate`                                |
 | **Device**                      | `status.summary.status`<br/>`status.applicationsSummary.status`<br/>`status.updated.status`<br/>`status.capabilities.osMode`<br/>`lastSeen`<br/>`status.lifecycle.status` |
 | **Enrollment Request**          | `status.approval.approved`<br/>`status.certificate` |
@@ -32,6 +33,8 @@ The following table lists the fields supported for filtering for each resource k
 | **Resource Sync**               | `spec.repository`                                   |
 
 ### Examples
+
+For catalog items, use `fleet in (fleet-a,fleet-b)` on `GET /api/v1/catalogitems` to list items referenced by either fleet. The filter includes OS images, application images, and application volume images. You can specify up to 100 fleet names, each at most 253 characters long.
 
 #### Example 1: Excluding a Specific Device by Name
 
