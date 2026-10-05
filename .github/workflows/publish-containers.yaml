@@ -209,10 +209,12 @@ jobs:
 
       - name: Build
         id: build
-        uses: redhat-actions/buildah-build@v2
+        uses: redhat-actions/buildah-build@v3
         with:
           image: flightctl-${{ matrix.image }}-${{ matrix.os }}
           tags: _build
+          # v3 defaults squash to true; keep intermediate layers.
+          squash: false
           labels: |
             io.flightctl.flightctl-${{ matrix.image }}-${{ matrix.os }}.github.repository=${{ github.repository }}
             io.flightctl.flightctl-${{ matrix.image }}-${{ matrix.os }}.github.actor=${{ github.actor }}
