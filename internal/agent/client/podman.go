@@ -293,6 +293,38 @@ func (p *Podman) ImageDigest(ctx context.Context, image string) (string, error) 
 	return digest, nil
 }
 
+// ImageDigests returns the content digest and repository digests of the specified image.
+// Repo digests are needed to compare local images with a registry's manifest digest.
+func (p *Podman) ImageDigests(ctx context.Context, image string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	args := []string{"image", "inspect", "--format", "{{json .}}", image}
+	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
+	if exitCode != 0 {
+		return nil, fmt.Errorf("get image digests: %s: %w", image, deviceerrors.FromStderr(stderr, exitCode))
+	}
+
+	var inspectResult struct {
+		Digest      string   `json:"Digest"`
+		RepoDigests []string `json:"RepoDigests"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &inspectResult); err != nil {
+		return nil, fmt.Errorf("parse image digests for %s: %w", image, err)
+	}
+
+	digests := make([]string, 0, len(inspectResult.RepoDigests)+1)
+	if digest := strings.TrimSpace(inspectResult.Digest); digest != "" {
+		digests = append(digests, digest)
+	}
+	for _, digest := range inspectResult.RepoDigests {
+		if digest = strings.TrimSpace(digest); digest != "" {
+			digests = append(digests, digest)
+		}
+	}
+	return digests, nil
+}
+
 // ArtifactExists returns true if the artifact exists in storage otherwise false.
 func (p *Podman) ArtifactExists(ctx context.Context, artifact string) bool {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
