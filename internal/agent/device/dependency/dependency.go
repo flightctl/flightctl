@@ -860,13 +860,6 @@ func (m *prefetchManager) processTarget(ctx context.Context, target imageRef) {
 
 func (m *prefetchManager) pull(ctx context.Context, target imageRef, task *prefetchTask) error {
 	ociType := task.ociType
-	if task.targetPresent && task.delta != nil && !hasApplicationDeltaContext(task.delta) {
-		// No delta image or source digest was supplied, so this target has no
-		// delta state to verify. Keep the outcome at NotUsed instead of claiming
-		// that a delta was unnecessary based on an unrelated cached reference.
-		m.recordDeltaNotUsed(target, task)
-		return nil
-	}
 
 	// Evaluate client options lazily at pull time
 	opts := []client.ClientOption{client.Timeout(m.pullTimeout)}
@@ -894,8 +887,11 @@ func (m *prefetchManager) preparePullClients(
 	var skopeo *client.Skopeo
 	var err error
 	needsPodman := ociType == OCITypePodmanImage || ociType == OCITypePodmanArtifact || ociType == OCITypeAuto
+	// A cached application image also needs its remote digest checked when no
+	// delta hint was generated, so a verified cache hit can report NotRequired.
 	needsSkopeo := ociType == OCITypeAuto ||
-		((ociType == OCITypePodmanImage || ociType == OCITypeCRIImage) && hasApplicationDeltaContext(task.delta))
+		((ociType == OCITypePodmanImage || ociType == OCITypeCRIImage) &&
+			(hasApplicationDeltaContext(task.delta) || task.targetPresent))
 	if task.targetPresent {
 		if needsPodman {
 			podman, err = m.podmanFactory(target.owner)

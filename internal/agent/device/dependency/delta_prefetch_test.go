@@ -219,13 +219,16 @@ func TestCachedApplicationImageReportsNotRequiredWhenDigestMatches(t *testing.T)
 		application = "app"
 		image       = "quay.io/acme/app:v2"
 		digest      = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		staleDigest = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	)
 
 	tests := []struct {
 		name            string
 		deltaHint       string
 		sourceDigest    string
+		targetDigest    string
 		previousOutcome v1beta1.DeviceDeltaApplyOutcomeType
+		wantFullPull    bool
 		wantOutcome     v1beta1.DeviceDeltaApplyOutcomeType
 	}{
 		{
@@ -239,8 +242,19 @@ func TestCachedApplicationImageReportsNotRequiredWhenDigestMatches(t *testing.T)
 			wantOutcome: v1beta1.DeviceDeltaApplyOutcomeNotRequired,
 		},
 		{
-			name:        "When a cached image matches without delta metadata it should report NotUsed",
-			wantOutcome: v1beta1.DeviceDeltaApplyOutcomeNotUsed,
+			name:        "When a cached image matches without delta metadata it should report NotRequired",
+			wantOutcome: v1beta1.DeviceDeltaApplyOutcomeNotRequired,
+		},
+		{
+			name:            "When a cached image matches without delta metadata it should upgrade NotUsed to NotRequired",
+			previousOutcome: v1beta1.DeviceDeltaApplyOutcomeNotUsed,
+			wantOutcome:     v1beta1.DeviceDeltaApplyOutcomeNotRequired,
+		},
+		{
+			name:         "When a cached image does not match the desired digest without delta metadata it should full-pull and report NotUsed",
+			targetDigest: staleDigest,
+			wantFullPull: true,
+			wantOutcome:  v1beta1.DeviceDeltaApplyOutcomeNotUsed,
 		},
 		{
 			name:            "When a cached image matches after delta application it should preserve Applied",
@@ -254,13 +268,22 @@ func TestCachedApplicationImageReportsNotRequiredWhenDigestMatches(t *testing.T)
 		t.Run(tt.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			exec := executer.NewMockExecuter(ctrl)
-			if tt.deltaHint != "" || tt.sourceDigest != "" {
-				localDigest := exec.EXPECT().ExecuteWithContext(
-					gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", image,
-				).Return(digest, "", 0)
-				requestedDigest := exec.EXPECT().ExecuteWithContext(
-					gomock.Any(), "skopeo", "inspect", "--format", "{{.Digest}}", "docker://"+image,
-				).Return(digest, "", 0)
+			requestedDigestValue := tt.targetDigest
+			if requestedDigestValue == "" {
+				requestedDigestValue = digest
+			}
+			localDigest := exec.EXPECT().ExecuteWithContext(
+				gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", image,
+			).Return(digest, "", 0)
+			requestedDigest := exec.EXPECT().ExecuteWithContext(
+				gomock.Any(), "skopeo", "inspect", "--format", "{{.Digest}}", "docker://"+image,
+			).Return(requestedDigestValue, "", 0)
+			if tt.wantFullPull {
+				fullPull := exec.EXPECT().ExecuteWithContext(
+					gomock.Any(), "podman", "pull", image,
+				).Return("", "", 0)
+				gomock.InOrder(localDigest, requestedDigest, fullPull)
+			} else {
 				gomock.InOrder(localDigest, requestedDigest)
 			}
 
@@ -274,10 +297,10 @@ func TestCachedApplicationImageReportsNotRequiredWhenDigestMatches(t *testing.T)
 			skopeo := client.NewSkopeo(logger, exec, rw)
 			target := imageRef{image: image}
 			targetID := deltastatus.Fingerprint(string(target.owner), target.image)
-			targetKey := applicationImageTargetKeyFor(target, digest, OCITypePodmanImage)
+			targetKey := applicationImageTargetKeyFor(target, requestedDigestValue, OCITypePodmanImage)
 			task := &prefetchTask{
 				ociType:              OCITypePodmanImage,
-				targetDigest:         digest,
+				targetDigest:         requestedDigestValue,
 				applicationTargetKey: targetKey,
 				targetPresent:        true,
 				delta:                &OCIDeltaTarget{Hint: tt.deltaHint, SourceDigest: tt.sourceDigest, Application: application},
