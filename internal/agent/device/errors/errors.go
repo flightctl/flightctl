@@ -10,6 +10,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/flightctl/flightctl/internal/api/common"
 	"github.com/flightctl/flightctl/pkg/poll"
 	"google.golang.org/grpc/codes"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -54,11 +55,11 @@ var (
 	ErrKubeconfigNotFound     = errors.New("kubeconfig not found")
 
 	// compose
-	ErrNoComposeFile     = errors.New("no valid compose file found")
-	ErrNoComposeServices = errors.New("no services found in compose spec")
+	ErrNoComposeFile     = common.ErrNoComposeFile
+	ErrNoComposeServices = common.ErrNoComposeServices
 
 	// quadlet
-	ErrNoQuadletFile     = errors.New("no quadlet file found")
+	ErrNoQuadletFile     = common.ErrNoQuadletFile
 	ErrNoQuadletWorkload = errors.New("no quadlet workloads found")
 
 	// application status

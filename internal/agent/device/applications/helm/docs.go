@@ -1,4 +1,4 @@
-// Package helm provides utilities for working with Helm charts and rendered manifests.
-// It includes functions for extracting container images from Kubernetes manifests
-// and injecting labels into resources for release tracking.
+// Package helm provides agent-side label injection into rendered Kubernetes
+// manifests for release tracking. Shared chart utilities and container image
+// extraction are provided by internal/chartutil.
 package helm

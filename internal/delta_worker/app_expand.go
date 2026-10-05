@@ -7,8 +7,8 @@ import (
 
 	"github.com/containers/image/v5/docker/reference"
 	"github.com/flightctl/flightctl/api/core/v1beta1"
-	"github.com/flightctl/flightctl/internal/agent/client"
-	apphelm "github.com/flightctl/flightctl/internal/agent/device/applications/helm"
+	"github.com/flightctl/flightctl/internal/appspec"
+	"github.com/flightctl/flightctl/internal/chartutil"
 	preparetask "github.com/flightctl/flightctl/internal/delta_worker/tasks/prepare"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/oci"
@@ -190,7 +190,7 @@ func reportedHelmImageRefs(device *domain.Device, app *domain.ApplicationProvide
 		if err != nil {
 			return nil
 		}
-		name, err = apphelm.SanitizeReleaseName(imageSpec.Image)
+		name, err = chartutil.SanitizeReleaseName(imageSpec.Image)
 		if err != nil {
 			return nil
 		}
@@ -520,7 +520,7 @@ func extractVolumeImageRefs(app *domain.ApplicationProviderSpec) []string {
 // parseComposeServiceImages parses compose YAML content and returns all service
 // image references.
 func parseComposeServiceImages(contents []v1beta1.ApplicationContent) []string {
-	spec, err := client.ParseComposeFromSpec(contents)
+	spec, err := appspec.ParseComposeFromSpec(contents)
 	if err != nil || spec == nil {
 		return nil
 	}
@@ -536,7 +536,7 @@ func parseComposeServiceImages(contents []v1beta1.ApplicationContent) []string {
 // parseQuadletImageRefs returns external images referenced by inline Quadlet
 // units and any Pod YAML referenced by .kube units.
 func parseQuadletImageRefs(contents []v1beta1.ApplicationContent) []string {
-	images, err := client.ParseQuadletImageReferencesFromSpec(contents)
+	images, err := appspec.ParseQuadletImageReferencesFromSpec(contents)
 	if err != nil {
 		return nil
 	}

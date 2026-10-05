@@ -11,8 +11,8 @@ import (
 
 	"github.com/containers/image/v5/docker/reference"
 	"github.com/flightctl/flightctl/api/core/v1beta1"
-	agentclient "github.com/flightctl/flightctl/internal/agent/client"
-	apphelm "github.com/flightctl/flightctl/internal/agent/device/applications/helm"
+	"github.com/flightctl/flightctl/internal/appspec"
+	"github.com/flightctl/flightctl/internal/chartutil"
 	"github.com/flightctl/flightctl/internal/config"
 	deltamodel "github.com/flightctl/flightctl/internal/delta_worker/model"
 	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
@@ -702,7 +702,7 @@ func newAppImagePair(imageRef string, currentDigests map[string]string) *appImag
 }
 
 func collectComposeInlinePairs(contents []v1beta1.ApplicationContent, currentDigests map[string]string) []appImagePair {
-	composeSpec, err := agentclient.ParseComposeFromSpec(contents)
+	composeSpec, err := appspec.ParseComposeFromSpec(contents)
 	if err != nil || composeSpec == nil {
 		return nil
 	}
@@ -714,7 +714,7 @@ func collectComposeInlinePairs(contents []v1beta1.ApplicationContent, currentDig
 }
 
 func collectQuadletInlinePairs(contents []v1beta1.ApplicationContent, currentDigests map[string]string) []appImagePair {
-	imageRefs, err := agentclient.ParseQuadletImageReferencesFromSpec(contents)
+	imageRefs, err := appspec.ParseQuadletImageReferencesFromSpec(contents)
 	if err != nil {
 		return nil
 	}
@@ -1116,7 +1116,7 @@ func appNameFromProvider(app *domain.ApplicationProviderSpec) string {
 		if err != nil {
 			return ""
 		}
-		name, err := apphelm.SanitizeReleaseName(imageSpec.Image)
+		name, err := chartutil.SanitizeReleaseName(imageSpec.Image)
 		if err != nil {
 			return ""
 		}
