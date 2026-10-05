@@ -12,7 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/store/model"
-	"github.com/go-git/go-git/v5/plumbing/transport"
+	"github.com/go-git/go-git/v5"
 	"github.com/google/uuid"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
@@ -79,7 +79,7 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 			events = append(events, emittedEvent{kind: event.InvolvedObject.Kind, name: event.InvolvedObject.Name})
 		})
 
-		lsRemote := func(_ context.Context, _ string, refs []string, _ transport.AuthMethod) (map[string]string, error) {
+		lsRemote := func(_ context.Context, _ string, refs []string, _ *git.ListOptions) (map[string]string, error) {
 			return map[string]string{"main": "newsha123456789"}, nil
 		}
 
@@ -112,7 +112,7 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 				return statusOK
 			})
 
-		lsRemote := func(_ context.Context, _ string, _ []string, _ transport.AuthMethod) (map[string]string, error) {
+		lsRemote := func(_ context.Context, _ string, _ []string, _ *git.ListOptions) (map[string]string, error) {
 			return map[string]string{"main": "samesha123"}, nil
 		}
 
@@ -149,7 +149,7 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 			},
 		)
 
-		lsRemote := func(_ context.Context, _ string, _ []string, _ transport.AuthMethod) (map[string]string, error) {
+		lsRemote := func(_ context.Context, _ string, _ []string, _ *git.ListOptions) (map[string]string, error) {
 			return nil, fmt.Errorf("connection refused")
 		}
 
@@ -169,7 +169,7 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 
 		d := &DependencySyncGit{
 			log: logrus.New(), serviceHandler: mockService,
-			cfg: &config.Config{}, lsRemote: func(_ context.Context, _ string, _ []string, _ transport.AuthMethod) (map[string]string, error) {
+			cfg: &config.Config{}, lsRemote: func(_ context.Context, _ string, _ []string, _ *git.ListOptions) (map[string]string, error) {
 				t.Fatal("ls-remote should not be called with empty work list")
 				return nil, nil
 			}, maxConcurrent: 10,
@@ -195,7 +195,7 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 			events = append(events, emittedEvent{kind: event.InvolvedObject.Kind, name: event.InvolvedObject.Name})
 		})
 
-		lsRemote := func(_ context.Context, _ string, _ []string, _ transport.AuthMethod) (map[string]string, error) {
+		lsRemote := func(_ context.Context, _ string, _ []string, _ *git.ListOptions) (map[string]string, error) {
 			return map[string]string{"main": "newsha456"}, nil
 		}
 
@@ -225,7 +225,7 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 			events = append(events, emittedEvent{kind: event.InvolvedObject.Kind, name: event.InvolvedObject.Name})
 		})
 
-		lsRemote := func(_ context.Context, _ string, _ []string, _ transport.AuthMethod) (map[string]string, error) {
+		lsRemote := func(_ context.Context, _ string, _ []string, _ *git.ListOptions) (map[string]string, error) {
 			return map[string]string{"main": "devicenewsha"}, nil
 		}
 
@@ -258,7 +258,7 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 				return statusOK
 			})
 
-		lsRemote := func(_ context.Context, _ string, _ []string, _ transport.AuthMethod) (map[string]string, error) {
+		lsRemote := func(_ context.Context, _ string, _ []string, _ *git.ListOptions) (map[string]string, error) {
 			return map[string]string{"main": "initialsha123"}, nil
 		}
 
@@ -282,7 +282,7 @@ func TestDependencySyncGit_Poll(t *testing.T) {
 		mockService.EXPECT().ListDueGitDependencies(gomock.Any(), orgId, pollInterval).Return(probes, statusOK)
 
 		lsRemoteCalls := 0
-		lsRemote := func(_ context.Context, _ string, refs []string, _ transport.AuthMethod) (map[string]string, error) {
+		lsRemote := func(_ context.Context, _ string, refs []string, _ *git.ListOptions) (map[string]string, error) {
 			lsRemoteCalls++
 			assert.Len(t, refs, 2)
 			return map[string]string{

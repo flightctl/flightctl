@@ -20,8 +20,8 @@ func TestPublishSubscribe(t *testing.T) {
 		t.Skipf("Redis not available: %v", err)
 		return
 	}
-	defer provider.Stop()
 	defer provider.Wait()
+	defer provider.Stop()
 
 	channelName := "test-broadcast-channel"
 	testMessage := []byte("Hello, subscribers!")
@@ -163,8 +163,8 @@ func TestBroadcastSubscribeClosedChannel(t *testing.T) {
 		t.Skipf("Redis not available: %v", err)
 		return
 	}
-	defer provider.Stop()
 	defer provider.Wait()
+	defer provider.Stop()
 
 	broadcaster, err := provider.NewPubSubPublisher(context.Background(), "test-closed-channel")
 	require.NoError(t, err)
@@ -193,8 +193,8 @@ func TestMultipleSubscriptionsFromSameSubscriber(t *testing.T) {
 		t.Skipf("Redis not available: %v", err)
 		return
 	}
-	defer provider.Stop()
 	defer provider.Wait()
+	defer provider.Stop()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()

@@ -13,13 +13,13 @@ import (
 	"github.com/flightctl/flightctl/internal/service"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/store/model"
-	"github.com/go-git/go-git/v5/plumbing/transport"
+	"github.com/go-git/go-git/v5"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 )
 
 type gitLsRemoteFunc func(ctx context.Context, repoURL string, refs []string,
-	auth transport.AuthMethod) (map[string]string, error)
+	options *git.ListOptions) (map[string]string, error)
 
 type DependencySyncGit struct {
 	log            logrus.FieldLogger
@@ -107,7 +107,7 @@ func (d *DependencySyncGit) Poll(ctx context.Context, orgId uuid.UUID) {
 }
 
 // probeRepo uses the repository spec carried by the probes (from the SQL JOIN)
-// to extract the URL and auth, calls ls-remote for all revisions in the group,
+// to extract the URL and connection options, calls ls-remote for all revisions in the group,
 // and returns a probeResult per revision.
 func (d *DependencySyncGit) probeRepo(ctx context.Context,
 	repoName string, group []*model.GitDependencyProbe) []probeResult {
@@ -125,9 +125,9 @@ func (d *DependencySyncGit) probeRepo(ctx context.Context,
 	}
 
 	repo := &domain.Repository{Spec: spec}
-	auth, err := GetAuth(repo, d.cfg)
+	options, err := getGitOptions(repo, d.cfg)
 	if err != nil {
-		d.log.WithError(err).Warnf("failed getting auth for repository %s", repoName)
+		d.log.WithError(err).Warnf("failed getting Git options for repository %s", repoName)
 		return nil
 	}
 
@@ -136,7 +136,7 @@ func (d *DependencySyncGit) probeRepo(ctx context.Context,
 		revisions[i] = p.Revision
 	}
 
-	resolved, err := d.lsRemote(ctx, repoURL, revisions, auth)
+	resolved, err := d.lsRemote(ctx, repoURL, revisions, options)
 	if err != nil {
 		d.log.WithError(err).Warnf("git ls-remote failed for %s", repoName)
 		if d.metrics != nil {
