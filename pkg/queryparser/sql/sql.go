@@ -23,6 +23,11 @@ type handler struct {
 	usedBy        *queryparser.Set[string]
 	Verifications []verificationHandler
 	handle        FunctionHandler
+	// passRawResults makes the dispatcher forward the *FunctionResult produced by
+	// each nested function verbatim instead of flattening it into a query string
+	// plus hoisted arguments. Handlers that need to interleave their children's
+	// arguments with their own (for example, template expansion) must set this.
+	passRawResults bool
 }
 
 type SQLParser struct {
@@ -180,6 +185,9 @@ func NewSQLParser(options ...SQLParserOption) (queryparser.Parser, error) {
 			usedBy:        queryparser.NewSet[string]().Add(queryparser.RootFunc, "AND", "OR"),
 			Verifications: []verificationHandler{withPrecedingKeyQuery(), withNoValues()},
 			handle:        sp.querySubqueryIn,
+			// The handler expands a template and must bind each child's arguments at
+			// the position its placeholder occupies, so it needs the raw results.
+			passRawResults: true,
 		},
 		"NOTIN": {
 			usedBy:        queryparser.NewSet[string]().Add(queryparser.RootFunc, "AND", "OR"),
@@ -237,8 +245,11 @@ func NewSQLParser(options ...SQLParserOption) (queryparser.Parser, error) {
 			handle:        Wrap(sp.queryNotOverlaps),
 		},
 		"CAST": {
+			// SUBQUERY_IN is intentionally absent: a subquery template is a complete
+			// boolean predicate, so wrapping it in CAST(... AS <type>) would emit
+			// malformed SQL. Selector validation rejects the combination up front.
 			usedBy: queryparser.NewSet[string]().Add("EQ", "NOTEQ", "LT", "LTE", "GT", "GTE", "IN", "NOTIN", "LIKE",
-				"NOTLIKE", "OVERLAPS", "NOTOVERLAPS", "CONTAINS", "NOTCONTAINS", "JSONB_CONTAINS", "JSONB_NOTCONTAINS", "ISNULL", "ISNOTNULL", "SUBQUERY_IN"),
+				"NOTLIKE", "OVERLAPS", "NOTOVERLAPS", "CONTAINS", "NOTCONTAINS", "JSONB_CONTAINS", "JSONB_NOTCONTAINS", "ISNULL", "ISNOTNULL"),
 			Verifications: []verificationHandler{withPrecedingKeyOrValueQuery()},
 			handle:        sp.queryCast,
 		},
@@ -329,7 +340,7 @@ func (p *parser) dispatcher(qf *queryparser.QueryFunc) error {
 			funcArgs = append(funcArgs, arg.(*queryparser.QueryArgValue).Value())
 		} else {
 			qfRet := arg.(*queryparser.QueryArgFunc).Value().Result().(*FunctionResult)
-			if fn == "SUBQUERY_IN" {
+			if sqlf.passRawResults {
 				funcArgs = append(funcArgs, qfRet)
 				continue
 			}
@@ -463,6 +474,15 @@ func (sp *SQLParser) querySubqueryIn(args ...any) (*FunctionResult, error) {
 	if strings.Count(field.Query, "{values}") != 1 {
 		return nil, fmt.Errorf("subquery template must contain exactly one {values} marker")
 	}
+	// Templates must not contain a literal '?'. Every '?' emitted below is a bound
+	// placeholder generated from a {name} marker, so an author-supplied '?' would
+	// silently shift the argument ordering.
+	//
+	// This also blocks the PostgreSQL JSONB existence operators '?', '?|' and '?&',
+	// which is intentional: the database driver cannot tell them apart from a
+	// positional placeholder. Templates that need them must use the function
+	// equivalents instead - jsonb_exists(), jsonb_exists_any() and
+	// jsonb_exists_all().
 	if strings.Contains(field.Query, "?") {
 		return nil, fmt.Errorf("subquery template must use named parameters instead of positional placeholders")
 	}

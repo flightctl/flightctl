@@ -273,16 +273,30 @@ func (fs *FieldSelector) Tokenize(ctx context.Context, input any) (queryparser.T
 					fmt.Errorf("failed to parse selector %q: %w", key, err))
 			}
 			if subquery := resolvedField.Subquery; subquery != nil {
+				// A subquery template is a complete boolean predicate, while a JSONB cast
+				// wraps the field expression in CAST(... AS <type>). Combining them would
+				// emit malformed SQL such as CAST(x IN (SELECT ...) AS integer), so reject
+				// the combination explicitly rather than letting it reach the SQL parser.
+				if resolvedField.IsJSONBCast() {
+					return nil, NewSelectorError(flterrors.ErrFieldSelectorParseFailed,
+						fmt.Errorf("subquery selectors cannot be combined with JSONB cast for selector %q", key))
+				}
 				if operator != selection.In {
 					return nil, NewSelectorError(flterrors.ErrFieldSelectorParseFailed,
 						fmt.Errorf("operator %q is unsupported for subquery selector %q", operator, key))
 				}
+				// Both limits are fail-closed: a subquery selector must declare a positive
+				// MaxValues and MaxValueLength, otherwise it is rejected at parse time.
 				if subquery.MaxValues <= 0 || len(values) == 0 || len(values) > subquery.MaxValues {
 					return nil, NewSelectorError(flterrors.ErrFieldSelectorParseFailed,
 						fmt.Errorf("invalid number of values for selector %q", key))
 				}
+				if subquery.MaxValueLength <= 0 {
+					return nil, NewSelectorError(flterrors.ErrFieldSelectorParseFailed,
+						fmt.Errorf("subquery selector %q must define a positive maximum value length", key))
+				}
 				for _, val := range values {
-					if subquery.MaxValueLength > 0 && len(val.String()) > subquery.MaxValueLength {
+					if len(val.String()) > subquery.MaxValueLength {
 						return nil, NewSelectorError(flterrors.ErrFieldSelectorParseFailed,
 							fmt.Errorf("value for selector %q exceeds %d characters", key, subquery.MaxValueLength))
 					}

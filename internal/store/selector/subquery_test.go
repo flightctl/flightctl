@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	gormschema "gorm.io/gorm/schema"
 )
 
 type subqueryTestResolver struct {
@@ -67,9 +68,10 @@ func TestSubqueryNamedParameters(t *testing.T) {
 			resolver := subqueryTestResolver{field: &SelectorField{
 				Type: String,
 				Subquery: &SubquerySelector{
-					Template:  testCase.template,
-					Args:      map[string]any{"owner_id": 7, "tenant_id": 42},
-					MaxValues: 2,
+					Template:       testCase.template,
+					Args:           map[string]any{"owner_id": 7, "tenant_id": 42},
+					MaxValues:      2,
+					MaxValueLength: 10,
 				},
 			}}
 			fieldSelector, err := NewFieldSelector("other in (one,two)")
@@ -100,8 +102,9 @@ func TestSubqueryMaxValues(t *testing.T) {
 			resolver := subqueryTestResolver{field: &SelectorField{
 				Type: String,
 				Subquery: &SubquerySelector{
-					Template:  "item_id IN (SELECT id FROM other_items WHERE name IN ({values}))",
-					MaxValues: testCase.maxValues,
+					Template:       "item_id IN (SELECT id FROM other_items WHERE name IN ({values}))",
+					MaxValues:      testCase.maxValues,
+					MaxValueLength: 10,
 				},
 			}}
 			fieldSelector, err := NewFieldSelector("other in (one)")
@@ -109,6 +112,100 @@ func TestSubqueryMaxValues(t *testing.T) {
 			_, _, err = fieldSelector.Parse(context.Background(), resolver)
 			if testCase.wantErr {
 				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestSubqueryMaxValueLength(t *testing.T) {
+	for _, testCase := range []struct {
+		name           string
+		maxValueLength int
+		wantErr        bool
+	}{
+		{name: "When MaxValueLength is zero it should reject the selector", maxValueLength: 0, wantErr: true},
+		{name: "When MaxValueLength is negative it should reject the selector", maxValueLength: -1, wantErr: true},
+		{name: "When MaxValueLength is shorter than the value it should reject the selector", maxValueLength: 2, wantErr: true},
+		{name: "When MaxValueLength fits the value it should accept the selector", maxValueLength: 3},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			resolver := subqueryTestResolver{field: &SelectorField{
+				Type: String,
+				Subquery: &SubquerySelector{
+					Template:       "item_id IN (SELECT id FROM other_items WHERE name IN ({values}))",
+					MaxValues:      2,
+					MaxValueLength: testCase.maxValueLength,
+				},
+			}}
+			fieldSelector, err := NewFieldSelector("other in (one)")
+			require.NoError(t, err)
+			_, _, err = fieldSelector.Parse(context.Background(), resolver)
+			if testCase.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+func TestSubqueryRejectsJSONBCast(t *testing.T) {
+	// A subquery template is a complete boolean predicate; a JSONB cast would wrap
+	// it in CAST(... AS <type>) and emit malformed SQL. The combination must be
+	// rejected up front rather than silently producing a broken query.
+	for _, testCase := range []struct {
+		name         string
+		fieldType    gormschema.DataType
+		selectorType SelectorType
+		selector     string
+		wantErr      bool
+	}{
+		{
+			// Type != String is the case that would otherwise reach CAST(... AS <type>).
+			name:         "When a JSONB cast would wrap the subquery it should reject the selector",
+			fieldType:    "jsonb",
+			selectorType: Int,
+			selector:     "other in (1)",
+			wantErr:      true,
+		},
+		{
+			name:         "When the field is a JSONB cast to string it should reject the selector",
+			fieldType:    "jsonb",
+			selectorType: String,
+			selector:     "other in (one)",
+			wantErr:      true,
+		},
+		{
+			name:         "When the field is JSONB without a cast it should accept the selector",
+			fieldType:    "jsonb",
+			selectorType: Jsonb,
+			selector:     `other in ("one")`,
+		},
+		{
+			name:         "When the field is not JSONB it should accept the selector",
+			fieldType:    "text",
+			selectorType: String,
+			selector:     "other in (one)",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			resolver := subqueryTestResolver{field: &SelectorField{
+				Type:      testCase.selectorType,
+				FieldType: testCase.fieldType,
+				Subquery: &SubquerySelector{
+					Template:       "item_id IN (SELECT id FROM other_items WHERE name IN ({values}))",
+					MaxValues:      2,
+					MaxValueLength: 10,
+				},
+			}}
+			fieldSelector, err := NewFieldSelector(testCase.selector)
+			require.NoError(t, err)
+			_, _, err = fieldSelector.Parse(context.Background(), resolver)
+			if testCase.wantErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), "subquery selectors cannot be combined with JSONB cast")
 				return
 			}
 			require.NoError(t, err)

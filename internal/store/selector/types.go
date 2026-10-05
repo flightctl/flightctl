@@ -187,6 +187,11 @@ type SelectorOpt = map[string]struct{}
 // SubquerySelector uses the selected values in a non-correlated SQL subquery.
 // Template contains a single {values} marker, replaced with bound placeholders.
 // Args contains named parameters referenced by {name} markers in Template.
+//
+// MaxValues and MaxValueLength are fail-closed limits: both must be positive or
+// the selector is rejected at parse time. A subquery selector also cannot be
+// combined with a JSONB cast, because the cast would wrap the template's boolean
+// predicate in CAST(... AS <type>).
 type SubquerySelector struct {
 	Template       string
 	Args           map[string]any
