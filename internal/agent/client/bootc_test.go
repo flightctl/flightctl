@@ -29,18 +29,57 @@ func TestBootcSwitchUsesContainersStorage(t *testing.T) {
 	require.NoError(t, bootc.Switch(context.Background(), image))
 }
 
-func TestBootcSwitchOCIUsesOCITransportWithoutDownloadOnly(t *testing.T) {
+func TestBootcSwitchOCIUsesDownloadOnlyWhenSupported(t *testing.T) {
 	const layoutDir = "/var/tmp/os-delta/image"
-	ctrl := gomock.NewController(t)
-	mockExecuter := executer.NewMockExecuter(ctrl)
-	mockExecuter.EXPECT().ExecuteWithContext(
-		gomock.Any(),
-		BootcCmd,
-		"switch", "--transport", "oci", "--retain", layoutDir,
-	).Return("", "", 0)
+	testCases := []struct {
+		name               string
+		helpOutput         string
+		helpError          string
+		helpExitCode       int
+		expectedSwitchArgs []any
+	}{
+		{
+			name:         "When Bootc supports download-only it should use the flag for the OCI switch",
+			helpOutput:   "Usage: bootc switch [OPTIONS]...\n      --download-only",
+			helpExitCode: 0,
+			expectedSwitchArgs: []any{
+				"switch", "--transport", "oci", "--retain", "--download-only", layoutDir,
+			},
+		},
+		{
+			name:         "When Bootc does not support download-only it should omit the flag",
+			helpOutput:   "Usage: bootc switch [OPTIONS]...\n      --retain",
+			helpExitCode: 0,
+			expectedSwitchArgs: []any{
+				"switch", "--transport", "oci", "--retain", layoutDir,
+			},
+		},
+		{
+			name:         "When Bootc help fails it should omit the flag",
+			helpError:    "unsupported help option",
+			helpExitCode: 1,
+			expectedSwitchArgs: []any{
+				"switch", "--transport", "oci", "--retain", layoutDir,
+			},
+		},
+	}
 
-	bootc := NewBootc(log.NewPrefixLogger("test"), mockExecuter)
-	require.NoError(t, bootc.SwitchOCI(context.Background(), layoutDir))
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			mockExecuter := executer.NewMockExecuter(ctrl)
+			helpCall := mockExecuter.EXPECT().ExecuteWithContext(
+				gomock.Any(), BootcCmd, "switch", "--help",
+			).Return(tc.helpOutput, tc.helpError, tc.helpExitCode)
+			switchCall := mockExecuter.EXPECT().ExecuteWithContext(
+				gomock.Any(), BootcCmd, tc.expectedSwitchArgs...,
+			).Return("", "", 0)
+			gomock.InOrder(helpCall, switchCall)
+
+			bootc := NewBootc(log.NewPrefixLogger("test"), mockExecuter)
+			require.NoError(t, bootc.SwitchOCI(context.Background(), layoutDir))
+		})
+	}
 }
 
 func TestBootcSwitchRegistryUsesCanonicalRegistryReference(t *testing.T) {

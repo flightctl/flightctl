@@ -58,16 +58,16 @@ func (b *bootc) Switch(ctx context.Context, image string) error {
 	if err != nil {
 		return err
 	}
-	return b.runSwitch(ctx, "containers-storage", target, true)
+	return b.runSwitch(ctx, "containers-storage", target, true, false)
 }
 
-// SwitchOCI imports an OCI layout into bootc's OSTree repository and stages it for the next boot.
-// Call SwitchRegistry after this to make the registry reference the deployment origin.
+// SwitchOCI imports an OCI layout into bootc's OSTree repository, avoiding staging when supported.
+// Call SwitchRegistry after this to stage the image under its canonical registry reference.
 func (b *bootc) SwitchOCI(ctx context.Context, layoutDir string) error {
 	if layoutDir == "" {
 		return fmt.Errorf("empty OCI layout path")
 	}
-	return b.runSwitch(ctx, "oci", layoutDir, true)
+	return b.runSwitch(ctx, "oci", layoutDir, true, b.supportsDownloadOnlySwitch(ctx))
 }
 
 // SwitchRegistry stages the registry image so bootc records the canonical image reference.
@@ -79,15 +79,24 @@ func (b *bootc) SwitchRegistry(ctx context.Context, image string) error {
 	if err != nil {
 		return fmt.Errorf("convert registry image target: %w", err)
 	}
-	return b.runSwitch(ctx, "registry", target, true)
+	return b.runSwitch(ctx, "registry", target, true, false)
 }
 
-func (b *bootc) runSwitch(ctx context.Context, transport, target string, retain bool) error {
+func (b *bootc) supportsDownloadOnlySwitch(ctx context.Context) bool {
+	// Inspect the CLI so downstream builds use the option only when they support it.
+	stdout, stderr, exitCode := b.executer.ExecuteWithContext(ctx, BootcCmd, "switch", "--help")
+	return exitCode == 0 && strings.Contains(stdout+stderr, "--download-only")
+}
+
+func (b *bootc) runSwitch(ctx context.Context, transport, target string, retain, downloadOnly bool) error {
 	done := make(chan error, 1)
 	go func() {
 		args := []string{"switch", "--transport", transport}
 		if retain {
 			args = append(args, "--retain")
+		}
+		if downloadOnly {
+			args = append(args, "--download-only")
 		}
 		args = append(args, target)
 		stdout, stderr, exitCode := b.executer.ExecuteWithContext(ctx, BootcCmd, args...)
