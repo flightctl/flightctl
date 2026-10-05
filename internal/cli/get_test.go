@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,8 @@ import (
 	apiclient "github.com/flightctl/flightctl/internal/api/client"
 	"github.com/flightctl/flightctl/internal/cli/display"
 	"github.com/flightctl/flightctl/internal/client"
+	"github.com/spf13/cobra"
+	"github.com/stretchr/testify/require"
 )
 
 // fakeHTTPClient is a minimal HTTP client stub that returns the supplied
@@ -622,4 +625,100 @@ func TestGetOptionsValidation(t *testing.T) {
 // Helper function to check if a string contains a substring
 func contains(s, substr string) bool {
 	return strings.Contains(s, substr)
+}
+
+func TestGetCatalogItemsFleets(t *testing.T) {
+	tests := []struct {
+		name          string
+		flags         []string
+		expectedQuery map[string]string
+	}{
+		{
+			name: "When fleets are omitted it should list all catalog items",
+		},
+		{
+			name:          "When one fleet is provided it should filter by that fleet",
+			flags:         []string{"--fleets", "fleet-a"},
+			expectedQuery: map[string]string{"fleets": "fleet-a"},
+		},
+		{
+			name:          "When comma-separated fleets are provided it should filter by all fleet names",
+			flags:         []string{"--fleets", "fleet-a,fleet-b,fleet-n"},
+			expectedQuery: map[string]string{"fleets": "fleet-a,fleet-b,fleet-n"},
+		},
+		{
+			name:          "When fleets flags are repeated it should combine fleet names",
+			flags:         []string{"--fleets", "fleet-a", "--fleets", "fleet-b"},
+			expectedQuery: map[string]string{"fleets": "fleet-a,fleet-b"},
+		},
+		{
+			name:  "When fleets and existing flags are combined it should preserve all filters",
+			flags: []string{"--fleets", "fleet-a,fleet-b", "--catalog", "my-catalog", "--selector", "app=test", "--field-selector", "metadata.name=my-item", "--limit", "10", "--continue", "next-page"},
+			expectedQuery: map[string]string{
+				"fleets":        "fleet-a,fleet-b",
+				"labelSelector": "app=test",
+				"fieldSelector": "metadata.catalog=my-catalog,metadata.name=my-item",
+				"limit":         "10",
+				"continue":      "next-page",
+			},
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			requests := make(chan *http.Request, 1)
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				requests <- request
+				writer.Header().Set("Content-Type", "application/json")
+				_, err := io.WriteString(writer, `{"apiVersion":"v1alpha1","kind":"CatalogItemList","metadata":{},"items":[]}`)
+				if err != nil {
+					t.Errorf("failed to write response: %v", err)
+				}
+			}))
+			defer server.Close()
+
+			configDir := t.TempDir()
+			config := client.NewDefault()
+			config.Service.Server = server.URL
+			require.NoError(t, config.Persist(filepath.Join(configDir, "client.yaml")))
+
+			command := NewCmdGet()
+			args := []string{"catalogitems", "--config-dir", configDir, "--output", "json"}
+			command.SetArgs(append(args, testCase.flags...))
+			output := captureStdout(t, func() {
+				require.NoError(t, command.Execute())
+			})
+			require.Contains(t, output, "CatalogItemList")
+
+			select {
+			case request := <-requests:
+				require.Equal(t, "/api/v1/catalogitems", request.URL.Path)
+				query := request.URL.Query()
+				require.Equal(t, testCase.expectedQuery["fleets"], query.Get("fleets"))
+				if testCase.expectedQuery == nil {
+					require.False(t, query.Has("fleets"))
+				}
+				for key, value := range testCase.expectedQuery {
+					require.Equal(t, value, query.Get(key), "query parameter %s", key)
+				}
+			default:
+				t.Fatal("expected a catalog items request")
+			}
+		})
+	}
+}
+
+func TestGetCatalogItemsFleetsHelp(t *testing.T) {
+	originalArgs := os.Args
+	t.Cleanup(func() { os.Args = originalArgs })
+	os.Args = []string{"flightctl", "get", "catalogitems", "--help"}
+
+	root := &cobra.Command{Use: "flightctl"}
+	root.AddCommand(NewCmdGet())
+	root.SetArgs(os.Args[1:])
+	var output bytes.Buffer
+	root.SetOut(&output)
+	require.NoError(t, root.Execute())
+	require.Contains(t, output.String(), "--fleets strings")
+	require.Contains(t, output.String(), "comma-separated fleet names")
 }

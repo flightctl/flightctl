@@ -44,6 +44,7 @@ const (
 	FlagSortBy      = "sort-by"      // for vulnerabilities
 	FlagOrder       = "order"        // for vulnerabilities
 	FlagCveId       = "cve-id"       // for filtering devices by CVE
+	FlagFleets      = "fleets"
 )
 
 type FlagContextualRule struct {
@@ -62,6 +63,7 @@ type GetOptions struct {
 	Continue      string
 	FleetName     string
 	CatalogName   string
+	Fleets        []string
 	Rendered      bool
 	Summary       bool
 	SummaryOnly   bool
@@ -134,6 +136,7 @@ func (o *GetOptions) Bind(fs *pflag.FlagSet) {
 	fs.StringVar(&o.Continue, FlagContinue, o.Continue, "Query more results starting from the value of the 'continue' field in the previous response.")
 	fs.StringVar(&o.FleetName, FlagFleetName, o.FleetName, "Fleet name for accessing templateversions (use only when getting templateversions).")
 	fs.StringVar(&o.CatalogName, FlagCatalogName, o.CatalogName, "Catalog name for accessing catalogitems (use only when getting catalogitems).")
+	fs.StringSliceVar(&o.Fleets, FlagFleets, o.Fleets, "Filter catalogitems referenced by any of the comma-separated fleet names (e.g., --fleets=fleet-a,fleet-b).")
 	fs.BoolVar(&o.Rendered, FlagRendered, false, "Return the rendered device configuration that is presented to the device. Default output format is YAML.")
 	fs.BoolVarP(&o.Summary, FlagSummary, "s", false, "Display summary information.")
 	fs.BoolVar(&o.SummaryOnly, FlagSummaryOnly, false, "Display summary information only.")
@@ -152,6 +155,7 @@ var flagContextualRules = []FlagContextualRule{
 	{FlagLastSeen, []ResourceKind{DeviceKind}, []string{"single"}},
 	{FlagFleetName, []ResourceKind{TemplateVersionKind}, []string{"any"}},
 	{FlagCatalogName, []ResourceKind{CatalogItemKind}, []string{"any"}},
+	{FlagFleets, []ResourceKind{CatalogItemKind}, []string{"list"}},
 	{FlagSortBy, []ResourceKind{VulnerabilityKind}, []string{"any"}},
 	{FlagOrder, []ResourceKind{VulnerabilityKind}, []string{"any"}},
 	{FlagCveId, []ResourceKind{DeviceKind}, []string{"list"}},
@@ -888,6 +892,9 @@ func (o *GetOptions) getResourceList(ctx context.Context, c *client.Client, kind
 			FieldSelector: util.ToPtrWithNilDefault(fieldSelector),
 			Limit:         util.ToPtrWithNilDefault(o.Limit),
 			Continue:      util.ToPtrWithNilDefault(o.Continue),
+		}
+		if len(o.Fleets) > 0 {
+			params.Fleets = &o.Fleets
 		}
 		return c.V1Alpha1().ListAllCatalogItemsWithResponse(ctx, &params)
 	default:
