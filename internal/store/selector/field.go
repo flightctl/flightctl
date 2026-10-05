@@ -277,7 +277,7 @@ func (fs *FieldSelector) Tokenize(ctx context.Context, input any) (queryparser.T
 					return nil, NewSelectorError(flterrors.ErrFieldSelectorParseFailed,
 						fmt.Errorf("operator %q is unsupported for subquery selector %q", operator, key))
 				}
-				if len(values) == 0 || (subquery.MaxValues > 0 && len(values) > subquery.MaxValues) {
+				if subquery.MaxValues <= 0 || len(values) == 0 || len(values) > subquery.MaxValues {
 					return nil, NewSelectorError(flterrors.ErrFieldSelectorParseFailed,
 						fmt.Errorf("invalid number of values for selector %q", key))
 				}
@@ -616,11 +616,11 @@ func (fs *FieldSelector) queryField(args ...any) (*sql.FunctionResult, error) {
 	}
 	result := &sql.FunctionResult{Query: query}
 	if len(args) == 2 {
-		var ok bool
-		result.Args, ok = args[1].([]any)
+		namedArgs, ok := args[1].(map[string]any)
 		if !ok {
 			return nil, fmt.Errorf("expected subquery arguments")
 		}
+		result.Args = []any{namedArgs}
 	}
 	return result, nil
 }

@@ -178,12 +178,12 @@ func (ci *CatalogItem) ResolveSelector(name selector.SelectorName) (*selector.Se
 		UNION ALL SELECT jsonb_path_query(f.spec, '$.template.spec.applications[*].catalogItemRef')
 		UNION ALL SELECT jsonb_path_query(f.spec, '$.template.spec.applications[*].volumes[*].image.catalogItemRef')
 	) r(ref)
-	WHERE f.org_id = ?
+	WHERE f.org_id = {org_id}
 		AND f.deleted_at IS NULL
 		AND f.name IN ({values})
 		AND r.ref IS NOT NULL
 )`,
-				Args:           []any{ci.OrgID},
+				Args:           map[string]any{"org_id": ci.OrgID},
 				MaxValues:      100,
 				MaxValueLength: 253,
 			},

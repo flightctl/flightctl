@@ -5,6 +5,16 @@ import (
 	"testing"
 )
 
+func TestCastSupportsSubqueryIn(t *testing.T) {
+	parser, err := NewSQLParser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !parser.(*SQLParser).funcs["CAST"].usedBy.Contains("SUBQUERY_IN") {
+		t.Fatal("CAST must support use by SUBQUERY_IN")
+	}
+}
+
 func TestSQLQueries(t *testing.T) {
 	ctx := context.Background()
 	/*

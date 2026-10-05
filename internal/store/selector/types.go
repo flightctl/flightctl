@@ -186,10 +186,10 @@ type SelectorOpt = map[string]struct{}
 
 // SubquerySelector uses the selected values in a non-correlated SQL subquery.
 // Template contains a single {values} marker, replaced with bound placeholders.
-// Args are bound before the selected values.
+// Args contains named parameters referenced by {name} markers in Template.
 type SubquerySelector struct {
 	Template       string
-	Args           []any
+	Args           map[string]any
 	MaxValues      int
 	MaxValueLength int
 }

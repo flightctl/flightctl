@@ -179,7 +179,7 @@ func NewSQLParser(options ...SQLParserOption) (queryparser.Parser, error) {
 		"SUBQUERY_IN": {
 			usedBy:        queryparser.NewSet[string]().Add(queryparser.RootFunc, "AND", "OR"),
 			Verifications: []verificationHandler{withPrecedingKeyQuery(), withNoValues()},
-			handle:        Wrap(sp.querySubqueryIn),
+			handle:        sp.querySubqueryIn,
 		},
 		"NOTIN": {
 			usedBy:        queryparser.NewSet[string]().Add(queryparser.RootFunc, "AND", "OR"),
@@ -238,7 +238,7 @@ func NewSQLParser(options ...SQLParserOption) (queryparser.Parser, error) {
 		},
 		"CAST": {
 			usedBy: queryparser.NewSet[string]().Add("EQ", "NOTEQ", "LT", "LTE", "GT", "GTE", "IN", "NOTIN", "LIKE",
-				"NOTLIKE", "OVERLAPS", "NOTOVERLAPS", "CONTAINS", "NOTCONTAINS", "JSONB_CONTAINS", "JSONB_NOTCONTAINS", "ISNULL", "ISNOTNULL"),
+				"NOTLIKE", "OVERLAPS", "NOTOVERLAPS", "CONTAINS", "NOTCONTAINS", "JSONB_CONTAINS", "JSONB_NOTCONTAINS", "ISNULL", "ISNOTNULL", "SUBQUERY_IN"),
 			Verifications: []verificationHandler{withPrecedingKeyOrValueQuery()},
 			handle:        sp.queryCast,
 		},
@@ -329,6 +329,10 @@ func (p *parser) dispatcher(qf *queryparser.QueryFunc) error {
 			funcArgs = append(funcArgs, arg.(*queryparser.QueryArgValue).Value())
 		} else {
 			qfRet := arg.(*queryparser.QueryArgFunc).Value().Result().(*FunctionResult)
+			if fn == "SUBQUERY_IN" {
+				funcArgs = append(funcArgs, qfRet)
+				continue
+			}
 			funcArgs = append(funcArgs, qfRet.Query)
 			retArgs = append(retArgs, qfRet.Args...)
 		}
@@ -442,18 +446,56 @@ func (sp *SQLParser) queryIn(args ...string) (*FunctionResult, error) {
 	}, nil
 }
 
-func (sp *SQLParser) querySubqueryIn(args ...string) (*FunctionResult, error) {
+var subqueryParameterRegex = regexp.MustCompile(`\{([a-zA-Z_][a-zA-Z0-9_]*)\}`)
+
+func (sp *SQLParser) querySubqueryIn(args ...any) (*FunctionResult, error) {
 	if err := validateArgsCount(args, 2); err != nil {
 		return nil, err
 	}
-	if strings.Count(args[0], "{values}") != 1 {
+	field, ok := args[0].(*FunctionResult)
+	if !ok || len(field.Args) != 1 {
+		return nil, fmt.Errorf("expected a subquery template with named arguments")
+	}
+	namedArgs, ok := field.Args[0].(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("expected named subquery arguments")
+	}
+	if strings.Count(field.Query, "{values}") != 1 {
 		return nil, fmt.Errorf("subquery template must contain exactly one {values} marker")
 	}
-	placeholders := make([]string, len(args)-1)
-	for index := range placeholders {
-		placeholders[index] = args[index+1]
+	if strings.Contains(field.Query, "?") {
+		return nil, fmt.Errorf("subquery template must use named parameters instead of positional placeholders")
 	}
-	return &FunctionResult{Query: strings.Replace(args[0], "{values}", strings.Join(placeholders, ", "), 1)}, nil
+	result := &FunctionResult{}
+	var query strings.Builder
+	position := 0
+	for _, match := range subqueryParameterRegex.FindAllStringSubmatchIndex(field.Query, -1) {
+		query.WriteString(field.Query[position:match[0]])
+		name := field.Query[match[2]:match[3]]
+		if name == "values" {
+			placeholders := make([]string, len(args)-1)
+			for index, arg := range args[1:] {
+				value, ok := arg.(*FunctionResult)
+				if !ok {
+					return nil, fmt.Errorf("expected a bound subquery value")
+				}
+				placeholders[index] = value.Query
+				result.Args = append(result.Args, value.Args...)
+			}
+			query.WriteString(strings.Join(placeholders, ", "))
+		} else {
+			value, exists := namedArgs[name]
+			if !exists {
+				return nil, fmt.Errorf("missing subquery argument %q", name)
+			}
+			query.WriteString("?")
+			result.Args = append(result.Args, value)
+		}
+		position = match[1]
+	}
+	query.WriteString(field.Query[position:])
+	result.Query = query.String()
+	return result, nil
 }
 
 func (sp *SQLParser) queryNotIn(args ...string) (*FunctionResult, error) {
