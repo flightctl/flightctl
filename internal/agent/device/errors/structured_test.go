@@ -217,7 +217,7 @@ func TestMessage(t *testing.T) {
 			notContains: []string{"failed"},
 		},
 		{
-			name: "no space left keeps the generic failure message",
+			name: "When no space is left it should keep the generic failure message",
 			err: fmt.Errorf("%w: %w", ErrPhaseApplyingUpdate,
 				fmt.Errorf("%w: %w", ErrComponentConfig, ErrNoSpaceLeft)),
 			contains:    []string{"While ApplyingUpdate", "config failed", "resource limit exceeded"},
