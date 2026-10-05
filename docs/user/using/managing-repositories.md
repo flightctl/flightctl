@@ -13,6 +13,8 @@ This document focuses on OCI repositories. For information on Git, HTTP, and SSH
 
 Git repositories use their configured TLS settings independently. For HTTPS connections, custom certificate authorities, client certificates, and `skipServerVerification` apply only to the repository that defines them. Repositories without custom TLS settings use the system trust store and verify server certificates.
 
+If you configure `ca.crt` for a Git repository, provide a PEM bundle encoded with base64 that contains at least one valid certificate. Empty or invalid bundles cause repository operations to fail before connecting.
+
 Flight Control automatically performs connectivity checks on all repositories to verify they are accessible. The connectivity status is reflected in the repository's `status.conditions` field with a condition of type `RepositoryAccessible`.
 
 You can check the connectivity status of a repository using the CLI:

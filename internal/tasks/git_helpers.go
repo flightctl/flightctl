@@ -3,6 +3,7 @@ package tasks
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -321,7 +322,8 @@ func getGitOptions(repository *domain.Repository, cfg *config.Config) (*git.List
 		return options, nil
 	}
 
-	if gitSpec.SshConfig == nil && gitSpec.HttpConfig != nil && strings.HasPrefix(gitSpec.Url, "https") {
+	repoURL, parseErr := url.Parse(gitSpec.Url)
+	if parseErr == nil && strings.EqualFold(repoURL.Scheme, "https") && gitSpec.SshConfig == nil && gitSpec.HttpConfig != nil {
 		options, err = getRepoHTTPSOptions(*gitSpec.HttpConfig)
 		if err != nil {
 			return nil, err
@@ -353,7 +355,7 @@ func getRepoHTTPSOptions(httpConfig domain.HttpConfig) (*git.ListOptions, error)
 		}
 
 		if _, err := tls.X509KeyPair(cert, key); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("validate TLS client certificate/key: %w", err)
 		}
 
 		options.ClientCert = cert
@@ -363,7 +365,10 @@ func getRepoHTTPSOptions(httpConfig domain.HttpConfig) (*git.ListOptions, error)
 	if httpConfig.CaCrt != nil {
 		ca, err := base64.StdEncoding.DecodeString(*httpConfig.CaCrt)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("decode CA bundle: %w", err)
+		}
+		if !x509.NewCertPool().AppendCertsFromPEM(ca) {
+			return nil, fmt.Errorf("parse CA bundle: no valid PEM certificates")
 		}
 
 		options.CABundle = ca
