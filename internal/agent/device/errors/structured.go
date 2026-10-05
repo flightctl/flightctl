@@ -87,9 +87,13 @@ func (se *StructuredError) Message() string {
 		if resource == "" {
 			resource = "system"
 		}
-		return fmt.Sprintf("[%s] Update deferred: critical %s resource alert is active; will retry once resource usage returns to normal",
+		resourceMessage := fmt.Sprintf("critical %s resource alert is active", resource)
+		if resource == "Disk" {
+			resourceMessage += "; insufficient disk storage space, please clear storage before retrying"
+		}
+		return fmt.Sprintf("[%s] Update deferred: %s; will retry once resource usage returns to normal",
 			se.Timestamp.Format("2006-01-02 15:04:05"),
-			resource,
+			resourceMessage,
 		)
 	}
 

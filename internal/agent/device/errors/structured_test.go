@@ -209,12 +209,13 @@ func TestMessage(t *testing.T) {
 			notContains: []string{"failed", "While Preparing"},
 		},
 		{
-			// The disk critical-alert path (dependency.go BeforeUpdate) wraps
-			// ErrCriticalResourceAlert directly without a phase/component/element.
-			name:        "critical disk resource alert without an element falls back to a generic resource label",
-			err:         ErrCriticalResourceAlert,
-			contains:    []string{"Update deferred", "system", "will retry"},
-			notContains: []string{"failed"},
+			// The disk critical-alert path (dependency.go BeforeUpdate) includes
+			// the disk element and the remediation needed to recover.
+			name: "When a critical disk alert is active it should preserve clear-storage guidance",
+			err: fmt.Errorf("%w: %w: insufficient disk storage space, please clear storage",
+				WithElement("Disk"), ErrCriticalResourceAlert),
+			contains:    []string{"Update deferred", "Disk", "clear storage", "will retry"},
+			notContains: []string{"failed", "system"},
 		},
 		{
 			name: "When no space is left it should keep the generic failure message",
