@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -23,6 +24,10 @@ const (
 
 	// VMGuestMemoryDefault is the guest RAM for e2e KubeVirt VM manifests.
 	VMGuestMemoryDefault = "1024M"
+
+	// virshOnComputeTimeout bounds one virsh SSH command. Gomega cannot cancel
+	// a blocked callback, so the command returns on its own deadline.
+	virshOnComputeTimeout = 30 * time.Second
 )
 
 // VMYAML builds a KubeVirt VirtualMachine manifest for e2e tests. cloudInitVolumeYAML
@@ -1203,6 +1208,25 @@ func (h *Harness) GetContainerPorts() (string, error) {
 // =============================================================================
 // VM operations
 // =============================================================================
+
+// VirshOnCompute runs virsh inside the virt-launcher compute container on the device.
+// The SSH session has its own deadline so a wedged command cannot block until the suite timeout.
+func (h *Harness) VirshOnCompute(container string, virshArgs ...string) (string, error) {
+	if h.VM == nil {
+		return "", fmt.Errorf("device VM is not configured")
+	}
+	args := append([]string{"sudo", "podman", "exec", container, "virsh"}, virshArgs...)
+	ctx, cancel := context.WithTimeout(context.Background(), virshOnComputeTimeout)
+	defer cancel()
+	out, err := h.VM.RunSSHContext(ctx, args, nil)
+	if err != nil {
+		return "", fmt.Errorf("virsh %s in %q: %w", strings.Join(virshArgs, " "), container, err)
+	}
+	if out == nil {
+		return "", fmt.Errorf("virsh %s in %q returned no output", strings.Join(virshArgs, " "), container)
+	}
+	return strings.TrimSpace(out.String()), nil
+}
 
 // RunSSHOnDeviceLocalPort runs ssh on the device host to localhost:port using password auth.
 // This exercises VM publishPorts mappings (e.g. host 2222 to guest 22).
