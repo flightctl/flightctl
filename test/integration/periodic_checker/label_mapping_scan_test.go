@@ -76,6 +76,8 @@ var _ = Describe("Label mapping scan integration", func() {
 		db             *gorm.DB
 		orgID          uuid.UUID
 		deviceStore    *devicestore.DeviceStore
+		eventStore     eventstore.Store
+		deviceSvc      deviceservice.Service
 		mappingService labelsyncmappingservice.Service
 		checkpointSvc  checkpointservice.Service
 		scanTask       *tasks.LabelMappingScanTask
@@ -95,12 +97,12 @@ var _ = Describe("Label mapping scan integration", func() {
 		mappingStore := labelsyncmapping.NewStore(db, log.WithField("pkg", "label-sync-mapping-store"))
 		evaluator, err := labelsyncmappingservice.NewEvaluator()
 		Expect(err).NotTo(HaveOccurred())
-		eventStore := eventstore.NewEventStore(db, log.WithField("pkg", "event-store"))
+		eventStore = eventstore.NewEventStore(db, log.WithField("pkg", "event-store"))
 		eventsSvc := events.NewServiceHandler(eventStore, nil, log)
 		mappingHandler, err := labelsyncmappingservice.NewServiceHandler(mappingStore, deviceStore, evaluator, eventsSvc, log)
 		Expect(err).NotTo(HaveOccurred())
 		mappingService = labelsyncmappingservice.WrapWithTracing(mappingHandler)
-		deviceSvc := deviceservice.NewDeviceServiceHandler(deviceStore, nil, nil, eventsSvc, nil, "", log)
+		deviceSvc = deviceservice.NewDeviceServiceHandler(deviceStore, nil, nil, eventsSvc, nil, "", log)
 		checkpointSvc = checkpointservice.NewServiceHandler(checkpointstore.NewCheckpointStore(db, log))
 		scanTask, err = tasks.NewLabelMappingScanTask(mappingService, deviceSvc, checkpointSvc, tasks.LabelMappingScanConfig{
 			PageSize:   mappingScanTestPageSize,
@@ -318,13 +320,30 @@ var _ = Describe("Label mapping scan integration", func() {
 		stillFailed, err := deviceStore.Get(ctx, orgID, "a")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(stillFailed.Metadata.ResourceVersion).To(Equal(failed.Metadata.ResourceVersion))
-		before := *failed
-		failed.Status.SystemInfo.Architecture = "x86_64"
-		_, _, err = deviceStore.UpdateStatus(ctx, orgID, failed, &before)
+		var architecture interface{} = "x86_64"
+		_, status := deviceSvc.PatchDeviceStatus(ctx, orgID, "a", domain.PatchRequest{{
+			Op: "replace", Path: "/status/systemInfo/architecture", Value: &architecture,
+		}})
+		Expect(status.Code).To(Equal(int32(http.StatusOK)), status.Message)
+		events, err := eventStore.List(ctx, orgID, store.ListParams{Limit: 100})
 		Expect(err).NotTo(HaveOccurred())
-		// The successor event story calls this shared reconciliation entrypoint.
-		_, err = mappingService.ReconcileDeviceLabels(ctx, orgID, "a")
+		var statusEvent *domain.Event
+		for i := range events.Items {
+			event := &events.Items[i]
+			if event.InvolvedObject.Kind == domain.DeviceKind && event.InvolvedObject.Name == "a" &&
+				event.Reason == domain.EventReasonResourceUpdated && event.Details == nil {
+				statusEvent = event
+				break
+			}
+		}
+		Expect(statusEvent).NotTo(BeNil())
+		logic, err := tasks.NewDeviceLabelReconciliationLogic(flightlog.InitLogs(), mappingService, orgID, *statusEvent)
 		Expect(err).NotTo(HaveOccurred())
+		Expect(logic.Reconcile(ctx)).To(Succeed())
+		reconciled, err := deviceStore.Get(ctx, orgID, "a")
+		Expect(err).NotTo(HaveOccurred())
+		reconciledCondition := domain.FindStatusCondition(reconciled.Status.Conditions, domain.ConditionTypeDeviceLabelsSynced)
+		Expect(reconciledCondition.Status).To(Equal(domain.ConditionStatusTrue))
 		for attempts := 0; getReadyCondition("architecture").Status != domain.ConditionStatusTrue && attempts < 4; attempts++ {
 			scanTask.Poll(ctx, orgID)
 		}
