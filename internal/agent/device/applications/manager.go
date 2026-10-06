@@ -51,6 +51,7 @@ type manager struct {
 	// Volume digests are reused until the next update; an empty entry marks a confirmed artifact.
 	volumeImageDigestsMu sync.Mutex
 	volumeImageDigests   map[volumeImageKey]string
+	volumeImagesChanging bool
 
 	// appConsole is created by WithConsole and owned by this manager.
 	// executor/dialFn live on PodmanMonitor (VM/serial-console specific).
@@ -127,6 +128,7 @@ func (m *manager) Ensure(ctx context.Context, provider provider.Provider) error 
 			)
 			return nil
 		}
+		m.invalidateVolumeImageDigests()
 		if err := provider.Install(ctx); err != nil {
 			return fmt.Errorf("%w: %w", errors.ErrInstallingApplication, err)
 		}
@@ -140,6 +142,7 @@ func (m *manager) Ensure(ctx context.Context, provider provider.Provider) error 
 			)
 			return nil
 		}
+		m.invalidateVolumeImageDigests()
 		if err := provider.Install(ctx); err != nil {
 			return fmt.Errorf("%w: %w", errors.ErrInstallingApplication, err)
 		}
@@ -150,6 +153,7 @@ func (m *manager) Ensure(ctx context.Context, provider provider.Provider) error 
 }
 
 func (m *manager) Remove(ctx context.Context, provider provider.Provider) error {
+	m.invalidateVolumeImageDigests()
 	if err := provider.Remove(ctx); err != nil {
 		return fmt.Errorf("%w: %w", errors.ErrRemovingApplication, err)
 	}
@@ -181,6 +185,7 @@ func (m *manager) Update(ctx context.Context, provider provider.Provider) error 
 	appType := provider.Spec().AppType
 	switch appType {
 	case v1beta1.AppTypeCompose, v1beta1.AppTypeQuadlet, v1beta1.AppTypeContainer:
+		m.invalidateVolumeImageDigests()
 		if err := provider.Remove(ctx); err != nil {
 			return fmt.Errorf("%w: %w", errors.ErrRemovingApplication, err)
 		}
@@ -189,6 +194,7 @@ func (m *manager) Update(ctx context.Context, provider provider.Provider) error 
 		}
 		return m.podmanMonitor.QueueUpdate(m.newAppFromProvider(provider))
 	case v1beta1.AppTypeHelm:
+		m.invalidateVolumeImageDigests()
 		if err := provider.Remove(ctx); err != nil {
 			return fmt.Errorf("%w: %w", errors.ErrRemovingApplication, err)
 		}
@@ -202,7 +208,6 @@ func (m *manager) Update(ctx context.Context, provider provider.Provider) error 
 }
 
 func (m *manager) BeforeUpdate(ctx context.Context, desired *v1beta1.DeviceSpec, opts ...UpdateOpt) error {
-	m.clearVolumeImageDigests()
 	o := applyUpdateOpts(opts...)
 	m.osUpdatePending = o.osUpdatePending
 
@@ -244,7 +249,8 @@ func (m *manager) verifyProviders(ctx context.Context, providers []provider.Prov
 
 func (m *manager) AfterUpdate(ctx context.Context) error {
 	defer m.clearAppDataCache()
-	defer m.clearVolumeImageDigests()
+	complete := false
+	defer func() { m.finishVolumeImageUpdates(complete) }()
 
 	if err := m.podmanMonitor.ExecuteActions(ctx); err != nil {
 		return fmt.Errorf("error executing podman actions: %w", err)
@@ -254,13 +260,26 @@ func (m *manager) AfterUpdate(ctx context.Context) error {
 		return fmt.Errorf("error executing kubernetes actions: %w", err)
 	}
 
+	complete = true
 	return nil
 }
 
-func (m *manager) clearVolumeImageDigests() {
+func (m *manager) invalidateVolumeImageDigests() {
 	m.volumeImageDigestsMu.Lock()
 	defer m.volumeImageDigestsMu.Unlock()
 	m.volumeImageDigests = nil
+	m.volumeImagesChanging = true
+}
+
+func (m *manager) finishVolumeImageUpdates(complete bool) {
+	m.volumeImageDigestsMu.Lock()
+	defer m.volumeImageDigestsMu.Unlock()
+	if m.volumeImagesChanging {
+		m.volumeImageDigests = nil
+		// A failed runtime may leave actions queued in the other monitor.
+		// Keep invalidating until the whole batch completes successfully.
+		m.volumeImagesChanging = !complete
+	}
 }
 
 func (m *manager) clearAppDataCache() {
@@ -309,6 +328,7 @@ func (m *manager) addVolumeImageDigests(ctx context.Context, results []AppStatus
 
 	podmanClients := make(map[v1beta1.Username]*client.Podman)
 	inspectedDigests := make(map[volumeImageKey]string)
+	activeImages := make(map[volumeImageKey]struct{})
 
 	for i := range results {
 		application := &results[i].Status
@@ -331,6 +351,7 @@ func (m *manager) addVolumeImageDigests(ctx context.Context, results []AppStatus
 			}
 
 			key := volumeImageKey{user: application.RunAs, reference: volume.Reference}
+			activeImages[key] = struct{}{}
 			digest, inspected := m.volumeImageDigests[key]
 			if !inspected {
 				digest, inspected = inspectedDigests[key]
@@ -397,6 +418,11 @@ func (m *manager) addVolumeImageDigests(ctx context.Context, results []AppStatus
 			return digests[i].Digest < digests[j].Digest
 		})
 		application.ImageDigests = &digests
+	}
+	for key := range m.volumeImageDigests {
+		if _, active := activeImages[key]; !active {
+			delete(m.volumeImageDigests, key)
+		}
 	}
 }
 
