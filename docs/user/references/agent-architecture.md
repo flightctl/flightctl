@@ -89,7 +89,7 @@ The agent reconciles the **DeviceSpec** against device state by calling external
 
 Podman application monitors rebuild their in-memory registrations during reconciliation after an agent restart. When an application changed while the agent was stopped, its update action replaces the existing workloads and registers the desired application for monitoring.
 
-The agent caches image-backed volume digests between status reports and refreshes them when an application update begins or ends. Failed digest inspections are retried on the next status report.
+The agent caches image-backed volume digests between status reports and refreshes them when an application update begins or ends. Confirmed artifact-backed volumes are also cached so subsequent reports skip image inspection. Other failed digest inspections are retried on the next status report.
 
 ## Update Policy
 

@@ -48,7 +48,7 @@ type manager struct {
 	// cache of temporary extracted app data
 	appDataCache map[string]*provider.AppData
 
-	// Successful volume digests are reused until the next application update.
+	// Volume digests are reused until the next update; an empty entry marks a confirmed artifact.
 	volumeImageDigestsMu sync.Mutex
 	volumeImageDigests   map[volumeImageKey]string
 
@@ -361,6 +361,10 @@ func (m *manager) addVolumeImageDigests(ctx context.Context, results []AppStatus
 				digest, err = podman.ImageDigest(ctx, key.reference)
 				inspectedDigests[key] = digest
 				if err != nil {
+					if podman.ArtifactExists(ctx, key.reference) {
+						m.volumeImageDigests[key] = ""
+						continue
+					}
 					m.log.Debugf("could not inspect application volume image %q for digest: %v", key.reference, err)
 					continue
 				}
