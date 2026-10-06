@@ -3,6 +3,7 @@ package applications
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
 	"sync"
 
@@ -49,9 +50,10 @@ type manager struct {
 	appDataCache map[string]*provider.AppData
 
 	// Volume digests are reused until the next update; an empty entry marks a confirmed artifact.
-	volumeImageDigestsMu sync.Mutex
-	volumeImageDigests   map[volumeImageKey]string
-	volumeImagesChanging bool
+	volumeImageDigestsMu         sync.Mutex
+	volumeImageDigests           map[volumeImageKey]string
+	volumeImageDigestsGeneration uint64
+	volumeImagesChanging         bool
 
 	// appConsole is created by WithConsole and owned by this manager.
 	// executor/dialFn live on PodmanMonitor (VM/serial-console specific).
@@ -268,6 +270,7 @@ func (m *manager) invalidateVolumeImageDigests() {
 	m.volumeImageDigestsMu.Lock()
 	defer m.volumeImageDigestsMu.Unlock()
 	m.volumeImageDigests = nil
+	m.volumeImageDigestsGeneration++
 	m.volumeImagesChanging = true
 }
 
@@ -276,6 +279,7 @@ func (m *manager) finishVolumeImageUpdates(complete bool) {
 	defer m.volumeImageDigestsMu.Unlock()
 	if m.volumeImagesChanging {
 		m.volumeImageDigests = nil
+		m.volumeImageDigestsGeneration++
 		// A failed runtime may leave actions queued in the other monitor.
 		// Keep invalidating until the whole batch completes successfully.
 		m.volumeImagesChanging = !complete
@@ -321,9 +325,11 @@ func (m *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, opts
 // delta.
 func (m *manager) addVolumeImageDigests(ctx context.Context, results []AppStatusResult) {
 	m.volumeImageDigestsMu.Lock()
-	defer m.volumeImageDigestsMu.Unlock()
-	if m.volumeImageDigests == nil {
-		m.volumeImageDigests = make(map[volumeImageKey]string)
+	generation := m.volumeImageDigestsGeneration
+	volumeImageDigests := maps.Clone(m.volumeImageDigests)
+	m.volumeImageDigestsMu.Unlock()
+	if volumeImageDigests == nil {
+		volumeImageDigests = make(map[volumeImageKey]string)
 	}
 
 	podmanClients := make(map[v1beta1.Username]*client.Podman)
@@ -352,7 +358,7 @@ func (m *manager) addVolumeImageDigests(ctx context.Context, results []AppStatus
 
 			key := volumeImageKey{user: application.RunAs, reference: volume.Reference}
 			activeImages[key] = struct{}{}
-			digest, inspected := m.volumeImageDigests[key]
+			digest, inspected := volumeImageDigests[key]
 			if !inspected {
 				digest, inspected = inspectedDigests[key]
 			}
@@ -383,14 +389,14 @@ func (m *manager) addVolumeImageDigests(ctx context.Context, results []AppStatus
 				inspectedDigests[key] = digest
 				if err != nil {
 					if podman.ArtifactExists(ctx, key.reference) {
-						m.volumeImageDigests[key] = ""
+						volumeImageDigests[key] = ""
 						continue
 					}
 					m.log.Debugf("could not inspect application volume image %q for digest: %v", key.reference, err)
 					continue
 				}
 				if digest != "" {
-					m.volumeImageDigests[key] = digest
+					volumeImageDigests[key] = digest
 				}
 			}
 			if digest == "" {
@@ -419,10 +425,17 @@ func (m *manager) addVolumeImageDigests(ctx context.Context, results []AppStatus
 		})
 		application.ImageDigests = &digests
 	}
-	for key := range m.volumeImageDigests {
+	for key := range volumeImageDigests {
 		if _, active := activeImages[key]; !active {
-			delete(m.volumeImageDigests, key)
+			delete(volumeImageDigests, key)
 		}
+	}
+
+	m.volumeImageDigestsMu.Lock()
+	defer m.volumeImageDigestsMu.Unlock()
+	// An update may have invalidated the cache while Podman inspection was running.
+	if generation == m.volumeImageDigestsGeneration {
+		m.volumeImageDigests = volumeImageDigests
 	}
 }
 

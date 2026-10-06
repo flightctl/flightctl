@@ -1777,3 +1777,90 @@ func TestVolumeImageDigestCacheEvictsChangedReferences(t *testing.T) {
 	collect("volume:v1", "sha256:new")
 	require.Len(m.volumeImageDigests, 1)
 }
+
+func TestVolumeImageDigestCacheConcurrentInvalidation(t *testing.T) {
+	for _, inspection := range []string{"image", "artifact"} {
+		for _, update := range []string{"remove", "after update"} {
+			t.Run("When "+inspection+" inspection overlaps "+update+" it should allow updates and discard stale cache results", func(t *testing.T) {
+				require := require.New(t)
+				ctrl := gomock.NewController(t)
+				defer ctrl.Finish()
+				mockExec := executer.NewMockExecuter(ctrl)
+				logger := log.NewPrefixLogger("test")
+				podman := client.NewPodman(logger, mockExec, fileio.NewMockReadWriter(ctrl), poll.Config{})
+				m := &manager{
+					log:               logger,
+					podmanMonitor:     NewPodmanMonitor(logger, nil, nil, time.Now().Format(time.RFC3339), nil),
+					kubernetesMonitor: NewKubernetesMonitor(logger, nil, nil),
+					podmanFactory: func(v1beta1.Username) (*client.Podman, error) {
+						return podman, nil
+					},
+				}
+				if update == "after update" {
+					m.invalidateVolumeImageDigests()
+				}
+				started := make(chan struct{})
+				release := make(chan struct{}, 1)
+				collected := make(chan struct{})
+				block := func(context.Context, string, ...string) (string, string, int) {
+					close(started)
+					<-release
+					if inspection == "artifact" {
+						return "{}", "", 0
+					}
+					return "sha256:old", "", 0
+				}
+				if inspection == "artifact" {
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "volume:v1").Return("", "no such image", 125)
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "inspect", "volume:v1").DoAndReturn(block)
+				} else {
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "volume:v1").DoAndReturn(block)
+				}
+				collect := func() []AppStatusResult {
+					volumes := []v1beta1.ApplicationVolumeStatus{{Reference: "volume:v1"}}
+					results := []AppStatusResult{{Status: v1beta1.DeviceApplicationStatus{Volumes: &volumes}}}
+					m.addVolumeImageDigests(context.Background(), results)
+					return results
+				}
+				go func() {
+					collect()
+					close(collected)
+				}()
+				// Release the blocked inspection even if an assertion fails.
+				defer func() {
+					close(release)
+					<-collected
+				}()
+				select {
+				case <-started:
+				case <-time.After(5 * time.Second):
+					t.Fatal("volume inspection did not start")
+				}
+				updateFinished := make(chan error, 1)
+				if update == "remove" {
+					p := provider.NewMockProvider(ctrl)
+					p.EXPECT().Remove(gomock.Any()).Return(fmt.Errorf("remove failed"))
+					go func() { updateFinished <- m.Remove(context.Background(), p) }()
+				} else {
+					go func() { updateFinished <- m.AfterUpdate(context.Background()) }()
+				}
+				select {
+				case err := <-updateFinished:
+					if update == "remove" {
+						require.Error(err)
+					} else {
+						require.NoError(err)
+					}
+				case <-time.After(5 * time.Second):
+					t.Fatal("application update waited for volume inspection")
+				}
+				// Populate the new generation before the old inspection finishes.
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "volume:v1").Return("sha256:new", "", 0)
+				require.Equal("sha256:new", (*collect()[0].Status.ImageDigests)[0].Digest)
+				release <- struct{}{}
+				<-collected
+				require.Equal("sha256:new", (*collect()[0].Status.ImageDigests)[0].Digest)
+			})
+		}
+	}
+}
