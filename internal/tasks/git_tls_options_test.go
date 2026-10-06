@@ -160,6 +160,9 @@ func gitHTTPSListOperations() []gitHTTPSOperation {
 			if len(results) != 1 {
 				return fmt.Errorf("expected one dependency-probe result, got %d", len(results))
 			}
+			if results[0].probeErr == "" {
+				return nil
+			}
 			return errors.New(results[0].probeErr)
 		}},
 	}
@@ -171,4 +174,21 @@ func TestGitHTTPSListIsolation(t *testing.T) {
 
 func TestGitHTTPSListIsolationConcurrent(t *testing.T) {
 	testGitHTTPSIsolationConcurrent(t, gitHTTPSListOperations())
+}
+
+func TestGitHTTPSListSuccess(t *testing.T) {
+	const sha = "0123456789012345678901234567890123456789"
+	advertisement := "001e# service=git-upload-pack\n0000"
+	for _, ref := range []string{sha + " HEAD\x00symref=HEAD:refs/heads/main\n", sha + " refs/heads/main\n"} {
+		advertisement += fmt.Sprintf("%04x%s", len(ref)+4, ref)
+	}
+	advertisement += "0000"
+	fixture := newGitHTTPSFixtureWithAdvertisement(t, "client-list-success", advertisement)
+	for _, operation := range gitHTTPSListOperations() {
+		t.Run("When "+operation.name+" resolves a revision it should report success", func(t *testing.T) {
+			before := len(fixture.clientNames())
+			require.NoError(t, operation.run(fixture.repository(t, fixture.mutualTLSConfig())))
+			require.Equal(t, []string{"client-list-success"}, fixture.clientNames()[before:])
+		})
+	}
 }
