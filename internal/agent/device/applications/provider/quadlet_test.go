@@ -2559,94 +2559,78 @@ spec:
 }
 
 func TestComputeQuadletHash(t *testing.T) {
-	tests := []struct {
-		name          string
-		files         map[string][]byte
-		expectSameAs  string // test name to compare against for determinism
-		expectDiffAs  string // test name that should differ
-		expectNonZero bool
-	}{
-		{
-			name: "When a single container file exists it should produce a non-zero hash",
-			files: map[string][]byte{
-				"web.container": []byte("[Container]\nImage=nginx:latest\n"),
-			},
-			expectNonZero: true,
-		},
-		{
-			name: "When multiple quadlet files exist it should produce a non-zero hash",
-			files: map[string][]byte{
-				"web.container": []byte("[Container]\nImage=nginx:latest\n"),
-				"data.volume":   []byte("[Volume]\n"),
-			},
-			expectNonZero: true,
-		},
-		{
-			name: "When non-quadlet files are present they should be excluded from hash",
-			files: map[string][]byte{
-				"web.container": []byte("[Container]\nImage=nginx:latest\n"),
-				".env":          []byte("FOO=bar\n"),
-				"pod.yaml":      []byte("apiVersion: v1\n"),
-			},
-			expectSameAs: "When a single container file exists it should produce a non-zero hash",
-		},
-		{
-			name: "When file content changes it should produce a different hash",
-			files: map[string][]byte{
-				"web.container": []byte("[Container]\nImage=nginx:v2\n"),
-			},
-			expectDiffAs:  "When a single container file exists it should produce a non-zero hash",
-			expectNonZero: true,
-		},
-		{
-			name: "When no quadlet files exist it should produce a zero hash",
-			files: map[string][]byte{
-				".env":     []byte("FOO=bar\n"),
-				"pod.yaml": []byte("apiVersion: v1\n"),
-			},
-			expectNonZero: false,
-		},
+	// computeHashForFiles is a test helper that sets up a temp dir with the
+	// given files and returns the computed hash.
+	computeHashForFiles := func(t *testing.T, files map[string][]byte) string {
+		t.Helper()
+		require := require.New(t)
+		tmpDir := t.TempDir()
+		rw := fileio.NewReadWriter(
+			fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+			fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+		)
+		appPath := "/app"
+		require.NoError(rw.MkdirAll(appPath, fileio.DefaultDirectoryPermissions))
+		for name, content := range files {
+			require.NoError(rw.WriteFile(filepath.Join(appPath, name), content, fileio.DefaultFilePermissions))
+		}
+		hash, err := computeQuadletHash(rw, appPath)
+		require.NoError(err)
+		return hash
 	}
 
-	hashes := make(map[string]string)
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			require := require.New(t)
-			tmpDir := t.TempDir()
-			rw := fileio.NewReadWriter(
-				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
-				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
-			)
-
-			appPath := "/app"
-			require.NoError(rw.MkdirAll(appPath, fileio.DefaultDirectoryPermissions))
-			for name, content := range tt.files {
-				require.NoError(rw.WriteFile(filepath.Join(appPath, name), content, fileio.DefaultFilePermissions))
-			}
-
-			hash, err := computeQuadletHash(rw, appPath)
-			require.NoError(err)
-			hashes[tt.name] = hash
-
-			if tt.expectNonZero {
-				require.NotEmpty(hash)
-				require.Len(hash, 8, "CRC32 hash should be 8 hex chars")
-				require.NotEqual("00000000", hash)
-			}
-
-			if tt.expectSameAs != "" {
-				other, ok := hashes[tt.expectSameAs]
-				require.True(ok, "reference test %q must run before this test", tt.expectSameAs)
-				require.Equal(other, hash)
-			}
-
-			if tt.expectDiffAs != "" {
-				other, ok := hashes[tt.expectDiffAs]
-				require.True(ok, "reference test %q must run before this test", tt.expectDiffAs)
-				require.NotEqual(other, hash)
-			}
+	t.Run("When a single container file exists it should produce a non-zero hash", func(t *testing.T) {
+		require := require.New(t)
+		hash := computeHashForFiles(t, map[string][]byte{
+			"web.container": []byte("[Container]\nImage=nginx:latest\n"),
 		})
-	}
+		require.NotEmpty(hash)
+		require.Len(hash, 8, "CRC32 hash should be 8 hex chars")
+		require.NotEqual("00000000", hash)
+	})
+
+	t.Run("When multiple quadlet files exist it should produce a non-zero hash", func(t *testing.T) {
+		require := require.New(t)
+		hash := computeHashForFiles(t, map[string][]byte{
+			"web.container": []byte("[Container]\nImage=nginx:latest\n"),
+			"data.volume":   []byte("[Volume]\n"),
+		})
+		require.NotEmpty(hash)
+		require.Len(hash, 8, "CRC32 hash should be 8 hex chars")
+	})
+
+	t.Run("When non-quadlet files are present they should be excluded from hash", func(t *testing.T) {
+		require := require.New(t)
+		hashWithExtra := computeHashForFiles(t, map[string][]byte{
+			"web.container": []byte("[Container]\nImage=nginx:latest\n"),
+			".env":          []byte("FOO=bar\n"),
+			"pod.yaml":      []byte("apiVersion: v1\n"),
+		})
+		hashWithout := computeHashForFiles(t, map[string][]byte{
+			"web.container": []byte("[Container]\nImage=nginx:latest\n"),
+		})
+		require.Equal(hashWithout, hashWithExtra)
+	})
+
+	t.Run("When file content changes it should produce a different hash", func(t *testing.T) {
+		require := require.New(t)
+		hashV1 := computeHashForFiles(t, map[string][]byte{
+			"web.container": []byte("[Container]\nImage=nginx:latest\n"),
+		})
+		hashV2 := computeHashForFiles(t, map[string][]byte{
+			"web.container": []byte("[Container]\nImage=nginx:v2\n"),
+		})
+		require.NotEqual(hashV1, hashV2)
+	})
+
+	t.Run("When no quadlet files exist it should produce a zero hash", func(t *testing.T) {
+		hash := computeHashForFiles(t, map[string][]byte{
+			".env":     []byte("FOO=bar\n"),
+			"pod.yaml": []byte("apiVersion: v1\n"),
+		})
+		// CRC32 of empty input is "00000000"
+		require.Equal(t, "00000000", hash)
+	})
 }
 
 func TestInstallQuadletWritesHashFileAndVersionKey(t *testing.T) {
@@ -2675,9 +2659,9 @@ func TestInstallQuadletWritesHashFileAndVersionKey(t *testing.T) {
 	hash := strings.TrimSpace(string(hashContent))
 	require.Len(hash, 8, "CRC32 hash should be 8 hex chars")
 
-	// Verify Documentation= with hash URI is in the drop-in file
+	// Verify X-FlightctlVersion is in the drop-in file
 	dropInContent, err := rw.ReadFile(filepath.Join(appPath, "myapp-.container.d", quadletDropInFile))
 	require.NoError(err)
 	contentStr := string(dropInContent)
-	require.Contains(contentStr, "Documentation="+lifecycle.QuadletHashURIPrefix+hash)
+	require.Contains(contentStr, lifecycle.QuadletVersionKey+"="+hash)
 }

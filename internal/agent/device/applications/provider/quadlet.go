@@ -839,7 +839,7 @@ func (q *quadletInstaller) createQuadletDropIn(extension string, hasEnvFile bool
 	unit.Add("Unit", "PartOf", quadlet.NamespaceResource(q.appID, lifecycle.QuadletTargetName))
 
 	if contentHash != "" {
-		unit.Add("Unit", "Documentation", lifecycle.QuadletHashURIPrefix+contentHash)
+		unit.Add("Unit", lifecycle.QuadletVersionKey, contentHash)
 	}
 
 	// add label for tracking quadlet events by app id

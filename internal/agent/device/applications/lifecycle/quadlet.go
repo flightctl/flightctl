@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/internal/quadlet"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/userutil"
 )
 
 const (
@@ -450,16 +451,28 @@ func targetName(appID string) (string, error) {
 	return quadlet.NamespaceResource(appID, QuadletTargetName), nil
 }
 
-// QuadletHashURIPrefix is the URI scheme used in the Documentation= field
-// of the flightctl drop-in to embed the content hash of quadlet source files.
-const QuadletHashURIPrefix = "flightctl:hash:"
+// QuadletVersionKey is the X- key added to the [Unit] section of the flightctl drop-in.
+const QuadletVersionKey = "X-FlightctlVersion"
 
 // QuadletHashFile is the file where the content hash of quadlet source files is stored.
 const QuadletHashFile = ".flightctl-quadlet-hash"
 
-// verifyQuadletGeneration compares the hash embedded in the Documentation=
-// property of generated .service file(s) against the expected hash on disk.
-// Missing hash file or missing hash URI is allowed for backwards compatibility.
+// generatorOutputPath returns the directory where the systemd Quadlet generator
+// writes generated .service files.
+func generatorOutputPath(user v1beta1.Username) string {
+	if user.IsCurrentProcessUser() || user.IsRootUser() {
+		return "/run/systemd/generator"
+	}
+	uid, _, _, err := userutil.LookupUser(user)
+	if err != nil {
+		return "/run/systemd/generator"
+	}
+	return fmt.Sprintf("/run/user/%d/systemd/generator", uid)
+}
+
+// verifyQuadletGeneration compares the X-FlightctlVersion hash in the
+// generated .service file(s) against the expected hash on disk.
+// Missing hash file or missing key is allowed for backwards compatibility.
 func (q *Quadlet) verifyQuadletGeneration(ctx context.Context, action Action, services []string, systemctl systemd.Manager, batchTime time.Time) error {
 	rw, err := q.rwFactory(action.User)
 	if err != nil {
@@ -480,36 +493,55 @@ func (q *Quadlet) verifyQuadletGeneration(ctx context.Context, action Action, se
 		return nil
 	}
 
-	expectedURI := QuadletHashURIPrefix + expectedHash
+	genDir := generatorOutputPath(action.User)
 	for _, service := range services {
 		if filepath.Ext(service) == ".target" {
 			continue
 		}
 
-		lines, err := systemctl.Show(ctx, service, client.WithShowDocumentation())
+		servicePath := filepath.Join(genDir, service)
+		content, err := rw.ReadFile(servicePath)
 		if err != nil {
-			return fmt.Errorf("querying unit %s for hash verification: %w", service, err)
-		}
-
-		doc := strings.Join(lines, " ")
-		if !strings.Contains(doc, QuadletHashURIPrefix) {
-			q.log.Debugf("No %s URI found in unit %s, allowing", QuadletHashURIPrefix, service)
+			q.log.Warnf("Cannot read generated service file %s for hash verification: %v", servicePath, err)
 			continue
 		}
 
-		if !strings.Contains(doc, expectedURI) {
-			q.log.Infof("Quadlet generation verification failed for %s: expected URI %s not found in Documentation=%s", service, expectedURI, doc)
+		unit, err := quadlet.NewUnit(content)
+		if err != nil {
+			q.log.Warnf("Cannot parse generated service file %s for hash verification: %v", servicePath, err)
+			continue
+		}
 
+		actualHash, err := unit.Lookup("Unit", QuadletVersionKey)
+		if err != nil {
+			q.log.Debugf("No %s key found in unit %s, allowing", QuadletVersionKey, service)
+			continue
+		}
+
+		if actualHash != expectedHash {
+			q.log.Infof("Quadlet generation verification failed for %s: expected hash %s, got %s", service, expectedHash, actualHash)
+
+			var logExcerpt string
 			generatorLogs, logsErr := systemctl.Logs(ctx, client.WithLogTag("quadlet-generator"), client.WithLogSince(batchTime))
 			if logsErr != nil {
 				q.log.Warnf("Failed to fetch quadlet-generator logs: %v", logsErr)
 			}
 			if len(generatorLogs) > 0 {
-				q.log.Errorf("Quadlet generator output:\n%s", strings.Join(generatorLogs, "\n"))
+				const maxLogLines = 20
+				bounded := generatorLogs
+				if len(bounded) > maxLogLines {
+					bounded = bounded[len(bounded)-maxLogLines:]
+				}
+				logExcerpt = strings.Join(bounded, "\n")
+				q.log.Infof("Quadlet generator output (last %d lines):\n%s", len(bounded), logExcerpt)
 			}
 
-			return fmt.Errorf("quadlet service generation failed for %w: check the syntax of the quadlet source files",
+			err := fmt.Errorf("quadlet service generation failed for %w: check the syntax of the quadlet source files",
 				errors.WithElement(action.Name))
+			if logExcerpt != "" {
+				err = fmt.Errorf("%w\ngenerator output:\n%s", err, logExcerpt)
+			}
+			return err
 		}
 		q.log.Debugf("Quadlet hash verification passed for %s: %s", service, expectedHash)
 	}
