@@ -163,7 +163,9 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	serviceClient.Start(ctx)
+	if err := serviceClient.Start(ctx); err != nil {
+		log.Fatalf("failed to start service client: %v", err)
+	}
 	defer serviceClient.Stop()
 
 	// Create simulator fleet configuration

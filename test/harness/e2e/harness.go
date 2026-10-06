@@ -197,33 +197,42 @@ func (h *Harness) RefreshClient() error {
 	if err != nil {
 		return fmt.Errorf("failed to recreate client: %w", err)
 	}
-	if h.clientWrapper != nil {
-		h.clientWrapper.Stop()
-	}
-	c.Start(h.Context)
-	h.clientWrapper = c
-	h.Client = c.ClientWithResponses
 
 	config, err := client.ParseConfigFile(baseDir)
 	if err != nil {
 		return fmt.Errorf("failed to parse config for imagebuilder client: %w", err)
 	}
 	imageBuilderServer := config.GetImageBuilderServer()
+	var ibClient *client.ImageBuilderClient
 	if imageBuilderServer != "" {
-		if h.ImageBuilderClient != nil {
-			h.ImageBuilderClient.Stop()
-		}
-		ibClient, err := client.NewImageBuilderClientFromConfig(config, baseDir, imageBuilderServer, config.Organization)
+		ibClient, err = client.NewImageBuilderClientFromConfig(config, baseDir, imageBuilderServer, config.Organization)
 		if err != nil {
 			return fmt.Errorf("failed to recreate imagebuilder client: %w", err)
 		}
-		ibClient.Start(h.Context)
-		h.ImageBuilderClient = ibClient
-	} else {
-		if h.ImageBuilderClient != nil {
-			h.ImageBuilderClient.Stop()
+	}
+
+	if err := c.Start(h.Context); err != nil {
+		c.Stop()
+		return fmt.Errorf("failed to start client: %w", err)
+	}
+	if ibClient != nil {
+		if err := ibClient.Start(h.Context); err != nil {
+			ibClient.Stop()
+			c.Stop()
+			return fmt.Errorf("failed to start imagebuilder client: %w", err)
 		}
-		h.ImageBuilderClient = nil
+	}
+
+	oldClientWrapper := h.clientWrapper
+	oldImageBuilderClient := h.ImageBuilderClient
+	h.clientWrapper = c
+	h.Client = c.ClientWithResponses
+	h.ImageBuilderClient = ibClient
+	if oldClientWrapper != nil {
+		oldClientWrapper.Stop()
+	}
+	if oldImageBuilderClient != nil {
+		oldImageBuilderClient.Stop()
 	}
 
 	logrus.Infof("Refreshed FlightCtl API client from config file")
@@ -1792,8 +1801,15 @@ func newTestHarnessBase(ctx context.Context) (*Harness, error) {
 		return nil, fmt.Errorf("failed to create git work directory: %w", err)
 	}
 
-	c.Start(ctx)
-	ibClient.Start(ctx)
+	if err := c.Start(ctx); err != nil {
+		cancel()
+		return nil, fmt.Errorf("failed to start client: %w", err)
+	}
+	if err := ibClient.Start(ctx); err != nil {
+		c.Stop()
+		cancel()
+		return nil, fmt.Errorf("failed to start imagebuilder client: %w", err)
+	}
 
 	h := &Harness{
 		Client:             c.ClientWithResponses,
