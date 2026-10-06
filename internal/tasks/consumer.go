@@ -112,12 +112,16 @@ func (d TaskConsumer) dispatch() queues.ConsumeHandler {
 			})
 			errorMessages = appendErrorMessage(errorMessages, taskName, ownershipErr)
 		}
-		if shouldRolloutFleet(ctx, eventWithOrgId.Event, log) && ownershipErr == nil {
-			taskName = "fleetRollout"
-			err = runTaskWithMetrics(taskName, d.WorkerMetrics, func() error {
-				return fleetRollout(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, d.FleetSvc, d.TemplateversionSvc, d.DeviceSvc, d.DependencyrefSvc, log)
-			})
-			errorMessages = appendErrorMessage(errorMessages, taskName, err)
+		if shouldRolloutFleet(ctx, eventWithOrgId.Event, log) {
+			if ownershipErr != nil {
+				log.WithError(ownershipErr).Warn("skipping fleet rollout because device ownership reconciliation failed")
+			} else {
+				taskName = "fleetRollout"
+				err = runTaskWithMetrics(taskName, d.WorkerMetrics, func() error {
+					return fleetRollout(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, d.FleetSvc, d.TemplateversionSvc, d.DeviceSvc, d.DependencyrefSvc, log)
+				})
+				errorMessages = appendErrorMessage(errorMessages, taskName, err)
+			}
 		}
 		if shouldReconcileDeviceLabels(ctx, eventWithOrgId.Event) {
 			taskName = "deviceLabelReconciliation"
