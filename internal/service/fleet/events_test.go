@@ -41,6 +41,28 @@ func TestEmitFleetUpdatedEvent(t *testing.T) {
 		require.Equal(t, domain.EventReasonResourceCreated, ev.created[0].Reason)
 	})
 
+	t.Run("When delta generation is disabled with a template change it should retain generic and template fields", func(t *testing.T) {
+		ev := &fakeEventsService{}
+		name := "f1"
+		oldFleet := prepareTestFleetForEvents(name)
+		newFleet := prepareTestFleetForEvents(name)
+		oldFleet.Metadata.Generation = lo.ToPtr(int64(1))
+		newFleet.Metadata.Generation = lo.ToPtr(int64(2))
+		disabled := false
+		newFleet.Spec.RolloutPolicy = &domain.RolloutPolicy{
+			DeltaGeneration: &domain.RolloutPolicyDeltaGeneration{GenerateDelta: &disabled},
+		}
+		newFleet.Spec.Template.Spec.Os = &domain.DeviceOsSpec{Image: "img-v2"}
+
+		EmitFleetUpdatedEvent(context.Background(), ev, logrus.New(), domain.FleetKind, uuid.New(), name, oldFleet, newFleet, false, nil)
+
+		require.Len(t, ev.created, 1)
+		updated, err := ev.created[0].Details.AsResourceUpdatedDetails()
+		require.NoError(t, err)
+		require.Contains(t, updated.UpdatedFields, domain.Spec)
+		require.Contains(t, updated.UpdatedFields, domain.SpecTemplate)
+	})
+
 	t.Run("When the fleet-valid condition transitions to true it should emit a FleetValid event", func(t *testing.T) {
 		ev := &fakeEventsService{}
 		name := "f1"

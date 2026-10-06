@@ -12,6 +12,7 @@ import (
 	deltamodel "github.com/flightctl/flightctl/internal/delta_worker/model"
 	deltastore "github.com/flightctl/flightctl/internal/delta_worker/store/deltageneration"
 	"github.com/flightctl/flightctl/internal/kvstore"
+	"github.com/flightctl/flightctl/internal/oci"
 	"github.com/flightctl/flightctl/internal/rendered"
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	dependencyrefservice "github.com/flightctl/flightctl/internal/service/dependencyref"
@@ -1278,7 +1279,7 @@ var _ = Describe("DeviceRender", func() {
 	})
 
 	Context("OS delta hint after prepare resume", func() {
-		It("When a succeeded generation exists GetRenderedDevice should expose deltaImage and IEC updated size", func() {
+		It("When a succeeded generation exists GetRenderedDevice should expose deltaImage and deltaSize", func() {
 			const (
 				srcDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 				tgtDigest = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
@@ -1321,6 +1322,13 @@ var _ = Describe("DeviceRender", func() {
 				SizeBytes:       &sizeBytes,
 			}})
 			Expect(err).ToNot(HaveOccurred())
+			_, err = oci.CachedImageDigestPair(
+				ctx, logrus.New(), kvStoreInst, orgId, osImage, srcDigest, nil, 15*time.Minute, nil,
+				func(context.Context, string) (oci.ImageDigestPair, error) {
+					return oci.ImageDigestPair{SourceDigest: srcDigest, TargetDigest: tgtDigest}, nil
+				},
+			)
+			Expect(err).ToNot(HaveOccurred())
 
 			event := api.Event{
 				Reason:         api.EventReasonResourceUpdated,
@@ -1337,8 +1345,9 @@ var _ = Describe("DeviceRender", func() {
 			Expect(renderedDevice.Spec.Os).ToNot(BeNil())
 			Expect(lo.FromPtr(renderedDevice.Spec.Os.DeltaImage)).To(Equal(deltaRef))
 			Expect(renderedDevice.Status).ToNot(BeNil())
-			Expect(renderedDevice.Status.Os.LastDelta).ToNot(BeNil())
-			Expect(lo.FromPtr(renderedDevice.Status.Os.LastDelta.Size)).To(Equal("45 MiB"))
+			Expect(renderedDevice.Status.Os.DeltaSize).ToNot(BeNil())
+			Expect(lo.FromPtr(renderedDevice.Status.Os.DeltaSize)).To(Equal("45 MiB"))
+			Expect(renderedDevice.Status.Os.LastDelta).To(BeNil())
 		})
 	})
 

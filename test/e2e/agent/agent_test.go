@@ -223,8 +223,10 @@ var _ = Describe("VM Agent behavior", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			var newImageReference string
+			var currentImageReference string
 			err = harness.UpdateDeviceWithRetries(deviceId, func(device *v1beta1.Device) {
 				currentImage := device.Status.Os.Image
+				currentImageReference = currentImage
 				GinkgoWriter.Printf("Current image for %s is %s\n", deviceId, currentImage)
 				repo, _ := parseImageReference(currentImage)
 				newImageReference = repo + ":not-existing"
@@ -232,6 +234,24 @@ var _ = Describe("VM Agent behavior", func() {
 				GinkgoWriter.Printf("Updating %s to image %s\n", deviceId, device.Spec.Os.Image)
 			})
 			Expect(err).ToNot(HaveOccurred())
+
+			// The previous successful update can still be reported as Updated at
+			// previousRenderedVersion. Require this attempted version to start before
+			// accepting its error or rollback status below.
+			harness.WaitForDeviceContents(deviceId, fmt.Sprintf("device should start updating to renderedVersion: %d", newRenderedVersion),
+				func(device *v1beta1.Device) bool {
+					if device == nil || device.Status == nil {
+						return false
+					}
+					if device.Metadata.Annotations == nil ||
+						(*device.Metadata.Annotations)[v1beta1.DeviceAnnotationRenderedVersion] != strconv.Itoa(newRenderedVersion) {
+						return false
+					}
+					condition := v1beta1.FindStatusCondition(device.Status.Conditions, v1beta1.ConditionTypeDeviceUpdating)
+					return condition != nil &&
+						condition.Status == v1beta1.ConditionStatusTrue &&
+						condition.Reason == string(v1beta1.UpdateStatePreparing)
+				}, TIMEOUT)
 
 			harness.WaitForDeviceContents(deviceId, fmt.Sprintf("device should report update error or rollback for renderedVersion: %s", strconv.Itoa(newRenderedVersion)),
 				func(device *v1beta1.Device) bool {
@@ -254,6 +274,9 @@ var _ = Describe("VM Agent behavior", func() {
 				err := configProviderSpec.FromGitConfigProviderSpec(gitConfigInvalidRepo)
 				Expect(err).ToNot(HaveOccurred())
 
+				// The failed-image step leaves this image in the spec. Restore the
+				// last known-good image so it cannot block Git config validation.
+				device.Spec.Os = &v1beta1.DeviceOsSpec{Image: currentImageReference}
 				device.Spec.Config = &[]v1beta1.ConfigProviderSpec{configProviderSpec}
 				GinkgoWriter.Printf("Updating %s with config %s\n", deviceId, device.Spec.Config)
 			})

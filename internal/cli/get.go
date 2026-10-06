@@ -502,7 +502,9 @@ func (o *GetOptions) createMainAPIFetchers(ctx context.Context, kind ResourceKin
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("creating client: %w", err)
 	}
-	c.Start(ctx)
+	if err := c.Start(ctx); err != nil {
+		return nil, nil, nil, err
+	}
 
 	listFetcher := func() (interface{}, error) {
 		response, err := o.getResourceList(ctx, c, kind)
@@ -535,7 +537,9 @@ func (o *GetOptions) createImageBuilderFetchers(ctx context.Context, kind Resour
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("creating imagebuilder client: %w", err)
 	}
-	c.Start(ctx)
+	if err := c.Start(ctx); err != nil {
+		return nil, nil, nil, err
+	}
 
 	var listFetcher ListFetcher
 	var singleFetcher SingleFetcher
@@ -942,7 +946,7 @@ func getListMetadata(response interface{}) (*listMeta, int, error) {
 	}
 
 	v := reflect.ValueOf(json200)
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		if v.IsNil() {
 			return nil, 0, fmt.Errorf("JSON200 pointer is nil")
 		}

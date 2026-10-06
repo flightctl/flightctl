@@ -7,36 +7,19 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
-	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/api/common"
+	"github.com/flightctl/flightctl/internal/appspec"
 )
 
 const (
 	ComposeOverrideFilename      = "99-compose-flightctl-agent.override.yaml"
 	ComposeDockerProjectLabelKey = "com.docker.compose.project"
 	defaultPodmanTimeout         = 10 * time.Minute
-)
-
-var (
-	BaseComposeFiles = []string{
-		"docker-compose.yaml",
-		"docker-compose.yml",
-		"podman-compose.yaml",
-		"podman-compose.yml",
-	}
-
-	OverrideComposeFiles = []string{
-		"docker-compose.override.yaml",
-		"docker-compose.override.yml",
-		"podman-compose.override.yaml",
-		"podman-compose.override.yml",
-	}
 )
 
 type Compose struct {
@@ -46,8 +29,8 @@ type Compose struct {
 // UpFromWorkDir runs `podman compose up -d` from the given workDir using Compose file layering.
 //
 // It searches for Compose files in the following order:
-//  1. One base file (required), chosen from BaseComposeFiles.
-//  2. One standard override file (optional), chosen from OverrideComposeFiles.
+//  1. One base file (required), chosen from appspec.BaseComposeFiles.
+//  2. One standard override file (optional), chosen from appspec.OverrideComposeFiles.
 //  3. An optional flightctl override file (ComposeOverrideFilename) if present.
 //
 // The method builds the final compose command by layering the discovered files in order.
@@ -60,7 +43,7 @@ func (p *Compose) UpFromWorkDir(ctx context.Context, workDir, projectName string
 
 	// base compose file is required
 	baseFound := false
-	for _, file := range BaseComposeFiles {
+	for _, file := range appspec.BaseComposeFiles {
 		path := filepath.Join(workDir, file)
 		found, err := p.readWriter.PathExists(path)
 		if err != nil {
@@ -77,7 +60,7 @@ func (p *Compose) UpFromWorkDir(ctx context.Context, workDir, projectName string
 	}
 
 	// check for override (optional)
-	for _, file := range OverrideComposeFiles {
+	for _, file := range appspec.OverrideComposeFiles {
 		path := filepath.Join(workDir, file)
 		found, err := p.readWriter.PathExists(path)
 		if err != nil {
@@ -190,75 +173,18 @@ func ParseComposeSpecFromDir(reader fileio.Reader, dir string) (*common.ComposeS
 	}
 
 	// ensure base
-	found, err := readFirstExistingFile(BaseComposeFiles, dir, reader, spec)
+	found, err := readFirstExistingFile(appspec.BaseComposeFiles, dir, reader, spec)
 	if err != nil {
 		return nil, err
 	}
 	if !found {
-		return nil, fmt.Errorf("%w found in: %s supported file names: %s", errors.ErrNoComposeFile, dir, strings.Join(BaseComposeFiles, ", "))
+		return nil, fmt.Errorf("%w found in: %s supported file names: %s", errors.ErrNoComposeFile, dir, strings.Join(appspec.BaseComposeFiles, ", "))
 	}
 
 	// merge override
-	_, err = readFirstExistingFile(OverrideComposeFiles, dir, reader, spec)
+	_, err = readFirstExistingFile(appspec.OverrideComposeFiles, dir, reader, spec)
 	if err != nil {
 		return nil, err
-	}
-
-	if len(spec.Services) == 0 {
-		return nil, errors.ErrNoComposeServices
-	}
-
-	return spec, nil
-}
-
-// ParseComposeSpecFromSpec parses a Compose specification from a slice of inline application content,
-// as used in inline application providers.
-func ParseComposeFromSpec(contents []v1beta1.ApplicationContent) (*common.ComposeSpec, error) {
-	spec := &common.ComposeSpec{
-		Services: make(map[string]common.ComposeService),
-		Volumes:  make(map[string]common.ComposeVolume),
-	}
-
-	var baseFound bool
-	for _, c := range contents {
-		filename := c.Path
-		if filename == "" {
-			continue
-		}
-
-		contentBytes, err := c.ContentsDecoded()
-		if err != nil {
-			return nil, fmt.Errorf("decoding content %q: %w", filename, err)
-		}
-
-		isBase := slices.Contains(BaseComposeFiles, filename)
-		isOverride := slices.Contains(OverrideComposeFiles, filename)
-
-		if !isBase && !isOverride {
-			continue
-		}
-
-		partial, err := common.ParseComposeSpec(contentBytes)
-		if err != nil {
-			return nil, fmt.Errorf("parsing compose spec from %q: %w", filename, err)
-		}
-
-		// First match from BaseComposeFiles takes precedence
-		if isBase && !baseFound {
-			maps.Copy(spec.Services, partial.Services)
-			maps.Copy(spec.Volumes, partial.Volumes)
-			baseFound = true
-			continue
-		}
-
-		if isOverride && baseFound {
-			maps.Copy(spec.Services, partial.Services)
-			maps.Copy(spec.Volumes, partial.Volumes)
-		}
-	}
-
-	if !baseFound {
-		return nil, fmt.Errorf("%w: no base compose file found in inline spec (expected one of: %s)", errors.ErrNoComposeFile, strings.Join(BaseComposeFiles, ", "))
 	}
 
 	if len(spec.Services) == 0 {

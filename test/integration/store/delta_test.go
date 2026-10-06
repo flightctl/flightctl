@@ -447,10 +447,10 @@ var _ = Describe("Delta stores", func() {
 			fleetPrep := fleetPrepare("shared", nil)
 			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, fleetPrep)).To(Succeed())
 			devicePrep := &model.DeltaPrepare{
-				OrgID:    orgId,
-				Kind:     domain.DeviceKind,
-				Name:     "shared",
-				SpecHash: lo.ToPtr("spec-hash"),
+				OrgID:      orgId,
+				Kind:       domain.DeviceKind,
+				Name:       "shared",
+				Generation: lo.ToPtr(int64(2)),
 			}
 			Expect(deltaPrepareStore.CreateDeltaPrepare(ctx, devicePrep)).To(Succeed())
 
@@ -461,6 +461,7 @@ var _ = Describe("Delta stores", func() {
 			gotDevice, err := deltaPrepareStore.GetDeltaPrepareByID(ctx, devicePrep.ID)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(gotDevice.Kind).To(Equal(domain.DeviceKind))
+			Expect(gotDevice.Generation).To(Equal(devicePrep.Generation))
 		})
 	})
 
@@ -571,15 +572,15 @@ var _ = Describe("Delta stores", func() {
 		Entry("negative", int64(-1)),
 	)
 
-	DescribeTable("When admitting a prepare with a conflicting identity", func(templateVersion, specHash string) {
+	DescribeTable("When admitting a prepare with a conflicting identity", func(kind, templateVersion string, generation int64) {
 		baseTemplateVersion := "v1"
-		baseSpecHash := "hash-1"
+		baseGeneration := int64(1)
 		base := &model.DeltaPrepare{
 			OrgID:                 orgId,
-			Kind:                  domain.FleetKind,
+			Kind:                  kind,
 			Name:                  "conflicting-identity",
 			TemplateVersion:       &baseTemplateVersion,
-			SpecHash:              &baseSpecHash,
+			Generation:            &baseGeneration,
 			SourceResourceVersion: 1,
 		}
 		_, err := deltaPrepareStore.CreateOrReplaceWaitingDeltaPrepare(ctx, base)
@@ -587,17 +588,17 @@ var _ = Describe("Delta stores", func() {
 
 		incoming := &model.DeltaPrepare{
 			OrgID:                 orgId,
-			Kind:                  domain.FleetKind,
+			Kind:                  kind,
 			Name:                  base.Name,
 			TemplateVersion:       &templateVersion,
-			SpecHash:              &specHash,
+			Generation:            &generation,
 			SourceResourceVersion: base.SourceResourceVersion,
 		}
 		_, err = deltaPrepareStore.CreateOrReplaceWaitingDeltaPrepare(ctx, incoming)
 		Expect(err).To(MatchError("conflicting delta prepares have source resource version 1"))
 	},
-		Entry("different template version", "v2", "hash-1"),
-		Entry("different spec hash", "v1", "hash-2"),
+		Entry("different template version", domain.FleetKind, "v2", int64(1)),
+		Entry("different device generation", domain.DeviceKind, "v1", int64(2)),
 	)
 
 	Context("When updating a waiting prepare to complete", func() {

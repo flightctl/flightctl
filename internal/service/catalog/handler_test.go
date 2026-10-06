@@ -86,6 +86,10 @@ func (f *fakeDeviceStore) Mutate(context.Context, uuid.UUID, string, *domain.Dev
 func (f *fakeDeviceStore) UpdateStatus(context.Context, uuid.UUID, *domain.Device, *domain.Device) (*domain.Device, *domain.Device, error) {
 	panic("not implemented")
 }
+func (f *fakeDeviceStore) ClearDeltaPreparingIfCurrent(context.Context, uuid.UUID, string, int64) (bool, error) {
+	panic("not implemented")
+}
+
 func (f *fakeDeviceStore) ReplaceServiceOwnedStatus(context.Context, uuid.UUID, *domain.Device) (*domain.Device, *domain.Device, error) {
 	panic("not implemented")
 }
@@ -93,6 +97,15 @@ func (f *fakeDeviceStore) UpdateAnnotations(context.Context, uuid.UUID, string, 
 	panic("not implemented")
 }
 func (f *fakeDeviceStore) Get(context.Context, uuid.UUID, string) (*domain.Device, error) {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) GetLabelSnapshot(context.Context, uuid.UUID, string) (domain.DeviceLabelSnapshot, error) {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) GetLabelSyncMappingIDsByKeys(context.Context, uuid.UUID, []string) (map[string][]uuid.UUID, error) {
+	panic("not implemented")
+}
+func (f *fakeDeviceStore) ApplyLabels(context.Context, uuid.UUID, string, domain.DeviceLabelSnapshot, map[string]domain.DesiredDeviceLabel) (domain.DeviceLabelApplyResult, error) {
 	panic("not implemented")
 }
 func (f *fakeDeviceStore) List(context.Context, uuid.UUID, devicestore.DeviceListParams) (*domain.DeviceList, error) {

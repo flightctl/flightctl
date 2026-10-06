@@ -57,11 +57,24 @@ func (m *MockDevice) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *
 func (m *MockDevice) ReplaceServiceOwnedStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device) (*domain.Device, *domain.Device, error) {
 	return nil, nil, nil
 }
+func (m *MockDevice) ClearDeltaPreparingIfCurrent(context.Context, uuid.UUID, string, int64) (bool, error) {
+	return false, nil
+}
+
 func (m *MockDevice) UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error {
 	return nil
 }
 func (m *MockDevice) Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error) {
 	return nil, nil
+}
+func (m *MockDevice) GetLabelSnapshot(ctx context.Context, orgId uuid.UUID, name string) (domain.DeviceLabelSnapshot, error) {
+	return domain.DeviceLabelSnapshot{}, nil
+}
+func (m *MockDevice) GetLabelSyncMappingIDsByKeys(context.Context, uuid.UUID, []string) (map[string][]uuid.UUID, error) {
+	return map[string][]uuid.UUID{}, nil
+}
+func (m *MockDevice) ApplyLabels(ctx context.Context, orgId uuid.UUID, name string, snapshot domain.DeviceLabelSnapshot, desired map[string]domain.DesiredDeviceLabel) (domain.DeviceLabelApplyResult, error) {
+	return domain.DeviceLabelApplyResult{}, nil
 }
 func (m *MockDevice) List(ctx context.Context, orgId uuid.UUID, listParams devicestore.DeviceListParams) (*domain.DeviceList, error) {
 	return nil, nil

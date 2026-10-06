@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -35,6 +36,7 @@ type AccessTokenRefresher struct {
 	callbackPort   int
 	cancel         context.CancelFunc
 	stopped        bool
+	startErr       error
 }
 
 // NewAccessTokenRefresher creates a new AccessTokenRefresher instance
@@ -132,6 +134,14 @@ func isExpiredTokenError(err error) bool {
 	return strings.Contains(err.Error(), "invalid_grant")
 }
 
+// ErrSessionExpired is returned when the configured refresh token is no longer
+// valid and the caller must authenticate again.
+var ErrSessionExpired = errors.New("Your session has expired. Please log in again using: flightctl login <server>")
+
+func reportSessionExpired() {
+	fmt.Fprintln(os.Stderr, "Error:", ErrSessionExpired)
+}
+
 // refresh renews the access token with the auth provider and persists the
 // updated config when a config file path is set.
 func (r *AccessTokenRefresher) refresh() error {
@@ -178,7 +188,7 @@ func (r *AccessTokenRefresher) refreshLoop(ctx context.Context) {
 		case <-ticker.C:
 			if err := r.refresh(); err != nil {
 				if isExpiredTokenError(err) {
-					fmt.Fprintln(os.Stderr, "Error: Your session has expired. Please log in again using: flightctl login <server>")
+					reportSessionExpired()
 				} else {
 					r.log.Errorf("failed to renew token: %v", err)
 				}
@@ -196,7 +206,7 @@ func (r *AccessTokenRefresher) refreshLoop(ctx context.Context) {
 // The provided context is used as the parent context for the refresh loop.
 // When the context is cancelled, the refresh loop will stop.
 // If Stop has already been called, Start does not launch the loop.
-func (r *AccessTokenRefresher) Start(ctx context.Context) {
+func (r *AccessTokenRefresher) Start(ctx context.Context) error {
 	r.once.Do(func() {
 		r.log = flightlog.InitLogs()
 		if r.isStopped() {
@@ -208,16 +218,16 @@ func (r *AccessTokenRefresher) Start(ctx context.Context) {
 			return
 		}
 		if err := r.init(); err != nil {
-			r.log.WithError(err).Error("failed to initialize authorizer")
+			r.startErr = fmt.Errorf("failed to initialize authorizer: %w", err)
 			return
 		}
 		expireTime, err := r.parseExpireTime()
 		if err != nil || r.shouldRefresh(expireTime) {
 			if err := r.refresh(); err != nil {
 				if isExpiredTokenError(err) {
-					fmt.Fprintln(os.Stderr, "Error: Your session has expired. Please log in again using: flightctl login <server>")
+					r.startErr = ErrSessionExpired
 				} else {
-					r.log.WithError(err).Error("failed to refresh access token")
+					r.startErr = fmt.Errorf("failed to refresh access token: %w", err)
 				}
 				return
 			}
@@ -229,6 +239,7 @@ func (r *AccessTokenRefresher) Start(ctx context.Context) {
 		}
 		go r.refreshLoop(ctx)
 	})
+	return r.startErr
 }
 
 // Stop stops the token refresh loop. It records a stopped state even if the

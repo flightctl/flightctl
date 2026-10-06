@@ -22,10 +22,19 @@ spec:
         app.kubernetes.io/instance: {{ $.Release.Name }}
         app.kubernetes.io/component: {{ .name }}
     spec:
+      {{ if $.Values.initContainer.enabled }}
+      initContainers:
+        - name: {{ $.Chart.Name }}-init
+          image: {{ $.Values.initContainer.image | quote }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          {{- include "test-app.containerSecurityContext" $ | nindent 10 }}
+          command: ["sh", "-c", "echo init complete"]
+      {{ end }}
       containers:
         - name: {{ $.Chart.Name }}
           image: "{{ $.Values.image.repository }}:{{ $.Values.image.tag }}"
           imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          {{- include "test-app.containerSecurityContext" $ | nindent 10 }}
           env:
             - name: MESSAGE
               value: {{ quote .message }}
@@ -45,4 +54,11 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+      {{ if $.Values.sidecar.enabled }}
+        - name: {{ $.Chart.Name }}-sidecar
+          image: {{ $.Values.sidecar.image | quote }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          {{- include "test-app.containerSecurityContext" $ | nindent 10 }}
+          command: ["sh", "-c", "sleep infinity"]
+      {{ end }}
 {{- end }}

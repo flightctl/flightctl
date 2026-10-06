@@ -409,21 +409,30 @@ func (c *imageBuilderWorkerConfig) EffectiveSyftSkipTLSVerify() bool {
 
 const DefaultVirtLauncherImage = "quay.io/kubevirt/virt-launcher:v1.9.0"
 
-// DefaultRenderTimeout is the default time budget for a single device render
-// operation (config + application rendering + DB writes). It replaces the
-// shared EventProcessingTimeout for render tasks so that devices with
-// multiple VM applications have enough time for sequential vm-to-quadlet
-// subprocess invocations.
-const DefaultRenderTimeout = 60 * time.Second
+const (
+	// DefaultRenderTimeout is the default time budget for a single device render
+	// operation (config + application rendering + DB writes). It replaces the
+	// shared EventProcessingTimeout for render tasks so devices with multiple VM
+	// applications have enough time for sequential vm-to-quadlet subprocesses.
+	DefaultRenderTimeout = 60 * time.Second
+	// DefaultImageDigestCacheTTL is the default maximum age for cached OCI image
+	// digest resolutions used during delta preparation.
+	DefaultImageDigestCacheTTL = 15 * time.Minute
+	// DefaultHelmImageRefsCacheTTL is the default maximum age for cached Helm
+	// workload image references before the target chart is rendered again.
+	DefaultHelmImageRefsCacheTTL = 15 * time.Minute
+)
 
-// workerConfig holds configuration for the flightctl-worker service.
+// workerConfig holds runtime options shared by flightctl-worker and flightctl-delta-worker.
 type workerConfig struct {
-	RenderTimeout util.Duration   `json:"renderTimeout,omitempty"`
-	VmRender      *vmRenderConfig `json:"vmRender,omitempty"`
+	RenderTimeout         util.Duration   `json:"renderTimeout,omitempty"`
+	ImageDigestCacheTTL   util.Duration   `json:"imageDigestCacheTTL,omitempty"`
+	HelmImageRefsCacheTTL util.Duration   `json:"helmImageRefsCacheTTL,omitempty"`
+	VmRender              *vmRenderConfig `json:"vmRender,omitempty"`
 }
 
-// vmRenderConfig holds options for converting VmApplications to Quadlet units
-// via vm-to-quadlet.
+// vmRenderConfig holds shared options for converting VmApplications to Quadlet
+// units via vm-to-quadlet in both worker services.
 type vmRenderConfig struct {
 	LauncherImage    string            `json:"launcherImage,omitempty"`
 	LauncherImages   map[string]string `json:"launcherImages,omitempty"`
@@ -434,6 +443,8 @@ type vmRenderConfig struct {
 func NewDefaultWorkerConfig() *workerConfig {
 	passt := false
 	return &workerConfig{
+		ImageDigestCacheTTL:   util.Duration(DefaultImageDigestCacheTTL),
+		HelmImageRefsCacheTTL: util.Duration(DefaultHelmImageRefsCacheTTL),
 		VmRender: &vmRenderConfig{
 			LauncherImage:    DefaultVirtLauncherImage,
 			PasstWorkarounds: &passt,
@@ -467,6 +478,22 @@ func (c *Config) EffectiveRenderTimeout() time.Duration {
 	return c.Worker.EffectiveRenderTimeout()
 }
 
+// EffectiveImageDigestCacheTTL returns the maximum age for cached resolved image digests.
+func (c *Config) EffectiveImageDigestCacheTTL() time.Duration {
+	if c == nil || c.Worker == nil {
+		return DefaultImageDigestCacheTTL
+	}
+	return c.Worker.EffectiveImageDigestCacheTTL()
+}
+
+// EffectiveHelmImageRefsCacheTTL returns the maximum age for cached Helm workload image references.
+func (c *Config) EffectiveHelmImageRefsCacheTTL() time.Duration {
+	if c == nil || c.Worker == nil {
+		return DefaultHelmImageRefsCacheTTL
+	}
+	return c.Worker.EffectiveHelmImageRefsCacheTTL()
+}
+
 // EffectiveLauncherImage returns the virt-launcher image for osKey.
 func (c *workerConfig) EffectiveLauncherImage(osKey string) string {
 	if c == nil || c.VmRender == nil {
@@ -497,6 +524,22 @@ func (c *workerConfig) EffectiveRenderTimeout() time.Duration {
 		return time.Duration(c.RenderTimeout)
 	}
 	return DefaultRenderTimeout
+}
+
+// EffectiveImageDigestCacheTTL returns the configured image digest cache TTL.
+func (c *workerConfig) EffectiveImageDigestCacheTTL() time.Duration {
+	if c != nil && c.ImageDigestCacheTTL > 0 {
+		return time.Duration(c.ImageDigestCacheTTL)
+	}
+	return DefaultImageDigestCacheTTL
+}
+
+// EffectiveHelmImageRefsCacheTTL returns the configured Helm image refs cache TTL.
+func (c *workerConfig) EffectiveHelmImageRefsCacheTTL() time.Duration {
+	if c != nil && c.HelmImageRefsCacheTTL > 0 {
+		return time.Duration(c.HelmImageRefsCacheTTL)
+	}
+	return DefaultHelmImageRefsCacheTTL
 }
 
 // IsSBOMEnabled returns whether SBOM generation is enabled.

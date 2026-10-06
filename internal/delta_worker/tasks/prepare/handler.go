@@ -35,7 +35,7 @@ type Handler struct {
 
 type prepareIdentity struct {
 	templateVersion *string
-	specHash        *string
+	generation      *int64
 	resourceVersion int64
 }
 
@@ -107,7 +107,7 @@ func (p *Handler) Prepare(ctx context.Context, ev worker_client.EventWithOrgId) 
 		return nil
 	}
 	if prep.Status == model.DeltaPrepareComplete {
-		return p.emitPrepareCompletion(ctx, prep)
+		return p.emitStoredPrepareCompletion(ctx, prep)
 	}
 	return p.processCandidates(ctx, ev, identity, prep, result)
 }
@@ -159,7 +159,7 @@ func (p *Handler) processCandidates(ctx context.Context, ev worker_client.EventW
 		return nil
 	}
 	if updatedPrepare.Status == model.DeltaPrepareComplete {
-		return p.emitPrepareCompletion(ctx, &updatedPrepare)
+		return p.emitPrepareCompletion(ctx, &updatedPrepare, completed, len(keys))
 	}
 	if updatedPrepare.Status != model.DeltaPrepareWaiting {
 		return nil
@@ -177,7 +177,7 @@ func (p *Handler) processCandidates(ctx context.Context, ev worker_client.EventW
 		if err := p.enqueuePending(ctx, ev.OrgId, result.Fleet, pendingGenerationKeys(generations)); err != nil {
 			return err
 		}
-		return p.completeNow(ctx, prep)
+		return p.completeNow(ctx, prep, completed, len(keys))
 	}
 	// Persist the resource-side marker before publishing generation work. A
 	// generation can complete immediately after it is enqueued; the completion
@@ -211,7 +211,7 @@ func (p *Handler) admitPrepare(ctx context.Context, orgId uuid.UUID, kind, name 
 		Kind:                  kind,
 		Name:                  name,
 		TemplateVersion:       identity.templateVersion,
-		SpecHash:              identity.specHash,
+		Generation:            identity.generation,
 		SourceResourceVersion: identity.resourceVersion,
 		CreatedAt:             now,
 		Status:                model.DeltaPrepareWaiting,
@@ -245,13 +245,10 @@ func (p *Handler) finishSkip(ctx context.Context, orgId uuid.UUID, kind, name st
 			Kind:                  kind,
 			Name:                  name,
 			TemplateVersion:       identity.templateVersion,
-			SpecHash:              identity.specHash,
+			Generation:            identity.generation,
 			SourceResourceVersion: identity.resourceVersion,
 		}
-		if err := p.prepareService.SetDeltaPreparingStatus(ctx, completion, 0, 0); err != nil {
-			return fmt.Errorf("set skipped delta preparing status: %w", err)
-		}
-		return p.emitPrepareCompletion(ctx, completion)
+		return p.emitPrepareCompletion(ctx, completion, 0, 0)
 	}
 	if latest.SourceResourceVersion > identity.resourceVersion {
 		return nil
@@ -266,28 +263,18 @@ func (p *Handler) finishSkip(ctx context.Context, orgId uuid.UUID, kind, name st
 			return err
 		}
 	}
-	if latest.Status == model.DeltaPrepareComplete {
-		return p.emitPrepareCompletion(ctx, latest)
+	if latest.Status == model.DeltaPrepareComplete && latest.SourceResourceVersion == identity.resourceVersion {
+		return p.emitStoredPrepareCompletion(ctx, latest)
 	}
 	completion := &model.DeltaPrepare{
 		OrgID:                 orgId,
 		Kind:                  kind,
 		Name:                  name,
 		TemplateVersion:       identity.templateVersion,
-		SpecHash:              identity.specHash,
+		Generation:            identity.generation,
 		SourceResourceVersion: identity.resourceVersion,
 	}
-	if latest.SourceResourceVersion < identity.resourceVersion {
-		// A newer skip event can supersede a waiting prepare without going
-		// through admission, leaving the resource marker keyed to the older
-		// prepare. Re-establish the marker with the newer identity so the
-		// completion handler can perform its normal conditional cleanup. The
-		// status setter fences against a resource state newer than this event.
-		if err := p.prepareService.SetDeltaPreparingStatus(ctx, completion, 0, 0); err != nil {
-			return fmt.Errorf("rebind skipped delta preparing status: %w", err)
-		}
-	}
-	return p.emitPrepareCompletion(ctx, completion)
+	return p.emitPrepareCompletion(ctx, completion, 0, 0)
 }
 
 func (p *Handler) failWaiting(ctx context.Context, waiting *model.DeltaPrepare) error {
@@ -365,7 +352,7 @@ func (p *Handler) enqueuePending(ctx context.Context, orgId uuid.UUID, fleet *do
 	return nil
 }
 
-func (p *Handler) completeNow(ctx context.Context, prep *model.DeltaPrepare) error {
+func (p *Handler) completeNow(ctx context.Context, prep *model.DeltaPrepare, completed, total int) error {
 	prep.Status = model.DeltaPrepareComplete
 	updated, err := p.prepareService.UpdateDeltaPrepare(ctx, prep.ResourceVersion, prep)
 	if err != nil {
@@ -377,15 +364,35 @@ func (p *Handler) completeNow(ctx context.Context, prep *model.DeltaPrepare) err
 	if updated != nil {
 		prep = updated
 	}
-	return p.emitPrepareCompletion(ctx, prep)
+	return p.emitPrepareCompletion(ctx, prep, completed, total)
 }
 
-func (p *Handler) emitPrepareCompletion(ctx context.Context, prep *model.DeltaPrepare) error {
+func (p *Handler) emitPrepareCompletion(ctx context.Context, prep *model.DeltaPrepare, completed, total int) error {
+	// ResumeDeltaIfCurrent requires a resource-side preparing marker. Establish it
+	// before publishing completion on every path, including cached deltas,
+	// skipped deltas, and zero-wait prepares.
+	if err := p.prepareService.SetDeltaPreparingStatus(ctx, prep, completed, total); err != nil {
+		return fmt.Errorf("set delta preparing status before completion: %w", err)
+	}
 	event, err := deltaprepare.NewPrepareCompletionEvent(prep)
 	if err != nil {
 		return err
 	}
 	return p.emit(ctx, prep.OrgID, event)
+}
+
+func (p *Handler) emitStoredPrepareCompletion(ctx context.Context, prep *model.DeltaPrepare) error {
+	joins, err := p.prepareGenerationService.ListDeltaPrepareGenerations(ctx, deltapreparegenerationstore.ListFilter{PrepareID: &prep.ID})
+	if err != nil {
+		return fmt.Errorf("list generations for completed prepare %s: %w", prep.ID, err)
+	}
+	completed := 0
+	for _, join := range joins {
+		if join.Completed {
+			completed++
+		}
+	}
+	return p.emitPrepareCompletion(ctx, prep, completed, len(joins))
 }
 
 func (p *Handler) createPrepareGenerations(ctx context.Context, prepareID uuid.UUID, keys []deltagenerationstore.GenerationKey) (deltapreparegenerationstore.CreateDeltaPrepareGenerationsResult, error) {
@@ -451,24 +458,17 @@ func identityFromEvent(ev worker_client.EventWithOrgId) (prepareIdentity, error)
 		}
 		return prepareIdentity{templateVersion: details.TemplateVersion, resourceVersion: resourceVersion}, nil
 	case domain.DeviceKind:
-		if details.SpecHash == nil || *details.SpecHash == "" {
-			return prepareIdentity{}, fmt.Errorf("device prepare deltas event requires specHash")
+		if details.Generation == nil || *details.Generation <= 0 {
+			return prepareIdentity{}, fmt.Errorf("device prepare deltas event requires a positive generation")
 		}
-		return prepareIdentity{specHash: details.SpecHash, resourceVersion: resourceVersion}, nil
+		return prepareIdentity{generation: details.Generation, resourceVersion: resourceVersion}, nil
 	default:
 		return prepareIdentity{}, fmt.Errorf("unsupported involved object kind %q", ev.Event.InvolvedObject.Kind)
 	}
 }
 
 func samePrepareIdentity(prep *model.DeltaPrepare, id prepareIdentity) bool {
-	return equalStringPtr(prep.TemplateVersion, id.templateVersion) && equalStringPtr(prep.SpecHash, id.specHash) && prep.SourceResourceVersion == id.resourceVersion
-}
-
-func equalStringPtr(a, b *string) bool {
-	if a == nil || b == nil {
-		return a == b
-	}
-	return *a == *b
+	return prep.MatchesTarget(id.templateVersion, id.generation) && prep.SourceResourceVersion == id.resourceVersion
 }
 
 func isTerminalGeneration(status string) bool {

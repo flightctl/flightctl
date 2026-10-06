@@ -1,0 +1,18 @@
+{{- if .Values.standalonePod.enabled }}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ .Release.Name }}-standalone
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  restartPolicy: Always
+  containers:
+    - name: {{ .Chart.Name }}-standalone
+      image: {{ .Values.standalonePod.image | quote }}
+      imagePullPolicy: IfNotPresent
+      {{- include "test-app.containerSecurityContext" . | nindent 6 }}
+      command: ["sh", "-c", "sleep infinity"]
+{{- end }}

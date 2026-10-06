@@ -14,6 +14,7 @@ Response validation checks live in common/checks.py.
 import os
 import re
 import uuid
+from copy import deepcopy
 from urllib.parse import unquote
 
 import schemathesis
@@ -23,33 +24,6 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 tracecov.schemathesis.install()
-
-# Patch TraceCov handler to also save JSON coverage report alongside HTML.
-# TraceCov only saves HTML by default; JSON is needed by report.py.
-# The @cli.handler() decorator returns None and appends to CUSTOM_HANDLERS,
-# so we look up the class by name from the registry.
-from schemathesis.cli.commands.run.executor import CUSTOM_HANDLERS
-from schemathesis.engine import events as _engine_events
-
-_TracecovHandler = next(h for h in CUSTOM_HANDLERS if h.__name__ == "TracecovHandler")
-_orig_handle_event = _TracecovHandler.handle_event
-
-
-def _handle_event_with_json(self, ctx, event):
-    _orig_handle_event(self, ctx, event)
-    if isinstance(event, _engine_events.EngineFinished) and self.coverage_map is not None:
-        json_report = self.coverage_map.generate_report(format="json")
-        html_path = (
-            self.report_path
-            or os.environ.get("SCHEMATHESIS_COVERAGE_REPORT_HTML_PATH")
-            or "./schema-coverage.html"
-        )
-        json_path = html_path.replace(".html", ".json")
-        with open(json_path, "w") as f:
-            f.write(json_report)
-
-
-_TracecovHandler.handle_event = _handle_event_with_json
 
 # ---------------------------------------------------------------------------
 # Configuration from environment
@@ -258,9 +232,16 @@ def before_init_operation(context, operation):
 # Shared helpers
 # ---------------------------------------------------------------------------
 def _kind_for_path(path):
-    """Return the resource kind for a given path template."""
+    """Return the resource kind for collection, item, and status resource paths."""
     for prefix in sorted(_PATH_TO_KIND, key=len, reverse=True):
-        if path == prefix or path.startswith(prefix + "/"):
+        if path == prefix:
+            return _PATH_TO_KIND[prefix]
+        if not path.startswith(prefix + "/"):
+            continue
+        suffix = path[len(prefix) + 1 :]
+        if suffix.startswith("{") and suffix.endswith("}") and "/" not in suffix:
+            return _PATH_TO_KIND[prefix]
+        if suffix == "{name}/status":
             return _PATH_TO_KIND[prefix]
     return None
 
@@ -347,6 +328,8 @@ def mutate_body(ctx, body):
     if not isinstance(body, dict):
         return body
 
+    # Linked bodies can share nested objects with a cached response used by later links.
+    body = deepcopy(body)
     path = ctx.operation.path
     method = ctx.operation.method.upper()
 
@@ -385,6 +368,14 @@ def mutate_query(ctx, query):
 _RFC1123_RE = re.compile(r'^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$')
 
 
+@schemathesis.hook("before_call").apply_to(method=["POST", "PUT"])
+def isolate_request_body(ctx, case, **kwargs):
+    # Stateful links can merge response objects after map_body. Detach them
+    # before any of the following hooks modify metadata or spec in place.
+    if isinstance(case.body, dict):
+        case.body = deepcopy(case.body)
+
+
 # --- POST: ensure protocol + service fields are set (covers Examples phase)
 @schemathesis.hook("before_call").apply_to(method="POST")
 def fix_post_body(ctx, case, **kwargs):
@@ -406,6 +397,8 @@ def fix_post_body(ctx, case, **kwargs):
 @schemathesis.hook("before_call").apply_to(method="PUT")
 def sync_put_name(ctx, case, **kwargs):
     if not case.body or not isinstance(case.body, dict):
+        return
+    if not _kind_for_path(ctx.operation.path):
         return
     path_name = (case.path_parameters or {}).get("name")
     if path_name:

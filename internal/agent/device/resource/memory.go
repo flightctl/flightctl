@@ -24,21 +24,27 @@ type MemoryMonitor struct {
 	alerts      map[v1beta1.ResourceAlertSeverityType]*Alert
 	memInfoPath string
 
-	updateIntervalCh chan time.Duration
-	samplingInterval time.Duration
+	updateIntervalCh   chan time.Duration
+	samplingInterval   time.Duration
+	criticalNotifyFunc func()
 
 	log *log.PrefixLogger
 }
 
 func NewMemoryMonitor(
 	log *log.PrefixLogger,
+	criticalNotifyFunc func(),
 ) *MemoryMonitor {
+	if criticalNotifyFunc == nil {
+		criticalNotifyFunc = func() {}
+	}
 	return &MemoryMonitor{
-		alerts:           make(map[v1beta1.ResourceAlertSeverityType]*Alert),
-		updateIntervalCh: make(chan time.Duration, 1),
-		samplingInterval: DefaultSamplingInterval,
-		memInfoPath:      DefaultProcMemInfoPath,
-		log:              log,
+		alerts:             make(map[v1beta1.ResourceAlertSeverityType]*Alert),
+		updateIntervalCh:   make(chan time.Duration, 1),
+		samplingInterval:   DefaultSamplingInterval,
+		memInfoPath:        DefaultProcMemInfoPath,
+		criticalNotifyFunc: criticalNotifyFunc,
+		log:                log,
 	}
 }
 
@@ -116,8 +122,11 @@ func (m *MemoryMonitor) ensureAlerts(percentageUsed int64) {
 	defer m.mu.Unlock()
 
 	m.log.Tracef("Memory usage: %d%%", percentageUsed)
-	for _, alert := range m.alerts {
-		alert.Sync(percentageUsed)
+	for severity, alert := range m.alerts {
+		if changed := alert.Sync(percentageUsed); changed &&
+			severity == v1beta1.ResourceAlertSeverityTypeCritical {
+			m.criticalNotifyFunc()
+		}
 	}
 }
 

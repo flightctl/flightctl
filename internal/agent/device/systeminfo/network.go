@@ -37,7 +37,6 @@ func collectNetworkInfo(ctx context.Context, log *log.PrefixLogger, exec execute
 	if err != nil {
 		log.Warningf("Default route not available: %v", err)
 	} else {
-		log.Infof("Detected default route: %s via %s", defaultRoute.Gateway, defaultRoute.Interface)
 		netInfo.DefaultRoute = defaultRoute
 	}
 

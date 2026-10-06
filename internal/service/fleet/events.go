@@ -43,8 +43,10 @@ func EmitFleetUpdatedEvent(ctx context.Context, eventsService events.Service, lo
 		var updateDetails *domain.ResourceUpdatedDetails
 		if !created && oldFleet != nil && newFleet != nil {
 			updateDetails = common.ComputeResourceUpdatedDetails(oldFleet.Metadata, newFleet.Metadata)
-			// Check if spec.template or spec.selector changed - if so, remove spec from updateDetails and add spec.template or spec.selector
 			if updateDetails != nil && lo.Contains(updateDetails.UpdatedFields, domain.Spec) {
+				// Replace the generic spec field with specific paths for template or
+				// selector changes, unless delta generation enablement also changed.
+				deltaGenerationEnabledChanged := fleetDeltaGenerationEnabled(oldFleet) != fleetDeltaGenerationEnabled(newFleet)
 				removeSpec := false
 				if !reflect.DeepEqual(oldFleet.Spec.Template, newFleet.Spec.Template) {
 					updateDetails.UpdatedFields = append(updateDetails.UpdatedFields, domain.SpecTemplate)
@@ -54,7 +56,7 @@ func EmitFleetUpdatedEvent(ctx context.Context, eventsService events.Service, lo
 					updateDetails.UpdatedFields = append(updateDetails.UpdatedFields, domain.SpecSelector)
 					removeSpec = true
 				}
-				if removeSpec {
+				if removeSpec && !deltaGenerationEnabledChanged {
 					updateDetails.UpdatedFields = lo.Filter(updateDetails.UpdatedFields, func(field domain.ResourceUpdatedDetailsUpdatedFields, _ int) bool {
 						return field != domain.Spec
 					})
@@ -85,6 +87,14 @@ func EmitFleetUpdatedEvent(ctx context.Context, eventsService events.Service, lo
 	emitFleetRolloutBatchCompletedEvent(ctx, eventsService, orgId, name, deployingTemplateVersion, oldFleet, newFleet)
 	emitFleetRolloutCompletedEvent(ctx, eventsService, orgId, name, deployingTemplateVersion, oldFleet, newFleet)
 	emitFleetRolloutFailedEvent(ctx, eventsService, orgId, name, deployingTemplateVersion, oldFleet, newFleet)
+}
+
+func fleetDeltaGenerationEnabled(fleet *domain.Fleet) bool {
+	if fleet == nil || fleet.Spec.RolloutPolicy == nil {
+		return true
+	}
+	deltaGeneration := fleet.Spec.RolloutPolicy.DeltaGeneration
+	return deltaGeneration == nil || deltaGeneration.GenerateDelta == nil || *deltaGeneration.GenerateDelta
 }
 
 func emitFleetRolloutNewEvent(ctx context.Context, eventsService events.Service, orgId uuid.UUID, name string, oldFleet, newFleet *domain.Fleet) {

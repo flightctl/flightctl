@@ -26,6 +26,25 @@ data:
         {{- end }}
         {{- end }}
     service: {}
+    worker:
+        {{- if .Values.worker.imageDigestCacheTTL }}
+        imageDigestCacheTTL: {{ .Values.worker.imageDigestCacheTTL | quote }}
+        {{- end }}
+        {{- if .Values.worker.helmImageRefsCacheTTL }}
+        helmImageRefsCacheTTL: {{ .Values.worker.helmImageRefsCacheTTL | quote }}
+        {{- end }}
+        vmRender:
+            {{- $vmRender := (.Values.worker).vmRender | default dict }}
+            {{- if $vmRender.launcherImage }}
+            launcherImage: {{ $vmRender.launcherImage | quote }}
+            {{- end }}
+            {{- if $vmRender.launcherImages }}
+            launcherImages:
+            {{- range $major, $image := $vmRender.launcherImages }}
+              {{ $major | quote }}: {{ $image | quote }}
+            {{- end }}
+            {{- end }}
+            passtWorkarounds: {{ if kindIs "bool" $vmRender.passtWorkarounds }}{{ $vmRender.passtWorkarounds }}{{ else }}false{{ end }}
     kv:
         hostname: flightctl-kv.{{ default .Release.Namespace .Values.global.internalNamespace }}.svc.cluster.local
         port: 6379

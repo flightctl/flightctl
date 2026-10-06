@@ -39,6 +39,9 @@ var _ = BeforeEach(func() {
 	// Setup VM from pool, revert to pristine snapshot, and start agent
 	err := harness.SetupVMFromPoolAndStartAgent(workerID)
 	Expect(err).ToNot(HaveOccurred())
+	if err := configurePersistentJournaldForHelmDiagnostics(harness); err != nil {
+		GinkgoWriter.Printf("Warning: persistent journal setup failed; continuing without persistent Helm diagnostics: %v\n", err)
+	}
 
 	GinkgoWriter.Printf("✅ [BeforeEach] Worker %d: Test setup completed\n", workerID)
 })
@@ -52,6 +55,7 @@ var _ = AfterEach(func() {
 	suiteCtx := e2e.GetWorkerContext()
 
 	// Capture logs if test failed
+	captureHelmFailureDiagnostics(harness)
 	harness.PrintAgentLogsIfFailed()
 	harness.CaptureDeploymentLogsIfFailed()
 

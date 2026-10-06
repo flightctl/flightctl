@@ -76,6 +76,9 @@ parameters = { "path.fleet" = "default" }
 include-path = "/devices/{name}/rendered"
 request-timeout = 60.0
 
+[reports]
+directory = "/app/results"
+
 [reports.vcr]
 enabled = true
 

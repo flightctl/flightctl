@@ -37,6 +37,8 @@ type Service interface {
 	// ReplaceServiceOwnedStatus writes service_conditions from the device's
 	// service-owned status fields. Agent status JSON is unchanged.
 	ReplaceServiceOwnedStatus(ctx context.Context, orgId uuid.UUID, name string, device domain.Device) (*domain.Device, domain.Status)
+	// ClearDeltaPreparingIfCurrent atomically clears preparation only for the matching device generation.
+	ClearDeltaPreparingIfCurrent(ctx context.Context, orgID uuid.UUID, name string, generation int64) (bool, domain.Status)
 	PatchDeviceStatus(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest) (*domain.Device, domain.Status)
 	GetRenderedDevice(ctx context.Context, orgId uuid.UUID, name string, params domain.GetRenderedDeviceParams) (*domain.Device, domain.Status)
 	PatchDevice(ctx context.Context, orgId uuid.UUID, name string, patch domain.PatchRequest, enforceOwnership bool, enforceCapabilities bool) (*domain.Device, domain.Status)
@@ -68,12 +70,12 @@ type Service interface {
 }
 
 // RenderedOSHints is applied when persisting a rendered spec: optional OS
-// deltaImage on the rendered OS spec and status.updated.size. It also carries
-// per-application size hints for DeviceApplicationStatus.Size.
+// deltaImage on the rendered OS spec and control-plane delta-size estimates for
+// OS and application updates. The device store merges these estimates into the
+// corresponding OS and application status fields when returning a device
+// resource.
 type RenderedOSHints struct {
-	DeltaImage  *string
-	UpdatedSize *string
-	// AppSizes maps application name → IEC-formatted total download size.
-	// Set during rendering when delta generation data is available.
-	AppSizes map[string]*string
+	DeltaImage    *string
+	DeltaSize     *string
+	AppDeltaSizes map[string]*string
 }

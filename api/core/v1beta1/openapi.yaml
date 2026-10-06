@@ -2238,6 +2238,67 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+  /devices/{name}/labelsyncprovenance:
+    x-resource: devices
+    get:
+      tags:
+        - device
+      description: >-
+        Get current LabelSyncMapping ownership for a Device. Return only keys
+        with current DeviceLabel ownership by active mappings, sorted by key.
+        An existing Device with no currently owned keys returns an empty items
+        array. Label values are not returned.
+      operationId: getDeviceLabelSyncProvenance
+      parameters:
+        - name: name
+          in: path
+          description: The name of the Device resource.
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabelSyncProvenanceList'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "404":
+          description: Not Found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /devices/{name}/lastseen:
     x-resource: devices/lastseen
     get:
@@ -3166,9 +3227,6 @@ paths:
         - enrollmenthookpolicy
       description: List EnrollmentHookPolicy resources.
       operationId: listEnrollmentHookPolicies
-      security:
-        - bearerAuth: []
-          orgId: []
       parameters:
         - name: continue
           in: query
@@ -3237,9 +3295,6 @@ paths:
         - enrollmenthookpolicy
       description: Create an EnrollmentHookPolicy resource.
       operationId: createEnrollmentHookPolicy
-      security:
-        - bearerAuth: []
-          orgId: []
       requestBody:
         content:
           application/json:
@@ -3309,9 +3364,6 @@ paths:
         - enrollmenthookpolicy
       description: Get an EnrollmentHookPolicy resource.
       operationId: getEnrollmentHookPolicy
-      security:
-        - bearerAuth: []
-          orgId: []
       parameters:
         - name: name
           in: path
@@ -3367,9 +3419,6 @@ paths:
         - enrollmenthookpolicy
       description: Update an EnrollmentHookPolicy resource.
       operationId: replaceEnrollmentHookPolicy
-      security:
-        - bearerAuth: []
-          orgId: []
       parameters:
         - name: name
           in: path
@@ -3443,9 +3492,6 @@ paths:
         - enrollmenthookpolicy
       description: Delete an EnrollmentHookPolicy resource.
       operationId: deleteEnrollmentHookPolicy
-      security:
-        - bearerAuth: []
-          orgId: []
       parameters:
         - name: name
           in: path
@@ -3501,9 +3547,6 @@ paths:
         - enrollmenthookpolicy
       description: Patch an EnrollmentHookPolicy resource.
       operationId: patchEnrollmentHookPolicy
-      security:
-        - bearerAuth: []
-          orgId: []
       parameters:
         - name: name
           in: path
@@ -5184,6 +5227,71 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+  /labelsyncprovenance:
+    x-resource: labelsyncmappings
+    get:
+      tags:
+        - labelsyncmapping
+      description: >-
+        Resolve exact label keys to their current owning LabelSyncMapping names
+        in the request organization. Return one item per supplied key in request
+        order, including repeated keys. Keys with no current mapping owner have
+        an empty owners array. Label values are not returned.
+      operationId: getLabelSyncProvenance
+      parameters:
+        - name: labelKeys
+          in: query
+          description: >-
+            Exact label keys to resolve. Supply between 1 and 50 repeated
+            labelKeys parameters. Repeated key values are preserved as repeated
+            response items in request order.
+          required: true
+          style: form
+          explode: true
+          schema:
+            type: array
+            minItems: 1
+            maxItems: 50
+            items:
+              type: string
+              minLength: 1
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LabelSyncProvenanceList'
+        "400":
+          description: Bad Request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "403":
+          description: Forbidden
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "429":
+          description: Too Many Requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "503":
+          description: Service Unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
   /labelsyncmappings:
     x-resource: labelsyncmappings
     get:
@@ -5191,9 +5299,6 @@ paths:
         - labelsyncmapping
       description: List LabelSyncMapping resources.
       operationId: listLabelSyncMappings
-      security:
-        - bearerAuth: []
-          orgId: []
       parameters:
         - name: continue
           in: query
@@ -5257,9 +5362,6 @@ paths:
         - labelsyncmapping
       description: Create a LabelSyncMapping resource.
       operationId: createLabelSyncMapping
-      security:
-        - bearerAuth: []
-          orgId: []
       requestBody:
         content:
           application/json:
@@ -5297,6 +5399,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "422":
+          description: Unprocessable Content
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
@@ -5316,9 +5424,6 @@ paths:
         - labelsyncmapping
       description: Get a LabelSyncMapping resource.
       operationId: getLabelSyncMapping
-      security:
-        - bearerAuth: []
-          orgId: []
       parameters:
         - name: name
           in: path
@@ -5374,9 +5479,6 @@ paths:
         - labelsyncmapping
       description: Update a LabelSyncMapping resource.
       operationId: replaceLabelSyncMapping
-      security:
-        - bearerAuth: []
-          orgId: []
       parameters:
         - name: name
           in: path
@@ -5433,6 +5535,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Status'
+        "422":
+          description: Unprocessable Content
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
         "429":
           description: Too Many Requests
           content:
@@ -5450,9 +5558,6 @@ paths:
         - labelsyncmapping
       description: Delete a LabelSyncMapping resource.
       operationId: deleteLabelSyncMapping
-      security:
-        - bearerAuth: []
-          orgId: []
       parameters:
         - name: name
           in: path
@@ -5508,9 +5613,6 @@ paths:
         - labelsyncmapping
       description: Patch a LabelSyncMapping resource.
       operationId: patchLabelSyncMapping
-      security:
-        - bearerAuth: []
-          orgId: []
       parameters:
         - name: name
           in: path
@@ -5557,6 +5659,12 @@ paths:
                 $ref: '#/components/schemas/Status'
         "409":
           description: Conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+        "422":
+          description: Unprocessable Content
           content:
             application/json:
               schema:
@@ -6724,8 +6832,6 @@ components:
               example:
                 - "values-production.yaml"
                 - "values-overrides.yml"
-          required:
-            - image
 
     VmApplication:
       type: object
@@ -6800,10 +6906,13 @@ components:
                 $ref: "#/components/schemas/ApplicationContent"
             deltaImages:
               type: array
+              readOnly: true
               description: >-
                 Optional hints for nested OCI images referenced by this inline
                 application. Each entry identifies a target image reference and
-                digest and names its delta artifact.
+                digest and names its delta artifact. Read-only: generated by the
+                control plane and only present in the rendered application spec
+                delivered to the agent.
               items:
                 $ref: '#/components/schemas/ImageDeltaHint'
           required:
@@ -7207,6 +7316,7 @@ components:
           properties:
             deltaImage:
               type: string
+              readOnly: true
               description: >-
                 Optional hint: a reference to a delta artifact the control
                 plane's generation records indicate may be applicable to reach
@@ -7214,7 +7324,8 @@ components:
                 no delta exists — the device independently discovers candidate
                 delta artifacts (e.g. deltas published by a customer's own CI)
                 regardless of this field, and falls back to a full pull only if
-                none is usable.
+                none is usable. Read-only: generated by the control plane and
+                only present in the rendered device spec delivered to the agent.
     DeviceStatus:
       type: object
       description: DeviceStatus represents information about the status of a device. Status may trail the actual state of a device.
@@ -7319,8 +7430,9 @@ components:
         ociDeltaVersion:
           type: string
           description: >-
-            Version reported by `oci-delta --version`. Absent when oci-delta is
-            not installed or the version command fails.
+            Version reported by `oci-delta --version`, or from Go module build
+            information when that flag is unsupported. Absent when oci-delta is
+            not installed or its version cannot be determined.
         deltaEligible:
           type: boolean
           description: >-
@@ -7571,21 +7683,21 @@ components:
           $ref: "#/components/schemas/DeviceDeltaApplyStatus"
         imageDigests:
           type: array
-          description: "Image references this application uses and their known content digests in local storage. image is the ref from the current rendered spec (tag or digest). digest is omitted when the local digest is unknown. When image is already a digest ref, digest matches the ref's digest."
+          description: "Image references this application uses and the registry digest associated with each image. image is the ref from the current rendered spec (tag or digest). For a multi-platform index, digest is the platform-specific manifest selected by the runtime when available; if the runtime exposes only an opaque ID, an immutable image reference's digest may be reported. digest is omitted when no registry digest is known."
           items:
             $ref: "#/components/schemas/ApplicationImageDigest"
-        size:
+        deltaSize:
           type: string
           description: >-
-            Expected total download size for this application update in
-            IEC units (e.g. "245.3 MiB", "1 GiB"). Computed as the sum
-            of all required image pair sizes (parent + nested + volumes), using
-            delta payload size when available or full image payload size otherwise.
-            Absent when no image download is required or any required image size
-            is unknown.
+            Expected total size of control-plane generated delta images for
+            this application update in IEC units (e.g. "245.3 MiB", "1 GiB").
+            Computed as the sum of generated delta image sizes across the
+            application. Absent when no delta image was generated or any
+            generated delta image size is unknown. Full image sizes are not
+            included.
     ApplicationImageDigest:
       type: object
-      description: An image reference and, when known, its content digest in local storage.
+      description: An image reference and its known registry image digest.
       required:
         - image
       properties:
@@ -7594,7 +7706,7 @@ components:
           description: Image reference as it appears in the rendered application spec.
         digest:
           type: string
-          description: Content digest of the image in local storage (e.g. sha256:abc...). Omitted when the local digest is unknown.
+          description: Registry digest associated with this image. If the runtime identifies a platform-specific image, this may differ from the digest in the image reference. Omitted when unavailable.
           x-go-type-skip-optional-pointer: true
     ApplicationVolumeStatus:
       type: object
@@ -7678,20 +7790,43 @@ components:
     DeviceDeltaApplyStatus:
       type: object
       description: >-
-        Result of the most recent delta apply attempt for this update target.
+        Agent-reported result for delta apply attempts for this update target.
+        For an application with multiple image targets, the outcome is
+        aggregated across image targets. The lastDelta field is omitted until
+        the agent reports an outcome; server-side delta preparation is reported
+        separately.
       additionalProperties: false
+      required:
+        - outcome
       properties:
+        outcome:
+          $ref: "#/components/schemas/DeviceDeltaApplyOutcomeType"
         fallbackReason:
           type: string
           description: >-
-            Set when the most recent update attempt fell back from a delta to a
-            full image pull. Absent if no delta was attempted or the delta
-            succeeded. Cleared when the next update attempt for this target starts.
-        size:
-          type: string
-          description: >-
-            Expected delta size in IEC units (KiB, MiB, GiB, or TiB).
-            Absent when the size is not yet known.
+            Set when one or more delta attempts failed and the agent attempted
+            a full image pull. For an application with multiple image targets,
+            this reports one representative failure reason.
+    DeviceDeltaApplyOutcomeType:
+      type: string
+      description: >-
+        Result reported by the agent for an update target. NotUsed means the
+        agent skipped delta application without a delta-apply failure; it may
+        still use a full image pull. Applied means all delta work for the target
+        succeeded. Fallback means a delta attempt failed and the agent attempted
+        a full image pull. Partial means an application applied at least one
+        delta while another image target used a full image pull or skipped delta
+        application.
+      enum:
+        - NotUsed
+        - Applied
+        - Fallback
+        - Partial
+      x-enum-varnames:
+        - DeviceDeltaApplyOutcomeNotUsed
+        - DeviceDeltaApplyOutcomeApplied
+        - DeviceDeltaApplyOutcomeFallback
+        - DeviceDeltaApplyOutcomePartial
     DeviceOsStatus:
       type: object
       description: Current status of the device OS.
@@ -7705,6 +7840,12 @@ components:
         imageDigest:
           type: string
           description: The digest of the OS image (e.g. sha256:a0...).
+        deltaSize:
+          type: string
+          description: >-
+            Size of the control-plane generated OS delta image in IEC units
+            (e.g. "245.3 MiB", "1 GiB"). Absent when no delta image was
+            generated or its size is unknown.
         lastDelta:
           $ref: "#/components/schemas/DeviceDeltaApplyStatus"
     DeviceConfigStatus:
@@ -8888,10 +9029,10 @@ components:
           description: The last time the condition transitioned from one status to another.
         message:
           type: string
-          description: Human readable message indicating details about last transition.
+          description: A human-readable message describing the condition, including details or progress. Consumers should not parse this field.
         reason:
           type: string
-          description: A (brief) reason for the condition's last transition.
+          description: A brief, machine-readable reason for the condition's last transition. Use a stable CamelCase identifier and put human-readable details in message.
     Condition:
       description: Condition contains details for one aspect of the current state of this API Resource.
       allOf:
@@ -9449,9 +9590,11 @@ components:
         templateVersion:
           type: string
           description: Fleet only. The TemplateVersion this prepare is for. Required when involvedObject.kind is Fleet; omitted for Device.
-        specHash:
-          type: string
-          description: Device only. The rendered spec hash this prepare is for. Required when involvedObject.kind is Device; omitted for Fleet.
+        generation:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Device only. The desired spec generation this prepare is for. Required when involvedObject.kind is Device; omitted for Fleet.
         resourceVersion:
           type: string
           description: The resource version of the involved Fleet or Device when this prepare event was created. Used to ignore stale prepare events. May be omitted for retained events created before this field was introduced.
@@ -9499,9 +9642,11 @@ components:
         templateVersion:
           type: string
           description: Fleet only. The TemplateVersion this prepare is for.
-        specHash:
-          type: string
-          description: Device only. The rendered spec hash this prepare is for.
+        generation:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Device only. The desired spec generation this prepare is for.
     FleetRolloutStartedDetails:
       type: object
       required:
@@ -10451,6 +10596,35 @@ components:
         - metadata
         - items
       description: LabelSyncMappingList is a list of LabelSyncMapping resources.
+    LabelSyncProvenanceList:
+      type: object
+      description: Current LabelSyncMapping ownership grouped by exact label key.
+      properties:
+        items:
+          type: array
+          description: >-
+            For organization queries, one item per supplied key in request
+            order, including duplicates. For Device queries, one item per
+            currently owned key, sorted by key.
+          items:
+            $ref: '#/components/schemas/LabelSyncProvenanceItem'
+      required:
+        - items
+    LabelSyncProvenanceItem:
+      type: object
+      description: Current owning LabelSyncMapping names for one exact label key.
+      properties:
+        key:
+          type: string
+          description: Exact label key.
+        owners:
+          type: array
+          description: Names of current owning LabelSyncMapping resources. An empty array means the key has no current mapping owner.
+          items:
+            type: string
+      required:
+        - key
+        - owners
     PermissionList:
       type: object
       description: List of available permissions for a user.
@@ -10540,18 +10714,23 @@ components:
           description: Reference to an OCI image or artifact with tag.
           type: string
         deltaImage:
+          readOnly: true
           description: >-
             Optional hint: a reference to a delta artifact for the main
             image. Set by the control plane when a successful delta
             generation record exists for the current-to-target digest
-            transition.
+            transition. Read-only: generated by the control plane and only
+            present in the rendered application spec delivered to the agent.
           type: string
         deltaImages:
+          readOnly: true
           description: >-
             Optional hints for nested images within this application
             (e.g. service images in a compose app, OCI volume images).
             Each entry identifies a target image reference and digest and names
-            its delta artifact reference.
+            its delta artifact reference. Read-only: generated by the control
+            plane and only present in the rendered application spec delivered
+            to the agent.
           type: array
           items:
             $ref: '#/components/schemas/ImageDeltaHint'
@@ -10559,7 +10738,10 @@ components:
         - image
     ImageDeltaHint:
       type: object
-      description: A delta hint for a nested image within an application.
+      description: >-
+        A control-plane-generated delta hint for a nested image within an
+        application. Present only in rendered application specs delivered to
+        the agent.
       properties:
         targetImage:
           description: The target image reference this delta applies to.

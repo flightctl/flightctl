@@ -472,8 +472,18 @@ func observeOSDeltaUpdate(harness *e2e.Harness, fleetName, deviceId string, expe
 	if observedProgress {
 		tracker.lastLifecycleProgress = time.Now()
 	}
-	if expectation.expectsDeltaHint() && device.Status.Os.LastDelta != nil && device.Status.Os.LastDelta.FallbackReason != nil {
-		return snapshot, StopTrying(fmt.Sprintf("device %s fell back: %s", deviceId, *device.Status.Os.LastDelta.FallbackReason))
+	if expectation.expectsDeltaHint() && device.Status.Os.LastDelta != nil {
+		lastDelta := device.Status.Os.LastDelta
+		if lastDelta.Outcome == v1beta1.DeviceDeltaApplyOutcomeFallback {
+			reason := ""
+			if lastDelta.FallbackReason != nil {
+				reason = ": " + *lastDelta.FallbackReason
+			}
+			return snapshot, StopTrying(fmt.Sprintf("device %s reported delta outcome %q%s", deviceId, lastDelta.Outcome, reason))
+		}
+		if lastDelta.FallbackReason != nil {
+			return snapshot, StopTrying(fmt.Sprintf("device %s fell back: %s", deviceId, *lastDelta.FallbackReason))
+		}
 	}
 
 	snapshot.device = device
@@ -540,6 +550,19 @@ func validateSettledOSDeltaUpdate(snapshot deltaUpdateSnapshot, rendered *v1beta
 	if expectation.expectsDeltaHint() && (delta == "" || delta == v2Image) {
 		return StopTrying(fmt.Sprintf("device %s reached the target state without an OS delta hint", deviceId))
 	}
+	if expectation.expectsDeltaHint() {
+		deltaSize := snapshot.device.Status.Os.DeltaSize
+		if deltaSize == nil || *deltaSize == "" {
+			return retrySettledEvent(fmt.Errorf("device %s has not reported the control-plane OS delta size", deviceId), settledAt)
+		}
+		lastDelta := snapshot.device.Status.Os.LastDelta
+		if lastDelta == nil {
+			return retrySettledEvent(fmt.Errorf("device %s has not reported an OS delta outcome", deviceId), settledAt)
+		}
+		if lastDelta.Outcome != v1beta1.DeviceDeltaApplyOutcomeApplied {
+			return StopTrying(fmt.Sprintf("device %s reported OS delta outcome %q, expected %q", deviceId, lastDelta.Outcome, v1beta1.DeviceDeltaApplyOutcomeApplied))
+		}
+	}
 	if !expectation.expectsDeltaHint() && delta != "" {
 		return StopTrying(fmt.Sprintf("device %s has unexpected OS delta hint %q", deviceId, delta))
 	}
@@ -565,12 +588,17 @@ type deltaLifecycleObservation struct {
 	deviceContentUpToDate        bool
 }
 
-func observeDeltaLifecycleEvents(harness *e2e.Harness, fleetName, deviceId string, baseline deltaEventBaseline, loggedEvents map[string]struct{}, fleetProgress, deviceProgress *generationProgressTracker) (deltaLifecycleObservation, bool, error) {
-	observation := deltaLifecycleObservation{
+// Event observation writes into these maps, so always initialize them here.
+func newDeltaLifecycleObservation() deltaLifecycleObservation {
+	return deltaLifecycleObservation{
 		generationTemplateVersions:   make(map[string]struct{}),
 		successfulTemplateVersions:   make(map[string]struct{}),
 		fleetRolloutTemplateVersions: make(map[string]struct{}),
 	}
+}
+
+func observeDeltaLifecycleEvents(harness *e2e.Harness, fleetName, deviceId string, baseline deltaEventBaseline, loggedEvents map[string]struct{}, fleetProgress, deviceProgress *generationProgressTracker) (deltaLifecycleObservation, bool, error) {
+	observation := newDeltaLifecycleObservation()
 	observedProgress := false
 	deviceEvents, err := newResourceEvents(harness, v1beta1.DeviceKind, deviceId, baseline.device)
 	if err != nil {
@@ -632,8 +660,8 @@ func observeDeltaGenerationProgress(events []v1beta1.Event, kind, name string, o
 				return StopTrying(fmt.Sprintf("fleet %s DeltaGenerationProgress event is missing template version", name))
 			}
 			observation.generationTemplateVersions[*details.TemplateVersion] = struct{}{}
-		} else if details.SpecHash == nil || *details.SpecHash == "" {
-			return StopTrying(fmt.Sprintf("device %s DeltaGenerationProgress event is missing spec hash", name))
+		} else if details.Generation == nil || *details.Generation <= 0 {
+			return StopTrying(fmt.Sprintf("device %s DeltaGenerationProgress event is missing generation", name))
 		}
 
 		switch details.GenerationStatus {

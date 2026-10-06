@@ -7,17 +7,43 @@ import (
 
 	"github.com/containers/image/v5/docker/reference"
 	"github.com/flightctl/flightctl/api/core/v1beta1"
-	"github.com/flightctl/flightctl/internal/agent/client"
-	apphelm "github.com/flightctl/flightctl/internal/agent/device/applications/helm"
+	"github.com/flightctl/flightctl/internal/appspec"
+	"github.com/flightctl/flightctl/internal/chartutil"
 	preparetask "github.com/flightctl/flightctl/internal/delta_worker/tasks/prepare"
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/oci"
 	"github.com/flightctl/flightctl/internal/tasks"
 	"github.com/google/uuid"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/sirupsen/logrus"
 )
 
 // inspectFn resolves an image reference to its content digest.
 type inspectFn func(ctx context.Context, orgId uuid.UUID, image string) (string, error)
+type inspectSourceFn func(
+	ctx context.Context,
+	orgId uuid.UUID,
+	image string,
+	sourceDigest string,
+	fallbackPlatform *ocispec.Platform,
+) (resolvedSourceDigest, targetDigest string, err error)
+
+type appCandidatePairer func(
+	ctx context.Context,
+	logger logrus.FieldLogger,
+	orgId uuid.UUID,
+	device *domain.Device,
+	imageRef string,
+	digestIndex map[string][]string,
+) []preparetask.DeltaCandidate
+
+type helmImageRefsFn func(
+	ctx context.Context,
+	orgId uuid.UUID,
+	device *domain.Device,
+	app v1beta1.HelmApplication,
+	renderedConfig []byte,
+) ([]string, error)
 
 // expandAppCandidates extracts application image pairs from the rendered spec
 // and appends them to the existing (OS) candidates. The rendered spec carries
@@ -33,6 +59,59 @@ func expandAppCandidates(
 	rendered tasks.RenderedSpec,
 	candidates []preparetask.DeltaCandidate,
 	inspect inspectFn,
+) []preparetask.DeltaCandidate {
+	return expandAppCandidatesUsing(ctx, logger, orgId, device, rendered, candidates, nil, func(
+		ctx context.Context,
+		logger logrus.FieldLogger,
+		orgId uuid.UUID,
+		device *domain.Device,
+		imageRef string,
+		digestIndex map[string][]string,
+	) []preparetask.DeltaCandidate {
+		return pairCandidates(ctx, logger, orgId, applicationDeviceName(device), imageRef, digestIndex, inspect)
+	})
+}
+
+func expandAppCandidatesForSourceWithHelm(
+	ctx context.Context,
+	logger logrus.FieldLogger,
+	orgId uuid.UUID,
+	device *domain.Device,
+	rendered tasks.RenderedSpec,
+	candidates []preparetask.DeltaCandidate,
+	inspect inspectSourceFn,
+	helmImageRefs helmImageRefsFn,
+) []preparetask.DeltaCandidate {
+	return expandAppCandidatesUsing(ctx, logger, orgId, device, rendered, candidates, helmImageRefs, func(
+		ctx context.Context,
+		logger logrus.FieldLogger,
+		orgId uuid.UUID,
+		device *domain.Device,
+		imageRef string,
+		digestIndex map[string][]string,
+	) []preparetask.DeltaCandidate {
+		return pairCandidatesForSource(
+			ctx,
+			logger,
+			orgId,
+			applicationDeviceName(device),
+			imageRef,
+			digestIndex,
+			oci.DeviceImagePlatform(device),
+			inspect,
+		)
+	})
+}
+
+func expandAppCandidatesUsing(
+	ctx context.Context,
+	logger logrus.FieldLogger,
+	orgId uuid.UUID,
+	device *domain.Device,
+	rendered tasks.RenderedSpec,
+	candidates []preparetask.DeltaCandidate,
+	helmImageRefs helmImageRefsFn,
+	pairer appCandidatePairer,
 ) []preparetask.DeltaCandidate {
 	if len(rendered.Applications) == 0 {
 		return candidates
@@ -52,10 +131,33 @@ func expandAppCandidates(
 	for i := range apps {
 		refs := extractNewImageRefs(&apps[i])
 		if appType, err := apps[i].GetAppType(); err == nil && appType == domain.AppTypeHelm {
-			refs = deduplicateStrings(append(refs, reportedHelmImageRefs(device, &apps[i])...))
+			if helmImageRefs == nil {
+				refs = append(refs, reportedHelmImageRefs(device, &apps[i])...)
+			} else {
+				helmApp, err := apps[i].AsHelmApplication()
+				if err != nil {
+					logger.WithError(err).WithFields(logrus.Fields{
+						"orgId":      orgId,
+						"deviceName": applicationDeviceName(device),
+					}).Warn("failed to decode Helm application for delta expansion; skipping this Helm application")
+					refs = nil
+				} else {
+					targetRefs, renderErr := helmImageRefs(ctx, orgId, device, helmApp, rendered.Config)
+					if renderErr != nil {
+						logger.WithError(renderErr).WithFields(logrus.Fields{
+							"orgId":      orgId,
+							"deviceName": applicationDeviceName(device),
+						}).Warn("failed to render target Helm chart images for delta expansion; skipping this Helm application")
+						refs = nil
+					} else {
+						refs = append(refs, targetRefs...)
+					}
+				}
+			}
 		}
+		refs = deduplicateStrings(refs)
 		for _, ref := range refs {
-			candidates = append(candidates, pairCandidates(ctx, logger, orgId, applicationDeviceName(device), ref, digestIndex, inspect)...)
+			candidates = append(candidates, pairer(ctx, logger, orgId, device, ref, digestIndex)...)
 		}
 	}
 	return candidates
@@ -88,7 +190,7 @@ func reportedHelmImageRefs(device *domain.Device, app *domain.ApplicationProvide
 		if err != nil {
 			return nil
 		}
-		name, err = apphelm.SanitizeReleaseName(imageSpec.Image)
+		name, err = chartutil.SanitizeReleaseName(imageSpec.Image)
 		if err != nil {
 			return nil
 		}
@@ -184,6 +286,54 @@ func pairCandidates(
 			ImageRepository: repo,
 			CurrentDigest:   currentDigest,
 			NewDigest:       newDigest,
+		})
+	}
+	return candidates
+}
+
+func pairCandidatesForSource(
+	ctx context.Context,
+	logger logrus.FieldLogger,
+	orgId uuid.UUID,
+	deviceName string,
+	newImageRef string,
+	digestIndex map[string][]string,
+	fallbackPlatform *ocispec.Platform,
+	inspect inspectSourceFn,
+) []preparetask.DeltaCandidate {
+	repo, err := applicationImageRepository(newImageRef)
+	if err != nil {
+		logger.WithError(err).WithFields(logrus.Fields{
+			"orgId":      orgId,
+			"deviceName": deviceName,
+			"image":      newImageRef,
+		}).Warn("failed to parse rendered application image reference for delta expansion")
+		return nil
+	}
+	currentDigests := digestIndex[repo]
+	if len(currentDigests) == 0 {
+		return nil
+	}
+
+	var candidates []preparetask.DeltaCandidate
+	for _, currentDigest := range currentDigests {
+		resolvedSource, targetDigest, err := inspect(ctx, orgId, newImageRef, currentDigest, fallbackPlatform)
+		if err != nil {
+			logger.WithError(err).WithFields(logrus.Fields{
+				"orgId":        orgId,
+				"deviceName":   deviceName,
+				"image":        newImageRef,
+				"sourceDigest": currentDigest,
+			}).Warn("failed to inspect rendered application image for source platform")
+			continue
+		}
+		if resolvedSource == "" || targetDigest == "" || resolvedSource == targetDigest {
+			continue
+		}
+		candidates = append(candidates, preparetask.DeltaCandidate{
+			ImageRepository: repo,
+			CurrentDigest:   resolvedSource,
+			NewDigest:       targetDigest,
 		})
 	}
 	return candidates
@@ -299,12 +449,9 @@ func extractQuadletRefs(app *domain.ApplicationProviderSpec) []string {
 	return refs
 }
 
-// extractHelmRefs extracts image references from a rendered helm application.
-// The chart image is always included. Helm template output (which would reveal
-// pod/container images) is not available in the rendered spec — extracting
-// those images requires running helm template on the worker with timeout and
-// resource limits. Those nested images are handled when helm template runs
-// during generation.
+// extractHelmRefs extracts the chart OCI reference from a rendered Helm
+// application. Workload image references are added by rendering the chart with
+// its target values in the delta worker.
 func extractHelmRefs(app *domain.ApplicationProviderSpec) []string {
 	helm, err := (*app).AsHelmApplication()
 	if err != nil {
@@ -373,7 +520,7 @@ func extractVolumeImageRefs(app *domain.ApplicationProviderSpec) []string {
 // parseComposeServiceImages parses compose YAML content and returns all service
 // image references.
 func parseComposeServiceImages(contents []v1beta1.ApplicationContent) []string {
-	spec, err := client.ParseComposeFromSpec(contents)
+	spec, err := appspec.ParseComposeFromSpec(contents)
 	if err != nil || spec == nil {
 		return nil
 	}
@@ -389,7 +536,7 @@ func parseComposeServiceImages(contents []v1beta1.ApplicationContent) []string {
 // parseQuadletImageRefs returns external images referenced by inline Quadlet
 // units and any Pod YAML referenced by .kube units.
 func parseQuadletImageRefs(contents []v1beta1.ApplicationContent) []string {
-	images, err := client.ParseQuadletImageReferencesFromSpec(contents)
+	images, err := appspec.ParseQuadletImageReferencesFromSpec(contents)
 	if err != nil {
 		return nil
 	}

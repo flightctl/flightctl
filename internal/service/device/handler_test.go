@@ -477,6 +477,35 @@ func TestPatchDeviceStatus(t *testing.T) {
 		require.Equal(t, "a", result.Status.SystemInfo.AgentVersion)
 	})
 
+	t.Run("When a status patch commits it should publish identity-only reconciliation work", func(t *testing.T) {
+		st, ev, svc := newTestHandler()
+		ctx := context.Background()
+		orgId := uuid.New()
+		initialStatus := domain.NewDeviceStatus()
+		device := domain.Device{
+			Metadata: domain.ObjectMeta{Name: lo.ToPtr("foo")},
+			Spec:     &domain.DeviceSpec{},
+			Status:   &initialStatus,
+		}
+		_, err := st.device.Create(ctx, orgId, &device, nil)
+		require.NoError(t, err)
+
+		infoMap, err := util.StructToMap(domain.DeviceSystemInfo{Architecture: "aarch64"})
+		require.NoError(t, err)
+		var value interface{} = infoMap
+		patch := domain.PatchRequest{{Op: "replace", Path: "/status/systemInfo", Value: &value}}
+		result, status := svc.PatchDeviceStatus(ctx, orgId, "foo", patch)
+
+		require.Equal(t, int32(http.StatusOK), status.Code)
+		require.Equal(t, "aarch64", result.Status.SystemInfo.Architecture)
+		require.Len(t, ev.created, 1)
+		event := ev.created[0]
+		require.Equal(t, domain.EventReasonResourceUpdated, event.Reason)
+		require.Equal(t, domain.DeviceKind, event.InvolvedObject.Kind)
+		require.Equal(t, "foo", event.InvolvedObject.Name)
+		require.Nil(t, event.Details)
+	})
+
 	t.Run("When patching an immutable field it should return bad request", func(t *testing.T) {
 		svc, orgId := setup(t)
 		var value interface{} = "newname"
@@ -1165,6 +1194,9 @@ func TestReplaceDeviceStatus(t *testing.T) {
 		require.NotNil(t, result.Status.LastSeen)
 		require.False(t, result.Status.LastSeen.Before(before))
 		require.WithinDuration(t, time.Now(), *result.Status.LastSeen, 5*time.Second)
+		require.Len(t, st.device.healthcheckCalls, 1)
+		require.Equal(t, orgId, st.device.healthcheckCalls[0].orgId)
+		require.Equal(t, []string{"foo"}, st.device.healthcheckCalls[0].names)
 	})
 
 	t.Run("When refreshLastSeen is false it should preserve the caller-provided LastSeen", func(t *testing.T) {
@@ -1189,6 +1221,7 @@ func TestReplaceDeviceStatus(t *testing.T) {
 		require.Equal(t, int32(http.StatusOK), status.Code)
 		require.NotNil(t, result.Status.LastSeen)
 		require.True(t, result.Status.LastSeen.Equal(callerProvidedLastSeen))
+		require.Empty(t, st.device.healthcheckCalls)
 	})
 }
 

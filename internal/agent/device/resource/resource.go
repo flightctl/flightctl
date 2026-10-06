@@ -53,13 +53,19 @@ type ResourceManager struct {
 }
 
 // NewManager creates a new resource Manager.
+// statusChangeNotify is called (non-blocking) when a critical alert transitions
+// state. Pass nil to disable notifications.
 func NewManager(
 	log *log.PrefixLogger,
+	statusChangeNotify func(),
 ) Manager {
+	if statusChangeNotify == nil {
+		statusChangeNotify = func() {}
+	}
 	return &ResourceManager{
-		cpuMonitor:    NewCPUMonitor(log),
-		diskMonitor:   NewDiskMonitor(log),
-		memoryMonitor: NewMemoryMonitor(log),
+		cpuMonitor:    NewCPUMonitor(log, statusChangeNotify),
+		diskMonitor:   NewDiskMonitor(log, statusChangeNotify),
+		memoryMonitor: NewMemoryMonitor(log, statusChangeNotify),
 		log:           log,
 	}
 }
@@ -313,9 +319,13 @@ func NewAlert(rule v1beta1.ResourceAlertRule) (*Alert, error) {
 	}, nil
 }
 
-func (a *Alert) Sync(usagePercentage int64) {
+// Sync checks usage against thresholds and returns true if the firing
+// state changed (edge transition).
+func (a *Alert) Sync(usagePercentage int64) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+
+	wasFiring := a.firing
 
 	// if the available usage is below the threshold, reset the firingSince time
 	if usagePercentage > int64(a.Percentage) {
@@ -333,6 +343,8 @@ func (a *Alert) Sync(usagePercentage int64) {
 	} else {
 		a.firing = false
 	}
+
+	return a.firing != wasFiring
 }
 
 func isDurationExceeded(since time.Time, duration time.Duration) bool {

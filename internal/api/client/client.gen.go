@@ -211,6 +211,9 @@ type ClientInterface interface {
 	// OverrideDeviceEnrollmentHook request
 	OverrideDeviceEnrollmentHook(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// GetDeviceLabelSyncProvenance request
+	GetDeviceLabelSyncProvenance(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetDeviceLastSeen request
 	GetDeviceLastSeen(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
@@ -380,6 +383,9 @@ type ClientInterface interface {
 	ReplaceLabelSyncMappingWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	ReplaceLabelSyncMapping(ctx context.Context, name string, body ReplaceLabelSyncMappingJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetLabelSyncProvenance request
+	GetLabelSyncProvenance(ctx context.Context, params *GetLabelSyncProvenanceParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListOrganizations request
 	ListOrganizations(ctx context.Context, params *ListOrganizationsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -970,6 +976,18 @@ func (c *Client) DecommissionDevice(ctx context.Context, name string, body Decom
 
 func (c *Client) OverrideDeviceEnrollmentHook(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewOverrideDeviceEnrollmentHookRequest(c.Server, name)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetDeviceLabelSyncProvenance(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetDeviceLabelSyncProvenanceRequest(c.Server, name)
 	if err != nil {
 		return nil, err
 	}
@@ -1726,6 +1744,18 @@ func (c *Client) ReplaceLabelSyncMappingWithBody(ctx context.Context, name strin
 
 func (c *Client) ReplaceLabelSyncMapping(ctx context.Context, name string, body ReplaceLabelSyncMappingJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewReplaceLabelSyncMappingRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+func (c *Client) GetLabelSyncProvenance(ctx context.Context, params *GetLabelSyncProvenanceParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetLabelSyncProvenanceRequest(c.Server, params)
 	if err != nil {
 		return nil, err
 	}
@@ -3413,6 +3443,40 @@ func NewOverrideDeviceEnrollmentHookRequest(server string, name string) (*http.R
 	}
 
 	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetDeviceLabelSyncProvenanceRequest generates requests for GetDeviceLabelSyncProvenance
+func NewGetDeviceLabelSyncProvenanceRequest(server string, name string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/devices/%s/labelsyncprovenance", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -5620,6 +5684,60 @@ func NewReplaceLabelSyncMappingRequestWithBody(server string, name string, conte
 	return req, nil
 }
 
+// NewGetLabelSyncProvenanceRequest generates requests for GetLabelSyncProvenance
+func NewGetLabelSyncProvenanceRequest(server string, params *GetLabelSyncProvenanceParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/labelsyncprovenance")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.LabelKeys != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "labelKeys", params.LabelKeys, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "array", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewListOrganizationsRequest generates requests for ListOrganizations
 func NewListOrganizationsRequest(server string, params *ListOrganizationsParams) (*http.Request, error) {
 	var err error
@@ -6650,6 +6768,9 @@ type ClientWithResponsesInterface interface {
 	// OverrideDeviceEnrollmentHookWithResponse request
 	OverrideDeviceEnrollmentHookWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*OverrideDeviceEnrollmentHookResponse, error)
 
+	// GetDeviceLabelSyncProvenanceWithResponse request
+	GetDeviceLabelSyncProvenanceWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetDeviceLabelSyncProvenanceResponse, error)
+
 	// GetDeviceLastSeenWithResponse request
 	GetDeviceLastSeenWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetDeviceLastSeenResponse, error)
 
@@ -6819,6 +6940,9 @@ type ClientWithResponsesInterface interface {
 	ReplaceLabelSyncMappingWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ReplaceLabelSyncMappingResponse, error)
 
 	ReplaceLabelSyncMappingWithResponse(ctx context.Context, name string, body ReplaceLabelSyncMappingJSONRequestBody, reqEditors ...RequestEditorFn) (*ReplaceLabelSyncMappingResponse, error)
+
+	// GetLabelSyncProvenanceWithResponse request
+	GetLabelSyncProvenanceWithResponse(ctx context.Context, params *GetLabelSyncProvenanceParams, reqEditors ...RequestEditorFn) (*GetLabelSyncProvenanceResponse, error)
 
 	// ListOrganizationsWithResponse request
 	ListOrganizationsWithResponse(ctx context.Context, params *ListOrganizationsParams, reqEditors ...RequestEditorFn) (*ListOrganizationsResponse, error)
@@ -7963,6 +8087,42 @@ func (r OverrideDeviceEnrollmentHookResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r OverrideDeviceEnrollmentHookResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetDeviceLabelSyncProvenanceResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *LabelSyncProvenanceList
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON404      *Status
+	JSON429      *Status
+	JSON503      *Status
+}
+
+// Status returns HTTPResponse.Status
+func (r GetDeviceLabelSyncProvenanceResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetDeviceLabelSyncProvenanceResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetDeviceLabelSyncProvenanceResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -9390,6 +9550,7 @@ type CreateLabelSyncMappingResponse struct {
 	JSON401      *Status
 	JSON403      *Status
 	JSON409      *Status
+	JSON422      *Status
 	JSON429      *Status
 	JSON503      *Status
 }
@@ -9499,6 +9660,7 @@ type PatchLabelSyncMappingResponse struct {
 	JSON403      *Status
 	JSON404      *Status
 	JSON409      *Status
+	JSON422      *Status
 	JSON429      *Status
 	JSON503      *Status
 }
@@ -9537,6 +9699,7 @@ type ReplaceLabelSyncMappingResponse struct {
 	JSON403      *Status
 	JSON404      *Status
 	JSON409      *Status
+	JSON422      *Status
 	JSON429      *Status
 	JSON503      *Status
 }
@@ -9559,6 +9722,41 @@ func (r ReplaceLabelSyncMappingResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ReplaceLabelSyncMappingResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetLabelSyncProvenanceResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	JSON200      *LabelSyncProvenanceList
+	JSON400      *Status
+	JSON401      *Status
+	JSON403      *Status
+	JSON429      *Status
+	JSON503      *Status
+}
+
+// Status returns HTTPResponse.Status
+func (r GetLabelSyncProvenanceResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetLabelSyncProvenanceResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetLabelSyncProvenanceResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -10582,6 +10780,15 @@ func (c *ClientWithResponses) OverrideDeviceEnrollmentHookWithResponse(ctx conte
 	return ParseOverrideDeviceEnrollmentHookResponse(rsp)
 }
 
+// GetDeviceLabelSyncProvenanceWithResponse request returning *GetDeviceLabelSyncProvenanceResponse
+func (c *ClientWithResponses) GetDeviceLabelSyncProvenanceWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetDeviceLabelSyncProvenanceResponse, error) {
+	rsp, err := c.GetDeviceLabelSyncProvenance(ctx, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetDeviceLabelSyncProvenanceResponse(rsp)
+}
+
 // GetDeviceLastSeenWithResponse request returning *GetDeviceLastSeenResponse
 func (c *ClientWithResponses) GetDeviceLastSeenWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetDeviceLastSeenResponse, error) {
 	rsp, err := c.GetDeviceLastSeen(ctx, name, reqEditors...)
@@ -11128,6 +11335,15 @@ func (c *ClientWithResponses) ReplaceLabelSyncMappingWithResponse(ctx context.Co
 		return nil, err
 	}
 	return ParseReplaceLabelSyncMappingResponse(rsp)
+}
+
+// GetLabelSyncProvenanceWithResponse request returning *GetLabelSyncProvenanceResponse
+func (c *ClientWithResponses) GetLabelSyncProvenanceWithResponse(ctx context.Context, params *GetLabelSyncProvenanceParams, reqEditors ...RequestEditorFn) (*GetLabelSyncProvenanceResponse, error) {
+	rsp, err := c.GetLabelSyncProvenance(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetLabelSyncProvenanceResponse(rsp)
 }
 
 // ListOrganizationsWithResponse request returning *ListOrganizationsResponse
@@ -13369,6 +13585,74 @@ func ParseOverrideDeviceEnrollmentHookResponse(rsp *http.Response) (*OverrideDev
 			return nil, err
 		}
 		response.JSON500 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetDeviceLabelSyncProvenanceResponse parses an HTTP response from a GetDeviceLabelSyncProvenanceWithResponse call
+func ParseGetDeviceLabelSyncProvenanceResponse(rsp *http.Response) (*GetDeviceLabelSyncProvenanceResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetDeviceLabelSyncProvenanceResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest LabelSyncProvenanceList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
 		var dest Status
@@ -16146,6 +16430,13 @@ func ParseCreateLabelSyncMappingResponse(rsp *http.Response) (*CreateLabelSyncMa
 		}
 		response.JSON409 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -16357,6 +16648,13 @@ func ParsePatchLabelSyncMappingResponse(rsp *http.Response) (*PatchLabelSyncMapp
 		}
 		response.JSON409 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest Status
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -16438,6 +16736,74 @@ func ParseReplaceLabelSyncMappingResponse(rsp *http.Response) (*ReplaceLabelSync
 			return nil, err
 		}
 		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 422:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON422 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 503:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON503 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetLabelSyncProvenanceResponse parses an HTTP response from a GetLabelSyncProvenanceWithResponse call
+func ParseGetLabelSyncProvenanceResponse(rsp *http.Response) (*GetLabelSyncProvenanceResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetLabelSyncProvenanceResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest LabelSyncProvenanceList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest Status
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
 		var dest Status

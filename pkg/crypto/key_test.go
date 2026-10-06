@@ -53,7 +53,15 @@ func TestHashPublicKey_ECDSAGoldenValues(t *testing.T) {
 			if !ok {
 				t.Fatalf("invalid Y coordinate: %s", tt.y)
 			}
-			pub := &ecdsa.PublicKey{Curve: curve, X: x, Y: y}
+			coordinateSize := (curve.Params().BitSize + 7) / 8
+			point := make([]byte, 1+2*coordinateSize)
+			point[0] = 0x04
+			x.FillBytes(point[1 : 1+coordinateSize])
+			y.FillBytes(point[1+coordinateSize:])
+			pub, err := ecdsa.ParseUncompressedPublicKey(curve, point)
+			if err != nil {
+				t.Fatalf("invalid ECDSA public key: %v", err)
+			}
 
 			want, err := hex.DecodeString(tt.wantHash)
 			if err != nil {

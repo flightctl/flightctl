@@ -27,7 +27,7 @@ import (
 
 func TestDelta(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "OS Delta E2E Suite")
+	RunSpecs(t, "OS and Application Delta E2E Suite")
 }
 
 var auxSvcs *auxiliary.Services
@@ -112,22 +112,25 @@ func clearDeltaHintKeys(ctx context.Context) error {
 	}
 	defer cleanup()
 
-	var cursor uint64
-	for {
-		keys, next, err := client.Scan(ctx, cursor, "deltaHint/*", 100).Result()
-		if err != nil {
-			return fmt.Errorf("scan deltaHint keys: %w", err)
-		}
-		if len(keys) > 0 {
-			if err := client.Del(ctx, keys...).Err(); err != nil {
-				return fmt.Errorf("delete deltaHint keys: %w", err)
+	for _, pattern := range []string{"deltaHint/*", "deltaHintMemo/*"} {
+		var cursor uint64
+		for {
+			keys, next, err := client.Scan(ctx, cursor, pattern, 100).Result()
+			if err != nil {
+				return fmt.Errorf("scan %s keys: %w", pattern, err)
+			}
+			if len(keys) > 0 {
+				if err := client.Del(ctx, keys...).Err(); err != nil {
+					return fmt.Errorf("delete %s keys: %w", pattern, err)
+				}
+			}
+			cursor = next
+			if cursor == 0 {
+				break
 			}
 		}
-		cursor = next
-		if cursor == 0 {
-			return nil
-		}
 	}
+	return nil
 }
 
 const registryManifestAccept = "application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json"
@@ -141,17 +144,28 @@ func clearRegistryDeltaTags(ctx context.Context) error {
 		return err
 	}
 	base := "https://" + auxSvcs.Registry.URL
-	repo := testutil.DeviceImageRegistryPath
-	tags, err := listRegistryTags(ctx, client, base, repo)
-	if err != nil {
-		return err
+	repositories := []string{
+		testutil.DeviceImageRegistryPath,
+		"flightctl-tests/alpine",
+		"flightctl-tests/nginx",
+		"flightctl/delta-applications",
+		applicationDeltaQuadletVolumeRepo,
+		applicationDeltaQuadletKubeRepo,
+		"containerdisks/fedora",
+		"kubevirt/virt-launcher",
 	}
-	for _, tag := range tags {
-		if !strings.HasPrefix(tag, "sha256-") {
-			continue
-		}
-		if err := deleteRegistryTag(ctx, client, base, repo, tag); err != nil {
+	for _, repo := range repositories {
+		tags, err := listRegistryTags(ctx, client, base, repo)
+		if err != nil {
 			return err
+		}
+		for _, tag := range tags {
+			if !strings.HasPrefix(tag, "sha256-") && !strings.HasPrefix(tag, "target-e2e-") {
+				continue
+			}
+			if err := deleteRegistryTag(ctx, client, base, repo, tag); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

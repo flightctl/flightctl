@@ -38,6 +38,7 @@ const (
 	DeviceAnnotationConsole                   = v1beta1.DeviceAnnotationConsole
 	DeviceAnnotationRemoteSession             = v1beta1.DeviceAnnotationRemoteSession
 	DeviceAnnotationRenderedVersion           = v1beta1.DeviceAnnotationRenderedVersion
+	DeviceAnnotationManagedLabels             = v1beta1.DeviceAnnotationManagedLabels
 	DeviceAnnotationAwaitingReconnect         = v1beta1.DeviceAnnotationAwaitingReconnect
 	DeviceAnnotationConflictPaused            = v1beta1.DeviceAnnotationConflictPaused
 	DeviceAnnotationTemplateVersion           = v1beta1.DeviceAnnotationTemplateVersion
@@ -90,6 +91,8 @@ const (
 	EventListKind                    = v1beta1.EventListKind
 	EventAnnotationRequestID         = v1beta1.EventAnnotationRequestID
 	EventAnnotationDelayDeviceRender = v1beta1.EventAnnotationDelayDeviceRender
+	// EventAnnotationDeltaGeneration ties a device render notification to its prepared spec.
+	EventAnnotationDeltaGeneration = "flightctl.io/delta-generation"
 )
 
 // ========== Repository ==========

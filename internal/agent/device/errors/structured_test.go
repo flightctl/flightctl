@@ -170,9 +170,10 @@ func TestFormatErrorWithElement(t *testing.T) {
 
 func TestMessage(t *testing.T) {
 	testCases := []struct {
-		name     string
-		err      error
-		contains []string
+		name        string
+		err         error
+		contains    []string
+		notContains []string
 	}{
 		{
 			name: "full chain",
@@ -193,6 +194,36 @@ func TestMessage(t *testing.T) {
 				fmt.Errorf("%w: %w", ErrComponentConfig, ErrPermissionDenied)),
 			contains: []string{"While ApplyingUpdate", "config failed:", "permission denied"},
 		},
+		{
+			// When a device is updating while a CPU/Memory monitor is in a critical
+			// alert state, beforeUpdate() returns ErrCriticalResourceAlert wrapped with
+			// the "Preparing" phase, "resources" component, and a "Memory"/"CPU"
+			// element (see device.go beforeUpdate). The rendered message must describe
+			// the update being deferred, not a generic component failure, since the
+			// update itself did not fail: it is retried once the alert clears.
+			name: "When a critical memory resource alert is active it should report update deferral",
+			err: fmt.Errorf("%w: %w", ErrPhasePreparing,
+				fmt.Errorf("%w: %w", ErrComponentResources,
+					fmt.Errorf("%w: %w", WithElement("Memory"), ErrCriticalResourceAlert))),
+			contains:    []string{"Update deferred", "Memory", "will retry"},
+			notContains: []string{"failed", "While Preparing"},
+		},
+		{
+			// The disk critical-alert path (dependency.go BeforeUpdate) includes
+			// the disk element and the remediation needed to recover.
+			name: "When a critical disk alert is active it should preserve clear-storage guidance",
+			err: fmt.Errorf("%w: %w: insufficient disk storage space, please clear storage",
+				WithElement("Disk"), ErrCriticalResourceAlert),
+			contains:    []string{"Update deferred", "Disk", "insufficient disk storage space", "clear storage", "will retry"},
+			notContains: []string{"failed", "system"},
+		},
+		{
+			name: "When no space is left it should keep the generic failure message",
+			err: fmt.Errorf("%w: %w", ErrPhaseApplyingUpdate,
+				fmt.Errorf("%w: %w", ErrComponentConfig, ErrNoSpaceLeft)),
+			contains:    []string{"While ApplyingUpdate", "config failed", "resource limit exceeded"},
+			notContains: []string{"Update deferred", "will retry"},
+		},
 	}
 
 	for _, tc := range testCases {
@@ -203,6 +234,9 @@ func TestMessage(t *testing.T) {
 
 			for _, s := range tc.contains {
 				require.True(strings.Contains(msg, s), "expected %q in %q", s, msg)
+			}
+			for _, s := range tc.notContains {
+				require.False(strings.Contains(msg, s), "expected %q NOT in %q", s, msg)
 			}
 		})
 	}

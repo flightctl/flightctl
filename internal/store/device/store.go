@@ -77,6 +77,9 @@ type Store interface {
 	ReplaceServiceOwnedStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device) (updated *domain.Device, before *domain.Device, err error)
 	// UpdateAnnotations merges annotations (and applies deleteKeys) via Mutate.
 	UpdateAnnotations(ctx context.Context, orgId uuid.UUID, name string, annotations map[string]string, deleteKeys []string) error
+	GetLabelSnapshot(ctx context.Context, orgId uuid.UUID, name string) (domain.DeviceLabelSnapshot, error)
+	GetLabelSyncMappingIDsByKeys(ctx context.Context, orgId uuid.UUID, labelKeys []string) (map[string][]uuid.UUID, error)
+	ApplyLabels(ctx context.Context, orgId uuid.UUID, name string, snapshot domain.DeviceLabelSnapshot, desired map[string]domain.DesiredDeviceLabel) (domain.DeviceLabelApplyResult, error)
 	Get(ctx context.Context, orgId uuid.UUID, name string) (*domain.Device, error)
 	List(ctx context.Context, orgId uuid.UUID, listParams DeviceListParams) (*domain.DeviceList, error)
 	Labels(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (domain.LabelList, error)
@@ -87,6 +90,7 @@ type Store interface {
 	GetLastSeen(ctx context.Context, orgId uuid.UUID, name string) (*time.Time, error)
 
 	// Used internally
+	ClearDeltaPreparingIfCurrent(ctx context.Context, orgID uuid.UUID, name string, generation int64) (bool, error)
 	OverwriteRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string, repositoryNames ...string) error
 	GetRepositoryRefs(ctx context.Context, orgId uuid.UUID, name string) (*domain.RepositoryList, error)
 	RemoveConflictPausedAnnotation(ctx context.Context, orgId uuid.UUID, listParams store.ListParams) (int64, []string, error)
@@ -120,20 +124,63 @@ type DeviceStore struct {
 	genericStore *store.GenericStore[*model.Device, model.Device, domain.Device, domain.DeviceList]
 }
 
-// DeviceRendered holds rendered_* column values not represented on domain.Device.
-// When set on DeviceMutation, Mutate persists them and bumps render_timestamp.
+// DeviceRendered holds rendered_* column values and control-plane estimates
+// that are not represented directly on domain.Device. When set on
+// DeviceMutation, Mutate persists them and bumps render_timestamp.
 type DeviceRendered struct {
 	Config       string
 	Applications string
 	OsImage      string
-	OsDeltaImage *string
+	// DeltaImage is the control-plane hint stored in the rendered OS spec.
+	DeltaImage     *string
+	DeltaEstimates *DeviceDeltaEstimates
+}
+
+// DeviceDeltaEstimates carries control-plane size estimates through a render
+// mutation into the service-owned status store.
+type DeviceDeltaEstimates struct {
+	OSDeltaSize           *string
+	ApplicationDeltaSizes map[string]*string
 }
 
 func renderedOsSpec(rendered *DeviceRendered) domain.DeviceOsSpec {
 	if rendered == nil {
 		return domain.DeviceOsSpec{}
 	}
-	return domain.DeviceOsSpec{Image: rendered.OsImage, DeltaImage: rendered.OsDeltaImage}
+	return domain.DeviceOsSpec{Image: rendered.OsImage, DeltaImage: rendered.DeltaImage}
+}
+
+func applyRenderedDeltaEstimates(device *model.Device, estimates *DeviceDeltaEstimates) {
+	if device == nil {
+		return
+	}
+	serviceConditions := model.ServiceConditions{}
+	if device.ServiceConditions != nil {
+		serviceConditions = device.ServiceConditions.Data
+	}
+
+	storedEstimates := &model.DeviceDeltaEstimates{}
+	if estimates != nil {
+		if estimates.OSDeltaSize != nil {
+			deltaSize := *estimates.OSDeltaSize
+			storedEstimates.OS = &model.DeviceDeltaEstimate{DeltaSize: &deltaSize}
+		}
+		if len(estimates.ApplicationDeltaSizes) > 0 {
+			storedEstimates.Applications = make(map[string]model.DeviceDeltaEstimate, len(estimates.ApplicationDeltaSizes))
+			for application, deltaSize := range estimates.ApplicationDeltaSizes {
+				if deltaSize == nil {
+					continue
+				}
+				copiedDeltaSize := *deltaSize
+				storedEstimates.Applications[application] = model.DeviceDeltaEstimate{DeltaSize: &copiedDeltaSize}
+			}
+		}
+	}
+	if storedEstimates.OS == nil && len(storedEstimates.Applications) == 0 {
+		storedEstimates = nil
+	}
+	serviceConditions.DeltaEstimates = storedEstimates
+	device.ServiceConditions = model.MakeJSONField(serviceConditions)
 }
 
 // DeviceMutation is the unit apply mutates. Handlers decide all field changes.
@@ -165,6 +212,25 @@ func (m *DeviceMutation) Clone() (store.ResourceMutation[domain.Device], error) 
 	}
 	if m.Rendered != nil {
 		rendered := *m.Rendered
+		if m.Rendered.DeltaEstimates != nil {
+			estimates := *m.Rendered.DeltaEstimates
+			if estimates.ApplicationDeltaSizes != nil {
+				estimates.ApplicationDeltaSizes = make(map[string]*string, len(m.Rendered.DeltaEstimates.ApplicationDeltaSizes))
+				for application, deltaSize := range m.Rendered.DeltaEstimates.ApplicationDeltaSizes {
+					if deltaSize == nil {
+						estimates.ApplicationDeltaSizes[application] = nil
+						continue
+					}
+					copiedDeltaSize := *deltaSize
+					estimates.ApplicationDeltaSizes[application] = &copiedDeltaSize
+				}
+			}
+			if estimates.OSDeltaSize != nil {
+				copiedDeltaSize := *estimates.OSDeltaSize
+				estimates.OSDeltaSize = &copiedDeltaSize
+			}
+			rendered.DeltaEstimates = &estimates
+		}
 		out.Rendered = &rendered
 	}
 	return out, nil
@@ -223,10 +289,23 @@ func NewDeviceStore(db *gorm.DB, log logrus.FieldLogger) *DeviceStore {
 }
 
 // ResumeDeltaIfCurrent clears the device's delta-preparing state only when
-// its rendered spec hash still matches the prepare. The preparing condition is
+// its desired spec generation still matches the prepare. The preparing condition is
 // part of the predicate so a redelivered completion event cannot claim the
 // same resource twice.
-func (s *DeviceStore) ResumeDeltaIfCurrent(ctx context.Context, orgID uuid.UUID, name, specHash string) (bool, error) {
+func (s *DeviceStore) ResumeDeltaIfCurrent(ctx context.Context, orgID uuid.UUID, name string, generation int64) (bool, error) {
+	return s.clearDeltaPreparingIfCurrent(ctx, orgID, name, generation, true)
+}
+
+// ClearDeltaPreparingIfCurrent also matches an already-cleared marker, allowing
+// a deadline retry to recover its resume event after a process failure.
+func (s *DeviceStore) ClearDeltaPreparingIfCurrent(ctx context.Context, orgID uuid.UUID, name string, generation int64) (bool, error) {
+	return s.clearDeltaPreparingIfCurrent(ctx, orgID, name, generation, false)
+}
+
+func (s *DeviceStore) clearDeltaPreparingIfCurrent(ctx context.Context, orgID uuid.UUID, name string, generation int64, requirePreparing bool) (bool, error) {
+	if generation <= 0 {
+		return false, nil
+	}
 	result := s.getDB(ctx).Exec(`
 		UPDATE devices
 		SET service_conditions = (
@@ -247,18 +326,18 @@ func (s *DeviceStore) ResumeDeltaIfCurrent(ctx context.Context, orgID uuid.UUID,
 		WHERE org_id = @org_id
 		  AND name = @name
 		  AND deleted_at IS NULL
-		  AND annotations->>@spec_hash_annotation = @spec_hash
-		  AND EXISTS (
+		  AND generation = @generation
+		  AND (NOT @require_preparing OR EXISTS (
 				SELECT 1
 				FROM jsonb_array_elements(COALESCE(service_conditions->'conditions', '[]'::jsonb)) AS condition_rows(condition_json)
 				WHERE condition_json->>'type' = @condition_type
-		  )
+		  ))
 	`, map[string]interface{}{
-		"org_id":               orgID,
-		"name":                 name,
-		"spec_hash":            specHash,
-		"spec_hash_annotation": domain.DeviceAnnotationRenderedSpecHash,
-		"condition_type":       string(domain.ConditionTypeDeviceDeltaPreparing),
+		"org_id":            orgID,
+		"name":              name,
+		"generation":        generation,
+		"require_preparing": requirePreparing,
+		"condition_type":    string(domain.ConditionTypeDeviceDeltaPreparing),
 	})
 	if result.Error != nil {
 		return false, store.ErrorFromGormError(result.Error)
@@ -621,7 +700,8 @@ func (s *DeviceStore) Mutate(ctx context.Context, orgId uuid.UUID, name string, 
 }
 
 // UpdateStatus writes only status + resource_version so service_conditions
-// (SpecValid, DependencySync, …) are left intact. previous is optional (first attempt).
+// (SpecValid, DependencySync, delta estimates, …) are left intact. previous is
+// optional (first attempt).
 func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, device *domain.Device, previous *domain.Device) (*domain.Device, *domain.Device, error) {
 	if device == nil {
 		return nil, nil, flterrors.ErrResourceIsNil
@@ -632,6 +712,7 @@ func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, device 
 	if err != nil {
 		return nil, nil, err
 	}
+	fromAPI.OrgID = orgId
 
 	var before, updated *domain.Device
 	attempt := 0
@@ -656,14 +737,16 @@ func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, device 
 		if rvErr != nil {
 			return false, flterrors.ErrIllegalResourceVersionFormat
 		}
-		// Only OrgID/Name are needed for GORM to target the row by primary key; no need to
-		// convert the rest of current (spec, labels, annotations, ...).
-		existing := &model.Device{Resource: model.Resource{OrgID: orgId, Name: name}}
-
-		result := s.getDB(ctx).Model(existing).Where("resource_version = ?", rv).Updates(map[string]interface{}{
-			"status":           fromAPI.Status,
-			"resource_version": gorm.Expr("resource_version + 1"),
-		})
+		// Return the stored service conditions with the CAS update so the API
+		// response can merge estimates with the new agent status without a read.
+		var returned model.Device
+		result := s.getDB(ctx).Model(&returned).
+			Where("org_id = ? AND name = ? AND resource_version = ?", orgId, name, rv).
+			Clauses(clause.Returning{Columns: []clause.Column{{Name: "service_conditions"}}}).
+			Updates(map[string]interface{}{
+				"status":           fromAPI.Status,
+				"resource_version": gorm.Expr("resource_version + 1"),
+			})
 		if result.Error != nil {
 			err := store.ErrorFromGormError(result.Error)
 			return strings.Contains(err.Error(), "deadlock"), err
@@ -671,11 +754,19 @@ func (s *DeviceStore) UpdateStatus(ctx context.Context, orgId uuid.UUID, device 
 		if result.RowsAffected == 0 {
 			return true, flterrors.ErrNoRowsUpdated
 		}
-		// Shallow copy: Metadata is a value type, so reassigning next.Metadata.ResourceVersion
-		// below doesn't touch before.Metadata.ResourceVersion; Status is fully replaced, not
-		// mutated in place.
+		statusModel := &model.Device{
+			Status:            fromAPI.Status,
+			ServiceConditions: returned.ServiceConditions,
+		}
+		mergedStatusResource, err := statusModel.ToApiResource()
+		if err != nil {
+			return false, err
+		}
 		next := *current
-		next.Status = device.Status
+		next.Status = mergedStatusResource.Status
+		if next.Status != nil && device.Status != nil {
+			next.Status.LastSeen = device.Status.LastSeen
+		}
 		next.Metadata.ResourceVersion = lo.ToPtr(strconv.FormatInt(rv+1, 10))
 		updated = &next
 		return false, nil
@@ -749,6 +840,7 @@ func (s *DeviceStore) Create(ctx context.Context, orgId uuid.UUID, device *domai
 		deviceModel.RenderedApplications = model.MakeJSONField(json.RawMessage(apps))
 		deviceModel.RenderedOs = model.MakeJSONField(renderedOsSpec(rendered))
 		deviceModel.RenderTimestamp = time.Now()
+		applyRenderedDeltaEstimates(deviceModel, rendered.DeltaEstimates)
 	}
 
 	result := s.getDB(ctx).Create(deviceModel)
@@ -772,6 +864,19 @@ func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, before, devic
 		return false, err
 	}
 	fromAPI.OrgID = orgId
+	if rendered != nil {
+		applyRenderedDeltaEstimates(fromAPI, rendered.DeltaEstimates)
+	} else {
+		preserveDeltaEstimatesFromSnapshot(fromAPI, existing)
+	}
+	var renderedStatus *domain.DeviceStatus
+	if rendered != nil {
+		updatedResource, err := fromAPI.ToApiResource()
+		if err != nil {
+			return false, err
+		}
+		renderedStatus = updatedResource.Status
+	}
 
 	// Prefer API-level Spec comparison so generation tracks the same Spec delta
 	// that event emission uses (HasSameSpecAs alone can miss union/ref changes
@@ -821,9 +926,33 @@ func (s *DeviceStore) Update(ctx context.Context, orgId uuid.UUID, before, devic
 		return true, flterrors.ErrNoRowsUpdated
 	}
 
+	if renderedStatus != nil {
+		if device.Status != nil {
+			renderedStatus.LastSeen = device.Status.LastSeen
+		}
+		device.Status = renderedStatus
+	}
 	device.Metadata.Generation = lo.ToPtr(generation)
 	device.Metadata.ResourceVersion = lo.ToPtr(strconv.FormatInt(lo.FromPtr(existing.ResourceVersion)+1, 10))
 	return false, nil
+}
+
+// preserveDeltaEstimatesFromSnapshot keeps delta estimates service-owned for
+// non-render updates, including when the stored snapshot has no estimates.
+func preserveDeltaEstimatesFromSnapshot(updated, existing *model.Device) {
+	serviceConditions := model.ServiceConditions{}
+	if updated.ServiceConditions != nil {
+		serviceConditions = updated.ServiceConditions.Data
+	}
+	// Copy the value unconditionally: nil in the snapshot must clear any
+	// caller-supplied estimates extracted from the mutated API status. The
+	// resource-version check retries if the snapshot changed during this update.
+	if existing != nil && existing.ServiceConditions != nil {
+		serviceConditions.DeltaEstimates = existing.ServiceConditions.Data.DeltaEstimates
+	} else {
+		serviceConditions.DeltaEstimates = nil
+	}
+	updated.ServiceConditions = model.MakeJSONField(serviceConditions)
 }
 
 func (s *DeviceStore) getWithTimestamp(ctx context.Context, orgId uuid.UUID, name string, opts ...model.APIResourceOption) (*domain.Device, error) {

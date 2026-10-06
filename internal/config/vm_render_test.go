@@ -131,3 +131,47 @@ func TestEffectiveRenderTimeout(t *testing.T) {
 		assert.Equal(t, DefaultRenderTimeout, cfg.EffectiveRenderTimeout())
 	})
 }
+
+func TestEffectiveDeltaCacheTTLs(t *testing.T) {
+	t.Parallel()
+
+	t.Run("When cache TTLs are omitted it should use the defaults", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{}
+		assert.Equal(t, DefaultImageDigestCacheTTL, cfg.EffectiveImageDigestCacheTTL())
+		assert.Equal(t, DefaultHelmImageRefsCacheTTL, cfg.EffectiveHelmImageRefsCacheTTL())
+	})
+
+	t.Run("When cache TTLs are configured it should use those values", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{}
+		require.NoError(t, json.Unmarshal([]byte(`{
+			"worker": {
+				"imageDigestCacheTTL": "3m",
+				"helmImageRefsCacheTTL": "7m"
+			}
+		}`), cfg))
+		assert.Equal(t, 3*time.Minute, cfg.EffectiveImageDigestCacheTTL())
+		assert.Equal(t, 7*time.Minute, cfg.EffectiveHelmImageRefsCacheTTL())
+	})
+
+	t.Run("When cache TTLs are zero it should use the defaults", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{}
+		require.NoError(t, json.Unmarshal([]byte(`{
+			"worker": {
+				"imageDigestCacheTTL": "0s",
+				"helmImageRefsCacheTTL": "0s"
+			}
+		}`), cfg))
+		assert.Equal(t, DefaultImageDigestCacheTTL, cfg.EffectiveImageDigestCacheTTL())
+		assert.Equal(t, DefaultHelmImageRefsCacheTTL, cfg.EffectiveHelmImageRefsCacheTTL())
+	})
+
+	t.Run("When config is nil it should use the defaults", func(t *testing.T) {
+		t.Parallel()
+		var cfg *Config
+		assert.Equal(t, DefaultImageDigestCacheTTL, cfg.EffectiveImageDigestCacheTTL())
+		assert.Equal(t, DefaultHelmImageRefsCacheTTL, cfg.EffectiveHelmImageRefsCacheTTL())
+	})
+}

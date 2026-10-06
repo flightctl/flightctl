@@ -53,6 +53,7 @@ type Agent struct {
 	pruningManager         imagepruning.Manager
 	caps                   os.Capabilities
 
+	criticalCh           <-chan struct{}
 	statusUpdateInterval util.Duration
 	statusUpdateJitter   util.Duration
 
@@ -85,6 +86,7 @@ func NewAgent(
 	pullConfigResolver dependency.PullConfigResolver,
 	pruningManager imagepruning.Manager,
 	caps os.Capabilities,
+	criticalCh <-chan struct{},
 	backoff wait.Backoff,
 	log *log.PrefixLogger,
 ) *Agent {
@@ -112,6 +114,7 @@ func NewAgent(
 		pullConfigResolver:     pullConfigResolver,
 		pruningManager:         pruningManager,
 		caps:                   caps,
+		criticalCh:             criticalCh,
 		backoff:                backoff,
 		log:                    log,
 	}
@@ -119,12 +122,19 @@ func NewAgent(
 
 // Run starts the device agent reconciliation loop.
 func (a *Agent) Run(ctx context.Context) error {
-	// orchestrates periodic fetching of device specs and pushing status updates
+	criticalPushFn := func(ctx context.Context) {
+		if err := a.statusManager.UpdateCritical(ctx); err != nil {
+			a.log.Errorf("Critical status push: %v", err)
+		}
+	}
+
 	engine := NewEngine(
 		a.syncDeviceSpec,
 		a.statusUpdateInterval,
 		a.statusUpdate,
 		time.Duration(a.statusUpdateJitter),
+		a.criticalCh,
+		criticalPushFn,
 	)
 
 	return engine.Run(ctx)
@@ -508,6 +518,11 @@ func (a *Agent) beforeUpdate(ctx context.Context, current, desired *v1beta1.Devi
 	osUpdatePending, err := a.specManager.ShouldApplyOSImageUpdatePending(ctx)
 	if err != nil {
 		return fmt.Errorf("checking OS update pending: %w", err)
+	}
+	// Reconcile OS delta status even for app-only updates, where the OS manager
+	// may not be registered as an OCI collector.
+	if err := a.osManager.BeforeUpdate(ctx, current.Spec, desired.Spec); err != nil {
+		return fmt.Errorf("%w: %w", errors.ErrComponentOS, err)
 	}
 
 	if err := a.prefetchManager.BeforeUpdate(ctx, current.Spec, desired.Spec,

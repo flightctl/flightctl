@@ -101,6 +101,7 @@ type clientOptions struct {
 	repositoryConfigPath string
 	criConfigPath        string
 	timeout              time.Duration
+	defaultAuth          bool
 }
 
 // WithPullSecret sets the path to the pull secret. If unset uses the default
@@ -108,6 +109,15 @@ type clientOptions struct {
 func WithPullSecret(path string) ClientOption {
 	return func(opts *clientOptions) {
 		opts.pullSecretPath = path
+	}
+}
+
+// WithDefaultAuth lets Skopeo consult the process user's standard containers
+// auth files when no explicit pull secret is set. Skopeo otherwise disables
+// default credential lookup for noninteractive operations.
+func WithDefaultAuth() ClientOption {
+	return func(opts *clientOptions) {
+		opts.defaultAuth = true
 	}
 }
 

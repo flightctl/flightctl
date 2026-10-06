@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -44,6 +45,7 @@ type manager struct {
 	runtimeCollectors  map[string]CollectorFn
 	collection         []*collector
 	now                func() time.Time
+	rng                *rand.Rand
 
 	log *log.PrefixLogger
 }
@@ -69,6 +71,7 @@ func NewManager(
 		collectionChanged:  make(chan struct{}, 1),
 		runtimeCollectors:  make(map[string]CollectorFn),
 		now:                time.Now,
+		rng:                rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())), //nolint:gosec // G404 - shuffling does not require crypto-strength randomness
 		log:                log,
 	}
 	m.rebuildCollectors()
@@ -252,7 +255,7 @@ func (m *manager) rebuildCollectors() {
 
 func managerCollectionRequest(infoKeys, customKeys []string) collectionRequest {
 	custom := customCollectionRequest{mode: customCollectionDisabled}
-	if customKeys == nil {
+	if customKeys == nil || slices.Contains(customKeys, "*") {
 		custom.mode = customCollectionDiscover
 	} else if len(customKeys) > 0 {
 		custom = customCollectionRequest{mode: customCollectionConfigured, keys: customKeys}
@@ -292,6 +295,13 @@ func (m *manager) collectConfigured(ctx context.Context, pendingOnly bool) {
 }
 
 func (m *manager) collectSources(ctx context.Context, sources []*collector) {
+	// Shuffle sources so that when the global timeout fires, different
+	// sources get a chance to run on each collection cycle instead of
+	// always starving the ones at the end of a fixed list.
+	m.rng.Shuffle(len(sources), func(i, j int) {
+		sources[i], sources[j] = sources[j], sources[i]
+	})
+
 	for _, source := range sources {
 		if ctx.Err() != nil {
 			return

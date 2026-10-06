@@ -26,23 +26,29 @@ type CPUMonitor struct {
 	mu     sync.Mutex
 	alerts map[v1beta1.ResourceAlertSeverityType]*Alert
 
-	updateIntervalCh chan time.Duration
-	samplingInterval time.Duration
-	collector        Collector[CPUUsage]
-	prevUsage        *CPUUsage
+	updateIntervalCh   chan time.Duration
+	samplingInterval   time.Duration
+	collector          Collector[CPUUsage]
+	prevUsage          *CPUUsage
+	criticalNotifyFunc func()
 
 	log *log.PrefixLogger
 }
 
 func NewCPUMonitor(
 	log *log.PrefixLogger,
+	criticalNotifyFunc func(),
 ) *CPUMonitor {
+	if criticalNotifyFunc == nil {
+		criticalNotifyFunc = func() {}
+	}
 	return &CPUMonitor{
-		alerts:           make(map[v1beta1.ResourceAlertSeverityType]*Alert),
-		updateIntervalCh: make(chan time.Duration, 1),
-		samplingInterval: DefaultSamplingInterval,
-		collector:        newCPUCollector(DefaultProcStatPath),
-		log:              log,
+		alerts:             make(map[v1beta1.ResourceAlertSeverityType]*Alert),
+		updateIntervalCh:   make(chan time.Duration, 1),
+		samplingInterval:   DefaultSamplingInterval,
+		collector:          newCPUCollector(DefaultProcStatPath),
+		criticalNotifyFunc: criticalNotifyFunc,
+		log:                log,
 	}
 }
 
@@ -126,8 +132,11 @@ func (m *CPUMonitor) sync(ctx context.Context, current *CPUUsage) {
 	m.prevUsage = current
 
 	m.log.Tracef("CPU usage: %d%%", current.UsedPercent)
-	for _, alert := range m.alerts {
-		alert.Sync(current.UsedPercent)
+	for severity, alert := range m.alerts {
+		if changed := alert.Sync(current.UsedPercent); changed &&
+			severity == v1beta1.ResourceAlertSeverityTypeCritical {
+			m.criticalNotifyFunc()
+		}
 	}
 }
 

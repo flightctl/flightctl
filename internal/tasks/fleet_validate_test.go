@@ -139,6 +139,71 @@ func TestFleetValidateLogic_WhenPrepareIdentityWasSupersededItShouldNotEmit(t *t
 	assert.Empty(t, emit.events)
 }
 
+func TestFleetValidateLogic_SkipsUnclassifiedSpecUpdateWithoutPendingDeltaPrepare(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	fleetName := "test-fleet"
+	orgID := uuid.New()
+	fleet := createTestFleet(fleetName, nil)
+	fleet.Status = &domain.FleetStatus{}
+	event := createTestEventWithDetails(
+		domain.FleetKind,
+		domain.EventReasonResourceUpdated,
+		fleetName,
+		createResourceUpdatedDetails(t, domain.Spec),
+	)
+
+	mockFleetSvc := fleetservice.NewMockService(ctrl)
+	mockFleetSvc.EXPECT().GetFleet(gomock.Any(), orgID, fleetName, gomock.Any()).Return(fleet, domain.StatusOK())
+
+	logic := NewFleetValidateLogic(logrus.New(), mockFleetSvc, nil, nil, nil, nil, orgID, event)
+	require.NoError(t, logic.CreateNewTemplateVersionIfFleetValid(context.Background()))
+}
+
+func TestFleetHasPendingDeltaPrepare(t *testing.T) {
+	tests := []struct {
+		name     string
+		fleet    *domain.Fleet
+		expected bool
+	}{
+		{name: "When fleet is nil it should report no pending prepare", fleet: nil, expected: false},
+		{name: "When fleet has no prepare state it should report no pending prepare", fleet: &domain.Fleet{Status: &domain.FleetStatus{}}, expected: false},
+		{
+			name: "When delta generation status exists it should report a pending prepare",
+			fleet: &domain.Fleet{Status: &domain.FleetStatus{
+				DeltaGeneration: &domain.DeltaGenerationStatus{},
+			}},
+			expected: true,
+		},
+		{
+			name: "When the preparing condition exists it should report a pending prepare",
+			fleet: &domain.Fleet{Status: &domain.FleetStatus{Conditions: []domain.Condition{{
+				Type: domain.ConditionTypeFleetDeltaPreparing,
+			}}}},
+			expected: true,
+		},
+		{
+			name: "When the prepare resource version annotation exists it should report a pending prepare",
+			fleet: &domain.Fleet{Metadata: domain.ObjectMeta{Annotations: lo.ToPtr(map[string]string{
+				domain.FleetAnnotationDeltaPrepareResourceVersion: "7",
+			})}},
+			expected: true,
+		},
+		{
+			name: "When the prepare generation annotation exists it should report a pending prepare",
+			fleet: &domain.Fleet{Metadata: domain.ObjectMeta{Annotations: lo.ToPtr(map[string]string{
+				domain.FleetAnnotationDeltaPrepareGeneration: "3",
+			})}},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, fleetHasPendingDeltaPrepare(tt.fleet))
+		})
+	}
+}
+
 func TestFleetValidateLogic_WhenPrepareDeltasPublicationFailsItReturnsError(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	fleetName := "test-fleet"

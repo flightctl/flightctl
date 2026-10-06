@@ -2,6 +2,7 @@ package prepare
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -9,6 +10,7 @@ import (
 	deltaconfig "github.com/flightctl/flightctl/internal/delta_worker/config"
 	generateTask "github.com/flightctl/flightctl/internal/delta_worker/tasks/generate"
 	"github.com/flightctl/flightctl/internal/domain"
+	"github.com/flightctl/flightctl/internal/oci"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	fleetservice "github.com/flightctl/flightctl/internal/service/fleet"
 	repositoryservice "github.com/flightctl/flightctl/internal/service/repository"
@@ -17,6 +19,8 @@ import (
 	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/google/uuid"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/sirupsen/logrus"
 )
 
 type DeltaCandidate struct {
@@ -38,10 +42,18 @@ type Resolver struct {
 	RepositoryService      repositoryservice.Service
 	TemplateVersionService templateversionservice.Service
 	Config                 *deltaconfig.DeltaGenerationConfig
+	Log                    logrus.FieldLogger
 
-	Inspect func(ctx context.Context, orgId uuid.UUID, image string) (string, error)
-	Render  func(ctx context.Context, orgId uuid.UUID, spec *domain.DeviceSpec) (tasks.RenderedSpec, error)
-	Expand  func(context.Context, uuid.UUID, *domain.Device, tasks.RenderedSpec, []DeltaCandidate) []DeltaCandidate
+	Inspect          func(ctx context.Context, orgId uuid.UUID, image string) (string, error)
+	InspectForSource func(
+		ctx context.Context,
+		orgId uuid.UUID,
+		image string,
+		sourceDigest string,
+		fallbackPlatform *ocispec.Platform,
+	) (resolvedSourceDigest, targetDigest string, err error)
+	Render func(ctx context.Context, orgId uuid.UUID, device *domain.Device, spec *domain.DeviceSpec) (tasks.RenderedSpec, error)
+	Expand func(context.Context, uuid.UUID, *domain.Device, tasks.RenderedSpec, []DeltaCandidate) []DeltaCandidate
 }
 
 func (r *Resolver) DeltaCandidates(ctx context.Context, ev worker_client.EventWithOrgId) (DeltaCandidateResult, error) {
@@ -188,15 +200,33 @@ func (r *Resolver) candidatesForFleetEvent(ctx context.Context, ev worker_client
 
 func (r *Resolver) candidatesForDeviceEvent(ctx context.Context, ev worker_client.EventWithOrgId) (DeltaCandidateResult, error) {
 	device, status := r.DeviceService.GetDevice(ctx, ev.OrgId, ev.Event.InvolvedObject.Name)
+	if status.Code == http.StatusNotFound {
+		return DeltaCandidateResult{Superseded: true}, nil
+	}
 	if status.Code != http.StatusOK {
 		return DeltaCandidateResult{}, fmt.Errorf("get device %s/%s: %s", ev.OrgId, ev.Event.InvolvedObject.Name, status.Message)
 	}
-	expectedSpecHash, err := deviceSpecHashFromEvent(ev)
+	expectedGeneration, err := deviceGenerationFromEvent(ev)
 	if err != nil {
 		return DeltaCandidateResult{}, err
 	}
-	if actualSpecHash := device.SpecHash(); actualSpecHash != expectedSpecHash {
-		return DeltaCandidateResult{}, fmt.Errorf("device %s spec hash changed: event=%q current=%q", ev.Event.InvolvedObject.Name, expectedSpecHash, actualSpecHash)
+	// Rendering is held until preparation finishes, so the rendered spec hash
+	// can still describe an earlier desired spec. Generation changes immediately.
+	if device == nil {
+		if r.Log != nil {
+			r.Log.Debugf("Dropping prepare deltas event for device %s/%s at generation %d: device no longer exists", ev.OrgId, ev.Event.InvolvedObject.Name, expectedGeneration)
+		}
+		return DeltaCandidateResult{Superseded: true}, nil
+	}
+	if device.Metadata.Generation == nil || *device.Metadata.Generation != expectedGeneration {
+		if r.Log != nil {
+			var currentGeneration any
+			if device.Metadata.Generation != nil {
+				currentGeneration = *device.Metadata.Generation
+			}
+			r.Log.WithField("currentGeneration", currentGeneration).Debugf("Dropping superseded prepare deltas event for device %s/%s at generation %d", ev.OrgId, ev.Event.InvolvedObject.Name, expectedGeneration)
+		}
+		return DeltaCandidateResult{Superseded: true}, nil
 	}
 	if !deviceEligible(device) {
 		return DeltaCandidateResult{Skip: true}, nil
@@ -226,18 +256,18 @@ func prepareEventTemplateVersion(ev worker_client.EventWithOrgId) (*string, erro
 	return details.TemplateVersion, nil
 }
 
-func deviceSpecHashFromEvent(ev worker_client.EventWithOrgId) (string, error) {
+func deviceGenerationFromEvent(ev worker_client.EventWithOrgId) (int64, error) {
 	if ev.Event.Details == nil {
-		return "", fmt.Errorf("prepare deltas event is missing details")
+		return 0, fmt.Errorf("prepare deltas event is missing details")
 	}
 	details, err := ev.Event.Details.AsPrepareDeltasDetails()
 	if err != nil {
-		return "", fmt.Errorf("prepare deltas details: %w", err)
+		return 0, fmt.Errorf("prepare deltas details: %w", err)
 	}
-	if details.SpecHash == nil || *details.SpecHash == "" {
-		return "", fmt.Errorf("device prepare deltas event requires specHash")
+	if details.Generation == nil || *details.Generation <= 0 {
+		return 0, fmt.Errorf("device prepare deltas event requires a positive generation")
 	}
-	return *details.SpecHash, nil
+	return *details.Generation, nil
 }
 
 func (r *Resolver) candidatesForDevice(ctx context.Context, orgId uuid.UUID, device *domain.Device, tv *domain.TemplateVersion) ([]DeltaCandidate, error) {
@@ -259,7 +289,7 @@ func (r *Resolver) candidatesForDevice(ctx context.Context, orgId uuid.UUID, dev
 	if r.Render == nil {
 		return nil, fmt.Errorf("render is required")
 	}
-	rendered, err := r.Render(ctx, orgId, spec)
+	rendered, err := r.Render(ctx, orgId, device, spec)
 	if err != nil {
 		return nil, nil
 	}
@@ -292,16 +322,27 @@ func (r *Resolver) osCandidate(ctx context.Context, orgId uuid.UUID, device *dom
 	if err != nil {
 		return DeltaCandidate{}, false, nil
 	}
-	if r.Inspect == nil {
+	if r.Inspect == nil && r.InspectForSource == nil {
 		return DeltaCandidate{}, false, fmt.Errorf("inspect is required")
 	}
-	newDigest, err := r.Inspect(ctx, orgId, rendered.OsImage)
+	resolvedSource, newDigest := current, ""
+	if r.InspectForSource != nil {
+		resolvedSource, newDigest, err = r.InspectForSource(ctx, orgId, rendered.OsImage, current, oci.DeviceImagePlatform(device))
+	} else {
+		newDigest, err = r.Inspect(ctx, orgId, rendered.OsImage)
+	}
 	if err != nil {
+		if errors.Is(err, oci.ErrSourceDigestUnresolved) {
+			return DeltaCandidate{}, false, nil
+		}
 		return DeltaCandidate{}, false, err
+	}
+	if resolvedSource == "" || newDigest == "" || resolvedSource == newDigest {
+		return DeltaCandidate{}, false, nil
 	}
 	return DeltaCandidate{
 		ImageRepository: repo,
-		CurrentDigest:   current,
+		CurrentDigest:   resolvedSource,
 		NewDigest:       newDigest,
 	}, true, nil
 }

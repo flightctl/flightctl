@@ -139,6 +139,20 @@ func (mr *MockManagerMockRecorder) Collect(arg0 any, arg1 ...any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Collect", reflect.TypeOf((*MockManager)(nil).Collect), varargs...)
 }
 
+// CriticalChangeNotifier mocks base method.
+func (m *MockManager) CriticalChangeNotifier() func() {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CriticalChangeNotifier")
+	ret0, _ := ret[0].(func())
+	return ret0
+}
+
+// CriticalChangeNotifier indicates an expected call of CriticalChangeNotifier.
+func (mr *MockManagerMockRecorder) CriticalChangeNotifier() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CriticalChangeNotifier", reflect.TypeOf((*MockManager)(nil).CriticalChangeNotifier))
+}
+
 // Get mocks base method.
 func (m *MockManager) Get(arg0 context.Context) *v1beta1.DeviceStatus {
 	m.ctrl.T.Helper()
@@ -163,6 +177,18 @@ func (m *MockManager) InvalidateLastStatus() {
 func (mr *MockManagerMockRecorder) InvalidateLastStatus() *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InvalidateLastStatus", reflect.TypeOf((*MockManager)(nil).InvalidateLastStatus))
+}
+
+// RegisterCriticalExporter mocks base method.
+func (m *MockManager) RegisterCriticalExporter(arg0 Exporter) {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "RegisterCriticalExporter", arg0)
+}
+
+// RegisterCriticalExporter indicates an expected call of RegisterCriticalExporter.
+func (mr *MockManagerMockRecorder) RegisterCriticalExporter(arg0 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RegisterCriticalExporter", reflect.TypeOf((*MockManager)(nil).RegisterCriticalExporter), arg0)
 }
 
 // RegisterStatusExporter mocks base method.
@@ -235,4 +261,18 @@ func (m *MockManager) UpdateCondition(arg0 context.Context, arg1 v1beta1.Conditi
 func (mr *MockManagerMockRecorder) UpdateCondition(arg0, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCondition", reflect.TypeOf((*MockManager)(nil).UpdateCondition), arg0, arg1)
+}
+
+// UpdateCritical mocks base method.
+func (m *MockManager) UpdateCritical(ctx context.Context) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateCritical", ctx)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateCritical indicates an expected call of UpdateCritical.
+func (mr *MockManagerMockRecorder) UpdateCritical(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateCritical", reflect.TypeOf((*MockManager)(nil).UpdateCritical), ctx)
 }

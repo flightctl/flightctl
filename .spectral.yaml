@@ -7,6 +7,10 @@ aliases:
     - '$.paths[?(@property.match( "^(/api/v[0-9]+[a-z0-9]*)?/[a-z]+$" ))]'
   PathToResource:
     - '$.paths[?(@property.match( "^(/api/v[0-9]+[a-z0-9]*)?/[a-z]+/{name}$" ))]'
+  PathToLabelSyncMappingCollection:
+    - '$.paths[?(@property == "/labelsyncmappings")]'
+  PathToLabelSyncMappingResource:
+    - '$.paths[?(@property == "/labelsyncmappings/{name}")]'
   PathToStatusSubresource:
     - '$.paths[?(@property.match( "^(/api/v[0-9]+[a-z0-9]*)?/[a-z]+/{name}/status$" ))]'
   PathToApprovalSubresource:
@@ -377,6 +381,39 @@ rules:
       functionOptions:
         values: ["200", "400", "401", "403", "404", "409", "429", "503"]
 
+  responses-labelsyncmapping-post-allowed:
+    description: POST on LabelSyncMapping collections may also return 422 for expression validation failures.
+    message: "Response {{property}} not allowed."
+    severity: error
+    given: "#PathToLabelSyncMappingCollection.post.responses.*~"
+    then:
+      field: "@key"
+      function: enumeration
+      functionOptions:
+        values: ["201", "400", "401", "403", "409", "422", "429", "503"]
+
+  responses-labelsyncmapping-put-allowed:
+    description: PUT on LabelSyncMapping resources may also return 422 for expression validation failures.
+    message: "Response {{property}} not allowed."
+    severity: error
+    given: "#PathToLabelSyncMappingResource.put.responses.*~"
+    then:
+      field: "@key"
+      function: enumeration
+      functionOptions:
+        values: ["200", "201", "400", "401", "403", "404", "409", "422", "429", "503"]
+
+  responses-labelsyncmapping-patch-allowed:
+    description: PATCH on LabelSyncMapping resources may also return 422 for expression validation failures.
+    message: "Response {{property}} not allowed."
+    severity: error
+    given: "#PathToLabelSyncMappingResource.patch.responses.*~"
+    then:
+      field: "@key"
+      function: enumeration
+      functionOptions:
+        values: ["200", "400", "401", "403", "404", "409", "422", "429", "503"]
+
   responses-resource-delete-required:
     description: DELETE on a resource must have responses 200, 401, 403, 429, 503.
     message: "Response {{property}} is required."
@@ -511,8 +548,19 @@ rules:
 
 # Paths here mirror the OpenAPI spec where /api/v1 is defined in server URL, not in paths.
 overrides:
+  # LabelSyncMapping expression validation returns 422; endpoint-specific rules preserve the shared allowlists.
+  - files:
+      - "**/api/core/v1beta1/openapi.yaml#/paths/~1labelsyncmappings"
+    rules:
+      responses-collection-post-allowed: off
+  - files:
+      - "**/api/core/v1beta1/openapi.yaml#/paths/~1labelsyncmappings~1%7Bname%7D"
+    rules:
+      responses-resource-put-allowed: off
+      responses-resource-patch-allowed: off
   - files:
       - "**#/paths/~1labels"
+      - "**#/paths/~1labelsyncprovenance"
       - "**#/paths/~1events"
       - "**#/paths/~1enrollmentconfig"
       - "**#/paths/~1organizations"

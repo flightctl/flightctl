@@ -2,6 +2,7 @@ package v1beta1
 
 import (
 	"encoding/json"
+	"strconv"
 	"testing"
 
 	"github.com/samber/lo"
@@ -66,26 +67,38 @@ func TestDeviceDeltaApplyStatusJSON(t *testing.T) {
 		name            string
 		jsonInput       string
 		wantReason      *string
-		wantSize        *string
+		wantDeltaSize   *string
+		wantOutcome     *DeviceDeltaApplyOutcomeType
 		marshalSource   DeviceOsStatus
 		wantMarshalOmit string
 		wantMarshalJSON string
 	}{
 		{
-			name:       "When lastDelta is absent it should leave LastDelta nil",
-			jsonInput:  `{"image":"quay.io/acme/os:latest","imageDigest":"sha256:bbb"}`,
-			wantReason: nil,
-			wantSize:   nil,
+			name:          "When lastDelta is absent it should leave LastDelta nil",
+			jsonInput:     `{"image":"quay.io/acme/os:latest","imageDigest":"sha256:bbb"}`,
+			wantReason:    nil,
+			wantDeltaSize: nil,
 		},
 		{
-			name:       "When lastDelta.fallbackReason is set it should unmarshal the reason",
-			jsonInput:  `{"image":"quay.io/acme/os:latest","imageDigest":"sha256:bbb","lastDelta":{"fallbackReason":"delta apply failed"}}`,
-			wantReason: lo.ToPtr("delta apply failed"),
+			name:        "When lastDelta.fallbackReason is set it should unmarshal the reason",
+			jsonInput:   `{"image":"quay.io/acme/os:latest","imageDigest":"sha256:bbb","lastDelta":{"outcome":"Fallback","fallbackReason":"delta apply failed"}}`,
+			wantReason:  lo.ToPtr("delta apply failed"),
+			wantOutcome: lo.ToPtr(DeviceDeltaApplyOutcomeFallback),
 		},
 		{
-			name:      "When lastDelta.size is set it should unmarshal the IEC size",
-			jsonInput: `{"image":"quay.io/acme/os:latest","imageDigest":"sha256:bbb","lastDelta":{"size":"45 MiB"}}`,
-			wantSize:  lo.ToPtr("45 MiB"),
+			name:          "When deltaSize is set without lastDelta it should unmarshal the IEC size",
+			jsonInput:     `{"image":"quay.io/acme/os:latest","imageDigest":"sha256:bbb","deltaSize":"45 MiB"}`,
+			wantDeltaSize: lo.ToPtr("45 MiB"),
+		},
+		{
+			name:        "When lastDelta.outcome is set it should unmarshal the outcome",
+			jsonInput:   `{"image":"quay.io/acme/os:latest","imageDigest":"sha256:bbb","lastDelta":{"outcome":"Applied"}}`,
+			wantOutcome: lo.ToPtr(DeviceDeltaApplyOutcomeApplied),
+		},
+		{
+			name:        "When lastDelta.outcome is NotUsed it should unmarshal the outcome",
+			jsonInput:   `{"image":"quay.io/acme/os:latest","imageDigest":"sha256:bbb","lastDelta":{"outcome":"NotUsed"}}`,
+			wantOutcome: lo.ToPtr(DeviceDeltaApplyOutcomeNotUsed),
 		},
 		{
 			name:            "When LastDelta is nil it should omit lastDelta from JSON",
@@ -93,12 +106,21 @@ func TestDeviceDeltaApplyStatusJSON(t *testing.T) {
 			wantMarshalOmit: "lastDelta",
 		},
 		{
-			name: "When LastDelta fallbackReason and size are set it should include lastDelta in JSON",
+			name: "When deltaSize is set it should serialize beside lastDelta",
 			marshalSource: DeviceOsStatus{
 				Image: "quay.io/acme/os:latest", ImageDigest: "sha256:bbb",
-				LastDelta: &DeviceDeltaApplyStatus{FallbackReason: lo.ToPtr("delta apply failed"), Size: lo.ToPtr("45 MiB")},
+				DeltaSize: lo.ToPtr("45 MiB"),
+				LastDelta: &DeviceDeltaApplyStatus{Outcome: DeviceDeltaApplyOutcomeFallback, FallbackReason: lo.ToPtr("delta apply failed")},
 			},
-			wantMarshalJSON: `"lastDelta":{"fallbackReason":"delta apply failed","size":"45 MiB"}`,
+			wantMarshalJSON: `"deltaSize":"45 MiB"`,
+		},
+		{
+			name: "When LastDelta outcome is set it should include the outcome in JSON",
+			marshalSource: DeviceOsStatus{
+				Image: "quay.io/acme/os:latest", ImageDigest: "sha256:bbb",
+				LastDelta: &DeviceDeltaApplyStatus{Outcome: DeviceDeltaApplyOutcomeApplied},
+			},
+			wantMarshalJSON: `"lastDelta":{"outcome":"Applied"}`,
 		},
 	}
 
@@ -107,13 +129,16 @@ func TestDeviceDeltaApplyStatusJSON(t *testing.T) {
 			if tt.jsonInput != "" {
 				var status DeviceOsStatus
 				require.NoError(t, json.Unmarshal([]byte(tt.jsonInput), &status))
-				if tt.wantReason == nil && tt.wantSize == nil {
+				assert.Equal(t, tt.wantDeltaSize, status.DeltaSize)
+				if tt.wantReason == nil && tt.wantOutcome == nil {
 					assert.Nil(t, status.LastDelta)
 					return
 				}
 				require.NotNil(t, status.LastDelta)
 				assert.Equal(t, tt.wantReason, status.LastDelta.FallbackReason)
-				assert.Equal(t, tt.wantSize, status.LastDelta.Size)
+				if tt.wantOutcome != nil {
+					assert.Equal(t, *tt.wantOutcome, status.LastDelta.Outcome)
+				}
 				return
 			}
 
@@ -127,6 +152,27 @@ func TestDeviceDeltaApplyStatusJSON(t *testing.T) {
 			assert.Contains(t, raw, tt.wantMarshalJSON)
 		})
 	}
+}
+
+func TestDeviceApplicationDeltaApplyStatusJSON(t *testing.T) {
+	var status DeviceApplicationStatus
+	require.NoError(t, json.Unmarshal([]byte(`{"name":"app","deltaSize":"45 MiB","lastDelta":{"outcome":"Applied"}}`), &status))
+	assert.Equal(t, lo.ToPtr("45 MiB"), status.DeltaSize)
+	require.NotNil(t, status.LastDelta)
+	assert.Equal(t, DeviceDeltaApplyOutcomeApplied, status.LastDelta.Outcome)
+
+	data, err := json.Marshal(DeviceApplicationStatus{
+		Name:      "app",
+		Ready:     "1/1",
+		Restarts:  0,
+		Status:    ApplicationStatusRunning,
+		Embedded:  false,
+		AppType:   AppTypeContainer,
+		DeltaSize: lo.ToPtr("45 MiB"),
+		LastDelta: &DeviceDeltaApplyStatus{Outcome: DeviceDeltaApplyOutcomeApplied},
+	})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"name":"app","ready":"1/1","restarts":0,"status":"Running","embedded":false,"appType":"container","deltaSize":"45 MiB","lastDelta":{"outcome":"Applied"}}`, string(data))
 }
 
 func TestDeviceSystemInfoDeltaFieldsJSON(t *testing.T) {
@@ -207,13 +253,14 @@ func TestNewDeviceStatusDoesNotInventDeltaFields(t *testing.T) {
 
 func TestPrepareDeltasDetailsJSON(t *testing.T) {
 	tests := []struct {
-		name            string
-		jsonInput       string
-		wantTV          *string
-		marshalSource   PrepareDeltasDetails
-		wantMarshalOmit bool
-		wantMarshalTV   string
-		wantMarshalHash string
+		name                  string
+		jsonInput             string
+		wantTV                *string
+		wantGeneration        *int64
+		marshalSource         PrepareDeltasDetails
+		wantMarshalOmit       bool
+		wantMarshalTV         string
+		wantMarshalGeneration int64
 	}{
 		{
 			name:      "When templateVersion is set it should round-trip for a fleet prepare",
@@ -224,6 +271,11 @@ func TestPrepareDeltasDetailsJSON(t *testing.T) {
 			name:      "When templateVersion is omitted it should round-trip for a device prepare",
 			jsonInput: `{"detailType":"PrepareDeltas","resourceVersion":"1"}`,
 			wantTV:    nil,
+		},
+		{
+			name:           "When generation is set it should round-trip for a device prepare",
+			jsonInput:      `{"detailType":"PrepareDeltas","resourceVersion":"1","generation":2}`,
+			wantGeneration: lo.ToPtr(int64(2)),
 		},
 		{
 			name:      "When resourceVersion is omitted it should round-trip for a retained prepare",
@@ -241,9 +293,9 @@ func TestPrepareDeltasDetailsJSON(t *testing.T) {
 			wantMarshalTV: "tv-2",
 		},
 		{
-			name:            "When SpecHash is set it should include specHash in JSON",
-			marshalSource:   PrepareDeltasDetails{DetailType: PrepareDeltas, ResourceVersion: lo.ToPtr("1"), SpecHash: lo.ToPtr("hash-1")},
-			wantMarshalHash: "hash-1",
+			name:                  "When Generation is set it should include generation in JSON",
+			marshalSource:         PrepareDeltasDetails{DetailType: PrepareDeltas, ResourceVersion: lo.ToPtr("1"), Generation: lo.ToPtr(int64(2))},
+			wantMarshalGeneration: 2,
 		},
 	}
 
@@ -253,6 +305,7 @@ func TestPrepareDeltasDetailsJSON(t *testing.T) {
 				var details PrepareDeltasDetails
 				require.NoError(t, json.Unmarshal([]byte(tt.jsonInput), &details))
 				assert.Equal(t, tt.wantTV, details.TemplateVersion)
+				assert.Equal(t, tt.wantGeneration, details.Generation)
 				assert.NotContains(t, tt.jsonInput, `"rolloutStrategy"`)
 				return
 			}
@@ -268,8 +321,8 @@ func TestPrepareDeltasDetailsJSON(t *testing.T) {
 			if tt.wantMarshalTV != "" {
 				assert.Contains(t, raw, `"templateVersion":"`+tt.wantMarshalTV+`"`)
 			}
-			if tt.wantMarshalHash != "" {
-				assert.Contains(t, raw, `"specHash":"`+tt.wantMarshalHash+`"`)
+			if tt.wantMarshalGeneration != 0 {
+				assert.Contains(t, raw, `"generation":`+strconv.FormatInt(tt.wantMarshalGeneration, 10))
 			}
 		})
 	}

@@ -3,6 +3,7 @@ package device
 import (
 	"context"
 	"errors"
+	"strconv"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
@@ -17,7 +18,7 @@ func prepareTestDeviceForEvents(name string) *domain.Device {
 	return &domain.Device{
 		ApiVersion: "v1beta1",
 		Kind:       "Device",
-		Metadata:   domain.ObjectMeta{Name: lo.ToPtr(name), Labels: &map[string]string{"labelKey": "labelValue"}},
+		Metadata:   domain.ObjectMeta{Name: lo.ToPtr(name), Generation: lo.ToPtr(int64(1)), ResourceVersion: lo.ToPtr("1"), Labels: &map[string]string{"labelKey": "labelValue"}},
 		Spec:       &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "img"}},
 		Status:     &status,
 	}
@@ -37,6 +38,71 @@ func TestEmitDeviceUpdatedEvent(t *testing.T) {
 		EmitDeviceUpdatedEvent(context.Background(), ev, logrus.New(), domain.DeviceKind, uuid.New(), "dev1", nil, device, true, nil)
 		require.Len(t, ev.created, 1)
 		require.Equal(t, domain.EventReasonResourceCreated, ev.created[0].Reason)
+		require.Equal(t, domain.DeviceKind, ev.created[0].InvolvedObject.Kind)
+		require.Equal(t, "dev1", ev.created[0].InvolvedObject.Name)
+		require.Nil(t, ev.created[0].Details)
+	})
+
+	t.Run("When status changes it should publish an identity-only reconciliation event", func(t *testing.T) {
+		ev := &fakeEvents{}
+		oldDevice := prepareTestDeviceForEvents("dev1")
+		newDevice := prepareTestDeviceForEvents("dev1")
+		oldDevice.Status.SystemInfo.Architecture = "x86_64"
+		newDevice.Status.SystemInfo.Architecture = "aarch64"
+
+		EmitDeviceUpdatedEvent(context.Background(), ev, logrus.New(), domain.DeviceKind, uuid.New(), "dev1", oldDevice, newDevice, false, nil)
+
+		var reconciliationEvents []*domain.Event
+		for _, event := range ev.created {
+			if event.Reason == domain.EventReasonResourceUpdated && event.Details == nil {
+				reconciliationEvents = append(reconciliationEvents, event)
+			}
+		}
+		require.Len(t, reconciliationEvents, 1)
+		require.Equal(t, domain.DeviceKind, reconciliationEvents[0].InvolvedObject.Kind)
+		require.Equal(t, "dev1", reconciliationEvents[0].InvolvedObject.Name)
+	})
+
+	t.Run("When status is unchanged it should not publish an identity-only reconciliation event", func(t *testing.T) {
+		ev := &fakeEvents{}
+		oldDevice := prepareTestDeviceForEvents("dev1")
+		newDevice := prepareTestDeviceForEvents("dev1")
+		newDevice.Metadata.Labels = &map[string]string{"team": "edge"}
+
+		EmitDeviceUpdatedEvent(context.Background(), ev, logrus.New(), domain.DeviceKind, uuid.New(), "dev1", oldDevice, newDevice, false, nil)
+
+		for _, event := range ev.created {
+			if event.Reason == domain.EventReasonResourceUpdated {
+				require.NotNil(t, event.Details)
+			}
+		}
+	})
+
+	t.Run("When a device spec changes without status it should not publish an identity-only reconciliation event", func(t *testing.T) {
+		ev := &fakeEvents{}
+		oldDevice := prepareTestDeviceForEvents("dev1")
+		newDevice := prepareTestDeviceForEvents("dev1")
+		newDevice.Spec.Os.Image = "new-image"
+
+		EmitDeviceUpdatedEvent(context.Background(), ev, logrus.New(), domain.DeviceKind, uuid.New(), "dev1", oldDevice, newDevice, false, nil)
+
+		for _, event := range ev.created {
+			if event.Reason == domain.EventReasonResourceUpdated {
+				require.NotNil(t, event.Details)
+			}
+		}
+	})
+
+	t.Run("When a status update fails it should not publish reconciliation work", func(t *testing.T) {
+		ev := &fakeEvents{}
+		oldDevice := prepareTestDeviceForEvents("dev1")
+		newDevice := prepareTestDeviceForEvents("dev1")
+		newDevice.Status.SystemInfo.Architecture = "aarch64"
+		EmitDeviceUpdatedEvent(context.Background(), ev, logrus.New(), domain.DeviceKind, uuid.New(), "dev1", oldDevice, newDevice, false, errors.New("write failed"))
+
+		for _, event := range ev.created {
+			require.False(t, event.Reason == domain.EventReasonResourceUpdated && event.Details == nil)
+		}
 	})
 
 	t.Run("When updated with an empty old device it should not panic and should emit a status event", func(t *testing.T) {
@@ -118,6 +184,46 @@ func TestEmitDeviceUpdatedEvent(t *testing.T) {
 		EmitDeviceUpdatedEvent(context.Background(), ev, logrus.New(), domain.DeviceKind, uuid.New(), "dev1", "not-a-device", "also-not", false, nil)
 		require.Empty(t, ev.created)
 	})
+}
+
+func TestEmitStandalonePrepareDeltasGeneration(t *testing.T) {
+	for _, tt := range []struct {
+		name        string
+		annotations *map[string]string
+	}{
+		{name: "When the device has never rendered it should carry the desired generation"},
+		{
+			name:        "When successive specs share a rendered hash it should carry each desired generation",
+			annotations: lo.ToPtr(map[string]string{domain.DeviceAnnotationRenderedSpecHash: "previous-rendered-hash"}),
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			oldDevice := prepareTestDeviceForEvents("dev1")
+			oldDevice.Metadata.Annotations = tt.annotations
+			for generation := int64(2); generation <= 3; generation++ {
+				newDevice := prepareTestDeviceForEvents("dev1")
+				newDevice.Metadata.Generation = lo.ToPtr(generation)
+				newDevice.Metadata.ResourceVersion = lo.ToPtr("42")
+				newDevice.Metadata.Annotations = tt.annotations
+				newDevice.Spec.Os.Image = "img-" + strconv.FormatInt(generation, 10)
+				ev := &fakeEvents{}
+				EmitDeviceUpdatedEvent(context.Background(), ev, logrus.New(), domain.DeviceKind, uuid.New(), "dev1", oldDevice, newDevice, false, nil)
+				var prepares int
+				for _, event := range ev.created {
+					if event.Reason != domain.EventReasonPrepareDeltas {
+						continue
+					}
+					prepares++
+					details, err := event.Details.AsPrepareDeltasDetails()
+					require.NoError(t, err)
+					require.Equal(t, newDevice.Metadata.Generation, details.Generation)
+					require.Equal(t, newDevice.Metadata.ResourceVersion, details.ResourceVersion)
+				}
+				require.Equal(t, 1, prepares)
+				oldDevice = newDevice
+			}
+		})
+	}
 }
 
 func TestEmitDeviceDecommissionEvent(t *testing.T) {

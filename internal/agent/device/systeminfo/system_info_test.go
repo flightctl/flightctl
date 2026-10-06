@@ -195,9 +195,12 @@ func TestCollectDiscoversExecutableCustomScripts(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	exec := executer.NewMockExecuter(ctrl)
 	exec.EXPECT().ExecuteWithContext(gomock.Any(), "uptime", "-s").Return("2024-12-13 11:01:08", "", 0)
-	exec.EXPECT().ExecuteWithContext(
+	exec.EXPECT().ExecuteWithBoundedOutputFromDir(
 		gomock.Any(),
+		"",
 		filepath.Join(readWriter.PathFor(config.SystemInfoCustomScriptDir), "site.sh"),
+		gomock.Nil(),
+		maxCustomCollectorOutput,
 	).Return("site\n", "", 0)
 
 	info, err := Collect(context.Background(), log.NewPrefixLogger("test"), exec, readWriter, nil, "", WithAllCustom())
@@ -214,6 +217,113 @@ func generateScriptBytes(sleepms int, output string, exitCode int) []byte {
 
 	content := fmt.Sprintf("#!/bin/bash\n%secho '%s'\nexit %d", sleepCmd, output, exitCode)
 	return []byte(content)
+}
+
+func TestManagerCollectCustomKeysThreeState(t *testing.T) {
+	require := require.New(t)
+
+	scripts := map[string][]byte{
+		"scriptA.sh": generateScriptBytes(0, "valueA", 0),
+		"scriptB.sh": generateScriptBytes(0, "valueB", 0),
+		"scriptC":    generateScriptBytes(0, "valueC", 0),
+	}
+
+	tests := []struct {
+		name           string
+		customKeys     []string
+		expectedKeys   []string
+		unexpectedKeys []string
+		expectNoCustom bool
+	}{
+		{
+			name:         "When customKeys is nil it should auto-discover all scripts",
+			customKeys:   nil,
+			expectedKeys: []string{"scriptA", "scriptB", "scriptC"},
+		},
+		{
+			name:           "When customKeys is empty it should collect nothing",
+			customKeys:     []string{},
+			expectNoCustom: true,
+		},
+		{
+			name:           "When customKeys has explicit keys it should collect only those keys",
+			customKeys:     []string{"scriptA"},
+			expectedKeys:   []string{"scriptA"},
+			unexpectedKeys: []string{"scriptB", "scriptC"},
+		},
+		{
+			name:         "When customKeys contains wildcard it should auto-discover all scripts",
+			customKeys:   []string{"*"},
+			expectedKeys: []string{"scriptA", "scriptB", "scriptC"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
+
+			err := rw.MkdirAll(config.SystemInfoCustomScriptDir, fileio.DefaultDirectoryPermissions)
+			require.NoError(err)
+
+			// boot_id is always read
+			err = rw.MkdirAll("/proc/sys/kernel/random", 0755)
+			require.NoError(err)
+			err = rw.WriteFile(bootIDPath, []byte("test-boot-id"), 0644)
+			require.NoError(err)
+
+			for name, content := range scripts {
+				err = rw.WriteFile(
+					filepath.Join(config.SystemInfoCustomScriptDir, name),
+					content,
+					fileio.DefaultExecutablePermissions,
+				)
+				require.NoError(err)
+			}
+
+			ctrl := gomock.NewController(t)
+			mockExec := executer.NewMockExecuter(ctrl)
+			log := log.NewPrefixLogger("test")
+
+			// Boot time collection always happens
+			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "uptime", "-s").Return("2024-12-13 11:01:08", "", 0).Times(1)
+			// Custom scripts use ExecuteWithBoundedOutputFromDir — allow any
+			mockExec.EXPECT().ExecuteWithBoundedOutputFromDir(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+				func(ctx context.Context, workingDir string, cmd string, args []string, maxOutput int, env ...string) (string, string, int) {
+					realExec := executer.NewCommonExecuter()
+					return realExec.ExecuteWithBoundedOutputFromDir(ctx, workingDir, cmd, args, maxOutput, env...)
+				},
+			).AnyTimes()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			manager := NewManager(log, mockExec, rw, "", nil, tt.customKeys, 0, 0)
+			manager.collect(ctx)
+			result, _ := manager.systemInfoFromCache()
+
+			if tt.expectNoCustom {
+				require.Nil(result.CustomInfo, "expected no custom info")
+				return
+			}
+
+			require.NotNil(result.CustomInfo, "expected custom info to be present")
+			customInfo := map[string]string(*result.CustomInfo)
+
+			for _, key := range tt.expectedKeys {
+				_, exists := customInfo[key]
+				require.True(exists, "expected key %q to be present", key)
+			}
+
+			for _, key := range tt.unexpectedKeys {
+				_, exists := customInfo[key]
+				require.False(exists, "unexpected key %q should not be present", key)
+			}
+		})
+	}
 }
 
 func TestGetCollectionOptsFromInfoKeys(t *testing.T) {

@@ -232,15 +232,11 @@ func (s *Server) Run(ctx context.Context) error {
 	labelSyncMappingStore := labelsyncmappingstore.NewStore(s.db, s.log.WithField("pkg", "labelsyncmapping-store"))
 	labelSyncMappingEvaluator, err := labelsyncmappingservice.NewEvaluator()
 	if err != nil {
-		return fmt.Errorf("failed initializing LabelSyncMapping CEL evaluator: %w", err)
+		return fmt.Errorf("failed initializing label-sync mapping evaluator: %w", err)
 	}
-	labelSyncMappingValidator, err := labelsyncmappingservice.NewCELExpressionValidator(labelSyncMappingEvaluator)
+	labelSyncMappingHandler, err := labelsyncmappingservice.NewServiceHandler(labelSyncMappingStore, deviceStore, labelSyncMappingEvaluator, eventsSvc, s.log)
 	if err != nil {
-		return fmt.Errorf("failed initializing LabelSyncMapping expression validator: %w", err)
-	}
-	labelSyncMappingHandler, err := labelsyncmappingservice.NewServiceHandler(labelSyncMappingStore, labelSyncMappingValidator)
-	if err != nil {
-		return fmt.Errorf("failed initializing LabelSyncMapping service: %w", err)
+		return fmt.Errorf("failed initializing label-sync mapping service: %w", err)
 	}
 	labelSyncMappingSvc := labelsyncmappingservice.WrapWithTracing(labelSyncMappingHandler)
 	catalogSvc := catalogservice.WrapWithTracing(

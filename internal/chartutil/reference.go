@@ -1,10 +1,8 @@
-package helm
+package chartutil
 
 import (
 	"fmt"
 	"strings"
-
-	"github.com/flightctl/flightctl/internal/agent/client"
 )
 
 const helmReleaseNameMaxLength = 53
@@ -13,7 +11,7 @@ const helmReleaseNameMaxLength = 53
 // It lowercases the input, replaces invalid characters with hyphens,
 // removes consecutive hyphens, trims leading/trailing hyphens, and truncates to 53 characters.
 func SanitizeReleaseName(chartName string) (string, error) {
-	name, version, err := client.ParseChartRef(chartName)
+	name, version, err := ParseChartRef(chartName)
 	if err != nil {
 		return "", fmt.Errorf("parsing chart reference: %w", err)
 	}

@@ -121,7 +121,9 @@ func (o *DeleteOptions) Run(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("creating client: %w", err)
 	}
-	c.Start(ctx)
+	if err := c.Start(ctx); err != nil {
+		return err
+	}
 	defer c.Stop()
 
 	if len(args) == 1 {
@@ -146,7 +148,9 @@ func (o *DeleteOptions) runImageBuildDelete(ctx context.Context, args []string, 
 	if err != nil {
 		return fmt.Errorf("creating imagebuilder client: %w", err)
 	}
-	ibClient.Start(ctx)
+	if err := ibClient.Start(ctx); err != nil {
+		return err
+	}
 	defer ibClient.Stop()
 
 	if len(args) == 1 {
@@ -192,7 +196,9 @@ func (o *DeleteOptions) runImageExportDelete(ctx context.Context, args []string,
 	if err != nil {
 		return fmt.Errorf("creating imagebuilder client: %w", err)
 	}
-	ibClient.Start(ctx)
+	if err := ibClient.Start(ctx); err != nil {
+		return err
+	}
 	defer ibClient.Stop()
 
 	if len(args) == 1 {
@@ -238,7 +244,9 @@ func (o *DeleteOptions) runImagePromotionDelete(ctx context.Context, args []stri
 	if err != nil {
 		return fmt.Errorf("creating imagebuilder client: %w", err)
 	}
-	ibClient.Start(ctx)
+	if err := ibClient.Start(ctx); err != nil {
+		return err
+	}
 	defer ibClient.Stop()
 
 	if len(args) == 1 {

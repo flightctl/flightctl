@@ -15,12 +15,12 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
-	"github.com/flightctl/flightctl/internal/agent/device/applications/helm"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/api/common"
+	"github.com/flightctl/flightctl/internal/chartutil"
 	"github.com/flightctl/flightctl/internal/quadlet"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -265,6 +265,12 @@ func decorateApplicationTargets(
 ) []dependency.OCIPullTarget {
 	for i := range targets {
 		target := &targets[i]
+		if target.Type == dependency.OCITypeHelmChart {
+			// The chart artifact is resolved to render workload manifests. Delta
+			// apply outcomes describe the workload images, not the chart package.
+			target.Delta = nil
+			continue
+		}
 		var hint string
 		if i == 0 && parentHint != nil {
 			hint = *parentHint
@@ -527,7 +533,7 @@ func ResolveImageAppName(appSpec *v1beta1.ApplicationProviderSpec) (string, erro
 		if err != nil {
 			return "", err
 		}
-		return helm.SanitizeReleaseName(imageSpec.Image)
+		return chartutil.SanitizeReleaseName(imageSpec.Image)
 	default:
 		return "", fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
 	}
