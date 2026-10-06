@@ -23,6 +23,11 @@ type handler struct {
 	usedBy        *queryparser.Set[string]
 	Verifications []verificationHandler
 	handle        FunctionHandler
+	// passRawResults makes the dispatcher forward the *FunctionResult produced by
+	// each nested function verbatim instead of flattening it into a query string
+	// plus hoisted arguments. Handlers that need to interleave their children's
+	// arguments with their own (for example, template expansion) must set this.
+	passRawResults bool
 }
 
 type SQLParser struct {
@@ -176,6 +181,14 @@ func NewSQLParser(options ...SQLParserOption) (queryparser.Parser, error) {
 			Verifications: []verificationHandler{withPrecedingKeyQuery(), withNoValues()},
 			handle:        Wrap(sp.queryIn),
 		},
+		"SUBQUERY_IN": {
+			usedBy:        queryparser.NewSet[string]().Add(queryparser.RootFunc, "AND", "OR"),
+			Verifications: []verificationHandler{withPrecedingKeyQuery(), withNoValues()},
+			handle:        sp.querySubqueryIn,
+			// The handler expands a template and must bind each child's arguments at
+			// the position its placeholder occupies, so it needs the raw results.
+			passRawResults: true,
+		},
 		"NOTIN": {
 			usedBy:        queryparser.NewSet[string]().Add(queryparser.RootFunc, "AND", "OR"),
 			Verifications: []verificationHandler{withPrecedingKeyQuery(), withNoValues()},
@@ -232,6 +245,9 @@ func NewSQLParser(options ...SQLParserOption) (queryparser.Parser, error) {
 			handle:        Wrap(sp.queryNotOverlaps),
 		},
 		"CAST": {
+			// SUBQUERY_IN is intentionally absent: a subquery template is a complete
+			// boolean predicate, so wrapping it in CAST(... AS <type>) would emit
+			// malformed SQL. Selector validation rejects the combination up front.
 			usedBy: queryparser.NewSet[string]().Add("EQ", "NOTEQ", "LT", "LTE", "GT", "GTE", "IN", "NOTIN", "LIKE",
 				"NOTLIKE", "OVERLAPS", "NOTOVERLAPS", "CONTAINS", "NOTCONTAINS", "JSONB_CONTAINS", "JSONB_NOTCONTAINS", "ISNULL", "ISNOTNULL"),
 			Verifications: []verificationHandler{withPrecedingKeyOrValueQuery()},
@@ -239,12 +255,12 @@ func NewSQLParser(options ...SQLParserOption) (queryparser.Parser, error) {
 		},
 		"K": {
 			usedBy: queryparser.NewSet[string]().Add("EQ", "NOTEQ", "LT", "LTE", "GT", "GTE", "IN", "NOTIN", "LIKE",
-				"NOTLIKE", "OVERLAPS", "NOTOVERLAPS", "CONTAINS", "NOTCONTAINS", "JSONB_CONTAINS", "JSONB_NOTCONTAINS", "ISNULL", "ISNOTNULL", "CAST"),
+				"NOTLIKE", "OVERLAPS", "NOTOVERLAPS", "CONTAINS", "NOTCONTAINS", "JSONB_CONTAINS", "JSONB_NOTCONTAINS", "ISNULL", "ISNOTNULL", "CAST", "SUBQUERY_IN"),
 			handle: Wrap(sp.queryKey),
 		},
 		"V": {
 			usedBy: queryparser.NewSet[string]().Add("EQ", "NOTEQ", "LT", "LTE", "GT", "GTE", "IN", "NOTIN", "LIKE",
-				"NOTLIKE", "OVERLAPS", "NOTOVERLAPS", "CONTAINS", "NOTCONTAINS", "JSONB_CONTAINS", "JSONB_NOTCONTAINS", "CAST"),
+				"NOTLIKE", "OVERLAPS", "NOTOVERLAPS", "CONTAINS", "NOTCONTAINS", "JSONB_CONTAINS", "JSONB_NOTCONTAINS", "CAST", "SUBQUERY_IN"),
 			handle: sp.queryValue,
 		},
 	}
@@ -324,6 +340,10 @@ func (p *parser) dispatcher(qf *queryparser.QueryFunc) error {
 			funcArgs = append(funcArgs, arg.(*queryparser.QueryArgValue).Value())
 		} else {
 			qfRet := arg.(*queryparser.QueryArgFunc).Value().Result().(*FunctionResult)
+			if sqlf.passRawResults {
+				funcArgs = append(funcArgs, qfRet)
+				continue
+			}
 			funcArgs = append(funcArgs, qfRet.Query)
 			retArgs = append(retArgs, qfRet.Args...)
 		}
@@ -435,6 +455,70 @@ func (sp *SQLParser) queryIn(args ...string) (*FunctionResult, error) {
 	return &FunctionResult{
 		Query: fmt.Sprintf("%s IN (%s)", args[0], strings.Join(args[1:], ", ")),
 	}, nil
+}
+
+var subqueryParameterRegex = regexp.MustCompile(`\{([a-zA-Z_][a-zA-Z0-9_]*)\}`)
+
+func (sp *SQLParser) querySubqueryIn(args ...any) (*FunctionResult, error) {
+	if err := validateArgsCount(args, 2); err != nil {
+		return nil, err
+	}
+	field, ok := args[0].(*FunctionResult)
+	if !ok || len(field.Args) != 1 {
+		return nil, fmt.Errorf("expected a subquery template with named arguments")
+	}
+	namedArgs, ok := field.Args[0].(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("expected named subquery arguments")
+	}
+	if strings.Count(field.Query, "{values}") != 1 {
+		return nil, fmt.Errorf("subquery template must contain exactly one {values} marker")
+	}
+	// Templates must not contain a literal '?'. Every '?' emitted below is a bound
+	// placeholder generated from a {name} marker, so an author-supplied '?' would
+	// silently shift the argument ordering. The check is deliberately broad: it
+	// also covers '?' inside a string literal or a JSON path filter expression
+	// such as '$.a[*] ? (@.x == 1)', which the driver cannot distinguish from a
+	// placeholder either.
+	//
+	// This blocks the PostgreSQL JSONB existence operators '?', '?|' and '?&',
+	// which is intentional. Templates that need them must use the function
+	// equivalents instead - jsonb_exists(), jsonb_exists_any() and
+	// jsonb_exists_all() - and prefer jsonb_path_exists() or a filterless
+	// jsonb_path_query() over a '?' filter expression.
+	if strings.Contains(field.Query, "?") {
+		return nil, fmt.Errorf("subquery template must use named parameters instead of positional placeholders")
+	}
+	result := &FunctionResult{}
+	var query strings.Builder
+	position := 0
+	for _, match := range subqueryParameterRegex.FindAllStringSubmatchIndex(field.Query, -1) {
+		query.WriteString(field.Query[position:match[0]])
+		name := field.Query[match[2]:match[3]]
+		if name == "values" {
+			placeholders := make([]string, len(args)-1)
+			for index, arg := range args[1:] {
+				value, ok := arg.(*FunctionResult)
+				if !ok {
+					return nil, fmt.Errorf("expected a bound subquery value")
+				}
+				placeholders[index] = value.Query
+				result.Args = append(result.Args, value.Args...)
+			}
+			query.WriteString(strings.Join(placeholders, ", "))
+		} else {
+			value, exists := namedArgs[name]
+			if !exists {
+				return nil, fmt.Errorf("missing subquery argument %q", name)
+			}
+			query.WriteString("?")
+			result.Args = append(result.Args, value)
+		}
+		position = match[1]
+	}
+	query.WriteString(field.Query[position:])
+	result.Query = query.String()
+	return result, nil
 }
 
 func (sp *SQLParser) queryNotIn(args ...string) (*FunctionResult, error) {

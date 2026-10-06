@@ -184,12 +184,37 @@ func (t SelectorType) String() string {
 // SelectorOpt represents a set of options for a selector.
 type SelectorOpt = map[string]struct{}
 
+// SubquerySelector uses the selected values in a non-correlated SQL subquery.
+// Template contains a single {values} marker, replaced with bound placeholders.
+// Args contains named parameters referenced by {name} markers in Template.
+//
+// MaxValues and MaxValueLength are fail-closed limits: both must be positive or
+// the selector is rejected at parse time. A subquery selector also cannot be
+// combined with a JSONB cast, because the cast would wrap the template's boolean
+// predicate in CAST(... AS <type>).
+//
+// Template must not contain a literal '?' anywhere - not as an operator, not
+// inside a string literal, and not inside a JSON path filter expression such as
+// '$.a[*] ? (@.x == 1)'. Every '?' in the generated SQL is a bound placeholder
+// produced from a {name} marker, so an author-supplied '?' would shift the
+// argument ordering. In particular the PostgreSQL JSONB existence operators '?',
+// '?|' and '?&' are unavailable; use jsonb_exists(), jsonb_exists_any() and
+// jsonb_exists_all() instead, and prefer jsonb_path_exists() or a filterless
+// jsonb_path_query() over a '?' filter expression.
+type SubquerySelector struct {
+	Template       string
+	Args           map[string]any
+	MaxValues      int
+	MaxValueLength int
+}
+
 type SelectorField struct {
 	Name      SelectorName
 	Type      SelectorType
 	FieldName string
 	FieldType gormschema.DataType
 	Options   SelectorOpt
+	Subquery  *SubquerySelector
 }
 
 // IsJSONBCast returns true if the field's data type is 'jsonb' and the expected type is not Jsonb.

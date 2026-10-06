@@ -162,9 +162,32 @@ type CatalogItem struct {
 	UpdatedAt   time.Time
 }
 
-// ResolveSelector implements selector.SelectorResolver for spec.category and spec.type.
+// ResolveSelector implements selector.SelectorResolver for catalog item fields.
 func (ci *CatalogItem) ResolveSelector(name selector.SelectorName) (*selector.SelectorField, error) {
 	switch name.String() {
+	case "fleet":
+		return &selector.SelectorField{
+			Type:      selector.String,
+			FieldName: "(catalog_items.catalog_name, catalog_items.app_name)",
+			Subquery: &selector.SubquerySelector{
+				Template: `(catalog_items.catalog_name, catalog_items.app_name) IN (
+	SELECT DISTINCT r.ref->>'catalog', r.ref->>'item'
+	FROM fleets f
+	CROSS JOIN LATERAL (
+		SELECT f.spec->'template'->'spec'->'os'->'catalogItemRef'
+		UNION ALL SELECT jsonb_path_query(f.spec, '$.template.spec.applications[*].catalogItemRef')
+		UNION ALL SELECT jsonb_path_query(f.spec, '$.template.spec.applications[*].volumes[*].image.catalogItemRef')
+	) r(ref)
+	WHERE f.org_id = {org_id}
+		AND f.deleted_at IS NULL
+		AND f.name IN ({values})
+		AND r.ref IS NOT NULL
+)`,
+				Args:           map[string]any{"org_id": ci.OrgID},
+				MaxValues:      100,
+				MaxValueLength: 253,
+			},
+		}, nil
 	case "spec.category":
 		return &selector.SelectorField{
 			Type:      selector.String,
@@ -185,6 +208,7 @@ func (ci *CatalogItem) ResolveSelector(name selector.SelectorName) (*selector.Se
 // ListSelectors implements selector.SelectorResolver.
 func (ci *CatalogItem) ListSelectors() selector.SelectorNameSet {
 	return selector.NewSelectorFieldNameSet().Add(
+		selector.NewSelectorName("fleet"),
 		selector.NewSelectorName("spec.category"),
 		selector.NewSelectorName("spec.type"),
 	)
