@@ -314,6 +314,8 @@ func (r *Resolver) desiredSpec(device *domain.Device, tv *domain.TemplateVersion
 }
 
 func (r *Resolver) osCandidate(ctx context.Context, orgId uuid.UUID, device *domain.Device, rendered tasks.RenderedSpec) (DeltaCandidate, bool, error) {
+	// OS deltas are staged through OCI and registry transports, so they do not
+	// require bootc's download-only switch feature.
 	current := currentDigest(device)
 	if current == "" || rendered.OsImage == "" {
 		return DeltaCandidate{}, false, nil
