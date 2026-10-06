@@ -350,12 +350,17 @@ func (s *Systemd) Show(ctx context.Context, unit string, opts ...SystemdShowOpti
 }
 
 // Cat returns the effective unit file content including drop-in overrides.
+// It does not use -M (machinectl) because `systemctl cat` reads unit files
+// directly and does not need a session bus connection to the user's manager.
 func (s *Systemd) Cat(ctx context.Context, unit string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, defaultSystemctlTimeout)
 	defer cancel()
 
-	command, args := s.createArgs("cat", "--no-pager", unit)
-	stdout, stderr, exitCode := s.exec.ExecuteWithContext(ctx, command, args...)
+	args := []string{"cat", "--no-pager", unit}
+	if !s.user.IsRootUser() && !s.user.IsCurrentProcessUser() {
+		args = append([]string{"--user"}, args...)
+	}
+	stdout, stderr, exitCode := s.exec.ExecuteWithContext(ctx, systemctlCommand, args...)
 	if exitCode != 0 {
 		return "", fmt.Errorf("systemctl cat: %w", errors.FromStderr(stderr, exitCode))
 	}
