@@ -24,6 +24,8 @@ func TestHelmDocumentation_WhenSoftwareCatalogProcedureIsChecked_ItShouldInclude
 	requiredContent := []string{
 		"Install from the OpenShift Software Catalog",
 		"Create Project",
+		"enter `flightctl` as the project name",
+		"Ecosystem > Software Catalog",
 		"flightcontrol",
 		"flightctl-ui",
 		"Copy login command",
