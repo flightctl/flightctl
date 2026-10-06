@@ -168,7 +168,9 @@ func (o *ConfigOptions) getOrganizationDisplayName(ctx context.Context, organiza
 	if err != nil {
 		return "", fmt.Errorf("failed to create API client: %w", err)
 	}
-	c.Start(ctx)
+	if err := c.Start(ctx); err != nil {
+		return "", err
+	}
 	defer c.Stop()
 
 	field := fmt.Sprintf("metadata.name=%s", organizationId)
