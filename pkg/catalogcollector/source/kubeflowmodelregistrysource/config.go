@@ -188,6 +188,25 @@ func validateEndpoint(endpoint string) error {
 		)
 	}
 
+	// url.ParseRequestURI documents that its argument "is assumed not to have
+	// a #fragment suffix", so it never populates URL.Fragment and instead
+	// folds everything after "#" into URL.Path. Checking parsed.Fragment is
+	// therefore useless here. The literal character has to be rejected on the
+	// raw string, before parsing.
+	//
+	// Accepting it would be harmful: the generated client appends the Model
+	// Registry API path to the configured server URL, and net/http then
+	// treats "#section/api/model_registry/..." as a fragment and strips it,
+	// sending every request to the truncated path. A trailing "#" with an
+	// empty fragment truncates in exactly the same way. Percent-encoded %23
+	// is a legitimate path character and stays accepted.
+	if strings.Contains(endpoint, "#") {
+		return errors.New(
+			"endpoint must not contain a fragment; remove the \"#\" " +
+				"character or percent-encode it as %23 if it is part of a path",
+		)
+	}
+
 	parsed, err := url.ParseRequestURI(endpoint)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return fmt.Errorf(
@@ -210,9 +229,6 @@ func validateEndpoint(endpoint string) error {
 	}
 	if parsed.RawQuery != "" {
 		return fmt.Errorf("endpoint must not contain query parameters")
-	}
-	if parsed.Fragment != "" {
-		return fmt.Errorf("endpoint must not contain a fragment")
 	}
 
 	return nil

@@ -357,6 +357,12 @@ func (s *source) fetchAllVersions(
 // Exactly one artifact must satisfy all eligibility requirements. No eligible
 // artifact makes the version undeployable, while multiple eligible artifacts
 // make the mapping ambiguous; both conditions fail the complete cycle.
+//
+// An artifact the SDK decoded into no oneOf variant also fails the complete
+// cycle. Such a record carries no readable content, so it cannot be
+// classified as a non-model artifact and excluded: treating it as one would
+// publish a snapshot that silently omits registry data. Recognized non-model
+// artifacts continue to be excluded normally.
 func (s *source) fetchVersion(
 	ctx context.Context,
 	modelID string,
@@ -380,6 +386,21 @@ func (s *source) fetchVersion(
 	for i := range artifacts {
 		modelArtifact, ok := extractModelArtifact(artifacts[i])
 		if !ok {
+			if !hasDecodedVariant(artifacts[i]) {
+				return nil, fmt.Errorf(
+					"registered model id=%s name=%q, "+
+						"version id=%s name=%q: artifact at index %d "+
+						"decoded into no known artifact type; its "+
+						"\"artifactType\" discriminator is missing or "+
+						"unrecognized, so the record cannot be read or "+
+						"safely excluded",
+					modelID,
+					modelName,
+					versionID,
+					version.Name,
+					i,
+				)
+			}
 			continue
 		}
 
@@ -521,6 +542,23 @@ func extractModelArtifact(
 	}
 
 	return artifact.ModelArtifact, true
+}
+
+// hasDecodedVariant reports whether the generated Artifact.UnmarshalJSON
+// matched one of the oneOf variants.
+//
+// Artifact is keyed on the "artifactType" discriminator. When that field is
+// absent or carries a value the SDK does not know, UnmarshalJSON matches no
+// variant, returns a nil error, and leaves every variant pointer nil. The
+// resulting value is indistinguishable from an empty Artifact, so the caller
+// must treat it as undecodable rather than as a recognized non-model
+// artifact.
+func hasDecodedVariant(artifact mrapi.Artifact) bool {
+	return artifact.ModelArtifact != nil ||
+		artifact.DocArtifact != nil ||
+		artifact.DataSet != nil ||
+		artifact.Metric != nil ||
+		artifact.Parameter != nil
 }
 
 // wrapHTTPError adds operation context and includes the Model Registry response

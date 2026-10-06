@@ -1,8 +1,11 @@
 package kubeflowmodelregistrysource
 
 import (
+	"context"
 	"fmt"
 	"math"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -546,42 +549,137 @@ func TestConfigValidate_ErrorContext(t *testing.T) {
 	}
 }
 
-// TestConfigValidate_EndpointFragment_CurrentBehavior documents a gap found
-// while completing endpoint coverage.
+// TestConfigValidate_EndpointFragment_Rejected verifies that an endpoint
+// containing a literal "#" is rejected.
 //
-// validateEndpoint rejects a fragment with an explicit check, but that check
-// is unreachable: url.ParseRequestURI documents that the string "is assumed
-// not to have a #fragment suffix", so it never populates URL.Fragment and
-// instead folds everything after "#" into URL.Path. An endpoint such as
-// "https://registry.example.com/base#section" is therefore accepted, and
-// because the generated client appends the API path to the configured server
-// URL, net/http later treats "#section/api/model_registry/..." as a fragment
-// and strips it, sending every request to "/base".
+// url.ParseRequestURI documents that its argument "is assumed not to have a
+// #fragment suffix", so it never populates URL.Fragment and instead folds
+// everything after "#" into URL.Path. Inspecting parsed.Fragment therefore
+// cannot catch this; the raw string has to be checked before parsing.
 //
-// Fixing this means changing endpoint acceptance, which is outside the scope
-// of this change. The test pins the behaviour that exists today so the gap is
-// visible and a later change has a failing assertion to flip.
-func TestConfigValidate_EndpointFragment_CurrentBehavior(t *testing.T) {
-	cfg := validConfig()
-	cfg.Endpoint = "https://registry.example.com/base#section"
-
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf(
-			"endpoint fragment rejection appears to have been fixed (%v); "+
-				"update this test and remove the unreachable Fragment check",
-			err,
-		)
+// Accepting a fragment silently breaks every request: the generated client
+// appends the Model Registry API path to the configured server URL, and
+// net/http then treats "#section/api/model_registry/..." as a fragment and
+// strips it, sending requests to the truncated path instead. A trailing "#"
+// with an empty fragment truncates identically.
+func TestConfigValidate_EndpointFragment_Rejected(t *testing.T) {
+	endpoints := []string{
+		"https://registry.example.com/base#section",
+		"https://registry.example.com/base#",
+		"https://registry.example.com#",
+		"https://registry.example.com#section",
+		"https://registry.example.com/#/ui/models",
 	}
 
-	parsed, err := url.ParseRequestURI(cfg.Endpoint)
-	if err != nil {
-		t.Fatalf("url.ParseRequestURI: %v", err)
+	for _, endpoint := range endpoints {
+		t.Run(endpoint, func(t *testing.T) {
+			// url.ParseRequestURI folds the fragment into the path rather
+			// than reporting it, which is why validation cannot rely on it.
+			parsed, parseErr := url.ParseRequestURI(endpoint)
+			if parseErr == nil && parsed.Fragment != "" {
+				t.Errorf(
+					"url.ParseRequestURI now reports fragment %q; "+
+						"the raw-string check may be replaceable",
+					parsed.Fragment,
+				)
+			}
+
+			cfg := validConfig()
+			cfg.Endpoint = endpoint
+
+			err := cfg.Validate()
+			if err == nil {
+				t.Fatalf("Validate() with endpoint %q = nil, want a fragment error", endpoint)
+			}
+			if !strings.Contains(err.Error(), "must not contain a fragment") {
+				t.Errorf("error %q does not report the fragment", err.Error())
+			}
+		})
 	}
-	if parsed.Fragment != "" {
-		t.Errorf("url.ParseRequestURI now reports fragment %q; the check is reachable again", parsed.Fragment)
+}
+
+// TestConfigValidate_EndpointFragmentRejectionDoesNotOverReject verifies that
+// rejecting the literal "#" leaves legitimate reverse-proxy endpoints and
+// percent-encoded "%23" path segments valid.
+func TestConfigValidate_EndpointFragmentRejectionDoesNotOverReject(t *testing.T) {
+	endpoints := []string{
+		"https://registry.example.com/base",
+		"https://registry.example.com/proxy/prefix",
+		"https://registry.example.com/proxy/prefix/",
+		"https://registry.example.com:8443/model-registry",
+		"https://registry.example.com/base%23section",
+		"https://registry.example.com/%23/models",
 	}
-	if parsed.Path != "/base#section" {
-		t.Errorf("parsed path = %q, want the fragment folded into the path", parsed.Path)
+
+	for _, endpoint := range endpoints {
+		t.Run(endpoint, func(t *testing.T) {
+			cfg := validConfig()
+			cfg.Endpoint = endpoint
+			if err := cfg.Validate(); err != nil {
+				t.Errorf("Validate() with endpoint %q = %v, want nil", endpoint, err)
+			}
+		})
+	}
+}
+
+// TestConfigEndpoint_ProxyPrefixPreservesAPIPath verifies end to end, through
+// the generated SDK, that a validated reverse-proxy endpoint keeps its prefix
+// and still receives the appended Model Registry API path. This is the
+// behaviour a fragment would have silently destroyed.
+func TestConfigEndpoint_ProxyPrefixPreservesAPIPath(t *testing.T) {
+	cases := []struct {
+		name     string
+		prefix   string
+		wantPath string
+	}{
+		{
+			name:     "when the endpoint has a proxy prefix it should keep it",
+			prefix:   "/proxy/prefix",
+			wantPath: "/proxy/prefix/api/model_registry/v1alpha3/registered_models",
+		},
+		{
+			name:     "when the endpoint has no prefix it should use the API path alone",
+			prefix:   "",
+			wantPath: "/api/model_registry/v1alpha3/registered_models",
+		},
+		{
+			name:     "when the prefix contains an encoded hash it should be preserved",
+			prefix:   "/base%23section",
+			wantPath: "/base#section/api/model_registry/v1alpha3/registered_models",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotPath, gotRawPath string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotPath = r.URL.Path
+				gotRawPath = r.URL.EscapedPath()
+				w.Header().Set("Content-Type", "application/json")
+				if _, err := w.Write([]byte(`{"items":[],"nextPageToken":""}`)); err != nil {
+					t.Errorf("writing response: %v", err)
+				}
+			}))
+			defer srv.Close()
+
+			cfg := validConfig()
+			cfg.Endpoint = srv.URL + tc.prefix
+			if err := cfg.Validate(); err != nil {
+				t.Fatalf("Validate() with endpoint %q = %v, want nil", cfg.Endpoint, err)
+			}
+
+			client, err := newOpenapiClient(strings.TrimRight(cfg.Endpoint, "/"), "10")
+			if err != nil {
+				t.Fatalf("newOpenapiClient: %v", err)
+			}
+			if _, err := client.ListRegisteredModels(context.Background(), ""); err != nil {
+				t.Fatalf("ListRegisteredModels: %v", err)
+			}
+
+			if gotPath != tc.wantPath {
+				t.Errorf("request path = %q, want %q (raw %q)", gotPath, tc.wantPath, gotRawPath)
+			}
+		})
 	}
 }
 
