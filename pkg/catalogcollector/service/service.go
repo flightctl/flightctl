@@ -759,20 +759,19 @@ func (s *Service) discoverReadiness(
 }
 
 // runPreflights discovers sources implementing SourcePreflight and calls their
-// Preflight method once, in deterministic order. A shared source is
-// preflighted at most once.
+// Preflight method once, in deterministic order.
+//
+// New constructs each configured source exactly once per source ID and hands
+// the single instance one fan-out consumer covering every pipeline that
+// references it, so s.sources already holds unique IDs. A source shared by
+// several pipelines is therefore preflighted exactly once without a second
+// deduplication pass here.
 func (s *Service) runPreflights(ctx context.Context) error {
-	seen := make(map[string]bool)
 	for _, rs := range s.sources {
 		pf, ok := rs.source.(catalogcollector.SourcePreflight)
 		if !ok {
 			continue
 		}
-		idStr := rs.id.String()
-		if seen[idStr] {
-			continue // shared source, preflight once
-		}
-		seen[idStr] = true
 
 		s.log.WithField("source_id", rs.id.String()).Info("running source preflight")
 		if err := pf.Preflight(ctx); err != nil {

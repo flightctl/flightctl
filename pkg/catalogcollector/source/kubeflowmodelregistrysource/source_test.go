@@ -124,7 +124,6 @@ func newTestSource(client registryClient, consumer catalogcollector.Consumer) (*
 		consumer = fc
 	}
 	s := &source{
-		id:                "test-source",
 		catalog:           "test-catalog",
 		collectionTimeout: 30 * time.Second,
 		client:            client,
@@ -441,7 +440,6 @@ func TestWrapHTTPError_TransportError_HTTPLevel_IncludesDiagnostics(t *testing.T
 	}
 
 	s := &source{
-		id:                "transport-http-test",
 		catalog:           "test-catalog",
 		collectionTimeout: 30 * time.Second,
 		client:            client,
@@ -528,7 +526,6 @@ func TestWrapHTTPError_GenericOpenAPIError_IncludesBody(t *testing.T) {
 		versionFilter: defaultVersionFilter,
 	}
 	s := &source{
-		id:                "openapi-body-test",
 		catalog:           "test-catalog",
 		collectionTimeout: 30 * time.Second,
 		client:            client,
@@ -567,7 +564,7 @@ func TestWrapHTTPError_TransportError_PreservesChain(t *testing.T) {
 // interval and no jitter so that context-cancellation tests complete quickly.
 func newTestPoller(s *source) *pollsource.Helper {
 	return pollsource.NewHelper(
-		s.id,
+		"test-source",
 		100*time.Millisecond,
 		pollsource.BackoffConfig{
 			InitialInterval:     util.Duration(100 * time.Millisecond),
@@ -749,7 +746,6 @@ func TestRun_CancelledContextReturnsNil(t *testing.T) {
 
 	consumer := &fakeConsumer{}
 	s := &source{
-		id:                "test-source",
 		catalog:           "test-catalog",
 		collectionTimeout: 30 * time.Second,
 		client:            client,
@@ -807,7 +803,6 @@ func TestCollectAndRecord_SuccessfulCollectionRecordsSourceSuccess(t *testing.T)
 
 	recorder := &testMetricsRecorder{}
 	s := &source{
-		id:                "test-source",
 		catalog:           "test-catalog",
 		collectionTimeout: 30 * time.Second,
 		client:            client,
@@ -839,7 +834,6 @@ func TestCollectAndRecord_CollectionFailureRecordsSourceFailure(t *testing.T) {
 
 	recorder := &testMetricsRecorder{}
 	s := &source{
-		id:                "test-source",
 		catalog:           "test-catalog",
 		collectionTimeout: 30 * time.Second,
 		client:            client,
@@ -870,7 +864,6 @@ func TestRun_GenuinePollerErrorPreservedDuringCancellation(t *testing.T) {
 	cancel() // pre-cancelled
 
 	s := &source{
-		id:                "test-source",
 		catalog:           "test-catalog",
 		collectionTimeout: 30 * time.Second,
 		client:            &fakeRegistryClient{},
@@ -881,7 +874,7 @@ func TestRun_GenuinePollerErrorPreservedDuringCancellation(t *testing.T) {
 	// Build a poller with an invalid (zero) poll interval so that
 	// poller.Run() returns a validation error before it ever polls.
 	s.poller = pollsource.NewHelper(
-		s.id,
+		"test-source",
 		0, // invalid: triggers "poll interval must be positive"
 		pollsource.BackoffConfig{
 			InitialInterval:     util.Duration(100 * time.Millisecond),
@@ -967,7 +960,6 @@ func TestRun_DownstreamFailureRecordsCollectionSuccess(t *testing.T) {
 	recorder := &testMetricsRecorder{}
 
 	s := &source{
-		id:                "test-source",
 		catalog:           "test-catalog",
 		collectionTimeout: 30 * time.Second,
 		client:            client,
@@ -978,7 +970,7 @@ func TestRun_DownstreamFailureRecordsCollectionSuccess(t *testing.T) {
 
 	// Use short deterministic backoff so the test is fast and reliable.
 	s.poller = pollsource.NewHelper(
-		s.id,
+		"test-source",
 		50*time.Millisecond,
 		pollsource.BackoffConfig{
 			InitialInterval:     util.Duration(10 * time.Millisecond),

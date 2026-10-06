@@ -6,7 +6,6 @@ import (
 	"sort"
 	"strings"
 
-	gosemver "github.com/coreos/go-semver/semver"
 	apiv1alpha1 "github.com/flightctl/flightctl/api/core/v1alpha1"
 	apiv1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
 	internalvalidation "github.com/flightctl/flightctl/internal/util/validation"
@@ -28,14 +27,6 @@ var eligibleArtifactStates = map[mrapi.ArtifactState]bool{
 // ociDigestRe matches the immutable digest format currently supported by the
 // Flightctl model deployment path.
 var ociDigestRe = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
-
-// semverRe implements the SemVer 2.0.0 grammar. A leading "v" is deliberately
-// not accepted because registry version names are not silently rewritten.
-var semverRe = regexp.MustCompile(
-	`^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)` +
-		`(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?` +
-		`(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$`,
-)
 
 // collectedModel is the normalized intermediate representation of a
 // RegisteredModel and its eligible versions.
@@ -88,7 +79,7 @@ func toSnapshot(
 func buildCatalog(name string) apiv1alpha1.Catalog {
 	return apiv1alpha1.Catalog{
 		ApiVersion: "flightctl.io/v1alpha1",
-		Kind:       "Catalog",
+		Kind:       apiv1alpha1.CatalogKind,
 		Metadata: apiv1beta1.ObjectMeta{
 			Name: ptr(name),
 		},
@@ -158,7 +149,7 @@ func toItem(
 
 	return apiv1alpha1.CatalogItem{
 		ApiVersion: "flightctl.io/v1alpha1",
-		Kind:       "CatalogItem",
+		Kind:       apiv1alpha1.CatalogItemKind,
 		Metadata: apiv1alpha1.CatalogItemMeta{
 			Name:    ptr(normalizedName),
 			Catalog: catalogName,
@@ -209,28 +200,12 @@ func toVersions(
 
 	for _, collected := range model.versions {
 		versionName := collected.version.Name
-		if !isValidSemVer(versionName) {
+		if err := validateVersionName(versionName); err != nil {
 			return nil, fmt.Errorf(
 				"registered model id=%s name=%q, version id=%s name=%q: "+
-					"version name is not valid SemVer 2.0.0; rename it in "+
-					"the Model Registry rather than relying on normalization",
-				safeID(model.model.Id),
-				model.model.Name,
-				safeID(collected.version.Id),
-				versionName,
-			)
-		}
-
-		// Verify that the version string can be fully parsed by the
-		// semver library. The regex above is a fast-path filter, but it
-		// cannot catch all invalid inputs (e.g. integer overflow in
-		// numeric components). gosemver.New() used in the sort below
-		// panics when NewVersion returns an error, so we must validate
-		// here first.
-		if _, err := gosemver.NewVersion(versionName); err != nil {
-			return nil, fmt.Errorf(
-				"registered model id=%s name=%q, version id=%s name=%q: "+
-					"version name passes SemVer regex but cannot be parsed: %w",
+					"version name is not a supported CatalogItem version: %w; "+
+					"rename it in the Model Registry rather than relying on "+
+					"normalization",
 				safeID(model.model.Id),
 				model.model.Name,
 				safeID(collected.version.Id),
@@ -262,28 +237,220 @@ func toVersions(
 	}
 
 	// Canonicalize version order so snapshot revisions do not depend on API
-	// pagination or insertion order. Parse as semver (already validated above)
-	// so that "1.9.0" sorts before "1.10.0".
+	// pagination or insertion order. Ordering uses an internal comparison key
+	// derived from the validated version string so that "1.9.0" sorts before
+	// "1.10.0". The published CatalogItemVersion.Version value is never
+	// rewritten by sorting.
 	//
 	// SemVer 2.0.0 §11 ignores build metadata when comparing precedence, so
 	// versions like "1.0.0+build1" and "1.0.0+build2" are considered equal.
-	// When semantic precedence is equal, the original version string is used
-	// as a lexical tie-breaker so that sort.Slice produces identical output
-	// regardless of the input order.
-	sort.Slice(versions, func(i, j int) bool {
-		vi := gosemver.New(versions[i].Version)
-		vj := gosemver.New(versions[j].Version)
-		if vi.LessThan(*vj) {
-			return true
-		}
-		if vj.LessThan(*vi) {
-			return false
-		}
-		// Semantic precedence is equal; break tie lexically.
-		return versions[i].Version < versions[j].Version
-	})
+	// "1.0" and "1.0.0" also compare equal because the comparison key supplies
+	// the missing patch component. When precedence is equal, the original
+	// version string is used as a lexical tie-breaker so that sorting produces
+	// identical output regardless of the input order.
+	sortVersions(versions)
 
 	return versions, nil
+}
+
+// sortVersions orders CatalogItemVersion entries by version precedence using
+// an internal comparison key. The entries themselves are never modified.
+func sortVersions(versions []apiv1alpha1.CatalogItemVersion) {
+	keys := make(map[string]versionSortKey, len(versions))
+	for _, version := range versions {
+		if _, found := keys[version.Version]; !found {
+			keys[version.Version] = newVersionSortKey(version.Version)
+		}
+	}
+
+	sort.SliceStable(versions, func(i, j int) bool {
+		left := versions[i].Version
+		right := versions[j].Version
+
+		if comparison := keys[left].compare(keys[right]); comparison != 0 {
+			return comparison < 0
+		}
+		// Precedence is equal; break the tie on the original strings so the
+		// result is deterministic and "1.0" stays distinct from "1.0.0".
+		return left < right
+	})
+}
+
+// validateVersionName checks a Model Registry version name against the
+// CatalogItem version format accepted by the Flightctl API.
+//
+// The grammar is deliberately not re-implemented here. Sharing the API
+// validator keeps the source from rejecting versions the API would accept
+// (notably two-component versions such as "1.0") and from accepting versions
+// the API would later reject.
+func validateVersionName(version string) error {
+	return internalvalidation.ValidateCatalogItemVersion(version)
+}
+
+// versionSortKey is the internal, overflow-safe comparison key derived from a
+// validated CatalogItem version string.
+//
+// The key is used for ordering only. It never replaces the published version
+// string: a two-component version such as "1.0" keeps its original spelling in
+// the CatalogItem while comparing as if its patch component were zero.
+type versionSortKey struct {
+	// core holds the three numeric core identifiers as digit strings. Numbers
+	// are compared as digit strings rather than integers so that components
+	// larger than any fixed-width integer compare correctly and cannot
+	// overflow or panic.
+	core [3]string
+
+	// prerelease holds the dot-separated pre-release identifiers. It is empty
+	// when the version has no pre-release suffix.
+	prerelease []string
+
+	// hasPrerelease distinguishes "1.0.0" from "1.0.0-0", because a release
+	// has higher precedence than any pre-release of the same core version.
+	hasPrerelease bool
+}
+
+// newVersionSortKey derives a comparison key from a version string that has
+// already been accepted by validateVersionName.
+//
+// Build metadata is ignored, matching SemVer 2.0.0 §11. A missing patch
+// component is supplied as "0" for comparison purposes only. Input that was
+// not validated still produces a usable key rather than panicking.
+func newVersionSortKey(version string) versionSortKey {
+	key := versionSortKey{}
+
+	value := version
+	if plus := strings.IndexByte(value, '+'); plus >= 0 {
+		value = value[:plus]
+	}
+	if hyphen := strings.IndexByte(value, '-'); hyphen >= 0 {
+		key.hasPrerelease = true
+		key.prerelease = strings.Split(value[hyphen+1:], ".")
+		value = value[:hyphen]
+	}
+
+	components := strings.Split(value, ".")
+	for i := range key.core {
+		if i < len(components) {
+			key.core[i] = components[i]
+			continue
+		}
+		// Flightctl accepts a two-component version such as "1.0". Supply the
+		// absent patch component so that "1.0" and "1.0.0" have equivalent
+		// precedence.
+		key.core[i] = "0"
+	}
+
+	return key
+}
+
+// compare returns a negative number when k has lower precedence than other,
+// zero when precedence is equivalent, and a positive number otherwise.
+func (k versionSortKey) compare(other versionSortKey) int {
+	for i := range k.core {
+		if comparison := compareNumericIdentifier(
+			k.core[i],
+			other.core[i],
+		); comparison != 0 {
+			return comparison
+		}
+	}
+
+	switch {
+	case !k.hasPrerelease && !other.hasPrerelease:
+		return 0
+	case !k.hasPrerelease:
+		// A release has higher precedence than a pre-release.
+		return 1
+	case !other.hasPrerelease:
+		return -1
+	}
+
+	return comparePrerelease(k.prerelease, other.prerelease)
+}
+
+// comparePrerelease compares two pre-release identifier lists per
+// SemVer 2.0.0 §11.
+func comparePrerelease(left, right []string) int {
+	shortest := min(len(left), len(right))
+
+	for i := 0; i < shortest; i++ {
+		if comparison := comparePrereleaseIdentifier(
+			left[i],
+			right[i],
+		); comparison != 0 {
+			return comparison
+		}
+	}
+
+	// A larger set of pre-release fields has higher precedence when all
+	// preceding identifiers are equal.
+	switch {
+	case len(left) < len(right):
+		return -1
+	case len(left) > len(right):
+		return 1
+	default:
+		return 0
+	}
+}
+
+// comparePrereleaseIdentifier compares one pre-release identifier. Numeric
+// identifiers always have lower precedence than alphanumeric identifiers.
+func comparePrereleaseIdentifier(left, right string) int {
+	leftNumeric := isNumericIdentifier(left)
+	rightNumeric := isNumericIdentifier(right)
+
+	switch {
+	case leftNumeric && rightNumeric:
+		return compareNumericIdentifier(left, right)
+	case leftNumeric:
+		return -1
+	case rightNumeric:
+		return 1
+	default:
+		return strings.Compare(left, right)
+	}
+}
+
+// compareNumericIdentifier compares two decimal digit strings numerically
+// without converting them to a fixed-width integer, so arbitrarily large
+// components are handled without overflow.
+func compareNumericIdentifier(left, right string) int {
+	left = trimLeadingZeros(left)
+	right = trimLeadingZeros(right)
+
+	if len(left) != len(right) {
+		if len(left) < len(right) {
+			return -1
+		}
+		return 1
+	}
+
+	return strings.Compare(left, right)
+}
+
+// trimLeadingZeros removes insignificant leading zeros while keeping at least
+// one digit.
+func trimLeadingZeros(value string) string {
+	index := 0
+	for index < len(value)-1 && value[index] == '0' {
+		index++
+	}
+	return value[index:]
+}
+
+// isNumericIdentifier reports whether a pre-release identifier consists only
+// of decimal digits.
+func isNumericIdentifier(value string) bool {
+	if value == "" {
+		return false
+	}
+	for i := 0; i < len(value); i++ {
+		if value[i] < '0' || value[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // splitArtifactURI splits a digest-pinned OCI reference into the version-less
@@ -399,10 +566,6 @@ func isEligibleArtifact(
 	}
 
 	return repository, digest, true, nil
-}
-
-func isValidSemVer(version string) bool {
-	return semverRe.MatchString(version)
 }
 
 func modelProvider(model mrapi.RegisteredModel) string {

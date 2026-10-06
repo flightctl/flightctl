@@ -26,8 +26,11 @@ type collectionRecorder interface {
 }
 
 // source implements catalogcollector.Source for the Kubeflow Model Registry.
+//
+// The component ID is not stored here: it is already bound to the
+// source-scoped logger, the metrics instance, and the polling helper, so a
+// duplicate copy would only risk drifting from them.
 type source struct {
-	id                string
 	catalog           string
 	collectionTimeout time.Duration
 	client            registryClient

@@ -282,8 +282,9 @@ func TestHelper_CancellationDuringCollect(t *testing.T) {
 func TestHelper_MultiplierOne_PreservesInterval(t *testing.T) {
 	// Regression test: with multiplier 1, the backoff interval must remain
 	// at the initial value instead of jumping to maximum.
-	var delays []time.Duration
-
+	//
+	// The exact per-cycle interval is asserted by the same-package tests in
+	// helper_internal_test.go; this test only confirms the end-to-end effect.
 	collect := func(ctx context.Context) (*catalogcollector.CatalogSnapshot, error) {
 		return nil, errors.New("always fail")
 	}
@@ -295,10 +296,6 @@ func TestHelper_MultiplierOne_PreservesInterval(t *testing.T) {
 		RandomizationFactor: 0,
 	}
 
-	// Use a custom jitter function that records the base delay passed to
-	// withJitter (which receives the currentBackoff after advance()).
-	// We capture delays in the OnFailure callback instead since withJitter
-	// is internal.
 	h := pollsource.NewHelper("test-mult1", 10*time.Millisecond, b, newLogger(), nil, noJitter)
 
 	var failCount atomic.Int64
@@ -318,7 +315,6 @@ func TestHelper_MultiplierOne_PreservesInterval(t *testing.T) {
 	if fails < 5 {
 		t.Errorf("expected at least 5 failures in 200ms with 10ms backoff, got %d (multiplier 1 likely jumped to max)", fails)
 	}
-	_ = delays // suppress unused warning
 }
 
 func TestHelper_ResetAfterSuccess_ThenFailAgain(t *testing.T) {

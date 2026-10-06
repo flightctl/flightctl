@@ -2740,6 +2740,71 @@ func TestRun_SharedSourcePreflightedOnce(t *testing.T) {
 	assert.Equal(t, int32(1), preflightCount.Load(), "shared source must be preflighted exactly once")
 }
 
+// TestRun_SharedSourceConstructedAndPreflightedOnce pins the invariant that
+// makes a separate preflight deduplication pass unnecessary: a source
+// referenced by several pipelines is constructed exactly once per source ID,
+// so s.sources already holds unique IDs by the time preflight runs.
+func TestRun_SharedSourceConstructedAndPreflightedOnce(t *testing.T) {
+	var constructCount atomic.Int32
+	var preflightCount atomic.Int32
+
+	src := &countingPreflightSource{
+		started:     make(chan struct{}),
+		onPreflight: func() { preflightCount.Add(1) },
+	}
+
+	cfg := &config.Config{
+		Sources: map[string]config.ComponentConfig{
+			"fake-source/shared": cc("fake-source/shared"),
+		},
+		Destinations: map[string]config.ComponentConfig{
+			"fake-dest/a": cc("fake-dest/a"),
+			"fake-dest/b": cc("fake-dest/b"),
+			"fake-dest/c": cc("fake-dest/c"),
+		},
+		Pipelines: map[string]config.PipelineConfig{
+			"pipeline-a": {Source: "fake-source/shared", Destination: "fake-dest/a"},
+			"pipeline-b": {Source: "fake-source/shared", Destination: "fake-dest/b"},
+			"pipeline-c": {Source: "fake-source/shared", Destination: "fake-dest/c"},
+		},
+	}
+
+	svc, err := New(context.Background(), cfg, catalogcollector.Factories{
+		Sources: []catalogcollector.SourceFactory{
+			&fakeSourceFactory{typeName: "fake-source", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig, _ catalogcollector.Consumer) (catalogcollector.Source, error) {
+				constructCount.Add(1)
+				return src, nil
+			}},
+		},
+		Destinations: []catalogcollector.DestinationFactory{
+			&fakeDestinationFactory{typeName: "fake-dest", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Destination, error) {
+				return &recordingConsumer{}, nil
+			}},
+		},
+	}, testSettings())
+	require.NoError(t, err)
+
+	assert.Equal(t, int32(1), constructCount.Load(),
+		"a source shared by three pipelines must be constructed exactly once")
+	assert.Len(t, svc.sources, 1, "the service must hold one running source per source ID")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- svc.Run(ctx) }()
+
+	select {
+	case <-src.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("source did not start")
+	}
+
+	cancel()
+	require.NoError(t, <-done)
+
+	assert.Equal(t, int32(1), preflightCount.Load(),
+		"a source shared by three pipelines must be preflighted exactly once")
+}
+
 // countingPreflightSource implements Source + SourcePreflight with a callback.
 type countingPreflightSource struct {
 	started     chan struct{}

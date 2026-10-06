@@ -69,7 +69,6 @@ func (f *fixtureClient) PreflightModelVersions(_ context.Context) error    { ret
 func TestContractFixtures(t *testing.T) {
 	client := newFixtureClient(t)
 	s := &source{
-		id:                "contract-test",
 		catalog:           "rhoai-models",
 		collectionTimeout: 30e9, // 30 seconds in nanoseconds
 		client:            client,
@@ -153,7 +152,6 @@ func TestContractFixtures_EmptyList(t *testing.T) {
 	client := &fixtureClient{models: emptyList}
 
 	s := &source{
-		id:                "contract-empty",
 		catalog:           "rhoai-models",
 		collectionTimeout: 30e9,
 		client:            client,

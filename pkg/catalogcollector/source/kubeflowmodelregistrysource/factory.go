@@ -69,6 +69,18 @@ func (f *factory) CreateSource(
 		)
 	}
 
+	if c.InsecureSkipVerify {
+		// Emit exactly one warning at construction time. Repeating this per
+		// request would flood the log without adding information. The warning
+		// names only the configuration option; no credential material is
+		// logged.
+		settings.Logger.Warn(
+			"insecureSkipVerify is enabled: Model Registry TLS certificates " +
+				"are not verified. This development-only option exposes the " +
+				"connection to interception; do not enable it in production.",
+		)
+	}
+
 	baseTransport, err := buildTransport(c)
 	if err != nil {
 		return nil, fmt.Errorf(
@@ -130,7 +142,6 @@ func (f *factory) CreateSource(
 	// not misattributed to the Model Registry collection step.
 
 	return &source{
-		id:                settings.ID.String(),
 		catalog:           c.Catalog,
 		collectionTimeout: c.collectionTimeout(),
 		client:            client,
