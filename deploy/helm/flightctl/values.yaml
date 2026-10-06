@@ -273,15 +273,11 @@ organizations:
             k in [
               "agentVersion",
               "architecture",
-              "cpuCores",
-              "cpuModel",
-              "cpuProcessors",
               "deltaEligible",
               "distroId",
-              "distroVersion",
-              "productName"
+              "distroVersion"
             ],
-            {"systeminfo/" + k: v}
+            {"feature.flightctl.io/systemInfo." + k: v}
           )
     - apiVersion: flightctl.io/v1beta1
       kind: LabelSyncMapping
@@ -295,7 +291,7 @@ organizations:
             : {}).transformMapEntry(
             k,
             v,
-            {"custominfo/" + k: v}
+            {"feature.flightctl.io/customInfo." + k: v}
           )
 
     # END GENERATED INITIAL LABEL SYNC MAPPINGS

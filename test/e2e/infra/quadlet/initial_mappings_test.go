@@ -58,9 +58,9 @@ func TestInitialLabelSyncMappingsQuadletConsumers(t *testing.T) {
 	packagedManifest, err := os.ReadFile(filepath.Join(repoRoot, "packaging/flightctl/label-sync/mappings.yaml"))
 	require.NoError(t, err)
 	require.Contains(t, string(packagedManifest), "name: system-info")
-	require.Contains(t, string(packagedManifest), `{"systeminfo/" + k: v}`)
+	require.Contains(t, string(packagedManifest), `{"feature.flightctl.io/systemInfo." + k: v}`)
 	require.Contains(t, string(packagedManifest), "name: custom-info")
-	require.Contains(t, string(packagedManifest), `{"custominfo/" + k: v}`)
+	require.Contains(t, string(packagedManifest), `{"feature.flightctl.io/customInfo." + k: v}`)
 
 	rpmSpec, err := os.ReadFile(filepath.Join(repoRoot, "packaging/rpm/flightctl.spec"))
 	require.NoError(t, err)
