@@ -3,6 +3,8 @@ package pollsource_test
 import (
 	"context"
 	"errors"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -17,10 +19,18 @@ import (
 func noJitter(time.Duration) time.Duration { return 0 }
 
 // fakeConsumer records the number of Consume calls and optionally fails.
+//
+// A completed cycle is observed here rather than through a helper callback:
+// the helper reports collection outcomes only, so successful consumption is
+// the signal that both halves of a cycle finished.
 type fakeConsumer struct {
-	calls  atomic.Int64
-	failN  int // fail the first N calls
-	failed atomic.Int64
+	calls     atomic.Int64
+	failN     int // fail the first N calls
+	failed    atomic.Int64
+	succeeded atomic.Int64
+
+	// onSuccess, when set, runs after each successful consumption.
+	onSuccess func()
 }
 
 func (c *fakeConsumer) Consume(_ context.Context, _ *catalogcollector.CatalogSnapshot) error {
@@ -28,6 +38,11 @@ func (c *fakeConsumer) Consume(_ context.Context, _ *catalogcollector.CatalogSna
 	if c.failN > 0 && n <= c.failN {
 		c.failed.Add(1)
 		return errors.New("consumer error")
+	}
+
+	c.succeeded.Add(1)
+	if c.onSuccess != nil {
+		c.onSuccess()
 	}
 	return nil
 }
@@ -129,7 +144,11 @@ func TestHelper_BackoffAfterCollectFailure(t *testing.T) {
 	h := pollsource.NewHelper("test", time.Minute, b, newLogger(), nil, noJitter)
 
 	var failures atomic.Int64
-	h.OnFailure = func(d time.Duration, err error) { failures.Add(1) }
+	h.OnCollect = func(_ time.Duration, err error) {
+		if err != nil {
+			failures.Add(1)
+		}
+	}
 
 	<-func() chan error {
 		ch := make(chan error, 1)
@@ -143,7 +162,10 @@ func TestHelper_BackoffAfterCollectFailure(t *testing.T) {
 		t.Errorf("expected at least 2 collection attempts in 300ms, got %d", n)
 	}
 	if n := failures.Load(); n == 0 {
-		t.Error("expected OnFailure to be called")
+		t.Error("expected OnCollect to report a collection failure")
+	}
+	if n := consumer.calls.Load(); n != 0 {
+		t.Errorf("consumer was called %d times; a failed collection must never reach the consumer", n)
 	}
 }
 
@@ -158,7 +180,6 @@ func TestHelper_BackoffResetAfterSuccess(t *testing.T) {
 		return emptySnapshot, nil
 	}
 
-	consumer := &fakeConsumer{}
 	b := pollsource.BackoffConfig{
 		InitialInterval:     ud(10 * time.Millisecond),
 		MaxInterval:         ud(200 * time.Millisecond),
@@ -166,14 +187,14 @@ func TestHelper_BackoffResetAfterSuccess(t *testing.T) {
 		RandomizationFactor: 0,
 	}
 
-	var successCalled atomic.Bool
 	ctx, cancel := context.WithCancel(context.Background())
 
+	// A completed cycle is observed at the consumer, which runs only after a
+	// successful collection.
+	consumer := &fakeConsumer{}
+	consumer.onSuccess = cancel // stop after the first completed cycle
+
 	h := pollsource.NewHelper("test", time.Hour, b, newLogger(), nil, noJitter)
-	h.OnSuccess = func(d time.Duration) {
-		successCalled.Store(true)
-		cancel() // stop after first success
-	}
 
 	done := make(chan error, 1)
 	go func() { done <- h.Run(ctx, collect, consumer) }()
@@ -184,8 +205,8 @@ func TestHelper_BackoffResetAfterSuccess(t *testing.T) {
 		t.Fatal("test timed out")
 	}
 
-	if !successCalled.Load() {
-		t.Error("OnSuccess was not called")
+	if n := consumer.succeeded.Load(); n != 1 {
+		t.Errorf("completed cycles = %d, want exactly 1", n)
 	}
 	if n := callCount.Load(); n < 3 {
 		t.Errorf("expected at least 3 calls (2 failures + 1 success), got %d", n)
@@ -197,7 +218,6 @@ func TestHelper_DownstreamConsumeFailureAppliesBackoff(t *testing.T) {
 		return emptySnapshot, nil
 	}
 
-	var successCount atomic.Int64
 	consumer := &fakeConsumer{failN: 2} // first 2 consumes fail
 
 	b := pollsource.BackoffConfig{
@@ -208,10 +228,16 @@ func TestHelper_DownstreamConsumeFailureAppliesBackoff(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	consumer.onSuccess = cancel // stop once a cycle completes end to end
+
 	h := pollsource.NewHelper("test", time.Hour, b, newLogger(), nil, noJitter)
-	h.OnSuccess = func(d time.Duration) {
-		if successCount.Add(1) >= 1 {
-			cancel()
+
+	// Every collection succeeds, so the collection outcome must stay
+	// successful even while the downstream keeps rejecting the snapshot.
+	var collectFailures atomic.Int64
+	h.OnCollect = func(_ time.Duration, err error) {
+		if err != nil {
+			collectFailures.Add(1)
 		}
 	}
 
@@ -226,6 +252,9 @@ func TestHelper_DownstreamConsumeFailureAppliesBackoff(t *testing.T) {
 
 	if n := consumer.calls.Load(); n < 3 {
 		t.Errorf("expected at least 3 consumer calls (2 fail + 1 success), got %d", n)
+	}
+	if n := collectFailures.Load(); n != 0 {
+		t.Errorf("OnCollect reported %d collection failures; downstream failures must not be attributed to collection", n)
 	}
 }
 
@@ -299,8 +328,10 @@ func TestHelper_MultiplierOne_PreservesInterval(t *testing.T) {
 	h := pollsource.NewHelper("test-mult1", 10*time.Millisecond, b, newLogger(), nil, noJitter)
 
 	var failCount atomic.Int64
-	h.OnFailure = func(d time.Duration, err error) {
-		failCount.Add(1)
+	h.OnCollect = func(_ time.Duration, err error) {
+		if err != nil {
+			failCount.Add(1)
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
@@ -341,18 +372,19 @@ func TestHelper_ResetAfterSuccess_ThenFailAgain(t *testing.T) {
 		RandomizationFactor: 0,
 	}
 
-	var successCount atomic.Int64
 	ctx, cancel := context.WithCancel(context.Background())
 
-	h := pollsource.NewHelper("test-reset", 5*time.Millisecond, b, newLogger(), nil, noJitter)
-	h.OnSuccess = func(d time.Duration) {
-		if successCount.Add(1) >= 2 {
-			cancel() // stop after second success
+	consumer := &fakeConsumer{}
+	consumer.onSuccess = func() {
+		if consumer.succeeded.Load() >= 2 {
+			cancel() // stop after the second completed cycle
 		}
 	}
 
+	h := pollsource.NewHelper("test-reset", 5*time.Millisecond, b, newLogger(), nil, noJitter)
+
 	done := make(chan error, 1)
-	go func() { done <- h.Run(ctx, collect, &fakeConsumer{}) }()
+	go func() { done <- h.Run(ctx, collect, consumer) }()
 
 	select {
 	case <-done:
@@ -364,8 +396,378 @@ func TestHelper_ResetAfterSuccess_ThenFailAgain(t *testing.T) {
 	if n := callCount.Load(); n < 6 {
 		t.Errorf("expected at least 6 calls (2 cycles of fail-fail-succeed), got %d", n)
 	}
-	if n := successCount.Load(); n < 2 {
-		t.Errorf("expected at least 2 successes, got %d", n)
+	if n := consumer.succeeded.Load(); n < 2 {
+		t.Errorf("expected at least 2 completed cycles, got %d", n)
+	}
+}
+
+// --- OnCollect -------------------------------------------------------------
+
+// collectObservation captures one OnCollect invocation.
+type collectObservation struct {
+	elapsed time.Duration
+	err     error
+}
+
+// cycleRecorder records OnCollect invocations and consumer calls in the order
+// they happen, so the relative ordering of collection reporting and downstream
+// consumption can be asserted directly.
+type cycleRecorder struct {
+	mu           sync.Mutex
+	order        []string
+	observations []collectObservation
+}
+
+func (r *cycleRecorder) onCollect(elapsed time.Duration, err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.order = append(r.order, "collect")
+	r.observations = append(r.observations, collectObservation{elapsed: elapsed, err: err})
+}
+
+func (r *cycleRecorder) onConsume() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.order = append(r.order, "consume")
+}
+
+func (r *cycleRecorder) snapshot() ([]string, []collectObservation) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.order...),
+		append([]collectObservation(nil), r.observations...)
+}
+
+// recordingConsumer reports every consumption to a cycleRecorder and returns a
+// configurable error.
+type recordingConsumer struct {
+	recorder *cycleRecorder
+	err      error
+	onCall   func()
+}
+
+func (c *recordingConsumer) Consume(
+	_ context.Context,
+	_ *catalogcollector.CatalogSnapshot,
+) error {
+	c.recorder.onConsume()
+	if c.onCall != nil {
+		c.onCall()
+	}
+	return c.err
+}
+
+// fakeClock is a manually advanced clock injected as the helper's NowFunc.
+type fakeClock struct {
+	mu      sync.Mutex
+	current time.Time
+}
+
+func newFakeClock() *fakeClock {
+	return &fakeClock{current: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+}
+
+func (c *fakeClock) now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.current
+}
+
+func (c *fakeClock) advance(d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.current = c.current.Add(d)
+}
+
+// TestHelper_OnCollect_SuccessReportedBeforeConsumption asserts that a
+// successful collection is reported exactly once, with no error, and before
+// the snapshot reaches the downstream consumer.
+func TestHelper_OnCollect_SuccessReportedBeforeConsumption(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	recorder := &cycleRecorder{}
+	consumer := &recordingConsumer{recorder: recorder, onCall: cancel}
+
+	collect := func(context.Context) (*catalogcollector.CatalogSnapshot, error) {
+		return emptySnapshot, nil
+	}
+
+	h := pollsource.NewHelper("on-collect", time.Hour, defaultBackoff(), newLogger(), nil, noJitter)
+	h.OnCollect = recorder.onCollect
+
+	_ = h.Run(ctx, collect, consumer)
+
+	order, observations := recorder.snapshot()
+
+	if len(observations) != 1 {
+		t.Fatalf("OnCollect fired %d times, want exactly 1", len(observations))
+	}
+	if observations[0].err != nil {
+		t.Errorf("OnCollect error = %v, want nil for a successful collection", observations[0].err)
+	}
+	if len(order) != 2 || order[0] != "collect" || order[1] != "consume" {
+		t.Errorf("event order = %v, want [collect consume]", order)
+	}
+}
+
+// TestHelper_OnCollect_CollectionFailurePreservesError asserts that a failed
+// collection is reported once with the original error value, and that nothing
+// reaches the downstream consumer.
+func TestHelper_OnCollect_CollectionFailurePreservesError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	collectErr := errors.New("registry unreachable")
+	recorder := &cycleRecorder{}
+	consumer := &recordingConsumer{recorder: recorder}
+
+	var attempts atomic.Int64
+	collect := func(context.Context) (*catalogcollector.CatalogSnapshot, error) {
+		attempts.Add(1)
+		return nil, collectErr
+	}
+
+	h := pollsource.NewHelper("on-collect-fail", time.Hour, defaultBackoff(), newLogger(), nil, noJitter)
+	h.OnCollect = func(elapsed time.Duration, err error) {
+		recorder.onCollect(elapsed, err)
+		cancel() // one observed attempt is enough
+	}
+
+	_ = h.Run(ctx, collect, consumer)
+
+	order, observations := recorder.snapshot()
+
+	if len(observations) != 1 {
+		t.Fatalf("OnCollect fired %d times, want exactly 1", len(observations))
+	}
+	if !errors.Is(observations[0].err, collectErr) {
+		t.Errorf("OnCollect error = %v, want the original collection error %v", observations[0].err, collectErr)
+	}
+	// Identity, not just wrapping: the helper must report the collector's own
+	// error value rather than a substituted or re-wrapped one.
+	if observations[0].err != collectErr {
+		t.Errorf("OnCollect error identity changed: got %#v, want %#v", observations[0].err, collectErr)
+	}
+	for _, event := range order {
+		if event == "consume" {
+			t.Fatal("a failed collection reached the downstream consumer")
+		}
+	}
+}
+
+// TestHelper_OnCollect_NilSnapshotWithoutErrorReportsFailure asserts that a
+// collector returning neither a snapshot nor an error is converted into a
+// collection failure before the callback runs, and never reaches the consumer.
+func TestHelper_OnCollect_NilSnapshotWithoutErrorReportsFailure(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	recorder := &cycleRecorder{}
+	consumer := &recordingConsumer{recorder: recorder}
+
+	collect := func(context.Context) (*catalogcollector.CatalogSnapshot, error) {
+		return nil, nil
+	}
+
+	h := pollsource.NewHelper("nil-snap", time.Hour, defaultBackoff(), newLogger(), nil, noJitter)
+	h.OnCollect = func(elapsed time.Duration, err error) {
+		recorder.onCollect(elapsed, err)
+		cancel()
+	}
+
+	_ = h.Run(ctx, collect, consumer)
+
+	order, observations := recorder.snapshot()
+
+	if len(observations) != 1 {
+		t.Fatalf("OnCollect fired %d times, want exactly 1", len(observations))
+	}
+	if observations[0].err == nil {
+		t.Fatal("OnCollect error = nil, want a collection failure for a nil snapshot")
+	}
+	if !strings.Contains(observations[0].err.Error(), "nil snapshot") {
+		t.Errorf("OnCollect error = %q, want it to name the nil snapshot", observations[0].err)
+	}
+	for _, event := range order {
+		if event == "consume" {
+			t.Fatal("a nil snapshot reached the downstream consumer")
+		}
+	}
+}
+
+// TestHelper_OnCollect_DownstreamFailureKeepsCollectionSuccessful asserts that
+// a failing consumer never turns a successful collection into a collection
+// failure, while still driving backoff and failing the cycle.
+func TestHelper_OnCollect_DownstreamFailureKeepsCollectionSuccessful(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	recorder := &cycleRecorder{}
+	consumeErr := errors.New("downstream rejected the snapshot")
+
+	var consumed atomic.Int64
+	consumer := &recordingConsumer{
+		recorder: recorder,
+		err:      consumeErr,
+		onCall: func() {
+			if consumed.Add(1) >= 2 {
+				cancel() // two failed cycles prove the retry
+			}
+		},
+	}
+
+	collect := func(context.Context) (*catalogcollector.CatalogSnapshot, error) {
+		return emptySnapshot, nil
+	}
+
+	h := pollsource.NewHelper("downstream-fail", time.Hour, defaultBackoff(), newLogger(), nil, noJitter)
+	h.OnCollect = recorder.onCollect
+
+	err := h.Run(ctx, collect, consumer)
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("Run() = %v, want context.Canceled", err)
+	}
+
+	_, observations := recorder.snapshot()
+
+	if len(observations) < 2 {
+		t.Fatalf("OnCollect fired %d times, want at least 2", len(observations))
+	}
+	for i, observation := range observations {
+		if observation.err != nil {
+			t.Errorf("OnCollect[%d] error = %v, want nil; downstream failures must not be attributed to collection", i, observation.err)
+		}
+	}
+	if n := consumed.Load(); n < 2 {
+		t.Errorf("consumer called %d times, want at least 2 (the downstream failure must trigger a retry)", n)
+	}
+}
+
+// TestHelper_OnCollect_DurationExcludesConsumer asserts, using the injected
+// clock, that the reported duration covers collection alone.
+func TestHelper_OnCollect_DurationExcludesConsumer(t *testing.T) {
+	const (
+		collectCost = 5 * time.Millisecond
+		consumeCost = 500 * time.Millisecond
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	clock := newFakeClock()
+	recorder := &cycleRecorder{}
+
+	consumer := &recordingConsumer{
+		recorder: recorder,
+		onCall: func() {
+			clock.advance(consumeCost)
+			cancel()
+		},
+	}
+
+	collect := func(context.Context) (*catalogcollector.CatalogSnapshot, error) {
+		clock.advance(collectCost)
+		return emptySnapshot, nil
+	}
+
+	h := pollsource.NewHelper(
+		"duration", time.Hour, defaultBackoff(), newLogger(), clock.now, noJitter,
+	)
+	h.OnCollect = recorder.onCollect
+
+	_ = h.Run(ctx, collect, consumer)
+
+	_, observations := recorder.snapshot()
+
+	if len(observations) != 1 {
+		t.Fatalf("OnCollect fired %d times, want exactly 1", len(observations))
+	}
+	if observations[0].elapsed != collectCost {
+		t.Errorf(
+			"OnCollect elapsed = %s, want %s (the consumer's %s must be excluded)",
+			observations[0].elapsed, collectCost, consumeCost,
+		)
+	}
+}
+
+// TestHelper_OnCollect_CancellationDuringCollection asserts that a collection
+// interrupted by cancellation is reported once, carrying the cancellation
+// error, and that no snapshot reaches the consumer.
+func TestHelper_OnCollect_CancellationDuringCollection(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	recorder := &cycleRecorder{}
+	consumer := &recordingConsumer{recorder: recorder}
+
+	collect := func(ctx context.Context) (*catalogcollector.CatalogSnapshot, error) {
+		cancel()
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+
+	h := pollsource.NewHelper("cancel-collect", time.Hour, defaultBackoff(), newLogger(), nil, noJitter)
+	h.OnCollect = recorder.onCollect
+
+	err := h.Run(ctx, collect, consumer)
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("Run() = %v, want context.Canceled", err)
+	}
+
+	order, observations := recorder.snapshot()
+
+	if len(observations) != 1 {
+		t.Fatalf("OnCollect fired %d times, want exactly 1", len(observations))
+	}
+	if !errors.Is(observations[0].err, context.Canceled) {
+		t.Errorf("OnCollect error = %v, want context.Canceled", observations[0].err)
+	}
+	for _, event := range order {
+		if event == "consume" {
+			t.Fatal("a cancelled collection reached the downstream consumer")
+		}
+	}
+}
+
+// TestHelper_OnCollect_CancellationDuringConsumptionKeepsCollectionSuccessful
+// asserts that cancellation observed while the consumer runs does not rewrite
+// the collection outcome that was already reported.
+func TestHelper_OnCollect_CancellationDuringConsumptionKeepsCollectionSuccessful(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	recorder := &cycleRecorder{}
+	consumer := &recordingConsumer{
+		recorder: recorder,
+		onCall:   cancel, // cancel while consuming
+	}
+
+	collect := func(context.Context) (*catalogcollector.CatalogSnapshot, error) {
+		return emptySnapshot, nil
+	}
+
+	h := pollsource.NewHelper("cancel-consume", time.Hour, defaultBackoff(), newLogger(), nil, noJitter)
+	h.OnCollect = recorder.onCollect
+
+	err := h.Run(ctx, collect, consumer)
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("Run() = %v, want context.Canceled", err)
+	}
+
+	order, observations := recorder.snapshot()
+
+	if len(observations) != 1 {
+		t.Fatalf("OnCollect fired %d times, want exactly 1", len(observations))
+	}
+	if observations[0].err != nil {
+		t.Errorf(
+			"OnCollect error = %v, want nil; cancellation during consumption must not change the collection outcome",
+			observations[0].err,
+		)
+	}
+	if len(order) != 2 || order[0] != "collect" || order[1] != "consume" {
+		t.Errorf("event order = %v, want [collect consume]", order)
 	}
 }
 

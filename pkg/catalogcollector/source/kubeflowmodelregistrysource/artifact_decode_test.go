@@ -329,16 +329,33 @@ func runOneCycle(t *testing.T, s *source) (delivered int) {
 		func(time.Duration) time.Duration { return 0 },
 	)
 
+	// Observing the collection attempt directly removes the need to wait out a
+	// fixed window before concluding that nothing was delivered.
+	failedAttempt := make(chan struct{}, 1)
+	s.poller.OnCollect = func(_ time.Duration, err error) {
+		if err == nil {
+			return
+		}
+		select {
+		case failedAttempt <- struct{}{}:
+		default:
+		}
+	}
+
 	done := make(chan error, 1)
 	go func() { done <- s.Run(ctx) }()
 
 	select {
 	case <-consumer.called:
+		// A snapshot was delivered downstream.
 		cancel()
-	case <-time.After(250 * time.Millisecond):
-		// No snapshot was delivered within the window; stop the loop and
-		// report zero deliveries.
+	case <-failedAttempt:
+		// The collection failed, so nothing can reach the consumer.
 		cancel()
+	case <-time.After(5 * time.Second):
+		cancel()
+		<-done
+		t.Fatal("no collection attempt completed within 5s")
 	}
 
 	select {

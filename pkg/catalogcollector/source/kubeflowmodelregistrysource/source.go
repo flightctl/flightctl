@@ -17,19 +17,13 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// collectionRecorder records the outcome of a single Model Registry
-// collection attempt. Production uses sourceMetrics; tests can substitute
-// a lightweight recorder.
-type collectionRecorder interface {
-	recordSuccess(elapsed time.Duration)
-	recordFailure(elapsed time.Duration, err error)
-}
-
 // source implements catalogcollector.Source for the Kubeflow Model Registry.
 //
 // The component ID is not stored here: it is already bound to the
-// source-scoped logger, the metrics instance, and the polling helper, so a
-// duplicate copy would only risk drifting from them.
+// source-scoped logger and the polling helper, so a duplicate copy would only
+// risk drifting from them. Source metrics are likewise not stored: the polling
+// helper owns the OnCollect callback that records them, and it keeps the
+// metrics instance alive for the source lifetime.
 type source struct {
 	catalog           string
 	collectionTimeout time.Duration
@@ -37,9 +31,6 @@ type source struct {
 	poller            *pollsource.Helper
 	next              catalogcollector.Consumer
 	log               *logrus.Entry
-
-	// Retain the metrics instance for the source lifetime.
-	metrics collectionRecorder
 }
 
 var _ catalogcollector.Source = (*source)(nil)
@@ -75,37 +66,11 @@ func (s *source) Run(ctx context.Context) error {
 	s.log.Info("source started")
 	defer s.log.Info("source stopped")
 
-	err := s.poller.Run(ctx, s.collectAndRecord, s.next)
+	err := s.poller.Run(ctx, s.collect, s.next)
 	if err != nil && ctx.Err() != nil && errors.Is(err, ctx.Err()) {
 		return nil
 	}
 	return err
-}
-
-// collectAndRecord wraps collect with source-scoped metrics recording.
-//
-// Source metrics (success counter, failure counter, collection duration, and
-// last-success timestamp) are recorded around the collect() call only. A
-// downstream consumer failure after a successful collection is therefore NOT
-// recorded as a source failure. The poll helper independently applies backoff
-// based on the combined collect + consume result; the OnSuccess/OnFailure
-// callbacks are intentionally left nil and unused for source metrics.
-func (s *source) collectAndRecord(
-	ctx context.Context,
-) (*catalogcollector.CatalogSnapshot, error) {
-	start := time.Now()
-	snap, err := s.collect(ctx)
-	elapsed := time.Since(start)
-
-	if s.metrics != nil {
-		if err != nil {
-			s.metrics.recordFailure(elapsed, err)
-		} else {
-			s.metrics.recordSuccess(elapsed)
-		}
-	}
-
-	return snap, err
 }
 
 // collect performs one complete collection cycle:

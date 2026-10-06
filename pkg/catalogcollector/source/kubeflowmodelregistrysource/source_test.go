@@ -18,6 +18,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/catalogcollector/source/pollsource"
 	mrapi "github.com/kubeflow/hub/pkg/openapi"
 	"github.com/sirupsen/logrus"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 )
 
 // --- fakeRegistryClient ----------------------------------------------------
@@ -128,7 +129,6 @@ func newTestSource(client registryClient, consumer catalogcollector.Consumer) (*
 		collectionTimeout: 30 * time.Second,
 		client:            client,
 		log:               testLogger(),
-		metrics:           nil,
 		next:              consumer,
 	}
 	return s, fc
@@ -772,24 +772,55 @@ func TestRun_CancelledContextReturnsNil(t *testing.T) {
 
 // --- Fix 3: Metrics boundary -----------------------------------------------
 
-// testMetricsRecorder implements collectionRecorder for tests.
-type testMetricsRecorder struct {
+// collectRecorder captures the OnCollect invocations the poller makes, so the
+// collection outcome can be asserted independently of the downstream result.
+type collectRecorder struct {
+	mu        sync.Mutex
 	successes int
 	failures  int
+	errs      []error
+	observed  chan struct{} // signalled on every attempt
 }
 
-func (r *testMetricsRecorder) recordSuccess(_ time.Duration) {
-	r.successes++
+func newCollectRecorder() *collectRecorder {
+	return &collectRecorder{observed: make(chan struct{}, 16)}
 }
 
-func (r *testMetricsRecorder) recordFailure(_ time.Duration, _ error) {
-	r.failures++
+func (r *collectRecorder) record(_ time.Duration, err error) {
+	r.mu.Lock()
+	if err != nil {
+		r.failures++
+		r.errs = append(r.errs, err)
+	} else {
+		r.successes++
+	}
+	r.mu.Unlock()
+
+	select {
+	case r.observed <- struct{}{}:
+	default:
+	}
 }
 
-func TestCollectAndRecord_SuccessfulCollectionRecordsSourceSuccess(t *testing.T) {
-	// A successful MR collection must increment source success and NOT
-	// increment source failure, regardless of what the downstream consumer
-	// does later (which is outside collectAndRecord scope).
+func (r *collectRecorder) counts() (successes, failures int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.successes, r.failures
+}
+
+func (r *collectRecorder) firstError() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.errs) == 0 {
+		return nil
+	}
+	return r.errs[0]
+}
+
+// TestRun_SuccessfulCollectionRecordsSourceSuccess drives the real poller and
+// asserts that a successful Model Registry collection is reported once as a
+// collection success before the snapshot reaches the consumer.
+func TestRun_SuccessfulCollectionRecordsSourceSuccess(t *testing.T) {
 	model := makeModel("1", "iris-edge")
 	version := makeVersion("2", "1.0.0")
 
@@ -801,56 +832,107 @@ func TestCollectAndRecord_SuccessfulCollectionRecordsSourceSuccess(t *testing.T)
 		},
 	}
 
-	recorder := &testMetricsRecorder{}
+	consumer := newCountingConsumer(nil)
+	recorder := newCollectRecorder()
+
 	s := &source{
 		catalog:           "test-catalog",
 		collectionTimeout: 30 * time.Second,
 		client:            client,
 		log:               testLogger(),
-		metrics:           recorder,
+		next:              consumer,
 	}
+	s.poller = newTestPoller(s)
+	s.poller.OnCollect = recorder.record
 
-	snap, err := s.collectAndRecord(context.Background())
-	if err != nil {
-		t.Fatalf("collectAndRecord() error: %v", err)
-	}
-	if snap == nil {
-		t.Fatal("expected non-nil snapshot")
-	}
+	runUntil(t, s, consumer.called)
 
-	if recorder.successes != 1 {
-		t.Errorf("source successes = %d, want 1", recorder.successes)
+	successes, failures := recorder.counts()
+	if successes < 1 {
+		t.Errorf("collection successes = %d, want at least 1", successes)
 	}
-	if recorder.failures != 0 {
-		t.Errorf("source failures = %d, want 0 (downstream failure must not affect source metrics)", recorder.failures)
+	if failures != 0 {
+		t.Errorf("collection failures = %d, want 0", failures)
+	}
+	if consumer.callCount() < 1 {
+		t.Error("the snapshot never reached the downstream consumer")
 	}
 }
 
-func TestCollectAndRecord_CollectionFailureRecordsSourceFailure(t *testing.T) {
+// TestRun_CollectionFailureRecordsSourceFailure asserts that a failed Model
+// Registry collection is reported as a collection failure carrying the
+// original error, and that nothing reaches the downstream consumer.
+func TestRun_CollectionFailureRecordsSourceFailure(t *testing.T) {
 	apiErr := errors.New("connection refused")
-	client := &fakeRegistryClient{
-		modelErr: apiErr,
-	}
+	client := &fakeRegistryClient{modelErr: apiErr}
 
-	recorder := &testMetricsRecorder{}
+	consumer := newCountingConsumer(nil)
+	recorder := newCollectRecorder()
+
 	s := &source{
 		catalog:           "test-catalog",
 		collectionTimeout: 30 * time.Second,
 		client:            client,
 		log:               testLogger(),
-		metrics:           recorder,
+		next:              consumer,
+	}
+	s.poller = newTestPoller(s)
+	s.poller.OnCollect = recorder.record
+
+	// Stop as soon as one attempt has been observed instead of waiting out a
+	// fixed window.
+	runUntil(t, s, recorder.observed)
+
+	successes, failures := recorder.counts()
+	if failures < 1 {
+		t.Errorf("collection failures = %d, want at least 1", failures)
+	}
+	if successes != 0 {
+		t.Errorf("collection successes = %d, want 0", successes)
+	}
+	if !errors.Is(recorder.firstError(), apiErr) {
+		t.Errorf("collection error = %v, want it to wrap %v", recorder.firstError(), apiErr)
+	}
+	if n := consumer.callCount(); n != 0 {
+		t.Errorf("consumer called %d times; a failed collection must never reach the consumer", n)
+	}
+}
+
+// runUntil starts the source, waits for the first signal on done, then cancels
+// and waits for Run to return nil.
+func runUntil(t *testing.T, s *source, signal <-chan struct{}) {
+	t.Helper()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var runErr atomic.Value
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		if err := s.Run(ctx); err != nil {
+			runErr.Store(err)
+		}
+	}()
+
+	select {
+	case <-signal:
+	case <-time.After(5 * time.Second):
+		cancel()
+		<-finished
+		t.Fatal("timed out waiting for the first observed attempt")
 	}
 
-	_, err := s.collectAndRecord(context.Background())
-	if err == nil {
-		t.Fatal("expected error, got nil")
+	cancel()
+
+	select {
+	case <-finished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run() did not stop within 5s after context cancellation")
 	}
 
-	if recorder.failures != 1 {
-		t.Errorf("source failures = %d, want 1", recorder.failures)
-	}
-	if recorder.successes != 0 {
-		t.Errorf("source successes = %d, want 0", recorder.successes)
+	if v := runErr.Load(); v != nil {
+		t.Fatalf("Run() returned %v after cancellation, want nil", v)
 	}
 }
 
@@ -957,14 +1039,22 @@ func TestRun_DownstreamFailureRecordsCollectionSuccess(t *testing.T) {
 
 	downstreamErr := errors.New("downstream: reconciler conflict")
 	consumer := newCountingConsumer(downstreamErr)
-	recorder := &testMetricsRecorder{}
+
+	// Exercise the real source metrics through the poller's OnCollect hook.
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	defer provider.Shutdown(context.Background()) //nolint:errcheck
+
+	metrics, err := newMetrics("test-source", provider)
+	if err != nil {
+		t.Fatalf("newMetrics: %v", err)
+	}
 
 	s := &source{
 		catalog:           "test-catalog",
 		collectionTimeout: 30 * time.Second,
 		client:            client,
 		log:               testLogger(),
-		metrics:           recorder,
 		next:              consumer,
 	}
 
@@ -982,6 +1072,7 @@ func TestRun_DownstreamFailureRecordsCollectionSuccess(t *testing.T) {
 		nil,
 		func(_ time.Duration) time.Duration { return 0 },
 	)
+	s.poller.OnCollect = metrics.recordCollection
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -1019,8 +1110,7 @@ func TestRun_DownstreamFailureRecordsCollectionSuccess(t *testing.T) {
 
 	// The producer goroutine has stopped, so these reads are now safe.
 	calls := consumer.callCount()
-	successes := recorder.successes
-	failures := recorder.failures
+	outcomes := collectionOutcomes(t, reader, "test-source")
 
 	// 1. The downstream consumer was called (collection succeeded and the
 	//    snapshot was passed to the consumer).
@@ -1029,14 +1119,23 @@ func TestRun_DownstreamFailureRecordsCollectionSuccess(t *testing.T) {
 	}
 
 	// 2. Source collection success is recorded for each successful collect.
-	if successes < 2 {
-		t.Errorf("source successes = %d, want >= 2 (one per collect)", successes)
+	if outcomes["success"] < 2 {
+		t.Errorf("source collections{outcome=success} = %d, want >= 2 (one per collect)", outcomes["success"])
 	}
 
 	// 3. Source collection failure remains zero — downstream failures must
 	//    not be attributed to source collection.
-	if failures != 0 {
-		t.Errorf("source failures = %d, want 0 (downstream failure must not affect source metrics)", failures)
+	if outcomes["failure"] != 0 {
+		t.Errorf("source collections{outcome=failure} = %d, want 0 (downstream failure must not affect source metrics)", outcomes["failure"])
+	}
+	if outcomes["cancelled"] != 0 {
+		t.Errorf("source collections{outcome=cancelled} = %d, want 0", outcomes["cancelled"])
+	}
+
+	// 4. A successful collection advances the last-success timestamp even
+	//    though every downstream consumption failed.
+	if ts, ok := lastSuccessTimestamp(t, reader, "test-source"); !ok || ts == 0 {
+		t.Error("last-success gauge was not observed after a successful collection")
 	}
 }
 

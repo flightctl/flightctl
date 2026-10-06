@@ -135,11 +135,12 @@ func (f *factory) CreateSource(
 		nil, // Use the production clock.
 		nil, // Use production random jitter.
 	)
-	// Source metrics (success/failure counters, duration, last-success
-	// timestamp) are recorded inside source.collectAndRecord() around the
-	// collect() call only. The poller's OnSuccess / OnFailure callbacks
-	// are intentionally left nil so that downstream consumer failures are
-	// not misattributed to the Model Registry collection step.
+	// The helper invokes OnCollect once per collection attempt, before the
+	// snapshot reaches the downstream consumer, so the source counters,
+	// duration histogram, and last-success timestamp describe Model Registry
+	// collection alone. Downstream consumer failures still drive the helper's
+	// backoff, but are never recorded as collection failures.
+	poller.OnCollect = metrics.recordCollection
 
 	return &source{
 		catalog:           c.Catalog,
@@ -148,7 +149,6 @@ func (f *factory) CreateSource(
 		poller:            poller,
 		next:              next,
 		log:               settings.Logger,
-		metrics:           metrics,
 	}, nil
 }
 

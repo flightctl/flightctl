@@ -148,6 +148,24 @@ func newMetrics(
 	return metrics, nil
 }
 
+// recordCollection records the outcome of one collection attempt.
+//
+// Its signature matches pollsource.Helper.OnCollect, so it can be installed
+// directly as the helper's collection callback. The helper invokes it once per
+// attempt, before the snapshot reaches the downstream consumer, so a
+// downstream failure is never attributed to Model Registry collection.
+func (m *sourceMetrics) recordCollection(
+	elapsed time.Duration,
+	err error,
+) {
+	if err != nil {
+		m.recordFailure(elapsed, err)
+		return
+	}
+
+	m.recordSuccess(elapsed)
+}
+
 // recordSuccess records a successful collection attempt and advances the
 // last-success timestamp.
 func (m *sourceMetrics) recordSuccess(elapsed time.Duration) {

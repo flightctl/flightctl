@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	catalogcollector "github.com/flightctl/flightctl/pkg/catalogcollector"
 	"github.com/flightctl/flightctl/pkg/catalogcollector/extension/extensionauth"
@@ -231,11 +232,67 @@ func TestCreateSource_Succeeds(t *testing.T) {
 	if src.catalog != "my-catalog" {
 		t.Errorf("catalog = %q, want %q", src.catalog, "my-catalog")
 	}
-	if src.client == nil || src.poller == nil || src.next == nil || src.metrics == nil {
+	if src.client == nil || src.poller == nil || src.next == nil {
 		t.Error("source was not fully wired by the factory")
+	}
+	// Source metrics are recorded through the poller's collection callback,
+	// so construction must install it.
+	if src.poller.OnCollect == nil {
+		t.Error("factory did not wire the poller's OnCollect callback; source metrics would never be recorded")
 	}
 	if _, ok := created.(catalogcollector.SourcePreflight); !ok {
 		t.Error("created source does not implement SourcePreflight")
+	}
+}
+
+// TestCreateSource_WiresCollectionMetrics asserts that the callback the
+// factory installs on the polling helper records through the real source
+// metrics, under the configured source ID.
+func TestCreateSource_WiresCollectionMetrics(t *testing.T) {
+	id, err := catalogcollector.ParseComponentID("kubeflowmodelregistry/test")
+	if err != nil {
+		t.Fatalf("ParseComponentID: %v", err)
+	}
+
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() { _ = provider.Shutdown(context.Background()) })
+
+	created, err := NewFactory().CreateSource(
+		context.Background(),
+		catalogcollector.Settings{
+			ID:            id,
+			Logger:        testLogger(),
+			MeterProvider: provider,
+		},
+		factoryConfig("https://model-registry.example.com"),
+		&fakeConsumer{},
+	)
+	if err != nil {
+		t.Fatalf("CreateSource() error: %v", err)
+	}
+
+	src, ok := created.(*source)
+	if !ok {
+		t.Fatalf("CreateSource() returned %T, want *source", created)
+	}
+	if src.poller.OnCollect == nil {
+		t.Fatal("factory did not wire the poller's OnCollect callback")
+	}
+
+	// Drive the wired callback exactly as the helper would.
+	src.poller.OnCollect(150*time.Millisecond, nil)
+	src.poller.OnCollect(50*time.Millisecond, errors.New("connection refused"))
+
+	outcomes := collectionOutcomes(t, reader, id.String())
+	if outcomes["success"] != 1 {
+		t.Errorf("collections{outcome=success} = %d, want 1 (all: %v)", outcomes["success"], outcomes)
+	}
+	if outcomes["failure"] != 1 {
+		t.Errorf("collections{outcome=failure} = %d, want 1 (all: %v)", outcomes["failure"], outcomes)
+	}
+	if ts, observed := lastSuccessTimestamp(t, reader, id.String()); !observed || ts == 0 {
+		t.Error("the wired callback did not advance the last-success gauge")
 	}
 }
 

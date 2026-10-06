@@ -372,10 +372,11 @@ func assertBases(t *testing.T, got, want []time.Duration) {
 }
 
 type scriptedConsumer struct {
-	mu     sync.Mutex
-	err    error
-	calls  int
-	failed int
+	mu        sync.Mutex
+	err       error
+	calls     int
+	failed    int
+	succeeded int
 }
 
 func (c *scriptedConsumer) Consume(
@@ -389,7 +390,18 @@ func (c *scriptedConsumer) Consume(
 		c.failed++
 		return c.err
 	}
+	c.succeeded++
 	return nil
+}
+
+// completedCycles reports how many cycles finished both collection and
+// downstream consumption successfully. Cycle outcomes are observed here rather
+// than through a helper callback, because the helper reports collection
+// outcomes only.
+func (c *scriptedConsumer) completedCycles() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.succeeded
 }
 
 var testSnapshot = &catalogcollector.CatalogSnapshot{Revision: "internal-test"}
@@ -460,12 +472,16 @@ func TestRun_DownstreamFailureContinuesBackoff(t *testing.T) {
 		return testSnapshot, nil
 	}
 
-	var successes int
+	var collectFailures int
 	helper := NewHelper(
 		"downstream", time.Millisecond, observableBackoff(),
 		internalLogger(), nil, recorder.jitter,
 	)
-	helper.OnSuccess = func(time.Duration) { successes++ }
+	helper.OnCollect = func(_ time.Duration, err error) {
+		if err != nil {
+			collectFailures++
+		}
+	}
 
 	_ = helper.Run(ctx, collect, consumer)
 
@@ -475,8 +491,14 @@ func TestRun_DownstreamFailureContinuesBackoff(t *testing.T) {
 		4 * time.Millisecond,
 		8 * time.Millisecond,
 	})
-	if successes != 0 {
-		t.Errorf("OnSuccess fired %d times, want 0 while the downstream keeps failing", successes)
+	if cycles := consumer.completedCycles(); cycles != 0 {
+		t.Errorf("completed cycles = %d, want 0 while the downstream keeps failing", cycles)
+	}
+	if collectFailures != 0 {
+		t.Errorf(
+			"OnCollect reported %d collection failures, want 0; every collection succeeded",
+			collectFailures,
+		)
 	}
 	if consumer.failed != consumer.calls || consumer.calls == 0 {
 		t.Errorf("consumer calls = %d, failures = %d", consumer.calls, consumer.failed)
@@ -523,12 +545,21 @@ func TestRun_BackoffResetsOnlyAfterCollectionAndConsumptionSucceed(t *testing.T)
 		}
 	}
 
-	var successes int
+	// Collection outcomes are observed through OnCollect; completed cycles are
+	// observed at the consumer. Backoff decisions are observed through the
+	// injected jitter source.
+	var collectFailures, collectSuccesses int
 	helper := NewHelper(
 		"reset", time.Millisecond, observableBackoff(),
 		internalLogger(), nil, recorder.jitter,
 	)
-	helper.OnSuccess = func(time.Duration) { successes++ }
+	helper.OnCollect = func(_ time.Duration, err error) {
+		if err != nil {
+			collectFailures++
+			return
+		}
+		collectSuccesses++
+	}
 
 	_ = helper.Run(ctx, collect, consumer)
 
@@ -539,8 +570,16 @@ func TestRun_BackoffResetsOnlyAfterCollectionAndConsumptionSucceed(t *testing.T)
 		1 * time.Millisecond, // cycle 5: reset took effect after cycle 4
 		2 * time.Millisecond, // cycle 6
 	})
-	if successes != 1 {
-		t.Errorf("OnSuccess fired %d times, want exactly 1", successes)
+	if cycles := consumer.completedCycles(); cycles != 1 {
+		t.Errorf("completed cycles = %d, want exactly 1 (only cycle 4 succeeded end to end)", cycles)
+	}
+	// Cycles 1, 2, 5 and 6 failed to collect; cycles 3 and 4 collected
+	// successfully even though cycle 3's consumption failed.
+	if collectFailures != 4 {
+		t.Errorf("OnCollect reported %d collection failures, want 4", collectFailures)
+	}
+	if collectSuccesses != 2 {
+		t.Errorf("OnCollect reported %d collection successes, want 2", collectSuccesses)
 	}
 }
 
@@ -568,8 +607,8 @@ func TestRun_BackoffCapsAtMaxInterval(t *testing.T) {
 	}
 
 	// With RandomizationFactor 0 the helper returns the base interval
-	// unchanged, so OnFailure plus the capped sequence can be asserted via the
-	// retry-after decision recorded below.
+	// unchanged and never consults the jitter source, so the capped sequence is
+	// asserted directly on the arithmetic below.
 	helper := NewHelper(
 		"cap", time.Millisecond, backoff,
 		internalLogger(), nil, recorder.jitter,

@@ -128,13 +128,16 @@ type Helper struct {
 	now          NowFunc
 	jitter       JitterFunc
 
-	// OnSuccess is called after collection and downstream consumption both
-	// complete successfully.
-	OnSuccess func(elapsed time.Duration)
-
-	// OnFailure is called after collection or downstream consumption fails,
-	// including cancellation of an in-progress cycle.
-	OnFailure func(elapsed time.Duration, err error)
+	// OnCollect is called exactly once for every collection attempt, after
+	// collection finishes and before the snapshot is handed to the downstream
+	// consumer. elapsed measures collection alone and therefore excludes
+	// downstream consumption. err is the collection error, or nil when the
+	// attempt produced a usable snapshot.
+	//
+	// Because the callback runs before consumption, a downstream failure or a
+	// cancellation observed during consumption cannot change the recorded
+	// collection outcome.
+	OnCollect func(elapsed time.Duration, err error)
 }
 
 // NewHelper constructs a polling helper.
@@ -194,63 +197,53 @@ func (h *Helper) Run(
 		startedAt := h.now()
 
 		snapshot, err := collect(ctx)
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			h.notifyFailure(h.elapsedSince(startedAt), ctxErr)
-			return ctxErr
-		}
-		if err != nil {
-			currentBackoff = h.handleRetryableFailure(
-				ctx,
-				startedAt,
-				currentBackoff,
-				err,
-				"collection failed; applying backoff",
-			)
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			continue
-		}
-		if snapshot == nil {
+
+		// A collector that reports neither a snapshot nor an error has not
+		// produced a usable desired state. Treat it as a collection failure so
+		// that nothing incomplete reaches the consumer.
+		if err == nil && snapshot == nil {
 			err = fmt.Errorf(
 				"polling source %q returned a nil snapshot without an error",
 				h.id,
 			)
-			currentBackoff = h.handleRetryableFailure(
-				ctx,
-				startedAt,
-				currentBackoff,
-				err,
-				"collection failed; applying backoff",
-			)
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			continue
 		}
 
-		err = next.Consume(ctx, snapshot)
+		// Report the collection outcome before consumption starts. The
+		// collection error, including its identity, is reported unchanged, and
+		// the measured duration covers collection alone.
+		if h.OnCollect != nil {
+			h.OnCollect(h.elapsedSince(startedAt), err)
+		}
+
+		// A shutdown observed during collection stops the loop before any
+		// downstream work starts.
 		if ctxErr := ctx.Err(); ctxErr != nil {
-			h.notifyFailure(h.elapsedSince(startedAt), ctxErr)
+			return ctxErr
+		}
+
+		message := "collection failed; applying backoff"
+		if err == nil {
+			// Only a successful collection reaches the consumer.
+			err = next.Consume(ctx, snapshot)
+			message = "downstream consumption failed; applying backoff"
+		}
+
+		// A shutdown observed during consumption ends the loop. The collection
+		// outcome reported above is already recorded and stays unchanged.
+		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
 		}
 		if err != nil {
 			currentBackoff = h.handleRetryableFailure(
 				ctx,
-				startedAt,
 				currentBackoff,
 				err,
-				"downstream consumption failed; applying backoff",
+				message,
 			)
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
 			continue
-		}
-
-		elapsed := h.elapsedSince(startedAt)
-		if h.OnSuccess != nil {
-			h.OnSuccess(elapsed)
 		}
 
 		currentBackoff = time.Duration(h.backoff.InitialInterval)
@@ -293,21 +286,17 @@ func (h *Helper) validate(
 	return nil
 }
 
-// handleRetryableFailure records and logs one failed cycle, waits for the
-// current jittered backoff, and returns the advanced base interval.
+// handleRetryableFailure logs one failed cycle, waits for the current jittered
+// backoff, and returns the advanced base interval.
 //
 // If the context is cancelled during the wait, Run observes ctx.Err() and
 // exits rather than starting another cycle.
 func (h *Helper) handleRetryableFailure(
 	ctx context.Context,
-	startedAt time.Time,
 	currentBackoff time.Duration,
 	err error,
 	message string,
 ) time.Duration {
-	elapsed := h.elapsedSince(startedAt)
-	h.notifyFailure(elapsed, err)
-
 	retryAfter := h.withJitter(currentBackoff)
 	h.log.WithError(err).
 		WithField("retry_after", retryAfter).
@@ -317,15 +306,6 @@ func (h *Helper) handleRetryableFailure(
 	_ = h.wait(ctx, retryAfter)
 
 	return nextBackoff
-}
-
-func (h *Helper) notifyFailure(
-	elapsed time.Duration,
-	err error,
-) {
-	if h.OnFailure != nil {
-		h.OnFailure(elapsed, err)
-	}
 }
 
 func (h *Helper) elapsedSince(start time.Time) time.Duration {
