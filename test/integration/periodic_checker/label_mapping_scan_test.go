@@ -296,7 +296,6 @@ var _ = Describe("Label mapping scan integration", func() {
 			_, err := deviceStore.Create(ctx, orgID, &domain.Device{Metadata: domain.ObjectMeta{Name: &name}, Spec: &domain.DeviceSpec{Os: &domain.DeviceOsSpec{Image: "os"}}, Status: &status}, nil)
 			Expect(err).NotTo(HaveOccurred())
 		}
-		deviceSvc := deviceservice.NewDeviceServiceHandler(deviceStore, nil, nil, nil, nil, "", flightlog.InitLogs())
 		var err error
 		scanTask, err = tasks.NewLabelMappingScanTask(mappingService, deviceSvc, checkpointSvc, tasks.LabelMappingScanConfig{PageSize: 1, TimeBudget: time.Nanosecond}, flightlog.InitLogs())
 		Expect(err).NotTo(HaveOccurred())
