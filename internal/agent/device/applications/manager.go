@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"sync"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
@@ -23,6 +24,11 @@ import (
 
 var _ Manager = (*manager)(nil)
 
+type volumeImageKey struct {
+	user      v1beta1.Username
+	reference string
+}
+
 type manager struct {
 	podmanMonitor      *PodmanMonitor
 	kubernetesMonitor  *KubernetesMonitor
@@ -41,6 +47,10 @@ type manager struct {
 
 	// cache of temporary extracted app data
 	appDataCache map[string]*provider.AppData
+
+	// Successful volume digests are reused until the next application update.
+	volumeImageDigestsMu sync.Mutex
+	volumeImageDigests   map[volumeImageKey]string
 
 	// appConsole is created by WithConsole and owned by this manager.
 	// executor/dialFn live on PodmanMonitor (VM/serial-console specific).
@@ -192,6 +202,7 @@ func (m *manager) Update(ctx context.Context, provider provider.Provider) error 
 }
 
 func (m *manager) BeforeUpdate(ctx context.Context, desired *v1beta1.DeviceSpec, opts ...UpdateOpt) error {
+	m.clearVolumeImageDigests()
 	o := applyUpdateOpts(opts...)
 	m.osUpdatePending = o.osUpdatePending
 
@@ -233,6 +244,7 @@ func (m *manager) verifyProviders(ctx context.Context, providers []provider.Prov
 
 func (m *manager) AfterUpdate(ctx context.Context) error {
 	defer m.clearAppDataCache()
+	defer m.clearVolumeImageDigests()
 
 	if err := m.podmanMonitor.ExecuteActions(ctx); err != nil {
 		return fmt.Errorf("error executing podman actions: %w", err)
@@ -243,6 +255,12 @@ func (m *manager) AfterUpdate(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (m *manager) clearVolumeImageDigests() {
+	m.volumeImageDigestsMu.Lock()
+	defer m.volumeImageDigestsMu.Unlock()
+	m.volumeImageDigests = nil
 }
 
 func (m *manager) clearAppDataCache() {
@@ -283,9 +301,10 @@ func (m *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, opts
 // ImageDigests is what the control plane uses to find the source image for a
 // delta.
 func (m *manager) addVolumeImageDigests(ctx context.Context, results []AppStatusResult) {
-	type volumeImageKey struct {
-		user      v1beta1.Username
-		reference string
+	m.volumeImageDigestsMu.Lock()
+	defer m.volumeImageDigestsMu.Unlock()
+	if m.volumeImageDigests == nil {
+		m.volumeImageDigests = make(map[volumeImageKey]string)
 	}
 
 	podmanClients := make(map[v1beta1.Username]*client.Podman)
@@ -312,7 +331,10 @@ func (m *manager) addVolumeImageDigests(ctx context.Context, results []AppStatus
 			}
 
 			key := volumeImageKey{user: application.RunAs, reference: volume.Reference}
-			digest, inspected := inspectedDigests[key]
+			digest, inspected := m.volumeImageDigests[key]
+			if !inspected {
+				digest, inspected = inspectedDigests[key]
+			}
 			if !inspected {
 				var err error
 				podman, found := podmanClients[key.user]
@@ -341,6 +363,9 @@ func (m *manager) addVolumeImageDigests(ctx context.Context, results []AppStatus
 				if err != nil {
 					m.log.Debugf("could not inspect application volume image %q for digest: %v", key.reference, err)
 					continue
+				}
+				if digest != "" {
+					m.volumeImageDigests[key] = digest
 				}
 			}
 			if digest == "" {

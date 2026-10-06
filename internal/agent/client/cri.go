@@ -236,9 +236,10 @@ func (c *CRI) ImageRepoDigests(ctx context.Context, image string, opts ...Client
 			return nil, fmt.Errorf("check CRI config path: %w", err)
 		}
 		if !exists {
-			return nil, fmt.Errorf("CRI config path does not exist: %s", options.criConfigPath)
+			c.log.Errorf("CRI config path does not exist: %s", options.criConfigPath)
+		} else {
+			args = append(args, "--config", options.criConfigPath)
 		}
-		args = append(args, "--config", options.criConfigPath)
 	}
 	args = append(args, "inspecti", "--output", "json", image)
 
