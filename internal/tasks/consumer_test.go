@@ -838,6 +838,45 @@ func TestDispatchTasks_DeviceLabelReconciliationRetriesReconciliationErrors(t *t
 	mockConsumer.AssertExpectations(t)
 }
 
+func TestDispatchTasks_DeviceLabelOwnershipFailureSkipsRollout(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	orgID := uuid.New()
+	event := createTestEventWithDetails(
+		domain.DeviceKind,
+		domain.EventReasonResourceUpdated,
+		"device1",
+		createResourceUpdatedDetails(t, domain.Labels),
+	)
+	eventWithOrgID := worker_client.EventWithOrgId{OrgId: orgID, Event: event}
+	payload, err := json.Marshal(eventWithOrgID)
+	require.NoError(t, err)
+
+	deviceSvc := deviceservice.NewMockService(ctrl)
+	deviceSvc.EXPECT().GetDevice(gomock.Any(), orgID, "device1").
+		Return(nil, domain.StatusInternalServerError("selector store unavailable")).Times(1)
+	fleetSvc := fleetservice.NewMockService(ctrl)
+	eventSvc := eventservice.NewMockService(ctrl)
+	eventSvc.EXPECT().CreateEvent(gomock.Any(), orgID, gomock.Any()).Times(1)
+
+	mockConsumer := &MockConsumer{}
+	var completedErr error
+	mockConsumer.On("Complete", mock.Anything, "entry-123", payload, mock.Anything).
+		Run(func(args mock.Arguments) {
+			completedErr, _ = args.Get(3).(error)
+		}).Return(nil).Once()
+
+	handler := TaskConsumer{
+		DeviceSvc: deviceSvc,
+		FleetSvc:  fleetSvc,
+		EventSvc:  eventSvc,
+	}.dispatch()
+	err = handler(context.Background(), payload, "entry-123", mockConsumer, logrus.New())
+	require.ErrorContains(t, err, "fleetSelectorMatching")
+	require.ErrorContains(t, err, "selector store unavailable")
+	require.ErrorContains(t, completedErr, "selector store unavailable")
+	mockConsumer.AssertExpectations(t)
+}
+
 func TestDispatchTasks_WithNilMetrics_InvalidPayload(t *testing.T) {
 	ctx := context.Background()
 	log := logrus.New()
