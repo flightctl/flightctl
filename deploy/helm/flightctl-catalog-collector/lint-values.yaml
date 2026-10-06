@@ -1,0 +1,63 @@
+# Values used by "make lint-helm" to exercise the paths that the defaults do
+# not: an externally managed ConfigMap, a ServiceMonitor, extra ports, extra
+# volumes, and a startup probe.
+config:
+  # Exercise the existingName branch. content is spelled out as empty even
+  # though that is already the chart default, so this file keeps working if a
+  # default is ever reintroduced: the two are mutually exclusive.
+  content: ""
+  existingName: externally-managed-collector-config
+  key: config.yaml
+  mountPath: /etc/flightctl/catalog-collector
+
+image:
+  tag: lint
+
+health:
+  enabled: true
+  startupProbe:
+    enabled: true
+
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    labels:
+      release: prometheus
+
+service:
+  enabled: true
+  extraPorts:
+    - name: snapshots
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+
+env:
+  FLIGHTCTL_CATALOG_COLLECTOR_LINT: "1"
+
+envFrom:
+  - secretRef:
+      name: externally-managed-collector-secret
+
+extraVolumes:
+  - name: ca
+    configMap:
+      name: externally-managed-collector-ca
+extraVolumeMounts:
+  - name: ca
+    mountPath: /etc/flightctl/catalog-collector/certs
+    readOnly: true
+
+podAnnotations:
+  example.com/annotation: "lint"
+podLabels:
+  example.com/label: "lint"
+
+nodeSelector:
+  kubernetes.io/os: linux
+tolerations:
+  - key: node-role.kubernetes.io/control-plane
+    operator: Exists
+    effect: NoSchedule
+priorityClassName: system-cluster-critical

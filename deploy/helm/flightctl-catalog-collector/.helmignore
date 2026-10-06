@@ -1,0 +1,17 @@
+.DS_Store
+.git/
+.gitignore
+*.swp
+*.bak
+*.tmp
+*.orig
+*~
+.project
+.idea/
+.vscode/
+# Example and lint values are documentation and CI inputs, not part of the
+# released chart. The render tests likewise ship with the repository, not
+# with the packaged chart.
+examples/
+lint-values.yaml
+tests/

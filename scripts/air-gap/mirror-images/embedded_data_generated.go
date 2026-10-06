@@ -16,7 +16,7 @@ package main
 
 var embeddedBuildManifest = []byte(`
 {
-  "schema_version": "1",
+  "schema_version": "2",
   "app_version": "latest",
   "variants": {
     "community-el10": {
@@ -110,6 +110,14 @@ var embeddedBuildManifest = []byte(`
           "tag": "10.1-1769677092"
         }
       ],
+      "optional_images": {
+        "catalog-collector": [
+          {
+            "ref": "quay.io/flightctl/flightctl-catalog-collector-el10",
+            "tag": ""
+          }
+        ]
+      },
       "rpms": [
         "bash",
         "container-selinux",
@@ -220,6 +228,14 @@ var embeddedBuildManifest = []byte(`
           "tag": "9.7-1763362218"
         }
       ],
+      "optional_images": {
+        "catalog-collector": [
+          {
+            "ref": "quay.io/flightctl/flightctl-catalog-collector-el9",
+            "tag": ""
+          }
+        ]
+      },
       "rpms": [
         "bash",
         "container-selinux",
@@ -326,6 +342,14 @@ var embeddedBuildManifest = []byte(`
           "tag": "10.1-1769677092"
         }
       ],
+      "optional_images": {
+        "catalog-collector": [
+          {
+            "ref": "registry.redhat.io/rhem/flightctl-catalog-collector-rhel10",
+            "tag": ""
+          }
+        ]
+      },
       "rpms": [
         "bash",
         "container-selinux",
@@ -432,6 +456,14 @@ var embeddedBuildManifest = []byte(`
           "tag": "9.7-1763362218"
         }
       ],
+      "optional_images": {
+        "catalog-collector": [
+          {
+            "ref": "registry.redhat.io/rhem/flightctl-catalog-collector-rhel9",
+            "tag": ""
+          }
+        ]
+      },
       "rpms": [
         "bash",
         "container-selinux",

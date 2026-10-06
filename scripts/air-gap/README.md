@@ -65,6 +65,33 @@ make build-mirror-images
 |------|---------|-------------|
 | `--dest-registry` | — | Registry host:port, no scheme. Defaults to `localhost:5000` in bundle mode (used only in `import.sh`). |
 
+### Optional image groups
+
+Add-on components are excluded from the default image set so their images do
+not inflate every bundle. Opt in by group name.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--include-optional <group>` | — | Comma-separated opt-in image groups to add to the mirrored set. An unknown group name is an error, not a no-op. Mutually exclusive with `--agent-only`, which bundles RPMs only and mirrors no images. |
+
+| Group | Images | Pair with |
+|-------|--------|-----------|
+| `catalog-collector` | `flightctl-catalog-collector-{el9,el10,rhel9,rhel10}` | `--rpm-packages ...,flightctl-catalog-collector` when bundling RPMs, so the image and the Quadlet unit that references it arrive together at the same version. |
+
+```bash
+./bin/flightctl-mirror-images --variant community-el9 \
+    --bundle ~/flightctl-bundle.tar.gz \
+    --include-optional catalog-collector \
+    --bundle-rpms \
+    --rpm-packages flightctl-services,flightctl-cli,flightctl-catalog-collector
+```
+
+An optional group differs from the observability images below. Observability
+images are absent from the manifest altogether and have to be mirrored by
+hand. An optional group stays fully resolved in the manifest, so opting in
+yields the correct, version-matched reference without constructing it
+manually.
+
 ### Bundle mode
 
 | Flag | Default | Description |
@@ -86,6 +113,7 @@ make build-mirror-images
 | `flightctl-agent` | Edge device management agent | Included in `--agent-only` defaults |
 | `flightctl-cli` | `flightctl` operator CLI | Included in `--agent-only` defaults |
 | `flightctl-observability` | Prometheus + Grafana observability stack | Add explicitly when needed; **Prometheus and Grafana container images are not included in the default bundle** — mirror them separately (see [Deploying Observability Offline](../../docs/user/installing/deploying-observability-linux.md#air-gapped-installation)) |
+| `flightctl-catalog-collector` | Catalog collector Quadlet unit and example configurations | Add explicitly when needed; **its container image is not included in the default bundle** — add `--include-optional catalog-collector` so the image and the unit are mirrored at the same version |
 | `flightctl-selinux` | SELinux policy module | Auto-pulled as a dep of `flightctl-services` / `flightctl-agent`; no need to list explicitly |
 
 Pass multiple packages as a comma-separated list or by repeating the flag — both forms are equivalent:
@@ -177,6 +205,7 @@ make build-mirror-images
 ./bin/flightctl-mirror-images --variant community-el9 --bundle /tmp/x.tar.gz --execute 2>&1
 ./bin/flightctl-mirror-images --rpm-reposync --rpm-createrepo --agent-only --bundle /tmp/x.tar.gz 2>&1
 ./bin/flightctl-mirror-images --agent-only --execute --bundle /tmp/x.tar.gz 2>&1
+./bin/flightctl-mirror-images --agent-only --include-optional catalog-collector --bundle /tmp/x.tar.gz 2>&1
 ./bin/flightctl-mirror-images --agent-only 2>&1
 ./bin/flightctl-mirror-images --rpm-reposync --variant community-el9 --bundle /tmp/x.tar.gz 2>&1
 

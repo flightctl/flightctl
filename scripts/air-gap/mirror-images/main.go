@@ -61,7 +61,7 @@ func main() {
 }
 
 // validateFlags checks mutually exclusive and co-required flag combinations.
-func validateFlags(variant, bundle string, execute, bundleRPMs, rpmReposync, rpmCreaterepo, agentOnly bool) error {
+func validateFlags(variant, bundle string, execute, bundleRPMs, rpmReposync, rpmCreaterepo, agentOnly bool, includeOptional []string) error {
 	if rpmReposync && rpmCreaterepo {
 		return fmt.Errorf("--rpm-reposync and --rpm-createrepo are mutually exclusive")
 	}
@@ -74,6 +74,16 @@ func validateFlags(variant, bundle string, execute, bundleRPMs, rpmReposync, rpm
 		}
 		if execute {
 			return fmt.Errorf("--agent-only and --execute are mutually exclusive")
+		}
+		// --agent-only builds an RPM-only bundle and never reaches the image
+		// resolution path, so an opt-in image group would be dropped without
+		// a word. Say so instead: the operator asked for images and would
+		// otherwise discover the omission on the air-gapped host.
+		if len(includeOptional) > 0 {
+			return fmt.Errorf("--agent-only and --include-optional are mutually exclusive: "+
+				"--agent-only bundles RPMs only and mirrors no images, so the %q group would be silently dropped. "+
+				"Drop --include-optional, or build an image bundle with --variant instead",
+				strings.Join(includeOptional, ", "))
 		}
 	}
 	if !agentOnly && variant == "" {
@@ -246,18 +256,19 @@ func runBundleMode(ctx context.Context, unique []ImagePair, bundle, variant stri
 // NewRootCommand builds and returns the cobra root command for flightctl-mirror-images.
 func NewRootCommand() *cobra.Command {
 	var (
-		variant       string
-		execute       bool
-		insecure      bool
-		tagOverride   string
-		bundle        string
-		bundleRPMs    bool
-		rpmPackages   []string
-		rpmExclude    []string
-		rpmRepoURL    string
-		rpmReposync   bool
-		rpmCreaterepo bool
-		agentOnly     bool
+		variant         string
+		execute         bool
+		insecure        bool
+		tagOverride     string
+		bundle          string
+		bundleRPMs      bool
+		rpmPackages     []string
+		rpmExclude      []string
+		rpmRepoURL      string
+		rpmReposync     bool
+		rpmCreaterepo   bool
+		agentOnly       bool
+		includeOptional []string
 	)
 
 	cmd := &cobra.Command{
@@ -313,6 +324,11 @@ Examples:
   # Agent/CLI bundle for edge devices (no --variant required)
   flightctl-mirror-images --agent-only --bundle ~/flightctl-agent-bundle.tar.gz
 
+  # Bundle including the optional catalog collector image and its RPM
+  flightctl-mirror-images --variant community-el9 --bundle ~/flightctl-bundle.tar.gz \
+    --include-optional catalog-collector \
+    --bundle-rpms --rpm-packages flightctl-services,flightctl-cli,flightctl-catalog-collector
+
   # Server bundle with full repo mirror and metadata (requires dnf-plugins-core)
   flightctl-mirror-images --variant community-el9 --bundle ~/flightctl-bundle.tar.gz \
     --bundle-rpms --rpm-reposync
@@ -330,7 +346,7 @@ Examples:
 		SilenceUsage: true,
 
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := validateFlags(variant, bundle, execute, bundleRPMs, rpmReposync, rpmCreaterepo, agentOnly); err != nil {
+			if err := validateFlags(variant, bundle, execute, bundleRPMs, rpmReposync, rpmCreaterepo, agentOnly, includeOptional); err != nil {
 				return err
 			}
 
@@ -418,7 +434,7 @@ Examples:
 				logInfo("  Effective tag:    %s (for untagged images)", effectiveTag)
 			}
 
-			unique, manifestRPMs, err := resolveVariant(m, variant, effectiveTag)
+			unique, manifestRPMs, err := resolveVariant(m, variant, effectiveTag, includeOptional)
 			if err != nil {
 				return err
 			}
@@ -463,6 +479,7 @@ Examples:
 	cmd.Flags().BoolVar(&rpmReposync, "rpm-reposync", false, "Mirror the full FlightCtl RPM repository using 'dnf reposync' (includes repodata/; requires dnf-plugins-core; mutually exclusive with --rpm-createrepo)")
 	cmd.Flags().BoolVar(&rpmCreaterepo, "rpm-createrepo", false, "Generate repodata/ after 'dnf download' using 'createrepo_c' so the bundle can be used as a local dnf repository source (mutually exclusive with --rpm-reposync)")
 	cmd.Flags().BoolVar(&agentOnly, "agent-only", false, "Create an RPM-only bundle for edge device agent installation — skips image bundling, does not require --variant, defaults --rpm-packages to flightctl-agent,flightctl-cli,open-vm-tools,ignition,afterburn,cloud-init")
+	cmd.Flags().StringSliceVar(&includeOptional, "include-optional", nil, "Opt-in image groups to add to the mirrored set (comma-separated). Add-on components are excluded by default so their images do not inflate every bundle. Available group: catalog-collector (pair it with --rpm-packages flightctl-catalog-collector when bundling RPMs). An unknown group name is an error.")
 
 	return cmd
 }

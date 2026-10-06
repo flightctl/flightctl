@@ -113,6 +113,29 @@ Requires:       selinux-policy-targeted
 This package provides the Flight Control Observability Stack, including
 Prometheus for metric storage and Grafana for visualization.
 
+# catalog-collector sub-package
+%package catalog-collector
+Summary: Flight Control catalog collector
+Requires:       podman
+Requires:       systemd
+BuildRequires:  systemd-rpm-macros
+%{?systemd_requires}
+Requires:       selinux-policy-targeted
+
+%description catalog-collector
+The flightctl-catalog-collector package provides a Quadlet unit that runs the
+containerized Flight Control catalog collector, which imports catalogs from
+external registries such as the Kubeflow Model Registry into Flight Control.
+
+The collector has no usable default pipeline, so the unit does not start until
+a configuration file exists at
+%{_sysconfdir}/flightctl/flightctl-catalog-collector/config.yaml. Example
+configurations are installed under
+%{_datadir}/flightctl/flightctl-catalog-collector/examples.
+
+This sub-package is independent of flightctl-services: the collector can run
+on a host that only forwards catalogs to a remote Flight Control service.
+
 %files observability
 # Shared directories (also owned by services package)
 %dir %{_datadir}/flightctl
@@ -430,6 +453,46 @@ fi
      # Create observability persistent data directories
      mkdir -p %{buildroot}/var/lib/prometheus
      mkdir -p %{buildroot}/var/lib/grafana
+
+    # flightctl-catalog-collector sub-package steps
+    #
+    # The collector quadlet is installed directly rather than through
+    # "flightctl-standalone render quadlets": the collector is an optional
+    # add-on that is not part of flightctl.target and must stay installable
+    # without flightctl-services.
+    #
+    # The image reference still comes from the same %{images_config} that
+    # drives the services quadlets, so there is exactly one place that decides
+    # which registry and which dist suffix a build uses. Hardcoding it here
+    # would silently diverge from images.yaml the first time a downstream
+    # build repointed the registry.
+    CATALOG_COLLECTOR_IMAGE=$(awk '
+        /^catalog-collector:[[:space:]]*$/ { in_entry = 1; next }
+        /^[^[:space:]#]/                   { in_entry = 0 }
+        in_entry && $1 == "image:"         { print $2; exit }
+    ' "%{images_config}")
+    if [ -z "${CATALOG_COLLECTOR_IMAGE}" ]; then
+        echo "ERROR: no catalog-collector image entry in %{images_config}" >&2
+        exit 1
+    fi
+
+    install -d -m 0755 %{buildroot}%{_sysconfdir}/flightctl/flightctl-catalog-collector
+    install -d -m 0755 %{buildroot}%{_datadir}/flightctl/flightctl-catalog-collector/examples
+    install -m 0644 deploy/podman/flightctl-catalog-collector/examples/config-vanilla.yaml \
+        %{buildroot}%{_datadir}/flightctl/flightctl-catalog-collector/examples/config-vanilla.yaml
+    install -m 0644 deploy/podman/flightctl-catalog-collector/examples/config-rhoai-to-flightctl.yaml \
+        %{buildroot}%{_datadir}/flightctl/flightctl-catalog-collector/examples/config-rhoai-to-flightctl.yaml
+    install -m 0644 deploy/podman/flightctl-catalog-collector/examples/vanilla-publish-8080.conf \
+        %{buildroot}%{_datadir}/flightctl/flightctl-catalog-collector/examples/vanilla-publish-8080.conf
+
+    install -d -m 0755 %{buildroot}%{_datadir}/containers/systemd
+    sed -e "s|@CATALOG_COLLECTOR_IMAGE@|${CATALOG_COLLECTOR_IMAGE}:${IMAGE_TAG}|" \
+        deploy/podman/flightctl-catalog-collector/flightctl-catalog-collector.container \
+        > %{buildroot}%{_datadir}/containers/systemd/flightctl-catalog-collector.container
+    chmod 0644 %{buildroot}%{_datadir}/containers/systemd/flightctl-catalog-collector.container
+    grep -q '@CATALOG_COLLECTOR_IMAGE@' \
+        %{buildroot}%{_datadir}/containers/systemd/flightctl-catalog-collector.container \
+        && { echo "ERROR: catalog collector image placeholder was not substituted" >&2; exit 1; } || :
 
 %check
     # Run the installed binary from the buildroot and capture its output
@@ -845,7 +908,66 @@ for unit in \
     /usr/bin/systemctl reset-failed "$unit" 2>/dev/null || :
 done
 
+%files catalog-collector
+    %defattr(0644,root,root,-)
+    # Shared directories (also owned by the agent and services packages)
+    %dir %{_sysconfdir}/flightctl
+    %dir %attr(0755,root,root) %{_datadir}/flightctl
+    %dir %{_datadir}/containers/systemd
+
+    # Administrator-supplied configuration, credentials, and CA bundles.
+    # Intentionally empty: the unit stays inactive until config.yaml exists.
+    %dir %{_sysconfdir}/flightctl/flightctl-catalog-collector
+
+    # Example configurations
+    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-catalog-collector
+    %dir %attr(0755,root,root) %{_datadir}/flightctl/flightctl-catalog-collector/examples
+    %{_datadir}/flightctl/flightctl-catalog-collector/examples/config-vanilla.yaml
+    %{_datadir}/flightctl/flightctl-catalog-collector/examples/config-rhoai-to-flightctl.yaml
+    %{_datadir}/flightctl/flightctl-catalog-collector/examples/vanilla-publish-8080.conf
+
+    # Quadlet unit
+    %{_datadir}/containers/systemd/flightctl-catalog-collector.container
+
+%post catalog-collector
+# Quadlet units are generated at daemon-reload time, so the generator has to
+# run before the unit exists. Enablement comes from the unit's [Install]
+# section, which the generator turns into the usual wants symlink.
+/usr/bin/systemctl daemon-reload >/dev/null 2>&1 || :
+
+if [ "$1" -eq 1 ]; then # fresh install
+  %{__cat} <<EOF
+[flightctl-catalog-collector] Installed.
+
+The collector does not start until it is configured. Copy an example:
+
+  sudo cp %{_datadir}/flightctl/flightctl-catalog-collector/examples/config-vanilla.yaml \\
+          %{_sysconfdir}/flightctl/flightctl-catalog-collector/config.yaml
+
+Edit it, then start the service:
+
+  sudo systemctl daemon-reload
+  sudo systemctl start flightctl-catalog-collector
+
+Health:  curl -s http://127.0.0.1:13133/readyz
+Metrics: curl -s http://127.0.0.1:8888/metrics
+EOF
+fi
+
+%preun catalog-collector
+%systemd_preun flightctl-catalog-collector.service
+
+%postun catalog-collector
+%systemd_postun_with_restart flightctl-catalog-collector.service
+
+%posttrans catalog-collector
+# Second reload after the old package's files are removed, so the generator
+# sees the final on-disk set of quadlet files.
+/usr/bin/systemctl daemon-reload >/dev/null 2>&1 || :
+
 %changelog
+* Tue Oct 06 2026 Flight Control Maintainers <flightctl@redhat.com> - 1.0-1
+- Add catalog-collector sub-package with Quadlet unit and example configurations
 * Wed Nov 26 2025 Dakota Crowder <dcrowder@redhat.com> - 1.0-1
 - Adding certificate generation service
 * Mon Nov 17 2025 Dakota Crowder <dcrowder@redhat.com> - 1.0-1

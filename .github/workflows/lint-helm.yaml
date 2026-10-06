@@ -25,8 +25,13 @@ jobs:
         uses: tj-actions/changed-files@v46
         with:
           since_last_remote_commit: 'true'
+          # The Makefile holds the lint and render-test targets themselves, and
+          # this workflow decides whether they run at all, so a change to either
+          # has to trigger the job as surely as a change to a chart does.
           files: |
             deploy/helm/**
+            Makefile
+            .github/workflows/lint-helm.yaml
 
       - name: Running Helm Linter
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
@@ -35,3 +40,15 @@ jobs:
         run: |
           set -euo pipefail
           make lint-helm
+
+      # "helm lint" can only prove that a given value set renders. The render
+      # tests assert the other half of the catalog collector chart's contract:
+      # the value combinations that must *fail*, and the objects the ones that
+      # succeed must produce.
+      - name: Running catalog collector chart render tests
+        if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
+        shell: bash
+        continue-on-error: false
+        run: |
+          set -euo pipefail
+          make test-helm-catalog-collector

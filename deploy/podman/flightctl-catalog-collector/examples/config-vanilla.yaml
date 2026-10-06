@@ -1,0 +1,61 @@
+# Vanilla catalog collector configuration.
+#
+# Pipeline: HTTP snapshot source -> debug destination.
+#
+# This configuration has no external dependencies: it does not talk to a model
+# registry and it does not write to a Flight Control service. It accepts a
+# complete desired-state snapshot over HTTP and logs what it received. Use it
+# to verify that the collector is installed, reachable, healthy, and scrapable
+# before wiring up a real source and destination.
+#
+# Install it, publish the listener, and start the collector:
+#
+#   sudo cp /usr/share/flightctl/flightctl-catalog-collector/examples/config-vanilla.yaml \
+#           /etc/flightctl/flightctl-catalog-collector/config.yaml
+#   sudo mkdir -p /etc/containers/systemd/flightctl-catalog-collector.container.d
+#   sudo cp /usr/share/flightctl/flightctl-catalog-collector/examples/vanilla-publish-8080.conf \
+#           /etc/containers/systemd/flightctl-catalog-collector.container.d/
+#   sudo systemctl daemon-reload
+#   sudo systemctl start flightctl-catalog-collector
+#
+# Push a snapshot into it with:
+#
+#   curl -sS -X POST http://127.0.0.1:8080/v1/snapshots \
+#        -H 'Content-Type: application/json' \
+#        -d '{"revision":"1","catalogs":[],"catalogItems":[]}'
+#
+# The listener binds 0.0.0.0 *inside the container*, which is what makes the
+# published port reach it; the collector default of 127.0.0.1 is reachable
+# only from inside the container's own network namespace. Exposure is
+# controlled on the host side of the port mapping, which the drop-in pins to
+# 127.0.0.1. The HTTP source has no inbound authentication, so never change
+# that host side to a routable address.
+
+service:
+  logLevel: info
+  metrics:
+    # Prometheus metrics are served at /metrics on this endpoint.
+    endpoint: 0.0.0.0:8888
+
+extensions:
+  healthcheck:
+    # Liveness and readiness probes are served on this endpoint.
+    endpoint: 0.0.0.0:13133
+    livePath: /livez
+    readyPath: /readyz
+
+sources:
+  http/snapshots:
+    listenAddress: 0.0.0.0:8080
+    path: /v1/snapshots
+
+destinations:
+  debug/stdout:
+    # basic | normal | detailed. "detailed" logs full resource bodies, which
+    # may include sensitive operational metadata.
+    verbosity: normal
+
+pipelines:
+  snapshots:
+    source: http/snapshots
+    destination: debug/stdout
