@@ -222,3 +222,13 @@ func TestNestedTargetCacheInvalidation(t *testing.T) {
 	require.Equal("sha256:new", entry.Parent.Digest)
 	require.Len(entry.Children, 2)
 }
+
+func TestCacheEntryIsValid_WhenInputsChange_ItShouldInvalidate(t *testing.T) {
+	entry := CacheEntry{
+		Parent:     dependency.OCIPullTarget{Reference: "oci://registry.example.com/charts/app:1.0.0"},
+		InputsHash: "values-v1",
+	}
+
+	require.True(t, entry.IsValid(entry.Parent.Reference, "", "values-v1"))
+	require.False(t, entry.IsValid(entry.Parent.Reference, "", "values-v2"))
+}
