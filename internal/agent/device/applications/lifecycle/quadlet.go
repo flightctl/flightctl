@@ -450,15 +450,16 @@ func targetName(appID string) (string, error) {
 	return quadlet.NamespaceResource(appID, QuadletTargetName), nil
 }
 
-// QuadletVersionKey is the X- key added to the [Unit] section of the flightctl drop-in.
-const QuadletVersionKey = "X-FlightctlVersion"
+// QuadletHashURIPrefix is the URI scheme used in the Documentation= field
+// of the flightctl drop-in to embed the content hash of quadlet source files.
+const QuadletHashURIPrefix = "flightctl:hash:"
 
 // QuadletHashFile is the file where the content hash of quadlet source files is stored.
 const QuadletHashFile = ".flightctl-quadlet-hash"
 
-// verifyQuadletGeneration compares the X-FlightctlVersion hash in the
-// generated .service file(s) against the expected hash on disk.
-// Missing hash file or missing key is allowed for backwards compatibility.
+// verifyQuadletGeneration compares the hash embedded in the Documentation=
+// property of generated .service file(s) against the expected hash on disk.
+// Missing hash file or missing hash URI is allowed for backwards compatibility.
 func (q *Quadlet) verifyQuadletGeneration(ctx context.Context, action Action, services []string, systemctl systemd.Manager, batchTime time.Time) error {
 	rw, err := q.rwFactory(action.User)
 	if err != nil {
@@ -479,29 +480,25 @@ func (q *Quadlet) verifyQuadletGeneration(ctx context.Context, action Action, se
 		return nil
 	}
 
+	expectedURI := QuadletHashURIPrefix + expectedHash
 	for _, service := range services {
 		if filepath.Ext(service) == ".target" {
 			continue
 		}
 
-		content, err := systemctl.Cat(ctx, service)
+		lines, err := systemctl.Show(ctx, service, client.WithShowDocumentation())
 		if err != nil {
-			return fmt.Errorf("reading unit %s for hash verification: %w", service, err)
+			return fmt.Errorf("querying unit %s for hash verification: %w", service, err)
 		}
 
-		unit, err := quadlet.NewUnit([]byte(content))
-		if err != nil {
-			return fmt.Errorf("parsing unit %s for hash verification: %w", service, err)
-		}
-
-		actualHash, err := unit.Lookup("Unit", QuadletVersionKey)
-		if err != nil {
-			q.log.Debugf("No %s key found in unit %s, allowing", QuadletVersionKey, service)
+		doc := strings.Join(lines, " ")
+		if !strings.Contains(doc, QuadletHashURIPrefix) {
+			q.log.Debugf("No %s URI found in unit %s, allowing", QuadletHashURIPrefix, service)
 			continue
 		}
 
-		if actualHash != expectedHash {
-			q.log.Infof("Quadlet generation verification failed for %s: expected hash %s, got %s", service, expectedHash, actualHash)
+		if !strings.Contains(doc, expectedURI) {
+			q.log.Infof("Quadlet generation verification failed for %s: expected URI %s not found in Documentation=%s", service, expectedURI, doc)
 
 			generatorLogs, logsErr := systemctl.Logs(ctx, client.WithLogTag("quadlet-generator"), client.WithLogSince(batchTime))
 			if logsErr != nil {

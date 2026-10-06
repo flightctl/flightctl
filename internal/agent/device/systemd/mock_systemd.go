@@ -58,21 +58,6 @@ func (mr *MockManagerMockRecorder) AddExclusions(serviceNames ...any) *gomock.Ca
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddExclusions", reflect.TypeOf((*MockManager)(nil).AddExclusions), serviceNames...)
 }
 
-// Cat mocks base method.
-func (m *MockManager) Cat(ctx context.Context, unit string) (string, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Cat", ctx, unit)
-	ret0, _ := ret[0].(string)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// Cat indicates an expected call of Cat.
-func (mr *MockManagerMockRecorder) Cat(ctx, unit any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Cat", reflect.TypeOf((*MockManager)(nil).Cat), ctx, unit)
-}
-
 // DaemonReload mocks base method.
 func (m *MockManager) DaemonReload(ctx context.Context) error {
 	m.ctrl.T.Helper()

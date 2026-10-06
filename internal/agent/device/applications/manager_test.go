@@ -126,7 +126,7 @@ func TestManager(t *testing.T) {
 			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter, mockSystemdMgr *systemd.MockManager) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.5", "", 0).AnyTimes()
 				mockReadQuadletFiles(mockReadWriter, quadlet1)
-				mockSystemdMgr.EXPECT().Cat(gomock.Any(), gomock.Any()).Return("[Unit]\n", nil).AnyTimes()
+				mockSystemdMgr.EXPECT().Show(gomock.Any(), gomock.Any(), gomock.Any()).Return([]string{""}, nil).AnyTimes()
 				appID := lifecycle.GenerateAppID("quadlet-new", v1beta1.CurrentProcessUsername)
 				target := appID + "-flightctl-quadlet-app.target"
 				services := []string{appID + "-test-app.service"}
@@ -150,7 +150,7 @@ func TestManager(t *testing.T) {
 			setupMocks: func(mockExec *executer.MockExecuter, mockReadWriter *fileio.MockReadWriter, mockSystemdMgr *systemd.MockManager) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.5", "", 0).AnyTimes()
 				mockReadQuadletFiles(mockReadWriter, quadlet1)
-				mockSystemdMgr.EXPECT().Cat(gomock.Any(), gomock.Any()).Return("[Unit]\n", nil).AnyTimes()
+				mockSystemdMgr.EXPECT().Show(gomock.Any(), gomock.Any(), gomock.Any()).Return([]string{""}, nil).AnyTimes()
 				appID := lifecycle.GenerateAppID("quadlet-remove", v1beta1.CurrentProcessUsername)
 				target := appID + "-flightctl-quadlet-app.target"
 				services := []string{appID + "-test-app.service"}
@@ -188,7 +188,7 @@ func TestManager(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.5", "", 0).AnyTimes()
 				mockReadQuadletFiles(mockReadWriter, quadlet1)
 				mockReadQuadletFiles(mockReadWriter, quadlet2)
-				mockSystemdMgr.EXPECT().Cat(gomock.Any(), gomock.Any()).Return("[Unit]\n", nil).AnyTimes()
+				mockSystemdMgr.EXPECT().Show(gomock.Any(), gomock.Any(), gomock.Any()).Return([]string{""}, nil).AnyTimes()
 				appID := lifecycle.GenerateAppID("quadlet-update", v1beta1.CurrentProcessUsername)
 				target := appID + "-flightctl-quadlet-app.target"
 				services := []string{appID + "-test-app.service"}

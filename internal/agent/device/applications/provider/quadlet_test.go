@@ -2675,9 +2675,9 @@ func TestInstallQuadletWritesHashFileAndVersionKey(t *testing.T) {
 	hash := strings.TrimSpace(string(hashContent))
 	require.Len(hash, 8, "CRC32 hash should be 8 hex chars")
 
-	// Verify X-FlightctlVersion is in the drop-in file
+	// Verify Documentation= with hash URI is in the drop-in file
 	dropInContent, err := rw.ReadFile(filepath.Join(appPath, "myapp-.container.d", quadletDropInFile))
 	require.NoError(err)
 	contentStr := string(dropInContent)
-	require.Contains(contentStr, lifecycle.QuadletVersionKey+"="+hash)
+	require.Contains(contentStr, "Documentation="+lifecycle.QuadletHashURIPrefix+hash)
 }

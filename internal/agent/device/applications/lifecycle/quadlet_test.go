@@ -1489,8 +1489,8 @@ func TestVerifyQuadletGeneration(t *testing.T) {
 			services: []string{"test-id-app.service"},
 			setupMocks: func(mockRW *fileio.MockReadWriter, mockSystemdMgr *systemd.MockManager) {
 				mockRW.EXPECT().ReadFile("/test/path/.flightctl-quadlet-hash").Return([]byte("abcd1234"), nil)
-				mockSystemdMgr.EXPECT().Cat(gomock.Any(), "test-id-app.service").Return(
-					"[Unit]\nPartOf=test-id-flightctl-quadlet-app.target\nX-FlightctlVersion=abcd1234\n", nil)
+				mockSystemdMgr.EXPECT().Show(gomock.Any(), "test-id-app.service", gomock.Any()).Return(
+					[]string{"flightctl:hash:abcd1234"}, nil)
 			},
 			wantErr: false,
 		},
@@ -1504,8 +1504,8 @@ func TestVerifyQuadletGeneration(t *testing.T) {
 			services: []string{"test-id-app.service"},
 			setupMocks: func(mockRW *fileio.MockReadWriter, mockSystemdMgr *systemd.MockManager) {
 				mockRW.EXPECT().ReadFile("/test/path/.flightctl-quadlet-hash").Return([]byte("newwwwww"), nil)
-				mockSystemdMgr.EXPECT().Cat(gomock.Any(), "test-id-app.service").Return(
-					"[Unit]\nPartOf=test-id-flightctl-quadlet-app.target\nX-FlightctlVersion=oldoldol\n", nil)
+				mockSystemdMgr.EXPECT().Show(gomock.Any(), "test-id-app.service", gomock.Any()).Return(
+					[]string{"flightctl:hash:oldoldol"}, nil)
 				mockSystemdMgr.EXPECT().Logs(gomock.Any(), gomock.Any(), gomock.Any()).Return(
 					[]string{"error processing /etc/containers/systemd/test.container"}, nil)
 			},
@@ -1522,8 +1522,8 @@ func TestVerifyQuadletGeneration(t *testing.T) {
 			services: []string{"test-id-app.service"},
 			setupMocks: func(mockRW *fileio.MockReadWriter, mockSystemdMgr *systemd.MockManager) {
 				mockRW.EXPECT().ReadFile("/test/path/.flightctl-quadlet-hash").Return([]byte("newwwwww"), nil)
-				mockSystemdMgr.EXPECT().Cat(gomock.Any(), "test-id-app.service").Return(
-					"[Unit]\nPartOf=test-id-flightctl-quadlet-app.target\nX-FlightctlVersion=oldoldol\n", nil)
+				mockSystemdMgr.EXPECT().Show(gomock.Any(), "test-id-app.service", gomock.Any()).Return(
+					[]string{"flightctl:hash:oldoldol"}, nil)
 				mockSystemdMgr.EXPECT().Logs(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, nil)
 			},
 			wantErr:    true,
@@ -1539,15 +1539,15 @@ func TestVerifyQuadletGeneration(t *testing.T) {
 			services: []string{"test-id-app.service"},
 			setupMocks: func(mockRW *fileio.MockReadWriter, mockSystemdMgr *systemd.MockManager) {
 				mockRW.EXPECT().ReadFile("/test/path/.flightctl-quadlet-hash").Return([]byte("newwwwww"), nil)
-				mockSystemdMgr.EXPECT().Cat(gomock.Any(), "test-id-app.service").Return(
-					"[Unit]\nPartOf=test-id-flightctl-quadlet-app.target\nX-FlightctlVersion=oldoldol\n", nil)
+				mockSystemdMgr.EXPECT().Show(gomock.Any(), "test-id-app.service", gomock.Any()).Return(
+					[]string{"flightctl:hash:oldoldol"}, nil)
 				mockSystemdMgr.EXPECT().Logs(gomock.Any(), gomock.Any(), gomock.Any()).Return(nil, fmt.Errorf("journal unavailable"))
 			},
 			wantErr:    true,
 			errContain: "quadlet service generation failed",
 		},
 		{
-			name: "When version key is absent from generated service it should allow",
+			name: "When hash URI is absent from generated service it should allow",
 			action: Action{
 				ID:   "test-id",
 				Name: "test-app",
@@ -1556,13 +1556,13 @@ func TestVerifyQuadletGeneration(t *testing.T) {
 			services: []string{"test-id-app.service"},
 			setupMocks: func(mockRW *fileio.MockReadWriter, mockSystemdMgr *systemd.MockManager) {
 				mockRW.EXPECT().ReadFile("/test/path/.flightctl-quadlet-hash").Return([]byte("abcd1234"), nil)
-				mockSystemdMgr.EXPECT().Cat(gomock.Any(), "test-id-app.service").Return(
-					"[Unit]\nPartOf=test-id-flightctl-quadlet-app.target\n", nil)
+				mockSystemdMgr.EXPECT().Show(gomock.Any(), "test-id-app.service", gomock.Any()).Return(
+					[]string{""}, nil)
 			},
 			wantErr: false,
 		},
 		{
-			name: "When systemctl cat fails it should return error",
+			name: "When systemctl show fails it should return error",
 			action: Action{
 				ID:   "test-id",
 				Name: "test-app",
@@ -1571,10 +1571,10 @@ func TestVerifyQuadletGeneration(t *testing.T) {
 			services: []string{"test-id-app.service"},
 			setupMocks: func(mockRW *fileio.MockReadWriter, mockSystemdMgr *systemd.MockManager) {
 				mockRW.EXPECT().ReadFile("/test/path/.flightctl-quadlet-hash").Return([]byte("abcd1234"), nil)
-				mockSystemdMgr.EXPECT().Cat(gomock.Any(), "test-id-app.service").Return("", fmt.Errorf("unit not found"))
+				mockSystemdMgr.EXPECT().Show(gomock.Any(), "test-id-app.service", gomock.Any()).Return(nil, fmt.Errorf("unit not found"))
 			},
 			wantErr:    true,
-			errContain: "reading unit",
+			errContain: "querying unit",
 		},
 		{
 			name: "When services include a target it should skip the target",
@@ -1586,8 +1586,8 @@ func TestVerifyQuadletGeneration(t *testing.T) {
 			services: []string{"test-id-app.service", "test-id-flightctl-quadlet-app.target"},
 			setupMocks: func(mockRW *fileio.MockReadWriter, mockSystemdMgr *systemd.MockManager) {
 				mockRW.EXPECT().ReadFile("/test/path/.flightctl-quadlet-hash").Return([]byte("abcd1234"), nil)
-				mockSystemdMgr.EXPECT().Cat(gomock.Any(), "test-id-app.service").Return(
-					"[Unit]\nX-FlightctlVersion=abcd1234\n", nil)
+				mockSystemdMgr.EXPECT().Show(gomock.Any(), "test-id-app.service", gomock.Any()).Return(
+					[]string{"flightctl:hash:abcd1234"}, nil)
 			},
 			wantErr: false,
 		},
