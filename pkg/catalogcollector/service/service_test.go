@@ -877,7 +877,24 @@ func TestNew_CatalognameProcessorWiring(t *testing.T) {
 			{Metadata: apiv1beta1.ObjectMeta{Name: lo.ToPtr("upstream-models")}},
 		},
 		CatalogItems: []apiv1alpha1.CatalogItem{
-			{Metadata: apiv1alpha1.CatalogItemMeta{Catalog: "upstream-models", Name: lo.ToPtr("item-a")}},
+			{
+				Metadata: apiv1alpha1.CatalogItemMeta{Catalog: "upstream-models", Name: lo.ToPtr("item-a")},
+				Spec: apiv1alpha1.CatalogItemSpec{
+					Type: apiv1alpha1.CatalogItemTypeData,
+					Artifacts: []apiv1alpha1.CatalogItemArtifact{
+						{Type: apiv1alpha1.CatalogItemArtifactTypeContainer, Uri: "example.com/repo"},
+					},
+					Versions: []apiv1alpha1.CatalogItemVersion{
+						{
+							Version:  "1.0.0",
+							Channels: []string{"stable"},
+							References: map[apiv1alpha1.CatalogItemArtifactType]string{
+								apiv1alpha1.CatalogItemArtifactTypeContainer: "sha256:abc123",
+							},
+						},
+					},
+				},
+			},
 		},
 	}
 	require.NoError(t, head.Consume(context.Background(), snap))
@@ -2397,6 +2414,889 @@ func TestRun_MultipleReadinessExtensionsAllSignaled(t *testing.T) {
 		assert.True(t, hasReady, "readiness extension %s must have received Ready", name)
 		assert.True(t, hasNotReady, "readiness extension %s must have received NotReady", name)
 	}
+}
+
+// =============================================================================
+// Source preflight tests
+// =============================================================================
+
+// preflightSource implements both Source and SourcePreflight.
+type preflightSource struct {
+	started      chan struct{}
+	preflightErr error
+}
+
+func (s *preflightSource) Run(ctx context.Context) error {
+	close(s.started)
+	<-ctx.Done()
+	return nil
+}
+
+func (s *preflightSource) Preflight(_ context.Context) error {
+	return s.preflightErr
+}
+
+func TestRun_PreflightCalledBeforeSourceStart(t *testing.T) {
+	sourceStarted := make(chan struct{})
+	src := &preflightSource{started: sourceStarted}
+
+	svc, err := New(context.Background(), minimalPipelineCfg(), catalogcollector.Factories{
+		Sources: []catalogcollector.SourceFactory{
+			&fakeSourceFactory{typeName: "fake-source", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig, _ catalogcollector.Consumer) (catalogcollector.Source, error) {
+				return src, nil
+			}},
+		},
+		Destinations: []catalogcollector.DestinationFactory{
+			&fakeDestinationFactory{typeName: "fake-dest", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Destination, error) {
+				return &recordingConsumer{}, nil
+			}},
+		},
+	}, testSettings())
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- svc.Run(ctx) }()
+
+	// If preflight succeeds, the source should start its run loop.
+	select {
+	case <-sourceStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("source did not start after successful preflight")
+	}
+
+	cancel()
+	require.NoError(t, <-done)
+}
+
+func TestRun_PreflightFailurePreventsSourceStart(t *testing.T) {
+	preflightErr := errors.New("model registry unreachable")
+	sourceStarted := make(chan struct{})
+	src := &preflightSource{started: sourceStarted, preflightErr: preflightErr}
+
+	svc, err := New(context.Background(), minimalPipelineCfg(), catalogcollector.Factories{
+		Sources: []catalogcollector.SourceFactory{
+			&fakeSourceFactory{typeName: "fake-source", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig, _ catalogcollector.Consumer) (catalogcollector.Source, error) {
+				return src, nil
+			}},
+		},
+		Destinations: []catalogcollector.DestinationFactory{
+			&fakeDestinationFactory{typeName: "fake-dest", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Destination, error) {
+				return &recordingConsumer{}, nil
+			}},
+		},
+	}, testSettings())
+	require.NoError(t, err)
+
+	runErr := svc.Run(context.Background())
+	require.Error(t, runErr)
+	require.ErrorIs(t, runErr, preflightErr)
+	require.ErrorContains(t, runErr, "preflight failed")
+
+	// Source must not have started.
+	select {
+	case <-sourceStarted:
+		t.Fatal("source started despite preflight failure")
+	default:
+	}
+}
+
+func TestRun_PreflightFailureShutdownsExtensions(t *testing.T) {
+	ext := &fakeExtension{}
+	preflightErr := errors.New("filter rejected")
+	sourceStarted := make(chan struct{})
+	src := &preflightSource{started: sourceStarted, preflightErr: preflightErr}
+
+	cfg := minimalPipelineCfg()
+	cfg.Extensions = map[string]config.ComponentConfig{"auth": cc("auth")}
+
+	svc, err := New(context.Background(), cfg, catalogcollector.Factories{
+		Sources: []catalogcollector.SourceFactory{
+			&fakeSourceFactory{typeName: "fake-source", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig, _ catalogcollector.Consumer) (catalogcollector.Source, error) {
+				return src, nil
+			}},
+		},
+		Destinations: []catalogcollector.DestinationFactory{
+			&fakeDestinationFactory{typeName: "fake-dest", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Destination, error) {
+				return &recordingConsumer{}, nil
+			}},
+		},
+		Extensions: []catalogcollector.ExtensionFactory{
+			&fakeExtensionFactory{typeName: "auth", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Extension, error) {
+				return ext, nil
+			}},
+		},
+	}, testSettings())
+	require.NoError(t, err)
+
+	runErr := svc.Run(context.Background())
+	require.Error(t, runErr)
+	require.ErrorIs(t, runErr, preflightErr)
+
+	ext.mu.Lock()
+	shutdownCount := ext.shutdownCount
+	ext.mu.Unlock()
+	require.Equal(t, 1, shutdownCount, "extension must be shut down after preflight failure")
+}
+
+func TestRun_SourcesWithoutPreflightAreNotAffected(t *testing.T) {
+	// A plain blockingSource that does not implement SourcePreflight
+	// must still start normally.
+	sourceStarted := make(chan struct{})
+	svc, err := New(context.Background(), minimalPipelineCfg(), catalogcollector.Factories{
+		Sources: []catalogcollector.SourceFactory{
+			&fakeSourceFactory{typeName: "fake-source", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig, _ catalogcollector.Consumer) (catalogcollector.Source, error) {
+				return &blockingSource{started: sourceStarted}, nil
+			}},
+		},
+		Destinations: []catalogcollector.DestinationFactory{
+			&fakeDestinationFactory{typeName: "fake-dest", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Destination, error) {
+				return &recordingConsumer{}, nil
+			}},
+		},
+	}, testSettings())
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- svc.Run(ctx) }()
+
+	select {
+	case <-sourceStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("source did not start")
+	}
+
+	cancel()
+	require.NoError(t, <-done)
+}
+
+func TestRun_PreflightFailureMarksReadinessNotReady(t *testing.T) {
+	readinessExt := &fakeReadinessExtension{}
+	preflightErr := errors.New("filter rejected")
+	sourceStarted := make(chan struct{})
+	src := &preflightSource{started: sourceStarted, preflightErr: preflightErr}
+
+	cfg := minimalPipelineCfg()
+	cfg.Extensions = map[string]config.ComponentConfig{"healthext": cc("healthext")}
+
+	svc, err := New(context.Background(), cfg, catalogcollector.Factories{
+		Sources: []catalogcollector.SourceFactory{
+			&fakeSourceFactory{typeName: "fake-source", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig, _ catalogcollector.Consumer) (catalogcollector.Source, error) {
+				return src, nil
+			}},
+		},
+		Destinations: []catalogcollector.DestinationFactory{
+			&fakeDestinationFactory{typeName: "fake-dest", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Destination, error) {
+				return &recordingConsumer{}, nil
+			}},
+		},
+		Extensions: []catalogcollector.ExtensionFactory{
+			&readinessExtensionFactory{typeName: "healthext", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Extension, error) {
+				return readinessExt, nil
+			}},
+		},
+	}, testSettings())
+	require.NoError(t, err)
+
+	runErr := svc.Run(context.Background())
+	require.ErrorIs(t, runErr, preflightErr)
+
+	calls := readinessExt.getReadyCalls()
+	hasNotReady := false
+	for _, c := range calls {
+		if c == "not_ready" {
+			hasNotReady = true
+		}
+	}
+	assert.True(t, hasNotReady, "readiness extension must receive NotReady when preflight fails")
+}
+
+func TestRun_ExtensionsStartedBeforePreflight(t *testing.T) {
+	var mu sync.Mutex
+	var order []string
+
+	ext := &fakeExtension{
+		onStart: func(_ catalogcollector.Host) {
+			mu.Lock()
+			order = append(order, "ext-start")
+			mu.Unlock()
+		},
+	}
+
+	customSrc := &orderTrackingPreflightSource{
+		started: make(chan struct{}),
+		onPreflight: func() {
+			mu.Lock()
+			order = append(order, "preflight")
+			mu.Unlock()
+		},
+	}
+
+	cfg := minimalPipelineCfg()
+	cfg.Extensions = map[string]config.ComponentConfig{"auth": cc("auth")}
+
+	svc, err := New(context.Background(), cfg, catalogcollector.Factories{
+		Sources: []catalogcollector.SourceFactory{
+			&fakeSourceFactory{typeName: "fake-source", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig, _ catalogcollector.Consumer) (catalogcollector.Source, error) {
+				return customSrc, nil
+			}},
+		},
+		Destinations: []catalogcollector.DestinationFactory{
+			&fakeDestinationFactory{typeName: "fake-dest", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Destination, error) {
+				return &recordingConsumer{}, nil
+			}},
+		},
+		Extensions: []catalogcollector.ExtensionFactory{
+			&fakeExtensionFactory{typeName: "auth", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Extension, error) {
+				return ext, nil
+			}},
+		},
+	}, testSettings())
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- svc.Run(ctx) }()
+
+	select {
+	case <-customSrc.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("source did not start")
+	}
+
+	cancel()
+	require.NoError(t, <-done)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, order, 2)
+	assert.Equal(t, "ext-start", order[0], "extension must start before preflight")
+	assert.Equal(t, "preflight", order[1], "preflight must run after extension start")
+}
+
+// orderTrackingPreflightSource records preflight calls for ordering assertions.
+type orderTrackingPreflightSource struct {
+	started     chan struct{}
+	onPreflight func()
+}
+
+func (s *orderTrackingPreflightSource) Run(ctx context.Context) error {
+	close(s.started)
+	<-ctx.Done()
+	return nil
+}
+
+func (s *orderTrackingPreflightSource) Preflight(_ context.Context) error {
+	if s.onPreflight != nil {
+		s.onPreflight()
+	}
+	return nil
+}
+
+func TestRun_SharedSourcePreflightedOnce(t *testing.T) {
+	var preflightCount atomic.Int32
+	src := &countingPreflightSource{
+		started:     make(chan struct{}),
+		onPreflight: func() { preflightCount.Add(1) },
+	}
+
+	cfg := &config.Config{
+		Sources:      map[string]config.ComponentConfig{"fake-source/shared": cc("fake-source/shared")},
+		Destinations: map[string]config.ComponentConfig{"fake-dest/a": cc("fake-dest/a"), "fake-dest/b": cc("fake-dest/b")},
+		Pipelines: map[string]config.PipelineConfig{
+			"pipeline-a": {Source: "fake-source/shared", Destination: "fake-dest/a"},
+			"pipeline-b": {Source: "fake-source/shared", Destination: "fake-dest/b"},
+		},
+	}
+
+	svc, err := New(context.Background(), cfg, catalogcollector.Factories{
+		Sources: []catalogcollector.SourceFactory{
+			&fakeSourceFactory{typeName: "fake-source", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig, _ catalogcollector.Consumer) (catalogcollector.Source, error) {
+				return src, nil
+			}},
+		},
+		Destinations: []catalogcollector.DestinationFactory{
+			&fakeDestinationFactory{typeName: "fake-dest", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Destination, error) {
+				return &recordingConsumer{}, nil
+			}},
+		},
+	}, testSettings())
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- svc.Run(ctx) }()
+
+	select {
+	case <-src.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("source did not start")
+	}
+
+	cancel()
+	require.NoError(t, <-done)
+
+	assert.Equal(t, int32(1), preflightCount.Load(), "shared source must be preflighted exactly once")
+}
+
+// TestRun_SharedSourceConstructedAndPreflightedOnce pins the invariant that
+// makes a separate preflight deduplication pass unnecessary: a source
+// referenced by several pipelines is constructed exactly once per source ID,
+// so s.sources already holds unique IDs by the time preflight runs.
+func TestRun_SharedSourceConstructedAndPreflightedOnce(t *testing.T) {
+	var constructCount atomic.Int32
+	var preflightCount atomic.Int32
+
+	src := &countingPreflightSource{
+		started:     make(chan struct{}),
+		onPreflight: func() { preflightCount.Add(1) },
+	}
+
+	cfg := &config.Config{
+		Sources: map[string]config.ComponentConfig{
+			"fake-source/shared": cc("fake-source/shared"),
+		},
+		Destinations: map[string]config.ComponentConfig{
+			"fake-dest/a": cc("fake-dest/a"),
+			"fake-dest/b": cc("fake-dest/b"),
+			"fake-dest/c": cc("fake-dest/c"),
+		},
+		Pipelines: map[string]config.PipelineConfig{
+			"pipeline-a": {Source: "fake-source/shared", Destination: "fake-dest/a"},
+			"pipeline-b": {Source: "fake-source/shared", Destination: "fake-dest/b"},
+			"pipeline-c": {Source: "fake-source/shared", Destination: "fake-dest/c"},
+		},
+	}
+
+	svc, err := New(context.Background(), cfg, catalogcollector.Factories{
+		Sources: []catalogcollector.SourceFactory{
+			&fakeSourceFactory{typeName: "fake-source", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig, _ catalogcollector.Consumer) (catalogcollector.Source, error) {
+				constructCount.Add(1)
+				return src, nil
+			}},
+		},
+		Destinations: []catalogcollector.DestinationFactory{
+			&fakeDestinationFactory{typeName: "fake-dest", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Destination, error) {
+				return &recordingConsumer{}, nil
+			}},
+		},
+	}, testSettings())
+	require.NoError(t, err)
+
+	assert.Equal(t, int32(1), constructCount.Load(),
+		"a source shared by three pipelines must be constructed exactly once")
+	assert.Len(t, svc.sources, 1, "the service must hold one running source per source ID")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- svc.Run(ctx) }()
+
+	select {
+	case <-src.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("source did not start")
+	}
+
+	cancel()
+	require.NoError(t, <-done)
+
+	assert.Equal(t, int32(1), preflightCount.Load(),
+		"a source shared by three pipelines must be preflighted exactly once")
+}
+
+// countingPreflightSource implements Source + SourcePreflight with a callback.
+type countingPreflightSource struct {
+	started     chan struct{}
+	onPreflight func()
+	closedOnce  sync.Once
+}
+
+func (s *countingPreflightSource) Run(ctx context.Context) error {
+	s.closedOnce.Do(func() { close(s.started) })
+	<-ctx.Done()
+	return nil
+}
+
+func (s *countingPreflightSource) Preflight(_ context.Context) error {
+	if s.onPreflight != nil {
+		s.onPreflight()
+	}
+	return nil
+}
+
+func TestRun_PreflightFailureNeverCallsReady(t *testing.T) {
+	readinessExt := &fakeReadinessExtension{}
+	preflightErr := errors.New("filter rejected")
+	src := &preflightSource{started: make(chan struct{}), preflightErr: preflightErr}
+
+	cfg := minimalPipelineCfg()
+	cfg.Extensions = map[string]config.ComponentConfig{"healthext": cc("healthext")}
+
+	svc, err := New(context.Background(), cfg, catalogcollector.Factories{
+		Sources: []catalogcollector.SourceFactory{
+			&fakeSourceFactory{typeName: "fake-source", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig, _ catalogcollector.Consumer) (catalogcollector.Source, error) {
+				return src, nil
+			}},
+		},
+		Destinations: []catalogcollector.DestinationFactory{
+			&fakeDestinationFactory{typeName: "fake-dest", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Destination, error) {
+				return &recordingConsumer{}, nil
+			}},
+		},
+		Extensions: []catalogcollector.ExtensionFactory{
+			&readinessExtensionFactory{typeName: "healthext", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Extension, error) {
+				return readinessExt, nil
+			}},
+		},
+	}, testSettings())
+	require.NoError(t, err)
+
+	runErr := svc.Run(context.Background())
+	require.ErrorIs(t, runErr, preflightErr)
+
+	calls := readinessExt.getReadyCalls()
+	for _, c := range calls {
+		assert.NotEqual(t, "ready", c, "Ready must never be called when preflight fails")
+	}
+}
+
+func TestRun_PreflightFailureStartedExtensionsNotReadyAndShutdownReverse(t *testing.T) {
+	var mu sync.Mutex
+	var lifecycle []string
+
+	readinessExt := &fakeReadinessExtension{}
+
+	extA := &fakeExtension{
+		onShutdown: func() {
+			mu.Lock()
+			lifecycle = append(lifecycle, "a-shutdown")
+			mu.Unlock()
+		},
+	}
+	extB := &fakeExtension{
+		onShutdown: func() {
+			mu.Lock()
+			lifecycle = append(lifecycle, "b-shutdown")
+			mu.Unlock()
+		},
+	}
+
+	preflightErr := errors.New("preflight failed")
+	src := &preflightSource{started: make(chan struct{}), preflightErr: preflightErr}
+
+	cfg := minimalPipelineCfg()
+	cfg.Extensions = map[string]config.ComponentConfig{
+		"aaa-health/ok": cc("aaa-health/ok"),
+		"ext/a":         cc("ext/a"),
+		"ext/b":         cc("ext/b"),
+	}
+
+	extMap := map[string]*fakeExtension{"a": extA, "b": extB}
+
+	svc, err := New(context.Background(), cfg, catalogcollector.Factories{
+		Sources: []catalogcollector.SourceFactory{
+			&fakeSourceFactory{typeName: "fake-source", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig, _ catalogcollector.Consumer) (catalogcollector.Source, error) {
+				return src, nil
+			}},
+		},
+		Destinations: []catalogcollector.DestinationFactory{
+			&fakeDestinationFactory{typeName: "fake-dest", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Destination, error) {
+				return &recordingConsumer{}, nil
+			}},
+		},
+		Extensions: []catalogcollector.ExtensionFactory{
+			&readinessExtensionFactory{typeName: "aaa-health", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Extension, error) {
+				return readinessExt, nil
+			}},
+			&fakeExtensionFactory{typeName: "ext", createFunc: func(_ context.Context, settings catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Extension, error) {
+				return extMap[settings.ID.Name], nil
+			}},
+		},
+	}, testSettings())
+	require.NoError(t, err)
+
+	runErr := svc.Run(context.Background())
+	require.ErrorIs(t, runErr, preflightErr)
+
+	// Readiness extension must have NotReady called.
+	hasNotReady := false
+	for _, c := range readinessExt.getReadyCalls() {
+		if c == "not_ready" {
+			hasNotReady = true
+		}
+	}
+	assert.True(t, hasNotReady, "readiness extension must receive NotReady on preflight failure")
+
+	// Extensions must be shut down in reverse order.
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, lifecycle, 2)
+	assert.Equal(t, "b-shutdown", lifecycle[0], "ext/b must be shut down before ext/a (reverse order)")
+	assert.Equal(t, "a-shutdown", lifecycle[1])
+}
+
+func TestDestinationConsumer_ProcessorGeneratedInvalidSnapshot_DestinationNotCalled(t *testing.T) {
+	dst := &recordingConsumer{}
+	// Build a pipeline with a processor that strips the revision (making snapshot invalid).
+	var head catalogcollector.Consumer
+
+	_, err := New(context.Background(), &config.Config{
+		Sources:      map[string]config.ComponentConfig{"fake-source": cc("fake-source")},
+		Processors:   map[string]config.ComponentConfig{"fake-proc": cc("fake-proc")},
+		Destinations: map[string]config.ComponentConfig{"fake-dest": cc("fake-dest")},
+		Pipelines: map[string]config.PipelineConfig{
+			"p": {Source: "fake-source", Processors: []string{"fake-proc"}, Destination: "fake-dest"},
+		},
+	}, catalogcollector.Factories{
+		Sources: []catalogcollector.SourceFactory{
+			&fakeSourceFactory{typeName: "fake-source", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig, next catalogcollector.Consumer) (catalogcollector.Source, error) {
+				head = next
+				return &blockingSource{started: make(chan struct{})}, nil
+			}},
+		},
+		Processors: []catalogcollector.ProcessorFactory{
+			&fakeProcessorFactory{typeName: "fake-proc", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig, next catalogcollector.Consumer) (catalogcollector.Consumer, error) {
+				return &revisionStrippingProcessor{next: next}, nil
+			}},
+		},
+		Destinations: []catalogcollector.DestinationFactory{
+			&fakeDestinationFactory{typeName: "fake-dest", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Destination, error) {
+				return dst, nil
+			}},
+		},
+	}, testSettings())
+	require.NoError(t, err)
+	require.NotNil(t, head)
+
+	snap := &catalogcollector.CatalogSnapshot{
+		Revision: "valid-revision",
+		Catalogs: []apiv1alpha1.Catalog{
+			{Metadata: apiv1beta1.ObjectMeta{Name: lo.ToPtr("cat")}},
+		},
+	}
+	err = head.Consume(context.Background(), snap)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "snapshot validation failed")
+	require.Empty(t, dst.snapshots, "destination must not be called for invalid snapshot")
+}
+
+// revisionStrippingProcessor clears the revision, making the snapshot invalid.
+type revisionStrippingProcessor struct {
+	next catalogcollector.Consumer
+}
+
+func (p *revisionStrippingProcessor) Consume(ctx context.Context, s *catalogcollector.CatalogSnapshot) error {
+	// Make a copy with empty revision.
+	stripped := &catalogcollector.CatalogSnapshot{
+		Revision:     "",
+		Catalogs:     s.Catalogs,
+		CatalogItems: s.CatalogItems,
+	}
+	return p.next.Consume(ctx, stripped)
+}
+
+func TestDestinationConsumer_InvalidSnapshotWithoutProcessors_Rejected(t *testing.T) {
+	dst := &recordingConsumer{}
+	consumer := &destinationConsumer{
+		pipelineID:  "test-pipeline",
+		destination: dst,
+	}
+
+	// Snapshot with empty revision and no catalogs is invalid.
+	snap := &catalogcollector.CatalogSnapshot{Revision: ""}
+	err := consumer.Consume(context.Background(), snap)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "snapshot validation failed")
+	require.Empty(t, dst.snapshots)
+}
+
+// sourceState holds mutable counters behind a comparable pointer so that
+// nonComparablePreflightSource can use value receivers and be stored as a
+// struct value (not a pointer) in the Service.sources slice.
+type sourceState struct {
+	started        chan struct{}
+	preflightCalls atomic.Int32
+	runCalls       atomic.Int32
+	closedOnce     sync.Once
+}
+
+// nonComparablePreflightSource implements Source and SourcePreflight.
+// The struct VALUE is non-comparable (contains a slice), but mutable
+// counters are behind the comparable *sourceState pointer. Value receivers
+// ensure the factory returns an interface wrapping the struct value.
+type nonComparablePreflightSource struct {
+	tags  []string     // makes the struct non-comparable
+	state *sourceState // comparable pointer for mutable counters
+}
+
+func (s nonComparablePreflightSource) Run(ctx context.Context) error {
+	s.state.runCalls.Add(1)
+	s.state.closedOnce.Do(func() { close(s.state.started) })
+	<-ctx.Done()
+	return nil
+}
+
+func (s nonComparablePreflightSource) Preflight(_ context.Context) error {
+	s.state.preflightCalls.Add(1)
+	return nil
+}
+
+func TestRun_NonComparableSourcePreflight(t *testing.T) {
+	state := &sourceState{started: make(chan struct{})}
+	// Return the struct VALUE (not a pointer) so the interface holds a
+	// genuinely non-comparable value.
+	src := nonComparablePreflightSource{
+		tags:  []string{"non", "comparable"},
+		state: state,
+	}
+
+	svc, err := New(context.Background(), minimalPipelineCfg(), catalogcollector.Factories{
+		Sources: []catalogcollector.SourceFactory{
+			&fakeSourceFactory{typeName: "fake-source", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig, _ catalogcollector.Consumer) (catalogcollector.Source, error) {
+				return src, nil
+			}},
+		},
+		Destinations: []catalogcollector.DestinationFactory{
+			&fakeDestinationFactory{typeName: "fake-dest", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Destination, error) {
+				return &recordingConsumer{}, nil
+			}},
+		},
+	}, testSettings())
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- svc.Run(ctx) }()
+
+	select {
+	case <-state.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("source did not start")
+	}
+
+	cancel()
+	require.NoError(t, <-done)
+
+	assert.Equal(t, int32(1), state.preflightCalls.Load(), "preflight must be called once")
+	assert.Equal(t, int32(1), state.runCalls.Load(), "run must be called once")
+}
+
+func TestRun_MultiSourcePreflightOrderAndCompletion(t *testing.T) {
+	// Verify that with ≥2 sources implementing SourcePreflight:
+	// 1. All preflights are called in deterministic (sorted) order.
+	// 2. Each source's Run callback can observe that BOTH preflights completed.
+	// 3. Preflight and Run are called exactly once per source.
+	var mu sync.Mutex
+	var preflightOrder []string
+	preflightDoneA := make(chan struct{})
+	preflightDoneB := make(chan struct{})
+
+	srcA := &orderVerifyingPreflightSource{
+		name:    "a-src",
+		started: make(chan struct{}),
+		onPreflight: func() {
+			mu.Lock()
+			preflightOrder = append(preflightOrder, "a-src")
+			mu.Unlock()
+			close(preflightDoneA)
+		},
+		preflightDoneAll: [2]<-chan struct{}{preflightDoneA, preflightDoneB},
+	}
+	srcB := &orderVerifyingPreflightSource{
+		name:    "b-src",
+		started: make(chan struct{}),
+		onPreflight: func() {
+			mu.Lock()
+			preflightOrder = append(preflightOrder, "b-src")
+			mu.Unlock()
+			close(preflightDoneB)
+		},
+		preflightDoneAll: [2]<-chan struct{}{preflightDoneA, preflightDoneB},
+	}
+
+	srcMap := map[string]*orderVerifyingPreflightSource{
+		"a-src": srcA,
+		"b-src": srcB,
+	}
+
+	cfg := &config.Config{
+		Sources: map[string]config.ComponentConfig{
+			"fake-source/a-src": cc("fake-source/a-src"),
+			"fake-source/b-src": cc("fake-source/b-src"),
+		},
+		Destinations: map[string]config.ComponentConfig{
+			"fake-dest": cc("fake-dest"),
+		},
+		Pipelines: map[string]config.PipelineConfig{
+			"pipeline-a": {Source: "fake-source/a-src", Destination: "fake-dest"},
+			"pipeline-b": {Source: "fake-source/b-src", Destination: "fake-dest"},
+		},
+	}
+
+	svc, err := New(context.Background(), cfg, catalogcollector.Factories{
+		Sources: []catalogcollector.SourceFactory{
+			&fakeSourceFactory{typeName: "fake-source", createFunc: func(_ context.Context, settings catalogcollector.Settings, _ catalogcollector.ComponentConfig, _ catalogcollector.Consumer) (catalogcollector.Source, error) {
+				return srcMap[settings.ID.Name], nil
+			}},
+		},
+		Destinations: []catalogcollector.DestinationFactory{
+			&fakeDestinationFactory{typeName: "fake-dest", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Destination, error) {
+				return &recordingConsumer{}, nil
+			}},
+		},
+	}, testSettings())
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- svc.Run(ctx) }()
+
+	// Wait for both sources to start their run loops.
+	for _, src := range srcMap {
+		select {
+		case <-src.started:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("source %s did not start", src.name)
+		}
+	}
+
+	cancel()
+	require.NoError(t, <-done)
+
+	// Assert deterministic preflight order (sorted by component ID string).
+	mu.Lock()
+	defer mu.Unlock()
+	require.Equal(t, []string{"a-src", "b-src"}, preflightOrder,
+		"preflights must run in deterministic sorted order")
+
+	// Assert each source's Run confirmed both preflights completed.
+	for _, src := range srcMap {
+		assert.True(t, src.runSawAllPreflights,
+			"source %s: Run must observe all preflights complete", src.name)
+		assert.Equal(t, int32(1), src.preflightCalls.Load(),
+			"source %s: Preflight must be called exactly once", src.name)
+		assert.Equal(t, int32(1), src.runCalls.Load(),
+			"source %s: Run must be called exactly once", src.name)
+	}
+}
+
+// orderVerifyingPreflightSource verifies that when Run is called, all
+// preflights (for all sources) have already completed.
+type orderVerifyingPreflightSource struct {
+	name                string
+	started             chan struct{}
+	onPreflight         func()
+	preflightDoneAll    [2]<-chan struct{} // channels closed by each source's preflight
+	runSawAllPreflights bool
+	preflightCalls      atomic.Int32
+	runCalls            atomic.Int32
+	closedOnce          sync.Once
+}
+
+func (s *orderVerifyingPreflightSource) Run(ctx context.Context) error {
+	s.runCalls.Add(1)
+	// Verify all preflight channels are already closed (non-blocking).
+	allDone := true
+	for _, ch := range s.preflightDoneAll {
+		select {
+		case <-ch:
+		default:
+			allDone = false
+		}
+	}
+	s.runSawAllPreflights = allDone
+	s.closedOnce.Do(func() { close(s.started) })
+	<-ctx.Done()
+	return nil
+}
+
+func (s *orderVerifyingPreflightSource) Preflight(_ context.Context) error {
+	s.preflightCalls.Add(1)
+	if s.onPreflight != nil {
+		s.onPreflight()
+	}
+	return nil
+}
+
+// =============================================================================
+// Snapshot validation tests
+// =============================================================================
+
+func TestDestinationConsumer_ValidSnapshot(t *testing.T) {
+	dst := &recordingConsumer{}
+	consumer := &destinationConsumer{
+		pipelineID:  "test-pipeline",
+		destination: dst,
+	}
+
+	snap := &catalogcollector.CatalogSnapshot{
+		Revision: "abc123",
+		Catalogs: []apiv1alpha1.Catalog{
+			{Metadata: apiv1beta1.ObjectMeta{Name: lo.ToPtr("my-catalog")}},
+		},
+	}
+
+	err := consumer.Consume(context.Background(), snap)
+	require.NoError(t, err)
+	require.Len(t, dst.snapshots, 1)
+}
+
+func TestDestinationConsumer_NilSnapshot(t *testing.T) {
+	consumer := &destinationConsumer{
+		pipelineID:  "test-pipeline",
+		destination: &recordingConsumer{},
+	}
+
+	err := consumer.Consume(context.Background(), nil)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "snapshot validation failed")
+}
+
+func TestRun_NilSourceSnapshot_HandledWithoutPanic(t *testing.T) {
+	dst := &recordingConsumer{}
+	var head catalogcollector.Consumer
+
+	svc, err := New(context.Background(), &config.Config{
+		Sources:      map[string]config.ComponentConfig{"fake-source": cc("fake-source")},
+		Destinations: map[string]config.ComponentConfig{"fake-dest": cc("fake-dest")},
+		Pipelines:    map[string]config.PipelineConfig{"p": {Source: "fake-source", Destination: "fake-dest"}},
+	}, catalogcollector.Factories{
+		Sources: []catalogcollector.SourceFactory{
+			&fakeSourceFactory{typeName: "fake-source", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig, next catalogcollector.Consumer) (catalogcollector.Source, error) {
+				head = next
+				return &blockingSource{started: make(chan struct{})}, nil
+			}},
+		},
+		Destinations: []catalogcollector.DestinationFactory{
+			&fakeDestinationFactory{typeName: "fake-dest", createFunc: func(_ context.Context, _ catalogcollector.Settings, _ catalogcollector.ComponentConfig) (catalogcollector.Destination, error) {
+				return dst, nil
+			}},
+		},
+	}, testSettings())
+	require.NoError(t, err)
+	require.NotNil(t, svc)
+	require.NotNil(t, head)
+
+	// Pass nil through the instrumented source fanout consumer.
+	err = head.Consume(context.Background(), nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "source emitted nil snapshot")
+
+	// Destination must not have been called.
+	require.Empty(t, dst.snapshots, "destination must not be called for nil snapshot")
+}
+
+func TestDestinationConsumer_EmptyRevision(t *testing.T) {
+	consumer := &destinationConsumer{
+		pipelineID:  "test-pipeline",
+		destination: &recordingConsumer{},
+	}
+
+	snap := &catalogcollector.CatalogSnapshot{Revision: ""}
+	err := consumer.Consume(context.Background(), snap)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "snapshot validation failed")
 }
 
 // =============================================================================

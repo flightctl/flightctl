@@ -99,6 +99,9 @@ func (c *destinationConsumer) Consume(
 	ctx context.Context,
 	snapshot *catalogcollector.CatalogSnapshot,
 ) error {
+	if err := catalogcollector.ValidateSnapshot(snapshot); err != nil {
+		return fmt.Errorf("snapshot validation failed: %w", err)
+	}
 	return c.destination.Reconcile(ctx, c.pipelineID, snapshot)
 }
 
@@ -593,6 +596,21 @@ func (s *Service) Run(ctx context.Context) error {
 	// Discover extensions that participate in the readiness lifecycle.
 	readinessExtensions := s.discoverReadiness(s.extensions)
 
+	// Preflight: discover and invoke sources implementing SourcePreflight.
+	if err := s.runPreflights(ctx); err != nil {
+		// Caller cancellation during preflight is graceful shutdown.
+		if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
+			err = nil
+		}
+
+		for _, readiness := range readinessExtensions {
+			readiness.NotReady()
+		}
+		shutdownErr := s.shutdownExtensions(ctx, s.extensions)
+		metricsErr := finishMetrics()
+		return errors.Join(err, shutdownErr, metricsErr)
+	}
+
 	runContext, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
 	group, groupContext := errgroup.WithContext(runContext)
@@ -738,6 +756,30 @@ func (s *Service) discoverReadiness(
 	}
 
 	return result
+}
+
+// runPreflights discovers sources implementing SourcePreflight and calls their
+// Preflight method once, in deterministic order.
+//
+// New constructs each configured source exactly once per source ID and hands
+// the single instance one fan-out consumer covering every pipeline that
+// references it, so s.sources already holds unique IDs. A source shared by
+// several pipelines is therefore preflighted exactly once without a second
+// deduplication pass here.
+func (s *Service) runPreflights(ctx context.Context) error {
+	for _, rs := range s.sources {
+		pf, ok := rs.source.(catalogcollector.SourcePreflight)
+		if !ok {
+			continue
+		}
+
+		s.log.WithField("source_id", rs.id.String()).Info("running source preflight")
+		if err := pf.Preflight(ctx); err != nil {
+			return fmt.Errorf("source %q preflight failed: %w", rs.id, err)
+		}
+		s.log.WithField("source_id", rs.id.String()).Info("source preflight succeeded")
+	}
+	return nil
 }
 
 // shutdownExtensions shuts down the given extensions in reverse order.

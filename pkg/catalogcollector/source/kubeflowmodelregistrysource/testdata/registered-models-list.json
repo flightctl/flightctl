@@ -1,0 +1,15 @@
+{
+  "items": [
+    {
+      "id": "1",
+      "name": "iris-edge",
+      "state": "LIVE",
+      "description": "Iris classifier model for edge inference",
+      "createTimeSinceEpoch": "1700000000000",
+      "lastUpdateTimeSinceEpoch": "1700000000000"
+    }
+  ],
+  "nextPageToken": "",
+  "pageSize": 100,
+  "size": 1
+}
