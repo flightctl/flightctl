@@ -554,6 +554,10 @@ spec:
 
 For HTTPS repositories, use basic authentication, bearer tokens, or client certificates:
 
+Git repositories use their configured TLS settings independently. For HTTPS connections, custom certificate authorities, client certificates, and `skipServerVerification` apply only to the repository that defines them. Repositories without custom TLS settings use the system trust store and verify server certificates.
+
+If you configure `ca.crt` for a Git repository, provide a PEM bundle encoded with base64 that contains at least one valid certificate. Empty or invalid bundles cause repository operations to fail before connecting.
+
 **Basic authentication (username/password):**
 
 ```yaml
