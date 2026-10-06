@@ -98,6 +98,8 @@ func CloneGitRepo(ctx context.Context, repo *domain.Repository, revision *string
 // remote.List call is made regardless of how many refs are requested. The
 // returned map contains only the refs that were found. Error messages are
 // sanitized to prevent credential leakage.
+// The caller's context controls the deadline. ListOptions.Timeout applies to
+// Remote.List, whereas this function uses Remote.ListContext.
 func GitLsRemote(ctx context.Context, repoURL string, refs []string, options *git.ListOptions) (map[string]string, error) {
 	if repoURL == "" {
 		return nil, fmt.Errorf("repository URL must not be empty")
@@ -230,7 +232,7 @@ func wrapAuthWithCryptoSettings(auth transport.AuthMethod, settings sshcrypto.SS
 
 // Read repository's ssh/http config and create transport.AuthMethod.
 // If no ssh/http config is defined a nil is returned.
-func GetAuth(ctx context.Context, repository *domain.Repository, cfg *config.Config) (transport.AuthMethod, error) {
+func getAuth(ctx context.Context, repository *domain.Repository, cfg *config.Config) (transport.AuthMethod, error) {
 	gitSpec, err := repository.Spec.AsGitRepoSpec()
 	if err != nil {
 		// Not a Git repo spec, no auth
@@ -352,7 +354,7 @@ func getGitOptions(ctx context.Context, repository *domain.Repository, cfg *conf
 		}
 	}
 
-	options.Auth, err = GetAuth(ctx, repository, cfg)
+	options.Auth, err = getAuth(ctx, repository, cfg)
 	if err != nil {
 		return nil, err
 	}

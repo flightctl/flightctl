@@ -200,7 +200,7 @@ Verify that the endpoint returns ETag or Last-Modified headers (see [HTTP endpoi
 
 ### Git authentication failures
 
-Git probe failures are reported through `DependencySyncProbeFailed` events. Verify that:
+Git probe failures, including invalid credentials or TLS settings, are reported through `DependencySyncProbeFailed` events. The failed probe preserves the previous fingerprint and does not trigger a rollout. Verify that:
 
 * The repository resource has valid credentials configured.
 * The repository is reachable from the `flightctl-periodic` service.
