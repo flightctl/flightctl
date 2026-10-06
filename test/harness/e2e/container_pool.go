@@ -4,16 +4,20 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
 	"github.com/flightctl/flightctl/test/harness/containers"
 	"github.com/flightctl/flightctl/test/harness/e2e/vm"
 	"github.com/flightctl/flightctl/test/util"
+	"github.com/sirupsen/logrus"
 )
 
 // registryHostPort/privateRegistryHostPort mirror the fixed ports the e2e local registry always
@@ -55,17 +59,24 @@ type ContainerPoolConfig struct {
 }
 
 type containerDeviceImageCache struct {
-	once    sync.Once
+	mu      sync.Mutex
+	done    bool
 	resolve func() (string, error)
 	image   string
-	err     error
 }
 
 func (c *containerDeviceImageCache) get() (string, error) {
-	c.once.Do(func() {
-		c.image, c.err = c.resolve()
-	})
-	return c.image, c.err
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.done {
+		image, err := c.resolve()
+		if err != nil {
+			return "", err
+		}
+		c.image = image
+		c.done = true
+	}
+	return c.image, nil
 }
 
 var (
@@ -73,6 +84,12 @@ var (
 	containerPoolOnce               sync.Once
 	containerDeviceID               atomic.Uint64
 	globalContainerDeviceImageCache = containerDeviceImageCache{resolve: GetContainerDeviceImage}
+	containerSessionID              = func() string {
+		if sessionID := os.Getenv("E2E_SESSION_ID"); sessionID != "" {
+			return sessionID
+		}
+		return fmt.Sprintf("%d-%d", os.Getpid(), time.Now().UnixNano())
+	}()
 )
 
 // GetOrCreateContainerPool returns the global container pool instance, creating it if necessary.
@@ -89,7 +106,11 @@ func GetOrCreateContainerPool(config ContainerPoolConfig) *ContainerPool {
 // Container devices are intentionally not cached: unlike VMs, they are cheap to recreate and each
 // spec should start from a newly created container.
 func (p *ContainerPool) GetContainerForWorker(workerID int) (vm.TestVMInterface, error) {
-	return p.getContainerForWorker(context.Background(), workerID)
+	device, err := p.getContainerForWorker(context.Background(), workerID)
+	if err != nil {
+		return nil, err
+	}
+	return device, nil
 }
 
 func (p *ContainerPool) getContainerForWorker(ctx context.Context, workerID int) (*vm.ContainerDevice, error) {
@@ -112,6 +133,11 @@ func (p *ContainerPool) createContainerForWorker(ctx context.Context, workerID i
 	fmt.Printf("🔄 [ContainerPool] Worker %d: Creating container device %s\n", workerID, name)
 
 	registryHost, extraHosts := containerDeviceRegistryAccess(containers.GetHostIP())
+	aliases, err := containerDeviceEndpointHosts(ctx, containers.GetHostIP())
+	if err != nil {
+		return nil, err
+	}
+	extraHosts = append(extraHosts, aliases...)
 	files, err := buildAgentIdentityFiles(registryHost)
 	if err != nil {
 		return nil, err
@@ -123,6 +149,7 @@ func (p *ContainerPool) createContainerForWorker(ctx context.Context, workerID i
 		Image:      p.config.Image,
 		Files:      files,
 		ExtraHosts: extraHosts,
+		SessionID:  containerSessionID,
 	})
 	if err := device.RunAndWaitForSSHContext(ctx); err != nil {
 		setupErr := fmt.Errorf("failed to start container device %s: %w", name, err)
@@ -140,7 +167,70 @@ func (p *ContainerPool) createContainerForWorker(ctx context.Context, workerID i
 // containerDeviceName returns a runtime-unique name, even when two specs for the same worker
 // create devices concurrently. This avoids the containers racing to remove or replace each other.
 func containerDeviceName(workerID int) string {
-	return fmt.Sprintf("flightctl-e2e-container-worker-%d-%d-%d", workerID, os.Getpid(), containerDeviceID.Add(1))
+	return fmt.Sprintf("flightctl-e2e-container-%s-worker-%d-%d-%d", containerSessionID, workerID, os.Getpid(), containerDeviceID.Add(1))
+}
+
+func containerDeviceEndpointHosts(ctx context.Context, hostIP string) ([]string, error) {
+	var aliases []string
+	seen := make(map[string]bool)
+	addAlias := func(name, host string) {
+		if name == "" || seen[name] {
+			return
+		}
+		addresses, err := net.DefaultResolver.LookupHost(ctx, host)
+		if err != nil || len(addresses) == 0 {
+			logrus.Warnf("Skipping container host alias %s: cannot resolve %q: %v", name, host, err)
+			return
+		}
+		address := preferredContainerHostIP(addresses)
+		if address == "" {
+			hostAddresses, err := net.DefaultResolver.LookupHost(ctx, hostIP)
+			if err != nil {
+				return
+			}
+			address = preferredContainerHostIP(hostAddresses)
+			if address == "" {
+				address = "host-gateway"
+			}
+		}
+		aliases = append(aliases, name+":"+address)
+		seen[name] = true
+	}
+	for _, flag := range []string{"-f", "-s"} {
+		output, err := exec.CommandContext(ctx, "hostname", flag).Output()
+		if err != nil {
+			output, err = exec.CommandContext(ctx, "hostname").Output()
+			if err != nil {
+				logrus.Warnf("Skipping runner hostname alias: %v", err)
+				continue
+			}
+		}
+		name := strings.TrimSpace(string(output))
+		if name != "" && name != "localhost" && name != "localhost.localdomain" && !seen[name] {
+			addAlias(name, hostIP)
+		}
+	}
+	if quadletHost := os.Getenv("QUADLET_HOST"); quadletHost != "" && quadletHost != "localhost" {
+		addAlias("flightctl-vm.local", quadletHost)
+	}
+	return aliases, ctx.Err()
+}
+
+func preferredContainerHostIP(addresses []string) string {
+	var firstIPv6 string
+	for _, address := range addresses {
+		ip := net.ParseIP(address)
+		if ip == nil || ip.IsLoopback() {
+			continue
+		}
+		if ip.To4() != nil {
+			return address
+		}
+		if firstIPv6 == "" {
+			firstIPv6 = address
+		}
+	}
+	return firstIPv6
 }
 
 // registryAccessHost returns the host component for host-side image references to the local e2e
@@ -159,6 +249,19 @@ func registryAccessHost() string {
 // uses the stable e2e-registry hostname, mapped to the host IP so both published registry ports
 // (5000 and 5002) resolve to the host instead of the device's or registry container's namespace.
 func containerDeviceRegistryAccess(hostIP string) (string, []string) {
+	address := preferredContainerHostIP([]string{hostIP})
+	if address == "" && net.ParseIP(hostIP) == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		addresses, err := net.DefaultResolver.LookupHost(ctx, hostIP)
+		cancel()
+		if err == nil {
+			address = preferredContainerHostIP(addresses)
+		}
+	}
+	if address == "" {
+		return registryHostname, []string{registryHostname + ":host-gateway"}
+	}
+	hostIP = address
 	if strings.Contains(hostIP, ":") {
 		return registryHostname, []string{fmt.Sprintf("%s:%s", registryHostname, hostIP)}
 	}
@@ -174,8 +277,9 @@ func containerDeviceRegistryAccess(hostIP string) (string, []string) {
 // The tag isn't just "base-${OS_ID}": build_and_qcow2.sh's bundle filter only bundles/pushes the
 // base-${OS_ID}-${TAG} alias (TAG being a git-describe string not otherwise available to this test
 // binary), so the exact tag is read back out of the agent image bundle itself via
-// auxiliary.ResolveAgentDeviceImageTag - see its doc comment. The bare "base-${OS_ID}" alias is
-// never pushed to the registry (see ResolveAgentDeviceImageTag's doc comment), so a resolution
+// auxiliary.ResolveAgentDeviceImage. The repository path is preserved from the bundle as well.
+// The bare "base-${OS_ID}" alias is
+// never pushed to the registry (see ResolveAgentDeviceImage's doc comment), so a resolution
 // failure is returned rather than guessed at - silently falling back to that tag would just trade
 // a clear error here for a confusing "manifest unknown" pull failure once the device starts.
 //
@@ -185,11 +289,21 @@ func GetContainerDeviceImage() (string, error) {
 		return img, nil
 	}
 	osID := os.Getenv(e2eContainerDeviceOSIDEnv)
-	tag, err := auxiliary.ResolveAgentDeviceImageTag(osID)
+	image, err := auxiliary.ResolveAgentDeviceImage(osID)
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve agent device image tag from bundle: %w", err)
 	}
-	return fmt.Sprintf("%s:%s/%s:%s", registryAccessHost(), registryHostPort, defaultContainerDeviceImageRepoPath, tag), nil
+	return containerDeviceImageRef(registryAccessHost(), image), nil
+}
+
+func containerDeviceImageRef(host, image string) string {
+	imagePath := image
+	if separator := strings.Index(image, "/"); separator != -1 {
+		imagePath = image[separator+1:]
+	} else {
+		imagePath = defaultContainerDeviceImageRepoPath + ":" + image[strings.LastIndex(image, ":")+1:]
+	}
+	return fmt.Sprintf("%s:%s/%s", host, registryHostPort, imagePath)
 }
 
 // GetAgentIdentityDir returns the directory holding the agent's enrollment bootstrap config and
@@ -344,7 +458,11 @@ func validateContainerIdentityFiles(files []vm.ContainerFile) error {
 func SetupContainerForWorker(workerID int) (vm.TestVMInterface, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), setupSnapshotRestoreTimeout)
 	defer cancel()
-	return setupContainerForWorker(ctx, workerID)
+	device, err := setupContainerForWorker(ctx, workerID)
+	if err != nil {
+		return nil, err
+	}
+	return device, nil
 }
 
 func setupContainerForWorker(ctx context.Context, workerID int) (*vm.ContainerDevice, error) {

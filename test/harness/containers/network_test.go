@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -72,5 +73,45 @@ func TestRuntimeCLIContextHelpersHonorDeadline(t *testing.T) {
 	}
 	if exists {
 		t.Fatal("ContainerExistsByNameContext() matched a longer container name by substring")
+	}
+}
+
+func TestRuntimeCommandContextEndpoint(t *testing.T) {
+	for _, testCase := range []struct {
+		name     string
+		endpoint string
+		want     []string
+	}{
+		{"When Podman uses a nondefault socket it should target that socket", "unix:///custom/podman/podman.sock", []string{"podman", "--remote", "--url", "unix:///custom/podman/podman.sock", "inspect", "device"}},
+		{"When Docker uses a nondefault socket it should target that socket", "unix:///custom/docker.sock", []string{"docker", "--host", "unix:///custom/docker.sock", "inspect", "device"}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Setenv("DOCKER_HOST", testCase.endpoint)
+			command := RuntimeCommandContext(context.Background(), "inspect", "device")
+			if !reflect.DeepEqual(command.Args, testCase.want) {
+				t.Fatalf("Args = %v, want %v", command.Args, testCase.want)
+			}
+		})
+	}
+}
+
+func TestQuadletDeviceNetwork(t *testing.T) {
+	t.Setenv("FLIGHTCTL_QUADLETS", "1")
+	for _, testCase := range []struct {
+		endpoint string
+		want     string
+	}{
+		{"unix:///run/podman/podman.sock", "podman"},
+		{"unix:///var/run/docker.sock", "bridge"},
+	} {
+		t.Run("When Quadlets use "+testCase.want+" devices should remain isolated", func(t *testing.T) {
+			t.Setenv("DOCKER_HOST", testCase.endpoint)
+			if got := GetDeviceNetwork(); got != testCase.want {
+				t.Fatalf("GetDeviceNetwork() = %q, want %q", got, testCase.want)
+			}
+			if got := GetDockerNetwork(); got != "host" {
+				t.Fatalf("auxiliary network = %q, want host", got)
+			}
+		})
 	}
 }

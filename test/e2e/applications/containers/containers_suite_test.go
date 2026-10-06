@@ -38,7 +38,7 @@ var _ = BeforeEach(func() {
 	harness.SetTestContext(ctx)
 
 	// Get a pristine container device from the pool and start the agent
-	err := harness.SetupContainerFromPoolAndStartAgent(workerID)
+	err := harness.SetupDeviceForCurrentSpec(workerID)
 	Expect(err).ToNot(HaveOccurred())
 
 	GinkgoWriter.Printf("✅ [BeforeEach] Worker %d: Test setup completed\n", workerID)

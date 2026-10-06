@@ -47,6 +47,7 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 				Skip(reason)
 			}
 			// --- Setup: 3 ERs (2 approved, 1 unapproved) ---
+			e2e.RequireContainerDeviceImage()
 			By("Setting up 3 devices and enrollment requests (2 approved with different labels, 1 unapproved)")
 			ctx := harness.GetTestContext()
 
@@ -58,6 +59,20 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 			workerID2 := GinkgoParallelProcess()*100 + 1
 			workerID3 := GinkgoParallelProcess()*100 + 2
 			var harness2, harness3 *e2e.Harness
+			devices := make([]*e2e.Harness, 2)
+			DeferCleanup(func() {
+				for index, deviceHarness := range devices {
+					if deviceHarness == nil {
+						continue
+					}
+					deviceHarness.PrintAgentLogsIfFailed()
+					deviceHarness.CaptureDeploymentLogsIfFailed()
+					if err := deviceHarness.CleanUpAllTestResources(); err != nil {
+						GinkgoWriter.Printf("Warning: additional device cleanup failed: %v\n", err)
+					}
+					e2e.CleanupContainerFromPool(deviceHarness, workerID2+index)
+				}
+			})
 			g, _ := errgroup.WithContext(ctx)
 			g.Go(func() error {
 				var err error
@@ -66,6 +81,7 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 					return err
 				}
 				harness2.SetTestContext(harness.GetTestContext())
+				devices[0] = harness2
 				return nil
 			})
 			g.Go(func() error {
@@ -75,28 +91,10 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 					return err
 				}
 				harness3.SetTestContext(harness.GetTestContext())
+				devices[1] = harness3
 				return nil
 			})
 			setupErr := g.Wait()
-			// Register cleanup for whichever harnesses came up, regardless of the other's outcome.
-			if harness2 != nil {
-				DeferCleanup(func() {
-					defer e2e.CleanupContainerFromPool(harness2, workerID2)
-					harness2.PrintAgentLogsIfFailed()
-					harness2.CaptureDeploymentLogsIfFailed()
-					err := harness2.CleanUpAllTestResources()
-					Expect(err).ToNot(HaveOccurred(), "harness2 cleanup")
-				})
-			}
-			if harness3 != nil {
-				DeferCleanup(func() {
-					defer e2e.CleanupContainerFromPool(harness3, workerID3)
-					harness3.PrintAgentLogsIfFailed()
-					harness3.CaptureDeploymentLogsIfFailed()
-					err := harness3.CleanUpAllTestResources()
-					Expect(err).ToNot(HaveOccurred(), "harness3 cleanup")
-				})
-			}
 			Expect(setupErr).ToNot(HaveOccurred())
 			// Device 1: approved with dev=yes (will be in fleet)
 			device1ID, _ := harness.EnrollAndWaitForOnlineStatus(map[string]string{devYesLabel: devYesValue})
@@ -309,6 +307,7 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 			if reason := backupRestoreExternalDBSkipReason(); reason != "" {
 				Skip(reason)
 			}
+			e2e.RequireContainerDeviceImage()
 			ctx := harness.GetTestContext()
 
 			workerID2 := GinkgoParallelProcess()*100 + 1
@@ -319,8 +318,9 @@ var _ = Describe("Service backup and restore", Label("backup-restore"), func() {
 				defer e2e.CleanupContainerFromPool(harness2, workerID2)
 				harness2.PrintAgentLogsIfFailed()
 				harness2.CaptureDeploymentLogsIfFailed()
-				err := harness2.CleanUpAllTestResources()
-				Expect(err).ToNot(HaveOccurred(), "harness2 cleanup")
+				if err := harness2.CleanUpAllTestResources(); err != nil {
+					GinkgoWriter.Printf("Warning: harness2 cleanup failed: %v\n", err)
+				}
 			})
 			device1ID, _ := harness.EnrollAndWaitForOnlineStatus(map[string]string{devYesLabel: devYesValue})
 			Expect(device1ID).NotTo(BeEmpty())

@@ -9,7 +9,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("Inline configuration tests", func() {
+var _ = Describe("Inline configuration tests", Label(e2e.NeedContainerLabel), func() {
 	var (
 		deviceId string
 	)

@@ -18,8 +18,8 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-// containerReadyTimeout bounds how long ContainerDevice waits for flightctl-agent.service to
-// report active. Unlike the VM path there's no OS boot/SSH-daemon startup to wait through -
+// containerReadyTimeout bounds how long ContainerDevice waits for systemd readiness.
+// Unlike the VM path there's no OS boot/SSH-daemon startup to wait through -
 // systemd is already PID 1 the instant the container is running - so this only needs to cover
 // systemd unit activation, not a cold boot.
 const containerReadyTimeout = 90 * time.Second
@@ -30,6 +30,40 @@ const containerCleanupTimeout = 30 * time.Second
 // containerStopTimeout bounds how long Shutdown waits for the container to stop gracefully
 // before the caller falls back to ForceDelete.
 const containerStopTimeout = 10 * time.Second
+
+const containerProbeTimeout = 10 * time.Second
+
+type nestedOverlayProbe struct {
+	mu      sync.Mutex
+	done    bool
+	enabled bool
+}
+
+func (probe *nestedOverlayProbe) get(ctx context.Context) bool {
+	probe.mu.Lock()
+	defer probe.mu.Unlock()
+	if !probe.done {
+		probeCtx, cancel := context.WithTimeout(ctx, containerProbeTimeout)
+		defer cancel()
+		driverFormat := "{{.Driver}}"
+		if containers.IsPodman() {
+			driverFormat = "{{.Store.GraphDriverName}}"
+		}
+		driver, err := containers.RuntimeCommandContext(probeCtx, "info", "--format", driverFormat).Output()
+		if err != nil {
+			logrus.Warnf("Unable to probe device runtime storage driver; leaving image storage configuration unchanged: %v", err)
+			return false
+		}
+		switch strings.TrimSpace(string(driver)) {
+		case "overlay", "overlay2", "overlayfs", "fuse-overlayfs":
+			probe.enabled = true
+		}
+		probe.done = true
+	}
+	return probe.enabled
+}
+
+var globalNestedOverlayProbe nestedOverlayProbe
 
 // ErrUnsupported is returned by ContainerDevice operations that have no meaningful container
 // equivalent (e.g. Pause/Resume, which VMs support via hypervisor suspend but plain containers don't).
@@ -59,6 +93,7 @@ type ContainerDeviceConfig struct {
 	Files []ContainerFile
 	// ExtraHosts adds host:IP entries to the container's /etc/hosts.
 	ExtraHosts []string
+	SessionID  string
 }
 
 // ContainerDevice implements TestVMInterface by running the flightctl-agent bootc image as a
@@ -74,9 +109,10 @@ type ContainerDeviceConfig struct {
 type ContainerDevice struct {
 	cfg ContainerDeviceConfig
 
-	mu        sync.Mutex
-	container testcontainers.Container
-	started   bool
+	mu            sync.Mutex
+	container     testcontainers.Container
+	started       bool
+	nestedOverlay bool
 }
 
 var _ TestVMInterface = (*ContainerDevice)(nil)
@@ -86,7 +122,7 @@ func NewContainerDevice(cfg ContainerDeviceConfig) *ContainerDevice {
 	return &ContainerDevice{cfg: cfg}
 }
 
-// nestedPodmanStorageConf overrides the device's own /etc/containers/storage.conf so podman
+// NestedPodmanStorageConf replaces the device's storage configuration so podman
 // running *inside* this container (the flightctl-agent's own image pulls/prefetch, and nested
 // podman for quadlet-app suites) doesn't try to layer the "overlay" graph driver on top of a
 // filesystem podman/Docker have themselves already presented as overlayfs (which containers/storage
@@ -96,7 +132,9 @@ func NewContainerDevice(cfg ContainerDeviceConfig) *ContainerDevice {
 // installed explicitly in the same base image this device image is built from (see
 // test/scripts/agent-images/containerfiles) - it's not part of the upstream centos-bootc/rhel-bootc
 // base, so relying on it "just being there" silently breaks the moment that assumption changes.
-const nestedPodmanStorageConf = `[storage]
+// This intentionally replaces rather than merges storage.conf: image-specific graphroot,
+// runroot, and storage options are discarded in favor of the nested-container defaults.
+const NestedPodmanStorageConf = `[storage]
 driver = "overlay"
 
 [storage.options.overlay]
@@ -105,10 +143,17 @@ mount_program = "/usr/bin/fuse-overlayfs"
 
 func (c *ContainerDevice) buildRequest() testcontainers.ContainerRequest {
 	files := make([]testcontainers.ContainerFile, 0, len(c.cfg.Files)+1)
+	if c.nestedOverlay {
+		files = append(files, testcontainers.ContainerFile{
+			ContainerFilePath: "/etc/containers/storage.conf",
+			FileMode:          0644,
+			Reader:            strings.NewReader(NestedPodmanStorageConf),
+		})
+	}
 	files = append(files, testcontainers.ContainerFile{
-		ContainerFilePath: "/etc/containers/storage.conf",
+		ContainerFilePath: "/etc/systemd/system/flightctl-agent.service.d/e2e-start.conf",
 		FileMode:          0644,
-		Reader:            strings.NewReader(nestedPodmanStorageConf),
+		Reader:            strings.NewReader("[Unit]\nConditionPathExists=/run/flightctl-e2e-agent-enabled\n"),
 	})
 	for _, f := range c.cfg.Files {
 		mode := f.Mode
@@ -126,9 +171,10 @@ func (c *ContainerDevice) buildRequest() testcontainers.ContainerRequest {
 		files = append(files, tcFile)
 	}
 	return testcontainers.ContainerRequest{
-		Image: c.cfg.Image,
-		Name:  c.cfg.Name,
-		Files: files,
+		Image:  c.cfg.Image,
+		Name:   c.cfg.Name,
+		Files:  files,
+		Labels: map[string]string{"flightctl.e2e.session": c.cfg.SessionID},
 		// Privileged: the device runs systemd as PID 1 and, for suites that deploy quadlet
 		// apps, a *nested* podman inside that - both need cgroup delegation and capabilities
 		// (SYS_ADMIN, etc.) an unprivileged container doesn't get. This is test infrastructure
@@ -140,7 +186,7 @@ func (c *ContainerDevice) buildRequest() testcontainers.ContainerRequest {
 			hc.ExtraHosts = append(hc.ExtraHosts, c.cfg.ExtraHosts...)
 		},
 		// Network mode is set separately in Run via containers.WithNetwork - see that comment.
-		WaitingFor: wait.ForExec([]string{"systemctl", "is-active", "flightctl-agent.service"}).
+		WaitingFor: wait.ForExec([]string{"sh", "-c", "systemctl is-system-running --wait; state=$(systemctl is-system-running); [ \"$state\" = running ] || [ \"$state\" = degraded ]"}).
 			WithStartupTimeout(containerReadyTimeout),
 	}
 }
@@ -192,6 +238,10 @@ func (c *ContainerDevice) RunContext(ctx context.Context) error {
 	}
 
 	logrus.Infof("Starting device container %s (image %s)", c.cfg.Name, c.cfg.Image)
+	c.nestedOverlay = globalNestedOverlayProbe.get(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	// Join the same network aux services use (see containers.GetDockerNetwork), not a hardcoded
 	// "host" network: many devices run concurrently (one per Ginkgo worker, across LPT shards on
 	// the same runner), and each one's *nested* podman (for suites that deploy quadlet apps) may
@@ -201,12 +251,19 @@ func (c *ContainerDevice) RunContext(ctx context.Context) error {
 	// device that same per-device isolation; aux services (registry, etc.) stay reachable via
 	// their host-published ports either way (see containers.GetHostIP - same mechanism VMs use).
 	ct, err := containers.GenericStart(ctx, c.buildRequest(), false,
-		containers.WithNetwork(containers.GetDockerNetwork()), containers.WithHostAccess())
+		containers.WithNetwork(containers.GetDeviceNetwork()), containers.WithHostAccess())
 	if err != nil {
 		return fmt.Errorf("failed to start device container %s: %w", c.cfg.Name, err)
 	}
 	c.container = ct
 	c.started = true
+	if c.nestedOverlay {
+		probeCtx, cancel := context.WithTimeout(ctx, containerProbeTimeout)
+		defer cancel()
+		if _, err := c.runExecWithUserContext(probeCtx, []string{"test", "-x", "/usr/bin/fuse-overlayfs"}, nil, "root"); err != nil {
+			return fmt.Errorf("nested overlay requires executable /usr/bin/fuse-overlayfs in device image: %w", err)
+		}
+	}
 
 	if err := c.fixShadowPermissionsLocked(ctx); err != nil {
 		logrus.Warnf("failed to fix /etc/shadow permissions in %s (sudo calls may fail): %v", c.cfg.Name, err)
@@ -235,7 +292,7 @@ func (c *ContainerDevice) RunContext(ctx context.Context) error {
 // /etc/shadow to normal owner-read permissions (as most non-RHEL distros ship it) sidesteps the
 // capability requirement entirely. Must be called with c.mu held and c.container set.
 func (c *ContainerDevice) fixShadowPermissionsLocked(ctx context.Context) error {
-	_, err := c.runExecWithUserContext(ctx, []string{"chmod", "0600", "/etc/shadow"}, nil, "")
+	_, err := c.runExecWithUserContext(ctx, []string{"chmod", "0600", "/etc/shadow"}, nil, "root")
 	return err
 }
 
@@ -253,7 +310,7 @@ func (c *ContainerDevice) updateCATrustLocked(ctx context.Context) error {
 	if !hasCA {
 		return nil
 	}
-	_, err := c.runExecWithUserContext(ctx, []string{"update-ca-trust"}, nil, "")
+	_, err := c.runExecWithUserContext(ctx, []string{"update-ca-trust"}, nil, "root")
 	return err
 }
 
@@ -287,7 +344,7 @@ func (c *ContainerDevice) WaitForSSHToBeReadyContext(ctx context.Context) error 
 			return fmt.Errorf("device container %s readiness canceled: %w", c.cfg.Name, err)
 		}
 
-		probeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		probeCtx, cancel := context.WithTimeout(ctx, containerProbeTimeout)
 		_, err := c.runExecWithUserContext(probeCtx, []string{"true"}, nil, "")
 		cancel()
 		if err == nil {
@@ -323,12 +380,21 @@ func (c *ContainerDevice) getContainer() (testcontainers.Container, bool) {
 
 // Exists reports whether the container currently exists (running or stopped).
 func (c *ContainerDevice) Exists() (bool, error) {
-	return containers.ContainerExistsByName(c.cfg.Name), nil
+	ctx, cancel := context.WithTimeout(context.Background(), containerCleanupTimeout)
+	defer cancel()
+	return containers.ContainerExistsByNameContext(ctx, c.cfg.Name)
 }
 
 // IsRunning reports whether the container exists and is running.
 func (c *ContainerDevice) IsRunning() (bool, error) {
-	return containers.ContainerRunningByName(c.cfg.Name), nil
+	exists, err := c.Exists()
+	if err != nil || !exists {
+		return false, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), containerCleanupTimeout)
+	defer cancel()
+	out, err := containers.RuntimeCommandContext(ctx, "inspect", "-f", "{{.State.Running}}", c.cfg.Name).Output()
+	return strings.TrimSpace(string(out)) == "true", err
 }
 
 // Shutdown stops the container without removing it.
@@ -412,46 +478,20 @@ func removeContainerByNameContext(ctx context.Context, name string) error {
 	return nil
 }
 
-// RevertToSnapshot resets the device to a pristine state. Containers have no snapshot mechanism
-// worth modeling (see CreateSnapshot) - a freshly created container from the same image already
-// IS the pristine state, so this just recreates the container from scratch. The name argument is
-// accepted only to satisfy TestVMInterface; ContainerDevice supports exactly one "snapshot".
 func (c *ContainerDevice) RevertToSnapshot(_ string) error {
-	c.mu.Lock()
-	ct := c.container
-	c.container = nil
-	c.started = false
-	c.mu.Unlock()
-
-	if ct != nil {
-		if err := ct.Terminate(context.Background()); err != nil {
-			logrus.Warnf("failed to terminate device container %s before revert: %v", c.cfg.Name, err)
-		}
-	} else if containers.ContainerExistsByName(c.cfg.Name) {
-		if err := containers.RemoveContainerByName(c.cfg.Name); err != nil {
-			logrus.Warnf("failed to remove stale device container %s before revert: %v", c.cfg.Name, err)
-		}
-	}
-	return c.Run()
+	return ErrUnsupported
 }
 
-// CreateSnapshot is a no-op: RevertToSnapshot always recreates the container from the same image
-// rather than reverting to a captured state, so there's nothing to capture here.
 func (c *ContainerDevice) CreateSnapshot(_ string) error {
-	return nil
+	return ErrUnsupported
 }
 
-// DeleteSnapshot is a no-op; see CreateSnapshot.
 func (c *ContainerDevice) DeleteSnapshot(_ string) error {
-	return nil
+	return ErrUnsupported
 }
 
-// HasSnapshot reports whether a pristine revert is possible, which for containers is simply
-// whether the device has been started successfully at least once.
 func (c *ContainerDevice) HasSnapshot(_ string) (bool, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.started, nil
+	return false, ErrUnsupported
 }
 
 // Pause is unsupported for container-backed devices (see ErrUnsupported).
@@ -499,10 +539,8 @@ func (c *ContainerDevice) GetServiceLogs(serviceName string) (string, error) {
 }
 
 // runExecWithUserContext execs inputArgs inside the container via the `<runtime> exec` CLI
-// (podman/docker), not testcontainers' Container.Exec, so stdin piping works - see ContainerDevice's
-// doc comment. user is passed through to `exec -u`; empty runs as the container's default user
-// (root for this image, matching the "sudo ..." commands already embedded in every call site
-// written for the SSH/VM path - sudo as root is a no-op privilege-wise).
+// (podman/docker), not testcontainers' Container.Exec, so stdin piping works.
+// Empty user selects the same user account and home directory as VM SSH, using a non-login shell.
 func (c *ContainerDevice) runExecWithUserContext(ctx context.Context, inputArgs []string, stdin *bytes.Buffer, user string) (*bytes.Buffer, error) {
 	cmd := c.execCommandWithUserContext(ctx, inputArgs, user)
 	var stdout, stderr bytes.Buffer
@@ -521,19 +559,23 @@ func (c *ContainerDevice) runExecWithUserContext(ctx context.Context, inputArgs 
 }
 
 func (c *ContainerDevice) execCommandWithUserContext(ctx context.Context, inputArgs []string, user string) *exec.Cmd {
-	cli := containers.RuntimeCLIName()
 	args := []string{"exec"}
 	if len(inputArgs) == 0 {
 		args = append(args, "-it")
 	} else {
 		args = append(args, "-i")
 	}
-	if user != "" {
-		args = append(args, "-u", user)
+	if user == "" {
+		user = "user"
 	}
-	args = append(args, c.cfg.Name)
+	home := "/home/" + user
+	if user == "root" {
+		home = "/root"
+	}
+	args = append(args, "-u", user, "-e", "HOME="+home, "-e", "LC_ALL=C", "-w", "/", c.cfg.Name,
+		"sh", "-c", `if [ -d "$HOME" ]; then cd "$HOME" || exit; fi; exec "$@"`, "sh")
 	if len(inputArgs) == 0 {
-		args = append(args, "bash")
+		args = append(args, "bash", "-l")
 	} else {
 		// Run through a shell instead of exec'ing inputArgs directly: vm.go's runJournalLogs/
 		// runServiceLogs (and plenty of call sites like WaitForFileInDevice) build inputArgs that
@@ -547,7 +589,7 @@ func (c *ContainerDevice) execCommandWithUserContext(ctx context.Context, inputA
 		// e.g. journalctl receiving a literal `"2026-01-02 15:04:05"` and failing to parse it).
 		args = append(args, "sh", "-c", strings.Join(inputArgs, " "))
 	}
-	return exec.CommandContext(ctx, cli, args...) // #nosec G204 - test code with controlled inputs, mirrors vm.go's ssh command building
+	return containers.RuntimeCommandContext(ctx, args...)
 }
 
 // SSHCommand returns a command that execs inputArgs inside the container (or opens an interactive

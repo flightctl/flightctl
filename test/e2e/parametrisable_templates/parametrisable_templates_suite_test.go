@@ -30,11 +30,6 @@ var _ = BeforeSuite(func() {
 
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
 
-	// Most specs here only exercise fleet parameter template rendering on the device - they never
-	// switch the device's OS image or reboot it, so a container-backed device is enough for them
-	// (see the container-backed-device-migration plan). The NeedVMLabel spec below is the exception
-	// (it puts an OS image on the fleet spec and waits for the rollout to actually apply), so the
-	// device itself is set up per-spec in BeforeEach rather than once here.
 	_, _, err := e2e.SetupWorkerHarnessWithoutVM()
 	Expect(err).ToNot(HaveOccurred())
 	// Unlike the VM path, starting a container device pulls its image from the aux registry
@@ -67,18 +62,13 @@ var _ = BeforeEach(func() {
 	// Set the test context in the harness
 	harness.SetTestContext(ctx)
 
-	// "Template variables ... replaced in the device os image" puts an OS image on the fleet spec
-	// and waits for the rollout to actually apply it - a real bootc switch + reboot, which a
-	// container-backed device can't do ("Detected container; this command requires a booted host
-	// system"). Every other spec here only renders fleet parameter templates (configs, labels),
-	// never an OS switch, so a container-backed device is sufficient for them.
 	var err error
-	if slices.Contains(CurrentSpecReport().Labels(), e2e.NeedVMLabel) {
-		GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with VM from pool\n", workerID)
-		err = harness.SetupVMFromPoolAndStartAgent(workerID)
-	} else {
+	if slices.Contains(CurrentSpecReport().Labels(), e2e.NeedContainerLabel) {
 		GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with container device from pool\n", workerID)
 		err = harness.SetupContainerFromPoolAndStartAgent(workerID)
+	} else {
+		GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with VM from pool\n", workerID)
+		err = harness.SetupVMFromPoolAndStartAgent(workerID)
 	}
 	Expect(err).ToNot(HaveOccurred())
 

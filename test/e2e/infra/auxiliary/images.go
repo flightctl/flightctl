@@ -222,8 +222,7 @@ func (s *Services) uploadDockerArchiveBundle(ctx context.Context, bundlePath str
 		refs = append(refs, e2eRef{ref: ref})
 	}
 	return s.copyRefsParallel(ctx, refs, func(ctx context.Context, rec e2eRef) error {
-		src := fmt.Sprintf("docker-archive:%s:%s", bundlePath, rec.ref)
-		return s.skopeoCopy(ctx, rec.ref, src, destDockerRef(s.Registry.URL, rec.ref), false)
+		return s.copyImageFromBundle(ctx, bundlePath, rec.ref)
 	})
 }
 
@@ -277,6 +276,16 @@ func (s *Services) copyPreserveDigest(ctx context.Context, src, originalRef stri
 	return nil
 }
 
+// copyImageFromBundle copies one docker-archive image reference to the local registry.
+// The bounded, retrying skopeo invocation is shared with the OCI bundle upload path.
+func (s *Services) copyImageFromBundle(ctx context.Context, bundlePath, ref string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	src := fmt.Sprintf("docker-archive:%s:%s", bundlePath, ref)
+	return s.skopeoCopy(ctx, ref, src, destDockerRef(s.Registry.URL, ref), false)
+}
+
 func destDockerRef(registryURL, ref string) string {
 	path := ref
 	if idx := strings.Index(ref, "/"); idx != -1 {
@@ -288,6 +297,9 @@ func destDockerRef(registryURL, ref string) string {
 func (s *Services) skopeoCopy(ctx context.Context, ref, src, dst string, preserveDigests bool) error {
 	var lastErr error
 	for attempt := 1; attempt <= bundleCopyRetries; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		copyCtx, cancel := context.WithTimeout(ctx, perCopyTimeout)
 		args := []string{"copy", "--dest-tls-verify=false"}
 		if preserveDigests {
@@ -296,11 +308,14 @@ func (s *Services) skopeoCopy(ctx context.Context, ref, src, dst string, preserv
 		args = append(args, src, dst)
 		copyCmd := exec.CommandContext(copyCtx, "skopeo", args...)
 		output, err := copyCmd.CombinedOutput()
-		timedOut := copyCtx.Err() != nil
+		copyErr := copyCtx.Err()
 		cancel()
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 
-		if timedOut {
-			lastErr = fmt.Errorf("skopeo copy for %s did not complete within %s: %w", ref, perCopyTimeout, copyCtx.Err())
+		if copyErr != nil {
+			lastErr = fmt.Errorf("skopeo copy for %s did not complete within %s: %w", ref, perCopyTimeout, copyErr)
 		} else if err != nil {
 			lastErr = fmt.Errorf("skopeo copy failed for %s: %w, output: %s", ref, err, string(output))
 		} else {
@@ -311,7 +326,7 @@ func (s *Services) skopeoCopy(ctx context.Context, ref, src, dst string, preserv
 			logrus.Warnf("Retrying bundle image upload for %s (attempt %d/%d): %v", ref, attempt, bundleCopyRetries, lastErr)
 			select {
 			case <-ctx.Done():
-				return lastErr
+				return ctx.Err()
 			case <-time.After(bundleCopyRetryWait):
 			}
 		}
@@ -395,8 +410,8 @@ type manifestEntry struct {
 	RepoTags []string `json:"RepoTags"`
 }
 
-// ResolveAgentDeviceImageTag returns the exact "base" image tag (e.g.
-// "base-cs10-bootc-v1.3.0-main-332-g250be75c") that was actually bundled for a container-backed
+// ResolveAgentDeviceImage returns the full image reference with the exact "base" tag (e.g.
+// "quay.io/flightctl/flightctl-device:base-cs10-bootc-v1.3.0-main-332-g250be75c") bundled for a container-backed
 // device to pull, by reading it back out of the same agent-images-bundle-*.tar UploadImages just
 // pushed from (see uploadBundle/copyImageFromBundle above).
 //
@@ -412,7 +427,7 @@ type manifestEntry struct {
 // osIDHint, if non-empty, is used to pick the right bundle file when more than one exists on disk
 // (e.g. a local dev machine that built both cs9-bootc and cs10-bootc); CI only ever stages the one
 // bundle matching the current shard's os_id input, so it's optional there.
-func ResolveAgentDeviceImageTag(osIDHint string) (string, error) {
+func ResolveAgentDeviceImage(osIDHint string) (string, error) {
 	if strings.ContainsAny(osIDHint, `/\*?[]`) {
 		return "", fmt.Errorf("invalid os ID hint %q: must not contain path separators or glob metacharacters", osIDHint)
 	}
@@ -445,7 +460,7 @@ func ResolveAgentDeviceImageTag(osIDHint string) (string, error) {
 		}
 		tag := ref[idx+1:]
 		if strings.HasPrefix(tag, "base-") {
-			return tag, nil
+			return ref, nil
 		}
 	}
 	return "", fmt.Errorf("no base-tagged image found in bundle %s (refs: %v)", matches[0], refs)

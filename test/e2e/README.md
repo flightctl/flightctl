@@ -76,6 +76,64 @@ The tests only assume that FlightCtl is already running and reachable (cluster o
 | `GINKGO_LABEL_FILTER` | Run only specs with the given label(s). In CI, `sanity` is often used. Example: `GINKGO_LABEL_FILTER="sanity"`. |
 | `GINKGO_PROCS` | Number of parallel test processes. |
 | `DEBUG_VM_CONSOLE` | Set to `1` to print VM console output to stdout during test execution. |
+| `AGENT_OS_ID` | Select the prepared `bin/agent-artifacts/agent-images-bundle-${AGENT_OS_ID}.tar` for container device image resolution, especially when multiple OS bundles exist. CI exports this in both preparation and execution. |
+| `E2E_CONTAINER_DEVICE_IMAGE` | Override the container device image reference, bypassing bundle-based image resolution. The selected runtime must be able to pull it, including registry TLS trust. |
+| `E2E_REQUIRE_CONTAINER_DEVICE` | When `true`, fail instead of skipping container specs if prerequisites are unavailable. Unset or `false` skips affected specs. CI sets this to prevent silently losing container-backed coverage. |
+| `E2E_SESSION_ID` | Unique run identifier used to label device containers and scope cleanup. `run_e2e_tests.sh` generates it using `/proc/sys/kernel/random/uuid`, requiring Linux with procfs mounted unless the ID is supplied; preserve it for manual `e2e_cleanup.sh` runs. Direct Go runs use a portable PID/timestamp fallback label. Without the session ID, the cleanup script only reclaims `flightctl-e2e-container-*` containers older than two hours. |
+
+### Container-backed devices
+
+Device specs default to VMs. Opt in to an isolated, per-spec container with
+`Label(e2e.NeedContainerLabel)` (`needcontainer`); use `needvm` for OS switches,
+reboots, snapshots, or hardware-sensitive assertions. API-only CLI specs need no
+device. Dedicated container suites use the same container setup and prerequisites.
+
+Container specs require a prepared agent config and certificates under
+`bin/agent/etc/flightctl`, plus an agent image bundle uploaded by auxiliary setup,
+or an explicit `E2E_CONTAINER_DEVICE_IMAGE`. Missing or ambiguous bundles skip
+only specs requiring container devices unless `E2E_REQUIRE_CONTAINER_DEVICE=true`;
+VM-only and API-only specs remain usable
+with their existing prerequisites. Registry trust setup is best-effort for shared
+auxiliary services; a failed trusted image pull fails only container setup.
+
+Mixed suites create VMs only for specs that select the VM backend; a shard
+containing only container specs does not boot a VM. Privileged device containers
+run systemd and nested Podman, so budget CI memory, CPU, and storage for each
+parallel device rather than treating them as lightweight auxiliary containers.
+
+Containers always use bridge/kind networking, including local and remote Quadlet
+deployments. Runner FQDN/short aliases resolve to `E2E_AUX_HOST` (or the detected
+runner IP), and `flightctl-vm.local` resolves to `QUADLET_HOST` when set. For QE
+Jenkins remote Quadlet/OpenShift deployments, preserve these routable host
+settings: the deployment host need not be the test runner. `DOCKER_HOST` selects
+the endpoint for both testcontainers and runtime CLI operations.
+
+Container commands run as `user` with `HOME=/home/user`, matching the VM SSH user
+and home defaults, and use a non-login shell. The working directory falls back to
+`/` if the home directory does not exist. Systemd readiness does not start the agent: the harness explicitly
+enables and starts it after clearing stale enrollment state, and removes each
+container after its spec. Snapshot and pause/resume operations return
+`vm.ErrUnsupported`. Rootless spec 87846 is VM-only: its privileged-port denial assertion requires Podman's
+VM network namespace, not Docker's container namespace where unprivileged ports
+may be enabled.
+
+#### Device dispatch shapes
+
+Suite and spec setup intentionally use different dispatch shapes:
+
+- `basic_operations`, `configuration`, and `applications/containers` call
+  `SetupDeviceForCurrentSpec` in `BeforeEach`; `dependency_sync` calls the same
+  dispatcher in the spec file. It honors VM/container labels centrally.
+- `agent` branches explicitly for backend-specific logging, then uses the shared
+  dispatcher on the VM path for lazy infrastructure setup.
+- `quadlets` and `parametrisable_templates` branch directly to the backend helpers
+  to retain their suite-specific setup flow.
+- `cli` and `backup_restore` gate VM setup with `CurrentSpecNeedsVM`, leaving
+  API-only specs without a device. CLI setup also refreshes agent configuration.
+
+Unlabeled device specs default to VMs. `applications/rootless` is VM-only because
+privileged-port semantics require Podman; it uses the shared dispatcher without
+a container branch.
 
 ### Builds and versions
 
@@ -92,6 +150,7 @@ When running e2e against a Quadlet deployment (e.g. after `make deploy-quadlets`
 |----------|-------------|
 | `E2E_ENVIRONMENT` | Set to `quadlet` so infra uses Quadlet providers. |
 | `E2E_SSH_HOST` | SSH host of the Quadlet device (e.g. `localhost` when using `make deploy-quadlets` on this host). |
+| `QUADLET_HOST` | Routable Quadlet deployment IP used for the device-side `flightctl-vm.local` alias. Set it for a remote deployment that uses this service hostname. |
 | `E2E_SSH_USER` | SSH username to run commands on the device. |
 | `E2E_SSH_KEY_PATH` | Path to SSH private key for `E2E_SSH_USER`. Defaults to `~/.ssh/id_rsa` if unset. |
 | `E2E_SSH_PASSWORD` | SSH password (alternative to key). Used when `E2E_SSH_KEY_PATH` is not set; requires `sshpass` on the test host. |

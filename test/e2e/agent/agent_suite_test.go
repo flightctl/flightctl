@@ -51,7 +51,8 @@ var auxSvcs *auxiliary.Services
 var _ = BeforeSuite(func() {
 	auxFuture := e2e.StartAuxServicesAsync(context.Background())
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
-	e2e.SetupWorkerHarnessOrAbort()
+	_, _, err := e2e.SetupWorkerHarnessWithoutVM()
+	Expect(err).ToNot(HaveOccurred())
 	auxSvcs = auxFuture.Wait()
 })
 
@@ -84,7 +85,7 @@ var _ = BeforeEach(func() {
 	} else {
 		GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with VM from pool\n", workerID)
 		// Setup VM from pool, revert to pristine snapshot, and start agent
-		err = harness.SetupVMFromPoolAndStartAgent(workerID)
+		err = harness.SetupDeviceForCurrentSpec(workerID)
 	}
 	Expect(err).ToNot(HaveOccurred())
 

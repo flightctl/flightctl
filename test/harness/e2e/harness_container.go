@@ -55,6 +55,7 @@ func AgentConfigDirExists() bool {
 // worker ID, so there is no pool entry to remove.
 func CleanupContainerFromPool(h *Harness, _ int) {
 	h.Cleanup(false)
+	h.VM = nil
 }
 
 // NewTestHarnessWithContainerPool creates a new test harness with a fresh container-backed device.
@@ -66,7 +67,9 @@ func NewTestHarnessWithContainerPool(ctx context.Context, workerID int) (*Harnes
 		return nil, err
 	}
 
-	if _, err := harness.GetContainerFromPool(workerID); err != nil {
+	setupCtx, cancel := context.WithTimeout(ctx, setupSnapshotRestoreTimeout)
+	defer cancel()
+	if err := harness.setupContainerFromPoolAndStartAgent(setupCtx, workerID); err != nil {
 		harness.ctxCancel()
 		return nil, fmt.Errorf("failed to get container device from pool: %w", err)
 	}
@@ -97,7 +100,12 @@ func (h *Harness) GetContainerFromPool(workerID int) (vm.TestVMInterface, error)
 	}
 	ctx, cancel := context.WithTimeout(parentCtx, setupSnapshotRestoreTimeout)
 	defer cancel()
-	return h.getContainerFromPool(ctx, workerID)
+	device, err := h.getContainerFromPool(ctx, workerID)
+	if err != nil {
+		return nil, err
+	}
+	h.deferContainerCleanup(device)
+	return device, nil
 }
 
 func (h *Harness) getContainerFromPool(ctx context.Context, workerID int) (*vm.ContainerDevice, error) {
@@ -105,6 +113,10 @@ func (h *Harness) getContainerFromPool(ctx context.Context, workerID int) (*vm.C
 		return nil, fmt.Errorf("failed to remove previous container device for worker %d: %w", workerID, err)
 	}
 	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if _, err := getOrCreateContainerPool(); err != nil {
+		logrus.Warnf("Container device image unavailable: %v", err)
 		return nil, err
 	}
 
@@ -122,17 +134,34 @@ func (h *Harness) getContainerFromPool(ctx context.Context, workerID int) (*vm.C
 	return device, nil
 }
 
+func (h *Harness) deferContainerCleanup(device *vm.ContainerDevice) {
+	DeferCleanup(func() {
+		if err := device.ForceDelete(); err != nil {
+			logrus.Warnf("Failed to clean up container device: %v", err)
+			return
+		}
+		if h.VM == device {
+			h.VM = nil
+		}
+	})
+}
+
 // SetupContainerFromPool creates a fresh container-backed device for this spec. It does not start
 // the agent explicitly. Mirrors Harness.SetupVMFromPool's setup role, but containers need no
 // snapshot/revert because every request creates a new container from the image.
 func (h *Harness) SetupContainerFromPool(workerID int) error {
+	RequireContainerDeviceImage()
 	parentCtx := h.GetTestContext()
 	if parentCtx == nil {
 		parentCtx = context.Background()
 	}
 	ctx, cancel := context.WithTimeout(parentCtx, setupSnapshotRestoreTimeout)
 	defer cancel()
-	return h.setupContainerFromPool(ctx, workerID)
+	if err := h.setupContainerFromPool(ctx, workerID); err != nil {
+		return err
+	}
+	h.deferContainerCleanup(h.VM.(*vm.ContainerDevice))
+	return nil
 }
 
 func (h *Harness) setupContainerFromPool(ctx context.Context, workerID int) (retErr error) {
@@ -177,17 +206,40 @@ func (h *Harness) setupContainerFromPool(ctx context.Context, workerID int) (ret
 
 // SetupContainerFromPoolAndStartAgent creates a fresh container-backed device and starts the
 // agent. Mirrors Harness.SetupVMFromPoolAndStartAgent; no container snapshot/revert is needed.
-func (h *Harness) SetupContainerFromPoolAndStartAgent(workerID int) error {
-	if err := h.SetupContainerFromPool(workerID); err != nil {
+func (h *Harness) SetupContainerFromPoolAndStartAgent(workerID int) (retErr error) {
+	RequireContainerDeviceImage()
+	parentCtx := h.GetTestContext()
+	if parentCtx == nil {
+		parentCtx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parentCtx, setupSnapshotRestoreTimeout)
+	defer cancel()
+	if err := h.setupContainerFromPoolAndStartAgent(ctx, workerID); err != nil {
+		return err
+	}
+	h.deferContainerCleanup(h.VM.(*vm.ContainerDevice))
+	return nil
+}
+
+func (h *Harness) setupContainerFromPoolAndStartAgent(ctx context.Context, workerID int) (retErr error) {
+	if err := h.setupContainerFromPool(ctx, workerID); err != nil {
 		return err
 	}
 	device := h.VM
+	defer func() {
+		if retErr != nil {
+			retErr = errors.Join(retErr, h.cleanupCurrentContainerDevice())
+		}
+	}()
 
 	const flightctlAgentStartAttempts = 5
 	const flightctlAgentStartRetryDelay = 2 * time.Second
 
 	GinkgoWriter.Printf("🔄 Starting flightctl-agent in fresh container device\n")
-	if _, err := device.RunSSH([]string{"sudo", "systemctl", "daemon-reload"}, nil); err != nil {
+	if _, err := device.RunSSHContext(ctx, []string{"sudo", "touch", "/run/flightctl-e2e-agent-enabled"}, nil); err != nil {
+		return fmt.Errorf("failed to enable explicit agent startup: %w", err)
+	}
+	if _, err := device.RunSSHContext(ctx, []string{"sudo", "systemctl", "daemon-reload"}, nil); err != nil {
 		logrus.Warnf("daemon-reload before starting flightctl-agent: %v", err)
 	}
 
@@ -196,8 +248,8 @@ func (h *Harness) SetupContainerFromPoolAndStartAgent(workerID int) error {
 		// Best-effort: clears a stale "failed" state from a previous attempt so systemctl start
 		// isn't blocked by StartLimitBurst; errors are ignored because reset-failed legitimately
 		// fails/no-ops when the unit was never in a failed state (e.g. the first attempt).
-		_, _ = device.RunSSH([]string{"sudo", "systemctl", "reset-failed", "flightctl-agent"}, nil)
-		_, err := device.RunSSH([]string{"sudo", "systemctl", "start", "flightctl-agent"}, nil)
+		_, _ = device.RunSSHContext(ctx, []string{"sudo", "systemctl", "reset-failed", "flightctl-agent"}, nil)
+		_, err := device.RunSSHContext(ctx, []string{"sudo", "systemctl", "start", "flightctl-agent"}, nil)
 		if err == nil {
 			GinkgoWriter.Printf("✅ flightctl-agent started successfully in container device\n")
 			return nil
@@ -207,7 +259,21 @@ func (h *Harness) SetupContainerFromPoolAndStartAgent(workerID int) error {
 		if attempt == flightctlAgentStartAttempts {
 			break
 		}
-		time.Sleep(flightctlAgentStartRetryDelay)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(flightctlAgentStartRetryDelay):
+		}
 	}
 	return fmt.Errorf("failed to start flightctl-agent after %d attempts: %w", flightctlAgentStartAttempts, lastErr)
+}
+
+func RequireContainerDeviceImage() {
+	if err := validateContainerDevicePrerequisites(); err != nil {
+		logrus.Warnf("Container device image unavailable: %v", err)
+		if containerDeviceRequired() {
+			AbortSuite(fmt.Sprintf("container device image required but not available: %v", err))
+		}
+		Skip(fmt.Sprintf("Container device image unavailable; prepare an agent image bundle or set E2E_CONTAINER_DEVICE_IMAGE: %v", err))
+	}
 }

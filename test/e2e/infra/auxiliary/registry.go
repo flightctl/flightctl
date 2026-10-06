@@ -152,12 +152,11 @@ func (r *Registry) Start(ctx context.Context, network string, reuse bool) error 
 	// docker-compatible socket) - e.g. pulling the flightctl-agent image directly from this
 	// registry for a ContainerDevice - the TLS handshake happens daemon-side, so it needs this
 	// registry's CA trusted the Docker way instead: a cert dropped in /etc/docker/certs.d, no
-	// daemon restart required. Required (not best-effort) when Docker is the selected backend,
-	// since every ContainerDevice image pull would otherwise fail later with a much less
-	// diagnosable x509 error; harmless no-op skip on Podman-only hosts, which never hit this path.
+	// daemon restart required. Keep this best-effort so VM-only suites do not require host sudo;
+	// container setup reports any trusted-pull failure when it actually needs the image.
 	if containers.RuntimeCLIName() == "docker" {
 		if err := configureDockerRegistryTrust(ctx, r.URL, filepath.Join(certDir, "ca.crt")); err != nil {
-			return fmt.Errorf("failed to configure Docker registry trust for %s: %w", r.URL, err)
+			logrus.Warnf("Failed to configure Docker registry trust for %s (container device pulls may fail): %v", r.URL, err)
 		}
 	}
 	logrus.Infof("Registry container started: %s (TLS enabled)", r.URL)
@@ -383,6 +382,9 @@ func ensureRegistryCerts() (string, error) {
 // caller's cancellation; -n makes sudo fail fast instead of blocking on a password prompt if
 // passwordless sudo isn't configured. Note: CommandContext cancels the sudo wrapper process; a
 // root-owned mkdir/cp child may briefly outlive that cancel for these short commands.
+// The host CA is intentionally retained across runs: parallel suites reuse the same
+// registry, and removing its trust during one suite's cleanup would break other pulls.
+// Runner teardown should remove the registry-specific directory when reuse is no longer needed.
 func configureDockerRegistryTrust(ctx context.Context, registryURL, caCertPath string) error {
 	// registryURL is built from GetHostIP(), which honors an env var override (E2EAuxHostEnv) -
 	// reject anything that isn't a plain host:port before it reaches filepath.Join/sudo cp below,

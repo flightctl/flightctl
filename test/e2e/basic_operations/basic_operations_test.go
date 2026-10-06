@@ -13,7 +13,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("Basic Operations", Label("integration", "82220"), func() {
+var _ = Describe("Basic Operations", Label("integration", "82220", e2e.NeedContainerLabel), func() {
 	const createdResource = "201 Created"
 
 	DescribeTable("Create a resource from example file",

@@ -1849,28 +1849,6 @@ func NewTestHarnessWithVMPool(ctx context.Context, workerID int) (*Harness, erro
 	return harness, nil
 }
 
-// NewTestHarnessWithFreshVMFromPool creates a harness with a fresh VM from the pool.
-// Fresh VMs use full disk copies instead of overlays and don't use snapshots.
-// The VM is managed by the pool but provides completely clean state for each test.
-func NewTestHarnessWithFreshVMFromPool(ctx context.Context, workerID int) (*Harness, error) {
-	harness, err := newTestHarnessBase(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	// Get fresh VM from the pool
-	testVM, err := SetupFreshVMForWorker(workerID, os.TempDir(), 2233)
-	if err != nil {
-		harness.ctxCancel()
-		return nil, fmt.Errorf("failed to get fresh VM from pool for worker %d: %w", workerID, err)
-	}
-
-	// Set the VM in the harness
-	harness.VM = testVM
-
-	return harness, nil
-}
-
 // NewTestHarnessWithVMOnly creates a harness with a fresh VM that is booted and
 // reachable via SSH but does NOT start the flightctl-agent. Use this for suites
 // where the agent lifecycle is managed by something other than the test harness

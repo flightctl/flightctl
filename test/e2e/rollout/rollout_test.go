@@ -35,22 +35,6 @@ var _ = Describe("Rollout Policies", Label("rollout"), func() {
 
 	})
 
-	AfterEach(func() {
-		for i, harness := range tc.harnesses {
-			if harness != nil {
-				GinkgoWriter.Printf("Cleaning up harness for rollout worker %d\n", i)
-				err := harness.CleanUpAllTestResources()
-				if err != nil {
-					Fail(fmt.Sprintf("Error cleaning up test resources: %v", err))
-				}
-				e2e.CleanupContainerFromPool(harness, rolloutDeviceWorkerIDBase+i)
-			}
-		}
-		tc.harnesses = nil
-		tc.deviceIDs = nil
-
-	})
-
 	Context("Multi Device Selection", Label("79648"), func() {
 		It("should select devices correctly based on BatchSequence strategy", func() {
 			By("create a fleet and Enroll devices into the fleet")
@@ -606,6 +590,7 @@ func setupTestContext(ctx context.Context) *TestContext {
 }
 
 func (tc *TestContext) setupFleetAndDevices(context context.Context, numDevices int, labelsList []map[string]string) error {
+	e2e.RequireContainerDeviceImage()
 
 	err := tc.harness.CreateOrUpdateTestFleet(fleetName, testFleetSelector, api.DeviceSpec{})
 	if err != nil {
@@ -614,6 +599,18 @@ func (tc *TestContext) setupFleetAndDevices(context context.Context, numDevices 
 	// Create multiple devices using the resources package
 	tc.deviceIDs = make([]string, numDevices)
 	tc.harnesses = make([]*e2e.Harness, numDevices)
+	devices := tc.harnesses
+	DeferCleanup(func() {
+		for index, deviceHarness := range devices {
+			if deviceHarness == nil {
+				continue
+			}
+			if err := deviceHarness.CleanUpAllTestResources(); err != nil {
+				GinkgoWriter.Printf("Warning: rollout device cleanup failed: %v\n", err)
+			}
+			e2e.CleanupContainerFromPool(deviceHarness, rolloutDeviceWorkerIDBase+index)
+		}
+	})
 
 	// Use goroutines to set up devices concurrently
 	// Limit concurrent device creation to avoid resource exhaustion
@@ -637,8 +634,7 @@ func (tc *TestContext) setupFleetAndDevices(context context.Context, numDevices 
 
 			// These devices only ever get enrolled and have application/OS-image specs compared
 			// against server-observed status - never a real bootc switch/reboot - so
-			// container-backed devices are sufficient (see the container-backed-device-migration
-			// plan). Each device gets a fresh container (no snapshot/revert semantics needed).
+			// container-backed devices are sufficient. Each device gets a fresh container.
 			deviceHarness, err := e2e.NewTestHarnessWithContainerPool(context, rolloutDeviceWorkerIDBase+index)
 			if err != nil {
 				errChan <- fmt.Errorf("device %d: %w", index+1, err)

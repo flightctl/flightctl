@@ -28,8 +28,7 @@ var _ = BeforeSuite(func() {
 	// (see StartAuxServicesAsync's doc comment, which only holds for the VM path).
 	auxFuture.Wait()
 	// This suite only writes/reads config files on the device - it never switches the device's
-	// OS image or reboots it, so it doesn't need a real VM (see the
-	// container-backed-device-migration plan). Use a container-backed device instead.
+	// OS image or reboots it, so it uses a container-backed device.
 	e2e.SetupWorkerHarnessWithContainerDeviceOrAbort()
 })
 
@@ -48,7 +47,7 @@ var _ = BeforeEach(func() {
 	harness.SetTestContext(ctx)
 
 	// Get a pristine container device from the pool and start the agent
-	err := harness.SetupContainerFromPoolAndStartAgent(workerID)
+	err := harness.SetupDeviceForCurrentSpec(workerID)
 	Expect(err).ToNot(HaveOccurred())
 
 	GinkgoWriter.Printf("✅ [BeforeEach] Worker %d: Test setup completed\n", workerID)
