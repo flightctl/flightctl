@@ -158,13 +158,11 @@ func (r *GitRepoTester) TestAccess(repository *domain.Repository) error {
 		Fetch: []config.RefSpec{"HEAD"},
 	})
 
-	listOps := &git.ListOptions{}
-	auth, err := GetAuth(repository, nil) // nil config for test
+	listOps, err := getGitOptions(repository, nil)
 	if err != nil {
 		return err
 	}
 
-	listOps.Auth = auth
 	_, err = remote.List(listOps)
 	if err != nil {
 		// Extract the root cause from go-git wrapped errors
