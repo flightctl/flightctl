@@ -107,6 +107,8 @@ The agent continuously reports device health, application state, and resource co
 
 The agent persists OS and application delta outcomes in `delta-status.json` in its data directory and restores them after restart. This file stores delta results separately from application monitor registrations.
 
+If digest validation confirms that an application image tag now refers to different content, the agent clears the previous delta outcome before preparing that content. An unavailable digest inspection does not invalidate the saved outcome.
+
 ## Ansible Collection
 
 Flight Control provides an Ansible Collection for automating device and fleet management. This enables operators to integrate Flight Control into existing Ansible-based workflows for provisioning, configuration, and orchestration. Enables SSH-less and jumphost-less operation through its remote console connection.

@@ -1579,12 +1579,14 @@ func (m *prefetchManager) prepareTask(ctx context.Context, target imageRef, ociT
 // mu must be held on entry; may be temporarily released during registry inspection; mu is held on return.
 func (m *prefetchManager) checkCachedApplicationTask(ctx context.Context, target imageRef, task *prefetchTask) bool {
 	result := digestUnknown
+	confirmedMismatch := false
 	for attempt := 0; attempt < 3; attempt++ {
 		if ctx.Err() != nil {
 			return true
 		}
 		snapshot := *task
 		result = digestMismatched
+		confirmedMismatch = false
 		func() {
 			m.mu.Unlock()
 			defer m.mu.Lock()
@@ -1609,7 +1611,11 @@ func (m *prefetchManager) checkCachedApplicationTask(ctx context.Context, target
 				if !snapshot.done && m.skopeoFactory != nil {
 					skopeo, err := m.skopeoFactory(target.owner)
 					if err == nil {
+						// Revalidate cached tags against the registry. A resolved digest
+						// is reusable by the subsequent pull, but not by this cache check.
+						snapshot.resolvedDigest = ""
 						result = m.applicationImageDigestMatchesTarget(ctx, target, snapshot.ociType, snapshot.delta, true, podman, skopeo, &snapshot.resolvedDigest, opts...)
+						confirmedMismatch = result == digestMismatched && snapshot.resolvedDigest != ""
 					}
 				}
 			}
@@ -1627,6 +1633,9 @@ func (m *prefetchManager) checkCachedApplicationTask(ctx context.Context, target
 		break
 	}
 	if result == digestMismatched {
+		if confirmedMismatch {
+			m.invalidateApplicationDeltaResultLocked(target, task)
+		}
 		task.targetPresent = false
 		task.done = false
 		return true
@@ -1642,6 +1651,21 @@ func (m *prefetchManager) checkCachedApplicationTask(ctx context.Context, target
 	}
 	m.recordDeltaApplyResultLocked(target, task, deltaApplications(task.delta), outcome, "")
 	return false
+}
+
+// mu must be held. A confirmed content change supersedes results for the same tag.
+func (m *prefetchManager) invalidateApplicationDeltaResultLocked(target imageRef, task *prefetchTask) {
+	targetID := deltastatus.Fingerprint(string(target.owner), target.image)
+	for _, application := range deltaApplications(task.delta) {
+		if existing, exists := m.deltaApplyResults[application][target]; exists && existing.targetKey == task.applicationTargetKey {
+			delete(m.deltaApplyResults[application], target)
+		}
+		if m.deltaStatusStore != nil {
+			if err := m.deltaStatusStore.ClearApplicationResult(application, m.deltaAppSpecKeys[application], targetID, task.applicationTargetKey); err != nil {
+				m.log.Warnf("Failed to invalidate delta result for application %s image %s: %v", application, target.image, err)
+			}
+		}
+	}
 }
 
 func supportsApplicationImageDigestCheck(ociType OCIType) bool {
