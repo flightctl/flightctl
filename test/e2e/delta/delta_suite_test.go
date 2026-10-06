@@ -150,7 +150,8 @@ func clearRegistryDeltaTags(ctx context.Context) error {
 		"flightctl-tests/nginx",
 		"flightctl/delta-applications",
 		applicationDeltaQuadletVolumeRepo,
-		applicationDeltaQuadletKubeRepo,
+		// Keep cleaning up tags left by earlier runs; the Kube Quadlet app is no longer tested.
+		"flightctl-tests/quadlet-kube",
 		"containerdisks/fedora",
 		"kubevirt/virt-launcher",
 	}

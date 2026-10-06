@@ -18,12 +18,110 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/poll"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
+
+func TestAddVolumeImageDigests(t *testing.T) {
+	testCases := []struct {
+		name         string
+		nilFactory   bool
+		factoryError bool
+		volumes      []v1beta1.ApplicationVolumeStatus
+		existing     []v1beta1.ApplicationImageDigest
+		setupMocks   func(*executer.MockExecuter)
+		want         []v1beta1.ApplicationImageDigest
+	}{
+		{
+			name:       "When the factory is nil it should preserve existing digests",
+			nilFactory: true,
+			volumes:    []v1beta1.ApplicationVolumeStatus{{Reference: "volume:v1"}},
+			existing:   []v1beta1.ApplicationImageDigest{{Image: "app:v1", Digest: "sha256:app"}},
+			want:       []v1beta1.ApplicationImageDigest{{Image: "app:v1", Digest: "sha256:app"}},
+		},
+		{
+			name:         "When the factory fails it should skip volume digests",
+			factoryError: true,
+			volumes:      []v1beta1.ApplicationVolumeStatus{{Reference: "volume:v1"}, {Reference: "other:v1"}},
+		},
+		{
+			name:    "When ImageDigest fails it should skip the failed volume",
+			volumes: []v1beta1.ApplicationVolumeStatus{{Reference: "volume:v1"}, {Reference: "volume:v1"}},
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "volume:v1").Return("", "inspect failed", 1)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "inspect", "volume:v1").Return("", "artifact inspection unavailable", 125)
+			},
+		},
+		{
+			name:     "When volumes repeat an existing digest it should deduplicate and inspect once",
+			volumes:  []v1beta1.ApplicationVolumeStatus{{Reference: "volume:v1"}, {Reference: "volume:v1"}},
+			existing: []v1beta1.ApplicationImageDigest{{Image: "volume:v1", Digest: "sha256:volume"}},
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "volume:v1").Return("sha256:volume", "", 0)
+			},
+			want: []v1beta1.ApplicationImageDigest{{Image: "volume:v1", Digest: "sha256:volume"}},
+		},
+		{
+			name:     "When images and digests are unsorted it should sort by image then digest",
+			volumes:  []v1beta1.ApplicationVolumeStatus{{Reference: "z:v1"}, {Reference: "a:v1"}},
+			existing: []v1beta1.ApplicationImageDigest{{Image: "a:v1", Digest: "sha256:z"}},
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "z:v1").Return("sha256:z", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "a:v1").Return("sha256:a", "", 0)
+			},
+			want: []v1beta1.ApplicationImageDigest{{Image: "a:v1", Digest: "sha256:a"}, {Image: "a:v1", Digest: "sha256:z"}, {Image: "z:v1", Digest: "sha256:z"}},
+		},
+		{
+			name:    "When a volume image is present it should add its digest and skip empty references",
+			volumes: []v1beta1.ApplicationVolumeStatus{{Reference: "volume:v1"}, {}},
+			setupMocks: func(mockExec *executer.MockExecuter) {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "volume:v1").Return("sha256:volume", "", 0)
+			},
+			want: []v1beta1.ApplicationImageDigest{{Image: "volume:v1", Digest: "sha256:volume"}},
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			mockExec := executer.NewMockExecuter(ctrl)
+			if testCase.setupMocks != nil {
+				testCase.setupMocks(mockExec)
+			}
+			logger := log.NewPrefixLogger("test")
+			manager := &manager{log: logger}
+			factoryCalls := 0
+			if !testCase.nilFactory {
+				manager.podmanFactory = func(v1beta1.Username) (*client.Podman, error) {
+					factoryCalls++
+					if testCase.factoryError {
+						return nil, fmt.Errorf("factory failed")
+					}
+					return client.NewPodman(logger, mockExec, fileio.NewMockReadWriter(ctrl), poll.Config{}), nil
+				}
+			}
+			results := []AppStatusResult{{Status: v1beta1.DeviceApplicationStatus{Volumes: &testCase.volumes}}}
+			if testCase.existing != nil {
+				results[0].Status.ImageDigests = &testCase.existing
+			}
+			manager.addVolumeImageDigests(context.Background(), results)
+			if testCase.want == nil {
+				require.Nil(results[0].Status.ImageDigests)
+			} else {
+				require.NotNil(results[0].Status.ImageDigests)
+				require.Equal(testCase.want, *results[0].Status.ImageDigests)
+			}
+			if !testCase.nilFactory {
+				require.Equal(1, factoryCalls)
+			}
+		})
+	}
+}
 
 func TestManager(t *testing.T) {
 	bootTime := time.Now()
@@ -300,6 +398,85 @@ func TestManager(t *testing.T) {
 			if len(tc.wantAppNames) == 0 {
 				require.Empty(manager.podmanMonitor.apps)
 			}
+		})
+	}
+}
+
+func TestManagerUpdateAfterRestart(t *testing.T) {
+	testCases := []struct {
+		name    string
+		current string
+		desired string
+	}{
+		{
+			name:    "When a Compose image changes while the agent is stopped it should update the running application",
+			current: compose1,
+			desired: compose2,
+		},
+		{
+			name:    "When a Compose update is rolled back after restart it should restore the previous application",
+			current: compose2,
+			desired: compose1,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			ctx := t.Context()
+			logger := log.NewPrefixLogger("test")
+			bootTime := time.Now()
+			mockExec := executer.NewMockExecuter(ctrl)
+			mockReadWriter := fileio.NewMockReadWriter(ctrl)
+			podman := client.NewPodman(logger, mockExec, mockReadWriter, testutil.NewPollConfig())
+			podmanFactory := func(v1beta1.Username) (*client.Podman, error) { return podman, nil }
+			tempDir := t.TempDir()
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tempDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tempDir)),
+			)
+			rwFactory := func(v1beta1.Username) (fileio.ReadWriter, error) { return rw, nil }
+			rwMockFactory := func(v1beta1.Username) (fileio.ReadWriter, error) { return mockReadWriter, nil }
+			const appName = "app-restart"
+			current := newTestDeviceWithApplications(t, appName, []testInlineDetails{
+				{Content: tc.current, Path: "podman-compose.yaml"},
+			})
+			desired := newTestDeviceWithApplications(t, appName, []testInlineDetails{
+				{Content: tc.desired, Path: "podman-compose.yaml"},
+			})
+			currentProviders, err := provider.FromDeviceSpec(ctx, logger, podmanFactory, nil, rwFactory, current)
+			require.NoError(err)
+			require.Len(currentProviders, 1)
+			// Keep the installed files, but start with a fresh monitor as on agent restart.
+			require.NoError(currentProviders[0].Install(ctx))
+			desiredProviders, err := provider.FromDeviceSpec(ctx, logger, podmanFactory, nil, rwFactory, desired)
+			require.NoError(err)
+			m := &manager{
+				podmanMonitor:     NewPodmanMonitor(logger, podmanFactory, nil, bootTime.Format(time.RFC3339), rwMockFactory),
+				kubernetesMonitor: NewKubernetesMonitor(logger, client.NewCLIClients(), rwFactory),
+				log:               logger,
+			}
+			t.Cleanup(func() { require.NoError(m.podmanMonitor.Stop()) })
+			id := lifecycle.GenerateAppID(appName, v1beta1.CurrentProcessUsername)
+			require.False(m.podmanMonitor.Has(id))
+			mockReadWriter.EXPECT().PathExists(gomock.Any()).Return(true, nil).AnyTimes()
+			gomock.InOrder(
+				mockExecPodmanNetworkList(mockExec, appName),
+				mockExecPodmanPodList(mockExec, appName),
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "stop", "--filter", "label=com.docker.compose.project="+id).Return("", "", 0),
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "rm", "--filter", "label=com.docker.compose.project="+id).Return("", "", 0),
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pod", "rm", "pod123").Return("", "", 0),
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "network", "rm", "network123").Return("", "", 0),
+				mockExecComposePodmanVolumeList(mockExec, appName),
+				mockExecPodmanComposeUp(mockExec, appName, true, true),
+				mockExecPodmanEvents(mockExec, bootTime),
+			)
+
+			require.NoError(syncProviders(ctx, logger, m, currentProviders, desiredProviders))
+			require.True(m.podmanMonitor.Has(id))
+			require.NoError(m.AfterUpdate(ctx))
+			require.True(m.podmanMonitor.isRunning(v1beta1.CurrentProcessUsername))
 		})
 	}
 }
@@ -1329,5 +1506,361 @@ func TestQueueLifecycle(t *testing.T) {
 			err = monitor.ExecuteActions(ctx)
 			require.NoError(err)
 		})
+	}
+}
+
+func TestVolumeImageDigestCacheLifecycle(t *testing.T) {
+	testCases := []struct {
+		name      string
+		reconcile func(context.Context, *manager) error
+	}{
+		{name: "When status repeats it should reuse the volume digest"},
+		{name: "When steady-state BeforeUpdate repeats it should reuse the volume digest", reconcile: func(ctx context.Context, m *manager) error { return m.BeforeUpdate(ctx, &v1beta1.DeviceSpec{}) }},
+		{name: "When steady-state AfterUpdate repeats it should reuse the volume digest", reconcile: func(ctx context.Context, m *manager) error { return m.AfterUpdate(ctx) }},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			mockExec := executer.NewMockExecuter(ctrl)
+			logger := log.NewPrefixLogger("test")
+			m := &manager{
+				log:               logger,
+				podmanMonitor:     NewPodmanMonitor(logger, nil, nil, time.Now().Format(time.RFC3339), nil),
+				kubernetesMonitor: NewKubernetesMonitor(logger, nil, nil),
+				podmanFactory: func(v1beta1.Username) (*client.Podman, error) {
+					return client.NewPodman(logger, mockExec, fileio.NewMockReadWriter(ctrl), poll.Config{}), nil
+				},
+			}
+			p := provider.NewMockProvider(ctrl)
+			p.EXPECT().Spec().Return(&provider.ApplicationSpec{ID: "existing-app", Name: "existing-app", AppType: v1beta1.AppTypeCompose}).AnyTimes()
+			p.EXPECT().EnsureDependencies(gomock.Any()).Return(nil).AnyTimes()
+			m.podmanMonitor.apps["existing-app"] = NewApplication(p)
+			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "volume:v1").Return("sha256:old", "", 0)
+			ctx := context.Background()
+			collect := func(want string) {
+				volumes := []v1beta1.ApplicationVolumeStatus{{Reference: "volume:v1"}}
+				results := []AppStatusResult{{Status: v1beta1.DeviceApplicationStatus{Volumes: &volumes}}}
+				m.addVolumeImageDigests(ctx, results)
+				require.Equal([]v1beta1.ApplicationImageDigest{{Image: "volume:v1", Digest: want}}, *results[0].Status.ImageDigests)
+			}
+			collect("sha256:old")
+			collect("sha256:old")
+			if tc.reconcile != nil {
+				for range 3 {
+					require.NoError(tc.reconcile(ctx, m))
+					require.NoError(m.Ensure(ctx, p))
+					collect("sha256:old")
+				}
+			}
+		})
+	}
+}
+
+func TestVolumeImageDigestCacheRetries(t *testing.T) {
+	testCases := []struct {
+		name, stdout, stderr string
+		exitCode             int
+	}{
+		{name: "When inspecting fails it should retry on the next status tick", stderr: "inspect failed", exitCode: 1},
+		{name: "When a digest is empty it should retry on the next status tick"},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			mockExec := executer.NewMockExecuter(ctrl)
+			logger := log.NewPrefixLogger("test")
+			m := &manager{log: logger, podmanFactory: func(v1beta1.Username) (*client.Podman, error) {
+				return client.NewPodman(logger, mockExec, fileio.NewMockReadWriter(ctrl), poll.Config{}), nil
+			}}
+			first := mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "volume:v1").Return(tc.stdout, tc.stderr, tc.exitCode)
+			if tc.exitCode != 0 {
+				first = mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "inspect", "volume:v1").Return("", "artifact inspection unavailable", 125).After(first)
+			}
+			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "volume:v1").Return("sha256:volume", "", 0).After(first)
+			volumes := []v1beta1.ApplicationVolumeStatus{{Reference: "volume:v1"}}
+			results := []AppStatusResult{{Status: v1beta1.DeviceApplicationStatus{Volumes: &volumes}}}
+			m.addVolumeImageDigests(context.Background(), results)
+			require.Nil(results[0].Status.ImageDigests)
+			m.addVolumeImageDigests(context.Background(), results)
+			require.Equal([]v1beta1.ApplicationImageDigest{{Image: "volume:v1", Digest: "sha256:volume"}}, *results[0].Status.ImageDigests)
+		})
+	}
+}
+
+func TestVolumeImageDigestCacheRunAs(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	logger := log.NewPrefixLogger("test")
+	factoryCalls := 0
+	m := &manager{log: logger, podmanFactory: func(user v1beta1.Username) (*client.Podman, error) {
+		factoryCalls++
+		mockExec := executer.NewMockExecuter(ctrl)
+		if user == "alice" {
+			gomock.InOrder(
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "volume:v1").Return("", "no such image", 125),
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "inspect", "volume:v1").Return("{}", "", 0),
+			)
+		} else {
+			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "volume:v1").Return("sha256:"+string(user), "", 0)
+		}
+		return client.NewPodman(logger, mockExec, fileio.NewMockReadWriter(ctrl), poll.Config{}), nil
+	}}
+	volumes := []v1beta1.ApplicationVolumeStatus{{Reference: "volume:v1"}}
+	for range 2 {
+		results := []AppStatusResult{
+			{Status: v1beta1.DeviceApplicationStatus{RunAs: "alice", Volumes: &volumes}},
+			{Status: v1beta1.DeviceApplicationStatus{RunAs: "bob", Volumes: &volumes}},
+		}
+		m.addVolumeImageDigests(context.Background(), results)
+		require.Nil(results[0].Status.ImageDigests)
+		require.Equal([]v1beta1.ApplicationImageDigest{{Image: "volume:v1", Digest: "sha256:bob"}}, *results[1].Status.ImageDigests)
+	}
+	require.Equal(2, factoryCalls)
+}
+
+func TestVolumeImageDigestCacheArtifacts(t *testing.T) {
+	testCases := []struct {
+		name      string
+		reconcile func(context.Context, *manager) error
+	}{
+		{name: "When a volume is an artifact it should skip inspection on later status ticks"},
+		{name: "When steady-state BeforeUpdate repeats it should retain the cached artifact", reconcile: func(ctx context.Context, m *manager) error { return m.BeforeUpdate(ctx, &v1beta1.DeviceSpec{}) }},
+		{name: "When steady-state AfterUpdate repeats it should retain the cached artifact", reconcile: func(ctx context.Context, m *manager) error { return m.AfterUpdate(ctx) }},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			mockExec := executer.NewMockExecuter(ctrl)
+			logger := log.NewPrefixLogger("test")
+			m := &manager{
+				log:               logger,
+				podmanMonitor:     NewPodmanMonitor(logger, nil, nil, time.Now().Format(time.RFC3339), nil),
+				kubernetesMonitor: NewKubernetesMonitor(logger, nil, nil),
+				podmanFactory: func(v1beta1.Username) (*client.Podman, error) {
+					return client.NewPodman(logger, mockExec, fileio.NewMockReadWriter(ctrl), poll.Config{}), nil
+				},
+			}
+			gomock.InOrder(
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "volume:v1").Return("", "no such image", 125),
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "inspect", "volume:v1").Return("{}", "", 0),
+			)
+			ctx := context.Background()
+			collect := func() []AppStatusResult {
+				volumes := []v1beta1.ApplicationVolumeStatus{{Reference: "volume:v1"}, {Reference: "volume:v1"}}
+				results := []AppStatusResult{{Status: v1beta1.DeviceApplicationStatus{Volumes: &volumes}}}
+				m.addVolumeImageDigests(ctx, results)
+				return results
+			}
+			require.Nil(collect()[0].Status.ImageDigests)
+			require.Nil(collect()[0].Status.ImageDigests)
+			if tc.reconcile != nil {
+				for range 3 {
+					require.NoError(tc.reconcile(ctx, m))
+					require.Nil(collect()[0].Status.ImageDigests)
+				}
+			}
+		})
+	}
+}
+
+func TestVolumeImageDigestCacheApplicationChanges(t *testing.T) {
+	for _, operation := range []string{"install", "update", "remove"} {
+		t.Run("When an application "+operation+" changes images it should refresh cached digests", func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			mockExec := executer.NewMockExecuter(ctrl)
+			logger := log.NewPrefixLogger("test")
+			m := &manager{
+				log:               logger,
+				podmanMonitor:     NewPodmanMonitor(logger, nil, nil, time.Now().Format(time.RFC3339), nil),
+				kubernetesMonitor: NewKubernetesMonitor(logger, nil, nil),
+				podmanFactory: func(v1beta1.Username) (*client.Podman, error) {
+					return client.NewPodman(logger, mockExec, fileio.NewMockReadWriter(ctrl), poll.Config{}), nil
+				},
+			}
+			volumes, err := provider.NewVolumeManager(logger, "app", v1beta1.AppTypeCompose, "", nil)
+			require.NoError(err)
+			p := provider.NewMockProvider(ctrl)
+			p.EXPECT().Spec().Return(&provider.ApplicationSpec{ID: "app", Name: "app", AppType: v1beta1.AppTypeCompose, Volume: volumes}).AnyTimes()
+			p.EXPECT().EnsureDependencies(gomock.Any()).Return(nil)
+			handler := lifecycle.NewMockActionHandler(ctrl)
+			m.podmanMonitor.handlers[v1beta1.AppTypeCompose] = handler
+			ctx := context.Background()
+			collect := func(digest string) {
+				volumes := []v1beta1.ApplicationVolumeStatus{{Reference: "volume:v1"}}
+				results := []AppStatusResult{{Status: v1beta1.DeviceApplicationStatus{Volumes: &volumes}}}
+				m.addVolumeImageDigests(ctx, results)
+				require.Equal([]v1beta1.ApplicationImageDigest{{Image: "volume:v1", Digest: digest}}, *results[0].Status.ImageDigests)
+			}
+			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "volume:v1").Return("sha256:old", "", 0)
+			collect("sha256:old")
+			switch operation {
+			case "install":
+				p.EXPECT().Install(gomock.Any()).Return(fmt.Errorf("install failed"))
+				require.Error(m.Ensure(ctx, p))
+			case "update":
+				p.EXPECT().Remove(gomock.Any()).Return(nil)
+				p.EXPECT().Install(gomock.Any()).Return(nil)
+				require.NoError(m.Update(ctx, p))
+				handler.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(fmt.Errorf("action failed"))
+				// The Podman failure must not drop invalidation for Helm actions
+				// that remain queued until the next AfterUpdate call.
+				pending := provider.NewMockProvider(ctrl)
+				pending.EXPECT().Spec().Return(&provider.ApplicationSpec{ID: "pending-app", Name: "pending-app", AppType: v1beta1.AppTypeHelm, Volume: volumes}).AnyTimes()
+				pending.EXPECT().Remove(gomock.Any()).Return(nil)
+				pending.EXPECT().EnsureDependencies(gomock.Any()).Return(nil)
+				m.kubernetesMonitor.apps["pending-app"] = NewHelmApplication(pending)
+				require.NoError(m.Remove(ctx, pending))
+				pendingHandler := lifecycle.NewMockActionHandler(ctrl)
+				m.kubernetesMonitor.handlers[v1beta1.AppTypeHelm] = pendingHandler
+				pendingHandler.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(nil)
+
+			case "remove":
+				p.EXPECT().Remove(gomock.Any()).Return(nil)
+				require.NoError(m.Remove(ctx, p))
+				handler.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(nil)
+			}
+			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "volume:v1").Return("sha256:during", "", 0)
+			collect("sha256:during")
+			err = m.AfterUpdate(ctx)
+			if operation == "update" {
+				require.Error(err)
+			} else {
+				require.NoError(err)
+			}
+			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "volume:v1").Return("sha256:new", "", 0)
+			collect("sha256:new")
+			require.NoError(m.BeforeUpdate(ctx, &v1beta1.DeviceSpec{}))
+			require.NoError(m.AfterUpdate(ctx))
+			if operation == "update" {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "volume:v1").Return("sha256:after-retry", "", 0)
+				collect("sha256:after-retry")
+				// Once the pending batch completes, steady-state hooks retain the cache.
+				require.NoError(m.BeforeUpdate(ctx, &v1beta1.DeviceSpec{}))
+				require.NoError(m.AfterUpdate(ctx))
+				collect("sha256:after-retry")
+			} else {
+				collect("sha256:new")
+			}
+		})
+	}
+}
+
+func TestVolumeImageDigestCacheEvictsChangedReferences(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockExec := executer.NewMockExecuter(ctrl)
+	logger := log.NewPrefixLogger("test")
+	m := &manager{log: logger, podmanFactory: func(v1beta1.Username) (*client.Podman, error) {
+		return client.NewPodman(logger, mockExec, fileio.NewMockReadWriter(ctrl), poll.Config{}), nil
+	}}
+	collect := func(reference, digest string) {
+		volumes := []v1beta1.ApplicationVolumeStatus{{Reference: reference}}
+		results := []AppStatusResult{{Status: v1beta1.DeviceApplicationStatus{Volumes: &volumes}}}
+		m.addVolumeImageDigests(context.Background(), results)
+		require.Equal([]v1beta1.ApplicationImageDigest{{Image: reference, Digest: digest}}, *results[0].Status.ImageDigests)
+	}
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "volume:v1").Return("sha256:old", "", 0)
+	collect("volume:v1", "sha256:old")
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "volume:v2").Return("sha256:v2", "", 0)
+	collect("volume:v2", "sha256:v2")
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "volume:v1").Return("sha256:new", "", 0)
+	collect("volume:v1", "sha256:new")
+	require.Len(m.volumeImageDigests, 1)
+}
+
+func TestVolumeImageDigestCacheConcurrentInvalidation(t *testing.T) {
+	for _, inspection := range []string{"image", "artifact"} {
+		for _, update := range []string{"remove", "after update"} {
+			t.Run("When "+inspection+" inspection overlaps "+update+" it should allow updates and discard stale cache results", func(t *testing.T) {
+				require := require.New(t)
+				ctrl := gomock.NewController(t)
+				defer ctrl.Finish()
+				mockExec := executer.NewMockExecuter(ctrl)
+				logger := log.NewPrefixLogger("test")
+				podman := client.NewPodman(logger, mockExec, fileio.NewMockReadWriter(ctrl), poll.Config{})
+				m := &manager{
+					log:               logger,
+					podmanMonitor:     NewPodmanMonitor(logger, nil, nil, time.Now().Format(time.RFC3339), nil),
+					kubernetesMonitor: NewKubernetesMonitor(logger, nil, nil),
+					podmanFactory: func(v1beta1.Username) (*client.Podman, error) {
+						return podman, nil
+					},
+				}
+				if update == "after update" {
+					m.invalidateVolumeImageDigests()
+				}
+				started := make(chan struct{})
+				release := make(chan struct{}, 1)
+				collected := make(chan struct{})
+				block := func(context.Context, string, ...string) (string, string, int) {
+					close(started)
+					<-release
+					if inspection == "artifact" {
+						return "{}", "", 0
+					}
+					return "sha256:old", "", 0
+				}
+				if inspection == "artifact" {
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "volume:v1").Return("", "no such image", 125)
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "inspect", "volume:v1").DoAndReturn(block)
+				} else {
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "volume:v1").DoAndReturn(block)
+				}
+				collect := func() []AppStatusResult {
+					volumes := []v1beta1.ApplicationVolumeStatus{{Reference: "volume:v1"}}
+					results := []AppStatusResult{{Status: v1beta1.DeviceApplicationStatus{Volumes: &volumes}}}
+					m.addVolumeImageDigests(context.Background(), results)
+					return results
+				}
+				go func() {
+					collect()
+					close(collected)
+				}()
+				// Release the blocked inspection even if an assertion fails.
+				defer func() {
+					close(release)
+					<-collected
+				}()
+				select {
+				case <-started:
+				case <-time.After(5 * time.Second):
+					t.Fatal("volume inspection did not start")
+				}
+				updateFinished := make(chan error, 1)
+				if update == "remove" {
+					p := provider.NewMockProvider(ctrl)
+					p.EXPECT().Remove(gomock.Any()).Return(fmt.Errorf("remove failed"))
+					go func() { updateFinished <- m.Remove(context.Background(), p) }()
+				} else {
+					go func() { updateFinished <- m.AfterUpdate(context.Background()) }()
+				}
+				select {
+				case err := <-updateFinished:
+					if update == "remove" {
+						require.Error(err)
+					} else {
+						require.NoError(err)
+					}
+				case <-time.After(5 * time.Second):
+					t.Fatal("application update waited for volume inspection")
+				}
+				// Populate the new generation before the old inspection finishes.
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "volume:v1").Return("sha256:new", "", 0)
+				require.Equal("sha256:new", (*collect()[0].Status.ImageDigests)[0].Digest)
+				release <- struct{}{}
+				<-collected
+				require.Equal("sha256:new", (*collect()[0].Status.ImageDigests)[0].Digest)
+			})
+		}
 	}
 }

@@ -250,12 +250,9 @@ func (m *monitor) updateWithWorkloads(app Application) error {
 	defer m.mu.Unlock()
 
 	appID := app.ID()
-	oldApp, ok := m.apps[appID]
-	if !ok {
-		return errors.ErrAppNotFound
+	if oldApp, ok := m.apps[appID]; ok {
+		app.CopyWorkloadsFrom(oldApp)
 	}
-
-	app.CopyWorkloadsFrom(oldApp)
 	m.apps[appID] = app
 
 	action := lifecycle.Action{

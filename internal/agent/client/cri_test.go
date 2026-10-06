@@ -1,9 +1,16 @@
 package client
 
 import (
+	"context"
+	"fmt"
 	"testing"
 
+	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/pkg/executer"
+	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 func TestNormalizeImageRef(t *testing.T) {
@@ -170,6 +177,52 @@ func TestNormalizeAuthFileKey(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			result := normalizeAuthFileKey(tc.input)
 			require.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+func TestCRIImageRepoDigestsConfig(t *testing.T) {
+	testCases := []struct {
+		name      string
+		config    string
+		exists    bool
+		pathError error
+	}{
+		{name: "When no config is specified it should use runtime defaults"},
+		{name: "When the config exists it should use that config", config: "/etc/crictl.yaml", exists: true},
+		{name: "When the config is missing it should use runtime defaults", config: "/etc/crictl.yaml"},
+		{name: "When checking the config fails it should return the error", config: "/etc/crictl.yaml", pathError: fmt.Errorf("permission denied")},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			mockExec := executer.NewMockExecuter(ctrl)
+			rw := fileio.NewMockReadWriter(ctrl)
+			if tc.config != "" {
+				rw.EXPECT().PathExists(tc.config).Return(tc.exists, tc.pathError).Times(2)
+			}
+			args := []any{}
+			if tc.exists {
+				args = append(args, "--config", tc.config)
+			}
+			image := "registry.example.com/app:v1"
+			if tc.pathError == nil {
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", append(args, "images", image)...).Return("IMAGE TAG ID\napp v1 abc", "", 0)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", append(args, "inspecti", "--output", "json", image)...).Return(`{"status":{"repoDigests":["registry.example.com/app@sha256:abc"]}}`, "", 0)
+			}
+			cri := NewCRI(log.NewPrefixLogger("test"), mockExec, rw, poll.Config{})
+			opts := []ClientOption{WithCRIConfig(tc.config)}
+			require.Equal(tc.pathError == nil, cri.ImageExists(context.Background(), image, opts...))
+			digests, err := cri.ImageRepoDigests(context.Background(), image, opts...)
+			if tc.pathError != nil {
+				require.ErrorIs(err, tc.pathError)
+				require.Nil(digests)
+			} else {
+				require.NoError(err)
+				require.Equal([]string{"registry.example.com/app@sha256:abc"}, digests)
+			}
 		})
 	}
 }

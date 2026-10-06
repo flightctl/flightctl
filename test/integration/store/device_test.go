@@ -248,7 +248,7 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(got.Status.SystemInfo.OciDeltaVersion).To(BeNil())
 		})
 
-		It("When UpdateStatus sets lastDelta fallbackReason and outcome it should return them on Get", func() {
+		It("When UpdateStatus stores application delta outcomes it should return them on Get", func() {
 			name := "os-delta-status-fields"
 			testutil.CreateTestDevice(ctx, devStore, orgId, name, nil, nil, nil)
 			status := api.NewDeviceStatus()
@@ -257,15 +257,26 @@ var _ = Describe("DeviceStore create", func() {
 				FallbackReason: lo.ToPtr("delta apply failed"),
 				Outcome:        api.DeviceDeltaApplyOutcomeFallback,
 			}
-			status.Applications = []api.DeviceApplicationStatus{{
-				Name:      "app",
-				Ready:     "1/1",
-				Restarts:  0,
-				Status:    api.ApplicationStatusRunning,
-				Embedded:  false,
-				AppType:   api.AppTypeContainer,
-				LastDelta: &api.DeviceDeltaApplyStatus{Outcome: outcome},
-			}}
+			status.Applications = []api.DeviceApplicationStatus{
+				{
+					Name:      "app",
+					Ready:     "1/1",
+					Restarts:  0,
+					Status:    api.ApplicationStatusRunning,
+					Embedded:  false,
+					AppType:   api.AppTypeContainer,
+					LastDelta: &api.DeviceDeltaApplyStatus{Outcome: outcome},
+				},
+				{
+					Name:      "unchanged-app",
+					Ready:     "1/1",
+					Restarts:  0,
+					Status:    api.ApplicationStatusRunning,
+					Embedded:  false,
+					AppType:   api.AppTypeContainer,
+					LastDelta: &api.DeviceDeltaApplyStatus{Outcome: api.DeviceDeltaApplyOutcomeNotRequired},
+				},
+			}
 			device := api.Device{
 				Metadata: api.ObjectMeta{Name: lo.ToPtr(name)},
 				Status:   &status,
@@ -279,9 +290,11 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(got.Status.Os.LastDelta).ToNot(BeNil())
 			Expect(got.Status.Os.LastDelta.FallbackReason).ToNot(BeNil())
 			Expect(*got.Status.Os.LastDelta.FallbackReason).To(Equal("delta apply failed"))
-			Expect(got.Status.Applications).To(HaveLen(1))
+			Expect(got.Status.Applications).To(HaveLen(2))
 			Expect(got.Status.Applications[0].LastDelta).ToNot(BeNil())
 			Expect(got.Status.Applications[0].LastDelta.Outcome).To(Equal(api.DeviceDeltaApplyOutcomeApplied))
+			Expect(got.Status.Applications[1].LastDelta).ToNot(BeNil())
+			Expect(got.Status.Applications[1].LastDelta.Outcome).To(Equal(api.DeviceDeltaApplyOutcomeNotRequired))
 		})
 
 		It("When agent reports delta outcomes it should preserve control plane delta size estimates", func() {

@@ -23,7 +23,6 @@ const (
 	applicationDeltaVMName            = "delta-vm"
 	applicationDeltaNamespace         = "delta-apps"
 	applicationDeltaQuadletVolumeRepo = "flightctl-tests/quadlet-volume"
-	applicationDeltaQuadletKubeRepo   = "flightctl-tests/quadlet-kube"
 )
 
 var applicationDeltaNonHelmAppNames = []string{
@@ -51,14 +50,8 @@ var _ = Describe("application delta applications", Label("delta", "slow", "vm"),
 			applicationImageReference(registry, "flightctl-tests/alpine", "v1"),
 		)
 		Expect(err).NotTo(HaveOccurred())
-		quadletKubeSource, err := copyApplicationImageToRegistry(
-			harness, registry, tagPrefix+"-quadlet-kube-v1", applicationDeltaQuadletKubeRepo,
-			applicationImageReference(registry, "flightctl-tests/alpine", "v1"),
-		)
-		Expect(err).NotTo(HaveOccurred())
 		v1Apps, err := applicationDeltaSpecsForNames(registry, applicationDeltaVersionV1, applicationDeltaOverrides{
 			QuadletVolume: &quadletVolumeSource,
-			QuadletKube:   &quadletKubeSource,
 		}, applicationDeltaNonHelmAppNames)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(harness.UpdateDeviceAndWaitForVersion(deviceID, func(device *v1beta1.Device) {
@@ -87,12 +80,7 @@ var _ = Describe("application delta applications", Label("delta", "slow", "vm"),
 			quadletVolumeSource.image,
 		)
 		Expect(err).NotTo(HaveOccurred())
-		quadletKubeTarget, err := buildApplicationDeltaTargetImage(
-			harness, registry, tagPrefix+"-quadlet-kube-v2", applicationDeltaQuadletKubeRepo,
-			quadletKubeSource.image,
-		)
-		Expect(err).NotTo(HaveOccurred())
-		allImageTargets := []applicationDeltaTarget{nginxTarget, alpineTarget, quadletVolumeTarget, quadletKubeTarget}
+		allImageTargets := []applicationDeltaTarget{nginxTarget, alpineTarget, quadletVolumeTarget}
 		By("keeping each full target image in the registry while ensuring it is absent from the device")
 		for _, target := range allImageTargets {
 			requireDeviceImageAbsent(harness, target.image)
@@ -106,7 +94,6 @@ var _ = Describe("application delta applications", Label("delta", "slow", "vm"),
 			Quadlet:       &nginxTarget,
 			QuadletImage:  &alpineTarget,
 			QuadletVolume: &quadletVolumeTarget,
-			QuadletKube:   &quadletKubeTarget,
 		}, applicationDeltaNonHelmAppNames)
 		Expect(err).NotTo(HaveOccurred())
 		assertNoDesiredApplicationDeltaHints(v2Apps)
@@ -119,7 +106,7 @@ var _ = Describe("application delta applications", Label("delta", "slow", "vm"),
 		waitForApplicationDeltaGenerationEvents(harness, "", deviceID, eventBaseline, generationTargets...)
 		containerHint := waitForRenderedContainerDeltaHint(harness, deviceID, nginxTarget)
 		composeHints := waitForRenderedNestedDeltaHints(harness, deviceID, applicationDeltaComposeName, v1beta1.AppTypeCompose, []applicationDeltaTarget{nginxTarget, alpineTarget})
-		quadletTargets := []applicationDeltaTarget{nginxTarget, alpineTarget, quadletVolumeTarget, quadletKubeTarget}
+		quadletTargets := []applicationDeltaTarget{nginxTarget, alpineTarget, quadletVolumeTarget}
 		quadletHints := waitForRenderedNestedDeltaHints(harness, deviceID, applicationDeltaQuadletName, v1beta1.AppTypeQuadlet, quadletTargets)
 		vmHint := waitForRenderedVMDeltaHint(harness, deviceID, vmV2Image)
 		allHints := append([]v1beta1.ImageDeltaHint{
@@ -137,7 +124,9 @@ var _ = Describe("application delta applications", Label("delta", "slow", "vm"),
 		for _, target := range []applicationDeltaTarget{nginxTarget, alpineTarget} {
 			waitForApplicationDeltaOutcome(harness, deviceID, applicationDeltaComposeName, target, v1beta1.DeviceDeltaApplyOutcomeApplied)
 		}
-		waitForApplicationDeltaOutcome(harness, deviceID, applicationDeltaQuadletName, nginxTarget, v1beta1.DeviceDeltaApplyOutcomeApplied)
+		for _, target := range quadletTargets {
+			waitForApplicationDeltaOutcome(harness, deviceID, applicationDeltaQuadletName, target, v1beta1.DeviceDeltaApplyOutcomeApplied)
+		}
 		waitForApplicationDeltaOutcome(harness, deviceID, applicationDeltaVMName, applicationDeltaTarget{image: vmV2Image, repository: applicationImageRepository(vmV2Image), targetDigest: vmHint.TargetDigest}, v1beta1.DeviceDeltaApplyOutcomeApplied)
 		after := getDeltaDevice(harness, deviceID)
 		Expect(after.Status.Os.LastDelta).To(Equal(before.Status.Os.LastDelta), "application updates must not change OS delta status")
@@ -160,14 +149,8 @@ var _ = Describe("application delta applications", Label("delta", "slow", "vm"),
 			applicationImageReference(registry, "flightctl-tests/alpine", "v1"),
 		)
 		Expect(err).NotTo(HaveOccurred())
-		quadletKubeSource, err := copyApplicationImageToRegistry(
-			harness, registry, tagPrefix+"-quadlet-kube-v1", applicationDeltaQuadletKubeRepo,
-			applicationImageReference(registry, "flightctl-tests/alpine", "v1"),
-		)
-		Expect(err).NotTo(HaveOccurred())
 		v1Apps, err := applicationDeltaSpecsForNames(registry, applicationDeltaVersionV1, applicationDeltaOverrides{
 			QuadletVolume: &quadletVolumeSource,
-			QuadletKube:   &quadletKubeSource,
 		}, applicationDeltaNonHelmAppNames)
 		Expect(err).NotTo(HaveOccurred())
 		By("applying the V1 application set through fleet ownership")
@@ -197,12 +180,7 @@ var _ = Describe("application delta applications", Label("delta", "slow", "vm"),
 			quadletVolumeSource.image,
 		)
 		Expect(err).NotTo(HaveOccurred())
-		quadletKubeTarget, err := buildApplicationDeltaTargetImage(
-			harness, registry, tagPrefix+"-quadlet-kube-v2", applicationDeltaQuadletKubeRepo,
-			quadletKubeSource.image,
-		)
-		Expect(err).NotTo(HaveOccurred())
-		allImageTargets := []applicationDeltaTarget{nginxTarget, alpineTarget, quadletVolumeTarget, quadletKubeTarget}
+		allImageTargets := []applicationDeltaTarget{nginxTarget, alpineTarget, quadletVolumeTarget}
 		for _, target := range allImageTargets {
 			requireDeviceImageAbsent(harness, target.image)
 		}
@@ -214,7 +192,6 @@ var _ = Describe("application delta applications", Label("delta", "slow", "vm"),
 			Quadlet:       &nginxTarget,
 			QuadletImage:  &alpineTarget,
 			QuadletVolume: &quadletVolumeTarget,
-			QuadletKube:   &quadletKubeTarget,
 		}, applicationDeltaNonHelmAppNames)
 		Expect(err).NotTo(HaveOccurred())
 		assertNoDesiredApplicationDeltaHints(v2Apps)
@@ -226,7 +203,7 @@ var _ = Describe("application delta applications", Label("delta", "slow", "vm"),
 		waitForApplicationDeltaGenerationEvents(harness, fleetName, deviceID, eventBaseline, generationTargets...)
 		containerHint := waitForRenderedContainerDeltaHint(harness, deviceID, nginxTarget)
 		composeHints := waitForRenderedNestedDeltaHints(harness, deviceID, applicationDeltaComposeName, v1beta1.AppTypeCompose, []applicationDeltaTarget{nginxTarget, alpineTarget})
-		quadletTargets := []applicationDeltaTarget{nginxTarget, alpineTarget, quadletVolumeTarget, quadletKubeTarget}
+		quadletTargets := []applicationDeltaTarget{nginxTarget, alpineTarget, quadletVolumeTarget}
 		quadletHints := waitForRenderedNestedDeltaHints(harness, deviceID, applicationDeltaQuadletName, v1beta1.AppTypeQuadlet, quadletTargets)
 		vmHint := waitForRenderedVMDeltaHint(harness, deviceID, vmV2Image)
 		allHints := append([]v1beta1.ImageDeltaHint{
@@ -244,7 +221,9 @@ var _ = Describe("application delta applications", Label("delta", "slow", "vm"),
 		for _, target := range []applicationDeltaTarget{nginxTarget, alpineTarget} {
 			waitForApplicationDeltaOutcome(harness, deviceID, applicationDeltaComposeName, target, v1beta1.DeviceDeltaApplyOutcomeApplied)
 		}
-		waitForApplicationDeltaOutcome(harness, deviceID, applicationDeltaQuadletName, nginxTarget, v1beta1.DeviceDeltaApplyOutcomeApplied)
+		for _, target := range quadletTargets {
+			waitForApplicationDeltaOutcome(harness, deviceID, applicationDeltaQuadletName, target, v1beta1.DeviceDeltaApplyOutcomeApplied)
+		}
 		waitForApplicationDeltaOutcome(harness, deviceID, applicationDeltaVMName, applicationDeltaTarget{image: vmV2Image, repository: applicationImageRepository(vmV2Image), targetDigest: vmHint.TargetDigest}, v1beta1.DeviceDeltaApplyOutcomeApplied)
 		after := getDeltaDevice(harness, deviceID)
 		Expect(after.Status.Os.LastDelta).To(Equal(before.Status.Os.LastDelta), "application updates must not change OS delta status")
@@ -396,7 +375,6 @@ type applicationDeltaOverrides struct {
 	Quadlet       *applicationDeltaTarget
 	QuadletImage  *applicationDeltaTarget
 	QuadletVolume *applicationDeltaTarget
-	QuadletKube   *applicationDeltaTarget
 	HelmValues    map[string]any
 }
 
@@ -442,7 +420,7 @@ func applicationDeltaSpecsForNames(registry string, version applicationDeltaVers
 }
 
 func applicationDeltaSpecs(registry string, version applicationDeltaVersion, overrides applicationDeltaOverrides) ([]v1beta1.ApplicationProviderSpec, error) {
-	var containerImage, quadletImage, quadletImageUnit, quadletVolumeImage, quadletKubeImage, chartVersion, helmImage, vmImage string
+	var containerImage, quadletImage, quadletImageUnit, quadletVolumeImage, chartVersion, helmImage, vmImage string
 	var composeImages []string
 	switch version {
 	case applicationDeltaVersionV1:
@@ -450,7 +428,6 @@ func applicationDeltaSpecs(registry string, version applicationDeltaVersion, ove
 		quadletImage = applicationImageReference(registry, "flightctl-tests/nginx", "v1")
 		quadletImageUnit = applicationImageReference(registry, "flightctl-tests/alpine", "v1")
 		quadletVolumeImage = applicationImageReference(registry, "flightctl-tests/alpine", "v1")
-		quadletKubeImage = applicationImageReference(registry, "flightctl-tests/alpine", "v1")
 		composeImages = []string{
 			applicationImageReference(registry, "flightctl-tests/nginx", "v1"),
 			applicationImageReference(registry, "flightctl-tests/alpine", "v1"),
@@ -463,7 +440,6 @@ func applicationDeltaSpecs(registry string, version applicationDeltaVersion, ove
 		quadletImage = applicationImageReference(registry, "flightctl-tests/nginx", "1.28-alpine-slim")
 		quadletImageUnit = applicationImageReference(registry, "flightctl-tests/alpine", "v1")
 		quadletVolumeImage = applicationImageReference(registry, "flightctl-tests/alpine", "v1")
-		quadletKubeImage = applicationImageReference(registry, "flightctl-tests/alpine", "v1")
 		composeImages = []string{
 			applicationImageReference(registry, "flightctl-tests/nginx", "1.28-alpine-slim"),
 			applicationImageReference(registry, "flightctl-tests/alpine", "v1"),
@@ -492,9 +468,6 @@ func applicationDeltaSpecs(registry string, version applicationDeltaVersion, ove
 	if overrides.QuadletVolume != nil {
 		quadletVolumeImage = overrides.QuadletVolume.image
 	}
-	if overrides.QuadletKube != nil {
-		quadletKubeImage = overrides.QuadletKube.image
-	}
 	containerSpec, err := e2e.NewContainerApplicationSpec(applicationDeltaContainerName, containerImage, nil, nil, nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("container application spec: %w", err)
@@ -504,9 +477,12 @@ func applicationDeltaSpecs(registry string, version applicationDeltaVersion, ove
 		return nil, err
 	}
 
+	// The .kube/Pod YAML fixture was removed because kube-quadlet workloads lack
+	// the application labels needed by the monitor to report image digest snapshots.
+	// Kube-quadlet needs separate delta e2e coverage; .pod quadlets remain covered.
 	quadletPaths := []string{
 		"app.network", "app.pod", "app.container", "model-data.volume", "data.volume",
-		"worker-image.image", "worker.container", "kube.kube", "pod.yaml",
+		"worker-image.image", "worker.container",
 	}
 	quadletContents := []string{
 		"[Network]\nDriver=bridge\n",
@@ -531,18 +507,6 @@ Exec=sh -c "echo 'Worker started.' && sleep infinity"
 [Install]
 WantedBy=default.target
 `,
-		"[Kube]\nYaml=pod.yaml\n",
-		fmt.Sprintf(`apiVersion: v1
-kind: Pod
-metadata:
-  name: delta-kube-pod
-spec:
-  containers:
-  - name: kube-worker
-    image: %s
-    command: ["sleep", "infinity"]
-  restartPolicy: Never
-`, quadletKubeImage),
 	}
 	quadletSpec, err := e2e.NewQuadletInlineSpec(applicationDeltaQuadletName, "", quadletPaths, quadletContents)
 	if err != nil {

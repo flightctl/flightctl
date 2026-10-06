@@ -286,11 +286,9 @@ func (m *PodmanMonitor) QueueUpdate(app Application) error {
 	defer m.mu.Unlock()
 
 	appID := app.ID()
-	_, ok := m.apps[appID]
-	if !ok {
-		return errors.ErrAppNotFound
-	}
-
+	// A restarted agent has no monitor registration for existing workloads.
+	// Register the desired app and keep the update action so those workloads
+	// are removed before the new application starts.
 	m.apps[appID] = app
 
 	// currently we don't support updating embedded applications
