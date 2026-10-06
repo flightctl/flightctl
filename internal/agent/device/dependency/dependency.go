@@ -982,8 +982,8 @@ func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, tas
 	}
 	deltaOpts := append([]client.ClientOption(nil), opts...)
 	deltaOpts = append(deltaOpts, client.WithDefaultAuth())
-	if task.delta.Hint == "" && m.applicationImageDigestMatchesTarget(
-		ctx, target, OCITypeCRIImage, task.delta, false, nil, skopeo, &task.resolvedDigest, deltaOpts...,
+	if task.delta.Hint == "" && m.checkUncachedApplicationTask(
+		ctx, target, OCITypeCRIImage, task, nil, skopeo, deltaOpts...,
 	) != digestMismatched {
 		_, err := cri.Pull(ctx, target.image, opts...)
 		// The image was absent locally, so this full pull was required even
@@ -1159,8 +1159,8 @@ func (m *prefetchManager) pullApplicationImage(ctx context.Context, target image
 	}
 	deltaOpts := append([]client.ClientOption(nil), opts...)
 	deltaOpts = append(deltaOpts, client.WithDefaultAuth())
-	if task.delta.Hint == "" && m.applicationImageDigestMatchesTarget(
-		ctx, target, OCITypePodmanImage, task.delta, false, podman, skopeo, &task.resolvedDigest, deltaOpts...,
+	if task.delta.Hint == "" && m.checkUncachedApplicationTask(
+		ctx, target, OCITypePodmanImage, task, podman, skopeo, deltaOpts...,
 	) != digestMismatched {
 		_, err := podman.Pull(ctx, target.image, opts...)
 		// The image was absent locally, so this full pull was required even
@@ -1574,6 +1574,29 @@ func (m *prefetchManager) prepareTask(ctx context.Context, target imageRef, ociT
 	}
 	m.tasks[target] = task
 	return true, nil
+}
+
+// checkUncachedApplicationTask invalidates restored outcomes when a known source
+// digest confirms that the requested tag has changed, even if the image is absent.
+func (m *prefetchManager) checkUncachedApplicationTask(
+	ctx context.Context,
+	target imageRef,
+	ociType OCIType,
+	task *prefetchTask,
+	podman *client.Podman,
+	skopeo *client.Skopeo,
+	opts ...client.ClientOption,
+) digestCheckResult {
+	result := m.applicationImageDigestMatchesTarget(ctx, target, ociType, task.delta, false, podman, skopeo, &task.resolvedDigest, opts...)
+	if result != digestMismatched || task.delta.SourceDigest == "" || task.resolvedDigest == "" {
+		return result
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.tasks[target] == task && task.deltaGeneration == m.deltaGeneration {
+		m.invalidateApplicationDeltaResultLocked(target, task)
+	}
+	return result
 }
 
 // mu must be held on entry; may be temporarily released during registry inspection; mu is held on return.

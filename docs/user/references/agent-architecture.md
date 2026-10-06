@@ -107,7 +107,7 @@ The agent continuously reports device health, application state, and resource co
 
 The agent persists OS and application delta outcomes in `delta-status.json` in its data directory and restores them after restart. This file stores delta results separately from application monitor registrations.
 
-If digest validation confirms that an application image tag now refers to different content, the agent clears the previous delta outcome before preparing that content. An unavailable digest inspection does not invalidate the saved outcome.
+If digest validation confirms that an application image tag now refers to different content, the agent clears the previous delta outcome before preparing that content. This also applies when the image is absent after restart and its source digest confirms the tag changed. An unavailable digest inspection does not invalidate the saved outcome.
 
 ## Ansible Collection
 

@@ -1533,6 +1533,7 @@ func TestMovedApplicationTagClearsPersistedDeltaOutcome(t *testing.T) {
 		name         string
 		ociType      OCIType
 		reused       bool
+		absent       bool
 		previous     v1beta1.DeviceDeltaApplyOutcomeType
 		remoteDigest string
 		remoteExit   int
@@ -1540,6 +1541,12 @@ func TestMovedApplicationTagClearsPersistedDeltaOutcome(t *testing.T) {
 		wantPull     bool
 		want         v1beta1.DeviceDeltaApplyOutcomeType
 	}{
+		{name: "When a Podman image is absent after restart and its tag moves it should replace NotRequired", absent: true, previous: v1beta1.DeviceDeltaApplyOutcomeNotRequired, remoteDigest: newDigest, wantPull: true, want: v1beta1.DeviceDeltaApplyOutcomeNotUsed},
+		{name: "When a CRI image is absent after restart and its tag moves it should replace NotRequired", ociType: OCITypeCRIImage, absent: true, previous: v1beta1.DeviceDeltaApplyOutcomeNotRequired, remoteDigest: newDigest, wantPull: true, want: v1beta1.DeviceDeltaApplyOutcomeNotUsed},
+		{name: "When an absent image tag moves after Applied it should replace the persisted outcome", absent: true, previous: v1beta1.DeviceDeltaApplyOutcomeApplied, remoteDigest: newDigest, wantPull: true, want: v1beta1.DeviceDeltaApplyOutcomeNotUsed},
+		{name: "When an absent image tag moves after Fallback it should replace the persisted outcome", absent: true, previous: v1beta1.DeviceDeltaApplyOutcomeFallback, remoteDigest: newDigest, wantPull: true, want: v1beta1.DeviceDeltaApplyOutcomeNotUsed},
+		{name: "When an absent image digest is unchanged it should preserve Applied", absent: true, previous: v1beta1.DeviceDeltaApplyOutcomeApplied, remoteDigest: oldDigest, wantPull: true, want: v1beta1.DeviceDeltaApplyOutcomeApplied},
+		{name: "When registry inspection fails for an absent image it should preserve NotRequired", absent: true, previous: v1beta1.DeviceDeltaApplyOutcomeNotRequired, remoteExit: 1, wantPull: true, want: v1beta1.DeviceDeltaApplyOutcomeNotRequired},
 		{name: "When a CRI tag moves it should replace the persisted outcome", ociType: OCITypeCRIImage, previous: v1beta1.DeviceDeltaApplyOutcomeNotRequired, remoteDigest: newDigest, wantPull: true, want: v1beta1.DeviceDeltaApplyOutcomeNotUsed},
 		{name: "When a tag moves between prepare generations it should replace Applied", reused: true, previous: v1beta1.DeviceDeltaApplyOutcomeApplied, remoteDigest: newDigest, wantPull: true, want: v1beta1.DeviceDeltaApplyOutcomeNotUsed},
 		{name: "When a tag moves after NotRequired it should full-pull and report NotUsed", previous: v1beta1.DeviceDeltaApplyOutcomeNotRequired, remoteDigest: newDigest, wantPull: true, want: v1beta1.DeviceDeltaApplyOutcomeNotUsed},
@@ -1584,35 +1591,65 @@ func TestMovedApplicationTagClearsPersistedDeltaOutcome(t *testing.T) {
 			}
 			m.deltaApplyResults = m.restoreApplicationDeltaResults(targetKeys, m.deltaTargetRefs)
 			require.Equal(tt.previous, m.deltaApplyResults["app"][target].outcome)
+			delta := &OCIDeltaTarget{Application: "app"}
 			existsCalls := 2
+			existsExit := 0
+			criImages := "IMAGE TAG ID\napp v2 abc"
+			if tt.absent {
+				m.ociDelta = client.NewOCIDelta(logger, mockExec, time.Minute)
+				delta.SourceDigest = oldDigest
+				existsCalls = 1
+				existsExit = 1
+				criImages = ""
+			}
 			if tt.reused {
 				m.tasks[target] = &prefetchTask{ociType: ociType, applicationTargetKey: targetKey, done: true, deltaGeneration: 0, resolvedDigest: oldDigest}
 				existsCalls = 1
 			}
 			if ociType == OCITypeCRIImage {
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", "images", image).Return("IMAGE TAG ID\napp v2 abc", "", 0).Times(existsCalls)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", "inspecti", "--output", "json", image).Return(fmt.Sprintf(`{"status":{"repoDigests":[%q]}}`, oldDigest), "inspect failed", tt.localExit)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", "images", image).Return(criImages, "", 0).Times(existsCalls)
+				if !tt.absent {
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", "inspecti", "--output", "json", image).Return(fmt.Sprintf(`{"status":{"repoDigests":[%q]}}`, oldDigest), "inspect failed", tt.localExit)
+				}
 			} else {
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", image).Return("", "", 0).Times(existsCalls)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", image).Return(fmt.Sprintf(`{"Digest": %q}`, oldDigest), "inspect failed", tt.localExit)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", image).Return("", "", existsExit).Times(existsCalls)
+				if !tt.absent {
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", image).Return(fmt.Sprintf(`{"Digest": %q}`, oldDigest), "inspect failed", tt.localExit)
+				}
 			}
 			if tt.localExit == 0 {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--format", "{{.Digest}}", "docker://"+image).Return(tt.remoteDigest, "inspect failed", tt.remoteExit)
 			}
 			ctx := context.Background()
-			needsQueue, err := m.prepareTask(ctx, target, ociType, "", nil, &OCIDeltaTarget{Application: "app"})
+			needsQueue, err := m.prepareTask(ctx, target, ociType, "", nil, delta)
 			require.NoError(err)
 			require.Equal(tt.wantPull, needsQueue)
 			if tt.wantPull {
-				if tt.remoteDigest == newDigest {
+				if !tt.absent && tt.remoteDigest == newDigest {
 					// The old result must already be gone, including if the agent crashes before pulling.
 					require.Empty(m.deltaApplyResults["app"])
 					require.Empty(deltastatus.New(rw, "/var/lib/flightctl", logger).ApplicationResults("app"))
 				}
+				if tt.absent && tt.remoteDigest == newDigest {
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "list-referrers", "docker://"+image).Return(`{"manifests": []}`, "", 0)
+				}
+				assertInvalidated := func() {
+					if tt.absent && tt.remoteDigest == newDigest {
+						// Persist invalidation before pulling, even if the agent crashes mid-pull.
+						require.Empty(m.deltaApplyResults["app"])
+						require.Empty(deltastatus.New(rw, "/var/lib/flightctl", logger).ApplicationResults("app"))
+					}
+				}
 				if ociType == OCITypeCRIImage {
-					mockExec.EXPECT().ExecuteWithContextFromDir(gomock.Any(), "", "crictl", []string{"pull", image}, gomock.Any()).Return("", "", 0)
+					mockExec.EXPECT().ExecuteWithContextFromDir(gomock.Any(), "", "crictl", []string{"pull", image}, gomock.Any()).DoAndReturn(func(context.Context, string, string, []string, ...string) (string, string, int) {
+						assertInvalidated()
+						return "", "", 0
+					})
 				} else {
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", image).Return("", "", 0)
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", image).DoAndReturn(func(context.Context, string, ...string) (string, string, int) {
+						assertInvalidated()
+						return "", "", 0
+					})
 				}
 				require.NoError(m.pull(ctx, target, m.tasks[target]))
 				m.tasks[target].done = true
