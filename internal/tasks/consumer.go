@@ -104,17 +104,18 @@ func (d TaskConsumer) dispatch() queues.ConsumeHandler {
 		var taskName string
 		errorMessages := []string{}
 
-		if shouldRolloutFleet(ctx, eventWithOrgId.Event, log) {
+		var ownershipErr error
+		if shouldReconcileDeviceOwnership(ctx, eventWithOrgId.Event, log) {
+			taskName = "fleetSelectorMatching"
+			ownershipErr = runTaskWithMetrics(taskName, d.WorkerMetrics, func() error {
+				return fleetSelectorMatching(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, d.DeviceSvc, d.FleetSvc, log)
+			})
+			errorMessages = appendErrorMessage(errorMessages, taskName, ownershipErr)
+		}
+		if shouldRolloutFleet(ctx, eventWithOrgId.Event, log) && ownershipErr == nil {
 			taskName = "fleetRollout"
 			err = runTaskWithMetrics(taskName, d.WorkerMetrics, func() error {
 				return fleetRollout(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, d.FleetSvc, d.TemplateversionSvc, d.DeviceSvc, d.DependencyrefSvc, log)
-			})
-			errorMessages = appendErrorMessage(errorMessages, taskName, err)
-		}
-		if shouldReconcileDeviceOwnership(ctx, eventWithOrgId.Event, log) {
-			taskName = "fleetSelectorMatching"
-			err = runTaskWithMetrics(taskName, d.WorkerMetrics, func() error {
-				return fleetSelectorMatching(ctx, eventWithOrgId.OrgId, eventWithOrgId.Event, d.DeviceSvc, d.FleetSvc, log)
 			})
 			errorMessages = appendErrorMessage(errorMessages, taskName, err)
 		}
