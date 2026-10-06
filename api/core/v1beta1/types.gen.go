@@ -166,10 +166,11 @@ const (
 
 // Defines values for DeviceDeltaApplyOutcomeType.
 const (
-	DeviceDeltaApplyOutcomeApplied  DeviceDeltaApplyOutcomeType = "Applied"
-	DeviceDeltaApplyOutcomeFallback DeviceDeltaApplyOutcomeType = "Fallback"
-	DeviceDeltaApplyOutcomeNotUsed  DeviceDeltaApplyOutcomeType = "NotUsed"
-	DeviceDeltaApplyOutcomePartial  DeviceDeltaApplyOutcomeType = "Partial"
+	DeviceDeltaApplyOutcomeApplied     DeviceDeltaApplyOutcomeType = "Applied"
+	DeviceDeltaApplyOutcomeFallback    DeviceDeltaApplyOutcomeType = "Fallback"
+	DeviceDeltaApplyOutcomeNotRequired DeviceDeltaApplyOutcomeType = "NotRequired"
+	DeviceDeltaApplyOutcomeNotUsed     DeviceDeltaApplyOutcomeType = "NotUsed"
+	DeviceDeltaApplyOutcomePartial     DeviceDeltaApplyOutcomeType = "Partial"
 )
 
 // Defines values for DeviceIntegrityCheckStatusType.
@@ -1279,6 +1280,9 @@ type DeltaGenerationProgressDetails struct {
 	// DetailType The type of detail for discriminator purposes.
 	DetailType DeltaGenerationProgressDetailsDetailType `json:"detailType"`
 
+	// Generation Device only. The desired spec generation this prepare is for.
+	Generation *int64 `json:"generation,omitempty"`
+
 	// GenerationStatus Generation row status for this pair.
 	GenerationStatus DeltaGenerationProgressDetailsGenerationStatus `json:"generationStatus"`
 
@@ -1290,9 +1294,6 @@ type DeltaGenerationProgressDetails struct {
 
 	// SourceDigest Current image digest.
 	SourceDigest string `json:"sourceDigest"`
-
-	// SpecHash Device only. The rendered spec hash this prepare is for.
-	SpecHash *string `json:"specHash,omitempty"`
 
 	// TargetDigest Target image digest.
 	TargetDigest string `json:"targetDigest"`
@@ -1460,7 +1461,7 @@ type DeviceDecommission struct {
 // DeviceDecommissionTargetType Specifies the desired decommissioning method of the device.
 type DeviceDecommissionTargetType string
 
-// DeviceDeltaApplyOutcomeType Result reported by the agent for an update target. NotUsed means the agent skipped delta application without a delta-apply failure; it may still use a full image pull. Applied means all delta work for the target succeeded. Fallback means a delta attempt failed and the agent attempted a full image pull. Partial means an application applied at least one delta while another image target used a full image pull or skipped delta application.
+// DeviceDeltaApplyOutcomeType Result reported by the agent for an update target. NotRequired means the target image is already present on the device with the correct digest, so no delta or pull was needed. NotUsed means the agent skipped delta application without a delta-apply failure; it may still use a full image pull. Applied means all delta work for the target succeeded. Fallback means a delta attempt failed and the agent attempted a full image pull. Partial means an application applied at least one delta while another image target used a full image pull or skipped delta application.
 type DeviceDeltaApplyOutcomeType string
 
 // DeviceDeltaApplyStatus Agent-reported result for delta apply attempts for this update target. For an application with multiple image targets, the outcome is aggregated across image targets. The lastDelta field is omitted until the agent reports an outcome; server-side delta preparation is reported separately.
@@ -1468,7 +1469,7 @@ type DeviceDeltaApplyStatus struct {
 	// FallbackReason Set when one or more delta attempts failed and the agent attempted a full image pull. For an application with multiple image targets, this reports one representative failure reason.
 	FallbackReason *string `json:"fallbackReason,omitempty"`
 
-	// Outcome Result reported by the agent for an update target. NotUsed means the agent skipped delta application without a delta-apply failure; it may still use a full image pull. Applied means all delta work for the target succeeded. Fallback means a delta attempt failed and the agent attempted a full image pull. Partial means an application applied at least one delta while another image target used a full image pull or skipped delta application.
+	// Outcome Result reported by the agent for an update target. NotRequired means the target image is already present on the device with the correct digest, so no delta or pull was needed. NotUsed means the agent skipped delta application without a delta-apply failure; it may still use a full image pull. Applied means all delta work for the target succeeded. Fallback means a delta attempt failed and the agent attempted a full image pull. Partial means an application applied at least one delta while another image target used a full image pull or skipped delta application.
 	Outcome DeviceDeltaApplyOutcomeType `json:"outcome"`
 }
 
@@ -3280,11 +3281,11 @@ type PrepareDeltasDetails struct {
 	// DetailType The type of detail for discriminator purposes.
 	DetailType PrepareDeltasDetailsDetailType `json:"detailType"`
 
+	// Generation Device only. The desired spec generation this prepare is for. Required when involvedObject.kind is Device; omitted for Fleet.
+	Generation *int64 `json:"generation,omitempty"`
+
 	// ResourceVersion The resource version of the involved Fleet or Device when this prepare event was created. Used to ignore stale prepare events. May be omitted for retained events created before this field was introduced.
 	ResourceVersion *string `json:"resourceVersion,omitempty"`
-
-	// SpecHash Device only. The rendered spec hash this prepare is for. Required when involvedObject.kind is Device; omitted for Fleet.
-	SpecHash *string `json:"specHash,omitempty"`
 
 	// TemplateVersion Fleet only. The TemplateVersion this prepare is for. Required when involvedObject.kind is Fleet; omitted for Device.
 	TemplateVersion *string `json:"templateVersion,omitempty"`

@@ -285,6 +285,14 @@ func (t *deviceRenderState) renderDevice(ctx context.Context) error {
 	if status.Code != http.StatusOK {
 		return fmt.Errorf("failed getting device %s/%s: %s", t.orgId, t.event.InvolvedObject.Name, status.Message)
 	}
+	if t.event.Reason == domain.EventReasonDeltaGenerationCompleted {
+		generation := device.Metadata.Generation
+		completedGeneration := lo.FromPtr(t.event.Metadata.Annotations)[domain.EventAnnotationDeltaGeneration]
+		if generation == nil || *generation <= 0 || completedGeneration != strconv.FormatInt(*generation, 10) {
+			t.log.Infof("Dropping delta completion for device %s: prepared generation %q does not match current generation", t.event.InvolvedObject.Name, completedGeneration)
+			return nil
+		}
+	}
 
 	t.bindVmLauncher(device)
 
@@ -687,8 +695,8 @@ func renderApplication(ctx context.Context, app *domain.ApplicationProviderSpec,
 		if err := resolveVolumeCatalogItemRefs(ctx, container.Volumes, orgId, catalogSvc); err != nil {
 			return nil, nil, fmt.Errorf("failed to resolve volume catalog item refs: %w", err)
 		}
-		if err := app.MergeContainerApplication(container); err != nil {
-			return nil, nil, fmt.Errorf("failed to merge in resolved container app: %w", err)
+		if err := app.FromContainerApplication(container); err != nil {
+			return nil, nil, fmt.Errorf("failed to apply resolved container app: %w", err)
 		}
 		return container.Name, app, nil
 	case domain.AppTypeHelm:
@@ -700,8 +708,8 @@ func renderApplication(ctx context.Context, app *domain.ApplicationProviderSpec,
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to resolve catalog item ref: %w", err)
 		}
-		if err := app.MergeHelmApplication(helm); err != nil {
-			return nil, nil, fmt.Errorf("failed to merge in resolved helm app: %w", err)
+		if err := app.FromHelmApplication(helm); err != nil {
+			return nil, nil, fmt.Errorf("failed to apply resolved helm app: %w", err)
 		}
 		return helm.Name, app, nil
 	case domain.AppTypeCompose:
@@ -716,8 +724,8 @@ func renderApplication(ctx context.Context, app *domain.ApplicationProviderSpec,
 		if err := resolveVolumeCatalogItemRefs(ctx, compose.Volumes, orgId, catalogSvc); err != nil {
 			return nil, nil, fmt.Errorf("failed to resolve volume catalog item refs: %w", err)
 		}
-		if err := app.MergeComposeApplication(compose); err != nil {
-			return nil, nil, fmt.Errorf("failed to merge in resolved compose app: %w", err)
+		if err := app.FromComposeApplication(compose); err != nil {
+			return nil, nil, fmt.Errorf("failed to apply resolved compose app: %w", err)
 		}
 		return compose.Name, app, nil
 	case domain.AppTypeQuadlet:
@@ -732,8 +740,8 @@ func renderApplication(ctx context.Context, app *domain.ApplicationProviderSpec,
 		if err := resolveVolumeCatalogItemRefs(ctx, quadlet.Volumes, orgId, catalogSvc); err != nil {
 			return nil, nil, fmt.Errorf("failed to resolve volume catalog item refs: %w", err)
 		}
-		if err := app.MergeQuadletApplication(quadlet); err != nil {
-			return nil, nil, fmt.Errorf("failed to merge in resolved quadlet app: %w", err)
+		if err := app.FromQuadletApplication(quadlet); err != nil {
+			return nil, nil, fmt.Errorf("failed to apply resolved quadlet app: %w", err)
 		}
 		return quadlet.Name, app, nil
 	case domain.AppTypeVm:

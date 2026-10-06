@@ -11,6 +11,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/appspec"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/samber/lo"
 )
@@ -274,7 +275,7 @@ func (p *composeProvider) collectOCITargets(ctx context.Context, configProvider 
 			ClientOptsFn: containerPullOptions(configProvider, p.spec.User),
 		})
 	} else {
-		composeSpec, err := client.ParseComposeFromSpec(p.inlineContent)
+		composeSpec, err := appspec.ParseComposeFromSpec(p.inlineContent)
 		if err != nil {
 			return nil, fmt.Errorf("parsing compose spec: %w", err)
 		}

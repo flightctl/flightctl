@@ -194,6 +194,84 @@ flightctl cancel imageexport my-export
 
 ---
 
+## Managing enrollment hook policies
+
+Manage the enrollment hook policy used when devices are approved for enrollment.
+
+### Synopsis
+
+```shell
+flightctl apply -f FILENAME [flags]
+flightctl get enrollmenthookpolicies [flags]
+flightctl get enrollmenthookpolicy/default [flags]
+flightctl edit enrollmenthookpolicy/default [flags]
+flightctl delete enrollmenthookpolicy/default [flags]
+```
+
+### Arguments
+
+* `FILENAME` - YAML or JSON file containing an `EnrollmentHookPolicy` resource with `apiVersion: flightctl.io/v1beta1` and `metadata.name: default`.
+* Resource type - `enrollmenthookpolicy`, `enrollmenthookpolicies`, or the short name `ehp`.
+* Resource name - `default`, the only supported policy name. Commands also accept the `TYPE NAME` form, such as `flightctl get ehp default`.
+
+### Flags
+
+| Command | Flag | Description |
+|---------|------|-------------|
+| `apply` | `-f, --filename <policy_file>` | File containing the policy to create or replace |
+| `apply` | `--dry-run` | Print the resource without sending it to the service |
+| `get` | `-o, --output <format>` | Output format: `json`, `yaml`, `wide`, or `name`; the default is a table |
+| `edit` | `-o, --output <format>` | Format used in the editor: `yaml` (default) or `json` |
+| `edit` | `--editor <editor>` | Editor to use; otherwise, select it from `FLIGHTCTL_EDITOR`, `VISUAL`, or `EDITOR`, falling back to `vi` |
+| All | `--org <organization_id>` | Use the specified organization instead of the organization in your client configuration |
+
+### Description
+
+Each organization can have one policy, named `default`. The policy applies to future enrollment approvals throughout that organization.
+
+Apply a policy only after all agents that might enroll in the organization have been upgraded to version 1.4 or later. See [Using enrollment hooks](../using/enrollment-hooks.md) for prerequisites and policy examples.
+
+Approval saves a snapshot of the policy on the device. Editing or deleting the policy does not change settings for devices already approved. Deleting it disables `AfterEnrolling` hooks and webhook notifications for future approvals.
+
+### Examples
+
+Create or replace the policy from a file:
+
+```shell
+flightctl apply -f enrollment-hooks.yaml
+```
+
+List the policy in your organization:
+
+```shell
+flightctl get enrollmenthookpolicies
+```
+
+Display the policy in YAML using its short name:
+
+```shell
+flightctl get ehp/default -o yaml
+```
+
+Edit the policy in your default editor:
+
+```shell
+flightctl edit enrollmenthookpolicy/default
+```
+
+Delete the policy:
+
+```shell
+flightctl delete enrollmenthookpolicy/default
+```
+
+### Exit status
+
+* `0` - Success
+* Non-zero - Error, such as an invalid policy, a missing policy, or insufficient permissions
+
+---
+
 ## flightctl get vulnerability
 
 View vulnerability information for devices and fleets.

@@ -11,6 +11,8 @@ This document focuses on OCI repositories. For information on Git, HTTP, and SSH
 
 ## Repository Connectivity Status
 
+For Git repository TLS settings and certificate requirements, see [HTTPS authentication](managing-devices.md#https-authentication).
+
 Flight Control automatically performs connectivity checks on all repositories to verify they are accessible. The connectivity status is reflected in the repository's `status.conditions` field with a condition of type `RepositoryAccessible`.
 
 You can check the connectivity status of a repository using the CLI:

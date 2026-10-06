@@ -1,0 +1,21 @@
+# quay.io/flightctl/flightctl-device:v13
+#
+# Enrollment-hook fixture image used by the hooks E2E suite. The drop-ins are
+# deliberately under /usr so the suite exercises the image-only
+# AfterEnrolling contract.
+
+ARG BASE_IMAGE=quay.io/flightctl/flightctl-device:base
+
+FROM ${BASE_IMAGE}
+
+RUN mkdir -p /usr/lib/flightctl/hooks.d/beforeenrolling \
+    /usr/lib/flightctl/hooks.d/afterenrolling \
+    /usr/lib/flightctl/e2e-hooks
+
+COPY --from=variant-context before-enrolling.yaml /usr/lib/flightctl/hooks.d/beforeenrolling/e2e-before-enrolling.yaml
+COPY --from=variant-context after-enrolling.yaml /usr/lib/flightctl/hooks.d/afterenrolling/e2e-after-enrolling.yaml
+COPY --from=variant-context e2e-before-enrolling.sh /usr/lib/flightctl/e2e-hooks/e2e-before-enrolling.sh
+COPY --from=variant-context e2e-after-enrolling.sh /usr/lib/flightctl/e2e-hooks/e2e-after-enrolling.sh
+
+RUN chmod 0755 /usr/lib/flightctl/e2e-hooks/e2e-before-enrolling.sh \
+    /usr/lib/flightctl/e2e-hooks/e2e-after-enrolling.sh

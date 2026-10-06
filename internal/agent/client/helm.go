@@ -11,6 +11,7 @@ import (
 
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/chartutil"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/poll"
@@ -252,8 +253,8 @@ func (h *Helm) Pull(ctx context.Context, chartRef, destDir string, opts ...Clien
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	normalizedRef := NormalizeChartRef(chartRef)
-	chartPath, version := SplitChartRef(normalizedRef)
+	normalizedRef := chartutil.NormalizeChartRef(chartRef)
+	chartPath, version := chartutil.SplitChartRef(normalizedRef)
 	args := []string{"pull", chartPath, "--untar", "--destination", destDir}
 	if version != "" {
 		args = append(args, "--version", version)

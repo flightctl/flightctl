@@ -1,4 +1,4 @@
-package helm
+package chartutil
 
 import (
 	"testing"
@@ -48,7 +48,7 @@ func TestSanitizeReleaseName(t *testing.T) {
 			want:     "my-chart-name-1-0-0",
 		},
 		{
-			name:     "long name truncated to 53 chars",
+			name:     "long name truncated to the release name limit",
 			chartRef: "registry.io/a-very-long-chart-name-that-will-exceed-the-limit:1.0.0",
 			want:     "a-very-long-chart-name-that-will-exceed-the-limit-1-0",
 		},

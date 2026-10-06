@@ -20,5 +20,6 @@ spec:
         - name: {{ .Chart.Name }}-job
           image: {{ .Values.job.image | quote }}
           imagePullPolicy: IfNotPresent
+          {{- include "test-app.containerSecurityContext" . | nindent 10 }}
           command: ["sh", "-c", "echo job complete"]
 {{- end }}

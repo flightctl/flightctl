@@ -47,6 +47,13 @@ var _ = BeforeEach(func() {
 	// Setup VM from pool, revert to pristine snapshot, and start agent
 	err := harness.SetupVMFromPoolAndStartAgent(workerID)
 	Expect(err).ToNot(HaveOccurred())
+	specLabels := CurrentSpecReport().Labels()
+	if isEnrollmentHookScenario(specLabels) {
+		Expect(prepareImageBackedReEnrollment(harness)).To(Succeed())
+		if !isEnrollmentHookReEnrollmentScenario(specLabels) {
+			Expect(harness.StartAgentWithRetry()).To(Succeed())
+		}
+	}
 
 	GinkgoWriter.Printf("✅ [BeforeEach] Worker %d: Test setup completed\n", workerID)
 })

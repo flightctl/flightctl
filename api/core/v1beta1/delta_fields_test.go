@@ -2,6 +2,7 @@ package v1beta1
 
 import (
 	"encoding/json"
+	"strconv"
 	"testing"
 
 	"github.com/samber/lo"
@@ -252,13 +253,14 @@ func TestNewDeviceStatusDoesNotInventDeltaFields(t *testing.T) {
 
 func TestPrepareDeltasDetailsJSON(t *testing.T) {
 	tests := []struct {
-		name            string
-		jsonInput       string
-		wantTV          *string
-		marshalSource   PrepareDeltasDetails
-		wantMarshalOmit bool
-		wantMarshalTV   string
-		wantMarshalHash string
+		name                  string
+		jsonInput             string
+		wantTV                *string
+		wantGeneration        *int64
+		marshalSource         PrepareDeltasDetails
+		wantMarshalOmit       bool
+		wantMarshalTV         string
+		wantMarshalGeneration int64
 	}{
 		{
 			name:      "When templateVersion is set it should round-trip for a fleet prepare",
@@ -269,6 +271,11 @@ func TestPrepareDeltasDetailsJSON(t *testing.T) {
 			name:      "When templateVersion is omitted it should round-trip for a device prepare",
 			jsonInput: `{"detailType":"PrepareDeltas","resourceVersion":"1"}`,
 			wantTV:    nil,
+		},
+		{
+			name:           "When generation is set it should round-trip for a device prepare",
+			jsonInput:      `{"detailType":"PrepareDeltas","resourceVersion":"1","generation":2}`,
+			wantGeneration: lo.ToPtr(int64(2)),
 		},
 		{
 			name:      "When resourceVersion is omitted it should round-trip for a retained prepare",
@@ -286,9 +293,9 @@ func TestPrepareDeltasDetailsJSON(t *testing.T) {
 			wantMarshalTV: "tv-2",
 		},
 		{
-			name:            "When SpecHash is set it should include specHash in JSON",
-			marshalSource:   PrepareDeltasDetails{DetailType: PrepareDeltas, ResourceVersion: lo.ToPtr("1"), SpecHash: lo.ToPtr("hash-1")},
-			wantMarshalHash: "hash-1",
+			name:                  "When Generation is set it should include generation in JSON",
+			marshalSource:         PrepareDeltasDetails{DetailType: PrepareDeltas, ResourceVersion: lo.ToPtr("1"), Generation: lo.ToPtr(int64(2))},
+			wantMarshalGeneration: 2,
 		},
 	}
 
@@ -298,6 +305,7 @@ func TestPrepareDeltasDetailsJSON(t *testing.T) {
 				var details PrepareDeltasDetails
 				require.NoError(t, json.Unmarshal([]byte(tt.jsonInput), &details))
 				assert.Equal(t, tt.wantTV, details.TemplateVersion)
+				assert.Equal(t, tt.wantGeneration, details.Generation)
 				assert.NotContains(t, tt.jsonInput, `"rolloutStrategy"`)
 				return
 			}
@@ -313,8 +321,8 @@ func TestPrepareDeltasDetailsJSON(t *testing.T) {
 			if tt.wantMarshalTV != "" {
 				assert.Contains(t, raw, `"templateVersion":"`+tt.wantMarshalTV+`"`)
 			}
-			if tt.wantMarshalHash != "" {
-				assert.Contains(t, raw, `"specHash":"`+tt.wantMarshalHash+`"`)
+			if tt.wantMarshalGeneration != 0 {
+				assert.Contains(t, raw, `"generation":`+strconv.FormatInt(tt.wantMarshalGeneration, 10))
 			}
 		})
 	}

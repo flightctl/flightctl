@@ -69,3 +69,34 @@ func TestStorePersistsDeltaResultsAndClearsChangedTargets(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, data)
 }
+
+func TestClearApplicationResultIgnoresSupersededTargets(t *testing.T) {
+	cases := []struct {
+		name, specKey, targetKey string
+		wantCleared              bool
+	}{
+		{name: "When the target matches it should durably clear only its result", specKey: "spec", targetKey: "target", wantCleared: true},
+		{name: "When the spec is stale it should preserve the current result", specKey: "old-spec", targetKey: "target"},
+		{name: "When the target is stale it should preserve the current result", specKey: "spec", targetKey: "old-target"},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			root := t.TempDir()
+			rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+			logger := log.NewPrefixLogger("test")
+			store := New(rw, "/var/lib/flightctl", logger)
+			require.NoError(store.ReconcileApplicationSpecs(map[string]string{"app": "spec"}))
+			require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{"app": {"image": "target", "other-image": "other-target"}}, true))
+			result := v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}
+			require.NoError(store.RecordApplicationResult("app", "spec", "image", "target", result))
+			require.NoError(store.RecordApplicationResult("app", "spec", "other-image", "other-target", result))
+			require.NoError(store.ClearApplicationResult("app", tt.specKey, "image", tt.targetKey))
+			restored := New(rw, "/var/lib/flightctl", logger).ApplicationSnapshot("app")
+			_, exists := restored.Results["image"]
+			require.Equal(!tt.wantCleared, exists)
+			require.Equal("target", restored.Targets["image"])
+			require.Equal(result, restored.Results["other-image"].Status)
+		})
+	}
+}

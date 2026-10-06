@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/applications/helm"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
+	"github.com/flightctl/flightctl/internal/chartutil"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
@@ -246,7 +247,7 @@ func (h *HelmHandler) getHelmSpec(action *Action) HelmSpec {
 	if s, ok := action.Spec.(HelmSpec); ok {
 		spec = s
 	}
-	spec.Namespace = helm.AppNamespace(&spec.Namespace, action.Name)
+	spec.Namespace = chartutil.AppNamespace(&spec.Namespace, action.Name)
 	return spec
 }
 

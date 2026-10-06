@@ -15,8 +15,7 @@ import (
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
-	agentclient "github.com/flightctl/flightctl/internal/agent/client"
-	apphelm "github.com/flightctl/flightctl/internal/agent/device/applications/helm"
+	"github.com/flightctl/flightctl/internal/chartutil"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/instrumentation/encryption"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -73,7 +72,7 @@ func (r *Renderer) ImageRefs(
 		return nil, fmt.Errorf("chart image reference is empty")
 	}
 
-	chartName, _, err := agentclient.ParseChartRef(imageSpec.Image)
+	chartName, _, err := chartutil.ParseChartRef(imageSpec.Image)
 	if err != nil {
 		return nil, fmt.Errorf("parse chart reference: %w", err)
 	}
@@ -114,8 +113,8 @@ func (r *Renderer) ImageRefs(
 	}
 	helmEnv := helmEnvironment(configHome, cacheHome, dataHome)
 
-	normalizedRef := agentclient.NormalizeChartRef(imageSpec.Image)
-	chartRef, version := agentclient.SplitChartRef(normalizedRef)
+	normalizedRef := chartutil.NormalizeChartRef(imageSpec.Image)
+	chartRef, version := chartutil.SplitChartRef(normalizedRef)
 	pullArgs := []string{"pull", chartRef, "--untar", "--destination", chartRoot}
 	if version != "" {
 		pullArgs = append(pullArgs, "--version", version)
@@ -158,7 +157,7 @@ func (r *Renderer) ImageRefs(
 	}
 
 	templateArgs := []string{"template", releaseName, chartPath, "--skip-tests"}
-	namespace := apphelm.AppNamespace(app.Namespace, releaseName)
+	namespace := chartutil.AppNamespace(app.Namespace, releaseName)
 	if namespace != "" {
 		templateArgs = append(templateArgs, "--namespace", namespace)
 	}
@@ -172,7 +171,7 @@ func (r *Renderer) ImageRefs(
 	if err != nil {
 		return nil, fmt.Errorf("render target chart %s: %w", imageSpec.Image, err)
 	}
-	images, err := apphelm.ExtractImagesFromManifests(manifests)
+	images, err := chartutil.ExtractImagesFromManifests(manifests)
 	if err != nil {
 		return nil, fmt.Errorf("extract workload images from target chart %s: %w", imageSpec.Image, err)
 	}
@@ -229,7 +228,7 @@ func releaseNameForApp(app v1beta1.HelmApplication, chartRef string) (string, er
 	if app.Name != nil && *app.Name != "" {
 		return *app.Name, nil
 	}
-	releaseName, err := apphelm.SanitizeReleaseName(chartRef)
+	releaseName, err := chartutil.SanitizeReleaseName(chartRef)
 	if err != nil {
 		return "", fmt.Errorf("create release name: %w", err)
 	}
@@ -322,7 +321,7 @@ func releaseIsInstalled(device *domain.Device, releaseName string) bool {
 }
 
 func chartRegistryHost(chartRef string) (string, error) {
-	normalized := agentclient.NormalizeChartRef(chartRef)
+	normalized := chartutil.NormalizeChartRef(chartRef)
 	parsed, err := url.Parse(normalized)
 	if err != nil {
 		return "", fmt.Errorf("parse Helm chart reference %q: %w", chartRef, err)

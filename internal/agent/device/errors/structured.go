@@ -1,6 +1,7 @@
 package errors
 
 import (
+	stderrors "errors"
 	"fmt"
 	"time"
 
@@ -9,12 +10,13 @@ import (
 
 // StructuredError represents a formatted error for status display.
 type StructuredError struct {
-	Phase      error
-	Component  error
-	Element    string
-	Category   Category
-	StatusCode codes.Code
-	Timestamp  time.Time
+	Phase                 error
+	Component             error
+	Element               string
+	Category              Category
+	StatusCode            codes.Code
+	Timestamp             time.Time
+	criticalResourceAlert bool
 }
 
 // truncateElement truncates an element value to 64 characters for use in structured error messages.
@@ -34,12 +36,13 @@ func FormatError(err error) *StructuredError {
 	statusCode := ToCode(rest)
 
 	return &StructuredError{
-		Phase:      phase,
-		Component:  component,
-		Element:    truncateElement(GetElement(err)),
-		StatusCode: statusCode,
-		Category:   inferCategory(statusCode),
-		Timestamp:  time.Now(),
+		Phase:                 phase,
+		Component:             component,
+		Element:               truncateElement(GetElement(err)),
+		StatusCode:            statusCode,
+		Category:              inferCategory(statusCode),
+		Timestamp:             time.Now(),
+		criticalResourceAlert: stderrors.Is(err, ErrCriticalResourceAlert),
 	}
 }
 
@@ -74,6 +77,26 @@ func phaseDisplayName(err error) string {
 
 // Message returns the formatted error message string.
 func (se *StructuredError) Message() string {
+	// A critical resource (CPU/Memory/Disk) alert defers the update rather
+	// than failing it. Use update-process wording here instead of the generic
+	// "<component> failed" template below, which reads as an unrelated update
+	// failure. Other errors can also map to ResourceExhausted and must retain
+	// the generic failure message.
+	if se.StatusCode == codes.ResourceExhausted && se.criticalResourceAlert {
+		resource := se.Element
+		if resource == "" {
+			resource = "system"
+		}
+		resourceMessage := fmt.Sprintf("critical %s resource alert is active", resource)
+		if resource == "Disk" {
+			resourceMessage += "; insufficient disk storage space, please clear storage before retrying"
+		}
+		return fmt.Sprintf("[%s] Update deferred: %s; will retry once resource usage returns to normal",
+			se.Timestamp.Format("2006-01-02 15:04:05"),
+			resourceMessage,
+		)
+	}
+
 	phase := phaseDisplayName(se.Phase)
 
 	component := "unknown"

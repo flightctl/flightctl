@@ -7810,20 +7810,22 @@ components:
     DeviceDeltaApplyOutcomeType:
       type: string
       description: >-
-        Result reported by the agent for an update target. NotUsed means the
-        agent skipped delta application without a delta-apply failure; it may
-        still use a full image pull. Applied means all delta work for the target
-        succeeded. Fallback means a delta attempt failed and the agent attempted
-        a full image pull. Partial means an application applied at least one
-        delta while another image target used a full image pull or skipped delta
-        application.
+        Result reported by the agent for an update target. NotRequired means the target image is already present on the device with the correct digest, so no delta or pull was needed.
+        NotUsed means the agent skipped delta
+        application without a delta-apply failure; it may still use a full image
+        pull. Applied means all delta work for the target succeeded. Fallback
+        means a delta attempt failed and the agent attempted a full image pull.
+        Partial means an application applied at least one delta while another
+        image target used a full image pull or skipped delta application.
       enum:
         - NotUsed
+        - NotRequired
         - Applied
         - Fallback
         - Partial
       x-enum-varnames:
         - DeviceDeltaApplyOutcomeNotUsed
+        - DeviceDeltaApplyOutcomeNotRequired
         - DeviceDeltaApplyOutcomeApplied
         - DeviceDeltaApplyOutcomeFallback
         - DeviceDeltaApplyOutcomePartial
@@ -9590,9 +9592,11 @@ components:
         templateVersion:
           type: string
           description: Fleet only. The TemplateVersion this prepare is for. Required when involvedObject.kind is Fleet; omitted for Device.
-        specHash:
-          type: string
-          description: Device only. The rendered spec hash this prepare is for. Required when involvedObject.kind is Device; omitted for Fleet.
+        generation:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Device only. The desired spec generation this prepare is for. Required when involvedObject.kind is Device; omitted for Fleet.
         resourceVersion:
           type: string
           description: The resource version of the involved Fleet or Device when this prepare event was created. Used to ignore stale prepare events. May be omitted for retained events created before this field was introduced.
@@ -9640,9 +9644,11 @@ components:
         templateVersion:
           type: string
           description: Fleet only. The TemplateVersion this prepare is for.
-        specHash:
-          type: string
-          description: Device only. The rendered spec hash this prepare is for.
+        generation:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Device only. The desired spec generation this prepare is for.
     FleetRolloutStartedDetails:
       type: object
       required:

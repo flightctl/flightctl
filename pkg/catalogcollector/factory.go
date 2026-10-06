@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/metric"
 )
 
 // ComponentType identifies the kind of component a factory creates.
@@ -38,6 +39,13 @@ type Settings struct {
 	// component_id fields. Components should store it and use it for
 	// operational log output. Never log raw configuration or credentials.
 	Logger *logrus.Entry
+
+	// MeterProvider supplies meters for recording operational metrics.
+	// Components that emit metrics should create instruments from this
+	// provider. The service supplies either a real provider backed by a
+	// dedicated Prometheus registry or a no-op provider when metrics are
+	// disabled. Components must not use the global meter provider.
+	MeterProvider metric.MeterProvider
 }
 
 // Factory is the base interface shared by all component factories. Every

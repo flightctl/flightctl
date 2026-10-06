@@ -53,6 +53,14 @@ type applicationImageResult struct {
 	Status    v1beta1.DeviceDeltaApplyStatus `json:"status"`
 }
 
+// ApplicationSnapshot is an in-memory copy of an application's current delta
+// targets and the results recorded for them.
+type ApplicationSnapshot struct {
+	SpecKey string
+	Targets map[string]string
+	Results map[string]ApplicationResult
+}
+
 // New loads persisted delta outcomes. Invalid or unreadable state is logged and
 // ignored so a status file problem does not prevent the agent from starting.
 func New(readWriter fileio.ReadWriter, dataDir string, logger *log.PrefixLogger) *Store {
@@ -244,6 +252,17 @@ func (s *Store) ReconcileApplicationTargets(targets map[string]map[string]string
 
 // ApplicationResults returns copies of results saved for an application.
 func (s *Store) ApplicationResults(application string) map[string]ApplicationResult {
+	snapshot := s.ApplicationSnapshot(application)
+	if snapshot == nil {
+		return nil
+	}
+	return snapshot.Results
+}
+
+// ApplicationSnapshot returns the current target set and its recorded results.
+// The store is loaded from disk once by New; this method only copies in-memory
+// state so status collection does not perform disk I/O.
+func (s *Store) ApplicationSnapshot(application string) *ApplicationSnapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -251,14 +270,21 @@ func (s *Store) ApplicationResults(application string) map[string]ApplicationRes
 	if current == nil {
 		return nil
 	}
-	results := make(map[string]ApplicationResult, len(current.Results))
+	snapshot := &ApplicationSnapshot{
+		SpecKey: current.SpecKey,
+		Targets: make(map[string]string, len(current.Targets)),
+		Results: make(map[string]ApplicationResult, len(current.Results)),
+	}
+	for targetID, targetKey := range current.Targets {
+		snapshot.Targets[targetID] = targetKey
+	}
 	for targetID, result := range current.Results {
-		results[targetID] = ApplicationResult{
+		snapshot.Results[targetID] = ApplicationResult{
 			TargetKey: result.TargetKey,
 			Status:    cloneStatus(result.Status),
 		}
 	}
-	return results
+	return snapshot
 }
 
 // ApplicationResult is one image's persisted delta result.
@@ -281,6 +307,22 @@ func (s *Store) RecordApplicationResult(application, specKey, targetID, targetKe
 		current.Results = make(map[string]applicationImageResult)
 	}
 	current.Results[targetID] = applicationImageResult{TargetKey: targetKey, Status: cloneStatus(result)}
+	return s.saveLocked()
+}
+
+// ClearApplicationResult invalidates an outcome when the active target's content changes.
+// Invalidations for superseded specs or targets are ignored.
+func (s *Store) ClearApplicationResult(application, specKey, targetID, targetKey string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current := s.state.Applications[application]
+	if current == nil || specKey == "" || current.SpecKey != specKey || targetKey == "" || current.Targets[targetID] != targetKey {
+		return nil
+	}
+	if _, exists := current.Results[targetID]; !exists {
+		return nil
+	}
+	delete(current.Results, targetID)
 	return s.saveLocked()
 }
 

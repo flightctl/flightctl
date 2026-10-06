@@ -59,11 +59,13 @@ Once approved, the device will get issued its initial management certificate and
 
 ### Overriding a failed enrollment hook
 
-If an enrollment hook fails, the device's `EnrollmentHooks` condition is `False` with reason `Failed`. The device remains excluded from fleet matching and rendered specification delivery.
+If a webhook or `AfterEnrolling` hook fails with the `Block` failure policy, the device's `EnrollmentHooks` condition is `False` with reason `Failed`. The device remains excluded from fleet matching and rendered specification delivery.
 
 An authorized administrator or operator can send a `POST` request to `/api/v1/devices/<device_name>/enrollmenthooks/override`. This sets the condition to `True` with reason `ManualOverride` and clears the gate. The request does not re-approve enrollment, rotate the device's management certificate, or rerun notification.
 
-The `EnrollmentHooks` condition is service-owned. A generic device-status patch cannot change or remove it.
+The agent can report hook outcomes by changing `Pending` to `Succeeded`, `Continued`, or `Failed` through a device-status patch. Other condition changes and removal are rejected. Use the override endpoint to clear a recorded failure.
+
+For hook configuration, failure policies, and restart behavior, see [Using enrollment hooks](enrollment-hooks.md).
 
 ## Viewing the Device Inventory and Device Details
 
@@ -551,6 +553,10 @@ spec:
 ##### HTTPS Authentication
 
 For HTTPS repositories, use basic authentication, bearer tokens, or client certificates:
+
+Git repositories use their configured TLS settings independently. For HTTPS connections, custom certificate authorities, client certificates, and `skipServerVerification` apply only to the repository that defines them. Repositories without custom TLS settings use the system trust store and verify server certificates.
+
+If you configure `ca.crt` for a Git repository, provide a PEM bundle encoded with base64 that contains at least one valid certificate. Empty or invalid bundles cause repository operations to fail before connecting.
 
 **Basic authentication (username/password):**
 

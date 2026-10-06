@@ -20,6 +20,7 @@ import (
 	"github.com/flightctl/flightctl/internal/worker_client"
 	"github.com/google/uuid"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"github.com/sirupsen/logrus"
 )
 
 type DeltaCandidate struct {
@@ -41,6 +42,7 @@ type Resolver struct {
 	RepositoryService      repositoryservice.Service
 	TemplateVersionService templateversionservice.Service
 	Config                 *deltaconfig.DeltaGenerationConfig
+	Log                    logrus.FieldLogger
 
 	Inspect          func(ctx context.Context, orgId uuid.UUID, image string) (string, error)
 	InspectForSource func(
@@ -198,15 +200,33 @@ func (r *Resolver) candidatesForFleetEvent(ctx context.Context, ev worker_client
 
 func (r *Resolver) candidatesForDeviceEvent(ctx context.Context, ev worker_client.EventWithOrgId) (DeltaCandidateResult, error) {
 	device, status := r.DeviceService.GetDevice(ctx, ev.OrgId, ev.Event.InvolvedObject.Name)
+	if status.Code == http.StatusNotFound {
+		return DeltaCandidateResult{Superseded: true}, nil
+	}
 	if status.Code != http.StatusOK {
 		return DeltaCandidateResult{}, fmt.Errorf("get device %s/%s: %s", ev.OrgId, ev.Event.InvolvedObject.Name, status.Message)
 	}
-	expectedSpecHash, err := deviceSpecHashFromEvent(ev)
+	expectedGeneration, err := deviceGenerationFromEvent(ev)
 	if err != nil {
 		return DeltaCandidateResult{}, err
 	}
-	if actualSpecHash := device.SpecHash(); actualSpecHash != expectedSpecHash {
-		return DeltaCandidateResult{}, fmt.Errorf("device %s spec hash changed: event=%q current=%q", ev.Event.InvolvedObject.Name, expectedSpecHash, actualSpecHash)
+	// Rendering is held until preparation finishes, so the rendered spec hash
+	// can still describe an earlier desired spec. Generation changes immediately.
+	if device == nil {
+		if r.Log != nil {
+			r.Log.Debugf("Dropping prepare deltas event for device %s/%s at generation %d: device no longer exists", ev.OrgId, ev.Event.InvolvedObject.Name, expectedGeneration)
+		}
+		return DeltaCandidateResult{Superseded: true}, nil
+	}
+	if device.Metadata.Generation == nil || *device.Metadata.Generation != expectedGeneration {
+		if r.Log != nil {
+			var currentGeneration any
+			if device.Metadata.Generation != nil {
+				currentGeneration = *device.Metadata.Generation
+			}
+			r.Log.WithField("currentGeneration", currentGeneration).Debugf("Dropping superseded prepare deltas event for device %s/%s at generation %d", ev.OrgId, ev.Event.InvolvedObject.Name, expectedGeneration)
+		}
+		return DeltaCandidateResult{Superseded: true}, nil
 	}
 	if !deviceEligible(device) {
 		return DeltaCandidateResult{Skip: true}, nil
@@ -236,18 +256,18 @@ func prepareEventTemplateVersion(ev worker_client.EventWithOrgId) (*string, erro
 	return details.TemplateVersion, nil
 }
 
-func deviceSpecHashFromEvent(ev worker_client.EventWithOrgId) (string, error) {
+func deviceGenerationFromEvent(ev worker_client.EventWithOrgId) (int64, error) {
 	if ev.Event.Details == nil {
-		return "", fmt.Errorf("prepare deltas event is missing details")
+		return 0, fmt.Errorf("prepare deltas event is missing details")
 	}
 	details, err := ev.Event.Details.AsPrepareDeltasDetails()
 	if err != nil {
-		return "", fmt.Errorf("prepare deltas details: %w", err)
+		return 0, fmt.Errorf("prepare deltas details: %w", err)
 	}
-	if details.SpecHash == nil || *details.SpecHash == "" {
-		return "", fmt.Errorf("device prepare deltas event requires specHash")
+	if details.Generation == nil || *details.Generation <= 0 {
+		return 0, fmt.Errorf("device prepare deltas event requires a positive generation")
 	}
-	return *details.SpecHash, nil
+	return *details.Generation, nil
 }
 
 func (r *Resolver) candidatesForDevice(ctx context.Context, orgId uuid.UUID, device *domain.Device, tv *domain.TemplateVersion) ([]DeltaCandidate, error) {

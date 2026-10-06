@@ -70,6 +70,18 @@ linters:
             - pkg: "math/rand$"
               desc: "Use math/rand/v2 instead"
 
+        server-no-agent:
+          list-mode: lax
+          files:
+            - "**/internal/helm/**"
+            - "**/internal/tasks/**"
+            - "**/internal/delta_worker/**"
+          deny:
+            - pkg: "github.com/flightctl/flightctl/internal/agent$"
+              desc: "Server-side code must not import agent internals"
+            - pkg: "github.com/flightctl/flightctl/internal/agent/"
+              desc: "Server-side code must not import agent internals"
+
         service-no-api:
           list-mode: lax
           files:

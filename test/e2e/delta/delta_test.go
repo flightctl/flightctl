@@ -588,12 +588,17 @@ type deltaLifecycleObservation struct {
 	deviceContentUpToDate        bool
 }
 
-func observeDeltaLifecycleEvents(harness *e2e.Harness, fleetName, deviceId string, baseline deltaEventBaseline, loggedEvents map[string]struct{}, fleetProgress, deviceProgress *generationProgressTracker) (deltaLifecycleObservation, bool, error) {
-	observation := deltaLifecycleObservation{
+// Event observation writes into these maps, so always initialize them here.
+func newDeltaLifecycleObservation() deltaLifecycleObservation {
+	return deltaLifecycleObservation{
 		generationTemplateVersions:   make(map[string]struct{}),
 		successfulTemplateVersions:   make(map[string]struct{}),
 		fleetRolloutTemplateVersions: make(map[string]struct{}),
 	}
+}
+
+func observeDeltaLifecycleEvents(harness *e2e.Harness, fleetName, deviceId string, baseline deltaEventBaseline, loggedEvents map[string]struct{}, fleetProgress, deviceProgress *generationProgressTracker) (deltaLifecycleObservation, bool, error) {
+	observation := newDeltaLifecycleObservation()
 	observedProgress := false
 	deviceEvents, err := newResourceEvents(harness, v1beta1.DeviceKind, deviceId, baseline.device)
 	if err != nil {
@@ -655,8 +660,8 @@ func observeDeltaGenerationProgress(events []v1beta1.Event, kind, name string, o
 				return StopTrying(fmt.Sprintf("fleet %s DeltaGenerationProgress event is missing template version", name))
 			}
 			observation.generationTemplateVersions[*details.TemplateVersion] = struct{}{}
-		} else if details.SpecHash == nil || *details.SpecHash == "" {
-			return StopTrying(fmt.Sprintf("device %s DeltaGenerationProgress event is missing spec hash", name))
+		} else if details.Generation == nil || *details.Generation <= 0 {
+			return StopTrying(fmt.Sprintf("device %s DeltaGenerationProgress event is missing generation", name))
 		}
 
 		switch details.GenerationStatus {

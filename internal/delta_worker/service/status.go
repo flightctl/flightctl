@@ -26,7 +26,7 @@ type fleetStatusStore interface {
 // UPDATE predicates.
 type ResumeIdentity struct {
 	TemplateVersion       *string
-	SpecHash              *string
+	Generation            *int64
 	SourceResourceVersion int64
 }
 
@@ -38,7 +38,7 @@ func ResumeIdentityForPrepare(prepare *model.DeltaPrepare) ResumeIdentity {
 	}
 	return ResumeIdentity{
 		TemplateVersion:       prepare.TemplateVersion,
-		SpecHash:              prepare.SpecHash,
+		Generation:            prepare.Generation,
 		SourceResourceVersion: prepare.SourceResourceVersion,
 	}
 }
@@ -53,7 +53,7 @@ type ResumeResult struct {
 
 type deviceStatusStore interface {
 	Mutate(ctx context.Context, orgId uuid.UUID, name string, previous *domain.Device, apply devicestore.DeviceApplyFunc, opts ...devicestore.MutateOption) (*domain.Device, *domain.Device, bool, error)
-	ResumeDeltaIfCurrent(ctx context.Context, orgID uuid.UUID, name, specHash string) (bool, error)
+	ResumeDeltaIfCurrent(ctx context.Context, orgID uuid.UUID, name string, generation int64) (bool, error)
 	SetOutOfDate(ctx context.Context, orgID uuid.UUID, owner string) error
 }
 
@@ -152,10 +152,10 @@ func (s *StorePreparingStatus) resumeFleetIfCurrent(ctx context.Context, orgID u
 }
 
 func (s *StorePreparingStatus) resumeDeviceIfCurrent(ctx context.Context, orgID uuid.UUID, name string, identity ResumeIdentity) (ResumeResult, error) {
-	if s.devices == nil || identity.SpecHash == nil || *identity.SpecHash == "" {
+	if s.devices == nil || identity.Generation == nil || *identity.Generation <= 0 {
 		return ResumeResult{}, nil
 	}
-	matched, err := s.devices.ResumeDeltaIfCurrent(ctx, orgID, name, *identity.SpecHash)
+	matched, err := s.devices.ResumeDeltaIfCurrent(ctx, orgID, name, *identity.Generation)
 	if err != nil {
 		return ResumeResult{}, fmt.Errorf("resume device status: %w", err)
 	}
@@ -249,7 +249,7 @@ func (s *StorePreparingStatus) setDevice(ctx context.Context, orgId uuid.UUID, n
 	if s.devices == nil {
 		return fmt.Errorf("device store is required")
 	}
-	if identity.SpecHash == nil || *identity.SpecHash == "" {
+	if identity.Generation == nil || *identity.Generation <= 0 {
 		return nil
 	}
 	condition := preparingCondition(domain.ConditionTypeDeviceDeltaPreparing, completed, total)
@@ -258,7 +258,7 @@ func (s *StorePreparingStatus) setDevice(ctx context.Context, orgId uuid.UUID, n
 		if err := m.RequireExisting(); err != nil {
 			return err
 		}
-		if m.Device.SpecHash() != *identity.SpecHash {
+		if m.Device.Metadata.Generation == nil || *m.Device.Metadata.Generation != *identity.Generation {
 			return storepkg.ErrMutateSkipWrite
 		}
 		if !initialize && (m.Device.Status == nil || domain.FindStatusCondition(m.Device.Status.Conditions, domain.ConditionTypeDeviceDeltaPreparing) == nil) {

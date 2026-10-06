@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/santhosh-tekuri/jsonschema/v5"
 )
@@ -260,7 +261,49 @@ func validateCatalogItemVersion(version CatalogItemVersion, index int, seenVersi
 		allErrs = append(allErrs, validateCatalogItemDeprecation(version.Deprecation, pathPrefix+".deprecation")...)
 	}
 
+	if version.DeviceFeatures != nil {
+		allErrs = append(allErrs, validateDeviceFeatures(version.DeviceFeatures, pathPrefix+".deviceFeatures")...)
+	}
+
 	return allErrs
+}
+
+// validateDeviceFeatures validates the device feature requirements declared by a
+// catalog item version. Only the feature names defined in the schema are
+// representable, and each declared feature must use one of its allowed values.
+func validateDeviceFeatures(features *DeviceFeatures, path string) []error {
+	allErrs := []error{}
+	if features == nil {
+		return allErrs
+	}
+
+	if features.GpuPresent != nil && !isValidDeviceFeatureBoolean(*features.GpuPresent) {
+		allErrs = append(allErrs, fmt.Errorf("%s.\"gpu.present\": invalid value %q (must be %q or %q)",
+			path, *features.GpuPresent, DeviceFeatureBooleanTrue, DeviceFeatureBooleanFalse))
+	}
+
+	if features.KvmEnabled != nil && !isValidDeviceFeatureBoolean(*features.KvmEnabled) {
+		allErrs = append(allErrs, fmt.Errorf("%s.\"kvm.enabled\": invalid value %q (must be %q or %q)",
+			path, *features.KvmEnabled, DeviceFeatureBooleanTrue, DeviceFeatureBooleanFalse))
+	}
+
+	if features.OsMode != nil && *features.OsMode != v1beta1.OsModeImage && *features.OsMode != v1beta1.OsModePackage {
+		allErrs = append(allErrs, fmt.Errorf("%s.\"os.mode\": invalid value %q (must be %q or %q)",
+			path, *features.OsMode, v1beta1.OsModeImage, v1beta1.OsModePackage))
+	}
+
+	return allErrs
+}
+
+// isValidDeviceFeatureBoolean reports whether v is a supported boolean device
+// feature value ("true" or "false").
+func isValidDeviceFeatureBoolean(v DeviceFeatureBoolean) bool {
+	switch v {
+	case DeviceFeatureBooleanTrue, DeviceFeatureBooleanFalse:
+		return true
+	default:
+		return false
+	}
 }
 
 func validateReplacesGraph(versions []CatalogItemVersion) []error {
@@ -301,42 +344,18 @@ func validateReplacesGraph(versions []CatalogItemVersion) []error {
 	return allErrs
 }
 
-// validateSemver checks if a string is a valid semantic version.
-// Version must be strict semver without a "v" prefix (e.g., "1.0.0", not "v1.0.0").
-// Reference values (tags) can have any format including "v" prefix.
+// validateSemver checks that a CatalogItem version string uses the version
+// format supported by Flight Control.
+//
+// Version must not have a "v" prefix (e.g., "1.0.0", not "v1.0.0").
+// Reference values (tags) can have any format including a "v" prefix.
+//
+// The grammar itself lives in internal/util/validation so that producers of
+// CatalogItem resources (for example catalog collector sources) validate
+// against exactly the same rules the API enforces, instead of maintaining a
+// second, divergent grammar.
 func validateSemver(v string) error {
-	if strings.HasPrefix(v, "v") {
-		return fmt.Errorf("version must not have 'v' prefix; use semver format (e.g., 1.0.0)")
-	}
-
-	// Handle build metadata (+build.123)
-	v = strings.SplitN(v, "+", 2)[0]
-
-	// Basic semver pattern: MAJOR.MINOR.PATCH with optional pre-release
-	// Examples: 1.0.0, 1.2.3-alpha, 1.2.3-rc.1
-	parts := strings.SplitN(v, "-", 2)
-	if len(parts) == 2 && parts[1] == "" {
-		return fmt.Errorf("pre-release identifier must not be empty (trailing hyphen)")
-	}
-	coreParts := strings.Split(parts[0], ".")
-
-	if len(coreParts) < 2 || len(coreParts) > 3 {
-		return fmt.Errorf("must be valid semver (e.g., 1.0.0, 2.1.0-rc1)")
-	}
-
-	for i, part := range coreParts {
-		if part == "" {
-			return fmt.Errorf("must be valid semver (e.g., 1.0.0, 2.1.0-rc1)")
-		}
-		// Check that each part is numeric
-		for _, c := range part {
-			if c < '0' || c > '9' {
-				return fmt.Errorf("version component %d must be numeric", i+1)
-			}
-		}
-	}
-
-	return nil
+	return validation.ValidateCatalogItemVersion(v)
 }
 
 // validateSemverRange checks if a string is a valid semver range constraint.

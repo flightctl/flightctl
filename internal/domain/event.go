@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+	"strconv"
 
 	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/consts"
@@ -258,4 +259,15 @@ func GetBaseEvent(ctx context.Context, resourceKind ResourceKind, resourceName s
 	event.Details = details
 
 	return &event
+}
+
+// GetDeviceDeltaGenerationCompletedEvent identifies the spec generation whose
+// preparation completed, so a queued notification cannot resume a newer spec.
+func GetDeviceDeltaGenerationCompletedEvent(ctx context.Context, name string, generation int64) *Event {
+	event := GetBaseEvent(ctx, DeviceKind, name, EventReasonDeltaGenerationCompleted, "Delta generation completed.", nil)
+	if event.Metadata.Annotations == nil {
+		event.Metadata.Annotations = &map[string]string{}
+	}
+	(*event.Metadata.Annotations)[EventAnnotationDeltaGeneration] = strconv.FormatInt(generation, 10)
+	return event
 }

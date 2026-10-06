@@ -140,7 +140,9 @@ func NewCmdAppStop() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("creating client: %w", err)
 			}
-			c.Start(ctx)
+			if err := c.Start(ctx); err != nil {
+				return err
+			}
 			defer c.Stop()
 			if kind == FleetKind {
 				return runStopFleet(ctx, c.ClientWithResponses, name, o.Name)
@@ -192,7 +194,9 @@ func NewCmdAppStart() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("creating client: %w", err)
 			}
-			c.Start(ctx)
+			if err := c.Start(ctx); err != nil {
+				return err
+			}
 			defer c.Stop()
 			if kind == FleetKind {
 				return runStartFleet(ctx, c.ClientWithResponses, name, o.Name)
@@ -245,7 +249,9 @@ func NewCmdAppRestart() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("creating client: %w", err)
 			}
-			c.Start(ctx)
+			if err := c.Start(ctx); err != nil {
+				return err
+			}
 			defer c.Stop()
 			return runRestart(ctx, c.ClientWithResponses, deviceName, o.Name)
 		},

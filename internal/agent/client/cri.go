@@ -215,6 +215,50 @@ func (c *CRI) ImageExists(ctx context.Context, image string, opts ...ClientOptio
 	return len(lines) > 1
 }
 
+// ImageRepoDigests returns the registry digests recorded for a local CRI image.
+func (c *CRI) ImageRepoDigests(ctx context.Context, image string, opts ...ClientOption) ([]string, error) {
+	options := &clientOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	timeout := c.timeout
+	if options.timeout > 0 {
+		timeout = options.timeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	args := []string{}
+	if options.criConfigPath != "" {
+		exists, err := c.readWriter.PathExists(options.criConfigPath)
+		if err != nil {
+			return nil, fmt.Errorf("check CRI config path: %w", err)
+		}
+		if !exists {
+			c.log.Errorf("CRI config path does not exist: %s", options.criConfigPath)
+		} else {
+			args = append(args, "--config", options.criConfigPath)
+		}
+	}
+	args = append(args, "inspecti", "--output", "json", image)
+
+	stdout, stderr, exitCode := c.exec.ExecuteWithContext(ctx, crictlCmd, args...)
+	if exitCode != 0 {
+		return nil, fmt.Errorf("inspect CRI image %s: %w", image, errors.FromStderr(stderr, exitCode))
+	}
+
+	var response struct {
+		Status struct {
+			RepoDigests []string `json:"repoDigests"`
+		} `json:"status"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &response); err != nil {
+		return nil, fmt.Errorf("parse CRI image status for %s: %w", image, err)
+	}
+	return response.Status.RepoDigests, nil
+}
+
 // RuntimeInfo returns the runtime connected to crictl and, for containerd, its
 // socket path for ctr imports.
 func (c *CRI) RuntimeInfo(ctx context.Context, opts ...ClientOption) (*CRIRuntimeInfo, error) {
