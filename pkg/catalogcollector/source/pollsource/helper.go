@@ -157,7 +157,10 @@ func NewHelper(
 			if max <= 0 {
 				return 0
 			}
-			n, _ := rand.Int(rand.Reader, big.NewInt(int64(max)))
+			n, err := rand.Int(rand.Reader, big.NewInt(int64(max)))
+			if err != nil || n == nil {
+				n = big.NewInt(0) // deterministic fallback: no jitter on rand failure
+			}
 			return time.Duration(n.Int64())
 		}
 	}
