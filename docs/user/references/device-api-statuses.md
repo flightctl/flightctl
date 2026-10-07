@@ -103,25 +103,6 @@ The `device.status.conditions.Updating.Reason` field contains the current state 
 
 The `device.status.updated.info` field contains a human readable more detailed information about the last state transition.
 
-### OS delta status
-
-You can inspect delta eligibility and the result of an OS delta update in the device's YAML or JSON output. Run:
-
-```console
-flightctl get device <device_name> -o yaml
-```
-
-The following device status fields describe delta capability and the most recent OS delta result:
-
-| Field | Description |
-| ----- | ----------- |
-| `device.status.systemInfo.deltaEligible` | `true` when the agent has the `oci-delta` tool available. This field may be absent when the agent does not report it. OS switches continue to require bootc as before. Delta eligibility does not enforce a bootc 1.15.0 minimum. |
-| `device.status.os.lastDelta.outcome` | The result of the OS delta path. This field is omitted until the agent reports an outcome. `NotUsed` means no compatible delta was used, `Applied` means the delta was applied, and `Fallback` means a delta pull or apply failed and the agent continued with a full image pull. |
-| `device.status.os.lastDelta.fallbackReason` | Present when an attempted delta pull or apply fails and the agent falls back to a full image pull. No matching delta is reported as `NotUsed` without a fallback reason. |
-| `device.status.os.deltaSize` | Payload size in IEC units, such as MiB or GiB, for a control-plane-generated OS delta when known. It does not report the size of a CI-published delta, the full OS image, the total update, or update duration. |
-
-The default and wide device tables do not show these fields. Device summary capability counts include `osMode` only, not delta eligibility. Use YAML or JSON output to inspect per-device delta status. The size field is available only for control-plane-generated deltas with a known size, so it is absent for CI-published deltas.
-
 The following state diagram shows the possible transitions between update statuses and states, including when the corresponding device lifecycle hooks would be called.
 
 ```mermaid
@@ -181,6 +162,31 @@ stateDiagram
     Known --> Unknown
 ```
 
+### OS delta status
+
+You can inspect delta eligibility and the result of an OS delta update in the device's YAML or JSON output:
+
+```console
+flightctl get device <device_name> -o yaml
+```
+
+The following device status fields describe delta capability and the result for the desired OS image:
+
+| Field | Description |
+| ----- | ----------- |
+| `device.status.systemInfo.deltaEligible` | `true` when the agent has the `oci-delta` tool available. This field may be absent when an older agent does not report it. |
+| `device.status.os.lastDelta.outcome` | The agent-reported OS result. `NotUsed` means delta application was skipped without a delta failure, `Applied` means the delta was applied, and `Fallback` means a delta attempt failed and the agent attempted a full image pull. The field is omitted until an outcome is reported. |
+| `device.status.os.lastDelta.fallbackReason` | The reason for a recorded delta pull or apply failure. It is omitted when the recorded outcome has no fallback reason. |
+| `device.status.os.deltaSize` | Expected payload size in IEC units, such as MiB or GiB, for a control-plane-generated OS delta. The field is omitted when no delta was generated or its size is unknown. |
+
+OS delta application also requires bootc. Delta eligibility does not enforce a bootc 1.15.0 minimum.
+
+OS outcomes persist across agent restarts for the same desired OS image. If no matching delta is found, the agent records `NotUsed` only when that image has no recorded outcome. Otherwise, it retains the existing outcome, including a previous `Fallback` and its reason. An already running or cached OS image is also recorded as `NotUsed` only when that image has no recorded outcome.
+
+The size field describes a control-plane-generated delta payload. It does not measure downloaded bytes, CI-published delta size, full OS image size, total update size, or update duration.
+
+The default and wide device tables do not show these fields. Device summary capability counts include `osMode` only. Use YAML or JSON output to inspect per-device delta status.
+
 ## Application Status
 
 The Application Status represents a summary of the availability and health of all applications on the system.
@@ -237,6 +243,28 @@ stateDiagram
     Unknown --> Known
     Known --> Unknown
 ```
+
+### Application delta status
+
+Each application's delta result appears in `device.status.applications[].lastDelta`. For applications with multiple image targets, the result is aggregated across those targets.
+
+| Field | Description |
+| ----- | ----------- |
+| `device.status.applications[].lastDelta.outcome` | The agent-reported application result, as described in the following table. The field is omitted until the agent reports an outcome. |
+| `device.status.applications[].lastDelta.fallbackReason` | One representative failure reason when a delta attempt failed and the agent attempted a full image pull. It can accompany `Fallback` or `Partial`. |
+| `device.status.applications[].deltaSize` | Expected total size of control-plane-generated delta payloads for the application, in IEC units. Full image sizes are excluded. The field is omitted when no delta was generated or any generated delta size is unknown. |
+
+The application delta outcome can have the following values:
+
+| Outcome | Description |
+| ------- | ----------- |
+| `NotRequired` | All image targets are already present on the device with the correct digest. No delta application or image pull is needed. |
+| `NotUsed` | Delta application was skipped without a delta failure. A full image pull may still be needed. |
+| `Applied` | At least one delta was applied successfully. Other image targets also applied deltas or already matched their desired digests. |
+| `Fallback` | No image target successfully applied a delta, and at least one delta attempt failed. The agent attempted a full image pull for the failed targets. |
+| `Partial` | At least one image target applied a delta, while another skipped delta application or fell back to a full image pull. Already matching targets do not cause `Partial`. |
+
+Results persist across agent restarts while the application specification and image targets remain unchanged. A cache check can change an earlier `NotUsed` result to `NotRequired` after verifying the desired digest. Cache checks retain earlier `Applied` or `Fallback` results for the same target.
 
 ## Lifecycle status
 

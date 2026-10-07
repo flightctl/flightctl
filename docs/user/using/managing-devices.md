@@ -400,11 +400,13 @@ For the agent to discover the delta, publish it with these values:
 - Set `artifactType` to `application/vnd.io.github.containers.oci-delta.v1`.
 - Set the `io.github.containers.delta.source` annotation to the digest of the source OS image. This must match the device's current OS image digest.
 
-The agent looks for a referrer in the target image repository. If the registry returns 404 for the OCI Referrers API, the agent also checks the Referrers Tag Schema. A CI-published referrer does not require a `spec.os.deltaImage` hint.
+The agent looks for a referrer in the target image repository. If the registry returns 404 or reports an unknown manifest, the agent also checks the Referrers Tag Schema. It also checks this schema when Skopeo does not support the referrers command. A CI-published referrer does not require a `spec.os.deltaImage` hint. An existing hint takes precedence over referrer discovery.
 
 The device uses its existing OS image pull credentials to pull the target image and delta. See [Using Image Pull Secrets](#using-image-pull-secrets) for private registries.
 
-If the agent finds no matching delta, it continues with a full image pull. It reports `NotUsed` only when no delta outcome is already recorded for that OS image; otherwise, it retains the existing outcome, including a previous `Fallback` and its reason. If pulling or applying a discovered delta fails, it reports `Fallback` with a reason and continues with a full image pull. A successful delta apply reports `Applied`. See [Device Update Status](../references/device-api-statuses.md#device-update-status) for how to inspect these results.
+If the agent finds no matching delta, it continues with a full image pull. It reports `NotUsed` only when that OS image has no recorded delta outcome. Otherwise, it retains the existing outcome, including a previous `Fallback` and its reason.
+
+If pulling or applying a discovered delta fails, the agent reports `Fallback` with a reason and attempts a full image pull. A successful delta apply reports `Applied`. See [OS delta status](../references/device-api-statuses.md#os-delta-status) for how to inspect these results.
 
 ### Using Image Pull Secrets
 
