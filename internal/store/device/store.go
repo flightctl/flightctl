@@ -1041,6 +1041,19 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams Devi
 		listQueryOpts = append(listQueryOpts, store.WithSelectorResolver(r))
 	}
 
+	if len(listParams.SortColumns) == 0 {
+		if listParams.Continue != nil && len(listParams.Continue.Names) == 1 {
+			// Tokens issued before alias sorting contain only the device name.
+			listParams.SortColumns = []store.SortColumn{store.SortByName}
+		} else {
+			listParams.SortColumns = []store.SortColumn{store.SortByAlias, store.SortByName}
+		}
+	} else if len(listParams.SortColumns) == 1 && listParams.SortColumns[0] == store.SortByAlias {
+		// Aliases are not unique and may be NULL; add name as a tie-breaker so
+		// pagination uses the NULL-aware (alias, name) predicate.
+		listParams.SortColumns = []store.SortColumn{store.SortByAlias, store.SortByName}
+	}
+
 	// Build base query with selectors
 	baseQuery, err := store.ListQuery(&model.Device{}, listQueryOpts...).Build(ctx, s.getDB(ctx), orgId, listParams.ListParams)
 	if err != nil {
@@ -1077,6 +1090,8 @@ func (s *DeviceStore) List(ctx context.Context, orgId uuid.UUID, listParams Devi
 		continueValues := make([]string, len(columns))
 		for i, col := range columns {
 			switch col {
+			case store.SortByAlias:
+				continueValues[i] = store.NullableSortValue(lastItem.Alias)
 			case store.SortByName:
 				continueValues[i] = lastItem.Name
 			case store.SortByCreatedAt:
@@ -2047,7 +2062,7 @@ func getSortColumns(listParams store.ListParams) ([]store.SortColumn, store.Sort
 
 	columns := listParams.SortColumns
 	if len(columns) == 0 {
-		columns = []store.SortColumn{store.SortByName}
+		columns = []store.SortColumn{store.SortByAlias, store.SortByName}
 	}
 
 	return columns, order, op

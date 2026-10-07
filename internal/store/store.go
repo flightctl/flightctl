@@ -19,6 +19,7 @@ type SortOrder string
 
 const (
 	SortByName      SortColumn = "name"
+	SortByAlias     SortColumn = "alias"
 	SortByCreatedAt SortColumn = "created_at"
 
 	// Sort columns for vulnerability queries.
