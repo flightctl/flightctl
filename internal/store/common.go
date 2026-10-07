@@ -332,7 +332,11 @@ func CountStatusList(ctx context.Context, query *gorm.DB, status ...string) (Sta
 	GROUP BY status_summary`
 
 	for _, field := range status {
-		statusQueries = append(statusQueries, fmt.Sprintf(statusQuery, createParamsFromKey(field)))
+		expr, ok := createParamsFromKey(field)
+		if !ok {
+			return nil, fmt.Errorf("unsupported status count selector %q", field)
+		}
+		statusQueries = append(statusQueries, fmt.Sprintf(statusQuery, expr))
 		params = append(params, field)
 	}
 
@@ -374,21 +378,43 @@ func GetNonNilFieldsFromResource(resource model.Resource) []string {
 	return ret
 }
 
-func createParamsFromKey(key string) string {
-	parts := strings.Split(key, ".")
-	params := ""
-	for i, part := range parts {
-		if i == 0 {
-			params += part
-		} else if i == len(parts)-1 {
-			// prefix last part with the ->> operator for JSONB fetching text
-			params += fmt.Sprintf(" ->> '%s'", part)
-		} else {
-			// prefix intermediate parts with the -> operator for JSONB
-			params += fmt.Sprintf(" -> '%s'", part)
-		}
-	}
-	return params
+// StatusCountCoalesceSeparator joins the JSON paths that make up a compound
+// CountStatusList selector such as OsModeStatusSelector. It keeps the selector
+// key self-documenting about which paths it coalesces; the SQL that a selector
+// resolves to is taken from the statusCountSelectorSQL allowlist, never parsed
+// or built from the key at runtime.
+const StatusCountCoalesceSeparator = "||"
+
+// OsModeStatusSelector is the CountStatusList selector for device OS-mode
+// breakdowns. It prefers status.systemInfo.osMode and falls back to the
+// deprecated status.capabilities.osMode for devices reported by older agents,
+// mirroring domain.DeviceStatusOsMode.
+const OsModeStatusSelector = "status.systemInfo.osMode" + StatusCountCoalesceSeparator + "status.capabilities.osMode"
+
+// statusCountSelectorSQL is the allowlist that maps every supported
+// CountStatusList selector to the exact, hand-written SQL expression it resolves
+// to. CountStatusList emits SQL only for selectors present in this table, so no
+// caller-provided string is ever interpolated into the query text and there is
+// no SQL injection vector: an unrecognized selector resolves to nothing and is
+// rejected by CountStatusList.
+//
+// The OsModeStatusSelector expression uses COALESCE(NULLIF(...), NULLIF(...)) so
+// that status.systemInfo.osMode is preferred and an empty value falls back to
+// the deprecated status.capabilities.osMode reported by older agents.
+var statusCountSelectorSQL = map[string]string{
+	"status.applicationsSummary.status": "status -> 'applicationsSummary' ->> 'status'",
+	"status.summary.status":             "status -> 'summary' ->> 'status'",
+	"status.updated.status":             "status -> 'updated' ->> 'status'",
+	OsModeStatusSelector:                "COALESCE(NULLIF(status -> 'systemInfo' ->> 'osMode', ''), NULLIF(status -> 'capabilities' ->> 'osMode', ''))",
+}
+
+// createParamsFromKey resolves a CountStatusList selector to its allowlisted SQL
+// expression. It returns ok=false for any selector not present in
+// statusCountSelectorSQL, ensuring only vetted, static SQL is ever used to build
+// the aggregation query.
+func createParamsFromKey(key string) (string, bool) {
+	expr, ok := statusCountSelectorSQL[key]
+	return expr, ok
 }
 
 func retryCreateOrUpdate[A any](fn func() (*A, *A, bool, bool, error)) (*A, *A, bool, error) {

@@ -71,21 +71,36 @@ func TestDeviceOsModeCountKey(t *testing.T) {
 			want:   CapabilityCountUnknown,
 		},
 		{
-			name:   "When capabilities is nil it should return unknown",
+			name:   "When neither systemInfo nor capabilities report a mode it should return unknown",
 			status: &domain.DeviceStatus{},
 			want:   CapabilityCountUnknown,
 		},
 		{
-			name: "When osMode is image it should return image",
+			name: "When capabilities osMode is image it should return image",
 			status: &domain.DeviceStatus{
 				Capabilities: &domain.DeviceCapabilities{OsMode: &image},
 			},
 			want: "image",
 		},
 		{
-			name: "When osMode is package it should return package",
+			name: "When capabilities osMode is package it should return package",
 			status: &domain.DeviceStatus{
 				Capabilities: &domain.DeviceCapabilities{OsMode: &packageMode},
+			},
+			want: "package",
+		},
+		{
+			name: "When systemInfo osMode is set it should be preferred over capabilities",
+			status: &domain.DeviceStatus{
+				SystemInfo:   domain.DeviceSystemInfo{OsMode: &image},
+				Capabilities: &domain.DeviceCapabilities{OsMode: &packageMode},
+			},
+			want: "image",
+		},
+		{
+			name: "When only systemInfo reports a mode it should return it",
+			status: &domain.DeviceStatus{
+				SystemInfo: domain.DeviceSystemInfo{OsMode: &packageMode},
 			},
 			want: "package",
 		},

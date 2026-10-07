@@ -7861,7 +7861,17 @@ components:
       description: Capabilities reported by the device agent.
       properties:
         osMode:
-          $ref: '#/components/schemas/OsModeType'
+          allOf:
+            - $ref: '#/components/schemas/OsModeType'
+          deprecated: true
+          x-deprecated-reason: >-
+            Deprecated since v1.4 and will be removed in a future release. Use
+            status.systemInfo.osMode instead.
+          description: >-
+            Deprecated since v1.4 and will be removed in a future release.
+            Use status.systemInfo.osMode instead. The service reads
+            status.systemInfo.osMode and only falls back to this field for
+            devices reported by older agents that do not populate systemInfo.
       additionalProperties: false
     DeviceDeltaApplyStatus:
       type: object
@@ -8761,7 +8771,7 @@ components:
           $ref: '#/components/schemas/DevicesSummaryCapabilities'
     DevicesSummaryCapabilities:
       type: object
-      description: Breakdowns of devices by status.capabilities fields.
+      description: Breakdowns of devices by status.systemInfo fields, falling back to the deprecated status.capabilities fields when unavailable.
       properties:
         osMode:
           type: object
@@ -8769,7 +8779,7 @@ components:
           additionalProperties:
             type: integer
             format: int64
-          description: Counts by status.capabilities.osMode (e.g. image, package). The key "unknown" counts devices that have not reported the capability.
+          description: Counts by device OS mode (e.g. image, package), taken from status.systemInfo.osMode with fallback to the deprecated status.capabilities.osMode. The key "unknown" counts devices that have not reported an OS mode.
       additionalProperties: false
     TemplateVersion:
       type: object
