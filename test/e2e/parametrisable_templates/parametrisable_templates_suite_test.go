@@ -2,7 +2,6 @@ package parametrisabletemplates
 
 import (
 	"context"
-	"slices"
 	"testing"
 
 	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
@@ -62,15 +61,11 @@ var _ = BeforeEach(func() {
 	// Set the test context in the harness
 	harness.SetTestContext(ctx)
 
-	var err error
-	if slices.Contains(CurrentSpecReport().Labels(), e2e.NeedContainerLabel) {
-		GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with container device from pool\n", workerID)
-		err = harness.SetupContainerFromPoolAndStartAgent(workerID)
-	} else {
-		GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with VM from pool\n", workerID)
-		err = harness.SetupVMFromPoolAndStartAgent(workerID)
-	}
-	Expect(err).ToNot(HaveOccurred())
+	// Backend selection is label-driven: a spec-level NeedVMLabel overrides a suite-level
+	// NeedContainerLabel (see e2e.CurrentSpecUsesContainerDevice), so the dispatcher is the
+	// only place that rule lives.
+	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with %s from pool\n", workerID, e2e.DeviceBackendName())
+	Expect(harness.SetupDeviceForCurrentSpec(workerID)).To(Succeed())
 
 	GinkgoWriter.Printf("✅ [BeforeEach] Worker %d: Test setup completed\n", workerID)
 })

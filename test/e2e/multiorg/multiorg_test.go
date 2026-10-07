@@ -361,7 +361,12 @@ var _ = Describe("Multiorg RBAC E2E Tests", Label("multiorg", "e2e"), func() {
 			Expect(status).To(Equal(http.StatusForbidden), "Expected 403 Forbidden for viewer enrollment approval")
 		})
 
-		It("should enforce application lifecycle and console access by role for standalone and fleet-owned devices", Label("90251", "agent", e2e.NeedVMLabel), func() {
+		// needcontainer: this is the only spec in the suite that needs a real enrolled agent. It
+		// deploys a container application and exercises app-lifecycle/console RBAC - no OS image
+		// switch and no reboot - so a container-backed device is enough. The suite's BeforeEach
+		// uses the org-aware dispatcher so the container is created from credentials scoped to
+		// the organization selected for this spec.
+		It("should enforce application lifecycle and console access by role for standalone and fleet-owned devices", Label("90251", "agent", e2e.NeedContainerLabel), func() {
 			testID := harness.GetTestIDFromContext()
 			deferOrgSimulatorConfig(harness, users)
 

@@ -221,6 +221,38 @@ func (h *Harness) SetupContainerFromPoolAndStartAgent(workerID int) (retErr erro
 	return nil
 }
 
+// SetupContainerFromPoolWithCurrentOrgAgent is the container-backed counterpart of
+// Harness.SetupVMFromPoolWithCurrentOrgAgent: it regenerates the enrollment credentials for the
+// currently selected organization and then creates the device container.
+//
+// Order matters. The VM path restores a pooled guest and afterwards pushes the regenerated files
+// onto it (InstallPreparedAgentFilesOnVM), whereas a container device snapshots
+// bin/agent/etc/flightctl into the container at creation time (buildAgentIdentityFiles). So the
+// config has to be regenerated *before* the container is created; doing it the other way round
+// would silently enroll the device into whichever organization the directory happened to hold.
+func (h *Harness) SetupContainerFromPoolWithCurrentOrgAgent(workerID int) error {
+	RequireContainerDeviceImage()
+	if _, err := h.SetupDeviceSimulatorAgentConfig(0, 0); err != nil {
+		return fmt.Errorf("preparing agent config for current organization: %w", err)
+	}
+	return h.SetupContainerFromPoolAndStartAgent(workerID)
+}
+
+// SetupDeviceForCurrentSpecWithCurrentOrgAgent dispatches on the current spec's labels like
+// SetupDeviceForCurrentSpec, but installs enrollment credentials scoped to the currently selected
+// organization on either backend. Multi-organization suites must use this instead of the plain
+// dispatcher, otherwise a container-backed spec enrolls into the default organization.
+func (h *Harness) SetupDeviceForCurrentSpecWithCurrentOrgAgent(workerID int) error {
+	if CurrentSpecUsesContainerDevice() {
+		return h.SetupContainerFromPoolWithCurrentOrgAgent(workerID)
+	}
+	if err := h.SetupVMFromPoolWithCurrentOrgAgent(workerID); err != nil {
+		abortVMSetup(workerID, err)
+		return err
+	}
+	return nil
+}
+
 func (h *Harness) setupContainerFromPoolAndStartAgent(ctx context.Context, workerID int) (retErr error) {
 	if err := h.setupContainerFromPool(ctx, workerID); err != nil {
 		return err

@@ -17,7 +17,10 @@ func TestHelm(t *testing.T) {
 
 var _ = BeforeSuite(func() {
 	auxFuture := e2e.StartAuxServicesAsync(context.Background())
-	_, _, err := e2e.SetupWorkerHarness()
+	// Every spec in this suite is needvm (it switches device.Spec.Os to the MicroShift v12
+	// variant), so BeforeEach still gets a VM - but creating it lazily means a shard whose
+	// specs are all filtered out or skipped does not pay the boot.
+	_, _, err := e2e.SetupWorkerHarnessWithoutVM()
 	auxFuture.Wait()
 	Expect(err).ToNot(HaveOccurred())
 })
@@ -28,7 +31,7 @@ var _ = BeforeEach(func() {
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
 
-	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with VM from pool\n", workerID)
+	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with %s from pool\n", workerID, e2e.DeviceBackendName())
 
 	// Create test-specific context for proper tracing
 	ctx := util.StartSpecTracerForGinkgo(suiteCtx)
@@ -36,8 +39,10 @@ var _ = BeforeEach(func() {
 	// Set the test context in the harness
 	harness.SetTestContext(ctx)
 
-	// Setup VM from pool, revert to pristine snapshot, and start agent
-	err := harness.SetupVMFromPoolAndStartAgent(workerID)
+	// Backend selection goes through the shared dispatcher so it stays label-driven even though
+	// this suite is currently needvm throughout; if a MicroShift-capable container device image
+	// ever lands, flipping the Describe labels is the only change needed here.
+	err := harness.SetupDeviceForCurrentSpec(workerID)
 	Expect(err).ToNot(HaveOccurred())
 	if err := configurePersistentJournaldForHelmDiagnostics(harness); err != nil {
 		GinkgoWriter.Printf("Warning: persistent journal setup failed; continuing without persistent Helm diagnostics: %v\n", err)

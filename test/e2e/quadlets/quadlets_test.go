@@ -40,7 +40,9 @@ const (
 	expectedStatusBadRequest = 400
 )
 
-var _ = Describe("Quadlets application type support", Label("quadlets"), func() {
+// The suite defaults to container-backed devices; specs that need a real boot cycle
+// override with Label(e2e.NeedVMLabel) at the Context or It level.
+var _ = Describe("Quadlets application type support", Label("quadlets", e2e.NeedContainerLabel), func() {
 	var harness *e2e.Harness
 	var deviceID string
 
@@ -49,7 +51,7 @@ var _ = Describe("Quadlets application type support", Label("quadlets"), func() 
 		deviceID, _ = harness.EnrollAndWaitForOnlineStatus()
 	})
 
-	Context("Quadlet application lifecycle", Label(e2e.NeedContainerLabel), func() {
+	Context("Quadlet application lifecycle", func() {
 		// Test plan 4.2: flightctl quadlets application lifecycle
 		// Verifies deploy, update (with Volume/Network/Pod), and remove on an edge manager device.
 		It("verifies that a quadlets application can be deployed, updated and removed in an edge manager device", Label("86076", "sanity"), func() {
@@ -132,7 +134,7 @@ var _ = Describe("Quadlets application type support", Label("quadlets"), func() 
 		})
 	})
 
-	Context("Image provider and OCI artifacts", Label(e2e.NeedContainerLabel), func() {
+	Context("Image provider and OCI artifacts", func() {
 		// Test plan 4.2: Image provider can extract and deploy Quadlet files from OCI artifacts
 		It("verifies that we can create single or multiple files artifacts (also compressed) packaged in an image and install them in an EM device", Label("86280", "sanity"), func() {
 			By("Adding quadlet app with image ref (multi-file artifact)")
@@ -160,9 +162,11 @@ var _ = Describe("Quadlets application type support", Label("quadlets"), func() 
 		})
 	})
 
-	Context("Inline quadlets with references and reboot", func() {
+	Context("Inline quadlets with references and reboot", Label(e2e.NeedVMLabel), func() {
 		// Test plan 4.2: Inline quadlets complex application with references ... survives a reboot (OCP-86280).
-		It("inline quadlets complex application with references can be deployed to an EM device and survives a reboot", Label("86281", "sanity"), func() {
+		// RebootVMAndWaitForSSH needs a real boot cycle, so this spec pins the VM backend even though
+		// the rest of the suite runs on container-backed devices.
+		It("inline quadlets complex application with references can be deployed to an EM device and survives a reboot", Label(e2e.NeedVMLabel, "86281", "sanity"), func() {
 			By("Adding inline quadlet app with refs (network, pod, container, volumes, worker-image.image)")
 			imageRef := getQuadletTestImage(harness)
 			envVars := map[string]string{"LOG_MESSAGE": "Hello from FlightControl (Inline Ref)"}
@@ -185,7 +189,7 @@ var _ = Describe("Quadlets application type support", Label("quadlets"), func() 
 		})
 	})
 
-	Context("Validations in quadlets applications", Label(e2e.NeedContainerLabel), func() {
+	Context("Validations in quadlets applications", func() {
 		// Test plan 4.2: Validations in quadlets applications
 		It("verifies that there are validations and readable error messages in quadlets application files", Label("86352", "sanity"), func() {
 			By("Adding quadlet app with two volume files with the same VolumeName - update is rejected with 400")
@@ -204,7 +208,7 @@ var _ = Describe("Quadlets application type support", Label("quadlets"), func() 
 		})
 	})
 
-	Context("Quadlets app with crashed containers", Label(e2e.NeedContainerLabel), func() {
+	Context("Quadlets app with crashed containers", func() {
 		// Test plan 4.2: A quadlets app with crashed containers reports Degraded status
 		It("verifies that a crashing quadlets app is reported as Degraded", Label("86353", "sanity"), func() {
 			By("Adding quadlet app with exit 1 container command")

@@ -72,7 +72,10 @@ var renewalAuthRejectScriptTemplate string
 //go:embed testdata/csr_list_status.sh.tmpl
 var csrListStatusScriptTemplate string
 
-var _ = Describe("Certificate Rotation", Label("certificate-rotation"), func() {
+// Certificate rotation only exercises the agent's cert manager through ordinary file,
+// systemd and network operations, so the suite defaults to container-backed devices.
+// Specs that need a real VM override with Label(e2e.NeedVMLabel) at the It level.
+var _ = Describe("Certificate Rotation", Label("certificate-rotation", e2e.NeedContainerLabel), func() {
 	var (
 		harness  *e2e.Harness
 		deviceId string
@@ -320,7 +323,10 @@ var _ = Describe("Certificate Rotation", Label("certificate-rotation"), func() {
 			harness.WaitForDeviceContents(deviceId, "device remains online after management API recovery", isDeviceOnline, certRotationTimeout)
 		})
 
-		It("should preserve the current certificate when certificate installation fails", Label("88806"), func() {
+		// chattr +i on the agent certificate is how this spec forces the install step to fail,
+		// and the immutable attribute is not supported on a container's overlayfs upper layer,
+		// so this one spec pins the VM backend.
+		It("should preserve the current certificate when certificate installation fails", Label("88806", e2e.NeedVMLabel), func() {
 			By("Waiting for initial certificate info to be reported")
 			initialSerial, _, err := waitForInitialCertInfo(harness, deviceId, e2e.LONGTIMEOUT, e2e.POLLINGLONG)
 			Expect(err).ToNot(HaveOccurred(), "initial cert info should appear in system info")

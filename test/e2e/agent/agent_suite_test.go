@@ -2,7 +2,6 @@ package agent_test
 
 import (
 	"context"
-	"slices"
 	"testing"
 	"time"
 
@@ -78,15 +77,11 @@ var _ = BeforeEach(func() {
 	// Set the test context in the harness
 	harness.SetTestContext(ctx)
 
-	if slices.Contains(CurrentSpecReport().Labels(), e2e.NeedContainerLabel) {
-		GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with container device from pool\n", workerID)
-		// Get a pristine container device from the pool and start the agent
-		err = harness.SetupContainerFromPoolAndStartAgent(workerID)
-	} else {
-		GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with VM from pool\n", workerID)
-		// Setup VM from pool, revert to pristine snapshot, and start agent
-		err = harness.SetupDeviceForCurrentSpec(workerID)
-	}
+	// SetupDeviceForCurrentSpec picks the backend from the spec's labels: a spec-level
+	// NeedVMLabel overrides a suite-level NeedContainerLabel, so container-by-default
+	// suites can still run individual reboot/OS-switch specs on a VM.
+	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with %s from pool\n", workerID, e2e.DeviceBackendName())
+	err = harness.SetupDeviceForCurrentSpec(workerID)
 	Expect(err).ToNot(HaveOccurred())
 
 	GinkgoWriter.Printf("✅ [BeforeEach] Worker %d: Test setup completed\n", workerID)

@@ -162,7 +162,14 @@ func runCleanup(h *e2e.Harness) {
 		"cleanup should create the agent confirmation marker")
 }
 
-var _ = Describe("Onboarding service lifecycle", func() {
+// VM-only: see the suite-level note on "Onboarding wizard configuration flow".
+// Beyond the shared Cockpit SSH tunnel, these specs assert on systemd unit gating
+// (ConditionPathExists / ConditionResult) for flightctl-agent on a device where
+// the agent must stay INACTIVE until onboarding is confirmed. The container
+// device backend starts flightctl-agent during setup and injects its own
+// ConditionPathExists=/run/flightctl-e2e-agent-enabled drop-in, which directly
+// contradicts what 90459/90428 measure.
+var _ = Describe("Onboarding service lifecycle", Label(e2e.NeedVMLabel), func() {
 
 	It("When the device first boots the onboarding setup service is enabled and the wizard is reachable", Label("90414"), func() {
 		harness := e2e.GetWorkerHarness()

@@ -74,7 +74,11 @@ func prepareHelmApplicationDeltaDevice(harness *e2e.Harness, deviceID string) {
 	waitDeviceUpToDate(harness, deviceID, "device UpToDate on the MicroShift-capable V12 OS")
 }
 
-var _ = Describe("application delta Helm", Label("delta", "microshift", "slow", "helm"), Serial, func() {
+// VM-only: prepareHelmApplicationDeltaDevice switches the device OS image to the V12 MicroShift
+// fixture and then waits for MicroShift to come up (the specs also drive crictl on the device).
+// The container-backed device always runs the base-tagged agent image, which carries neither
+// MicroShift nor crictl, and it cannot switch OS images at all.
+var _ = Describe("application delta Helm", Label("delta", "microshift", "slow", "helm", e2e.NeedVMLabel), Serial, func() {
 	It("When a standalone device updates a Helm application with multiple images it should apply each delta and remain healthy", Label("standalone"), func() {
 		runHelmApplicationDeltaTest(false)
 	})

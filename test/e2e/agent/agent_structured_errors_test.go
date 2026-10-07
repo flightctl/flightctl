@@ -42,7 +42,10 @@ const (
 	StatusMsgInternal          = "internal error occurred"
 )
 
-var _ = Describe("Agent structured error messages", Ordered, func() {
+// Structured error coverage only needs an enrolled agent plus failing image pulls, config writes,
+// and hooks, so this suite defaults to container-backed devices. Specs that need a real boot cycle
+// or OS-image switch override with Label(e2e.NeedVMLabel) on their own It.
+var _ = Describe("Agent structured error messages", Ordered, Label(e2e.NeedContainerLabel), func() {
 	var (
 		harness  *e2e.Harness
 		deviceId string

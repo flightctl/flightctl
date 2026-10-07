@@ -112,28 +112,80 @@ Container commands run as `user` with `HOME=/home/user`, matching the VM SSH use
 and home defaults, and use a non-login shell. The working directory falls back to
 `/` if the home directory does not exist. Systemd readiness does not start the agent: the harness explicitly
 enables and starts it after clearing stale enrollment state, and removes each
-container after its spec. Snapshot and pause/resume operations return
-`vm.ErrUnsupported`. Rootless spec 87846 is VM-only: its privileged-port denial assertion requires Podman's
-VM network namespace, not Docker's container namespace where unprivileged ports
-may be enabled.
+container after its spec. Snapshot, pause/resume, and reboot have no container
+equivalent: the first two return `vm.ErrUnsupported`, and a `reboot` stops the
+container because systemd is PID 1, after which every `exec` into it fails.
+
+#### Suite defaults and spec overrides
+
+Labels are set at the **suite** level and overridden at the **spec** level. A suite
+whose specs are mostly container-safe puts `Label(e2e.NeedContainerLabel)` on its
+outermost `Describe`; the individual specs that still need a VM carry
+`Label(e2e.NeedVMLabel)` on their own `It` (or on a `Context` that groups only VM
+specs). Ginkgo reports the union of every enclosing container node's labels plus the
+spec's own, so `needvm` on a spec always beats `needcontainer` inherited from its
+`Describe`. `e2e.CurrentSpecUsesContainerDevice` encodes exactly that precedence and
+is the only place the rule lives.
+
+`Harness.SetupDeviceForCurrentSpec(workerID)` is the single dispatcher: it applies the
+precedence rule, creates a container device or lazily pulls a VM from the pool, and
+starts the agent. Suites must call it rather than re-deriving the backend from
+`CurrentSpecReport().Labels()` — a hand-rolled `slices.Contains(..., NeedContainerLabel)`
+check silently ignores spec-level `needvm` overrides. Use `e2e.DeviceBackendName()` for
+setup logging. Multi-organization suites call
+`SetupDeviceForCurrentSpecWithCurrentOrgAgent` instead, which regenerates org-scoped
+enrollment credentials before the device is created (a container device snapshots
+`bin/agent/etc/flightctl` at creation time, so the order matters).
 
 #### Device dispatch shapes
 
 Suite and spec setup intentionally use different dispatch shapes:
 
-- `basic_operations`, `configuration`, and `applications/containers` call
-  `SetupDeviceForCurrentSpec` in `BeforeEach`; `dependency_sync` calls the same
-  dispatcher in the spec file. It honors VM/container labels centrally.
-- `agent` branches explicitly for backend-specific logging, then uses the shared
-  dispatcher on the VM path for lazy infrastructure setup.
-- `quadlets` and `parametrisable_templates` branch directly to the backend helpers
-  to retain their suite-specific setup flow.
-- `cli` and `backup_restore` gate VM setup with `CurrentSpecNeedsVM`, leaving
-  API-only specs without a device. CLI setup also refreshes agent configuration.
+- Most suites call `SetupDeviceForCurrentSpec` unconditionally in `BeforeEach`:
+  `agent`, `basic_operations`, `configuration`, `applications/containers`,
+  `catalog_refs`, `decommission`, `delta`, `hooks`, `parametrisable_templates`,
+  `quadlets`. `dependency_sync` calls the same dispatcher from the spec file.
+- `cli`, `multiorg`, `observability`, and `backup_restore` gate device setup on
+  `CurrentSpecNeedsVM() || CurrentSpecUsesContainerDevice()`, leaving API-only specs
+  without a device. CLI setup also refreshes agent configuration on the VM path; the
+  container path does not need it, because each container is built from the current
+  run's prepared agent config and certs.
+- `certificate_rotation` branches so the VM path keeps `SetupVMFromPool` (no agent
+  start) plus `SyncVMClock`, while the container path uses the dispatcher.
+- `onboarding` does not use the dispatcher at all — see below.
 
-Unlabeled device specs default to VMs. `applications/rootless` is VM-only because
-privileged-port semantics require Podman; it uses the shared dispatcher without
-a container branch.
+BeforeSuite in these suites uses `SetupWorkerHarnessWithoutVM`, so a shard that happens
+to contain only container or API-only specs never boots a VM; VM infrastructure is
+created on demand by the first spec that asks for it.
+
+Unlabeled device specs default to VMs.
+
+#### Suites that stay VM-only, and why
+
+- `onboarding` (all 30 specs). The wizard is driven over a real `sshpass ssh -L`
+  tunnel to the guest's forwarded SSH port, the suite takes a libvirt memory snapshot
+  and reverts to it per spec, and the specs require a device whose agent has never
+  enrolled or started. Container devices have no sshd or forwarded port, return
+  `vm.ErrUnsupported` for snapshot/revert, and start the agent during setup. The WiFi
+  specs additionally `modprobe mac80211_hwsim`.
+- `applications/helm`, `delta`'s Helm specs, and `microshift_acm_enrollment`. They
+  obtain MicroShift by switching `device.Spec.Os` to the `v7`/`v12` variant images. The
+  container device always runs the `base-` tagged image, which contains no MicroShift,
+  and cannot switch OS images at all.
+- `applications/rootless`. Spec 87846 asserts privileged-port denial semantics that
+  require Podman's VM network namespace rather than Docker's container namespace, and
+  spec 87844 reboots the device. Both carry `needvm` explicitly.
+- `delta`'s `OS delta hold` specs and the VM-type application specs. The former wait
+  for the device to land on a new OS image; the latter boot a KubeVirt guest (KVM)
+  inside the device.
+- `fips`. FIPS mode is a host-kernel property and a container shares the CI host's
+  kernel, so a container device would assert nothing while appearing to pass.
+- `agent`'s system-info suites. They mutate the device hostname and read DMI values
+  from `/sys/class/dmi/id`, which a container inherits from the host.
+- `observability`'s device-backed specs. `ensureOTelDevice` switches the device to the
+  OTEL-enabled OS image and waits through the reboot; the TPM context needs swtpm.
+- `hooks`' enrollment-hook specs. Suite setup switches the device to the `v13` fixture
+  image and reboots before re-enrolling.
 
 ### Builds and versions
 

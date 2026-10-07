@@ -63,7 +63,10 @@ type deltaUpdateSnapshot struct {
 	lifecycle       deltaLifecycleObservation
 }
 
-var _ = Describe("OS delta hold", Label("delta"), Serial, func() {
+// VM-only: every spec here points the fleet/device OS spec at a different device image and then
+// waits for the agent to actually land on it (status.os.image == v2 and UpToDate), i.e. a real
+// bootc image switch plus reboot. Container-backed devices cannot do that.
+var _ = Describe("OS delta hold", Label("delta", e2e.NeedVMLabel), Serial, func() {
 	It("When a fleet OS image changes with a writable delta target it should hold then apply a generated OS delta", func() {
 		harness := e2e.GetWorkerHarness()
 		createWritableDeltaRepo(harness)

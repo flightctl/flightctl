@@ -2,7 +2,6 @@ package quadlets_test
 
 import (
 	"context"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -48,13 +47,10 @@ var _ = BeforeEach(func() {
 	ctx := testutil.StartSpecTracerForGinkgo(suiteCtx)
 	harness.SetTestContext(ctx)
 
-	if slices.Contains(CurrentSpecReport().Labels(), e2e.NeedContainerLabel) {
-		GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up quadlet test with container device from pool\n", workerID)
-		err = harness.SetupContainerFromPoolAndStartAgent(workerID)
-	} else {
-		GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up quadlet test with VM from pool\n", workerID)
-		err = harness.SetupVMFromPoolAndStartAgent(workerID)
-	}
+	// Backend selection is label-driven: a spec-level NeedVMLabel overrides the
+	// NeedContainerLabel its Context carries, so the reboot-survival spec still gets a VM.
+	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up quadlet test with %s from pool\n", workerID, e2e.DeviceBackendName())
+	err = harness.SetupDeviceForCurrentSpec(workerID)
 	Expect(err).ToNot(HaveOccurred())
 
 	out, err := harness.VM.RunSSH([]string{"sudo", "systemctl", "is-active", "flightctl-agent"}, nil)

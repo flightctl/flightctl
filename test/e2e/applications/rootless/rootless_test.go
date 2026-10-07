@@ -74,7 +74,10 @@ var _ = Describe("Rootless applications", Label("rootless"), func() {
 		deviceID, _ = harness.EnrollAndWaitForOnlineStatus()
 	})
 
-	It("covers all rootless checkpoints across quadlet, container, and compose app types", Label("sanity", "agent", "rootless", "87844"), func() {
+	// VM-only: the "Rootless after reboot" checkpoint below calls RebootVMAndWaitForSSH, i.e. a real
+	// `sudo reboot`. On a container-backed device systemd-as-PID1 exits instead of rebooting, the
+	// container stops, and every subsequent `<runtime> exec` (ContainerDevice.RunSSH) fails.
+	It("covers all rootless checkpoints across quadlet, container, and compose app types", Label(e2e.NeedVMLabel, "sanity", "agent", "rootless", "87844"), func() {
 		var names string
 		var err error
 

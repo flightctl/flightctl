@@ -21,7 +21,10 @@ const (
 // Console test-suite
 // -----------------------------------------------------------------------------
 
-var _ = Describe("CLI - device console", Label(e2e.NeedVMLabel), func() {
+// Console specs default to a container-backed device: the agent's console subsystem is a
+// gRPC/exec path with no VM-specific dependency. Specs that drive a real OS image switch
+// override this with a spec-level e2e.NeedVMLabel, which always wins over this suite label.
+var _ = Describe("CLI - device console", Label(e2e.NeedContainerLabel), func() {
 	var (
 		deviceID string
 	)
@@ -87,7 +90,9 @@ var _ = Describe("CLI - device console", Label(e2e.NeedVMLabel), func() {
 		cs2.Close()
 	})
 
-	It("keeps console sessions open during a device update", Label("81786", "client"), func() {
+	// needvm: WaitForBootstrapAndUpdateToVersion sets device.Spec.Os, i.e. a real bootc OS
+	// image switch, which a container-backed device cannot perform.
+	It("keeps console sessions open during a device update", Label("81786", "client", e2e.NeedVMLabel), func() {
 		// Get harness directly - no shared package-level variable
 		harness := e2e.GetWorkerHarness()
 
@@ -136,7 +141,9 @@ var _ = Describe("CLI - device console", Label(e2e.NeedVMLabel), func() {
 		Expect(out).To(ContainSubstring("not found"))
 	})
 
-	It("recovers from image pull network disruption", Label("82541", "client"), func() {
+	// needvm: drives a real OS image switch (WaitForBootstrapAndUpdateToVersion sets
+	// device.Spec.Os) and blocks the registry with in-device iptables rules.
+	It("recovers from image pull network disruption", Label("82541", "client", e2e.NeedVMLabel), func() {
 		// Get harness directly - no shared package-level variable
 		harness := e2e.GetWorkerHarness()
 
@@ -175,7 +182,9 @@ var _ = Describe("CLI - device console", Label(e2e.NeedVMLabel), func() {
 			Should(WithTransform((*v1beta1.Device).IsUpdatedToDeviceSpec, BeTrue()))
 	})
 
-	It("uses the flightctl-console user and has sudo access", Label("87848", "client"), func() {
+	// needvm: asserts the SELinux domain is unconfined_t. A container-backed device runs
+	// --privileged with label=disable, so the console process lands in spc_t instead.
+	It("uses the flightctl-console user and has sudo access", Label("87848", "client", e2e.NeedVMLabel), func() {
 		// Get harness directly - no shared package-level variable
 		harness := e2e.GetWorkerHarness()
 
@@ -225,7 +234,9 @@ var _ = Describe("CLI - device console", Label(e2e.NeedVMLabel), func() {
 		}
 	})
 
-	It("recovers from image pull network connection error", Label("83029", "client"), func() {
+	// needvm: drives a real OS image switch (WaitForBootstrapAndUpdateToVersion sets
+	// device.Spec.Os) and blocks the registry with in-device iptables rules.
+	It("recovers from image pull network connection error", Label("83029", "client", e2e.NeedVMLabel), func() {
 		// Get harness directly - no shared package-level variable
 		harness := e2e.GetWorkerHarness()
 

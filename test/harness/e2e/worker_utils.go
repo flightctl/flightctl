@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strconv"
 	"sync"
 
@@ -200,22 +201,28 @@ func (f *AuxServicesFuture) Wait() *auxiliary.Services {
 
 // CurrentSpecNeedsVM reports whether the currently running Ginkgo spec is
 // labeled as requiring VM setup.
+//
+// Ginkgo reports the labels of every enclosing container node together with the
+// spec's own labels, so a NeedVMLabel on an It always wins over a
+// NeedContainerLabel inherited from its Describe/Context. That is what lets a
+// suite default to container-backed devices while individual specs opt back
+// into a VM.
 func CurrentSpecNeedsVM() bool {
-	for _, label := range ginkgo.CurrentSpecReport().Labels() {
-		if label == NeedVMLabel {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(ginkgo.CurrentSpecReport().Labels(), NeedVMLabel)
+}
+
+// CurrentSpecUsesContainerDevice reports whether the currently running spec resolves to a
+// container-backed device. It applies the same precedence as SetupDeviceForCurrentSpec: a
+// spec-level NeedVMLabel overrides a suite-level NeedContainerLabel. Suites use it for
+// backend-specific logging and setup without duplicating the precedence rule.
+func CurrentSpecUsesContainerDevice() bool {
+	labels := ginkgo.CurrentSpecReport().Labels()
+	return !slices.Contains(labels, NeedVMLabel) && slices.Contains(labels, NeedContainerLabel)
 }
 
 func (h *Harness) SetupDeviceForCurrentSpec(workerID int) error {
-	if !CurrentSpecNeedsVM() {
-		for _, label := range ginkgo.CurrentSpecReport().Labels() {
-			if label == NeedContainerLabel {
-				return h.SetupContainerFromPoolAndStartAgent(workerID)
-			}
-		}
+	if CurrentSpecUsesContainerDevice() {
+		return h.SetupContainerFromPoolAndStartAgent(workerID)
 	}
 	// Unlabeled specs default to a VM so OS-image and reboot operations remain safe.
 	if err := h.SetupVMFromPoolAndStartAgent(workerID); err != nil {
@@ -223,6 +230,15 @@ func (h *Harness) SetupDeviceForCurrentSpec(workerID int) error {
 		return err
 	}
 	return nil
+}
+
+// DeviceBackendName returns a human-readable name for the device backend the current spec
+// resolves to. Suites use it in setup logging.
+func DeviceBackendName() string {
+	if CurrentSpecUsesContainerDevice() {
+		return "container device"
+	}
+	return "VM"
 }
 
 func abortVMSetup(workerID int, err error) {

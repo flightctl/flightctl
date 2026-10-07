@@ -142,6 +142,19 @@ var (
 	}
 )
 
+// Pinned to the VM backend. These scenarios assert on real machine identity rather than on the
+// agent's config handling alone: they mutate the device hostname with `hostnamectl set-hostname`
+// and restore it afterwards, and the explicit-alias scenario needs a non-empty
+// systemInfo.productName, which the agent reads from /sys/class/dmi/id/product_name. A container
+// passes the host's /sys/class/dmi/id straight through, and its hostname lives in a namespace
+// rather than on a booted guest.
+//
+// Measured on a privileged container: product_name reads fine, but product_serial is mode 0400
+// root-owned, so a rootless runtime (container uid 0 -> unprivileged host uid) gets "Permission
+// denied" where a rootful one succeeds. Since e2e must pass on local kind/quadlet, GitHub CI and
+// QE Jenkins alike, that makes the container backend flaky here rather than consistently wrong.
+// An earlier iteration of the container-device work already moved this suite from needcontainer
+// back to needvm; keep it on a VM.
 var _ = Describe("SystemInfo label mapping", Label(e2e.NeedVMLabel), func() {
 	var harness *e2e.Harness
 
@@ -200,6 +213,9 @@ var _ = Describe("SystemInfo label mapping", Label(e2e.NeedVMLabel), func() {
 		Expect(validateLabelFromSystemInfoLabels(result, scenario)).To(Succeed())
 	})
 
+	// This is the scenario that most clearly needs real DMI: it requires a non-empty
+	// systemInfo.productName, which the agent reads from /sys/class/dmi/id/product_name.
+	// The whole Describe is already needvm, so this is documentation rather than an override.
 	It("When alias is explicitly mapped it should use the mapped field instead of hostname fallback", Label("88950", "agent"), func() {
 		scenario := labelFromSystemInfoExplicitAliasScenario
 
