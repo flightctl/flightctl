@@ -49,6 +49,8 @@ rather than being silently clamped: the collector owns the catalogs it writes,
 so two instances would poll the same upstream registry and reconcile the same
 catalog concurrently, racing each other into conflicting updates. Use
 `replicaCount=0` to pause the collector without uninstalling the release.
+Fractional values such as `0.5` are rejected as well, rather than being
+truncated into range and then rejected by the API server.
 
 The deployment strategy is `Recreate` for the same reason: a rolling update
 would briefly run the old and new pods together.

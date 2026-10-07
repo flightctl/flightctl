@@ -465,7 +465,14 @@ fi
     # drives the services quadlets, so there is exactly one place that decides
     # which registry and which dist suffix a build uses. Hardcoding it here
     # would silently diverge from images.yaml the first time a downstream
-    # build repointed the registry.
+    # build repointed the registry. This is the same rule the pam-issuer
+    # image already follows.
+    #
+    # packaging/images/rhelN/images.yaml is deliberately not consulted
+    # here. Those files list only the RPM-only images the air-gap mirror tool
+    # needs and omit the service entries the render step above requires, so a
+    # downstream RHEL build repoints %{images_config} itself rather than
+    # splitting the collector onto a second source.
     CATALOG_COLLECTOR_IMAGE=$(awk '
         /^catalog-collector:[[:space:]]*$/ { in_entry = 1; next }
         /^[^[:space:]#]/                   { in_entry = 0 }

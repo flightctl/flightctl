@@ -287,6 +287,22 @@ assert_render_fails \
     --set-string config.existingName=external-config \
     --set replicaCount=-1
 
+# --set-json, not --set: "--set replicaCount=0.5" reaches the template as the
+# string "0.5" and is caught by the numeric-type check above it. A values file
+# yields a real float64, which is the case that used to be truncated to an
+# in-range integer by the validator while the Deployment rendered the fraction.
+assert_render_fails \
+    "fractional replicaCount is rejected" \
+    "replicaCount must be a whole number" \
+    --set-string config.existingName=external-config \
+    --set-json replicaCount=0.5
+
+assert_contains \
+    "a whole-number float replicaCount still renders" \
+    "replicas: 1" \
+    --set-string config.existingName=external-config \
+    --set-json replicaCount=1.0
+
 assert_contains \
     "replicaCount=0 renders a paused Deployment" \
     "replicas: 0" \

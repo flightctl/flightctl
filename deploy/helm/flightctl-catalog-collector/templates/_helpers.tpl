@@ -102,11 +102,19 @@ upstream registry and reconcile the same catalog concurrently, racing each
 other into conflicting updates, so anything above 1 is rejected rather than
 silently clamped. 0 is allowed: it is the supported way to pause the collector
 without uninstalling the release.
+
+Fractional values are rejected too. The Deployment renders replicaCount
+verbatim, so a value this validator truncated to an in-range integer would
+still reach the API server as a fraction and be rejected there, with an error
+that points at the manifest rather than at the value that produced it.
 */}}
 {{- define "flightctl-catalog-collector.validateReplicas" -}}
 {{- $replicas := .Values.replicaCount -}}
 {{- if not (or (kindIs "int" $replicas) (kindIs "int64" $replicas) (kindIs "float64" $replicas)) -}}
 {{- fail (printf "flightctl-catalog-collector: replicaCount must be a number, got %v" $replicas) -}}
+{{- end -}}
+{{- if and (kindIs "float64" $replicas) (ne $replicas (float64 (int $replicas))) -}}
+{{- fail (printf "flightctl-catalog-collector: replicaCount must be a whole number, got %v" $replicas) -}}
 {{- end -}}
 {{- $n := int $replicas -}}
 {{- if lt $n 0 -}}

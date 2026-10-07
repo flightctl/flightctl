@@ -56,7 +56,8 @@ extensions:
   # Credentials for the model registry REST API. The RHOAI model registry
   # authenticates with an OpenShift bearer token, so a static token file is
   # the right shape here. Issue it from a dedicated ServiceAccount and
-  # refresh it before it expires; see the README for the rotation procedure.
+  # overwrite the file in place before it expires; the file is re-read on
+  # every request, so a rotation does not need a restart.
   bearertokenauth/model-registry:
     tokenFile: /etc/flightctl/catalog-collector/credentials/model-registry-token
 
