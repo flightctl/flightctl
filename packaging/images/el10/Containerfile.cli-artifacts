@@ -21,7 +21,6 @@ COPY ./deploy ./deploy
 COPY ./hack ./hack
 COPY ./internal ./internal
 COPY ./pkg ./pkg
-COPY ./test ./test
 COPY ./packaging/containers/cli-artifacts/nginx.conf ./packaging/containers/cli-artifacts/nginx.conf
 COPY ./packaging/containers/cli-artifacts/entrypoint.sh ./packaging/containers/cli-artifacts/entrypoint.sh
 

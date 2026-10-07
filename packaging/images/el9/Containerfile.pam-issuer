@@ -48,7 +48,6 @@ COPY ./deploy ./deploy
 COPY ./hack ./hack
 COPY ./internal ./internal
 COPY ./pkg ./pkg
-COPY ./test ./test
 
 ARG SOURCE_GIT_TAG
 ARG SOURCE_GIT_TREE_STATE

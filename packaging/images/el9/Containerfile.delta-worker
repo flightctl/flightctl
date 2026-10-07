@@ -61,7 +61,6 @@ COPY ./deploy ./deploy
 COPY ./hack ./hack
 COPY ./internal ./internal
 COPY ./pkg ./pkg
-COPY ./test ./test
 
 # Define version info ARGs right before build
 ARG SOURCE_GIT_TAG
