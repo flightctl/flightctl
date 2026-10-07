@@ -76,6 +76,7 @@ make flightctl-api-container  # Build container
 - `openapi.yaml` - PAM issuer API specification
 - `types.gen.go` - Generated types
 - `spec.gen.go` - Generated server stubs
+- `spec.go` - Hand-written; embeds `openapi.yaml` and exposes `GetSpec()`
 
 **Generation**:
 ```bash

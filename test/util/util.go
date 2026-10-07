@@ -59,9 +59,14 @@ func InitLogsWithDebug() *logrus.Logger {
 type testProvider struct {
 	queue       chan []byte
 	pubsubQueue chan []byte
-	stopped     atomic.Bool
-	wg          *sync.WaitGroup
-	log         logrus.FieldLogger
+	// done is closed by Stop to signal shutdown. Senders select on it rather
+	// than relying on the queues being closed, so a send can never race a
+	// close. Only Stop closes it, and the stopped guard makes that happen
+	// exactly once.
+	done    chan struct{}
+	stopped atomic.Bool
+	wg      *sync.WaitGroup
+	log     logrus.FieldLogger
 }
 
 func (t *testProvider) NewPubSubPublisher(_ context.Context, channelName string) (queues.PubSubPublisher, error) {
@@ -78,6 +83,7 @@ func NewTestProvider(log logrus.FieldLogger) queues.Provider {
 	return &testProvider{
 		queue:       make(chan []byte, 20),
 		pubsubQueue: make(chan []byte, 20),
+		done:        make(chan struct{}),
 		wg:          &wg,
 		log:         log,
 	}
@@ -94,7 +100,10 @@ func (t *testProvider) NewQueueConsumer(_ context.Context, _ string) (queues.Que
 func (t *testProvider) Stop() {
 	if !t.stopped.Swap(true) {
 		t.wg.Done()
-		close(t.queue)
+		// Close the shutdown signal rather than the queues themselves. A
+		// producer can still be mid-send when a server shuts down, and
+		// closing a channel out from under a send panics.
+		close(t.done)
 	}
 }
 
@@ -106,9 +115,24 @@ func (t *testProvider) CheckHealth(_ context.Context) error {
 	return nil
 }
 
+// Enqueue publishes to the work queue. Once Stop has been called the message
+// is dropped instead of being delivered: the consumers are on their way down,
+// and a test provider has nowhere to put it.
 func (t *testProvider) Enqueue(_ context.Context, b []byte, timestamp int64) error {
-	t.queue <- b
-	return nil
+	// Check shutdown first so that a stopped provider always drops, rather
+	// than enqueueing whenever select happens to pick the ready send.
+	select {
+	case <-t.done:
+		return nil
+	default:
+	}
+
+	select {
+	case <-t.done:
+		return nil
+	case t.queue <- b:
+		return nil
+	}
 }
 
 func (t *testProvider) Close() {
@@ -119,23 +143,43 @@ func (t *testProvider) Consume(ctx context.Context, handler queues.ConsumeHandle
 	go func() {
 		defer t.wg.Done()
 		log := logrus.New()
+		dispatch := func(b []byte) {
+			// Use detached context with grace period for in-flight work.
+			// This allows handlers to complete database operations even when
+			// the test context is cancelled during cleanup.
+			processCtx, cancel := context.WithTimeout(
+				context.WithoutCancel(ctx), 30*time.Second)
+			defer cancel()
+			if err := handler(processCtx, b, "test-entry-id", t, log); err != nil {
+				log.WithError(err).Errorf("handling message: %s", string(b))
+			}
+		}
+		// Drain everything buffered before giving up on a shutdown signal.
+		// Stop used to close the queue, and a closed channel still yields its
+		// buffered values, so work enqueued before shutdown was delivered;
+		// keep that behaviour.
+		drain := func() bool {
+			select {
+			case b := <-t.queue:
+				dispatch(b)
+				return true
+			default:
+				return false
+			}
+		}
 		for {
+			if drain() {
+				continue
+			}
 			select {
 			case <-ctx.Done():
 				return
-			case b, ok := <-t.queue:
-				if !ok {
-					return
+			case <-t.done:
+				for drain() {
 				}
-				// Use detached context with grace period for in-flight work.
-				// This allows handlers to complete database operations even when
-				// the test context is cancelled during cleanup.
-				processCtx, cancel := context.WithTimeout(
-					context.WithoutCancel(ctx), 30*time.Second)
-				if err := handler(processCtx, b, "test-entry-id", t, log); err != nil {
-					log.WithError(err).Errorf("handling message: %s", string(b))
-				}
-				cancel()
+				return
+			case b := <-t.queue:
+				dispatch(b)
 			}
 		}
 	}()
@@ -177,26 +221,55 @@ func (t *testProvider) Subscribe(ctx context.Context, handler queues.PubSubHandl
 	go func() {
 		defer t.wg.Done()
 		log := logrus.New()
+		deliver := func(b []byte) {
+			if err := handler(ctx, b, log); err != nil {
+				log.WithError(err).Errorf("handling broadcast message: %s", string(b))
+			}
+		}
+		drain := func() bool {
+			select {
+			case b := <-t.pubsubQueue:
+				deliver(b)
+				return true
+			default:
+				return false
+			}
+		}
 		for {
+			if drain() {
+				continue
+			}
 			select {
 			case <-ctx.Done():
 				return
-			case b, ok := <-t.pubsubQueue:
-				if !ok {
-					return
+			case <-t.done:
+				for drain() {
 				}
-				if err := handler(ctx, b, log); err != nil {
-					log.WithError(err).Errorf("handling broadcast message: %s", string(b))
-				}
+				return
+			case b := <-t.pubsubQueue:
+				deliver(b)
 			}
 		}
 	}()
 	return t, nil
 }
 
+// Publish broadcasts to subscribers. As with Enqueue, a message published
+// after Stop is dropped: without this the send would block forever once the
+// buffer filled and the subscribers had exited.
 func (t *testProvider) Publish(ctx context.Context, payload []byte) error {
-	t.pubsubQueue <- payload
-	return nil
+	select {
+	case <-t.done:
+		return nil
+	default:
+	}
+
+	select {
+	case <-t.done:
+		return nil
+	case t.pubsubQueue <- payload:
+		return nil
+	}
 }
 
 // RunOcCommand executes an oc CLI command with the given arguments and returns
