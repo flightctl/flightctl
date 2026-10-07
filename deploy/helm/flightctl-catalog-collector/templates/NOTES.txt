@@ -27,9 +27,10 @@ The collector configuration must enable the "healthcheck" extension on
 will never become ready.
 {{ end -}}
 {{ if .Values.metrics.enabled -}}
-Metrics are served on port {{ .Values.metrics.port }}{{ .Values.metrics.path }}. The collector configuration must set
-service.metrics.endpoint to 0.0.0.0:{{ .Values.metrics.port }} for Prometheus to scrape it.
+Metrics are served on port {{ .Values.metrics.port }}{{ include "flightctl-catalog-collector.metricsPath" . }}. The collector configuration must set
+service.metrics.endpoint to 0.0.0.0:{{ .Values.metrics.port }} for Prometheus to scrape it. The path is
+fixed by the collector and is not a chart value.
 
   kubectl -n {{ .Release.Namespace }} port-forward deployment/{{ include "flightctl-catalog-collector.fullname" . }} {{ .Values.metrics.port }}:{{ .Values.metrics.port }}
-  curl -s localhost:{{ .Values.metrics.port }}{{ .Values.metrics.path }}
+  curl -s localhost:{{ .Values.metrics.port }}{{ include "flightctl-catalog-collector.metricsPath" . }}
 {{ end -}}

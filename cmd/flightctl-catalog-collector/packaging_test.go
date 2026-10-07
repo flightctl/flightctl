@@ -644,3 +644,155 @@ pipelines:
 }
 
 func strPtr(s string) *string { return &s }
+
+// TestChartShipsItsExamples guards the chart's own instructions.
+//
+// The chart has no default pipeline, so both the render failure in
+// templates/_helpers.tpl and the README tell the operator to start from
+// examples/values-vanilla.yaml. A .helmignore entry for examples/ stripped
+// that directory from the packaged chart, which turned the instruction into
+// a dead end for anybody who reached the chart through "helm pull" rather
+// than through a clone of this repository.
+func TestChartShipsItsExamples(t *testing.T) {
+	chartDir := filepath.Join(repoRoot(t), "deploy", "helm", "flightctl-catalog-collector")
+
+	raw, err := os.ReadFile(filepath.Join(chartDir, ".helmignore"))
+	require.NoError(t, err)
+
+	for _, line := range strings.Split(string(raw), "\n") {
+		pattern := strings.TrimSpace(line)
+		if pattern == "" || strings.HasPrefix(pattern, "#") {
+			continue
+		}
+		require.NotEqual(t, "examples", strings.Trim(pattern, "/"),
+			"examples/ must stay in the packaged chart: the render failure and the "+
+				"README both tell the operator to start from one of these files, and "+
+				"after a \"helm pull\" they would not be there")
+	}
+
+	// The instruction is only useful if the file it names exists.
+	referenced := filepath.Join(chartDir, "examples", "values-vanilla.yaml")
+	_, err = os.Stat(referenced)
+	require.NoErrorf(t, err, "the chart's error message points at %s", referenced)
+
+	helpers, err := os.ReadFile(filepath.Join(chartDir, "templates", "_helpers.tpl"))
+	require.NoError(t, err)
+	require.Contains(t, string(helpers), "examples/values-vanilla.yaml",
+		"the render failure should keep naming the example to start from")
+}
+
+// TestChartMetricsPathIsNotAValue pins the removal of metrics.path.
+//
+// The collector serves its Prometheus registry at a fixed /metrics and
+// service.metrics.endpoint in its configuration is a host:port pair with no
+// path component. A chart value could therefore only have moved the scrape
+// target in the Service annotations and in the ServiceMonitor onto a path the
+// collector answers with 404, losing metrics without reporting an error.
+func TestChartMetricsPathIsNotAValue(t *testing.T) {
+	chartDir := filepath.Join(repoRoot(t), "deploy", "helm", "flightctl-catalog-collector")
+
+	// Both the generated file and the source it is generated from, so the
+	// value cannot reappear on the next regeneration. The source is not YAML
+	// until its template actions are gone: drop the comment blocks outright
+	// and stand a scalar in for the rest.
+	tplCommentRE := regexp.MustCompile(`(?s)\{\{/\*.*?\*/\s*-?\}\}\n?`)
+	tplActionRE := regexp.MustCompile(`(?s)\{\{.*?\}\}`)
+
+	for _, name := range []string{"values.yaml", "values.yaml.gotmpl"} {
+		raw, err := os.ReadFile(filepath.Join(chartDir, name))
+		require.NoError(t, err)
+		raw = tplActionRE.ReplaceAll(tplCommentRE.ReplaceAll(raw, nil), []byte("generated"))
+
+		var values struct {
+			Metrics map[string]any `json:"metrics"`
+		}
+		require.NoError(t, yaml.Unmarshal(raw, &values), "%s", name)
+		require.NotEmpty(t, values.Metrics, "%s: the metrics block must still exist", name)
+		require.NotContains(t, values.Metrics, "path",
+			"%s: metrics.path must not come back; the collector hardcodes /metrics and a "+
+				"chart value could only point Prometheus at a 404", name)
+	}
+}
+
+// TestChartIsGeneratedFromBuildProfile checks that the committed Chart.yaml
+// and values.yaml still agree with the community-el9 build profile they are
+// generated from.
+//
+// Both files are rendered by deploy/helm/cmd/charttmpl, which is what lets a
+// downstream build rebrand the chart and repoint it at its own registry. A
+// hand-edit here, or a profile change that was never regenerated, produces a
+// chart that silently reverts on the next "go generate".
+func TestChartIsGeneratedFromBuildProfile(t *testing.T) {
+	root := repoRoot(t)
+	chartDir := filepath.Join(root, "deploy", "helm", "flightctl-catalog-collector")
+
+	raw, err := os.ReadFile(filepath.Join(root, "deploy", "helm", "helm-chart-opts.yaml"))
+	require.NoError(t, err)
+
+	type imageSpec struct {
+		Image string `json:"image"`
+	}
+	type profile struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Home        string `json:"home"`
+		Icon        string `json:"icon"`
+		Annotations struct {
+			Name       string `json:"name"`
+			Provider   string `json:"provider"`
+			SupportURL string `json:"supportURL"`
+		} `json:"annotations"`
+		Images map[string]imageSpec `json:"images"`
+	}
+
+	var profiles map[string]profile
+	require.NoError(t, yaml.Unmarshal(raw, &profiles))
+
+	// Every variant the generator can be asked for must have a collector
+	// profile; a missing one would silently fall back to community-el9 and
+	// ship a downstream chart pointing at quay.io.
+	for _, variant := range []string{"community-el9", "community-el10", "rhem-el9", "rhem-el10"} {
+		key := "catalog-collector-" + variant
+		p, ok := profiles[key]
+		require.Truef(t, ok, "helm-chart-opts.yaml must carry a %q profile", key)
+		require.NotEmptyf(t, p.Images["catalogCollector"].Image,
+			"%s: images.catalogCollector.image must be set", key)
+		require.NotEmptyf(t, p.Name, "%s: name must be set", key)
+		require.NotEmptyf(t, p.Icon, "%s: icon must be set", key)
+	}
+
+	// The committed files are the community-el9 rendering, which is the
+	// generator's default and its fallback.
+	want := profiles["catalog-collector-community-el9"]
+
+	chartRaw, err := os.ReadFile(filepath.Join(chartDir, "Chart.yaml"))
+	require.NoError(t, err)
+	var chart struct {
+		Name        string            `json:"name"`
+		Description string            `json:"description"`
+		Home        string            `json:"home"`
+		Icon        string            `json:"icon"`
+		Annotations map[string]string `json:"annotations"`
+	}
+	require.NoError(t, yaml.Unmarshal(chartRaw, &chart))
+
+	require.Equal(t, want.Name, chart.Name)
+	require.Equal(t, want.Description, chart.Description)
+	require.Equal(t, want.Home, chart.Home)
+	require.Equal(t, want.Icon, chart.Icon)
+	require.Equal(t, want.Annotations.Name, chart.Annotations["charts.openshift.io/name"])
+	require.Equal(t, want.Annotations.Provider, chart.Annotations["charts.openshift.io/provider"])
+	require.Equal(t, want.Annotations.SupportURL, chart.Annotations["charts.openshift.io/supportURL"])
+
+	valuesRaw, err := os.ReadFile(filepath.Join(chartDir, "values.yaml"))
+	require.NoError(t, err)
+	var values struct {
+		Image struct {
+			Image string `json:"image"`
+		} `json:"image"`
+	}
+	require.NoError(t, yaml.Unmarshal(valuesRaw, &values))
+	require.Equal(t, want.Images["catalogCollector"].Image, values.Image.Image,
+		"values.yaml is generated from the build profile; regenerate with "+
+			"\"go generate ./deploy/helm/...\" instead of editing it")
+}

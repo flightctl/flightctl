@@ -1,3 +1,11 @@
+{{/*
+Source for values.yaml. Rendered by "go generate ./deploy/helm/..." from the
+"catalog-collector-<variant>" profile in deploy/helm/helm-chart-opts.yaml, so
+a downstream build points the chart at its own registry instead of shipping
+one that still names quay.io.
+
+Edit this file and regenerate; do not edit values.yaml by hand.
+*/ -}}
 global:
   # Pull policy applied when .image.pullPolicy is not set.
   imagePullPolicy: IfNotPresent
@@ -21,7 +29,7 @@ replicaCount: 1
 # deploy/helm/helm-chart-opts.yaml, so a downstream rebuild ships a chart
 # pointing at its own registry rather than at quay.io.
 image:
-  image: quay.io/flightctl/flightctl-catalog-collector-el9
+  image: {{ .Images.catalogCollector.Image }}
   # Defaults to the chart appVersion when empty.
   tag: ""
   # Defaults to global.imagePullPolicy when empty.

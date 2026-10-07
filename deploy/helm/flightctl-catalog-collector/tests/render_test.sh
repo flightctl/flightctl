@@ -361,6 +361,42 @@ assert_contains \
     --set metrics.serviceMonitor.enabled=true
 
 # --------------------------------------------------------------------------
+# Metrics path
+# --------------------------------------------------------------------------
+
+# The collector serves its registry at a fixed /metrics; service.metrics.
+# endpoint in its configuration is host:port and carries no path. The chart
+# therefore hardcodes the scrape path instead of exposing a value that could
+# only have pointed Prometheus at a 404.
+
+assert_contains \
+    "ServiceMonitor scrapes the fixed /metrics path" \
+    "path: /metrics" \
+    --set-string config.existingName=external-config \
+    --set metrics.serviceMonitor.enabled=true
+
+assert_contains \
+    "the Prometheus pod annotation uses the fixed /metrics path" \
+    'prometheus.io/path: "/metrics"' \
+    --set-string config.existingName=external-config
+
+# metrics.path is not a chart value any more. Helm accepts an unknown --set
+# key silently, so assert on the effect: setting it must not move either
+# scrape target off /metrics.
+assert_not_contains \
+    "a stray metrics.path does not move the ServiceMonitor scrape path" \
+    "path: /moved" \
+    --set-string config.existingName=external-config \
+    --set metrics.serviceMonitor.enabled=true \
+    --set-string metrics.path=/moved
+
+assert_not_contains \
+    "a stray metrics.path does not move the Prometheus pod annotation" \
+    'prometheus.io/path: "/moved"' \
+    --set-string config.existingName=external-config \
+    --set-string metrics.path=/moved
+
+# --------------------------------------------------------------------------
 # podLabels versus the Deployment selector
 # --------------------------------------------------------------------------
 

@@ -23,7 +23,7 @@ spec:
       - {{ .Release.Namespace }}
   endpoints:
     - port: metrics
-      path: {{ .Values.metrics.path }}
+      path: {{ include "flightctl-catalog-collector.metricsPath" . }}
       interval: {{ .Values.metrics.serviceMonitor.interval }}
       scrapeTimeout: {{ .Values.metrics.serviceMonitor.scrapeTimeout }}
 {{- end }}

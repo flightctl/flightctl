@@ -266,3 +266,17 @@ Container image reference.
 {{- define "flightctl-catalog-collector.image" -}}
 {{- printf "%s:%s" .Values.image.image (default .Chart.AppVersion .Values.image.tag) -}}
 {{- end -}}
+
+{{/*
+HTTP path the collector serves its Prometheus registry on.
+
+Fixed, and deliberately not a chart value. The collector's metrics server
+registers the handler at /metrics and nothing in its configuration moves it:
+service.metrics.endpoint is a host:port pair. A chart value would therefore
+have changed only the scrape target in the Service annotations and in the
+ServiceMonitor, pointing Prometheus at a path the collector answers with 404
+— a silent loss of metrics rather than a visible error.
+*/}}
+{{- define "flightctl-catalog-collector.metricsPath" -}}
+/metrics
+{{- end -}}

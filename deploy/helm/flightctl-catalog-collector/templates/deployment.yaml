@@ -38,7 +38,7 @@ spec:
         {{- if and .Values.metrics.enabled .Values.metrics.podAnnotations }}
         prometheus.io/scrape: "true"
         prometheus.io/port: {{ .Values.metrics.port | quote }}
-        prometheus.io/path: {{ .Values.metrics.path | quote }}
+        prometheus.io/path: {{ include "flightctl-catalog-collector.metricsPath" . | quote }}
         {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
