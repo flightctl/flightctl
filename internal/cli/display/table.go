@@ -100,7 +100,7 @@ func (f *TableFormatter) formatList(w *tabwriter.Writer, data interface{}, optio
 	case strings.EqualFold(options.Kind, apiv1alpha1.CatalogKind):
 		return f.printCatalogsTable(w, data.(*apiclientv1alpha1.ListCatalogsResponse).JSON200.Items...)
 	case strings.EqualFold(options.Kind, apiv1alpha1.CatalogItemKind):
-		return f.printCatalogItemsTable(w, options.CatalogName == "", data.(*apiclientv1alpha1.ListAllCatalogItemsResponse).JSON200.Items...)
+		return f.printCatalogItemsTable(w, options.CatalogName == "", false, data.(*apiclientv1alpha1.ListAllCatalogItemsResponse).JSON200.Items...)
 	case strings.EqualFold(options.Kind, apiv1alpha1.VulnerabilityGroupKind):
 		if resp, ok := data.(*apiclientv1alpha1.ListVulnerabilitiesResponse); ok {
 			return f.printVulnerabilityGroupsTable(w, false, resp.JSON200.Items...)
@@ -177,7 +177,7 @@ func (f *TableFormatter) formatSingle(w *tabwriter.Writer, data interface{}, opt
 	case strings.EqualFold(options.Kind, apiv1alpha1.CatalogKind):
 		return f.printCatalogsTable(w, *data.(*apiclientv1alpha1.GetCatalogResponse).JSON200)
 	case strings.EqualFold(options.Kind, apiv1alpha1.CatalogItemKind):
-		return f.printCatalogItemsTable(w, options.CatalogName == "", *data.(*apiclientv1alpha1.GetCatalogItemResponse).JSON200)
+		return f.printCatalogItemsTable(w, options.CatalogName == "", true, *data.(*apiclientv1alpha1.GetCatalogItemResponse).JSON200)
 	default:
 		return fmt.Errorf("unknown resource type %s", options.Kind)
 	}
@@ -851,7 +851,7 @@ func (f *TableFormatter) printCatalogsTable(w *tabwriter.Writer, catalogs ...api
 	return nil
 }
 
-func (f *TableFormatter) printCatalogItemsTable(w *tabwriter.Writer, showCatalog bool, items ...apiv1alpha1.CatalogItem) error {
+func (f *TableFormatter) printCatalogItemsTable(w *tabwriter.Writer, showCatalog, detail bool, items ...apiv1alpha1.CatalogItem) error {
 	if showCatalog {
 		if f.wide {
 			f.printHeaderRowLn(w, "CATALOG", "NAME", "CATEGORY", "TYPE", "DISPLAY NAME")
@@ -900,6 +900,106 @@ func (f *TableFormatter) printCatalogItemsTable(w *tabwriter.Writer, showCatalog
 				f.printTableRowLn(w, name, itemType, displayName)
 			}
 		}
+	}
+
+	// In the single-item detail view, surface the device feature requirements
+	// declared per version. These are intentionally omitted from the list view,
+	// where one row per item leaves no room for per-version detail.
+	if detail {
+		for i := range items {
+			if err := f.printCatalogItemFeatureRequirements(w, items[i]); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// deviceFeatureRequirement is a single declared device-feature requirement for a
+// catalog item version, flattened for display.
+type deviceFeatureRequirement struct {
+	feature string
+	value   string
+}
+
+// deviceFeatureRequirements flattens a DeviceFeatures value into an ordered list
+// of feature/value pairs. The well-known features are emitted first in a stable
+// order, followed by any additional properties sorted by name, so the output is
+// deterministic.
+func deviceFeatureRequirements(features apiv1alpha1.DeviceFeatures) []deviceFeatureRequirement {
+	var reqs []deviceFeatureRequirement
+	if features.GpuPresent != nil {
+		reqs = append(reqs, deviceFeatureRequirement{"gpu.present", string(*features.GpuPresent)})
+	}
+	if features.KvmEnabled != nil {
+		reqs = append(reqs, deviceFeatureRequirement{"kvm.enabled", string(*features.KvmEnabled)})
+	}
+	if features.OsMode != nil {
+		reqs = append(reqs, deviceFeatureRequirement{"os.mode", string(*features.OsMode)})
+	}
+	for _, name := range slices.Sorted(maps.Keys(features.AdditionalProperties)) {
+		reqs = append(reqs, deviceFeatureRequirement{name, fmt.Sprintf("%v", features.AdditionalProperties[name])})
+	}
+	return reqs
+}
+
+// formatDeviceFeatureRequirements renders a version's declared feature
+// requirements as a semicolon-delimited "key=value" string, e.g.
+// "gpu.present=true; os.mode=image". It returns "<none>" when the version
+// declares no requirements, so every version occupies a row in the detail
+// section.
+func formatDeviceFeatureRequirements(features *apiv1alpha1.DeviceFeatures) string {
+	if features == nil {
+		return NoneString
+	}
+	reqs := deviceFeatureRequirements(*features)
+	if len(reqs) == 0 {
+		return NoneString
+	}
+	parts := make([]string, 0, len(reqs))
+	for _, req := range reqs {
+		parts = append(parts, req.feature+"="+req.value)
+	}
+	return strings.Join(parts, "; ")
+}
+
+// printCatalogItemFeatureRequirements prints, for a single catalog item detail
+// view, the device feature requirements declared by its versions, one row per
+// version. Each row is prefixed with the catalog item name so the requirements
+// remain attributable to a specific item when several are shown. The section is
+// shown whenever any version declares requirements; in that case every version
+// is listed and those without requirements show "<none>". When no version
+// declares any requirements the section is omitted entirely, so items that use
+// no feature gating add no noise to the detail view.
+func (f *TableFormatter) printCatalogItemFeatureRequirements(w *tabwriter.Writer, item apiv1alpha1.CatalogItem) error {
+	anyRequirements := false
+	for i := range item.Spec.Versions {
+		features := item.Spec.Versions[i].DeviceFeatures
+		if features != nil && len(deviceFeatureRequirements(*features)) > 0 {
+			anyRequirements = true
+			break
+		}
+	}
+	if !anyRequirements {
+		return nil
+	}
+
+	name := NoneString
+	if item.Metadata.Name != nil {
+		name = *item.Metadata.Name
+	}
+
+	// Flush so this section's columns size independently of the summary table
+	// printed above it, matching the sectioning used elsewhere (e.g. the device
+	// summary capabilities section).
+	if err := w.Flush(); err != nil {
+		return err
+	}
+	fmt.Fprintln(w)
+	f.printHeaderRowLn(w, "NAME", "VERSION", "FEATURES")
+	for i := range item.Spec.Versions {
+		version := item.Spec.Versions[i]
+		f.printTableRowLn(w, name, version.Version, formatDeviceFeatureRequirements(version.DeviceFeatures))
 	}
 	return nil
 }
