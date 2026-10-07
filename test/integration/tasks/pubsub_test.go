@@ -9,6 +9,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/queues"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/redis/go-redis/v9"
 	"github.com/sirupsen/logrus"
 )
 
@@ -18,9 +19,12 @@ var _ = Describe("PubSub Integration Tests", func() {
 		ctx      context.Context
 		cancel   context.CancelFunc
 		provider queues.Provider
+		client   *redis.Client
 	)
 
 	BeforeEach(func() {
+		provider = nil
+		client = nil
 		ctx, cancel = context.WithCancel(context.Background())
 		log = logrus.New()
 
@@ -32,15 +36,32 @@ var _ = Describe("PubSub Integration Tests", func() {
 			JitterFactor: 0.0,
 		})
 		Expect(err).ToNot(HaveOccurred())
+		client = redis.NewClient(&redis.Options{
+			Addr:     fmt.Sprintf("%s:%d", redisHost, redisPort),
+			Password: string(redisPassword),
+		})
 	})
 
 	AfterEach(func() {
+		if cancel != nil {
+			cancel()
+		}
 		if provider != nil {
 			provider.Stop()
 			provider.Wait()
 		}
-		cancel()
+		if client != nil {
+			Expect(client.Close()).To(Succeed())
+		}
 	})
+
+	waitForSubscribers := func(channel string, count int64) {
+		GinkgoHelper()
+		Eventually(func() (int64, error) {
+			counts, err := client.PubSubNumSub(ctx, channel).Result()
+			return counts[channel], err
+		}, 5*time.Second, 50*time.Millisecond).Should(Equal(count))
+	}
 
 	Describe("Publish and Subscribe", func() {
 		It("When a message is published it should deliver to multiple subscribers", func() {
@@ -67,8 +88,7 @@ var _ = Describe("PubSub Integration Tests", func() {
 				DeferCleanup(sub.Close)
 			}
 
-			// Give subscribers time to register
-			time.Sleep(100 * time.Millisecond)
+			waitForSubscribers(channel, numSubscribers)
 
 			publisher, err := provider.NewPubSubPublisher(ctx, channel)
 			Expect(err).ToNot(HaveOccurred())
@@ -102,56 +122,50 @@ var _ = Describe("PubSub Integration Tests", func() {
 			DeferCleanup(publisher.Close)
 
 			Expect(publisher.Publish(ctx, []byte("early message"))).To(Succeed())
-			time.Sleep(100 * time.Millisecond)
 
 			// Subscribe after the message was published
 			subscriber, err := provider.NewPubSubSubscriber(ctx, channel)
 			Expect(err).ToNot(HaveOccurred())
 			DeferCleanup(subscriber.Close)
 
-			var received []byte
-			subCtx, subCancel := context.WithTimeout(ctx, 500*time.Millisecond)
-			defer subCancel()
+			received := make(chan []byte, 1)
 
-			sub, err := subscriber.Subscribe(subCtx, func(_ context.Context, p []byte, _ logrus.FieldLogger) error {
-				received = p
+			sub, err := subscriber.Subscribe(ctx, func(_ context.Context, payload []byte, _ logrus.FieldLogger) error {
+				received <- payload
 				return nil
 			})
 			Expect(err).ToNot(HaveOccurred())
 			DeferCleanup(sub.Close)
 
-			// Wait for the subscription context to expire
-			<-subCtx.Done()
-
-			Expect(received).To(BeNil(), "late subscriber should not receive messages published before it subscribed")
+			waitForSubscribers(channel, 1)
+			Consistently(received, 500*time.Millisecond).ShouldNot(Receive(), "late subscriber should not receive messages published before it subscribed")
 		})
 
-		It("When a handler returns an error it should not hang the publisher", func() {
+		It("When a handler returns an error it should not hang the publisher", SpecTimeout(30*time.Second), func(specCtx SpecContext) {
 			channel := fmt.Sprintf("test-pubsub-error-%d", GinkgoParallelProcess())
 
 			subscriber, err := provider.NewPubSubSubscriber(ctx, channel)
 			Expect(err).ToNot(HaveOccurred())
 			DeferCleanup(subscriber.Close)
 
+			handled := make(chan struct{}, 1)
 			sub, err := subscriber.Subscribe(ctx, func(_ context.Context, _ []byte, _ logrus.FieldLogger) error {
+				handled <- struct{}{}
 				return fmt.Errorf("handler error")
 			})
 			Expect(err).ToNot(HaveOccurred())
 			DeferCleanup(sub.Close)
 
-			time.Sleep(100 * time.Millisecond)
+			waitForSubscribers(channel, 1)
 
 			publisher, err := provider.NewPubSubPublisher(ctx, channel)
 			Expect(err).ToNot(HaveOccurred())
 			DeferCleanup(publisher.Close)
 
-			// Should not hang even though the handler returns an error
-			done := make(chan struct{})
-			go func() {
-				defer close(done)
-				_ = publisher.Publish(ctx, []byte("trigger error"))
-			}()
-			Eventually(done, 3*time.Second).Should(BeClosed())
+			publishCtx, publishCancel := context.WithTimeout(specCtx, 3*time.Second)
+			defer publishCancel()
+			Expect(publisher.Publish(publishCtx, []byte("trigger error"))).To(Succeed())
+			Eventually(handled, 3*time.Second).Should(Receive())
 		})
 
 		It("When the publisher is closed it should return an error on publish", func() {
@@ -207,7 +221,7 @@ var _ = Describe("PubSub Integration Tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 			DeferCleanup(sub2.Close)
 
-			time.Sleep(100 * time.Millisecond)
+			waitForSubscribers(channel, 2)
 
 			publisher, err := provider.NewPubSubPublisher(ctx, channel)
 			Expect(err).ToNot(HaveOccurred())

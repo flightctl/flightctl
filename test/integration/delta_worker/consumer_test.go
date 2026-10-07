@@ -46,18 +46,9 @@ var _ = BeforeSuite(func() {
 	redisHost, redisPort, redisPassword, redisCleanup, err = testdb.CreateTestRedis(
 		suiteCtx, flightlog.InitLogs())
 	Expect(err).NotTo(HaveOccurred())
-
-	redisClient = redis.NewClient(&redis.Options{
-		Addr:     fmt.Sprintf("%s:%d", redisHost, redisPort),
-		Password: string(redisPassword),
-		DB:       0,
-	})
 })
 
 var _ = AfterSuite(func() {
-	if redisClient != nil {
-		Expect(redisClient.Close()).To(Succeed())
-	}
 	if redisCleanup != nil {
 		redisCleanup()
 	}
@@ -72,9 +63,18 @@ var _ = Describe("Delta worker consumers", func() {
 	)
 
 	BeforeEach(func() {
+		provider = nil
+		redisClient = nil
 		baseCtx := testutil.StartSpecTracerForGinkgo(suiteCtx)
 		ctx, cancel = context.WithCancel(baseCtx)
 		log = flightlog.InitLogs()
+
+		redisClient = redis.NewClient(&redis.Options{
+			Addr:     fmt.Sprintf("%s:%d", redisHost, redisPort),
+			Password: string(redisPassword),
+			DB:       0,
+		})
+		Expect(redisClient.FlushDB(ctx).Err()).To(Succeed())
 
 		processID := fmt.Sprintf("delta-worker-test-%s", uuid.New().String())
 		var err error
@@ -83,15 +83,15 @@ var _ = Describe("Delta worker consumers", func() {
 	})
 
 	AfterEach(func() {
+		if cancel != nil {
+			cancel()
+		}
 		if provider != nil {
 			provider.Stop()
 			provider.Wait()
 		}
 		if redisClient != nil {
-			Expect(redisClient.Del(ctx, consts.DeltaGenerationTaskQueue, consts.TaskQueue).Err()).To(Succeed())
-		}
-		if cancel != nil {
-			cancel()
+			Expect(redisClient.Close()).To(Succeed())
 		}
 	})
 
@@ -116,6 +116,14 @@ var _ = Describe("Delta worker consumers", func() {
 			Expect(deltatasks.LaunchConsumers(ctx, provider, cfg, nil, log, nil)).To(Succeed())
 
 			payload := prepareDeltasPayload()
+			probeProducer, err := provider.NewQueueProducer(ctx, consts.DeltaGenerationTaskQueue)
+			Expect(err).ToNot(HaveOccurred())
+			defer probeProducer.Close()
+			Expect(probeProducer.Enqueue(ctx, payload, time.Now().UnixMicro())).To(Succeed())
+			Eventually(func() int64 {
+				return streamLen(ctx, consts.DeltaGenerationTaskQueue)
+			}, 10*time.Second, 100*time.Millisecond).Should(BeZero())
+
 			producer, err := provider.NewQueueProducer(ctx, consts.TaskQueue)
 			Expect(err).ToNot(HaveOccurred())
 			defer producer.Close()
