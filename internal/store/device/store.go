@@ -458,6 +458,10 @@ func (s *DeviceStore) InitialMigration(ctx context.Context) error {
 		return err
 	}
 
+	if err := s.createDeviceSystemInfoOsModeIndex(db); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -591,6 +595,21 @@ func (s *DeviceStore) createDeviceVolumeCatalogRefIndex(db *gorm.DB) error {
 	}
 	return db.Exec(`CREATE INDEX IF NOT EXISTS idx_devices_volume_catalog_refs
 		ON devices USING GIN ((jsonb_path_query_array(spec, '$.applications[*].volumes[*].image.catalogItemRef')) jsonb_path_ops)
+		WHERE deleted_at IS NULL`).Error
+}
+
+// createDeviceSystemInfoOsModeIndex creates an expression index on
+// devices(status->'systemInfo'->>'osMode') so that the
+// "status.systemInfo.osMode" field selector can use an index scan. The GIN
+// index on the whole "status" column does not index this extracted text
+// expression, so without this index PostgreSQL falls back to a sequential scan
+// of the devices table on large fleets.
+func (s *DeviceStore) createDeviceSystemInfoOsModeIndex(db *gorm.DB) error {
+	if db.Dialector.Name() != "postgres" {
+		return nil
+	}
+	return db.Exec(`CREATE INDEX IF NOT EXISTS idx_devices_system_info_os_mode
+		ON devices ((status->'systemInfo'->>'osMode'))
 		WHERE deleted_at IS NULL`).Error
 }
 

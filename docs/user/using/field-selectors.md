@@ -69,8 +69,19 @@ flightctl get devices --field-selector 'status.systemInfo.osMode=package'
 ```
 
 Devices enrolled by older agents report the mode under the deprecated
-`status.capabilities.osMode` field instead. To cover both, filter on
-`status.capabilities.osMode=package` as well.
+`status.capabilities.osMode` field instead, and a given device reports only one
+of the two fields. Do not put both conditions in a single `--field-selector`:
+all conditions within one selector must match at the same time, so such a
+query returns no devices. To cover both, run a separate query for each field
+and combine the results yourself:
+
+```bash
+# Devices reporting the current field
+flightctl get devices --field-selector 'status.systemInfo.osMode=package'
+
+# Devices reporting the deprecated field (older agents)
+flightctl get devices --field-selector 'status.capabilities.osMode=package'
+```
 
 ### Fields Discovery
 
