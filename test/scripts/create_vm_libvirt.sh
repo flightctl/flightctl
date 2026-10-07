@@ -16,7 +16,7 @@ NETWORK_NAME=${NETWORK_NAME:-flightctl-net}
 DEFAULT_NETWORK_NAME="default"
 echo "ocp_network name is: ${NETWORK_NAME}"
 echo "Disk size increment: ${VM_DISK_SIZE_INC}G"
-ISO_URL="https://cloud.centos.org/centos/9-stream/x86_64/images/CentOS-Stream-GenericCloud-x86_64-9-latest.x86_64.qcow2"
+ISO_URL="https://cloud.centos.org/centos/9-stream/x86_64/images/CentOS-Stream-GenericCloud-9-latest.x86_64.qcow2"
 DISK_PATH="/var/lib/libvirt/images/${VM_NAME}.qcow2"
 DISK_PATH_SRC="/var/lib/libvirt/images/${VM_NAME}_src.qcow2"
 CIDATA_ISO="/var/lib/libvirt/images/${VM_NAME}-cidata.iso"
@@ -121,9 +121,22 @@ virsh destroy ${VM_NAME}
 virsh undefine ${VM_NAME}
 
 # Get the image
-if [ ! -f $DISK_PATH_SRC ]; then
-    echo "Source image ${DISK_PATH_SRC} not found! Downloading it..."
+is_valid_qcow2() {
+    qemu-img info --output=json "$1" 2>/dev/null | grep -q '"format": "qcow2"'
+}
+if [ ! -f $DISK_PATH_SRC ] || ! is_valid_qcow2 "${DISK_PATH_SRC}"; then
+    if [ -f $DISK_PATH_SRC ]; then
+        echo "Existing ${DISK_PATH_SRC} is not a valid QCOW2 image, re-downloading..."
+    else
+        echo "Source image ${DISK_PATH_SRC} not found, downloading..."
+    fi
+    rm -f ${DISK_PATH_SRC}
     curl -o ${DISK_PATH_SRC} ${ISO_URL}
+    if ! is_valid_qcow2 "${DISK_PATH_SRC}"; then
+        echo "ERROR: Downloaded file is not a valid QCOW2 image"
+        rm -f "${DISK_PATH_SRC}"
+        exit 1
+    fi
 fi
 
 if [ -f $DISK_PATH ]; then
