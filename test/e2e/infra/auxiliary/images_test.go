@@ -63,7 +63,11 @@ func TestCopyImageFromBundleCanceledDuringCopy(t *testing.T) {
 	t.Run("When the parent is canceled during skopeo it should return the context error", func(t *testing.T) {
 		binDir := t.TempDir()
 		marker := filepath.Join(binDir, "copy-started")
-		if err := os.WriteFile(filepath.Join(binDir, "skopeo"), []byte("#!/bin/sh\ntouch \"$COPY_STARTED\"\nexec sleep 30\n"), 0o755); err != nil {
+		skopeoPath := filepath.Join(binDir, "skopeo")
+		if err := os.WriteFile(skopeoPath, []byte("#!/bin/sh\ntouch \"$COPY_STARTED\"\nexec sleep 30\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(skopeoPath, 0o700); err != nil {
 			t.Fatal(err)
 		}
 		t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))

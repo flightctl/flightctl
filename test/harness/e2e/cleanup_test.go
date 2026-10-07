@@ -53,7 +53,11 @@ esac
 				"virsh":  "#!/bin/sh\nexit 1\n",
 				"find":   "#!/bin/sh\nexit 0\n",
 			} {
-				if err := os.WriteFile(filepath.Join(binDir, name), []byte(content), 0o755); err != nil {
+				path := filepath.Join(binDir, name)
+				if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Chmod(path, 0o700); err != nil {
 					t.Fatal(err)
 				}
 			}

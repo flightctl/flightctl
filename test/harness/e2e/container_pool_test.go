@@ -53,7 +53,12 @@ func TestLazyVMSetupAbort(t *testing.T) {
 func testDeviceSetupAbort(t *testing.T, abortMode string) {
 	t.Helper()
 	reportPath := filepath.Join(t.TempDir(), "junit.xml")
-	command := exec.Command(os.Args[0], "-test.run=^TestLazyVMSetupAbort$", "-ginkgo.junit-report="+reportPath)
+	testBinary, err := os.Executable()
+	if err != nil {
+		t.Fatalf("locate test binary: %v", err)
+	}
+	// #nosec G204 -- reruns this test binary with fixed test selectors and a temporary report path.
+	command := exec.Command(testBinary, "-test.run=^TestLazyVMSetupAbort$", "-ginkgo.junit-report="+reportPath)
 	command.Env = append(os.Environ(), "TEST_LAZY_VM_ABORT="+abortMode)
 	output, err := command.CombinedOutput()
 	var exitError *exec.ExitError
@@ -98,7 +103,7 @@ func TestContainerDeviceImageRef(t *testing.T) {
 }
 
 func TestGetContainerForWorkerReturnsNilOnError(t *testing.T) {
-	t.Setenv("PWD", filepath.Join(t.TempDir(), "test"))
+	t.Setenv("PWD", "")
 	originalResolve := globalContainerDeviceImageCache.resolve
 	originalDone := globalContainerDeviceImageCache.done
 	originalImage := globalContainerDeviceImageCache.image
@@ -131,7 +136,11 @@ func TestGetContainerForWorkerReturnsNilOnError(t *testing.T) {
 func TestContainerDeviceEndpointHosts(t *testing.T) {
 	t.Run("When Quadlets are remote it should map runner and deployment aliases separately", func(t *testing.T) {
 		binDir := t.TempDir()
-		if err := os.WriteFile(filepath.Join(binDir, "hostname"), []byte("#!/bin/sh\nif [ \"$1\" = -f ]; then echo runner.example.test; else echo runner; fi\n"), 0o755); err != nil {
+		hostnamePath := filepath.Join(binDir, "hostname")
+		if err := os.WriteFile(hostnamePath, []byte("#!/bin/sh\nif [ \"$1\" = -f ]; then echo runner.example.test; else echo runner; fi\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(hostnamePath, 0o700); err != nil {
 			t.Fatal(err)
 		}
 		t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))

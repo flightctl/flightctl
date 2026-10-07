@@ -297,7 +297,7 @@ func GetContainerDeviceImage() (string, error) {
 }
 
 func containerDeviceImageRef(host, image string) string {
-	imagePath := image
+	var imagePath string
 	if separator := strings.Index(image, "/"); separator != -1 {
 		imagePath = image[separator+1:]
 	} else {

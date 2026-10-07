@@ -17,7 +17,9 @@ func RuntimeCommandContext(ctx context.Context, args ...string) *exec.Cmd {
 		}
 	}
 	if cli == "podman" {
+		// #nosec G702 -- the executable is fixed and args are passed as argv values, never through a shell.
 		return exec.CommandContext(ctx, "podman", args...)
 	}
+	// #nosec G702 -- the executable is fixed and args are passed as argv values, never through a shell.
 	return exec.CommandContext(ctx, "docker", args...)
 }
