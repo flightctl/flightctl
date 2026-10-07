@@ -786,3 +786,9 @@ SharedInformer
 sha256
 runbook
 sha256
+- docs/user/references/device-api-statuses.md
+deltaEligible
+deltaSize
+IEC
+MiB
+GiB
