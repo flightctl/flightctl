@@ -644,6 +644,50 @@ var _ = Describe("DeviceStore create", func() {
 			Expect(deviceNames(imageList.Items)).To(ConsistOf("osmode-image"))
 		})
 
+		It("List with status.systemInfo.osMode field filter", func() {
+			testutil.CreateTestDevice(ctx, devStore, orgId, "sysinfo-osmode-package", nil, nil, nil)
+			testutil.CreateTestDevice(ctx, devStore, orgId, "sysinfo-osmode-image", nil, nil, nil)
+			testutil.CreateTestDevice(ctx, devStore, orgId, "sysinfo-osmode-absent", nil, nil, nil)
+
+			setSystemInfoOsMode := func(name string, mode *api.OsModeType) {
+				device, err := devStore.Get(ctx, orgId, name)
+				Expect(err).ToNot(HaveOccurred())
+				device.Status.SystemInfo.OsMode = mode
+				_, _, err = devStore.UpdateStatus(ctx, orgId, device, nil)
+				Expect(err).ToNot(HaveOccurred())
+			}
+
+			setSystemInfoOsMode("sysinfo-osmode-package", lo.ToPtr(api.OsModePackage))
+			setSystemInfoOsMode("sysinfo-osmode-image", lo.ToPtr(api.OsModeImage))
+			setSystemInfoOsMode("sysinfo-osmode-absent", nil)
+
+			deviceNames := func(items []api.Device) []string {
+				names := make([]string, 0, len(items))
+				for _, d := range items {
+					names = append(names, *d.Metadata.Name)
+				}
+				return names
+			}
+
+			packageList, err := devStore.List(ctx, orgId, devicestore.DeviceListParams{
+				ListParams: store.ListParams{
+					Limit:         1000,
+					FieldSelector: selector.NewFieldSelectorOrDie("status.systemInfo.osMode=package", selector.WithPrivateSelectors()),
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(deviceNames(packageList.Items)).To(ConsistOf("sysinfo-osmode-package"))
+
+			imageList, err := devStore.List(ctx, orgId, devicestore.DeviceListParams{
+				ListParams: store.ListParams{
+					Limit:         1000,
+					FieldSelector: selector.NewFieldSelectorOrDie("status.systemInfo.osMode=image", selector.WithPrivateSelectors()),
+				},
+			})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(deviceNames(imageList.Items)).To(ConsistOf("sysinfo-osmode-image"))
+		})
+
 		It("List with status.systemInfo.deltaEligible field filter", func() {
 			testutil.CreateTestDevice(ctx, devStore, orgId, "delta-eligible", nil, nil, nil)
 			testutil.CreateTestDevice(ctx, devStore, orgId, "delta-ineligible", nil, nil, nil)

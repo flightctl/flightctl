@@ -26,7 +26,7 @@ The following table lists the fields supported for filtering for each resource k
 |---------------------------------|-----------------------------------------------------|
 | **Catalog Item**                | `metadata.name`<br/>`metadata.catalog`<br/>`spec.category`<br/>`spec.type`<br/>`fleet` (only `in`) |
 | **Certificate Signing Request** | `status.certificate`                                |
-| **Device**                      | `status.summary.status`<br/>`status.applicationsSummary.status`<br/>`status.updated.status`<br/>`status.capabilities.osMode`<br/>`lastSeen`<br/>`status.lifecycle.status` |
+| **Device**                      | `status.summary.status`<br/>`status.applicationsSummary.status`<br/>`status.updated.status`<br/>`status.systemInfo.osMode`<br/>`status.capabilities.osMode` (deprecated)<br/>`lastSeen`<br/>`status.lifecycle.status` |
 | **Enrollment Request**          | `status.approval.approved`<br/>`status.certificate` |
 | **Fleet**                       | `spec.template.spec.os.image`                       |
 | **Repository**                  | `spec.type`<br/>`spec.url`                          |
@@ -65,8 +65,12 @@ flightctl get devices --field-selector 'metadata.owner=Fleet/pos-fleet, status.u
 This command retrieves devices that report package-mode OS management:
 
 ```bash
-flightctl get devices --field-selector 'status.capabilities.osMode=package'
+flightctl get devices --field-selector 'status.systemInfo.osMode=package'
 ```
+
+Devices enrolled by older agents report the mode under the deprecated
+`status.capabilities.osMode` field instead. To cover both, filter on
+`status.capabilities.osMode=package` as well.
 
 ### Fields Discovery
 
