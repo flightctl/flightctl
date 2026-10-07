@@ -23,6 +23,14 @@ const (
 	agentBundlePattern = "agent-images-bundle-*.tar"
 	appBundleName      = "app-images-bundle.tar"
 
+	// e2eRefsFileName is the "<tag>\t<ref>" index create_bundle writes next to the OCI layout
+	// inside an agent image bundle (see test/scripts/agent-images/scripts/build_and_qcow2.sh).
+	e2eRefsFileName = "e2e-refs.tsv"
+
+	// ociLayoutMarker is the entry whose presence identifies a bundle as an OCI-layout bundle
+	// rather than a docker-archive one.
+	ociLayoutMarker = "oci/oci-layout"
+
 	// uploadConcurrency bounds how many images are copied out of a bundle at once.
 	// This is I/O-bound work (reading tar offsets, pushing to a local registry), so
 	// running several in parallel overlaps their I/O wait without oversubscribing the
@@ -182,7 +190,7 @@ func (s *Services) findImageBundles(projectRoot string) []string {
 }
 
 func (s *Services) uploadBundle(ctx context.Context, bundlePath string) error {
-	oci, err := tarContains(bundlePath, "oci/oci-layout")
+	oci, err := tarContains(bundlePath, ociLayoutMarker)
 	if err != nil {
 		return err
 	}
@@ -201,7 +209,7 @@ func (s *Services) uploadOCIBundle(ctx context.Context, bundlePath string) error
 	if err := extractTar(bundlePath, dir); err != nil {
 		return err
 	}
-	refs, err := parseE2ERefs(filepath.Join(dir, "e2e-refs.tsv"))
+	refs, err := parseE2ERefs(filepath.Join(dir, e2eRefsFileName))
 	if err != nil {
 		return err
 	}
@@ -376,6 +384,16 @@ func skopeoDigestWithRetry(ctx context.Context, image string, insecureTLS bool) 
 	return "", lastErr
 }
 
+// extractImageRefs lists the image references a bundle carries, handling both bundle layouts
+// uploadBundle dispatches on:
+//
+//   - OCI-layout bundles - "oci/" plus the "e2e-refs.tsv" <tag>\t<ref> index, which is what
+//     create_bundle in test/scripts/agent-images/scripts/build_and_qcow2.sh produces (and
+//     therefore what CI stages for every e2e shard). These have no manifest.json.
+//   - docker-archive bundles - a "manifest.json" with RepoTags, as produced by `podman/docker save`.
+//
+// Both entries are tiny and the scan stops at whichever appears first, so this stays cheap even on
+// multi-GB bundles (archive/tar seeks past file bodies for uncompressed, seekable inputs).
 func extractImageRefs(bundlePath string) ([]string, error) {
 	f, err := os.Open(bundlePath)
 	if err != nil {
@@ -399,11 +417,23 @@ func extractImageRefs(bundlePath string) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		if header.Name == "manifest.json" {
+		// Entries may be stored with a "./" prefix depending on how the tar was created.
+		switch strings.TrimPrefix(header.Name, "./") {
+		case "manifest.json":
 			return parseManifestJSON(tr)
+		case e2eRefsFileName:
+			refs, err := parseE2ERefsReader(tr)
+			if err != nil {
+				return nil, err
+			}
+			names := make([]string, 0, len(refs))
+			for _, rec := range refs {
+				names = append(names, rec.ref)
+			}
+			return names, nil
 		}
 	}
-	return nil, fmt.Errorf("manifest.json not found in bundle")
+	return nil, fmt.Errorf("neither manifest.json nor %s found in bundle", e2eRefsFileName)
 }
 
 type manifestEntry struct {
@@ -413,16 +443,18 @@ type manifestEntry struct {
 // ResolveAgentDeviceImage returns the full image reference with the exact "base" tag (e.g.
 // "quay.io/flightctl/flightctl-device:base-cs10-bootc-v1.3.0-main-332-g250be75c") bundled for a container-backed
 // device to pull, by reading it back out of the same agent-images-bundle-*.tar UploadImages just
-// pushed from (see uploadBundle/copyImageFromBundle above).
+// pushed from (see uploadBundle above).
 //
 // This exists because build.sh tags every image with several local aliases
-// (${IMAGE_REPO}:base-${OS_ID}, :base-${TAG}, :base-${OS_ID}-${TAG}, :base), but
-// build_and_qcow2.sh's bundle.sh --filter "reference=${IMAGE_REPO}:*-${OS_ID}-*" only bundles (and
-// therefore only pushes to the registry) the aliases matching that pattern, i.e. just
-// base-${OS_ID}-${TAG} - the bare base-${OS_ID} alias container_pool.go used to assume is never
-// actually pushed, and ${TAG} (the git-describe version string) isn't otherwise propagated to the
-// test binary's env. Reading it out of the bundle instead of guessing keeps this self-consistent
-// with whatever UploadImages actually pushed.
+// (${IMAGE_REPO}:base-${OS_ID}, :base-${TAG}, :base-${OS_ID}-${TAG}, :base) and ${TAG} (the
+// git-describe version string) isn't propagated to the test binary's env, so the exact tag that
+// was bundled - and therefore pushed to the local registry - cannot be guessed. Reading it out of
+// the bundle keeps this self-consistent with whatever UploadImages actually pushed.
+//
+// It must agree with uploadBundle on bundle layout: create_bundle in
+// test/scripts/agent-images/scripts/build_and_qcow2.sh emits an OCI-layout bundle (oci/ plus the
+// e2e-refs.tsv index, no manifest.json), which is what CI stages for every e2e shard.
+// extractImageRefs handles that layout and the docker-archive one alike.
 //
 // osIDHint, if non-empty, is used to pick the right bundle file when more than one exists on disk
 // (e.g. a local dev machine that built both cs9-bootc and cs10-bootc); CI only ever stages the one
@@ -504,7 +536,18 @@ func tarContains(bundlePath, name string) (bool, error) {
 }
 
 func parseE2ERefs(path string) ([]e2eRef, error) {
-	b, err := os.ReadFile(path)
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return parseE2ERefsReader(f)
+}
+
+// parseE2ERefsReader parses the "<tag>\t<ref>" index create_bundle writes alongside the OCI
+// layout, from an already-open reader (the bundle tar entry or the extracted file).
+func parseE2ERefsReader(r io.Reader) ([]e2eRef, error) {
+	b, err := io.ReadAll(r)
 	if err != nil {
 		return nil, err
 	}
@@ -521,7 +564,7 @@ func parseE2ERefs(path string) ([]e2eRef, error) {
 		out = append(out, e2eRef{tag: tag, ref: ref})
 	}
 	if len(out) == 0 {
-		return nil, fmt.Errorf("e2e-refs.tsv has no entries")
+		return nil, fmt.Errorf("%s has no entries", e2eRefsFileName)
 	}
 	return out, nil
 }
