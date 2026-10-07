@@ -147,17 +147,15 @@ func (r *Registry) Start(ctx context.Context, network string, reuse bool) error 
 	if err := ApplyDeltaWorkerRegistryRemap(ctx, r.URL); err != nil {
 		return fmt.Errorf("configure registry remap: %w", err)
 	}
-	// Podman's insecure-registry config above is only read by the podman/skopeo CLI. On runners
-	// where testcontainers-go's docker client talks to an actual Docker daemon (not podman's
-	// docker-compatible socket) - e.g. pulling the flightctl-agent image directly from this
-	// registry for a ContainerDevice - the TLS handshake happens daemon-side, so it needs this
-	// registry's CA trusted the Docker way instead: a cert dropped in /etc/docker/certs.d, no
-	// daemon restart required. Keep this best-effort so VM-only suites do not require host sudo;
-	// container setup reports any trusted-pull failure when it actually needs the image.
-	if containers.RuntimeCLIName() == "docker" {
-		if err := configureDockerRegistryTrust(ctx, r.URL, filepath.Join(certDir, "ca.crt")); err != nil {
-			logrus.Warnf("Failed to configure Docker registry trust for %s (container device pulls may fail): %v", r.URL, err)
-		}
+	// Trust the CA directly because the Podman API service may cache registry config
+	// before this drop-in is written.
+	runtimeCLI := containers.RuntimeCLIName()
+	certsRoot := "/etc/containers/certs.d"
+	if runtimeCLI == "docker" {
+		certsRoot = "/etc/docker/certs.d"
+	}
+	if err := configureRegistryTrust(ctx, certsRoot, r.URL, filepath.Join(certDir, "ca.crt")); err != nil {
+		logrus.Warnf("Failed to configure %s registry trust for %s (container device pulls may fail): %v", runtimeCLI, r.URL, err)
 	}
 	logrus.Infof("Registry container started: %s (TLS enabled)", r.URL)
 
@@ -371,28 +369,20 @@ func ensureRegistryCerts() (string, error) {
 	return certDir, nil
 }
 
-// configureDockerRegistryTrust installs caCertPath as a trusted CA for registryURL under
-// /etc/docker/certs.d, the standard per-registry cert-trust mechanism Docker's daemon reads on
-// every pull - no daemon.json edit or daemon restart needed. Mirrors what
-// inject_agent_files_into_qcow.sh/buildAgentIdentityFiles already do for podman's equivalent
-// /etc/containers/certs.d inside VM/container-backed devices; this covers the host-side Docker
-// daemon pulling the device image itself (see ContainerDevice.Run).
-//
-// Runs both commands through ctx (Registry.Start's context) so a stuck sudo prompt fails with the
-// caller's cancellation; -n makes sudo fail fast instead of blocking on a password prompt if
-// passwordless sudo isn't configured. Note: CommandContext cancels the sudo wrapper process; a
-// root-owned mkdir/cp child may briefly outlive that cancel for these short commands.
-// The host CA is intentionally retained across runs: parallel suites reuse the same
-// registry, and removing its trust during one suite's cleanup would break other pulls.
-// Runner teardown should remove the registry-specific directory when reuse is no longer needed.
-func configureDockerRegistryTrust(ctx context.Context, registryURL, caCertPath string) error {
-	// registryURL is built from GetHostIP(), which honors an env var override (E2EAuxHostEnv) -
-	// reject anything that isn't a plain host:port before it reaches filepath.Join/sudo cp below,
-	// so a stray "../" can't make certsDir escape /etc/docker/certs.d.
+// registryCertsDir returns the per-registry certificate directory for a host:port reference.
+func registryCertsDir(certsRoot, registryURL string) (string, error) {
 	if host, port, err := net.SplitHostPort(registryURL); err != nil || host == "" || port == "" || strings.ContainsAny(registryURL, `/\`) {
-		return fmt.Errorf("invalid registry URL %q: must be a plain host:port with no path separators", registryURL)
+		return "", fmt.Errorf("invalid registry URL %q: must be a plain host:port with no path separators", registryURL)
 	}
-	certsDir := filepath.Join("/etc/docker/certs.d", registryURL)
+	return filepath.Join(certsRoot, registryURL), nil
+}
+
+// configureRegistryTrust installs the registry CA in the runtime's per-registry cert directory.
+func configureRegistryTrust(ctx context.Context, certsRoot, registryURL, caCertPath string) error {
+	certsDir, err := registryCertsDir(certsRoot, registryURL)
+	if err != nil {
+		return err
+	}
 	if err := exec.CommandContext(ctx, "sudo", "-n", "mkdir", "-p", certsDir).Run(); err != nil { //nolint:gosec // G204: certsDir is built from our own registry URL/constants, not external input.
 		return fmt.Errorf("failed to create %s: %w", certsDir, err)
 	}
@@ -402,9 +392,7 @@ func configureDockerRegistryTrust(ctx context.Context, registryURL, caCertPath s
 	return nil
 }
 
-// configureInsecureRegistry writes a registries.conf.d snippet marking registryURL
-// as insecure so that the local podman/docker daemon can push and pull without TLS
-// verification. It is idempotent: if the file already exists and is non-empty it does nothing.
+// configureInsecureRegistry marks the local registry insecure for Podman CLI and Skopeo operations.
 func configureInsecureRegistry(registryURL string) error {
 	if existingConfig, err := os.ReadFile(registriesConfPath); err == nil && string(existingConfig) != "" {
 		return nil
