@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 type provenanceMappingStoreStub struct {
@@ -51,7 +52,7 @@ func (s *provenanceDeviceStoreStub) GetLabelSyncMappingIDsByKeys(_ context.Conte
 
 func newProvenanceService(t *testing.T, mappingStore *provenanceMappingStoreStub, devices *provenanceDeviceStoreStub) *ServiceHandler {
 	t.Helper()
-	service, err := NewServiceHandler(mappingStore, devices, handlerTestEvaluator{}, eventservice.Service(reconciliationEventsStub{}), nil)
+	service, err := NewServiceHandler(mappingStore, devices, handlerTestEvaluator{}, eventservice.NewMockService(gomock.NewController(t)), nil)
 	require.NoError(t, err)
 	return service
 }

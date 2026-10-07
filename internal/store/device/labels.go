@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"maps"
 	"sort"
 	"strconv"
@@ -82,38 +83,72 @@ func (s *DeviceStore) GetLabelSyncMappingIDsByKeys(ctx context.Context, orgID uu
 }
 
 type labelApplyPlan struct {
-	resourceVersion int64
-	labels          map[string]string
-	annotations     map[string]string
-	visibleChanged  bool
-	result          domain.DeviceLabelApplyResult
-	updated         domain.Device
+	resourceVersion  int64
+	labels           map[string]string
+	annotations      map[string]string
+	visibleChanged   bool
+	conditionChanged bool
+	result           domain.DeviceLabelApplyResult
+	updated          domain.Device
 }
 
-// ApplyLabels atomically applies labels, their mapping owners, and the
-// managed-label annotation. Every state change advances the device resource
-// version before changing ownership rows, including owner-only transfers.
-func (s *DeviceStore) ApplyLabels(ctx context.Context, orgID uuid.UUID, name string, snapshot domain.DeviceLabelSnapshot, desired map[string]domain.DesiredDeviceLabel) (domain.DeviceLabelApplyResult, error) {
+// ApplyLabels atomically applies labels, their mapping owners, the managed-label
+// annotation, and an optional reconciliation condition. Every change advances
+// the device resource version before changing ownership rows, including
+// owner-only transfers.
+func (s *DeviceStore) ApplyLabels(ctx context.Context, orgID uuid.UUID, name string, snapshot domain.DeviceLabelSnapshot, desired map[string]domain.DesiredDeviceLabel, condition *domain.Condition) (domain.DeviceLabelApplyResult, error) {
 	plan, err := newLabelApplyPlan(name, snapshot, desired)
 	if err != nil {
 		return domain.DeviceLabelApplyResult{}, err
 	}
-	if !plan.visibleChanged && !plan.result.OwnershipChanged {
+	if condition != nil {
+		plan.conditionChanged = updateLabelCondition(&plan.updated, *condition)
+	}
+	changed := plan.visibleChanged || plan.result.OwnershipChanged || plan.conditionChanged
+	if !changed && condition == nil {
 		plan.result.Device = &plan.updated
 		return plan.result, nil
 	}
 
 	err = store.RunInTransaction(ctx, s.dbHandler, func(tx *gorm.DB) error {
+		if !changed {
+			// Confirm no-op observations without rewriting the device.
+			var current model.Device
+			err := tx.Select("resource_version").Where("org_id = ? AND name = ? AND resource_version = ?", orgID, name, plan.resourceVersion).Take(&current).Error
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return flterrors.ErrResourceVersionConflict
+			}
+			return store.ErrorFromGormError(err)
+		}
 		return s.applyLabelsInTransaction(tx, orgID, name, snapshot, desired, plan)
 	})
 	if err != nil {
 		return domain.DeviceLabelApplyResult{}, err
 	}
-	if plan.visibleChanged || plan.result.OwnershipChanged {
+	if changed {
 		plan.updated.Metadata.ResourceVersion = lo.ToPtr(strconv.FormatInt(plan.resourceVersion+1, 10))
 	}
 	plan.result.Device = &plan.updated
 	return plan.result, nil
+}
+
+func updateLabelCondition(device *domain.Device, condition domain.Condition) bool {
+	status := domain.NewDeviceStatus()
+	if device.Status != nil {
+		status = *device.Status
+		status.Conditions = append([]domain.Condition(nil), status.Conditions...)
+	}
+	previous := domain.FindStatusCondition(status.Conditions, domain.ConditionTypeDeviceLabelsSynced)
+	if condition.Status == domain.ConditionStatusTrue && (previous == nil || previous.Status == domain.ConditionStatusTrue) {
+		return false
+	}
+	if previous != nil && previous.Status == condition.Status && previous.Reason == condition.Reason && previous.Message == condition.Message {
+		return false
+	}
+	condition.ObservedGeneration = device.Metadata.Generation
+	domain.SetStatusCondition(&status.Conditions, condition)
+	device.Status = &status
+	return true
 }
 
 func newLabelApplyPlan(name string, snapshot domain.DeviceLabelSnapshot, desired map[string]domain.DesiredDeviceLabel) (labelApplyPlan, error) {
@@ -206,7 +241,7 @@ func deviceLabelOwnershipChanged(currentRows map[string]domain.DeviceLabelOwners
 
 func (s *DeviceStore) applyLabelsInTransaction(tx *gorm.DB, orgID uuid.UUID, name string, snapshot domain.DeviceLabelSnapshot, desired map[string]domain.DesiredDeviceLabel, plan labelApplyPlan) error {
 	currentRowsByKey := deviceLabelOwnersByKey(snapshot.Labels)
-	if plan.visibleChanged || plan.result.OwnershipChanged {
+	if plan.visibleChanged || plan.result.OwnershipChanged || plan.conditionChanged {
 		if err := updateDeviceLabels(tx, orgID, name, plan.resourceVersion, plan); err != nil {
 			return err
 		}
@@ -226,6 +261,13 @@ func updateDeviceLabels(tx *gorm.DB, orgID uuid.UUID, name string, resourceVersi
 		updates["labels"] = model.MakeJSONMap(plan.labels)
 		updates["alias"] = alias
 		updates["annotations"] = model.MakeJSONMap(plan.annotations)
+	}
+	if plan.conditionChanged {
+		device, err := model.NewDeviceFromApiResource(&plan.updated)
+		if err != nil {
+			return err
+		}
+		updates["service_conditions"] = device.ServiceConditions
 	}
 	write := tx.Model(&model.Device{Resource: model.Resource{OrgID: orgID, Name: name}}).
 		Where("resource_version = ?", resourceVersion).

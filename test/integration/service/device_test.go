@@ -157,7 +157,7 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 		applyOwnedLabels := func(deviceName string, desired map[string]domain.DesiredDeviceLabel) {
 			snapshot, err := deviceStore.GetLabelSnapshot(suite.Ctx, suite.OrgID, deviceName)
 			Expect(err).NotTo(HaveOccurred())
-			_, err = deviceStore.ApplyLabels(suite.Ctx, suite.OrgID, deviceName, snapshot, desired)
+			_, err = deviceStore.ApplyLabels(suite.Ctx, suite.OrgID, deviceName, snapshot, desired, nil)
 			Expect(err).NotTo(HaveOccurred())
 		}
 

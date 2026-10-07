@@ -41,6 +41,21 @@ func (m *MockService) EXPECT() *MockServiceMockRecorder {
 	return m.recorder
 }
 
+// CompleteMappingScan mocks base method.
+func (m *MockService) CompleteMappingScan(arg0 context.Context, arg1 uuid.UUID, arg2 []MappingScanToken) (map[uuid.UUID]bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "CompleteMappingScan", arg0, arg1, arg2)
+	ret0, _ := ret[0].(map[uuid.UUID]bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// CompleteMappingScan indicates an expected call of CompleteMappingScan.
+func (mr *MockServiceMockRecorder) CompleteMappingScan(arg0, arg1, arg2 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CompleteMappingScan", reflect.TypeOf((*MockService)(nil).CompleteMappingScan), arg0, arg1, arg2)
+}
+
 // CreateLabelSyncMapping mocks base method.
 func (m *MockService) CreateLabelSyncMapping(arg0 context.Context, arg1 uuid.UUID, arg2 domain.LabelSyncMapping) (*domain.LabelSyncMapping, domain.Status) {
 	m.ctrl.T.Helper()
@@ -130,6 +145,21 @@ func (mr *MockServiceMockRecorder) ListLabelSyncMappings(arg0, arg1, arg2 any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListLabelSyncMappings", reflect.TypeOf((*MockService)(nil).ListLabelSyncMappings), arg0, arg1, arg2)
 }
 
+// ListMappingScanTargets mocks base method.
+func (m *MockService) ListMappingScanTargets(arg0 context.Context, arg1 uuid.UUID) ([]MappingScanToken, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListMappingScanTargets", arg0, arg1)
+	ret0, _ := ret[0].([]MappingScanToken)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListMappingScanTargets indicates an expected call of ListMappingScanTargets.
+func (mr *MockServiceMockRecorder) ListMappingScanTargets(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListMappingScanTargets", reflect.TypeOf((*MockService)(nil).ListMappingScanTargets), arg0, arg1)
+}
+
 // PatchLabelSyncMapping mocks base method.
 func (m *MockService) PatchLabelSyncMapping(arg0 context.Context, arg1 uuid.UUID, arg2 string, arg3 domain.PatchRequest) (*domain.LabelSyncMapping, domain.Status) {
 	m.ctrl.T.Helper()
@@ -158,6 +188,22 @@ func (m *MockService) ReconcileDeviceLabels(arg0 context.Context, arg1 uuid.UUID
 func (mr *MockServiceMockRecorder) ReconcileDeviceLabels(arg0, arg1, arg2 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ReconcileDeviceLabels", reflect.TypeOf((*MockService)(nil).ReconcileDeviceLabels), arg0, arg1, arg2)
+}
+
+// RecordMappingScanFailure mocks base method.
+func (m *MockService) RecordMappingScanFailure(arg0 context.Context, arg1 uuid.UUID, arg2 MappingScanToken, arg3 string) (MappingScanToken, bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RecordMappingScanFailure", arg0, arg1, arg2, arg3)
+	ret0, _ := ret[0].(MappingScanToken)
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// RecordMappingScanFailure indicates an expected call of RecordMappingScanFailure.
+func (mr *MockServiceMockRecorder) RecordMappingScanFailure(arg0, arg1, arg2, arg3 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RecordMappingScanFailure", reflect.TypeOf((*MockService)(nil).RecordMappingScanFailure), arg0, arg1, arg2, arg3)
 }
 
 // ReplaceLabelSyncMapping mocks base method.
