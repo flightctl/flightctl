@@ -76,7 +76,7 @@ type cachedRouter struct {
 var routerCache sync.Map // key: uintptr, value: *cachedRouter
 
 // getRouterFor returns a cached router for the given swagger getter, building it on first use.
-// The router is built with swagger.Servers = nil to skip server name validation.
+// The router is built with Servers = nil to skip server name validation.
 func getRouterFor(getSwagger SwaggerGetter) (routers.Router, error) {
 	ptr := reflect.ValueOf(getSwagger).Pointer()
 	entry, _ := routerCache.LoadOrStore(ptr, &cachedRouter{})
@@ -87,8 +87,14 @@ func getRouterFor(getSwagger SwaggerGetter) (routers.Router, error) {
 			cr.err = err
 			return
 		}
-		swagger.Servers = nil
-		cr.router, cr.err = gorillamux.NewRouter(swagger)
+		// The getter hands back one cached spec shared with every other
+		// consumer, notably the request-validator middleware installed at
+		// server start-up, so clear Servers on our own copy instead of
+		// theirs. A shallow copy is enough: routing only reads the nested
+		// document.
+		forRouting := *swagger
+		forRouting.Servers = nil
+		cr.router, cr.err = gorillamux.NewRouter(&forRouting)
 	})
 	return cr.router, cr.err
 }

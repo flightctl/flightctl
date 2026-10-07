@@ -139,11 +139,13 @@ func (s *Server) Run(ctx context.Context) error {
 	s.log.Println("Initializing ImageBuilder API server")
 
 	// Load OpenAPI spec for request validation
-	swagger, err := api.GetSpec()
+	cachedSwagger, err := api.GetSpec()
 	if err != nil {
 		return fmt.Errorf("failed loading swagger spec: %w", err)
 	}
-	// Skip server name validation
+	// GetSpec hands back one cached spec shared by every caller, so skip
+	// server name validation on our own copy rather than mutating theirs.
+	swagger := *cachedSwagger
 	swagger.Servers = nil
 
 	oapiOpts := oapimiddleware.Options{
@@ -229,7 +231,7 @@ func (s *Server) Run(ctx context.Context) error {
 	transportHandler := transport.NewTransportHandler(s.service, s.log)
 
 	// Create v1alpha1 OpenAPI middleware
-	v1alpha1OapiMiddleware := oapimiddleware.OapiRequestValidatorWithOptions(swagger, &oapiOpts)
+	v1alpha1OapiMiddleware := oapimiddleware.OapiRequestValidatorWithOptions(&swagger, &oapiOpts)
 
 	// Create v1alpha1 router with OpenAPI validation and auth
 	routerV1Alpha1 := versioning.NewRouter(versioning.RouterConfig{
