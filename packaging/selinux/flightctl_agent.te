@@ -27,6 +27,7 @@ gen_require(`
     type unconfined_t, unconfined_service_t;
     type shell_exec_t;
     type tpm_device_t;
+    type kvm_device_t;
 
     attribute domain;
 ')
@@ -83,6 +84,19 @@ kernel_request_load_module(flightctl_agent_t)
 # Device information
 dev_read_sysfs(flightctl_agent_t)
 dev_read_kmsg(flightctl_agent_t)
+
+## Hardware feature detection  ##
+
+# KVM detection reads /proc/modules (covered by kernel_read_all_proc) and stats
+# /sys/module/{kvm,kvm_intel,kvm_amd} (covered by dev_read_sysfs), then stats and
+# read-only opens the /dev/kvm character device to confirm it is usable.
+# /dev/kvm is labelled kvm_device_t, which the reference policy declares with
+# dev_node() only and not files_type(); it is therefore not part of the
+# file_type attribute and is NOT covered by files_read_all_chr_files() above.
+# Grant only what the accessibility probe performs: getattr for stat(2) and
+# open/read for the read-only open(2). ioctl is deliberately withheld - the
+# agent probes for the device, it never drives the KVM API.
+allow flightctl_agent_t kvm_device_t:chr_file { getattr open read };
 
 ## Networking permissions  ##
 

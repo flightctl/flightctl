@@ -10,6 +10,140 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestToDeviceSystemInfoGPUs(t *testing.T) {
+	require := require.New(t)
+
+	t.Run("When no GPUs are present it should return a non-nil empty list", func(t *testing.T) {
+		gpus := toDeviceSystemInfoGPUs(nil)
+		require.NotNil(gpus)
+		require.Empty(*gpus)
+	})
+
+	t.Run("When GPUs are present it should map all fields", func(t *testing.T) {
+		src := []GPUDeviceInfo{
+			{
+				Index:         0,
+				Vendor:        "NVIDIA",
+				Model:         "RTX_4090",
+				PCIDeviceID:   "0x2717",
+				PCIAddress:    "0000:01:00.0",
+				PCIRevisionID: "0xa1",
+				PCIVendorID:   "0x10de",
+				MemoryBytes:   24 * 1024 * 1024 * 1024,
+				Arch:          "Ada",
+				Features:      []string{"cuda"},
+			},
+		}
+
+		gpus := toDeviceSystemInfoGPUs(src)
+		require.NotNil(gpus)
+		require.Len(*gpus, 1)
+
+		got := (*gpus)[0]
+		require.Equal(int32(0), got.Index)
+		require.Equal("0000:01:00.0", *got.PciAddress)
+		require.Equal("NVIDIA", *got.Vendor)
+		require.Equal("RTX_4090", *got.Model)
+		require.Equal("0x2717", *got.PciDeviceId)
+		require.Equal("0x10de", *got.PciVendorId)
+		require.Equal("0xa1", *got.PciRevisionId)
+		require.Equal("Ada", *got.Arch)
+		require.Equal([]string{"cuda"}, *got.Features)
+		require.NotNil(got.MemoryBytes)
+		require.Equal(int64(24*1024*1024*1024), *got.MemoryBytes)
+	})
+
+	t.Run("When optional fields are empty they should be omitted", func(t *testing.T) {
+		gpus := toDeviceSystemInfoGPUs([]GPUDeviceInfo{{Index: 2}})
+		require.NotNil(gpus)
+		require.Len(*gpus, 1)
+
+		got := (*gpus)[0]
+		require.Equal(int32(2), got.Index)
+		require.Nil(got.Vendor)
+		require.Nil(got.Model)
+		require.Nil(got.PciAddress)
+		require.Nil(got.MemoryBytes)
+		require.Nil(got.Features)
+	})
+}
+
+func TestCollectGPUSystemInfo(t *testing.T) {
+	logger := log.NewPrefixLogger("test")
+
+	tests := []struct {
+		name        string
+		hardwareGPU []GPUDeviceInfo
+		setup       func(t *testing.T, rw fileio.ReadWriter)
+		wantNil     bool
+		wantLen     int
+	}{
+		{
+			name: "When the GPU scan fails it should leave Gpus unset",
+			setup: func(t *testing.T, rw fileio.ReadWriter) {
+				require := require.New(t)
+				// Force collectGPUInfo to fail: make the PCI devices path a file
+				// instead of a directory so ReadDir returns a non-NotExist error.
+				require.NoError(rw.MkdirAll(filepath.Dir(pciDevicesPath), fileio.DefaultDirectoryPermissions))
+				require.NoError(rw.WriteFile(pciDevicesPath, []byte("not a directory"), fileio.DefaultFilePermissions))
+			},
+			wantNil: true,
+		},
+		{
+			name:    "When the scan succeeds with no GPUs it should report an empty list",
+			setup:   func(_ *testing.T, _ fileio.ReadWriter) {},
+			wantNil: false,
+			wantLen: 0,
+		},
+		{
+			name: "When the scan finds a PCI GPU it should report it",
+			setup: func(t *testing.T, rw fileio.ReadWriter) {
+				require := require.New(t)
+				deviceDir := filepath.Join(pciDevicesPath, "0000:41:00.0")
+				require.NoError(rw.MkdirAll(deviceDir, fileio.DefaultDirectoryPermissions))
+				require.NoError(rw.WriteFile(filepath.Join(deviceDir, "class"), []byte("0x030000"), fileio.DefaultFilePermissions))
+				require.NoError(rw.WriteFile(filepath.Join(deviceDir, "vendor"), []byte("0x10de"), fileio.DefaultFilePermissions))
+				require.NoError(rw.WriteFile(filepath.Join(deviceDir, "device"), []byte("0x2717"), fileio.DefaultFilePermissions))
+			},
+			wantNil: false,
+			wantLen: 1,
+		},
+		{
+			name:        "When GPUs were already collected it should use them without scanning",
+			hardwareGPU: []GPUDeviceInfo{{Index: 0, Vendor: "NVIDIA", Model: "RTX_4090"}},
+			setup:       func(_ *testing.T, _ fileio.ReadWriter) {},
+			wantNil:     false,
+			wantLen:     1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+
+			tmpDir := t.TempDir()
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(tmpDir)),
+				fileio.NewWriter(fileio.WithWriterRootDir(tmpDir)),
+			)
+			tt.setup(t, rw)
+
+			info := &Info{Hardware: HardwareFacts{GPU: tt.hardwareGPU}}
+
+			gpus := collectGPUSystemInfo(logger, rw, "", info)
+
+			if tt.wantNil {
+				// A scan failure must stay nil so it is distinguishable from a
+				// successful scan that found zero GPUs.
+				require.Nil(gpus)
+			} else {
+				require.NotNil(gpus)
+				require.Len(*gpus, tt.wantLen)
+			}
+		})
+	}
+}
+
 const (
 	VendorIDNvidia = "0x10de"
 	VendorIDAMD    = "0x1002"
@@ -175,11 +309,11 @@ func TestCollectPlatformGPUs(t *testing.T) {
 			startIndex: 0,
 			wantCount:  1,
 			wantFirst: &GPUDeviceInfo{
-				Index:    0,
-				Vendor:   "NVIDIA",
-				Model:    "GA10B",
-				Arch:     "Ampere",
-				DeviceID: "nvidia,ga10b",
+				Index:       0,
+				Vendor:      "NVIDIA",
+				Model:       "GA10B",
+				Arch:        "Ampere",
+				PCIDeviceID: "nvidia,ga10b",
 			},
 		},
 		{
@@ -205,10 +339,10 @@ func TestCollectPlatformGPUs(t *testing.T) {
 			startIndex: 0,
 			wantCount:  1,
 			wantFirst: &GPUDeviceInfo{
-				Index:    0,
-				DeviceID: "unknown,gpu-chip",
-				Vendor:   "unknown",
-				Model:    "gpu-chip",
+				Index:       0,
+				PCIDeviceID: "unknown,gpu-chip",
+				Vendor:      "unknown",
+				Model:       "gpu-chip",
 			},
 		},
 		{
@@ -245,11 +379,11 @@ func TestCollectPlatformGPUs(t *testing.T) {
 			startIndex: 0,
 			wantCount:  1,
 			wantFirst: &GPUDeviceInfo{
-				Index:    0,
-				Vendor:   "NVIDIA",
-				Model:    "GA10B",
-				Arch:     "Ampere",
-				DeviceID: "nvidia,ga10b",
+				Index:       0,
+				Vendor:      "NVIDIA",
+				Model:       "GA10B",
+				Arch:        "Ampere",
+				PCIDeviceID: "nvidia,ga10b",
 			},
 		},
 		{
@@ -269,11 +403,11 @@ func TestCollectPlatformGPUs(t *testing.T) {
 			startIndex: 0,
 			wantCount:  1,
 			wantFirst: &GPUDeviceInfo{
-				Index:    0,
-				Vendor:   "NVIDIA",
-				Model:    "GV11B",
-				Arch:     "Volta",
-				DeviceID: "nvidia,gv11b",
+				Index:       0,
+				Vendor:      "NVIDIA",
+				Model:       "GV11B",
+				Arch:        "Volta",
+				PCIDeviceID: "nvidia,gv11b",
 			},
 		},
 		{
@@ -305,7 +439,7 @@ func TestCollectPlatformGPUs(t *testing.T) {
 				Vendor:      "NVIDIA",
 				Model:       "GA10B",
 				Arch:        "Ampere",
-				DeviceID:    "nvidia,ga10b",
+				PCIDeviceID: "nvidia,ga10b",
 				MemoryBytes: 8192 * 1024 * 1024,
 			},
 		},
@@ -325,11 +459,11 @@ func TestCollectPlatformGPUs(t *testing.T) {
 			startIndex: 2,
 			wantCount:  1,
 			wantFirst: &GPUDeviceInfo{
-				Index:    2,
-				Vendor:   "NVIDIA",
-				Model:    "GA10B",
-				Arch:     "Ampere",
-				DeviceID: "nvidia,ga10b",
+				Index:       2,
+				Vendor:      "NVIDIA",
+				Model:       "GA10B",
+				Arch:        "Ampere",
+				PCIDeviceID: "nvidia,ga10b",
 			},
 		},
 	}
@@ -351,7 +485,7 @@ func TestCollectPlatformGPUs(t *testing.T) {
 				require.Equal(tt.wantFirst.Vendor, gpus[0].Vendor)
 				require.Equal(tt.wantFirst.Model, gpus[0].Model)
 				require.Equal(tt.wantFirst.Arch, gpus[0].Arch)
-				require.Equal(tt.wantFirst.DeviceID, gpus[0].DeviceID)
+				require.Equal(tt.wantFirst.PCIDeviceID, gpus[0].PCIDeviceID)
 				require.Equal(tt.wantFirst.MemoryBytes, gpus[0].MemoryBytes)
 			}
 		})
@@ -413,8 +547,8 @@ func TestCollectGPUInfo_PCI(t *testing.T) {
 	require.Len(gpus, 1)
 	require.Equal(0, gpus[0].Index)
 	require.Equal("0000:41:00.0", gpus[0].PCIAddress)
-	require.Equal("0x10de", gpus[0].VendorID)
-	require.Equal("0x2717", gpus[0].DeviceID)
+	require.Equal("0x10de", gpus[0].PCIVendorID)
+	require.Equal("0x2717", gpus[0].PCIDeviceID)
 }
 
 func TestCollectGPUInfo_PlatformOnly(t *testing.T) {

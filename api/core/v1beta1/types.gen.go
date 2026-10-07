@@ -1479,6 +1479,39 @@ type DeviceEnrollmentHooksStatus struct {
 	Snapshot *EnrollmentHookSnapshot `json:"snapshot,omitempty"`
 }
 
+// DeviceGpu Information about a GPU device discovered on the device.
+type DeviceGpu struct {
+	// Arch GPU microarchitecture generation name as defined in the hardware map or platform lookup table (e.g., "Ada", "Ampere", "Volta", "Maxwell" for NVIDIA; "RDNA3", "CDNA3" for AMD). This is the vendor marketing name for the GPU microarchitecture, not the host CPU ISA or a compute-capability version string.
+	Arch *string `json:"arch,omitempty"`
+
+	// Features Vendor-specific GPU capability identifiers sourced from the hardware map. Values are lowercase tokens describing supported compute or display features (e.g., "cuda", "rocm", "opencl", "sriov", "mig"). The vocabulary is extensible and determined by the hardware map; no fixed enum is enforced.
+	Features *[]string `json:"features,omitempty"`
+
+	// Index Zero-based enumeration index of the GPU on the system, assigned in PCI bus discovery order.
+	Index int32 `json:"index"`
+
+	// MemoryBytes The amount of GPU memory in bytes.
+	MemoryBytes *int64 `json:"memoryBytes,omitempty"`
+
+	// Model The GPU model name (e.g., "RTX 4090", "GA10B").
+	Model *string `json:"model,omitempty"`
+
+	// PciAddress PCI bus address in BDF notation (e.g., "0000:01:00.0").
+	PciAddress *string `json:"pciAddress,omitempty"`
+
+	// PciDeviceId PCI device ID of the GPU, as read from the PCI configuration register (e.g., "0x2717").
+	PciDeviceId *string `json:"pciDeviceId,omitempty"`
+
+	// PciRevisionId PCI revision ID of the GPU (e.g., "0xa1").
+	PciRevisionId *string `json:"pciRevisionId,omitempty"`
+
+	// PciVendorId PCI vendor ID of the GPU (e.g., "0x10de" for NVIDIA).
+	PciVendorId *string `json:"pciVendorId,omitempty"`
+
+	// Vendor The GPU vendor name (e.g., "NVIDIA", "AMD", "Intel").
+	Vendor *string `json:"vendor,omitempty"`
+}
+
 // DeviceIntegrityCheckStatus DeviceIntegrityCheckStatus represents the status of the integrity check performed on the device.
 type DeviceIntegrityCheckStatus struct {
 	// Info Human-readable information about the integrity check status.
@@ -1511,6 +1544,12 @@ type DeviceIntegrityStatus struct {
 
 // DeviceIntegrityStatusSummaryType Status of the integrity of the device.
 type DeviceIntegrityStatusSummaryType string
+
+// DeviceKvm KVM virtualization information reported by the device.
+type DeviceKvm struct {
+	// Enabled Whether KVM virtualization is active and available on the device.
+	Enabled *bool `json:"enabled,omitempty"`
+}
 
 // DeviceLastSeen DeviceLastSeen represents the last seen timestamp of a device.
 type DeviceLastSeen struct {
@@ -1782,11 +1821,20 @@ type DeviceSystemInfo struct {
 	// DeltaEligible Whether this device can consume OCI deltas. True when the oci-delta binary is present. False when it is not. Omitted when an older agent does not report the field.
 	DeltaEligible *bool `json:"deltaEligible,omitempty"`
 
+	// Gpus List of GPU devices discovered on the device.
+	Gpus *[]DeviceGpu `json:"gpus,omitempty"`
+
+	// Kvm KVM virtualization information reported by the device.
+	Kvm *DeviceKvm `json:"kvm,omitempty"`
+
 	// OciDeltaVersion Version reported by `oci-delta --version`, or from Go module build information when that flag is unsupported. Absent when oci-delta is not installed or its version cannot be determined.
 	OciDeltaVersion *string `json:"ociDeltaVersion,omitempty"`
 
 	// OperatingSystem The Operating System reported by the device.
-	OperatingSystem      string            `json:"operatingSystem"`
+	OperatingSystem string `json:"operatingSystem"`
+
+	// OsMode OS management mode. "image" indicates the OS is managed via bootc or rpm-ostree image updates. "package" indicates no image-based OS management is available.
+	OsMode               *OsModeType       `json:"osMode,omitempty"`
 	AdditionalProperties map[string]string `json:"-"`
 }
 
@@ -4296,6 +4344,22 @@ func (a *DeviceSystemInfo) UnmarshalJSON(b []byte) error {
 		delete(object, "deltaEligible")
 	}
 
+	if raw, found := object["gpus"]; found {
+		err = json.Unmarshal(raw, &a.Gpus)
+		if err != nil {
+			return fmt.Errorf("error reading 'gpus': %w", err)
+		}
+		delete(object, "gpus")
+	}
+
+	if raw, found := object["kvm"]; found {
+		err = json.Unmarshal(raw, &a.Kvm)
+		if err != nil {
+			return fmt.Errorf("error reading 'kvm': %w", err)
+		}
+		delete(object, "kvm")
+	}
+
 	if raw, found := object["ociDeltaVersion"]; found {
 		err = json.Unmarshal(raw, &a.OciDeltaVersion)
 		if err != nil {
@@ -4310,6 +4374,14 @@ func (a *DeviceSystemInfo) UnmarshalJSON(b []byte) error {
 			return fmt.Errorf("error reading 'operatingSystem': %w", err)
 		}
 		delete(object, "operatingSystem")
+	}
+
+	if raw, found := object["osMode"]; found {
+		err = json.Unmarshal(raw, &a.OsMode)
+		if err != nil {
+			return fmt.Errorf("error reading 'osMode': %w", err)
+		}
+		delete(object, "osMode")
 	}
 
 	if len(object) != 0 {
@@ -4367,6 +4439,20 @@ func (a DeviceSystemInfo) MarshalJSON() ([]byte, error) {
 		}
 	}
 
+	if a.Gpus != nil {
+		object["gpus"], err = json.Marshal(a.Gpus)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'gpus': %w", err)
+		}
+	}
+
+	if a.Kvm != nil {
+		object["kvm"], err = json.Marshal(a.Kvm)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'kvm': %w", err)
+		}
+	}
+
 	if a.OciDeltaVersion != nil {
 		object["ociDeltaVersion"], err = json.Marshal(a.OciDeltaVersion)
 		if err != nil {
@@ -4377,6 +4463,13 @@ func (a DeviceSystemInfo) MarshalJSON() ([]byte, error) {
 	object["operatingSystem"], err = json.Marshal(a.OperatingSystem)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling 'operatingSystem': %w", err)
+	}
+
+	if a.OsMode != nil {
+		object["osMode"], err = json.Marshal(a.OsMode)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'osMode': %w", err)
+		}
 	}
 
 	for fieldName, field := range a.AdditionalProperties {

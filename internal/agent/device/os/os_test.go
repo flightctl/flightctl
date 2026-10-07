@@ -17,6 +17,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/samber/lo"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
@@ -40,8 +41,6 @@ const (
 )
 
 func TestManagerStatus(t *testing.T) {
-	require := require.New(t)
-
 	testCases := []struct {
 		name              string
 		caps              Capabilities
@@ -130,6 +129,8 @@ func TestManagerStatus(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			assert := assert.New(t)
+			require := require.New(t)
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 
@@ -153,17 +154,19 @@ func TestManagerStatus(t *testing.T) {
 
 			err := m.Status(ctx, status)
 			require.NoError(err)
-			require.Equal(tc.expectedImage, status.Os.Image)
-			require.Equal(tc.expectedDigest, status.Os.ImageDigest)
+			assert.Equal(tc.expectedImage, status.Os.Image)
+			assert.Equal(tc.expectedDigest, status.Os.ImageDigest)
 			require.NotNil(status.Capabilities)
 			require.NotNil(status.Capabilities.OsMode)
-			require.Equal(tc.caps.OsMode, *status.Capabilities.OsMode)
+			assert.Equal(tc.caps.OsMode, *status.Capabilities.OsMode)
 			require.NotNil(status.SystemInfo.DeltaEligible)
-			require.Equal(tc.expectedEligible, *status.SystemInfo.DeltaEligible)
+			assert.Equal(tc.expectedEligible, *status.SystemInfo.DeltaEligible)
 			require.NotNil(status.SystemInfo.BootcVersion)
-			require.Equal("bootc 1.15.0", *status.SystemInfo.BootcVersion)
+			assert.Equal("bootc 1.15.0", *status.SystemInfo.BootcVersion)
 			require.NotNil(status.SystemInfo.OciDeltaVersion)
 			require.Equal("oci-delta 0.2.1", *status.SystemInfo.OciDeltaVersion)
+			require.NotNil(status.SystemInfo.OsMode)
+			assert.Equal(tc.caps.OsMode, *status.SystemInfo.OsMode)
 			require.Equal(tc.expectedReason, osLastDeltaFallback(status))
 			require.Equal(tc.expectedOutcome, osLastDeltaOutcome(status))
 		})
@@ -233,6 +236,125 @@ func TestOSDeltaStatusPersistsAcrossRestartAndClearsForNewTarget(t *testing.T) {
 	status = &v1beta1.DeviceStatus{}
 	require.NoError(t, restartedManager.Status(ctx, status))
 	require.Nil(t, status.Os.LastDelta)
+}
+
+func TestSystemInfoOsMode(t *testing.T) {
+	testCases := []struct {
+		name     string
+		mode     v1beta1.OsModeType
+		expected v1beta1.OsModeType
+		wantOK   bool
+	}{
+		{
+			name:     "When mode is image it should report image",
+			mode:     v1beta1.OsModeImage,
+			expected: v1beta1.OsModeImage,
+			wantOK:   true,
+		},
+		{
+			name:     "When mode is package it should report package",
+			mode:     v1beta1.OsModePackage,
+			expected: v1beta1.OsModePackage,
+			wantOK:   true,
+		},
+		{
+			name:   "When mode is unrecognized it should not be reported",
+			mode:   v1beta1.OsModeType("bogus"),
+			wantOK: false,
+		},
+		{
+			name:   "When mode is empty it should not be reported",
+			mode:   v1beta1.OsModeType(""),
+			wantOK: false,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert := assert.New(t)
+			got, ok := systemInfoOsMode(tc.mode)
+			assert.Equal(tc.wantOK, ok)
+			assert.Equal(tc.expected, got)
+		})
+	}
+}
+
+func TestApplyDeltaSystemInfoOsMode(t *testing.T) {
+	testCases := []struct {
+		name     string
+		mode     v1beta1.OsModeType
+		wantSet  bool
+		wantMode v1beta1.OsModeType
+	}{
+		{
+			name:     "When mode is image it should set OsMode to image",
+			mode:     v1beta1.OsModeImage,
+			wantSet:  true,
+			wantMode: v1beta1.OsModeImage,
+		},
+		{
+			name:     "When mode is package it should set OsMode to package",
+			mode:     v1beta1.OsModePackage,
+			wantSet:  true,
+			wantMode: v1beta1.OsModePackage,
+		},
+		{
+			name:    "When mode is empty it should omit OsMode",
+			mode:    v1beta1.OsModeType(""),
+			wantSet: false,
+		},
+		{
+			name:    "When mode is unrecognized it should omit OsMode",
+			mode:    v1beta1.OsModeType("bogus"),
+			wantSet: false,
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert := assert.New(t)
+			require := require.New(t)
+			info := &v1beta1.DeviceSystemInfo{}
+			ApplyDeltaSystemInfo(info, Capabilities{OsMode: tc.mode})
+			if tc.wantSet {
+				require.NotNil(info.OsMode)
+				assert.Equal(tc.wantMode, *info.OsMode)
+			} else {
+				assert.Nil(info.OsMode)
+			}
+		})
+	}
+}
+
+func TestApplyDeltaSystemInfoClearsStaleOsMode(t *testing.T) {
+	testCases := []struct {
+		name      string
+		staleMode v1beta1.OsModeType
+	}{
+		{
+			name:      "When a recognized mode is followed by an empty mode it should clear OsMode",
+			staleMode: v1beta1.OsModeType(""),
+		},
+		{
+			name:      "When a recognized mode is followed by an unrecognized mode it should clear OsMode",
+			staleMode: v1beta1.OsModeType("bogus"),
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert := assert.New(t)
+			require := require.New(t)
+
+			info := &v1beta1.DeviceSystemInfo{}
+
+			// A recognized mode sets the field.
+			ApplyDeltaSystemInfo(info, Capabilities{OsMode: v1beta1.OsModeImage})
+			require.NotNil(info.OsMode)
+			assert.Equal(v1beta1.OsModeImage, *info.OsMode)
+
+			// Re-applying with an unrecognized/empty mode must clear the stale value.
+			ApplyDeltaSystemInfo(info, Capabilities{OsMode: tc.staleMode})
+			assert.Nil(info.OsMode)
+		})
+	}
 }
 
 func TestCollectOCITargets(t *testing.T) {
