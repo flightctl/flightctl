@@ -1,7 +1,10 @@
 package catalogcollector_test
 
 import (
+	"errors"
+	"net"
 	"net/http"
+	"syscall"
 
 	apiv1alpha1 "github.com/flightctl/flightctl/api/core/v1alpha1"
 	. "github.com/onsi/ginkgo/v2"
@@ -409,6 +412,24 @@ var _ = Describe("Catalog collector end-to-end pipeline", func() {
 				WithArguments(harness.ReadyURL()).Should(BeZero())
 			Eventually(harness.ProbeStatus, shutdownTimeout, pollInterval).
 				WithArguments(harness.LiveURL()).Should(BeZero())
+
+			By("closing the snapshot listener so it stops accepting connections")
+			// A probe that returns no status only proves no HTTP response was
+			// produced; dialling the source address directly proves the
+			// listening socket itself is gone. Each attempt is bounded by
+			// DialTimeout so a black-holed address cannot wedge the spec.
+			Eventually(func(g Gomega) {
+				conn, err := net.DialTimeout(
+					"tcp", harness.SourceAddress(), probeTimeout)
+				if err == nil {
+					g.Expect(conn.Close()).To(Succeed())
+				}
+				g.Expect(err).To(HaveOccurred(),
+					"snapshot listener at %s still accepts connections",
+					harness.SourceAddress())
+				g.Expect(errors.Is(err, syscall.ECONNREFUSED)).To(BeTrue(),
+					"expected connection refused, got: %v", err)
+			}, shutdownTimeout, pollInterval).Should(Succeed())
 
 			By("leaving the synchronized resources in place")
 			Expect(harness.GetCatalog("edge-apps")).ToNot(BeNil())

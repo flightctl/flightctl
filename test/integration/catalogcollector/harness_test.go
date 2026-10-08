@@ -153,9 +153,10 @@ type collectorHarness struct {
 	Client     *v1alpha1client.ClientWithResponses
 	PipelineID string
 
-	snapshotURL string
-	liveURL     string
-	readyURL    string
+	snapshotURL   string
+	liveURL       string
+	readyURL      string
+	sourceAddress string
 
 	// snapshotClient and probeClient are owned by this harness so that every
 	// request it issues is bounded independently of any surrounding Eventually
@@ -178,6 +179,8 @@ type collectorHarness struct {
 // database, then starts a collector configured against it and waits until the
 // collector reports ready and its snapshot listener accepts connections.
 func newCollectorHarness(opts ...harnessOption) *collectorHarness {
+	GinkgoHelper()
+
 	harness := &collectorHarness{
 		Ctx:            testutil.StartSpecTracerForGinkgo(suiteCtx),
 		Log:            testutil.InitLogsWithDebug(),
@@ -221,6 +224,8 @@ func bearerTokenEditor(token string) v1alpha1client.RequestEditorFn {
 // real Postgres database and a real key-value store. No route, handler, or
 // middleware is re-implemented by the harness.
 func (h *collectorHarness) startAPIServer() string {
+	GinkgoHelper()
+
 	var err error
 	h.serverCfg, h.dbName, h.db, err = testdb.CreateTestDB(
 		h.Ctx, h.Log, "catalogcollector", store.InitDB)
@@ -237,8 +242,10 @@ func (h *collectorHarness) startAPIServer() string {
 	h.serverCfg.KV.Password = suiteRedisPassword
 
 	// The API server authenticates and authorizes every request, so point it
-	// at the suite's identity provider. The server validates every bearer
-	// token by calling the provider's userinfo endpoint in full.
+	// at the suite's identity provider. The server validates the token via
+	// /userinfo (the production provider caches valid responses for ~10 min;
+	// each test database gets a fresh provider instance, so no validation
+	// result is carried across specs).
 	providerSpec, err := suiteAuthProvider.ProviderSpec()
 	Expect(err).ToNot(HaveOccurred())
 	h.serverCfg.Auth.OAuth2 = &providerSpec
@@ -315,6 +322,8 @@ func (h *collectorHarness) startAPIServer() string {
 // production loader, builds the service from the production factories, and
 // runs it until the spec finishes.
 func (h *collectorHarness) startCollector(caBundlePath string, opts ...harnessOption) {
+	GinkgoHelper()
+
 	healthEndpoint := reserveLoopbackEndpoint()
 	sourceEndpoint := reserveLoopbackEndpoint()
 
@@ -363,10 +372,13 @@ func (h *collectorHarness) startCollector(caBundlePath string, opts ...harnessOp
 	go func() {
 		h.collectorDone <- svc.Run(collectorCtx)
 	}()
+	// Assert on teardown: a collector that crashed or refused to stop must
+	// fail the spec rather than disappear silently.
 	DeferCleanup(func() {
-		_ = h.StopCollector()
+		Expect(h.StopCollector()).To(Succeed())
 	})
 
+	h.sourceAddress = sourceEndpoint
 	h.snapshotURL = "http://" + sourceEndpoint + snapshotPath
 	h.liveURL = "http://" + healthEndpoint + livePath
 	h.readyURL = "http://" + healthEndpoint + readyPath
@@ -493,6 +505,10 @@ func (h *collectorHarness) LiveURL() string { return h.liveURL }
 
 // ReadyURL returns the configured readiness probe URL.
 func (h *collectorHarness) ReadyURL() string { return h.readyURL }
+
+// SourceAddress returns the host:port the HTTP snapshot source listens on, so
+// a spec can check the listener itself rather than only the probe endpoints.
+func (h *collectorHarness) SourceAddress() string { return h.sourceAddress }
 
 // GetCatalog reads one Catalog, returning nil when it does not exist.
 func (h *collectorHarness) GetCatalog(name string) *apiv1alpha1.Catalog {
@@ -652,6 +668,43 @@ func nameOf(name *string) string {
 // specs give their client so a stalled peer is detected quickly.
 const stalledClientTimeout = 500 * time.Millisecond
 
+// stalledWatchdogTimeout is the independent request-context deadline the
+// timeout regression specs install. It is deliberately longer than
+// stalledClientTimeout so the two are distinguishable: the specs assert that
+// the client's own timeout ended the exchange while the watchdog was still
+// live. The watchdog exists only so a regression that removes the client
+// timeout cancels the request instead of wedging the suite forever.
+const stalledWatchdogTimeout = 4 * stalledClientTimeout
+
+// expectClientTimeoutBeforeWatchdog asserts that err is the HTTP client's own
+// timeout and that the request context's independent deadline has not expired,
+// which is what proves the client timeout fired first rather than the failure
+// being a context cancellation.
+func expectClientTimeoutBeforeWatchdog(err error, watchdogCtx context.Context) {
+	GinkgoHelper()
+
+	Expect(err).To(HaveOccurred(), "a stalled peer must not be awaited forever")
+	Expect(os.IsTimeout(err)).To(BeTrue(), "expected a timeout error, got: %v", err)
+
+	Expect(watchdogCtx.Err()).ToNot(HaveOccurred(),
+		"the client timeout must fire before the request context deadline")
+	deadline, ok := watchdogCtx.Deadline()
+	Expect(ok).To(BeTrue())
+	Expect(deadline).To(BeTemporally(">", time.Now()),
+		"the request context deadline must still be in the future")
+}
+
+// newStalledWatchdogContext returns a request context whose deadline is longer
+// than stalledClientTimeout, released when the spec finishes.
+func newStalledWatchdogContext() context.Context {
+	GinkgoHelper()
+
+	ctx, cancel := context.WithTimeout(suiteCtx, stalledWatchdogTimeout)
+	DeferCleanup(cancel)
+
+	return ctx
+}
+
 // startStalledServer starts an HTTP server that never finishes a response. It
 // optionally flushes the response head first, so a caller can stall either
 // before the headers arrive or part-way through the body, and then holds the
@@ -686,8 +739,9 @@ var _ = Describe("Harness HTTP clients", func() {
 		It("should fail the request instead of blocking the caller", func() {
 			url := startStalledServer(false)
 
+			watchdogCtx := newStalledWatchdogContext()
 			req, err := http.NewRequestWithContext(
-				suiteCtx, http.MethodGet, url, nil)
+				watchdogCtx, http.MethodGet, url, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			resp, err := newBoundedHTTPClient(stalledClientTimeout).Do(req)
@@ -695,8 +749,7 @@ var _ = Describe("Harness HTTP clients", func() {
 				defer func() { _ = resp.Body.Close() }()
 			}
 
-			Expect(err).To(HaveOccurred(), "a stalled peer must not be awaited forever")
-			Expect(os.IsTimeout(err)).To(BeTrue(), "expected a timeout error, got: %v", err)
+			expectClientTimeoutBeforeWatchdog(err, watchdogCtx)
 		})
 	})
 
@@ -704,17 +757,18 @@ var _ = Describe("Harness HTTP clients", func() {
 		It("should fail the response body read instead of blocking the caller", func() {
 			url := startStalledServer(true)
 
+			watchdogCtx := newStalledWatchdogContext()
 			req, err := http.NewRequestWithContext(
-				suiteCtx, http.MethodGet, url, nil)
+				watchdogCtx, http.MethodGet, url, nil)
 			Expect(err).ToNot(HaveOccurred())
 
 			resp, err := newBoundedHTTPClient(stalledClientTimeout).Do(req)
 			Expect(err).ToNot(HaveOccurred())
 			defer func() { _ = resp.Body.Close() }()
 
+			// The client timeout must also cover body reads.
 			_, err = io.ReadAll(resp.Body)
-			Expect(err).To(HaveOccurred(), "the client timeout must also cover body reads")
-			Expect(os.IsTimeout(err)).To(BeTrue(), "expected a timeout error, got: %v", err)
+			expectClientTimeoutBeforeWatchdog(err, watchdogCtx)
 		})
 	})
 })
