@@ -195,9 +195,24 @@ metrics and health ports itself, so a values file that repeats either name
 renders a Deployment the API server refuses, pointing at a list index rather
 than at the value responsible.
 
-Only names are checked. Port numbers may legitimately repeat: several Service
-ports can target the same container port, and TCP and UDP entries can share a
-number.
+Each extra port must also carry a non-empty name, and a targetPort that is a
+port number rather than a port name. Both are rejected here because the
+failure they cause otherwise surfaces at apply time, against a manifest the
+operator never wrote:
+
+  - A nameless entry renders "name: null" on both the containerPort and the
+    Service port. The API server requires a name on every port of a
+    multi-port Service, so the Service is refused.
+
+  - Kubernetes lets a Service port's targetPort name a container port, but
+    the chart has no separate container-port value: the Deployment renders
+    the same targetPort as the collector's containerPort, which must be an
+    integer. "targetPort: snap" therefore renders "containerPort: snap" and
+    the Deployment is refused.
+
+Port numbers themselves are not checked, and may legitimately repeat: several
+Service ports can target the same container port, and TCP and UDP entries can
+share a number.
 */}}
 {{- define "flightctl-catalog-collector.validatePorts" -}}
 {{- $entries := list -}}
@@ -208,7 +223,20 @@ number.
 {{- $entries = append $entries (dict "src" "health.port" "name" "health") -}}
 {{- end -}}
 {{- range $i, $p := (default (list) .Values.service.extraPorts) -}}
-{{- $entries = append $entries (dict "src" (printf "service.extraPorts[%d]" $i) "name" (toString $p.name)) -}}
+{{- $src := printf "service.extraPorts[%d]" $i -}}
+{{- $name := trim (toString (default "" $p.name)) -}}
+{{- if not $name -}}
+{{- fail (printf "flightctl-catalog-collector: %s has no name. Every entry in service.extraPorts must set a non-empty name: it becomes the name of both a containerPort on the collector and a port on the Service, and the API server requires a name on every port of a multi-port Service" $src) -}}
+{{- end -}}
+{{/*
+Treat an absent, null, or empty targetPort as unset, exactly as the
+Deployment and the Service do with "default .port .targetPort".
+*/}}
+{{- $target := trim (toString (default "" $p.targetPort)) -}}
+{{- if and $target (not (regexMatch "^[0-9]+$" $target)) -}}
+{{- fail (printf "flightctl-catalog-collector: %s sets targetPort %q, which is not a port number. The chart renders targetPort as the collector's containerPort as well, and a containerPort must be an integer, so a named targetPort would produce a Deployment the API server rejects. Give targetPort the number the collector listens on; the name comes from %s.name" $src $target $src) -}}
+{{- end -}}
+{{- $entries = append $entries (dict "src" $src "name" $name) -}}
 {{- end -}}
 {{- $byName := dict -}}
 {{- range $e := $entries -}}

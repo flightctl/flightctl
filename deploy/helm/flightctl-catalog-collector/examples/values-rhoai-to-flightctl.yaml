@@ -145,7 +145,6 @@ health:
 metrics:
   enabled: true
   port: 8888
-  path: /metrics
   serviceMonitor:
     # Flip on where the Prometheus Operator CRDs are available, for example on
     # OpenShift with user workload monitoring enabled.

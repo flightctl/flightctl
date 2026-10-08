@@ -51,7 +51,6 @@ health:
 metrics:
   enabled: true
   port: 8888
-  path: /metrics
 
 service:
   enabled: true

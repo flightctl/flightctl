@@ -113,6 +113,13 @@ The `metrics` and `health` ports are added to the container and to the
 the chart rejects them at render time instead, naming the value responsible
 rather than a list index.
 
+Each `service.extraPorts` entry must also set a non-empty `name`, and its
+`targetPort`, when given, must be a number rather than a port name. Each entry
+becomes a container port as well as a `Service` port: a missing name renders
+`name: null` on both, which the API server rejects on a multi-port `Service`,
+and a named `targetPort` renders `containerPort: snap`, which it rejects on
+the `Deployment`. Omit `targetPort` to reuse `port`.
+
 Port numbers are not checked. Kubernetes allows several `Service` ports to
 target the same container port, and a TCP and a UDP entry may share a number,
 so a repeated number is a legitimate configuration rather than an error.
@@ -475,8 +482,9 @@ half of the chart contract `helm lint` cannot express: that a bare install
 fails, that `config.content` and `config.existingName` are mutually
 exclusive, that `replicaCount=2` is rejected, that the `Service` is
 omitted when it would have no ports, that `podLabels` cannot break the
-`Deployment` selector, and that the `metrics` and `health` port names cannot
-collide with `service.extraPorts`.
+`Deployment` selector, that the `metrics` and `health` port names cannot
+collide with `service.extraPorts`, and that an extra port without a name or
+with a named `targetPort` is rejected.
 
 Both targets run in CI from the `Helm Chart Quality` workflow whenever
 `deploy/helm/**`, the `Makefile`, or the workflow itself changes, so a new

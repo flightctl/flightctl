@@ -396,6 +396,24 @@ assert_not_contains \
     --set-string config.existingName=external-config \
     --set-string metrics.path=/moved
 
+# The shipped value files must not carry the removed key either. Helm ignores
+# an unknown values key without a word, so a leftover "metrics.path" reads as a
+# supported knob that silently does nothing. Only the top-level metrics block
+# is inspected: "path" is a legitimate key inside config.content, which is the
+# collector's own configuration and not chart values.
+for values in "${CHART_DIR}"/examples/*.yaml "${CHART_DIR}/lint-values.yaml"; do
+    name="$(basename "${values}") does not set the removed metrics.path"
+    hit="$(awk '
+        /^[^[:space:]#]/ { in_metrics = ($0 ~ /^metrics:/) }
+        in_metrics && /^  path:[[:space:]]/ { print FILENAME ":" FNR ": " $0 }
+    ' "${values}")"
+    if [[ -n "${hit}" ]]; then
+        bad "${name}" "${hit}"
+    else
+        ok "${name}"
+    fi
+done
+
 # --------------------------------------------------------------------------
 # podLabels versus the Deployment selector
 # --------------------------------------------------------------------------
@@ -525,6 +543,67 @@ assert_render_succeeds \
     --set "service.extraPorts[1].name=syslog-udp" \
     --set "service.extraPorts[1].port=9000" \
     --set "service.extraPorts[1].protocol=UDP"
+
+# --------------------------------------------------------------------------
+# Extra port shape: name and targetPort
+# --------------------------------------------------------------------------
+
+# Kubernetes lets a Service port's targetPort name a container port, but the
+# chart renders the same targetPort as the collector's containerPort, which
+# must be an integer. A named targetPort would therefore render
+# "containerPort: snap" and the API server would reject the Deployment.
+
+assert_render_fails \
+    "a named extraPort targetPort is rejected" \
+    'sets targetPort "snap", which is not a port number' \
+    --set-string config.existingName=external-config \
+    --set "service.extraPorts[0].name=snapshots" \
+    --set "service.extraPorts[0].port=8080" \
+    --set-string "service.extraPorts[0].targetPort=snap"
+
+# A numeric targetPort is the supported shape, quoted or not: the templates
+# render it unquoted either way, so the manifest carries an integer.
+
+assert_matches \
+    "a numeric extraPort targetPort becomes the containerPort" \
+    "^              containerPort: 9000$" \
+    --set-string config.existingName=external-config \
+    --set "service.extraPorts[0].name=snapshots" \
+    --set "service.extraPorts[0].port=8080" \
+    --set "service.extraPorts[0].targetPort=9000"
+
+assert_render_succeeds \
+    "a quoted numeric extraPort targetPort is accepted" \
+    --set-string config.existingName=external-config \
+    --set "service.extraPorts[0].name=snapshots" \
+    --set "service.extraPorts[0].port=8080" \
+    --set-string "service.extraPorts[0].targetPort=9000"
+
+# Every extra port needs a name: without one the chart renders "name: null" on
+# both the containerPort and the Service port, and the API server requires a
+# name on every port of a multi-port Service.
+
+assert_render_fails \
+    "an extraPort with no name is rejected" \
+    "service.extraPorts[0] has no name" \
+    --set-string config.existingName=external-config \
+    --set "service.extraPorts[0].port=8080"
+
+assert_render_fails \
+    "an extraPort with an empty name is rejected" \
+    "service.extraPorts[0] has no name" \
+    --set-string config.existingName=external-config \
+    --set-string "service.extraPorts[0].name=" \
+    --set "service.extraPorts[0].port=8080"
+
+# The index in the message points at the offending entry, not at the first one.
+assert_render_fails \
+    "a nameless extraPort is reported by its own index" \
+    "service.extraPorts[1] has no name" \
+    --set-string config.existingName=external-config \
+    --set "service.extraPorts[0].name=snapshots" \
+    --set "service.extraPorts[0].port=8080" \
+    --set "service.extraPorts[1].port=8081"
 
 # --------------------------------------------------------------------------
 # Security context and probes
