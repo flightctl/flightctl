@@ -19,6 +19,7 @@ bootable
 bootc
 bootloader
 ca.crt
+CEL
 CentOS
 cgroup
 cgroups
@@ -70,6 +71,8 @@ JSONL
 JWT
 Keycloak
 Klusterlet
+LabelSyncMapping
+LabelSyncMappings
 KubeVirt
 Kubernetes
 kustomize
@@ -237,6 +240,7 @@ LDevID
 CAs
 Infineon
 ConfigMap
+ConfigMaps
 STMicroelectronics
 Nuvoton
 UEFI
@@ -357,6 +361,7 @@ dashboarding
 scraping
 Prometheus
 Grafana
+GPUs
 Dynatrace
 SaaS
 CRDs
