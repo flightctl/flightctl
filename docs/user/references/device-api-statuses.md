@@ -286,7 +286,7 @@ The application delta outcome can have the following values:
 | `NotRequired` | All image targets are already present on the device with the correct digest. No delta application or image pull is needed. |
 | `NotUsed` | Delta application was skipped without a delta failure. A full image pull may still be needed. |
 | `Applied` | At least one delta was applied successfully. Other image targets also applied deltas or already matched their desired digests. |
-| `Fallback` | No image target successfully applied a delta, and at least one delta attempt failed. The agent attempted a full image pull for the failed targets. |
+| `Fallback` | No image target successfully applied a delta, and at least one delta attempt failed or a hinted delta could not be used. The agent attempted a full pull for the affected targets. |
 | `Partial` | At least one image target applied a delta, while another skipped delta application or fell back to a full image pull. Already matching targets do not cause `Partial`. |
 
 Results persist across agent restarts while the application specification and image targets remain unchanged. A cache check can change an earlier `NotUsed` result to `NotRequired` after verifying the desired digest. Cache checks retain earlier `Applied` or `Fallback` results for the same target.
