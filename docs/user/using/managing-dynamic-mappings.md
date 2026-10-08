@@ -202,11 +202,9 @@ Filter the device inventory by the label key with the CLI:
 flightctl get devices -l feature.flightctl.io/customInfo.region=east
 ```
 
-When a fleet selector, template, or rollout policy uses a mapping-owned label, the web interface displays a security warning. This reminder does not change how the label works; the CLI does not display it.
-
 ## Understand ownership and security
 
-Flight Control tracks ownership for each mapped label key on each device. An operator or device cannot change or remove a label while a mapping currently owns that exact key; such a device update returns HTTP 409. The server-computed `device-controller/managedLabels` annotation lists currently owned keys. Treat this annotation as read-only.
+Flight Control tracks ownership for each mapped label key on each device. An operator or device cannot change or remove a label while a mapping currently owns that exact key. The server-computed `device-controller/managedLabels` annotation lists currently owned keys. Treat this annotation as read-only.
 
 A mapping can take ownership of an existing user label with the same key. The mapping replaces the existing value, and deleting the mapping does not restore the former value. Use dedicated label keys to avoid collisions. If two mappings produce the same key on a device, the affected mappings report a collision and their previous outputs are retained until the conflict is resolved.
 
