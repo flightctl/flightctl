@@ -29,7 +29,12 @@ It is recommended to install `cert-manager` before installing Flight Control. Wh
 
 ### Configuring delta generation
 
-To generate OS and application deltas, configure a valid, writable OCI storage target for each organization or a shared target under the Helm value `deltaGeneration.defaultRepository`. For a private shared registry, set `deltaGeneration.defaultRepository.secretName` to a Secret with `username` and `password` keys in the installation namespace.
+To generate OS and application deltas, configure a valid, writable OCI target using either option:
+
+- Set `deltaGeneration.defaultRepository` in the Helm values to provide a deployment default shared by organizations.
+- Create an OCI Repository resource with `type: oci`, `accessMode: ReadWrite`, and `deltaStorageTarget: true`, as described in [Managing Repositories: Configuring a delta storage target](../using/managing-repositories.md#configuring-a-delta-storage-target). You can configure this resource after installation without setting a deployment default.
+
+Either option satisfies the storage prerequisite. An organization's Repository resource takes precedence over the deployment default when both are configured. For a private deployment default, set `deltaGeneration.defaultRepository.secretName` to a Secret with `username` and `password` keys in the installation namespace.
 
 You can also configure generation concurrency, job timeouts, and update wait defaults through Helm values. See [Delta generation configuration](installing-service-on-linux-configuration.md#delta-generation-configuration) for all deployment settings and an example.
 

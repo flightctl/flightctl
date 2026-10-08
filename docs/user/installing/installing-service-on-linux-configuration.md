@@ -55,9 +55,14 @@ For more information on configuring organizations, see [Organizations](configuri
 
 ### Delta generation configuration
 
-Configure deployment defaults for OS and application delta generation under `deltaGeneration`. For Helm deployments, set these values in the values file used for installation or upgrade. For packaged Podman deployments, set them in `/etc/flightctl/service-config.yaml`.
+You can customize deployment defaults for OS and application delta generation under `deltaGeneration`. For Helm deployments, set these values in the values file used for installation or upgrade. For packaged Podman deployments, set them in `/etc/flightctl/service-config.yaml`.
 
-Generation requires a valid, writable OCI storage target. Configure either an organization Repository with `deltaStorageTarget: true` or the deployment's `defaultRepository`. The registry must be reachable with the configured push credentials and TLS settings. An organization target takes precedence over the deployment default. Without either target, Flight Control skips generation.
+Generation requires a valid, writable OCI target configured through either option:
+
+- Set `deltaGeneration.defaultRepository` in the deployment configuration to provide a shared default.
+- Create an OCI Repository resource with `type: oci`, `accessMode: ReadWrite`, and `deltaStorageTarget: true`, as described in [Managing Repositories: Configuring a delta storage target](../using/managing-repositories.md#configuring-a-delta-storage-target). This option does not require a deployment default.
+
+Either option satisfies the storage prerequisite. The registry must be reachable with the configured push credentials and TLS settings. An organization's Repository resource takes precedence over the deployment default when both are configured. Without either target, Flight Control skips generation.
 
 | Parameter | Description |
 | --------- | ----------- |

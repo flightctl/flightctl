@@ -55,7 +55,12 @@ sudo dnf install -y flightctl-services
 
 Flight Control services can be configured through a central configuration file located at `/etc/flightctl/service-config.yaml`.
 
-To generate OS and application deltas, configure a valid, writable OCI storage target and the deployment defaults described in [Delta generation configuration](installing-service-on-linux-configuration.md#delta-generation-configuration).
+To generate OS and application deltas, configure a valid, writable OCI target using either option:
+
+- Set `deltaGeneration.defaultRepository` in `/etc/flightctl/service-config.yaml` to provide a deployment default shared by organizations. See [Delta generation configuration](installing-service-on-linux-configuration.md#delta-generation-configuration) for repository settings and credentials.
+- Create an OCI Repository resource with `type: oci`, `accessMode: ReadWrite`, and `deltaStorageTarget: true`, as described in [Managing Repositories: Configuring a delta storage target](../using/managing-repositories.md#configuring-a-delta-storage-target). You can configure this resource after installation without setting a deployment default.
+
+Either option satisfies the storage prerequisite. An organization's Repository resource takes precedence over the deployment default when both are configured. Generation concurrency, timeout, and wait settings are optional deployment overrides.
 
 To spin up services quickly for testing or development purposes, you can leave this file's defaults. This sets the base domain of the services to the host's fully qualified domain name (FQDN) (from `hostname -f`) and generates a self-signed certificate authority (CA) from which required certificates are issued.
 
