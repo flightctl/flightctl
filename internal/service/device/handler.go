@@ -557,7 +557,12 @@ func applyDeviceStatusPatch(ctx context.Context, current *domain.Device, patch d
 	if current.Kind != patched.Kind {
 		return nil, errors.New("kind is immutable")
 	}
-	if !reflect.DeepEqual(current.Spec, patched.Spec) {
+	// Compare specs semantically rather than byte-wise: ApplyJSONPatch round-trips the
+	// whole device through JSON, and generated union types keep their payload as
+	// json.RawMessage. Insignificant byte differences (jsonb spacing from Postgres, Go's
+	// HTML escaping) would make reflect.DeepEqual report a spurious mutation.
+	if (current.Spec == nil) != (patched.Spec == nil) ||
+		!domain.DeviceSpecsAreEqual(lo.FromPtr(current.Spec), lo.FromPtr(patched.Spec)) {
 		return nil, errors.New("spec is immutable")
 	}
 	// EnrollmentHooks is service-owned and must not be changed through generic status patches.
