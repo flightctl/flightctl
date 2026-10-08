@@ -2,6 +2,7 @@ package common
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -303,6 +304,73 @@ func TestApplyJSONPatch(t *testing.T) {
 		}
 		newObj := &domain.ResourceSync{}
 		err := ApplyJSONPatch(context.Background(), obj, newObj, patch, "/resourcesyncs/"+name)
+		require.Error(t, err)
+	})
+}
+
+func TestEqualJSON(t *testing.T) {
+	// Decoding a spec reproduces what a store read produces: the ResourceMonitor keeps the
+	// exact bytes of the document it came from in its unexported json.RawMessage.
+	specFromJSON := func(t *testing.T, raw string) *domain.DeviceSpec {
+		t.Helper()
+		spec := &domain.DeviceSpec{}
+		require.NoError(t, json.Unmarshal([]byte(raw), spec))
+		return spec
+	}
+
+	const canonical = `{"resources":[{"monitorType":"Disk","path":"/var","alertRules":[],"samplingInterval":"60s"}]}`
+	// Same document, written the way a Postgres jsonb column hands it back.
+	const jsonbSpaced = `{"resources": [{"monitorType": "Disk", "path": "/var", "alertRules": [], "samplingInterval": "60s"}]}`
+	// Same document, with a character encoding/json escapes while compacting a RawMessage.
+	const withAmpersand = `{"resources":[{"monitorType":"Disk","path":"/var & /srv","alertRules":[],"samplingInterval":"60s"}]}`
+	const withEscapedAmpersand = `{"resources":[{"monitorType":"Disk","path":"/var \u0026 /srv","alertRules":[],"samplingInterval":"60s"}]}`
+	// A genuinely different document.
+	const differentPath = `{"resources":[{"monitorType":"Disk","path":"/srv","alertRules":[],"samplingInterval":"60s"}]}`
+
+	tests := []struct {
+		name      string
+		a, b      string
+		wantEqual bool
+	}{
+		{
+			name:      "When both documents are byte-identical it should report equal",
+			a:         canonical,
+			b:         canonical,
+			wantEqual: true,
+		},
+		{
+			name:      "When one document carries Postgres jsonb spacing it should report equal",
+			a:         canonical,
+			b:         jsonbSpaced,
+			wantEqual: true,
+		},
+		{
+			name:      "When one document escapes a character the other leaves literal it should report equal",
+			a:         withAmpersand,
+			b:         withEscapedAmpersand,
+			wantEqual: true,
+		},
+		{
+			name:      "When the documents differ it should report not equal",
+			a:         canonical,
+			b:         differentPath,
+			wantEqual: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := specFromJSON(t, tt.a)
+			b := specFromJSON(t, tt.b)
+
+			equal, err := EqualJSON(a, b)
+			require.NoError(t, err)
+			require.Equal(t, tt.wantEqual, equal)
+		})
+	}
+
+	t.Run("When a value cannot be marshalled it should return an error", func(t *testing.T) {
+		_, err := EqualJSON(make(chan int), nil)
 		require.Error(t, err)
 	})
 }
