@@ -90,6 +90,49 @@ spec:
 * `ca.crt`: Base64-encoded root CA certificate for custom certificate authorities
 * `skipServerVerification`: Boolean to skip remote server verification (not recommended for production)
 
+### Configuring a delta storage target
+
+Flight Control can generate OCI deltas when the organization has a writable OCI repository configured. Mark one Repository as the organization's delta storage target by setting `deltaStorageTarget: true`. Only one Repository can be the target for an organization. Configure it with `accessMode: ReadWrite` and credentials that can push to the registry.
+
+Use the optional `repository` and `namespace` fields to choose the destination path. These fields are mutually exclusive:
+
+| Repository fields | Delta destination |
+| ----------------- | ----------------- |
+| Neither field is set | Flight Control uses the target image's repository path under the configured registry. |
+| `repository` is set | Flight Control pushes to that exact repository path under the registry. |
+| `namespace` is set | Flight Control prefixes the target image name with the namespace. |
+
+For example, this Repository is a writable delta target with the exact repository path `my-org/deltas`:
+
+```yaml
+apiVersion: flightctl.io/v1beta1
+kind: Repository
+metadata:
+  name: generated-deltas
+spec:
+  type: oci
+  registry: quay.io
+  repository: my-org/deltas
+  accessMode: ReadWrite
+  deltaStorageTarget: true
+```
+
+This example omits credentials. For a private registry, add `ociAuth` with credentials that have push access. See [Private Registry (Read-Write)](#private-registry-read-write) for an example.
+
+If you do not mark an organization Repository as the delta storage target, Flight Control uses the optional deployment-level `deltaGeneration.defaultRepository` setting. This setting is shared by organizations in the deployment. Set either `repository` or `namespace`, or omit both to use registry-only placement:
+
+```yaml
+deltaGeneration:
+  defaultRepository:
+    registry: registry.example.com
+    repository: my-org/deltas
+    scheme: https
+```
+
+For Helm deployments, provide registry credentials through the Kubernetes Secret configured by `deltaGeneration.defaultRepository.secretName`. For Podman deployments, provide the `DELTA_GENERATION_DEFAULT_REPOSITORY_USERNAME` and `DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD` environment variables. See [Installing the Flight Control service on Kubernetes](../installing/installing-service-on-kubernetes.md) and [Configuring Flight Control services](../installing/installing-service-on-linux-configuration.md) for deployment configuration.
+
+An organization Repository marked with `deltaStorageTarget: true` takes precedence over the deployment default. If neither target is configured, Flight Control does not generate deltas. Devices can still use deltas published to image registries by CI. For fleet wait behavior and render-time status, see [Defining rollout policies](managing-fleets.md#defining-rollout-policies) and [Updating the OS](managing-devices.md#updating-the-os).
+
 ### Creating an OCI Repository
 
 #### Public Registry (Read-Only)
