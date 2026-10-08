@@ -1,17 +1,17 @@
 # Managing dynamic label mappings
 
-Dynamic label mappings promote selected device-reported values into device labels. Use these labels to select fleets and rollout batches, render fleet templates, and filter device inventories.
+Dynamic label mappings write selected device-reported values to device labels. Use the resulting keys to select fleets and rollout batches, render fleet templates, and filter device inventories.
 
 > [!WARNING]
 > Device-promoted labels are inherently riskier than operator-assigned labels because their values come from the device and are not attested. A compromised device can report a value that matches a fleet selector and receive that fleet's configuration. Do not use promoted labels as proof of device identity or integrity. Prefer operator-assigned labels when selecting fleets that receive sensitive configuration or credentials.
 
 ## How mappings work
 
-A `LabelSyncMapping` is an organization-scoped resource. It evaluates a Common Expression Language (CEL) expression against a device's current `metadata`, `spec`, and `status`. The result is written to the device's labels and can be used anywhere Flight Control uses labels.
+A `LabelSyncMapping` is an organization-scoped resource. It evaluates a Common Expression Language (CEL) expression against a device's current `metadata`, `spec`, and `status`, then writes the result to the device's labels.
 
 Dynamic mappings are separate from the agent's enrollment-time `label-from-systeminfo` configuration. Enrollment-time mappings add labels when a device enrolls. A `LabelSyncMapping` can update labels later when Flight Control receives a device status update. The mapping does not change how the agent collects or reports system information.
 
-Fleet templates use promoted labels through `.metadata.labels`. They do not expose raw `systemInfo` or `customInfo` fields as template variables.
+Fleet templates access device labels through `.metadata.labels`. They do not expose raw `systemInfo` or `customInfo` fields as template variables.
 
 ## Default mappings
 
@@ -120,10 +120,10 @@ Manage `LabelSyncMapping` resources with the CLI or REST API. For API resource d
 
 ## Use mapped labels
 
-Promoted labels use the same selectors as other device labels. This fleet selector targets devices whose reported region is east:
+Mappings create ordinary device labels. Use the resulting keys anywhere device labels are supported, including fleet and rollout selectors, fleet templates, and inventory filters. This fleet selector targets devices whose reported region is east:
 
 > [!IMPORTANT]
-> Always choose stable, predictable values for fleet selectors that use promoted labels. A changing reported value can move a device into or out of a fleet and trigger a configuration rollout.
+> Always choose stable, predictable values for fleet selectors that depend on device-reported data. A changing reported value can move a device into or out of a fleet and trigger a configuration rollout.
 
 ```yaml
 spec:
@@ -145,13 +145,13 @@ spec:
               region={{ index .metadata.labels "feature.flightctl.io/customInfo.region" }}
 ```
 
-Filter the device inventory by a promoted label with the CLI:
+Filter the device inventory by the label key with the CLI:
 
 ```console
 flightctl get devices -l feature.flightctl.io/customInfo.region=east
 ```
 
-The web interface can also search and filter using promoted label keys. When a fleet selector, template, or rollout policy uses a promoted label, the interface displays a security warning. The warning applies to fleet configuration; the CLI does not prompt for this configuration choice.
+When a fleet selector, template, or rollout policy uses a mapping-owned label, the web interface displays a security warning. This reminder does not change how the label works; the CLI does not display it.
 
 ## Understand ownership and security
 
