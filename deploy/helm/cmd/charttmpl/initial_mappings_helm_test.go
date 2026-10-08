@@ -67,6 +67,7 @@ type initialMappingMetadata struct {
 
 type initialMappingSpec struct {
 	ResourceType string `yaml:"resourceType"`
+	Key          string `yaml:"key"`
 	Expression   string `yaml:"expression"`
 }
 
@@ -248,8 +249,8 @@ func assertInitialMappingsEqual(t *testing.T, source string, got, want []initial
 		t.Fatalf("%s has %d mappings, want %d", source, len(got), len(want))
 	}
 	for i := range want {
-		if got[i].APIVersion != want[i].APIVersion || got[i].Kind != want[i].Kind || got[i].Metadata.Name != want[i].Metadata.Name || got[i].Spec.ResourceType != want[i].Spec.ResourceType {
-			t.Errorf("%s mapping %d does not match the expected API version, kind, name, or resource type", source, i)
+		if got[i].APIVersion != want[i].APIVersion || got[i].Kind != want[i].Kind || got[i].Metadata.Name != want[i].Metadata.Name || got[i].Spec.ResourceType != want[i].Spec.ResourceType || got[i].Spec.Key != want[i].Spec.Key {
+			t.Errorf("%s mapping %d does not match the expected API version, kind, name, resource type, or key", source, i)
 		}
 		gotExpression := strings.Join(strings.Fields(got[i].Spec.Expression), " ")
 		wantExpression := strings.Join(strings.Fields(want[i].Spec.Expression), " ")

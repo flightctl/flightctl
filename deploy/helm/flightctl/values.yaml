@@ -299,37 +299,31 @@ organizations:
         name: gpu-present
       spec:
         resourceType: Device
+        key: feature.flightctl.io/gpu.present
         expression: >-
           has(status.systemInfo.gpus) && status.systemInfo.gpus != null
-            ? {
-                "feature.flightctl.io/gpu.present":
-                  size(status.systemInfo.gpus) > 0 ? "true" : "false"
-              }
-            : {}
+            ? size(status.systemInfo.gpus) > 0
+            : dyn(null)
     - apiVersion: flightctl.io/v1beta1
       kind: LabelSyncMapping
       metadata:
         name: kvm-enabled
       spec:
         resourceType: Device
+        key: feature.flightctl.io/kvm.enabled
         expression: >-
           has(status.systemInfo.kvm) && status.systemInfo.kvm != null
             && has(status.systemInfo.kvm.enabled) && status.systemInfo.kvm.enabled != null
-            ? {
-                "feature.flightctl.io/kvm.enabled":
-                  status.systemInfo.kvm.enabled ? "true" : "false"
-              }
-            : {}
+            ? status.systemInfo.kvm.enabled
+            : dyn(null)
     - apiVersion: flightctl.io/v1beta1
       kind: LabelSyncMapping
       metadata:
         name: os-mode
       spec:
         resourceType: Device
-        expression: >-
-          has(status.systemInfo.osMode) && status.systemInfo.osMode != null
-            ? {"feature.flightctl.io/os.mode": status.systemInfo.osMode}
-            : {}
+        key: feature.flightctl.io/os.mode
+        expression: status.systemInfo.osMode
 
     # END GENERATED INITIAL LABEL SYNC MAPPINGS
 
