@@ -55,6 +55,8 @@ sudo dnf install -y flightctl-services
 
 Flight Control services can be configured through a central configuration file located at `/etc/flightctl/service-config.yaml`.
 
+Quadlet deployments also provide an initial `LabelSyncMapping` manifest at `/etc/flightctl/label-sync/mappings.yaml`. To replace the packaged defaults or update mappings for an existing organization, see [Configuring initial mappings](../using/managing-dynamic-mappings.md#configure-initial-mappings).
+
 To spin up services quickly for testing or development purposes, you can leave this file's defaults. This sets the base domain of the services to the host's fully qualified domain name (FQDN) (from `hostname -f`) and generates a self-signed certificate authority (CA) from which required certificates are issued.
 
 For a production environment, set the base domain (`global.baseDomain`) to your own fully qualified domain name (FQDN) and configure certificates from your own PKI (see [Custom Certificates](#custom-certificates)).

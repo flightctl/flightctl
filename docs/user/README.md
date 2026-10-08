@@ -84,6 +84,7 @@ Welcome to the Flight Control user documentation.
   * [Defining Device Templates](using/managing-fleets.md#defining-device-templates)
   * [Mixed image-mode and package-mode fleets](using/managing-fleets.md#mixed-image-mode-and-package-mode-fleets)
   * [Defining Rollout Policies](using/managing-fleets.md#defining-rollout-policies)
+* **[Managing dynamic label mappings](using/managing-dynamic-mappings.md)** - How to promote reported device values into labels and configure initial mappings for deployments.
 * **[Auto-syncing External Dependencies](using/auto-syncing-dependencies.md)** - How Flight Control automatically detects and applies upstream changes to device configurations.
 * **[Viewing Vulnerabilities](using/viewing-vulnerabilities.md)** - How to view vulnerability data for devices and fleets.
   * [Viewing the Vulnerability Summary](using/viewing-vulnerabilities.md#viewing-the-vulnerability-summary)
