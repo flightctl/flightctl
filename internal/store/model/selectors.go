@@ -20,6 +20,7 @@ var (
 		selector.NewSelectorName("status.updated.status"):             selector.String,
 		selector.NewSelectorName("status.lifecycle.status"):           selector.String,
 		selector.NewSelectorName("status.capabilities.osMode"):        selector.String,
+		selector.NewSelectorName("status.systemInfo.osMode"):          selector.String,
 		selector.NewSelectorName("status.systemInfo.deltaEligible"):   selector.Bool,
 	}
 	fleetSpecSelectors = selectorToTypeMap{

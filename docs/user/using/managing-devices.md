@@ -109,7 +109,9 @@ The `SYSTEM INFO` column in `flightctl get devices` output displays the summary 
 
 ### OS mode
 
-Devices report an OS management mode in `status.capabilities.osMode`:
+Devices report an OS management mode in `status.systemInfo.osMode`. Devices
+running older agents report it in the deprecated `status.capabilities.osMode`
+field instead:
 
 | Value | Meaning |
 | ----- | ------- |
@@ -124,11 +126,11 @@ example `distroName` and `distroVersion`).
 To list package-mode devices:
 
 ```bash
-flightctl get devices --field-selector 'status.capabilities.osMode=package'
+flightctl get devices --field-selector 'status.systemInfo.osMode=package'
 ```
 
 To inspect OS mode on a single device, view the device YAML and look for
-`status.capabilities.osMode`:
+`status.systemInfo.osMode`:
 
 ```bash
 flightctl get device/<device_name> -o yaml

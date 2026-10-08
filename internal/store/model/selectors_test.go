@@ -37,26 +37,46 @@ func TestModelSchemaSelectors(t *testing.T) {
 }
 
 func TestDeviceOsModeSelector(t *testing.T) {
-	name := selector.NewSelectorName("status.capabilities.osMode")
-	var device Device
+	tests := []struct {
+		name          string
+		selectorName  string
+		wantFieldName string
+	}{
+		{
+			name:          "When the deprecated capabilities selector is resolved it should map to the capabilities JSONB path",
+			selectorName:  "status.capabilities.osMode",
+			wantFieldName: "status -> 'capabilities' ->> 'osMode'",
+		},
+		{
+			name:          "When the systemInfo selector is resolved it should map to the systemInfo JSONB path",
+			selectorName:  "status.systemInfo.osMode",
+			wantFieldName: "status -> 'systemInfo' ->> 'osMode'",
+		},
+	}
 
-	field, err := device.ResolveSelector(name)
-	if err != nil {
-		t.Fatalf("ResolveSelector(%q) returned error: %v", name, err)
-	}
-	if field.Type != selector.String {
-		t.Errorf("Type = %v, want String", field.Type)
-	}
-	if field.FieldType != "jsonb" {
-		t.Errorf("FieldType = %q, want jsonb", field.FieldType)
-	}
-	wantFieldName := "status -> 'capabilities' ->> 'osMode'"
-	if field.FieldName != wantFieldName {
-		t.Errorf("FieldName = %q, want %q", field.FieldName, wantFieldName)
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			name := selector.NewSelectorName(tt.selectorName)
+			var device Device
 
-	if !device.ListSelectors().Contains(name) {
-		t.Errorf("ListSelectors() missing %q", name)
+			field, err := device.ResolveSelector(name)
+			if err != nil {
+				t.Fatalf("ResolveSelector(%q) returned error: %v", name, err)
+			}
+			if field.Type != selector.String {
+				t.Errorf("Type = %v, want String", field.Type)
+			}
+			if field.FieldType != "jsonb" {
+				t.Errorf("FieldType = %q, want jsonb", field.FieldType)
+			}
+			if field.FieldName != tt.wantFieldName {
+				t.Errorf("FieldName = %q, want %q", field.FieldName, tt.wantFieldName)
+			}
+
+			if !device.ListSelectors().Contains(name) {
+				t.Errorf("ListSelectors() missing %q", name)
+			}
+		})
 	}
 }
 
