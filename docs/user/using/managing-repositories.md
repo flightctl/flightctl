@@ -123,7 +123,7 @@ For a private registry, add `ociAuth` with credentials that have push access. Se
 
 The deployment-level `deltaGeneration.defaultRepository` setting provides a shared default target for organizations. An organization Repository marked with `deltaStorageTarget: true` takes precedence over this default. See [Delta generation configuration](../installing/installing-service-on-linux-configuration.md#delta-generation-configuration) for registry settings, credentials, concurrency, job timeouts, and update wait defaults.
 
-Devices can also use deltas published to image registries by CI. For fleet wait behavior and render-time status, see [Defining rollout policies](managing-fleets.md#defining-rollout-policies) and [Updating the OS](managing-devices.md#updating-the-os).
+Devices can also use deltas published to image registries by CI. For fleet wait behavior and update status, see [Defining rollout policies](managing-fleets.md#defining-rollout-policies) and [Updating the OS](managing-devices.md#updating-the-os).
 
 ### Creating an OCI Repository
 

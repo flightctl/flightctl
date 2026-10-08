@@ -304,7 +304,7 @@ Configure generation under `spec.rolloutPolicy.deltaGeneration`:
 
 | Field | Description |
 | ----- | ----------- |
-| `generateDelta` | Optional. Defaults to `true`, which requests control-plane delta generation during rollout preparation. With `false`, the rollout starts immediately. Devices can use rendered delta hints and discover matching CI-published deltas. |
+| `generateDelta` | Optional. Defaults to `true`, which requests control-plane delta generation during rollout preparation. With `false`, the rollout starts immediately. Devices can use available generated deltas and discover matching CI-published deltas. |
 | `maxWaitForDelta` | Optional maximum time to wait for generation before the rollout continues. If omitted, the fleet inherits the deployment's `deltaGeneration.maxWaitForDelta` setting. The default wait ends when all generation pairs reach a terminal state. A value of `0s` starts generation and continues the rollout immediately. Applies when `generateDelta` is `true`. |
 | `deltaGenerationTimeout` | Optional deadline for each generation job. If omitted, the fleet inherits the deployment's `deltaGeneration.timeout` setting. |
 

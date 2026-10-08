@@ -181,7 +181,7 @@ The following device status fields describe delta capability and the result for 
 | `device.status.systemInfo.deltaEligible` | `true` when the agent has the `oci-delta` tool available. This field may be absent when an older agent does not report it. |
 | `device.status.os.lastDelta.outcome` | The agent-reported OS result. `NotUsed` means delta application was skipped without a delta failure, `Applied` means the delta was applied, and `Fallback` means a delta attempt failed and the agent attempted a full image pull. The field is omitted until an outcome is reported. |
 | `device.status.os.lastDelta.fallbackReason` | The reason for a recorded delta pull or apply failure. It is omitted when the recorded outcome has no fallback reason. |
-| `device.status.os.deltaSize` | Payload size in IEC units, such as MiB or GiB, for a control-plane-generated OS delta after the target specification is rendered. Present when the generated payload size is known. |
+| `device.status.os.deltaSize` | Payload size in IEC units, such as MiB or GiB, for a control-plane-generated OS delta. Present when the generated payload size is known. |
 
 OS delta application also requires bootc.
 
@@ -256,7 +256,7 @@ Each application's aggregated delta result appears in `device.status.application
 | ----- | ----------- |
 | `device.status.applications[].lastDelta.outcome` | The agent-reported application result, as described in the following table. Present after the agent reports an outcome. |
 | `device.status.applications[].lastDelta.fallbackReason` | One representative reason for a full-pull fallback after a delta failure or an unusable hinted delta. Reported per application with `Fallback` or `Partial`. |
-| `device.status.applications[].imageDigests[].image` | Image reference as it appears in the current rendered application specification. |
+| `device.status.applications[].imageDigests[].image` | Image reference used by the application on the device. |
 | `device.status.applications[].imageDigests[].digest` | Registry digest associated with the image. For a multi-platform image, this may be the platform-specific digest selected by the runtime. If only an opaque ID is available, an immutable reference's digest may be reported. Present when a digest is known. |
 | `device.status.applications[].deltaSize` | Sum of control-plane-generated delta payload sizes for this application update, in IEC units. Present when at least one delta was generated and every generated payload size is known. |
 

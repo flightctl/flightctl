@@ -397,9 +397,9 @@ Before using control-plane generation, configure a valid, writable OCI [delta st
 
 For a fleet, configure generation and rollout wait behavior under `spec.rolloutPolicy.deltaGeneration`. If `generateDelta` is omitted, it defaults to `true`. A fleet's `maxWaitForDelta` and `deltaGenerationTimeout` values inherit the deployment settings when omitted. Standalone device updates use the [deployment defaults](../installing/installing-service-on-linux-configuration.md#delta-generation-configuration). See [Configuring delta generation](managing-fleets.md#configuring-delta-generation) for fleet options.
 
-After generation, Flight Control adds a read-only `spec.os.deltaImage` hint for an available delta to the rendered device specification. The agent can also discover a matching [CI-published OS delta](#using-ci-published-os-deltas).
+Flight Control supplies available generated deltas to the agent automatically. The agent can also discover a matching [CI-published OS delta](#using-ci-published-os-deltas). For diagnostics, see [Inspecting delta image references](troubleshooting.md#inspecting-delta-image-references).
 
-The rendered `status.os.deltaSize` reports the known size of the control-plane-generated OS delta payload in IEC units. Use the device's YAML or JSON output to inspect this payload size and the [OS delta status](../references/device-api-statuses.md#os-delta-status).
+The device's `status.os.deltaSize` reports the known size of the control-plane-generated OS delta payload in IEC units. Use the device's YAML or JSON output to inspect this payload size and the [OS delta status](../references/device-api-statuses.md#os-delta-status).
 
 ### Using CI-published OS deltas
 
@@ -412,7 +412,7 @@ For the agent to discover the delta, publish it with these values:
 - Set `artifactType` to `application/vnd.io.github.containers.oci-delta.v1`.
 - Set the `io.github.containers.delta.source` annotation to the digest of the source OS image. This must match the device's current OS image digest.
 
-The agent discovers matching referrers in the target image repository using the registry's referrers API or the Referrers Tag Schema compatibility path. An existing `spec.os.deltaImage` hint takes precedence over referrer discovery.
+The agent discovers matching referrers in the target image repository using the registry's referrers API or the Referrers Tag Schema compatibility path. A generated delta supplied by Flight Control takes precedence over referrer discovery.
 
 The device uses its existing OS image pull credentials to pull the target image and delta. See [Using Image Pull Secrets](#using-image-pull-secrets) for private registries.
 
@@ -760,33 +760,15 @@ The following application paths support generated or CI-published deltas. The de
 | Container | Main container image and container images used by volumes. | Podman. |
 | Compose or Quadlet | Application package when delivered as an OCI container image, workload container images, and container images used by volumes. | Podman. |
 | Helm | Workload container images. | CRI-O or containerd. Other CRI runtimes use full image pulls. |
-| VM | OCI container images referenced by the rendered Quadlet application. | Podman. |
+| VM | OCI container images used by the VM application. | Podman. |
 
-Application packages delivered as OCI artifacts, including Helm charts, are pulled in full. Digest-pinned Helm workload images also use full pulls. See [CRI configuration](#cri-configuration) for local image reuse requirements.
+Application packages delivered as OCI artifacts, including Helm charts, use regular package pulls. Digest-pinned Helm workload images use regular image pulls to preserve the requested manifest digest. See [CRI configuration](#cri-configuration) for local image reuse requirements.
 
 For a CI-published application image delta, follow the OCI 1.1 referrer convention in [CI-published OS deltas](#using-ci-published-os-deltas). Publish the referrer in the target image's repository. Set its `subject` to the target manifest and include the artifact type and source image digest annotation. The agent discovers matching referrers directly in that repository.
 
-When Flight Control has generated an application delta, it adds read-only hints to the rendered device specification. `deltaImage` identifies a delta for the application's main image. `deltaImages[]` identifies nested images with `targetImage`, `targetDigest`, and `deltaImage`. For example, a rendered container application with an OCI volume can include:
+Flight Control supplies generated application deltas to the agent automatically. For each image target, the agent uses an available generated delta or discovers a matching CI-published referrer. Otherwise, it pulls the full image for the current update.
 
-```yaml
-applications:
-  - name: telemetry
-    appType: container
-    image: quay.io/example/telemetry:v2
-    deltaImage: quay.io/example-deltas/telemetry@sha256:ddd...
-    deltaImages:
-      - targetImage: quay.io/example/telemetry-content:v2
-        targetDigest: sha256:ccc...
-        deltaImage: quay.io/example-deltas/telemetry-content@sha256:eee...
-    volumes:
-      - name: content
-        image:
-          reference: quay.io/example/telemetry-content:v2
-```
-
-Flight Control manages these read-only hints in the rendered specification. For each image target, the agent uses a generated hint or discovers a matching CI-published referrer. Otherwise, it pulls the full image for the current update.
-
-A control-plane hint names the delta artifact directly in the configured storage target. CI-published delta discovery uses referrers in the target image's repository.
+Generated deltas are downloaded from the configured storage target. CI-published deltas are discovered in the target image's repository. For diagnostics, see [Inspecting delta image references](troubleshooting.md#inspecting-delta-image-references).
 
 The agent applies a usable delta separately for each image target. If pulling or applying a delta fails, it records a fallback for that image and attempts a full image pull for the same target. Application outcomes and their representative fallback reason appear in [application delta status](../references/device-api-statuses.md#application-delta-status).
 
