@@ -18,6 +18,18 @@ Users with the `GetRenderedDevice` permission can run the following command to v
 flightctl get device/${device_name} -o yaml --rendered
 ```
 
+### Verifying delta registry access
+
+Delta generation reads the source and target images from the image repository and publishes the generated delta artifact to the configured delta storage target. Verify both locations when troubleshooting generation or download failures:
+
+1. Inspect the device status using `flightctl get device <device_name> -o yaml`. For OS updates, check the reported source digest in `status.os.imageDigest`. For applications, check the image references and digests in `status.applications[].imageDigests[]`.
+2. Verify that the reported source image and the desired target image are available by digest in the target image's repository. For multi-platform images, check the manifests for the device's platform. Retain the source manifest and its blobs while preparing the update. The control plane needs pull access to these images with the configured credentials and TLS trust.
+3. Identify the configured [delta storage target](managing-repositories.md#configuring-a-delta-storage-target). An organization OCI Repository marked with `deltaStorageTarget: true` takes precedence over the deployment's `deltaGeneration.defaultRepository`.
+4. Verify that the delta storage registry is reachable from both the control plane and the device agent. The control plane needs read and push access; the agent needs pull access. Check the registry credentials and TLS trust used by each.
+5. Inspect the generated delta reference using the fields in [Inspecting delta image references](#inspecting-delta-image-references). Verify that the referenced artifact is available in the delta storage repository and identifies the expected source and target image pair for the device's platform.
+
+For CI-published deltas, verify the delta referrer in the target image's repository using the publication requirements in [Using CI-published OS deltas](managing-devices.md#using-ci-published-os-deltas).
+
 ### Inspecting delta image references
 
 Use the `--rendered` output to inspect the delta artifact references that Flight Control supplies to the agent. Flight Control manages these read-only fields automatically:
