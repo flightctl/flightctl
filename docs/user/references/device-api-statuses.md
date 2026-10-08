@@ -259,13 +259,25 @@ stateDiagram
 
 ### Application delta status
 
-Each application's delta result appears in `device.status.applications[].lastDelta`. For applications with multiple image targets, the result is aggregated across those targets.
+Each application's delta result appears in `device.status.applications[].lastDelta`. The agent tracks image targets separately and aggregates their outcomes for each application.
 
 | Field | Description |
 | ----- | ----------- |
 | `device.status.applications[].lastDelta.outcome` | The agent-reported application result, as described in the following table. The field is omitted until the agent reports an outcome. |
-| `device.status.applications[].lastDelta.fallbackReason` | One representative failure reason when a delta attempt failed and the agent attempted a full image pull. It can accompany `Fallback` or `Partial`. |
-| `device.status.applications[].deltaSize` | Expected total size of control-plane-generated delta payloads for the application, in IEC units. Full image sizes are excluded. The field is omitted when no delta was generated or any generated delta size is unknown. |
+| `device.status.applications[].lastDelta.fallbackReason` | One representative reason when a delta attempt failed or a hinted delta could not be used, and the agent attempted a full pull. It is not indexed by image and can accompany `Fallback` or `Partial`. |
+| `device.status.applications[].imageDigests[].image` | Image reference as it appears in the current rendered application specification. |
+| `device.status.applications[].imageDigests[].digest` | Registry digest associated with the image. For a multi-platform image, this may be the platform-specific digest selected by the runtime. If only an opaque ID is available, an immutable reference's digest may be reported. The field is omitted when no digest is known. |
+| `device.status.applications[].deltaSize` | Sum of known control-plane-generated delta payload sizes for this application update, in IEC units. Full image sizes and CI-published delta sizes are excluded. The field is omitted when no delta was generated or any generated delta size is unknown. |
+
+`imageDigests[]` can include the application's main image, nested images, and image-backed volumes. Flight Control uses the reference and digest pairs to identify source images for delta generation.
+
+The application `deltaSize` is separate from the OS payload size at `device.status.os.deltaSize`. The current API has no combined update-size field. It does not report full application image size, total expected application update size, downloaded bytes, CI-published delta size, or update duration.
+
+Inspect application delta fields in the device's YAML or JSON output:
+
+```console
+flightctl get device <device_name> -o yaml
+```
 
 The application delta outcome can have the following values:
 
