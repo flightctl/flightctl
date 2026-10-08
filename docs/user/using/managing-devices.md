@@ -389,6 +389,16 @@ spec:
 [...]
 ```
 
+### Using control-plane-generated OS deltas
+
+When a device or fleet receives a changed OS image target, Flight Control can generate a delta from the current image to the target during update preparation. Building the target image does not start delta generation.
+
+For a fleet, configure generation and rollout wait behavior under `spec.rolloutPolicy.deltaGeneration`. If `generateDelta` is omitted, it defaults to `true`. A fleet's `maxWaitForDelta` and `deltaGenerationTimeout` values inherit the deployment settings when omitted. Standalone device updates use the deployment settings. See [Configuring OS delta generation](managing-fleets.md#configuring-os-delta-generation) for fleet options and [Configuring a delta storage target](managing-repositories.md#configuring-a-delta-storage-target) for registry setup.
+
+After generation, Flight Control may add the read-only `spec.os.deltaImage` hint to the rendered device specification. A missing hint means no control-plane-generated artifact is available for that render; the agent can still discover a matching [CI-published OS delta](#using-ci-published-os-deltas).
+
+The rendered `status.os.deltaSize` reports the known size of a control-plane-generated OS delta payload in IEC units. It does not report full OS image size, total expected update size, downloaded bytes, CI-published delta size, or update duration. See [OS delta status](../references/device-api-statuses.md#os-delta-status) for the status fields and current CLI visibility limits.
+
 ### Using CI-published OS deltas
 
 You can publish an OS delta from CI to reduce the image data a device downloads during an OS update. Create the delta from the device's current OS image to the target OS image, then publish it as an OCI 1.1 referrer of the target image.

@@ -162,6 +162,19 @@ stateDiagram
     Known --> Unknown
 ```
 
+### Delta preparation status
+
+During control-plane delta preparation, a Fleet or standalone Device reports progress in its status:
+
+| Field | Description |
+| ----- | ----------- |
+| `fleet.status.conditions[]` with `type: FleetDeltaPreparing` | The condition is `True` while a fleet rollout is waiting for delta preparation. |
+| `fleet.status.deltaGeneration.completed` and `fleet.status.deltaGeneration.total` | Number of terminal image pairs and total unique image pairs in the fleet prepare. |
+| `device.status.conditions[]` with `type: DeviceDeltaPreparing` | The condition is `True` while a standalone device update is waiting for delta preparation. |
+| `device.status.deltaGeneration.completed` and `device.status.deltaGeneration.total` | Number of terminal image pairs and total unique image pairs in the device prepare. |
+
+The condition message carries the same completed/total counts. These counts are not a percentage and can include both OS and application image pairs.
+
 ### OS delta status
 
 You can inspect delta eligibility and the result of an OS delta update in the device's YAML or JSON output:
@@ -177,13 +190,13 @@ The following device status fields describe delta capability and the result for 
 | `device.status.systemInfo.deltaEligible` | `true` when the agent has the `oci-delta` tool available. This field may be absent when an older agent does not report it. |
 | `device.status.os.lastDelta.outcome` | The agent-reported OS result. `NotUsed` means delta application was skipped without a delta failure, `Applied` means the delta was applied, and `Fallback` means a delta attempt failed and the agent attempted a full image pull. The field is omitted until an outcome is reported. |
 | `device.status.os.lastDelta.fallbackReason` | The reason for a recorded delta pull or apply failure. It is omitted when the recorded outcome has no fallback reason. |
-| `device.status.os.deltaSize` | Expected payload size in IEC units, such as MiB or GiB, for a control-plane-generated OS delta. The field is omitted when no delta was generated or its size is unknown. |
+| `device.status.os.deltaSize` | Known payload size in IEC units, such as MiB or GiB, for a control-plane-generated OS delta after the target specification is rendered. The field is omitted when no delta was generated or its size is unknown. |
 
 OS delta application also requires bootc. Delta eligibility does not enforce a bootc 1.15.0 minimum.
 
 OS outcomes persist across agent restarts for the same desired OS image. If no matching delta is found, the agent records `NotUsed` only when that image has no recorded outcome. Otherwise, it retains the existing outcome, including a previous `Fallback` and its reason. An already running or cached OS image is also recorded as `NotUsed` only when that image has no recorded outcome.
 
-The size field describes a control-plane-generated delta payload. It does not measure downloaded bytes, CI-published delta size, full OS image size, total update size, or update duration.
+The size field describes only a control-plane-generated delta payload. The current API does not report full OS image size, total expected update size, or update duration. It also does not measure downloaded bytes or CI-published delta size.
 
 The default and wide device tables do not show these fields. Device summary capability counts include `osMode` only. Use YAML or JSON output to inspect per-device delta status.
 
