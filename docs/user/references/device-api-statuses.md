@@ -272,14 +272,14 @@ Inspect application delta fields in the device's YAML or JSON output:
 flightctl get device <device_name> -o yaml
 ```
 
-The following outcomes describe the application as a whole. The agent reuses image targets already present with the desired digest when preparing the remaining targets.
+The following outcomes describe the application as a whole. The agent reuses image targets already present with the desired digest when preparing the remaining targets. If any target applies a delta while another target uses regular preparation or falls back to a full pull, the application outcome is `Partial`. `Fallback` applies when no target applies a delta and at least one target records a failed delta attempt.
 
 | Outcome | Description |
 | ------- | ----------- |
 | `NotRequired` | All image targets are already present on the device with the correct digest. The agent reuses those images. |
-| `NotUsed` | Every target requiring preparation uses the regular image path because delta application was skipped. The agent pulls full images as needed. Delta failures or unusable hints produce `Fallback`. |
+| `NotUsed` | Every target requiring preparation uses the regular image path because delta application was skipped. The agent pulls full images as needed. |
 | `Applied` | At least one delta was applied successfully. Other image targets also applied deltas or already matched their desired digests. |
-| `Fallback` | The application uses full pulls for all image targets requiring preparation, with at least one delta failure or unusable hinted delta, including a hint for an OCI artifact package pulled through the artifact path. Already matching images are reused. |
+| `Fallback` | No target applied a delta, and at least one delta attempt failed. For an OCI artifact package with a supplied hint, the agent records this outcome and uses the regular artifact pull path. It uses full image pulls for other targets requiring preparation and reuses already matching images. |
 | `Partial` | The application combines at least one successful delta application with regular image preparation or a full-pull fallback for another image target. |
 
 Results persist across agent restarts while the application specification and image targets remain unchanged. A cache check can change an earlier `NotUsed` result to `NotRequired` after verifying the desired digest. Cache checks retain earlier `Applied` or `Fallback` results for the same target.
