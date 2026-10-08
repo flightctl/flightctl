@@ -342,6 +342,15 @@ func (kna *KindNameAutocomplete) getAutocompleteNames(cmd *cobra.Command, o Clie
 				}
 			}
 		}
+	case LabelSyncMappingKind:
+		resp, err := c.ListLabelSyncMappingsWithResponse(ctx, &api.ListLabelSyncMappingsParams{})
+		if err == nil && resp.JSON200 != nil {
+			for _, mapping := range resp.JSON200.Items {
+				if mapping.Metadata.Name != nil {
+					names = append(names, *mapping.Metadata.Name)
+				}
+			}
+		}
 	case TemplateVersionKind:
 		if kna.FleetName != nil {
 			resp, err := c.ListTemplateVersionsWithResponse(ctx, *kna.FleetName, &api.ListTemplateVersionsParams{})
