@@ -29,7 +29,7 @@ The field prefixes in this table are chosen by the bundled mapping expressions. 
 
 ## Create a mapping
 
-Set `spec.resourceType` to `Device`. Set `spec.key` to create a scalar mapping. Omit `spec.key` or set it to null to create a map mapping.
+Mappings can return a scalar value or a map of label keys to values. Set `spec.resourceType` to `Device`. Set `spec.key` to create a scalar mapping; omit it or set it to null to create a map mapping.
 
 This scalar mapping writes the device's reported region to one complete label key:
 
@@ -132,8 +132,6 @@ metadata:
     ops.example.com/os-release: rhel-9.5
 ```
 
-In a map expression, `transformMapEntry(k, v, result)` evaluates `result` for each source key and value. The expression can return different destination keys. You can add a Boolean condition before `result` to filter entries. The result must use complete label keys.
-
 ## CEL syntax and extensions
 
 Mapping expressions use [CEL](https://cel.dev/overview/cel-overview) over the device's `metadata`, `spec`, and `status`. The evaluator enables these extensions:
@@ -223,19 +221,9 @@ Provenance describes current ownership. Device events provide the history of lab
 
 ## Monitor propagation
 
-Mapping updates and device status updates are applied asynchronously. A mapping's `Ready` condition reports its propagation state:
+Mapping updates run in the background. `Ready` is `Pending` while an update is in progress. The update is complete when `Ready` reports `Success` or `Degraded`; `Degraded` means one or more devices could not be reconciled. Check the condition message for details.
 
-| Reason | Meaning |
-|---|---|
-| `Pending` | The mapping has changed and propagation is waiting to run. |
-| `Success` | The current mapping generation has propagated across the scan. |
-| `Degraded` | One or more devices could not be reconciled. Check the condition message and correct the expression or output collision. |
-
-Device creation and status updates request reconciliation for that device. A bounded periodic scan also propagates mapping changes and retries devices that did not reconcile successfully. With the default Helm values, the scan runs every two minutes, processes up to 1,000 devices per page, and spends up to 30 seconds in one invocation. If a scan needs more time, it resumes on a later run.
-
-An expression error, invalid output key, output collision, or output limit failure sets the mapping to `Degraded`. The reconciler retains the mapping's last successful labels while that mapping is failing. Correct the mapping or reported input, then monitor the Ready condition for `Success`.
-
-Deleting a mapping starts cleanup of the labels it owns. Cleanup is asynchronous; the mapping resource can remain until owned labels have been removed.
+Deleting a mapping also removes the labels it owns in the background.
 
 To review label changes over time, inspect device events. To see which mapping currently owns a key, use the provenance API described above.
 
