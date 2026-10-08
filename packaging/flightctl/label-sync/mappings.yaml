@@ -11,9 +11,15 @@
         k in [
           "agentVersion",
           "architecture",
+          "biosVendor",
+          "biosVersion",
+          "cpuProcessors",
           "deltaEligible",
           "distroId",
-          "distroVersion"
+          "distroVersion",
+          "kernel",
+          "memoryTotalKb",
+          "productName"
         ],
         {"feature.flightctl.io/systemInfo." + k: v}
       )
@@ -31,6 +37,17 @@
         v,
         {"feature.flightctl.io/customInfo." + k: v}
       )
+- apiVersion: flightctl.io/v1beta1
+  kind: LabelSyncMapping
+  metadata:
+    name: tpm-enabled
+  spec:
+    resourceType: Device
+    key: feature.flightctl.io/tpm.enabled
+    expression: >-
+      has(status.systemInfo.tpmVendorInfo) && status.systemInfo.tpmVendorInfo != null
+        ? true
+        : dyn(null)
 - apiVersion: flightctl.io/v1beta1
   kind: LabelSyncMapping
   metadata:
