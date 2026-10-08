@@ -92,7 +92,7 @@ spec:
 
 ### Configuring a delta storage target
 
-Flight Control can generate OCI deltas when the organization has a writable OCI repository configured. Mark one Repository as the organization's delta storage target by setting `deltaStorageTarget: true`. Only one Repository can be the target for an organization. Configure it with `accessMode: ReadWrite` and credentials that can push to the registry.
+OS and application delta generation requires a valid, writable OCI storage target for the organization or deployment. The registry must be reachable with the configured push credentials and TLS settings. Mark one Repository as the organization's target by setting `deltaStorageTarget: true`. Only one Repository can be the target for an organization. Configure it with `accessMode: ReadWrite` and credentials that can push to the registry.
 
 Use the optional `repository` and `namespace` fields to choose the destination path. These fields are mutually exclusive:
 
@@ -119,17 +119,7 @@ spec:
 
 This example omits credentials. For a private registry, add `ociAuth` with credentials that have push access. See [Private Registry (Read-Write)](#private-registry-read-write) for an example.
 
-If you do not mark an organization Repository as the delta storage target, Flight Control uses the optional deployment-level `deltaGeneration.defaultRepository` setting. This setting is shared by organizations in the deployment. Set either `repository` or `namespace`, or omit both to use registry-only placement:
-
-```yaml
-deltaGeneration:
-  defaultRepository:
-    registry: registry.example.com
-    repository: my-org/deltas
-    scheme: https
-```
-
-For Helm deployments, provide registry credentials through the Kubernetes Secret configured by `deltaGeneration.defaultRepository.secretName`. For Podman deployments, provide the `DELTA_GENERATION_DEFAULT_REPOSITORY_USERNAME` and `DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD` environment variables. See [Installing the Flight Control service on Kubernetes](../installing/installing-service-on-kubernetes.md) and [Configuring Flight Control services](../installing/installing-service-on-linux-configuration.md) for deployment configuration.
+If you do not mark an organization Repository as the delta storage target, Flight Control uses the optional deployment-level `deltaGeneration.defaultRepository` setting. This setting is shared by organizations in the deployment. See [Delta generation configuration](../installing/installing-service-on-linux-configuration.md#delta-generation-configuration) for registry settings, credentials, concurrency, job timeouts, and update wait defaults.
 
 An organization Repository marked with `deltaStorageTarget: true` takes precedence over the deployment default. If neither target is configured, Flight Control does not generate deltas. Devices can still use deltas published to image registries by CI. For fleet wait behavior and render-time status, see [Defining rollout policies](managing-fleets.md#defining-rollout-policies) and [Updating the OS](managing-devices.md#updating-the-os).
 

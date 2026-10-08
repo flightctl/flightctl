@@ -16,6 +16,7 @@ Note - this is currently a subset of all configuration options.
 | --------- | ---- | :------: | ----------- |
 | `auth` | `AuthConfig` | | Authentication configuration for the Flight Control service. |
 | `organizations` | `OrganizationsConfig` | | Organization support configuration. Default: organizations disabled |
+| `deltaGeneration` | `DeltaGenerationConfig` | | Deployment defaults for OS and application delta generation. |
 
 ### Auth Configuration
 
@@ -51,3 +52,47 @@ For more information on configuring organizations, see [Organizations](configuri
 
 > [!NOTE]
 > Organization support is currently only available with OIDC authentication providers. Kubernetes and AAP Gateway authentication do not support multi-organization deployments.
+
+### Delta generation configuration
+
+Configure deployment defaults for OS and application delta generation under `deltaGeneration`. For Helm deployments, set these values in the values file used for installation or upgrade. For packaged Podman deployments, set them in `/etc/flightctl/service-config.yaml`.
+
+Generation requires a valid, writable OCI storage target. Configure either an organization Repository with `deltaStorageTarget: true` or the deployment's `defaultRepository`. The registry must be reachable with the configured push credentials and TLS settings. An organization target takes precedence over the deployment default. Without either target, Flight Control skips generation.
+
+| Parameter | Description |
+| --------- | ----------- |
+| `defaultRepository` | Shared OCI storage target used when an organization has no delta storage target. See the repository fields below. |
+| `maxConcurrentDeltaGenerations` | Maximum concurrent generation jobs per delta worker instance. Defaults to `2` when omitted or set to `0` or a negative value. Values greater than `32` are capped at `32`. |
+| `timeout` | Deadline for each generation job. Defaults to `30m` when omitted or set to `0` or a negative duration. A fleet can override it with `spec.rolloutPolicy.deltaGeneration.deltaGenerationTimeout`. |
+| `maxWaitForDelta` | Maximum time to hold an update while deltas are prepared. Omission sets no wait deadline. `0s` starts generation and continues the update immediately. A fleet can override it with `spec.rolloutPolicy.deltaGeneration.maxWaitForDelta`. |
+
+Standalone devices use these deployment defaults. Fleet overrides apply to both OS and application generation. See [Configuring delta generation](../using/managing-fleets.md#configuring-delta-generation) for rollout options.
+
+For example, configure a shared repository, two concurrent jobs, and a ten-minute preparation wait:
+
+```yaml
+deltaGeneration:
+  defaultRepository:
+    registry: registry.example.com
+    repository: my-org/deltas
+    scheme: https
+  maxConcurrentDeltaGenerations: 2
+  timeout: 30m
+  maxWaitForDelta: 10m
+```
+
+The `defaultRepository` block accepts the following deployment values:
+
+| Parameter | Description |
+| --------- | ----------- |
+| `registry` | Required when configuring a default target. Registry hostname, optionally including a port. |
+| `repository` | Optional exact repository path under the registry. Mutually exclusive with `namespace`. |
+| `namespace` | Optional namespace prefix for target image names. Mutually exclusive with `repository`. |
+| `scheme` | Registry connection scheme: `https` or `http`. |
+| `skipServerVerification` | Skip registry TLS certificate verification. Defaults to `false`. |
+| `caCrt` | Optional base64-encoded PEM certificate authority for the registry. In the rendered service `config.yaml`, the field is named `ca.crt`. |
+| `secretName` | Helm only. Name of a Kubernetes Secret in the installation namespace with `username` and `password` keys for registry push access. |
+
+For a private registry on Helm, create the credential Secret and set `deltaGeneration.defaultRepository.secretName` to its name. On Podman, provide `DELTA_GENERATION_DEFAULT_REPOSITORY_USERNAME` and `DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD` to the delta worker container. Credentials are supplied separately from the configuration file.
+
+If neither `repository` nor `namespace` is set, generated deltas use the target image's repository path under the configured registry. See [Configuring a delta storage target](../using/managing-repositories.md#configuring-a-delta-storage-target) for organization targets and destination examples.

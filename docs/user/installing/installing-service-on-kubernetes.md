@@ -27,6 +27,12 @@ You can install the Flight Control Service on any certified Kubernetes distribut
 
 It is recommended to install `cert-manager` before installing Flight Control. When the Flight Control installer detects `cert-manager`, it will use it to issue and manage required CA and server TLS certificates. Otherwise, it falls back to creating certificates using Helm's built-in functions once, but does not manage them.
 
+### Configuring delta generation
+
+To generate OS and application deltas, configure a valid, writable OCI storage target for each organization or a shared target under the Helm value `deltaGeneration.defaultRepository`. For a private shared registry, set `deltaGeneration.defaultRepository.secretName` to a Secret with `username` and `password` keys in the installation namespace.
+
+You can also configure generation concurrency, job timeouts, and update wait defaults through Helm values. See [Delta generation configuration](installing-service-on-linux-configuration.md#delta-generation-configuration) for all deployment settings and an example.
+
 ### Binding to pre-provisioned PersistentVolumes
 
 Use this section if your cluster does not support dynamic volume provisioning, or if the database or Alertmanager storage must use a specific, pre-provisioned `PersistentVolume` instead of one selected automatically by a `StorageClass`. This applies to Flight Control installations on Kubernetes, OpenShift, and MicroShift.

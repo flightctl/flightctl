@@ -294,17 +294,19 @@ You can define policies that govern how a change to a fleet's device template ge
 
 Rollout policies in Flight Control build on label selection of devices (see [Organizing Devices](managing-devices.md#organizing-devices)) and are thus adaptable to a wide range of use cases.
 
-### Configuring OS delta generation
+### Configuring delta generation
 
-When a fleet's OS image target changes, Flight Control can generate an OS delta while preparing the rollout. This preparation starts from the current and target image digests; building the target image does not start delta generation.
+When a fleet's OS or application images change, Flight Control can generate deltas while preparing the rollout. This preparation starts from the current and target image digests; building the target image does not start delta generation.
+
+Before enabling generation, configure a valid, writable OCI [delta storage target](managing-repositories.md#configuring-a-delta-storage-target) for the organization or deployment. The registry must be reachable with the configured push credentials and TLS settings. Without a storage target, Flight Control skips generation.
 
 Configure generation under `spec.rolloutPolicy.deltaGeneration`:
 
 | Field | Description |
 | ----- | ----------- |
 | `generateDelta` | Optional. Defaults to `true`. Set to `false` to skip control-plane delta generation for the rollout and start the rollout without waiting. Devices can still use rendered delta hints and discover matching CI-published deltas. |
-| `maxWaitForDelta` | Optional maximum time to wait for generation before the rollout continues. If omitted, the fleet inherits the deployment's `DeltaGeneration.maxWaitForDelta` setting. If that deployment setting is also omitted, there is no wait deadline and the rollout continues when all generation pairs are terminal. A value of `0s` starts generation and continues the rollout immediately. This field is ignored when `generateDelta` is `false`. |
-| `deltaGenerationTimeout` | Optional deadline for each generation job. If omitted, the fleet inherits the deployment's `DeltaGeneration.timeout` setting. |
+| `maxWaitForDelta` | Optional maximum time to wait for generation before the rollout continues. If omitted, the fleet inherits the deployment's `deltaGeneration.maxWaitForDelta` setting. If that deployment setting is also omitted, there is no wait deadline and the rollout continues when all generation pairs are terminal. A value of `0s` starts generation and continues the rollout immediately. This field is ignored when `generateDelta` is `false`. |
+| `deltaGenerationTimeout` | Optional deadline for each generation job. If omitted, the fleet inherits the deployment's `deltaGeneration.timeout` setting. |
 
 For example, the following fleet starts generation but does not hold the rollout:
 
@@ -315,7 +317,9 @@ spec:
       maxWaitForDelta: 0s
 ```
 
-For generation to write deltas, configure a writable [delta storage target](managing-repositories.md#configuring-a-delta-storage-target). See [OS delta generation and status](managing-devices.md#using-control-plane-generated-os-deltas) for rendered hints and status fields.
+While a rollout is waiting for preparation, `fleet.status.conditions[]` includes `FleetDeltaPreparing` with status `True`. The `fleet.status.deltaGeneration.completed` and `fleet.status.deltaGeneration.total` fields report completed and total unique image pairs across OS and applications. Completed pairs include successful, failed, and rejected generation jobs. The condition message includes the same counts.
+
+See [Deployment delta generation configuration](../installing/installing-service-on-linux-configuration.md#delta-generation-configuration) for defaults shared by fleets and standalone devices. For generated hints and results, see [OS deltas](managing-devices.md#using-control-plane-generated-os-deltas) and [Application image deltas](managing-devices.md#using-application-image-deltas).
 
 ### Defining a Device Selection Strategy
 

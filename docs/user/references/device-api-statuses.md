@@ -103,6 +103,10 @@ The `device.status.conditions.Updating.Reason` field contains the current state 
 
 The `device.status.updated.info` field contains a human readable more detailed information about the last state transition.
 
+Before a standalone device update, the service can prepare OS and application deltas. While the update is waiting for preparation, `device.status.conditions[]` includes `DeviceDeltaPreparing` with status `True`.
+
+The `device.status.deltaGeneration.completed` and `device.status.deltaGeneration.total` fields report completed image pairs and total unique image pairs. Completed pairs include successful, failed, and rejected generation jobs. The condition message includes the same counts. For fleet preparation, see [Configuring delta generation](../using/managing-fleets.md#configuring-delta-generation).
+
 The following state diagram shows the possible transitions between update statuses and states, including when the corresponding device lifecycle hooks would be called.
 
 ```mermaid
@@ -161,19 +165,6 @@ stateDiagram
     Unknown --> Known
     Known --> Unknown
 ```
-
-### Delta preparation status
-
-During control-plane delta preparation, a Fleet or standalone Device reports progress in its status:
-
-| Field | Description |
-| ----- | ----------- |
-| `fleet.status.conditions[]` with `type: FleetDeltaPreparing` | The condition is `True` while a fleet rollout is waiting for delta preparation. |
-| `fleet.status.deltaGeneration.completed` and `fleet.status.deltaGeneration.total` | Number of terminal image pairs and total unique image pairs in the fleet prepare. |
-| `device.status.conditions[]` with `type: DeviceDeltaPreparing` | The condition is `True` while a standalone device update is waiting for delta preparation. |
-| `device.status.deltaGeneration.completed` and `device.status.deltaGeneration.total` | Number of terminal image pairs and total unique image pairs in the device prepare. |
-
-The condition message carries the same completed/total counts. These counts are not a percentage and can include both OS and application image pairs.
 
 ### OS delta status
 
@@ -286,8 +277,8 @@ The application delta outcome can have the following values:
 | `NotRequired` | All image targets are already present on the device with the correct digest. No delta application or image pull is needed. |
 | `NotUsed` | Delta application was skipped without a delta failure. A full image pull may still be needed. |
 | `Applied` | At least one delta was applied successfully. Other image targets also applied deltas or already matched their desired digests. |
-| `Fallback` | No image target successfully applied a delta, and at least one delta attempt failed or a hinted delta could not be used. The agent attempted a full pull for the affected targets. |
-| `Partial` | At least one image target applied a delta, while another skipped delta application or fell back to a full image pull. Already matching targets do not cause `Partial`. |
+| `Fallback` | At least one image target fell back to a full pull after a delta failed or could not be used. No image target successfully applied a delta. |
+| `Partial` | At least one image target successfully applied a delta, and at least one other target skipped delta application or fell back to a full pull. Already matching targets do not cause `Partial`. |
 
 Results persist across agent restarts while the application specification and image targets remain unchanged. A cache check can change an earlier `NotUsed` result to `NotRequired` after verifying the desired digest. Cache checks retain earlier `Applied` or `Fallback` results for the same target.
 
