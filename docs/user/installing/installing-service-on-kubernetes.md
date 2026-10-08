@@ -29,16 +29,36 @@ It is recommended to install `cert-manager` before installing Flight Control. Wh
 
 ### Configuring delta generation
 
-To generate OS and application deltas, configure a valid, writable OCI target using either option:
+OS and application delta generation requires a valid, writable OCI storage target. Configure one using either option:
 
 - Set `deltaGeneration.defaultRepository` in the Helm values to provide a deployment default shared by organizations.
 - Create an OCI Repository resource with `type: oci`, `accessMode: ReadWrite`, and `deltaStorageTarget: true`, as described in [Managing Repositories: Configuring a delta storage target](../using/managing-repositories.md#configuring-a-delta-storage-target). Configure this resource at runtime after installation.
 
-Either option satisfies the storage prerequisite. An organization's Repository resource takes precedence over the deployment default when both are configured. For a private deployment default, set `deltaGeneration.defaultRepository.secretName` to a Secret with `username` and `password` keys in the installation namespace.
+Either option satisfies this requirement. An organization's Repository resource takes precedence over the deployment default when both are configured. For a private deployment default, set `deltaGeneration.defaultRepository.secretName` to a Secret with `username` and `password` keys in the installation namespace.
 
-The delta registry must be reachable by both the control plane and the device agent. Configure push access for the control plane and pull access for the agent, with appropriate credentials and TLS settings.
+For a deployment default, add the following to your Helm values. `registry` is the only required repository field:
 
-You can also configure generation concurrency, job timeouts, and update wait defaults through Helm values. See [Delta generation configuration](installing-service-on-linux-configuration.md#delta-generation-configuration) for all deployment settings and an example.
+```yaml
+deltaGeneration:
+  defaultRepository:
+    registry: registry.example.com
+    secretName: delta-registry-creds # For a private registry
+```
+
+For a private registry, create the credential Secret in your installation namespace before installing or upgrading:
+
+```console
+kubectl create secret generic delta-registry-creds \
+  --namespace <installation_namespace> \
+  --from-file=username=<username_file> \
+  --from-file=password=<password_file>
+```
+
+The files contain the registry username and password or token. The chart injects these credentials into the delta worker through the Secret, separately from the rendered service configuration.
+
+Ensure the registry is reachable from both the control plane and the device agent. See [Delta storage target access requirements](../using/managing-repositories.md#configuring-a-delta-storage-target) for credentials and TLS trust.
+
+You can also configure generation concurrency, job timeouts, and update wait defaults through Helm values. See [Delta generation configuration](installing-service-on-linux-configuration.md#delta-generation-configuration) for the shared `deltaGeneration` keys used by both Helm and Podman deployments.
 
 ### Binding to pre-provisioned PersistentVolumes
 

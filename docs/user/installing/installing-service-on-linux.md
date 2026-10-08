@@ -55,18 +55,11 @@ sudo dnf install -y flightctl-services
 
 Flight Control services can be configured through a central configuration file located at `/etc/flightctl/service-config.yaml`.
 
-To generate OS and application deltas, configure a valid, writable OCI target using either option:
-
-- Set `deltaGeneration.defaultRepository` in `/etc/flightctl/service-config.yaml` to provide a deployment default shared by organizations. See [Delta generation configuration](installing-service-on-linux-configuration.md#delta-generation-configuration) for repository settings and credentials.
-- Create an OCI Repository resource with `type: oci`, `accessMode: ReadWrite`, and `deltaStorageTarget: true`, as described in [Managing Repositories: Configuring a delta storage target](../using/managing-repositories.md#configuring-a-delta-storage-target). Configure this resource at runtime after installation.
-
-Either option satisfies the storage prerequisite. An organization's Repository resource takes precedence over the deployment default when both are configured. Generation concurrency, timeout, and wait settings are optional deployment overrides.
-
-The delta registry must be reachable by both the control plane and the device agent. Configure push access for the control plane and pull access for the agent, with appropriate credentials and TLS settings.
-
 To spin up services quickly for testing or development purposes, you can leave this file's defaults. This sets the base domain of the services to the host's fully qualified domain name (FQDN) (from `hostname -f`) and generates a self-signed certificate authority (CA) from which required certificates are issued.
 
 For a production environment, set the base domain (`global.baseDomain`) to your own fully qualified domain name (FQDN) and configure certificates from your own PKI (see [Custom Certificates](#custom-certificates)).
+
+For OS and application delta generation, configure a writable OCI target through either the deployment's `deltaGeneration.defaultRepository` or a runtime OCI Repository with `deltaStorageTarget: true`. An organization's Repository takes precedence over the deployment default. See [Delta generation configuration](installing-service-on-linux-configuration.md#delta-generation-configuration) for both options and credentials. Ensure the delta registry is reachable from both the control plane and the device agent; see [Delta storage target access requirements](../using/managing-repositories.md#configuring-a-delta-storage-target).
 
 You can then start the Flight Control services by running
 

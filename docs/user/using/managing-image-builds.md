@@ -62,7 +62,14 @@ spec:
 * `imageName`: The container image name (path) where the built image will be pushed
 * `imageTag`: The tag to apply to the built image
 
-For an ImageBuild destination Repository, omit `namespace`. If the Repository's OCI specification sets `repository`, set `destination.imageName` to the same path. A registry-only destination is also valid. An ImageExport inherits the destination from its ImageBuild, so these rules also apply to exports. See [Configuring a delta storage target](managing-repositories.md#configuring-a-delta-storage-target) for the path options used by generated deltas.
+Choose a valid destination using these rules:
+
+- Use a destination Repository with `namespace` unset. Validation rejects this field on ImageBuild and ImageExport destinations.
+- If the Repository's OCI specification sets `repository`, set `destination.imageName` to the same path.
+- A registry-only destination is also valid.
+- An ImageExport inherits the destination from its ImageBuild, so these rules also apply to exports.
+
+See [Configuring a delta storage target](managing-repositories.md#configuring-a-delta-storage-target) for the path options used by generated deltas.
 
 **Binding Configuration:**
 
