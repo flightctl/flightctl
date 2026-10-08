@@ -36,6 +36,8 @@ To generate OS and application deltas, configure a valid, writable OCI target us
 
 Either option satisfies the storage prerequisite. An organization's Repository resource takes precedence over the deployment default when both are configured. For a private deployment default, set `deltaGeneration.defaultRepository.secretName` to a Secret with `username` and `password` keys in the installation namespace.
 
+The delta registry must be reachable by both the control plane and the device agent. Configure push access for the control plane and pull access for the agent, with appropriate credentials and TLS settings.
+
 You can also configure generation concurrency, job timeouts, and update wait defaults through Helm values. See [Delta generation configuration](installing-service-on-linux-configuration.md#delta-generation-configuration) for all deployment settings and an example.
 
 ### Binding to pre-provisioned PersistentVolumes

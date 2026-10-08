@@ -92,7 +92,9 @@ spec:
 
 ### Configuring a delta storage target
 
-OS and application delta generation requires a valid, writable OCI storage target for the organization or deployment. The registry must be reachable with the configured push credentials and TLS settings. Mark one Repository as the organization's target by setting `deltaStorageTarget: true`. Only one Repository can be the target for an organization. Configure it with `accessMode: ReadWrite` and credentials that can push to the registry.
+OS and application delta generation requires a valid, writable OCI storage target for the organization or deployment. The delta registry must be reachable by both the control plane and the device agent. Configure push access for the control plane and pull access for the agent, with appropriate credentials and TLS settings.
+
+Mark one Repository as the organization's target by setting `deltaStorageTarget: true`. Only one Repository can be the target for an organization. Configure it with `accessMode: ReadWrite` and credentials that can push to the registry.
 
 Use the optional `repository` and `namespace` fields to choose the destination path. These fields are mutually exclusive:
 

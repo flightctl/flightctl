@@ -62,7 +62,9 @@ Generation requires a valid, writable OCI target configured through either optio
 - Set `deltaGeneration.defaultRepository` in the deployment configuration to provide a shared default.
 - Create an OCI Repository resource with `type: oci`, `accessMode: ReadWrite`, and `deltaStorageTarget: true`, as described in [Managing Repositories: Configuring a delta storage target](../using/managing-repositories.md#configuring-a-delta-storage-target). Configure this resource at runtime after installation.
 
-Either option satisfies the storage prerequisite. The registry must be reachable with the configured push credentials and TLS settings. An organization's Repository resource takes precedence over the deployment default when both are configured.
+Either option satisfies the storage prerequisite. An organization's Repository resource takes precedence over the deployment default when both are configured.
+
+The delta registry must be reachable by both the control plane and the device agent. Configure push access for the control plane and pull access for the agent, with appropriate credentials and TLS settings.
 
 | Parameter | Description |
 | --------- | ----------- |

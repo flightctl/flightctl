@@ -298,7 +298,7 @@ Rollout policies in Flight Control build on label selection of devices (see [Org
 
 When a fleet's OS or application images change, Flight Control can generate deltas while preparing the rollout. This preparation uses the current and target image digests.
 
-Before enabling generation, configure a valid, writable OCI [delta storage target](managing-repositories.md#configuring-a-delta-storage-target) for the organization or deployment. The registry must be reachable with the configured push credentials and TLS settings.
+Before enabling generation, configure a valid, writable OCI [delta storage target](managing-repositories.md#configuring-a-delta-storage-target) for the organization or deployment. The delta registry must be reachable by both the control plane and the device agent. Configure push access for the control plane and pull access for the agent, with appropriate credentials and TLS settings.
 
 Configure generation under `spec.rolloutPolicy.deltaGeneration`:
 

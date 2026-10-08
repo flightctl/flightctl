@@ -62,6 +62,8 @@ To generate OS and application deltas, configure a valid, writable OCI target us
 
 Either option satisfies the storage prerequisite. An organization's Repository resource takes precedence over the deployment default when both are configured. Generation concurrency, timeout, and wait settings are optional deployment overrides.
 
+The delta registry must be reachable by both the control plane and the device agent. Configure push access for the control plane and pull access for the agent, with appropriate credentials and TLS settings.
+
 To spin up services quickly for testing or development purposes, you can leave this file's defaults. This sets the base domain of the services to the host's fully qualified domain name (FQDN) (from `hostname -f`) and generates a self-signed certificate authority (CA) from which required certificates are issued.
 
 For a production environment, set the base domain (`global.baseDomain`) to your own fully qualified domain name (FQDN) and configure certificates from your own PKI (see [Custom Certificates](#custom-certificates)).
