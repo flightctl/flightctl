@@ -2,6 +2,9 @@
 
 Dynamic label mappings promote selected device-reported values into device labels. Use these labels to select fleets and rollout batches, render fleet templates, and filter device inventories.
 
+> [!WARNING]
+> Device-promoted labels are inherently riskier than operator-assigned labels because their values come from the device and are not attested. A compromised device can report a value that matches a fleet selector and receive that fleet's configuration. Do not use promoted labels as proof of device identity or integrity. Prefer operator-assigned labels when selecting fleets that receive sensitive configuration or credentials.
+
 ## How mappings work
 
 A `LabelSyncMapping` is an organization-scoped resource. It evaluates a Common Expression Language (CEL) expression against a device's current `metadata`, `spec`, and `status`. The result is written to the device's labels and can be used anywhere Flight Control uses labels.
@@ -113,57 +116,14 @@ Each map expression can return up to 50 entries. A device can have up to 100 map
 
 ## Manage mappings from the CLI and API
 
-Use the standard resource commands to create, inspect, update, and delete mappings. For example:
-
-```console
-flightctl apply -f mapping.yaml
-flightctl get labelsyncmappings
-flightctl get labelsyncmapping/device-region -o yaml
-flightctl edit labelsyncmapping/device-region
-flightctl delete labelsyncmapping/device-region
-```
-
-The REST API also supports listing, creating, retrieving, replacing, patching, and deleting mappings. Requests operate in the organization selected by the caller's API identity.
-
-| Operation | Method and path |
-|---|---|
-| List mappings | `GET /api/v1/labelsyncmappings` |
-| Create a mapping | `POST /api/v1/labelsyncmappings` |
-| Retrieve a mapping | `GET /api/v1/labelsyncmappings/{name}` |
-| Replace a mapping | `PUT /api/v1/labelsyncmappings/{name}` |
-| Patch a mapping | `PATCH /api/v1/labelsyncmappings/{name}` |
-| Delete a mapping | `DELETE /api/v1/labelsyncmappings/{name}` |
-
-Use the `Flightctl-API-Version: v1beta1` header when requesting this API version. List requests support the standard `limit` and `continue` parameters.
-
-For example, patch a mapping expression with a JSON Patch request:
-
-```bash
-curl --request PATCH \
-  --header "Authorization: Bearer <access_token>" \
-  --header "Flightctl-API-Version: v1beta1" \
-  --header "Content-Type: application/json-patch+json" \
-  --data-binary @mapping-patch.json \
-  "<api_server>/api/v1/labelsyncmappings/device-region"
-```
-
-The patch file contains a JSON Patch document:
-
-```json
-[
-  {
-    "op": "replace",
-    "path": "/spec/expression",
-    "value": "status.systemInfo.customInfo.region"
-  }
-]
-```
-
-The mapping's resource type is immutable. Updating its key or expression increments its generation and sets its Ready condition to `Pending`. Invalid CEL or a result type that does not match scalar or map mode returns HTTP 422. A duplicate scalar destination key returns HTTP 409. A stale resource version can also return HTTP 409; retrieve the latest resource before retrying the update.
+Manage `LabelSyncMapping` resources with the CLI or REST API. For API resource details, see [LabelSyncMappings](../references/api-resources.md#labelsyncmappings).
 
 ## Use mapped labels
 
 Promoted labels use the same selectors as other device labels. This fleet selector targets devices whose reported region is east:
+
+> [!IMPORTANT]
+> Always choose stable, predictable values for fleet selectors that use promoted labels. A changing reported value can move a device into or out of a fleet and trigger a configuration rollout.
 
 ```yaml
 spec:
@@ -194,8 +154,6 @@ flightctl get devices -l feature.flightctl.io/customInfo.region=east
 The web interface can also search and filter using promoted label keys. When a fleet selector, template, or rollout policy uses a promoted label, the interface displays a security warning. The warning applies to fleet configuration; the CLI does not prompt for this configuration choice.
 
 ## Understand ownership and security
-
-Device-reported values can be inaccurate or deliberately spoofed by a compromised device. A mapping controls which reported values become labels, but it does not attest that the reported values are true. Use stable attributes and review selectors carefully before using them to target fleets that receive sensitive configuration or credentials.
 
 Flight Control tracks ownership for each mapped label key on each device. An operator or device cannot change or remove a label while a mapping currently owns that exact key; such a device update returns HTTP 409. The server-computed `device-controller/managedLabels` annotation lists currently owned keys. Treat this annotation as read-only.
 
@@ -230,29 +188,23 @@ To review label changes over time, inspect device events. To see which mapping c
 
 ## Configure initial mappings
 
-Deployments provide an initial set of mappings for organizations. These mappings are ordinary resources after creation, so operators can update or delete them through the REST API.
+Deployments provide a starter set of mappings for organizations. After provisioning, mappings are ordinary resources that you can manage with the CLI or REST API.
 
 ### Helm deployments
 
-Set `organizations.initialLabelSyncMappings` in the Helm values file to replace the bundled set with your own sequence of `LabelSyncMapping` resources. Set it to an empty sequence to disable automatic mapping creation:
+Set `organizations.initialLabelSyncMappings` in the Helm values file to supply your own mappings for organization provisioning. Set it to an empty sequence to disable automatic mapping creation:
 
 ```yaml
 organizations:
   initialLabelSyncMappings: []
 ```
 
-The Helm chart makes this manifest available to the services and database migration through read-only ConfigMaps. To keep a bundled mapping and add another, include the full bundled sequence and your additional resource in the values file.
-
 ### Quadlet deployments
 
-Quadlet deployments use `/etc/flightctl/label-sync/mappings.yaml` as the initial mapping manifest. The deployment installs the packaged defaults only when this file does not exist. It preserves an existing file and mounts its directory read-only into the services that provision organizations.
-
-Edit the host manifest to change the defaults used for future organization provisioning. The deployment does not replace the file during a later deployment.
+Quadlet deployments use `/etc/flightctl/label-sync/mappings.yaml` as the initial mapping manifest. Edit this file to change the mappings used for future organization provisioning.
 
 ### Update existing organizations
 
-The manifest is used when Flight Control creates an organization and during a one-time migration for organizations that already exist. Provisioning attempts to create each mapping only if its name is not already present. It does not continuously reconcile the manifest with organization resources. Later edits to Helm values or the quadlet manifest do not update mappings that already exist.
-
-To change a mapping in an existing organization, update that organization's `LabelSyncMapping` resource through the REST API. Changes propagate asynchronously and appear in the mapping's Ready condition. Provisioning errors are logged and do not stop organization creation or database migration; create any missing mappings through the API.
+Changes to Helm values or the quadlet manifest affect mappings used for future organization provisioning. To change mappings in an existing organization, update its `LabelSyncMapping` resources with the CLI or REST API. Changes propagate asynchronously; see [Monitor propagation](#monitor-propagation).
 
 See [Installing the Flight Control Service on Kubernetes](../installing/installing-service-on-kubernetes.md) and [Installing the Flight Control Service on Linux](../installing/installing-service-on-linux.md) for deployment instructions.
