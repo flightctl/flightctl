@@ -15,18 +15,22 @@ type CacheEntry struct {
 	Owner v1beta1.Username
 	// Parent is the parent image from which child OCI targets were extracted.
 	Parent dependency.OCIPullTarget
+	// InputsHash identifies provider inputs that affect nested target extraction.
+	// It is separate from Parent.Digest because some providers, such as Helm,
+	// do not have a parent image digest.
+	InputsHash string
 	// Children are OCI targets extracted from parent image.
 	Children []dependency.OCIPullTarget
 }
 
-func (e *CacheEntry) IsValid(ref string, digest string) bool {
+func (e *CacheEntry) IsValid(ref string, digest string, inputsHash string) bool {
 	if e.Parent.Reference != ref {
 		return false
 	}
 	if digest != "" && e.Parent.Digest != digest {
 		return false
 	}
-	return true
+	return e.InputsHash == inputsHash
 }
 
 // OCITargetCache caches parent image state and child OCI targets.

@@ -2,6 +2,8 @@ package provider
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -398,12 +400,17 @@ func collectNestedForProvider(
 		return nil, true, nil
 	}
 
+	inputsHash, err := nestedTargetsInputsHash(p)
+	if err != nil {
+		return nil, false, err
+	}
+
 	if cachedEntry, found := ociCache.Get(p.ID()); found {
-		if cachedEntry.IsValid(ref, digest) {
+		if cachedEntry.IsValid(ref, digest, inputsHash) {
 			log.Debugf("Using cached nested targets for app %s", p.Name())
 			return cachedEntry.Children, false, nil
 		}
-		log.Debugf("Cache invalidated for app %s: reference or digest changed", p.Name())
+		log.Debugf("Cache invalidated for app %s: reference, digest, or provider inputs changed", p.Name())
 	}
 
 	cacheEntry := CacheEntry{
@@ -413,6 +420,7 @@ func collectNestedForProvider(
 			Reference: ref,
 			Digest:    digest,
 		},
+		InputsHash: inputsHash,
 	}
 
 	appData, err := p.extractNestedTargets(ctx, configProvider)
@@ -441,6 +449,40 @@ func collectNestedForProvider(
 	}
 
 	return appData.Targets, false, nil
+}
+
+// nestedTargetsInputsHash returns a stable hash for provider inputs that can
+// change the result of nested target extraction. Helm has no parent image
+// digest, so its chart values and other dry-run inputs must be tracked
+// separately from CacheEntry.Parent.Digest.
+func nestedTargetsInputsHash(p appProvider) (string, error) {
+	spec := p.Spec()
+	if spec == nil || spec.AppType != v1beta1.AppTypeHelm || spec.HelmApp == nil {
+		return "", nil
+	}
+
+	inputs := struct {
+		Image       string                  `json:"image"`
+		Path        string                  `json:"path"`
+		Name        string                  `json:"name"`
+		Namespace   *string                 `json:"namespace,omitempty"`
+		Values      *map[string]interface{} `json:"values,omitempty"`
+		ValuesFiles *[]string               `json:"valuesFiles,omitempty"`
+	}{
+		Image:       spec.Image,
+		Path:        spec.Path,
+		Name:        spec.Name,
+		Namespace:   spec.HelmApp.Namespace,
+		Values:      spec.HelmApp.Values,
+		ValuesFiles: spec.HelmApp.ValuesFiles,
+	}
+
+	data, err := json.Marshal(inputs)
+	if err != nil {
+		return "", fmt.Errorf("marshal nested target cache inputs: %w", err)
+	}
+	hash := sha256.Sum256(data)
+	return hex.EncodeToString(hash[:]), nil
 }
 
 // discoverEmbeddedProviders discovers embedded compose and quadlet applications
