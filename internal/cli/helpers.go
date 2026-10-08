@@ -36,6 +36,7 @@ const (
 	ImageExportKind               ResourceKind = "imageexport"
 	ImagePromotionKind            ResourceKind = "imagepromotion"
 	EnrollmentHookPolicyKind      ResourceKind = "enrollmenthookpolicy"
+	LabelSyncMappingKind          ResourceKind = "labelsyncmapping"
 	OrganizationKind              ResourceKind = "organization"
 	RepositoryKind                ResourceKind = "repository"
 	ResourceSyncKind              ResourceKind = "resourcesync"
@@ -79,6 +80,7 @@ var (
 		ImageBuildKind:                {},
 		ImageExportKind:               {},
 		ImagePromotionKind:            {},
+		LabelSyncMappingKind:          {},
 		OrganizationKind:              {},
 		RepositoryKind:                {},
 		ResourceSyncKind:              {},
@@ -101,6 +103,7 @@ var (
 		"imagebuilds":                ImageBuildKind,
 		"imageexports":               ImageExportKind,
 		"imagepromotions":            ImagePromotionKind,
+		"labelsyncmappings":          LabelSyncMappingKind,
 		"organizations":              OrganizationKind,
 		"repositories":               RepositoryKind,
 		"resourcesyncs":              ResourceSyncKind,
@@ -121,6 +124,7 @@ var (
 		ImageBuildKind:                "imagebuilds",
 		ImageExportKind:               "imageexports",
 		ImagePromotionKind:            "imagepromotions",
+		LabelSyncMappingKind:          "labelsyncmappings",
 		OrganizationKind:              "organizations",
 		RepositoryKind:                "repositories",
 		ResourceSyncKind:              "resourcesyncs",
@@ -141,6 +145,7 @@ var (
 		"ib":   ImageBuildKind,
 		"ie":   ImageExportKind,
 		"ip":   ImagePromotionKind,
+		"lsm":  LabelSyncMappingKind,
 		"org":  OrganizationKind,
 		"repo": RepositoryKind,
 		"rs":   ResourceSyncKind,
@@ -405,6 +410,8 @@ func GetSingleResource(ctx context.Context, c *client.Client, kind ResourceKind,
 		return c.GetAuthProviderWithResponse(ctx, name)
 	case EnrollmentHookPolicyKind:
 		return c.GetEnrollmentHookPolicyWithResponse(ctx, name)
+	case LabelSyncMappingKind:
+		return c.GetLabelSyncMappingWithResponse(ctx, name)
 	default:
 		return nil, fmt.Errorf("unsupported resource kind: %s", kind)
 	}

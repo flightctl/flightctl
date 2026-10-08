@@ -272,6 +272,86 @@ flightctl delete enrollmenthookpolicy/default
 
 ---
 
+## Managing label sync mappings
+
+Manage the mappings that derive labels for a resource type from a CEL expression.
+
+### Synopsis
+
+```shell
+flightctl apply -f FILENAME [flags]
+flightctl get labelsyncmappings [flags]
+flightctl get labelsyncmapping/NAME [flags]
+flightctl edit labelsyncmapping/NAME [flags]
+flightctl delete labelsyncmapping/NAME [flags]
+```
+
+### Arguments
+
+* `FILENAME` - YAML or JSON file containing a `LabelSyncMapping` resource with `apiVersion: flightctl.io/v1beta1`.
+* Resource type - `labelsyncmapping`, `labelsyncmappings`, or the short name `lsm`.
+* Resource name - the name of the mapping. Commands also accept the `TYPE NAME` form, such as `flightctl get lsm my-mapping`.
+
+### Flags
+
+| Command | Flag | Description |
+|---------|------|-------------|
+| `apply` | `-f, --filename <mapping_file>` | File containing the mapping to create or replace |
+| `apply` | `--dry-run` | Print the resource without sending it to the service |
+| `get` | `-o, --output <format>` | Output format: `json`, `yaml`, `wide`, or `name`; the default is a table |
+| `get` | `--limit <n>` | Maximum number of mappings returned in the list response |
+| `get` | `--continue <token>` | Continue a previous list request from the returned token |
+| `edit` | `-o, --output <format>` | Format used in the editor: `yaml` (default) or `json` |
+| `edit` | `--editor <editor>` | Editor to use; otherwise, select it from `FLIGHTCTL_EDITOR`, `VISUAL`, or `EDITOR`, falling back to `vi` |
+| All | `--org <organization_id>` | Use the specified organization instead of the organization in your client configuration |
+
+### Description
+
+Applying a mapping creates it when it does not exist and replaces it otherwise. Editing a mapping sends a JSON patch computed from your edits, so concurrent changes made by someone else are detected and rejected.
+
+The label sync mappings list endpoint supports pagination only. Unlike most other resources, it accepts neither `-l, --selector` nor `--field-selector`, and you can request at most one mapping by name at a time.
+
+In the default table output, the `EXPRESSION` column is shortened to 50 characters and ends with an ellipsis when the expression is longer. Use `-o yaml` or `-o json` to see the complete expression.
+
+### Examples
+
+Create or replace a mapping from a file:
+
+```shell
+flightctl apply -f labelsyncmapping.yaml
+```
+
+List the mappings in your organization:
+
+```shell
+flightctl get labelsyncmappings
+```
+
+Display one mapping in YAML using its short name:
+
+```shell
+flightctl get lsm/my-mapping -o yaml
+```
+
+Edit a mapping in your default editor:
+
+```shell
+flightctl edit labelsyncmapping/my-mapping
+```
+
+Delete a mapping:
+
+```shell
+flightctl delete labelsyncmapping/my-mapping
+```
+
+### Exit status
+
+* `0` - Success
+* Non-zero - Error, such as an invalid expression, a missing mapping, or insufficient permissions
+
+---
+
 ## flightctl get vulnerability
 
 View vulnerability information for devices and fleets.
