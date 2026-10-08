@@ -51,16 +51,59 @@ metadata:
 spec:
   resourceType: Device
   expression: |
-    (has(status.systemInfo.customInfo) && status.systemInfo.customInfo != null
-      ? status.systemInfo.customInfo
-      : {}).transformMapEntry(
-        k,
-        v,
-        {"ops.example.com/customInfo." + k: v}
-      )
+    status.systemInfo.customInfo.transformMapEntry(
+      k,
+      v,
+      {"ops.example.com/customInfo." + k: v}
+    )
 ```
 
-In a map expression, `transformMapEntry(k, v, result)` evaluates `result` for each key and value. You can add a Boolean condition before `result` to filter entries. The expression returns a map whose keys are complete label keys.
+This map expression is a demonstration that assumes `customInfo` exists and its entries can produce valid label keys and scalar values. In production, account for missing fields and input values that could produce invalid labels.
+
+This scalar mapping combines the reported distribution ID and version into one label value, such as `rhel-9.5`:
+
+```yaml
+apiVersion: flightctl.io/v1beta1
+kind: LabelSyncMapping
+metadata:
+  name: os-release
+spec:
+  resourceType: Device
+  key: ops.example.com/os-release
+  expression: |
+    has(status.systemInfo.distroId) && has(status.systemInfo.distroVersion)
+      ? status.systemInfo.distroId + "-" + status.systemInfo.distroVersion
+      : dyn(null)
+```
+
+In a map expression, `transformMapEntry(k, v, result)` evaluates `result` for each source key and value. The expression can return different destination keys. You can add a Boolean condition before `result` to filter entries. The result must use complete label keys.
+
+## CEL syntax and extensions
+
+Mapping expressions use [CEL](https://cel.dev/overview/cel-overview) over the device's `metadata`, `spec`, and `status`. The evaluator enables these extensions:
+
+| Extension | Available syntax | Description |
+|---|---|---|
+| [Optional types](https://pkg.go.dev/cel.dev/cel-go/cel#OptionalTypes) | `optional.none()`, `optional.of(value)`, `.?field`, `orValue(value)` | Represents a value that may be absent and lets an expression handle that absence. |
+| [Two-variable comprehensions](https://pkg.go.dev/cel.dev/cel-go/ext#TwoVarComprehensions) | `transformList`, `transformMap`, `transformMapEntry` | Iterates a list or map with an index/key variable and a value variable. `transformMapEntry` can produce new label keys from map entries. |
+| Flight Control semantic-version functions | `isSemver(value)`, `semver(value)`, `compareTo(value)` | Validates and compares semantic-version strings. |
+
+The CEL-Go extensions above are the optional-types and two-variable-comprehension extensions. CEL's standard operators and functions, such as `has()` and `size()`, are also available. Other CEL-Go extension libraries are not enabled for mapping expressions.
+
+The Flight Control semantic-version library provides three functions:
+
+| Function | Result |
+|---|---|
+| `isSemver(value)` | Returns `true` if the string can be parsed as a semantic version. |
+| `semver(value)` | Parses a string as a semantic version for comparison. |
+| `version.compareTo(other)` | Returns a negative number, zero, or a positive number when `version` precedes, equals, or follows `other`. |
+
+Before parsing, the function removes spaces at the start and ignores any prefix before the first number. For example, it accepts `v1.2.3`. It compares versions by [semantic version rules](https://semver.org/), not as plain text. This expression is true when the reported agent version is `1.2.3` or newer:
+
+```cel
+isSemver(status.systemInfo.agentVersion) &&
+  semver(status.systemInfo.agentVersion).compareTo(semver("1.2.3")) >= 0
+```
 
 CEL expressions can use optional values. Use `has()` or a conditional expression to handle fields that might be absent. An absent field, a null result, an empty result, or `optional.none()` produces no label value for that device. A successful mapping with no value removes a previous label owned by that mapping.
 
@@ -68,9 +111,19 @@ Mapping results must be a scalar value or a map of scalar values. Nested maps, l
 
 Each map expression can return up to 50 entries. A device can have up to 100 mapping-owned labels across all mappings. An expression or output that exceeds these limits is reported as a mapping failure.
 
-## Manage mappings through the API
+## Manage mappings from the CLI and API
 
-The REST API supports listing, creating, retrieving, replacing, patching, and deleting mappings. Requests operate in the organization selected by the caller's API identity.
+Use the standard resource commands to create, inspect, update, and delete mappings. For example:
+
+```console
+flightctl apply -f mapping.yaml
+flightctl get labelsyncmappings
+flightctl get labelsyncmapping/device-region -o yaml
+flightctl edit labelsyncmapping/device-region
+flightctl delete labelsyncmapping/device-region
+```
+
+The REST API also supports listing, creating, retrieving, replacing, patching, and deleting mappings. Requests operate in the organization selected by the caller's API identity.
 
 | Operation | Method and path |
 |---|---|
@@ -82,8 +135,6 @@ The REST API supports listing, creating, retrieving, replacing, patching, and de
 | Delete a mapping | `DELETE /api/v1/labelsyncmappings/{name}` |
 
 Use the `Flightctl-API-Version: v1beta1` header when requesting this API version. List requests support the standard `limit` and `continue` parameters.
-
-The Flight Control CLI does not currently expose `LabelSyncMapping` through its `get`, `apply`, or `edit` commands. Use the REST API to manage these resources.
 
 For example, patch a mapping expression with a JSON Patch request:
 
