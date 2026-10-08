@@ -1,0 +1,61 @@
+# Vanilla deployment: HTTP snapshot source -> debug destination.
+#
+# No upstream registry, no Flight Control service. Use it to confirm the image
+# runs, the probes answer, and the metrics endpoint is scrapable in your
+# cluster before configuring a real pipeline.
+#
+#   helm install catalog-collector deploy/helm/flightctl-catalog-collector \
+#     --values deploy/helm/flightctl-catalog-collector/examples/values-vanilla.yaml
+#
+# Then push a snapshot at it:
+#
+#   kubectl port-forward deployment/catalog-collector-flightctl-catalog-collector 8080:8080
+#   curl -sS -X POST http://127.0.0.1:8080/v1/snapshots \
+#        -H 'Content-Type: application/json' \
+#        -d '{"revision":"1","catalogs":[],"catalogItems":[]}'
+
+config:
+  content: |
+    service:
+      logLevel: debug
+      metrics:
+        endpoint: 0.0.0.0:8888
+
+    extensions:
+      healthcheck:
+        endpoint: 0.0.0.0:13133
+        livePath: /livez
+        readyPath: /readyz
+
+    sources:
+      http/snapshots:
+        # Bound to all interfaces so the Service can reach it. The HTTP source
+        # has no inbound authentication: keep it inside the cluster and do not
+        # expose it through an Ingress or Route.
+        listenAddress: 0.0.0.0:8080
+        path: /v1/snapshots
+
+    destinations:
+      debug/stdout:
+        verbosity: normal
+
+    pipelines:
+      snapshots:
+        source: http/snapshots
+        destination: debug/stdout
+
+health:
+  enabled: true
+  port: 13133
+
+metrics:
+  enabled: true
+  port: 8888
+
+service:
+  enabled: true
+  extraPorts:
+    - name: snapshots
+      port: 8080
+      targetPort: 8080
+      protocol: TCP

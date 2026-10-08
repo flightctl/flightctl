@@ -4,8 +4,8 @@ This directory contains everything needed to deploy the Flight Control service: 
 
 ## Layout
 
-- **deploy/helm/** – Helm chart and e2e extras. Main chart: `deploy/helm/flightctl/` (values, templates, Chart.yaml). See [deploy/helm/flightctl/README.md](helm/flightctl/README.md).
-- **deploy/podman/** – Quadlet unit files and config for running Flight Control as systemd-managed Podman containers (API, DB, worker, periodic, imagebuilder, observability, etc.).
+- **deploy/helm/** – Helm charts and e2e extras. Main chart: `deploy/helm/flightctl/` (values, templates, Chart.yaml). See [deploy/helm/flightctl/README.md](helm/flightctl/README.md). The catalog collector ships as a separate, independently installable chart: `deploy/helm/flightctl-catalog-collector/` – see [its README](helm/flightctl-catalog-collector/README.md).
+- **deploy/podman/** – Quadlet unit files and config for running Flight Control as systemd-managed Podman containers (API, DB, worker, periodic, imagebuilder, observability, etc.). `flightctl-catalog-collector/` is the exception: it is an optional add-on, installed directly by the RPM instead of being rendered by `flightctl-standalone render quadlets`, and is not part of `flightctl.target`.
 - **deploy/scripts/** – Shell scripts: `deploy_quadlets.sh`, `clean_quadlets.sh`, cert init, DB setup, migration.
 - **deploy/kind.yaml** – kind cluster config (used by test/scripts and deploy).
 - **Makefile integration:** Deployment targets are in `deploy/deploy.mk` and `deploy/agent-vm.mk`, included from the root Makefile.
@@ -35,7 +35,10 @@ This directory contains everything needed to deploy the Flight Control service: 
 
 - **Values:** `deploy/helm/flightctl/values.yaml` (base), `values.e2e.yaml`, `values.dev.yaml`, `values.nodeport.yaml`, etc. Lint uses `lint-values.yaml`.
 - **Templates:** Go templates under `deploy/helm/flightctl/templates/` (API, UI, imagebuilder, certs, RBAC, etc.). Some filenames are generated (e.g. `README.md.gotmpl`, `Chart.yaml.gotmpl`).
-- **Lint:** `make lint-helm` runs `helm lint` with the chart’s lint values.
+- **Generated chart metadata:** `Chart.yaml` and `values.yaml` of both charts are rendered by `deploy/helm/cmd/charttmpl` from the `.gotmpl` sources beside them plus a build profile in `deploy/helm/helm-chart-opts.yaml` (`<edition>-<os>` for the main chart, `catalog-collector-<edition>-<os>` for the collector). That is how a downstream build rebrands the chart name, description, icon, annotations, and image registries. Edit the `.gotmpl` and the profile, then regenerate with `go generate ./deploy/helm/...`; do not hand-edit the generated files. Wiring a new chart in means adding its profiles and an entry to the `charts` list in `cmd/charttmpl/main.go`.
+- **Lint:** `make lint-helm` runs `helm lint` for both charts with their lint values; the catalog collector chart is additionally linted against each of its example values files.
+- **Render tests:** `make test-helm-catalog-collector` runs `deploy/helm/flightctl-catalog-collector/tests/render_test.sh`, which asserts the value combinations that must *fail* (no configuration, both configuration sources, `replicaCount > 1`, a `ServiceMonitor` without a `Service`) alongside the objects that must be produced. `helm lint` cannot express a must-fail case, so add new chart invariants there.
+- **CI:** both targets run from `.github/workflows/lint-helm.yaml`, gated on changes to `deploy/helm/**`, the `Makefile`, or that workflow itself. A new lint or render target is only enforced once it is wired into that job.
 
 ## Podman / quadlets
 
@@ -45,6 +48,6 @@ This directory contains everything needed to deploy the Flight Control service: 
 
 ## What to edit
 
-- **Helm chart (values, templates, Chart):** Under `deploy/helm/flightctl/`. After changes, run `make lint-helm` and ensure `make deploy` or `make deploy-helm` still works.
+- **Helm chart (values, templates, Chart):** Under `deploy/helm/flightctl/`, or `deploy/helm/flightctl-catalog-collector/` for the catalog collector. After changes, run `make lint-helm` and ensure `make deploy` or `make deploy-helm` still works.
 - **Quadlet units and config:** Under `deploy/podman/`. Keep ordering and env/config in sync with `deploy/scripts/deploy_quadlets.sh`.
 - **Scripts:** `deploy/scripts/*.sh` – preserve idempotency and error handling; `make deploy-db`/`deploy-kv` depend on them. **`make integration-test`** uses testcontainers (`test/integration/preflight`) instead of quadlet `deploy-db`/`deploy-kv`/`deploy-alertmanager`.

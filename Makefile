@@ -151,6 +151,7 @@ build: bin build-cli build-pam-issuer
 		./cmd/flightctl-backup \
 		./cmd/flightctl-restore \
 		./cmd/flightctl-telemetry-gateway \
+		./cmd/flightctl-catalog-collector \
 		./cmd/flightctl-standalone
 
 bin/flightctl-agent: bin $(GO_FILES)
@@ -203,6 +204,9 @@ build-periodic: bin
 
 build-alert-exporter: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-alert-exporter
+
+build-catalog-collector: bin
+	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-catalog-collector
 
 build-alertmanager-proxy: bin
 	$(GOENV) GOOS=$(GOOS) GOARCH=$(GOARCH) go build -buildvcs=false $(GO_BUILD_FLAGS) -o $(GOBIN) ./cmd/flightctl-alertmanager-proxy
@@ -298,6 +302,13 @@ flightctl-alert-exporter-container: packaging/images/$(OS)/Containerfile.alert-e
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
 		-f packaging/images/$(OS)/Containerfile.alert-exporter -t flightctl-alert-exporter-$(OS):latest -t quay.io/flightctl/flightctl-alert-exporter-$(OS):$(SOURCE_GIT_TAG) .
 
+flightctl-catalog-collector-container: packaging/images/$(OS)/Containerfile.catalog-collector go.mod go.sum $(GO_FILES)
+	podman build \
+		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
+		--build-arg SOURCE_GIT_TREE_STATE=${SOURCE_GIT_TREE_STATE} \
+		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
+		-f packaging/images/$(OS)/Containerfile.catalog-collector -t flightctl-catalog-collector-$(OS):latest -t quay.io/flightctl/flightctl-catalog-collector-$(OS):$(SOURCE_GIT_TAG) .
+
 flightctl-alertmanager-proxy-container: packaging/images/$(OS)/Containerfile.alertmanager-proxy go.mod go.sum $(GO_FILES)
 	podman build \
 		--build-arg SOURCE_GIT_TAG=${SOURCE_GIT_TAG} \
@@ -347,7 +358,7 @@ flightctl-remote-access-container: packaging/images/$(OS)/Containerfile.remote-a
 		--build-arg SOURCE_GIT_COMMIT=${SOURCE_GIT_COMMIT} \
 		-f packaging/images/$(OS)/Containerfile.remote-access -t flightctl-remote-access-$(OS):latest -t quay.io/flightctl/flightctl-remote-access-$(OS):$(SOURCE_GIT_TAG) .
 
-.PHONY: flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-delta-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container flightctl-imagebuilder-api-container flightctl-imagebuilder-worker-container flightctl-remote-access-container
+.PHONY: flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-delta-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-catalog-collector-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container flightctl-imagebuilder-api-container flightctl-imagebuilder-worker-container flightctl-remote-access-container
 
 # --- Registry Operations ---
 # The login target expects REGISTRY_USER via environment variable and
@@ -371,6 +382,7 @@ push-containers: login
 	podman push flightctl-delta-worker-$(OS):latest
 	podman push flightctl-periodic:latest
 	podman push flightctl-alert-exporter:latest
+	podman push flightctl-catalog-collector-$(OS):latest
 	podman push flightctl-alertmanager-proxy:latest
 	podman push flightctl-cli-artifacts:latest
 	podman push flightctl-userinfo-proxy:latest
@@ -390,7 +402,7 @@ rebuild-containers: clean-containers build-containers
 clean-containers:
 	- podman images --filter "reference=flightctl-*-$(OS):latest" --format "{{.Repository}}:{{.Tag}}" | xargs -r podman rmi || true
 
-build-containers: flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-delta-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container flightctl-imagebuilder-api-container flightctl-imagebuilder-worker-container flightctl-remote-access-container
+build-containers: flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-delta-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-alertmanager-proxy-container flightctl-catalog-collector-container flightctl-multiarch-cli-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container flightctl-imagebuilder-api-container flightctl-imagebuilder-worker-container flightctl-remote-access-container
 
 bundle-containers:
 	test/scripts/agent-images/scripts/bundle.sh \
@@ -466,7 +478,7 @@ bin/.rpm: $(shell find $(ROOT_DIR)/ -name "*.go" -not -path "$(ROOT_DIR)/packagi
 
 rpm: bin/.rpm
 
-.PHONY: rpm build build-api build-pam-issuer build-periodic build-worker build-delta-worker install-oci-delta build-alert-exporter build-alertmanager-proxy build-userinfo-proxy build-standalone build-imagebuilder-api build-imagebuilder-worker build-remote-access generate-mirror-embed build-mirror-images
+.PHONY: rpm build build-api build-pam-issuer build-periodic build-worker build-delta-worker install-oci-delta build-alert-exporter build-catalog-collector build-alertmanager-proxy build-userinfo-proxy build-standalone build-imagebuilder-api build-imagebuilder-worker build-remote-access generate-mirror-embed build-mirror-images
 
 # cross-building for deb pkg
 bin/amd64:
@@ -515,7 +527,7 @@ clean-quadlets:
 	sudo deploy/scripts/clean_quadlets.sh
 
 
-.PHONY: tools flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-delta-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container flightctl-remote-access-container
+.PHONY: tools flightctl-api-container flightctl-pam-issuer-container flightctl-db-setup-container flightctl-worker-container flightctl-delta-worker-container flightctl-periodic-container flightctl-alert-exporter-container flightctl-catalog-collector-container flightctl-userinfo-proxy-container flightctl-telemetry-gateway-container flightctl-remote-access-container
 
 # Use custom golangci-lint container with libvirt support
 LINT_IMAGE := flightctl-lint:latest
@@ -584,6 +596,17 @@ lint-openapi: .output/stamps/lint-openapi
 .PHONY: lint-helm
 lint-helm:
 	helm lint deploy/helm/flightctl --values deploy/helm/flightctl/lint-values.yaml
+	helm lint deploy/helm/flightctl-catalog-collector --values deploy/helm/flightctl-catalog-collector/lint-values.yaml
+	helm lint deploy/helm/flightctl-catalog-collector --values deploy/helm/flightctl-catalog-collector/examples/values-vanilla.yaml
+	helm lint deploy/helm/flightctl-catalog-collector --values deploy/helm/flightctl-catalog-collector/examples/values-rhoai-to-flightctl.yaml
+
+# Render tests for the catalog collector chart: which value combinations must
+# fail, which must succeed, and what the rendered objects must contain.
+# "helm lint" can only assert that a given value set renders, so it cannot
+# cover the "must fail" half of the chart's contract.
+.PHONY: test-helm-catalog-collector
+test-helm-catalog-collector:
+	deploy/helm/flightctl-catalog-collector/tests/render_test.sh
 
 .output/stamps/lint-docs: $(wildcard docs/user/*.md)
 	@mkdir -p .output/stamps

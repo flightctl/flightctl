@@ -1,0 +1,14 @@
+{{- include "flightctl-catalog-collector.validate" . -}}
+{{- if not (trim (default "" .Values.config.existingName)) }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ printf "%s-config" (include "flightctl-catalog-collector.fullname" .) }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "flightctl-catalog-collector.labels" . | nindent 4 }}
+data:
+  {{ .Values.config.key }}: |-
+{{ tpl .Values.config.content . | indent 4 }}
+{{- end }}

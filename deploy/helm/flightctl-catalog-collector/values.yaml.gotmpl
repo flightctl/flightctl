@@ -1,0 +1,208 @@
+{{/*
+Source for values.yaml. Rendered by "go generate ./deploy/helm/..." from the
+"catalog-collector-<variant>" profile in deploy/helm/helm-chart-opts.yaml, so
+a downstream build points the chart at its own registry instead of shipping
+one that still names quay.io.
+
+Edit this file and regenerate; do not edit values.yaml by hand.
+*/ -}}
+global:
+  # Pull policy applied when .image.pullPolicy is not set.
+  imagePullPolicy: IfNotPresent
+  # Name of an imagePullSecret to attach to the pod. Empty disables it.
+  imagePullSecretName: ""
+
+# Overrides for the generated resource names.
+nameOverride: ""
+fullnameOverride: ""
+
+# The collector keeps no state between cycles, but two replicas would poll the
+# same upstream registry twice and reconcile the same catalog twice, racing
+# each other into conflicting writes. The deployment is therefore
+# single-replica, and the chart rejects any other value: scaling out is not a
+# supported configuration, and failing the render is clearer than silently
+# ignoring the request. Scale to 0 to pause the collector without uninstalling
+# it.
+replicaCount: 1
+
+# Collector container image. The repository is set by the build profile in
+# deploy/helm/helm-chart-opts.yaml, so a downstream rebuild ships a chart
+# pointing at its own registry rather than at quay.io.
+image:
+  image: {{ .Images.catalogCollector.Image }}
+  # Defaults to the chart appVersion when empty.
+  tag: ""
+  # Defaults to global.imagePullPolicy when empty.
+  pullPolicy: ""
+
+config:
+  # Inline collector configuration, rendered into a ConfigMap owned by this
+  # release and mounted at <config.mountPath>/<config.key>.
+  #
+  # Mutually exclusive with config.existingName: exactly one of them must be
+  # set, and the render fails with an explicit message otherwise.
+  #
+  # There is deliberately no default. The collector has no usable default
+  # pipeline — a source and a destination are site-specific choices — and
+  # shipping a plausible-looking one would mean "helm install" with no values
+  # silently deploys a pipeline nobody asked for. Start from an example:
+  #
+  #   examples/values-vanilla.yaml          self-contained smoke test
+  #   examples/values-rhoai-to-flightctl.yaml   RHOAI model registry pipeline
+  content: ""
+
+  # Name of an existing ConfigMap holding a "config.yaml" key.
+  #
+  # Mutually exclusive with config.content: set exactly one of them. Use this
+  # when the configuration is managed outside the chart (for example by a
+  # GitOps controller or by an operator that templates credentials into it).
+  existingName: ""
+
+  # Key inside the ConfigMap that holds the collector configuration.
+  key: config.yaml
+
+  # Directory the configuration is mounted into. The container is started with
+  # --config <mountPath>/<key>.
+  mountPath: /etc/flightctl/catalog-collector
+
+# Health check endpoint. Must match the "healthcheck" extension in the
+# collector configuration, and the configured endpoint must bind 0.0.0.0 for
+# the kubelet to reach it.
+health:
+  # Disable only when the collector configuration omits the healthcheck
+  # extension; without it the probes below would fail the pod.
+  enabled: true
+  port: 13133
+  livePath: /livez
+  readyPath: /readyz
+  livenessProbe:
+    initialDelaySeconds: 10
+    periodSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readinessProbe:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  startupProbe:
+    enabled: false
+    periodSeconds: 5
+    timeoutSeconds: 5
+    failureThreshold: 30
+
+# Prometheus metrics endpoint. Must match service.metrics.endpoint in the
+# collector configuration, and that endpoint must bind 0.0.0.0 to be scrapable.
+#
+# Only the port is configurable. service.metrics.endpoint in the collector
+# configuration is a host:port pair, and the exporter always serves the
+# registry at the fixed path /metrics, so there is no value to expose: a
+# "path" here could only have retargeted the Service and the ServiceMonitor
+# at a path the collector does not answer on, and Prometheus would have
+# scraped a 404 without saying so.
+metrics:
+  enabled: true
+  port: 8888
+  # Annotate the pod for Prometheus annotation-based discovery.
+  podAnnotations: true
+  serviceMonitor:
+    # Requires the Prometheus Operator CRDs to be installed in the cluster.
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}
+
+service:
+  # A Service is only useful when something needs to reach the collector:
+  # scraping metrics, probing health, or POSTing to an HTTP snapshot source.
+  #
+  # Even with this set to true the Service is skipped when it would have no
+  # ports at all (metrics and health both disabled and no extraPorts), because
+  # a portless Service is rejected by the API server.
+  enabled: true
+  type: ClusterIP
+  annotations: {}
+  # Extra ports to publish, for example the HTTP snapshot source listener.
+  #
+  # Each entry also becomes a containerPort on the collector, so targetPort
+  # has to be a number here, even though a Service on its own would accept
+  # the name of a container port: a containerPort must be an integer, and a
+  # name would render a Deployment the API server rejects. Omit targetPort to
+  # reuse port.
+  #
+  # The metrics and health ports are added separately; do not reuse the names
+  # "metrics" or "health" here. Kubernetes rejects duplicate port names, so
+  # the chart fails the render rather than emit a Deployment the API server
+  # refuses. Port numbers may repeat: several Service ports can target the
+  # same container port, and TCP and UDP entries can share a number.
+  extraPorts: []
+  # - name: snapshots
+  #   port: 8080
+  #   targetPort: 8080
+  #   protocol: TCP
+
+serviceAccount:
+  create: true
+  # Defaults to the fullname when empty.
+  name: ""
+  annotations: {}
+  automountServiceAccountToken: false
+
+# Additional environment variables. Values referenced from the collector
+# configuration as ${env:NAME} are resolved at startup.
+env: {}
+# Additional environment variables sourced from ConfigMaps or Secrets.
+envFrom: []
+# - secretRef:
+#     name: flightctl-catalog-collector-auth
+
+# Extra volumes and mounts, for example a CA bundle or a token file.
+extraVolumes: []
+extraVolumeMounts: []
+
+# Extra annotations for the pod template.
+#
+# "checksum/config" is reserved while config.content is in use: the chart puts
+# the hash of the rendered ConfigMap there so a "helm upgrade" that changes
+# the configuration rolls the pods. Setting it here would pin the value and
+# stop those rollouts, so the render fails instead. It is free to use with
+# config.existingName, where the chart emits no checksum.
+podAnnotations: {}
+
+# Extra labels for the pod template.
+#
+# app.kubernetes.io/name and app.kubernetes.io/instance are reserved: they
+# make up the Deployment selector, which is immutable after the first install.
+# Changing either here would render a pod template the selector cannot match
+# and the API server would reject the Deployment, so the render fails first.
+# Repeating one of them with the value the chart already uses is accepted, as
+# is any other label.
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  privileged: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+priorityClassName: ""
+terminationGracePeriodSeconds: 30

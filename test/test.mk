@@ -11,7 +11,12 @@ ifeq ($(RACE), 1)
 	GO_TESTING_FLAGS += -race
 endif
 
-GO_UNITTEST_DIRS 		= ./internal/... ./api/... ./pkg/...
+# ./scripts/... carries the air-gap mirroring tool. Its flag validation is all
+# that stands between an operator and a bundle silently missing the images
+# they asked for, so its tests belong in the same gate as the rest.
+# ./cmd/flightctl-catalog-collector/... carries unit tests of its own; without
+# it listed here "make unit-test" never runs them.
+GO_UNITTEST_DIRS 		= ./internal/... ./api/... ./pkg/... ./scripts/... ./cmd/flightctl-catalog-collector/...
 GO_INTEGRATIONTEST_DIRS ?= ./test/integration/...
 GO_E2E_DIRS 			= ./test/e2e/...
 

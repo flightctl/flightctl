@@ -240,20 +240,56 @@ jobs:
             --version "$TAG" \
             --app-version "v$TAG"
 
-          # Rename to consistent name for easier consumption
+          # Rename to consistent names for easier consumption
           GENERATED_FILE="flightctl-${TAG}.tgz"
           CHART_FILE="flightctl-chart.tgz"
           mv "$GENERATED_FILE" "$CHART_FILE"
           echo "Chart file: $CHART_FILE"
-          echo "::endgroup::"
-
           echo "chart_file=$CHART_FILE" >> "$GITHUB_OUTPUT"
+
+          # Independent catalog-collector chart: packaged here so chart
+          # regressions are caught on every PR build.
+          #
+          # This workflow is also called with "ref" pointing at a different
+          # commit than the one it was loaded from (the upgrade test builds a
+          # baseline from the PR's target branch). That checkout predates the
+          # chart, so its absence is a normal state and not a build failure;
+          # the upload below is skipped to match.
+          COLLECTOR_CHART_DIR="./deploy/helm/flightctl-catalog-collector"
+          if [ -d "$COLLECTOR_CHART_DIR" ]; then
+            helm package "$COLLECTOR_CHART_DIR" \
+              --version "$TAG" \
+              --app-version "v$TAG"
+
+            COLLECTOR_GENERATED_FILE="flightctl-catalog-collector-${TAG}.tgz"
+            COLLECTOR_CHART_FILE="flightctl-catalog-collector-chart.tgz"
+            mv "$COLLECTOR_GENERATED_FILE" "$COLLECTOR_CHART_FILE"
+            echo "Catalog collector chart file: $COLLECTOR_CHART_FILE"
+            echo "collector_chart_file=$COLLECTOR_CHART_FILE" >> "$GITHUB_OUTPUT"
+          else
+            echo "No catalog collector chart at $COLLECTOR_CHART_DIR; skipping"
+          fi
+          echo "::endgroup::"
 
       - name: Upload helm chart artifact
         uses: actions/upload-artifact@v4
         with:
           name: helm-chart-${{ steps.compute-tag.outputs.git_tag }}
           path: ${{ steps.build-charts.outputs.chart_file }}
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+
+      # Uploaded as its own artifact rather than added to the one above: the
+      # main chart artifact is consumed by name by downstream jobs that expect
+      # exactly one file, and the catalog collector chart is installed
+      # independently anyway.
+      - name: Upload catalog collector helm chart artifact
+        if: steps.build-charts.outputs.collector_chart_file != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: helm-chart-catalog-collector-${{ steps.compute-tag.outputs.git_tag }}
+          path: ${{ steps.build-charts.outputs.collector_chart_file }}
           compression-level: 0
           if-no-files-found: error
           retention-days: 1

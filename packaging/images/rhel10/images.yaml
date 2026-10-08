@@ -14,6 +14,9 @@ pam-issuer:
 userinfo-proxy:
   image: registry.redhat.io/rhem/flightctl-userinfo-proxy-rhel10
 
+catalog-collector:
+  image: registry.redhat.io/rhem/flightctl-catalog-collector-rhel10
+
 # grafana and prometheus are intentionally omitted.
 # They belong to the optional flightctl-observability stack and must be mirrored
 # manually for air-gapped deployments. See deploying-observability-linux.md.
