@@ -88,7 +88,7 @@ func TestInitialLabelSyncMappingHelmRendering(t *testing.T) {
 	t.Run("defaults render for all runtime and migration consumers", func(t *testing.T) {
 		resources := renderChart(t, helmPath, chartDir, "", false)
 		assertMappingConfigMaps(t, resources, map[string][]initialMapping{"runtime": defaultMappings})
-		assertMappingDefaultsMatchPackagedManifest(t, chartDir, resources, defaultMappings)
+		assertHelmValuesDefaultsMatchPackagedManifest(t, chartDir, defaultMappings)
 		assertInitialMappingConsumers(t, resources, "runtime")
 	})
 
@@ -178,9 +178,8 @@ organizations:
 	})
 }
 
-func assertMappingDefaultsMatchPackagedManifest(t *testing.T, chartDir string, resources []helmManifestResource, expected []initialMapping) {
+func assertHelmValuesDefaultsMatchPackagedManifest(t *testing.T, chartDir string, expected []initialMapping) {
 	t.Helper()
-	assertInitialMappingsEqual(t, "packaged manifest", loadPackagedMappings(t, chartDir), expected)
 
 	for _, valuesFile := range []string{"values.yaml", "values.yaml.gotmpl"} {
 		valuesPath := filepath.Join(chartDir, valuesFile)
@@ -213,19 +212,6 @@ func assertMappingDefaultsMatchPackagedManifest(t *testing.T, chartDir string, r
 		}
 		assertInitialMappingsEqual(t, valuesFile, values.Organizations.InitialLabelSyncMappings, expected)
 	}
-
-	for _, resource := range resources {
-		if resource.Kind != "ConfigMap" || resource.Metadata.Name != "flightctl-initial-label-sync-mappings" || resource.Metadata.Namespace != "runtime" {
-			continue
-		}
-		var renderedMappings []initialMapping
-		if err := yaml.Unmarshal([]byte(resource.Data["mappings.yaml"]), &renderedMappings); err != nil {
-			t.Fatalf("decode rendered Helm mapping defaults: %v", err)
-		}
-		assertInitialMappingsEqual(t, "rendered Helm ConfigMap", renderedMappings, expected)
-		return
-	}
-	t.Fatal("rendered Helm mapping ConfigMap is missing from runtime namespace")
 }
 
 func loadPackagedMappings(t *testing.T, chartDir string) []initialMapping {
