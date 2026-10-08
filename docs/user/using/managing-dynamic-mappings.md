@@ -44,6 +44,23 @@ spec:
   expression: status.systemInfo.customInfo.region
 ```
 
+Input:
+
+```yaml
+status:
+  systemInfo:
+    customInfo:
+      region: east
+```
+
+Output (`metadata.labels`):
+
+```yaml
+metadata:
+  labels:
+    ops.example.com/region: east
+```
+
 This map mapping transforms every custom information entry and includes the source key in the destination label key:
 
 ```yaml
@@ -59,6 +76,25 @@ spec:
       v,
       {"ops.example.com/customInfo." + k: v}
     )
+```
+
+Input:
+
+```yaml
+status:
+  systemInfo:
+    customInfo:
+      region: east
+      site: factory-berlin
+```
+
+Output (`metadata.labels`):
+
+```yaml
+metadata:
+  labels:
+    ops.example.com/customInfo.region: east
+    ops.example.com/customInfo.site: factory-berlin
 ```
 
 This map expression is a demonstration that assumes `customInfo` exists and its entries can produce valid label keys and scalar values. In production, account for missing fields and input values that could produce invalid labels.
@@ -77,6 +113,23 @@ spec:
     has(status.systemInfo.distroId) && has(status.systemInfo.distroVersion)
       ? status.systemInfo.distroId + "-" + status.systemInfo.distroVersion
       : dyn(null)
+```
+
+Input:
+
+```yaml
+status:
+  systemInfo:
+    distroId: rhel
+    distroVersion: "9.5"
+```
+
+Output (`metadata.labels`):
+
+```yaml
+metadata:
+  labels:
+    ops.example.com/os-release: rhel-9.5
 ```
 
 In a map expression, `transformMapEntry(k, v, result)` evaluates `result` for each source key and value. The expression can return different destination keys. You can add a Boolean condition before `result` to filter entries. The result must use complete label keys.
