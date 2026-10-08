@@ -391,15 +391,15 @@ spec:
 
 ### Using control-plane-generated OS deltas
 
-When a device or fleet receives a changed OS image target, Flight Control can generate a delta from the current image to the target during update preparation. Building the target image does not start delta generation.
+When a device or fleet receives a changed OS image target, Flight Control can generate a delta from the current image to the target during update preparation.
 
-Before using control-plane generation, configure a valid, writable OCI [delta storage target](managing-repositories.md#configuring-a-delta-storage-target) for the organization or deployment. The registry must be reachable with the configured push credentials and TLS settings. Without a storage target, Flight Control skips generation.
+Before using control-plane generation, configure a valid, writable OCI [delta storage target](managing-repositories.md#configuring-a-delta-storage-target) for the organization or deployment. The registry must be reachable with the configured push credentials and TLS settings.
 
 For a fleet, configure generation and rollout wait behavior under `spec.rolloutPolicy.deltaGeneration`. If `generateDelta` is omitted, it defaults to `true`. A fleet's `maxWaitForDelta` and `deltaGenerationTimeout` values inherit the deployment settings when omitted. Standalone device updates use the [deployment defaults](../installing/installing-service-on-linux-configuration.md#delta-generation-configuration). See [Configuring delta generation](managing-fleets.md#configuring-delta-generation) for fleet options.
 
-After generation, Flight Control may add the read-only `spec.os.deltaImage` hint to the rendered device specification. A missing hint means no control-plane-generated artifact is available for that render; the agent can still discover a matching [CI-published OS delta](#using-ci-published-os-deltas).
+After generation, Flight Control adds a read-only `spec.os.deltaImage` hint for an available delta to the rendered device specification. The agent can also discover a matching [CI-published OS delta](#using-ci-published-os-deltas).
 
-The rendered `status.os.deltaSize` reports the known size of a control-plane-generated OS delta payload in IEC units. It does not report full OS image size, total expected update size, downloaded bytes, CI-published delta size, or update duration. See [OS delta status](../references/device-api-statuses.md#os-delta-status) for the status fields and current CLI visibility limits.
+The rendered `status.os.deltaSize` reports the known size of the control-plane-generated OS delta payload in IEC units. Use the device's YAML or JSON output to inspect this payload size and the [OS delta status](../references/device-api-statuses.md#os-delta-status).
 
 ### Using CI-published OS deltas
 
@@ -407,18 +407,16 @@ You can publish an OS delta from CI to reduce the image data a device downloads 
 
 For the agent to discover the delta, publish it with these values:
 
-- Publish it in the same repository as the target OS image. A delta in another repository is not discovered, even when both repositories use the same registry.
+- Publish it in the same repository as the target OS image.
 - Set the referrer's `subject` to the target image manifest.
 - Set `artifactType` to `application/vnd.io.github.containers.oci-delta.v1`.
 - Set the `io.github.containers.delta.source` annotation to the digest of the source OS image. This must match the device's current OS image digest.
 
-The agent looks for a referrer in the target image repository. If the registry returns 404 or reports an unknown manifest, the agent also checks the Referrers Tag Schema. It also checks this schema when Skopeo does not support the referrers command. A CI-published referrer does not require a `spec.os.deltaImage` hint. An existing hint takes precedence over referrer discovery.
+The agent discovers matching referrers in the target image repository using the registry's referrers API or the Referrers Tag Schema compatibility path. An existing `spec.os.deltaImage` hint takes precedence over referrer discovery.
 
 The device uses its existing OS image pull credentials to pull the target image and delta. See [Using Image Pull Secrets](#using-image-pull-secrets) for private registries.
 
-If the agent finds no matching delta, it continues with a full image pull. It reports `NotUsed` only when that OS image has no recorded delta outcome. Otherwise, it retains the existing outcome, including a previous `Fallback` and its reason.
-
-If pulling or applying a discovered delta fails, the agent reports `Fallback` with a reason and attempts a full image pull. A successful delta apply reports `Applied`. See [OS delta status](../references/device-api-statuses.md#os-delta-status) for how to inspect these results.
+See [OS delta status](../references/device-api-statuses.md#os-delta-status) for outcome definitions and how to inspect the result of an OS delta update.
 
 ### Using Image Pull Secrets
 
@@ -753,7 +751,7 @@ You can deploy, update, or undeploy applications on a device by updating the lis
 
 Application image deltas can be published by CI or generated by Flight Control. The agent checks the parent application image and nested OCI image targets independently. It reports each application's image references and known digests in `status.applications[].imageDigests[]`. Flight Control uses these entries to identify source images for generation. See [application delta status](../references/device-api-statuses.md#application-delta-status) for the field details.
 
-Before using control-plane generation, configure a valid, writable OCI [delta storage target](managing-repositories.md#configuring-a-delta-storage-target) for the organization or deployment. The registry must be reachable with the configured push credentials and TLS settings. Without a storage target, Flight Control skips generation. See [Deployment delta generation configuration](../installing/installing-service-on-linux-configuration.md#delta-generation-configuration) for shared defaults and [Configuring delta generation](managing-fleets.md#configuring-delta-generation) for fleet overrides.
+Before using control-plane generation, configure a valid, writable OCI [delta storage target](managing-repositories.md#configuring-a-delta-storage-target) for the organization or deployment. The registry must be reachable with the configured push credentials and TLS settings. See [Deployment delta generation configuration](../installing/installing-service-on-linux-configuration.md#delta-generation-configuration) for shared defaults and [Configuring delta generation](managing-fleets.md#configuring-delta-generation) for fleet overrides.
 
 The following application paths support generated or CI-published deltas. The device must have `oci-delta` installed, and generation requires a known source image digest.
 
@@ -766,7 +764,7 @@ The following application paths support generated or CI-published deltas. The de
 
 Application packages delivered as OCI artifacts, including Helm charts, are pulled in full. Digest-pinned Helm workload images also use full pulls. See [CRI configuration](#cri-configuration) for local image reuse requirements.
 
-For a CI-published application image delta, follow the OCI 1.1 referrer convention in [CI-published OS deltas](#using-ci-published-os-deltas). Publish the referrer in the target image's repository. Set its `subject` to the target manifest and include the artifact type and source image digest annotation. A matching referrer can be discovered without a control-plane-generated hint.
+For a CI-published application image delta, follow the OCI 1.1 referrer convention in [CI-published OS deltas](#using-ci-published-os-deltas). Publish the referrer in the target image's repository. Set its `subject` to the target manifest and include the artifact type and source image digest annotation. The agent discovers matching referrers directly in that repository.
 
 When Flight Control has generated an application delta, it adds read-only hints to the rendered device specification. `deltaImage` identifies a delta for the application's main image. `deltaImages[]` identifies nested images with `targetImage`, `targetDigest`, and `deltaImage`. For example, a rendered container application with an OCI volume can include:
 
@@ -786,11 +784,11 @@ applications:
           reference: quay.io/example/telemetry-content:v2
 ```
 
-The control plane adds these hints only to the rendered specification; do not add them to the desired device or fleet specification. A nested image without a generated hint can still use a matching CI-published referrer. If neither a hint nor a matching referrer is available, the agent pulls the full image for that target in the current update.
+Flight Control manages these read-only hints in the rendered specification. For each image target, the agent uses a generated hint or discovers a matching CI-published referrer. Otherwise, it pulls the full image for the current update.
 
-A control-plane hint names the delta artifact directly, so the generated delta does not need to be stored in the target image's repository. CI-published delta discovery uses referrers in the target image's repository.
+A control-plane hint names the delta artifact directly in the configured storage target. CI-published delta discovery uses referrers in the target image's repository.
 
-The agent applies a usable delta separately for each image target. If pulling or applying a delta fails, it records a fallback for that image and attempts a full image pull for the same target. A delta fallback for an application image does not by itself fail the OS update. Application outcomes and their representative fallback reason appear in [application delta status](../references/device-api-statuses.md#application-delta-status).
+The agent applies a usable delta separately for each image target. If pulling or applying a delta fails, it records a fallback for that image and attempts a full image pull for the same target. Application outcomes and their representative fallback reason appear in [application delta status](../references/device-api-statuses.md#application-delta-status).
 
 ### Container Image Versioning and Floating Tags
 

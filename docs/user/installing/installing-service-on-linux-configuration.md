@@ -60,16 +60,16 @@ You can customize deployment defaults for OS and application delta generation un
 Generation requires a valid, writable OCI target configured through either option:
 
 - Set `deltaGeneration.defaultRepository` in the deployment configuration to provide a shared default.
-- Create an OCI Repository resource with `type: oci`, `accessMode: ReadWrite`, and `deltaStorageTarget: true`, as described in [Managing Repositories: Configuring a delta storage target](../using/managing-repositories.md#configuring-a-delta-storage-target). This option does not require a deployment default.
+- Create an OCI Repository resource with `type: oci`, `accessMode: ReadWrite`, and `deltaStorageTarget: true`, as described in [Managing Repositories: Configuring a delta storage target](../using/managing-repositories.md#configuring-a-delta-storage-target). Configure this resource at runtime after installation.
 
-Either option satisfies the storage prerequisite. The registry must be reachable with the configured push credentials and TLS settings. An organization's Repository resource takes precedence over the deployment default when both are configured. Without either target, Flight Control skips generation.
+Either option satisfies the storage prerequisite. The registry must be reachable with the configured push credentials and TLS settings. An organization's Repository resource takes precedence over the deployment default when both are configured.
 
 | Parameter | Description |
 | --------- | ----------- |
-| `defaultRepository` | Shared OCI storage target used when an organization has no delta storage target. See the repository fields below. |
+| `defaultRepository` | Shared default OCI storage target. An organization's delta storage target takes precedence. See the repository fields below. |
 | `maxConcurrentDeltaGenerations` | Maximum concurrent generation jobs per delta worker instance. Defaults to `2` when omitted or set to `0` or a negative value. Values greater than `32` are capped at `32`. |
 | `timeout` | Deadline for each generation job. Defaults to `30m` when omitted or set to `0` or a negative duration. A fleet can override it with `spec.rolloutPolicy.deltaGeneration.deltaGenerationTimeout`. |
-| `maxWaitForDelta` | Maximum time to hold an update while deltas are prepared. Omission sets no wait deadline. `0s` starts generation and continues the update immediately. A fleet can override it with `spec.rolloutPolicy.deltaGeneration.maxWaitForDelta`. |
+| `maxWaitForDelta` | Maximum time to hold an update while deltas are prepared. By default, the update waits until all generation pairs reach a terminal state. `0s` starts generation and continues the update immediately. A fleet can override it with `spec.rolloutPolicy.deltaGeneration.maxWaitForDelta`. |
 
 Standalone devices use these deployment defaults. Fleet overrides apply to both OS and application generation. See [Configuring delta generation](../using/managing-fleets.md#configuring-delta-generation) for rollout options.
 
@@ -100,4 +100,4 @@ The `defaultRepository` block accepts the following deployment values:
 
 For a private registry on Helm, create the credential Secret and set `deltaGeneration.defaultRepository.secretName` to its name. On Podman, provide `DELTA_GENERATION_DEFAULT_REPOSITORY_USERNAME` and `DELTA_GENERATION_DEFAULT_REPOSITORY_PASSWORD` to the delta worker container. Credentials are supplied separately from the configuration file.
 
-If neither `repository` nor `namespace` is set, generated deltas use the target image's repository path under the configured registry. See [Configuring a delta storage target](../using/managing-repositories.md#configuring-a-delta-storage-target) for organization targets and destination examples.
+With a registry-only target, generated deltas use the target image's repository path under the configured registry. See [Configuring a delta storage target](../using/managing-repositories.md#configuring-a-delta-storage-target) for organization targets and destination examples.

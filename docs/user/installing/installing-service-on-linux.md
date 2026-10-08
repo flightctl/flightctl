@@ -58,7 +58,7 @@ Flight Control services can be configured through a central configuration file l
 To generate OS and application deltas, configure a valid, writable OCI target using either option:
 
 - Set `deltaGeneration.defaultRepository` in `/etc/flightctl/service-config.yaml` to provide a deployment default shared by organizations. See [Delta generation configuration](installing-service-on-linux-configuration.md#delta-generation-configuration) for repository settings and credentials.
-- Create an OCI Repository resource with `type: oci`, `accessMode: ReadWrite`, and `deltaStorageTarget: true`, as described in [Managing Repositories: Configuring a delta storage target](../using/managing-repositories.md#configuring-a-delta-storage-target). You can configure this resource after installation without setting a deployment default.
+- Create an OCI Repository resource with `type: oci`, `accessMode: ReadWrite`, and `deltaStorageTarget: true`, as described in [Managing Repositories: Configuring a delta storage target](../using/managing-repositories.md#configuring-a-delta-storage-target). Configure this resource at runtime after installation.
 
 Either option satisfies the storage prerequisite. An organization's Repository resource takes precedence over the deployment default when both are configured. Generation concurrency, timeout, and wait settings are optional deployment overrides.
 

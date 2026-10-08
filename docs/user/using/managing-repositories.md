@@ -98,7 +98,7 @@ Use the optional `repository` and `namespace` fields to choose the destination p
 
 | Repository fields | Delta destination |
 | ----------------- | ----------------- |
-| Neither field is set | Flight Control uses the target image's repository path under the configured registry. |
+| Registry only | Flight Control uses the target image's repository path under the configured registry. |
 | `repository` is set | Flight Control pushes to that exact repository path under the registry. |
 | `namespace` is set | Flight Control prefixes the target image name with the namespace. |
 
@@ -117,11 +117,11 @@ spec:
   deltaStorageTarget: true
 ```
 
-This example omits credentials. For a private registry, add `ociAuth` with credentials that have push access. See [Private Registry (Read-Write)](#private-registry-read-write) for an example.
+For a private registry, add `ociAuth` with credentials that have push access. See [Private Registry (Read-Write)](#private-registry-read-write) for an example.
 
-If you do not mark an organization Repository as the delta storage target, Flight Control uses the optional deployment-level `deltaGeneration.defaultRepository` setting. This setting is shared by organizations in the deployment. See [Delta generation configuration](../installing/installing-service-on-linux-configuration.md#delta-generation-configuration) for registry settings, credentials, concurrency, job timeouts, and update wait defaults.
+The deployment-level `deltaGeneration.defaultRepository` setting provides a shared default target for organizations. An organization Repository marked with `deltaStorageTarget: true` takes precedence over this default. See [Delta generation configuration](../installing/installing-service-on-linux-configuration.md#delta-generation-configuration) for registry settings, credentials, concurrency, job timeouts, and update wait defaults.
 
-An organization Repository marked with `deltaStorageTarget: true` takes precedence over the deployment default. If neither target is configured, Flight Control does not generate deltas. Devices can still use deltas published to image registries by CI. For fleet wait behavior and render-time status, see [Defining rollout policies](managing-fleets.md#defining-rollout-policies) and [Updating the OS](managing-devices.md#updating-the-os).
+Devices can also use deltas published to image registries by CI. For fleet wait behavior and render-time status, see [Defining rollout policies](managing-fleets.md#defining-rollout-policies) and [Updating the OS](managing-devices.md#updating-the-os).
 
 ### Creating an OCI Repository
 

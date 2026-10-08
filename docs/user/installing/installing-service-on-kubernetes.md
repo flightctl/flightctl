@@ -32,7 +32,7 @@ It is recommended to install `cert-manager` before installing Flight Control. Wh
 To generate OS and application deltas, configure a valid, writable OCI target using either option:
 
 - Set `deltaGeneration.defaultRepository` in the Helm values to provide a deployment default shared by organizations.
-- Create an OCI Repository resource with `type: oci`, `accessMode: ReadWrite`, and `deltaStorageTarget: true`, as described in [Managing Repositories: Configuring a delta storage target](../using/managing-repositories.md#configuring-a-delta-storage-target). You can configure this resource after installation without setting a deployment default.
+- Create an OCI Repository resource with `type: oci`, `accessMode: ReadWrite`, and `deltaStorageTarget: true`, as described in [Managing Repositories: Configuring a delta storage target](../using/managing-repositories.md#configuring-a-delta-storage-target). Configure this resource at runtime after installation.
 
 Either option satisfies the storage prerequisite. An organization's Repository resource takes precedence over the deployment default when both are configured. For a private deployment default, set `deltaGeneration.defaultRepository.secretName` to a Secret with `username` and `password` keys in the installation namespace.
 
