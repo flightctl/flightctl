@@ -1,6 +1,6 @@
 # API resources
 
-This document serves as a high-level overview of the resources defined by the Flight Control API. The API defines the resource model; the CLI and web interface expose supported subsets of these resources.
+This document serves as a high-level overview of the various resources defined by the flightctl API.  You may view and interact with these resources via the API, CLI, or UI.
 
 You may configure your edge devices by specifying their configurations directly to flightctl or maintain the configurations in one or more git repositories and use GitOps to synchronize the configurations.
 
@@ -91,7 +91,7 @@ As mentioned, a fleet is a group of devices. A fleet’s definition has two main
 
 ## LabelSyncMappings
 
-A `LabelSyncMapping` is an organization-scoped resource that evaluates a CEL expression against device metadata, spec, or status and writes the result to device labels. Mappings can produce one scalar label or a map of labels. Manage mappings through the REST API endpoints `/api/v1/labelsyncmappings` and `/api/v1/labelsyncmappings/{name}`.
+A `LabelSyncMapping` is an organization-scoped resource that evaluates a CEL expression against device metadata, spec, or status and writes the result to device labels. Mappings can produce one scalar label or a map of labels. Manage mappings with the CLI or through the REST API endpoints `/api/v1/labelsyncmappings` and `/api/v1/labelsyncmappings/{name}`.
 
 For mapping examples, deployment defaults, ownership behavior, and propagation status, see [Managing dynamic label mappings](../using/managing-dynamic-mappings.md).
 
