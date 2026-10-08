@@ -59,6 +59,8 @@ To spin up services quickly for testing or development purposes, you can leave t
 
 For a production environment, set the base domain (`global.baseDomain`) to your own fully qualified domain name (FQDN) and configure certificates from your own PKI (see [Custom Certificates](#custom-certificates)).
 
+For OS and application delta generation, configure a writable OCI target through either the deployment's `deltaGeneration.defaultRepository` or a runtime OCI Repository with `deltaStorageTarget: true`. An organization's Repository takes precedence over the deployment default. See [Delta generation configuration](installing-service-on-linux-configuration.md#delta-generation-configuration) for both options and credentials. Ensure the delta registry is reachable from both the control plane and the device agent; see [Delta storage target access requirements](../using/managing-repositories.md#configuring-a-delta-storage-target).
+
 You can then start the Flight Control services by running
 
 ```bash

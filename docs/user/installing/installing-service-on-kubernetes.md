@@ -27,6 +27,39 @@ You can install the Flight Control Service on any certified Kubernetes distribut
 
 It is recommended to install `cert-manager` before installing Flight Control. When the Flight Control installer detects `cert-manager`, it will use it to issue and manage required CA and server TLS certificates. Otherwise, it falls back to creating certificates using Helm's built-in functions once, but does not manage them.
 
+### Configuring delta generation
+
+OS and application delta generation requires a valid, writable OCI storage target. Configure one using either option:
+
+- Set `deltaGeneration.defaultRepository` in the Helm values to provide a deployment default shared by organizations.
+- Create an OCI Repository resource with `type: oci`, `accessMode: ReadWrite`, and `deltaStorageTarget: true`, as described in [Managing Repositories: Configuring a delta storage target](../using/managing-repositories.md#configuring-a-delta-storage-target). Configure this resource at runtime after installation.
+
+Either option satisfies this requirement. An organization's Repository resource takes precedence over the deployment default when both are configured. For a private deployment default, set `deltaGeneration.defaultRepository.secretName` to a Secret with `username` and `password` keys in the installation namespace.
+
+For a deployment default, add the following to your Helm values. `registry` is the only required repository field:
+
+```yaml
+deltaGeneration:
+  defaultRepository:
+    registry: registry.example.com
+    secretName: delta-registry-creds # For a private registry
+```
+
+For a private registry, create the credential Secret in your installation namespace before installing or upgrading:
+
+```console
+kubectl create secret generic delta-registry-creds \
+  --namespace <installation_namespace> \
+  --from-file=username=<username_file> \
+  --from-file=password=<password_file>
+```
+
+The files contain the registry username and password or token. The chart injects these credentials into the delta worker through the Secret, separately from the rendered service configuration.
+
+Ensure the registry is reachable from both the control plane and the device agent. See [Delta storage target access requirements](../using/managing-repositories.md#configuring-a-delta-storage-target) for credentials and TLS trust.
+
+You can also configure generation concurrency, job timeouts, and update wait defaults through Helm values. See [Delta generation configuration](installing-service-on-linux-configuration.md#delta-generation-configuration) for the shared `deltaGeneration` keys used by both Helm and Podman deployments.
+
 ### Binding to pre-provisioned PersistentVolumes
 
 Use this section if your cluster does not support dynamic volume provisioning, or if the database or Alertmanager storage must use a specific, pre-provisioned `PersistentVolume` instead of one selected automatically by a `StorageClass`. This applies to Flight Control installations on Kubernetes, OpenShift, and MicroShift.
