@@ -256,7 +256,7 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1bet
 	}
 
 	if err := m.pullAndApplyOSDelta(ctx, candidate, osImage, optsFn); err != nil {
-		m.log.Errorf("OS delta failed, falling back to full pull: %v", err)
+		m.log.Warnf("OS delta failed, falling back to full pull: %v", err)
 		return m.fullImageCollection(osImage, optsFn), nil
 	}
 

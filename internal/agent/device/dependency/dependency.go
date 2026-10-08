@@ -1076,7 +1076,7 @@ func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, tas
 
 	m.recordDeltaApplied(target, task)
 	m.log.Infof("Applied OCI delta for application image %s from %s", target.image, candidate)
-	m.log.Infof("Refreshed registry reference for application image %s after OCI delta import", target.image)
+	m.log.Debugf("Refreshed registry reference for application image %s after OCI delta import", target.image)
 	return nil
 }
 
@@ -1210,8 +1210,6 @@ func (m *prefetchManager) pullApplicationImage(ctx context.Context, target image
 		return m.applicationDeltaFallback(ctx, target, task, podman, err, opts...)
 	}
 
-	m.log.Infof("Applied OCI delta for application image %s from %s", target.image, candidate)
-
 	// Pull the registry reference after importing the reconstructed image so
 	// container storage records the registry's canonical manifest digest. The
 	// blobs already present from delta reconstruction are reused by digest.
@@ -1220,7 +1218,8 @@ func (m *prefetchManager) pullApplicationImage(ctx context.Context, target image
 			fmt.Errorf("refresh registry manifest after delta import: %w", err), opts...)
 	}
 	m.recordDeltaApplied(target, task)
-	m.log.Infof("Refreshed registry reference for application image %s after OCI delta import", target.image)
+	m.log.Infof("Applied OCI delta for application image %s from %s", target.image, candidate)
+	m.log.Debugf("Refreshed registry reference for application image %s after OCI delta import", target.image)
 	return nil
 }
 
@@ -1341,7 +1340,7 @@ func (m *prefetchManager) recordDeltaApplyResultLocked(target imageRef, task *pr
 
 	current, exists := m.tasks[target]
 	if !exists || current != task || task.deltaGeneration != m.deltaGeneration {
-		m.log.Infof(
+		m.log.Debugf(
 			"Ignoring stale application delta result: image=%s outcome=%s taskGeneration=%d currentGeneration=%d taskStillRegistered=%t",
 			target.image, outcome, task.deltaGeneration, m.deltaGeneration, exists && current == task,
 		)
@@ -1356,7 +1355,7 @@ func (m *prefetchManager) recordDeltaApplyResultLocked(target imageRef, task *pr
 		if m.deltaStatusStore != nil && m.deltaAppTargetKeys != nil {
 			persistedTargetKey = m.deltaAppTargetKeys[application][targetID]
 			if persistedTargetKey != "" && persistedTargetKey != task.applicationTargetKey {
-				m.log.Infof(
+				m.log.Debugf(
 					"Ignoring application delta result for stale target identity: application=%s image=%s outcome=%s",
 					application, target.image, outcome,
 				)
@@ -1374,7 +1373,7 @@ func (m *prefetchManager) recordDeltaApplyResultLocked(target imageRef, task *pr
 			// outcome that describes how this target was originally applied.
 			if outcome == v1beta1.DeviceDeltaApplyOutcomeNotUsed ||
 				(outcome == v1beta1.DeviceDeltaApplyOutcomeNotRequired && existing.outcome != v1beta1.DeviceDeltaApplyOutcomeNotUsed) {
-				m.log.Infof(
+				m.log.Debugf(
 					"Preserving application delta result: application=%s image=%s existingOutcome=%s attemptedOutcome=%s",
 					application, target.image, existing.outcome, outcome,
 				)
@@ -1387,7 +1386,11 @@ func (m *prefetchManager) recordDeltaApplyResultLocked(target imageRef, task *pr
 			targetKey:      task.applicationTargetKey,
 		}
 		results[target] = result
-		m.log.Infof(
+		logResult := m.log.Debugf
+		if outcome == v1beta1.DeviceDeltaApplyOutcomeFallback {
+			logResult = m.log.Infof
+		}
+		logResult(
 			"Recorded application delta result: application=%s image=%s outcome=%s ociType=%s hintPresent=%t sourceDigest=%q targetDigest=%q fallbackReason=%q",
 			application, target.image, outcome, task.ociType, task.delta.Hint != "", task.delta.SourceDigest, task.targetDigest, fallbackReason,
 		)
@@ -1721,7 +1724,7 @@ func (m *prefetchManager) applicationImageDigestMatchesTarget(
 		sourceDigest = delta.SourceDigest
 	}
 	logCheck := func(result digestCheckResult, comparisonDigests []string, desiredDigest, reason string) digestCheckResult {
-		m.log.Infof(
+		m.log.Debugf(
 			"Application delta digest check: application=%s image=%s ociType=%s targetPresent=%t hintPresent=%t sourceDigest=%q comparisonDigests=%v targetDigest=%q matches=%t reason=%q",
 			application, target.image, ociType, targetPresent, hintPresent, sourceDigest, comparisonDigests, desiredDigest, result == digestMatched, reason,
 		)
@@ -1813,16 +1816,16 @@ func (m *prefetchManager) applicationDeltaCheckImageType(
 	if imageType == OCITypeAuto {
 		manifest, err := skopeo.InspectManifest(ctx, target.image, opts...)
 		if err != nil {
-			m.log.Infof("Could not inspect target type for %s while checking delta necessity: %v", target, err)
+			m.log.Debugf("Could not inspect target type for %s while checking delta necessity: %v", target, err)
 			return "", false
 		}
 		imageType, err = detectOCIType(manifest)
 		if err != nil {
-			m.log.Infof("Could not detect OCI type for %s while checking delta necessity: %v", target, err)
+			m.log.Debugf("Could not detect OCI type for %s while checking delta necessity: %v", target, err)
 			return "", false
 		}
 		if imageType != OCITypePodmanImage {
-			m.log.Infof("Target %s resolved to OCI type %s while checking delta necessity; expected PodmanImage", target, imageType)
+			m.log.Debugf("Target %s resolved to OCI type %s while checking delta necessity; expected PodmanImage", target, imageType)
 			return "", false
 		}
 	}
@@ -1847,11 +1850,11 @@ func (m *prefetchManager) applicationDeltaCheckCurrentDigests(
 		}
 		digests, err := podman.ImageDigests(ctx, target.image)
 		if err != nil {
-			m.log.Infof("Could not inspect local digests for %s while checking delta necessity: %v", target, err)
+			m.log.Debugf("Could not inspect local digests for %s while checking delta necessity: %v", target, err)
 			return nil, false
 		}
 		if len(digests) == 0 {
-			m.log.Infof("Local digest inspection returned no digests for %s while checking delta necessity", target)
+			m.log.Debugf("Local digest inspection returned no digests for %s while checking delta necessity", target)
 			return nil, true
 		}
 		return digests, true
@@ -1861,7 +1864,7 @@ func (m *prefetchManager) applicationDeltaCheckCurrentDigests(
 		}
 		digests, err := m.cliClients.CRI().ImageRepoDigests(ctx, target.image, opts...)
 		if err != nil {
-			m.log.Infof("Could not inspect local CRI digests for %s while checking delta necessity: %v", target, err)
+			m.log.Debugf("Could not inspect local CRI digests for %s while checking delta necessity: %v", target, err)
 			return nil, false
 		}
 		return digests, true
