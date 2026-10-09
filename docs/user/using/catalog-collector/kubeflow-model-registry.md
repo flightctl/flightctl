@@ -1,6 +1,6 @@
 # Importing a Kubeflow Model Registry
 
-The catalog collector ships a native source that polls a Kubeflow Model Registry, as exposed by Red Hat OpenShift AI, and mirrors its registered models into a Flight Control catalog. Devices can then reference those models through a catalog item reference instead of a hard-coded image digest.
+The catalog collector ships a built-in source that polls a Kubeflow Model Registry, as exposed by Red Hat OpenShift AI, and mirrors its registered models into a Flight Control catalog. Devices can then reference those models through a catalog item reference instead of a hard-coded image digest.
 
 This guide describes how the source maps registry content onto Flight Control resources, how to configure it, and what happens when the registry changes. For the configuration model itself, see [Catalog collector overview](overview.md).
 
@@ -136,8 +136,8 @@ The snapshot carries the complete desired state of the configured catalog, so Fl
 | A new registered model becomes eligible | A new CatalogItem is created on the next cycle. |
 | A new version is registered with an eligible artifact | The version is added to the existing CatalogItem. |
 | A model description, owner, or provider changes | The corresponding CatalogItem field is updated. |
-| A version is archived, or stops matching the version filter | The version is removed from the CatalogItem. |
-| A model is archived, deleted, or loses all eligible versions | The CatalogItem is deleted. |
+| A version is archived, or stops matching the version filter | The version is removed from the CatalogItem. If a device or fleet uses that version, the API rejects the whole update and the cycle fails. |
+| A model is archived, deleted, or loses all eligible versions | The CatalogItem is deleted. If a device or fleet uses one of its versions, the API rejects the deletion and the cycle fails. |
 | Nothing changes | The snapshot repeats the previous revision. Reconciliation still runs and still repairs drift, but a resource that already matches is not rewritten. |
 
 Deletion is limited to resources that the same pipeline created, identified by the `flightctl.io/managed-by` and `flightctl.io/catalog-collector-pipeline` labels. Catalogs and catalog items that carry an owner, such as those created by a ResourceSync, are never touched, and neither is a resource created by hand under a different name. See [Ownership and pruning](overview.md#ownership-and-pruning).
@@ -151,12 +151,18 @@ A cycle has two halves, and a failure in each has a different effect. Read the l
 | Collection fails: the registry is unreachable, a filter is rejected, or normalization finds a data error | No snapshot is produced, so no destination runs. Nothing is written and nothing is pruned, and the previous content stays in place. |
 | Reconciliation fails: the Flight Control API rejects or does not answer a write | Writes that already succeeded stay committed. Reconciliation is not transactional, so the catalog can be left part-way between the old and the new desired state. |
 
-Pruning is the exception that is protected. The destination begins deleting only after every desired write has succeeded and both complete lists of managed resources have been retrieved, so a failure in either step leaves the stale resources in place rather than deleting live content.
+Pruning is ordered to be safer than the writes, but it is not protected from everything. The destination begins deleting only after every desired write has succeeded and both complete lists of managed resources have been retrieved, so a failure in any of those steps deletes nothing at all. Once deletion starts, the deletions are issued one at a time: if one fails, the deletions already made stay applied and the remainder are abandoned.
 
 Either failure advances the backoff and the source retries. A retry re-sends the complete desired state, so a partially applied reconciliation converges on the next successful cycle.
 
+### Content that is in use cannot be removed
+
+The Flight Control API refuses to delete a catalog item, and refuses an update that changes or removes one of its versions, while a device or a fleet still references that version. It answers with a conflict naming the affected versions, and it rejects the whole request, not only the part that touches the version in use.
+
+Archiving such a model in the registry therefore does not make it disappear from Flight Control. The next cycle produces a snapshot without it, the destination asks for the deletion, the API refuses, and the cycle fails and is retried. The catalog item stays, carrying the content of the last successful cycle, until the references are removed.
+
 > [!IMPORTANT]
-> Removing a model from the registry removes the catalog item, and a device specification that references it stops resolving. Check which devices and fleets reference a catalog item before archiving its model.
+> Check which devices and fleets reference a catalog item before archiving its model. Until those references are removed, the archived model fails the reconciliation of every cycle for that pipeline, which also abandons the pruning of anything else the same cycle wanted to remove.
 
 ## Configuring the source
 
@@ -326,7 +332,7 @@ The full procedure, including verification commands and explicit token projectio
                 pullPolicy: IfNotPresent
     ```
 
-See [Referencing catalog items in device specifications](../managing-catalogs.md#referencing-catalog-items-in-device-specifications) for the other places a catalog item reference is accepted.
+An application volume source is the only place these items can be referenced. This source sets `spec.type` to `data` on every catalog item it creates, and a volume source is the one position that accepts a `data` item. The other two positions that take a `catalogItemRef`, the OS image and an application source, require an item whose type is `os` or matches the application type. See [Referencing catalog items in device specifications](../managing-catalogs.md#referencing-catalog-items-in-device-specifications) for all three positions and the type each one requires.
 
 ## Troubleshooting
 

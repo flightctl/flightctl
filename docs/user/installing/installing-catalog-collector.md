@@ -31,22 +31,28 @@ The collector has its own chart, `flightctl-catalog-collector`. It is deliberate
 
 ### Procedure
 
-1. Install the chart with one of the shipped example value files. A bare `helm install` with no values fails on purpose, because the chart has no default pipeline:
+1. Obtain the chart. The `examples/` directory is part of the packaged chart, so no clone of the Flight Control repository is required. Pull the packaged chart and unpack it:
 
     ```console
-    helm install catalog-collector deploy/helm/flightctl-catalog-collector \
-      --values deploy/helm/flightctl-catalog-collector/examples/values-vanilla.yaml
+    helm pull <chart_reference> --version <version> --untar
     ```
 
-    The `examples/` directory is part of the packaged chart, so the same files are available after `helm pull` without a clone of the repository.
+    Replace `<chart_reference>` with the chart location your distribution publishes. From a clone of the Flight Control repository, skip this step and use `deploy/helm/flightctl-catalog-collector` as the chart path in the next step.
 
-2. Confirm that the deployment rolls out:
+2. Install the chart with one of the shipped example value files. A bare `helm install` with no values fails on purpose, because the chart has no default pipeline:
+
+    ```console
+    helm install catalog-collector ./flightctl-catalog-collector \
+      --values ./flightctl-catalog-collector/examples/values-vanilla.yaml
+    ```
+
+3. Confirm that the deployment rolls out:
 
     ```console
     kubectl -n <namespace> rollout status deployment/catalog-collector-flightctl-catalog-collector
     ```
 
-3. Read the log if the pod does not become ready:
+4. Read the log if the pod does not become ready:
 
     ```console
     kubectl -n <namespace> logs deployment/catalog-collector-flightctl-catalog-collector
@@ -107,14 +113,26 @@ Values may also be injected through `env` and `envFrom` and referenced in the co
 
 ### Authenticating to Flight Control
 
-Prefer OAuth2 client credentials over a static bearer token. Register a confidential client in the identity provider that Flight Control authenticates against, grant it permission to create and update Catalog and CatalogItem resources, and mount its identifier and secret as separate keys of one Secret:
+Prefer OAuth2 client credentials over a static bearer token. Register a confidential client in the identity provider that Flight Control authenticates against and mount its identifier and secret as separate keys of one Secret.
+
+Grant the client every permission reconciliation uses on both Catalog and CatalogItem resources:
+
+| Permission | Why reconciliation needs it |
+|---|---|
+| Read and list | Each desired resource is read before it is written, and the complete set of resources carrying the pipeline labels is listed on every cycle. |
+| Create and update | Desired resources are written. |
+| Delete | Resources the pipeline created earlier but that the snapshot no longer contains are pruned. |
+
+Delete is not optional. Pruning is part of every cycle, so a credential that may only create and update fails as soon as anything has to be removed.
+
+Configure the extension and point the destination at it:
 
 ```yaml
 extensions:
   oauth2client/flightctl:
     clientIdFile: /etc/flightctl/catalog-collector/oauth/client-id
     clientSecretFile: /etc/flightctl/catalog-collector/oauth/client-secret
-    tokenUrl: https://<oidc_issuer>/protocol/openid-connect/token
+    tokenUrl: https://<oidc_token_endpoint>
     scopes:
       - openid
     certificateAuthority: /etc/flightctl/catalog-collector/certs/oidc-ca.crt
@@ -122,10 +140,12 @@ extensions:
 
 destinations:
   flightctl/service:
-    server: https://<flightctl_api_endpoint>
+    server: https://<flightctl_api_hostname>
     auth:
       authenticator: oauth2client/flightctl
 ```
+
+Take `<oidc_token_endpoint>` from your own authorization server, usually from the `token_endpoint` field of its OpenID Connect discovery document. A Keycloak realm, for example, publishes it as `https://<host>/realms/<realm>/protocol/openid-connect/token`, but the path differs between providers.
 
 The collector exchanges the client credentials for a short-lived access token, so no long-lived token is stored. `clientId` and `clientSecret` may be given inline instead, but the values then appear in the ConfigMap and in `helm get values`.
 
@@ -180,11 +200,19 @@ On RHEL and compatible distributions the collector ships as the `flightctl-catal
 
     The `daemon-reload` step is required, not advisory. Quadlet is a systemd generator, so `flightctl-catalog-collector.service` does not exist until the generators run again.
 
-4. Confirm that the collector is healthy:
+4. Confirm that the collector finished starting:
 
     ```console
     curl -s http://127.0.0.1:13133/readyz
     ```
+
+    The expected output is:
+
+    ```text
+    {"status":"ready"}
+    ```
+
+    Before startup completes, and again during shutdown, the endpoint answers `503 Service Unavailable` with `{"status":"not_ready"}`.
 
 ### Installed paths
 
@@ -244,13 +272,13 @@ For the complete unit contract, including restart bounds and verification comman
 
 ## Verifying the installation
 
-1. Confirm readiness:
+1. Confirm that startup finished. The endpoint answers `200 OK` with `{"status":"ready"}` once the collector is ready, and `503 Service Unavailable` with `{"status":"not_ready"}` before that:
 
     ```console
     curl -s http://127.0.0.1:13133/readyz
     ```
 
-    Preflight is an optional capability that a source may implement. A source that implements it, such as `kubeflowmodelregistry`, is validated during startup, before the collector reports ready. A source that does not, such as `http`, contributes nothing to readiness. No preflight runs against a destination, so readiness never proves that the Flight Control credential is accepted.
+    Readiness reports that the process finished starting. It is not a report that the pipeline works. Preflight is an optional capability that a source may implement. A source that implements it, such as `kubeflowmodelregistry`, is validated during startup, before the collector reports ready. A source that does not, such as `http`, contributes nothing to readiness. No preflight runs against a destination, so readiness never proves that the Flight Control credential is accepted.
 
 2. Allow at least one poll interval to pass, then read the metrics:
 

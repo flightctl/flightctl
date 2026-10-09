@@ -6,15 +6,18 @@ The collector reads catalogs from an external source (for example a Kubeflow
 Model Registry, as exposed by Red Hat OpenShift AI) and reconciles them into
 Flight Control `Catalog` and `CatalogItem` resources.
 
-The user-facing documentation lives under `docs/`:
+The user-facing documentation lives in the Flight Control repository. The links
+below are absolute on purpose: this README travels inside the packaged chart
+and is rendered by chart catalogs, where a path relative to the repository
+layout does not resolve.
 
 | Topic | Document |
 |-------|----------|
-| What the collector is, the configuration model, a quickstart | [Catalog collector overview](../../../docs/user/using/catalog-collector/overview.md) |
-| Installing on Kubernetes, OpenShift, or a standalone Linux host | [Installing the catalog collector](../../../docs/user/installing/installing-catalog-collector.md) |
-| Every configuration field, default, and validation rule | [Catalog collector configuration reference](../../../docs/user/references/catalog-collector.md) |
-| The Kubeflow Model Registry workflow | [Importing a Kubeflow Model Registry](../../../docs/user/using/catalog-collector/kubeflow-model-registry.md) |
-| Writing a native source | [Writing custom catalog collector sources](../../../docs/developer/catalog-collector-sources.md) |
+| What the collector is, the configuration model, a quickstart | [Catalog collector overview](https://github.com/flightctl/flightctl/blob/main/docs/user/using/catalog-collector/overview.md) |
+| Installing on Kubernetes, OpenShift, or a standalone Linux host | [Installing the catalog collector](https://github.com/flightctl/flightctl/blob/main/docs/user/installing/installing-catalog-collector.md) |
+| Every configuration field, default, and validation rule | [Catalog collector configuration reference](https://github.com/flightctl/flightctl/blob/main/docs/user/references/catalog-collector.md) |
+| The Kubeflow Model Registry workflow | [Importing a Kubeflow Model Registry](https://github.com/flightctl/flightctl/blob/main/docs/user/using/catalog-collector/kubeflow-model-registry.md) |
+| Writing your own source | [Writing custom catalog collector sources](https://github.com/flightctl/flightctl/blob/main/docs/developer/catalog-collector-sources.md) |
 
 This README documents the chart contract itself: the values, what each one
 rejects, and why.

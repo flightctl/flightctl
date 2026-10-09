@@ -6,9 +6,11 @@ collector as a systemd-managed Podman container, shipped by the
 
 For the collector itself -- what it does, how it is configured, and how to
 install it -- see
-[Installing the catalog collector](../../../docs/user/installing/installing-catalog-collector.md),
-the [catalog collector overview](../../../docs/user/using/catalog-collector/overview.md),
-and the [configuration reference](../../../docs/user/references/catalog-collector.md).
+[Installing the catalog collector](https://github.com/flightctl/flightctl/blob/main/docs/user/installing/installing-catalog-collector.md),
+the [catalog collector overview](https://github.com/flightctl/flightctl/blob/main/docs/user/using/catalog-collector/overview.md),
+and the [configuration reference](https://github.com/flightctl/flightctl/blob/main/docs/user/references/catalog-collector.md).
+The links are absolute because this directory is read outside a repository
+checkout, where a path relative to the repository layout does not resolve.
 This README documents the unit and the on-host layout.
 
 Unlike the units under the other `deploy/podman/` directories, this one is

@@ -123,11 +123,14 @@ Request handling:
 | Method other than `POST` | `405 Method Not Allowed` |
 | `Content-Type` other than `application/json` | `415 Unsupported Media Type` |
 | Body larger than 16 MiB | `400 Bad Request` |
-| Invalid JSON, unknown field, or trailing data | `400 Bad Request` |
+| Invalid JSON, or trailing data after the object | `400 Bad Request` |
+| Unknown field, at the top level or anywhere inside a resource | `400 Bad Request` |
 | Missing or empty `revision` | `400 Bad Request` |
 | Missing `catalogs` or `catalogItems` | `400 Bad Request`. Use `[]` for an empty collection. |
-| Downstream processing failed | `502 Bad Gateway` |
-| Snapshot accepted and delivered | `204 No Content` |
+| Snapshot validation, a processor, or a destination failed | `502 Bad Gateway` |
+| Every pipeline using this source reported success | `204 No Content` |
+
+The handler checks only the envelope. Snapshot validation runs inside the pipeline, so a body whose resources fail Flight Control API validation is answered with `502`, not `400`. Equally, `204` reports that every pipeline using this source returned success; with a `debug` destination that means the snapshot was logged, not that anything was written to Flight Control.
 
 > [!WARNING]
 > The HTTP source performs no inbound authentication. Keep it on loopback or on a cluster-internal network. Exposing it allows anyone who can reach it to replace or delete the catalog content the pipeline manages.
@@ -221,15 +224,22 @@ The destination labels every resource it manages:
 
 Reconciliation behavior:
 
-* Resources in the snapshot are created or updated. A resource that already matches the desired state is left untouched.
+* Resources in the snapshot are created or updated. A resource that already matches the desired specification and labels is left untouched.
 * Resources carrying both labels for this pipeline that the snapshot does not contain are deleted. CatalogItems are deleted before Catalogs.
-* Pruning starts only after all writes succeed and the complete lists of managed Catalogs and CatalogItems have been retrieved.
+* Pruning starts only after all writes succeed and the complete lists of managed Catalogs and CatalogItems have been retrieved. Once it starts, the deletions are issued one at a time and are not rolled back: a failed deletion abandons the rest and leaves the earlier ones applied.
 * An existing resource without the collector labels is never adopted. A desired name that collides with such a resource fails the reconciliation.
 * A resource that reports an owner is never modified.
-* A snapshot that sets either reserved label itself is rejected.
-* Reconciliation is not transactional. A failure part-way through leaves earlier writes committed. Pruning is the exception: it begins only after every write and both managed-resource lists have succeeded.
+* A snapshot that sets either reserved label itself is rejected. This check belongs to this destination. The shared snapshot validation that runs before every destination does not inspect labels.
+* Reconciliation is not transactional. A failure part-way through leaves earlier writes committed. Pruning is ordered last so that a failure before it deletes nothing, but it is not atomic in itself.
 
-The labels bound what the collector manages. They are not an access control: any other client authorized to call the Flight Control API can edit or delete a labeled resource, and the next successful synchronization overwrites a manual edit. For a catalog that the API itself protects from editing, use ResourceSync, which sets `metadata.owner`.
+The destination does not decide what may be deleted. It issues the request and the API answers:
+
+* The API rejects the deletion of a CatalogItem while a device or a fleet references one of its versions, with a conflict naming those versions. A snapshot that omits the item therefore fails to prune it until the references are removed. The same rule rejects a write that removes or alters an in-use version.
+* The API rejects a specification change or a deletion on a resource that reports an owner. The destination refuses to touch owned resources before it reaches that point.
+
+The credential the destination uses must be allowed to read and list, create and update, and delete both Catalog and CatalogItem resources. Pruning is part of normal reconciliation, so a credential without delete permission fails every cycle in which something has to be removed.
+
+The labels bound what the collector manages. They are not an access control: any other client authorized to call the Flight Control API can edit or delete a labeled resource, and the next successful synchronization overwrites a manual edit. For a catalog whose content the API itself protects, use ResourceSync, which sets `metadata.owner`.
 
 ### debug
 
@@ -326,6 +336,8 @@ extensions:
 | `insecureSkipVerify` | boolean | `false` | Disables TLS verification for the token request. Development only. |
 | `timeout` | duration | `30s` | Timeout for the token request. Must be greater than zero. |
 | `expiryBuffer` | duration | `10s` | Treats a cached token as expired this long before its real expiry. Must not be negative. |
+
+The `tokenUrl` value in the example above is a Keycloak realm endpoint, because Keycloak is a common choice in Flight Control deployments. It is only an example. Take the token endpoint from your own authorization server, usually from the `token_endpoint` field of its OpenID Connect discovery document; the path differs between providers.
 
 Tokens are fetched lazily. When a request is about to be sent and the cached token has less than `expiryBuffer` remaining, a replacement is obtained first. The buffer narrows the window in which a token expires in flight; it does not make a `401` response impossible.
 

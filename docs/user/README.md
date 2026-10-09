@@ -29,8 +29,7 @@ Welcome to the Flight Control user documentation.
     * [Configuring Vulnerability Integration](installing/configuring-vulnerability-integration.md)
     * [Configuring Encryption at Rest](installing/configuring-encryption.md)
 
-  * Optional Components
-    * [Installing the Catalog Collector](installing/installing-catalog-collector.md)
+  * **[Installing the Catalog Collector](installing/installing-catalog-collector.md)**
 
   * Monitoring the Flight Control Service
     * [Deploying the Observability Stack on Kubernetes](installing/deploying-observability-kubernetes.md)
@@ -100,11 +99,10 @@ Welcome to the Flight Control user documentation.
   * [Importing catalogs from external sources](using/managing-catalogs.md#importing-catalogs-from-external-sources)
   * [Importing catalogs using ResourceSync](using/managing-catalogs.md#importing-catalogs-using-resourcesync)
   * [Referencing catalog items in device specifications](using/managing-catalogs.md#referencing-catalog-items-in-device-specifications)
-* **[Catalog Collector](using/catalog-collector/overview.md)** - How to import catalogs from an external system of record into Flight Control.
   * [Catalog collector overview](using/catalog-collector/overview.md)
-  * [Quickstart](using/catalog-collector/overview.md#quickstart)
-  * [Importing a Kubeflow Model Registry](using/catalog-collector/kubeflow-model-registry.md)
-  * [Installing the catalog collector](installing/installing-catalog-collector.md)
+    * [Quickstart](using/catalog-collector/overview.md#quickstart)
+    * [Importing a Kubeflow Model Registry](using/catalog-collector/kubeflow-model-registry.md)
+    * [Installing the catalog collector](installing/installing-catalog-collector.md)
 * **[Managing Image Builds and Exports](using/managing-image-builds.md)** - How to build and export OS images using the Flight Control API.
   * [ImageBuild resource](using/managing-image-builds.md#imagebuild-resource)
   * [ImageExport resource](using/managing-image-builds.md#imageexport-resource)

@@ -1,22 +1,24 @@
 # Writing custom catalog collector sources
 
-The catalog collector is an extensible pipeline runner. This guide describes the component contracts in `pkg/catalogcollector` and how to add a native source that polls an external system and emits catalog snapshots.
+The catalog collector is an extensible pipeline runner. This guide describes the component contracts in `pkg/catalogcollector` and how to add a source that is compiled into a collector distribution and emits catalog snapshots.
 
 Read [Catalog collector overview](../user/using/catalog-collector/overview.md) first for the user-facing model, and the [configuration reference](../user/references/catalog-collector.md) for the fields of the shipped components.
 
-## Choosing between an adapter and a native source
+## Choosing between an adapter and a compiled-in source
 
-Before writing Go code, decide which integration path fits.
+Neither path is needed when a shipped source already covers the external system. Check the [built-in sources](../user/using/catalog-collector/overview.md#built-in-sources) first. When none fits, decide which of the two integration paths to take before writing Go code.
 
-| | HTTP adapter | Native source |
+| | HTTP adapter | Compiled-in source |
 |---|---|---|
 | Where the integration runs | Your own process, outside the collector | Inside the collector process |
 | How snapshots are delivered | `POST` to the built-in `http` source | An in-memory call to the downstream consumer |
 | What you implement | A converter from the external system to Catalog and CatalogItem JSON | A `Source` and a `SourceFactory` |
-| What the collector gives you | Validation, processors, destinations, pruning | The same, plus polling, bounded backoff, preflight, component metrics, shared authenticators |
+| What the collector gives you | Validation, processors, destinations, pruning | The same, plus optional helpers for polling, bounded backoff, preflight, and component metrics, and access to the shared authenticator extensions |
 | Release coupling | None; ship on your own cadence | The source is compiled into a collector binary |
 
-Prefer the adapter for a one-off or proprietary system. Prefer a native source for an API that several deployments share and that benefits from the collector lifecycle.
+Prefer the adapter for a one-off or proprietary system. Prefer a compiled-in source for an API that several deployments share and that benefits from the collector lifecycle.
+
+The `Source` contract does not require polling. A source only has to run until its context is cancelled and emit complete snapshots; the polling loop described below is a helper, not an obligation. The built-in `http` source is itself a source that never polls.
 
 ## Package layout
 

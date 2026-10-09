@@ -288,7 +288,9 @@ flightctl get catalogitems --catalog <catalog_name>
 Catalogs and catalog items do not have to be created one at a time. Flight Control offers two ways to keep a catalog in step with content that is maintained elsewhere:
 
 * **ResourceSync**: the Flight Control service polls a Git repository that holds Catalog and CatalogItem YAML files and applies what it finds. Use it when you author the definitions yourself and want Git review and history.
-* **The catalog collector**: a separate service polls an external system of record, such as a model registry, converts its content into catalog resources, and writes them to the Flight Control API. Use it when another system already owns the content.
+* **The catalog collector**: a separate service obtains catalog content from an external system of record, such as a model registry, converts it into catalog resources, and writes them to the Flight Control API. Use it when another system already owns the content.
+
+How the collector obtains that content depends on the source you configure. A polling source, such as the shipped Kubeflow Model Registry source, queries the external system on an interval. The built-in HTTP source does not poll at all: it waits for your own adapter to post the content to it.
 
 The two mechanisms are independent, and one deployment can use both for different catalogs.
 
@@ -298,12 +300,14 @@ The two mechanisms are independent, and one deployment can use both for differen
 | Who runs the import | A collector process that you deploy and operate | The Flight Control service |
 | Direction | The collector writes to the Flight Control API | The service reads from Git |
 | Resource ownership | Resources carry collector labels that record which pipeline manages them | Resources are marked as owned by the ResourceSync |
-| Editing outside the import path | Allowed. Any authorized API client can edit a collector-labeled resource | Blocked. The API, CLI, and UI reject edits to an owned resource |
+| Editing outside the import path | Allowed. Any authorized API client can edit a collector-labeled resource | Restricted. The API rejects specification changes and deletion. Label updates are still accepted |
 | Deletion behavior | Resources the pipeline created but that the external system no longer reports are deleted | Resources whose definitions are removed from the repository are deleted |
 
 Keep the two mechanisms on separate catalogs. The collector never adopts a resource outside its own boundary: a name collision with a resource created by hand or by a ResourceSync fails the import rather than overwriting the resource.
 
-Note the asymmetry in the ownership row. ResourceSync ownership is enforced by the Flight Control API, so an owned resource cannot be edited outside its import path. The collector labels are not enforced that way. They tell the collector what it may manage and prune, but they do not stop another authorized client from editing the resource, and a manual edit survives only until the next successful synchronization.
+Note the asymmetry in the ownership row. ResourceSync ownership is enforced by the Flight Control API: a request that changes the specification of an owned Catalog or CatalogItem, or deletes it, is rejected with a conflict. A request that changes only the labels is accepted, so ownership protects the content rather than freezing the whole resource. The collector labels are not enforced by the API at all. They tell the collector what it may manage and prune, but they do not stop another authorized client from editing the resource, and a manual edit survives only until the next successful synchronization.
+
+Deletion is not unconditional in either case. The API refuses to delete a catalog item while a device or fleet still references one of its versions, so content that is in use stays in place until the references are removed.
 
 To import from an external system, see [Catalog collector overview](catalog-collector/overview.md). To import from Git, continue with the next section.
 
