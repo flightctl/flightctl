@@ -130,6 +130,8 @@ Aux services are shared testcontainers used by e2e: **registry** (TLS on port 50
 - **Stop all:** `make stop-aux`.
 - **Clean for fresh run:** `make clean-aux` (removes containers and volumes).
 
+> **Keycloak reuse:** `flightctl-realm.json` is only imported when Keycloak starts with an empty database, so editing it does not change a container an earlier run left behind. Objects the e2e suites depend on are therefore reconciled through the Keycloak Admin REST API on every start (see `test/e2e/infra/auxiliary/keycloak_admin.go`). Add new realm objects in both places, or `make clean-aux` becomes a prerequisite for every developer.
+
 The **catalog collector** suite (`test/e2e/catalogcollector`) starts Keycloak and the Model Registry on demand, seeds a model, and installs the collector Helm chart; see [catalogcollector/README.md](catalogcollector/README.md).
 
 The **auth-provider** suite (`test/e2e/authprovider`) uses Keycloak to test the OAuth authorization-code flow: it starts Keycloak in BeforeSuite, applies a dynamic OIDC AuthProvider, then runs `flightctl login --web --no-browser` and automates the Keycloak login page with chromedp. You can run that suite with `GO_E2E_DIRS=test/e2e/authprovider`; the suite starts Keycloak on its own, or run `make start-keycloak` first if you prefer.

@@ -3,6 +3,7 @@ package k8s
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -32,6 +33,18 @@ const (
 	kindClusterNameEnv = "KIND_CLUSTER_NAME"
 	// defaultKindClusterName matches test/scripts/create_cluster.sh.
 	defaultKindClusterName = "kind"
+
+	// podmanCLIName is the runtime CLI whose "image exists" subcommand reports
+	// presence through the exit status alone.
+	podmanCLIName = "podman"
+	// podmanImageAbsentExitCode is the documented "image is not in local
+	// storage" status of "podman image exists". Podman reserves 125 for a
+	// failure of the command itself, which must not be read as "absent".
+	podmanImageAbsentExitCode = 1
+	// dockerImageInspectFailureExitCode is the status "docker image inspect"
+	// returns both for a missing image and for a runtime it cannot reach, so
+	// the stderr message has to disambiguate.
+	dockerImageInspectFailureExitCode = 1
 )
 
 // ChartDeployer implements infra.ChartDeployer for Kubernetes environments.
@@ -45,6 +58,10 @@ type ChartDeployer struct {
 	kubeContext string
 	envType     string
 	projectRoot string
+
+	// runCommand is the image-lookup command seam. Nil in production, where
+	// runLookupCommand is used; tests set it to drive the failure paths.
+	runCommand commandRunner
 }
 
 // NewChartDeployer creates a K8s ChartDeployer. infraP supplies the kubeconfig,
@@ -153,22 +170,115 @@ func (d *ChartDeployer) ApplyConfigMap(ctx context.Context, namespace, name stri
 	return nil
 }
 
+// commandResult is the outcome of one image-lookup command.
+type commandResult struct {
+	// exitCode is the process exit status. It is only meaningful when the
+	// process actually ran, which exited reports.
+	exitCode int
+	// exited is false when the command could not be started at all (missing
+	// executable, permission denied) or was killed before reporting a status.
+	exited bool
+	// stderr is the captured standard error, used to tell "no such image"
+	// apart from a runtime failure for runtimes that reuse one exit code.
+	stderr string
+	// err is the raw error from running the command, nil on exit code 0.
+	err error
+}
+
+// commandRunner runs an image-lookup command. It is a field on ChartDeployer so
+// the failure paths (runtime down, missing executable, cancellation) can be
+// exercised without a container runtime.
+type commandRunner func(ctx context.Context, name string, args ...string) commandResult
+
+// runLookupCommand is the production commandRunner.
+func runLookupCommand(ctx context.Context, name string, args ...string) commandResult {
+	var stderr strings.Builder
+	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // G204: command and image come from suite configuration
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+
+	result := commandResult{stderr: stderr.String(), err: err}
+	if err == nil {
+		result.exited = true
+		return result
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.Exited() {
+		result.exited = true
+		result.exitCode = exitErr.ExitCode()
+	}
+	return result
+}
+
+// notFoundMessage matches the wording a runtime uses when the image simply is
+// not in the local store, as opposed to the runtime being unreachable.
+func notFoundMessage(stderr string) bool {
+	lowered := strings.ToLower(stderr)
+	for _, marker := range []string{"no such image", "image not known", "not found"} {
+		if strings.Contains(lowered, marker) {
+			return true
+		}
+	}
+	return false
+}
+
 // LocalImageExists reports whether the image is present in the local runtime.
+//
+// Only a runtime that positively reports "this image is not in the local store"
+// yields (false, nil). A missing runtime binary, an unreachable runtime, any
+// other runtime failure, and a cancelled or timed-out context are returned as
+// errors, so a broken environment is never silently reported as a missing
+// image.
 func (d *ChartDeployer) LocalImageExists(ctx context.Context, image string) (bool, error) {
 	if strings.TrimSpace(image) == "" {
 		return false, fmt.Errorf("LocalImageExists: image is required")
 	}
 	cli := containers.RuntimeCLIName()
-	var cmd *exec.Cmd
-	if cli == "podman" {
-		cmd = exec.CommandContext(ctx, cli, "image", "exists", image) //nolint:gosec // G204: image comes from suite configuration
-	} else {
-		cmd = exec.CommandContext(ctx, cli, "image", "inspect", image) //nolint:gosec // G204: image comes from suite configuration
+	// "podman image exists" is purpose-built for this question and documents
+	// exit 1 as "the image is not in local storage"; Docker has no equivalent,
+	// so "docker image inspect" is used and its stderr is matched instead.
+	args := []string{"image", "inspect", image}
+	if cli == podmanCLIName {
+		args = []string{"image", "exists", image}
 	}
-	if err := cmd.Run(); err != nil {
-		return false, nil //nolint:nilerr // a non-zero exit only means the image is absent
+
+	run := d.runCommand
+	if run == nil {
+		run = runLookupCommand
 	}
-	return true, nil
+	result := run(ctx, cli, args...)
+
+	// Checked before the exit status: a killed process reports a signal, not a
+	// meaningful code, and "the lookup never finished" is not "image absent".
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return false, fmt.Errorf("%s %s: image lookup for %s did not complete: %w",
+			cli, strings.Join(args, " "), image, ctxErr)
+	}
+	if result.err == nil {
+		return true, nil
+	}
+	if !result.exited {
+		// The command could not be started, or was killed without an exit
+		// status: a missing CLI or a broken environment, never an answer.
+		return false, fmt.Errorf("run %s %s: %w", cli, strings.Join(args, " "), result.err)
+	}
+
+	stderr := strings.TrimSpace(result.stderr)
+	switch cli {
+	case podmanCLIName:
+		// Documented contract: 0 present, 1 absent, anything else (125 for a
+		// runtime error) is a failure of the command itself.
+		if result.exitCode == podmanImageAbsentExitCode {
+			return false, nil
+		}
+	default:
+		// Docker reuses exit code 1 for both "no such image" and connection
+		// failures, so the message is what separates them.
+		if result.exitCode == dockerImageInspectFailureExitCode && notFoundMessage(stderr) {
+			return false, nil
+		}
+	}
+	return false, fmt.Errorf("%s %s: %w: %s", cli, strings.Join(args, " "), result.err, stderr)
 }
 
 // LoadLocalImage loads a locally built image into the kind node image store.

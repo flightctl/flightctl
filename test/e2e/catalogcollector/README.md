@@ -41,15 +41,40 @@ Out of scope (deliberately not covered here):
   `localhost/flightctl-catalog-collector-el9:latest` (or
   `localhost/flightctl-catalog-collector:latest`). `make deploy` builds it as
   part of `build-containers`; it can also be built on its own with
-  `make flightctl-catalog-collector-container`. The suite **skips** with an
-  explanatory message when no candidate image is present, rather than silently
-  testing some other build.
+  `make flightctl-catalog-collector-container`. When no candidate image is
+  present the suite **skips** with an explanatory message rather than silently
+  testing some other build — unless the image was declared required, in which
+  case setup **fails** (see below).
+
+## Choosing the collector image
+
+There are two paths, and they differ in where the image comes from:
+
+- **Local development.** Nothing is set. The suite looks for the well-known
+  local tags in the host container runtime and, when it finds one, loads it
+  into kind itself. A container runtime that cannot answer the lookup is an
+  error, not an "image not found": a broken runtime must not quietly turn the
+  suite into a skip.
+- **CI.** `.github/workflows/run-e2e-tests.yaml` passes the exact image from
+  the build this run is testing. The job loads the backend image bundle
+  straight into kind, so that image is never in the runner's host runtime;
+  `E2E_CATALOG_COLLECTOR_IMAGE_PRELOADED=true` tells the suite to use it as-is
+  and skip both the host-runtime lookup and the image load.
+  `E2E_CATALOG_COLLECTOR_REQUIRED=true` turns a missing image into a setup
+  failure, because a silently skipped suite reports green while testing
+  nothing. The workflow also asserts, after the run, that the smoke spec
+  actually executed rather than being skipped.
+
+Skips for deployment types that cannot run the suite at all (Quadlet,
+OpenShift) are unaffected by these variables.
 
 ## Environment variables
 
 | Variable | Purpose |
 |----------|---------|
-| `E2E_CATALOG_COLLECTOR_IMAGE` | Overrides the collector image under test. Must already be loadable into the cluster. |
+| `E2E_CATALOG_COLLECTOR_IMAGE` | The exact collector image under test. Overrides the local-tag lookup. |
+| `E2E_CATALOG_COLLECTOR_IMAGE_PRELOADED` | `true` when that image is already in the cluster image store, so the suite neither looks for it in the host runtime nor loads it. |
+| `E2E_CATALOG_COLLECTOR_REQUIRED` | `true` to fail setup instead of skipping when no collector image is available. Defaults to `true` whenever `E2E_CATALOG_COLLECTOR_IMAGE` is set. |
 | `KIND_CLUSTER_NAME` | kind cluster to load the collector image into. Defaults to `kind`. |
 
 ## Running
@@ -81,8 +106,14 @@ make stop-keycloak
    suites that do not need them never pay for them.
 2. **Identity** — the e2e Keycloak realm ships a dedicated
    `flightctl-catalog-collector` confidential client with a service account
-   (client-credentials grant). The suite registers an `AuthProvider` for the
-   realm issuer so the Flight Control API accepts the collector's tokens.
+   (client-credentials grant). The shared `e2e-keycloak` container is reused by
+   name and only imports the realm file into an empty database, so the Keycloak
+   fixture also reconciles that client, its audience mapper, and its service
+   account through the Admin REST API on every start. A Keycloak left behind by
+   an older run therefore converges instead of failing the grant with
+   `invalid_client`; clients owned by other suites are left untouched. The
+   suite registers an `AuthProvider` for the realm issuer so the Flight Control
+   API accepts the collector's tokens.
 3. **Seed data** — one LIVE registered model, one LIVE SemVer version, and one
    LIVE ModelCar artifact whose URI is pinned to an immutable `sha256:` digest.
 4. **Deployment** — a per-run namespace holding the OAuth2 client credentials
@@ -97,11 +128,30 @@ reruns against a reused cluster cannot collide.
 
 ## Teardown
 
-`AfterSuite` asserts that teardown actually happened: the Helm release is
-uninstalled and must no longer exist, the collector pods must disappear, and the
-per-run namespace must be deleted. The catalog resources the collector created
-are deleted through the API, and the seeded Model Registry resources are moved
-to `ARCHIVED` (the Model Registry REST API has no delete).
+`AfterSuite` runs the teardown as an ordered list of independent steps through
+`infra.RunCleanup`. Every step runs even when an earlier one failed, and the
+failures are reported together, so a Helm release that refuses to uninstall
+cannot strand the catalog resources, the AuthProvider, and the namespace on a
+cluster the next run reuses. A step that could not remove suite-owned state
+fails the suite rather than logging a warning: the state it left behind is what
+breaks the following run.
+
+The order is:
+
+1. **Stop the collector** — uninstall the Helm release, confirm it is gone, and
+   wait for the pods to disappear. If any of that fails the namespace is
+   deleted as a fallback, which stops the collector just as effectively; the
+   original failure is still reported.
+2. **Delete the catalog resources** the collector created. This is the one real
+   ordering dependency: nothing may delete them until the collector can no
+   longer recreate them, which step 1 guarantees.
+3. **Archive the seeded Model Registry resources** (the Model Registry REST API
+   has no delete, so they are moved out of the LIVE selection).
+4. **Remove the suite-owned AuthProvider, namespace, and rendered values file.**
+5. **Clean up the aux services** (a no-op while container reuse is on).
+
+Each step is skipped when the setup step that created its resource never ran,
+so a suite that skipped or failed early tears down only what it created.
 
 On a failing spec, `AfterEach` dumps collector pod state, namespace events,
 container logs, and the current catalogs and catalog items before teardown

@@ -101,12 +101,14 @@ func (k *Keycloak) Start(ctx context.Context, network string, reuse bool) error 
 	discoveryURL := k.IssuerURL() + "/.well-known/openid-configuration"
 	deadline := time.Now().Add(30 * time.Second)
 	client := &http.Client{Timeout: 5 * time.Second}
+	reachable := false
 	for time.Now().Before(deadline) {
 		resp, err := client.Get(discoveryURL)
 		if err == nil {
 			resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
-				return nil
+				reachable = true
+				break
 			}
 		}
 		select {
@@ -115,7 +117,18 @@ func (k *Keycloak) Start(ctx context.Context, network string, reuse bool) error 
 		case <-time.After(500 * time.Millisecond):
 		}
 	}
-	return fmt.Errorf("keycloak realm not reachable at %s after 30s", discoveryURL)
+	if !reachable {
+		return fmt.Errorf("keycloak realm not reachable at %s after 30s", discoveryURL)
+	}
+
+	// The realm file is only imported into an empty database, so a reused
+	// container keeps whatever realm an earlier run created. Reconciling the
+	// suite-owned objects here is what makes reuse equivalent to a fresh
+	// start; see keycloak_admin.go.
+	if err := k.EnsureCatalogCollectorClient(ctx); err != nil {
+		return fmt.Errorf("failed to reconcile the catalog collector client in realm %s: %w", keycloakRealmName, err)
+	}
+	return nil
 }
 
 func getKeycloakRealmPath() (string, error) {

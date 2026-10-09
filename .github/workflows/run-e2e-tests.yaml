@@ -190,6 +190,18 @@ jobs:
           DISCOVERY_PATH: discovery.json
           ASSIGNMENTS_PATH: assignments.json
           RUNNER_DEBUG: ${{ runner.debug }}
+          # The catalog collector suite installs the shipped collector chart
+          # and needs the collector image from the build this run is testing.
+          # That image is in the backend bundle "Deploy backend with Helm"
+          # loaded into kind, under the tag "make build-containers" gives it
+          # (OS=el9 in build-images-and-charts.yaml). It is never in this
+          # runner's podman store, so the suite is told it is already in the
+          # cluster and must not try to load it again.
+          E2E_CATALOG_COLLECTOR_IMAGE: quay.io/flightctl/flightctl-catalog-collector-el9:${{ inputs.tag }}
+          E2E_CATALOG_COLLECTOR_IMAGE_PRELOADED: "true"
+          # Fail setup instead of skipping if that image ever stops shipping:
+          # a silently skipped suite reports green while testing nothing.
+          E2E_CATALOG_COLLECTOR_REQUIRED: "true"
         run: |
           set -euo pipefail
           if [[ "${RUNNER_DEBUG}" == "1" ]]; then
@@ -200,6 +212,63 @@ jobs:
             echo "Debug mode disabled"
           fi
           make -e run-e2e-test
+
+      # A suite that skips itself still shows up as a green, discovered suite.
+      # The catalog collector smoke spec is the one that proves the shipped
+      # chart and the built collector image actually work, so the node that
+      # owns it asserts it ran instead of being skipped.
+      - name: Verify the catalog collector smoke spec executed
+        if: always()
+        env:
+          GINKGO_NODE: ${{ matrix.ginkgo_node }}
+          # Must match the It text in test/e2e/catalogcollector.
+          COLLECTOR_SPEC: "imports a LIVE model into a Flight Control catalog and catalog item"
+          JUNIT_REPORT: reports/junit_e2e_test.xml
+        run: |
+          set -euo pipefail
+
+          if [ ! -f assignments.json ]; then
+            echo "No assignments.json on this node; nothing to verify."
+            exit 0
+          fi
+          # Every node reports the specs it was not assigned as skipped, so
+          # only the node that owns this spec can judge it. Entries are full
+          # "Describe Context It" paths, hence the substring match.
+          if ! jq -e --arg node "${GINKGO_NODE}" --arg spec "${COLLECTOR_SPEC}" \
+                 'any((.[$node] // [])[]; contains($spec))' assignments.json >/dev/null; then
+            echo "Node ${GINKGO_NODE} was not assigned the catalog collector smoke spec; nothing to verify."
+            exit 0
+          fi
+          if [ ! -f "${JUNIT_REPORT}" ]; then
+            echo "::warning::${JUNIT_REPORT} is missing; the test step failure above is the real error."
+            exit 0
+          fi
+
+          python3 - <<'PY'
+          import os
+          import sys
+          import xml.etree.ElementTree as ET
+
+          spec = os.environ["COLLECTOR_SPEC"]
+          report = os.environ["JUNIT_REPORT"]
+
+          cases = [c for c in ET.parse(report).iter("testcase") if spec in (c.get("name") or "")]
+          if not cases:
+              sys.exit(f"::error::'{spec}' is absent from {report}: the suite did not run on this node.")
+
+          for case in cases:
+              skipped = case.find("skipped")
+              if skipped is not None:
+                  sys.exit(
+                      f"::error::'{spec}' was skipped, not executed: "
+                      f"{skipped.get('message') or 'no reason reported'}. "
+                      "Discovering and skipping the catalog collector suite is not coverage."
+                  )
+
+          # A failing spec still executed; the test step above already failed
+          # the job for it, so only a skip is reported here.
+          print(f"'{spec}' executed ({len(cases)} case(s) in {report}).")
+          PY
 
       - name: Check disk space after E2E tests
         if: always()

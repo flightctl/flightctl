@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,11 +24,27 @@ const (
 	// app.kubernetes.io/name selector label the chart renders.
 	collectorChartName = "flightctl-catalog-collector"
 
-	// collectorImageEnv overrides the collector image under test.
+	// collectorImageEnv names the exact collector image under test. CI sets it
+	// to the image produced by the build job that this run is testing, which
+	// never carries the local development tags below.
 	collectorImageEnv = "E2E_CATALOG_COLLECTOR_IMAGE"
+	// collectorImagePreloadedEnv declares that collectorImageEnv is already in
+	// the cluster's image store. The standard CI job loads the backend image
+	// bundle straight into kind and never has those images in the host
+	// runtime, so the suite must neither look for them there nor try to load
+	// them again.
+	collectorImagePreloadedEnv = "E2E_CATALOG_COLLECTOR_IMAGE_PRELOADED"
+	// collectorImageRequiredEnv turns a missing image into a setup failure
+	// instead of a skip. CI sets it so that a build which stops shipping the
+	// collector image fails the job loudly rather than quietly reducing the
+	// suite to zero executed specs.
+	collectorImageRequiredEnv = "E2E_CATALOG_COLLECTOR_REQUIRED"
+
 	// collectorImageEL9 and collectorImageGeneric are the tags "make
 	// build-containers" produces for the branch under test, in the same
 	// preference order as choose_image in test/scripts/deploy_with_helm.sh.
+	// They are the local development path: built on the host, then loaded into
+	// kind by this suite.
 	collectorImageEL9     = "localhost/flightctl-catalog-collector-el9:latest"
 	collectorImageGeneric = "localhost/flightctl-catalog-collector:latest"
 
@@ -148,28 +165,100 @@ func (r *testResources) podSelector() string {
 	return fmt.Sprintf("app.kubernetes.io/name=%s,app.kubernetes.io/instance=%s", collectorChartName, r.releaseName)
 }
 
-// resolveCollectorImage returns the locally built collector image for the
-// branch under test. An explicit override wins; otherwise the EL9 tag produced
-// by "make build-containers" is preferred, with the un-suffixed tag as a
-// fallback, mirroring choose_image in test/scripts/deploy_with_helm.sh.
+// collectorImage is the outcome of deciding which collector image this run
+// installs and how it reaches the cluster nodes.
+type collectorImage struct {
+	// Reference is the image to install. Empty when no candidate was found.
+	Reference string
+	// Preloaded reports that Reference is already in the cluster's image
+	// store, so the suite must not load it from the host runtime.
+	Preloaded bool
+	// Required reports that a missing image must fail setup rather than skip
+	// it.
+	Required bool
+	// Source describes where Reference came from, for the run log and for the
+	// failure message when nothing was found.
+	Source string
+}
+
+// resolveCollectorImage decides which collector image the suite installs.
 //
-// It returns an empty string when no candidate is present locally. The suite
-// skips in that case rather than installing some other registry's image,
-// because the point of the test is the collector built from this branch.
-func resolveCollectorImage(ctx context.Context, charts infra.ChartDeployer) (string, error) {
-	if override := strings.TrimSpace(os.Getenv(collectorImageEnv)); override != "" {
-		return override, nil
+// Two paths are supported and they are deliberately different:
+//
+//   - CI passes the exact image from the build under test in
+//     collectorImageEnv and sets collectorImagePreloadedEnv, because the job
+//     loads the backend image bundle directly into kind. Nothing is looked up
+//     in, or loaded from, the host runtime.
+//   - Local development builds the collector with "make
+//     flightctl-catalog-collector-container" and leaves it in the host
+//     runtime under one of the well-known tags, which the suite finds here
+//     and loads into kind itself.
+//
+// A lookup error is returned rather than treated as "image absent": a broken
+// container runtime must not quietly turn the suite into a skip.
+func resolveCollectorImage(ctx context.Context, charts infra.ChartDeployer) (collectorImage, error) {
+	preloaded, err := boolFromEnv(collectorImagePreloadedEnv)
+	if err != nil {
+		return collectorImage{}, err
 	}
+	override := strings.TrimSpace(os.Getenv(collectorImageEnv))
+	// An explicitly named image is required by default: whoever set it meant
+	// this suite to run against it, so a missing one is a failure, not a skip.
+	required, err := boolFromEnvDefault(collectorImageRequiredEnv, override != "")
+	if err != nil {
+		return collectorImage{}, err
+	}
+
+	result := collectorImage{Required: required}
+	if override != "" {
+		result.Reference = override
+		result.Preloaded = preloaded
+		result.Source = collectorImageEnv
+		return result, nil
+	}
+
+	// Without an explicit reference there is nothing to trust as preloaded:
+	// the local tags only mean anything if the host runtime really has them.
 	for _, candidate := range []string{collectorImageEL9, collectorImageGeneric} {
 		exists, err := charts.LocalImageExists(ctx, candidate)
 		if err != nil {
-			return "", err
+			return collectorImage{}, fmt.Errorf("look up collector image %s: %w", candidate, err)
 		}
 		if exists {
-			return candidate, nil
+			result.Reference = candidate
+			result.Source = "local container runtime"
+			return result, nil
 		}
 	}
-	return "", nil
+	return result, nil
+}
+
+// missingImageMessage explains what was looked for and how to supply it.
+func missingImageMessage() string {
+	return fmt.Sprintf(
+		"no collector image available: %s is unset and neither %s nor %s is in the local container runtime. "+
+			"Build it from this branch with 'make flightctl-catalog-collector-container', or set %s "+
+			"(plus %s=true when the image is already in the cluster image store)",
+		collectorImageEnv, collectorImageEL9, collectorImageGeneric, collectorImageEnv, collectorImagePreloadedEnv)
+}
+
+// boolFromEnv parses an optional boolean environment variable, defaulting to
+// false. A value that is set but unparseable is an error rather than a silent
+// false, because a typo there would silently change how the suite runs.
+func boolFromEnv(name string) (bool, error) {
+	return boolFromEnvDefault(name, false)
+}
+
+func boolFromEnvDefault(name string, fallback bool) (bool, error) {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback, nil
+	}
+	value, err := strconv.ParseBool(raw)
+	if err != nil {
+		return false, fmt.Errorf("%s must be a boolean, got %q: %w", name, raw, err)
+	}
+	return value, nil
 }
 
 // splitImageRef splits "repository:tag" into the two chart values. A reference
