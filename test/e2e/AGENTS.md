@@ -15,7 +15,8 @@
 - **test/e2e/<area>/** – One directory per area (e.g. `agent/`, `rollout/`, `resourcesync/`). Each has `*_suite_test.go` (entry + BeforeSuite/AfterSuite) and `*_test.go` (Ginkgo specs).
 - **test/harness/e2e/** – Shared harness (devices, fleets, git, VM, etc.). Receives concrete inputs (registry, git config, SSH paths) as method arguments.
 - **test/e2e/infra/** – Environment abstraction (K8s vs Quadlet); providers for RBAC, service config, secrets (registry comes from auxiliary). **test/e2e/infra/setup** – `EnsureDefaultProviders()`, `GetDefaultProviders()`.
-- **test/e2e/infra/auxiliary** – Shared testcontainer services (registry, git server, prometheus). Same for K8s and Quadlet. Use `auxiliary.Get(ctx)` in BeforeSuite when the suite needs registry, git, or Prometheus; pass the returned host/port and config into the harness and scripts as needed.
+- **test/e2e/infra/auxiliary** – Shared testcontainer services (registry, git server, prometheus, plus on-demand Keycloak and Kubeflow Model Registry). Same for K8s and Quadlet. Use `auxiliary.Get(ctx)` in BeforeSuite when the suite needs registry, git, or Prometheus, and `auxiliary.StartServices(ctx, []auxiliary.Service{...})` for the on-demand ones; pass the returned host/port and config into the harness and scripts as needed.
+- **Helm charts in tests:** suites that install an extra chart (e.g. the catalog collector) use `setup.GetDefaultProviders().Charts` (`infra.ChartDeployer`). Namespaces, Secrets, ConfigMaps, image loading, Helm releases, and workload diagnostics all live in `test/e2e/infra/k8s`.
 
 ## Run
 

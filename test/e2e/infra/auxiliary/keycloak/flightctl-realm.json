@@ -74,9 +74,43 @@
           }
         }
       ]
+    },
+    {
+      "clientId": "flightctl-catalog-collector",
+      "name": "flightctl-catalog-collector",
+      "description": "Confidential client used by the catalog collector e2e suite to obtain tokens with the OAuth2 client-credentials grant.",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "e2e-flightctl-catalog-collector-secret",
+      "protocol": "openid-connect",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "protocolMappers": [
+        {
+          "name": "flightctl-catalog-collector-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "flightctl-catalog-collector",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
+        }
+      ]
     }
   ],
   "users": [
+    {
+      "username": "service-account-flightctl-catalog-collector",
+      "enabled": true,
+      "email": "service-account-flightctl-catalog-collector@e2e.example.com",
+      "serviceAccountClientId": "flightctl-catalog-collector",
+      "groups": ["/org-default"],
+      "realmRoles": ["default-roles-flightctl"]
+    },
     {
       "username": "testuser",
       "enabled": true,

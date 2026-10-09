@@ -13,7 +13,7 @@ import (
 
 const usage = `Usage: aux-service <command> <service>...
   commands: start, stop
-  services: all, registry, git-server, prometheus, tracing, keycloak, trustify`
+  services: all, registry, git-server, prometheus, tracing, keycloak, trustify, model-registry`
 
 func main() {
 	if len(os.Args) < 3 {
@@ -133,6 +133,9 @@ func printServiceURLs(svcs *auxiliary.Services) {
 	if svcs.Trustify != nil {
 		fmt.Printf("trustify: %s\n", svcs.Trustify.URL)
 	}
+	if svcs.ModelRegistry != nil {
+		fmt.Printf("model-registry: %s\n", svcs.ModelRegistry.URL)
+	}
 }
 
 func onlyTracing(services []auxiliary.Service) bool {
@@ -176,8 +179,10 @@ func parseServices(args []string) ([]auxiliary.Service, error) {
 			services = append(services, auxiliary.ServiceKeycloak)
 		case "trustify":
 			services = append(services, auxiliary.ServiceTrustify)
+		case "model-registry":
+			services = append(services, auxiliary.ServiceModelRegistry)
 		default:
-			return nil, fmt.Errorf("unknown service %q; valid values: all, registry, git-server, prometheus, tracing, keycloak, trustify", arg)
+			return nil, fmt.Errorf("unknown service %q; valid values: all, registry, git-server, prometheus, tracing, keycloak, trustify, model-registry", arg)
 		}
 	}
 	return services, nil

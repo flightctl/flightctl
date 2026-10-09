@@ -292,13 +292,21 @@ start-trustify:
 stop-trustify:
 	go run ./cmd/aux-service stop trustify
 
+# Kubeflow Model Registry (REST server + PostgreSQL) used by the catalog
+# collector e2e suite. Not part of "start-aux": only that suite needs it.
+start-model-registry:
+	go run ./cmd/aux-service start model-registry
+
+stop-model-registry:
+	go run ./cmd/aux-service stop model-registry
+
 start-aux: bin/e2e-certs/ca.pem
 	go run ./cmd/aux-service start all
 
 stop-aux:
 	go run ./cmd/aux-service stop all
 
-.PHONY: start-registry stop-registry start-git-server stop-git-server start-prometheus stop-prometheus start-tracing stop-tracing start-keycloak stop-keycloak start-trustify stop-trustify start-aux stop-aux
+.PHONY: start-registry stop-registry start-git-server stop-git-server start-prometheus stop-prometheus start-tracing stop-tracing start-keycloak stop-keycloak start-trustify stop-trustify start-model-registry stop-model-registry start-aux stop-aux
 .PHONY: unit-test prepare-integration-test integration-test run-integration-test build-integration-preflight start-integration-services stop-integration-services view-coverage prepare-e2e-test deploy-e2e-ocp-test-vm prepare-swtpm-certs clean-swtpm-certs
 
 # Schemathesis API testing

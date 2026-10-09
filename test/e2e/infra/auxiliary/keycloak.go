@@ -23,7 +23,20 @@ const (
 	KeycloakE2EClientSecret = "e2e-flightctl-client-secret" //nolint:gosec // G101: e2e test client secret only
 	// KeycloakE2EOAuth2ClientSecret is the client secret for the suite-owned OAuth2 client in the e2e realm.
 	KeycloakE2EOAuth2ClientSecret = "e2e-flightctl-oauth2-client-secret" //nolint:gosec // G101: e2e test client secret only
+
+	// KeycloakE2ECatalogCollectorClientID is the confidential client with a
+	// service account (client-credentials grant) that the catalog collector
+	// e2e suite uses to authenticate against the Flight Control API.
+	KeycloakE2ECatalogCollectorClientID = "flightctl-catalog-collector"
+	// KeycloakE2ECatalogCollectorSecret is the client secret for
+	// KeycloakE2ECatalogCollectorClientID in the e2e realm.
+	KeycloakE2ECatalogCollectorSecret = "e2e-flightctl-catalog-collector-secret" //nolint:gosec // G101: e2e test client secret only
 )
+
+// TokenURL returns the OIDC token endpoint for the flightctl realm.
+func (k *Keycloak) TokenURL() string {
+	return k.IssuerURL() + "/protocol/openid-connect/token"
+}
 
 // Keycloak holds connection info and the container for the aux Keycloak.
 type Keycloak struct {
