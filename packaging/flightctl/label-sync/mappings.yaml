@@ -21,7 +21,7 @@
           "memoryTotalKb",
           "productName"
         ],
-        {"feature.flightctl.io/systemInfo." + k: v}
+        {"systeminfo.flightctl.io/" + k: v}
       )
 - apiVersion: flightctl.io/v1beta1
   kind: LabelSyncMapping
@@ -35,7 +35,7 @@
         : {}).transformMapEntry(
         k,
         v,
-        {"feature.flightctl.io/customInfo." + k: v}
+        {"custominfo.flightctl.io/" + k: v}
       )
 - apiVersion: flightctl.io/v1beta1
   kind: LabelSyncMapping
