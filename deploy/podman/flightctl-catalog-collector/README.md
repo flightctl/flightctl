@@ -4,6 +4,13 @@ Quadlet unit and example configurations for running the Flight Control catalog
 collector as a systemd-managed Podman container, shipped by the
 `flightctl-catalog-collector` RPM sub-package.
 
+For the collector itself -- what it does, how it is configured, and how to
+install it -- see
+[Installing the catalog collector](../../../docs/user/installing/installing-catalog-collector.md),
+the [catalog collector overview](../../../docs/user/using/catalog-collector/overview.md),
+and the [configuration reference](../../../docs/user/references/catalog-collector.md).
+This README documents the unit and the on-host layout.
+
 Unlike the units under the other `deploy/podman/` directories, this one is
 **not** rendered by `flightctl-standalone render quadlets` and is **not** part
 of `flightctl.target`. The collector is an optional add-on that must remain

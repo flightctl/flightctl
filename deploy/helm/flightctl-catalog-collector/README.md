@@ -6,6 +6,19 @@ The collector reads catalogs from an external source (for example a Kubeflow
 Model Registry, as exposed by Red Hat OpenShift AI) and reconciles them into
 Flight Control `Catalog` and `CatalogItem` resources.
 
+The user-facing documentation lives under `docs/`:
+
+| Topic | Document |
+|-------|----------|
+| What the collector is, the configuration model, a quickstart | [Catalog collector overview](../../../docs/user/using/catalog-collector/overview.md) |
+| Installing on Kubernetes, OpenShift, or a standalone Linux host | [Installing the catalog collector](../../../docs/user/installing/installing-catalog-collector.md) |
+| Every configuration field, default, and validation rule | [Catalog collector configuration reference](../../../docs/user/references/catalog-collector.md) |
+| The Kubeflow Model Registry workflow | [Importing a Kubeflow Model Registry](../../../docs/user/using/catalog-collector/kubeflow-model-registry.md) |
+| Writing a native source | [Writing custom catalog collector sources](../../../docs/developer/catalog-collector-sources.md) |
+
+This README documents the chart contract itself: the values, what each one
+rejects, and why.
+
 This is an **independent chart**. It is deliberately not a sub-chart of
 `flightctl`: the collector can run in a different namespace, in a different
 cluster, or against a remote Flight Control service, and it is upgraded on its

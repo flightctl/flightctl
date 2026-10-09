@@ -197,6 +197,12 @@ The observability stack (Prometheus) is managed by **testcontainers** in [test/e
 
 To use the Prometheus UI, run the E2E test suite (e.g. `make e2e-test` or `make in-cluster-e2e-test`). While tests run, the stack is up and the Prometheus web UI is typically accessible at `http://localhost:9090` (see `test/e2e/infra/auxiliary/` for details).
 
+## Extending the catalog collector
+
+The catalog collector is a standalone, pluggable pipeline runner that imports software catalogs from
+external systems. See [Writing custom catalog collector sources](catalog-collector-sources.md) for the
+component contracts, factory registration, and configuration validation rules.
+
 ## Architecture
 
 - [Enrollment hook architecture](architecture/enrollment-hooks.md)
