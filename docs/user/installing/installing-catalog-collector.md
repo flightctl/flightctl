@@ -1,6 +1,6 @@
 # Installing the catalog collector
 
-The Flight Control catalog collector is an optional add-on that imports software catalogs from an external system into Flight Control. It is packaged and released separately from the Flight Control service, and it can run next to the service, in another namespace, or on another host. Install it only when you need to mirror an external catalog; see [Catalog collector overview](../using/catalog-collector/overview.md) for when that applies.
+The Flight Control catalog collector is an optional add-on that imports software catalogs from an external system into Flight Control. It is packaged as its own Helm chart and its own RPM sub-package, so it is deployed and upgraded independently of the Flight Control service and can run next to the service, in another namespace, or on another host. Both artifacts are built and versioned with the rest of Flight Control; independent deployment does not mean a separate release stream. Install the collector only when you need to mirror an external catalog; see [Catalog collector overview](../using/catalog-collector/overview.md) for when that applies.
 
 Two deployment forms are supported:
 
@@ -31,22 +31,26 @@ The collector has its own chart, `flightctl-catalog-collector`. It is deliberate
 
 ### Procedure
 
-1. Obtain the chart. The `examples/` directory is part of the packaged chart, so no clone of the Flight Control repository is required. Pull the packaged chart and unpack it:
+1. Obtain the chart. The release workflow packages `deploy/helm/flightctl-catalog-collector` alongside the `flightctl` chart and pushes it to `oci://quay.io/flightctl/charts/flightctl-catalog-collector`, with a chart version equal to the Flight Control version the release was built from. The `examples/` directory is part of the packaged chart, so no clone of the Flight Control repository is required:
 
     ```console
-    helm pull <chart_reference> --version <version> --untar
+    helm pull oci://quay.io/flightctl/charts/flightctl-catalog-collector --version <version> --untar
     ```
 
-    Replace `<chart_reference>` with the chart location your distribution publishes. From a clone of the Flight Control repository, skip this step and use `deploy/helm/flightctl-catalog-collector` as the chart path in the next step.
+    > [!IMPORTANT]
+    > That repository is not readable anonymously. An unauthenticated `helm show chart oci://quay.io/flightctl/charts/flightctl-catalog-collector --devel` is answered with `401 Unauthorized`, unlike the `flightctl` chart in the same organization. Run `helm registry login quay.io` with credentials your distribution grants before pulling, or obtain the chart from the location your distribution publishes.
 
-2. Install the chart with one of the shipped example value files. A bare `helm install` with no values fails on purpose, because the chart has no default pipeline:
+    From a clone of the Flight Control repository, skip this step. Use `deploy/helm/flightctl-catalog-collector` as the chart path in the next step, and `deploy/helm/flightctl-catalog-collector/examples/values-vanilla.yaml` as the values file.
+
+2. Install the chart into the target namespace with one of the shipped example value files. A bare `helm install` with no values fails on purpose, because the chart has no default pipeline:
 
     ```console
     helm install catalog-collector ./flightctl-catalog-collector \
+      --namespace <namespace> --create-namespace \
       --values ./flightctl-catalog-collector/examples/values-vanilla.yaml
     ```
 
-3. Confirm that the deployment rolls out:
+3. Confirm that the deployment rolls out. Use the same `<namespace>` as in the previous step:
 
     ```console
     kubectl -n <namespace> rollout status deployment/catalog-collector-flightctl-catalog-collector
@@ -57,6 +61,8 @@ The collector has its own chart, `flightctl-catalog-collector`. It is deliberate
     ```console
     kubectl -n <namespace> logs deployment/catalog-collector-flightctl-catalog-collector
     ```
+
+    The resource name combines the release name with the chart name, so a release named `catalog-collector` produces `catalog-collector-flightctl-catalog-collector`.
 
 The two shipped examples are:
 
@@ -132,7 +138,7 @@ extensions:
   oauth2client/flightctl:
     clientIdFile: /etc/flightctl/catalog-collector/oauth/client-id
     clientSecretFile: /etc/flightctl/catalog-collector/oauth/client-secret
-    tokenUrl: https://<oidc_token_endpoint>
+    tokenUrl: <oidc_token_endpoint>
     scopes:
       - openid
     certificateAuthority: /etc/flightctl/catalog-collector/certs/oidc-ca.crt
@@ -145,7 +151,7 @@ destinations:
       authenticator: oauth2client/flightctl
 ```
 
-Take `<oidc_token_endpoint>` from your own authorization server, usually from the `token_endpoint` field of its OpenID Connect discovery document. A Keycloak realm, for example, publishes it as `https://<host>/realms/<realm>/protocol/openid-connect/token`, but the path differs between providers.
+`<oidc_token_endpoint>` is the complete HTTPS URL of the token endpoint, including the scheme. Take it from your own authorization server, usually from the `token_endpoint` field of its OpenID Connect discovery document, and paste the value unchanged: that field already carries the scheme, so do not prefix it with `https://` again. A Keycloak realm, for example, publishes `https://<host>/realms/<realm>/protocol/openid-connect/token`, but the path differs between providers.
 
 The collector exchanges the client credentials for a short-lived access token, so no long-lived token is stored. `clientId` and `clientSecret` may be given inline instead, but the values then appear in the ConfigMap and in `helm get values`.
 
@@ -278,7 +284,7 @@ For the complete unit contract, including restart bounds and verification comman
     curl -s http://127.0.0.1:13133/readyz
     ```
 
-    Readiness reports that the process finished starting. It is not a report that the pipeline works. Preflight is an optional capability that a source may implement. A source that implements it, such as `kubeflowmodelregistry`, is validated during startup, before the collector reports ready. A source that does not, such as `http`, contributes nothing to readiness. No preflight runs against a destination, so readiness never proves that the Flight Control credential is accepted.
+    Readiness reports that the process finished starting. It is not a report that the pipeline works. Preflight is an optional capability that a source may implement. A source that implements it, such as `kubeflowmodelregistry`, is validated during startup, before the collector reports ready. A source that does not, such as `http`, still takes part in startup: it is constructed and started before readiness is reported. What it adds is no check of its external dependencies. No preflight runs against a destination either, so readiness never proves that the Flight Control credential is accepted.
 
 2. Allow at least one poll interval to pass, then read the metrics:
 

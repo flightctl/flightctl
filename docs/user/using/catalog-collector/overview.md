@@ -15,7 +15,7 @@ The collector runs outside the Flight Control service as its own container or sy
 2. Zero or more *processors* transform that content, for example by renaming a catalog.
 3. A *destination* consumes the result. The `flightctl` destination reconciles it into a Flight Control service; the `debug` destination only logs it.
 
-The unit of work is a **snapshot**: the complete set of Catalog and CatalogItem resources that the source's scope should contain, observed at one point in time, together with a revision identifier. A source either emits a complete snapshot or emits nothing and reports an error.
+The unit of work is a **catalog snapshot**: the complete set of Catalog and CatalogItem resources that the source's scope should contain, observed at one point in time, together with a revision identifier. A source either emits a complete catalog snapshot or emits nothing and reports an error. The rest of this documentation shortens the term to **snapshot**.
 
 The Flight Control destination treats a successful snapshot as authoritative for the pipeline that produced it. It creates or updates the resources in the snapshot, leaves unchanged resources untouched, and deletes resources that the same pipeline created earlier but that the snapshot no longer contains. An empty snapshot is a valid desired state that asks for everything the pipeline manages to be removed.
 
@@ -38,11 +38,13 @@ destinations:   # where catalog content goes
 pipelines:      # source -> [processors] -> destination
 ```
 
-The layout is inspired by the [OpenTelemetry Collector configuration](https://opentelemetry.io/docs/collector/configuration/): components are declared under a section per kind and named with a `type[/name]` identifier, and pipelines wire those names together. The resemblance stops at the layout. The catalog collector is a separate program that shares no code with the OpenTelemetry Collector, its component set is specific to Flight Control catalogs, and no OpenTelemetry receiver, processor, exporter, or extension can be loaded into it.
+The catalog collector uses a component-based YAML configuration inspired by the OpenTelemetry Collector. Its named components, pipelines, and extensions make the configuration familiar to users who already configure OpenTelemetry for telemetry collection. For that model, see the official [OpenTelemetry Collector configuration documentation](https://opentelemetry.io/docs/collector/configuration/).
+
+The schema itself is the catalog collector's own. No OpenTelemetry receiver, processor, exporter, or extension can be loaded into it.
 
 ### Which components are built, and how many
 
-A source, a processor, or a destination is constructed only when a pipeline references it. A declaration that no pipeline uses is ignored, and its type does not even need a registered factory. Extensions are different: every declared extension is constructed and started whether or not a component references it, because an extension is a shared service capability rather than a pipeline stage.
+A source, a processor, or a destination is constructed only when a pipeline references it. A declaration that no pipeline uses is ignored: its type does not even need a registered factory, and its own fields are neither strictly decoded nor checked for environment variable references. Extensions are different: every declared extension is constructed and started whether or not a component references it, because an extension is a shared service capability rather than a pipeline stage.
 
 Where a component is referenced more than once, the number of instances follows from how the pipeline graph is built:
 
@@ -79,7 +81,9 @@ The configuration must define at least one pipeline, and every component a pipel
 
 ### Environment variables
 
-Any string value in a component configuration may be replaced by an environment variable reference, written as `${env:NAME}` or `${NAME}`. The reference must occupy the whole value; interpolation inside a longer string is not supported. An unset variable stops startup with an error that names the variable and its location in the configuration.
+Any string value inside a component configuration may be replaced by an environment variable reference, written as `${env:NAME}` or `${NAME}`. The reference must occupy the whole value; interpolation inside a longer string is not supported. Only component bodies, under `sources`, `processors`, `destinations`, and `extensions`, are expanded. A reference written under `service` or `pipelines` is kept as the literal text.
+
+References are resolved when a component is constructed, together with the strict decoding of that component's own fields. Both therefore follow the activation rules in [Which components are built, and how many](#which-components-are-built-and-how-many): a reference in a declaration that no pipeline uses is never resolved, so an unset variable there is never reported. In a component that is constructed, an unset variable stops startup with an error that names the variable and its location in the configuration, and never the value.
 
 For the complete list of fields, defaults, and validation rules, see the [catalog collector configuration reference](../../references/catalog-collector.md).
 
@@ -99,7 +103,7 @@ The `kubeflowmodelregistry` source is the only shipped source that talks to an e
 The `http` source is what makes the collector usable with a system nothing ships a source for. You write a program that knows how to read your external system and how to express its content as Catalog and CatalogItem resources, and you post that as one JSON document. Everything after the post is handled for you: snapshot validation, processors, the Flight Control destination, labeling, and pruning. You do not have to implement any of the reconciliation rules, and you do not have to deploy or build a modified collector.
 
 > [!WARNING]
-> The `http` source performs no inbound authentication of any kind. Bind it to loopback or to a cluster-internal network, and never expose it through an Ingress, a Route, or a published routable port. Anyone who can reach it can replace or delete the catalog content the pipeline manages.
+> The `http` source has no built-in inbound authentication. Anyone who can reach it can replace or delete the catalog content the pipeline manages. Bind it to loopback when you run the collector locally, as in the [Quickstart](#quickstart). Anywhere else, restrict access to the clients that have to post snapshots; a cluster-internal address alone does not authenticate callers. When the endpoint has to be reachable beyond that, put an authenticating proxy in front of it and protect the transport and the network path.
 
 ### Bringing your own integration
 
@@ -118,8 +122,8 @@ The HTTP source accepts a single JSON object with three required fields:
 | Field | Type | Description |
 |---|---|---|
 | `revision` | string | An opaque, deterministic identifier of the desired content. It must be non-empty, and it must change only when the content changes. |
-| `catalogs` | array | Desired Catalog resources. Send `[]` for an empty collection; the field may not be omitted. |
-| `catalogItems` | array | Desired CatalogItem resources. Send `[]` for an empty collection; the field may not be omitted. |
+| `catalogs` | array | Desired Catalog resources. Send `[]` for an empty collection; the field may be neither omitted nor set to `null`. |
+| `catalogItems` | array | Desired CatalogItem resources. Send `[]` for an empty collection; the field may be neither omitted nor set to `null`. |
 
 Unknown fields are rejected, both at the top level and inside each resource. The maximum accepted body size is 16 MiB.
 
@@ -129,12 +133,13 @@ The request is answered in stages, and the status code says how far it reached:
 |---|---|
 | `405 Method Not Allowed` | The method was not `POST`. Nothing was read. |
 | `415 Unsupported Media Type` | The `Content-Type` header was not `application/json`. The body was not read. |
-| `400 Bad Request` | The body was read but is not a well-formed snapshot envelope: it is too large, it is not valid JSON, it carries an unknown field at any level, it has trailing data, or `revision`, `catalogs`, or `catalogItems` is missing or empty. |
+| `400 Bad Request` | The body was read but is not a well-formed snapshot envelope: it is too large, it is not valid JSON, it carries an unknown field at any level, it has trailing data, `revision` is missing or empty, or `catalogs` or `catalogItems` is missing or `null`. |
 | `502 Bad Gateway` | The envelope parsed, but the pipeline rejected the snapshot. |
 | `204 No Content` | Every pipeline that uses this source accepted the snapshot. |
 
-Two of those deserve care:
+Three of those deserve care:
 
+* An empty array is **not** the same as a missing field. `{"revision":"r1","catalogs":[],"catalogItems":[]}` is a complete snapshot of an empty desired state and is accepted with `204`. Only an absent field, or one whose value is the JSON literal `null`, is rejected with `400`. An empty `revision`, by contrast, is always rejected.
 * A `502` does **not** mean the snapshot itself was valid. Snapshot validation, which checks the individual resources, duplicate names, and duplicate catalog item identities, runs inside the pipeline rather than in the HTTP handler. A resource that fails Flight Control API validation therefore produces `502`, exactly like a destination that could not be reached. The collector log names the stage that failed.
 * A `204` does **not** prove that anything was written to Flight Control. It proves only that every pipeline using this source returned success. A pipeline whose destination is `debug` returns success after logging the snapshot and contacting no service at all. Confirm the result with the Flight Control CLI, not with the status code.
 
@@ -216,7 +221,11 @@ A local binary is the shortest way to see the whole cycle, because every file th
 | A standalone Linux host, using the RPM and its Podman Quadlet unit | [Installing on a standalone Linux host](../../installing/installing-catalog-collector.md#installing-on-a-standalone-linux-host) |
 | A container you run yourself | Run the collector image with the configuration file and every credential it names mounted into the container |
 
-The configuration itself does not change between these forms. What changes is where the files live: in a container or a pod, every path in the configuration is a path inside the container, not a path on the host.
+The shape of the configuration does not change between these forms, but three kinds of value do:
+
+* **Paths.** In a container or a pod, every path in the configuration is a path inside the container, not a path on the host.
+* **Listener bindings.** A local binary can bind `127.0.0.1`. In a container, the health, metrics, and `http` source endpoints must bind `0.0.0.0`, or a published port or a kubelet probe reaches nothing.
+* **File permissions.** The collector image runs as uid 1001 and gid 0, so a credential file that only your own account can read is unreadable once it is mounted. Grant the read through gid 0 instead.
 
 ### Prerequisites
 
@@ -224,8 +233,11 @@ The configuration itself does not change between these forms. What changes is wh
 * An authenticated Flight Control CLI, so that you can confirm the result. Run `flightctl login <server_url>` first; see [flightctl login](../../references/cli-commands.md#flightctl-login) for its flags and [Installing the Flight Control CLI](../../installing/installing-cli.md) to obtain the CLI.
 * An API token that the Flight Control service accepts. How you obtain one depends on the authentication method your deployment uses; see [Authentication overview](../../installing/configuring-auth/overview.md).
 * The CA bundle that signs the Flight Control API certificate, unless that certificate is already trusted by the system trust store.
-* The collector binary. A package installation puts `flightctl-catalog-collector` on the `PATH`. A build from a clone of the Flight Control repository, with `make build-catalog-collector`, writes it to `bin/flightctl-catalog-collector` in the clone instead.
+* The collector binary, built from a clone of the Flight Control repository. Run `make build-catalog-collector` in the clone, which writes `bin/flightctl-catalog-collector`.
 * The `curl` command.
+
+> [!NOTE]
+> The `flightctl-catalog-collector` RPM does not install a host executable. It installs a Podman Quadlet unit, example configurations, and a configuration directory, and runs the collector as a container. To follow this procedure without building from source, run the collector image directly with `podman run`, mounting the configuration file and every file it names into the container, and remember that the configuration then holds container paths.
 
 ### Procedure
 
@@ -291,13 +303,7 @@ The configuration itself does not change between these forms. What changes is wh
 
     The collector does not expand `~`, so the credential and the CA bundle must be given as absolute paths.
 
-5. Start the collector. Use the command name when the binary came from a package:
-
-    ```console
-    flightctl-catalog-collector --config ~/catalog-collector/collector.yaml
-    ```
-
-    From a clone of the Flight Control repository, run the binary that `make build-catalog-collector` produced instead:
+5. Start the collector. Run the binary that `make build-catalog-collector` produced, from the root of the clone:
 
     ```console
     ./bin/flightctl-catalog-collector --config ~/catalog-collector/collector.yaml
@@ -511,7 +517,7 @@ A `404` comes from the HTTP server itself and means the request went to a path o
 
 | Symptom | Likely cause |
 |---|---|
-| Startup fails naming a configuration path | A misspelled field, an unknown field, or an unset environment variable. Decoding is strict at every level. |
+| Startup fails naming a configuration path | A misspelled field, an unknown field, or an unset environment variable. Decoding is strict for the top-level sections and for the fields of every component that is constructed. |
 | Startup fails naming an extension | A component references an authenticator identifier that no extension declares, or the extension does not provide the capability the component needs. |
 | Reconciliation fails with a name collision | A resource with that name already exists outside the pipeline boundary. See [What the labels do not do](#what-the-labels-do-not-do). |
 | The collector is ready, but nothing reaches Flight Control | Readiness does not exercise the destination credential. Check the pipeline sync metrics and the log. |

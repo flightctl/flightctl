@@ -108,7 +108,7 @@ Both filters are sent to the registry as server-side `filterQuery` values, so fi
 
 Omit the `selection` block to keep the defaults. Set a filter to the empty string to send no filter for that endpoint and import everything it returns.
 
-A registered model whose versions are all filtered out is omitted from the snapshot instead of failing the cycle. This covers both a model with no versions and a model whose versions are all archived.
+A registered model whose versions are all filtered out is omitted from the snapshot instead of failing the cycle. This covers both a model with no versions and a model whose versions are all archived. Filtering is therefore not the same as ineligibility: a version the registry does not return is simply absent, while a version the registry does return but that carries no eligible artifact is a data error that fails the cycle.
 
 The source validates both filters during startup, before the collector reports ready, by issuing one query against each endpoint. A filter the registry rejects therefore fails fast rather than on the first poll.
 
@@ -137,7 +137,8 @@ The snapshot carries the complete desired state of the configured catalog, so Fl
 | A new version is registered with an eligible artifact | The version is added to the existing CatalogItem. |
 | A model description, owner, or provider changes | The corresponding CatalogItem field is updated. |
 | A version is archived, or stops matching the version filter | The version is removed from the CatalogItem. If a device or fleet uses that version, the API rejects the whole update and the cycle fails. |
-| A model is archived, deleted, or loses all eligible versions | The CatalogItem is deleted. If a device or fleet uses one of its versions, the API rejects the deletion and the cycle fails. |
+| A model is archived, deleted, or has no versions left that match the version filter | The CatalogItem is deleted. The model is omitted from the snapshot rather than treated as an error, because the version filter is applied by the registry and the source simply receives no versions for it. If a device or fleet uses one of its versions, the API rejects the deletion and the cycle fails. |
+| A version still matches the version filter but has no eligible artifact, or more than one | The whole cycle fails during collection. No snapshot is produced, so nothing is written and nothing is pruned; the previous content stays in place. This is a data error in the registry, not a removal. |
 | Nothing changes | The snapshot repeats the previous revision. Reconciliation still runs and still repairs drift, but a resource that already matches is not rewritten. |
 
 Deletion is limited to resources that the same pipeline created, identified by the `flightctl.io/managed-by` and `flightctl.io/catalog-collector-pipeline` labels. Catalogs and catalog items that carry an owner, such as those created by a ResourceSync, are never touched, and neither is a resource created by hand under a different name. See [Ownership and pruning](overview.md#ownership-and-pruning).

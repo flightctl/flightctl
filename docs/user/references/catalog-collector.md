@@ -8,7 +8,7 @@ The collector takes exactly one argument:
 flightctl-catalog-collector --config <path>
 ```
 
-The file is YAML. Decoding is strict at every level: an unknown key, a misspelled component field, or a stray top-level section stops startup with an error that names the location.
+The file is YAML, and decoding is strict: an unknown key, a misspelled component field, or a stray top-level section stops startup with an error that names the location. Strictness is applied in two passes. The top-level sections, the `service` block, and the `pipelines` entries are checked when the file is parsed. The fields of a source, a processor, a destination, or an extension are checked when that component is constructed, so a declaration that is never constructed is never checked. See [Top-level sections](#top-level-sections) for which declarations are constructed.
 
 ## Top-level sections
 
@@ -21,7 +21,7 @@ The file is YAML. Decoding is strict at every level: an unknown key, a misspelle
 | `destinations` | Yes, in practice | Named destination instances. At least one is required because every pipeline references one. |
 | `pipelines` | Yes | Named pipelines. At least one pipeline must be defined. |
 
-Declaration and activation differ by component kind. A source, a processor, or a destination is constructed only when a pipeline references it. A declaration that no pipeline references is ignored. Every declared extension is constructed and started, whether or not a component references it.
+Declaration and activation differ by component kind. A source, a processor, or a destination is constructed only when a pipeline references it. A declaration that no pipeline references is ignored, and its fields are neither strictly decoded nor resolved for environment variable references. Every declared extension is constructed and started, whether or not a component references it, so the fields of every declared extension are always checked.
 
 ## Component identifiers
 
@@ -40,7 +40,7 @@ Identifiers are unique within their own section. The same identifier may appear 
 
 ## Environment variable references
 
-Any string value inside a component configuration may be replaced with an environment variable reference:
+Any string value inside a component configuration may be replaced with an environment variable reference. Only the bodies under `sources`, `processors`, `destinations`, and `extensions` are expanded; a reference written under `service` or `pipelines` is kept as literal text.
 
 ```yaml
 destinations:
@@ -56,7 +56,7 @@ destinations:
 | Malformed reference | A value wrapped in `${...}` that matches neither form is an error, not a literal. |
 | Unset variable | A fatal startup error naming the variable and its configuration path. The value is never logged. |
 
-References are resolved when the component is decoded, not when the file is parsed.
+References are resolved when the component is decoded, not when the file is parsed. A declaration that is never constructed is never decoded, so an unset variable inside it is never reported.
 
 ## service
 
@@ -126,14 +126,15 @@ Request handling:
 | Invalid JSON, or trailing data after the object | `400 Bad Request` |
 | Unknown field, at the top level or anywhere inside a resource | `400 Bad Request` |
 | Missing or empty `revision` | `400 Bad Request` |
-| Missing `catalogs` or `catalogItems` | `400 Bad Request`. Use `[]` for an empty collection. |
+| `catalogs` or `catalogItems` absent, or set to the JSON literal `null` | `400 Bad Request` |
+| `catalogs` or `catalogItems` set to `[]` | Accepted. An empty array is a valid, complete snapshot of an empty desired state, and is not treated as a missing field. |
 | Snapshot validation, a processor, or a destination failed | `502 Bad Gateway` |
 | Every pipeline using this source reported success | `204 No Content` |
 
 The handler checks only the envelope. Snapshot validation runs inside the pipeline, so a body whose resources fail Flight Control API validation is answered with `502`, not `400`. Equally, `204` reports that every pipeline using this source returned success; with a `debug` destination that means the snapshot was logged, not that anything was written to Flight Control.
 
 > [!WARNING]
-> The HTTP source performs no inbound authentication. Keep it on loopback or on a cluster-internal network. Exposing it allows anyone who can reach it to replace or delete the catalog content the pipeline manages.
+> The HTTP source has no built-in inbound authentication, so anyone who can reach it can replace or delete the catalog content the pipeline manages. Bind it to loopback when you run the collector locally. Anywhere else, restrict access to the clients that have to post snapshots; a cluster-internal address alone does not authenticate callers. When the endpoint has to be reachable beyond that, put an authenticating proxy in front of it and protect the transport and the network path.
 
 ### kubeflowmodelregistry
 

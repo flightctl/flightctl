@@ -320,7 +320,7 @@ Instead of creating catalogs and catalog items individually, you can store their
 1. You store Catalog and CatalogItem YAML definitions in a Git repository.
 2. You create a ResourceSync resource with `spec.type` set to `catalog`, pointing to the repository and path containing the definitions.
 3. Flight Control periodically clones the repository, reads the YAML files from the specified path, and creates, updates, or deletes catalogs and catalog items to match the repository contents.
-4. The Catalogs and CatalogItems that are synchronized are marked as being managed by the ResourceSync. Such elements cannot be modified directly using the Flight Control API, CLI or UI. All modifications must be done exclusively on the git repository's resource definitions.
+4. The Catalogs and CatalogItems that are synchronized are marked as being owned by the ResourceSync. The Flight Control API protects the content of an owned resource: it rejects a request through the API, the CLI, or the UI that changes the specification of the resource, and it rejects a request that deletes it. A request that updates only `metadata.labels` is still accepted. Make every change to the specification in the Git repository's resource definitions.
 
 > [!IMPORTANT]
 > A ResourceSync with `type: catalog` only accepts Catalog and CatalogItem resources. If the specified path contains other resource types, the synchronization reports an error.
