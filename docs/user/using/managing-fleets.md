@@ -51,6 +51,8 @@ Often, though, you would have separate organizations developing solutions and de
 
 Note that you have to define selectors so that no two fleets select the same device. Say you had one fleet select `region=east` and another `stage=production`, then both would select device A. When Flight Control detects this situation, it keeps the device in the fleet it is currently assigned to (if any) and signals the conflict by setting the "MultipleOwners" condition on affected devices to "true".
 
+You can also select devices by labels that Flight Control maintains from reported `systemInfo` and `customInfo` values. Configure the relevant [dynamic label mappings](managing-dynamic-mappings.md), then use the resulting label keys in fleet selectors, rollout batches, and templates.
+
 ### Selecting Devices into a Fleet on the Web UI
 
 ### Selecting Devices into a Fleet on the CLI
