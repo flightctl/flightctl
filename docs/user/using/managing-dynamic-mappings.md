@@ -19,8 +19,8 @@ Helm and quadlet deployments provide a starter set of mappings. The default mapp
 
 | Mapping | Default output |
 |---|---|
-| `system-info` | The `agentVersion`, `architecture`, `biosVendor`, `biosVersion`, `cpuProcessors`, `deltaEligible`, `distroId`, `distroVersion`, `kernel`, `memoryTotalKb`, and `productName` fields from `status.systemInfo`, as `feature.flightctl.io/systemInfo.<field>` labels. |
-| `custom-info` | Entries from `status.systemInfo.customInfo` as `feature.flightctl.io/customInfo.<field>` labels. |
+| `system-info` | The `agentVersion`, `architecture`, `biosVendor`, `biosVersion`, `cpuProcessors`, `deltaEligible`, `distroId`, `distroVersion`, `kernel`, `memoryTotalKb`, and `productName` fields from `status.systemInfo`, as `systeminfo.flightctl.io/<field>` labels. |
+| `custom-info` | Entries from `status.systemInfo.customInfo` as `custominfo.flightctl.io/<field>` labels. |
 | `tpm-enabled` | `feature.flightctl.io/tpm.enabled` is `true` when the device reports TPM vendor information. |
 | `gpu-present` | `feature.flightctl.io/gpu.present` is `true` when one or more GPUs are reported and `false` when the reported list is empty. |
 | `kvm-enabled` | `feature.flightctl.io/kvm.enabled` uses the reported `status.systemInfo.kvm.enabled` value when available. |
@@ -181,7 +181,7 @@ Mappings create ordinary device labels. Use the resulting keys anywhere device l
 spec:
   selector:
     matchLabels:
-      feature.flightctl.io/customInfo.region: east
+      custominfo.flightctl.io/region: east
 ```
 
 Use the same label key in a rollout batch selector. A fleet template can read its value with a Go template expression:
@@ -194,13 +194,13 @@ spec:
         - name: region
           inline:
             content: |
-              region={{ index .metadata.labels "feature.flightctl.io/customInfo.region" }}
+              region={{ index .metadata.labels "custominfo.flightctl.io/region" }}
 ```
 
 Filter the device inventory by the label key with the CLI:
 
 ```console
-flightctl get devices -l feature.flightctl.io/customInfo.region=east
+flightctl get devices -l custominfo.flightctl.io/region=east
 ```
 
 ## Understand ownership and security
