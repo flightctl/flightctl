@@ -297,10 +297,13 @@ The two mechanisms are independent, and one deployment can use both for differen
 | Source of truth | An external system with its own API | A Git repository |
 | Who runs the import | A collector process that you deploy and operate | The Flight Control service |
 | Direction | The collector writes to the Flight Control API | The service reads from Git |
-| Resource ownership | Resources carry collector labels and are reconciled only by the pipeline that created them | Resources are marked as managed by the ResourceSync and cannot be edited through the API, CLI, or UI |
+| Resource ownership | Resources carry collector labels that record which pipeline manages them | Resources are marked as owned by the ResourceSync |
+| Editing outside the import path | Allowed. Any authorized API client can edit a collector-labeled resource | Blocked. The API, CLI, and UI reject edits to an owned resource |
 | Deletion behavior | Resources the pipeline created but that the external system no longer reports are deleted | Resources whose definitions are removed from the repository are deleted |
 
-Keep the two mechanisms on separate catalogs. The collector never adopts a resource that it does not already own: a name collision with a resource created by hand or by a ResourceSync fails the import rather than overwriting the resource.
+Keep the two mechanisms on separate catalogs. The collector never adopts a resource outside its own boundary: a name collision with a resource created by hand or by a ResourceSync fails the import rather than overwriting the resource.
+
+Note the asymmetry in the ownership row. ResourceSync ownership is enforced by the Flight Control API, so an owned resource cannot be edited outside its import path. The collector labels are not enforced that way. They tell the collector what it may manage and prune, but they do not stop another authorized client from editing the resource, and a manual edit survives only until the next successful synchronization.
 
 To import from an external system, see [Catalog collector overview](catalog-collector/overview.md). To import from Git, continue with the next section.
 

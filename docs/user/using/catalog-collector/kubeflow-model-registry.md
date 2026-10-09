@@ -138,10 +138,22 @@ The snapshot carries the complete desired state of the configured catalog, so Fl
 | A model description, owner, or provider changes | The corresponding CatalogItem field is updated. |
 | A version is archived, or stops matching the version filter | The version is removed from the CatalogItem. |
 | A model is archived, deleted, or loses all eligible versions | The CatalogItem is deleted. |
-| Nothing changes | The revision is unchanged and no write is made. |
-| A cycle fails | Nothing is written and nothing is pruned. The previous content stays in place. |
+| Nothing changes | The snapshot repeats the previous revision. Reconciliation still runs and still repairs drift, but a resource that already matches is not rewritten. |
 
-Deletion is limited to resources that the same pipeline created, identified by the `flightctl.io/managed-by` and `flightctl.io/catalog-collector-pipeline` labels. Catalogs and catalog items created by hand or by a ResourceSync are never touched. See [Ownership and pruning](overview.md#ownership-and-pruning).
+Deletion is limited to resources that the same pipeline created, identified by the `flightctl.io/managed-by` and `flightctl.io/catalog-collector-pipeline` labels. Catalogs and catalog items that carry an owner, such as those created by a ResourceSync, are never touched, and neither is a resource created by hand under a different name. See [Ownership and pruning](overview.md#ownership-and-pruning).
+
+### Collection and reconciliation fail differently
+
+A cycle has two halves, and a failure in each has a different effect. Read the log line to tell them apart: the source reports `collection failed`, and the destination reports the resource it could not write.
+
+| Failure | Effect |
+|---|---|
+| Collection fails: the registry is unreachable, a filter is rejected, or normalization finds a data error | No snapshot is produced, so no destination runs. Nothing is written and nothing is pruned, and the previous content stays in place. |
+| Reconciliation fails: the Flight Control API rejects or does not answer a write | Writes that already succeeded stay committed. Reconciliation is not transactional, so the catalog can be left part-way between the old and the new desired state. |
+
+Pruning is the exception that is protected. The destination begins deleting only after every desired write has succeeded and both complete lists of managed resources have been retrieved, so a failure in either step leaves the stale resources in place rather than deleting live content.
+
+Either failure advances the backoff and the source retries. A retry re-sends the complete desired state, so a partially applied reconciliation converges on the next successful cycle.
 
 > [!IMPORTANT]
 > Removing a model from the registry removes the catalog item, and a device specification that references it stops resolving. Check which devices and fleets reference a catalog item before archiving its model.
@@ -276,7 +288,9 @@ The full procedure, including verification commands and explicit token projectio
 
 ## Verifying the import
 
-1. Confirm that the collector became ready. Preflight runs before readiness, so a ready collector has already had its token accepted by the registry.
+1. Confirm that the collector became ready. This source implements a preflight check that runs before readiness, so a ready collector has already had its token and both of its filters accepted by the Model Registry.
+
+    Readiness says nothing about the Flight Control destination. No preflight runs against a destination, so the collector contacts Flight Control for the first time when it reconciles its first snapshot. A destination credential that the service rejects shows up in the log and in the pipeline sync metrics, not in readiness.
 
 2. Allow at least one poll interval to pass, then check the collection metrics:
 

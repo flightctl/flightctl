@@ -231,7 +231,7 @@ sudo cp /usr/share/flightctl/flightctl-catalog-collector/examples/vanilla-publis
 | Task | Command or behavior |
 |---|---|
 | Apply a configuration change | `sudo systemctl restart flightctl-catalog-collector`. The collector reads its configuration only at startup and has no reload signal. |
-| Rotate a credential file | No restart needed. Files referenced by `tokenFile`, `clientIdFile`, and `clientSecretFile` are re-read per request. |
+| Rotate a credential file | No restart needed. A file referenced by `tokenFile` is read before every request. Files referenced by `clientIdFile` and `clientSecretFile` are read only when a new access token is acquired, so a cached token stays in use until it is replaced. Restart the collector when a rotation must take effect at once. |
 | Inspect failures | `systemctl status flightctl-catalog-collector` and `journalctl -u flightctl-catalog-collector -n 50`. |
 | Recover from the restart limit | After five failures within five minutes the unit enters the failed state. Fix the configuration, then run `sudo systemctl reset-failed flightctl-catalog-collector` and start it again. |
 | Behavior at boot | The unit carries `ConditionPathExists` on the configuration file, so it is skipped on a host with no configuration. That is the expected state after a fresh install. |
@@ -244,11 +244,13 @@ For the complete unit contract, including restart bounds and verification comman
 
 ## Verifying the installation
 
-1. Confirm readiness. The collector preflights each source during startup, before it reports ready, so a ready collector has already authenticated against the upstream system:
+1. Confirm readiness:
 
     ```console
     curl -s http://127.0.0.1:13133/readyz
     ```
+
+    Preflight is an optional capability that a source may implement. A source that implements it, such as `kubeflowmodelregistry`, is validated during startup, before the collector reports ready. A source that does not, such as `http`, contributes nothing to readiness. No preflight runs against a destination, so readiness never proves that the Flight Control credential is accepted.
 
 2. Allow at least one poll interval to pass, then read the metrics:
 

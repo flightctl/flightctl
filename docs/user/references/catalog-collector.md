@@ -21,7 +21,7 @@ The file is YAML. Decoding is strict at every level: an unknown key, a misspelle
 | `destinations` | Yes, in practice | Named destination instances. At least one is required because every pipeline references one. |
 | `pipelines` | Yes | Named pipelines. At least one pipeline must be defined. |
 
-Declaring a component does not start it. Only components referenced by a pipeline are constructed, and extensions are started whenever they are declared.
+Declaration and activation differ by component kind. A source, a processor, or a destination is constructed only when a pipeline references it. A declaration that no pipeline references is ignored. Every declared extension is constructed and started, whether or not a component references it.
 
 ## Component identifiers
 
@@ -164,7 +164,7 @@ sources:
 | `backoff.multiplier` | number | `2` | Factor applied to the base interval after each consecutive failure. Must be finite and at least `1.0`. |
 | `backoff.randomizationFactor` | number | `0.5` | Symmetric jitter around the base interval. Must be between 0 and 1 inclusive. |
 
-The source implements a preflight check. During startup it issues one query against each configured filter and fails before the collector reports ready if the registry rejects it.
+The source implements the optional preflight capability. During startup it issues one query against each configured filter and fails before the collector reports ready if the registry rejects it. The check covers the registry endpoint and this source's credential only; it says nothing about the destination the pipeline writes to.
 
 ## Processors
 
@@ -227,6 +227,9 @@ Reconciliation behavior:
 * An existing resource without the collector labels is never adopted. A desired name that collides with such a resource fails the reconciliation.
 * A resource that reports an owner is never modified.
 * A snapshot that sets either reserved label itself is rejected.
+* Reconciliation is not transactional. A failure part-way through leaves earlier writes committed. Pruning is the exception: it begins only after every write and both managed-resource lists have succeeded.
+
+The labels bound what the collector manages. They are not an access control: any other client authorized to call the Flight Control API can edit or delete a labeled resource, and the next successful synchronization overwrites a manual edit. For a catalog that the API itself protects from editing, use ResourceSync, which sets `metadata.owner`.
 
 ### debug
 
@@ -325,6 +328,8 @@ extensions:
 | `expiryBuffer` | duration | `10s` | Treats a cached token as expired this long before its real expiry. Must not be negative. |
 
 Tokens are fetched lazily. When a request is about to be sent and the cached token has less than `expiryBuffer` remaining, a replacement is obtained first. The buffer narrows the window in which a token expires in flight; it does not make a `401` response impossible.
+
+`clientIdFile` and `clientSecretFile` are read at the moment a new token is acquired, not on every request. Credentials rotated on disk therefore take effect when the cached token is next replaced, which is a different schedule from the per-request read that `bearertokenauth.tokenFile` uses.
 
 Prefer the file forms. Inline values appear in the configuration file and, in a Helm deployment, in the rendered ConfigMap and in `helm get values`.
 

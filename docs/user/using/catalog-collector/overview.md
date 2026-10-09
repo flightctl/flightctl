@@ -26,7 +26,7 @@ Flight Control offers two ways to populate a catalog from outside the API. They 
 | Source of truth | An external system with its own API, such as a model registry | A Git repository holding Catalog and CatalogItem YAML files |
 | Who runs the import | A separate collector process that you deploy and operate | The Flight Control service itself |
 | Direction | The collector pushes to the Flight Control API | The service pulls from Git |
-| Resource ownership | Resources carry collector labels and remain writable through the API only by the same pipeline | Resources are marked as managed by the ResourceSync and are not editable through the API, CLI, or UI |
+| Resource ownership | Resources carry collector labels. The collector manages only resources inside its own boundary, but other authorized API clients can still edit them. | Resources are marked as owned by the ResourceSync and are not editable through the API, CLI, or UI |
 | Typical use | Mirroring a registry that already publishes versioned content | Managing hand-authored catalog definitions with review and history |
 
 Use ResourceSync when you author catalog content yourself and want Git review and history. Use the collector when another system already owns the content and you want Flight Control to track it.
@@ -44,7 +44,12 @@ destinations:   # where catalog content goes
 pipelines:      # source -> [processors] -> destination
 ```
 
-The structure is deliberately modeled on the [OpenTelemetry Collector configuration](https://opentelemetry.io/docs/collector/configuration/): components are named with a `type[/name]` identifier, declaring a component does not activate it, and only the components referenced by a pipeline are built and started. The component set is specific to Flight Control catalogs. No OpenTelemetry Collector component, receiver, or exporter is compatible with it.
+The structure is deliberately modeled on the [OpenTelemetry Collector configuration](https://opentelemetry.io/docs/collector/configuration/): components are named with a `type[/name]` identifier. The component set is specific to Flight Control catalogs. No OpenTelemetry Collector component, receiver, or exporter is compatible with it.
+
+Two different activation rules apply:
+
+* **Sources, processors, and destinations** are built only when a pipeline references them. A declaration that no pipeline uses is ignored, and its type does not need a registered factory.
+* **Extensions** are always built. Every declared extension is constructed and started, whether or not a component references it, because an extension is a shared service capability rather than a pipeline stage.
 
 ### Component identifiers
 
@@ -183,16 +188,45 @@ Before a snapshot reaches a destination, the collector validates it: the revisio
 
 ## Quickstart
 
-This procedure runs a collector locally, pushes one snapshot into it over HTTP, and prints the result. It needs no Flight Control service and no external registry, so it is the fastest way to confirm that the configuration model behaves as you expect.
+This procedure wires an HTTP source to a Flight Control destination, posts a snapshot into the collector, and confirms that the catalog arrives in Flight Control. It then posts a second, changed snapshot and confirms that the update is applied.
+
+The procedure uses only the collector binary, the `curl` command, and the Flight Control CLI. It makes no assumption about where the collector runs: a Linux host, a container, and a pod all behave the same, because the collector reads one configuration file and two credential paths. Only those paths change between environments.
 
 ### Prerequisites
 
-* A built collector binary, for example from `make build-catalog-collector` in a clone of the Flight Control repository, or the collector container image.
-* The `curl` command.
+* A reachable Flight Control API endpoint, and an account that may create and update Catalog and CatalogItem resources.
+* An API token that the Flight Control service accepts. How you obtain one depends on the authentication method your deployment uses; see [Authentication overview](../../installing/configuring-auth/overview.md).
+* The CA bundle that signs the Flight Control API certificate, unless that certificate is already trusted by the system trust store.
+* A collector binary, for example from `make build-catalog-collector` in a clone of the Flight Control repository, or the collector container image.
+* The `curl` command and the Flight Control CLI. See [Installing the Flight Control CLI](../../installing/installing-cli.md).
 
 ### Procedure
 
-1. Save the following configuration as `collector.yaml`:
+1. Create a working directory for the credential and the CA bundle:
+
+    ```console
+    mkdir -p -m 0700 ~/catalog-collector
+    ```
+
+2. Write the API token into a file that only you can read. The collector reads this file, never an environment variable or a command output:
+
+    ```console
+    install -m 0600 /dev/null ~/catalog-collector/flightctl-token
+    ```
+
+    ```console
+    printf '%s' '<api_token>' > ~/catalog-collector/flightctl-token
+    ```
+
+3. Copy the CA bundle that signs the Flight Control API certificate next to the token:
+
+    ```console
+    cp <path_to_ca_bundle> ~/catalog-collector/flightctl-ca.crt
+    ```
+
+    Omit this step and the `certificateAuthority` field in the next step when the API certificate is signed by a certificate in the system trust store.
+
+4. Save the following configuration as `~/catalog-collector/collector.yaml`, replacing `<flightctl_api_endpoint>` with the base URL of your Flight Control API:
 
     ```yaml
     service:
@@ -206,39 +240,54 @@ This procedure runs a collector locally, pushes one snapshot into it over HTTP, 
         livePath: /livez
         readyPath: /readyz
 
+      bearertokenauth/flightctl:
+        tokenFile: /home/<user_name>/catalog-collector/flightctl-token
+
     sources:
       http/snapshots:
         listenAddress: 127.0.0.1:8080
         path: /v1/snapshots
 
     destinations:
-      debug/stdout:
-        verbosity: normal
+      flightctl/service:
+        server: https://<flightctl_api_endpoint>
+        certificateAuthority: /home/<user_name>/catalog-collector/flightctl-ca.crt
+        timeout: 30s
+        auth:
+          authenticator: bearertokenauth/flightctl
 
     pipelines:
-      snapshots:
+      external-catalog:
         source: http/snapshots
-        destination: debug/stdout
+        destination: flightctl/service
     ```
 
-2. Start the collector:
+    Every path in the file is read by the collector process. In a container or a pod, use the paths the files are mounted at, not the paths they occupy on the host.
+
+5. Start the collector:
 
     ```console
-    bin/flightctl-catalog-collector --config collector.yaml
+    bin/flightctl-catalog-collector --config ~/catalog-collector/collector.yaml
     ```
 
-3. In a second terminal, confirm that the collector is ready:
+6. In a second terminal, confirm that the collector is ready:
 
     ```console
-    curl -s http://127.0.0.1:13133/readyz
+    curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:13133/readyz
     ```
 
-4. Push an empty snapshot:
+    The expected output is:
+
+    ```text
+    200
+    ```
+
+7. Save the example snapshot from [Snapshot format](#snapshot-format) as `snapshot.json` and post it:
 
     ```console
     curl -sS -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:8080/v1/snapshots \
         -H 'Content-Type: application/json' \
-        -d '{"revision":"1","catalogs":[],"catalogItems":[]}'
+        --data-binary @snapshot.json
     ```
 
     The expected output is:
@@ -247,55 +296,43 @@ This procedure runs a collector locally, pushes one snapshot into it over HTTP, 
     204
     ```
 
-5. Push the example snapshot from [Snapshot format](#snapshot-format), saved as `snapshot.json`:
+    A `502` means the snapshot was well formed but the pipeline failed to reconcile it. Read the collector log, which names the failing stage.
+
+8. Confirm with the CLI that the catalog arrived:
 
     ```console
-    curl -sS -X POST http://127.0.0.1:8080/v1/snapshots \
+    flightctl get catalogs
+    ```
+
+    ```console
+    flightctl get catalogitems --catalog ai-models
+    ```
+
+9. Confirm that the collector labeled what it wrote:
+
+    ```console
+    flightctl get catalogs -l flightctl.io/catalog-collector-pipeline=external-catalog
+    ```
+
+10. Change the snapshot and post it again. Edit `snapshot.json`, set `revision` to a new value such as `2026-01-15T10:00:00Z`, and change `spec.shortDescription` of the catalog item to `Vision model for edge inference, revised`. Then post the file again:
+
+    ```console
+    curl -sS -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:8080/v1/snapshots \
         -H 'Content-Type: application/json' \
         --data-binary @snapshot.json
     ```
 
-    The collector logs the catalog and the catalog item it received.
+11. Confirm that the update was applied:
 
-### Writing to Flight Control
+    ```console
+    flightctl get catalogitem object-detector --catalog ai-models -o yaml
+    ```
 
-To send the same snapshots to a Flight Control service, replace the debug destination with the `flightctl` destination and attach an authenticator:
+    The `spec.shortDescription` field now carries the revised text. Removing the catalog item from the snapshot entirely and posting again deletes it, because the snapshot is the complete desired state for the pipeline.
 
-```yaml
-extensions:
-  healthcheck:
-    endpoint: 127.0.0.1:13133
+### Using OAuth2 instead of a static token
 
-  bearertokenauth/flightctl:
-    tokenFile: /etc/flightctl/catalog-collector/credentials/flightctl-token
-
-sources:
-  http/snapshots:
-    listenAddress: 127.0.0.1:8080
-    path: /v1/snapshots
-
-destinations:
-  flightctl/service:
-    server: https://flightctl.example.com
-    certificateAuthority: /etc/flightctl/catalog-collector/certs/flightctl-ca.crt
-    timeout: 30s
-    auth:
-      authenticator: bearertokenauth/flightctl
-
-pipelines:
-  external-catalog:
-    source: http/snapshots
-    destination: flightctl/service
-```
-
-Verify the result with the CLI:
-
-```console
-flightctl get catalogs
-flightctl get catalogitems --catalog ai-models
-```
-
-For production deployments prefer the `oauth2client` authenticator over a static token. See [Installing the catalog collector](../../installing/installing-catalog-collector.md).
+A token file is the shortest path to a working pipeline, but a long-lived token is a poor production credential. The `oauth2client` extension exchanges client credentials for short-lived access tokens instead. Replace the `bearertokenauth/flightctl` extension with an `oauth2client/flightctl` extension and point `auth.authenticator` at it. See [Authenticating to Flight Control](../../installing/installing-catalog-collector.md#authenticating-to-flight-control) for the procedure and [oauth2client](../../references/catalog-collector.md#oauth2client) for every field.
 
 ## Ownership and pruning
 
@@ -306,10 +343,10 @@ The Flight Control destination labels every resource it writes:
 | `flightctl.io/managed-by` | `flightctl-catalog-collector` |
 | `flightctl.io/catalog-collector-pipeline` | The pipeline name from the configuration |
 
-These labels define the reconciliation boundary:
+These labels define the boundary that the collector itself respects:
 
-* A resource that already exists without these labels is never adopted or overwritten. A desired name that collides with such a resource fails reconciliation.
-* A resource owned by another actor, such as a ResourceSync, is never modified.
+* A resource that already exists without both labels, or with a different pipeline name, is never adopted or overwritten. A desired name that collides with such a resource fails reconciliation.
+* A resource that reports a `metadata.owner`, such as one created by a ResourceSync, is never modified.
 * Pruning considers only resources carrying both labels with the matching pipeline name.
 * A snapshot may not set either label itself. Reconciliation fails if it does.
 
@@ -317,19 +354,35 @@ Pruning runs only after every desired write has succeeded and both complete list
 
 Because the pipeline name is part of a label value, renaming a pipeline makes the new pipeline lose sight of the resources the old name created. Delete the stale resources, or keep the pipeline name stable.
 
+### What the labels do not do
+
+The labels are a boundary the collector applies to itself. They are not an access control.
+
+* Any other client that is authorized to call the Flight Control API can still create, edit, and delete a resource carrying the collector labels. The API, the CLI, and the UI treat it like any other Catalog or CatalogItem.
+* A manual edit to a resource the collector manages is not permanent. The collector compares each desired resource against the live one on every synchronization and rewrites it when the specification or the labels differ, so the next successful snapshot restores the collector's view.
+* Removing the labels by hand does not transfer the resource. It takes the resource outside the pipeline boundary, so the collector stops pruning it and the next snapshot that wants the same name fails instead of overwriting it.
+
+ResourceSync uses a different mechanism. It sets `metadata.owner` on the resources it creates, and the Flight Control API refuses edits to an owned resource. If you need a catalog that cannot be edited outside its import path, use ResourceSync. See [Importing catalogs using ResourceSync](../managing-catalogs.md#importing-catalogs-using-resourcesync).
+
 ## Operating the collector
 
 ### Startup sequence
 
-Startup is ordered so that a misconfiguration fails before any catalog content is written:
+Startup is ordered so that a configuration error fails before any catalog content is written:
 
 1. The metrics endpoint binds, if `service.metrics` is configured.
-2. Extensions are constructed and started.
-3. Sources that implement a preflight check validate their external dependencies. The `kubeflowmodelregistry` source queries the registry once and fails fast if the query is rejected.
+2. Every declared extension is constructed and started.
+3. Each source that implements the optional preflight capability validates its own external dependencies.
 4. Source goroutines start.
-5. The health endpoint reports ready.
+5. Extensions that take part in the readiness lifecycle, such as `healthcheck`, report ready.
 
-A collector that reports ready has therefore already validated its credentials against the upstream system. Readiness says nothing about the cycles that follow; use the metrics and the log to confirm that content is flowing.
+Readiness proves less than it may appear to:
+
+* **Preflight is optional.** It is a capability a source may implement, not a stage every source runs. The built-in `http` source implements no preflight, so a pipeline built on it reports ready without contacting anything.
+* **Preflight covers the source, not the destination.** The `kubeflowmodelregistry` source queries the Model Registry once and fails fast if the query is rejected, which does exercise its registry credential. No preflight runs against a destination, so a ready collector has not proved that its Flight Control credential is accepted.
+* **Readiness says nothing about later cycles.** Collection and reconciliation both happen after startup and either can fail on its own.
+
+Use the metrics and the log to confirm that content is flowing, and the CLI to confirm that it arrived.
 
 ### Health endpoints
 
@@ -341,7 +394,54 @@ When `service.metrics` is present, the collector serves a Prometheus endpoint at
 
 ### Applying configuration changes
 
-The collector reads its configuration once, at startup, and has no reload signal. Restart it after editing the configuration file. Credential files referenced by `tokenFile`, `clientIdFile`, and `clientSecretFile` are re-read per request, so rotating a credential in place does not require a restart.
+The collector reads its configuration once, at startup, and has no reload signal. Restart it after editing the configuration file.
+
+Credential files are re-read without a restart, but not all on the same schedule:
+
+| Field | When the collector reads the file |
+|---|---|
+| `bearertokenauth.tokenFile` | Before every outgoing request. A token replaced in place is used by the next request. |
+| `oauth2client.clientIdFile` and `oauth2client.clientSecretFile` | Only when a new access token is acquired: on the first request, and whenever the cached token is within `expiryBuffer` of its expiry. |
+
+An `oauth2client` extension therefore keeps using its cached access token after you replace the client credentials on disk. The new credentials take effect when that token is next replaced. Restart the collector when a rotation must take effect immediately.
+
+## Troubleshooting
+
+### Inspecting what a source produces
+
+The `debug` destination logs snapshots instead of writing them anywhere. Point a pipeline at it to separate a source or adapter problem from a destination problem, because a pipeline that ends in `debug` contacts no Flight Control service and needs no credential:
+
+```yaml
+destinations:
+  debug/stdout:
+    verbosity: normal
+
+pipelines:
+  external-catalog:
+    source: http/snapshots
+    destination: debug/stdout
+```
+
+Set `verbosity` to `basic` for the revision and resource counts, `normal` to add the resource names, or `detailed` to log the full JSON body of every resource. Enable `detailed` deliberately: catalog metadata may contain sensitive operational information.
+
+### Interpreting the HTTP source response
+
+| Response | Meaning |
+|---|---|
+| `204 No Content` | The snapshot was accepted, validated, and reconciled by every pipeline that uses this source. |
+| `400 Bad Request` | The body is not a valid snapshot. The response text names the problem. |
+| `415 Unsupported Media Type` | The request did not set `Content-Type: application/json`. |
+| `502 Bad Gateway` | The snapshot was well formed, but a processor or a destination rejected it. The collector log names the failing stage. |
+
+### Common failures
+
+| Symptom | Likely cause |
+|---|---|
+| Startup fails naming a configuration path | A misspelled field, an unknown field, or an unset environment variable. Decoding is strict at every level. |
+| Startup fails naming an extension | A component references an authenticator identifier that no extension declares, or the extension does not provide the capability the component needs. |
+| Reconciliation fails with a name collision | A resource with that name already exists outside the pipeline boundary. See [What the labels do not do](#what-the-labels-do-not-do). |
+| The collector is ready, but nothing reaches Flight Control | Readiness does not exercise the destination credential. Check the pipeline sync metrics and the log. |
+| Resources vanish after a pipeline rename | The renamed pipeline writes a new label value and no longer sees the old resources. Delete them by label, or keep the name stable. |
 
 ## Further reading
 

@@ -47,7 +47,7 @@ type Consumer interface {
 }
 ```
 
-`Run` blocks until the context is cancelled or a fatal error occurs. The next consumer is whatever the service selected: the first processor of the pipeline, a fan-out over several pipelines, or the terminal destination. A source never resolves a destination itself.
+`Run` blocks until the context is cancelled or a fatal error occurs. The consumer the factory receives is always a fan-out, even when a single pipeline uses the source. Each branch of that fan-out leads to the first processor of its pipeline, or straight to the destination when the pipeline declares none. A source never resolves a destination itself.
 
 Two optional capabilities are discovered by type assertion:
 
@@ -94,12 +94,36 @@ The struct is decoded from the YAML body of the component entry. Use JSON tags, 
 package examplesource
 
 import (
+    "encoding/json"
     "fmt"
     "strings"
+    "time"
 
-    "github.com/flightctl/flightctl/internal/util"
     "github.com/flightctl/flightctl/pkg/catalogcollector/source/pollsource"
 )
+
+// Duration accepts a Go duration string such as "5m" in the configuration
+// file. The shipped components use an equivalent type from an internal
+// package, which code outside this repository cannot import, so a custom
+// distribution declares its own.
+type Duration time.Duration
+
+func (d *Duration) UnmarshalJSON(data []byte) error {
+    var text string
+    if err := json.Unmarshal(data, &text); err != nil {
+        return err
+    }
+    parsed, err := time.ParseDuration(text)
+    if err != nil {
+        return err
+    }
+    *d = Duration(parsed)
+    return nil
+}
+
+func (d Duration) MarshalJSON() ([]byte, error) {
+    return json.Marshal(time.Duration(d).String())
+}
 
 type AuthConfig struct {
     Authenticator string `json:"authenticator"`
@@ -108,9 +132,16 @@ type AuthConfig struct {
 type Config struct {
     Endpoint     string                   `json:"endpoint"`
     Catalog      string                   `json:"catalog"`
-    PollInterval *util.Duration           `json:"pollInterval,omitempty"`
+    PollInterval *Duration                `json:"pollInterval,omitempty"`
     Auth         *AuthConfig              `json:"auth,omitempty"`
     Backoff      pollsource.BackoffConfig `json:"backoff,omitempty"`
+}
+
+func (c *Config) pollIntervalOrDefault() time.Duration {
+    if c.PollInterval == nil {
+        return 5 * time.Minute
+    }
+    return time.Duration(*c.PollInterval)
 }
 
 func (c *Config) Validate() error {
@@ -120,12 +151,18 @@ func (c *Config) Validate() error {
     if strings.TrimSpace(c.Catalog) == "" {
         return fmt.Errorf("missing required field %q", "catalog")
     }
+    if c.PollInterval != nil && time.Duration(*c.PollInterval) <= 0 {
+        return fmt.Errorf("field %q must be positive", "pollInterval")
+    }
     if err := c.Backoff.Validate(); err != nil {
         return fmt.Errorf("backoff: %w", err)
     }
     return nil
 }
 ```
+
+> [!IMPORTANT]
+> Import only `github.com/flightctl/flightctl/pkg/...` and `github.com/flightctl/flightctl/api/...` from a separate Go module. Go refuses to compile an external module that imports a path containing `internal`, so anything under `github.com/flightctl/flightctl/internal/...` is unavailable to a custom distribution. `pollsource.BackoffConfig` is safe to embed by value even though its fields have an internal type, because embedding it does not name that type.
 
 Conventions that the shipped components follow:
 
@@ -293,13 +330,25 @@ Consequences for a component author:
 
 The service builds and runs components in a fixed order:
 
-1. Extensions are constructed in deterministic order and registered in the host. Extension factories must not resolve other extensions at this point.
-2. Destinations, processors, and sources are constructed. Each pipeline branch is built backwards, from the destination through the processors in reverse order.
-3. Every source receives one fan-out consumer holding all branches that reference it. A single-pipeline source still receives a one-branch fan-out.
+1. Every configured extension is constructed in deterministic order and registered in the host, whether or not a component references it. Extension factories must not resolve other extensions at this point.
+2. Each pipeline branch is built backwards: the destination first, then the processors in reverse order.
+3. Every referenced source is constructed once and receives one fan-out consumer holding all branches that reference it. A single-pipeline source still receives a one-branch fan-out.
 4. `Service.Run` starts the metrics endpoint, then starts extensions, then runs source preflights, then launches source goroutines, and finally marks readiness extensions ready.
 5. On shutdown, readiness is cleared first and extensions are shut down in reverse start order.
 
-A destination may be shared by several pipelines, so a destination implementation must be safe for concurrent use and must isolate ownership by the `pipelineID` it receives on each call. Sources and processors are constructed per pipeline branch and are not shared.
+How many instances of each component kind exist follows from that order:
+
+| Kind | Instances |
+|---|---|
+| Extension | One per declared identifier. Every declared extension is constructed and started. |
+| Source | One per referenced source identifier, however many pipelines reference it. The single instance fans each snapshot out to every branch. |
+| Processor | One per occurrence in a pipeline. Two pipelines that list the same processor identifier get two instances, because each is bound to its own branch's next consumer. |
+| Destination | One per referenced destination identifier, shared by every branch that targets it. |
+
+The sharing rules carry two obligations:
+
+* A destination may be shared by several pipelines, so a destination implementation must be safe for concurrent use and must isolate ownership by the `pipelineID` it receives on each call.
+* A source may feed several pipelines from one instance, so it must not assume a single downstream consumer and must not mutate a snapshot after handing it over. The fan-out passes the same snapshot pointer to every branch.
 
 ## Testing
 
