@@ -1,0 +1,17 @@
+{{- if .Release.IsUpgrade }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "flightctl.initialLabelSyncMappingsMigrationConfigMapName" . }}
+  namespace: {{ default .Release.Namespace .Values.global.internalNamespace }}
+  labels:
+    {{- include "flightctl.standardLabels" . | nindent 4 }}
+    flightctl.service: initial-label-sync-mappings
+  annotations:
+    helm.sh/hook: pre-upgrade
+    helm.sh/hook-weight: "-30"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+data:
+  mappings.yaml: |-
+{{ toYaml .Values.organizations.initialLabelSyncMappings | indent 4 }}
+{{- end }}

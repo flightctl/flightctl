@@ -4,13 +4,17 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/domain"
+	labelsyncmappingservice "github.com/flightctl/flightctl/internal/service/labelsyncmapping"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 func createTestOrgProvisioner(catalogStore *fakeCatalogStore) *OrgProvisioner {
@@ -86,4 +90,41 @@ func TestEnsureDefaults_CatalogGetError_DoesNotPanic(t *testing.T) {
 	catalogStore.getErr = nil
 	_, status := catalogStore.GetCatalog(context.Background(), org.ID, domain.DefaultCatalogName)
 	require.Equal(t, http.StatusNotFound, int(status.Code), "No catalog should have been created when Get returns an unexpected error")
+}
+
+func TestEnsureDefaults_SeedsInitialMappingsForEachNewOrg(t *testing.T) {
+	manifest := filepath.Join(t.TempDir(), "mappings.yaml")
+	require.NoError(t, os.WriteFile(manifest, []byte(`
+- apiVersion: flightctl.io/v1beta1
+  kind: LabelSyncMapping
+  metadata:
+    name: system-info
+  spec:
+    resourceType: Device
+    expression: '{}'
+`), 0600))
+
+	org1 := &model.Organization{ID: uuid.New(), ExternalID: "org-1", DisplayName: "Organization 1"}
+	org2 := &model.Organization{ID: uuid.New(), ExternalID: "org-2", DisplayName: "Organization 2"}
+	ctrl := gomock.NewController(t)
+	mappingService := labelsyncmappingservice.NewMockService(ctrl)
+	mappingService.EXPECT().CreateLabelSyncMapping(gomock.Any(), org1.ID, gomock.Any()).DoAndReturn(
+		func(_ context.Context, orgID uuid.UUID, mapping domain.LabelSyncMapping) (*domain.LabelSyncMapping, domain.Status) {
+			require.Equal(t, "system-info", *mapping.Metadata.Name)
+			return &mapping, domain.StatusOK()
+		},
+	)
+	mappingService.EXPECT().CreateLabelSyncMapping(gomock.Any(), org2.ID, gomock.Any()).DoAndReturn(
+		func(_ context.Context, orgID uuid.UUID, mapping domain.LabelSyncMapping) (*domain.LabelSyncMapping, domain.Status) {
+			require.Equal(t, "system-info", *mapping.Metadata.Name)
+			return &mapping, domain.StatusOK()
+		},
+	)
+
+	seeder, err := labelsyncmappingservice.NewInitialLabelSyncMappingProvisioner(manifest, mappingService, logrus.New())
+	require.NoError(t, err)
+	catalogStore := &fakeCatalogStore{catalogs: make(map[catalogKey]*domain.Catalog)}
+	provisioner := NewOrgProvisioner(catalogStore, logrus.New(), seeder)
+
+	provisioner.EnsureDefaults(context.Background(), []*model.Organization{org1, org2})
 }

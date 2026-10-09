@@ -15,6 +15,12 @@ install -d -m 0755 /etc/flightctl/tpm-cas
 install -d -m 0755 /etc/flightctl/flightctl-worker/registries.conf.d
 install -d -m 0755 /etc/flightctl/flightctl-delta-worker/registries.conf.d
 
+# Install the packaged LabelSyncMapping defaults only when no operator file exists.
+DEFAULT_INITIAL_MAPPINGS_FILE="${SCRIPT_DIR}/../../packaging/flightctl/label-sync/mappings.yaml"
+"${SCRIPT_DIR}/install_initial_label_sync_mappings.sh" \
+  "$DEFAULT_INITIAL_MAPPINGS_FILE" \
+  /etc/flightctl/label-sync/mappings.yaml
+
 # Render quadlet files
 bin/flightctl-standalone render quadlets --config "packaging/images/${OS}/local-images.yaml"
 

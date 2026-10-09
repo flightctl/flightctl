@@ -24,12 +24,14 @@ import (
 	catalogservice "github.com/flightctl/flightctl/internal/service/catalog"
 	"github.com/flightctl/flightctl/internal/service/common"
 	"github.com/flightctl/flightctl/internal/service/events"
+	labelsyncmappingservice "github.com/flightctl/flightctl/internal/service/labelsyncmapping"
 	organizationservice "github.com/flightctl/flightctl/internal/service/organization"
 	"github.com/flightctl/flightctl/internal/store"
 	authproviderstore "github.com/flightctl/flightctl/internal/store/authprovider"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
 	devicestore "github.com/flightctl/flightctl/internal/store/device"
 	eventstore "github.com/flightctl/flightctl/internal/store/event"
+	labelsyncmappingstore "github.com/flightctl/flightctl/internal/store/labelsyncmapping"
 	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -138,6 +140,11 @@ func (s *Server) Run(ctx context.Context) error {
 	deviceStore := devicestore.NewDeviceStore(s.db, s.log.WithField("pkg", "device-store"))
 	eventStore := eventstore.NewEventStore(s.db, s.log.WithField("pkg", "event-store"))
 	eventsSvc := events.NewServiceHandler(eventStore, nil, s.log)
+	labelSyncMappingStore := labelsyncmappingstore.NewStore(s.db, s.log.WithField("pkg", "labelsyncmapping-store"))
+	labelSyncMappingSvc, err := labelsyncmappingservice.NewService(labelSyncMappingStore, deviceStore, eventsSvc, s.log)
+	if err != nil {
+		return fmt.Errorf("failed initializing LabelSyncMapping service: %w", err)
+	}
 	catalogSvc := catalogservice.WrapWithTracing(catalogservice.NewServiceHandler(catalogStore, deviceStore, nil, eventsSvc, s.log))
 	organizationSvc := organizationservice.WrapWithTracing(organizationservice.NewServiceHandler(organizationStore))
 
@@ -173,7 +180,15 @@ func (s *Server) Run(ctx context.Context) error {
 	}()
 
 	// Identity mapper.
-	orgProvisioner := service.NewOrgProvisioner(catalogSvc, s.log)
+	orgProvisioner, err := service.NewOrgProvisionerWithInitialMappings(
+		catalogSvc,
+		labelSyncMappingSvc,
+		s.cfg.Organizations.InitialLabelSyncMappingsFile,
+		s.log,
+	)
+	if err != nil {
+		return fmt.Errorf("creating organization provisioner: %w", err)
+	}
 	identityMapper := service.NewIdentityMapper(organizationSvc, orgProvisioner, s.log)
 	identityMappingMiddleware := fcmiddleware.NewIdentityMappingMiddleware(identityMapper, s.log)
 	identityMapper.Start()

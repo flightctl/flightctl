@@ -36,6 +36,15 @@ func TestEvaluatorEvaluate(t *testing.T) {
 			expectedMap:    map[string]string{"site": "east-coast"},
 		},
 		{
+			name:       "When transformMapEntry rewrites systemInfo keys it should return valid namespaced label keys",
+			expression: `status.systemInfo.transformMapEntry(k, v, k in ["agentVersion", "architecture", "deltaEligible", "distroId", "distroVersion"], {"systeminfo.flightctl.io/" + k: v})`,
+			device:     testDevice("amd64", nil),
+			expectedMap: map[string]string{
+				"systeminfo.flightctl.io/agentVersion": "v1.3.0",
+				"systeminfo.flightctl.io/architecture": "amd64",
+			},
+		},
+		{
 			name:           "When evaluating a conditional it should return the matching branch",
 			expression:     `status.systemInfo.architecture == "amd64" ? "x86" : "other"`,
 			device:         testDevice("arm64", nil),
@@ -213,15 +222,15 @@ func TestEvaluatorEvaluate(t *testing.T) {
 		},
 		{
 			name:        "When evaluating a map it should return complete keys and scalar values",
-			expression:  `{"custominfo/site": "east coast", "attempts": 42, "enabled": true, "empty": null}`,
+			expression:  `{"custominfo.flightctl.io/site": "east coast", "attempts": 42, "enabled": true, "empty": null}`,
 			device:      testDevice("amd64", nil),
-			expectedMap: map[string]string{"custominfo/site": "east-coast", "attempts": "42", "enabled": "true"},
+			expectedMap: map[string]string{"custominfo.flightctl.io/site": "east-coast", "attempts": "42", "enabled": "true"},
 		},
 		{
 			name:        "When transformMapEntry rewrites customInfo keys it should return the rewritten keys",
-			expression:  `(has(status.systemInfo.customInfo) && status.systemInfo.customInfo != null ? status.systemInfo.customInfo : {}).transformMapEntry(k, v, {"custominfo/" + k: v})`,
+			expression:  `(has(status.systemInfo.customInfo) && status.systemInfo.customInfo != null ? status.systemInfo.customInfo : {}).transformMapEntry(k, v, {"custominfo.flightctl.io/" + k: v})`,
 			device:      testDevice("amd64", map[string]string{"site": "east coast", "rack": "r2"}),
-			expectedMap: map[string]string{"custominfo/site": "east-coast", "custominfo/rack": "r2"},
+			expectedMap: map[string]string{"custominfo.flightctl.io/site": "east-coast", "custominfo.flightctl.io/rack": "r2"},
 		},
 		{
 			name:        "When a conditional selects a map it should return its entries",

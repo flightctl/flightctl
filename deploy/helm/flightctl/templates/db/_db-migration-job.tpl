@@ -224,12 +224,16 @@ spec:
         - mountPath: /root/.flightctl/
           name: flightctl-db-migration-config
           readOnly: true
+        - mountPath: {{ include "flightctl.initialLabelSyncMappingsDirectory" $ctx }}
+          name: {{ include "flightctl.initialLabelSyncMappingsConfigMapName" $ctx }}
+          readOnly: true
         {{- include "flightctl.dbSslVolumeMounts" $ctx | nindent 8 }}
       volumes:
       - name: flightctl-db-migration-config
         configMap:
           name: flightctl-db-migration-config
+      - name: {{ include "flightctl.initialLabelSyncMappingsConfigMapName" $ctx }}
+        configMap:
+          name: {{ include "flightctl.initialLabelSyncMappingsSourceConfigMapName" $ctx }}
       {{- include "flightctl.dbSslVolumes" $ctx | nindent 6 }}
 {{- end }}
-
-

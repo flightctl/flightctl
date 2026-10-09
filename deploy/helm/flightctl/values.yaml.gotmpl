@@ -255,6 +255,95 @@ alertmanager:
     # -- Label selector for binding this PVC to a pre-provisioned PersistentVolume by matching labels on the PV. Same immutability caveat as volumeName applies. Leave empty to disable label-based selection.
     matchLabels: {}
 
+# -- Initial LabelSyncMapping provisioning configuration
+organizations:
+  # -- YAML sequence of LabelSyncMapping resources attempted for each new or existing organization. Replaces the defaults; set to [] to disable automatic mapping creation.
+  initialLabelSyncMappings:
+    # BEGIN GENERATED INITIAL LABEL SYNC MAPPINGS
+    - apiVersion: flightctl.io/v1beta1
+      kind: LabelSyncMapping
+      metadata:
+        name: system-info
+      spec:
+        resourceType: Device
+        expression: >-
+          status.systemInfo.transformMapEntry(
+            k,
+            v,
+            k in [
+              "agentVersion",
+              "architecture",
+              "biosVendor",
+              "biosVersion",
+              "cpuProcessors",
+              "deltaEligible",
+              "distroId",
+              "distroVersion",
+              "kernel",
+              "memoryTotalKb",
+              "productName"
+            ],
+            {"systeminfo.flightctl.io/" + k: v}
+          )
+    - apiVersion: flightctl.io/v1beta1
+      kind: LabelSyncMapping
+      metadata:
+        name: custom-info
+      spec:
+        resourceType: Device
+        expression: >-
+          (has(status.systemInfo.customInfo) && status.systemInfo.customInfo != null
+            ? status.systemInfo.customInfo
+            : {}).transformMapEntry(
+            k,
+            v,
+            {"custominfo.flightctl.io/" + k: v}
+          )
+    - apiVersion: flightctl.io/v1beta1
+      kind: LabelSyncMapping
+      metadata:
+        name: tpm-enabled
+      spec:
+        resourceType: Device
+        key: feature.flightctl.io/tpm.enabled
+        expression: >-
+          has(status.systemInfo.tpmVendorInfo) && status.systemInfo.tpmVendorInfo != null
+            ? true
+            : dyn(null)
+    - apiVersion: flightctl.io/v1beta1
+      kind: LabelSyncMapping
+      metadata:
+        name: gpu-present
+      spec:
+        resourceType: Device
+        key: feature.flightctl.io/gpu.present
+        expression: >-
+          has(status.systemInfo.gpus) && status.systemInfo.gpus != null
+            ? size(status.systemInfo.gpus) > 0
+            : dyn(null)
+    - apiVersion: flightctl.io/v1beta1
+      kind: LabelSyncMapping
+      metadata:
+        name: kvm-enabled
+      spec:
+        resourceType: Device
+        key: feature.flightctl.io/kvm.enabled
+        expression: >-
+          has(status.systemInfo.kvm) && status.systemInfo.kvm != null
+            && has(status.systemInfo.kvm.enabled) && status.systemInfo.kvm.enabled != null
+            ? status.systemInfo.kvm.enabled
+            : dyn(null)
+    - apiVersion: flightctl.io/v1beta1
+      kind: LabelSyncMapping
+      metadata:
+        name: os-mode
+      spec:
+        resourceType: Device
+        key: feature.flightctl.io/os.mode
+        expression: status.systemInfo.osMode
+
+    # END GENERATED INITIAL LABEL SYNC MAPPINGS
+
 
 # -- API Server Configuration
 api:

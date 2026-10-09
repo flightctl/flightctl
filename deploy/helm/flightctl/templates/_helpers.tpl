@@ -23,6 +23,30 @@
   {{- $enabled }}
 {{- end }}
 
+{{- define "flightctl.initialLabelSyncMappingsConfigMapName" -}}
+flightctl-initial-label-sync-mappings
+{{- end -}}
+
+{{- define "flightctl.initialLabelSyncMappingsMigrationConfigMapName" -}}
+flightctl-initial-label-sync-mappings-migration
+{{- end -}}
+
+{{- define "flightctl.initialLabelSyncMappingsSourceConfigMapName" -}}
+{{- if .Release.IsUpgrade -}}
+{{ include "flightctl.initialLabelSyncMappingsMigrationConfigMapName" . }}
+{{- else -}}
+{{ include "flightctl.initialLabelSyncMappingsConfigMapName" . }}
+{{- end -}}
+{{- end -}}
+
+{{- define "flightctl.initialLabelSyncMappingsDirectory" -}}
+/etc/flightctl/label-sync
+{{- end -}}
+
+{{- define "flightctl.initialLabelSyncMappingsFile" -}}
+{{ include "flightctl.initialLabelSyncMappingsDirectory" . }}/mappings.yaml
+{{- end -}}
+
 {{- define "flightctl.getBaseDomain" }}
   {{- $baseDomain := "" }}
   {{- if .Values.global.baseDomain }}

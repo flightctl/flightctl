@@ -1,14 +1,20 @@
 package store_test
 
 import (
+	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/migration"
 	"github.com/flightctl/flightctl/internal/store"
 	catalogstore "github.com/flightctl/flightctl/internal/store/catalog"
+	devicestore "github.com/flightctl/flightctl/internal/store/device"
+	labelsyncmappingstore "github.com/flightctl/flightctl/internal/store/labelsyncmapping"
 	"github.com/flightctl/flightctl/internal/store/model"
+	organizationstore "github.com/flightctl/flightctl/internal/store/organization"
 	flightlog "github.com/flightctl/flightctl/pkg/log"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/flightctl/flightctl/test/util/testdb"
@@ -42,6 +48,173 @@ var _ = Describe("DataStore Migration Tests", func() {
 
 		return freshCfg, freshDbName, freshGormDb
 	}
+
+	writeInitialMappingManifest := func(content string) string {
+		path := filepath.Join(GinkgoT().TempDir(), "mappings.yaml")
+		Expect(os.WriteFile(path, []byte(content), 0o600)).To(Succeed())
+		return path
+	}
+
+	Context("Initial LabelSyncMapping migration", func() {
+		It("When migration runs it should seed each existing organization after mapping schemas are ready and preserve unowned labels", func() {
+			freshCtx := testutil.StartSpecTracerForGinkgo(suiteCtx)
+			freshLog := flightlog.InitLogs()
+			org1ID := uuid.New()
+			org2ID := uuid.New()
+			freshCfg, freshDbName, freshGormDb := createFreshDBWithOrgs(freshCtx, freshLog, []uuid.UUID{org1ID, org2ID})
+			defer func() {
+				Expect(testdb.DeleteTestDB(freshCtx, freshLog, freshCfg, freshGormDb, freshDbName)).To(Succeed())
+			}()
+
+			deviceStore := devicestore.NewDeviceStore(freshGormDb, freshLog.WithField("pkg", "device-store"))
+			Expect(deviceStore.InitialMigration(freshCtx)).To(Succeed())
+			labels := map[string]string{"operator.example.com/role": "preserved"}
+			testutil.CreateTestDevice(freshCtx, deviceStore, org1ID, "legacy-device", nil, nil, &labels)
+			Expect(freshGormDb.Migrator().DropColumn(&model.DeviceLabel{}, "LabelSyncMappingID")).To(Succeed())
+			Expect(freshGormDb.Migrator().HasColumn(&model.DeviceLabel{}, "label_sync_mapping_id")).To(BeFalse())
+
+			manifest := writeInitialMappingManifest(`
+- apiVersion: flightctl.io/v1beta1
+  kind: LabelSyncMapping
+  metadata:
+    name: system-info
+  spec:
+    resourceType: Device
+    expression: '{}'
+`)
+			Expect(migration.RunWithInitialLabelSyncMappings(freshCtx, freshGormDb, freshLog, true, manifest)).To(MatchError(migration.ErrDryRunComplete))
+			Expect(freshGormDb.Migrator().HasColumn(&model.DeviceLabel{}, "label_sync_mapping_id")).To(BeFalse())
+
+			Expect(migration.RunWithInitialLabelSyncMappings(freshCtx, freshGormDb, freshLog, false, manifest)).To(Succeed())
+
+			Expect(freshGormDb.Migrator().HasColumn(&model.DeviceLabel{}, "label_sync_mapping_id")).To(BeTrue())
+			mappingStore := labelsyncmappingstore.NewStore(freshGormDb, freshLog.WithField("pkg", "labelsyncmapping-store"))
+			for _, orgID := range []uuid.UUID{org1ID, org2ID} {
+				mapping, err := mappingStore.Get(freshCtx, orgID, "system-info")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(mapping.Spec.Expression).To(Equal("{}"))
+				Expect(mapping.Status).NotTo(BeNil())
+				Expect((*mapping.Status.Conditions)[0].Reason).To(Equal("Pending"))
+
+				var row model.LabelSyncMapping
+				Expect(freshGormDb.Where("org_id = ? AND name = ?", orgID, "system-info").Take(&row).Error).To(Succeed())
+				Expect(row.Owner).To(BeNil())
+			}
+
+			var legacyLabel model.DeviceLabel
+			Expect(freshGormDb.Where("org_id = ? AND device_name = ? AND label_key = ?", org1ID, "legacy-device", "operator.example.com/role").Take(&legacyLabel).Error).To(Succeed())
+			Expect(legacyLabel.LabelValue).To(Equal("preserved"))
+			Expect(legacyLabel.LabelSyncMappingID).To(BeNil())
+		})
+
+		It("When an entry conflicts it should preserve the existing mapping and continue seeding once", func() {
+			freshCtx := testutil.StartSpecTracerForGinkgo(suiteCtx)
+			freshLog := flightlog.InitLogs()
+			org1ID := uuid.New()
+			org2ID := uuid.New()
+			freshCfg, freshDbName, freshGormDb := createFreshDBWithOrgs(freshCtx, freshLog, []uuid.UUID{org1ID, org2ID})
+			defer func() {
+				Expect(testdb.DeleteTestDB(freshCtx, freshLog, freshCfg, freshGormDb, freshDbName)).To(Succeed())
+			}()
+
+			Expect(migration.Run(freshCtx, freshGormDb, freshLog.WithField("pkg", "store"), false)).To(Succeed())
+			mappingStore := labelsyncmappingstore.NewStore(freshGormDb, freshLog.WithField("pkg", "labelsyncmapping-store"))
+			name := "shared-name"
+			_, err := mappingStore.Create(freshCtx, org1ID, &domain.LabelSyncMapping{
+				Metadata: domain.ObjectMeta{Name: &name},
+				Spec: domain.LabelSyncMappingSpec{
+					ResourceType: domain.LabelSyncMappingDevice,
+					Expression:   "{'source': 'operator'}",
+				},
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			manifest := writeInitialMappingManifest(`
+- apiVersion: flightctl.io/v1beta1
+  kind: LabelSyncMapping
+  metadata:
+    name: shared-name
+  spec:
+    resourceType: Device
+    expression: "{'source': 'manifest'}"
+- apiVersion: flightctl.io/v1beta1
+  kind: LabelSyncMapping
+  metadata:
+    name: later-entry
+  spec:
+    resourceType: Device
+    expression: '{}'
+`)
+			Expect(migration.RunWithInitialLabelSyncMappings(freshCtx, freshGormDb, freshLog, false, manifest)).To(Succeed())
+
+			operatorMapping, err := mappingStore.Get(freshCtx, org1ID, "shared-name")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(operatorMapping.Spec.Expression).To(Equal("{'source': 'operator'}"))
+			for _, orgID := range []uuid.UUID{org1ID, org2ID} {
+				laterMapping, err := mappingStore.Get(freshCtx, orgID, "later-entry")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(laterMapping.Spec.Expression).To(Equal("{}"))
+			}
+			manifestMapping, err := mappingStore.Get(freshCtx, org2ID, "shared-name")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(manifestMapping.Spec.Expression).To(Equal("{'source': 'manifest'}"))
+
+			org3ID := uuid.New()
+			organizationStore := organizationstore.NewOrganizationStore(freshGormDb)
+			Expect(testutil.CreateTestOrganization(freshCtx, organizationStore, org3ID)).To(Succeed())
+			Expect(os.WriteFile(manifest, []byte(`
+- apiVersion: flightctl.io/v1beta1
+  kind: LabelSyncMapping
+  metadata:
+    name: after-first-run
+  spec:
+    resourceType: Device
+    expression: '{}'
+`), 0o600)).To(Succeed())
+			Expect(migration.RunWithInitialLabelSyncMappings(freshCtx, freshGormDb, freshLog, false, manifest)).To(Succeed())
+			var laterOrgMappings int64
+			Expect(freshGormDb.Model(&model.LabelSyncMapping{}).Where("org_id = ?", org3ID).Count(&laterOrgMappings).Error).To(Succeed())
+			Expect(laterOrgMappings).To(Equal(int64(0)))
+		})
+
+		It("When the manifest is unreadable it should log the failure without recording the attempt", func() {
+			freshCtx := testutil.StartSpecTracerForGinkgo(suiteCtx)
+			freshLog := flightlog.InitLogs()
+			orgID := uuid.New()
+			freshCfg, freshDbName, freshGormDb := createFreshDBWithOrgs(freshCtx, freshLog, []uuid.UUID{orgID})
+			defer func() {
+				Expect(testdb.DeleteTestDB(freshCtx, freshLog, freshCfg, freshGormDb, freshDbName)).To(Succeed())
+			}()
+
+			manifest := filepath.Join(GinkgoT().TempDir(), "missing-mappings.yaml")
+			var logOutput bytes.Buffer
+			migrationLog := logrus.New()
+			migrationLog.SetOutput(&logOutput)
+			migrationLog.SetLevel(logrus.WarnLevel)
+			Expect(migration.RunWithInitialLabelSyncMappings(freshCtx, freshGormDb, migrationLog, false, manifest)).To(Succeed())
+			Expect(logOutput.String()).To(ContainSubstring("Initial label-sync mappings were not attempted"))
+
+			var markerCount int64
+			Expect(freshGormDb.Model(&model.SchemaMigration{}).Where("key = ?", "seed_initial_label_sync_mappings_v1").Count(&markerCount).Error).To(Succeed())
+			Expect(markerCount).To(Equal(int64(0)))
+
+			Expect(os.WriteFile(manifest, []byte(`
+- apiVersion: flightctl.io/v1beta1
+  kind: LabelSyncMapping
+  metadata:
+    name: appeared-later
+  spec:
+    resourceType: Device
+    expression: '{}'
+`), 0o600)).To(Succeed())
+			Expect(migration.RunWithInitialLabelSyncMappings(freshCtx, freshGormDb, migrationLog, false, manifest)).To(Succeed())
+			var mappingCount int64
+			Expect(freshGormDb.Model(&model.LabelSyncMapping{}).Where("org_id = ?", orgID).Count(&mappingCount).Error).To(Succeed())
+			Expect(mappingCount).To(Equal(int64(1)))
+			Expect(freshGormDb.Model(&model.SchemaMigration{}).Where("key = ?", "seed_initial_label_sync_mappings_v1").Count(&markerCount).Error).To(Succeed())
+			Expect(markerCount).To(Equal(int64(1)))
+		})
+	})
 
 	Context("Default catalog backfill", func() {
 		It("When upgrading from a pre-catalog installation, it should create a default catalog for every org", func() {
