@@ -63,8 +63,10 @@ func (k *Keycloak) Start(ctx context.Context, network string, reuse bool) error 
 		Entrypoint:   []string{"/bin/bash", "-c"},
 		Cmd:          []string{"/opt/keycloak/bin/kc.sh build --health-enabled=true && /opt/keycloak/bin/kc.sh start-dev --import-realm"},
 		Env: map[string]string{
-			"KC_BOOTSTRAP_ADMIN_USERNAME": "admin",
-			"KC_BOOTSTRAP_ADMIN_PASSWORD": "admin",
+			// Same constants the Admin REST reconciliation authenticates
+			// with; they must not drift apart.
+			"KC_BOOTSTRAP_ADMIN_USERNAME": keycloakAdminUsername,
+			"KC_BOOTSTRAP_ADMIN_PASSWORD": keycloakAdminPassword,
 			"KC_HEALTH_ENABLED":           "true",
 		},
 		Files: []testcontainers.ContainerFile{
