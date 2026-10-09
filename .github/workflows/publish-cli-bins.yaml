@@ -13,7 +13,7 @@ on:
 jobs:
   setup:
     name: Set Up Shared Environment
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Install dependencies
         run: |
@@ -69,7 +69,7 @@ jobs:
             os: windows
             zip: .zip
             ext: .exe
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: setup
     steps:
       - name: Set up Go
@@ -95,7 +95,7 @@ jobs:
 
       # Restore-only (see the paired "Save ..." steps below): these keys are the same
       # across every PR/branch, and every one of the 6 matrix entries above builds on
-      # ubuntu-latest (cross-compiling via GOOS/GOARCH), so they'd all race to save the
+      # ubuntu-24.04 (cross-compiling via GOOS/GOARCH), so they'd all race to save the
       # identical key too. Actions cache save is scoped per-ref, so saving unconditionally
       # here would leave a throwaway ~1GB copy behind per PR/branch (times 6, racing)
       # that nothing else can ever restore from and nothing ever deletes - see
@@ -195,9 +195,9 @@ jobs:
         os_arch: ["linux-amd64", "linux-arm64", "darwin-amd64", "darwin-arm64"]
         include:
           - os_arch: "linux-amd64"
-            runner: "ubuntu-latest"
+            runner: "ubuntu-24.04"
           - os_arch: "linux-arm64"
-            runner: "ubuntu-latest"
+            runner: "ubuntu-24.04"
           - os_arch: "darwin-amd64"
             runner: "macos-latest"
           - os_arch: "darwin-arm64"
@@ -236,7 +236,7 @@ jobs:
   publish:
     name: Publish Binaries
     if: ${{ github.event_name != 'pull_request' && github.event_name != 'merge_group' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: verify
     permissions:
       contents: write

@@ -67,7 +67,7 @@ jobs:
         uses: ./.github/actions/compute-tag
 
   reuse-e2e:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Reuse is an optimization; failures must fall back to running E2E.
     continue-on-error: true
     permissions:
@@ -262,7 +262,7 @@ jobs:
       needs.compute-tag.outputs.any_changed == 'true' &&
       needs.reuse-e2e.outputs.reused != 'true' &&
       (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'run-e2e'))
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         include:
@@ -384,7 +384,7 @@ jobs:
       tag: ${{ needs.compute-tag.outputs.tag }}
 
   e2e:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [ compute-tag, reuse-e2e, e2e-tests, api-tests ]
     if: always()
     steps:
