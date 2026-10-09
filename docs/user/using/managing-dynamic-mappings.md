@@ -19,11 +19,12 @@ Helm and quadlet deployments provide a starter set of mappings. The default mapp
 
 | Mapping | Default output |
 |---|---|
-| `system-info` | The `agentVersion`, `architecture`, `deltaEligible`, `distroId`, and `distroVersion` fields from `status.systemInfo`, as `feature.flightctl.io/systemInfo.<field>` labels. |
+| `system-info` | The `agentVersion`, `architecture`, `biosVendor`, `biosVersion`, `cpuProcessors`, `deltaEligible`, `distroId`, `distroVersion`, `kernel`, `memoryTotalKb`, and `productName` fields from `status.systemInfo`, as `feature.flightctl.io/systemInfo.<field>` labels. |
 | `custom-info` | Entries from `status.systemInfo.customInfo` as `feature.flightctl.io/customInfo.<field>` labels. |
-| `gpu-present` | `feature.flightctl.io/gpu.present` when the device reports GPUs. |
-| `kvm-enabled` | `feature.flightctl.io/kvm.enabled` when the device reports KVM support. |
-| `os-mode` | `feature.flightctl.io/os.mode` when the device reports its OS mode. |
+| `tpm-enabled` | `feature.flightctl.io/tpm.enabled` is `true` when the device reports TPM vendor information. |
+| `gpu-present` | `feature.flightctl.io/gpu.present` is `true` when one or more GPUs are reported and `false` when the reported list is empty. |
+| `kvm-enabled` | `feature.flightctl.io/kvm.enabled` uses the reported `status.systemInfo.kvm.enabled` value when available. |
+| `os-mode` | The reported OS mode as `feature.flightctl.io/os.mode`. |
 
 The field prefixes in this table are chosen by the bundled mapping expressions. Flight Control does not add a prefix to mapping outputs. A map expression must return complete label keys, and a scalar mapping must set its complete destination key.
 
