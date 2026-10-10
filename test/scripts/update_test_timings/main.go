@@ -9,7 +9,7 @@
 // specs with zero or negative durations are excluded.
 //
 // Run automatically by .github/workflows/update-test-timings.yaml.
-// Requires GITHUB_TOKEN (or GH_TOKEN) in the environment.
+// Online mode requires GITHUB_TOKEN (or GH_TOKEN) in the environment.
 // GITHUB_REPOSITORY must be set (e.g. "flightctl/flightctl") or passed via
 // --repo.
 //
@@ -20,6 +20,10 @@
 //	    [--workflow pr-e2e-testing.yaml] \
 //	    [--repo owner/repo] \
 //	    [--output test/scripts/test-timings.json]
+//
+// Offline usage (no token or repository configuration required):
+//
+//	go run ./test/scripts/update_test_timings --from-dir /tmp/junit-results --output timings.json
 package main
 
 import (
@@ -28,6 +32,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"math"
 	"net/http"
 	"os"
@@ -44,7 +49,6 @@ import (
 type specTiming = e2etestutils.SpecTiming
 
 const suiteOverheadPrefix = e2etestutils.SuiteOverheadPrefix
-
 
 func githubToken() string {
 	if t := os.Getenv("GITHUB_TOKEN"); t != "" {
@@ -165,7 +169,6 @@ func downloadAndExtractArtifact(ctx context.Context, client *github.Client, owne
 	return nil
 }
 
-
 func loadExistingCache(path string) (map[string]specTiming, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -204,7 +207,6 @@ func writeCache(path string, timings map[string]specTiming) error {
 	}
 	return os.WriteFile(path, append(data, '\n'), 0o644)
 }
-
 
 func printSummary(timings map[string]specTiming, prevCount int) {
 	if len(timings) == 0 {
@@ -262,6 +264,7 @@ func printSummary(timings map[string]specTiming, prevCount int) {
 func newRootCmd() *cobra.Command {
 	var (
 		nRuns    int
+		fromDir  string
 		workflow string
 		repoFlag string
 		output   string
@@ -269,15 +272,21 @@ func newRootCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "update_test_timings",
-		Short: "Refresh the e2e test-timings.json cache from GitHub Actions artifacts",
+		Short: "Refresh the e2e test-timings.json cache from JUnit XML reports",
 		Long: `Fetches JUnit XML report artifacts (junit-results-*) from the last N
 successful runs of the e2e CI workflow, computes per-spec average durations
 and standard deviations, and writes the result to the committed
 test-timings.json cache.
 
 Requires GITHUB_TOKEN (or GH_TOKEN) in the environment.
-GITHUB_REPOSITORY must be set (e.g. "flightctl/flightctl") or passed via --repo.`,
+GITHUB_REPOSITORY must be set (e.g. "flightctl/flightctl") or passed via --repo.
+
+Use --from-dir to recursively parse local *.xml files instead, without a token
+or GitHub API calls. This option cannot be combined with --runs.`,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if fromDir != "" {
+				return updateTimingsFromDir(fromDir, output)
+			}
 			token := githubToken()
 			if token == "" {
 				return fmt.Errorf("GITHUB_TOKEN (or GH_TOKEN) environment variable is not set")
@@ -402,11 +411,61 @@ GITHUB_REPOSITORY must be set (e.g. "flightctl/flightctl") or passed via --repo.
 	}
 
 	cmd.Flags().IntVar(&nRuns, "runs", 10, "Number of recent successful runs to aggregate")
+	cmd.Flags().StringVar(&fromDir, "from-dir", "", "Directory containing local JUnit XML files (searched recursively)")
+	cmd.MarkFlagsMutuallyExclusive("from-dir", "runs")
 	cmd.Flags().StringVar(&workflow, "workflow", "pr-e2e-testing.yaml", "Workflow filename to query")
 	cmd.Flags().StringVar(&repoFlag, "repo", "", "GitHub repository slug owner/repo (default: $GITHUB_REPOSITORY)")
 	cmd.Flags().StringVar(&output, "output", "test/scripts/test-timings.json", "Path to write updated timings")
 
 	return cmd
+}
+
+func updateTimingsFromDir(dir, output string) error {
+	info, err := os.Stat(dir)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("--from-dir must be a directory: %s", dir)
+	}
+
+	allObs := make(map[string][]float64)
+	if err := filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() || filepath.Ext(path) != ".xml" {
+			return nil
+		}
+		observations, err := e2etestutils.ParseTimingsFromFile(path)
+		if err != nil {
+			return err
+		}
+		for name, durations := range observations {
+			allObs[name] = append(allObs[name], durations...)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	timings := make(map[string]specTiming, len(allObs))
+	for name, durations := range allObs {
+		var sum float64
+		for _, duration := range durations {
+			sum += duration
+		}
+		avg := sum / float64(len(durations))
+		timings[name] = specTiming{
+			Avg:    avg,
+			StdDev: e2etestutils.PopulationStdDev(durations, avg),
+		}
+	}
+	if err := writeCache(output, timings); err != nil {
+		return err
+	}
+	printSummary(timings, 0)
+	return nil
 }
 
 func main() {
