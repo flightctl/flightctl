@@ -14,10 +14,10 @@ Volume=flightctl-db:/var/lib/pgsql/data:Z
 Secret=flightctl-postgresql-password,type=env,target=PGPASSWORD
 Secret=flightctl-postgresql-master-password,type=env,target=POSTGRESQL_MASTER_PASSWORD
 Secret=flightctl-postgresql-user-password,type=env,target=POSTGRESQL_PASSWORD
-Volume=/usr/share/flightctl/flightctl-db/enable-superuser.sh:/usr/share/container-scripts/postgresql/start/enable-superuser.sh
+Volume=%D/flightctl/flightctl-db/enable-superuser.sh:/usr/share/container-scripts/postgresql/start/enable-superuser.sh:ro,z
 
 [Service]
-ExecStartPre=/usr/share/flightctl/init_db.sh
+ExecStartPre=%D/flightctl/init_db.sh
 Restart=always
 RestartSec=30
 

@@ -124,7 +124,7 @@ runs:
       run: |
         # Extract the IP from the base domain (format: <IP>.nip.io)
         IP="${BASE_DOMAIN%.nip.io}"
-        test/scripts/setup_local_dns.sh "${IP}"
+        sudo env KUBECONFIG="${KUBECONFIG:-${HOME}/.kube/config}" test/scripts/setup_local_dns.sh "${IP}"
 
     # ========== LOAD IMAGES INTO KIND ==========
     - name: Load backend images into kind

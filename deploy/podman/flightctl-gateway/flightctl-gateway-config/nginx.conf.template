@@ -32,7 +32,8 @@ http {
     ssl_certificate /etc/flightctl/pki/flightctl-gateway/server.crt;
     ssl_certificate_key /etc/flightctl/pki/flightctl-gateway/server.key;
 
-    proxy_set_header X-Forwarded-Host $host;
+    # Preserve the external port for UI login origin validation.
+    proxy_set_header X-Forwarded-Host $http_host;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_pass_request_headers on;
     proxy_buffering off;

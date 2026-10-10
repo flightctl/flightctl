@@ -30,8 +30,8 @@ import (
 type PAMRBACProvider struct {
 	// pamIssuerContainer is the name of the PAM issuer container
 	pamIssuerContainer string
-	// host is the hostname/IP where Quadlet services are running
-	host string
+	// sshHost is set only when the caller explicitly configures a remote SSH target.
+	sshHost string
 	// sshUser is the SSH user for remote connections (empty for local)
 	sshUser string
 	// sshKeyPath is the path to SSH private key (optional)
@@ -42,14 +42,15 @@ type PAMRBACProvider struct {
 
 // NewPAMRBACProvider creates a new PAMRBACProvider.
 func NewPAMRBACProvider(useSudo bool) *PAMRBACProvider {
-	host := os.Getenv("QUADLET_HOST")
-	if host == "" {
-		host = "localhost"
+	sshHost := os.Getenv("E2E_SSH_HOST")
+	sshUser := os.Getenv("E2E_SSH_USER")
+	if sshUser == "" && sshHost != "" && !isLocalHost(sshHost) {
+		sshUser = os.Getenv("USER")
 	}
 	return &PAMRBACProvider{
 		pamIssuerContainer: "flightctl-pam-issuer",
-		host:               host,
-		sshUser:            os.Getenv("E2E_SSH_USER"),
+		sshHost:            sshHost,
+		sshUser:            sshUser,
 		sshKeyPath:         os.Getenv("E2E_SSH_KEY_PATH"),
 		useSudo:            useSudo,
 	}
@@ -57,7 +58,17 @@ func NewPAMRBACProvider(useSudo bool) *PAMRBACProvider {
 
 // isRemote returns true if the Quadlet host is remote (requires SSH).
 func (p *PAMRBACProvider) isRemote() bool {
-	return p.sshUser != "" && p.host != "localhost" && p.host != "127.0.0.1"
+	return p.sshHost != "" && !isLocalHost(p.sshHost)
+}
+
+func (p *PAMRBACProvider) needsSudo() bool {
+	if !p.useSudo {
+		return false
+	}
+	if p.isRemote() {
+		return p.sshUser != "root"
+	}
+	return os.Geteuid() != 0
 }
 
 func (p *PAMRBACProvider) runCommandContext(ctx context.Context, command ...string) (string, error) {
@@ -73,7 +84,7 @@ func (p *PAMRBACProvider) runCommandContext(ctx context.Context, command ...stri
 		} else if !usePassword {
 			sshArgs = append(sshArgs, "-o", "BatchMode=yes")
 		}
-		sshTarget := fmt.Sprintf("%s@%s", p.sshUser, p.host)
+		sshTarget := fmt.Sprintf("%s@%s", p.sshUser, p.sshHost)
 		sshArgs = append(sshArgs, sshTarget)
 
 		// Build remote command with proper shell quoting to prevent
@@ -83,7 +94,7 @@ func (p *PAMRBACProvider) runCommandContext(ctx context.Context, command ...stri
 			quoted[i] = shellQuote(arg)
 		}
 		remoteCmd := strings.Join(quoted, " ")
-		if p.useSudo {
+		if p.needsSudo() {
 			remoteCmd = "sudo " + remoteCmd
 		}
 		sshArgs = append(sshArgs, remoteCmd)
@@ -96,7 +107,7 @@ func (p *PAMRBACProvider) runCommandContext(ctx context.Context, command ...stri
 		}
 	} else {
 		// Local execution
-		if p.useSudo {
+		if p.needsSudo() {
 			cmd = exec.CommandContext(ctx, "sudo", command...)
 		} else {
 			cmd = exec.CommandContext(ctx, command[0], command[1:]...) //nolint:gosec // G204: command args are from internal test config

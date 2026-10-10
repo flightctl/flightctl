@@ -26,8 +26,12 @@ agent-vm-console: bin/flightctl-dev-vm
 
 .PHONY: agent-vm agent-vm-console update-vm-agent
 
-clean-agent-vm: bin/flightctl-dev-vm
-	bin/flightctl-dev-vm delete --name $(VMNAME)
+clean-agent-vm:
+	@if [ -x bin/flightctl-dev-vm ]; then \
+		bin/flightctl-dev-vm delete --name $(VMNAME); \
+	else \
+		echo "flightctl-dev-vm is not built; skipping agent VM cleanup"; \
+	fi
 
 .PHONY: clean-agent-vm
 

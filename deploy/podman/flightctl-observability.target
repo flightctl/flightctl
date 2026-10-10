@@ -5,4 +5,4 @@ Wants=flightctl-network.service flightctl-certs-init.service flightctl-prometheu
 After=flightctl-network.service flightctl-certs-init.service flightctl-prometheus.service flightctl-grafana.service flightctl-userinfo-proxy.service
 
 [Install]
-WantedBy=multi-user.target 
+WantedBy=default.target

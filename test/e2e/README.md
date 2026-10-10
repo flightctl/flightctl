@@ -16,12 +16,15 @@ If you do not have a deployment yet, you can use the **local deployment options*
 
 The tests only assume that FlightCtl is already running and reachable (cluster or Quadlet).
 
+The local Make targets select rootless or rootful behavior from the effective UID. Run them as a regular user for rootless resources or as UID 0 for rootful resources; there is no mode flag. See the [rootless local development guide](../../docs/developer/rootless-development-plan.md) for prerequisites and current image-builder limitations.
+
 ## Prerequisites
 
 - [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl-linux/) and [kind](https://kind.sigs.k8s.io/) (if you use `make deploy`)
 - Podman
 - Build tools (for agent images, qcow2)
-- Optional: libvirt for agent VMs; see suite-specific READMEs (e.g. [quadlets/README.md](quadlets/README.md), [tpm/README.md](tpm/README.md), [rollout/README.md](rollout/README.md))
+- Optional at runtime: libvirt and QEMU for specs that create agent VMs; see suite-specific READMEs (e.g. [quadlets/README.md](quadlets/README.md), [tpm/README.md](tpm/README.md), [rollout/README.md](rollout/README.md)).
+- Rootless E2E runs need rootless Podman and subordinate UID/GID ranges for Testcontainers. Specs that create agent VMs also need readable and writable `/dev/kvm` and a working user-session libvirt connection. API-only selections do not need local KVM, a running libvirt service, `virsh`, or a `qemu:///session` connection. Suites that import the shared E2E harness still compile its libvirt CGo binding, so the default CGo build needs libvirt development headers and `pkg-config` metadata. Remote-target variables select the service under test but do not remove VM requirements for specs that create agent VMs. Preparation also needs `virt-customize`, KVM, and `crun` for rootless bootc-image-builder. Rootless Kind and Quadlet ImageBuilder deployments need cgroup v2 and `crun`; Kind also needs a user systemd manager with delegated cgroups.
 
 ## Prepare and run (targets)
 
@@ -88,16 +91,18 @@ The tests only assume that FlightCtl is already running and reachable (cluster o
 
 When running e2e against a Quadlet deployment (e.g. after `make deploy-quadlets` on this host or a remote Quadlet host), set:
 
+The existing `E2E_SSH_*` variables select and access a remote Quadlet target. A non-local `E2E_SSH_HOST` is enough for the runner to infer `quadlet`; `E2E_ENVIRONMENT=quadlet` is only needed when automatic detection is not appropriate. The SSH user selects the target's scope: `root` uses system scope, and a regular user uses user scope. No rootless or remote-target mode flag is needed.
+
 | Variable | Description |
 |----------|-------------|
-| `E2E_ENVIRONMENT` | Set to `quadlet` so infra uses Quadlet providers. |
+| `E2E_ENVIRONMENT` | Set to `quadlet` to force Quadlet providers; inferred from a non-local `E2E_SSH_HOST` otherwise. |
 | `E2E_SSH_HOST` | SSH host of the Quadlet device (e.g. `localhost` when using `make deploy-quadlets` on this host). |
 | `E2E_SSH_USER` | SSH username to run commands on the device. |
 | `E2E_SSH_KEY_PATH` | Path to SSH private key for `E2E_SSH_USER`. Defaults to `~/.ssh/id_rsa` if unset. |
 | `E2E_SSH_PASSWORD` | SSH password (alternative to key). Used when `E2E_SSH_KEY_PATH` is not set; requires `sshpass` on the test host. |
-| `E2E_USE_SUDO` | Use sudo for systemctl/podman on the device. Default: `true` for Quadlet. |
-| `E2E_CONFIG_DIR` | FlightCtl config directory on the device. Default: `/etc/flightctl`. |
-| `E2E_API_ENDPOINT` | FlightCtl API URL (e.g. `https://<host>`). Inferred from host if unset. |
+| `E2E_USE_SUDO` | Explicitly use sudo when the test runner controls a rootful Quadlet target through a non-root account. Default: `false`; local and remote target scope is inferred from the target UID. |
+| `E2E_CONFIG_DIR` | FlightCtl config directory on the target. Inferred from the target scope; rootless defaults to `${XDG_CONFIG_HOME:-$HOME/.config}/flightctl`, and rootful defaults to `/etc/flightctl`. Overrides must match the target manager's `%E/flightctl` path. |
+| `E2E_API_ENDPOINT` | Optional FlightCtl API URL override (e.g. `https://<host>:9443`). When unset, the runner infers the endpoint from the target host and scope; the rootless Quadlet host port defaults to 9443 and maps to the service's container-side API listener on 8443. |
 | `E2E_PAM_USER` | PAM user for `flightctl login` (Quadlet/standalone API). Default: `admin`. |
 | `E2E_PAM_PASSWORD` | PAM password for login. |
 | `E2E_DEFAULT_PAM_PASSWORD` | Fallback PAM password if `E2E_PAM_PASSWORD` is unset (e.g. test default). |

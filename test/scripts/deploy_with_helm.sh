@@ -93,6 +93,17 @@ SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set imageBuilderApi.image.image=${IMAG
 SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set imageBuilderWorker.image.image=${IMAGEBUILDER_WORKER_IMAGE} --set imageBuilderWorker.image.tag=latest"
 SERVICE_IMAGE_ARGS="$SERVICE_IMAGE_ARGS --set remoteAccess.image.image=${REMOTE_ACCESS_IMAGE} --set remoteAccess.image.tag=latest"
 
+# Expose only the KVM device needed by native image-builder --in-vm on a
+# rootless Podman kind node. The worker backend detects its own runtime.
+WORKER_DEVICE_ARGS=""
+if [[ "$(id -u)" -ne 0 ]]; then
+  if ! podman exec kind-control-plane test -c /dev/kvm 2>/dev/null; then
+    echo "Could not find the mounted /dev/kvm device inside the rootless kind node. Confirm the device mount in test/scripts/kind_cluster_rootless.yaml and recreate the cluster." >&2
+    exit 1
+  fi
+  WORKER_DEVICE_ARGS="--set imageBuilderWorker.kvmDevice.enabled=true --set imageBuilderWorker.hostDevices.enabled=false"
+fi
+
 # helm expects the namespaces to exist, and creating namespaces
 # inside the helm charts is not recommended.
 kubectl create namespace flightctl-external --context kind-kind 2>/dev/null || true
@@ -170,14 +181,18 @@ fi
 
 # In CI, set up local DNS to avoid flaky external nip.io lookups.
 if [[ "${GITHUB_ACTIONS:-}" == "true" ]] && [[ "$IP" != *":"* ]]; then
-  "${SCRIPT_DIR}/setup_local_dns.sh" "${IP}"
+  if [[ "$(id -u)" -eq 0 ]]; then
+    "${SCRIPT_DIR}/setup_local_dns.sh" "${IP}"
+  else
+    echo "Skipping local DNS setup because it changes /etc/resolv.conf; nip.io will be used directly."
+  fi
 fi
 
 helm upgrade --install --namespace flightctl-external \
                   --values ./deploy/helm/flightctl/values.dev.yaml \
                   --set global.baseDomain=${BASE_DOMAIN} \
                   ${SECRET_ACCESS_ARGS} \
-                  ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${SQL_ARG} ${GATEWAY_ARGS} ${KV_ARG} ${SERVICE_IMAGE_ARGS} flightctl \
+                  ${ONLY_DB} ${DB_SIZE_PARAMS} ${AUTH_ARGS} ${SQL_ARG} ${GATEWAY_ARGS} ${KV_ARG} ${SERVICE_IMAGE_ARGS} ${WORKER_DEVICE_ARGS} flightctl \
               ./deploy/helm/flightctl/ --kube-context kind-kind
 
 "${SCRIPT_DIR}"/wait_for_postgres.sh

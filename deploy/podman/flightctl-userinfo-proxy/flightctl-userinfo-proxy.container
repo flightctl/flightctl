@@ -14,7 +14,7 @@ ContainerName=flightctl-userinfo-proxy
 Network=flightctl.network
 
 # Environment variables loaded from file
-EnvironmentFile=/etc/flightctl/flightctl-userinfo-proxy/env
+EnvironmentFile=%E/flightctl/flightctl-userinfo-proxy/env
 
 # Security
 User=1001:1001
@@ -23,7 +23,7 @@ User=1001:1001
 Restart=on-failure
 RestartSec=10
 TimeoutStartSec=30
-ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-userinfo-proxy/env.template --output-file /etc/flightctl/flightctl-userinfo-proxy/env
+ExecStartPre=/usr/bin/env PATH=%D/flightctl/bin:/usr/bin:/bin flightctl-standalone render template --config %E/flightctl/service-config.yaml --input-file %D/flightctl/flightctl-userinfo-proxy/env.template --output-file %E/flightctl/flightctl-userinfo-proxy/env
 
 [Install]
-WantedBy=multi-user.target 
+WantedBy=default.target

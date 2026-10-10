@@ -11,15 +11,15 @@ AddHost=%H:host-gateway
 {{- if contains "valkey" .Kv.Image }}
 Exec=/bin/sh -c 'exec valkey-server /usr/local/etc/valkey/valkey.conf --requirepass $${KV_PASSWORD}'
 Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
-Volume=/usr/share/flightctl/flightctl-kv/valkey.conf:/usr/local/etc/valkey/valkey.conf
+Volume=%D/flightctl/flightctl-kv/valkey.conf:/usr/local/etc/valkey/valkey.conf:ro,z
 {{- else }}
 Exec=/bin/sh -c 'exec redis-server /usr/local/etc/redis/redis.conf --requirepass $${KV_PASSWORD}'
 Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
-Volume=/usr/share/flightctl/flightctl-kv/redis.conf:/usr/local/etc/redis/redis.conf
+Volume=%D/flightctl/flightctl-kv/redis.conf:/usr/local/etc/redis/redis.conf:ro,z
 {{- end }}
 
 [Service]
-ExecStartPre=/usr/share/flightctl/init_kv.sh
+ExecStartPre=%D/flightctl/init_kv.sh
 Type=notify
 Restart=always
 RestartSec=30

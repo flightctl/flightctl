@@ -14,14 +14,12 @@ Environment=HOME=/root
 Secret=flightctl-postgresql-user-password,type=env,target=DB_PASSWORD
 Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
 Environment=DB_USER=flightctl_app
-Volume=/etc/flightctl/flightctl-imagebuilder-worker/config.yaml:/root/.flightctl/config.yaml:ro,z
-Volume=/etc/flightctl/pki/flightctl-api/client-signer.crt:/root/.flightctl/certs/client-signer.crt:ro,z
-Volume=/etc/flightctl/pki/flightctl-api/client-signer.key:/root/.flightctl/certs/client-signer.key:ro,z
-Volume=/etc/flightctl/pki/ca-bundle.crt:/root/.flightctl/certs/ca-bundle.crt:ro,z
-Volume=/etc/flightctl/encryption:/root/.flightctl/encryption:ro,z
-Volume=/etc/flightctl/pki/db:/root/.flightctl/certs/db:ro,z
-Volume=/var/tmp/flightctl-builds:/var/tmp/flightctl-builds:rw,z
-Volume=/var/tmp/flightctl-exports:/var/tmp/flightctl-exports:rw,z
+Volume=%E/flightctl/flightctl-imagebuilder-worker/config.yaml:/root/.flightctl/config.yaml:ro,z
+Volume=%E/flightctl/pki/flightctl-api/client-signer.crt:/root/.flightctl/certs/client-signer.crt:ro,z
+Volume=%E/flightctl/pki/flightctl-api/client-signer.key:/root/.flightctl/certs/client-signer.key:ro,z
+Volume=%E/flightctl/pki/ca-bundle.crt:/root/.flightctl/certs/ca-bundle.crt:ro,z
+Volume=%E/flightctl/encryption:/root/.flightctl/encryption:ro,z
+Volume=%E/flightctl/pki/db:/root/.flightctl/certs/db:ro,z
 Volume=flightctl-worker-storage:/var/lib/containers
 # Optional: Mount a CA bundle for verifying the Trustify server certificate (used for SBOM
 # upload). Uncomment and point the source at your CA file, then set
@@ -37,6 +35,9 @@ Volume=flightctl-worker-storage:/var/lib/containers
 # containing:
 #   [Container]
 #   Volume=/etc/flightctl/service-images-auth.json:/root/.config/containers/auth.json:ro,z
+# Permit nested Podman to see and use the host SELinux policy; the BIB job
+# selects the OSBuild policy domain.
+SecurityLabelNested=true
 PodmanArgs=--privileged
 
 # Sets this container's own RLIMIT_NOFILE, which the imagebuilder-worker process then
@@ -51,7 +52,7 @@ RestartSec=30
 Delegate=yes
 LimitNOFILE=1048576
 
-ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-imagebuilder-worker/config.yaml.template --output-file /etc/flightctl/flightctl-imagebuilder-worker/config.yaml
+ExecStartPre=/usr/bin/env PATH=%D/flightctl/bin:/usr/bin:/bin flightctl-standalone render template --config %E/flightctl/service-config.yaml --input-file %D/flightctl/flightctl-imagebuilder-worker/config.yaml.template --output-file %E/flightctl/flightctl-imagebuilder-worker/config.yaml
 
 [Install]
 WantedBy=flightctl.target

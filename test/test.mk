@@ -69,9 +69,15 @@ _integration_test: $(REPORTS)
 		$(if $(TEST_DIR),$(TEST_DIR),$(GO_INTEGRATIONTEST_DIRS))
 
 _e2e_test: $(REPORTS)
-	chmod a+x test/scripts/setup_e2e_environment.sh test/scripts/e2e_cleanup.sh test/scripts/e2e_startup.sh
-	test/scripts/setup_e2e_environment.sh
-	test/scripts/run_e2e_tests.sh "$(REPORTS)" $(GO_E2E_DIRS)
+	set -e; \
+	if [ -n "$(DISCOVERY_ONLY)" ]; then \
+		DISCOVERY_ONLY="$(DISCOVERY_ONLY)" test/scripts/run_e2e_tests.sh "$(REPORTS)" $(GO_E2E_DIRS); \
+	else \
+		REPORTS="$(REPORTS)" test/scripts/runtime_preflight.sh e2e-run; \
+		chmod a+x test/scripts/setup_e2e_environment.sh test/scripts/e2e_cleanup.sh test/scripts/e2e_startup.sh; \
+		test/scripts/setup_e2e_environment.sh; \
+		test/scripts/run_e2e_tests.sh "$(REPORTS)" $(GO_E2E_DIRS); \
+	fi
 
 _unit_test: $(REPORTS)
 	go run -modfile=tools/go.mod gotest.tools/gotestsum $(GO_TEST_FLAGS) -- $(GO_UNITTEST_FLAGS) -timeout $(TIMEOUT) || ($(MAKE) _collect_junit && /bin/false)
@@ -83,6 +89,7 @@ _collect_junit: $(REPORTS)
 	done
 
 unit-test:
+	cd "$(ROOT_DIR)/test/scripts" && go test $(if $(filter 1,$(RACE)),-race) -timeout $(TIMEOUT) ./...
 	$(ENV_TRACE_FLAGS) $(MAKE) _unit_test TEST="$(or $(TEST),$(shell go list ./pkg/... ./internal/... ./cmd/... ./deploy/helm/...))"
 
 run-integration-test:
@@ -154,11 +161,18 @@ bin/.e2e-agent-injected: bin/output/qcow2/disk.qcow2 bin/.e2e-agent-certs
 
 prepare-e2e-qcow-config: bin/.e2e-agent-injected
 
-prepare-e2e-test: RPM_MOCK_ROOT=centos-stream+epel-next-9-x86_64
 # Note: deploy-e2e-extras and push-e2e-agent-images removed
 # Testcontainers now handle registry/git-server/prometheus AND image uploading at test runtime
 # SSH keys and certs are still needed for git server authentication
-prepare-e2e-test: bin/.ssh/id_rsa.pub bin/e2e-certs/ca.pem build-e2e-containers prepare-e2e-qcow-config
+
+# Run the privilege/capability check before Make starts any preparation recipes.
+prepare-e2e-test: RPM_MOCK_ROOT=centos-stream+epel-next-9-x86_64
+prepare-e2e-test:
+	RPM_MOCK_ROOT="$(RPM_MOCK_ROOT)" test/scripts/runtime_preflight.sh e2e-prepare
+	$(MAKE) _prepare-e2e-test RPM_MOCK_ROOT=$(RPM_MOCK_ROOT)
+
+_prepare-e2e-test: RPM_MOCK_ROOT=centos-stream+epel-next-9-x86_64
+_prepare-e2e-test: bin/.ssh/id_rsa.pub bin/e2e-certs/ca.pem build-e2e-containers prepare-e2e-qcow-config
 	./test/scripts/prepare_cli.sh
 
 # Build E2E containers with Docker caching
@@ -212,8 +226,13 @@ in-cluster-e2e-test: prepare-e2e-test
 	$(MAKE) _e2e_test
 
 e2e-test: RPM_MOCK_ROOT=centos-stream+epel-next-9-x86_64
-e2e-test: deploy prepare-e2e-qcow-config
-	$(MAKE) _e2e_test
+e2e-test:
+	BREW_BUILD_URL= RPM_MOCK_ROOT="$(RPM_MOCK_ROOT)" test/scripts/runtime_preflight.sh e2e-prepare
+	$(MAKE) _e2e-test-run RPM_MOCK_ROOT=$(RPM_MOCK_ROOT)
+
+_e2e-test-run: RPM_MOCK_ROOT=centos-stream+epel-next-9-x86_64
+_e2e-test-run: deploy prepare-e2e-qcow-config
+	$(MAKE) _e2e_test RPM_MOCK_ROOT=$(RPM_MOCK_ROOT)
 
 # Run e2e tests with optional parallel execution
 # Set GINKGO_PROCS to control number of parallel processes (defaults to number of CPU cores)
@@ -243,12 +262,35 @@ prepare-swtpm-certs:
 	test/scripts/add-certs-to-deployment.sh $(TEMP_SWTPM_CERT_DIR)
 
 clean-swtpm-certs:
-	rm -rf $(TEMP_SWTPM_CERT_DIR)
+	@uid=$$(id -u); path="$(TEMP_SWTPM_CERT_DIR)"; \
+	if [ -e "$$path" ] || [ -L "$$path" ]; then \
+		other_owner=$$(find "$$path" -xdev ! -uid "$$uid" -print -quit 2>/dev/null); \
+		find_status=$$?; \
+		if [ "$$find_status" -ne 0 ]; then \
+			echo "Leaving $$path because its ownership could not be checked; inspect it as the owning user." >&2; \
+		elif [ -n "$$other_owner" ]; then \
+			echo "Leaving $$path because it contains files not owned by uid $$uid; clean those artifacts as their owner." >&2; \
+		else \
+			find "$$path" -xdev -depth -delete || echo "Warning: failed to remove $$path without crossing filesystem boundaries" >&2; \
+		fi; \
+	fi
 
 clean-e2e-certs:
-	rm -rf bin/e2e-certs bin/.ssh
+	@uid=$$(id -u); \
+	for path in bin/e2e-certs bin/.ssh; do \
+		[ -e "$$path" ] || [ -L "$$path" ] || continue; \
+		other_owner=$$(find "$$path" -xdev ! -uid "$$uid" -print -quit 2>/dev/null); \
+		find_status=$$?; \
+		if [ "$$find_status" -ne 0 ]; then \
+			echo "Leaving $$path because its ownership could not be checked; inspect it as the owning user." >&2; \
+		elif [ -n "$$other_owner" ]; then \
+			echo "Leaving $$path because it contains files not owned by uid $$uid; clean those artifacts as their owner." >&2; \
+		else \
+			find "$$path" -xdev -depth -delete || echo "Warning: failed to remove $$path without crossing filesystem boundaries" >&2; \
+		fi; \
+	done
 
-.PHONY: test run-test e2e-agent-images push-e2e-agent-images clean-e2e-certs
+.PHONY: test run-test e2e-test run-e2e-test _e2e-test-run e2e-agent-images push-e2e-agent-images clean-e2e-certs
 
 $(REPORTS):
 	-mkdir -p $(REPORTS)
@@ -299,7 +341,7 @@ stop-aux:
 	go run ./cmd/aux-service stop all
 
 .PHONY: start-registry stop-registry start-git-server stop-git-server start-prometheus stop-prometheus start-tracing stop-tracing start-keycloak stop-keycloak start-trustify stop-trustify start-aux stop-aux
-.PHONY: unit-test prepare-integration-test integration-test run-integration-test build-integration-preflight start-integration-services stop-integration-services view-coverage prepare-e2e-test deploy-e2e-ocp-test-vm prepare-swtpm-certs clean-swtpm-certs
+.PHONY: unit-test prepare-integration-test integration-test run-integration-test build-integration-preflight start-integration-services stop-integration-services view-coverage prepare-e2e-test _prepare-e2e-test deploy-e2e-ocp-test-vm prepare-swtpm-certs clean-swtpm-certs
 
 # Schemathesis API testing
 SCHEMATHESIS_IMAGE ?= flightctl-schemathesis:latest

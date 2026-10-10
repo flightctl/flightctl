@@ -6,6 +6,11 @@
 # systemd-resolved stays running on 127.0.0.53:53 — no conflict because
 # our host CoreDNS binds explicitly to 127.0.0.1:53.
 set -euo pipefail
+
+if [[ "$(id -u)" -ne 0 ]]; then
+  echo "setup_local_dns.sh changes /etc/resolv.conf and must be run as root." >&2
+  exit 1
+fi
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "${SCRIPT_DIR}/functions"
 
@@ -56,18 +61,18 @@ COREFILE_EOF
 
 # 5. Start host CoreDNS in background
 cd "${COREDNS_DIR}"
-sudo ./coredns -conf Corefile &
+./coredns -conf Corefile &
 COREDNS_PID=$!
 echo "Host CoreDNS started (PID ${COREDNS_PID})"
 sleep 2
-if ! sudo kill -0 "${COREDNS_PID}" 2>/dev/null; then
+if ! kill -0 "${COREDNS_PID}" 2>/dev/null; then
     echo "ERROR: Host CoreDNS exited unexpectedly" >&2
     exit 1
 fi
 
 # 6. Point /etc/resolv.conf at the host CoreDNS (127.0.0.1)
-sudo rm -f /etc/resolv.conf
-echo "nameserver 127.0.0.1" | sudo tee /etc/resolv.conf
+rm -f /etc/resolv.conf
+printf '%s\n' "nameserver 127.0.0.1" > /etc/resolv.conf
 
 # 7. Spot-check: verify nip.io resolves via the host CoreDNS
 getent hosts "api.${IP}.nip.io" || { echo "ERROR: api.${IP}.nip.io did not resolve" >&2; exit 1; }

@@ -69,7 +69,7 @@ var _ = Describe("TPM Device Authentication", func() {
 	Context("real TPM passthrough", func() {
 		BeforeEach(func() {
 			if !hasRealTPM {
-				Skip(fmt.Sprintf("Skipping real TPM test: %s not available on host", realTPMDevice))
+				Skip(fmt.Sprintf("Skipping real TPM test: %s is absent or not accessible to the current user", realTPMDevice))
 			}
 
 			workerID = GinkgoParallelProcess()

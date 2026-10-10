@@ -11,19 +11,19 @@ Pull=missing
 Network=flightctl.network
 AddHost=%H:host-gateway
 Environment=HOME=/root
-Volume=/etc/flightctl/pki/flightctl-pam-issuer/token-signer.crt:/root/.flightctl/certs/client-signer.crt:ro,z
-Volume=/etc/flightctl/pki/flightctl-pam-issuer/token-signer.key:/root/.flightctl/certs/client-signer.key:ro,z
+Volume=%E/flightctl/pki/flightctl-pam-issuer/token-signer.crt:/root/.flightctl/certs/client-signer.crt:ro,z
+Volume=%E/flightctl/pki/flightctl-pam-issuer/token-signer.key:/root/.flightctl/certs/client-signer.key:ro,z
 # User database: same volume as 1.0.0 /etc (flightctl-pam-issuer-etc) mounted at /userdb; kept in sync with container's /etc.
 Volume=flightctl-pam-issuer-etc:/userdb:Z
-Volume=/etc/flightctl/flightctl-pam-issuer/config.yaml:/root/.flightctl/config.yaml:ro,z
+Volume=%E/flightctl/flightctl-pam-issuer/config.yaml:/root/.flightctl/config.yaml:ro,z
 
 [Service]
 Restart=always
 RestartSec=30
 
-ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-pam-issuer/config.yaml.template --output-file /etc/flightctl/flightctl-pam-issuer/config.yaml
+ExecStartPre=/usr/bin/env PATH=%D/flightctl/bin:/usr/bin:/bin flightctl-standalone render template --config %E/flightctl/service-config.yaml --input-file %D/flightctl/flightctl-pam-issuer/config.yaml.template --output-file %E/flightctl/flightctl-pam-issuer/config.yaml
 
-ExecStartPost=bash -c '! systemctl is-active --quiet flightctl-gateway || podman exec flightctl-gateway nginx -s reload'
+ExecStartPost=/bin/bash -o pipefail -c 'if podman ps --filter name=flightctl-gateway --filter status=running --quiet | grep -q .; then podman exec flightctl-gateway nginx -s reload; else [ $$? -eq 1 ]; fi'
 
 [Install]
 WantedBy=flightctl.target

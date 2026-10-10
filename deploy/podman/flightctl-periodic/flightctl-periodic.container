@@ -20,10 +20,10 @@ Secret=flightctl-kv-password,type=env,target=KV_PASSWORD
 #   Secret=flightctl-quay-token,type=env,target=FLIGHTCTL_VULNERABILITY_REPORTING_QUAY_TOKEN
 # Create the secret with: printf %s "your-token" | podman secret create flightctl-quay-token -
 Environment=DB_USER=flightctl_app
-Volume=/etc/flightctl/flightctl-periodic/config.yaml:/root/.flightctl/config.yaml:ro,z
-Volume=/etc/flightctl/ssh:/etc/flightctl/ssh:ro,z
-Volume=/etc/flightctl/encryption:/root/.flightctl/encryption:ro,z
-Volume=/etc/flightctl/pki/db:/root/.flightctl/certs/db:ro,z
+Volume=%E/flightctl/flightctl-periodic/config.yaml:/root/.flightctl/config.yaml:ro,z
+Volume=%E/flightctl/ssh:/etc/flightctl/ssh:ro,z
+Volume=%E/flightctl/encryption:/root/.flightctl/encryption:ro,z
+Volume=%E/flightctl/pki/db:/root/.flightctl/certs/db:ro,z
 # Optional: Mount a CA bundle for verifying the vulnerability backend (Trustify/Quay) server
 # certificate. Uncomment and match caFile in service-config.yaml to the target path
 # (same single-file pattern as /etc/flightctl/pki/ca-bundle.crt on flightctl-api).
@@ -34,7 +34,7 @@ Volume=/etc/flightctl/pki/db:/root/.flightctl/certs/db:ro,z
 Restart=always
 RestartSec=30
 
-ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-periodic/config.yaml.template --output-file /etc/flightctl/flightctl-periodic/config.yaml
+ExecStartPre=/usr/bin/env PATH=%D/flightctl/bin:/usr/bin:/bin flightctl-standalone render template --config %E/flightctl/service-config.yaml --input-file %D/flightctl/flightctl-periodic/config.yaml.template --output-file %E/flightctl/flightctl-periodic/config.yaml
 
 [Install]
 WantedBy=flightctl.target
