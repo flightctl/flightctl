@@ -1,6 +1,8 @@
 package containers
 
 import (
+	"context"
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
@@ -27,6 +29,17 @@ func GetDockerNetwork() string {
 		return "podman"
 	}
 	return "bridge"
+}
+
+func GetDeviceNetwork() string {
+	network := GetDockerNetwork()
+	if network == "host" {
+		if IsPodman() {
+			return "podman"
+		}
+		return "bridge"
+	}
+	return network
 }
 
 // IsPodman reports whether the selected container runtime is Podman (same rule as RuntimeCLIName / DOCKER_HOST).
@@ -75,15 +88,33 @@ func GetContainerHostname() string {
 
 // ContainerExistsByName returns true if a container with the given name exists (running or stopped).
 func ContainerExistsByName(name string) bool {
+	exists, err := ContainerExistsByNameContext(context.Background(), name)
+	return err == nil && exists
+}
+
+// ContainerExistsByNameContext checks for a container by name without allowing a stalled runtime
+// CLI to outlive the caller's deadline.
+func ContainerExistsByNameContext(ctx context.Context, name string) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
 	cli := RuntimeCLIName()
 	filter := NamePSFilter(cli, name)
-	cmd := exec.Command(cli, "ps", "-a", "--filter", filter, "-q")
+	cmd := RuntimeCommandContext(ctx, "ps", "-a", "--filter", filter, "--format", "{{.Names}}")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return false, ctxErr
+		}
 		logrus.Debugf("containerExistsByName %s: %v %s", name, err, string(out))
-		return false
+		return false, fmt.Errorf("failed to check whether container %s exists: %w", name, err)
 	}
-	return strings.TrimSpace(string(out)) != ""
+	for _, existingName := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if strings.TrimPrefix(existingName, "/") == name {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // ContainerRunningByName returns true if a container with the given name exists and is running.
@@ -92,9 +123,7 @@ func ContainerRunningByName(name string) bool {
 	if !ContainerExistsByName(name) {
 		return false
 	}
-	cli := RuntimeCLIName()
-	//nolint:gosec // G204: cli is podman|docker; name is caller-controlled (fixed names at call sites).
-	cmd := exec.Command(cli, "inspect", "-f", "{{.State.Running}}", name)
+	cmd := RuntimeCommandContext(context.Background(), "inspect", "-f", "{{.State.Running}}", name)
 	out, err := cmd.Output()
 	if err != nil {
 		logrus.Debugf("containerRunningByName %s: %v", name, err)
@@ -105,9 +134,24 @@ func ContainerRunningByName(name string) bool {
 
 // RemoveContainerByName force-removes a container by name (best effort).
 func RemoveContainerByName(name string) error {
-	cli := RuntimeCLIName()
-	cmd := exec.Command(cli, "rm", "-f", "-v", name)
+	cmd := RuntimeCommandContext(context.Background(), "rm", "-f", "-v", name)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+// RemoveContainerByNameContext force-removes a container by name, bounded by the caller's context.
+func RemoveContainerByNameContext(ctx context.Context, name string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	cmd := RuntimeCommandContext(ctx, "rm", "-f", "-v", name)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		return fmt.Errorf("failed to remove container %s: %w: %s", name, err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }

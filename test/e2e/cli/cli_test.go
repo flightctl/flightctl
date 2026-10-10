@@ -101,7 +101,9 @@ var _ = Describe("cli operation", func() {
 	})
 
 	Context("Plural names for resources and autocompletion in the cli work well", func() {
-		It("Should let you list resources by plural names", Label("80453", "client", e2e.NeedVMLabel), func() {
+		// needcontainer: only needs an enrolled agent to list; no OS switch or reboot.
+		// Specs in this file without a device label intentionally run with no device at all.
+		It("Should let you list resources by plural names", Label("80453", "client", e2e.NeedContainerLabel), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
@@ -378,7 +380,8 @@ var _ = Describe("cli operation", func() {
 			}, "10s", "200ms").Should(Succeed())
 		})
 
-		It("Should show last-seen with proper flag", Label("85014", "sanity", "client", e2e.NeedVMLabel), func() {
+		// needcontainer: only needs an enrolled agent reporting heartbeats; no OS switch or reboot.
+		It("Should show last-seen with proper flag", Label("85014", "sanity", "client", e2e.NeedContainerLabel), func() {
 			harness := e2e.GetWorkerHarness()
 			_, device := harness.EnrollAndWaitForOnlineStatus()
 			deviceName := *device.Metadata.Name

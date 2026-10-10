@@ -45,7 +45,12 @@ func newCatalogRefAppSpec(catalogName, itemName, version string) v1beta1.Applica
 	return appSpec
 }
 
-var _ = Describe("Catalog item references", Ordered, Label("EDM-4813", "catalog-refs", "sanity"), func() {
+// Catalog-ref specs default to a container-backed device: the BeforeAll only creates catalog
+// resources over the API and every spec enrolls its own device, so nothing is shared across
+// specs at the device level and the backend can be chosen per spec. Specs that resolve a
+// catalog ref into a real OS image (and therefore make the agent run a bootc switch) override
+// the default with a spec-level e2e.NeedVMLabel, which always wins over this suite label.
+var _ = Describe("Catalog item references", Ordered, Label("EDM-4813", "catalog-refs", "sanity", e2e.NeedContainerLabel), func() {
 	var (
 		harness *e2e.Harness
 
@@ -89,7 +94,9 @@ var _ = Describe("Catalog item references", Ordered, Label("EDM-4813", "catalog-
 		DeferCleanup(func() { _ = harness.DeleteCatalogItemIgnoreNotFound(catalogName, appItemName) })
 	})
 
-	It("resolves OS catalog ref and delivers to agent", Label("OCP-90123"), func() {
+	// needvm: the resolved OS catalog ref is a real bootc image and the spec waits for the
+	// device to apply it across a reboot (WaitForDeviceNewRenderedVersionWithReboot).
+	It("resolves OS catalog ref and delivers to agent", Label("OCP-90123", e2e.NeedVMLabel), func() {
 		harness = e2e.GetWorkerHarness()
 		deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
 
@@ -158,7 +165,10 @@ var _ = Describe("Catalog item references", Ordered, Label("EDM-4813", "catalog-
 		harness.WaitForNoApplications(deviceId)
 	})
 
-	It("propagates fleet catalog refs to enrolled device", Label("OCP-90125"), func() {
+	// needvm: the fleet device template sets Spec.Os to an OS catalog ref, and the device is
+	// enrolled into that fleet, so the rendered spec really does switch the device's OS image
+	// before the application assertion can pass.
+	It("propagates fleet catalog refs to enrolled device", Label("OCP-90125", e2e.NeedVMLabel), func() {
 		harness = e2e.GetWorkerHarness()
 		testID := harness.GetTestIDFromContext()
 		fleetName := fmt.Sprintf("catalog-fleet-%s", testID)
@@ -199,7 +209,9 @@ var _ = Describe("Catalog item references", Ordered, Label("EDM-4813", "catalog-
 		Expect(err).ToNot(HaveOccurred())
 	})
 
-	It("rejects deletion of in-use catalog item", Label("OCP-90126"), func() {
+	// needvm: sets device.Spec.Os to an OS catalog ref on an enrolled device, so the agent
+	// starts a real bootc switch while the spec runs; only a VM can carry that out.
+	It("rejects deletion of in-use catalog item", Label("OCP-90126", e2e.NeedVMLabel), func() {
 		harness = e2e.GetWorkerHarness()
 		deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
 
@@ -250,6 +262,9 @@ var _ = Describe("Catalog item references", Ordered, Label("EDM-4813", "catalog-
 		Expect(err).ToNot(HaveOccurred())
 	})
 
+	// Container-backed (inherits the suite default). This spec does assign device.Spec.Os, but
+	// the API rejects the update with 400 before any spec is rendered, so the agent never
+	// performs an OS image switch - unlike OCP-90123/90125/90126 above, which do.
 	It("surfaces render error for type-mismatched ref", Label("OCP-90127"), func() {
 		harness = e2e.GetWorkerHarness()
 		deviceId, _ := harness.EnrollAndWaitForOnlineStatus()

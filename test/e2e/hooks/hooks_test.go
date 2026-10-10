@@ -11,7 +11,10 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("Device lifecycles and embedded hooks tests", func() {
+// Default to a container-backed device: these specs only need an enrolled agent plus inline
+// config/hook files. Specs that genuinely need a VM carry an explicit e2e.NeedVMLabel on their
+// own It, which always wins over this container-node label.
+var _ = Describe("Device lifecycles and embedded hooks tests", Label(e2e.NeedContainerLabel), func() {
 	var (
 		deviceId     string
 		registryHost string
@@ -25,7 +28,9 @@ var _ = Describe("Device lifecycles and embedded hooks tests", func() {
 	})
 
 	Context("hooks", func() {
-		It(`Verifies that lifecycles hooks are triggered after the device and agent events`, Label("78753", "sanity", "agent", "slow"), func() {
+		// VM-only: switches the device OS image (v6, then back to base) and waits through the
+		// resulting reboot cycles with WaitForDeviceNewRenderedVersionWithReboot.
+		It(`Verifies that lifecycles hooks are triggered after the device and agent events`, Label("78753", "sanity", "agent", "slow", e2e.NeedVMLabel), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 

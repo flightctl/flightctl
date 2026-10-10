@@ -183,6 +183,8 @@ jobs:
 
       - name: Run E2E Test Slice
         env:
+          E2E_REQUIRE_CONTAINER_DEVICE: "true"
+          AGENT_OS_ID: ${{ inputs.os_id }}
           GINKGO_LABEL_FILTER: ${{ inputs.ginkgo_label_filter }}
           GINKGO_TOTAL_NODES: ${{ inputs.ginkgo_total_nodes }}
           GINKGO_NODE: ${{ matrix.ginkgo_node }}

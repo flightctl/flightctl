@@ -90,6 +90,17 @@ var _ = Describe("Telemetry gateway forwarding", Serial, Label("observability"),
 		var err error
 		harness = e2e.GetWorkerHarness()
 		providers = setup.GetDefaultProviders()
+
+		// Only the three device-to-collector forwarding specs need a device; the remaining
+		// specs validate gateway configuration handling and need none. Backend selection stays
+		// label-driven (a spec-level NeedVMLabel beats an inherited NeedContainerLabel), so
+		// SetupDeviceForCurrentSpec is the single entry point here too.
+		if e2e.CurrentSpecNeedsVM() || e2e.CurrentSpecUsesContainerDevice() {
+			workerID := GinkgoParallelProcess()
+			GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with %s from pool\n", workerID, e2e.DeviceBackendName())
+			Expect(harness.SetupDeviceForCurrentSpec(workerID)).To(Succeed())
+		}
+
 		Expect(providers).ToNot(BeNil())
 		Expect(providers.Infra).ToNot(BeNil())
 		Expect(providers.Lifecycle).ToNot(BeNil())
@@ -124,7 +135,9 @@ var _ = Describe("Telemetry gateway forwarding", Serial, Label("observability"),
 		}
 	})
 
-	It("should forward Flight Control device telemetry over OTLP/HTTP with custom headers", Label("90533", "sanity", "agent"), func(ctx SpecContext) {
+	// The three specs below enroll a real device and switch it to the OTEL-enabled OS image
+	// (ensureOTelDevice -> WaitForBootstrapAndUpdateToVersion + reboot), so they need a VM.
+	It("should forward Flight Control device telemetry over OTLP/HTTP with custom headers", Label("90533", "sanity", "agent", e2e.NeedVMLabel), func(ctx SpecContext) {
 		skipGitHubActionsTelemetryForwarding()
 		var err error
 		By("enrolling a device and enabling the OTEL collector image")
@@ -167,7 +180,7 @@ var _ = Describe("Telemetry gateway forwarding", Serial, Label("observability"),
 		Expect(err).ToNot(HaveOccurred())
 	})
 
-	It("should forward device telemetry over OTLP/gRPC with a bare host and port", Label("90560", "sanity", "agent"), func(ctx SpecContext) {
+	It("should forward device telemetry over OTLP/gRPC with a bare host and port", Label("90560", "sanity", "agent", e2e.NeedVMLabel), func(ctx SpecContext) {
 		skipGitHubActionsTelemetryForwarding()
 		var err error
 		By("enrolling a device and enabling the OTEL collector image")
@@ -196,7 +209,7 @@ var _ = Describe("Telemetry gateway forwarding", Serial, Label("observability"),
 		Eventually(grpcCollectorContains(ctx, grpcCollector, deviceID), TIMEOUT, POLLING).Should(BeTrue())
 	})
 
-	It("should expand environment variables in OTLP/HTTP forward headers", Label("90534", "sanity", "agent"), func(ctx SpecContext) {
+	It("should expand environment variables in OTLP/HTTP forward headers", Label("90534", "sanity", "agent", e2e.NeedVMLabel), func(ctx SpecContext) {
 		skipGitHubActionsTelemetryForwarding()
 		var err error
 		deviceID, err = ensureOTelDevice(ctx, harness, providers.Infra.GetExternalNamespace(), deviceID)

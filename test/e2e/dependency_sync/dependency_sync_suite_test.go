@@ -73,7 +73,9 @@ var _ = SynchronizedBeforeSuite(func() []byte {
 	return []byte(originalConfigYAML)
 }, func(data []byte) {
 	originalConfigYAML = string(data)
-	e2e.SetupWorkerHarnessOrAbort()
+	// This suite only exercises config/secret/git sync onto the device - it never switches
+	// the device's OS image or reboots it, so it uses a container-backed device.
+	e2e.SetupWorkerHarnessWithContainerDeviceOrAbort()
 })
 
 var _ = SynchronizedAfterSuite(func() {

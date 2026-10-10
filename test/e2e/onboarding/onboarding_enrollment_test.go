@@ -213,7 +213,12 @@ func waitForDelegatedApplyLaunched(h *e2e.Harness, timeout time.Duration) {
 		"the delegated apply transient unit (flightctl-onboarding-apply-*) never launched")
 }
 
-var _ = Describe("Onboarding enrollment and completion flow", func() {
+// VM-only: see the suite-level note on "Onboarding wizard configuration flow".
+// These specs additionally depend on QEMU user-mode (SLIRP) network specifics --
+// the guest's fixed 10.0.2.15 address and 10.0.2.2 NAT gateway, used both for the
+// static-IPv4 apply and for StartCockpitTunnelViaInterface's single-NIC detection
+// -- which have no container-device equivalent.
+var _ = Describe("Onboarding enrollment and completion flow", Label(e2e.NeedVMLabel), func() {
 
 	It("When enrollment is configured it should enroll the device and create an enrollment request", Label("90423"), func() {
 		harness := e2e.GetWorkerHarness()

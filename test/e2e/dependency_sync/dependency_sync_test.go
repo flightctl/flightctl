@@ -48,7 +48,7 @@ const (
 	parameterizedTargetBranch = "staging"
 )
 
-var _ = Describe("Dependency Sync", Label("dependency-sync"), func() {
+var _ = Describe("Dependency Sync", Label("dependency-sync", e2e.NeedContainerLabel), func() {
 	var (
 		harness          *e2e.Harness
 		testID           string
@@ -70,7 +70,7 @@ var _ = Describe("Dependency Sync", Label("dependency-sync"), func() {
 		ctx := util.StartSpecTracerForGinkgo(suiteCtx)
 		harness.SetTestContext(ctx)
 		testID = harness.GetTestIDFromContext()
-		Expect(harness.SetupVMFromPoolAndStartAgent(workerID)).To(Succeed())
+		Expect(harness.SetupDeviceForCurrentSpec(workerID)).To(Succeed())
 
 		svc := auxiliary.Get(harness.Context)
 		Expect(svc).ToNot(BeNil(), "auxiliary services must be initialized")

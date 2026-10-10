@@ -31,7 +31,11 @@ const (
 
 type statusCodeGetter func(*e2e.Harness, string) (int, error)
 
-var _ = Describe("Enrollment lifecycle hooks", Label(enrollmentHookScenarioLabel), Serial, func() {
+// VM-only: the suite BeforeEach routes every enrollmentHookScenarioLabel spec through
+// prepareImageBackedReEnrollment, which switches the device OS image to the v13 enrollment-hook
+// fixture and waits through the resulting reboot before decommissioning and re-enrolling. A real
+// OS image switch needs a VM, so the whole Describe opts out of container-backed devices.
+var _ = Describe("Enrollment lifecycle hooks", Label(enrollmentHookScenarioLabel, e2e.NeedVMLabel), Serial, func() {
 
 	It("keeps a pending enrollment from running AfterEnrolling", Label(enrollmentHookDevLabel, "90612", enrollmentHookAgentLabel, enrollmentHookSlowLabel), func() {
 		harness := e2e.GetWorkerHarness()

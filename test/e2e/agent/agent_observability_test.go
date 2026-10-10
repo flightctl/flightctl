@@ -18,7 +18,10 @@ const (
 	pprofEndpoint   = "http://127.0.0.1:15689/debug/pprof/"
 )
 
-var _ = Describe("Agent observability and diagnostics", func() {
+// Metrics, pprof, and audit-log coverage only needs an enrolled agent plus agent-config edits and
+// service restarts, so this suite defaults to container-backed devices. Specs that need a real
+// boot cycle or OS-image switch override with Label(e2e.NeedVMLabel) on their own It.
+var _ = Describe("Agent observability and diagnostics", Label(e2e.NeedContainerLabel), func() {
 	var (
 		harness  *e2e.Harness
 		deviceID string

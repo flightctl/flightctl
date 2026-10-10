@@ -31,7 +31,8 @@ var _ = BeforeSuite(func() {
 	// device got "connection refused" pulling these images for the suite's whole run (see
 	// git history for the registry-health diagnostic that root-caused this).
 	auxFuture := e2e.StartAuxServicesAsync(context.Background())
-	e2e.SetupWorkerHarnessOrAbort()
+	_, _, err := e2e.SetupWorkerHarnessWithoutVM()
+	Expect(err).ToNot(HaveOccurred())
 	auxFuture.Wait()
 })
 
@@ -40,12 +41,12 @@ var _ = BeforeEach(func() {
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
 
-	GinkgoWriter.Printf("[BeforeEach] Worker %d: Setting up rootless test with VM from pool\n", workerID)
-
 	ctx := testutil.StartSpecTracerForGinkgo(suiteCtx)
 	harness.SetTestContext(ctx)
 
-	err := harness.SetupVMFromPoolAndStartAgent(workerID)
+	// Rootless specs are VM-only because privileged-port semantics require Podman.
+	GinkgoWriter.Printf("[BeforeEach] Worker %d: Setting up rootless test with VM from pool\n", workerID)
+	err := harness.SetupDeviceForCurrentSpec(workerID)
 	Expect(err).ToNot(HaveOccurred())
 	out, err := harness.VM.RunSSH([]string{"sudo", "systemctl", "is-active", "flightctl-agent"}, nil)
 	Expect(err).ToNot(HaveOccurred())

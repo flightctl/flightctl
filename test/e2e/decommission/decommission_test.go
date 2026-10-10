@@ -23,9 +23,15 @@ type DecommissionCLITestParams struct {
 	ExpectedError string
 }
 
-var _ = Describe("CLI decommission test", func() {
+// Decommission specs default to a container-backed device: CLI argument validation and the
+// API error-handling specs only need an enrolled agent (or none at all). Specs that assert on
+// the agent's post-decommission wipe-and-reboot cycle override this with a spec-level
+// e2e.NeedVMLabel, which always wins over this suite label.
+var _ = Describe("CLI decommission test", Label(e2e.NeedContainerLabel), func() {
 	Context("Decommission", func() {
-		It("Should decommission a device via CLI", Label("decommission", "81782"), func() {
+		// needvm: asserts the full real reboot cycle - the agent wipes its certs and reboots,
+		// then must come back over SSH, regenerate a device ID and re-enroll.
+		It("Should decommission a device via CLI", Label("decommission", "81782", e2e.NeedVMLabel), func() {
 			harness := e2e.GetWorkerHarness()
 
 			deviceId, _ := harness.EnrollAndWaitForOnlineStatus()
@@ -119,7 +125,9 @@ var _ = Describe("CLI decommission test", func() {
 				"Expected 404 status for non-existent device")
 		})
 
-		It("Should return 409 when decommissioning while ongoing and after completion", Label("88272", "88273"), func() {
+		// needvm: decommission always drives the agent through wipeAndReboot, which a
+		// container-backed device cannot survive.
+		It("Should return 409 when decommissioning while ongoing and after completion", Label("88272", "88273", e2e.NeedVMLabel), func() {
 			harness := e2e.GetWorkerHarness()
 
 			By("Enrolling a device and waiting for it to come online")

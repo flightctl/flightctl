@@ -38,7 +38,7 @@ const (
 	errDeviceIDEmpty = "device ID is empty"
 )
 
-var _ = Describe("Single Container Applications", Ordered, func() {
+var _ = Describe("Single Container Applications", Ordered, Label(e2e.NeedContainerLabel), func() {
 	var (
 		deviceId string
 		harness  *e2e.Harness

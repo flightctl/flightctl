@@ -14,7 +14,10 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
-var _ = Describe("Agent image and artifact pruning", func() {
+// Pruning coverage only needs an enrolled agent, config drop-ins, and (nested) podman image and
+// artifact operations, so this suite defaults to container-backed devices. Specs that need a real
+// boot cycle or OS-image switch override with Label(e2e.NeedVMLabel) on their own It.
+var _ = Describe("Agent image and artifact pruning", Label(e2e.NeedContainerLabel), func() {
 	var harness *e2e.Harness
 	var deviceID string
 

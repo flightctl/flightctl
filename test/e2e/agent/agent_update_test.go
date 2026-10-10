@@ -14,6 +14,10 @@ import (
 	. "github.com/onsi/gomega"
 )
 
+// This suite deliberately carries no suite-level backend label: unlabeled specs default to the VM
+// backend, which is what nearly all of these need (bootc image switches, reboots, greenboot
+// rollback, journal assertions across boots). The handful of specs that only exercise config
+// rendering opt in individually with Label(e2e.NeedContainerLabel).
 var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func() {
 	var (
 		deviceId string
@@ -166,7 +170,10 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 			Expect(stdout.String()).To(ContainSubstring("flightctl_agent_exec_t"))
 		})
 
-		It("Should resolve to the latest version when multiple updates are applied", Label("77672", "agent"), func() {
+		// needcontainer: unlike the rest of this suite, this spec only applies http/inline config
+		// providers and counts rendered versions - it never touches device.Spec.Os and never
+		// reboots.
+		It("Should resolve to the latest version when multiple updates are applied", Label("77672", "agent", e2e.NeedContainerLabel), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
@@ -421,7 +428,9 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 
 			GinkgoWriter.Println("Confirmed: third-party MicroShift health check triggered rollback; device reports OutOfDate")
 		})
-		It("Should respect the spec's update schedule", Label("79220", "sanity", "agent", "slow"), func() {
+		// needcontainer: exercises update/download cron policies against inline configs only.
+		// No OS-image switch and no reboot, so a container device is sufficient.
+		It("Should respect the spec's update schedule", Label("79220", "sanity", "agent", "slow", e2e.NeedContainerLabel), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()
 
@@ -541,6 +550,9 @@ var _ = Describe("VM Agent behavior during updates", Label("agent-update"), func
 					cond.Reason == string(v1beta1.UpdateStateApplyingUpdate)
 			}, TIMEOUT)
 		})
+		// Stays on the suite's default VM backend: the afterupdating hook runs
+		// `firewall-cmd --reload`, whose success/failure depends on firewalld actually running
+		// against the host netfilter stack - not reproducible inside a container device.
 		It("Should not crash in case of unexpected services configs", Label("78711", "sanity", "agent"), func() {
 			// Get harness directly - no shared package-level variable
 			harness := e2e.GetWorkerHarness()

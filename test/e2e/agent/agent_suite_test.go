@@ -50,7 +50,8 @@ var auxSvcs *auxiliary.Services
 var _ = BeforeSuite(func() {
 	auxFuture := e2e.StartAuxServicesAsync(context.Background())
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
-	e2e.SetupWorkerHarnessOrAbort()
+	_, _, err := e2e.SetupWorkerHarnessWithoutVM()
+	Expect(err).ToNot(HaveOccurred())
 	auxSvcs = auxFuture.Wait()
 })
 
@@ -70,16 +71,17 @@ var _ = BeforeEach(func() {
 	_, err := login.LoginToAPIWithToken(harness)
 	Expect(err).ToNot(HaveOccurred())
 
-	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with VM from pool\n", workerID)
-
 	// Create test-specific context for proper tracing
 	ctx := testutil.StartSpecTracerForGinkgo(suiteCtx)
 
 	// Set the test context in the harness
 	harness.SetTestContext(ctx)
 
-	// Setup VM from pool, revert to pristine snapshot, and start agent
-	err = harness.SetupVMFromPoolAndStartAgent(workerID)
+	// SetupDeviceForCurrentSpec picks the backend from the spec's labels: a spec-level
+	// NeedVMLabel overrides a suite-level NeedContainerLabel, so container-by-default
+	// suites can still run individual reboot/OS-switch specs on a VM.
+	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with %s from pool\n", workerID, e2e.DeviceBackendName())
+	err = harness.SetupDeviceForCurrentSpec(workerID)
 	Expect(err).ToNot(HaveOccurred())
 
 	GinkgoWriter.Printf("✅ [BeforeEach] Worker %d: Test setup completed\n", workerID)

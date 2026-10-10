@@ -26,7 +26,11 @@ func TestMicroshift(t *testing.T) {
 var _ = BeforeSuite(func() {
 	auxFuture := e2e.StartAuxServicesAsync(context.Background())
 	Expect(setup.EnsureDefaultProviders(nil)).To(Succeed())
-	e2e.SetupWorkerHarnessOrAbort()
+	// The single spec here is needvm (it switches device.Spec.Os to the MicroShift v7 variant),
+	// so BeforeEach still gets a VM - but creating it lazily keeps BeforeSuite uniform with the
+	// other suites and avoids a boot when the spec is filtered out.
+	_, _, err := e2e.SetupWorkerHarnessWithoutVM()
+	Expect(err).ToNot(HaveOccurred())
 	auxSvcs = auxFuture.Wait()
 })
 
@@ -43,7 +47,7 @@ var _ = BeforeEach(func() {
 	harness := e2e.GetWorkerHarness()
 	suiteCtx := e2e.GetWorkerContext()
 
-	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with VM from pool\n", workerID)
+	GinkgoWriter.Printf("🔄 [BeforeEach] Worker %d: Setting up test with %s from pool\n", workerID, e2e.DeviceBackendName())
 
 	// Create test-specific context for proper tracing
 	ctx := testutil.StartSpecTracerForGinkgo(suiteCtx)
@@ -51,8 +55,8 @@ var _ = BeforeEach(func() {
 	// Set the test context in the harness
 	harness.SetTestContext(ctx)
 
-	// Setup VM from pool, revert to pristine snapshot, and start agent
-	err := harness.SetupVMFromPoolAndStartAgent(workerID)
+	// Label-driven backend selection, same as every other converted suite.
+	err := harness.SetupDeviceForCurrentSpec(workerID)
 	Expect(err).ToNot(HaveOccurred())
 
 	GinkgoWriter.Printf("✅ [BeforeEach] Worker %d: Test setup completed\n", workerID)

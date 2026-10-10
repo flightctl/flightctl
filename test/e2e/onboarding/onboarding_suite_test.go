@@ -57,6 +57,16 @@ func TestOnboarding(t *testing.T) {
 	RunSpecs(t, "Onboarding E2E Suite")
 }
 
+// This suite deliberately does NOT use the shared
+// Harness.SetupDeviceForCurrentSpec dispatcher, and every one of its Describes
+// carries e2e.NeedVMLabel. The onboarding flow needs a device that is booted but
+// whose agent has never been enrolled or started, with cockpit and the
+// flightctl-onboarding RPM transiently installed and a memory snapshot taken so
+// each spec can revert to that pristine post-install state. A container-backed
+// device cannot provide any of it: snapshot/revert return vm.ErrUnsupported, the
+// per-spec container is recreated (and its agent started) by the dispatcher, and
+// the Cockpit wizard is driven over a real `ssh -L` tunnel to the guest's
+// forwarded SSH port, which a ContainerDevice does not have.
 var _ = BeforeSuite(func() {
 	// The onboarding suite only needs the registry (for agent image bundles and
 	// enrollment). It does not use the git server, so start a scoped set to avoid

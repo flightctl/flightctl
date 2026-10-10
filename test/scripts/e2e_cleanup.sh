@@ -7,11 +7,13 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 echo "🔄 [Cleanup] Starting global E2E test cleanup..."
 
-# Find all flightctl e2e VMs using virsh
+# Find all flightctl e2e VMs using virsh. Do not exit if virsh is missing — container-backed
+# device cleanup below must still run on container-only runners.
 echo "🔄 [Cleanup] Finding flightctl e2e VMs..."
+vm_output=""
 if ! vm_output=$(virsh list --all --name 2>/dev/null); then
-    echo "⚠️  [Cleanup] Failed to list VMs: virsh may not be available or accessible"
-    exit 0
+    echo "⚠️  [Cleanup] Failed to list VMs: virsh may not be available or accessible - skipping VM cleanup"
+    vm_output=""
 fi
 
 # Filter for flightctl e2e VMs (includes both pool VMs and imagebuild test VMs)
@@ -106,5 +108,68 @@ if tmp_dirs=$(find /tmp -maxdepth 1 -name "flightctl-e2e-*" -type d 2>/dev/null)
 else
     echo "⚠️  [Cleanup] Failed to search for temporary directories"
 fi
+
+# Clean up container-backed devices (see ContainerDevice) - these are plain podman/docker
+# containers, not libvirt domains, so virsh cleanup above never touches them.
+# Use the selected endpoint and run label, plus a two-hour age threshold for orphaned devices.
+echo "🔄 [Cleanup] Finding flightctl e2e container-backed devices..."
+source "$(dirname "$(readlink -f "$0")")/detect_container_runtime.sh"
+configure_testcontainers_docker_host
+container_clis=("$(detect_testcontainers_runtime)")
+
+for container_cli in "${container_clis[@]}"; do
+    runtime_command=("$container_cli")
+    if [[ -n "${DOCKER_HOST:-}" ]]; then
+        if [[ "$container_cli" == podman ]]; then
+            runtime_command+=(--remote --url "$DOCKER_HOST")
+        else
+            runtime_command+=(--host "$DOCKER_HOST")
+        fi
+    fi
+    echo "🔄 [Cleanup] Listing via $container_cli..."
+    container_names=""
+    if [[ -n "${E2E_SESSION_ID:-}" ]]; then
+        if ! container_names=$("${runtime_command[@]}" ps -a --filter "label=flightctl.e2e.session=${E2E_SESSION_ID}" --format "{{.Names}}" 2>/dev/null); then
+            echo "⚠️  [Cleanup] Failed to list session containers via $container_cli"
+            container_names=""
+        fi
+    else
+        echo "⚠️  [Cleanup] E2E_SESSION_ID empty - only reclaiming container devices older than two hours"
+    fi
+    if [[ -z "$container_names" ]]; then
+        echo "✅ [Cleanup] No session container-backed devices found via $container_cli"
+    else
+        echo "🔍 [Cleanup] Found flightctl e2e container-backed devices via $container_cli:"
+        echo "$container_names"
+    fi
+    while IFS= read -r container_name; do
+        [[ -n "$container_name" ]] || continue
+        if "${runtime_command[@]}" rm -f -v "$container_name" &>/dev/null; then
+            echo "✅ [Cleanup] Successfully removed container device: $container_name"
+        else
+            echo "⚠️  [Cleanup] Failed to remove container device: $container_name"
+        fi
+    done <<< "$container_names"
+
+    cutoff=$(($(date +%s) - 7200))
+    if ! stale_candidates=$("${runtime_command[@]}" ps -a --filter "name=flightctl-e2e-container-" --format "{{.Names}}" 2>/dev/null); then
+        echo "⚠️  [Cleanup] Failed to list orphaned containers via $container_cli"
+        continue
+    fi
+    while IFS= read -r container_name; do
+        [[ "$container_name" == flightctl-e2e-container-* ]] || continue
+        if ! created=$("${runtime_command[@]}" inspect --format '{{.Created}}' "$container_name" 2>/dev/null) ||
+           ! created_epoch=$(date -d "$created" +%s 2>/dev/null); then
+            echo "⚠️  [Cleanup] Cannot determine age of $container_name - leaving it untouched"
+            continue
+        fi
+        (( created_epoch < cutoff )) || continue
+        if "${runtime_command[@]}" rm -f -v "$container_name" &>/dev/null; then
+            echo "✅ [Cleanup] Removed orphaned container device older than two hours: $container_name"
+        else
+            echo "⚠️  [Cleanup] Failed to remove orphaned container device: $container_name"
+        fi
+    done <<< "$stale_candidates"
+done
 
 echo "✅ [Cleanup] Global test cleanup completed"

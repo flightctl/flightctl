@@ -303,7 +303,7 @@ var _ = Describe("Template variables in the device configuration", func() {
 	Context("parametrisable_templates", func() {
 		It(`Verifies that Flightctl fleet resource supports parameterizable device
 		    templates to configure items that are specific to an individual device
-			or a group of devices selected by labels`, Label("75486"), func() {
+			or a group of devices selected by labels`, Label("75486", e2e.NeedContainerLabel), func() {
 			By("Create a fleet with template variables in InlineConfigProviderSpec")
 			err := configProviderSpec.FromInlineConfigProviderSpec(inlineConfigValidWithFunction)
 			Expect(err).ToNot(HaveOccurred())
@@ -355,7 +355,7 @@ var _ = Describe("Template variables in the device configuration", func() {
 
 		It(`Verifies that if a device is missing a parametrisable device label
 		    an error is generated, but it will reconcile if the label is provided`,
-			Label("75600", "sanity"), func() {
+			Label("75600", "sanity", e2e.NeedContainerLabel), func() {
 				By("Check the device status is Online")
 				_, err := harness.CheckDeviceStatus(deviceId, v1beta1.DeviceSummaryStatusOnline)
 				Expect(err).ToNot(HaveOccurred())
@@ -426,7 +426,7 @@ var _ = Describe("Template variables in the device configuration", func() {
 
 		It(`Verifies that the template variables are replaced in the different configurations
 		    and work with the helper functions`,
-			Label("78684", "sanity"), func() {
+			Label("78684", "sanity", e2e.NeedVMLabel), func() {
 				By("Check the device status")
 				_, err := harness.CheckDeviceStatus(deviceId, v1beta1.DeviceSummaryStatusOnline)
 				Expect(err).ToNot(HaveOccurred())
@@ -647,7 +647,7 @@ var _ = Describe("Template variables in the device configuration", func() {
 			})
 
 		It(`Verifies that changing a device label updates git config file content on the device`,
-			Label("88262", "sanity"), func() {
+			Label("88262", "sanity", e2e.NeedContainerLabel), func() {
 				gitConfig, gitInternalHost, gitInternalPort, sshKeyPath, sshKeyContent, gitErr := getGitEnv(harness.Context)
 				Expect(gitErr).ToNot(HaveOccurred())
 
@@ -759,7 +759,7 @@ var _ = Describe("Template variables in the device configuration", func() {
 			})
 
 		It(`Verifies that we can add parametrizable templates variables in the fleets device's application configuration`,
-			Label("87803", "sanity"), func() {
+			Label("87803", "sanity", e2e.NeedContainerLabel), func() {
 				fleetTestName := fmt.Sprintf("templated-app-fleet-%s", testID)
 
 				By("Check that the device status is Online")
@@ -840,7 +840,7 @@ var _ = Describe("Template variables in the device configuration", func() {
 
 		It(`Verifies that a missing template label in fleet applications causes device rollout failure,
 		    and adding the label allows the device to reconcile and applications to become healthy`,
-			Label("88385", "sanity"), func() {
+			Label("88385", "sanity", e2e.NeedContainerLabel), func() {
 				fleetTestName := fmt.Sprintf("templated-neg-app-fleet-%s", testID)
 
 				By("Check that the device status is Online")

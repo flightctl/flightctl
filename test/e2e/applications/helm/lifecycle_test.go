@@ -34,7 +34,11 @@ const (
 	lifecycleCurlMaxTime        = "5"
 )
 
-var _ = Describe("Application lifecycle stop start restart", Label("microshift"), func() {
+// Pinned to a VM with e2e.NeedVMLabel for two independent reasons: it switches device.Spec.Os to
+// the MicroShift v12 variant (a real bootc OS image switch - the container device image has no
+// microshift, see helm_application_test.go), and it runs a KVM guest VM application
+// (lifecycleVMApp / virt-launcher) inside the device.
+var _ = Describe("Application lifecycle stop start restart", Label("microshift", e2e.NeedVMLabel), func() {
 	var (
 		harness      *e2e.Harness
 		deviceID     string
