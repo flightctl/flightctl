@@ -156,6 +156,37 @@ func ApplyJSONPatch[T any](ctx context.Context, obj T, newObj T, patchRequest do
 	return decoder.Decode(&newObj)
 }
 
+// EqualJSON reports whether a and b serialize to identical JSON.
+//
+// Use this rather than reflect.DeepEqual to decide whether a patch changed an
+// immutable part of a resource. ApplyJSONPatch rebuilds the whole resource via
+// a marshal/patch/unmarshal round trip, and parts of the resource that were
+// never addressed by the patch can still come back as a different Go value.
+//
+// The generated oneOf types - ResourceMonitor, ApplicationProviderSpec,
+// ConfigProviderSpec, OciAuth and friends - hold their payload in an unexported
+// json.RawMessage, so the in-memory value carries the exact bytes of whatever
+// document it was decoded from. Two things perturb those bytes without changing
+// the document: a spec loaded from a Postgres jsonb column keeps jsonb's ": "
+// and ", " separators, which encoding/json strips when it compacts the raw
+// message, and encoding/json rewrites '<', '>' and '&' into their \u00XX escape
+// sequences while compacting. Either one makes reflect.DeepEqual report a
+// change, which caused status-only patches to be rejected as spec mutations.
+//
+// Marshaling both sides normalizes that formatting, so only real differences
+// in the document survive the comparison.
+func EqualJSON(a, b any) (bool, error) {
+	aJSON, err := json.Marshal(a)
+	if err != nil {
+		return false, fmt.Errorf("failed to marshal resource for comparison: %w", err)
+	}
+	bJSON, err := json.Marshal(b)
+	if err != nil {
+		return false, fmt.Errorf("failed to marshal resource for comparison: %w", err)
+	}
+	return bytes.Equal(aJSON, bJSON), nil
+}
+
 var badRequestErrors = map[error]bool{
 	flterrors.ErrResourceIsNil:                     true,
 	flterrors.ErrResourceNameIsNil:                 true,

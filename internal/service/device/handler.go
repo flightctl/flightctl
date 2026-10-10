@@ -538,6 +538,14 @@ func validateDeviceStatusPatch(ctx context.Context, current *domain.Device, patc
 }
 
 func applyDeviceStatusPatch(ctx context.Context, current *domain.Device, patch domain.PatchRequest, name string) (*domain.Device, error) {
+	// ApplyJSONPatch validates the whole patched device against the OpenAPI schema, so an
+	// update policy the stored spec carries with nothing in it fails a patch that never
+	// addressed the spec. Dropping it from the value the round trip starts from keeps the
+	// rejection to patches that actually say something invalid. See
+	// withoutEmptyUpdatePolicy; the stored spec is left alone because only Status is
+	// written back.
+	current = withoutEmptyUpdatePolicy(current)
+
 	patched := &domain.Device{}
 	if err := common.ApplyJSONPatch(ctx, current, patched, patch, "/devices/"+name); err != nil {
 		return nil, err
@@ -548,7 +556,14 @@ func applyDeviceStatusPatch(ctx context.Context, current *domain.Device, patch d
 	if errs := patched.Validate(); len(errs) > 0 {
 		return nil, errors.Join(errs...)
 	}
-	if !reflect.DeepEqual(patched.Metadata, current.Metadata) {
+	// Compare the serialized documents rather than the decoded Go values: the patch round
+	// trip can hand back a byte-different but document-identical value for fields it never
+	// touched. See common.EqualJSON for why.
+	metadataUnchanged, err := common.EqualJSON(current.Metadata, patched.Metadata)
+	if err != nil {
+		return nil, err
+	}
+	if !metadataUnchanged {
 		return nil, errors.New("metadata is immutable")
 	}
 	if current.ApiVersion != patched.ApiVersion {
@@ -557,7 +572,11 @@ func applyDeviceStatusPatch(ctx context.Context, current *domain.Device, patch d
 	if current.Kind != patched.Kind {
 		return nil, errors.New("kind is immutable")
 	}
-	if !reflect.DeepEqual(current.Spec, patched.Spec) {
+	specUnchanged, err := common.EqualJSON(current.Spec, patched.Spec)
+	if err != nil {
+		return nil, err
+	}
+	if !specUnchanged {
 		return nil, errors.New("spec is immutable")
 	}
 	// EnrollmentHooks is service-owned and must not be changed through generic status patches.
@@ -567,6 +586,57 @@ func applyDeviceStatusPatch(ctx context.Context, current *domain.Device, patch d
 	common.NilOutManagedObjectMetaProperties(&patched.Metadata)
 	patched.Metadata.ResourceVersion = nil
 	return patched, nil
+}
+
+// withoutEmptyUpdatePolicy returns device with every empty update schedule, and an update
+// policy left with no schedules at all, dropped from its spec.
+//
+// An UpdateSchedule requires `at` and `startGraceDuration`, and the schemas behind both
+// reject the empty string, so a schedule holding only zero values is not a document the
+// OpenAPI schema accepts. A spec that carries one can therefore never be round-tripped
+// through ApplyJSONPatch, which rejects the result of every patch against that device -
+// including a status-only patch that never addressed the spec. Such a schedule configures
+// nothing, so removing it before the round trip restores status reporting for the device
+// without relaxing validation for a policy that actually says something.
+//
+// The returned device shares everything it does not have to replace with the original, and
+// the original is never modified, so a caller holding the store's own value keeps it intact.
+// device is returned unchanged when there is nothing to drop.
+func withoutEmptyUpdatePolicy(device *domain.Device) *domain.Device {
+	if device == nil || device.Spec == nil || device.Spec.UpdatePolicy == nil {
+		return device
+	}
+	policy := device.Spec.UpdatePolicy
+	download, update := policy.DownloadSchedule, policy.UpdateSchedule
+	if isEmptyUpdateSchedule(download) {
+		download = nil
+	}
+	if isEmptyUpdateSchedule(update) {
+		update = nil
+	}
+	if download == policy.DownloadSchedule && update == policy.UpdateSchedule {
+		return device
+	}
+
+	spec := *device.Spec
+	if download == nil && update == nil {
+		spec.UpdatePolicy = nil
+	} else {
+		spec.UpdatePolicy = &domain.DeviceUpdatePolicySpec{DownloadSchedule: download, UpdateSchedule: update}
+	}
+	normalized := *device
+	normalized.Spec = &spec
+	return &normalized
+}
+
+// isEmptyUpdateSchedule reports whether a schedule carries no configuration at all, which
+// is what decoding `{}`, or a schedule written out with its fields at their zero values,
+// produces.
+func isEmptyUpdateSchedule(schedule *domain.UpdateSchedule) bool {
+	return schedule != nil &&
+		schedule.At == "" &&
+		schedule.StartGraceDuration == "" &&
+		(schedule.TimeZone == nil || *schedule.TimeZone == "")
 }
 
 func rejectEnrollmentHooksChangeViaStatusPatch(current, patched *domain.Device) error {
