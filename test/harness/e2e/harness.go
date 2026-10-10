@@ -110,11 +110,12 @@ const (
 
 // Service name constants for flightctl deployment components.
 const (
-	ServiceAPI      = "flightctl-api"
-	ServiceWorker   = "flightctl-worker"
-	ServicePeriodic = "flightctl-periodic"
-	ServiceUI       = "flightctl-ui"
-	ServiceDB       = "flightctl-db"
+	ServiceAPI         = "flightctl-api"
+	ServiceWorker      = "flightctl-worker"
+	ServiceDeltaWorker = "flightctl-delta-worker"
+	ServicePeriodic    = "flightctl-periodic"
+	ServiceUI          = "flightctl-ui"
+	ServiceDB          = "flightctl-db"
 )
 
 // Operation constants for RBAC testing
@@ -383,6 +384,44 @@ func (h *Harness) PrintAgentLogsIfFailed() {
 	}
 }
 
+// PrintServerWorkerLogsIfFailed prints flightctl-worker and flightctl-delta-worker
+// logs to the test output when the current test has failed. This surfaces server-side
+// rendering and processing logs in CI output for easier debugging of spec-rendering
+// issues without requiring artifact downloads.
+func (h *Harness) PrintServerWorkerLogsIfFailed() {
+	if !CurrentSpecReport().Failed() {
+		return
+	}
+
+	services := []string{ServiceWorker, ServiceDeltaWorker}
+
+	if isK8sEnvironment() {
+		for _, svc := range services {
+			out, err := getK8sServicePodLogs(svc, "--tail=200")
+			if err != nil {
+				GinkgoWriter.Printf("PrintServerWorkerLogsIfFailed: %s: %v, skipping\n", svc, err)
+				continue
+			}
+			GinkgoWriter.Printf("=== %s logs (last 200 lines) ===\n%s\n=== end %s logs ===\n", svc, string(out), svc)
+		}
+		return
+	}
+
+	if isQuadletEnvironment() {
+		for _, svc := range services {
+			out, err := getQuadletServiceLogs(svc)
+			if err != nil {
+				GinkgoWriter.Printf("PrintServerWorkerLogsIfFailed: %s: %v, skipping\n", svc, err)
+				continue
+			}
+			GinkgoWriter.Printf("=== %s logs (last 200 lines) ===\n%s\n=== end %s logs ===\n", svc, string(out), svc)
+		}
+		return
+	}
+
+	GinkgoWriter.Println("PrintServerWorkerLogsIfFailed: unknown environment, skipping")
+}
+
 // CaptureDeploymentLogsIfFailed captures deployment pod logs to the artifacts
 // directory when the current test has failed. Intended to be called from AfterEach
 // alongside PrintAgentLogsIfFailed.
@@ -635,6 +674,42 @@ func (h *Harness) captureQuadletServiceLogs(artifactDir string, services []strin
 		GinkgoWriter.Printf("CaptureDeploymentLogs: wrote %s\n", filepath.Join(artifactDir, filename))
 	}
 	return errors.Join(errs...)
+}
+
+// getQuadletServiceLogs fetches the last 200 lines of journalctl logs for a
+// quadlet service. It handles both local and remote (SSH) environments using
+// the same env-var conventions as captureQuadletServiceLogs.
+func getQuadletServiceLogs(svc string) ([]byte, error) {
+	host := os.Getenv("QUADLET_HOST")
+	sshUser := os.Getenv("E2E_SSH_USER")
+	sshKeyPath := os.Getenv("E2E_SSH_KEY_PATH")
+	sshPassword := os.Getenv("E2E_SSH_PASSWORD")
+	remote := sshUser != "" && host != "" && host != "localhost" && host != "127.0.0.1"
+
+	unit := svc + ".service"
+	var cmd *exec.Cmd
+	if remote {
+		sshArgs := []string{"-o", "StrictHostKeyChecking=no"}
+		usePassword := sshKeyPath == "" && sshPassword != ""
+		if sshKeyPath != "" {
+			sshArgs = append(sshArgs, "-o", "BatchMode=yes", "-i", sshKeyPath)
+		} else if !usePassword {
+			sshArgs = append(sshArgs, "-o", "BatchMode=yes")
+		}
+		sshArgs = append(sshArgs, fmt.Sprintf("%s@%s", sshUser, host))
+		sshArgs = append(sshArgs, fmt.Sprintf("sudo journalctl -u %s --no-pager -n 200", unit))
+
+		if usePassword {
+			cmd = exec.Command("sshpass", append([]string{"-e", "ssh"}, sshArgs...)...) //nolint:gosec
+			cmd.Env = append(os.Environ(), "SSHPASS="+sshPassword)
+		} else {
+			cmd = exec.Command("ssh", sshArgs...) //nolint:gosec
+		}
+	} else {
+		cmd = exec.Command("sudo", "journalctl", "-u", unit, "--no-pager", "-n", "200") //nolint:gosec
+	}
+
+	return cmd.Output()
 }
 
 // GetEnrollmentIDFromServiceLogs returns the enrollment ID from the service logs using journalctl.

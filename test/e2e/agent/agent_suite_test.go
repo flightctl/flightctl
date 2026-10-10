@@ -95,6 +95,7 @@ var _ = AfterEach(func() {
 
 	// Capture logs if test failed
 	harness.PrintAgentLogsIfFailed()
+	harness.PrintServerWorkerLogsIfFailed()
 	harness.CaptureDeploymentLogsIfFailed()
 
 	// Clean up test resources BEFORE switching back to suite context
