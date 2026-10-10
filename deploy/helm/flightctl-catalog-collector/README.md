@@ -420,11 +420,8 @@ about a minute and the extension re-reads the file on every request.
 
 ### 4. Verify
 
-The collector preflights each source during startup, **before** it reports
-ready: it issues one query to the registry and fails fast if the registry
-rejects it. A pod that reaches `Ready` has therefore already had its token
-authenticated and its RBAC checked. A 401 or 403 instead keeps the pod out of
-`Ready` and shows up in the log as a preflight failure:
+The collector preflights each configured destination and source during
+startup, **before** it reports ready, and fails fast on the first failure.
 
 ```shell
 kubectl -n <collector_namespace> rollout status \
