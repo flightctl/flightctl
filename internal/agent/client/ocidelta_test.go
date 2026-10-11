@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -138,6 +139,35 @@ func TestOCIDeltaImport(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
+		})
+	}
+}
+
+func TestOCIDeltaImportImage(t *testing.T) {
+	id := strings.Repeat("a", 64)
+	for _, tt := range []struct {
+		name, output string
+		code         int
+	}{
+		{name: "When import returns its storage image ID it should preserve that identity", output: id + "\n"},
+		{name: "When import has no identity output it should leave the identity unknown"},
+		{name: "When import fails it should preserve the original error", code: 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			exec := executer.NewMockExecuter(ctrl)
+			exec.EXPECT().ExecuteWithContext(gomock.Any(), "oci-delta", "import", "--tag", "quay.io/acme/app:target", "/delta.oci").Return(tt.output, "import failed", tt.code)
+			delta := NewOCIDelta(log.NewPrefixLogger("test"), exec, time.Minute)
+			actual, err := delta.ImportImage(t.Context(), "/delta.oci", "quay.io/acme/app:target")
+			if tt.code != 0 {
+				require.ErrorContains(err, "import failed")
+				require.Empty(actual)
+			} else {
+				require.NoError(err)
+				require.Equal(strings.TrimSpace(tt.output), actual)
+			}
 		})
 	}
 }

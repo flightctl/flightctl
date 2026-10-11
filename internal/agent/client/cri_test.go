@@ -274,3 +274,44 @@ func TestCRIImageServiceIdentity(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "/run/images.sock", endpoint)
 }
+
+func TestCRIImageID(t *testing.T) {
+	id := strings.Repeat("a", 64)
+	for _, tt := range []struct {
+		name, response string
+		configured     bool
+		code           int
+		wantError      bool
+	}{
+		{name: "When CRI-O reports a storage image ID it should return the exact runtime identity", response: fmt.Sprintf(`{"status":{"id":%q}}`, id)},
+		{name: "When the image service is configured it should inspect that service", configured: true, response: fmt.Sprintf(`{"status":{"id":%q}}`, id)},
+		{name: "When the imported image is absent it should preserve unknown identity", response: `{"status":null}`, wantError: true},
+		{name: "When CRI image status is malformed it should return the parse error", response: `{`, wantError: true},
+		{name: "When inspecting the runtime fails it should return the original error", code: 1, wantError: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			exec, rw := executer.NewMockExecuter(ctrl), fileio.NewMockReadWriter(ctrl)
+			var opts []ClientOption
+			var args []any
+			if tt.configured {
+				configPath := "/etc/flightctl/crio.yaml"
+				opts = []ClientOption{WithCRIConfig(configPath)}
+				rw.EXPECT().PathExists(configPath).Return(true, nil)
+				args = []any{"--config", configPath}
+			}
+			exec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", append(args, "inspecti", "--output", "json", id)...).Return(tt.response, "inspect failed", tt.code)
+			cri := NewCRI(log.NewPrefixLogger("test"), exec, rw, poll.NewConfig(0, 1))
+			actual, err := cri.ImageID(t.Context(), id, opts...)
+			if tt.wantError {
+				require.Error(err)
+				require.Empty(actual)
+			} else {
+				require.NoError(err)
+				require.Equal(id, actual)
+			}
+		})
+	}
+}

@@ -217,6 +217,32 @@ func (c *CRI) ImageExists(ctx context.Context, image string, opts ...ClientOptio
 
 // ImageRepoDigests returns the registry digests recorded for a local CRI image.
 func (c *CRI) ImageRepoDigests(ctx context.Context, image string, opts ...ClientOption) ([]string, error) {
+	status, err := c.imageStatus(ctx, image, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return status.RepoDigests, nil
+}
+
+// ImageID returns the immutable local identity reported by the configured image service.
+// This storage identity is not a registry manifest digest.
+func (c *CRI) ImageID(ctx context.Context, image string, opts ...ClientOption) (string, error) {
+	status, err := c.imageStatus(ctx, image, opts...)
+	if err != nil {
+		return "", err
+	}
+	if status.ID == "" {
+		return "", fmt.Errorf("CRI image %s has no local identity", image)
+	}
+	return status.ID, nil
+}
+
+type criImageStatus struct {
+	ID          string   `json:"id"`
+	RepoDigests []string `json:"repoDigests"`
+}
+
+func (c *CRI) imageStatus(ctx context.Context, image string, opts ...ClientOption) (*criImageStatus, error) {
 	options := &clientOptions{}
 	for _, opt := range opts {
 		opt(options)
@@ -249,14 +275,12 @@ func (c *CRI) ImageRepoDigests(ctx context.Context, image string, opts ...Client
 	}
 
 	var response struct {
-		Status struct {
-			RepoDigests []string `json:"repoDigests"`
-		} `json:"status"`
+		Status criImageStatus `json:"status"`
 	}
 	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &response); err != nil {
 		return nil, fmt.Errorf("parse CRI image status for %s: %w", image, err)
 	}
-	return response.Status.RepoDigests, nil
+	return &response.Status, nil
 }
 
 // ImageManifestDigest accepts a repository-qualified immutable pull identity only.

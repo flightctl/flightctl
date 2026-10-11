@@ -893,9 +893,15 @@ func (m *prefetchManager) completeCRIPull(ctx context.Context, target imageRef, 
 		if named, err := reference.ParseNormalizedNamed(target.image); err == nil {
 			if _, immutable := named.(reference.Digested); !immutable {
 				if task.runtimeEndpoint == "" {
-					return fmt.Errorf("canonical runtime reference destination is unknown")
-				}
-				if err := cri.TagContainerdImage(ctx, task.runtimeEndpoint, image, target.image, opts...); err != nil {
+					// CRI-O retains the desired name through its original CRI pull flow.
+					aliasID, err := cri.Pull(ctx, target.image, opts...)
+					if err != nil {
+						return err
+					}
+					if aliasID != id {
+						return fmt.Errorf("desired CRI reference %s resolved to a different image than %s", target.image, image)
+					}
+				} else if err := cri.TagContainerdImage(ctx, task.runtimeEndpoint, image, target.image, opts...); err != nil {
 					return err
 				}
 			}
@@ -969,9 +975,6 @@ func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, tas
 		)
 	}
 
-	if runtimeInfo.Name == client.CRIRuntimeCRIO {
-		return m.applicationCRIDeltaFallback(ctx, target, task, fmt.Errorf("CRI-O apply source storage access is unverified"), opts...)
-	}
 	tmpDir, err := m.readWriter.MkdirTemp("application-delta")
 	if err != nil {
 		return m.applicationCRIDeltaFallback(ctx, target, task, fmt.Errorf("create application delta temporary directory: %w", err), opts...)
@@ -985,8 +988,21 @@ func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, tas
 
 	switch runtimeInfo.Name {
 	case client.CRIRuntimeCRIO:
-		if err := m.ociDelta.Import(ctx, deltaFile, target.image); err != nil {
+		importedID, err := m.ociDelta.ImportImage(ctx, deltaFile, target.image)
+		if err != nil {
 			return m.applicationCRIDeltaFallback(ctx, target, task, err, opts...)
+		}
+		if !deltastatus.ValidDigest("sha256:" + importedID) {
+			return m.applicationCRIDeltaFallback(ctx, target, task, fmt.Errorf("delta import did not identify its storage image"), opts...)
+		}
+		// Local containers/storage and the configured CRI-O service may differ.
+		// Verify the exact imported image before a registry pull can populate CRI.
+		observedID, err := cri.ImageID(ctx, importedID, opts...)
+		if err != nil {
+			return m.applicationCRIDeltaFallback(ctx, target, task, fmt.Errorf("verify imported CRI-O image: %w", err), opts...)
+		}
+		if observedID != importedID {
+			return m.applicationCRIDeltaFallback(ctx, target, task, fmt.Errorf("delta import is absent from the configured CRI-O image service"), opts...)
 		}
 	case client.CRIRuntimeContainerd:
 		m.mu.Lock()

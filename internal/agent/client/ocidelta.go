@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -88,10 +89,16 @@ func (d *OCIDelta) ApplyFromDirectory(ctx context.Context, sourceDir, deltaRef, 
 
 // Import reconstructs an OCI image directly in containers/storage.
 func (d *OCIDelta) Import(ctx context.Context, deltaRef, targetRef string) error {
+	_, err := d.ImportImage(ctx, deltaRef, targetRef)
+	return err
+}
+
+// ImportImage runs the same import and returns its newly created storage image ID.
+func (d *OCIDelta) ImportImage(ctx context.Context, deltaRef, targetRef string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, d.timeout)
 	defer cancel()
 
-	_, stderr, exitCode := d.exec.ExecuteWithContext(
+	stdout, stderr, exitCode := d.exec.ExecuteWithContext(
 		ctx,
 		ociDeltaCmd,
 		"import",
@@ -100,7 +107,7 @@ func (d *OCIDelta) Import(ctx context.Context, deltaRef, targetRef string) error
 		deltaRef,
 	)
 	if exitCode != 0 {
-		return fmt.Errorf("oci-delta import: %w", errors.FromStderr(stderr, exitCode))
+		return "", fmt.Errorf("oci-delta import: %w", errors.FromStderr(stderr, exitCode))
 	}
-	return nil
+	return strings.TrimSpace(stdout), nil
 }
