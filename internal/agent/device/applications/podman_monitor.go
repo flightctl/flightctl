@@ -37,7 +37,7 @@ type PodmanMonitor struct {
 	mu sync.Mutex
 	// apps is a map of application ID to application.
 	apps                   map[string]Application
-	recoveryPending        map[string][]string
+	recoveryPending        map[string]pendingRecovery
 	actions                []lifecycle.Action
 	startTime              time.Time
 	lastActionsSuccessTime time.Time
@@ -49,6 +49,12 @@ type PodmanMonitor struct {
 	events         chan client.PodmanEvent
 
 	log *log.PrefixLogger
+}
+
+type pendingRecovery struct {
+	services    []string
+	generation  uint64
+	allServices bool
 }
 
 func NewPodmanMonitor(
@@ -73,7 +79,7 @@ func NewPodmanMonitor(
 		},
 		watchers:               make(map[v1beta1.Username]*podmanEventWatcher),
 		apps:                   make(map[string]Application),
-		recoveryPending:        make(map[string][]string),
+		recoveryPending:        make(map[string]pendingRecovery),
 		startTime:              startTime,
 		lastActionsSuccessTime: startTime,
 		log:                    log,
@@ -222,28 +228,32 @@ func (m *PodmanMonitor) QueueLifecycle(appID string, desiredState v1beta1.Applic
 	}
 
 	var startServices []string
+	var recoveryGeneration uint64
 	if actionType == lifecycle.ActionStart {
-		startServices = stoppedWorkloadServices(app)
-		if len(startServices) == 0 {
-			if pendingServices, ok := m.recoveryPending[appID]; ok {
-				startServices = append([]string(nil), pendingServices...)
+		if pending, ok := m.recoveryPending[appID]; ok {
+			recoveryGeneration = pending.generation
+			if !pending.allServices {
+				startServices = mergeServiceNames(pending.services, stoppedWorkloadServices(app))
 			}
+		} else {
+			startServices = stoppedWorkloadServices(app)
 		}
 	}
 
 	m.actions = append(m.actions, lifecycle.Action{
-		ID:                appID,
-		Name:              app.Name(),
-		User:              app.User(),
-		AppType:           app.AppType(),
-		Path:              app.Path(),
-		Type:              actionType,
-		RestartGeneration: restartGeneration,
-		StartServices:     startServices,
+		ID:                 appID,
+		Name:               app.Name(),
+		User:               app.User(),
+		AppType:            app.AppType(),
+		Path:               app.Path(),
+		Type:               actionType,
+		RestartGeneration:  restartGeneration,
+		StartServices:      startServices,
+		RecoveryGeneration: recoveryGeneration,
 	})
 }
 
-func hasPendingRecovery(recoveryPending map[string][]string, appID string) bool {
+func hasPendingRecovery(recoveryPending map[string]pendingRecovery, appID string) bool {
 	_, ok := recoveryPending[appID]
 	return ok
 }
@@ -263,22 +273,46 @@ func hasStoppedWorkload(app Application) bool {
 }
 
 func stoppedWorkloadServices(app Application) []string {
-	seen := make(map[string]struct{})
 	var services []string
 	for _, workload := range app.Workloads() {
 		switch workload.Status {
 		case StatusStop, StatusDie, StatusDied, StatusRemove:
-			if workload.ServiceName == "" {
-				continue
-			}
-			if _, ok := seen[workload.ServiceName]; ok {
-				continue
-			}
-			seen[workload.ServiceName] = struct{}{}
 			services = append(services, workload.ServiceName)
 		}
 	}
-	return services
+	return mergeServiceNames(services)
+}
+
+func mergeServiceNames(serviceLists ...[]string) []string {
+	seen := make(map[string]struct{})
+	var merged []string
+	for _, services := range serviceLists {
+		for _, service := range services {
+			if service == "" {
+				continue
+			}
+			if _, ok := seen[service]; ok {
+				continue
+			}
+			seen[service] = struct{}{}
+			merged = append(merged, service)
+		}
+	}
+	return merged
+}
+
+func subtractServiceNames(services, handled []string) []string {
+	removed := make(map[string]struct{}, len(handled))
+	for _, service := range handled {
+		removed[service] = struct{}{}
+	}
+	var remaining []string
+	for _, service := range services {
+		if _, ok := removed[service]; !ok {
+			remaining = append(remaining, service)
+		}
+	}
+	return remaining
 }
 
 func (m *PodmanMonitor) Ensure(ctx context.Context, app Application) error {
@@ -409,15 +443,40 @@ func (m *PodmanMonitor) StartApp(ctx context.Context, appID string, queuedAction
 	}
 	if len(queuedActions) > 0 {
 		action.StartServices = queuedActions[0].StartServices
+		action.RecoveryGeneration = queuedActions[0].RecoveryGeneration
 	}
+	recoveryGeneration := action.RecoveryGeneration
 	if err := handler.Start(ctx, action); err != nil {
 		return err
 	}
 	m.mu.Lock()
 	app.SetDesiredState(v1beta1.ApplicationDesiredStateRunning)
-	delete(m.recoveryPending, appID)
+	m.clearRecoveryIntent(appID, action, recoveryGeneration)
 	m.mu.Unlock()
 	return nil
+}
+
+func (m *PodmanMonitor) clearRecoveryIntent(appID string, action lifecycle.Action, recoveryGeneration uint64) {
+	if recoveryGeneration == 0 {
+		return
+	}
+	pending, ok := m.recoveryPending[appID]
+	if !ok {
+		return
+	}
+	if pending.generation == recoveryGeneration {
+		delete(m.recoveryPending, appID)
+		return
+	}
+	if pending.allServices || len(action.StartServices) == 0 {
+		return
+	}
+	pending.services = subtractServiceNames(pending.services, action.StartServices)
+	if len(pending.services) == 0 {
+		delete(m.recoveryPending, appID)
+		return
+	}
+	m.recoveryPending[appID] = pending
 }
 
 // RestartApp restarts the application identified by appID.
@@ -930,18 +989,32 @@ func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Ap
 		}
 		if recoverRemovedWorkload {
 			if m.recoveryPending == nil {
-				m.recoveryPending = make(map[string][]string)
+				m.recoveryPending = make(map[string]pendingRecovery)
 			}
-			m.recoveryPending[app.ID()] = append([]string(nil), recoveryServices...)
+			pending := m.recoveryPending[app.ID()]
+			allServices := pending.allServices || len(recoveryServices) == 0
+			services := pending.services
+			if allServices {
+				services = nil
+			} else {
+				services = mergeServiceNames(services, recoveryServices)
+			}
+			generation := pending.generation + 1
+			m.recoveryPending[app.ID()] = pendingRecovery{
+				services:    services,
+				generation:  generation,
+				allServices: allServices,
+			}
 			m.actions = append(m.actions, lifecycle.Action{
-				ID:                app.ID(),
-				Name:              app.Name(),
-				User:              app.User(),
-				AppType:           app.AppType(),
-				Path:              app.Path(),
-				Type:              lifecycle.ActionStart,
-				RestartGeneration: app.RestartGeneration(),
-				StartServices:     recoveryServices,
+				ID:                 app.ID(),
+				Name:               app.Name(),
+				User:               app.User(),
+				AppType:            app.AppType(),
+				Path:               app.Path(),
+				Type:               lifecycle.ActionStart,
+				RestartGeneration:  app.RestartGeneration(),
+				StartServices:      services,
+				RecoveryGeneration: generation,
 			})
 		}
 		// remove existing container
