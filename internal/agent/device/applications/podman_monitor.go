@@ -560,7 +560,12 @@ func (m *PodmanMonitor) Status() ([]AppStatusResult, error) {
 			errs = append(errs, err)
 			continue
 		}
+		volumeNames := make(map[string]string)
+		for _, volume := range app.Volume().List() {
+			volumeNames[volume.ID] = volume.Name
+		}
 		results = append(results, AppStatusResult{
+			workloads: app.Workloads(), volumeNames: volumeNames,
 			ID:      app.ID(),
 			Status:  *appStatus,
 			Summary: appSummary,

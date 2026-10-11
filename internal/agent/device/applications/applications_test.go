@@ -445,17 +445,22 @@ func TestCollectImageDigests(t *testing.T) {
 
 func TestWorkloadImageSnapshotsAreCopied(t *testing.T) {
 	images := []WorkloadImage{{Image: "quay.io/acme/app:v1", Digest: "sha256:one"}}
+	volumes := []v1beta1.ApplicationVolumeStatus{{Name: "data", Reference: "quay.io/acme/data:v1", Digest: "sha256:volume"}}
 	app := &application{}
-	app.AddWorkload(&Workload{Name: "container", Images: images})
+	app.AddWorkload(&Workload{Name: "container", Images: images, Volumes: volumes})
 
 	images[0].Digest = "sha256:input-mutated"
+	volumes[0].Digest = "sha256:input-mutated"
 	workloads := app.Workloads()
 	require.Equal(t, "sha256:one", workloads[0].Images[0].Digest)
+	require.Equal(t, "sha256:volume", workloads[0].Volumes[0].Digest)
 
 	workloads[0].Images[0].Digest = "sha256:copy-mutated"
+	workloads[0].Volumes[0].Digest = "sha256:copy-mutated"
 	stored, ok := app.Workload("container")
 	require.True(t, ok)
 	require.Equal(t, "sha256:one", stored.Images[0].Digest)
+	require.Equal(t, "sha256:volume", stored.Volumes[0].Digest)
 }
 
 func TestNewAppFromProvider(t *testing.T) {

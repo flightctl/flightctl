@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"slices"
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -389,11 +390,22 @@ type kubernetesPodSpec struct {
 	Containers          []kubernetesContainerSpec `json:"containers,omitempty"`
 	InitContainers      []kubernetesContainerSpec `json:"initContainers,omitempty"`
 	EphemeralContainers []kubernetesContainerSpec `json:"ephemeralContainers,omitempty"`
+	Volumes             []kubernetesVolumeSpec    `json:"volumes,omitempty"`
+}
+
+type kubernetesVolumeSpec struct {
+	Name  string `json:"name"`
+	Image *struct {
+		Reference string `json:"reference"`
+	} `json:"image,omitempty"`
 }
 
 type kubernetesContainerSpec struct {
-	Name  string `json:"name"`
-	Image string `json:"image"`
+	Name         string `json:"name"`
+	Image        string `json:"image"`
+	VolumeMounts []struct {
+		Name string `json:"name"`
+	} `json:"volumeMounts,omitempty"`
 }
 
 type kubernetesPodStatus struct {
@@ -404,11 +416,23 @@ type kubernetesPodStatus struct {
 }
 
 type kubernetesContainerStatus struct {
-	Name         string                       `json:"name"`
-	ImageID      string                       `json:"imageID,omitempty"`
-	Ready        bool                         `json:"ready"`
-	RestartCount int                          `json:"restartCount"`
-	State        kubernetesContainerStateInfo `json:"state,omitempty"`
+	Name         string                        `json:"name"`
+	ImageID      string                        `json:"imageID,omitempty"`
+	Ready        bool                          `json:"ready"`
+	RestartCount int                           `json:"restartCount"`
+	State        kubernetesContainerStateInfo  `json:"state,omitempty"`
+	VolumeMounts []kubernetesVolumeMountStatus `json:"volumeMounts,omitempty"`
+}
+
+// These fields are optional on older Kubernetes versions and when the
+// ImageVolumeWithDigest feature gate is disabled.
+type kubernetesVolumeMountStatus struct {
+	Name         string `json:"name"`
+	VolumeStatus *struct {
+		Image *struct {
+			ImageRef string `json:"imageRef"`
+		} `json:"image,omitempty"`
+	} `json:"volumeStatus,omitempty"`
 }
 
 type kubernetesContainerStateInfo struct {
@@ -482,6 +506,7 @@ func (m *KubernetesMonitor) updatePodStatus(app Application, pod *kubernetesPod)
 	status := m.mapPodPhaseToStatus(pod)
 	restarts := m.getPodRestartCount(pod)
 	images := collectPodImages(pod)
+	volumes := collectPodImageVolumes(pod)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -490,6 +515,7 @@ func (m *KubernetesMonitor) updatePodStatus(app Application, pod *kubernetesPod)
 	if exists {
 		workload.Status = status
 		workload.Images = images
+		workload.Volumes = volumes
 		workload.ImagesObservedRunning = true
 		if pod.Metadata.UID != workload.ID {
 			workload.ID = pod.Metadata.UID
@@ -504,6 +530,7 @@ func (m *KubernetesMonitor) updatePodStatus(app Application, pod *kubernetesPod)
 	app.AddWorkload(&Workload{
 		ID:                    pod.Metadata.UID,
 		Images:                images,
+		Volumes:               volumes,
 		ImagesObservedRunning: true,
 		Name:                  pod.Metadata.Name,
 		Status:                status,
@@ -537,7 +564,50 @@ func collectPodImages(pod *kubernetesPod) []WorkloadImage {
 			Digest: digestFromKubernetesImageID(container.Image, statuses[container.Name].ImageID),
 		})
 	}
+	for _, volume := range collectPodImageVolumes(pod) {
+		images = append(images, WorkloadImage{Image: volume.Reference, Digest: volume.Digest})
+	}
 	return images
+}
+
+func collectPodImageVolumes(pod *kubernetesPod) []v1beta1.ApplicationVolumeStatus {
+	byName := make(map[string]string)
+	for _, volume := range pod.Spec.Volumes {
+		if volume.Image != nil && volume.Image.Reference != "" {
+			byName[volume.Name] = volume.Image.Reference
+		}
+	}
+	var volumes []v1beta1.ApplicationVolumeStatus
+	containers := append(append(append([]kubernetesContainerSpec{}, pod.Spec.Containers...), pod.Spec.InitContainers...), pod.Spec.EphemeralContainers...)
+	statuses := append(append(append([]kubernetesContainerStatus{}, pod.Status.ContainerStatuses...), pod.Status.InitContainerStatuses...), pod.Status.EphemeralContainerStatuses...)
+	for _, status := range statuses {
+		if status.State.Running == nil {
+			continue
+		}
+		mounts := append([]kubernetesVolumeMountStatus{}, status.VolumeMounts...)
+		for _, container := range containers {
+			if container.Name != status.Name {
+				continue
+			}
+			for _, mount := range container.VolumeMounts {
+				if !slices.ContainsFunc(mounts, func(observed kubernetesVolumeMountStatus) bool { return observed.Name == mount.Name }) {
+					mounts = append(mounts, kubernetesVolumeMountStatus{Name: mount.Name})
+				}
+			}
+		}
+		for _, mount := range mounts {
+			ref := byName[mount.Name]
+			if ref == "" {
+				continue
+			}
+			volume := v1beta1.ApplicationVolumeStatus{Name: mount.Name, Reference: ref}
+			if mount.VolumeStatus != nil && mount.VolumeStatus.Image != nil {
+				volume.Digest = digestFromKubernetesImageID(ref, mount.VolumeStatus.Image.ImageRef)
+			}
+			volumes = append(volumes, volume)
+		}
+	}
+	return volumes
 }
 
 func (m *KubernetesMonitor) mapPodPhaseToStatus(pod *kubernetesPod) StatusType {
@@ -635,15 +705,20 @@ func (m *KubernetesMonitor) currentImageObservations(ctx context.Context, result
 		return
 	}
 	byApp := make(map[string][]v1beta1.ApplicationImageDigest)
+	volumesByApp := make(map[string][]v1beta1.ApplicationVolumeStatus)
 	for _, pod := range snapshot.Items {
 		id := pod.Metadata.Labels[helm.AppLabelKey]
+		volumesByApp[id] = append(volumesByApp[id], collectPodImageVolumes(&pod)...)
 		for _, image := range collectPodImages(&pod) {
 			byApp[id] = append(byApp[id], v1beta1.ApplicationImageDigest{Image: image.Image, Digest: image.Digest})
 		}
 	}
 	for i := range results {
-		images := byApp[results[i].ID]
+		images := normalizedImageDigests(byApp[results[i].ID])
 		results[i].Status.ImageDigests = &images
+		// The complete snapshot supersedes watch observations, including volumes
+		// from pods that disappeared before their deletion event arrived.
+		results[i].Status.Volumes = mergeRuntimeVolumes(nil, volumesByApp[results[i].ID])
 		results[i].Runtime = "cri"
 		results[i].Owner = "root"
 		results[i].Destination = destination

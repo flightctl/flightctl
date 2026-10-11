@@ -276,6 +276,7 @@ func (m *manager) collectApplicationStatuses(ctx context.Context) ([]AppStatusRe
 	if err != nil {
 		return nil, err
 	}
+	m.podmanMonitor.currentImageVolumeObservations(ctx, podmanResults)
 	allResults = append(allResults, podmanResults...)
 
 	k8sResults, err := m.kubernetesMonitor.Status()

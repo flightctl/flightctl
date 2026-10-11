@@ -260,9 +260,12 @@ Each application's aggregated delta result appears in `device.status.application
 | `device.status.applications[].lastDelta.fallbackReason` | One representative reason for a full-pull fallback after a delta failure or an unusable hinted delta. Present when at least one target falls back with a recorded reason; the application outcome can be `Fallback` or `Partial`. |
 | `device.status.applications[].imageDigests[].image` | Image reference used by the application on the device. |
 | `device.status.applications[].imageDigests[].digest` | Digest resolved from the image reported as running by the runtime. For a multi-platform image, this may be the platform-specific digest selected by the runtime. The field is omitted when the runtime does not provide enough information to resolve the running image's digest. |
+| `device.status.applications[].volumes[].digest` | Runtime-resolved image digest currently backing a used volume. Omitted when the runtime does not expose a resolved image digest. |
 | `device.status.applications[].deltaSize` | Sum of only the control-plane-generated delta payload sizes for this application update, in IEC units. Present when at least one delta was generated and every generated payload size is known. |
 
-`imageDigests[]` can include the application's main image, nested images, and image-backed volumes. These values describe images reported as running by the device.
+`imageDigests[]` includes all observed running workload images and currently used image-backed volumes, including nested workloads and VM guest disks. Overlapping runtime digests for the same reference are retained, together with unknown observations. Desired image digests and prepared updates do not supply these values.
+
+Kubernetes image-volume digests require the cluster to expose mounted-image status with the `ImageVolumeWithDigest` feature gate enabled. If that status is unavailable, or the runtime cannot identify the mounted image, the agent reports its reference with an unknown digest. See the [Kubernetes image-volume status documentation](https://kubernetes.io/docs/concepts/storage/volumes/#pod-status-and-image-volumes) for feature availability and configuration.
 
 Inspect each application's generated delta payload size at `status.applications[].deltaSize` and the generated OS delta payload size at `status.os.deltaSize`.
 

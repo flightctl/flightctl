@@ -89,7 +89,7 @@ The agent reconciles the **DeviceSpec** against device state by calling external
 
 Podman application monitors rebuild their in-memory registrations during reconciliation after an agent restart. When an application changed while the agent was stopped, its update action replaces the existing workloads and registers the desired application for monitoring.
 
-The agent caches image-backed volume digests across unchanged reconciliations and status reports. Installing, updating, or removing an application invalidates the cache before provider changes and after runtime actions, including failed actions. Changed volume references are inspected independently, and references no longer reported are removed from the cache. Confirmed artifact-backed volumes are also cached so subsequent reports skip image inspection. Other failed digest inspections are retried on the next status report. Volume inspection runs without holding the cache lock, allowing application updates to proceed. If an update invalidates the cache during inspection, that inspection does not repopulate the cache.
+The agent reports image identities from running workloads and their image-backed volumes, including nested containers and VM guest disks. Podman volume identities come from the backing storage image or effective runtime mounts. Kubernetes volume digests come from mounted-volume status when the cluster exposes it. Missing runtime identities remain unknown. Desired references and prepared updates do not supply runtime digests.
 
 ## Update Policy
 
@@ -107,7 +107,7 @@ The agent continuously reports device health, application state, and resource co
 
 The agent persists OS and application delta outcomes in `delta-status.json` in its data directory and restores them after restart. This file stores delta results separately from application monitor registrations.
 
-Application outcomes are stored by image target and the digest of the prepared image in a bounded history. Status reporting uses the digests collected from images that the runtime reports as running. Preparing image B while image A is running preserves A's outcome; after B is reported as running, status uses B's outcome if it remains in the history. If a running image's digest is unknown or has no retained outcome, the agent omits the aggregate application outcome. An image being present locally does not by itself create a `NotRequired` outcome.
+Application outcomes are stored by image target and the digest of the prepared image in a bounded history. Status reporting uses runtime digests from running containers and currently used image-backed volumes, including nested workloads. Preparing image B while image A is running preserves A's outcome; after B is reported as running, status uses B's outcome if it remains in the history. If a runtime image's digest is unknown or has no retained outcome, the agent omits the aggregate application outcome. An image being present locally does not by itself create a `NotRequired` outcome.
 
 ## Ansible Collection
 

@@ -1,6 +1,7 @@
 package applications
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -36,6 +37,16 @@ const (
 
 func (c StatusType) String() string {
 	return string(c)
+}
+
+func normalizedImageDigests(images []v1beta1.ApplicationImageDigest) []v1beta1.ApplicationImageDigest {
+	slices.SortFunc(images, func(a, b v1beta1.ApplicationImageDigest) int {
+		if order := cmp.Compare(a.Image, b.Image); order != 0 {
+			return order
+		}
+		return cmp.Compare(a.Digest, b.Digest)
+	})
+	return slices.Compact(images)
 }
 
 type Monitor interface {
@@ -138,8 +149,9 @@ type Application interface {
 // Workload represents an application workload tracked by a Monitor.
 type Workload struct {
 	ID                    string
-	ImagesObservedRunning bool            // Kubernetes container states can be running while the pod is initializing.
-	Images                []WorkloadImage // Image references reported for this workload.
+	ImagesObservedRunning bool                              // Kubernetes container states can be running while the pod is initializing.
+	Images                []WorkloadImage                   // Image references reported for this workload.
+	Volumes               []v1beta1.ApplicationVolumeStatus // Image-backed volumes observed in this workload.
 	Name                  string
 	Status                StatusType
 	Restarts              int
@@ -255,6 +267,7 @@ func (a *application) Workload(name string) (*Workload, bool) {
 func (a *application) AddWorkload(workload *Workload) {
 	workloadCopy := *workload
 	workloadCopy.Images = slices.Clone(workload.Images)
+	workloadCopy.Volumes = slices.Clone(workload.Volumes)
 	a.workloads = append(a.workloads, workloadCopy)
 }
 
@@ -273,6 +286,7 @@ func (a *application) Workloads() []Workload {
 	for i := range a.workloads {
 		result[i] = a.workloads[i]
 		result[i].Images = slices.Clone(a.workloads[i].Images)
+		result[i].Volumes = slices.Clone(a.workloads[i].Volumes)
 	}
 	return result
 }
@@ -407,7 +421,15 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	}
 
 	// update volume status
+	a.status.Volumes = nil
 	a.volume.Status(a.status)
+	var observedVolumes []v1beta1.ApplicationVolumeStatus
+	for _, workload := range a.workloads {
+		if workload.ImagesObservedRunning || workload.Status == StatusRunning || workload.Status == StatusUnhealthy {
+			observedVolumes = append(observedVolumes, workload.Volumes...)
+		}
+	}
+	a.status.Volumes = mergeRuntimeVolumes(a.status.Volumes, observedVolumes)
 
 	// Report image identities observed in running workloads.
 	a.collectImageDigests()
@@ -436,6 +458,9 @@ func (a *application) collectImageDigests() {
 		for _, image := range w.Images {
 			add(image.Image, image.Digest)
 		}
+		for _, volume := range w.Volumes {
+			add(volume.Reference, volume.Digest)
+		}
 	}
 
 	var digests []v1beta1.ApplicationImageDigest
@@ -460,6 +485,36 @@ func (a *application) collectImageDigests() {
 	} else {
 		a.status.ImageDigests = nil
 	}
+}
+
+// mergeRuntimeVolumes replaces declared volume entries with runtime observations,
+// retaining different references and digests during overlapping rollouts.
+func mergeRuntimeVolumes(existing *[]v1beta1.ApplicationVolumeStatus, observed []v1beta1.ApplicationVolumeStatus) *[]v1beta1.ApplicationVolumeStatus {
+	if len(observed) == 0 {
+		return existing
+	}
+	var volumes []v1beta1.ApplicationVolumeStatus
+	if existing != nil {
+		volumes = slices.Clone(*existing)
+	}
+	volumes = slices.DeleteFunc(volumes, func(previous v1beta1.ApplicationVolumeStatus) bool {
+		return slices.ContainsFunc(observed, func(volume v1beta1.ApplicationVolumeStatus) bool { return previous.Name == volume.Name })
+	})
+	for _, volume := range observed {
+		if !slices.Contains(volumes, volume) {
+			volumes = append(volumes, volume)
+		}
+	}
+	sort.Slice(volumes, func(i, j int) bool {
+		if volumes[i].Name != volumes[j].Name {
+			return volumes[i].Name < volumes[j].Name
+		}
+		if volumes[i].Reference != volumes[j].Reference {
+			return volumes[i].Reference < volumes[j].Reference
+		}
+		return volumes[i].Digest < volumes[j].Digest
+	})
+	return &volumes
 }
 
 // isTerminal reports whether a workload has reached a terminal container state,

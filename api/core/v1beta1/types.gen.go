@@ -741,12 +741,12 @@ type ApplicationEnvVars struct {
 	EnvVars *map[string]string `json:"envVars,omitempty"`
 }
 
-// ApplicationImageDigest An image reference and its known registry image digest.
+// ApplicationImageDigest An image reference observed in a running workload or used image-backed volume and its runtime-resolved registry image digest.
 type ApplicationImageDigest struct {
 	// Digest Registry digest associated with this image. If the runtime identifies a platform-specific image, this may differ from the digest in the image reference. Omitted when unavailable.
 	Digest string `json:"digest,omitempty"`
 
-	// Image Image reference as it appears in the rendered application spec.
+	// Image Image reference observed by the runtime for a running workload or used image-backed volume.
 	Image string `json:"image"`
 }
 
@@ -839,6 +839,9 @@ type ApplicationVolumeReclaimPolicy string
 
 // ApplicationVolumeStatus Status of a volume used by an application.
 type ApplicationVolumeStatus struct {
+	// Digest Registry image digest observed by the runtime for the image currently backing this volume. Omitted when the runtime does not expose a resolved image digest.
+	Digest string `json:"digest,omitempty"`
+
 	// Name Name of the volume.
 	Name string `json:"name"`
 
@@ -1398,7 +1401,7 @@ type DeviceApplicationStatus struct {
 	// Embedded Whether the application is embedded in the bootc image.
 	Embedded bool `json:"embedded"`
 
-	// ImageDigests Image references this application uses and the registry digest associated with each image. image is the ref from the current rendered spec (tag or digest). For a multi-platform index, digest is the platform-specific manifest selected by the runtime when available; if the runtime exposes only an opaque ID, an immutable image reference's digest may be reported. digest is omitted when no registry digest is known.
+	// ImageDigests Image references observed in currently running workloads and currently used image-backed volumes, including nested workloads. Digests come from the runtime, independently of desired images or prepared updates. For a multi-platform index, digest is the platform-specific manifest selected by the runtime when available. Distinct runtime digests for the same reference are preserved. digest is omitted when the runtime digest is unknown.
 	ImageDigests *[]ApplicationImageDigest `json:"imageDigests,omitempty"`
 
 	// LastDelta Agent-reported result for delta apply attempts for this update target. For an application with multiple image targets, the outcome is aggregated across image targets. The lastDelta field is omitted until the agent reports an outcome; server-side delta preparation is reported separately.

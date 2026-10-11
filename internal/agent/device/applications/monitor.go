@@ -74,6 +74,8 @@ type handlerRegistration struct {
 
 // AppStatusResult holds the status result for a single application.
 type AppStatusResult struct {
+	workloads      []Workload
+	volumeNames    map[string]string
 	Runtime        string
 	Owner          string
 	Destination    string
