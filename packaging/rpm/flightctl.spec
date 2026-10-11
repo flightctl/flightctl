@@ -356,6 +356,7 @@ fi
     cp packaging/hooks.d/afterupdating/00-default.yaml %{buildroot}/usr/lib/flightctl/hooks.d/afterupdating
     cp packaging/systemd/flightctl-agent.service %{buildroot}/usr/lib/systemd/system
     echo "d /var/lib/flightctl 0755 root root -" > %{buildroot}/usr/lib/tmpfiles.d/flightctl.conf
+    echo "d /var/home/flightctl 0700 flightctl flightctl -" >> %{buildroot}/usr/lib/tmpfiles.d/flightctl.conf
     echo "# systemd-tmpfiles configuration for CentOS bootc buildinfo directories" > %{buildroot}/usr/lib/tmpfiles.d/centos-buildinfo.conf
     echo "d /var/roothome 0755 root root -" >> %{buildroot}/usr/lib/tmpfiles.d/centos-buildinfo.conf
     echo "d /var/roothome/buildinfo 0755 root root -" >> %{buildroot}/usr/lib/tmpfiles.d/centos-buildinfo.conf
@@ -581,12 +582,21 @@ fi
     /usr/lib/systemd/system/flightctl-mask-bootc-timer.service
 
 %post agent
-# Ensure /var/lib/flightctl exists immediately for environments where systemd-tmpfiles succeeds or via fallback
+# Create the regular user before applying tmpfiles rules that assign ownership
+# to it. The user entry persists in bootc/composefs images even when its home
+# directory, which is created under /var, does not.
+id -u flightctl 2>/dev/null || useradd --create-home --user-group flightctl
+
+# Ensure the agent data and home directories exist immediately for environments
+# where systemd-tmpfiles succeeds or via fallback.
 # Try systemd-tmpfiles first, fall back to manual creation if it fails
 /usr/bin/systemd-tmpfiles --create /usr/lib/tmpfiles.d/flightctl.conf || {
     mkdir -p /var/lib/flightctl && \
     chown root:root /var/lib/flightctl && \
-    chmod 0755 /var/lib/flightctl
+    chmod 0755 /var/lib/flightctl && \
+    mkdir -p /var/home/flightctl && \
+    chown flightctl:flightctl /var/home/flightctl && \
+    chmod 0700 /var/home/flightctl
 }
 
 # These files prevent tmpfiles.d from managing the /var/roothome/buildinfo directory
@@ -602,9 +612,6 @@ cp /usr/share/sosreport/flightctl.py $INSTALL_DIR
 chmod 0644 $INSTALL_DIR/flightctl.py
 rm -rf /usr/share/sosreport
 
-# We want a regular user to run applications with as there are several issues around system users
-# and running quadlet applications.
-id -u flightctl 2>/dev/null || useradd --create-home --user-group flightctl
 # This enables lingering for the user with a fallback when building in an env without an active systemd.
 loginctl enable-linger flightctl || (mkdir -p /var/lib/systemd/linger/ && touch /var/lib/systemd/linger/flightctl)
 mkdir -p ~flightctl/.config/{containers/systemd,systemd/user}
