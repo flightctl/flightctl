@@ -52,9 +52,10 @@ type PodmanMonitor struct {
 }
 
 type pendingRecovery struct {
-	services    []string
-	generation  uint64
-	allServices bool
+	services           []string
+	serviceGenerations map[string]uint64
+	generation         uint64
+	allServices        bool
 }
 
 func NewPodmanMonitor(
@@ -232,7 +233,7 @@ func (m *PodmanMonitor) QueueLifecycle(appID string, desiredState v1beta1.Applic
 	if actionType == lifecycle.ActionStart {
 		if pending, ok := m.recoveryPending[appID]; ok {
 			recoveryGeneration = pending.generation
-			if !pending.allServices {
+			if !pending.allServices && !hasUnnamedStoppedWorkload(app) {
 				startServices = mergeServiceNames(pending.services, stoppedWorkloadServices(app))
 			}
 		} else {
@@ -272,6 +273,18 @@ func hasStoppedWorkload(app Application) bool {
 	return false
 }
 
+func hasUnnamedStoppedWorkload(app Application) bool {
+	for _, workload := range app.Workloads() {
+		switch workload.Status {
+		case StatusStop, StatusDie, StatusDied, StatusRemove:
+			if workload.ServiceName == "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func stoppedWorkloadServices(app Application) []string {
 	var services []string
 	for _, workload := range app.Workloads() {
@@ -299,20 +312,6 @@ func mergeServiceNames(serviceLists ...[]string) []string {
 		}
 	}
 	return merged
-}
-
-func subtractServiceNames(services, handled []string) []string {
-	removed := make(map[string]struct{}, len(handled))
-	for _, service := range handled {
-		removed[service] = struct{}{}
-	}
-	var remaining []string
-	for _, service := range services {
-		if _, ok := removed[service]; !ok {
-			remaining = append(remaining, service)
-		}
-	}
-	return remaining
 }
 
 func (m *PodmanMonitor) Ensure(ctx context.Context, app Application) error {
@@ -471,12 +470,32 @@ func (m *PodmanMonitor) clearRecoveryIntent(appID string, action lifecycle.Actio
 	if pending.allServices || len(action.StartServices) == 0 {
 		return
 	}
-	pending.services = subtractServiceNames(pending.services, action.StartServices)
+	remainingServices := make([]string, 0, len(pending.services))
+	for _, service := range pending.services {
+		serviceGeneration, tracked := pending.serviceGenerations[service]
+		if tracked && serviceGeneration > recoveryGeneration {
+			remainingServices = append(remainingServices, service)
+			continue
+		}
+		if !containsServiceName(action.StartServices, service) {
+			remainingServices = append(remainingServices, service)
+		}
+	}
+	pending.services = remainingServices
 	if len(pending.services) == 0 {
 		delete(m.recoveryPending, appID)
 		return
 	}
 	m.recoveryPending[appID] = pending
+}
+
+func containsServiceName(services []string, service string) bool {
+	for _, candidate := range services {
+		if candidate == service {
+			return true
+		}
+	}
+	return false
 }
 
 // RestartApp restarts the application identified by appID.
@@ -1000,10 +1019,23 @@ func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Ap
 				services = mergeServiceNames(services, recoveryServices)
 			}
 			generation := pending.generation + 1
+			serviceGenerations := make(map[string]uint64, len(pending.serviceGenerations)+len(recoveryServices))
+			for service, serviceGeneration := range pending.serviceGenerations {
+				serviceGenerations[service] = serviceGeneration
+			}
+			for _, service := range pending.services {
+				if _, ok := serviceGenerations[service]; !ok {
+					serviceGenerations[service] = pending.generation
+				}
+			}
+			for _, service := range recoveryServices {
+				serviceGenerations[service] = generation
+			}
 			m.recoveryPending[app.ID()] = pendingRecovery{
-				services:    services,
-				generation:  generation,
-				allServices: allServices,
+				services:           services,
+				serviceGenerations: serviceGenerations,
+				generation:         generation,
+				allServices:        allServices,
 			}
 			m.actions = append(m.actions, lifecycle.Action{
 				ID:                 app.ID(),
