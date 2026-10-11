@@ -1,5 +1,5 @@
 {{ if and (.Values.cliArtifacts.enabled) (eq (include "flightctl.getServiceExposeMethod" .) "route") }}
-{{- $useExtCert := eq (include "flightctl.useRouteExternalCertificate" (dict "root" . "routeName" "flightctl-cli-artifacts-route")) "true" }}
+{{- $useExtCert := eq (include "flightctl.useRouteExternalCertificate" (dict "root" . "routeName" "flightctl-cli-artifacts-route" "secretName" "flightctl-cli-artifacts-server-tls")) "true" }}
 {{- $tlsSecretName := "" }}
 {{- if .Values.global.baseDomainTlsSecretName }}
   {{- $tlsSecretName = .Values.global.baseDomainTlsSecretName }}

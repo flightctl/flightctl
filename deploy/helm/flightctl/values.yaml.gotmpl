@@ -16,7 +16,7 @@ global:
   # - auto: If cert-manager is installed, use it; otherwise, fall back to builtin.
   generateCertificates: "auto"
   # -- Whether to use generated TLS certificates on edge-terminated routes via externalCertificate.
-  # - auto: use externalCertificate on fresh install and preserve existing behavior on upgrade.
+  # - auto: use externalCertificate for synchronous builtin certificates, or when the existing Route already uses it or the generated Secret exists.
   # - true: always use externalCertificate.
   # - false: never use externalCertificate (rely on default router cert).
   routeExternalCertificate: "auto"

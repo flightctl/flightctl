@@ -665,30 +665,33 @@ Usage: {{- include "flightctl.vulnerabilityQuayCaVolumes" . | nindent X }}
 {{- /*
 Determine whether to use externalCertificate on edge-terminated routes.
 Returns: "true" or "false"
-- "auto" (default): use on fresh install; on upgrade, preserve existing behavior
-  by checking whether the specified route already has externalCertificate set.
+- "auto" (default): use the synchronous builtin certificate on fresh install;
+  for asynchronous certificates, wait until the generated Secret exists. On
+  upgrade, preserve existing behavior by checking the existing Route and Secret.
 - "true": always use
 - "false": never use
-Usage: {{- $useExtCert := include "flightctl.useRouteExternalCertificate" (dict "root" . "routeName" "flightctl-ui") }}
+Usage: {{- $useExtCert := include "flightctl.useRouteExternalCertificate" (dict "root" . "routeName" "flightctl-ui" "secretName" "flightctl-ui-server-tls") }}
 */}}
 {{- define "flightctl.useRouteExternalCertificate" }}
   {{- $root := .root }}
   {{- $routeName := .routeName }}
+  {{- $secretName := .secretName }}
   {{- $val := $root.Values.global.routeExternalCertificate | default "auto" | toString }}
   {{- if eq $val "true" }}
     {{- print "true" }}
   {{- else if eq $val "false" }}
     {{- print "false" }}
   {{- else }}
-    {{- if $root.Release.IsInstall }}
+    {{- $existingRoute := lookup "route.openshift.io/v1" "Route" $root.Release.Namespace $routeName }}
+    {{- $existingSecret := lookup "v1" "Secret" $root.Release.Namespace $secretName }}
+    {{- if and $existingRoute $existingRoute.spec $existingRoute.spec.tls (hasKey $existingRoute.spec.tls "externalCertificate") }}
+      {{- print "true" }}
+    {{- else if $existingSecret }}
+      {{- print "true" }}
+    {{- else if and $root.Release.IsInstall (eq (include "flightctl.getCertificateGenerationMethod" $root) "builtin") }}
       {{- print "true" }}
     {{- else }}
-      {{- $existingRoute := lookup "route.openshift.io/v1" "Route" $root.Release.Namespace $routeName }}
-      {{- if and $existingRoute $existingRoute.spec $existingRoute.spec.tls (hasKey $existingRoute.spec.tls "externalCertificate") }}
-        {{- print "true" }}
-      {{- else }}
-        {{- print "false" }}
-      {{- end }}
+      {{- print "false" }}
     {{- end }}
   {{- end }}
 {{- end }}

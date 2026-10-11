@@ -1,6 +1,6 @@
 {{- if .Values.ui.enabled }}
 {{- if and (eq (include "flightctl.enableMulticlusterExtensions" .) "false") (eq (include "flightctl.getServiceExposeMethod" .) "route") }}
-{{- $useExtCert := eq (include "flightctl.useRouteExternalCertificate" (dict "root" . "routeName" "flightctl-ui")) "true" }}
+{{- $useExtCert := eq (include "flightctl.useRouteExternalCertificate" (dict "root" . "routeName" "flightctl-ui" "secretName" "flightctl-ui-server-tls")) "true" }}
 {{- $tlsSecretName := "" }}
 {{- if .Values.global.baseDomainTlsSecretName }}
   {{- $tlsSecretName = .Values.global.baseDomainTlsSecretName }}
