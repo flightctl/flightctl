@@ -17,6 +17,7 @@ import (
 	appconsole "github.com/flightctl/flightctl/internal/agent/device/applications/console"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
+	"github.com/flightctl/flightctl/internal/agent/device/deltastatus"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
@@ -224,6 +225,7 @@ func TestListenForEvents(t *testing.T) {
 					inspectCount.Add(1)
 					return string(inspectBytes), "", 0
 				}).AnyTimes()
+			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "container", "inspect", "--format", "{{.Image}}", gomock.Any()).Return(strings.Repeat("f", 64), "", 0).AnyTimes()
 			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", gomock.Any()).
 				Return("sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "", 0).AnyTimes()
 			podmanEventsCommandMock(execMock).Return(streamDataToStdout(t, reader))
@@ -672,7 +674,8 @@ func TestVMHealthGatedCrashLoopSequence(t *testing.T) {
 	)
 	testLog := log.NewPrefixLogger("test")
 	mockExec := executer.NewMockExecuter(ctrl)
-	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "docker.io/library/alpine:latest").
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "container", "inspect", "--format", "{{.Image}}", gomock.Any()).Return(strings.Repeat("f", 64), "", 0).AnyTimes()
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", strings.Repeat("f", 64)).
 		Return("sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "", 0).Times(2)
 	podman := client.NewPodman(testLog, mockExec, rw, util.NewPollConfig())
 	var podmanFactory client.PodmanFactory = func(_ v1beta1.Username) (*client.Podman, error) { return podman, nil }
@@ -737,9 +740,12 @@ func TestPodmanMonitorTracksWorkloadImageDigest(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	testLog := log.NewPrefixLogger("test")
 	execMock := executer.NewMockExecuter(ctrl)
-	digests := []string{"sha256:first", "sha256:second", ""}
+	first := "sha256:" + strings.Repeat("a", 64)
+	second := "sha256:" + strings.Repeat("b", 64)
+	digests := []string{first, second, ""}
+	execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "container", "inspect", "--format", "{{.Image}}", gomock.Any()).Return(strings.Repeat("f", 64), "", 0).Times(3)
 	var digestCalls int
-	execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "quay.io/acme/app:latest").
+	execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", strings.Repeat("f", 64)).
 		DoAndReturn(func(_ context.Context, _ string, _ ...string) (string, string, int) {
 			digest := digests[digestCalls]
 			digestCalls++
@@ -760,7 +766,7 @@ func TestPodmanMonitorTracksWorkloadImageDigest(t *testing.T) {
 	monitor.updateApplicationStatus(t.Context(), app, event, StatusRunning, 0, podman)
 	workload, ok := app.Workload(event.Name)
 	require.True(t, ok)
-	require.Equal(t, []WorkloadImage{{Image: event.Image, Digest: "sha256:first"}}, workload.Images)
+	require.Equal(t, []WorkloadImage{{Image: event.Image, Digest: first}}, workload.Images)
 
 	// The digest is cached for repeat events from the same container.
 	monitor.updateApplicationStatus(t.Context(), app, event, StatusRunning, 0, podman)
@@ -771,7 +777,7 @@ func TestPodmanMonitorTracksWorkloadImageDigest(t *testing.T) {
 	monitor.updateApplicationStatus(t.Context(), app, event, StatusRunning, 0, podman)
 	workload, ok = app.Workload(event.Name)
 	require.True(t, ok)
-	require.Equal(t, []WorkloadImage{{Image: event.Image, Digest: "sha256:second"}}, workload.Images)
+	require.Equal(t, []WorkloadImage{{Image: event.Image, Digest: second}}, workload.Images)
 
 	// If a new container event has no image reference, keep the reference but
 	// discard the old container's digest until the image can be checked again.
@@ -2004,4 +2010,41 @@ func TestPodmanMonitorLifecycleDispatch(t *testing.T) {
 		err := monitor.StopApp(context.Background(), "nonexistent-id")
 		require.ErrorIs(err, errors.ErrAppNotFound)
 	})
+}
+
+func TestPodmanMonitorRemovalRequiresCompletedLifecycle(t *testing.T) {
+	for _, fail := range []bool{true, false} {
+		t.Run(fmt.Sprintf("When removal fails=%t it should retire only after success", fail), func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			logger := log.NewPrefixLogger("test")
+			store := deltastatus.NewInMemory(logger)
+			require.NoError(t, store.ReconcileApplicationSpecs(map[string]string{"app": "spec"}))
+			c, ok := store.Context("app", "quay.io/acme/app:latest", "podman", "root", "containers-storage")
+			require.True(t, ok)
+			require.NoError(t, store.RecordApplicationResult(c, "sha256:"+strings.Repeat("a", 64), v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}))
+			require.NoError(t, store.ReconcileApplicationSpecs(nil))
+			app := &application{id: "app-id", status: &v1beta1.DeviceApplicationStatus{Name: "app", AppType: v1beta1.AppTypeCompose}, volume: mustNewVolumeManager(t)}
+			handler := lifecycle.NewMockActionHandler(ctrl)
+			var result error
+			if fail {
+				result = fmt.Errorf("removal failed")
+			}
+			handler.EXPECT().Execute(gomock.Any(), gomock.Any()).Return(result)
+			m := &PodmanMonitor{log: logger, deltaStatusStore: store, apps: map[string]Application{app.ID(): app}, handlers: map[v1beta1.AppType]lifecycle.ActionHandler{v1beta1.AppTypeCompose: handler}, watchers: map[v1beta1.Username]*podmanEventWatcher{}}
+			require.NoError(t, m.QueueRemove(app))
+			require.True(t, m.Has(app.ID()))
+			require.NotNil(t, store.ApplicationSnapshot("app"))
+			err := m.ExecuteActions(context.Background())
+			if fail {
+				require.Error(t, err)
+				require.True(t, m.Has(app.ID()))
+				require.NotNil(t, store.ApplicationSnapshot("app"))
+			} else {
+				require.NoError(t, err)
+				require.False(t, m.Has(app.ID()))
+				require.Nil(t, store.ApplicationSnapshot("app"))
+			}
+		})
+	}
 }

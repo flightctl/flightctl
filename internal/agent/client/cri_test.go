@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -225,4 +226,51 @@ func TestCRIImageRepoDigestsConfig(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCRIImageManifestDigest(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("a", 64)
+	ref := "quay.io/acme/app@" + digest
+	for _, tt := range []struct {
+		name, id, response string
+		want               bool
+	}{
+		{name: "When qualified pull identity has a runtime prefix it should inspect the normalized reference", id: "docker-pullable://" + ref, response: fmt.Sprintf(`{"status":{"repoDigests":[%q]}}`, ref), want: true},
+		{name: "When immutable qualified pull identity is confirmed it should return its digest", id: ref, response: fmt.Sprintf(`{"status":{"repoDigests":[%q]}}`, ref), want: true},
+		{name: "When pull returns an opaque ID it should remain unknown", id: digest},
+		{name: "When local aliases do not confirm the pull identity it should remain unknown", id: ref, response: `{"status":{"repoDigests":[]}}`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			exec := executer.NewMockExecuter(ctrl)
+			if tt.response != "" {
+				exec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", "inspecti", "--output", "json", strings.TrimPrefix(tt.id, "docker-pullable://")).Return(tt.response, "", 0)
+			}
+			c := NewCRI(log.NewPrefixLogger("test"), exec, fileio.NewMockReadWriter(ctrl), poll.NewConfig(0, 1))
+			value, err := c.ImageManifestDigest(context.Background(), tt.id)
+			if tt.want {
+				require.NoError(t, err)
+				require.Equal(t, digest, value)
+			} else {
+				require.Error(t, err)
+				require.Empty(t, value)
+			}
+		})
+	}
+}
+func TestCRIImageServiceIdentity(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	rw := fileio.NewMockReadWriter(ctrl)
+	rw.EXPECT().ReadFile("/etc/crictl.yaml").Return([]byte("runtime-endpoint: unix:///run/runtime.sock\nimage-endpoint: unix:///run/images.sock\n"), nil)
+	c := NewCRI(log.NewPrefixLogger("test"), executer.NewMockExecuter(ctrl), rw, poll.NewConfig(0, 1))
+	identity, err := c.ImageServiceIdentity()
+	require.NoError(t, err)
+	require.Equal(t, "unix:///run/images.sock#k8s.io", identity)
+	rw.EXPECT().PathExists("/etc/crictl.yaml").Return(true, nil)
+	rw.EXPECT().ReadFile("/etc/crictl.yaml").Return([]byte("runtime-endpoint: unix:///run/runtime.sock\nimage-endpoint: unix:///run/images.sock\n"), nil)
+	endpoint, err := c.containerdEndpoint(&clientOptions{})
+	require.NoError(t, err)
+	require.Equal(t, "/run/images.sock", endpoint)
 }

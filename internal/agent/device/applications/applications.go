@@ -137,11 +137,12 @@ type Application interface {
 
 // Workload represents an application workload tracked by a Monitor.
 type Workload struct {
-	ID       string
-	Images   []WorkloadImage // Image references reported for this workload.
-	Name     string
-	Status   StatusType
-	Restarts int
+	ID                    string
+	ImagesObservedRunning bool            // Kubernetes container states can be running while the pod is initializing.
+	Images                []WorkloadImage // Image references reported for this workload.
+	Name                  string
+	Status                StatusType
+	Restarts              int
 	// RequiresHealth is set when a VM workload has emitted health_status events.
 	// Gated workloads stay Degraded on start/starting until healthy.
 	RequiresHealth bool
@@ -408,20 +409,13 @@ func (a *application) Status() (*v1beta1.DeviceApplicationStatus, v1beta1.Device
 	// update volume status
 	a.volume.Status(a.status)
 
-	// Collect image references and known digests from the parent image and
-	// workload container images. The manager adds image-backed volume digests and
-	// merges the parent digest from the OCI target cache because OCI collection
-	// uses temporary provider instances.
+	// Report image identities observed in running workloads.
 	a.collectImageDigests()
 
 	return a.status, summary, nil
 }
 
-// collectImageDigests populates status.ImageDigests from the application's
-// parent image and workload images observed by the runtime monitors. The manager
-// adds volume image digests and merges the cached parent-image digest after
-// collecting monitor status. Entries with an unknown digest are included so the
-// control plane can identify images that require a full pull.
+// collectImageDigests retains unknown observations alongside known digests.
 func (a *application) collectImageDigests() {
 	byImage := make(map[string]map[string]struct{})
 	add := func(image, digest string) {
@@ -431,16 +425,14 @@ func (a *application) collectImageDigests() {
 		if _, ok := byImage[image]; !ok {
 			byImage[image] = make(map[string]struct{})
 		}
-		if digest != "" {
-			byImage[image][digest] = struct{}{}
-		}
+		byImage[image][digest] = struct{}{}
 	}
-
-	// Parent image from the provider spec, with digest from parentIsAvailable.
-	add(a.imageRef, a.imageDigest)
 
 	// Workload container images from the runtime.
 	for _, w := range a.workloads {
+		if !w.ImagesObservedRunning && w.Status != StatusRunning && w.Status != StatusUnhealthy {
+			continue
+		}
 		for _, image := range w.Images {
 			add(image.Image, image.Digest)
 		}

@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -363,6 +364,36 @@ func TestPodman_RemoveArtifact(t *testing.T) {
 				require.Error(err)
 			} else {
 				require.NoError(err)
+			}
+		})
+	}
+}
+
+func TestPodmanContainerImageDigest(t *testing.T) {
+	for _, tt := range []struct {
+		name, id, digest string
+		wantError        bool
+	}{
+		{name: "When container uses an immutable image ID it should inspect that ID", id: strings.Repeat("a", 64), digest: "sha256:" + strings.Repeat("b", 64)},
+		{name: "When container image ID is opaque it should remain unknown", id: "opaque", wantError: true},
+		{name: "When image manifest digest is absent it should remain unknown", id: strings.Repeat("a", 64), wantError: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			exec := executer.NewMockExecuter(ctrl)
+			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "container", "inspect", "--format", "{{.Image}}", "container").Return(tt.id, "", 0)
+			if len(tt.id) == 64 {
+				exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", tt.id).Return(tt.digest, "", 0)
+			}
+			p := NewPodman(log.NewPrefixLogger("test"), exec, fileio.NewMockReadWriter(ctrl), poll.NewConfig(0, 1))
+			value, err := p.ContainerImageDigest(context.Background(), "container")
+			if tt.wantError {
+				require.Error(t, err)
+				require.Empty(t, value)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tt.digest, value)
 			}
 		})
 	}

@@ -252,17 +252,17 @@ stateDiagram
 
 ### Application delta status
 
-Each application's aggregated delta result appears in `device.status.applications[].lastDelta`. The agent tracks image targets separately and combines their outcomes into one status for the application.
+Each application's aggregated delta result appears in `device.status.applications[].lastDelta`. The agent selects retained outcomes by the digests of images reported as running, then combines those outcomes for the application.
 
 | Field | Description |
 | ----- | ----------- |
-| `device.status.applications[].lastDelta.outcome` | The agent-reported application result, as described in the following table. Present after the agent reports an outcome. |
+| `device.status.applications[].lastDelta.outcome` | The application result aggregated from outcomes matching the digests of images reported as running. It is omitted when a running image digest is unknown or has no retained outcome. |
 | `device.status.applications[].lastDelta.fallbackReason` | One representative reason for a full-pull fallback after a delta failure or an unusable hinted delta. Present when at least one target falls back with a recorded reason; the application outcome can be `Fallback` or `Partial`. |
 | `device.status.applications[].imageDigests[].image` | Image reference used by the application on the device. |
-| `device.status.applications[].imageDigests[].digest` | Registry digest associated with the image. For a multi-platform image, this may be the platform-specific digest selected by the runtime. If only an opaque ID is available, an immutable reference's digest may be reported. Present when a digest is known. |
+| `device.status.applications[].imageDigests[].digest` | Digest resolved from the image reported as running by the runtime. For a multi-platform image, this may be the platform-specific digest selected by the runtime. The field is omitted when the runtime does not provide enough information to resolve the running image's digest. |
 | `device.status.applications[].deltaSize` | Sum of only the control-plane-generated delta payload sizes for this application update, in IEC units. Present when at least one delta was generated and every generated payload size is known. |
 
-`imageDigests[]` can include the application's main image, nested images, and image-backed volumes. Flight Control uses the reference and digest pairs to identify source images for delta generation.
+`imageDigests[]` can include the application's main image, nested images, and image-backed volumes. These values describe images reported as running by the device.
 
 Inspect each application's generated delta payload size at `status.applications[].deltaSize` and the generated OS delta payload size at `status.os.deltaSize`.
 
@@ -272,17 +272,16 @@ Inspect application delta fields in the device's YAML or JSON output:
 flightctl get device <device_name> -o yaml
 ```
 
-The following outcomes describe the application as a whole. The agent reuses image targets already present with the desired digest when preparing the remaining targets. If any target applies a delta while another target uses regular preparation or falls back to a full pull, the application outcome is `Partial`. `Fallback` applies when no target applies a delta and at least one target records a failed delta attempt.
+The following outcomes describe the application as a whole. The agent stores an outcome only after the prepared image is available. It omits `lastDelta` if any running image has an unknown digest or no retained outcome. If one image has an `Applied` outcome while another has a `Fallback` or `NotUsed` outcome, the application outcome is `Partial`. `Fallback` applies when no image has an `Applied` outcome and at least one image has a recorded fallback.
 
 | Outcome | Description |
 | ------- | ----------- |
-| `NotRequired` | All image targets are already present on the device with the correct digest. The agent reuses those images. |
 | `NotUsed` | Every target requiring preparation uses the regular image path because delta application was skipped. The agent pulls full images as needed. |
 | `Applied` | At least one delta was applied successfully. Other image targets also applied deltas or already matched their desired digests. |
-| `Fallback` | No target applied a delta, and at least one delta attempt failed. For an OCI artifact package with a supplied hint, the agent records this outcome and uses the regular artifact pull path. It uses full image pulls for other targets requiring preparation and reuses already matching images. |
+| `Fallback` | No image has an `Applied` outcome, and at least one image has a recorded delta failure followed by a successful full image pull. |
 | `Partial` | The application combines at least one successful delta application with regular image preparation or a full-pull fallback for another image target. |
 
-Results persist across agent restarts while the application specification and image targets remain unchanged. A cache check can change an earlier `NotUsed` result to `NotRequired` after verifying the desired digest. Cache checks retain earlier `Applied` or `Fallback` results for the same target.
+The agent persists a bounded history of application outcomes for image targets. Each status report uses the outcomes that match the digests of the images currently reported as running. Preparing image B while image A is still running does not replace A's outcome; once B is reported as running, the agent uses B's outcome if it is retained. A running image with an unknown digest or no retained outcome prevents an aggregate `lastDelta` from being reported. Image presence alone does not create an outcome. Older outcomes may be evicted as the bounded history fills.
 
 ## Lifecycle status
 

@@ -458,3 +458,14 @@ func TestKube_ResolveKubeconfig(t *testing.T) {
 		})
 	}
 }
+
+func TestKubeListPods(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	exec := executer.NewMockExecuter(ctrl)
+	k := NewKube(log.NewPrefixLogger("test"), exec, fileio.NewMockReadWriter(ctrl), WithBinary("kubectl"), WithKubeconfigPath("/config"))
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "kubectl", "get", "pods", "--all-namespaces", "-o", "json", "-l", "app=flightctl", "--kubeconfig", "/config").Return(`{"kind":"PodList","items":[]}`, "", 0)
+	value, err := k.ListPods(context.Background(), WithKubeKubeconfig("/config"), WithKubeLabels([]string{"app=flightctl"}))
+	require.NoError(t, err)
+	require.Contains(t, value, "PodList")
+}

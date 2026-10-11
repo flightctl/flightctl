@@ -416,13 +416,13 @@ func TestCollectImageDigests(t *testing.T) {
 		require.Nil(t, app.status.ImageDigests)
 	})
 
-	t.Run("When parent and workloads report image pairs it should deduplicate and sort them", func(t *testing.T) {
+	t.Run("When running workloads report image pairs it should preserve unknown and omit desired parents", func(t *testing.T) {
 		const nginx = "quay.io/acme/nginx:latest"
 		app := &application{
 			imageRef:    nginx,
 			imageDigest: "sha256:parent",
 			workloads: []Workload{
-				{Images: []WorkloadImage{
+				{Status: StatusRunning, Images: []WorkloadImage{
 					{Image: nginx},
 					{Image: nginx, Digest: "sha256:old"},
 					{Image: nginx, Digest: "sha256:old"},
@@ -436,8 +436,8 @@ func TestCollectImageDigests(t *testing.T) {
 
 		require.NotNil(t, app.status.ImageDigests)
 		require.Equal(t, []v1beta1.ApplicationImageDigest{
+			{Image: nginx},
 			{Image: nginx, Digest: "sha256:old"},
-			{Image: nginx, Digest: "sha256:parent"},
 			{Image: "quay.io/acme/redis:latest"},
 		}, *app.status.ImageDigests)
 	})

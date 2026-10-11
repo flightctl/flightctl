@@ -107,7 +107,7 @@ The agent continuously reports device health, application state, and resource co
 
 The agent persists OS and application delta outcomes in `delta-status.json` in its data directory and restores them after restart. This file stores delta results separately from application monitor registrations.
 
-Application delta outcomes identify the target image reference and the resolved digest of the desired image. The agent resolves this digest from the target reference. The agent clears the previous outcome when the desired image resolved digest changes, including when the image is absent after restart or has a delta hint. If the desired image digest cannot be resolved, the agent clears the cached outcome and omits it from status. Image preparation continues, with a full image pull when a delta cannot be used or applied.
+Application outcomes are stored by image target and the digest of the prepared image in a bounded history. Status reporting uses the digests collected from images that the runtime reports as running. Preparing image B while image A is running preserves A's outcome; after B is reported as running, status uses B's outcome if it remains in the history. If a running image's digest is unknown or has no retained outcome, the agent omits the aggregate application outcome. An image being present locally does not by itself create a `NotRequired` outcome.
 
 ## Ansible Collection
 

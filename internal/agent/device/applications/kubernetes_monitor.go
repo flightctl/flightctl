@@ -296,6 +296,21 @@ func (m *KubernetesMonitor) executeActions(ctx context.Context) error {
 		if err := m.handlers[appType].Execute(ctx, typeActions); err != nil {
 			return fmt.Errorf("execute kubernetes actions: %w", err)
 		}
+		for _, a := range typeActions {
+			if a.Type == lifecycle.ActionRemove {
+				m.mu.Lock()
+				delete(m.apps, a.ID)
+				lifecycleID := m.retiringLifecycles[a.ID]
+				delete(m.retiringLifecycles, a.ID)
+				m.mu.Unlock()
+				if m.deltaStatusStore != nil {
+					if err := m.deltaStatusStore.RetireApplicationContexts(a.Name, lifecycleID); err != nil {
+						m.log.Warnf("Failed to persist confirmed application retirement: %v", err)
+					}
+				}
+			}
+		}
+
 	}
 
 	// After installing or updating an app, apply desiredState=stopped if the operator
@@ -371,8 +386,9 @@ type kubernetesPod struct {
 }
 
 type kubernetesPodSpec struct {
-	Containers     []kubernetesContainerSpec `json:"containers,omitempty"`
-	InitContainers []kubernetesContainerSpec `json:"initContainers,omitempty"`
+	Containers          []kubernetesContainerSpec `json:"containers,omitempty"`
+	InitContainers      []kubernetesContainerSpec `json:"initContainers,omitempty"`
+	EphemeralContainers []kubernetesContainerSpec `json:"ephemeralContainers,omitempty"`
 }
 
 type kubernetesContainerSpec struct {
@@ -381,9 +397,10 @@ type kubernetesContainerSpec struct {
 }
 
 type kubernetesPodStatus struct {
-	Phase                 string                      `json:"phase"`
-	ContainerStatuses     []kubernetesContainerStatus `json:"containerStatuses,omitempty"`
-	InitContainerStatuses []kubernetesContainerStatus `json:"initContainerStatuses,omitempty"`
+	Phase                      string                      `json:"phase"`
+	ContainerStatuses          []kubernetesContainerStatus `json:"containerStatuses,omitempty"`
+	InitContainerStatuses      []kubernetesContainerStatus `json:"initContainerStatuses,omitempty"`
+	EphemeralContainerStatuses []kubernetesContainerStatus `json:"ephemeralContainerStatuses,omitempty"`
 }
 
 type kubernetesContainerStatus struct {
@@ -473,6 +490,7 @@ func (m *KubernetesMonitor) updatePodStatus(app Application, pod *kubernetesPod)
 	if exists {
 		workload.Status = status
 		workload.Images = images
+		workload.ImagesObservedRunning = true
 		if pod.Metadata.UID != workload.ID {
 			workload.ID = pod.Metadata.UID
 			workload.Restarts = restarts
@@ -484,29 +502,34 @@ func (m *KubernetesMonitor) updatePodStatus(app Application, pod *kubernetesPod)
 
 	m.log.Debugf("Adding pod: %s to app %s", pod.Metadata.Name, app.Name())
 	app.AddWorkload(&Workload{
-		ID:       pod.Metadata.UID,
-		Images:   images,
-		Name:     pod.Metadata.Name,
-		Status:   status,
-		Restarts: restarts,
+		ID:                    pod.Metadata.UID,
+		Images:                images,
+		ImagesObservedRunning: true,
+		Name:                  pod.Metadata.Name,
+		Status:                status,
+		Restarts:              restarts,
 	})
 }
 
 func collectPodImages(pod *kubernetesPod) []WorkloadImage {
-	statuses := make(map[string]kubernetesContainerStatus, len(pod.Status.ContainerStatuses)+len(pod.Status.InitContainerStatuses))
+	statuses := make(map[string]kubernetesContainerStatus, len(pod.Status.ContainerStatuses)+len(pod.Status.InitContainerStatuses)+len(pod.Status.EphemeralContainerStatuses))
 	for _, status := range pod.Status.ContainerStatuses {
 		statuses[status.Name] = status
 	}
 	for _, status := range pod.Status.InitContainerStatuses {
 		statuses[status.Name] = status
 	}
+	for _, status := range pod.Status.EphemeralContainerStatuses {
+		statuses[status.Name] = status
+	}
 
-	containers := make([]kubernetesContainerSpec, 0, len(pod.Spec.Containers)+len(pod.Spec.InitContainers))
+	containers := make([]kubernetesContainerSpec, 0, len(pod.Spec.Containers)+len(pod.Spec.InitContainers)+len(pod.Spec.EphemeralContainers))
 	containers = append(containers, pod.Spec.Containers...)
 	containers = append(containers, pod.Spec.InitContainers...)
+	containers = append(containers, pod.Spec.EphemeralContainers...)
 	images := make([]WorkloadImage, 0, len(containers))
 	for _, container := range containers {
-		if container.Image == "" {
+		if container.Image == "" || statuses[container.Name].State.Running == nil {
 			continue
 		}
 		images = append(images, WorkloadImage{
@@ -581,4 +604,49 @@ func (m *KubernetesMonitor) getPodRestartCount(pod *kubernetesPod) int {
 // Returns errConsoleAppNotFound so the caller tries the next monitor.
 func (m *KubernetesMonitor) resolveConsole(_, _ string) (appconsole.Session, error) {
 	return nil, errConsoleAppNotFound
+}
+
+// currentImageObservations reads a complete snapshot rather than assuming a partial watch is complete.
+func (m *KubernetesMonitor) currentImageObservations(ctx context.Context, results []AppStatusResult) {
+	if len(results) == 0 {
+		return
+	}
+	config, err := m.clients.Kube().ResolveKubeconfig()
+	if err != nil {
+		m.log.Warnf("Current pod snapshot unavailable: %v", err)
+		return
+	}
+	data, err := m.clients.Kube().ListPods(ctx, client.WithKubeKubeconfig(config), client.WithKubeLabels([]string{helm.AppLabelKey}))
+	if err != nil {
+		m.log.Warnf("Current pod snapshot unavailable: %v", err)
+		return
+	}
+	var snapshot struct {
+		Kind  string          `json:"kind"`
+		Items []kubernetesPod `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(data), &snapshot); err != nil || snapshot.Kind != "PodList" {
+		m.log.Warn("Current pod snapshot is invalid")
+		return
+	}
+	destination, err := m.clients.CRI().ImageServiceIdentity()
+	if err != nil {
+		m.log.Warnf("Current CRI image-service identity unavailable: %v", err)
+		return
+	}
+	byApp := make(map[string][]v1beta1.ApplicationImageDigest)
+	for _, pod := range snapshot.Items {
+		id := pod.Metadata.Labels[helm.AppLabelKey]
+		for _, image := range collectPodImages(&pod) {
+			byApp[id] = append(byApp[id], v1beta1.ApplicationImageDigest{Image: image.Image, Digest: image.Digest})
+		}
+	}
+	for i := range results {
+		images := byApp[results[i].ID]
+		results[i].Status.ImageDigests = &images
+		results[i].Runtime = "cri"
+		results[i].Owner = "root"
+		results[i].Destination = destination
+		results[i].ImagesComplete = true
+	}
 }

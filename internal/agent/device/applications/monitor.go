@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
+	"github.com/flightctl/flightctl/internal/agent/device/deltastatus"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/pkg/log"
 )
@@ -73,18 +74,24 @@ type handlerRegistration struct {
 
 // AppStatusResult holds the status result for a single application.
 type AppStatusResult struct {
-	ID      string
-	Status  v1beta1.DeviceApplicationStatus
-	Summary v1beta1.DeviceApplicationsSummaryStatus
+	Runtime        string
+	Owner          string
+	Destination    string
+	ImagesComplete bool
+	ID             string
+	Status         v1beta1.DeviceApplicationStatus
+	Summary        v1beta1.DeviceApplicationsSummaryStatus
 }
 
 // monitor provides shared functionality for application monitors.
 type monitor struct {
-	mu                sync.Mutex
-	cmd               *exec.Cmd
-	cancelFn          context.CancelFunc
-	running           bool
-	listenerCloseChan chan struct{}
+	deltaStatusStore   *deltastatus.Store
+	retiringLifecycles map[string]uint64
+	mu                 sync.Mutex
+	cmd                *exec.Cmd
+	cancelFn           context.CancelFunc
+	running            bool
+	listenerCloseChan  chan struct{}
 
 	apps     map[string]Application
 	actions  []lifecycle.Action
@@ -205,7 +212,12 @@ func (m *monitor) Remove(app Application) error {
 	// exist and need cleanup. The lifecycle handlers are idempotent and will
 	// handle the case where the workload doesn't exist.
 	appID := app.ID()
-	delete(m.apps, appID)
+	if m.deltaStatusStore != nil {
+		if m.retiringLifecycles == nil {
+			m.retiringLifecycles = make(map[string]uint64)
+		}
+		m.retiringLifecycles[appID] = m.deltaStatusStore.ApplicationLifecycle(app.Name())
+	}
 
 	action := lifecycle.Action{
 		AppType: app.AppType(),
@@ -449,6 +461,7 @@ func (m *monitor) Status() ([]AppStatusResult, error) {
 			ID:      app.ID(),
 			Status:  *appStatus,
 			Summary: appSummary,
+			Runtime: "cri", Owner: "root",
 		})
 	}
 

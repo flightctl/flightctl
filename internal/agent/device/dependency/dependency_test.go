@@ -1007,7 +1007,7 @@ func TestPullSecretCleanup(t *testing.T) {
 	require.ErrorIs(err, errors.ErrPrefetchNotReady)
 
 	// simulate successful pull completion
-	manager.setResult(imageRef{image: "registry.example.com/app:latest"}, nil)
+	manager.setResult(imageRef{image: "registry.example.com/app:latest", runtime: OCITypePodmanImage}, nil)
 
 	// verify the manager is now ready
 	require.True(manager.IsReady(ctx))

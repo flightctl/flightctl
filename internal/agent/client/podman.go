@@ -20,6 +20,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/poll"
+	"github.com/opencontainers/go-digest"
 )
 
 const (
@@ -81,6 +82,7 @@ type ArtifactLayer struct {
 // It should be noted that the CLI represents events differently from libpod. (notably the time properties)
 // https://github.com/containers/podman/blob/main/cmd/podman/system/events.go#L81-L96
 type PodmanEvent struct {
+	MonitorUser       v1beta1.Username  `json:"-"`
 	ContainerExitCode *int              `json:"ContainerExitCode,omitempty"`
 	ID                string            `json:"ID"`
 	Image             string            `json:"Image"`
@@ -291,6 +293,48 @@ func (p *Podman) ImageDigest(ctx context.Context, image string) (string, error) 
 	}
 	digest := strings.TrimSpace(stdout)
 	return digest, nil
+}
+
+// PreparedImageDigest inspects an immutable successful-pull image ID in this user's storage.
+func (p *Podman) PreparedImageDigest(ctx context.Context, imageID string) (string, error) {
+	id := strings.TrimPrefix(strings.TrimSpace(imageID), "sha256:")
+	if len(id) != 64 {
+		return "", fmt.Errorf("pull did not return an immutable image ID")
+	}
+	if err := digest.Digest("sha256:" + id).Validate(); err != nil {
+		return "", err
+	}
+	value, err := p.ImageDigest(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	parsed, err := digest.Parse(value)
+	if err != nil || parsed.Validate() != nil {
+		return "", fmt.Errorf("immutable image %s has no valid manifest digest", id)
+	}
+	return value, nil
+}
+
+// TagPreparedImage retains the runtime reference as an alias of a verified final image.
+func (p *Podman) TagPreparedImage(ctx context.Context, imageID, target string) error {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+	_, stderr, code := p.exec.ExecuteWithContext(ctx, podmanCmd, "tag", imageID, target)
+	if code != 0 {
+		return fmt.Errorf("tag prepared image: %w", deviceerrors.FromStderr(stderr, code))
+	}
+	return nil
+}
+
+// ContainerImageDigest follows the container's immutable Image ID, never its mutable name.
+func (p *Podman) ContainerImageDigest(ctx context.Context, containerID string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+	stdout, stderr, code := p.exec.ExecuteWithContext(ctx, podmanCmd, "container", "inspect", "--format", "{{.Image}}", containerID)
+	if code != 0 {
+		return "", fmt.Errorf("inspect container image: %w", deviceerrors.FromStderr(stderr, code))
+	}
+	return p.PreparedImageDigest(ctx, strings.TrimSpace(stdout))
 }
 
 // ImageDigests returns the content digest and repository digests of the specified image.

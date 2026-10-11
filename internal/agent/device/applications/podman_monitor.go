@@ -19,6 +19,7 @@ import (
 	appconsole "github.com/flightctl/flightctl/internal/agent/device/applications/console"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
+	"github.com/flightctl/flightctl/internal/agent/device/deltastatus"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
@@ -33,7 +34,9 @@ const (
 )
 
 type PodmanMonitor struct {
-	mu sync.Mutex
+	deltaStatusStore   *deltastatus.Store
+	retiringLifecycles map[string]uint64
+	mu                 sync.Mutex
 	// apps is a map of application ID to application.
 	apps                   map[string]Application
 	actions                []lifecycle.Action
@@ -264,7 +267,13 @@ func (m *PodmanMonitor) QueueRemove(app Application) error {
 	// exist and need cleanup. The lifecycle handlers are idempotent and will
 	// handle the case where the workload doesn't exist.
 	appID := app.ID()
-	delete(m.apps, appID)
+	if m.deltaStatusStore != nil {
+		if m.retiringLifecycles == nil {
+			m.retiringLifecycles = make(map[string]uint64)
+		}
+		m.retiringLifecycles[appID] = m.deltaStatusStore.ApplicationLifecycle(app.Name())
+	}
+
 	appName := app.Name()
 
 	action := lifecycle.Action{
@@ -435,6 +444,21 @@ func (m *PodmanMonitor) executeActions(ctx context.Context, systemShutdown bool)
 		if err := m.handlers[appType].Execute(ctx, actions); err != nil {
 			return err
 		}
+		for _, a := range actions {
+			if a.Type == lifecycle.ActionRemove {
+				m.mu.Lock()
+				delete(m.apps, a.ID)
+				lifecycleID := m.retiringLifecycles[a.ID]
+				delete(m.retiringLifecycles, a.ID)
+				m.mu.Unlock()
+				if m.deltaStatusStore != nil {
+					if err := m.deltaStatusStore.RetireApplicationContexts(a.Name, lifecycleID); err != nil {
+						m.log.Warnf("Failed to persist confirmed application retirement: %v", err)
+					}
+				}
+			}
+		}
+
 	}
 
 	// After installing or updating an app, apply desiredState=stopped if the operator
@@ -540,6 +564,7 @@ func (m *PodmanMonitor) Status() ([]AppStatusResult, error) {
 			ID:      app.ID(),
 			Status:  *appStatus,
 			Summary: appSummary,
+			Runtime: "podman", Owner: applicationOwner(app.User()), Destination: "containers-storage", ImagesComplete: m.imageObservationsComplete(app),
 		})
 	}
 
@@ -561,6 +586,35 @@ func (m *PodmanMonitor) listenForEvents(ctx context.Context) {
 	}
 }
 
+func applicationOwner(user v1beta1.Username) string {
+	if user.IsRootUser() || user.IsCurrentProcessUser() {
+		return "root"
+	}
+	return string(user)
+}
+
+// Caller holds the monitor lock. Replay completeness is independent of desired image collection.
+func (m *PodmanMonitor) imageObservationsComplete(app Application) bool {
+	watcher := m.watchers[app.User()]
+	if watcher == nil || !watcher.synced.Load() {
+		return false
+	}
+	for _, workload := range app.Workloads() {
+		if workload.Status != StatusRunning && workload.Status != StatusUnhealthy {
+			continue
+		}
+		if len(workload.Images) == 0 {
+			return false
+		}
+		for _, image := range workload.Images {
+			if image.Image == "" {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func appIDFromEvent(event *client.PodmanEvent) string {
 	if appID, ok := event.Attributes[client.ComposeDockerProjectLabelKey]; ok {
 		return appID
@@ -572,6 +626,15 @@ func appIDFromEvent(event *client.PodmanEvent) string {
 }
 
 func (m *PodmanMonitor) handleEvent(ctx context.Context, event client.PodmanEvent) {
+	if event.Type == "sync" {
+		m.mu.Lock()
+		if w := m.watchers[event.MonitorUser]; w != nil {
+			w.synced.Store(true)
+		}
+		m.mu.Unlock()
+		return
+	}
+
 	appID := appIDFromEvent(&event)
 	if appID == "" {
 		m.log.Debugf("Application id not found in event attributes: %v", event)
@@ -759,7 +822,7 @@ func (m *PodmanMonitor) resolveWorkloadImage(
 		}
 	}
 
-	digest, err := podmanClient.ImageDigest(ctx, event.Image)
+	digest, err := podmanClient.ContainerImageDigest(ctx, event.ID)
 	if err != nil {
 		m.log.Warnf("Failed to resolve digest for workload image %q: %v", event.Image, err)
 		return image, true
@@ -879,6 +942,7 @@ func (m *PodmanMonitor) resolveStatus(status string, inspectData []client.Podman
 }
 
 type podmanEventWatcher struct {
+	synced   atomic.Bool
 	log      *log.PrefixLogger
 	username v1beta1.Username
 	client   *client.Podman
@@ -900,6 +964,7 @@ func (e *podmanEventWatcher) Init(log *log.PrefixLogger, username v1beta1.Userna
 }
 
 func (e *podmanEventWatcher) Watch(ctx context.Context, events chan<- client.PodmanEvent) error {
+	e.synced.Store(false)
 	// list of podman events to listen for
 	eventsTypes := []string{"create", "init", "start", "stop", "die", "sync", "remove", "exited", "health_status"}
 	e.log.Debugf("Replaying podman events for user %s since: %s", e.username, e.lastEventTime.Load())
@@ -931,6 +996,7 @@ func (e *podmanEventWatcher) Watch(ctx context.Context, events chan<- client.Pod
 func (e *podmanEventWatcher) listenForEvents(ctx context.Context, stdoutPipe io.ReadCloser, events chan<- client.PodmanEvent) {
 	// the pipe will be closed by calling cmd.Wait
 	defer e.log.Debugf("Done listening for podman events for user %s", e.username)
+	defer e.synced.Store(false)
 
 	scanner := bufio.NewScanner(stdoutPipe)
 	for scanner.Scan() {
@@ -951,6 +1017,7 @@ func (e *podmanEventWatcher) listenForEvents(ctx context.Context, stdoutPipe io.
 func (e *podmanEventWatcher) handleEvent(ctx context.Context, data []byte, events chan<- client.PodmanEvent) {
 	var event client.PodmanEvent
 	if err := json.Unmarshal(data, &event); err != nil {
+		e.synced.Store(false)
 		e.log.Errorf("Failed to decode podman event: %s %v", string(data), err)
 		return
 	}
@@ -959,8 +1026,7 @@ func (e *podmanEventWatcher) handleEvent(ctx context.Context, data []byte, event
 	e.log.Tracef("Received podman event: %q at %s", event.Type, eventTime)
 	// sync event means we are now in sync with the current state of the containers
 	if event.Type == "sync" {
-		e.log.Debugf("Received bootSync event : %v", event)
-		return
+		event.MonitorUser = e.username
 	}
 
 	select {

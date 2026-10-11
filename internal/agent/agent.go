@@ -313,6 +313,7 @@ func (a *Agent) Run(ctx context.Context) error {
 		systemInfoManager,
 		systemdManagerFactory,
 		pullConfigResolver,
+		applications.WithDeltaStatusStore(deltaStatusStore),
 	)
 
 	// register the application manager with the shutdown manager

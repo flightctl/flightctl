@@ -356,3 +356,27 @@ func (k *Kube) Kustomize(ctx context.Context, dir string) (stdout, stderr string
 	}
 	return k.exec.ExecuteWithContext(ctx, binary, "kustomize", dir)
 }
+
+// ListPods reads one complete current pod snapshot for status image observations.
+func (k *Kube) ListPods(ctx context.Context, opts ...KubeOption) (string, error) {
+	binary := k.Binary()
+	if binary == "" {
+		return "", fmt.Errorf("kubernetes CLI binary not available")
+	}
+	options := &kubeOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+	args := []string{"get", "pods", "--all-namespaces", "-o", "json"}
+	if len(options.labels) > 0 {
+		args = append(args, "-l", strings.Join(options.labels, ","))
+	}
+	if options.kubeconfigPath != "" {
+		args = append(args, "--kubeconfig", options.kubeconfigPath)
+	}
+	stdout, stderr, code := k.exec.ExecuteWithContext(ctx, binary, args...)
+	if code != 0 {
+		return "", fmt.Errorf("list current pods: %w", errors.FromStderr(stderr, code))
+	}
+	return stdout, nil
+}

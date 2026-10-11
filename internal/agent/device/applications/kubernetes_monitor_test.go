@@ -531,11 +531,13 @@ func TestKubernetesMonitorUpdatePodStatusCollectsImageSnapshot(t *testing.T) {
 		Name:    "web",
 		ImageID: "docker-pullable://quay.io/acme/web@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		Ready:   true,
+		State:   kubernetesContainerStateInfo{Running: &kubernetesContainerStateRunning{}},
 	}}
 	pod.Status.InitContainerStatuses = []kubernetesContainerStatus{{
 		Name:    "setup",
 		ImageID: "containerd://sha256:opaque",
 		Ready:   true,
+		State:   kubernetesContainerStateInfo{Running: &kubernetesContainerStateRunning{}},
 	}}
 
 	monitor.updatePodStatus(app, pod)
@@ -553,7 +555,7 @@ func TestKubernetesMonitorUpdatePodStatusCollectsImageSnapshot(t *testing.T) {
 	pod.Spec.Containers = []kubernetesContainerSpec{{Name: "web", Image: "quay.io/acme/web:v2"}}
 	pod.Spec.InitContainers = nil
 	pod.Status.InitContainerStatuses = nil
-	pod.Status.ContainerStatuses = []kubernetesContainerStatus{{Name: "web", Ready: true}}
+	pod.Status.ContainerStatuses = []kubernetesContainerStatus{{Name: "web", Ready: true, State: kubernetesContainerStateInfo{Running: &kubernetesContainerStateRunning{}}}}
 	monitor.updatePodStatus(app, pod)
 
 	workload, ok = app.Workload("app-pod")
@@ -600,4 +602,9 @@ func setupHelmUpgradeMock(mockExec *executer.MockExecuter, mockRW *fileio.MockRe
 
 	gomock.InOrder(versionCall, getNamespaceCall, pathExistsCall, upgradeCall)
 	return []*gomock.Call{versionCall, getNamespaceCall, pathExistsCall, upgradeCall}
+}
+
+func TestKubernetesMonitorCollectsOnlyRunningImageEvidence(t *testing.T) {
+	pod := &kubernetesPod{Spec: kubernetesPodSpec{Containers: []kubernetesContainerSpec{{Name: "running", Image: "quay.io/acme/running:latest"}, {Name: "waiting", Image: "quay.io/acme/waiting:latest"}}, InitContainers: []kubernetesContainerSpec{{Name: "completed", Image: "quay.io/acme/init:latest"}}, EphemeralContainers: []kubernetesContainerSpec{{Name: "debug", Image: "quay.io/acme/debug:latest"}}}, Status: kubernetesPodStatus{ContainerStatuses: []kubernetesContainerStatus{{Name: "running", State: kubernetesContainerStateInfo{Running: &kubernetesContainerStateRunning{}}}, {Name: "waiting", State: kubernetesContainerStateInfo{Waiting: &kubernetesContainerStateWaiting{}}}}, InitContainerStatuses: []kubernetesContainerStatus{{Name: "completed", State: kubernetesContainerStateInfo{Terminated: &kubernetesContainerStateTerminated{}}}}, EphemeralContainerStatuses: []kubernetesContainerStatus{{Name: "debug", State: kubernetesContainerStateInfo{Running: &kubernetesContainerStateRunning{}}}}}}
+	require.Equal(t, []WorkloadImage{{Image: "quay.io/acme/running:latest"}, {Image: "quay.io/acme/debug:latest"}}, collectPodImages(pod))
 }

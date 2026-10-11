@@ -259,6 +259,61 @@ func (c *CRI) ImageRepoDigests(ctx context.Context, image string, opts ...Client
 	return response.Status.RepoDigests, nil
 }
 
+// ImageManifestDigest accepts a repository-qualified immutable pull identity only.
+// CRI opaque IDs and repoDigests alone do not prove the selected manifest identity.
+func (c *CRI) ImageManifestDigest(ctx context.Context, imageID string, opts ...ClientOption) (string, error) {
+	localID := strings.TrimPrefix(strings.TrimSpace(imageID), "docker-pullable://")
+	named, err := reference.ParseNormalizedNamed(localID)
+	if err != nil {
+		return "", fmt.Errorf("CRI pull identity is not a comparable manifest reference")
+	}
+	immutable, ok := named.(reference.Digested)
+	if !ok {
+		return "", fmt.Errorf("CRI pull identity is opaque")
+	}
+	digests, err := c.ImageRepoDigests(ctx, localID, opts...)
+	if err != nil {
+		return "", err
+	}
+	for _, value := range digests {
+		local, err := reference.ParseNormalizedNamed(value)
+		if err == nil {
+			if d, ok := local.(reference.Digested); ok && local.Name() == named.Name() && d.Digest() == immutable.Digest() {
+				return d.Digest().String(), nil
+			}
+		}
+	}
+	return "", fmt.Errorf("CRI pull identity is not confirmed by local image status")
+}
+
+// ImageServiceIdentity requires an explicit endpoint; automatic endpoint probing is ambiguous.
+func (c *CRI) ImageServiceIdentity(opts ...ClientOption) (string, error) {
+	options := &clientOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+	path := options.criConfigPath
+	if path == "" {
+		path = defaultCRIConfigPath
+	}
+	data, err := c.readWriter.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read CRI image-service identity: %w", err)
+	}
+	var config crictlConfig
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		return "", err
+	}
+	endpoint := config.ImageEndpoint
+	if endpoint == "" {
+		endpoint = config.RuntimeEndpoint
+	}
+	if !strings.HasPrefix(endpoint, "unix:///") {
+		return "", fmt.Errorf("CRI image-service endpoint is unknown")
+	}
+	return endpoint + "#k8s.io", nil
+}
+
 // RuntimeInfo returns the runtime connected to crictl and, for containerd, its
 // socket path for ctr imports.
 func (c *CRI) RuntimeInfo(ctx context.Context, opts ...ClientOption) (*CRIRuntimeInfo, error) {
@@ -346,9 +401,9 @@ func (c *CRI) containerdEndpoint(options *clientOptions) (string, error) {
 		if err := yaml.Unmarshal(data, &config); err != nil {
 			return "", fmt.Errorf("parse crictl config: %w", err)
 		}
-		endpoint = config.RuntimeEndpoint
+		endpoint = config.ImageEndpoint
 		if endpoint == "" {
-			endpoint = config.ImageEndpoint
+			endpoint = config.RuntimeEndpoint
 		}
 		break
 	}
@@ -597,4 +652,22 @@ func normalizeAuthFileKey(authFileKey string) string {
 	default:
 		return stripped
 	}
+}
+
+// TagContainerdImage preserves a mutable runtime reference after a frozen canonical pull.
+func (c *CRI) TagContainerdImage(ctx context.Context, endpoint, image, target string, opts ...ClientOption) error {
+	return c.executeContainerd(ctx, endpoint, []string{"images", "tag", "--force", image, target}, opts...)
+}
+
+// ImageServiceConfigIdentity separates task execution destinations even when automatic runtime identity is unknown.
+func (c *CRI) ImageServiceConfigIdentity(opts ...ClientOption) string {
+	options := &clientOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+	path := options.criConfigPath
+	if path == "" {
+		path = defaultCRIConfigPath
+	}
+	return path
 }

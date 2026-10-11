@@ -6,23 +6,7 @@ import (
 	"github.com/containers/image/v5/docker/reference"
 )
 
-// digestFromReference returns the content digest when image is immutable.
-func digestFromReference(image string) string {
-	named, err := reference.ParseNormalizedNamed(image)
-	if err != nil {
-		return ""
-	}
-	digested, ok := named.(reference.Digested)
-	if !ok {
-		return ""
-	}
-	return digested.Digest().String()
-}
-
-// digestFromKubernetesImageID prefers a repository-qualified runtime digest
-// when it refers to the same repository as the pod's declared image. If the
-// runtime ID is opaque, an immutable declared reference remains a usable
-// fallback; CRI IDs can identify config objects rather than registry manifests.
+// digestFromKubernetesImageID accepts only a matching qualified runtime digest.
 func digestFromKubernetesImageID(imageRef, imageID string) string {
 	const pullableImagePrefix = "docker-pullable://"
 	isPullableReference := strings.HasPrefix(imageID, pullableImagePrefix)
@@ -52,8 +36,5 @@ func digestFromKubernetesImageID(imageRef, imageID string) string {
 		return ""
 	}
 
-	// An opaque runtime ID (for example containerd://<config-digest>) cannot be
-	// used as a registry source digest; keep an immutable declared reference as
-	// the fallback when one is available.
-	return digestFromReference(imageRef)
+	return ""
 }
