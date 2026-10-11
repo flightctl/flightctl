@@ -49,6 +49,7 @@ func TestSkopeoInspectManifest(t *testing.T) {
 			},
 			expectedResult: &OCIManifest{
 				MediaType: "application/vnd.oci.image.manifest.v1+json",
+				Layers:    []OCIDescriptor{{MediaType: "application/vnd.oci.image.layer.v1.tar+gzip", Digest: "sha256:def456", Size: 195}},
 				Config: &OCIDescriptor{
 					MediaType: "application/vnd.oci.image.config.v1+json",
 					Digest:    "sha256:abc123",
@@ -65,6 +66,7 @@ func TestSkopeoInspectManifest(t *testing.T) {
 					"schemaVersion": 2,
 					"mediaType": "application/vnd.oci.image.manifest.v1+json",
 					"artifactType": "application/vnd.example.artifact",
+					"subject": {"digest": "sha256:target"},
 					"config": {
 						"mediaType": "application/vnd.oci.empty.v1+json",
 						"digest": "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
@@ -85,6 +87,8 @@ func TestSkopeoInspectManifest(t *testing.T) {
 			expectedResult: &OCIManifest{
 				MediaType:    "application/vnd.oci.image.manifest.v1+json",
 				ArtifactType: "application/vnd.example.artifact",
+				Layers:       []OCIDescriptor{{MediaType: "text/plain", Digest: "sha256:xyz789", Size: 20}},
+				Subject:      &OCIDescriptor{Digest: "sha256:target"},
 				Config: &OCIDescriptor{
 					MediaType: "application/vnd.oci.empty.v1+json",
 					Digest:    "sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",

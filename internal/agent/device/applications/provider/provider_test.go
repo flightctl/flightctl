@@ -308,8 +308,28 @@ func TestDecorateApplicationTargetsDoesNotTrackHelmChartAsWorkloadDelta(t *testi
 	)
 
 	require.Nil(t, got[0].Delta)
-	require.Equal(t, &dependency.OCIDeltaTarget{Hint: workloadHint, SourceDigest: digest, Application: "helm-app"}, got[1].Delta)
-	require.Equal(t, &dependency.OCIDeltaTarget{SourceDigest: otherDigest, Application: "helm-app"}, got[2].Delta)
+	require.Equal(t, &dependency.OCIDeltaTarget{Hint: workloadHint, Application: "helm-app"}, got[1].Delta)
+	require.Equal(t, &dependency.OCIDeltaTarget{Application: "helm-app"}, got[2].Delta)
+}
+
+func TestDecorateApplicationTargetsDoesNotInferCurrentDigestFromDesiredImage(t *testing.T) {
+	const desiredDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	for _, imageType := range []dependency.OCIType{
+		dependency.OCITypeCRIImage, dependency.OCITypePodmanImage,
+		dependency.OCITypePodmanArtifact, dependency.OCITypeAuto,
+	} {
+		t.Run(string(imageType), func(t *testing.T) {
+			require := require.New(t)
+			got := decorateApplicationTargets([]dependency.OCIPullTarget{
+				{Type: imageType, Reference: "quay.io/acme/app@" + desiredDigest},
+				{Type: imageType, Reference: "quay.io/acme/app:target", Digest: desiredDigest},
+			}, nil, nil, "app")
+			for _, target := range got {
+				require.NotNil(target.Delta)
+				require.Empty(target.Delta.CurrentDigest)
+			}
+		})
+	}
 }
 
 func TestCollectProviderTargetsDeferredDependencies(t *testing.T) {

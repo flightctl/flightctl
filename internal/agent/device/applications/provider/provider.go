@@ -279,14 +279,9 @@ func decorateApplicationTargets(
 		} else {
 			hint = nestedDeltaHintForTarget(*target, nestedHints)
 		}
-		sourceDigest := target.Digest
-		if sourceDigest == "" {
-			sourceDigest = digestFromReference(target.Reference)
-		}
 		target.Delta = &dependency.OCIDeltaTarget{
-			Hint:         hint,
-			SourceDigest: sourceDigest,
-			Application:  application,
+			Hint:        hint,
+			Application: application,
 		}
 	}
 	return targets

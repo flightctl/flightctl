@@ -978,6 +978,7 @@ func TestCollectOCITargetsErrorHandling(t *testing.T) {
 				return &manager{
 					rwFactory:          rwFactory,
 					podmanMonitor:      NewPodmanMonitor(log, podmanFactory, systemdFactory, "", rwMockFactory),
+					kubernetesMonitor:  NewKubernetesMonitor(log, mockClients, rwFactory),
 					podmanFactory:      podmanFactory,
 					clients:            mockClients,
 					log:                log,
@@ -1043,6 +1044,7 @@ func TestCollectOCITargetsErrorHandling(t *testing.T) {
 				return &manager{
 					rwFactory:          rwFactory,
 					podmanMonitor:      NewPodmanMonitor(log, podmanFactory, systemdFactory, "", rwMockFactory),
+					kubernetesMonitor:  NewKubernetesMonitor(log, mockClients, rwFactory),
 					podmanFactory:      podmanFactory,
 					log:                log,
 					ociTargetCache:     provider.NewOCITargetCache(),
@@ -1073,6 +1075,17 @@ func TestCollectOCITargetsErrorHandling(t *testing.T) {
 				Applications: &[]v1beta1.ApplicationProviderSpec{providerSpec},
 			}
 
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			const currentDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+			currentApp := NewMockApplication(ctrl)
+			currentApp.EXPECT().ID().Return("current-app")
+			currentApp.EXPECT().Status().Return(&v1beta1.DeviceApplicationStatus{
+				Name:         "test-app",
+				ImageDigests: &[]v1beta1.ApplicationImageDigest{{Image: "quay.io/test/image:v0", Digest: currentDigest}},
+			}, v1beta1.DeviceApplicationsSummaryStatus{}, nil)
+			manager.podmanMonitor.apps["current-app"] = currentApp
+
 			result, err := manager.CollectOCITargets(ctx, &v1beta1.DeviceSpec{}, spec)
 
 			if tc.expectError {
@@ -1089,6 +1102,10 @@ func TestCollectOCITargetsErrorHandling(t *testing.T) {
 			} else {
 				require.NoError(err)
 				require.NotNil(result)
+				for _, target := range result.Targets[v1beta1.CurrentProcessUsername] {
+					require.NotNil(target.Delta)
+					require.Equal(currentDigest, target.Delta.CurrentDigest)
+				}
 				if tc.expectRequeue {
 					require.True(result.Requeue, "Expected Requeue=true, got false")
 					require.NotEmpty(result.Targets, "Expected base targets to be returned")
@@ -1273,12 +1290,14 @@ func TestCollectOCITargetsDeferredDependencies(t *testing.T) {
 
 			cliClients := client.NewCLIClients()
 			m := &manager{
-				log:            log,
-				podmanFactory:  podmanFactory,
-				rwFactory:      rwFactory,
-				clients:        cliClients,
-				ociTargetCache: provider.NewOCITargetCache(),
-				appDataCache:   provider.NewAppDataCache(),
+				podmanMonitor:     NewPodmanMonitor(log, podmanFactory, nil, "", rwFactory),
+				kubernetesMonitor: NewKubernetesMonitor(log, cliClients, rwFactory),
+				log:               log,
+				podmanFactory:     podmanFactory,
+				rwFactory:         rwFactory,
+				clients:           cliClients,
+				ociTargetCache:    provider.NewOCITargetCache(),
+				appDataCache:      provider.NewAppDataCache(),
 			}
 
 			var quadletApp v1beta1.QuadletApplication
@@ -1862,5 +1881,78 @@ func TestVolumeImageDigestCacheConcurrentInvalidation(t *testing.T) {
 				require.Equal("sha256:new", (*collect()[0].Status.ImageDigests)[0].Digest)
 			})
 		}
+	}
+}
+
+func TestSetApplicationCurrentDigestsUsesCurrentObservations(t *testing.T) {
+	const (
+		repository = "quay.io/acme/app"
+		current    = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+		desired    = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	)
+	observation := func(app string, user v1beta1.Username, digests ...v1beta1.ApplicationImageDigest) AppStatusResult {
+		return AppStatusResult{Status: v1beta1.DeviceApplicationStatus{
+			Name: app, RunAs: user, ImageDigests: &digests,
+		}}
+	}
+	currentImage := v1beta1.ApplicationImageDigest{Image: repository + ":old", Digest: current}
+	tests := []struct {
+		name        string
+		statuses    []AppStatusResult
+		wantCurrent string
+	}{
+		{
+			name:        "When the workload reports an old digest it should use it for both tagged and pinned desired images",
+			statuses:    []AppStatusResult{observation("app", "", currentImage)},
+			wantCurrent: current,
+		},
+		{
+			name: "When no current image is observed it should leave the current unknown despite a desired digest",
+		},
+		{
+			name:     "When the current digest is unknown it should leave the current unknown",
+			statuses: []AppStatusResult{observation("app", "", v1beta1.ApplicationImageDigest{Image: repository + ":old"})},
+		},
+		{
+			name:     "When another application reports the image it should not use that digest",
+			statuses: []AppStatusResult{observation("other-app", "", currentImage)},
+		},
+		{
+			name:     "When another user reports the image it should not use that digest",
+			statuses: []AppStatusResult{observation("app", "other-user", currentImage)},
+		},
+		{
+			name:        "When several workloads report the same digest it should use the unique digest",
+			statuses:    []AppStatusResult{observation("app", "", currentImage, v1beta1.ApplicationImageDigest{Image: repository + "@" + current, Digest: current})},
+			wantCurrent: current,
+		},
+		{
+			name:     "When the repository has several current digests it should leave the current unknown",
+			statuses: []AppStatusResult{observation("app", "", currentImage, v1beta1.ApplicationImageDigest{Image: repository + ":other", Digest: desired})},
+		},
+		{
+			name:     "When another image in the repository has an unknown digest it should leave the current unknown",
+			statuses: []AppStatusResult{observation("app", "", currentImage, v1beta1.ApplicationImageDigest{Image: repository + ":other"})},
+		},
+		{
+			name:        "When the observed digest already matches the desired digest it should preserve that observation",
+			statuses:    []AppStatusResult{observation("app", "", v1beta1.ApplicationImageDigest{Image: repository + ":old", Digest: desired})},
+			wantCurrent: desired,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			collection := &dependency.OCICollection{Targets: dependency.OCIPullTargetsByUser{
+				v1beta1.CurrentProcessUsername: {
+					{Type: dependency.OCITypeCRIImage, Reference: repository + "@" + desired, Delta: &dependency.OCIDeltaTarget{Application: "app", CurrentDigest: desired}},
+					{Type: dependency.OCITypePodmanImage, Reference: repository + ":target", Digest: desired, Delta: &dependency.OCIDeltaTarget{Application: "app", CurrentDigest: desired}},
+				},
+			}}
+			setApplicationCurrentDigests(collection, tt.statuses)
+			for _, target := range collection.Targets[v1beta1.CurrentProcessUsername] {
+				require.Equal(tt.wantCurrent, target.Delta.CurrentDigest)
+			}
+		})
 	}
 }

@@ -26,6 +26,8 @@ type OCIManifest struct {
 	ArtifactType string            `json:"artifactType,omitempty"`
 	Annotations  map[string]string `json:"annotations,omitempty"`
 	Config       *OCIDescriptor    `json:"config,omitempty"`
+	Layers       []OCIDescriptor   `json:"layers,omitempty"`
+	Subject      *OCIDescriptor    `json:"subject,omitempty"`
 	Manifests    json.RawMessage   `json:"manifests,omitempty"`
 }
 

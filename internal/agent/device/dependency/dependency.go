@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"iter"
+	"math"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -86,10 +87,12 @@ type ClientOptsFn func() []client.ClientOption
 
 // OCIDeltaTarget describes an optional delta transition for an OCI target.
 type OCIDeltaTarget struct {
-	Hint         string
-	SourceDigest string
-	Application  string   // application supplying Hint and SourceDigest
-	Applications []string // applications sharing this image target
+	Hint string
+	// CurrentDigest is an observation used only to invalidate cached outcomes
+	// when an uncached image tag changes; it does not identify a delta source.
+	CurrentDigest string
+	Application   string   // application supplying the hint and cache observation
+	Applications  []string // applications sharing this image target
 }
 
 func mergeOCIDeltaTargets(first, second *OCIDeltaTarget) *OCIDeltaTarget {
@@ -133,12 +136,8 @@ func deltaApplications(target *OCIDeltaTarget) []string {
 	return applications
 }
 
-func hasApplicationDeltaContext(target *OCIDeltaTarget) bool {
-	return target != nil && (target.Hint != "" || target.SourceDigest != "")
-}
-
 // Shared image refs use one prefetch task. Prefer explicit hints, then choose
-// by hint, source digest, and application name to make candidate selection stable.
+// by hint and application name to make candidate selection stable.
 func deltaTargetLess(candidate, current *OCIDeltaTarget) bool {
 	if (candidate.Hint != "") != (current.Hint != "") {
 		return candidate.Hint != ""
@@ -146,43 +145,7 @@ func deltaTargetLess(candidate, current *OCIDeltaTarget) bool {
 	if candidate.Hint != current.Hint {
 		return candidate.Hint < current.Hint
 	}
-	if candidate.SourceDigest != current.SourceDigest {
-		return candidate.SourceDigest < current.SourceDigest
-	}
 	return candidate.Application < current.Application
-}
-
-func selectApplicationDeltaCandidate(targetImage string, delta *OCIDeltaTarget, index *client.OCIIndex) string {
-	if delta == nil {
-		return ""
-	}
-	if delta.Hint != "" {
-		return delta.Hint
-	}
-	if delta.SourceDigest == "" || index == nil {
-		return ""
-	}
-	repo := imageRepository(targetImage)
-	if repo == "" {
-		return ""
-	}
-	for _, ref := range index.Manifests {
-		if ref.ArtifactType != ociDeltaArtifactType || ref.Digest == "" {
-			continue
-		}
-		if normalizeDigest(ref.Annotations[ociDeltaSourceAnnotation]) == normalizeDigest(delta.SourceDigest) {
-			return repo + "@" + ref.Digest
-		}
-	}
-	return ""
-}
-
-func imageRepository(image string) string {
-	matches := validation.OciImageReferenceRegexp.FindStringSubmatch(image)
-	if len(matches) == 0 {
-		return ""
-	}
-	return matches[1]
 }
 
 func normalizeDigest(digest string) string {
@@ -897,8 +860,7 @@ func (m *prefetchManager) preparePullClients(
 	var err error
 	needsPodman := ociType == OCITypePodmanImage || ociType == OCITypePodmanArtifact || ociType == OCITypeAuto
 	needsSkopeo := ociType == OCITypeAuto ||
-		((ociType == OCITypePodmanImage || ociType == OCITypeCRIImage) &&
-			hasApplicationDeltaContext(task.delta))
+		((ociType == OCITypePodmanImage || ociType == OCITypeCRIImage) && task.delta != nil)
 
 	if needsPodman && podman == nil {
 		podman, err = m.podmanFactory(target.owner)
@@ -983,22 +945,21 @@ func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, tas
 	}
 	deltaOpts := append([]client.ClientOption(nil), opts...)
 	deltaOpts = append(deltaOpts, client.WithDefaultAuth())
-	if task.delta.Hint == "" && m.checkUncachedApplicationTask(
-		ctx, target, OCITypeCRIImage, task, nil, skopeo, deltaOpts...,
-	) != digestMismatched {
-		_, err := cri.Pull(ctx, target.image, opts...)
-		// The image was absent locally, so this full pull was required even
-		// though applying a delta would not have changed its content.
-		m.recordDeltaNotUsed(target, task)
-		return err
+	_, _, _, err := normalizedCRIImageReferences(target.image)
+	if err != nil {
+		return m.applicationCRIDeltaFallback(ctx, target, task, err, opts...)
+	}
+	if task.delta.Hint == "" {
+		m.invalidateUncachedApplicationDeltaResult(ctx, target, OCITypeCRIImage, task, nil, skopeo, deltaOpts...)
 	}
 	candidate := task.delta.Hint
-	if candidate == "" && task.delta.SourceDigest != "" {
+	var artifactSourceDigest string
+	if candidate == "" {
 		index, err := skopeo.ListReferrers(ctx, target.image, deltaOpts...)
 		if err != nil {
 			m.log.Debugf("application delta referrers unavailable for %s: %v", target.image, err)
 		} else {
-			candidate = selectApplicationDeltaCandidate(target.image, task.delta, index)
+			candidate, artifactSourceDigest = m.selectApplicationDeltaCandidate(ctx, target.image, OCITypeCRIImage, nil, skopeo, index, deltaOpts...)
 		}
 	}
 	if candidate == "" {
@@ -1009,22 +970,12 @@ func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, tas
 	if err := validateApplicationDeltaCandidate(candidate); err != nil {
 		return m.applicationCRIDeltaFallback(ctx, target, task, err, opts...)
 	}
-	if _, _, digestPinned, err := normalizedCRIImageReferences(target.image); err != nil {
-		return m.applicationCRIDeltaFallback(ctx, target, task, err, opts...)
-	} else if digestPinned {
-		// The CRI reconstruction path may materialize a manifest with a digest
-		// different from the immutable requested reference, so preserve the
-		// reference's exact content by taking the full-pull path. Podman imports
-		// against the full reference and then refreshes that same reference.
-		return m.applicationCRIDeltaFallback(
-			ctx,
-			target,
-			task,
-			fmt.Errorf("delta reconstruction may change the manifest digest of digest-pinned image %s", target.image),
-			opts...,
-		)
+	if task.delta.Hint != "" {
+		artifactSourceDigest, _, err = m.inspectApplicationDeltaCandidate(ctx, target.image, candidate, OCITypeCRIImage, nil, skopeo, deltaOpts...)
+		if err != nil {
+			return m.applicationCRIDeltaFallback(ctx, target, task, err, opts...)
+		}
 	}
-
 	runtimeInfo, err := cri.RuntimeInfo(ctx, opts...)
 	if err != nil {
 		return m.applicationCRIDeltaFallback(ctx, target, task, err, opts...)
@@ -1056,13 +1007,9 @@ func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, tas
 			return m.applicationCRIDeltaFallback(ctx, target, task, err, opts...)
 		}
 	case client.CRIRuntimeContainerd:
-		if err := m.applyContainerdImageDelta(ctx, target.image, candidate, deltaFile, tmpDir, runtimeInfo.Endpoint, task.delta.SourceDigest, skopeo, deltaOpts...); err != nil {
+		if err := m.applyContainerdImageDelta(ctx, target.image, deltaFile, tmpDir, runtimeInfo.Endpoint, artifactSourceDigest, deltaOpts...); err != nil {
 			return m.applicationCRIDeltaFallback(ctx, target, task, err, opts...)
 		}
-	}
-
-	if !cri.ImageExists(ctx, target.image, opts...) {
-		return m.applicationCRIDeltaFallback(ctx, target, task, fmt.Errorf("delta import did not make %s available in the CRI runtime", target.image), opts...)
 	}
 
 	// Pull the registry reference after importing the reconstructed image so
@@ -1073,6 +1020,11 @@ func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, tas
 		return m.applicationCRIDeltaFallback(ctx, target, task,
 			fmt.Errorf("refresh registry manifest after delta import: %w", err), opts...)
 	}
+	// The immutable reference may only become available after refreshing the
+	// registry manifest, since reconstruction can produce a different digest.
+	if !cri.ImageExists(ctx, target.image, opts...) {
+		return m.applicationCRIDeltaFallback(ctx, target, task, fmt.Errorf("delta import did not make %s available in the CRI runtime", target.image), opts...)
+	}
 
 	m.recordDeltaApplied(target, task)
 	m.log.Infof("Applied OCI delta for application image %s from %s", target.image, candidate)
@@ -1080,29 +1032,139 @@ func (m *prefetchManager) pullCRIImage(ctx context.Context, target imageRef, tas
 	return nil
 }
 
-func (m *prefetchManager) applyContainerdImageDelta(
+// Discovery inspects every usable referrer; descriptor sizes describe manifests,
+// not the delta payload downloaded by Skopeo into a fresh OCI archive.
+func (m *prefetchManager) selectApplicationDeltaCandidate(
 	ctx context.Context,
-	targetImage, deltaImage, deltaFile, tmpDir, endpoint, sourceDigest string,
+	targetImage string,
+	ociType OCIType,
+	podman *client.Podman,
+	skopeo *client.Skopeo,
+	index *client.OCIIndex,
+	opts ...client.ClientOption,
+) (string, string) {
+	if index == nil {
+		return "", ""
+	}
+	repository, _, _, err := normalizedCRIImageReferences(targetImage)
+	if err != nil {
+		return "", ""
+	}
+	var selected, selectedSource string
+	var smallest int64
+	for _, ref := range index.Manifests {
+		if ref.ArtifactType != ociDeltaArtifactType || ref.Digest == "" {
+			continue
+		}
+		candidate := repository + "@" + ref.Digest
+		if err := validateApplicationDeltaCandidate(candidate); err != nil {
+			continue
+		}
+		source, size, err := m.inspectApplicationDeltaCandidate(ctx, targetImage, candidate, ociType, podman, skopeo, opts...)
+		if err != nil {
+			m.log.Debugf("Ignoring application delta %s: %v", candidate, err)
+			continue
+		}
+		if selected == "" || size < smallest || (size == smallest && candidate < selected) {
+			selected, selectedSource, smallest = candidate, source, size
+		}
+	}
+	return selected, selectedSource
+}
+
+func (m *prefetchManager) inspectApplicationDeltaCandidate(
+	ctx context.Context,
+	targetImage, candidate string,
+	ociType OCIType,
+	podman *client.Podman,
 	skopeo *client.Skopeo,
 	opts ...client.ClientOption,
-) error {
-	if sourceDigest == "" {
-		manifest, err := skopeo.InspectManifest(ctx, deltaImage, opts...)
+) (string, int64, error) {
+	manifest, err := skopeo.InspectManifest(ctx, candidate, opts...)
+	if err != nil {
+		return "", 0, fmt.Errorf("inspect application delta manifest: %w", err)
+	}
+	if manifest.ArtifactType != ociDeltaArtifactType {
+		return "", 0, fmt.Errorf("unexpected delta artifact type %q", manifest.ArtifactType)
+	}
+	source := normalizeDigest(manifest.Annotations[ociDeltaSourceAnnotation])
+	if source == "" {
+		return "", 0, fmt.Errorf("delta artifact does not identify its source image digest")
+	}
+	if manifest.Subject == nil || manifest.Subject.Digest == "" {
+		return "", 0, fmt.Errorf("delta artifact does not identify its target image digest")
+	}
+	repository, _, _, err := normalizedCRIImageReferences(targetImage)
+	if err != nil {
+		return "", 0, err
+	}
+	named, err := reference.ParseNormalizedNamed(targetImage)
+	if err != nil {
+		return "", 0, err
+	}
+	var targetDigest string
+	if digested, ok := named.(reference.Digested); ok {
+		targetDigest = digested.Digest().String()
+	} else {
+		targetDigest, err = skopeo.InspectDigest(ctx, targetImage, opts...)
 		if err != nil {
-			return fmt.Errorf("inspect application delta manifest: %w", err)
+			return "", 0, fmt.Errorf("inspect delta target digest: %w", err)
 		}
-		sourceDigest = manifest.Annotations[ociDeltaSourceAnnotation]
 	}
-	sourceDigest = normalizeDigest(sourceDigest)
-	if sourceDigest == "" {
-		return fmt.Errorf("application delta does not identify its source image digest")
+	if normalizeDigest(manifest.Subject.Digest) != normalizeDigest(targetDigest) {
+		return "", 0, fmt.Errorf("delta target digest %s does not match desired image %s", manifest.Subject.Digest, targetDigest)
 	}
+	if err := validateApplicationDeltaCandidate(repository + "@" + source); err != nil {
+		return "", 0, fmt.Errorf("invalid delta source digest: %w", err)
+	}
+	var sourceExists bool
+	switch ociType {
+	case OCITypeCRIImage:
+		sourceExists = m.cliClients.CRI().ImageExists(ctx, repository+"@"+source, opts...)
+	case OCITypePodmanImage:
+		sourceExists = podman.ImageExists(ctx, repository+"@"+source)
+	}
+	if !sourceExists {
+		return "", 0, fmt.Errorf("delta source image %s@%s is unavailable locally", repository, source)
+	}
+	size, err := applicationDeltaPayloadSize(manifest)
+	return source, size, err
+}
 
+func applicationDeltaPayloadSize(manifest *client.OCIManifest) (int64, error) {
+	if manifest.Config == nil {
+		return 0, fmt.Errorf("delta artifact has no config descriptor")
+	}
+	// Copy writes a new OCI archive, so runtime blobs cannot reduce this transfer.
+	// Count each blob once, including the artifact config.
+	var size int64
+	seen := make(map[string]struct{})
+	for _, blob := range append([]client.OCIDescriptor{*manifest.Config}, manifest.Layers...) {
+		if blob.Digest == "" || blob.Size < 0 {
+			return 0, fmt.Errorf("delta artifact has an invalid blob descriptor")
+		}
+		if _, exists := seen[blob.Digest]; exists {
+			continue
+		}
+		if blob.Size > math.MaxInt64-size {
+			return 0, fmt.Errorf("delta artifact payload size overflows")
+		}
+		seen[blob.Digest] = struct{}{}
+		size += blob.Size
+	}
+	return size, nil
+}
+
+func (m *prefetchManager) applyContainerdImageDelta(
+	ctx context.Context,
+	targetImage, deltaFile, tmpDir, endpoint, artifactSourceDigest string,
+	opts ...client.ClientOption,
+) error {
 	repository, targetRef, _, err := normalizedCRIImageReferences(targetImage)
 	if err != nil {
 		return err
 	}
-	sourceRef := repository + "@" + sourceDigest
+	sourceRef := repository + "@" + artifactSourceDigest
 
 	sourceRootfs := filepath.Join(tmpDir, "source")
 	if err := m.readWriter.MkdirAll(sourceRootfs, fileio.DefaultDirectoryPermissions); err != nil {
@@ -1160,22 +1222,16 @@ func (m *prefetchManager) pullApplicationImage(ctx context.Context, target image
 	}
 	deltaOpts := append([]client.ClientOption(nil), opts...)
 	deltaOpts = append(deltaOpts, client.WithDefaultAuth())
-	if task.delta.Hint == "" && m.checkUncachedApplicationTask(
-		ctx, target, OCITypePodmanImage, task, podman, skopeo, deltaOpts...,
-	) != digestMismatched {
-		_, err := podman.Pull(ctx, target.image, opts...)
-		// The image was absent locally, so this full pull was required even
-		// though applying a delta would not have changed its content.
-		m.recordDeltaNotUsed(target, task)
-		return err
+	if task.delta.Hint == "" {
+		m.invalidateUncachedApplicationDeltaResult(ctx, target, OCITypePodmanImage, task, podman, skopeo, deltaOpts...)
 	}
 	candidate := task.delta.Hint
-	if candidate == "" && task.delta.SourceDigest != "" {
+	if candidate == "" {
 		index, err := skopeo.ListReferrers(ctx, target.image, deltaOpts...)
 		if err != nil {
 			m.log.Debugf("application delta referrers unavailable for %s: %v", target.image, err)
 		} else {
-			candidate = selectApplicationDeltaCandidate(target.image, task.delta, index)
+			candidate, _ = m.selectApplicationDeltaCandidate(ctx, target.image, OCITypePodmanImage, podman, skopeo, index, deltaOpts...)
 		}
 	}
 
@@ -1190,6 +1246,12 @@ func (m *prefetchManager) pullApplicationImage(ctx context.Context, target image
 	ociDelta, err := m.applicationOCIDelta(target.owner)
 	if err != nil {
 		return m.applicationDeltaFallback(ctx, target, task, podman, err, opts...)
+	}
+
+	if task.delta.Hint != "" {
+		if _, _, err := m.inspectApplicationDeltaCandidate(ctx, target.image, candidate, OCITypePodmanImage, podman, skopeo, deltaOpts...); err != nil {
+			return m.applicationDeltaFallback(ctx, target, task, podman, err, opts...)
+		}
 	}
 
 	tmpReadWriter, err := m.applicationDeltaReadWriter(target.owner)
@@ -1391,8 +1453,8 @@ func (m *prefetchManager) recordDeltaApplyResultLocked(target imageRef, task *pr
 			logResult = m.log.Infof
 		}
 		logResult(
-			"Recorded application delta result: application=%s image=%s outcome=%s ociType=%s hintPresent=%t sourceDigest=%q targetDigest=%q fallbackReason=%q",
-			application, target.image, outcome, task.ociType, task.delta.Hint != "", task.delta.SourceDigest, task.targetDigest, fallbackReason,
+			"Recorded application delta result: application=%s image=%s outcome=%s ociType=%s hintPresent=%t currentDigest=%q targetDigest=%q fallbackReason=%q",
+			application, target.image, outcome, task.ociType, task.delta.Hint != "", task.delta.CurrentDigest, task.targetDigest, fallbackReason,
 		)
 		if m.deltaStatusStore != nil && persistedTargetKey == task.applicationTargetKey {
 			status := v1beta1.DeviceDeltaApplyStatus{Outcome: outcome}
@@ -1580,9 +1642,9 @@ func (m *prefetchManager) prepareTask(ctx context.Context, target imageRef, ociT
 	return true, nil
 }
 
-// checkUncachedApplicationTask invalidates restored outcomes when a known source
-// digest confirms that the requested tag has changed, even if the image is absent.
-func (m *prefetchManager) checkUncachedApplicationTask(
+// invalidateUncachedApplicationDeltaResult invalidates restored outcomes when
+// an observed current digest confirms that an uncached image tag has changed.
+func (m *prefetchManager) invalidateUncachedApplicationDeltaResult(
 	ctx context.Context,
 	target imageRef,
 	ociType OCIType,
@@ -1590,17 +1652,16 @@ func (m *prefetchManager) checkUncachedApplicationTask(
 	podman *client.Podman,
 	skopeo *client.Skopeo,
 	opts ...client.ClientOption,
-) digestCheckResult {
+) {
 	result := m.applicationImageDigestMatchesTarget(ctx, target, ociType, task.delta, false, podman, skopeo, &task.resolvedDigest, opts...)
-	if result != digestMismatched || task.delta.SourceDigest == "" || task.resolvedDigest == "" {
-		return result
+	if result != digestMismatched || task.delta.CurrentDigest == "" || task.resolvedDigest == "" {
+		return
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.tasks[target] == task && task.deltaGeneration == m.deltaGeneration {
 		m.invalidateApplicationDeltaResultLocked(target, task)
 	}
-	return result
 }
 
 // mu must be held on entry; may be temporarily released during registry inspection; mu is held on return.
@@ -1717,24 +1778,24 @@ func (m *prefetchManager) applicationImageDigestMatchesTarget(
 ) digestCheckResult {
 	application := ""
 	hintPresent := false
-	sourceDigest := ""
+	currentDigest := ""
 	if delta != nil {
 		application = strings.Join(deltaApplications(delta), ",")
 		hintPresent = delta.Hint != ""
-		sourceDigest = delta.SourceDigest
+		currentDigest = delta.CurrentDigest
 	}
 	logCheck := func(result digestCheckResult, comparisonDigests []string, desiredDigest, reason string) digestCheckResult {
 		m.log.Debugf(
-			"Application delta digest check: application=%s image=%s ociType=%s targetPresent=%t hintPresent=%t sourceDigest=%q comparisonDigests=%v targetDigest=%q matches=%t reason=%q",
-			application, target.image, ociType, targetPresent, hintPresent, sourceDigest, comparisonDigests, desiredDigest, result == digestMatched, reason,
+			"Application delta digest check: application=%s image=%s ociType=%s targetPresent=%t hintPresent=%t currentDigest=%q comparisonDigests=%v targetDigest=%q matches=%t reason=%q",
+			application, target.image, ociType, targetPresent, hintPresent, currentDigest, comparisonDigests, desiredDigest, result == digestMatched, reason,
 		)
 		return result
 	}
 	if delta == nil || !supportsApplicationImageDigestCheck(ociType) {
 		return logCheck(digestUnknown, nil, "", "delta metadata missing or OCI type does not support digest checks")
 	}
-	if !targetPresent && (delta.Hint != "" || delta.SourceDigest == "") {
-		return logCheck(digestMismatched, nil, "", "target is uncached and its hint/source digest cannot verify a cache hit")
+	if !targetPresent && (delta.Hint != "" || delta.CurrentDigest == "") {
+		return logCheck(digestMismatched, nil, "", "target is uncached and its hint/current digest cannot verify a cache hit")
 	}
 	if targetPresent && ociType == OCITypeAuto && (podman == nil || !(podman.ImageExists(ctx, target.image) || podman.ArtifactExists(ctx, target.image))) {
 		return logCheck(digestMismatched, nil, "", "cached image is absent from Podman storage")
@@ -1766,11 +1827,11 @@ func (m *prefetchManager) applicationImageDigestMatchesTarget(
 	if !ok {
 		return logCheck(digestMismatched, nil, "", "could not inspect local image digest")
 	}
-	if !targetPresent && len(currentDigests) == 0 && delta.SourceDigest != "" {
-		currentDigests = append(currentDigests, delta.SourceDigest)
+	if !targetPresent && len(currentDigests) == 0 && delta.CurrentDigest != "" {
+		currentDigests = append(currentDigests, delta.CurrentDigest)
 	}
 	if len(currentDigests) == 0 {
-		return logCheck(digestUnknown, currentDigests, "", "no current or source digest available")
+		return logCheck(digestUnknown, currentDigests, "", "no current image digest available")
 	}
 	if skopeo == nil {
 		return logCheck(digestUnknown, currentDigests, "", "Skopeo client unavailable")
@@ -1964,7 +2025,7 @@ func sameDeltaTarget(first, second *OCIDeltaTarget) bool {
 		return first == second
 	}
 	return first.Hint == second.Hint &&
-		first.SourceDigest == second.SourceDigest &&
+		first.CurrentDigest == second.CurrentDigest &&
 		first.Application == second.Application &&
 		slices.Equal(first.Applications, second.Applications)
 }
