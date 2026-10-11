@@ -73,6 +73,9 @@ type Action struct {
 	// RestartGeneration is the target restart generation for ActionRestart, applied
 	// to the tracked application only after the restart succeeds.
 	RestartGeneration int
+	// StartServices limits a Compose start to the named services. An empty slice
+	// starts the entire application.
+	StartServices []string
 }
 
 // HelmSpec contains Helm-specific action configuration.

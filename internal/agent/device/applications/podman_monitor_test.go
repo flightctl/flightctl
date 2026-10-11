@@ -352,6 +352,73 @@ func TestComposeRemoveQueuesRecoveryForRunningApp(t *testing.T) {
 	require.Len(actions, 1)
 	require.Equal(lifecycle.ActionStart, actions[0].Type)
 	require.Equal(app.ID(), actions[0].ID)
+	require.Equal([]string{"app1-service-1"}, actions[0].StartServices)
+}
+
+func TestComposeRemoveRecoveryRetriesAfterStartFailure(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	testLog := log.NewPrefixLogger("test")
+	mockExec := executer.NewMockExecuter(ctrl)
+	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return("[]", "", 0)
+
+	podman := client.NewPodman(testLog, mockExec, mockReadWriter, util.NewPollConfig())
+	mockHandler := &testLifecycleHandler{
+		start: func(_ context.Context, action lifecycle.Action) error {
+			require.Equal([]string{"server"}, action.StartServices)
+			return fmt.Errorf("start failed")
+		},
+	}
+	monitor := &PodmanMonitor{
+		apps:            make(map[string]Application),
+		recoveryPending: make(map[string][]string),
+		handlers:        map[v1beta1.AppType]lifecycle.ActionHandler{v1beta1.AppTypeCompose: mockHandler},
+		clientFactory: func(_ v1beta1.Username) (*client.Podman, error) {
+			return podman, nil
+		},
+		log: testLog,
+	}
+	app := createTestApplication(require, "app1", v1beta1.ApplicationStatusRunning, v1beta1.CurrentProcessUsername)
+	app.SetDesiredState(v1beta1.ApplicationDesiredStateRunning)
+	event := mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "server", "remove")
+	app.AddWorkload(&Workload{Name: event.Name, ServiceName: "server", Status: StatusRunning})
+	monitor.apps[app.ID()] = app
+
+	monitor.handleEvent(t.Context(), event)
+	actions := monitor.drainActions()
+	require.Len(actions, 1)
+	require.Equal([]string{"server"}, actions[0].StartServices)
+
+	require.Error(monitor.StartApp(t.Context(), app.ID(), actions[0]))
+
+	monitor.QueueLifecycle(app.ID(), v1beta1.ApplicationDesiredStateRunning, 0)
+	retryActions := monitor.drainActions()
+	require.Len(retryActions, 1)
+	require.Equal(lifecycle.ActionStart, retryActions[0].Type)
+	require.Equal([]string{"server"}, retryActions[0].StartServices)
+}
+
+type testLifecycleHandler struct {
+	start func(context.Context, lifecycle.Action) error
+}
+
+func (h *testLifecycleHandler) Execute(context.Context, lifecycle.Actions) error {
+	return nil
+}
+
+func (h *testLifecycleHandler) Stop(context.Context, lifecycle.Action) error {
+	return nil
+}
+
+func (h *testLifecycleHandler) Start(ctx context.Context, action lifecycle.Action) error {
+	return h.start(ctx, action)
+}
+
+func (h *testLifecycleHandler) Restart(context.Context, lifecycle.Action) error {
+	return nil
 }
 
 func TestComposeRemoveDoesNotReplacePendingUpdate(t *testing.T) {

@@ -137,11 +137,12 @@ type Application interface {
 
 // Workload represents an application workload tracked by a Monitor.
 type Workload struct {
-	ID       string
-	Images   []WorkloadImage // Image references reported for this workload.
-	Name     string
-	Status   StatusType
-	Restarts int
+	ID          string
+	Images      []WorkloadImage // Image references reported for this workload.
+	Name        string
+	ServiceName string // Compose service name associated with this workload.
+	Status      StatusType
+	Restarts    int
 	// RequiresHealth is set when a VM workload has emitted health_status events.
 	// Gated workloads stay Degraded on start/starting until healthy.
 	RequiresHealth bool
