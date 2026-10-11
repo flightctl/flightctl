@@ -312,7 +312,7 @@ func TestDecorateApplicationTargetsDoesNotTrackHelmChartAsWorkloadDelta(t *testi
 	require.Equal(t, &dependency.OCIDeltaTarget{Application: "helm-app"}, got[2].Delta)
 }
 
-func TestDecorateApplicationTargetsDoesNotInferCurrentDigestFromDesiredImage(t *testing.T) {
+func TestDecorateApplicationTargetsPreservesDesiredImages(t *testing.T) {
 	const desiredDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	for _, imageType := range []dependency.OCIType{
 		dependency.OCITypeCRIImage, dependency.OCITypePodmanImage,
@@ -324,9 +324,10 @@ func TestDecorateApplicationTargetsDoesNotInferCurrentDigestFromDesiredImage(t *
 				{Type: imageType, Reference: "quay.io/acme/app@" + desiredDigest},
 				{Type: imageType, Reference: "quay.io/acme/app:target", Digest: desiredDigest},
 			}, nil, nil, "app")
+			require.Equal("quay.io/acme/app@"+desiredDigest, got[0].Reference)
+			require.Equal(desiredDigest, got[1].Digest)
 			for _, target := range got {
-				require.NotNil(target.Delta)
-				require.Empty(target.Delta.CurrentDigest)
+				require.Equal("app", target.Delta.Application)
 			}
 		})
 	}

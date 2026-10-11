@@ -8,9 +8,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDeltaTargetSelectionIgnoresReportedDigests(t *testing.T) {
-	first := &OCIDeltaTarget{Application: "a", CurrentDigest: "sha256:z"}
-	second := &OCIDeltaTarget{Application: "b", CurrentDigest: "sha256:a"}
+func TestDeltaTargetSelectionUsesHintsAndApplicationNames(t *testing.T) {
+	first := &OCIDeltaTarget{Application: "a"}
+	second := &OCIDeltaTarget{Application: "b"}
 	require.False(t, deltaTargetLess(second, first))
 	require.Equal(t, "a", mergeOCIDeltaTargets(first, second).Application)
 	require.Equal(t, []string{"a", "b"}, mergeOCIDeltaTargets(first, second).Applications)

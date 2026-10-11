@@ -49,8 +49,9 @@ type applicationState struct {
 }
 
 type applicationImageResult struct {
-	TargetKey string                         `json:"targetKey"`
-	Status    v1beta1.DeviceDeltaApplyStatus `json:"status"`
+	TargetKey     string                         `json:"targetKey"`
+	ContentDigest string                         `json:"contentDigest,omitempty"`
+	Status        v1beta1.DeviceDeltaApplyStatus `json:"status"`
 }
 
 // ApplicationSnapshot is an in-memory copy of an application's current delta
@@ -280,8 +281,9 @@ func (s *Store) ApplicationSnapshot(application string) *ApplicationSnapshot {
 	}
 	for targetID, result := range current.Results {
 		snapshot.Results[targetID] = ApplicationResult{
-			TargetKey: result.TargetKey,
-			Status:    cloneStatus(result.Status),
+			TargetKey:     result.TargetKey,
+			ContentDigest: result.ContentDigest,
+			Status:        cloneStatus(result.Status),
 		}
 	}
 	return snapshot
@@ -289,24 +291,25 @@ func (s *Store) ApplicationSnapshot(application string) *ApplicationSnapshot {
 
 // ApplicationResult is one image's persisted delta result.
 type ApplicationResult struct {
-	TargetKey string
-	Status    v1beta1.DeviceDeltaApplyStatus
+	TargetKey     string
+	ContentDigest string
+	Status        v1beta1.DeviceDeltaApplyStatus
 }
 
 // RecordApplicationResult durably records one image result. Results for an
-// image target that has since changed are ignored.
-func (s *Store) RecordApplicationResult(application, specKey, targetID, targetKey string, result v1beta1.DeviceDeltaApplyStatus) error {
+// image target that has since changed or lacks resolved desired content are ignored.
+func (s *Store) RecordApplicationResult(application, specKey, targetID, targetKey, contentDigest string, result v1beta1.DeviceDeltaApplyStatus) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	current := s.state.Applications[application]
-	if specKey == "" || targetID == "" || targetKey == "" || current == nil || current.SpecKey != specKey || current.Targets[targetID] != targetKey {
+	if specKey == "" || targetID == "" || targetKey == "" || contentDigest == "" || current == nil || current.SpecKey != specKey || current.Targets[targetID] != targetKey {
 		return nil
 	}
 	if current.Results == nil {
 		current.Results = make(map[string]applicationImageResult)
 	}
-	current.Results[targetID] = applicationImageResult{TargetKey: targetKey, Status: cloneStatus(result)}
+	current.Results[targetID] = applicationImageResult{TargetKey: targetKey, ContentDigest: contentDigest, Status: cloneStatus(result)}
 	return s.saveLocked()
 }
 

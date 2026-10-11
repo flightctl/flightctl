@@ -23,7 +23,6 @@ func TestApplicationDeltaPrefetchCRIRefreshesRegistryReference(t *testing.T) {
 		repository      = "quay.io/acme/app"
 		targetDigest    = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 		artifactSource  = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-		otherCurrent    = "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 		candidateDigest = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 		candidate       = repository + "@" + candidateDigest
 	)
@@ -32,8 +31,6 @@ func TestApplicationDeltaPrefetchCRIRefreshesRegistryReference(t *testing.T) {
 		name              string
 		image             string
 		discover          bool
-		currentUnknown    bool
-		currentDiffers    bool
 		baseMissing       bool
 		annotationMissing bool
 		inspectFailure    bool
@@ -59,39 +56,8 @@ func TestApplicationDeltaPrefetchCRIRefreshesRegistryReference(t *testing.T) {
 			discover: true,
 		},
 		{
-			name:           "When the current digest is unknown and a hint is supplied it should use the artifact base available locally",
-			image:          repository + "@" + targetDigest,
-			currentUnknown: true,
-		},
-		{
-			name:           "When the current digest is unknown and no hint is supplied it should discover a delta with a local base",
-			image:          repository + "@" + targetDigest,
-			discover:       true,
-			currentUnknown: true,
-		},
-		{
-			name:           "When a hinted delta requires a different cached image it should use that base and preserve the current digest",
-			image:          repository + "@" + targetDigest,
-			currentDiffers: true,
-		},
-		{
-			name:           "When the current image has no delta it should discover a delta from another cached image",
-			image:          repository + "@" + targetDigest,
-			discover:       true,
-			currentDiffers: true,
-		},
-		{
 			name:              "When a hinted delta base is absent it should full-pull without attempting reconstruction",
 			image:             repository + "@" + targetDigest,
-			currentDiffers:    true,
-			baseMissing:       true,
-			wantFallback:      true,
-			fallbackReasonHas: "unavailable locally",
-		},
-		{
-			name:              "When the current digest is unknown and a hinted base is absent it should full-pull",
-			image:             repository + "@" + targetDigest,
-			currentUnknown:    true,
 			baseMissing:       true,
 			wantFallback:      true,
 			fallbackReasonHas: "unavailable locally",
@@ -118,7 +84,7 @@ func TestApplicationDeltaPrefetchCRIRefreshesRegistryReference(t *testing.T) {
 			fallbackReasonHas: "source disappeared",
 		},
 		{
-			name:        "When the current image matches a discovered artifact source but that base is absent it should report NotUsed",
+			name:        "When a discovered artifact base is absent it should report NotUsed",
 			image:       repository + "@" + targetDigest,
 			discover:    true,
 			baseMissing: true,
@@ -149,12 +115,10 @@ func TestApplicationDeltaPrefetchCRIRefreshesRegistryReference(t *testing.T) {
 				defer ctrl.Finish()
 				exec := executer.NewMockExecuter(ctrl)
 				var calls []any
+				if tc.image == repository+":target" {
+					calls = append(calls, exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--format", "{{.Digest}}", "docker://"+tc.image).Return(targetDigest, "", 0))
+				}
 				if tc.discover {
-					if !tc.currentUnknown {
-						calls = append(calls, exec.EXPECT().ExecuteWithContext(
-							gomock.Any(), "skopeo", "inspect", "--format", "{{.Digest}}", "docker://"+tc.image,
-						).Return(targetDigest, "", 0))
-					}
 					calls = append(calls, exec.EXPECT().ExecuteWithContext(
 						gomock.Any(), "skopeo", "list-referrers", "docker://"+tc.image,
 					).Return(`{"manifests":[{"artifactType":"`+ociDeltaArtifactType+`","digest":"`+candidateDigest+`","annotations":{"`+ociDeltaSourceAnnotation+`":"`+artifactSource+`"}}]}`, "", 0))
@@ -251,13 +215,7 @@ func TestApplicationDeltaPrefetchCRIRefreshesRegistryReference(t *testing.T) {
 				cri := client.NewCRI(logger, exec, rw, poll.NewConfig(time.Millisecond, 2))
 				skopeo := client.NewSkopeo(logger, exec, rw)
 				target := imageRef{image: tc.image}
-				currentDigest := artifactSource
-				if tc.currentUnknown {
-					currentDigest = ""
-				} else if tc.currentDiffers {
-					currentDigest = otherCurrent
-				}
-				delta := &OCIDeltaTarget{Hint: candidate, CurrentDigest: currentDigest, Application: "app"}
+				delta := &OCIDeltaTarget{Hint: candidate, Application: "app"}
 				if tc.discover {
 					delta.Hint = ""
 				}
@@ -287,7 +245,6 @@ func TestApplicationDeltaPrefetchCRIRefreshesRegistryReference(t *testing.T) {
 				}
 
 				require.NoError(manager.pull(context.Background(), target, task))
-				require.Equal(currentDigest, delta.CurrentDigest)
 				task.done = true
 				deviceStatus := &v1beta1.DeviceStatus{
 					Applications: []v1beta1.DeviceApplicationStatus{{Name: "app"}},
@@ -654,7 +611,7 @@ func TestApplicationDeltaInvalidHintFullPullsWithoutDiscovery(t *testing.T) {
 					exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", image).Return("", "", 0)
 				}
 				target := imageRef{image: image}
-				task := &prefetchTask{ociType: ociType, delta: &OCIDeltaTarget{Hint: candidate, CurrentDigest: sourceDigest, Application: "app"}, deltaGeneration: 1}
+				task := &prefetchTask{ociType: ociType, delta: &OCIDeltaTarget{Hint: candidate, Application: "app"}, deltaGeneration: 1}
 				manager := &prefetchManager{log: logger, cliClients: client.NewCLIClients(client.WithCRIClient(cri)), ociDelta: client.NewOCIDelta(logger, exec, time.Minute), deltaGeneration: 1, tasks: map[imageRef]*prefetchTask{target: task}, deltaApplyResults: make(map[string]map[imageRef]applicationDeltaApplyResult)}
 				// No referrers expectation: any discovery attempt fails this test.
 				if ociType == OCITypeCRIImage {

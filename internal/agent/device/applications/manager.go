@@ -7,7 +7,6 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/containers/image/v5/docker/reference"
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	grpc_v1 "github.com/flightctl/flightctl/api/grpc/v1"
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -582,12 +581,6 @@ func (m *manager) Shutdown(ctx context.Context, state shutdown.State) error {
 func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1beta1.DeviceSpec, opts ...dependency.OCICollectOpt) (*dependency.OCICollection, error) {
 	o := dependency.ApplyOCICollectOpts(opts...)
 	osUpdatePending := o.OSUpdatePending()
-	// Capture current digests from runtime observations before collecting images
-	// requested by the desired specification.
-	currentStatuses, statusErr := m.collectApplicationStatuses(ctx)
-	if statusErr != nil {
-		m.log.Debugf("Could not collect current application digests for cached delta outcome validation: %v", statusErr)
-	}
 	collection, err := provider.CollectOCITargets(
 		ctx,
 		m.log,
@@ -605,62 +598,8 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1bet
 		}
 		m.log.Infof("Missing app dependencies, deferring OCI target collection until after OS update: %v", err)
 	}
-	if collection != nil {
-		setApplicationCurrentDigests(collection, currentStatuses)
-	}
 
 	return collection, nil
-}
-
-// setApplicationCurrentDigests uses the same current image observations as status
-// reporting to validate cached outcomes after tag changes. These observations
-// do not identify or rank delta source candidates.
-func setApplicationCurrentDigests(collection *dependency.OCICollection, statuses []AppStatusResult) {
-	type imageKey struct {
-		application string
-		user        v1beta1.Username
-		repository  string
-	}
-	observedDigests := make(map[imageKey]map[string]struct{})
-	for _, result := range statuses {
-		app := result.Status
-		if app.ImageDigests == nil {
-			continue
-		}
-		for _, image := range *app.ImageDigests {
-			named, err := reference.ParseNormalizedNamed(image.Image)
-			if err != nil {
-				continue
-			}
-			key := imageKey{application: app.Name, user: app.RunAs, repository: named.Name()}
-			if observedDigests[key] == nil {
-				observedDigests[key] = make(map[string]struct{})
-			}
-			// Preserve empty digests as ambiguity markers for this repository.
-			observedDigests[key][image.Digest] = struct{}{}
-		}
-	}
-	for user, targets := range collection.Targets {
-		for i := range targets {
-			target := &targets[i]
-			if target.Delta == nil {
-				continue
-			}
-			target.Delta.CurrentDigest = ""
-			named, err := reference.ParseNormalizedNamed(target.Reference)
-			if err != nil {
-				continue
-			}
-			digests := observedDigests[imageKey{application: target.Delta.Application, user: user, repository: named.Name()}]
-			// Several workloads can use different images from one repository.
-			// Leave the current digest unknown when there is no unique observation.
-			if len(digests) == 1 {
-				for digest := range digests {
-					target.Delta.CurrentDigest = digest
-				}
-			}
-		}
-	}
 }
 
 // WithConsole injects app console dependencies after construction and creates

@@ -33,7 +33,7 @@ func TestStorePersistsDeltaResultsAndClearsChangedTargets(t *testing.T) {
 	appTargets := map[string]map[string]string{"web": {targetID: targetKey}}
 	require.NoError(t, store.ReconcileApplicationTargets(appTargets, true))
 	require.NoError(t, store.RecordApplicationResult(
-		"web", appSpecKey, targetID, targetKey,
+		"web", appSpecKey, targetID, targetKey, "sha256:web-v2",
 		v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied},
 	))
 
@@ -48,6 +48,7 @@ func TestStorePersistsDeltaResultsAndClearsChangedTargets(t *testing.T) {
 	require.NoError(t, restarted.ReconcileApplicationTargets(appTargets, true))
 	appResults := restarted.ApplicationResults("web")
 	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeApplied, appResults[targetID].Status.Outcome)
+	require.Equal(t, "sha256:web-v2", appResults[targetID].ContentDigest)
 
 	changedOS := Fingerprint("quay.io/acme/os:v3", "quay.io/acme/os-delta:v2")
 	require.NoError(t, restarted.SetOSTarget(changedOS))
@@ -59,7 +60,7 @@ func TestStorePersistsDeltaResultsAndClearsChangedTargets(t *testing.T) {
 	require.Empty(t, restarted.ApplicationResults("web"))
 	// Results arriving late for the superseded target cannot repopulate state.
 	require.NoError(t, restarted.RecordApplicationResult(
-		"web", appSpecKey, targetID, targetKey,
+		"web", appSpecKey, targetID, targetKey, "sha256:web-v2",
 		v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied},
 	))
 	require.Empty(t, restarted.ApplicationResults("web"))
@@ -89,8 +90,8 @@ func TestClearApplicationResultIgnoresSupersededTargets(t *testing.T) {
 			require.NoError(store.ReconcileApplicationSpecs(map[string]string{"app": "spec"}))
 			require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{"app": {"image": "target", "other-image": "other-target"}}, true))
 			result := v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}
-			require.NoError(store.RecordApplicationResult("app", "spec", "image", "target", result))
-			require.NoError(store.RecordApplicationResult("app", "spec", "other-image", "other-target", result))
+			require.NoError(store.RecordApplicationResult("app", "spec", "image", "target", "sha256:content", result))
+			require.NoError(store.RecordApplicationResult("app", "spec", "other-image", "other-target", "sha256:other", result))
 			require.NoError(store.ClearApplicationResult("app", tt.specKey, "image", tt.targetKey))
 			restored := New(rw, "/var/lib/flightctl", logger).ApplicationSnapshot("app")
 			_, exists := restored.Results["image"]
@@ -99,4 +100,16 @@ func TestClearApplicationResultIgnoresSupersededTargets(t *testing.T) {
 			require.Equal(result, restored.Results["other-image"].Status)
 		})
 	}
+}
+
+func TestRecordApplicationResultRequiresResolvedContent(t *testing.T) {
+	require := require.New(t)
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	logger := log.NewPrefixLogger("test")
+	store := New(rw, "/var/lib/flightctl", logger)
+	require.NoError(store.ReconcileApplicationSpecs(map[string]string{"app": "spec"}))
+	require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{"app": {"image": "target"}}, true))
+	require.NoError(store.RecordApplicationResult("app", "spec", "image", "target", "", v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}))
+	require.Empty(New(rw, "/var/lib/flightctl", logger).ApplicationResults("app"))
 }
