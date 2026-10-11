@@ -262,7 +262,7 @@ Each application's aggregated delta result appears in `device.status.application
 | `device.status.applications[].imageDigests[].digest` | Digest resolved from the image reported as running by the runtime. For a multi-platform image, this may be the platform-specific digest selected by the runtime. The field is omitted when the runtime does not provide enough information to resolve the running image's digest. |
 | `device.status.applications[].deltaSize` | Sum of only the control-plane-generated delta payload sizes for this application update, in IEC units. Present when at least one delta was generated and every generated payload size is known. |
 
-`imageDigests[]` includes every image reported as running in the application's workloads, including nested container images. The management service uses known digests as sources for OCI deltas. A running image with an unknown digest is included without a digest value. Parent package images and image-backed volume references are included only if the runtime reports those exact images as running workloads.
+`imageDigests[]` can include the application's main image, nested images, and image-backed volumes. These values describe images reported as running by the device.
 
 Inspect each application's generated delta payload size at `status.applications[].deltaSize` and the generated OS delta payload size at `status.os.deltaSize`.
 

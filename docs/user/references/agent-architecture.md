@@ -89,7 +89,7 @@ The agent reconciles the **DeviceSpec** against device state by calling external
 
 Podman application monitors rebuild their in-memory registrations during reconciliation after an agent restart. When an application changed while the agent was stopped, its update action replaces the existing workloads and registers the desired application for monitoring.
 
-Application image status includes every image observed in running workloads, including nested container images. The management service uses known digests as sources for OCI deltas. Desired parent package digests and image-backed volume references do not supply running image digests; those images are included only when the runtime reports them as running workloads. Unknown runtime digests remain unknown.
+The agent caches image-backed volume digests across unchanged reconciliations and status reports. Installing, updating, or removing an application invalidates the cache before provider changes and after runtime actions, including failed actions. Changed volume references are inspected independently, and references no longer reported are removed from the cache. Confirmed artifact-backed volumes are also cached so subsequent reports skip image inspection. Other failed digest inspections are retried on the next status report. Volume inspection runs without holding the cache lock, allowing application updates to proceed. If an update invalidates the cache during inspection, that inspection does not repopulate the cache.
 
 ## Update Policy
 
