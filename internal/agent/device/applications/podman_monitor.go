@@ -854,12 +854,15 @@ func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Ap
 		m.mu.Lock()
 		defer m.mu.Unlock()
 		recoverRemovedWorkload := app.DesiredState() == v1beta1.ApplicationDesiredStateRunning
+		if workload, exists := app.Workload(event.Name); exists && workload.Status == StatusExited {
+			recoverRemovedWorkload = false
+		}
 		for _, action := range m.actions {
 			if action.ID != app.ID() {
 				continue
 			}
 			switch action.Type {
-			case lifecycle.ActionAdd, lifecycle.ActionUpdate, lifecycle.ActionRemove:
+			case lifecycle.ActionAdd, lifecycle.ActionUpdate, lifecycle.ActionRemove, lifecycle.ActionStop:
 				recoverRemovedWorkload = false
 			}
 		}
