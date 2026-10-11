@@ -57,3 +57,26 @@ func digestFromKubernetesImageID(imageRef, imageID string) string {
 	// the fallback when one is available.
 	return digestFromReference(imageRef)
 }
+
+// digestFromRepoDigests returns the digest of the first repository digest that
+// names the same repository as the declared image reference. CRI runtimes
+// record these alongside the opaque image ID, so they recover a registry
+// manifest digest that the pod status alone cannot supply.
+func digestFromRepoDigests(imageRef string, repoDigests []string) string {
+	declared, err := reference.ParseNormalizedNamed(imageRef)
+	if err != nil {
+		return ""
+	}
+	for _, repoDigest := range repoDigests {
+		observed, err := reference.ParseNormalizedNamed(repoDigest)
+		if err != nil {
+			continue
+		}
+		digested, ok := observed.(reference.Digested)
+		if !ok || observed.Name() != declared.Name() {
+			continue
+		}
+		return digested.Digest().String()
+	}
+	return ""
+}

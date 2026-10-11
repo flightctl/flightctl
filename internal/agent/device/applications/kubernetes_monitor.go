@@ -415,7 +415,7 @@ type kubernetesContainerStateTerminated struct {
 	FinishedAt time.Time `json:"finishedAt,omitempty"`
 }
 
-func (m *KubernetesMonitor) handlePodEvent(_ context.Context, data []byte) {
+func (m *KubernetesMonitor) handlePodEvent(ctx context.Context, data []byte) {
 	var event kubernetesWatchEvent
 	if err := json.Unmarshal(data, &event); err != nil {
 		m.log.Errorf("Failed to decode kubernetes watch event: %s %v", string(data), err)
@@ -446,7 +446,7 @@ func (m *KubernetesMonitor) handlePodEvent(_ context.Context, data []byte) {
 	case "DELETED":
 		m.removeWorkload(app, pod)
 	case "ADDED", "MODIFIED":
-		m.updatePodStatus(app, pod)
+		m.updatePodStatus(ctx, app, pod)
 	default:
 		m.log.Warnf("Unknown watch event type: %s", event.Type)
 	}
@@ -461,10 +461,10 @@ func (m *KubernetesMonitor) removeWorkload(app Application, pod *kubernetesPod) 
 	}
 }
 
-func (m *KubernetesMonitor) updatePodStatus(app Application, pod *kubernetesPod) {
+func (m *KubernetesMonitor) updatePodStatus(ctx context.Context, app Application, pod *kubernetesPod) {
 	status := m.mapPodPhaseToStatus(pod)
 	restarts := m.getPodRestartCount(pod)
-	images := collectPodImages(pod)
+	images := m.resolveWorkloadImages(ctx, app, pod)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -490,6 +490,56 @@ func (m *KubernetesMonitor) updatePodStatus(app Application, pod *kubernetesPod)
 		Status:   status,
 		Restarts: restarts,
 	})
+}
+
+// resolveWorkloadImages fills in digests the pod status could not supply. A CRI
+// runtime commonly reports an opaque image ID (containerd://<config-digest>),
+// which leaves a tagged reference without a registry digest and gives the
+// control plane no source to pair for a delta. Podman workloads resolve this
+// through the Podman client; ask the CRI runtime for the same information.
+func (m *KubernetesMonitor) resolveWorkloadImages(ctx context.Context, app Application, pod *kubernetesPod) []WorkloadImage {
+	images := collectPodImages(pod)
+
+	// Reuse digests already resolved for this pod instance so a busy watch does
+	// not re-inspect the runtime on every event, matching the reuse rule the
+	// Podman monitor applies while the workload ID and image reference match.
+	known := make(map[string]string, len(images))
+	m.mu.Lock()
+	if previous, exists := app.Workload(pod.Metadata.Name); exists && previous.ID == pod.Metadata.UID {
+		for _, image := range previous.Images {
+			if image.Digest != "" {
+				known[image.Image] = image.Digest
+			}
+		}
+	}
+	m.mu.Unlock()
+
+	for i := range images {
+		if images[i].Digest != "" {
+			continue
+		}
+		digest, resolved := known[images[i].Image]
+		if !resolved {
+			digest = m.criImageDigest(ctx, images[i].Image)
+			known[images[i].Image] = digest
+		}
+		images[i].Digest = digest
+	}
+	return images
+}
+
+// criImageDigest returns the registry digest the CRI runtime records for a
+// local image, or an empty string when it cannot be determined.
+func (m *KubernetesMonitor) criImageDigest(ctx context.Context, image string) string {
+	if m.clients == nil || m.clients.CRI() == nil {
+		return ""
+	}
+	repoDigests, err := m.clients.CRI().ImageRepoDigests(ctx, image)
+	if err != nil {
+		m.log.Debugf("Could not resolve CRI digest for workload image %q: %v", image, err)
+		return ""
+	}
+	return digestFromRepoDigests(image, repoDigests)
 }
 
 func collectPodImages(pod *kubernetesPod) []WorkloadImage {

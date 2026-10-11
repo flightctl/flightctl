@@ -1725,7 +1725,7 @@ func (m *prefetchManager) applicationImageDigestMatchesTarget(
 	}
 	logCheck := func(result digestCheckResult, comparisonDigests []string, desiredDigest, reason string) digestCheckResult {
 		m.log.Debugf(
-			"Application delta digest check: application=%s image=%s ociType=%s targetPresent=%t hintPresent=%t sourceDigest=%q comparisonDigests=%v targetDigest=%q matches=%t reason=%q",
+			"Application delta digest check: application=%s image=%s ociType=%s targetPresent=%t hintPresent=%t sourceDigest=%q comparisonDigests=%v desiredDigest=%q matches=%t reason=%q",
 			application, target.image, ociType, targetPresent, hintPresent, sourceDigest, comparisonDigests, desiredDigest, result == digestMatched, reason,
 		)
 		return result
@@ -1760,38 +1760,44 @@ func (m *prefetchManager) applicationImageDigestMatchesTarget(
 		return logCheck(digestUnknown, nil, "", "could not determine image type")
 	}
 
-	currentDigests, ok := m.applicationDeltaCheckCurrentDigests(
+	// Digests the runtime reports for the image it currently holds.
+	runtimeDigests, ok := m.applicationDeltaCheckRuntimeDigests(
 		ctx, target, imageType, targetPresent, podman, opts...,
 	)
 	if !ok {
 		return logCheck(digestMismatched, nil, "", "could not inspect local image digest")
 	}
-	if !targetPresent && len(currentDigests) == 0 && delta.SourceDigest != "" {
-		currentDigests = append(currentDigests, delta.SourceDigest)
+	// An absent target has nothing for the runtime to report, so the desired
+	// spec's source digest stands in as the comparison basis. It is kept out of
+	// runtimeDigests so a declared digest is never mistaken for an observation.
+	comparisonDigests := runtimeDigests
+	if !targetPresent && len(runtimeDigests) == 0 && delta.SourceDigest != "" {
+		comparisonDigests = []string{delta.SourceDigest}
 	}
-	if len(currentDigests) == 0 {
-		return logCheck(digestUnknown, currentDigests, "", "no current or source digest available")
+	if len(comparisonDigests) == 0 {
+		return logCheck(digestUnknown, comparisonDigests, "", "no runtime or source digest available")
 	}
 	if skopeo == nil {
-		return logCheck(digestUnknown, currentDigests, "", "Skopeo client unavailable")
+		return logCheck(digestUnknown, comparisonDigests, "", "Skopeo client unavailable")
 	}
 
-	targetDigest := *resolvedDigest
-	if targetDigest == "" {
+	// The digest the desired reference resolves to at the registry.
+	desiredDigest := *resolvedDigest
+	if desiredDigest == "" {
 		var err error
-		targetDigest, err = skopeo.InspectDigest(ctx, target.image, inspectOpts...)
+		desiredDigest, err = skopeo.InspectDigest(ctx, target.image, inspectOpts...)
 		if err != nil {
 			m.log.Debugf("Could not inspect requested digest for %s while checking delta necessity: %v", target, err)
-			return logCheck(digestUnknown, currentDigests, "", fmt.Sprintf("could not inspect requested digest: %v", err))
+			return logCheck(digestUnknown, comparisonDigests, "", fmt.Sprintf("could not inspect requested digest: %v", err))
 		}
 	}
-	targetDigest = applicationImageDigest(targetDigest)
-	*resolvedDigest = targetDigest
-	if targetDigest == "" {
+	desiredDigest = applicationImageDigest(desiredDigest)
+	*resolvedDigest = desiredDigest
+	if desiredDigest == "" {
 		m.log.Debugf("Could not inspect requested digest for %s while checking delta necessity: empty digest", target)
-		return logCheck(digestUnknown, currentDigests, "", "requested digest inspection returned an empty digest")
+		return logCheck(digestUnknown, comparisonDigests, "", "requested digest inspection returned an empty digest")
 	}
-	matches := applicationImageDigestsMatch(currentDigests, targetDigest)
+	matches := applicationImageDigestsMatch(comparisonDigests, desiredDigest)
 	reason := "digest mismatch"
 	if matches {
 		reason = "digest match"
@@ -1800,7 +1806,7 @@ func (m *prefetchManager) applicationImageDigestMatchesTarget(
 	if matches {
 		result = digestMatched
 	}
-	return logCheck(result, currentDigests, targetDigest, reason)
+	return logCheck(result, comparisonDigests, desiredDigest, reason)
 }
 
 func (m *prefetchManager) applicationDeltaCheckImageType(
@@ -1832,7 +1838,10 @@ func (m *prefetchManager) applicationDeltaCheckImageType(
 	return imageType, true
 }
 
-func (m *prefetchManager) applicationDeltaCheckCurrentDigests(
+// applicationDeltaCheckRuntimeDigests returns the digests the container runtime
+// reports for the image it currently holds. It never falls back to a digest
+// taken from the desired spec; callers decide how to treat an absent target.
+func (m *prefetchManager) applicationDeltaCheckRuntimeDigests(
 	ctx context.Context,
 	target imageRef,
 	imageType OCIType,
@@ -1873,9 +1882,9 @@ func (m *prefetchManager) applicationDeltaCheckCurrentDigests(
 	}
 }
 
-func applicationImageDigestsMatch(currentDigests []string, targetDigest string) bool {
-	for _, currentDigest := range currentDigests {
-		if currentDigest := applicationImageDigest(currentDigest); currentDigest != "" && currentDigest == targetDigest {
+func applicationImageDigestsMatch(comparisonDigests []string, desiredDigest string) bool {
+	for _, comparisonDigest := range comparisonDigests {
+		if comparisonDigest := applicationImageDigest(comparisonDigest); comparisonDigest != "" && comparisonDigest == desiredDigest {
 			return true
 		}
 	}

@@ -16,6 +16,7 @@ import (
 	"github.com/flightctl/flightctl/internal/chartutil"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/flightctl/flightctl/pkg/poll"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
@@ -538,7 +539,7 @@ func TestKubernetesMonitorUpdatePodStatusCollectsImageSnapshot(t *testing.T) {
 		Ready:   true,
 	}}
 
-	monitor.updatePodStatus(app, pod)
+	monitor.updatePodStatus(context.Background(), app, pod)
 
 	workload, ok := app.Workload("app-pod")
 	require.True(t, ok)
@@ -554,24 +555,101 @@ func TestKubernetesMonitorUpdatePodStatusCollectsImageSnapshot(t *testing.T) {
 	pod.Spec.InitContainers = nil
 	pod.Status.InitContainerStatuses = nil
 	pod.Status.ContainerStatuses = []kubernetesContainerStatus{{Name: "web", Ready: true}}
-	monitor.updatePodStatus(app, pod)
+	monitor.updatePodStatus(context.Background(), app, pod)
 
 	workload, ok = app.Workload("app-pod")
 	require.True(t, ok)
 	require.Equal(t, []WorkloadImage{{Image: "quay.io/acme/web:v2"}}, workload.Images)
 }
 
+func TestKubernetesMonitorResolvesDigestFromCRI(t *testing.T) {
+	require := require.New(t)
+	const digest = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockExec := executer.NewMockExecuter(ctrl)
+	mockRW := fileio.NewMockReadWriter(ctrl)
+
+	// The pod status only carries an opaque containerd ID, so the digest has to
+	// come from the runtime. It is inspected once and reused on later events.
+	mockExec.EXPECT().
+		ExecuteWithContext(gomock.Any(), "crictl", "inspecti", "--output", "json", "quay.io/acme/web:latest").
+		Return(`{"status":{"repoDigests":["quay.io/acme/web@`+digest+`"]}}`, "", 0).
+		Times(1)
+
+	criClient := client.NewCRI(log.NewPrefixLogger("test"), mockExec, mockRW, poll.Config{})
+	monitor := &KubernetesMonitor{
+		monitor: &monitor{log: log.NewPrefixLogger("test")},
+		clients: &testKubeCLIClients{cri: criClient},
+	}
+
+	app := &application{status: &v1beta1.DeviceApplicationStatus{Name: "app"}}
+	pod := &kubernetesPod{}
+	pod.Kind = "Pod"
+	pod.Metadata.Name = "app-pod"
+	pod.Metadata.UID = "pod-uid"
+	pod.Spec.Containers = []kubernetesContainerSpec{{Name: "web", Image: "quay.io/acme/web:latest"}}
+	pod.Status.Phase = podPhaseRunning
+	pod.Status.ContainerStatuses = []kubernetesContainerStatus{{
+		Name:    "web",
+		ImageID: "containerd://sha256:opaque",
+		Ready:   true,
+	}}
+
+	monitor.updatePodStatus(context.Background(), app, pod)
+
+	workload, ok := app.Workload("app-pod")
+	require.True(ok)
+	require.Equal([]WorkloadImage{{Image: "quay.io/acme/web:latest", Digest: digest}}, workload.Images)
+
+	// A later event for the same pod instance reuses the resolved digest.
+	monitor.updatePodStatus(context.Background(), app, pod)
+
+	workload, ok = app.Workload("app-pod")
+	require.True(ok)
+	require.Equal([]WorkloadImage{{Image: "quay.io/acme/web:latest", Digest: digest}}, workload.Images)
+}
+
+func TestKubernetesMonitorDigestUnknownWhenCRIUnavailable(t *testing.T) {
+	require := require.New(t)
+
+	// Without a CRI client the opaque runtime ID leaves the digest unknown
+	// rather than failing status collection.
+	monitor := &KubernetesMonitor{monitor: &monitor{log: log.NewPrefixLogger("test")}}
+
+	app := &application{status: &v1beta1.DeviceApplicationStatus{Name: "app"}}
+	pod := &kubernetesPod{}
+	pod.Kind = "Pod"
+	pod.Metadata.Name = "app-pod"
+	pod.Metadata.UID = "pod-uid"
+	pod.Spec.Containers = []kubernetesContainerSpec{{Name: "web", Image: "quay.io/acme/web:latest"}}
+	pod.Status.Phase = podPhaseRunning
+	pod.Status.ContainerStatuses = []kubernetesContainerStatus{{
+		Name:    "web",
+		ImageID: "containerd://sha256:opaque",
+		Ready:   true,
+	}}
+
+	monitor.updatePodStatus(context.Background(), app, pod)
+
+	workload, ok := app.Workload("app-pod")
+	require.True(ok)
+	require.Equal([]WorkloadImage{{Image: "quay.io/acme/web:latest"}}, workload.Images)
+}
+
 // testKubeCLIClients implements client.CLIClients for KubernetesMonitor tests.
 type testKubeCLIClients struct {
 	kube *client.Kube
 	helm *client.Helm
+	cri  *client.CRI
 }
 
 func (c *testKubeCLIClients) Podman() *client.Podman { return nil }
 func (c *testKubeCLIClients) Skopeo() *client.Skopeo { return nil }
 func (c *testKubeCLIClients) Kube() *client.Kube     { return c.kube }
 func (c *testKubeCLIClients) Helm() *client.Helm     { return c.helm }
-func (c *testKubeCLIClients) CRI() *client.CRI       { return nil }
+func (c *testKubeCLIClients) CRI() *client.CRI       { return c.cri }
 
 // setupKubeScaleMock sets up the mock expectation for kubectl scale --replicas=N.
 func setupKubeScaleMock(mockExec *executer.MockExecuter, appName, kubeconfigPath string, replicas int) *gomock.Call {
