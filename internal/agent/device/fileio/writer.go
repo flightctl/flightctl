@@ -159,6 +159,8 @@ func (w *writer) RemoveFile(file string) error {
 	return removeFile(filepath.Join(w.rootDir, file), file, os.Lstat, os.Remove)
 }
 
+// removeFile checks for the directory entry before removing it so a missing
+// path is a no-op even when the filesystem rejects removal attempts with EROFS.
 func removeFile(fullPath, file string, lstat func(string) (os.FileInfo, error), remove func(string) error) error {
 	// Check before removing because a read-only filesystem can return EROFS for
 	// an absent path instead of the ENOENT that os.IsNotExist expects.

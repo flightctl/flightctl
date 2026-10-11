@@ -619,6 +619,7 @@ func TestWriterForUser(t *testing.T) {
 	require.ErrorContains(t, err, "chown")
 }
 
+// TestRemoveFile verifies removal of existing, missing, and broken-symlink paths.
 func TestRemoveFile(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -662,6 +663,7 @@ func TestRemoveFile(t *testing.T) {
 	}
 }
 
+// TestRemoveFileErrorHandling verifies missing-path idempotency and removal-error propagation.
 func TestRemoveFileErrorHandling(t *testing.T) {
 	rootDir := t.TempDir()
 	existingPath := filepath.Join(rootDir, "existing.txt")
