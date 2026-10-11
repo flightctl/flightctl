@@ -320,6 +320,72 @@ func TestListenForEvents(t *testing.T) {
 	}
 }
 
+func TestComposeRemoveQueuesRecoveryForRunningApp(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	testLog := log.NewPrefixLogger("test")
+	mockExec := executer.NewMockExecuter(ctrl)
+	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return("[]", "", 0)
+
+	podman := client.NewPodman(testLog, mockExec, mockReadWriter, util.NewPollConfig())
+	monitor := &PodmanMonitor{
+		apps: make(map[string]Application),
+		clientFactory: func(_ v1beta1.Username) (*client.Podman, error) {
+			return podman, nil
+		},
+		log: testLog,
+	}
+	app := createTestApplication(require, "app1", v1beta1.ApplicationStatusRunning, v1beta1.CurrentProcessUsername)
+	app.SetDesiredState(v1beta1.ApplicationDesiredStateRunning)
+	event := mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "remove")
+	app.AddWorkload(&Workload{Name: event.Name, Status: StatusRunning})
+	monitor.apps[app.ID()] = app
+
+	monitor.handleEvent(t.Context(), event)
+
+	_, exists := app.Workload(event.Name)
+	require.False(exists)
+	actions := monitor.drainActions()
+	require.Len(actions, 1)
+	require.Equal(lifecycle.ActionStart, actions[0].Type)
+	require.Equal(app.ID(), actions[0].ID)
+}
+
+func TestComposeRemoveDoesNotReplacePendingUpdate(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	testLog := log.NewPrefixLogger("test")
+	mockExec := executer.NewMockExecuter(ctrl)
+	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return("[]", "", 0)
+
+	podman := client.NewPodman(testLog, mockExec, mockReadWriter, util.NewPollConfig())
+	monitor := &PodmanMonitor{
+		apps: make(map[string]Application),
+		clientFactory: func(_ v1beta1.Username) (*client.Podman, error) {
+			return podman, nil
+		},
+		log: testLog,
+	}
+	app := createTestApplication(require, "app1", v1beta1.ApplicationStatusRunning, v1beta1.CurrentProcessUsername)
+	app.SetDesiredState(v1beta1.ApplicationDesiredStateRunning)
+	event := mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "remove")
+	app.AddWorkload(&Workload{Name: event.Name, Status: StatusRunning})
+	monitor.apps[app.ID()] = app
+	monitor.actions = []lifecycle.Action{{ID: app.ID(), Type: lifecycle.ActionUpdate}}
+
+	monitor.handleEvent(t.Context(), event)
+
+	actions := monitor.drainActions()
+	require.Len(actions, 1)
+	require.Equal(lifecycle.ActionUpdate, actions[0].Type)
+}
+
 func TestApplicationAddRemove(t *testing.T) {
 	require := require.New(t)
 	testCases := []struct {

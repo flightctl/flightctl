@@ -189,7 +189,7 @@ func (m *PodmanMonitor) Has(id string) bool {
 // the tracked application and queues ActionStop, ActionStart, or ActionRestart as needed.
 // The stored desiredState/restartGeneration are only advanced by StopApp/StartApp/RestartApp
 // once the corresponding action succeeds, so a failed action is retried on the next sync.
-// No-op if the app is not tracked or if intent is unchanged.
+// No-op if the app is not tracked, intent is unchanged, and all tracked workloads are healthy.
 func (m *PodmanMonitor) QueueLifecycle(appID string, desiredState v1beta1.ApplicationDesiredState, restartGeneration int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -212,6 +212,8 @@ func (m *PodmanMonitor) QueueLifecycle(appID string, desiredState v1beta1.Applic
 		} else {
 			actionType = lifecycle.ActionStart
 		}
+	case desiredState == v1beta1.ApplicationDesiredStateRunning && hasStoppedWorkload(app):
+		actionType = lifecycle.ActionStart
 	default:
 		return
 	}
@@ -225,6 +227,20 @@ func (m *PodmanMonitor) QueueLifecycle(appID string, desiredState v1beta1.Applic
 		Type:              actionType,
 		RestartGeneration: restartGeneration,
 	})
+}
+
+// hasStoppedWorkload reports whether a workload unexpectedly stopped or reached
+// a terminal runtime state while the application is still expected to be
+// running. Exited workloads are intentionally excluded because they represent
+// successful completion for one-shot applications.
+func hasStoppedWorkload(app Application) bool {
+	for _, workload := range app.Workloads() {
+		switch workload.Status {
+		case StatusStop, StatusDie, StatusDied, StatusRemove:
+			return true
+		}
+	}
+	return false
 }
 
 func (m *PodmanMonitor) Ensure(ctx context.Context, app Application) error {
@@ -837,6 +853,27 @@ func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Ap
 	if status == StatusRemove {
 		m.mu.Lock()
 		defer m.mu.Unlock()
+		recoverRemovedWorkload := app.DesiredState() == v1beta1.ApplicationDesiredStateRunning
+		for _, action := range m.actions {
+			if action.ID != app.ID() {
+				continue
+			}
+			switch action.Type {
+			case lifecycle.ActionAdd, lifecycle.ActionUpdate, lifecycle.ActionRemove:
+				recoverRemovedWorkload = false
+			}
+		}
+		if recoverRemovedWorkload {
+			m.actions = append(m.actions, lifecycle.Action{
+				ID:                app.ID(),
+				Name:              app.Name(),
+				User:              app.User(),
+				AppType:           app.AppType(),
+				Path:              app.Path(),
+				Type:              lifecycle.ActionStart,
+				RestartGeneration: app.RestartGeneration(),
+			})
+		}
 		// remove existing container
 		if removed := app.RemoveWorkload(event.Name); removed {
 			m.log.Debugf("Removed container: %s", event.Name)
