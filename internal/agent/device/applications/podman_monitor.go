@@ -30,12 +30,14 @@ const (
 	expectedPodmanSigTermExitCode = 1
 	quadletSystemdLabel           = "PODMAN_SYSTEMD_UNIT"
 	podmanHealthStatusEvent       = "health_status"
+	composeServiceLabel           = "com.docker.compose.service"
 )
 
 type PodmanMonitor struct {
 	mu sync.Mutex
 	// apps is a map of application ID to application.
 	apps                   map[string]Application
+	recoveryPending        map[string]pendingRecovery
 	actions                []lifecycle.Action
 	startTime              time.Time
 	lastActionsSuccessTime time.Time
@@ -47,6 +49,13 @@ type PodmanMonitor struct {
 	events         chan client.PodmanEvent
 
 	log *log.PrefixLogger
+}
+
+type pendingRecovery struct {
+	services           []string
+	serviceGenerations map[string]uint64
+	generation         uint64
+	allServices        bool
 }
 
 func NewPodmanMonitor(
@@ -71,6 +80,7 @@ func NewPodmanMonitor(
 		},
 		watchers:               make(map[v1beta1.Username]*podmanEventWatcher),
 		apps:                   make(map[string]Application),
+		recoveryPending:        make(map[string]pendingRecovery),
 		startTime:              startTime,
 		lastActionsSuccessTime: startTime,
 		log:                    log,
@@ -189,7 +199,7 @@ func (m *PodmanMonitor) Has(id string) bool {
 // the tracked application and queues ActionStop, ActionStart, or ActionRestart as needed.
 // The stored desiredState/restartGeneration are only advanced by StopApp/StartApp/RestartApp
 // once the corresponding action succeeds, so a failed action is retried on the next sync.
-// No-op if the app is not tracked or if intent is unchanged.
+// No-op if the app is not tracked, intent is unchanged, and all tracked workloads are healthy.
 func (m *PodmanMonitor) QueueLifecycle(appID string, desiredState v1beta1.ApplicationDesiredState, restartGeneration int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -212,19 +222,96 @@ func (m *PodmanMonitor) QueueLifecycle(appID string, desiredState v1beta1.Applic
 		} else {
 			actionType = lifecycle.ActionStart
 		}
+	case desiredState == v1beta1.ApplicationDesiredStateRunning && (hasStoppedWorkload(app) || hasPendingRecovery(m.recoveryPending, appID)):
+		actionType = lifecycle.ActionStart
 	default:
 		return
 	}
 
+	var startServices []string
+	var recoveryGeneration uint64
+	if actionType == lifecycle.ActionStart {
+		if pending, ok := m.recoveryPending[appID]; ok {
+			recoveryGeneration = pending.generation
+			if !pending.allServices && !hasUnnamedStoppedWorkload(app) {
+				startServices = mergeServiceNames(pending.services, stoppedWorkloadServices(app))
+			}
+		} else {
+			startServices = stoppedWorkloadServices(app)
+		}
+	}
+
 	m.actions = append(m.actions, lifecycle.Action{
-		ID:                appID,
-		Name:              app.Name(),
-		User:              app.User(),
-		AppType:           app.AppType(),
-		Path:              app.Path(),
-		Type:              actionType,
-		RestartGeneration: restartGeneration,
+		ID:                 appID,
+		Name:               app.Name(),
+		User:               app.User(),
+		AppType:            app.AppType(),
+		Path:               app.Path(),
+		Type:               actionType,
+		RestartGeneration:  restartGeneration,
+		StartServices:      startServices,
+		RecoveryGeneration: recoveryGeneration,
 	})
+}
+
+func hasPendingRecovery(recoveryPending map[string]pendingRecovery, appID string) bool {
+	_, ok := recoveryPending[appID]
+	return ok
+}
+
+// hasStoppedWorkload reports whether a workload unexpectedly stopped or reached
+// a terminal runtime state while the application is still expected to be
+// running. Exited workloads are intentionally excluded because they represent
+// successful completion for one-shot applications.
+func hasStoppedWorkload(app Application) bool {
+	for _, workload := range app.Workloads() {
+		switch workload.Status {
+		case StatusStop, StatusDie, StatusDied, StatusRemove:
+			return true
+		}
+	}
+	return false
+}
+
+func hasUnnamedStoppedWorkload(app Application) bool {
+	for _, workload := range app.Workloads() {
+		switch workload.Status {
+		case StatusStop, StatusDie, StatusDied, StatusRemove:
+			if workload.ServiceName == "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func stoppedWorkloadServices(app Application) []string {
+	var services []string
+	for _, workload := range app.Workloads() {
+		switch workload.Status {
+		case StatusStop, StatusDie, StatusDied, StatusRemove:
+			services = append(services, workload.ServiceName)
+		}
+	}
+	return mergeServiceNames(services)
+}
+
+func mergeServiceNames(serviceLists ...[]string) []string {
+	seen := make(map[string]struct{})
+	var merged []string
+	for _, services := range serviceLists {
+		for _, service := range services {
+			if service == "" {
+				continue
+			}
+			if _, ok := seen[service]; ok {
+				continue
+			}
+			seen[service] = struct{}{}
+			merged = append(merged, service)
+		}
+	}
+	return merged
 }
 
 func (m *PodmanMonitor) Ensure(ctx context.Context, app Application) error {
@@ -265,6 +352,7 @@ func (m *PodmanMonitor) QueueRemove(app Application) error {
 	// handle the case where the workload doesn't exist.
 	appID := app.ID()
 	delete(m.apps, appID)
+	delete(m.recoveryPending, appID)
 	appName := app.Name()
 
 	action := lifecycle.Action{
@@ -290,6 +378,7 @@ func (m *PodmanMonitor) QueueUpdate(app Application) error {
 	// Register the desired app and keep the update action so those workloads
 	// are removed before the new application starts.
 	m.apps[appID] = app
+	delete(m.recoveryPending, appID)
 
 	// currently we don't support updating embedded applications
 	action := lifecycle.Action{
@@ -338,23 +427,73 @@ func (m *PodmanMonitor) StopApp(ctx context.Context, appID string) error {
 	}
 	m.mu.Lock()
 	app.SetDesiredState(v1beta1.ApplicationDesiredStateStopped)
+	delete(m.recoveryPending, appID)
 	m.mu.Unlock()
 	return nil
 }
 
 // StartApp starts a previously stopped application identified by appID.
-func (m *PodmanMonitor) StartApp(ctx context.Context, appID string) error {
+func (m *PodmanMonitor) StartApp(ctx context.Context, appID string, queuedActions ...lifecycle.Action) error {
 	handler, action, app, err := m.lifecycleDispatch(appID)
 	if err != nil {
 		return err
 	}
+	if len(queuedActions) > 0 {
+		action.StartServices = queuedActions[0].StartServices
+		action.RecoveryGeneration = queuedActions[0].RecoveryGeneration
+	}
+	recoveryGeneration := action.RecoveryGeneration
 	if err := handler.Start(ctx, action); err != nil {
 		return err
 	}
 	m.mu.Lock()
 	app.SetDesiredState(v1beta1.ApplicationDesiredStateRunning)
+	m.clearRecoveryIntent(appID, action, recoveryGeneration)
 	m.mu.Unlock()
 	return nil
+}
+
+func (m *PodmanMonitor) clearRecoveryIntent(appID string, action lifecycle.Action, recoveryGeneration uint64) {
+	if recoveryGeneration == 0 {
+		return
+	}
+	pending, ok := m.recoveryPending[appID]
+	if !ok {
+		return
+	}
+	if pending.generation == recoveryGeneration {
+		delete(m.recoveryPending, appID)
+		return
+	}
+	if pending.allServices || len(action.StartServices) == 0 {
+		return
+	}
+	remainingServices := make([]string, 0, len(pending.services))
+	for _, service := range pending.services {
+		serviceGeneration, tracked := pending.serviceGenerations[service]
+		if tracked && serviceGeneration > recoveryGeneration {
+			remainingServices = append(remainingServices, service)
+			continue
+		}
+		if !containsServiceName(action.StartServices, service) {
+			remainingServices = append(remainingServices, service)
+		}
+	}
+	pending.services = remainingServices
+	if len(pending.services) == 0 {
+		delete(m.recoveryPending, appID)
+		return
+	}
+	m.recoveryPending[appID] = pending
+}
+
+func containsServiceName(services []string, service string) bool {
+	for _, candidate := range services {
+		if candidate == service {
+			return true
+		}
+	}
+	return false
 }
 
 // RestartApp restarts the application identified by appID.
@@ -369,6 +508,7 @@ func (m *PodmanMonitor) RestartApp(ctx context.Context, appID string, restartGen
 	}
 	m.mu.Lock()
 	app.SetRestartGeneration(restartGeneration)
+	delete(m.recoveryPending, appID)
 	m.mu.Unlock()
 	return nil
 }
@@ -500,7 +640,7 @@ func (m *PodmanMonitor) dispatchLifecycleActions(ctx context.Context, actions []
 			}
 		case lifecycle.ActionStart:
 			m.log.Infof("Starting application %s", a.Name)
-			if err := m.StartApp(ctx, a.ID); err != nil {
+			if err := m.StartApp(ctx, a.ID, a); err != nil {
 				m.log.Warnf("Failed to start application %s: %v", a.Name, err)
 			}
 		case lifecycle.ActionRestart:
@@ -700,6 +840,9 @@ func (m *PodmanMonitor) updateApplicationStatus(
 		if restarts > container.Restarts {
 			container.Restarts = restarts
 		}
+		if serviceName := event.Attributes[composeServiceLabel]; serviceName != "" {
+			container.ServiceName = serviceName
+		}
 
 		return
 	}
@@ -711,11 +854,12 @@ func (m *PodmanMonitor) updateApplicationStatus(
 	// add new container
 	m.log.Debugf("Adding container: %s to app %s", event.Name, app.Name())
 	app.AddWorkload(&Workload{
-		ID:       event.ID,
-		Images:   images,
-		Name:     event.Name,
-		Status:   status,
-		Restarts: restarts,
+		ID:          event.ID,
+		Images:      images,
+		Name:        event.Name,
+		ServiceName: event.Attributes[composeServiceLabel],
+		Status:      status,
+		Restarts:    restarts,
 	})
 }
 
@@ -835,6 +979,74 @@ func (m *PodmanMonitor) updateComposeContainerStatus(ctx context.Context, app Ap
 	if status == StatusRemove {
 		m.mu.Lock()
 		defer m.mu.Unlock()
+		recoverRemovedWorkload := app.DesiredState() == v1beta1.ApplicationDesiredStateRunning
+		var recoveryServices []string
+		if workload, exists := app.Workload(event.Name); exists {
+			if workload.Status == StatusExited {
+				recoverRemovedWorkload = false
+			}
+			serviceName := event.Attributes[composeServiceLabel]
+			if serviceName == "" {
+				serviceName = workload.ServiceName
+			}
+			if serviceName != "" {
+				recoveryServices = []string{serviceName}
+			}
+		} else if serviceName := event.Attributes[composeServiceLabel]; serviceName != "" {
+			recoveryServices = []string{serviceName}
+		}
+		for _, action := range m.actions {
+			if action.ID != app.ID() {
+				continue
+			}
+			switch action.Type {
+			case lifecycle.ActionAdd, lifecycle.ActionUpdate, lifecycle.ActionRemove, lifecycle.ActionStop:
+				recoverRemovedWorkload = false
+			}
+		}
+		if recoverRemovedWorkload {
+			if m.recoveryPending == nil {
+				m.recoveryPending = make(map[string]pendingRecovery)
+			}
+			pending := m.recoveryPending[app.ID()]
+			allServices := pending.allServices || len(recoveryServices) == 0
+			services := pending.services
+			if allServices {
+				services = nil
+			} else {
+				services = mergeServiceNames(services, recoveryServices)
+			}
+			generation := pending.generation + 1
+			serviceGenerations := make(map[string]uint64, len(pending.serviceGenerations)+len(recoveryServices))
+			for service, serviceGeneration := range pending.serviceGenerations {
+				serviceGenerations[service] = serviceGeneration
+			}
+			for _, service := range pending.services {
+				if _, ok := serviceGenerations[service]; !ok {
+					serviceGenerations[service] = pending.generation
+				}
+			}
+			for _, service := range recoveryServices {
+				serviceGenerations[service] = generation
+			}
+			m.recoveryPending[app.ID()] = pendingRecovery{
+				services:           services,
+				serviceGenerations: serviceGenerations,
+				generation:         generation,
+				allServices:        allServices,
+			}
+			m.actions = append(m.actions, lifecycle.Action{
+				ID:                 app.ID(),
+				Name:               app.Name(),
+				User:               app.User(),
+				AppType:            app.AppType(),
+				Path:               app.Path(),
+				Type:               lifecycle.ActionStart,
+				RestartGeneration:  app.RestartGeneration(),
+				StartServices:      services,
+				RecoveryGeneration: generation,
+			})
+		}
 		// remove existing container
 		if removed := app.RemoveWorkload(event.Name); removed {
 			m.log.Debugf("Removed container: %s", event.Name)

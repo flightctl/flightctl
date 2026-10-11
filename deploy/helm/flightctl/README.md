@@ -59,6 +59,28 @@ helm install my-flightctl oci://quay.io/flightctl/charts/flightctl -f values.acm
 helm install my-flightctl oci://quay.io/flightctl/charts/flightctl --namespace flightctl --create-namespace
 ```
 
+### Install from the OpenShift Software Catalog
+
+Prerequisites:
+
+- You have access to an OpenShift Kubernetes cluster (4.19+) with cluster admin permissions.
+
+Procedure:
+
+1. In the OpenShift console with the **Administrator** view selected, navigate to **Home > Projects**, click **Create Project**, enter `flightctl` as the project name, and click **Create**.
+
+2. Navigate to **Ecosystem > Software Catalog**. In the search bar below **All Items**, enter `flightcontrol`, select the **Flight Control** tile, and click **Create**.
+
+3. Verify that the selected project is `flightctl`. Optionally select a Flight Control version to install, then click **Create**.
+
+4. Navigate to **Workloads > Pods** and wait for the pods to reach `Running` or `Completed` state.
+
+5. Navigate to **Networking > Routes** and select the `flightctl-ui` route.
+
+6. Select the URL shown under **Location** to access the Flight Control UI with your current user account and credentials.
+
+If you need to access the service using the `flightctl` CLI, select **Copy login command** to view the command to use.
+
 ### Upgrade Chart
 
 Flightctl uses Helm **pre-upgrade hooks** and a controlled sequence of steps to keep data consistent and minimize downtime:

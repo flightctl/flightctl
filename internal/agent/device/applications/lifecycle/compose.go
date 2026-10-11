@@ -53,7 +53,7 @@ func (c *Compose) add(ctx context.Context, action *Action) error {
 	}
 
 	noRecreate := true
-	if err := podman.Compose().UpFromWorkDir(ctx, action.Path, projectName, noRecreate); err != nil {
+	if err := podman.Compose().UpFromWorkDir(ctx, action.Path, projectName, noRecreate, action.StartServices...); err != nil {
 		return err
 	}
 
@@ -175,7 +175,7 @@ func (c *Compose) Start(ctx context.Context, action Action) error {
 		return fmt.Errorf("creating podman client: %w", err)
 	}
 	noRecreate := true
-	return podman.Compose().UpFromWorkDir(ctx, action.Path, action.ID, noRecreate)
+	return podman.Compose().UpFromWorkDir(ctx, action.Path, action.ID, noRecreate, action.StartServices...)
 }
 
 // Restart stops then starts the compose application.
