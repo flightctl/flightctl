@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"os"
 	"path/filepath"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -616,6 +617,106 @@ func TestWriterForUser(t *testing.T) {
 	err := w.WriteFile(filepath.Join(dir, "test.txt"), []byte("testing"), DefaultFilePermissions)
 	require.Error(t, err)
 	require.ErrorContains(t, err, "chown")
+}
+
+// TestRemoveFile verifies removal of existing, missing, and broken-symlink paths.
+func TestRemoveFile(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(t *testing.T, rootDir string) string
+	}{
+		{
+			name: "When the file exists it should be removed",
+			setup: func(t *testing.T, rootDir string) string {
+				path := filepath.Join(rootDir, "file.txt")
+				require.NoError(t, os.WriteFile(path, []byte("content"), 0o600))
+				return "file.txt"
+			},
+		},
+		{
+			name: "When the file does not exist it should be a no-op",
+			setup: func(_ *testing.T, _ string) string {
+				return "missing.txt"
+			},
+		},
+		{
+			name: "When a broken symlink exists it should be removed",
+			setup: func(t *testing.T, rootDir string) string {
+				path := filepath.Join(rootDir, "broken-link")
+				require.NoError(t, os.Symlink("missing-target", path))
+				return "broken-link"
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rootDir := t.TempDir()
+			file := tt.setup(t, rootDir)
+			w := NewWriter(WithWriterRootDir(rootDir))
+
+			require.NoError(t, w.RemoveFile(file))
+
+			_, err := os.Lstat(filepath.Join(rootDir, file))
+			require.ErrorIs(t, err, os.ErrNotExist)
+		})
+	}
+}
+
+// TestRemoveFileErrorHandling verifies missing-path idempotency and removal-error propagation.
+func TestRemoveFileErrorHandling(t *testing.T) {
+	rootDir := t.TempDir()
+	existingPath := filepath.Join(rootDir, "existing.txt")
+	require.NoError(t, os.WriteFile(existingPath, []byte("content"), 0o600))
+	existingInfo, err := os.Lstat(existingPath)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name       string
+		lstat      func(string) (os.FileInfo, error)
+		remove     func(string) error
+		wantErr    error
+		wantRemove bool
+	}{
+		{
+			name: "When lstat reports a missing file it should not call remove",
+			lstat: func(string) (os.FileInfo, error) {
+				return nil, &os.PathError{Op: "lstat", Err: syscall.ENOENT}
+			},
+			remove: func(string) error {
+				return &os.PathError{Op: "remove", Err: syscall.EROFS}
+			},
+		},
+		{
+			name: "When removing an existing file returns EROFS it should return the error",
+			lstat: func(string) (os.FileInfo, error) {
+				return existingInfo, nil
+			},
+			remove: func(string) error {
+				return &os.PathError{Op: "remove", Err: syscall.EROFS}
+			},
+			wantErr:    syscall.EROFS,
+			wantRemove: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			removeCalled := false
+			remove := func(path string) error {
+				removeCalled = true
+				return tt.remove(path)
+			}
+
+			err := removeFile(existingPath, "existing.txt", tt.lstat, remove)
+			if tt.wantErr == nil {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, tt.wantErr)
+			}
+			require.Equal(t, tt.wantRemove, removeCalled)
+		})
+	}
 }
 
 func TestRemoveEmptyDir(t *testing.T) {
