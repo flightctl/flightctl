@@ -48,7 +48,7 @@ func TestStorePersistsDeltaResultsAndClearsChangedTargets(t *testing.T) {
 	require.NoError(t, restarted.ReconcileApplicationTargets(appTargets, true))
 	appResults := restarted.ApplicationResults("web")
 	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeApplied, appResults[targetID].Status.Outcome)
-	require.Equal(t, "sha256:web-v2", appResults[targetID].ContentDigest)
+	require.Equal(t, "sha256:web-v2", appResults[targetID].DesiredImageResolvedDigest)
 
 	changedOS := Fingerprint("quay.io/acme/os:v3", "quay.io/acme/os-delta:v2")
 	require.NoError(t, restarted.SetOSTarget(changedOS))
@@ -102,7 +102,7 @@ func TestClearApplicationResultIgnoresSupersededTargets(t *testing.T) {
 	}
 }
 
-func TestRecordApplicationResultRequiresResolvedContent(t *testing.T) {
+func TestRecordApplicationResultRequiresDesiredImageResolvedDigest(t *testing.T) {
 	require := require.New(t)
 	root := t.TempDir()
 	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
@@ -112,4 +112,17 @@ func TestRecordApplicationResultRequiresResolvedContent(t *testing.T) {
 	require.NoError(store.ReconcileApplicationTargets(map[string]map[string]string{"app": {"image": "target"}}, true))
 	require.NoError(store.RecordApplicationResult("app", "spec", "image", "target", "", v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}))
 	require.Empty(New(rw, "/var/lib/flightctl", logger).ApplicationResults("app"))
+}
+
+func TestStoreLoadsPersistedDesiredImageResolvedDigest(t *testing.T) {
+	require := require.New(t)
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	dataDir := "/var/lib/flightctl"
+	require.NoError(rw.MkdirAll(dataDir, 0o700))
+	// Existing state uses contentDigest for DesiredImageResolvedDigest.
+	require.NoError(rw.WriteFile(filepath.Join(dataDir, FileName), []byte(`{"version":1,"applications":{"app":{"specKey":"spec","targets":{"image":"target"},"results":{"image":{"targetKey":"target","contentDigest":"sha256:desired","status":{"outcome":"Applied"}}}}}}`), 0o600))
+	result := New(rw, dataDir, log.NewPrefixLogger("test")).ApplicationResults("app")["image"]
+	require.Equal("sha256:desired", result.DesiredImageResolvedDigest)
+	require.Equal(v1beta1.DeviceDeltaApplyOutcomeApplied, result.Status.Outcome)
 }

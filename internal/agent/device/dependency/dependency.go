@@ -212,10 +212,10 @@ type PrefetchStatus struct {
 }
 
 type applicationDeltaApplyResult struct {
-	outcome        v1beta1.DeviceDeltaApplyOutcomeType
-	fallbackReason string
-	targetKey      string
-	contentDigest  string
+	outcome                    v1beta1.DeviceDeltaApplyOutcomeType
+	fallbackReason             string
+	targetKey                  string
+	desiredImageResolvedDigest string
 }
 
 var _ PrefetchManager = (*prefetchManager)(nil)
@@ -311,17 +311,17 @@ type prefetchManager struct {
 }
 
 type prefetchTask struct {
-	clientOptsFn         ClientOptsFn
-	ociType              OCIType
-	targetDigest         string
-	resolvedDigest       string
-	applicationTargetKey string
-	targetPresent        bool
-	delta                *OCIDeltaTarget
-	deltaGeneration      uint64
-	err                  error
-	done                 bool
-	cancelFn             context.CancelFunc
+	clientOptsFn               ClientOptsFn
+	ociType                    OCIType
+	targetDigest               string // Digest declared by the collected target.
+	desiredImageResolvedDigest string // Resolved digest of the desired image target reference.
+	applicationTargetKey       string
+	targetPresent              bool
+	delta                      *OCIDeltaTarget
+	deltaGeneration            uint64
+	err                        error
+	done                       bool
+	cancelFn                   context.CancelFunc
 }
 
 type digestCheckResult int
@@ -703,10 +703,10 @@ func (m *prefetchManager) restoreApplicationDeltaResults(
 				fallbackReason = *persisted.Status.FallbackReason
 			}
 			results[application][target] = applicationDeltaApplyResult{
-				outcome:        persisted.Status.Outcome,
-				fallbackReason: fallbackReason,
-				targetKey:      targetKey,
-				contentDigest:  persisted.ContentDigest,
+				outcome:                    persisted.Status.Outcome,
+				fallbackReason:             fallbackReason,
+				targetKey:                  targetKey,
+				desiredImageResolvedDigest: persisted.DesiredImageResolvedDigest,
 			}
 		}
 	}
@@ -846,7 +846,7 @@ func (m *prefetchManager) pull(ctx context.Context, target imageRef, task *prefe
 	if err != nil {
 		return err
 	}
-	m.resolveApplicationTaskDigest(ctx, target, task, skopeo, opts...)
+	m.resolveApplicationTaskDesiredImageResolvedDigest(ctx, target, task, skopeo, opts...)
 	return m.pullByOCIType(ctx, target, task, ociType, podman, skopeo, opts...)
 }
 
@@ -1099,17 +1099,17 @@ func (m *prefetchManager) inspectApplicationDeltaCandidate(
 	if err != nil {
 		return "", 0, err
 	}
-	var targetDigest string
+	var desiredImageResolvedDigest string
 	if digested, ok := named.(reference.Digested); ok {
-		targetDigest = digested.Digest().String()
+		desiredImageResolvedDigest = digested.Digest().String()
 	} else {
-		targetDigest, err = skopeo.InspectDigest(ctx, targetImage, opts...)
+		desiredImageResolvedDigest, err = skopeo.InspectDigest(ctx, targetImage, opts...)
 		if err != nil {
 			return "", 0, fmt.Errorf("inspect delta target digest: %w", err)
 		}
 	}
-	if normalizeDigest(manifest.Subject.Digest) != normalizeDigest(targetDigest) {
-		return "", 0, fmt.Errorf("delta target digest %s does not match desired image %s", manifest.Subject.Digest, targetDigest)
+	if normalizeDigest(manifest.Subject.Digest) != normalizeDigest(desiredImageResolvedDigest) {
+		return "", 0, fmt.Errorf("delta target digest %s does not match desired image %s", manifest.Subject.Digest, desiredImageResolvedDigest)
 	}
 	if err := validateApplicationDeltaCandidate(repository + "@" + source); err != nil {
 		return "", 0, fmt.Errorf("invalid delta source digest: %w", err)
@@ -1438,10 +1438,10 @@ func (m *prefetchManager) recordDeltaApplyResultLocked(target imageRef, task *pr
 			}
 		}
 		result := applicationDeltaApplyResult{
-			outcome:        outcome,
-			fallbackReason: fallbackReason,
-			targetKey:      task.applicationTargetKey,
-			contentDigest:  task.resolvedDigest,
+			outcome:                    outcome,
+			fallbackReason:             fallbackReason,
+			targetKey:                  task.applicationTargetKey,
+			desiredImageResolvedDigest: task.desiredImageResolvedDigest,
 		}
 		results[target] = result
 		logResult := m.log.Debugf
@@ -1449,10 +1449,10 @@ func (m *prefetchManager) recordDeltaApplyResultLocked(target imageRef, task *pr
 			logResult = m.log.Infof
 		}
 		logResult(
-			"Recorded application delta result: application=%s image=%s outcome=%s ociType=%s hintPresent=%t targetDigest=%q fallbackReason=%q",
-			application, target.image, outcome, task.ociType, task.delta.Hint != "", task.resolvedDigest, fallbackReason,
+			"Recorded application delta result: application=%s image=%s outcome=%s ociType=%s hintPresent=%t desiredImageResolvedDigest=%q fallbackReason=%q",
+			application, target.image, outcome, task.ociType, task.delta.Hint != "", task.desiredImageResolvedDigest, fallbackReason,
 		)
-		if m.deltaStatusStore != nil && persistedTargetKey == task.applicationTargetKey && task.resolvedDigest != "" {
+		if m.deltaStatusStore != nil && persistedTargetKey == task.applicationTargetKey && task.desiredImageResolvedDigest != "" {
 			status := v1beta1.DeviceDeltaApplyStatus{Outcome: outcome}
 			if fallbackReason != "" {
 				reason := fallbackReason
@@ -1463,7 +1463,7 @@ func (m *prefetchManager) recordDeltaApplyResultLocked(target imageRef, task *pr
 				m.deltaAppSpecKeys[application],
 				targetID,
 				task.applicationTargetKey,
-				task.resolvedDigest,
+				task.desiredImageResolvedDigest,
 				status,
 			); err != nil {
 				m.log.Warnf("Failed to persist delta result for application %s image %s: %v", application, target.image, err)
@@ -1554,7 +1554,7 @@ func (m *prefetchManager) prepareTask(ctx context.Context, target imageRef, ociT
 				existing.delta = delta
 				existing.done = false
 				existing.err = nil
-				existing.resolvedDigest = ""
+				existing.desiredImageResolvedDigest = ""
 				return m.checkCachedApplicationTask(ctx, target, existing), nil
 			}
 			m.recordDeltaApplyResultLocked(
@@ -1639,27 +1639,27 @@ func (m *prefetchManager) prepareTask(ctx context.Context, target imageRef, ociT
 	return true, nil
 }
 
-// resolveApplicationTaskDigest identifies desired content independently of local
-// storage and reported status, before either delta selection path or a full pull.
-func (m *prefetchManager) resolveApplicationTaskDigest(ctx context.Context, target imageRef, task *prefetchTask, skopeo *client.Skopeo, opts ...client.ClientOption) {
+// resolveApplicationTaskDesiredImageResolvedDigest resolves the desired image
+// reference digest before delta selection or a full pull.
+func (m *prefetchManager) resolveApplicationTaskDesiredImageResolvedDigest(ctx context.Context, target imageRef, task *prefetchTask, skopeo *client.Skopeo, opts ...client.ClientOption) {
 	if task.delta == nil {
 		return
 	}
 	m.mu.Lock()
-	resolvedDigest := task.resolvedDigest
+	desiredImageResolvedDigest := task.desiredImageResolvedDigest
 	m.mu.Unlock()
-	if supportsApplicationImageDigestCheck(task.ociType) && resolvedDigest == "" {
-		resolvedDigest = m.resolveApplicationImageDigest(ctx, target, skopeo, opts...)
+	if supportsApplicationImageDigestCheck(task.ociType) && desiredImageResolvedDigest == "" {
+		desiredImageResolvedDigest = m.resolveApplicationDesiredImageResolvedDigest(ctx, target, skopeo, opts...)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.tasks[target] == task && task.deltaGeneration == m.deltaGeneration {
-		task.resolvedDigest = resolvedDigest
+		task.desiredImageResolvedDigest = desiredImageResolvedDigest
 		m.validateApplicationDeltaResultLocked(target, task)
 	}
 }
 
-func (m *prefetchManager) resolveApplicationImageDigest(ctx context.Context, target imageRef, skopeo *client.Skopeo, opts ...client.ClientOption) string {
+func (m *prefetchManager) resolveApplicationDesiredImageResolvedDigest(ctx context.Context, target imageRef, skopeo *client.Skopeo, opts ...client.ClientOption) string {
 	if named, err := reference.ParseNormalizedNamed(target.image); err == nil {
 		if pinned, ok := named.(reference.Digested); ok {
 			return pinned.Digest().String()
@@ -1676,20 +1676,20 @@ func (m *prefetchManager) resolveApplicationImageDigest(ctx context.Context, tar
 	defer cancel()
 	inspectOpts := append([]client.ClientOption(nil), opts...)
 	inspectOpts = append(inspectOpts, client.WithDefaultAuth())
-	digest, err := skopeo.InspectDigest(ctx, target.image, inspectOpts...)
+	desiredImageResolvedDigest, err := skopeo.InspectDigest(ctx, target.image, inspectOpts...)
 	if err != nil {
-		m.log.Debugf("Could not resolve desired content for %s: %v", target, err)
+		m.log.Debugf("Could not resolve desired image digest for %s: %v", target, err)
 		return ""
 	}
-	return applicationImageDigest(digest)
+	return applicationImageDigest(desiredImageResolvedDigest)
 }
 
-// mu must be held. Unresolved desired content cannot validate a cached outcome.
+// mu must be held. Only the desired image resolved digest validates a cached outcome.
 func (m *prefetchManager) validateApplicationDeltaResultLocked(target imageRef, task *prefetchTask) {
 	for _, application := range deltaApplications(task.delta) {
 		existing, exists := m.deltaApplyResults[application][target]
 		if exists && existing.targetKey == task.applicationTargetKey &&
-			(task.resolvedDigest == "" || existing.contentDigest != task.resolvedDigest) {
+			(task.desiredImageResolvedDigest == "" || existing.desiredImageResolvedDigest != task.desiredImageResolvedDigest) {
 			m.invalidateApplicationDeltaResultLocked(target, task)
 			return
 		}
@@ -1724,15 +1724,15 @@ func (m *prefetchManager) checkCachedApplicationTask(ctx context.Context, target
 			} else if podman != nil {
 				present = podman.ImageExists(ctx, target.image) || podman.ArtifactExists(ctx, target.image)
 			}
-			snapshot.resolvedDigest = ""
+			snapshot.desiredImageResolvedDigest = ""
 			if present {
 				result = digestUnknown
 				if m.skopeoFactory != nil {
 					skopeo, err := m.skopeoFactory(target.owner)
 					if err == nil {
-						// Revalidate cached tags against the registry. A resolved digest
-						// is reusable by the subsequent pull, but not by this cache check.
-						result = m.applicationImageDigestMatchesTarget(ctx, target, snapshot.ociType, snapshot.delta, true, podman, skopeo, &snapshot.resolvedDigest, opts...)
+						// Revalidate cached tags against the registry. The desired image
+						// resolved digest is reusable by the pull, but not by this cache check.
+						result = m.applicationImageDigestMatchesDesiredImageResolvedDigest(ctx, target, snapshot.ociType, snapshot.delta, true, podman, skopeo, &snapshot.desiredImageResolvedDigest, opts...)
 					}
 				}
 			} else {
@@ -1740,8 +1740,8 @@ func (m *prefetchManager) checkCachedApplicationTask(ctx context.Context, target
 				if m.skopeoFactory != nil {
 					skopeo, _ = m.skopeoFactory(target.owner)
 				}
-				// Pruning local storage does not change the desired content identity.
-				snapshot.resolvedDigest = m.resolveApplicationImageDigest(ctx, target, skopeo, opts...)
+				// Pruning local storage does not change the desired image resolved digest.
+				snapshot.desiredImageResolvedDigest = m.resolveApplicationDesiredImageResolvedDigest(ctx, target, skopeo, opts...)
 			}
 		}()
 		if m.tasks[target] != task || task.delta != snapshot.delta || task.done != snapshot.done ||
@@ -1753,7 +1753,7 @@ func (m *prefetchManager) checkCachedApplicationTask(ctx context.Context, target
 			result = digestUnknown
 			continue
 		}
-		task.resolvedDigest = snapshot.resolvedDigest
+		task.desiredImageResolvedDigest = snapshot.desiredImageResolvedDigest
 		break
 	}
 	m.validateApplicationDeltaResultLocked(target, task)
@@ -1796,7 +1796,7 @@ func supportsApplicationImageDigestCheck(ociType OCIType) bool {
 	}
 }
 
-func (m *prefetchManager) applicationImageDigestMatchesTarget(
+func (m *prefetchManager) applicationImageDigestMatchesDesiredImageResolvedDigest(
 	ctx context.Context,
 	target imageRef,
 	ociType OCIType,
@@ -1804,7 +1804,7 @@ func (m *prefetchManager) applicationImageDigestMatchesTarget(
 	targetPresent bool,
 	podman *client.Podman,
 	skopeo *client.Skopeo,
-	resolvedDigest *string,
+	desiredImageResolvedDigestOut *string,
 	opts ...client.ClientOption,
 ) digestCheckResult {
 	application := ""
@@ -1813,10 +1813,10 @@ func (m *prefetchManager) applicationImageDigestMatchesTarget(
 		application = strings.Join(deltaApplications(delta), ",")
 		hintPresent = delta.Hint != ""
 	}
-	logCheck := func(result digestCheckResult, comparisonDigests []string, desiredDigest, reason string) digestCheckResult {
+	logCheck := func(result digestCheckResult, comparisonDigests []string, desiredImageResolvedDigest, reason string) digestCheckResult {
 		m.log.Debugf(
-			"Application delta digest check: application=%s image=%s ociType=%s targetPresent=%t hintPresent=%t comparisonDigests=%v targetDigest=%q matches=%t reason=%q",
-			application, target.image, ociType, targetPresent, hintPresent, comparisonDigests, desiredDigest, result == digestMatched, reason,
+			"Application delta digest check: application=%s image=%s ociType=%s targetPresent=%t hintPresent=%t comparisonDigests=%v desiredImageResolvedDigest=%q matches=%t reason=%q",
+			application, target.image, ociType, targetPresent, hintPresent, comparisonDigests, desiredImageResolvedDigest, result == digestMatched, reason,
 		)
 		return result
 	}
@@ -1851,17 +1851,17 @@ func (m *prefetchManager) applicationImageDigestMatchesTarget(
 	}
 
 	currentDigests, ok := m.applicationDeltaCheckCurrentDigests(ctx, target, imageType, targetPresent, podman, opts...)
-	if *resolvedDigest == "" {
-		*resolvedDigest = m.resolveApplicationImageDigest(ctx, target, skopeo, opts...)
+	if *desiredImageResolvedDigestOut == "" {
+		*desiredImageResolvedDigestOut = m.resolveApplicationDesiredImageResolvedDigest(ctx, target, skopeo, opts...)
 	}
-	targetDigest := *resolvedDigest
+	desiredImageResolvedDigest := *desiredImageResolvedDigestOut
 	if !ok {
-		return logCheck(digestMismatched, nil, targetDigest, "could not inspect local image digest")
+		return logCheck(digestMismatched, nil, desiredImageResolvedDigest, "could not inspect local image digest")
 	}
-	if targetDigest == "" || len(currentDigests) == 0 {
-		return logCheck(digestUnknown, currentDigests, targetDigest, "desired or local image digest unavailable")
+	if desiredImageResolvedDigest == "" || len(currentDigests) == 0 {
+		return logCheck(digestUnknown, currentDigests, desiredImageResolvedDigest, "desired or local image digest unavailable")
 	}
-	matches := applicationImageDigestsMatch(currentDigests, targetDigest)
+	matches := applicationImageDigestsMatchDesiredImageResolvedDigest(currentDigests, desiredImageResolvedDigest)
 	reason := "digest mismatch"
 	if matches {
 		reason = "digest match"
@@ -1870,7 +1870,7 @@ func (m *prefetchManager) applicationImageDigestMatchesTarget(
 	if matches {
 		result = digestMatched
 	}
-	return logCheck(result, currentDigests, targetDigest, reason)
+	return logCheck(result, currentDigests, desiredImageResolvedDigest, reason)
 }
 
 func (m *prefetchManager) applicationDeltaCheckImageType(
@@ -1943,9 +1943,9 @@ func (m *prefetchManager) applicationDeltaCheckCurrentDigests(
 	}
 }
 
-func applicationImageDigestsMatch(currentDigests []string, targetDigest string) bool {
+func applicationImageDigestsMatchDesiredImageResolvedDigest(currentDigests []string, desiredImageResolvedDigest string) bool {
 	for _, currentDigest := range currentDigests {
-		if currentDigest := applicationImageDigest(currentDigest); currentDigest != "" && currentDigest == targetDigest {
+		if currentDigest := applicationImageDigest(currentDigest); currentDigest != "" && currentDigest == desiredImageResolvedDigest {
 			return true
 		}
 	}
@@ -2275,12 +2275,12 @@ func (m *prefetchManager) persistedApplicationDeltaResults(
 		if !hasResult {
 			result, hasResult = m.currentApplicationDeltaResult(application, targetID, targetKey)
 		}
-		if !hasResult || result.contentDigest == "" {
+		if !hasResult || result.desiredImageResolvedDigest == "" {
 			return nil, false
 		}
 		if ref, exists := m.deltaTargetRefs[targetID]; exists {
 			if task, exists := m.tasks[ref]; exists &&
-				(task.applicationTargetKey != targetKey || task.resolvedDigest != result.contentDigest) {
+				(task.applicationTargetKey != targetKey || task.desiredImageResolvedDigest != result.desiredImageResolvedDigest) {
 				return nil, false
 			}
 		}
@@ -2302,10 +2302,10 @@ func applicationDeltaResultFromSnapshot(
 		fallbackReason = *persisted.Status.FallbackReason
 	}
 	return applicationDeltaApplyResult{
-		outcome:        persisted.Status.Outcome,
-		fallbackReason: fallbackReason,
-		targetKey:      targetKey,
-		contentDigest:  persisted.ContentDigest,
+		outcome:                    persisted.Status.Outcome,
+		fallbackReason:             fallbackReason,
+		targetKey:                  targetKey,
+		desiredImageResolvedDigest: persisted.DesiredImageResolvedDigest,
 	}, true
 }
 

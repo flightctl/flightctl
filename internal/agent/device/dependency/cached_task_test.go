@@ -39,7 +39,7 @@ func TestCachedTaskInspectionAllowsWorkerCompletion(t *testing.T) {
 			name: "When a task completes during inspection it should preserve its result",
 			change: func(manager *prefetchManager, target imageRef) {
 				manager.tasks[target].done = true
-				manager.tasks[target].resolvedDigest = "completed-digest"
+				manager.tasks[target].desiredImageResolvedDigest = "completed-digest"
 			},
 			checks: 1,
 		},
@@ -131,14 +131,14 @@ func TestCachedTaskInspectionAllowsWorkerCompletion(t *testing.T) {
 			case current != original:
 				require.False(current.done)
 				require.False(original.done)
-				require.Empty(original.resolvedDigest)
-			case current.resolvedDigest == "completed-digest":
+				require.Empty(original.desiredImageResolvedDigest)
+			case current.desiredImageResolvedDigest == "completed-digest":
 				require.True(current.done)
 				require.Empty(manager.deltaApplyResults)
 			default:
 				require.True(current.done)
 				require.True(current.targetPresent)
-				require.Equal(digest, current.resolvedDigest)
+				require.Equal(digest, current.desiredImageResolvedDigest)
 				require.Equal(v1beta1.DeviceDeltaApplyOutcomeNotRequired, manager.deltaApplyResults["app"][target].outcome)
 			}
 		})
@@ -203,7 +203,7 @@ func TestCachedTaskInspectionBoundsGenerationRetries(t *testing.T) {
 			require.False(manager.mu.TryLock())
 			require.Equal(testCase.wantDone, task.done)
 			require.True(task.targetPresent)
-			require.Empty(task.resolvedDigest)
+			require.Empty(task.desiredImageResolvedDigest)
 			if testCase.wantDone {
 				require.Equal(v1beta1.DeviceDeltaApplyOutcomeNotUsed, manager.deltaApplyResults["app"][target].outcome)
 			} else {
@@ -247,7 +247,7 @@ func TestCachedAutoArtifactRemainsPresent(t *testing.T) {
 				skopeoFactory: func(v1beta1.Username) (*client.Skopeo, error) { return skopeo, nil },
 			}
 			if testCase.checkOnly {
-				require.Equal(digestUnknown, manager.applicationImageDigestMatchesTarget(context.Background(), target, OCITypeAuto, delta, true, podman, nil, nil))
+				require.Equal(digestUnknown, manager.applicationImageDigestMatchesDesiredImageResolvedDigest(context.Background(), target, OCITypeAuto, delta, true, podman, nil, nil))
 				return
 			}
 			if !testCase.completed {
