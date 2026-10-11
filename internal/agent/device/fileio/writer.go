@@ -156,7 +156,19 @@ func (w *writer) WriteFile(name string, data []byte, perm fs.FileMode, opts ...F
 }
 
 func (w *writer) RemoveFile(file string) error {
-	if err := os.Remove(filepath.Join(w.rootDir, file)); err != nil && !os.IsNotExist(err) {
+	return removeFile(filepath.Join(w.rootDir, file), file, os.Lstat, os.Remove)
+}
+
+func removeFile(fullPath, file string, lstat func(string) (os.FileInfo, error), remove func(string) error) error {
+	// Check before removing because a read-only filesystem can return EROFS for
+	// an absent path instead of the ENOENT that os.IsNotExist expects.
+	if _, err := lstat(fullPath); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("stat file %q: %w", file, err)
+	}
+	if err := remove(fullPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("remove file %q: %w", file, err)
 	}
 	return nil
