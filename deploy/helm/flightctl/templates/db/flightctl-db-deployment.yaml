@@ -66,6 +66,13 @@ spec:
             - mountPath: /usr/share/container-scripts/postgresql/start/enable-superuser.sh
               subPath: enable-superuser.sh
               name: init-scripts
+            # Mounted at the sclorg precedence path: files under
+            # /opt/app-root/src/postgresql-start/ take priority over the
+            # image's own start scripts, leaving the original
+            # set_passwords.sh in place for the wrapper to delegate to.
+            - mountPath: /opt/app-root/src/postgresql-start/set_passwords.sh
+              subPath: set_passwords.sh
+              name: init-scripts
           resources:
             requests:
               cpu: {{ .Values.db.builtin.resources.requests.cpu}}

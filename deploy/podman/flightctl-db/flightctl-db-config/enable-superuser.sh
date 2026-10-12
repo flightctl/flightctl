@@ -18,7 +18,7 @@ echo "PostgreSQL is ready, configuring permissions..."
 
 # Ensure POSTGRESQL_MASTER_USER is treated as a superuser
 if [ -n "${POSTGRESQL_MASTER_USER}" ]; then
-    echo "Granting superuser privileges to ${POSTGRESQL_MASTER_USER}"
+    echo "Configuring superuser privileges for ${POSTGRESQL_MASTER_USER}"
 
     # Check if user exists, create if it doesn't
     if ! _psql -U postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname = '${POSTGRESQL_MASTER_USER}'" | grep -q 1; then
@@ -32,9 +32,42 @@ if [ -n "${POSTGRESQL_MASTER_USER}" ]; then
         END$$;'
     fi
 
-    # Grant superuser privileges
-    _psql -U postgres -c "ALTER ROLE \"${POSTGRESQL_MASTER_USER}\" WITH SUPERUSER CREATEDB CREATEROLE;"
-    echo "Successfully granted superuser privileges to ${POSTGRESQL_MASTER_USER}"
+    # Grant superuser privileges.
+    # The ALTER is skipped when the role is already a superuser: the sclorg
+    # entrypoint runs with "set -eu", so a failing or hanging catalog update
+    # here aborts startup before pg_ctl stop can shut PostgreSQL down cleanly.
+    # Bound the probe as well: a blocked catalog must not stall startup here.
+    # Its result decides whether the ALTER is needed, so an unreadable result
+    # is a hard error rather than a silent skip.
+    if ! IS_SUPER=$(timeout 10 psql -U postgres -tAc \
+        "SELECT rolsuper FROM pg_roles WHERE rolname = '${POSTGRESQL_MASTER_USER}'"); then
+        echo "ERROR: could not determine whether ${POSTGRESQL_MASTER_USER} is a superuser"
+        return 1
+    fi
+
+    if [ "$IS_SUPER" = "t" ]; then
+        echo "${POSTGRESQL_MASTER_USER} is already a superuser, skipping"
+    else
+        # The ALTER can still lose a race against a concurrent catalog update
+        # and fail with "tuple concurrently updated". Retry with random jitter
+        # so competing writers do not line up again on the next attempt.
+        superuser_granted=0
+        for attempt in 1 2 3 4 5; do
+            if _psql -U postgres -c "ALTER ROLE \"${POSTGRESQL_MASTER_USER}\" WITH SUPERUSER CREATEDB CREATEROLE;"; then
+                superuser_granted=1
+                break
+            fi
+            echo "WARNING: attempt ${attempt}/5 to grant superuser privileges failed"
+            sleep $(( (RANDOM % 5) + 1 ))
+        done
+
+        if [ "${superuser_granted}" -ne 1 ]; then
+            echo "ERROR: could not grant superuser privileges to ${POSTGRESQL_MASTER_USER} after 5 attempts"
+            return 1
+        fi
+
+        echo "Successfully granted superuser privileges to ${POSTGRESQL_MASTER_USER}"
+    fi
 else
     echo "POSTGRESQL_MASTER_USER not set, skipping superuser configuration"
 fi

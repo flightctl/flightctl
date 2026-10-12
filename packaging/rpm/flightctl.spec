@@ -711,6 +711,7 @@ fi
     %{_datadir}/flightctl/flightctl-api/config.yaml.template
     %{_datadir}/flightctl/flightctl-api/env.template
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db/enable-superuser.sh
+    %attr(0755,root,root) %{_datadir}/flightctl/flightctl-db/set_passwords.sh
     %{_datadir}/flightctl/flightctl-kv/valkey.conf
     %{_datadir}/flightctl/flightctl-ui/env.template
     %attr(0755,root,root) %{_datadir}/flightctl/flightctl-ui/init.sh

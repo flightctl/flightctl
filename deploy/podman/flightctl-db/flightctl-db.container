@@ -15,6 +15,9 @@ Secret=flightctl-postgresql-password,type=env,target=PGPASSWORD
 Secret=flightctl-postgresql-master-password,type=env,target=POSTGRESQL_MASTER_PASSWORD
 Secret=flightctl-postgresql-user-password,type=env,target=POSTGRESQL_PASSWORD
 Volume=/usr/share/flightctl/flightctl-db/enable-superuser.sh:/usr/share/container-scripts/postgresql/start/enable-superuser.sh
+# Mounted at the sclorg precedence path so the image's original
+# set_passwords.sh stays in place for the wrapper to delegate to.
+Volume=/usr/share/flightctl/flightctl-db/set_passwords.sh:/opt/app-root/src/postgresql-start/set_passwords.sh
 
 [Service]
 ExecStartPre=/usr/share/flightctl/init_db.sh
