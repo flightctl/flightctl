@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
+	"slices"
 	"sync"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -52,14 +53,34 @@ type osState struct {
 }
 
 type applicationState struct {
-	SpecKey string                            `json:"specKey"`
-	Targets map[string]string                 `json:"targets,omitempty"`
-	Results map[string]applicationImageResult `json:"results,omitempty"`
+	History map[string]applicationObservedResult `json:"history,omitempty"`
+	SpecKey string                               `json:"specKey"`
+	Targets map[string]string                    `json:"targets,omitempty"`
+	Results map[string]applicationImageResult    `json:"results,omitempty"`
 }
 
 type applicationImageResult struct {
 	TargetKey string                         `json:"targetKey"`
 	Status    v1beta1.DeviceDeltaApplyStatus `json:"status"`
+}
+
+// ApplicationImage is a verified observation scoped to its storage owner and OCI type.
+// The digest is the single registry identity supplied by the owning runtime.
+type ApplicationImage struct {
+	Image   string `json:"image"`
+	Owner   string `json:"owner"`
+	OCIType string `json:"ociType"`
+	Digest  string `json:"digest"`
+}
+
+type applicationObservedResult struct {
+	Image     ApplicationImage               `json:"image"`
+	TargetKey string                         `json:"targetKey"`
+	Status    v1beta1.DeviceDeltaApplyStatus `json:"status"`
+}
+
+func applicationHistoryKey(image ApplicationImage) string {
+	return Fingerprint(image.Owner, image.Image, image.OCIType, image.Digest)
 }
 
 // ApplicationSnapshot is an in-memory copy of an application's current delta
@@ -225,8 +246,8 @@ func (s *Store) ObservedOSResult(image, digest string) *v1beta1.DeviceDeltaApply
 	return &cloned
 }
 
-// ReconcileApplicationSpecs resets stored results when an application spec
-// changes and removes state for applications no longer present.
+// ReconcileApplicationSpecs advances active attempts without discarding observed
+// image history, and removes state for applications no longer present.
 func (s *Store) ReconcileApplicationSpecs(specKeys map[string]string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -240,7 +261,12 @@ func (s *Store) ReconcileApplicationSpecs(specKeys map[string]string) error {
 		if current != nil && current.SpecKey == specKey {
 			continue
 		}
+		var history map[string]applicationObservedResult
+		if current != nil {
+			history = current.History
+		}
 		s.state.Applications[application] = &applicationState{
+			History: history,
 			SpecKey: specKey,
 			Targets: make(map[string]string),
 			Results: make(map[string]applicationImageResult),
@@ -377,6 +403,94 @@ func (s *Store) RecordApplicationResult(application, specKey, targetID, targetKe
 	}
 	current.Results[targetID] = applicationImageResult{TargetKey: targetKey, Status: cloneStatus(result)}
 	return s.saveLocked()
+}
+
+// RecordApplicationImageResult persists verified history only for an active attempt.
+// Legacy attempt-only results remain useful for scheduling, never for publication.
+func (s *Store) RecordApplicationImageResult(application, specKey, targetID, targetKey string, image ApplicationImage, result v1beta1.DeviceDeltaApplyStatus) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current := s.state.Applications[application]
+	if current == nil || specKey == "" || current.SpecKey != specKey || targetID == "" || targetKey == "" || current.Targets[targetID] != targetKey || image.Image == "" || image.Digest == "" || image.OCIType == "" {
+		return nil
+	}
+	if current.History == nil {
+		current.History = make(map[string]applicationObservedResult)
+	}
+	key := applicationHistoryKey(image)
+	// An already-recorded identity keeps the outcome describing its original use.
+	if _, exists := current.History[key]; !exists {
+		current.History[key] = applicationObservedResult{Image: image, TargetKey: targetKey, Status: cloneStatus(result)}
+	}
+	return s.saveLocked()
+}
+
+// ObservedApplicationResult combines only history matching every image in a
+// complete observed snapshot. It returns an owned result without runtime or disk I/O.
+func (s *Store) ObservedApplicationResult(application string, images []ApplicationImage, complete bool) *v1beta1.DeviceDeltaApplyStatus {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current := s.state.Applications[application]
+	if !complete || current == nil || len(images) == 0 {
+		return nil
+	}
+	results := make(map[string]v1beta1.DeviceDeltaApplyStatus, len(images))
+	for _, image := range images {
+		if image.Image == "" || image.Digest == "" || image.OCIType == "" {
+			return nil
+		}
+		key := applicationHistoryKey(image)
+		result, exists := current.History[key]
+		if !exists || result.Image != image {
+			return nil
+		}
+		results[key] = result.Status
+	}
+	return aggregateApplicationResults(results)
+}
+
+func aggregateApplicationResults(results map[string]v1beta1.DeviceDeltaApplyStatus) *v1beta1.DeviceDeltaApplyStatus {
+	var applied, fallback, notUsed, notRequired int
+	var reasons []string
+	for _, result := range results {
+		switch result.Outcome {
+		case v1beta1.DeviceDeltaApplyOutcomeApplied:
+			applied++
+		case v1beta1.DeviceDeltaApplyOutcomeFallback:
+			fallback++
+			if result.FallbackReason != nil && *result.FallbackReason != "" {
+				reasons = append(reasons, *result.FallbackReason)
+			}
+		case v1beta1.DeviceDeltaApplyOutcomeNotUsed:
+			notUsed++
+		case v1beta1.DeviceDeltaApplyOutcomeNotRequired:
+			notRequired++
+		default:
+			return nil
+		}
+	}
+	if applied+fallback+notUsed+notRequired == 0 {
+		return nil
+	}
+	status := &v1beta1.DeviceDeltaApplyStatus{}
+	switch {
+	case applied > 0 && (fallback > 0 || notUsed > 0):
+		status.Outcome = v1beta1.DeviceDeltaApplyOutcomePartial
+	case applied > 0:
+		status.Outcome = v1beta1.DeviceDeltaApplyOutcomeApplied
+	case fallback > 0:
+		status.Outcome = v1beta1.DeviceDeltaApplyOutcomeFallback
+	case notUsed > 0:
+		status.Outcome = v1beta1.DeviceDeltaApplyOutcomeNotUsed
+	default:
+		status.Outcome = v1beta1.DeviceDeltaApplyOutcomeNotRequired
+	}
+	if len(reasons) > 0 {
+		slices.Sort(reasons)
+		reason := reasons[0]
+		status.FallbackReason = &reason
+	}
+	return status
 }
 
 // ClearApplicationResult invalidates an outcome when the active target's content changes.

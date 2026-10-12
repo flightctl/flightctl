@@ -55,6 +55,7 @@ func TestPrefetchSeparatesRuntimeStores(t *testing.T) {
 			// The source exists in Podman only. CRI must recover with its own pull.
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", "images", "--output", "json").Return(`{"images":[]}`, "", 0)
 			exec.EXPECT().ExecuteWithContextFromDir(gomock.Any(), "", "crictl", []string{"pull", image}, gomock.Any()).Return("", "", 0)
+			exec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", "inspecti", "--output", "json", image).Return(`{"status":{"repoDigests":[]}}`, "", 0).AnyTimes()
 			targets := []OCIPullTarget{
 				{Type: OCITypePodmanImage, Reference: image, Delta: &OCIDeltaTarget{Hint: hint, Applications: []string{"podman", "mixed"}}},
 				{Type: OCITypeCRIImage, Reference: image, Delta: &OCIDeltaTarget{Hint: hint, Applications: []string{"cri", "mixed"}}},
@@ -90,7 +91,7 @@ func TestPrefetchSeparatesRuntimeStores(t *testing.T) {
 			require.NoError(manager.checkReady(t.Context()))
 			checkStatus := func(manager *prefetchManager) {
 				status := &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: "podman"}, {Name: "cri"}, {Name: "mixed"}}}
-				require.NoError(manager.Status(t.Context(), status))
+				require.NoError(collectPrefetchTaskOutcomes(t, manager, t.Context(), status))
 				for i, outcome := range []v1beta1.DeviceDeltaApplyOutcomeType{v1beta1.DeviceDeltaApplyOutcomeApplied, v1beta1.DeviceDeltaApplyOutcomeFallback, v1beta1.DeviceDeltaApplyOutcomePartial} {
 					require.NotNil(status.Applications[i].LastDelta)
 					require.Equal(outcome, status.Applications[i].LastDelta.Outcome)
