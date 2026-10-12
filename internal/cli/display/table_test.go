@@ -5,9 +5,11 @@ import (
 	"strings"
 	"testing"
 	"text/tabwriter"
+	"unicode/utf8"
 
 	apiv1alpha1 "github.com/flightctl/flightctl/api/core/v1alpha1"
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 )
 
@@ -34,46 +36,64 @@ func newTestWriter(buf *bytes.Buffer) *tabwriter.Writer {
 // trimmed cell value of the named column for each data row. Column boundaries
 // are determined from the header line so assertions bind to a specific column
 // position, not just any substring in the row.
+//
+// Offsets are counted in runes, not bytes, because tabwriter pads cells by
+// rune count. Slicing by byte would cut a multi-byte character (such as the
+// ellipsis used for truncated cells) in half and yield invalid UTF-8.
 func extractColumnCells(t *testing.T, output, column string) []string {
 	t.Helper()
 
 	lines := strings.Split(strings.TrimRight(output, "\n"), "\n")
 	require.GreaterOrEqual(t, len(lines), 2, "table output must have header + data rows")
 
-	header := lines[0]
-	colStart := strings.Index(header, column)
+	header := []rune(lines[0])
+	colRunes := []rune(column)
+	colStart := runeIndex(header, colRunes)
 	require.NotEqual(t, -1, colStart, "column %q not found in header", column)
 
 	// Determine the end of this column's cell region: skip past the column
 	// name in the header then past any padding until the next header word,
 	// which marks the start of the next column. If nothing follows, the
 	// column extends to end of line.
-	rest := header[colStart+len(column):]
 	colEnd := len(header)
-	for i, ch := range rest {
-		if ch != '\t' && ch != ' ' {
-			colEnd = colStart + len(column) + i
+	for i := colStart + len(colRunes); i < len(header); i++ {
+		if header[i] != '\t' && header[i] != ' ' {
+			colEnd = i
 			break
 		}
 	}
 
 	var cells []string
-	for _, line := range lines[1:] {
-		if strings.TrimSpace(line) == "" {
+	for _, rawLine := range lines[1:] {
+		if strings.TrimSpace(rawLine) == "" {
 			continue
 		}
-		start := colStart
-		end := colEnd
-		if start >= len(line) {
+		line := []rune(rawLine)
+		if colStart >= len(line) {
 			cells = append(cells, "")
 			continue
 		}
+		end := colEnd
 		if end > len(line) {
 			end = len(line)
 		}
-		cells = append(cells, strings.TrimSpace(line[start:end]))
+		cells = append(cells, strings.TrimSpace(string(line[colStart:end])))
 	}
 	return cells
+}
+
+// runeIndex returns the index of the first occurrence of needle in haystack,
+// counted in runes, or -1 when absent.
+func runeIndex(haystack, needle []rune) int {
+	if len(needle) == 0 {
+		return 0
+	}
+	for i := 0; i+len(needle) <= len(haystack); i++ {
+		if string(haystack[i:i+len(needle)]) == string(needle) {
+			return i
+		}
+	}
+	return -1
 }
 
 func TestPrintDevicesTableSystemInfoColumn(t *testing.T) {
@@ -476,4 +496,179 @@ func TestPrintCatalogItemsTableDetailNoFeatureRequirements(t *testing.T) {
 	output := buf.String()
 	require.NotContains(t, output, "FEATURES",
 		"when no version declares requirements the section should be omitted entirely")
+}
+
+func TestPrintLabelSyncMappingsTable(t *testing.T) {
+	name := "map-devices-by-site"
+
+	// An expression comfortably longer than the 50-character column cap.
+	longExpression := "device.metadata.labels['site'] + '-' + device.metadata.labels['region'] + '-suffix'"
+	require.Greater(t, len([]rune(longExpression)), maxExpressionWidth)
+
+	tests := []struct {
+		name           string
+		mapping        api.LabelSyncMapping
+		wantKey        string
+		wantExpression string
+		wantReady      string
+	}{
+		{
+			name: "When the mapping is ready it should show the condition status and reason",
+			mapping: api.LabelSyncMapping{
+				Metadata: api.ObjectMeta{Name: &name},
+				Spec: api.LabelSyncMappingSpec{
+					Expression:   "device.metadata.labels['site']",
+					Key:          lo.ToPtr("flightctl.io/site"),
+					ResourceType: api.LabelSyncMappingSpecResourceType("Device"),
+				},
+				Status: &api.LabelSyncMappingStatus{
+					Conditions: &[]api.Condition{{
+						Type:   api.ConditionTypeLabelSyncMappingReady,
+						Status: api.ConditionStatusTrue,
+						Reason: "Success",
+					}},
+				},
+			},
+			wantKey:        "flightctl.io/site",
+			wantExpression: "device.metadata.labels['site']",
+			wantReady:      "True (Success)",
+		},
+		{
+			name: "When the mapping has no status it should show Unknown",
+			mapping: api.LabelSyncMapping{
+				Metadata: api.ObjectMeta{Name: &name},
+				Spec: api.LabelSyncMappingSpec{
+					Expression:   "device.metadata.labels['site']",
+					Key:          lo.ToPtr("flightctl.io/site"),
+					ResourceType: api.LabelSyncMappingSpecResourceType("Device"),
+				},
+			},
+			wantKey:        "flightctl.io/site",
+			wantExpression: "device.metadata.labels['site']",
+			wantReady:      "Unknown",
+		},
+		{
+			name: "When the mapping is in map mode it should show none for the key",
+			mapping: api.LabelSyncMapping{
+				Metadata: api.ObjectMeta{Name: &name},
+				Spec: api.LabelSyncMappingSpec{
+					Expression:   "device.metadata.labels",
+					ResourceType: api.LabelSyncMappingSpecResourceType("Device"),
+				},
+			},
+			wantKey:        NoneString,
+			wantExpression: "device.metadata.labels",
+			wantReady:      "Unknown",
+		},
+		{
+			name: "When the expression exceeds the column width it should be truncated with an ellipsis",
+			mapping: api.LabelSyncMapping{
+				Metadata: api.ObjectMeta{Name: &name},
+				Spec: api.LabelSyncMappingSpec{
+					Expression:   longExpression,
+					Key:          lo.ToPtr("flightctl.io/site"),
+					ResourceType: api.LabelSyncMappingSpecResourceType("Device"),
+				},
+			},
+			wantKey: "flightctl.io/site",
+			// 49 characters of the expression plus the ellipsis == 50.
+			wantExpression: string([]rune(longExpression)[:maxExpressionWidth-1]) + "…",
+			wantReady:      "Unknown",
+		},
+		{
+			name: "When the expression is exactly the column width it should not be truncated",
+			mapping: api.LabelSyncMapping{
+				Metadata: api.ObjectMeta{Name: &name},
+				Spec: api.LabelSyncMappingSpec{
+					Expression:   strings.Repeat("a", maxExpressionWidth),
+					ResourceType: api.LabelSyncMappingSpecResourceType("Device"),
+				},
+			},
+			wantKey:        NoneString,
+			wantExpression: strings.Repeat("a", maxExpressionWidth),
+			wantReady:      "Unknown",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+
+			var buf bytes.Buffer
+			w := newTestWriter(&buf)
+			f := &TableFormatter{}
+			require.NoError(f.printLabelSyncMappingsTable(w, tt.mapping))
+			require.NoError(w.Flush())
+
+			output := buf.String()
+			require.Equal([]string{name}, extractColumnCells(t, output, "NAME"))
+			require.Equal([]string{"Device"}, extractColumnCells(t, output, "RESOURCE TYPE"))
+			require.Equal([]string{tt.wantKey}, extractColumnCells(t, output, "KEY"))
+			require.Equal([]string{tt.wantExpression}, extractColumnCells(t, output, "EXPRESSION"))
+			require.LessOrEqual(len([]rune(tt.wantExpression)), maxExpressionWidth)
+			// READY is the trailing column, so assert on the end of the data
+			// row rather than on fixed header-derived column boundaries.
+			require.True(
+				strings.HasSuffix(strings.TrimSpace(lineContaining(output, name)), tt.wantReady),
+				"expected the data row to end with %q, got %q", tt.wantReady, output,
+			)
+		})
+	}
+}
+
+func TestTruncateCell(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  string
+		maxLen int
+		want   string
+	}{
+		{
+			name:   "When the string is shorter than the limit it should be returned unchanged",
+			input:  "short",
+			maxLen: 10,
+			want:   "short",
+		},
+		{
+			name:   "When the string is exactly the limit it should be returned unchanged",
+			input:  "exactly10c",
+			maxLen: 10,
+			want:   "exactly10c",
+		},
+		{
+			name:   "When the string exceeds the limit it should be cut and get an ellipsis",
+			input:  "abcdefghijk",
+			maxLen: 10,
+			want:   "abcdefghi…",
+		},
+		{
+			name:   "When the limit is zero it should return an empty string",
+			input:  "abc",
+			maxLen: 0,
+			want:   "",
+		},
+		{
+			name:   "When the limit is one it should return just the ellipsis",
+			input:  "abc",
+			maxLen: 1,
+			want:   "…",
+		},
+		{
+			name:   "When the string holds multi-byte characters it should not split a rune",
+			input:  "ααααα",
+			maxLen: 3,
+			want:   "αα…",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+
+			got := truncateCell(tt.input, tt.maxLen)
+			require.Equal(tt.want, got)
+			require.LessOrEqual(len([]rune(got)), tt.maxLen)
+			require.True(utf8.ValidString(got), "truncation must not produce invalid UTF-8")
+		})
+	}
 }

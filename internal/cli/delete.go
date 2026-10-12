@@ -332,6 +332,8 @@ func (o *DeleteOptions) deleteOne(ctx context.Context, c *client.Client, kind Re
 		response, err = c.DeleteAuthProviderWithResponse(ctx, name)
 	case EnrollmentHookPolicyKind:
 		response, err = c.DeleteEnrollmentHookPolicyWithResponse(ctx, name)
+	case LabelSyncMappingKind:
+		response, err = c.DeleteLabelSyncMappingWithResponse(ctx, name)
 	case CatalogKind:
 		response, err = c.V1Alpha1().DeleteCatalogWithResponse(ctx, name)
 	case CatalogItemKind:

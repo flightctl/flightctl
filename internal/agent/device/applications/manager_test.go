@@ -1377,6 +1377,19 @@ func mockExecPodmanComposeStart(mockExec *executer.MockExecuter, name string) *g
 	return mockExecPodmanComposeUp(mockExec, name, true, true)
 }
 
+func mockExecPodmanComposeStartService(mockExec *executer.MockExecuter, name, service string) *gomock.Call {
+	workDir := fmt.Sprintf("%s/%s", lifecycle.ComposeAppPath, name)
+	id := lifecycle.GenerateAppID(name, v1beta1.CurrentProcessUsername)
+	args := []string{
+		"compose", "-p", id,
+		"-f", "docker-compose.yaml",
+		"-f", "docker-compose.override.yaml",
+		"-f", "99-compose-flightctl-agent.override.yaml",
+		"up", "-d", "--no-recreate", service,
+	}
+	return mockExec.EXPECT().ExecuteWithContextFromDir(gomock.Any(), workDir, "podman", args).Return("", "", 0)
+}
+
 func TestQueueLifecycle(t *testing.T) {
 	bootTime := time.Now()
 	const appName = "my-app"
@@ -1387,12 +1400,15 @@ func TestQueueLifecycle(t *testing.T) {
 	}
 
 	testCases := []struct {
-		name        string
-		stored      lifecycleIntent
-		first       lifecycleIntent
-		second      *lifecycleIntent
-		setupFirst  func(*executer.MockExecuter)
-		setupSecond func(*executer.MockExecuter)
+		name            string
+		stored          lifecycleIntent
+		first           lifecycleIntent
+		second          *lifecycleIntent
+		stoppedWorkload StatusType
+		stoppedService  string
+		workloads       []Workload
+		setupFirst      func(*executer.MockExecuter)
+		setupSecond     func(*executer.MockExecuter)
 	}{
 		{
 			name:       "When desiredState transitions from running to stopped it should call podman compose stop",
@@ -1434,6 +1450,56 @@ func TestQueueLifecycle(t *testing.T) {
 			second:     &lifecycleIntent{desiredState: v1beta1.ApplicationDesiredStateStopped, restartGen: 1},
 			setupFirst: func(mockExec *executer.MockExecuter) { mockExecPodmanComposeStop(mockExec, appName) },
 			// no second call: restart must not fire when desiredState is stopped
+		},
+		{
+			name:            "When a running app has a stopped workload it should call podman compose up",
+			stored:          lifecycleIntent{desiredState: v1beta1.ApplicationDesiredStateRunning},
+			first:           lifecycleIntent{desiredState: v1beta1.ApplicationDesiredStateRunning},
+			stoppedWorkload: StatusStop,
+			setupFirst:      func(mockExec *executer.MockExecuter) { mockExecPodmanComposeStart(mockExec, appName) },
+		},
+		{
+			name:            "When a running app has a workload with die status it should call podman compose up",
+			stored:          lifecycleIntent{desiredState: v1beta1.ApplicationDesiredStateRunning},
+			first:           lifecycleIntent{desiredState: v1beta1.ApplicationDesiredStateRunning},
+			stoppedWorkload: StatusDie,
+			setupFirst:      func(mockExec *executer.MockExecuter) { mockExecPodmanComposeStart(mockExec, appName) },
+		},
+		{
+			name:            "When a running app has a workload with died status it should call podman compose up",
+			stored:          lifecycleIntent{desiredState: v1beta1.ApplicationDesiredStateRunning},
+			first:           lifecycleIntent{desiredState: v1beta1.ApplicationDesiredStateRunning},
+			stoppedWorkload: StatusDied,
+			setupFirst:      func(mockExec *executer.MockExecuter) { mockExecPodmanComposeStart(mockExec, appName) },
+		},
+		{
+			name:   "When a running app has a failed Compose service it should not restart a completed one-shot service",
+			stored: lifecycleIntent{desiredState: v1beta1.ApplicationDesiredStateRunning},
+			first:  lifecycleIntent{desiredState: v1beta1.ApplicationDesiredStateRunning},
+			workloads: []Workload{
+				{Name: "init-container", ServiceName: "init", Status: StatusExited},
+				{Name: "server-container", ServiceName: "server", Status: StatusDied},
+			},
+			setupFirst: func(mockExec *executer.MockExecuter) { mockExecPodmanComposeStartService(mockExec, appName, "server") },
+		},
+		{
+			name:            "When a running app has a removed workload it should call podman compose up",
+			stored:          lifecycleIntent{desiredState: v1beta1.ApplicationDesiredStateRunning},
+			first:           lifecycleIntent{desiredState: v1beta1.ApplicationDesiredStateRunning},
+			stoppedWorkload: StatusRemove,
+			setupFirst:      func(mockExec *executer.MockExecuter) { mockExecPodmanComposeStart(mockExec, appName) },
+		},
+		{
+			name:            "When a running app has an exited workload it should not restart",
+			stored:          lifecycleIntent{desiredState: v1beta1.ApplicationDesiredStateRunning},
+			first:           lifecycleIntent{desiredState: v1beta1.ApplicationDesiredStateRunning},
+			stoppedWorkload: StatusExited,
+		},
+		{
+			name:            "When a stopped app has a terminated workload it should not restart",
+			stored:          lifecycleIntent{desiredState: v1beta1.ApplicationDesiredStateStopped},
+			first:           lifecycleIntent{desiredState: v1beta1.ApplicationDesiredStateStopped},
+			stoppedWorkload: StatusDied,
 		},
 	}
 
@@ -1485,12 +1551,22 @@ func TestQueueLifecycle(t *testing.T) {
 				desiredState:      tc.stored.desiredState,
 				restartGeneration: tc.stored.restartGen,
 			}
+			if len(tc.workloads) > 0 {
+				for i := range tc.workloads {
+					monitor.apps[id].AddWorkload(&tc.workloads[i])
+				}
+			} else if tc.stoppedWorkload != "" {
+				monitor.apps[id].AddWorkload(&Workload{Name: "container", ServiceName: tc.stoppedService, Status: tc.stoppedWorkload})
+			}
 
 			// First spec sync: queue lifecycle action based on the delta from stored state.
 			if tc.setupFirst != nil {
 				tc.setupFirst(mockExec)
 			}
 			monitor.QueueLifecycle(id, tc.first.desiredState, tc.first.restartGen)
+			if tc.stoppedService != "" {
+				require.Equal([]string{tc.stoppedService}, monitor.actions[0].StartServices)
+			}
 			err = monitor.ExecuteActions(ctx)
 			require.NoError(err)
 

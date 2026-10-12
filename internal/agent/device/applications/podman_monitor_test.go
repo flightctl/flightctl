@@ -320,6 +320,374 @@ func TestListenForEvents(t *testing.T) {
 	}
 }
 
+func TestComposeRemoveQueuesRecoveryForRunningApp(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	testLog := log.NewPrefixLogger("test")
+	mockExec := executer.NewMockExecuter(ctrl)
+	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return("[]", "", 0)
+
+	podman := client.NewPodman(testLog, mockExec, mockReadWriter, util.NewPollConfig())
+	monitor := &PodmanMonitor{
+		apps: make(map[string]Application),
+		clientFactory: func(_ v1beta1.Username) (*client.Podman, error) {
+			return podman, nil
+		},
+		log: testLog,
+	}
+	app := createTestApplication(require, "app1", v1beta1.ApplicationStatusRunning, v1beta1.CurrentProcessUsername)
+	app.SetDesiredState(v1beta1.ApplicationDesiredStateRunning)
+	event := mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "remove")
+	app.AddWorkload(&Workload{Name: event.Name, Status: StatusRunning})
+	monitor.apps[app.ID()] = app
+
+	monitor.handleEvent(t.Context(), event)
+
+	_, exists := app.Workload(event.Name)
+	require.False(exists)
+	actions := monitor.drainActions()
+	require.Len(actions, 1)
+	require.Equal(lifecycle.ActionStart, actions[0].Type)
+	require.Equal(app.ID(), actions[0].ID)
+	require.Equal([]string{"app1-service-1"}, actions[0].StartServices)
+}
+
+func TestComposeRemoveRecoveryRetriesAfterStartFailure(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	testLog := log.NewPrefixLogger("test")
+	mockExec := executer.NewMockExecuter(ctrl)
+	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return("[]", "", 0)
+
+	podman := client.NewPodman(testLog, mockExec, mockReadWriter, util.NewPollConfig())
+	mockHandler := &testLifecycleHandler{
+		start: func(_ context.Context, action lifecycle.Action) error {
+			require.Equal([]string{"server"}, action.StartServices)
+			return fmt.Errorf("start failed")
+		},
+	}
+	monitor := &PodmanMonitor{
+		apps:            make(map[string]Application),
+		recoveryPending: make(map[string]pendingRecovery),
+		handlers:        map[v1beta1.AppType]lifecycle.ActionHandler{v1beta1.AppTypeCompose: mockHandler},
+		clientFactory: func(_ v1beta1.Username) (*client.Podman, error) {
+			return podman, nil
+		},
+		log: testLog,
+	}
+	app := createTestApplication(require, "app1", v1beta1.ApplicationStatusRunning, v1beta1.CurrentProcessUsername)
+	app.SetDesiredState(v1beta1.ApplicationDesiredStateRunning)
+	event := mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "server", "remove")
+	app.AddWorkload(&Workload{Name: event.Name, ServiceName: "server", Status: StatusRunning})
+	monitor.apps[app.ID()] = app
+
+	monitor.handleEvent(t.Context(), event)
+	actions := monitor.drainActions()
+	require.Len(actions, 1)
+	require.Equal([]string{"server"}, actions[0].StartServices)
+
+	require.Error(monitor.StartApp(t.Context(), app.ID(), actions[0]))
+
+	monitor.QueueLifecycle(app.ID(), v1beta1.ApplicationDesiredStateRunning, 0)
+	retryActions := monitor.drainActions()
+	require.Len(retryActions, 1)
+	require.Equal(lifecycle.ActionStart, retryActions[0].Type)
+	require.Equal([]string{"server"}, retryActions[0].StartServices)
+}
+
+func TestComposeRemoveRecoveryAccumulatesServices(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	testLog := log.NewPrefixLogger("test")
+	mockExec := executer.NewMockExecuter(ctrl)
+	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return("[]", "", 0).Times(2)
+
+	podman := client.NewPodman(testLog, mockExec, mockReadWriter, util.NewPollConfig())
+	monitor := &PodmanMonitor{
+		apps:            make(map[string]Application),
+		recoveryPending: make(map[string]pendingRecovery),
+		clientFactory: func(_ v1beta1.Username) (*client.Podman, error) {
+			return podman, nil
+		},
+		log: testLog,
+	}
+	app := createTestApplication(require, "app1", v1beta1.ApplicationStatusRunning, v1beta1.CurrentProcessUsername)
+	app.SetDesiredState(v1beta1.ApplicationDesiredStateRunning)
+	app.AddWorkload(&Workload{Name: "a-container", ServiceName: "a", Status: StatusRunning})
+	app.AddWorkload(&Workload{Name: "b-container", ServiceName: "b", Status: StatusRunning})
+	monitor.apps[app.ID()] = app
+
+	monitor.handleEvent(t.Context(), mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "a", "remove"))
+	monitor.handleEvent(t.Context(), mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "b", "remove"))
+
+	actions := monitor.drainActions()
+	require.Len(actions, 1)
+	require.Equal([]string{"a", "b"}, actions[0].StartServices)
+	require.Equal(uint64(2), actions[0].RecoveryGeneration)
+	require.Equal([]string{"a", "b"}, monitor.recoveryPending[app.ID()].services)
+}
+
+func TestQueueLifecycleMergesPendingRecoveryWithStoppedWorkload(t *testing.T) {
+	require := require.New(t)
+	app := createTestApplication(require, "app1", v1beta1.ApplicationStatusRunning, v1beta1.CurrentProcessUsername)
+	app.SetDesiredState(v1beta1.ApplicationDesiredStateRunning)
+	app.AddWorkload(&Workload{Name: "c-container", ServiceName: "c", Status: StatusDied})
+	monitor := &PodmanMonitor{
+		apps:            map[string]Application{app.ID(): app},
+		recoveryPending: map[string]pendingRecovery{app.ID(): {services: []string{"a"}, generation: 1}},
+	}
+
+	monitor.QueueLifecycle(app.ID(), v1beta1.ApplicationDesiredStateRunning, 0)
+	actions := monitor.drainActions()
+	require.Len(actions, 1)
+	require.Equal([]string{"a", "c"}, actions[0].StartServices)
+	require.Equal(uint64(1), actions[0].RecoveryGeneration)
+}
+
+func TestQueueLifecycleStartsWholeAppForUnnamedStoppedWorkload(t *testing.T) {
+	require := require.New(t)
+	app := createTestApplication(require, "app1", v1beta1.ApplicationStatusRunning, v1beta1.CurrentProcessUsername)
+	app.SetDesiredState(v1beta1.ApplicationDesiredStateRunning)
+	app.AddWorkload(&Workload{Name: "unnamed-container", Status: StatusDied})
+	monitor := &PodmanMonitor{
+		apps:            map[string]Application{app.ID(): app},
+		recoveryPending: map[string]pendingRecovery{app.ID(): {services: []string{"server"}, generation: 1}},
+	}
+
+	monitor.QueueLifecycle(app.ID(), v1beta1.ApplicationDesiredStateRunning, 0)
+	actions := monitor.drainActions()
+	require.Len(actions, 1)
+	require.Empty(actions[0].StartServices)
+	require.Equal(uint64(1), actions[0].RecoveryGeneration)
+}
+
+func TestComposeRemoveRecoveryPreservesConcurrentIntent(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	testLog := log.NewPrefixLogger("test")
+	mockExec := executer.NewMockExecuter(ctrl)
+	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return("[]", "", 0).Times(2)
+
+	podman := client.NewPodman(testLog, mockExec, mockReadWriter, util.NewPollConfig())
+	monitor := &PodmanMonitor{
+		apps:            make(map[string]Application),
+		recoveryPending: make(map[string]pendingRecovery),
+		clientFactory: func(_ v1beta1.Username) (*client.Podman, error) {
+			return podman, nil
+		},
+		log: testLog,
+	}
+	app := createTestApplication(require, "app1", v1beta1.ApplicationStatusRunning, v1beta1.CurrentProcessUsername)
+	app.SetDesiredState(v1beta1.ApplicationDesiredStateRunning)
+	app.AddWorkload(&Workload{Name: "a-container", ServiceName: "a", Status: StatusRunning})
+	app.AddWorkload(&Workload{Name: "b-container", ServiceName: "b", Status: StatusRunning})
+	monitor.apps[app.ID()] = app
+	eventA := mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "a", "remove")
+	eventB := mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "b", "remove")
+	monitor.handleEvent(t.Context(), eventA)
+	action := monitor.drainActions()[0]
+
+	monitor.handlers = map[v1beta1.AppType]lifecycle.ActionHandler{
+		v1beta1.AppTypeCompose: &testLifecycleHandler{
+			start: func(ctx context.Context, _ lifecycle.Action) error {
+				monitor.handleEvent(ctx, eventB)
+				return nil
+			},
+		},
+	}
+	require.NoError(monitor.StartApp(t.Context(), app.ID(), action))
+
+	pending, ok := monitor.recoveryPending[app.ID()]
+	require.True(ok)
+	require.Equal([]string{"b"}, pending.services)
+	require.Equal(uint64(2), pending.generation)
+}
+
+func TestComposeRemoveRecoveryPreservesRepeatedServiceIntent(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	testLog := log.NewPrefixLogger("test")
+	mockExec := executer.NewMockExecuter(ctrl)
+	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return("[]", "", 0).Times(2)
+
+	podman := client.NewPodman(testLog, mockExec, mockReadWriter, util.NewPollConfig())
+	monitor := &PodmanMonitor{
+		apps:            make(map[string]Application),
+		recoveryPending: make(map[string]pendingRecovery),
+		clientFactory: func(_ v1beta1.Username) (*client.Podman, error) {
+			return podman, nil
+		},
+		log: testLog,
+	}
+	app := createTestApplication(require, "app1", v1beta1.ApplicationStatusRunning, v1beta1.CurrentProcessUsername)
+	app.SetDesiredState(v1beta1.ApplicationDesiredStateRunning)
+	app.AddWorkload(&Workload{Name: "server-container", ServiceName: "server", Status: StatusRunning})
+	monitor.apps[app.ID()] = app
+	event := mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "server", "remove")
+	startCalls := 0
+	monitor.handlers = map[v1beta1.AppType]lifecycle.ActionHandler{
+		v1beta1.AppTypeCompose: &testLifecycleHandler{
+			start: func(ctx context.Context, action lifecycle.Action) error {
+				startCalls++
+				require.Equal([]string{"server"}, action.StartServices)
+				if startCalls == 1 {
+					monitor.handleEvent(ctx, event)
+					return nil
+				}
+				return fmt.Errorf("start failed")
+			},
+		},
+	}
+
+	monitor.handleEvent(t.Context(), event)
+	action := monitor.drainActions()[0]
+	require.NoError(monitor.StartApp(t.Context(), app.ID(), action))
+
+	pending, ok := monitor.recoveryPending[app.ID()]
+	require.True(ok)
+	require.Equal([]string{"server"}, pending.services)
+	require.Equal(uint64(2), pending.generation)
+
+	monitor.QueueLifecycle(app.ID(), v1beta1.ApplicationDesiredStateRunning, 0)
+	retryActions := monitor.drainActions()
+	require.Len(retryActions, 1)
+	require.Error(monitor.StartApp(t.Context(), app.ID(), retryActions[0]))
+
+	monitor.QueueLifecycle(app.ID(), v1beta1.ApplicationDesiredStateRunning, 0)
+	retryAfterFailure := monitor.drainActions()
+	require.Len(retryAfterFailure, 1)
+	require.Equal([]string{"server"}, retryAfterFailure[0].StartServices)
+	require.Equal(uint64(2), retryAfterFailure[0].RecoveryGeneration)
+}
+
+type testLifecycleHandler struct {
+	start func(context.Context, lifecycle.Action) error
+}
+
+func (h *testLifecycleHandler) Execute(context.Context, lifecycle.Actions) error {
+	return nil
+}
+
+func (h *testLifecycleHandler) Stop(context.Context, lifecycle.Action) error {
+	return nil
+}
+
+func (h *testLifecycleHandler) Start(ctx context.Context, action lifecycle.Action) error {
+	return h.start(ctx, action)
+}
+
+func (h *testLifecycleHandler) Restart(context.Context, lifecycle.Action) error {
+	return nil
+}
+
+func TestComposeRemoveDoesNotReplacePendingUpdate(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	testLog := log.NewPrefixLogger("test")
+	mockExec := executer.NewMockExecuter(ctrl)
+	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return("[]", "", 0)
+
+	podman := client.NewPodman(testLog, mockExec, mockReadWriter, util.NewPollConfig())
+	monitor := &PodmanMonitor{
+		apps: make(map[string]Application),
+		clientFactory: func(_ v1beta1.Username) (*client.Podman, error) {
+			return podman, nil
+		},
+		log: testLog,
+	}
+	app := createTestApplication(require, "app1", v1beta1.ApplicationStatusRunning, v1beta1.CurrentProcessUsername)
+	app.SetDesiredState(v1beta1.ApplicationDesiredStateRunning)
+	event := mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "remove")
+	app.AddWorkload(&Workload{Name: event.Name, Status: StatusRunning})
+	monitor.apps[app.ID()] = app
+	monitor.actions = []lifecycle.Action{{ID: app.ID(), Type: lifecycle.ActionUpdate}}
+
+	monitor.handleEvent(t.Context(), event)
+
+	actions := monitor.drainActions()
+	require.Len(actions, 1)
+	require.Equal(lifecycle.ActionUpdate, actions[0].Type)
+}
+
+func TestComposeRemoveDoesNotReplacePendingStop(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	testLog := log.NewPrefixLogger("test")
+	mockExec := executer.NewMockExecuter(ctrl)
+	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return("[]", "", 0)
+
+	podman := client.NewPodman(testLog, mockExec, mockReadWriter, util.NewPollConfig())
+	monitor := &PodmanMonitor{
+		apps: make(map[string]Application),
+		clientFactory: func(_ v1beta1.Username) (*client.Podman, error) {
+			return podman, nil
+		},
+		log: testLog,
+	}
+	app := createTestApplication(require, "app1", v1beta1.ApplicationStatusRunning, v1beta1.CurrentProcessUsername)
+	app.SetDesiredState(v1beta1.ApplicationDesiredStateRunning)
+	event := mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "remove")
+	app.AddWorkload(&Workload{Name: event.Name, Status: StatusRunning})
+	monitor.apps[app.ID()] = app
+	monitor.actions = []lifecycle.Action{{ID: app.ID(), Type: lifecycle.ActionStop}}
+
+	monitor.handleEvent(t.Context(), event)
+
+	actions := monitor.drainActions()
+	require.Len(actions, 1)
+	require.Equal(lifecycle.ActionStop, actions[0].Type)
+}
+
+func TestComposeRemoveDoesNotRestartExitedWorkload(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	testLog := log.NewPrefixLogger("test")
+	mockExec := executer.NewMockExecuter(ctrl)
+	mockReadWriter := fileio.NewMockReadWriter(ctrl)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return("[]", "", 0)
+
+	podman := client.NewPodman(testLog, mockExec, mockReadWriter, util.NewPollConfig())
+	monitor := &PodmanMonitor{
+		apps: make(map[string]Application),
+		clientFactory: func(_ v1beta1.Username) (*client.Podman, error) {
+			return podman, nil
+		},
+		log: testLog,
+	}
+	app := createTestApplication(require, "app1", v1beta1.ApplicationStatusRunning, v1beta1.CurrentProcessUsername)
+	app.SetDesiredState(v1beta1.ApplicationDesiredStateRunning)
+	event := mockPodmanEventSuccess("app1", v1beta1.CurrentProcessUsername, "app1-service-1", "remove")
+	app.AddWorkload(&Workload{Name: event.Name, Status: StatusExited})
+	monitor.apps[app.ID()] = app
+
+	monitor.handleEvent(t.Context(), event)
+
+	require.Empty(monitor.drainActions())
+}
+
 func TestApplicationAddRemove(t *testing.T) {
 	require := require.New(t)
 	testCases := []struct {

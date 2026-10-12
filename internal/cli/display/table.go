@@ -84,6 +84,8 @@ func (f *TableFormatter) formatList(w *tabwriter.Writer, data interface{}, optio
 		return f.printAuthProvidersTable(w, data.(*apiclient.ListAuthProvidersResponse).JSON200.Items...)
 	case strings.EqualFold(options.Kind, api.EnrollmentHookPolicyKind):
 		return f.printEnrollmentHookPoliciesTable(w, data.(*apiclient.ListEnrollmentHookPoliciesResponse).JSON200.Items...)
+	case strings.EqualFold(options.Kind, api.LabelSyncMappingKindValue):
+		return f.printLabelSyncMappingsTable(w, data.(*apiclient.ListLabelSyncMappingsResponse).JSON200.Items...)
 	case strings.EqualFold(options.Kind, string(imagebuilderapi.ResourceKindImageBuild)):
 		return f.printImageBuildsTable(w, options.WithExports, data.(*imagebuilderclient.ListImageBuildsResponse).JSON200.Items...)
 	case strings.EqualFold(options.Kind, string(imagebuilderapi.ResourceKindImageExport)):
@@ -168,6 +170,8 @@ func (f *TableFormatter) formatSingle(w *tabwriter.Writer, data interface{}, opt
 		return f.printAuthProvidersTable(w, *data.(*apiclient.GetAuthProviderResponse).JSON200)
 	case strings.EqualFold(options.Kind, api.EnrollmentHookPolicyKind):
 		return f.printEnrollmentHookPoliciesTable(w, *data.(*apiclient.GetEnrollmentHookPolicyResponse).JSON200)
+	case strings.EqualFold(options.Kind, api.LabelSyncMappingKindValue):
+		return f.printLabelSyncMappingsTable(w, *data.(*apiclient.GetLabelSyncMappingResponse).JSON200)
 	case strings.EqualFold(options.Kind, string(imagebuilderapi.ResourceKindImageBuild)):
 		return f.printImageBuildsTable(w, options.WithExports, *data.(*imagebuilderclient.GetImageBuildResponse).JSON200)
 	case strings.EqualFold(options.Kind, string(imagebuilderapi.ResourceKindImageExport)):
@@ -200,6 +204,21 @@ func (f *TableFormatter) printHeaderRowLn(w *tabwriter.Writer, columns ...string
 	if !f.noHeaders {
 		f.printTableRowLn(w, columns...)
 	}
+}
+
+// truncateCell shortens s so that it occupies at most maxLen characters,
+// replacing the trailing character with a Unicode ellipsis when it has to cut.
+// Length is counted in runes rather than bytes so that a multi-byte character
+// is never sliced in half, which would emit a replacement glyph into the table.
+func truncateCell(s string, maxLen int) string {
+	if maxLen <= 0 {
+		return ""
+	}
+	runes := []rune(s)
+	if len(runes) <= maxLen {
+		return s
+	}
+	return string(runes[:maxLen-1]) + "…"
 }
 
 func (f *TableFormatter) printDevicesSummaryTable(w *tabwriter.Writer, summary *api.DevicesSummary) error {
@@ -440,6 +459,42 @@ func (f *TableFormatter) printResourceSyncsTable(w *tabwriter.Writer, resourcesy
 			accessible,
 			synced,
 			lastSynced,
+		)
+	}
+	return nil
+}
+
+// maxExpressionWidth bounds the EXPRESSION column. CEL expressions are
+// unbounded in length, so without a cap a single mapping can push the READY
+// column far off the right of the terminal. Use '-o yaml' or '-o json' to see
+// the full expression.
+const maxExpressionWidth = 50
+
+func (f *TableFormatter) printLabelSyncMappingsTable(w *tabwriter.Writer, mappings ...api.LabelSyncMapping) error {
+	f.printHeaderRowLn(w, "NAME", "RESOURCE TYPE", "KEY", "EXPRESSION", "READY")
+
+	for _, m := range mappings {
+		key := NoneString
+		if m.Spec.Key != nil && *m.Spec.Key != "" {
+			key = *m.Spec.Key
+		}
+
+		ready := "Unknown"
+		if m.Status != nil && m.Status.Conditions != nil {
+			if condition := api.FindStatusCondition(*m.Status.Conditions, api.ConditionTypeLabelSyncMappingReady); condition != nil {
+				ready = string(condition.Status)
+				if condition.Reason != "" {
+					ready = fmt.Sprintf("%s (%s)", condition.Status, condition.Reason)
+				}
+			}
+		}
+
+		f.printTableRowLn(w,
+			util.DefaultIfNil(m.Metadata.Name, NoneString),
+			string(m.Spec.ResourceType),
+			key,
+			truncateCell(m.Spec.Expression, maxExpressionWidth),
+			ready,
 		)
 	}
 	return nil

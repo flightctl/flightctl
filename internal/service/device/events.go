@@ -72,6 +72,14 @@ func EmitDeviceUpdatedEvent(ctx context.Context, eventsService events.Service, l
 	// Spec changes must trigger ResourceUpdated even when Generation is missing/unchanged
 	// on the before/after snapshots (render tasks key off UpdatedFields=Spec).
 	updateDetails = ensureSpecUpdatedField(updateDetails, oldDevice, newDevice)
+	// Fleet matching needs an explicit gate-change field when the agent reports
+	// hook completion; a generic status event only reconciles device labels.
+	if domain.IsDeviceEnrollmentHooksGated(oldDevice) && !domain.IsDeviceEnrollmentHooksGated(newDevice) {
+		if updateDetails == nil {
+			updateDetails = &domain.ResourceUpdatedDetails{}
+		}
+		updateDetails.UpdatedFields = append(updateDetails.UpdatedFields, domain.UpdatedFieldEnrollmentHooksCondition)
+	}
 	if updateDetails == nil {
 		return
 	}

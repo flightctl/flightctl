@@ -35,7 +35,7 @@ type Compose struct {
 //
 // The method builds the final compose command by layering the discovered files in order.
 // The noRecreate flag, if true, adds `--no-recreate` to prevent recreating existing containers.
-func (p *Compose) UpFromWorkDir(ctx context.Context, workDir, projectName string, noRecreate bool) error {
+func (p *Compose) UpFromWorkDir(ctx context.Context, workDir, projectName string, noRecreate bool, services ...string) error {
 	ctx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
 
@@ -86,6 +86,7 @@ func (p *Compose) UpFromWorkDir(ctx context.Context, workDir, projectName string
 	if noRecreate {
 		args = append(args, "--no-recreate")
 	}
+	args = append(args, services...)
 
 	_, stderr, exitCode := p.exec.ExecuteWithContextFromDir(ctx, workDir, podmanCmd, args)
 	if exitCode != 0 {
