@@ -98,9 +98,16 @@ func clearDeltaGenerations() error {
 	if p == nil || p.Infra == nil {
 		return fmt.Errorf("providers not initialized")
 	}
-	_, err := infra.QueryDB(p, "TRUNCATE TABLE delta_prepare_generations, delta_prepares, delta_generations")
-	if err != nil {
-		return fmt.Errorf("truncate delta tables: %w", err)
+	// External DB checks connect as the app user, which has DELETE but not TRUNCATE.
+	// Clear the join table before its referenced parent tables.
+	for _, table := range []struct{ name, query string }{
+		{name: "delta_prepare_generations", query: "DELETE FROM delta_prepare_generations"},
+		{name: "delta_prepares", query: "DELETE FROM delta_prepares"},
+		{name: "delta_generations", query: "DELETE FROM delta_generations"},
+	} {
+		if _, err := infra.QueryDB(p, table.query); err != nil {
+			return fmt.Errorf("delete delta table %s: %w", table.name, err)
+		}
 	}
 	return nil
 }
