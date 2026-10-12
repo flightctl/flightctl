@@ -121,6 +121,7 @@ var _ = Describe("Agent image and artifact pruning", func() {
 			By("apply nginx v1.25 (doc example nginx.25)")
 			assertReferenceAbsent(harness, artifactDir, "vm_refs_cat_before_nginx_v125.txt", nginxV125ImageRef)
 			updateDeviceApplicationsWithEvidence(harness, deviceID, artifactDir, "host_device_update_nginx_v125.txt", "update device applications: nginx v1.25", nginxV125Spec)
+			waitForUpdateConditionCompleted(harness, deviceID, "nginx v1.25 application update")
 
 			By("verify v1.25 image referenced in the references file")
 			waitForReferencePresence(harness, nginxV125ImageRef, false, true)
@@ -156,6 +157,7 @@ var _ = Describe("Agent image and artifact pruning", func() {
 			By("apply initial image")
 			assertReferenceAbsent(harness, artifactDir, "vm_refs_cat_before_nginx_v125_lost_ref.txt", nginxV125ImageRef)
 			updateDeviceApplicationsWithEvidence(harness, deviceID, artifactDir, "host_device_update_nginx_v125_lost_ref.txt", "update device applications: nginx v1.25", nginxV125Spec)
+			waitForUpdateConditionCompleted(harness, deviceID, "nginx v1.25 application update")
 
 			By("update to a different image")
 			assertReferenceAbsent(harness, artifactDir, "vm_refs_cat_before_nginx_latest_lost_ref.txt", nginxLatestRefFragment)
@@ -184,10 +186,12 @@ var _ = Describe("Agent image and artifact pruning", func() {
 			By("apply nginx.25")
 			assertReferenceAbsent(harness, artifactDir, "vm_refs_cat_before_nginx_v125_retention.txt", nginxV125ImageRef)
 			updateDeviceApplicationsWithEvidence(harness, deviceID, artifactDir, "host_device_update_nginx_v125.txt", "update device applications: nginx v1.25", nginxV125Spec)
+			waitForUpdateConditionCompleted(harness, deviceID, "nginx v1.25 application update")
 
 			By("apply nginx")
 			assertReferenceAbsent(harness, artifactDir, "vm_refs_cat_before_nginx_latest_retention.txt", nginxLatestRefFragment)
 			updateDeviceApplicationsWithEvidence(harness, deviceID, artifactDir, "host_device_update_nginx_latest.txt", "update device applications: nginx latest", nginxLatestSpec)
+			waitForUpdateConditionCompleted(harness, deviceID, "nginx latest application update")
 
 			By("apply nginx again (acts as v3 in environments without extra tags)")
 			updateDeviceApplicationsWithEvidence(harness, deviceID, artifactDir, "host_device_update_nginx_latest_again.txt", "update device applications: nginx latest again", nginxLatestSpec)
@@ -304,6 +308,7 @@ var _ = Describe("Agent image and artifact pruning", func() {
 			By("apply nginx.25 then nginx")
 			assertReferenceAbsent(harness, artifactDir, "vm_refs_cat_before_nginx_v125_refs_update.txt", nginxV125ImageRef)
 			updateDeviceApplicationsWithEvidence(harness, deviceID, artifactDir, "host_device_update_nginx_v125.txt", "update device applications: nginx v1.25", nginxV125Spec)
+			waitForUpdateConditionCompleted(harness, deviceID, "nginx v1.25 application update for refs cleanup")
 
 			assertReferenceAbsent(harness, artifactDir, "vm_refs_cat_before_nginx_latest_refs_update.txt", nginxLatestRefFragment)
 			updateDeviceApplicationsWithEvidence(harness, deviceID, artifactDir, "host_device_update_nginx_latest.txt", "update device applications: nginx latest", nginxLatestSpec)
