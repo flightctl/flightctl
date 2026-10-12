@@ -38,7 +38,7 @@
         "x": 0,
         "y": 0
       },
-      "id": 5,
+      "id": 8,
       "options": {
         "code": {
           "language": "plaintext",
@@ -57,79 +57,13 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
+      "description": "Service API latency on port 3443 by response status and percentile.",
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 2,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "showValues": false,
-            "spanNulls": true,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
           "min": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
           "unit": "ms"
         },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Error (p99)"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#E24D42",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          }
-        ]
+        "overrides": []
       },
       "gridPos": {
         "h": 9,
@@ -140,9 +74,7 @@
       "id": 1,
       "options": {
         "legend": {
-          "calcs": [
-            "mean"
-          ],
+          "calcs": [],
           "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
@@ -156,33 +88,28 @@
       "pluginVersion": "12.3.3",
       "targets": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.99, sum(rate(http_server_request_duration_seconds_bucket{http_response_status_code=~\"2..\"}[$__rate_interval])) by (le)) * 1000",
-          "hide": false,
-          "instant": false,
-          "legendFormat": "OK (p99)",
+          "expr": "sum by (http_response_status_code) (rate(http_server_request_duration_seconds_sum{server_port=\"3443\"}[$__rate_interval])) / sum by (http_response_status_code) (rate(http_server_request_duration_seconds_count{server_port=\"3443\"}[$__rate_interval])) * 1000",
+          "legendFormat": "{{http_response_status_code}} (avg)",
           "range": true,
-          "refId": "OK p99"
+          "refId": "A"
         },
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
           "editorMode": "code",
-          "expr": "histogram_quantile(0.99, sum(rate(http_server_request_duration_seconds_bucket{http_response_status_code=~\"4..|5..\"}[$__rate_interval])) by (le)) * 1000",
-          "hide": false,
-          "instant": false,
-          "legendFormat": "Error (p99)",
+          "expr": "histogram_quantile(0.50, sum by (le, http_response_status_code) (rate(http_server_request_duration_seconds_bucket{server_port=\"3443\"}[$__rate_interval]))) * 1000",
+          "legendFormat": "{{http_response_status_code}} (p50)",
           "range": true,
-          "refId": "Error p99"
+          "refId": "B"
+        },
+        {
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.99, sum by (le, http_response_status_code) (rate(http_server_request_duration_seconds_bucket{server_port=\"3443\"}[$__rate_interval]))) * 1000",
+          "legendFormat": "{{http_response_status_code}} (p99)",
+          "range": true,
+          "refId": "C"
         }
       ],
-      "title": "LATENCY",
+      "title": "Service API LATENCY",
       "type": "timeseries"
     },
     {
@@ -190,78 +117,13 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
+      "description": "Agent API latency on port 7443 by response status and percentile.",
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 2,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "showValues": false,
-            "spanNulls": true,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "ops"
+          "min": 0,
+          "unit": "ms"
         },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Errors"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#E24D42",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          }
-        ]
+        "overrides": []
       },
       "gridPos": {
         "h": 9,
@@ -272,9 +134,7 @@
       "id": 2,
       "options": {
         "legend": {
-          "calcs": [
-            "mean"
-          ],
+          "calcs": [],
           "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
@@ -288,18 +148,28 @@
       "pluginVersion": "12.3.3",
       "targets": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
           "editorMode": "code",
-          "expr": "sum(rate(http_server_request_duration_seconds_count[$__rate_interval]))",
-          "legendFormat": "Requests/s",
+          "expr": "sum by (http_response_status_code) (rate(http_server_request_duration_seconds_sum{server_port=\"7443\"}[$__rate_interval])) / sum by (http_response_status_code) (rate(http_server_request_duration_seconds_count{server_port=\"7443\"}[$__rate_interval])) * 1000",
+          "legendFormat": "{{http_response_status_code}} (avg)",
           "range": true,
           "refId": "A"
+        },
+        {
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.50, sum by (le, http_response_status_code) (rate(http_server_request_duration_seconds_bucket{server_port=\"7443\"}[$__rate_interval]))) * 1000",
+          "legendFormat": "{{http_response_status_code}} (p50)",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "editorMode": "code",
+          "expr": "histogram_quantile(0.99, sum by (le, http_response_status_code) (rate(http_server_request_duration_seconds_bucket{server_port=\"7443\"}[$__rate_interval]))) * 1000",
+          "legendFormat": "{{http_response_status_code}} (p99)",
+          "range": true,
+          "refId": "C"
         }
       ],
-      "title": "TRAFFIC",
+      "title": "Agent API LATENCY",
       "type": "timeseries"
     },
     {
@@ -307,94 +177,13 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
+      "description": "Service API requests per second on port 3443 by response status.",
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 0,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 1,
-            "pointSize": 4,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "always",
-            "showValues": false,
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "min": 1,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "short"
+          "min": 0,
+          "unit": "reqps"
         },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "code 4xx"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "yellow",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "code 5xx"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "red",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          }
-        ]
+        "overrides": []
       },
       "gridPos": {
         "h": 9,
@@ -405,9 +194,7 @@
       "id": 3,
       "options": {
         "legend": {
-          "calcs": [
-            "sum"
-          ],
+          "calcs": [],
           "displayMode": "list",
           "placement": "bottom",
           "showLegend": true
@@ -421,34 +208,14 @@
       "pluginVersion": "12.3.3",
       "targets": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
           "editorMode": "code",
-          "expr": "round(sum(increase(http_server_request_duration_seconds_count{http_response_status_code=~\"4..\"}[$__rate_interval])))",
-          "hide": false,
-          "instant": false,
-          "legendFormat": "code 4xx",
+          "expr": "sum by (http_response_status_code) (rate(http_server_request_duration_seconds_count{server_port=\"3443\"}[$__rate_interval]))",
+          "legendFormat": "{{http_response_status_code}}",
           "range": true,
-          "refId": "code 4xx errors"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "editorMode": "code",
-          "expr": "round(sum(increase(http_server_request_duration_seconds_count{http_response_status_code=~\"5..\"}[$__rate_interval])))",
-          "hide": false,
-          "instant": false,
-          "interval": "",
-          "legendFormat": "code 5xx",
-          "range": true,
-          "refId": "code 5xx errors"
+          "refId": "A"
         }
       ],
-      "title": "ERRORS",
+      "title": "Service API TRAFFIC",
       "type": "timeseries"
     },
     {
@@ -456,110 +223,13 @@
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
       },
+      "description": "Agent API requests per second on port 7443 by response status.",
       "fieldConfig": {
         "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 2,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "never",
-            "showValues": false,
-            "spanNulls": true,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "max": 1,
           "min": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          },
-          "unit": "percentunit"
+          "unit": "reqps"
         },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "CPU"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "green",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Memory"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "blue",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Disk"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "#b086b1",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          }
-        ]
+        "overrides": []
       },
       "gridPos": {
         "h": 9,
@@ -570,8 +240,163 @@
       "id": 4,
       "options": {
         "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum by (http_response_status_code) (rate(http_server_request_duration_seconds_count{server_port=\"7443\"}[$__rate_interval]))",
+          "legendFormat": "{{http_response_status_code}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Agent API TRAFFIC",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Service API 4xx and 5xx request rates on port 3443 by status code.",
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 20
+      },
+      "id": 5,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum by (http_response_status_code) (rate(http_server_request_duration_seconds_count{server_port=\"3443\", http_response_status_code=~\"[45]..\"}[$__rate_interval]))",
+          "legendFormat": "{{http_response_status_code}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Service API ERRORS",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Agent API 4xx and 5xx request rates on port 7443 by status code.",
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 20
+      },
+      "id": 6,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.3",
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum by (http_response_status_code) (rate(http_server_request_duration_seconds_count{server_port=\"7443\", http_response_status_code=~\"[45]..\"}[$__rate_interval]))",
+          "legendFormat": "{{http_response_status_code}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Agent API ERRORS",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "description": "Peak system utilization and database connection-pool utilization.",
+      "fieldConfig": {
+        "defaults": {
+          "max": 1,
+          "min": 0,
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.8
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 29
+      },
+      "id": 7,
+      "options": {
+        "legend": {
           "calcs": [
-            "mean"
+            "min",
+            "mean",
+            "max",
+            "p99"
           ],
           "displayMode": "list",
           "placement": "bottom",
@@ -586,44 +411,32 @@
       "pluginVersion": "12.3.3",
       "targets": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
           "editorMode": "code",
-          "exemplar": false,
           "expr": "flightctl_cpu_utilization",
-          "instant": false,
-          "interval": "",
           "legendFormat": "CPU",
           "range": true,
           "refId": "A"
         },
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
           "editorMode": "code",
           "expr": "flightctl_memory_utilization",
-          "hide": false,
-          "instant": false,
           "legendFormat": "Memory",
           "range": true,
           "refId": "B"
         },
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
           "editorMode": "code",
           "expr": "flightctl_disk_utilization",
-          "hide": false,
-          "instant": false,
           "legendFormat": "Disk",
           "range": true,
           "refId": "C"
+        },
+        {
+          "editorMode": "code",
+          "expr": "gorm_dbstats_open_connections{job=\"flightctl-api-db\"} / gorm_dbstats_max_open_connections{job=\"flightctl-api-db\"}",
+          "legendFormat": "DB connections",
+          "range": true,
+          "refId": "D"
         }
       ],
       "title": "SATURATION",
@@ -670,5 +483,5 @@
   "timezone": "browser",
   "title": "Flight Control API Dashboard",
   "uid": "flightctl-api",
-  "version": 1
+  "version": 2
 }
