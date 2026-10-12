@@ -2172,9 +2172,18 @@ func (h *Harness) SetLabelsForResource(metadata *v1beta1.ObjectMeta, labels map[
 	GinkgoWriter.Printf("Set labels for resource %s: %v", metadata.Name, metadata.Labels)
 }
 
-// SetLabelsForDeviceMetadata sets labels on device metadata while preserving the test-id label
+// SetLabelsForDeviceMetadata sets selected labels while preserving existing labels, including mapping-owned labels.
 func (h *Harness) SetLabelsForDeviceMetadata(metadata *v1beta1.ObjectMeta, labels map[string]string) {
-	h.SetLabelsForResource(metadata, labels)
+	if metadata.Labels == nil || *metadata.Labels == nil {
+		newLabels := make(map[string]string, len(labels)+1)
+		metadata.Labels = &newLabels
+	}
+
+	(*metadata.Labels)["test-id"] = h.GetTestIDFromContext()
+	for key, value := range labels {
+		(*metadata.Labels)[key] = value
+	}
+	GinkgoWriter.Printf("Set labels for resource %s: %v", metadata.Name, metadata.Labels)
 }
 
 // SetLabelsForFleetMetadata sets labels on fleet metadata while preserving the test-id label

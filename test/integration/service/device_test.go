@@ -269,16 +269,16 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 				{deviceName: "same-value-takeover", userValue: "same-value", mapValue: "same-value"},
 			}
 			for _, testCase := range cases {
-				createDevice(testCase.deviceName, map[string]string{"custominfo/site": testCase.userValue, "manual": "preserved"})
+				createDevice(testCase.deviceName, map[string]string{"custominfo.flightctl.io/site": testCase.userValue, "manual": "preserved"})
 				applyOwnedLabels(testCase.deviceName, map[string]domain.DesiredDeviceLabel{
-					"custominfo/site": {Value: testCase.mapValue, MappingID: &mappingID},
-					"manual":          {Value: "preserved"},
+					"custominfo.flightctl.io/site": {Value: testCase.mapValue, MappingID: &mappingID},
+					"manual":                       {Value: "preserved"},
 				})
 				device, status := suite.Device.GetDevice(suite.Ctx, suite.OrgID, testCase.deviceName)
 				Expect(status.Code).To(Equal(int32(200)))
 				Expect(lo.FromPtr(device.Metadata.Labels)).To(Equal(map[string]string{
-					"custominfo/site": testCase.mapValue,
-					"manual":          "preserved",
+					"custominfo.flightctl.io/site": testCase.mapValue,
+					"manual":                       "preserved",
 				}))
 			}
 
@@ -300,13 +300,13 @@ var _ = Describe("Device Application Status Events Integration Tests", func() {
 			device, status := suite.Device.GetDevice(suite.Ctx, suite.OrgID, "different-value-takeover")
 			Expect(status.Code).To(Equal(int32(200)))
 			labels := lo.FromPtr(device.Metadata.Labels)
-			labels["custominfo/site"] = "operator-after-cleanup"
+			labels["custominfo.flightctl.io/site"] = "operator-after-cleanup"
 			device.Metadata.Labels = &labels
 			_, status = suite.Device.ReplaceDevice(suite.Ctx, suite.OrgID, "different-value-takeover", *device, nil, true, true)
 			Expect(status.Code).To(Equal(int32(200)))
 			device, status = suite.Device.GetDevice(suite.Ctx, suite.OrgID, "different-value-takeover")
 			Expect(status.Code).To(Equal(int32(200)))
-			Expect(lo.FromPtr(device.Metadata.Labels)["custominfo/site"]).To(Equal("operator-after-cleanup"))
+			Expect(lo.FromPtr(device.Metadata.Labels)["custominfo.flightctl.io/site"]).To(Equal("operator-after-cleanup"))
 		})
 	})
 

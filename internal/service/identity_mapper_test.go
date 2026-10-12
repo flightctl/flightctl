@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/auth/common"
@@ -12,12 +14,14 @@ import (
 	"github.com/flightctl/flightctl/internal/identity"
 	"github.com/flightctl/flightctl/internal/service/catalog"
 	svcommon "github.com/flightctl/flightctl/internal/service/common"
+	labelsyncmappingservice "github.com/flightctl/flightctl/internal/service/labelsyncmapping"
 	"github.com/flightctl/flightctl/internal/service/organization"
 	"github.com/flightctl/flightctl/internal/store"
 	"github.com/flightctl/flightctl/internal/store/model"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 // mockIdentity implements common.Identity interface for testing
@@ -174,6 +178,67 @@ func createTestOrganizationModel(id uuid.UUID, externalID string, displayName st
 
 func createTestIdentityMapper(orgStore *fakeOrganizationStore, catalogStore *fakeCatalogStore) *IdentityMapper {
 	return NewIdentityMapper(orgStore, NewOrgProvisioner(catalogStore, logrus.New()), logrus.New())
+}
+
+func TestMapIdentityToDB_NewOrganization_SeedsInitialMappings(t *testing.T) {
+	for _, testCase := range []struct {
+		name         string
+		superAdmin   bool
+		reportedOrgs []common.ReportedOrganization
+	}{
+		{
+			name:         "When a regular user creates an organization it should seed mappings",
+			reportedOrgs: []common.ReportedOrganization{{ID: "org-new", Name: "New Organization"}},
+		},
+		{
+			name:       "When a super admin creates an organization it should seed mappings",
+			superAdmin: true,
+			reportedOrgs: []common.ReportedOrganization{{
+				ID: "org-new", Name: "New Organization",
+			}},
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			manifest := filepath.Join(t.TempDir(), "mappings.yaml")
+			require.NoError(t, os.WriteFile(manifest, []byte(`
+- apiVersion: flightctl.io/v1beta1
+  kind: LabelSyncMapping
+  metadata:
+    name: system-info
+  spec:
+    resourceType: Device
+    expression: '{}'
+`), 0600))
+
+			orgStore := &fakeOrganizationStore{}
+			catalogStore := &fakeCatalogStore{catalogs: make(map[catalogKey]*domain.Catalog)}
+			ctrl := gomock.NewController(t)
+			mappingService := labelsyncmappingservice.NewMockService(ctrl)
+			var createdOrgID uuid.UUID
+			mappingService.EXPECT().CreateLabelSyncMapping(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+				func(_ context.Context, orgID uuid.UUID, mapping domain.LabelSyncMapping) (*domain.LabelSyncMapping, domain.Status) {
+					createdOrgID = orgID
+					require.Equal(t, "system-info", *mapping.Metadata.Name)
+					return &mapping, domain.StatusOK()
+				},
+			)
+
+			provisioner, err := NewOrgProvisionerWithInitialMappings(catalogStore, mappingService, manifest, logrus.New())
+			require.NoError(t, err)
+			mapper := NewIdentityMapper(orgStore, provisioner, logrus.New())
+			identity := &mockIdentity{
+				username:      "operator",
+				uid:           "operator-uid",
+				organizations: testCase.reportedOrgs,
+				isSuperAdmin:  testCase.superAdmin,
+			}
+
+			orgs, err := mapper.MapIdentityToDB(context.Background(), identity)
+			require.NoError(t, err)
+			require.Len(t, orgs, 1)
+			require.Equal(t, orgs[0].ID, createdOrgID)
+		})
+	}
 }
 
 func TestMapIdentityToDB_SuperAdmin_NoReportedOrgs(t *testing.T) {

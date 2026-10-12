@@ -623,6 +623,7 @@ var _ = Describe("Template variables in the device configuration", func() {
 						configLabelKey:   configLabelValue,
 						revisionLabelKey: revisionLabelValue,
 					})
+					delete(*device.Metadata.Labels, teamLabelKey)
 					GinkgoWriter.Printf("Updating %s with labels\n", deviceId)
 				})
 				Expect(err).ToNot(HaveOccurred())

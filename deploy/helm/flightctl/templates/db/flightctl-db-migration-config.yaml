@@ -26,6 +26,8 @@ data:
         {{- end }}
         {{- end }}
     service: {}
+    organizations:
+        initialLabelSyncMappingsFile: {{ include "flightctl.initialLabelSyncMappingsFile" . }}
     {{ if (default dict .Values.dev).tracing }}
     tracing:
         enabled: true

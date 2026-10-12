@@ -42,7 +42,7 @@ const (
   : {}).transformMapEntry(
   k,
   v,
-  {"custominfo/" + k: v}
+  {"custominfo.flightctl.io/" + k: v}
 )`
 )
 

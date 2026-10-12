@@ -69,6 +69,9 @@ spec:
           volumeMounts:
             - mountPath: /app/certs
               name: flightctl-alertmanager-proxy-certs
+            - mountPath: {{ include "flightctl.initialLabelSyncMappingsDirectory" . }}
+              name: {{ include "flightctl.initialLabelSyncMappingsConfigMapName" . }}
+              readOnly: true
             - mountPath: /root/.flightctl/config.yaml
               name: flightctl-alertmanager-proxy-config
               subPath: config.yaml
@@ -140,6 +143,9 @@ spec:
         - name: flightctl-alertmanager-proxy-config
           configMap:
             name: flightctl-alertmanager-proxy-config
+        - name: {{ include "flightctl.initialLabelSyncMappingsConfigMapName" . }}
+          configMap:
+            name: {{ include "flightctl.initialLabelSyncMappingsConfigMapName" . }}
         - name: flightctl-config-dir
           emptyDir: {}
         - name: tmp-dir
