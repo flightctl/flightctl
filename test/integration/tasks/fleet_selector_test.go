@@ -8,6 +8,7 @@ import (
 	api "github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/config"
 	"github.com/flightctl/flightctl/internal/consts"
+	"github.com/flightctl/flightctl/internal/domain"
 	"github.com/flightctl/flightctl/internal/kvstore"
 	deviceservice "github.com/flightctl/flightctl/internal/service/device"
 	"github.com/flightctl/flightctl/internal/service/events"
@@ -213,12 +214,15 @@ var _ = Describe("FleetSelector", func() {
 	}
 
 	Context("FleetSelector", func() {
-		It("should reconcile fleet ownership when EnrollmentHooks changes from False to True", func() {
+		It("When an agent reports successful enrollment hooks it should reconcile fleet ownership", func() {
 			fleetName := "hooks-complete-fleet"
 			deviceName := "hooks-complete-device"
 			labels := map[string]string{"env": "prod"}
 			testutil.CreateTestFleet(ctx, fleetStore, orgId, fleetName, &labels, nil)
-			testutil.CreateTestDevice(ctx, deviceStore, orgId, deviceName, nil, nil, &labels)
+			resource := testutil.ReturnTestDevice(orgId, deviceName, nil, nil, &labels)
+			resource.Spec.Config = nil
+			_, err := deviceStore.Create(ctx, orgId, &resource, nil)
+			Expect(err).NotTo(HaveOccurred())
 
 			status := deviceSvc.SetDeviceServiceConditions(ctx, orgId, deviceName, []api.Condition{{
 				Type:   api.ConditionTypeDeviceEnrollmentHooks,
@@ -227,12 +231,24 @@ var _ = Describe("FleetSelector", func() {
 			}})
 			Expect(status.Code).To(Equal(int32(200)))
 
-			status = deviceSvc.SetDeviceServiceConditions(ctx, orgId, deviceName, []api.Condition{{
-				Type:   api.ConditionTypeDeviceEnrollmentHooks,
-				Status: api.ConditionStatusTrue,
-				Reason: api.EnrollmentHooksReasonSucceeded,
-			}})
-			Expect(status.Code).To(Equal(int32(200)))
+			device, err := deviceStore.Get(ctx, orgId, deviceName)
+			Expect(err).NotTo(HaveOccurred())
+			conditionIndex := -1
+			for index, condition := range device.Status.Conditions {
+				if condition.Type == api.ConditionTypeDeviceEnrollmentHooks {
+					conditionIndex = index
+					break
+				}
+			}
+			Expect(conditionIndex).To(BeNumerically(">=", 0))
+			conditionPath := fmt.Sprintf("/status/conditions/%d", conditionIndex)
+			var succeededStatus any = api.ConditionStatusTrue
+			var succeededReason any = api.EnrollmentHooksReasonSucceeded
+			_, status = deviceSvc.PatchDeviceStatus(ctx, orgId, deviceName, domain.PatchRequest{
+				{Op: "replace", Path: conditionPath + "/status", Value: &succeededStatus},
+				{Op: "replace", Path: conditionPath + "/reason", Value: &succeededReason},
+			})
+			Expect(status.Code).To(Equal(int32(200)), status.Message)
 
 			var gateClearedEvent *api.Event
 			deviceEvents := getEventsForResource(api.DeviceKind, deviceName)
@@ -254,7 +270,7 @@ var _ = Describe("FleetSelector", func() {
 			deviceLogic.SetItemsPerPage(2)
 			Expect(deviceLogic.DeviceLabelsUpdated(ctx)).To(Succeed())
 
-			device, err := deviceStore.Get(ctx, orgId, deviceName)
+			device, err = deviceStore.Get(ctx, orgId, deviceName)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(lo.FromPtr(device.Metadata.Owner)).To(Equal("Fleet/" + fleetName))
 		})
