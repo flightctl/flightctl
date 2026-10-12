@@ -31,6 +31,7 @@ func TestRouteExternalCertificate(t *testing.T) {
 		certificateMethod    string
 		certManagerInstalled bool
 		externalCert         bool
+		upgrade              bool
 		expectedDocuments    int
 	}{
 		{
@@ -43,6 +44,13 @@ func TestRouteExternalCertificate(t *testing.T) {
 			name:              "When auto mode falls back to builtin certificates it should include externalCertificate",
 			certificateMethod: "auto",
 			externalCert:      true,
+			expectedDocuments: 3,
+		},
+		{
+			name:              "When auto mode uses builtin certificates during an upgrade it should include externalCertificate",
+			certificateMethod: "auto",
+			externalCert:      true,
+			upgrade:           true,
 			expectedDocuments: 3,
 		},
 		{
@@ -66,7 +74,7 @@ func TestRouteExternalCertificate(t *testing.T) {
 			for _, tt := range tests {
 				tt := tt
 				t.Run(tt.name, func(t *testing.T) {
-					manifest := renderChart(t, tt.routeCertificate, tt.certificateMethod, tt.certManagerInstalled)
+					manifest := renderChart(t, tt.routeCertificate, tt.certificateMethod, tt.certManagerInstalled, tt.upgrade)
 					documents := sourceDocuments(manifest, route.source)
 
 					require.Len(t, documents, tt.expectedDocuments)
@@ -81,7 +89,7 @@ func TestRouteExternalCertificate(t *testing.T) {
 	}
 }
 
-func renderChart(t *testing.T, routeCertificate, certificateMethod string, certManagerInstalled bool) string {
+func renderChart(t *testing.T, routeCertificate, certificateMethod string, certManagerInstalled, upgrade bool) string {
 	t.Helper()
 
 	_, filename, _, ok := runtime.Caller(0)
@@ -105,6 +113,9 @@ func renderChart(t *testing.T, routeCertificate, certificateMethod string, certM
 		"global.generateCertificates=" + certificateMethod,
 		"--api-versions",
 		"route.openshift.io/v1",
+	}
+	if upgrade {
+		args = append(args, "--is-upgrade")
 	}
 	if certManagerInstalled {
 		args = append(args, "--api-versions", "cert-manager.io/v1/Certificate")

@@ -665,9 +665,9 @@ Usage: {{- include "flightctl.vulnerabilityQuayCaVolumes" . | nindent X }}
 {{- /*
 Determine whether to use externalCertificate on edge-terminated routes.
 Returns: "true" or "false"
-- "auto" (default): use the synchronous builtin certificate on fresh install;
-  for asynchronous certificates, wait until the generated Secret exists. On
-  upgrade, preserve existing behavior by checking the existing Route and Secret.
+- "auto" (default): use the synchronous builtin certificate on install and
+  upgrade; for asynchronous certificates, wait until the generated Secret
+  exists or preserve the existing Route behavior.
 - "true": always use
 - "false": never use
 Usage: {{- $useExtCert := include "flightctl.useRouteExternalCertificate" (dict "root" . "routeName" "flightctl-ui" "secretName" "flightctl-ui-server-tls") }}
@@ -688,7 +688,7 @@ Usage: {{- $useExtCert := include "flightctl.useRouteExternalCertificate" (dict 
       {{- print "true" }}
     {{- else if $existingSecret }}
       {{- print "true" }}
-    {{- else if and $root.Release.IsInstall (eq (include "flightctl.getCertificateGenerationMethod" $root) "builtin") }}
+    {{- else if eq (include "flightctl.getCertificateGenerationMethod" $root) "builtin" }}
       {{- print "true" }}
     {{- else }}
       {{- print "false" }}
