@@ -32,6 +32,7 @@ func TestSELinuxPolicyAllowsStoppingAllSystemdServices(t *testing.T) {
 	}
 }
 
+// activePolicyText returns policy text with full-line comments removed.
 func activePolicyText(policy []byte) string {
 	activeLines := make([]string, 0)
 	for _, line := range strings.Split(string(policy), "\n") {

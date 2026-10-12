@@ -54,6 +54,7 @@ func TestGreenbootConfigureServiceRemoved(t *testing.T) {
 	}
 }
 
+// repoRoot returns the repository root for packaging tests.
 func repoRoot(t *testing.T) string {
 	t.Helper()
 	root, err := os.Getwd()
