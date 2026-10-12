@@ -2,6 +2,7 @@ package labelsyncmapping
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -580,6 +581,68 @@ func TestEvaluatorProgramCacheSupportsDynamicResultShapes(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, MapResult{"site": "east"}, mapResult)
 	require.Len(t, evaluatorInterface.(*evaluator).programs, 1)
+}
+
+func TestEvaluatorEvaluatesSystemInfoMappingWithAllProperties(t *testing.T) {
+	allSystemInfo := map[string]string{
+		"architecture":        "amd64",
+		"hostname":            "edge-01",
+		"kernel":              "6.12.0",
+		"cpuCores":            "4",
+		"cpuProcessors":       "8",
+		"cpuModel":            "Example-CPU",
+		"gpu":                 "Example-GPU",
+		"memoryTotalKb":       "16384000",
+		"netInterfaceDefault": "eth0",
+		"netIpDefault":        "192.0.2.10",
+		"netMacDefault":       "02:00:00:00:00:01",
+		"biosVendor":          "Example-Vendor",
+		"biosVersion":         "1.0",
+		"productName":         "Example-Device",
+		"productUuid":         "123e4567-e89b-12d3-a456-426614174000",
+		"productSerial":       "serial-01",
+		"distroName":          "Example-Linux",
+		"distroVersion":       "1",
+		"distroId":            "example",
+	}
+	require.Len(t, allSystemInfo, 19)
+
+	keys := make([]string, 0, len(allSystemInfo))
+	additionalProperties := make(map[string]string, len(allSystemInfo)-1)
+	expected := make(map[string]string, len(allSystemInfo))
+	for key, value := range allSystemInfo {
+		keys = append(keys, key)
+		if key != "architecture" {
+			additionalProperties[key] = value
+		}
+		expectedValue := value
+		if key == "netMacDefault" {
+			expectedValue = "02-00-00-00-00-01"
+		}
+		expected["systeminfo.flightctl.io/"+key] = expectedValue
+	}
+	sort.Strings(keys)
+	quotedKeys := make([]string, len(keys))
+	for index, key := range keys {
+		quotedKeys[index] = fmt.Sprintf("%q", key)
+	}
+	expression := fmt.Sprintf(
+		`status.systemInfo.transformMapEntry(k, v, k in [%s], {"systeminfo.flightctl.io/" + k: v})`,
+		strings.Join(quotedKeys, ", "),
+	)
+
+	device := testDevice(allSystemInfo["architecture"], nil)
+	device.Status.SystemInfo.AgentVersion = "1.4.0"
+	device.Status.SystemInfo.BootID = "boot-id"
+	device.Status.SystemInfo.OperatingSystem = "Example-Linux 1"
+	device.Status.SystemInfo.AdditionalProperties = additionalProperties
+	activation := testActivation(t, device)
+
+	evaluator, err := NewEvaluator()
+	require.NoError(t, err)
+	result, err := evaluator.Evaluate(expression, activation)
+	require.NoError(t, err)
+	require.Equal(t, MapResult(expected), result)
 }
 
 func TestEvaluatorEnforcesCostLimit(t *testing.T) {

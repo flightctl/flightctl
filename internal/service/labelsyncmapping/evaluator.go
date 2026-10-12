@@ -21,7 +21,8 @@ import (
 
 const (
 	maxCachedPrograms = 256
-	maxExpressionCost = 1_000
+	maxExpressionSize = 1_000
+	maxExpressionCost = 10_000
 	maxMapEntries     = 50
 )
 
@@ -86,7 +87,7 @@ func NewEvaluator() (Evaluator, error) {
 		cel.OptionalTypes(),
 		ext.TwoVarComprehensions(),
 		semverLibrary(),
-		cel.ParserExpressionSizeLimit(maxExpressionCost),
+		cel.ParserExpressionSizeLimit(maxExpressionSize),
 	)
 	if err != nil {
 		return nil, err
