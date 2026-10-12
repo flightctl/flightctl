@@ -72,6 +72,7 @@ jobs:
       enabled: ${{ steps.selection.outputs.enabled }}
       includes_sanity: ${{ steps.selection.outputs.includes_sanity }}
       label_filter: ${{ steps.selection.outputs.label_filter }}
+      cs10_label_filter: ${{ steps.selection.outputs.cs10_label_filter }}
     steps:
       - name: Resolve E2E labels
         id: selection
@@ -134,10 +135,18 @@ jobs:
           done
 
           label_filter=""
+          cs10_label_filter="sanity && agent && !microshift"
           if [[ "${enabled}" == "true" ]]; then
             label_filter="${selected_labels[0]}"
             for label in "${selected_labels[@]:1}"; do
               label_filter+=" || ${label}"
+            done
+
+            for label in "${selected_labels[@]}"; do
+              if [[ "${label}" == "sanity" ]]; then
+                continue
+              fi
+              cs10_label_filter+=" || ${label} && !microshift"
             done
           fi
 
@@ -145,6 +154,7 @@ jobs:
             echo "enabled=${enabled}"
             echo "includes_sanity=${includes_sanity}"
             echo "label_filter=${label_filter}"
+            echo "cs10_label_filter=${cs10_label_filter}"
           } >> "$GITHUB_OUTPUT"
 
   reuse-e2e:
@@ -349,6 +359,7 @@ jobs:
         include:
           - label_filter: 'sanity'
             ginkgo_total_nodes: 10
+          # Explicitly selected labels also run on CS10, except microshift tests.
           - label_filter: 'sanity && agent && !microshift'
             ginkgo_total_nodes: 5
     steps:
@@ -361,7 +372,7 @@ jobs:
       - name: Compute label filter hash
         id: compute-hash
         env:
-          GINKGO_LABEL_FILTER: ${{ matrix.label_filter == 'sanity' && needs.select-e2e.outputs.label_filter || matrix.label_filter }}
+          GINKGO_LABEL_FILTER: ${{ matrix.label_filter == 'sanity' && needs.select-e2e.outputs.label_filter || needs.select-e2e.outputs.cs10_label_filter }}
         run: |
           HASH=$(printf '%s' "${GINKGO_LABEL_FILTER}" | sha256sum | cut -c1-8)
           echo "hash=${HASH}" >> "$GITHUB_OUTPUT"
@@ -370,7 +381,7 @@ jobs:
 
       - name: Run test discovery
         env:
-          GINKGO_LABEL_FILTER: ${{ matrix.label_filter == 'sanity' && needs.select-e2e.outputs.label_filter || matrix.label_filter }}
+          GINKGO_LABEL_FILTER: ${{ matrix.label_filter == 'sanity' && needs.select-e2e.outputs.label_filter || needs.select-e2e.outputs.cs10_label_filter }}
           DISCOVERY_ONLY: "true"
           DISCOVERY_PATH: discovery.json
         run: |
@@ -379,7 +390,7 @@ jobs:
 
       - name: Validate discovery results
         env:
-          GINKGO_LABEL_FILTER: ${{ matrix.label_filter == 'sanity' && needs.select-e2e.outputs.label_filter || matrix.label_filter }}
+          GINKGO_LABEL_FILTER: ${{ matrix.label_filter == 'sanity' && needs.select-e2e.outputs.label_filter || needs.select-e2e.outputs.cs10_label_filter }}
         run: |
           echo "=== Discovery file info ==="
           ls -la discovery.json
@@ -443,9 +454,9 @@ jobs:
             backend_type: helm
             label_filter: 'sanity'
             ginkgo_total_nodes: 10
-          ## CS10: agent tests only; microshift tests are excluded until the cs10-bootc kernel
-          ## includes xt_conntrack/xt_comment modules required by kube-proxy. CS9 provides
-          ## full microshift coverage via the v12 OKD SCOS variant.
+          ## CS10: sanity agent tests plus explicitly selected labels; microshift tests are
+          ## excluded until its kernel includes xt_conntrack/xt_comment modules required by
+          ## kube-proxy. CS9 provides full microshift coverage via the v12 OKD SCOS variant.
           - os_id: cs10-bootc
             backend_type: helm
             label_filter: 'sanity && agent && !microshift'
@@ -455,7 +466,7 @@ jobs:
       os_id: ${{ matrix.os_id }}
       backend_type: ${{ matrix.backend_type }}
       ginkgo_total_nodes: ${{ matrix.ginkgo_total_nodes }}
-      ginkgo_label_filter: ${{ matrix.label_filter == 'sanity' && needs.select-e2e.outputs.label_filter || matrix.label_filter }}
+      ginkgo_label_filter: ${{ matrix.label_filter == 'sanity' && needs.select-e2e.outputs.label_filter || needs.select-e2e.outputs.cs10_label_filter }}
       tag: ${{ needs.compute-tag.outputs.tag }}
 
   api-tests:
