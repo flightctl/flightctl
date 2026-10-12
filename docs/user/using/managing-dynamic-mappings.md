@@ -21,7 +21,7 @@ Helm and quadlet deployments provide a starter set of mappings. The default mapp
 |---|---|
 | `system-info` | The `agentVersion`, `architecture`, `biosVendor`, `biosVersion`, `cpuProcessors`, `deltaEligible`, `distroId`, `distroVersion`, `kernel`, `memoryTotalKb`, and `productName` fields from `status.systemInfo`, as `systeminfo.flightctl.io/<field>` labels. |
 | `custom-info` | Entries from `status.systemInfo.customInfo` as `custominfo.flightctl.io/<field>` labels. |
-| `tpm-enabled` | `feature.flightctl.io/tpm.enabled` is `true` when the device reports TPM vendor information. |
+| `tpm-enabled` | `feature.flightctl.io/tpm.enabled` is `true` when `tpmVendorInfo` is present. |
 | `gpu-present` | `feature.flightctl.io/gpu.present` is `true` when one or more GPUs are reported and `false` when the reported list is empty. |
 | `kvm-enabled` | `feature.flightctl.io/kvm.enabled` uses the reported `status.systemInfo.kvm.enabled` value when available. |
 | `os-mode` | The reported OS mode as `feature.flightctl.io/os.mode`. |
@@ -153,7 +153,7 @@ The Flight Control semantic-version library provides three functions:
 | `semver(value)` | Parses a string as a semantic version for comparison. |
 | `version.compareTo(other)` | Returns a negative number, zero, or a positive number when `version` precedes, equals, or follows `other`. |
 
-Before parsing, the function removes spaces at the start and ignores any prefix before the first number. For example, it accepts `v1.2.3`. It compares versions by [semantic version rules](https://semver.org/), not as plain text. This expression is true when the reported agent version is `1.2.3` or newer:
+Before parsing, `semver()` and `isSemver()` remove spaces before and after the version and ignore any prefix before the first digit. For example, they accept `v1.2.3`. Versions are compared by [semantic version rules](https://semver.org/), not as plain text. This expression is true when the reported agent version is `1.2.3` or newer:
 
 ```cel
 isSemver(status.systemInfo.agentVersion) &&
@@ -164,7 +164,7 @@ CEL expressions can use optional values. Use `has()` or a conditional expression
 
 Mapping results must be a scalar value or a map of scalar values. Nested maps, lists, and other complex results are rejected. Scalar values are converted to strings and sanitized for use as label values. Map keys must be valid label keys.
 
-Each map expression can return up to 50 entries. A device can have up to 100 mapping-owned labels across all mappings. An expression or output that exceeds these limits is reported as a mapping failure.
+Each map expression can return up to 50 entries. A device can have up to 100 mapping-owned labels across all mappings. A mapping fails if its map result exceeds 50 entries or its output would give a device more than 100 mapping-owned labels.
 
 ## Manage mappings from the CLI and API
 
@@ -209,7 +209,7 @@ Flight Control tracks ownership for each mapped label key on each device. An ope
 
 A mapping can take ownership of an existing user label with the same key. The mapping replaces the existing value, and deleting the mapping does not restore the former value. Use dedicated label keys to avoid collisions. If two mappings produce the same key on a device, the affected mappings report a collision and their previous outputs are retained until the conflict is resolved.
 
-Use provenance to inspect current ownership. Device provenance returns currently mapped keys and their mapping owners without returning label values. Organization provenance resolves ownership for exact keys, including scalar keys that are reserved by a mapping but do not yet have a device value:
+Use provenance to inspect current ownership without returning label values. Device provenance lists keys currently owned on that device and their mapping names. Organization provenance returns current owners for each exact key on devices in the organization; a key with no current mapping-owned label has an empty `owners` list:
 
 | Query | Method and path |
 |---|---|
@@ -220,7 +220,7 @@ Provenance describes current ownership. Device events provide the history of lab
 
 ## Monitor propagation
 
-Mapping updates run in the background. `Ready` is `Pending` while an update is in progress. The update is complete when `Ready` reports `Success` or `Degraded`; `Degraded` means one or more devices could not be reconciled. Check the condition message for details.
+Mapping updates run in the background. The `Ready` condition has reason `Pending` while an update is in progress. It has reason `Success` when propagation completes successfully or `Degraded` if one or more devices could not be reconciled. Check the condition message for details.
 
 Deleting a mapping also removes the labels it owns in the background.
 
@@ -232,7 +232,7 @@ Deployments provide a starter set of mappings for organizations. After provision
 
 ### Helm deployments
 
-Set `organizations.initialLabelSyncMappings` in the Helm values file to supply your own mappings for organization provisioning. Set it to an empty sequence to disable automatic mapping creation:
+Set `organizations.initialLabelSyncMappings` in the Helm values file to replace the bundled mapping list. Set it to an empty sequence to disable automatic mapping creation:
 
 ```yaml
 organizations:
@@ -245,6 +245,6 @@ Quadlet deployments use `/etc/flightctl/label-sync/mappings.yaml` as the initial
 
 ### Update existing organizations
 
-Changes to Helm values or the quadlet manifest affect mappings used for future organization provisioning. To change mappings in an existing organization, update its `LabelSyncMapping` resources with the CLI or REST API. Changes propagate asynchronously; see [Monitor propagation](#monitor-propagation).
+The deployment manifest is used for new organizations and once for existing organizations during the initial migration. Later manifest edits do not update mappings already present. Update existing `LabelSyncMapping` resources with the CLI or REST API. Changes propagate asynchronously; see [Monitor propagation](#monitor-propagation).
 
 See [Installing the Flight Control Service on Kubernetes](../installing/installing-service-on-kubernetes.md) and [Installing the Flight Control Service on Linux](../installing/installing-service-on-linux.md) for deployment instructions.
