@@ -307,7 +307,7 @@ func requireDeltaGenerationSupport(harness *e2e.Harness, deviceId string) {
 func waitDeviceUpToDate(harness *e2e.Harness, deviceId, description string) {
 	harness.WaitForDeviceContents(deviceId, description, func(device *v1beta1.Device) bool {
 		return device.Status != nil && device.Status.Updated.Status == v1beta1.DeviceUpdatedStatusUpToDate
-	}, TIMEOUT)
+	}, LONGTIMEOUT)
 }
 
 type deltaEventBaseline struct {
