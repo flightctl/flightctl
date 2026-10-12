@@ -1449,32 +1449,15 @@ func (m *prefetchManager) recordDeltaApplyResultLocked(target imageRef, task *pr
 	}
 	for _, application := range applications {
 		targetID := target.targetID()
-		persistedTargetKey := ""
-		if m.deltaStatusStore != nil && m.deltaAppTargetKeys != nil {
-			persistedTargetKey = m.deltaAppTargetKeys[application][targetID]
-			if persistedTargetKey != "" && persistedTargetKey != task.applicationTargetKey {
-				m.log.Debugf(
-					"Ignoring application delta result for stale target identity: application=%s image=%s outcome=%s",
-					application, target.image, outcome,
-				)
-				continue
-			}
+		persistedTargetKey, targetMatches := m.deltaApplicationTargetKeyForResult(application, targetID, task.applicationTargetKey)
+		if !targetMatches {
+			m.log.Debugf(
+				"Ignoring application delta result for stale target identity: application=%s image=%s outcome=%s",
+				application, target.image, outcome,
+			)
+			continue
 		}
-		if m.deltaStatusStore != nil && persistedTargetKey == task.applicationTargetKey && len(observedDigest) > 0 && observedDigest[0] != "" {
-			imageType := task.ociType
-			if imageType == OCITypeAuto {
-				imageType = OCITypePodmanImage
-			}
-			status := v1beta1.DeviceDeltaApplyStatus{Outcome: outcome}
-			if fallbackReason != "" {
-				reason := fallbackReason
-				status.FallbackReason = &reason
-			}
-			image := deltastatus.ApplicationImage{Image: target.image, Owner: string(target.owner.WithDefault(v1beta1.RootUsername)), OCIType: string(imageType), Digest: observedDigest[0]}
-			if err := m.deltaStatusStore.RecordApplicationImageResult(application, m.deltaAppSpecKeys[application], targetID, task.applicationTargetKey, image, status); err != nil {
-				m.log.Warnf("Failed to persist observed delta result for application %s image %s: %v", application, target.image, err)
-			}
-		}
+		m.persistObservedDeltaApplyResultLocked(target, task, application, targetID, outcome, fallbackReason, observedDigest, persistedTargetKey)
 		results := m.deltaApplyResults[application]
 		if results == nil {
 			results = make(map[imageRef]applicationDeltaApplyResult)
@@ -1507,23 +1490,59 @@ func (m *prefetchManager) recordDeltaApplyResultLocked(target imageRef, task *pr
 			"Recorded application delta result: application=%s image=%s outcome=%s ociType=%s hintPresent=%t sourceDigest=%q targetDigest=%q fallbackReason=%q",
 			application, target.image, outcome, task.ociType, task.delta.Hint != "", task.delta.SourceDigest, task.targetDigest, fallbackReason,
 		)
-		if m.deltaStatusStore != nil && persistedTargetKey == task.applicationTargetKey {
-			status := v1beta1.DeviceDeltaApplyStatus{Outcome: outcome}
-			if fallbackReason != "" {
-				reason := fallbackReason
-				status.FallbackReason = &reason
-			}
-			if err := m.deltaStatusStore.RecordApplicationResult(
-				application,
-				m.deltaAppSpecKeys[application],
-				targetID,
-				task.applicationTargetKey,
-				status,
-			); err != nil {
-				m.log.Warnf("Failed to persist delta result for application %s image %s: %v", application, target.image, err)
-			}
-		}
+		m.persistDeltaApplyResultLocked(application, targetID, target, task, outcome, fallbackReason, persistedTargetKey)
 	}
+}
+
+func (m *prefetchManager) deltaApplicationTargetKeyForResult(application, targetID, expectedKey string) (string, bool) {
+	if m.deltaStatusStore == nil || m.deltaAppTargetKeys == nil {
+		return "", true
+	}
+	persistedTargetKey := m.deltaAppTargetKeys[application][targetID]
+	return persistedTargetKey, persistedTargetKey == "" || persistedTargetKey == expectedKey
+}
+
+func (m *prefetchManager) persistObservedDeltaApplyResultLocked(target imageRef, task *prefetchTask, application, targetID string, outcome v1beta1.DeviceDeltaApplyOutcomeType, fallbackReason string, observedDigest []string, persistedTargetKey string) {
+	if m.deltaStatusStore == nil || persistedTargetKey != task.applicationTargetKey || len(observedDigest) == 0 || observedDigest[0] == "" {
+		return
+	}
+	imageType := task.ociType
+	if imageType == OCITypeAuto {
+		imageType = OCITypePodmanImage
+	}
+	image := deltastatus.ApplicationImage{
+		Image:   target.image,
+		Owner:   string(target.owner.WithDefault(v1beta1.RootUsername)),
+		OCIType: string(imageType),
+		Digest:  observedDigest[0],
+	}
+	if err := m.deltaStatusStore.RecordApplicationImageResult(application, m.deltaAppSpecKeys[application], targetID, task.applicationTargetKey, image, applicationDeltaApplyStatus(outcome, fallbackReason)); err != nil {
+		m.log.Warnf("Failed to persist observed delta result for application %s image %s: %v", application, target.image, err)
+	}
+}
+
+func (m *prefetchManager) persistDeltaApplyResultLocked(application, targetID string, target imageRef, task *prefetchTask, outcome v1beta1.DeviceDeltaApplyOutcomeType, fallbackReason, persistedTargetKey string) {
+	if m.deltaStatusStore == nil || persistedTargetKey != task.applicationTargetKey {
+		return
+	}
+	if err := m.deltaStatusStore.RecordApplicationResult(
+		application,
+		m.deltaAppSpecKeys[application],
+		targetID,
+		task.applicationTargetKey,
+		applicationDeltaApplyStatus(outcome, fallbackReason),
+	); err != nil {
+		m.log.Warnf("Failed to persist delta result for application %s image %s: %v", application, target.image, err)
+	}
+}
+
+func applicationDeltaApplyStatus(outcome v1beta1.DeviceDeltaApplyOutcomeType, fallbackReason string) v1beta1.DeviceDeltaApplyStatus {
+	status := v1beta1.DeviceDeltaApplyStatus{Outcome: outcome}
+	if fallbackReason != "" {
+		reason := fallbackReason
+		status.FallbackReason = &reason
+	}
+	return status
 }
 
 func (m *prefetchManager) setResult(target imageRef, err error, operation ...*prefetchTask) {
