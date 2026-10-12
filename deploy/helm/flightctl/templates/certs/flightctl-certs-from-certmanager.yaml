@@ -427,7 +427,7 @@ spec:
               {{- if $uiRouteEnabled }}
               UI_ROUTE_CERT_READY=false
               if $K8S_CLI get secret -n "$NAMESPACE" flightctl-ui-server-tls &>/dev/null; then
-                  if $K8S_CLI get secret -n "$NAMESPACE" flightctl-ui-server-tls -o jsonpath='{.data.tls\\.crt}' | base64 -d | openssl x509 -noout &>/dev/null; then
+                  if $K8S_CLI get secret -n "$NAMESPACE" flightctl-ui-server-tls -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -noout &>/dev/null; then
                       UI_ROUTE_CERT_READY=true
                   fi
               fi
@@ -436,7 +436,7 @@ spec:
               {{- if $cliArtifactsRouteEnabled }}
               CLI_ARTIFACTS_ROUTE_CERT_READY=false
               if $K8S_CLI get secret -n "$NAMESPACE" flightctl-cli-artifacts-server-tls &>/dev/null; then
-                  if $K8S_CLI get secret -n "$NAMESPACE" flightctl-cli-artifacts-server-tls -o jsonpath='{.data.tls\\.crt}' | base64 -d | openssl x509 -noout &>/dev/null; then
+                  if $K8S_CLI get secret -n "$NAMESPACE" flightctl-cli-artifacts-server-tls -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -noout &>/dev/null; then
                       CLI_ARTIFACTS_ROUTE_CERT_READY=true
                   fi
               fi
@@ -457,11 +457,16 @@ spec:
               ROUTE_NAME="$1"
               SECRET_NAME="$2"
 
-              if ! $K8S_CLI get route.route.openshift.io "$ROUTE_NAME" -n "$NAMESPACE" &>/dev/null; then
-                  return 0
+              if ROUTE_RESULT=$($K8S_CLI get route.route.openshift.io "$ROUTE_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.tls.externalCertificate.name}' 2>&1); then
+                  EXISTING_EXTERNAL_CERT="$ROUTE_RESULT"
+              else
+                  if printf '%s' "$ROUTE_RESULT" | grep -Eiq 'notfound|not[[:space:]]+found'; then
+                      return 0
+                  fi
+                  echo "Failed to read Route $ROUTE_NAME: $ROUTE_RESULT" >&2
+                  return 1
               fi
 
-              EXISTING_EXTERNAL_CERT=$($K8S_CLI get route.route.openshift.io "$ROUTE_NAME" -n "$NAMESPACE" -o jsonpath='{.spec.tls.externalCertificate.name}' 2>/dev/null || true)
               if [ -n "$EXISTING_EXTERNAL_CERT" ]; then
                   return 0
               fi
