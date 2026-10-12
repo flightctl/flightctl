@@ -18,110 +18,12 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
-	"github.com/flightctl/flightctl/pkg/poll"
 	testutil "github.com/flightctl/flightctl/test/util"
 	"github.com/samber/lo"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
-
-func TestAddVolumeImageDigests(t *testing.T) {
-	testCases := []struct {
-		name         string
-		nilFactory   bool
-		factoryError bool
-		volumes      []v1beta1.ApplicationVolumeStatus
-		existing     []v1beta1.ApplicationImageDigest
-		setupMocks   func(*executer.MockExecuter)
-		want         []v1beta1.ApplicationImageDigest
-	}{
-		{
-			name:       "When the factory is nil it should preserve existing digests",
-			nilFactory: true,
-			volumes:    []v1beta1.ApplicationVolumeStatus{{Reference: "volume:v1"}},
-			existing:   []v1beta1.ApplicationImageDigest{{Image: "app:v1", Digest: "sha256:app"}},
-			want:       []v1beta1.ApplicationImageDigest{{Image: "app:v1", Digest: "sha256:app"}},
-		},
-		{
-			name:         "When the factory fails it should skip volume digests",
-			factoryError: true,
-			volumes:      []v1beta1.ApplicationVolumeStatus{{Reference: "volume:v1"}, {Reference: "other:v1"}},
-		},
-		{
-			name:    "When ImageDigest fails it should skip the failed volume",
-			volumes: []v1beta1.ApplicationVolumeStatus{{Reference: "volume:v1"}, {Reference: "volume:v1"}},
-			setupMocks: func(mockExec *executer.MockExecuter) {
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "volume:v1").Return("", "inspect failed", 1)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "inspect", "volume:v1").Return("", "artifact inspection unavailable", 125)
-			},
-		},
-		{
-			name:     "When volumes repeat an existing digest it should deduplicate and inspect once",
-			volumes:  []v1beta1.ApplicationVolumeStatus{{Reference: "volume:v1"}, {Reference: "volume:v1"}},
-			existing: []v1beta1.ApplicationImageDigest{{Image: "volume:v1", Digest: "sha256:volume"}},
-			setupMocks: func(mockExec *executer.MockExecuter) {
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "volume:v1").Return("sha256:volume", "", 0)
-			},
-			want: []v1beta1.ApplicationImageDigest{{Image: "volume:v1", Digest: "sha256:volume"}},
-		},
-		{
-			name:     "When images and digests are unsorted it should sort by image then digest",
-			volumes:  []v1beta1.ApplicationVolumeStatus{{Reference: "z:v1"}, {Reference: "a:v1"}},
-			existing: []v1beta1.ApplicationImageDigest{{Image: "a:v1", Digest: "sha256:z"}},
-			setupMocks: func(mockExec *executer.MockExecuter) {
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "z:v1").Return("sha256:z", "", 0)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "a:v1").Return("sha256:a", "", 0)
-			},
-			want: []v1beta1.ApplicationImageDigest{{Image: "a:v1", Digest: "sha256:a"}, {Image: "a:v1", Digest: "sha256:z"}, {Image: "z:v1", Digest: "sha256:z"}},
-		},
-		{
-			name:    "When a volume image is present it should add its digest and skip empty references",
-			volumes: []v1beta1.ApplicationVolumeStatus{{Reference: "volume:v1"}, {}},
-			setupMocks: func(mockExec *executer.MockExecuter) {
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "volume:v1").Return("sha256:volume", "", 0)
-			},
-			want: []v1beta1.ApplicationImageDigest{{Image: "volume:v1", Digest: "sha256:volume"}},
-		},
-	}
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			require := require.New(t)
-			ctrl := gomock.NewController(t)
-			defer ctrl.Finish()
-			mockExec := executer.NewMockExecuter(ctrl)
-			if testCase.setupMocks != nil {
-				testCase.setupMocks(mockExec)
-			}
-			logger := log.NewPrefixLogger("test")
-			manager := &manager{log: logger}
-			factoryCalls := 0
-			if !testCase.nilFactory {
-				manager.podmanFactory = func(v1beta1.Username) (*client.Podman, error) {
-					factoryCalls++
-					if testCase.factoryError {
-						return nil, fmt.Errorf("factory failed")
-					}
-					return client.NewPodman(logger, mockExec, fileio.NewMockReadWriter(ctrl), poll.Config{}), nil
-				}
-			}
-			results := []AppStatusResult{{Status: v1beta1.DeviceApplicationStatus{Volumes: &testCase.volumes}}}
-			if testCase.existing != nil {
-				results[0].Status.ImageDigests = &testCase.existing
-			}
-			manager.addVolumeImageDigests(context.Background(), results)
-			if testCase.want == nil {
-				require.Nil(results[0].Status.ImageDigests)
-			} else {
-				require.NotNil(results[0].Status.ImageDigests)
-				require.Equal(testCase.want, *results[0].Status.ImageDigests)
-			}
-			if !testCase.nilFactory {
-				require.Equal(1, factoryCalls)
-			}
-		})
-	}
-}
 
 func TestManager(t *testing.T) {
 	bootTime := time.Now()

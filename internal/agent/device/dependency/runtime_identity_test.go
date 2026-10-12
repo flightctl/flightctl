@@ -104,7 +104,7 @@ func TestPrefetchSeparatesRuntimeStores(t *testing.T) {
 			restarted := &prefetchManager{
 				log: logger, deltaStatusStore: deltastatus.New(rw, "/var/lib/flightctl", logger),
 				deltaAppSpecKeys: manager.deltaAppSpecKeys, deltaAppTargetKeys: manager.deltaAppTargetKeys,
-				deltaTargetRefs: manager.deltaTargetRefs, deltaTargetsScheduled: true,
+				deltaTargetRefs: manager.deltaTargetRefs, deltaAppLifetimes: manager.deltaAppLifetimes, deltaTargetsScheduled: true,
 			}
 			restarted.deltaApplyResults = restarted.restoreApplicationDeltaResults(restarted.deltaAppTargetKeys, restarted.deltaTargetRefs)
 			checkStatus(restarted)

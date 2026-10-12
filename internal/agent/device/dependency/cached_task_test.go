@@ -223,7 +223,7 @@ func TestCachedAutoArtifactRemainsPresent(t *testing.T) {
 		checkOnly bool
 		checks    int
 	}{
-		{name: "When an auto artifact is cached it should not queue a new pull", checks: 3},
+		{name: "When an auto artifact is cached it should not queue a new pull", checks: 1},
 		{name: "When an auto artifact task is reused it should not queue a new pull", reused: true, checks: 2},
 		{name: "When an auto artifact task is completed it should preserve the cache", reused: true, completed: true, checks: 1},
 		{name: "When auto digest checking finds an artifact it should report unknown rather than mismatched", checkOnly: true, checks: 1},
@@ -236,6 +236,8 @@ func TestCachedAutoArtifactRemainsPresent(t *testing.T) {
 			exec := executer.NewMockExecuter(ctrl)
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", image).Return("", "", 1).Times(testCase.checks)
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "inspect", image).Return("{}", "", 0).Times(testCase.checks)
+			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.5.0", "", 0).AnyTimes()
+			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "inspect", image).Return(`{"Digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}`, "", 0).AnyTimes()
 			logger := log.NewPrefixLogger("test")
 			rw := fileio.NewMockReadWriter(ctrl)
 			podman := client.NewPodman(logger, exec, rw, poll.NewConfig(time.Millisecond, 2))
@@ -252,7 +254,7 @@ func TestCachedAutoArtifactRemainsPresent(t *testing.T) {
 				require.Equal(digestUnknown, result)
 				return
 			}
-			if !testCase.completed {
+			if testCase.reused && !testCase.completed {
 				exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+image).Return("", "inspection unavailable", 1)
 			}
 			if testCase.reused {
@@ -265,7 +267,12 @@ func TestCachedAutoArtifactRemainsPresent(t *testing.T) {
 			require.NoError(err)
 			require.False(needsQueue)
 			require.True(manager.tasks[target].done)
-			require.True(manager.tasks[target].targetPresent)
+			if testCase.reused {
+				require.True(manager.tasks[target].targetPresent)
+			} else {
+				// A resolved OCI artifact has no image-cache comparison identity.
+				require.False(manager.tasks[target].targetPresent)
+			}
 		})
 	}
 }

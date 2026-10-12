@@ -172,6 +172,24 @@ func TestPodman_ListImageDigests(t *testing.T) {
 	}
 }
 
+func TestPodman_InspectVolumeReturnsPublicProvenance(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockExec := executer.NewMockExecuter(ctrl)
+	readWriter := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
+	volumeJSON := `{"Name":"app-data","Driver":"image","CreatedAt":"2026-10-12T12:00:00Z","Labels":{"io.flightctl.delta.digest":"sha256:observed"},"Options":{"image":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"},"StorageID":"not-an-image-id"}`
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"volume", "inspect", "app-data", "--format", "{{json .}}"}).Return(volumeJSON, "", 0)
+	podman := NewPodman(log.NewPrefixLogger("test"), mockExec, readWriter, poll.Config{})
+	volume, err := podman.InspectVolume(context.Background(), "app-data")
+	require.NoError(err)
+	require.Equal("app-data", volume.Name)
+	require.Equal("image", volume.Driver)
+	require.Equal("2026-10-12T12:00:00Z", volume.CreatedAt)
+	require.Equal("sha256:observed", volume.Labels[PodmanDeltaVolumeDigestLabel])
+	require.Equal("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", volume.Options["image"])
+}
+
 func TestPodman_ListArtifacts(t *testing.T) {
 	require := require.New(t)
 	ctrl := gomock.NewController(t)

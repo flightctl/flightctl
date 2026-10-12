@@ -209,18 +209,15 @@ func (p *composeProvider) writeInlineContent(appPath string) error {
 }
 
 func (p *composeProvider) Install(ctx context.Context) error {
-	if p.AppData != nil {
-		p.log.Debugf("Cleaning up cached app data before Install")
-		if cleanupErr := p.AppData.Cleanup(); cleanupErr != nil {
-			p.log.Warnf("Failed to cleanup cached app data: %v", cleanupErr)
-		}
-		p.AppData = nil
-	}
-
 	if p.isImageBased() {
-		if err := p.extractOCIContents(ctx, p.spec.Path); err != nil {
+		p.spec.ImageDigest = ""
+		p.spec.ImageOCIType = ""
+		digestValue, ociType, err := installOCIParentContents(ctx, p.podman, p.log, p.readWriter, p.imageRef, p.spec.Path, p.AppData)
+		if err != nil {
 			return fmt.Errorf("extracting OCI contents: %w", err)
 		}
+		p.spec.ImageDigest = digestValue
+		p.spec.ImageOCIType = string(ociType)
 	} else {
 		if err := p.writeInlineContent(p.spec.Path); err != nil {
 			return fmt.Errorf("writing inline content: %w", err)
@@ -239,14 +236,6 @@ func (p *composeProvider) Install(ctx context.Context) error {
 }
 
 func (p *composeProvider) Remove(ctx context.Context) error {
-	if p.AppData != nil {
-		p.log.Debugf("Cleaning up cached app data before Remove")
-		if cleanupErr := p.AppData.Cleanup(); cleanupErr != nil {
-			p.log.Warnf("Failed to cleanup cached app data: %v", cleanupErr)
-		}
-		p.AppData = nil
-	}
-
 	if err := p.readWriter.RemoveAll(p.spec.Path); err != nil {
 		return fmt.Errorf("removing compose app path: %w", err)
 	}

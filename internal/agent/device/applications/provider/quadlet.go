@@ -280,18 +280,15 @@ func (p *quadletProvider) writeInlineContent(appPath string) error {
 }
 
 func (p *quadletProvider) Install(ctx context.Context) error {
-	if p.AppData != nil {
-		p.log.Debugf("Cleaning up cached app data before Install")
-		if cleanupErr := p.AppData.Cleanup(); cleanupErr != nil {
-			p.log.Warnf("Failed to cleanup cached app data: %v", cleanupErr)
-		}
-		p.AppData = nil
-	}
-
 	if p.isImageBased() {
-		if err := p.extractOCIContents(ctx, p.spec.Path); err != nil {
+		p.spec.ImageDigest = ""
+		p.spec.ImageOCIType = ""
+		digestValue, ociType, err := installOCIParentContents(ctx, p.podman, p.log, p.readWriter, p.imageRef, p.spec.Path, p.AppData)
+		if err != nil {
 			return fmt.Errorf("extracting OCI contents: %w", err)
 		}
+		p.spec.ImageDigest = digestValue
+		p.spec.ImageOCIType = string(ociType)
 	} else {
 		if err := p.writeInlineContent(p.spec.Path); err != nil {
 			return fmt.Errorf("writing inline content: %w", err)
@@ -310,6 +307,9 @@ func (p *quadletProvider) Install(ctx context.Context) error {
 		}
 		p.spec.Volume.AddVolumes(quadletVolumes)
 	}
+	if err := bindQuadletImageVolumes(ctx, p.podman, p.readWriter, p.spec.Path, p.spec.ID, p.spec.Lifetime, p.spec.User, p.log); err != nil {
+		return fmt.Errorf("binding Quadlet image volumes: %w", err)
+	}
 
 	if err := installQuadlet(p.readWriter, p.log, p.spec.Path, quadletSystemdTargetPath(p.spec.User, p.spec.ID), p.spec.ID); err != nil {
 		return fmt.Errorf("installing quadlet: %w", err)
@@ -319,14 +319,6 @@ func (p *quadletProvider) Install(ctx context.Context) error {
 }
 
 func (p *quadletProvider) Remove(ctx context.Context) error {
-	if p.AppData != nil {
-		p.log.Debugf("Cleaning up cached app data before Remove")
-		if cleanupErr := p.AppData.Cleanup(); cleanupErr != nil {
-			p.log.Warnf("Failed to cleanup cached app data: %v", cleanupErr)
-		}
-		p.AppData = nil
-	}
-
 	targetPath := quadletSystemdTargetPath(p.spec.User, p.spec.ID)
 	if err := p.readWriter.RemoveFile(targetPath); err != nil {
 		return fmt.Errorf("removing quadlet target file: %w", err)
