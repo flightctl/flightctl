@@ -105,6 +105,26 @@ The agent caches image-backed volume digests across unchanged reconciliations an
 
 The agent continuously reports device health, application state, and resource conditions to the management service. Built-in collectors capture system info (hostname, OS, hardware, network) while user-defined custom collectors enable site-specific data. This powers fleet-wide visibility, rollout decisions, and alerting.
 
+OS image digests come from bootc. Application workload digests come from the owning Podman user store or the configured CRI runtime, including nested workload images. Image-backed volumes use the application's Podman user store. Applications without an explicit `runAs` use the agent-process user context.
+
+For Kubernetes workloads, a registry-qualified runtime image ID identifies the observed manifest. For opaque image IDs, the agent queries CRI for a matching repository digest. If no registry digest is available, status preserves the existing immutable-reference fallback or leaves a tagged image's digest empty. An opaque runtime ID is never reported as a registry digest. Runtime observations take precedence over cached parent digests for the same image reference.
+
+Podman image deltas use the same user store as the application, including native Quadlet VM images and image-backed volumes. The agent reads each delta's source digest from its artifact metadata and checks that source in the owning store. Discovery selects the smallest locally usable delta by total download size, with lexical reference order breaking ties.
+
+The agent tracks prefetch tasks and saved delta outcomes by image reference, storage owner, and OCI target type. When Podman and CRI workloads request the same image reference, each store is checked and updated independently.
+
+Helm chart packages continue through the chart cache. Rendered workload images use the configured CRI runtime store for delta source checks and imports. CRI-O imports into its container storage; containerd imports through its configured socket into the Kubernetes namespace.
+
+Digest-pinned CRI workload images remain eligible for deltas. Source checks use registry digests recorded in CRI, including source images from another repository. Discovery selects the smallest locally usable artifact, with lexical reference order breaking ties.
+
+After importing a reconstructed image, the agent refreshes the exact requested registry reference, including digest-pinned CRI references, before reporting `Applied`. An unusable hint or failed delta reports `Fallback` with a reason and attempts a full pull. Successful recovery allows reconciliation to continue.
+
+For OS updates without a usable delta, prefetch pulls the full desired image before bootc stages it. A cached image with an outdated digest does not satisfy this pull. A failed pull stops staging.
+
+Top-level Compose artifacts use full artifact handling and report `NotUsed`, or `Fallback` when supplied with an unusable image-delta hint. Nested workload images remain eligible for deltas. Application results report `Partial` when an `Applied` target accompanies a `NotUsed` or `Fallback` target; `NotRequired` targets remain neutral. Multiple fallback reasons use the lexically first reason.
+
+Image digests remain separate from `lastDelta`, which contains only the delta outcome and optional fallback reason.
+
 The agent persists OS and application delta outcomes in `delta-status.json` in its data directory and restores them after restart. This file stores delta results separately from application monitor registrations.
 
 If digest validation confirms that an application image tag now refers to different content, the agent clears the previous delta outcome before preparing that content. This also applies when the image is absent after restart and its source digest confirms the tag changed. An unavailable digest inspection does not invalidate the saved outcome.

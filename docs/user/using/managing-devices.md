@@ -405,22 +405,24 @@ The device's `status.os.deltaSize` reports the known size of the control-plane-g
 
 ### Using CI-published OS deltas
 
-You can publish an OS delta from CI to reduce the image data a device downloads during an OS update. Create the delta from the device's current OS image to the target OS image, then publish it as an OCI 1.1 referrer of the target image.
+You can publish an OS delta from CI to reduce the image data a device downloads during an OS update. Create the delta from a source OS image available in the device's bootc-managed store to the target OS image, then publish it as an OCI 1.1 referrer of the target image.
 
 For the agent to discover the delta, publish it with these values:
 
 - Publish it in the same repository as the target OS image.
 - Set the referrer's `subject` to the target image manifest.
 - Set `artifactType` to `application/vnd.io.github.containers.oci-delta.v1`.
-- Set the `io.github.containers.delta.source` annotation to the digest of the source OS image. This must match the device's current OS image digest.
+- Set the `io.github.containers.delta.source` annotation to the digest of the source OS image. The source image must be available in the device's bootc-managed store. Booted, staged, rollback, and cached OS images can provide the source. An image present only in Podman application storage does not qualify.
 
 For example, for a target at `quay.io/example/os:v2`, publish the delta referrer in `quay.io/example/os` and set its subject to the target manifest digest.
+
+The agent looks for a referrer in the target image repository. If the registry returns 404 or reports an unknown manifest, the agent also checks the Referrers Tag Schema. It also checks this schema when Skopeo does not support the referrers command. A CI-published referrer does not require a `spec.os.deltaImage` hint. An existing hint takes precedence over referrer discovery. The agent validates the source digest declared by the delta artifact, rather than relying on referrer annotations. For discovery, it selects the locally usable delta with the smallest total download size, including the manifest, configuration, and layers. Equal sizes are resolved by image reference in lexical order.
 
 The agent discovers matching referrers directly in the target image repository using the registry's referrers API or the Referrers Tag Schema compatibility path. Flight Control sets the read-only `spec.os.deltaImage` field for available generated deltas; the agent tries that reference first, then uses referrer discovery when the reference is absent.
 
 The device uses its existing OS image pull credentials to pull the target image and delta. See [Using Image Pull Secrets](#using-image-pull-secrets) for private registries.
 
-The agent uses a full image pull when a matching delta is unavailable or a delta pull or apply fails. See [OS delta status](../references/device-api-statuses.md#os-delta-status) for outcome definitions and how to inspect the result of an OS delta update.
+If a hint is unusable, or a selected delta fails during download, reconstruction, or staging, the agent reports `Fallback` with a reason and attempts a full image pull. It reports `Applied` after staging both the reconstruction and the desired registry reference. Reconciliation fails if full-image recovery also fails. See [OS delta status](../references/device-api-statuses.md#os-delta-status) for how to inspect these results.
 
 ### Using Image Pull Secrets
 

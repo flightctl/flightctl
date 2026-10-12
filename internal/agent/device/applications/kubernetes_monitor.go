@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -12,6 +13,8 @@ import (
 	appconsole "github.com/flightctl/flightctl/internal/agent/device/applications/console"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/helm"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
+	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
+	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -39,8 +42,9 @@ const (
 type KubernetesMonitor struct {
 	*monitor
 
-	clients   client.CLIClients
-	rwFactory fileio.ReadWriterFactory
+	clients            client.CLIClients
+	rwFactory          fileio.ReadWriterFactory
+	pullConfigResolver dependency.PullConfigResolver
 }
 
 // NewKubernetesMonitor creates a new KubernetesMonitor with lazy initialization.
@@ -415,7 +419,7 @@ type kubernetesContainerStateTerminated struct {
 	FinishedAt time.Time `json:"finishedAt,omitempty"`
 }
 
-func (m *KubernetesMonitor) handlePodEvent(_ context.Context, data []byte) {
+func (m *KubernetesMonitor) handlePodEvent(ctx context.Context, data []byte) {
 	var event kubernetesWatchEvent
 	if err := json.Unmarshal(data, &event); err != nil {
 		m.log.Errorf("Failed to decode kubernetes watch event: %s %v", string(data), err)
@@ -446,7 +450,7 @@ func (m *KubernetesMonitor) handlePodEvent(_ context.Context, data []byte) {
 	case "DELETED":
 		m.removeWorkload(app, pod)
 	case "ADDED", "MODIFIED":
-		m.updatePodStatus(app, pod)
+		m.updatePodStatus(ctx, app, pod)
 	default:
 		m.log.Warnf("Unknown watch event type: %s", event.Type)
 	}
@@ -461,10 +465,10 @@ func (m *KubernetesMonitor) removeWorkload(app Application, pod *kubernetesPod) 
 	}
 }
 
-func (m *KubernetesMonitor) updatePodStatus(app Application, pod *kubernetesPod) {
+func (m *KubernetesMonitor) updatePodStatus(ctx context.Context, app Application, pod *kubernetesPod) {
 	status := m.mapPodPhaseToStatus(pod)
 	restarts := m.getPodRestartCount(pod)
-	images := collectPodImages(pod)
+	images := m.collectPodImages(ctx, pod)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -492,7 +496,7 @@ func (m *KubernetesMonitor) updatePodStatus(app Application, pod *kubernetesPod)
 	})
 }
 
-func collectPodImages(pod *kubernetesPod) []WorkloadImage {
+func (m *KubernetesMonitor) collectPodImages(ctx context.Context, pod *kubernetesPod) []WorkloadImage {
 	statuses := make(map[string]kubernetesContainerStatus, len(pod.Status.ContainerStatuses)+len(pod.Status.InitContainerStatuses))
 	for _, status := range pod.Status.ContainerStatuses {
 		statuses[status.Name] = status
@@ -511,10 +515,45 @@ func collectPodImages(pod *kubernetesPod) []WorkloadImage {
 		}
 		images = append(images, WorkloadImage{
 			Image:  container.Image,
-			Digest: digestFromKubernetesImageID(container.Image, statuses[container.Name].ImageID),
+			Digest: m.resolveImageDigest(ctx, container.Image, statuses[container.Name].ImageID),
 		})
 	}
 	return images
+}
+
+// resolveImageDigest uses the pod's registry-qualified image ID when available.
+// Opaque IDs identify local CRI images, whose repo digests identify the selected
+// registry manifest rather than the desired index or a runtime config object.
+func (m *KubernetesMonitor) resolveImageDigest(ctx context.Context, image, imageID string) string {
+	const pullablePrefix = "docker-pullable://"
+	fallback := digestFromKubernetesImageID(image, imageID)
+	if imageID == "" || strings.HasPrefix(imageID, pullablePrefix) ||
+		digestFromKubernetesImageID(image, pullablePrefix+imageID) != "" {
+		return fallback
+	}
+	cri := m.clients.CRI()
+	if cri == nil {
+		return fallback
+	}
+	runtimeID := imageID
+	if _, id, found := strings.Cut(imageID, "://"); found {
+		runtimeID = id
+	}
+	var opts []client.ClientOption
+	if optsFn := provider.CRIImageOptions(m.pullConfigResolver); optsFn != nil {
+		opts = optsFn()
+	}
+	repoDigests, err := cri.ImageRepoDigests(ctx, runtimeID, opts...)
+	if err != nil {
+		m.log.Debugf("Could not inspect CRI image %q for digest: %v", imageID, err)
+		return fallback
+	}
+	for _, repoDigest := range repoDigests {
+		if digest := digestFromKubernetesImageID(image, pullablePrefix+repoDigest); digest != "" {
+			return digest
+		}
+	}
+	return fallback
 }
 
 func (m *KubernetesMonitor) mapPodPhaseToStatus(pod *kubernetesPod) StatusType {

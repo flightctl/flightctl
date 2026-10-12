@@ -437,7 +437,6 @@ func TestCollectImageDigests(t *testing.T) {
 		require.NotNil(t, app.status.ImageDigests)
 		require.Equal(t, []v1beta1.ApplicationImageDigest{
 			{Image: nginx, Digest: "sha256:old"},
-			{Image: nginx, Digest: "sha256:parent"},
 			{Image: "quay.io/acme/redis:latest"},
 		}, *app.status.ImageDigests)
 	})

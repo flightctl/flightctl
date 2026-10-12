@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -103,4 +104,25 @@ func (d *OCIDelta) Import(ctx context.Context, deltaRef, targetRef string) error
 		return fmt.Errorf("oci-delta import: %w", errors.FromStderr(stderr, exitCode))
 	}
 	return nil
+}
+
+// SourceImageExists checks cached host images in the OSTree repository used by Apply.
+// It does not consult the separate application containers/storage store.
+func (d *OCIDelta) SourceImageExists(ctx context.Context, sourceDigest string) (bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, d.timeout)
+	defer cancel()
+	stdout, stderr, exitCode := d.exec.ExecuteWithContext(ctx, "ostree", "refs", "--list", "--repo", ostreeRepoPath, "ostree/container/image")
+	if exitCode != 0 {
+		return false, fmt.Errorf("list bootc images: %w", errors.FromStderr(stderr, exitCode))
+	}
+	for _, ref := range strings.Fields(stdout) {
+		metadata, _, exitCode := d.exec.ExecuteWithContext(ctx, "ostree", "show", "--repo", ostreeRepoPath, "--print-metadata-key=ostree.manifest-digest", ref)
+		if exitCode != 0 {
+			continue
+		}
+		if strings.Trim(strings.TrimSpace(metadata), "'\"") == sourceDigest {
+			return true, nil
+		}
+	}
+	return false, nil
 }

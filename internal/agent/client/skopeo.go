@@ -7,12 +7,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/containerd/platforms"
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/opencontainers/go-digest"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 const (
@@ -26,6 +29,7 @@ type OCIManifest struct {
 	ArtifactType string            `json:"artifactType,omitempty"`
 	Annotations  map[string]string `json:"annotations,omitempty"`
 	Config       *OCIDescriptor    `json:"config,omitempty"`
+	Layers       []OCIDescriptor   `json:"layers,omitempty"`
 	Manifests    json.RawMessage   `json:"manifests,omitempty"`
 }
 
@@ -171,6 +175,50 @@ func (s *Skopeo) InspectDigest(ctx context.Context, image string, opts ...Client
 		opt(options)
 	}
 	return s.inspectDigest(ctx, image, options)
+}
+
+// InspectPlatformDigest resolves an image index to the manifest for this host.
+// Single-image manifests return their own content digest.
+func (s *Skopeo) InspectPlatformDigest(ctx context.Context, image string, opts ...ClientOption) (string, error) {
+	options := &clientOptions{}
+	for _, opt := range opts {
+		opt(options)
+	}
+	timeout := s.timeout
+	if options.timeout > 0 {
+		timeout = options.timeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	raw, err := s.inspectRaw(ctx, image, options)
+	if err != nil {
+		return "", err
+	}
+	var index ocispec.Index
+	if err := json.Unmarshal([]byte(raw), &index); err != nil {
+		return "", fmt.Errorf("parse image manifest: %w", err)
+	}
+	if index.MediaType != ocispec.MediaTypeImageIndex && index.MediaType != "application/vnd.docker.distribution.manifest.list.v2+json" {
+		return digest.FromBytes([]byte(raw)).String(), nil
+	}
+	hostPlatform := platforms.Default()
+	var selected *ocispec.Descriptor
+	for i := range index.Manifests {
+		descriptor := &index.Manifests[i]
+		if descriptor.Platform == nil || !hostPlatform.Match(*descriptor.Platform) {
+			continue
+		}
+		if selected == nil || hostPlatform.Less(*descriptor.Platform, *selected.Platform) {
+			selected = descriptor
+		}
+	}
+	if selected == nil {
+		return "", fmt.Errorf("image index has no manifest for the host platform")
+	}
+	if err := selected.Digest.Validate(); err != nil {
+		return "", fmt.Errorf("invalid platform manifest digest: %w", err)
+	}
+	return selected.Digest.String(), nil
 }
 
 // ListReferrers returns the referrers index for image.

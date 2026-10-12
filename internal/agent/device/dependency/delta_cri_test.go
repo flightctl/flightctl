@@ -8,7 +8,6 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
-	"github.com/flightctl/flightctl/internal/agent/device/deltastatus"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -48,6 +47,8 @@ func TestApplicationDeltaPrefetchCRIRefreshesRegistryReference(t *testing.T) {
 			defer ctrl.Finish()
 			exec := executer.NewMockExecuter(ctrl)
 
+			exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+candidate).Return(podmanDeltaManifest, "", 0)
+			exec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", "images", "--output", "json").Return(`{"images":[{"repoDigests":["quay.io/local/base@`+podmanDeltaSource+`"]}]}`, "", 0)
 			runtimeInfo := exec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", "version").Return("RuntimeName: cri-o\n", "", 0)
 			copyDelta := exec.EXPECT().ExecuteWithContext(
 				gomock.Any(), "skopeo", "copy", "docker://"+candidate, gomock.Any(),
@@ -88,7 +89,7 @@ func TestApplicationDeltaPrefetchCRIRefreshesRegistryReference(t *testing.T) {
 			logger := log.NewPrefixLogger("test")
 			cri := client.NewCRI(logger, exec, rw, poll.NewConfig(time.Millisecond, 2))
 			skopeo := client.NewSkopeo(logger, exec, rw)
-			target := imageRef{image: image}
+			target := imageRef{image: image, ociType: OCITypeCRIImage}
 			task := &prefetchTask{
 				delta:                &OCIDeltaTarget{Hint: candidate, Application: "app"},
 				deltaGeneration:      1,
@@ -104,9 +105,9 @@ func TestApplicationDeltaPrefetchCRIRefreshesRegistryReference(t *testing.T) {
 				deltaGeneration:       1,
 				deltaApplyResults:     make(map[string]map[imageRef]applicationDeltaApplyResult),
 				deltaTargetsScheduled: true,
-				deltaTargetRefs:       map[string]imageRef{deltastatus.Fingerprint(string(target.owner), target.image): target},
+				deltaTargetRefs:       map[string]imageRef{target.targetID(): target},
 				deltaAppTargetKeys: map[string]map[string]string{
-					"app": {deltastatus.Fingerprint(string(target.owner), target.image): task.applicationTargetKey},
+					"app": {target.targetID(): task.applicationTargetKey},
 				},
 			}
 
@@ -156,8 +157,8 @@ func TestApplicationDeltaCRICachedImageReportsNotRequiredWhenDigestMatches(t *te
 	logger := log.NewPrefixLogger("test")
 	cri := client.NewCRI(logger, exec, rw, poll.NewConfig(time.Millisecond, 2))
 	skopeo := client.NewSkopeo(logger, exec, rw)
-	target := imageRef{image: image}
-	targetID := deltastatus.Fingerprint(string(target.owner), target.image)
+	target := imageRef{image: image, ociType: OCITypeCRIImage}
+	targetID := target.targetID()
 	targetKey := applicationImageTargetKeyFor(target, digest, OCITypeCRIImage)
 	task := &prefetchTask{
 		ociType:              OCITypeCRIImage,
@@ -196,7 +197,8 @@ func TestApplicationDeltaCRICachedImageReportsNotRequiredWhenDigestMatches(t *te
 	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeNotRequired, deviceStatus.Applications[0].LastDelta.Outcome)
 }
 
-func TestApplicationDeltaCRIHintedCandidateReportsNotUsedWhenDeltaClientIsUnavailable(t *testing.T) {
+func TestApplicationDeltaCRIHintedCandidateFallsBackWhenDeltaClientIsUnavailable(t *testing.T) {
+	require := require.New(t)
 	const (
 		application = "app"
 		image       = "quay.io/acme/app:target"
@@ -221,8 +223,8 @@ func TestApplicationDeltaCRIHintedCandidateReportsNotUsedWhenDeltaClientIsUnavai
 	logger := log.NewPrefixLogger("test")
 	cri := client.NewCRI(logger, exec, rw, poll.NewConfig(time.Millisecond, 2))
 	skopeo := client.NewSkopeo(logger, exec, rw)
-	target := imageRef{image: image}
-	targetID := deltastatus.Fingerprint(string(target.owner), target.image)
+	target := imageRef{image: image, ociType: OCITypeCRIImage}
+	targetID := target.targetID()
 	targetKey := applicationImageTargetKeyFor(target, "sha256:target", OCITypeCRIImage)
 	task := &prefetchTask{
 		ociType:              OCITypeCRIImage,
@@ -248,14 +250,15 @@ func TestApplicationDeltaCRIHintedCandidateReportsNotUsedWhenDeltaClientIsUnavai
 		},
 	}
 
-	require.NoError(t, manager.pullCRIImage(context.Background(), target, task, skopeo, client.Timeout(time.Minute)))
+	require.NoError(manager.pullCRIImage(context.Background(), target, task, skopeo, client.Timeout(time.Minute)))
 	task.done = true
 
 	deviceStatus := &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: application}}}
-	require.NoError(t, manager.Status(context.Background(), deviceStatus))
-	require.NotNil(t, deviceStatus.Applications[0].LastDelta)
-	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeNotUsed, deviceStatus.Applications[0].LastDelta.Outcome)
-	require.Nil(t, deviceStatus.Applications[0].LastDelta.FallbackReason)
+	require.NoError(manager.Status(context.Background(), deviceStatus))
+	require.NotNil(deviceStatus.Applications[0].LastDelta)
+	require.Equal(v1beta1.DeviceDeltaApplyOutcomeFallback, deviceStatus.Applications[0].LastDelta.Outcome)
+	require.NotNil(deviceStatus.Applications[0].LastDelta.FallbackReason)
+	require.Contains(*deviceStatus.Applications[0].LastDelta.FallbackReason, "OCI delta client is unavailable")
 }
 
 func TestApplicationDeltaCRIMissingImageReportsNotUsedWhenSourceDigestMatches(t *testing.T) {
@@ -274,10 +277,11 @@ func TestApplicationDeltaCRIMissingImageReportsNotUsedWhenSourceDigestMatches(t 
 	for i := range pullEnv {
 		pullEnv[i] = gomock.Any()
 	}
+	referrers := exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "list-referrers", "docker://"+image).Return(`{"manifests":[]}`, "", 0)
 	fullPull := exec.EXPECT().ExecuteWithContextFromDir(
 		gomock.Any(), "", "crictl", []string{"pull", image}, pullEnv...,
 	).Return("Image pulled", "", 0)
-	gomock.InOrder(inspectTarget, fullPull)
+	gomock.InOrder(inspectTarget, referrers, fullPull)
 
 	root := t.TempDir()
 	rw := fileio.NewReadWriter(
@@ -287,8 +291,8 @@ func TestApplicationDeltaCRIMissingImageReportsNotUsedWhenSourceDigestMatches(t 
 	logger := log.NewPrefixLogger("test")
 	cri := client.NewCRI(logger, exec, rw, poll.NewConfig(time.Millisecond, 2))
 	skopeo := client.NewSkopeo(logger, exec, rw)
-	target := imageRef{image: image}
-	targetID := deltastatus.Fingerprint(string(target.owner), target.image)
+	target := imageRef{image: image, ociType: OCITypeCRIImage}
+	targetID := target.targetID()
 	targetKey := applicationImageTargetKeyFor(target, digest, OCITypeCRIImage)
 	task := &prefetchTask{
 		ociType:              OCITypeCRIImage,
