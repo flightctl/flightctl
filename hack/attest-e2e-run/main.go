@@ -522,7 +522,7 @@ func matchesPR(p pullRequest, cfg config, defaultBranch string) bool {
 
 func hasRunE2ELabel(labels []pullRequestLabel) bool {
 	for _, label := range labels {
-		if label.Name == "run-e2e" {
+		if label.Name == "run-e2e" || strings.HasPrefix(label.Name, "run-e2e:") {
 			return true
 		}
 	}
