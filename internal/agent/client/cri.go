@@ -259,12 +259,22 @@ func (c *CRI) ImageRepoDigests(ctx context.Context, image string, opts ...Client
 	return response.Status.RepoDigests, nil
 }
 
-// ImageReferenceByDigest finds a registry reference in the configured CRI store.
-// Runtime image IDs are deliberately excluded from registry digest matching.
-func (c *CRI) ImageReferenceByDigest(ctx context.Context, sourceDigest string, opts ...ClientOption) (string, error) {
+// ImageReferencesByDigest finds registry references for source digests in the
+// configured CRI store with one image-list request.
+func (c *CRI) ImageReferencesByDigest(ctx context.Context, sourceDigests []string, opts ...ClientOption) (map[string]string, error) {
 	options := &clientOptions{}
 	for _, opt := range opts {
 		opt(options)
+	}
+	wanted := make(map[string]struct{}, len(sourceDigests))
+	for _, sourceDigest := range sourceDigests {
+		if sourceDigest != "" {
+			wanted[sourceDigest] = struct{}{}
+		}
+	}
+	references := make(map[string]string, len(wanted))
+	if len(wanted) == 0 {
+		return references, nil
 	}
 	timeout := c.timeout
 	if options.timeout > 0 {
@@ -276,7 +286,7 @@ func (c *CRI) ImageReferenceByDigest(ctx context.Context, sourceDigest string, o
 	if options.criConfigPath != "" {
 		exists, err := c.readWriter.PathExists(options.criConfigPath)
 		if err != nil {
-			return "", fmt.Errorf("check CRI config path: %w", err)
+			return nil, fmt.Errorf("check CRI config path: %w", err)
 		}
 		if exists {
 			args = append(args, "--config", options.criConfigPath)
@@ -285,7 +295,7 @@ func (c *CRI) ImageReferenceByDigest(ctx context.Context, sourceDigest string, o
 	args = append(args, "images", "--output", "json")
 	stdout, stderr, exitCode := c.exec.ExecuteWithContext(ctx, crictlCmd, args...)
 	if exitCode != 0 {
-		return "", fmt.Errorf("list CRI images: %w", errors.FromStderr(stderr, exitCode))
+		return nil, fmt.Errorf("list CRI images: %w", errors.FromStderr(stderr, exitCode))
 	}
 	var response struct {
 		Images []struct {
@@ -293,9 +303,8 @@ func (c *CRI) ImageReferenceByDigest(ctx context.Context, sourceDigest string, o
 		} `json:"images"`
 	}
 	if err := json.Unmarshal([]byte(stdout), &response); err != nil {
-		return "", fmt.Errorf("parse CRI images: %w", err)
+		return nil, fmt.Errorf("parse CRI images: %w", err)
 	}
-	var selected string
 	for _, image := range response.Images {
 		for _, repoDigest := range image.RepoDigests {
 			named, err := reference.ParseNormalizedNamed(repoDigest)
@@ -303,12 +312,19 @@ func (c *CRI) ImageReferenceByDigest(ctx context.Context, sourceDigest string, o
 				continue
 			}
 			pinned, ok := named.(reference.Digested)
-			if ok && pinned.Digest().String() == sourceDigest && (selected == "" || named.String() < selected) {
-				selected = named.String()
+			if !ok {
+				continue
+			}
+			sourceDigest := pinned.Digest().String()
+			if _, ok := wanted[sourceDigest]; !ok {
+				continue
+			}
+			if selected := references[sourceDigest]; selected == "" || named.String() < selected {
+				references[sourceDigest] = named.String()
 			}
 		}
 	}
-	return selected, nil
+	return references, nil
 }
 
 // RuntimeInfo returns the runtime connected to crictl and, for containerd, its

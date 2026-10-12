@@ -619,6 +619,8 @@ func TestKubernetesMonitorReportsCRIObservedDigest(t *testing.T) {
 		initContainer bool
 		inspect       bool
 		inlineConfig  bool
+		repeatEvent   bool
+		inspectCalls  int
 	}{
 		{name: "When containerd reports an opaque ID it should report the observed platform digest instead of the desired index", image: "quay.io/acme/web@" + index, imageID: "containerd://sha256:config", repoDigests: []string{"quay.io/other/web@" + other, "quay.io/acme/web@" + observed}, want: observed, inspect: true},
 		{name: "When inline CRI configuration differs from disk it should inspect the configured runtime", image: "quay.io/acme/web:latest", imageID: "containerd://sha256:config", repoDigests: []string{"quay.io/acme/web@" + observed}, want: observed, inspect: true, inlineConfig: true},
@@ -628,6 +630,8 @@ func TestKubernetesMonitorReportsCRIObservedDigest(t *testing.T) {
 		{name: "When CRI exposes no matching registry digest it should keep an opaque ID out of status", image: "quay.io/acme/web:latest", imageID: "containerd://sha256:config", repoDigests: []string{"quay.io/other/web@" + other}, inspect: true},
 		{name: "When the pod reports a pullable platform digest it should retain that observation", image: "quay.io/acme/web@" + index, imageID: "docker-pullable://quay.io/acme/web@" + observed, want: observed},
 		{name: "When the pod has no runtime image ID it should retain an unknown tagged digest", image: "quay.io/acme/web:latest"},
+		{name: "When CRI inspection succeeds it should reuse repo digests for repeated pod events", image: "quay.io/acme/web:latest", imageID: "containerd://sha256:config", repoDigests: []string{"quay.io/acme/web@" + observed}, want: observed, inspect: true, repeatEvent: true, inspectCalls: 1},
+		{name: "When CRI inspection fails it should retry on a later pod event", image: "quay.io/acme/web:latest", imageID: "containerd://sha256:config", exitCode: 1, inspect: true, repeatEvent: true, inspectCalls: 2},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -658,7 +662,11 @@ func TestKubernetesMonitorReportsCRIObservedDigest(t *testing.T) {
 			if tc.inspect {
 				response, err := json.Marshal(map[string]any{"status": map[string]any{"id": "sha256:config", "repoDigests": tc.repoDigests}})
 				require.NoError(err)
-				exec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", args...).Return(string(response), "inspection failed", tc.exitCode)
+				inspectCalls := tc.inspectCalls
+				if inspectCalls == 0 {
+					inspectCalls = 1
+				}
+				exec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", args...).Return(string(response), "inspection failed", tc.exitCode).Times(inspectCalls)
 			}
 			monitor := NewKubernetesMonitor(logger, &testKubeCLIClients{cri: client.NewCRI(logger, exec, rw, testutil.NewPollConfig())}, rwFactory)
 			monitor.pullConfigResolver = resolver
@@ -683,6 +691,12 @@ func TestKubernetesMonitorReportsCRIObservedDigest(t *testing.T) {
 			data, err := json.Marshal(event)
 			require.NoError(err)
 			monitor.HandleEvent(t.Context(), data)
+			if tc.repeatEvent {
+				event.Type = "MODIFIED"
+				repeatedData, err := json.Marshal(event)
+				require.NoError(err)
+				monitor.HandleEvent(t.Context(), repeatedData)
+			}
 			results, err := monitor.Status()
 			require.NoError(err)
 			require.Len(results, 1)
@@ -690,4 +704,58 @@ func TestKubernetesMonitorReportsCRIObservedDigest(t *testing.T) {
 			require.Equal([]v1beta1.ApplicationImageDigest{{Image: tc.image, Digest: tc.want}}, *results[0].Status.ImageDigests)
 		})
 	}
+}
+
+func TestKubernetesMonitorBoundsCRIImageDigestLookups(t *testing.T) {
+	const image = "quay.io/acme/web:latest"
+	const observed = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	logger := log.NewPrefixLogger("test")
+	exec := executer.NewMockExecuter(ctrl)
+	rwFactory := fileio.NewReadWriterFactory(t.TempDir())
+	rw, err := rwFactory(v1beta1.CurrentProcessUsername)
+	require.NoError(err)
+	response, err := json.Marshal(map[string]any{"status": map[string]any{"repoDigests": []string{"quay.io/acme/web@" + observed}}})
+	require.NoError(err)
+	for i := 0; i <= maxCachedCRIDigestLookups; i++ {
+		runtimeID := fmt.Sprintf("sha256:config-%d", i)
+		calls := 1
+		if i == 0 {
+			calls = 2
+		}
+		exec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", "inspecti", "--output", "json", runtimeID).
+			Return(string(response), "", 0).Times(calls)
+	}
+
+	monitor := NewKubernetesMonitor(logger, &testKubeCLIClients{cri: client.NewCRI(logger, exec, rw, testutil.NewPollConfig())}, rwFactory)
+	volume, err := provider.NewVolumeManager(logger, "app", v1beta1.AppTypeHelm, v1beta1.CurrentProcessUsername, nil)
+	require.NoError(err)
+	app := &application{id: "app", volume: volume, status: &v1beta1.DeviceApplicationStatus{Name: "app", AppType: v1beta1.AppTypeHelm}}
+	require.NoError(monitor.Ensure(app))
+	observe := func(index int, eventType string) {
+		event := kubernetesWatchEvent{Type: eventType}
+		event.Object.Kind = "Pod"
+		event.Object.Metadata.Name = fmt.Sprintf("web-%d", index)
+		event.Object.Metadata.UID = fmt.Sprintf("pod-%d", index)
+		event.Object.Metadata.Labels = map[string]string{helm.AppLabelKey: "app"}
+		event.Object.Spec.Containers = []kubernetesContainerSpec{{Name: "web", Image: image}}
+		event.Object.Status.ContainerStatuses = []kubernetesContainerStatus{{
+			Name: "web", ImageID: fmt.Sprintf("containerd://sha256:config-%d", index), Ready: true,
+		}}
+		data, err := json.Marshal(event)
+		require.NoError(err)
+		monitor.HandleEvent(t.Context(), data)
+	}
+	for i := 0; i <= maxCachedCRIDigestLookups; i++ {
+		observe(i, "ADDED")
+	}
+	observe(0, "MODIFIED")
+
+	results, err := monitor.Status()
+	require.NoError(err)
+	require.Len(results, 1)
+	require.Equal([]v1beta1.ApplicationImageDigest{{Image: image, Digest: observed}}, *results[0].Status.ImageDigests)
 }

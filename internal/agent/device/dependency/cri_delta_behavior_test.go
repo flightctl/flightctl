@@ -22,6 +22,7 @@ import (
 
 type criDeltaTestCandidate struct {
 	digest, source          string
+	targetDigest            string
 	manifestSize, layerSize int64
 	local                   bool
 	invalid                 bool
@@ -45,12 +46,18 @@ func TestCRIDeltaCandidatePrefetch(t *testing.T) {
 	const image = "quay.io/acme/workload@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	digestA := "sha256:" + strings.Repeat("a", 64)
 	digestB := "sha256:" + strings.Repeat("b", 64)
+	platformTargetDigest := "sha256:" + strings.Repeat("9", 64)
+	targetIndex, targetIndexDigest := testApplicationTargetIndex(t, platformTargetDigest)
 	tests := []criDeltaTestCase{
 		{name: "When a digest-pinned CRI-O target has a local hinted source it should import and refresh the exact reference", candidates: []criDeltaTestCandidate{{source: podmanDeltaSource, layerSize: 100, local: true}}, selected: hint},
 		{name: "When discovery has no previous application digest it should rank locally usable artifacts by total download size", discover: true, candidates: []criDeltaTestCandidate{
 			{digest: digestA, source: podmanDeltaSource, manifestSize: 10, layerSize: 80, local: true},
 			{digest: digestB, source: digestB, manifestSize: 90, layerSize: 1, local: true},
 		}, selected: "quay.io/acme/workload@" + digestA},
+		{name: "When a discovered delta names the target index it should select the candidate for the platform manifest", discover: true, candidates: []criDeltaTestCandidate{
+			{digest: digestA, source: podmanDeltaSource, layerSize: 1, local: true, targetDigest: targetIndexDigest},
+			{digest: digestB, source: digestB, layerSize: 80, local: true, targetDigest: platformTargetDigest},
+		}, selected: "quay.io/acme/workload@" + digestB},
 		{name: "When a digest-pinned containerd target has a local hinted source it should import through its configured endpoint and workload namespace", containerd: true, candidates: []criDeltaTestCandidate{{source: podmanDeltaSource, layerSize: 100, local: true}}, selected: hint},
 		{name: "When a tagged CRI target has a usable hint it should refresh the requested tag", tagged: true, candidates: []criDeltaTestCandidate{{source: podmanDeltaSource, layerSize: 100, local: true}}, selected: hint},
 		{name: "When equal sized discovered deltas arrive in reverse order it should choose the lexical reference", discover: true, candidates: []criDeltaTestCandidate{
@@ -64,6 +71,7 @@ func TestCRIDeltaCandidatePrefetch(t *testing.T) {
 		{name: "When discovery has no local source it should full-pull with NotUsed", discover: true, candidates: []criDeltaTestCandidate{{digest: digestA, source: podmanDeltaSource, layerSize: 1}}, outcome: v1beta1.DeviceDeltaApplyOutcomeNotUsed},
 		{name: "When discovery has invalid metadata it should skip the candidate", discover: true, candidates: []criDeltaTestCandidate{{digest: digestA, invalid: true}}, outcome: v1beta1.DeviceDeltaApplyOutcomeNotUsed},
 		{name: "When a hinted source is missing from CRI it should full-pull with Fallback", candidates: []criDeltaTestCandidate{{source: podmanDeltaSource, layerSize: 100}}, outcome: v1beta1.DeviceDeltaApplyOutcomeFallback, reason: "source image is unavailable"},
+		{name: "When a hinted delta targets the index instead of the desired platform manifest it should full-pull with Fallback", candidates: []criDeltaTestCandidate{{source: podmanDeltaSource, layerSize: 100, local: true, targetDigest: targetIndexDigest}}, outcome: v1beta1.DeviceDeltaApplyOutcomeFallback, reason: "target digest does not match"},
 		{name: "When a runtime ID equals the source digest it should require a matching repository digest", failStep: "opaque-id", candidates: []criDeltaTestCandidate{{source: podmanDeltaSource, layerSize: 100}}, outcome: v1beta1.DeviceDeltaApplyOutcomeFallback, reason: "source image is unavailable"},
 		{name: "When a hinted artifact is malformed it should full-pull with Fallback", candidates: []criDeltaTestCandidate{{invalid: true}}, outcome: v1beta1.DeviceDeltaApplyOutcomeFallback, reason: "not an OCI image delta"},
 		{name: "When a CRI source probe fails it should full-pull with Fallback", failStep: "source", candidates: []criDeltaTestCandidate{{source: podmanDeltaSource, layerSize: 100}}, outcome: v1beta1.DeviceDeltaApplyOutcomeFallback, reason: "source failed"},
@@ -130,33 +138,52 @@ func TestCRIDeltaCandidatePrefetch(t *testing.T) {
 				deltaStatusStore: store, deltaAppSpecKeys: specKeys,
 			}
 			var descriptors []client.OCIReferrer
+			eligibleCandidates := 0
+			targetNeedsInspection := false
 			for _, c := range tc.candidates {
 				ref := hint
 				if tc.discover {
 					ref = "quay.io/acme/workload@" + c.digest
 				}
-				manifest := strings.Replace(podmanDeltaManifest, podmanDeltaSource, c.source, 1)
-				manifest = strings.Replace(manifest, `"size":100`, fmt.Sprintf(`"size":%d`, c.layerSize), 1)
+				manifest := testApplicationDeltaManifest(t, c.source, c.targetDigest, c.layerSize)
 				if c.invalid {
 					manifest = `{"artifactType":"application/example"}`
 				}
 				exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+ref).Return(manifest, "", 0)
-				localImages := `{"images":[]}`
-				if c.local {
-					localImages = `{"images":[{"id":"opaque-id","repoDigests":["quay.io/local/base@` + c.source + `"]}]}`
-				}
-				if tc.failStep == "opaque-id" {
-					localImages = `{"images":[{"id":"` + podmanDeltaSource + `","repoDigests":[]}]}`
-				}
 				if !c.invalid {
-					exit, stderr := 0, ""
-					if tc.failStep == "source" {
-						exit, stderr = 1, "source failed"
+					if c.targetDigest != "" {
+						targetNeedsInspection = true
 					}
-					args := criArgs("images", "--output", "json")
-					exec.EXPECT().ExecuteWithContext(args[0], args[1], args[2:]...).Return(localImages, stderr, exit)
+					if c.targetDigest == "" || c.targetDigest == platformTargetDigest {
+						eligibleCandidates++
+					}
 				}
 				descriptors = append(descriptors, client.OCIReferrer{ArtifactType: ociDeltaArtifactType, Digest: c.digest, Size: c.manifestSize})
+			}
+			if targetNeedsInspection {
+				exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+image).Return(targetIndex, "", 0)
+			}
+			if eligibleCandidates > 0 {
+				localImages := make([]any, 0, len(tc.candidates))
+				for _, c := range tc.candidates {
+					if c.local && !c.invalid {
+						localImages = append(localImages, map[string]any{
+							"id":          "opaque-id",
+							"repoDigests": []string{"quay.io/local/base@" + c.source},
+						})
+					}
+				}
+				if tc.failStep == "opaque-id" {
+					localImages = []any{map[string]any{"id": podmanDeltaSource, "repoDigests": []string{}}}
+				}
+				imageList, err := json.Marshal(map[string]any{"images": localImages})
+				require.NoError(err)
+				exit, stderr := 0, ""
+				if tc.failStep == "source" {
+					exit, stderr = 1, "source failed"
+				}
+				args := criArgs("images", "--output", "json")
+				exec.EXPECT().ExecuteWithContext(args[0], args[1], args[2:]...).Return(string(imageList), stderr, exit)
 			}
 			if tc.discover {
 				index, err := json.Marshal(client.OCIIndex{Manifests: descriptors})

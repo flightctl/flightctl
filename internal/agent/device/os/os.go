@@ -243,10 +243,22 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1bet
 			m.log.Debugf("Cannot inspect cached OS image: %v", err)
 		}
 	}
-	if len(localDigests) > 0 && m.osTargetDigestMatches(ctx, osImage, localDigests, optsFn) {
-		m.log.Debugf("Desired OS image is already present with the correct digest: %s", osImage)
-		m.recordDeltaResult(v1beta1.DeviceDeltaApplyOutcomeNotRequired, "", true)
+	if isDesiredImageRunning && !hasKnownImageDigest(localDigests) {
+		m.log.Debugf("Desired OS image is already running, but its digest is unavailable; skipping image pull: %s", osImage)
 		return &dependency.OCICollection{}, nil
+	}
+	if len(localDigests) > 0 {
+		matches, inspectErr := m.osTargetDigestMatches(ctx, osImage, localDigests, optsFn)
+		if inspectErr != nil {
+			m.log.Debugf("Cannot verify requested OS image digest: %v", inspectErr)
+			if isDesiredImageRunning {
+				return &dependency.OCICollection{}, nil
+			}
+		} else if matches {
+			m.log.Debugf("Desired OS image is already present with the correct digest: %s", osImage)
+			m.recordDeltaResult(v1beta1.DeviceDeltaApplyOutcomeNotRequired, "", true)
+			return &dependency.OCICollection{}, nil
+		}
 	}
 
 	if !m.canApplyOSDelta() {
@@ -476,7 +488,24 @@ func (m *manager) osDeltaSourceAvailable(ctx context.Context, bootcStatus *Statu
 	return m.ociDelta.SourceImageExists(ctx, source)
 }
 
-func (m *manager) osTargetDigestMatches(ctx context.Context, image string, observed []string, optsFn dependency.ClientOptsFn) bool {
+func hasKnownImageDigest(digests []string) bool {
+	for _, value := range digests {
+		if strings.TrimSpace(value) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *manager) osTargetPlatformDigestMatches(ctx context.Context, image, targetDigest string, optsFn dependency.ClientOptsFn) (bool, error) {
+	platformDigest, err := m.skopeo.InspectPlatformDigest(ctx, image, optsFn()...)
+	if err != nil {
+		return false, fmt.Errorf("inspect requested OS platform digest: %w", err)
+	}
+	return platformDigest == targetDigest, nil
+}
+
+func (m *manager) osTargetDigestMatches(ctx context.Context, image string, observed []string, optsFn dependency.ClientOptsFn) (bool, error) {
 	targetDigest := ""
 	matches := validation.OciImageReferenceRegexp.FindStringSubmatch(image)
 	if len(matches) > 3 {
@@ -486,8 +515,7 @@ func (m *manager) osTargetDigestMatches(ctx context.Context, image string, obser
 		var err error
 		targetDigest, err = m.skopeo.InspectDigest(ctx, image, optsFn()...)
 		if err != nil {
-			m.log.Debugf("Cannot inspect requested OS digest: %v", err)
-			return false
+			return false, fmt.Errorf("inspect requested OS digest: %w", err)
 		}
 	}
 	matchesDigest := func(target string) bool {
@@ -505,12 +533,11 @@ func (m *manager) osTargetDigestMatches(ctx context.Context, image string, obser
 		return false
 	}
 	if matchesDigest(targetDigest) {
-		return true
+		return true, nil
 	}
 	platformDigest, err := m.skopeo.InspectPlatformDigest(ctx, image, optsFn()...)
 	if err != nil {
-		m.log.Debugf("Cannot inspect requested OS platform digest: %v", err)
-		return false
+		return false, fmt.Errorf("inspect requested OS platform digest: %w", err)
 	}
-	return matchesDigest(platformDigest)
+	return matchesDigest(platformDigest), nil
 }

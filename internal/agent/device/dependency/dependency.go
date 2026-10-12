@@ -27,9 +27,8 @@ import (
 )
 
 const (
-	maxQueueSize             = 10
-	ociDeltaArtifactType     = "application/vnd.io.github.containers.oci-delta.v1"
-	ociDeltaSourceAnnotation = "io.github.containers.delta.source"
+	maxQueueSize         = 10
+	ociDeltaArtifactType = "application/vnd.io.github.containers.oci-delta.v1"
 )
 
 const (
@@ -150,31 +149,6 @@ func deltaTargetLess(candidate, current *OCIDeltaTarget) bool {
 		return candidate.SourceDigest < current.SourceDigest
 	}
 	return candidate.Application < current.Application
-}
-
-func selectApplicationDeltaCandidate(targetImage string, delta *OCIDeltaTarget, index *client.OCIIndex) string {
-	if delta == nil {
-		return ""
-	}
-	if delta.Hint != "" {
-		return delta.Hint
-	}
-	if delta.SourceDigest == "" || index == nil {
-		return ""
-	}
-	repo := imageRepository(targetImage)
-	if repo == "" {
-		return ""
-	}
-	for _, ref := range index.Manifests {
-		if ref.ArtifactType != ociDeltaArtifactType || ref.Digest == "" {
-			continue
-		}
-		if normalizeDigest(ref.Annotations[ociDeltaSourceAnnotation]) == normalizeDigest(delta.SourceDigest) {
-			return repo + "@" + ref.Digest
-		}
-	}
-	return ""
 }
 
 func imageRepository(image string) string {

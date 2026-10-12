@@ -765,10 +765,10 @@ Flight Control evaluates reported main and nested image references as delta gene
 | ----------- | -------------------------- | ----------------- |
 | Container | Main container image and container images used by volumes. | Podman. |
 | Compose or Quadlet | Application package when delivered as an OCI container image, workload container images, and container images used by volumes. | Podman. |
-| Helm | Workload container images referenced by tags. Digest-pinned images currently use regular CRI pulls. | CRI-O or containerd. Other CRI runtimes use full image pulls. |
+| Helm | Workload container images referenced by tags or digests. | CRI-O or containerd. Other CRI runtimes use full image pulls. |
 | VM | OCI container images used by the VM application. | Podman. |
 
-The main application package, when delivered as an OCI artifact, and the Helm chart itself use regular package pulls. Workload images and image-backed volumes are evaluated individually for delta generation and application. Digest-pinned Helm workload images currently use regular CRI image pulls. See [CRI configuration](#cri-configuration) for local image reuse requirements.
+The main application package, when delivered as an OCI artifact, and the Helm chart itself use regular package pulls. Workload images and image-backed volumes are evaluated individually for delta generation and application. See [CRI configuration](#cri-configuration) for local image reuse requirements.
 
 For a CI-published application image delta, follow the OCI 1.1 referrer convention in [CI-published OS deltas](#using-ci-published-os-deltas). Publish the referrer in the target image's repository. Set its `subject` to the target manifest, `artifactType` to `application/vnd.io.github.containers.oci-delta.v1`, and the `io.github.containers.delta.source` annotation to the source application's image digest from `status.applications[].imageDigests[].digest`. The agent discovers matching referrers directly in that repository.
 

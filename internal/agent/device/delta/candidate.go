@@ -12,12 +12,14 @@ import (
 const (
 	ArtifactType     = "application/vnd.io.github.containers.oci-delta.v1"
 	SourceAnnotation = "io.github.containers.delta.source"
+	TargetAnnotation = "io.github.containers.delta.target"
 )
 
 // Candidate describes a validated artifact and availability in the target's store.
 type Candidate struct {
 	Reference       string
 	SourceDigest    string
+	TargetDigest    string
 	DownloadSize    int64
 	SourceAvailable bool
 }
@@ -41,6 +43,12 @@ func FromManifest(reference string, manifest *client.OCIManifest, manifestSize i
 	if _, err := digest.Parse(source); err != nil {
 		return Candidate{}, fmt.Errorf("delta source digest is missing or invalid")
 	}
+	target := manifest.Annotations[TargetAnnotation]
+	if target != "" {
+		if _, err := digest.Parse(target); err != nil {
+			return Candidate{}, fmt.Errorf("delta target digest is invalid")
+		}
+	}
 	if manifest.Config == nil || len(manifest.Layers) == 0 || manifestSize < 0 {
 		return Candidate{}, fmt.Errorf("delta artifact descriptors are missing or invalid")
 	}
@@ -52,7 +60,7 @@ func FromManifest(reference string, manifest *client.OCIManifest, manifestSize i
 		}
 		size += descriptor.Size
 	}
-	return Candidate{Reference: reference, SourceDigest: source, DownloadSize: size}, nil
+	return Candidate{Reference: reference, SourceDigest: source, TargetDigest: target, DownloadSize: size}, nil
 }
 
 // Select chooses the smallest locally usable delta, with a stable reference tie-break.

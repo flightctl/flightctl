@@ -65,9 +65,14 @@ func (m *manager) inspectOSDelta(ctx context.Context, reference, targetImage str
 	if err != nil {
 		return delta.Candidate{}, err
 	}
-	if target := manifest.Annotations["io.github.containers.delta.target"]; target != "" &&
-		!m.osTargetDigestMatches(ctx, targetImage, []string{target}, optsFn) {
-		return delta.Candidate{}, fmt.Errorf("delta target digest does not match the desired OS image")
+	if candidate.TargetDigest != "" {
+		matches, err := m.osTargetPlatformDigestMatches(ctx, targetImage, candidate.TargetDigest, optsFn)
+		if err != nil {
+			return delta.Candidate{}, fmt.Errorf("inspect delta target digest: %w", err)
+		}
+		if !matches {
+			return delta.Candidate{}, fmt.Errorf("delta target digest does not match the desired OS image")
+		}
 	}
 	candidate.SourceAvailable, err = m.osDeltaSourceAvailable(ctx, bootcStatus, candidate.SourceDigest)
 	if err != nil {

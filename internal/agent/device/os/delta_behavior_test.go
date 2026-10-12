@@ -12,15 +12,17 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/pkg/executer"
+	"github.com/opencontainers/go-digest"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
 
 func TestOSUnusableHintFallsBack(t *testing.T) {
+	targetIndexDigest := digest.FromBytes([]byte(targetPlatformIndexRaw(testSourceDigest))).String()
 	tests := []struct {
 		name, hint, manifest, stderr, reason string
-		checkTarget                          bool
+		checkTarget, targetInspectFailure    bool
 		exitCode                             int
 	}{
 		{name: "When the hint omits source metadata it should fall back", hint: testHintedDelta, manifest: `{"artifactType":"application/vnd.io.github.containers.oci-delta.v1"}`, reason: "source"},
@@ -30,6 +32,8 @@ func TestOSUnusableHintFallsBack(t *testing.T) {
 		{name: "When the hinted source digest is invalid it should fall back", hint: testHintedDelta, manifest: `{"artifactType":"application/vnd.io.github.containers.oci-delta.v1","annotations":{"io.github.containers.delta.source":"sha256:invalid"}}`, reason: "source"},
 		{name: "When artifact blobs are missing it should fall back", hint: testHintedDelta, manifest: `{"artifactType":"application/vnd.io.github.containers.oci-delta.v1","annotations":{"io.github.containers.delta.source":"` + testSourceDigest + `"}}`, reason: "descriptors"},
 		{name: "When the artifact declares a different target it should fall back", hint: testHintedDelta, manifest: `{"artifactType":"application/vnd.io.github.containers.oci-delta.v1","annotations":{"io.github.containers.delta.source":"` + testSourceDigest + `","io.github.containers.delta.target":"` + testDeltaDigest + `"},"config":{"digest":"` + testDeltaDigest + `","size":2},"layers":[{"digest":"` + testSourceDigest + `","size":10}]}`, reason: "target", checkTarget: true},
+		{name: "When the artifact targets the desired index instead of its platform manifest it should fall back", hint: testHintedDelta, manifest: `{"artifactType":"application/vnd.io.github.containers.oci-delta.v1","annotations":{"io.github.containers.delta.source":"` + testSourceDigest + `","io.github.containers.delta.target":"` + targetIndexDigest + `"},"config":{"digest":"` + testDeltaDigest + `","size":2},"layers":[{"digest":"` + testSourceDigest + `","size":10}]}`, reason: "target digest does not match", checkTarget: true},
+		{name: "When the desired target digest cannot be inspected it should reject the delta", hint: testHintedDelta, manifest: `{"artifactType":"application/vnd.io.github.containers.oci-delta.v1","annotations":{"io.github.containers.delta.source":"` + testSourceDigest + `","io.github.containers.delta.target":"` + testDeltaDigest + `"},"config":{"digest":"` + testDeltaDigest + `","size":2},"layers":[{"digest":"` + testSourceDigest + `","size":10}]}`, reason: "inspect delta target digest", checkTarget: true, targetInspectFailure: true},
 		{name: "When an artifact declares a negative blob size it should fall back", hint: testHintedDelta, manifest: `{"artifactType":"application/vnd.io.github.containers.oci-delta.v1","annotations":{"io.github.containers.delta.source":"` + testSourceDigest + `"},"config":{"digest":"` + testDeltaDigest + `","size":2},"layers":[{"digest":"` + testSourceDigest + `","size":-10}]}`, reason: "size"},
 	}
 	for _, tt := range tests {
@@ -44,8 +48,11 @@ func TestOSUnusableHintFallsBack(t *testing.T) {
 			expectImageExists(mockExec, testDesiredImage, false)
 			expectPullConfig(t, mockResolver)
 			if tt.checkTarget {
-				expectTargetDigest(mockExec, testDesiredImage, testSourceDigest)
-				expectPlatformIndex(mockExec, testDesiredImage, testSourceDigest)
+				if tt.targetInspectFailure {
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+testDesiredImage, "--no-creds").Return("", "connection refused", 1)
+				} else {
+					expectPlatformIndex(mockExec, testDesiredImage, testSourceDigest)
+				}
 			}
 			if tt.hint != "not an image reference" {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+tt.hint, "--no-creds").Return(tt.manifest, tt.stderr, tt.exitCode)
@@ -426,7 +433,7 @@ func TestOSMultiPlatformTargetDigest(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+testHintedDelta, "--no-creds").Return(raw, "", 0)
 				expectDeltaSuccess(t, mockExec, mockClient, testHintedDelta)
 			}
-			if tt.image == testDesiredImage {
+			if tt.image == testDesiredImage && !tt.hint {
 				expectTargetDigest(mockExec, tt.image, testOtherDeltaDigest)
 			}
 			expectPlatformIndex(mockExec, tt.image, testSourceDigest)
@@ -451,6 +458,10 @@ func TestOSMultiPlatformTargetDigest(t *testing.T) {
 }
 
 func expectPlatformIndex(mockExec *executer.MockExecuter, image, platformDigest string) {
-	raw := fmt.Sprintf(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.index.v1+json","manifests":[{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":%q,"size":100,"platform":{"os":%q,"architecture":%q}}]}`, platformDigest, runtime.GOOS, runtime.GOARCH)
+	raw := targetPlatformIndexRaw(platformDigest)
 	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+image, "--no-creds").Return(raw, "", 0)
+}
+
+func targetPlatformIndexRaw(platformDigest string) string {
+	return fmt.Sprintf(`{"schemaVersion":2,"mediaType":"application/vnd.oci.image.index.v1+json","manifests":[{"mediaType":"application/vnd.oci.image.manifest.v1+json","digest":%q,"size":100,"platform":{"os":%q,"architecture":%q}}]}`, platformDigest, runtime.GOOS, runtime.GOARCH)
 }

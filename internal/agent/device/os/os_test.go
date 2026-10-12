@@ -420,6 +420,7 @@ func TestCollectOCITargets(t *testing.T) {
 		wantAttempted  string
 		wantStaged     *string
 		wantOutcome    *v1beta1.DeviceDeltaApplyOutcomeType
+		wantNoOutcome  bool
 	}{
 		{
 			name:    "When there is no OS spec it should return an empty collection",
@@ -440,6 +441,30 @@ func TestCollectOCITargets(t *testing.T) {
 			},
 			wantEmpty:   true,
 			wantOutcome: lo.ToPtr(v1beta1.DeviceDeltaApplyOutcomeNotRequired),
+		},
+		{
+			name:    "When inspection of the already booted image fails it should skip pulling",
+			caps:    Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.15.0"},
+			desired: desiredSpec(testDesiredImage, nil),
+			setup: func(t *testing.T, mockExec *executer.MockExecuter, mockClient *MockClient, mockResolver *dependency.MockPullConfigResolver) {
+				mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testDesiredImage, testSourceDigest), nil)
+				expectPullConfig(t, mockResolver)
+				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--format", "{{.Digest}}", "docker://"+testDesiredImage, "--no-creds").
+					Return("", "connection refused", 1)
+			},
+			wantEmpty:     true,
+			wantNoOutcome: true,
+		},
+		{
+			name:    "When the already booted image has no observed digest it should skip pulling",
+			caps:    Capabilities{OsMode: v1beta1.OsModeImage, DeltaEligible: true, BootcVersion: "bootc 1.15.0"},
+			desired: desiredSpec(testDesiredImage, nil),
+			setup: func(t *testing.T, _ *executer.MockExecuter, mockClient *MockClient, mockResolver *dependency.MockPullConfigResolver) {
+				mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testDesiredImage, ""), nil)
+				expectPullConfig(t, mockResolver)
+			},
+			wantEmpty:     true,
+			wantNoOutcome: true,
 		},
 		{
 			name:    "When the desired image already exists it should return an empty collection",
@@ -701,6 +726,9 @@ func TestCollectOCITargets(t *testing.T) {
 			mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil)
 			require.NoError(m.Status(context.Background(), status))
 			require.Equal(tt.wantReason, osLastDeltaFallback(status))
+			if tt.wantNoOutcome {
+				require.Nil(status.Os.LastDelta)
+			}
 			if len(tt.wantRefs) > 0 && tt.wantOutcome == nil {
 				outcome := v1beta1.DeviceDeltaApplyOutcomeNotUsed
 				if tt.wantReason != nil {

@@ -18,11 +18,20 @@ func (m *prefetchManager) discoverPodmanDelta(ctx context.Context, targetImage, 
 		}
 		return "", nil
 	}
+	targetValidator := applicationDeltaTargetValidator{image: targetImage, skopeo: skopeo, opts: opts}
 	if hint != "" {
-		candidate, err := inspectPodmanDelta(ctx, hint, 0, podman, skopeo, opts...)
+		candidate, err := inspectApplicationDelta(ctx, hint, 0, skopeo, opts...)
 		if err != nil {
 			return "", fmt.Errorf("delta hint is unusable: %w", err)
 		}
+		if err := targetValidator.validate(ctx, candidate); err != nil {
+			return "", fmt.Errorf("delta hint is unusable: %w", err)
+		}
+		sources, err := m.podmanDeltaSourceDigests(ctx, podman)
+		if err != nil {
+			return "", fmt.Errorf("check delta source image: %w", err)
+		}
+		_, candidate.SourceAvailable = sources[candidate.SourceDigest]
 		if !candidate.SourceAvailable {
 			return "", fmt.Errorf("delta source image is unavailable in the owning Podman store")
 		}
@@ -42,12 +51,27 @@ func (m *prefetchManager) discoverPodmanDelta(ctx context.Context, targetImage, 
 		if !delta.IsDeltaReferrer(ref) {
 			continue
 		}
-		candidate, err := inspectPodmanDelta(ctx, repo+"@"+ref.Digest, ref.Size, podman, skopeo, opts...)
+		candidate, err := inspectApplicationDelta(ctx, repo+"@"+ref.Digest, ref.Size, skopeo, opts...)
 		if err != nil {
 			m.log.Debugf("Skipping unusable application delta %s: %v", ref.Digest, err)
 			continue
 		}
+		if err := targetValidator.validate(ctx, candidate); err != nil {
+			m.log.Debugf("Skipping application delta %s: %v", ref.Digest, err)
+			continue
+		}
 		candidates = append(candidates, candidate)
+	}
+	if len(candidates) == 0 {
+		return "", nil
+	}
+	sources, err := m.podmanDeltaSourceDigests(ctx, podman)
+	if err != nil {
+		m.log.Debugf("Could not inspect Podman images for delta sources: %v", err)
+		return "", nil
+	}
+	for i := range candidates {
+		_, candidates[i].SourceAvailable = sources[candidates[i].SourceDigest]
 	}
 	return delta.Select(candidates), nil
 }
@@ -63,52 +87,60 @@ func inspectApplicationDelta(ctx context.Context, reference string, manifestSize
 	return delta.FromManifest(reference, manifest, manifestSize)
 }
 
-func inspectPodmanDelta(ctx context.Context, reference string, manifestSize int64, podman *client.Podman, skopeo *client.Skopeo, opts ...client.ClientOption) (delta.Candidate, error) {
-	candidate, err := inspectApplicationDelta(ctx, reference, manifestSize, skopeo, opts...)
-	if err != nil {
-		return delta.Candidate{}, err
+type applicationDeltaTargetValidator struct {
+	image     string
+	skopeo    *client.Skopeo
+	opts      []client.ClientOption
+	inspected bool
+	digest    string
+	err       error
+}
+
+func (v *applicationDeltaTargetValidator) validate(ctx context.Context, candidate delta.Candidate) error {
+	if candidate.TargetDigest == "" {
+		return nil
 	}
-	candidate.SourceAvailable, err = podmanDeltaSourceAvailable(ctx, podman, candidate.SourceDigest)
-	if err != nil {
-		return delta.Candidate{}, fmt.Errorf("check delta source image: %w", err)
+	if !v.inspected {
+		v.digest, v.err = v.skopeo.InspectPlatformDigest(ctx, v.image, v.opts...)
+		v.inspected = true
 	}
-	return candidate, nil
+	if v.err != nil {
+		return fmt.Errorf("inspect desired application image digest: %w", v.err)
+	}
+	if candidate.TargetDigest != v.digest {
+		return fmt.Errorf("delta target digest does not match the desired application image")
+	}
+	return nil
 }
 
 // A registry manifest digest is not a Podman image ID. Inspect stored images to
 // match their content or repository digests, including sources in other repositories.
-func podmanDeltaSourceAvailable(ctx context.Context, podman *client.Podman, source string) (bool, error) {
+func (m *prefetchManager) podmanDeltaSourceDigests(ctx context.Context, podman *client.Podman) (map[string]struct{}, error) {
 	images, err := podman.ListImages(ctx)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
+	sources := make(map[string]struct{})
 	var inspectErr error
+	inspectFailures := 0
 	for _, image := range images {
 		digests, err := podman.ImageDigests(ctx, image)
 		if err != nil {
+			inspectFailures++
+			m.log.Debugf("Could not inspect Podman image %q for delta sources: %v", image, err)
 			inspectErr = errors.Join(inspectErr, err)
 			continue
 		}
 		for _, storedDigest := range digests {
-			if applicationImageDigest(storedDigest) == source {
-				return true, nil
+			if source := applicationImageDigest(storedDigest); source != "" {
+				sources[source] = struct{}{}
 			}
 		}
 	}
-	return false, inspectErr
-}
-
-func inspectCRIDelta(ctx context.Context, reference string, manifestSize int64, cri *client.CRI, skopeo *client.Skopeo, opts ...client.ClientOption) (delta.Candidate, string, error) {
-	candidate, err := inspectApplicationDelta(ctx, reference, manifestSize, skopeo, opts...)
-	if err != nil {
-		return delta.Candidate{}, "", err
+	if len(images) > 0 && inspectFailures == len(images) {
+		return nil, inspectErr
 	}
-	sourceRef, err := cri.ImageReferenceByDigest(ctx, candidate.SourceDigest, opts...)
-	if err != nil {
-		return delta.Candidate{}, "", fmt.Errorf("check delta source image: %w", err)
-	}
-	candidate.SourceAvailable = sourceRef != ""
-	return candidate, sourceRef, nil
+	return sources, nil
 }
 
 // discoverCRIDelta checks sources in the configured runtime, independently of
@@ -120,11 +152,21 @@ func (m *prefetchManager) discoverCRIDelta(ctx context.Context, targetImage, hin
 		}
 		return delta.Candidate{}, "", nil
 	}
+	targetValidator := applicationDeltaTargetValidator{image: targetImage, skopeo: skopeo, opts: opts}
 	if hint != "" {
-		candidate, sourceRef, err := inspectCRIDelta(ctx, hint, 0, cri, skopeo, opts...)
+		candidate, err := inspectApplicationDelta(ctx, hint, 0, skopeo, opts...)
 		if err != nil {
 			return delta.Candidate{}, "", fmt.Errorf("delta hint is unusable: %w", err)
 		}
+		if err := targetValidator.validate(ctx, candidate); err != nil {
+			return delta.Candidate{}, "", fmt.Errorf("delta hint is unusable: %w", err)
+		}
+		sourceRefs, err := cri.ImageReferencesByDigest(ctx, []string{candidate.SourceDigest}, opts...)
+		if err != nil {
+			return delta.Candidate{}, "", fmt.Errorf("check delta source image: %w", err)
+		}
+		sourceRef := sourceRefs[candidate.SourceDigest]
+		candidate.SourceAvailable = sourceRef != ""
 		if !candidate.SourceAvailable {
 			return delta.Candidate{}, "", fmt.Errorf("delta source image is unavailable in the owning CRI store")
 		}
@@ -140,23 +182,41 @@ func (m *prefetchManager) discoverCRIDelta(ctx context.Context, targetImage, hin
 		return delta.Candidate{}, "", nil
 	}
 	candidates := make([]delta.Candidate, 0, len(index.Manifests))
-	sources := make(map[string]string)
 	for _, ref := range index.Manifests {
 		if !delta.IsDeltaReferrer(ref) {
 			continue
 		}
-		candidate, sourceRef, err := inspectCRIDelta(ctx, repo+"@"+ref.Digest, ref.Size, cri, skopeo, opts...)
+		candidate, err := inspectApplicationDelta(ctx, repo+"@"+ref.Digest, ref.Size, skopeo, opts...)
 		if err != nil {
 			m.log.Debugf("Skipping unusable application delta %s: %v", ref.Digest, err)
 			continue
 		}
+		if err := targetValidator.validate(ctx, candidate); err != nil {
+			m.log.Debugf("Skipping application delta %s: %v", ref.Digest, err)
+			continue
+		}
 		candidates = append(candidates, candidate)
-		sources[candidate.Reference] = sourceRef
+	}
+	if len(candidates) == 0 {
+		return delta.Candidate{}, "", nil
+	}
+	sourceDigests := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		sourceDigests = append(sourceDigests, candidate.SourceDigest)
+	}
+	sourceRefs, err := cri.ImageReferencesByDigest(ctx, sourceDigests, opts...)
+	if err != nil {
+		m.log.Debugf("Could not list CRI images for delta sources: %v", err)
+		return delta.Candidate{}, "", nil
+	}
+	for i := range candidates {
+		sourceRef := sourceRefs[candidates[i].SourceDigest]
+		candidates[i].SourceAvailable = sourceRef != ""
 	}
 	selected := delta.Select(candidates)
 	for _, candidate := range candidates {
 		if candidate.Reference == selected {
-			return candidate, sources[selected], nil
+			return candidate, sourceRefs[candidate.SourceDigest], nil
 		}
 	}
 	return delta.Candidate{}, "", nil

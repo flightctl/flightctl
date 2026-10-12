@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
@@ -36,6 +37,8 @@ const (
 
 	// container terminated reasons
 	containerReasonOOMKilled = "OOMKilled"
+
+	maxCachedCRIDigestLookups = 128
 )
 
 // KubernetesMonitor monitors Kubernetes-based applications such as Helm releases.
@@ -45,6 +48,10 @@ type KubernetesMonitor struct {
 	clients            client.CLIClients
 	rwFactory          fileio.ReadWriterFactory
 	pullConfigResolver dependency.PullConfigResolver
+
+	digestCacheMu    sync.Mutex
+	digestCache      map[string][]string
+	digestCacheOrder []string
 }
 
 // NewKubernetesMonitor creates a new KubernetesMonitor with lazy initialization.
@@ -539,6 +546,10 @@ func (m *KubernetesMonitor) resolveImageDigest(ctx context.Context, image, image
 	if _, id, found := strings.Cut(imageID, "://"); found {
 		runtimeID = id
 	}
+	repoDigests, cached := m.cachedCRIRepoDigests(runtimeID)
+	if cached {
+		return matchingImageRepoDigest(image, repoDigests, fallback)
+	}
 	var opts []client.ClientOption
 	if optsFn := provider.CRIImageOptions(m.pullConfigResolver); optsFn != nil {
 		opts = optsFn()
@@ -548,6 +559,41 @@ func (m *KubernetesMonitor) resolveImageDigest(ctx context.Context, image, image
 		m.log.Debugf("Could not inspect CRI image %q for digest: %v", imageID, err)
 		return fallback
 	}
+	m.cacheCRIRepoDigests(runtimeID, repoDigests)
+	return matchingImageRepoDigest(image, repoDigests, fallback)
+}
+
+func (m *KubernetesMonitor) cachedCRIRepoDigests(runtimeID string) ([]string, bool) {
+	m.digestCacheMu.Lock()
+	defer m.digestCacheMu.Unlock()
+
+	repoDigests, found := m.digestCache[runtimeID]
+	if !found {
+		return nil, false
+	}
+	return append([]string(nil), repoDigests...), true
+}
+
+func (m *KubernetesMonitor) cacheCRIRepoDigests(runtimeID string, repoDigests []string) {
+	m.digestCacheMu.Lock()
+	defer m.digestCacheMu.Unlock()
+
+	if m.digestCache == nil {
+		m.digestCache = make(map[string][]string)
+	}
+	if _, exists := m.digestCache[runtimeID]; !exists {
+		if len(m.digestCacheOrder) == maxCachedCRIDigestLookups {
+			delete(m.digestCache, m.digestCacheOrder[0])
+			copy(m.digestCacheOrder, m.digestCacheOrder[1:])
+			m.digestCacheOrder = m.digestCacheOrder[:len(m.digestCacheOrder)-1]
+		}
+		m.digestCacheOrder = append(m.digestCacheOrder, runtimeID)
+	}
+	m.digestCache[runtimeID] = append([]string(nil), repoDigests...)
+}
+
+func matchingImageRepoDigest(image string, repoDigests []string, fallback string) string {
+	const pullablePrefix = "docker-pullable://"
 	for _, repoDigest := range repoDigests {
 		if digest := digestFromKubernetesImageID(image, pullablePrefix+repoDigest); digest != "" {
 			return digest
