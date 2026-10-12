@@ -104,13 +104,20 @@ jobs:
                 run-e2e:*)
                   enabled=true
                   suffix="${pr_label#run-e2e:}"
-                  label="${suffix#"${suffix%%[![:space:]]*}"}"
-                  label="${label%"${label##*[![:space:]]}"}"
-                  if [[ ! "${label}" =~ ^[[:alnum:]_-]+$ ]]; then
-                    echo "::error::Invalid run-e2e label suffix. Use one Ginkgo label per run-e2e:<label> PR label; add multiple labels separately."
+                  if [[ "${suffix}" =~ (^|\+)[[:space:]]*(\+|$) ]]; then
+                    echo "::error::Invalid run-e2e label suffix. Use a non-empty plus-separated list of Ginkgo labels."
                     exit 1
                   fi
-                  add_label "${label}"
+                  IFS='+' read -r -a requested_labels <<< "${suffix}"
+                  for label in "${requested_labels[@]}"; do
+                    label="${label#"${label%%[![:space:]]*}"}"
+                    label="${label%"${label##*[![:space:]]}"}"
+                    if [[ ! "${label}" =~ ^[[:alnum:]_-]+$ ]]; then
+                      echo "::error::Invalid run-e2e label suffix. Use plus-separated Ginkgo labels containing letters, numbers, hyphens, or underscores."
+                      exit 1
+                    fi
+                    add_label "${label}"
+                  done
                   ;;
               esac
             done < <(jq -r '.[]?' <<< "${PR_LABELS_JSON}")
@@ -484,7 +491,7 @@ jobs:
           fi
           # PRs skip e2e unless a run-e2e label was selected; other events run by default.
           if [[ "${RUN_E2E}" != "true" ]]; then
-            echo "E2E tests skipped for this PR (add 'run-e2e' or one or more 'run-e2e:<label>' labels)"
+            echo "E2E tests skipped for this PR (add 'run-e2e' or a suffixed label such as 'run-e2e:sanity+delta')"
             exit 0
           fi
           if [[ "${{ needs.reuse-e2e.outputs.reused }}" == "true" ]]; then

@@ -195,7 +195,7 @@ make e2e-test GINKGO_FOCUS="should create a new project"
 
 Additionally, you can filter tests using Ginkgo labels with the GINKGO_LABEL_FILTER
 environment variable. When running locally with make, all tests run by default (no label filtering).
-In CI/CD workflows, only tests labeled with 'sanity' run by default. On pull requests, bare `run-e2e` keeps that default. Each `run-e2e:<label>` PR label selects one Ginkgo label on the existing CS9 shards. Add multiple suffix labels separately because GitHub label names cannot contain commas; the selected labels are joined as alternatives. The CS10 sanity-agent slice remains unchanged. For example, the labels `run-e2e` and `run-e2e:vulnerability-gating` run the normal sanity coverage plus vulnerability-gating tests. `run-e2e:delta` selects delta on CS9 and does not create reusable merge-queue proof because sanity was not selected.
+In CI/CD workflows, only tests labeled with 'sanity' run by default. On pull requests, bare `run-e2e` keeps that default. A suffixed label selects a `+`-separated list of Ginkgo labels on the existing CS9 shards. GitHub rejects commas in label names, so use `+` between selections. The CS10 sanity-agent slice remains unchanged. For example, `run-e2e:sanity+vulnerability-gating` runs the normal sanity coverage plus vulnerability-gating tests. `run-e2e:delta` selects delta on CS9 and does not create reusable merge-queue proof because sanity was not selected.
 ```
 # Run all tests (local default - no filtering)
 make e2e-test
