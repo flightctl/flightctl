@@ -45,7 +45,7 @@ func TestOSUnusableHintFallsBack(t *testing.T) {
 			mockExec := executer.NewMockExecuter(ctrl)
 			mockClient := NewMockClient(ctrl)
 			mockResolver := dependency.NewMockPullConfigResolver(ctrl)
-			mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil).Times(2)
+			mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil).Times(1)
 			expectImageExists(mockExec, testDesiredImage, false)
 			expectPullConfig(t, mockResolver)
 			if tt.checkTarget {
@@ -64,6 +64,9 @@ func TestOSUnusableHintFallsBack(t *testing.T) {
 			require.NoError(err)
 			require.Len(collection.Targets[v1beta1.CurrentProcessUsername], 1)
 			require.Equal(testDesiredImage, collection.Targets[v1beta1.CurrentProcessUsername][0].Reference)
+			expectFullOSStage(mockClient, testDesiredImage, testDeltaDigest)
+			require.NoError(m.AfterUpdate(context.Background(), desired))
+			mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testDesiredImage, testDeltaDigest), nil)
 			status := &v1beta1.DeviceStatus{}
 			require.NoError(m.Status(context.Background(), status))
 			require.NotNil(status.Os.LastDelta)
@@ -102,7 +105,7 @@ func TestOSHintRequiresLocalSource(t *testing.T) {
 			mockExec := executer.NewMockExecuter(ctrl)
 			mockClient := NewMockClient(ctrl)
 			mockResolver := dependency.NewMockPullConfigResolver(ctrl)
-			mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil).Times(2)
+			mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil).Times(1)
 			expectImageExists(mockExec, testDesiredImage, false)
 			expectPullConfig(t, mockResolver)
 			if tt.exitCode == 0 {
@@ -116,6 +119,9 @@ func TestOSHintRequiresLocalSource(t *testing.T) {
 			collection, err := m.CollectOCITargets(context.Background(), nil, desired)
 			require.NoError(err)
 			require.Len(collection.Targets[v1beta1.CurrentProcessUsername], 1)
+			expectFullOSStage(mockClient, testDesiredImage, testDeltaDigest)
+			require.NoError(m.AfterUpdate(context.Background(), desired))
+			mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testDesiredImage, testDeltaDigest), nil)
 			status := &v1beta1.DeviceStatus{}
 			require.NoError(m.Status(context.Background(), status))
 			require.NotNil(status.Os.LastDelta)
@@ -150,7 +156,7 @@ func TestOSDiscoverySelectsSmallestLocalDelta(t *testing.T) {
 			mockExec := executer.NewMockExecuter(ctrl)
 			mockClient := NewMockClient(ctrl)
 			mockResolver := dependency.NewMockPullConfigResolver(ctrl)
-			mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil).Times(2)
+			mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil).Times(1)
 			expectImageExists(mockExec, testDesiredImage, false)
 			expectPullConfig(t, mockResolver)
 			firstManifestSize := tt.firstManifestSize
@@ -185,6 +191,7 @@ func TestOSDiscoverySelectsSmallestLocalDelta(t *testing.T) {
 			collection, err := m.CollectOCITargets(context.Background(), nil, desired)
 			require.NoError(err)
 			require.Empty(collection.Targets)
+			mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testDesiredImage, testDeltaDigest), nil)
 			status := &v1beta1.DeviceStatus{}
 			require.NoError(m.Status(context.Background(), status))
 			require.NotNil(status.Os.LastDelta)
@@ -294,7 +301,7 @@ func TestOSDeltaSourceUsesBootcStore(t *testing.T) {
 			if tt.rollback {
 				booted.BootcHost.Status.Rollback.Image.ImageDigest = testDeltaDigest
 			}
-			mockClient.EXPECT().Status(gomock.Any()).Return(booted, nil).Times(2)
+			mockClient.EXPECT().Status(gomock.Any()).Return(booted, nil).Times(1)
 			expectImageExists(mockExec, testDesiredImage, false)
 			expectPullConfig(t, mockResolver)
 			reference := testHintedDelta
@@ -319,6 +326,7 @@ func TestOSDeltaSourceUsesBootcStore(t *testing.T) {
 			collection, err := m.CollectOCITargets(context.Background(), nil, desired)
 			require.NoError(err)
 			require.Empty(collection.Targets)
+			mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testDesiredImage, testDeltaDigest), nil)
 			status := &v1beta1.DeviceStatus{}
 			require.NoError(m.Status(context.Background(), status))
 			require.Equal(v1beta1.DeviceDeltaApplyOutcomeApplied, status.Os.LastDelta.Outcome)
@@ -347,7 +355,7 @@ func TestOSDiscoveryIgnoresUnusableCandidates(t *testing.T) {
 			mockExec := executer.NewMockExecuter(ctrl)
 			mockClient := NewMockClient(ctrl)
 			mockResolver := dependency.NewMockPullConfigResolver(ctrl)
-			mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil).Times(2)
+			mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil).Times(1)
 			expectImageExists(mockExec, testDesiredImage, false)
 			expectPullConfig(t, mockResolver)
 			// Referrer annotations claim a booted source; the inspected artifact is authoritative.
@@ -376,6 +384,9 @@ func TestOSDiscoveryIgnoresUnusableCandidates(t *testing.T) {
 			collection, err := m.CollectOCITargets(context.Background(), nil, desired)
 			require.NoError(err)
 			require.Len(collection.Targets[v1beta1.CurrentProcessUsername], 1)
+			expectFullOSStage(mockClient, testDesiredImage, testDeltaDigest)
+			require.NoError(m.AfterUpdate(context.Background(), desired))
+			mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testDesiredImage, testDeltaDigest), nil)
 			status := &v1beta1.DeviceStatus{}
 			require.NoError(m.Status(context.Background(), status))
 			require.Equal(v1beta1.DeviceDeltaApplyOutcomeNotUsed, status.Os.LastDelta.Outcome)
@@ -400,7 +411,7 @@ func TestOSFullTargetRecoveryFailure(t *testing.T) {
 			mockExec := executer.NewMockExecuter(ctrl)
 			mockClient := NewMockClient(ctrl)
 			mockResolver := dependency.NewMockPullConfigResolver(ctrl)
-			mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil).Times(2)
+			mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil).Times(1)
 			expectImageExists(mockExec, testDesiredImage, false)
 			expectPullConfig(t, mockResolver)
 			expectDeltaManifest(mockExec, testHintedDelta, testSourceDigest, 100, testDesiredImage)
@@ -411,9 +422,20 @@ func TestOSFullTargetRecoveryFailure(t *testing.T) {
 			collection, err := m.CollectOCITargets(context.Background(), nil, desired)
 			require.NoError(err)
 			require.Len(collection.Targets[v1beta1.CurrentProcessUsername], 1)
+			if tt.recoveryError == nil {
+				staged := bootcStatus(testBootedImage, testSourceDigest)
+				staged.Status.Staged.Image.Image.Image = testDesiredImage
+				staged.Status.Staged.Image.ImageDigest = testDeltaDigest
+				mockClient.EXPECT().Status(gomock.Any()).Return(staged, nil)
+			}
 			require.ErrorIs(m.AfterUpdate(context.Background(), desired), tt.recoveryError)
+			mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testDesiredImage, testDeltaDigest), nil)
 			status := &v1beta1.DeviceStatus{}
 			require.NoError(m.Status(context.Background(), status))
+			if tt.recoveryError != nil {
+				require.Nil(status.Os.LastDelta)
+				return
+			}
 			require.Equal(v1beta1.DeviceDeltaApplyOutcomeFallback, status.Os.LastDelta.Outcome)
 			require.Equal(fallbackReasonPull, *status.Os.LastDelta.FallbackReason)
 		})
@@ -433,7 +455,7 @@ func TestOSDeltaReportsAppliedAfterCanonicalStaging(t *testing.T) {
 			mockExec := executer.NewMockExecuter(ctrl)
 			mockClient := NewMockClient(ctrl)
 			mockResolver := dependency.NewMockPullConfigResolver(ctrl)
-			mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil).Times(3)
+			mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil).Times(2)
 			expectImageExists(mockExec, tt.image, false)
 			expectPullConfig(t, mockResolver)
 			expectDeltaManifest(mockExec, testHintedDelta, testSourceDigest, 100, tt.image)
@@ -447,11 +469,16 @@ func TestOSDeltaReportsAppliedAfterCanonicalStaging(t *testing.T) {
 				require.Nil(status.Os.LastDelta)
 				return nil
 			})
+			staged := bootcStatus(testBootedImage, testSourceDigest)
+			staged.Status.Staged.Image.Image.Image = tt.image
+			staged.Status.Staged.Image.ImageDigest = testDeltaDigest
+			mockClient.EXPECT().Status(gomock.Any()).Return(staged, nil)
 			desired := &v1beta1.DeviceSpec{Os: &v1beta1.DeviceOsSpec{Image: tt.image, DeltaImage: lo.ToPtr(testHintedDelta)}}
 			collection, err := m.CollectOCITargets(context.Background(), nil, desired)
 			require.NoError(err)
 			require.Empty(collection.Targets)
 			require.NoError(m.AfterUpdate(context.Background(), desired))
+			mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(tt.image, testDeltaDigest), nil)
 			status := &v1beta1.DeviceStatus{}
 			require.NoError(m.Status(context.Background(), status))
 			require.Equal(v1beta1.DeviceDeltaApplyOutcomeApplied, status.Os.LastDelta.Outcome)
@@ -480,7 +507,7 @@ func TestOSMultiPlatformTargetDigest(t *testing.T) {
 			if tt.hint {
 				booted = bootcStatus(testBootedImage, testSourceDigest)
 			}
-			mockClient.EXPECT().Status(gomock.Any()).Return(booted, nil).Times(2)
+			mockClient.EXPECT().Status(gomock.Any()).Return(booted, nil).Times(1)
 			if tt.hint {
 				expectPullConfig(t, mockResolver)
 				expectImageExists(mockExec, tt.image, false)
@@ -500,6 +527,11 @@ func TestOSMultiPlatformTargetDigest(t *testing.T) {
 			collection, err := m.CollectOCITargets(context.Background(), nil, desired)
 			require.NoError(err)
 			require.Empty(collection.Targets)
+			if tt.hint {
+				mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(tt.image, testDeltaDigest), nil)
+			} else {
+				mockClient.EXPECT().Status(gomock.Any()).Return(booted, nil)
+			}
 			status := &v1beta1.DeviceStatus{}
 			require.NoError(m.Status(context.Background(), status))
 			outcome := v1beta1.DeviceDeltaApplyOutcomeNotRequired

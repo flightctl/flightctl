@@ -626,9 +626,16 @@ func TestKubernetesMonitorReportsCRIObservedDigest(t *testing.T) {
 		{name: "When inline CRI configuration differs from disk it should inspect the configured runtime", image: "quay.io/acme/web:latest", imageID: "containerd://sha256:config", repoDigests: []string{"quay.io/acme/web@" + observed}, want: observed, inspect: true, inlineConfig: true},
 		{name: "When CRI-O reports an opaque ID it should resolve the tagged image from CRI", image: "quay.io/acme/web:latest", imageID: "sha256:config", repoDigests: []string{"quay.io/acme/web@" + observed}, want: observed, inspect: true},
 		{name: "When an init container has an opaque ID it should report its CRI registry digest", image: "quay.io/acme/web:latest", imageID: "containerd://sha256:config", repoDigests: []string{"quay.io/acme/web@" + observed}, want: observed, inspect: true, initContainer: true},
-		{name: "When CRI inspection fails it should preserve the immutable reference fallback", image: "quay.io/acme/web@" + index, imageID: "containerd://sha256:config", exitCode: 1, want: index, inspect: true},
+		{name: "When CRI inspection fails it should withhold the unverified immutable reference", image: "quay.io/acme/web@" + index, imageID: "containerd://sha256:config", exitCode: 1, inspect: true},
+		{name: "When CRI retains multiple registry objects for one repository it should withhold an ambiguous observation", image: "quay.io/acme/web@" + index, imageID: "containerd://sha256:config", repoDigests: []string{"quay.io/acme/web@" + index, "quay.io/acme/web@" + observed}, inspect: true},
 		{name: "When CRI exposes no matching registry digest it should keep an opaque ID out of status", image: "quay.io/acme/web:latest", imageID: "containerd://sha256:config", repoDigests: []string{"quay.io/other/web@" + other}, inspect: true},
 		{name: "When the pod reports a pullable platform digest it should retain that observation", image: "quay.io/acme/web@" + index, imageID: "docker-pullable://quay.io/acme/web@" + observed, want: observed},
+		{name: "When the pod reports a verified index identity it should retain that observation", image: "quay.io/acme/web:latest", imageID: "docker-pullable://quay.io/acme/web@" + index, want: index},
+		{name: "When CRI exposes duplicate repository digests it should report their single identity", image: "quay.io/acme/web:latest", imageID: "containerd://sha256:config", repoDigests: []string{"quay.io/acme/web@" + observed, "quay.io/acme/web@" + observed}, want: observed, inspect: true},
+		{name: "When the pod reports a platform-pinned observed image it should retain the platform digest", image: "quay.io/acme/web@" + observed, imageID: "quay.io/acme/web@" + observed, want: observed},
+		{name: "When a pullable runtime identity refers to another repository it should remain unknown", image: "quay.io/acme/web@" + index, imageID: "docker-pullable://quay.io/other/web@" + other},
+		{name: "When an immutable image has no runtime identity it should remain unknown", image: "quay.io/acme/web@" + index},
+		{name: "When an immutable image has no matching CRI registry digest it should remain unknown", image: "quay.io/acme/web@" + index, imageID: "containerd://sha256:config", repoDigests: []string{"quay.io/other/web@" + other}, inspect: true},
 		{name: "When the pod has no runtime image ID it should retain an unknown tagged digest", image: "quay.io/acme/web:latest"},
 		{name: "When CRI inspection succeeds it should reuse repo digests for repeated pod events", image: "quay.io/acme/web:latest", imageID: "containerd://sha256:config", repoDigests: []string{"quay.io/acme/web@" + observed}, want: observed, inspect: true, repeatEvent: true, inspectCalls: 1},
 		{name: "When CRI inspection fails it should retry on a later pod event", image: "quay.io/acme/web:latest", imageID: "containerd://sha256:config", exitCode: 1, inspect: true, repeatEvent: true, inspectCalls: 2},
@@ -828,4 +835,34 @@ func TestKubernetesMonitorBoundsCRIImageDigestLookups(t *testing.T) {
 	require.NoError(err)
 	require.Len(results, 1)
 	require.Equal([]v1beta1.ApplicationImageDigest{{Image: image, Digest: observed}}, *results[0].Status.ImageDigests)
+}
+
+func TestKubernetesMonitorReportsMixedWorkloadImageSnapshot(t *testing.T) {
+	require := require.New(t)
+	logger := log.NewPrefixLogger("test")
+	monitor := NewKubernetesMonitor(logger, &testKubeCLIClients{}, fileio.NewReadWriterFactory(t.TempDir()))
+	volume, err := provider.NewVolumeManager(logger, "app", v1beta1.AppTypeHelm, v1beta1.CurrentProcessUsername, nil)
+	require.NoError(err)
+	app := &application{id: "app", volume: volume, status: &v1beta1.DeviceApplicationStatus{Name: "app", AppType: v1beta1.AppTypeHelm}}
+	require.NoError(monitor.Ensure(app))
+	const image = "quay.io/acme/web:latest"
+	const oldDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const newDigest = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	for _, pod := range []struct{ name, digest string }{{"old-pod", oldDigest}, {"new-pod", newDigest}} {
+		event := kubernetesWatchEvent{Type: "ADDED"}
+		event.Object.Kind = "Pod"
+		event.Object.Metadata.Name = pod.name
+		event.Object.Metadata.UID = pod.name
+		event.Object.Metadata.Labels = map[string]string{helm.AppLabelKey: "app"}
+		event.Object.Spec.Containers = []kubernetesContainerSpec{{Name: "web", Image: image}}
+		event.Object.Status.ContainerStatuses = []kubernetesContainerStatus{{Name: "web", ImageID: image + "@" + pod.digest, Ready: true}}
+		data, err := json.Marshal(event)
+		require.NoError(err)
+		monitor.HandleEvent(t.Context(), data)
+	}
+	results, err := monitor.Status()
+	require.NoError(err)
+	require.Len(results, 1)
+	require.NotNil(results[0].Status.ImageDigests)
+	require.Equal([]v1beta1.ApplicationImageDigest{{Image: image, Digest: oldDigest}, {Image: image, Digest: newDigest}}, *results[0].Status.ImageDigests)
 }

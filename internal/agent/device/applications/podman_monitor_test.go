@@ -224,8 +224,6 @@ func TestListenForEvents(t *testing.T) {
 					inspectCount.Add(1)
 					return string(inspectBytes), "", 0
 				}).AnyTimes()
-			execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", gomock.Any()).
-				Return("sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "", 0).AnyTimes()
 			podmanEventsCommandMock(execMock).Return(streamDataToStdout(t, reader))
 
 			podman := client.NewPodman(log, execMock, rw, util.NewPollConfig())
@@ -1040,8 +1038,8 @@ func TestVMHealthGatedCrashLoopSequence(t *testing.T) {
 	)
 	testLog := log.NewPrefixLogger("test")
 	mockExec := executer.NewMockExecuter(ctrl)
-	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "docker.io/library/alpine:latest").
-		Return("sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "", 0).Times(2)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).
+		Return(`[{"ImageDigest":"sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}]`, "", 0).Times(2)
 	podman := client.NewPodman(testLog, mockExec, rw, util.NewPollConfig())
 	var podmanFactory client.PodmanFactory = func(_ v1beta1.Username) (*client.Podman, error) { return podman, nil }
 	var systemdFactory systemd.ManagerFactory = func(_ v1beta1.Username) (systemd.Manager, error) { return systemdMgr, nil }
@@ -1101,72 +1099,83 @@ func TestVMHealthGatedCrashLoopSequence(t *testing.T) {
 	assertSummary("1/1", v1beta1.ApplicationStatusRunning, v1beta1.ApplicationsSummaryStatusHealthy)
 }
 
-func TestPodmanMonitorTracksWorkloadImageDigest(t *testing.T) {
+func TestPodmanMonitorReportsRunningContentAfterTagMoves(t *testing.T) {
 	require := require.New(t)
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()
+	const oldDigest = "sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8"
+	const newDigest = "sha256:3e9b4b680bfc9fb5269227cffbd6d42be39fbf7c0b908123913864aa4447e764"
 	testLog := log.NewPrefixLogger("test")
 	execMock := executer.NewMockExecuter(ctrl)
-	digests := []string{"sha256:first", "sha256:second", ""}
-	var digestCalls int
-	execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "quay.io/acme/app:latest").
-		DoAndReturn(func(_ context.Context, _ string, _ ...string) (string, string, int) {
-			digest := digests[digestCalls]
-			digestCalls++
-			if digest == "" {
-				return "", "image digest unavailable", 125
-			}
-			return digest, "", 0
-		}).Times(3)
+	// The running container retains its original index after the tag moves.
+	execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", "running-container").
+		Return(`[{"Image":"original-config-id","ImageDigest":"`+oldDigest+`"}]`, "", 0).AnyTimes()
+	execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", "docker.io/library/alpine:latest").
+		Return(newDigest, "", 0).AnyTimes()
 	podman := client.NewPodman(testLog, execMock, fileio.NewMockReadWriter(ctrl), util.NewPollConfig())
-	monitor := &PodmanMonitor{
-		apps: make(map[string]Application),
+	app := createTestApplicationWithType(require, "app", v1beta1.ApplicationStatusRunning, "bob", v1beta1.AppTypeCompose)
+	monitor := &PodmanMonitor{apps: map[string]Application{app.ID(): app}, log: testLog,
 		clientFactory: func(user v1beta1.Username) (*client.Podman, error) {
 			require.Equal(v1beta1.Username("bob"), user)
 			return podman, nil
 		},
-		log: testLog,
 	}
-	app := &application{status: &v1beta1.DeviceApplicationStatus{RunAs: "bob"}, workloads: []Workload{{ID: "container-1", Name: "app-container"}}}
-	event := &client.PodmanEvent{ID: "container-1", Image: "quay.io/acme/app:latest", Name: "app-container"}
+	event := mockPodmanEventSuccess("app", "bob", "service", "start")
+	event.ID = "running-container"
+	monitor.handleEvent(t.Context(), event)
+	results, err := monitor.Status()
+	require.NoError(err)
+	require.Len(results, 1)
+	require.Equal([]v1beta1.ApplicationImageDigest{{Image: event.Image, Digest: oldDigest}}, *results[0].Status.ImageDigests)
+}
 
-	monitor.updateApplicationStatus(t.Context(), app, event, StatusRunning, 0, nil)
-	workload, ok := app.Workload(event.Name)
-	require.True(ok)
-	require.Equal([]WorkloadImage{{Image: event.Image, Digest: "sha256:first"}}, workload.Images)
-
-	// The digest is cached for repeat events from the same container.
-	monitor.updateApplicationStatus(t.Context(), app, event, StatusRunning, 0, podman)
-	require.Equal(1, digestCalls)
-
-	// A new container ID can have new content behind the same mutable tag.
-	event.ID = "container-2"
-	monitor.updateApplicationStatus(t.Context(), app, event, StatusRunning, 0, podman)
-	workload, ok = app.Workload(event.Name)
-	require.True(ok)
-	require.Equal([]WorkloadImage{{Image: event.Image, Digest: "sha256:second"}}, workload.Images)
-
-	// If a new container event has no image reference, keep the reference but
-	// discard the old container's digest until the image can be checked again.
-	event.ID = "container-3"
-	event.Image = ""
-	monitor.updateApplicationStatus(t.Context(), app, event, StatusRunning, 0, podman)
-	workload, ok = app.Workload(event.Name)
-	require.True(ok)
-	require.Equal([]WorkloadImage{{Image: "quay.io/acme/app:latest"}}, workload.Images)
-
-	// A later event with the image reference retries digest resolution.
-	event.Image = "quay.io/acme/app:latest"
-	monitor.updateApplicationStatus(t.Context(), app, event, StatusRunning, 0, podman)
-	workload, ok = app.Workload(event.Name)
-	require.True(ok)
-	require.Equal([]WorkloadImage{{Image: event.Image}}, workload.Images)
-	require.Equal(3, digestCalls)
-
-	// Events with no image reference keep the last known snapshot.
-	event.Image = ""
-	monitor.updateApplicationStatus(t.Context(), app, event, StatusRunning, 0, podman)
-	require.Equal([]WorkloadImage{{Image: "quay.io/acme/app:latest"}}, workload.Images)
+func TestPodmanMonitorReportsOwnedImageObservations(t *testing.T) {
+	const indexDigest = "sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8"
+	const platformDigest = "sha256:3e9b4b680bfc9fb5269227cffbd6d42be39fbf7c0b908123913864aa4447e764"
+	testCases := []struct {
+		name     string
+		user     v1beta1.Username
+		digests  []string
+		expected []string
+	}{
+		{name: "When two workloads share content it should report one observed identity", user: "bob", digests: []string{indexDigest, indexDigest}, expected: []string{indexDigest}},
+		{name: "When one tag has two running versions it should report both identities", user: "bob", digests: []string{indexDigest, platformDigest}, expected: []string{platformDigest, indexDigest}},
+		{name: "When RunAs is unset it should use the agent process store", user: v1beta1.CurrentProcessUsername, digests: []string{platformDigest}, expected: []string{platformDigest}},
+		{name: "When container identity is unavailable it should retain an unknown observation", user: "bob", digests: []string{""}, expected: []string{""}},
+		{name: "When a config ID is returned it should not report it as a registry digest", user: "bob", digests: []string{"opaque-config-id"}, expected: []string{""}},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			testLog := log.NewPrefixLogger("test")
+			execMock := executer.NewMockExecuter(ctrl)
+			for n, dg := range tc.digests {
+				if dg == "" {
+					execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", fmt.Sprintf("container-%d", n)).Return("", "container unavailable", 125).AnyTimes()
+				} else {
+					execMock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", fmt.Sprintf("container-%d", n)).Return(`[{"Image":"config-id","ImageDigest":"`+dg+`"}]`, "", 0).AnyTimes()
+				}
+			}
+			podman := client.NewPodman(testLog, execMock, fileio.NewMockReadWriter(ctrl), util.NewPollConfig())
+			app := createTestApplicationWithType(require, "app", v1beta1.ApplicationStatusRunning, tc.user, v1beta1.AppTypeCompose)
+			monitor := &PodmanMonitor{apps: map[string]Application{app.ID(): app}, log: testLog, clientFactory: func(user v1beta1.Username) (*client.Podman, error) { require.Equal(tc.user, user); return podman, nil }}
+			for n := range tc.digests {
+				event := mockPodmanEventSuccess("app", tc.user, fmt.Sprintf("service-%d", n), "start")
+				event.ID = fmt.Sprintf("container-%d", n)
+				monitor.handleEvent(t.Context(), event)
+			}
+			results, err := monitor.Status()
+			require.NoError(err)
+			require.Len(results, 1)
+			var expected []v1beta1.ApplicationImageDigest
+			for _, dg := range tc.expected {
+				expected = append(expected, v1beta1.ApplicationImageDigest{Image: "docker.io/library/alpine:latest", Digest: dg})
+			}
+			require.Equal(expected, *results[0].Status.ImageDigests)
+		})
+	}
 }
 
 func createMockPodmanEvent(name string, username v1beta1.Username, service, status string, exitCode int) client.PodmanEvent {
@@ -1194,7 +1203,8 @@ func createMockPodmanEvent(name string, username v1beta1.Username, service, stat
 
 func mockPodmanInspect(restarts int) client.PodmanInspect {
 	return client.PodmanInspect{
-		Restarts: restarts,
+		Restarts:    restarts,
+		ImageDigest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 	}
 }
 

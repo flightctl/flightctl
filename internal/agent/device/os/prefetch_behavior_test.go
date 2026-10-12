@@ -19,9 +19,9 @@ func TestOSLocalTargetSkipsFetching(t *testing.T) {
 		previous *v1beta1.DeviceDeltaApplyOutcomeType
 	}{
 		{name: "When the desired OS tag is booted it should reuse it without registry access", booted: true, digest: testSourceDigest},
-		{name: "When the booted OS digest is unknown it should still report NotRequired", booted: true},
+		{name: "When the booted OS digest is unknown it should skip pulling and omit an unverified outcome", booted: true},
 		{name: "When the desired OS tag is cached it should reuse it without registry access"},
-		{name: "When a booted OS image was applied from a delta it should preserve Applied", booted: true, previous: lo.ToPtr(v1beta1.DeviceDeltaApplyOutcomeApplied)},
+		{name: "When a booted OS image was applied from a delta it should preserve Applied", booted: true, digest: testSourceDigest, previous: lo.ToPtr(v1beta1.DeviceDeltaApplyOutcomeApplied)},
 		{name: "When a cached OS image followed delta recovery it should preserve Fallback", previous: lo.ToPtr(v1beta1.DeviceDeltaApplyOutcomeFallback)},
 	}
 	for _, tt := range tests {
@@ -36,10 +36,15 @@ func TestOSLocalTargetSkipsFetching(t *testing.T) {
 			if tt.booted {
 				bootedImage = testDesiredImage
 			}
-			bootc.EXPECT().Status(gomock.Any()).Return(bootcStatus(bootedImage, tt.digest), nil).Times(3)
+			bootc.EXPECT().Status(gomock.Any()).Return(bootcStatus(bootedImage, tt.digest), nil).Times(2)
 			if !tt.booted {
 				exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", testDesiredImage).Return("", "", 0).Times(2)
+				expectFullOSStage(bootc, testDesiredImage, testDeltaDigest)
+				bootc.EXPECT().Status(gomock.Any()).Return(bootcStatus(testDesiredImage, testDeltaDigest), nil)
+			} else {
+				bootc.EXPECT().Status(gomock.Any()).Return(bootcStatus(bootedImage, tt.digest), nil)
 			}
+
 			m := newTestManager(t, bootc, exec, resolver, Capabilities{DeltaEligible: true, BootcVersion: "bootc 1.15.0"})
 			desired := &v1beta1.DeviceSpec{Os: &v1beta1.DeviceOsSpec{Image: testDesiredImage, DeltaImage: lo.ToPtr(testHintedDelta)}}
 			require.NoError(m.BeforeUpdate(t.Context(), nil, desired))
@@ -48,15 +53,29 @@ func TestOSLocalTargetSkipsFetching(t *testing.T) {
 				if *tt.previous == v1beta1.DeviceDeltaApplyOutcomeFallback {
 					reason = "delta reconstruction failed"
 				}
-				m.recordDeltaResult(*tt.previous, reason, false)
+				m.recordDeltaResult(m.activeDeltaTargetKey, *tt.previous, reason, false)
 			}
 			for range 2 {
 				collection, err := m.CollectOCITargets(t.Context(), nil, desired)
 				require.NoError(err)
 				require.Empty(collection.Targets)
 			}
+			if !tt.booted {
+				require.NoError(m.AfterUpdate(t.Context(), desired))
+			}
+
 			status := &v1beta1.DeviceStatus{}
 			require.NoError(m.Status(t.Context(), status))
+			if tt.booted && tt.digest == "" {
+				require.Nil(status.Os.LastDelta)
+				want := v1beta1.DeviceDeltaApplyOutcomeNotRequired
+				if tt.previous != nil {
+					want = *tt.previous
+				}
+				require.Equal(want, *m.deltaOutcome)
+				return
+			}
+
 			require.NotNil(status.Os.LastDelta)
 			outcome := v1beta1.DeviceDeltaApplyOutcomeNotRequired
 			if tt.previous != nil {

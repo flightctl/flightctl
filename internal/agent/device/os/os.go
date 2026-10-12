@@ -119,6 +119,7 @@ type manager struct {
 	activeDeltaTargetKey string
 	lastAttemptedImage   string
 	stagedDeltaImage     string
+	observedResults      map[string]v1beta1.DeviceDeltaApplyStatus
 }
 
 func (m *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, _ ...status.CollectorOpt) error {
@@ -130,20 +131,19 @@ func (m *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, _ ..
 	status.Os.Image = bootcInfo.GetBootedImage()
 	status.Os.ImageDigest = bootcInfo.GetBootedImageDigest()
 	status.Os.LastDelta = nil
-	m.mu.Lock()
-	var reason *string
-	if m.fallbackReason != nil {
-		copiedReason := *m.fallbackReason
-		reason = &copiedReason
-	}
-	var outcome *v1beta1.DeviceDeltaApplyOutcomeType
-	if m.deltaOutcome != nil {
-		copiedOutcome := *m.deltaOutcome
-		outcome = &copiedOutcome
-	}
-	m.mu.Unlock()
-	if outcome != nil {
-		status.Os.LastDelta = &v1beta1.DeviceDeltaApplyStatus{FallbackReason: reason, Outcome: *outcome}
+	if m.deltaStatusStore != nil {
+		status.Os.LastDelta = m.deltaStatusStore.ObservedOSResult(status.Os.Image, status.Os.ImageDigest)
+	} else if status.Os.Image != "" && status.Os.ImageDigest != "" {
+		m.mu.Lock()
+		if result, exists := m.observedResults[deltastatus.Fingerprint(status.Os.Image, status.Os.ImageDigest)]; exists {
+			copied := result
+			if result.FallbackReason != nil {
+				reason := *result.FallbackReason
+				copied.FallbackReason = &reason
+			}
+			status.Os.LastDelta = &copied
+		}
+		m.mu.Unlock()
 	}
 	osMode := m.caps.OsMode
 	status.Capabilities = &v1beta1.DeviceCapabilities{OsMode: &osMode}
@@ -216,9 +216,11 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1bet
 	m.startImageAttempt(desired.Os)
 
 	m.mu.Lock()
+	targetKey := m.activeDeltaTargetKey
 	deltaStaged := m.stagedDeltaImage == osImage
 	m.mu.Unlock()
 	if deltaStaged {
+		m.recordStagedOSResult(ctx, targetKey, osImage)
 		m.log.Debugf("OS image already staged from delta: %s", osImage)
 		return &dependency.OCICollection{}, nil
 	}
@@ -233,12 +235,13 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1bet
 	}
 	if isDesiredImageRunning {
 		m.log.Debugf("Desired OS image is currently booted: %s", osImage)
-		m.recordDeltaResult(v1beta1.DeviceDeltaApplyOutcomeNotRequired, "", true)
+		m.recordDeltaResult(targetKey, v1beta1.DeviceDeltaApplyOutcomeNotRequired, "", true)
+		m.recordVerifiedOSResult(targetKey, bootcStatus.GetBootedImage(), bootcStatus.GetBootedImageDigest())
 		return &dependency.OCICollection{}, nil
 	}
 	if m.podmanClient.ImageExists(ctx, osImage) {
 		m.log.Debugf("OS image already exists in container storage: %s", osImage)
-		m.recordDeltaResult(v1beta1.DeviceDeltaApplyOutcomeNotRequired, "", true)
+		m.recordDeltaResult(targetKey, v1beta1.DeviceDeltaApplyOutcomeNotRequired, "", true)
 		return &dependency.OCICollection{}, nil
 	}
 
@@ -246,20 +249,20 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1bet
 
 	if !m.canApplyOSDelta() {
 		if desired.Os.DeltaImage != nil && *desired.Os.DeltaImage != "" {
-			m.setFallbackReason("OS delta application is unavailable")
+			m.setFallbackReason(targetKey, "OS delta application is unavailable")
 		} else {
-			m.setDeltaNotUsedIfUnset()
+			m.setDeltaNotUsedIfUnset(targetKey)
 		}
 		return m.fullImageCollection(osImage, optsFn), nil
 	}
 
-	candidate := m.discoverOSDelta(ctx, desired, bootcStatus, optsFn)
+	candidate := m.discoverOSDelta(ctx, targetKey, desired, bootcStatus, optsFn)
 	if candidate.Reference == "" {
-		m.setDeltaNotUsedIfUnset()
+		m.setDeltaNotUsedIfUnset(targetKey)
 		return m.fullImageCollection(osImage, optsFn), nil
 	}
 
-	if err := m.pullAndApplyOSDelta(ctx, candidate.Reference, osImage, optsFn); err != nil {
+	if err := m.pullAndApplyOSDelta(ctx, targetKey, candidate.Reference, osImage, optsFn); err != nil {
 		m.log.Warnf("OS delta failed, falling back to full pull: %v", err)
 		return m.fullImageCollection(osImage, optsFn), nil
 	}
@@ -295,7 +298,7 @@ func (m *manager) startImageAttempt(osSpec *v1beta1.DeviceOsSpec) {
 	var targetKey string
 	if osSpec != nil {
 		osImage = osSpec.Image
-		// LastDelta describes the desired OS image result; refreshing the
+		// The attempt follows the OS image reference; refreshing the
 		// control-plane hint alone does not change that image target.
 		targetKey = deltastatus.Fingerprint(osSpec.Image)
 	}
@@ -329,10 +332,10 @@ func (m *manager) startImageAttempt(osSpec *v1beta1.DeviceOsSpec) {
 	m.mu.Unlock()
 }
 
-func (m *manager) pullAndApplyOSDelta(ctx context.Context, candidate, osImage string, optsFn dependency.ClientOptsFn) error {
+func (m *manager) pullAndApplyOSDelta(ctx context.Context, targetKey, candidate, osImage string, optsFn dependency.ClientOptsFn) error {
 	tmpDir, err := m.readWriter.MkdirTemp(osDeltaTempPrefix)
 	if err != nil {
-		m.setFallbackReason(fallbackReasonApply)
+		m.setFallbackReason(targetKey, fallbackReasonApply)
 		return fmt.Errorf("create delta temporary directory: %w", err)
 	}
 	defer func() { _ = m.readWriter.RemoveAll(tmpDir) }()
@@ -340,44 +343,47 @@ func (m *manager) pullAndApplyOSDelta(ctx context.Context, candidate, osImage st
 	deltaFile := filepath.Join(tmpDir, "delta.oci")
 	opts := append([]client.ClientOption{client.Timeout(m.pullTimeout)}, optsFn()...)
 	if err := m.skopeo.Copy(ctx, "docker://"+candidate, "oci-archive:"+deltaFile, opts...); err != nil {
-		m.setFallbackReason(fallbackReasonPull)
+		m.setFallbackReason(targetKey, fallbackReasonPull)
 		return err
 	}
 
 	layoutDir := filepath.Join(tmpDir, osDeltaLayoutName)
 	if err := m.ociDelta.Apply(ctx, deltaFile, "oci:"+layoutDir); err != nil {
-		return m.failApply(err)
+		return m.failApply(targetKey, err)
 	}
 
 	if err := m.client.SwitchOCI(ctx, layoutDir); err != nil {
-		return m.failApply(err)
+		return m.failApply(targetKey, err)
 	}
 	if err := m.client.SwitchRegistry(ctx, osImage); err != nil {
-		return m.failApply(err)
+		return m.failApply(targetKey, err)
 	}
 	m.mu.Lock()
-	m.stagedDeltaImage = osImage
+	if m.activeDeltaTargetKey == targetKey {
+		m.stagedDeltaImage = osImage
+	}
 	m.mu.Unlock()
-	m.recordDeltaResult(v1beta1.DeviceDeltaApplyOutcomeApplied, "", false)
+	m.recordDeltaResult(targetKey, v1beta1.DeviceDeltaApplyOutcomeApplied, "", false)
+	m.recordStagedOSResult(ctx, targetKey, osImage)
 	return nil
 }
 
-func (m *manager) failApply(err error) error {
-	m.setFallbackReason(fallbackReasonApply)
+func (m *manager) failApply(targetKey string, err error) error {
+	m.setFallbackReason(targetKey, fallbackReasonApply)
 	return err
 }
 
-func (m *manager) setFallbackReason(reason string) {
-	m.recordDeltaResult(v1beta1.DeviceDeltaApplyOutcomeFallback, reason, false)
+func (m *manager) setFallbackReason(targetKey, reason string) {
+	m.recordDeltaResult(targetKey, v1beta1.DeviceDeltaApplyOutcomeFallback, reason, false)
 }
 
-func (m *manager) setDeltaNotUsedIfUnset() {
-	m.recordDeltaResult(v1beta1.DeviceDeltaApplyOutcomeNotUsed, "", true)
+func (m *manager) setDeltaNotUsedIfUnset(targetKey string) {
+	m.recordDeltaResult(targetKey, v1beta1.DeviceDeltaApplyOutcomeNotUsed, "", true)
 }
 
-func (m *manager) recordDeltaResult(outcome v1beta1.DeviceDeltaApplyOutcomeType, fallbackReason string, onlyIfUnset bool) {
+func (m *manager) recordDeltaResult(targetKey string, outcome v1beta1.DeviceDeltaApplyOutcomeType, fallbackReason string, onlyIfUnset bool) {
 	m.mu.Lock()
-	if onlyIfUnset && m.deltaOutcome != nil {
+	if targetKey != m.activeDeltaTargetKey || (onlyIfUnset && m.deltaOutcome != nil) {
 		m.mu.Unlock()
 		return
 	}
@@ -388,7 +394,6 @@ func (m *manager) recordDeltaResult(outcome v1beta1.DeviceDeltaApplyOutcomeType,
 	}
 	m.fallbackReason = reason
 	m.deltaOutcome = &outcome
-	targetKey := m.activeDeltaTargetKey
 	m.mu.Unlock()
 
 	if m.deltaStatusStore == nil || targetKey == "" {
@@ -402,6 +407,60 @@ func (m *manager) recordDeltaResult(outcome v1beta1.DeviceDeltaApplyOutcomeType,
 	}
 }
 
+// recordStagedOSResult uses bootc's completed staging observation, never a
+// desired reference or registry lookup, to associate the completed outcome.
+func (m *manager) recordStagedOSResult(ctx context.Context, targetKey, image string) {
+	m.mu.Lock()
+	hasResult := targetKey != "" && m.activeDeltaTargetKey == targetKey && m.deltaOutcome != nil
+	m.mu.Unlock()
+	if !hasResult {
+		return
+	}
+	observed, err := m.client.Status(ctx)
+	if err != nil {
+		m.log.Warnf("Cannot verify staged OS delta result: %v", err)
+		return
+	}
+	expected, err := container.ImageToBootcTarget(image)
+	if err != nil {
+		return
+	}
+	if observed.GetStagedImage() == expected {
+		m.recordVerifiedOSResult(targetKey, expected, observed.Status.Staged.Image.ImageDigest)
+	}
+}
+
+func (m *manager) recordVerifiedOSResult(targetKey, image, digest string) {
+	if image == "" || digest == "" {
+		return
+	}
+	m.mu.Lock()
+	if targetKey == "" || m.activeDeltaTargetKey != targetKey || m.deltaOutcome == nil {
+		m.mu.Unlock()
+		return
+	}
+	result := v1beta1.DeviceDeltaApplyStatus{Outcome: *m.deltaOutcome}
+	if m.fallbackReason != nil {
+		reason := *m.fallbackReason
+		result.FallbackReason = &reason
+	}
+	if m.deltaStatusStore == nil {
+		if m.observedResults == nil {
+			m.observedResults = make(map[string]v1beta1.DeviceDeltaApplyStatus)
+		}
+		key := deltastatus.Fingerprint(image, digest)
+		if _, exists := m.observedResults[key]; !exists || result.Outcome != v1beta1.DeviceDeltaApplyOutcomeNotRequired {
+			m.observedResults[key] = result
+		}
+	}
+	m.mu.Unlock()
+	if m.deltaStatusStore != nil {
+		if err := m.deltaStatusStore.RecordOSImageResult(targetKey, image, digest, result); err != nil {
+			m.log.Warnf("Failed to persist OS image delta association: %v", err)
+		}
+	}
+}
+
 func (m *manager) AfterUpdate(ctx context.Context, desired *v1beta1.DeviceSpec) error {
 	if desired.Os == nil {
 		return nil
@@ -412,7 +471,14 @@ func (m *manager) AfterUpdate(ctx context.Context, desired *v1beta1.DeviceSpec) 
 	if deltaStaged {
 		return nil
 	}
-	return m.client.Switch(ctx, desired.Os.Image)
+	m.mu.Lock()
+	targetKey := m.activeDeltaTargetKey
+	m.mu.Unlock()
+	if err := m.client.Switch(ctx, desired.Os.Image); err != nil {
+		return err
+	}
+	m.recordStagedOSResult(ctx, targetKey, desired.Os.Image)
+	return nil
 }
 
 func (m *manager) Rollback(ctx context.Context, desired *v1beta1.DeviceSpec) error {

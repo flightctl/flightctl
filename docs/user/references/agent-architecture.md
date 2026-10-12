@@ -107,7 +107,7 @@ The agent continuously reports device health, application state, and resource co
 
 OS image digests come from bootc. Application workload digests come from the owning Podman user store or the configured CRI runtime, including nested workload images. Image-backed volumes use the application's Podman user store. Applications without an explicit `runAs` use the agent-process user context.
 
-For Kubernetes workloads, a registry-qualified runtime image ID identifies the observed manifest. For opaque image IDs, the agent queries CRI for a matching repository digest. If no registry digest is available, status preserves the existing immutable-reference fallback or leaves a tagged image's digest empty. An opaque runtime ID is never reported as a registry digest. Runtime observations take precedence over cached parent digests for the same image reference.
+For Kubernetes workloads, a registry-qualified runtime image ID identifies the observed manifest. For opaque image IDs, the agent queries CRI for a matching repository digest. If no verified registry digest is available, status leaves the image digest empty, including for digest-pinned desired references. When CRI reports multiple distinct matching repository digests for an opaque image ID, their order does not establish an observed identity; status leaves that observation unknown. An opaque runtime ID is never reported as a registry digest. Runtime observations take precedence over cached parent digests for the same image reference.
 
 Podman image deltas use the same user store as the application, including native Quadlet VM images and image-backed volumes. The agent reads each delta's source digest from its artifact metadata and checks that source in the owning store. Discovery selects the smallest locally usable delta by total download size, with lexical reference order breaking ties.
 
@@ -128,6 +128,8 @@ Top-level Compose artifacts use full artifact handling and report `NotUsed`, or 
 Image digests remain separate from `lastDelta`, which contains only the delta outcome and optional fallback reason.
 
 The agent persists OS and application delta outcomes in `delta-status.json` in its data directory and restores them after restart. This file stores delta results separately from application monitor registrations.
+
+OS outcomes are associated with the image reference and digest observed by bootc after staging. Status selects the result for the booted image and digest. Preparing another image retains the previous booted result, including across restart. An unknown booted identity or a legacy record without a verified association omits `lastDelta`.
 
 If digest validation confirms that an application image tag now refers to different content, the agent clears the previous delta outcome before preparing that content. This also applies when the image is absent after restart and its source digest confirms the tag changed. An unavailable digest inspection does not invalidate the saved outcome.
 

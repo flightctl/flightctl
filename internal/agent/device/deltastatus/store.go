@@ -18,7 +18,7 @@ const (
 	// FileName is the dedicated on-disk state file for agent-reported delta outcomes.
 	FileName                 = "delta-status.json"
 	fileMode     fs.FileMode = 0o600
-	stateVersion             = 1
+	stateVersion             = 2
 )
 
 // Store persists the most recent delta results independently of status delivery.
@@ -29,6 +29,7 @@ type Store struct {
 	path       string
 	log        *log.PrefixLogger
 	state      persistedState
+	dirty      bool
 }
 
 type persistedState struct {
@@ -37,7 +38,15 @@ type persistedState struct {
 	Applications map[string]*applicationState `json:"applications,omitempty"`
 }
 
+type osImageResult struct {
+	TargetKey string                         `json:"targetKey"`
+	Image     string                         `json:"image"`
+	Digest    string                         `json:"digest"`
+	Status    v1beta1.DeviceDeltaApplyStatus `json:"status"`
+}
+
 type osState struct {
+	History   map[string]osImageResult        `json:"history,omitempty"`
 	TargetKey string                          `json:"targetKey"`
 	Result    *v1beta1.DeviceDeltaApplyStatus `json:"result,omitempty"`
 }
@@ -87,10 +96,16 @@ func New(readWriter fileio.ReadWriter, dataDir string, logger *log.PrefixLogger)
 		logger.Warnf("Ignoring invalid persisted delta status: %v", err)
 		return store
 	}
-	if persisted.Version != stateVersion {
+	if persisted.Version != 1 && persisted.Version != stateVersion {
 		logger.Warnf("Ignoring persisted delta status with unsupported version %d", persisted.Version)
 		return store
 	}
+	if persisted.Version == 1 && persisted.OS != nil {
+		// Legacy outcomes cannot establish an observed image association.
+		persisted.OS.Result = nil
+		persisted.OS.History = nil
+	}
+	persisted.Version = stateVersion
 	if persisted.Applications == nil {
 		persisted.Applications = make(map[string]*applicationState)
 	}
@@ -122,8 +137,8 @@ func Fingerprint(values ...string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// SetOSTarget keeps the persisted OS result only while its rendered target is
-// unchanged. An empty key clears the OS entry.
+// SetOSTarget updates the active attempt while retaining verified image history.
+// An empty key clears the OS scope.
 func (s *Store) SetOSTarget(targetKey string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -136,9 +151,16 @@ func (s *Store) SetOSTarget(targetKey string) error {
 		return s.saveLocked()
 	}
 	if s.state.OS != nil && s.state.OS.TargetKey == targetKey {
+		if s.dirty {
+			return s.saveLocked()
+		}
 		return nil
 	}
-	s.state.OS = &osState{TargetKey: targetKey}
+	if s.state.OS == nil {
+		s.state.OS = &osState{}
+	}
+	s.state.OS.TargetKey = targetKey
+	s.state.OS.Result = nil
 	return s.saveLocked()
 }
 
@@ -166,6 +188,41 @@ func (s *Store) RecordOSResult(targetKey string, result v1beta1.DeviceDeltaApply
 	cloned := cloneStatus(result)
 	s.state.OS.Result = &cloned
 	return s.saveLocked()
+}
+
+// RecordOSImageResult records a verified image association for the active attempt.
+// Superseded attempts and unknown identities cannot add a publishable outcome.
+func (s *Store) RecordOSImageResult(targetKey, image, digest string, result v1beta1.DeviceDeltaApplyStatus) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if targetKey == "" || image == "" || digest == "" || s.state.OS == nil || s.state.OS.TargetKey != targetKey {
+		return nil
+	}
+	if s.state.OS.History == nil {
+		s.state.OS.History = make(map[string]osImageResult)
+	}
+	key := Fingerprint(image, digest)
+	if _, exists := s.state.OS.History[key]; exists && result.Outcome == v1beta1.DeviceDeltaApplyOutcomeNotRequired {
+		return s.saveLocked()
+	}
+	s.state.OS.History[key] = osImageResult{TargetKey: targetKey, Image: image, Digest: digest, Status: cloneStatus(result)}
+	return s.saveLocked()
+}
+
+// ObservedOSResult selects an owned copy for exactly the booted image and digest.
+// It never uses the active desired attempt or performs disk I/O.
+func (s *Store) ObservedOSResult(image, digest string) *v1beta1.DeviceDeltaApplyStatus {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if image == "" || digest == "" || s.state.OS == nil {
+		return nil
+	}
+	result, exists := s.state.OS.History[Fingerprint(image, digest)]
+	if !exists || result.Image != image || result.Digest != digest {
+		return nil
+	}
+	cloned := cloneStatus(result.Status)
+	return &cloned
 }
 
 // ReconcileApplicationSpecs resets stored results when an application spec
@@ -339,6 +396,7 @@ func (s *Store) ClearApplicationResult(application, specKey, targetID, targetKey
 }
 
 func (s *Store) saveLocked() error {
+	s.dirty = true
 	data, err := json.Marshal(s.state)
 	if err != nil {
 		return fmt.Errorf("marshal persisted delta status: %w", err)
@@ -349,6 +407,7 @@ func (s *Store) saveLocked() error {
 	if err := s.readWriter.WriteFile(s.path, data, fileMode); err != nil {
 		return fmt.Errorf("write persisted delta status: %w", err)
 	}
+	s.dirty = false
 	return nil
 }
 
