@@ -585,7 +585,7 @@ fi
 # Create the regular user before applying tmpfiles rules that assign ownership
 # to it. The user entry persists in bootc/composefs images even when its home
 # directory, which is created under /var, does not.
-id -u flightctl 2>/dev/null || useradd --create-home --user-group flightctl
+id -u flightctl 2>/dev/null || useradd --create-home --user-group --home-dir /var/home/flightctl flightctl
 
 # Ensure the agent data and home directories exist immediately for environments
 # where systemd-tmpfiles succeeds or via fallback.
