@@ -47,6 +47,7 @@ func TestPrefetchSeparatesRuntimeStores(t *testing.T) {
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", image).Return("", "", 1)
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", "images", image).Return("", "", 1)
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+hint).Return(podmanDeltaManifest, "", 0).Times(2)
+			expectPodmanDeltaTarget(t, exec, image, 2)
 			expectPodmanDeltaSource(exec, 1)
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "copy", "docker://"+hint, gomock.Any()).Return("", "", 0)
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "oci-delta", "import", "--tag", image, gomock.Any()).Return("", "", 0)

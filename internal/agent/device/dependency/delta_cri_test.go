@@ -48,6 +48,7 @@ func TestApplicationDeltaPrefetchCRIRefreshesRegistryReference(t *testing.T) {
 			exec := executer.NewMockExecuter(ctrl)
 
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+candidate).Return(podmanDeltaManifest, "", 0)
+			expectPodmanDeltaTarget(t, exec, image, 1)
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", "images", "--output", "json").Return(`{"images":[{"repoDigests":["quay.io/local/base@`+podmanDeltaSource+`"]}]}`, "", 0)
 			runtimeInfo := exec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", "version").Return("RuntimeName: cri-o\n", "", 0)
 			copyDelta := exec.EXPECT().ExecuteWithContext(
@@ -273,15 +274,19 @@ func TestApplicationDeltaCRIMissingImageReportsNotUsedWhenSourceDigestMatches(t 
 	inspectTarget := exec.EXPECT().ExecuteWithContext(
 		gomock.Any(), "skopeo", "inspect", "--format", "{{.Digest}}", "docker://"+image,
 	).Return(digest, "", 0)
+	targetIndex, _ := testApplicationTargetIndex(t, digest)
+	inspectPlatform := exec.EXPECT().ExecuteWithContext(
+		gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+image,
+	).Return(targetIndex, "", 0)
 	pullEnv := make([]any, len(os.Environ()))
 	for i := range pullEnv {
 		pullEnv[i] = gomock.Any()
 	}
-	referrers := exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "list-referrers", "docker://"+image).Return(`{"manifests":[]}`, "", 0)
+	referrers := exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "list-referrers", "docker://quay.io/acme/app@"+digest).Return(`{"manifests":[]}`, "", 0)
 	fullPull := exec.EXPECT().ExecuteWithContextFromDir(
 		gomock.Any(), "", "crictl", []string{"pull", image}, pullEnv...,
 	).Return("Image pulled", "", 0)
-	gomock.InOrder(inspectTarget, referrers, fullPull)
+	gomock.InOrder(inspectTarget, inspectPlatform, referrers, fullPull)
 
 	root := t.TempDir()
 	rw := fileio.NewReadWriter(

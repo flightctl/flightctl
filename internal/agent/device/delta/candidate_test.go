@@ -1,6 +1,7 @@
 package delta
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/flightctl/flightctl/internal/agent/client"
@@ -11,30 +12,39 @@ func TestFromManifest(t *testing.T) {
 	const source = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	const target = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	tests := []struct {
-		name       string
-		target     string
-		wantTarget string
-		wantError  bool
+		name           string
+		subjectDigest  string
+		includeSubject bool
+		legacyTarget   string
+		wantTarget     string
+		wantError      bool
 	}{
-		{name: "When the target annotation is valid it should retain the target digest", target: target, wantTarget: target},
-		{name: "When the target annotation is absent it should leave the target digest unknown"},
-		{name: "When the target annotation is invalid it should reject the candidate", target: "sha256:invalid", wantError: true},
+		{name: "When the OCI subject is valid it should use its target digest", subjectDigest: target, includeSubject: true, wantTarget: target},
+		{name: "When the OCI subject is missing it should reject the candidate", legacyTarget: target, wantError: true},
+		{name: "When the OCI subject digest is invalid it should reject the candidate", subjectDigest: "sha256:invalid", includeSubject: true, legacyTarget: target, wantError: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			require := require.New(t)
 			annotations := map[string]string{SourceAnnotation: source}
-			if tc.target != "" {
-				annotations[TargetAnnotation] = tc.target
+			if tc.legacyTarget != "" {
+				annotations["io.github.containers.delta.target"] = tc.legacyTarget
 			}
-			manifest := &client.OCIManifest{
-				ArtifactType: ArtifactType,
-				Annotations:  annotations,
-				Config:       &client.OCIDescriptor{Digest: source, Size: 2},
-				Layers:       []client.OCIDescriptor{{Digest: target, Size: 3}},
+			manifestJSON := map[string]any{
+				"artifactType": ArtifactType,
+				"annotations":  annotations,
+				"config":       client.OCIDescriptor{Digest: source, Size: 2},
+				"layers":       []client.OCIDescriptor{{Digest: target, Size: 3}},
 			}
+			if tc.includeSubject {
+				manifestJSON["subject"] = client.OCIDescriptor{Digest: tc.subjectDigest}
+			}
+			rawManifest, err := json.Marshal(manifestJSON)
+			require.NoError(err)
+			var manifest client.OCIManifest
+			require.NoError(json.Unmarshal(rawManifest, &manifest))
 
-			candidate, err := FromManifest("registry.example.com/delta@"+target, manifest, 1)
+			candidate, err := FromManifest("registry.example.com/delta@"+target, &manifest, 1)
 			if tc.wantError {
 				require.Error(err)
 				return

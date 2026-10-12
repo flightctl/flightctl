@@ -61,10 +61,6 @@ func TestPodmanDeltaCandidatePrefetch(t *testing.T) {
 			{digest: digestB, source: digestB, manifestSize: 90, layerSize: 1, local: true},
 			{digest: digestC, source: digestE, layerSize: 1},
 		}, selected: "quay.io/acme/app@" + digestA, outcome: v1beta1.DeviceDeltaApplyOutcomeApplied},
-		{name: "When a discovered delta names the target index it should select the candidate for the platform manifest", candidates: []candidate{
-			{digest: digestA, source: podmanDeltaSource, layerSize: 1, local: true, targetDigest: targetIndexDigest},
-			{digest: digestB, source: podmanDeltaSource, layerSize: 80, local: true, targetDigest: platformTargetDigest},
-		}, selected: "quay.io/acme/app@" + digestB, outcome: v1beta1.DeviceDeltaApplyOutcomeApplied},
 		{name: "When equal sized candidates arrive in reverse order it should break ties lexically", candidates: []candidate{
 			{digest: digestB, source: podmanDeltaSource, layerSize: 80, local: true},
 			{digest: digestA, source: digestB, layerSize: 80, local: true},
@@ -128,16 +124,20 @@ func TestPodmanDeltaCandidatePrefetch(t *testing.T) {
 				if ref == "" {
 					ref = "quay.io/acme/app@" + c.digest
 				}
-				manifest := testApplicationDeltaManifest(t, c.source, c.targetDigest, c.layerSize)
+				targetDigest := c.targetDigest
+				if targetDigest == "" {
+					targetDigest = platformTargetDigest
+				}
+				manifest := testApplicationDeltaManifest(t, c.source, targetDigest, c.layerSize)
 				if c.invalid {
 					manifest = `{"artifactType":"application/example"}`
 				}
 				exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+ref).Return(manifest, "", 0)
 				if !c.invalid {
-					if c.targetDigest != "" {
+					if tc.hint != "" {
 						targetNeedsInspection = true
 					}
-					if c.targetDigest == "" || c.targetDigest == platformTargetDigest {
+					if tc.hint == "" || targetDigest == platformTargetDigest {
 						eligibleCandidates++
 					}
 					if c.local || c.inspectFailure {
@@ -179,7 +179,7 @@ func TestPodmanDeltaCandidatePrefetch(t *testing.T) {
 			if tc.hint == "" {
 				index, err := json.Marshal(client.OCIIndex{Manifests: descriptors})
 				require.NoError(err)
-				exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "list-referrers", "docker://"+image).Return(string(index), "", 0)
+				expectPlatformReferrers(t, exec, image, platformTargetDigest, string(index))
 			}
 			if tc.selected != "" {
 				exit, stderr := 0, ""
@@ -221,11 +221,9 @@ func TestPodmanDeltaCandidatePrefetch(t *testing.T) {
 func testApplicationDeltaManifest(t *testing.T, sourceDigest, targetDigest string, layerSize int64) string {
 	t.Helper()
 	annotations := map[string]string{delta.SourceAnnotation: sourceDigest}
-	if targetDigest != "" {
-		annotations[delta.TargetAnnotation] = targetDigest
-	}
 	manifest, err := json.Marshal(client.OCIManifest{
 		ArtifactType: delta.ArtifactType,
+		Subject:      &client.OCIDescriptor{Digest: targetDigest},
 		Annotations:  annotations,
 		Config:       &client.OCIDescriptor{Digest: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", Size: 10},
 		Layers:       []client.OCIDescriptor{{Digest: "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", Size: layerSize}},
@@ -249,6 +247,14 @@ func testApplicationTargetIndex(t *testing.T, platformDigest string) (string, st
 	})
 	require.NoError(t, err)
 	return string(index), digest.FromBytes(index).String()
+}
+
+func expectPlatformReferrers(t *testing.T, exec *executer.MockExecuter, image, platformDigest, referrersJSON string) {
+	t.Helper()
+	targetIndex, _ := testApplicationTargetIndex(t, platformDigest)
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+image).Return(targetIndex, "", 0)
+	referrerImage := imageRepository(image) + "@" + platformDigest
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "list-referrers", "docker://"+referrerImage).Return(referrersJSON, "", 0)
 }
 
 func TestComposeArtifactAndNestedDeltaPrefetch(t *testing.T) {
@@ -295,6 +301,7 @@ func TestComposeArtifactAndNestedDeltaPrefetch(t *testing.T) {
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.5.0", "", 0)
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "pull", parent).Return("", "", 0)
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+hint).Return(podmanDeltaManifest, "", 0)
+			expectPodmanDeltaTarget(t, exec, nested, 1)
 			expectPodmanDeltaSource(exec, 1)
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "copy", "docker://"+hint, gomock.Any()).Return("", "", 0)
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "oci-delta", "import", "--tag", nested, gomock.Any()).Return("", "", 0)

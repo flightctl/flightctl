@@ -27,6 +27,7 @@ const (
 type OCIManifest struct {
 	MediaType    string            `json:"mediaType"`
 	ArtifactType string            `json:"artifactType,omitempty"`
+	Subject      *OCIDescriptor    `json:"subject,omitempty"`
 	Annotations  map[string]string `json:"annotations,omitempty"`
 	Config       *OCIDescriptor    `json:"config,omitempty"`
 	Layers       []OCIDescriptor   `json:"layers,omitempty"`
@@ -267,6 +268,20 @@ func (s *Skopeo) ListReferrers(ctx context.Context, image string, opts ...Client
 		return nil, err
 	}
 	return parseOCIIndex(raw)
+}
+
+// ListPlatformReferrers resolves image to the host platform manifest and lists
+// referrers for that exact manifest digest.
+func (s *Skopeo) ListPlatformReferrers(ctx context.Context, image string, opts ...ClientOption) (*OCIIndex, error) {
+	repository, _ := parseImageNameAndDigest(image)
+	if repository == "" {
+		return nil, fmt.Errorf("list platform referrers: invalid image reference %q", image)
+	}
+	platformDigest, err := s.InspectPlatformDigest(ctx, image, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("inspect target platform digest: %w", err)
+	}
+	return s.ListReferrers(ctx, repository+"@"+platformDigest, opts...)
 }
 
 func (s *Skopeo) inspectDigest(ctx context.Context, image string, options *clientOptions) (string, error) {

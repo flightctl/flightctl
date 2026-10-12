@@ -43,7 +43,7 @@ type criDeltaTestCase struct {
 
 func TestCRIDeltaCandidatePrefetch(t *testing.T) {
 	const hint = "quay.io/deltas/workload:target"
-	const image = "quay.io/acme/workload@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const image = "quay.io/acme/workload@sha256:1111111111111111111111111111111111111111111111111111111111111111"
 	digestA := "sha256:" + strings.Repeat("a", 64)
 	digestB := "sha256:" + strings.Repeat("b", 64)
 	platformTargetDigest := "sha256:" + strings.Repeat("9", 64)
@@ -54,10 +54,6 @@ func TestCRIDeltaCandidatePrefetch(t *testing.T) {
 			{digest: digestA, source: podmanDeltaSource, manifestSize: 10, layerSize: 80, local: true},
 			{digest: digestB, source: digestB, manifestSize: 90, layerSize: 1, local: true},
 		}, selected: "quay.io/acme/workload@" + digestA},
-		{name: "When a discovered delta names the target index it should select the candidate for the platform manifest", discover: true, candidates: []criDeltaTestCandidate{
-			{digest: digestA, source: podmanDeltaSource, layerSize: 1, local: true, targetDigest: targetIndexDigest},
-			{digest: digestB, source: digestB, layerSize: 80, local: true, targetDigest: platformTargetDigest},
-		}, selected: "quay.io/acme/workload@" + digestB},
 		{name: "When a digest-pinned containerd target has a local hinted source it should import through its configured endpoint and workload namespace", containerd: true, candidates: []criDeltaTestCandidate{{source: podmanDeltaSource, layerSize: 100, local: true}}, selected: hint},
 		{name: "When a tagged CRI target has a usable hint it should refresh the requested tag", tagged: true, candidates: []criDeltaTestCandidate{{source: podmanDeltaSource, layerSize: 100, local: true}}, selected: hint},
 		{name: "When equal sized discovered deltas arrive in reverse order it should choose the lexical reference", discover: true, candidates: []criDeltaTestCandidate{
@@ -139,28 +135,32 @@ func TestCRIDeltaCandidatePrefetch(t *testing.T) {
 			}
 			var descriptors []client.OCIReferrer
 			eligibleCandidates := 0
-			targetNeedsInspection := false
+			targetNeedsInspection := tc.discover
 			for _, c := range tc.candidates {
 				ref := hint
 				if tc.discover {
 					ref = "quay.io/acme/workload@" + c.digest
 				}
-				manifest := testApplicationDeltaManifest(t, c.source, c.targetDigest, c.layerSize)
+				targetDigest := c.targetDigest
+				if targetDigest == "" {
+					targetDigest = platformTargetDigest
+				}
+				manifest := testApplicationDeltaManifest(t, c.source, targetDigest, c.layerSize)
 				if c.invalid {
 					manifest = `{"artifactType":"application/example"}`
 				}
 				exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+ref).Return(manifest, "", 0)
 				if !c.invalid {
-					if c.targetDigest != "" {
+					if !tc.discover {
 						targetNeedsInspection = true
 					}
-					if c.targetDigest == "" || c.targetDigest == platformTargetDigest {
+					if tc.discover || targetDigest == platformTargetDigest {
 						eligibleCandidates++
 					}
 				}
 				descriptors = append(descriptors, client.OCIReferrer{ArtifactType: ociDeltaArtifactType, Digest: c.digest, Size: c.manifestSize})
 			}
-			if targetNeedsInspection {
+			if targetNeedsInspection && !tc.discover {
 				exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+image).Return(targetIndex, "", 0)
 			}
 			if eligibleCandidates > 0 {
@@ -188,7 +188,7 @@ func TestCRIDeltaCandidatePrefetch(t *testing.T) {
 			if tc.discover {
 				index, err := json.Marshal(client.OCIIndex{Manifests: descriptors})
 				require.NoError(err)
-				exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "list-referrers", "docker://"+image).Return(string(index), "", 0)
+				expectPlatformReferrers(t, exec, image, platformTargetDigest, string(index))
 			}
 
 			expectCRIDeltaOperations(exec, image, tc, outcome)

@@ -410,19 +410,21 @@ You can publish an OS delta from CI to reduce the image data a device downloads 
 For the agent to discover the delta, publish it with these values:
 
 - Publish it in the same repository as the target OS image.
-- Set the referrer's `subject` to the target image manifest.
+- Set the referrer's `subject.digest` to the target platform manifest digest.
 - Set `artifactType` to `application/vnd.io.github.containers.oci-delta.v1`.
 - Set the `io.github.containers.delta.source` annotation to the digest of the source OS image. The source image must be available in the device's bootc-managed store. Booted, staged, rollback, and cached OS images can provide the source. An image present only in Podman application storage does not qualify.
 
-For example, for a target at `quay.io/example/os:v2`, publish the delta referrer in `quay.io/example/os` and set its subject to the target manifest digest.
+For example, for a target at `quay.io/example/os:v2`, publish the delta referrer in `quay.io/example/os` and set its `subject.digest` to the target platform manifest digest.
 
-The agent looks for a referrer in the target image repository. If the registry returns 404 or reports an unknown manifest, the agent also checks the Referrers Tag Schema. It also checks this schema when Skopeo does not support the referrers command. A CI-published referrer does not require a `spec.os.deltaImage` hint. An existing hint takes precedence over referrer discovery. The agent validates the source digest declared by the delta artifact, rather than relying on referrer annotations. For discovery, it selects the locally usable delta with the smallest total download size, including the manifest, configuration, and layers. Equal sizes are resolved by image reference in lexical order.
+The agent looks for referrers of the target platform manifest digest in the target image repository. If the registry returns 404 or reports an unknown manifest, the agent also checks the Referrers Tag Schema. It also checks this schema when Skopeo does not support the referrers command. A CI-published referrer does not require a `spec.os.deltaImage` hint. An existing hint takes precedence over referrer discovery and is accepted only when its OCI `subject.digest` matches the target platform manifest digest. The agent validates the source digest declared by the delta artifact. For discovery, it selects the locally usable delta with the smallest total download size, including the manifest, configuration, and layers. Equal sizes are resolved by image reference in lexical order.
 
 The agent discovers matching referrers directly in the target image repository using the registry's referrers API or the Referrers Tag Schema compatibility path. Flight Control sets the read-only `spec.os.deltaImage` field for available generated deltas; the agent tries that reference first, then uses referrer discovery when the reference is absent.
 
 The device uses its existing OS image pull credentials to pull the target image and delta. See [Using Image Pull Secrets](#using-image-pull-secrets) for private registries.
 
 If a hint is unusable, or a selected delta fails during download, reconstruction, or staging, the agent reports `Fallback` with a reason and attempts a full image pull. It reports `Applied` after staging both the reconstruction and the desired registry reference. Reconciliation fails if full-image recovery also fails. See [OS delta status](../references/device-api-statuses.md#os-delta-status) for how to inspect these results.
+
+When the desired OS image is already booted, the agent skips the pull if it cannot inspect the registry digest. For a cached image that is not yet booted, the agent still requires a `PullAlways` full pull if it cannot verify that the requested reference resolves to the cached digest. Registry unavailability can therefore block reconciliation in that case; this avoids staging cached content that may no longer match a mutable image reference.
 
 ### Using Image Pull Secrets
 
@@ -770,7 +772,7 @@ Flight Control evaluates reported main and nested image references as delta gene
 
 The main application package, when delivered as an OCI artifact, and the Helm chart itself use regular package pulls. Workload images and image-backed volumes are evaluated individually for delta generation and application. See [CRI configuration](#cri-configuration) for local image reuse requirements.
 
-For a CI-published application image delta, follow the OCI 1.1 referrer convention in [CI-published OS deltas](#using-ci-published-os-deltas). Publish the referrer in the target image's repository. Set its `subject` to the target manifest, `artifactType` to `application/vnd.io.github.containers.oci-delta.v1`, and the `io.github.containers.delta.source` annotation to the source application's image digest from `status.applications[].imageDigests[].digest`. The agent discovers matching referrers directly in that repository.
+For a CI-published application image delta, follow the OCI 1.1 referrer convention in [CI-published OS deltas](#using-ci-published-os-deltas). Publish the referrer in the target image's repository. Set its `subject.digest` to the target platform manifest digest, `artifactType` to `application/vnd.io.github.containers.oci-delta.v1`, and the `io.github.containers.delta.source` annotation to the source application's image digest from `status.applications[].imageDigests[].digest`. The agent discovers matching referrers for the target platform manifest digest in that repository.
 
 Flight Control supplies generated application deltas to the agent automatically. For each image target, the agent uses an available generated delta or discovers a matching CI-published referrer. Otherwise, it pulls the full image for the current update.
 

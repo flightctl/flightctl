@@ -164,10 +164,11 @@ func TestApplicationDeltaPrefetch(t *testing.T) {
 					attempts = 2
 				}
 				exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+candidate).Return(podmanDeltaManifest, "", 0).Times(attempts)
+				expectPodmanDeltaTarget(t, exec, image, attempts)
 				expectPodmanDeltaSource(exec, attempts)
 			}
 			if tt.delta.Hint == "" && (!tt.disableDeltaClient || tt.deltaFactory != nil) {
-				exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "list-referrers", "docker://"+image).Return(`{"manifests":[]}`, "", 0)
+				expectPlatformReferrers(t, exec, image, podmanDeltaTargetDigest, `{"manifests":[]}`)
 			}
 			tt.setup(exec)
 
@@ -413,6 +414,7 @@ func TestCachedApplicationImageWithStaleDigestAttemptsHintedDelta(t *testing.T) 
 	gomock.InOrder(localDigest, requestedDigest, copyDelta, importDelta, refreshRegistryReference)
 
 	exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+candidate).Return(podmanDeltaManifest, "", 0)
+	expectPodmanDeltaTarget(t, exec, image, 1)
 	expectPodmanDeltaSource(exec, 1)
 
 	root := t.TempDir()
@@ -938,7 +940,7 @@ func TestPrepareTaskCachedDigestChecks(t *testing.T) {
 				require.Equal(differentDigest, task.resolvedDigest)
 			}
 			require.ErrorIs(manager.checkReady(context.Background()), errors.ErrPrefetchNotReady)
-			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "list-referrers", "docker://"+image).Return(`{"manifests": []}`, "", 0)
+			expectPlatformReferrers(t, mockExec, image, differentDigest, `{"manifests": []}`)
 			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", image).Return("", "", 0)
 			require.NoError(manager.pull(context.Background(), target, task))
 		})
@@ -1460,6 +1462,7 @@ func TestApplicationDeltaPrefetchRunsAsRunAsUser(t *testing.T) {
 	manager.tasks[target] = task
 
 	userExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+candidate).Return(podmanDeltaManifest, "", 0)
+	expectPodmanDeltaTarget(t, userExec, image, 1)
 	expectPodmanDeltaSource(userExec, 1)
 
 	deltaFetch := userExec.EXPECT().ExecuteWithContext(
@@ -1495,6 +1498,7 @@ func TestApplicationDeltaPrefetchRunAsDeltaImportFailureFallsBackToFullPull(t *t
 	ctrl := gomock.NewController(t)
 	userExec := executer.NewMockExecuter(ctrl)
 	userExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+candidate).Return(podmanDeltaManifest, "", 0)
+	expectPodmanDeltaTarget(t, userExec, image, 1)
 	expectPodmanDeltaSource(userExec, 1)
 
 	root := t.TempDir()
@@ -1664,7 +1668,11 @@ func TestMovedApplicationTagClearsPersistedDeltaOutcome(t *testing.T) {
 					require.Empty(deltastatus.New(rw, "/var/lib/flightctl", logger).ApplicationResults("app"))
 				}
 				if tt.absent {
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "list-referrers", "docker://"+image).Return(`{"manifests": []}`, "", 0)
+					platformDigest := tt.remoteDigest
+					if platformDigest == "" {
+						platformDigest = oldDigest
+					}
+					expectPlatformReferrers(t, mockExec, image, platformDigest, `{"manifests": []}`)
 				}
 				assertInvalidated := func() {
 					if tt.absent && tt.remoteDigest == newDigest {
@@ -1697,7 +1705,14 @@ func TestMovedApplicationTagClearsPersistedDeltaOutcome(t *testing.T) {
 }
 
 const podmanDeltaSource = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-const podmanDeltaManifest = `{"artifactType":"application/vnd.io.github.containers.oci-delta.v1","annotations":{"io.github.containers.delta.source":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},"config":{"digest":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","size":10},"layers":[{"digest":"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","size":100}]}`
+const podmanDeltaTargetDigest = "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+const podmanDeltaManifest = `{"artifactType":"application/vnd.io.github.containers.oci-delta.v1","subject":{"digest":"sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},"annotations":{"io.github.containers.delta.source":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},"config":{"digest":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","size":10},"layers":[{"digest":"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","size":100}]}`
+
+func expectPodmanDeltaTarget(t *testing.T, exec *executer.MockExecuter, image string, attempts int) {
+	t.Helper()
+	targetIndex, _ := testApplicationTargetIndex(t, podmanDeltaTargetDigest)
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+image).Return(targetIndex, "", 0).Times(attempts)
+}
 
 // Registry manifest digests differ from Podman's image IDs and can appear in RepoDigests.
 func expectPodmanDeltaSource(exec *executer.MockExecuter, attempts int) {

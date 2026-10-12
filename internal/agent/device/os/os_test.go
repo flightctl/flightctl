@@ -239,7 +239,7 @@ func TestOSDeltaStatusPersistsAcrossRestartAndClearsForNewTarget(t *testing.T) {
 	mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil)
 	expectImageExists(mockExec, testDesiredImage, false)
 	expectPullConfig(t, mockResolver)
-	expectDeltaManifest(mockExec, testDeltaRef, testSourceDigest, 100)
+	expectDeltaManifest(mockExec, testDeltaRef, testSourceDigest, 100, testDesiredImage)
 	expectDeltaSuccess(t, mockExec, mockClient, testDeltaRef)
 	collection, err := firstManager.CollectOCITargets(context.Background(), nil, &v1beta1.DeviceSpec{Os: target})
 	require.NoError(err)
@@ -526,7 +526,7 @@ func TestCollectOCITargets(t *testing.T) {
 				mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil)
 				expectImageExists(mockExec, testDesiredImage, false)
 				expectPullConfig(t, mockResolver)
-				expectDeltaManifest(mockExec, testHintedDelta, testSourceDigest, 100)
+				expectDeltaManifest(mockExec, testHintedDelta, testSourceDigest, 100, testDesiredImage)
 				expectDeltaSuccess(t, mockExec, mockClient, testHintedDelta)
 			},
 			wantEmpty:     true,
@@ -543,7 +543,7 @@ func TestCollectOCITargets(t *testing.T) {
 				mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil)
 				expectImageExists(mockExec, testDesiredImage, false)
 				expectPullConfig(t, mockResolver)
-				expectDeltaManifest(mockExec, testHintedDelta, testSourceDigest, 100)
+				expectDeltaManifest(mockExec, testHintedDelta, testSourceDigest, 100, testDesiredImage)
 				expectDeltaSuccess(t, mockExec, mockClient, testHintedDelta)
 			},
 			wantEmpty:     true,
@@ -600,7 +600,7 @@ func TestCollectOCITargets(t *testing.T) {
 				mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil)
 				expectImageExists(mockExec, testDesiredImage, false)
 				expectPullConfig(t, mockResolver)
-				expectDeltaManifest(mockExec, testHintedDelta, testSourceDigest, 100)
+				expectDeltaManifest(mockExec, testHintedDelta, testSourceDigest, 100, testDesiredImage)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "copy", "docker://"+testHintedDelta, gomock.Any(), "--src-no-creds").
 					Return("", "Error: unauthorized", 1)
 			},
@@ -616,7 +616,7 @@ func TestCollectOCITargets(t *testing.T) {
 				mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil)
 				expectImageExists(mockExec, testDesiredImage, false)
 				expectPullConfig(t, mockResolver)
-				expectDeltaManifest(mockExec, testHintedDelta, testSourceDigest, 100)
+				expectDeltaManifest(mockExec, testHintedDelta, testSourceDigest, 100, testDesiredImage)
 				expectDeltaCopy(mockExec, testHintedDelta)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "oci-delta", "apply", "--ostree-repo", "/ostree/repo", gomock.Any(), gomock.Any()).
 					Return("", "Error: diff_id mismatch", 1)
@@ -633,7 +633,7 @@ func TestCollectOCITargets(t *testing.T) {
 				mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil)
 				expectImageExists(mockExec, testDesiredImage, false)
 				expectPullConfig(t, mockResolver)
-				expectDeltaManifest(mockExec, testHintedDelta, testSourceDigest, 100)
+				expectDeltaManifest(mockExec, testHintedDelta, testSourceDigest, 100, testDesiredImage)
 				expectDeltaCopy(mockExec, testHintedDelta)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "oci-delta", "apply", "--ostree-repo", "/ostree/repo", gomock.Any(), gomock.Any()).
 					Return("", "", 0)
@@ -652,7 +652,7 @@ func TestCollectOCITargets(t *testing.T) {
 				mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil)
 				expectImageExists(mockExec, testDesiredImage, false)
 				expectPullConfig(t, mockResolver)
-				expectDeltaManifest(mockExec, testHintedDelta, testSourceDigest, 100)
+				expectDeltaManifest(mockExec, testHintedDelta, testSourceDigest, 100, testDesiredImage)
 				expectDeltaCopy(mockExec, testHintedDelta)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "oci-delta", "apply", "--ostree-repo", "/ostree/repo", gomock.Any(), gomock.Any()).
 					Return("", "", 0)
@@ -891,7 +891,9 @@ func expectImageExists(mockExec *executer.MockExecuter, image string, exists boo
 }
 
 func expectListReferrers(mockExec *executer.MockExecuter, image, stdout, stderr string, exitCode int) {
-	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "list-referrers", "docker://"+image, "--no-creds").
+	expectPlatformIndex(mockExec, image, testSourceDigest)
+	referrerImage := imageRepository(image) + "@" + testSourceDigest
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "list-referrers", "docker://"+referrerImage, "--no-creds").
 		Return(stdout, stderr, exitCode)
 }
 

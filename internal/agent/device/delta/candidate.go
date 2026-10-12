@@ -12,7 +12,6 @@ import (
 const (
 	ArtifactType     = "application/vnd.io.github.containers.oci-delta.v1"
 	SourceAnnotation = "io.github.containers.delta.source"
-	TargetAnnotation = "io.github.containers.delta.target"
 )
 
 // Candidate describes a validated artifact and availability in the target's store.
@@ -43,11 +42,12 @@ func FromManifest(reference string, manifest *client.OCIManifest, manifestSize i
 	if _, err := digest.Parse(source); err != nil {
 		return Candidate{}, fmt.Errorf("delta source digest is missing or invalid")
 	}
-	target := manifest.Annotations[TargetAnnotation]
-	if target != "" {
-		if _, err := digest.Parse(target); err != nil {
-			return Candidate{}, fmt.Errorf("delta target digest is invalid")
-		}
+	if manifest.Subject == nil || manifest.Subject.Digest == "" {
+		return Candidate{}, fmt.Errorf("delta subject digest is missing")
+	}
+	target := manifest.Subject.Digest
+	if _, err := digest.Parse(target); err != nil {
+		return Candidate{}, fmt.Errorf("delta subject digest is invalid")
 	}
 	if manifest.Config == nil || len(manifest.Layers) == 0 || manifestSize < 0 {
 		return Candidate{}, fmt.Errorf("delta artifact descriptors are missing or invalid")

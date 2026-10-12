@@ -37,7 +37,7 @@ func (m *prefetchManager) discoverPodmanDelta(ctx context.Context, targetImage, 
 		}
 		return candidate.Reference, nil
 	}
-	index, err := skopeo.ListReferrers(ctx, targetImage, opts...)
+	index, err := skopeo.ListPlatformReferrers(ctx, targetImage, opts...)
 	if err != nil {
 		m.log.Debugf("application delta referrers unavailable for %s: %v", targetImage, err)
 		return "", nil
@@ -54,10 +54,6 @@ func (m *prefetchManager) discoverPodmanDelta(ctx context.Context, targetImage, 
 		candidate, err := inspectApplicationDelta(ctx, repo+"@"+ref.Digest, ref.Size, skopeo, opts...)
 		if err != nil {
 			m.log.Debugf("Skipping unusable application delta %s: %v", ref.Digest, err)
-			continue
-		}
-		if err := targetValidator.validate(ctx, candidate); err != nil {
-			m.log.Debugf("Skipping application delta %s: %v", ref.Digest, err)
 			continue
 		}
 		candidates = append(candidates, candidate)
@@ -172,7 +168,7 @@ func (m *prefetchManager) discoverCRIDelta(ctx context.Context, targetImage, hin
 		}
 		return candidate, sourceRef, nil
 	}
-	index, err := skopeo.ListReferrers(ctx, targetImage, opts...)
+	index, err := skopeo.ListPlatformReferrers(ctx, targetImage, opts...)
 	if err != nil {
 		m.log.Debugf("application delta referrers unavailable for %s: %v", targetImage, err)
 		return delta.Candidate{}, "", nil
@@ -189,10 +185,6 @@ func (m *prefetchManager) discoverCRIDelta(ctx context.Context, targetImage, hin
 		candidate, err := inspectApplicationDelta(ctx, repo+"@"+ref.Digest, ref.Size, skopeo, opts...)
 		if err != nil {
 			m.log.Debugf("Skipping unusable application delta %s: %v", ref.Digest, err)
-			continue
-		}
-		if err := targetValidator.validate(ctx, candidate); err != nil {
-			m.log.Debugf("Skipping application delta %s: %v", ref.Digest, err)
 			continue
 		}
 		candidates = append(candidates, candidate)
