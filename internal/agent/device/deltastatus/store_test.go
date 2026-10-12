@@ -1,6 +1,8 @@
 package deltastatus
 
 import (
+	"errors"
+	"io/fs"
 	"path/filepath"
 	"testing"
 
@@ -8,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
 )
 
 func TestStorePersistsDeltaResultsAndClearsChangedTargets(t *testing.T) {
@@ -139,6 +142,109 @@ func TestReconcileApplicationTargetsPreservesReindexedRuntimeResults(t *testing.
 			require.NoError(restarted.ClearApplicationResult("app", "spec", runtimeID, targetKey))
 			require.NoError(restarted.ReconcileApplicationTargets(map[string]map[string]string{"app": targets}, tt.complete))
 			require.Empty(New(rw, "/var/lib/flightctl", logger).ApplicationResults("app"))
+		})
+	}
+}
+
+func TestWhenOSStagesAnotherImageItShouldKeepDigestAssociatedHistoryAcrossRestart(t *testing.T) {
+	require := require.New(t)
+	// Use one rooted reader and writer so a new Store sees the persisted history.
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	logger := log.NewPrefixLogger("test")
+	store := New(rw, "/state", logger)
+	applied := v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}
+	fallback := v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeFallback}
+	require.NoError(store.SetOSTarget("attempt-a"))
+	require.NoError(store.RecordOSImageResult("attempt-a", "os:a", "sha256:a", applied))
+	require.NoError(store.SetOSTarget("attempt-b"))
+	require.NoError(store.RecordOSImageResult("attempt-b", "os:b", "sha256:b", fallback))
+	require.Equal(applied, *store.ObservedOSResult("os:a", "sha256:a"))
+	require.Nil(store.ObservedOSResult("os:b", "sha256:unknown"))
+	require.Nil(store.ObservedOSResult("os:b", ""))
+	restarted := New(rw, "/state", logger)
+	require.Equal(applied, *restarted.ObservedOSResult("os:a", "sha256:a"))
+	require.Equal(fallback, *restarted.ObservedOSResult("os:b", "sha256:b"))
+	require.NoError(restarted.RecordOSImageResult("attempt-a", "os:a", "sha256:a", fallback))
+	require.Equal(applied, *restarted.ObservedOSResult("os:a", "sha256:a"))
+}
+
+func TestWhenOSIsAlreadyPresentItShouldPreserveTheRecordedOutcome(t *testing.T) {
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	store := New(rw, "/state", log.NewPrefixLogger("test"))
+	applied := v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}
+	require.NoError(t, store.SetOSTarget("attempt"))
+	require.NoError(t, store.RecordOSImageResult("attempt", "os:a", "sha256:a", applied))
+	require.NoError(t, store.RecordOSImageResult("attempt", "os:a", "sha256:a", v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeNotRequired}))
+	require.Equal(t, applied, *store.ObservedOSResult("os:a", "sha256:a"))
+}
+
+func TestWhenOSPersistenceFailsItShouldRetryWithoutClaimingDurability(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	rw := fileio.NewMockReadWriter(ctrl)
+	var durable []byte
+	failWrite := true
+	writeErr := errors.New("disk full")
+	rw.EXPECT().ReadFile(gomock.Any()).DoAndReturn(func(string) ([]byte, error) {
+		if durable == nil {
+			return nil, fs.ErrNotExist
+		}
+		return durable, nil
+	}).AnyTimes()
+	rw.EXPECT().MkdirAll(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	rw.EXPECT().WriteFile(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(func(_ string, data []byte, _ fs.FileMode, _ ...fileio.FileOption) error {
+		if failWrite {
+			return writeErr
+		}
+		durable = append([]byte(nil), data...)
+		return nil
+	}).AnyTimes()
+	logger := log.NewPrefixLogger("test")
+	store := New(rw, "/state", logger)
+	require.ErrorIs(store.SetOSTarget("attempt"), writeErr)
+	failWrite = false
+	require.NoError(store.SetOSTarget("attempt"))
+	restarted := New(rw, "/state", logger)
+	failWrite = true
+	applied := v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}
+	require.ErrorIs(restarted.RecordOSImageResult("attempt", "os:a", "sha256:a", applied), writeErr)
+	require.Nil(New(rw, "/state", logger).ObservedOSResult("os:a", "sha256:a"))
+	failWrite = false
+	require.NoError(restarted.RecordOSImageResult("attempt", "os:a", "sha256:a", applied))
+	require.Equal(applied, *New(rw, "/state", logger).ObservedOSResult("os:a", "sha256:a"))
+}
+
+func TestWhenOSStateIsLegacyOrCorruptItShouldWithholdUnverifiedOutcomes(t *testing.T) {
+	cases := []struct {
+		name, data  string
+		appRetained bool
+	}{
+		{name: "When legacy state has no digest association it should retain unrelated application records", data: `{"version":1,"os":{"targetKey":"attempt","result":{"outcome":"Applied"}},"applications":{"web":{"specKey":"spec","targets":{"image":"target"},"results":{"image":{"targetKey":"target","status":{"outcome":"Fallback"}}}}}}`, appRetained: true},
+		{name: "When state is corrupt it should start without an outcome", data: `{incomplete`},
+		{name: "When state has an unsupported version it should start without an outcome", data: `{"version":999,"os":{"targetKey":"attempt","result":{"outcome":"Applied"}}}`},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			require := require.New(t)
+			root := t.TempDir()
+			rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+			require.NoError(rw.MkdirAll("/state", 0o700))
+			require.NoError(rw.WriteFile("/state/"+FileName, []byte(tt.data), 0o600))
+			logger := log.NewPrefixLogger("test")
+			store := New(rw, "/state", logger)
+			require.Nil(store.ObservedOSResult("os:a", "sha256:a"))
+			require.Nil(store.OSResult("attempt"))
+			require.NoError(store.SetOSTarget("next-attempt"))
+			applied := v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}
+			require.NoError(store.RecordOSImageResult("next-attempt", "os:a", "sha256:a", applied))
+			restarted := New(rw, "/state", logger)
+			require.Equal(applied, *restarted.ObservedOSResult("os:a", "sha256:a"))
+			if tt.appRetained {
+				require.Equal(v1beta1.DeviceDeltaApplyOutcomeFallback, restarted.ApplicationResults("web")["image"].Status.Outcome)
+			}
 		})
 	}
 }

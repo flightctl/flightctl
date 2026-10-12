@@ -523,17 +523,17 @@ func (m *KubernetesMonitor) collectPodImages(ctx context.Context, pod *kubernete
 
 // resolveImageDigest uses the pod's registry-qualified image ID when available.
 // Opaque IDs identify local CRI images, whose repo digests identify the selected
-// registry manifest rather than the desired index or a runtime config object.
+// registry content rather than an unverified desired reference or config object.
 func (m *KubernetesMonitor) resolveImageDigest(ctx context.Context, image, imageID string) string {
 	const pullablePrefix = "docker-pullable://"
-	fallback := digestFromKubernetesImageID(image, imageID)
+	observedID := digestFromKubernetesImageID(image, imageID)
 	if imageID == "" || strings.HasPrefix(imageID, pullablePrefix) ||
 		digestFromKubernetesImageID(image, pullablePrefix+imageID) != "" {
-		return fallback
+		return observedID
 	}
 	cri := m.clients.CRI()
 	if cri == nil {
-		return fallback
+		return observedID
 	}
 	runtimeID := imageID
 	if _, id, found := strings.Cut(imageID, "://"); found {
@@ -546,14 +546,22 @@ func (m *KubernetesMonitor) resolveImageDigest(ctx context.Context, image, image
 	repoDigests, err := cri.ImageRepoDigests(ctx, runtimeID, opts...)
 	if err != nil {
 		m.log.Debugf("Could not inspect CRI image %q for digest: %v", imageID, err)
-		return fallback
+		return observedID
 	}
+	var observed string
 	for _, repoDigest := range repoDigests {
-		if digest := digestFromKubernetesImageID(image, pullablePrefix+repoDigest); digest != "" {
-			return digest
+		digest := digestFromKubernetesImageID(image, pullablePrefix+repoDigest)
+		if digest == "" {
+			continue
 		}
+		// Repo digests can include both an index and its platform manifest.
+		// Their order cannot establish which registry object was observed.
+		if observed != "" && observed != digest {
+			return ""
+		}
+		observed = digest
 	}
-	return fallback
+	return observed
 }
 
 func (m *KubernetesMonitor) mapPodPhaseToStatus(pod *kubernetesPod) StatusType {

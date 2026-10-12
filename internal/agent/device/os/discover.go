@@ -15,16 +15,16 @@ const (
 	ociDeltaSourceAnnotation = delta.SourceAnnotation
 )
 
-func (m *manager) discoverOSDelta(ctx context.Context, desired *v1beta1.DeviceSpec, bootcStatus *Status, optsFn dependency.ClientOptsFn) string {
+func (m *manager) discoverOSDelta(ctx context.Context, targetKey string, desired *v1beta1.DeviceSpec, bootcStatus *Status, optsFn dependency.ClientOptsFn) string {
 	if desired.Os.DeltaImage != nil && *desired.Os.DeltaImage != "" {
 		hint := *desired.Os.DeltaImage
 		candidate, err := m.inspectOSDelta(ctx, hint, desired.Os.Image, 0, bootcStatus, optsFn)
 		if err != nil {
-			m.setFallbackReason(fmt.Sprintf("delta hint is unusable: %v", err))
+			m.setFallbackReason(targetKey, fmt.Sprintf("delta hint is unusable: %v", err))
 			return ""
 		}
 		if !candidate.SourceAvailable {
-			m.setFallbackReason("delta source image is unavailable in bootc storage")
+			m.setFallbackReason(targetKey, "delta source image is unavailable in bootc storage")
 			return ""
 		}
 		return candidate.Reference

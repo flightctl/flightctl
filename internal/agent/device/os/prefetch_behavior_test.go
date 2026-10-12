@@ -40,7 +40,7 @@ func TestOSFullTargetPrefetchRefreshesCachedImage(t *testing.T) {
 			if tt.pullFailure {
 				collections++
 			}
-			bootc.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil).Times(collections + 1)
+			bootc.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil).Times(collections)
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", testDesiredImage).Return("", "", 0).Times(collections + 1)
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", testDesiredImage).Return(fmt.Sprintf(`{"Digest":%q}`, testSourceDigest), "", 0).Times(collections)
 			for i := 0; i < collections; i++ {
@@ -103,10 +103,19 @@ func TestOSFullTargetPrefetchRefreshesCachedImage(t *testing.T) {
 					require.True(pulled.Load(), "staging must use the refreshed image")
 					return nil
 				})
+				staged := bootcStatus(testBootedImage, testSourceDigest)
+				staged.Status.Staged.Image.Image.Image = testDesiredImage
+				staged.Status.Staged.Image.ImageDigest = testDeltaDigest
+				bootc.EXPECT().Status(gomock.Any()).Return(staged, nil)
 				require.NoError(m.AfterUpdate(ctx, desired))
 			}
+			bootc.EXPECT().Status(gomock.Any()).Return(bootcStatus(testDesiredImage, testDeltaDigest), nil)
 			status := &v1beta1.DeviceStatus{}
 			require.NoError(m.Status(t.Context(), status))
+			if tt.pullFailure {
+				require.Nil(status.Os.LastDelta)
+				return
+			}
 			outcome := v1beta1.DeviceDeltaApplyOutcomeNotUsed
 			if tt.hintFailed {
 				outcome = v1beta1.DeviceDeltaApplyOutcomeFallback
