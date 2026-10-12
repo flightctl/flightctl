@@ -11,7 +11,7 @@ concurrency:
 
 jobs:
   oasdiff-check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout PR branch
         uses: actions/checkout@v4
