@@ -393,8 +393,8 @@ func (p *Podman) ListImages(ctx context.Context) ([]string, error) {
 	// Use a format that handles both tagged and untagged images
 	// For tagged images: "repository:tag"
 	// For untagged images: use the image ID (short format)
-	// Note: When Repository is the string "<none>" (not empty), we need to check for it explicitly
-	args := []string{"image", "ls", "--format", "{{if and .Repository (ne .Repository \"<none>\")}}{{.Repository}}:{{.Tag}}{{else}}{{.ID}}{{end}}"}
+	// Digest-only images may have a repository but no tag; inspect them by ID.
+	args := []string{"image", "ls", "--format", "{{if and .Repository (ne .Repository \"<none>\") .Tag (ne .Tag \"<none>\")}}{{.Repository}}:{{.Tag}}{{else}}{{.ID}}{{end}}"}
 	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, args...)
 	if exitCode != 0 {
 		return nil, fmt.Errorf("list images: %w", deviceerrors.FromStderr(stderr, exitCode))

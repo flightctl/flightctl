@@ -2,6 +2,7 @@ package applications
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/applications/helm"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
+	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/chartutil"
@@ -519,7 +521,7 @@ func TestKubernetesMonitorUpdatePodStatusCollectsImageSnapshot(t *testing.T) {
 			Image: "quay.io/acme/old:v1",
 		}},
 	}}}
-	monitor := &KubernetesMonitor{monitor: &monitor{log: log.NewPrefixLogger("test")}}
+	monitor := &KubernetesMonitor{monitor: &monitor{log: log.NewPrefixLogger("test")}, clients: &testKubeCLIClients{}}
 	pod := &kubernetesPod{}
 	pod.Kind = "Pod"
 	pod.Metadata.Name = "app-pod"
@@ -538,7 +540,7 @@ func TestKubernetesMonitorUpdatePodStatusCollectsImageSnapshot(t *testing.T) {
 		Ready:   true,
 	}}
 
-	monitor.updatePodStatus(app, pod)
+	monitor.updatePodStatus(t.Context(), app, pod)
 
 	workload, ok := app.Workload("app-pod")
 	require.True(t, ok)
@@ -554,7 +556,7 @@ func TestKubernetesMonitorUpdatePodStatusCollectsImageSnapshot(t *testing.T) {
 	pod.Spec.InitContainers = nil
 	pod.Status.InitContainerStatuses = nil
 	pod.Status.ContainerStatuses = []kubernetesContainerStatus{{Name: "web", Ready: true}}
-	monitor.updatePodStatus(app, pod)
+	monitor.updatePodStatus(t.Context(), app, pod)
 
 	workload, ok = app.Workload("app-pod")
 	require.True(t, ok)
@@ -565,13 +567,14 @@ func TestKubernetesMonitorUpdatePodStatusCollectsImageSnapshot(t *testing.T) {
 type testKubeCLIClients struct {
 	kube *client.Kube
 	helm *client.Helm
+	cri  *client.CRI
 }
 
 func (c *testKubeCLIClients) Podman() *client.Podman { return nil }
 func (c *testKubeCLIClients) Skopeo() *client.Skopeo { return nil }
 func (c *testKubeCLIClients) Kube() *client.Kube     { return c.kube }
 func (c *testKubeCLIClients) Helm() *client.Helm     { return c.helm }
-func (c *testKubeCLIClients) CRI() *client.CRI       { return nil }
+func (c *testKubeCLIClients) CRI() *client.CRI       { return c.cri }
 
 // setupKubeScaleMock sets up the mock expectation for kubectl scale --replicas=N.
 func setupKubeScaleMock(mockExec *executer.MockExecuter, appName, kubeconfigPath string, replicas int) *gomock.Call {
@@ -600,4 +603,91 @@ func setupHelmUpgradeMock(mockExec *executer.MockExecuter, mockRW *fileio.MockRe
 
 	gomock.InOrder(versionCall, getNamespaceCall, pathExistsCall, upgradeCall)
 	return []*gomock.Call{versionCall, getNamespaceCall, pathExistsCall, upgradeCall}
+}
+
+func TestKubernetesMonitorReportsCRIObservedDigest(t *testing.T) {
+	const index = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const observed = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	const other = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	cases := []struct {
+		name          string
+		image         string
+		imageID       string
+		repoDigests   []string
+		exitCode      int
+		want          string
+		initContainer bool
+		inspect       bool
+		inlineConfig  bool
+	}{
+		{name: "When containerd reports an opaque ID it should report the observed platform digest instead of the desired index", image: "quay.io/acme/web@" + index, imageID: "containerd://sha256:config", repoDigests: []string{"quay.io/other/web@" + other, "quay.io/acme/web@" + observed}, want: observed, inspect: true},
+		{name: "When inline CRI configuration differs from disk it should inspect the configured runtime", image: "quay.io/acme/web:latest", imageID: "containerd://sha256:config", repoDigests: []string{"quay.io/acme/web@" + observed}, want: observed, inspect: true, inlineConfig: true},
+		{name: "When CRI-O reports an opaque ID it should resolve the tagged image from CRI", image: "quay.io/acme/web:latest", imageID: "sha256:config", repoDigests: []string{"quay.io/acme/web@" + observed}, want: observed, inspect: true},
+		{name: "When an init container has an opaque ID it should report its CRI registry digest", image: "quay.io/acme/web:latest", imageID: "containerd://sha256:config", repoDigests: []string{"quay.io/acme/web@" + observed}, want: observed, inspect: true, initContainer: true},
+		{name: "When CRI inspection fails it should preserve the immutable reference fallback", image: "quay.io/acme/web@" + index, imageID: "containerd://sha256:config", exitCode: 1, want: index, inspect: true},
+		{name: "When CRI exposes no matching registry digest it should keep an opaque ID out of status", image: "quay.io/acme/web:latest", imageID: "containerd://sha256:config", repoDigests: []string{"quay.io/other/web@" + other}, inspect: true},
+		{name: "When the pod reports a pullable platform digest it should retain that observation", image: "quay.io/acme/web@" + index, imageID: "docker-pullable://quay.io/acme/web@" + observed, want: observed},
+		{name: "When the pod has no runtime image ID it should retain an unknown tagged digest", image: "quay.io/acme/web:latest"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			logger := log.NewPrefixLogger("test")
+			exec := executer.NewMockExecuter(ctrl)
+			rwFactory := fileio.NewReadWriterFactory(t.TempDir())
+			rw, err := rwFactory(v1beta1.CurrentProcessUsername)
+			require.NoError(err)
+			var resolver dependency.PullConfigResolver
+			args := []any{"inspecti", "--output", "json", "sha256:config"}
+			if tc.inlineConfig {
+				var config v1beta1.ConfigProviderSpec
+				require.NoError(config.FromInlineConfigProviderSpec(v1beta1.InlineConfigProviderSpec{Name: "cri", Inline: []v1beta1.FileSpec{{Path: "/etc/crictl.yaml", Content: "runtime-endpoint: unix:///run/custom/cri.sock"}}}))
+				resolver = dependency.NewPullConfigResolver(logger, rwFactory)
+				resolver.BeforeUpdate(&v1beta1.DeviceSpec{Config: &[]v1beta1.ConfigProviderSpec{config}})
+				defer resolver.Cleanup()
+				var resolved string
+				resolver.Options(dependency.PullConfigSpec{Paths: []string{"/etc/crictl.yaml"}, OptionFn: func(path string) client.ClientOption {
+					resolved = path
+					return client.WithCRIConfig(path)
+				}})()
+				require.NotEmpty(resolved)
+				args = append([]any{"--config", resolved}, args...)
+			}
+			if tc.inspect {
+				response, err := json.Marshal(map[string]any{"status": map[string]any{"id": "sha256:config", "repoDigests": tc.repoDigests}})
+				require.NoError(err)
+				exec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", args...).Return(string(response), "inspection failed", tc.exitCode)
+			}
+			monitor := NewKubernetesMonitor(logger, &testKubeCLIClients{cri: client.NewCRI(logger, exec, rw, testutil.NewPollConfig())}, rwFactory)
+			monitor.pullConfigResolver = resolver
+			volume, err := provider.NewVolumeManager(logger, "app", v1beta1.AppTypeHelm, v1beta1.CurrentProcessUsername, nil)
+			require.NoError(err)
+			app := &application{id: "app", volume: volume, status: &v1beta1.DeviceApplicationStatus{Name: "app", AppType: v1beta1.AppTypeHelm}}
+			require.NoError(monitor.Ensure(app))
+			event := kubernetesWatchEvent{Type: "ADDED"}
+			event.Object.Kind = "Pod"
+			event.Object.Metadata.Name = "web"
+			event.Object.Metadata.UID = "pod"
+			event.Object.Metadata.Labels = map[string]string{helm.AppLabelKey: "app"}
+			container := []kubernetesContainerSpec{{Name: "web", Image: tc.image}}
+			status := []kubernetesContainerStatus{{Name: "web", ImageID: tc.imageID, Ready: true}}
+			if tc.initContainer {
+				event.Object.Spec.InitContainers = container
+				event.Object.Status.InitContainerStatuses = status
+			} else {
+				event.Object.Spec.Containers = container
+				event.Object.Status.ContainerStatuses = status
+			}
+			data, err := json.Marshal(event)
+			require.NoError(err)
+			monitor.HandleEvent(t.Context(), data)
+			results, err := monitor.Status()
+			require.NoError(err)
+			require.Len(results, 1)
+			require.NotNil(results[0].Status.ImageDigests)
+			require.Equal([]v1beta1.ApplicationImageDigest{{Image: tc.image, Digest: tc.want}}, *results[0].Status.ImageDigests)
+		})
+	}
 }

@@ -52,7 +52,7 @@ func TestApplicationDeltaPrefetch(t *testing.T) {
 			delta:       &OCIDeltaTarget{Hint: candidate, Application: "app"},
 			wantOutcome: v1beta1.DeviceDeltaApplyOutcomeApplied,
 			setup: func(exec *executer.MockExecuter) {
-				copyDelta := exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", gomock.Any(), gomock.Any(), gomock.Any()).Return("", "", 0)
+				copyDelta := exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "copy", gomock.Any(), gomock.Any()).Return("", "", 0)
 				importDelta := exec.EXPECT().ExecuteWithContext(gomock.Any(), "oci-delta", "import", "--tag", image, gomock.Any()).Return("", "", 0)
 				refreshRegistryReference := exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", image).Return("", "", 0)
 				gomock.InOrder(copyDelta, importDelta, refreshRegistryReference)
@@ -62,7 +62,7 @@ func TestApplicationDeltaPrefetch(t *testing.T) {
 			name:  "registry reference refresh failure falls back to a full image pull",
 			delta: &OCIDeltaTarget{Hint: candidate, Application: "app"},
 			setup: func(exec *executer.MockExecuter) {
-				copyDelta := exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", gomock.Any(), gomock.Any(), gomock.Any()).Return("", "", 0)
+				copyDelta := exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "copy", gomock.Any(), gomock.Any()).Return("", "", 0)
 				importDelta := exec.EXPECT().ExecuteWithContext(gomock.Any(), "oci-delta", "import", "--tag", image, gomock.Any()).Return("", "", 0)
 				refreshRegistryReference := exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", image).Return("", "registry refresh failed", 1)
 				fullPull := exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", image).Return("", "", 0)
@@ -85,10 +85,12 @@ func TestApplicationDeltaPrefetch(t *testing.T) {
 			},
 		},
 		{
-			name:               "hinted candidate full-pulls without delta when the delta client is unavailable",
+			name:               "When a hinted delta client is unavailable it should fall back to a full pull",
 			delta:              &OCIDeltaTarget{Hint: candidate, Application: "app"},
 			disableDeltaClient: true,
-			wantOutcome:        v1beta1.DeviceDeltaApplyOutcomeNotUsed,
+			wantOutcome:        v1beta1.DeviceDeltaApplyOutcomeFallback,
+			wantFallback:       true,
+			fallbackContains:   "OCI delta client is unavailable",
 			setup: func(exec *executer.MockExecuter) {
 				exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", image).Return("", "", 0)
 			},
@@ -126,7 +128,7 @@ func TestApplicationDeltaPrefetch(t *testing.T) {
 			name:  "failed delta falls back to full pull",
 			delta: &OCIDeltaTarget{Hint: candidate, Application: "app"},
 			setup: func(exec *executer.MockExecuter) {
-				exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", gomock.Any(), gomock.Any(), gomock.Any()).Return("", "", 0)
+				exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "copy", gomock.Any(), gomock.Any()).Return("", "", 0)
 				exec.EXPECT().ExecuteWithContext(gomock.Any(), "oci-delta", "import", "--tag", image, gomock.Any()).Return("", "import failed", 1)
 				exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", image).Return("", "", 0)
 			},
@@ -140,10 +142,10 @@ func TestApplicationDeltaPrefetch(t *testing.T) {
 			retryAfterFallback: true,
 			wantOutcome:        v1beta1.DeviceDeltaApplyOutcomeApplied,
 			setup: func(exec *executer.MockExecuter) {
-				firstCopy := exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", gomock.Any(), gomock.Any(), gomock.Any()).Return("", "", 0)
+				firstCopy := exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "copy", gomock.Any(), gomock.Any()).Return("", "", 0)
 				firstImport := exec.EXPECT().ExecuteWithContext(gomock.Any(), "oci-delta", "import", "--tag", image, gomock.Any()).Return("", "import failed", 1)
 				firstFullPull := exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", image).Return("", "pull failed", 1)
-				secondCopy := exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", gomock.Any(), gomock.Any(), gomock.Any()).Return("", "", 0)
+				secondCopy := exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "copy", gomock.Any(), gomock.Any()).Return("", "", 0)
 				secondImport := exec.EXPECT().ExecuteWithContext(gomock.Any(), "oci-delta", "import", "--tag", image, gomock.Any()).Return("", "", 0)
 				secondRegistryReferenceRefresh := exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", image).Return("", "", 0)
 				gomock.InOrder(firstCopy, firstImport, firstFullPull, secondCopy, secondImport, secondRegistryReferenceRefresh)
@@ -156,6 +158,17 @@ func TestApplicationDeltaPrefetch(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			defer ctrl.Finish()
 			exec := executer.NewMockExecuter(ctrl)
+			if tt.delta.Hint != "" && (!tt.disableDeltaClient || tt.deltaFactory != nil) {
+				attempts := 1
+				if tt.retryAfterFallback {
+					attempts = 2
+				}
+				exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+candidate).Return(podmanDeltaManifest, "", 0).Times(attempts)
+				expectPodmanDeltaSource(exec, attempts)
+			}
+			if tt.delta.Hint == "" && (!tt.disableDeltaClient || tt.deltaFactory != nil) {
+				exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "list-referrers", "docker://"+image).Return(`{"manifests":[]}`, "", 0)
+			}
 			tt.setup(exec)
 
 			root := t.TempDir()
@@ -170,7 +183,7 @@ func TestApplicationDeltaPrefetch(t *testing.T) {
 			if !tt.disableDeltaClient {
 				ociDelta = client.NewOCIDelta(logger, exec, time.Minute)
 			}
-			target := imageRef{image: image}
+			target := imageRef{image: image, ociType: OCITypePodmanImage}
 			task := &prefetchTask{delta: tt.delta, deltaGeneration: 1, applicationTargetKey: applicationImageTargetKeyFor(target, "", OCITypePodmanImage)}
 			manager := &prefetchManager{
 				log:                   logger,
@@ -182,9 +195,9 @@ func TestApplicationDeltaPrefetch(t *testing.T) {
 				deltaGeneration:       1,
 				deltaApplyResults:     make(map[string]map[imageRef]applicationDeltaApplyResult),
 				deltaTargetsScheduled: true,
-				deltaTargetRefs:       map[string]imageRef{deltastatus.Fingerprint(string(target.owner), target.image): target},
+				deltaTargetRefs:       map[string]imageRef{target.targetID(): target},
 				deltaAppTargetKeys: map[string]map[string]string{
-					"app": {deltastatus.Fingerprint(string(target.owner), target.image): task.applicationTargetKey},
+					"app": {target.targetID(): task.applicationTargetKey},
 				},
 			}
 
@@ -318,8 +331,8 @@ func TestCachedApplicationImageReportsNotRequiredWhenDigestMatches(t *testing.T)
 			logger := log.NewPrefixLogger("test")
 			podman := client.NewPodman(logger, exec, rw, poll.NewConfig(time.Millisecond, 2))
 			skopeo := client.NewSkopeo(logger, exec, rw)
-			target := imageRef{image: image}
-			targetID := deltastatus.Fingerprint(string(target.owner), target.image)
+			target := imageRef{image: image, ociType: OCITypePodmanImage}
+			targetID := target.targetID()
 			targetKey := applicationImageTargetKeyFor(target, requestedDigestValue, OCITypePodmanImage)
 			task := &prefetchTask{
 				ociType:              OCITypePodmanImage,
@@ -389,7 +402,7 @@ func TestCachedApplicationImageWithStaleDigestAttemptsHintedDelta(t *testing.T) 
 		gomock.Any(), "skopeo", "inspect", "--format", "{{.Digest}}", "docker://"+image,
 	).Return(target, "", 0)
 	copyDelta := exec.EXPECT().ExecuteWithContext(
-		gomock.Any(), "skopeo", gomock.Any(), gomock.Any(), gomock.Any(),
+		gomock.Any(), "skopeo", "copy", gomock.Any(), gomock.Any(),
 	).Return("", "", 0)
 	importDelta := exec.EXPECT().ExecuteWithContext(
 		gomock.Any(), "oci-delta", "import", "--tag", image, gomock.Any(),
@@ -399,6 +412,9 @@ func TestCachedApplicationImageWithStaleDigestAttemptsHintedDelta(t *testing.T) 
 	).Return("", "", 0)
 	gomock.InOrder(localDigest, requestedDigest, copyDelta, importDelta, refreshRegistryReference)
 
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+candidate).Return(podmanDeltaManifest, "", 0)
+	expectPodmanDeltaSource(exec, 1)
+
 	root := t.TempDir()
 	rw := fileio.NewReadWriter(
 		fileio.NewReader(fileio.WithReaderRootDir(root)),
@@ -407,8 +423,8 @@ func TestCachedApplicationImageWithStaleDigestAttemptsHintedDelta(t *testing.T) 
 	logger := log.NewPrefixLogger("test")
 	podman := client.NewPodman(logger, exec, rw, poll.NewConfig(time.Millisecond, 2))
 	skopeo := client.NewSkopeo(logger, exec, rw)
-	imageTarget := imageRef{image: image}
-	targetID := deltastatus.Fingerprint(string(imageTarget.owner), imageTarget.image)
+	imageTarget := imageRef{image: image, ociType: OCITypePodmanImage}
+	targetID := imageTarget.targetID()
 	targetKey := applicationImageTargetKeyFor(imageTarget, target, OCITypePodmanImage)
 	task := &prefetchTask{
 		ociType:              OCITypePodmanImage,
@@ -463,60 +479,72 @@ func TestOCIArtifactWithDeltaHintFallsBackToFullArtifactPull(t *testing.T) {
 		candidate   = "quay.io/acme/delta:target"
 	)
 
-	ctrl := gomock.NewController(t)
-	exec := executer.NewMockExecuter(ctrl)
-	version := exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.5.0", "", 0)
-	pullArtifact := exec.EXPECT().ExecuteWithContext(
-		gomock.Any(), "podman", "artifact", "pull", image,
-	).Return("", "", 0)
-	gomock.InOrder(version, pullArtifact)
+	for _, hint := range []string{"", candidate} {
+		t.Run("When an artifact has hint "+hint+" it should keep full artifact handling", func(t *testing.T) {
 
-	root := t.TempDir()
-	rw := fileio.NewReadWriter(
-		fileio.NewReader(fileio.WithReaderRootDir(root)),
-		fileio.NewWriter(fileio.WithWriterRootDir(root)),
-	)
-	logger := log.NewPrefixLogger("test")
-	podman := client.NewPodman(logger, exec, rw, poll.NewConfig(time.Millisecond, 2))
-	skopeo := client.NewSkopeo(logger, exec, rw)
-	target := imageRef{image: image}
-	targetID := deltastatus.Fingerprint(string(target.owner), target.image)
-	targetKey := applicationImageTargetKeyFor(target, "sha256:target", OCITypePodmanArtifact)
-	task := &prefetchTask{
-		ociType:              OCITypePodmanArtifact,
-		targetDigest:         "sha256:target",
-		applicationTargetKey: targetKey,
-		delta:                &OCIDeltaTarget{Hint: candidate, Application: application},
-		deltaGeneration:      1,
+			require := require.New(t)
+			ctrl := gomock.NewController(t)
+			defer ctrl.Finish()
+			exec := executer.NewMockExecuter(ctrl)
+			version := exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.5.0", "", 0)
+			pullArtifact := exec.EXPECT().ExecuteWithContext(
+				gomock.Any(), "podman", "artifact", "pull", image,
+			).Return("", "", 0)
+			gomock.InOrder(version, pullArtifact)
+
+			root := t.TempDir()
+			rw := fileio.NewReadWriter(
+				fileio.NewReader(fileio.WithReaderRootDir(root)),
+				fileio.NewWriter(fileio.WithWriterRootDir(root)),
+			)
+			logger := log.NewPrefixLogger("test")
+			podman := client.NewPodman(logger, exec, rw, poll.NewConfig(time.Millisecond, 2))
+			skopeo := client.NewSkopeo(logger, exec, rw)
+			target := imageRef{image: image, ociType: OCITypePodmanArtifact}
+			targetID := target.targetID()
+			targetKey := applicationImageTargetKeyFor(target, "sha256:target", OCITypePodmanArtifact)
+			task := &prefetchTask{
+				ociType:              OCITypePodmanArtifact,
+				targetDigest:         "sha256:target",
+				applicationTargetKey: targetKey,
+				delta:                &OCIDeltaTarget{Hint: hint, Application: application},
+				deltaGeneration:      1,
+			}
+			manager := &prefetchManager{
+				log: logger,
+				podmanFactory: func(v1beta1.Username) (*client.Podman, error) {
+					return podman, nil
+				},
+				skopeoFactory: func(v1beta1.Username) (*client.Skopeo, error) {
+					return skopeo, nil
+				},
+				pullTimeout:           time.Minute,
+				tasks:                 map[imageRef]*prefetchTask{target: task},
+				deltaGeneration:       1,
+				deltaApplyResults:     make(map[string]map[imageRef]applicationDeltaApplyResult),
+				deltaTargetsScheduled: true,
+				deltaTargetRefs:       map[string]imageRef{targetID: target},
+				deltaAppTargetKeys: map[string]map[string]string{
+					application: {targetID: targetKey},
+				},
+			}
+
+			require.NoError(manager.pull(context.Background(), target, task))
+			task.done = true
+
+			deviceStatus := &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: application}}}
+			require.NoError(manager.Status(context.Background(), deviceStatus))
+			require.NotNil(deviceStatus.Applications[0].LastDelta)
+			if hint == "" {
+				require.Equal(v1beta1.DeviceDeltaApplyOutcomeNotUsed, deviceStatus.Applications[0].LastDelta.Outcome)
+				require.Nil(deviceStatus.Applications[0].LastDelta.FallbackReason)
+			} else {
+				require.Equal(v1beta1.DeviceDeltaApplyOutcomeFallback, deviceStatus.Applications[0].LastDelta.Outcome)
+				require.NotNil(deviceStatus.Applications[0].LastDelta.FallbackReason)
+				require.Contains(*deviceStatus.Applications[0].LastDelta.FallbackReason, "not supported for OCI artifacts")
+			}
+		})
 	}
-	manager := &prefetchManager{
-		log: logger,
-		podmanFactory: func(v1beta1.Username) (*client.Podman, error) {
-			return podman, nil
-		},
-		skopeoFactory: func(v1beta1.Username) (*client.Skopeo, error) {
-			return skopeo, nil
-		},
-		pullTimeout:           time.Minute,
-		tasks:                 map[imageRef]*prefetchTask{target: task},
-		deltaGeneration:       1,
-		deltaApplyResults:     make(map[string]map[imageRef]applicationDeltaApplyResult),
-		deltaTargetsScheduled: true,
-		deltaTargetRefs:       map[string]imageRef{targetID: target},
-		deltaAppTargetKeys: map[string]map[string]string{
-			application: {targetID: targetKey},
-		},
-	}
-
-	require.NoError(t, manager.pull(context.Background(), target, task))
-	task.done = true
-
-	deviceStatus := &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: application}}}
-	require.NoError(t, manager.Status(context.Background(), deviceStatus))
-	require.NotNil(t, deviceStatus.Applications[0].LastDelta)
-	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeFallback, deviceStatus.Applications[0].LastDelta.Outcome)
-	require.NotNil(t, deviceStatus.Applications[0].LastDelta.FallbackReason)
-	require.Contains(t, *deviceStatus.Applications[0].LastDelta.FallbackReason, "not supported for OCI artifacts")
 }
 
 func TestAggregateApplicationDeltaApplyResults(t *testing.T) {
@@ -591,7 +619,7 @@ func TestAggregateApplicationDeltaApplyResults(t *testing.T) {
 
 func TestApplicationDeltaStatusWaitsForTargetsToBeScheduled(t *testing.T) {
 	const application = "app"
-	target := imageRef{image: "quay.io/acme/workload:target"}
+	target := imageRef{image: "quay.io/acme/workload:target", ociType: OCITypePodmanImage}
 	const targetKey = "target-key"
 	manager := &prefetchManager{
 		tasks: make(map[imageRef]*prefetchTask),
@@ -599,9 +627,9 @@ func TestApplicationDeltaStatusWaitsForTargetsToBeScheduled(t *testing.T) {
 			application: {target: {outcome: v1beta1.DeviceDeltaApplyOutcomeApplied, targetKey: targetKey}},
 		},
 		deltaAppTargetKeys: map[string]map[string]string{
-			application: {deltastatus.Fingerprint(string(target.owner), target.image): targetKey},
+			application: {target.targetID(): targetKey},
 		},
-		deltaTargetRefs: map[string]imageRef{deltastatus.Fingerprint(string(target.owner), target.image): target},
+		deltaTargetRefs: map[string]imageRef{target.targetID(): target},
 	}
 
 	for _, tt := range []struct {
@@ -646,15 +674,15 @@ func TestApplicationDeltaStatusWaitsForAllTargetsToHaveResults(t *testing.T) {
 		"quay.io/acme/workload-4:target",
 		"quay.io/acme/workload-5:target",
 	} {
-		target := imageRef{image: image}
+		target := imageRef{image: image, ociType: OCITypePodmanImage}
 		targetKey := "target-key:" + image
 		manager.tasks[target] = &prefetchTask{
 			delta:                &OCIDeltaTarget{Application: application},
 			applicationTargetKey: targetKey,
 			done:                 true,
 		}
-		manager.deltaAppTargetKeys[application][deltastatus.Fingerprint(string(target.owner), target.image)] = targetKey
-		manager.deltaTargetRefs[deltastatus.Fingerprint(string(target.owner), target.image)] = target
+		manager.deltaAppTargetKeys[application][target.targetID()] = targetKey
+		manager.deltaTargetRefs[target.targetID()] = target
 		manager.deltaApplyResults[application][target] = applicationDeltaApplyResult{
 			outcome:   v1beta1.DeviceDeltaApplyOutcomeApplied,
 			targetKey: targetKey,
@@ -666,15 +694,15 @@ func TestApplicationDeltaStatusWaitsForAllTargetsToHaveResults(t *testing.T) {
 	require.NotNil(t, deviceStatus.Applications[0].LastDelta)
 	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeApplied, deviceStatus.Applications[0].LastDelta.Outcome)
 
-	lastTarget := imageRef{image: "quay.io/acme/workload-6:target"}
+	lastTarget := imageRef{image: "quay.io/acme/workload-6:target", ociType: OCITypePodmanImage}
 	lastTargetKey := "target-key:" + lastTarget.image
 	lastTask := &prefetchTask{
 		delta:                &OCIDeltaTarget{Application: application},
 		applicationTargetKey: lastTargetKey,
 	}
 	manager.tasks[lastTarget] = lastTask
-	manager.deltaAppTargetKeys[application][deltastatus.Fingerprint(string(lastTarget.owner), lastTarget.image)] = lastTargetKey
-	manager.deltaTargetRefs[deltastatus.Fingerprint(string(lastTarget.owner), lastTarget.image)] = lastTarget
+	manager.deltaAppTargetKeys[application][lastTarget.targetID()] = lastTargetKey
+	manager.deltaTargetRefs[lastTarget.targetID()] = lastTarget
 	deviceStatus = &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: application}}}
 	require.NoError(t, manager.Status(context.Background(), deviceStatus))
 	require.Nil(t, deviceStatus.Applications[0].LastDelta)
@@ -692,8 +720,8 @@ func TestApplicationDeltaStatusWaitsForAllTargetsToHaveResults(t *testing.T) {
 
 	// A later collection can remove a target while leaving its prior result in
 	// memory. Its result must not affect the current application's outcome.
-	delete(manager.deltaAppTargetKeys[application], deltastatus.Fingerprint(string(lastTarget.owner), lastTarget.image))
-	delete(manager.deltaTargetRefs, deltastatus.Fingerprint(string(lastTarget.owner), lastTarget.image))
+	delete(manager.deltaAppTargetKeys[application], lastTarget.targetID())
+	delete(manager.deltaTargetRefs, lastTarget.targetID())
 	deviceStatus = &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: application}}}
 	require.NoError(t, manager.Status(context.Background(), deviceStatus))
 	require.NotNil(t, deviceStatus.Applications[0].LastDelta)
@@ -709,8 +737,8 @@ func TestApplicationDeltaStatusWaitsForAllTargetsToHaveResults(t *testing.T) {
 func TestApplicationDeltaStatusUsesCurrentTargetReferences(t *testing.T) {
 	const application = "app"
 	const targetKey = "current-target"
-	target := imageRef{image: "quay.io/acme/workload:target", owner: "app-user"}
-	targetID := deltastatus.Fingerprint(string(target.owner), target.image)
+	target := imageRef{image: "quay.io/acme/workload:target", owner: "app-user", ociType: OCITypePodmanImage}
+	targetID := target.targetID()
 
 	for _, tt := range []struct {
 		name        string
@@ -741,7 +769,7 @@ func TestApplicationDeltaStatusUsesCurrentTargetReferences(t *testing.T) {
 				delete(manager.deltaTargetRefs, targetID)
 			}
 			if tt.otherOwner {
-				otherTarget := imageRef{image: target.image, owner: "other-user"}
+				otherTarget := imageRef{image: target.image, owner: "other-user", ociType: OCITypePodmanImage}
 				manager.deltaApplyResults[application][otherTarget] = manager.deltaApplyResults[application][target]
 				delete(manager.deltaApplyResults[application], target)
 			}
@@ -770,7 +798,7 @@ func TestApplicationDeltaStatusUsesCurrentTargetReferences(t *testing.T) {
 }
 
 func TestApplicationTargetIdentitiesTrackTargetsWithoutDeltaHintOrSourceDigest(t *testing.T) {
-	target := imageRef{image: "quay.io/acme/app:latest"}
+	target := imageRef{image: "quay.io/acme/app:latest", ociType: OCITypePodmanImage}
 	targetKey := applicationImageTargetKeyFor(target, "", OCITypePodmanImage)
 	appTargets, targetRefs := applicationTargetIdentities(map[imageRef]OCIPullTarget{
 		target: {
@@ -780,7 +808,7 @@ func TestApplicationTargetIdentitiesTrackTargetsWithoutDeltaHintOrSourceDigest(t
 		},
 	})
 
-	targetID := deltastatus.Fingerprint(string(target.owner), target.image)
+	targetID := target.targetID()
 	require.Equal(t, map[string]map[string]string{"app": {targetID: targetKey}}, appTargets)
 	require.Equal(t, map[string]imageRef{targetID: target}, targetRefs)
 }
@@ -792,7 +820,7 @@ func TestPrepareTaskReusedCompletedTargetKeepsCacheWhenDigestCheckIsUnavailable(
 		digest      = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	)
 
-	target := imageRef{image: image}
+	target := imageRef{image: image, ociType: OCITypePodmanImage}
 	ctrl := gomock.NewController(t)
 	exec := executer.NewMockExecuter(ctrl)
 	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", image).Return("", "", 0)
@@ -815,7 +843,7 @@ func TestPrepareTaskReusedCompletedTargetKeepsCacheWhenDigestCheckIsUnavailable(
 		deltaApplyResults: make(map[string]map[imageRef]applicationDeltaApplyResult),
 	}
 
-	needsQueue, err := manager.prepareTask(context.Background(), target, OCITypePodmanImage, digest, nil, delta)
+	needsQueue, err := manager.prepareTask(context.Background(), target, OCITypePodmanImage, digest, nil, delta, v1beta1.PullIfNotPresent)
 	require.NoError(t, err)
 	require.False(t, needsQueue)
 	require.Equal(t, uint64(2), task.deltaGeneration)
@@ -883,7 +911,7 @@ func TestPrepareTaskCachedDigestChecks(t *testing.T) {
 				skopeoFactory: func(v1beta1.Username) (*client.Skopeo, error) { return skopeo, nil },
 				ociDelta:      client.NewOCIDelta(logger, mockExec, time.Minute),
 			}
-			target := imageRef{image: image}
+			target := imageRef{image: image, ociType: OCITypePodmanImage}
 			delta := &OCIDeltaTarget{Application: "app", SourceDigest: currentDigest}
 			if testCase.reused {
 				manager.tasks[target] = &prefetchTask{ociType: OCITypePodmanImage, done: true, deltaGeneration: 1, resolvedDigest: currentDigest}
@@ -893,7 +921,7 @@ func TestPrepareTaskCachedDigestChecks(t *testing.T) {
 					manager.tasks[target].resolvedDigest = ""
 				}
 			}
-			needsQueue, err := manager.prepareTask(context.Background(), target, OCITypePodmanImage, "", nil, delta)
+			needsQueue, err := manager.prepareTask(context.Background(), target, OCITypePodmanImage, "", nil, delta, v1beta1.PullIfNotPresent)
 			require.NoError(err)
 			require.Equal(testCase.wantQueue, needsQueue)
 			task := manager.tasks[target]
@@ -934,7 +962,7 @@ func TestPrepareTaskCompletesExistingImageWhenDigestCheckIsUnavailable(t *testin
 	)
 	logger := log.NewPrefixLogger("test")
 	podman := client.NewPodman(logger, exec, rw, poll.NewConfig(time.Millisecond, 2))
-	target := imageRef{image: image}
+	target := imageRef{image: image, ociType: OCITypePodmanImage}
 	manager := &prefetchManager{
 		log: logger,
 		podmanFactory: func(v1beta1.Username) (*client.Podman, error) {
@@ -950,7 +978,7 @@ func TestPrepareTaskCompletesExistingImageWhenDigestCheckIsUnavailable(t *testin
 		OCITypePodmanImage,
 		"sha256:target",
 		nil,
-		&OCIDeltaTarget{Hint: candidate, Application: "app"},
+		&OCIDeltaTarget{Hint: candidate, Application: "app"}, v1beta1.PullIfNotPresent,
 	)
 	require.NoError(t, err)
 	require.False(t, needsQueue)
@@ -959,10 +987,9 @@ func TestPrepareTaskCompletesExistingImageWhenDigestCheckIsUnavailable(t *testin
 	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeNotUsed, manager.deltaApplyResults["app"][target].outcome)
 }
 
-func TestPrepareTaskSkipsExistingArtifactWhenDeltaHintExists(t *testing.T) {
+func TestPrepareTaskSkipsExistingArtifactWithoutDeltaHint(t *testing.T) {
 	const (
-		image     = "quay.io/acme/artifact:v2"
-		candidate = "quay.io/acme/delta:target"
+		image = "quay.io/acme/artifact:v2"
 	)
 
 	ctrl := gomock.NewController(t)
@@ -976,7 +1003,7 @@ func TestPrepareTaskSkipsExistingArtifactWhenDeltaHintExists(t *testing.T) {
 	)
 	logger := log.NewPrefixLogger("test")
 	podman := client.NewPodman(logger, exec, rw, poll.NewConfig(time.Millisecond, 2))
-	target := imageRef{image: image}
+	target := imageRef{image: image, ociType: OCITypePodmanArtifact}
 	manager := &prefetchManager{
 		log: logger,
 		podmanFactory: func(v1beta1.Username) (*client.Podman, error) {
@@ -992,7 +1019,7 @@ func TestPrepareTaskSkipsExistingArtifactWhenDeltaHintExists(t *testing.T) {
 		OCITypePodmanArtifact,
 		"sha256:target",
 		nil,
-		&OCIDeltaTarget{Hint: candidate, Application: "app"},
+		&OCIDeltaTarget{Application: "app"}, v1beta1.PullIfNotPresent,
 	)
 	require.NoError(t, err)
 	require.False(t, needsQueue)
@@ -1006,7 +1033,7 @@ func TestPrepareTaskSkipsExistingArtifactWhenDeltaHintExists(t *testing.T) {
 		OCITypePodmanArtifact,
 		"sha256:target",
 		nil,
-		&OCIDeltaTarget{Hint: candidate, Application: "app"},
+		&OCIDeltaTarget{Application: "app"}, v1beta1.PullIfNotPresent,
 	)
 	require.NoError(t, err)
 	require.False(t, needsQueue)
@@ -1019,7 +1046,7 @@ func TestPrepareTaskSkipsExistingArtifactWhenDeltaHintExists(t *testing.T) {
 		OCITypePodmanArtifact,
 		"sha256:target",
 		nil,
-		&OCIDeltaTarget{Hint: candidate, Application: "app"},
+		&OCIDeltaTarget{Application: "app"}, v1beta1.PullIfNotPresent,
 	)
 	require.NoError(t, err)
 	require.False(t, needsQueue)
@@ -1066,7 +1093,7 @@ func TestPrepareTaskReusedCompletedNoHintTargetOnlyRechecksOnNewGeneration(t *te
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", image).Return("", "", 0)
 			logger := log.NewPrefixLogger("test")
 			podman := client.NewPodman(logger, exec, fileio.NewMockReadWriter(ctrl), poll.NewConfig(time.Millisecond, 2))
-			target := imageRef{image: image}
+			target := imageRef{image: image, ociType: OCITypePodmanImage}
 			delta := &OCIDeltaTarget{SourceDigest: digest, Application: application}
 			task := &prefetchTask{
 				ociType:              OCITypePodmanImage,
@@ -1084,7 +1111,7 @@ func TestPrepareTaskReusedCompletedNoHintTargetOnlyRechecksOnNewGeneration(t *te
 				deltaGeneration: 2,
 			}
 
-			needsQueue, err := manager.prepareTask(context.Background(), target, OCITypePodmanImage, digest, nil, delta)
+			needsQueue, err := manager.prepareTask(context.Background(), target, OCITypePodmanImage, digest, nil, delta, v1beta1.PullIfNotPresent)
 			require.NoError(t, err)
 			require.Equal(t, tt.wantQueue, needsQueue)
 			require.True(t, task.targetPresent)
@@ -1172,7 +1199,7 @@ func TestApplicationDeltaStatusPersistsAcrossRestartAndClearsForChangedSpec(t *t
 	}
 
 	makeTarget := func(image, digest, deltaImage, sourceDigest string) (imageRef, OCIPullTarget) {
-		ref := imageRef{image: image}
+		ref := imageRef{image: image, ociType: OCITypePodmanImage}
 		return ref, OCIPullTarget{
 			Type:      OCITypePodmanImage,
 			Reference: image,
@@ -1193,7 +1220,7 @@ func TestApplicationDeltaStatusPersistsAcrossRestartAndClearsForChangedSpec(t *t
 	}
 	specKeys, err := applicationDeltaSpecKeys(desiredV2, nil)
 	require.NoError(t, err)
-	targetID := deltastatus.Fingerprint(string(refV2.owner), refV2.image)
+	targetID := refV2.targetID()
 	targetKeyV2 := applicationImageTargetKey(refV2, targetV2)
 	require.NoError(t, store.ReconcileApplicationSpecs(specKeys))
 	require.NoError(t, store.ReconcileApplicationTargets(map[string]map[string]string{
@@ -1280,7 +1307,7 @@ func TestApplicationDeltaStatusPersistsAcrossRestartAndClearsForChangedSpec(t *t
 	require.NoError(t, manager.Status(ctx, deviceStatus))
 	require.NotNil(t, deviceStatus.Applications[0].LastDelta)
 	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeNotRequired, deviceStatus.Applications[0].LastDelta.Outcome)
-	newTargetID := deltastatus.Fingerprint(string(refV3.owner), refV3.image)
+	newTargetID := refV3.targetID()
 	require.Equal(t, map[string]imageRef{newTargetID: refV3}, manager.deltaTargetRefs)
 	appResults := restartedStore.ApplicationResults("app")
 	require.NotContains(t, appResults, targetID)
@@ -1365,7 +1392,7 @@ func TestBeforeUpdatePreservesCurrentDeltaResultsAcrossRetries(t *testing.T) {
 
 			ctx := context.Background()
 			require.ErrorIs(t, manager.BeforeUpdate(ctx, nil, desired), errors.ErrPrefetchNotReady)
-			ref := imageRef{image: image, owner: v1beta1.CurrentProcessUsername}
+			ref := imageRef{image: image, owner: v1beta1.CurrentProcessUsername, ociType: OCITypePodmanImage}
 			task := manager.tasks[ref]
 			require.NotNil(t, task)
 			if tt.withoutApplicationKey {
@@ -1423,14 +1450,17 @@ func TestApplicationDeltaPrefetchRunsAsRunAsUser(t *testing.T) {
 		deltaApplyResults:     make(map[string]map[imageRef]applicationDeltaApplyResult),
 		deltaTargetsScheduled: true,
 	}
-	target := imageRef{image: image, owner: runAsUser}
+	target := imageRef{image: image, owner: runAsUser, ociType: OCITypePodmanImage}
 	task := &prefetchTask{delta: &OCIDeltaTarget{Hint: candidate, Application: "app"}, deltaGeneration: 1}
 	task.applicationTargetKey = applicationImageTargetKeyFor(target, "", OCITypePodmanImage)
 	manager.deltaAppTargetKeys = map[string]map[string]string{
-		"app": {deltastatus.Fingerprint(string(target.owner), target.image): task.applicationTargetKey},
+		"app": {target.targetID(): task.applicationTargetKey},
 	}
-	manager.deltaTargetRefs = map[string]imageRef{deltastatus.Fingerprint(string(target.owner), target.image): target}
+	manager.deltaTargetRefs = map[string]imageRef{target.targetID(): target}
 	manager.tasks[target] = task
+
+	userExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+candidate).Return(podmanDeltaManifest, "", 0)
+	expectPodmanDeltaSource(userExec, 1)
 
 	deltaFetch := userExec.EXPECT().ExecuteWithContext(
 		gomock.Any(), "skopeo", "copy", "docker://"+candidate, gomock.Any(),
@@ -1464,6 +1494,9 @@ func TestApplicationDeltaPrefetchRunAsDeltaImportFailureFallsBackToFullPull(t *t
 
 	ctrl := gomock.NewController(t)
 	userExec := executer.NewMockExecuter(ctrl)
+	userExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+candidate).Return(podmanDeltaManifest, "", 0)
+	expectPodmanDeltaSource(userExec, 1)
+
 	root := t.TempDir()
 	readWriter := fileio.NewReadWriter(
 		fileio.NewReader(fileio.WithReaderRootDir(root)),
@@ -1489,13 +1522,13 @@ func TestApplicationDeltaPrefetchRunAsDeltaImportFailureFallsBackToFullPull(t *t
 		deltaApplyResults:     make(map[string]map[imageRef]applicationDeltaApplyResult),
 		deltaTargetsScheduled: true,
 	}
-	target := imageRef{image: image, owner: runAsUser}
+	target := imageRef{image: image, owner: runAsUser, ociType: OCITypePodmanImage}
 	task := &prefetchTask{delta: &OCIDeltaTarget{Hint: candidate, Application: "app"}, deltaGeneration: 1}
 	task.applicationTargetKey = applicationImageTargetKeyFor(target, "", OCITypePodmanImage)
 	manager.deltaAppTargetKeys = map[string]map[string]string{
-		"app": {deltastatus.Fingerprint(string(target.owner), target.image): task.applicationTargetKey},
+		"app": {target.targetID(): task.applicationTargetKey},
 	}
-	manager.deltaTargetRefs = map[string]imageRef{deltastatus.Fingerprint(string(target.owner), target.image): target}
+	manager.deltaTargetRefs = map[string]imageRef{target.targetID(): target}
 	manager.tasks[target] = task
 
 	deltaFetch := userExec.EXPECT().ExecuteWithContext(
@@ -1565,12 +1598,12 @@ func TestMovedApplicationTagClearsPersistedDeltaOutcome(t *testing.T) {
 			root := t.TempDir()
 			rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
 			logger := log.NewPrefixLogger("test")
-			target := imageRef{image: image}
-			targetID := deltastatus.Fingerprint(string(target.owner), image)
 			ociType := tt.ociType
 			if ociType == "" {
 				ociType = OCITypePodmanImage
 			}
+			target := imageRef{image: image, ociType: ociType}
+			targetID := target.targetID()
 			targetKey := applicationImageTargetKeyFor(target, "", ociType)
 			specKeys := map[string]string{"app": "unchanged-app-spec"}
 			targetKeys := map[string]map[string]string{"app": {targetID: targetKey}}
@@ -1621,7 +1654,7 @@ func TestMovedApplicationTagClearsPersistedDeltaOutcome(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--format", "{{.Digest}}", "docker://"+image).Return(tt.remoteDigest, "inspect failed", tt.remoteExit)
 			}
 			ctx := context.Background()
-			needsQueue, err := m.prepareTask(ctx, target, ociType, "", nil, delta)
+			needsQueue, err := m.prepareTask(ctx, target, ociType, "", nil, delta, v1beta1.PullIfNotPresent)
 			require.NoError(err)
 			require.Equal(tt.wantPull, needsQueue)
 			if tt.wantPull {
@@ -1630,7 +1663,7 @@ func TestMovedApplicationTagClearsPersistedDeltaOutcome(t *testing.T) {
 					require.Empty(m.deltaApplyResults["app"])
 					require.Empty(deltastatus.New(rw, "/var/lib/flightctl", logger).ApplicationResults("app"))
 				}
-				if tt.absent && tt.remoteDigest == newDigest {
+				if tt.absent {
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "list-referrers", "docker://"+image).Return(`{"manifests": []}`, "", 0)
 				}
 				assertInvalidated := func() {
@@ -1661,4 +1694,13 @@ func TestMovedApplicationTagClearsPersistedDeltaOutcome(t *testing.T) {
 			require.Equal(tt.want, deltastatus.New(rw, "/var/lib/flightctl", logger).ApplicationResults("app")[targetID].Status.Outcome)
 		})
 	}
+}
+
+const podmanDeltaSource = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+const podmanDeltaManifest = `{"artifactType":"application/vnd.io.github.containers.oci-delta.v1","annotations":{"io.github.containers.delta.source":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},"config":{"digest":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","size":10},"layers":[{"digest":"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","size":100}]}`
+
+// Registry manifest digests differ from Podman's image IDs and can appear in RepoDigests.
+func expectPodmanDeltaSource(exec *executer.MockExecuter, attempts int) {
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "ls", "--format", gomock.Any()).Return("quay.io/local/base:cached", "", 0).Times(attempts)
+	exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", "quay.io/local/base:cached").Return(`{"Digest":"sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff","RepoDigests":["quay.io/local/base@`+podmanDeltaSource+`"]}`, "", 0).Times(attempts)
 }

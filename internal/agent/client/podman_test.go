@@ -31,7 +31,7 @@ func TestPodman_ListImages(t *testing.T) {
 		{
 			name: "success with tagged images",
 			setupMock: func(mock *executer.MockExecuter) {
-				mock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "ls", "--format", `{{if and .Repository (ne .Repository "<none>")}}{{.Repository}}:{{.Tag}}{{else}}{{.ID}}{{end}}`}).
+				mock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "ls", "--format", `{{if and .Repository (ne .Repository "<none>") .Tag (ne .Tag "<none>")}}{{.Repository}}:{{.Tag}}{{else}}{{.ID}}{{end}}`}).
 					Return("quay.io/example/app:v1.0\nquay.io/example/app:v2.0\n", "", 0)
 			},
 			want:    []string{"quay.io/example/app:v1.0", "quay.io/example/app:v2.0"},
@@ -40,7 +40,7 @@ func TestPodman_ListImages(t *testing.T) {
 		{
 			name: "success with mixed tagged and untagged images",
 			setupMock: func(mock *executer.MockExecuter) {
-				mock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "ls", "--format", `{{if and .Repository (ne .Repository "<none>")}}{{.Repository}}:{{.Tag}}{{else}}{{.ID}}{{end}}`}).
+				mock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "ls", "--format", `{{if and .Repository (ne .Repository "<none>") .Tag (ne .Tag "<none>")}}{{.Repository}}:{{.Tag}}{{else}}{{.ID}}{{end}}`}).
 					Return("quay.io/example/app:v1.0\nabc123def456\nquay.io/example/app:v2.0\n", "", 0)
 			},
 			want:    []string{"quay.io/example/app:v1.0", "abc123def456", "quay.io/example/app:v2.0"},
@@ -49,7 +49,7 @@ func TestPodman_ListImages(t *testing.T) {
 		{
 			name: "success with empty list",
 			setupMock: func(mock *executer.MockExecuter) {
-				mock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "ls", "--format", `{{if and .Repository (ne .Repository "<none>")}}{{.Repository}}:{{.Tag}}{{else}}{{.ID}}{{end}}`}).
+				mock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "ls", "--format", `{{if and .Repository (ne .Repository "<none>") .Tag (ne .Tag "<none>")}}{{.Repository}}:{{.Tag}}{{else}}{{.ID}}{{end}}`}).
 					Return("", "", 0)
 			},
 			want:    []string{},
@@ -58,7 +58,7 @@ func TestPodman_ListImages(t *testing.T) {
 		{
 			name: "handles duplicate images",
 			setupMock: func(mock *executer.MockExecuter) {
-				mock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "ls", "--format", `{{if and .Repository (ne .Repository "<none>")}}{{.Repository}}:{{.Tag}}{{else}}{{.ID}}{{end}}`}).
+				mock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "ls", "--format", `{{if and .Repository (ne .Repository "<none>") .Tag (ne .Tag "<none>")}}{{.Repository}}:{{.Tag}}{{else}}{{.ID}}{{end}}`}).
 					Return("quay.io/example/app:v1.0\nquay.io/example/app:v1.0\n", "", 0)
 			},
 			want:    []string{"quay.io/example/app:v1.0"},
@@ -67,7 +67,7 @@ func TestPodman_ListImages(t *testing.T) {
 		{
 			name: "handles whitespace",
 			setupMock: func(mock *executer.MockExecuter) {
-				mock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "ls", "--format", `{{if and .Repository (ne .Repository "<none>")}}{{.Repository}}:{{.Tag}}{{else}}{{.ID}}{{end}}`}).
+				mock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "ls", "--format", `{{if and .Repository (ne .Repository "<none>") .Tag (ne .Tag "<none>")}}{{.Repository}}:{{.Tag}}{{else}}{{.ID}}{{end}}`}).
 					Return("  quay.io/example/app:v1.0  \n  quay.io/example/app:v2.0  \n", "", 0)
 			},
 			want:    []string{"quay.io/example/app:v1.0", "quay.io/example/app:v2.0"},
@@ -77,7 +77,7 @@ func TestPodman_ListImages(t *testing.T) {
 			name: "handles untagged images with <none> repository",
 			setupMock: func(mock *executer.MockExecuter) {
 				// Format string should output image ID for <none> repository, not <none>:<none>
-				mock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "ls", "--format", `{{if and .Repository (ne .Repository "<none>")}}{{.Repository}}:{{.Tag}}{{else}}{{.ID}}{{end}}`}).
+				mock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "ls", "--format", `{{if and .Repository (ne .Repository "<none>") .Tag (ne .Tag "<none>")}}{{.Repository}}:{{.Tag}}{{else}}{{.ID}}{{end}}`}).
 					Return("quay.io/example/app:v1.0\nf67b988b348a\n", "", 0)
 			},
 			want:    []string{"quay.io/example/app:v1.0", "f67b988b348a"},
@@ -86,7 +86,7 @@ func TestPodman_ListImages(t *testing.T) {
 		{
 			name: "error from podman command",
 			setupMock: func(mock *executer.MockExecuter) {
-				mock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "ls", "--format", `{{if and .Repository (ne .Repository "<none>")}}{{.Repository}}:{{.Tag}}{{else}}{{.ID}}{{end}}`}).
+				mock.EXPECT().ExecuteWithContext(gomock.Any(), "podman", []string{"image", "ls", "--format", `{{if and .Repository (ne .Repository "<none>") .Tag (ne .Tag "<none>")}}{{.Repository}}:{{.Tag}}{{else}}{{.ID}}{{end}}`}).
 					Return("", "error: failed to list images", 1)
 			},
 			want:    nil,

@@ -437,14 +437,16 @@ func (a *application) collectImageDigests() {
 		}
 	}
 
-	// Parent image from the provider spec, with digest from parentIsAvailable.
-	add(a.imageRef, a.imageDigest)
-
 	// Workload container images from the runtime.
 	for _, w := range a.workloads {
 		for _, image := range w.Images {
 			add(image.Image, image.Digest)
 		}
+	}
+
+	// Use the provider observation only when no workload has observed this image.
+	if len(byImage[a.imageRef]) == 0 {
+		add(a.imageRef, a.imageDigest)
 	}
 
 	var digests []v1beta1.ApplicationImageDigest

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/container"
+	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
@@ -231,25 +233,32 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1bet
 	if err != nil {
 		return nil, fmt.Errorf("checking if OS image is reconciled: %w", err)
 	}
-	if isDesiredImageRunning {
-		m.log.Debugf("Desired OS image is currently booted: %s", osImage)
-		m.setDeltaNotUsedIfUnset()
-		return &dependency.OCICollection{}, nil
-	}
-
-	if m.podmanClient.ImageExists(ctx, osImage) {
-		m.log.Debugf("OS image already exists in container storage: %s", osImage)
-		m.setDeltaNotUsedIfUnset()
-		return &dependency.OCICollection{}, nil
-	}
-
 	optsFn := m.osPullOptsFn()
+	var localDigests []string
+	if isDesiredImageRunning {
+		localDigests = []string{bootcStatus.GetBootedImageDigest()}
+	} else if m.podmanClient.ImageExists(ctx, osImage) {
+		localDigests, err = m.podmanClient.ImageDigests(ctx, osImage)
+		if err != nil {
+			m.log.Debugf("Cannot inspect cached OS image: %v", err)
+		}
+	}
+	if len(localDigests) > 0 && m.osTargetDigestMatches(ctx, osImage, localDigests, optsFn) {
+		m.log.Debugf("Desired OS image is already present with the correct digest: %s", osImage)
+		m.recordDeltaResult(v1beta1.DeviceDeltaApplyOutcomeNotRequired, "", true)
+		return &dependency.OCICollection{}, nil
+	}
+
 	if !m.canApplyOSDelta() {
-		m.setDeltaNotUsedIfUnset()
+		if desired.Os.DeltaImage != nil && *desired.Os.DeltaImage != "" {
+			m.setFallbackReason("OS delta application is unavailable")
+		} else {
+			m.setDeltaNotUsedIfUnset()
+		}
 		return m.fullImageCollection(osImage, optsFn), nil
 	}
 
-	candidate := m.discoverOSDelta(ctx, desired, bootcStatus.GetBootedImageDigest(), optsFn)
+	candidate := m.discoverOSDelta(ctx, desired, bootcStatus, optsFn)
 	if candidate == "" {
 		m.setDeltaNotUsedIfUnset()
 		return m.fullImageCollection(osImage, optsFn), nil
@@ -278,7 +287,7 @@ func (m *manager) fullImageCollection(osImage string, optsFn dependency.ClientOp
 				{
 					Type:         dependency.OCITypePodmanImage,
 					Reference:    osImage,
-					PullPolicy:   v1beta1.PullIfNotPresent,
+					PullPolicy:   v1beta1.PullAlways,
 					ClientOptsFn: optsFn,
 				},
 			},
@@ -323,19 +332,6 @@ func (m *manager) startImageAttempt(osSpec *v1beta1.DeviceOsSpec) {
 		}
 	}
 	m.mu.Unlock()
-}
-
-func (m *manager) discoverOSDelta(ctx context.Context, desired *v1beta1.DeviceSpec, sourceDigest string, optsFn dependency.ClientOptsFn) string {
-	if desired.Os.DeltaImage != nil && *desired.Os.DeltaImage != "" {
-		return *desired.Os.DeltaImage
-	}
-
-	index, err := m.skopeo.ListReferrers(ctx, desired.Os.Image, optsFn()...)
-	if err != nil {
-		m.log.Debugf("OS delta referrers unavailable: %v", err)
-		return ""
-	}
-	return selectOSDeltaCandidate(nil, desired.Os.Image, sourceDigest, index)
 }
 
 func (m *manager) pullAndApplyOSDelta(ctx context.Context, candidate, osImage string, optsFn dependency.ClientOptsFn) error {
@@ -469,4 +465,52 @@ func (m *manager) Reboot(ctx context.Context, desired *v1beta1.DeviceSpec) error
 
 type Status struct {
 	container.BootcHost
+}
+
+func (m *manager) osDeltaSourceAvailable(ctx context.Context, bootcStatus *Status, source string) (bool, error) {
+	for _, image := range []container.ImageStatus{bootcStatus.BootcHost.Status.Booted, bootcStatus.BootcHost.Status.Staged, bootcStatus.BootcHost.Status.Rollback} {
+		if image.Image.ImageDigest == source {
+			return true, nil
+		}
+	}
+	return m.ociDelta.SourceImageExists(ctx, source)
+}
+
+func (m *manager) osTargetDigestMatches(ctx context.Context, image string, observed []string, optsFn dependency.ClientOptsFn) bool {
+	targetDigest := ""
+	matches := validation.OciImageReferenceRegexp.FindStringSubmatch(image)
+	if len(matches) > 3 {
+		targetDigest = matches[3]
+	}
+	if targetDigest == "" {
+		var err error
+		targetDigest, err = m.skopeo.InspectDigest(ctx, image, optsFn()...)
+		if err != nil {
+			m.log.Debugf("Cannot inspect requested OS digest: %v", err)
+			return false
+		}
+	}
+	matchesDigest := func(target string) bool {
+		if target == "" {
+			return false
+		}
+		for _, observedDigest := range observed {
+			if _, suffix, found := strings.Cut(observedDigest, "@"); found {
+				observedDigest = suffix
+			}
+			if observedDigest == target {
+				return true
+			}
+		}
+		return false
+	}
+	if matchesDigest(targetDigest) {
+		return true
+	}
+	platformDigest, err := m.skopeo.InspectPlatformDigest(ctx, image, optsFn()...)
+	if err != nil {
+		m.log.Debugf("Cannot inspect requested OS platform digest: %v", err)
+		return false
+	}
+	return matchesDigest(platformDigest)
 }
