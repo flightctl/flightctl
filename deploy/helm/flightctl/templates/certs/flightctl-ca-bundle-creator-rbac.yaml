@@ -33,6 +33,9 @@ rules:
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["create", "get", "patch", "update"]
+  - apiGroups: ["route.openshift.io"]
+    resources: ["routes"]
+    verbs: ["get", "patch"]
 
 ---
 # RoleBinding to grant permissions to the ServiceAccount

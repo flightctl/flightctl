@@ -43,7 +43,7 @@
         },
         "routeExternalCertificate": {
           "type": "string",
-          "description": "Whether to use generated TLS certificates on edge-terminated routes via externalCertificate. 'auto' uses on fresh install and preserves existing behavior on upgrade. 'true' always uses. 'false' never uses (rely on default router cert).",
+          "description": "Whether to use generated TLS certificates on edge-terminated routes via externalCertificate. 'auto' uses for synchronous builtin certificates, or when the existing Route already uses it or the generated Secret exists. 'true' always uses. 'false' never uses (rely on default router cert).",
           "enum": ["auto", "true", "false"]
         },
         "storageClassName": {
