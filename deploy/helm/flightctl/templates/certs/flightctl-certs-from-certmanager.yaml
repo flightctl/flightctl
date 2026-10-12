@@ -1,9 +1,10 @@
 {{- $certMethod := include "flightctl.getCertificateGenerationMethod" . }}
 {{- if eq $certMethod "cert-manager" }}
 {{- $routeExternalCertificate := .Values.global.routeExternalCertificate | default "auto" | toString }}
-{{- $patchRouteCertificates := eq $routeExternalCertificate "auto" }}
+{{- $patchRouteCertificates := and (not .Values.global.baseDomainTlsSecretName) (or (eq $routeExternalCertificate "auto") (eq $routeExternalCertificate "true")) }}
 {{- $uiRouteEnabled := and .Values.ui.enabled (eq (include "flightctl.enableMulticlusterExtensions" .) "false") (eq (include "flightctl.getServiceExposeMethod" .) "route") }}
 {{- $cliArtifactsRouteEnabled := and .Values.cliArtifacts.enabled (eq (include "flightctl.getServiceExposeMethod" .) "route") }}
+{{- $routeCertificatesEnabled := and $patchRouteCertificates (or $uiRouteEnabled $cliArtifactsRouteEnabled) }}
 
 {{- /* Check if user has provided their own flightctl-ca Certificate resource */ -}}
 {{- $existingFlightctlCA := lookup "cert-manager.io/v1" "Certificate" .Release.Namespace "flightctl-ca" -}}
@@ -365,15 +366,6 @@ spec:
               # Check if both secrets exist and have tls.crt
               FLIGHTCTL_CA_READY=false
               CLIENT_SIGNER_CA_READY=false
-              UI_ROUTE_CERT_READY=true
-              CLI_ARTIFACTS_ROUTE_CERT_READY=true
-
-              {{- if and $patchRouteCertificates $uiRouteEnabled }}
-              UI_ROUTE_CERT_READY=false
-              {{- end }}
-              {{- if and $patchRouteCertificates $cliArtifactsRouteEnabled }}
-              CLI_ARTIFACTS_ROUTE_CERT_READY=false
-              {{- end }}
 
               if $K8S_CLI get secret -n "$NAMESPACE" flightctl-ca &>/dev/null; then
                   if $K8S_CLI get secret -n "$NAMESPACE" flightctl-ca -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -noout &>/dev/null; then
@@ -387,24 +379,8 @@ spec:
                   fi
               fi
 
-              if [ "$UI_ROUTE_CERT_READY" = false ]; then
-                  if $K8S_CLI get secret -n "$NAMESPACE" flightctl-ui-server-tls &>/dev/null; then
-                      if $K8S_CLI get secret -n "$NAMESPACE" flightctl-ui-server-tls -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -noout &>/dev/null; then
-                          UI_ROUTE_CERT_READY=true
-                      fi
-                  fi
-              fi
-
-              if [ "$CLI_ARTIFACTS_ROUTE_CERT_READY" = false ]; then
-                  if $K8S_CLI get secret -n "$NAMESPACE" flightctl-cli-artifacts-server-tls &>/dev/null; then
-                      if $K8S_CLI get secret -n "$NAMESPACE" flightctl-cli-artifacts-server-tls -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -noout &>/dev/null; then
-                          CLI_ARTIFACTS_ROUTE_CERT_READY=true
-                      fi
-                  fi
-              fi
-
-              if [ "$FLIGHTCTL_CA_READY" = true ] && [ "$CLIENT_SIGNER_CA_READY" = true ] && [ "$UI_ROUTE_CERT_READY" = true ] && [ "$CLI_ARTIFACTS_ROUTE_CERT_READY" = true ]; then
-                  echo "Both certificates are ready"
+              if [ "$FLIGHTCTL_CA_READY" = true ] && [ "$CLIENT_SIGNER_CA_READY" = true ]; then
+                  echo "CA certificates are ready"
                   break
               fi
 
@@ -434,6 +410,49 @@ spec:
 
           echo "CA bundle Secret created successfully in $NAMESPACE"
 
+          {{- if $routeCertificatesEnabled }}
+          echo "Waiting for route certificates..."
+          start=$(date +%s)
+
+          while true; do
+              elapsed=$(( $(date +%s) - start ))
+              if [ $elapsed -ge $TIMEOUT ]; then
+                  echo "Timeout waiting for route certificates after ${TIMEOUT}s"
+                  exit 1
+              fi
+
+              UI_ROUTE_CERT_READY=true
+              CLI_ARTIFACTS_ROUTE_CERT_READY=true
+
+              {{- if $uiRouteEnabled }}
+              UI_ROUTE_CERT_READY=false
+              if $K8S_CLI get secret -n "$NAMESPACE" flightctl-ui-server-tls &>/dev/null; then
+                  if $K8S_CLI get secret -n "$NAMESPACE" flightctl-ui-server-tls -o jsonpath='{.data.tls\\.crt}' | base64 -d | openssl x509 -noout &>/dev/null; then
+                      UI_ROUTE_CERT_READY=true
+                  fi
+              fi
+              {{- end }}
+
+              {{- if $cliArtifactsRouteEnabled }}
+              CLI_ARTIFACTS_ROUTE_CERT_READY=false
+              if $K8S_CLI get secret -n "$NAMESPACE" flightctl-cli-artifacts-server-tls &>/dev/null; then
+                  if $K8S_CLI get secret -n "$NAMESPACE" flightctl-cli-artifacts-server-tls -o jsonpath='{.data.tls\\.crt}' | base64 -d | openssl x509 -noout &>/dev/null; then
+                      CLI_ARTIFACTS_ROUTE_CERT_READY=true
+                  fi
+              fi
+              {{- end }}
+
+              if [ "$UI_ROUTE_CERT_READY" = true ] && [ "$CLI_ARTIFACTS_ROUTE_CERT_READY" = true ]; then
+                  echo "Route certificates are ready"
+                  break
+              fi
+
+              echo "Waiting for route certificates... (${elapsed}s elapsed)"
+              sleep $SLEEP
+          done
+          {{- end }}
+
+          {{- if $routeCertificatesEnabled }}
           patch_route_external_certificate() {
               ROUTE_NAME="$1"
               SECRET_NAME="$2"
@@ -456,6 +475,7 @@ spec:
           {{- end }}
           {{- if and $patchRouteCertificates $cliArtifactsRouteEnabled }}
           patch_route_external_certificate "flightctl-cli-artifacts-route" "flightctl-cli-artifacts-server-tls"
+          {{- end }}
           {{- end }}
 
           # Copy CA secrets to internal namespace if different from release namespace

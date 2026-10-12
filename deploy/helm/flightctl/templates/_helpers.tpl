@@ -677,14 +677,20 @@ Usage: {{- $useExtCert := include "flightctl.useRouteExternalCertificate" (dict 
   {{- $routeName := .routeName }}
   {{- $secretName := .secretName }}
   {{- $val := $root.Values.global.routeExternalCertificate | default "auto" | toString }}
+  {{- $existingRoute := lookup "route.openshift.io/v1" "Route" $root.Release.Namespace $routeName }}
+  {{- $existingSecret := lookup "v1" "Secret" $root.Release.Namespace $secretName }}
+  {{- $existingRouteUsesExternalCertificate := and $existingRoute $existingRoute.spec $existingRoute.spec.tls (hasKey $existingRoute.spec.tls "externalCertificate") }}
+  {{- $certificateMethod := include "flightctl.getCertificateGenerationMethod" $root }}
   {{- if eq $val "true" }}
-    {{- print "true" }}
+    {{- if and (eq $certificateMethod "cert-manager") (not $existingSecret) (not $existingRouteUsesExternalCertificate) }}
+      {{- print "false" }}
+    {{- else }}
+      {{- print "true" }}
+    {{- end }}
   {{- else if eq $val "false" }}
     {{- print "false" }}
   {{- else }}
-    {{- $existingRoute := lookup "route.openshift.io/v1" "Route" $root.Release.Namespace $routeName }}
-    {{- $existingSecret := lookup "v1" "Secret" $root.Release.Namespace $secretName }}
-    {{- if and $existingRoute $existingRoute.spec $existingRoute.spec.tls (hasKey $existingRoute.spec.tls "externalCertificate") }}
+    {{- if $existingRouteUsesExternalCertificate }}
       {{- print "true" }}
     {{- else if $existingSecret }}
       {{- print "true" }}

@@ -42,7 +42,7 @@ func TestRouteExternalCertificate(t *testing.T) {
 			name:                 "When auto mode detects cert-manager without an existing Secret it should omit externalCertificate",
 			certificateMethod:    "auto",
 			certManagerInstalled: true,
-			expectedDocuments:    1,
+			expectedDocuments:    3,
 		},
 		{
 			name:              "When auto mode falls back to builtin certificates it should include externalCertificate",
@@ -81,10 +81,26 @@ func TestRouteExternalCertificate(t *testing.T) {
 		},
 		{
 			name:              "When routeExternalCertificate is true it should include externalCertificate",
-			certificateMethod: "cert-manager",
+			certificateMethod: "auto",
 			routeCertificate:  "true",
 			externalCert:      true,
 			expectedDocuments: 3,
+		},
+		{
+			name:                 "When routeExternalCertificate is true with cert-manager and no Secret it should defer externalCertificate",
+			certificateMethod:    "auto",
+			certManagerInstalled: true,
+			routeCertificate:     "true",
+			expectedDocuments:    3,
+		},
+		{
+			name:                 "When routeExternalCertificate is true with cert-manager and an existing Secret it should include externalCertificate",
+			certificateMethod:    "auto",
+			certManagerInstalled: true,
+			routeCertificate:     "true",
+			externalCert:         true,
+			existingObject:       "secret",
+			expectedDocuments:    3,
 		},
 	}
 
