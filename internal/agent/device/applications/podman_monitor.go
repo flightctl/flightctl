@@ -23,6 +23,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/mohae/deepcopy"
 	"github.com/opencontainers/go-digest"
 	"github.com/samber/lo"
 )
@@ -679,7 +680,8 @@ func (m *PodmanMonitor) Status() ([]AppStatusResult, error) {
 		}
 		results = append(results, AppStatusResult{
 			ID:      app.ID(),
-			Status:  *appStatus,
+			Status:  *deepcopy.Copy(appStatus).(*v1beta1.DeviceApplicationStatus),
+			Images:  app.ImageSnapshot(),
 			Summary: appSummary,
 		})
 	}

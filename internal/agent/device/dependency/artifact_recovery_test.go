@@ -71,7 +71,7 @@ func TestCachedArtifactHintRecoversWithFullPull(t *testing.T) {
 			manager.processTarget(t.Context(), <-manager.queue)
 			require.True(manager.IsReady(t.Context()))
 			status := &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: "compose"}}}
-			require.NoError(manager.Status(t.Context(), status))
+			require.NoError(collectPrefetchTaskOutcomes(t, manager, t.Context(), status))
 			require.NotNil(status.Applications[0].LastDelta)
 			require.Equal(v1beta1.DeviceDeltaApplyOutcomeFallback, status.Applications[0].LastDelta.Outcome)
 			require.NotNil(status.Applications[0].LastDelta.FallbackReason)

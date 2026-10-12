@@ -118,7 +118,7 @@ func TestApplicationDeltaPrefetchCRIRefreshesRegistryReference(t *testing.T) {
 			deviceStatus := &v1beta1.DeviceStatus{
 				Applications: []v1beta1.DeviceApplicationStatus{{Name: "app"}},
 			}
-			require.NoError(t, manager.Status(context.Background(), deviceStatus))
+			require.NoError(t, collectPrefetchTaskOutcomes(t, manager, context.Background(), deviceStatus))
 			if tc.wantFallback {
 				require.NotNil(t, deviceStatus.Applications[0].LastDelta)
 				require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeFallback, deviceStatus.Applications[0].LastDelta.Outcome)
@@ -192,7 +192,7 @@ func TestApplicationDeltaCRICachedImageReportsNotRequiredWhenDigestMatches(t *te
 	require.True(t, task.done)
 
 	deviceStatus := &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: application}}}
-	require.NoError(t, manager.Status(context.Background(), deviceStatus))
+	require.NoError(t, collectPrefetchTaskOutcomes(t, manager, context.Background(), deviceStatus))
 	require.NotNil(t, deviceStatus.Applications[0].LastDelta)
 	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeNotRequired, deviceStatus.Applications[0].LastDelta.Outcome)
 }
@@ -254,7 +254,7 @@ func TestApplicationDeltaCRIHintedCandidateFallsBackWhenDeltaClientIsUnavailable
 	task.done = true
 
 	deviceStatus := &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: application}}}
-	require.NoError(manager.Status(context.Background(), deviceStatus))
+	require.NoError(collectPrefetchTaskOutcomes(t, manager, context.Background(), deviceStatus))
 	require.NotNil(deviceStatus.Applications[0].LastDelta)
 	require.Equal(v1beta1.DeviceDeltaApplyOutcomeFallback, deviceStatus.Applications[0].LastDelta.Outcome)
 	require.NotNil(deviceStatus.Applications[0].LastDelta.FallbackReason)
@@ -323,7 +323,7 @@ func TestApplicationDeltaCRIMissingImageReportsNotUsedWhenSourceDigestMatches(t 
 	task.done = true
 
 	deviceStatus := &v1beta1.DeviceStatus{Applications: []v1beta1.DeviceApplicationStatus{{Name: application}}}
-	require.NoError(t, manager.Status(context.Background(), deviceStatus))
+	require.NoError(t, collectPrefetchTaskOutcomes(t, manager, context.Background(), deviceStatus))
 	require.NotNil(t, deviceStatus.Applications[0].LastDelta)
 	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeNotUsed, deviceStatus.Applications[0].LastDelta.Outcome)
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/mohae/deepcopy"
 )
 
 const (
@@ -73,6 +74,7 @@ type handlerRegistration struct {
 
 // AppStatusResult holds the status result for a single application.
 type AppStatusResult struct {
+	Images  ImageSnapshot
 	ID      string
 	Status  v1beta1.DeviceApplicationStatus
 	Summary v1beta1.DeviceApplicationsSummaryStatus
@@ -447,7 +449,8 @@ func (m *monitor) Status() ([]AppStatusResult, error) {
 		}
 		results = append(results, AppStatusResult{
 			ID:      app.ID(),
-			Status:  *appStatus,
+			Status:  *deepcopy.Copy(appStatus).(*v1beta1.DeviceApplicationStatus),
+			Images:  app.ImageSnapshot(),
 			Summary: appSummary,
 		})
 	}

@@ -12,6 +12,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/client"
 	appconsole "github.com/flightctl/flightctl/internal/agent/device/applications/console"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
+	"github.com/flightctl/flightctl/internal/agent/device/deltastatus"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -31,6 +32,7 @@ type volumeImageKey struct {
 }
 
 type manager struct {
+	deltaStatusStore   *deltastatus.Store
 	podmanMonitor      *PodmanMonitor
 	kubernetesMonitor  *KubernetesMonitor
 	clients            client.CLIClients
@@ -68,11 +70,12 @@ func NewManager(
 	systemInfo systeminfo.Manager,
 	systemdFactory systemd.ManagerFactory,
 	pullConfigResolver dependency.PullConfigResolver,
+	opts ...ManagerOption,
 ) *manager {
 	bootTime := systemInfo.BootTime()
 	kubernetesMonitor := NewKubernetesMonitor(log, clients, rwFactory)
 	kubernetesMonitor.pullConfigResolver = pullConfigResolver
-	return &manager{
+	manager := &manager{
 		rwFactory:          rwFactory,
 		podmanMonitor:      NewPodmanMonitor(log, podmanFactory, systemdFactory, bootTime, rwFactory),
 		kubernetesMonitor:  kubernetesMonitor,
@@ -84,6 +87,17 @@ func NewManager(
 		ociTargetCache:     provider.NewOCITargetCache(),
 		appDataCache:       provider.NewAppDataCache(),
 	}
+	for _, opt := range opts {
+		opt(manager)
+	}
+	return manager
+}
+
+// ManagerOption configures optional application reporting state.
+type ManagerOption func(*manager)
+
+func WithDeltaStatusStore(store *deltastatus.Store) ManagerOption {
+	return func(m *manager) { m.deltaStatusStore = store }
 }
 
 func isDeferrableAppError(osUpdatePending bool, err error) bool {
@@ -101,7 +115,24 @@ func (m *manager) validateProviderDeps(ctx context.Context, p provider.Provider)
 }
 
 func (m *manager) newAppFromProvider(p provider.Provider) Application {
-	return NewApplication(p)
+	app := NewApplication(p)
+	if p.Spec().AppType == v1beta1.AppTypeHelm {
+		app = NewHelmApplication(p)
+	}
+	// Capture expected images from the installed provider, not a future desired spec.
+	app.imageCollectionComplete = p.Spec().AppType == v1beta1.AppTypeContainer
+	if p.Spec().Image != "" {
+		app.requiredImages = append(app.requiredImages, p.Spec().Image)
+	}
+	if m.ociTargetCache != nil {
+		if entry, found := m.ociTargetCache.Get(p.ID()); found {
+			app.imageCollectionComplete = true
+			for _, target := range entry.Children {
+				app.requiredImages = append(app.requiredImages, target.Reference)
+			}
+		}
+	}
+	return app
 }
 
 func (m *manager) populateCachedParentImageDigest(p provider.Provider) {
@@ -150,7 +181,7 @@ func (m *manager) Ensure(ctx context.Context, provider provider.Provider) error 
 		if err := provider.Install(ctx); err != nil {
 			return fmt.Errorf("%w: %w", errors.ErrInstallingApplication, err)
 		}
-		return m.kubernetesMonitor.Ensure(NewHelmApplication(provider))
+		return m.kubernetesMonitor.Ensure(m.newAppFromProvider(provider))
 	default:
 		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
 	}
@@ -205,7 +236,7 @@ func (m *manager) Update(ctx context.Context, provider provider.Provider) error 
 		if err := provider.Install(ctx); err != nil {
 			return fmt.Errorf("%w: %w", errors.ErrInstallingApplication, err)
 		}
-		return m.kubernetesMonitor.Update(NewHelmApplication(provider))
+		return m.kubernetesMonitor.Update(m.newAppFromProvider(provider))
 	default:
 		return fmt.Errorf("%w: %s", errors.ErrUnsupportedAppType, appType)
 	}
@@ -315,6 +346,37 @@ func (m *manager) Status(ctx context.Context, status *v1beta1.DeviceStatus, opts
 	m.addVolumeImageDigests(ctx, allResults)
 	addCachedParentImageDigests(allResults, m.ociTargetCache)
 
+	for i := range allResults {
+		result := &allResults[i]
+		result.Status.LastDelta = nil
+		complete := result.Images.Complete
+		// Volume and parent association coverage is added independently; until then
+		// extra reported identities must not masquerade as complete workload coverage.
+		if result.Status.Volumes != nil {
+			for _, volume := range *result.Status.Volumes {
+				if volume.Reference != "" {
+					complete = false
+				}
+			}
+		}
+		if result.Status.ImageDigests != nil {
+			for _, reported := range *result.Status.ImageDigests {
+				found := false
+				for _, image := range result.Images.Images {
+					if image.Image == reported.Image && image.Digest == reported.Digest {
+						found = true
+						break
+					}
+				}
+				if !found {
+					complete = false
+				}
+			}
+		}
+		if m.deltaStatusStore != nil {
+			result.Status.LastDelta = m.deltaStatusStore.ObservedApplicationResult(result.Status.Name, result.Images.Images, complete)
+		}
+	}
 	statuses, summary := aggregateAppStatuses(allResults)
 	status.ApplicationsSummary = summary
 	status.Applications = statuses

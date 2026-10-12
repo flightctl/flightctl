@@ -2,6 +2,7 @@ package deltastatus
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"path/filepath"
 	"testing"
@@ -247,4 +248,83 @@ func TestWhenOSStateIsLegacyOrCorruptItShouldWithholdUnverifiedOutcomes(t *testi
 			}
 		})
 	}
+}
+
+func TestObservedApplicationResultSurvivesUpdateAndRestart(t *testing.T) {
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	logger := log.NewPrefixLogger("test")
+	store := New(rw, "/var/lib/flightctl", logger)
+	image := ApplicationImage{Image: "quay.io/acme/web:latest", Owner: "root", OCIType: "podman-image", Digest: "sha256:old"}
+	targetID := Fingerprint(image.Owner, image.Image, image.OCIType)
+	require.NoError(t, store.ReconcileApplicationSpecs(map[string]string{"web": "old-spec"}))
+	require.NoError(t, store.ReconcileApplicationTargets(map[string]map[string]string{"web": {targetID: "old-target"}}, true))
+	require.NoError(t, store.RecordApplicationImageResult("web", "old-spec", targetID, "old-target", image, v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}))
+	require.NoError(t, store.ReconcileApplicationSpecs(map[string]string{"web": "new-spec"}))
+	require.NoError(t, store.ReconcileApplicationTargets(map[string]map[string]string{"web": {targetID: "new-target"}}, true))
+	newer := image
+	newer.Digest = "sha256:new"
+	reason := "full pull"
+	require.NoError(t, store.RecordApplicationImageResult("web", "new-spec", targetID, "new-target", newer, v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeFallback, FallbackReason: &reason}))
+	restarted := New(rw, "/var/lib/flightctl", logger)
+	observed := restarted.ObservedApplicationResult("web", []ApplicationImage{image, image, newer}, true)
+	require.NotNil(t, observed)
+	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomePartial, observed.Outcome)
+	require.Equal(t, "full pull", *observed.FallbackReason)
+	// Unknown workload identity cannot be hidden by another replica's known identity.
+	unknown := image
+	unknown.Digest = ""
+	require.Nil(t, restarted.ObservedApplicationResult("web", []ApplicationImage{image, unknown}, true))
+	require.Nil(t, restarted.ObservedApplicationResult("web", []ApplicationImage{image}, false))
+	require.NoError(t, restarted.RecordApplicationImageResult("web", "old-spec", targetID, "old-target", newer, v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}))
+	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeFallback, restarted.ObservedApplicationResult("web", []ApplicationImage{newer}, true).Outcome)
+	*observed.FallbackReason = "mutated"
+	require.Equal(t, "full pull", *restarted.ObservedApplicationResult("web", []ApplicationImage{newer}, true).FallbackReason)
+}
+
+func TestObservedApplicationResultCoversManyScopedImages(t *testing.T) {
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	logger := log.NewPrefixLogger("test")
+	store := New(rw, "/var/lib/flightctl", logger)
+	require.NoError(t, store.ReconcileApplicationSpecs(map[string]string{"app": "spec"}))
+	targets := make(map[string]string)
+	var images []ApplicationImage
+	for i := 0; i < 12; i++ {
+		image := ApplicationImage{Image: fmt.Sprintf("quay.io/acme/workload-%d:latest", i), Owner: "root", OCIType: "PodmanImage", Digest: fmt.Sprintf("sha256:observed-%d", i)}
+		images = append(images, image)
+		targets[Fingerprint(image.Owner, image.Image, image.OCIType)] = fmt.Sprintf("target-%d", i)
+	}
+	require.NoError(t, store.ReconcileApplicationTargets(map[string]map[string]string{"app": targets}, true))
+	for i, image := range images {
+		outcome := v1beta1.DeviceDeltaApplyOutcomeApplied
+		if i == 0 {
+			outcome = v1beta1.DeviceDeltaApplyOutcomeNotRequired
+		}
+		targetID := Fingerprint(image.Owner, image.Image, image.OCIType)
+		require.NoError(t, store.RecordApplicationImageResult("app", "spec", targetID, targets[targetID], image, v1beta1.DeviceDeltaApplyStatus{Outcome: outcome}))
+	}
+	// Replica count does not consume another result or change aggregation.
+	images = append(images, images[1], images[1])
+	observed := New(rw, "/var/lib/flightctl", logger).ObservedApplicationResult("app", images, true)
+	require.NotNil(t, observed)
+	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeApplied, observed.Outcome)
+	for _, mutation := range []struct {
+		name  string
+		image ApplicationImage
+	}{
+		{"When the owner differs it should withhold the result", ApplicationImage{Image: images[0].Image, Owner: "alice", OCIType: images[0].OCIType, Digest: images[0].Digest}},
+		{"When the runtime differs it should withhold the result", ApplicationImage{Image: images[0].Image, Owner: images[0].Owner, OCIType: "CRIImage", Digest: images[0].Digest}},
+		{"When the digest representation differs it should withhold the result", ApplicationImage{Image: images[0].Image, Owner: images[0].Owner, OCIType: images[0].OCIType, Digest: "sha256:unverified-platform"}},
+	} {
+		t.Run(mutation.name, func(t *testing.T) {
+			require.Nil(t, store.ObservedApplicationResult("app", append(images, mutation.image), true))
+		})
+	}
+	first := images[1]
+	targetID := Fingerprint(first.Owner, first.Image, first.OCIType)
+	require.NoError(t, store.RecordApplicationImageResult("app", "spec", targetID, targets[targetID], first, v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeFallback}))
+	require.Equal(t, v1beta1.DeviceDeltaApplyOutcomeApplied, store.ObservedApplicationResult("app", []ApplicationImage{first}, true).Outcome)
+	require.NoError(t, store.ReconcileApplicationSpecs(nil))
+	require.Nil(t, store.ObservedApplicationResult("app", images, true))
 }

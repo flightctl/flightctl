@@ -129,7 +129,9 @@ The agent persists OS and application delta outcomes in `delta-status.json` in i
 
 OS outcomes are associated with the image reference and digest observed by bootc after staging. Status selects the result for the booted image and digest. Preparing another image retains the previous booted result, including across restart. An unknown booted identity or a legacy record without a verified association omits `lastDelta`.
 
-If digest validation confirms that an application image tag now refers to different content, the agent clears the previous delta outcome before preparing that content. This also applies when the image is absent after restart and its source digest confirms the tag changed. An unavailable digest inspection does not invalidate the saved outcome.
+Application outcomes retain per-image associations with a verified registry digest, storage owner, reference, and OCI target type. Status combines matching recorded outcomes from the complete observed workload image set, including old and new versions during a rollout. Shared images reuse their recorded outcome. Preparing a new desired image preserves history for content still running, including across restart.
+
+Unknown workload identities, missing expected images, unmatched results, or incomplete collection omit application `lastDelta`. A known digest from another replica cannot cover an unknown image. Desired prefetch results alone do not establish an observed association. Applications requiring parent or volume evidence also omit the outcome until all required image associations can be verified.
 
 ## Ansible Collection
 
