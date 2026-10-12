@@ -23,10 +23,10 @@ database:
 service:
   address: flightctl-api:3080
   agentEndpointAddress: unix:///var/run/flightctl-listeners/api-agent.sock
-  baseUrl: https://{{.global.baseDomain}}/_/flightctl/
+  baseUrl: https://{{.global.baseDomain}}{{.global.apiHostPortSuffix}}/_/flightctl/
   disableTLS: true
   baseAgentEndpointUrl: https://{{.global.baseDomain}}:7443/
-  baseUIUrl: https://{{.global.baseDomain}}
+  baseUIUrl: https://{{.global.baseDomain}}{{.global.apiHostPortSuffix}}
   altNames:
     - {{.global.baseDomain}}
     - flightctl-api
@@ -71,7 +71,7 @@ auth:
   oidc:
     enabled: {{if .global.auth.oidc.enabled}}{{.global.auth.oidc.enabled}}{{else}}true{{end}}
     {{if eq .global.auth.pamOidcIssuer.enabled true}}
-    issuer: {{if .global.auth.pamOidcIssuer.issuer}}{{.global.auth.pamOidcIssuer.issuer}}{{else}}https://{{.global.baseDomain}}/_/pam-issuer/api/v1/auth{{end}}
+    issuer: {{if .global.auth.pamOidcIssuer.issuer}}{{.global.auth.pamOidcIssuer.issuer}}{{else}}https://{{.global.baseDomain}}{{.global.apiHostPortSuffix}}/_/pam-issuer/api/v1/auth{{end}}
     clientId: {{if .global.auth.pamOidcIssuer.clientId}}{{.global.auth.pamOidcIssuer.clientId}}{{else}}flightctl-client{{end}}
     clientSecret: {{if .global.auth.pamOidcIssuer.clientSecret}}{{.global.auth.pamOidcIssuer.clientSecret}}{{end}}
     {{else}}

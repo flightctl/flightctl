@@ -12,16 +12,27 @@ endif
 
 # Create kind cluster if it doesn't exist (idempotent)
 cluster: bin/e2e-certs/ca.pem
-	test/scripts/install_kind.sh
-	kind get clusters | grep kind || test/scripts/create_cluster.sh
+	PATH="$(ROOT_DIR)/bin:$$PATH" test/scripts/install_kind.sh
+	@if [ "$$(id -u)" -eq 0 ]; then \
+		PATH="$(ROOT_DIR)/bin:$$PATH" kind get clusters | grep kind || PATH="$(ROOT_DIR)/bin:$$PATH" test/scripts/create_cluster.sh; \
+	else \
+		KIND_EXPERIMENTAL_PROVIDER=podman PATH="$(ROOT_DIR)/bin:$$PATH" kind get clusters | grep kind || PATH="$(ROOT_DIR)/bin:$$PATH" test/scripts/create_cluster.sh; \
+	fi
 
 clean-cluster:
-	kind delete cluster
+	PATH="$(ROOT_DIR)/bin:$$PATH" test/scripts/delete_kind_cluster.sh
 
 ifndef SKIP_BUILD
-deploy: cluster build-containers build-cli deploy-helm prepare-agent-config
+deploy:
+	test/scripts/runtime_preflight.sh kind
+	$(MAKE) _deploy
+_deploy: cluster build-containers build-cli deploy-helm prepare-agent-config
 else
-deploy: cluster deploy-helm prepare-agent-config
+
+deploy:
+	test/scripts/runtime_preflight.sh kind
+	$(MAKE) _deploy
+_deploy: cluster deploy-helm prepare-agent-config
 	@echo "Skipping container and CLI builds (SKIP_BUILD is set)"
 endif
 
@@ -60,14 +71,22 @@ deploy-helm: flightctl-api-container flightctl-db-setup-container flightctl-work
 endif
 deploy-helm:
 	kubectl config set-context kind-kind
-	test/scripts/install_helm.sh
-	test/scripts/deploy_with_helm.sh --db-size $(DB_SIZE)
+	PATH="$(ROOT_DIR)/bin:$$PATH" test/scripts/install_helm.sh
+	@if [ "$$(id -u)" -eq 0 ]; then \
+		PATH="$(ROOT_DIR)/bin:$$PATH" test/scripts/deploy_with_helm.sh --db-size $(DB_SIZE); \
+	else \
+		KIND_EXPERIMENTAL_PROVIDER=podman PATH="$(ROOT_DIR)/bin:$$PATH" test/scripts/deploy_with_helm.sh --db-size $(DB_SIZE); \
+	fi
 
 prepare-agent-config:
 	test/scripts/agent-images/prepare_agent_config.sh --status-update-interval $(STATUS_UPDATE_INTERVAL) --spec-fetch-interval $(SPEC_FETCH_INTERVAL)
 
 deploy-db-helm: cluster
-	test/scripts/deploy_with_helm.sh --only-db
+	@if [ "$$(id -u)" -eq 0 ]; then \
+		PATH="$(ROOT_DIR)/bin:$$PATH" test/scripts/deploy_with_helm.sh --only-db; \
+	else \
+		KIND_EXPERIMENTAL_PROVIDER=podman PATH="$(ROOT_DIR)/bin:$$PATH" test/scripts/deploy_with_helm.sh --only-db; \
+	fi
 
 deploy-db:
 	sudo -E deploy/scripts/deploy_quadlet_service.sh db
@@ -83,26 +102,12 @@ deploy-alertmanager-proxy:
 
 # Can set the SKIP_BUILD variable to skip the build step and use existing containers
 deploy-quadlets:
+	test/scripts/runtime_preflight.sh quadlets
 ifndef SKIP_BUILD
 	$(MAKE) build-containers
-	@echo "Copying containers from user to root context for systemd services..."
-	podman save flightctl-api-$(OS):latest | sudo podman load
-	podman save flightctl-db-setup-$(OS):latest | sudo podman load
-	podman save flightctl-worker-$(OS):latest | sudo podman load
-	podman save flightctl-delta-worker-$(OS):latest | sudo podman load
-	podman save flightctl-periodic-$(OS):latest | sudo podman load
-	podman save flightctl-alert-exporter-$(OS):latest | sudo podman load
-	podman save flightctl-cli-artifacts-$(OS):latest | sudo podman load
-	podman save flightctl-alertmanager-proxy-$(OS):latest | sudo podman load
-	podman save flightctl-pam-issuer-$(OS):latest | sudo podman load
-	podman save flightctl-imagebuilder-api-$(OS):latest | sudo podman load
-	podman save flightctl-imagebuilder-worker-$(OS):latest | sudo podman load
-	podman save flightctl-userinfo-proxy-$(OS):latest | sudo podman load
-	podman save flightctl-telemetry-gateway-$(OS):latest | sudo podman load
-	podman save flightctl-remote-access-$(OS):latest | sudo podman load
 endif
 	$(MAKE) build-standalone
-	sudo -E OS="$(OS)" deploy/scripts/deploy_quadlets.sh
+	OS="$(OS)" deploy/scripts/deploy_quadlets.sh
 
 kill-db:
 	sudo systemctl stop flightctl-db.service
@@ -151,4 +156,4 @@ clean-services-container:
 	sudo podman rm flightctl-services || true
 	sudo podman rmi localhost/flightctl-services:latest || true
 
-PHONY: deploy-db deploy cluster services-container run-services-container clean-services-container
+.PHONY: deploy-db deploy _deploy cluster clean-cluster deploy-quadlets services-container run-services-container clean-services-container

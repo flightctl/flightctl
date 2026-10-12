@@ -386,6 +386,7 @@ ssh -i ${SSH_PRIVATE_KEY_PATH} -o StrictHostKeyChecking=no -o UserKnownHostsFile
 
   # Install Helm
   echo "Installing Helm..."
+  export PATH="$USER_HOME/flightctl/bin:\$PATH"
   $USER_HOME/flightctl/test/scripts/install_helm.sh
 
   # Verify helm installation and ensure it's in PATH

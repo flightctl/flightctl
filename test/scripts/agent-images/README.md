@@ -32,6 +32,35 @@ Bootc `AGENT_OS_ID` values are `cs9-bootc` (default) and `cs10-bootc`. Package-m
 the `package` variant under `variants/package/` (layered on the bootc base with
 `bootc`/`rpm-ostree` removed from PATH so the agent reports `osMode=package`).
 
+### Host user and rootless builds
+
+The effective user selects the Podman image store. An unprivileged invocation
+builds images in that user's rootless Podman store and runs the native
+`image-builder build --in-vm` CLI from the selected builder image; it requires
+readable and writable `/dev/kvm` access. The pinned v83 `bootc-image-builder`
+compatibility CLI does not accept `--in-vm` or the native `build --bootc-ref`
+interface. The image contains
+the same unified binary at that path, so the script invokes it under a different
+`argv[0]` name to select the native CLI, then checks its `--in-vm`, bootc-ref,
+and output flags before starting a build. Rootless `--in-vm` support is
+experimental. When SELinux policy is enforced, install the host
+`osbuild-selinux` policy or its equivalent
+as required by bootc-image-builder. The BIB job container command keeps
+`--privileged`, as in the upstream v83 rootless example; a narrower
+job-container profile has not been validated. The native CLI performs its
+SELinux label and mount setup outside the OSBuild VM, and `--in-vm` does not
+change that container's Podman security flags. The README example
+passes `--in-vm` to the compatibility command, but the pinned compatibility CLI
+does not define that flag; the script uses the native CLI instead. See the
+[bootc-image-builder rootless notes](https://github.com/osbuild/image-builder/blob/v83.0.0/bootc-image-builder/README.md#rootless).
+Rootless DNF and osbuild caches live under `bin/rootless-bib-cache/` so they stay
+owned by the invoking user. QCOW2 injection uses host `virt-customize` through
+libguestfs instead of NBD device attachment and host mounts.
+
+Running these scripts as UID 0 uses root's Podman store and the existing
+rootful bootc-image-builder path. Keep the build and cleanup invocations under
+the same effective user so they use the same image store.
+
 ## OS Flavors and Tagging
 
 Bootc flavors with dedicated Containerfiles:

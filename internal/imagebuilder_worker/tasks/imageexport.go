@@ -336,8 +336,14 @@ type privilegedPodmanWorker struct {
 	TmpDir              string
 	TmpOutDir           string
 	TmpContainerStorage string
+	PodmanRuntimeDir    string
+	Rootless            bool
 	Cleanup             func()
 	statusUpdater       *imageExportStatusUpdater
+}
+
+func (w *privilegedPodmanWorker) podmanCommand(ctx context.Context, args ...string) *exec.Cmd {
+	return podmanCommandWithRuntime(ctx, w.Rootless, w.PodmanRuntimeDir, args...)
 }
 
 // statusWriter is a thread-safe writer that captures output to a buffer
@@ -398,7 +404,7 @@ func (c *Consumer) executeExport(
 	}
 
 	// Step 2.6: Install CA certificate for source registry if configured
-	if err := installCACertInWorker(ctx, exportSource.OciRepoSpec.CaCrt, worker.ContainerName, registryHostname, log); err != nil {
+	if err := installCACertInWorkerWithCommand(ctx, exportSource.OciRepoSpec.CaCrt, worker.ContainerName, registryHostname, log, worker.podmanCommand); err != nil {
 		return "", cleanup, fmt.Errorf("failed to install CA cert for source registry: %w", err)
 	}
 
@@ -429,7 +435,7 @@ func (c *Consumer) executeExport(
 	// List output directory contents recursively after bootc conversion
 	log.Debug("Listing output directory contents after bootc conversion")
 	lsArgs := []string{"exec", worker.ContainerName, "ls", "-laR", "/output"}
-	lsCmd := exec.CommandContext(ctx, "podman", lsArgs...)
+	lsCmd := worker.podmanCommand(ctx, lsArgs...)
 	var lsOutput bytes.Buffer
 	lsCmd.Stdout = &lsOutput
 	lsCmd.Stderr = &lsOutput
@@ -475,6 +481,19 @@ func (c *Consumer) startBootcImageBuilderContainer(
 	if c.cfg == nil || c.cfg.ImageBuilderWorker == nil {
 		return nil, fmt.Errorf("config or ImageBuilderWorker config is nil")
 	}
+	rootless := isRootlessRuntime()
+	if rootless {
+		if imageExport.Spec.Format == domain.ExportFormatTypeISO {
+			return nil, fmt.Errorf("rootless ImageExport does not support ISO with the native image-builder CLI: --in-vm currently runs the image pipeline, while the generic ISO target uses a different pipeline; use a rootful worker or export QCOW2/VMDK")
+		}
+		kvm, err := os.OpenFile("/dev/kvm", os.O_RDWR, 0)
+		if err != nil {
+			return nil, fmt.Errorf("rootless ImageExport requires accessible /dev/kvm for native image-builder --in-vm: %w (rootless Kind may need a host device ACL for the invoking UID because the KVM group can be unmapped inside the node)", err)
+		}
+		if err := kvm.Close(); err != nil {
+			return nil, fmt.Errorf("closing /dev/kvm after access check: %w", err)
+		}
+	}
 	bootcImageBuilderImage := c.cfg.ImageBuilderWorker.EffectiveBootcImageBuilderImage()
 
 	// Create temporary directories
@@ -495,6 +514,16 @@ func (c *Consumer) startBootcImageBuilderContainer(
 		os.RemoveAll(tmpOutDir)
 		return nil, fmt.Errorf("failed to create temporary container storage: %w", err)
 	}
+	podmanRuntimeDir := ""
+	if rootless {
+		podmanRuntimeDir = filepath.Join(tmpDir, "runtime")
+		if err := os.MkdirAll(podmanRuntimeDir, 0700); err != nil {
+			os.RemoveAll(tmpDir)
+			os.RemoveAll(tmpOutDir)
+			os.RemoveAll(tmpContainerStorage)
+			return nil, fmt.Errorf("failed to create rootless Podman runtime directory: %w", err)
+		}
+	}
 
 	// Container paths
 	containerOutDir := "/output"
@@ -512,9 +541,20 @@ func (c *Consumer) startBootcImageBuilderContainer(
 		"--net=host",
 		"--pull=newer",
 		"--entrypoint", "sleep",
-		"--security-opt", "label=type:unconfined_t",
+		// OSBuild's setfiles stage writes SELinux contexts that are not part of
+		// the host policy. The upstream osbuild-container policy grants the
+		// required capability to this domain.
+		"--security-opt", "label=type:osbuild_container_t",
 		"-v", fmt.Sprintf("%s:%s:Z", tmpOutDir, containerOutDir),
 		"-v", fmt.Sprintf("%s:%s:Z", tmpContainerStorage, containerStorageDir),
+	}
+	if rootless {
+		startArgs = append(startArgs,
+			"--group-add=keep-groups",
+			"--device=/dev/kvm:/dev/kvm",
+			"--env=XDG_DATA_HOME=/var/lib",
+			"--env=XDG_RUNTIME_DIR=/tmp/flightctl-podman-runtime",
+		)
 	}
 	if c.cfg.ImageBuilderWorker.EffectiveBootcImageBuilderSkipTLSVerify() {
 		startArgs = append(startArgs, "--tls-verify=false")
@@ -526,7 +566,7 @@ func (c *Consumer) startBootcImageBuilderContainer(
 	cmdStr := strings.Join(cmdParts, " ")
 	log.WithField("command", cmdStr).Debug("Executing podman command")
 
-	if out, err := exec.CommandContext(ctx, "podman", startArgs...).CombinedOutput(); err != nil {
+	if out, err := podmanCommandWithRuntime(ctx, rootless, podmanRuntimeDir, startArgs...).CombinedOutput(); err != nil {
 		os.RemoveAll(tmpDir)
 		os.RemoveAll(tmpOutDir)
 		os.RemoveAll(tmpContainerStorage)
@@ -537,7 +577,7 @@ func (c *Consumer) startBootcImageBuilderContainer(
 		log.Debug("Cleaning up bootc-image-builder container")
 		killCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		if err := exec.CommandContext(killCtx, "podman", "kill", containerName).Run(); err != nil {
+		if err := podmanCommandWithRuntime(killCtx, rootless, podmanRuntimeDir, "kill", containerName).Run(); err != nil {
 			log.WithError(err).Warn("Failed to kill bootc-image-builder container during cleanup")
 		}
 		if err := os.RemoveAll(tmpDir); err != nil {
@@ -548,12 +588,42 @@ func (c *Consumer) startBootcImageBuilderContainer(
 			log.WithError(err).WithField("path", tmpContainerStorage).Warn("Failed to remove temporary container storage directory")
 		}
 	}
+	if rootless {
+		// The v83 BIB image installs the unified image-builder binary at the
+		// bootc-image-builder path. Its main function selects the compatibility
+		// CLI when argv[0] ends in "bootc-image-builder"; a differently named
+		// symlink selects the native CLI, which supports --in-vm for bootc refs.
+		linkArgs := []string{
+			"exec", containerName, "sh", "-c",
+			"set -eu; builder=\"$(command -v bootc-image-builder)\"; ln -sf \"$builder\" /tmp/image-builder",
+		}
+		if out, err := podmanCommandWithRuntime(ctx, rootless, podmanRuntimeDir, linkArgs...).CombinedOutput(); err != nil {
+			cleanup()
+			return nil, fmt.Errorf("failed to expose the native image-builder CLI for rootless ImageExport: %w: %s", err, strings.TrimSpace(string(out)))
+		}
+
+		buildHelpArgs := []string{"exec", containerName, "/tmp/image-builder", "build", "--help"}
+		buildHelp, err := podmanCommandWithRuntime(ctx, rootless, podmanRuntimeDir, buildHelpArgs...).CombinedOutput()
+		if err != nil {
+			cleanup()
+			return nil, fmt.Errorf("failed to inspect the native image-builder CLI for rootless ImageExport: %w: %s", err, strings.TrimSpace(string(buildHelp)))
+		}
+		requiredRootlessFlags := []string{"--in-vm", "--bootc-ref", "--bootc-default-fs", "--output-dir", "--output-name"}
+		for _, flag := range requiredRootlessFlags {
+			if !strings.Contains(string(buildHelp), flag) {
+				cleanup()
+				return nil, fmt.Errorf("configured builder image %q does not expose native image-builder build %s, required for rootless ImageExport", bootcImageBuilderImage, flag)
+			}
+		}
+	}
 
 	return &privilegedPodmanWorker{
 		ContainerName:       containerName,
 		TmpDir:              tmpDir,
 		TmpOutDir:           tmpOutDir,
 		TmpContainerStorage: tmpContainerStorage,
+		PodmanRuntimeDir:    podmanRuntimeDir,
+		Rootless:            rootless,
 		Cleanup:             cleanup,
 		statusUpdater:       statusUpdater,
 	}, nil
@@ -564,12 +634,22 @@ func (c *Consumer) startBootcImageBuilderContainer(
 // Running podman info will initialize the storage structure using the storage.conf that's mounted.
 func (c *Consumer) initializePodmanStorage(ctx context.Context, worker *privilegedPodmanWorker, log logrus.FieldLogger) error {
 	log.Debug("Initializing podman storage inside bootc-image-builder container")
+	if worker.Rootless {
+		mkdirArgs := []string{"exec", worker.ContainerName, "mkdir", "-p", "/tmp/flightctl-podman-runtime"}
+		if out, err := worker.podmanCommand(ctx, mkdirArgs...).CombinedOutput(); err != nil {
+			return fmt.Errorf("failed to create rootless Podman runtime directory in builder: %w: %s", err, strings.TrimSpace(string(out)))
+		}
+		chmodArgs := []string{"exec", worker.ContainerName, "chmod", "0700", "/tmp/flightctl-podman-runtime"}
+		if out, err := worker.podmanCommand(ctx, chmodArgs...).CombinedOutput(); err != nil {
+			return fmt.Errorf("failed to secure rootless Podman runtime directory in builder: %w: %s", err, strings.TrimSpace(string(out)))
+		}
+	}
 
 	// Run podman info to initialize the storage structure and database files
 	// This creates the necessary internal files and directories that podman needs
 	// The storage.conf and containers.conf are already mounted, so podman will use them
 	execArgs := []string{"exec", worker.ContainerName, "podman", "info"}
-	cmd := exec.CommandContext(ctx, "podman", execArgs...)
+	cmd := worker.podmanCommand(ctx, execArgs...)
 
 	var outputBuffer bytes.Buffer
 	writer := &imageExportStatusWriter{
@@ -587,15 +667,20 @@ func (c *Consumer) initializePodmanStorage(ctx context.Context, worker *privileg
 	}
 
 	log.Debug("Podman storage initialized successfully")
+	if worker.Rootless {
+		// The rootless storage driver may use either overlay or vfs depending on
+		// the capabilities visible inside the worker's user namespace.
+		return nil
+	}
 
 	// Verify that the overlay directory was created by podman info
 	log.Debug("Verifying overlay directory was created")
 	overlayCheckArgs := []string{"exec", worker.ContainerName, "test", "-d", "/var/lib/containers/storage/overlay"}
-	overlayCheckCmd := exec.CommandContext(ctx, "podman", overlayCheckArgs...)
+	overlayCheckCmd := worker.podmanCommand(ctx, overlayCheckArgs...)
 	if err := overlayCheckCmd.Run(); err != nil {
 		// List the storage directory to see what was actually created
 		lsArgs := []string{"exec", worker.ContainerName, "ls", "-laR", "/var/lib/containers/storage"}
-		lsCmd := exec.CommandContext(ctx, "podman", lsArgs...)
+		lsCmd := worker.podmanCommand(ctx, lsArgs...)
 		var lsOutput bytes.Buffer
 		lsCmd.Stdout = &lsOutput
 		lsCmd.Stderr = &lsOutput
@@ -663,7 +748,7 @@ func (c *Consumer) loginToRegistryForExport(
 	// username and registryHostname are validated above to prevent command injection
 	execArgs := []string{"exec", "-i", worker.ContainerName, "podman"}
 	execArgs = append(execArgs, loginArgs...)
-	loginCmd := exec.CommandContext(ctx, "podman", execArgs...)
+	loginCmd := worker.podmanCommand(ctx, execArgs...)
 
 	// Write password to stdin
 	loginCmd.Stdin = strings.NewReader(password)
@@ -702,7 +787,7 @@ func (c *Consumer) pullSourceImage(ctx context.Context, worker *privilegedPodman
 	// Run podman pull inside the container
 	execArgs := []string{"exec", worker.ContainerName, "podman"}
 	execArgs = append(execArgs, pullArgs...)
-	cmd := exec.CommandContext(ctx, "podman", execArgs...)
+	cmd := worker.podmanCommand(ctx, execArgs...)
 
 	var outputBuffer bytes.Buffer
 	writer := &imageExportStatusWriter{
@@ -733,6 +818,11 @@ func (c *Consumer) runBootcImageBuilder(
 	bootcImageRef string,
 	log logrus.FieldLogger,
 ) error {
+	builderCommand := "bootc-image-builder"
+	if worker.Rootless {
+		builderCommand = "native image-builder"
+	}
+
 	// Map qcow2-disk-container to qcow2 for bootc-image-builder
 	// The container wrapping happens later in executeExport
 	bootcFormat := format
@@ -744,22 +834,39 @@ func (c *Consumer) runBootcImageBuilder(
 		"format":      format,
 		"bootcFormat": bootcFormat,
 		"image":       bootcImageRef,
-	}).Info("Running bootc-image-builder")
+	}).Info("Running bootc image exporter")
 
-	// Run bootc-image-builder entrypoint inside the existing container
-	// Format: podman exec -w /output <container> bootc-image-builder --type qcow2 --rootfs xfs "${BOOTC_IMAGE}"
-	// Use -w to set working directory to /output so files are saved there
-	execArgs := []string{
-		"exec",
-		"-w", "/output",
-		worker.ContainerName,
-		"bootc-image-builder",
-		"--type", string(bootcFormat),
-		"--rootfs", "xfs",
-		bootcImageRef,
+	var execArgs []string
+	if worker.Rootless {
+		imageType := string(bootcFormat)
+		outputDir := filepath.Join("/output", imageType)
+		outputName := "disk"
+		execArgs = []string{
+			"exec",
+			worker.ContainerName,
+			"/tmp/image-builder",
+			"build",
+			"--in-vm",
+			"--bootc-ref", bootcImageRef,
+			"--bootc-default-fs", "xfs",
+			"--output-dir", outputDir,
+			"--output-name", outputName,
+			imageType,
+		}
+	} else {
+		// The existing rootful path keeps using the BIB compatibility CLI.
+		execArgs = []string{
+			"exec",
+			"-w", "/output",
+			worker.ContainerName,
+			"bootc-image-builder",
+			"--type", string(bootcFormat),
+			"--rootfs", "xfs",
+			bootcImageRef,
+		}
 	}
 
-	cmd := exec.CommandContext(ctx, "podman", execArgs...)
+	cmd := worker.podmanCommand(ctx, execArgs...)
 
 	var outputBuffer bytes.Buffer
 	writer := &imageExportStatusWriter{
@@ -772,13 +879,13 @@ func (c *Consumer) runBootcImageBuilder(
 
 	if err := cmd.Run(); err != nil {
 		output := outputBuffer.String()
-		log.Debugf("bootc-image-builder output:\n%s", output)
-		return fmt.Errorf("bootc-image-builder failed: %w. Output: %s", err, output)
+		log.Debugf("%s output:\n%s", builderCommand, output)
+		return fmt.Errorf("%s failed: %w. Output: %s", builderCommand, err, output)
 	}
 
 	output := outputBuffer.String()
-	log.Debugf("bootc-image-builder output:\n%s", output)
-	log.Info("bootc-image-builder completed successfully")
+	log.Debugf("%s output:\n%s", builderCommand, output)
+	log.Infof("%s completed successfully", builderCommand)
 	return nil
 }
 
@@ -851,7 +958,7 @@ func (c *Consumer) buildContainerDiskImage(
 		containerBuildDir,
 	}
 
-	buildCmd := exec.CommandContext(ctx, "podman", buildArgs...)
+	buildCmd := worker.podmanCommand(ctx, buildArgs...)
 	var buildOutput bytes.Buffer
 	buildWriter := &imageExportStatusWriter{
 		buf:           &buildOutput,
@@ -878,7 +985,7 @@ func (c *Consumer) buildContainerDiskImage(
 		localImageName,
 	}
 
-	saveCmd := exec.CommandContext(ctx, "podman", saveArgs...)
+	saveCmd := worker.podmanCommand(ctx, saveArgs...)
 	var saveOutput bytes.Buffer
 	saveWriter := &imageExportStatusWriter{
 		buf:           &saveOutput,

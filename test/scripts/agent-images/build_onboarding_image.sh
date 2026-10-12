@@ -85,10 +85,10 @@ else
     export PODMAN_BUILD_EXTRA_FLAGS="${BUILD_ARGS}"
 fi
 
-# 1) Build the base image (built as root so the qcow2 step can read it from the
-#    root podman storage, matching create_agent_images.sh).
+# 1) Build the base image in the Podman store selected by the effective user;
+#    qcow2.sh uses the same store for its bootc-image-builder input.
 echo "Building Fedora onboarding base image (${IMAGE_REPO}:base-${OS_ID}-${TAG})"
-sudo -E "${SCRIPT_DIR}/scripts/build.sh" --base
+"${SCRIPT_DIR}/scripts/build.sh" --base
 
 # 2) Produce the qcow2 from the base image. Fedora bootc images do not carry a
 #    default root filesystem type, so bootc-image-builder aborts without an
@@ -114,6 +114,8 @@ fi
 mkdir -p "${ROOT_DIR}/bin/output/qcow2"
 mv "${QCOW_SRC}" "${QCOW_DST}"
 printf '%s\n' "${OS_ID}" > "${ROOT_DIR}/bin/output/qcow2/disk.qcow2.os-id"
-sudo chown -R "${USER}:$(id -gn "${USER}")" "${ROOT_DIR}/bin/output" || true
+if [[ "${EUID}" -eq 0 && -n "${SUDO_UID:-}" && "${SUDO_UID}" != "0" ]]; then
+    chown -R "${SUDO_UID}:${SUDO_GID:-${SUDO_UID}}" "${ROOT_DIR}/bin/output" || true
+fi
 
 echo "Fedora onboarding qcow2 ready at ${QCOW_DST} (os-id: ${OS_ID})"

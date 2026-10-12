@@ -5,8 +5,8 @@ global:
   baseDomain:
 
   # Certificate generation method - 'none' or 'builtin'
-  # - none: Do not generate certificates. User must provide certs in /etc/flightctl/pki/ or the service will fail to start.
-  # - builtin: Generate a self-signed CA cert in /etc/flightctl/pki/ca.{crt,key}, unless the user already provided that CA.
+  # - none: Do not generate certificates. User must provide certs in the deployment's pki/ directory or the service will fail to start.
+  # - builtin: Generate a self-signed CA cert in the deployment's pki/ca.{crt,key}, unless the user already provided that CA.
   #            Generate the remaining certificates from the CA cert (default)
   generateCertificates: builtin
   auth:
@@ -88,8 +88,8 @@ service:
   # Optional: TPM manufacturer / swtpm CA PEM paths for device enrollment (rendered into flightctl-api config).
   # Must be a YAML list, e.g.:
   # tpmCAPaths:
-  #   - /etc/flightctl/tpm-cas/swtpm-localca-rootca-cert.pem
-  #   - /etc/flightctl/tpm-cas/issuercert.pem
+  #   - <deployment-config-dir>/tpm-cas/swtpm-localca-rootca-cert.pem
+  #   - <deployment-config-dir>/tpm-cas/issuercert.pem
   # Rate limiting configuration (applied per-service where enabled).
   rateLimit:
     enabled: true
@@ -169,6 +169,8 @@ prometheus:
 #     bootcImageBuilder:
 #       image: ""           # Override bootc-image-builder image (optional)
 #       skipTlsVerify: false  # Set to true to skip TLS verification
+#       # Rootless --in-vm exports also need qemu-system-<arch>, virtiofsd, and
+#       # tomli in the Python package directory mounted into the OSBuild VM.
 #     syft:
 #       image: ""           # Override Syft image for SBOM generation (optional)
 #       skipTlsVerify: false
@@ -259,9 +261,9 @@ gateway:
   suppressOldPorts: false
 
 # Encryption-at-rest key configuration.
-# The encryption key files live in /etc/flightctl/encryption/ and are mounted
+# The encryption key files live in the deployment's encryption/ directory and are mounted
 # at /root/.flightctl/encryption/ inside each service container.
-# For key rotation: write the new key under /etc/flightctl/encryption/ on the host,
+# For key rotation: write the new key under the deployment's encryption/ directory on the host,
 # then list it here with path: /root/.flightctl/encryption/<filename> (container
 # mount path, not host path), and change activeKeyID.
 encryption:

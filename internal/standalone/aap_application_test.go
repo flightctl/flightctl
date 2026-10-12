@@ -189,13 +189,18 @@ func TestBuildOAuthApplicationRequest(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := buildOAuthApplicationRequest(tt.baseDomain, tt.appName, tt.organization)
+			apiPort := "443"
+			if os.Geteuid() != 0 {
+				apiPort = "9443"
+			}
+			apiURL := "https://" + tt.baseDomain + ":" + apiPort
 
 			require.Equal(t, tt.appName, req.Name)
 			require.Equal(t, tt.organization, req.Organization)
 			require.Equal(t, "authorization-code", req.AuthorizationGrantType)
 			require.Equal(t, "public", req.ClientType)
-			require.Equal(t, "https://"+tt.baseDomain+":443", req.AppURL)
-			require.Contains(t, req.RedirectURIs, "https://"+tt.baseDomain+":443/callback")
+			require.Equal(t, apiURL, req.AppURL)
+			require.Contains(t, req.RedirectURIs, apiURL+"/callback")
 			require.Contains(t, req.RedirectURIs, "http://localhost:8080/callback")
 			require.Contains(t, req.RedirectURIs, "http://127.0.0.1:8080/callback")
 		})

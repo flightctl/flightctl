@@ -88,7 +88,7 @@ For a Linux-native setup using systemd + Podman (no Kubernetes required):
 make deploy-quadlets
 ```
 
-Certificates and client configuration are written to `~/.flightctl/`.
+For a regular-user Quadlet deployment, service configuration and certificates are stored under `${XDG_CONFIG_HOME:-$HOME/.config}/flightctl`; a UID 0 deployment uses `/etc/flightctl`. The CLI client configuration is stored under `${XDG_CONFIG_HOME:-$HOME/.config}/flightctl/client.yaml`.
 
 ## Prerequisites
 

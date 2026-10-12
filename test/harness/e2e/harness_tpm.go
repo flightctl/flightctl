@@ -66,10 +66,14 @@ func (h *Harness) SetupVMFromPoolWithTPM(workerID int, detected TPMType) error {
 	return nil
 }
 
-// HostHasTPMDevice returns true if the specified TPM device exists on the host.
+// HostHasTPMDevice returns true if the current user can open the specified TPM
+// device for read/write access, as required for libvirt passthrough.
 func HostHasTPMDevice(device string) bool {
-	_, err := os.Stat(device)
-	return err == nil
+	file, err := os.OpenFile(device, os.O_RDWR, 0)
+	if err != nil {
+		return false
+	}
+	return file.Close() == nil
 }
 
 // SetupVMWithTPMPassthrough creates a fresh VM with TPM passthrough and starts the agent.

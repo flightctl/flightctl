@@ -54,4 +54,4 @@ After=flightctl-remote-access.service
 After=flightctl-gateway.service
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target

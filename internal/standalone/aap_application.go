@@ -5,8 +5,10 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 
 	standaloneconfig "github.com/flightctl/flightctl/internal/config/standalone"
 	"github.com/flightctl/flightctl/internal/quadlet/renderer"
@@ -57,7 +59,7 @@ func buildTLSConfig(opts CreateAAPClientOptions) (*tls.Config, error) {
 			}
 			tlsConfig.RootCAs = caCertPool
 			opts.Logger.Infof("Using CA certificate from %s", opts.CACertFile)
-		} else if opts.CACertFile != renderer.DefaultAuthCACertPath {
+		} else if opts.CACertFile != filepath.Join(renderer.NewRendererConfig().WriteableConfigOutputDir, "pki", "auth", "ca.crt") {
 			opts.Logger.Warnf("Configured CA cert file not found: %s - using system CAs", opts.CACertFile)
 		}
 	}
@@ -95,8 +97,9 @@ func CreateAAPApplication(ctx context.Context, opts CreateAAPApplicationOptions)
 }
 
 func buildOAuthApplicationRequest(baseDomain string, appName string, organization int) *aap.AAPOAuthApplicationRequest {
-	appURL := url.URL{Scheme: "https", Host: baseDomain + ":443"}
-	callbackURL := url.URL{Scheme: "https", Host: baseDomain + ":443", Path: "/callback"}
+	apiHost := net.JoinHostPort(baseDomain, renderer.NewRendererConfig().GatewayHostPort)
+	appURL := url.URL{Scheme: "https", Host: apiHost}
+	callbackURL := url.URL{Scheme: "https", Host: apiHost, Path: "/callback"}
 	// Local callback URLs are used by the CLI OAuth flow. Include both localhost
 	// and 127.0.0.1 forms with the default CLI callback port.
 	localhostCallbackURL := url.URL{Scheme: "http", Host: "localhost:8080", Path: "/callback"}

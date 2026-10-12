@@ -94,6 +94,11 @@ spec:
             - mountPath: /var/lib/containers
               name: worker-storage
               readOnly: false
+            {{- if .Values.imageBuilderWorker.kvmDevice.enabled }}
+            - mountPath: /dev/kvm
+              name: host-kvm
+            {{- end }}
+            {{- if .Values.imageBuilderWorker.hostDevices.enabled }}
             # 1. SYSFS: Mandatory. Bypasses K8s read-only masks so bootc can validate privileges.
             - mountPath: /sys
               name: host-sys
@@ -106,6 +111,7 @@ spec:
             - mountPath: /lib/modules
               name: host-modules
               readOnly: true
+            {{- end }}
 
             # 4. RHEL: Optional mounts for subscription-only repos
             {{- if .Values.imageBuilderWorker.entitlementCertsSecretName }}
@@ -176,6 +182,13 @@ spec:
             type: DirectoryOrCreate
         - name: worker-storage
           emptyDir: {}
+        {{- if .Values.imageBuilderWorker.kvmDevice.enabled }}
+        - name: host-kvm
+          hostPath:
+            path: /dev/kvm
+            type: CharDevice
+        {{- end }}
+        {{- if .Values.imageBuilderWorker.hostDevices.enabled }}
         - name: host-sys
           hostPath:
             path: /sys
@@ -188,6 +201,7 @@ spec:
           hostPath:
             path: /lib/modules
             type: Directory
+        {{- end }}
         {{- if .Values.imageBuilderWorker.entitlementCertsSecretName }}
         - name: entitlement-certs
           secret:

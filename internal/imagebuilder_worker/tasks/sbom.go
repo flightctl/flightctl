@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -71,7 +70,7 @@ func (c *Consumer) generateSBOM(
 	}()
 
 	_ = os.Remove(exportHostPath)
-	if err := podmanWorker.runInWorker(ctx, log, "podman save for SBOM", nil, "save", "-o", workerSBOMExportTarInner, imageRef); err != nil {
+	if err := podmanWorker.runInWorker(ctx, log, "podman save for SBOM", nil, "save", "-o", podmanWorker.workerContainerPath(workerSBOMExportTarInner), imageRef); err != nil {
 		return nil, fmt.Errorf("exporting image for SBOM: %w", err)
 	}
 
@@ -89,6 +88,9 @@ func (c *Consumer) generateSBOM(
 	args := []string{
 		"run", "--rm",
 		"-v", fmt.Sprintf("%s:%s:Z", podmanWorker.TmpOutDir, syftWorkDir),
+	}
+	if podmanWorker.Rootless {
+		args = append(args, "--network=host")
 	}
 
 	if skipTLS {
@@ -108,7 +110,7 @@ func (c *Consumer) generateSBOM(
 
 	log.WithField("args", args).Debug("Executing Syft command")
 
-	cmd := exec.CommandContext(ctx, "podman", args...)
+	cmd := podmanWorker.podmanCommand(ctx, args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &statusWriter{buf: &stdout, statusUpdater: podmanWorker.statusUpdater}
 	cmd.Stderr = &statusWriter{buf: &stderr, statusUpdater: podmanWorker.statusUpdater}

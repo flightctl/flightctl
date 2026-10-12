@@ -61,6 +61,8 @@ jobs:
       - name: Setup all dependencies
         if: ${{ steps.changed-files.outputs.any_changed == 'true' }}
         uses: ./.github/actions/setup-dependencies
+        with:
+          setup_kvm: true
 
       # Restore-only (see the paired "Save ..." steps below, run near the end of the job):
       # these keys are the same across every PR/branch, and Actions cache save is scoped

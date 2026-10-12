@@ -1,6 +1,7 @@
 package renderer
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -20,6 +21,8 @@ const (
 	ActionCopyBinary
 	ActionCreateEmptyFile
 	ActionCreateEmptyDir
+	ActionWriteFile
+	ActionCreateSymlink
 )
 
 const (
@@ -56,6 +59,7 @@ type InstallAction struct {
 	Action      ActionType
 	Source      string
 	Destination string
+	Content     string
 	Template    bool
 	Mode        os.FileMode
 }
@@ -66,6 +70,11 @@ type ImageConfig struct {
 }
 
 type RendererConfig struct {
+	// UserScope indicates that generated units target a systemd user manager.
+	// It is inferred from the selected unit output directory because package
+	// builds can render system units while running as an unprivileged builder.
+	UserScope bool `mapstructure:"-"`
+
 	// Output directories
 	ReadOnlyConfigOutputDir  string `mapstructure:"readonly-config-dir"`
 	WriteableConfigOutputDir string `mapstructure:"writeable-config-dir"`
@@ -74,6 +83,11 @@ type RendererConfig struct {
 	BinOutputDir             string `mapstructure:"bin-dir"`
 	VarTmpOutputDir          string `mapstructure:"var-tmp-dir"`
 	VarLibOutputDir          string `mapstructure:"var-lib-dir"`
+	// GatewayHostPort is the host-facing port published by the gateway.
+	GatewayHostPort string `mapstructure:"-"`
+	// GatewayHostPortSuffix is appended to gateway URLs; it stays empty when the
+	// host-facing port is the standard HTTPS port 443.
+	GatewayHostPortSuffix string `mapstructure:"-"`
 
 	// Source directories for binary search
 	BinSourceDirs []string `mapstructure:"bin-source-dirs"`
@@ -106,7 +120,7 @@ type RendererConfig struct {
 }
 
 func NewRendererConfig() *RendererConfig {
-	return &RendererConfig{
+	config := &RendererConfig{
 		ReadOnlyConfigOutputDir:  "/usr/share/flightctl",
 		WriteableConfigOutputDir: "/etc/flightctl",
 		QuadletFilesOutputDir:    "/usr/share/containers/systemd",
@@ -114,7 +128,72 @@ func NewRendererConfig() *RendererConfig {
 		BinOutputDir:             "/usr/bin",
 		VarTmpOutputDir:          "/var/tmp",
 		VarLibOutputDir:          "/var/lib",
+		GatewayHostPort:          "443",
+		GatewayHostPortSuffix:    "",
 	}
+
+	if os.Geteuid() != 0 {
+		config.UserScope = true
+		homeDir, err := os.UserHomeDir()
+		if err != nil || homeDir == "" {
+			homeDir = os.Getenv("HOME")
+		}
+		if homeDir == "" {
+			homeDir = "."
+		}
+
+		xdgConfigHome := os.Getenv("XDG_CONFIG_HOME")
+		if xdgConfigHome == "" {
+			xdgConfigHome = filepath.Join(homeDir, ".config")
+		}
+		xdgDataHome := os.Getenv("XDG_DATA_HOME")
+		if xdgDataHome == "" {
+			xdgDataHome = filepath.Join(homeDir, ".local", "share")
+		}
+		xdgCacheHome := os.Getenv("XDG_CACHE_HOME")
+		if xdgCacheHome == "" {
+			xdgCacheHome = filepath.Join(homeDir, ".cache")
+		}
+		xdgStateHome := os.Getenv("XDG_STATE_HOME")
+		if xdgStateHome == "" {
+			xdgStateHome = filepath.Join(homeDir, ".local", "state")
+		}
+
+		config.ReadOnlyConfigOutputDir = filepath.Join(xdgDataHome, "flightctl")
+		config.WriteableConfigOutputDir = filepath.Join(xdgConfigHome, "flightctl")
+		config.QuadletFilesOutputDir = filepath.Join(xdgConfigHome, "containers", "systemd")
+		config.SystemdUnitOutputDir = filepath.Join(xdgConfigHome, "systemd", "user")
+		config.BinOutputDir = filepath.Join(xdgDataHome, "flightctl", "bin")
+		config.VarTmpOutputDir = filepath.Join(xdgCacheHome, "flightctl", "tmp")
+		config.VarLibOutputDir = xdgStateHome
+		config.GatewayHostPort = "9443"
+		config.GatewayHostPortSuffix = ":9443"
+	}
+
+	// Keep the renderer's defaults in sync with deploy/scripts/shared.sh while
+	// still allowing deployment helpers to use explicit paths.
+	if value := os.Getenv("CONFIG_READONLY_DIR"); value != "" {
+		config.ReadOnlyConfigOutputDir = value
+	}
+	if value := os.Getenv("CONFIG_WRITEABLE_DIR"); value != "" {
+		config.WriteableConfigOutputDir = value
+	}
+	if value := os.Getenv("QUADLET_FILES_OUTPUT_DIR"); value != "" {
+		config.QuadletFilesOutputDir = value
+	}
+	if value := os.Getenv("SYSTEMD_UNIT_OUTPUT_DIR"); value != "" {
+		config.SystemdUnitOutputDir = value
+	}
+	if value := os.Getenv("BIN_OUTPUT_DIR"); value != "" {
+		config.BinOutputDir = value
+	}
+	if value := os.Getenv("VAR_TMP_OUTPUT_DIR"); value != "" {
+		config.VarTmpOutputDir = value
+	}
+	if value := os.Getenv("VAR_LIB_OUTPUT_DIR"); value != "" {
+		config.VarLibOutputDir = value
+	}
+	return config
 }
 
 func findBinarySource(binaryName string, searchDirs []string) (string, error) {
@@ -164,6 +243,18 @@ func processInstallManifest(manifest []InstallAction, config *RendererConfig, lo
 			}
 			log.Infof("Created empty directory: %s", action.Destination)
 
+		case ActionWriteFile:
+			if err := writeRenderedFile(action.Destination, action.Content, action.Mode); err != nil {
+				return fmt.Errorf("failed to write file %s: %w", action.Destination, err)
+			}
+			log.Infof("Wrote file: %s", action.Destination)
+
+		case ActionCreateSymlink:
+			if err := createSymlink(action.Source, action.Destination); err != nil {
+				return fmt.Errorf("failed to create symlink %s: %w", action.Destination, err)
+			}
+			log.Infof("Created symlink: %s -> %s", action.Destination, action.Source)
+
 		default:
 			return fmt.Errorf("unknown action type: %v", action.Action)
 		}
@@ -201,7 +292,46 @@ func processFile(sourcePath, destPath string, isTemplate bool, mode os.FileMode,
 	if err := os.WriteFile(destPath, finalContent, mode); err != nil {
 		return fmt.Errorf("failed to write destination file: %w", err)
 	}
+	if err := os.Chmod(destPath, mode); err != nil {
+		return fmt.Errorf("failed to set destination file permissions: %w", err)
+	}
 
+	return nil
+}
+
+func writeRenderedFile(destPath, content string, mode os.FileMode) error {
+	destDir := filepath.Dir(destPath)
+	if err := os.MkdirAll(destDir, ExecutableFileMode); err != nil {
+		return fmt.Errorf("failed to create destination directory %s: %w", destDir, err)
+	}
+	if err := os.WriteFile(destPath, []byte(content), mode); err != nil {
+		return fmt.Errorf("failed to write destination file: %w", err)
+	}
+	if err := os.Chmod(destPath, mode); err != nil {
+		return fmt.Errorf("failed to set destination file permissions: %w", err)
+	}
+	return nil
+}
+
+func createSymlink(target, destPath string) error {
+	if err := os.MkdirAll(filepath.Dir(destPath), ExecutableFileMode); err != nil {
+		return fmt.Errorf("failed to create destination directory: %w", err)
+	}
+
+	existingTarget, err := os.Readlink(destPath)
+	if err == nil {
+		if existingTarget == target {
+			return nil
+		}
+		return fmt.Errorf("destination already links to %s", existingTarget)
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("failed to inspect destination: %w", err)
+	}
+
+	if err := os.Symlink(target, destPath); err != nil {
+		return fmt.Errorf("failed to create link: %w", err)
+	}
 	return nil
 }
 
@@ -334,6 +464,23 @@ func (config *RendererConfig) ApplyFlightctlServicesTagOverride(log logrus.Field
 // RenderQuadlets orchestrates all installation operations
 func RenderQuadlets(config *RendererConfig, log logrus.FieldLogger) error {
 	log.Info("Starting installation")
+	config.selectUnitScope()
+	if os.Geteuid() == 0 && config.UserScope {
+		return fmt.Errorf("UID 0 selects system-scope Quadlets; user-scope output paths cannot be deployed as root")
+	}
+	if err := config.validateSpecifierPaths(); err != nil {
+		return err
+	}
+	if config.UserScope {
+		// The writable configuration tree contains credentials and private keys.
+		// Keep it private even when XDG_CONFIG_HOME points to a shared directory.
+		if err := os.MkdirAll(config.WriteableConfigOutputDir, 0700); err != nil {
+			return fmt.Errorf("failed to create private writable configuration directory %s: %w", config.WriteableConfigOutputDir, err)
+		}
+		if err := os.Chmod(config.WriteableConfigOutputDir, 0700); err != nil {
+			return fmt.Errorf("failed to restrict writable configuration directory %s: %w", config.WriteableConfigOutputDir, err)
+		}
+	}
 
 	config.ApplyFlightctlServicesTagOverride(log)
 
@@ -344,4 +491,152 @@ func RenderQuadlets(config *RendererConfig, log logrus.FieldLogger) error {
 
 	log.Info("Installation complete")
 	return nil
+}
+
+// selectUnitScope derives the systemd scope from the unit output directory.
+// This keeps normal rootless installs tied to ~/.config/systemd/user while
+// allowing RPM builds to render system units from an unprivileged mockbuild
+// process into %{buildroot}/usr/lib/systemd/system.
+func (config *RendererConfig) selectUnitScope() {
+	unitDir := filepath.Clean(config.SystemdUnitOutputDir)
+	if filepath.Base(filepath.Dir(unitDir)) == "systemd" {
+		switch filepath.Base(unitDir) {
+		case "user":
+			config.UserScope = true
+		case "system":
+			config.UserScope = false
+		}
+	}
+
+	if config.UserScope {
+		config.GatewayHostPort = "9443"
+		config.GatewayHostPortSuffix = ":9443"
+	} else {
+		config.GatewayHostPort = "443"
+		config.GatewayHostPortSuffix = ""
+	}
+}
+
+// validateSpecifierPaths rejects independent output directory overrides that
+// disagree with the paths embedded in the shared Quadlet sources. Users can
+// relocate user-scope roots through XDG_*; package builds can stage system
+// paths below their buildroot.
+func (config *RendererConfig) validateSpecifierPaths() error {
+	if config.UserScope {
+		homeDir := rendererHomeDir()
+		configHome := xdgDirectory("XDG_CONFIG_HOME", filepath.Join(homeDir, ".config"))
+		dataHome := xdgDirectory("XDG_DATA_HOME", filepath.Join(homeDir, ".local", "share"))
+		stateHome := xdgDirectory("XDG_STATE_HOME", filepath.Join(homeDir, ".local", "state"))
+		if !filepath.IsAbs(configHome) || !filepath.IsAbs(dataHome) || !filepath.IsAbs(stateHome) {
+			return fmt.Errorf("XDG_CONFIG_HOME, XDG_DATA_HOME, and XDG_STATE_HOME must be absolute paths for user-scope Quadlets")
+		}
+
+		for _, path := range []struct {
+			label    string
+			actual   string
+			expected string
+		}{
+			{"writeable config directory", config.WriteableConfigOutputDir, filepath.Join(configHome, "flightctl")},
+			{"read-only config directory", config.ReadOnlyConfigOutputDir, filepath.Join(dataHome, "flightctl")},
+			{"binary directory", config.BinOutputDir, filepath.Join(dataHome, "flightctl", "bin")},
+			{"Quadlet directory", config.QuadletFilesOutputDir, filepath.Join(configHome, "containers", "systemd")},
+			{"systemd unit directory", config.SystemdUnitOutputDir, filepath.Join(configHome, "systemd", "user")},
+		} {
+			if err := requireOutputPath(path.label, path.actual, path.expected); err != nil {
+				return err
+			}
+		}
+		if !filepath.IsAbs(config.VarTmpOutputDir) || !filepath.IsAbs(config.VarLibOutputDir) {
+			return fmt.Errorf("temporary and state output directories must be absolute paths")
+		}
+		if err := requireOutputPath("state directory", config.VarLibOutputDir, stateHome); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	buildroot := systemdBuildroot(config.SystemdUnitOutputDir)
+	unitPath := unstageSystemPath(config.SystemdUnitOutputDir, buildroot)
+	if unitPath != "/usr/lib/systemd/system" && unitPath != "/etc/systemd/system" {
+		return fmt.Errorf("systemd unit directory %q is not a system-scope unit path", config.SystemdUnitOutputDir)
+	}
+	quadletPath := unstageSystemPath(config.QuadletFilesOutputDir, buildroot)
+	if quadletPath != "/usr/share/containers/systemd" && quadletPath != "/etc/containers/systemd" && quadletPath != "/usr/lib/containers/systemd" {
+		return fmt.Errorf("Quadlet directory %q is not a system Quadlet search path", config.QuadletFilesOutputDir)
+	}
+
+	for _, path := range []struct {
+		label    string
+		actual   string
+		expected string
+	}{
+		{"writeable config directory", config.WriteableConfigOutputDir, systemPath(buildroot, "etc", "flightctl")},
+		{"read-only config directory", config.ReadOnlyConfigOutputDir, systemPath(buildroot, "usr", "share", "flightctl")},
+		{"binary directory", config.BinOutputDir, systemPath(buildroot, "usr", "bin")},
+		{"state directory", config.VarLibOutputDir, systemPath(buildroot, "var", "lib")},
+	} {
+		if err := requireOutputPath(path.label, path.actual, path.expected); err != nil {
+			return err
+		}
+	}
+	if !filepath.IsAbs(config.VarTmpOutputDir) {
+		return fmt.Errorf("temporary output directory %q must be absolute", config.VarTmpOutputDir)
+	}
+	return nil
+}
+
+func requireOutputPath(label, actual, expected string) error {
+	if filepath.Clean(actual) != filepath.Clean(expected) {
+		return fmt.Errorf("%s %q does not match the path %q used by the shared Quadlet units", label, actual, expected)
+	}
+	return nil
+}
+
+func rendererHomeDir() string {
+	homeDir, err := os.UserHomeDir()
+	if err == nil && homeDir != "" {
+		return homeDir
+	}
+	if homeDir = os.Getenv("HOME"); homeDir != "" {
+		return homeDir
+	}
+	return "."
+}
+
+func xdgDirectory(variable, fallback string) string {
+	if value := os.Getenv(variable); value != "" {
+		return value
+	}
+	return fallback
+}
+
+func systemdBuildroot(systemdUnitDir string) string {
+	unitDir := filepath.Clean(systemdUnitDir)
+	suffix := filepath.Join("usr", "lib", "systemd", "system")
+	if !strings.HasSuffix(unitDir, string(filepath.Separator)+suffix) {
+		return ""
+	}
+	buildroot := strings.TrimSuffix(unitDir, suffix)
+	buildroot = strings.TrimSuffix(buildroot, string(filepath.Separator))
+	return buildroot
+}
+
+func systemPath(buildroot string, elements ...string) string {
+	path := filepath.Join(append([]string{string(filepath.Separator)}, elements...)...)
+	if buildroot == "" {
+		return path
+	}
+	return filepath.Join(buildroot, strings.TrimPrefix(path, string(filepath.Separator)))
+}
+
+func unstageSystemPath(path, buildroot string) string {
+	path = filepath.Clean(path)
+	if buildroot == "" {
+		return path
+	}
+	prefix := filepath.Clean(buildroot) + string(filepath.Separator)
+	if !strings.HasPrefix(path, prefix) {
+		return path
+	}
+	return string(filepath.Separator) + strings.TrimPrefix(path, prefix)
 }

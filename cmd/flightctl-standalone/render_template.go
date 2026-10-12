@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	v1beta1 "github.com/flightctl/flightctl/api/core/v1beta1"
@@ -34,7 +35,8 @@ func NewRenderTemplateCommand() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVar(&opts.Config, "config", renderer.DefaultServiceConfigPath, "Path to the service configuration file")
+	defaultConfigDir := renderer.NewRendererConfig().WriteableConfigOutputDir
+	cmd.Flags().StringVar(&opts.Config, "config", filepath.Join(defaultConfigDir, "service-config.yaml"), "Path to the service configuration file")
 	cmd.Flags().StringVar(&opts.InputFile, "input-file", "", "Input template file to render")
 	cmd.Flags().StringVar(&opts.OutputFile, "output-file", "", "Output file path")
 
@@ -79,6 +81,9 @@ func (o *RenderTemplateOptions) completeConfig(data map[string]interface{}) erro
 		global = make(map[string]interface{})
 		data["global"] = global
 	}
+	// User-scope gateway URLs include their nonstandard host port. System-scope
+	// URLs retain the default HTTPS port without an explicit :443 suffix.
+	global["apiHostPortSuffix"] = renderer.NewRendererConfig().GatewayHostPortSuffix
 
 	// Default baseDomain if empty
 	baseDomain, _ := global["baseDomain"].(string)
@@ -140,6 +145,9 @@ func (o *RenderTemplateOptions) completeAAPConfig(global map[string]interface{})
 	}
 
 	clientIDFile := renderer.DefaultAAPClientIDPath
+	if o.Config != "" {
+		clientIDFile = filepath.Join(filepath.Dir(o.Config), "pki", "aap-client-id")
+	}
 	clientIDData, err := os.ReadFile(clientIDFile)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {

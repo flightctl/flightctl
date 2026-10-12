@@ -10,18 +10,15 @@ import (
 )
 
 var workerRegistryConfigs = []struct {
-	registriesDir string
-	certsDir      string
+	serviceDir    string
 	containerFile string
 }{
 	{
-		registriesDir: "/etc/flightctl/flightctl-delta-worker/registries.conf.d",
-		certsDir:      "/etc/flightctl/flightctl-delta-worker/certs.d",
+		serviceDir:    "flightctl-delta-worker",
 		containerFile: "flightctl-delta-worker.container",
 	},
 	{
-		registriesDir: "/etc/flightctl/flightctl-worker/registries.conf.d",
-		certsDir:      "/etc/flightctl/flightctl-worker/certs.d",
+		serviceDir:    "flightctl-worker",
 		containerFile: "flightctl-worker.container",
 	},
 }
@@ -42,10 +39,12 @@ func (p *InfraProvider) ApplyDeltaWorkerRegistryRemap(ctx context.Context, regis
 		return err
 	}
 	for _, worker := range workerRegistryConfigs {
-		if err := p.writeRegistriesDir(ctx, worker.registriesDir, remap, insecure); err != nil {
+		registriesDir := filepath.Join(p.configDir, worker.serviceDir, "registries.conf.d")
+		certsDir := filepath.Join(p.configDir, worker.serviceDir, "certs.d")
+		if err := p.writeRegistriesDir(ctx, registriesDir, remap, insecure); err != nil {
 			return err
 		}
-		registryCertDir := filepath.Join(worker.certsDir, certDir)
+		registryCertDir := filepath.Join(certsDir, certDir)
 		if _, err := p.RunCommandContext(ctx, "mkdir", "-p", registryCertDir); err != nil {
 			return fmt.Errorf("mkdir %s: %w", registryCertDir, err)
 		}
@@ -64,7 +63,7 @@ func (p *InfraProvider) ApplyDeltaWorkerRegistryRemap(ctx context.Context, regis
 }
 
 func (p *InfraProvider) writeRegistryCertMount(ctx context.Context, containerFile, sourceDir, certDir string) error {
-	dropInDir := quadletDropInDir(containerFile)
+	dropInDir := p.quadletDropInDir(containerFile)
 	if _, err := p.RunCommandContext(ctx, "mkdir", "-p", dropInDir); err != nil {
 		return fmt.Errorf("mkdir %s: %w", dropInDir, err)
 	}

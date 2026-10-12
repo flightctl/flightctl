@@ -9,7 +9,7 @@ import (
 )
 
 // EncryptionKeyDir is the in-container directory where encryption key files are mounted.
-// Both K8s (via Secret volume) and Quadlet (via bind mount at /etc/flightctl/encryption)
+// Both K8s (via Secret volume) and Quadlet (via a bind mount under the deployment config directory)
 // present keys at this path inside the container.
 const EncryptionKeyDir = "/root/.flightctl/encryption"
 

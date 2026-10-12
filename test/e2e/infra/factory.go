@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/flightctl/flightctl/test/e2e/infra/auxiliary"
@@ -52,10 +53,10 @@ type EnvironmentConfig struct {
 	// SSHKeyPath is the path to SSH private key for remote Quadlet deployments
 	SSHKeyPath string
 
-	// UseSudo indicates whether to use sudo for systemctl/podman commands (Quadlet only)
+	// UseSudo indicates whether to use sudo to control a system-scope Quadlet from a non-root test runner.
 	UseSudo bool
 
-	// ConfigDir is the config directory for Quadlet deployments (defaults to /etc/flightctl)
+	// ConfigDir is the config directory for Quadlet deployments (defaults to /etc/flightctl in system scope or the user's XDG config directory in user scope).
 	ConfigDir string
 }
 
@@ -71,20 +72,68 @@ const (
 	EnvE2ESSHKeyPath  = "E2E_SSH_KEY_PATH" // SSH key path
 	// #nosec G101 -- env var name, not a credential value
 	EnvE2ESSHPassword = "E2E_SSH_PASSWORD" // SSH password (alternative to key; requires sshpass)
-	EnvE2EUseSudo     = "E2E_USE_SUDO"     // Use sudo (default: true for quadlet)
+	EnvE2EUseSudo     = "E2E_USE_SUDO"     // Use sudo to control system-scope Quadlets from a non-root test runner
 	EnvE2EConfigDir   = "E2E_CONFIG_DIR"   // Config directory for Quadlet
 )
 
 // Default values for different environments
 const (
-	// DefaultQuadletConfigDir is the default config directory for Quadlet deployments
+	// DefaultQuadletConfigDir is the system-scope default config directory for Quadlet deployments.
 	DefaultQuadletConfigDir = "/etc/flightctl"
-	// DefaultAPIPort is the default port for the FlightCtl API
+	// DefaultAPIPort is the system-scope host port for the FlightCtl API endpoint.
 	DefaultAPIPort = "443"
+	// DefaultRootlessAPIPort is the unprivileged host port used by rootless Quadlets.
+	DefaultRootlessAPIPort = "9443"
 )
 
-// GetDefaultQuadletAPIEndpoint returns the default API endpoint for Quadlet deployments.
-// Uses the host's FQDN (hostname -f). VMs will have /etc/hosts entry injected during prepare.
+func defaultQuadletAPIPort() string {
+	if quadletTargetUsesSystemScope() {
+		return DefaultAPIPort
+	}
+	return DefaultRootlessAPIPort
+}
+
+func useQuadletSudo() bool {
+	return strings.EqualFold(os.Getenv(EnvE2EUseSudo), "true") || os.Getenv(EnvE2EUseSudo) == "1"
+}
+
+func quadletTargetUsesSystemScope() bool {
+	if useQuadletSudo() {
+		return true
+	}
+	sshHost := os.Getenv(EnvE2ESSHHost)
+	remote := sshHost != "" && !strings.EqualFold(sshHost, "localhost")
+	if ip := net.ParseIP(strings.Trim(sshHost, "[]")); ip != nil && ip.IsLoopback() {
+		remote = false
+	}
+	if remote {
+		sshUser := os.Getenv(EnvE2ESSHUser)
+		if sshUser == "" {
+			sshUser = os.Getenv("USER")
+		}
+		return sshUser == "root"
+	}
+	return os.Geteuid() == 0
+}
+
+func defaultQuadletConfigDir() string {
+	if quadletTargetUsesSystemScope() {
+		return DefaultQuadletConfigDir
+	}
+	xdgConfigHome := os.Getenv("XDG_CONFIG_HOME")
+	if xdgConfigHome == "" {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return filepath.Join(".config", "flightctl")
+		}
+		xdgConfigHome = filepath.Join(homeDir, ".config")
+	}
+	return filepath.Join(xdgConfigHome, "flightctl")
+}
+
+// GetDefaultQuadletAPIEndpoint returns the default API endpoint for Quadlet deployments,
+// using the host's FQDN (hostname -f) and the port selected for the target systemd scope.
+// VMs will have the host entry injected into /etc/hosts during preparation.
 func GetDefaultQuadletAPIEndpoint() string {
 	// Try to get FQDN first
 	cmd := exec.Command("hostname", "-f")
@@ -92,18 +141,18 @@ func GetDefaultQuadletAPIEndpoint() string {
 	if err == nil {
 		hostname := strings.TrimSpace(string(output))
 		if hostname != "" && hostname != "localhost" {
-			return "https://" + hostname + ":" + DefaultAPIPort
+			return "https://" + net.JoinHostPort(hostname, defaultQuadletAPIPort())
 		}
 	}
 
 	// Fallback to IP address if FQDN not available
 	hostIP := auxiliary.GetHostIP()
 	if hostIP != "" {
-		return "https://" + net.JoinHostPort(hostIP, DefaultAPIPort)
+		return "https://" + net.JoinHostPort(hostIP, defaultQuadletAPIPort())
 	}
 
 	// Last resort fallback
-	return "https://localhost:" + DefaultAPIPort
+	return "https://localhost:" + defaultQuadletAPIPort()
 }
 
 // GetEnvironmentConfig reads configuration from environment variables.
@@ -124,13 +173,9 @@ func GetEnvironmentConfig() *EnvironmentConfig {
 		ConfigDir:   os.Getenv(EnvE2EConfigDir),
 	}
 
-	// Parse UseSudo (default: true for quadlet, false otherwise)
-	if useSudo := os.Getenv(EnvE2EUseSudo); useSudo != "" {
-		config.UseSudo = strings.ToLower(useSudo) == "true" || useSudo == "1"
-	} else {
-		// Default to true for quadlet environments
-		config.UseSudo = true
-	}
+	// sudo is opt-in for remote rootful deployments. Local root invocation already
+	// has system scope, and a normal user uses their user manager and Podman store.
+	config.UseSudo = useQuadletSudo()
 
 	// Normalize environment type
 	if config.Type != "" {
@@ -173,7 +218,7 @@ func (c *EnvironmentConfig) GetConfigDir() string {
 	if c.ConfigDir != "" {
 		return c.ConfigDir
 	}
-	return DefaultQuadletConfigDir
+	return defaultQuadletConfigDir()
 }
 
 // GetNamespace returns the namespace from config (E2E_NAMESPACE or FLIGHTCTL_NS).
@@ -275,14 +320,17 @@ func (f *ProviderFactory) autoDetect() string {
 
 	// kubectl not available or not configured, check for systemd/quadlet
 	cmd = exec.Command("systemctl", "is-active", "flightctl-api.service")
+	if os.Geteuid() != 0 {
+		cmd = exec.Command("systemctl", "--user", "is-active", "flightctl-api.service")
+	}
 	if err := cmd.Run(); err == nil {
 		return EnvironmentQuadlet
 	}
-
-	// Check with sudo
-	cmd = exec.Command("sudo", "systemctl", "is-active", "flightctl-api.service")
-	if err := cmd.Run(); err == nil {
-		return EnvironmentQuadlet
+	if os.Geteuid() != 0 && useQuadletSudo() {
+		cmd = exec.Command("sudo", "systemctl", "is-active", "flightctl-api.service")
+		if err := cmd.Run(); err == nil {
+			return EnvironmentQuadlet
+		}
 	}
 
 	// Default to KIND if nothing detected

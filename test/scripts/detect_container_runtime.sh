@@ -105,8 +105,33 @@ stop_testcontainers_podman_service() {
 ensure_testcontainers_podman_runtime() {
   local socket_path log_path runtime
 
-  configure_testcontainers_docker_host
-  runtime="$(detect_testcontainers_runtime)"
+  if [[ "$(id -u)" -ne 0 ]]; then
+    local podman_context
+    unset DOCKER_HOST CONTAINER_HOST CONTAINER_CONNECTION
+    if ! podman_context="$(env -u DOCKER_HOST -u CONTAINER_HOST -u CONTAINER_CONNECTION podman info --format '{{.Host.Security.Rootless}} {{.Host.ServiceIsRemote}}' 2>/dev/null)" || [[ "${podman_context}" != "true false" ]]; then
+      echo "ERROR: Rootless E2E tests require the invoking user's local rootless Podman service. Configure local rootless Podman and retry." >&2
+      return 1
+    fi
+
+    # Ignore inherited Docker/Podman endpoints in unprivileged runs: they can
+    # point at the system Podman store. Reuse only the private API endpoint this
+    # process created, otherwise start an API service for the local user store.
+    if [[ -n "${TESTCONTAINERS_PODMAN_SERVICE_DIR}" && -n "${TESTCONTAINERS_PODMAN_SERVICE_PID}" ]] && \
+      kill -0 "${TESTCONTAINERS_PODMAN_SERVICE_PID}" 2>/dev/null; then
+      socket_path="${TESTCONTAINERS_PODMAN_SERVICE_DIR}/podman.sock"
+      if testcontainers_podman_api_ready "${socket_path}"; then
+        export DOCKER_HOST="unix://${socket_path}"
+        export CONTAINER_HOST="${DOCKER_HOST}"
+        return 0
+      fi
+    fi
+
+    runtime="podman"
+  else
+    configure_testcontainers_docker_host
+    runtime="$(detect_testcontainers_runtime)"
+  fi
+
   if [[ "${runtime}" == "podman" && -n "${DOCKER_HOST:-}" && "${DOCKER_HOST}" != unix://* ]]; then
     export CONTAINER_HOST="${DOCKER_HOST}"
     return 0
@@ -130,7 +155,7 @@ ensure_testcontainers_podman_runtime() {
   fi
   socket_path="${TESTCONTAINERS_PODMAN_SERVICE_DIR}/podman.sock"
   log_path="${TESTCONTAINERS_PODMAN_SERVICE_DIR}/service.log"
-  env -u DOCKER_HOST -u CONTAINER_HOST podman system service --time=0 \
+  env -u DOCKER_HOST -u CONTAINER_HOST -u CONTAINER_CONNECTION podman system service --time=0 \
     "unix://${socket_path}" >"${log_path}" 2>&1 &
   TESTCONTAINERS_PODMAN_SERVICE_PID=$!
   export DOCKER_HOST="unix://${socket_path}"

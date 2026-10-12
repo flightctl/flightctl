@@ -5,25 +5,48 @@ set -euo pipefail
 # Load shared functions first to get the constant directory paths
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 source "${SCRIPT_DIR}"/shared.sh
+validate_runtime_output_paths
 
 OS="${OS:-el9}"
+export OS
+
+SYSTEMCTL_SCOPE_ARGS=()
+if [[ ${EUID} -ne 0 ]]; then
+  SYSTEMCTL_SCOPE_ARGS=(--user)
+  require_rootless_local_podman
+  if ! systemctl --user show-environment >/dev/null 2>&1; then
+    echo "Error: the systemd user manager is unavailable; log in through a systemd session or enable lingering for this user" >&2
+    exit 1
+  fi
+  systemctl --user import-environment XDG_CONFIG_HOME XDG_DATA_HOME XDG_CACHE_HOME XDG_STATE_HOME
+fi
 
 echo "Starting Deployment"
 
 # Host directory for TPM manufacturer / swtpm CA PEMs (mounted read-only into flightctl-api)
-install -d -m 0755 /etc/flightctl/tpm-cas
-install -d -m 0755 /etc/flightctl/flightctl-worker/registries.conf.d
-install -d -m 0755 /etc/flightctl/flightctl-delta-worker/registries.conf.d
+install -d -m 0755 "${CONFIG_WRITEABLE_DIR}/tpm-cas"
+install -d -m 0755 "${CONFIG_WRITEABLE_DIR}/flightctl-worker/registries.conf.d"
+install -d -m 0755 "${CONFIG_WRITEABLE_DIR}/flightctl-delta-worker/registries.conf.d"
 
 # Render quadlet files
-bin/flightctl-standalone render quadlets --config "packaging/images/${OS}/local-images.yaml"
+bin/flightctl-standalone render quadlets \
+  --config "packaging/images/${OS}/local-images.yaml" \
+  --readonly-config-dir "${CONFIG_READONLY_DIR}" \
+  --writeable-config-dir "${CONFIG_WRITEABLE_DIR}" \
+  --quadlet-dir "${QUADLET_FILES_OUTPUT_DIR}" \
+  --systemd-dir "${SYSTEMD_UNIT_OUTPUT_DIR}" \
+  --bin-dir "${BIN_OUTPUT_DIR}" \
+  --var-tmp-dir "${VAR_TMP_OUTPUT_DIR}" \
+  --var-lib-dir "${VAR_LIB_OUTPUT_DIR}"
 
 source "${SCRIPT_DIR}"/secrets.sh
 ensure_delta_generation_secrets
 
 if [[ -f $SCRIPT_DIR/local-ca/ca.crt ]] && [[ -f $SCRIPT_DIR/local-ca/ca.key ]]; then
-  cp "$SCRIPT_DIR"/local-ca/ca.* /etc/flightctl/pki/
-  chown root:root /etc/flightctl/pki/ca.*
+  cp "$SCRIPT_DIR"/local-ca/ca.* "${CONFIG_WRITEABLE_DIR}/pki/"
+  if [[ ${EUID} -eq 0 ]]; then
+    chown root:root "${CONFIG_WRITEABLE_DIR}"/pki/ca.*
+  fi
 fi
 
 echo "Starting all Flight Control services via target..."
@@ -52,15 +75,16 @@ fi
 # Wait for database migration to complete
 echo "Waiting for database migration to complete..."
 timeout --foreground 120s bash -c '
+    systemctl_scope_args=("$@")
     while true; do
-        if systemctl is-active --quiet flightctl-db-migrate.service; then
+        if systemctl "${systemctl_scope_args[@]}" is-active --quiet flightctl-db-migrate.service; then
             echo "Database migration completed"
             break
         fi
         echo "Waiting for database migration to complete..."
         sleep 3
     done
-'
+    ' _ "${SYSTEMCTL_SCOPE_ARGS[@]}"
 
 # Wait for key-value service
 timeout --foreground 60s bash -c '
@@ -86,7 +110,7 @@ timeout --foreground 60s bash -c '
 
 echo "Waiting for all services to be fully ready..."
 # Get all services from flightctl.target
-ALL_SERVICES=$(systemctl show flightctl.target -p Wants --value | tr ' ' '\n' | grep -E '^flightctl-.*\.service$' | sort)
+ALL_SERVICES=$(run_systemctl show flightctl.target -p Wants --value | tr ' ' '\n' | grep -E '^flightctl-.*\.service$' | sort)
 
 # Wait for core services to be ready
 start_time=$(date +%s)
@@ -102,7 +126,7 @@ while true; do
     fi
 
     # Check if target is active
-    if ! systemctl is-active --quiet flightctl.target; then
+    if ! run_systemctl is-active --quiet flightctl.target; then
         echo "Waiting for flightctl.target to become active..."
         sleep 3
         continue
@@ -111,7 +135,7 @@ while true; do
     # Check each service
     all_active=true
     for service in ${ALL_SERVICES}; do
-        if ! systemctl is-active --quiet "$service"; then
+        if ! run_systemctl is-active --quiet "$service"; then
             echo "Waiting for service $service to become active..."
             all_active=false
             break
@@ -149,7 +173,7 @@ echo "Flight Control services are running:"
 for service in ${ALL_SERVICES}; do
     # Extract a human-readable name from the service name
     service_name=$(echo "$service" | sed 's/flightctl-//g' | sed 's/\.service//g' | sed 's/-/ /g' | sed 's/\b\w/\u&/g')
-    if systemctl is-active --quiet "$service"; then
+    if run_systemctl is-active --quiet "$service"; then
         echo "  ✓ $service_name ($service)"
     else
         echo "  ✗ $service_name ($service) - not active"
@@ -157,4 +181,8 @@ for service in ${ALL_SERVICES}; do
 done
 
 echo ""
-echo "You can check status with: sudo systemctl status flightctl.target"
+if [[ ${EUID} -eq 0 ]]; then
+  echo "You can check status with: systemctl status flightctl.target"
+else
+  echo "You can check status with: systemctl --user status flightctl.target"
+fi

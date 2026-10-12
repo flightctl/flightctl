@@ -28,6 +28,23 @@ SOURCE_GIT_TREE_STATE="${SOURCE_GIT_TREE_STATE:-$(current_tree_state)}"
 SOURCE_GIT_COMMIT="${SOURCE_GIT_COMMIT:-$( (cd "${ROOT_DIR}" && git rev-parse "HEAD^{commit}" 2>/dev/null || echo "unknown") | cut -c1-9)}"
 TAG="${TAG:-$SOURCE_GIT_TAG}"
 
+if [[ "${EUID}" -ne 0 ]]; then
+  if ! command -v podman >/dev/null 2>&1; then
+    echo "ERROR: Building E2E images as an unprivileged user requires Podman." >&2
+    exit 1
+  fi
+  if [[ -n "${CONTAINER_HOST:-}" || -n "${CONTAINER_CONNECTION:-}" ]]; then
+    echo "ERROR: Rootless image builds require the local Podman store. Unset CONTAINER_HOST and CONTAINER_CONNECTION, then retry." >&2
+    exit 1
+  fi
+  ROOTLESS_PODMAN_CONTEXT="$(podman info --format '{{.Host.Security.Rootless}} {{.Host.ServiceIsRemote}}' 2>/dev/null || true)"
+  if [[ "${ROOTLESS_PODMAN_CONTEXT}" != "true false" ]]; then
+    echo "ERROR: Rootless image builds require the invoking user's local rootless Podman service." >&2
+    echo "Configure local Podman and verify subordinate UID/GID ranges; image builds will not use sudo or a remote image store." >&2
+    exit 1
+  fi
+fi
+
 PODMAN_LOG_LEVEL="${PODMAN_LOG_LEVEL:-info}"
 PODMAN_BUILD_EXTRA_FLAGS="${PODMAN_BUILD_EXTRA_FLAGS:-}"
 CACHE_MODE="${CACHE_MODE:-use}"          # use | disable | populate

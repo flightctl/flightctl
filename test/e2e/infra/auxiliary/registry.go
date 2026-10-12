@@ -30,7 +30,6 @@ const (
 	registryContainerName = "e2e-registry"
 	registryPort          = "5000/tcp"
 	registryHostPort      = "5000"
-	registriesConfPath    = "/etc/containers/registries.conf.d/flightctl-e2e.conf"
 
 	privateRegistryNginxImage    = "quay.io/flightctl-tests/nginx:1.28-alpine-slim"
 	privateRegistryContainerName = "e2e-registry-auth"
@@ -360,27 +359,37 @@ func ensureRegistryCerts() (string, error) {
 }
 
 // configureInsecureRegistry writes a registries.conf.d snippet marking registryURL
-// as insecure so that the local podman/docker daemon can push and pull without TLS
-// verification. It is idempotent: if the file already exists and is non-empty it does nothing.
+// as insecure for the current Podman store. An unprivileged run only writes under
+// the user's XDG config directory; root writes the system drop-in directly.
 func configureInsecureRegistry(registryURL string) error {
+	configRoot := ""
+	if os.Geteuid() == 0 {
+		configRoot = "/etc/containers"
+	} else {
+		configHome := os.Getenv("XDG_CONFIG_HOME")
+		if configHome == "" {
+			homeDir, err := os.UserHomeDir()
+			if err != nil {
+				return fmt.Errorf("resolve user home for Podman registry config: %w", err)
+			}
+			configHome = filepath.Join(homeDir, ".config")
+		}
+		configRoot = filepath.Join(configHome, "containers")
+	}
+	registriesConfPath := filepath.Join(configRoot, "registries.conf.d", "flightctl-e2e.conf")
 	if existingConfig, err := os.ReadFile(registriesConfPath); err == nil && string(existingConfig) != "" {
 		return nil
 	}
-	config := fmt.Sprintf(`[[registry]]
+	config := fmt.Sprintf(`# Managed by Flight Control E2E; make clean removes this file.
+[[registry]]
 location = "%s"
 insecure = true
 `, registryURL)
-	cmd := exec.Command("sudo", "tee", registriesConfPath)
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return err
+	if err := os.MkdirAll(filepath.Dir(registriesConfPath), 0755); err != nil {
+		return fmt.Errorf("create Podman registry config directory: %w", err)
 	}
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	_, _ = stdin.Write([]byte(config))
-	stdin.Close()
-	return cmd.Wait()
+	// #nosec G306 -- Podman registry configuration contains no credentials and must be readable by unprivileged clients.
+	return os.WriteFile(registriesConfPath, []byte(config), 0644)
 }
 
 // GetRegistrySSHPrivateKeyPath returns the path to the pre-generated SSH private key in bin/.ssh.

@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 set -x -euo pipefail
 
-# Ensure /usr/local/bin is in PATH (for helm, kind, etc.)
-export PATH="/usr/local/bin:${PATH}"
-
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+export PATH="${PROJECT_ROOT}/bin:/usr/local/bin:${PATH}"
 source "${SCRIPT_DIR}"/functions
 source "${SCRIPT_DIR}"/detect_container_runtime.sh
 
@@ -213,12 +212,51 @@ if [[ -n "${DISCOVERY_ONLY}" ]]; then
     exit 0
 fi
 
+# Testcontainers talks to a Podman API socket. Give rootless test runs a socket
+# backed by the invoking user's Podman store instead of allowing fallback to a
+# system Podman or Docker socket.
+if [[ "$(id -u)" -ne 0 ]]; then
+    ensure_testcontainers_podman_runtime
+fi
+
 # Determine environment type and set API_ENDPOINT accordingly
 E2E_ENVIRONMENT=${E2E_ENVIRONMENT:-""}
+# Preserve the existing endpoint override. API_ENDPOINT remains supported for
+# callers which predate E2E_API_ENDPOINT.
+API_ENDPOINT="${E2E_API_ENDPOINT:-${API_ENDPOINT:-}}"
+
+# Quadlet access defaults to the target user's service manager and config. Run
+# this process as root for local system scope; use E2E_USE_SUDO only when a
+# remote unprivileged account must control a rootful deployment.
+E2E_USE_SUDO=${E2E_USE_SUDO:-false}
+quadlet_remote_xdg_config_home=""
+if quadlet_is_remote && ! quadlet_uses_system_scope; then
+    quadlet_remote_xdg_config_home="$(run_on_quadlet sh -c 'printf "%s\n" "${XDG_CONFIG_HOME:-${HOME}/.config}"')"
+    if [[ -z "${quadlet_remote_xdg_config_home}" ]]; then
+        echo "ERROR: Could not determine the remote user's XDG config directory for rootless Quadlet tests." >&2
+        exit 1
+    fi
+fi
+if [[ -z "${E2E_CONFIG_DIR:-}" ]]; then
+    if quadlet_uses_system_scope; then
+        E2E_CONFIG_DIR=/etc/flightctl
+    elif quadlet_is_remote; then
+        E2E_CONFIG_DIR="${quadlet_remote_xdg_config_home}/flightctl"
+    else
+        E2E_CONFIG_DIR="${XDG_CONFIG_HOME:-${HOME}/.config}/flightctl"
+    fi
+fi
+if quadlet_is_remote && ! quadlet_uses_system_scope && [[ -z "${QUADLET_FILES_OUTPUT_DIR:-}" ]]; then
+    QUADLET_FILES_OUTPUT_DIR="${quadlet_remote_xdg_config_home}/containers/systemd"
+    export QUADLET_FILES_OUTPUT_DIR
+fi
+export E2E_USE_SUDO E2E_CONFIG_DIR
 
 # Auto-detect environment if not set
 if [[ -z "${E2E_ENVIRONMENT}" ]]; then
-    if kubectl config current-context &>/dev/null; then
+    if quadlet_is_remote; then
+        E2E_ENVIRONMENT="quadlet"
+    elif kubectl config current-context &>/dev/null; then
         context=$(kubectl config current-context 2>/dev/null || true)
         if [[ "$context" == *kind* ]]; then
             E2E_ENVIRONMENT="kind"
@@ -227,7 +265,7 @@ if [[ -z "${E2E_ENVIRONMENT}" ]]; then
         else
             E2E_ENVIRONMENT="k8s"
         fi
-    elif systemctl is-active flightctl-api.service &>/dev/null || sudo systemctl is-active flightctl-api.service &>/dev/null; then
+    elif quadlet_systemctl is-active flightctl-api.service &>/dev/null; then
         E2E_ENVIRONMENT="quadlet"
     else
         E2E_ENVIRONMENT="k8s"  # Default to k8s
@@ -235,6 +273,20 @@ if [[ -z "${E2E_ENVIRONMENT}" ]]; then
     echo "Auto-detected E2E_ENVIRONMENT: ${E2E_ENVIRONMENT}"
 fi
 export E2E_ENVIRONMENT
+
+if [[ "${E2E_ENVIRONMENT}" == "quadlet" ]]; then
+    if quadlet_uses_system_scope; then
+        expected_quadlet_config_dir=/etc/flightctl
+    elif quadlet_is_remote; then
+        expected_quadlet_config_dir="${quadlet_remote_xdg_config_home}/flightctl"
+    else
+        expected_quadlet_config_dir="${XDG_CONFIG_HOME:-${HOME}/.config}/flightctl"
+    fi
+    if [[ "${E2E_CONFIG_DIR%/}" != "${expected_quadlet_config_dir%/}" ]]; then
+        echo "ERROR: E2E_CONFIG_DIR must match ${expected_quadlet_config_dir}; shared Quadlet units use the manager's %E/flightctl path." >&2
+        exit 1
+    fi
+fi
 
 # Set API_ENDPOINT and QUADLET_HOST based on environment
 case "${E2E_ENVIRONMENT}" in
@@ -249,7 +301,18 @@ case "${E2E_ENVIRONMENT}" in
             echo "Using local Quadlet host: ${QUADLET_HOST} (set E2E_SSH_HOST for remote Quadlet)"
         fi
         export QUADLET_HOST
-        API_ENDPOINT="https://${QUADLET_HOST}"
+        QUADLET_API_HOST="${QUADLET_HOST}"
+        if [[ "${QUADLET_API_HOST}" == *":"* && "${QUADLET_API_HOST}" != \[* ]]; then
+            QUADLET_API_HOST="[${QUADLET_API_HOST}]"
+        fi
+        API_PORT_SUFFIX=""
+        QUADLET_API_PORT="$(quadlet_api_port)"
+        if [[ "${QUADLET_API_PORT}" != "443" ]]; then
+            API_PORT_SUFFIX=":${QUADLET_API_PORT}"
+        fi
+        if [[ -z "${API_ENDPOINT}" ]]; then
+            API_ENDPOINT="https://${QUADLET_API_HOST}${API_PORT_SUFFIX}"
+        fi
         echo "Using Quadlet API endpoint: ${API_ENDPOINT}"
         ;;
     *)
@@ -260,6 +323,7 @@ case "${E2E_ENVIRONMENT}" in
         ;;
 esac
 export API_ENDPOINT
+export E2E_API_ENDPOINT="${E2E_API_ENDPOINT:-${API_ENDPOINT}}"
 
 # Set registry endpoint (K8s-specific, optional for Quadlet)
 if [[ "${E2E_ENVIRONMENT}" != "quadlet" ]]; then

@@ -138,17 +138,10 @@ func (p *ServiceLifecycleProvider) serviceToContainerName(service infra.ServiceN
 	return GetServiceInfo(service).ContainerName + ".container"
 }
 
-func quadletDropInDir(containerFile string) string {
-	return fmt.Sprintf("/etc/containers/systemd/%s.d", containerFile)
-}
-
-func quadletDropInPath(containerFile string) string {
-	return fmt.Sprintf("%s/e2e-env-override.conf", quadletDropInDir(containerFile))
-}
-
 // readDropIn reads the existing Quadlet drop-in file content. Returns empty string if the file doesn't exist.
 func (p *ServiceLifecycleProvider) readDropIn(containerFile string) (string, error) {
-	output, err := p.infra.RunCommand("cat", quadletDropInPath(containerFile))
+	dropInPath := p.infra.quadletDropInPath(containerFile)
+	output, err := p.infra.RunCommand("cat", dropInPath)
 	if err != nil {
 		if strings.Contains(output, "No such file") {
 			return "", nil
@@ -160,10 +153,12 @@ func (p *ServiceLifecycleProvider) readDropIn(containerFile string) (string, err
 
 // writeDropIn creates the Quadlet drop-in directory and writes the drop-in file.
 func (p *ServiceLifecycleProvider) writeDropIn(containerFile, content string) error {
-	if _, err := p.infra.RunCommand("mkdir", "-p", quadletDropInDir(containerFile)); err != nil {
+	dropInDir := p.infra.quadletDropInDir(containerFile)
+	dropInPath := p.infra.quadletDropInPath(containerFile)
+	if _, err := p.infra.RunCommand("mkdir", "-p", dropInDir); err != nil {
 		return fmt.Errorf("creating drop-in dir for %s: %w", containerFile, err)
 	}
-	if _, err := p.infra.runCommandWithStdin(strings.NewReader(content), "tee", quadletDropInPath(containerFile)); err != nil {
+	if _, err := p.infra.runCommandWithStdin(strings.NewReader(content), "tee", dropInPath); err != nil {
 		return fmt.Errorf("writing drop-in for %s: %w", containerFile, err)
 	}
 	return nil
@@ -171,10 +166,11 @@ func (p *ServiceLifecycleProvider) writeDropIn(containerFile, content string) er
 
 // removeDropIn removes the Quadlet drop-in file and its directory.
 func (p *ServiceLifecycleProvider) removeDropIn(containerFile string) error {
-	if _, err := p.infra.RunCommand("rm", "-f", quadletDropInPath(containerFile)); err != nil {
+	dropInDir := p.infra.quadletDropInDir(containerFile)
+	if _, err := p.infra.RunCommand("rm", "-f", p.infra.quadletDropInPath(containerFile)); err != nil {
 		return fmt.Errorf("removing drop-in for %s: %w", containerFile, err)
 	}
-	_, _ = p.infra.RunCommand("rmdir", quadletDropInDir(containerFile))
+	_, _ = p.infra.RunCommand("rmdir", dropInDir)
 	return nil
 }
 

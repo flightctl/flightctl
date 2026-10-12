@@ -3,7 +3,8 @@ set -ex
 
 # Wrapper script that handles RPM source detection and calls build.sh and build_and_qcow2.sh
 # Behavior matches create_agent_images.sh but uses build.sh and build_and_qcow2.sh internally
-# Note: all images are built as root, to use in a non-root context, import with podman load -i bin/agent-images/agent-images-bundle-cs9-bootc.tar
+# Images are built in the Podman store selected by the effective user. An
+# unprivileged invocation therefore builds and bundles from that user's store.
 
 
 PARALLEL_JOBS="${PARALLEL_JOBS:-4}"
@@ -217,7 +218,14 @@ build_base() {
     else
         echo "Building base image"
     fi
-    sudo -E "${SCRIPT_DIR}/scripts/build.sh" --base
+    "${SCRIPT_DIR}/scripts/build.sh" --base
+}
+
+chown_artifacts_to_sudo_user() {
+    local path="$1"
+    if [[ "${EUID}" -eq 0 && -n "${SUDO_UID:-}" && "${SUDO_UID}" != "0" ]]; then
+        chown -R "${SUDO_UID}:${SUDO_GID:-${SUDO_UID}}" "${path}" || true
+    fi
 }
 
 build_variants_and_qcow2() {
@@ -238,8 +246,10 @@ build_variants_and_qcow2() {
 
     SKIP_QCOW_BUILD="${skip_qcow}" "${SCRIPT_DIR}/scripts/build_and_qcow2.sh" --os-id ${OS_ID} ${PUSH_ARG}
 
-    # Fix permissions on artifacts
-    sudo chown -R "${USER}:$(id -gn "${USER}")" "${ROOT_DIR}/artifacts" || true
+    # Preserve the previous sudo-make ownership behavior when the caller is
+    # available in the sudo environment. Direct root invocations keep root
+    # ownership; non-root builds already own their outputs.
+    chown_artifacts_to_sudo_user "${ROOT_DIR}/artifacts"
 
     # Move qcow2 to bin/output like original script
     OUTPUT_DIR="${OUTPUT_DIR:-${ROOT_DIR}/bin/output/agent-qcow2-${OS_ID}}"
@@ -254,11 +264,10 @@ build_variants_and_qcow2() {
         # Resize disk if v7 is enabled (for MicroShift)
         if [ -z "${EXCLUDE_VARIANTS:-}" ] || ! echo "${EXCLUDE_VARIANTS}" | grep -qw "v7"; then
             echo "v7 enabled, resizing qcow2 disk +5G"
-            sudo qemu-img resize "${QCOW_DST}" +5G
+            qemu-img resize "${QCOW_DST}" +5G
         fi
 
-        # Fix permissions on bin/output
-        sudo chown -R "${USER}:$(id -gn "${USER}")" "${ROOT_DIR}/bin/output" || true
+        chown_artifacts_to_sudo_user "${ROOT_DIR}/bin/output"
     fi
 }
 

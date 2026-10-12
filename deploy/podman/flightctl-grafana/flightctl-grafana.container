@@ -14,27 +14,26 @@ Network=flightctl.network
 AddHost=%H:host-gateway
 
 # Volume for Grafana's primary data (database, compiled assets, plugins)
-Volume=/var/lib/grafana:/var/lib/grafana:rw,z
+Volume=%S/grafana:/var/lib/grafana:rw,z,U
 
 # Mount custom grafana.ini file
-Volume=/etc/flightctl/flightctl-grafana/grafana.ini:/etc/grafana/grafana.ini:ro,z
+Volume=%E/flightctl/flightctl-grafana/grafana.ini:/etc/grafana/grafana.ini:ro,z
 
 # Mount directory for data source provisioning
-Volume=/etc/flightctl/flightctl-grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro,z
+Volume=%E/flightctl/flightctl-grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro,z
 
 # Mount directory for dashboard provisioning
-Volume=/etc/flightctl/flightctl-grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro,z
+Volume=%E/flightctl/flightctl-grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro,z
 
 # Mount directory for TLS certificates (if using HTTPS)
-Volume=/etc/flightctl/pki/flightctl-grafana:/etc/grafana/certs:ro,z,U
+Volume=%E/flightctl/pki/flightctl-grafana:/etc/grafana/certs:ro,z,U
 
 # Downstream grafana image expects this
-Volume=/etc/flightctl/flightctl-grafana/provisioning/alerting:/etc/grafana/provisioning/alerting:ro,z
+Volume=%E/flightctl/flightctl-grafana/provisioning/alerting:/etc/grafana/provisioning/alerting:ro,z
 
 [Service]
 Restart=on-failure
-ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-grafana/grafana.ini.template --output-file /etc/flightctl/flightctl-grafana/grafana.ini
-ExecStartPre=/bin/sh -c 'chown -R "$(podman image inspect {{ .Grafana.Image }}:{{ .Grafana.Tag }} | jq -r .[0].Config.User)" /var/lib/grafana || true'
+ExecStartPre=/usr/bin/env PATH=%D/flightctl/bin:/usr/bin:/bin flightctl-standalone render template --config %E/flightctl/service-config.yaml --input-file %D/flightctl/flightctl-grafana/grafana.ini.template --output-file %E/flightctl/flightctl-grafana/grafana.ini
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target

@@ -12,14 +12,14 @@ Pull=missing
 Network=flightctl.network
 AddHost=%H:host-gateway
 
-Volume=/etc/flightctl/flightctl-prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro,z
-Volume=/etc/flightctl/pki/flightctl-prometheus/server.crt:/root/.flightctl/certs/server.crt:ro,z
-Volume=/etc/flightctl/pki/flightctl-prometheus/server.key:/root/.flightctl/certs/server.key:ro,z
-Volume=/var/lib/prometheus:/prometheus:rw,z
+Volume=%E/flightctl/flightctl-prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro,z
+Volume=%E/flightctl/pki/flightctl-prometheus/server.crt:/root/.flightctl/certs/server.crt:ro,z
+Volume=%E/flightctl/pki/flightctl-prometheus/server.key:/root/.flightctl/certs/server.key:ro,z
+Volume=%S/prometheus:/prometheus:rw,z,U
 
 [Service]
 Restart=on-failure
-ExecStartPre=/usr/bin/flightctl-standalone render template --input-file /usr/share/flightctl/flightctl-prometheus/prometheus.yml --output-file /etc/flightctl/flightctl-prometheus/prometheus.yml
+ExecStartPre=/usr/bin/env PATH=%D/flightctl/bin:/usr/bin:/bin flightctl-standalone render template --config %E/flightctl/service-config.yaml --input-file %D/flightctl/flightctl-prometheus/prometheus.yml --output-file %E/flightctl/flightctl-prometheus/prometheus.yml
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target
