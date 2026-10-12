@@ -38,11 +38,12 @@ func (m *manager) discoverOSDelta(ctx context.Context, desired *v1beta1.DeviceSp
 		}
 		return candidate.Reference
 	}
-	index, err := m.skopeo.ListPlatformReferrers(ctx, desired.Os.Image, optsFn()...)
+	platformReferrers, err := m.skopeo.ListPlatformReferrers(ctx, desired.Os.Image, optsFn()...)
 	if err != nil {
 		m.log.Debugf("OS delta referrers unavailable: %v", err)
 		return ""
 	}
+	index := platformReferrers.Referrers
 	repo := imageRepository(desired.Os.Image)
 	if repo == "" {
 		return ""
@@ -52,9 +53,18 @@ func (m *manager) discoverOSDelta(ctx context.Context, desired *v1beta1.DeviceSp
 		if !delta.IsDeltaReferrer(ref) {
 			continue
 		}
-		candidate, err := m.inspectOSDelta(ctx, repo+"@"+ref.Digest, ref.Size, bootcStatus, optsFn)
+		candidate, err := m.inspectOSDeltaManifest(ctx, repo+"@"+ref.Digest, ref.Size, optsFn)
 		if err != nil {
 			m.log.Debugf("Skipping unusable OS delta %s: %v", ref.Digest, err)
+			continue
+		}
+		if candidate.TargetDigest != platformReferrers.TargetDigest {
+			m.log.Debugf("Skipping OS delta %s: target digest does not match the resolved platform digest", ref.Digest)
+			continue
+		}
+		candidate.SourceAvailable, err = m.osDeltaSourceAvailable(ctx, bootcStatus, candidate.SourceDigest)
+		if err != nil {
+			m.log.Debugf("Skipping unusable OS delta %s: check delta source image: %v", ref.Digest, err)
 			continue
 		}
 		candidates = append(candidates, candidate)
@@ -63,6 +73,18 @@ func (m *manager) discoverOSDelta(ctx context.Context, desired *v1beta1.DeviceSp
 }
 
 func (m *manager) inspectOSDelta(ctx context.Context, reference string, manifestSize int64, bootcStatus *Status, optsFn dependency.ClientOptsFn) (delta.Candidate, error) {
+	candidate, err := m.inspectOSDeltaManifest(ctx, reference, manifestSize, optsFn)
+	if err != nil {
+		return delta.Candidate{}, err
+	}
+	candidate.SourceAvailable, err = m.osDeltaSourceAvailable(ctx, bootcStatus, candidate.SourceDigest)
+	if err != nil {
+		return delta.Candidate{}, fmt.Errorf("check delta source image: %w", err)
+	}
+	return candidate, nil
+}
+
+func (m *manager) inspectOSDeltaManifest(ctx context.Context, reference string, manifestSize int64, optsFn dependency.ClientOptsFn) (delta.Candidate, error) {
 	if imageRepository(reference) == "" {
 		return delta.Candidate{}, fmt.Errorf("invalid delta reference %q", reference)
 	}
@@ -73,10 +95,6 @@ func (m *manager) inspectOSDelta(ctx context.Context, reference string, manifest
 	candidate, err := delta.FromManifest(reference, manifest, manifestSize)
 	if err != nil {
 		return delta.Candidate{}, err
-	}
-	candidate.SourceAvailable, err = m.osDeltaSourceAvailable(ctx, bootcStatus, candidate.SourceDigest)
-	if err != nil {
-		return delta.Candidate{}, fmt.Errorf("check delta source image: %w", err)
 	}
 	return candidate, nil
 }

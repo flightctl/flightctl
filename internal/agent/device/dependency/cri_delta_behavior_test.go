@@ -54,6 +54,7 @@ func TestCRIDeltaCandidatePrefetch(t *testing.T) {
 			{digest: digestA, source: podmanDeltaSource, manifestSize: 10, layerSize: 80, local: true},
 			{digest: digestB, source: digestB, manifestSize: 90, layerSize: 1, local: true},
 		}, selected: "quay.io/acme/workload@" + digestA},
+		{name: "When a referrer subject does not match the resolved platform digest it should full-pull with NotUsed", discover: true, candidates: []criDeltaTestCandidate{{digest: digestA, source: podmanDeltaSource, layerSize: 10, local: true, targetDigest: targetIndexDigest}}, outcome: v1beta1.DeviceDeltaApplyOutcomeNotUsed},
 		{name: "When a digest-pinned containerd target has a local hinted source it should import through its configured endpoint and workload namespace", containerd: true, candidates: []criDeltaTestCandidate{{source: podmanDeltaSource, layerSize: 100, local: true}}, selected: hint},
 		{name: "When a tagged CRI target has a usable hint it should refresh the requested tag", tagged: true, candidates: []criDeltaTestCandidate{{source: podmanDeltaSource, layerSize: 100, local: true}}, selected: hint},
 		{name: "When equal sized discovered deltas arrive in reverse order it should choose the lexical reference", discover: true, candidates: []criDeltaTestCandidate{
@@ -154,7 +155,7 @@ func TestCRIDeltaCandidatePrefetch(t *testing.T) {
 					if !tc.discover {
 						targetNeedsInspection = true
 					}
-					if tc.discover || targetDigest == platformTargetDigest {
+					if targetDigest == platformTargetDigest {
 						eligibleCandidates++
 					}
 				}

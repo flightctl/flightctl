@@ -10,6 +10,7 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/opencontainers/go-digest"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
@@ -511,8 +512,29 @@ func TestSkopeoListPlatformReferrers(t *testing.T) {
 	result, err := skopeo.ListPlatformReferrers(context.Background(), targetImage)
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.Len(t, result.Manifests, 1)
-	require.Equal(t, deltaDigest, result.Manifests[0].Digest)
+	require.Equal(t, platformDigest, result.TargetDigest)
+	require.NotNil(t, result.Referrers)
+	require.Len(t, result.Referrers.Manifests, 1)
+	require.Equal(t, deltaDigest, result.Referrers.Manifests[0].Digest)
+}
+
+func TestSkopeoInspectPlatformDigestTrimsSingleManifestOutput(t *testing.T) {
+	const image = "quay.io/acme/os:latest"
+	manifest := `{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json"}`
+	ctrl := gomock.NewController(t)
+	mockExec := executer.NewMockExecuter(ctrl)
+	skopeo := NewSkopeo(
+		log.NewPrefixLogger("test"),
+		mockExec,
+		fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter()),
+	)
+	mockExec.EXPECT().ExecuteWithContext(
+		gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+image, "--no-creds",
+	).Return(manifest+"\n", "", 0)
+
+	got, err := skopeo.InspectPlatformDigest(context.Background(), image)
+	require.NoError(t, err)
+	require.Equal(t, digest.FromBytes([]byte(manifest)).String(), got)
 }
 
 func TestSkopeoCopyWithDefaultAuth(t *testing.T) {

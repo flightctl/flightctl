@@ -37,11 +37,12 @@ func (m *prefetchManager) discoverPodmanDelta(ctx context.Context, targetImage, 
 		}
 		return candidate.Reference, nil
 	}
-	index, err := skopeo.ListPlatformReferrers(ctx, targetImage, opts...)
+	platformReferrers, err := skopeo.ListPlatformReferrers(ctx, targetImage, opts...)
 	if err != nil {
 		m.log.Debugf("application delta referrers unavailable for %s: %v", targetImage, err)
 		return "", nil
 	}
+	index := platformReferrers.Referrers
 	repo := imageRepository(targetImage)
 	if repo == "" {
 		return "", nil
@@ -54,6 +55,10 @@ func (m *prefetchManager) discoverPodmanDelta(ctx context.Context, targetImage, 
 		candidate, err := inspectApplicationDelta(ctx, repo+"@"+ref.Digest, ref.Size, skopeo, opts...)
 		if err != nil {
 			m.log.Debugf("Skipping unusable application delta %s: %v", ref.Digest, err)
+			continue
+		}
+		if candidate.TargetDigest != platformReferrers.TargetDigest {
+			m.log.Debugf("Skipping application delta %s: target digest does not match the resolved platform digest", ref.Digest)
 			continue
 		}
 		candidates = append(candidates, candidate)
@@ -168,11 +173,12 @@ func (m *prefetchManager) discoverCRIDelta(ctx context.Context, targetImage, hin
 		}
 		return candidate, sourceRef, nil
 	}
-	index, err := skopeo.ListPlatformReferrers(ctx, targetImage, opts...)
+	platformReferrers, err := skopeo.ListPlatformReferrers(ctx, targetImage, opts...)
 	if err != nil {
 		m.log.Debugf("application delta referrers unavailable for %s: %v", targetImage, err)
 		return delta.Candidate{}, "", nil
 	}
+	index := platformReferrers.Referrers
 	repo := imageRepository(targetImage)
 	if repo == "" {
 		return delta.Candidate{}, "", nil
@@ -185,6 +191,10 @@ func (m *prefetchManager) discoverCRIDelta(ctx context.Context, targetImage, hin
 		candidate, err := inspectApplicationDelta(ctx, repo+"@"+ref.Digest, ref.Size, skopeo, opts...)
 		if err != nil {
 			m.log.Debugf("Skipping unusable application delta %s: %v", ref.Digest, err)
+			continue
+		}
+		if candidate.TargetDigest != platformReferrers.TargetDigest {
+			m.log.Debugf("Skipping application delta %s: target digest does not match the resolved platform digest", ref.Digest)
 			continue
 		}
 		candidates = append(candidates, candidate)

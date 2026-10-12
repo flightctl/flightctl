@@ -293,14 +293,15 @@ func TestOSDeltaSourceUsesBootcStore(t *testing.T) {
 
 func TestOSDiscoveryIgnoresUnusableCandidates(t *testing.T) {
 	tests := []struct {
-		name, artifactType, digest, source, manifestError string
-		inspect                                           bool
-		probe                                             bool
+		name, artifactType, digest, source, targetDigest, manifestError string
+		inspect                                                         bool
+		probe                                                           bool
 	}{
 		{name: "When the referrer has another artifact type it should use the full image", artifactType: "application/vnd.example.other", digest: testDeltaDigest},
 		{name: "When the referrer digest is malformed it should use the full image", artifactType: ociDeltaArtifactType, digest: "sha256:invalid"},
 		{name: "When the artifact source metadata is missing it should use the full image", artifactType: ociDeltaArtifactType, digest: testDeltaDigest, inspect: true},
 		{name: "When the artifact source is absent from bootc storage it should use the full image", artifactType: ociDeltaArtifactType, digest: testDeltaDigest, source: testOtherDeltaDigest, inspect: true, probe: true},
+		{name: "When the referrer subject does not match the resolved platform digest it should use the full image", artifactType: ociDeltaArtifactType, digest: testDeltaDigest, source: testSourceDigest, targetDigest: testOtherDeltaDigest, inspect: true},
 		{name: "When the artifact cannot be inspected it should use the full image", artifactType: ociDeltaArtifactType, digest: testDeltaDigest, inspect: true, manifestError: "manifest unknown"},
 	}
 	for _, tt := range tests {
@@ -321,6 +322,9 @@ func TestOSDiscoveryIgnoresUnusableCandidates(t *testing.T) {
 			if tt.inspect {
 				if tt.manifestError != "" {
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+testDeltaRef, "--no-creds").Return("", tt.manifestError, 1)
+				} else if tt.targetDigest != "" {
+					manifest := fmt.Sprintf(`{"artifactType":%q,"subject":{"digest":%q},"annotations":{"io.github.containers.delta.source":%q},"config":{"digest":%q,"size":2},"layers":[{"digest":%q,"size":100}]}`, ociDeltaArtifactType, tt.targetDigest, tt.source, testDeltaDigest, testDeltaDigest)
+					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+testDeltaRef, "--no-creds").Return(manifest, "", 0)
 				} else {
 					expectDeltaManifest(mockExec, testDeltaRef, tt.source, 100)
 				}

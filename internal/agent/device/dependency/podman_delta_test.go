@@ -61,6 +61,7 @@ func TestPodmanDeltaCandidatePrefetch(t *testing.T) {
 			{digest: digestB, source: digestB, manifestSize: 90, layerSize: 1, local: true},
 			{digest: digestC, source: digestE, layerSize: 1},
 		}, selected: "quay.io/acme/app@" + digestA, outcome: v1beta1.DeviceDeltaApplyOutcomeApplied},
+		{name: "When a referrer subject does not match the resolved platform digest it should use a full pull", candidates: []candidate{{digest: digestA, source: podmanDeltaSource, layerSize: 10, targetDigest: targetIndexDigest, local: true}}, outcome: v1beta1.DeviceDeltaApplyOutcomeNotUsed},
 		{name: "When equal sized candidates arrive in reverse order it should break ties lexically", candidates: []candidate{
 			{digest: digestB, source: podmanDeltaSource, layerSize: 80, local: true},
 			{digest: digestA, source: digestB, layerSize: 80, local: true},
@@ -137,7 +138,7 @@ func TestPodmanDeltaCandidatePrefetch(t *testing.T) {
 					if tc.hint != "" {
 						targetNeedsInspection = true
 					}
-					if tc.hint == "" || targetDigest == platformTargetDigest {
+					if targetDigest == platformTargetDigest {
 						eligibleCandidates++
 					}
 					if c.local || c.inspectFailure {
