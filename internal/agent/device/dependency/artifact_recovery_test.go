@@ -21,6 +21,7 @@ import (
 func TestCachedArtifactHintRecoversWithFullPull(t *testing.T) {
 	const image = "quay.io/acme/compose:target"
 	const hint = "quay.io/acme/delta:target"
+	const artifactDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	tests := []struct {
 		name       string
 		ociType    OCIType
@@ -50,7 +51,8 @@ func TestCachedArtifactHintRecoversWithFullPull(t *testing.T) {
 			defer ctrl.Finish()
 			exec := executer.NewMockExecuter(ctrl)
 			tt.setupMocks(exec)
-			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.5.0", "", 0)
+			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "--version").Return("podman version 5.5.0", "", 0).Times(2)
+			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "inspect", image).Return(`{"Digest":"`+artifactDigest+`"}`, "", 0)
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "artifact", "pull", image).Return("", "", 0)
 			resources := resource.NewMockManager(ctrl)
 			resources.EXPECT().IsCriticalAlert(gomock.Any()).Return(false)

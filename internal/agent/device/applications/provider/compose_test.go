@@ -9,6 +9,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/util/validation"
@@ -23,6 +24,8 @@ import (
 
 func TestComposeImageProvider(t *testing.T) {
 	appImage := "quay.io/flightctl-tests/alpine:v1"
+	imageID := "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	imageDigest := "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	tests := []struct {
 		name          string
 		image         string
@@ -44,14 +47,12 @@ func TestComposeImageProvider(t *testing.T) {
 					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
 					Return("", "", 0).
 					AnyTimes()
-				gomock.InOrder(
+				calls := []any{
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", appImage).Return(appLabels, "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", appImage).Return("/mount", "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "unmount", appImage).Return("", "", 0),
-
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", appImage).Return("/mount", "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "unmount", appImage).Return("", "", 0),
-				)
+				}
+				calls = append(calls, expectComposeImageExtraction(mockExec, appImage, imageID, imageDigest)...)
+				calls = append(calls, expectComposeImageExtraction(mockExec, appImage, imageID, imageDigest)...)
+				gomock.InOrder(calls...)
 			},
 			// No error expected - missing appType label is now allowed
 		},
@@ -89,14 +90,12 @@ func TestComposeImageProvider(t *testing.T) {
 					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
 					Return("", "", 0).
 					AnyTimes()
-				gomock.InOrder(
+				calls := []any{
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", appImage).Return(appLabels, "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", appImage).Return("/mount", "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "unmount", appImage).Return("", "", 0),
-
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", appImage).Return("/mount", "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "unmount", appImage).Return("", "", 0),
-				)
+				}
+				calls = append(calls, expectComposeImageExtraction(mockExec, appImage, imageID, imageDigest)...)
+				calls = append(calls, expectComposeImageExtraction(mockExec, appImage, imageID, imageDigest)...)
+				gomock.InOrder(calls...)
 			},
 		},
 		{
@@ -137,11 +136,11 @@ services:
 					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
 					Return("", "", 0).
 					AnyTimes()
-				gomock.InOrder(
+				calls := []any{
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", appImage).Return(appLabels, "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", appImage).Return("/mount", "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "unmount", appImage).Return("", "", 0),
-				)
+				}
+				calls = append(calls, expectComposeImageExtraction(mockExec, appImage, imageID, imageDigest)...)
+				gomock.InOrder(calls...)
 			},
 			wantVerifyErr: validation.ErrHardCodedContainerName,
 		},
@@ -160,11 +159,11 @@ image: quay.io/flightctl-tests/alpine:v1`,
 					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
 					Return("", "", 0).
 					AnyTimes()
-				gomock.InOrder(
+				calls := []any{
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", appImage).Return(appLabels, "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", appImage).Return("/mount", "", 0),
-					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "unmount", appImage).Return("", "", 0),
-				)
+				}
+				calls = append(calls, expectComposeImageExtraction(mockExec, appImage, imageID, imageDigest)...)
+				gomock.InOrder(calls...)
 			},
 			wantVerifyErr: errors.ErrNoComposeServices,
 		},
@@ -260,6 +259,57 @@ image: quay.io/flightctl-tests/alpine:v1`,
 			}
 		})
 	}
+}
+
+func expectComposeImageExtraction(mockExec *executer.MockExecuter, imageRef, imageID, imageDigest string) []any {
+	return []any{
+		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Id}}", imageRef).Return(imageID, "", 0),
+		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", imageID).Return(imageDigest, "", 0),
+		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "unshare", "podman", "image", "mount", imageID).Return("/mount", "", 0),
+		mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "unmount", imageID).Return("", "", 0),
+	}
+}
+
+func TestComposeInstallKeepsTheCollectedParentArtifactIdentity(t *testing.T) {
+	const (
+		imageRef       = "quay.io/acme/compose-bundle:v1"
+		artifactDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	)
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(
+		fileio.NewReader(fileio.WithReaderRootDir(root)),
+		fileio.NewWriter(fileio.WithWriterRootDir(root)),
+	)
+	const (
+		extractedPath = "/extracted-parent"
+		installedPath = "/installed-app"
+	)
+	require.NoError(t, rw.MkdirAll(extractedPath, fileio.DefaultDirectoryPermissions))
+	require.NoError(t, rw.WriteFile(filepath.Join(extractedPath, "compose.yaml"), []byte("services: {}\n"), fileio.DefaultFilePermissions))
+	volumeManager, err := NewVolumeManager(log.NewPrefixLogger("test"), "app", v1beta1.AppTypeCompose, v1beta1.RootUsername, nil)
+	require.NoError(t, err)
+
+	spec := &ApplicationSpec{
+		Name: "app", ID: "app-id", Path: installedPath, Image: imageRef,
+		Volume: volumeManager, ImageDigest: "stale-digest", ImageOCIType: "stale-type",
+	}
+	compose := &composeProvider{
+		imageRef:   imageRef,
+		spec:       spec,
+		readWriter: rw,
+		log:        log.NewPrefixLogger("test"),
+		AppData: &AppData{
+			TmpPath: extractedPath, ParentReference: imageRef, ParentDigest: artifactDigest,
+			ParentOCIType: dependency.OCITypePodmanArtifact,
+		},
+	}
+
+	require.NoError(t, compose.Install(context.Background()))
+	require.Equal(t, artifactDigest, spec.ImageDigest)
+	require.Equal(t, string(dependency.OCITypePodmanArtifact), spec.ImageOCIType)
+	installed, err := rw.ReadFile(filepath.Join(installedPath, "compose.yaml"))
+	require.NoError(t, err)
+	require.Equal(t, "services: {}\n", string(installed))
 }
 
 func TestComposeInlineProvider(t *testing.T) {

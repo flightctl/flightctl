@@ -54,6 +54,8 @@ type Action struct {
 	ID string
 	// Name of the application
 	Name string
+	// Lifetime identifies this installed application across desired updates.
+	Lifetime string
 	// Environment variables to be passed to the manifest handler at runtime
 	EnvVars map[string]string
 	// Type of the action
@@ -131,6 +133,7 @@ func (as Actions) ByUser() iter.Seq2[v1beta1.Username, ActionsByType] {
 type Volume struct {
 	ID            string
 	Reference     string
+	OCIType       string
 	ReclaimPolicy v1beta1.ApplicationVolumeReclaimPolicy
 }
 

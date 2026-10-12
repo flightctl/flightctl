@@ -119,6 +119,8 @@ func TestCRIDeltaCandidatePrefetch(t *testing.T) {
 			specKeys := map[string]string{"helm-app": "unchanged-spec"}
 			keys := map[string]map[string]string{"helm-app": {id: key}}
 			require.NoError(store.ReconcileApplicationSpecs(specKeys))
+			lifetime := store.ApplicationLifetime("helm-app")
+			task.applicationLifetimes = map[string]string{"helm-app": lifetime}
 			require.NoError(store.ReconcileApplicationTargets(keys, true))
 			manager := &prefetchManager{
 				log: logger, readWriter: rw, pullTimeout: time.Minute,
@@ -127,7 +129,8 @@ func TestCRIDeltaCandidatePrefetch(t *testing.T) {
 				ociDelta:      client.NewOCIDelta(logger, exec, time.Minute),
 				tasks:         map[imageRef]*prefetchTask{target: task}, deltaGeneration: 1, deltaTargetsScheduled: true,
 				deltaTargetRefs: map[string]imageRef{id: target}, deltaAppTargetKeys: keys,
-				deltaStatusStore: store, deltaAppSpecKeys: specKeys,
+				deltaAppLifetimes: map[string]string{"helm-app": lifetime},
+				deltaStatusStore:  store, deltaAppSpecKeys: specKeys,
 			}
 			var descriptors []client.OCIReferrer
 			for _, c := range tc.candidates {

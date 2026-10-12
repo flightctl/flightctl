@@ -34,6 +34,15 @@ const (
 	artifactNotKnownErrorSubstring = "artifact not known"
 )
 
+const (
+	PodmanDeltaVolumeApplicationLabel = "io.flightctl.delta.application"
+	PodmanDeltaVolumeLifetimeLabel    = "io.flightctl.delta.lifetime"
+	PodmanDeltaVolumeReferenceLabel   = "io.flightctl.delta.reference"
+	PodmanDeltaVolumeDigestLabel      = "io.flightctl.delta.digest"
+	PodmanDeltaVolumeOwnerLabel       = "io.flightctl.delta.owner"
+	PodmanDeltaVolumeOCITypeLabel     = "io.flightctl.delta.oci-type"
+)
+
 // PodmanInspect represents the overall structure of podman inspect output
 type PodmanInspect struct {
 	ImageDigest string                `json:"ImageDigest"`
@@ -76,6 +85,17 @@ type ArtifactManifest struct {
 
 type ArtifactLayer struct {
 	Annotations map[string]string `json:"annotations,omitempty"`
+}
+
+// PodmanVolumeInspect contains the public volume identity needed to associate
+// an application volume with installed image content. It intentionally omits
+// Podman's private storage-image identity.
+type PodmanVolumeInspect struct {
+	Name      string            `json:"Name"`
+	Driver    string            `json:"Driver"`
+	CreatedAt string            `json:"CreatedAt"`
+	Labels    map[string]string `json:"Labels"`
+	Options   map[string]string `json:"Options"`
 }
 
 // PodmanEvent represents the structure of a podman event as produced via a CLI events command.
@@ -789,6 +809,31 @@ func (p *Podman) InspectVolumeOptionType(ctx context.Context, name string) (stri
 
 func (p *Podman) InspectVolumeMount(ctx context.Context, name string) (string, error) {
 	return p.inspectVolumeProperty(ctx, name, "{{.Mountpoint}}")
+}
+
+// InspectVolume returns only public Podman volume fields. In particular, it
+// does not infer an image ID from StorageID or inspect Podman's private state.
+func (p *Podman) InspectVolume(ctx context.Context, name string) (*PodmanVolumeInspect, error) {
+	ctx, cancel := context.WithTimeout(ctx, p.timeout)
+	defer cancel()
+
+	stdout, stderr, exitCode := p.exec.ExecuteWithContext(ctx, podmanCmd, "volume", "inspect", name, "--format", "{{json .}}")
+	if exitCode != 0 {
+		return nil, fmt.Errorf("inspect volume %s: %w", name, deviceerrors.FromStderr(stderr, exitCode))
+	}
+
+	var inspect PodmanVolumeInspect
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &inspect); err == nil && inspect.Name != "" {
+		return &inspect, nil
+	}
+	var inspections []PodmanVolumeInspect
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &inspections); err != nil {
+		return nil, fmt.Errorf("parse volume inspection for %s: %w", name, err)
+	}
+	if len(inspections) != 1 || inspections[0].Name == "" {
+		return nil, fmt.Errorf("parse volume inspection for %s: expected one named volume", name)
+	}
+	return &inspections[0], nil
 }
 
 func (p *Podman) RemoveVolumes(ctx context.Context, volumes ...string) error {

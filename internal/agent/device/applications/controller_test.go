@@ -29,6 +29,8 @@ type testApp struct {
 
 func TestParseAppProviders(t *testing.T) {
 	require := require.New(t)
+	const imageID = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	const imageDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	testCases := []struct {
 		name       string
 		setupMocks func(
@@ -52,6 +54,8 @@ func TestParseAppProviders(t *testing.T) {
 					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
 					Return("", "", 0).
 					AnyTimes()
+				mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Id}}", gomock.Any()).Return(imageID, "", 0).AnyTimes()
+				mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", imageID).Return(imageDigest, "", 0).AnyTimes()
 				// During Verify: inspect -> mount -> unmount (for each app)
 				gomock.InOrder(
 					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
@@ -76,6 +80,8 @@ func TestParseAppProviders(t *testing.T) {
 					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
 					Return("", "", 0).
 					AnyTimes()
+				mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Id}}", gomock.Any()).Return(imageID, "", 0).AnyTimes()
+				mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", imageID).Return(imageDigest, "", 0).AnyTimes()
 				// Inspect happens during Verify (ensureAppTypeFromImage)
 				mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0)
 			},
@@ -95,6 +101,8 @@ func TestParseAppProviders(t *testing.T) {
 					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
 					Return("", "", 0).
 					AnyTimes()
+				mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Id}}", gomock.Any()).Return(imageID, "", 0).AnyTimes()
+				mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", imageID).Return(imageDigest, "", 0).AnyTimes()
 				// During Verify: inspect -> mount -> unmount
 				gomock.InOrder(
 					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
@@ -115,6 +123,8 @@ func TestParseAppProviders(t *testing.T) {
 					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
 					Return("", "", 0).
 					AnyTimes()
+				mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Id}}", gomock.Any()).Return(imageID, "", 0).AnyTimes()
+				mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", imageID).Return(imageDigest, "", 0).AnyTimes()
 				// During Verify: inspect -> mount -> unmount
 				gomock.InOrder(
 					mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "inspect", gomock.Any()).Return(imageConfig, "", 0),
@@ -148,6 +158,8 @@ func TestParseAppProviders(t *testing.T) {
 					ExecuteWithContext(gomock.Any(), "podman", "image", "exists", gomock.Any()).
 					Return("", "", 0).
 					AnyTimes()
+				mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Id}}", gomock.Any()).Return(imageID, "", 0).AnyTimes()
+				mockExecuter.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{.Digest}}", imageID).Return(imageDigest, "", 0).AnyTimes()
 				// During Verify for each app: inspect -> mount -> unmount
 				gomock.InOrder(
 					// app1: inspect -> mount -> unmount

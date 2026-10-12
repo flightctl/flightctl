@@ -3,12 +3,16 @@ package lifecycle
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/deltastatus"
+	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/log"
+	"github.com/opencontainers/go-digest"
 )
 
 const (
@@ -22,13 +26,19 @@ var _ LifecycleHandler = (*Compose)(nil)
 type Compose struct {
 	podmanFactory client.PodmanFactory
 	writerFactory fileio.ReadWriterFactory
+	deltaStore    *deltastatus.Store
 	log           *log.PrefixLogger
 }
 
-func NewCompose(log *log.PrefixLogger, rwFactory fileio.ReadWriterFactory, podmanFactory client.PodmanFactory) *Compose {
+func NewCompose(log *log.PrefixLogger, rwFactory fileio.ReadWriterFactory, podmanFactory client.PodmanFactory, deltaStores ...*deltastatus.Store) *Compose {
+	var deltaStore *deltastatus.Store
+	if len(deltaStores) > 0 {
+		deltaStore = deltaStores[0]
+	}
 	return &Compose{
 		podmanFactory: podmanFactory,
 		writerFactory: rwFactory,
+		deltaStore:    deltaStore,
 		log:           log,
 	}
 }
@@ -48,7 +58,7 @@ func (c *Compose) add(ctx context.Context, action *Action) error {
 		return fmt.Errorf("creating writer: %w", err)
 	}
 
-	if err := c.ensurePodmanVolumes(ctx, action.Volumes, appName, podman, writer); err != nil {
+	if err := c.ensurePodmanVolumes(ctx, action, podman, writer); err != nil {
 		return fmt.Errorf("creating volumes: %w", err)
 	}
 
@@ -96,7 +106,7 @@ func (c *Compose) update(ctx context.Context, action *Action) error {
 		return err
 	}
 
-	if err := c.ensurePodmanVolumes(ctx, action.Volumes, projectName, podman, writer); err != nil {
+	if err := c.ensurePodmanVolumes(ctx, action, podman, writer); err != nil {
 		return fmt.Errorf("creating volumes: %w", err)
 	}
 
@@ -211,19 +221,24 @@ func (c *Compose) Execute(ctx context.Context, actions Actions) error {
 // ensurePodmanVolumes creates and populates each image-backed volume in Podman.
 func (c *Compose) ensurePodmanVolumes(
 	ctx context.Context,
-	volumes []Volume,
-	appID string,
+	action *Action,
 	podman *client.Podman,
 	writer fileio.Writer,
 ) error {
-	if len(volumes) == 0 {
+	if len(action.Volumes) == 0 {
 		return nil
 	}
 
-	labels := []string{fmt.Sprintf("%s=%s", client.ComposeDockerProjectLabelKey, appID)}
+	labels := []string{fmt.Sprintf("%s=%s", client.ComposeDockerProjectLabelKey, action.ID)}
 	// ensure the volume content is pulled and available
-	for _, volume := range volumes {
-		if err := c.ensurePodmanVolume(ctx, volume, labels, podman, writer); err != nil {
+	for _, volume := range action.Volumes {
+		// Compose image-backed content volumes use OCI artifacts. Executable
+		// image volumes are created by Podman's image volume driver and carry
+		// their own same-create provenance labels.
+		if volume.OCIType != string(dependency.OCITypePodmanArtifact) {
+			continue
+		}
+		if err := c.ensurePodmanVolume(ctx, action, volume, labels, podman, writer); err != nil {
 			return fmt.Errorf("pulling image volume: %w", err)
 		}
 	}
@@ -233,6 +248,7 @@ func (c *Compose) ensurePodmanVolumes(
 // ensurePodmanVolume creates and populates a image-backed podman volume.
 func (c *Compose) ensurePodmanVolume(
 	ctx context.Context,
+	action *Action,
 	volume Volume,
 	labels []string,
 	podman *client.Podman,
@@ -240,31 +256,86 @@ func (c *Compose) ensurePodmanVolume(
 ) error {
 	name := volume.ID
 	imageRef := volume.Reference
+	var artifactDigest string
+	var digestErr error
+	canRecordIdentity := c.deltaStore != nil && action.Name != "" && action.Lifetime != ""
+	if canRecordIdentity {
+		artifactDigest, digestErr = podman.ArtifactDigest(ctx, imageRef)
+	}
+	immutableReference := imageRef
+	if digestErr == nil {
+		if _, err := digest.Parse(artifactDigest); err != nil {
+			digestErr = fmt.Errorf("invalid artifact digest %q: %w", artifactDigest, err)
+		}
+	}
+	if canRecordIdentity && digestErr == nil && artifactDigest != "" && !strings.Contains(imageRef, "@") {
+		immutableReference = imageRef + "@" + artifactDigest
+	} else if digestErr != nil {
+		c.log.Warnf("Unable to pin artifact identity for volume %s; volume lastDelta evidence will be withheld: %v", name, digestErr)
+	}
+	if c.deltaStore != nil {
+		if err := c.deltaStore.ClearApplicationVolumeImage(action.Name, action.Lifetime, name); err != nil {
+			return fmt.Errorf("clear old volume identity %s: %w", name, err)
+		}
+	}
+	var volumePath string
+	var err error
 	if podman.VolumeExists(ctx, name) {
 		c.log.Tracef("Volume %q already exists, updating contents", name)
-		volumePath, err := podman.InspectVolumeMount(ctx, name)
+		inspection, err := podman.InspectVolume(ctx, name)
+		if err != nil {
+			return fmt.Errorf("inspect volume identity %w: %w", errors.WithElement(name), err)
+		}
+		if inspection.Driver != "local" {
+			return fmt.Errorf("volume %q has driver %q, expected local artifact volume", name, inspection.Driver)
+		}
+		volumePath, err = podman.InspectVolumeMount(ctx, name)
 		if err != nil {
 			return fmt.Errorf("inspect volume %w: %w", errors.WithElement(name), err)
 		}
 		if err := writer.RemoveContents(volumePath); err != nil {
 			return fmt.Errorf("removing volume content %w: %w", errors.WithElement(volumePath), err)
 		}
-		if _, err := podman.ExtractArtifact(ctx, imageRef, volumePath); err != nil {
+		if _, err := podman.ExtractArtifact(ctx, immutableReference, volumePath); err != nil {
 			return fmt.Errorf("extract artifact: %w", err)
 		}
+	} else {
+		c.log.Infof("Creating volume %q from image %q", name, imageRef)
+		volumePath, err = podman.CreateVolume(ctx, name, labels)
+		if err != nil {
+			return fmt.Errorf("creating volume %w: %w", errors.WithElement(name), err)
+		}
+		if _, err := podman.ExtractArtifact(ctx, immutableReference, volumePath); err != nil {
+			return fmt.Errorf("copy image contents: %w", err)
+		}
+	}
+	if canRecordIdentity && digestErr == nil && artifactDigest != "" {
+		if err := c.recordArtifactVolumeImage(ctx, *action, volume, podman, artifactDigest); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (c *Compose) recordArtifactVolumeImage(ctx context.Context, action Action, volume Volume, podman *client.Podman, artifactDigest string) error {
+	if c.deltaStore == nil || action.Name == "" || action.Lifetime == "" {
 		return nil
 	}
-
-	c.log.Infof("Creating volume %q from image %q", name, imageRef)
-
-	volumePath, err := podman.CreateVolume(ctx, name, labels)
-	if err != nil {
-		return fmt.Errorf("creating volume %w: %w", errors.WithElement(name), err)
+	inspection, err := podman.InspectVolume(ctx, volume.ID)
+	if err != nil || inspection == nil || inspection.Driver != "local" || inspection.CreatedAt == "" {
+		c.log.Warnf("Unable to bind artifact identity to volume %s: inspect failed or volume is not a created local volume: %v", volume.ID, err)
+		return nil
 	}
-	if _, err := podman.ExtractArtifact(ctx, imageRef, volumePath); err != nil {
-		return fmt.Errorf("copy image contents: %w", err)
+	image := deltastatus.ApplicationImage{
+		Image:   volume.Reference,
+		Owner:   string(action.User.WithDefault(v1beta1.RootUsername)),
+		OCIType: volume.OCIType,
+		Digest:  artifactDigest,
 	}
-
+	if err := c.deltaStore.RecordApplicationVolumeImage(action.Name, action.Lifetime, volume.ID, inspection.CreatedAt, image); err != nil {
+		return fmt.Errorf("persist artifact identity for volume %s: %w", volume.ID, err)
+	}
 	return nil
 }
 

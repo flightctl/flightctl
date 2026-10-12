@@ -19,6 +19,7 @@ import (
 	appconsole "github.com/flightctl/flightctl/internal/agent/device/applications/console"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/lifecycle"
 	"github.com/flightctl/flightctl/internal/agent/device/applications/provider"
+	"github.com/flightctl/flightctl/internal/agent/device/deltastatus"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/systemd"
@@ -66,7 +67,12 @@ func NewPodmanMonitor(
 	systemdFactory systemd.ManagerFactory,
 	bootTime string,
 	rwFactory fileio.ReadWriterFactory,
+	deltaStores ...*deltastatus.Store,
 ) *PodmanMonitor {
+	var deltaStore *deltastatus.Store
+	if len(deltaStores) > 0 {
+		deltaStore = deltaStores[0]
+	}
 	// don't fail for this. This is being parsed purely for informational reasons in the event something fails
 	startTime, err := time.Parse(time.RFC3339, bootTime)
 	if err != nil {
@@ -77,8 +83,8 @@ func NewPodmanMonitor(
 		clientFactory:  podmanFactory,
 		systemdFactory: systemdFactory,
 		handlers: map[v1beta1.AppType]lifecycle.ActionHandler{
-			v1beta1.AppTypeCompose: lifecycle.NewCompose(log, rwFactory, podmanFactory),
-			v1beta1.AppTypeQuadlet: lifecycle.NewQuadlet(log, rwFactory, systemdFactory, podmanFactory),
+			v1beta1.AppTypeCompose: lifecycle.NewCompose(log, rwFactory, podmanFactory, deltaStore),
+			v1beta1.AppTypeQuadlet: lifecycle.NewQuadlet(log, rwFactory, systemdFactory, podmanFactory, deltaStore),
 		},
 		watchers:               make(map[v1beta1.Username]*podmanEventWatcher),
 		apps:                   make(map[string]Application),
@@ -246,6 +252,7 @@ func (m *PodmanMonitor) QueueLifecycle(appID string, desiredState v1beta1.Applic
 	m.actions = append(m.actions, lifecycle.Action{
 		ID:                 appID,
 		Name:               app.Name(),
+		Lifetime:           app.ImageSnapshot().Lifetime,
 		User:               app.User(),
 		AppType:            app.AppType(),
 		Path:               app.Path(),
@@ -334,6 +341,7 @@ func (m *PodmanMonitor) Ensure(ctx context.Context, app Application) error {
 		Type:     lifecycle.ActionAdd,
 		User:     app.User(),
 		Name:     appName,
+		Lifetime: app.ImageSnapshot().Lifetime,
 		ID:       appID,
 		Path:     app.Path(),
 		Embedded: app.IsEmbedded(),
@@ -358,12 +366,13 @@ func (m *PodmanMonitor) QueueRemove(app Application) error {
 	appName := app.Name()
 
 	action := lifecycle.Action{
-		AppType: app.AppType(),
-		Type:    lifecycle.ActionRemove,
-		Name:    appName,
-		User:    app.User(),
-		ID:      appID,
-		Volumes: provider.ToLifecycleVolumes(app.Volume().List()),
+		AppType:  app.AppType(),
+		Type:     lifecycle.ActionRemove,
+		Name:     appName,
+		Lifetime: app.ImageSnapshot().Lifetime,
+		User:     app.User(),
+		ID:       appID,
+		Volumes:  provider.ToLifecycleVolumes(app.Volume().List()),
 	}
 
 	m.actions = append(m.actions, action)
@@ -384,13 +393,14 @@ func (m *PodmanMonitor) QueueUpdate(app Application) error {
 
 	// currently we don't support updating embedded applications
 	action := lifecycle.Action{
-		AppType: app.AppType(),
-		Type:    lifecycle.ActionUpdate,
-		Name:    app.Name(),
-		User:    app.User(),
-		ID:      appID,
-		Path:    app.Path(),
-		Volumes: provider.ToLifecycleVolumes(app.Volume().List()),
+		AppType:  app.AppType(),
+		Type:     lifecycle.ActionUpdate,
+		Name:     app.Name(),
+		Lifetime: app.ImageSnapshot().Lifetime,
+		User:     app.User(),
+		ID:       appID,
+		Path:     app.Path(),
+		Volumes:  provider.ToLifecycleVolumes(app.Volume().List()),
 	}
 
 	m.actions = append(m.actions, action)
@@ -533,11 +543,12 @@ func (m *PodmanMonitor) lifecycleDispatch(appID string) (lifecycle.LifecycleHand
 	}
 
 	action := lifecycle.Action{
-		ID:      app.ID(),
-		Name:    app.Name(),
-		User:    app.User(),
-		AppType: app.AppType(),
-		Path:    app.Path(),
+		ID:       app.ID(),
+		Name:     app.Name(),
+		Lifetime: app.ImageSnapshot().Lifetime,
+		User:     app.User(),
+		AppType:  app.AppType(),
+		Path:     app.Path(),
 	}
 	return handler, action, app, nil
 }

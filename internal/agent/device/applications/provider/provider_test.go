@@ -502,6 +502,148 @@ func TestCollectProviderTargetsDeferredDependencies(t *testing.T) {
 	}
 }
 
+func TestCollectProviderTargetsReusesOnlyExactParentExtractionAfterSkippedCleanup(t *testing.T) {
+	const (
+		applicationID = "app-id"
+		parentRef     = "quay.io/acme/parent:latest"
+		oldDigest     = "sha256:old"
+		newDigest     = "sha256:new"
+		latestDigest  = "sha256:latest"
+	)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockAppProvider := NewMockappProvider(ctrl)
+	appSpec := &ApplicationSpec{ID: applicationID, Name: "app", Image: parentRef, User: v1beta1.RootUsername}
+	mockAppProvider.EXPECT().ID().Return(applicationID).AnyTimes()
+	mockAppProvider.EXPECT().Name().Return("app").AnyTimes()
+	mockAppProvider.EXPECT().Spec().Return(appSpec).AnyTimes()
+	mockAppProvider.EXPECT().EnsureDependencies(gomock.Any()).Return(nil).Times(3)
+	mockAppProvider.EXPECT().collectOCITargets(gomock.Any(), gomock.Any()).Return(nil, nil).Times(3)
+	parentCall := 0
+	mockAppProvider.EXPECT().parentIsAvailable(gomock.Any()).DoAndReturn(func(context.Context) (string, string, bool, error) {
+		parentCall++
+		if parentCall < 3 {
+			return parentRef, newDigest, true, nil
+		}
+		return parentRef, latestDigest, true, nil
+	}).Times(3)
+	var cleanups []string
+	var extracts int
+	mockAppProvider.EXPECT().extractNestedTargets(gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, dependency.PullConfigResolver) (*AppData, error) {
+		extracts++
+		digest := newDigest
+		if extracts == 2 {
+			digest = latestDigest
+		}
+		return &AppData{
+			Targets:         []dependency.OCIPullTarget{{Type: dependency.OCITypePodmanImage, Reference: "quay.io/acme/child:v1"}},
+			TmpPath:         "/tmp/extracted-" + digest,
+			ParentReference: parentRef,
+			ParentDigest:    digest,
+			ParentOCIType:   dependency.OCITypePodmanArtifact,
+			CleanupFn:       func() error { cleanups = append(cleanups, digest); return nil },
+		}, nil
+	}).Times(2)
+
+	oldCleanupCount := 0
+	appDataCache := map[string]*AppData{
+		applicationID: {
+			TmpPath:         "/tmp/extracted-old",
+			ParentReference: "quay.io/acme/previous:tag",
+			ParentDigest:    oldDigest,
+			ParentOCIType:   dependency.OCITypePodmanArtifact,
+			CleanupFn:       func() error { oldCleanupCount++; return nil },
+		},
+	}
+	ociCache := NewOCITargetCache()
+	ociCache.Set(CacheEntry{
+		Name:   applicationID,
+		Parent: dependency.OCIPullTarget{Reference: "quay.io/acme/previous:tag", Digest: oldDigest, Type: dependency.OCITypePodmanArtifact},
+	})
+	logger := log.NewPrefixLogger("test")
+
+	for attempt := 0; attempt < 2; attempt++ {
+		collection, err := collectProviderTargets(context.Background(), logger, []appProvider{mockAppProvider}, nil, ociCache, appDataCache)
+		require.NoError(t, err)
+		require.NotNil(t, collection)
+		require.Equal(t, 1, extracts)
+		require.Equal(t, 1, oldCleanupCount)
+		require.Empty(t, cleanups, "the extraction retained after the simulated skipped AfterUpdate must remain reusable")
+		require.Equal(t, newDigest, appDataCache[applicationID].ParentDigest)
+	}
+
+	collection, err := collectProviderTargets(context.Background(), logger, []appProvider{mockAppProvider}, nil, ociCache, appDataCache)
+	require.NoError(t, err)
+	require.NotNil(t, collection)
+	require.Equal(t, 2, extracts, "a different resolved parent digest must be extracted")
+	require.Equal(t, []string{newDigest}, cleanups, "the stale attempt extraction must be cleaned before replacement")
+	require.Equal(t, latestDigest, appDataCache[applicationID].ParentDigest)
+}
+
+func TestCollectProviderTargetsReextractsParentWhenStorageOwnerChanges(t *testing.T) {
+	const (
+		applicationID = "app-id"
+		parentRef     = "quay.io/acme/parent:latest"
+		parentDigest  = "sha256:parent"
+		oldChild      = "quay.io/acme/old-child:v1"
+		newChild      = "quay.io/acme/new-child:v1"
+	)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockAppProvider := NewMockappProvider(ctrl)
+	appSpec := &ApplicationSpec{ID: applicationID, Name: "app", Image: parentRef, User: "alice"}
+	mockAppProvider.EXPECT().ID().Return(applicationID).AnyTimes()
+	mockAppProvider.EXPECT().Name().Return("app").AnyTimes()
+	mockAppProvider.EXPECT().Spec().Return(appSpec).AnyTimes()
+	mockAppProvider.EXPECT().EnsureDependencies(gomock.Any()).Return(nil)
+	mockAppProvider.EXPECT().collectOCITargets(gomock.Any(), gomock.Any()).Return(nil, nil)
+	mockAppProvider.EXPECT().parentIsAvailable(gomock.Any()).Return(parentRef, parentDigest, true, nil)
+	var oldCleanupCount int
+	appDataCache := map[string]*AppData{
+		applicationID: {
+			TmpPath: parentRef, ParentReference: parentRef, ParentDigest: parentDigest,
+			ParentOCIType: dependency.OCITypePodmanArtifact,
+			CleanupFn:     func() error { oldCleanupCount++; return nil },
+		},
+	}
+	var extracted bool
+	mockAppProvider.EXPECT().extractNestedTargets(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(context.Context, dependency.PullConfigResolver) (*AppData, error) {
+			extracted = true
+			return &AppData{
+				Targets:         []dependency.OCIPullTarget{{Type: dependency.OCITypePodmanImage, Reference: newChild}},
+				TmpPath:         "/tmp/alice-parent",
+				ParentReference: parentRef,
+				ParentDigest:    parentDigest,
+				ParentOCIType:   dependency.OCITypePodmanArtifact,
+			}, nil
+		},
+	)
+
+	ociCache := NewOCITargetCache()
+	ociCache.Set(CacheEntry{
+		Name: applicationID, Owner: "bob",
+		Parent:   dependency.OCIPullTarget{Reference: parentRef, Digest: parentDigest, Type: dependency.OCITypePodmanArtifact},
+		Children: []dependency.OCIPullTarget{{Type: dependency.OCITypePodmanImage, Reference: oldChild}},
+	})
+	collection, err := collectProviderTargets(
+		context.Background(), log.NewPrefixLogger("test"), []appProvider{mockAppProvider}, nil, ociCache, appDataCache,
+	)
+	require.NoError(t, err)
+	require.True(t, extracted, "parent children must be rebuilt from the owning user's store")
+	require.Equal(t, 1, oldCleanupCount, "cached parent bytes from the prior owner must be discarded")
+	require.Equal(t, "alice", string(ociCacheEntryOwner(t, ociCache, applicationID)))
+	require.Len(t, collection.Targets["alice"], 1)
+	require.Equal(t, newChild, collection.Targets["alice"][0].Reference)
+}
+
+func ociCacheEntryOwner(t *testing.T, cache *OCITargetCache, applicationID string) v1beta1.Username {
+	t.Helper()
+	entry, found := cache.Get(applicationID)
+	require.True(t, found)
+	return entry.Owner
+}
+
 type mockProvider struct {
 	id   string
 	name string

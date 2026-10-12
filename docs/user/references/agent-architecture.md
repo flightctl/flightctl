@@ -89,7 +89,7 @@ The agent reconciles the **DeviceSpec** against device state by calling external
 
 Podman application monitors rebuild their in-memory registrations during reconciliation after an agent restart. When an application changed while the agent was stopped, its update action replaces the existing workloads and registers the desired application for monitoring.
 
-The agent caches image-backed volume digests across unchanged reconciliations and status reports. Installing, updating, or removing an application invalidates the cache before provider changes and after runtime actions, including failed actions. Changed volume references are inspected independently, and references no longer reported are removed from the cache. Confirmed artifact-backed volumes are also cached so subsequent reports skip image inspection. Other failed digest inspections are retried on the next status report. Volume inspection runs without holding the cache lock, allowing application updates to proceed. If an update invalidates the cache during inspection, that inspection does not repopulate the cache.
+Application delta status uses one owned image snapshot for each application update. It includes observed workload images, required image-backed volumes, and the parent OCI image or artifact when an application is extracted from one. Each identity retains its registry reference, digest, OCI type, and storage owner. A volume identity is tied to the volume's creation time and the application lifetime, so replacing the volume cannot reuse evidence from its earlier contents.
 
 ## Update Policy
 
@@ -106,6 +106,8 @@ The agent caches image-backed volume digests across unchanged reconciliations an
 The agent continuously reports device health, application state, and resource conditions to the management service. Built-in collectors capture system info (hostname, OS, hardware, network) while user-defined custom collectors enable site-specific data. This powers fleet-wide visibility, rollout decisions, and alerting.
 
 OS image digests come from bootc. Application workload digests come from the owning Podman user store or the configured CRI runtime, including nested workload images. Image-backed volumes use the application's Podman user store. Applications without an explicit `runAs` use the agent-process user context.
+
+Podman can report an index digest on a running container while inspecting its immutable local image ID returns the selected platform manifest digest. The index may also appear in the image's `RepoDigests`. These digest forms are not treated as equal for `lastDelta` matching. Until status collection can verify their relationship for the observed image, the agent reports the observed digest and withholds `lastDelta` when a stored result uses the other digest.
 
 For Kubernetes workloads, a registry-qualified runtime image ID identifies the observed manifest. For opaque image IDs, the agent queries CRI for a matching repository digest. If no verified registry digest is available, status leaves the image digest empty, including for digest-pinned desired references. When CRI reports multiple distinct matching repository digests for an opaque image ID, their order does not establish an observed identity; status leaves that observation unknown. An opaque runtime ID is never reported as a registry digest. Runtime observations take precedence over cached parent digests for the same image reference.
 
@@ -131,7 +133,11 @@ OS outcomes are associated with the image reference and digest observed by bootc
 
 Application outcomes retain per-image associations with a verified registry digest, storage owner, reference, and OCI target type. Status combines matching recorded outcomes from the complete observed workload image set, including old and new versions during a rollout. Shared images reuse their recorded outcome. Preparing a new desired image preserves history for content still running, including across restart.
 
-Unknown workload identities, missing expected images, unmatched results, or incomplete collection omit application `lastDelta`. A known digest from another replica cannot cover an unknown image. Desired prefetch results alone do not establish an observed association. Applications requiring parent or volume evidence also omit the outcome until all required image associations can be verified.
+Compose and Quadlet artifact-backed volumes record their manifest digest only after extraction succeeds. The agent associates that identity with the volume's public creation time, application lifetime, storage owner, and OCI type. Quadlet image-driver volumes use the immutable image ID from the Quadlet `Image=` setting and verify its registry digest in the same Podman store. The agent pins generated image-volume units to that ID and requires matching provenance labels when it observes the volume. Podman's `StorageID` is an internal volume storage identifier, not the source image ID. Existing volumes without trusted provenance and mutable-reference-only observations do not establish an image identity.
+
+Parent identity is recorded after the installed extraction succeeds. The installed parent uses the same extracted bytes collected for nested images, or an immutable image ID or artifact digest resolved by the owning Podman store. Ordinary desired updates retain the application lifetime; removing the application clears its outcomes and volume bindings before a later recreation receives a new lifetime.
+
+Unknown workload or volume identities, missing expected images, unmatched results, or incomplete collection omit application `lastDelta`. A known digest from another replica cannot cover an unknown image. Desired prefetch results alone do not establish an observed association. Applications requiring parent or volume evidence also omit the outcome until all required image associations can be verified.
 
 ## Ansible Collection
 
