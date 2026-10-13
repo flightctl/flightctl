@@ -126,7 +126,12 @@ systemd_start_all_unit_files(flightctl_agent_t)
 systemd_status_all_unit_files(flightctl_agent_t)
 systemd_reload_all_services(flightctl_agent_t)
 systemd_start_all_services(flightctl_agent_t)
-systemd_stop_all_services(flightctl_agent_t)
+# Older SELinux policies do not define systemd_stop_all_services.
+ifdef(`systemd_stop_all_services',`
+    systemd_stop_all_services(flightctl_agent_t)
+',`
+    systemd_stop_systemd_services(flightctl_agent_t)
+')
 allow flightctl_agent_t init_t:system { status stop start };
 
 # This is only available on RHEL10
