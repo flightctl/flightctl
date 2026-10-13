@@ -69,7 +69,7 @@ For hook configuration, failure policies, and restart behavior, see [Using enrol
 
 ## Viewing the Device Inventory and Device Details
 
-Flight Control automatically gathers system information from each device to help identify its hardware, OS, and environment. This data is shown in the `status.systemInfo` field. You can promote fields to labels during enrollment with the agent's `label-from-systeminfo` configuration, or keep selected values synchronized into labels after enrollment with `LabelSyncMapping` resources. Promoted labels support grouping and filtering devices by attributes such as region or OS version. See [Managing dynamic label mappings](managing-dynamic-mappings.md) for server-side mappings.
+Flight Control automatically gathers system information from each device to help identify its hardware, OS, and environment. This data is shown in the `status.systemInfo` field. You can promote fields to labels during enrollment with the agent's `label-from-systeminfo` configuration, or synchronize them to labels after enrollment with `LabelSyncMapping` resources. Promoted labels support grouping and filtering devices by attributes such as region or OS version. See [Managing dynamic label mappings](managing-dynamic-mappings.md) for server-side mappings.
 
 ### Considerations for System Information
 

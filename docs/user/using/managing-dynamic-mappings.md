@@ -164,7 +164,7 @@ CEL expressions can use optional values. Use `has()` or a conditional expression
 
 Mapping results must be a scalar value or a map of scalar values. Nested maps, lists, and other complex results are rejected. Scalar values are converted to strings and sanitized for use as label values. Map keys must be valid label keys.
 
-Each map expression can return up to 50 entries. A device can have up to 100 mapping-owned labels across all mappings. A mapping fails if its map result exceeds 50 entries or its output would give a device more than 100 mapping-owned labels.
+Each map expression can return up to 50 entries. A device can have up to 100 mapping-owned labels across all mappings. A mapping fails if its map result exceeds 50 entries. If the aggregate output would exceed 100 mapping-owned labels, every active mapping with nonempty output fails for that device. The new outputs are not applied, and each mapping's previous outputs are retained.
 
 ## Manage mappings from the CLI and API
 
