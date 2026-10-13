@@ -62,12 +62,22 @@ func (m *manager) discoverOSDelta(ctx context.Context, desired *v1beta1.DeviceSp
 			m.log.Debugf("Skipping OS delta %s: target digest does not match the resolved platform digest", ref.Digest)
 			continue
 		}
-		candidate.SourceAvailable, err = m.osDeltaSourceAvailable(ctx, bootcStatus, candidate.SourceDigest)
-		if err != nil {
-			m.log.Debugf("Skipping unusable OS delta %s: check delta source image: %v", ref.Digest, err)
-			continue
-		}
 		candidates = append(candidates, candidate)
+	}
+	if len(candidates) == 0 {
+		return ""
+	}
+	wanted := make(map[string]struct{}, len(candidates))
+	for _, candidate := range candidates {
+		wanted[candidate.SourceDigest] = struct{}{}
+	}
+	sources, err := m.osDeltaSourceDigests(ctx, bootcStatus, wanted)
+	if err != nil {
+		m.log.Debugf("OS delta sources unavailable: %v", err)
+		return ""
+	}
+	for i := range candidates {
+		_, candidates[i].SourceAvailable = sources[candidates[i].SourceDigest]
 	}
 	return delta.Select(candidates)
 }

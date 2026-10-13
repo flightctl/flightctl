@@ -471,6 +471,33 @@ func (m *manager) osDeltaSourceAvailable(ctx context.Context, bootcStatus *Statu
 	return m.ociDelta.SourceImageExists(ctx, source)
 }
 
+func (m *manager) osDeltaSourceDigests(ctx context.Context, bootcStatus *Status, wanted map[string]struct{}) (map[string]struct{}, error) {
+	sources := make(map[string]struct{})
+	for _, image := range []container.ImageStatus{bootcStatus.BootcHost.Status.Booted, bootcStatus.BootcHost.Status.Staged, bootcStatus.BootcHost.Status.Rollback} {
+		if image.Image.ImageDigest != "" {
+			sources[image.Image.ImageDigest] = struct{}{}
+		}
+	}
+	needsCachedSources := false
+	for source := range wanted {
+		if _, found := sources[source]; !found {
+			needsCachedSources = true
+			break
+		}
+	}
+	if !needsCachedSources {
+		return sources, nil
+	}
+	cached, err := m.ociDelta.SourceImageDigests(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for source := range cached {
+		sources[source] = struct{}{}
+	}
+	return sources, nil
+}
+
 func (m *manager) osTargetPlatformDigestMatches(ctx context.Context, image, targetDigest string, optsFn dependency.ClientOptsFn) (bool, error) {
 	platformDigest, err := m.skopeo.InspectPlatformDigest(ctx, image, optsFn()...)
 	if err != nil {

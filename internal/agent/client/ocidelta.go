@@ -106,23 +106,35 @@ func (d *OCIDelta) Import(ctx context.Context, deltaRef, targetRef string) error
 	return nil
 }
 
-// SourceImageExists checks cached host images in the OSTree repository used by Apply.
-// It does not consult the separate application containers/storage store.
-func (d *OCIDelta) SourceImageExists(ctx context.Context, sourceDigest string) (bool, error) {
+// SourceImageDigests returns cached host image digests in the OSTree repository
+// used by Apply. It does not consult the separate application
+// containers/storage store.
+func (d *OCIDelta) SourceImageDigests(ctx context.Context) (map[string]struct{}, error) {
 	ctx, cancel := context.WithTimeout(ctx, d.timeout)
 	defer cancel()
 	stdout, stderr, exitCode := d.exec.ExecuteWithContext(ctx, "ostree", "refs", "--list", "--repo", ostreeRepoPath, "ostree/container/image")
 	if exitCode != 0 {
-		return false, fmt.Errorf("list bootc images: %w", errors.FromStderr(stderr, exitCode))
+		return nil, fmt.Errorf("list bootc images: %w", errors.FromStderr(stderr, exitCode))
 	}
+	sources := make(map[string]struct{})
 	for _, ref := range strings.Fields(stdout) {
 		metadata, _, exitCode := d.exec.ExecuteWithContext(ctx, "ostree", "show", "--repo", ostreeRepoPath, "--print-metadata-key=ostree.manifest-digest", ref)
 		if exitCode != 0 {
 			continue
 		}
-		if strings.Trim(strings.TrimSpace(metadata), "'\"") == sourceDigest {
-			return true, nil
+		if source := strings.Trim(strings.TrimSpace(metadata), "'\""); source != "" {
+			sources[source] = struct{}{}
 		}
 	}
-	return false, nil
+	return sources, nil
+}
+
+// SourceImageExists checks cached host images in the OSTree repository used by Apply.
+func (d *OCIDelta) SourceImageExists(ctx context.Context, sourceDigest string) (bool, error) {
+	sources, err := d.SourceImageDigests(ctx)
+	if err != nil {
+		return false, err
+	}
+	_, exists := sources[sourceDigest]
+	return exists, nil
 }
