@@ -356,7 +356,8 @@ fi
     cp packaging/hooks.d/afterupdating/00-default.yaml %{buildroot}/usr/lib/flightctl/hooks.d/afterupdating
     cp packaging/systemd/flightctl-agent.service %{buildroot}/usr/lib/systemd/system
     echo "d /var/lib/flightctl 0755 root root -" > %{buildroot}/usr/lib/tmpfiles.d/flightctl.conf
-    echo "d /var/home/flightctl 0700 flightctl flightctl -" >> %{buildroot}/usr/lib/tmpfiles.d/flightctl.conf
+    # /home is /var/home on bootc images and a regular directory on RHEL.
+    echo "d /home/flightctl 0700 flightctl flightctl -" >> %{buildroot}/usr/lib/tmpfiles.d/flightctl.conf
     echo "# systemd-tmpfiles configuration for CentOS bootc buildinfo directories" > %{buildroot}/usr/lib/tmpfiles.d/centos-buildinfo.conf
     echo "d /var/roothome 0755 root root -" >> %{buildroot}/usr/lib/tmpfiles.d/centos-buildinfo.conf
     echo "d /var/roothome/buildinfo 0755 root root -" >> %{buildroot}/usr/lib/tmpfiles.d/centos-buildinfo.conf
@@ -584,8 +585,8 @@ fi
 %post agent
 # Create the regular user before applying tmpfiles rules that assign ownership
 # to it. The user entry persists in bootc/composefs images even when its home
-# directory, which is created under /var, does not.
-id -u flightctl 2>/dev/null || useradd --create-home --user-group --home-dir /var/home/flightctl flightctl
+# directory, which is backed by /var/home on bootc images, does not.
+id -u flightctl 2>/dev/null || useradd --create-home --user-group flightctl
 
 # Ensure the agent data and home directories exist immediately for environments
 # where systemd-tmpfiles succeeds or via fallback.
@@ -594,9 +595,9 @@ id -u flightctl 2>/dev/null || useradd --create-home --user-group --home-dir /va
     mkdir -p /var/lib/flightctl && \
     chown root:root /var/lib/flightctl && \
     chmod 0755 /var/lib/flightctl && \
-    mkdir -p /var/home/flightctl && \
-    chown flightctl:flightctl /var/home/flightctl && \
-    chmod 0700 /var/home/flightctl
+    mkdir -p ~flightctl && \
+    chown flightctl:flightctl ~flightctl && \
+    chmod 0700 ~flightctl
 }
 
 # These files prevent tmpfiles.d from managing the /var/roothome/buildinfo directory

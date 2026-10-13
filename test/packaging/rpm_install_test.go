@@ -172,11 +172,11 @@ func TestPackageModeInstall(t *testing.T) {
 	c.assertNotInstalled("greenboot")
 	c.assertFileExists("/usr/bin/flightctl-agent")
 	c.assertFileExists("/usr/lib/systemd/system/flightctl-agent.service")
-	c.assertFileContains("/usr/lib/tmpfiles.d/flightctl.conf", "d /var/home/flightctl 0700 flightctl flightctl -")
-	c.mustExec("rm", "-rf", "/var/home/flightctl")
+	c.assertFileContains("/usr/lib/tmpfiles.d/flightctl.conf", "d /home/flightctl 0700 flightctl flightctl -")
+	c.mustExec("rm", "-rf", "/home/flightctl")
 	c.mustExec("systemd-tmpfiles", "--create", "/usr/lib/tmpfiles.d/flightctl.conf")
-	c.assertDirectoryExists("/var/home/flightctl")
-	c.assertDirectoryModeAndOwner("/var/home/flightctl", "700 flightctl:flightctl")
+	c.assertDirectoryExists("/home/flightctl")
+	c.assertDirectoryModeAndOwner("/home/flightctl", "700 flightctl:flightctl")
 	c.assertFileAbsent("/usr/libexec/flightctl/mask-bootc-timer.sh")
 }
 
