@@ -27,6 +27,12 @@ import (
 
 var suiteCtx context.Context
 
+func getAuthConfigOrFail(multiAuth *authn.MultiAuth) *api.AuthConfig {
+	config, err := multiAuth.GetAuthConfig()
+	Expect(err).NotTo(HaveOccurred())
+	return config
+}
+
 func TestAuthConfigIntegration(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Auth Integration Suite")
@@ -93,7 +99,7 @@ var _ = Describe("Auth Config Integration Tests", func() {
 	Context("GetAuthConfig with only static providers", func() {
 		It("should return static OIDC provider from config via service handler", func() {
 			// Get auth config from multiAuth (simulates what transport layer does)
-			authConfig := multiAuth.GetAuthConfig()
+			authConfig := getAuthConfigOrFail(multiAuth)
 
 			// Call service handler GetAuthConfig (simulates the API endpoint)
 			config, status := serviceHandler.GetAuthConfig(ctx, authConfig)
@@ -140,7 +146,7 @@ var _ = Describe("Auth Config Integration Tests", func() {
 			multiAuthWithAll := authN
 
 			// Get auth config via service handler
-			authConfig := multiAuthWithAll.GetAuthConfig()
+			authConfig := getAuthConfigOrFail(multiAuthWithAll)
 			config, status := serviceHandler.GetAuthConfig(ctx, authConfig)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(config).ToNot(BeNil())
@@ -174,7 +180,7 @@ var _ = Describe("Auth Config Integration Tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Get auth config via service handler (simulates /auth/config endpoint)
-			authConfig := multiAuth.GetAuthConfig()
+			authConfig := getAuthConfigOrFail(multiAuth)
 			config, status := serviceHandler.GetAuthConfig(ctx, authConfig)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(config).ToNot(BeNil())
@@ -231,7 +237,7 @@ var _ = Describe("Auth Config Integration Tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Get auth config via service handler
-			authConfig := multiAuth.GetAuthConfig()
+			authConfig := getAuthConfigOrFail(multiAuth)
 			config, status := serviceHandler.GetAuthConfig(ctx, authConfig)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(config).ToNot(BeNil())
@@ -304,7 +310,7 @@ var _ = Describe("Auth Config Integration Tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Get auth config via service handler
-			authConfig := multiAuth.GetAuthConfig()
+			authConfig := getAuthConfigOrFail(multiAuth)
 			config, status := serviceHandler.GetAuthConfig(ctx, authConfig)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(config).ToNot(BeNil())
@@ -360,7 +366,7 @@ var _ = Describe("Auth Config Integration Tests", func() {
 			err := multiAuth.LoadAllAuthProviders(ctx)
 			Expect(err).ToNot(HaveOccurred())
 
-			authConfig := multiAuth.GetAuthConfig()
+			authConfig := getAuthConfigOrFail(multiAuth)
 			config, status := serviceHandler.GetAuthConfig(ctx, authConfig)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(config.Providers).ToNot(BeNil())
@@ -397,7 +403,7 @@ var _ = Describe("Auth Config Integration Tests", func() {
 			err = multiAuth.LoadAllAuthProviders(ctx)
 			Expect(err).ToNot(HaveOccurred())
 
-			authConfig = multiAuth.GetAuthConfig()
+			authConfig = getAuthConfigOrFail(multiAuth)
 			config, status = serviceHandler.GetAuthConfig(ctx, authConfig)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(config.Providers).ToNot(BeNil())
@@ -432,7 +438,7 @@ var _ = Describe("Auth Config Integration Tests", func() {
 			err := multiAuth.LoadAllAuthProviders(ctx)
 			Expect(err).ToNot(HaveOccurred())
 
-			authConfig := multiAuth.GetAuthConfig()
+			authConfig := getAuthConfigOrFail(multiAuth)
 			config, status := serviceHandler.GetAuthConfig(ctx, authConfig)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(len(*config.Providers)).To(Equal(3), "Should have 1 static + 2 dynamic")
@@ -445,7 +451,7 @@ var _ = Describe("Auth Config Integration Tests", func() {
 			err = multiAuth.LoadAllAuthProviders(ctx)
 			Expect(err).ToNot(HaveOccurred())
 
-			authConfig = multiAuth.GetAuthConfig()
+			authConfig = getAuthConfigOrFail(multiAuth)
 			config, status = serviceHandler.GetAuthConfig(ctx, authConfig)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(len(*config.Providers)).To(Equal(2), "Should have 1 static + 1 dynamic")
@@ -471,7 +477,7 @@ var _ = Describe("Auth Config Integration Tests", func() {
 			err := multiAuth.LoadAllAuthProviders(ctx)
 			Expect(err).ToNot(HaveOccurred())
 
-			authConfig := multiAuth.GetAuthConfig()
+			authConfig := getAuthConfigOrFail(multiAuth)
 			config, status := serviceHandler.GetAuthConfig(ctx, authConfig)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(config.Providers).ToNot(BeNil())
@@ -517,7 +523,7 @@ var _ = Describe("Auth Config Integration Tests", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Get auth config - should only contain enabled providers
-			authConfig := multiAuth.GetAuthConfig()
+			authConfig := getAuthConfigOrFail(multiAuth)
 			config, status := serviceHandler.GetAuthConfig(ctx, authConfig)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(config.Providers).ToNot(BeNil())
@@ -556,7 +562,7 @@ var _ = Describe("Auth Config Integration Tests", func() {
 			err := multiAuth.LoadAllAuthProviders(ctx)
 			Expect(err).ToNot(HaveOccurred())
 
-			authConfig := multiAuth.GetAuthConfig()
+			authConfig := getAuthConfigOrFail(multiAuth)
 			config, status := serviceHandler.GetAuthConfig(ctx, authConfig)
 			Expect(status.Code).To(Equal(int32(200)))
 			Expect(config).ToNot(BeNil())

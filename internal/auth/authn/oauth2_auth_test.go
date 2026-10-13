@@ -1038,7 +1038,8 @@ func TestOAuth2Auth_GetAuthConfig(t *testing.T) {
 	oauth2Auth := createTestOAuth2Auth(t, spec)
 	defer oauth2Auth.Stop()
 
-	authConfig := oauth2Auth.GetAuthConfig()
+	authConfig, err := oauth2Auth.GetAuthConfig()
+	assert.NoError(t, err)
 
 	assert.NotNil(t, authConfig)
 	assert.Equal(t, api.AuthConfigAPIVersion, authConfig.ApiVersion)
@@ -1057,6 +1058,19 @@ func TestOAuth2Auth_GetAuthConfig(t *testing.T) {
 	assert.Equal(t, spec.AuthorizationUrl, oauth2Spec.AuthorizationUrl)
 	// Note: Client secret is present in the struct but would be masked during JSON marshaling
 	assert.NotEmpty(t, oauth2Spec.ClientSecret, "client secret is present in struct")
+}
+
+func TestOAuth2Auth_GetAuthConfigReturnsErrorForInvalidNestedJSON(t *testing.T) {
+	oauth2Auth := createTestOAuth2Auth(t, createBasicOAuth2Spec(t))
+	defer oauth2Auth.Stop()
+
+	var invalidRoleAssignment api.AuthRoleAssignment
+	require.NoError(t, invalidRoleAssignment.UnmarshalJSON([]byte("{")))
+	oauth2Auth.spec.RoleAssignment = invalidRoleAssignment
+
+	config, err := oauth2Auth.GetAuthConfig()
+	require.Error(t, err)
+	require.Nil(t, config)
 }
 
 func TestOAuth2Auth_TLSConfig(t *testing.T) {

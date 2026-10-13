@@ -236,7 +236,7 @@ func (o *OAuth2Auth) GetAuthToken(r *http.Request) (string, error) {
 }
 
 // GetAuthConfig returns the OAuth2 authentication configuration
-func (o *OAuth2Auth) GetAuthConfig() *api.AuthConfig {
+func (o *OAuth2Auth) GetAuthConfig() (*api.AuthConfig, error) {
 	orgEnabled := true // Organizations are always enabled
 
 	provider := api.AuthProvider{
@@ -246,14 +246,20 @@ func (o *OAuth2Auth) GetAuthConfig() *api.AuthConfig {
 		Spec:       api.AuthProviderSpec{},
 	}
 
-	_ = provider.Spec.FromOAuth2ProviderSpec(o.spec)
+	publicSpec := o.spec
+	if publicSpec.Prompt == nil {
+		publicSpec.Prompt = lo.ToPtr(api.DefaultAuthProviderPrompt)
+	}
+	if err := provider.Spec.FromOAuth2ProviderSpec(publicSpec); err != nil {
+		return nil, fmt.Errorf("failed to marshal OAuth2 auth provider spec: %w", err)
+	}
 
 	return &api.AuthConfig{
 		ApiVersion:           api.AuthConfigAPIVersion,
 		DefaultProvider:      o.metadata.Name,
 		OrganizationsEnabled: &orgEnabled,
 		Providers:            &[]api.AuthProvider{provider},
-	}
+	}, nil
 }
 
 // ValidateToken validates an OAuth2 access token using the configured introspection method

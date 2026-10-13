@@ -49,7 +49,7 @@ type AuthNMiddleware interface {
 	GetAuthToken(r *http.Request) (string, error)
 	ValidateToken(ctx context.Context, token string) error
 	GetIdentity(ctx context.Context, token string) (Identity, error)
-	GetAuthConfig() *v1beta1.AuthConfig
+	GetAuthConfig() (*v1beta1.AuthConfig, error)
 	IsEnabled() bool
 }
 type MultiAuthNMiddleware interface {

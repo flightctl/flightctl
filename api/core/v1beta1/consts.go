@@ -104,6 +104,8 @@ const (
 	AuthProviderAPIVersion = "v1beta1"
 	AuthProviderKind       = "AuthProvider"
 	AuthProviderListKind   = "AuthProviderList"
+	// DefaultAuthProviderPrompt is the authorization prompt used when prompt is omitted.
+	DefaultAuthProviderPrompt = "login"
 
 	AuthConfigAPIVersion = "v1beta1"
 	AuthConfigKind       = "AuthConfig"

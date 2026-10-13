@@ -96,7 +96,7 @@ func (m *MockAuthNMiddleware) GetIdentity(ctx context.Context, token string) (co
 	return &common.BaseIdentity{}, nil
 }
 
-func (m *MockAuthNMiddleware) GetAuthConfig() *api.AuthConfig {
+func (m *MockAuthNMiddleware) GetAuthConfig() (*api.AuthConfig, error) {
 	providerName := m.issuer
 
 	// Create OIDC provider spec
@@ -116,14 +116,23 @@ func (m *MockAuthNMiddleware) GetAuthConfig() *api.AuthConfig {
 		},
 		Spec: api.AuthProviderSpec{},
 	}
-	_ = provider.Spec.FromOIDCProviderSpec(oidcSpec)
+	if err := provider.Spec.FromOIDCProviderSpec(oidcSpec); err != nil {
+		return nil, err
+	}
 
 	return &api.AuthConfig{
 		ApiVersion:           api.AuthConfigAPIVersion,
 		DefaultProvider:      &providerName,
 		OrganizationsEnabled: lo.ToPtr(true),
 		Providers:            &[]api.AuthProvider{provider},
-	}
+	}, nil
+}
+
+func mustGetAuthConfig(t *testing.T, multiAuth *MultiAuth) *api.AuthConfig {
+	t.Helper()
+	config, err := multiAuth.GetAuthConfig()
+	require.NoError(t, err)
+	return config
 }
 
 func TestMultiAuth_ValidateToken(t *testing.T) {
@@ -352,7 +361,7 @@ func TestMultiAuth_GetAuthConfig(t *testing.T) {
 	multiAuth := NewMultiAuth(nil, nil, log)
 
 	// Test with no methods configured
-	config := multiAuth.GetAuthConfig()
+	config := mustGetAuthConfig(t, multiAuth)
 	assert.NotNil(t, config)
 	assert.Equal(t, api.AuthConfigAPIVersion, config.ApiVersion)
 	assert.Nil(t, config.DefaultProvider)
@@ -361,7 +370,7 @@ func TestMultiAuth_GetAuthConfig(t *testing.T) {
 	mockMethod1 := &MockAuthNMiddleware{issuer: "https://test-issuer-1.com", valid: true, enabled: true}
 	multiAuth.AddStaticProvider("https://test-issuer-1.com", mockMethod1)
 
-	config = multiAuth.GetAuthConfig()
+	config = mustGetAuthConfig(t, multiAuth)
 	assert.NotNil(t, config)
 	assert.Equal(t, api.AuthConfigAPIVersion, config.ApiVersion)
 	assert.NotNil(t, config.DefaultProvider)
@@ -375,7 +384,7 @@ func TestMultiAuth_GetAuthConfig(t *testing.T) {
 	mockMethod2 := &MockAuthNMiddleware{issuer: "https://test-issuer-2.com", valid: true, enabled: true}
 	multiAuth.AddStaticProvider("https://test-issuer-2.com", mockMethod2)
 
-	config = multiAuth.GetAuthConfig()
+	config = mustGetAuthConfig(t, multiAuth)
 	assert.NotNil(t, config)
 	assert.NotNil(t, config.Providers)
 	assert.Len(t, *config.Providers, 2)
@@ -484,7 +493,7 @@ func TestMultiAuth_GetAuthConfig_EnabledFlag(t *testing.T) {
 	multiAuth.AddStaticProvider("https://disabled-issuer.com:test-client", disabledProvider)
 
 	// Get auth config
-	config := multiAuth.GetAuthConfig()
+	config := mustGetAuthConfig(t, multiAuth)
 	require.NotNil(t, config)
 	require.NotNil(t, config.Providers)
 
@@ -519,7 +528,7 @@ func TestMultiAuth_GetAuthConfig_AllDisabled(t *testing.T) {
 	multiAuth.AddStaticProvider("https://disabled-issuer-2.com:test-client", disabledProvider2)
 
 	// Get auth config
-	config := multiAuth.GetAuthConfig()
+	config := mustGetAuthConfig(t, multiAuth)
 	require.NotNil(t, config)
 	require.NotNil(t, config.Providers)
 
@@ -551,7 +560,7 @@ func TestMultiAuth_GetAuthConfig_MultipleEnabledProviders(t *testing.T) {
 	multiAuth.AddStaticProvider("https://disabled-issuer.com:test-client", disabledProvider)
 
 	// Get auth config
-	config := multiAuth.GetAuthConfig()
+	config := mustGetAuthConfig(t, multiAuth)
 	require.NotNil(t, config)
 	require.NotNil(t, config.Providers)
 
