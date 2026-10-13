@@ -490,7 +490,7 @@ func (m *manager) osDeltaSourceDigests(ctx context.Context, bootcStatus *Status,
 	}
 	cached, err := m.ociDelta.SourceImageDigests(ctx)
 	if err != nil {
-		return nil, err
+		return sources, err
 	}
 	for source := range cached {
 		sources[source] = struct{}{}

@@ -462,7 +462,22 @@ func (c *CRI) ImportContainerdImage(ctx context.Context, endpoint, archivePath, 
 	return nil
 }
 
+// ContainerdImagePlatformDigest resolves a locally cached image index to the
+// manifest for this host without contacting its source registry.
+func (c *CRI) ContainerdImagePlatformDigest(ctx context.Context, endpoint, repositoryDigest string, opts ...ClientOption) (string, error) {
+	raw, err := c.executeContainerdOutput(ctx, endpoint, []string{"content", "get", repositoryDigest}, opts...)
+	if err != nil {
+		return "", err
+	}
+	return platformDigestFromRawManifest(raw)
+}
+
 func (c *CRI) executeContainerd(ctx context.Context, endpoint string, args []string, opts ...ClientOption) error {
+	_, err := c.executeContainerdOutput(ctx, endpoint, args, opts...)
+	return err
+}
+
+func (c *CRI) executeContainerdOutput(ctx context.Context, endpoint string, args []string, opts ...ClientOption) (string, error) {
 	options := &clientOptions{}
 	for _, opt := range opts {
 		opt(options)
@@ -476,11 +491,11 @@ func (c *CRI) executeContainerd(ctx context.Context, endpoint string, args []str
 
 	commandArgs := []string{"--address", endpoint, "--namespace", containerdKubernetesNS}
 	commandArgs = append(commandArgs, args...)
-	_, stderr, exitCode := c.exec.ExecuteWithContext(ctx, ctrCmd, commandArgs...)
+	stdout, stderr, exitCode := c.exec.ExecuteWithContext(ctx, ctrCmd, commandArgs...)
 	if exitCode != 0 {
-		return fmt.Errorf("ctr %s: %w", strings.Join(args[:2], " "), errors.FromStderr(stderr, exitCode))
+		return "", fmt.Errorf("ctr %s: %w", strings.Join(args[:2], " "), errors.FromStderr(stderr, exitCode))
 	}
-	return nil
+	return stdout, nil
 }
 
 func (c *CRI) cleanupContainerdImage(ctx context.Context, endpoint, image string, opts ...ClientOption) {

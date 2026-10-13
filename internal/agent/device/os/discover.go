@@ -74,7 +74,6 @@ func (m *manager) discoverOSDelta(ctx context.Context, desired *v1beta1.DeviceSp
 	sources, err := m.osDeltaSourceDigests(ctx, bootcStatus, wanted)
 	if err != nil {
 		m.log.Debugf("OS delta sources unavailable: %v", err)
-		return ""
 	}
 	for i := range candidates {
 		_, candidates[i].SourceAvailable = sources[candidates[i].SourceDigest]

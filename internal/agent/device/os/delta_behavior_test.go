@@ -228,6 +228,40 @@ func TestOSDiscoveryCollectsBootcSourcesOnce(t *testing.T) {
 	require.Equal(v1beta1.DeviceDeltaApplyOutcomeApplied, status.Os.LastDelta.Outcome)
 }
 
+func TestOSDiscoveryPreservesConfirmedSourcesWhenCacheScanFails(t *testing.T) {
+	require := require.New(t)
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockExec := executer.NewMockExecuter(ctrl)
+	mockClient := NewMockClient(ctrl)
+	mockResolver := dependency.NewMockPullConfigResolver(ctrl)
+	mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil).Times(2)
+	expectImageExists(mockExec, testDesiredImage, false)
+	expectPullConfig(t, mockResolver)
+	unavailableSource := "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+	refs := []client.OCIReferrer{
+		{Digest: testDeltaDigest, ArtifactType: ociDeltaArtifactType, Size: 10},
+		{Digest: testOtherDeltaDigest, ArtifactType: ociDeltaArtifactType, Size: 20},
+	}
+	index, err := json.Marshal(client.OCIIndex{SchemaVersion: 2, Manifests: refs})
+	require.NoError(err)
+	expectListReferrers(mockExec, testDesiredImage, string(index), "", 0)
+	expectDeltaManifestSizes(mockExec, testDeltaRef, testSourceDigest, 100, 2)
+	expectDeltaManifest(mockExec, testHintedDeltaDigestRef, unavailableSource, 10)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "ostree", "refs", "--list", "--repo", "/ostree/repo", "ostree/container/image").
+		Return("", "repository unavailable", 1)
+	expectDeltaSuccess(t, mockExec, mockClient, testDeltaRef)
+
+	m := newTestManager(t, mockClient, mockExec, mockResolver, Capabilities{DeltaEligible: true, BootcVersion: "bootc 1.15.0"})
+	desired := &v1beta1.DeviceSpec{Os: &v1beta1.DeviceOsSpec{Image: testDesiredImage}}
+	collection, err := m.CollectOCITargets(context.Background(), nil, desired)
+	require.NoError(err)
+	require.Empty(collection.Targets)
+	status := &v1beta1.DeviceStatus{}
+	require.NoError(m.Status(context.Background(), status))
+	require.Equal(v1beta1.DeviceDeltaApplyOutcomeApplied, status.Os.LastDelta.Outcome)
+}
+
 func TestOSDeltaSourceUsesBootcStore(t *testing.T) {
 	tests := []struct {
 		name     string

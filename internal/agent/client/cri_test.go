@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/containerd/platforms"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
@@ -290,4 +291,50 @@ func TestCRIImageReferences(t *testing.T) {
 			require.Equal(tc.want, references)
 		})
 	}
+}
+
+func TestCRIContainerdImagePlatformDigest(t *testing.T) {
+	require := require.New(t)
+	const (
+		indexDigest    = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+		platformDigest = "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+	)
+	hostPlatform := platforms.DefaultSpec()
+	platform := map[string]string{
+		"os":           hostPlatform.OS,
+		"architecture": hostPlatform.Architecture,
+	}
+	if hostPlatform.Variant != "" {
+		platform["variant"] = hostPlatform.Variant
+	}
+	manifest, err := json.Marshal(map[string]any{
+		"schemaVersion": 2,
+		"mediaType":     "application/vnd.oci.image.index.v1+json",
+		"manifests": []map[string]any{{
+			"mediaType": "application/vnd.oci.image.manifest.v1+json",
+			"digest":    platformDigest,
+			"size":      100,
+			"platform":  platform,
+		}},
+	})
+	require.NoError(err)
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockExec := executer.NewMockExecuter(ctrl)
+	rw := fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter())
+	cri := NewCRI(log.NewPrefixLogger("test"), mockExec, rw, poll.Config{})
+	mockExec.EXPECT().ExecuteWithContext(
+		gomock.Any(),
+		"ctr", "--address", "/run/containerd/containerd.sock", "--namespace", "k8s.io",
+		"content", "get", indexDigest,
+	).Return(string(manifest), "", 0)
+
+	got, err := cri.ContainerdImagePlatformDigest(
+		context.Background(),
+		"/run/containerd/containerd.sock",
+		indexDigest,
+	)
+	require.NoError(err)
+	require.Equal(platformDigest, got)
 }

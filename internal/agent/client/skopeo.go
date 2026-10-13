@@ -202,6 +202,10 @@ func (s *Skopeo) InspectPlatformDigest(ctx context.Context, image string, opts .
 	if err != nil {
 		return "", err
 	}
+	return platformDigestFromRawManifest(raw)
+}
+
+func platformDigestFromRawManifest(raw string) (string, error) {
 	var index ocispec.Index
 	if err := json.Unmarshal([]byte(raw), &index); err != nil {
 		return "", fmt.Errorf("parse image manifest: %w", err)
