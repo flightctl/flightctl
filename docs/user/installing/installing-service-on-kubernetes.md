@@ -27,6 +27,8 @@ You can install the Flight Control Service on any certified Kubernetes distribut
 
 It is recommended to install `cert-manager` before installing Flight Control. When the Flight Control installer detects `cert-manager`, it will use it to issue and manage required CA and server TLS certificates. Otherwise, it falls back to creating certificates using Helm's built-in functions once, but does not manage them.
 
+The Helm chart provides initial `LabelSyncMapping` resources for each organization. To replace these defaults or disable their creation, see [Configuring initial mappings](../using/managing-dynamic-mappings.md#configure-initial-mappings).
+
 ### Configuring delta generation
 
 OS and application delta generation requires a valid, writable OCI storage target. Configure one using either option:

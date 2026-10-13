@@ -55,7 +55,7 @@ curl -H "Flightctl-API-Version: v1beta1" \
 
 | Version | Resources | Status | Support Guarantee |
 |---------|-----------|--------|-------------------|
-| v1beta1 | Device, Fleet, Repository, EnrollmentRequest, TemplateVersion, ResourceSync, CertificateSigningRequest, Event, AuthProvider, AuthConfig, Organization | Current | Supported throughout the 1.x.x major version |
+| v1beta1 | Device, Fleet, Repository, EnrollmentRequest, TemplateVersion, ResourceSync, CertificateSigningRequest, Event, AuthProvider, AuthConfig, Organization, LabelSyncMapping | Current | Supported throughout the 1.x.x major version |
 | v1alpha1 | ImageBuild, ImageExport | Alpha | No breaking changes anticipated, but may evolve as the feature matures |
 
 ## Repositories
@@ -88,6 +88,12 @@ When managing a device as part of a Fleet, ensure the device object has appropri
 ## Fleets
 
 As mentioned, a fleet is a group of devices. A fleet’s definition has two main parts. The first is the `spec.selector` property, which defines how to select devices for this fleet according to their labels. The second is the `spec.template` property, which contains the configuration to be rolled out to each device.  This configuration is identical to the device configuration described above.
+
+## LabelSyncMappings
+
+A `LabelSyncMapping` is an organization-scoped resource that evaluates a CEL expression against device metadata, spec, or status and writes the result to device labels. Mappings can produce one scalar label or a map of labels. Manage mappings with the CLI or through the REST API endpoints `/api/v1/labelsyncmappings` and `/api/v1/labelsyncmappings/{name}`.
+
+For mapping examples, deployment defaults, ownership behavior, and propagation status, see [Managing dynamic label mappings](../using/managing-dynamic-mappings.md).
 
 ## TemplateVersions
 
