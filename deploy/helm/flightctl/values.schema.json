@@ -107,6 +107,12 @@
               "type": "object",
               "additionalProperties": false,
               "properties": {
+                "prompt": {
+                  "type": ["string", "null"],
+                  "default": "login",
+                  "pattern": "^(| *[!-~]+( +[!-~]+)* *)$",
+                  "description": "Authorization prompt exposed to login clients. Empty string omits the prompt parameter; omitted or null defaults to login."
+                },
                 "clientId": { "type": "string", "description": "OIDC Client ID" },
                 "clientSecret": {
                   "type": "string",

@@ -2241,7 +2241,8 @@ func validateAbsoluteURL(fieldName, value string) error {
 	return nil
 }
 
-func validateAuthProviderPrompt(prompt *string) error {
+// ValidateAuthProviderPrompt validates authorization prompts for API and configured providers.
+func ValidateAuthProviderPrompt(prompt *string) error {
 	if prompt == nil || *prompt == "" {
 		return nil
 	}
@@ -2276,7 +2277,7 @@ func (o *OIDCProviderSpec) Validate(ctx context.Context, isUpdate bool) []error 
 		allErrs = append(allErrs, ErrClientIdRequired)
 	}
 
-	if err := validateAuthProviderPrompt(o.Prompt); err != nil {
+	if err := ValidateAuthProviderPrompt(o.Prompt); err != nil {
 		allErrs = append(allErrs, err)
 	}
 
@@ -2316,7 +2317,7 @@ func (o *OAuth2ProviderSpec) Validate(ctx context.Context, isUpdate bool) []erro
 		}
 	}
 
-	if err := validateAuthProviderPrompt(o.Prompt); err != nil {
+	if err := ValidateAuthProviderPrompt(o.Prompt); err != nil {
 		allErrs = append(allErrs, err)
 	}
 

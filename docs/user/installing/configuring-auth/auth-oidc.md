@@ -108,6 +108,12 @@ For example, set the following field in your AuthProvider specification:
 prompt: "login consent"
 ```
 
+For a provider configured in the service configuration file, set `auth.oidc.prompt`.
+For Helm or Podman deployments, set `global.auth.oidc.prompt` in the deployment
+values or `service-config.yaml`. These settings use the same defaults and empty
+string behavior as `spec.prompt`, including when Podman uses the PAM issuer.
+Restart the affected services after changing deployment or service configuration.
+
 Values are case-sensitive and must contain printable ASCII characters separated
 by ordinary spaces. The API preserves extra spaces and duplicate values.
 It rejects nonempty strings containing only spaces, tabs, newlines, or non-ASCII

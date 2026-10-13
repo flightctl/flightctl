@@ -101,6 +101,10 @@ login clients. OAuth2 providers use the same
 Use values supported by your provider. Login clients must support this field for
 it to affect authorization requests.
 
+For a provider configured in the service configuration file, set `auth.oauth2.prompt`.
+This setting uses the same defaults and empty string behavior as `spec.prompt`.
+Restart the affected services after changing service configuration.
+
 ### Token Introspection
 
 OAuth2 providers require token introspection to validate access tokens. Flight Control supports three introspection methods:
