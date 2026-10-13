@@ -29,6 +29,7 @@ gen_require(`
     type tpm_device_t;
 
     attribute domain;
+    attribute systemd_unit_file_type;
 ')
 
 init_daemon_domain(flightctl_agent_t, flightctl_agent_exec_t)
@@ -112,7 +113,7 @@ systemd_start_all_unit_files(flightctl_agent_t)
 systemd_status_all_unit_files(flightctl_agent_t)
 systemd_reload_all_services(flightctl_agent_t)
 systemd_start_all_services(flightctl_agent_t)
-systemd_stop_systemd_services(flightctl_agent_t)
+allow flightctl_agent_t systemd_unit_file_type:service stop;
 allow flightctl_agent_t init_t:system { status stop start };
 
 # This is only available on RHEL10
