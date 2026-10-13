@@ -1,32 +1,28 @@
 package os
 
 import (
-	"context"
-	"fmt"
-	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
-	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
-	"github.com/flightctl/flightctl/internal/agent/device/resource"
-	"github.com/flightctl/flightctl/internal/util"
 	"github.com/flightctl/flightctl/pkg/executer"
-	"github.com/flightctl/flightctl/pkg/poll"
+	"github.com/samber/lo"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
 
-func TestOSFullTargetPrefetchRefreshesCachedImage(t *testing.T) {
+func TestOSLocalTargetSkipsFetching(t *testing.T) {
 	tests := []struct {
-		name        string
-		hintFailed  bool
-		pullFailure bool
+		name     string
+		booted   bool
+		digest   string
+		previous *v1beta1.DeviceDeltaApplyOutcomeType
 	}{
-		{name: "When the cached OS tag is outdated and no delta is usable it should refresh before staging"},
-		{name: "When a delta hint is unusable it should refresh the outdated cached OS tag before staging", hintFailed: true},
-		{name: "When refreshing the outdated OS tag fails it should fail prefetch and prevent staging", pullFailure: true},
+		{name: "When the desired OS tag is booted it should reuse it without registry access", booted: true, digest: testSourceDigest},
+		{name: "When the booted OS digest is unknown it should still report NotRequired", booted: true},
+		{name: "When the desired OS tag is cached it should reuse it without registry access"},
+		{name: "When a booted OS image was applied from a delta it should preserve Applied", booted: true, previous: lo.ToPtr(v1beta1.DeviceDeltaApplyOutcomeApplied)},
+		{name: "When a cached OS image followed delta recovery it should preserve Fallback", previous: lo.ToPtr(v1beta1.DeviceDeltaApplyOutcomeFallback)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -36,82 +32,40 @@ func TestOSFullTargetPrefetchRefreshesCachedImage(t *testing.T) {
 			exec := executer.NewMockExecuter(ctrl)
 			bootc := NewMockClient(ctrl)
 			resolver := dependency.NewMockPullConfigResolver(ctrl)
-			collections := 1
-			if tt.pullFailure {
-				collections++
+			bootedImage := testBootedImage
+			if tt.booted {
+				bootedImage = testDesiredImage
 			}
-			bootc.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil).Times(collections + 1)
-			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", testDesiredImage).Return("", "", 0).Times(collections + 1)
-			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", testDesiredImage).Return(fmt.Sprintf(`{"Digest":%q}`, testSourceDigest), "", 0).Times(collections)
-			for i := 0; i < collections; i++ {
-				expectTargetDigest(exec, testDesiredImage, testDeltaDigest)
-				expectPlatformIndex(exec, testDesiredImage, testDeltaDigest)
-				if tt.hintFailed {
-					exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+testHintedDelta, "--no-creds").Return(`{"artifactType":"application/example"}`, "", 0)
-				} else {
-					expectListReferrers(exec, testDesiredImage, `{"manifests":[]}`, "", 0)
-				}
+			bootc.EXPECT().Status(gomock.Any()).Return(bootcStatus(bootedImage, tt.digest), nil).Times(3)
+			if !tt.booted {
+				exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "exists", testDesiredImage).Return("", "", 0).Times(2)
 			}
-			expectPullConfig(t, resolver)
 			m := newTestManager(t, bootc, exec, resolver, Capabilities{DeltaEligible: true, BootcVersion: "bootc 1.15.0"})
-			desired := &v1beta1.DeviceSpec{Os: &v1beta1.DeviceOsSpec{Image: testDesiredImage}}
-			if tt.hintFailed {
-				hint := testHintedDelta
-				desired.Os.DeltaImage = &hint
-			}
-			collection, err := m.CollectOCITargets(t.Context(), nil, desired)
-			require.NoError(err)
-			resources := resource.NewMockManager(ctrl)
-			if tt.pullFailure {
-				resources.EXPECT().IsCriticalAlert(gomock.Any()).Return(false)
-			}
-			prefetch := dependency.NewPrefetchManager(m.log,
-				func(v1beta1.Username) (*client.Podman, error) { return m.podmanClient, nil },
-				func(v1beta1.Username) (*client.Skopeo, error) { return m.skopeo, nil },
-				client.NewCLIClients(), m.readWriter, util.Duration(time.Second), resources, poll.Config{})
-			defer prefetch.Cleanup()
-			require.NoError(prefetch.Schedule(t.Context(), collection.Targets))
-			require.False(prefetch.IsReady(t.Context()), "an outdated cached OS image still needs a full pull")
-			var pulled atomic.Bool
-			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", testDesiredImage).DoAndReturn(func(context.Context, string, ...string) (string, string, int) {
-				pulled.Store(true)
-				if tt.pullFailure {
-					return "", "full target unavailable", 1
+			desired := &v1beta1.DeviceSpec{Os: &v1beta1.DeviceOsSpec{Image: testDesiredImage, DeltaImage: lo.ToPtr(testHintedDelta)}}
+			require.NoError(m.BeforeUpdate(t.Context(), nil, desired))
+			if tt.previous != nil {
+				reason := ""
+				if *tt.previous == v1beta1.DeviceDeltaApplyOutcomeFallback {
+					reason = "delta reconstruction failed"
 				}
-				return "", "", 0
-			})
-			ctx, cancel := context.WithCancel(t.Context())
-			stopped := make(chan struct{})
-			go func() {
-				defer close(stopped)
-				prefetch.Run(ctx)
-			}()
-			defer func() { cancel(); <-stopped }()
-			if tt.pullFailure {
-				require.Eventually(pulled.Load, time.Second, time.Millisecond)
-				cancel()
-				<-stopped
-				prefetch.RegisterOCICollector(m)
-				require.ErrorContains(prefetch.BeforeUpdate(t.Context(), nil, desired), "full target unavailable")
-				require.False(prefetch.IsReady(t.Context()))
-			} else {
-				require.Eventually(func() bool { return prefetch.IsReady(ctx) }, time.Second, time.Millisecond)
-				// A retry of the same collection keeps the completed pull ready.
-				require.NoError(prefetch.Schedule(ctx, collection.Targets))
-				require.True(prefetch.IsReady(ctx))
-				bootc.EXPECT().Switch(gomock.Any(), testDesiredImage).DoAndReturn(func(context.Context, string) error {
-					require.True(pulled.Load(), "staging must use the refreshed image")
-					return nil
-				})
-				require.NoError(m.AfterUpdate(ctx, desired))
+				m.recordDeltaResult(*tt.previous, reason, false)
+			}
+			for range 2 {
+				collection, err := m.CollectOCITargets(t.Context(), nil, desired)
+				require.NoError(err)
+				require.Empty(collection.Targets)
 			}
 			status := &v1beta1.DeviceStatus{}
 			require.NoError(m.Status(t.Context(), status))
-			outcome := v1beta1.DeviceDeltaApplyOutcomeNotUsed
-			if tt.hintFailed {
-				outcome = v1beta1.DeviceDeltaApplyOutcomeFallback
+			require.NotNil(status.Os.LastDelta)
+			outcome := v1beta1.DeviceDeltaApplyOutcomeNotRequired
+			if tt.previous != nil {
+				outcome = *tt.previous
 			}
 			require.Equal(outcome, status.Os.LastDelta.Outcome)
+			if outcome == v1beta1.DeviceDeltaApplyOutcomeFallback {
+				require.Equal("delta reconstruction failed", *status.Os.LastDelta.FallbackReason)
+			}
 		})
 	}
 }

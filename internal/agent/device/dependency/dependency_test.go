@@ -200,8 +200,7 @@ func TestEnsureScheduled(t *testing.T) {
 			},
 		},
 		{
-			name:          "When an existing artifact requires PullAlways it should wait for a fresh pull",
-			expectedError: errors.ErrPrefetchNotReady,
+			name: "When an existing artifact specifies PullAlways it should reuse the cached artifact",
 			targets: OCIPullTargetsByUser{
 				"": []OCIPullTarget{
 					{
@@ -219,8 +218,7 @@ func TestEnsureScheduled(t *testing.T) {
 			},
 		},
 		{
-			name:          "When an existing image requires PullAlways it should wait for a fresh pull",
-			expectedError: errors.ErrPrefetchNotReady,
+			name: "When an existing image specifies PullAlways it should reuse the cached image",
 			targets: OCIPullTargetsByUser{
 				"": []OCIPullTarget{
 					{
@@ -724,8 +722,7 @@ func TestBeforeUpdate(t *testing.T) {
 			},
 		},
 		{
-			name:    "When an existing artifact requires PullAlways it should wait for a fresh pull",
-			wantErr: errors.ErrPrefetchNotReady,
+			name: "When an existing artifact specifies PullAlways it should reuse the cached artifact",
 			collectors: []func() (*OCICollection, error){
 				func() (*OCICollection, error) {
 					return &OCICollection{Targets: OCIPullTargetsByUser{
@@ -742,12 +739,11 @@ func TestBeforeUpdate(t *testing.T) {
 			setupMocks: func(mockExec *executer.MockExecuter) {
 				mockExec.EXPECT().ExecuteWithContext(
 					gomock.Any(), "podman", []string{"artifact", "inspect", "quay.io/test/always-artifact:latest"},
-				).Return("", "", 0) // artifact exists, but PullAlways means we still need to pull
+				).Return("", "", 0) // artifact exists
 			},
 		},
 		{
-			name:    "When an existing image requires PullAlways it should wait for a fresh pull",
-			wantErr: errors.ErrPrefetchNotReady,
+			name: "When an existing image specifies PullAlways it should reuse the cached image",
 			collectors: []func() (*OCICollection, error){
 				func() (*OCICollection, error) {
 					return &OCICollection{Targets: OCIPullTargetsByUser{
@@ -764,7 +760,7 @@ func TestBeforeUpdate(t *testing.T) {
 			setupMocks: func(mockExec *executer.MockExecuter) {
 				mockExec.EXPECT().ExecuteWithContext(
 					gomock.Any(), "podman", []string{"image", "exists", testImageV1},
-				).Return("", "", 0) // image exists, but PullAlways means we still need to pull
+				).Return("", "", 0) // image exists
 			},
 		},
 	}

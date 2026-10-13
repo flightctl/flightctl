@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -15,7 +14,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/container"
-	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/pkg/log"
 )
 
@@ -233,33 +231,18 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1bet
 	if err != nil {
 		return nil, fmt.Errorf("checking if OS image is reconciled: %w", err)
 	}
-	optsFn := m.osPullOptsFn()
-	var localDigests []string
 	if isDesiredImageRunning {
-		localDigests = []string{bootcStatus.GetBootedImageDigest()}
-	} else if m.podmanClient.ImageExists(ctx, osImage) {
-		localDigests, err = m.podmanClient.ImageDigests(ctx, osImage)
-		if err != nil {
-			m.log.Debugf("Cannot inspect cached OS image: %v", err)
-		}
-	}
-	if isDesiredImageRunning && !hasKnownImageDigest(localDigests) {
-		m.log.Debugf("Desired OS image is already running, but its digest is unavailable; skipping image pull: %s", osImage)
+		m.log.Debugf("Desired OS image is currently booted: %s", osImage)
+		m.recordDeltaResult(v1beta1.DeviceDeltaApplyOutcomeNotRequired, "", true)
 		return &dependency.OCICollection{}, nil
 	}
-	if len(localDigests) > 0 {
-		matches, inspectErr := m.osTargetDigestMatches(ctx, osImage, localDigests, optsFn)
-		if inspectErr != nil {
-			m.log.Debugf("Cannot verify requested OS image digest: %v", inspectErr)
-			if isDesiredImageRunning {
-				return &dependency.OCICollection{}, nil
-			}
-		} else if matches {
-			m.log.Debugf("Desired OS image is already present with the correct digest: %s", osImage)
-			m.recordDeltaResult(v1beta1.DeviceDeltaApplyOutcomeNotRequired, "", true)
-			return &dependency.OCICollection{}, nil
-		}
+	if m.podmanClient.ImageExists(ctx, osImage) {
+		m.log.Debugf("OS image already exists in container storage: %s", osImage)
+		m.recordDeltaResult(v1beta1.DeviceDeltaApplyOutcomeNotRequired, "", true)
+		return &dependency.OCICollection{}, nil
 	}
+
+	optsFn := m.osPullOptsFn()
 
 	if !m.canApplyOSDelta() {
 		if desired.Os.DeltaImage != nil && *desired.Os.DeltaImage != "" {
@@ -299,7 +282,7 @@ func (m *manager) fullImageCollection(osImage string, optsFn dependency.ClientOp
 				{
 					Type:         dependency.OCITypePodmanImage,
 					Reference:    osImage,
-					PullPolicy:   v1beta1.PullAlways,
+					PullPolicy:   v1beta1.PullIfNotPresent,
 					ClientOptsFn: optsFn,
 				},
 			},
@@ -488,56 +471,10 @@ func (m *manager) osDeltaSourceAvailable(ctx context.Context, bootcStatus *Statu
 	return m.ociDelta.SourceImageExists(ctx, source)
 }
 
-func hasKnownImageDigest(digests []string) bool {
-	for _, value := range digests {
-		if strings.TrimSpace(value) != "" {
-			return true
-		}
-	}
-	return false
-}
-
 func (m *manager) osTargetPlatformDigestMatches(ctx context.Context, image, targetDigest string, optsFn dependency.ClientOptsFn) (bool, error) {
 	platformDigest, err := m.skopeo.InspectPlatformDigest(ctx, image, optsFn()...)
 	if err != nil {
 		return false, fmt.Errorf("inspect requested OS platform digest: %w", err)
 	}
 	return platformDigest == targetDigest, nil
-}
-
-func (m *manager) osTargetDigestMatches(ctx context.Context, image string, observed []string, optsFn dependency.ClientOptsFn) (bool, error) {
-	targetDigest := ""
-	matches := validation.OciImageReferenceRegexp.FindStringSubmatch(image)
-	if len(matches) > 3 {
-		targetDigest = matches[3]
-	}
-	if targetDigest == "" {
-		var err error
-		targetDigest, err = m.skopeo.InspectDigest(ctx, image, optsFn()...)
-		if err != nil {
-			return false, fmt.Errorf("inspect requested OS digest: %w", err)
-		}
-	}
-	matchesDigest := func(target string) bool {
-		if target == "" {
-			return false
-		}
-		for _, observedDigest := range observed {
-			if _, suffix, found := strings.Cut(observedDigest, "@"); found {
-				observedDigest = suffix
-			}
-			if observedDigest == target {
-				return true
-			}
-		}
-		return false
-	}
-	if matchesDigest(targetDigest) {
-		return true, nil
-	}
-	platformDigest, err := m.skopeo.InspectPlatformDigest(ctx, image, optsFn()...)
-	if err != nil {
-		return false, fmt.Errorf("inspect requested OS platform digest: %w", err)
-	}
-	return matchesDigest(platformDigest), nil
 }

@@ -189,53 +189,6 @@ const (
 	testHintedDeltaDigestRef = testTargetRepo + "@" + testOtherDeltaDigest
 )
 
-func TestOSCachedTargetRequiresCorrectDigest(t *testing.T) {
-	tests := []struct {
-		name        string
-		localDigest string
-		wantOutcome v1beta1.DeviceDeltaApplyOutcomeType
-		wantPull    bool
-	}{
-		{name: "When the cached image matches the requested digest it should report NotRequired", localDigest: testDeltaDigest, wantOutcome: v1beta1.DeviceDeltaApplyOutcomeNotRequired},
-		{name: "When the cached tag points to older content it should fetch the desired image", localDigest: testSourceDigest, wantOutcome: v1beta1.DeviceDeltaApplyOutcomeNotUsed, wantPull: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			require := require.New(t)
-			ctrl := gomock.NewController(t)
-			defer ctrl.Finish()
-			mockExec := executer.NewMockExecuter(ctrl)
-			mockClient := NewMockClient(ctrl)
-			mockResolver := dependency.NewMockPullConfigResolver(ctrl)
-			mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil).Times(2)
-			expectImageExists(mockExec, testDesiredImage, true)
-			expectPullConfig(t, mockResolver)
-			mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "image", "inspect", "--format", "{{json .}}", testDesiredImage).Return(fmt.Sprintf(`{"Digest":%q}`, tt.localDigest), "", 0)
-			expectTargetDigest(mockExec, testDesiredImage, testDeltaDigest)
-			if tt.wantPull {
-				expectPlatformIndex(mockExec, testDesiredImage, testDeltaDigest)
-			}
-			m := newTestManager(t, mockClient, mockExec, mockResolver, Capabilities{})
-			desired := &v1beta1.DeviceSpec{Os: &v1beta1.DeviceOsSpec{Image: testDesiredImage}}
-			collection, err := m.CollectOCITargets(context.Background(), nil, desired)
-			require.NoError(err)
-			if tt.wantPull {
-				require.Len(collection.Targets[v1beta1.CurrentProcessUsername], 1)
-				require.Equal(v1beta1.PullAlways, collection.Targets[v1beta1.CurrentProcessUsername][0].PullPolicy)
-			} else {
-				require.Empty(collection.Targets)
-			}
-			status := &v1beta1.DeviceStatus{}
-			require.NoError(m.Status(context.Background(), status))
-			require.Equal(tt.wantOutcome, status.Os.LastDelta.Outcome)
-		})
-	}
-}
-
-func expectTargetDigest(mockExec *executer.MockExecuter, reference, digest string) {
-	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--format", "{{.Digest}}", "docker://"+reference, "--no-creds").Return(digest, "", 0)
-}
-
 func TestOSDeltaSourceUsesBootcStore(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -426,7 +379,7 @@ func TestOSMultiPlatformTargetDigest(t *testing.T) {
 		hint        bool
 	}{
 		{name: "When a booted platform manifest belongs to the requested index it should report NotRequired", image: testDesiredImage},
-		{name: "When the desired image pins an index it should compare the booted platform manifest", image: testTargetImage},
+		{name: "When the desired image pins an index and is booted it should reuse it", image: testTargetImage},
 		{name: "When a delta targets the selected platform manifest it should apply it", image: testDesiredImage, hint: true},
 	}
 	for _, tt := range tests {
@@ -442,17 +395,16 @@ func TestOSMultiPlatformTargetDigest(t *testing.T) {
 				booted = bootcStatus(testBootedImage, testSourceDigest)
 			}
 			mockClient.EXPECT().Status(gomock.Any()).Return(booted, nil).Times(2)
-			expectPullConfig(t, mockResolver)
 			if tt.hint {
+				expectPullConfig(t, mockResolver)
 				expectImageExists(mockExec, tt.image, false)
 				raw := fmt.Sprintf(`{"artifactType":"application/vnd.io.github.containers.oci-delta.v1","subject":{"digest":%q},"annotations":{"io.github.containers.delta.source":%q},"config":{"digest":%q,"size":2},"layers":[{"digest":%q,"size":10}]}`, testSourceDigest, testSourceDigest, testDeltaDigest, testDeltaDigest)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+testHintedDelta, "--no-creds").Return(raw, "", 0)
 				expectDeltaSuccess(t, mockExec, mockClient, testHintedDelta)
 			}
-			if tt.image == testDesiredImage && !tt.hint {
-				expectTargetDigest(mockExec, tt.image, testOtherDeltaDigest)
+			if tt.hint {
+				expectPlatformIndex(mockExec, tt.image, testSourceDigest)
 			}
-			expectPlatformIndex(mockExec, tt.image, testSourceDigest)
 			m := newTestManager(t, mockClient, mockExec, mockResolver, Capabilities{DeltaEligible: true, BootcVersion: "bootc 1.15.0"})
 			var hint *string
 			if tt.hint {

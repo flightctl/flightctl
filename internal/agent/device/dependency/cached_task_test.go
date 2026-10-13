@@ -89,7 +89,7 @@ func TestCachedTaskInspectionAllowsWorkerCompletion(t *testing.T) {
 			}
 			prepared := make(chan preparationResult, 1)
 			go func() {
-				queue, err := manager.prepareTask(context.Background(), target, OCITypePodmanImage, "", nil, &OCIDeltaTarget{Application: "app"}, v1beta1.PullIfNotPresent)
+				queue, err := manager.prepareTask(context.Background(), target, OCITypePodmanImage, "", nil, &OCIDeltaTarget{Application: "app"})
 				prepared <- preparationResult{queue: queue, err: err}
 			}()
 			select {
@@ -259,7 +259,7 @@ func TestCachedAutoArtifactRemainsPresent(t *testing.T) {
 					manager.tasks[target].deltaGeneration = 0
 				}
 			}
-			needsQueue, err := manager.prepareTask(context.Background(), target, OCITypeAuto, "", nil, delta, v1beta1.PullIfNotPresent)
+			needsQueue, err := manager.prepareTask(context.Background(), target, OCITypeAuto, "", nil, delta)
 			require.NoError(err)
 			require.False(needsQueue)
 			require.True(manager.tasks[target].done)

@@ -845,7 +845,7 @@ func TestPrepareTaskReusedCompletedTargetKeepsCacheWhenDigestCheckIsUnavailable(
 		deltaApplyResults: make(map[string]map[imageRef]applicationDeltaApplyResult),
 	}
 
-	needsQueue, err := manager.prepareTask(context.Background(), target, OCITypePodmanImage, digest, nil, delta, v1beta1.PullIfNotPresent)
+	needsQueue, err := manager.prepareTask(context.Background(), target, OCITypePodmanImage, digest, nil, delta)
 	require.NoError(t, err)
 	require.False(t, needsQueue)
 	require.Equal(t, uint64(2), task.deltaGeneration)
@@ -923,7 +923,7 @@ func TestPrepareTaskCachedDigestChecks(t *testing.T) {
 					manager.tasks[target].resolvedDigest = ""
 				}
 			}
-			needsQueue, err := manager.prepareTask(context.Background(), target, OCITypePodmanImage, "", nil, delta, v1beta1.PullIfNotPresent)
+			needsQueue, err := manager.prepareTask(context.Background(), target, OCITypePodmanImage, "", nil, delta)
 			require.NoError(err)
 			require.Equal(testCase.wantQueue, needsQueue)
 			task := manager.tasks[target]
@@ -980,7 +980,7 @@ func TestPrepareTaskCompletesExistingImageWhenDigestCheckIsUnavailable(t *testin
 		OCITypePodmanImage,
 		"sha256:target",
 		nil,
-		&OCIDeltaTarget{Hint: candidate, Application: "app"}, v1beta1.PullIfNotPresent,
+		&OCIDeltaTarget{Hint: candidate, Application: "app"},
 	)
 	require.NoError(t, err)
 	require.False(t, needsQueue)
@@ -1021,7 +1021,7 @@ func TestPrepareTaskSkipsExistingArtifactWithoutDeltaHint(t *testing.T) {
 		OCITypePodmanArtifact,
 		"sha256:target",
 		nil,
-		&OCIDeltaTarget{Application: "app"}, v1beta1.PullIfNotPresent,
+		&OCIDeltaTarget{Application: "app"},
 	)
 	require.NoError(t, err)
 	require.False(t, needsQueue)
@@ -1035,7 +1035,7 @@ func TestPrepareTaskSkipsExistingArtifactWithoutDeltaHint(t *testing.T) {
 		OCITypePodmanArtifact,
 		"sha256:target",
 		nil,
-		&OCIDeltaTarget{Application: "app"}, v1beta1.PullIfNotPresent,
+		&OCIDeltaTarget{Application: "app"},
 	)
 	require.NoError(t, err)
 	require.False(t, needsQueue)
@@ -1048,7 +1048,7 @@ func TestPrepareTaskSkipsExistingArtifactWithoutDeltaHint(t *testing.T) {
 		OCITypePodmanArtifact,
 		"sha256:target",
 		nil,
-		&OCIDeltaTarget{Application: "app"}, v1beta1.PullIfNotPresent,
+		&OCIDeltaTarget{Application: "app"},
 	)
 	require.NoError(t, err)
 	require.False(t, needsQueue)
@@ -1113,7 +1113,7 @@ func TestPrepareTaskReusedCompletedNoHintTargetOnlyRechecksOnNewGeneration(t *te
 				deltaGeneration: 2,
 			}
 
-			needsQueue, err := manager.prepareTask(context.Background(), target, OCITypePodmanImage, digest, nil, delta, v1beta1.PullIfNotPresent)
+			needsQueue, err := manager.prepareTask(context.Background(), target, OCITypePodmanImage, digest, nil, delta)
 			require.NoError(t, err)
 			require.Equal(t, tt.wantQueue, needsQueue)
 			require.True(t, task.targetPresent)
@@ -1658,7 +1658,7 @@ func TestMovedApplicationTagClearsPersistedDeltaOutcome(t *testing.T) {
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--format", "{{.Digest}}", "docker://"+image).Return(tt.remoteDigest, "inspect failed", tt.remoteExit)
 			}
 			ctx := context.Background()
-			needsQueue, err := m.prepareTask(ctx, target, ociType, "", nil, delta, v1beta1.PullIfNotPresent)
+			needsQueue, err := m.prepareTask(ctx, target, ociType, "", nil, delta)
 			require.NoError(err)
 			require.Equal(tt.wantPull, needsQueue)
 			if tt.wantPull {

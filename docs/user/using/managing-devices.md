@@ -424,7 +424,7 @@ The device uses its existing OS image pull credentials to pull the target image 
 
 If a hint is unusable, or a selected delta fails during download, reconstruction, or staging, the agent reports `Fallback` with a reason and attempts a full image pull. It reports `Applied` after staging both the reconstruction and the desired registry reference. Reconciliation fails if full-image recovery also fails. See [OS delta status](../references/device-api-statuses.md#os-delta-status) for how to inspect these results.
 
-When the desired OS image is already booted, the agent skips the pull if it cannot inspect the registry digest. For a cached image that is not yet booted, the agent still requires a `PullAlways` full pull if it cannot verify that the requested reference resolves to the cached digest. Registry unavailability can therefore block reconciliation in that case; this avoids staging cached content that may no longer match a mutable image reference.
+When the desired OS image is already booted or cached in container storage, the agent reuses it without inspecting the registry digest, discovering deltas, or pulling the image again. A cached tag is reused even if its registry content has changed. If no delta outcome is already recorded for that desired image, the agent reports `NotRequired`; it retains earlier outcomes such as `Applied` or `Fallback`. Delta discovery and validation run only when the desired image needs to be fetched. Full-image prefetch uses `PullIfNotPresent`.
 
 ### Using Image Pull Secrets
 

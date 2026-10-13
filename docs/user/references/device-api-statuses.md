@@ -181,13 +181,13 @@ The following device status fields describe delta capability and the result for 
 | Field | Description |
 | ----- | ----------- |
 | `device.status.systemInfo.deltaEligible` | `true` when the agent has the `oci-delta` tool available. This field may be absent when an older agent does not report it. |
-| `device.status.os.lastDelta.outcome` | The agent-reported OS result. `NotRequired` means the desired image is already present with the correct digest. `NotUsed` means no usable delta was selected. `Applied` means reconstruction and both OS staging steps succeeded. `Fallback` means a hinted or selected delta was unusable or failed, and the agent attempted a full image pull. The field is omitted until an outcome is reported. |
+| `device.status.os.lastDelta.outcome` | The agent-reported OS result. `NotRequired` means the desired image is already booted or cached, so no image fetch is needed. `NotUsed` means no usable delta was selected. `Applied` means reconstruction and both OS staging steps succeeded. `Fallback` means a hinted or selected delta was unusable or failed, and the agent attempted a full image pull. The field is omitted until an outcome is reported. |
 | `device.status.os.lastDelta.fallbackReason` | The reason a hinted or selected delta could not be used or applied. It is omitted when the recorded outcome has no fallback reason. |
 | `device.status.os.deltaSize` | Expected payload size in IEC units, such as MiB or GiB, for a control-plane-generated OS delta. The field is omitted when no delta was generated or its size is unknown. |
 
 OS delta application also requires bootc.
 
-OS outcomes persist across agent restarts for the same desired OS image. If no matching delta is found, the agent records `NotUsed` only when that image has no recorded outcome. Otherwise, it retains the existing outcome, including a previous `Fallback` and its reason. An already running or cached OS image with the correct digest is recorded as `NotRequired` only when that image has no recorded outcome. Changing only the delta hint preserves the outcome; changing the desired image resets it.
+OS outcomes persist across agent restarts for the same desired OS image. If no matching delta is found, the agent records `NotUsed` only when that image has no recorded outcome. Otherwise, it retains the existing outcome, including a previous `Fallback` and its reason. An already running or cached OS image is recorded as `NotRequired` only when that image has no recorded outcome. The agent reuses the image without contacting the registry to verify its digest. Changing only the delta hint preserves the outcome; changing the desired image resets it.
 
 The size field measures only the control-plane-generated delta artifact for the desired OS image. It is a payload measurement taken during generation.
 

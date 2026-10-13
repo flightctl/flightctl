@@ -331,7 +331,6 @@ type prefetchManager struct {
 type prefetchTask struct {
 	clientOptsFn         ClientOptsFn
 	ociType              OCIType
-	pullPolicy           v1beta1.ImagePullPolicy
 	targetDigest         string
 	resolvedDigest       string
 	applicationTargetKey string
@@ -541,9 +540,6 @@ func (m *prefetchManager) BeforeUpdate(ctx context.Context, current, desired *v1
 		}
 		if existing, seen := targetsByRef[ref]; seen {
 			existing.Delta = mergeOCIDeltaTargets(existing.Delta, target.Delta)
-			if target.PullPolicy == v1beta1.PullAlways {
-				existing.PullPolicy = v1beta1.PullAlways
-			}
 			targetsByRef[ref] = existing
 			continue
 		}
@@ -1375,7 +1371,7 @@ func (m *prefetchManager) setError(target imageRef, err error) {
 func (m *prefetchManager) Schedule(ctx context.Context, targets OCIPullTargetsByUser) error {
 	for user, target := range targets.Iter() {
 		ref := imageRef{image: target.Reference, owner: user, ociType: target.Type}
-		if err := m.schedule(ctx, ref, target.Type, target.Digest, target.ClientOptsFn, target.Delta, target.PullPolicy); err != nil {
+		if err := m.schedule(ctx, ref, target.Type, target.Digest, target.ClientOptsFn, target.Delta); err != nil {
 			return fmt.Errorf("prefetch schedule %w: %w", errors.WithElement(target.Reference), err)
 		}
 	}
@@ -1383,8 +1379,8 @@ func (m *prefetchManager) Schedule(ctx context.Context, targets OCIPullTargetsBy
 	return nil
 }
 
-func (m *prefetchManager) schedule(ctx context.Context, target imageRef, ociType OCIType, targetDigest string, clientOptsFn ClientOptsFn, delta *OCIDeltaTarget, pullPolicy v1beta1.ImagePullPolicy) error {
-	needsQueue, err := m.prepareTask(ctx, target, ociType, targetDigest, clientOptsFn, delta, pullPolicy)
+func (m *prefetchManager) schedule(ctx context.Context, target imageRef, ociType OCIType, targetDigest string, clientOptsFn ClientOptsFn, delta *OCIDeltaTarget) error {
+	needsQueue, err := m.prepareTask(ctx, target, ociType, targetDigest, clientOptsFn, delta)
 	if err != nil {
 		return err
 	}
@@ -1408,7 +1404,7 @@ func (m *prefetchManager) schedule(ctx context.Context, target imageRef, ociType
 	}
 }
 
-func (m *prefetchManager) prepareTask(ctx context.Context, target imageRef, ociType OCIType, targetDigest string, clientOptsFn ClientOptsFn, delta *OCIDeltaTarget, pullPolicy v1beta1.ImagePullPolicy) (bool, error) {
+func (m *prefetchManager) prepareTask(ctx context.Context, target imageRef, ociType OCIType, targetDigest string, clientOptsFn ClientOptsFn, delta *OCIDeltaTarget) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -1480,12 +1476,11 @@ func (m *prefetchManager) prepareTask(ctx context.Context, target imageRef, ociT
 	}
 
 	hintedArtifact := targetArtifact && delta != nil && delta.Hint != ""
-	if targetExists && !hintedArtifact && (pullPolicy != v1beta1.PullAlways || delta != nil) {
+	if targetExists && !hintedArtifact {
 		m.log.Debugf("Scheduled prefetch target already exists: %s", target)
 		targetPresent := delta != nil && supportsApplicationImageDigestCheck(ociType)
 		task := &prefetchTask{
 			ociType:              ociType,
-			pullPolicy:           pullPolicy,
 			targetDigest:         targetDigest,
 			applicationTargetKey: applicationImageTargetKeyFor(target, targetDigest, ociType),
 			clientOptsFn:         clientOptsFn,
@@ -1512,7 +1507,6 @@ func (m *prefetchManager) prepareTask(ctx context.Context, target imageRef, ociT
 
 	task := &prefetchTask{
 		ociType:              ociType,
-		pullPolicy:           pullPolicy,
 		targetDigest:         targetDigest,
 		applicationTargetKey: applicationImageTargetKeyFor(target, targetDigest, ociType),
 		clientOptsFn:         clientOptsFn,
@@ -1899,7 +1893,7 @@ func (m *prefetchManager) cleanupChangedTasks(targets map[imageRef]OCIPullTarget
 }
 
 func samePrefetchTarget(task *prefetchTask, target OCIPullTarget) bool {
-	return task != nil && task.ociType == target.Type && task.targetDigest == target.Digest && task.pullPolicy == target.PullPolicy && sameDeltaTarget(task.delta, target.Delta)
+	return task != nil && task.ociType == target.Type && task.targetDigest == target.Digest && sameDeltaTarget(task.delta, target.Delta)
 }
 
 func sameDeltaTarget(first, second *OCIDeltaTarget) bool {
@@ -1916,6 +1910,7 @@ func (m *prefetchManager) Cleanup() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	m.collectors = nil
 	if len(m.tasks) == 0 {
 		return
 	}
@@ -1928,7 +1923,6 @@ func (m *prefetchManager) Cleanup() {
 		}
 	}
 
-	m.collectors = nil
 	m.tasks = make(map[imageRef]*prefetchTask)
 
 	for {

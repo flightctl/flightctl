@@ -119,7 +119,7 @@ Digest-pinned CRI workload images remain eligible for deltas. Source checks use 
 
 After importing a reconstructed image, the agent refreshes the exact requested registry reference, including digest-pinned CRI references, before reporting `Applied`. An unusable hint or failed delta reports `Fallback` with a reason and attempts a full pull. Successful recovery allows reconciliation to continue.
 
-For OS updates without a usable delta, prefetch pulls the full desired image before bootc stages it. A cached image with an outdated digest does not satisfy this pull. A failed pull stops staging.
+For OS updates, the agent reuses a desired image that is already booted or cached without verifying its digest against the registry. Only an image that needs fetching enters delta discovery or full-image prefetch. Without a usable delta, prefetch uses `PullIfNotPresent` before bootc stages the desired image. A failed required pull stops staging.
 
 Top-level Compose artifacts use full artifact handling and report `NotUsed`, or `Fallback` when supplied with an unusable image-delta hint. Nested workload images remain eligible for deltas. Application results report `Partial` when an `Applied` target accompanies a `NotUsed` or `Fallback` target; `NotRequired` targets remain neutral. Multiple fallback reasons use the lexically first reason.
 
