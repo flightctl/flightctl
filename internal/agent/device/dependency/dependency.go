@@ -21,7 +21,6 @@ import (
 	"github.com/flightctl/flightctl/internal/agent/device/resource"
 	"github.com/flightctl/flightctl/internal/agent/device/status"
 	"github.com/flightctl/flightctl/internal/util"
-	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/poll"
 	"github.com/opencontainers/go-digest"
@@ -1295,13 +1294,6 @@ func (m *prefetchManager) removeApplicationDeltaTempDir(readWriter fileio.ReadWr
 	if err := readWriter.RemoveAll(path); err != nil {
 		m.log.Warnf("remove application delta temporary directory %s: %v", path, err)
 	}
-}
-
-func validateApplicationDeltaCandidate(candidate string) error {
-	if errs := validation.ValidateOciImageReference(&candidate, "application.deltaImage"); len(errs) > 0 {
-		return fmt.Errorf("invalid application delta image reference %q: %w", candidate, errs[0])
-	}
-	return nil
 }
 
 // canRecordObservedResultLocked avoids runtime verification for unregistered or
