@@ -941,3 +941,26 @@ func TestWhenBootedAndActiveOSResultsExceedCapacityItShouldEvictSupersededResult
 	require.Nil(t, restarted.ObservedOSResult("os:b", "sha256:b"))
 	require.Equal(t, result, *restarted.ObservedOSResult("os:a", "sha256:a"))
 }
+
+func TestWhenMutableOSTargetChangesDigestItShouldEvictSupersededHistory(t *testing.T) {
+	root := t.TempDir()
+	rw := fileio.NewReadWriter(fileio.NewReader(fileio.WithReaderRootDir(root)), fileio.NewWriter(fileio.WithWriterRootDir(root)))
+	store := New(rw, "/state", log.NewPrefixLogger("test"))
+	const targetKey = "mutable-os-target"
+	const image = "quay.io/acme/os:stable"
+	result := v1beta1.DeviceDeltaApplyStatus{Outcome: v1beta1.DeviceDeltaApplyOutcomeApplied}
+
+	require.NoError(t, store.SetOSTarget(targetKey))
+	require.NoError(t, store.RecordOSImageResult(targetKey, image, "sha256:a", result))
+	require.Equal(t, result, *store.ObservedOSResult(image, "sha256:a"))
+	require.NoError(t, store.RecordOSImageResult(targetKey, image, "sha256:b", result))
+	require.Equal(t, result, *store.ObservedOSResult(image, "sha256:b"))
+	require.NoError(t, store.RecordOSImageResult(targetKey, image, "sha256:c", result))
+
+	// B is still booted and C is pending. A has been superseded even though all
+	// three results share the same mutable OS target reference.
+	require.Equal(t, result, *store.ObservedOSResult(image, "sha256:b"))
+	require.Len(t, store.state.OS.History, 2)
+	require.Nil(t, store.ObservedOSResult(image, "sha256:a"))
+	require.Equal(t, result, *store.ObservedOSResult(image, "sha256:c"))
+}
