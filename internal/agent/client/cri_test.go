@@ -232,36 +232,24 @@ func TestCRIImageReferences(t *testing.T) {
 	const digestA = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	const digestB = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
-	imageList, err := json.Marshal(map[string]any{
-		"images": []any{
-			map[string]any{"repoDigests": []string{"quay.io/z/app@" + digestA, "quay.io/a/app@" + digestA}},
-			map[string]any{"repoDigests": []string{"quay.io/b/app@" + digestB, "invalid"}},
-			map[string]any{"repoDigests": []string{}},
-		},
-	})
-	require.NoError(t, err)
-
 	testCases := []struct {
 		name       string
-		setupMocks func(*executer.MockExecuter, *fileio.MockReadWriter)
+		setupMocks func(*testing.T, *executer.MockExecuter, *fileio.MockReadWriter)
 		want       map[string]string
 		wantError  bool
 	}{
 		{
 			name: "When local repository digests are present it should select the lexical repository reference",
-			setupMocks: func(mockExec *executer.MockExecuter, rw *fileio.MockReadWriter) {
-				rw.EXPECT().PathExists("/etc/crictl.yaml").Return(true, nil)
-				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", "--config", "/etc/crictl.yaml", "images", "--output", "json").
-					Return(string(imageList), "", 0)
-			},
-			want: map[string]string{
-				digestA: "quay.io/a/app@" + digestA,
-				digestB: "quay.io/b/app@" + digestB,
-			},
-		},
-		{
-			name: "When no repository digest is filtered it should return all local digests",
-			setupMocks: func(mockExec *executer.MockExecuter, rw *fileio.MockReadWriter) {
+			setupMocks: func(t *testing.T, mockExec *executer.MockExecuter, rw *fileio.MockReadWriter) {
+				require := require.New(t)
+				imageList, err := json.Marshal(map[string]any{
+					"images": []any{
+						map[string]any{"repoDigests": []string{"quay.io/z/app@" + digestA, "quay.io/a/app@" + digestA}},
+						map[string]any{"repoDigests": []string{"quay.io/b/app@" + digestB, "invalid"}},
+						map[string]any{"repoDigests": []string{}},
+					},
+				})
+				require.NoError(err)
 				rw.EXPECT().PathExists("/etc/crictl.yaml").Return(true, nil)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", "--config", "/etc/crictl.yaml", "images", "--output", "json").
 					Return(string(imageList), "", 0)
@@ -273,7 +261,7 @@ func TestCRIImageReferences(t *testing.T) {
 		},
 		{
 			name: "When listing local images fails it should return an error",
-			setupMocks: func(mockExec *executer.MockExecuter, rw *fileio.MockReadWriter) {
+			setupMocks: func(_ *testing.T, mockExec *executer.MockExecuter, rw *fileio.MockReadWriter) {
 				rw.EXPECT().PathExists("/etc/crictl.yaml").Return(true, nil)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", "--config", "/etc/crictl.yaml", "images", "--output", "json").
 					Return("", "crictl failed", 1)
@@ -289,7 +277,7 @@ func TestCRIImageReferences(t *testing.T) {
 			defer ctrl.Finish()
 			mockExec := executer.NewMockExecuter(ctrl)
 			rw := fileio.NewMockReadWriter(ctrl)
-			tc.setupMocks(mockExec, rw)
+			tc.setupMocks(t, mockExec, rw)
 
 			cri := NewCRI(log.NewPrefixLogger("test"), mockExec, rw, poll.Config{})
 			references, err := cri.ImageReferences(context.Background(), WithCRIConfig("/etc/crictl.yaml"))

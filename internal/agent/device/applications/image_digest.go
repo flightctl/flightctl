@@ -24,7 +24,6 @@ func digestFromReference(image string) string {
 // runtime ID is opaque, an immutable declared reference remains a usable
 // fallback; CRI IDs can identify config objects rather than registry manifests.
 func digestFromKubernetesImageID(imageRef, imageID string) string {
-	const pullableImagePrefix = "docker-pullable://"
 	isPullableReference := strings.HasPrefix(imageID, pullableImagePrefix)
 	if isPullableReference {
 		imageID = strings.TrimPrefix(imageID, pullableImagePrefix)

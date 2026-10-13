@@ -39,6 +39,7 @@ const (
 	containerReasonOOMKilled = "OOMKilled"
 
 	maxCachedCRIDigestLookups = 128
+	pullableImagePrefix       = "docker-pullable://"
 )
 
 // KubernetesMonitor monitors Kubernetes-based applications such as Helm releases.
@@ -49,9 +50,13 @@ type KubernetesMonitor struct {
 	rwFactory          fileio.ReadWriterFactory
 	pullConfigResolver dependency.PullConfigResolver
 
-	digestCacheMu    sync.Mutex
-	digestCache      map[string][]string
-	digestCacheOrder []string
+	digestCache criDigestCache
+}
+
+type criDigestCache struct {
+	mu    sync.Mutex
+	entry map[string][]string
+	order []string
 }
 
 // NewKubernetesMonitor creates a new KubernetesMonitor with lazy initialization.
@@ -532,10 +537,9 @@ func (m *KubernetesMonitor) collectPodImages(ctx context.Context, pod *kubernete
 // Opaque IDs identify local CRI images, whose repo digests identify the selected
 // registry manifest rather than the desired index or a runtime config object.
 func (m *KubernetesMonitor) resolveImageDigest(ctx context.Context, image, imageID string) string {
-	const pullablePrefix = "docker-pullable://"
 	fallback := digestFromKubernetesImageID(image, imageID)
-	if imageID == "" || strings.HasPrefix(imageID, pullablePrefix) ||
-		digestFromKubernetesImageID(image, pullablePrefix+imageID) != "" {
+	if imageID == "" || strings.HasPrefix(imageID, pullableImagePrefix) ||
+		digestFromKubernetesImageID(image, pullableImagePrefix+imageID) != "" {
 		return fallback
 	}
 	cri := m.clients.CRI()
@@ -546,7 +550,7 @@ func (m *KubernetesMonitor) resolveImageDigest(ctx context.Context, image, image
 	if _, id, found := strings.Cut(imageID, "://"); found {
 		runtimeID = id
 	}
-	repoDigests, cached := m.cachedCRIRepoDigests(runtimeID)
+	repoDigests, cached := m.digestCache.get(runtimeID)
 	if cached {
 		if repoDigest := matchingImageRepoDigest(image, repoDigests, ""); repoDigest != "" {
 			return repoDigest
@@ -561,43 +565,42 @@ func (m *KubernetesMonitor) resolveImageDigest(ctx context.Context, image, image
 		m.log.Debugf("Could not inspect CRI image %q for digest: %v", imageID, err)
 		return fallback
 	}
-	m.cacheCRIRepoDigests(runtimeID, repoDigests)
+	m.digestCache.set(runtimeID, repoDigests)
 	return matchingImageRepoDigest(image, repoDigests, fallback)
 }
 
-func (m *KubernetesMonitor) cachedCRIRepoDigests(runtimeID string) ([]string, bool) {
-	m.digestCacheMu.Lock()
-	defer m.digestCacheMu.Unlock()
+func (c *criDigestCache) get(runtimeID string) ([]string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	repoDigests, found := m.digestCache[runtimeID]
+	repoDigests, found := c.entry[runtimeID]
 	if !found {
 		return nil, false
 	}
 	return append([]string(nil), repoDigests...), true
 }
 
-func (m *KubernetesMonitor) cacheCRIRepoDigests(runtimeID string, repoDigests []string) {
-	m.digestCacheMu.Lock()
-	defer m.digestCacheMu.Unlock()
+func (c *criDigestCache) set(runtimeID string, repoDigests []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	if m.digestCache == nil {
-		m.digestCache = make(map[string][]string)
+	if c.entry == nil {
+		c.entry = make(map[string][]string)
 	}
-	if _, exists := m.digestCache[runtimeID]; !exists {
-		if len(m.digestCacheOrder) == maxCachedCRIDigestLookups {
-			delete(m.digestCache, m.digestCacheOrder[0])
-			copy(m.digestCacheOrder, m.digestCacheOrder[1:])
-			m.digestCacheOrder = m.digestCacheOrder[:len(m.digestCacheOrder)-1]
+	if _, exists := c.entry[runtimeID]; !exists {
+		if len(c.order) == maxCachedCRIDigestLookups {
+			delete(c.entry, c.order[0])
+			copy(c.order, c.order[1:])
+			c.order = c.order[:len(c.order)-1]
 		}
-		m.digestCacheOrder = append(m.digestCacheOrder, runtimeID)
+		c.order = append(c.order, runtimeID)
 	}
-	m.digestCache[runtimeID] = append([]string(nil), repoDigests...)
+	c.entry[runtimeID] = append([]string(nil), repoDigests...)
 }
 
 func matchingImageRepoDigest(image string, repoDigests []string, fallback string) string {
-	const pullablePrefix = "docker-pullable://"
 	for _, repoDigest := range repoDigests {
-		if digest := digestFromKubernetesImageID(image, pullablePrefix+repoDigest); digest != "" {
+		if digest := digestFromKubernetesImageID(image, pullableImagePrefix+repoDigest); digest != "" {
 			return digest
 		}
 	}

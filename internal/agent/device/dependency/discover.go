@@ -37,33 +37,8 @@ func (m *prefetchManager) discoverPodmanDelta(ctx context.Context, targetImage, 
 		}
 		return candidate.Reference, nil
 	}
-	platformReferrers, err := skopeo.ListPlatformReferrers(ctx, targetImage, opts...)
-	if err != nil {
-		m.log.Debugf("application delta referrers unavailable for %s: %v", targetImage, err)
-		return "", nil
-	}
-	index := platformReferrers.Referrers
-	repo := imageRepository(targetImage)
-	if repo == "" {
-		return "", nil
-	}
-	candidates := make([]delta.Candidate, 0, len(index.Manifests))
-	for _, ref := range index.Manifests {
-		if !delta.IsDeltaReferrer(ref) {
-			continue
-		}
-		candidate, err := inspectApplicationDelta(ctx, repo+"@"+ref.Digest, ref.Size, skopeo, opts...)
-		if err != nil {
-			m.log.Debugf("Skipping unusable application delta %s: %v", ref.Digest, err)
-			continue
-		}
-		if candidate.TargetDigest != platformReferrers.TargetDigest {
-			m.log.Debugf("Skipping application delta %s: target digest does not match the resolved platform digest", ref.Digest)
-			continue
-		}
-		candidates = append(candidates, candidate)
-	}
-	if len(candidates) == 0 {
+	candidates, discovered := m.applicationDeltaReferrerCandidates(ctx, targetImage, skopeo, opts...)
+	if !discovered || len(candidates) == 0 {
 		return "", nil
 	}
 	sources, err := m.podmanDeltaSourceDigests(ctx, podman)
@@ -173,33 +148,8 @@ func (m *prefetchManager) discoverCRIDelta(ctx context.Context, targetImage, hin
 		}
 		return candidate, sourceRef, nil
 	}
-	platformReferrers, err := skopeo.ListPlatformReferrers(ctx, targetImage, opts...)
-	if err != nil {
-		m.log.Debugf("application delta referrers unavailable for %s: %v", targetImage, err)
-		return delta.Candidate{}, "", nil
-	}
-	index := platformReferrers.Referrers
-	repo := imageRepository(targetImage)
-	if repo == "" {
-		return delta.Candidate{}, "", nil
-	}
-	candidates := make([]delta.Candidate, 0, len(index.Manifests))
-	for _, ref := range index.Manifests {
-		if !delta.IsDeltaReferrer(ref) {
-			continue
-		}
-		candidate, err := inspectApplicationDelta(ctx, repo+"@"+ref.Digest, ref.Size, skopeo, opts...)
-		if err != nil {
-			m.log.Debugf("Skipping unusable application delta %s: %v", ref.Digest, err)
-			continue
-		}
-		if candidate.TargetDigest != platformReferrers.TargetDigest {
-			m.log.Debugf("Skipping application delta %s: target digest does not match the resolved platform digest", ref.Digest)
-			continue
-		}
-		candidates = append(candidates, candidate)
-	}
-	if len(candidates) == 0 {
+	candidates, discovered := m.applicationDeltaReferrerCandidates(ctx, targetImage, skopeo, opts...)
+	if !discovered || len(candidates) == 0 {
 		return delta.Candidate{}, "", nil
 	}
 	sourceDigests := make([]string, 0, len(candidates))
@@ -222,6 +172,35 @@ func (m *prefetchManager) discoverCRIDelta(ctx context.Context, targetImage, hin
 		}
 	}
 	return delta.Candidate{}, "", nil
+}
+
+func (m *prefetchManager) applicationDeltaReferrerCandidates(ctx context.Context, targetImage string, skopeo *client.Skopeo, opts ...client.ClientOption) ([]delta.Candidate, bool) {
+	platformReferrers, err := skopeo.ListPlatformReferrers(ctx, targetImage, opts...)
+	if err != nil {
+		m.log.Debugf("application delta referrers unavailable for %s: %v", targetImage, err)
+		return nil, false
+	}
+	repo := imageRepository(targetImage)
+	if repo == "" {
+		return nil, false
+	}
+	candidates := make([]delta.Candidate, 0, len(platformReferrers.Referrers.Manifests))
+	for _, ref := range platformReferrers.Referrers.Manifests {
+		if !delta.IsDeltaReferrer(ref) {
+			continue
+		}
+		candidate, err := inspectApplicationDelta(ctx, repo+"@"+ref.Digest, ref.Size, skopeo, opts...)
+		if err != nil {
+			m.log.Debugf("Skipping unusable application delta %s: %v", ref.Digest, err)
+			continue
+		}
+		if candidate.TargetDigest != platformReferrers.TargetDigest {
+			m.log.Debugf("Skipping application delta %s: target digest does not match the resolved platform digest", ref.Digest)
+			continue
+		}
+		candidates = append(candidates, candidate)
+	}
+	return candidates, true
 }
 
 func (m *prefetchManager) criSourceReferences(ctx context.Context, cri *client.CRI, skopeo *client.Skopeo, sourceDigests []string, opts ...client.ClientOption) (map[string]string, error) {

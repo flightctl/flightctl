@@ -463,7 +463,7 @@ type Status struct {
 }
 
 func (m *manager) osDeltaSourceAvailable(ctx context.Context, bootcStatus *Status, source string) (bool, error) {
-	for _, image := range []container.ImageStatus{bootcStatus.BootcHost.Status.Booted, bootcStatus.BootcHost.Status.Staged, bootcStatus.BootcHost.Status.Rollback} {
+	for _, image := range bootcImageStatuses(bootcStatus) {
 		if image.Image.ImageDigest == source {
 			return true, nil
 		}
@@ -473,7 +473,7 @@ func (m *manager) osDeltaSourceAvailable(ctx context.Context, bootcStatus *Statu
 
 func (m *manager) osDeltaSourceDigests(ctx context.Context, bootcStatus *Status, wanted map[string]struct{}) (map[string]struct{}, error) {
 	sources := make(map[string]struct{})
-	for _, image := range []container.ImageStatus{bootcStatus.BootcHost.Status.Booted, bootcStatus.BootcHost.Status.Staged, bootcStatus.BootcHost.Status.Rollback} {
+	for _, image := range bootcImageStatuses(bootcStatus) {
 		if image.Image.ImageDigest != "" {
 			sources[image.Image.ImageDigest] = struct{}{}
 		}
@@ -496,6 +496,10 @@ func (m *manager) osDeltaSourceDigests(ctx context.Context, bootcStatus *Status,
 		sources[source] = struct{}{}
 	}
 	return sources, nil
+}
+
+func bootcImageStatuses(status *Status) []container.ImageStatus {
+	return []container.ImageStatus{status.BootcHost.Status.Booted, status.BootcHost.Status.Staged, status.BootcHost.Status.Rollback}
 }
 
 func (m *manager) osTargetPlatformDigestMatches(ctx context.Context, image, targetDigest string, optsFn dependency.ClientOptsFn) (bool, error) {
