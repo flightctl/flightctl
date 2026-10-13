@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/containerd/platforms"
+	"github.com/containers/image/v5/docker/reference"
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/device/errors"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -202,15 +203,44 @@ func (s *Skopeo) InspectPlatformDigest(ctx context.Context, image string, opts .
 	if err != nil {
 		return "", err
 	}
-	return platformDigestFromRawManifest(raw)
+	expectedDigest, err := pinnedManifestDigest(image)
+	if err != nil {
+		return "", err
+	}
+	return platformDigestFromRawManifest(raw, expectedDigest)
 }
 
-func platformDigestFromRawManifest(raw string) (string, error) {
+func pinnedManifestDigest(image string) (digest.Digest, error) {
+	named, err := reference.ParseNormalizedNamed(image)
+	if err != nil {
+		return "", fmt.Errorf("parse image reference: %w", err)
+	}
+	digested, ok := named.(reference.Digested)
+	if !ok {
+		return "", nil
+	}
+	if err := digested.Digest().Validate(); err != nil {
+		return "", fmt.Errorf("invalid pinned image digest: %w", err)
+	}
+	return digested.Digest(), nil
+}
+
+func platformDigestFromRawManifest(raw string, expectedDigest digest.Digest) (string, error) {
 	var index ocispec.Index
 	if err := json.Unmarshal([]byte(raw), &index); err != nil {
 		return "", fmt.Errorf("parse image manifest: %w", err)
 	}
 	if index.MediaType != ocispec.MediaTypeImageIndex && index.MediaType != "application/vnd.docker.distribution.manifest.list.v2+json" {
+		if expectedDigest != "" {
+			verifier := expectedDigest.Verifier()
+			if _, err := verifier.Write([]byte(raw)); err != nil {
+				return "", fmt.Errorf("verify pinned image manifest: %w", err)
+			}
+			if !verifier.Verified() {
+				return "", fmt.Errorf("pinned image manifest digest mismatch")
+			}
+			return expectedDigest.String(), nil
+		}
 		return digest.FromBytes([]byte(raw)).String(), nil
 	}
 	hostPlatform := platforms.Default()

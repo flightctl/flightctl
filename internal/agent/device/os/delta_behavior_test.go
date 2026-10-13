@@ -10,6 +10,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/delta"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/opencontainers/go-digest"
@@ -30,11 +31,11 @@ func TestOSUnusableHintFallsBack(t *testing.T) {
 		{name: "When the hint is malformed it should fall back", hint: "not an image reference", reason: "invalid delta reference"},
 		{name: "When the hinted artifact is not a delta it should fall back", hint: testHintedDelta, manifest: `{"artifactType":"application/vnd.example.other"}`, reason: "not an OCI image delta"},
 		{name: "When the hinted source digest is invalid it should fall back", hint: testHintedDelta, manifest: `{"artifactType":"application/vnd.io.github.containers.oci-delta.v1","annotations":{"io.github.containers.delta.source":"sha256:invalid"}}`, reason: "source"},
-		{name: "When artifact blobs are missing it should fall back", hint: testHintedDelta, manifest: `{"artifactType":"application/vnd.io.github.containers.oci-delta.v1","subject":{"digest":"` + testSourceDigest + `"},"annotations":{"io.github.containers.delta.source":"` + testSourceDigest + `"}}`, reason: "descriptors"},
-		{name: "When the artifact declares a different target it should fall back", hint: testHintedDelta, manifest: `{"artifactType":"application/vnd.io.github.containers.oci-delta.v1","subject":{"digest":"` + testDeltaDigest + `"},"annotations":{"io.github.containers.delta.source":"` + testSourceDigest + `"},"config":{"digest":"` + testDeltaDigest + `","size":2},"layers":[{"digest":"` + testSourceDigest + `","size":10}]}`, reason: "target", checkTarget: true},
-		{name: "When the artifact targets the desired index instead of its platform manifest it should fall back", hint: testHintedDelta, manifest: `{"artifactType":"application/vnd.io.github.containers.oci-delta.v1","subject":{"digest":"` + targetIndexDigest + `"},"annotations":{"io.github.containers.delta.source":"` + testSourceDigest + `"},"config":{"digest":"` + testDeltaDigest + `","size":2},"layers":[{"digest":"` + testSourceDigest + `","size":10}]}`, reason: "target digest does not match", checkTarget: true},
-		{name: "When the desired target digest cannot be inspected it should reject the delta", hint: testHintedDelta, manifest: `{"artifactType":"application/vnd.io.github.containers.oci-delta.v1","subject":{"digest":"` + testDeltaDigest + `"},"annotations":{"io.github.containers.delta.source":"` + testSourceDigest + `"},"config":{"digest":"` + testDeltaDigest + `","size":2},"layers":[{"digest":"` + testSourceDigest + `","size":10}]}`, reason: "inspect delta target digest", checkTarget: true, targetInspectFailure: true},
-		{name: "When an artifact declares a negative blob size it should fall back", hint: testHintedDelta, manifest: `{"artifactType":"application/vnd.io.github.containers.oci-delta.v1","subject":{"digest":"` + testSourceDigest + `"},"annotations":{"io.github.containers.delta.source":"` + testSourceDigest + `"},"config":{"digest":"` + testDeltaDigest + `","size":2},"layers":[{"digest":"` + testSourceDigest + `","size":-10}]}`, reason: "size"},
+		{name: "When artifact blobs are missing it should fall back", hint: testHintedDelta, manifest: `{"artifactType":"application/vnd.io.github.containers.oci-delta.v1","subject":{"digest":"` + testSourceDigest + `","mediaType":"application/vnd.oci.image.manifest.v1+json","size":100},"annotations":{"io.github.containers.delta.source":"` + testSourceDigest + `"}}`, reason: "descriptors"},
+		{name: "When the artifact declares a different target it should fall back", hint: testHintedDelta, manifest: `{"artifactType":"application/vnd.io.github.containers.oci-delta.v1","subject":{"digest":"` + testDeltaDigest + `","mediaType":"application/vnd.oci.image.manifest.v1+json","size":100},"annotations":{"io.github.containers.delta.source":"` + testSourceDigest + `"},"config":{"digest":"` + testDeltaDigest + `","mediaType":"application/vnd.oci.image.config.v1+json","size":2},"layers":[{"digest":"` + testSourceDigest + `","mediaType":"application/vnd.oci.image.layer.v1.tar+gzip","size":10}]}`, reason: "target", checkTarget: true},
+		{name: "When the artifact targets the desired index instead of its platform manifest it should fall back", hint: testHintedDelta, manifest: `{"artifactType":"application/vnd.io.github.containers.oci-delta.v1","subject":{"digest":"` + targetIndexDigest + `","mediaType":"application/vnd.oci.image.manifest.v1+json","size":100},"annotations":{"io.github.containers.delta.source":"` + testSourceDigest + `"},"config":{"digest":"` + testDeltaDigest + `","mediaType":"application/vnd.oci.image.config.v1+json","size":2},"layers":[{"digest":"` + testSourceDigest + `","mediaType":"application/vnd.oci.image.layer.v1.tar+gzip","size":10}]}`, reason: "target digest does not match", checkTarget: true},
+		{name: "When the desired target digest cannot be inspected it should reject the delta", hint: testHintedDelta, manifest: `{"artifactType":"application/vnd.io.github.containers.oci-delta.v1","subject":{"digest":"` + testDeltaDigest + `","mediaType":"application/vnd.oci.image.manifest.v1+json","size":100},"annotations":{"io.github.containers.delta.source":"` + testSourceDigest + `"},"config":{"digest":"` + testDeltaDigest + `","mediaType":"application/vnd.oci.image.config.v1+json","size":2},"layers":[{"digest":"` + testSourceDigest + `","mediaType":"application/vnd.oci.image.layer.v1.tar+gzip","size":10}]}`, reason: "inspect delta target digest", checkTarget: true, targetInspectFailure: true},
+		{name: "When an artifact declares a negative blob size it should fall back", hint: testHintedDelta, manifest: `{"artifactType":"application/vnd.io.github.containers.oci-delta.v1","subject":{"digest":"` + testSourceDigest + `","mediaType":"application/vnd.oci.image.manifest.v1+json","size":100},"annotations":{"io.github.containers.delta.source":"` + testSourceDigest + `"},"config":{"digest":"` + testDeltaDigest + `","mediaType":"application/vnd.oci.image.config.v1+json","size":2},"layers":[{"digest":"` + testSourceDigest + `","mediaType":"application/vnd.oci.image.layer.v1.tar+gzip","size":-10}]}`, reason: "size"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -82,7 +83,7 @@ func expectDeltaManifestSizes(mockExec *executer.MockExecuter, reference, source
 		image := targetImage[0]
 		expectPlatformIndex(mockExec, image, testSourceDigest)
 	}
-	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+reference, "--no-creds").Return(fmt.Sprintf(`{"artifactType":"application/vnd.io.github.containers.oci-delta.v1","subject":{"digest":%q},"annotations":{"io.github.containers.delta.source":%q},"config":{"digest":%q,"size":%d},"layers":[{"digest":%q,"size":%d}]}`, testSourceDigest, source, testSourceDigest, configSize, testDeltaDigest, size), "", 0)
+	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+reference, "--no-creds").Return(fmt.Sprintf(`{"artifactType":"application/vnd.io.github.containers.oci-delta.v1","subject":{"digest":%q,"mediaType":"application/vnd.oci.image.manifest.v1+json","size":100},"annotations":{"io.github.containers.delta.source":%q},"config":{"digest":%q,"mediaType":"application/vnd.oci.image.config.v1+json","size":%d},"layers":[{"digest":%q,"mediaType":"application/vnd.oci.image.layer.v1.tar+gzip","size":%d}]}`, testSourceDigest, source, testSourceDigest, configSize, testDeltaDigest, size), "", 0)
 }
 
 func TestOSHintRequiresLocalSource(t *testing.T) {
@@ -152,7 +153,15 @@ func TestOSDiscoverySelectsSmallestLocalDelta(t *testing.T) {
 			mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil).Times(2)
 			expectImageExists(mockExec, testDesiredImage, false)
 			expectPullConfig(t, mockResolver)
-			refs := []client.OCIReferrer{{Digest: testDeltaDigest, ArtifactType: ociDeltaArtifactType, Size: tt.firstManifestSize}, {Digest: testOtherDeltaDigest, ArtifactType: ociDeltaArtifactType, Size: tt.secondManifestSize}}
+			firstManifestSize := tt.firstManifestSize
+			if firstManifestSize == 0 {
+				firstManifestSize = 1
+			}
+			secondManifestSize := tt.secondManifestSize
+			if secondManifestSize == 0 {
+				secondManifestSize = 1
+			}
+			refs := []client.OCIReferrer{{Digest: testDeltaDigest, ArtifactType: delta.ArtifactType, Size: firstManifestSize}, {Digest: testOtherDeltaDigest, ArtifactType: delta.ArtifactType, Size: secondManifestSize}}
 			if tt.reverse {
 				refs[0], refs[1] = refs[1], refs[0]
 			}
@@ -202,8 +211,8 @@ func TestOSDiscoveryCollectsBootcSourcesOnce(t *testing.T) {
 	firstSource := "sha256:1111111111111111111111111111111111111111111111111111111111111111"
 	secondSource := "sha256:2222222222222222222222222222222222222222222222222222222222222222"
 	refs := []client.OCIReferrer{
-		{Digest: testDeltaDigest, ArtifactType: ociDeltaArtifactType, Size: 10},
-		{Digest: testOtherDeltaDigest, ArtifactType: ociDeltaArtifactType, Size: 20},
+		{Digest: testDeltaDigest, ArtifactType: delta.ArtifactType, Size: 10},
+		{Digest: testOtherDeltaDigest, ArtifactType: delta.ArtifactType, Size: 20},
 	}
 	index, err := json.Marshal(client.OCIIndex{SchemaVersion: 2, Manifests: refs})
 	require.NoError(err)
@@ -240,8 +249,8 @@ func TestOSDiscoveryPreservesConfirmedSourcesWhenCacheScanFails(t *testing.T) {
 	expectPullConfig(t, mockResolver)
 	unavailableSource := "sha256:3333333333333333333333333333333333333333333333333333333333333333"
 	refs := []client.OCIReferrer{
-		{Digest: testDeltaDigest, ArtifactType: ociDeltaArtifactType, Size: 10},
-		{Digest: testOtherDeltaDigest, ArtifactType: ociDeltaArtifactType, Size: 20},
+		{Digest: testDeltaDigest, ArtifactType: delta.ArtifactType, Size: 10},
+		{Digest: testOtherDeltaDigest, ArtifactType: delta.ArtifactType, Size: 20},
 	}
 	index, err := json.Marshal(client.OCIIndex{SchemaVersion: 2, Manifests: refs})
 	require.NoError(err)
@@ -320,15 +329,15 @@ func TestOSDeltaSourceUsesBootcStore(t *testing.T) {
 func TestOSDiscoveryIgnoresUnusableCandidates(t *testing.T) {
 	tests := []struct {
 		name, artifactType, digest, source, targetDigest, manifestError string
-		inspect                                                         bool
-		probe                                                           bool
+		inspect, missingManifestSize, probe                             bool
 	}{
 		{name: "When the referrer has another artifact type it should use the full image", artifactType: "application/vnd.example.other", digest: testDeltaDigest},
-		{name: "When the referrer digest is malformed it should use the full image", artifactType: ociDeltaArtifactType, digest: "sha256:invalid"},
-		{name: "When the artifact source metadata is missing it should use the full image", artifactType: ociDeltaArtifactType, digest: testDeltaDigest, inspect: true},
-		{name: "When the artifact source is absent from bootc storage it should use the full image", artifactType: ociDeltaArtifactType, digest: testDeltaDigest, source: testOtherDeltaDigest, inspect: true, probe: true},
-		{name: "When the referrer subject does not match the resolved platform digest it should use the full image", artifactType: ociDeltaArtifactType, digest: testDeltaDigest, source: testSourceDigest, targetDigest: testOtherDeltaDigest, inspect: true},
-		{name: "When the artifact cannot be inspected it should use the full image", artifactType: ociDeltaArtifactType, digest: testDeltaDigest, inspect: true, manifestError: "manifest unknown"},
+		{name: "When the referrer digest is malformed it should use the full image", artifactType: delta.ArtifactType, digest: "sha256:invalid"},
+		{name: "When the referrer descriptor size is missing it should use the full image", artifactType: delta.ArtifactType, digest: testDeltaDigest, missingManifestSize: true},
+		{name: "When the artifact source metadata is missing it should use the full image", artifactType: delta.ArtifactType, digest: testDeltaDigest, inspect: true},
+		{name: "When the artifact source is absent from bootc storage it should use the full image", artifactType: delta.ArtifactType, digest: testDeltaDigest, source: testOtherDeltaDigest, inspect: true, probe: true},
+		{name: "When the referrer subject does not match the resolved platform digest it should use the full image", artifactType: delta.ArtifactType, digest: testDeltaDigest, source: testSourceDigest, targetDigest: testOtherDeltaDigest, inspect: true},
+		{name: "When the artifact cannot be inspected it should use the full image", artifactType: delta.ArtifactType, digest: testDeltaDigest, inspect: true, manifestError: "manifest unknown"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -342,14 +351,18 @@ func TestOSDiscoveryIgnoresUnusableCandidates(t *testing.T) {
 			expectImageExists(mockExec, testDesiredImage, false)
 			expectPullConfig(t, mockResolver)
 			// Referrer annotations claim a booted source; the inspected artifact is authoritative.
-			index, err := json.Marshal(client.OCIIndex{Manifests: []client.OCIReferrer{{Digest: tt.digest, ArtifactType: tt.artifactType, Annotations: map[string]string{ociDeltaSourceAnnotation: testSourceDigest}}}})
+			referrers := client.OCIReferrer{Digest: tt.digest, ArtifactType: tt.artifactType, Size: 100, Annotations: map[string]string{ociDeltaSourceAnnotation: testSourceDigest}}
+			if tt.missingManifestSize {
+				referrers.Size = 0
+			}
+			index, err := json.Marshal(client.OCIIndex{Manifests: []client.OCIReferrer{referrers}})
 			require.NoError(err)
 			expectListReferrers(mockExec, testDesiredImage, string(index), "", 0)
 			if tt.inspect {
 				if tt.manifestError != "" {
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+testDeltaRef, "--no-creds").Return("", tt.manifestError, 1)
 				} else if tt.targetDigest != "" {
-					manifest := fmt.Sprintf(`{"artifactType":%q,"subject":{"digest":%q},"annotations":{"io.github.containers.delta.source":%q},"config":{"digest":%q,"size":2},"layers":[{"digest":%q,"size":100}]}`, ociDeltaArtifactType, tt.targetDigest, tt.source, testDeltaDigest, testDeltaDigest)
+					manifest := fmt.Sprintf(`{"artifactType":%q,"subject":{"digest":%q,"mediaType":"application/vnd.oci.image.manifest.v1+json","size":100},"annotations":{"io.github.containers.delta.source":%q},"config":{"digest":%q,"mediaType":"application/vnd.oci.image.config.v1+json","size":2},"layers":[{"digest":%q,"mediaType":"application/vnd.oci.image.layer.v1.tar+gzip","size":100}]}`, delta.ArtifactType, tt.targetDigest, tt.source, testDeltaDigest, testDeltaDigest)
 					mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+testDeltaRef, "--no-creds").Return(manifest, "", 0)
 				} else {
 					expectDeltaManifest(mockExec, testDeltaRef, tt.source, 100)
@@ -471,7 +484,7 @@ func TestOSMultiPlatformTargetDigest(t *testing.T) {
 			if tt.hint {
 				expectPullConfig(t, mockResolver)
 				expectImageExists(mockExec, tt.image, false)
-				raw := fmt.Sprintf(`{"artifactType":"application/vnd.io.github.containers.oci-delta.v1","subject":{"digest":%q},"annotations":{"io.github.containers.delta.source":%q},"config":{"digest":%q,"size":2},"layers":[{"digest":%q,"size":10}]}`, testSourceDigest, testSourceDigest, testDeltaDigest, testDeltaDigest)
+				raw := fmt.Sprintf(`{"artifactType":"application/vnd.io.github.containers.oci-delta.v1","subject":{"digest":%q,"mediaType":"application/vnd.oci.image.manifest.v1+json","size":100},"annotations":{"io.github.containers.delta.source":%q},"config":{"digest":%q,"mediaType":"application/vnd.oci.image.config.v1+json","size":2},"layers":[{"digest":%q,"mediaType":"application/vnd.oci.image.layer.v1.tar+gzip","size":10}]}`, testSourceDigest, testSourceDigest, testDeltaDigest, testDeltaDigest)
 				mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+testHintedDelta, "--no-creds").Return(raw, "", 0)
 				expectDeltaSuccess(t, mockExec, mockClient, testHintedDelta)
 			}

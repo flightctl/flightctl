@@ -365,7 +365,7 @@ func TestManager(t *testing.T) {
 			manager := &manager{
 				rwFactory:         rwFactory,
 				podmanMonitor:     NewPodmanMonitor(log, podmanFactory, systemdFactory, bootTime.Format(time.RFC3339), rwMockFactory),
-				kubernetesMonitor: NewKubernetesMonitor(log, cliClients, rwFactory),
+				kubernetesMonitor: NewKubernetesMonitor(log, cliClients, rwFactory, nil),
 				clients:           cliClients,
 				log:               log,
 			}
@@ -454,7 +454,7 @@ func TestManagerUpdateAfterRestart(t *testing.T) {
 			require.NoError(err)
 			m := &manager{
 				podmanMonitor:     NewPodmanMonitor(logger, podmanFactory, nil, bootTime.Format(time.RFC3339), rwMockFactory),
-				kubernetesMonitor: NewKubernetesMonitor(logger, client.NewCLIClients(), rwFactory),
+				kubernetesMonitor: NewKubernetesMonitor(logger, client.NewCLIClients(), rwFactory, nil),
 				log:               logger,
 			}
 			t.Cleanup(func() { require.NoError(m.podmanMonitor.Stop()) })
@@ -546,7 +546,7 @@ func TestManagerRemoveApplication(t *testing.T) {
 	manager := &manager{
 		rwFactory:         rwFactory,
 		podmanMonitor:     NewPodmanMonitor(log, podmanFactory, systemdFactory, bootTime.Format(time.RFC3339), rwMockFactory),
-		kubernetesMonitor: NewKubernetesMonitor(log, cliClients, rwFactory),
+		kubernetesMonitor: NewKubernetesMonitor(log, cliClients, rwFactory, nil),
 		log:               log,
 	}
 
@@ -1336,7 +1336,7 @@ func TestManagerResolveConsole(t *testing.T) {
 		var rwFactory fileio.ReadWriterFactory = func(_ v1beta1.Username) (fileio.ReadWriter, error) { return readWriter, nil }
 		m := &manager{
 			podmanMonitor:     NewPodmanMonitor(testLog, podmanFactory, systemdFactory, "", rwFactory),
-			kubernetesMonitor: NewKubernetesMonitor(testLog, client.NewCLIClients(), rwFactory),
+			kubernetesMonitor: NewKubernetesMonitor(testLog, client.NewCLIClients(), rwFactory, nil),
 			log:               testLog,
 		}
 		return m, ctrl
@@ -1604,7 +1604,7 @@ func TestVolumeImageDigestCacheLifecycle(t *testing.T) {
 			m := &manager{
 				log:               logger,
 				podmanMonitor:     NewPodmanMonitor(logger, nil, nil, time.Now().Format(time.RFC3339), nil),
-				kubernetesMonitor: NewKubernetesMonitor(logger, nil, nil),
+				kubernetesMonitor: NewKubernetesMonitor(logger, nil, nil, nil),
 				podmanFactory: func(v1beta1.Username) (*client.Podman, error) {
 					return client.NewPodman(logger, mockExec, fileio.NewMockReadWriter(ctrl), poll.Config{}), nil
 				},
@@ -1718,7 +1718,7 @@ func TestVolumeImageDigestCacheArtifacts(t *testing.T) {
 			m := &manager{
 				log:               logger,
 				podmanMonitor:     NewPodmanMonitor(logger, nil, nil, time.Now().Format(time.RFC3339), nil),
-				kubernetesMonitor: NewKubernetesMonitor(logger, nil, nil),
+				kubernetesMonitor: NewKubernetesMonitor(logger, nil, nil, nil),
 				podmanFactory: func(v1beta1.Username) (*client.Podman, error) {
 					return client.NewPodman(logger, mockExec, fileio.NewMockReadWriter(ctrl), poll.Config{}), nil
 				},
@@ -1757,7 +1757,7 @@ func TestVolumeImageDigestCacheApplicationChanges(t *testing.T) {
 			m := &manager{
 				log:               logger,
 				podmanMonitor:     NewPodmanMonitor(logger, nil, nil, time.Now().Format(time.RFC3339), nil),
-				kubernetesMonitor: NewKubernetesMonitor(logger, nil, nil),
+				kubernetesMonitor: NewKubernetesMonitor(logger, nil, nil, nil),
 				podmanFactory: func(v1beta1.Username) (*client.Podman, error) {
 					return client.NewPodman(logger, mockExec, fileio.NewMockReadWriter(ctrl), poll.Config{}), nil
 				},
@@ -1867,7 +1867,7 @@ func TestVolumeImageDigestCacheConcurrentInvalidation(t *testing.T) {
 				m := &manager{
 					log:               logger,
 					podmanMonitor:     NewPodmanMonitor(logger, nil, nil, time.Now().Format(time.RFC3339), nil),
-					kubernetesMonitor: NewKubernetesMonitor(logger, nil, nil),
+					kubernetesMonitor: NewKubernetesMonitor(logger, nil, nil, nil),
 					podmanFactory: func(v1beta1.Username) (*client.Podman, error) {
 						return podman, nil
 					},

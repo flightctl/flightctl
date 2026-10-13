@@ -254,12 +254,12 @@ func (m *manager) CollectOCITargets(ctx context.Context, current, desired *v1bet
 	}
 
 	candidate := m.discoverOSDelta(ctx, desired, bootcStatus, optsFn)
-	if candidate == "" {
+	if candidate.Reference == "" {
 		m.setDeltaNotUsedIfUnset()
 		return m.fullImageCollection(osImage, optsFn), nil
 	}
 
-	if err := m.pullAndApplyOSDelta(ctx, candidate, osImage, optsFn); err != nil {
+	if err := m.pullAndApplyOSDelta(ctx, candidate.Reference, osImage, optsFn); err != nil {
 		m.log.Warnf("OS delta failed, falling back to full pull: %v", err)
 		return m.fullImageCollection(osImage, optsFn), nil
 	}

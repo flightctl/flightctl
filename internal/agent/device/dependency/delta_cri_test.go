@@ -18,8 +18,9 @@ import (
 
 func TestApplicationDeltaPrefetchCRIRefreshesRegistryReference(t *testing.T) {
 	const (
-		image     = "quay.io/acme/app:target"
-		candidate = "quay.io/acme/delta@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		image        = "quay.io/acme/app:target"
+		candidate    = "quay.io/acme/delta@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+		refreshImage = "quay.io/acme/app@" + podmanDeltaTargetDigest
 	)
 
 	testCases := []struct {
@@ -66,7 +67,7 @@ func TestApplicationDeltaPrefetchCRIRefreshesRegistryReference(t *testing.T) {
 				refreshEnv[i] = gomock.Any()
 			}
 			refreshRegistryReference := exec.EXPECT().ExecuteWithContextFromDir(
-				gomock.Any(), "", "crictl", []string{"pull", image}, refreshEnv...,
+				gomock.Any(), "", "crictl", []string{"pull", refreshImage}, refreshEnv...,
 			).Return("Image is up to date", tc.refreshStderr, tc.refreshExitCode)
 
 			if tc.wantFallback {

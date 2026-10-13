@@ -70,8 +70,7 @@ func NewManager(
 	pullConfigResolver dependency.PullConfigResolver,
 ) *manager {
 	bootTime := systemInfo.BootTime()
-	kubernetesMonitor := NewKubernetesMonitor(log, clients, rwFactory)
-	kubernetesMonitor.pullConfigResolver = pullConfigResolver
+	kubernetesMonitor := NewKubernetesMonitor(log, clients, rwFactory, pullConfigResolver)
 	return &manager{
 		rwFactory:          rwFactory,
 		podmanMonitor:      NewPodmanMonitor(log, podmanFactory, systemdFactory, bootTime, rwFactory),

@@ -26,6 +26,7 @@ import (
 func TestApplicationDeltaPrefetch(t *testing.T) {
 	const image = "quay.io/acme/app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	const candidate = "quay.io/acme/delta@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	const refreshImage = "quay.io/acme/app@" + podmanDeltaTargetDigest
 
 	tests := []struct {
 		name               string
@@ -54,7 +55,7 @@ func TestApplicationDeltaPrefetch(t *testing.T) {
 			setup: func(exec *executer.MockExecuter) {
 				copyDelta := exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "copy", gomock.Any(), gomock.Any()).Return("", "", 0)
 				importDelta := exec.EXPECT().ExecuteWithContext(gomock.Any(), "oci-delta", "import", "--tag", image, gomock.Any()).Return("", "", 0)
-				refreshRegistryReference := exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", image).Return("", "", 0)
+				refreshRegistryReference := exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", refreshImage).Return("", "", 0)
 				gomock.InOrder(copyDelta, importDelta, refreshRegistryReference)
 			},
 		},
@@ -64,7 +65,7 @@ func TestApplicationDeltaPrefetch(t *testing.T) {
 			setup: func(exec *executer.MockExecuter) {
 				copyDelta := exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "copy", gomock.Any(), gomock.Any()).Return("", "", 0)
 				importDelta := exec.EXPECT().ExecuteWithContext(gomock.Any(), "oci-delta", "import", "--tag", image, gomock.Any()).Return("", "", 0)
-				refreshRegistryReference := exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", image).Return("", "registry refresh failed", 1)
+				refreshRegistryReference := exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", refreshImage).Return("", "registry refresh failed", 1)
 				fullPull := exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", image).Return("", "", 0)
 				gomock.InOrder(copyDelta, importDelta, refreshRegistryReference, fullPull)
 			},
@@ -147,7 +148,7 @@ func TestApplicationDeltaPrefetch(t *testing.T) {
 				firstFullPull := exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", image).Return("", "pull failed", 1)
 				secondCopy := exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "copy", gomock.Any(), gomock.Any()).Return("", "", 0)
 				secondImport := exec.EXPECT().ExecuteWithContext(gomock.Any(), "oci-delta", "import", "--tag", image, gomock.Any()).Return("", "", 0)
-				secondRegistryReferenceRefresh := exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", image).Return("", "", 0)
+				secondRegistryReferenceRefresh := exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", refreshImage).Return("", "", 0)
 				gomock.InOrder(firstCopy, firstImport, firstFullPull, secondCopy, secondImport, secondRegistryReferenceRefresh)
 			},
 		},
@@ -409,7 +410,7 @@ func TestCachedApplicationImageWithStaleDigestAttemptsHintedDelta(t *testing.T) 
 		gomock.Any(), "oci-delta", "import", "--tag", image, gomock.Any(),
 	).Return("", "", 0)
 	refreshRegistryReference := exec.EXPECT().ExecuteWithContext(
-		gomock.Any(), "podman", "pull", image,
+		gomock.Any(), "podman", "pull", "quay.io/acme/app@"+podmanDeltaTargetDigest,
 	).Return("", "", 0)
 	gomock.InOrder(localDigest, requestedDigest, copyDelta, importDelta, refreshRegistryReference)
 
@@ -1472,7 +1473,7 @@ func TestApplicationDeltaPrefetchRunsAsRunAsUser(t *testing.T) {
 		gomock.Any(), "oci-delta", "import", "--tag", image, gomock.Any(),
 	).Return("", "", 0)
 	canonicalPull := userExec.EXPECT().ExecuteWithContext(
-		gomock.Any(), "podman", "pull", image,
+		gomock.Any(), "podman", "pull", "quay.io/acme/app@"+podmanDeltaTargetDigest,
 	).Return("", "", 0)
 	gomock.InOrder(deltaFetch, deltaImport, canonicalPull)
 
@@ -1706,7 +1707,7 @@ func TestMovedApplicationTagClearsPersistedDeltaOutcome(t *testing.T) {
 
 const podmanDeltaSource = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 const podmanDeltaTargetDigest = "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-const podmanDeltaManifest = `{"artifactType":"application/vnd.io.github.containers.oci-delta.v1","subject":{"digest":"sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},"annotations":{"io.github.containers.delta.source":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},"config":{"digest":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","size":10},"layers":[{"digest":"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","size":100}]}`
+const podmanDeltaManifest = `{"artifactType":"application/vnd.io.github.containers.oci-delta.v1","subject":{"digest":"sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff","mediaType":"application/vnd.oci.image.manifest.v1+json","size":100},"annotations":{"io.github.containers.delta.source":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"},"config":{"digest":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","mediaType":"application/vnd.oci.image.config.v1+json","size":10},"layers":[{"digest":"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","mediaType":"application/vnd.oci.image.layer.v1.tar+gzip","size":100}]}`
 
 func expectPodmanDeltaTarget(t *testing.T, exec *executer.MockExecuter, image string, attempts int) {
 	t.Helper()

@@ -15,6 +15,7 @@ import (
 	"github.com/flightctl/flightctl/pkg/executer"
 	"github.com/flightctl/flightctl/pkg/log"
 	"github.com/flightctl/flightctl/pkg/poll"
+	"github.com/opencontainers/go-digest"
 	"gopkg.in/yaml.v3"
 )
 
@@ -465,11 +466,15 @@ func (c *CRI) ImportContainerdImage(ctx context.Context, endpoint, archivePath, 
 // ContainerdImagePlatformDigest resolves a locally cached image index to the
 // manifest for this host without contacting its source registry.
 func (c *CRI) ContainerdImagePlatformDigest(ctx context.Context, endpoint, repositoryDigest string, opts ...ClientOption) (string, error) {
+	expectedDigest, err := digest.Parse(repositoryDigest)
+	if err != nil {
+		return "", fmt.Errorf("parse containerd image digest: %w", err)
+	}
 	raw, err := c.executeContainerdOutput(ctx, endpoint, []string{"content", "get", repositoryDigest}, opts...)
 	if err != nil {
 		return "", err
 	}
-	return platformDigestFromRawManifest(raw)
+	return platformDigestFromRawManifest(raw, expectedDigest)
 }
 
 func (c *CRI) executeContainerd(ctx context.Context, endpoint string, args []string, opts ...ClientOption) error {

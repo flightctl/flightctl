@@ -11,6 +11,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/delta"
 	"github.com/flightctl/flightctl/internal/agent/device/deltastatus"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
 	"github.com/flightctl/flightctl/pkg/executer"
@@ -168,6 +169,10 @@ func TestCRIDeltaCandidatePrefetch(t *testing.T) {
 				if targetDigest == "" {
 					targetDigest = platformTargetDigest
 				}
+				manifestSize := c.manifestSize
+				if tc.discover && manifestSize == 0 {
+					manifestSize = 1
+				}
 				manifest := testApplicationDeltaManifest(t, c.source, targetDigest, c.layerSize)
 				if c.invalid {
 					manifest = `{"artifactType":"application/example"}`
@@ -181,7 +186,7 @@ func TestCRIDeltaCandidatePrefetch(t *testing.T) {
 						eligibleCandidates++
 					}
 				}
-				descriptors = append(descriptors, client.OCIReferrer{ArtifactType: ociDeltaArtifactType, Digest: c.digest, Size: c.manifestSize})
+				descriptors = append(descriptors, client.OCIReferrer{ArtifactType: delta.ArtifactType, Digest: c.digest, Size: manifestSize})
 			}
 			if targetNeedsInspection && !tc.discover {
 				exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+image).Return(targetIndex, "", 0)
@@ -206,7 +211,7 @@ func TestCRIDeltaCandidatePrefetch(t *testing.T) {
 				expectPlatformReferrers(t, exec, image, platformTargetDigest, string(index))
 			}
 
-			expectCRIDeltaOperations(exec, image, tc, outcome)
+			expectCRIDeltaOperations(exec, image, "quay.io/acme/workload@"+platformTargetDigest, tc, outcome)
 
 			if tc.containerd && tc.failStep == "" {
 				const chart = "oci://quay.io/acme/charts/workload:1.0.0"
@@ -289,7 +294,7 @@ func criDeltaLocalImages(t *testing.T, exec *executer.MockExecuter, tc criDeltaT
 	return localImages
 }
 
-func expectCRIDeltaOperations(exec *executer.MockExecuter, image string, tc criDeltaTestCase, outcome v1beta1.DeviceDeltaApplyOutcomeType) {
+func expectCRIDeltaOperations(exec *executer.MockExecuter, image, refreshImage string, tc criDeltaTestCase, outcome v1beta1.DeviceDeltaApplyOutcomeType) {
 	criArgs := func(args ...string) []any {
 		result := []any{gomock.Any(), "crictl", "--config", "/etc/workload-cri.yaml"}
 		for _, arg := range args {
@@ -365,7 +370,7 @@ func expectCRIDeltaOperations(exec *executer.MockExecuter, image string, tc criD
 						if tc.failStep == "refresh" {
 							exit, stderr = 1, "refresh failed"
 						}
-						steps = append(steps, exec.EXPECT().ExecuteWithContextFromDir(gomock.Any(), "", "crictl", []string{"--config", "/etc/workload-cri.yaml", "pull", image}, gomock.Any()).Return("", stderr, exit))
+						steps = append(steps, exec.EXPECT().ExecuteWithContextFromDir(gomock.Any(), "", "crictl", []string{"--config", "/etc/workload-cri.yaml", "pull", refreshImage}, gomock.Any()).Return("", stderr, exit))
 					}
 				}
 			}

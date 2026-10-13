@@ -65,6 +65,7 @@ func NewKubernetesMonitor(
 	log *log.PrefixLogger,
 	clients client.CLIClients,
 	rwFactory fileio.ReadWriterFactory,
+	pullConfigResolver dependency.PullConfigResolver,
 ) *KubernetesMonitor {
 	m := newMonitor(log, "kubernetes",
 		handlerRegistration{
@@ -74,9 +75,10 @@ func NewKubernetesMonitor(
 	)
 
 	return &KubernetesMonitor{
-		monitor:   m,
-		clients:   clients,
-		rwFactory: rwFactory,
+		monitor:            m,
+		clients:            clients,
+		rwFactory:          rwFactory,
+		pullConfigResolver: pullConfigResolver,
 	}
 }
 

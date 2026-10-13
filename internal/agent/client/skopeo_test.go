@@ -541,6 +541,28 @@ func TestSkopeoInspectPlatformDigestHashesExactSingleManifestBytes(t *testing.T)
 	require.Equal(digest.FromBytes([]byte(manifest+"\n")).String(), got)
 }
 
+func TestSkopeoInspectPlatformDigestUsesPinnedDigestAlgorithm(t *testing.T) {
+	require := require.New(t)
+	manifest := `{"schemaVersion":2,"mediaType":"application/vnd.oci.image.manifest.v1+json"}`
+	pinnedDigest := digest.SHA512.FromBytes([]byte(manifest))
+	image := "quay.io/acme/os@" + pinnedDigest.String()
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	mockExec := executer.NewMockExecuter(ctrl)
+	skopeo := NewSkopeo(
+		log.NewPrefixLogger("test"),
+		mockExec,
+		fileio.NewReadWriter(fileio.NewReader(), fileio.NewWriter()),
+	)
+	mockExec.EXPECT().ExecuteWithContext(
+		gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+image, "--no-creds",
+	).Return(manifest, "", 0)
+
+	got, err := skopeo.InspectPlatformDigest(context.Background(), image)
+	require.NoError(err)
+	require.Equal(pinnedDigest.String(), got)
+}
+
 func TestSkopeoCopyWithDefaultAuth(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	defer ctrl.Finish()

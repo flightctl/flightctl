@@ -10,6 +10,7 @@ import (
 
 	"github.com/flightctl/flightctl/api/core/v1beta1"
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/agent/device/delta"
 	"github.com/flightctl/flightctl/internal/agent/device/deltastatus"
 	"github.com/flightctl/flightctl/internal/agent/device/dependency"
 	"github.com/flightctl/flightctl/internal/agent/device/fileio"
@@ -38,6 +39,7 @@ const (
 		"manifests": [
 			{
 				"digest": "` + testDeltaDigest + `",
+				"size": 100,
 				"artifactType": "application/vnd.io.github.containers.oci-delta.v1",
 				"annotations": {
 					"io.github.containers.delta.source": "` + testSourceDigest + `"
@@ -860,7 +862,7 @@ func expectImageExists(mockExec *executer.MockExecuter, image string, exists boo
 
 func expectListReferrers(mockExec *executer.MockExecuter, image, stdout, stderr string, exitCode int) {
 	expectPlatformIndex(mockExec, image, testSourceDigest)
-	referrerImage := imageRepository(image) + "@" + testSourceDigest
+	referrerImage := delta.Repository(image) + "@" + testSourceDigest
 	mockExec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "list-referrers", "docker://"+referrerImage, "--no-creds").
 		Return(stdout, stderr, exitCode)
 }

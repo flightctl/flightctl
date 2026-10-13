@@ -125,6 +125,10 @@ func TestPodmanDeltaCandidatePrefetch(t *testing.T) {
 				if ref == "" {
 					ref = "quay.io/acme/app@" + c.digest
 				}
+				manifestSize := c.manifestSize
+				if tc.hint == "" && manifestSize == 0 {
+					manifestSize = 1
+				}
 				targetDigest := c.targetDigest
 				if targetDigest == "" {
 					targetDigest = platformTargetDigest
@@ -153,7 +157,7 @@ func TestPodmanDeltaCandidatePrefetch(t *testing.T) {
 						}{image: image, digest: c.source, inspectFailure: c.inspectFailure})
 					}
 				}
-				descriptors = append(descriptors, client.OCIReferrer{ArtifactType: ociDeltaArtifactType, Digest: c.digest, Size: c.manifestSize})
+				descriptors = append(descriptors, client.OCIReferrer{ArtifactType: delta.ArtifactType, Digest: c.digest, Size: manifestSize})
 			}
 			if targetNeedsInspection {
 				exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+image).Return(targetIndex, "", 0)
@@ -190,13 +194,18 @@ func TestPodmanDeltaCandidatePrefetch(t *testing.T) {
 				exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "copy", "docker://"+tc.selected, gomock.Any()).Return("", stderr, exit)
 				if !tc.copyFailure {
 					exec.EXPECT().ExecuteWithContext(gomock.Any(), "oci-delta", "import", "--tag", image, gomock.Any()).Return("", "", 0)
+					if tc.outcome == v1beta1.DeviceDeltaApplyOutcomeApplied {
+						exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", "quay.io/acme/app@"+platformTargetDigest).Return("", "", 0)
+					}
 				}
 			}
 			exit, stderr := 0, ""
 			if tc.fullFailure {
 				exit, stderr = 1, "full pull failed"
 			}
-			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", image).Return("", stderr, exit)
+			if tc.outcome != v1beta1.DeviceDeltaApplyOutcomeApplied || tc.fullFailure {
+				exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", image).Return("", stderr, exit)
+			}
 			err := manager.pull(context.Background(), target, task)
 			if tc.fullFailure {
 				require.ErrorContains(err, "full pull failed")
@@ -224,10 +233,10 @@ func testApplicationDeltaManifest(t *testing.T, sourceDigest, targetDigest strin
 	annotations := map[string]string{delta.SourceAnnotation: sourceDigest}
 	manifest, err := json.Marshal(client.OCIManifest{
 		ArtifactType: delta.ArtifactType,
-		Subject:      &client.OCIDescriptor{Digest: targetDigest},
+		Subject:      &client.OCIDescriptor{Digest: targetDigest, MediaType: "application/vnd.oci.image.manifest.v1+json", Size: 100},
 		Annotations:  annotations,
-		Config:       &client.OCIDescriptor{Digest: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", Size: 10},
-		Layers:       []client.OCIDescriptor{{Digest: "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", Size: layerSize}},
+		Config:       &client.OCIDescriptor{Digest: "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", MediaType: "application/vnd.oci.image.config.v1+json", Size: 10},
+		Layers:       []client.OCIDescriptor{{Digest: "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", MediaType: "application/vnd.oci.image.layer.v1.tar+gzip", Size: layerSize}},
 	})
 	require.NoError(t, err)
 	return string(manifest)
@@ -254,7 +263,7 @@ func expectPlatformReferrers(t *testing.T, exec *executer.MockExecuter, image, p
 	t.Helper()
 	targetIndex, _ := testApplicationTargetIndex(t, platformDigest)
 	exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "inspect", "--raw", "docker://"+image).Return(targetIndex, "", 0)
-	referrerImage := imageRepository(image) + "@" + platformDigest
+	referrerImage := delta.Repository(image) + "@" + platformDigest
 	exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "list-referrers", "docker://"+referrerImage).Return(referrersJSON, "", 0)
 }
 
@@ -306,7 +315,7 @@ func TestComposeArtifactAndNestedDeltaPrefetch(t *testing.T) {
 			expectPodmanDeltaSource(exec, 1)
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "skopeo", "copy", "docker://"+hint, gomock.Any()).Return("", "", 0)
 			exec.EXPECT().ExecuteWithContext(gomock.Any(), "oci-delta", "import", "--tag", nested, gomock.Any()).Return("", "", 0)
-			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", nested).Return("", "", 0)
+			exec.EXPECT().ExecuteWithContext(gomock.Any(), "podman", "pull", "quay.io/acme/web@"+podmanDeltaTargetDigest).Return("", "", 0)
 			for ref, task := range tasks {
 				require.NoError(manager.pull(context.Background(), ref, task))
 				task.done = true

@@ -6,6 +6,7 @@ import (
 	"math"
 
 	"github.com/flightctl/flightctl/internal/agent/client"
+	"github.com/flightctl/flightctl/internal/util/validation"
 	"github.com/opencontainers/go-digest"
 )
 
@@ -32,9 +33,31 @@ func IsDeltaReferrer(ref client.OCIReferrer) bool {
 	return err == nil
 }
 
-// FromManifest validates artifact metadata and sums its downloadable blob sizes.
-// manifestSize is the referrer descriptor size, when available.
-func FromManifest(reference string, manifest *client.OCIManifest, manifestSize int64) (Candidate, error) {
+// Repository returns the repository portion of an OCI image reference.
+func Repository(image string) string {
+	matches := validation.OciImageReferenceRegexp.FindStringSubmatch(image)
+	if len(matches) == 0 {
+		return ""
+	}
+	return matches[1]
+}
+
+// FromReferrerManifest validates a manifest discovered through an OCI referrer
+// descriptor and sums its downloadable blob sizes.
+func FromReferrerManifest(reference string, manifest *client.OCIManifest, manifestSize int64) (Candidate, error) {
+	if manifestSize <= 0 {
+		return Candidate{}, fmt.Errorf("delta referrer manifest size is missing or invalid")
+	}
+	return fromManifest(reference, manifest, manifestSize)
+}
+
+// FromHintManifest validates an explicitly hinted manifest. Its descriptor size
+// is not known before the manifest is fetched.
+func FromHintManifest(reference string, manifest *client.OCIManifest) (Candidate, error) {
+	return fromManifest(reference, manifest, 0)
+}
+
+func fromManifest(reference string, manifest *client.OCIManifest, manifestSize int64) (Candidate, error) {
 	if manifest == nil || manifest.ArtifactType != ArtifactType {
 		return Candidate{}, fmt.Errorf("candidate is not an OCI image delta")
 	}
@@ -49,12 +72,18 @@ func FromManifest(reference string, manifest *client.OCIManifest, manifestSize i
 	if _, err := digest.Parse(target); err != nil {
 		return Candidate{}, fmt.Errorf("delta subject digest is invalid")
 	}
+	if manifest.Subject.MediaType == "" || manifest.Subject.Size <= 0 {
+		return Candidate{}, fmt.Errorf("delta subject descriptor is missing or invalid")
+	}
 	if manifest.Config == nil || len(manifest.Layers) == 0 || manifestSize < 0 {
 		return Candidate{}, fmt.Errorf("delta artifact descriptors are missing or invalid")
 	}
 	size := manifestSize
 	descriptors := append([]client.OCIDescriptor{*manifest.Config}, manifest.Layers...)
 	for _, descriptor := range descriptors {
+		if descriptor.MediaType == "" {
+			return Candidate{}, fmt.Errorf("delta artifact descriptor media type is missing")
+		}
 		if _, err := digest.Parse(descriptor.Digest); err != nil || descriptor.Size < 0 || descriptor.Size > math.MaxInt64-size {
 			return Candidate{}, fmt.Errorf("delta artifact descriptor digest or size is invalid")
 		}
@@ -64,7 +93,7 @@ func FromManifest(reference string, manifest *client.OCIManifest, manifestSize i
 }
 
 // Select chooses the smallest locally usable delta, with a stable reference tie-break.
-func Select(candidates []Candidate) string {
+func Select(candidates []Candidate) Candidate {
 	var selected *Candidate
 	for i := range candidates {
 		candidate := &candidates[i]
@@ -77,7 +106,7 @@ func Select(candidates []Candidate) string {
 		}
 	}
 	if selected == nil {
-		return ""
+		return Candidate{}
 	}
-	return selected.Reference
+	return *selected
 }

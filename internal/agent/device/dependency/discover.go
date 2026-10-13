@@ -4,66 +4,142 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/flightctl/flightctl/internal/agent/client"
 	"github.com/flightctl/flightctl/internal/agent/device/delta"
+	"github.com/flightctl/flightctl/pkg/log"
 )
 
 const criPlatformInspectionBudget = 30 * time.Second
 
+// InspectDeltaHint validates an explicitly hinted delta manifest.
+func InspectDeltaHint(
+	ctx context.Context,
+	reference string,
+	skopeo *client.Skopeo,
+	opts ...client.ClientOption,
+) (delta.Candidate, error) {
+	manifest, err := inspectDeltaManifest(ctx, reference, skopeo, opts...)
+	if err != nil {
+		return delta.Candidate{}, err
+	}
+	return delta.FromHintManifest(reference, manifest)
+}
+
+// DiscoverDeltaReferrers returns valid delta candidates attached to the
+// target's platform manifest. Discovery failures and unusable candidates are
+// logged and skipped so callers can fall back to a full image pull.
+func DiscoverDeltaReferrers(
+	ctx context.Context,
+	targetImage string,
+	skopeo *client.Skopeo,
+	logger *log.PrefixLogger,
+	opts ...client.ClientOption,
+) []delta.Candidate {
+	platformReferrers, err := skopeo.ListPlatformReferrers(ctx, targetImage, opts...)
+	if err != nil {
+		logger.Debugf("OCI delta referrers unavailable for %s: %v", targetImage, err)
+		return nil
+	}
+	repository := delta.Repository(targetImage)
+	if repository == "" {
+		return nil
+	}
+	candidates := make([]delta.Candidate, 0, len(platformReferrers.Referrers.Manifests))
+	for _, referrer := range platformReferrers.Referrers.Manifests {
+		if !delta.IsDeltaReferrer(referrer) {
+			continue
+		}
+		candidate, err := inspectDeltaReferrer(ctx, repository+"@"+referrer.Digest, referrer.Size, skopeo, opts...)
+		if err != nil {
+			logger.Debugf("Skipping unusable OCI delta %s: %v", referrer.Digest, err)
+			continue
+		}
+		if candidate.TargetDigest != platformReferrers.TargetDigest {
+			logger.Debugf("Skipping OCI delta %s: target digest does not match the resolved platform digest", referrer.Digest)
+			continue
+		}
+		candidates = append(candidates, candidate)
+	}
+	return candidates
+}
+
+func inspectDeltaReferrer(
+	ctx context.Context,
+	reference string,
+	manifestSize int64,
+	skopeo *client.Skopeo,
+	opts ...client.ClientOption,
+) (delta.Candidate, error) {
+	if manifestSize <= 0 {
+		return delta.Candidate{}, fmt.Errorf("delta referrer manifest size is missing or invalid")
+	}
+	manifest, err := inspectDeltaManifest(ctx, reference, skopeo, opts...)
+	if err != nil {
+		return delta.Candidate{}, err
+	}
+	return delta.FromReferrerManifest(reference, manifest, manifestSize)
+}
+
+func inspectDeltaManifest(
+	ctx context.Context,
+	reference string,
+	skopeo *client.Skopeo,
+	opts ...client.ClientOption,
+) (*client.OCIManifest, error) {
+	if delta.Repository(reference) == "" {
+		return nil, fmt.Errorf("invalid delta reference %q", reference)
+	}
+	manifest, err := skopeo.InspectManifest(ctx, reference, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("inspect delta manifest: %w", err)
+	}
+	return manifest, nil
+}
+
 // discoverPodmanDelta validates hinted candidates or ranks locally usable referrers.
 // The clients belong to the target's resolved storage owner.
-func (m *prefetchManager) discoverPodmanDelta(ctx context.Context, targetImage, hint string, podman *client.Podman, skopeo *client.Skopeo, opts ...client.ClientOption) (string, error) {
+func (m *prefetchManager) discoverPodmanDelta(ctx context.Context, targetImage, hint string, podman *client.Podman, skopeo *client.Skopeo, opts ...client.ClientOption) (delta.Candidate, error) {
 	if skopeo == nil {
 		if hint != "" {
-			return "", fmt.Errorf("Skopeo client is unavailable for delta inspection")
+			return delta.Candidate{}, fmt.Errorf("Skopeo client is unavailable for delta inspection")
 		}
-		return "", nil
+		return delta.Candidate{}, nil
 	}
 	targetValidator := applicationDeltaTargetValidator{image: targetImage, skopeo: skopeo, opts: opts}
 	if hint != "" {
-		candidate, err := inspectApplicationDelta(ctx, hint, 0, skopeo, opts...)
+		candidate, err := InspectDeltaHint(ctx, hint, skopeo, opts...)
 		if err != nil {
-			return "", fmt.Errorf("delta hint is unusable: %w", err)
+			return delta.Candidate{}, fmt.Errorf("delta hint is unusable: %w", err)
 		}
 		if err := targetValidator.validate(ctx, candidate); err != nil {
-			return "", fmt.Errorf("delta hint is unusable: %w", err)
+			return delta.Candidate{}, fmt.Errorf("delta hint is unusable: %w", err)
 		}
 		sources, err := m.podmanDeltaSourceDigests(ctx, podman)
 		if err != nil {
-			return "", fmt.Errorf("check delta source image: %w", err)
+			return delta.Candidate{}, fmt.Errorf("check delta source image: %w", err)
 		}
 		_, candidate.SourceAvailable = sources[candidate.SourceDigest]
 		if !candidate.SourceAvailable {
-			return "", fmt.Errorf("delta source image is unavailable in the owning Podman store")
+			return delta.Candidate{}, fmt.Errorf("delta source image is unavailable in the owning Podman store")
 		}
-		return candidate.Reference, nil
+		return candidate, nil
 	}
-	candidates, discovered := m.applicationDeltaReferrerCandidates(ctx, targetImage, skopeo, opts...)
-	if !discovered || len(candidates) == 0 {
-		return "", nil
+	candidates := DiscoverDeltaReferrers(ctx, targetImage, skopeo, m.log, opts...)
+	if len(candidates) == 0 {
+		return delta.Candidate{}, nil
 	}
 	sources, err := m.podmanDeltaSourceDigests(ctx, podman)
 	if err != nil {
 		m.log.Debugf("Could not inspect Podman images for delta sources: %v", err)
-		return "", nil
+		return delta.Candidate{}, nil
 	}
 	for i := range candidates {
 		_, candidates[i].SourceAvailable = sources[candidates[i].SourceDigest]
 	}
 	return delta.Select(candidates), nil
-}
-
-func inspectApplicationDelta(ctx context.Context, reference string, manifestSize int64, skopeo *client.Skopeo, opts ...client.ClientOption) (delta.Candidate, error) {
-	if err := validateApplicationDeltaCandidate(reference); err != nil {
-		return delta.Candidate{}, err
-	}
-	manifest, err := skopeo.InspectManifest(ctx, reference, opts...)
-	if err != nil {
-		return delta.Candidate{}, fmt.Errorf("inspect delta manifest: %w", err)
-	}
-	return delta.FromManifest(reference, manifest, manifestSize)
 }
 
 type applicationDeltaTargetValidator struct {
@@ -133,7 +209,7 @@ func (m *prefetchManager) discoverCRIDelta(ctx context.Context, targetImage, hin
 	}
 	targetValidator := applicationDeltaTargetValidator{image: targetImage, skopeo: skopeo, opts: opts}
 	if hint != "" {
-		candidate, err := inspectApplicationDelta(ctx, hint, 0, skopeo, opts...)
+		candidate, err := InspectDeltaHint(ctx, hint, skopeo, opts...)
 		if err != nil {
 			return delta.Candidate{}, "", fmt.Errorf("delta hint is unusable: %w", err)
 		}
@@ -151,8 +227,8 @@ func (m *prefetchManager) discoverCRIDelta(ctx context.Context, targetImage, hin
 		}
 		return candidate, sourceRef, nil
 	}
-	candidates, discovered := m.applicationDeltaReferrerCandidates(ctx, targetImage, skopeo, opts...)
-	if !discovered || len(candidates) == 0 {
+	candidates := DiscoverDeltaReferrers(ctx, targetImage, skopeo, m.log, opts...)
+	if len(candidates) == 0 {
 		return delta.Candidate{}, "", nil
 	}
 	sourceDigests := make([]string, 0, len(candidates))
@@ -169,41 +245,7 @@ func (m *prefetchManager) discoverCRIDelta(ctx context.Context, targetImage, hin
 		candidates[i].SourceAvailable = sourceRef != ""
 	}
 	selected := delta.Select(candidates)
-	for _, candidate := range candidates {
-		if candidate.Reference == selected {
-			return candidate, sourceRefs[candidate.SourceDigest], nil
-		}
-	}
-	return delta.Candidate{}, "", nil
-}
-
-func (m *prefetchManager) applicationDeltaReferrerCandidates(ctx context.Context, targetImage string, skopeo *client.Skopeo, opts ...client.ClientOption) ([]delta.Candidate, bool) {
-	platformReferrers, err := skopeo.ListPlatformReferrers(ctx, targetImage, opts...)
-	if err != nil {
-		m.log.Debugf("application delta referrers unavailable for %s: %v", targetImage, err)
-		return nil, false
-	}
-	repo := imageRepository(targetImage)
-	if repo == "" {
-		return nil, false
-	}
-	candidates := make([]delta.Candidate, 0, len(platformReferrers.Referrers.Manifests))
-	for _, ref := range platformReferrers.Referrers.Manifests {
-		if !delta.IsDeltaReferrer(ref) {
-			continue
-		}
-		candidate, err := inspectApplicationDelta(ctx, repo+"@"+ref.Digest, ref.Size, skopeo, opts...)
-		if err != nil {
-			m.log.Debugf("Skipping unusable application delta %s: %v", ref.Digest, err)
-			continue
-		}
-		if candidate.TargetDigest != platformReferrers.TargetDigest {
-			m.log.Debugf("Skipping application delta %s: target digest does not match the resolved platform digest", ref.Digest)
-			continue
-		}
-		candidates = append(candidates, candidate)
-	}
-	return candidates, true
+	return selected, sourceRefs[selected.SourceDigest], nil
 }
 
 func (m *prefetchManager) criSourceReferences(ctx context.Context, cri *client.CRI, skopeo *client.Skopeo, sourceDigests []string, opts ...client.ClientOption) (map[string]string, error) {
@@ -235,7 +277,13 @@ func (m *prefetchManager) criSourceReferences(ctx context.Context, cri *client.C
 	}
 	remoteCtx, cancel := context.WithTimeout(ctx, m.criRemoteInspectionBudget())
 	defer cancel()
-	for repositoryDigest, repositoryRef := range repositoryRefs {
+	repositoryDigests := make([]string, 0, len(repositoryRefs))
+	for repositoryDigest := range repositoryRefs {
+		repositoryDigests = append(repositoryDigests, repositoryDigest)
+	}
+	sort.Strings(repositoryDigests)
+	for _, repositoryDigest := range repositoryDigests {
+		repositoryRef := repositoryRefs[repositoryDigest]
 		if _, ok := wanted[repositoryDigest]; ok {
 			continue
 		}
@@ -250,8 +298,8 @@ func (m *prefetchManager) criSourceReferences(ctx context.Context, cri *client.C
 		}
 		if platformDigest == "" {
 			if remoteCtx.Err() != nil {
-				m.log.Debugf("Stopped inspecting CRI images for delta sources: %v", remoteCtx.Err())
-				break
+				m.log.Debugf("Skipped remote inspection of CRI image %q for delta sources: %v", repositoryRef, remoteCtx.Err())
+				continue
 			}
 			remoteDigest, err := skopeo.InspectPlatformDigest(remoteCtx, repositoryRef, opts...)
 			if err != nil {

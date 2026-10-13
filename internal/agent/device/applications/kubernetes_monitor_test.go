@@ -510,7 +510,7 @@ func newTestKubernetesMonitor(log *log.PrefixLogger, mockExec executer.Executer,
 	helmClient := client.NewHelm(log, mockExec, mockRW, "/var/lib/flightctl", testutil.NewPollConfig())
 	cliClients := &testKubeCLIClients{kube: kubeClient, helm: helmClient}
 	rwFactory := func(_ v1beta1.Username) (fileio.ReadWriter, error) { return mockRW, nil }
-	return NewKubernetesMonitor(log, cliClients, rwFactory)
+	return NewKubernetesMonitor(log, cliClients, rwFactory, nil)
 }
 
 func TestKubernetesMonitorUpdatePodStatusCollectsImageSnapshot(t *testing.T) {
@@ -668,8 +668,7 @@ func TestKubernetesMonitorReportsCRIObservedDigest(t *testing.T) {
 				}
 				exec.EXPECT().ExecuteWithContext(gomock.Any(), "crictl", args...).Return(string(response), "inspection failed", tc.exitCode).Times(inspectCalls)
 			}
-			monitor := NewKubernetesMonitor(logger, &testKubeCLIClients{cri: client.NewCRI(logger, exec, rw, testutil.NewPollConfig())}, rwFactory)
-			monitor.pullConfigResolver = resolver
+			monitor := NewKubernetesMonitor(logger, &testKubeCLIClients{cri: client.NewCRI(logger, exec, rw, testutil.NewPollConfig())}, rwFactory, resolver)
 			volume, err := provider.NewVolumeManager(logger, "app", v1beta1.AppTypeHelm, v1beta1.CurrentProcessUsername, nil)
 			require.NoError(err)
 			app := &application{id: "app", volume: volume, status: &v1beta1.DeviceApplicationStatus{Name: "app", AppType: v1beta1.AppTypeHelm}}
@@ -747,7 +746,7 @@ func TestKubernetesMonitorReinspectsCRIDigestsForNewRepository(t *testing.T) {
 					Return(string(secondResponse), "", 0),
 			)
 
-			monitor := NewKubernetesMonitor(logger, &testKubeCLIClients{cri: client.NewCRI(logger, exec, rw, testutil.NewPollConfig())}, rwFactory)
+			monitor := NewKubernetesMonitor(logger, &testKubeCLIClients{cri: client.NewCRI(logger, exec, rw, testutil.NewPollConfig())}, rwFactory, nil)
 			volume, err := provider.NewVolumeManager(logger, "app", v1beta1.AppTypeHelm, v1beta1.CurrentProcessUsername, nil)
 			require.NoError(err)
 			app := &application{id: "app", volume: volume, status: &v1beta1.DeviceApplicationStatus{Name: "app", AppType: v1beta1.AppTypeHelm}}
@@ -801,7 +800,7 @@ func TestKubernetesMonitorBoundsCRIImageDigestLookups(t *testing.T) {
 			Return(string(response), "", 0).Times(calls)
 	}
 
-	monitor := NewKubernetesMonitor(logger, &testKubeCLIClients{cri: client.NewCRI(logger, exec, rw, testutil.NewPollConfig())}, rwFactory)
+	monitor := NewKubernetesMonitor(logger, &testKubeCLIClients{cri: client.NewCRI(logger, exec, rw, testutil.NewPollConfig())}, rwFactory, nil)
 	volume, err := provider.NewVolumeManager(logger, "app", v1beta1.AppTypeHelm, v1beta1.CurrentProcessUsername, nil)
 	require.NoError(err)
 	app := &application{id: "app", volume: volume, status: &v1beta1.DeviceApplicationStatus{Name: "app", AppType: v1beta1.AppTypeHelm}}
