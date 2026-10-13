@@ -181,7 +181,7 @@ Mappings create ordinary device labels. Use the resulting keys anywhere device l
 spec:
   selector:
     matchLabels:
-      custominfo.flightctl.io/region: east
+      ops.example.com/customInfo.region: east
 ```
 
 Use the same label key in a rollout batch selector. A fleet template can read its value with a Go template expression:
@@ -194,13 +194,13 @@ spec:
         - name: region
           inline:
             content: |
-              region={{ index .metadata.labels "custominfo.flightctl.io/region" }}
+              region={{ index .metadata.labels "ops.example.com/customInfo.region" }}
 ```
 
 Filter the device inventory by the label key with the CLI:
 
 ```console
-flightctl get devices -l custominfo.flightctl.io/region=east
+flightctl get devices -l ops.example.com/customInfo.region=east
 ```
 
 ## Understand ownership and security
