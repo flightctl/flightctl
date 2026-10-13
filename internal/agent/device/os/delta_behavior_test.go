@@ -212,7 +212,7 @@ func TestOSDiscoveryCollectsBootcSourcesOnce(t *testing.T) {
 	mockExec := executer.NewMockExecuter(ctrl)
 	mockClient := NewMockClient(ctrl)
 	mockResolver := dependency.NewMockPullConfigResolver(ctrl)
-	mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil).Times(2)
+	mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil).Times(1)
 	expectImageExists(mockExec, testDesiredImage, false)
 	expectPullConfig(t, mockResolver)
 	firstSource := "sha256:1111111111111111111111111111111111111111111111111111111111111111"
@@ -239,8 +239,10 @@ func TestOSDiscoveryCollectsBootcSourcesOnce(t *testing.T) {
 	collection, err := m.CollectOCITargets(context.Background(), nil, desired)
 	require.NoError(err)
 	require.Empty(collection.Targets)
+	mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testDesiredImage, testDeltaDigest), nil)
 	status := &v1beta1.DeviceStatus{}
 	require.NoError(m.Status(context.Background(), status))
+	require.NotNil(status.Os.LastDelta)
 	require.Equal(v1beta1.DeviceDeltaApplyOutcomeApplied, status.Os.LastDelta.Outcome)
 }
 
@@ -251,7 +253,7 @@ func TestOSDiscoveryPreservesConfirmedSourcesWhenCacheScanFails(t *testing.T) {
 	mockExec := executer.NewMockExecuter(ctrl)
 	mockClient := NewMockClient(ctrl)
 	mockResolver := dependency.NewMockPullConfigResolver(ctrl)
-	mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil).Times(2)
+	mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testBootedImage, testSourceDigest), nil).Times(1)
 	expectImageExists(mockExec, testDesiredImage, false)
 	expectPullConfig(t, mockResolver)
 	unavailableSource := "sha256:3333333333333333333333333333333333333333333333333333333333333333"
@@ -273,8 +275,10 @@ func TestOSDiscoveryPreservesConfirmedSourcesWhenCacheScanFails(t *testing.T) {
 	collection, err := m.CollectOCITargets(context.Background(), nil, desired)
 	require.NoError(err)
 	require.Empty(collection.Targets)
+	mockClient.EXPECT().Status(gomock.Any()).Return(bootcStatus(testDesiredImage, testDeltaDigest), nil)
 	status := &v1beta1.DeviceStatus{}
 	require.NoError(m.Status(context.Background(), status))
+	require.NotNil(status.Os.LastDelta)
 	require.Equal(v1beta1.DeviceDeltaApplyOutcomeApplied, status.Os.LastDelta.Outcome)
 }
 

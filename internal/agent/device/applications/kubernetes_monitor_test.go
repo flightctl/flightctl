@@ -840,7 +840,7 @@ func TestKubernetesMonitorBoundsCRIImageDigestLookups(t *testing.T) {
 func TestKubernetesMonitorReportsMixedWorkloadImageSnapshot(t *testing.T) {
 	require := require.New(t)
 	logger := log.NewPrefixLogger("test")
-	monitor := NewKubernetesMonitor(logger, &testKubeCLIClients{}, fileio.NewReadWriterFactory(t.TempDir()))
+	monitor := NewKubernetesMonitor(logger, &testKubeCLIClients{}, fileio.NewReadWriterFactory(t.TempDir()), nil)
 	volume, err := provider.NewVolumeManager(logger, "app", v1beta1.AppTypeHelm, v1beta1.CurrentProcessUsername, nil)
 	require.NoError(err)
 	app := &application{id: "app", volume: volume, status: &v1beta1.DeviceApplicationStatus{Name: "app", AppType: v1beta1.AppTypeHelm}}
