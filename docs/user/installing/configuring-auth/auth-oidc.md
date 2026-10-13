@@ -90,6 +90,35 @@ Flight Control currently recognizes the following roles with defined permissions
 
 ## Configuration
 
+### Authorization prompt configuration
+
+Set `spec.prompt` to configure the authorization prompt that the API exposes to
+login clients. Choose values supported by your identity provider.
+Login clients must support this field for it to affect authorization requests.
+
+| Configuration | Prompt behavior |
+| --- | --- |
+| Field omitted or set to `null` | Defaults to `login`. |
+| `prompt: ""` | Instructs clients to omit the prompt parameter. |
+| Nonempty string | Uses the configured values, such as `"login consent"` or a provider-specific value. |
+
+For example, set the following field in your AuthProvider specification:
+
+```yaml
+prompt: "login consent"
+```
+
+Values are case-sensitive and must contain printable ASCII characters separated
+by ordinary spaces. The API preserves extra spaces and duplicate values.
+It rejects nonempty strings containing only spaces, tabs, newlines, or non-ASCII
+characters. The value `none` cannot accompany a different value.
+
+The public authentication configuration defaults to `login` for existing providers
+that omit the field and after you remove the field with PATCH. Explicit empty
+strings remain empty. These defaults do not require a database backfill.
+Prompt changes become available to login clients after the API refreshes the
+provider configuration, without a service restart.
+
 ### Redirect URLs
 
 Configure the following redirect URLs in both Flight Control and your OIDC provider:

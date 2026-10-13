@@ -2241,6 +2241,29 @@ func validateAbsoluteURL(fieldName, value string) error {
 	return nil
 }
 
+func validateAuthProviderPrompt(prompt *string) error {
+	if prompt == nil || *prompt == "" {
+		return nil
+	}
+	for i := range len(*prompt) {
+		if (*prompt)[i] < ' ' || (*prompt)[i] > '~' {
+			return fmt.Errorf("prompt must contain printable ASCII values separated by spaces")
+		}
+	}
+	values := strings.Fields(*prompt)
+	if len(values) == 0 {
+		return fmt.Errorf("prompt must not contain only spaces")
+	}
+	if slices.Contains(values, "none") {
+		for _, value := range values {
+			if value != "none" {
+				return fmt.Errorf("prompt value none cannot be combined with another value")
+			}
+		}
+	}
+	return nil
+}
+
 func (o *OIDCProviderSpec) Validate(ctx context.Context, isUpdate bool) []error {
 	allErrs := []error{}
 
@@ -2251,6 +2274,10 @@ func (o *OIDCProviderSpec) Validate(ctx context.Context, isUpdate bool) []error 
 	}
 	if o.ClientId == "" {
 		allErrs = append(allErrs, ErrClientIdRequired)
+	}
+
+	if err := validateAuthProviderPrompt(o.Prompt); err != nil {
+		allErrs = append(allErrs, err)
 	}
 
 	// Validate organization assignment
@@ -2287,6 +2314,10 @@ func (o *OAuth2ProviderSpec) Validate(ctx context.Context, isUpdate bool) []erro
 		if err := validateAbsoluteURL("issuer", *o.Issuer); err != nil {
 			allErrs = append(allErrs, err)
 		}
+	}
+
+	if err := validateAuthProviderPrompt(o.Prompt); err != nil {
+		allErrs = append(allErrs, err)
 	}
 
 	// Validate introspection field is present

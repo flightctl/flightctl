@@ -93,6 +93,14 @@ Flight Control currently recognizes the following roles with defined permissions
 
 ## Configuration
 
+### Authorization prompt configuration
+
+Set `spec.prompt` to configure the authorization prompt that the API exposes to
+login clients. OAuth2 providers use the same
+[prompt configuration rules as OIDC providers](auth-oidc.md#authorization-prompt-configuration).
+Use values supported by your provider. Login clients must support this field for
+it to affect authorization requests.
+
 ### Token Introspection
 
 OAuth2 providers require token introspection to validate access tokens. Flight Control supports three introspection methods:

@@ -381,6 +381,10 @@ func (m *MultiAuth) hasProviderChanged(existingMiddleware common.AuthNMiddleware
 		if err != nil {
 			return true, err
 		}
+		if !reflect.DeepEqual(existingOidcSpec.Prompt, newOidcSpec.Prompt) {
+			m.log.Debugf("Provider %s: changed (OIDC Prompt)", providerName)
+			return true, nil
+		}
 
 		// Compare all fields including client secret
 		// If normalization fails for either URL (malformed), treat as changed — safer than silently skipping a real change.
@@ -453,6 +457,10 @@ func (m *MultiAuth) hasProviderChanged(existingMiddleware common.AuthNMiddleware
 		newOauth2Spec, err := newProvider.Spec.AsOAuth2ProviderSpec()
 		if err != nil {
 			return true, err
+		}
+		if !reflect.DeepEqual(existingOauth2Spec.Prompt, newOauth2Spec.Prompt) {
+			m.log.Debugf("Provider %s: changed (OAuth2 Prompt)", providerName)
+			return true, nil
 		}
 
 		// Compare all fields including client secret

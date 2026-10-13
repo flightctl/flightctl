@@ -77,6 +77,120 @@ var _ = Describe("AuthProvider Service Integration Tests", func() {
 		return assignment
 	}
 
+	DescribeTable("AuthProvider prompt persistence",
+		func(providerType string) {
+			name := "prompt-" + providerType
+			provider := util.ReturnTestAuthProvider(orgId, name, "", nil)
+			oidc, err := provider.Spec.AsOIDCProviderSpec()
+			Expect(err).ToNot(HaveOccurred())
+			initialPrompt := " login  consent "
+			if providerType == "oidc" {
+				oidc.Prompt = &initialPrompt
+				Expect(provider.Spec.FromOIDCProviderSpec(oidc)).To(Succeed())
+			} else {
+				introspection := api.OAuth2Introspection{}
+				Expect(introspection.FromRfc7662IntrospectionSpec(api.Rfc7662IntrospectionSpec{
+					Type: api.Rfc7662,
+					Url:  "https://oauth.example.com/introspect",
+				})).To(Succeed())
+				Expect(provider.Spec.FromOAuth2ProviderSpec(api.OAuth2ProviderSpec{
+					ProviderType:           api.Oauth2,
+					AuthorizationUrl:       "https://oauth.example.com/authorize",
+					TokenUrl:               "https://oauth.example.com/token",
+					UserinfoUrl:            "https://oauth.example.com/userinfo",
+					ClientId:               oidc.ClientId,
+					ClientSecret:           oidc.ClientSecret,
+					OrganizationAssignment: oidc.OrganizationAssignment,
+					RoleAssignment:         oidc.RoleAssignment,
+					Introspection:          &introspection,
+					Prompt:                 &initialPrompt,
+				})).To(Succeed())
+			}
+			assertPrompt := func(spec api.AuthProviderSpec, want *string) {
+				var prompt *string
+				if providerType == "oidc" {
+					parsed, err := spec.AsOIDCProviderSpec()
+					Expect(err).ToNot(HaveOccurred())
+					prompt = parsed.Prompt
+				} else {
+					parsed, err := spec.AsOAuth2ProviderSpec()
+					Expect(err).ToNot(HaveOccurred())
+					prompt = parsed.Prompt
+				}
+				if want == nil {
+					Expect(prompt).To(BeNil())
+				} else {
+					Expect(prompt).ToNot(BeNil())
+					Expect(*prompt).To(Equal(*want))
+				}
+			}
+			assertStoredPrompt := func(want *string) {
+				stored, err := suite.AuthProviderStore.Get(suite.Ctx, orgId, name)
+				Expect(err).ToNot(HaveOccurred())
+				assertPrompt(stored.Spec, want)
+				read, status := suite.AuthProvider.GetAuthProvider(suite.Ctx, orgId, name)
+				Expect(status.Code).To(Equal(int32(200)))
+				assertPrompt(read.Spec, want)
+			}
+			created, status := suite.AuthProvider.CreateAuthProvider(suite.Ctx, orgId, provider)
+			Expect(status.Code).To(Equal(int32(201)))
+			assertPrompt(created.Spec, &initialPrompt)
+			assertStoredPrompt(&initialPrompt)
+			listed, status := suite.AuthProvider.ListAuthProviders(suite.Ctx, orgId, api.ListAuthProvidersParams{})
+			Expect(status.Code).To(Equal(int32(200)))
+			found := false
+			for _, item := range listed.Items {
+				if lo.FromPtr(item.Metadata.Name) == name {
+					assertPrompt(item.Spec, &initialPrompt)
+					found = true
+				}
+			}
+			Expect(found).To(BeTrue())
+
+			if providerType == "oidc" {
+				parsed, err := created.Spec.AsOIDCProviderSpec()
+				Expect(err).ToNot(HaveOccurred())
+				parsed.Prompt = lo.ToPtr("")
+				Expect(created.Spec.FromOIDCProviderSpec(parsed)).To(Succeed())
+			} else {
+				parsed, err := created.Spec.AsOAuth2ProviderSpec()
+				Expect(err).ToNot(HaveOccurred())
+				parsed.Prompt = lo.ToPtr("")
+				Expect(created.Spec.FromOAuth2ProviderSpec(parsed)).To(Succeed())
+			}
+			replaced, status := suite.AuthProvider.ReplaceAuthProvider(suite.Ctx, orgId, name, *created)
+			Expect(status.Code).To(Equal(int32(200)))
+			assertPrompt(replaced.Spec, lo.ToPtr(""))
+			assertStoredPrompt(lo.ToPtr(""))
+
+			var value any = " custom  consent "
+			patched, status := suite.AuthProvider.PatchAuthProvider(suite.Ctx, orgId, name, api.PatchRequest{
+				{Op: "replace", Path: "/spec/prompt", Value: &value},
+			})
+			Expect(status.Code).To(Equal(int32(200)))
+			assertPrompt(patched.Spec, lo.ToPtr(" custom  consent "))
+			assertStoredPrompt(lo.ToPtr(" custom  consent "))
+
+			patched, status = suite.AuthProvider.PatchAuthProvider(suite.Ctx, orgId, name, api.PatchRequest{
+				{Op: "remove", Path: "/spec/prompt"},
+			})
+			Expect(status.Code).To(Equal(int32(200)))
+			assertPrompt(patched.Spec, nil)
+			assertStoredPrompt(nil)
+
+			for _, invalid := range []string{"none login", "login\tconsent", "   "} {
+				value = invalid
+				_, status = suite.AuthProvider.PatchAuthProvider(suite.Ctx, orgId, name, api.PatchRequest{
+					{Op: "add", Path: "/spec/prompt", Value: &value},
+				})
+				Expect(status.Code).To(Equal(int32(400)))
+				assertStoredPrompt(nil)
+			}
+		},
+		Entry("When OIDC prompt changes it should persist values and reject invalid patches", "oidc"),
+		Entry("When OAuth2 prompt changes it should persist values and reject invalid patches", "oauth2"),
+	)
+
 	Context("AuthProvider CRUD operations", func() {
 		It("should create Auth provider successfully", func() {
 			provider := util.ReturnTestAuthProvider(store.NullOrgId, "test-provider", "", nil)

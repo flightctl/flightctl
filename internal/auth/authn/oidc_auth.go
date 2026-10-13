@@ -410,6 +410,10 @@ func (o *OIDCAuth) GetAuthConfig() *api.AuthConfig {
 
 	// Create a copy of the spec - client secret will be masked during JSON marshaling
 	maskedSpec := o.spec
+	if maskedSpec.Prompt == nil {
+		defaultPrompt := api.DefaultAuthProviderPrompt
+		maskedSpec.Prompt = &defaultPrompt
+	}
 
 	_ = provider.Spec.FromOIDCProviderSpec(maskedSpec)
 

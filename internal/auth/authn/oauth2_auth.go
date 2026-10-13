@@ -246,7 +246,11 @@ func (o *OAuth2Auth) GetAuthConfig() *api.AuthConfig {
 		Spec:       api.AuthProviderSpec{},
 	}
 
-	_ = provider.Spec.FromOAuth2ProviderSpec(o.spec)
+	publicSpec := o.spec
+	if publicSpec.Prompt == nil {
+		publicSpec.Prompt = lo.ToPtr(api.DefaultAuthProviderPrompt)
+	}
+	_ = provider.Spec.FromOAuth2ProviderSpec(publicSpec)
 
 	return &api.AuthConfig{
 		ApiVersion:           api.AuthConfigAPIVersion,
